@@ -36,12 +36,10 @@ public:
   
   std::string getDataLayout() const {
     const char *p;
-    p = "E-p:32:32:32-i64:64:64-f64:64:64-f128:64:64-n32";
+    p = "e-p:32:32:32-i32:32:32-f32:32:32";
     return std::string(p);
   }
 
-  /// The 64-bit ABI uses biased stack and frame pointers, so the stack frame
-  /// of the current function is the area from [%sp+BIAS] to [%fp+BIAS].
   int64_t getStackPointerBias() const {
     return 0;
   }

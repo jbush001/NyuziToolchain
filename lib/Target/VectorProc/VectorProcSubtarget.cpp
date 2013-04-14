@@ -30,7 +30,7 @@ VectorProcSubtarget::VectorProcSubtarget(const std::string &TT, const std::strin
   // Determine default and user specified characteristics
   std::string CPUName = CPU;
   if (CPUName.empty()) {
-      CPUName = "v8";
+      CPUName = "vectorproc";
   }
 
   // Parse features string.
