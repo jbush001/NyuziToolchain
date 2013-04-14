@@ -21,24 +21,6 @@ include "VectorProcInstrFormats.td"
 // Feature predicates.
 //===----------------------------------------------------------------------===//
 
-// True when generating 32-bit code.
-def Is32Bit : Predicate<"!Subtarget.is64Bit()">;
-
-// True when generating 64-bit code. This also implies HasV9.
-def Is64Bit : Predicate<"Subtarget.is64Bit()">;
-
-// HasV9 - This predicate is true when the target processor supports V9
-// instructions.  Note that the machine may be running in 32-bit mode.
-def HasV9   : Predicate<"Subtarget.isV9()">;
-
-// HasNoV9 - This predicate is true when the target doesn't have V9
-// instructions.  Use of this is just a hack for the isel not having proper
-// costs for V8 instructions that are more expensive than their V9 ones.
-def HasNoV9 : Predicate<"!Subtarget.isV9()">;
-
-// HasVIS - This is true when the target processor has VIS extensions.
-def HasVIS : Predicate<"Subtarget.isVIS()">;
-
 // UseDeprecatedInsts - This predicate is true when the target processor is a
 // V8, or when it is V9 but the V8 deprecated instructions are efficient enough
 // to use when appropriate.  In either of these cases, the instruction selector
@@ -234,7 +216,7 @@ let hasSideEffects = 1, mayStore = 1 in {
   let rd = 0, rs1 = 0, rs2 = 0 in
     def FLUSHW : F3_1<0b10, 0b101011, (outs), (ins),
                       "flushw",
-                      [(flushw)]>, Requires<[HasV9]>;
+                      [(flushw)]>, Requires<[]>;
   let rd = 0, rs1 = 1, simm13 = 3 in
     def TA3 : F3_2<0b10, 0b111010, (outs), (ins),
                    "ta 3",
@@ -244,18 +226,14 @@ let hasSideEffects = 1, mayStore = 1 in {
 def UNIMP : F2_1<0b000, (outs), (ins i32imm:$val),
                 "unimp $val", []>;
 
-// FpMOVD/FpNEGD/FpABSD - These are lowered to single-precision ops by the 
-// fpmover pass.
-let Predicates = [HasNoV9] in {  // Only emit these in V8 mode.
-  def FpMOVD : Pseudo<(outs DFPRegs:$dst), (ins DFPRegs:$src),
-                      "!FpMOVD $src, $dst", []>;
-  def FpNEGD : Pseudo<(outs DFPRegs:$dst), (ins DFPRegs:$src),
-                      "!FpNEGD $src, $dst",
-                      [(set f64:$dst, (fneg f64:$src))]>;
-  def FpABSD : Pseudo<(outs DFPRegs:$dst), (ins DFPRegs:$src),
-                      "!FpABSD $src, $dst",
-                      [(set f64:$dst, (fabs f64:$src))]>;
-}
+def FpMOVD : Pseudo<(outs DFPRegs:$dst), (ins DFPRegs:$src),
+				  "!FpMOVD $src, $dst", []>;
+def FpNEGD : Pseudo<(outs DFPRegs:$dst), (ins DFPRegs:$src),
+				  "!FpNEGD $src, $dst",
+				  [(set f64:$dst, (fneg f64:$src))]>;
+def FpABSD : Pseudo<(outs DFPRegs:$dst), (ins DFPRegs:$src),
+				  "!FpABSD $src, $dst",
+				  [(set f64:$dst, (fabs f64:$src))]>;
 
 // SELECT_CC_* - Used to implement the SELECT_CC DAG operation.  Expanded after
 // instruction selection into a branch sequence.  This has to handle all
@@ -694,81 +672,13 @@ let Defs = [FCC] in {
                    [(SPcmpfcc f64:$src1, f64:$src2)]>;
 }
 
-//===----------------------------------------------------------------------===//
-// V9 Instructions
-//===----------------------------------------------------------------------===//
 
-// V9 Conditional Moves.
-let Predicates = [HasV9], Constraints = "$T = $dst" in {
-  // Move Integer Register on Condition (MOVcc) p. 194 of the V9 manual.
-  // FIXME: Add instruction encodings for the JIT some day.
-  let Uses = [ICC] in {
-    def MOVICCrr
-      : Pseudo<(outs IntRegs:$dst), (ins IntRegs:$T, IntRegs:$F, CCOp:$cc),
-               "mov$cc %icc, $F, $dst",
-               [(set i32:$dst, (SPselecticc i32:$F, i32:$T, imm:$cc))]>;
-    def MOVICCri
-      : Pseudo<(outs IntRegs:$dst), (ins IntRegs:$T, i32imm:$F, CCOp:$cc),
-               "mov$cc %icc, $F, $dst",
-               [(set i32:$dst, (SPselecticc simm11:$F, i32:$T, imm:$cc))]>;
-  }
-
-  let Uses = [FCC] in {
-    def MOVFCCrr
-      : Pseudo<(outs IntRegs:$dst), (ins IntRegs:$T, IntRegs:$F, CCOp:$cc),
-               "mov$cc %fcc0, $F, $dst",
-               [(set i32:$dst, (SPselectfcc i32:$F, i32:$T, imm:$cc))]>;
-    def MOVFCCri
-      : Pseudo<(outs IntRegs:$dst), (ins IntRegs:$T, i32imm:$F, CCOp:$cc),
-               "mov$cc %fcc0, $F, $dst",
-               [(set i32:$dst, (SPselectfcc simm11:$F, i32:$T, imm:$cc))]>;
-  }
-
-  let Uses = [ICC] in {
-    def FMOVS_ICC
-      : Pseudo<(outs FPRegs:$dst), (ins FPRegs:$T, FPRegs:$F, CCOp:$cc),
-               "fmovs$cc %icc, $F, $dst",
-               [(set f32:$dst,
-                           (SPselecticc f32:$F, f32:$T, imm:$cc))]>;
-    def FMOVD_ICC
-      : Pseudo<(outs DFPRegs:$dst), (ins DFPRegs:$T, DFPRegs:$F, CCOp:$cc),
-               "fmovd$cc %icc, $F, $dst",
-               [(set f64:$dst, (SPselecticc f64:$F, f64:$T, imm:$cc))]>;
-  }
-
-  let Uses = [FCC] in {
-    def FMOVS_FCC
-      : Pseudo<(outs FPRegs:$dst), (ins FPRegs:$T, FPRegs:$F, CCOp:$cc),
-               "fmovs$cc %fcc0, $F, $dst",
-               [(set f32:$dst, (SPselectfcc f32:$F, f32:$T, imm:$cc))]>;
-    def FMOVD_FCC
-      : Pseudo<(outs DFPRegs:$dst), (ins DFPRegs:$T, DFPRegs:$F, CCOp:$cc),
-               "fmovd$cc %fcc0, $F, $dst",
-               [(set f64:$dst, (SPselectfcc f64:$F, f64:$T, imm:$cc))]>;
-  }
-
-}
-
-// Floating-Point Move Instructions, p. 164 of the V9 manual.
-let Predicates = [HasV9] in {
-  def FMOVD : F3_3<2, 0b110100, 0b000000010,
-                   (outs DFPRegs:$dst), (ins DFPRegs:$src),
-                   "fmovd $src, $dst", []>;
-  def FNEGD : F3_3<2, 0b110100, 0b000000110, 
-                   (outs DFPRegs:$dst), (ins DFPRegs:$src),
-                   "fnegd $src, $dst",
-                   [(set f64:$dst, (fneg f64:$src))]>;
-  def FABSD : F3_3<2, 0b110100, 0b000001010, 
-                   (outs DFPRegs:$dst), (ins DFPRegs:$src),
-                   "fabsd $src, $dst",
-                   [(set f64:$dst, (fabs f64:$src))]>;
-}
 
 // POPCrr - This does a ctpop of a 64-bit register.  As such, we have to clear
 // the top 32-bits before using it.  To do this clearing, we use a SLLri X,0.
 def POPCrr : F3_1<2, 0b101110, 
                   (outs IntRegs:$dst), (ins IntRegs:$src),
-                  "popc $src, $dst", []>, Requires<[HasV9]>;
+                  "popc $src, $dst", []>, Requires<[]>;
 def : Pat<(ctpop i32:$src),
           (POPCrr (SLLri $src, 0))>;
 
@@ -818,5 +728,3 @@ def : Pat<(i32 (extloadi16 ADDRri:$src)), (LDUHri ADDRri:$src)>;
 // zextload bool -> zextload byte
 def : Pat<(i32 (zextloadi1 ADDRrr:$src)), (LDUBrr ADDRrr:$src)>;
 def : Pat<(i32 (zextloadi1 ADDRri:$src)), (LDUBri ADDRri:$src)>;
-
-include "VectorProcInstr64Bit.td"

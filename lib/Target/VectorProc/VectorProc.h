@@ -25,8 +25,6 @@ namespace llvm {
   class formatted_raw_ostream;
 
   FunctionPass *createVectorProcISelDag(VectorProcTargetMachine &TM);
-  FunctionPass *createVectorProcDelaySlotFillerPass(TargetMachine &TM);
-  FunctionPass *createVectorProcFPMoverPass(TargetMachine &TM);
 
 } // end namespace llvm;
 

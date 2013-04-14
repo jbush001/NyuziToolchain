@@ -19,19 +19,16 @@ using namespace llvm;
 
 extern "C" void LLVMInitializeVectorProcTarget() {
   // Register the target.
-  RegisterTargetMachine<VectorProcV8TargetMachine> X(TheVectorProcTarget);
+  RegisterTargetMachine<VectorProcTargetMachine> X(TheVectorProcTarget);
 }
 
-/// VectorProcTargetMachine ctor - Create an ILP32 architecture model
-///
 VectorProcTargetMachine::VectorProcTargetMachine(const Target &T, StringRef TT,
                                        StringRef CPU, StringRef FS,
                                        const TargetOptions &Options,
                                        Reloc::Model RM, CodeModel::Model CM,
-                                       CodeGenOpt::Level OL,
-                                       bool is64bit)
+                                       CodeGenOpt::Level OL)
   : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
-    Subtarget(TT, CPU, FS, is64bit),
+    Subtarget(TT, CPU, FS),
     DL(Subtarget.getDataLayout()),
     InstrInfo(Subtarget),
     TLInfo(*this), TSInfo(*this),
@@ -67,20 +64,5 @@ bool VectorProcPassConfig::addInstSelector() {
 /// passes immediately before machine code is emitted.  This should return
 /// true if -print-machineinstrs should print out the code after the passes.
 bool VectorProcPassConfig::addPreEmitPass(){
-  addPass(createVectorProcFPMoverPass(getVectorProcTargetMachine()));
-  addPass(createVectorProcDelaySlotFillerPass(getVectorProcTargetMachine()));
   return true;
 }
-
-void VectorProcV8TargetMachine::anchor() { }
-
-VectorProcV8TargetMachine::VectorProcV8TargetMachine(const Target &T,
-                                           StringRef TT, StringRef CPU,
-                                           StringRef FS,
-                                           const TargetOptions &Options,
-                                           Reloc::Model RM,
-                                           CodeModel::Model CM,
-                                           CodeGenOpt::Level OL)
-  : VectorProcTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL, false) {
-}
-

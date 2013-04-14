@@ -36,7 +36,9 @@ public:
   VectorProcTargetMachine(const Target &T, StringRef TT,
                      StringRef CPU, StringRef FS, const TargetOptions &Options,
                      Reloc::Model RM, CodeModel::Model CM,
-                     CodeGenOpt::Level OL, bool is64bit);
+                     CodeGenOpt::Level OL);
+
+
 
   virtual const VectorProcInstrInfo *getInstrInfo() const { return &InstrInfo; }
   virtual const TargetFrameLowering  *getFrameLowering() const {
@@ -56,30 +58,6 @@ public:
 
   // Pass Pipeline Configuration
   virtual TargetPassConfig *createPassConfig(PassManagerBase &PM);
-};
-
-/// VectorProcV8TargetMachine - VectorProc 32-bit target machine
-///
-class VectorProcV8TargetMachine : public VectorProcTargetMachine {
-  virtual void anchor();
-public:
-  VectorProcV8TargetMachine(const Target &T, StringRef TT,
-                       StringRef CPU, StringRef FS,
-                       const TargetOptions &Options,
-                       Reloc::Model RM, CodeModel::Model CM,
-                       CodeGenOpt::Level OL);
-};
-
-/// VectorProcV9TargetMachine - VectorProc 64-bit target machine
-///
-class VectorProcV9TargetMachine : public VectorProcTargetMachine {
-  virtual void anchor();
-public:
-  VectorProcV9TargetMachine(const Target &T, StringRef TT,
-                       StringRef CPU, StringRef FS,
-                       const TargetOptions &Options,
-                       Reloc::Model RM, CodeModel::Model CM,
-                       CodeGenOpt::Level OL);
 };
 
 } // end namespace llvm

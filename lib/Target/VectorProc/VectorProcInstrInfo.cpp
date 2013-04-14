@@ -288,7 +288,7 @@ void VectorProcInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     BuildMI(MBB, I, DL, get(SP::FMOVS), DestReg)
       .addReg(SrcReg, getKillRegState(KillSrc));
   else if (SP::DFPRegsRegClass.contains(DestReg, SrcReg))
-    BuildMI(MBB, I, DL, get(Subtarget.isV9() ? SP::FMOVD : SP::FpMOVD), DestReg)
+    BuildMI(MBB, I, DL, get(SP::FpMOVD), DestReg)
       .addReg(SrcReg, getKillRegState(KillSrc));
   else
     llvm_unreachable("Impossible reg-to-reg copy");

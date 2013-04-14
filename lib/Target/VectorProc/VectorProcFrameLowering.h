@@ -26,7 +26,7 @@ class VectorProcFrameLowering : public TargetFrameLowering {
 public:
   explicit VectorProcFrameLowering(const VectorProcSubtarget &ST)
     : TargetFrameLowering(TargetFrameLowering::StackGrowsDown,
-                          ST.is64Bit() ? 16 : 8, 0, ST.is64Bit() ? 16 : 8),
+                          8, 0, 8),
       SubTarget(ST) {}
 
   /// emitProlog/emitEpilog - These methods insert prolog and epilog code into

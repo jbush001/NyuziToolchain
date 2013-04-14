@@ -37,27 +37,18 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
   // Get the number of bytes to allocate from the FrameInfo
   int NumBytes = (int) MFI->getStackSize();
 
-  if (SubTarget.is64Bit()) {
-    // All 64-bit stack frames must be 16-byte aligned, and must reserve space
-    // for spilling the 16 window registers at %sp+BIAS..%sp+BIAS+128.
-    NumBytes += 128;
-    // Frames with calls must also reserve space for 6 outgoing arguments
-    // whether they are used or not. LowerCall_64 takes care of that.
-    assert(NumBytes % 16 == 0 && "Stack size not 16-byte aligned");
-  } else {
-    // Emit the correct save instruction based on the number of bytes in
-    // the frame. Minimum stack frame size according to V8 ABI is:
-    //   16 words for register window spill
-    //    1 word for address of returned aggregate-value
-    // +  6 words for passing parameters on the stack
-    // ----------
-    //   23 words * 4 bytes per word = 92 bytes
-    NumBytes += 92;
+  // Emit the correct save instruction based on the number of bytes in
+  // the frame. Minimum stack frame size according to V8 ABI is:
+  //   16 words for register window spill
+  //    1 word for address of returned aggregate-value
+  // +  6 words for passing parameters on the stack
+  // ----------
+  //   23 words * 4 bytes per word = 92 bytes
+  NumBytes += 92;
 
-    // Round up to next doubleword boundary -- a double-word boundary
-    // is required by the ABI.
-    NumBytes = RoundUpToAlignment(NumBytes, 8);
-  }
+  // Round up to next doubleword boundary -- a double-word boundary
+  // is required by the ABI.
+  NumBytes = RoundUpToAlignment(NumBytes, 8);
   NumBytes = -NumBytes;
 
   if (NumBytes >= -4096) {

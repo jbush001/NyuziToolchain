@@ -9,7 +9,6 @@ tablegen(LLVM VectorProcGenCallingConv.inc -gen-callingconv)
 add_public_tablegen_target(VectorProcCommonTableGen)
 
 add_llvm_target(VectorProcCodeGen
-  DelaySlotFiller.cpp
   FPMover.cpp
   VectorProcAsmPrinter.cpp
   VectorProcInstrInfo.cpp

@@ -59,7 +59,7 @@ BitVector VectorProcRegisterInfo::getReservedRegs(const MachineFunction &MF) con
 const TargetRegisterClass*
 VectorProcRegisterInfo::getPointerRegClass(const MachineFunction &MF,
                                       unsigned Kind) const {
-  return Subtarget.is64Bit() ? &SP::I64RegsRegClass : &SP::IntRegsRegClass;
+  return &SP::IntRegsRegClass;
 }
 
 void
