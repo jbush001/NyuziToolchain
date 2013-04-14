@@ -836,13 +836,9 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::SETCC, MVT::f32, Expand);
   setOperationAction(ISD::SETCC, MVT::f64, Expand);
 
-  // VectorProc doesn't have BRCOND either, it has BR_CC.
-  setOperationAction(ISD::BRCOND, MVT::Other, Expand);
+  setOperationAction(ISD::BRCOND, MVT::Other, Legal);
   setOperationAction(ISD::BRIND, MVT::Other, Expand);
   setOperationAction(ISD::BR_JT, MVT::Other, Expand);
-  setOperationAction(ISD::BR_CC, MVT::i32, Custom);
-  setOperationAction(ISD::BR_CC, MVT::f32, Custom);
-  setOperationAction(ISD::BR_CC, MVT::f64, Custom);
 
   setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);

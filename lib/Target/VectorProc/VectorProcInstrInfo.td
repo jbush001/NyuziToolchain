@@ -11,20 +11,115 @@
 //
 //===----------------------------------------------------------------------===//
 
-//===----------------------------------------------------------------------===//
-// Instruction format superclass
-//===----------------------------------------------------------------------===//
 
-include "VectorProcInstrFormats.td"
-
-
-//===----------------------------------------------------------------------===//
-// Instruction Pattern Stuff
-//===----------------------------------------------------------------------===//
-
-def simm11  : PatLeaf<(imm), [{ return isInt<11>(N->getSExtValue()); }]>;
-
+def simm8  : PatLeaf<(imm), [{ return isInt<8>(N->getSExtValue()); }]>;
+def simm10  : PatLeaf<(imm), [{ return isInt<10>(N->getSExtValue()); }]>;
 def simm13  : PatLeaf<(imm), [{ return isInt<13>(N->getSExtValue()); }]>;
+def simm20  : PatLeaf<(imm), [{ return isInt<20>(N->getSExtValue()); }]>;
+
+def ADDRrr : ComplexPattern<iPTR, 2, "SelectADDRrr", [], []>;
+def ADDRri : ComplexPattern<iPTR, 2, "SelectADDRri", [frameindex], []>;
+
+class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
+	: Instruction {
+	let Namespace = "SP";
+	dag OutOperandList = outputs;
+	dag InOperandList = inputs;
+	let AsmString = asmString;
+	let Pattern = pattern;
+}
+
+multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
+	// Instruction format A, integer
+	def rr : VPInstruction<
+		(outs IntRegs:$dst), 
+		(ins IntRegs:$b, IntRegs:$c),
+		!strconcat("s$dst = s$b", !strconcat(operator, " s$c")),
+		[(set i32:$dst, (OpNode i32:$b, i32:$c))]>;
+
+	// Instruction format B
+	def ri : VPInstruction<
+		(outs IntRegs:$dst), 
+		(ins IntRegs:$b, i32imm:$c),
+		!strconcat("s$dst = s$b", !strconcat(operator, " s$c")),
+		[(set i32:$dst, (OpNode i32:$b, i32:$c))]>;	// XXXX simm13
+}
+
+
+class F2<dag outs, dag ins, string asmstr, list<dag> pattern>
+   : VPInstruction<outs, ins, asmstr, pattern> {
+  bits<3>  op2;
+  bits<22> imm22;
+}
+
+class F2_1<bits<3> op2Val, dag outs, dag ins, string asmstr, list<dag> pattern>
+   : F2<outs, ins, asmstr, pattern> {
+  bits<5>  rd;
+
+}
+
+class F2_2<bits<4> condVal, bits<3> op2Val, dag outs, dag ins, string asmstr, 
+           list<dag> pattern> : F2<outs, ins, asmstr, pattern> {
+  bits<4>   cond;
+  bit       annul = 0;     // currently unused
+
+  let cond        = condVal;
+}
+
+class F3<dag outs, dag ins, string asmstr, list<dag> pattern>
+    : VPInstruction<outs, ins, asmstr, pattern> {
+  bits<5> rd;
+  bits<6> op3;
+  bits<5> rs1;
+}
+
+class F3_1<bits<2> opVal, bits<6> op3val, dag outs, dag ins,
+           string asmstr, list<dag> pattern> : F3<outs, ins, asmstr, pattern> {
+  bits<8> asi = 0; // asi not currently used
+  bits<5> rs2;
+
+ 
+}
+
+class F3_2<bits<2> opVal, bits<6> op3val, dag outs, dag ins, 
+           string asmstr, list<dag> pattern> : F3<outs, ins, asmstr, pattern> {
+  bits<13> simm13;
+
+}
+
+// floating-point
+class F3_3<bits<2> opVal, bits<6> op3val, bits<9> opfval, dag outs, dag ins,
+           string asmstr, list<dag> pattern> : F3<outs, ins, asmstr, pattern> {
+  bits<5> rs2;
+
+ 
+}
+
+// Shift by register rs2.
+class F3_Sr<bits<2> opVal, bits<6> op3val, bit xVal, dag outs, dag ins,
+            string asmstr, list<dag> pattern> : F3<outs, ins, asmstr, pattern> {
+  bit x = xVal;           // 1 for 64-bit shifts.
+  bits<5> rs2;
+}
+
+// Shift by immediate.
+class F3_Si<bits<2> opVal, bits<6> op3val, bit xVal, dag outs, dag ins,
+            string asmstr, list<dag> pattern> : F3<outs, ins, asmstr, pattern> {
+  bit x = xVal;           // 1 for 64-bit shifts.
+  bits<6> shcnt;          // shcnt32 / shcnt64.
+}
+
+// Define rr and ri shift instructions with patterns.
+multiclass F3_S<string OpcStr, bits<6> Op3Val, bit XVal, SDNode OpNode,
+                ValueType VT, RegisterClass RC> {
+  def rr : F3_Sr<2, Op3Val, XVal, (outs RC:$rd), (ins RC:$rs, RC:$rs2),
+                 !strconcat(OpcStr, " $rs, $rs2, $rd"),
+                 [(set VT:$rd, (OpNode VT:$rs, VT:$rs2))]>;
+  def ri : F3_Si<2, Op3Val, XVal, (outs RC:$rd), (ins RC:$rs, unknown:$shcnt),
+                 !strconcat(OpcStr, " $rs, $shcnt, $rd"),
+                 [(set VT:$rd, (OpNode VT:$rs, (VT imm:$shcnt)))]>;
+}
+
 
 def LO10 : SDNodeXForm<imm, [{
   return CurDAG->getTargetConstant((unsigned)N->getZExtValue() & 1023,
@@ -42,8 +137,6 @@ def SETHIimm : PatLeaf<(imm), [{
 }], HI22>;
 
 // Addressing modes.
-def ADDRrr : ComplexPattern<iPTR, 2, "SelectADDRrr", [], []>;
-def ADDRri : ComplexPattern<iPTR, 2, "SelectADDRri", [frameindex], []>;
 
 // Address operands
 def MEMrr : Operand<iPTR> {
@@ -153,29 +246,13 @@ def FCC_UGE : FCC_VAL<26>;  // Unordered or Greater or Equal
 def FCC_LE  : FCC_VAL<27>;  // Less or Equal
 def FCC_ULE : FCC_VAL<28>;  // Unordered or Less or Equal
 def FCC_O   : FCC_VAL<29>;  // Ordered
-
-//===----------------------------------------------------------------------===//
-// Instruction Class Templates
-//===----------------------------------------------------------------------===//
-
-multiclass IntTernaryArith<string OpcStr, bits<6> Op3Val, SDNode OpNode> {
-  def rr  : F3_1<2, Op3Val, 
-                 (outs IntRegs:$dst), (ins IntRegs:$b, IntRegs:$c),
-                 !strconcat("s$dst = s$b", !strconcat(OpcStr, " s$c")),
-                 [(set i32:$dst, (OpNode i32:$b, i32:$c))]>;
-  def ri  : F3_2<2, Op3Val,
-                 (outs IntRegs:$dst), (ins IntRegs:$b, i32imm:$c),
-                 !strconcat("s$dst = s$b", !strconcat(OpcStr, " s$c")),
-                 [(set i32:$dst, (OpNode i32:$b, (i32 simm13:$c)))]>;
-}
-
 //===----------------------------------------------------------------------===//
 // Instructions
 //===----------------------------------------------------------------------===//
 
 // Pseudo instructions.
 class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
-   : InstSP<outs, ins, asmstr, pattern>;
+   : VPInstruction<outs, ins, asmstr, pattern>;
 
 // GETPCX for PIC
 let Defs = [O7] in {
@@ -264,111 +341,58 @@ let isReturn = 1, isTerminator = 1, hasDelaySlot = 1, isBarrier = 1 in {
                   "jmp %i7+$val", []>;
 }
 
-// Section B.1 - Load Integer Instructions, p. 90
-def LDSBrr : F3_1<3, 0b001001,
-                  (outs IntRegs:$dst), (ins MEMrr:$addr),
-                  "s$dst = mem_b[s$addr)",
-                  [(set i32:$dst, (sextloadi8 ADDRrr:$addr))]>;
 def LDSBri : F3_2<3, 0b001001,
                   (outs IntRegs:$dst), (ins MEMri:$addr),
                   "s$dst = mem_b[s$addr]",
                   [(set i32:$dst, (sextloadi8 ADDRri:$addr))]>;
-def LDSHrr : F3_1<3, 0b001010,
-                  (outs IntRegs:$dst), (ins MEMrr:$addr),
-                  "s%dst = mem_s[s$addr]",
-                  [(set i32:$dst, (sextloadi16 ADDRrr:$addr))]>;
 def LDSHri : F3_2<3, 0b001010,
                   (outs IntRegs:$dst), (ins MEMri:$addr),
                   "s%dst = mem_s[s$addr]",
                   [(set i32:$dst, (sextloadi16 ADDRri:$addr))]>;
-def LDUBrr : F3_1<3, 0b000001,
-                  (outs IntRegs:$dst), (ins MEMrr:$addr),
-                  "u%dst = mem_s[s$addr]",
-                  [(set i32:$dst, (zextloadi8 ADDRrr:$addr))]>;
 def LDUBri : F3_2<3, 0b000001,
                   (outs IntRegs:$dst), (ins MEMri:$addr),
                   "u%dst = mem_s[s$addr]",
                   [(set i32:$dst, (zextloadi8 ADDRri:$addr))]>;
-def LDUHrr : F3_1<3, 0b000010,
-                  (outs IntRegs:$dst), (ins MEMrr:$addr),
-                  "s%dst = mem_s[s$addr]",
-                  [(set i32:$dst, (zextloadi16 ADDRrr:$addr))]>;
 def LDUHri : F3_2<3, 0b000010,
                   (outs IntRegs:$dst), (ins MEMri:$addr),
                   "s%dst = mem_s[s$addr]",
                   [(set i32:$dst, (zextloadi16 ADDRri:$addr))]>;
-def LDrr   : F3_1<3, 0b000000,
-                  (outs IntRegs:$dst), (ins MEMrr:$addr),
-                  "s%dst = mem_l[s$addr]",
-                  [(set i32:$dst, (load ADDRrr:$addr))]>;
 def LDri   : F3_2<3, 0b000000,
                   (outs IntRegs:$dst), (ins MEMri:$addr),
                   "s%dst = mem_l[s$addr]",
                   [(set i32:$dst, (load ADDRri:$addr))]>;
 
-// Section B.2 - Load Floating-point Instructions, p. 92
-def LDFrr  : F3_1<3, 0b100000,
-                  (outs FPRegs:$dst), (ins MEMrr:$addr),
-                  "s%dst = mem_l[s$addr]",
-                  [(set f32:$dst, (load ADDRrr:$addr))]>;
 def LDFri  : F3_2<3, 0b100000,
                   (outs FPRegs:$dst), (ins MEMri:$addr),
                   "s%dst = mem_l[s$addr]",
                   [(set f32:$dst, (load ADDRri:$addr))]>;
-def LDDFrr : F3_1<3, 0b100011,
-                  (outs DFPRegs:$dst), (ins MEMrr:$addr),
-                  "s%dst = mem_l[s$addr]",
-                  [(set f64:$dst, (load ADDRrr:$addr))]>;
 def LDDFri : F3_2<3, 0b100011,
                   (outs DFPRegs:$dst), (ins MEMri:$addr),
                   "s%dst = mem_l[s$addr]",
                   [(set f64:$dst, (load ADDRri:$addr))]>;
 
-// Section B.4 - Store Integer Instructions, p. 95
-def STBrr : F3_1<3, 0b000101,
-                 (outs), (ins MEMrr:$addr, IntRegs:$src),
-                 "mem_b[s$addr] = s$src",
-                 [(truncstorei8 i32:$src, ADDRrr:$addr)]>;
 def STBri : F3_2<3, 0b000101,
                  (outs), (ins MEMri:$addr, IntRegs:$src),
                  "mem_b[s$addr] = s$src",
                  [(truncstorei8 i32:$src, ADDRri:$addr)]>;
-def STHrr : F3_1<3, 0b000110,
-                 (outs), (ins MEMrr:$addr, IntRegs:$src),
-                 "mem_s[s$addr] = s$src",
-                 [(truncstorei16 i32:$src, ADDRrr:$addr)]>;
 def STHri : F3_2<3, 0b000110,
                  (outs), (ins MEMri:$addr, IntRegs:$src),
                  "mem_s[s$addr] = s$src",
                  [(truncstorei16 i32:$src, ADDRri:$addr)]>;
-def STrr  : F3_1<3, 0b000100,
-                 (outs), (ins MEMrr:$addr, IntRegs:$src),
-                 "mem_l[s$addr] = s$src",
-                 [(store i32:$src, ADDRrr:$addr)]>;
 def STri  : F3_2<3, 0b000100,
                  (outs), (ins MEMri:$addr, IntRegs:$src),
                  "mem_l[s$addr] = s$src",
                  [(store i32:$src, ADDRri:$addr)]>;
 
-// Section B.5 - Store Floating-point Instructions, p. 97
-def STFrr   : F3_1<3, 0b100100,
-                   (outs), (ins MEMrr:$addr, FPRegs:$src),
-                   "mem_l[s$addr] = s$src",
-                   [(store f32:$src, ADDRrr:$addr)]>;
 def STFri   : F3_2<3, 0b100100,
                    (outs), (ins MEMri:$addr, FPRegs:$src),
                    "mem_l[s$addr] = s$src",
                    [(store f32:$src, ADDRri:$addr)]>;
-def STDFrr  : F3_1<3, 0b100111,
-                   (outs), (ins MEMrr:$addr, DFPRegs:$src),
-                   "mem_l[s$addr] = s$src",
-                   [(store f64:$src, ADDRrr:$addr)]>;
 def STDFri  : F3_2<3, 0b100111,
                    (outs), (ins MEMri:$addr, DFPRegs:$src),
                    "mem_l[s$addr] = s$src",
                    [(store f64:$src, ADDRri:$addr)]>;
 
-// Section B.9 - SETHI Instruction, p. 104
 def SETHIi: F2_1<0b100,
                  (outs IntRegs:$dst), (ins i32imm:$src),
                  "sethi $src, $dst",
@@ -379,78 +403,28 @@ def SETHIi: F2_1<0b100,
 let rd = 0, imm22 = 0 in
   def NOP : F2_1<0b100, (outs), (ins), "nop", []>;
 
-// Section B.11 - Logical Instructions, p. 106
-defm AND    : IntTernaryArith<"&", 0b000001, and>;
+defm AND    : VPTernaryIntArith<"&", and>;
+defm OR     : VPTernaryIntArith<"|", or>;
+defm XOR    : VPTernaryIntArith<"^", xor>;
+defm SLL    : VPTernaryIntArith<"<<", shl>;
+defm SRL    : VPTernaryIntArith<">>", srl>;
+defm SRA    : VPTernaryIntArith<">>", sra>;	// XXX need to use U register.
+defm ADD    : VPTernaryIntArith<"+", add>;
 
-// XXX doesn't exist
-def ANDNrr  : F3_1<2, 0b000101,
-                   (outs IntRegs:$dst), (ins IntRegs:$b, IntRegs:$c),
-                   "andn $b, $c, $dst",
-                   [(set i32:$dst, (and i32:$b, (not i32:$c)))]>;
-
-// XXX doesn't exist
-def ANDNri  : F3_2<2, 0b000101,
-                   (outs IntRegs:$dst), (ins IntRegs:$b, i32imm:$c),
-                   "andn $b, $c, $dst", []>;
-
-defm OR     : IntTernaryArith<"|", 0b000010, or>;
-
-def ORNrr   : F3_1<2, 0b000110,
-                   (outs IntRegs:$dst), (ins IntRegs:$b, IntRegs:$c),
-                   "orn $b, $c, $dst",
-                   [(set i32:$dst, (or i32:$b, (not i32:$c)))]>;
-def ORNri   : F3_2<2, 0b000110,
-                   (outs IntRegs:$dst), (ins IntRegs:$b, i32imm:$c),
-                   "orn $b, $c, $dst", []>;
-defm XOR    : IntTernaryArith<"^", 0b000011, xor>;
-
-def XNORrr  : F3_1<2, 0b000111,
-                   (outs IntRegs:$dst), (ins IntRegs:$b, IntRegs:$c),
-                   "xnor $b, $c, $dst",
-                   [(set i32:$dst, (not (xor i32:$b, i32:$c)))]>;
-def XNORri  : F3_2<2, 0b000111,
-                   (outs IntRegs:$dst), (ins IntRegs:$b, i32imm:$c),
-                   "xnor $b, $c, $dst", []>;
-
-defm SLL : IntTernaryArith<"<<", 0b100101, shl>;
-defm SRL : IntTernaryArith<">>", 0b100110, srl>;
-
-// XXX need to set register operands for this one
-defm SRA : IntTernaryArith<">>", 0b100111, sra>;
-
-// Section B.13 - Add Instructions, p. 108
-defm ADD   : IntTernaryArith<"+", 0b000000, add>;
-
-// "LEA" forms of add (patterns to make tblgen happy)
 def LEA_ADDri   : F3_2<2, 0b000000,
                    (outs IntRegs:$dst), (ins MEMri:$addr),
-                   "add ${addr:arith}, $dst",
+                   "$dst = ${addr:arith}",
                    [(set i32:$dst, ADDRri:$addr)]>;
 
-//let Defs = [ICC] in                   
-//  defm ADDCC  : IntTernaryArith<"addcc", 0b010000, addc>;
-
-//let Uses = [ICC] in
-//  defm ADDX  : IntTernaryArith<"addx", 0b001000, adde>;
-
-// Section B.15 - Subtract Instructions, p. 110
-defm SUB    : IntTernaryArith  <"-"  , 0b000100, sub>;
-//let Uses = [ICC] in 
-//  defm SUBX   : IntTernaryArith  <"subx" , 0b001100, sube>;
-
-//let Defs = [ICC] in 
-//  defm SUBCC  : IntTernaryArith  <"subcc", 0b010100, SPcmpicc>;
-
-//let Uses = [ICC], Defs = [ICC] in
-//  def SUBXCCrr: F3_1<2, 0b011100, 
- //               (outs IntRegs:$dst), (ins IntRegs:$b, IntRegs:$c),
-  //              "subxcc $b, $c, $dst", []>;
-
-
 let Defs = [Y] in {
-  defm SMUL : IntTernaryArith  <"*", 0b001011, mul>;
+  defm SMUL : VPTernaryIntArith  <"*", mul>;
 }
 
+def BranchIfTrue : VPInstruction<
+	(outs),
+	(ins IntRegs:$test, brtarget:$dst),
+	"if $test goto $dst",
+	[(brcond i32:$test, bb:$dst)]>;
 
 // conditional branch class:
 class BranchSP<bits<4> cc, dag ins, string asmstr, list<dag> pattern>
@@ -496,11 +470,9 @@ let Uses = [O6],
     Defs = [O0, O1, O2, O3, O4, O5, O7, G1, G2, G3, G4, G5, G6, G7,
     D0, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15,
         ICC, FCC, Y] in {
-  def CALL : InstSP<(outs), (ins calltarget:$dst, variable_ops),
+  def CALL : VPInstruction<(outs), (ins calltarget:$dst, variable_ops),
                     "call $dst", []> {
     bits<30> disp;
-    let op = 1;
-    let Inst{29-0} = disp;
   }
   
   // indirect calls
@@ -682,14 +654,7 @@ def : Pat<(call tglobaladdr:$dst),
 def : Pat<(call texternalsym:$dst),
           (CALL texternalsym:$dst)>;
 
-// Map integer extload's to zextloads.
-def : Pat<(i32 (extloadi1 ADDRrr:$src)), (LDUBrr ADDRrr:$src)>;
 def : Pat<(i32 (extloadi1 ADDRri:$src)), (LDUBri ADDRri:$src)>;
-def : Pat<(i32 (extloadi8 ADDRrr:$src)), (LDUBrr ADDRrr:$src)>;
 def : Pat<(i32 (extloadi8 ADDRri:$src)), (LDUBri ADDRri:$src)>;
-def : Pat<(i32 (extloadi16 ADDRrr:$src)), (LDUHrr ADDRrr:$src)>;
 def : Pat<(i32 (extloadi16 ADDRri:$src)), (LDUHri ADDRri:$src)>;
-
-// zextload bool -> zextload byte
-def : Pat<(i32 (zextloadi1 ADDRrr:$src)), (LDUBrr ADDRrr:$src)>;
 def : Pat<(i32 (zextloadi1 ADDRri:$src)), (LDUBri ADDRri:$src)>;
