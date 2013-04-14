@@ -51,20 +51,7 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
   NumBytes = RoundUpToAlignment(NumBytes, 8);
   NumBytes = -NumBytes;
 
-  if (NumBytes >= -4096) {
-    BuildMI(MBB, MBBI, dl, TII.get(SP::SAVEri), SP::O6)
-      .addReg(SP::O6).addImm(NumBytes);
-  } else {
-    // Emit this the hard way.  This clobbers G1 which we always know is
-    // available here.
-    unsigned OffHi = (unsigned)NumBytes >> 10U;
-    BuildMI(MBB, MBBI, dl, TII.get(SP::SETHIi), SP::G1).addImm(OffHi);
-    // Emit G1 = G1 + I6
-    BuildMI(MBB, MBBI, dl, TII.get(SP::ORri), SP::G1)
-      .addReg(SP::G1).addImm(NumBytes & ((1 << 10)-1));
-    BuildMI(MBB, MBBI, dl, TII.get(SP::SAVErr), SP::O6)
-      .addReg(SP::O6).addReg(SP::G1);
-  }
+	// XXX need to work on this
 }
 
 void VectorProcFrameLowering::
@@ -94,6 +81,6 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
   DebugLoc dl = MBBI->getDebugLoc();
   assert(MBBI->getOpcode() == SP::RETL &&
          "Can only put epilog before 'retl' instruction!");
-  BuildMI(MBB, MBBI, dl, TII.get(SP::RESTORErr), SP::G0).addReg(SP::G0)
-    .addReg(SP::G0);
+
+	// XXX fix
 }

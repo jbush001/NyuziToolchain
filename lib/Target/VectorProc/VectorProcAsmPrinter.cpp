@@ -83,7 +83,7 @@ void VectorProcAsmPrinter::printOperand(const MachineInstr *MI, int opNum,
   }
   switch (MO.getType()) {
   case MachineOperand::MO_Register:
-    O << "%" << StringRef(getRegisterName(MO.getReg())).lower();
+    O << StringRef(getRegisterName(MO.getReg())).lower();
     break;
 
   case MachineOperand::MO_Immediate:
@@ -108,32 +108,19 @@ void VectorProcAsmPrinter::printOperand(const MachineInstr *MI, int opNum,
   if (CloseParen) O << ")";
 }
 
+// Body of address.  eg: mem_l[THIS]
 void VectorProcAsmPrinter::printMemOperand(const MachineInstr *MI, int opNum,
                                       raw_ostream &O, const char *Modifier) {
   printOperand(MI, opNum, O);
 
-  // If this is an ADD operand, emit it like normal operands.
-  if (Modifier && !strcmp(Modifier, "arith")) {
-    O << ", ";
-    printOperand(MI, opNum+1, O);
-    return;
-  }
-
-  if (MI->getOperand(opNum+1).isReg() &&
-      MI->getOperand(opNum+1).getReg() == SP::G0)
-    return;   // don't print "+%g0"
-  if (MI->getOperand(opNum+1).isImm() &&
-      MI->getOperand(opNum+1).getImm() == 0)
-    return;   // don't print "+0"
-
-  O << "+";
-  if (MI->getOperand(opNum+1).isGlobal() ||
-      MI->getOperand(opNum+1).isCPI()) {
-    O << "%lo(";
-    printOperand(MI, opNum+1, O);
-    O << ")";
-  } else {
-    printOperand(MI, opNum+1, O);
+  // Immediate operand
+  if (MI->getOperand(opNum+1).isImm())
+  {
+    int operand = MI->getOperand(opNum+1).getImm();
+    if (operand > 0)
+      O << " + " << operand;
+    else
+      O << " - " << -operand;
   }
 }
 
@@ -148,7 +135,7 @@ bool VectorProcAsmPrinter::printGetPCX(const MachineInstr *MI, unsigned opNum,
            "Operand is not a physical register ");
     assert(MO.getReg() != SP::O7 && 
            "%o7 is assigned as destination for getpcx!");
-    operand = "%" + StringRef(getRegisterName(MO.getReg())).lower();
+    operand = StringRef(getRegisterName(MO.getReg())).lower();
     break;
   }
 

@@ -17,15 +17,6 @@
 
 include "VectorProcInstrFormats.td"
 
-//===----------------------------------------------------------------------===//
-// Feature predicates.
-//===----------------------------------------------------------------------===//
-
-// UseDeprecatedInsts - This predicate is true when the target processor is a
-// V8, or when it is V9 but the V8 deprecated instructions are efficient enough
-// to use when appropriate.  In either of these cases, the instruction selector
-// will pick deprecated instructions.
-def UseDeprecatedInsts : Predicate<"Subtarget.useDeprecatedV8Instructions()">;
 
 //===----------------------------------------------------------------------===//
 // Instruction Pattern Stuff
@@ -167,27 +158,15 @@ def FCC_O   : FCC_VAL<29>;  // Ordered
 // Instruction Class Templates
 //===----------------------------------------------------------------------===//
 
-/// F3_12 multiclass - Define a normal F3_1/F3_2 pattern in one shot.
-multiclass F3_12<string OpcStr, bits<6> Op3Val, SDNode OpNode> {
+multiclass IntTernaryArith<string OpcStr, bits<6> Op3Val, SDNode OpNode> {
   def rr  : F3_1<2, Op3Val, 
                  (outs IntRegs:$dst), (ins IntRegs:$b, IntRegs:$c),
-                 !strconcat(OpcStr, " $b, $c, $dst"),
+                 !strconcat("s$dst = s$b", !strconcat(OpcStr, " s$c")),
                  [(set i32:$dst, (OpNode i32:$b, i32:$c))]>;
   def ri  : F3_2<2, Op3Val,
                  (outs IntRegs:$dst), (ins IntRegs:$b, i32imm:$c),
-                 !strconcat(OpcStr, " $b, $c, $dst"),
+                 !strconcat("s$dst = s$b", !strconcat(OpcStr, " s$c")),
                  [(set i32:$dst, (OpNode i32:$b, (i32 simm13:$c)))]>;
-}
-
-/// F3_12np multiclass - Define a normal F3_1/F3_2 pattern in one shot, with no
-/// pattern.
-multiclass F3_12np<string OpcStr, bits<6> Op3Val> {
-  def rr  : F3_1<2, Op3Val, 
-                 (outs IntRegs:$dst), (ins IntRegs:$b, IntRegs:$c),
-                 !strconcat(OpcStr, " $b, $c, $dst"), []>;
-  def ri  : F3_2<2, Op3Val,
-                 (outs IntRegs:$dst), (ins IntRegs:$b, i32imm:$c),
-                 !strconcat(OpcStr, " $b, $c, $dst"), []>;
 }
 
 //===----------------------------------------------------------------------===//
@@ -288,105 +267,105 @@ let isReturn = 1, isTerminator = 1, hasDelaySlot = 1, isBarrier = 1 in {
 // Section B.1 - Load Integer Instructions, p. 90
 def LDSBrr : F3_1<3, 0b001001,
                   (outs IntRegs:$dst), (ins MEMrr:$addr),
-                  "ldsb [$addr], $dst",
+                  "s$dst = mem_b[s$addr)",
                   [(set i32:$dst, (sextloadi8 ADDRrr:$addr))]>;
 def LDSBri : F3_2<3, 0b001001,
                   (outs IntRegs:$dst), (ins MEMri:$addr),
-                  "ldsb [$addr], $dst",
+                  "s$dst = mem_b[s$addr]",
                   [(set i32:$dst, (sextloadi8 ADDRri:$addr))]>;
 def LDSHrr : F3_1<3, 0b001010,
                   (outs IntRegs:$dst), (ins MEMrr:$addr),
-                  "ldsh [$addr], $dst",
+                  "s%dst = mem_s[s$addr]",
                   [(set i32:$dst, (sextloadi16 ADDRrr:$addr))]>;
 def LDSHri : F3_2<3, 0b001010,
                   (outs IntRegs:$dst), (ins MEMri:$addr),
-                  "ldsh [$addr], $dst",
+                  "s%dst = mem_s[s$addr]",
                   [(set i32:$dst, (sextloadi16 ADDRri:$addr))]>;
 def LDUBrr : F3_1<3, 0b000001,
                   (outs IntRegs:$dst), (ins MEMrr:$addr),
-                  "ldub [$addr], $dst",
+                  "u%dst = mem_s[s$addr]",
                   [(set i32:$dst, (zextloadi8 ADDRrr:$addr))]>;
 def LDUBri : F3_2<3, 0b000001,
                   (outs IntRegs:$dst), (ins MEMri:$addr),
-                  "ldub [$addr], $dst",
+                  "u%dst = mem_s[s$addr]",
                   [(set i32:$dst, (zextloadi8 ADDRri:$addr))]>;
 def LDUHrr : F3_1<3, 0b000010,
                   (outs IntRegs:$dst), (ins MEMrr:$addr),
-                  "lduh [$addr], $dst",
+                  "s%dst = mem_s[s$addr]",
                   [(set i32:$dst, (zextloadi16 ADDRrr:$addr))]>;
 def LDUHri : F3_2<3, 0b000010,
                   (outs IntRegs:$dst), (ins MEMri:$addr),
-                  "lduh [$addr], $dst",
+                  "s%dst = mem_s[s$addr]",
                   [(set i32:$dst, (zextloadi16 ADDRri:$addr))]>;
 def LDrr   : F3_1<3, 0b000000,
                   (outs IntRegs:$dst), (ins MEMrr:$addr),
-                  "ld [$addr], $dst",
+                  "s%dst = mem_l[s$addr]",
                   [(set i32:$dst, (load ADDRrr:$addr))]>;
 def LDri   : F3_2<3, 0b000000,
                   (outs IntRegs:$dst), (ins MEMri:$addr),
-                  "ld [$addr], $dst",
+                  "s%dst = mem_l[s$addr]",
                   [(set i32:$dst, (load ADDRri:$addr))]>;
 
 // Section B.2 - Load Floating-point Instructions, p. 92
 def LDFrr  : F3_1<3, 0b100000,
                   (outs FPRegs:$dst), (ins MEMrr:$addr),
-                  "ld [$addr], $dst",
+                  "s%dst = mem_l[s$addr]",
                   [(set f32:$dst, (load ADDRrr:$addr))]>;
 def LDFri  : F3_2<3, 0b100000,
                   (outs FPRegs:$dst), (ins MEMri:$addr),
-                  "ld [$addr], $dst",
+                  "s%dst = mem_l[s$addr]",
                   [(set f32:$dst, (load ADDRri:$addr))]>;
 def LDDFrr : F3_1<3, 0b100011,
                   (outs DFPRegs:$dst), (ins MEMrr:$addr),
-                  "ldd [$addr], $dst",
+                  "s%dst = mem_l[s$addr]",
                   [(set f64:$dst, (load ADDRrr:$addr))]>;
 def LDDFri : F3_2<3, 0b100011,
                   (outs DFPRegs:$dst), (ins MEMri:$addr),
-                  "ldd [$addr], $dst",
+                  "s%dst = mem_l[s$addr]",
                   [(set f64:$dst, (load ADDRri:$addr))]>;
 
 // Section B.4 - Store Integer Instructions, p. 95
 def STBrr : F3_1<3, 0b000101,
                  (outs), (ins MEMrr:$addr, IntRegs:$src),
-                 "stb $src, [$addr]",
+                 "mem_b[s$addr] = s$src",
                  [(truncstorei8 i32:$src, ADDRrr:$addr)]>;
 def STBri : F3_2<3, 0b000101,
                  (outs), (ins MEMri:$addr, IntRegs:$src),
-                 "stb $src, [$addr]",
+                 "mem_b[s$addr] = s$src",
                  [(truncstorei8 i32:$src, ADDRri:$addr)]>;
 def STHrr : F3_1<3, 0b000110,
                  (outs), (ins MEMrr:$addr, IntRegs:$src),
-                 "sth $src, [$addr]",
+                 "mem_s[s$addr] = s$src",
                  [(truncstorei16 i32:$src, ADDRrr:$addr)]>;
 def STHri : F3_2<3, 0b000110,
                  (outs), (ins MEMri:$addr, IntRegs:$src),
-                 "sth $src, [$addr]",
+                 "mem_s[s$addr] = s$src",
                  [(truncstorei16 i32:$src, ADDRri:$addr)]>;
 def STrr  : F3_1<3, 0b000100,
                  (outs), (ins MEMrr:$addr, IntRegs:$src),
-                 "st $src, [$addr]",
+                 "mem_l[s$addr] = s$src",
                  [(store i32:$src, ADDRrr:$addr)]>;
 def STri  : F3_2<3, 0b000100,
                  (outs), (ins MEMri:$addr, IntRegs:$src),
-                 "st $src, [$addr]",
+                 "mem_l[s$addr] = s$src",
                  [(store i32:$src, ADDRri:$addr)]>;
 
 // Section B.5 - Store Floating-point Instructions, p. 97
 def STFrr   : F3_1<3, 0b100100,
                    (outs), (ins MEMrr:$addr, FPRegs:$src),
-                   "st $src, [$addr]",
+                   "mem_l[s$addr] = s$src",
                    [(store f32:$src, ADDRrr:$addr)]>;
 def STFri   : F3_2<3, 0b100100,
                    (outs), (ins MEMri:$addr, FPRegs:$src),
-                   "st $src, [$addr]",
+                   "mem_l[s$addr] = s$src",
                    [(store f32:$src, ADDRri:$addr)]>;
 def STDFrr  : F3_1<3, 0b100111,
                    (outs), (ins MEMrr:$addr, DFPRegs:$src),
-                   "std  $src, [$addr]",
+                   "mem_l[s$addr] = s$src",
                    [(store f64:$src, ADDRrr:$addr)]>;
 def STDFri  : F3_2<3, 0b100111,
                    (outs), (ins MEMri:$addr, DFPRegs:$src),
-                   "std $src, [$addr]",
+                   "mem_l[s$addr] = s$src",
                    [(store f64:$src, ADDRri:$addr)]>;
 
 // Section B.9 - SETHI Instruction, p. 104
@@ -401,17 +380,20 @@ let rd = 0, imm22 = 0 in
   def NOP : F2_1<0b100, (outs), (ins), "nop", []>;
 
 // Section B.11 - Logical Instructions, p. 106
-defm AND    : F3_12<"and", 0b000001, and>;
+defm AND    : IntTernaryArith<"&", 0b000001, and>;
 
+// XXX doesn't exist
 def ANDNrr  : F3_1<2, 0b000101,
                    (outs IntRegs:$dst), (ins IntRegs:$b, IntRegs:$c),
                    "andn $b, $c, $dst",
                    [(set i32:$dst, (and i32:$b, (not i32:$c)))]>;
+
+// XXX doesn't exist
 def ANDNri  : F3_2<2, 0b000101,
                    (outs IntRegs:$dst), (ins IntRegs:$b, i32imm:$c),
                    "andn $b, $c, $dst", []>;
 
-defm OR     : F3_12<"or", 0b000010, or>;
+defm OR     : IntTernaryArith<"|", 0b000010, or>;
 
 def ORNrr   : F3_1<2, 0b000110,
                    (outs IntRegs:$dst), (ins IntRegs:$b, IntRegs:$c),
@@ -420,7 +402,7 @@ def ORNrr   : F3_1<2, 0b000110,
 def ORNri   : F3_2<2, 0b000110,
                    (outs IntRegs:$dst), (ins IntRegs:$b, i32imm:$c),
                    "orn $b, $c, $dst", []>;
-defm XOR    : F3_12<"xor", 0b000011, xor>;
+defm XOR    : IntTernaryArith<"^", 0b000011, xor>;
 
 def XNORrr  : F3_1<2, 0b000111,
                    (outs IntRegs:$dst), (ins IntRegs:$b, IntRegs:$c),
@@ -430,13 +412,14 @@ def XNORri  : F3_2<2, 0b000111,
                    (outs IntRegs:$dst), (ins IntRegs:$b, i32imm:$c),
                    "xnor $b, $c, $dst", []>;
 
-// Section B.12 - Shift Instructions, p. 107
-defm SLL : F3_12<"sll", 0b100101, shl>;
-defm SRL : F3_12<"srl", 0b100110, srl>;
-defm SRA : F3_12<"sra", 0b100111, sra>;
+defm SLL : IntTernaryArith<"<<", 0b100101, shl>;
+defm SRL : IntTernaryArith<">>", 0b100110, srl>;
+
+// XXX need to set register operands for this one
+defm SRA : IntTernaryArith<">>", 0b100111, sra>;
 
 // Section B.13 - Add Instructions, p. 108
-defm ADD   : F3_12<"add", 0b000000, add>;
+defm ADD   : IntTernaryArith<"+", 0b000000, add>;
 
 // "LEA" forms of add (patterns to make tblgen happy)
 def LEA_ADDri   : F3_2<2, 0b000000,
@@ -444,43 +427,30 @@ def LEA_ADDri   : F3_2<2, 0b000000,
                    "add ${addr:arith}, $dst",
                    [(set i32:$dst, ADDRri:$addr)]>;
 
-let Defs = [ICC] in                   
-  defm ADDCC  : F3_12<"addcc", 0b010000, addc>;
+//let Defs = [ICC] in                   
+//  defm ADDCC  : IntTernaryArith<"addcc", 0b010000, addc>;
 
-let Uses = [ICC] in
-  defm ADDX  : F3_12<"addx", 0b001000, adde>;
+//let Uses = [ICC] in
+//  defm ADDX  : IntTernaryArith<"addx", 0b001000, adde>;
 
 // Section B.15 - Subtract Instructions, p. 110
-defm SUB    : F3_12  <"sub"  , 0b000100, sub>;
-let Uses = [ICC] in 
-  defm SUBX   : F3_12  <"subx" , 0b001100, sube>;
+defm SUB    : IntTernaryArith  <"-"  , 0b000100, sub>;
+//let Uses = [ICC] in 
+//  defm SUBX   : IntTernaryArith  <"subx" , 0b001100, sube>;
 
-let Defs = [ICC] in 
-  defm SUBCC  : F3_12  <"subcc", 0b010100, SPcmpicc>;
+//let Defs = [ICC] in 
+//  defm SUBCC  : IntTernaryArith  <"subcc", 0b010100, SPcmpicc>;
 
-let Uses = [ICC], Defs = [ICC] in
-  def SUBXCCrr: F3_1<2, 0b011100, 
-                (outs IntRegs:$dst), (ins IntRegs:$b, IntRegs:$c),
-                "subxcc $b, $c, $dst", []>;
+//let Uses = [ICC], Defs = [ICC] in
+//  def SUBXCCrr: F3_1<2, 0b011100, 
+ //               (outs IntRegs:$dst), (ins IntRegs:$b, IntRegs:$c),
+  //              "subxcc $b, $c, $dst", []>;
 
 
-// Section B.18 - Multiply Instructions, p. 113
 let Defs = [Y] in {
-  defm UMUL : F3_12np<"umul", 0b001010>;
-  defm SMUL : F3_12  <"smul", 0b001011, mul>;
+  defm SMUL : IntTernaryArith  <"*", 0b001011, mul>;
 }
 
-// Section B.19 - Divide Instructions, p. 115
-let Defs = [Y] in {
-  defm UDIV : F3_12np<"udiv", 0b001110>;
-  defm SDIV : F3_12np<"sdiv", 0b001111>;
-}
-
-// Section B.20 - SAVE and RESTORE, p. 117
-defm SAVE    : F3_12np<"save"   , 0b111100>;
-defm RESTORE : F3_12np<"restore", 0b111101>;
-
-// Section B.21 - Branch on Integer Condition Codes Instructions, p. 119
 
 // conditional branch class:
 class BranchSP<bits<4> cc, dag ins, string asmstr, list<dag> pattern>
@@ -618,7 +588,7 @@ def FSQRTD : F3_3<2, 0b110100, 0b000101010,
 // Floating-point Add and Subtract Instructions, p. 146
 def FADDS  : F3_3<2, 0b110100, 0b001000001,
                   (outs FPRegs:$dst), (ins FPRegs:$src1, FPRegs:$src2),
-                  "fadds $src1, $src2, $dst",
+                  "f$dst = f$src1 + f$src2",
                   [(set f32:$dst, (fadd f32:$src1, f32:$src2))]>;
 def FADDD  : F3_3<2, 0b110100, 0b001000010,
                   (outs DFPRegs:$dst), (ins DFPRegs:$src1, DFPRegs:$src2),
@@ -693,11 +663,6 @@ def : Pat<(i32 simm13:$val),
 def : Pat<(i32 imm:$val),
           (ORri (SETHIi (HI22 imm:$val)), (LO10 imm:$val))>;
 
-// subc
-def : Pat<(subc i32:$b, i32:$c),
-          (SUBCCrr $b, $c)>;
-def : Pat<(subc i32:$b, simm13:$val),
-          (SUBCCri $b, imm:$val)>;
 
 // Global addresses, constant pool entries
 def : Pat<(SPhi tglobaladdr:$in), (SETHIi tglobaladdr:$in)>;

@@ -162,7 +162,8 @@ SDNode *VectorProcDAGToDAGISel::Select(SDNode *N) {
                                      CurDAG->getRegister(SP::G0, MVT::i32)), 0);
 
     // FIXME: Handle div by immediate.
-    unsigned Opcode = N->getOpcode() == ISD::SDIV ? SP::SDIVrr : SP::UDIVrr;
+//    unsigned Opcode = N->getOpcode() == ISD::SDIV ? SP::SDIVrr : SP::UDIVrr;
+ 	unsigned Opcode = 0;
     return CurDAG->SelectNodeTo(N, Opcode, MVT::i32, DivLHS, DivRHS,
                                 TopPart);
   }
@@ -171,7 +172,7 @@ SDNode *VectorProcDAGToDAGISel::Select(SDNode *N) {
     // FIXME: Handle mul by immediate.
     SDValue MulLHS = N->getOperand(0);
     SDValue MulRHS = N->getOperand(1);
-    unsigned Opcode = N->getOpcode() == ISD::MULHU ? SP::UMULrr : SP::SMULrr;
+    unsigned Opcode = N->getOpcode() == /* ISD::MULHU ? SP::UMULrr : */ SP::SMULrr;
     SDNode *Mul = CurDAG->getMachineNode(Opcode, dl, MVT::i32, MVT::Glue,
                                          MulLHS, MulRHS);
     // The high part is in the Y register.
