@@ -121,6 +121,16 @@ namespace clang {
         LastTSBuiltin
     };
   }
+
+  /// \brief VectorProc builtins
+  namespace VectorProc {
+    enum {
+        LastTIBuiltin = clang::Builtin::FirstTSBuiltin-1,
+#define BUILTIN(ID, TYPE, ATTRS) BI##ID,
+#include "clang/Basic/BuiltinsVectorProc.def"
+        LastTSBuiltin
+    };
+  }
 } // end namespace clang.
 
 #endif

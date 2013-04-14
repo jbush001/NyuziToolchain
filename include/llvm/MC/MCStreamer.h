@@ -59,7 +59,8 @@ namespace llvm {
       SK_MachOStreamer,
       SK_PureStreamer,
       SK_MipsELFStreamer,
-      SK_WinCOFFStreamer
+      SK_WinCOFFStreamer,
+      SK_VectorProcELFStreamer
     };
 
   private:

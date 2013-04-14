@@ -14,9 +14,9 @@ clean() {
 ### Periods should be escaped with backslash for use by grep.
 ###
 ### If you update these, please also update docs/GettingStarted.rst
-want_autoconf_version='2\.60'
+want_autoconf_version='2\.68'
 want_autoheader_version=$want_autoconf_version
-want_aclocal_version='1\.9\.6'
+want_aclocal_version='1\.11\.5'
 want_libtool_version='1\.5\.22'
 ### END NOTE #########################################################
 
@@ -36,8 +36,8 @@ aclocal --version | grep '^aclocal.*'$want_aclocal_version > /dev/null
 test $? -eq 0 || die "Your aclocal was not detected as being $want_aclocal_version_clean"
 autoheader --version | grep '^autoheader.*'$want_autoheader_version > /dev/null
 test $? -eq 0 || die "Your autoheader was not detected as being $want_autoheader_version_clean"
-libtool --version | grep $want_libtool_version > /dev/null
-test $? -eq 0 || die "Your libtool was not detected as being $want_libtool_version_clean"
+#libtool --version | grep $want_libtool_version > /dev/null
+#test $? -eq 0 || die "Your libtool was not detected as being $want_libtool_version_clean"
 echo ""
 echo "### NOTE: ############################################################"
 echo "### If you get *any* warnings from autoconf below you MUST fix the"

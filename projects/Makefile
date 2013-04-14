@@ -21,8 +21,9 @@ DIRS := $(filter-out compiler-rt,$(DIRS))
 DIRS := $(filter-out libcxx,$(DIRS))
 
 # Sparc cannot link shared libraries (libtool problem?)
-ifeq ($(ARCH), Sparc)
+# XXX jbush: disabled this for now because it causes build problems
+#ifeq ($(ARCH), Sparc)
 DIRS := $(filter-out sample, $(DIRS))
-endif
+#endif
 
 include $(PROJ_SRC_ROOT)/Makefile.rules

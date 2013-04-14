@@ -4844,6 +4844,450 @@ public:
 } // end anonymous namespace.
 
 namespace {
+class VectorProcTargetInfoBase : public TargetInfo {
+  static const Builtin::Info BuiltinInfo[];
+  std::string CPU;
+  bool IsVectorProc16;
+  enum VectorProcFloatABI {
+    HardFloat, SingleFloat, SoftFloat
+  } FloatABI;
+  enum DspRevEnum {
+    NoDSP, DSP1, DSP2
+  } DspRev;
+
+protected:
+  std::string ABI;
+
+public:
+  VectorProcTargetInfoBase(const std::string& triple,
+                     const std::string& ABIStr,
+                     const std::string& CPUStr)
+    : TargetInfo(triple),
+      CPU(CPUStr),
+      IsVectorProc16(false),
+      FloatABI(HardFloat),
+      DspRev(NoDSP),
+      ABI(ABIStr)
+  {}
+
+  virtual const char *getABI() const { return ABI.c_str(); }
+  virtual bool setABI(const std::string &Name) = 0;
+  virtual bool setCPU(const std::string &Name) {
+    CPU = Name;
+    return true;
+  }
+  void getDefaultFeatures(llvm::StringMap<bool> &Features) const {
+    Features[ABI] = true;
+    Features[CPU] = true;
+  }
+
+  virtual void getTargetDefines(const LangOptions &Opts,
+                                MacroBuilder &Builder) const {
+    DefineStd(Builder, "vectorproc", Opts);
+    Builder.defineMacro("_vectorproc");
+    Builder.defineMacro("__REGISTER_PREFIX__", "");
+
+    switch (FloatABI) {
+    case HardFloat:
+      Builder.defineMacro("__vectorproc_hard_float", Twine(1));
+      break;
+    case SingleFloat:
+      Builder.defineMacro("__vectorproc_hard_float", Twine(1));
+      Builder.defineMacro("__vectorproc_single_float", Twine(1));
+      break;
+    case SoftFloat:
+      Builder.defineMacro("__vectorproc_soft_float", Twine(1));
+      break;
+    }
+
+    if (IsVectorProc16)
+      Builder.defineMacro("__vectorproc16", Twine(1));
+
+    switch (DspRev) {
+    default:
+      break;
+    case DSP1:
+      Builder.defineMacro("__vectorproc_dsp_rev", Twine(1));
+      Builder.defineMacro("__vectorproc_dsp", Twine(1));
+      break;
+    case DSP2:
+      Builder.defineMacro("__vectorproc_dsp_rev", Twine(2));
+      Builder.defineMacro("__vectorproc_dspr2", Twine(1));
+      Builder.defineMacro("__vectorproc_dsp", Twine(1));
+      break;
+    }
+
+    Builder.defineMacro("_VECTORPROC_SZPTR", Twine(getPointerWidth(0)));
+    Builder.defineMacro("_VECTORPROC_SZINT", Twine(getIntWidth()));
+    Builder.defineMacro("_VECTORPROC_SZLONG", Twine(getLongWidth()));
+
+    Builder.defineMacro("_VECTORPROC_ARCH", "\"" + CPU + "\"");
+    Builder.defineMacro("_VECTORPROC_ARCH_" + StringRef(CPU).upper());
+  }
+
+  virtual void getTargetBuiltins(const Builtin::Info *&Records,
+                                 unsigned &NumRecords) const {
+    Records = BuiltinInfo;
+    NumRecords = clang::VectorProc::LastTSBuiltin - Builtin::FirstTSBuiltin;
+  }
+  virtual bool hasFeature(StringRef Feature) const {
+    return Feature == "vectorproc";
+  }
+  virtual BuiltinVaListKind getBuiltinVaListKind() const {
+    return TargetInfo::VoidPtrBuiltinVaList;
+  }
+  virtual void getGCCRegNames(const char * const *&Names,
+                              unsigned &NumNames) const {
+    static const char * const GCCRegNames[] = {
+      // CPU register names
+      // Must match second column of GCCRegAliases
+      "$0",   "$1",   "$2",   "$3",   "$4",   "$5",   "$6",   "$7",
+      "$8",   "$9",   "$10",  "$11",  "$12",  "$13",  "$14",  "$15",
+      "$16",  "$17",  "$18",  "$19",  "$20",  "$21",  "$22",  "$23",
+      "$24",  "$25",  "$26",  "$27",  "$28",  "$29",  "$30",  "$31",
+      // Floating point register names
+      "$f0",  "$f1",  "$f2",  "$f3",  "$f4",  "$f5",  "$f6",  "$f7",
+      "$f8",  "$f9",  "$f10", "$f11", "$f12", "$f13", "$f14", "$f15",
+      "$f16", "$f17", "$f18", "$f19", "$f20", "$f21", "$f22", "$f23",
+      "$f24", "$f25", "$f26", "$f27", "$f28", "$f29", "$f30", "$f31",
+      // Hi/lo and condition register names
+      "hi",   "lo",   "",     "$fcc0","$fcc1","$fcc2","$fcc3","$fcc4",
+      "$fcc5","$fcc6","$fcc7"
+    };
+    Names = GCCRegNames;
+    NumNames = llvm::array_lengthof(GCCRegNames);
+  }
+  virtual void getGCCRegAliases(const GCCRegAlias *&Aliases,
+                                unsigned &NumAliases) const = 0;
+  virtual bool validateAsmConstraint(const char *&Name,
+                                     TargetInfo::ConstraintInfo &Info) const {
+    switch (*Name) {
+    default:
+      return false;
+        
+    case 'r': // CPU registers.
+    case 'd': // Equivalent to "r" unless generating VECTORPROC16 code.
+    case 'y': // Equivalent to "r", backwards compatibility only.
+    case 'f': // floating-point registers.
+    case 'c': // $25 for indirect jumps
+    case 'l': // lo register
+    case 'x': // hilo register pair
+      Info.setAllowsRegister();
+      return true;
+    case 'R': // An address that can be used in a non-macro load or store
+      Info.setAllowsMemory();
+      return true;
+    }
+  }
+
+  virtual const char *getClobbers() const {
+    // FIXME: Implement!
+    return "";
+  }
+
+  virtual bool setFeatureEnabled(llvm::StringMap<bool> &Features,
+                                 StringRef Name,
+                                 bool Enabled) const {
+    if (Name == "soft-float" || Name == "single-float" ||
+        Name == "o32" || Name == "n32" || Name == "n64" || Name == "eabi" ||
+        Name == "vectorproc32" || Name == "vectorproc32r2" ||
+        Name == "vectorproc64" || Name == "vectorproc64r2" ||
+        Name == "vectorproc16" || Name == "dsp" || Name == "dspr2") {
+      Features[Name] = Enabled;
+      return true;
+    } else if (Name == "32") {
+      Features["o32"] = Enabled;
+      return true;
+    } else if (Name == "64") {
+      Features["n64"] = Enabled;
+      return true;
+    }
+    return false;
+  }
+
+  virtual void HandleTargetFeatures(std::vector<std::string> &Features) {
+    IsVectorProc16 = false;
+    FloatABI = HardFloat;
+    DspRev = NoDSP;
+
+    for (std::vector<std::string>::iterator it = Features.begin(),
+         ie = Features.end(); it != ie; ++it) {
+      if (*it == "+single-float")
+        FloatABI = SingleFloat;
+      else if (*it == "+soft-float")
+        FloatABI = SoftFloat;
+      else if (*it == "+vectorproc16")
+        IsVectorProc16 = true;
+      else if (*it == "+dsp")
+        DspRev = std::max(DspRev, DSP1);
+      else if (*it == "+dspr2")
+        DspRev = std::max(DspRev, DSP2);
+    }
+
+    // Remove front-end specific option.
+    std::vector<std::string>::iterator it =
+      std::find(Features.begin(), Features.end(), "+soft-float");
+    if (it != Features.end())
+      Features.erase(it);
+  }
+
+  virtual int getEHDataRegisterNumber(unsigned RegNo) const {
+    if (RegNo == 0) return 4;
+    if (RegNo == 1) return 5;
+    return -1;
+  }
+};
+
+const Builtin::Info VectorProcTargetInfoBase::BuiltinInfo[] = {
+#define BUILTIN(ID, TYPE, ATTRS) { #ID, TYPE, ATTRS, 0, ALL_LANGUAGES },
+#define LIBBUILTIN(ID, TYPE, ATTRS, HEADER) { #ID, TYPE, ATTRS, HEADER,\
+                                              ALL_LANGUAGES },
+#include "clang/Basic/BuiltinsVectorProc.def"
+};
+
+class VectorProc32TargetInfoBase : public VectorProcTargetInfoBase {
+public:
+  VectorProc32TargetInfoBase(const std::string& triple) :
+    VectorProcTargetInfoBase(triple, "o32", "vectorproc32") {
+    SizeType = UnsignedInt;
+    PtrDiffType = SignedInt;
+    MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 32;
+  }
+  virtual bool setABI(const std::string &Name) {
+    if ((Name == "o32") || (Name == "eabi")) {
+      ABI = Name;
+      return true;
+    } else if (Name == "32") {
+      ABI = "o32";
+      return true;
+    } else
+      return false;
+  }
+  virtual void getTargetDefines(const LangOptions &Opts,
+                                MacroBuilder &Builder) const {
+    VectorProcTargetInfoBase::getTargetDefines(Opts, Builder);
+
+    if (ABI == "o32") {
+      Builder.defineMacro("__vectorproc_o32");
+      Builder.defineMacro("_ABIO32", "1");
+      Builder.defineMacro("_VECTORPROC_SIM", "_ABIO32");
+    }
+    else if (ABI == "eabi")
+      Builder.defineMacro("__vectorproc_eabi");
+    else
+      llvm_unreachable("Invalid ABI for VectorProc32.");
+  }
+  virtual void getGCCRegAliases(const GCCRegAlias *&Aliases,
+                                unsigned &NumAliases) const {
+    static const TargetInfo::GCCRegAlias GCCRegAliases[] = {
+      { { "at" },  "$1" },
+      { { "v0" },  "$2" },
+      { { "v1" },  "$3" },
+      { { "a0" },  "$4" },
+      { { "a1" },  "$5" },
+      { { "a2" },  "$6" },
+      { { "a3" },  "$7" },
+      { { "t0" },  "$8" },
+      { { "t1" },  "$9" },
+      { { "t2" }, "$10" },
+      { { "t3" }, "$11" },
+      { { "t4" }, "$12" },
+      { { "t5" }, "$13" },
+      { { "t6" }, "$14" },
+      { { "t7" }, "$15" },
+      { { "s0" }, "$16" },
+      { { "s1" }, "$17" },
+      { { "s2" }, "$18" },
+      { { "s3" }, "$19" },
+      { { "s4" }, "$20" },
+      { { "s5" }, "$21" },
+      { { "s6" }, "$22" },
+      { { "s7" }, "$23" },
+      { { "t8" }, "$24" },
+      { { "t9" }, "$25" },
+      { { "k0" }, "$26" },
+      { { "k1" }, "$27" },
+      { { "gp" }, "$28" },
+      { { "sp","$sp" }, "$29" },
+      { { "fp","$fp" }, "$30" },
+      { { "ra" }, "$31" }
+    };
+    Aliases = GCCRegAliases;
+    NumAliases = llvm::array_lengthof(GCCRegAliases);
+  }
+};
+
+class VectorProc32EBTargetInfo : public VectorProc32TargetInfoBase {
+public:
+  VectorProc32EBTargetInfo(const std::string& triple) : VectorProc32TargetInfoBase(triple) {
+    DescriptionString = "E-p:32:32:32-i1:8:8-i8:8:32-i16:16:32-i32:32:32-"
+                        "i64:64:64-f32:32:32-f64:64:64-v64:64:64-n32-S64";
+  }
+  virtual void getTargetDefines(const LangOptions &Opts,
+                                MacroBuilder &Builder) const {
+    DefineStd(Builder, "VECTORPROCEB", Opts);
+    Builder.defineMacro("_VECTORPROCEB");
+    VectorProc32TargetInfoBase::getTargetDefines(Opts, Builder);
+  }
+};
+
+class VectorProc32ELTargetInfo : public VectorProc32TargetInfoBase {
+public:
+  VectorProc32ELTargetInfo(const std::string& triple) : VectorProc32TargetInfoBase(triple) {
+    BigEndian = false;
+    DescriptionString = "e-p:32:32:32-i1:8:8-i8:8:32-i16:16:32-i32:32:32-"
+                        "i64:64:64-f32:32:32-f64:64:64-v64:64:64-n32-S64";
+  }
+  virtual void getTargetDefines(const LangOptions &Opts,
+                                MacroBuilder &Builder) const {
+    DefineStd(Builder, "VECTORPROCEL", Opts);
+    Builder.defineMacro("_VECTORPROCEL");
+    VectorProc32TargetInfoBase::getTargetDefines(Opts, Builder);
+  }
+};
+
+class VectorProc64TargetInfoBase : public VectorProcTargetInfoBase {
+  virtual void SetDescriptionString(const std::string &Name) = 0;
+public:
+  VectorProc64TargetInfoBase(const std::string& triple) :
+    VectorProcTargetInfoBase(triple, "n64", "vectorproc64") {
+    LongWidth = LongAlign = 64;
+    PointerWidth = PointerAlign = 64;
+    LongDoubleWidth = LongDoubleAlign = 128;
+    LongDoubleFormat = &llvm::APFloat::IEEEquad;
+    if (getTriple().getOS() == llvm::Triple::FreeBSD) {
+      LongDoubleWidth = LongDoubleAlign = 64;
+      LongDoubleFormat = &llvm::APFloat::IEEEdouble;
+    }
+    SuitableAlign = 128;
+    MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 64;
+  }
+  virtual bool setABI(const std::string &Name) {
+    SetDescriptionString(Name);
+    if (Name == "n32") {
+      LongWidth = LongAlign = 32;
+      PointerWidth = PointerAlign = 32;
+      ABI = Name;
+      return true;
+    } else if (Name == "n64") {
+      ABI = Name;
+      return true;
+    } else if (Name == "64") {
+      ABI = "n64";
+      return true;
+    } else
+      return false;
+  }
+  virtual void getTargetDefines(const LangOptions &Opts,
+                                MacroBuilder &Builder) const {
+    VectorProcTargetInfoBase::getTargetDefines(Opts, Builder);
+
+    Builder.defineMacro("__vectorproc64");
+    Builder.defineMacro("__vectorproc64__");
+
+    if (ABI == "n32") {
+      Builder.defineMacro("__vectorproc_n32");
+      Builder.defineMacro("_ABIN32", "2");
+      Builder.defineMacro("_VECTORPROC_SIM", "_ABIN32");
+    }
+    else if (ABI == "n64") {
+      Builder.defineMacro("__vectorproc_n64");
+      Builder.defineMacro("_ABI64", "3");
+      Builder.defineMacro("_VECTORPROC_SIM", "_ABI64");
+    }
+    else
+      llvm_unreachable("Invalid ABI for VectorProc64.");
+  }
+  virtual void getGCCRegAliases(const GCCRegAlias *&Aliases,
+                                unsigned &NumAliases) const {
+    static const TargetInfo::GCCRegAlias GCCRegAliases[] = {
+      { { "at" },  "$1" },
+      { { "v0" },  "$2" },
+      { { "v1" },  "$3" },
+      { { "a0" },  "$4" },
+      { { "a1" },  "$5" },
+      { { "a2" },  "$6" },
+      { { "a3" },  "$7" },
+      { { "a4" },  "$8" },
+      { { "a5" },  "$9" },
+      { { "a6" }, "$10" },
+      { { "a7" }, "$11" },
+      { { "t0" }, "$12" },
+      { { "t1" }, "$13" },
+      { { "t2" }, "$14" },
+      { { "t3" }, "$15" },
+      { { "s0" }, "$16" },
+      { { "s1" }, "$17" },
+      { { "s2" }, "$18" },
+      { { "s3" }, "$19" },
+      { { "s4" }, "$20" },
+      { { "s5" }, "$21" },
+      { { "s6" }, "$22" },
+      { { "s7" }, "$23" },
+      { { "t8" }, "$24" },
+      { { "t9" }, "$25" },
+      { { "k0" }, "$26" },
+      { { "k1" }, "$27" },
+      { { "gp" }, "$28" },
+      { { "sp","$sp" }, "$29" },
+      { { "fp","$fp" }, "$30" },
+      { { "ra" }, "$31" }
+    };
+    Aliases = GCCRegAliases;
+    NumAliases = llvm::array_lengthof(GCCRegAliases);
+  }
+};
+
+class VectorProc64EBTargetInfo : public VectorProc64TargetInfoBase {
+  virtual void SetDescriptionString(const std::string &Name) {
+    // Change DescriptionString only if ABI is n32.  
+    if (Name == "n32")
+      DescriptionString = "E-p:32:32:32-i1:8:8-i8:8:32-i16:16:32-i32:32:32-"
+                          "i64:64:64-f32:32:32-f64:64:64-f128:128:128-"
+                          "v64:64:64-n32:64-S128";
+  }
+public:
+  VectorProc64EBTargetInfo(const std::string& triple) : VectorProc64TargetInfoBase(triple) {
+    // Default ABI is n64.  
+    DescriptionString = "E-p:64:64:64-i1:8:8-i8:8:32-i16:16:32-i32:32:32-"
+                        "i64:64:64-f32:32:32-f64:64:64-f128:128:128-"
+                        "v64:64:64-n32:64-S128";
+  }
+  virtual void getTargetDefines(const LangOptions &Opts,
+                                MacroBuilder &Builder) const {
+    DefineStd(Builder, "VECTORPROCEB", Opts);
+    Builder.defineMacro("_VECTORPROCEB");
+    VectorProc64TargetInfoBase::getTargetDefines(Opts, Builder);
+  }
+};
+
+class VectorProc64ELTargetInfo : public VectorProc64TargetInfoBase {
+  virtual void SetDescriptionString(const std::string &Name) {
+    // Change DescriptionString only if ABI is n32.  
+    if (Name == "n32")
+      DescriptionString = "e-p:32:32:32-i1:8:8-i8:8:32-i16:16:32-i32:32:32-"
+                          "i64:64:64-f32:32:32-f64:64:64-f128:128:128"
+                          "-v64:64:64-n32:64-S128";
+  }
+public:
+  VectorProc64ELTargetInfo(const std::string& triple) : VectorProc64TargetInfoBase(triple) {
+    // Default ABI is n64.
+    BigEndian = false;
+    DescriptionString = "e-p:64:64:64-i1:8:8-i8:8:32-i16:16:32-i32:32:32-"
+                        "i64:64:64-f32:32:32-f64:64:64-f128:128:128-"
+                        "v64:64:64-n32:64-S128";
+  }
+  virtual void getTargetDefines(const LangOptions &Opts,
+                                MacroBuilder &Builder) const {
+    DefineStd(Builder, "VECTORPROCEL", Opts);
+    Builder.defineMacro("_VECTORPROCEL");
+    VectorProc64TargetInfoBase::getTargetDefines(Opts, Builder);
+  }
+};
+} // end anonymous namespace.
+
+
+namespace {
 class PNaClTargetInfo : public TargetInfo {
 public:
   PNaClTargetInfo(const std::string& triple) : TargetInfo(triple) {
@@ -5070,6 +5514,9 @@ static TargetInfo *AllocateTarget(const std::string &T) {
     default:
       return new Mips32EBTargetInfo(T);
     }
+
+  case llvm::Triple::vectorproc:
+      return new VectorProc32EBTargetInfo(T);
 
   case llvm::Triple::mipsel:
     switch (os) {
