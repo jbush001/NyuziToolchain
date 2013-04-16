@@ -34,14 +34,14 @@ multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 	def rr : VPInstruction<
 		(outs IntRegs:$dst), 
 		(ins IntRegs:$b, IntRegs:$c),
-		!strconcat("s$dst = s$b", !strconcat(operator, " s$c")),
+		!strconcat("s$dst = s$b ", !strconcat(operator, " s$c")),
 		[(set i32:$dst, (OpNode i32:$b, i32:$c))]>;
 
 	// Instruction format B
 	def ri : VPInstruction<
 		(outs IntRegs:$dst), 
 		(ins IntRegs:$b, i32imm:$c),
-		!strconcat("s$dst = s$b", !strconcat(operator, " s$c")),
+		!strconcat("s$dst = s$b ", !strconcat(operator, " s$c")),
 		[(set i32:$dst, (OpNode i32:$b, i32:$c))]>;	// XXXX simm13
 }
 
@@ -131,13 +131,6 @@ def HI22 : SDNodeXForm<imm, [{
   return CurDAG->getTargetConstant((unsigned)N->getZExtValue() >> 10, MVT::i32);
 }]>;
 
-def SETHIimm : PatLeaf<(imm), [{
-  return (((unsigned)N->getZExtValue() >> 10) << 10) ==
-         (unsigned)N->getZExtValue();
-}], HI22>;
-
-// Addressing modes.
-
 // Address operands
 def MEMrr : Operand<iPTR> {
   let PrintMethod = "printMemOperand";
@@ -210,43 +203,6 @@ def getPCX        : Operand<i32> {
 }
 
 //===----------------------------------------------------------------------===//
-// VECTORPROC Flag Conditions
-//===----------------------------------------------------------------------===//
-
-// Note that these values must be kept in sync with the CCOp::CondCode enum
-// values.
-class ICC_VAL<int N> : PatLeaf<(i32 N)>;
-def ICC_NE  : ICC_VAL< 9>;  // Not Equal
-def ICC_E   : ICC_VAL< 1>;  // Equal
-def ICC_G   : ICC_VAL<10>;  // Greater
-def ICC_LE  : ICC_VAL< 2>;  // Less or Equal
-def ICC_GE  : ICC_VAL<11>;  // Greater or Equal
-def ICC_L   : ICC_VAL< 3>;  // Less
-def ICC_GU  : ICC_VAL<12>;  // Greater Unsigned
-def ICC_LEU : ICC_VAL< 4>;  // Less or Equal Unsigned
-def ICC_CC  : ICC_VAL<13>;  // Carry Clear/Great or Equal Unsigned
-def ICC_CS  : ICC_VAL< 5>;  // Carry Set/Less Unsigned
-def ICC_POS : ICC_VAL<14>;  // Positive
-def ICC_NEG : ICC_VAL< 6>;  // Negative
-def ICC_VC  : ICC_VAL<15>;  // Overflow Clear
-def ICC_VS  : ICC_VAL< 7>;  // Overflow Set
-
-class FCC_VAL<int N> : PatLeaf<(i32 N)>;
-def FCC_U   : FCC_VAL<23>;  // Unordered
-def FCC_G   : FCC_VAL<22>;  // Greater
-def FCC_UG  : FCC_VAL<21>;  // Unordered or Greater
-def FCC_L   : FCC_VAL<20>;  // Less
-def FCC_UL  : FCC_VAL<19>;  // Unordered or Less
-def FCC_LG  : FCC_VAL<18>;  // Less or Greater
-def FCC_NE  : FCC_VAL<17>;  // Not Equal
-def FCC_E   : FCC_VAL<25>;  // Equal
-def FCC_UE  : FCC_VAL<24>;  // Unordered or Equal
-def FCC_GE  : FCC_VAL<25>;  // Greater or Equal
-def FCC_UGE : FCC_VAL<26>;  // Unordered or Greater or Equal
-def FCC_LE  : FCC_VAL<27>;  // Less or Equal
-def FCC_ULE : FCC_VAL<28>;  // Unordered or Less or Equal
-def FCC_O   : FCC_VAL<29>;  // Ordered
-//===----------------------------------------------------------------------===//
 // Instructions
 //===----------------------------------------------------------------------===//
 
@@ -291,46 +247,6 @@ def FpABSD : Pseudo<(outs DFPRegs:$dst), (ins DFPRegs:$src),
 				  "!FpABSD $src, $dst",
 				  [(set f64:$dst, (fabs f64:$src))]>;
 
-// SELECT_CC_* - Used to implement the SELECT_CC DAG operation.  Expanded after
-// instruction selection into a branch sequence.  This has to handle all
-// permutations of selection between i32/f32/f64 on ICC and FCC.
-  // Expanded after instruction selection.
-let Uses = [ICC], usesCustomInserter = 1 in { 
-  def SELECT_CC_Int_ICC
-   : Pseudo<(outs IntRegs:$dst), (ins IntRegs:$T, IntRegs:$F, i32imm:$Cond),
-            "; SELECT_CC_Int_ICC PSEUDO!",
-            [(set i32:$dst, (SPselecticc i32:$T, i32:$F, imm:$Cond))]>;
-  def SELECT_CC_FP_ICC
-   : Pseudo<(outs FPRegs:$dst), (ins FPRegs:$T, FPRegs:$F, i32imm:$Cond),
-            "; SELECT_CC_FP_ICC PSEUDO!",
-            [(set f32:$dst, (SPselecticc f32:$T, f32:$F, imm:$Cond))]>;
-
-  def SELECT_CC_DFP_ICC
-   : Pseudo<(outs DFPRegs:$dst), (ins DFPRegs:$T, DFPRegs:$F, i32imm:$Cond),
-            "; SELECT_CC_DFP_ICC PSEUDO!",
-            [(set f64:$dst, (SPselecticc f64:$T, f64:$F, imm:$Cond))]>;
-}
-
-let usesCustomInserter = 1, Uses = [FCC] in {
-
-  def SELECT_CC_Int_FCC
-   : Pseudo<(outs IntRegs:$dst), (ins IntRegs:$T, IntRegs:$F, i32imm:$Cond),
-            "; SELECT_CC_Int_FCC PSEUDO!",
-            [(set i32:$dst, (SPselectfcc i32:$T, i32:$F, imm:$Cond))]>;
-
-  def SELECT_CC_FP_FCC
-   : Pseudo<(outs FPRegs:$dst), (ins FPRegs:$T, FPRegs:$F, i32imm:$Cond),
-            "; SELECT_CC_FP_FCC PSEUDO!",
-            [(set f32:$dst, (SPselectfcc f32:$T, f32:$F, imm:$Cond))]>;
-  def SELECT_CC_DFP_FCC
-   : Pseudo<(outs DFPRegs:$dst), (ins DFPRegs:$T, DFPRegs:$F, i32imm:$Cond),
-            "; SELECT_CC_DFP_FCC PSEUDO!",
-            [(set f64:$dst, (SPselectfcc f64:$T, f64:$F, imm:$Cond))]>;
-}
-
-
-// Section A.3 - Synthetic Instructions, p. 85
-// special cases of JMPL:
 let isReturn = 1, isTerminator = 1, hasDelaySlot = 1, isBarrier = 1 in {
   let rd = O7.Num, rs1 = G0.Num in
     def RETL: F3_2<2, 0b111000, (outs), (ins i32imm:$val),
@@ -393,16 +309,6 @@ def STDFri  : F3_2<3, 0b100111,
                    "mem_l[s$addr] = s$src",
                    [(store f64:$src, ADDRri:$addr)]>;
 
-def SETHIi: F2_1<0b100,
-                 (outs IntRegs:$dst), (ins i32imm:$src),
-                 "sethi $src, $dst",
-                 [(set i32:$dst, SETHIimm:$src)]>;
-
-// Section B.10 - NOP Instruction, p. 105
-// (It's a special case of SETHI)
-let rd = 0, imm22 = 0 in
-  def NOP : F2_1<0b100, (outs), (ins), "nop", []>;
-
 defm AND    : VPTernaryIntArith<"&", and>;
 defm OR     : VPTernaryIntArith<"|", or>;
 defm XOR    : VPTernaryIntArith<"^", xor>;
@@ -410,6 +316,7 @@ defm SLL    : VPTernaryIntArith<"<<", shl>;
 defm SRL    : VPTernaryIntArith<">>", srl>;
 defm SRA    : VPTernaryIntArith<">>", sra>;	// XXX need to use U register.
 defm ADD    : VPTernaryIntArith<"+", add>;
+defm SUB    : VPTernaryIntArith<"-", add>;
 
 def LEA_ADDri   : F3_2<2, 0b000000,
                    (outs IntRegs:$dst), (ins MEMri:$addr),
@@ -456,22 +363,12 @@ def SLE : VPInstruction<
 	"s$dst = s$ra <= s$rb",
     [(set i32:$dst, (selectcc i32:$ra, i32:$rb, 1, 0, SETLE))]>;
 
-
-//def SGT : SetCC_R<">", setgt>;
-//def SLT : SetCC_R<"<", setlt>;
-//def SLE : SetCC_R<"<=", setle>;
-//def SGE : SetCC_R<">=", setge>;
-//def SEQ : SetCC_R<"==", seteq>;
-//def SNE : SetCC_R<"!=", setne>;
-
 def GOTO : VPInstruction<
 	(outs),
 	(ins brtarget:$offset),
 	"goto $offset",
 	[(br bb:$offset)]>;
 
-// Section B.24 - Call and Link Instruction, p. 125
-// This is the only Format 1 instruction
 let Uses = [O6],
     hasDelaySlot = 1, isCall = 1,
     Defs = [O0, O1, O2, O3, O4, O5, O7, G1, G2, G3, G4, G5, G6, G7,
@@ -493,22 +390,7 @@ let Uses = [O6],
                     [(call ADDRri:$ptr)]>;
 }
 
-// Section B.28 - Read State Register Instructions
-let Uses = [Y] in 
-  def RDY : F3_1<2, 0b101000,
-                 (outs IntRegs:$dst), (ins),
-                 "rd %y, $dst", []>;
 
-// Section B.29 - Write State Register Instructions
-let Defs = [Y] in {
-  def WRYrr : F3_1<2, 0b110000,
-                   (outs), (ins IntRegs:$b, IntRegs:$c),
-                   "wr $b, $c, %y", []>;
-  def WRYri : F3_2<2, 0b110000,
-                   (outs), (ins IntRegs:$b, i32imm:$c),
-                   "wr $b, $c, %y", []>;
-}
-// Convert Integer to Floating-point Instructions, p. 141
 def FITOS : F3_3<2, 0b110100, 0b011000100,
                  (outs FPRegs:$dst), (ins FPRegs:$src),
                  "fitos $src, $dst",
@@ -552,15 +434,7 @@ def FABSS : F3_3<2, 0b110100, 0b000001001,
                  [(set f32:$dst, (fabs f32:$src))]>;
 
 
-// Floating-point Square Root Instructions, p.145
-def FSQRTS : F3_3<2, 0b110100, 0b000101001, 
-                  (outs FPRegs:$dst), (ins FPRegs:$src),
-                  "fsqrts $src, $dst",
-                  [(set f32:$dst, (fsqrt f32:$src))]>;
-def FSQRTD : F3_3<2, 0b110100, 0b000101010, 
-                  (outs DFPRegs:$dst), (ins DFPRegs:$src),
-                  "fsqrtd $src, $dst",
-                  [(set f64:$dst, (fsqrt f64:$src))]>;
+
 
 
 
@@ -569,33 +443,16 @@ def FADDS  : F3_3<2, 0b110100, 0b001000001,
                   (outs FPRegs:$dst), (ins FPRegs:$src1, FPRegs:$src2),
                   "f$dst = f$src1 + f$src2",
                   [(set f32:$dst, (fadd f32:$src1, f32:$src2))]>;
-def FADDD  : F3_3<2, 0b110100, 0b001000010,
-                  (outs DFPRegs:$dst), (ins DFPRegs:$src1, DFPRegs:$src2),
-                  "faddd $src1, $src2, $dst",
-                  [(set f64:$dst, (fadd f64:$src1, f64:$src2))]>;
 def FSUBS  : F3_3<2, 0b110100, 0b001000101,
                   (outs FPRegs:$dst), (ins FPRegs:$src1, FPRegs:$src2),
                   "fsubs $src1, $src2, $dst",
                   [(set f32:$dst, (fsub f32:$src1, f32:$src2))]>;
-def FSUBD  : F3_3<2, 0b110100, 0b001000110,
-                  (outs DFPRegs:$dst), (ins DFPRegs:$src1, DFPRegs:$src2),
-                  "fsubd $src1, $src2, $dst",
-                  [(set f64:$dst, (fsub f64:$src1, f64:$src2))]>;
 
 // Floating-point Multiply and Divide Instructions, p. 147
 def FMULS  : F3_3<2, 0b110100, 0b001001001,
                   (outs FPRegs:$dst), (ins FPRegs:$src1, FPRegs:$src2),
                   "fmuls $src1, $src2, $dst",
                   [(set f32:$dst, (fmul f32:$src1, f32:$src2))]>;
-def FMULD  : F3_3<2, 0b110100, 0b001001010,
-                  (outs DFPRegs:$dst), (ins DFPRegs:$src1, DFPRegs:$src2),
-                  "fmuld $src1, $src2, $dst",
-                  [(set f64:$dst, (fmul f64:$src1, f64:$src2))]>;
-def FSMULD : F3_3<2, 0b110100, 0b001101001,
-                  (outs DFPRegs:$dst), (ins FPRegs:$src1, FPRegs:$src2),
-                  "fsmuld $src1, $src2, $dst",
-                  [(set f64:$dst, (fmul (fextend f32:$src1),
-                                        (fextend f32:$src2)))]>;
 def FDIVS  : F3_3<2, 0b110100, 0b001001101,
                  (outs FPRegs:$dst), (ins FPRegs:$src1, FPRegs:$src2),
                  "fdivs $src1, $src2, $dst",
@@ -604,23 +461,6 @@ def FDIVD  : F3_3<2, 0b110100, 0b001001110,
                  (outs DFPRegs:$dst), (ins DFPRegs:$src1, DFPRegs:$src2),
                  "fdivd $src1, $src2, $dst",
                  [(set f64:$dst, (fdiv f64:$src1, f64:$src2))]>;
-
-// Floating-point Compare Instructions, p. 148
-// Note: the 2nd template arg is different for these guys.
-// Note 2: the result of a FCMP is not available until the 2nd cycle
-// after the instr is retired, but there is no interlock. This behavior
-// is modelled with a forced noop after the instruction.
-let Defs = [FCC] in {
-  def FCMPS  : F3_3<2, 0b110101, 0b001010001,
-                   (outs), (ins FPRegs:$src1, FPRegs:$src2),
-                   "fcmps $src1, $src2\n\tnop",
-                   [(SPcmpfcc f32:$src1, f32:$src2)]>;
-  def FCMPD  : F3_3<2, 0b110101, 0b001010010,
-                   (outs), (ins DFPRegs:$src1, DFPRegs:$src2),
-                   "fcmpd $src1, $src2\n\tnop",
-                   [(SPcmpfcc f64:$src1, f64:$src2)]>;
-}
-
 
 
 // POPCrr - This does a ctpop of a 64-bit register.  As such, we have to clear
@@ -635,18 +475,11 @@ def : Pat<(ctpop i32:$src),
 // Non-Instruction Patterns
 //===----------------------------------------------------------------------===//
 
-// Small immediates.
 def : Pat<(i32 simm13:$val),
           (ORri (i32 G0), imm:$val)>;
-// Arbitrary immediates.
-def : Pat<(i32 imm:$val),
-          (ORri (SETHIi (HI22 imm:$val)), (LO10 imm:$val))>;
-
 
 // Global addresses, constant pool entries
-def : Pat<(SPhi tglobaladdr:$in), (SETHIi tglobaladdr:$in)>;
 def : Pat<(SPlo tglobaladdr:$in), (ORri (i32 G0), tglobaladdr:$in)>;
-def : Pat<(SPhi tconstpool:$in), (SETHIi tconstpool:$in)>;
 def : Pat<(SPlo tconstpool:$in), (ORri (i32 G0), tconstpool:$in)>;
 
 // Add reg, lo.  This is used when taking the addr of a global/constpool entry.

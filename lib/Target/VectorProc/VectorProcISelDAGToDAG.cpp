@@ -139,47 +139,6 @@ SDNode *VectorProcDAGToDAGISel::Select(SDNode *N) {
   if (N->isMachineOpcode())
     return NULL;   // Already selected.
 
-  switch (N->getOpcode()) {
-  default: break;
-  case SPISD::GLOBAL_BASE_REG:
-    return getGlobalBaseReg();
-
-  case ISD::SDIV:
-  case ISD::UDIV: {
-    // FIXME: should use a custom expander to expose the SRA to the dag.
-    SDValue DivLHS = N->getOperand(0);
-    SDValue DivRHS = N->getOperand(1);
-
-    // Set the Y register to the high-part.
-    SDValue TopPart;
-    if (N->getOpcode() == ISD::SDIV) {
-      TopPart = SDValue(CurDAG->getMachineNode(SP::SRAri, dl, MVT::i32, DivLHS,
-                                   CurDAG->getTargetConstant(31, MVT::i32)), 0);
-    } else {
-      TopPart = CurDAG->getRegister(SP::G0, MVT::i32);
-    }
-    TopPart = SDValue(CurDAG->getMachineNode(SP::WRYrr, dl, MVT::Glue, TopPart,
-                                     CurDAG->getRegister(SP::G0, MVT::i32)), 0);
-
-    // FIXME: Handle div by immediate.
-//    unsigned Opcode = N->getOpcode() == ISD::SDIV ? SP::SDIVrr : SP::UDIVrr;
- 	unsigned Opcode = 0;
-    return CurDAG->SelectNodeTo(N, Opcode, MVT::i32, DivLHS, DivRHS,
-                                TopPart);
-  }
-  case ISD::MULHU:
-  case ISD::MULHS: {
-    // FIXME: Handle mul by immediate.
-    SDValue MulLHS = N->getOperand(0);
-    SDValue MulRHS = N->getOperand(1);
-    unsigned Opcode = N->getOpcode() == /* ISD::MULHU ? SP::UMULrr : */ SP::SMULrr;
-    SDNode *Mul = CurDAG->getMachineNode(Opcode, dl, MVT::i32, MVT::Glue,
-                                         MulLHS, MulRHS);
-    // The high part is in the Y register.
-    return CurDAG->SelectNodeTo(N, SP::RDY, MVT::i32, SDValue(Mul, 1));
-  }
-  }
-
   return SelectCode(N);
 }
 

@@ -831,56 +831,13 @@ const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
   }
 }
 
-/// isMaskedValueZeroForTargetNode - Return true if 'Op & Mask' is known to
-/// be zero. Op is expected to be a target specific node. Used by DAG
-/// combiner.
 void VectorProcTargetLowering::computeMaskedBitsForTargetNode(const SDValue Op,
                                                          APInt &KnownZero,
                                                          APInt &KnownOne,
                                                          const SelectionDAG &DAG,
                                                          unsigned Depth) const {
-  APInt KnownZero2, KnownOne2;
-  KnownZero = KnownOne = APInt(KnownZero.getBitWidth(), 0);
-
-  switch (Op.getOpcode()) {
-  default: break;
-  case SPISD::SELECT_ICC:
-  case SPISD::SELECT_XCC:
-  case SPISD::SELECT_FCC:
-    DAG.ComputeMaskedBits(Op.getOperand(1), KnownZero, KnownOne, Depth+1);
-    DAG.ComputeMaskedBits(Op.getOperand(0), KnownZero2, KnownOne2, Depth+1);
-    assert((KnownZero & KnownOne) == 0 && "Bits known to be one AND zero?");
-    assert((KnownZero2 & KnownOne2) == 0 && "Bits known to be one AND zero?");
-
-    // Only known if known in both the LHS and RHS.
-    KnownOne &= KnownOne2;
-    KnownZero &= KnownZero2;
-    break;
-  }
 }
 
-// Look at LHS/RHS/CC and see if they are a lowered setcc instruction.  If so
-// set LHS/RHS and SPCC to the LHS/RHS of the setcc and SPCC to the condition.
-static void LookThroughSetCC(SDValue &LHS, SDValue &RHS,
-                             ISD::CondCode CC, unsigned &SPCC) {
-  if (isa<ConstantSDNode>(RHS) &&
-      cast<ConstantSDNode>(RHS)->isNullValue() &&
-      CC == ISD::SETNE &&
-      (((LHS.getOpcode() == SPISD::SELECT_ICC ||
-         LHS.getOpcode() == SPISD::SELECT_XCC) &&
-        LHS.getOperand(3).getOpcode() == SPISD::CMPICC) ||
-       (LHS.getOpcode() == SPISD::SELECT_FCC &&
-        LHS.getOperand(3).getOpcode() == SPISD::CMPFCC)) &&
-      isa<ConstantSDNode>(LHS.getOperand(0)) &&
-      isa<ConstantSDNode>(LHS.getOperand(1)) &&
-      cast<ConstantSDNode>(LHS.getOperand(0))->isOne() &&
-      cast<ConstantSDNode>(LHS.getOperand(1))->isNullValue()) {
-    SDValue CMPCC = LHS.getOperand(3);
-    SPCC = cast<ConstantSDNode>(LHS.getOperand(2))->getZExtValue();
-    LHS = CMPCC.getOperand(0);
-    RHS = CMPCC.getOperand(1);
-  }
-}
 
 SDValue VectorProcTargetLowering::LowerGlobalAddress(SDValue Op,
                                                 SelectionDAG &DAG) const {
@@ -938,23 +895,6 @@ static SDValue LowerSINT_TO_FP(SDValue Op, SelectionDAG &DAG) {
   SDValue Tmp = DAG.getNode(ISD::BITCAST, dl, MVT::f32, Op.getOperand(0));
   // Convert the int value to FP in an FP register.
   return DAG.getNode(SPISD::ITOF, dl, Op.getValueType(), Tmp);
-}
-
-
-static SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) {
-  DebugLoc DL = Op.getDebugLoc();
-  EVT Ty = Op.getOperand(0).getValueType();
-  if (!Ty.isVector())
-    Ty = MVT::i32;
-  else
-    Ty = Ty.changeVectorElementTypeToInteger();
-
-  SDValue Cond = DAG.getNode(ISD::SETCC, DL, Ty,
-                             Op.getOperand(0), Op.getOperand(1),
-                             Op.getOperand(4));
-
-  return DAG.getNode(ISD::SELECT, DL, Op.getValueType(), Cond, Op.getOperand(2),
-                     Op.getOperand(3));
 }
 
 static SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG,
@@ -1101,18 +1041,7 @@ static SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) {
 
 SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const {
-
-  switch (Op.getOpcode()) {
-  default: llvm_unreachable("Should not custom lower this!");
-  }
-}
-
-
-// Node looks like
-SDValue VectorProcTargetLowering::
-LowerBRCOND(SDValue Op, SelectionDAG &DAG) const
-{
-	return Op;
+	llvm_unreachable("Should not custom lower this!");
 }
 
 MachineBasicBlock *

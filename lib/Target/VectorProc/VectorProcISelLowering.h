@@ -50,8 +50,6 @@ namespace llvm {
   public:
     VectorProcTargetLowering(TargetMachine &TM);
     virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const;
-
-	SDValue LowerBRCOND(SDValue Op, SelectionDAG &DAG) const;
 	
     /// computeMaskedBitsForTargetNode - Determine which of the bits specified
     /// in Mask are known to be either zero or one and return them in the

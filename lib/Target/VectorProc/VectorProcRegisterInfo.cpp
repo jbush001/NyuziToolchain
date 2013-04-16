@@ -85,16 +85,7 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     MI.getOperand(FIOperandNum).ChangeToRegister(SP::I6, false);
     MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
   } else {
-    // Otherwise, emit a G1 = SETHI %hi(offset).  FIXME: it would be better to 
-    // scavenge a register here instead of reserving G1 all of the time.
-    unsigned OffHi = (unsigned)Offset >> 10U;
-    BuildMI(*MI.getParent(), II, dl, TII.get(SP::SETHIi), SP::G1).addImm(OffHi);
-    // Emit G1 = G1 + I6
-    BuildMI(*MI.getParent(), II, dl, TII.get(SP::ADDrr), SP::G1).addReg(SP::G1)
-      .addReg(SP::I6);
-    // Insert: G1+%lo(offset) into the user.
-    MI.getOperand(FIOperandNum).ChangeToRegister(SP::G1, false);
-    MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset & ((1 << 10)-1));
+		// XXX for large indices, need to load indirectly. Look at ARM.
   }
 }
 

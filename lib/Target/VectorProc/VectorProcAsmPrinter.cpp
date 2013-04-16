@@ -73,14 +73,6 @@ void VectorProcAsmPrinter::printOperand(const MachineInstr *MI, int opNum,
                                    raw_ostream &O) {
   const MachineOperand &MO = MI->getOperand (opNum);
   bool CloseParen = false;
-  if (MI->getOpcode() == SP::SETHIi && !MO.isReg() && !MO.isImm()) {
-    O << "%hi(";
-    CloseParen = true;
-  } else if ((MI->getOpcode() == SP::ORri || MI->getOpcode() == SP::ADDri) &&
-             !MO.isReg() && !MO.isImm()) {
-    O << "%lo(";
-    CloseParen = true;
-  }
   switch (MO.getType()) {
   case MachineOperand::MO_Register:
     O << StringRef(getRegisterName(MO.getReg())).lower();
