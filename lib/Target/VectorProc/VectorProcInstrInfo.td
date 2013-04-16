@@ -20,8 +20,6 @@ def simm20  : PatLeaf<(imm), [{ return isInt<20>(N->getSExtValue()); }]>;
 def ADDRrr : ComplexPattern<iPTR, 2, "SelectADDRrr", [], []>;
 def ADDRri : ComplexPattern<iPTR, 2, "SelectADDRri", [frameindex], []>;
 
-
-
 class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
 	: Instruction {
 	let Namespace = "SP";
@@ -99,6 +97,39 @@ def IFTRUE	: VPInstruction<
     "if s$rs goto $offset",
     [(brcond i32:$rs, bb:$offset)]> ;
 
+def MEMri : Operand<iPTR> {
+  let PrintMethod = "printMemOperand";
+  let MIOperandInfo = (ops ptr_rc, i32imm);
+}
+
+class MEMLOAD<string suffix, string regtype, PatFrag op> : VPInstruction<
+	(outs IntRegs:$dst),
+	(ins MEMri:$addr),
+	!strconcat(!strconcat(!strconcat(suffix, "$dst = mem_"), regtype), "[s$addr]"),
+	[(set i32:$dst, (op ADDRri:$addr))]>
+{
+}
+
+class MEMSTORE<string suffix, PatFrag op> : VPInstruction<
+	(outs),
+	(ins MEMri:$addr, IntRegs:$src),
+	!strconcat("mem_", !strconcat(suffix, "[s$addr] = s$src")),
+	[(op i32:$src, ADDRri:$addr)]>
+{
+}
+
+def LBS : MEMLOAD<"b", "s", sextloadi8>;
+def LBU : MEMLOAD<"b", "u", zextloadi8>;
+def LSS : MEMLOAD<"s", "s", sextloadi16>;
+def LSU : MEMLOAD<"s", "u", zextloadi16>;
+def LW : MEMLOAD<"s", "s", load>;
+def SB : MEMSTORE<"b", truncstorei8>;
+def SS : MEMSTORE<"s", truncstorei16>;
+def SW : MEMSTORE<"w", store>;
+
+def : Pat<(i32 (extloadi1 ADDRri:$src)), (LBU ADDRri:$src)>;
+def : Pat<(i32 (extloadi8 ADDRri:$src)), (LBU ADDRri:$src)>;
+def : Pat<(i32 (extloadi16 ADDRri:$src)), (LSS ADDRri:$src)>;
 
 class F2<dag outs, dag ins, string asmstr, list<dag> pattern>
    : VPInstruction<outs, ins, asmstr, pattern> {
@@ -189,10 +220,6 @@ def HI22 : SDNodeXForm<imm, [{
 def MEMrr : Operand<iPTR> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops ptr_rc, ptr_rc);
-}
-def MEMri : Operand<iPTR> {
-  let PrintMethod = "printMemOperand";
-  let MIOperandInfo = (ops ptr_rc, i32imm);
 }
 
 // Branch targets have OtherVT type.
@@ -310,57 +337,7 @@ let isReturn = 1, isTerminator = 1, hasDelaySlot = 1, isBarrier = 1 in {
                   "jmp %i7+$val", []>;
 }
 
-def LDSBri : F3_2<3, 0b001001,
-                  (outs IntRegs:$dst), (ins MEMri:$addr),
-                  "s$dst = mem_b[s$addr]",
-                  [(set i32:$dst, (sextloadi8 ADDRri:$addr))]>;
-def LDSHri : F3_2<3, 0b001010,
-                  (outs IntRegs:$dst), (ins MEMri:$addr),
-                  "s$dst = mem_s[s$addr]",
-                  [(set i32:$dst, (sextloadi16 ADDRri:$addr))]>;
-def LDUBri : F3_2<3, 0b000001,
-                  (outs IntRegs:$dst), (ins MEMri:$addr),
-                  "u$dst = mem_s[s$addr]",
-                  [(set i32:$dst, (zextloadi8 ADDRri:$addr))]>;
-def LDUHri : F3_2<3, 0b000010,
-                  (outs IntRegs:$dst), (ins MEMri:$addr),
-                  "s$dst = mem_s[s$addr]",
-                  [(set i32:$dst, (zextloadi16 ADDRri:$addr))]>;
-def LDri   : F3_2<3, 0b000000,
-                  (outs IntRegs:$dst), (ins MEMri:$addr),
-                  "s$dst = mem_l[s$addr]",
-                  [(set i32:$dst, (load ADDRri:$addr))]>;
 
-def LDFri  : F3_2<3, 0b100000,
-                  (outs FPRegs:$dst), (ins MEMri:$addr),
-                  "s$dst = mem_l[s$addr]",
-                  [(set f32:$dst, (load ADDRri:$addr))]>;
-def LDDFri : F3_2<3, 0b100011,
-                  (outs DFPRegs:$dst), (ins MEMri:$addr),
-                  "s$dst = mem_l[s$addr]",
-                  [(set f64:$dst, (load ADDRri:$addr))]>;
-
-def STBri : F3_2<3, 0b000101,
-                 (outs), (ins MEMri:$addr, IntRegs:$src),
-                 "mem_b[s$addr] = s$src",
-                 [(truncstorei8 i32:$src, ADDRri:$addr)]>;
-def STHri : F3_2<3, 0b000110,
-                 (outs), (ins MEMri:$addr, IntRegs:$src),
-                 "mem_s[s$addr] = s$src",
-                 [(truncstorei16 i32:$src, ADDRri:$addr)]>;
-def STri  : F3_2<3, 0b000100,
-                 (outs), (ins MEMri:$addr, IntRegs:$src),
-                 "mem_l[s$addr] = s$src",
-                 [(store i32:$src, ADDRri:$addr)]>;
-
-def STFri   : F3_2<3, 0b100100,
-                   (outs), (ins MEMri:$addr, FPRegs:$src),
-                   "mem_l[s$addr] = s$src",
-                   [(store f32:$src, ADDRri:$addr)]>;
-def STDFri  : F3_2<3, 0b100111,
-                   (outs), (ins MEMri:$addr, DFPRegs:$src),
-                   "mem_l[s$addr] = s$src",
-                   [(store f64:$src, ADDRri:$addr)]>;
 
 
 def LEA_ADDri   : F3_2<2, 0b000000,
@@ -498,7 +475,3 @@ def : Pat<(call tglobaladdr:$dst),
 def : Pat<(call texternalsym:$dst),
           (CALL texternalsym:$dst)>;
 
-def : Pat<(i32 (extloadi1 ADDRri:$src)), (LDUBri ADDRri:$src)>;
-def : Pat<(i32 (extloadi8 ADDRri:$src)), (LDUBri ADDRri:$src)>;
-def : Pat<(i32 (extloadi16 ADDRri:$src)), (LDUHri ADDRri:$src)>;
-def : Pat<(i32 (zextloadi1 ADDRri:$src)), (LDUBri ADDRri:$src)>;
