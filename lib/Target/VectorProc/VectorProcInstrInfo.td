@@ -347,28 +347,28 @@ def LDSBri : F3_2<3, 0b001001,
                   [(set i32:$dst, (sextloadi8 ADDRri:$addr))]>;
 def LDSHri : F3_2<3, 0b001010,
                   (outs IntRegs:$dst), (ins MEMri:$addr),
-                  "s%dst = mem_s[s$addr]",
+                  "s$dst = mem_s[s$addr]",
                   [(set i32:$dst, (sextloadi16 ADDRri:$addr))]>;
 def LDUBri : F3_2<3, 0b000001,
                   (outs IntRegs:$dst), (ins MEMri:$addr),
-                  "u%dst = mem_s[s$addr]",
+                  "u$dst = mem_s[s$addr]",
                   [(set i32:$dst, (zextloadi8 ADDRri:$addr))]>;
 def LDUHri : F3_2<3, 0b000010,
                   (outs IntRegs:$dst), (ins MEMri:$addr),
-                  "s%dst = mem_s[s$addr]",
+                  "s$dst = mem_s[s$addr]",
                   [(set i32:$dst, (zextloadi16 ADDRri:$addr))]>;
 def LDri   : F3_2<3, 0b000000,
                   (outs IntRegs:$dst), (ins MEMri:$addr),
-                  "s%dst = mem_l[s$addr]",
+                  "s$dst = mem_l[s$addr]",
                   [(set i32:$dst, (load ADDRri:$addr))]>;
 
 def LDFri  : F3_2<3, 0b100000,
                   (outs FPRegs:$dst), (ins MEMri:$addr),
-                  "s%dst = mem_l[s$addr]",
+                  "s$dst = mem_l[s$addr]",
                   [(set f32:$dst, (load ADDRri:$addr))]>;
 def LDDFri : F3_2<3, 0b100011,
                   (outs DFPRegs:$dst), (ins MEMri:$addr),
-                  "s%dst = mem_l[s$addr]",
+                  "s$dst = mem_l[s$addr]",
                   [(set f64:$dst, (load ADDRri:$addr))]>;
 
 def STBri : F3_2<3, 0b000101,
@@ -420,48 +420,55 @@ let Defs = [Y] in {
   defm SMUL : VPTernaryIntArith  <"*", mul>;
 }
 
-def BranchIfTrue : VPInstruction<
+def IFFALSE	: VPInstruction<
+  	(outs), 
+  	(ins IntRegs:$rs, brtarget:$offset),
+    "if !s$rs goto $offset",
+    [(brcond (i32 (seteq i32:$rs, 0)), bb:$offset)]> ;
+
+def IFTRUE	: VPInstruction<
+  	(outs), 
+  	(ins IntRegs:$rs, brtarget:$offset),
+    "if s$rs goto $offset",
+    [(brcond i32:$rs, bb:$offset)]> ;
+
+def SGT : VPInstruction<
+  	(outs IntRegs:$dst), 
+  	(ins IntRegs:$ra, IntRegs:$rb),
+	"s$dst = s$ra > s$rb",
+    [(set i32:$dst, (selectcc i32:$ra, i32:$rb, 1, 0, SETGT))]>;
+
+def SGE : VPInstruction<
+  	(outs IntRegs:$dst), 
+  	(ins IntRegs:$ra, IntRegs:$rb),
+	"s$dst = s$ra >= s$rb",
+    [(set i32:$dst, (selectcc i32:$ra, i32:$rb, 1, 0, SETGE))]>;
+
+def SLT : VPInstruction<
+  	(outs IntRegs:$dst), 
+  	(ins IntRegs:$ra, IntRegs:$rb),
+	"s$dst = s$ra < s$rb",
+    [(set i32:$dst, (selectcc i32:$ra, i32:$rb, 1, 0, SETLT))]>;
+
+def SLE : VPInstruction<
+  	(outs IntRegs:$dst), 
+  	(ins IntRegs:$ra, IntRegs:$rb),
+	"s$dst = s$ra <= s$rb",
+    [(set i32:$dst, (selectcc i32:$ra, i32:$rb, 1, 0, SETLE))]>;
+
+
+//def SGT : SetCC_R<">", setgt>;
+//def SLT : SetCC_R<"<", setlt>;
+//def SLE : SetCC_R<"<=", setle>;
+//def SGE : SetCC_R<">=", setge>;
+//def SEQ : SetCC_R<"==", seteq>;
+//def SNE : SetCC_R<"!=", setne>;
+
+def GOTO : VPInstruction<
 	(outs),
-	(ins IntRegs:$test, brtarget:$dst),
-	"if $test goto $dst",
-	[(brcond i32:$test, bb:$dst)]>;
-
-// conditional branch class:
-class BranchSP<bits<4> cc, dag ins, string asmstr, list<dag> pattern>
- : F2_2<cc, 0b010, (outs), ins, asmstr, pattern> {
-  let isBranch = 1;
-  let isTerminator = 1;
-  let hasDelaySlot = 1;
-}
-
-let isBarrier = 1 in
-  def BA   : BranchSP<0b1000, (ins brtarget:$dst),
-                      "ba $dst",
-                      [(br bb:$dst)]>;
-
-// FIXME: the encoding for the JIT should look at the condition field.
-let Uses = [ICC] in
-  def BCOND : BranchSP<0, (ins brtarget:$dst, CCOp:$cc),
-                         "b$cc $dst",
-                        [(SPbricc bb:$dst, imm:$cc)]>;
-
-
-// Section B.22 - Branch on Floating-point Condition Codes Instructions, p. 121
-
-// floating-point conditional branch class:
-class FPBranchSP<bits<4> cc, dag ins, string asmstr, list<dag> pattern>
- : F2_2<cc, 0b110, (outs), ins, asmstr, pattern> {
-  let isBranch = 1;
-  let isTerminator = 1;
-  let hasDelaySlot = 1;
-}
-
-// FIXME: the encoding for the JIT should look at the condition field.
-let Uses = [FCC] in
-  def FBCOND  : FPBranchSP<0, (ins brtarget:$dst, CCOp:$cc),
-                              "fb$cc $dst",
-                              [(SPbrfcc bb:$dst, imm:$cc)]>;
-
+	(ins brtarget:$offset),
+	"goto $offset",
+	[(br bb:$offset)]>;
 
 // Section B.24 - Call and Link Instruction, p. 125
 // This is the only Format 1 instruction

@@ -131,6 +131,7 @@ bool VectorProcInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
                                    bool AllowModify) const
 {
 
+#if 0
   MachineBasicBlock::iterator I = MBB.end();
   MachineBasicBlock::iterator UnCondBrIter = MBB.end();
   while (I != MBB.begin()) {
@@ -223,6 +224,7 @@ bool VectorProcInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
     //For now, we can't handle multiple conditional branches
     return true;
   }
+#endif
   return false;
 }
 
@@ -231,6 +233,7 @@ VectorProcInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
                              MachineBasicBlock *FBB,
                              const SmallVectorImpl<MachineOperand> &Cond,
                              DebugLoc DL) const {
+#if 0
   assert(TBB && "InsertBranch must not be told to insert a fallthrough");
   assert((Cond.size() == 1 || Cond.size() == 0) &&
          "VectorProc branch conditions should have one component!");
@@ -253,10 +256,12 @@ VectorProcInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
 
   BuildMI(&MBB, DL, get(SP::BA)).addMBB(FBB);
   return 2;
+#endif
 }
 
 unsigned VectorProcInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const
 {
+#if 0
   MachineBasicBlock::iterator I = MBB.end();
   unsigned Count = 0;
   while (I != MBB.begin()) {
@@ -275,6 +280,7 @@ unsigned VectorProcInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const
     ++Count;
   }
   return Count;
+#endif
 }
 
 void VectorProcInstrInfo::copyPhysReg(MachineBasicBlock &MBB,

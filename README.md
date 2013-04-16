@@ -25,14 +25,14 @@ To run (from within build directory)
 
 3. To view DAGs:
 
- a. Make sure GraphViz is in your path.  Run configure and build.
- b. Generate LLVM IR code for your file:
+* Make sure GraphViz is in your path.  Run configure and build.
+* Generate LLVM IR code for your file:
 
 <pre>
 ./Debug+Asserts/bin/clang  -target vectorproc branch.c -emit-llvm  -o branch.llvm -S
 </pre>
 
- c. Run llc on the code to view the output:
+* Run llc on the code to view the output:
 
 <pre>
 ./Debug+Asserts/bin/llc -view-dag-combine1-dags branch.llvm 
@@ -40,10 +40,10 @@ To run (from within build directory)
 
 The following options are legal:
 
--view-dag-combine1-dags displays the DAG after being built, before the first optimization pass.
--view-legalize-dags displays the DAG before Legalization.
--view-dag-combine2-dags displays the DAG before the second optimization pass.
--view-isel-dags displays the DAG before the Select phase.
--view-sched-dags displays the DAG before Scheduling.
+* -view-dag-combine1-dags displays the DAG after being built, before the first optimization pass.
+* -view-legalize-dags displays the DAG before Legalization.
+* -view-dag-combine2-dags displays the DAG before the second optimization pass.
+* -view-isel-dags displays the DAG before the Select phase.
+* -view-sched-dags displays the DAG before Scheduling.
 
 

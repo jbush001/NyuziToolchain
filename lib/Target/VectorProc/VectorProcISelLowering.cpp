@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#define DEBUG_TYPE "isel"
 #include "VectorProcISelLowering.h"
 #include "VectorProcMachineFunctionInfo.h"
 #include "VectorProcTargetMachine.h"
@@ -26,6 +27,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/Debug.h"
 using namespace llvm;
 
 
@@ -787,115 +789,18 @@ static SPCC::CondCodes FPCondCCodeToFCC(ISD::CondCode CC) {
 
 VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   : TargetLowering(TM, new TargetLoweringObjectFileELF()) {
+
   Subtarget = &TM.getSubtarget<VectorProcSubtarget>();
 
   // Set up the register classes.
   addRegisterClass(MVT::i32, &SP::IntRegsRegClass);
   addRegisterClass(MVT::f32, &SP::FPRegsRegClass);
   addRegisterClass(MVT::f64, &SP::DFPRegsRegClass);
- 
-  // Turn FP extload into load/fextend
-  setLoadExtAction(ISD::EXTLOAD, MVT::f32, Expand);
-  // VectorProc doesn't have i1 sign extending load
-  setLoadExtAction(ISD::SEXTLOAD, MVT::i1, Promote);
-  // Turn FP truncstore into trunc + store.
-  setTruncStoreAction(MVT::f64, MVT::f32, Expand);
 
-  // Custom legalize GlobalAddress nodes into LO/HI parts.
-  setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
-  setOperationAction(ISD::GlobalTLSAddress, MVT::i32, Custom);
-  setOperationAction(ISD::ConstantPool , MVT::i32, Custom);
-
-  // VectorProc doesn't have sext_inreg, replace them with shl/sra
-  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i16, Expand);
-  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i8 , Expand);
-  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1 , Expand);
-
-  // VectorProc has no REM or DIVREM operations.
-  setOperationAction(ISD::UREM, MVT::i32, Expand);
-  setOperationAction(ISD::SREM, MVT::i32, Expand);
-  setOperationAction(ISD::SDIVREM, MVT::i32, Expand);
-  setOperationAction(ISD::UDIVREM, MVT::i32, Expand);
-
-  // Custom expand fp<->sint
-  setOperationAction(ISD::FP_TO_SINT, MVT::i32, Custom);
-  setOperationAction(ISD::SINT_TO_FP, MVT::i32, Custom);
-
-  // Expand fp<->uint
-  setOperationAction(ISD::FP_TO_UINT, MVT::i32, Expand);
-  setOperationAction(ISD::UINT_TO_FP, MVT::i32, Expand);
-
-  setOperationAction(ISD::BITCAST, MVT::f32, Expand);
-  setOperationAction(ISD::BITCAST, MVT::i32, Expand);
-
-  // VectorProc has no select or setcc: expand to SELECT_CC.
-  setOperationAction(ISD::SELECT, MVT::i32, Expand);
-  setOperationAction(ISD::SELECT, MVT::f32, Expand);
-  setOperationAction(ISD::SELECT, MVT::f64, Expand);
+  // Progressively expand conditionals into SELECT_CCs
+  setOperationAction(ISD::BR_CC, MVT::i32, Expand);
+  setOperationAction(ISD::BRCOND, MVT::i32, Expand);
   setOperationAction(ISD::SETCC, MVT::i32, Expand);
-  setOperationAction(ISD::SETCC, MVT::f32, Expand);
-  setOperationAction(ISD::SETCC, MVT::f64, Expand);
-
-  setOperationAction(ISD::BRCOND, MVT::Other, Legal);
-  setOperationAction(ISD::BRIND, MVT::Other, Expand);
-  setOperationAction(ISD::BR_JT, MVT::Other, Expand);
-
-  setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
-  setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
-  setOperationAction(ISD::SELECT_CC, MVT::f64, Custom);
-
-  // FIXME: There are instructions available for ATOMIC_FENCE
-  // on VectorProcV8 and later.
-  setOperationAction(ISD::MEMBARRIER, MVT::Other, Expand);
-  setOperationAction(ISD::ATOMIC_FENCE, MVT::Other, Expand);
-
-  setOperationAction(ISD::FSIN , MVT::f64, Expand);
-  setOperationAction(ISD::FCOS , MVT::f64, Expand);
-  setOperationAction(ISD::FSINCOS, MVT::f64, Expand);
-  setOperationAction(ISD::FREM , MVT::f64, Expand);
-  setOperationAction(ISD::FMA  , MVT::f64, Expand);
-  setOperationAction(ISD::FSIN , MVT::f32, Expand);
-  setOperationAction(ISD::FCOS , MVT::f32, Expand);
-  setOperationAction(ISD::FSINCOS, MVT::f32, Expand);
-  setOperationAction(ISD::FREM , MVT::f32, Expand);
-  setOperationAction(ISD::FMA  , MVT::f32, Expand);
-  setOperationAction(ISD::CTPOP, MVT::i32, Expand);
-  setOperationAction(ISD::CTTZ , MVT::i32, Expand);
-  setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Expand);
-  setOperationAction(ISD::CTLZ , MVT::i32, Expand);
-  setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Expand);
-  setOperationAction(ISD::ROTL , MVT::i32, Expand);
-  setOperationAction(ISD::ROTR , MVT::i32, Expand);
-  setOperationAction(ISD::BSWAP, MVT::i32, Expand);
-  setOperationAction(ISD::FCOPYSIGN, MVT::f64, Expand);
-  setOperationAction(ISD::FCOPYSIGN, MVT::f32, Expand);
-  setOperationAction(ISD::FPOW , MVT::f64, Expand);
-  setOperationAction(ISD::FPOW , MVT::f32, Expand);
-
-  setOperationAction(ISD::SHL_PARTS, MVT::i32, Expand);
-  setOperationAction(ISD::SRA_PARTS, MVT::i32, Expand);
-  setOperationAction(ISD::SRL_PARTS, MVT::i32, Expand);
-
-  // FIXME: VectorProc provides these multiplies, but we don't have them yet.
-  setOperationAction(ISD::UMUL_LOHI, MVT::i32, Expand);
-  setOperationAction(ISD::SMUL_LOHI, MVT::i32, Expand);
-
-  setOperationAction(ISD::EH_LABEL, MVT::Other, Expand);
-
-  // VASTART needs to be custom lowered to use the VarArgsFrameIndex.
-  setOperationAction(ISD::VASTART           , MVT::Other, Custom);
-  // VAARG needs to be lowered to not do unaligned accesses for doubles.
-  setOperationAction(ISD::VAARG             , MVT::Other, Custom);
-
-  // Use the default implementation.
-  setOperationAction(ISD::VACOPY            , MVT::Other, Expand);
-  setOperationAction(ISD::VAEND             , MVT::Other, Expand);
-  setOperationAction(ISD::STACKSAVE         , MVT::Other, Expand);
-  setOperationAction(ISD::STACKRESTORE      , MVT::Other, Expand);
-  setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32  , Custom);
-
-  // No debug info support yet.
-  setOperationAction(ISD::EH_LABEL, MVT::Other, Expand);
 
   setStackPointerRegisterToSaveRestore(SP::O6);
 
@@ -1035,66 +940,21 @@ static SDValue LowerSINT_TO_FP(SDValue Op, SelectionDAG &DAG) {
   return DAG.getNode(SPISD::ITOF, dl, Op.getValueType(), Tmp);
 }
 
-static SDValue LowerBR_CC(SDValue Op, SelectionDAG &DAG) {
-  SDValue Chain = Op.getOperand(0);
-  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(1))->get();
-  SDValue LHS = Op.getOperand(2);
-  SDValue RHS = Op.getOperand(3);
-  SDValue Dest = Op.getOperand(4);
-  DebugLoc dl = Op.getDebugLoc();
-  unsigned Opc, SPCC = ~0U;
-
-  // If this is a br_cc of a "setcc", and if the setcc got lowered into
-  // an CMP[IF]CC/SELECT_[IF]CC pair, find the original compared values.
-  LookThroughSetCC(LHS, RHS, CC, SPCC);
-
-  // Get the condition flag.
-  SDValue CompareFlag;
-  if (LHS.getValueType().isInteger()) {
-    EVT VTs[] = { LHS.getValueType(), MVT::Glue };
-    SDValue Ops[2] = { LHS, RHS };
-    CompareFlag = DAG.getNode(SPISD::CMPICC, dl, VTs, Ops, 2).getValue(1);
-    if (SPCC == ~0U) SPCC = IntCondCCodeToICC(CC);
-    // 32-bit compares use the icc flags, 64-bit uses the xcc flags.
-    Opc = LHS.getValueType() == MVT::i32 ? SPISD::BRICC : SPISD::BRXCC;
-  } else {
-    CompareFlag = DAG.getNode(SPISD::CMPFCC, dl, MVT::Glue, LHS, RHS);
-    if (SPCC == ~0U) SPCC = FPCondCCodeToFCC(CC);
-    Opc = SPISD::BRFCC;
-  }
-  return DAG.getNode(Opc, dl, MVT::Other, Chain, Dest,
-                     DAG.getConstant(SPCC, MVT::i32), CompareFlag);
-}
 
 static SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) {
-  SDValue LHS = Op.getOperand(0);
-  SDValue RHS = Op.getOperand(1);
-  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(4))->get();
-  SDValue TrueVal = Op.getOperand(2);
-  SDValue FalseVal = Op.getOperand(3);
-  DebugLoc dl = Op.getDebugLoc();
-  unsigned Opc, SPCC = ~0U;
+  DebugLoc DL = Op.getDebugLoc();
+  EVT Ty = Op.getOperand(0).getValueType();
+  if (!Ty.isVector())
+    Ty = MVT::i32;
+  else
+    Ty = Ty.changeVectorElementTypeToInteger();
 
-  // If this is a select_cc of a "setcc", and if the setcc got lowered into
-  // an CMP[IF]CC/SELECT_[IF]CC pair, find the original compared values.
-  LookThroughSetCC(LHS, RHS, CC, SPCC);
+  SDValue Cond = DAG.getNode(ISD::SETCC, DL, Ty,
+                             Op.getOperand(0), Op.getOperand(1),
+                             Op.getOperand(4));
 
-  SDValue CompareFlag;
-  if (LHS.getValueType().isInteger()) {
-    // subcc returns a value
-    EVT VTs[] = { LHS.getValueType(), MVT::Glue };
-    SDValue Ops[2] = { LHS, RHS };
-    CompareFlag = DAG.getNode(SPISD::CMPICC, dl, VTs, Ops, 2).getValue(1);
-    Opc = LHS.getValueType() == MVT::i32 ?
-          SPISD::SELECT_ICC : SPISD::SELECT_XCC;
-    if (SPCC == ~0U) SPCC = IntCondCCodeToICC(CC);
-  } else {
-    CompareFlag = DAG.getNode(SPISD::CMPFCC, dl, MVT::Glue, LHS, RHS);
-    Opc = SPISD::SELECT_FCC;
-    if (SPCC == ~0U) SPCC = FPCondCCodeToFCC(CC);
-  }
-  return DAG.getNode(Opc, dl, TrueVal.getValueType(), TrueVal, FalseVal,
-                     DAG.getConstant(SPCC, MVT::i32), CompareFlag);
+  return DAG.getNode(ISD::SELECT, DL, Op.getValueType(), Cond, Op.getOperand(2),
+                     Op.getOperand(3));
 }
 
 static SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG,
@@ -1166,6 +1026,7 @@ static SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) {
   SDValue Ops[2] = { NewVal, Chain };
   return DAG.getMergeValues(Ops, 2, dl);
 }
+
 
 
 static SDValue getFLUSHW(SDValue Op, SelectionDAG &DAG) {
@@ -1240,97 +1101,24 @@ static SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) {
 
 SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const {
+
   switch (Op.getOpcode()) {
   default: llvm_unreachable("Should not custom lower this!");
-  case ISD::RETURNADDR:         return LowerRETURNADDR(Op, DAG);
-  case ISD::FRAMEADDR:          return LowerFRAMEADDR(Op, DAG);
-  case ISD::GlobalTLSAddress:
-    llvm_unreachable("TLS not implemented for VectorProc.");
-  case ISD::GlobalAddress:      return LowerGlobalAddress(Op, DAG);
-  case ISD::ConstantPool:       return LowerConstantPool(Op, DAG);
-  case ISD::FP_TO_SINT:         return LowerFP_TO_SINT(Op, DAG);
-  case ISD::SINT_TO_FP:         return LowerSINT_TO_FP(Op, DAG);
-  case ISD::BR_CC:              return LowerBR_CC(Op, DAG);
-  case ISD::SELECT_CC:          return LowerSELECT_CC(Op, DAG);
-  case ISD::VASTART:            return LowerVASTART(Op, DAG, *this);
-  case ISD::VAARG:              return LowerVAARG(Op, DAG);
-  case ISD::DYNAMIC_STACKALLOC: return LowerDYNAMIC_STACKALLOC(Op, DAG);
   }
+}
+
+
+// Node looks like
+SDValue VectorProcTargetLowering::
+LowerBRCOND(SDValue Op, SelectionDAG &DAG) const
+{
+	return Op;
 }
 
 MachineBasicBlock *
 VectorProcTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
                                                  MachineBasicBlock *BB) const {
-  const TargetInstrInfo &TII = *getTargetMachine().getInstrInfo();
-  unsigned BROpcode;
-  unsigned CC;
-  DebugLoc dl = MI->getDebugLoc();
-  // Figure out the conditional branch opcode to use for this select_cc.
-  switch (MI->getOpcode()) {
-  default: llvm_unreachable("Unknown SELECT_CC!");
-  case SP::SELECT_CC_Int_ICC:
-  case SP::SELECT_CC_FP_ICC:
-  case SP::SELECT_CC_DFP_ICC:
-    BROpcode = SP::BCOND;
-    break;
-  case SP::SELECT_CC_Int_FCC:
-  case SP::SELECT_CC_FP_FCC:
-  case SP::SELECT_CC_DFP_FCC:
-    BROpcode = SP::FBCOND;
-    break;
-  }
 
-  CC = (SPCC::CondCodes)MI->getOperand(3).getImm();
-
-  // To "insert" a SELECT_CC instruction, we actually have to insert the diamond
-  // control-flow pattern.  The incoming instruction knows the destination vreg
-  // to set, the condition code register to branch on, the true/false values to
-  // select between, and a branch opcode to use.
-  const BasicBlock *LLVM_BB = BB->getBasicBlock();
-  MachineFunction::iterator It = BB;
-  ++It;
-
-  //  thisMBB:
-  //  ...
-  //   TrueVal = ...
-  //   [f]bCC copy1MBB
-  //   fallthrough --> copy0MBB
-  MachineBasicBlock *thisMBB = BB;
-  MachineFunction *F = BB->getParent();
-  MachineBasicBlock *copy0MBB = F->CreateMachineBasicBlock(LLVM_BB);
-  MachineBasicBlock *sinkMBB = F->CreateMachineBasicBlock(LLVM_BB);
-  F->insert(It, copy0MBB);
-  F->insert(It, sinkMBB);
-
-  // Transfer the remainder of BB and its successor edges to sinkMBB.
-  sinkMBB->splice(sinkMBB->begin(), BB,
-                  llvm::next(MachineBasicBlock::iterator(MI)),
-                  BB->end());
-  sinkMBB->transferSuccessorsAndUpdatePHIs(BB);
-
-  // Add the true and fallthrough blocks as its successors.
-  BB->addSuccessor(copy0MBB);
-  BB->addSuccessor(sinkMBB);
-
-  BuildMI(BB, dl, TII.get(BROpcode)).addMBB(sinkMBB).addImm(CC);
-
-  //  copy0MBB:
-  //   %FalseValue = ...
-  //   # fallthrough to sinkMBB
-  BB = copy0MBB;
-
-  // Update machine-CFG edges
-  BB->addSuccessor(sinkMBB);
-
-  //  sinkMBB:
-  //   %Result = phi [ %FalseValue, copy0MBB ], [ %TrueValue, thisMBB ]
-  //  ...
-  BB = sinkMBB;
-  BuildMI(*BB, BB->begin(), dl, TII.get(SP::PHI), MI->getOperand(0).getReg())
-    .addReg(MI->getOperand(2).getReg()).addMBB(copy0MBB)
-    .addReg(MI->getOperand(1).getReg()).addMBB(thisMBB);
-
-  MI->eraseFromParent();   // The pseudo instruction is gone now.
   return BB;
 }
 

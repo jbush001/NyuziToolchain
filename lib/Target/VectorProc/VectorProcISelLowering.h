@@ -51,6 +51,8 @@ namespace llvm {
     VectorProcTargetLowering(TargetMachine &TM);
     virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const;
 
+	SDValue LowerBRCOND(SDValue Op, SelectionDAG &DAG) const;
+	
     /// computeMaskedBitsForTargetNode - Determine which of the bits specified
     /// in Mask are known to be either zero or one and return them in the
     /// KnownZero/KnownOne bitsets.
@@ -91,6 +93,8 @@ namespace llvm {
                                     const SmallVectorImpl<ISD::InputArg> &Ins,
                                     DebugLoc dl, SelectionDAG &DAG,
                                     SmallVectorImpl<SDValue> &InVals) const;
+
+	SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
 
     virtual SDValue
       LowerCall(TargetLowering::CallLoweringInfo &CLI,
