@@ -20,6 +20,8 @@ def simm20  : PatLeaf<(imm), [{ return isInt<20>(N->getSExtValue()); }]>;
 def ADDRrr : ComplexPattern<iPTR, 2, "SelectADDRrr", [], []>;
 def ADDRri : ComplexPattern<iPTR, 2, "SelectADDRri", [frameindex], []>;
 
+
+
 class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
 	: Instruction {
 	let Namespace = "SP";
@@ -44,6 +46,58 @@ multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 		!strconcat("s$dst = s$b ", !strconcat(operator, " s$c")),
 		[(set i32:$dst, (OpNode i32:$b, i32:$c))]>;	// XXXX simm13
 }
+
+defm AND    : VPTernaryIntArith<"&", and>;
+defm OR     : VPTernaryIntArith<"|", or>;
+defm XOR    : VPTernaryIntArith<"^", xor>;
+defm SLL    : VPTernaryIntArith<"<<", shl>;
+defm SRL    : VPTernaryIntArith<">>", srl>;
+defm SRA    : VPTernaryIntArith<">>", sra>;	// XXX need to use U register.
+defm ADD    : VPTernaryIntArith<"+", add>;
+defm SUB    : VPTernaryIntArith<"-", add>;
+
+def brtarget : Operand<OtherVT>;
+
+multiclass COND<string operator, CondCode condition> {
+	// Instruction format A, integer
+	def rr : VPInstruction<
+		(outs IntRegs:$dst), 
+		(ins IntRegs:$a, IntRegs:$b),
+		!strconcat("s$dst = s$a ", !strconcat(operator, " s$b")),
+		[(set i32:$dst, (selectcc i32:$a, i32:$b, 1, 0, condition))]>;
+
+	// Instruction format B
+	def ri : VPInstruction<
+		(outs IntRegs:$dst), 
+		(ins IntRegs:$a, i32imm:$b),
+		!strconcat("s$dst = s$a ", !strconcat(operator, " s$b")),
+		[(set i32:$dst, (selectcc i32:$a, i32:$b, 1, 0, condition))]>;
+}
+
+defm SGT : COND<">", SETGT>;
+defm SGE : COND<">=", SETGE>;
+defm SLT : COND<"<", SETLT>;
+defm SLE : COND<"<=", SETLE>;
+defm SEQ : COND<"==", SETEQ>;
+defm SNE : COND<"!=", SETNE>;
+
+def GOTO : VPInstruction<
+	(outs),
+	(ins brtarget:$offset),
+	"goto $offset",
+	[(br bb:$offset)]>;
+
+def IFFALSE	: VPInstruction<
+  	(outs), 
+  	(ins IntRegs:$rs, brtarget:$offset),
+    "if !s$rs goto $offset",
+    [(brcond (i32 (seteq i32:$rs, 0)), bb:$offset)]> ;
+
+def IFTRUE	: VPInstruction<
+  	(outs), 
+  	(ins IntRegs:$rs, brtarget:$offset),
+    "if s$rs goto $offset",
+    [(brcond i32:$rs, bb:$offset)]> ;
 
 
 class F2<dag outs, dag ins, string asmstr, list<dag> pattern>
@@ -142,7 +196,6 @@ def MEMri : Operand<iPTR> {
 }
 
 // Branch targets have OtherVT type.
-def brtarget : Operand<OtherVT>;
 def calltarget : Operand<i32>;
 
 // Operand for printing out a condition code.
@@ -309,14 +362,6 @@ def STDFri  : F3_2<3, 0b100111,
                    "mem_l[s$addr] = s$src",
                    [(store f64:$src, ADDRri:$addr)]>;
 
-defm AND    : VPTernaryIntArith<"&", and>;
-defm OR     : VPTernaryIntArith<"|", or>;
-defm XOR    : VPTernaryIntArith<"^", xor>;
-defm SLL    : VPTernaryIntArith<"<<", shl>;
-defm SRL    : VPTernaryIntArith<">>", srl>;
-defm SRA    : VPTernaryIntArith<">>", sra>;	// XXX need to use U register.
-defm ADD    : VPTernaryIntArith<"+", add>;
-defm SUB    : VPTernaryIntArith<"-", add>;
 
 def LEA_ADDri   : F3_2<2, 0b000000,
                    (outs IntRegs:$dst), (ins MEMri:$addr),
@@ -327,47 +372,6 @@ let Defs = [Y] in {
   defm SMUL : VPTernaryIntArith  <"*", mul>;
 }
 
-def IFFALSE	: VPInstruction<
-  	(outs), 
-  	(ins IntRegs:$rs, brtarget:$offset),
-    "if !s$rs goto $offset",
-    [(brcond (i32 (seteq i32:$rs, 0)), bb:$offset)]> ;
-
-def IFTRUE	: VPInstruction<
-  	(outs), 
-  	(ins IntRegs:$rs, brtarget:$offset),
-    "if s$rs goto $offset",
-    [(brcond i32:$rs, bb:$offset)]> ;
-
-def SGT : VPInstruction<
-  	(outs IntRegs:$dst), 
-  	(ins IntRegs:$ra, IntRegs:$rb),
-	"s$dst = s$ra > s$rb",
-    [(set i32:$dst, (selectcc i32:$ra, i32:$rb, 1, 0, SETGT))]>;
-
-def SGE : VPInstruction<
-  	(outs IntRegs:$dst), 
-  	(ins IntRegs:$ra, IntRegs:$rb),
-	"s$dst = s$ra >= s$rb",
-    [(set i32:$dst, (selectcc i32:$ra, i32:$rb, 1, 0, SETGE))]>;
-
-def SLT : VPInstruction<
-  	(outs IntRegs:$dst), 
-  	(ins IntRegs:$ra, IntRegs:$rb),
-	"s$dst = s$ra < s$rb",
-    [(set i32:$dst, (selectcc i32:$ra, i32:$rb, 1, 0, SETLT))]>;
-
-def SLE : VPInstruction<
-  	(outs IntRegs:$dst), 
-  	(ins IntRegs:$ra, IntRegs:$rb),
-	"s$dst = s$ra <= s$rb",
-    [(set i32:$dst, (selectcc i32:$ra, i32:$rb, 1, 0, SETLE))]>;
-
-def GOTO : VPInstruction<
-	(outs),
-	(ins brtarget:$offset),
-	"goto $offset",
-	[(br bb:$offset)]>;
 
 let Uses = [O6],
     hasDelaySlot = 1, isCall = 1,

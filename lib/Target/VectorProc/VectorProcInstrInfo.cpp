@@ -130,101 +130,6 @@ bool VectorProcInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
                                    SmallVectorImpl<MachineOperand> &Cond,
                                    bool AllowModify) const
 {
-
-#if 0
-  MachineBasicBlock::iterator I = MBB.end();
-  MachineBasicBlock::iterator UnCondBrIter = MBB.end();
-  while (I != MBB.begin()) {
-    --I;
-
-    if (I->isDebugValue())
-      continue;
-
-    //When we see a non-terminator, we are done
-    if (!isUnpredicatedTerminator(I))
-      break;
-
-    //Terminator is not a branch
-    if (!I->isBranch())
-      return true;
-
-    //Handle Unconditional branches
-    if (I->getOpcode() == SP::BA) {
-      UnCondBrIter = I;
-
-      if (!AllowModify) {
-        TBB = I->getOperand(0).getMBB();
-        continue;
-      }
-
-      while (llvm::next(I) != MBB.end())
-        llvm::next(I)->eraseFromParent();
-
-      Cond.clear();
-      FBB = 0;
-
-      if (MBB.isLayoutSuccessor(I->getOperand(0).getMBB())) {
-        TBB = 0;
-        I->eraseFromParent();
-        I = MBB.end();
-        UnCondBrIter = MBB.end();
-        continue;
-      }
-
-      TBB = I->getOperand(0).getMBB();
-      continue;
-    }
-
-    unsigned Opcode = I->getOpcode();
-    if (Opcode != SP::BCOND && Opcode != SP::FBCOND)
-      return true; //Unknown Opcode
-
-    SPCC::CondCodes BranchCode = (SPCC::CondCodes)I->getOperand(1).getImm();
-
-    if (Cond.empty()) {
-      MachineBasicBlock *TargetBB = I->getOperand(0).getMBB();
-      if (AllowModify && UnCondBrIter != MBB.end() &&
-          MBB.isLayoutSuccessor(TargetBB)) {
-
-        //Transform the code
-        //
-        //    brCC L1
-        //    ba L2
-        // L1:
-        //    ..
-        // L2:
-        //
-        // into
-        //
-        //   brnCC L2
-        // L1:
-        //   ...
-        // L2:
-        //
-        BranchCode = GetOppositeBranchCondition(BranchCode);
-        MachineBasicBlock::iterator OldInst = I;
-        BuildMI(MBB, UnCondBrIter, MBB.findDebugLoc(I), get(Opcode))
-          .addMBB(UnCondBrIter->getOperand(0).getMBB()).addImm(BranchCode);
-        BuildMI(MBB, UnCondBrIter, MBB.findDebugLoc(I), get(SP::BA))
-          .addMBB(TargetBB);
-
-        OldInst->eraseFromParent();
-        UnCondBrIter->eraseFromParent();
-
-        UnCondBrIter = MBB.end();
-        I = MBB.end();
-        continue;
-      }
-      FBB = TBB;
-      TBB = I->getOperand(0).getMBB();
-      Cond.push_back(MachineOperand::CreateImm(BranchCode));
-      continue;
-    }
-    //FIXME: Handle subsequent conditional branches
-    //For now, we can't handle multiple conditional branches
-    return true;
-  }
-#endif
   return false;
 }
 
@@ -233,54 +138,12 @@ VectorProcInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
                              MachineBasicBlock *FBB,
                              const SmallVectorImpl<MachineOperand> &Cond,
                              DebugLoc DL) const {
-#if 0
-  assert(TBB && "InsertBranch must not be told to insert a fallthrough");
-  assert((Cond.size() == 1 || Cond.size() == 0) &&
-         "VectorProc branch conditions should have one component!");
-
-  if (Cond.empty()) {
-    assert(!FBB && "Unconditional branch with multiple successors!");
-    BuildMI(&MBB, DL, get(SP::BA)).addMBB(TBB);
-    return 1;
-  }
-
-  //Conditional branch
-  unsigned CC = Cond[0].getImm();
-
-  if (IsIntegerCC(CC))
-    BuildMI(&MBB, DL, get(SP::BCOND)).addMBB(TBB).addImm(CC);
-  else
-    BuildMI(&MBB, DL, get(SP::FBCOND)).addMBB(TBB).addImm(CC);
-  if (!FBB)
-    return 1;
-
-  BuildMI(&MBB, DL, get(SP::BA)).addMBB(FBB);
-  return 2;
-#endif
+	return 0;
 }
 
 unsigned VectorProcInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const
 {
-#if 0
-  MachineBasicBlock::iterator I = MBB.end();
-  unsigned Count = 0;
-  while (I != MBB.begin()) {
-    --I;
-
-    if (I->isDebugValue())
-      continue;
-
-    if (I->getOpcode() != SP::BA
-        && I->getOpcode() != SP::BCOND
-        && I->getOpcode() != SP::FBCOND)
-      break; // Not a branch
-
-    I->eraseFromParent();
-    I = MBB.end();
-    ++Count;
-  }
-  return Count;
-#endif
+	return 0;
 }
 
 void VectorProcInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
