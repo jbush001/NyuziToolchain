@@ -734,56 +734,6 @@ VectorProcTargetLowering::getSRetArgSize(SelectionDAG &DAG, SDValue Callee) cons
 }
 
 
-//===----------------------------------------------------------------------===//
-// TargetLowering Implementation
-//===----------------------------------------------------------------------===//
-
-/// IntCondCCodeToICC - Convert a DAG integer condition code to a VECTORPROC ICC
-/// condition.
-static SPCC::CondCodes IntCondCCodeToICC(ISD::CondCode CC) {
-  switch (CC) {
-  default: llvm_unreachable("Unknown integer condition code!");
-  case ISD::SETEQ:  return SPCC::ICC_E;
-  case ISD::SETNE:  return SPCC::ICC_NE;
-  case ISD::SETLT:  return SPCC::ICC_L;
-  case ISD::SETGT:  return SPCC::ICC_G;
-  case ISD::SETLE:  return SPCC::ICC_LE;
-  case ISD::SETGE:  return SPCC::ICC_GE;
-  case ISD::SETULT: return SPCC::ICC_CS;
-  case ISD::SETULE: return SPCC::ICC_LEU;
-  case ISD::SETUGT: return SPCC::ICC_GU;
-  case ISD::SETUGE: return SPCC::ICC_CC;
-  }
-}
-
-/// FPCondCCodeToFCC - Convert a DAG floatingp oint condition code to a VECTORPROC
-/// FCC condition.
-static SPCC::CondCodes FPCondCCodeToFCC(ISD::CondCode CC) {
-  switch (CC) {
-  default: llvm_unreachable("Unknown fp condition code!");
-  case ISD::SETEQ:
-  case ISD::SETOEQ: return SPCC::FCC_E;
-  case ISD::SETNE:
-  case ISD::SETUNE: return SPCC::FCC_NE;
-  case ISD::SETLT:
-  case ISD::SETOLT: return SPCC::FCC_L;
-  case ISD::SETGT:
-  case ISD::SETOGT: return SPCC::FCC_G;
-  case ISD::SETLE:
-  case ISD::SETOLE: return SPCC::FCC_LE;
-  case ISD::SETGE:
-  case ISD::SETOGE: return SPCC::FCC_GE;
-  case ISD::SETULT: return SPCC::FCC_UL;
-  case ISD::SETULE: return SPCC::FCC_ULE;
-  case ISD::SETUGT: return SPCC::FCC_UG;
-  case ISD::SETUGE: return SPCC::FCC_UGE;
-  case ISD::SETUO:  return SPCC::FCC_U;
-  case ISD::SETO:   return SPCC::FCC_O;
-  case ISD::SETONE: return SPCC::FCC_LG;
-  case ISD::SETUEQ: return SPCC::FCC_UE;
-  }
-}
-
 VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   : TargetLowering(TM, new TargetLoweringObjectFileELF()) {
 
@@ -808,16 +758,6 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
   switch (Opcode) {
   default: return 0;
-  case SPISD::CMPICC:     return "SPISD::CMPICC";
-  case SPISD::CMPFCC:     return "SPISD::CMPFCC";
-  case SPISD::BRICC:      return "SPISD::BRICC";
-  case SPISD::BRXCC:      return "SPISD::BRXCC";
-  case SPISD::BRFCC:      return "SPISD::BRFCC";
-  case SPISD::SELECT_ICC: return "SPISD::SELECT_ICC";
-  case SPISD::SELECT_XCC: return "SPISD::SELECT_XCC";
-  case SPISD::SELECT_FCC: return "SPISD::SELECT_FCC";
-  case SPISD::Hi:         return "SPISD::Hi";
-  case SPISD::Lo:         return "SPISD::Lo";
   case SPISD::FTOI:       return "SPISD::FTOI";
   case SPISD::ITOF:       return "SPISD::ITOF";
   case SPISD::CALL:       return "SPISD::CALL";
