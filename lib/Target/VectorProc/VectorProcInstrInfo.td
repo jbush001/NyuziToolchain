@@ -45,18 +45,28 @@ multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 		[(set i32:$dst, (OpNode i32:$b, i32:$c))]>;	// XXXX simm13
 }
 
+class VPTernaryFloatArith<string operator, SDNode OpNode> 
+	: VPInstruction<
+		(outs FPRegs:$dst), 
+		(ins FPRegs:$b, FPRegs:$c),
+		!strconcat("f$dst = f$b ", !strconcat(operator, " f$c")),
+		[(set f32:$dst, (OpNode f32:$b, f32:$c))]>;
+
 defm AND    : VPTernaryIntArith<"&", and>;
 defm OR     : VPTernaryIntArith<"|", or>;
 defm XOR    : VPTernaryIntArith<"^", xor>;
 defm SLL    : VPTernaryIntArith<"<<", shl>;
 defm SRL    : VPTernaryIntArith<">>", srl>;
 defm SRA    : VPTernaryIntArith<">>", sra>;	// XXX need to use U register.
-defm ADD    : VPTernaryIntArith<"+", add>;
-defm SUB    : VPTernaryIntArith<"-", add>;
+defm ADDI   : VPTernaryIntArith<"+", add>;
+defm SUBI   : VPTernaryIntArith<"-", add>;
+//def ADDF    : VPTernaryFloatArith<"+", add>;
+//def SUBF    : VPTernaryFloatArith<"-", add>;
+//def MULF    : VPTernaryFloatArith<"*", mul>;
 
 def brtarget : Operand<OtherVT>;
 
-multiclass COND<string operator, CondCode condition> {
+multiclass CONDI<string operator, CondCode condition> {
 	// Instruction format A, integer
 	def rr : VPInstruction<
 		(outs IntRegs:$dst), 
@@ -72,12 +82,27 @@ multiclass COND<string operator, CondCode condition> {
 		[(set i32:$dst, (selectcc i32:$a, i32:$b, 1, 0, condition))]>;
 }
 
-defm SGT : COND<">", SETGT>;
-defm SGE : COND<">=", SETGE>;
-defm SLT : COND<"<", SETLT>;
-defm SLE : COND<"<=", SETLE>;
-defm SEQ : COND<"==", SETEQ>;
-defm SNE : COND<"!=", SETNE>;
+class CONDF<string operator, CondCode condition>
+	: VPInstruction<
+		(outs IntRegs:$dst),
+		(ins FPRegs:$a, FPRegs:$b),
+		!strconcat("s$dst = f$a ", !strconcat(operator, " f$b")),
+		[(set i32:$dst, (selectcc f32:$a, f32:$b, 1, 0, condition))]>
+{
+}
+
+defm SGTI : CONDI<">", SETGT>;
+defm SGEI : CONDI<">=", SETGE>;
+defm SLTI : CONDI<"<", SETLT>;
+defm SLEI : CONDI<"<=", SETLE>;
+defm SEQI : CONDI<"==", SETEQ>;
+defm SNEI : CONDI<"!=", SETNE>;
+def SGTF : CONDF<">", SETGT>;
+def SGEF : CONDF<">=", SETGE>;
+def SLTF : CONDF<"<", SETLT>;
+def SLEF : CONDF<"<=", SETLE>;
+def SEQF : CONDF<"==", SETEQ>;
+def SNEF : CONDF<"!=", SETNE>;
 
 def GOTO : VPInstruction<
 	(outs),
@@ -435,9 +460,9 @@ def : Pat<(SPlo tconstpool:$in), (ORri (i32 G0), tconstpool:$in)>;
 
 // Add reg, lo.  This is used when taking the addr of a global/constpool entry.
 def : Pat<(add i32:$r, (SPlo tglobaladdr:$in)),
-          (ADDri $r, tglobaladdr:$in)>;
+          (ADDIri $r, tglobaladdr:$in)>;
 def : Pat<(add i32:$r, (SPlo tconstpool:$in)),
-          (ADDri $r, tconstpool:$in)>;
+          (ADDIri $r, tconstpool:$in)>;
 
 // Calls: 
 def : Pat<(call tglobaladdr:$dst),

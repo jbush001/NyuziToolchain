@@ -66,7 +66,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
     const VectorProcInstrInfo &TII =
       *static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
     if (Size)
-      BuildMI(MBB, I, DL, TII.get(SP::ADDri), SP::O6).addReg(SP::O6)
+      BuildMI(MBB, I, DL, TII.get(SP::ADDIri), SP::O6).addReg(SP::O6)
         .addImm(Size);
   }
   MBB.erase(I);
