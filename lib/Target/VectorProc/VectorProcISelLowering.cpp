@@ -90,9 +90,6 @@ static bool CC_VectorProc64_Full(unsigned &ValNo, MVT &ValVT,
   if (LocVT == MVT::i64 && Offset < 6*8)
     // Promote integers to %i0-%i5.
     Reg = SP::I0 + Offset/8;
-  else if (LocVT == MVT::f64 && Offset < 16*8)
-    // Promote doubles to %d0-%d30. (Which LLVM calls D0-D15).
-    Reg = SP::D0 + Offset/8;
   else if (LocVT == MVT::f32 && Offset < 16*8)
     // Promote floats to %f1, %f3, ...
     Reg = SP::F1 + Offset/4;
@@ -795,7 +792,6 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   // Set up the register classes.
   addRegisterClass(MVT::i32, &SP::IntRegsRegClass);
   addRegisterClass(MVT::f32, &SP::FPRegsRegClass);
-  addRegisterClass(MVT::f64, &SP::DFPRegsRegClass);
 
   // Progressively expand conditionals into SELECT_CCs
   setOperationAction(ISD::BR_CC, MVT::i32, Expand);

@@ -318,21 +318,13 @@ let hasSideEffects = 1, mayStore = 1 in {
 def UNIMP : F2_1<0b000, (outs), (ins i32imm:$val),
                 "unimp $val", []>;
 
-def FpMOVD : Pseudo<(outs DFPRegs:$dst), (ins DFPRegs:$src),
-				  "!FpMOVD $src, $dst", []>;
-def FpNEGD : Pseudo<(outs DFPRegs:$dst), (ins DFPRegs:$src),
-				  "!FpNEGD $src, $dst",
-				  [(set f64:$dst, (fneg f64:$src))]>;
-def FpABSD : Pseudo<(outs DFPRegs:$dst), (ins DFPRegs:$src),
-				  "!FpABSD $src, $dst",
-				  [(set f64:$dst, (fabs f64:$src))]>;
 
 let isReturn = 1, isTerminator = 1, hasDelaySlot = 1, isBarrier = 1 in {
-  let rd = O7.Num, rs1 = G0.Num in
+  let rd = 0, rs1 = 0 in
     def RETL: F3_2<2, 0b111000, (outs), (ins i32imm:$val),
                    "jmp %o7+$val", [(retflag simm13:$val)]>;
 
-  let rd = I7.Num, rs1 = G0.Num in
+  let rd = 0, rs1 = 0 in
     def RET: F3_2<2, 0b111000, (outs), (ins i32imm:$val),
                   "jmp %i7+$val", []>;
 }
@@ -353,7 +345,6 @@ let Defs = [Y] in {
 let Uses = [O6],
     hasDelaySlot = 1, isCall = 1,
     Defs = [O0, O1, O2, O3, O4, O5, O7, G1, G2, G3, G4, G5, G6, G7,
-    D0, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15,
         ICC, FCC, Y] in {
   def CALL : VPInstruction<(outs), (ins calltarget:$dst, variable_ops),
                     "call $dst", []> {
@@ -376,30 +367,13 @@ def FITOS : F3_3<2, 0b110100, 0b011000100,
                  (outs FPRegs:$dst), (ins FPRegs:$src),
                  "fitos $src, $dst",
                  [(set FPRegs:$dst, (SPitof FPRegs:$src))]>;
-def FITOD : F3_3<2, 0b110100, 0b011001000, 
-                 (outs DFPRegs:$dst), (ins FPRegs:$src),
-                 "fitod $src, $dst",
-                 [(set DFPRegs:$dst, (SPitof FPRegs:$src))]>;
 
 // Convert Floating-point to Integer Instructions, p. 142
 def FSTOI : F3_3<2, 0b110100, 0b011010001,
                  (outs FPRegs:$dst), (ins FPRegs:$src),
                  "fstoi $src, $dst",
                  [(set FPRegs:$dst, (SPftoi FPRegs:$src))]>;
-def FDTOI : F3_3<2, 0b110100, 0b011010010,
-                 (outs FPRegs:$dst), (ins DFPRegs:$src),
-                 "fdtoi $src, $dst",
-                 [(set FPRegs:$dst, (SPftoi DFPRegs:$src))]>;
 
-// Convert between Floating-point Formats Instructions, p. 143
-def FSTOD : F3_3<2, 0b110100, 0b011001001, 
-                 (outs DFPRegs:$dst), (ins FPRegs:$src),
-                 "fstod $src, $dst",
-                 [(set f64:$dst, (fextend f32:$src))]>;
-def FDTOS : F3_3<2, 0b110100, 0b011000110,
-                 (outs FPRegs:$dst), (ins DFPRegs:$src),
-                 "fdtos $src, $dst",
-                 [(set f32:$dst, (fround f64:$src))]>;
 
 // Floating-point Move Instructions, p. 144
 def FMOVS : F3_3<2, 0b110100, 0b000000001,
@@ -438,10 +412,6 @@ def FDIVS  : F3_3<2, 0b110100, 0b001001101,
                  (outs FPRegs:$dst), (ins FPRegs:$src1, FPRegs:$src2),
                  "fdivs $src1, $src2, $dst",
                  [(set f32:$dst, (fdiv f32:$src1, f32:$src2))]>;
-def FDIVD  : F3_3<2, 0b110100, 0b001001110,
-                 (outs DFPRegs:$dst), (ins DFPRegs:$src1, DFPRegs:$src2),
-                 "fdivd $src1, $src2, $dst",
-                 [(set f64:$dst, (fdiv f64:$src1, f64:$src2))]>;
 
 
 // POPCrr - This does a ctpop of a 64-bit register.  As such, we have to clear
