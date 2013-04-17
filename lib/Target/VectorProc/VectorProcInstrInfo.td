@@ -125,7 +125,7 @@ def LSU : MEMLOAD<"s", "u", zextloadi16>;
 def LW : MEMLOAD<"s", "s", load>;
 def SB : MEMSTORE<"b", truncstorei8>;
 def SS : MEMSTORE<"s", truncstorei16>;
-def SW : MEMSTORE<"w", store>;
+def SW : MEMSTORE<"l", store>;
 
 def : Pat<(i32 (extloadi1 ADDRri:$src)), (LBU ADDRri:$src)>;
 def : Pat<(i32 (extloadi8 ADDRri:$src)), (LBU ADDRri:$src)>;
