@@ -60,9 +60,27 @@ defm SRL    : VPTernaryIntArith<">>", srl>;
 defm SRA    : VPTernaryIntArith<">>", sra>;	// XXX need to use U register.
 defm ADDI   : VPTernaryIntArith<"+", add>;
 defm SUBI   : VPTernaryIntArith<"-", add>;
-//def ADDF    : VPTernaryFloatArith<"+", add>;
-//def SUBF    : VPTernaryFloatArith<"-", add>;
-//def MULF    : VPTernaryFloatArith<"*", mul>;
+def ADDF    : VPTernaryFloatArith<"+", fadd>;
+def SUBF    : VPTernaryFloatArith<"-", fsub>;
+def MULF    : VPTernaryFloatArith<"*", fmul>;
+
+def SDTSPFTOI : SDTypeProfile<1, 1, [SDTCisVT<0, f32>, SDTCisFP<1>]>;
+def SDTSPITOF : SDTypeProfile<1, 1, [SDTCisFP<0>, SDTCisVT<1, f32>]>;
+def SPftoi  : SDNode<"SPISD::FTOI", SDTSPFTOI>;
+def SPitof  : SDNode<"SPISD::ITOF", SDTSPITOF>;
+
+
+def FITOS : VPInstruction<
+			(outs FPRegs:$dst), 
+			(ins FPRegs:$src),
+            "f$dst = itof(s$src)",
+        	[(set FPRegs:$dst, (SPitof FPRegs:$src))]>;
+
+def FSTOI : VPInstruction<
+			(outs FPRegs:$dst), 
+			(ins FPRegs:$src),
+        	"s$dst= ftoi($src)",
+        	[(set FPRegs:$dst, (SPftoi FPRegs:$src))]>;
 
 def brtarget : Operand<OtherVT>;
 
@@ -260,10 +278,6 @@ def SDTSPbrcc :
 SDTypeProfile<0, 2, [SDTCisVT<0, OtherVT>, SDTCisVT<1, i32>]>;
 def SDTSPselectcc :
 SDTypeProfile<1, 3, [SDTCisSameAs<0, 1>, SDTCisSameAs<1, 2>, SDTCisVT<3, i32>]>;
-def SDTSPFTOI :
-SDTypeProfile<1, 1, [SDTCisVT<0, f32>, SDTCisFP<1>]>;
-def SDTSPITOF :
-SDTypeProfile<1, 1, [SDTCisFP<0>, SDTCisVT<1, f32>]>;
 
 def SPcmpicc : SDNode<"SPISD::CMPICC", SDTIntBinOp, [SDNPOutGlue]>;
 def SPcmpfcc : SDNode<"SPISD::CMPFCC", SDTSPcmpfcc, [SDNPOutGlue]>;
@@ -274,8 +288,6 @@ def SPbrfcc : SDNode<"SPISD::BRFCC", SDTSPbrcc, [SDNPHasChain, SDNPInGlue]>;
 def SPhi    : SDNode<"SPISD::Hi", SDTIntUnaryOp>;
 def SPlo    : SDNode<"SPISD::Lo", SDTIntUnaryOp>;
 
-def SPftoi  : SDNode<"SPISD::FTOI", SDTSPFTOI>;
-def SPitof  : SDNode<"SPISD::ITOF", SDTSPITOF>;
 
 def SPselecticc : SDNode<"SPISD::SELECT_ICC", SDTSPselectcc, [SDNPInGlue]>;
 def SPselectxcc : SDNode<"SPISD::SELECT_XCC", SDTSPselectcc, [SDNPInGlue]>;
@@ -388,55 +400,7 @@ let Uses = [O6],
 }
 
 
-def FITOS : F3_3<2, 0b110100, 0b011000100,
-                 (outs FPRegs:$dst), (ins FPRegs:$src),
-                 "fitos $src, $dst",
-                 [(set FPRegs:$dst, (SPitof FPRegs:$src))]>;
 
-// Convert Floating-point to Integer Instructions, p. 142
-def FSTOI : F3_3<2, 0b110100, 0b011010001,
-                 (outs FPRegs:$dst), (ins FPRegs:$src),
-                 "fstoi $src, $dst",
-                 [(set FPRegs:$dst, (SPftoi FPRegs:$src))]>;
-
-
-// Floating-point Move Instructions, p. 144
-def FMOVS : F3_3<2, 0b110100, 0b000000001,
-                 (outs FPRegs:$dst), (ins FPRegs:$src),
-                 "fmovs $src, $dst", []>;
-def FNEGS : F3_3<2, 0b110100, 0b000000101, 
-                 (outs FPRegs:$dst), (ins FPRegs:$src),
-                 "fnegs $src, $dst",
-                 [(set f32:$dst, (fneg f32:$src))]>;
-def FABSS : F3_3<2, 0b110100, 0b000001001, 
-                 (outs FPRegs:$dst), (ins FPRegs:$src),
-                 "fabss $src, $dst",
-                 [(set f32:$dst, (fabs f32:$src))]>;
-
-
-
-
-
-
-// Floating-point Add and Subtract Instructions, p. 146
-def FADDS  : F3_3<2, 0b110100, 0b001000001,
-                  (outs FPRegs:$dst), (ins FPRegs:$src1, FPRegs:$src2),
-                  "f$dst = f$src1 + f$src2",
-                  [(set f32:$dst, (fadd f32:$src1, f32:$src2))]>;
-def FSUBS  : F3_3<2, 0b110100, 0b001000101,
-                  (outs FPRegs:$dst), (ins FPRegs:$src1, FPRegs:$src2),
-                  "fsubs $src1, $src2, $dst",
-                  [(set f32:$dst, (fsub f32:$src1, f32:$src2))]>;
-
-// Floating-point Multiply and Divide Instructions, p. 147
-def FMULS  : F3_3<2, 0b110100, 0b001001001,
-                  (outs FPRegs:$dst), (ins FPRegs:$src1, FPRegs:$src2),
-                  "fmuls $src1, $src2, $dst",
-                  [(set f32:$dst, (fmul f32:$src1, f32:$src2))]>;
-def FDIVS  : F3_3<2, 0b110100, 0b001001101,
-                 (outs FPRegs:$dst), (ins FPRegs:$src1, FPRegs:$src2),
-                 "fdivs $src1, $src2, $dst",
-                 [(set f32:$dst, (fdiv f32:$src1, f32:$src2))]>;
 
 
 // POPCrr - This does a ctpop of a 64-bit register.  As such, we have to clear

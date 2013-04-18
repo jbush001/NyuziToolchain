@@ -146,14 +146,11 @@ void VectorProcInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                  MachineBasicBlock::iterator I, DebugLoc DL,
                                  unsigned DestReg, unsigned SrcReg,
                                  bool KillSrc) const {
-  if (SP::IntRegsRegClass.contains(DestReg, SrcReg))
-    BuildMI(MBB, I, DL, get(SP::ORrr), DestReg).addReg(SP::G0)
-      .addReg(SrcReg, getKillRegState(KillSrc));
-  else if (SP::FPRegsRegClass.contains(DestReg, SrcReg))
-    BuildMI(MBB, I, DL, get(SP::FMOVS), DestReg)
-      .addReg(SrcReg, getKillRegState(KillSrc));
-  else
-    llvm_unreachable("Impossible reg-to-reg copy");
+    // XXX probably won't work for floating point registers.  It seems
+    // like I should be able to infer this directly in the .td file.
+    // Need to understand better why llvm has this function.
+	BuildMI(MBB, I, DL, get(SP::ANDrr), DestReg).addReg(SrcReg)
+	  .addReg(SrcReg, getKillRegState(KillSrc));
 }
 
 void VectorProcInstrInfo::
