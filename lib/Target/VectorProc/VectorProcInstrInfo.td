@@ -17,7 +17,6 @@ def simm10  : PatLeaf<(imm), [{ return isInt<10>(N->getSExtValue()); }]>;
 def simm13  : PatLeaf<(imm), [{ return isInt<13>(N->getSExtValue()); }]>;
 def simm20  : PatLeaf<(imm), [{ return isInt<20>(N->getSExtValue()); }]>;
 
-def ADDRrr : ComplexPattern<iPTR, 2, "SelectADDRrr", [], []>;
 def ADDRri : ComplexPattern<iPTR, 2, "SelectADDRri", [frameindex], []>;
 
 class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
@@ -60,6 +59,7 @@ defm SRL    : VPTernaryIntArith<">>", srl>;
 defm SRA    : VPTernaryIntArith<">>", sra>;	// XXX need to use U register.
 defm ADDI   : VPTernaryIntArith<"+", add>;
 defm SUBI   : VPTernaryIntArith<"-", add>;
+defm SMULI  : VPTernaryIntArith  <"*", mul>;
 def ADDF    : VPTernaryFloatArith<"+", fadd>;
 def SUBF    : VPTernaryFloatArith<"-", fsub>;
 def MULF    : VPTernaryFloatArith<"*", fmul>;
@@ -186,14 +186,6 @@ class F2_1<bits<3> op2Val, dag outs, dag ins, string asmstr, list<dag> pattern>
 
 }
 
-class F2_2<bits<4> condVal, bits<3> op2Val, dag outs, dag ins, string asmstr, 
-           list<dag> pattern> : F2<outs, ins, asmstr, pattern> {
-  bits<4>   cond;
-  bit       annul = 0;     // currently unused
-
-  let cond        = condVal;
-}
-
 class F3<dag outs, dag ins, string asmstr, list<dag> pattern>
     : VPInstruction<outs, ins, asmstr, pattern> {
   bits<5> rd;
@@ -215,40 +207,6 @@ class F3_2<bits<2> opVal, bits<6> op3val, dag outs, dag ins,
 
 }
 
-// floating-point
-class F3_3<bits<2> opVal, bits<6> op3val, bits<9> opfval, dag outs, dag ins,
-           string asmstr, list<dag> pattern> : F3<outs, ins, asmstr, pattern> {
-  bits<5> rs2;
-
- 
-}
-
-// Shift by register rs2.
-class F3_Sr<bits<2> opVal, bits<6> op3val, bit xVal, dag outs, dag ins,
-            string asmstr, list<dag> pattern> : F3<outs, ins, asmstr, pattern> {
-  bit x = xVal;           // 1 for 64-bit shifts.
-  bits<5> rs2;
-}
-
-// Shift by immediate.
-class F3_Si<bits<2> opVal, bits<6> op3val, bit xVal, dag outs, dag ins,
-            string asmstr, list<dag> pattern> : F3<outs, ins, asmstr, pattern> {
-  bit x = xVal;           // 1 for 64-bit shifts.
-  bits<6> shcnt;          // shcnt32 / shcnt64.
-}
-
-// Define rr and ri shift instructions with patterns.
-multiclass F3_S<string OpcStr, bits<6> Op3Val, bit XVal, SDNode OpNode,
-                ValueType VT, RegisterClass RC> {
-  def rr : F3_Sr<2, Op3Val, XVal, (outs RC:$rd), (ins RC:$rs, RC:$rs2),
-                 !strconcat(OpcStr, " $rs, $rs2, $rd"),
-                 [(set VT:$rd, (OpNode VT:$rs, VT:$rs2))]>;
-  def ri : F3_Si<2, Op3Val, XVal, (outs RC:$rd), (ins RC:$rs, unknown:$shcnt),
-                 !strconcat(OpcStr, " $rs, $shcnt, $rd"),
-                 [(set VT:$rd, (OpNode VT:$rs, (VT imm:$shcnt)))]>;
-}
-
-
 def LO10 : SDNodeXForm<imm, [{
   return CurDAG->getTargetConstant((unsigned)N->getZExtValue() & 1023,
                                    MVT::i32);
@@ -258,12 +216,6 @@ def HI22 : SDNodeXForm<imm, [{
   // Transformation function: shift the immediate value down into the low bits.
   return CurDAG->getTargetConstant((unsigned)N->getZExtValue() >> 10, MVT::i32);
 }]>;
-
-// Address operands
-def MEMrr : Operand<iPTR> {
-  let PrintMethod = "printMemOperand";
-  let MIOperandInfo = (ops ptr_rc, ptr_rc);
-}
 
 // Branch targets have OtherVT type.
 def calltarget : Operand<i32>;
@@ -374,11 +326,6 @@ def LEA_ADDri   : F3_2<2, 0b000000,
                    "$dst = ${addr:arith}",
                    [(set i32:$dst, ADDRri:$addr)]>;
 
-let Defs = [Y] in {
-  defm SMUL : VPTernaryIntArith  <"*", mul>;
-}
-
-
 let Uses = [O6],
     hasDelaySlot = 1, isCall = 1,
     Defs = [O0, O1, O2, O3, O4, O5, O7, G1, G2, G3, G4, G5, G6, G7,
@@ -388,28 +335,11 @@ let Uses = [O6],
     bits<30> disp;
   }
   
-  // indirect calls
-  def JMPLrr : F3_1<2, 0b111000,
-                    (outs), (ins MEMrr:$ptr, variable_ops),
-                    "call $ptr",
-                    [(call ADDRrr:$ptr)]>;
   def JMPLri : F3_2<2, 0b111000,
                     (outs), (ins MEMri:$ptr, variable_ops),
                     "call $ptr",
                     [(call ADDRri:$ptr)]>;
 }
-
-
-
-
-
-// POPCrr - This does a ctpop of a 64-bit register.  As such, we have to clear
-// the top 32-bits before using it.  To do this clearing, we use a SLLri X,0.
-def POPCrr : F3_1<2, 0b101110, 
-                  (outs IntRegs:$dst), (ins IntRegs:$src),
-                  "popc $src, $dst", []>, Requires<[]>;
-def : Pat<(ctpop i32:$src),
-          (POPCrr (SLLri $src, 0))>;
 
 //===----------------------------------------------------------------------===//
 // Non-Instruction Patterns
