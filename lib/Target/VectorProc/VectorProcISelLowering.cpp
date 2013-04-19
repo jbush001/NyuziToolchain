@@ -48,102 +48,6 @@ static bool CC_VectorProc_Assign_SRet(unsigned &ValNo, MVT &ValVT,
   return true;
 }
 
-static bool CC_VectorProc_Assign_f64(unsigned &ValNo, MVT &ValVT,
-                                MVT &LocVT, CCValAssign::LocInfo &LocInfo,
-                                ISD::ArgFlagsTy &ArgFlags, CCState &State)
-{
-  static const uint16_t RegList[] = {
-    SP::I0, SP::I1, SP::I2, SP::I3, SP::I4, SP::I5
-  };
-  //Try to get first reg
-  if (unsigned Reg = State.AllocateReg(RegList, 6)) {
-    State.addLoc(CCValAssign::getCustomReg(ValNo, ValVT, Reg, LocVT, LocInfo));
-  } else {
-    //Assign whole thing in stack
-    State.addLoc(CCValAssign::getCustomMem(ValNo, ValVT,
-                                           State.AllocateStack(8,4),
-                                           LocVT, LocInfo));
-    return true;
-  }
-
-  //Try to get second reg
-  if (unsigned Reg = State.AllocateReg(RegList, 6))
-    State.addLoc(CCValAssign::getCustomReg(ValNo, ValVT, Reg, LocVT, LocInfo));
-  else
-    State.addLoc(CCValAssign::getCustomMem(ValNo, ValVT,
-                                           State.AllocateStack(4,4),
-                                           LocVT, LocInfo));
-  return true;
-}
-
-// Allocate a full-sized argument for the 64-bit ABI.
-static bool CC_VectorProc64_Full(unsigned &ValNo, MVT &ValVT,
-                            MVT &LocVT, CCValAssign::LocInfo &LocInfo,
-                            ISD::ArgFlagsTy &ArgFlags, CCState &State) {
-  assert((LocVT == MVT::f32 || LocVT.getSizeInBits() == 64) &&
-         "Can't handle non-64 bits locations");
-
-  // Stack space is allocated for all arguments starting from [%fp+BIAS+128].
-  unsigned Offset = State.AllocateStack(8, 8);
-  unsigned Reg = 0;
-
-  if (LocVT == MVT::i64 && Offset < 6*8)
-    // Promote integers to %i0-%i5.
-    Reg = SP::I0 + Offset/8;
-  else if (LocVT == MVT::f32 && Offset < 16*8)
-    // Promote floats to %f1, %f3, ...
-    Reg = SP::F1 + Offset/4;
-
-  // Promote to register when possible, otherwise use the stack slot.
-  if (Reg) {
-    State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
-    return true;
-  }
-
-  // This argument goes on the stack in an 8-byte slot.
-  // When passing floats, LocVT is smaller than 8 bytes. Adjust the offset to
-  // the right-aligned float. The first 4 bytes of the stack slot are undefined.
-  if (LocVT == MVT::f32)
-    Offset += 4;
-
-  State.addLoc(CCValAssign::getMem(ValNo, ValVT, Offset, LocVT, LocInfo));
-  return true;
-}
-
-// Allocate a half-sized argument for the 64-bit ABI.
-//
-// This is used when passing { float, int } structs by value in registers.
-static bool CC_VectorProc64_Half(unsigned &ValNo, MVT &ValVT,
-                            MVT &LocVT, CCValAssign::LocInfo &LocInfo,
-                            ISD::ArgFlagsTy &ArgFlags, CCState &State) {
-  assert(LocVT.getSizeInBits() == 32 && "Can't handle non-32 bits locations");
-  unsigned Offset = State.AllocateStack(4, 4);
-
-  if (LocVT == MVT::f32 && Offset < 16*8) {
-    // Promote floats to %f0-%f31.
-    State.addLoc(CCValAssign::getReg(ValNo, ValVT, SP::F0 + Offset/4,
-                                     LocVT, LocInfo));
-    return true;
-  }
-
-  if (LocVT == MVT::i32 && Offset < 6*8) {
-    // Promote integers to %i0-%i5, using half the register.
-    unsigned Reg = SP::I0 + Offset/8;
-    LocVT = MVT::i64;
-    LocInfo = CCValAssign::AExt;
-
-    // Set the Custom bit if this i32 goes in the high bits of a register.
-    if (Offset % 8 == 0)
-      State.addLoc(CCValAssign::getCustomReg(ValNo, ValVT, Reg,
-                                             LocVT, LocInfo));
-    else
-      State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
-    return true;
-  }
-
-  State.addLoc(CCValAssign::getMem(ValNo, ValVT, Offset, LocVT, LocInfo));
-  return true;
-}
 
 #include "VectorProcGenCallingConv.inc"
 
@@ -163,15 +67,6 @@ VectorProcTargetLowering::LowerReturn(SDValue Chain,
                                  const SmallVectorImpl<ISD::OutputArg> &Outs,
                                  const SmallVectorImpl<SDValue> &OutVals,
                                  DebugLoc DL, SelectionDAG &DAG) const {
-  return LowerReturn_32(Chain, CallConv, IsVarArg, Outs, OutVals, DL, DAG);
-}
-
-SDValue
-VectorProcTargetLowering::LowerReturn_32(SDValue Chain,
-                                    CallingConv::ID CallConv, bool IsVarArg,
-                                    const SmallVectorImpl<ISD::OutputArg> &Outs,
-                                    const SmallVectorImpl<SDValue> &OutVals,
-                                    DebugLoc DL, SelectionDAG &DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
 
   // CCValAssign - represent the assignment of the return value to locations.
@@ -228,24 +123,8 @@ VectorProcTargetLowering::LowerReturn_32(SDValue Chain,
 }
 
 
-
 SDValue VectorProcTargetLowering::
 LowerFormalArguments(SDValue Chain,
-                     CallingConv::ID CallConv,
-                     bool IsVarArg,
-                     const SmallVectorImpl<ISD::InputArg> &Ins,
-                     DebugLoc DL,
-                     SelectionDAG &DAG,
-                     SmallVectorImpl<SDValue> &InVals) const {
-  return LowerFormalArguments_32(Chain, CallConv, IsVarArg, Ins,
-                                 DL, DAG, InVals);
-}
-
-/// LowerFormalArguments32 - V8 uses a very simple ABI, where all values are
-/// passed in either one or two GPRs, including FP values.  TODO: we should
-/// pass FP values in FP registers for fastcc functions.
-SDValue VectorProcTargetLowering::
-LowerFormalArguments_32(SDValue Chain,
                         CallingConv::ID CallConv,
                         bool isVarArg,
                         const SmallVectorImpl<ISD::InputArg> &Ins,
@@ -446,13 +325,6 @@ LowerFormalArguments_32(SDValue Chain,
 
 SDValue
 VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
-                               SmallVectorImpl<SDValue> &InVals) const {
-  return LowerCall_32(CLI, InVals);
-}
-
-// Lower a call for the 32-bit ABI.
-SDValue
-VectorProcTargetLowering::LowerCall_32(TargetLowering::CallLoweringInfo &CLI,
                                   SmallVectorImpl<SDValue> &InVals) const {
   SelectionDAG &DAG                     = CLI.DAG;
   DebugLoc &dl                          = CLI.DL;
@@ -733,7 +605,6 @@ VectorProcTargetLowering::getSRetArgSize(SelectionDAG &DAG, SDValue Callee) cons
   return getDataLayout()->getTypeAllocSize(ElementTy);
 }
 
-
 VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   : TargetLowering(TM, new TargetLoweringObjectFileELF()) {
 
@@ -758,8 +629,6 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
   switch (Opcode) {
   default: return 0;
-  case SPISD::FTOI:       return "SPISD::FTOI";
-  case SPISD::ITOF:       return "SPISD::ITOF";
   case SPISD::CALL:       return "SPISD::CALL";
   case SPISD::RET_FLAG:   return "SPISD::RET_FLAG";
   case SPISD::GLOBAL_BASE_REG: return "SPISD::GLOBAL_BASE_REG";
@@ -774,121 +643,6 @@ void VectorProcTargetLowering::computeMaskedBitsForTargetNode(const SDValue Op,
                                                          unsigned Depth) const {
 }
 
-
-SDValue VectorProcTargetLowering::LowerGlobalAddress(SDValue Op,
-                                                SelectionDAG &DAG) const {
-  const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
-  // FIXME there isn't really any debug info here
-  DebugLoc dl = Op.getDebugLoc();
-  SDValue GA = DAG.getTargetGlobalAddress(GV, dl, MVT::i32);
-  SDValue Hi = DAG.getNode(SPISD::Hi, dl, MVT::i32, GA);
-  SDValue Lo = DAG.getNode(SPISD::Lo, dl, MVT::i32, GA);
-
-  if (getTargetMachine().getRelocationModel() != Reloc::PIC_)
-    return DAG.getNode(ISD::ADD, dl, MVT::i32, Lo, Hi);
-
-  SDValue GlobalBase = DAG.getNode(SPISD::GLOBAL_BASE_REG, dl,
-                                   getPointerTy());
-  SDValue RelAddr = DAG.getNode(ISD::ADD, dl, MVT::i32, Lo, Hi);
-  SDValue AbsAddr = DAG.getNode(ISD::ADD, dl, MVT::i32,
-                                GlobalBase, RelAddr);
-  return DAG.getLoad(getPointerTy(), dl, DAG.getEntryNode(),
-                     AbsAddr, MachinePointerInfo(), false, false, false, 0);
-}
-
-SDValue VectorProcTargetLowering::LowerConstantPool(SDValue Op,
-                                               SelectionDAG &DAG) const {
-  ConstantPoolSDNode *N = cast<ConstantPoolSDNode>(Op);
-  // FIXME there isn't really any debug info here
-  DebugLoc dl = Op.getDebugLoc();
-  const Constant *C = N->getConstVal();
-  SDValue CP = DAG.getTargetConstantPool(C, MVT::i32, N->getAlignment());
-  SDValue Hi = DAG.getNode(SPISD::Hi, dl, MVT::i32, CP);
-  SDValue Lo = DAG.getNode(SPISD::Lo, dl, MVT::i32, CP);
-  if (getTargetMachine().getRelocationModel() != Reloc::PIC_)
-    return DAG.getNode(ISD::ADD, dl, MVT::i32, Lo, Hi);
-
-  SDValue GlobalBase = DAG.getNode(SPISD::GLOBAL_BASE_REG, dl,
-                                   getPointerTy());
-  SDValue RelAddr = DAG.getNode(ISD::ADD, dl, MVT::i32, Lo, Hi);
-  SDValue AbsAddr = DAG.getNode(ISD::ADD, dl, MVT::i32,
-                                GlobalBase, RelAddr);
-  return DAG.getLoad(getPointerTy(), dl, DAG.getEntryNode(),
-                     AbsAddr, MachinePointerInfo(), false, false, false, 0);
-}
-
-static SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG,
-                            const VectorProcTargetLowering &TLI) {
-  MachineFunction &MF = DAG.getMachineFunction();
-  VectorProcMachineFunctionInfo *FuncInfo = MF.getInfo<VectorProcMachineFunctionInfo>();
-
-  // vastart just stores the address of the VarArgsFrameIndex slot into the
-  // memory location argument.
-  DebugLoc dl = Op.getDebugLoc();
-  SDValue Offset =
-    DAG.getNode(ISD::ADD, dl, MVT::i32,
-                DAG.getRegister(SP::I6, MVT::i32),
-                DAG.getConstant(FuncInfo->getVarArgsFrameOffset(),
-                                MVT::i32));
-  const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
-  return DAG.getStore(Op.getOperand(0), dl, Offset, Op.getOperand(1),
-                      MachinePointerInfo(SV), false, false, 0);
-}
-
-static SDValue LowerVAARG(SDValue Op, SelectionDAG &DAG) {
-  SDNode *Node = Op.getNode();
-  EVT VT = Node->getValueType(0);
-  SDValue InChain = Node->getOperand(0);
-  SDValue VAListPtr = Node->getOperand(1);
-  const Value *SV = cast<SrcValueSDNode>(Node->getOperand(2))->getValue();
-  DebugLoc dl = Node->getDebugLoc();
-  SDValue VAList = DAG.getLoad(MVT::i32, dl, InChain, VAListPtr,
-                               MachinePointerInfo(SV), false, false, false, 0);
-  // Increment the pointer, VAList, to the next vaarg
-  SDValue NextPtr = DAG.getNode(ISD::ADD, dl, MVT::i32, VAList,
-                                  DAG.getConstant(VT.getSizeInBits()/8,
-                                                  MVT::i32));
-  // Store the incremented VAList to the legalized pointer
-  InChain = DAG.getStore(VAList.getValue(1), dl, NextPtr,
-                         VAListPtr, MachinePointerInfo(SV), false, false, 0);
-  // Load the actual argument out of the pointer VAList, unless this is an
-  // f64 load.
-  if (VT != MVT::f64)
-    return DAG.getLoad(VT, dl, InChain, VAList, MachinePointerInfo(),
-                       false, false, false, 0);
-
-  // Otherwise, load it as i64, then do a bitconvert.
-  SDValue V = DAG.getLoad(MVT::i64, dl, InChain, VAList, MachinePointerInfo(),
-                          false, false, false, 0);
-
-  // Bit-Convert the value to f64.
-  SDValue Ops[2] = {
-    DAG.getNode(ISD::BITCAST, dl, MVT::f64, V),
-    V.getValue(1)
-  };
-  return DAG.getMergeValues(Ops, 2, dl);
-}
-
-static SDValue LowerDYNAMIC_STACKALLOC(SDValue Op, SelectionDAG &DAG) {
-  SDValue Chain = Op.getOperand(0);  // Legalize the chain.
-  SDValue Size  = Op.getOperand(1);  // Legalize the size.
-  DebugLoc dl = Op.getDebugLoc();
-
-  unsigned SPReg = SP::O6;
-  SDValue SP = DAG.getCopyFromReg(Chain, dl, SPReg, MVT::i32);
-  SDValue NewSP = DAG.getNode(ISD::SUB, dl, MVT::i32, SP, Size); // Value
-  Chain = DAG.getCopyToReg(SP.getValue(1), dl, SPReg, NewSP);    // Output chain
-
-  // The resultant pointer is actually 16 words from the bottom of the stack,
-  // to provide a register spill area.
-  SDValue NewVal = DAG.getNode(ISD::ADD, dl, MVT::i32, NewSP,
-                                 DAG.getConstant(96, MVT::i32));
-  SDValue Ops[2] = { NewVal, Chain };
-  return DAG.getMergeValues(Ops, 2, dl);
-}
-
-
-
 static SDValue getFLUSHW(SDValue Op, SelectionDAG &DAG) {
   DebugLoc dl = Op.getDebugLoc();
   SDValue Chain = DAG.getNode(SPISD::FLUSHW,
@@ -896,68 +650,6 @@ static SDValue getFLUSHW(SDValue Op, SelectionDAG &DAG) {
   return Chain;
 }
 
-static SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) {
-  MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
-  MFI->setFrameAddressIsTaken(true);
-
-  EVT VT = Op.getValueType();
-  DebugLoc dl = Op.getDebugLoc();
-  unsigned FrameReg = SP::I6;
-
-  uint64_t depth = Op.getConstantOperandVal(0);
-
-  SDValue FrameAddr;
-  if (depth == 0)
-    FrameAddr = DAG.getCopyFromReg(DAG.getEntryNode(), dl, FrameReg, VT);
-  else {
-    // flush first to make sure the windowed registers' values are in stack
-    SDValue Chain = getFLUSHW(Op, DAG);
-    FrameAddr = DAG.getCopyFromReg(Chain, dl, FrameReg, VT);
-
-    for (uint64_t i = 0; i != depth; ++i) {
-      SDValue Ptr = DAG.getNode(ISD::ADD,
-                                dl, MVT::i32,
-                                FrameAddr, DAG.getIntPtrConstant(56));
-      FrameAddr = DAG.getLoad(MVT::i32, dl,
-                              Chain,
-                              Ptr,
-                              MachinePointerInfo(), false, false, false, 0);
-    }
-  }
-  return FrameAddr;
-}
-
-static SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) {
-  MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
-  MFI->setReturnAddressIsTaken(true);
-
-  EVT VT = Op.getValueType();
-  DebugLoc dl = Op.getDebugLoc();
-  unsigned RetReg = SP::I7;
-
-  uint64_t depth = Op.getConstantOperandVal(0);
-
-  SDValue RetAddr;
-  if (depth == 0)
-    RetAddr = DAG.getCopyFromReg(DAG.getEntryNode(), dl, RetReg, VT);
-  else {
-    // flush first to make sure the windowed registers' values are in stack
-    SDValue Chain = getFLUSHW(Op, DAG);
-    RetAddr = DAG.getCopyFromReg(Chain, dl, SP::I6, VT);
-
-    for (uint64_t i = 0; i != depth; ++i) {
-      SDValue Ptr = DAG.getNode(ISD::ADD,
-                                dl, MVT::i32,
-                                RetAddr,
-                                DAG.getIntPtrConstant((i == depth-1)?60:56));
-      RetAddr = DAG.getLoad(MVT::i32, dl,
-                            Chain,
-                            Ptr,
-                            MachinePointerInfo(), false, false, false, 0);
-    }
-  }
-  return RetAddr;
-}
 
 SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const {
