@@ -69,6 +69,13 @@ def SDTSPITOF : SDTypeProfile<1, 1, [SDTCisFP<0>, SDTCisVT<1, f32>]>;
 def SPftoi  : SDNode<"SPISD::FTOI", SDTSPFTOI>;
 def SPitof  : SDNode<"SPISD::ITOF", SDTSPITOF>;
 
+// This is kind of a kludge
+def CONV : VPInstruction<
+		(outs IntRegs:$dst), 
+		(ins IntRegs:$src),
+		"s$dst = s$src",
+		[(set IntRegs:$dst, (f32 IntRegs:$src))]>;
+
 
 def SITOF : VPInstruction<
 			(outs IntRegs:$dst), 
@@ -159,21 +166,28 @@ multiclass MEMLOAD<string suffix, string regtype, PatFrag op>  {
 		[(set f32:$dst, (op ADDRri:$addr))]>;
 }
 
-class MEMSTORE<string suffix, PatFrag op> 
-	: VPInstruction<
+multiclass MEMSTORE<string suffix, PatFrag op>  {
+	def i : VPInstruction<
 		(outs),
 		(ins MEMri:$addr, IntRegs:$src),
 		!strconcat("mem_", !strconcat(suffix, "[s$addr] = s$src")),
-		[(op i32:$src, ADDRri:$addr)]>;	// May need (i32 xxx) around source
+		[(op i32:$src, ADDRri:$addr)]>;
+
+	def f : VPInstruction<
+		(outs),
+		(ins MEMri:$addr, IntRegs:$src),
+		!strconcat("mem_", !strconcat(suffix, "[s$addr] = s$src")),
+		[(op f32:$src, ADDRri:$addr)]>;
+}
 
 defm LBS : MEMLOAD<"b", "s", sextloadi8>;
 defm LBU : MEMLOAD<"b", "u", zextloadi8>;
 defm LSS : MEMLOAD<"s", "s", sextloadi16>;
 defm LSU : MEMLOAD<"s", "u", zextloadi16>;
 defm LW : MEMLOAD<"s", "s", load>;
-def SB : MEMSTORE<"b", truncstorei8>;
-def SS : MEMSTORE<"s", truncstorei16>;
-def SW : MEMSTORE<"l", store>;
+defm SB : MEMSTORE<"b", truncstorei8>;
+defm SS : MEMSTORE<"s", truncstorei16>;
+defm SW : MEMSTORE<"l", store>;
 
 def : Pat<(i32 (extloadi1 ADDRri:$src)), (LBUi ADDRri:$src)>;
 def : Pat<(i32 (extloadi8 ADDRri:$src)), (LBUi ADDRri:$src)>;
@@ -302,7 +316,7 @@ def UNIMP : F2_1<0b000, (outs), (ins i32imm:$val),
                 "unimp $val", []>;
 
 
-let isReturn = 1, isTerminator = 1, hasDelaySlot = 1, isBarrier = 1 in {
+let isReturn = 1, isTerminator = 1, hasDelaySlot = 1 in {
   let rd = 0, rs1 = 0 in
     def RETL: F3_2<2, 0b111000, (outs), (ins i32imm:$val),
                    "jmp %o7+$val", [(retflag simm13:$val)]>;

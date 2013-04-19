@@ -56,7 +56,7 @@ unsigned VectorProcInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
 /// any side effects other than storing to the stack slot.
 unsigned VectorProcInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
                                             int &FrameIndex) const {
-  if (MI->getOpcode() == SP::SW) {
+  if (MI->getOpcode() == SP::SWi || MI->getOpcode() == SP::SWf) {
     if (MI->getOperand(0).isFI() && MI->getOperand(1).isImm() &&
         MI->getOperand(1).getImm() == 0) {
       FrameIndex = MI->getOperand(0).getIndex();
@@ -120,7 +120,7 @@ storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
   if (I != MBB.end()) DL = I->getDebugLoc();
 
   // Store doesn't actually care of this is float or int; just use int.
-  BuildMI(MBB, I, DL, get(SP::SW)).addFrameIndex(FI).addImm(0)
+  BuildMI(MBB, I, DL, get(SP::SWi)).addFrameIndex(FI).addImm(0)
     .addReg(SrcReg, getKillRegState(isKill));
 }
 
