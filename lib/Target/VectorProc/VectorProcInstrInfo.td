@@ -145,12 +145,19 @@ def MEMri : Operand<iPTR> {
   let MIOperandInfo = (ops ptr_rc, i32imm);
 }
 
-class MEMLOAD<string suffix, string regtype, PatFrag op> 
-	: VPInstruction<
+multiclass MEMLOAD<string suffix, string regtype, PatFrag op>  {
+	def i : VPInstruction<
 		(outs IntRegs:$dst),
 		(ins MEMri:$addr),
 		!strconcat(!strconcat(!strconcat(suffix, "$dst = mem_"), regtype), "[s$addr]"),
-		[(set i32:$dst, (op ADDRri:$addr))]>;
+		[(set i32:$dst, (i32 (op ADDRri:$addr)))]>;
+
+	def f : VPInstruction<
+		(outs IntRegs:$dst),
+		(ins MEMri:$addr),
+		!strconcat(!strconcat(!strconcat(suffix, "$dst = mem_"), regtype), "[s$addr]"),
+		[(set f32:$dst, (op ADDRri:$addr))]>;
+}
 
 class MEMSTORE<string suffix, PatFrag op> 
 	: VPInstruction<
@@ -159,18 +166,18 @@ class MEMSTORE<string suffix, PatFrag op>
 		!strconcat("mem_", !strconcat(suffix, "[s$addr] = s$src")),
 		[(op i32:$src, ADDRri:$addr)]>;	// May need (i32 xxx) around source
 
-def LBS : MEMLOAD<"b", "s", sextloadi8>;
-def LBU : MEMLOAD<"b", "u", zextloadi8>;
-def LSS : MEMLOAD<"s", "s", sextloadi16>;
-def LSU : MEMLOAD<"s", "u", zextloadi16>;
-def LW : MEMLOAD<"s", "s", load>;
+defm LBS : MEMLOAD<"b", "s", sextloadi8>;
+defm LBU : MEMLOAD<"b", "u", zextloadi8>;
+defm LSS : MEMLOAD<"s", "s", sextloadi16>;
+defm LSU : MEMLOAD<"s", "u", zextloadi16>;
+defm LW : MEMLOAD<"s", "s", load>;
 def SB : MEMSTORE<"b", truncstorei8>;
 def SS : MEMSTORE<"s", truncstorei16>;
 def SW : MEMSTORE<"l", store>;
 
-def : Pat<(i32 (extloadi1 ADDRri:$src)), (LBU ADDRri:$src)>;
-def : Pat<(i32 (extloadi8 ADDRri:$src)), (LBU ADDRri:$src)>;
-def : Pat<(i32 (extloadi16 ADDRri:$src)), (LSS ADDRri:$src)>;
+def : Pat<(i32 (extloadi1 ADDRri:$src)), (LBUi ADDRri:$src)>;
+def : Pat<(i32 (extloadi8 ADDRri:$src)), (LBUi ADDRri:$src)>;
+def : Pat<(i32 (extloadi16 ADDRri:$src)), (LSSi ADDRri:$src)>;
 
 class F2<dag outs, dag ins, string asmstr, list<dag> pattern>
    : VPInstruction<outs, ins, asmstr, pattern> {

@@ -39,7 +39,7 @@ VectorProcInstrInfo::VectorProcInstrInfo(VectorProcSubtarget &ST)
 /// any side effects other than loading from the stack slot.
 unsigned VectorProcInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
                                              int &FrameIndex) const {
-  if (MI->getOpcode() == SP::LW) {
+  if (MI->getOpcode() == SP::LWi) {
     if (MI->getOperand(1).isFI() && MI->getOperand(2).isImm() &&
         MI->getOperand(2).getImm() == 0) {
       FrameIndex = MI->getOperand(1).getIndex();
@@ -133,7 +133,7 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
   if (I != MBB.end()) DL = I->getDebugLoc();
 
   // Load doesn't actually care of this is float or int; just use int.
-  BuildMI(MBB, I, DL, get(SP::LW), DestReg).addFrameIndex(FI).addImm(0);
+  BuildMI(MBB, I, DL, get(SP::LWi), DestReg).addFrameIndex(FI).addImm(0);
 }
 
 unsigned VectorProcInstrInfo::getGlobalBaseReg(MachineFunction *MF) const
