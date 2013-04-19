@@ -4847,13 +4847,6 @@ namespace {
 class VectorProcTargetInfoBase : public TargetInfo {
   static const Builtin::Info BuiltinInfo[];
   std::string CPU;
-  bool IsVectorProc16;
-  enum VectorProcFloatABI {
-    HardFloat, SingleFloat, SoftFloat
-  } FloatABI;
-  enum DspRevEnum {
-    NoDSP, DSP1, DSP2
-  } DspRev;
 
 protected:
   std::string ABI;
@@ -4864,9 +4857,6 @@ public:
                      const std::string& CPUStr)
     : TargetInfo(triple),
       CPU(CPUStr),
-      IsVectorProc16(false),
-      FloatABI(HardFloat),
-      DspRev(NoDSP),
       ABI(ABIStr)
   {}
 
@@ -4886,36 +4876,6 @@ public:
     DefineStd(Builder, "vectorproc", Opts);
     Builder.defineMacro("_vectorproc");
     Builder.defineMacro("__REGISTER_PREFIX__", "");
-
-    switch (FloatABI) {
-    case HardFloat:
-      Builder.defineMacro("__vectorproc_hard_float", Twine(1));
-      break;
-    case SingleFloat:
-      Builder.defineMacro("__vectorproc_hard_float", Twine(1));
-      Builder.defineMacro("__vectorproc_single_float", Twine(1));
-      break;
-    case SoftFloat:
-      Builder.defineMacro("__vectorproc_soft_float", Twine(1));
-      break;
-    }
-
-    if (IsVectorProc16)
-      Builder.defineMacro("__vectorproc16", Twine(1));
-
-    switch (DspRev) {
-    default:
-      break;
-    case DSP1:
-      Builder.defineMacro("__vectorproc_dsp_rev", Twine(1));
-      Builder.defineMacro("__vectorproc_dsp", Twine(1));
-      break;
-    case DSP2:
-      Builder.defineMacro("__vectorproc_dsp_rev", Twine(2));
-      Builder.defineMacro("__vectorproc_dspr2", Twine(1));
-      Builder.defineMacro("__vectorproc_dsp", Twine(1));
-      break;
-    }
 
     Builder.defineMacro("_VECTORPROC_SZPTR", Twine(getPointerWidth(0)));
     Builder.defineMacro("_VECTORPROC_SZINT", Twine(getIntWidth()));
@@ -4988,47 +4948,10 @@ public:
   virtual bool setFeatureEnabled(llvm::StringMap<bool> &Features,
                                  StringRef Name,
                                  bool Enabled) const {
-    if (Name == "soft-float" || Name == "single-float" ||
-        Name == "o32" || Name == "n32" || Name == "n64" || Name == "eabi" ||
-        Name == "vectorproc32" || Name == "vectorproc32r2" ||
-        Name == "vectorproc64" || Name == "vectorproc64r2" ||
-        Name == "vectorproc16" || Name == "dsp" || Name == "dspr2") {
-      Features[Name] = Enabled;
-      return true;
-    } else if (Name == "32") {
-      Features["o32"] = Enabled;
-      return true;
-    } else if (Name == "64") {
-      Features["n64"] = Enabled;
-      return true;
-    }
     return false;
   }
 
   virtual void HandleTargetFeatures(std::vector<std::string> &Features) {
-    IsVectorProc16 = false;
-    FloatABI = HardFloat;
-    DspRev = NoDSP;
-
-    for (std::vector<std::string>::iterator it = Features.begin(),
-         ie = Features.end(); it != ie; ++it) {
-      if (*it == "+single-float")
-        FloatABI = SingleFloat;
-      else if (*it == "+soft-float")
-        FloatABI = SoftFloat;
-      else if (*it == "+vectorproc16")
-        IsVectorProc16 = true;
-      else if (*it == "+dsp")
-        DspRev = std::max(DspRev, DSP1);
-      else if (*it == "+dspr2")
-        DspRev = std::max(DspRev, DSP2);
-    }
-
-    // Remove front-end specific option.
-    std::vector<std::string>::iterator it =
-      std::find(Features.begin(), Features.end(), "+soft-float");
-    if (it != Features.end())
-      Features.erase(it);
   }
 
   virtual int getEHDataRegisterNumber(unsigned RegNo) const {
@@ -5117,6 +5040,7 @@ public:
   }
 };
 
+/// XXX originally cloned from MIPS; should go away...
 class VectorProc32EBTargetInfo : public VectorProc32TargetInfoBase {
 public:
   VectorProc32EBTargetInfo(const std::string& triple) : VectorProc32TargetInfoBase(triple) {
