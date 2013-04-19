@@ -151,13 +151,13 @@ multiclass MEMLOAD<string suffix, string regtype, PatFrag op>  {
 	def i : VPInstruction<
 		(outs ScalarRegs:$dst),
 		(ins MEMri:$addr),
-		!strconcat(!strconcat(!strconcat(suffix, "$dst = mem_"), regtype), "[s$addr]"),
+		!strconcat(!strconcat(!strconcat(regtype, "$dst = mem_"), suffix), "[s$addr]"),
 		[(set i32:$dst, (i32 (op ADDRri:$addr)))]>;
 
 	def f : VPInstruction<
 		(outs ScalarRegs:$dst),
 		(ins MEMri:$addr),
-		!strconcat(!strconcat(!strconcat(suffix, "$dst = mem_"), regtype), "[s$addr]"),
+		!strconcat(!strconcat(!strconcat(regtype, "$dst = mem_"), suffix), "[s$addr]"),
 		[(set f32:$dst, (op ADDRri:$addr))]>;
 }
 
