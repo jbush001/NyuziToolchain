@@ -39,7 +39,7 @@ VectorProcInstrInfo::VectorProcInstrInfo(VectorProcSubtarget &ST)
 /// any side effects other than loading from the stack slot.
 unsigned VectorProcInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
                                              int &FrameIndex) const {
-  if (MI->getOpcode() == SP::LW) {
+  if (MI->getOpcode() == SP::LWi || MI->getOpcode() == SP::LWf) {
     if (MI->getOperand(1).isFI() && MI->getOperand(2).isImm() &&
         MI->getOperand(2).getImm() == 0) {
       FrameIndex = MI->getOperand(1).getIndex();
@@ -56,7 +56,7 @@ unsigned VectorProcInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
 /// any side effects other than storing to the stack slot.
 unsigned VectorProcInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
                                             int &FrameIndex) const {
-  if (MI->getOpcode() == SP::SW) {
+  if (MI->getOpcode() == SP::SWi || MI->getOpcode() == SP::SWf) {
     if (MI->getOperand(0).isFI() && MI->getOperand(1).isImm() &&
         MI->getOperand(1).getImm() == 0) {
       FrameIndex = MI->getOperand(0).getIndex();
@@ -64,48 +64,6 @@ unsigned VectorProcInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
     }
   }
   return 0;
-}
-
-static bool IsIntegerCC(unsigned CC)
-{
-  return  (CC <= SPCC::ICC_VC);
-}
-
-
-static SPCC::CondCodes GetOppositeBranchCondition(SPCC::CondCodes CC)
-{
-  switch(CC) {
-  case SPCC::ICC_NE:   return SPCC::ICC_E;
-  case SPCC::ICC_E:    return SPCC::ICC_NE;
-  case SPCC::ICC_G:    return SPCC::ICC_LE;
-  case SPCC::ICC_LE:   return SPCC::ICC_G;
-  case SPCC::ICC_GE:   return SPCC::ICC_L;
-  case SPCC::ICC_L:    return SPCC::ICC_GE;
-  case SPCC::ICC_GU:   return SPCC::ICC_LEU;
-  case SPCC::ICC_LEU:  return SPCC::ICC_GU;
-  case SPCC::ICC_CC:   return SPCC::ICC_CS;
-  case SPCC::ICC_CS:   return SPCC::ICC_CC;
-  case SPCC::ICC_POS:  return SPCC::ICC_NEG;
-  case SPCC::ICC_NEG:  return SPCC::ICC_POS;
-  case SPCC::ICC_VC:   return SPCC::ICC_VS;
-  case SPCC::ICC_VS:   return SPCC::ICC_VC;
-
-  case SPCC::FCC_U:    return SPCC::FCC_O;
-  case SPCC::FCC_O:    return SPCC::FCC_U;
-  case SPCC::FCC_G:    return SPCC::FCC_LE;
-  case SPCC::FCC_LE:   return SPCC::FCC_G;
-  case SPCC::FCC_UG:   return SPCC::FCC_ULE;
-  case SPCC::FCC_ULE:  return SPCC::FCC_UG;
-  case SPCC::FCC_L:    return SPCC::FCC_GE;
-  case SPCC::FCC_GE:   return SPCC::FCC_L;
-  case SPCC::FCC_UL:   return SPCC::FCC_UGE;
-  case SPCC::FCC_UGE:  return SPCC::FCC_UL;
-  case SPCC::FCC_LG:   return SPCC::FCC_UE;
-  case SPCC::FCC_UE:   return SPCC::FCC_LG;
-  case SPCC::FCC_NE:   return SPCC::FCC_E;
-  case SPCC::FCC_E:    return SPCC::FCC_NE;
-  }
-  llvm_unreachable("Invalid cond code");
 }
 
 MachineInstr *
@@ -161,7 +119,8 @@ storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
   DebugLoc DL;
   if (I != MBB.end()) DL = I->getDebugLoc();
 
-  BuildMI(MBB, I, DL, get(SP::SW)).addFrameIndex(FI).addImm(0)
+  // Store doesn't actually care of this is float or int; just use int.
+  BuildMI(MBB, I, DL, get(SP::SWi)).addFrameIndex(FI).addImm(0)
     .addReg(SrcReg, getKillRegState(isKill));
 }
 
@@ -173,7 +132,8 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
   DebugLoc DL;
   if (I != MBB.end()) DL = I->getDebugLoc();
 
-  BuildMI(MBB, I, DL, get(SP::LW), DestReg).addFrameIndex(FI).addImm(0);
+  // Load doesn't actually care of this is float or int; just use int.
+  BuildMI(MBB, I, DL, get(SP::LWi), DestReg).addFrameIndex(FI).addImm(0);
 }
 
 unsigned VectorProcInstrInfo::getGlobalBaseReg(MachineFunction *MF) const

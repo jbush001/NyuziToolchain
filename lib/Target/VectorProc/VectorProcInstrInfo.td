@@ -70,17 +70,17 @@ def SPftoi  : SDNode<"SPISD::FTOI", SDTSPFTOI>;
 def SPitof  : SDNode<"SPISD::ITOF", SDTSPITOF>;
 
 
-def FITOS : VPInstruction<
+def SITOF : VPInstruction<
 			(outs FPRegs:$dst), 
-			(ins FPRegs:$src),
+			(ins IntRegs:$src),
             "f$dst = itof(s$src)",
-        	[(set FPRegs:$dst, (SPitof FPRegs:$src))]>;
+        	[(set f32:$dst, (sint_to_fp i32:$src))]>;
 
-def FSTOI : VPInstruction<
-			(outs FPRegs:$dst), 
+def FTOSI : VPInstruction<
+			(outs IntRegs:$dst), 
 			(ins FPRegs:$src),
         	"s$dst= ftoi($src)",
-        	[(set FPRegs:$dst, (SPftoi FPRegs:$src))]>;
+        	[(set i32:$dst, (fp_to_sint f32:$src))]>;
 
 def brtarget : Operand<OtherVT>;
 
@@ -145,34 +145,46 @@ def MEMri : Operand<iPTR> {
   let MIOperandInfo = (ops ptr_rc, i32imm);
 }
 
-class MEMLOAD<string suffix, string regtype, PatFrag op> : VPInstruction<
-	(outs IntRegs:$dst),
-	(ins MEMri:$addr),
-	!strconcat(!strconcat(!strconcat(suffix, "$dst = mem_"), regtype), "[s$addr]"),
-	[(set i32:$dst, (op ADDRri:$addr))]>
-{
+multiclass MEMLOAD<string suffix, string regtype, PatFrag op> {
+	def i : VPInstruction<
+		(outs IntRegs:$dst),
+		(ins MEMri:$addr),
+		!strconcat(!strconcat(!strconcat(suffix, "$dst = mem_"), regtype), "[s$addr]"),
+		[(set i32:$dst, (op ADDRri:$addr))]>;
+
+	def f : VPInstruction<
+		(outs FPRegs:$dst),
+		(ins MEMri:$addr),
+		!strconcat(!strconcat(!strconcat(suffix, "$dst = mem_"), regtype), "[s$addr]"),
+		[(set f32:$dst, (op ADDRri:$addr))]>;
 }
 
-class MEMSTORE<string suffix, PatFrag op> : VPInstruction<
-	(outs),
-	(ins MEMri:$addr, IntRegs:$src),
-	!strconcat("mem_", !strconcat(suffix, "[s$addr] = s$src")),
-	[(op i32:$src, ADDRri:$addr)]>
-{
+multiclass MEMSTORE<string suffix, PatFrag op> {
+	def i : VPInstruction<
+		(outs),
+		(ins MEMri:$addr, IntRegs:$src),
+		!strconcat("mem_", !strconcat(suffix, "[s$addr] = s$src")),
+		[(op i32:$src, ADDRri:$addr)]>;
+
+	def f : VPInstruction<
+		(outs),
+		(ins MEMri:$addr, FPRegs:$src),
+		!strconcat("mem_", !strconcat(suffix, "[s$addr] = s$src")),
+		[(op f32:$src, ADDRri:$addr)]>;
 }
 
-def LBS : MEMLOAD<"b", "s", sextloadi8>;
-def LBU : MEMLOAD<"b", "u", zextloadi8>;
-def LSS : MEMLOAD<"s", "s", sextloadi16>;
-def LSU : MEMLOAD<"s", "u", zextloadi16>;
-def LW : MEMLOAD<"s", "s", load>;
-def SB : MEMSTORE<"b", truncstorei8>;
-def SS : MEMSTORE<"s", truncstorei16>;
-def SW : MEMSTORE<"l", store>;
+defm LBS : MEMLOAD<"b", "s", sextloadi8>;
+defm LBU : MEMLOAD<"b", "u", zextloadi8>;
+defm LSS : MEMLOAD<"s", "s", sextloadi16>;
+defm LSU : MEMLOAD<"s", "u", zextloadi16>;
+defm LW : MEMLOAD<"s", "s", load>;
+defm SB : MEMSTORE<"b", truncstorei8>;
+defm SS : MEMSTORE<"s", truncstorei16>;
+defm SW : MEMSTORE<"l", store>;
 
-def : Pat<(i32 (extloadi1 ADDRri:$src)), (LBU ADDRri:$src)>;
-def : Pat<(i32 (extloadi8 ADDRri:$src)), (LBU ADDRri:$src)>;
-def : Pat<(i32 (extloadi16 ADDRri:$src)), (LSS ADDRri:$src)>;
+def : Pat<(i32 (extloadi1 ADDRri:$src)), (LBUi ADDRri:$src)>;
+def : Pat<(i32 (extloadi8 ADDRri:$src)), (LBUi ADDRri:$src)>;
+def : Pat<(i32 (extloadi16 ADDRri:$src)), (LSSi ADDRri:$src)>;
 
 class F2<dag outs, dag ins, string asmstr, list<dag> pattern>
    : VPInstruction<outs, ins, asmstr, pattern> {
@@ -231,19 +243,8 @@ SDTypeProfile<0, 2, [SDTCisVT<0, OtherVT>, SDTCisVT<1, i32>]>;
 def SDTSPselectcc :
 SDTypeProfile<1, 3, [SDTCisSameAs<0, 1>, SDTCisSameAs<1, 2>, SDTCisVT<3, i32>]>;
 
-def SPcmpicc : SDNode<"SPISD::CMPICC", SDTIntBinOp, [SDNPOutGlue]>;
-def SPcmpfcc : SDNode<"SPISD::CMPFCC", SDTSPcmpfcc, [SDNPOutGlue]>;
-def SPbricc : SDNode<"SPISD::BRICC", SDTSPbrcc, [SDNPHasChain, SDNPInGlue]>;
-def SPbrxcc : SDNode<"SPISD::BRXCC", SDTSPbrcc, [SDNPHasChain, SDNPInGlue]>;
-def SPbrfcc : SDNode<"SPISD::BRFCC", SDTSPbrcc, [SDNPHasChain, SDNPInGlue]>;
-
-def SPhi    : SDNode<"SPISD::Hi", SDTIntUnaryOp>;
 def SPlo    : SDNode<"SPISD::Lo", SDTIntUnaryOp>;
 
-
-def SPselecticc : SDNode<"SPISD::SELECT_ICC", SDTSPselectcc, [SDNPInGlue]>;
-def SPselectxcc : SDNode<"SPISD::SELECT_XCC", SDTSPselectcc, [SDNPInGlue]>;
-def SPselectfcc : SDNode<"SPISD::SELECT_FCC", SDTSPselectcc, [SDNPInGlue]>;
 
 //  These are target-independent nodes, but have target-specific formats.
 def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;

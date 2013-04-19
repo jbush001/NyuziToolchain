@@ -817,22 +817,6 @@ SDValue VectorProcTargetLowering::LowerConstantPool(SDValue Op,
                      AbsAddr, MachinePointerInfo(), false, false, false, 0);
 }
 
-static SDValue LowerFP_TO_SINT(SDValue Op, SelectionDAG &DAG) {
-  DebugLoc dl = Op.getDebugLoc();
-  // Convert the fp value to integer in an FP register.
-  assert(Op.getValueType() == MVT::i32);
-  Op = DAG.getNode(SPISD::FTOI, dl, MVT::f32, Op.getOperand(0));
-  return DAG.getNode(ISD::BITCAST, dl, MVT::i32, Op);
-}
-
-static SDValue LowerSINT_TO_FP(SDValue Op, SelectionDAG &DAG) {
-  DebugLoc dl = Op.getDebugLoc();
-  assert(Op.getOperand(0).getValueType() == MVT::i32);
-  SDValue Tmp = DAG.getNode(ISD::BITCAST, dl, MVT::f32, Op.getOperand(0));
-  // Convert the int value to FP in an FP register.
-  return DAG.getNode(SPISD::ITOF, dl, Op.getValueType(), Tmp);
-}
-
 static SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG,
                             const VectorProcTargetLowering &TLI) {
   MachineFunction &MF = DAG.getMachineFunction();
