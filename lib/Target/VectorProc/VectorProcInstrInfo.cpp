@@ -39,7 +39,7 @@ VectorProcInstrInfo::VectorProcInstrInfo(VectorProcSubtarget &ST)
 /// any side effects other than loading from the stack slot.
 unsigned VectorProcInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
                                              int &FrameIndex) const {
-  if (MI->getOpcode() == SP::LWi || MI->getOpcode() == SP::LWf) {
+  if (MI->getOpcode() == SP::LW) {
     if (MI->getOperand(1).isFI() && MI->getOperand(2).isImm() &&
         MI->getOperand(2).getImm() == 0) {
       FrameIndex = MI->getOperand(1).getIndex();
@@ -56,7 +56,7 @@ unsigned VectorProcInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
 /// any side effects other than storing to the stack slot.
 unsigned VectorProcInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
                                             int &FrameIndex) const {
-  if (MI->getOpcode() == SP::SWi || MI->getOpcode() == SP::SWf) {
+  if (MI->getOpcode() == SP::SW) {
     if (MI->getOperand(0).isFI() && MI->getOperand(1).isImm() &&
         MI->getOperand(1).getImm() == 0) {
       FrameIndex = MI->getOperand(0).getIndex();
@@ -120,7 +120,7 @@ storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
   if (I != MBB.end()) DL = I->getDebugLoc();
 
   // Store doesn't actually care of this is float or int; just use int.
-  BuildMI(MBB, I, DL, get(SP::SWi)).addFrameIndex(FI).addImm(0)
+  BuildMI(MBB, I, DL, get(SP::SW)).addFrameIndex(FI).addImm(0)
     .addReg(SrcReg, getKillRegState(isKill));
 }
 
@@ -133,7 +133,7 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
   if (I != MBB.end()) DL = I->getDebugLoc();
 
   // Load doesn't actually care of this is float or int; just use int.
-  BuildMI(MBB, I, DL, get(SP::LWi), DestReg).addFrameIndex(FI).addImm(0);
+  BuildMI(MBB, I, DL, get(SP::LW), DestReg).addFrameIndex(FI).addImm(0);
 }
 
 unsigned VectorProcInstrInfo::getGlobalBaseReg(MachineFunction *MF) const
