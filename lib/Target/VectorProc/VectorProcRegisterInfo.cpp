@@ -30,7 +30,7 @@ using namespace llvm;
 
 VectorProcRegisterInfo::VectorProcRegisterInfo(VectorProcSubtarget &st,
                                      const TargetInstrInfo &tii)
-  : VectorProcGenRegisterInfo(SP::I7), Subtarget(st), TII(tii) {
+  : VectorProcGenRegisterInfo(SP::S28), Subtarget(st), TII(tii) {
 }
 
 const uint16_t* VectorProcRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF)
@@ -41,25 +41,13 @@ const uint16_t* VectorProcRegisterInfo::getCalleeSavedRegs(const MachineFunction
 
 BitVector VectorProcRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
-  // FIXME: G1 reserved for now for large imm generation by frame code.
-  Reserved.set(SP::G1);
-  Reserved.set(SP::G2);
-  Reserved.set(SP::G3);
-  Reserved.set(SP::G4);
-  Reserved.set(SP::O6);
-  Reserved.set(SP::I6);
-  Reserved.set(SP::I7);
-  Reserved.set(SP::G0);
-  Reserved.set(SP::G5);
-  Reserved.set(SP::G6);
-  Reserved.set(SP::G7);
   return Reserved;
 }
 
 const TargetRegisterClass*
 VectorProcRegisterInfo::getPointerRegClass(const MachineFunction &MF,
                                       unsigned Kind) const {
-  return &SP::IntRegsRegClass;
+  return &SP::ScalarRegsRegClass;
 }
 
 void
@@ -82,7 +70,7 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   if (Offset >= -4096 && Offset <= 4095) {
     // If the offset is small enough to fit in the immediate field, directly
     // encode it.
-    MI.getOperand(FIOperandNum).ChangeToRegister(SP::I6, false);
+    MI.getOperand(FIOperandNum).ChangeToRegister(SP::S29, false);
     MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
   } else {
 		// XXX for large indices, need to load indirectly. Look at ARM.
@@ -90,7 +78,7 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 }
 
 unsigned VectorProcRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
-  return SP::I6;
+  return SP::S29;
 }
 
 unsigned VectorProcRegisterInfo::getEHExceptionRegister() const {

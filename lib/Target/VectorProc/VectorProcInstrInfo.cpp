@@ -148,12 +148,8 @@ unsigned VectorProcInstrInfo::getGlobalBaseReg(MachineFunction *MF) const
   MachineBasicBlock::iterator MBBI = FirstMBB.begin();
   MachineRegisterInfo &RegInfo = MF->getRegInfo();
 
-  GlobalBaseReg = RegInfo.createVirtualRegister(&SP::IntRegsRegClass);
+  GlobalBaseReg = RegInfo.createVirtualRegister(&SP::ScalarRegsRegClass);
 
 
-  DebugLoc dl;
-
-  BuildMI(FirstMBB, MBBI, dl, get(SP::GETPCX), GlobalBaseReg);
-  VectorProcFI->setGlobalBaseReg(GlobalBaseReg);
   return GlobalBaseReg;
 }

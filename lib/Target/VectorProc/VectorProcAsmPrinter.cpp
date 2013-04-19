@@ -125,8 +125,6 @@ bool VectorProcAsmPrinter::printGetPCX(const MachineInstr *MI, unsigned opNum,
   case MachineOperand::MO_Register:
     assert(TargetRegisterInfo::isPhysicalRegister(MO.getReg()) &&
            "Operand is not a physical register ");
-    assert(MO.getReg() != SP::O7 && 
-           "%o7 is assigned as destination for getpcx!");
     operand = StringRef(getRegisterName(MO.getReg())).lower();
     break;
   }

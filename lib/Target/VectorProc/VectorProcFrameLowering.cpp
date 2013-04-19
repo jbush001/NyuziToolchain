@@ -57,18 +57,6 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
 void VectorProcFrameLowering::
 eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
                               MachineBasicBlock::iterator I) const {
-  if (!hasReservedCallFrame(MF)) {
-    MachineInstr &MI = *I;
-    DebugLoc DL = MI.getDebugLoc();
-    int Size = MI.getOperand(0).getImm();
-    if (MI.getOpcode() == SP::ADJCALLSTACKDOWN)
-      Size = -Size;
-    const VectorProcInstrInfo &TII =
-      *static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
-    if (Size)
-      BuildMI(MBB, I, DL, TII.get(SP::ADDIri), SP::O6).addReg(SP::O6)
-        .addImm(Size);
-  }
   MBB.erase(I);
 }
 

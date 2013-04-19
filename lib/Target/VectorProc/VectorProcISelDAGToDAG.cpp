@@ -44,7 +44,6 @@ public:
   SDNode *Select(SDNode *N);
 
   // Complex Pattern Selectors.
-  bool SelectADDRrr(SDValue N, SDValue &R1, SDValue &R2);
   bool SelectADDRri(SDValue N, SDValue &Base, SDValue &Offset);
 
   /// SelectInlineAsmMemoryOperand - Implement addressing mode selection for
@@ -111,28 +110,6 @@ bool VectorProcDAGToDAGISel::SelectADDRri(SDValue Addr,
   return true;
 }
 
-bool VectorProcDAGToDAGISel::SelectADDRrr(SDValue Addr, SDValue &R1, SDValue &R2) {
-  if (Addr.getOpcode() == ISD::FrameIndex) return false;
-  if (Addr.getOpcode() == ISD::TargetExternalSymbol ||
-      Addr.getOpcode() == ISD::TargetGlobalAddress)
-    return false;  // direct calls.
-
-  if (Addr.getOpcode() == ISD::ADD) {
-    if (ConstantSDNode *CN = dyn_cast<ConstantSDNode>(Addr.getOperand(1)))
-      if (isInt<13>(CN->getSExtValue()))
-        return false;  // Let the reg+imm pattern catch this!
-    if (Addr.getOperand(0).getOpcode() == SPISD::Lo ||
-        Addr.getOperand(1).getOpcode() == SPISD::Lo)
-      return false;  // Let the reg+imm pattern catch this!
-    R1 = Addr.getOperand(0);
-    R2 = Addr.getOperand(1);
-    return true;
-  }
-
-  R1 = Addr;
-  R2 = CurDAG->getRegister(SP::G0, MVT::i32);
-  return true;
-}
 
 SDNode *VectorProcDAGToDAGISel::Select(SDNode *N) {
   DebugLoc dl = N->getDebugLoc();
@@ -153,8 +130,7 @@ VectorProcDAGToDAGISel::SelectInlineAsmMemoryOperand(const SDValue &Op,
   switch (ConstraintCode) {
   default: return true;
   case 'm':   // memory
-   if (!SelectADDRrr(Op, Op0, Op1))
-     SelectADDRri(Op, Op0, Op1);
+   SelectADDRri(Op, Op0, Op1);
    break;
   }
 

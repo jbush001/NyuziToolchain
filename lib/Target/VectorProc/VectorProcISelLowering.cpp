@@ -55,9 +55,6 @@ static bool CC_VectorProc_Assign_SRet(unsigned &ValNo, MVT &ValVT,
 // callee's register window. This function translates registers to the
 // corresponding caller window %o register.
 static unsigned toCallerWindow(unsigned Reg) {
-  assert(SP::I0 + 7 == SP::I7 && SP::O0 + 7 == SP::O7 && "Unexpected enum");
-  if (Reg >= SP::I0 && Reg <= SP::I7)
-    return Reg - SP::I0 + SP::O0;
   return Reg;
 }
 
@@ -105,9 +102,9 @@ VectorProcTargetLowering::LowerReturn(SDValue Chain,
     if (!Reg)
       llvm_unreachable("sret virtual register not created in the entry block");
     SDValue Val = DAG.getCopyFromReg(Chain, DL, Reg, getPointerTy());
-    Chain = DAG.getCopyToReg(Chain, DL, SP::I0, Val, Flag);
+    Chain = DAG.getCopyToReg(Chain, DL, SP::S0, Val, Flag);
     Flag = Chain.getValue(1);
-    RetOps.push_back(DAG.getRegister(SP::I0, getPointerTy()));
+    RetOps.push_back(DAG.getRegister(SP::S0, getPointerTy()));
     RetAddrOffset = 12; // CallInst + Delay Slot + Unimp
   }
 
@@ -160,7 +157,7 @@ LowerFormalArguments(SDValue Chain,
     if (VA.isRegLoc()) {
       if (VA.needsCustom()) {
         assert(VA.getLocVT() == MVT::f64);
-        unsigned VRegHi = RegInfo.createVirtualRegister(&SP::IntRegsRegClass);
+        unsigned VRegHi = RegInfo.createVirtualRegister(&SP::ScalarRegsRegClass);
         MF.getRegInfo().addLiveIn(VA.getLocReg(), VRegHi);
         SDValue HiVal = DAG.getCopyFromReg(Chain, dl, VRegHi, MVT::i32);
 
@@ -177,7 +174,7 @@ LowerFormalArguments(SDValue Chain,
                               false, false, false, 0);
         } else {
           unsigned loReg = MF.addLiveIn(NextVA.getLocReg(),
-                                        &SP::IntRegsRegClass);
+                                        &SP::ScalarRegsRegClass);
           LoVal = DAG.getCopyFromReg(Chain, dl, loReg, MVT::i32);
         }
         SDValue WholeValue =
@@ -186,7 +183,7 @@ LowerFormalArguments(SDValue Chain,
         InVals.push_back(WholeValue);
         continue;
       }
-      unsigned VReg = RegInfo.createVirtualRegister(&SP::IntRegsRegClass);
+      unsigned VReg = RegInfo.createVirtualRegister(&SP::ScalarRegsRegClass);
       MF.getRegInfo().addLiveIn(VA.getLocReg(), VReg);
       SDValue Arg = DAG.getCopyFromReg(Chain, dl, VReg, MVT::i32);
       if (VA.getLocVT() == MVT::f32)
@@ -270,7 +267,7 @@ LowerFormalArguments(SDValue Chain,
     VectorProcMachineFunctionInfo *SFI = MF.getInfo<VectorProcMachineFunctionInfo>();
     unsigned Reg = SFI->getSRetReturnReg();
     if (!Reg) {
-      Reg = MF.getRegInfo().createVirtualRegister(&SP::IntRegsRegClass);
+      Reg = MF.getRegInfo().createVirtualRegister(&SP::ScalarRegsRegClass);
       SFI->setSRetReturnReg(Reg);
     }
     SDValue Copy = DAG.getCopyToReg(DAG.getEntryNode(), dl, Reg, InVals[0]);
@@ -280,7 +277,7 @@ LowerFormalArguments(SDValue Chain,
   // Store remaining ArgRegs to the stack if this is a varargs function.
   if (isVarArg) {
     static const uint16_t ArgRegs[] = {
-      SP::I0, SP::I1, SP::I2, SP::I3, SP::I4, SP::I5
+      SP::S0, SP::S1, SP::S2, SP::S3, SP::S4, SP::S5
     };
     unsigned NumAllocated = CCInfo.getFirstUnallocated(ArgRegs, 6);
     const uint16_t *CurArgReg = ArgRegs+NumAllocated, *ArgRegEnd = ArgRegs+6;
@@ -298,7 +295,7 @@ LowerFormalArguments(SDValue Chain,
     std::vector<SDValue> OutChains;
 
     for (; CurArgReg != ArgRegEnd; ++CurArgReg) {
-      unsigned VReg = RegInfo.createVirtualRegister(&SP::IntRegsRegClass);
+      unsigned VReg = RegInfo.createVirtualRegister(&SP::ScalarRegsRegClass);
       MF.getRegInfo().addLiveIn(*CurArgReg, VReg);
       SDValue Arg = DAG.getCopyFromReg(DAG.getRoot(), dl, VReg, MVT::i32);
 
@@ -417,7 +414,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     if (Flags.isSRet()) {
       assert(VA.needsCustom());
       // store SRet argument in %sp+64
-      SDValue StackPtr = DAG.getRegister(SP::O6, MVT::i32);
+      SDValue StackPtr = DAG.getRegister(SP::S29, MVT::i32);
       SDValue PtrOff = DAG.getIntPtrConstant(64);
       PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
       MemOpChains.push_back(DAG.getStore(Chain, dl, Arg, PtrOff,
@@ -434,7 +431,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
         unsigned Offset = VA.getLocMemOffset() + StackOffset;
         //if it is double-word aligned, just store.
         if (Offset % 8 == 0) {
-          SDValue StackPtr = DAG.getRegister(SP::O6, MVT::i32);
+          SDValue StackPtr = DAG.getRegister(SP::S29, MVT::i32);
           SDValue PtrOff = DAG.getIntPtrConstant(Offset);
           PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
           MemOpChains.push_back(DAG.getStore(Chain, dl, Arg, PtrOff,
@@ -467,7 +464,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
         } else {
           //Store the low part in stack.
           unsigned Offset = NextVA.getLocMemOffset() + StackOffset;
-          SDValue StackPtr = DAG.getRegister(SP::O6, MVT::i32);
+          SDValue StackPtr = DAG.getRegister(SP::S29, MVT::i32);
           SDValue PtrOff = DAG.getIntPtrConstant(Offset);
           PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
           MemOpChains.push_back(DAG.getStore(Chain, dl, Lo, PtrOff,
@@ -477,7 +474,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
       } else {
         unsigned Offset = VA.getLocMemOffset() + StackOffset;
         // Store the high part.
-        SDValue StackPtr = DAG.getRegister(SP::O6, MVT::i32);
+        SDValue StackPtr = DAG.getRegister(SP::S29, MVT::i32);
         SDValue PtrOff = DAG.getIntPtrConstant(Offset);
         PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
         MemOpChains.push_back(DAG.getStore(Chain, dl, Hi, PtrOff,
@@ -508,7 +505,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     assert(VA.isMemLoc());
 
     // Create a store off the stack pointer for this argument.
-    SDValue StackPtr = DAG.getRegister(SP::O6, MVT::i32);
+    SDValue StackPtr = DAG.getRegister(SP::S29, MVT::i32);
     SDValue PtrOff = DAG.getIntPtrConstant(VA.getLocMemOffset()+StackOffset);
     PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
     MemOpChains.push_back(DAG.getStore(Chain, dl, Arg, PtrOff,
@@ -611,15 +608,15 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   Subtarget = &TM.getSubtarget<VectorProcSubtarget>();
 
   // Set up the register classes.
-  addRegisterClass(MVT::i32, &SP::IntRegsRegClass);
-  addRegisterClass(MVT::f32, &SP::IntRegsRegClass);
+  addRegisterClass(MVT::i32, &SP::ScalarRegsRegClass);
+  addRegisterClass(MVT::f32, &SP::ScalarRegsRegClass);
 
   // Progressively expand conditionals into SELECT_CCs
   setOperationAction(ISD::BR_CC, MVT::i32, Expand);
   setOperationAction(ISD::BRCOND, MVT::i32, Expand);
   setOperationAction(ISD::SETCC, MVT::i32, Expand);
 
-  setStackPointerRegisterToSaveRestore(SP::O6);
+  setStackPointerRegisterToSaveRestore(SP::S29);
 
   setMinFunctionAlignment(2);
 
@@ -687,7 +684,7 @@ VectorProcTargetLowering::getRegForInlineAsmConstraint(const std::string &Constr
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
     case 'r':
-      return std::make_pair(0U, &SP::IntRegsRegClass);
+      return std::make_pair(0U, &SP::ScalarRegsRegClass);
     }
   }
 
