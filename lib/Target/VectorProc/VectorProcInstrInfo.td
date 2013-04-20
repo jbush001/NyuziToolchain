@@ -107,7 +107,7 @@ class CONDF<string operator, CondCode condition>
 		(outs ScalarRegs:$dst),
 		(ins ScalarRegs:$a, ScalarRegs:$b),
 		!strconcat("s$dst = f$a ", !strconcat(operator, " f$b")),
-		[(set i32:$dst, (selectcc (f32 ScalarRegs:$a), (f32 ScalarRegs:$b), 1, 0, condition))]>
+		[(set i32:$dst, (selectcc f32:$a, f32:$b, 1, 0, condition))]>
 {
 }
 

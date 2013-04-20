@@ -615,6 +615,9 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::BR_CC, MVT::i32, Expand);
   setOperationAction(ISD::BRCOND, MVT::i32, Expand);
   setOperationAction(ISD::SETCC, MVT::i32, Expand);
+  setOperationAction(ISD::BR_CC, MVT::f32, Expand);
+  setOperationAction(ISD::BRCOND, MVT::f32, Expand);
+  setOperationAction(ISD::SETCC, MVT::f32, Expand);
 
   setStackPointerRegisterToSaveRestore(SP::S29);
 
