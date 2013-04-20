@@ -41,7 +41,7 @@ multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 		(outs ScalarRegs:$dst), 
 		(ins ScalarRegs:$b, i32imm:$c),
 		!strconcat("s$dst = s$b ", !strconcat(operator, " s$c")),
-		[(set i32:$dst, (OpNode i32:$b, i32:$c))]>;	// XXXX simm13
+		[(set i32:$dst, (OpNode i32:$b, simm13:$c))]>;
 }
 
 class VPTernaryFloatArith<string operator, SDNode OpNode> 
@@ -188,13 +188,11 @@ def : Pat<(i32 (extloadi1 ADDRri:$src)), (LBUi ADDRri:$src)>;
 def : Pat<(i32 (extloadi8 ADDRri:$src)), (LBUi ADDRri:$src)>;
 def : Pat<(i32 (extloadi16 ADDRri:$src)), (LSSi ADDRri:$src)>;
 
-/// XXX need to use simm13 so this doesn't attempt to load too large a value.
-/// (or perhaps do that in lowering)
 def LOADIMM : VPInstruction<
 	(outs ScalarRegs:$dest),
 	(ins i32imm:$val),
 	"s$dest = $val",
-	[(set ScalarRegs:$dest, i32:$val)]>;
+	[(set ScalarRegs:$dest, simm13:$val)]>;
 
 class F2<dag outs, dag ins, string asmstr, list<dag> pattern>
    : VPInstruction<outs, ins, asmstr, pattern> {
