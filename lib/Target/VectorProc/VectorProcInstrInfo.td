@@ -194,6 +194,12 @@ def LOADIMM : VPInstruction<
 	"s$dest = $val",
 	[(set ScalarRegs:$dest, simm13:$val)]>;
 
+def LOADCONST : VPInstruction<
+	(outs ScalarRegs:$dest),
+	(ins i32imm:$val),
+	"s$dest = #$val ; Need an instruction to load from literal pool",
+	[(set ScalarRegs:$dest, i32:$val)]>;
+
 class F2<dag outs, dag ins, string asmstr, list<dag> pattern>
    : VPInstruction<outs, ins, asmstr, pattern> {
   bits<3>  op2;
