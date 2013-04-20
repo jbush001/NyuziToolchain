@@ -99,7 +99,7 @@ multiclass CONDI<string operator, CondCode condition> {
 		(outs ScalarRegs:$dst), 
 		(ins ScalarRegs:$a, i32imm:$b),
 		!strconcat("s$dst = s$a ", !strconcat(operator, " s$b")),
-		[(set i32:$dst, (selectcc i32:$a, i32:$b, 1, 0, condition))]>;
+		[(set i32:$dst, (selectcc i32:$a, simm13:$b, 1, 0, condition))]>;
 }
 
 class CONDF<string operator, CondCode condition>
@@ -111,18 +111,25 @@ class CONDF<string operator, CondCode condition>
 {
 }
 
-defm SGTI : CONDI<">", SETGT>;
+defm SGTI : CONDI<">", SETGT>;	 // XXX does not handle unsigned
 defm SGEI : CONDI<">=", SETGE>;
 defm SLTI : CONDI<"<", SETLT>;
 defm SLEI : CONDI<"<=", SETLE>;
 defm SEQI : CONDI<"==", SETEQ>;
 defm SNEI : CONDI<"!=", SETNE>;
-def SGTF : CONDF<">", SETGT>;
-def SGEF : CONDF<">=", SETGE>;
-def SLTF : CONDF<"<", SETLT>;
-def SLEF : CONDF<"<=", SETLE>;
-def SEQF : CONDF<"==", SETEQ>;
-def SNEF : CONDF<"!=", SETNE>;
+def SGTFO : CONDF<">", SETOGT>;	// Note: unordered and ordered treated the same
+def SGEFO : CONDF<">=", SETOGE>;
+def SLTFO : CONDF<"<", SETOLT>;
+def SLEFO : CONDF<"<=", SETOLE>;
+def SEQFO : CONDF<"==", SETOEQ>;
+def SNEFO : CONDF<"!=", SETONE>;
+def SGTFU : CONDF<">", SETUGT>;
+def SGEFU : CONDF<">=", SETUGE>;
+def SLTFU : CONDF<"<", SETULT>;
+def SLEFU : CONDF<"<=", SETULE>;
+def SEQFU : CONDF<"==", SETUEQ>;
+def SNEFU : CONDF<"!=", SETUNE>;
+
 
 let hasSideEffects = 1, isBranch = 1 in {
 	def GOTO : VPInstruction<
@@ -197,12 +204,6 @@ def LOADIMM : VPInstruction<
 	(ins i32imm:$val),
 	"s$dest = $val",
 	[(set ScalarRegs:$dest, simm13:$val)]>;
-
-def LOADCONST : VPInstruction<
-	(outs ScalarRegs:$dest),
-	(ins i32imm:$val),
-	"s$dest = #$val ; Need an instruction to load from literal pool",
-	[(set ScalarRegs:$dest, i32:$val)]>;
 
 class F2<dag outs, dag ins, string asmstr, list<dag> pattern>
    : VPInstruction<outs, ins, asmstr, pattern> {
