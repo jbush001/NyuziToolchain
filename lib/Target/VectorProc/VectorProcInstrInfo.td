@@ -124,23 +124,25 @@ def SLEF : CONDF<"<=", SETLE>;
 def SEQF : CONDF<"==", SETEQ>;
 def SNEF : CONDF<"!=", SETNE>;
 
-def GOTO : VPInstruction<
-	(outs),
-	(ins brtarget:$offset),
-	"goto $offset",
-	[(br bb:$offset)]>;
+let hasSideEffects = 1, isBranch = 1 in {
+	def GOTO : VPInstruction<
+		(outs),
+		(ins brtarget:$offset),
+		"goto $offset",
+		[(br bb:$offset)]>;
 
-def IFFALSE	: VPInstruction<
-  	(outs), 
-  	(ins ScalarRegs:$rs, brtarget:$offset),
-    "if !s$rs goto $offset",
-    [(brcond (i32 (seteq i32:$rs, 0)), bb:$offset)]> ;
+	def IFFALSE	: VPInstruction<
+		(outs), 
+		(ins ScalarRegs:$rs, brtarget:$offset),
+		"if !s$rs goto $offset",
+		[(brcond (i32 (seteq i32:$rs, 0)), bb:$offset)]> ;
 
-def IFTRUE	: VPInstruction<
-  	(outs), 
-  	(ins ScalarRegs:$rs, brtarget:$offset),
-    "if s$rs goto $offset",
-    [(brcond i32:$rs, bb:$offset)]> ;
+	def IFTRUE	: VPInstruction<
+		(outs), 
+		(ins ScalarRegs:$rs, brtarget:$offset),
+		"if s$rs goto $offset",
+		[(brcond i32:$rs, bb:$offset)]> ;
+}
 
 def MEMri : Operand<iPTR> {
   let PrintMethod = "printMemOperand";
@@ -161,18 +163,20 @@ multiclass MEMLOAD<string suffix, string regtype, PatFrag op>  {
 		[(set f32:$dst, (op ADDRri:$addr))]>;
 }
 
-multiclass MEMSTORE<string suffix, PatFrag op>  {
-	def i : VPInstruction<
-		(outs),
-		(ins MEMri:$addr, ScalarRegs:$src),
-		!strconcat("mem_", !strconcat(suffix, "[s$addr] = s$src")),
-		[(op i32:$src, ADDRri:$addr)]>;
+let hasSideEffects = 1, mayStore = 1 in {
+	multiclass MEMSTORE<string suffix, PatFrag op>  {
+		def i : VPInstruction<
+			(outs),
+			(ins MEMri:$addr, ScalarRegs:$src),
+			!strconcat("mem_", !strconcat(suffix, "[s$addr] = s$src")),
+			[(op i32:$src, ADDRri:$addr)]>;
 
-	def f : VPInstruction<
-		(outs),
-		(ins MEMri:$addr, ScalarRegs:$src),
-		!strconcat("mem_", !strconcat(suffix, "[s$addr] = s$src")),
-		[(op f32:$src, ADDRri:$addr)]>;
+		def f : VPInstruction<
+			(outs),
+			(ins MEMri:$addr, ScalarRegs:$src),
+			!strconcat("mem_", !strconcat(suffix, "[s$addr] = s$src")),
+			[(op f32:$src, ADDRri:$addr)]>;
+	}
 }
 
 defm LBS : MEMLOAD<"b", "s", sextloadi8>;
@@ -294,7 +298,7 @@ def UNIMP : F2_1<0b000, (outs), (ins i32imm:$val),
                 "unimp $val", []>;
 
 
-let isReturn = 1, isTerminator = 1, hasDelaySlot = 1 in {
+let isReturn = 1, isTerminator = 1 in {
   let rd = 0, rs1 = 0 in
     def RETL: F3_2<2, 0b111000, (outs), (ins i32imm:$val),
                    "jmp %o7+$val", [(retflag simm13:$val)]>;
