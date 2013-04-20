@@ -233,32 +233,8 @@ class F3_2<bits<2> opVal, bits<6> op3val, dag outs, dag ins,
 
 }
 
-def LO10 : SDNodeXForm<imm, [{
-  return CurDAG->getTargetConstant((unsigned)N->getZExtValue() & 1023,
-                                   MVT::i32);
-}]>;
-
-def HI22 : SDNodeXForm<imm, [{
-  // Transformation function: shift the immediate value down into the low bits.
-  return CurDAG->getTargetConstant((unsigned)N->getZExtValue() >> 10, MVT::i32);
-}]>;
-
 // Branch targets have OtherVT type.
 def calltarget : Operand<i32>;
-
-// Operand for printing out a condition code.
-let PrintMethod = "printCCOperand" in
-  def CCOp : Operand<i32>;
-
-def SDTSPcmpfcc : 
-SDTypeProfile<0, 2, [SDTCisFP<0>, SDTCisSameAs<0, 1>]>;
-def SDTSPbrcc : 
-SDTypeProfile<0, 2, [SDTCisVT<0, OtherVT>, SDTCisVT<1, i32>]>;
-def SDTSPselectcc :
-SDTypeProfile<1, 3, [SDTCisSameAs<0, 1>, SDTCisSameAs<1, 2>, SDTCisVT<3, i32>]>;
-
-def SPlo    : SDNode<"SPISD::Lo", SDTIntUnaryOp>;
-
 
 //  These are target-independent nodes, but have target-specific formats.
 def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
@@ -353,13 +329,6 @@ let Uses = [S29],
 //===----------------------------------------------------------------------===//
 // Non-Instruction Patterns
 //===----------------------------------------------------------------------===//
-
-
-// Add reg, lo.  This is used when taking the addr of a global/constpool entry.
-def : Pat<(add i32:$r, (SPlo tglobaladdr:$in)),
-          (ADDIri $r, tglobaladdr:$in)>;
-def : Pat<(add i32:$r, (SPlo tconstpool:$in)),
-          (ADDIri $r, tconstpool:$in)>;
 
 // Calls: 
 def : Pat<(call tglobaladdr:$dst),
