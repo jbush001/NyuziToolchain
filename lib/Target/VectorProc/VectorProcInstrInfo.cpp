@@ -84,7 +84,7 @@ bool VectorProcInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
                                    SmallVectorImpl<MachineOperand> &Cond,
                                    bool AllowModify) const
 {
-  return false;
+  return true;	// Indicate we can't analyze branch
 }
 
 unsigned
