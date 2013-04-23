@@ -111,7 +111,7 @@ void VectorProcAsmPrinter::printMemOperand(const MachineInstr *MI, int opNum,
     int operand = MI->getOperand(opNum+1).getImm();
     if (operand > 0)
       O << " + " << operand;
-    else
+    else if (operand < 0)
       O << " - " << -operand;
   }
 }

@@ -84,6 +84,12 @@ def FTOSI : VPInstruction<
         	"s$dst= ftoi(f$src)",
         	[(set i32:$dst, (fp_to_sint f32:$src))]>;
 
+def MOVEREG : VPInstruction<
+			(outs ScalarRegs:$dst), 
+			(ins ScalarRegs:$src),
+        	"s$dst = s$src",
+        	[(set i32:$dst, i32:$src)]>;
+
 def brtarget : Operand<OtherVT>;
 
 multiclass CONDI<string operator, CondCode condition> {
@@ -130,26 +136,33 @@ def SLEFU : CONDF<"<=", SETULE>;
 def SEQFU : CONDF<"==", SETUEQ>;
 def SNEFU : CONDF<"!=", SETUNE>;
 
+class BranchInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
+	: VPInstruction<outputs, inputs, asmString, pattern>
+{
+	let isBranch = 1;
+	let isTerminator = 1;
+	let isBranch = 1;
+}
 
-let hasSideEffects = 1, isBranch = 1 in {
-	def GOTO : VPInstruction<
+let isBarrier = 1 in {
+	def GOTO : BranchInstruction<
 		(outs),
 		(ins brtarget:$offset),
 		"goto $offset",
 		[(br bb:$offset)]>;
-
-	def IFFALSE	: VPInstruction<
-		(outs), 
-		(ins ScalarRegs:$rs, brtarget:$offset),
-		"if !s$rs goto $offset",
-		[(brcond (i32 (seteq i32:$rs, 0)), bb:$offset)]> ;
-
-	def IFTRUE	: VPInstruction<
-		(outs), 
-		(ins ScalarRegs:$rs, brtarget:$offset),
-		"if s$rs goto $offset",
-		[(brcond i32:$rs, bb:$offset)]> ;
 }
+
+def IFFALSE	: BranchInstruction<
+	(outs), 
+	(ins ScalarRegs:$rs, brtarget:$offset),
+	"if !s$rs goto $offset",
+	[(brcond (i32 (seteq i32:$rs, 0)), bb:$offset)]> ;
+
+def IFTRUE	: BranchInstruction<
+	(outs), 
+	(ins ScalarRegs:$rs, brtarget:$offset),
+	"if s$rs goto $offset",
+	[(brcond i32:$rs, bb:$offset)]> ;
 
 def MEMri : Operand<iPTR> {
   let PrintMethod = "printMemOperand";

@@ -104,11 +104,8 @@ void VectorProcInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                  MachineBasicBlock::iterator I, DebugLoc DL,
                                  unsigned DestReg, unsigned SrcReg,
                                  bool KillSrc) const {
-    // XXX probably won't work for floating point registers.  It seems
-    // like I should be able to infer this directly in the .td file.
-    // Need to understand better why llvm has this function.
-	BuildMI(MBB, I, DL, get(SP::ANDrr), DestReg).addReg(SrcReg)
-	  .addReg(SrcReg, getKillRegState(KillSrc));
+	BuildMI(MBB, I, DL, get(SP::MOVEREG), DestReg).addReg(SrcReg, 
+		getKillRegState(KillSrc));
 }
 
 void VectorProcInstrInfo::
