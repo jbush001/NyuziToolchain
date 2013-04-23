@@ -40,7 +40,7 @@ multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 	def ri : VPInstruction<
 		(outs ScalarRegs:$dst), 
 		(ins ScalarRegs:$b, i32imm:$c),
-		!strconcat("s$dst = s$b ", !strconcat(operator, " s$c")),
+		!strconcat("s$dst = s$b ", !strconcat(operator, " $c")),
 		[(set i32:$dst, (OpNode i32:$b, simm13:$c))]>;
 }
 
@@ -104,7 +104,7 @@ multiclass CONDI<string operator, CondCode condition> {
 	def ri : VPInstruction<
 		(outs ScalarRegs:$dst), 
 		(ins ScalarRegs:$a, i32imm:$b),
-		!strconcat("s$dst = s$a ", !strconcat(operator, " s$b")),
+		!strconcat("s$dst = s$a ", !strconcat(operator, " $b")),
 		[(set i32:$dst, (selectcc i32:$a, simm13:$b, 1, 0, condition))]>;
 }
 
