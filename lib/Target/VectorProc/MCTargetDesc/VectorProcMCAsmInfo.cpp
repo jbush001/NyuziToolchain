@@ -22,20 +22,20 @@ VectorProcELFMCAsmInfo::VectorProcELFMCAsmInfo(const Target &T, StringRef TT) {
   IsLittleEndian = false;
   Triple TheTriple(TT);
 
-  Data16bitsDirective = "\t.half\t";
+  Data16bitsDirective = "\t.short\t";
   Data32bitsDirective = "\t.word\t";
   Data64bitsDirective = 0; 
-  ZeroDirective = "\t.skip\t";
-  CommentString = "!";
+  ZeroDirective = "";	// What is this?
+  CommentString = ";";
   HasLEB128 = true;
   SupportsDebugInformation = true;
   
   SunStyleELFSectionSwitchSyntax = true;
   UsesELFSectionDirectiveForBSS = true;
 
-  WeakRefDirective = "\t.weak\t";
+  WeakRefDirective = "";
 
-  PrivateGlobalPrefix = ".L";
+  PrivateGlobalPrefix = "L";
 }
 
 

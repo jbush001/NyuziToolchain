@@ -140,8 +140,7 @@ class BranchInstruction<dag outputs, dag inputs, string asmString, list<dag> pat
 	: VPInstruction<outputs, inputs, asmString, pattern>
 {
 	let isBranch = 1;
-	let isTerminator = 1;
-	let isBranch = 1;
+	let isTerminator = 1;	// Ends current basic block and starts another one
 }
 
 let isBarrier = 1 in {
