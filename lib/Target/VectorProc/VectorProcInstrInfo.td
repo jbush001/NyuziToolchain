@@ -88,7 +88,7 @@ def MOVEREG : VPInstruction<
 			(outs ScalarRegs:$dst), 
 			(ins ScalarRegs:$src),
         	"s$dst = s$src",
-        	[(set i32:$dst, i32:$src)]>;
+        	[]>;
 
 def brtarget : Operand<OtherVT>;
 
