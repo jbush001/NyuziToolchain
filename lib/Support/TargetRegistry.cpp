@@ -87,7 +87,6 @@ const Target *TargetRegistry::lookupTarget(const std::string &TT,
   if (!Best) {
     Error = "No available targets are compatible with this triple, "
       "see -version for the available targets.";
-    Error = Error + "target is " + TT;
     return 0;
   }
 

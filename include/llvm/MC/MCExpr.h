@@ -217,31 +217,7 @@ public:
     VK_Mips_GOT_LO16,
     VK_Mips_CALL_HI16,
     VK_Mips_CALL_LO16,
-    VK_COFF_IMGREL32, // symbol@imgrel (image-relative)
-    VK_VectorProc_GPREL,
-    VK_VectorProc_GOT_CALL,
-    VK_VectorProc_GOT16,
-    VK_VectorProc_GOT,
-    VK_VectorProc_ABS_HI,
-    VK_VectorProc_ABS_LO,
-    VK_VectorProc_TLSGD,
-    VK_VectorProc_TLSLDM,
-    VK_VectorProc_DTPREL_HI,
-    VK_VectorProc_DTPREL_LO,
-    VK_VectorProc_GOTTPREL,
-    VK_VectorProc_TPREL_HI,
-    VK_VectorProc_TPREL_LO,
-    VK_VectorProc_GPOFF_HI,
-    VK_VectorProc_GPOFF_LO,
-    VK_VectorProc_GOT_DISP,
-    VK_VectorProc_GOT_PAGE,
-    VK_VectorProc_GOT_OFST,
-    VK_VectorProc_HIGHER,
-    VK_VectorProc_HIGHEST,
-    VK_VectorProc_GOT_HI16,
-    VK_VectorProc_GOT_LO16,
-    VK_VectorProc_CALL_HI16,
-    VK_VectorProc_CALL_LO16
+    VK_COFF_IMGREL32 // symbol@imgrel (image-relative)
   };
 
 private:
