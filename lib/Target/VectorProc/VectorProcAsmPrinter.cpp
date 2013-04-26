@@ -40,7 +40,6 @@ namespace {
     void printOperand(const MachineInstr *MI, int opNum, raw_ostream &OS);
     void printMemOperand(const MachineInstr *MI, int opNum, raw_ostream &OS,
                          const char *Modifier = 0);
-    void printCCOperand(const MachineInstr *MI, int opNum, raw_ostream &OS);
 
     virtual void EmitInstruction(const MachineInstr *MI) {
       SmallString<128> Str;
@@ -146,12 +145,6 @@ bool VectorProcAsmPrinter::printGetPCX(const MachineInstr *MI, unsigned opNum,
   O << "\tadd\t" << operand << ", %o7, " << operand << '\n'; 
   
   return true;
-}
-
-void VectorProcAsmPrinter::printCCOperand(const MachineInstr *MI, int opNum,
-                                     raw_ostream &O) {
-  int CC = (int)MI->getOperand(opNum).getImm();
-  O << VECTORPROCCondCodeToString((SPCC::CondCodes)CC);
 }
 
 /// PrintAsmOperand - Print out an operand for an inline asm expression.

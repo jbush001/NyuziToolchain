@@ -20,13 +20,6 @@ class VectorProcCtrlReg<string n>: Register<n> {
   let Namespace = "SP";
 }
 
-// Control Registers
-def ICC : VectorProcCtrlReg<"ICC">; // This represents icc and xcc in 64-bit code.
-def FCC : VectorProcCtrlReg<"FCC">;
-
-// Y register
-def Y : VectorProcCtrlReg<"Y">;
-
 // Integer registers
 def S0 : VectorProcReg<"0", []>, DwarfRegNum<[0]>;
 def S1 : VectorProcReg<"1", []>, DwarfRegNum<[1]>;

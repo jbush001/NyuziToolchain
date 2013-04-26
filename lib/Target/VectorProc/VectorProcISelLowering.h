@@ -24,14 +24,6 @@ namespace llvm {
   namespace SPISD {
     enum {
       FIRST_NUMBER = ISD::BUILTIN_OP_END,
-      CMPICC,      // Compare two GPR operands, set icc+xcc.
-      CMPFCC,      // Compare two FP operands, set fcc.
-      BRICC,       // Branch to dest on icc condition
-      BRXCC,       // Branch to dest on xcc condition (64-bit only).
-      BRFCC,       // Branch to dest on fcc condition
-      SELECT_ICC,  // Select between two values using the current ICC flags.
-      SELECT_XCC,  // Select between two values using the current XCC flags.
-      SELECT_FCC,  // Select between two values using the current FCC flags.
 
       Hi, Lo,      // Hi/Lo operations, typically on a global address.
 
