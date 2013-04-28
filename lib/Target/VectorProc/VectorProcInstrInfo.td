@@ -202,7 +202,7 @@ defm LBS : MEMLOAD<"b", "s", sextloadi8>;
 defm LBU : MEMLOAD<"b", "u", zextloadi8>;
 defm LSS : MEMLOAD<"s", "s", sextloadi16>;
 defm LSU : MEMLOAD<"s", "u", zextloadi16>;
-defm LW : MEMLOAD<"s", "s", load>;
+defm LW : MEMLOAD<"l", "s", load>;
 defm SB : MEMSTORE<"b", truncstorei8>;
 defm SS : MEMSTORE<"s", truncstorei16>;
 defm SW : MEMSTORE<"l", store>;

@@ -619,10 +619,10 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::BRCOND, MVT::f32, Expand);
   setOperationAction(ISD::SETCC, MVT::f32, Expand);
 
-  setOperationAction(ISD::GlobalAddress, MVT::i32, Expand);
-  setOperationAction(ISD::ConstantPool , MVT::i32, Expand);
-  setOperationAction(ISD::GlobalAddress, MVT::f32, Expand);
-  setOperationAction(ISD::ConstantPool , MVT::f32, Expand);
+  setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
+  setOperationAction(ISD::GlobalAddress, MVT::f32, Custom);
+  setOperationAction(ISD::ConstantPool , MVT::i32, Custom);
+  setOperationAction(ISD::ConstantPool , MVT::f32, Custom);
 
   setStackPointerRegisterToSaveRestore(SP::S29);
 
@@ -657,8 +657,44 @@ static SDValue getFLUSHW(SDValue Op, SelectionDAG &DAG) {
 
 
 SDValue VectorProcTargetLowering::
+LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const
+{
+	EVT PtrVT = getPointerTy();
+	DebugLoc dl = Op.getDebugLoc();
+	const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
+
+    SDValue CPAddr = DAG.getTargetConstantPool(GV, PtrVT, 4);
+    return DAG.getLoad(PtrVT, dl, DAG.getEntryNode(), CPAddr,
+                       MachinePointerInfo::getConstantPool(),
+                       false, false, false, 0);
+}
+
+SDValue VectorProcTargetLowering::
+LowerConstantPool(SDValue Op, SelectionDAG &DAG) const
+{
+	EVT PtrVT = getPointerTy();
+	DebugLoc dl = Op.getDebugLoc();
+	ConstantPoolSDNode *CP = cast<ConstantPoolSDNode>(Op);
+	SDValue CPAddr =DAG.getTargetConstantPool(CP->getConstVal(), PtrVT,
+                                    CP->getAlignment());
+    return DAG.getLoad(PtrVT, dl, DAG.getEntryNode(), CPAddr,
+                       MachinePointerInfo::getConstantPool(),
+                       false, false, false, 0);
+}
+
+SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const {
-	llvm_unreachable("Should not custom lower this!");
+	switch (Op.getOpcode())
+	{
+		case ISD::GlobalAddress:
+			return LowerGlobalAddress(Op, DAG);	
+
+		case ISD::ConstantPool:
+			return LowerConstantPool(Op, DAG);	
+	
+		default:
+			llvm_unreachable("Should not custom lower this!");
+	}
 }
 
 MachineBasicBlock *
