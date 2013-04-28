@@ -90,19 +90,19 @@ def MOVEREG : VPInstruction<
 
 def brtarget : Operand<OtherVT>;
 
-multiclass CONDI<string operator, CondCode condition> {
+multiclass CONDI<string operator, string opsign, CondCode condition> {
 	// Instruction format A, integer
 	def rr : VPInstruction<
 		(outs ScalarRegs:$dst), 
 		(ins ScalarRegs:$a, ScalarRegs:$b),
-		!strconcat("s$dst = s$a ", !strconcat(operator, " s$b")),
+		!strconcat("s$dst = ", !strconcat(opsign, !strconcat("$a", !strconcat(operator, !strconcat(opsign, "$b"))))),
 		[(set i32:$dst, (selectcc i32:$a, i32:$b, 1, 0, condition))]>;
 
 	// Instruction format B
 	def ri : VPInstruction<
 		(outs ScalarRegs:$dst), 
 		(ins ScalarRegs:$a, i32imm:$b),
-		!strconcat("s$dst = s$a ", !strconcat(operator, " $b")),
+		!strconcat("s$dst = ", !strconcat(opsign, !strconcat("$a", !strconcat(operator, "$b")))),
 		[(set i32:$dst, (selectcc i32:$a, simm13:$b, 1, 0, condition))]>;
 }
 
@@ -115,12 +115,16 @@ class CONDF<string operator, CondCode condition>
 {
 }
 
-defm SGTI : CONDI<">", SETGT>;	 // XXX does not handle unsigned
-defm SGEI : CONDI<">=", SETGE>;
-defm SLTI : CONDI<"<", SETLT>;
-defm SLEI : CONDI<"<=", SETLE>;
-defm SEQI : CONDI<"==", SETEQ>;
-defm SNEI : CONDI<"!=", SETNE>;
+defm SGTSI : CONDI<">", "s", SETGT>;	
+defm SGESI : CONDI<">=", "s", SETGE>;
+defm SLTSI : CONDI<"<", "s", SETLT>;
+defm SLESI : CONDI<"<=", "s", SETLE>;
+defm SEQSI : CONDI<"==", "s", SETEQ>;
+defm SNESI : CONDI<"!=", "s", SETNE>;
+defm SGTUI : CONDI<">", "u", SETUGT>;	
+defm SGEUI : CONDI<">=", "u", SETUGE>;
+defm SLTUI : CONDI<"<", "u", SETULT>;
+defm SLEUI : CONDI<"<=", "u", SETULE>;
 def SGTFO : CONDF<">", SETOGT>;	// Note: unordered and ordered treated the same
 def SGEFO : CONDF<">=", SETOGE>;
 def SLTFO : CONDF<"<", SETOLT>;
