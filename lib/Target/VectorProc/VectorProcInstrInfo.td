@@ -172,13 +172,13 @@ multiclass MEMLOAD<string suffix, string regtype, PatFrag op>  {
 	def i : VPInstruction<
 		(outs ScalarRegs:$dst),
 		(ins MEMri:$addr),
-		!strconcat(!strconcat(!strconcat(regtype, "$dst = mem_"), suffix), "[s$addr]"),
+		!strconcat(!strconcat(!strconcat(regtype, "$dst = mem_"), suffix), "[$addr]"),
 		[(set i32:$dst, (i32 (op ADDRri:$addr)))]>;
 
 	def f : VPInstruction<
 		(outs ScalarRegs:$dst),
 		(ins MEMri:$addr),
-		!strconcat(!strconcat(!strconcat(regtype, "$dst = mem_"), suffix), "[s$addr]"),
+		!strconcat(!strconcat(!strconcat(regtype, "$dst = mem_"), suffix), "[$addr]"),
 		[(set f32:$dst, (op ADDRri:$addr))]>;
 }
 
@@ -187,13 +187,13 @@ let hasSideEffects = 1, mayStore = 1 in {
 		def i : VPInstruction<
 			(outs),
 			(ins MEMri:$addr, ScalarRegs:$src),
-			!strconcat("mem_", !strconcat(suffix, "[s$addr] = s$src")),
+			!strconcat("mem_", !strconcat(suffix, "[$addr] = s$src")),
 			[(op i32:$src, ADDRri:$addr)]>;
 
 		def f : VPInstruction<
 			(outs),
 			(ins MEMri:$addr, ScalarRegs:$src),
-			!strconcat("mem_", !strconcat(suffix, "[s$addr] = s$src")),
+			!strconcat("mem_", !strconcat(suffix, "[$addr] = s$src")),
 			[(op f32:$src, ADDRri:$addr)]>;
 	}
 }

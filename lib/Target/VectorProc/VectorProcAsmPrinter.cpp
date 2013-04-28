@@ -101,18 +101,41 @@ void VectorProcAsmPrinter::printOperand(const MachineInstr *MI, int opNum,
 
 // Body of address.  eg: mem_l[THIS]
 void VectorProcAsmPrinter::printMemOperand(const MachineInstr *MI, int opNum,
-                                      raw_ostream &O, const char *Modifier) {
-  printOperand(MI, opNum, O);
+                                      raw_ostream &O, const char *Modifier) 
+{
+	const MachineOperand &MO = MI->getOperand(opNum);
+	switch (MO.getType())
+	{
+		case MachineOperand::MO_Register:
+			// Note: for memory operands, we do prepend the register type,
+			// unlike with arithmetic operands
+			O << "s" << StringRef(getRegisterName(MO.getReg())).lower();
 
-  // Immediate operand
-  if (MI->getOperand(opNum+1).isImm())
-  {
-    int operand = MI->getOperand(opNum+1).getImm();
-    if (operand > 0)
-      O << " + " << operand;
-    else if (operand < 0)
-      O << " - " << -operand;
-  }
+			// Offset
+			if (MI->getOperand(opNum+1).isImm())
+			{
+				int operand = MI->getOperand(opNum+1).getImm();
+				if (operand > 0)
+					O << " + " << operand;
+				else if (operand < 0)
+					O << " - " << -operand;
+			}
+
+			break;
+
+		case MachineOperand::MO_GlobalAddress:
+			O << *Mang->getSymbol(MO.getGlobal());
+			break;
+			
+		case MachineOperand::MO_ConstantPoolIndex:
+			O << MAI->getPrivateGlobalPrefix() << "CPI" << getFunctionNumber() << "_"
+				<< MO.getIndex();
+			break;
+		
+		default:
+			errs() << "What is " << MO.getType();
+		    llvm_unreachable("<unknown operand type>");
+	}
 }
 
 bool VectorProcAsmPrinter::printGetPCX(const MachineInstr *MI, unsigned opNum,
