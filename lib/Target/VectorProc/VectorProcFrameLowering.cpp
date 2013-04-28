@@ -67,7 +67,7 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
   const VectorProcInstrInfo &TII =
     *static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
   DebugLoc dl = MBBI->getDebugLoc();
-  assert(MBBI->getOpcode() == SP::RETL &&
+  assert(MBBI->getOpcode() == SP::RET &&
          "Can only put epilog before 'retl' instruction!");
 
 	// XXX fix

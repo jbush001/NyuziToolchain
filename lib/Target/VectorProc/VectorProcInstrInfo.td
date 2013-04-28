@@ -17,8 +17,6 @@ def simm10  : PatLeaf<(imm), [{ return isInt<10>(N->getSExtValue()); }]>;
 def simm13  : PatLeaf<(imm), [{ return isInt<13>(N->getSExtValue()); }]>;
 def simm20  : PatLeaf<(imm), [{ return isInt<20>(N->getSExtValue()); }]>;
 
-def ADDRri : ComplexPattern<iPTR, 2, "SelectADDRri", [frameindex], []>;
-
 class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
 	: Instruction {
 	let Namespace = "SP";
@@ -163,6 +161,8 @@ def IFTRUE	: BranchInstruction<
 	"if s$rs goto $offset",
 	[(brcond i32:$rs, bb:$offset)]> ;
 
+def ADDRri : ComplexPattern<iPTR, 2, "SelectADDRri", [frameindex], []>;
+
 def MEMri : Operand<iPTR> {
   let PrintMethod = "printMemOperand";
   let MIOperandInfo = (ops ptr_rc, i32imm);
@@ -217,6 +217,22 @@ def LOADIMM : VPInstruction<
 	"s$dest = $val",
 	[(set ScalarRegs:$dest, simm13:$val)]>;
 
+def SDT_SPRet : SDTypeProfile<0, 1, [SDTCisVT<0, i32>]>;
+def retflag : SDNode<"SPISD::RET_FLAG", 
+	SDT_SPRet,
+    [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
+
+let isReturn = 1, isTerminator = 1 in {
+	def RET : VPInstruction<
+		(outs),
+		(ins i32imm:$val),
+		"pc = link",
+		[(retflag simm13:$val)]>;
+}
+
+
+////////////////////////////////////////////////////////////
+
 class F2<dag outs, dag ins, string asmstr, list<dag> pattern>
    : VPInstruction<outs, ins, asmstr, pattern> {
   bits<3>  op2;
@@ -268,9 +284,6 @@ def call          : SDNode<"SPISD::CALL", SDT_SPCall,
                            [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
                             SDNPVariadic]>;
 
-def SDT_SPRet     : SDTypeProfile<0, 1, [SDTCisVT<0, i32>]>;
-def retflag       : SDNode<"SPISD::RET_FLAG", SDT_SPRet,
-                           [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
 def flushw        : SDNode<"SPISD::FLUSHW", SDTNone,
                            [SDNPHasChain, SDNPSideEffect, SDNPMayStore]>;
@@ -309,19 +322,6 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 def UNIMP : F2_1<0b000, (outs), (ins i32imm:$val),
                 "unimp $val", []>;
-
-
-let isReturn = 1, isTerminator = 1 in {
-  let rd = 0, rs1 = 0 in
-    def RETL: F3_2<2, 0b111000, (outs), (ins i32imm:$val),
-                   "jmp %o7+$val", [(retflag simm13:$val)]>;
-
-  let rd = 0, rs1 = 0 in
-    def RET: F3_2<2, 0b111000, (outs), (ins i32imm:$val),
-                  "jmp %i7+$val", []>;
-}
-
-
 
 
 def LEA_ADDri   : F3_2<2, 0b000000,
