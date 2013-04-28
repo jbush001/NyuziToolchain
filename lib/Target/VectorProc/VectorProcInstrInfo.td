@@ -222,7 +222,7 @@ def retflag : SDNode<"SPISD::RET_FLAG",
 	SDT_SPRet,
     [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
-let isReturn = 1, isTerminator = 1 in {
+let isReturn = 1, isTerminator = 1, Uses = [S30] in {
 	def RET : VPInstruction<
 		(outs),
 		(ins i32imm:$val),
@@ -230,6 +230,24 @@ let isReturn = 1, isTerminator = 1 in {
 		[(retflag simm13:$val)]>;
 }
 
+def calltarget : Operand<i32>;
+def SDT_SPCall : SDTypeProfile<0, -1, [SDTCisVT<0, i32>]>;
+def call       : SDNode<"SPISD::CALL", SDT_SPCall,
+                           [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
+                            SDNPVariadic]>;
+let isCall = 1, Defs = [S0, S1, S2, S3, S4, S30 ] in {
+  def CALL : VPInstruction<
+  	(outs), 
+  	(ins calltarget:$dst, variable_ops),
+	"call $dst", 
+	[]>;
+
+  def JMPLri : VPInstruction<
+  		(outs), 
+  		(ins MEMri:$ptr, variable_ops),
+        "call $ptr",
+        [(call ADDRri:$ptr)]>;
+}
 
 ////////////////////////////////////////////////////////////
 
@@ -267,7 +285,6 @@ class F3_2<bits<2> opVal, bits<6> op3val, dag outs, dag ins,
 }
 
 // Branch targets have OtherVT type.
-def calltarget : Operand<i32>;
 
 //  These are target-independent nodes, but have target-specific formats.
 def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
@@ -279,10 +296,6 @@ def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_SPCallSeqStart,
 def callseq_end   : SDNode<"ISD::CALLSEQ_END",   SDT_SPCallSeqEnd,
                            [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
 
-def SDT_SPCall    : SDTypeProfile<0, -1, [SDTCisVT<0, i32>]>;
-def call          : SDNode<"SPISD::CALL", SDT_SPCall,
-                           [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
-                            SDNPVariadic]>;
 
 
 def flushw        : SDNode<"SPISD::FLUSHW", SDTNone,
@@ -329,19 +342,6 @@ def LEA_ADDri   : F3_2<2, 0b000000,
                    "$dst = ${addr:arith}",
                    [(set i32:$dst, ADDRri:$addr)]>;
 
-let Uses = [S29],
-    hasDelaySlot = 1, isCall = 1,
-    Defs = [S0, S1, S2, S3, S4 ] in {
-  def CALL : VPInstruction<(outs), (ins calltarget:$dst, variable_ops),
-                    "call $dst", []> {
-    bits<30> disp;
-  }
-
-  def JMPLri : F3_2<2, 0b111000,
-                    (outs), (ins MEMri:$ptr, variable_ops),
-                    "call $ptr",
-                    [(call ADDRri:$ptr)]>;
-}
 
 //===----------------------------------------------------------------------===//
 // Non-Instruction Patterns
