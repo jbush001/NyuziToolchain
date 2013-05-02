@@ -12,10 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 
-def simm8  : PatLeaf<(imm), [{ return isInt<8>(N->getSExtValue()); }]>;
-def simm10  : PatLeaf<(imm), [{ return isInt<10>(N->getSExtValue()); }]>;
 def simm13  : PatLeaf<(imm), [{ return isInt<13>(N->getSExtValue()); }]>;
-def simm20  : PatLeaf<(imm), [{ return isInt<20>(N->getSExtValue()); }]>;
 
 class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
 	: Instruction {
@@ -120,7 +117,7 @@ defm SGESI : CONDI<">=", "s", SETGE>;
 defm SLTSI : CONDI<"<", "s", SETLT>;
 defm SLESI : CONDI<"<=", "s", SETLE>;
 defm SEQSI : CONDI<"==", "s", SETEQ>;
-defm SNESI : CONDI<"!=", "s", SETNE>;
+defm SNESI : CONDI<"<>", "s", SETNE>;
 defm SGTUI : CONDI<">", "u", SETUGT>;	
 defm SGEUI : CONDI<">=", "u", SETUGE>;
 defm SLTUI : CONDI<"<", "u", SETULT>;
@@ -130,13 +127,13 @@ def SGEFO : CONDF<">=", SETOGE>;
 def SLTFO : CONDF<"<", SETOLT>;
 def SLEFO : CONDF<"<=", SETOLE>;
 def SEQFO : CONDF<"==", SETOEQ>;
-def SNEFO : CONDF<"!=", SETONE>;
+def SNEFO : CONDF<"<>", SETONE>;
 def SGTFU : CONDF<">", SETUGT>;
 def SGEFU : CONDF<">=", SETUGE>;
 def SLTFU : CONDF<"<", SETULT>;
 def SLEFU : CONDF<"<=", SETULE>;
 def SEQFU : CONDF<"==", SETUEQ>;
-def SNEFU : CONDF<"!=", SETUNE>;
+def SNEFU : CONDF<"<>", SETUNE>;
 
 class BranchInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
 	: VPInstruction<outputs, inputs, asmString, pattern>
@@ -219,7 +216,7 @@ def LOADIMM : VPInstruction<
 	(outs ScalarRegs:$dest),
 	(ins i32imm:$val),
 	"s$dest = $val",
-	[(set ScalarRegs:$dest, simm13:$val)]>;
+	[(set ScalarRegs:$dest, imm:$val)]>;
 
 def SDT_SPRet : SDTypeProfile<0, 1, [SDTCisVT<0, i32>]>;
 def retflag : SDNode<"SPISD::RET_FLAG", 

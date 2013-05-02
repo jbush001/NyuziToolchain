@@ -621,8 +621,6 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::f32, Custom);
-  setOperationAction(ISD::ConstantPool , MVT::i32, Custom);
-  setOperationAction(ISD::ConstantPool , MVT::f32, Custom);
 
   setStackPointerRegisterToSaveRestore(SP::S29);
 
@@ -659,28 +657,12 @@ LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const
 }
 
 SDValue VectorProcTargetLowering::
-LowerConstantPool(SDValue Op, SelectionDAG &DAG) const
-{
-	EVT PtrVT = getPointerTy();
-	DebugLoc dl = Op.getDebugLoc();
-	ConstantPoolSDNode *CP = cast<ConstantPoolSDNode>(Op);
-	SDValue CPAddr =DAG.getTargetConstantPool(CP->getConstVal(), PtrVT,
-                                    CP->getAlignment());
-    return DAG.getLoad(PtrVT, dl, DAG.getEntryNode(), CPAddr,
-                       MachinePointerInfo::getConstantPool(),
-                       false, false, false, 0);
-}
-
-SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const {
 	switch (Op.getOpcode())
 	{
 		case ISD::GlobalAddress:
 			return LowerGlobalAddress(Op, DAG);	
 
-		case ISD::ConstantPool:
-			return LowerConstantPool(Op, DAG);	
-	
 		default:
 			llvm_unreachable("Should not custom lower this!");
 	}
