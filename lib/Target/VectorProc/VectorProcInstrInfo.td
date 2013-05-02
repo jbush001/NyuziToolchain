@@ -302,9 +302,6 @@ def callseq_end   : SDNode<"ISD::CALLSEQ_END",   SDT_SPCallSeqEnd,
 
 
 
-def flushw        : SDNode<"SPISD::FLUSHW", SDTNone,
-                           [SDNPHasChain, SDNPSideEffect, SDNPMayStore]>;
-
 def getPCX        : Operand<i32> {
   let PrintMethod = "printGetPCX";
 }
@@ -324,17 +321,6 @@ def ADJCALLSTACKDOWN : Pseudo<(outs), (ins i32imm:$amt),
 def ADJCALLSTACKUP : Pseudo<(outs), (ins i32imm:$amt1, i32imm:$amt2),
                             "!ADJCALLSTACKUP $amt1",
                             [(callseq_end timm:$amt1, timm:$amt2)]>;
-}
-
-let hasSideEffects = 1, mayStore = 1 in {
-  let rd = 0, rs1 = 0, rs2 = 0 in
-    def FLUSHW : F3_1<0b10, 0b101011, (outs), (ins),
-                      "flushw",
-                      [(flushw)]>, Requires<[]>;
-  let rd = 0, rs1 = 1, simm13 = 3 in
-    def TA3 : F3_2<0b10, 0b111010, (outs), (ins),
-                   "ta 3",
-                   [(flushw)]>;
 }
 
 def UNIMP : F2_1<0b000, (outs), (ins i32imm:$val),

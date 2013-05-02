@@ -24,16 +24,8 @@ namespace llvm {
   namespace SPISD {
     enum {
       FIRST_NUMBER = ISD::BUILTIN_OP_END,
-
-      Hi, Lo,      // Hi/Lo operations, typically on a global address.
-
-      FTOI,        // FP to Int within a FP register.
-      ITOF,        // Int to FP within a FP register.
-
       CALL,        // A call instruction.
       RET_FLAG,    // Return with a flag operand.
-      GLOBAL_BASE_REG, // Global base reg for PIC
-      FLUSHW       // FLUSH register windows to stack
     };
   }
 

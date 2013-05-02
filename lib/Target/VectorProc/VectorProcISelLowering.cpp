@@ -636,8 +636,6 @@ const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
   default: return 0;
   case SPISD::CALL:       return "SPISD::CALL";
   case SPISD::RET_FLAG:   return "SPISD::RET_FLAG";
-  case SPISD::GLOBAL_BASE_REG: return "SPISD::GLOBAL_BASE_REG";
-  case SPISD::FLUSHW:     return "SPISD::FLUSHW";
   }
 }
 
@@ -647,14 +645,6 @@ void VectorProcTargetLowering::computeMaskedBitsForTargetNode(const SDValue Op,
                                                          const SelectionDAG &DAG,
                                                          unsigned Depth) const {
 }
-
-static SDValue getFLUSHW(SDValue Op, SelectionDAG &DAG) {
-  DebugLoc dl = Op.getDebugLoc();
-  SDValue Chain = DAG.getNode(SPISD::FLUSHW,
-                              dl, MVT::Other, DAG.getEntryNode());
-  return Chain;
-}
-
 
 SDValue VectorProcTargetLowering::
 LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const
