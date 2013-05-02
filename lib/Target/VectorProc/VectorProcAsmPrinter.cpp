@@ -63,6 +63,7 @@ namespace {
                        const;
 
     virtual MachineLocation getDebugValueLocation(const MachineInstr *MI) const;
+    virtual void EmitFunctionBodyEnd();
   };
 } // end of anonymous namespace
 
@@ -245,6 +246,12 @@ getDebugValueLocation(const MachineInstr *MI) const {
          "Unexpected MachineOperand types");
   return MachineLocation(MI->getOperand(0).getReg(),
                          MI->getOperand(1).getImm());
+}
+
+void VectorProcAsmPrinter::
+EmitFunctionBodyEnd()
+{
+	OutStreamer.EmitRawText(StringRef("\t.emitliteralpool"));
 }
 
 // Force static initialization.

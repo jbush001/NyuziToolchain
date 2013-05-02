@@ -636,6 +636,7 @@ const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
   default: return 0;
   case SPISD::CALL:       return "SPISD::CALL";
   case SPISD::RET_FLAG:   return "SPISD::RET_FLAG";
+  case SPISD::LOAD_LITERAL: return "SPISD::LOAD_LITERAL";
   }
 }
 
@@ -643,7 +644,8 @@ void VectorProcTargetLowering::computeMaskedBitsForTargetNode(const SDValue Op,
                                                          APInt &KnownZero,
                                                          APInt &KnownOne,
                                                          const SelectionDAG &DAG,
-                                                         unsigned Depth) const {
+                                                         unsigned Depth) const 
+{
 }
 
 SDValue VectorProcTargetLowering::
@@ -652,11 +654,8 @@ LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const
 	EVT PtrVT = getPointerTy();
 	DebugLoc dl = Op.getDebugLoc();
 	const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
-
-    SDValue CPAddr = DAG.getTargetConstantPool(GV, PtrVT, 4);
-    return DAG.getLoad(PtrVT, dl, DAG.getEntryNode(), CPAddr,
-                       MachinePointerInfo::getConstantPool(),
-                       false, false, false, 0);
+	SDValue GA = DAG.getTargetGlobalAddress(GV, dl, MVT::i32);
+	return DAG.getNode(SPISD::LOAD_LITERAL, dl, MVT::i32, GA);
 }
 
 SDValue VectorProcTargetLowering::

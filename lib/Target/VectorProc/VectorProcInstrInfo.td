@@ -253,6 +253,14 @@ let isCall = 1, Defs = [S0, S1, S2, S3, S4, S30 ] in {
         [(call ADDRri:$ptr)]>;
 }
 
+def LoadLiteral : SDNode<"SPISD::LOAD_LITERAL", SDTIntUnaryOp>;
+
+def LEA : VPInstruction<
+	(outs ScalarRegs:$dest),
+	(ins Operand<iPTR>:$label),
+	"s$dest = &$label",
+	[(set i32:$dest, (LoadLiteral tglobaladdr:$label))]>;
+
 ////////////////////////////////////////////////////////////
 
 class F2<dag outs, dag ins, string asmstr, list<dag> pattern>
@@ -325,12 +333,6 @@ def ADJCALLSTACKUP : Pseudo<(outs), (ins i32imm:$amt1, i32imm:$amt2),
 
 def UNIMP : F2_1<0b000, (outs), (ins i32imm:$val),
                 "unimp $val", []>;
-
-
-def LEA_ADDri   : F3_2<2, 0b000000,
-                   (outs ScalarRegs:$dst), (ins MEMri:$addr),
-                   "$dst = ${addr:arith}",
-                   [(set i32:$dst, ADDRri:$addr)]>;
 
 
 //===----------------------------------------------------------------------===//
