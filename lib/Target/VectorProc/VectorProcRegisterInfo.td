@@ -11,14 +11,15 @@
 //  Declarations that describe the VectorProc register file 
 //===----------------------------------------------------------------------===//
 
-class VectorProcReg<string n, list<Register> aliases> : Register<n> {
+class VectorProcReg<string n> : Register<n> {
   let Namespace = "SP";
-  let Aliases = aliases;
 }
 
 foreach i = 0-31 in {
-	def S#i : VectorProcReg<""#i, []>;
+	def S#i : VectorProcReg<""#i>;
+	def V#i : VectorProcReg<""#i>;
 }
 
 def ScalarReg : RegisterClass<"SP", [i32, f32], 32, (sequence "S%u", 0, 31)>;
+def VectorReg : RegisterClass<"SP", [v16i32, v16f32], 512, (sequence "V%u", 0, 31)>;
 

@@ -610,6 +610,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   // Set up the register classes.
   addRegisterClass(MVT::i32, &SP::ScalarRegRegClass);
   addRegisterClass(MVT::f32, &SP::ScalarRegRegClass);
+  addRegisterClass(MVT::v16i32, &SP::VectorRegRegClass);
+  addRegisterClass(MVT::v16f32, &SP::VectorRegRegClass);
 
   // Progressively expand conditionals into SELECT_CCs
   setOperationAction(ISD::BR_CC, MVT::i32, Expand);
