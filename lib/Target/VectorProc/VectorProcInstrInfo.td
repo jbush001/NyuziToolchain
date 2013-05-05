@@ -28,32 +28,32 @@ multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 	def SS : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$b, ScalarReg:$c),
-		!strconcat("s$dst = s$b ", !strconcat(operator, " s$c")),
+		"s$dst = s$b " # operator # " s$c",
 		[(set i32:$dst, (OpNode i32:$b, i32:$c))]>;
 
 	def VV : VPInstruction<
 		(outs VectorReg:$dst), 
 		(ins VectorReg:$b, VectorReg:$c),
-		!strconcat("v$dst = v$b ", !strconcat(operator, " v$c")),
+		"v$dst = v$b " # operator # " v$c",
 		[(set v16i32:$dst, (OpNode v16i32:$b, v16i32:$c))]>;
 
 //	def VS : VPInstruction<
 //		(outs VectorReg:$dst), 
 //		(ins VectorReg:$b, ScalarReg:$c),
-//		!strconcat("v$dst = v$b ", !strconcat(operator, " s$c")),
+//		"v$dst = v$b " # operator # " s$c",
 //		[(set v16i32:$dst, (OpNode v16i32:$b, i32:$c))]>;
 
 	// Instruction format B
 //	def SI : VPInstruction<
 //		(outs ScalarReg:$dst), 
 //		(ins ScalarReg:$b, i32imm:$c),
-//		!strconcat("s$dst = s$b ", !strconcat(operator, " $c")),
+//		"s$dst = s$b " # operator # " $c",
 //		[(set i32:$dst, (OpNode i32:$b, simm13:$c))]>;
 
 //	def VI : VPInstruction<
 //		(outs VectorReg:$dst), 
 //		(ins VectorReg:$b, VectorReg:$c),
-//		!strconcat("v$dst = v$b ", !strconcat(operator, " $c")),
+//		"v$dst = v$b " # operator # " $c",
 //		[(set v16i32:$dst, (OpNode v16i32:$b, simm13:$c))]>;
 }
 
@@ -61,7 +61,7 @@ class VPTernaryFloatArith<string operator, SDNode OpNode>
 	: VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$b, ScalarReg:$c),
-		!strconcat("f$dst = f$b ", !strconcat(operator, " f$c")),
+		"f$dst = f$b " # operator # " f$c",
 		[(set ScalarReg:$dst, (OpNode (f32 ScalarReg:$b), (f32 ScalarReg:$c)))]>;
 
 defm AND    : VPTernaryIntArith<"&", and>;
@@ -110,14 +110,14 @@ multiclass CONDI<string operator, string opsign, CondCode condition> {
 	def rr : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$a, ScalarReg:$b),
-		!strconcat("s$dst = ", !strconcat(opsign, !strconcat("$a", !strconcat(operator, !strconcat(opsign, "$b"))))),
+		"s$dst = " # opsign # "$a " # operator # " " # opsign # "$b",
 		[(set i32:$dst, (selectcc i32:$a, i32:$b, 1, 0, condition))]>;
 
 	// Instruction format B
 	def ri : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$a, i32imm:$b),
-		!strconcat("s$dst = ", !strconcat(opsign, !strconcat("$a", !strconcat(operator, "$b")))),
+		"s$dst = " # opsign # "$a " # operator # " $b",
 		[(set i32:$dst, (selectcc i32:$a, simm13:$b, 1, 0, condition))]>;
 }
 
@@ -125,7 +125,7 @@ class CONDF<string operator, CondCode condition>
 	: VPInstruction<
 		(outs ScalarReg:$dst),
 		(ins ScalarReg:$a, ScalarReg:$b),
-		!strconcat("s$dst = f$a ", !strconcat(operator, " f$b")),
+		"s$dst = f$a " # operator # " f$b",
 		[(set i32:$dst, (selectcc f32:$a, f32:$b, 1, 0, condition))]>
 {
 }
@@ -191,13 +191,13 @@ multiclass MEMLOAD<string suffix, string regtype, PatFrag op>  {
 	def i : VPInstruction<
 		(outs ScalarReg:$dst),
 		(ins MEMri:$addr),
-		!strconcat(!strconcat(!strconcat(regtype, "$dst = mem_"), suffix), "[$addr]"),
+		regtype # "$dst = mem_" # suffix # "[$addr]",
 		[(set i32:$dst, (i32 (op ADDRri:$addr)))]>;
 
 	def f : VPInstruction<
 		(outs ScalarReg:$dst),
 		(ins MEMri:$addr),
-		!strconcat(!strconcat(!strconcat(regtype, "$dst = mem_"), suffix), "[$addr]"),
+		regtype # "$dst = mem_" # suffix # "[$addr]",
 		[(set f32:$dst, (op ADDRri:$addr))]>;
 }
 
@@ -206,13 +206,13 @@ let hasSideEffects = 1, mayStore = 1 in {
 		def i : VPInstruction<
 			(outs),
 			(ins MEMri:$addr, ScalarReg:$src),
-			!strconcat("mem_", !strconcat(suffix, "[$addr] = s$src")),
+			"mem_" # suffix # "[$addr] = s$src",
 			[(op i32:$src, ADDRri:$addr)]>;
 
 		def f : VPInstruction<
 			(outs),
 			(ins MEMri:$addr, ScalarReg:$src),
-			!strconcat("mem_", !strconcat(suffix, "[$addr] = s$src")),
+			"mem_" # suffix # "[$addr] = s$src",
 			[(op f32:$src, ADDRri:$addr)]>;
 	}
 }
