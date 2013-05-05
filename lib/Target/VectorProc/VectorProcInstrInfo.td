@@ -25,33 +25,32 @@ class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern
 
 multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 	// Instruction format A, integer
-	def Srr : VPInstruction<
+	def SS : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$b, ScalarReg:$c),
 		!strconcat("s$dst = s$b ", !strconcat(operator, " s$c")),
 		[(set i32:$dst, (OpNode i32:$b, i32:$c))]>;
 
-	def Vrr : VPInstruction<
+	def VV : VPInstruction<
 		(outs VectorReg:$dst), 
 		(ins VectorReg:$b, VectorReg:$c),
 		!strconcat("v$dst = v$b ", !strconcat(operator, " v$c")),
 		[(set v16i32:$dst, (OpNode v16i32:$b, v16i32:$c))]>;
 
-//	def Vmrr : VPInstruction<
+//	def VS : VPInstruction<
 //		(outs VectorReg:$dst), 
-//		(ins VectorReg:$b, VectorReg:$c, VectorReg:$pred),
-//		!strconcat("v$dst{pred} = v$b ", !strconcat(operator, " v$c")),
-//		[(set v16i32:$dst, (vselect v16i1:$pred (OpNode v16i32:$b, v16i32:$c)))]>;
-
+//		(ins VectorReg:$b, ScalarReg:$c),
+//		!strconcat("v$dst = v$b ", !strconcat(operator, " s$c")),
+//		[(set v16i32:$dst, (OpNode v16i32:$b, i32:$c))]>;
 
 	// Instruction format B
-//	def Sri : VPInstruction<
+//	def SI : VPInstruction<
 //		(outs ScalarReg:$dst), 
 //		(ins ScalarReg:$b, i32imm:$c),
 //		!strconcat("s$dst = s$b ", !strconcat(operator, " $c")),
 //		[(set i32:$dst, (OpNode i32:$b, simm13:$c))]>;
 
-//	def Vri : VPInstruction<
+//	def VI : VPInstruction<
 //		(outs VectorReg:$dst), 
 //		(ins VectorReg:$b, VectorReg:$c),
 //		!strconcat("v$dst = v$b ", !strconcat(operator, " $c")),
