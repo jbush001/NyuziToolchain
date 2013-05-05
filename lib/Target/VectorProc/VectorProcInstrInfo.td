@@ -26,25 +26,25 @@ class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern
 multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 	// Instruction format A, integer
 	def rr : VPInstruction<
-		(outs ScalarRegs:$dst), 
-		(ins ScalarRegs:$b, ScalarRegs:$c),
+		(outs ScalarReg:$dst), 
+		(ins ScalarReg:$b, ScalarReg:$c),
 		!strconcat("s$dst = s$b ", !strconcat(operator, " s$c")),
 		[(set i32:$dst, (OpNode i32:$b, i32:$c))]>;
 
 	// Instruction format B
 	def ri : VPInstruction<
-		(outs ScalarRegs:$dst), 
-		(ins ScalarRegs:$b, i32imm:$c),
+		(outs ScalarReg:$dst), 
+		(ins ScalarReg:$b, i32imm:$c),
 		!strconcat("s$dst = s$b ", !strconcat(operator, " $c")),
 		[(set i32:$dst, (OpNode i32:$b, simm13:$c))]>;
 }
 
 class VPTernaryFloatArith<string operator, SDNode OpNode> 
 	: VPInstruction<
-		(outs ScalarRegs:$dst), 
-		(ins ScalarRegs:$b, ScalarRegs:$c),
+		(outs ScalarReg:$dst), 
+		(ins ScalarReg:$b, ScalarReg:$c),
 		!strconcat("f$dst = f$b ", !strconcat(operator, " f$c")),
-		[(set ScalarRegs:$dst, (OpNode (f32 ScalarRegs:$b), (f32 ScalarRegs:$c)))]>;
+		[(set ScalarReg:$dst, (OpNode (f32 ScalarReg:$b), (f32 ScalarReg:$c)))]>;
 
 defm AND    : VPTernaryIntArith<"&", and>;
 defm OR     : VPTernaryIntArith<"|", or>;
@@ -61,27 +61,27 @@ def MULF    : VPTernaryFloatArith<"*", fmul>;
 
 // This is kind of a kludge
 def CONV : VPInstruction<
-		(outs ScalarRegs:$dst), 
-		(ins ScalarRegs:$src),
+		(outs ScalarReg:$dst), 
+		(ins ScalarReg:$src),
 		"s$dst = s$src",
-		[(set ScalarRegs:$dst, (f32 ScalarRegs:$src))]>;
+		[(set ScalarReg:$dst, (f32 ScalarReg:$src))]>;
 
 
 def SITOF : VPInstruction<
-			(outs ScalarRegs:$dst), 
-			(ins ScalarRegs:$src),
+			(outs ScalarReg:$dst), 
+			(ins ScalarReg:$src),
             "f$dst = itof(s$src)",
         	[(set f32:$dst, (sint_to_fp i32:$src))]>;
 
 def FTOSI : VPInstruction<
-			(outs ScalarRegs:$dst), 
-			(ins ScalarRegs:$src),
+			(outs ScalarReg:$dst), 
+			(ins ScalarReg:$src),
         	"s$dst= ftoi(f$src)",
         	[(set i32:$dst, (fp_to_sint f32:$src))]>;
 
 def MOVEREG : VPInstruction<
-			(outs ScalarRegs:$dst), 
-			(ins ScalarRegs:$src),
+			(outs ScalarReg:$dst), 
+			(ins ScalarReg:$src),
         	"s$dst = s$src",
         	[]>;
 
@@ -90,23 +90,23 @@ def brtarget : Operand<OtherVT>;
 multiclass CONDI<string operator, string opsign, CondCode condition> {
 	// Instruction format A, integer
 	def rr : VPInstruction<
-		(outs ScalarRegs:$dst), 
-		(ins ScalarRegs:$a, ScalarRegs:$b),
+		(outs ScalarReg:$dst), 
+		(ins ScalarReg:$a, ScalarReg:$b),
 		!strconcat("s$dst = ", !strconcat(opsign, !strconcat("$a", !strconcat(operator, !strconcat(opsign, "$b"))))),
 		[(set i32:$dst, (selectcc i32:$a, i32:$b, 1, 0, condition))]>;
 
 	// Instruction format B
 	def ri : VPInstruction<
-		(outs ScalarRegs:$dst), 
-		(ins ScalarRegs:$a, i32imm:$b),
+		(outs ScalarReg:$dst), 
+		(ins ScalarReg:$a, i32imm:$b),
 		!strconcat("s$dst = ", !strconcat(opsign, !strconcat("$a", !strconcat(operator, "$b")))),
 		[(set i32:$dst, (selectcc i32:$a, simm13:$b, 1, 0, condition))]>;
 }
 
 class CONDF<string operator, CondCode condition>
 	: VPInstruction<
-		(outs ScalarRegs:$dst),
-		(ins ScalarRegs:$a, ScalarRegs:$b),
+		(outs ScalarReg:$dst),
+		(ins ScalarReg:$a, ScalarReg:$b),
 		!strconcat("s$dst = f$a ", !strconcat(operator, " f$b")),
 		[(set i32:$dst, (selectcc f32:$a, f32:$b, 1, 0, condition))]>
 {
@@ -152,13 +152,13 @@ let isBarrier = 1 in {
 
 def IFFALSE	: BranchInstruction<
 	(outs), 
-	(ins ScalarRegs:$rs, brtarget:$offset),
+	(ins ScalarReg:$rs, brtarget:$offset),
 	"if !s$rs goto $offset",
 	[(brcond (i32 (seteq i32:$rs, 0)), bb:$offset)]> ;
 
 def IFTRUE	: BranchInstruction<
 	(outs), 
-	(ins ScalarRegs:$rs, brtarget:$offset),
+	(ins ScalarReg:$rs, brtarget:$offset),
 	"if s$rs goto $offset",
 	[(brcond i32:$rs, bb:$offset)]> ;
 
@@ -171,13 +171,13 @@ def MEMri : Operand<iPTR> {
 
 multiclass MEMLOAD<string suffix, string regtype, PatFrag op>  {
 	def i : VPInstruction<
-		(outs ScalarRegs:$dst),
+		(outs ScalarReg:$dst),
 		(ins MEMri:$addr),
 		!strconcat(!strconcat(!strconcat(regtype, "$dst = mem_"), suffix), "[$addr]"),
 		[(set i32:$dst, (i32 (op ADDRri:$addr)))]>;
 
 	def f : VPInstruction<
-		(outs ScalarRegs:$dst),
+		(outs ScalarReg:$dst),
 		(ins MEMri:$addr),
 		!strconcat(!strconcat(!strconcat(regtype, "$dst = mem_"), suffix), "[$addr]"),
 		[(set f32:$dst, (op ADDRri:$addr))]>;
@@ -187,13 +187,13 @@ let hasSideEffects = 1, mayStore = 1 in {
 	multiclass MEMSTORE<string suffix, PatFrag op>  {
 		def i : VPInstruction<
 			(outs),
-			(ins MEMri:$addr, ScalarRegs:$src),
+			(ins MEMri:$addr, ScalarReg:$src),
 			!strconcat("mem_", !strconcat(suffix, "[$addr] = s$src")),
 			[(op i32:$src, ADDRri:$addr)]>;
 
 		def f : VPInstruction<
 			(outs),
-			(ins MEMri:$addr, ScalarRegs:$src),
+			(ins MEMri:$addr, ScalarReg:$src),
 			!strconcat("mem_", !strconcat(suffix, "[$addr] = s$src")),
 			[(op f32:$src, ADDRri:$addr)]>;
 	}
@@ -213,10 +213,10 @@ def : Pat<(i32 (extloadi8 ADDRri:$src)), (LBUi ADDRri:$src)>;
 def : Pat<(i32 (extloadi16 ADDRri:$src)), (LSSi ADDRri:$src)>;
 
 def LOADIMM : VPInstruction<
-	(outs ScalarRegs:$dest),
+	(outs ScalarReg:$dest),
 	(ins i32imm:$val),
 	"s$dest = $val",
-	[(set ScalarRegs:$dest, imm:$val)]>;
+	[(set i32:$dest, imm:$val)]>;
 
 def SDT_SPRet : SDTypeProfile<0, 1, [SDTCisVT<0, i32>]>;
 def retflag : SDNode<"SPISD::RET_FLAG", 
@@ -253,7 +253,7 @@ let isCall = 1, Defs = [S0, S1, S2, S3, S4, S30 ] in {
 def LoadLiteral : SDNode<"SPISD::LOAD_LITERAL", SDTIntUnaryOp>;
 
 def LEA : VPInstruction<
-	(outs ScalarRegs:$dest),
+	(outs ScalarReg:$dest),
 	(ins Operand<iPTR>:$label),
 	"s$dest = &$label",
 	[(set i32:$dest, (LoadLiteral tglobaladdr:$label))]>;

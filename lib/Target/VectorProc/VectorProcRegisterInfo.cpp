@@ -47,7 +47,7 @@ BitVector VectorProcRegisterInfo::getReservedRegs(const MachineFunction &MF) con
 const TargetRegisterClass*
 VectorProcRegisterInfo::getPointerRegClass(const MachineFunction &MF,
                                       unsigned Kind) const {
-  return &SP::ScalarRegsRegClass;
+  return &SP::ScalarRegRegClass;
 }
 
 void

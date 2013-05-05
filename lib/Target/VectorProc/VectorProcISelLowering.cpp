@@ -157,7 +157,7 @@ LowerFormalArguments(SDValue Chain,
     if (VA.isRegLoc()) {
       if (VA.needsCustom()) {
         assert(VA.getLocVT() == MVT::f64);
-        unsigned VRegHi = RegInfo.createVirtualRegister(&SP::ScalarRegsRegClass);
+        unsigned VRegHi = RegInfo.createVirtualRegister(&SP::ScalarRegRegClass);
         MF.getRegInfo().addLiveIn(VA.getLocReg(), VRegHi);
         SDValue HiVal = DAG.getCopyFromReg(Chain, dl, VRegHi, MVT::i32);
 
@@ -174,7 +174,7 @@ LowerFormalArguments(SDValue Chain,
                               false, false, false, 0);
         } else {
           unsigned loReg = MF.addLiveIn(NextVA.getLocReg(),
-                                        &SP::ScalarRegsRegClass);
+                                        &SP::ScalarRegRegClass);
           LoVal = DAG.getCopyFromReg(Chain, dl, loReg, MVT::i32);
         }
         SDValue WholeValue =
@@ -183,7 +183,7 @@ LowerFormalArguments(SDValue Chain,
         InVals.push_back(WholeValue);
         continue;
       }
-      unsigned VReg = RegInfo.createVirtualRegister(&SP::ScalarRegsRegClass);
+      unsigned VReg = RegInfo.createVirtualRegister(&SP::ScalarRegRegClass);
       MF.getRegInfo().addLiveIn(VA.getLocReg(), VReg);
       SDValue Arg = DAG.getCopyFromReg(Chain, dl, VReg, MVT::i32);
       if (VA.getLocVT() == MVT::f32)
@@ -267,7 +267,7 @@ LowerFormalArguments(SDValue Chain,
     VectorProcMachineFunctionInfo *SFI = MF.getInfo<VectorProcMachineFunctionInfo>();
     unsigned Reg = SFI->getSRetReturnReg();
     if (!Reg) {
-      Reg = MF.getRegInfo().createVirtualRegister(&SP::ScalarRegsRegClass);
+      Reg = MF.getRegInfo().createVirtualRegister(&SP::ScalarRegRegClass);
       SFI->setSRetReturnReg(Reg);
     }
     SDValue Copy = DAG.getCopyToReg(DAG.getEntryNode(), dl, Reg, InVals[0]);
@@ -295,7 +295,7 @@ LowerFormalArguments(SDValue Chain,
     std::vector<SDValue> OutChains;
 
     for (; CurArgReg != ArgRegEnd; ++CurArgReg) {
-      unsigned VReg = RegInfo.createVirtualRegister(&SP::ScalarRegsRegClass);
+      unsigned VReg = RegInfo.createVirtualRegister(&SP::ScalarRegRegClass);
       MF.getRegInfo().addLiveIn(*CurArgReg, VReg);
       SDValue Arg = DAG.getCopyFromReg(DAG.getRoot(), dl, VReg, MVT::i32);
 
@@ -608,8 +608,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   Subtarget = &TM.getSubtarget<VectorProcSubtarget>();
 
   // Set up the register classes.
-  addRegisterClass(MVT::i32, &SP::ScalarRegsRegClass);
-  addRegisterClass(MVT::f32, &SP::ScalarRegsRegClass);
+  addRegisterClass(MVT::i32, &SP::ScalarRegRegClass);
+  addRegisterClass(MVT::f32, &SP::ScalarRegRegClass);
 
   // Progressively expand conditionals into SELECT_CCs
   setOperationAction(ISD::BR_CC, MVT::i32, Expand);
@@ -699,7 +699,7 @@ VectorProcTargetLowering::getRegForInlineAsmConstraint(const std::string &Constr
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
     case 'r':
-      return std::make_pair(0U, &SP::ScalarRegsRegClass);
+      return std::make_pair(0U, &SP::ScalarRegRegClass);
     }
   }
 
