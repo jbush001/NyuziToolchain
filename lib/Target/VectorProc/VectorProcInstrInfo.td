@@ -78,7 +78,7 @@ def SUBF    : VPTernaryFloatArith<"-", fsub>;
 def MULF    : VPTernaryFloatArith<"*", fmul>;
 
 // This is kind of a kludge
-def CONV : VPInstruction<
+def COPY_FLOAT : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$src),
 		"s$dst = s$src",
@@ -201,8 +201,8 @@ multiclass MEMLOAD<string suffix, string regtype, PatFrag op>  {
 		[(set f32:$dst, (op ADDRri:$addr))]>;
 }
 
-let hasSideEffects = 1, mayStore = 1 in {
-	multiclass MEMSTORE<string suffix, PatFrag op>  {
+multiclass MEMSTORE<string suffix, PatFrag op>  {
+	let hasSideEffects = 1, mayStore = 1 in {
 		def i : VPInstruction<
 			(outs),
 			(ins MEMri:$addr, ScalarReg:$src),
@@ -214,8 +214,26 @@ let hasSideEffects = 1, mayStore = 1 in {
 			(ins MEMri:$addr, ScalarReg:$src),
 			"mem_" # suffix # "[$addr] = s$src",
 			[(op f32:$src, ADDRri:$addr)]>;
+
 	}
 }
+
+def BLOCK_STORE : VPInstruction<
+	(outs),
+	(ins MEMri:$addr, VectorReg:$src),
+	"mem_l[$addr] = v$src",
+	[(store v16i32:$src, ADDRri:$addr)]>
+{
+	let hasSideEffects = 1;
+	let mayStore = 1;
+}
+
+def BLOCK_LOAD : VPInstruction<
+	(outs VectorReg:$dest),
+	(ins MEMri:$addr),
+	"v$dest = mem_l[$addr]",
+	[(set v16i32:$dest, (load ADDRri:$addr))]>;
+
 
 defm LBS : MEMLOAD<"b", "s", sextloadi8>;
 defm LBU : MEMLOAD<"b", "u", zextloadi8>;
