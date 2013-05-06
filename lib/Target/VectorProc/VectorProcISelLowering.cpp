@@ -615,11 +615,13 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 
   // Progressively expand conditionals into SELECT_CCs
   setOperationAction(ISD::BR_CC, MVT::i32, Expand);
-  setOperationAction(ISD::BRCOND, MVT::i32, Expand);
-  setOperationAction(ISD::SETCC, MVT::i32, Expand);
   setOperationAction(ISD::BR_CC, MVT::f32, Expand);
+  setOperationAction(ISD::BRCOND, MVT::i32, Expand);
   setOperationAction(ISD::BRCOND, MVT::f32, Expand);
+  setOperationAction(ISD::SETCC, MVT::i32, Expand);
   setOperationAction(ISD::SETCC, MVT::f32, Expand);
+  setOperationAction(ISD::SETCC, MVT::v16i32, Expand);
+  setOperationAction(ISD::SETCC, MVT::v16f32, Expand);
 
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::f32, Custom);

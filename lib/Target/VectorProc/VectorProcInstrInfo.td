@@ -37,13 +37,11 @@ multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 		"v$dst = v$b " # operator # " v$c",
 		[(set v16i32:$dst, (OpNode v16i32:$b, v16i32:$c))]>;
 
-/*
 	def VVM : VPInstruction<
 		(outs VectorReg:$dst), 
 		(ins ScalarReg:$mask, VectorReg:$b, VectorReg:$c),
 		"v$dst{$mask} = v$b " # operator # " v$c",
 		[(set v16i32:$dst, (vselect i32:$mask, (OpNode v16i32:$b, v16i32:$c), 0))]>;
-*/
 
 	// Instruction format B
 	def SI : VPInstruction<
@@ -101,53 +99,64 @@ def MOVEREG : VPInstruction<
 
 def brtarget : Operand<OtherVT>;
 
-multiclass CONDI<string operator, string opsign, CondCode condition> {
+multiclass CMPI<string operator, string opsign, CondCode condition> {
 	// Instruction format A, integer
-	def rr : VPInstruction<
+	def SS : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$a, ScalarReg:$b),
 		"s$dst = " # opsign # "$a " # operator # " " # opsign # "$b",
 		[(set i32:$dst, (selectcc i32:$a, i32:$b, 1, 0, condition))]>;
 
+	def VV : VPInstruction<
+		(outs ScalarReg:$dst), 
+		(ins VectorReg:$a, VectorReg:$b),
+		"s$dst = v" # opsign # "$a " # operator # " v" # opsign # "$b",
+		[(set i32:$dst, (i32 (selectcc v16i32:$a, v16i32:$b, 1, 0, condition)))]>;
+
 	// Instruction format B
-	def ri : VPInstruction<
+	def SI : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$a, i32imm:$b),
 		"s$dst = " # opsign # "$a " # operator # " $b",
 		[(set i32:$dst, (selectcc i32:$a, simm13:$b, 1, 0, condition))]>;
 }
 
-class CONDF<string operator, CondCode condition>
-	: VPInstruction<
+multiclass CMPF<string operator, CondCode condition> {
+	def SS : VPInstruction<
 		(outs ScalarReg:$dst),
 		(ins ScalarReg:$a, ScalarReg:$b),
 		"s$dst = f$a " # operator # " f$b",
-		[(set i32:$dst, (selectcc f32:$a, f32:$b, 1, 0, condition))]>
-{
+		[(set i32:$dst, (selectcc f32:$a, f32:$b, 1, 0, condition))]>;
+
+	def VV : VPInstruction<
+		(outs ScalarReg:$dst),
+		(ins VectorReg:$a, VectorReg:$b),
+		"s$dst = vf$a " # operator # " vf$b",
+		[(set i32:$dst, (selectcc v16f32:$a, v16f32:$b, 1, 0, condition))]>;
 }
 
-defm SGTSI : CONDI<">", "s", SETGT>;	
-defm SGESI : CONDI<">=", "s", SETGE>;
-defm SLTSI : CONDI<"<", "s", SETLT>;
-defm SLESI : CONDI<"<=", "s", SETLE>;
-defm SEQSI : CONDI<"==", "s", SETEQ>;
-defm SNESI : CONDI<"<>", "s", SETNE>;
-defm SGTUI : CONDI<">", "u", SETUGT>;	
-defm SGEUI : CONDI<">=", "u", SETUGE>;
-defm SLTUI : CONDI<"<", "u", SETULT>;
-defm SLEUI : CONDI<"<=", "u", SETULE>;
-def SGTFO : CONDF<">", SETOGT>;	// Note: unordered and ordered treated the same
-def SGEFO : CONDF<">=", SETOGE>;
-def SLTFO : CONDF<"<", SETOLT>;
-def SLEFO : CONDF<"<=", SETOLE>;
-def SEQFO : CONDF<"==", SETOEQ>;
-def SNEFO : CONDF<"<>", SETONE>;
-def SGTFU : CONDF<">", SETUGT>;
-def SGEFU : CONDF<">=", SETUGE>;
-def SLTFU : CONDF<"<", SETULT>;
-def SLEFU : CONDF<"<=", SETULE>;
-def SEQFU : CONDF<"==", SETUEQ>;
-def SNEFU : CONDF<"<>", SETUNE>;
+defm SGTSI : CMPI<">", "s", SETGT>;	
+defm SGESI : CMPI<">=", "s", SETGE>;
+defm SLTSI : CMPI<"<", "s", SETLT>;
+defm SLESI : CMPI<"<=", "s", SETLE>;
+defm SEQSI : CMPI<"==", "s", SETEQ>;
+defm SNESI : CMPI<"<>", "s", SETNE>;
+defm SGTUI : CMPI<">", "u", SETUGT>;	
+defm SGEUI : CMPI<">=", "u", SETUGE>;
+defm SLTUI : CMPI<"<", "u", SETULT>;
+defm SLEUI : CMPI<"<=", "u", SETULE>;
+defm SGTFO : CMPF<">", SETOGT>;	// Note: unordered and ordered treated the same
+defm SGEFO : CMPF<">=", SETOGE>;
+defm SLTFO : CMPF<"<", SETOLT>;
+defm SLEFO : CMPF<"<=", SETOLE>;
+defm SEQFO : CMPF<"==", SETOEQ>;
+defm SNEFO : CMPF<"<>", SETONE>;
+defm SGTFU : CMPF<">", SETUGT>;
+defm SGEFU : CMPF<">=", SETUGE>;
+defm SLTFU : CMPF<"<", SETULT>;
+defm SLEFU : CMPF<"<=", SETULE>;
+defm SEQFU : CMPF<"==", SETUEQ>;
+defm SNEFU : CMPF<"<>", SETUNE>;
 
 class BranchInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
 	: VPInstruction<outputs, inputs, asmString, pattern>
