@@ -37,24 +37,20 @@ multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 		"v$dst = v$b " # operator # " v$c",
 		[(set v16i32:$dst, (OpNode v16i32:$b, v16i32:$c))]>;
 
-//	def VS : VPInstruction<
-//		(outs VectorReg:$dst), 
-//		(ins VectorReg:$b, ScalarReg:$c),
-//		"v$dst = v$b " # operator # " s$c",
-//		[(set v16i32:$dst, (OpNode v16i32:$b, i32:$c))]>;
+/*
+	def VVM : VPInstruction<
+		(outs VectorReg:$dst), 
+		(ins ScalarReg:$mask, VectorReg:$b, VectorReg:$c),
+		"v$dst{$mask} = v$b " # operator # " v$c",
+		[(set v16i32:$dst, (vselect i32:$mask, (OpNode v16i32:$b, v16i32:$c), 0))]>;
+*/
 
 	// Instruction format B
-//	def SI : VPInstruction<
-//		(outs ScalarReg:$dst), 
-//		(ins ScalarReg:$b, i32imm:$c),
-//		"s$dst = s$b " # operator # " $c",
-//		[(set i32:$dst, (OpNode i32:$b, simm13:$c))]>;
-
-//	def VI : VPInstruction<
-//		(outs VectorReg:$dst), 
-//		(ins VectorReg:$b, VectorReg:$c),
-//		"v$dst = v$b " # operator # " $c",
-//		[(set v16i32:$dst, (OpNode v16i32:$b, simm13:$c))]>;
+	def SI : VPInstruction<
+		(outs ScalarReg:$dst), 
+		(ins ScalarReg:$b, i32imm:$c),
+		"s$dst = s$b " # operator # " $c",
+		[(set i32:$dst, (OpNode i32:$b, (i32 simm13:$c)))]>;
 }
 
 class VPTernaryFloatArith<string operator, SDNode OpNode> 
@@ -233,7 +229,6 @@ def BLOCK_LOAD : VPInstruction<
 	(ins MEMri:$addr),
 	"v$dest = mem_l[$addr]",
 	[(set v16i32:$dest, (load ADDRri:$addr))]>;
-
 
 defm LBS : MEMLOAD<"b", "s", sextloadi8>;
 defm LBU : MEMLOAD<"b", "u", zextloadi8>;
