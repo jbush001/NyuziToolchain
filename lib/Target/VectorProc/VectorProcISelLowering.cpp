@@ -621,13 +621,14 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::BRCOND, MVT::f32, Expand);
   setOperationAction(ISD::SETCC, MVT::i32, Expand);
   setOperationAction(ISD::SETCC, MVT::f32, Expand);
-//  setOperationAction(ISD::SETCC, MVT::v16i32, Expand);
-//  setOperationAction(ISD::SETCC, MVT::v16f32, Expand);
+  setOperationAction(ISD::SETCC, MVT::v16i32, Expand);
+  setOperationAction(ISD::SETCC, MVT::v16f32, Expand);
 
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::f32, Custom);
 
   setStackPointerRegisterToSaveRestore(SP::S29);
+  AddPromotedToType(ISD::SETCC, MVT::v16i1, MVT::i32);
 
   setMinFunctionAlignment(2);
 

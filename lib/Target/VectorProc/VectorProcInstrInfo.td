@@ -23,18 +23,6 @@ class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern
 	let Pattern = pattern;
 }
 
-multiclass VPPredicatedTernaryIntArith<string operator, SDNode OpNode> {
-	let Constraints = "$dst = $oldvalue" in {
-		def VVM : VPInstruction<
-			(outs VectorReg:$dst),
-			(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
-			"v$dst {s$mask} = v$src1 " # op # " v$src2",
-			[(set v16i32:$dst, (vselect v16i1:$mask, (OpNode v16i32:$src1, v16i32:$src2), v16i32:$oldvalue))]>;
-	}
-}
-
-defm PREDADD : VPPredicatedTernaryIntArith<"+", add>;
-
 multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 	// Instruction format A, integer
 	def SS : VPInstruction<
@@ -48,6 +36,15 @@ multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 		(ins VectorReg:$b, VectorReg:$c),
 		"v$dst = v$b " # operator # " v$c",
 		[(set v16i32:$dst, (OpNode v16i32:$b, v16i32:$c))]>;
+
+	// Predicated
+	let Constraints = "$dst = $oldvalue" in {
+		def VVM : VPInstruction<
+			(outs VectorReg:$dst),
+			(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
+			"v$dst {s$mask} = v$src1 " # op # " v$src2",
+			[(set v16i32:$dst, (vselect v16i1:$mask, (OpNode v16i32:$src1, v16i32:$src2), v16i32:$oldvalue))]>;
+	}
 
 	// Instruction format B
 	def SI : VPInstruction<
@@ -116,7 +113,7 @@ multiclass CMPI<string operator, string opsign, CondCode condition> {
 		(outs ScalarReg:$dst), 
 		(ins VectorReg:$a, VectorReg:$b),
 		"s$dst = v" # opsign # "$a " # operator # " v" # opsign # "$b",
-		[(set i32:$dst, (i32 (selectcc v16i32:$a, v16i32:$b, 1, 0, condition)))]>;
+		[(set v16i1:$dst, (selectcc v16i32:$a, v16i32:$b, 1, 0, condition))]>;
 
 	// Instruction format B
 	def SI : VPInstruction<
