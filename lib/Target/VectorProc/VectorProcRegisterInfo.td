@@ -20,6 +20,6 @@ foreach i = 0-31 in {
 	def V#i : VectorProcReg<""#i>;
 }
 
-def ScalarReg : RegisterClass<"SP", [i32, f32], 32, (sequence "S%u", 0, 31)>;
+def ScalarReg : RegisterClass<"SP", [v16i1, i32, f32], 32, (sequence "S%u", 0, 31)>;
 def VectorReg : RegisterClass<"SP", [v16i32, v16f32], 512, (sequence "V%u", 0, 31)>;
 

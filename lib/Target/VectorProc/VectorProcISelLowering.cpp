@@ -610,6 +610,7 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   // Set up the register classes.
   addRegisterClass(MVT::i32, &SP::ScalarRegRegClass);
   addRegisterClass(MVT::f32, &SP::ScalarRegRegClass);
+  addRegisterClass(MVT::v16i1, &SP::ScalarRegRegClass);
   addRegisterClass(MVT::v16i32, &SP::VectorRegRegClass);
   addRegisterClass(MVT::v16f32, &SP::VectorRegRegClass);
 
@@ -620,8 +621,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::BRCOND, MVT::f32, Expand);
   setOperationAction(ISD::SETCC, MVT::i32, Expand);
   setOperationAction(ISD::SETCC, MVT::f32, Expand);
-  setOperationAction(ISD::SETCC, MVT::v16i32, Expand);
-  setOperationAction(ISD::SETCC, MVT::v16f32, Expand);
+//  setOperationAction(ISD::SETCC, MVT::v16i32, Expand);
+//  setOperationAction(ISD::SETCC, MVT::v16f32, Expand);
 
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::f32, Custom);
