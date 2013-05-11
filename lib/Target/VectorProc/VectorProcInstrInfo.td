@@ -348,6 +348,11 @@ let isCall = 1, Defs = [S0, S1, S2, S3, S4, S30 ] in {
         [(call ADDRri:$ptr)]>;
 }
 
+def : Pat<(call tglobaladdr:$dst),
+          (CALL tglobaladdr:$dst)>;
+def : Pat<(call texternalsym:$dst),
+          (CALL texternalsym:$dst)>;
+
 def LoadLiteral : SDNode<"SPISD::LOAD_LITERAL", SDTIntUnaryOp>;
 
 def LEA : VPInstruction<
