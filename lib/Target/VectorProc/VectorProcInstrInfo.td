@@ -54,12 +54,30 @@ multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 		[(set i32:$dst, (OpNode i32:$b, (i32 simm13:$c)))]>;
 }
 
-class VPTernaryFloatArith<string operator, SDNode OpNode> 
-	: VPInstruction<
+multiclass VPTernaryFloatArith<string operator, SDNode OpNode> 
+{
+	def SS : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$b, ScalarReg:$c),
 		"f$dst = f$b " # operator # " f$c",
 		[(set ScalarReg:$dst, (OpNode (f32 ScalarReg:$b), (f32 ScalarReg:$c)))]>;
+
+	def VV : VPInstruction<
+		(outs VectorReg:$dst), 
+		(ins VectorReg:$b, VectorReg:$c),
+		"vf$dst = vf$b " # operator # " vf$c",
+		[(set VectorReg:$dst, (OpNode (v16f32 VectorReg:$b), (v16f32 VectorReg:$c)))]>;
+
+	// Predicated
+	let Constraints = "$dst = $oldvalue" in {
+		def VVM : VPInstruction<
+			(outs VectorReg:$dst),
+			(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
+			"vf$dst{{s$mask}} = vf$src1 " # operator # " vf$src2",
+			[(set VectorReg:$dst, (vselect v16i1:$mask, (OpNode (v16f32 VectorReg:$src1), 
+				(v16f32 VectorReg:$src2)), VectorReg:$oldvalue))]>;
+	}
+}
 
 defm AND    : VPTernaryIntArith<"&", and>;
 defm OR     : VPTernaryIntArith<"|", or>;
@@ -70,9 +88,11 @@ defm SRA    : VPTernaryIntArith<">>", sra>;	// XXX need to use U register.
 defm ADDI   : VPTernaryIntArith<"+", add>;
 defm SUBI   : VPTernaryIntArith<"-", add>;
 defm SMULI  : VPTernaryIntArith  <"*", mul>;
-def ADDF    : VPTernaryFloatArith<"+", fadd>;
-def SUBF    : VPTernaryFloatArith<"-", fsub>;
-def MULF    : VPTernaryFloatArith<"*", fmul>;
+defm ADDF   : VPTernaryFloatArith<"+", fadd>;
+defm SUBF   : VPTernaryFloatArith<"-", fsub>;
+defm MULF   : VPTernaryFloatArith<"*", fmul>;
+
+// XXX how to to reciprocal?
 
 // Dummy
 def COPY_FLOAT : VPInstruction<
@@ -134,7 +154,7 @@ multiclass CMPF<string operator, CondCode condition> {
 		(outs ScalarReg:$dst),
 		(ins VectorReg:$a, VectorReg:$b),
 		"s$dst = vf$a " # operator # " vf$b",
-		[(set i32:$dst, (setcc v16f32:$a, v16f32:$b, condition))]>;
+		[(set v16i1:$dst, (setcc v16f32:$a, v16f32:$b, condition))]>;
 }
 
 defm SGTSI : CMPI<">", "s", SETGT>;	
@@ -194,7 +214,7 @@ def MEMri : Operand<iPTR> {
   let MIOperandInfo = (ops ptr_rc, i32imm);
 }
 
-multiclass MEMLOAD<string suffix, string regtype, PatFrag op>  {
+multiclass SCALAR_LOAD<string suffix, string regtype, PatFrag op>  {
 	def i : VPInstruction<
 		(outs ScalarReg:$dst),
 		(ins MEMri:$addr),
@@ -208,7 +228,7 @@ multiclass MEMLOAD<string suffix, string regtype, PatFrag op>  {
 		[(set f32:$dst, (op ADDRri:$addr))]>;
 }
 
-multiclass MEMSTORE<string suffix, PatFrag op>  {
+multiclass SCALAR_STORE<string suffix, PatFrag op>  {
 	let hasSideEffects = 1, mayStore = 1 in {
 		def i : VPInstruction<
 			(outs),
@@ -225,7 +245,7 @@ multiclass MEMSTORE<string suffix, PatFrag op>  {
 	}
 }
 
-def BLOCK_STORE : VPInstruction<
+def BLOCK_STOREI : VPInstruction<
 	(outs),
 	(ins MEMri:$addr, VectorReg:$src),
 	"mem_l[$addr] = v$src",
@@ -235,20 +255,36 @@ def BLOCK_STORE : VPInstruction<
 	let mayStore = 1;
 }
 
-def BLOCK_LOAD : VPInstruction<
+def BLOCK_STOREF : VPInstruction<
+	(outs),
+	(ins MEMri:$addr, VectorReg:$src),
+	"mem_l[$addr] = v$src",
+	[(store v16f32:$src, ADDRri:$addr)]>
+{
+	let hasSideEffects = 1;
+	let mayStore = 1;
+}
+
+def BLOCK_LOADI : VPInstruction<
 	(outs VectorReg:$dest),
 	(ins MEMri:$addr),
 	"v$dest = mem_l[$addr]",
 	[(set v16i32:$dest, (load ADDRri:$addr))]>;
 
-defm LBS : MEMLOAD<"b", "s", sextloadi8>;
-defm LBU : MEMLOAD<"b", "u", zextloadi8>;
-defm LSS : MEMLOAD<"s", "s", sextloadi16>;
-defm LSU : MEMLOAD<"s", "u", zextloadi16>;
-defm LW : MEMLOAD<"l", "s", load>;
-defm SB : MEMSTORE<"b", truncstorei8>;
-defm SS : MEMSTORE<"s", truncstorei16>;
-defm SW : MEMSTORE<"l", store>;
+def BLOCK_LOADF : VPInstruction<
+	(outs VectorReg:$dest),
+	(ins MEMri:$addr),
+	"v$dest = mem_l[$addr]",
+	[(set v16f32:$dest, (load ADDRri:$addr))]>;
+
+defm LBS : SCALAR_LOAD<"b", "s", sextloadi8>;
+defm LBU : SCALAR_LOAD<"b", "u", zextloadi8>;
+defm LSS : SCALAR_LOAD<"s", "s", sextloadi16>;
+defm LSU : SCALAR_LOAD<"s", "u", zextloadi16>;
+defm LW : SCALAR_LOAD<"l", "s", load>;
+defm SB : SCALAR_STORE<"b", truncstorei8>;
+defm SS : SCALAR_STORE<"s", truncstorei16>;
+defm SW : SCALAR_STORE<"l", store>;
 
 def : Pat<(i32 (extloadi1 ADDRri:$src)), (LBUi ADDRri:$src)>;
 def : Pat<(i32 (extloadi8 ADDRri:$src)), (LBUi ADDRri:$src)>;
