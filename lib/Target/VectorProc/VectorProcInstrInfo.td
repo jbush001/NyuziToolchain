@@ -42,7 +42,7 @@ multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 		def VVM : VPInstruction<
 			(outs VectorReg:$dst),
 			(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
-			"v$dst {s$mask} = v$src1 " # op # " v$src2",
+			"v$dst{{s$mask}} = v$src1 " # operator # " v$src2",
 			[(set v16i32:$dst, (vselect v16i1:$mask, (OpNode v16i32:$src1, v16i32:$src2), v16i32:$oldvalue))]>;
 	}
 
@@ -107,20 +107,20 @@ multiclass CMPI<string operator, string opsign, CondCode condition> {
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$a, ScalarReg:$b),
 		"s$dst = " # opsign # "$a " # operator # " " # opsign # "$b",
-		[(set i32:$dst, (selectcc i32:$a, i32:$b, 1, 0, condition))]>;
+		[(set i32:$dst, (setcc i32:$a, i32:$b, condition))]>;
 
 	def VV : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins VectorReg:$a, VectorReg:$b),
 		"s$dst = v" # opsign # "$a " # operator # " v" # opsign # "$b",
-		[(set v16i1:$dst, (selectcc v16i32:$a, v16i32:$b, 1, 0, condition))]>;
+		[(set v16i1:$dst, (setcc v16i32:$a, v16i32:$b, condition))]>;
 
 	// Instruction format B
 	def SI : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$a, i32imm:$b),
 		"s$dst = " # opsign # "$a " # operator # " $b",
-		[(set i32:$dst, (selectcc i32:$a, simm13:$b, 1, 0, condition))]>;
+		[(set i32:$dst, (setcc i32:$a, simm13:$b, condition))]>;
 }
 
 multiclass CMPF<string operator, CondCode condition> {
@@ -128,13 +128,13 @@ multiclass CMPF<string operator, CondCode condition> {
 		(outs ScalarReg:$dst),
 		(ins ScalarReg:$a, ScalarReg:$b),
 		"s$dst = f$a " # operator # " f$b",
-		[(set i32:$dst, (selectcc f32:$a, f32:$b, 1, 0, condition))]>;
+		[(set i32:$dst, (setcc f32:$a, f32:$b, condition))]>;
 
 	def VV : VPInstruction<
 		(outs ScalarReg:$dst),
 		(ins VectorReg:$a, VectorReg:$b),
 		"s$dst = vf$a " # operator # " vf$b",
-		[(set i32:$dst, (selectcc v16f32:$a, v16f32:$b, 1, 0, condition))]>;
+		[(set i32:$dst, (setcc v16f32:$a, v16f32:$b, condition))]>;
 }
 
 defm SGTSI : CMPI<">", "s", SETGT>;	

@@ -619,16 +619,11 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::BR_CC, MVT::f32, Expand);
   setOperationAction(ISD::BRCOND, MVT::i32, Expand);
   setOperationAction(ISD::BRCOND, MVT::f32, Expand);
-  setOperationAction(ISD::SETCC, MVT::i32, Expand);
-  setOperationAction(ISD::SETCC, MVT::f32, Expand);
-  setOperationAction(ISD::SETCC, MVT::v16i32, Expand);
-  setOperationAction(ISD::SETCC, MVT::v16f32, Expand);
 
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::f32, Custom);
 
   setStackPointerRegisterToSaveRestore(SP::S29);
-  AddPromotedToType(ISD::SETCC, MVT::v16i1, MVT::i32);
 
   setMinFunctionAlignment(2);
 
@@ -672,6 +667,13 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const {
 		default:
 			llvm_unreachable("Should not custom lower this!");
 	}
+}
+
+EVT VectorProcTargetLowering::getSetCCResultType(EVT VT) const {
+  if (!VT.isVector())
+    return MVT::i32;
+
+  return VT.changeVectorElementTypeToInteger();
 }
 
 MachineBasicBlock *
