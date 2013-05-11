@@ -92,8 +92,6 @@ defm ADDF   : VPTernaryFloatArith<"+", fadd>;
 defm SUBF   : VPTernaryFloatArith<"-", fsub>;
 defm MULF   : VPTernaryFloatArith<"*", fmul>;
 
-// XXX how to to reciprocal?
-
 // Dummy
 def COPY_FLOAT : VPInstruction<
 	(outs ScalarReg:$dst), 
@@ -309,11 +307,33 @@ let isReturn = 1, isTerminator = 1, Uses = [S30] in {
 		[(retflag simm13:$val)]>;
 }
 
+class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
+   : VPInstruction<outs, ins, asmstr, pattern>;
+
+def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
+def SDT_SPCallSeqEnd   : SDCallSeqEnd<[ SDTCisVT<0, i32>,
+                                        SDTCisVT<1, i32> ]>;
+
+def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_SPCallSeqStart,
+                           [SDNPHasChain, SDNPOutGlue]>;
+def callseq_end   : SDNode<"ISD::CALLSEQ_END",   SDT_SPCallSeqEnd,
+                           [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
+
+let Defs = [S29], Uses = [S29] in {
+	def ADJCALLSTACKDOWN : Pseudo<(outs), (ins i32imm:$amt),
+								   "!ADJCALLSTACKDOWN $amt",
+								   [(callseq_start timm:$amt)]>;
+	def ADJCALLSTACKUP : Pseudo<(outs), (ins i32imm:$amt1, i32imm:$amt2),
+								"!ADJCALLSTACKUP $amt1",
+								[(callseq_end timm:$amt1, timm:$amt2)]>;
+}
+
 def calltarget : Operand<i32>;
 def SDT_SPCall : SDTypeProfile<0, -1, [SDTCisVT<0, i32>]>;
 def call       : SDNode<"SPISD::CALL", SDT_SPCall,
                            [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
                             SDNPVariadic]>;
+
 let isCall = 1, Defs = [S0, S1, S2, S3, S4, S30 ] in {
   def CALL : VPInstruction<
   	(outs), 
@@ -336,87 +356,4 @@ def LEA : VPInstruction<
 	"s$dest = &$label",
 	[(set i32:$dest, (LoadLiteral tglobaladdr:$label))]>;
 
-////////////////////////////////////////////////////////////
-
-class F2<dag outs, dag ins, string asmstr, list<dag> pattern>
-   : VPInstruction<outs, ins, asmstr, pattern> {
-  bits<3>  op2;
-  bits<22> imm22;
-}
-
-class F2_1<bits<3> op2Val, dag outs, dag ins, string asmstr, list<dag> pattern>
-   : F2<outs, ins, asmstr, pattern> {
-  bits<5>  rd;
-
-}
-
-class F3<dag outs, dag ins, string asmstr, list<dag> pattern>
-    : VPInstruction<outs, ins, asmstr, pattern> {
-  bits<5> rd;
-  bits<6> op3;
-  bits<5> rs1;
-}
-
-class F3_1<bits<2> opVal, bits<6> op3val, dag outs, dag ins,
-           string asmstr, list<dag> pattern> : F3<outs, ins, asmstr, pattern> {
-  bits<8> asi = 0; // asi not currently used
-  bits<5> rs2;
-
- 
-}
-
-class F3_2<bits<2> opVal, bits<6> op3val, dag outs, dag ins, 
-           string asmstr, list<dag> pattern> : F3<outs, ins, asmstr, pattern> {
-  bits<13> simm13;
-
-}
-
-// Branch targets have OtherVT type.
-
-//  These are target-independent nodes, but have target-specific formats.
-def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
-def SDT_SPCallSeqEnd   : SDCallSeqEnd<[ SDTCisVT<0, i32>,
-                                        SDTCisVT<1, i32> ]>;
-
-def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_SPCallSeqStart,
-                           [SDNPHasChain, SDNPOutGlue]>;
-def callseq_end   : SDNode<"ISD::CALLSEQ_END",   SDT_SPCallSeqEnd,
-                           [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
-
-
-
-def getPCX        : Operand<i32> {
-  let PrintMethod = "printGetPCX";
-}
-
-//===----------------------------------------------------------------------===//
-// Instructions
-//===----------------------------------------------------------------------===//
-
-// Pseudo instructions.
-class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
-   : VPInstruction<outs, ins, asmstr, pattern>;
-
-let Defs = [S29], Uses = [S29] in {
-def ADJCALLSTACKDOWN : Pseudo<(outs), (ins i32imm:$amt),
-                               "!ADJCALLSTACKDOWN $amt",
-                               [(callseq_start timm:$amt)]>;
-def ADJCALLSTACKUP : Pseudo<(outs), (ins i32imm:$amt1, i32imm:$amt2),
-                            "!ADJCALLSTACKUP $amt1",
-                            [(callseq_end timm:$amt1, timm:$amt2)]>;
-}
-
-def UNIMP : F2_1<0b000, (outs), (ins i32imm:$val),
-                "unimp $val", []>;
-
-
-//===----------------------------------------------------------------------===//
-// Non-Instruction Patterns
-//===----------------------------------------------------------------------===//
-
-// Calls: 
-def : Pat<(call tglobaladdr:$dst),
-          (CALL tglobaladdr:$dst)>;
-def : Pat<(call texternalsym:$dst),
-          (CALL texternalsym:$dst)>;
 
