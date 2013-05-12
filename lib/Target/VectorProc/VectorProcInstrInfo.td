@@ -99,6 +99,19 @@ def COPY_FLOAT : VPInstruction<
 	"s$dst = s$src",
 	[(set ScalarReg:$dst, (f32 ScalarReg:$src))]>;
 
+def SEXT16 : VPInstruction<
+		(outs ScalarReg:$dst), 
+		(ins ScalarReg:$src),
+		"s$dst = sext16(s$src)",
+		[(set ScalarReg:$dst, (sext_inreg i32:$src, i16))]>;
+
+def SEXT8 : VPInstruction<
+		(outs ScalarReg:$dst), 
+		(ins ScalarReg:$src),
+		"s$dst = sext8(s$src)",
+		[(set ScalarReg:$dst, (sext_inreg i32:$src, i8))]>;
+
+// XXX need vector versions of these
 def SITOF : VPInstruction<
 			(outs ScalarReg:$dst), 
 			(ins ScalarReg:$src),
