@@ -1,4 +1,4 @@
-This is a port of LLVM and the clang compiler to the VectorProc architecture. It's currently a work in progress and only partially functional.
+This is a port of LLVM and the clang compiler an experimental GPGPU architecture (https://github.com/jbush001/GPGPU). It's currently a work in progress and only partially functional.
 
 To build:
 
