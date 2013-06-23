@@ -1511,6 +1511,8 @@ Value *CodeGenFunction::EmitTargetBuiltinExpr(unsigned BuiltinID,
   case llvm::Triple::ppc:
   case llvm::Triple::ppc64:
     return EmitPPCBuiltinExpr(BuiltinID, E);
+  case llvm::Triple::vectorproc:
+  	return EmitVectorProcBuiltinExpr(BuiltinID, E);
   default:
     return 0;
   }
@@ -2743,6 +2745,20 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
   }
 }
 
+Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
+                                           const CallExpr *E) {
+    SmallVector<Value*, 2> Ops;
+    for (unsigned i = 0; i < E->getNumArgs(); i++)
+      Ops.push_back(EmitScalarExpr(E->getArg(i)));
+
+	switch (BuiltinID) {
+		case VectorProc::BI__builtin_vp_gtri:
+			return Builder.CreateICmpSGT(Ops[0], Ops[1]);
+
+		default:
+			return 0;
+	}
+}
 
 Value *CodeGenFunction::EmitPPCBuiltinExpr(unsigned BuiltinID,
                                            const CallExpr *E) {
