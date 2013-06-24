@@ -301,6 +301,12 @@ def : Pat<(i32 (extloadi1 ADDRri:$src)), (LBUi ADDRri:$src)>;
 def : Pat<(i32 (extloadi8 ADDRri:$src)), (LBUi ADDRri:$src)>;
 def : Pat<(i32 (extloadi16 ADDRri:$src)), (LSSi ADDRri:$src)>;
 
+def GET_CURRENT_STRAND : VPInstruction<
+	(outs ScalarReg:$dest),
+	(ins),
+	"s$dest = cr0",
+	[(set i32:$dest, (int_vp_get_current_strand))]>;
+
 def LOADIMM : VPInstruction<
 	(outs ScalarReg:$dest),
 	(ins i32imm:$val),

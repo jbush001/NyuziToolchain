@@ -2752,9 +2752,12 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
       Ops.push_back(EmitScalarExpr(E->getArg(i)));
 
 	switch (BuiltinID) {
-		case VectorProc::BI__builtin_vp_gtri:
-			return Builder.CreateICmpSGT(Ops[0], Ops[1]);
-
+		case VectorProc::BI__builtin_vp_get_current_strand:
+		{
+			llvm::Function *F = CGM.getIntrinsic(Intrinsic::vp_get_current_strand);
+			return Builder.CreateCall(F, Ops, "");
+		}
+		
 		default:
 			return 0;
 	}

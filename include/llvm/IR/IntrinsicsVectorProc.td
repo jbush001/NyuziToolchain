@@ -15,6 +15,7 @@
 
 let TargetPrefix = "vectorproc" in {  // All intrinsics start with "llvm.vectorproc.".
 
-
-
+def int_vp_get_current_strand : Intrinsic<[llvm_i32_ty], [], [IntrNoMem],
+	"llvm.vectorproc.__builtin_vp_get_current_strand">;
 }
+
