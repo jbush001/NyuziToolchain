@@ -307,6 +307,12 @@ def GET_CURRENT_STRAND : VPInstruction<
 	"s$dest = cr0",
 	[(set i32:$dest, (int_vp_get_current_strand))]>;
 
+def GET_FIELD : VPInstruction<
+	(outs ScalarReg:$dest),
+	(ins VectorReg:$src, ScalarReg:$index),
+	"s$dest = getfield(v$src, s$index)",
+	[(set i32:$dest, (extractelt v16i32:$src, i32:$index))]>;
+
 def LOADIMM : VPInstruction<
 	(outs ScalarReg:$dest),
 	(ins i32imm:$val),
@@ -314,6 +320,7 @@ def LOADIMM : VPInstruction<
 	[(set i32:$dest, imm:$val)]>;
 
 def SDT_SPRet : SDTypeProfile<0, 1, [SDTCisVT<0, i32>]>;
+
 def retflag : SDNode<"SPISD::RET_FLAG", 
 	SDT_SPRet,
     [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
