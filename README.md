@@ -23,7 +23,16 @@ To run (from within build directory)
 ./Debug+Asserts/bin/clang -target vectorproc &lt;test_program.c&gt; -S -o -
 </pre>
 
-3. To view DAGs:
+3. Running tests
+
+* Put the output binaries (build/Debug+Asserts/bin) directory in your path
+* From the top of the source directory, run:
+
+<pre>
+  llvm-lit test/CodeGen/VectorProc
+</pre>
+
+4. To view DAGs:
 
 * Make sure GraphViz is in your path.  Run configure and build.
 * Generate LLVM IR code for your file:
