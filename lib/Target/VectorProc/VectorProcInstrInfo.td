@@ -86,7 +86,7 @@ defm SLL    : VPTernaryIntArith<"<<", shl>;
 defm SRL    : VPTernaryIntArith<">>", srl>;
 defm SRA    : VPTernaryIntArith<">>", sra>;	// XXX need to use U register.
 defm ADDI   : VPTernaryIntArith<"+", add>;
-defm SUBI   : VPTernaryIntArith<"-", add>;
+defm SUBI   : VPTernaryIntArith<"-", sub>;
 defm SMULI  : VPTernaryIntArith  <"*", mul>;
 defm ADDF   : VPTernaryFloatArith<"+", fadd>;
 defm SUBF   : VPTernaryFloatArith<"-", fsub>;
