@@ -78,6 +78,7 @@ namespace llvm {
                                     SmallVectorImpl<SDValue> &InVals) const;
 
 	SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
+	SDValue LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const;
 
     virtual SDValue
       LowerCall(TargetLowering::CallLoweringInfo &CLI,

@@ -620,6 +620,9 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::BRCOND, MVT::i32, Expand);
   setOperationAction(ISD::BRCOND, MVT::f32, Expand);
 
+  setOperationAction(ISD::BUILD_VECTOR, MVT::v16f32, Custom);
+  setOperationAction(ISD::BUILD_VECTOR, MVT::v16i32, Custom);
+
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::f32, Custom);
 
@@ -657,12 +660,25 @@ LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const
 	return DAG.getNode(SPISD::LOAD_LITERAL, dl, MVT::i32, GA);
 }
 
+SDValue
+VectorProcTargetLowering::
+LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const {
+
+	// XXX check for splat and turn into a scalar?
+	
+	// XXX is all constants, then load from constant pool.
+	
+	// Otherwise, we need to do something clever to populate elements
+
+	return SDValue();
+}
+
 SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const {
 	switch (Op.getOpcode())
 	{
-		case ISD::GlobalAddress:
-			return LowerGlobalAddress(Op, DAG);	
+        case ISD::BUILD_VECTOR:  return LowerBUILD_VECTOR(Op, DAG);
+		case ISD::GlobalAddress: return LowerGlobalAddress(Op, DAG);	
 
 		default:
 			llvm_unreachable("Should not custom lower this!");
