@@ -119,13 +119,6 @@ defm CTZ 	: VPBinaryFunctionalIntArith<"ctz", cttz>;
 defm CLZ_ZU	: VPBinaryFunctionalIntArith<"clz", ctlz_zero_undef>;
 defm CTZ_ZU	: VPBinaryFunctionalIntArith<"ctz", cttz_zero_undef>;
 
-// Dummy
-def COPY_FLOAT : VPInstruction<
-	(outs ScalarReg:$dst), 
-	(ins ScalarReg:$src),
-	"s$dst = s$src",
-	[(set ScalarReg:$dst, (f32 ScalarReg:$src))]>;
-
 def SEXT16 : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$src),
@@ -148,7 +141,7 @@ def SITOF : VPInstruction<
 def FTOSI : VPInstruction<
 			(outs ScalarReg:$dst), 
 			(ins ScalarReg:$src),
-        	"s$dst= ftoi(f$src)",
+        	"s$dst = ftoi(f$src)",
         	[(set i32:$dst, (fp_to_sint f32:$src))]>;
 
 def MOVEREG : VPInstruction<
