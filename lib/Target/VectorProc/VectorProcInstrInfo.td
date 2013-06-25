@@ -54,6 +54,29 @@ multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 		[(set i32:$dst, (OpNode i32:$b, (i32 simm13:$c)))]>;
 }
 
+multiclass VPBinaryFunctionalIntArith<string operator, SDNode OpNode> {
+	def S : VPInstruction<
+		(outs ScalarReg:$dst), 
+		(ins ScalarReg:$b),
+		"s$dst = " # operator # "(s$b)",
+		[(set i32:$dst, (OpNode i32:$b))]>;
+
+	def V : VPInstruction<
+		(outs VectorReg:$dst), 
+		(ins VectorReg:$b),
+		"s$dst = " # operator # "(s$b)",
+		[(set v16i32:$dst, (OpNode v16i32:$b))]>;
+
+	// Predicated
+	let Constraints = "$dst = $oldvalue" in {
+		def VM : VPInstruction<
+			(outs VectorReg:$dst),
+			(ins ScalarReg:$mask, VectorReg:$src, VectorReg:$oldvalue),
+			"v$dst{{s$mask}} = " # operator # "(v$src)",
+			[(set v16i32:$dst, (vselect v16i1:$mask, (OpNode v16i32:$src), v16i32:$oldvalue))]>;
+	}
+}
+
 multiclass VPTernaryFloatArith<string operator, SDNode OpNode> 
 {
 	def SS : VPInstruction<
@@ -91,6 +114,10 @@ defm SMULI  : VPTernaryIntArith  <"*", mul>;
 defm ADDF   : VPTernaryFloatArith<"+", fadd>;
 defm SUBF   : VPTernaryFloatArith<"-", fsub>;
 defm MULF   : VPTernaryFloatArith<"*", fmul>;
+defm CLZ 	: VPBinaryFunctionalIntArith<"clz", ctlz>;
+defm CTZ 	: VPBinaryFunctionalIntArith<"ctz", cttz>;
+defm CLZ_ZU	: VPBinaryFunctionalIntArith<"clz", ctlz_zero_undef>;
+defm CTZ_ZU	: VPBinaryFunctionalIntArith<"ctz", cttz_zero_undef>;
 
 // Dummy
 def COPY_FLOAT : VPInstruction<
@@ -252,7 +279,6 @@ multiclass SCALAR_STORE<string suffix, PatFrag op>  {
 			(ins MEMri:$addr, ScalarReg:$src),
 			"mem_" # suffix # "[$addr] = s$src",
 			[(op f32:$src, ADDRri:$addr)]>;
-
 	}
 }
 
