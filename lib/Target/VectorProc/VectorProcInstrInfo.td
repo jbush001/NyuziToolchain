@@ -23,7 +23,7 @@ class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern
 	let Pattern = pattern;
 }
 
-multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
+multiclass VPInfixIntArith<string operator, SDNode OpNode> {
 	// Instruction format A, integer
 	def SS : VPInstruction<
 		(outs ScalarReg:$dst), 
@@ -31,13 +31,14 @@ multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 		"s$dst = s$b " # operator # " s$c",
 		[(set i32:$dst, (OpNode i32:$b, i32:$c))]>;
 
+	// Vector/Vector
 	def VV : VPInstruction<
 		(outs VectorReg:$dst), 
 		(ins VectorReg:$b, VectorReg:$c),
 		"v$dst = v$b " # operator # " v$c",
 		[(set v16i32:$dst, (OpNode v16i32:$b, v16i32:$c))]>;
 
-	// Predicated
+	// Predicated Vector/Vector
 	let Constraints = "$dst = $oldvalue" in {
 		def VVM : VPInstruction<
 			(outs VectorReg:$dst),
@@ -54,30 +55,7 @@ multiclass VPTernaryIntArith<string operator, SDNode OpNode> {
 		[(set i32:$dst, (OpNode i32:$b, (i32 simm13:$c)))]>;
 }
 
-multiclass VPBinaryFunctionalIntArith<string operator, SDNode OpNode> {
-	def S : VPInstruction<
-		(outs ScalarReg:$dst), 
-		(ins ScalarReg:$b),
-		"s$dst = " # operator # "(s$b)",
-		[(set i32:$dst, (OpNode i32:$b))]>;
-
-	def V : VPInstruction<
-		(outs VectorReg:$dst), 
-		(ins VectorReg:$b),
-		"s$dst = " # operator # "(s$b)",
-		[(set v16i32:$dst, (OpNode v16i32:$b))]>;
-
-	// Predicated
-	let Constraints = "$dst = $oldvalue" in {
-		def VM : VPInstruction<
-			(outs VectorReg:$dst),
-			(ins ScalarReg:$mask, VectorReg:$src, VectorReg:$oldvalue),
-			"v$dst{{s$mask}} = " # operator # "(v$src)",
-			[(set v16i32:$dst, (vselect v16i1:$mask, (OpNode v16i32:$src), v16i32:$oldvalue))]>;
-	}
-}
-
-multiclass VPTernaryFloatArith<string operator, SDNode OpNode> 
+multiclass VPInfixFloatArith<string operator, SDNode OpNode> 
 {
 	def SS : VPInstruction<
 		(outs ScalarReg:$dst), 
@@ -102,22 +80,45 @@ multiclass VPTernaryFloatArith<string operator, SDNode OpNode>
 	}
 }
 
-defm AND    : VPTernaryIntArith<"&", and>;
-defm OR     : VPTernaryIntArith<"|", or>;
-defm XOR    : VPTernaryIntArith<"^", xor>;
-defm SLL    : VPTernaryIntArith<"<<", shl>;
-defm SRL    : VPTernaryIntArith<">>", srl>;
-defm SRA    : VPTernaryIntArith<">>", sra>;	// XXX need to use U register.
-defm ADDI   : VPTernaryIntArith<"+", add>;
-defm SUBI   : VPTernaryIntArith<"-", sub>;
-defm SMULI  : VPTernaryIntArith  <"*", mul>;
-defm ADDF   : VPTernaryFloatArith<"+", fadd>;
-defm SUBF   : VPTernaryFloatArith<"-", fsub>;
-defm MULF   : VPTernaryFloatArith<"*", fmul>;
-defm CLZ 	: VPBinaryFunctionalIntArith<"clz", ctlz>;
-defm CTZ 	: VPBinaryFunctionalIntArith<"ctz", cttz>;
-defm CLZ_ZU	: VPBinaryFunctionalIntArith<"clz", ctlz_zero_undef>;
-defm CTZ_ZU	: VPBinaryFunctionalIntArith<"ctz", cttz_zero_undef>;
+multiclass VPFunctionalIntArith<string operator, SDNode OpNode> {
+	def S : VPInstruction<
+		(outs ScalarReg:$dst), 
+		(ins ScalarReg:$b),
+		"s$dst = " # operator # "(s$b)",
+		[(set i32:$dst, (OpNode i32:$b))]>;
+
+	def V : VPInstruction<
+		(outs VectorReg:$dst), 
+		(ins VectorReg:$b),
+		"s$dst = " # operator # "(s$b)",
+		[(set v16i32:$dst, (OpNode v16i32:$b))]>;
+
+	// Predicated
+	let Constraints = "$dst = $oldvalue" in {
+		def VM : VPInstruction<
+			(outs VectorReg:$dst),
+			(ins ScalarReg:$mask, VectorReg:$src, VectorReg:$oldvalue),
+			"v$dst{{s$mask}} = " # operator # "(v$src)",
+			[(set v16i32:$dst, (vselect v16i1:$mask, (OpNode v16i32:$src), v16i32:$oldvalue))]>;
+	}
+}
+
+defm AND    : VPInfixIntArith<"&", and>;
+defm OR     : VPInfixIntArith<"|", or>;
+defm XOR    : VPInfixIntArith<"^", xor>;
+defm SLL    : VPInfixIntArith<"<<", shl>;
+defm SRL    : VPInfixIntArith<">>", srl>;
+defm SRA    : VPInfixIntArith<">>", sra>;	// XXX need to use U register.
+defm ADDI   : VPInfixIntArith<"+", add>;
+defm SUBI   : VPInfixIntArith<"-", sub>;
+defm SMULI  : VPInfixIntArith  <"*", mul>;
+defm ADDF   : VPInfixFloatArith<"+", fadd>;
+defm SUBF   : VPInfixFloatArith<"-", fsub>;
+defm MULF   : VPInfixFloatArith<"*", fmul>;
+defm CLZ 	: VPFunctionalIntArith<"clz", ctlz>;
+defm CTZ 	: VPFunctionalIntArith<"ctz", cttz>;
+defm CLZ_ZU	: VPFunctionalIntArith<"clz", ctlz_zero_undef>;
+defm CTZ_ZU	: VPFunctionalIntArith<"ctz", cttz_zero_undef>;
 
 def SEXT16 : VPInstruction<
 		(outs ScalarReg:$dst), 
