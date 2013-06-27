@@ -51,13 +51,6 @@ static bool CC_VectorProc_Assign_SRet(unsigned &ValNo, MVT &ValVT,
 
 #include "VectorProcGenCallingConv.inc"
 
-// The calling conventions in VectorProcCallingConv.td are described in terms of the
-// callee's register window. This function translates registers to the
-// corresponding caller window %o register.
-static unsigned toCallerWindow(unsigned Reg) {
-  return Reg;
-}
-
 SDValue
 VectorProcTargetLowering::LowerReturn(SDValue Chain,
                                  CallingConv::ID CallConv, bool IsVarArg,
@@ -154,11 +147,19 @@ LowerFormalArguments(SDValue Chain,
 
 	if (VA.isRegLoc()) {
 		// Is in a register
-		unsigned VReg = RegInfo.createVirtualRegister(&SP::ScalarRegRegClass);
+		EVT RegVT = VA.getLocVT();
+		const TargetRegisterClass *RC;
+		
+		if (RegVT == MVT::i32 || RegVT == MVT::f32)
+			RC = &SP::ScalarRegRegClass;
+		else if (RegVT == MVT::v16i32)
+			RC = &SP::VectorRegRegClass;
+		else
+			llvm_unreachable("Unsupported formal argument type");
+
+		unsigned VReg = RegInfo.createVirtualRegister(RC);
 		MF.getRegInfo().addLiveIn(VA.getLocReg(), VReg);
 		SDValue Arg = DAG.getCopyFromReg(Chain, dl, VReg, VA.getLocVT());
-
-		// XXX may need to handle types other than i32 (truncate, extend)
 		InVals.push_back(Arg);
 		continue;
 	}
@@ -206,7 +207,7 @@ LowerFormalArguments(SDValue Chain,
 
   // Store remaining ArgRegs to the stack if this is a varargs function.
   if (isVarArg) {
-	assert(0);	// Not implemented yet
+  	llvm_unreachable("variable arguments not implemented yet");
   }
 
   return Chain;
@@ -227,7 +228,6 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   CallingConv::ID CallConv              = CLI.CallConv;
   bool isVarArg                         = CLI.IsVarArg;
 
-  // VectorProc target does not yet support tail call optimization.
   isTailCall = false;
 
   // Analyze operands of the call, assigning locations to each operand.
@@ -239,8 +239,8 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // Get the size of the outgoing arguments stack space requirement.
   unsigned ArgsSize = CCInfo.getNextStackOffset();
 
-  // Keep stack frames 8-byte aligned.
-  ArgsSize = (ArgsSize+7) & ~7;
+  // Keep stack frames 64-byte aligned.
+  ArgsSize = (ArgsSize+63) & ~63;
 
   MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
 
@@ -304,8 +304,8 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     }
 
     if (Flags.isSRet()) {
+      // Structure return
       assert(VA.needsCustom());
-      // store SRet argument in %sp+64
       SDValue StackPtr = DAG.getRegister(SP::S29, MVT::i32);
       SDValue PtrOff = DAG.getIntPtrConstant(64);
       PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
@@ -326,8 +326,6 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     assert(VA.isMemLoc());
 
     // Create a store off the stack pointer for this argument.
-
-	// XXX handle vector store, needs to be 64 byte aligned.
     SDValue StackPtr = DAG.getRegister(SP::S29, MVT::i32);
     SDValue PtrOff = DAG.getIntPtrConstant(VA.getLocMemOffset());
     PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
@@ -348,8 +346,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // stuck together.
   SDValue InFlag;
   for (unsigned i = 0, e = RegsToPass.size(); i != e; ++i) {
-    unsigned Reg = toCallerWindow(RegsToPass[i].first);
-    Chain = DAG.getCopyToReg(Chain, dl, Reg, RegsToPass[i].second, InFlag);
+    Chain = DAG.getCopyToReg(Chain, dl, RegsToPass[i].first, RegsToPass[i].second, InFlag);
     InFlag = Chain.getValue(1);
   }
 
@@ -371,7 +368,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   if (hasStructRetAttr)
     Ops.push_back(DAG.getTargetConstant(SRetArgSize, MVT::i32));
   for (unsigned i = 0, e = RegsToPass.size(); i != e; ++i)
-    Ops.push_back(DAG.getRegister(toCallerWindow(RegsToPass[i].first),
+    Ops.push_back(DAG.getRegister(RegsToPass[i].first,
                                   RegsToPass[i].second.getValueType()));
   if (InFlag.getNode())
     Ops.push_back(InFlag);
@@ -392,7 +389,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   // Copy all of the result registers out of their specified physreg.
   for (unsigned i = 0; i != RVLocs.size(); ++i) {
-    Chain = DAG.getCopyFromReg(Chain, dl, toCallerWindow(RVLocs[i].getLocReg()),
+    Chain = DAG.getCopyFromReg(Chain, dl, RVLocs[i].getLocReg(),
                                RVLocs[i].getValVT(), InFlag).getValue(1);
     InFlag = Chain.getValue(2);
     InVals.push_back(Chain.getValue(0));
