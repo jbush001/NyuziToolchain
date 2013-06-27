@@ -172,11 +172,14 @@ LowerFormalArguments(SDValue Chain,
                                                   true);
     SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy());
     SDValue Load ;
-    if (VA.getValVT() == MVT::i32 || VA.getValVT() == MVT::f32) {
+    if (VA.getValVT() == MVT::i32 || VA.getValVT() == MVT::f32
+    	|| VA.getValVT() == MVT::v16i32) {
       Load = DAG.getLoad(VA.getValVT(), dl, Chain, FIPtr,
                          MachinePointerInfo(),
                          false, false, false, 0);
     } else {
+    	// XXX need to handle vector load...
+    
       ISD::LoadExtType LoadOp = ISD::SEXTLOAD;
       unsigned Offset = 4-std::max(1U, VA.getValVT().getSizeInBits()/8);
       FIPtr = DAG.getNode(ISD::ADD, dl, MVT::i32, FIPtr,
@@ -313,87 +316,18 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
       continue;
     }
 
-    if (VA.needsCustom()) {
-      assert(VA.getLocVT() == MVT::f64);
-
-      if (VA.isMemLoc()) {
-        unsigned Offset = VA.getLocMemOffset();
-        //if it is double-word aligned, just store.
-        if (Offset % 8 == 0) {
-          SDValue StackPtr = DAG.getRegister(SP::S29, MVT::i32);
-          SDValue PtrOff = DAG.getIntPtrConstant(Offset);
-          PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
-          MemOpChains.push_back(DAG.getStore(Chain, dl, Arg, PtrOff,
-                                             MachinePointerInfo(),
-                                             false, false, 0));
-          continue;
-        }
-      }
-
-      SDValue StackPtr = DAG.CreateStackTemporary(MVT::f64, MVT::i32);
-      SDValue Store = DAG.getStore(DAG.getEntryNode(), dl,
-                                   Arg, StackPtr, MachinePointerInfo(),
-                                   false, false, 0);
-      // VectorProc is big-endian, so the high part comes first.
-      SDValue Hi = DAG.getLoad(MVT::i32, dl, Store, StackPtr,
-                               MachinePointerInfo(), false, false, false, 0);
-      // Increment the pointer to the other half.
-      StackPtr = DAG.getNode(ISD::ADD, dl, StackPtr.getValueType(), StackPtr,
-                             DAG.getIntPtrConstant(4));
-      // Load the low part.
-      SDValue Lo = DAG.getLoad(MVT::i32, dl, Store, StackPtr,
-                               MachinePointerInfo(), false, false, false, 0);
-
-      if (VA.isRegLoc()) {
-        RegsToPass.push_back(std::make_pair(VA.getLocReg(), Hi));
-        assert(i+1 != e);
-        CCValAssign &NextVA = ArgLocs[++i];
-        if (NextVA.isRegLoc()) {
-          RegsToPass.push_back(std::make_pair(NextVA.getLocReg(), Lo));
-        } else {
-          //Store the low part in stack.
-          unsigned Offset = NextVA.getLocMemOffset();
-          SDValue StackPtr = DAG.getRegister(SP::S29, MVT::i32);
-          SDValue PtrOff = DAG.getIntPtrConstant(Offset);
-          PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
-          MemOpChains.push_back(DAG.getStore(Chain, dl, Lo, PtrOff,
-                                             MachinePointerInfo(),
-                                             false, false, 0));
-        }
-      } else {
-        unsigned Offset = VA.getLocMemOffset();
-        // Store the high part.
-        SDValue StackPtr = DAG.getRegister(SP::S29, MVT::i32);
-        SDValue PtrOff = DAG.getIntPtrConstant(Offset);
-        PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
-        MemOpChains.push_back(DAG.getStore(Chain, dl, Hi, PtrOff,
-                                           MachinePointerInfo(),
-                                           false, false, 0));
-        // Store the low part.
-        PtrOff = DAG.getIntPtrConstant(Offset+4);
-        PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
-        MemOpChains.push_back(DAG.getStore(Chain, dl, Lo, PtrOff,
-                                           MachinePointerInfo(),
-                                           false, false, 0));
-      }
-      continue;
-    }
-
     // Arguments that can be passed on register must be kept at
     // RegsToPass vector
     if (VA.isRegLoc()) {
-      if (VA.getLocVT() != MVT::f32) {
         RegsToPass.push_back(std::make_pair(VA.getLocReg(), Arg));
         continue;
-      }
-      Arg = DAG.getNode(ISD::BITCAST, dl, MVT::i32, Arg);
-      RegsToPass.push_back(std::make_pair(VA.getLocReg(), Arg));
-      continue;
     }
 
     assert(VA.isMemLoc());
 
     // Create a store off the stack pointer for this argument.
+
+	// XXX handle vector store, needs to be 64 byte aligned.
     SDValue StackPtr = DAG.getRegister(SP::S29, MVT::i32);
     SDValue PtrOff = DAG.getIntPtrConstant(VA.getLocMemOffset());
     PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
