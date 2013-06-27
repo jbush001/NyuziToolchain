@@ -36,7 +36,15 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
   DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
 
   // Get the number of bytes to allocate from the FrameInfo
-  int NumBytes = (int) MFI->getStackSize();
+  int StackSize = (int) MFI->getStackSize();
+  StackSize = (StackSize + 63) & ~63;	// Round up to 64 bytes
+  assert(StackSize < 4096);	// XXX need to handle this.
+
+  if (StackSize != 0)
+  {
+    BuildMI(MBB, MBBI, dl, TII.get(SP::SUBISI), SP::S29).addReg(SP::S29)
+      .addImm(StackSize);
+  }
 }
 
 void VectorProcFrameLowering::
@@ -66,13 +74,25 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
 void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
                                   MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
   const VectorProcInstrInfo &TII =
     *static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
   DebugLoc dl = MBBI->getDebugLoc();
   assert(MBBI->getOpcode() == SP::RET &&
          "Can only put epilog before 'retl' instruction!");
 
-	// XXX fix
+  uint64_t StackSize = MFI->getStackSize();
+
+  StackSize = (StackSize + 63) & ~63;	// Round up to 64 bytes
+  assert(StackSize < 4096);	// XXX need to handle this.
+
+  if (StackSize != 0)
+  {
+    BuildMI(MBB, MBBI, dl, TII.get(SP::ADDISI), SP::S29).addReg(SP::S29)
+      .addImm(StackSize);
+  }
+
+
 }
 
 bool VectorProcFrameLowering::hasFP(const MachineFunction &MF) const {
@@ -81,3 +101,34 @@ bool VectorProcFrameLowering::hasFP(const MachineFunction &MF) const {
       MFI->hasVarSizedObjects() || MFI->isFrameAddressTaken();
 }
 
+bool VectorProcFrameLowering::
+spillCalleeSavedRegisters(MachineBasicBlock &MBB,
+                          MachineBasicBlock::iterator MI,
+                          const std::vector<CalleeSavedInfo> &CSI,
+                          const TargetRegisterInfo *TRI) const {
+
+  MachineFunction *MF = MBB.getParent();
+  MachineBasicBlock *EntryBlock = MF->begin();
+  const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
+
+  for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
+    // Add the callee-saved register as live-in. 
+    // It's killed at the spill, unless the register is RA and return address
+    // is taken.
+    unsigned Reg = CSI[i].getReg();
+    bool IsRAAndRetAddrIsTaken = Reg == SP::S31
+        && MF->getFrameInfo()->isReturnAddressTaken();
+    if (!IsRAAndRetAddrIsTaken)
+      EntryBlock->addLiveIn(Reg);
+
+    EntryBlock->addLiveIn(Reg);
+
+    // Insert the spill to the stack frame.
+    bool IsKill = !IsRAAndRetAddrIsTaken;
+    const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(Reg);
+    TII.storeRegToStackSlot(*EntryBlock, MI, Reg, IsKill,
+                            CSI[i].getFrameIdx(), RC, TRI);
+  }
+
+  return true;
+}

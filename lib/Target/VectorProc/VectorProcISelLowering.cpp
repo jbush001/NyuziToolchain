@@ -334,7 +334,6 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
                                        false, false, 0));
   }
 
-
   // Emit all stores, make sure the occur before any copies into physregs.
   if (!MemOpChains.empty())
     Chain = DAG.getNode(ISD::TokenFactor, dl, MVT::Other,
@@ -370,6 +369,13 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   for (unsigned i = 0, e = RegsToPass.size(); i != e; ++i)
     Ops.push_back(DAG.getRegister(RegsToPass[i].first,
                                   RegsToPass[i].second.getValueType()));
+
+  // Add a register mask operand representing the call-preserved registers.
+  const TargetRegisterInfo *TRI = getTargetMachine().getRegisterInfo();
+  const uint32_t *Mask = TRI->getCallPreservedMask(CLI.CallConv);
+  assert(Mask && "Missing call preserved mask for calling convention");
+  Ops.push_back(CLI.DAG.getRegisterMask(Mask));
+
   if (InFlag.getNode())
     Ops.push_back(InFlag);
 

@@ -38,6 +38,11 @@ const uint16_t* VectorProcRegisterInfo::getCalleeSavedRegs(const MachineFunction
   return VectorProcCSR_SaveList;
 }
 
+const uint32_t* VectorProcRegisterInfo::getCallPreservedMask(CallingConv::ID) const {
+    return VectorProcCSR_RegMask;
+}
+
+
 BitVector VectorProcRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
   return Reserved;
@@ -73,6 +78,7 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
   } else {
 		// XXX for large indices, need to load indirectly. Look at ARM.
+		llvm_unreachable("frame index out of bounds, not implemented");
   }
 }
 

@@ -6,7 +6,8 @@ target triple = "vectorproc"
 ; subsequent arguments must be pushed on the stack.
 
 define <16 x i32> @somefunc(i32 %a, <16 x i32> %b, <16 x i32> %c, <16 x i32> %d, 
-	<16 x i32> %e, <16 x i32> %f, <16 x i32> %g, <16 x i32> %h) #0 {
+	<16 x i32> %e, <16 x i32> %f, <16 x i32> %g, <16 x i32> %h) #0 { ; CHECK: somefunc:
+	; CHECK s29 = s29 - {{[0-9]+}}
 
 	%result = alloca <16 x i32>
 	
@@ -18,10 +19,12 @@ define <16 x i32> @somefunc(i32 %a, <16 x i32> %b, <16 x i32> %c, <16 x i32> %d,
 	; CHECK: [[SRC:v[0-9]+]] = mem_l[s29]
 	%6 = add <16 x i32> %5, %h	; CHECK: v{{[0-9]+}} = [[RES5]] + [[SRC]]
 
+	; CHECK s29 = s29 + {{[0-9]+}}
 	ret <16 x i32> %6
 }
 
-define <16 x i32> @main() #1 {
+define <16 x i32> @main() #1 {	; CHECK: main:
+	; CHECK: s29 = s29 - {{[0-9]+}}
 	%1 = alloca i32
 	%2 = alloca <16 x i32>
 	%3 = alloca <16 x i32>
@@ -39,13 +42,14 @@ define <16 x i32> @main() #1 {
 	%g = load <16 x i32>* %7
 	%h = load <16 x i32>* %8
 
-	; CHECK: s29 = s29 + -64	
+	; CHECK: s29 = s29 + {{-64}}
 	; CHECK: mem_l[s29] = v{{[0-9]+}}
 	%result = call <16 x i32> @somefunc(i32 %a, <16 x i32> %b, <16 x i32> %c, 
 		<16 x i32> %d, <16 x i32> %e, <16 x i32> %f, <16 x i32> %g,
 		<16 x i32> %h)	; CHECK: call somefunc
 		
 	; CHECK s29 = s29 + 64
+	; CHECK s29 = s29 + {{[0-9]+}}
   	ret <16 x i32> %result
 }
 
