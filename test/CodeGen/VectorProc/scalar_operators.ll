@@ -82,8 +82,22 @@ define i32 @ashrimm(i32 %a) { 	; CHECK: ashrimm:
 	ret i32 %1
 }
 
-; Broken: fadd, fsub, fmul (can't return float) lshr (doesn't use unsigned operands)
+define float @fadd(float %a, float %b) { 	; CHECK: fadd:
+	%1 = fadd float %a, %b 			; CHECK: f{{[0-9]+}} = f{{[0-9]+}} + f{{[0-9]+}}
+	ret float %1
+}
 
-; Missing: udiv, sdiv, urem, srem, frem
+define float @fsub(float %a, float %b) { 	; CHECK: fsub:
+	%1 = fsub float %a, %b 			; CHECK: f{{[0-9]+}} = f{{[0-9]+}} - f{{[0-9]+}}
+	ret float %1
+}
+
+define float @fmul(float %a, float %b) { 	; CHECK: fmul:
+	%1 = fmul float %a, %b 			; CHECK: f{{[0-9]+}} = f{{[0-9]+}} * f{{[0-9]+}}
+	ret float %1
+}
+
+; Broken: lshr (doesn't use unsigned operands)
+; Not implemented: udiv, sdiv, urem, srem, frem
 
 

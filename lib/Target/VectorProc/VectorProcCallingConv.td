@@ -24,6 +24,6 @@ def CC_VectorProc32 : CallingConv<[
 ]>;
 
 def RetCC_VectorProc32 : CallingConv<[
-  CCIfType<[i32], CCAssignToReg<[S0, S1, S2, S3, S4, S5]>>
+  CCIfType<[i32, f32], CCAssignToReg<[S0, S1, S2, S3, S4, S5]>>
 ]>;
 

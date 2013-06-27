@@ -41,37 +41,37 @@ define i32 @cmpine(i32 %a, i32 %b) #0 {	; CHECK: cmpine
 ; Floating point
 
 define i32 @cmpfgt(float %a, float %b) #0 {	; CHECK: cmpfgt
-	%cmp = fcmp ogt float %a, %b			; CHECK: f{{[0-9]+}} = f{{[0-9]+}} > f{{[0-9]+}}
+	%cmp = fcmp ogt float %a, %b			; CHECK: s{{[0-9]+}} = f{{[0-9]+}} > f{{[0-9]+}}
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpfge(float %a, float %b) #0 {	; CHECK: cmpfge
-	%cmp = fcmp oge float %a, %b			; CHECK: f{{[0-9]+}} = f{{[0-9]+}} >= f{{[0-9]+}}
+	%cmp = fcmp oge float %a, %b			; CHECK: s{{[0-9]+}} = f{{[0-9]+}} >= f{{[0-9]+}}
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpflt(float %a, float %b) #0 {	; CHECK: cmpflt
-	%cmp = fcmp olt float %a, %b			; CHECK: f{{[0-9]+}} = f{{[0-9]+}} < f{{[0-9]+}}
+	%cmp = fcmp olt float %a, %b			; CHECK: s{{[0-9]+}} = f{{[0-9]+}} < f{{[0-9]+}}
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpfle(float %a, float %b) #0 {	; CHECK: cmpfle
-	%cmp = fcmp ole float %a, %b			; CHECK: f{{[0-9]+}} = f{{[0-9]+}} <= f{{[0-9]+}}
+	%cmp = fcmp ole float %a, %b			; CHECK: s{{[0-9]+}} = f{{[0-9]+}} <= f{{[0-9]+}}
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpfeq(float %a, float %b) #0 {	; CHECK: cmpfeq
-	%cmp = fcmp oeq float %a, %b			; CHECK: f{{[0-9]+}} = f{{[0-9]+}} == f{{[0-9]+}}
+	%cmp = fcmp oeq float %a, %b			; CHECK: s{{[0-9]+}} = f{{[0-9]+}} == f{{[0-9]+}}
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpfne(float %a, float %b) #0 {	; CHECK: cmpfne
-	%cmp = fcmp one float %a, %b			; CHECK: f{{[0-9]+}} = f{{[0-9]+}} <> f{{[0-9]+}}
+	%cmp = fcmp one float %a, %b			; CHECK: s{{[0-9]+}} = f{{[0-9]+}} <> f{{[0-9]+}}
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
