@@ -75,3 +75,39 @@ define i32 @cmpfne(float %a, float %b) #0 {	; CHECK: cmpfne
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
+
+define i32 @cmpfgtu(float %a, float %b) #0 {	; CHECK: cmpfgtu
+	%cmp = fcmp ugt float %a, %b			; CHECK: s{{[0-9]+}} = f{{[0-9]+}} > f{{[0-9]+}}
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
+
+define i32 @cmpfgeu(float %a, float %b) #0 {	; CHECK: cmpfgeu
+	%cmp = fcmp uge float %a, %b			; CHECK: s{{[0-9]+}} = f{{[0-9]+}} >= f{{[0-9]+}}
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
+
+define i32 @cmpfltu(float %a, float %b) #0 {	; CHECK: cmpfltu
+	%cmp = fcmp ult float %a, %b			; CHECK: s{{[0-9]+}} = f{{[0-9]+}} < f{{[0-9]+}}
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
+
+define i32 @cmpfleu(float %a, float %b) #0 {	; CHECK: cmpfleu
+	%cmp = fcmp ule float %a, %b			; CHECK: s{{[0-9]+}} = f{{[0-9]+}} <= f{{[0-9]+}}
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
+
+define i32 @cmpfequ(float %a, float %b) #0 {	; CHECK: cmpfequ
+	%cmp = fcmp ueq float %a, %b			; CHECK: s{{[0-9]+}} = f{{[0-9]+}} == f{{[0-9]+}}
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
+
+define i32 @cmpfneu(float %a, float %b) #0 {	; CHECK: cmpfneu
+	%cmp = fcmp une float %a, %b			; CHECK: s{{[0-9]+}} = f{{[0-9]+}} <> f{{[0-9]+}}
+	%ret = zext i1 %cmp to i32
+	ret i32 %ret
+}
