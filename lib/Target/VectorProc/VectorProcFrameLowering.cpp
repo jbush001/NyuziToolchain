@@ -23,6 +23,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetOptions.h"
+#include "llvm/Support/Debug.h"
 
 using namespace llvm;
 
@@ -36,27 +37,28 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
 
   // Get the number of bytes to allocate from the FrameInfo
   int NumBytes = (int) MFI->getStackSize();
-
-  // Emit the correct save instruction based on the number of bytes in
-  // the frame. Minimum stack frame size according to V8 ABI is:
-  //   16 words for register window spill
-  //    1 word for address of returned aggregate-value
-  // +  6 words for passing parameters on the stack
-  // ----------
-  //   23 words * 4 bytes per word = 92 bytes
-  NumBytes += 92;
-
-  // Round up to next doubleword boundary -- a double-word boundary
-  // is required by the ABI.
-  NumBytes = RoundUpToAlignment(NumBytes, 8);
-  NumBytes = -NumBytes;
-
-	// XXX need to work on this
 }
 
 void VectorProcFrameLowering::
 eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
                               MachineBasicBlock::iterator I) const {
+
+// XXX hack: hasReservedCallFrame isn't doing quite what I expect.  Need to understand
+// this.
+//  if (!hasReservedCallFrame(MF)) {
+    MachineInstr &MI = *I;
+    DebugLoc DL = MI.getDebugLoc();
+    int Size = MI.getOperand(0).getImm();
+    if (MI.getOpcode() == SP::ADJCALLSTACKDOWN)
+      Size = -Size;
+    const VectorProcInstrInfo &TII =
+      *static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
+    if (Size)
+    {
+      BuildMI(MBB, I, DL, TII.get(SP::ADDISI), SP::S29).addReg(SP::S29)
+        .addImm(Size);
+	}
+//  }
   MBB.erase(I);
 }
 
@@ -72,3 +74,10 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
 
 	// XXX fix
 }
+
+bool VectorProcFrameLowering::hasFP(const MachineFunction &MF) const {
+  const MachineFrameInfo *MFI = MF.getFrameInfo();
+  return MF.getTarget().Options.DisableFramePointerElim(MF) ||
+      MFI->hasVarSizedObjects() || MFI->isFrameAddressTaken();
+}
+

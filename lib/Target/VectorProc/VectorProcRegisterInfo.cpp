@@ -78,7 +78,7 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 }
 
 unsigned VectorProcRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
-  return SP::S29;
+  return SP::S28;
 }
 
 unsigned VectorProcRegisterInfo::getEHExceptionRegister() const {

@@ -152,7 +152,7 @@ LowerFormalArguments(SDValue Chain,
 		
 		if (RegVT == MVT::i32 || RegVT == MVT::f32)
 			RC = &SP::ScalarRegRegClass;
-		else if (RegVT == MVT::v16i32)
+		else if (RegVT == MVT::v16i32 || RegVT == MVT::v16f32)
 			RC = &SP::VectorRegRegClass;
 		else
 			llvm_unreachable("Unsupported formal argument type");

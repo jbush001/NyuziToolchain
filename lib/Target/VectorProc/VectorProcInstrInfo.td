@@ -365,24 +365,21 @@ let isReturn = 1, isTerminator = 1, Uses = [S30] in {
 		[(retflag simm13:$val)]>;
 }
 
-class Pseudo<dag outs, dag ins, string asmstr, list<dag> pattern>
-   : VPInstruction<outs, ins, asmstr, pattern>;
-
 def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
 def SDT_SPCallSeqEnd   : SDCallSeqEnd<[ SDTCisVT<0, i32>,
                                         SDTCisVT<1, i32> ]>;
 
 def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_SPCallSeqStart,
-                           [SDNPHasChain, SDNPOutGlue]>;
+                           [SDNPHasChain, SDNPSideEffect, SDNPOutGlue]>;
 def callseq_end   : SDNode<"ISD::CALLSEQ_END",   SDT_SPCallSeqEnd,
-                           [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
+                           [SDNPHasChain, SDNPSideEffect, SDNPOptInGlue, SDNPOutGlue]>;
 
-let Defs = [S29], Uses = [S29] in {
-	def ADJCALLSTACKDOWN : Pseudo<(outs), (ins i32imm:$amt),
-								   "!ADJCALLSTACKDOWN $amt",
+let Defs = [S29], Uses = [S29], hasSideEffects = 1 in {
+	def ADJCALLSTACKDOWN : VPInstruction<(outs), (ins i32imm:$amt),
+								   "; ADJCALLSTACKDOWN $amt",
 								   [(callseq_start timm:$amt)]>;
-	def ADJCALLSTACKUP : Pseudo<(outs), (ins i32imm:$amt1, i32imm:$amt2),
-								"!ADJCALLSTACKUP $amt1",
+	def ADJCALLSTACKUP : VPInstruction<(outs), (ins i32imm:$amt1, i32imm:$amt2),
+								"; ADJCALLSTACKUP $amt1",
 								[(callseq_end timm:$amt1, timm:$amt2)]>;
 }
 

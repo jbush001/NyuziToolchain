@@ -38,12 +38,14 @@ define <16 x i32> @main() #1 {
 	%f = load <16 x i32>* %6
 	%g = load <16 x i32>* %7
 	%h = load <16 x i32>* %8
-	
+
+	; CHECK: s29 = s29 + -64	
 	; CHECK: mem_l[s29] = v{{[0-9]+}}
 	%result = call <16 x i32> @somefunc(i32 %a, <16 x i32> %b, <16 x i32> %c, 
 		<16 x i32> %d, <16 x i32> %e, <16 x i32> %f, <16 x i32> %g,
 		<16 x i32> %h)	; CHECK: call somefunc
 		
+	; CHECK s29 = s29 + 64
   	ret <16 x i32> %result
 }
 
