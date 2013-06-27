@@ -22,7 +22,7 @@ define i32 @loads16(i16* %p) { 		; CHECK: loads16
 
 define i32 @loadu16(i16* %p) { 		; CHECK: loadu16
         %tmp = load i16* %p     
-        %tmp1 = zext i16 %tmp to i32  	; CHECK: u{{[0-9+]}} = mem_s[s0]
+        %tmp1 = zext i16 %tmp to i32  	; CHECK: u0 = mem_s[s0]
         ret i32 %tmp1
 }
 

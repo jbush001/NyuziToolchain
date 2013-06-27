@@ -61,13 +61,13 @@ multiclass VPInfixFloatArith<string operator, SDNode OpNode>
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$b, ScalarReg:$c),
 		"f$dst = f$b " # operator # " f$c",
-		[(set ScalarReg:$dst, (OpNode (f32 ScalarReg:$b), (f32 ScalarReg:$c)))]>;
+		[(set ScalarReg:$dst, (OpNode f32:$b, f32:$c))]>;
 
 	def VV : VPInstruction<
 		(outs VectorReg:$dst), 
 		(ins VectorReg:$b, VectorReg:$c),
 		"vf$dst = vf$b " # operator # " vf$c",
-		[(set VectorReg:$dst, (OpNode (v16f32 VectorReg:$b), (v16f32 VectorReg:$c)))]>;
+		[(set VectorReg:$dst, (OpNode v16f32:$b, v16f32:$c))]>;
 
 	// Predicated
 	let Constraints = "$dst = $oldvalue" in {
