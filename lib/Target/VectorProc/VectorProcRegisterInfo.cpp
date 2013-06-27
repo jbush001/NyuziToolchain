@@ -35,8 +35,7 @@ VectorProcRegisterInfo::VectorProcRegisterInfo(VectorProcSubtarget &st,
 
 const uint16_t* VectorProcRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF)
                                                                          const {
-  static const uint16_t CalleeSavedRegs[] = { 0 };
-  return CalleeSavedRegs;
+  return VectorProcCSR_SaveList;
 }
 
 BitVector VectorProcRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
