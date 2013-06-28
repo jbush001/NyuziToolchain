@@ -109,28 +109,56 @@ void VectorProcInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
 }
 
 void VectorProcInstrInfo::
-storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
-                    unsigned SrcReg, bool isKill, int FI,
-                    const TargetRegisterClass *RC,
-                    const TargetRegisterInfo *TRI) const {
+storeRegToStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
+                unsigned SrcReg, bool isKill, int FI,
+                const TargetRegisterClass *RC, const TargetRegisterInfo *TRI,
+                int64_t Offset) const {
   DebugLoc DL;
   if (I != MBB.end()) DL = I->getDebugLoc();
 
-  // Store doesn't actually care of this is float or int; just use int.
-  BuildMI(MBB, I, DL, get(SP::SWi)).addFrameIndex(FI).addImm(0)
-    .addReg(SrcReg, getKillRegState(isKill));
+  unsigned Opc = 0;
+  unsigned Size = 0;
+
+  if (SP::ScalarRegRegClass.hasSubClassEq(RC))
+  {
+    Opc = SP::SWi;
+    Size = 4;
+  }
+  else if (SP::VectorRegRegClass.hasSubClassEq(RC))
+  {
+    Opc = SP::BLOCK_STOREI;
+    Size = 64;
+  }
+  else
+    llvm_unreachable("unknown register class in storeRegToStack");
+
+  BuildMI(MBB, I, DL, get(Opc)).addReg(SP::S29).addImm(FI * Size + Offset)
+  	.addReg(SrcReg, getKillRegState(isKill));
 }
 
 void VectorProcInstrInfo::
-loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
-                     unsigned DestReg, int FI,
-                     const TargetRegisterClass *RC,
-                     const TargetRegisterInfo *TRI) const {
+loadRegFromStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
+                 unsigned DestReg, int FI, const TargetRegisterClass *RC,
+                 const TargetRegisterInfo *TRI, int64_t Offset) const {
   DebugLoc DL;
   if (I != MBB.end()) DL = I->getDebugLoc();
+  unsigned Opc = 0;
+  unsigned Size = 0;
 
-  // Load doesn't actually care of this is float or int; just use int.
-  BuildMI(MBB, I, DL, get(SP::LWi), DestReg).addFrameIndex(FI).addImm(0);
+  if (SP::ScalarRegRegClass.hasSubClassEq(RC))
+  {
+    Opc = SP::LWi;
+    Size = 4;
+  }
+  else if (SP::VectorRegRegClass.hasSubClassEq(RC))
+  {
+    Opc = SP::BLOCK_LOADI;
+    Size = 64;
+  }
+  else
+    llvm_unreachable("unknown register class in storeRegToStack");
+
+  BuildMI(MBB, I, DL, get(Opc), DestReg).addReg(SP::S29).addImm(FI * Size + Offset);
 }
 
 unsigned VectorProcInstrInfo::getGlobalBaseReg(MachineFunction *MF) const
