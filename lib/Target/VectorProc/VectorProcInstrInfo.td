@@ -351,12 +351,6 @@ def SHUFFLE : VPInstruction<
 	"v$dest = shuffle(v$src, v$indices)",
 	[(set v16i32:$dest, (vector_shuffle v16i32:$src, v16i32:$indices))]>;
 
-def SCALAR_TO_VECTOR : VPInstruction<
-	(outs VectorReg:$dest),
-	(ins ScalarReg:$src),
-	"v$dest = s$src",
-	[(set v16i32:$dest, (scalar_to_vector i32:$src))]>;
-
 def LOADIMM : VPInstruction<
 	(outs ScalarReg:$dest),
 	(ins i32imm:$val),

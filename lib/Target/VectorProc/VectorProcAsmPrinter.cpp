@@ -139,38 +139,6 @@ void VectorProcAsmPrinter::printMemOperand(const MachineInstr *MI, int opNum,
 	}
 }
 
-bool VectorProcAsmPrinter::printGetPCX(const MachineInstr *MI, unsigned opNum,
-                                  raw_ostream &O) {
-  std::string operand = "";
-  const MachineOperand &MO = MI->getOperand(opNum);
-  switch (MO.getType()) {
-  default: llvm_unreachable("Operand is not a register");
-  case MachineOperand::MO_Register:
-    assert(TargetRegisterInfo::isPhysicalRegister(MO.getReg()) &&
-           "Operand is not a physical register ");
-    operand = StringRef(getRegisterName(MO.getReg())).lower();
-    break;
-  }
-
-  unsigned mfNum = MI->getParent()->getParent()->getFunctionNumber();
-  unsigned bbNum = MI->getParent()->getNumber();
-
-  O << '\n' << ".LLGETPCH" << mfNum << '_' << bbNum << ":\n";
-  O << "\tcall\t.LLGETPC" << mfNum << '_' << bbNum << '\n' ;
-
-  O << "\t  sethi\t"
-    << "%hi(_GLOBAL_OFFSET_TABLE_+(.-.LLGETPCH" << mfNum << '_' << bbNum 
-    << ")), "  << operand << '\n' ;
-
-  O << ".LLGETPC" << mfNum << '_' << bbNum << ":\n" ;
-  O << "\tor\t" << operand  
-    << ", %lo(_GLOBAL_OFFSET_TABLE_+(.-.LLGETPCH" << mfNum << '_' << bbNum
-    << ")), " << operand << '\n';
-  O << "\tadd\t" << operand << ", %o7, " << operand << '\n'; 
-  
-  return true;
-}
-
 /// PrintAsmOperand - Print out an operand for an inline asm expression.
 ///
 bool VectorProcAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
