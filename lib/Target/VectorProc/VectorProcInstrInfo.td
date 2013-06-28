@@ -158,7 +158,7 @@ multiclass CMPI<string operator, string opsign, CondCode condition> {
 	def SS : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$a, ScalarReg:$b),
-		"s$dst = " # opsign # "$a " # operator # " " # opsign # "$b",
+		"s$dst = s" # opsign # "$a " # operator # " s" # opsign # "$b",
 		[(set i32:$dst, (setcc i32:$a, i32:$b, condition))]>;
 
 	def VV : VPInstruction<
@@ -171,7 +171,7 @@ multiclass CMPI<string operator, string opsign, CondCode condition> {
 	def SI : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$a, i32imm:$b),
-		"s$dst = " # opsign # "$a " # operator # " $b",
+		"s$dst = s" # opsign # "$a " # operator # " $b",
 		[(set i32:$dst, (setcc i32:$a, simm13:$b, condition))]>;
 }
 
@@ -189,12 +189,12 @@ multiclass CMPF<string operator, CondCode condition> {
 		[(set v16i1:$dst, (setcc v16f32:$a, v16f32:$b, condition))]>;
 }
 
-defm SGTSI : CMPI<">", "s", SETGT>;	
-defm SGESI : CMPI<">=", "s", SETGE>;
-defm SLTSI : CMPI<"<", "s", SETLT>;
-defm SLESI : CMPI<"<=", "s", SETLE>;
-defm SEQSI : CMPI<"==", "s", SETEQ>;
-defm SNESI : CMPI<"<>", "s", SETNE>;
+defm SGTSI : CMPI<">", "", SETGT>;	
+defm SGESI : CMPI<">=", "", SETGE>;
+defm SLTSI : CMPI<"<", "", SETLT>;
+defm SLESI : CMPI<"<=", "", SETLE>;
+defm SEQSI : CMPI<"==", "", SETEQ>;
+defm SNESI : CMPI<"<>", "", SETNE>;
 defm SGTUI : CMPI<">", "u", SETUGT>;	
 defm SGEUI : CMPI<">=", "u", SETUGE>;
 defm SLTUI : CMPI<"<", "u", SETULT>;
@@ -316,6 +316,18 @@ defm LW : SCALAR_LOAD<"l", "s", load>;
 defm SB : SCALAR_STORE<"b", truncstorei8>;
 defm SS : SCALAR_STORE<"s", truncstorei16>;
 defm SW : SCALAR_STORE<"l", store>;
+
+// A bit of a kludge.  Used to store the result of a vector comparison. 
+// The compiler does this in some cases and the normal store does not match it.
+def STORE_MASK : VPInstruction<
+	(outs),
+	(ins MEMri:$addr, ScalarReg:$src),
+	"mem_l[$addr] = u$src",
+	[(store v16i1:$src, ADDRri:$addr)]>
+{
+	let hasSideEffects = 1;
+	let mayStore = 1;
+}
 
 def : Pat<(i32 (extloadi1 ADDRri:$src)), (LBUi ADDRri:$src)>;
 def : Pat<(i32 (extloadi8 ADDRri:$src)), (LBUi ADDRri:$src)>;
