@@ -96,14 +96,14 @@ multiclass VPInfixIntArith<string operator, SDNode OpNode> {
 		def VVIM : VPInstruction<
 			(outs VectorReg:$dst),
 			(ins ScalarReg:$mask, VectorReg:$src1, i32imm:$imm, VectorReg:$oldvalue),
-			"v$dst{{s$mask}} = v$src1 " # operator # " imm",
+			"v$dst{{s$mask}} = v$src1 " # operator # " $imm",
 			[(set v16i32:$dst, (vselect v16i1:$mask, (OpNode v16i32:$src1, (splat simm8:$imm)), v16i32:$oldvalue))]>;
 
 		// Vector = Scalar Op Immediate, masked
 		def VSIM : VPInstruction<
 			(outs VectorReg:$dst),
 			(ins ScalarReg:$mask, ScalarReg:$src1, i32imm:$imm, VectorReg:$oldvalue),
-			"v$dst{{s$mask}} = v$src1 " # operator # " imm",
+			"v$dst{{s$mask}} = v$src1 " # operator # " $imm",
 			[(set v16i32:$dst, (vselect v16i1:$mask, (OpNode (splat i32:$src1), (splat simm8:$imm)), v16i32:$oldvalue))]>;
 	}
 }
@@ -145,7 +145,7 @@ multiclass VPInfixFloatArith<string operator, SDNode OpNode>
 		def VVSM : VPInstruction<
 			(outs VectorReg:$dst),
 			(ins ScalarReg:$mask, VectorReg:$src1, ScalarReg:$src2, VectorReg:$oldvalue),
-			"vf$dst{{s$mask}} = vf$src1 " # operator # " vf$src2",
+			"vf$dst{{s$mask}} = vf$src1 " # operator # " f$src2",
 			[(set v16f32:$dst, (vselect v16i1:$mask, (OpNode v16f32:$src1, 
 				(splat f32:$src2)), v16f32:$oldvalue))]>;
 	}
