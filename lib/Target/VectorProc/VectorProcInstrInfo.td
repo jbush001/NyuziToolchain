@@ -23,22 +23,32 @@ class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern
 	let Pattern = pattern;
 }
 
+def splat : SDNode<"SPISD::SPLAT", SDTypeProfile<1, 1, [SDTCisEltOfVec<1, 0>]>>;
+
 multiclass VPInfixIntArith<string operator, SDNode OpNode> {
-	// Instruction format A, integer
+	// Format A
+	// Scalar = Scalar Op Scalar
 	def SS : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$b, ScalarReg:$c),
 		"s$dst = s$b " # operator # " s$c",
 		[(set i32:$dst, (OpNode i32:$b, i32:$c))]>;
 
-	// Vector/Vector
+	// Vector = Vector Op Vector
 	def VV : VPInstruction<
 		(outs VectorReg:$dst), 
 		(ins VectorReg:$b, VectorReg:$c),
 		"v$dst = v$b " # operator # " v$c",
 		[(set v16i32:$dst, (OpNode v16i32:$b, v16i32:$c))]>;
 
-	// Predicated Vector/Vector
+	// Vector = Vector Op Scalar
+	def VS : VPInstruction<
+		(outs VectorReg:$dst), 
+		(ins VectorReg:$b, ScalarReg:$c),
+		"v$dst = v$b " # operator # " s$c",
+		[(set v16i32:$dst, (OpNode v16i32:$b, (splat i32:$c)))]>;
+
+	// Vector = Vector op Vector, predicated
 	let Constraints = "$dst = $oldvalue" in {
 		def VVM : VPInstruction<
 			(outs VectorReg:$dst),
@@ -47,7 +57,8 @@ multiclass VPInfixIntArith<string operator, SDNode OpNode> {
 			[(set v16i32:$dst, (vselect v16i1:$mask, (OpNode v16i32:$src1, v16i32:$src2), v16i32:$oldvalue))]>;
 	}
 
-	// Instruction format B
+	// Format B
+	// Scalar = Scalar Op Immediate
 	def SI : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$b, i32imm:$c),

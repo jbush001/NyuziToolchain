@@ -465,6 +465,7 @@ const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case SPISD::CALL:       return "SPISD::CALL";
   case SPISD::RET_FLAG:   return "SPISD::RET_FLAG";
   case SPISD::LOAD_LITERAL: return "SPISD::LOAD_LITERAL";
+  case SPISD::SPLAT: return "SPISD::SPLAT";
   }
 }
 
@@ -486,11 +487,27 @@ LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const
 	return DAG.getNode(SPISD::LOAD_LITERAL, dl, MVT::i32, GA);
 }
 
+/// isSplatVector - Returns true if N is a BUILD_VECTOR node whose elements are
+/// all the same.
+static bool isSplatVector(SDNode *N) {
+  SDValue SplatValue = N->getOperand(0);
+  for (unsigned i = 1, e = N->getNumOperands(); i != e; ++i)
+    if (N->getOperand(i) != SplatValue)
+      return false;
+  return true;
+}
+
 SDValue
 VectorProcTargetLowering::
 LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const {
+	MVT VT = Op.getValueType().getSimpleVT();
+	DebugLoc dl = Op.getDebugLoc();
 
-	// XXX check for splat and turn into a scalar?
+	if (isSplatVector(Op.getNode()))
+	{
+		// Just transfer scalar value to vector
+		return DAG.getNode(SPISD::SPLAT, dl, VT, Op.getOperand(0));
+	}
 	
 	// XXX is all constants, then load from constant pool.
 	

@@ -27,6 +27,7 @@ namespace llvm {
       LOAD_LITERAL,
       CALL,        // A call instruction.
       RET_FLAG,    // Return with a flag operand.
+      SPLAT			// Copy scalar register into all lanes of a vector
     };
   }
 
