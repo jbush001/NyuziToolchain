@@ -20,14 +20,6 @@ let TargetPrefix = "vectorproc" in {  // All intrinsics start with "llvm.vectorp
 def int_vp_get_current_strand : Intrinsic<[llvm_i32_ty], [], [IntrNoMem],
 	"llvm.vectorproc.__builtin_vp_get_current_strand">;
 
-def int_vp_vector_muxi : Intrinsic<[llvm_v16i32_ty], [llvm_v16i32_ty, llvm_v16i32_ty,
-	llvm_i32_ty], 
-	[], "llvm.vectorproc.__builtin_vp_vector_muxi">;
-
-def int_vp_vector_muxf : Intrinsic<[llvm_v16f32_ty], [llvm_v16f32_ty, llvm_v16f32_ty,
-	llvm_i32_ty], 
-	[], "llvm.vectorproc.__builtin_vp_vector_muxf">;
-
 def int_vp_gather_loadi : Intrinsic<[llvm_v16i32_ty], [llvm_v16i32_ty], 
 	[], "llvm.vectorproc.__builtin_vp_gather_loadi">;
 

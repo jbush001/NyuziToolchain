@@ -2751,18 +2751,19 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
     for (unsigned i = 0; i < E->getNumArgs(); i++)
       Ops.push_back(EmitScalarExpr(E->getArg(i)));
 
+	if (BuiltinID == VectorProc::BI__builtin_vp_vector_muxi
+		|| BuiltinID == VectorProc::BI__builtin_vp_vector_muxf)
+	{
+		// XXX select is not the right instruction for this.  This probably should
+		// use vselect, but IRBuilder doesn't seem to have a method to create that.
+		return Builder.CreateSelect(Builder.CreateTrunc(Ops[2], Builder.getInt1Ty()), 
+			Ops[0], Ops[1]);
+	}
+
 	llvm::Function *F;
 	switch (BuiltinID) {
 		case VectorProc::BI__builtin_vp_get_current_strand:
 			F = CGM.getIntrinsic(Intrinsic::vp_get_current_strand);
-			break;
-
-		case VectorProc::BI__builtin_vp_vector_muxi:
-			F = CGM.getIntrinsic(Intrinsic::vp_vector_muxi);
-			break;
-
-		case VectorProc::BI__builtin_vp_vector_muxf:
-			F = CGM.getIntrinsic(Intrinsic::vp_vector_muxf);
 			break;
 
 		case VectorProc::BI__builtin_vp_gather_loadi:
