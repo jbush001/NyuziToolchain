@@ -13,6 +13,7 @@
 
 
 def simm13  : PatLeaf<(imm), [{ return isInt<13>(N->getSExtValue()); }]>;
+def simm8  : PatLeaf<(imm), [{ return isInt<8>(N->getSExtValue()); }]>;
 
 class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
 	: Instruction {
@@ -23,71 +24,130 @@ class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern
 	let Pattern = pattern;
 }
 
+// A splat is a vector with the same value in all lanes. VectorProcTargetLowering takes
+// care of detecting this condition and converting it to a SPLAT node.
+// Many instructions for this architecture can mix scalar and vector operands.  
+// This pattern allows us to detect that case and match it explicitly. 
 def splat : SDNode<"SPISD::SPLAT", SDTypeProfile<1, 1, [SDTCisEltOfVec<1, 0>]>>;
 
 multiclass VPInfixIntArith<string operator, SDNode OpNode> {
 	// Format A
 	// Scalar = Scalar Op Scalar
-	def SS : VPInstruction<
+	def SSS : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$b, ScalarReg:$c),
 		"s$dst = s$b " # operator # " s$c",
 		[(set i32:$dst, (OpNode i32:$b, i32:$c))]>;
 
 	// Vector = Vector Op Vector
-	def VV : VPInstruction<
+	def VVV : VPInstruction<
 		(outs VectorReg:$dst), 
 		(ins VectorReg:$b, VectorReg:$c),
 		"v$dst = v$b " # operator # " v$c",
 		[(set v16i32:$dst, (OpNode v16i32:$b, v16i32:$c))]>;
 
 	// Vector = Vector Op Scalar
-	def VS : VPInstruction<
+	def VVS : VPInstruction<
 		(outs VectorReg:$dst), 
 		(ins VectorReg:$b, ScalarReg:$c),
 		"v$dst = v$b " # operator # " s$c",
 		[(set v16i32:$dst, (OpNode v16i32:$b, (splat i32:$c)))]>;
 
-	// Vector = Vector op Vector, predicated
 	let Constraints = "$dst = $oldvalue" in {
-		def VVM : VPInstruction<
+		// Vector = Vector op Vector, masked
+		def VVVM : VPInstruction<
 			(outs VectorReg:$dst),
 			(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
 			"v$dst{{s$mask}} = v$src1 " # operator # " v$src2",
 			[(set v16i32:$dst, (vselect v16i1:$mask, (OpNode v16i32:$src1, v16i32:$src2), v16i32:$oldvalue))]>;
+
+		// Vector = Vector Op Scalar, masked
+		def VVSM : VPInstruction<
+			(outs VectorReg:$dst),
+			(ins ScalarReg:$mask, VectorReg:$src1, ScalarReg:$src2, VectorReg:$oldvalue),
+			"v$dst{{s$mask}} = v$src1 " # operator # " s$src2",
+			[(set v16i32:$dst, (vselect v16i1:$mask, (OpNode v16i32:$src1, (splat i32:$src2)), v16i32:$oldvalue))]>;
 	}
 
 	// Format B
 	// Scalar = Scalar Op Immediate
-	def SI : VPInstruction<
+	def SSI : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$b, i32imm:$c),
 		"s$dst = s$b " # operator # " $c",
 		[(set i32:$dst, (OpNode i32:$b, (i32 simm13:$c)))]>;
+
+	// Vector = Vector Op Immediate
+	def VVI : VPInstruction<
+		(outs VectorReg:$dst), 
+		(ins VectorReg:$b, i32imm:$c),
+		"v$dst = v$b " # operator # " $c",
+		[(set v16i32:$dst, (OpNode v16i32:$b, (splat simm13:$c)))]>;
+
+	// Vector = Scalar Op Immediate
+	def VSI : VPInstruction<
+		(outs VectorReg:$dst), 
+		(ins ScalarReg:$b, i32imm:$c),
+		"v$dst = s$b " # operator # " $c",
+		[(set v16i32:$dst, (OpNode (splat i32:$b), (splat simm13:$c)))]>;
+
+	let Constraints = "$dst = $oldvalue" in {
+		// Vector = Vector Op Immediate, masked
+		def VVIM : VPInstruction<
+			(outs VectorReg:$dst),
+			(ins ScalarReg:$mask, VectorReg:$src1, i32imm:$imm, VectorReg:$oldvalue),
+			"v$dst{{s$mask}} = v$src1 " # operator # " imm",
+			[(set v16i32:$dst, (vselect v16i1:$mask, (OpNode v16i32:$src1, (splat simm8:$imm)), v16i32:$oldvalue))]>;
+
+		// Vector = Scalar Op Immediate, masked
+		def VSIM : VPInstruction<
+			(outs VectorReg:$dst),
+			(ins ScalarReg:$mask, ScalarReg:$src1, i32imm:$imm, VectorReg:$oldvalue),
+			"v$dst{{s$mask}} = v$src1 " # operator # " imm",
+			[(set v16i32:$dst, (vselect v16i1:$mask, (OpNode (splat i32:$src1), (splat simm8:$imm)), v16i32:$oldvalue))]>;
+	}
 }
 
 multiclass VPInfixFloatArith<string operator, SDNode OpNode> 
 {
-	def SS : VPInstruction<
+	// Scalar = Scalar Op Scalar
+	def SSS : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$b, ScalarReg:$c),
 		"f$dst = f$b " # operator # " f$c",
 		[(set ScalarReg:$dst, (OpNode f32:$b, f32:$c))]>;
 
-	def VV : VPInstruction<
+	// Vector = Vector Op Vector
+	def VVV : VPInstruction<
 		(outs VectorReg:$dst), 
 		(ins VectorReg:$b, VectorReg:$c),
 		"vf$dst = vf$b " # operator # " vf$c",
 		[(set VectorReg:$dst, (OpNode v16f32:$b, v16f32:$c))]>;
 
+	// Vector = Vector Op Scalar
+	def VVS : VPInstruction<
+		(outs VectorReg:$dst), 
+		(ins VectorReg:$b, ScalarReg:$c),
+		"vf$dst = vf$b " # operator # " f$c",
+		[(set VectorReg:$dst, (OpNode v16f32:$b, (splat f32:$c)))]>;
+
 	// Predicated
 	let Constraints = "$dst = $oldvalue" in {
-		def VVM : VPInstruction<
+		// Vector = Vector Op Vector, masked
+		def VVVM : VPInstruction<
 			(outs VectorReg:$dst),
 			(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
 			"vf$dst{{s$mask}} = vf$src1 " # operator # " vf$src2",
-			[(set VectorReg:$dst, (vselect v16i1:$mask, (OpNode (v16f32 VectorReg:$src1), 
-				(v16f32 VectorReg:$src2)), VectorReg:$oldvalue))]>;
+			[(set VectorReg:$dst, (vselect v16i1:$mask, (OpNode v16f32:$src1, 
+				v16f32:$src2), v16f32:$oldvalue))]>;
+
+		// Vector = Vector Op Scalar, masked
+		def VVSM : VPInstruction<
+			(outs VectorReg:$dst),
+			(ins ScalarReg:$mask, VectorReg:$src1, ScalarReg:$src2, VectorReg:$oldvalue),
+			"vf$dst{{s$mask}} = vf$src1 " # operator # " vf$src2",
+			[(set v16f32:$dst, (vselect v16i1:$mask, (OpNode v16f32:$src1, 
+				(splat f32:$src2)), v16f32:$oldvalue))]>;
 	}
 }
 
@@ -434,6 +494,18 @@ def GET_CURRENT_STRAND : VPInstruction<
 	(ins),
 	"s$dest = cr0",
 	[(set i32:$dest, (int_vp_get_current_strand))]>;
+
+def CLONE_SCALARI : VPInstruction<
+	(outs VectorReg:$dest),
+	(ins ScalarReg:$src),
+	"v$dest = s$src",
+	[(set v16i32:$dest, (splat i32:$src))]>;
+
+def CLONE_SCALARF : VPInstruction<
+	(outs VectorReg:$dest),
+	(ins ScalarReg:$src),
+	"vf$dest = f$src",
+	[(set v16f32:$dest, (splat f32:$src))]>;
 
 // XXXX need pattern fragment for VMUX
 

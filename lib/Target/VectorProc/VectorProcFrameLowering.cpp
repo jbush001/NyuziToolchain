@@ -42,7 +42,7 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
 
   if (StackSize != 0)
   {
-    BuildMI(MBB, MBBI, dl, TII.get(SP::SUBISI), SP::S29).addReg(SP::S29)
+    BuildMI(MBB, MBBI, dl, TII.get(SP::SUBISSI), SP::S29).addReg(SP::S29)
       .addImm(StackSize);
   }
 }
@@ -63,7 +63,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
       *static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
     if (Size)
     {
-      BuildMI(MBB, I, DL, TII.get(SP::ADDISI), SP::S29).addReg(SP::S29)
+      BuildMI(MBB, I, DL, TII.get(SP::ADDISSI), SP::S29).addReg(SP::S29)
         .addImm(Size);
 	}
 //  }
@@ -88,7 +88,7 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
 
   if (StackSize != 0)
   {
-    BuildMI(MBB, MBBI, dl, TII.get(SP::ADDISI), SP::S29).addReg(SP::S29)
+    BuildMI(MBB, MBBI, dl, TII.get(SP::ADDISSI), SP::S29).addReg(SP::S29)
       .addImm(StackSize);
   }
 

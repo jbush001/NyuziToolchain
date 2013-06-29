@@ -445,10 +445,10 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::BR_CC, MVT::f32, Expand);
   setOperationAction(ISD::BRCOND, MVT::i32, Expand);
   setOperationAction(ISD::BRCOND, MVT::f32, Expand);
-
   setOperationAction(ISD::BUILD_VECTOR, MVT::v16f32, Custom);
   setOperationAction(ISD::BUILD_VECTOR, MVT::v16i32, Custom);
-
+  setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16i32, Custom);
+  setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16f32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::f32, Custom);
 
@@ -497,15 +497,20 @@ static bool isSplatVector(SDNode *N) {
   return true;
 }
 
+static bool isZero(SDValue V) {
+  ConstantSDNode *C = dyn_cast<ConstantSDNode>(V);
+  return C && C->isNullValue();
+}
+
 SDValue
-VectorProcTargetLowering::
-LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const {
+VectorProcTargetLowering::LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const {
 	MVT VT = Op.getValueType().getSimpleVT();
 	DebugLoc dl = Op.getDebugLoc();
 
 	if (isSplatVector(Op.getNode()))
 	{
-		// Just transfer scalar value to vector
+		// This is a constant node that is duplicated to all lanes.
+		// Convert it to a SPLAT node.
 		return DAG.getNode(SPISD::SPLAT, dl, VT, Op.getOperand(0));
 	}
 	
@@ -516,10 +521,34 @@ LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const {
 	return SDValue();
 }
 
+SDValue
+VectorProcTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const {
+	MVT VT = Op.getValueType().getSimpleVT();
+	DebugLoc dl = Op.getDebugLoc();
+
+	//
+	// The way to turn a scalar value into a splat in LLVM is 
+	// with the following pattern:
+	// %single = insertelement <16 x i32> undef, i32 %b, i32 0 
+	// %vector = shufflevector <16 x i32> %single, <16 x i32> undef, 
+    //                       <16 x i32> zeroinitializer
+	// Detect this pattern and convert it to a SPLAT node.
+	//
+	if (ISD::isBuildVectorAllZeros(Op.getOperand(1).getNode())
+		&& Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT
+		&& isZero(Op.getOperand(0).getOperand(2)))
+	{
+		return DAG.getNode(SPISD::SPLAT, dl, VT, Op.getOperand(0).getOperand(1));
+	}
+	
+	return SDValue();
+}
+
 SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const {
 	switch (Op.getOpcode())
 	{
+		case ISD::VECTOR_SHUFFLE: return LowerVECTOR_SHUFFLE(Op, DAG);
         case ISD::BUILD_VECTOR:  return LowerBUILD_VECTOR(Op, DAG);
 		case ISD::GlobalAddress: return LowerGlobalAddress(Op, DAG);	
 
