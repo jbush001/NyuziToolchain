@@ -447,6 +447,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::BRCOND, MVT::f32, Expand);
   setOperationAction(ISD::BUILD_VECTOR, MVT::v16f32, Custom);
   setOperationAction(ISD::BUILD_VECTOR, MVT::v16i32, Custom);
+  setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v16f32, Custom);
+  setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v16i32, Custom);
   setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16i32, Custom);
   setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16f32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
@@ -514,10 +516,6 @@ VectorProcTargetLowering::LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const
 		return DAG.getNode(SPISD::SPLAT, dl, VT, Op.getOperand(0));
 	}
 	
-	// XXX is all constants, then load from constant pool.
-	
-	// Otherwise, we need to do something clever to populate elements
-
 	return SDValue();
 }
 
@@ -540,8 +538,23 @@ VectorProcTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) con
 	{
 		return DAG.getNode(SPISD::SPLAT, dl, VT, Op.getOperand(0).getOperand(1));
 	}
-	
+
+	// Otherwise, just let normal instruction selection take care of this.
+	// (there is a rule for actual shuffles)
 	return SDValue();
+}
+
+// (VECTOR, VAL, IDX)
+// Convert to a vselect with a mask (1 << IDX) and a splatted scalar operand.
+SDValue
+VectorProcTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const {
+	MVT VT = Op.getValueType().getSimpleVT();
+	DebugLoc dl = Op.getDebugLoc();
+
+	SDValue mask = DAG.getNode(ISD::SHL, dl, MVT::i32, DAG.getConstant(1, MVT::i32),
+		Op.getOperand(1));
+	SDValue splat = DAG.getNode(SPISD::SPLAT, dl, VT, Op.getOperand(2));
+	return DAG.getNode(ISD::VSELECT, dl, VT, mask, splat, Op.getOperand(0));
 }
 
 SDValue VectorProcTargetLowering::
@@ -550,7 +563,8 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const {
 	{
 		case ISD::VECTOR_SHUFFLE: return LowerVECTOR_SHUFFLE(Op, DAG);
         case ISD::BUILD_VECTOR:  return LowerBUILD_VECTOR(Op, DAG);
-		case ISD::GlobalAddress: return LowerGlobalAddress(Op, DAG);	
+		case ISD::GlobalAddress: return LowerGlobalAddress(Op, DAG);
+		case ISD::INSERT_VECTOR_ELT: return LowerINSERT_VECTOR_ELT(Op, DAG);	
 
 		default:
 			llvm_unreachable("Should not custom lower this!");

@@ -507,6 +507,20 @@ def CLONE_SCALARF : VPInstruction<
 	"vf$dest = f$src",
 	[(set v16f32:$dest, (splat f32:$src))]>;
 
+let Constraints = "$dest = $oldvalue" in {
+	def INSERT_VECTORI : VPInstruction<
+		(outs VectorReg:$dest),
+		(ins ScalarReg:$mask, ScalarReg:$newLane, VectorReg:$oldvalue),
+		"v$dest{{s$mask}} = s$newLane",
+		[(set v16i32:$dest, (vselect i32:$mask, (splat i32:$newLane), v16i32:$oldvalue))]>;
+
+	def INSERT_VECTORF : VPInstruction<
+		(outs VectorReg:$dest),
+		(ins ScalarReg:$mask, ScalarReg:$newLane, VectorReg:$oldvalue),
+		"vf$dest{{s$mask}} = f$newLane",
+		[(set v16f32:$dest, (vselect i32:$mask, (splat f32:$newLane), v16f32:$oldvalue))]>;
+}	
+
 // XXXX need pattern fragment for VMUX
 
 def INT_GATHER_LOADI : VPInstruction<

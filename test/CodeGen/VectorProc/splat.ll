@@ -1,4 +1,3 @@
-; Vector predication 
 ; RUN: llc %s -o - | FileCheck %s
 
 target triple = "vectorproc"

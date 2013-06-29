@@ -68,6 +68,7 @@ namespace llvm {
 
 	SDValue LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const;
 	SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const;
+	SDValue LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
 
     virtual SDValue
       LowerCall(TargetLowering::CallLoweringInfo &CLI,
