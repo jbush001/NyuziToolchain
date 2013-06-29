@@ -333,12 +333,6 @@ def : Pat<(i32 (extloadi1 ADDRri:$src)), (LBUi ADDRri:$src)>;
 def : Pat<(i32 (extloadi8 ADDRri:$src)), (LBUi ADDRri:$src)>;
 def : Pat<(i32 (extloadi16 ADDRri:$src)), (LSSi ADDRri:$src)>;
 
-def GET_CURRENT_STRAND : VPInstruction<
-	(outs ScalarReg:$dest),
-	(ins),
-	"s$dest = cr0",
-	[(set i32:$dest, (int_vp_get_current_strand))]>;
-
 def GET_FIELD : VPInstruction<
 	(outs ScalarReg:$dest),
 	(ins VectorReg:$src, ScalarReg:$index),
@@ -423,3 +417,85 @@ def LEA : VPInstruction<
 	[(set i32:$dest, (LoadLiteral tglobaladdr:$label))]>;
 
 
+// Intrinsics
+def GET_CURRENT_STRAND : VPInstruction<
+	(outs ScalarReg:$dest),
+	(ins),
+	"s$dest = cr0",
+	[(set i32:$dest, (int_vp_get_current_strand))]>;
+
+// XXXX need pattern fragment for VMUX
+
+def INT_GATHER_LOADI : VPInstruction<
+	(outs VectorReg:$dest),
+	(ins VectorReg:$ptr),
+	"v$dest = mem_l[v$ptr]",
+	[(set v16i32:$dest, (int_vp_gather_loadi v16i32:$ptr))]>;
+
+def INT_GATHER_LOADF : VPInstruction<
+	(outs VectorReg:$dest),
+	(ins VectorReg:$ptr),
+	"vf$dest = mem_l[v$ptr]",
+	[(set v16f32:$dest, (int_vp_gather_loadf v16i32:$ptr))]>;
+
+def INT_GATHER_LOADI_MASKED : VPInstruction<
+	(outs VectorReg:$dest),
+	(ins VectorReg:$ptr, ScalarReg:$mask),
+	"v$dest{{s$mask}} = mem_l[v$ptr]",
+	[(set v16i32:$dest, (int_vp_gather_loadi_masked v16i32:$ptr, i32:$mask))]>;
+
+def INT_GATHER_LOADF_MASKED : VPInstruction<
+	(outs VectorReg:$dest),
+	(ins VectorReg:$ptr, ScalarReg:$mask),
+	"vf$dest{{s$mask}} = mem_l[v$ptr]",
+	[(set v16f32:$dest, (int_vp_gather_loadf_masked v16i32:$ptr, i32:$mask))]>;
+
+def INT_BLOCK_LOADI_MASKED : VPInstruction<
+	(outs VectorReg:$dest),
+	(ins ScalarReg:$ptr, ScalarReg:$mask),
+	"v$dest{{s$mask}} = mem_l[s$ptr]",
+	[(set v16i32:$dest, (int_vp_block_loadi_masked i32:$ptr, i32:$mask))]>;
+
+def INT_BLOCK_LOADF_MASKED : VPInstruction<
+	(outs VectorReg:$dest),
+	(ins ScalarReg:$ptr, ScalarReg:$mask),
+	"vf$dest{{s$mask}} = mem_l[s$ptr]",
+	[(set v16f32:$dest, (int_vp_block_loadf_masked i32:$ptr, i32:$mask))]>;
+
+let hasSideEffects = 1, mayStore = 1 in {
+	def INT_SCATTER_STOREI : VPInstruction<
+		(outs),
+		(ins VectorReg:$ptr, VectorReg:$value),
+		"mem_l[v$ptr] = v$value",
+		[(int_vp_scatter_storei v16i32:$ptr, v16i32:$value)]>;
+
+	def INT_SCATTER_STOREF : VPInstruction<
+		(outs),
+		(ins VectorReg:$ptr, VectorReg:$value),
+		"mem_l[v$ptr] = v$value",
+		[(int_vp_scatter_storef v16i32:$ptr, v16f32:$value)]>;
+
+	def INT_SCATTER_STOREI_MASKED : VPInstruction<
+		(outs),
+		(ins VectorReg:$ptr, VectorReg:$value, ScalarReg:$mask),
+		"mem_l[v$ptr]{{s$mask}} = v$value",
+		[(int_vp_scatter_storei_masked v16i32:$ptr, v16i32:$value, i32:$mask)]>;
+
+	def INT_SCATTER_STOREF_MASKED : VPInstruction<
+		(outs),
+		(ins VectorReg:$ptr, VectorReg:$value, ScalarReg:$mask),
+		"mem_l[v$ptr]{{s$mask}} = v$value",
+		[(int_vp_scatter_storef_masked v16i32:$ptr, v16f32:$value, i32:$mask)]>;
+
+	def INT_BLOCK_STOREI_MASKED : VPInstruction<
+		(outs),
+		(ins ScalarReg:$ptr, VectorReg:$value, ScalarReg:$mask),
+		"mem_l[s$ptr]{{s$mask}} = v$value",
+		[(int_vp_block_storei_masked i32:$ptr, v16i32:$value, i32:$mask)]>;
+
+	def INT_BLOCK_STOREF_MASKED : VPInstruction<
+		(outs),
+		(ins ScalarReg:$ptr, VectorReg:$value, ScalarReg:$mask),
+		"mem_l[s$ptr]{{s$mask}} = v$value",
+		[(int_vp_block_storef_masked i32:$ptr, v16f32:$value, i32:$mask)]>;
+}

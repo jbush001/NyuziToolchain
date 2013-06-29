@@ -2751,16 +2751,73 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
     for (unsigned i = 0; i < E->getNumArgs(); i++)
       Ops.push_back(EmitScalarExpr(E->getArg(i)));
 
+	llvm::Function *F;
 	switch (BuiltinID) {
 		case VectorProc::BI__builtin_vp_get_current_strand:
-		{
-			llvm::Function *F = CGM.getIntrinsic(Intrinsic::vp_get_current_strand);
-			return Builder.CreateCall(F, Ops, "");
-		}
+			F = CGM.getIntrinsic(Intrinsic::vp_get_current_strand);
+			break;
+
+		case VectorProc::BI__builtin_vp_vector_muxi:
+			F = CGM.getIntrinsic(Intrinsic::vp_vector_muxi);
+			break;
+
+		case VectorProc::BI__builtin_vp_vector_muxf:
+			F = CGM.getIntrinsic(Intrinsic::vp_vector_muxf);
+			break;
+
+		case VectorProc::BI__builtin_vp_gather_loadi:
+			F = CGM.getIntrinsic(Intrinsic::vp_gather_loadi);
+			break;
+
+		case VectorProc::BI__builtin_vp_gather_loadf:
+			F = CGM.getIntrinsic(Intrinsic::vp_gather_loadf);
+			break;
+
+		case VectorProc::BI__builtin_vp_gather_loadi_masked:
+			F = CGM.getIntrinsic(Intrinsic::vp_gather_loadi_masked);
+			break;
+
+		case VectorProc::BI__builtin_vp_gather_loadf_masked:
+			F = CGM.getIntrinsic(Intrinsic::vp_gather_loadf_masked);
+			break;
+
+		case VectorProc::BI__builtin_vp_scatter_storei:
+			F = CGM.getIntrinsic(Intrinsic::vp_scatter_storei);
+			break;
+
+		case VectorProc::BI__builtin_vp_scatter_storef:
+			F = CGM.getIntrinsic(Intrinsic::vp_scatter_storef);
+			break;
+
+		case VectorProc::BI__builtin_vp_scatter_storei_masked:
+			F = CGM.getIntrinsic(Intrinsic::vp_scatter_storei_masked);
+			break;
+
+		case VectorProc::BI__builtin_vp_scatter_storef_masked:
+			F = CGM.getIntrinsic(Intrinsic::vp_scatter_storef_masked);
+			break;
+
+		case VectorProc::BI__builtin_vp_block_loadi_masked:
+			F = CGM.getIntrinsic(Intrinsic::vp_block_loadi_masked);
+			break;
+
+		case VectorProc::BI__builtin_vp_block_loadf_masked:
+			F = CGM.getIntrinsic(Intrinsic::vp_block_loadf_masked);
+			break;
+
+		case VectorProc::BI__builtin_vp_block_storei_masked:
+			F = CGM.getIntrinsic(Intrinsic::vp_block_storei_masked);
+			break;
+		
+		case VectorProc::BI__builtin_vp_block_storef_masked:
+			F = CGM.getIntrinsic(Intrinsic::vp_block_storef_masked);
+			break;
 		
 		default:
 			return 0;
 	}
+
+	return Builder.CreateCall(F, Ops, "");
 }
 
 Value *CodeGenFunction::EmitPPCBuiltinExpr(unsigned BuiltinID,

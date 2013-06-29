@@ -13,9 +13,55 @@
 
 //===----------------------------------------------------------------------===//
 
+def v16i32_ptr_ty : LLVMPointerType<LLVMType<v16i32>>;
+
 let TargetPrefix = "vectorproc" in {  // All intrinsics start with "llvm.vectorproc.".
 
 def int_vp_get_current_strand : Intrinsic<[llvm_i32_ty], [], [IntrNoMem],
 	"llvm.vectorproc.__builtin_vp_get_current_strand">;
+
+def int_vp_vector_muxi : Intrinsic<[llvm_v16i32_ty], [llvm_v16i32_ty, llvm_v16i32_ty,
+	llvm_i32_ty], 
+	[], "llvm.vectorproc.__builtin_vp_vector_muxi">;
+
+def int_vp_vector_muxf : Intrinsic<[llvm_v16f32_ty], [llvm_v16f32_ty, llvm_v16f32_ty,
+	llvm_i32_ty], 
+	[], "llvm.vectorproc.__builtin_vp_vector_muxf">;
+
+def int_vp_gather_loadi : Intrinsic<[llvm_v16i32_ty], [llvm_v16i32_ty], 
+	[], "llvm.vectorproc.__builtin_vp_gather_loadi">;
+
+def int_vp_gather_loadf : Intrinsic<[llvm_v16f32_ty], [llvm_v16i32_ty], 
+	[], "llvm.vectorproc.__builtin_vp_gather_loadf">;
+
+def int_vp_gather_loadi_masked : Intrinsic<[llvm_v16i32_ty], [llvm_v16i32_ty, llvm_i32_ty], 
+	[], "llvm.vectorproc.__builtin_vp_gather_loadi_masked">;
+
+def int_vp_gather_loadf_masked : Intrinsic<[llvm_v16f32_ty], [llvm_v16i32_ty, llvm_i32_ty], 
+	[], "llvm.vectorproc.__builtin_vp_gather_loadf_masked">;
+
+def int_vp_scatter_storei : Intrinsic<[], [llvm_v16i32_ty, llvm_v16i32_ty], 
+	[], "llvm.vectorproc.__builtin_vp_scatter_storei">;
+
+def int_vp_scatter_storef : Intrinsic<[], [llvm_v16i32_ty, llvm_v16f32_ty], 
+	[], "llvm.vectorproc.__builtin_vp_scatter_storef">;
+
+def int_vp_scatter_storei_masked : Intrinsic<[], [llvm_v16i32_ty, llvm_v16i32_ty, llvm_i32_ty], 
+	[], "llvm.vectorproc.__builtin_vp_scatter_storei_masked">;
+
+def int_vp_scatter_storef_masked : Intrinsic<[], [llvm_v16i32_ty, llvm_v16f32_ty, llvm_i32_ty], 
+	[], "llvm.vectorproc.__builtin_vp_scatter_storef_masked">;
+
+def int_vp_block_loadi_masked : Intrinsic<[llvm_v16i32_ty], [v16i32_ptr_ty, llvm_i32_ty], 
+	[], "llvm.vectorproc.__builtin_vp_block_loadi_masked">;
+
+def int_vp_block_loadf_masked : Intrinsic<[llvm_v16f32_ty], [v16i32_ptr_ty, llvm_i32_ty], 
+	[], "llvm.vectorproc.__builtin_vp_block_loadf_masked">;
+
+def int_vp_block_storei_masked : Intrinsic<[], [v16i32_ptr_ty, llvm_v16i32_ty, llvm_i32_ty], 
+	[], "llvm.vectorproc.__builtin_vp_block_storei_masked">;
+
+def int_vp_block_storef_masked : Intrinsic<[], [v16i32_ptr_ty, llvm_v16f32_ty, llvm_i32_ty], 
+	[], "llvm.vectorproc.__builtin_vp_block_storef_masked">;
 }
 

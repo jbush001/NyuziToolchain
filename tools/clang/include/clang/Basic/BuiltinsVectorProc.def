@@ -15,5 +15,19 @@
 // The format of this database matches clang/Basic/Builtins.def.
 
 BUILTIN(__builtin_vp_get_current_strand, "i", "nc")
+BUILTIN(__builtin_vp_vector_muxi, "V16iV16iV16ii", "nc")
+BUILTIN(__builtin_vp_gather_loadi, "V16iV16i", "nc")
+BUILTIN(__builtin_vp_gather_loadi_masked, "V16iV16ii", "nc")
+BUILTIN(__builtin_vp_scatter_storei, "vV16iV16i", "nc")
+BUILTIN(__builtin_vp_scatter_storei_masked, "vV16iV16ii", "nc")
+BUILTIN(__builtin_vp_block_loadi_masked, "V16iV16i*i", "nc")
+BUILTIN(__builtin_vp_block_storei_masked, "vV16i*V16ii", "nc")
+BUILTIN(__builtin_vp_vector_muxf, "V16fV16fV16fi", "nc")
+BUILTIN(__builtin_vp_gather_loadf, "V16fV16i", "nc")
+BUILTIN(__builtin_vp_gather_loadf_masked, "V16fV16ii", "nc")
+BUILTIN(__builtin_vp_scatter_storef, "vV16iV16f", "nc")
+BUILTIN(__builtin_vp_scatter_storef_masked, "vV16iV16fi", "nc")
+BUILTIN(__builtin_vp_block_loadf_masked, "V16fV16i*i", "nc")
+BUILTIN(__builtin_vp_block_storef_masked, "vV16i*V16fi", "nc")
 
 #undef BUILTIN
