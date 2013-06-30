@@ -23,6 +23,8 @@ declare void @llvm.vectorproc.__builtin_vp_block_storei_masked(<16 x i32>* %ptr,
 	<16 x i32> %value, i32 %mask)
 declare void @llvm.vectorproc.__builtin_vp_block_storef_masked(<16 x i32>* %ptr, 
 	<16 x float> %value, i32 %mask)
+declare i32 @llvm.ctlz.i32(i32 %val)
+declare i32 @llvm.cttz.i32(i32 %val)
 
 define i32 @get_current_strand() {	; CHECK: get_current_strand:
   %1 = call i32 @llvm.vectorproc.__builtin_vp_get_current_strand()
@@ -119,5 +121,21 @@ define void @test_block_storef_masked(<16 x i32>* %ptr, <16 x float> %value, i32
   ; CHECK: mem_l[s0]{s1} = v0
 
   ret void
+}
+
+; Count leading zeros
+define i32 @test_builtin_ctlz(i32 %val) {	; CHECK: test_builtin_ctlz:
+	%ret = call i32 @llvm.ctlz.i32(i32 %val)
+	; CHECK: s0 = clz(s0)
+	
+	ret i32 %ret
+}
+
+; Count trailing zeros
+define i32 @test_builtin_cttz(i32 %val) {	; CHECK: test_builtin_cttz:
+	%ret = call i32 @llvm.cttz.i32(i32 %val)
+	; CHECK: s0 = ctz(s0)
+	
+	ret i32 %ret
 }
 
