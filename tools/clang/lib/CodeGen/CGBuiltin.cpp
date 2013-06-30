@@ -2770,6 +2770,65 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 		return BuildVector(Lanes);	
 	}
 
+	// Check to see if this is a vector comparison.
+	Value *cmpOp = NULL;
+	switch (BuiltinID) {
+		case VectorProc::BI__builtin_vp_mask_cmpi_ugt: 
+			cmpOp = Builder.CreateICmpUGT(Ops[0], Ops[1]);
+			break;
+		case VectorProc::BI__builtin_vp_mask_cmpi_uge: 
+			cmpOp = Builder.CreateICmpUGE(Ops[0], Ops[1]);
+			break;
+		case VectorProc::BI__builtin_vp_mask_cmpi_ult: 
+			cmpOp = Builder.CreateICmpULT(Ops[0], Ops[1]);
+			break;
+		case VectorProc::BI__builtin_vp_mask_cmpi_ule: 
+			cmpOp = Builder.CreateICmpULE(Ops[0], Ops[1]);
+			break;
+		case VectorProc::BI__builtin_vp_mask_cmpi_sgt: 
+			cmpOp = Builder.CreateICmpSGT(Ops[0], Ops[1]);
+			break;
+		case VectorProc::BI__builtin_vp_mask_cmpi_sge: 
+			cmpOp = Builder.CreateICmpSGE(Ops[0], Ops[1]);
+			break;
+		case VectorProc::BI__builtin_vp_mask_cmpi_slt: 
+			cmpOp = Builder.CreateICmpSLT(Ops[0], Ops[1]);
+			break;
+		case VectorProc::BI__builtin_vp_mask_cmpi_sle: 
+			cmpOp = Builder.CreateICmpSLE(Ops[0], Ops[1]);
+			break;
+		case VectorProc::BI__builtin_vp_mask_cmpi_eq:
+			cmpOp = Builder.CreateICmpEQ(Ops[0], Ops[1]);
+			break;
+		case VectorProc::BI__builtin_vp_mask_cmpi_ne:
+			cmpOp = Builder.CreateICmpNE(Ops[0], Ops[1]);
+			break;
+		case VectorProc::BI__builtin_vp_mask_cmpf_gt:
+			cmpOp = Builder.CreateFCmpUGT(Ops[0], Ops[1]);
+			break;
+		case VectorProc::BI__builtin_vp_mask_cmpf_ge:
+			cmpOp = Builder.CreateFCmpUGE(Ops[0], Ops[1]);
+			break;
+		case VectorProc::BI__builtin_vp_mask_cmpf_lt:
+			cmpOp = Builder.CreateFCmpULT(Ops[0], Ops[1]);
+			break;
+		case VectorProc::BI__builtin_vp_mask_cmpf_le:
+			cmpOp = Builder.CreateFCmpULE(Ops[0], Ops[1]);
+			break;
+		case VectorProc::BI__builtin_vp_mask_cmpf_eq:
+			cmpOp = Builder.CreateFCmpUEQ(Ops[0], Ops[1]);
+			break;
+		case VectorProc::BI__builtin_vp_mask_cmpf_ne:
+			cmpOp = Builder.CreateFCmpUNE(Ops[0], Ops[1]);
+			break;
+	}
+	
+	if (cmpOp)
+		return Builder.CreateZExt(Builder.CreateBitCast(cmpOp, Int16Ty), Int32Ty);
+
+	// This is an LLVM intrinsic.  Look up the function name and create
+	// a call (which will be transformed automatically in the appropriate
+	// instruction in the backend).
 	llvm::Function *F;
 	switch (BuiltinID) {
 		case VectorProc::BI__builtin_vp_get_current_strand:

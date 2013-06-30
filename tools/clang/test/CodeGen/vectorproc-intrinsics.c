@@ -107,5 +107,22 @@ int test_ctz(int value)	// CHECK: test_ctz
 	// CHECK: = ctz(s0)
 }
 
+int test_masked_cmpi_uge(veci16 a, veci16 b)	// CHECK: test_masked_cmpi_uge:
+{
+	return __builtin_vp_mask_cmpi_uge(a, b);
+	// CHECK: = vu0 >= vu1
+}
+
+int test_masked_cmpi_sge(veci16 a, veci16 b)	// CHECK: test_masked_cmpi_sge:
+{
+	return __builtin_vp_mask_cmpi_sge(a, b);
+	// CHECK: = v0 >= v1
+}
+
+int test_masked_cmpf_ge(vecf16 a, vecf16 b)	// CHECK: test_masked_cmpf_ge:
+{
+	return __builtin_vp_mask_cmpf_ge(a, b);
+	// CHECK: = vf0 >= vf1
+}
 
 
