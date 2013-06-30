@@ -56,10 +56,32 @@ vecf16 vector_scalarf(vecf16 a, float b)	// CHECK: vector_scalarf:
 }
 
 
-veci16 vector_scalar_const(veci16 a)	// CHECK: vector_scalar_const
+veci16 vector_scalar_const(veci16 a)	// CHECK: vector_scalar_const:
 {
 	return a + __builtin_vp_makevectori(12);
 	// CHECK: v0 = v0 + 12
+}
+
+veci16 vector_setfieldi(veci16 a, int lane)	// CHECK: vector_setfieldi:
+{
+	a[lane]++;
+	
+	// CHECK: [[ONE:s[0-9]+]] = 1
+	// CHECK: [[MASK:s[0-9]+]] = [[ONE]] << s0
+	// CHECK: v{{[0-9]+}}{[[MASK]]} = 
+
+	return a;
+}
+
+vecf16 vector_setfieldf(vecf16 a, int lane)	// CHECK: vector_setfieldf:
+{
+	a[lane]++;
+
+	// CHECK: [[ONE:s[0-9]+]] = 1
+	// CHECK: [[MASK:s[0-9]+]] = [[ONE]] << s0
+	// CHECK: vf{{[0-9]+}}{[[MASK]]} = 
+
+	return a;
 }
 
 

@@ -9,8 +9,8 @@ define <16 x i32> @insert(<16 x i32> %orig, i32 %value, i32 %lane) {
     ; do a predicated store of the value into it.
     
     ; CHECK: [[ONE:s[0-9]+]] = 1
-    ; CHECK: [[MASK:s[0-9]+]] = [[ONE]] << s0
-    ; CHECK: v{{[0-9]+}}{[[MASK]]} = s1
+    ; CHECK: [[MASK:s[0-9]+]] = [[ONE]] << s1
+    ; CHECK: v{{[0-9]+}}{[[MASK]]} = s0
 
 	ret <16 x i32> %result
 }

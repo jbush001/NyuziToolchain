@@ -559,8 +559,8 @@ VectorProcTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) 
 	DebugLoc dl = Op.getDebugLoc();
 
 	SDValue mask = DAG.getNode(ISD::SHL, dl, MVT::i32, DAG.getConstant(1, MVT::i32),
-		Op.getOperand(1));
-	SDValue splat = DAG.getNode(SPISD::SPLAT, dl, VT, Op.getOperand(2));
+		Op.getOperand(2));
+	SDValue splat = DAG.getNode(SPISD::SPLAT, dl, VT, Op.getOperand(1));
 	return DAG.getNode(ISD::VSELECT, dl, VT, mask, splat, Op.getOperand(0));
 }
 
