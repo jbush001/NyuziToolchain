@@ -15,6 +15,7 @@
 def simm13  : PatLeaf<(imm), [{ return isInt<13>(N->getSExtValue()); }]>;
 def simm8  : PatLeaf<(imm), [{ return isInt<8>(N->getSExtValue()); }]>;
 
+
 class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
 	: Instruction {
 	let Namespace = "SP";
@@ -32,6 +33,8 @@ class Pseudo<dag outputs, dag inputs, string asmString, list<dag> pattern>
 // Many instructions for this architecture can mix scalar and vector operands.  
 // This pattern allows us to detect that case and match it explicitly. 
 def splat : SDNode<"SPISD::SPLAT", SDTypeProfile<1, 1, [SDTCisEltOfVec<1, 0>]>>;
+
+def wrapper : SDNode<"SPISD::WRAPPER", SDTIntUnaryOp>;
 
 multiclass VPInfixIntArith<string operator, SDNode OpNode> {
 	// Format A
@@ -490,6 +493,11 @@ def LEA : VPInstruction<
 	"s$dest = &$label",
 	[(set i32:$dest, (LoadLiteral tglobaladdr:$label))]>;
 
+def LOAD_CPOOL_ADDR : VPInstruction<
+	(outs ScalarReg:$dest),
+	(ins Operand<iPTR>:$label),
+	"s$dest = &$label",
+	[(set i32:$dest, (wrapper tconstpool:$label))]>;
 
 // Intrinsics
 def GET_CURRENT_STRAND : VPInstruction<

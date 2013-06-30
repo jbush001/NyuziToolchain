@@ -456,6 +456,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::v16i32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::v16f32, Custom);
+  setOperationAction(ISD::ConstantPool, MVT::i32, Custom);
+  setOperationAction(ISD::ConstantPool, MVT::f32, Custom);
 
   setStackPointerRegisterToSaveRestore(SP::S29);
 
@@ -472,6 +474,7 @@ const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case SPISD::LOAD_LITERAL: return "SPISD::LOAD_LITERAL";
   case SPISD::SPLAT: return "SPISD::SPLAT";
   case SPISD::SEL_COND_RESULT: return "SPISD::SEL_COND_RESULT";
+  case SPISD::WRAPPER: return "SPISD::WRAPPER";
   }
 }
 
@@ -573,6 +576,21 @@ VectorProcTargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const {
   	Op.getOperand(2), Op.getOperand(3));
 }
 
+SDValue 
+VectorProcTargetLowering::LowerConstantPool(SDValue Op, SelectionDAG &DAG) const {
+  DebugLoc dl = Op.getDebugLoc();
+  EVT PtrVT = Op.getValueType();
+  ConstantPoolSDNode *CP = cast<ConstantPoolSDNode>(Op);
+  SDValue Res;
+  if (CP->isMachineConstantPoolEntry())
+    Res = DAG.getTargetConstantPool(CP->getMachineCPVal(), PtrVT,
+                                    CP->getAlignment());
+  else
+    Res = DAG.getTargetConstantPool(CP->getConstVal(), PtrVT,
+                                    CP->getAlignment());
+  return DAG.getNode(SPISD::WRAPPER, dl, MVT::i32, Res);
+}
+
 SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const {
 	switch (Op.getOpcode())
@@ -582,6 +600,7 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const {
 		case ISD::GlobalAddress: return LowerGlobalAddress(Op, DAG);
 		case ISD::INSERT_VECTOR_ELT: return LowerINSERT_VECTOR_ELT(Op, DAG);	
 		case ISD::SELECT_CC: return LowerSELECT_CC(Op, DAG);
+		case ISD::ConstantPool: return LowerConstantPool(Op, DAG);
 		default:
 			llvm_unreachable("Should not custom lower this!");
 	}

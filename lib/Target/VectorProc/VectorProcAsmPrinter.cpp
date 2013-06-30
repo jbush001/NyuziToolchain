@@ -219,7 +219,7 @@ getDebugValueLocation(const MachineInstr *MI) const {
 void VectorProcAsmPrinter::
 EmitFunctionBodyEnd()
 {
-	OutStreamer.EmitRawText(StringRef("\t.emitliteralpool"));
+	OutStreamer.EmitDataRegion(MCDR_DataRegionEnd);
 }
 
 // Force static initialization.
