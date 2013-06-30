@@ -132,7 +132,7 @@ storeRegToStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
   else
     llvm_unreachable("unknown register class in storeRegToStack");
 
-  BuildMI(MBB, I, DL, get(Opc)).addReg(SP::S29).addImm(FI * Size + Offset)
+  BuildMI(MBB, I, DL, get(Opc)).addReg(SP::SP_REG).addImm(FI * Size + Offset)
   	.addReg(SrcReg, getKillRegState(isKill));
 }
 
@@ -158,7 +158,7 @@ loadRegFromStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
   else
     llvm_unreachable("unknown register class in storeRegToStack");
 
-  BuildMI(MBB, I, DL, get(Opc), DestReg).addReg(SP::S29).addImm(FI * Size + Offset);
+  BuildMI(MBB, I, DL, get(Opc), DestReg).addReg(SP::SP_REG).addImm(FI * Size + Offset);
 }
 
 unsigned VectorProcInstrInfo::getGlobalBaseReg(MachineFunction *MF) const

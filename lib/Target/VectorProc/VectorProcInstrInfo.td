@@ -440,7 +440,7 @@ def retflag : SDNode<"SPISD::RET_FLAG",
 	SDT_SPRet,
     [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
-let isReturn = 1, isTerminator = 1, Uses = [S30] in {
+let isReturn = 1, isTerminator = 1, Uses = [LINK_REG] in {
 	def RET : VPInstruction<
 		(outs),
 		(ins i32imm:$val),
@@ -457,7 +457,7 @@ def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_SPCallSeqStart,
 def callseq_end   : SDNode<"ISD::CALLSEQ_END",   SDT_SPCallSeqEnd,
                            [SDNPHasChain, SDNPSideEffect, SDNPOptInGlue, SDNPOutGlue]>;
 
-let Defs = [S29], Uses = [S29], hasSideEffects = 1 in {
+let Defs = [SP_REG], Uses = [SP_REG], hasSideEffects = 1 in {
 	def ADJCALLSTACKDOWN : VPInstruction<(outs), (ins i32imm:$amt),
 								   "; ADJCALLSTACKDOWN $amt",
 								   [(callseq_start timm:$amt)]>;
@@ -472,7 +472,7 @@ def call       : SDNode<"SPISD::CALL", SDT_SPCall,
                            [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
                             SDNPVariadic]>;
 
-let isCall = 1, Defs = [S0, S1, S2, S3, S4, S30 ] in {
+let isCall = 1, Defs = [S0, S1, S2, S3, S4, LINK_REG ] in {
   def CALL : VPInstruction<
   	(outs), 
   	(ins calltarget:$dst, variable_ops),

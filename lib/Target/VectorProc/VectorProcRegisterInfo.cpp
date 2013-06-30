@@ -45,6 +45,9 @@ const uint32_t* VectorProcRegisterInfo::getCallPreservedMask(CallingConv::ID) co
 
 BitVector VectorProcRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
+  Reserved.set(SP::SP_REG);
+  Reserved.set(SP::LINK_REG);
+  Reserved.set(SP::PC_REG);
   return Reserved;
 }
 
@@ -74,7 +77,7 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   if (Offset >= -4096 && Offset <= 4095) {
     // If the offset is small enough to fit in the immediate field, directly
     // encode it.
-    MI.getOperand(FIOperandNum).ChangeToRegister(SP::S29, false);
+    MI.getOperand(FIOperandNum).ChangeToRegister(SP::SP_REG, false);
     MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
   } else {
 		// XXX for large indices, need to load indirectly. Look at ARM.

@@ -306,7 +306,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     if (Flags.isSRet()) {
       // Structure return
       assert(VA.needsCustom());
-      SDValue StackPtr = DAG.getRegister(SP::S29, MVT::i32);
+      SDValue StackPtr = DAG.getRegister(SP::SP_REG, MVT::i32);
       SDValue PtrOff = DAG.getIntPtrConstant(64);
       PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
       MemOpChains.push_back(DAG.getStore(Chain, dl, Arg, PtrOff,
@@ -326,7 +326,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     assert(VA.isMemLoc());
 
     // Create a store off the stack pointer for this argument.
-    SDValue StackPtr = DAG.getRegister(SP::S29, MVT::i32);
+    SDValue StackPtr = DAG.getRegister(SP::SP_REG, MVT::i32);
     SDValue PtrOff = DAG.getIntPtrConstant(VA.getLocMemOffset());
     PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
     MemOpChains.push_back(DAG.getStore(Chain, dl, Arg, PtrOff,
@@ -459,7 +459,7 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::ConstantPool, MVT::i32, Custom);
   setOperationAction(ISD::ConstantPool, MVT::f32, Custom);
 
-  setStackPointerRegisterToSaveRestore(SP::S29);
+  setStackPointerRegisterToSaveRestore(SP::SP_REG);
 
   setMinFunctionAlignment(2);
 
