@@ -29,5 +29,7 @@ BUILTIN(__builtin_vp_scatter_storef, "vV16iV16f", "nc")
 BUILTIN(__builtin_vp_scatter_storef_masked, "vV16iV16fi", "nc")
 BUILTIN(__builtin_vp_block_loadf_masked, "V16fV16i*i", "nc")
 BUILTIN(__builtin_vp_block_storef_masked, "vV16i*V16fi", "nc")
+BUILTIN(__builtin_vp_makevectori, "V16ii", "nc")
+BUILTIN(__builtin_vp_makevectorf, "V16ff", "nc")
 
 #undef BUILTIN

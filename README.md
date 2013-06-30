@@ -30,6 +30,7 @@ To run (from within build directory)
 
 <pre>
   llvm-lit test/CodeGen/VectorProc
+  llvm-lit tools/clang/test/CodeGen/vectorproc*
 </pre>
 
 4. To view DAGs:

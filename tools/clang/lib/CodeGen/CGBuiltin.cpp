@@ -2760,6 +2760,16 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 			Ops[0], Ops[1]);
 	}
 
+	if (BuiltinID == VectorProc::BI__builtin_vp_makevectori
+		|| BuiltinID == VectorProc::BI__builtin_vp_makevectorf)
+	{
+		SmallVector<Value*, 16> Lanes;
+		for (int i = 0; i < 16; i++)
+			Lanes.push_back(Ops[0]);
+			
+		return BuildVector(Lanes);	
+	}
+
 	llvm::Function *F;
 	switch (BuiltinID) {
 		case VectorProc::BI__builtin_vp_get_current_strand:
