@@ -440,7 +440,6 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   addRegisterClass(MVT::v16i32, &SP::VectorRegRegClass);
   addRegisterClass(MVT::v16f32, &SP::VectorRegRegClass);
 
-  // Progressively expand conditionals into SELECT_CCs
   setOperationAction(ISD::BR_CC, MVT::i32, Expand);
   setOperationAction(ISD::BR_CC, MVT::f32, Expand);
   setOperationAction(ISD::BRCOND, MVT::i32, Expand);
@@ -455,6 +454,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::GlobalAddress, MVT::f32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
+  setOperationAction(ISD::SELECT_CC, MVT::v16i32, Custom);
+  setOperationAction(ISD::SELECT_CC, MVT::v16f32, Custom);
 
   setStackPointerRegisterToSaveRestore(SP::S29);
 

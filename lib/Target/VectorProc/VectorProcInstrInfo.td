@@ -612,5 +612,21 @@ let usesCustomInserter = 1 in {
 		"; SELECTI Pseudo",
 		[(set i32:$dst, (selcondresult i32:$pred, i32:$true, i32:$false))]>;
 
-	// XXX selectf
+	def SELECTF : Pseudo<
+		(outs ScalarReg:$dst),
+		(ins ScalarReg:$pred, ScalarReg:$true, ScalarReg:$false),
+		"; SELECTF Pseudo",
+		[(set f32:$dst, (selcondresult i32:$pred, f32:$true, f32:$false))]>;
+
+	def SELECTVI : Pseudo<
+		(outs VectorReg:$dst),
+		(ins ScalarReg:$pred, VectorReg:$true, VectorReg:$false),
+		"; SELECTVI Pseudo",
+		[(set v16i32:$dst, (selcondresult i32:$pred, v16i32:$true, v16i32:$false))]>;
+
+	def SELECTVF : Pseudo<
+		(outs VectorReg:$dst),
+		(ins ScalarReg:$pred, VectorReg:$true, VectorReg:$false),
+		"; SELECTVF Pseudo",
+		[(set v16f32:$dst, (selcondresult i32:$pred, v16f32:$true, v16f32:$false))]>;
 }
