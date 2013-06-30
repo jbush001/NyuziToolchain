@@ -410,11 +410,17 @@ def : Pat<(i32 (extloadi1 ADDRri:$src)), (LBUi ADDRri:$src)>;
 def : Pat<(i32 (extloadi8 ADDRri:$src)), (LBUi ADDRri:$src)>;
 def : Pat<(i32 (extloadi16 ADDRri:$src)), (LSSi ADDRri:$src)>;
 
-def GET_FIELD : VPInstruction<
+def GET_FIELDI : VPInstruction<
 	(outs ScalarReg:$dest),
 	(ins VectorReg:$src, ScalarReg:$index),
 	"s$dest = getfield(v$src, s$index)",
 	[(set i32:$dest, (extractelt v16i32:$src, i32:$index))]>;
+
+def GET_FIELDF : VPInstruction<
+	(outs ScalarReg:$dest),
+	(ins VectorReg:$src, ScalarReg:$index),
+	"f$dest = getfield(vf$src, s$index)",
+	[(set f32:$dest, (extractelt v16f32:$src, i32:$index))]>;
 
 def SHUFFLE : VPInstruction<
 	(outs VectorReg:$dest),
