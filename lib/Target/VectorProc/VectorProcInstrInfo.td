@@ -24,6 +24,9 @@ class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern
 	let Pattern = pattern;
 }
 
+class Pseudo<dag outputs, dag inputs, string asmString, list<dag> pattern>
+   : VPInstruction<outputs, inputs, asmString, pattern>;
+
 // A splat is a vector with the same value in all lanes. VectorProcTargetLowering takes
 // care of detecting this condition and converting it to a SPLAT node.
 // Many instructions for this architecture can mix scalar and vector operands.  
@@ -595,4 +598,19 @@ let hasSideEffects = 1, mayStore = 1 in {
 		(ins ScalarReg:$ptr, VectorReg:$value, ScalarReg:$mask),
 		"mem_l[s$ptr]{{s$mask}} = v$value",
 		[(int_vp_block_storef_masked i32:$ptr, v16f32:$value, i32:$mask)]>;
+}
+
+// selcondresult is (dest, predicate, trueval, falseval)
+def selcondresult : SDNode<"SPISD::SEL_COND_RESULT", SDTypeProfile<1, 3, [  
+	SDTCisSameAs<0, 2>, SDTCisSameAs<0, 3>]>>;
+
+// SELECT pseudo instructions
+let usesCustomInserter = 1 in {
+	def SELECTI : Pseudo<
+		(outs ScalarReg:$dst),
+		(ins ScalarReg:$pred, ScalarReg:$true, ScalarReg:$false),
+		"; SELECTI Pseudo",
+		[(set i32:$dst, (selcondresult i32:$pred, i32:$true, i32:$false))]>;
+
+	// XXX selectf
 }

@@ -453,6 +453,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16f32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::f32, Custom);
+  setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
+  setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
 
   setStackPointerRegisterToSaveRestore(SP::S29);
 
@@ -468,6 +470,7 @@ const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case SPISD::RET_FLAG:   return "SPISD::RET_FLAG";
   case SPISD::LOAD_LITERAL: return "SPISD::LOAD_LITERAL";
   case SPISD::SPLAT: return "SPISD::SPLAT";
+  case SPISD::SEL_COND_RESULT: return "SPISD::SEL_COND_RESULT";
   }
 }
 
@@ -557,6 +560,18 @@ VectorProcTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) 
 	return DAG.getNode(ISD::VSELECT, dl, VT, mask, splat, Op.getOperand(0));
 }
 
+SDValue
+VectorProcTargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const {
+  DebugLoc DL = Op.getDebugLoc();
+  EVT Ty = Op.getOperand(0).getValueType();
+  SDValue Pred = DAG.getNode(ISD::SETCC, DL, getSetCCResultType(Ty),
+                             Op.getOperand(0), Op.getOperand(1),
+                             Op.getOperand(4));
+
+  return DAG.getNode(SPISD::SEL_COND_RESULT, DL, Op.getValueType(), Pred, 
+  	Op.getOperand(2), Op.getOperand(3));
+}
+
 SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const {
 	switch (Op.getOpcode())
@@ -565,7 +580,7 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const {
         case ISD::BUILD_VECTOR:  return LowerBUILD_VECTOR(Op, DAG);
 		case ISD::GlobalAddress: return LowerGlobalAddress(Op, DAG);
 		case ISD::INSERT_VECTOR_ELT: return LowerINSERT_VECTOR_ELT(Op, DAG);	
-
+		case ISD::SELECT_CC: return LowerSELECT_CC(Op, DAG);
 		default:
 			llvm_unreachable("Should not custom lower this!");
 	}
@@ -582,8 +597,67 @@ MachineBasicBlock *
 VectorProcTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
                                                  MachineBasicBlock *BB) const {
 
+  const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
+  DebugLoc DL = MI->getDebugLoc();
+
+  // The instruction we are replacing is SELECTI (dest, predicate, trueval, falseval)
+
+  // To "insert" a SELECT_CC instruction, we actually have to insert the
+  // diamond control-flow pattern.  The incoming instruction knows the
+  // destination vreg to set, the condition code register to branch on, the
+  // true/false values to select between, and a branch opcode to use.
+  const BasicBlock *LLVM_BB = BB->getBasicBlock();
+  MachineFunction::iterator It = BB;
+  ++It;
+
+  //  thisMBB:
+  //  ...
+  //   TrueVal = ...
+  //   setcc r1, r2, r3
+  //   if r1 goto copy1MBB
+  //   fallthrough --> copy0MBB
+  MachineBasicBlock *thisMBB  = BB;
+  MachineFunction *F = BB->getParent();
+  MachineBasicBlock *copy0MBB = F->CreateMachineBasicBlock(LLVM_BB);
+  MachineBasicBlock *sinkMBB  = F->CreateMachineBasicBlock(LLVM_BB);
+  F->insert(It, copy0MBB);
+  F->insert(It, sinkMBB);
+
+  // Transfer the remainder of BB and its successor edges to sinkMBB.
+  sinkMBB->splice(sinkMBB->begin(), BB,
+                  llvm::next(MachineBasicBlock::iterator(MI)),
+                  BB->end());
+  sinkMBB->transferSuccessorsAndUpdatePHIs(BB);
+
+  // Next, add the true and fallthrough blocks as its successors.
+  BB->addSuccessor(copy0MBB);
+  BB->addSuccessor(sinkMBB);
+
+  BuildMI(BB, DL, TII->get(SP::IFTRUE)).addReg(MI->getOperand(1).getReg())
+    .addMBB(sinkMBB);
+
+  //  copy0MBB:
+  //   %FalseValue = ...
+  //   # fallthrough to sinkMBB
+  BB = copy0MBB;
+
+  // Update machine-CFG edges
+  BB->addSuccessor(sinkMBB);
+
+  //  sinkMBB:
+  //   %Result = phi [ %TrueValue, thisMBB ], [ %FalseValue, copy0MBB ]
+  //  ...
+  BB = sinkMBB;
+
+  BuildMI(*BB, BB->begin(), DL,
+          TII->get(SP::PHI), MI->getOperand(0).getReg())
+    .addReg(MI->getOperand(2).getReg()).addMBB(thisMBB)
+    .addReg(MI->getOperand(3).getReg()).addMBB(copy0MBB);
+
+  MI->eraseFromParent();   // The pseudo instruction is gone now.
   return BB;
 }
+
 
 //===----------------------------------------------------------------------===//
 //                         VectorProc Inline Assembly Support

@@ -27,7 +27,8 @@ namespace llvm {
       LOAD_LITERAL,
       CALL,        // A call instruction.
       RET_FLAG,    // Return with a flag operand.
-      SPLAT			// Copy scalar register into all lanes of a vector
+      SPLAT,			// Copy scalar register into all lanes of a vector
+      SEL_COND_RESULT,
     };
   }
 
@@ -69,6 +70,7 @@ namespace llvm {
 	SDValue LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const;
 	SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const;
 	SDValue LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
+	SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const;
 
     virtual SDValue
       LowerCall(TargetLowering::CallLoweringInfo &CLI,
@@ -86,6 +88,7 @@ namespace llvm {
     SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
 
     unsigned getSRetArgSize(SelectionDAG &DAG, SDValue Callee) const;
+
   };
 } // end namespace llvm
 
