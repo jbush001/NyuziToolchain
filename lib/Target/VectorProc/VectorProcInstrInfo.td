@@ -232,38 +232,62 @@ def brtarget : Operand<OtherVT>;
 
 multiclass CMPI<string operator, string opsign, CondCode condition> {
 	// Instruction format A, integer
-	def SS : VPInstruction<
+	def SSS : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$a, ScalarReg:$b),
 		"s$dst = s" # opsign # "$a " # operator # " s" # opsign # "$b",
 		[(set i32:$dst, (setcc i32:$a, i32:$b, condition))]>;
 
-	def VV : VPInstruction<
+	def VVV : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins VectorReg:$a, VectorReg:$b),
 		"s$dst = v" # opsign # "$a " # operator # " v" # opsign # "$b",
 		[(set v16i1:$dst, (setcc v16i32:$a, v16i32:$b, condition))]>;
 
+	def VVS : VPInstruction<
+		(outs ScalarReg:$dst), 
+		(ins VectorReg:$a, ScalarReg:$b),
+		"s$dst = v" # opsign # "$a " # operator # " s" # opsign # "$b",
+		[(set v16i1:$dst, (setcc v16i32:$a, (splat i32:$b), condition))]>;
+
 	// Instruction format B
-	def SI : VPInstruction<
+	def SSI : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$a, i32imm:$b),
 		"s$dst = s" # opsign # "$a " # operator # " $b",
 		[(set i32:$dst, (setcc i32:$a, simm13:$b, condition))]>;
+
+	def VVI : VPInstruction<
+		(outs ScalarReg:$dst), 
+		(ins VectorReg:$a, i32imm:$b),
+		"s$dst = v" # opsign # "$a " # operator # " $b",
+		[(set i32:$dst, (setcc v16i32:$a, (splat simm13:$b), condition))]>;
+
+	def VSI : VPInstruction<
+		(outs ScalarReg:$dst), 
+		(ins ScalarReg:$a, i32imm:$b),
+		"s$dst = s" # opsign # "$a " # operator # " $b",
+		[(set i32:$dst, (setcc (splat i32:$a), (splat simm13:$b), condition))]>;
 }
 
 multiclass CMPF<string operator, CondCode condition> {
-	def SS : VPInstruction<
+	def SSS : VPInstruction<
 		(outs ScalarReg:$dst),
 		(ins ScalarReg:$a, ScalarReg:$b),
 		"s$dst = f$a " # operator # " f$b",
 		[(set i32:$dst, (setcc f32:$a, f32:$b, condition))]>;
 
-	def VV : VPInstruction<
+	def VVV : VPInstruction<
 		(outs ScalarReg:$dst),
 		(ins VectorReg:$a, VectorReg:$b),
 		"s$dst = vf$a " # operator # " vf$b",
 		[(set v16i1:$dst, (setcc v16f32:$a, v16f32:$b, condition))]>;
+
+	def VVS : VPInstruction<
+		(outs ScalarReg:$dst),
+		(ins VectorReg:$a, ScalarReg:$b),
+		"s$dst = vf$a " # operator # " f$b",
+		[(set v16i1:$dst, (setcc v16f32:$a, (splat f32:$b), condition))]>;
 }
 
 defm SGTSI : CMPI<">", "", SETGT>;	
