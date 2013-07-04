@@ -116,12 +116,10 @@ spillCalleeSavedRegisters(MachineBasicBlock &MBB,
     // It's killed at the spill, unless the register is RA and return address
     // is taken.
     unsigned Reg = CSI[i].getReg();
-    bool IsRAAndRetAddrIsTaken = Reg == SP::PC_REG
+    bool IsRAAndRetAddrIsTaken = Reg == SP::LINK_REG
         && MF->getFrameInfo()->isReturnAddressTaken();
     if (!IsRAAndRetAddrIsTaken)
       EntryBlock->addLiveIn(Reg);
-
-    EntryBlock->addLiveIn(Reg);
 
     // Insert the spill to the stack frame.
     bool IsKill = !IsRAAndRetAddrIsTaken;
