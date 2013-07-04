@@ -230,7 +230,7 @@ def MOVEREG : VPInstruction<
 
 def brtarget : Operand<OtherVT>;
 
-multiclass CMPI<string operator, string opsign, CondCode condition> {
+multiclass CMPI<string operator, string opsign, CondCode condition, Intrinsic vectorIntrinsic> {
 	// Instruction format A, integer
 	def SSS : VPInstruction<
 		(outs ScalarReg:$dst), 
@@ -261,16 +261,43 @@ multiclass CMPI<string operator, string opsign, CondCode condition> {
 		(outs ScalarReg:$dst), 
 		(ins VectorReg:$a, i32imm:$b),
 		"s$dst = v" # opsign # "$a " # operator # " $b",
-		[(set i32:$dst, (setcc v16i32:$a, (splat simm13:$b), condition))]>;
+		[(set v16i1:$dst, (setcc v16i32:$a, (splat simm13:$b), condition))]>;
 
+	// Intrinsic forms
+	// Ideally, vector comparisons would just use native instructions, but I had a hard 
+	// time coercing that into a scalar register, so they are intrinsics for now.
 	def VSI : VPInstruction<
 		(outs ScalarReg:$dst), 
 		(ins ScalarReg:$a, i32imm:$b),
 		"s$dst = s" # opsign # "$a " # operator # " $b",
 		[(set i32:$dst, (setcc (splat i32:$a), (splat simm13:$b), condition))]>;
+
+	def VVVint : VPInstruction<
+		(outs ScalarReg:$dst), 
+		(ins VectorReg:$a, VectorReg:$b),
+		"s$dst = v" # opsign # "$a " # operator # " v" # opsign # "$b",
+		[(set i32:$dst, (vectorIntrinsic v16i32:$a, v16i32:$b))]>;
+
+	def VVSint : VPInstruction<
+		(outs ScalarReg:$dst), 
+		(ins VectorReg:$a, ScalarReg:$b),
+		"s$dst = v" # opsign # "$a " # operator # " s" # opsign # "$b",
+		[(set i32:$dst, (vectorIntrinsic v16i32:$a, (splat i32:$b)))]>;
+
+	def VVIint : VPInstruction<
+		(outs ScalarReg:$dst), 
+		(ins VectorReg:$a, i32imm:$b),
+		"s$dst = v" # opsign # "$a " # operator # " $b",
+		[(set i32:$dst, (vectorIntrinsic v16i32:$a, (splat simm13:$b)))]>;
+
+	def VSIint : VPInstruction<
+		(outs ScalarReg:$dst), 
+		(ins ScalarReg:$a, i32imm:$b),
+		"s$dst = s" # opsign # "$a " # operator # " $b",
+		[(set i32:$dst, (vectorIntrinsic (splat i32:$a), (splat simm13:$b)))]>;
 }
 
-multiclass CMPF<string operator, CondCode condition> {
+multiclass CMPF<string operator, CondCode condition, Intrinsic vectorIntrinsic> {
 	def SSS : VPInstruction<
 		(outs ScalarReg:$dst),
 		(ins ScalarReg:$a, ScalarReg:$b),
@@ -288,30 +315,43 @@ multiclass CMPF<string operator, CondCode condition> {
 		(ins VectorReg:$a, ScalarReg:$b),
 		"s$dst = vf$a " # operator # " f$b",
 		[(set v16i1:$dst, (setcc v16f32:$a, (splat f32:$b), condition))]>;
+
+	// Intrinsic forms.  See note above.
+	def VVVint : VPInstruction<
+		(outs ScalarReg:$dst),
+		(ins VectorReg:$a, VectorReg:$b),
+		"s$dst = vf$a " # operator # " vf$b",
+		[(set i32:$dst, (vectorIntrinsic v16f32:$a, v16f32:$b))]>;
+
+	def VVSint : VPInstruction<
+		(outs ScalarReg:$dst),
+		(ins VectorReg:$a, ScalarReg:$b),
+		"s$dst = vf$a " # operator # " f$b",
+		[(set i32:$dst, (vectorIntrinsic v16f32:$a, (splat f32:$b)))]>;
 }
 
-defm SGTSI : CMPI<">", "", SETGT>;	
-defm SGESI : CMPI<">=", "", SETGE>;
-defm SLTSI : CMPI<"<", "", SETLT>;
-defm SLESI : CMPI<"<=", "", SETLE>;
-defm SEQSI : CMPI<"==", "", SETEQ>;
-defm SNESI : CMPI<"<>", "", SETNE>;
-defm SGTUI : CMPI<">", "u", SETUGT>;	
-defm SGEUI : CMPI<">=", "u", SETUGE>;
-defm SLTUI : CMPI<"<", "u", SETULT>;
-defm SLEUI : CMPI<"<=", "u", SETULE>;
-defm SGTFO : CMPF<">", SETOGT>;	// Note: unordered and ordered treated the same
-defm SGEFO : CMPF<">=", SETOGE>;
-defm SLTFO : CMPF<"<", SETOLT>;
-defm SLEFO : CMPF<"<=", SETOLE>;
-defm SEQFO : CMPF<"==", SETOEQ>;
-defm SNEFO : CMPF<"<>", SETONE>;
-defm SGTFU : CMPF<">", SETUGT>;
-defm SGEFU : CMPF<">=", SETUGE>;
-defm SLTFU : CMPF<"<", SETULT>;
-defm SLEFU : CMPF<"<=", SETULE>;
-defm SEQFU : CMPF<"==", SETUEQ>;
-defm SNEFU : CMPF<"<>", SETUNE>;
+defm SGTSI : CMPI<">", "", SETGT, int_vp_mask_cmpi_sgt>;	
+defm SGESI : CMPI<">=", "", SETGE, int_vp_mask_cmpi_sge>;
+defm SLTSI : CMPI<"<", "", SETLT, int_vp_mask_cmpi_slt>;
+defm SLESI : CMPI<"<=", "", SETLE, int_vp_mask_cmpi_sle>;
+defm SEQSI : CMPI<"==", "", SETEQ, int_vp_mask_cmpi_eq>;
+defm SNESI : CMPI<"<>", "", SETNE, int_vp_mask_cmpi_ne>;
+defm SGTUI : CMPI<">", "u", SETUGT, int_vp_mask_cmpi_ugt>;	
+defm SGEUI : CMPI<">=", "u", SETUGE, int_vp_mask_cmpi_uge>;
+defm SLTUI : CMPI<"<", "u", SETULT, int_vp_mask_cmpi_ult>;
+defm SLEUI : CMPI<"<=", "u", SETULE, int_vp_mask_cmpi_ule>;
+defm SGTFO : CMPF<">", SETOGT, int_vp_mask_cmpf_gt>;	// Note: unordered and ordered treated the same
+defm SGEFO : CMPF<">=", SETOGE, int_vp_mask_cmpf_ge>;
+defm SLTFO : CMPF<"<", SETOLT, int_vp_mask_cmpf_lt>;
+defm SLEFO : CMPF<"<=", SETOLE, int_vp_mask_cmpf_le>;
+defm SEQFO : CMPF<"==", SETOEQ, int_vp_mask_cmpf_eq>;
+defm SNEFO : CMPF<"<>", SETONE, int_vp_mask_cmpf_ne>;
+defm SGTFU : CMPF<">", SETUGT, int_vp_mask_cmpf_gt>;
+defm SGEFU : CMPF<">=", SETUGE, int_vp_mask_cmpf_ge>;
+defm SLTFU : CMPF<"<", SETULT, int_vp_mask_cmpf_lt>;
+defm SLEFU : CMPF<"<=", SETULE, int_vp_mask_cmpf_le>;
+defm SEQFU : CMPF<"==", SETUEQ, int_vp_mask_cmpf_eq>;
+defm SNEFU : CMPF<"<>", SETUNE, int_vp_mask_cmpf_ne>;
 
 class BranchInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
 	: VPInstruction<outputs, inputs, asmString, pattern>
