@@ -498,18 +498,16 @@ def LOADIMM : VPInstruction<
 	"s$dest = $val",
 	[(set i32:$dest, imm:$val)]>;
 
-def SDT_SPRet : SDTypeProfile<0, 1, [SDTCisVT<0, i32>]>;
-
-def retflag : SDNode<"SPISD::RET_FLAG", 
-	SDT_SPRet,
+def return : SDNode<"SPISD::RET_FLAG", 
+	SDTypeProfile<0, 0, []>,
     [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
-let isReturn = 1, isTerminator = 1, Uses = [LINK_REG] in {
+let isReturn = 1, isTerminator = 1, isBarrier = 1, Uses = [LINK_REG] in {
 	def RET : VPInstruction<
 		(outs),
-		(ins i32imm:$val),
+		(ins),
 		"pc = link",
-		[(retflag simm13:$val)]>;
+		[(return)]>;
 }
 
 def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;

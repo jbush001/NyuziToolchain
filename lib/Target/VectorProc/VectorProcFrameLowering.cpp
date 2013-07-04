@@ -27,106 +27,110 @@
 
 using namespace llvm;
 
-void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
-  MachineBasicBlock &MBB = MF.front();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
-  const VectorProcInstrInfo &TII =
-    *static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
-  MachineBasicBlock::iterator MBBI = MBB.begin();
-  DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
+void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const 
+{
+	MachineBasicBlock &MBB = MF.front();
+	MachineFrameInfo *MFI = MF.getFrameInfo();
+	const VectorProcInstrInfo &TII =
+		*static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
+	MachineBasicBlock::iterator MBBI = MBB.begin();
+	DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
 
-  // Get the number of bytes to allocate from the FrameInfo
-  int StackSize = (int) MFI->getStackSize();
-  StackSize = (StackSize + 63) & ~63;	// Round up to 64 bytes
-  assert(StackSize < 4096);	// XXX need to handle this.
+	// Compute stack size. Allocate space, keeping SP 64 byte aligned so we
+	// can do block vector load/stores
+	int StackSize = (int) MFI->getStackSize();
+	StackSize = (StackSize + 63) & ~63;	// Round up to 64 bytes
+	assert(StackSize < 4096);	// XXX need to handle this.
 
-  if (StackSize != 0)
-  {
-    BuildMI(MBB, MBBI, dl, TII.get(SP::SUBISSI), SP::SP_REG).addReg(SP::SP_REG)
-      .addImm(StackSize);
-  }
+	if (StackSize != 0)
+	{
+		BuildMI(MBB, MBBI, dl, TII.get(SP::SUBISSI), SP::SP_REG).addReg(SP::SP_REG)
+			.addImm(StackSize);
+	}
+	
+	// XXX we are not generating cfi_def_cfa_offset or cfo_offset, which would be needed
+	// for debug information.
+
+	// XXX frame pointer is not used.
 }
 
 void VectorProcFrameLowering::
 eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
-                              MachineBasicBlock::iterator I) const {
+ 	MachineBasicBlock::iterator I) const 
+{
+	MachineInstr &MI = *I;
+	DebugLoc DL = MI.getDebugLoc();
+	int Size = MI.getOperand(0).getImm();
+	if (MI.getOpcode() == SP::ADJCALLSTACKDOWN)
+		Size = -Size;
 
-// XXX hack: hasReservedCallFrame isn't doing quite what I expect.  Need to understand
-// this.
-//  if (!hasReservedCallFrame(MF)) {
-    MachineInstr &MI = *I;
-    DebugLoc DL = MI.getDebugLoc();
-    int Size = MI.getOperand(0).getImm();
-    if (MI.getOpcode() == SP::ADJCALLSTACKDOWN)
-      Size = -Size;
-    const VectorProcInstrInfo &TII =
-      *static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
-    if (Size)
-    {
-      BuildMI(MBB, I, DL, TII.get(SP::ADDISSI), SP::SP_REG).addReg(SP::SP_REG)
-        .addImm(Size);
+	const VectorProcInstrInfo &TII =
+		*static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
+
+	if (Size)
+	{
+		BuildMI(MBB, I, DL, TII.get(SP::ADDISSI), SP::SP_REG).addReg(SP::SP_REG)
+			.addImm(Size);
 	}
-//  }
-  MBB.erase(I);
+	
+	MBB.erase(I);
 }
-
 
 void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
-                                  MachineBasicBlock &MBB) const {
-  MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
-  MachineFrameInfo *MFI = MF.getFrameInfo();
-  const VectorProcInstrInfo &TII =
-    *static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
-  DebugLoc dl = MBBI->getDebugLoc();
-  assert(MBBI->getOpcode() == SP::RET &&
-         "Can only put epilog before 'retl' instruction!");
+	MachineBasicBlock &MBB) const 
+{
+	MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
+	MachineFrameInfo *MFI = MF.getFrameInfo();
+	const VectorProcInstrInfo &TII =
+		*static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
+	DebugLoc dl = MBBI->getDebugLoc();
+	assert(MBBI->getOpcode() == SP::RET &&
+		 "Can only put epilog before 'retl' instruction!");
 
-  uint64_t StackSize = MFI->getStackSize();
+	uint64_t StackSize = MFI->getStackSize();
 
-  StackSize = (StackSize + 63) & ~63;	// Round up to 64 bytes
-  assert(StackSize < 4096);	// XXX need to handle this.
+	StackSize = (StackSize + 63) & ~63;	// Round up to 64 bytes
+	assert(StackSize < 4096);	// XXX need to handle this.
 
-  if (StackSize != 0)
-  {
-    BuildMI(MBB, MBBI, dl, TII.get(SP::ADDISSI), SP::SP_REG).addReg(SP::SP_REG)
-      .addImm(StackSize);
-  }
-
-
+	if (StackSize != 0)
+	{
+		BuildMI(MBB, MBBI, dl, TII.get(SP::ADDISSI), SP::SP_REG).addReg(SP::SP_REG)
+			.addImm(StackSize);
+	}
 }
 
-bool VectorProcFrameLowering::hasFP(const MachineFunction &MF) const {
-  const MachineFrameInfo *MFI = MF.getFrameInfo();
-  return MF.getTarget().Options.DisableFramePointerElim(MF) ||
-      MFI->hasVarSizedObjects() || MFI->isFrameAddressTaken();
+bool 
+VectorProcFrameLowering::hasFP(const MachineFunction &MF) const 
+{
+	return false;	// Not supported currently.
 }
 
-bool VectorProcFrameLowering::
-spillCalleeSavedRegisters(MachineBasicBlock &MBB,
-                          MachineBasicBlock::iterator MI,
-                          const std::vector<CalleeSavedInfo> &CSI,
-                          const TargetRegisterInfo *TRI) const {
+bool 
+VectorProcFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
+	MachineBasicBlock::iterator MI,
+	const std::vector<CalleeSavedInfo> &CSI,
+	const TargetRegisterInfo *TRI) const 
+{
+	MachineFunction *MF = MBB.getParent();
+	MachineBasicBlock *EntryBlock = MF->begin();
+	const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
 
-  MachineFunction *MF = MBB.getParent();
-  MachineBasicBlock *EntryBlock = MF->begin();
-  const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
+	for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
+		// Add the callee-saved register as live-in. 
+		// It's killed at the spill, unless the register is RA and return address
+		// is taken.
+		unsigned Reg = CSI[i].getReg();
+		bool IsRAAndRetAddrIsTaken = Reg == SP::LINK_REG
+			&& MF->getFrameInfo()->isReturnAddressTaken();
+		if (!IsRAAndRetAddrIsTaken)
+			EntryBlock->addLiveIn(Reg);
 
-  for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
-    // Add the callee-saved register as live-in. 
-    // It's killed at the spill, unless the register is RA and return address
-    // is taken.
-    unsigned Reg = CSI[i].getReg();
-    bool IsRAAndRetAddrIsTaken = Reg == SP::LINK_REG
-        && MF->getFrameInfo()->isReturnAddressTaken();
-    if (!IsRAAndRetAddrIsTaken)
-      EntryBlock->addLiveIn(Reg);
+		// Insert the spill to the stack frame.
+		bool IsKill = !IsRAAndRetAddrIsTaken;
+		const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(Reg);
+			TII.storeRegToStackSlot(*EntryBlock, MI, Reg, IsKill,
+			CSI[i].getFrameIdx(), RC, TRI);
+	}
 
-    // Insert the spill to the stack frame.
-    bool IsKill = !IsRAAndRetAddrIsTaken;
-    const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(Reg);
-    TII.storeRegToStackSlot(*EntryBlock, MI, Reg, IsKill,
-                            CSI[i].getFrameIdx(), RC, TRI);
-  }
-
-  return true;
+	return true;
 }
