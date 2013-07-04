@@ -51,7 +51,9 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const
 	// XXX we are not generating cfi_def_cfa_offset or cfo_offset, which would be needed
 	// for debug information.
 
-	// XXX frame pointer is not used.
+	// fp = sp
+	BuildMI(MBB, MBBI, dl, TII.get(SP::MOVEREG)).addReg(SP::FP_REG)
+		.addReg(SP::SP_REG);
 }
 
 void VectorProcFrameLowering::

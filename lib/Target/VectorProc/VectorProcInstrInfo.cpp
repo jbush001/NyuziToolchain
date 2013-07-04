@@ -19,6 +19,8 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetRegistry.h"
 
@@ -39,14 +41,17 @@ VectorProcInstrInfo::VectorProcInstrInfo(VectorProcSubtarget &ST)
 /// any side effects other than loading from the stack slot.
 unsigned VectorProcInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
                                              int &FrameIndex) const {
-  if (MI->getOpcode() == SP::LWi) {
-    if (MI->getOperand(1).isFI() && MI->getOperand(2).isImm() &&
-        MI->getOperand(2).getImm() == 0) {
-      FrameIndex = MI->getOperand(1).getIndex();
-      return MI->getOperand(0).getReg();
-    }
-  }
-  return 0;
+	if (MI->getOpcode() == SP::LWi || MI->getOpcode() == SP::LWf
+		|| MI->getOpcode() == SP::BLOCK_LOADI
+		|| MI->getOpcode() == SP::BLOCK_LOADF) {
+		if (MI->getOperand(1).isFI() && MI->getOperand(2).isImm() &&
+			MI->getOperand(2).getImm() == 0) {
+			FrameIndex = MI->getOperand(1).getIndex();
+			return MI->getOperand(0).getReg();
+		}
+	}
+
+	return 0;
 }
 
 /// isStoreToStackSlot - If the specified machine instruction is a direct
@@ -55,15 +60,18 @@ unsigned VectorProcInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
 /// not, return 0.  This predicate must return 0 if the instruction has
 /// any side effects other than storing to the stack slot.
 unsigned VectorProcInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
-                                            int &FrameIndex) const {
-  if (MI->getOpcode() == SP::SWi || MI->getOpcode() == SP::SWf) {
-    if (MI->getOperand(0).isFI() && MI->getOperand(1).isImm() &&
-        MI->getOperand(1).getImm() == 0) {
-      FrameIndex = MI->getOperand(0).getIndex();
-      return MI->getOperand(2).getReg();
-    }
-  }
-  return 0;
+	int &FrameIndex) const {
+	if (MI->getOpcode() == SP::SWi || MI->getOpcode() == SP::SWf
+		|| MI->getOpcode() == SP::BLOCK_STOREI
+		|| MI->getOpcode() == SP::BLOCK_STOREF) {
+		if (MI->getOperand(0).isFI() && MI->getOperand(1).isImm() &&
+			MI->getOperand(1).getImm() == 0) {
+			FrameIndex = MI->getOperand(0).getIndex();
+			return MI->getOperand(2).getReg();
+		}
+	}
+
+	return 0;
 }
 
 MachineInstr *
@@ -72,9 +80,10 @@ VectorProcInstrInfo::emitFrameIndexDebugValue(MachineFunction &MF,
                                          uint64_t Offset,
                                          const MDNode *MDPtr,
                                          DebugLoc dl) const {
-  MachineInstrBuilder MIB = BuildMI(MF, dl, get(SP::DBG_VALUE))
-    .addFrameIndex(FrameIx).addImm(0).addImm(Offset).addMetadata(MDPtr);
-  return &*MIB;
+	MachineInstrBuilder MIB = BuildMI(MF, dl, get(SP::DBG_VALUE))
+		.addFrameIndex(FrameIx).addImm(0).addImm(Offset).addMetadata(MDPtr);
+
+	return &*MIB;
 }
 
 
@@ -84,7 +93,7 @@ bool VectorProcInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
                                    SmallVectorImpl<MachineOperand> &Cond,
                                    bool AllowModify) const
 {
-  return true;	// Indicate we can't analyze branch
+	return true;	// Indicate we can't analyze branch
 }
 
 unsigned
@@ -103,9 +112,22 @@ unsigned VectorProcInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const
 void VectorProcInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                  MachineBasicBlock::iterator I, DebugLoc DL,
                                  unsigned DestReg, unsigned SrcReg,
-                                 bool KillSrc) const {
+                                 bool KillSrc) const 
+{
 	BuildMI(MBB, I, DL, get(SP::MOVEREG), DestReg).addReg(SrcReg, 
 		getKillRegState(KillSrc));
+}
+
+MachineMemOperand *
+VectorProcInstrInfo::GetMemOperand(MachineBasicBlock &MBB, int FI,
+	unsigned Flag) const 
+{
+	MachineFunction &MF = *MBB.getParent();
+	MachineFrameInfo &MFI = *MF.getFrameInfo();
+	unsigned Align = MFI.getObjectAlignment(FI);
+
+	return MF.getMachineMemOperand(MachinePointerInfo::getFixedStack(FI), Flag,
+		MFI.getObjectSize(FI), Align);
 }
 
 void VectorProcInstrInfo::
@@ -113,68 +135,59 @@ storeRegToStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                 unsigned SrcReg, bool isKill, int FI,
                 const TargetRegisterClass *RC, const TargetRegisterInfo *TRI,
                 int64_t Offset) const {
-  DebugLoc DL;
-  if (I != MBB.end()) DL = I->getDebugLoc();
+	DebugLoc DL;
+	if (I != MBB.end()) 
+  		DL = I->getDebugLoc();
+ 
+	MachineMemOperand *MMO = GetMemOperand(MBB, FI, MachineMemOperand::MOStore);
+	unsigned Opc = 0;
 
-  unsigned Opc = 0;
-  unsigned Size = 0;
+	if (SP::ScalarRegRegClass.hasSubClassEq(RC))
+		Opc = SP::SWi;
+	else if (SP::VectorRegRegClass.hasSubClassEq(RC))
+		Opc = SP::BLOCK_STOREI;
+	else
+		llvm_unreachable("unknown register class in storeRegToStack");
 
-  if (SP::ScalarRegRegClass.hasSubClassEq(RC))
-  {
-    Opc = SP::SWi;
-    Size = 4;
-  }
-  else if (SP::VectorRegRegClass.hasSubClassEq(RC))
-  {
-    Opc = SP::BLOCK_STOREI;
-    Size = 64;
-  }
-  else
-    llvm_unreachable("unknown register class in storeRegToStack");
-
-  BuildMI(MBB, I, DL, get(Opc)).addReg(SP::SP_REG).addImm(FI * Size + Offset)
-  	.addReg(SrcReg, getKillRegState(isKill));
+	BuildMI(MBB, I, DL, get(Opc)).addFrameIndex(FI).addImm(Offset)
+		.addMemOperand(MMO).addReg(SrcReg, getKillRegState(isKill));
 }
 
 void VectorProcInstrInfo::
 loadRegFromStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                  unsigned DestReg, int FI, const TargetRegisterClass *RC,
                  const TargetRegisterInfo *TRI, int64_t Offset) const {
-  DebugLoc DL;
-  if (I != MBB.end()) DL = I->getDebugLoc();
-  unsigned Opc = 0;
-  unsigned Size = 0;
+	DebugLoc DL;
+	if (I != MBB.end()) 
+		DL = I->getDebugLoc();
 
-  if (SP::ScalarRegRegClass.hasSubClassEq(RC))
-  {
-    Opc = SP::LWi;
-    Size = 4;
-  }
-  else if (SP::VectorRegRegClass.hasSubClassEq(RC))
-  {
-    Opc = SP::BLOCK_LOADI;
-    Size = 64;
-  }
-  else
-    llvm_unreachable("unknown register class in storeRegToStack");
+	MachineMemOperand *MMO = GetMemOperand(MBB, FI, MachineMemOperand::MOLoad);
+	unsigned Opc = 0;
 
-  BuildMI(MBB, I, DL, get(Opc), DestReg).addReg(SP::SP_REG).addImm(FI * Size + Offset);
+	if (SP::ScalarRegRegClass.hasSubClassEq(RC))
+		Opc = SP::LWi;
+	else if (SP::VectorRegRegClass.hasSubClassEq(RC))
+		Opc = SP::BLOCK_LOADI;
+	else
+		llvm_unreachable("unknown register class in storeRegToStack");
+
+	BuildMI(MBB, I, DL, get(Opc), DestReg).addFrameIndex(FI).addImm(Offset)
+		.addMemOperand(MMO);
 }
 
 unsigned VectorProcInstrInfo::getGlobalBaseReg(MachineFunction *MF) const
 {
-  VectorProcMachineFunctionInfo *VectorProcFI = MF->getInfo<VectorProcMachineFunctionInfo>();
-  unsigned GlobalBaseReg = VectorProcFI->getGlobalBaseReg();
-  if (GlobalBaseReg != 0)
-    return GlobalBaseReg;
+	VectorProcMachineFunctionInfo *VectorProcFI = MF->getInfo<VectorProcMachineFunctionInfo>();
+	unsigned GlobalBaseReg = VectorProcFI->getGlobalBaseReg();
+	if (GlobalBaseReg != 0)
+		return GlobalBaseReg;
 
-  // Insert the set of GlobalBaseReg into the first MBB of the function
-  MachineBasicBlock &FirstMBB = MF->front();
-  MachineBasicBlock::iterator MBBI = FirstMBB.begin();
-  MachineRegisterInfo &RegInfo = MF->getRegInfo();
+	// Insert the set of GlobalBaseReg into the first MBB of the function
+	MachineBasicBlock &FirstMBB = MF->front();
+	MachineBasicBlock::iterator MBBI = FirstMBB.begin();
+	MachineRegisterInfo &RegInfo = MF->getRegInfo();
 
-  GlobalBaseReg = RegInfo.createVirtualRegister(&SP::ScalarRegRegClass);
+	GlobalBaseReg = RegInfo.createVirtualRegister(&SP::ScalarRegRegClass);
 
-
-  return GlobalBaseReg;
+	return GlobalBaseReg;
 }

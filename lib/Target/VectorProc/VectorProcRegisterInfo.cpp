@@ -30,7 +30,7 @@ using namespace llvm;
 
 VectorProcRegisterInfo::VectorProcRegisterInfo(VectorProcSubtarget &st,
                                      const TargetInstrInfo &tii)
-  : VectorProcGenRegisterInfo(SP::S28), Subtarget(st), TII(tii) {
+  : VectorProcGenRegisterInfo(SP::FP_REG), Subtarget(st), TII(tii) {
 }
 
 const uint16_t* VectorProcRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF)
@@ -48,51 +48,56 @@ BitVector VectorProcRegisterInfo::getReservedRegs(const MachineFunction &MF) con
   Reserved.set(SP::SP_REG);
   Reserved.set(SP::LINK_REG);
   Reserved.set(SP::PC_REG);
+  Reserved.set(SP::FP_REG);
   return Reserved;
 }
 
 const TargetRegisterClass*
 VectorProcRegisterInfo::getPointerRegClass(const MachineFunction &MF,
-                                      unsigned Kind) const {
-  return &SP::ScalarRegRegClass;
+	unsigned Kind) const {
+	return &SP::ScalarRegRegClass;
 }
 
 void
 VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
                                        int SPAdj, unsigned FIOperandNum,
-                                       RegScavenger *RS) const {
-  assert(SPAdj == 0 && "Unexpected");
+                                       RegScavenger *RS) const 
+{
+	assert(SPAdj == 0 && "Unexpected");
 
-  MachineInstr &MI = *II;
-  DebugLoc dl = MI.getDebugLoc();
-  int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
+	MachineInstr &MI = *II;
+	DebugLoc dl = MI.getDebugLoc();
+	int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
 
-  // Addressable stack objects are accessed using neg. offsets from %fp
-  MachineFunction &MF = *MI.getParent()->getParent();
-  int64_t Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex) +
-                   MI.getOperand(FIOperandNum + 1).getImm() +
-                   Subtarget.getStackPointerBias();
+	// Addressable stack objects are accessed using neg. offsets from %fp
+	MachineFunction &MF = *MI.getParent()->getParent();
+	int64_t Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex) +
+		MI.getOperand(FIOperandNum + 1).getImm() +
+		Subtarget.getStackPointerBias();
 
-  // Replace frame index with a frame pointer reference.
-  if (Offset >= -4096 && Offset <= 4095) {
-    // If the offset is small enough to fit in the immediate field, directly
-    // encode it.
-    MI.getOperand(FIOperandNum).ChangeToRegister(SP::SP_REG, false);
-    MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
-  } else {
+	// Replace frame index with a frame pointer reference.
+	if (Offset >= -4096 && Offset <= 4095) {
+		// If the offset is small enough to fit in the immediate field, directly
+		// encode it.
+		MI.getOperand(FIOperandNum).ChangeToRegister(SP::FP_REG, false);
+		MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
+	} else {
 		// XXX for large indices, need to load indirectly. Look at ARM.
 		llvm_unreachable("frame index out of bounds, not implemented");
-  }
+	}
 }
 
-unsigned VectorProcRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
-  return SP::S28;
+unsigned VectorProcRegisterInfo::getFrameRegister(const MachineFunction &MF) const 
+{
+	return SP::FP_REG;
 }
 
-unsigned VectorProcRegisterInfo::getEHExceptionRegister() const {
-  llvm_unreachable("What is the exception register");
+unsigned VectorProcRegisterInfo::getEHExceptionRegister() const 
+{
+	llvm_unreachable("What is the exception register");
 }
 
-unsigned VectorProcRegisterInfo::getEHHandlerRegister() const {
-  llvm_unreachable("What is the exception handler register");
+unsigned VectorProcRegisterInfo::getEHHandlerRegister() const 
+{
+	llvm_unreachable("What is the exception handler register");
 }
