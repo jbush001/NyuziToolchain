@@ -104,7 +104,7 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
 bool 
 VectorProcFrameLowering::hasFP(const MachineFunction &MF) const 
 {
-	return false;	// Not supported currently.
+	return true;	
 }
 
 bool 
