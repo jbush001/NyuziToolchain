@@ -16,7 +16,7 @@ define <16 x i32> @somefunc(i32 %a, <16 x i32> %b, <16 x i32> %c, <16 x i32> %d,
 	%3 = add <16 x i32> %2, %e ; CHECK: [[RES3:v[0-9]+]] = [[RES2]] + v3
 	%4 = add <16 x i32> %3, %f ; CHECK: [[RES4:v[0-9]+]] = [[RES3]] + v4
 	%5 = add <16 x i32> %4, %g ; CHECK: [[RES5:v[0-9]+]] = [[RES4]] + v5
-	; CHECK: [[SRC:v[0-9]+]] = mem_l[s29]
+	; CHECK: [[SRC:v[0-9]+]] = mem_l[s28]
 	%6 = add <16 x i32> %5, %h	; CHECK: v{{[0-9]+}} = [[RES5]] + [[SRC]]
 
 	; CHECK s29 = s29 + {{[0-9]+}}
