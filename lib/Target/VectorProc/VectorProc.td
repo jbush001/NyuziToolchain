@@ -27,6 +27,7 @@ include "llvm/Target/Target.td"
 
 include "VectorProcRegisterInfo.td"
 include "VectorProcCallingConv.td"
+include "VectorProcInstrFormats.td"
 include "VectorProcInstrInfo.td"
 
 def VectorProcInstrInfo : InstrInfo;
