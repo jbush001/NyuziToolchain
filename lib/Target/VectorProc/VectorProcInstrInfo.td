@@ -502,7 +502,7 @@ def return : SDNode<"SPISD::RET_FLAG",
 	SDTypeProfile<0, 0, []>,
     [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
-let isReturn = 1, isTerminator = 1, isBarrier = 1, Uses = [LINK_REG] in {
+let isReturn = 1, isTerminator = 1, isBarrier = 1, Uses = [FP_REG] in {
 	def RET : VPInstruction<
 		(outs),
 		(ins),
