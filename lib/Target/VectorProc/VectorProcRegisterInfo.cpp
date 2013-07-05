@@ -29,17 +29,20 @@
 using namespace llvm;
 
 VectorProcRegisterInfo::VectorProcRegisterInfo(VectorProcSubtarget &st,
-                                     const TargetInstrInfo &tii)
-  : VectorProcGenRegisterInfo(SP::FP_REG), Subtarget(st), TII(tii) {
+	const TargetInstrInfo &tii)
+	: VectorProcGenRegisterInfo(SP::FP_REG), Subtarget(st), TII(tii) 
+{
 }
 
 const uint16_t* VectorProcRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF)
-                                                                         const {
-  return VectorProcCSR_SaveList;
+                                                                         const 
+{
+	return VectorProcCSR_SaveList;
 }
 
-const uint32_t* VectorProcRegisterInfo::getCallPreservedMask(CallingConv::ID) const {
-    return VectorProcCSR_RegMask;
+const uint32_t* VectorProcRegisterInfo::getCallPreservedMask(CallingConv::ID) const 
+{
+	return VectorProcCSR_RegMask;
 }
 
 
@@ -69,11 +72,16 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 	DebugLoc dl = MI.getDebugLoc();
 	int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
 
-	// Addressable stack objects are accessed using neg. offsets from %fp
 	MachineFunction &MF = *MI.getParent()->getParent();
-	int64_t Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex) +
-		MI.getOperand(FIOperandNum + 1).getImm() +
-		Subtarget.getStackPointerBias();
+
+	// Round stack size to multiple of 64, consistent with frame pointer info.
+	int stackSize = (MF.getFrameInfo()->getStackSize() + 63) & ~63;
+
+	// Frame index is relative to where SP is before it is decremented on 
+	// entry to the function.  Need to add stackSize to adjust for this.
+	int64_t Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex) 
+		+ MI.getOperand(FIOperandNum + 1).getImm() 
+		+ stackSize;
 
 	// Replace frame index with a frame pointer reference.
 	if (Offset >= -4096 && Offset <= 4095) {

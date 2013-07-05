@@ -130,7 +130,7 @@ VectorProcFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
 		// Insert the spill to the stack frame.
 		bool IsKill = !IsRAAndRetAddrIsTaken;
 		const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(Reg);
-			TII.storeRegToStackSlot(*EntryBlock, MI, Reg, IsKill,
+		TII.storeRegToStackSlot(*EntryBlock, MI, Reg, IsKill,
 			CSI[i].getFrameIdx(), RC, TRI);
 	}
 
