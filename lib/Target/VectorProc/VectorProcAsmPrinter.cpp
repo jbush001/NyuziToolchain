@@ -40,6 +40,8 @@ namespace {
     void printOperand(const MachineInstr *MI, int opNum, raw_ostream &OS);
     void printMemOperand(const MachineInstr *MI, int opNum, raw_ostream &OS,
                          const char *Modifier = 0);
+	void printComputeFrameAddr(const MachineInstr *MI, int opNum,
+                                      raw_ostream &O);
 
     virtual void EmitInstruction(const MachineInstr *MI) {
       SmallString<128> Str;
@@ -139,6 +141,36 @@ void VectorProcAsmPrinter::printMemOperand(const MachineInstr *MI, int opNum,
 	}
 }
 
+// In the case where we want to compute the offset of some stack object, this will
+// print the expression.
+void VectorProcAsmPrinter::printComputeFrameAddr(const MachineInstr *MI, int opNum,
+                                      raw_ostream &O) 
+{
+	const MachineOperand &MO = MI->getOperand(opNum);
+	switch (MO.getType())
+	{
+		case MachineOperand::MO_Register:
+			// Note: for memory operands, we do prepend the register type,
+			// unlike with arithmetic operands
+			O << "s" << StringRef(getRegisterName(MO.getReg())).lower();
+
+			// Offset
+			if (MI->getOperand(opNum+1).isImm())
+			{
+				int operand = MI->getOperand(opNum+1).getImm();
+				if (operand > 0)
+					O << " + " << operand;
+				else if (operand < 0)
+					O << " - " << -operand;
+			}
+
+			break;
+		
+		default:
+			errs() << "What is " << MO.getType();
+		    llvm_unreachable("<unknown operand type>");
+	}
+}
 /// PrintAsmOperand - Print out an operand for an inline asm expression.
 ///
 bool VectorProcAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,

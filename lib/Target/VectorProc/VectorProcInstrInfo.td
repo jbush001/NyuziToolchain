@@ -418,8 +418,13 @@ def IFTRUE	: BranchInstruction<
 def ADDRri : ComplexPattern<iPTR, 2, "SelectADDRri", [frameindex], []>;
 
 def MEMri : Operand<iPTR> {
-  let PrintMethod = "printMemOperand";
-  let MIOperandInfo = (ops ptr_rc, i32imm);
+	let PrintMethod = "printMemOperand";
+	let MIOperandInfo = (ops ptr_rc, i32imm);
+}
+
+def ComputeFrameAddr : Operand<iPTR> {
+	let PrintMethod = "printComputeFrameAddr";
+	let MIOperandInfo = (ops ptr_rc, i32imm);
 }
 
 multiclass SCALAR_LOAD<string suffix, string regtype, PatFrag op>  {
@@ -590,11 +595,17 @@ def : Pat<(call texternalsym:$dst),
 
 def LoadLiteral : SDNode<"SPISD::LOAD_LITERAL", SDTIntUnaryOp>;
 
-def LEA : VPInstruction<
+def LOAD_GLOBAL_ADDR : VPInstruction<
 	(outs ScalarReg:$dest),
 	(ins Operand<iPTR>:$label),
 	"s$dest = &$label",
 	[(set i32:$dest, (LoadLiteral tglobaladdr:$label))]>;
+
+def LOAD_FRAME_ADDR : VPInstruction<
+	(outs ScalarReg:$dest),
+	(ins ComputeFrameAddr:$expr),
+	"s$dest = $expr",
+	[(set i32:$dest, ADDRri:$expr)]>;
 
 def LOAD_CPOOL_ADDR : VPInstruction<
 	(outs ScalarReg:$dest),
