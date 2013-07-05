@@ -29,7 +29,8 @@ namespace llvm {
 			RET_FLAG,    // Return with a flag operand.
 			SPLAT,			// Copy scalar register into all lanes of a vector
 			SEL_COND_RESULT,
-			WRAPPER			// Wraps an address, used for constant pool references
+			WRAPPER,		// Wraps an address, used for constant pool references
+			RECIPROCAL_EST
 		};
 	}
 
@@ -45,19 +46,12 @@ namespace llvm {
 		std::pair<unsigned, const TargetRegisterClass*>
 			getRegForInlineAsmConstraint(const std::string &Constraint, EVT VT) const;
 		virtual bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const;
-		virtual SDValue LowerFormalArguments(SDValue Chain,
-			CallingConv::ID CallConv,
-			bool isVarArg,
-			const SmallVectorImpl<ISD::InputArg> &Ins,
-			DebugLoc dl, SelectionDAG &DAG,
-			SmallVectorImpl<SDValue> &InVals) const;
 		SDValue LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
-		virtual SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
-			SmallVectorImpl<SDValue> &InVals) const;
+		SDValue LowerFDIV(SDValue Op, SelectionDAG &DAG) const;
 		EVT getSetCCResultType(EVT VT) const;
 		virtual SDValue LowerReturn(SDValue Chain,
 			CallingConv::ID CallConv, bool isVarArg,
@@ -65,6 +59,14 @@ namespace llvm {
 			const SmallVectorImpl<SDValue> &OutVals,
 			DebugLoc dl, SelectionDAG &DAG) const;
 		SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
+		virtual SDValue LowerFormalArguments(SDValue Chain,
+			CallingConv::ID CallConv,
+			bool isVarArg,
+			const SmallVectorImpl<ISD::InputArg> &Ins,
+			DebugLoc dl, SelectionDAG &DAG,
+			SmallVectorImpl<SDValue> &InVals) const;
+		virtual SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
+			SmallVectorImpl<SDValue> &InVals) const;
 		unsigned getSRetArgSize(SelectionDAG &DAG, SDValue Callee) const;
 	};
 } // end namespace llvm

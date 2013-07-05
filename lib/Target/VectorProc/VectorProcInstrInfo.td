@@ -11,10 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-
 def simm13  : PatLeaf<(imm), [{ return isInt<13>(N->getSExtValue()); }]>;
 def simm8  : PatLeaf<(imm), [{ return isInt<8>(N->getSExtValue()); }]>;
-
 
 class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
 	: Instruction {
@@ -28,13 +26,15 @@ class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern
 class Pseudo<dag outputs, dag inputs, string asmString, list<dag> pattern>
    : VPInstruction<outputs, inputs, asmString, pattern>;
 
-// A splat is a vector with the same value in all lanes. VectorProcTargetLowering takes
-// care of detecting this condition and converting it to a SPLAT node.
+// A splat is a vector with the same value in all lanes. VectorProcTargetLowering 
+// detects this condition and converts it to a SPLAT node.
 // Many instructions for this architecture can mix scalar and vector operands.  
 // This pattern allows us to detect that case and match it explicitly. 
 def splat : SDNode<"SPISD::SPLAT", SDTypeProfile<1, 1, [SDTCisEltOfVec<1, 0>]>>;
 
 def wrapper : SDNode<"SPISD::WRAPPER", SDTIntUnaryOp>;
+
+def reciprocal : SDNode<"SPISD::RECIPROCAL_EST", SDTFPUnaryOp>;
 
 multiclass VPInfixIntArith<string operator, SDNode OpNode> {
 	// Format A
@@ -167,7 +167,7 @@ multiclass VPFunctionalIntArith<string operator, SDNode OpNode> {
 	def V : VPInstruction<
 		(outs VectorReg:$dst), 
 		(ins VectorReg:$b),
-		"s$dst = " # operator # "(s$b)",
+		"v$dst = " # operator # "(v$b)",
 		[(set v16i32:$dst, (OpNode v16i32:$b))]>;
 
 	// Predicated
@@ -180,6 +180,28 @@ multiclass VPFunctionalIntArith<string operator, SDNode OpNode> {
 	}
 }
 
+multiclass VPFunctionalFloatArith<string operator, SDNode OpNode> {
+	def S : VPInstruction<
+		(outs ScalarReg:$dst), 
+		(ins ScalarReg:$b),
+		"f$dst = " # operator # "(f$b)",
+		[(set f32:$dst, (OpNode f32:$b))]>;
+
+	def V : VPInstruction<
+		(outs VectorReg:$dst), 
+		(ins VectorReg:$b),
+		"vf$dst = " # operator # "(vf$b)",
+		[(set v16f32:$dst, (OpNode v16f32:$b))]>;
+
+	// Predicated
+	let Constraints = "$dst = $oldvalue" in {
+		def VM : VPInstruction<
+			(outs VectorReg:$dst),
+			(ins ScalarReg:$mask, VectorReg:$src, VectorReg:$oldvalue),
+			"vf$dst{{s$mask}} = " # operator # "(vf$src)",
+			[(set v16f32:$dst, (vselect v16i1:$mask, (OpNode v16f32:$src), v16f32:$oldvalue))]>;
+	}
+}
 defm AND    : VPInfixIntArith<"&", and>;
 defm OR     : VPInfixIntArith<"|", or>;
 defm XOR    : VPInfixIntArith<"^", xor>;
@@ -196,6 +218,7 @@ defm CLZ 	: VPFunctionalIntArith<"clz", ctlz>;
 defm CTZ 	: VPFunctionalIntArith<"ctz", cttz>;
 defm CLZ_ZU	: VPFunctionalIntArith<"clz", ctlz_zero_undef>;
 defm CTZ_ZU	: VPFunctionalIntArith<"ctz", cttz_zero_undef>;
+defm RECIP  : VPFunctionalFloatArith<"reciprocal", reciprocal>;
 
 def SEXT16 : VPInstruction<
 		(outs ScalarReg:$dst), 
@@ -209,18 +232,30 @@ def SEXT8 : VPInstruction<
 		"s$dst = sext8(s$src)",
 		[(set ScalarReg:$dst, (sext_inreg i32:$src, i8))]>;
 
-// XXX need vector versions of these
+// XXX need predicated versions of these
 def SITOF : VPInstruction<
 			(outs ScalarReg:$dst), 
 			(ins ScalarReg:$src),
             "f$dst = itof(s$src)",
         	[(set f32:$dst, (sint_to_fp i32:$src))]>;
 
+def SITOFV : VPInstruction<
+			(outs VectorReg:$dst), 
+			(ins VectorReg:$src),
+            "vf$dst = itof(v$src)",
+        	[(set v16f32:$dst, (sint_to_fp v16i32:$src))]>;
+
 def FTOSI : VPInstruction<
 			(outs ScalarReg:$dst), 
 			(ins ScalarReg:$src),
         	"s$dst = ftoi(f$src)",
         	[(set i32:$dst, (fp_to_sint f32:$src))]>;
+
+def FTOSIV : VPInstruction<
+			(outs VectorReg:$dst), 
+			(ins VectorReg:$src),
+        	"v$dst = ftoi(vf$src)",
+        	[(set v16i32:$dst, (fp_to_sint v16f32:$src))]>;
 
 def MOVEREG : VPInstruction<
 			(outs ScalarReg:$dst), 

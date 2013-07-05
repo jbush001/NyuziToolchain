@@ -445,6 +445,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::SELECT_CC, MVT::v16f32, Custom);
 	setOperationAction(ISD::ConstantPool, MVT::i32, Custom);
 	setOperationAction(ISD::ConstantPool, MVT::f32, Custom);
+	setOperationAction(ISD::FDIV, MVT::f32, Custom);
+	setOperationAction(ISD::FDIV, MVT::v16f32, Custom);
 
 	setStackPointerRegisterToSaveRestore(SP::SP_REG);
 	setMinFunctionAlignment(2);
@@ -587,6 +589,56 @@ VectorProcTargetLowering::LowerConstantPool(SDValue Op, SelectionDAG &DAG) const
 	return DAG.getNode(SPISD::WRAPPER, dl, MVT::i32, Res);
 }
 
+// There is no native floating point division, but we can convert this to a 
+// reciprocal/multiply operation.  If the first parameter is constant 1.0, then 
+// just a reciprocal will suffice.
+SDValue VectorProcTargetLowering::
+LowerFDIV(SDValue Op, SelectionDAG &DAG) const
+{
+	DebugLoc dl = Op.getDebugLoc();
+	
+	EVT type = Op.getOperand(1).getValueType();
+
+	SDValue two = DAG.getConstantFP(2.0, type);
+	SDValue denom = Op.getOperand(1);
+	SDValue estimate = DAG.getNode(SPISD::RECIPROCAL_EST, dl, type, denom);
+	
+	// Perform a series of newton/raphson refinements.  Each iteration doubles
+	// the precision. The initial estimate has 6 bits of precision, so two iteration
+	// results in 24 bits, which is larger than the significand.
+	for (int i = 0; i < 2; i++)
+	{
+		// trial = x * estimate (ideally, x * 1/x should be 1.0)
+		// error = 2.0 - trial
+		// estimate = estimate * error
+		SDValue trial = DAG.getNode(ISD::FMUL, dl, type, estimate, denom);
+		SDValue error = DAG.getNode(ISD::FSUB, dl, type, two, trial);
+		estimate = DAG.getNode(ISD::FMUL, dl, type, estimate, error);
+	}
+
+	// Check if the first parameter is constant 1.0.  If so, we don't need
+	// to multiply.
+	bool isOne = false;
+	if (type.isVector())
+	{
+		if (isSplatVector(Op.getOperand(0).getNode()))
+		{
+			ConstantFPSDNode *C = dyn_cast<ConstantFPSDNode>(Op.getOperand(0).getOperand(0));
+			isOne = C && C->isExactlyValue(1.0);
+		}
+	}
+	else
+	{
+		ConstantFPSDNode *C = dyn_cast<ConstantFPSDNode>(Op.getOperand(0));
+		isOne = C && C->isExactlyValue(1.0);
+	}
+
+	if (!isOne)
+		estimate = DAG.getNode(ISD::FMUL, dl, type, Op.getOperand(0), estimate);
+
+	return estimate;
+}
+
 SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const 
 {
@@ -598,6 +650,7 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const
 		case ISD::INSERT_VECTOR_ELT: return LowerINSERT_VECTOR_ELT(Op, DAG);	
 		case ISD::SELECT_CC: return LowerSELECT_CC(Op, DAG);
 		case ISD::ConstantPool: return LowerConstantPool(Op, DAG);
+		case ISD::FDIV: return LowerFDIV(Op, DAG);
 		default:
 			llvm_unreachable("Should not custom lower this!");
 	}
