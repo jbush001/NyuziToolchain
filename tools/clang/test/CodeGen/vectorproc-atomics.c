@@ -3,13 +3,13 @@
 
 typedef int veci16 __attribute__((__vector_size__(16 * sizeof(float))));
 
-volatile veci16 lockvar;
+volatile int lockvar;
 
-void atomic_add(volatile veci16 *lockvar)
+void atomic_add(volatile int *lockvar)
 {
-	while (__sync_fetch_and_and(&lockvar, 1) != 0)
+	while (__sync_fetch_and_and(lockvar, 1) != 0)
 		;
 
-	; CHECK: = mem_sync[
-	; CHECK: mem_sync[
+	// CHECK: = mem_sync[
+	// CHECK: mem_sync[
 }
