@@ -71,7 +71,6 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 	MachineInstr &MI = *II;
 	DebugLoc dl = MI.getDebugLoc();
 	int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
-
 	MachineFunction &MF = *MI.getParent()->getParent();
 
 	// Round stack size to multiple of 64, consistent with frame pointer info.
