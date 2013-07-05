@@ -72,6 +72,7 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 	DebugLoc dl = MI.getDebugLoc();
 	int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
 	MachineFunction &MF = *MI.getParent()->getParent();
+	MachineFrameInfo *MFI = MF.getFrameInfo();
 
 	// Round stack size to multiple of 64, consistent with frame pointer info.
 	int stackSize = (MF.getFrameInfo()->getStackSize() + 63) & ~63;
@@ -82,11 +83,28 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 		+ MI.getOperand(FIOperandNum + 1).getImm() 
 		+ stackSize;
 
+	// Determine where callee saved registers live in the frame
+	const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
+	int MinCSFI = 0;
+	int MaxCSFI = -1;
+	if (CSI.size()) {
+		MinCSFI = CSI[0].getFrameIdx();
+		MaxCSFI = CSI[CSI.size() - 1].getFrameIdx();
+	}
+
+	// When we save callee saved registers (which includes FP), we must use
+	// the SP reg, because FP is not set up yet.
+	unsigned FrameReg;
+	if (FrameIndex >= MinCSFI && FrameIndex <= MaxCSFI)
+		FrameReg = SP::SP_REG;
+	else
+		FrameReg = getFrameRegister(MF);
+
 	// Replace frame index with a frame pointer reference.
 	if (Offset >= -4096 && Offset <= 4095) {
 		// If the offset is small enough to fit in the immediate field, directly
 		// encode it.
-		MI.getOperand(FIOperandNum).ChangeToRegister(SP::FP_REG, false);
+		MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, false);
 		MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
 	} else {
 		// XXX for large indices, need to load indirectly. Look at ARM.

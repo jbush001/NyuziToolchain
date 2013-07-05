@@ -51,6 +51,13 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const
 	// XXX we are not generating cfi_def_cfa_offset or cfo_offset, which would be needed
 	// for debug information.
 
+    // Find the instruction past the last instruction that saves a callee-saved
+    // register to the stack.  We need to set up FP after its old value has been
+    // saved.
+	const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
+	for (unsigned i = 0; i < CSI.size(); ++i)
+		++MBBI;
+
 	// fp = sp
 	BuildMI(MBB, MBBI, dl, TII.get(SP::MOVEREG)).addReg(SP::FP_REG)
 		.addReg(SP::SP_REG);

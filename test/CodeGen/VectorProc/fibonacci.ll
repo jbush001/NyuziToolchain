@@ -5,9 +5,9 @@ target triple = "vectorproc"
 define i32 @fib(i32 %a) #0 {	; CHECK: fib:
 entry:
 	; CHECK: s29 = s29 - 64
-	; CHECK: mem_l[s28 + {{[0-9]+}}] = s{{[0-9]+}}
-	; CHECK: mem_l[s28 + {{[0-9]+}}] = s{{[0-9]+}}
-	; CHECK: mem_l[s28 + {{[0-9]+}}] = s{{[0-9]+}}
+	; CHECK: mem_l[s29 + {{[0-9]+}}] = s{{[0-9]+}}
+	; CHECK: mem_l[s29 + {{[0-9]+}}] = s{{[0-9]+}}
+	; CHECK: mem_l[s29 + {{[0-9]+}}] = s{{[0-9]+}}
 
   %cmp = icmp sge i32 %a, 2				
   br i1 %cmp, label %if.then, label %return
@@ -28,9 +28,9 @@ if.then:
 return: 
   %0 = phi i32 [ %sum, %if.then ], [ %a, %entry ]
 
-	; CHECK: s{{[0-9]+}} = mem_l[s28 + {{[0-9]+}}] 
-	; CHECK: s{{[0-9]+}} = mem_l[s28 + {{[0-9]+}}]
-	; CHECK: s{{[0-9]+}} = mem_l[s28
+	; CHECK: s{{[0-9]+}} = mem_l[s29 + {{[0-9]+}}] 
+	; CHECK: s{{[0-9]+}} = mem_l[s29 + {{[0-9]+}}]
+	; CHECK: s{{[0-9]+}} = mem_l[s29
 	; CHECK: s29 = s29 + 64
 
   ret i32 %0
