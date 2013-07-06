@@ -1,15 +1,15 @@
 This is a port of LLVM and the clang compiler an experimental GPGPU architecture (https://github.com/jbush001/GPGPU). It's currently a work in progress and only partially functional.
 
-To build:
+## To build:
 
-1. Create a build directory outside the llvm/ directory (usually at the same level)
+### Create a build directory outside the llvm/ directory (usually at the same level)
 
 <pre>
 mkdir build
 cd build
 </pre>
 
-2. Configure and build:
+### Configure and build:
 
 <pre>
 cd build
@@ -17,20 +17,20 @@ cd build
 make
 </pre>
 
-To run (from within build directory)
+### To run compiler
 
 <pre>
 ./Debug+Asserts/bin/clang &lt;test_program.c&gt; -S -o -
 </pre>
 
-3. Running tests
+## Running unit tests
 
-* Switch to your *build* directory and cd into test/.  Type 'make'.  This will set up
+* Switch to *build* directory and cd into test/.  Type 'make'.  This will set up
 the configuration (it will try to run a bunch of tests, a bunch of which will fail.  
 It's okay to Ctrl-C at this point).
 * Same deal with clang.  From the top of the build directory, switch to tools/clang/test and
 type 'make'.
-* Change your PATH to include the binary directory (build/Debug+Asserts/bin) 
+* Change PATH environment variable to include the binary directory (build/Debug+Asserts/bin) 
 * From the top of the source (not build) directory, run:
 
 <pre>
@@ -38,10 +38,10 @@ type 'make'.
   llvm-lit tools/clang/test/CodeGen/vectorproc*
 </pre>
 
-4. To view DAGs graphically
+## To view DAGs graphically
 
-* Make sure GraphViz is in your path.  Run configure and build.
-* Generate LLVM IR code for your file:
+* Make sure GraphViz is in PATH.  Run configure and build.
+* Generate LLVM IR code for source file:
 
 <pre>
 ./Debug+Asserts/bin/clang branch.c -emit-llvm  -o branch.llvm -S
