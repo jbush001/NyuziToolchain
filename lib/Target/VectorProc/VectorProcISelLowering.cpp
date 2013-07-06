@@ -199,8 +199,12 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 	SmallVector<ISD::InputArg, 32> &Ins = CLI.Ins;
 	SDValue Chain = CLI.Chain;
 	SDValue Callee = CLI.Callee;
-	CallingConv::ID CallConv              = CLI.CallConv;
-	bool isVarArg                         = CLI.IsVarArg;
+	CallingConv::ID CallConv = CLI.CallConv;
+	bool isVarArg = CLI.IsVarArg;
+	
+	// We do not support tail calls. This flag must be cleared in order
+	// to indicate that to subsequent passes.
+	CLI.IsTailCall = false;
 
 	MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
 
