@@ -13,7 +13,7 @@ cd build
 
 <pre>
 cd build
-../llvm/configure --target=vectorproc-elf --prefix=/usr/local/gpgpu_toolchain/
+../llvm/configure --enable-targets=vectorproc --target=vectorproc-elf --prefix=/usr/local/gpgpu_toolchain/
 make
 </pre>
 
