@@ -13,33 +13,38 @@ cd build
 
 <pre>
 cd build
-../llvm/configure --enable-targets=vectorproc
+../llvm/configure --target=vectorproc-elf --prefix=/usr/local/gpgpu_toolchain/
 make
 </pre>
 
 To run (from within build directory)
 
 <pre>
-./Debug+Asserts/bin/clang -target vectorproc &lt;test_program.c&gt; -S -o -
+./Debug+Asserts/bin/clang &lt;test_program.c&gt; -S -o -
 </pre>
 
 3. Running tests
 
-* Put the output binaries (build/Debug+Asserts/bin) directory in your path
-* From the top of the source directory, run:
+* Switch to your *build* directory and cd into test/.  Type 'make'.  This will set up
+the configuration (it will try to run a bunch of tests, a bunch of which will fail.  
+It's okay to Ctrl-C at this point).
+* Same deal with clang.  From the top of the build directory, switch to tools/clang/test and
+type 'make'.
+* Change your PATH to include the binary directory (build/Debug+Asserts/bin) 
+* From the top of the source (not build) directory, run:
 
 <pre>
   llvm-lit test/CodeGen/VectorProc
   llvm-lit tools/clang/test/CodeGen/vectorproc*
 </pre>
 
-4. To view DAGs:
+4. To view DAGs graphically
 
 * Make sure GraphViz is in your path.  Run configure and build.
 * Generate LLVM IR code for your file:
 
 <pre>
-./Debug+Asserts/bin/clang  -target vectorproc branch.c -emit-llvm  -o branch.llvm -S
+./Debug+Asserts/bin/clang branch.c -emit-llvm  -o branch.llvm -S
 </pre>
 
 * Run llc on the code to view the output:
