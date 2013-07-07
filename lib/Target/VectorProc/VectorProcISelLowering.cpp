@@ -570,8 +570,8 @@ VectorProcTargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const
 }
 
 // The constant pool is currently only used for constant vectors.  The assembler
-// takes care of other values using a literal pool.  I would like to revisit this
-// and perhaps unify the mechanism.
+// takes care of other values using a literal pool. This needs to be cleaned up
+// and unified.
 SDValue 
 VectorProcTargetLowering::LowerConstantPool(SDValue Op, SelectionDAG &DAG) const 
 {
@@ -582,7 +582,7 @@ VectorProcTargetLowering::LowerConstantPool(SDValue Op, SelectionDAG &DAG) const
 	if (CP->isMachineConstantPoolEntry())
 	{
 		Res = DAG.getTargetConstantPool(CP->getMachineCPVal(), PtrVT,
-		CP->getAlignment());
+			CP->getAlignment());
 	}
 	else
 	{

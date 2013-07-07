@@ -101,7 +101,7 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 		FrameReg = getFrameRegister(MF);
 
 	// Replace frame index with a frame pointer reference.
-	if (Offset >= -4096 && Offset <= 4095) {
+	if (Offset >= -16384 && Offset <= 16384) {
 		// If the offset is small enough to fit in the immediate field, directly
 		// encode it.
 		MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, false);

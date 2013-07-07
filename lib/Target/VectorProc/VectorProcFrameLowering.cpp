@@ -99,7 +99,7 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
 	uint64_t StackSize = MFI->getStackSize();
 
 	StackSize = (StackSize + 63) & ~63;	// Round up to 64 bytes
-	assert(StackSize < 4096);	// XXX need to handle this.
+	assert(StackSize < 16384);	// XXX need to handle this.
 
 	if (StackSize != 0)
 	{

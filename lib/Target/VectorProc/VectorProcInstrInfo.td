@@ -140,14 +140,6 @@ def SHUFFLE : FormatAInst<
 	0x0d,
 	FmtA_VVV>;
 
-def LOADIMM : FormatBInst<
-	(outs ScalarReg:$dest),
-	(ins i32imm:$val),
-	"s$dest = $val",
-	[(set i32:$dest, imm:$val)],
-	0x0f,
-	FmtB_SS>;
-
 def CLONE_SCALARI : FormatAInst<
 	(outs VectorReg:$dest),
 	(ins ScalarReg:$src),
@@ -482,21 +474,35 @@ def GET_CURRENT_STRAND : FormatCUnmaskedInst<
 	FmtC_ControlReg,
 	1>;
 
-// These use the literal pool feature of the current assembler.  That doesn't 
-// exist with the integrated assembler, so this needs to be reimplemented within
-// LLVM
-def LOAD_GLOBAL_ADDR : VPInstruction<
-	(outs ScalarReg:$dest),
-	(ins Operand<iPTR>:$label),
-	"s$dest = &$label",
-	[(set i32:$dest, (LoadLiteral tglobaladdr:$label))]>;
-
+// $expr will actually expand to "fp + <offset>"
 def LOAD_FRAME_ADDR : VPInstruction<
 	(outs ScalarReg:$dest),
 	(ins ComputeFrameAddr:$expr),
 	"s$dest = $expr",
 	[(set i32:$dest, ADDRri:$expr)]>;
 
+// These use the literal pool feature of the current assembler.  That doesn't 
+// exist with the integrated assembler, so this needs to be reimplemented within
+// LLVM
+
+// The assembler will turn this into a load from the literal pool if the
+// size exceeds the instruction's immediate field.
+def LOADIMM : FormatBInst<
+	(outs ScalarReg:$dest),
+	(ins i32imm:$val),
+	"s$dest = $val",
+	[(set i32:$dest, imm:$val)],
+	0x0f,
+	FmtB_SS>;
+
+def LOAD_GLOBAL_ADDR : VPInstruction<
+	(outs ScalarReg:$dest),
+	(ins Operand<iPTR>:$label),
+	"s$dest = &$label",
+	[(set i32:$dest, (LoadLiteral tglobaladdr:$label))]>;
+
+// Address of object within constant pool (which right now will always be
+// a vector constant, since those are the only objects we put in constant pool).
 def LOAD_CPOOL_ADDR : VPInstruction<
 	(outs ScalarReg:$dest),
 	(ins Operand<iPTR>:$label),
