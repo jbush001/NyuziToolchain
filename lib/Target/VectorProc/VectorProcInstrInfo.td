@@ -51,35 +51,45 @@ def SEXT8 : FormatAInst<
 		FmtA_SSS>;
 
 // XXX need predicated versions of these
-def SITOF : VPInstruction<
+def SITOF : FormatAInst<
 			(outs ScalarReg:$dest), 
 			(ins ScalarReg:$src),
             "f$dest = itof(s$src)",
-        	[(set f32:$dest, (sint_to_fp i32:$src))]>;
+        	[(set f32:$dest, (sint_to_fp i32:$src))],
+        	0x2a,
+        	FmtA_SSS>;
 
-def SITOFV : VPInstruction<
+def SITOFV : FormatAInst<
 			(outs VectorReg:$dest), 
 			(ins VectorReg:$src),
             "vf$dest = itof(v$src)",
-        	[(set v16f32:$dest, (sint_to_fp v16i32:$src))]>;
+        	[(set v16f32:$dest, (sint_to_fp v16i32:$src))],
+        	0x2a,
+        	FmtA_VVV>;
 
-def FTOSI : VPInstruction<
+def FTOSI : FormatAInst<
 			(outs ScalarReg:$dest), 
 			(ins ScalarReg:$src),
         	"s$dest = ftoi(f$src)",
-        	[(set i32:$dest, (fp_to_sint f32:$src))]>;
+        	[(set i32:$dest, (fp_to_sint f32:$src))],
+        	0x1b,
+        	FmtA_SSS>;
 
-def FTOSIV : VPInstruction<
+def FTOSIV : FormatAInst<
 			(outs VectorReg:$dest), 
 			(ins VectorReg:$src),
         	"v$dest = ftoi(vf$src)",
-        	[(set v16i32:$dest, (fp_to_sint v16f32:$src))]>;
+        	[(set v16i32:$dest, (fp_to_sint v16f32:$src))],
+        	0x1b,
+        	FmtA_VVV>;
 
-def MOVEREG : VPInstruction<
+def MOVEREG : FormatAInst<
 			(outs ScalarReg:$dest), 
 			(ins ScalarReg:$src),
         	"s$dest = s$src",
-        	[]>;
+        	[],
+        	0x0f,
+        	FmtA_SSS>;
 
 defm SGTSI : IntCompareInst<">", "", SETGT, int_vp_mask_cmpi_sgt, 0x12>;	
 defm SGESI : IntCompareInst<">=", "", SETGE, int_vp_mask_cmpi_sge, 0x13>;
@@ -138,30 +148,38 @@ def LOADIMM : FormatBInst<
 	0x0f,
 	FmtB_SS>;
 
-def CLONE_SCALARI : VPInstruction<
+def CLONE_SCALARI : FormatAInst<
 	(outs VectorReg:$dest),
 	(ins ScalarReg:$src),
 	"v$dest = s$src",
-	[(set v16i32:$dest, (splat i32:$src))]>;
+	[(set v16i32:$dest, (splat i32:$src))],
+	0x0f,
+	FmtA_VVS>;
 
-def CLONE_SCALARF : VPInstruction<
+def CLONE_SCALARF : FormatAInst<
 	(outs VectorReg:$dest),
 	(ins ScalarReg:$src),
 	"vf$dest = f$src",
-	[(set v16f32:$dest, (splat f32:$src))]>;
+	[(set v16f32:$dest, (splat f32:$src))],
+	0x0f,
+	FmtA_VVS>;
 
 let Constraints = "$dest = $oldvalue" in {
-	def INSERT_VECTORI : VPInstruction<
+	def INSERT_VECTORI : FormatAInst<
 		(outs VectorReg:$dest),
 		(ins ScalarReg:$mask, ScalarReg:$newLane, VectorReg:$oldvalue),
 		"v$dest{{s$mask}} = s$newLane",
-		[(set v16i32:$dest, (vselect i32:$mask, (splat i32:$newLane), v16i32:$oldvalue))]>;
+		[(set v16i32:$dest, (vselect i32:$mask, (splat i32:$newLane), v16i32:$oldvalue))],
+		0x0f,
+		FmtA_VVS>;
 
-	def INSERT_VECTORF : VPInstruction<
+	def INSERT_VECTORF : FormatAInst<
 		(outs VectorReg:$dest),
 		(ins ScalarReg:$mask, ScalarReg:$newLane, VectorReg:$oldvalue),
 		"vf$dest{{s$mask}} = f$newLane",
-		[(set v16f32:$dest, (vselect i32:$mask, (splat f32:$newLane), v16f32:$oldvalue))]>;
+		[(set v16f32:$dest, (vselect i32:$mask, (splat f32:$newLane), v16f32:$oldvalue))],
+		0x0f,
+		FmtA_VVS>;
 }
 
 //////////////////////////////////////////////////////////////////
@@ -384,10 +402,10 @@ def callseq_end   : SDNode<"ISD::CALLSEQ_END",   SDT_SPCallSeqEnd,
                            [SDNPHasChain, SDNPSideEffect, SDNPOptInGlue, SDNPOutGlue]>;
 
 let Defs = [SP_REG], Uses = [SP_REG], hasSideEffects = 1 in {
-	def ADJCALLSTACKDOWN : VPInstruction<(outs), (ins i32imm:$amt),
+	def ADJCALLSTACKDOWN : Pseudo<(outs), (ins i32imm:$amt),
 								   "; ADJCALLSTACKDOWN $amt",
 								   [(callseq_start timm:$amt)]>;
-	def ADJCALLSTACKUP : VPInstruction<(outs), (ins i32imm:$amt1, i32imm:$amt2),
+	def ADJCALLSTACKUP : Pseudo<(outs), (ins i32imm:$amt1, i32imm:$amt2),
 								"; ADJCALLSTACKUP $amt1",
 								[(callseq_end timm:$amt1, timm:$amt2)]>;
 }
@@ -456,6 +474,14 @@ let usesCustomInserter = 1 in {
 // Misc 
 //////////////////////////////////////////////////////////////////
 
+def GET_CURRENT_STRAND : FormatCUnmaskedInst<
+	(outs ScalarReg:$dest),
+	(ins),
+	"s$dest = cr0",
+	[(set i32:$dest, (int_vp_get_current_strand))],
+	FmtC_ControlReg,
+	1>;
+
 // These use the literal pool feature of the current assembler.  That doesn't 
 // exist with the integrated assembler, so this needs to be reimplemented within
 // LLVM
@@ -476,9 +502,3 @@ def LOAD_CPOOL_ADDR : VPInstruction<
 	(ins Operand<iPTR>:$label),
 	"s$dest = &$label",
 	[(set i32:$dest, (wrapper tconstpool:$label))]>;
-
-def GET_CURRENT_STRAND : VPInstruction<
-	(outs ScalarReg:$dest),
-	(ins),
-	"s$dest = cr0",
-	[(set i32:$dest, (int_vp_get_current_strand))]>;
