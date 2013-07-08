@@ -23,7 +23,7 @@ define i32 @loadconsti_little() {	; CHECK: loadconsti_little
 ; turn into a load
 define i32 @loadconsti_big() {	; CHECK: loadconsti_big
   ret i32 -559038737
-	; CHECK: s{{[0-9]+}} = -559038737
+	; CHECK: s{{[0-9]+}} = mem_l[{{[A-Z0-9_a-z]+}}]
 }
 
 

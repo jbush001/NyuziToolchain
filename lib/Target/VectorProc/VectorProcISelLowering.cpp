@@ -450,6 +450,7 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::SELECT_CC, MVT::v16f32, Custom);
 	setOperationAction(ISD::ConstantPool, MVT::i32, Custom);
 	setOperationAction(ISD::ConstantPool, MVT::f32, Custom);
+	setOperationAction(ISD::Constant, MVT::i32, Custom);
 	setOperationAction(ISD::FDIV, MVT::f32, Custom);
 	setOperationAction(ISD::FDIV, MVT::v16f32, Custom);
 
@@ -590,11 +591,29 @@ VectorProcTargetLowering::LowerConstantPool(SDValue Op, SelectionDAG &DAG) const
 	return Res;
 }
 
+SDValue 
+VectorProcTargetLowering::LowerConstant(SDValue Op, SelectionDAG &DAG) const
+{
+	DebugLoc dl = Op.getDebugLoc();
+	EVT PtrVT = Op.getValueType();
+	ConstantSDNode *C = cast<ConstantSDNode>(Op);
+	if (C->getAPIntValue().abs().ult(0x4000))
+	{
+		// Don't need to convert to constant pool reference.  This will fit in
+		// the immediate field of a single instruction, sign extended (15 bits).
+		return SDValue();	
+	}
+		
+	SDValue CPIdx = DAG.getConstantPool(C->getConstantIntValue(), MVT::i32);
+	return DAG.getLoad(MVT::i32, dl, DAG.getEntryNode(), CPIdx,
+		MachinePointerInfo::getConstantPool(), false, false, false, 4);
+}
+
 // There is no native floating point division, but we can convert this to a 
 // reciprocal/multiply operation.  If the first parameter is constant 1.0, then 
 // just a reciprocal will suffice.
-SDValue VectorProcTargetLowering::
-LowerFDIV(SDValue Op, SelectionDAG &DAG) const
+SDValue 
+VectorProcTargetLowering::LowerFDIV(SDValue Op, SelectionDAG &DAG) const
 {
 	DebugLoc dl = Op.getDebugLoc();
 	
@@ -651,6 +670,7 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const
 		case ISD::INSERT_VECTOR_ELT: return LowerINSERT_VECTOR_ELT(Op, DAG);	
 		case ISD::SELECT_CC: return LowerSELECT_CC(Op, DAG);
 		case ISD::ConstantPool: return LowerConstantPool(Op, DAG);
+		case ISD::Constant: return LowerConstant(Op, DAG);
 		case ISD::FDIV: return LowerFDIV(Op, DAG);
 		default:
 			llvm_unreachable("Should not custom lower this!");

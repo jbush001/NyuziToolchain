@@ -50,6 +50,7 @@ namespace llvm {
 		SDValue LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
+		SDValue LowerConstant(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerFDIV(SDValue Op, SelectionDAG &DAG) const;
 		EVT getSetCCResultType(EVT VT) const;
 		virtual SDValue LowerReturn(SDValue Chain,
