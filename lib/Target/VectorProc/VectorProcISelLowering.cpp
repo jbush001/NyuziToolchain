@@ -16,6 +16,7 @@
 #include "VectorProcISelLowering.h"
 #include "VectorProcMachineFunctionInfo.h"
 #include "VectorProcTargetMachine.h"
+#include "VectorProcTargetLoweringObjectFile.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -420,7 +421,7 @@ VectorProcTargetLowering::getSRetArgSize(SelectionDAG &DAG, SDValue Callee) cons
 }
 
 VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
-	: TargetLowering(TM, new TargetLoweringObjectFileELF()) 
+	: TargetLowering(TM, new VectorProcTargetLoweringObjectFile()) 
 {
 	Subtarget = &TM.getSubtarget<VectorProcSubtarget>();
 
@@ -464,7 +465,6 @@ const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
 		case SPISD::LOAD_LITERAL: return "SPISD::LOAD_LITERAL";
 		case SPISD::SPLAT: return "SPISD::SPLAT";
 		case SPISD::SEL_COND_RESULT: return "SPISD::SEL_COND_RESULT";
-		case SPISD::WRAPPER: return "SPISD::WRAPPER";
 		default: return 0;
 	}
 }
@@ -569,9 +569,6 @@ VectorProcTargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const
 		Op.getOperand(2), Op.getOperand(3));
 }
 
-// The constant pool is currently only used for constant vectors.  The assembler
-// takes care of other values using a literal pool. This needs to be cleaned up
-// and unified.
 SDValue 
 VectorProcTargetLowering::LowerConstantPool(SDValue Op, SelectionDAG &DAG) const 
 {
@@ -590,7 +587,7 @@ VectorProcTargetLowering::LowerConstantPool(SDValue Op, SelectionDAG &DAG) const
 			CP->getAlignment());
 	}
 	
-	return DAG.getNode(SPISD::WRAPPER, dl, MVT::i32, Res);
+	return Res;
 }
 
 // There is no native floating point division, but we can convert this to a 

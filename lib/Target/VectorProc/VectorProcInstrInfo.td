@@ -501,10 +501,9 @@ def LOAD_GLOBAL_ADDR : VPInstruction<
 	"s$dest = &$label",
 	[(set i32:$dest, (LoadLiteral tglobaladdr:$label))]>;
 
-// Address of object within constant pool (which right now will always be
-// a vector constant, since those are the only objects we put in constant pool).
-def LOAD_CPOOL_ADDR : VPInstruction<
+def LOAD_CPOOLI : VPInstruction<
 	(outs ScalarReg:$dest),
 	(ins Operand<iPTR>:$label),
-	"s$dest = &$label",
-	[(set i32:$dest, (wrapper tconstpool:$label))]>;
+	"s$dest = mem_l[$label]",
+	[(set i32:$dest, (load tconstpool:$label))]>;
+

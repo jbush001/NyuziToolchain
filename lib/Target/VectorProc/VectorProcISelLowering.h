@@ -29,7 +29,6 @@ namespace llvm {
 			RET_FLAG,    // Return with a flag operand.
 			SPLAT,			// Copy scalar register into all lanes of a vector
 			SEL_COND_RESULT,
-			WRAPPER,		// Wraps an address, used for constant pool references
 			RECIPROCAL_EST
 		};
 	}
