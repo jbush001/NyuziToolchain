@@ -481,12 +481,15 @@ def LOAD_FRAME_ADDR : VPInstruction<
 	"s$dest = $expr",
 	[(set i32:$dest, ADDRri:$expr)]>;
 
-// These use the literal pool feature of the current assembler.  That doesn't 
-// exist with the integrated assembler, so this needs to be reimplemented within
-// LLVM
+def LOAD_CPOOLI : VPInstruction<
+	(outs ScalarReg:$dest),
+	(ins Operand<iPTR>:$label),
+	"s$dest = mem_l[$label]",
+	[(set i32:$dest, (load tconstpool:$label))]>;
 
-// The assembler will turn this into a load from the literal pool if the
-// size exceeds the instruction's immediate field.
+// This should only be invoked for types that will fit in the immediate field 
+// of the instruction.  The lowering code will transform other types into
+// constant pool loads.
 def LOADIMM : FormatBInst<
 	(outs ScalarReg:$dest),
 	(ins i32imm:$val),
@@ -494,16 +497,4 @@ def LOADIMM : FormatBInst<
 	[(set i32:$dest, imm:$val)],
 	0x0f,
 	FmtB_SS>;
-
-def LOAD_GLOBAL_ADDR : VPInstruction<
-	(outs ScalarReg:$dest),
-	(ins Operand<iPTR>:$label),
-	"s$dest = &$label",
-	[(set i32:$dest, (LoadLiteral tglobaladdr:$label))]>;
-
-def LOAD_CPOOLI : VPInstruction<
-	(outs ScalarReg:$dest),
-	(ins Operand<iPTR>:$label),
-	"s$dest = mem_l[$label]",
-	[(set i32:$dest, (load tconstpool:$label))]>;
 

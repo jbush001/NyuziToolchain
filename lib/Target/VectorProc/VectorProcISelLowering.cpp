@@ -470,14 +470,16 @@ const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
 	}
 }
 
-SDValue VectorProcTargetLowering::
-LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const
+// Global addresses are stored in the per-function constant pool.
+SDValue 
+VectorProcTargetLowering::LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const
 {
 	EVT PtrVT = getPointerTy();
 	DebugLoc dl = Op.getDebugLoc();
 	const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
-	SDValue GA = DAG.getTargetGlobalAddress(GV, dl, MVT::i32);
-	return DAG.getNode(SPISD::LOAD_LITERAL, dl, MVT::i32, GA);
+	SDValue CPIdx = DAG.getTargetConstantPool(GV, MVT::i32);
+	return DAG.getLoad(MVT::i32, dl, DAG.getEntryNode(), CPIdx,
+		MachinePointerInfo::getConstantPool(), false, false, false, 4);
 }
 
 /// isSplatVector - Returns true if N is a BUILD_VECTOR node whose elements are
