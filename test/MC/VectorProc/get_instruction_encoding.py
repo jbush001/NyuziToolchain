@@ -15,4 +15,4 @@ def make_a_instruction(fmt, opcode, dest, src1, src2, mask):
 	print make_encoding((6 << 29) | (fmt << 26) | (opcode << 20) | (src2 << 15) 
 		| (mask << 10) | (dest << 5) | src1)
 
-make_a_instruction(4, 0x20, 7, 8, 9, 0)
+make_a_instruction(5, 1, 13, 15, 16, 14)

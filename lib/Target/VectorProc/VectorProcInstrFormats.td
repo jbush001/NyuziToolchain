@@ -192,7 +192,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		def VVVM : FormatAMaskedTwoOpInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
-			operator # " $dest {{ $mask }}, $src1, $src2",
+			operator # ".mask $dest, $mask, $src1, $src2",
 			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src1, v16i32:$src2), v16i32:$oldvalue))],
 			opcode,
 			FmtA_VVVM>;
@@ -201,7 +201,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		def VVSM : FormatAMaskedTwoOpInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src1, ScalarReg:$src2, VectorReg:$oldvalue),
-			operator # " $dest {{ $mask }}, $src1, $src2",
+			operator # ".mask $dest, $mask, $src1, $src2",
 			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src1, (splat i32:$src2)), v16i32:$oldvalue))],
 			opcode,
 			FmtA_VVSM>;
@@ -240,7 +240,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		def VVIM : FormatBMaskedInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src1, i32imm:$imm, VectorReg:$oldvalue),
-			operator # " $dest {{ $mask }}, $src1, $imm",
+			operator # ".mask $dest, $mask, $src1, $imm",
 			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src1, (splat simm8:$imm)), v16i32:$oldvalue))],
 			opcode{4-0},
 			FmtB_VVM>;
@@ -249,7 +249,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		def VSIM : FormatBMaskedInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, ScalarReg:$src1, i32imm:$imm, VectorReg:$oldvalue),
-			operator # " $dest {{ $mask }}, $src1, $imm",
+			operator # ".mask $dest, $mask, $src1, $imm",
 			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode (splat i32:$src1), (splat simm8:$imm)), v16i32:$oldvalue))],
 			opcode{4-0},
 			FmtB_VSM>;
@@ -291,7 +291,7 @@ multiclass TwoOpFloatArith<string operator, SDNode OpNode, bits<6> opcode>
 		def VVVM : FormatAMaskedTwoOpInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
-			operator # " $dest {{ $mask }}, $src1, $src2",
+			operator # ".mask $dest, $mask, $src1, $src2",
 			[(set VectorReg:$dest, (vselect v16i1:$mask, (OpNode v16f32:$src1, 
 				v16f32:$src2), v16f32:$oldvalue))],
 			opcode,
@@ -301,7 +301,7 @@ multiclass TwoOpFloatArith<string operator, SDNode OpNode, bits<6> opcode>
 		def VVSM : FormatAMaskedTwoOpInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src1, ScalarReg:$src2, VectorReg:$oldvalue),
-			operator # " $dest {{ $mask }}, $src1, $src2",
+			operator # ".mask $dest, $mask, $src1, $src2",
 			[(set v16f32:$dest, (vselect v16i1:$mask, (OpNode v16f32:$src1, 
 				(splat f32:$src2)), v16f32:$oldvalue))],
 			opcode,
@@ -331,7 +331,7 @@ multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		def VM : FormatAInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src, VectorReg:$oldvalue),
-			operator # " $dest {{ $mask }}, $src",
+			operator # ".mask $dest, $mask, $src",
 			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src), v16i32:$oldvalue))],
 			opcode,
 			FmtA_VVVM>;
@@ -360,7 +360,7 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
 		def VM : FormatAInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$oldvalue),
-			operator # " $dest {{ $mask }}, $src1",
+			operator # ".mask $dest, $mask, $src1",
 			[(set v16f32:$dest, (vselect v16i1:$mask, (OpNode v16f32:$src1), v16f32:$oldvalue))],
 			opcode,
 			FmtA_VVVM>;

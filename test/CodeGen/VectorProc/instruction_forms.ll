@@ -21,7 +21,7 @@ define <16 x i32> @ivvvm(<16 x i32> %a, <16 x i32> %b) { ; CHECK: ivvvm:
 	%newval = add <16 x i32> %a, %b
 	%z = select <16 x i1> %mask, <16 x i32> %newval, <16 x i32> %a
 
-	; CHECK: add.i v{{[0-9]+}} { s{{[0-9]+}} }, v{{[0-9]+}}, v{{[0-9]+}}
+	; CHECK: add.i.mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
 	
 	ret <16 x i32> %z
 }
@@ -42,7 +42,7 @@ define <16 x i32> @ivvim(<16 x i32> %a, <16 x i32> %b) {	; CHECK: ivvim:
 	    i32 48, i32 48, i32 48, i32 48, i32 48, i32 48, i32 48, i32 48, i32 48>
 	%z = select <16 x i1> %mask, <16 x i32> %sum, <16 x i32> %a
 
-	; CHECK: add.i v{{[0-9]+}} { s{{[0-9]+}} }, v{{[0-9]+}}, 48
+	; CHECK: add.i.mask v{{[0-9]+}}, s{{[0-9]+}}, v{{[0-9]+}}, 48
 
 	ret <16 x i32> %z
 }
@@ -80,7 +80,7 @@ define <16 x float> @fvvsm(<16 x float> %a, float %b, <16 x float> %c) { ; CHECK
 	%sum = fadd <16 x float> %a, %splat
 	%z = select <16 x i1> %mask, <16 x float> %sum, <16 x float> %a
 
-	; CHECK: add.f v{{[0-9]+}} { s{{[0-9]}} }, v0, s0
+	; CHECK: add.f.mask v{{[0-9]+}}, s{{[0-9]}}, v0, s0
 
 	ret <16 x float> %z
 }
