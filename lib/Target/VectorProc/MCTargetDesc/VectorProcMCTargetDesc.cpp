@@ -72,6 +72,8 @@ extern "C" void LLVMInitializeVectorProcTargetMC() {
   // Register the MC register info.
   TargetRegistry::RegisterMCRegInfo(TheVectorProcTarget, createVectorProcMCRegisterInfo);
 
+  TargetRegistry::RegisterMCCodeEmitter(TheVectorProcTarget, createVectorProcMCCodeEmitter);
+
   // Register the MC subtarget info.
   TargetRegistry::RegisterMCSubtargetInfo(TheVectorProcTarget,
                                           createVectorProcMCSubtargetInfo);

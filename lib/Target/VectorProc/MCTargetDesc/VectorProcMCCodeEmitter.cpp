@@ -86,8 +86,6 @@ MCCodeEmitter *llvm::createVectorProcMCCodeEmitter(const MCInstrInfo &MCII,
                                              const MCSubtargetInfo &STI,
                                              MCContext &Ctx) {
 
-  dbgs() << "createVectorProcMCCodeEmitter\n";
-
   return new VectorProcMCCodeEmitter(MCII, STI, Ctx);
 }
 
@@ -96,8 +94,6 @@ MCCodeEmitter *llvm::createVectorProcMCCodeEmitter(const MCInstrInfo &MCII,
 unsigned VectorProcMCCodeEmitter::
 getMachineOpValue(const MCInst &MI, const MCOperand &MO,
                   SmallVectorImpl<MCFixup> &Fixups) const {
-
-  dbgs() << "getMachineOpValue\n";
 
   if (MO.isReg())
     return Ctx.getRegisterInfo().getEncodingValue(MO.getReg());
@@ -143,8 +139,6 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
 void VectorProcMCCodeEmitter::
 EncodeInstruction(const MCInst &MI, raw_ostream &OS,
                          SmallVectorImpl<MCFixup> &Fixups) const {
-  dbgs() << "EncodeInstruction\n";
-
   unsigned Opcode = MI.getOpcode();
   const MCInstrDesc &Desc = MCII.get(Opcode);
   // Keep track of the current byte being emitted
