@@ -30,7 +30,7 @@ using namespace llvm;
 
 VectorProcRegisterInfo::VectorProcRegisterInfo(VectorProcSubtarget &st,
 	const TargetInstrInfo &tii)
-	: VectorProcGenRegisterInfo(SP::FP_REG), Subtarget(st), TII(tii) 
+	: VectorProcGenRegisterInfo(VectorProc::FP_REG), Subtarget(st), TII(tii) 
 {
 }
 
@@ -48,17 +48,17 @@ const uint32_t* VectorProcRegisterInfo::getCallPreservedMask(CallingConv::ID) co
 
 BitVector VectorProcRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
-  Reserved.set(SP::SP_REG);
-  Reserved.set(SP::LINK_REG);
-  Reserved.set(SP::PC_REG);
-  Reserved.set(SP::FP_REG);
+  Reserved.set(VectorProc::SP_REG);
+  Reserved.set(VectorProc::LINK_REG);
+  Reserved.set(VectorProc::PC_REG);
+  Reserved.set(VectorProc::FP_REG);
   return Reserved;
 }
 
 const TargetRegisterClass*
 VectorProcRegisterInfo::getPointerRegClass(const MachineFunction &MF,
 	unsigned Kind) const {
-	return &SP::ScalarRegRegClass;
+	return &VectorProc::ScalarRegRegClass;
 }
 
 void
@@ -96,7 +96,7 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 	// the SP reg, because FP is not set up yet.
 	unsigned FrameReg;
 	if (FrameIndex >= MinCSFI && FrameIndex <= MaxCSFI)
-		FrameReg = SP::SP_REG;
+		FrameReg = VectorProc::SP_REG;
 	else
 		FrameReg = getFrameRegister(MF);
 
@@ -114,7 +114,7 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
 unsigned VectorProcRegisterInfo::getFrameRegister(const MachineFunction &MF) const 
 {
-	return SP::FP_REG;
+	return VectorProc::FP_REG;
 }
 
 unsigned VectorProcRegisterInfo::getEHExceptionRegister() const 

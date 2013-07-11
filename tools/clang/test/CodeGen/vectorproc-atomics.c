@@ -10,6 +10,6 @@ void atomic_add(volatile int *lockvar)
 	while (__sync_fetch_and_and(lockvar, 1) != 0)
 		;
 
-	// CHECK: = mem_sync[
-	// CHECK: mem_sync[
+	// CHECK: load.sync
+	// CHECK: store.sync
 }

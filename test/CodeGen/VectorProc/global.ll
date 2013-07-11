@@ -6,21 +6,20 @@ target triple = "vectorproc"
 @bar = global i32 13, align 4
 
 ; These are emitted into the constant pool
-; CHECK: [[FOO_LBL:[0-9A-Za-z_]+]]: 
+; CHECK: [[FOO_LBL:LCP[0-9A-Za-z_]+]]: 
 ; CHECK: .word foo
-; CHECK: [[BAR_LBL:[0-9A-Za-z_]+]]: 
+; CHECK: [[BAR_LBL:LCP[0-9A-Za-z_]+]]: 
 ; CHECK: .word bar
 
 define void @test() #0 {
-  %1 = load i32* @foo, align 4
+	%1 = load i32* @foo, align 4
+	store i32 %1, i32* @bar, align 4
 
-; CHECK: s[[FOO_REG:[0-9]+]] = mem_l{{[\[]}}[[FOO_LBL]]
-; CHECK: = mem_l[s[[FOO_REG]]]
+	; CHECK: load.32 [[FOO_PTR:s[0-9]+]], [[FOO_LBL]]
+	; CHECK: load.32 {{s[0-9]+}}, ([[FOO_PTR]])
+	; CHECK: load.32 [[BAR_PTR:s[0-9]+]], [[BAR_LBL]]
+	; CHECK: store.32 {{s[0-9]+}}, ([[BAR_PTR]])
 
-  store i32 %1, i32* @bar, align 4
 
-; CHECK: s[[BAR_REG:[0-9]+]] = mem_l{{[\[]}}[[BAR_LBL]]
-; CHECK: mem_l[s[[BAR_REG]]] =
-
-  ret void
+	ret void
 }

@@ -32,19 +32,14 @@ include "VectorProcInstrInfo.td"
 
 def VectorProcInstrInfo : InstrInfo;
 
-//===----------------------------------------------------------------------===//
-// VECTORPROC processors supported.
-//===----------------------------------------------------------------------===//
+def VectorProcAsmParser : AsmParser {
+  let ShouldEmitMatchRegisterName = 0;
+}
 
 class Proc<string Name, list<SubtargetFeature> Features>
  : Processor<Name, NoItineraries, Features>;
 
 def : Proc<"generic",         []>;
-
-
-//===----------------------------------------------------------------------===//
-// Declare the target which we are implementing
-//===----------------------------------------------------------------------===//
 
 def VectorProc : Target {
   // Pull in Instruction Info:

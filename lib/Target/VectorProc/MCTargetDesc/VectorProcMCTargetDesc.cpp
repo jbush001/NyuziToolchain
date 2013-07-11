@@ -39,7 +39,7 @@ static MCInstrInfo *createVectorProcMCInstrInfo() {
 
 static MCRegisterInfo *createVectorProcMCRegisterInfo(StringRef TT) {
   MCRegisterInfo *X = new MCRegisterInfo();
-  InitVectorProcMCRegisterInfo(X, SP::S28);
+  InitVectorProcMCRegisterInfo(X, VectorProc::FP_REG);
   return X;
 }
 

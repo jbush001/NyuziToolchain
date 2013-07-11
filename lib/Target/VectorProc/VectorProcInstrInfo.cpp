@@ -30,7 +30,7 @@
 using namespace llvm;
 
 VectorProcInstrInfo::VectorProcInstrInfo(VectorProcSubtarget &ST)
-  : VectorProcGenInstrInfo(SP::ADJCALLSTACKDOWN, SP::ADJCALLSTACKUP),
+  : VectorProcGenInstrInfo(VectorProc::ADJCALLSTACKDOWN, VectorProc::ADJCALLSTACKUP),
     RI(ST, *this), Subtarget(ST) {
 }
 
@@ -41,9 +41,9 @@ VectorProcInstrInfo::VectorProcInstrInfo(VectorProcSubtarget &ST)
 /// any side effects other than loading from the stack slot.
 unsigned VectorProcInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
                                              int &FrameIndex) const {
-	if (MI->getOpcode() == SP::LWi || MI->getOpcode() == SP::LWf
-		|| MI->getOpcode() == SP::BLOCK_LOADI
-		|| MI->getOpcode() == SP::BLOCK_LOADF) {
+	if (MI->getOpcode() == VectorProc::LWi || MI->getOpcode() == VectorProc::LWf
+		|| MI->getOpcode() == VectorProc::BLOCK_LOADI
+		|| MI->getOpcode() == VectorProc::BLOCK_LOADF) {
 		if (MI->getOperand(1).isFI() && MI->getOperand(2).isImm() &&
 			MI->getOperand(2).getImm() == 0) {
 			FrameIndex = MI->getOperand(1).getIndex();
@@ -61,9 +61,9 @@ unsigned VectorProcInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
 /// any side effects other than storing to the stack slot.
 unsigned VectorProcInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
 	int &FrameIndex) const {
-	if (MI->getOpcode() == SP::SWi || MI->getOpcode() == SP::SWf
-		|| MI->getOpcode() == SP::BLOCK_STOREI
-		|| MI->getOpcode() == SP::BLOCK_STOREF) {
+	if (MI->getOpcode() == VectorProc::SWi || MI->getOpcode() == VectorProc::SWf
+		|| MI->getOpcode() == VectorProc::BLOCK_STOREI
+		|| MI->getOpcode() == VectorProc::BLOCK_STOREF) {
 		if (MI->getOperand(0).isFI() && MI->getOperand(1).isImm() &&
 			MI->getOperand(1).getImm() == 0) {
 			FrameIndex = MI->getOperand(0).getIndex();
@@ -80,7 +80,7 @@ VectorProcInstrInfo::emitFrameIndexDebugValue(MachineFunction &MF,
                                          uint64_t Offset,
                                          const MDNode *MDPtr,
                                          DebugLoc dl) const {
-	MachineInstrBuilder MIB = BuildMI(MF, dl, get(SP::DBG_VALUE))
+	MachineInstrBuilder MIB = BuildMI(MF, dl, get(VectorProc::DBG_VALUE))
 		.addFrameIndex(FrameIx).addImm(0).addImm(Offset).addMetadata(MDPtr);
 
 	return &*MIB;
@@ -114,7 +114,7 @@ void VectorProcInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                  unsigned DestReg, unsigned SrcReg,
                                  bool KillSrc) const 
 {
-	BuildMI(MBB, I, DL, get(SP::MOVEREG), DestReg).addReg(SrcReg, 
+	BuildMI(MBB, I, DL, get(VectorProc::MOVEREG), DestReg).addReg(SrcReg, 
 		getKillRegState(KillSrc));
 }
 
@@ -142,10 +142,10 @@ storeRegToStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
 	MachineMemOperand *MMO = GetMemOperand(MBB, FI, MachineMemOperand::MOStore);
 	unsigned Opc = 0;
 
-	if (SP::ScalarRegRegClass.hasSubClassEq(RC))
-		Opc = SP::SWi;
-	else if (SP::VectorRegRegClass.hasSubClassEq(RC))
-		Opc = SP::BLOCK_STOREI;
+	if (VectorProc::ScalarRegRegClass.hasSubClassEq(RC))
+		Opc = VectorProc::SWi;
+	else if (VectorProc::VectorRegRegClass.hasSubClassEq(RC))
+		Opc = VectorProc::BLOCK_STOREI;
 	else
 		llvm_unreachable("unknown register class in storeRegToStack");
 
@@ -164,10 +164,10 @@ loadRegFromStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
 	MachineMemOperand *MMO = GetMemOperand(MBB, FI, MachineMemOperand::MOLoad);
 	unsigned Opc = 0;
 
-	if (SP::ScalarRegRegClass.hasSubClassEq(RC))
-		Opc = SP::LWi;
-	else if (SP::VectorRegRegClass.hasSubClassEq(RC))
-		Opc = SP::BLOCK_LOADI;
+	if (VectorProc::ScalarRegRegClass.hasSubClassEq(RC))
+		Opc = VectorProc::LWi;
+	else if (VectorProc::VectorRegRegClass.hasSubClassEq(RC))
+		Opc = VectorProc::BLOCK_LOADI;
 	else
 		llvm_unreachable("unknown register class in storeRegToStack");
 
@@ -187,7 +187,7 @@ unsigned VectorProcInstrInfo::getGlobalBaseReg(MachineFunction *MF) const
 	MachineBasicBlock::iterator MBBI = FirstMBB.begin();
 	MachineRegisterInfo &RegInfo = MF->getRegInfo();
 
-	GlobalBaseReg = RegInfo.createVirtualRegister(&SP::ScalarRegRegClass);
+	GlobalBaseReg = RegInfo.createVirtualRegister(&VectorProc::ScalarRegRegClass);
 
 	return GlobalBaseReg;
 }

@@ -23,24 +23,25 @@ def brtarget : Operand<OtherVT>;
 // detects this condition and converts it to a SPLAT node.
 // Many instructions for this architecture can mix scalar and vector operands.  
 // This pattern allows us to detect that case and match it explicitly. 
-def splat : SDNode<"SPISD::SPLAT", SDTypeProfile<1, 1, [SDTCisEltOfVec<1, 0>]>>;
+def splat : SDNode<"VectorProcISD::SPLAT", SDTypeProfile<1, 1, [SDTCisEltOfVec<1, 0>]>>;
 
-def wrapper : SDNode<"SPISD::WRAPPER", SDTIntUnaryOp>;
+def wrapper : SDNode<"VectorProcISD::WRAPPER", SDTIntUnaryOp>;
 
-def reciprocal : SDNode<"SPISD::RECIPROCAL_EST", SDTFPUnaryOp>;
+def reciprocal : SDNode<"VectorProcISD::RECIPROCAL_EST", SDTFPUnaryOp>;
 
-def LoadLiteral : SDNode<"SPISD::LOAD_LITERAL", SDTIntUnaryOp>;
+def LoadLiteral : SDNode<"VectorProcISD::LOAD_LITERAL", SDTIntUnaryOp>;
 
 def ADDRri : ComplexPattern<iPTR, 2, "SelectADDRri", [frameindex], []>;
 
 def MEMri : Operand<iPTR> {
 	let PrintMethod = "printMemOperand";
-	let MIOperandInfo = (ops ptr_rc, i32imm);
+	let MIOperandInfo = (ops ScalarReg, i32imm);
 }
 
+// XXX may be able to merge into MEMri
 def ComputeFrameAddr : Operand<iPTR> {
 	let PrintMethod = "printComputeFrameAddr";
-	let MIOperandInfo = (ops ptr_rc, i32imm);
+	let MIOperandInfo = (ops ScalarReg, i32imm);
 }
 
 //
@@ -50,7 +51,7 @@ def ComputeFrameAddr : Operand<iPTR> {
 class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
 	: Instruction 
 {
-	let Namespace = "SP";
+	let Namespace = "VectorProc";
 	dag OutOperandList = outputs;
 	dag InOperandList = inputs;
 	let AsmString = asmString;
@@ -61,7 +62,15 @@ class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern
 }
 
 class Pseudo<dag outputs, dag inputs, string asmString, list<dag> pattern>
-   : VPInstruction<outputs, inputs, asmString, pattern>;
+	: Instruction
+{
+	let Namespace = "VectorProc";
+	dag OutOperandList = outputs;
+	dag InOperandList = inputs;
+	let Pattern = pattern;
+	let isCodeGenOnly = 1;
+	let isPseudo = 1;
+}
 
 class AFmt<bits<3> val> {
 	bits<3> Value = val;
@@ -134,13 +143,13 @@ class FormatBUnmaskedInst<dag outputs, dag inputs, string asmString, list<dag> p
 	let Inst{22-10} = imm;
 }
 
-multiclass InfixIntArithInst<string operator, SDNode OpNode, bits<6> opcode> {
+multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 	// Format A
 	// Scalar = Scalar Op Scalar
 	def SSS : FormatAInst<
 		(outs ScalarReg:$dest), 
 		(ins ScalarReg:$b, ScalarReg:$c),
-		"s$dest = s$b " # operator # " s$c",
+		operator # " $dest, $b, $c",
 		[(set i32:$dest, (OpNode i32:$b, i32:$c))],
 		opcode,
 		FmtA_SSS>;
@@ -149,7 +158,7 @@ multiclass InfixIntArithInst<string operator, SDNode OpNode, bits<6> opcode> {
 	def VVV : FormatAInst<
 		(outs VectorReg:$dest), 
 		(ins VectorReg:$b, VectorReg:$c),
-		"v$dest = v$b " # operator # " v$c",
+		operator # " $dest, $b, $c",
 		[(set v16i32:$dest, (OpNode v16i32:$b, v16i32:$c))],
 		opcode,
 		FmtA_VVV>;
@@ -158,7 +167,7 @@ multiclass InfixIntArithInst<string operator, SDNode OpNode, bits<6> opcode> {
 	def VVS : FormatAInst<
 		(outs VectorReg:$dest), 
 		(ins VectorReg:$b, ScalarReg:$c),
-		"v$dest = v$b " # operator # " s$c",
+		operator # " $dest, $b, $c",
 		[(set v16i32:$dest, (OpNode v16i32:$b, (splat i32:$c)))],
 		opcode,
 		FmtA_VVS>;
@@ -168,7 +177,7 @@ multiclass InfixIntArithInst<string operator, SDNode OpNode, bits<6> opcode> {
 		def VVVM : FormatAInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
-			"v$dest{{s$mask}} = v$src1 " # operator # " v$src2",
+			operator # " $dest {{ $mask }}, $src1, $src2",
 			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src1, v16i32:$src2), v16i32:$oldvalue))],
 			opcode,
 			FmtA_VVVM>;
@@ -177,7 +186,7 @@ multiclass InfixIntArithInst<string operator, SDNode OpNode, bits<6> opcode> {
 		def VVSM : FormatAInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src1, ScalarReg:$src2, VectorReg:$oldvalue),
-			"v$dest{{s$mask}} = v$src1 " # operator # " s$src2",
+			operator # " $dest {{ $mask }}, $src1, $src2",
 			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src1, (splat i32:$src2)), v16i32:$oldvalue))],
 			opcode,
 			FmtA_VVSM>;
@@ -188,7 +197,7 @@ multiclass InfixIntArithInst<string operator, SDNode OpNode, bits<6> opcode> {
 	def SSI : FormatBUnmaskedInst<
 		(outs ScalarReg:$dest), 
 		(ins ScalarReg:$b, i32imm:$c),
-		"s$dest = s$b " # operator # " $c",
+		operator # " $dest, $b, $c",
 		[(set i32:$dest, (OpNode i32:$b, (i32 simm13:$c)))],
 		opcode{4-0},
 		FmtB_SS>;
@@ -197,7 +206,7 @@ multiclass InfixIntArithInst<string operator, SDNode OpNode, bits<6> opcode> {
 	def VVI : FormatBUnmaskedInst<
 		(outs VectorReg:$dest), 
 		(ins VectorReg:$b, i32imm:$c),
-		"v$dest = v$b " # operator # " $c",
+		operator # " $dest, $b, $c",
 		[(set v16i32:$dest, (OpNode v16i32:$b, (splat simm13:$c)))],
 		opcode{4-0},
 		FmtB_VV>;
@@ -206,7 +215,7 @@ multiclass InfixIntArithInst<string operator, SDNode OpNode, bits<6> opcode> {
 	def VSI : FormatBUnmaskedInst<
 		(outs VectorReg:$dest), 
 		(ins ScalarReg:$b, i32imm:$c),
-		"v$dest = s$b " # operator # " $c",
+		operator # " $dest, $b, $c",
 		[(set v16i32:$dest, (OpNode (splat i32:$b), (splat simm13:$c)))],
 		opcode{4-0},
 		FmtB_VS>;
@@ -216,7 +225,7 @@ multiclass InfixIntArithInst<string operator, SDNode OpNode, bits<6> opcode> {
 		def VVIM : FormatBMaskedInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src1, i32imm:$imm, VectorReg:$oldvalue),
-			"v$dest{{s$mask}} = v$src1 " # operator # " $imm",
+			operator # " $dest {{ $mask }}, $src1, $imm",
 			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src1, (splat simm8:$imm)), v16i32:$oldvalue))],
 			opcode{4-0},
 			FmtB_VVM>;
@@ -225,20 +234,20 @@ multiclass InfixIntArithInst<string operator, SDNode OpNode, bits<6> opcode> {
 		def VSIM : FormatBMaskedInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, ScalarReg:$src1, i32imm:$imm, VectorReg:$oldvalue),
-			"v$dest{{s$mask}} = v$src1 " # operator # " $imm",
+			operator # " $dest {{ $mask }}, $src1, $imm",
 			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode (splat i32:$src1), (splat simm8:$imm)), v16i32:$oldvalue))],
 			opcode{4-0},
 			FmtB_VSM>;
 	}
 }
 
-multiclass InfixFloatArithInst<string operator, SDNode OpNode, bits<6> opcode> 
+multiclass TwoOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> 
 {
 	// Scalar = Scalar Op Scalar
 	def SSS : FormatAInst<
 		(outs ScalarReg:$dest), 
 		(ins ScalarReg:$b, ScalarReg:$c),
-		"f$dest = f$b " # operator # " f$c",
+		operator # " $dest, $b, $c",
 		[(set ScalarReg:$dest, (OpNode f32:$b, f32:$c))],
 		opcode,
 		FmtA_SSS>;
@@ -247,7 +256,7 @@ multiclass InfixFloatArithInst<string operator, SDNode OpNode, bits<6> opcode>
 	def VVV : FormatAInst<
 		(outs VectorReg:$dest), 
 		(ins VectorReg:$b, VectorReg:$c),
-		"vf$dest = vf$b " # operator # " vf$c",
+		operator # " $dest, $b, $c",
 		[(set VectorReg:$dest, (OpNode v16f32:$b, v16f32:$c))],
 		opcode,
 		FmtA_VVV>;
@@ -256,7 +265,7 @@ multiclass InfixFloatArithInst<string operator, SDNode OpNode, bits<6> opcode>
 	def VVS : FormatAInst<
 		(outs VectorReg:$dest), 
 		(ins VectorReg:$b, ScalarReg:$c),
-		"vf$dest = vf$b " # operator # " f$c",
+		operator # " $dest, $b, $c",
 		[(set VectorReg:$dest, (OpNode v16f32:$b, (splat f32:$c)))],
 		opcode,
 		FmtA_VVS>;
@@ -267,7 +276,7 @@ multiclass InfixFloatArithInst<string operator, SDNode OpNode, bits<6> opcode>
 		def VVVM : FormatAInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
-			"vf$dest{{s$mask}} = vf$src1 " # operator # " vf$src2",
+			operator # " $dest {{ $mask }}, $src1, $src2",
 			[(set VectorReg:$dest, (vselect v16i1:$mask, (OpNode v16f32:$src1, 
 				v16f32:$src2), v16f32:$oldvalue))],
 			opcode,
@@ -277,7 +286,7 @@ multiclass InfixFloatArithInst<string operator, SDNode OpNode, bits<6> opcode>
 		def VVSM : FormatAInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src1, ScalarReg:$src2, VectorReg:$oldvalue),
-			"vf$dest{{s$mask}} = vf$src1 " # operator # " f$src2",
+			operator # " $dest {{ $mask }}, $src1, $src2",
 			[(set v16f32:$dest, (vselect v16i1:$mask, (OpNode v16f32:$src1, 
 				(splat f32:$src2)), v16f32:$oldvalue))],
 			opcode,
@@ -285,11 +294,11 @@ multiclass InfixFloatArithInst<string operator, SDNode OpNode, bits<6> opcode>
 	}
 }
 
-multiclass FunctionalIntArithInst<string operator, SDNode OpNode, bits<6> opcode> {
+multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 	def S : FormatAInst<
 		(outs ScalarReg:$dest), 
 		(ins ScalarReg:$b),
-		"s$dest = " # operator # "(s$b)",
+		operator # " $dest, $b",
 		[(set i32:$dest, (OpNode i32:$b))],
 		opcode,
 		FmtA_SSS>;
@@ -297,7 +306,7 @@ multiclass FunctionalIntArithInst<string operator, SDNode OpNode, bits<6> opcode
 	def V : FormatAInst<
 		(outs VectorReg:$dest), 
 		(ins VectorReg:$b),
-		"v$dest = " # operator # "(v$b)",
+		operator # " $dest, $b",
 		[(set v16i32:$dest, (OpNode v16i32:$b))],
 		opcode,
 		FmtA_VVV>;
@@ -307,18 +316,18 @@ multiclass FunctionalIntArithInst<string operator, SDNode OpNode, bits<6> opcode
 		def VM : FormatAInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src, VectorReg:$oldvalue),
-			"v$dest{{s$mask}} = " # operator # "(v$src)",
+			operator # " $dest {{ $mask }}, $src",
 			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src), v16i32:$oldvalue))],
 			opcode,
 			FmtA_VVVM>;
 	}
 }
 
-multiclass FunctionalFloatArithInst<string operator, SDNode OpNode, bits<6> opcode> {
+multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
 	def S : FormatAInst<
 		(outs ScalarReg:$dest), 
 		(ins ScalarReg:$b),
-		"f$dest = " # operator # "(f$b)",
+		operator # " $dest, $b",
 		[(set f32:$dest, (OpNode f32:$b))],
 		opcode,
 		FmtA_SSS>;
@@ -326,7 +335,7 @@ multiclass FunctionalFloatArithInst<string operator, SDNode OpNode, bits<6> opco
 	def V : FormatAInst<
 		(outs VectorReg:$dest), 
 		(ins VectorReg:$b),
-		"vf$dest = " # operator # "(vf$b)",
+		operator # " $dest, $b",
 		[(set v16f32:$dest, (OpNode v16f32:$b))],
 		opcode,
 		FmtA_VVV>;
@@ -335,9 +344,9 @@ multiclass FunctionalFloatArithInst<string operator, SDNode OpNode, bits<6> opco
 	let Constraints = "$dest = $oldvalue" in {
 		def VM : FormatAInst<
 			(outs VectorReg:$dest),
-			(ins ScalarReg:$mask, VectorReg:$src, VectorReg:$oldvalue),
-			"vf$dest{{s$mask}} = " # operator # "(vf$src)",
-			[(set v16f32:$dest, (vselect v16i1:$mask, (OpNode v16f32:$src), v16f32:$oldvalue))],
+			(ins ScalarReg:$mask, VectorReg:$b, VectorReg:$oldvalue),
+			operator # " $dest {{ $mask }}, $b",
+			[(set v16f32:$dest, (vselect v16i1:$mask, (OpNode v16f32:$b), v16f32:$oldvalue))],
 			opcode,
 			FmtA_VVVM>;
 	}
@@ -349,7 +358,7 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition, In
 	def SSS : FormatAInst<
 		(outs ScalarReg:$dest), 
 		(ins ScalarReg:$a, ScalarReg:$b),
-		"s$dest = s" # opsign # "$a " # operator # " s" # opsign # "$b",
+		operator # "." # opsign # " $dest, $a, $b",
 		[(set i32:$dest, (setcc i32:$a, i32:$b, condition))],
 		opcode,
 		FmtA_SSS>;
@@ -357,7 +366,7 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition, In
 	def VVV : FormatAInst<
 		(outs ScalarReg:$dest), 
 		(ins VectorReg:$a, VectorReg:$b),
-		"s$dest = v" # opsign # "$a " # operator # " v" # opsign # "$b",
+		operator # "." # opsign # " $dest, $a, $b",
 		[(set v16i1:$dest, (setcc v16i32:$a, v16i32:$b, condition))],
 		opcode,
 		FmtA_VVV>;
@@ -365,7 +374,7 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition, In
 	def VVS : FormatAInst<
 		(outs ScalarReg:$dest), 
 		(ins VectorReg:$a, ScalarReg:$b),
-		"s$dest = v" # opsign # "$a " # operator # " s" # opsign # "$b",
+		operator # "." # opsign # " $dest, $a, $b",
 		[(set v16i1:$dest, (setcc v16i32:$a, (splat i32:$b), condition))],
 		opcode,
 		FmtA_VVS>;
@@ -374,7 +383,7 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition, In
 	def SSI : FormatBInst<
 		(outs ScalarReg:$dest), 
 		(ins ScalarReg:$a, i32imm:$b),
-		"s$dest = s" # opsign # "$a " # operator # " $b",
+		operator # "." # opsign # " $dest, $a, $b",
 		[(set i32:$dest, (setcc i32:$a, simm13:$b, condition))],
 		opcode{4-0},
 		FmtB_SS>;
@@ -382,7 +391,7 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition, In
 	def VVI : FormatBInst<
 		(outs ScalarReg:$dest), 
 		(ins VectorReg:$a, i32imm:$b),
-		"s$dest = v" # opsign # "$a " # operator # " $b",
+		operator # "." # opsign # " $dest, $a, $b",
 		[(set v16i1:$dest, (setcc v16i32:$a, (splat simm13:$b), condition))],
 		opcode{4-0},
 		FmtB_VV>;
@@ -390,7 +399,7 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition, In
 	def VSI : FormatBInst<
 		(outs ScalarReg:$dest), 
 		(ins ScalarReg:$a, i32imm:$b),
-		"s$dest = s" # opsign # "$a " # operator # " $b",
+		operator # "." # opsign # " $dest, $a, $b",
 		[(set i32:$dest, (setcc (splat i32:$a), (splat simm13:$b), condition))],
 		opcode{4-0},
 		FmtB_VS>;
@@ -402,7 +411,7 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition, In
 	def VVVint : FormatAInst<
 		(outs ScalarReg:$dest), 
 		(ins VectorReg:$a, VectorReg:$b),
-		"s$dest = v" # opsign # "$a " # operator # " v" # opsign # "$b",
+		operator # "." # opsign # " $dest, $a, $b",
 		[(set i32:$dest, (vectorIntrinsic v16i32:$a, v16i32:$b))],
 		opcode,
 		FmtA_VVV>;
@@ -410,7 +419,7 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition, In
 	def VVSint : FormatAInst<
 		(outs ScalarReg:$dest), 
 		(ins VectorReg:$a, ScalarReg:$b),
-		"s$dest = v" # opsign # "$a " # operator # " s" # opsign # "$b",
+		operator # "." # opsign # " $dest, $a, $b",
 		[(set i32:$dest, (vectorIntrinsic v16i32:$a, (splat i32:$b)))],
 		opcode,
 		FmtA_VVS>;
@@ -418,7 +427,7 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition, In
 	def VVIint : FormatBInst<
 		(outs ScalarReg:$dest), 
 		(ins VectorReg:$a, i32imm:$b),
-		"s$dest = v" # opsign # "$a " # operator # " $b",
+		operator # "." # opsign # " $dest, $a, $b",
 		[(set i32:$dest, (vectorIntrinsic v16i32:$a, (splat simm13:$b)))],
 		opcode{4-0},
 		FmtB_VV>;
@@ -426,7 +435,7 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition, In
 	def VSIint : FormatBInst<
 		(outs ScalarReg:$dest), 
 		(ins ScalarReg:$a, i32imm:$b),
-		"s$dest = s" # opsign # "$a " # operator # " $b",
+		operator # "." # opsign # " $dest, $a, $b",
 		[(set i32:$dest, (vectorIntrinsic (splat i32:$a), (splat simm13:$b)))],
 		opcode{4-0},
 		FmtB_VS>;
@@ -437,7 +446,7 @@ multiclass FloatCompareInst<string operator, CondCode condition, Intrinsic vecto
 	def SSS : FormatAInst<
 		(outs ScalarReg:$dest),
 		(ins ScalarReg:$a, ScalarReg:$b),
-		"s$dest = f$a " # operator # " f$b",
+		operator # ".f $dest, $a, $b",
 		[(set i32:$dest, (setcc f32:$a, f32:$b, condition))],
 		opcode,
 		FmtA_SSS>;
@@ -445,7 +454,7 @@ multiclass FloatCompareInst<string operator, CondCode condition, Intrinsic vecto
 	def VVV : FormatAInst<
 		(outs ScalarReg:$dest),
 		(ins VectorReg:$a, VectorReg:$b),
-		"s$dest = vf$a " # operator # " vf$b",
+		operator # ".f $dest, $a, $b",
 		[(set v16i1:$dest, (setcc v16f32:$a, v16f32:$b, condition))],
 		opcode,
 		FmtA_VVV>;
@@ -453,7 +462,7 @@ multiclass FloatCompareInst<string operator, CondCode condition, Intrinsic vecto
 	def VVS : FormatAInst<
 		(outs ScalarReg:$dest),
 		(ins VectorReg:$a, ScalarReg:$b),
-		"s$dest = vf$a " # operator # " f$b",
+		operator # ".f $dest, $a, $b",
 		[(set v16i1:$dest, (setcc v16f32:$a, (splat f32:$b), condition))],
 		opcode,
 		FmtA_VVS>;
@@ -462,7 +471,7 @@ multiclass FloatCompareInst<string operator, CondCode condition, Intrinsic vecto
 	def VVVint : FormatAInst<
 		(outs ScalarReg:$dest),
 		(ins VectorReg:$a, VectorReg:$b),
-		"s$dest = vf$a " # operator # " vf$b",
+		operator # ".f $dest, $a, $b",
 		[(set i32:$dest, (vectorIntrinsic v16f32:$a, v16f32:$b))],
 		opcode,
 		FmtA_VVV>;
@@ -470,7 +479,7 @@ multiclass FloatCompareInst<string operator, CondCode condition, Intrinsic vecto
 	def VVSint : FormatAInst<
 		(outs ScalarReg:$dest),
 		(ins VectorReg:$a, ScalarReg:$b),
-		"s$dest = vf$a " # operator # " f$b",
+		operator # ".f $dest, $a, $b",
 		[(set i32:$dest, (vectorIntrinsic v16f32:$a, (splat f32:$b)))],
 		opcode,
 		FmtA_VVS>;
@@ -557,11 +566,11 @@ class FormatCUnmaskedInst<dag outputs, dag inputs, string asmString, list<dag> p
 	let Inst{24-10} = offset;
 }
 
-multiclass ScalarLoadInst<string suffix, string regtype, PatFrag op, CFmt fmt>  {
+multiclass ScalarLoadInst<string suffix, PatFrag op, CFmt fmt>  {
 	def i : FormatCUnmaskedInst<
 		(outs ScalarReg:$dest),
 		(ins MEMri:$addr),
-		regtype # "$dest = mem_" # suffix # "[$addr]",
+		"load." # suffix # " $dest, $addr",
 		[(set i32:$dest, (i32 (op ADDRri:$addr)))], 
 		fmt,
 		1>;
@@ -569,7 +578,7 @@ multiclass ScalarLoadInst<string suffix, string regtype, PatFrag op, CFmt fmt>  
 	def f : FormatCUnmaskedInst<
 		(outs ScalarReg:$dest),
 		(ins MEMri:$addr),
-		regtype # "$dest = mem_" # suffix # "[$addr]",
+		"load." # suffix # " $dest, $addr",
 		[(set f32:$dest, (op ADDRri:$addr))],
 		fmt,
 		1>;
@@ -580,7 +589,7 @@ multiclass ScalarStoreInst<string suffix, PatFrag op, CFmt fmt>  {
 		def i : FormatCUnmaskedInst<
 			(outs),
 			(ins MEMri:$addr, ScalarReg:$src),
-			"mem_" # suffix # "[$addr] = s$src",
+			"store." # suffix # " $src, $addr",
 			[(op i32:$src, ADDRri:$addr)],
 			fmt, 
 			0>;
@@ -588,7 +597,7 @@ multiclass ScalarStoreInst<string suffix, PatFrag op, CFmt fmt>  {
 		def f : FormatCUnmaskedInst<
 			(outs),
 			(ins MEMri:$addr, ScalarReg:$src),
-			"mem_" # suffix # "[$addr] = s$src",
+			"store." # suffix # " $src, $addr",
 			[(op f32:$src, ADDRri:$addr)],
 			fmt,
 			0>;

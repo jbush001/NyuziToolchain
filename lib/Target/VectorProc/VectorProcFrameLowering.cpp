@@ -44,7 +44,7 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const
 
 	if (StackSize != 0)
 	{
-		BuildMI(MBB, MBBI, dl, TII.get(SP::SUBISSI), SP::SP_REG).addReg(SP::SP_REG)
+		BuildMI(MBB, MBBI, dl, TII.get(VectorProc::SUBISSI), VectorProc::SP_REG).addReg(VectorProc::SP_REG)
 			.addImm(StackSize);
 	}
 	
@@ -59,8 +59,8 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const
 		++MBBI;
 
 	// fp = sp
-	BuildMI(MBB, MBBI, dl, TII.get(SP::MOVEREG)).addReg(SP::FP_REG)
-		.addReg(SP::SP_REG);
+	BuildMI(MBB, MBBI, dl, TII.get(VectorProc::MOVEREG)).addReg(VectorProc::FP_REG)
+		.addReg(VectorProc::SP_REG);
 }
 
 void VectorProcFrameLowering::
@@ -70,7 +70,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
 	MachineInstr &MI = *I;
 	DebugLoc DL = MI.getDebugLoc();
 	int Size = MI.getOperand(0).getImm();
-	if (MI.getOpcode() == SP::ADJCALLSTACKDOWN)
+	if (MI.getOpcode() == VectorProc::ADJCALLSTACKDOWN)
 		Size = -Size;
 
 	const VectorProcInstrInfo &TII =
@@ -78,7 +78,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
 
 	if (Size)
 	{
-		BuildMI(MBB, I, DL, TII.get(SP::ADDISSI), SP::SP_REG).addReg(SP::SP_REG)
+		BuildMI(MBB, I, DL, TII.get(VectorProc::ADDISSI), VectorProc::SP_REG).addReg(VectorProc::SP_REG)
 			.addImm(Size);
 	}
 	
@@ -93,7 +93,7 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
 	const VectorProcInstrInfo &TII =
 		*static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
 	DebugLoc dl = MBBI->getDebugLoc();
-	assert(MBBI->getOpcode() == SP::RET &&
+	assert(MBBI->getOpcode() == VectorProc::RET &&
 		 "Can only put epilog before 'retl' instruction!");
 
 	uint64_t StackSize = MFI->getStackSize();
@@ -103,7 +103,7 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
 
 	if (StackSize != 0)
 	{
-		BuildMI(MBB, MBBI, dl, TII.get(SP::ADDISSI), SP::SP_REG).addReg(SP::SP_REG)
+		BuildMI(MBB, MBBI, dl, TII.get(VectorProc::ADDISSI), VectorProc::SP_REG).addReg(VectorProc::SP_REG)
 			.addImm(StackSize);
 	}
 }
@@ -129,7 +129,7 @@ VectorProcFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
 		// It's killed at the spill, unless the register is RA and return address
 		// is taken.
 		unsigned Reg = CSI[i].getReg();
-		bool IsRAAndRetAddrIsTaken = Reg == SP::LINK_REG
+		bool IsRAAndRetAddrIsTaken = Reg == VectorProc::LINK_REG
 			&& MF->getFrameInfo()->isReturnAddressTaken();
 		if (!IsRAAndRetAddrIsTaken)
 			EntryBlock->addLiveIn(Reg);

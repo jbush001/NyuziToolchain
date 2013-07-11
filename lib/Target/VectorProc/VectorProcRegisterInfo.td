@@ -11,24 +11,24 @@
 //  Declarations that describe the VectorProc register file 
 //===----------------------------------------------------------------------===//
 
-class VectorProcReg<string n> : Register<n> {
-  let Namespace = "SP";
+let Namespace = "VectorProc" in {
+	class VectorProcReg<string n> : Register<n>;
+
+	foreach i = 0-28 in {
+		def S#i : VectorProcReg<"s"#i>;
+	}
+
+	def FP_REG : VectorProcReg<"fp">;
+	def SP_REG : VectorProcReg<"sp">;
+	def LINK_REG : VectorProcReg<"link">;
+	def PC_REG : VectorProcReg<"pc">;
+
+	foreach i = 0-31 in {
+		def V#i : VectorProcReg<"v"#i>;
+	}
 }
 
-foreach i = 0-28 in {
-	def S#i : VectorProcReg<""#i>;
-}
-
-def FP_REG : VectorProcReg<"28">;
-def SP_REG : VectorProcReg<"29">;
-def LINK_REG : VectorProcReg<"30">;
-def PC_REG : VectorProcReg<"31">;
-
-foreach i = 0-31 in {
-	def V#i : VectorProcReg<""#i>;
-}
-
-def ScalarReg : RegisterClass<"SP", [v16i1, i32, f32], 32, (add (sequence "S%u", 0, 27),
+def ScalarReg : RegisterClass<"VectorProc", [v16i1, i32, f32], 32, (add (sequence "S%u", 0, 27),
 	FP_REG, SP_REG, LINK_REG, PC_REG)>;
-def VectorReg : RegisterClass<"SP", [v16i32, v16f32], 512, (sequence "V%u", 0, 31)>;
+def VectorReg : RegisterClass<"VectorProc", [v16i32, v16f32], 512, (sequence "V%u", 0, 31)>;
 

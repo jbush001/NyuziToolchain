@@ -21,7 +21,7 @@
 namespace llvm {
 	class VectorProcSubtarget;
 
-	namespace SPISD {
+	namespace VectorProcISD {
 		enum {
 			FIRST_NUMBER = ISD::BUILTIN_OP_END,
 			LOAD_LITERAL,

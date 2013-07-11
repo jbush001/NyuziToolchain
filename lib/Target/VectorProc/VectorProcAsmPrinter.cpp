@@ -110,20 +110,14 @@ void VectorProcAsmPrinter::printMemOperand(const MachineInstr *MI, int opNum,
 	switch (MO.getType())
 	{
 		case MachineOperand::MO_Register:
-			// Note: for memory operands, we do prepend the register type,
-			// unlike with arithmetic operands
-			O << "s" << StringRef(getRegisterName(MO.getReg())).lower();
-
-			// Offset
 			if (MI->getOperand(opNum+1).isImm())
 			{
 				int operand = MI->getOperand(opNum+1).getImm();
-				if (operand > 0)
-					O << " + " << operand;
-				else if (operand < 0)
-					O << " - " << -operand;
+				if (operand != 0)
+					O << operand;
 			}
 
+			O << "(" << getRegisterName(MO.getReg()) << ")";
 			break;
 
 		case MachineOperand::MO_GlobalAddress:
@@ -149,22 +143,11 @@ void VectorProcAsmPrinter::printComputeFrameAddr(const MachineInstr *MI, int opN
 	const MachineOperand &MO = MI->getOperand(opNum);
 	switch (MO.getType())
 	{
-		case MachineOperand::MO_Register:
-			// Note: for memory operands, we do prepend the register type,
-			// unlike with arithmetic operands
-			O << "s" << StringRef(getRegisterName(MO.getReg())).lower();
-
-			// Offset
-			if (MI->getOperand(opNum+1).isImm())
-			{
-				int operand = MI->getOperand(opNum+1).getImm();
-				if (operand > 0)
-					O << " + " << operand;
-				else if (operand < 0)
-					O << " - " << -operand;
-			}
-
+		case MachineOperand::MO_Register: {
+			int operand = MI->getOperand(opNum+1).getImm();
+			O << getRegisterName(MO.getReg()) << ", " << operand;
 			break;
+		}
 		
 		default:
 			errs() << "What is " << MO.getType();
@@ -181,11 +164,11 @@ bool VectorProcAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo
     if (ExtraCode[1] != 0) return true; // Unknown modifier.
 
     switch (ExtraCode[0]) {
-    default:
-      // See if this is a generic print operand
-      return AsmPrinter::PrintAsmOperand(MI, OpNo, AsmVariant, ExtraCode, O);
-    case 'r':
-     break;
+		default:
+		  // See if this is a generic print operand
+		  return AsmPrinter::PrintAsmOperand(MI, OpNo, AsmVariant, ExtraCode, O);
+		case 'r':
+		 break;
     }
   }
 
@@ -201,9 +184,7 @@ bool VectorProcAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
   if (ExtraCode && ExtraCode[0])
     return true;  // Unknown modifier
 
-  O << '[';
   printMemOperand(MI, OpNo, O);
-  O << ']';
 
   return false;
 }

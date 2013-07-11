@@ -14,5 +14,7 @@ entry:
   ret void
 }
 
-; CHECK: f[[DEST1:[0-9]+]] = itof(s{{[0-9]}})
-; CHECK: s{{[0-9]+}} = ftoi(f[[DEST1]])
+; CHECK: itof [[DEST1:s[0-9]+]], s{{[0-9]}}
+; CHECK: ftoi s{{[0-9]+}}, [[DEST1]]
+
+; XXX do this with vectors too...

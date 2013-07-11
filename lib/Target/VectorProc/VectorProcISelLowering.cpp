@@ -73,9 +73,9 @@ VectorProcTargetLowering::LowerReturn(SDValue Chain,
 			llvm_unreachable("sret virtual register not created in the entry block");
 
 		SDValue Val = DAG.getCopyFromReg(Chain, DL, Reg, getPointerTy());
-		Chain = DAG.getCopyToReg(Chain, DL, SP::S0, Val, Flag);
+		Chain = DAG.getCopyToReg(Chain, DL, VectorProc::S0, Val, Flag);
 		Flag = Chain.getValue(1);
-		RetOps.push_back(DAG.getRegister(SP::S0, getPointerTy()));
+		RetOps.push_back(DAG.getRegister(VectorProc::S0, getPointerTy()));
 	}
 
 	RetOps[0] = Chain;  // Update chain.
@@ -84,7 +84,7 @@ VectorProcTargetLowering::LowerReturn(SDValue Chain,
 	if (Flag.getNode())
 		RetOps.push_back(Flag);
 
-	return DAG.getNode(SPISD::RET_FLAG, DL, MVT::Other, &RetOps[0], RetOps.size());
+	return DAG.getNode(VectorProcISD::RET_FLAG, DL, MVT::Other, &RetOps[0], RetOps.size());
 }
 
 SDValue VectorProcTargetLowering::
@@ -127,9 +127,9 @@ LowerFormalArguments(SDValue Chain,
 			const TargetRegisterClass *RC;
 
 			if (RegVT == MVT::i32 || RegVT == MVT::f32 || RegVT == MVT::v16i1)
-				RC = &SP::ScalarRegRegClass;
+				RC = &VectorProc::ScalarRegRegClass;
 			else if (RegVT == MVT::v16i32 || RegVT == MVT::v16f32)
-				RC = &SP::VectorRegRegClass;
+				RC = &VectorProc::VectorRegRegClass;
 			else
 				llvm_unreachable("Unsupported formal argument type");
 
@@ -172,7 +172,7 @@ LowerFormalArguments(SDValue Chain,
 		VectorProcMachineFunctionInfo *SFI = MF.getInfo<VectorProcMachineFunctionInfo>();
 		unsigned Reg = SFI->getSRetReturnReg();
 		if (!Reg) {
-			Reg = MF.getRegInfo().createVirtualRegister(&SP::ScalarRegRegClass);
+			Reg = MF.getRegInfo().createVirtualRegister(&VectorProc::ScalarRegRegClass);
 			SFI->setSRetReturnReg(Reg);
 		}
 
@@ -294,7 +294,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 		if (Flags.isSRet()) {
 			// Structure return
 			assert(VA.needsCustom());
-			SDValue StackPtr = DAG.getRegister(SP::SP_REG, MVT::i32);
+			SDValue StackPtr = DAG.getRegister(VectorProc::SP_REG, MVT::i32);
 			SDValue PtrOff = DAG.getIntPtrConstant(64);
 			PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
 			MemOpChains.push_back(DAG.getStore(Chain, dl, Arg, PtrOff,
@@ -314,7 +314,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 		assert(VA.isMemLoc());
 
 		// Create a store off the stack pointer for this argument.
-		SDValue StackPtr = DAG.getRegister(SP::SP_REG, MVT::i32);
+		SDValue StackPtr = DAG.getRegister(VectorProc::SP_REG, MVT::i32);
 		SDValue PtrOff = DAG.getIntPtrConstant(VA.getLocMemOffset());
 		PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
 		MemOpChains.push_back(DAG.getStore(Chain, dl, Arg, PtrOff,
@@ -372,7 +372,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 	if (InFlag.getNode())
 		Ops.push_back(InFlag);
 
-	Chain = DAG.getNode(SPISD::CALL, dl, NodeTys, &Ops[0], Ops.size());
+	Chain = DAG.getNode(VectorProcISD::CALL, dl, NodeTys, &Ops[0], Ops.size());
 	InFlag = Chain.getValue(1);
 
 	Chain = DAG.getCALLSEQ_END(Chain, DAG.getIntPtrConstant(ArgsSize, true),
@@ -426,11 +426,11 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	Subtarget = &TM.getSubtarget<VectorProcSubtarget>();
 
 	// Set up the register classes.
-	addRegisterClass(MVT::i32, &SP::ScalarRegRegClass);
-	addRegisterClass(MVT::f32, &SP::ScalarRegRegClass);
-	addRegisterClass(MVT::v16i1, &SP::ScalarRegRegClass);
-	addRegisterClass(MVT::v16i32, &SP::VectorRegRegClass);
-	addRegisterClass(MVT::v16f32, &SP::VectorRegRegClass);
+	addRegisterClass(MVT::i32, &VectorProc::ScalarRegRegClass);
+	addRegisterClass(MVT::f32, &VectorProc::ScalarRegRegClass);
+	addRegisterClass(MVT::v16i1, &VectorProc::ScalarRegRegClass);
+	addRegisterClass(MVT::v16i32, &VectorProc::VectorRegRegClass);
+	addRegisterClass(MVT::v16f32, &VectorProc::VectorRegRegClass);
 
 	setOperationAction(ISD::BR_CC, MVT::i32, Expand);
 	setOperationAction(ISD::BR_CC, MVT::f32, Expand);
@@ -454,18 +454,18 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::FDIV, MVT::f32, Custom);
 	setOperationAction(ISD::FDIV, MVT::v16f32, Custom);
 
-	setStackPointerRegisterToSaveRestore(SP::SP_REG);
+	setStackPointerRegisterToSaveRestore(VectorProc::SP_REG);
 	setMinFunctionAlignment(2);
 	computeRegisterProperties();
 }
 
 const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
 	switch (Opcode) {
-		case SPISD::CALL:       return "SPISD::CALL";
-		case SPISD::RET_FLAG:   return "SPISD::RET_FLAG";
-		case SPISD::LOAD_LITERAL: return "SPISD::LOAD_LITERAL";
-		case SPISD::SPLAT: return "SPISD::SPLAT";
-		case SPISD::SEL_COND_RESULT: return "SPISD::SEL_COND_RESULT";
+		case VectorProcISD::CALL:       return "VectorProcISD::CALL";
+		case VectorProcISD::RET_FLAG:   return "VectorProcISD::RET_FLAG";
+		case VectorProcISD::LOAD_LITERAL: return "VectorProcISD::LOAD_LITERAL";
+		case VectorProcISD::SPLAT: return "VectorProcISD::SPLAT";
+		case VectorProcISD::SEL_COND_RESULT: return "VectorProcISD::SEL_COND_RESULT";
 		default: return 0;
 	}
 }
@@ -510,7 +510,7 @@ VectorProcTargetLowering::LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const
 	{
 		// This is a constant node that is duplicated to all lanes.
 		// Convert it to a SPLAT node.
-		return DAG.getNode(SPISD::SPLAT, dl, VT, Op.getOperand(0));
+		return DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(0));
 	}
 	
 	return SDValue();
@@ -534,7 +534,7 @@ VectorProcTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) con
 		&& Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT
 		&& isZero(Op.getOperand(0).getOperand(2)))
 	{
-		return DAG.getNode(SPISD::SPLAT, dl, VT, Op.getOperand(0).getOperand(1));
+		return DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(0).getOperand(1));
 	}
 
 	// Otherwise, just let normal instruction selection take care of this.
@@ -552,7 +552,7 @@ VectorProcTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) 
 
 	SDValue mask = DAG.getNode(ISD::SHL, dl, MVT::i32, DAG.getConstant(1, MVT::i32),
 		Op.getOperand(2));
-	SDValue splat = DAG.getNode(SPISD::SPLAT, dl, VT, Op.getOperand(1));
+	SDValue splat = DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(1));
 	return DAG.getNode(ISD::VSELECT, dl, VT, mask, splat, Op.getOperand(0));
 }
 
@@ -568,7 +568,7 @@ VectorProcTargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const
 		Op.getOperand(0), Op.getOperand(1),
 		Op.getOperand(4));
 
-	return DAG.getNode(SPISD::SEL_COND_RESULT, DL, Op.getValueType(), Pred, 
+	return DAG.getNode(VectorProcISD::SEL_COND_RESULT, DL, Op.getValueType(), Pred, 
 		Op.getOperand(2), Op.getOperand(3));
 }
 
@@ -623,7 +623,7 @@ VectorProcTargetLowering::LowerFDIV(SDValue Op, SelectionDAG &DAG) const
 
 	SDValue two = DAG.getConstantFP(2.0, type);
 	SDValue denom = Op.getOperand(1);
-	SDValue estimate = DAG.getNode(SPISD::RECIPROCAL_EST, dl, type, denom);
+	SDValue estimate = DAG.getNode(VectorProcISD::RECIPROCAL_EST, dl, type, denom);
 	
 	// Perform a series of newton/raphson refinements.  Each iteration doubles
 	// the precision. The initial estimate has 6 bits of precision, so two iteration
@@ -727,7 +727,7 @@ VectorProcTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
 	BB->addSuccessor(copy0MBB);
 	BB->addSuccessor(sinkMBB);
 
-	BuildMI(BB, DL, TII->get(SP::IFTRUE)).addReg(MI->getOperand(1).getReg())
+	BuildMI(BB, DL, TII->get(VectorProc::IFTRUE)).addReg(MI->getOperand(1).getReg())
 		.addMBB(sinkMBB);
 
 	//  copy0MBB:
@@ -743,7 +743,7 @@ VectorProcTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
 	//  ...
 	BB = sinkMBB;
 
-	BuildMI(*BB, BB->begin(), DL, TII->get(SP::PHI), MI->getOperand(0).getReg())
+	BuildMI(*BB, BB->begin(), DL, TII->get(VectorProc::PHI), MI->getOperand(0).getReg())
 		.addReg(MI->getOperand(2).getReg()).addMBB(thisMBB)
 		.addReg(MI->getOperand(3).getReg()).addMBB(copy0MBB);
 
@@ -777,7 +777,7 @@ VectorProcTargetLowering::getRegForInlineAsmConstraint(const std::string &Constr
 	if (Constraint.size() == 1) {
 		switch (Constraint[0]) {
 			case 'r':
-				return std::make_pair(0U, &SP::ScalarRegRegClass);
+				return std::make_pair(0U, &VectorProc::ScalarRegRegClass);
 		}
 	}
 
