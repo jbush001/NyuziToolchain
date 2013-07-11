@@ -377,13 +377,17 @@ def return : SDNode<"VectorProcISD::RET_FLAG",
     [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
 let isReturn = 1, isTerminator = 1, isBarrier = 1, Uses = [FP_REG] in {
-	def RET : FormatAInst<
+	def RET : VPInstruction<
 		(outs),
 		(ins),
 		"move pc, link",
-		[(return)],
-		0x0f,
-		FmtA_SSS>;
+		[(return)]>
+	{
+		let Inst{31-29} = 6;	// format A instruction
+		let Inst{25-20} = 0xf;	// opcode
+		let Inst{9-5} = 31;		// dest (reg 31)
+		let Inst{4-0} = 30;		// src (link)
+	}
 }
 
 def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
@@ -468,7 +472,7 @@ let usesCustomInserter = 1 in {
 // Misc 
 //////////////////////////////////////////////////////////////////
 
-def GET_CURRENT_STRAND : FormatCUnmaskedInst<
+def GET_CURRENT_STRAND : FormatCInst<
 	(outs ScalarReg:$dest),
 	(ins),
 	"loadcr $dest, 0",

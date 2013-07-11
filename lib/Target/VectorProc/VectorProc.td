@@ -39,7 +39,7 @@ def VectorProcAsmParser : AsmParser {
 class Proc<string Name, list<SubtargetFeature> Features>
  : Processor<Name, NoItineraries, Features>;
 
-def : Proc<"generic",         []>;
+def : Proc<"generic", []>;
 
 def VectorProc : Target {
   // Pull in Instruction Info:

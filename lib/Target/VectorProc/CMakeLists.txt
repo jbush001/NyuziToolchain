@@ -8,6 +8,7 @@ tablegen(LLVM VectorProcGenDAGISel.inc -gen-dag-isel)
 tablegen(LLVM VectorProcGenSubtargetInfo.inc -gen-subtarget)
 tablegen(LLVM VectorProcGenCallingConv.inc -gen-callingconv)
 tablegen(LLVM VectorProcGenAsmMatcher.inc -gen-asm-matcher)
+tablegen(LLVM VectorProcGenMCCodeEmitter.inc -gen-emitter -mc-emitter)
 add_public_tablegen_target(VectorProcCommonTableGen)
 
 add_llvm_target(VectorProcCodeGen

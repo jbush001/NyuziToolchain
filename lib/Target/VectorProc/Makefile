@@ -13,8 +13,9 @@ TARGET = VectorProc
 
 # Make sure that tblgen is run, first thing.
 BUILT_SOURCES = VectorProcGenRegisterInfo.inc VectorProcGenInstrInfo.inc \
-		VectorProcGenAsmWriter.inc VectorProcGenAsmMatcher.inc VectorProcGenDAGISel.inc \
-		VectorProcGenSubtargetInfo.inc VectorProcGenCallingConv.inc
+		VectorProcGenAsmWriter.inc VectorProcGenAsmMatcher.inc  VectorProcGenDAGISel.inc \
+		VectorProcGenSubtargetInfo.inc VectorProcGenCallingConv.inc \
+		VectorProcGenMCCodeEmitter.inc
 
 DIRS = TargetInfo MCTargetDesc AsmParser
 

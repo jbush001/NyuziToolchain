@@ -14,11 +14,24 @@
 #ifndef VECTORPROCMCTARGETDESC_H
 #define VECTORPROCMCTARGETDESC_H
 
+#include "llvm/Support/DataTypes.h"
+
 namespace llvm {
 class Target;
+class MCAsmBackend;
+class MCCodeEmitter;
+class MCContext;
+class MCInstrInfo;
+class MCObjectWriter;
+class MCRegisterInfo;
+class MCSubtargetInfo;
 
 extern Target TheVectorProcTarget;
-extern Target TheVectorProcV9Target;
+
+MCCodeEmitter *createVectorProcMCCodeEmitter(const MCInstrInfo &MCII,
+                                       const MCRegisterInfo &MRI,
+                                       const MCSubtargetInfo &STI,
+                                       MCContext &Ctx);
 
 } // End llvm namespace
 

@@ -62,7 +62,7 @@ class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern
 }
 
 class Pseudo<dag outputs, dag inputs, string asmString, list<dag> pattern>
-	: Instruction
+	: VPInstruction<outputs, inputs, asmString, pattern>
 {
 	let Namespace = "VectorProc";
 	dag OutOperandList = outputs;
@@ -70,6 +70,7 @@ class Pseudo<dag outputs, dag inputs, string asmString, list<dag> pattern>
 	let Pattern = pattern;
 	let isCodeGenOnly = 1;
 	let isPseudo = 1;
+	let Inst{31-0} = 0;
 }
 
 class AFmt<bits<3> val> {
@@ -88,14 +89,10 @@ class FormatAInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 {
 	bits <5> dest;
 	bits <5> src1;
-	bits <5> src2;
-	bits <5> mask;
 
 	let Inst{31-29} = 6;
 	let Inst{28-26} = fmt.Value;
 	let Inst{25-20} = opcode;
-	let Inst{19-15} = src2;
-	let Inst{14-10} = mask;
 	let Inst{9-5} = dest;
 	let Inst{4-0} = src1;
 }
@@ -152,7 +149,11 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $b, $c",
 		[(set i32:$dest, (OpNode i32:$b, i32:$c))],
 		opcode,
-		FmtA_SSS>;
+		FmtA_SSS>
+	{
+		bits <5> src2;
+		let Inst{19-15} = src2;
+	}
 
 	// Vector = Vector Op Vector
 	def VVV : FormatAInst<
@@ -161,7 +162,11 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $b, $c",
 		[(set v16i32:$dest, (OpNode v16i32:$b, v16i32:$c))],
 		opcode,
-		FmtA_VVV>;
+		FmtA_VVV>
+	{
+		bits <5> src2;
+		let Inst{19-15} = src2;
+	}
 
 	// Vector = Vector Op Scalar
 	def VVS : FormatAInst<
@@ -170,7 +175,11 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $b, $c",
 		[(set v16i32:$dest, (OpNode v16i32:$b, (splat i32:$c)))],
 		opcode,
-		FmtA_VVS>;
+		FmtA_VVS>
+	{
+		bits <5> src2;
+		let Inst{19-15} = src2;
+	}
 
 	let Constraints = "$dest = $oldvalue" in {
 		// Vector = Vector op Vector, masked
@@ -180,7 +189,13 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			operator # " $dest {{ $mask }}, $src1, $src2",
 			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src1, v16i32:$src2), v16i32:$oldvalue))],
 			opcode,
-			FmtA_VVVM>;
+			FmtA_VVVM>
+		{
+			bits <5> src2;
+			bits <5> mask;
+			let Inst{19-15} = src2;
+			let Inst{14-10} = mask;
+		}
 
 		// Vector = Vector Op Scalar, masked
 		def VVSM : FormatAInst<
@@ -189,7 +204,13 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			operator # " $dest {{ $mask }}, $src1, $src2",
 			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src1, (splat i32:$src2)), v16i32:$oldvalue))],
 			opcode,
-			FmtA_VVSM>;
+			FmtA_VVSM>
+		{
+			bits <5> src2;
+			bits <5> mask;
+			let Inst{19-15} = src2;
+			let Inst{14-10} = mask;
+		}
 	}
 
 	// Format B
@@ -200,7 +221,11 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $b, $c",
 		[(set i32:$dest, (OpNode i32:$b, (i32 simm13:$c)))],
 		opcode{4-0},
-		FmtB_SS>;
+		FmtB_SS>
+	{
+		bits <5> src2;
+		let Inst{19-15} = src2;
+	}
 	
 	// Vector = Vector Op Immediate
 	def VVI : FormatBUnmaskedInst<
@@ -209,7 +234,11 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $b, $c",
 		[(set v16i32:$dest, (OpNode v16i32:$b, (splat simm13:$c)))],
 		opcode{4-0},
-		FmtB_VV>;
+		FmtB_VV>
+	{
+		bits <5> src2;
+		let Inst{19-15} = src2;
+	}
 
 	// Vector = Scalar Op Immediate
 	def VSI : FormatBUnmaskedInst<
@@ -218,7 +247,11 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $b, $c",
 		[(set v16i32:$dest, (OpNode (splat i32:$b), (splat simm13:$c)))],
 		opcode{4-0},
-		FmtB_VS>;
+		FmtB_VS>
+	{
+		bits <5> src2;
+		let Inst{19-15} = src2;
+	}
 
 	let Constraints = "$dest = $oldvalue" in {
 		// Vector = Vector Op Immediate, masked
@@ -228,7 +261,13 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			operator # " $dest {{ $mask }}, $src1, $imm",
 			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src1, (splat simm8:$imm)), v16i32:$oldvalue))],
 			opcode{4-0},
-			FmtB_VVM>;
+			FmtB_VVM>
+		{
+			bits <5> src2;
+			bits <5> mask;
+			let Inst{19-15} = src2;
+			let Inst{14-10} = mask;
+		}
 
 		// Vector = Scalar Op Immediate, masked
 		def VSIM : FormatBMaskedInst<
@@ -237,7 +276,13 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			operator # " $dest {{ $mask }}, $src1, $imm",
 			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode (splat i32:$src1), (splat simm8:$imm)), v16i32:$oldvalue))],
 			opcode{4-0},
-			FmtB_VSM>;
+			FmtB_VSM>
+		{
+			bits <5> src2;
+			bits <5> mask;
+			let Inst{19-15} = src2;
+			let Inst{14-10} = mask;
+		}
 	}
 }
 
@@ -536,14 +581,10 @@ class FormatCInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	CFmt fmt, bits <1> isLoad>  
 	: VPInstruction<outputs, inputs, asmString, pattern> 
 {
-	bits <5> ptr;
-	bits <5> srcDest;
 
 	let Inst{31-30} = 2;
 	let Inst{29} = isLoad;
 	let Inst{28-25} = fmt.Value;
-	let Inst{9-5} = srcDest;
-	let Inst{4-0} = ptr;
 	
 	// XXX set hasSideEffects = 1, mayStore = 1 is !isLoad?
 }
@@ -552,10 +593,15 @@ class FormatCMaskedInst<dag outputs, dag inputs, string asmString, list<dag> pat
 	CFmt fmt, bits <1> isLoad> 
 	: FormatCInst<outputs, inputs, asmString, pattern, fmt, isLoad> 
 {
+	bits <5> ptr;
 	bits <10> offset;
 	bits <5> mask;
+	bits <5> srcDest;
+
 	let Inst{24-15} = offset;
 	let Inst{14-10} = mask;
+	let Inst{9-5} = srcDest;
+	let Inst{4-0} = ptr;
 }
 
 class FormatCUnmaskedInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
@@ -563,7 +609,12 @@ class FormatCUnmaskedInst<dag outputs, dag inputs, string asmString, list<dag> p
 	: FormatCInst<outputs, inputs, asmString, pattern, fmt, isLoad> 
 {
 	bits <15> offset;
+	bits <5> srcDest;
+	bits <5> ptr;
+
 	let Inst{24-10} = offset;
+	let Inst{9-5} = srcDest;
+	let Inst{4-0} = ptr;
 }
 
 multiclass ScalarLoadInst<string suffix, PatFrag op, CFmt fmt>  {
