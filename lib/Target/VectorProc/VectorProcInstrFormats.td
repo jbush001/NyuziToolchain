@@ -523,8 +523,16 @@ class BranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 
 	let Inst{31-28} = 0xf;
 	let Inst{27-25} = type.Value;
-	// XXX 4-0 is the source register for some instructions.
 	let Inst{24-5} = targetOffset;
+}
+
+class ConditionalBranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
+	BranchType type>
+	: BranchInst<outputs, inputs, asmString, pattern, type>
+{
+	bits<5> test;
+
+	let Inst{4-0} = test;
 }
 
 /// XXX need FormatCInst

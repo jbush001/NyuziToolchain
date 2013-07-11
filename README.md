@@ -35,6 +35,7 @@ type 'make'.
 
 <pre>
   llvm-lit test/CodeGen/VectorProc
+  llvm-lit test/MC/VectorProc
   llvm-lit tools/clang/test/CodeGen/vectorproc*
 </pre>
 

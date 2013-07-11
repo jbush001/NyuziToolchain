@@ -358,18 +358,18 @@ let isBarrier = 1 in {
 		BT_Uncond>;
 }
 
-def IFFALSE	: BranchInst<
+def IFFALSE	: ConditionalBranchInst<
 	(outs), 
-	(ins ScalarReg:$rs, brtarget:$offset),
-	"bfalse $rs, $offset",
-	[(brcond (i32 (seteq i32:$rs, 0)), bb:$offset)],
+	(ins ScalarReg:$test, brtarget:$offset),
+	"bfalse $test, $offset",
+	[(brcond (i32 (seteq i32:$test, 0)), bb:$offset)],
 	BT_IfFalse> ;
 
-def IFTRUE	: BranchInst<
+def IFTRUE	: ConditionalBranchInst<
 	(outs), 
-	(ins ScalarReg:$rs, brtarget:$offset),
-	"btrue $rs, $offset",
-	[(brcond i32:$rs, bb:$offset)],
+	(ins ScalarReg:$test, brtarget:$offset),
+	"btrue $test, $offset",
+	[(brcond i32:$test, bb:$offset)],
 	BT_IfTrue> ;
 
 def return : SDNode<"VectorProcISD::RET_FLAG", 
