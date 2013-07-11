@@ -12,19 +12,21 @@
 //===----------------------------------------------------------------------===//
 
 let Namespace = "VectorProc" in {
-	class VectorProcReg<string n> : Register<n>;
-
-	foreach i = 0-28 in {
-		def S#i : VectorProcReg<"s"#i>;
+	class VectorProcReg<string n, bits<16> number> : Register<n> {
+		field bits<16> HWEncoding = number;
 	}
 
-	def FP_REG : VectorProcReg<"fp">;
-	def SP_REG : VectorProcReg<"sp">;
-	def LINK_REG : VectorProcReg<"link">;
-	def PC_REG : VectorProcReg<"pc">;
+	foreach i = 0-28 in {
+		def S#i : VectorProcReg<"s"#i, i>;
+	}
+
+	def FP_REG : VectorProcReg<"fp", 28>;
+	def SP_REG : VectorProcReg<"sp", 29>;
+	def LINK_REG : VectorProcReg<"link", 30>;
+	def PC_REG : VectorProcReg<"pc", 31>;
 
 	foreach i = 0-31 in {
-		def V#i : VectorProcReg<"v"#i>;
+		def V#i : VectorProcReg<"v"#i, i>;
 	}
 }
 
