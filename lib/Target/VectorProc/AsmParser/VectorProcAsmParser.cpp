@@ -343,17 +343,6 @@ ParseInstruction(ParseInstructionInfo &Info,
   if (ParseOperand(Operands))
     return true;
 
-  if (getLexer().is(AsmToken::LCurly))
-  {
-    getLexer().Lex();
-  	// Start of predicate
-  	ParseOperand(Operands);
-  	if (getLexer().isNot(AsmToken::RCurly))
-  		return true;
-
-    getLexer().Lex();
-  }
-
   // Parse until end of statement, consuming commas between operands
   while (getLexer().isNot(AsmToken::EndOfStatement) &&
         getLexer().is(AsmToken::Comma)) {
