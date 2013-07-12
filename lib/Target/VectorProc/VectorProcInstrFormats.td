@@ -35,12 +35,7 @@ def ADDRri : ComplexPattern<iPTR, 2, "SelectADDRri", [frameindex], []>;
 
 def MEMri : Operand<iPTR> {
 	let PrintMethod = "printMemOperand";
-	let MIOperandInfo = (ops ScalarReg, i32imm);
-}
-
-// XXX may be able to merge into MEMri
-def ComputeFrameAddr : Operand<iPTR> {
-	let PrintMethod = "printComputeFrameAddr";
+	let EncoderMethod = "getMemoryOpValue";
 	let MIOperandInfo = (ops ScalarReg, i32imm);
 }
 
@@ -560,7 +555,7 @@ class FormatCInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	: VPInstruction<outputs, inputs, asmString, pattern> 
 {
 
-	let Inst{31-30} = 2;
+	let Inst{31} = 1;
 	let Inst{29} = isLoad;
 	let Inst{28-25} = fmt.Value;
 	
@@ -571,44 +566,42 @@ class FormatCMaskedInst<dag outputs, dag inputs, string asmString, list<dag> pat
 	CFmt fmt, bits <1> isLoad> 
 	: FormatCInst<outputs, inputs, asmString, pattern, fmt, isLoad> 
 {
-	bits <5> ptr;
-	bits <10> offset;
+	bits <20> addr;	// Is offset/ptr, this is set up by getMemoryOpValue.
 	bits <5> mask;
 	bits <5> srcDest;
 
-	let Inst{24-15} = offset;
+	let Inst{24-15} = addr{14-5};
 	let Inst{14-10} = mask;
 	let Inst{9-5} = srcDest;
-	let Inst{4-0} = ptr;
+	let Inst{4-0} = addr{4-0};
 }
 
 class FormatCUnmaskedInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	CFmt fmt, bits <1> isLoad> 
 	: FormatCInst<outputs, inputs, asmString, pattern, fmt, isLoad> 
 {
-	bits <15> offset;
+	bits <20> addr;	// Is offset/ptr, this is set up by getMemoryOpValue.
 	bits <5> srcDest;
-	bits <5> ptr;
 
-	let Inst{24-10} = offset;
+	let Inst{24-10} = addr{19-5};
 	let Inst{9-5} = srcDest;
-	let Inst{4-0} = ptr;
+	let Inst{4-0} = addr{4-0};
 }
 
 multiclass ScalarLoadInst<string suffix, PatFrag op, CFmt fmt>  {
 	def i : FormatCUnmaskedInst<
-		(outs ScalarReg:$dest),
+		(outs ScalarReg:$srcDest),
 		(ins MEMri:$addr),
-		"load." # suffix # " $dest, $addr",
-		[(set i32:$dest, (i32 (op ADDRri:$addr)))], 
+		"load." # suffix # " $srcDest, $addr",
+		[(set i32:$srcDest, (i32 (op ADDRri:$addr)))], 
 		fmt,
 		1>;
 
 	def f : FormatCUnmaskedInst<
-		(outs ScalarReg:$dest),
+		(outs ScalarReg:$srcDest),
 		(ins MEMri:$addr),
-		"load." # suffix # " $dest, $addr",
-		[(set f32:$dest, (op ADDRri:$addr))],
+		"load." # suffix # " $srcDest, $addr",
+		[(set f32:$srcDest, (op ADDRri:$addr))],
 		fmt,
 		1>;
 }
@@ -617,17 +610,17 @@ multiclass ScalarStoreInst<string suffix, PatFrag op, CFmt fmt>  {
 	let hasSideEffects = 1, mayStore = 1 in {
 		def i : FormatCUnmaskedInst<
 			(outs),
-			(ins MEMri:$addr, ScalarReg:$src),
-			"store." # suffix # " $src, $addr",
-			[(op i32:$src, ADDRri:$addr)],
+			(ins MEMri:$addr, ScalarReg:$srcDest),
+			"store." # suffix # " $srcDest, $addr",
+			[(op i32:$srcDest, ADDRri:$addr)],
 			fmt, 
 			0>;
 
 		def f : FormatCUnmaskedInst<
 			(outs),
-			(ins MEMri:$addr, ScalarReg:$src),
-			"store." # suffix # " $src, $addr",
-			[(op f32:$src, ADDRri:$addr)],
+			(ins MEMri:$addr, ScalarReg:$srcDest),
+			"store." # suffix # " $srcDest, $addr",
+			[(op f32:$srcDest, ADDRri:$addr)],
 			fmt,
 			0>;
 	}

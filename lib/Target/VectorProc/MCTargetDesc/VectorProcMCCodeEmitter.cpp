@@ -155,12 +155,16 @@ unsigned VectorProcMCCodeEmitter::
 getMemoryOpValue(const MCInst &MI, unsigned Op,
   SmallVectorImpl<MCFixup> &Fixups) const {
   unsigned encoding;
+
+  // Register
   const MCOperand op1 = MI.getOperand(1);
   assert(op1.isReg() && "First operand is not register.");
   encoding = Ctx.getRegisterInfo().getEncodingValue(op1.getReg());
+
+  // Offset
   MCOperand op2 = MI.getOperand(2);
   assert(op2.isImm() && "Second operand is not immediate.");
-  encoding |= (static_cast<short>(op2.getImm()) & 0x7fff) << 10;
+  encoding |= static_cast<short>(op2.getImm() / 4) << 5;
   return encoding;
 }
 

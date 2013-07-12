@@ -269,7 +269,8 @@ ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
   
   // Attempt to parse token as immediate
   if(!Op) {
-    Op = ParseImmediate();
+    if(getLexer().isNot(AsmToken::LParen))
+      Op = ParseImmediate();
     
     // If next token is left parenthesis, then memory operand, attempt to
     // parse next token as base of 

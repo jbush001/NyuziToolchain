@@ -192,9 +192,9 @@ defm SW : ScalarStoreInst<"32", store, FmtC_Word>;
 // The compiler does this in some cases and the normal store does not match it.
 def STORE_MASK : FormatCUnmaskedInst<
 	(outs),
-	(ins MEMri:$addr, ScalarReg:$src),
-	"store.v $src, $addr",
-	[(store v16i1:$src, ADDRri:$addr)],
+	(ins MEMri:$ptr, ScalarReg:$srcDest),
+	"store.v $srcDest, $ptr",
+	[(store v16i1:$srcDest, ADDRri:$ptr)],
 	FmtC_Word,
 	0>
 {
@@ -209,9 +209,9 @@ def : Pat<(i32 (extloadi16 ADDRri:$src)), (LSSi ADDRri:$src)>;
 // Vector
 def BLOCK_STOREI : FormatCUnmaskedInst<
 	(outs),
-	(ins MEMri:$addr, VectorReg:$src),
-	"store.v $src, $addr",
-	[(store v16i32:$src, ADDRri:$addr)],
+	(ins MEMri:$ptr, VectorReg:$srcDest),
+	"store.v $srcDest, $ptr",
+	[(store v16i32:$srcDest, ADDRri:$ptr)],
 	FmtC_Block,
 	0>
 {
@@ -221,9 +221,9 @@ def BLOCK_STOREI : FormatCUnmaskedInst<
 
 def BLOCK_STOREF : FormatCUnmaskedInst<
 	(outs),
-	(ins MEMri:$addr, VectorReg:$src),
-	"store.v $src, $addr",
-	[(store v16f32:$src, ADDRri:$addr)],
+	(ins MEMri:$ptr, VectorReg:$srcDest),
+	"store.v $srcDest, $ptr",
+	[(store v16f32:$srcDest, ADDRri:$ptr)],
 	FmtC_Block,
 	0>
 {
@@ -232,115 +232,115 @@ def BLOCK_STOREF : FormatCUnmaskedInst<
 }
 
 def BLOCK_LOADI : FormatCUnmaskedInst<
-	(outs VectorReg:$dest),
-	(ins MEMri:$addr),
-	"load.v $dest, $addr",
-	[(set v16i32:$dest, (load ADDRri:$addr))],
+	(outs VectorReg:$srcDest),
+	(ins MEMri:$ptr),
+	"load.v $srcDest, $ptr",
+	[(set v16i32:$srcDest, (load ADDRri:$ptr))],
 	FmtC_Block,
 	1>;
 
 def BLOCK_LOADF : FormatCUnmaskedInst<
-	(outs VectorReg:$dest),
-	(ins MEMri:$addr),
-	"load.v $dest, $addr",
-	[(set v16f32:$dest, (load ADDRri:$addr))],
+	(outs VectorReg:$srcDest),
+	(ins MEMri:$ptr),
+	"load.v $srcDest, $ptr",
+	[(set v16f32:$srcDest, (load ADDRri:$ptr))],
 	FmtC_Block,
 	1>;
 
 def INT_GATHER_LOADI : FormatCUnmaskedInst<
-	(outs VectorReg:$dest),
+	(outs VectorReg:$srcDest),
 	(ins VectorReg:$ptr),
-	"load.v $dest, ( $ptr )",
-	[(set v16i32:$dest, (int_vp_gather_loadi v16i32:$ptr))],
+	"load.v $srcDest, ( $ptr )",
+	[(set v16i32:$srcDest, (int_vp_gather_loadi v16i32:$ptr))],
 	FmtC_ScGath,
 	1>;
 
 def INT_GATHER_LOADF : FormatCUnmaskedInst<
-	(outs VectorReg:$dest),
+	(outs VectorReg:$srcDest),
 	(ins VectorReg:$ptr),
-	"load.v $dest, ( $ptr )",
-	[(set v16f32:$dest, (int_vp_gather_loadf v16i32:$ptr))],
+	"load.v $srcDest, ( $ptr )",
+	[(set v16f32:$srcDest, (int_vp_gather_loadf v16i32:$ptr))],
 	FmtC_ScGath,
 	1>;
 
 def INT_GATHER_LOADI_MASKED : FormatCMaskedInst<
-	(outs VectorReg:$dest),
+	(outs VectorReg:$srcDest),
 	(ins VectorReg:$ptr, ScalarReg:$mask),
-	"load.v $dest {{ $mask }}, ( $ptr )",
-	[(set v16i32:$dest, (int_vp_gather_loadi_masked v16i32:$ptr, i32:$mask))],
+	"load.v $srcDest {{ $mask }}, ( $ptr )",
+	[(set v16i32:$srcDest, (int_vp_gather_loadi_masked v16i32:$ptr, i32:$mask))],
 	FmtC_ScGathMasked,
 	1>;
 
 def INT_GATHER_LOADF_MASKED : FormatCMaskedInst<
-	(outs VectorReg:$dest),
+	(outs VectorReg:$srcDest),
 	(ins VectorReg:$ptr, ScalarReg:$mask),
-	"load.v $dest {{ $mask }}, ( $ptr )",
-	[(set v16f32:$dest, (int_vp_gather_loadf_masked v16i32:$ptr, i32:$mask))],
+	"load.v $srcDest {{ $mask }}, ( $ptr )",
+	[(set v16f32:$srcDest, (int_vp_gather_loadf_masked v16i32:$ptr, i32:$mask))],
 	FmtC_ScGathMasked,
 	1>;
 
 def INT_BLOCK_LOADI_MASKED : FormatCMaskedInst<
-	(outs VectorReg:$dest),
+	(outs VectorReg:$srcDest),
 	(ins ScalarReg:$ptr, ScalarReg:$mask),
-	"load.v $dest {{ $mask }}, ( $ptr )",
-	[(set v16i32:$dest, (int_vp_block_loadi_masked i32:$ptr, i32:$mask))],
+	"load.v $srcDest {{ $mask }}, ( $ptr )",
+	[(set v16i32:$srcDest, (int_vp_block_loadi_masked i32:$ptr, i32:$mask))],
 	FmtC_BlockMasked,
 	1>;
 
 def INT_BLOCK_LOADF_MASKED : FormatCMaskedInst<
-	(outs VectorReg:$dest),
+	(outs VectorReg:$srcDest),
 	(ins ScalarReg:$ptr, ScalarReg:$mask),
-	"load.v $dest {{ $mask }}, ( $ptr )",
-	[(set v16f32:$dest, (int_vp_block_loadf_masked i32:$ptr, i32:$mask))],
+	"load.v $srcDest {{ $mask }}, ( $ptr )",
+	[(set v16f32:$srcDest, (int_vp_block_loadf_masked i32:$ptr, i32:$mask))],
 	FmtC_BlockMasked,
 	1>;
 
 let hasSideEffects = 1, mayStore = 1 in {
 	def INT_SCATTER_STOREI : FormatCUnmaskedInst<
 		(outs),
-		(ins VectorReg:$ptr, VectorReg:$value),
-		"store.v $value, ( $ptr )",
-		[(int_vp_scatter_storei v16i32:$ptr, v16i32:$value)],
+		(ins VectorReg:$ptr, VectorReg:$srcDest),
+		"store.v $srcDest, ( $ptr )",
+		[(int_vp_scatter_storei v16i32:$ptr, v16i32:$srcDest)],
 		FmtC_ScGath,
 		0>;
 
 	def INT_SCATTER_STOREF : FormatCUnmaskedInst<
 		(outs),
-		(ins VectorReg:$ptr, VectorReg:$value),
-		"store.v $value, ( $ptr )",
-		[(int_vp_scatter_storef v16i32:$ptr, v16f32:$value)],
+		(ins VectorReg:$ptr, VectorReg:$srcDest),
+		"store.v $srcDest, ( $ptr )",
+		[(int_vp_scatter_storef v16i32:$ptr, v16f32:$srcDest)],
 		FmtC_ScGath,
 		0>;
 
 	def INT_SCATTER_STOREI_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins VectorReg:$ptr, VectorReg:$value, ScalarReg:$mask),
-		"store.v $value {{ $mask }}, ( $ptr )",
-		[(int_vp_scatter_storei_masked v16i32:$ptr, v16i32:$value, i32:$mask)],
+		(ins VectorReg:$ptr, VectorReg:$srcDest, ScalarReg:$mask),
+		"store.v $srcDest {{ $mask }}, ( $ptr )",
+		[(int_vp_scatter_storei_masked v16i32:$ptr, v16i32:$srcDest, i32:$mask)],
 		FmtC_ScGathMasked,
 		0>;
 
 	def INT_SCATTER_STOREF_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins VectorReg:$ptr, VectorReg:$value, ScalarReg:$mask),
-		"store.v $value {{ $mask }}, ( $ptr )",
-		[(int_vp_scatter_storef_masked v16i32:$ptr, v16f32:$value, i32:$mask)],
+		(ins VectorReg:$ptr, VectorReg:$srcDest, ScalarReg:$mask),
+		"store.v $srcDest {{ $mask }}, ( $ptr )",
+		[(int_vp_scatter_storef_masked v16i32:$ptr, v16f32:$srcDest, i32:$mask)],
 		FmtC_ScGathMasked,
 		0>;
 
 	def INT_BLOCK_STOREI_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins ScalarReg:$ptr, VectorReg:$value, ScalarReg:$mask),
-		"store.v $value {{ $mask }}, ( $ptr )",
-		[(int_vp_block_storei_masked i32:$ptr, v16i32:$value, i32:$mask)],
+		(ins ScalarReg:$ptr, VectorReg:$srcDest, ScalarReg:$mask),
+		"store.v $srcDest {{ $mask }}, ( $ptr )",
+		[(int_vp_block_storei_masked i32:$ptr, v16i32:$srcDest, i32:$mask)],
 		FmtC_BlockMasked,
 		0>;
 
 	def INT_BLOCK_STOREF_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins ScalarReg:$ptr, VectorReg:$value, ScalarReg:$mask),
-		"store.v $value {{ $mask }}, ( $ptr )",
-		[(int_vp_block_storef_masked i32:$ptr, v16f32:$value, i32:$mask)],
+		(ins ScalarReg:$ptr, VectorReg:$srcDest, ScalarReg:$mask),
+		"store.v $srcDest {{ $mask }}, ( $ptr )",
+		[(int_vp_block_storef_masked i32:$ptr, v16f32:$srcDest, i32:$mask)],
 		FmtC_BlockMasked,
 		0>;
 }
@@ -483,7 +483,7 @@ def GET_CURRENT_STRAND : FormatCInst<
 // $expr will actually expand to "fp + <offset>"
 def LOAD_FRAME_ADDR : VPInstruction<
 	(outs ScalarReg:$dest),
-	(ins ComputeFrameAddr:$expr),
+	(ins MEMri:$expr),
 	"add.i $dest, $expr",
 	[(set i32:$dest, ADDRri:$expr)]>;
 
