@@ -25,6 +25,8 @@ class MCInstrInfo;
 class MCObjectWriter;
 class MCRegisterInfo;
 class MCSubtargetInfo;
+class raw_ostream;
+class StringRef;
 
 extern Target TheVectorProcTarget;
 
@@ -33,6 +35,12 @@ MCCodeEmitter *createVectorProcMCCodeEmitter(const MCInstrInfo &MCII,
                                        const MCSubtargetInfo &STI,
                                        MCContext &Ctx);
 
+MCObjectWriter *createVectorProcELFObjectWriter(raw_ostream &OS,
+                                                uint8_t OSABI);
+
+MCAsmBackend *createVectorProcAsmBackend(const Target &T, StringRef TT,
+                                             StringRef CPU);
+                                             
 } // End llvm namespace
 
 // Defines symbolic names for VectorProc registers.  This defines a mapping from

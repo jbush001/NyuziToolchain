@@ -17,6 +17,7 @@
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/MC/MCElfStreamer.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetRegistry.h"
 
@@ -58,6 +59,22 @@ static MCCodeGenInfo *createVectorProcMCCodeGenInfo(StringRef TT, Reloc::Model R
   return X;
 }
 
+static MCStreamer *createVectorProcMCStreamer(const Target &T, StringRef TT,
+                                    MCContext &Ctx, MCAsmBackend &MAB,
+                                    raw_ostream &_OS,
+                                    MCCodeEmitter *_Emitter,
+                                    bool RelaxAll,
+                                    bool NoExecStack) {
+  Triple TheTriple(TT);
+  if (TheTriple.isOSDarwin()) {
+    llvm_unreachable("VectorProc does not support Darwin MACH-O format");
+  }
+  if (TheTriple.isOSWindows()) {
+    llvm_unreachable("VectorProc does not support Windows COFF format");
+  }
+  return createELFStreamer(Ctx, MAB, _OS, _Emitter, RelaxAll, NoExecStack);
+}
+
 extern "C" void LLVMInitializeVectorProcTargetMC() {
   // Register the MC asm info.
   RegisterMCAsmInfo<VectorProcELFMCAsmInfo> X(TheVectorProcTarget);
@@ -77,4 +94,12 @@ extern "C" void LLVMInitializeVectorProcTargetMC() {
   // Register the MC subtarget info.
   TargetRegistry::RegisterMCSubtargetInfo(TheVectorProcTarget,
                                           createVectorProcMCSubtargetInfo);
+
+  // Register the ASM Backend
+  TargetRegistry::RegisterMCAsmBackend(TheVectorProcTarget,
+                                       createVectorProcAsmBackend);
+
+  // Register the object streamer
+  TargetRegistry::RegisterMCObjectStreamer(TheVectorProcTarget,
+                                           createVectorProcMCStreamer);
 }
