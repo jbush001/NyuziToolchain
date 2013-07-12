@@ -7,6 +7,7 @@
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/Support/TargetRegistry.h"
+#include "llvm/Support/Debug.h"
 using namespace llvm;
 
 namespace {
@@ -260,61 +261,87 @@ VectorProcOperand *VectorProcAsmParser::ParseImmediate() {
 }
 
 bool VectorProcAsmParser::
-ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
-  VectorProcOperand *Op, *Op2 = 0;
+ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands) 
+{
+	VectorProcOperand *Op;
+	unsigned RegNo;
 
-  // Attempt to parse token as register
-  unsigned RegNo;
-  Op = ParseRegister(RegNo);
+	// Attempt to parse token as register
+	Op = ParseRegister(RegNo);
+	if (Op)
+	{
+		Operands.push_back(Op);
+		return false;
+	}  	
   
-  // Attempt to parse token as immediate
-  if(!Op) {
-    if(getLexer().isNot(AsmToken::LParen))
-      Op = ParseImmediate();
-    
-    // If next token is left parenthesis, then memory operand, attempt to
-    // parse next token as base of 
-    if(Op) {
-      if(getLexer().is(AsmToken::LParen)) {
+  	if (getLexer().is(AsmToken::LParen)) 
+  	{
+  		// Memory operand without an offset (s12)
         getLexer().Lex();
-        // Swap tokens around so that they can be parsed
-        Op2 = Op;
         Op = ParseRegister(RegNo);
 
         // Invalid memory operand, fail
-        if(!Op || getLexer().isNot(AsmToken::RParen)) {
-          Error(Parser.getTok().getLoc(), "unknown operand");
-          return true;
-        }
+		if (!Op || getLexer().isNot(AsmToken::RParen)) {
+			Error(Parser.getTok().getLoc(), "unknown operand");
+			return true;
+		}
+
         getLexer().Lex();
-      }
-    }
-  }
+		
+		Operands.push_back(Op);
 
-  // Parse as a token
-  if (!Op)
-  {
-    const MCExpr *IdVal;
-    SMLoc S = Parser.getTok().getLoc();
-    if (!getParser().parseExpression(IdVal))
-    {
-      SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-      Op = VectorProcOperand::CreateImm(IdVal, S, E);
-    }
-  }
+		SMLoc S = Parser.getTok().getLoc();
+		SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() -1);
+		VectorProcOperand *Zero = VectorProcOperand::CreateImm(0, S, E);
+		Operands.push_back(Zero);
+		return false;
+  	}
+  	else
+  	{
+		Op = ParseImmediate();
+		if (Op)
+		{
+			if (getLexer().is(AsmToken::LParen)) {
+				// Memory operand with an offset 14(s3)
+				getLexer().Lex();
+				VectorProcOperand *RegOp = ParseRegister(RegNo);
 
-  // If the token could not be parsed then fail
-  if(!Op) {
-    Error(Parser.getTok().getLoc(), "unknown operand");
-    return true;
-  }
+				// Invalid memory operand, fail
+				if(!RegOp || getLexer().isNot(AsmToken::RParen)) {
+					Error(Parser.getTok().getLoc(), "unknown operand");
+					return true;
+				}
 
-  // Push back parsed operand(s) into list of operands
-  Operands.push_back(Op);
-  if(Op2)
-    Operands.push_back(Op2);
+				getLexer().Lex();
+				Operands.push_back(RegOp);
+				Operands.push_back(Op);
+				return false;
+			}
+			else
+			{
+				// Just an immediate
+				Operands.push_back(Op);
+				return false;
+			}
+		}
+		else
+		{
+			// Identifier
+			const MCExpr *IdVal;
+			SMLoc S = Parser.getTok().getLoc();
+			if (!getParser().parseExpression(IdVal))
+			{
+				SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+				Op = VectorProcOperand::CreateImm(IdVal, S, E);
+				Operands.push_back(Op);
+				return false;
+			}
+		}
+  	}
 
-  return false;
+	// Error
+	Error(Parser.getTok().getLoc(), "unknown operand");
+	return true;
 }
 
 bool VectorProcAsmParser::
@@ -345,8 +372,9 @@ ParseInstruction(ParseInstructionInfo &Info,
     return true;
 
   // Parse until end of statement, consuming commas between operands
-  while (getLexer().isNot(AsmToken::EndOfStatement) &&
-        getLexer().is(AsmToken::Comma)) {
+  while (getLexer().isNot(AsmToken::EndOfStatement) 
+  	&& getLexer().is(AsmToken::Comma)) 
+  {
     // Consume comma token
     getLexer().Lex();
 

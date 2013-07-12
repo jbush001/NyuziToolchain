@@ -25,4 +25,4 @@ def make_e_instruction(op, offset, reg):
 
 #make_a_instruction(5, 1, 13, 15, 16, 14)
 #make_e_instruction(2, 0xffffc, 12) 
-make_c_instruction(1, 4, 12, 1, 2)
+make_c_instruction(1, 4, 0, 1, 2)
