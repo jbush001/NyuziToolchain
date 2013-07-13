@@ -4,6 +4,6 @@
 _start:  add.i s1, s2, s3 
     
 aloop:	goto aloop
-touc
+
 ; CHECK: SYMBOL TABLE:
 ; CHECK: 00000004         .text	00000000 aloop

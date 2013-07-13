@@ -44,6 +44,7 @@ unsigned VectorProcELFObjectWriter::GetRelocType(const MCValue &Target,
 	unsigned Kind = (unsigned)Fixup.getKind();
 	switch (Kind) {
 		default: llvm_unreachable("Invalid fixup kind!");
+		case FK_Data_4:
 		case VectorProc::fixup_VectorProc_Abs32:
 			Type = ELF::R_VECTORPROC_ABS32;
 			break;
