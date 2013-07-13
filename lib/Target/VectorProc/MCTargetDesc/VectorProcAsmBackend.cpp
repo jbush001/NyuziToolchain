@@ -23,6 +23,7 @@
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Debug.h"
 
 using namespace llvm;
 
@@ -38,17 +39,20 @@ public:
     return createVectorProcELFObjectWriter(OS,
       MCELFObjectTargetWriter::getOSABI(OSType));
   }
-  
-  unsigned adjustFixupValue(unsigned Kind, uint64_t value) const {
+
+  static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
     switch (Kind)
     {
-    	default: llvm_unreachable("Unknown fixup");
-    	case VectorProc::fixup_VectorProc_32:
-    		return value;
-
-		// XXX implement support for fixups here.
-
+	  case VectorProc::fixup_VectorProc_PCRel_MemAccExt:
+	  case VectorProc::fixup_VectorProc_PCRel_MemAcc:
+	    Value >>= 2;	// Divide by 4 for memory access offsets (XXX will be changed in ISA)
+		break;
+	
+	  default:
+	    break;
     }
+    
+    return Value;
   }
 
   void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
@@ -67,6 +71,9 @@ public:
 
     uint64_t Mask = ((uint64_t)(-1) >>
                      (64 - getFixupKindInfo(Kind).TargetSize));
+
+	Value <<= getFixupKindInfo(Kind).TargetOffset;
+	Mask <<= getFixupKindInfo(Kind).TargetOffset;
     CurVal |= Value & Mask;
 
     // Write out the fixed up bytes back to the code/data bits.
@@ -82,8 +89,11 @@ public:
       // This table *must* be in same the order of fixup_* kinds in
       // VectorProcFixupKinds.h.
       //
-      // name                    offset  bits  flags
-      { "fixup_VectorProc_32",           0,     32,   0 },
+      // name                          offset  bits  flags
+      { "fixup_VectorProc_Abs32",           0,     32,   0 },
+      { "fixup_VectorProc_PCRel_MemAccExt", 10,    15,   MCFixupKindInfo::FKF_IsPCRel },
+      { "fixup_VectorProc_PCRel_MemAcc",    15,    10,   MCFixupKindInfo::FKF_IsPCRel },
+      { "fixup_VectorProc_PCRel_Branch",    5,     20,   MCFixupKindInfo::FKF_IsPCRel }
     };
 
     if (Kind < FirstTargetFixupKind)

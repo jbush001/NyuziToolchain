@@ -217,7 +217,12 @@ public:
     VK_Mips_GOT_LO16,
     VK_Mips_CALL_HI16,
     VK_Mips_CALL_LO16,
-    VK_COFF_IMGREL32 // symbol@imgrel (image-relative)
+    VK_COFF_IMGREL32, // symbol@imgrel (image-relative)
+
+	VK_VectorProc_Abs32,
+	VK_VectorProc_PCRel_MemAccExt,
+	VK_VectorProc_PCRel_MemAcc,
+	VK_VectorProc_PCRel_Branch
   };
 
 private:

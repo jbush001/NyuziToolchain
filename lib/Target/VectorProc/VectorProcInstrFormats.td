@@ -17,7 +17,6 @@
 
 def simm13  : PatLeaf<(imm), [{ return isInt<13>(N->getSExtValue()); }]>;
 def simm8  : PatLeaf<(imm), [{ return isInt<8>(N->getSExtValue()); }]>;
-def brtarget : Operand<OtherVT>;
 
 // A splat is a vector with the same value in all lanes. VectorProcTargetLowering 
 // detects this condition and converts it to a SPLAT node.
@@ -37,6 +36,11 @@ def MEMri : Operand<iPTR> {
 	let PrintMethod = "printMemOperand";
 	let EncoderMethod = "getMemoryOpValue";
 	let MIOperandInfo = (ops ScalarReg, i32imm);
+}
+
+def brtarget : Operand<OtherVT> 
+{
+	let EncoderMethod = "getJumpTargetOpValue";
 }
 
 //
@@ -514,11 +518,14 @@ class BranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	let isBranch = 1;
 	let isTerminator = 1;	// Ends current basic block and starts another one
 
-	bits<20> targetOffset;
+	bits<20> offset;
 
 	let Inst{31-28} = 0xf;
 	let Inst{27-25} = type.Value;
-	let Inst{24-5} = targetOffset;
+
+ 	let Inst{31-28} = 0xf;
+ 	let Inst{27-25} = type.Value;
+	let Inst{24-5} = offset;
 }
 
 class ConditionalBranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,

@@ -23,10 +23,10 @@ namespace VectorProc {
   // in VectorProcAsmBackend.cpp.
   //
   enum Fixups {
-    fixup_Mips_16 = FirstTargetFixupKind,
-
-    // Pure 32 bit data fixup 
-    fixup_VectorProc_32,
+    fixup_VectorProc_Abs32 = FirstTargetFixupKind,	// Pure 32-bit absolute fixup
+    fixup_VectorProc_PCRel_MemAccExt,	// PC relative offset for extended memory access
+    fixup_VectorProc_PCRel_MemAcc,		// PC relative offset for memory access
+    fixup_VectorProc_PCRel_Branch,		// PC relative for branch instruction
 
     // Marker
     LastTargetFixupKind,

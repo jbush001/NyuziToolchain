@@ -59,6 +59,12 @@ static MCCodeGenInfo *createVectorProcMCCodeGenInfo(StringRef TT, Reloc::Model R
   return X;
 }
 
+static MCAsmInfo *createVectorProcMCAsmInfo(const Target &T, StringRef TT) {
+  Triple TheTriple(TT);
+
+  return new VectorProcMCAsmInfo(T, TT);
+}
+
 static MCStreamer *createVectorProcMCStreamer(const Target &T, StringRef TT,
                                     MCContext &Ctx, MCAsmBackend &MAB,
                                     raw_ostream &_OS,
@@ -77,7 +83,7 @@ static MCStreamer *createVectorProcMCStreamer(const Target &T, StringRef TT,
 
 extern "C" void LLVMInitializeVectorProcTargetMC() {
   // Register the MC asm info.
-  RegisterMCAsmInfo<VectorProcELFMCAsmInfo> X(TheVectorProcTarget);
+  RegisterMCAsmInfoFn A(TheVectorProcTarget, createVectorProcMCAsmInfo);
 
   // Register the MC codegen info.
   TargetRegistry::RegisterMCCodeGenInfo(TheVectorProcTarget,

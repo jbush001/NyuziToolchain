@@ -20,10 +20,10 @@ namespace llvm {
   class StringRef;
   class Target;
 
-  class VectorProcELFMCAsmInfo : public MCAsmInfo {
+  class VectorProcMCAsmInfo : public MCAsmInfo {
     virtual void anchor();
   public:
-    explicit VectorProcELFMCAsmInfo(const Target &T, StringRef TT);
+    explicit VectorProcMCAsmInfo(const Target &T, StringRef TT);
   };
 
 } // namespace llvm

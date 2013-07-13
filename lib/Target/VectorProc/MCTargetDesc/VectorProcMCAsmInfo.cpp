@@ -16,10 +16,10 @@
 
 using namespace llvm;
 
-void VectorProcELFMCAsmInfo::anchor() { }
+void VectorProcMCAsmInfo::anchor() { }
 
-VectorProcELFMCAsmInfo::VectorProcELFMCAsmInfo(const Target &T, StringRef TT) {
-  IsLittleEndian = false;
+VectorProcMCAsmInfo::VectorProcMCAsmInfo(const Target &T, StringRef TT) {
+  IsLittleEndian = true;
   Triple TheTriple(TT);
 
   Data16bitsDirective = "\t.short\t";
@@ -30,9 +30,6 @@ VectorProcELFMCAsmInfo::VectorProcELFMCAsmInfo(const Target &T, StringRef TT) {
   HasLEB128 = true;
   SupportsDebugInformation = true;
   
-  SunStyleELFSectionSwitchSyntax = true;
-  UsesELFSectionDirectiveForBSS = true;
-
   WeakRefDirective = "";
 
   PrivateGlobalPrefix = "L";
