@@ -350,7 +350,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 //////////////////////////////////////////////////////////////////
 
 let isBarrier = 1 in {
-	def GOTO : BranchInst<
+	def GOTO : UnconditionalBranchInst<
 		(outs),
 		(ins brtarget:$offset),
 		"goto $offset",
@@ -360,16 +360,16 @@ let isBarrier = 1 in {
 
 def IFFALSE	: ConditionalBranchInst<
 	(outs), 
-	(ins ScalarReg:$test, brtarget:$offset),
-	"bfalse $test, $offset",
-	[(brcond (i32 (seteq i32:$test, 0)), bb:$offset)],
+	(ins ScalarReg:$test, brtarget:$dest),
+	"bfalse $test, $dest",
+	[(brcond (i32 (seteq i32:$test, 0)), bb:$dest)],
 	BT_IfFalse> ;
 
 def IFTRUE	: ConditionalBranchInst<
 	(outs), 
-	(ins ScalarReg:$test, brtarget:$offset),
-	"btrue $test, $offset",
-	[(brcond i32:$test, bb:$offset)],
+	(ins ScalarReg:$test, brtarget:$dest),
+	"btrue $test, $dest",
+	[(brcond i32:$test, bb:$dest)],
 	BT_IfTrue> ;
 
 def return : SDNode<"VectorProcISD::RET_FLAG", 
@@ -390,15 +390,6 @@ let isReturn = 1, isTerminator = 1, isBarrier = 1, Uses = [FP_REG] in {
 	}
 }
 
-def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
-def SDT_SPCallSeqEnd   : SDCallSeqEnd<[ SDTCisVT<0, i32>,
-                                        SDTCisVT<1, i32> ]>;
-
-def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_SPCallSeqStart,
-                           [SDNPHasChain, SDNPSideEffect, SDNPOutGlue]>;
-def callseq_end   : SDNode<"ISD::CALLSEQ_END",   SDT_SPCallSeqEnd,
-                           [SDNPHasChain, SDNPSideEffect, SDNPOptInGlue, SDNPOutGlue]>;
-
 let Defs = [SP_REG], Uses = [SP_REG], hasSideEffects = 1 in {
 	def ADJCALLSTACKDOWN : Pseudo<(outs), (ins i32imm:$amt),
 								   " ; ADJCALLSTACKDOWN",
@@ -408,14 +399,8 @@ let Defs = [SP_REG], Uses = [SP_REG], hasSideEffects = 1 in {
 								[(callseq_end timm:$amt1, timm:$amt2)]>;
 }
 
-def calltarget : Operand<i32>;
-def SDT_SPCall : SDTypeProfile<0, -1, [SDTCisVT<0, i32>]>;
-def call       : SDNode<"VectorProcISD::CALL", SDT_SPCall,
-                           [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
-                            SDNPVariadic]>;
-
 let isCall = 1, Defs = [S0, S1, S2, S3, S4, LINK_REG ] in {
-	def CALL : BranchInst<
+	def CALL : UnconditionalBranchInst<
 		(outs), 
 		(ins calltarget:$dest, variable_ops),
 		"call $dest", 
@@ -427,7 +412,14 @@ let isCall = 1, Defs = [S0, S1, S2, S3, S4, LINK_REG ] in {
 		(ins MEMri:$ptr, variable_ops),
 		"call $ptr",
 		[(call ADDRri:$ptr)],
-		BT_CallReg>;
+		BT_CallReg>
+	{
+		// XXX this instruction will probably assert because there is no $dest
+		
+		bits<5> ptr;
+
+		let Inst{4-0} = ptr;
+	}
 }
 
 def : Pat<(call tglobaladdr:$dest),

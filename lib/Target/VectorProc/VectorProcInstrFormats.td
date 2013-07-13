@@ -43,6 +43,22 @@ def brtarget : Operand<OtherVT>
 	let EncoderMethod = "getJumpTargetOpValue";
 }
 
+def calltarget : Operand<iPTR>
+{
+	let EncoderMethod = "getJumpTargetOpValue";
+}
+
+def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
+def SDT_SPCallSeqEnd   : SDCallSeqEnd<[ SDTCisVT<0, i32>, SDTCisVT<1, i32> ]>;
+def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_SPCallSeqStart,
+                           [SDNPHasChain, SDNPSideEffect, SDNPOutGlue]>;
+def callseq_end   : SDNode<"ISD::CALLSEQ_END",   SDT_SPCallSeqEnd,
+                           [SDNPHasChain, SDNPSideEffect, SDNPOptInGlue, SDNPOutGlue]>;
+def SDT_SPCall : SDTypeProfile<0, -1, [SDTCisVT<0, i32>]>;
+def call       : SDNode<"VectorProcISD::CALL", SDT_SPCall,
+                           [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
+                            SDNPVariadic]>;
+
 //
 // Instruction Classes
 //
@@ -499,46 +515,6 @@ multiclass FloatCompareInst<string operator, CondCode condition, Intrinsic vecto
 		FmtA_VVS>;
 }
 
-class BranchType<bits<3> val> {
-	bits<3> Value = val;
-}
-
-def BT_All : BranchType<0>;
-def BT_IfFalse : BranchType<1>;
-def BT_IfTrue : BranchType<2>;
-def BT_Uncond : BranchType<3>;
-def BT_Call : BranchType<4>;
-def BT_NAll : BranchType<5>;
-def BT_CallReg : BranchType<6>;
-
-class BranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
-	BranchType type>
-	: VPInstruction<outputs, inputs, asmString, pattern>
-{
-	let isBranch = 1;
-	let isTerminator = 1;	// Ends current basic block and starts another one
-
-	bits<20> offset;
-
-	let Inst{31-28} = 0xf;
-	let Inst{27-25} = type.Value;
-
- 	let Inst{31-28} = 0xf;
- 	let Inst{27-25} = type.Value;
-	let Inst{24-5} = offset;
-}
-
-class ConditionalBranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
-	BranchType type>
-	: BranchInst<outputs, inputs, asmString, pattern, type>
-{
-	bits<5> test;
-
-	let Inst{4-0} = test;
-}
-
-/// XXX need FormatCInst
-
 class CFmt<bits<4> val> {
 	bits<4> Value = val;
 }
@@ -632,3 +608,49 @@ multiclass ScalarStoreInst<string suffix, PatFrag op, CFmt fmt>  {
 			0>;
 	}
 }
+
+class BranchType<bits<3> val> {
+	bits<3> Value = val;
+}
+
+def BT_All : BranchType<0>;
+def BT_IfFalse : BranchType<1>;
+def BT_IfTrue : BranchType<2>;
+def BT_Uncond : BranchType<3>;
+def BT_Call : BranchType<4>;
+def BT_NAll : BranchType<5>;
+def BT_CallReg : BranchType<6>;
+
+class BranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
+	BranchType type>
+	: VPInstruction<outputs, inputs, asmString, pattern>
+{
+	let isBranch = 1;
+	let isTerminator = 1;	// Ends current basic block and starts another one
+
+	bits<20> dest;
+
+	let Inst{31-28} = 0xf;
+	let Inst{27-25} = type.Value;
+
+ 	let Inst{31-28} = 0xf;
+ 	let Inst{27-25} = type.Value;
+	let Inst{24-5} = dest;
+}
+
+class ConditionalBranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
+	BranchType type>
+	: BranchInst<outputs, inputs, asmString, pattern, type>
+{
+	bits<5> test;
+
+	let Inst{4-0} = test;
+}
+
+class UnconditionalBranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
+	BranchType type>
+	: BranchInst<outputs, inputs, asmString, pattern, type>
+{
+	let Inst{4-0} = 0;
+}
+
