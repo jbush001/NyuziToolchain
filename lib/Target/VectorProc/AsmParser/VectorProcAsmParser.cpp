@@ -30,6 +30,7 @@ class VectorProcAsmParser : public MCTargetAsmParser {
 
   VectorProcOperand *ParseImmediate();
 
+
   bool ParseInstruction(ParseInstructionInfo &Info, 
 				StringRef Name, SMLoc NameLoc,
                 SmallVectorImpl<MCParsedAsmOperand*> &Operands);
@@ -38,6 +39,7 @@ class VectorProcAsmParser : public MCTargetAsmParser {
   bool parseDirectiveWord(unsigned Size, SMLoc L);
 
   bool ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
+  bool ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
   // Auto-generated instruction matching functions
 #define GET_ASSEMBLER_HEADER
@@ -275,70 +277,24 @@ ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)
 		return false;
 	}  	
   
-  	if (getLexer().is(AsmToken::LParen)) 
-  	{
-  		// Memory operand without an offset (s12)
-        getLexer().Lex();
-        Op = ParseRegister(RegNo);
-
-        // Invalid memory operand, fail
-		if (!Op || getLexer().isNot(AsmToken::RParen)) {
-			Error(Parser.getTok().getLoc(), "unknown operand");
-			return true;
-		}
-
-        getLexer().Lex();
-		
+	Op = ParseImmediate();
+	if (Op)
+	{
+		// Just an immediate
 		Operands.push_back(Op);
-
-		SMLoc S = Parser.getTok().getLoc();
-		SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() -1);
-		VectorProcOperand *Zero = VectorProcOperand::CreateImm(0, S, E);
-		Operands.push_back(Zero);
 		return false;
-  	}
-  	else
-  	{
-		Op = ParseImmediate();
-		if (Op)
-		{
-			if (getLexer().is(AsmToken::LParen)) {
-				// Memory operand with an offset 14(s3)
-				getLexer().Lex();
-				VectorProcOperand *RegOp = ParseRegister(RegNo);
+	}
 
-				// Invalid memory operand, fail
-				if(!RegOp || getLexer().isNot(AsmToken::RParen)) {
-					Error(Parser.getTok().getLoc(), "unknown operand");
-					return true;
-				}
-
-				getLexer().Lex();
-				Operands.push_back(RegOp);
-				Operands.push_back(Op);
-				return false;
-			}
-			else
-			{
-				// Just an immediate
-				Operands.push_back(Op);
-				return false;
-			}
-		}
-		else
-		{
-			// Identifier
-			const MCExpr *IdVal;
-			SMLoc S = Parser.getTok().getLoc();
-			if (!getParser().parseExpression(IdVal))
-			{
-				SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-				Op = VectorProcOperand::CreateImm(IdVal, S, E);
-				Operands.push_back(Op);
-				return false;
-			}
-		}
-  	}
+	// Identifier
+	const MCExpr *IdVal;
+	SMLoc S = Parser.getTok().getLoc();
+	if (!getParser().parseExpression(IdVal))
+	{
+		SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+		Op = VectorProcOperand::CreateImm(IdVal, S, E);
+		Operands.push_back(Op);
+		return false;
+	}
 
 	// Error
 	Error(Parser.getTok().getLoc(), "unknown operand");
@@ -346,46 +302,123 @@ ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)
 }
 
 bool VectorProcAsmParser::
+ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands) 
+{
+	if (getLexer().is(AsmToken::Identifier))
+	{
+		// PC relative memory label memory access
+		// load.32 s0, aLabel
+
+		const MCExpr *IdVal;
+		SMLoc S = Parser.getTok().getLoc();
+		if (getParser().parseExpression(IdVal))
+			return true;	// Bad identifier
+			
+		SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+
+		// This will be turned into a PC relative load.  First push the
+		// PC register (31), then add the identifier, which will be fixed up
+		// later
+		Operands.push_back(VectorProcOperand::CreateReg(MatchRegisterName("pc"), S, E));
+		Operands.push_back(VectorProcOperand::CreateImm(IdVal, S, E));
+		return false;
+	}
+
+	VectorProcOperand *OffsetOp;
+	if (getLexer().is(AsmToken::Integer))
+		OffsetOp = ParseImmediate();	// There is an offset 
+	else
+		OffsetOp = VectorProcOperand::CreateImm(0, Parser.getTok().getLoc(), Parser.getTok().getLoc()); 
+			// Offset is zero
+
+  	if (!getLexer().is(AsmToken::LParen)) 
+  	{
+		Error(Parser.getTok().getLoc(), "bad memory operand, missing (");
+		return true;
+	}
+
+	getLexer().Lex();
+	unsigned RegNo;
+	VectorProcOperand *RegOp = ParseRegister(RegNo);
+	if (!RegOp)
+	{
+		Error(Parser.getTok().getLoc(), "bad memory operand: invalid register");
+		return true;
+	}
+
+	if (getLexer().isNot(AsmToken::RParen)) 
+	{
+		Error(Parser.getTok().getLoc(), "bad memory operand, missing (");
+		return true;
+	}
+
+	getLexer().Lex();
+	
+	Operands.push_back(RegOp);
+	Operands.push_back(OffsetOp);
+	return false;
+}
+
+bool VectorProcAsmParser::
 ParseInstruction(ParseInstructionInfo &Info, 
 				StringRef Name, SMLoc NameLoc,
-                SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
+                SmallVectorImpl<MCParsedAsmOperand*> &Operands) 
+{
+	size_t dotLoc = Name.find('.');
+	StringRef stem = Name.substr(0,dotLoc);
+	Operands.push_back(VectorProcOperand::CreateToken(stem,NameLoc));
+	if (dotLoc < Name.size()) {
+		size_t dotLoc2 = Name.rfind('.');
+		if (dotLoc == dotLoc2)
+			Operands.push_back(VectorProcOperand::CreateToken(Name.substr(dotLoc),NameLoc));
+		else {
+			Operands.push_back(VectorProcOperand::CreateToken(Name.substr
+				(dotLoc, dotLoc2-dotLoc), NameLoc));
+			Operands.push_back(VectorProcOperand::CreateToken(Name.substr
+				(dotLoc2), NameLoc));
+		}
+	}
 
-  size_t dotLoc = Name.find('.');
-  Operands.push_back(VectorProcOperand::CreateToken(Name.substr(0,dotLoc),NameLoc));
-  if (dotLoc < Name.size()) {
-    size_t dotLoc2 = Name.rfind('.');
-    if (dotLoc == dotLoc2)
-      Operands.push_back(VectorProcOperand::CreateToken(Name.substr(dotLoc),NameLoc));
-    else {
-      Operands.push_back(VectorProcOperand::CreateToken(Name.substr
-                                        (dotLoc, dotLoc2-dotLoc), NameLoc));
-      Operands.push_back(VectorProcOperand::CreateToken(Name.substr
-                                        (dotLoc2), NameLoc));
-    }
-  }
+	// If there are no more operands, then finish
+	if (getLexer().is(AsmToken::EndOfStatement))
+		return false;
 
-  // If there are no more operands, then finish
-  if (getLexer().is(AsmToken::EndOfStatement))
-    return false;
+	// Parse first operand
+	if (ParseOperand(Operands))
+		return true;
 
-  // Parse first operand
-  if (ParseOperand(Operands))
-    return true;
+	if (stem == "load" || stem == "store")
+	{
+		if (getLexer().is(AsmToken::EndOfStatement) 
+			|| getLexer().isNot(AsmToken::Comma)) 
+		{
+			Error(Parser.getTok().getLoc(), "bad memory operand, missing ,");
+			return true;	
+		}
 
-  // Parse until end of statement, consuming commas between operands
-  while (getLexer().isNot(AsmToken::EndOfStatement) 
-  	&& getLexer().is(AsmToken::Comma)) 
-  {
-    // Consume comma token
-    getLexer().Lex();
+		getLexer().Lex(); // Consume comma token
 
-    // Parse next operand
-    if (ParseOperand(Operands))
-      return true;
-  }
+		if (ParseMemoryOperand(Operands))
+			return true;
+	}
+	else
+	{
+		// Parse until end of statement, consuming commas between operands
+		while (getLexer().isNot(AsmToken::EndOfStatement) 
+			&& getLexer().is(AsmToken::Comma)) 
+		{
+			// Consume comma token
+			getLexer().Lex();
 
-  return false;
+			// Parse next operand
+			if (ParseOperand(Operands))
+				return true;
+		}
+	}
+
+	return false;
 }
+
 /// parseDirectiveWord
 ///  ::= .word [ expression (, expression)* ]
 bool VectorProcAsmParser::parseDirectiveWord(unsigned Size, SMLoc L) {

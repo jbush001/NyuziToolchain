@@ -180,37 +180,36 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
   EmitLEConstant(Value, 4, CurByte, OS);
 }
 
-// Encode VectorProc Memory Operand.  This is a packed field with the register
+// Encode VectorProc Memory Operand.  The result is a packed field with the register
 // in the low 5 bits and the offset in the remainder.  The instruction patterns
 // will put these into the proper part of the instruction (VectorProcInstrFormats.td).
 unsigned VectorProcMCCodeEmitter::
 getMemoryOpValue(const MCInst &MI, unsigned Op,
-  SmallVectorImpl<MCFixup> &Fixups) const {
-  unsigned encoding;
+	SmallVectorImpl<MCFixup> &Fixups) const {
+	unsigned encoding;
 
-  // Register
-  const MCOperand op1 = MI.getOperand(1);
-  if (op1.isExpr())
-  {
-    // Load with a label. This is a PC relative load.  Add a fixup.
-    // XXX Note that this assumes unmasked instructions.  A masked
-    // instruction will not work and should nto be used.
-    Fixups.push_back(MCFixup::Create(0, op1.getExpr(),
-         MCFixupKind(VectorProc::fixup_VectorProc_PCRel_MemAccExt)));
-    return 0;
-  }
-  else
-  {
-    // This is register/offset.  No need for relocation.
-    assert(op1.isReg() && "First operand is not register.");
-    encoding = Ctx.getRegisterInfo().getEncodingValue(op1.getReg());
+	// Register
+	const MCOperand op1 = MI.getOperand(1);
+	// This is register/offset.  No need for relocation.
+	assert(op1.isReg() && "First operand is not register.");
+	encoding = Ctx.getRegisterInfo().getEncodingValue(op1.getReg());
 
-    // Offset
-    MCOperand op2 = MI.getOperand(2);
-    assert(op2.isImm() && "Second operand is not immediate.");
-    encoding |= static_cast<short>(op2.getImm() / 4) << 5;
-    return encoding;
-  }
+	// Offset
+	MCOperand op2 = MI.getOperand(2);
+	if (op2.isExpr())
+	{
+		// Load with a label. This is a PC relative load.  Add a fixup.
+		// XXX Note that this assumes unmasked instructions.  A masked
+		// instruction will not work and should nto be used.
+		Fixups.push_back(MCFixup::Create(0, op2.getExpr(),
+			 MCFixupKind(VectorProc::fixup_VectorProc_PCRel_MemAccExt)));
+	}
+	else if (op2.isImm())
+		encoding |= static_cast<short>(op2.getImm() / 4) << 5;
+	else
+		assert(op2.isImm() && "Second operand of memory op is unknown type.");
+	
+	return encoding;
 }
 
 #include "VectorProcGenMCCodeEmitter.inc"

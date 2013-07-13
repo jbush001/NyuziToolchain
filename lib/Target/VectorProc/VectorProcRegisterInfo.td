@@ -16,7 +16,7 @@ let Namespace = "VectorProc" in {
 		field bits<16> HWEncoding = number;
 	}
 
-	foreach i = 0-28 in {
+	foreach i = 0-27 in {
 		def S#i : VectorProcReg<"s"#i, i>;
 	}
 
