@@ -102,6 +102,16 @@ public:
         HasError = true;
         return RelocToApply();
       }
+    } else if (FileFormat == "ELF64-vectorproc") {
+      switch (RelocType) {
+      case llvm::ELF::R_VECTORPROC_ABS32:
+        return visitELF_VECTORPROC_ABS32(R, Value);
+      case llvm::ELF::R_VECTORPROC_BRANCH:
+        return visitELF_VECTORPROC_BRANCH(R, Value);
+      default:
+        HasError = true;
+        return RelocToApply();
+      }
     }
     HasError = true;
     return RelocToApply();
@@ -201,6 +211,32 @@ private:
     R.getAdditionalInfo(Addend);
     return RelocToApply(Value + Addend, 8);
   }
+
+  // VectorProc ELF
+  RelocToApply visitELF_VECTORPROC_ABS32(RelocationRef R, uint64_t Value) {
+    int64_t Addend;
+    R.getAdditionalInfo(Addend);
+    int64_t Res =  Value + Addend;
+
+    // Overflow check allows for both signed and unsigned interpretation.
+    if (Res < INT32_MIN || Res > UINT32_MAX)
+      HasError = true;
+
+    return RelocToApply(static_cast<uint32_t>(Res), 4);
+  }
+
+  RelocToApply visitELF_VECTORPROC_BRANCH(RelocationRef R, uint64_t Value) {
+    int64_t Addend;
+    R.getAdditionalInfo(Addend);
+    uint64_t Address;
+    R.getAddress(Address);
+    int64_t Res =  Value + Addend - Address;
+
+    // XX bounds checking
+
+    return RelocToApply(static_cast<uint32_t>(Res), 4);
+  }
+  
 
 };
 

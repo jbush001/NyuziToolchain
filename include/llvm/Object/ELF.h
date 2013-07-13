@@ -2123,6 +2123,14 @@ StringRef ELFObjectFile<ELFT>::getRelocationTypeName(uint32_t Type) const {
     default: break;
     }
     break;
+  case ELF::EM_VECTORPROC:
+    switch (Type) {
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_VECTORPROC_ABS32);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_VECTORPROC_BRANCH);
+    default: break;
+    }
+    break;
+
   default: break;
   }
   return Res;
@@ -2250,6 +2258,9 @@ error_code ELFObjectFile<ELFT>::getRelocationValueString(
   case ELF::EM_AARCH64:
   case ELF::EM_ARM:
   case ELF::EM_HEXAGON:
+    res = symname;
+    break;
+  case ELF::EM_VECTORPROC:
     res = symname;
     break;
   default:
@@ -2637,6 +2648,8 @@ StringRef ELFObjectFile<ELFT>::getFileFormatName() const {
       return "ELF32-hexagon";
     case ELF::EM_MIPS:
       return "ELF32-mips";
+    case ELF::EM_VECTORPROC:
+      return "ELF32-vectorproc";
     default:
       return "ELF32-unknown";
     }
@@ -2677,6 +2690,8 @@ unsigned ELFObjectFile<ELFT>::getArch() const {
            Triple::mipsel : Triple::mips;
   case ELF::EM_PPC64:
     return Triple::ppc64;
+  case ELF::EM_VECTORPROC:
+  	return Triple::vectorproc;
   default:
     return Triple::UnknownArch;
   }

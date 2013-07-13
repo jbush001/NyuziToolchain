@@ -29,7 +29,7 @@ namespace {
 }
 
 VectorProcELFObjectWriter::VectorProcELFObjectWriter(uint8_t OSABI)
-  : MCELFObjectTargetWriter(/*Is64Bit*/ false, OSABI, ELF::EM_OPENRISC,
+  : MCELFObjectTargetWriter(/*Is64Bit*/ false, OSABI, ELF::EM_VECTORPROC,
                             /*HasRelocationAddend*/ true) {}
 
 VectorProcELFObjectWriter::~VectorProcELFObjectWriter() {}
@@ -38,19 +38,22 @@ unsigned VectorProcELFObjectWriter::GetRelocType(const MCValue &Target,
                                            const MCFixup &Fixup,
                                            bool IsPCRel,
                                            bool IsRelocWithSymbol,
-                                           int64_t Addend) const {
-  unsigned Type;
-  unsigned Kind = (unsigned)Fixup.getKind();
-  switch (Kind) {
-    default: llvm_unreachable("Invalid fixup kind!");
-
-#if 0
-    case FK_PCRel_4:
-      Type = ELF::R_VectorProc_32_PCREL;
-      break;
-#endif
-  }
-  return Type;
+                                           int64_t Addend) const 
+{
+	unsigned Type;
+	unsigned Kind = (unsigned)Fixup.getKind();
+	switch (Kind) {
+		default: llvm_unreachable("Invalid fixup kind!");
+		case VectorProc::fixup_VectorProc_Abs32:
+			Type = ELF::R_VECTORPROC_ABS32;
+			break;
+	
+		case VectorProc::fixup_VectorProc_PCRel_Branch:
+			Type = ELF::R_VECTORPROC_BRANCH;
+			break;
+	}
+	
+	return Type;
 }
 
 MCObjectWriter *llvm::createVectorProcELFObjectWriter(raw_ostream &OS,

@@ -288,6 +288,7 @@ enum {
   EM_VIDEOCORE5    = 198, // Broadcom VideoCore V processor
   EM_78KOR         = 199, // Renesas 78KOR family
   EM_56800EX       = 200, // Freescale 56800EX Digital Signal Controller (DSC)
+  EM_VECTORPROC    = 31337,
   EM_MBLAZE        = 47787 // Xilinx MicroBlaze
 };
 
@@ -944,6 +945,13 @@ enum {
   R_HEX_TPREL_32_6_X      =  83,
   R_HEX_TPREL_16_X        =  84,
   R_HEX_TPREL_11_X        =  85
+};
+
+// ELF relocation types for VectorProc
+enum
+{
+  R_VECTORPROC_ABS32 = 0,	
+  R_VECTORPROC_BRANCH = 1
 };
 
 // Section header.
