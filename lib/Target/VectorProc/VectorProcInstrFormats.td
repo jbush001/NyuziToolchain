@@ -519,10 +519,10 @@ class CFmt<bits<4> val> {
 	bits<4> Value = val;
 }
 
-def FmtC_Byte_Signed : CFmt<0>;
-def FmtC_Byte_Unsigned : CFmt<1>;
-def FmtC_Short_Signed : CFmt<2>;
-def FmtC_Short_Unsigned : CFmt<3>;
+def FmtC_Byte_Unsigned : CFmt<0>;
+def FmtC_Byte_Signed : CFmt<1>;
+def FmtC_Short_Unsigned : CFmt<2>;
+def FmtC_Short_Signed : CFmt<3>;
 def FmtC_Word : CFmt<4>;
 def FmtC_Sync : CFmt<5>;
 def FmtC_ControlReg : CFmt<6>;
