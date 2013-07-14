@@ -27,14 +27,14 @@ veci16 test_gatherloadi_masked(veci16 ptr, int mask) // CHECK: test_gatherloadi_
 {
 	return __builtin_vp_gather_loadi_masked(ptr, mask);
 
-	// CHECK: load.v v{{[0-9]+}} { s0 }, ( v0 )
+	// CHECK: load.v.mask v{{[0-9]+}}, s0, ( v0 )
 }
 
 vecf16 test_gatherloadf_masked(veci16 ptr, int mask) // CHECK: test_gatherloadf_masked
 {
 	return __builtin_vp_gather_loadf_masked(ptr, mask);
 
-	// CHECK: load.v v{{[0-9]+}} { s0 }, ( v0 )
+	// CHECK: load.v.mask v{{[0-9]+}}, s0, ( v0 )
 }
 
 void test_scatter_storei(veci16 ptr, veci16 value) // CHECK: test_scatter_storei
@@ -55,42 +55,42 @@ void test_scatter_storei_masked(veci16 ptr, veci16 value, int mask) // CHECK: te
 {
 	__builtin_vp_scatter_storei_masked(ptr, value, mask);
 
-	// CHECK: store.v v1 { s0 }, ( v0 )
+	// CHECK: store.v.mask v1, s0, ( v0 )
 }
 
 void test_scatter_storef_masked(veci16 ptr, vecf16 value, int mask) // CHECK: test_scatter_storef_masked
 {
 	__builtin_vp_scatter_storef_masked(ptr, value, mask);
 
-	// CHECK: store.v v1 { s0 }, ( v0 )
+	// CHECK: store.v.mask v1, s0, ( v0 )
 }
 
 veci16 test_block_loadi_masked(veci16 *ptr, int mask)	// CHECK: test_block_loadi_masked:
 {
 	return __builtin_vp_block_loadi_masked(ptr, mask);
 
-	// CHECK: load.v v{{[0-9]+}} { s1 }, ( s0 )
+	// CHECK: load.v.mask v{{[0-9]+}}, s1, ( s0 )
 }
 
 vecf16 test_block_loadf_masked(veci16 *ptr, int mask)	// CHECK: test_block_loadf_masked:
 {
 	return __builtin_vp_block_loadf_masked(ptr, mask);
 
-	// CHECK: load.v v{{[0-9]+}} { s1 }, ( s0 )
+	// CHECK: load.v.mask v{{[0-9]+}}, s1, ( s0 )
 }
 
 void test_block_storei_masked(veci16 *ptr, veci16 value, int mask) // CHECK: test_block_storei_masked:
 {
 	__builtin_vp_block_storei_masked(ptr, value, mask);
 
-	// CHECK: store.v v0 { s1 }, ( s0 )
+	// CHECK: store.v.mask v0, s1, ( s0 )
 }
 
 void test_block_storef_masked(veci16 *ptr, vecf16 value, int mask) // CHECK: test_block_storef_masked:
 {
 	__builtin_vp_block_storef_masked(ptr, value, mask);
 	
-	// CHECK: store.v v0 { s1 }, ( s0 )
+	// CHECK: store.v.mask v0, s1, ( s0 )
 }
 
 int test_clz(int value)	// CHECK: test_clz

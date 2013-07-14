@@ -1,4 +1,4 @@
-;===- ./lib/Target/VectorProc/LLVMBuild.txt -------------------------*- Conf -*--===;
+;===- ./lib/Target/VectorProc/InstPrinter/LLVMBuild.txt --------------*- Conf -*--===;
 ;
 ;                     The LLVM Compiler Infrastructure
 ;
@@ -15,19 +15,9 @@
 ;
 ;===------------------------------------------------------------------------===;
 
-[common]
-subdirectories = MCTargetDesc TargetInfo AsmParser InstPrinter
-
 [component_0]
-type = TargetGroup
-name = VectorProc
-parent = Target
-has_asmparser = 1
-has_asmprinter = 1
-
-[component_1]
 type = Library
-name = VectorProcCodeGen
+name = VectorProcAsmPrinter
 parent = VectorProc
-required_libraries = AsmParser AsmPrinter VectorProcAsmPrinter CodeGen Core MC SelectionDAG VectorProcDesc VectorProcInfo Support Target
+required_libraries = MC Support
 add_to_library_groups = VectorProc

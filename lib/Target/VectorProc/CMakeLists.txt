@@ -12,7 +12,6 @@ tablegen(LLVM VectorProcGenMCCodeEmitter.inc -gen-emitter -mc-emitter)
 add_public_tablegen_target(VectorProcCommonTableGen)
 
 add_llvm_target(VectorProcCodeGen
-  FPMover.cpp
   VectorProcAsmPrinter.cpp
   VectorProcInstrInfo.cpp
   VectorProcISelDAGToDAG.cpp
@@ -23,6 +22,7 @@ add_llvm_target(VectorProcCodeGen
   VectorProcSubtarget.cpp
   VectorProcTargetMachine.cpp
   VectorProcSelectionDAGInfo.cpp
+  VectorProcMCInstLower.cpp
   )
 
 add_dependencies(LLVMVectorProcCodeGen intrinsics_gen)
@@ -30,4 +30,5 @@ add_dependencies(LLVMVectorProcCodeGen intrinsics_gen)
 add_subdirectory(TargetInfo)
 add_subdirectory(MCTargetDesc)
 add_subdirectory(AsmParser)
+add_subdirectory(InstPrinter)
 

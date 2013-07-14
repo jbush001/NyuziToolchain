@@ -33,7 +33,12 @@ include "VectorProcInstrInfo.td"
 def VectorProcInstrInfo : InstrInfo;
 
 def VectorProcAsmParser : AsmParser {
-  let ShouldEmitMatchRegisterName = 0;
+  let ShouldEmitMatchRegisterName = 1;
+}
+
+def VectorProcAsmWriter : AsmWriter {
+  string AsmWriterClassName  = "InstPrinter";
+  bit isMCAsmWriter = 1;
 }
 
 class Proc<string Name, list<SubtargetFeature> Features>
@@ -44,4 +49,6 @@ def : Proc<"generic", []>;
 def VectorProc : Target {
   // Pull in Instruction Info:
   let InstructionSet = VectorProcInstrInfo;
+  let AssemblyWriters = [VectorProcAsmWriter];
+  let AssemblyParsers = [VectorProcAsmParser];
 }

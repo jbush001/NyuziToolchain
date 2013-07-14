@@ -13,9 +13,12 @@
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "asm-printer"
+#include "InstPrinter/VectorProcInstPrinter.h"
+#include "VectorProcAsmPrinter.h"
 #include "VectorProc.h"
 #include "VectorProcInstrInfo.h"
 #include "VectorProcTargetMachine.h"
+#include "VectorProcMCInstLower.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineInstr.h"
@@ -24,52 +27,23 @@
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Target/Mangler.h"
+#include "llvm/Target/TargetLoweringObjectFile.h"
 using namespace llvm;
 
-namespace {
-  class VectorProcAsmPrinter : public AsmPrinter {
-  public:
-    explicit VectorProcAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
-      : AsmPrinter(TM, Streamer) {}
+void VectorProcAsmPrinter::EmitInstruction(const MachineInstr *MI) {
+  MachineBasicBlock::const_instr_iterator I = MI;
+  MachineBasicBlock::const_instr_iterator E = MI->getParent()->instr_end();
 
-    virtual const char *getPassName() const {
-      return "VectorProc Assembly Printer";
-    }
+  do {
+	MCInst TmpInst;
+	MCInstLowering.Lower(MI, TmpInst);
 
-    void printOperand(const MachineInstr *MI, int opNum, raw_ostream &OS);
-    void printMemOperand(const MachineInstr *MI, int opNum, raw_ostream &OS,
-                         const char *Modifier = 0);
-	void printComputeFrameAddr(const MachineInstr *MI, int opNum,
-                                      raw_ostream &O);
+	OutStreamer.EmitInstruction(TmpInst);
+  } while ((I != E) && I->isInsideBundle());
+}
 
-    virtual void EmitInstruction(const MachineInstr *MI) {
-      SmallString<128> Str;
-      raw_svector_ostream OS(Str);
-      printInstruction(MI, OS);
-      OutStreamer.EmitRawText(OS.str());
-    }
-    void printInstruction(const MachineInstr *MI, raw_ostream &OS);// autogen'd.
-    static const char *getRegisterName(unsigned RegNo);
-
-    bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
-                         unsigned AsmVariant, const char *ExtraCode,
-                         raw_ostream &O);
-    bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
-                               unsigned AsmVariant, const char *ExtraCode,
-                               raw_ostream &O);
-
-    bool printGetPCX(const MachineInstr *MI, unsigned OpNo, raw_ostream &OS);
-    
-    virtual bool isBlockOnlyReachableByFallthrough(const MachineBasicBlock *MBB)
-                       const;
-
-    virtual MachineLocation getDebugValueLocation(const MachineInstr *MI) const;
-    virtual void EmitFunctionBodyEnd();
-  };
-} // end of anonymous namespace
-
-#include "VectorProcGenAsmWriter.inc"
 
 void VectorProcAsmPrinter::printOperand(const MachineInstr *MI, int opNum,
                                    raw_ostream &O) {
@@ -77,7 +51,7 @@ void VectorProcAsmPrinter::printOperand(const MachineInstr *MI, int opNum,
   bool CloseParen = false;
   switch (MO.getType()) {
   case MachineOperand::MO_Register:
-    O << StringRef(getRegisterName(MO.getReg())).lower();
+    O << StringRef(VectorProcInstPrinter::getRegisterName(MO.getReg())).lower();
     break;
 
   case MachineOperand::MO_Immediate:
@@ -117,7 +91,7 @@ void VectorProcAsmPrinter::printMemOperand(const MachineInstr *MI, int opNum,
 					O << operand;
 			}
 
-			O << "(" << getRegisterName(MO.getReg()) << ")";
+			O << "(" << VectorProcInstPrinter::getRegisterName(MO.getReg()) << ")";
 			break;
 
 		case MachineOperand::MO_GlobalAddress:
@@ -135,27 +109,7 @@ void VectorProcAsmPrinter::printMemOperand(const MachineInstr *MI, int opNum,
 	}
 }
 
-// In the case where we want to compute the offset of some stack object, this will
-// print the expression.
-void VectorProcAsmPrinter::printComputeFrameAddr(const MachineInstr *MI, int opNum,
-                                      raw_ostream &O) 
-{
-	const MachineOperand &MO = MI->getOperand(opNum);
-	switch (MO.getType())
-	{
-		case MachineOperand::MO_Register: {
-			int operand = MI->getOperand(opNum+1).getImm();
-			O << getRegisterName(MO.getReg()) << ", " << operand;
-			break;
-		}
-		
-		default:
-			errs() << "What is " << MO.getType();
-		    llvm_unreachable("<unknown operand type>");
-	}
-}
 /// PrintAsmOperand - Print out an operand for an inline asm expression.
-///
 bool VectorProcAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                                       unsigned AsmVariant,
                                       const char *ExtraCode,
@@ -227,6 +181,11 @@ getDebugValueLocation(const MachineInstr *MI) const {
          "Unexpected MachineOperand types");
   return MachineLocation(MI->getOperand(0).getReg(),
                          MI->getOperand(1).getImm());
+}
+
+void VectorProcAsmPrinter::
+EmitFunctionBodyStart() {
+  MCInstLowering.Initialize(Mang, &MF->getContext());
 }
 
 void VectorProcAsmPrinter::

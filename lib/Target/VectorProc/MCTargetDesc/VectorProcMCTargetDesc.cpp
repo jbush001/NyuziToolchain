@@ -13,6 +13,7 @@
 
 #include "VectorProcMCTargetDesc.h"
 #include "VectorProcMCAsmInfo.h"
+#include "InstPrinter/VectorProcInstPrinter.h"
 #include "llvm/MC/MCCodeGenInfo.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
@@ -81,6 +82,15 @@ static MCStreamer *createVectorProcMCStreamer(const Target &T, StringRef TT,
   return createELFStreamer(Ctx, MAB, _OS, _Emitter, RelaxAll, NoExecStack);
 }
 
+static MCInstPrinter *createVectorProcMCInstPrinter(const Target &T,
+                                              unsigned SyntaxVariant,
+                                              const MCAsmInfo &MAI,
+                                              const MCInstrInfo &MII,
+                                              const MCRegisterInfo &MRI,
+                                              const MCSubtargetInfo &STI) {
+  return new VectorProcInstPrinter(MAI, MII, MRI);
+}
+
 extern "C" void LLVMInitializeVectorProcTargetMC() {
   // Register the MC asm info.
   RegisterMCAsmInfoFn A(TheVectorProcTarget, createVectorProcMCAsmInfo);
@@ -108,4 +118,8 @@ extern "C" void LLVMInitializeVectorProcTargetMC() {
   // Register the object streamer
   TargetRegistry::RegisterMCObjectStreamer(TheVectorProcTarget,
                                            createVectorProcMCStreamer);
+
+  // MC instruction printer
+  TargetRegistry::RegisterMCInstPrinter(TheVectorProcTarget,
+                                        createVectorProcMCInstPrinter);
 }

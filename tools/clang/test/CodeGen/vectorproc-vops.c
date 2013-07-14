@@ -69,7 +69,7 @@ veci16 vector_setfieldi(veci16 a, int lane)	// CHECK: vector_setfieldi:
 	
 	// CHECK: move [[ONE:s[0-9]+]], 1
 	// CHECK: shl [[MASK:s[0-9]+]], [[ONE]], s0
-	// CHECK: move v{{[0-9]+}} { [[MASK]] }, 
+	// CHECK: move.mask v{{[0-9]+}}, [[MASK]], 
 
 	return a;
 }
@@ -80,7 +80,7 @@ vecf16 vector_setfieldf(vecf16 a, int lane)	// CHECK: vector_setfieldf:
 
 	// CHECK: move [[ONE:s[0-9]+]], 1
 	// CHECK: shl [[MASK:s[0-9]+]], [[ONE]], s0
-	// CHECK: move v{{[0-9]+}} { [[MASK]] }, 
+	// CHECK: move.mask v{{[0-9]+}}, [[MASK]], 
 
 	return a;
 }
