@@ -98,7 +98,7 @@ define <16 x i32> @test_block_loadi_masked(<16 x i32>* %ptr, i32 %mask) {
 	%result = call <16 x i32> @llvm.vectorproc.__builtin_vp_block_loadi_masked(
 		<16 x i32>* %ptr, i32 %mask)
 
-	; CHECK: load.v.mask v0, s1, ( s0 )
+	; CHECK: load.v.mask v0, s1, (s0)
 
 	ret <16 x i32> %result
 }
@@ -107,7 +107,7 @@ define <16 x float> @test_block_loadf_masked(<16 x i32>* %ptr, i32 %mask) {
 	%result = call <16 x float> @llvm.vectorproc.__builtin_vp_block_loadf_masked(
 		<16 x i32>* %ptr, i32 %mask)
 
-	; CHECK: load.v.mask v0, s1, ( s0 )
+	; CHECK: load.v.mask v0, s1, (s0)
 
 	ret <16 x float> %result
 }
@@ -116,7 +116,7 @@ define void @test_block_storei_masked(<16 x i32>* %ptr, <16 x i32> %value, i32 %
 	call void @llvm.vectorproc.__builtin_vp_block_storei_masked(<16 x i32>* %ptr, 
 		<16 x i32> %value, i32 %mask)
 
-	; CHECK: store.v.mask v0, s1, ( s0 )
+	; CHECK: store.v.mask v0, s1, (s0)
 
 	ret void
 }
@@ -125,7 +125,7 @@ define void @test_block_storef_masked(<16 x i32>* %ptr, <16 x float> %value, i32
   call void @llvm.vectorproc.__builtin_vp_block_storef_masked(<16 x i32>* %ptr, 
   	<16 x float> %value, i32 %mask)
 
-  ; CHECK: store.v.mask v0, s1, ( s0 )
+  ; CHECK: store.v.mask v0, s1, (s0)
 
   ret void
 }

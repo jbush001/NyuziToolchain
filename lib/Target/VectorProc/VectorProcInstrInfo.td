@@ -209,9 +209,9 @@ def : Pat<(i32 (extloadi16 ADDRri:$src)), (LSSi ADDRri:$src)>;
 // Vector
 def BLOCK_STOREI : FormatCUnmaskedInst<
 	(outs),
-	(ins VectorReg:$srcDest, MEMri:$ptr),
-	"store.v $srcDest, $ptr",
-	[(store v16i32:$srcDest, ADDRri:$ptr)],
+	(ins VectorReg:$srcDest, MEMri:$addr),
+	"store.v $srcDest, $addr",
+	[(store v16i32:$srcDest, ADDRri:$addr)],
 	FmtC_Block,
 	0>
 {
@@ -221,9 +221,9 @@ def BLOCK_STOREI : FormatCUnmaskedInst<
 
 def BLOCK_STOREF : FormatCUnmaskedInst<
 	(outs),
-	(ins VectorReg:$srcDest, MEMri:$ptr),
-	"store.v $srcDest, $ptr",
-	[(store v16f32:$srcDest, ADDRri:$ptr)],
+	(ins VectorReg:$srcDest, MEMri:$addr),
+	"store.v $srcDest, $addr",
+	[(store v16f32:$srcDest, ADDRri:$addr)],
 	FmtC_Block,
 	0>
 {
@@ -233,18 +233,34 @@ def BLOCK_STOREF : FormatCUnmaskedInst<
 
 def BLOCK_LOADI : FormatCUnmaskedInst<
 	(outs VectorReg:$srcDest),
-	(ins MEMri:$ptr),
-	"load.v $srcDest, $ptr",
-	[(set v16i32:$srcDest, (load ADDRri:$ptr))],
+	(ins MEMri:$addr),
+	"load.v $srcDest, $addr",
+	[(set v16i32:$srcDest, (load ADDRri:$addr))],
 	FmtC_Block,
 	1>;
 
 def BLOCK_LOADF : FormatCUnmaskedInst<
 	(outs VectorReg:$srcDest),
-	(ins MEMri:$ptr),
-	"load.v $srcDest, $ptr",
-	[(set v16f32:$srcDest, (load ADDRri:$ptr))],
+	(ins MEMri:$addr),
+	"load.v $srcDest, $addr",
+	[(set v16f32:$srcDest, (load ADDRri:$addr))],
 	FmtC_Block,
+	1>;
+	
+def INT_BLOCK_LOADI_MASKED : FormatCMaskedInst<
+	(outs VectorReg:$srcDest),
+	(ins MEMri:$addr, ScalarReg:$mask),
+	"load.v.mask $srcDest, $mask, $addr",
+	[(set v16i32:$srcDest, (int_vp_block_loadi_masked ADDRri:$addr, i32:$mask))],
+	FmtC_BlockMasked,
+	1>;
+
+def INT_BLOCK_LOADF_MASKED : FormatCMaskedInst<
+	(outs VectorReg:$srcDest),
+	(ins MEMri:$addr, ScalarReg:$mask),
+	"load.v.mask $srcDest, $mask, $addr",
+	[(set v16f32:$srcDest, (int_vp_block_loadf_masked ADDRri:$addr, i32:$mask))],
+	FmtC_BlockMasked,
 	1>;
 
 def INT_GATHER_LOADI : FormatCUnmaskedInst<
@@ -277,22 +293,6 @@ def INT_GATHER_LOADF_MASKED : FormatCMaskedInst<
 	"load.v.mask $srcDest, $mask, ( $ptr )",
 	[(set v16f32:$srcDest, (int_vp_gather_loadf_masked v16i32:$ptr, i32:$mask))],
 	FmtC_ScGathMasked,
-	1>;
-
-def INT_BLOCK_LOADI_MASKED : FormatCMaskedInst<
-	(outs VectorReg:$srcDest),
-	(ins ScalarReg:$ptr, ScalarReg:$mask),
-	"load.v.mask $srcDest, $mask, ( $ptr )",
-	[(set v16i32:$srcDest, (int_vp_block_loadi_masked i32:$ptr, i32:$mask))],
-	FmtC_BlockMasked,
-	1>;
-
-def INT_BLOCK_LOADF_MASKED : FormatCMaskedInst<
-	(outs VectorReg:$srcDest),
-	(ins ScalarReg:$ptr, ScalarReg:$mask),
-	"load.v.mask $srcDest, $mask, ( $ptr )",
-	[(set v16f32:$srcDest, (int_vp_block_loadf_masked i32:$ptr, i32:$mask))],
-	FmtC_BlockMasked,
 	1>;
 
 let hasSideEffects = 1, mayStore = 1 in {
@@ -330,17 +330,17 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_BLOCK_STOREI_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins VectorReg:$srcDest, ScalarReg:$ptr, ScalarReg:$mask),
-		"store.v.mask $srcDest, $mask, ( $ptr )",
-		[(int_vp_block_storei_masked i32:$ptr, v16i32:$srcDest, i32:$mask)],
+		(ins VectorReg:$srcDest, MEMri:$addr, ScalarReg:$mask),
+		"store.v.mask $srcDest, $mask, $addr",
+		[(int_vp_block_storei_masked ADDRri:$addr, v16i32:$srcDest, i32:$mask)],
 		FmtC_BlockMasked,
 		0>;
 
 	def INT_BLOCK_STOREF_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins VectorReg:$srcDest, ScalarReg:$ptr, ScalarReg:$mask),
-		"store.v.mask $srcDest, $mask, ( $ptr )",
-		[(int_vp_block_storef_masked i32:$ptr, v16f32:$srcDest, i32:$mask)],
+		(ins VectorReg:$srcDest, MEMri:$addr, ScalarReg:$mask),
+		"store.v.mask $srcDest, $mask, $addr",
+		[(int_vp_block_storef_masked ADDRri:$addr, v16f32:$srcDest, i32:$mask)],
 		FmtC_BlockMasked,
 		0>;
 }

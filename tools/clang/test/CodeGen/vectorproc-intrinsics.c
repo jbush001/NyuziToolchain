@@ -69,28 +69,28 @@ veci16 test_block_loadi_masked(veci16 *ptr, int mask)	// CHECK: test_block_loadi
 {
 	return __builtin_vp_block_loadi_masked(ptr, mask);
 
-	// CHECK: load.v.mask v{{[0-9]+}}, s1, ( s0 )
+	// CHECK: load.v.mask v{{[0-9]+}}, s1, (s0)
 }
 
 vecf16 test_block_loadf_masked(veci16 *ptr, int mask)	// CHECK: test_block_loadf_masked:
 {
 	return __builtin_vp_block_loadf_masked(ptr, mask);
 
-	// CHECK: load.v.mask v{{[0-9]+}}, s1, ( s0 )
+	// CHECK: load.v.mask v{{[0-9]+}}, s1, (s0)
 }
 
 void test_block_storei_masked(veci16 *ptr, veci16 value, int mask) // CHECK: test_block_storei_masked:
 {
 	__builtin_vp_block_storei_masked(ptr, value, mask);
 
-	// CHECK: store.v.mask v0, s1, ( s0 )
+	// CHECK: store.v.mask v0, s1, (s0)
 }
 
 void test_block_storef_masked(veci16 *ptr, vecf16 value, int mask) // CHECK: test_block_storef_masked:
 {
 	__builtin_vp_block_storef_masked(ptr, value, mask);
 	
-	// CHECK: store.v.mask v0, s1, ( s0 )
+	// CHECK: store.v.mask v0, s1, (s0)
 }
 
 int test_clz(int value)	// CHECK: test_clz

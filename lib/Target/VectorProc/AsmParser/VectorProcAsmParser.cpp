@@ -39,7 +39,7 @@ class VectorProcAsmParser : public MCTargetAsmParser {
   bool parseDirectiveWord(unsigned Size, SMLoc L);
 
   bool ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
-  bool ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
+  bool ParseMemoryOperands(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool hasMask);
 
   // Auto-generated instruction matching functions
 #define GET_ASSEMBLER_HEADER
@@ -197,8 +197,7 @@ MatchAndEmitInstruction(SMLoc IDLoc,
   SMLoc ErrorLoc;
   SmallVector<std::pair< unsigned, std::string >, 4> MapAndConstraints;
 
-  switch (MatchInstructionImpl(Operands, Inst, ErrorInfo, 
-  	MatchingInlineAsm)) {
+  switch (MatchInstructionImpl(Operands, Inst, ErrorInfo, MatchingInlineAsm)) {
     default: break;
     case Match_Success:
       Out.EmitInstruction(Inst);
@@ -217,6 +216,7 @@ MatchAndEmitInstruction(SMLoc IDLoc,
         if (ErrorLoc == SMLoc())
           ErrorLoc = IDLoc;
       }
+
       return Error(IDLoc, "Invalid operand for instruction");
   }
 
@@ -302,8 +302,23 @@ ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)
 }
 
 bool VectorProcAsmParser::
-ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands) 
+ParseMemoryOperands(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool hasMask) 
 {
+	VectorProcOperand *MaskOp = 0;
+	if (hasMask)
+	{
+		unsigned RegNo;
+		MaskOp = ParseRegister(RegNo);
+		if (getLexer().isNot(AsmToken::Comma))
+		{
+			Error(Parser.getTok().getLoc(), "missing ,");
+			return true;
+		}
+
+		getLexer().Lex();
+		Operands.push_back(MaskOp);
+	}
+
 	if (getLexer().is(AsmToken::Identifier))
 	{
 		// PC relative memory label memory access
@@ -353,9 +368,10 @@ ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)
 	}
 
 	getLexer().Lex();
-	
+
 	Operands.push_back(RegOp);
 	Operands.push_back(OffsetOp);
+
 	return false;
 }
 
@@ -383,7 +399,7 @@ ParseInstruction(ParseInstructionInfo &Info,
 	if (getLexer().is(AsmToken::EndOfStatement))
 		return false;
 
-	// Parse first operand
+	// Parse first operand (usually the destination of the instruction)
 	if (ParseOperand(Operands))
 		return true;
 
@@ -398,7 +414,8 @@ ParseInstruction(ParseInstructionInfo &Info,
 
 		getLexer().Lex(); // Consume comma token
 
-		if (ParseMemoryOperand(Operands))
+		bool hasMask = Name.find(".mask") != StringRef::npos;
+		if (ParseMemoryOperands(Operands, hasMask))
 			return true;
 	}
 	else
