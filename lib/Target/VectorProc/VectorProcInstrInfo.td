@@ -209,7 +209,7 @@ def : Pat<(i32 (extloadi16 ADDRri:$src)), (LSSi ADDRri:$src)>;
 // Vector
 def BLOCK_STOREI : FormatCUnmaskedInst<
 	(outs),
-	(ins MEMri:$ptr, VectorReg:$srcDest),
+	(ins VectorReg:$srcDest, MEMri:$ptr),
 	"store.v $srcDest, $ptr",
 	[(store v16i32:$srcDest, ADDRri:$ptr)],
 	FmtC_Block,
@@ -221,7 +221,7 @@ def BLOCK_STOREI : FormatCUnmaskedInst<
 
 def BLOCK_STOREF : FormatCUnmaskedInst<
 	(outs),
-	(ins MEMri:$ptr, VectorReg:$srcDest),
+	(ins VectorReg:$srcDest, MEMri:$ptr),
 	"store.v $srcDest, $ptr",
 	[(store v16f32:$srcDest, ADDRri:$ptr)],
 	FmtC_Block,
@@ -298,7 +298,7 @@ def INT_BLOCK_LOADF_MASKED : FormatCMaskedInst<
 let hasSideEffects = 1, mayStore = 1 in {
 	def INT_SCATTER_STOREI : FormatCUnmaskedInst<
 		(outs),
-		(ins VectorReg:$ptr, VectorReg:$srcDest),
+		(ins VectorReg:$srcDest, VectorReg:$ptr),
 		"store.v $srcDest, ( $ptr )",
 		[(int_vp_scatter_storei v16i32:$ptr, v16i32:$srcDest)],
 		FmtC_ScGath,
@@ -306,7 +306,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_SCATTER_STOREF : FormatCUnmaskedInst<
 		(outs),
-		(ins VectorReg:$ptr, VectorReg:$srcDest),
+		(ins VectorReg:$srcDest, VectorReg:$ptr),
 		"store.v $srcDest, ( $ptr )",
 		[(int_vp_scatter_storef v16i32:$ptr, v16f32:$srcDest)],
 		FmtC_ScGath,
@@ -314,7 +314,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_SCATTER_STOREI_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins VectorReg:$ptr, VectorReg:$srcDest, ScalarReg:$mask),
+		(ins VectorReg:$srcDest, VectorReg:$ptr, ScalarReg:$mask),
 		"store.v.mask $srcDest, $mask, ( $ptr )",
 		[(int_vp_scatter_storei_masked v16i32:$ptr, v16i32:$srcDest, i32:$mask)],
 		FmtC_ScGathMasked,
@@ -322,7 +322,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_SCATTER_STOREF_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins VectorReg:$ptr, VectorReg:$srcDest, ScalarReg:$mask),
+		(ins VectorReg:$srcDest, VectorReg:$ptr, ScalarReg:$mask),
 		"store.v.mask $srcDest, $mask, ( $ptr )",
 		[(int_vp_scatter_storef_masked v16i32:$ptr, v16f32:$srcDest, i32:$mask)],
 		FmtC_ScGathMasked,
@@ -330,7 +330,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_BLOCK_STOREI_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins ScalarReg:$ptr, VectorReg:$srcDest, ScalarReg:$mask),
+		(ins VectorReg:$srcDest, ScalarReg:$ptr, ScalarReg:$mask),
 		"store.v.mask $srcDest, $mask, ( $ptr )",
 		[(int_vp_block_storei_masked i32:$ptr, v16i32:$srcDest, i32:$mask)],
 		FmtC_BlockMasked,
@@ -338,7 +338,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_BLOCK_STOREF_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins ScalarReg:$ptr, VectorReg:$srcDest, ScalarReg:$mask),
+		(ins VectorReg:$srcDest, ScalarReg:$ptr, ScalarReg:$mask),
 		"store.v.mask $srcDest, $mask, ( $ptr )",
 		[(int_vp_block_storef_masked i32:$ptr, v16f32:$srcDest, i32:$mask)],
 		FmtC_BlockMasked,

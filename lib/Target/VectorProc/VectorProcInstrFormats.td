@@ -593,7 +593,7 @@ multiclass ScalarStoreInst<string suffix, PatFrag op, CFmt fmt>  {
 	let hasSideEffects = 1, mayStore = 1 in {
 		def i : FormatCUnmaskedInst<
 			(outs),
-			(ins MEMri:$addr, ScalarReg:$srcDest),
+			(ins ScalarReg:$srcDest, MEMri:$addr),
 			"store." # suffix # " $srcDest, $addr",
 			[(op i32:$srcDest, ADDRri:$addr)],
 			fmt, 
@@ -601,7 +601,7 @@ multiclass ScalarStoreInst<string suffix, PatFrag op, CFmt fmt>  {
 
 		def f : FormatCUnmaskedInst<
 			(outs),
-			(ins MEMri:$addr, ScalarReg:$srcDest),
+			(ins ScalarReg:$srcDest, MEMri:$addr),
 			"store." # suffix # " $srcDest, $addr",
 			[(op f32:$srcDest, ADDRri:$addr)],
 			fmt,

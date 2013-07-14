@@ -30,8 +30,10 @@ class VectorProcAsmPrinter : public AsmPrinter {
   VectorProcMCInstLower MCInstLowering;
 public:
   explicit VectorProcAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
-    : MCInstLowering(*this),
-      AsmPrinter(TM, Streamer) {}
+    : AsmPrinter(TM, Streamer),
+     MCInstLowering(*this) 
+  {
+  }
 
   virtual const char *getPassName() const {
     return "VectorProc Assembly Printer";
@@ -59,5 +61,6 @@ public:
   virtual void EmitFunctionBodyEnd();
 };
 }
+
 
 #endif

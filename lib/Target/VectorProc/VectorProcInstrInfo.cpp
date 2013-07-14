@@ -23,6 +23,7 @@
 #include "llvm/CodeGen/MachineMemOperand.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetRegistry.h"
+#include "llvm/Support/Debug.h"
 
 #define GET_INSTRINFO_CTOR
 #include "VectorProcGenInstrInfo.inc"
@@ -64,10 +65,10 @@ unsigned VectorProcInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
 	if (MI->getOpcode() == VectorProc::SWi || MI->getOpcode() == VectorProc::SWf
 		|| MI->getOpcode() == VectorProc::BLOCK_STOREI
 		|| MI->getOpcode() == VectorProc::BLOCK_STOREF) {
-		if (MI->getOperand(0).isFI() && MI->getOperand(1).isImm() &&
-			MI->getOperand(1).getImm() == 0) {
-			FrameIndex = MI->getOperand(0).getIndex();
-			return MI->getOperand(2).getReg();
+		if (MI->getOperand(1).isFI() && MI->getOperand(2).isImm() &&
+			MI->getOperand(2).getImm() == 0) {
+			FrameIndex = MI->getOperand(1).getIndex();
+			return MI->getOperand(0).getReg();
 		}
 	}
 
@@ -149,8 +150,8 @@ storeRegToStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
 	else
 		llvm_unreachable("unknown register class in storeRegToStack");
 
-	BuildMI(MBB, I, DL, get(Opc)).addFrameIndex(FI).addImm(Offset)
-		.addMemOperand(MMO).addReg(SrcReg, getKillRegState(isKill));
+	BuildMI(MBB, I, DL, get(Opc)).addReg(SrcReg, getKillRegState(isKill))
+		.addFrameIndex(FI).addImm(Offset).addMemOperand(MMO);
 }
 
 void VectorProcInstrInfo::

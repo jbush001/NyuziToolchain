@@ -97,16 +97,17 @@ void VectorProcInstPrinter::printUnsignedImm(const MCInst *MI, int opNum,
 
 void VectorProcInstPrinter::
 printMemOperand(const MCInst *MI, int opNum, raw_ostream &O) {
-  if (MI->getOperand(opNum).isExpr())
+  if (MI->getOperand(opNum + 1).isExpr())
   {
-  	// Memory access to a local label
-  	printOperand(MI, opNum, O);
+  	// PC relative memory access to a local label
+  	printOperand(MI, opNum + 1, O);
   }
   else
   {
-	  assert(MI->getOperand(opNum + 1).isImm() && "memory offset must be immediate");
-  
       // Register/offset
+	  assert(MI->getOperand(opNum).isReg());
+	  assert(MI->getOperand(opNum + 1).isImm());
+  
       if (MI->getOperand(opNum + 1).getImm())
 		  printOperand(MI, opNum+1, O);
 
