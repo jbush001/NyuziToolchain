@@ -22,6 +22,7 @@
 #include "MipsSEISelLowering.h"
 #include "MipsSEISelDAGToDAG.h"
 #include "Mips16FrameLowering.h"
+#include "Mips16HardFloat.h"
 #include "Mips16InstrInfo.h"
 #include "Mips16ISelDAGToDAG.h"
 #include "Mips16ISelLowering.h"
@@ -69,8 +70,9 @@ MipsTargetMachine(const Target &T, StringRef TT,
                 "E-p:32:32:32-i8:8:32-i16:16:32-i64:64:64-n32-S64")),
     InstrInfo(MipsInstrInfo::create(*this)),
     FrameLowering(MipsFrameLowering::create(*this, Subtarget)),
-    TLInfo(MipsTargetLowering::create(*this)),
-    TSInfo(*this), JITInfo() {
+    TLInfo(MipsTargetLowering::create(*this)), TSInfo(*this),
+    InstrItins(Subtarget.getInstrItineraryData()), JITInfo() {
+  initAsmInfo();
 }
 
 
@@ -156,6 +158,9 @@ void MipsPassConfig::addIRPasses() {
   TargetPassConfig::addIRPasses();
   if (getMipsSubtarget().os16())
     addPass(createMipsOs16(getMipsTargetMachine()));
+  if (getMipsSubtarget().inMips16HardFloat())
+    addPass(createMips16HardFloat(getMipsTargetMachine()));
+  addPass(createMipsOptimizeMathLibCalls(getMipsTargetMachine()));
 }
 // Install an instruction selector pass using
 // the ISelDag to gen Mips code.

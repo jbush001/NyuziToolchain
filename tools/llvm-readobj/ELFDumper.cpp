@@ -69,42 +69,32 @@ private:
 
 namespace llvm {
 
+template <class ELFT>
+static error_code createELFDumper(const ELFObjectFile<ELFT> *Obj,
+                                  StreamWriter &Writer,
+                                  OwningPtr<ObjDumper> &Result) {
+  Result.reset(new ELFDumper<ELFT>(Obj, Writer));
+  return readobj_error::success;
+}
+
 error_code createELFDumper(const object::ObjectFile *Obj,
                            StreamWriter& Writer,
                            OwningPtr<ObjDumper> &Result) {
-  typedef ELFType<support::little, 4, false> Little32ELF;
-  typedef ELFType<support::big,    4, false> Big32ELF;
-  typedef ELFType<support::little, 4, true > Little64ELF;
-  typedef ELFType<support::big,    8, true > Big64ELF;
-
-  typedef ELFObjectFile<Little32ELF> LittleELF32Obj;
-  typedef ELFObjectFile<Big32ELF   > BigELF32Obj;
-  typedef ELFObjectFile<Little64ELF> LittleELF64Obj;
-  typedef ELFObjectFile<Big64ELF   > BigELF64Obj;
-
   // Little-endian 32-bit
-  if (const LittleELF32Obj *ELFObj = dyn_cast<LittleELF32Obj>(Obj)) {
-    Result.reset(new ELFDumper<Little32ELF>(ELFObj, Writer));
-    return readobj_error::success;
-  }
+  if (const ELF32LEObjectFile *ELFObj = dyn_cast<ELF32LEObjectFile>(Obj))
+    return createELFDumper(ELFObj, Writer, Result);
 
   // Big-endian 32-bit
-  if (const BigELF32Obj *ELFObj = dyn_cast<BigELF32Obj>(Obj)) {
-    Result.reset(new ELFDumper<Big32ELF>(ELFObj, Writer));
-    return readobj_error::success;
-  }
+  if (const ELF32BEObjectFile *ELFObj = dyn_cast<ELF32BEObjectFile>(Obj))
+    return createELFDumper(ELFObj, Writer, Result);
 
   // Little-endian 64-bit
-  if (const LittleELF64Obj *ELFObj = dyn_cast<LittleELF64Obj>(Obj)) {
-    Result.reset(new ELFDumper<Little64ELF>(ELFObj, Writer));
-    return readobj_error::success;
-  }
+  if (const ELF64LEObjectFile *ELFObj = dyn_cast<ELF64LEObjectFile>(Obj))
+    return createELFDumper(ELFObj, Writer, Result);
 
   // Big-endian 64-bit
-  if (const BigELF64Obj *ELFObj = dyn_cast<BigELF64Obj>(Obj)) {
-    Result.reset(new ELFDumper<Big64ELF>(ELFObj, Writer));
-    return readobj_error::success;
-  }
+  if (const ELF64BEObjectFile *ELFObj = dyn_cast<ELF64BEObjectFile>(Obj))
+    return createELFDumper(ELFObj, Writer, Result);
 
   return readobj_error::unsupported_obj_file_format;
 }
@@ -579,28 +569,32 @@ void ELFDumper<ELFT>::printRelocation(section_iterator Sec,
   uint64_t Offset;
   uint64_t RelocType;
   SmallString<32> RelocName;
-  int64_t Info;
+  int64_t Addend;
   StringRef SymbolName;
-  SymbolRef Symbol;
-  if (error(RelI->getOffset(Offset))) return;
+  if (Obj->getElfHeader()->e_type == ELF::ET_REL){
+    if (error(RelI->getOffset(Offset))) return;
+  } else {
+    if (error(RelI->getAddress(Offset))) return;
+  }
   if (error(RelI->getType(RelocType))) return;
   if (error(RelI->getTypeName(RelocName))) return;
-  if (error(RelI->getAdditionalInfo(Info))) return;
-  if (error(RelI->getSymbol(Symbol))) return;
-  if (error(Symbol.getName(SymbolName))) return;
+  if (error(getELFRelocationAddend(*RelI, Addend))) return;
+  symbol_iterator Symbol = RelI->getSymbol();
+  if (Symbol != Obj->end_symbols() && error(Symbol->getName(SymbolName)))
+    return;
 
   if (opts::ExpandRelocs) {
     DictScope Group(W, "Relocation");
     W.printHex("Offset", Offset);
     W.printNumber("Type", RelocName, RelocType);
     W.printString("Symbol", SymbolName.size() > 0 ? SymbolName : "-");
-    W.printHex("Info", Info);
+    W.printHex("Addend", Addend);
   } else {
     raw_ostream& OS = W.startLine();
     OS << W.hex(Offset)
        << " " << RelocName
        << " " << (SymbolName.size() > 0 ? SymbolName : "-")
-       << " " << W.hex(Info)
+       << " " << W.hex(Addend)
        << "\n";
   }
 }
@@ -643,9 +637,9 @@ void ELFDumper<ELFT>::printSymbol(symbol_iterator SymI, bool IsDynamic) {
   if (SymI->getName(SymbolName))
     SymbolName = "";
 
-  StringRef SectionName;
-  if (Section && Obj->getSectionName(Section, SectionName))
-    SectionName = "";
+  StringRef SectionName = "";
+  if (Section)
+    Obj->getSectionName(Section, SectionName);
 
   std::string FullSymbolName(SymbolName);
   if (IsDynamic) {

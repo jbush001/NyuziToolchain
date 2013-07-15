@@ -64,7 +64,8 @@ bool DIDescriptor::Verify() const {
           DISubrange(DbgNode).Verify() || DIEnumerator(DbgNode).Verify() ||
           DIObjCProperty(DbgNode).Verify() ||
           DITemplateTypeParameter(DbgNode).Verify() ||
-          DITemplateValueParameter(DbgNode).Verify());
+          DITemplateValueParameter(DbgNode).Verify() ||
+          DIImportedEntity(DbgNode).Verify());
 }
 
 static Value *getField(const MDNode *DbgNode, unsigned Elt) {
@@ -291,7 +292,9 @@ bool DIDescriptor::isTemplateTypeParameter() const {
 /// isTemplateValueParameter - Return true if the specified tag is
 /// DW_TAG_template_value_parameter.
 bool DIDescriptor::isTemplateValueParameter() const {
-  return DbgNode && getTag() == dwarf::DW_TAG_template_value_parameter;
+  return DbgNode && (getTag() == dwarf::DW_TAG_template_value_parameter ||
+                     getTag() == dwarf::DW_TAG_GNU_template_template_param ||
+                     getTag() == dwarf::DW_TAG_GNU_template_parameter_pack);
 }
 
 /// isCompileUnit - Return true if the specified tag is DW_TAG_compile_unit.
@@ -336,15 +339,22 @@ bool DIDescriptor::isEnumerator() const {
 bool DIDescriptor::isObjCProperty() const {
   return DbgNode && getTag() == dwarf::DW_TAG_APPLE_property;
 }
+
+/// \brief Return true if the specified tag is DW_TAG_imported_module or
+/// DW_TAG_imported_declaration.
+bool DIDescriptor::isImportedEntity() const {
+  return DbgNode && (getTag() == dwarf::DW_TAG_imported_module ||
+                     getTag() == dwarf::DW_TAG_imported_declaration);
+}
+
 //===----------------------------------------------------------------------===//
 // Simple Descriptor Constructors and other Methods
 //===----------------------------------------------------------------------===//
 
 DIType::DIType(const MDNode *N) : DIScope(N) {
   if (!N) return;
-  if (!isBasicType() && !isDerivedType() && !isCompositeType()) {
+  if (!isType())
     DbgNode = 0;
-  }
 }
 
 unsigned DIArray::getNumElements() const {
@@ -418,7 +428,7 @@ bool DICompileUnit::Verify() const {
   if (N.empty())
     return false;
   // It is possible that directory and produce string is empty.
-  return DbgNode->getNumOperands() == 12;
+  return DbgNode->getNumOperands() == 13;
 }
 
 /// Verify - Verify that an ObjC property is well formed.
@@ -504,9 +514,6 @@ bool DIGlobalVariable::Verify() const {
   if (!Ty.Verify())
     return false;
 
-  if (!getGlobal() && !getConstant())
-    return false;
-
   return DbgNode->getNumOperands() == 13;
 }
 
@@ -578,6 +585,12 @@ bool DITemplateTypeParameter::Verify() const {
 /// \brief Verify that the template value parameter descriptor is well formed.
 bool DITemplateValueParameter::Verify() const {
   return isTemplateValueParameter() && DbgNode->getNumOperands() == 8;
+}
+
+/// \brief Verify that the imported module descriptor is well formed.
+bool DIImportedEntity::Verify() const {
+  return isImportedEntity() &&
+         (DbgNode->getNumOperands() == 4 || DbgNode->getNumOperands() == 5);
 }
 
 /// getOriginalTypeSize - If this type is derived from a base type then
@@ -681,6 +694,17 @@ DIArray DISubprogram::getVariables() const {
   return DIArray();
 }
 
+Value *DITemplateValueParameter::getValue() const {
+  return getField(DbgNode, 4);
+}
+
+void DIScope::setFilename(StringRef Name, LLVMContext &Context) {
+  if (!DbgNode)
+    return;
+  MDString *MDName(MDString::get(Context, Name));
+  const_cast<MDNode*>(getNodeField(DbgNode, 1))->replaceOperandWith(0, MDName);
+}
+
 StringRef DIScope::getFilename() const {
   if (!DbgNode)
     return StringRef();
@@ -694,7 +718,7 @@ StringRef DIScope::getDirectory() const {
 }
 
 DIArray DICompileUnit::getEnumTypes() const {
-  if (!DbgNode || DbgNode->getNumOperands() < 12)
+  if (!DbgNode || DbgNode->getNumOperands() < 13)
     return DIArray();
 
   if (MDNode *N = dyn_cast_or_null<MDNode>(DbgNode->getOperand(7)))
@@ -703,7 +727,7 @@ DIArray DICompileUnit::getEnumTypes() const {
 }
 
 DIArray DICompileUnit::getRetainedTypes() const {
-  if (!DbgNode || DbgNode->getNumOperands() < 12)
+  if (!DbgNode || DbgNode->getNumOperands() < 13)
     return DIArray();
 
   if (MDNode *N = dyn_cast_or_null<MDNode>(DbgNode->getOperand(8)))
@@ -712,7 +736,7 @@ DIArray DICompileUnit::getRetainedTypes() const {
 }
 
 DIArray DICompileUnit::getSubprograms() const {
-  if (!DbgNode || DbgNode->getNumOperands() < 12)
+  if (!DbgNode || DbgNode->getNumOperands() < 13)
     return DIArray();
 
   if (MDNode *N = dyn_cast_or_null<MDNode>(DbgNode->getOperand(9)))
@@ -722,7 +746,7 @@ DIArray DICompileUnit::getSubprograms() const {
 
 
 DIArray DICompileUnit::getGlobalVariables() const {
-  if (!DbgNode || DbgNode->getNumOperands() < 12)
+  if (!DbgNode || DbgNode->getNumOperands() < 13)
     return DIArray();
 
   if (MDNode *N = dyn_cast_or_null<MDNode>(DbgNode->getOperand(10)))
@@ -730,12 +754,29 @@ DIArray DICompileUnit::getGlobalVariables() const {
   return DIArray();
 }
 
-/// fixupObjcLikeName - Replace contains special characters used
+DIArray DICompileUnit::getImportedEntities() const {
+  if (!DbgNode || DbgNode->getNumOperands() < 13)
+    return DIArray();
+
+  if (MDNode *N = dyn_cast_or_null<MDNode>(DbgNode->getOperand(11)))
+    return DIArray(N);
+  return DIArray();
+}
+
+/// fixupSubprogramName - Replace contains special characters used
 /// in a typical Objective-C names with '.' in a given string.
-static void fixupObjcLikeName(StringRef Str, SmallVectorImpl<char> &Out) {
+static void fixupSubprogramName(DISubprogram Fn, SmallVectorImpl<char> &Out) {
+  StringRef FName =
+      Fn.getFunction() ? Fn.getFunction()->getName() : Fn.getName();
+  FName = Function::getRealLinkageName(FName);
+
+  StringRef Prefix("llvm.dbg.lv.");
+  Out.reserve(FName.size() + Prefix.size());
+  Out.append(Prefix.begin(), Prefix.end());
+
   bool isObjCLike = false;
-  for (size_t i = 0, e = Str.size(); i < e; ++i) {
-    char C = Str[i];
+  for (size_t i = 0, e = FName.size(); i < e; ++i) {
+    char C = FName[i];
     if (C == '[')
       isObjCLike = true;
 
@@ -750,33 +791,16 @@ static void fixupObjcLikeName(StringRef Str, SmallVectorImpl<char> &Out) {
 /// getFnSpecificMDNode - Return a NameMDNode, if available, that is
 /// suitable to hold function specific information.
 NamedMDNode *llvm::getFnSpecificMDNode(const Module &M, DISubprogram Fn) {
-  SmallString<32> Name = StringRef("llvm.dbg.lv.");
-  StringRef FName = "fn";
-  if (Fn.getFunction())
-    FName = Fn.getFunction()->getName();
-  else
-    FName = Fn.getName();
-  char One = '\1';
-  if (FName.startswith(StringRef(&One, 1)))
-    FName = FName.substr(1);
-  fixupObjcLikeName(FName, Name);
+  SmallString<32> Name;
+  fixupSubprogramName(Fn, Name);
   return M.getNamedMetadata(Name.str());
 }
 
 /// getOrInsertFnSpecificMDNode - Return a NameMDNode that is suitable
 /// to hold function specific information.
 NamedMDNode *llvm::getOrInsertFnSpecificMDNode(Module &M, DISubprogram Fn) {
-  SmallString<32> Name = StringRef("llvm.dbg.lv.");
-  StringRef FName = "fn";
-  if (Fn.getFunction())
-    FName = Fn.getFunction()->getName();
-  else
-    FName = Fn.getName();
-  char One = '\1';
-  if (FName.startswith(StringRef(&One, 1)))
-    FName = FName.substr(1);
-  fixupObjcLikeName(FName, Name);
-
+  SmallString<32> Name;
+  fixupSubprogramName(Fn, Name);
   return M.getOrInsertNamedMetadata(Name.str());
 }
 
@@ -1054,8 +1078,13 @@ void DIScope::printInternal(raw_ostream &OS) const {
 
 void DICompileUnit::printInternal(raw_ostream &OS) const {
   DIScope::printInternal(OS);
-  if (const char *Lang = dwarf::LanguageString(getLanguage()))
-    OS << " [" << Lang << ']';
+  OS << " [";
+  unsigned Lang = getLanguage();
+  if (const char *LangStr = dwarf::LanguageString(Lang))
+    OS << LangStr;
+  else
+    (OS << "lang 0x").write_hex(Lang);
+  OS << ']';
 }
 
 void DIEnumerator::printInternal(raw_ostream &OS) const {
@@ -1090,7 +1119,12 @@ void DIType::printInternal(raw_ostream &OS) const {
     OS << " [artificial]";
 
   if (isForwardDecl())
-    OS << " [fwd]";
+    OS << " [decl]";
+  else if (getTag() == dwarf::DW_TAG_structure_type ||
+           getTag() == dwarf::DW_TAG_union_type ||
+           getTag() == dwarf::DW_TAG_enumeration_type ||
+           getTag() == dwarf::DW_TAG_class_type)
+    OS << " [def]";
   if (isVector())
     OS << " [vector]";
   if (isStaticMember())
@@ -1176,11 +1210,10 @@ static void printDebugLoc(DebugLoc DL, raw_ostream &CommentOS,
                           const LLVMContext &Ctx) {
   if (!DL.isUnknown()) {          // Print source line info.
     DIScope Scope(DL.getScope(Ctx));
+    assert(Scope.isScope() &&
+      "Scope of a DebugLoc should be a DIScope.");
     // Omit the directory, because it's likely to be long and uninteresting.
-    if (Scope.Verify())
-      CommentOS << Scope.getFilename();
-    else
-      CommentOS << "<unknown>";
+    CommentOS << Scope.getFilename();
     CommentOS << ':' << DL.getLine();
     if (DL.getCol() != 0)
       CommentOS << ':' << DL.getCol();

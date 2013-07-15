@@ -245,6 +245,23 @@ FunctionTemplateDecl::newCommon(ASTContext &C) const {
   return CommonPtr;
 }
 
+void FunctionTemplateDecl::LoadLazySpecializations() const {
+  Common *CommonPtr = getCommonPtr();
+  if (CommonPtr->LazySpecializations) {
+    ASTContext &Context = getASTContext();
+    uint32_t *Specs = CommonPtr->LazySpecializations;
+    CommonPtr->LazySpecializations = 0;
+    for (uint32_t I = 0, N = *Specs++; I != N; ++I)
+      (void)Context.getExternalSource()->GetExternalDecl(Specs[I]);
+  }
+}
+
+llvm::FoldingSetVector<FunctionTemplateSpecializationInfo> &
+FunctionTemplateDecl::getSpecializations() const {
+  LoadLazySpecializations();
+  return getCommonPtr()->Specializations;
+}
+
 FunctionDecl *
 FunctionTemplateDecl::findSpecialization(const TemplateArgument *Args,
                                          unsigned NumArgs, void *&InsertPos) {
@@ -261,18 +278,17 @@ void FunctionTemplateDecl::addSpecialization(
     L->AddedCXXTemplateSpecialization(this, Info->Function);
 }
 
-std::pair<const TemplateArgument *, unsigned> 
-FunctionTemplateDecl::getInjectedTemplateArgs() {
+ArrayRef<TemplateArgument> FunctionTemplateDecl::getInjectedTemplateArgs() {
   TemplateParameterList *Params = getTemplateParameters();
   Common *CommonPtr = getCommonPtr();
   if (!CommonPtr->InjectedArgs) {
     CommonPtr->InjectedArgs
-      = new (getASTContext()) TemplateArgument [Params->size()];
-    GenerateInjectedTemplateArgs(getASTContext(), Params, 
+      = new (getASTContext()) TemplateArgument[Params->size()];
+    GenerateInjectedTemplateArgs(getASTContext(), Params,
                                  CommonPtr->InjectedArgs);
   }
-  
-  return std::make_pair(CommonPtr->InjectedArgs, Params->size());
+
+  return llvm::makeArrayRef(CommonPtr->InjectedArgs, Params->size());
 }
 
 //===----------------------------------------------------------------------===//

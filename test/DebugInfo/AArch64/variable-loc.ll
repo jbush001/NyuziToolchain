@@ -16,21 +16,21 @@
 ;     return 0;
 ; }
 
-  ; First make sure main_arr is where we expect it: sp + 12 == x29 - 420:
+  ; First make sure main_arr is where we expect it: sp + 4 == x29 - 412:
 ; CHECK: main:
-; CHECK: sub sp, sp, #448
-; CHECK: stp x29, x30, [sp, #432]
-; CHECK: add x29, sp, #432
-; CHECK: add {{x[0-9]+}}, sp, #12
+; CHECK: sub sp, sp, #432
+; CHECK: stp x29, x30, [sp, #416]
+; CHECK: add x29, sp, #416
+; CHECK: add {{x[0-9]+}}, sp, #4
 
   ; Now check the debugging information reflects this:
 ; CHECK: DW_TAG_variable
 ; CHECK-NEXT: .word .Linfo_string7
 
-  ; Rather hard-coded, but 145 => DW_OP_fbreg and the .ascii is LEB128 encoded -420.
+  ; Rather hard-coded, but 145 => DW_OP_fbreg and the .ascii is LEB128 encoded -412.
 ; CHECK: DW_AT_location
 ; CHECK-NEXT: .byte 145
-; CHECK-NEXT: .ascii "\334|"
+; CHECK-NEXT: .ascii "\344|"
 
 ; CHECK: .Linfo_string7:
 ; CHECK-NEXT: main_arr
@@ -69,7 +69,7 @@ declare i32 @printf(i8*, ...)
 
 !llvm.dbg.cu = !{!0}
 
-!0 = metadata !{i32 786449, metadata !29, i32 12, metadata !"clang version 3.2 ", i1 false, metadata !"", i32 0, metadata !1, metadata !1, metadata !3, metadata !1, metadata !""} ; [ DW_TAG_compile_unit ] [/home/timnor01/a64-trunk/build/simple.c] [DW_LANG_C99]
+!0 = metadata !{i32 786449, metadata !29, i32 12, metadata !"clang version 3.2 ", i1 false, metadata !"", i32 0, metadata !1, metadata !1, metadata !3, metadata !1,  metadata !1, metadata !""} ; [ DW_TAG_compile_unit ] [/home/timnor01/a64-trunk/build/simple.c] [DW_LANG_C99]
 !1 = metadata !{i32 0}
 !3 = metadata !{metadata !5, metadata !11, metadata !14}
 !5 = metadata !{i32 786478, metadata !6, metadata !"populate_array", metadata !"populate_array", metadata !"", metadata !6, i32 4, metadata !7, i1 false, i1 true, i32 0, i32 0, null, i32 256, i1 false, void (i32*, i32)* @populate_array, null, null, metadata !1, i32 4} ; [ DW_TAG_subprogram ] [line 4] [def] [populate_array]

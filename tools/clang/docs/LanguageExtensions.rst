@@ -159,12 +159,16 @@ include paths, or 0 otherwise:
   # include "myinclude.h"
   #endif
 
+To test for this feature, use ``#if defined(__has_include)``:
+
+.. code-block:: c++
+
   // To avoid problem with non-clang compilers not having this macro.
-  #if defined(__has_include) && __has_include("myinclude.h")
+  #if defined(__has_include)
+  #if __has_include("myinclude.h")
   # include "myinclude.h"
   #endif
-
-To test for this feature, use ``#if defined(__has_include)``.
+  #endif
 
 .. _langext-__has_include_next:
 
@@ -185,8 +189,10 @@ or 0 otherwise:
   #endif
 
   // To avoid problem with non-clang compilers not having this macro.
-  #if defined(__has_include_next) && __has_include_next("myinclude.h")
+  #if defined(__has_include_next)
+  #if __has_include_next("myinclude.h")
   # include_next "myinclude.h"
+  #endif
   #endif
 
 Note that ``__has_include_next``, like the GNU extension ``#include_next``
@@ -645,8 +651,7 @@ C++11 inheriting constructors
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Use ``__has_feature(cxx_inheriting_constructors)`` to determine if support for
-inheriting constructors is enabled.  Clang does not currently implement this
-feature.
+inheriting constructors is enabled.
 
 C++11 inline namespaces
 ^^^^^^^^^^^^^^^^^^^^^^^
@@ -727,6 +732,12 @@ Use ``__has_feature(cxx_static_assert)`` or
 ``__has_extension(cxx_static_assert)`` to determine if support for compile-time
 assertions using ``static_assert`` is enabled.
 
+C++11 ``thread_local``
+^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_thread_local)`` to determine if support for
+``thread_local`` variables is enabled.
+
 C++11 type inference
 ^^^^^^^^^^^^^^^^^^^^
 
@@ -774,6 +785,97 @@ Use ``__has_feature(cxx_variadic_templates)`` or
 ``__has_extension(cxx_variadic_templates)`` to determine if support for
 variadic templates is enabled.
 
+C++1y
+-----
+
+The features listed below are part of the committee draft for the C++1y
+standard.  As a result, all these features are enabled with the ``-std=c++1y``
+or ``-std=gnu++1y`` option when compiling C++ code.
+
+C++1y binary literals
+^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_binary_literals)`` or
+``__has_extension(cxx_binary_literals)`` to determine whether
+binary literals (for instance, ``0b10010``) are recognized. Clang supports this
+feature as an extension in all language modes.
+
+C++1y contextual conversions
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_contextual_conversions)`` or
+``__has_extension(cxx_contextual_conversions)`` to determine if the C++1y rules
+are used when performing an implicit conversion for an array bound in a
+*new-expression*, the operand of a *delete-expression*, an integral constant
+expression, or a condition in a ``switch`` statement. Clang does not yet
+support this feature.
+
+C++1y decltype(auto)
+^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_decltype_auto)`` or
+``__has_extension(cxx_decltype_auto)`` to determine if support
+for the ``decltype(auto)`` placeholder type is enabled.
+
+C++1y default initializers for aggregates
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_aggregate_nsdmi)`` or
+``__has_extension(cxx_aggregate_nsdmi)`` to determine if support
+for default initializers in aggregate members is enabled.
+
+C++1y generalized lambda capture
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_generalized_capture)`` or
+``__has_extension(cxx_generalized_capture`` to determine if support for
+generalized lambda captures is enabled
+(for instance, ``[n(0)] { return ++n; }``).
+Clang does not yet support this feature.
+
+C++1y generic lambdas
+^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_generic_lambda)`` or
+``__has_extension(cxx_generic_lambda)`` to determine if support for generic
+(polymorphic) lambdas is enabled
+(for instance, ``[] (auto x) { return x + 1; }``).
+Clang does not yet support this feature.
+
+C++1y relaxed constexpr
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_relaxed_constexpr)`` or
+``__has_extension(cxx_relaxed_constexpr)`` to determine if variable
+declarations, local variable modification, and control flow constructs
+are permitted in ``constexpr`` functions.
+Clang's implementation of this feature is incomplete.
+
+C++1y return type deduction
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_return_type_deduction)`` or
+``__has_extension(cxx_return_type_deduction)`` to determine if support
+for return type deduction for functions (using ``auto`` as a return type)
+is enabled.
+
+C++1y runtime-sized arrays
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_runtime_array)`` or
+``__has_extension(cxx_runtime_array)`` to determine if support
+for arrays of runtime bound (a restricted form of variable-length arrays)
+is enabled.
+Clang's implementation of this feature is incomplete.
+
+C++1y variable templates
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(cxx_variable_templates)`` or
+``__has_extension(cxx_variable_templates)`` to determine if support for
+templated variable declarations is enabled.
+Clang does not yet support this feature.
+
 C11
 ---
 
@@ -817,6 +919,12 @@ C11 ``_Static_assert()``
 Use ``__has_feature(c_static_assert)`` or ``__has_extension(c_static_assert)``
 to determine if support for compile-time assertions using ``_Static_assert`` is
 enabled.
+
+C11 ``_Thread_local``
+^^^^^^^^^^^^^^^^^^^^^
+
+Use ``__has_feature(c_thread_local)`` to determine if support for
+``_Thread_local`` variables is enabled.
 
 Checks for Type Traits
 ======================
@@ -1308,7 +1416,9 @@ should only be used for timing small intervals.  When not supported by the
 target, the return value is always zero.  This builtin takes no arguments and
 produces an unsigned long long result.
 
-Query for this feature with ``__has_builtin(__builtin_readcyclecounter)``.
+Query for this feature with ``__has_builtin(__builtin_readcyclecounter)``. Note
+that even if present, its use may depend on run-time privilege or other OS
+controlled state.
 
 .. _langext-__builtin_shufflevector:
 
@@ -1423,6 +1533,22 @@ correct code by avoiding expensive loops around
 implementation details of ``__sync_lock_test_and_set()``.  The
 ``__sync_swap()`` builtin is a full barrier.
 
+``__builtin_addressof``
+-----------------------
+
+``__builtin_addressof`` performs the functionality of the built-in ``&``
+operator, ignoring any ``operator&`` overload.  This is useful in constant
+expressions in C++11, where there is no other way to take the address of an
+object that overloads ``operator&``.
+
+**Example of use**:
+
+.. code-block:: c++
+
+  template<typename T> constexpr T *addressof(T &value) {
+    return __builtin_addressof(value);
+  }
+
 Multiprecision Arithmetic Builtins
 ----------------------------------
 
@@ -1451,14 +1577,59 @@ The complete list of builtins are:
 
 .. code-block:: c
 
+  unsigned char      __builtin_addcb (unsigned char x, unsigned char y, unsigned char carryin, unsigned char *carryout);
   unsigned short     __builtin_addcs (unsigned short x, unsigned short y, unsigned short carryin, unsigned short *carryout);
   unsigned           __builtin_addc  (unsigned x, unsigned y, unsigned carryin, unsigned *carryout);
   unsigned long      __builtin_addcl (unsigned long x, unsigned long y, unsigned long carryin, unsigned long *carryout);
   unsigned long long __builtin_addcll(unsigned long long x, unsigned long long y, unsigned long long carryin, unsigned long long *carryout);
+  unsigned char      __builtin_subcb (unsigned char x, unsigned char y, unsigned char carryin, unsigned char *carryout);
   unsigned short     __builtin_subcs (unsigned short x, unsigned short y, unsigned short carryin, unsigned short *carryout);
   unsigned           __builtin_subc  (unsigned x, unsigned y, unsigned carryin, unsigned *carryout);
   unsigned long      __builtin_subcl (unsigned long x, unsigned long y, unsigned long carryin, unsigned long *carryout);
   unsigned long long __builtin_subcll(unsigned long long x, unsigned long long y, unsigned long long carryin, unsigned long long *carryout);
+
+Checked Arithmetic Builtins
+---------------------------
+
+Clang provides a set of builtins that implement checked arithmetic for security
+critical applications in a manner that is fast and easily expressable in C. As
+an example of their usage:
+
+.. code-block:: c
+
+  errorcode_t security_critical_application(...) {
+    unsigned x, y, result;
+    ...
+    if (__builtin_umul_overflow(x, y, &result))
+      return kErrorCodeHackers;
+    ...
+    use_multiply(result);
+    ...
+  }
+
+A complete enumeration of the builtins are:
+
+.. code-block:: c
+
+  bool __builtin_uadd_overflow  (unsigned x, unsigned y, unsigned *sum);
+  bool __builtin_uaddl_overflow (unsigned long x, unsigned long y, unsigned long *sum);
+  bool __builtin_uaddll_overflow(unsigned long long x, unsigned long long y, unsigned long long *sum);
+  bool __builtin_usub_overflow  (unsigned x, unsigned y, unsigned *diff);
+  bool __builtin_usubl_overflow (unsigned long x, unsigned long y, unsigned long *diff);
+  bool __builtin_usubll_overflow(unsigned long long x, unsigned long long y, unsigned long long *diff);
+  bool __builtin_umul_overflow  (unsigned x, unsigned y, unsigned *prod);
+  bool __builtin_umull_overflow (unsigned long x, unsigned long y, unsigned long *prod);
+  bool __builtin_umulll_overflow(unsigned long long x, unsigned long long y, unsigned long long *prod);
+  bool __builtin_sadd_overflow  (int x, int y, int *sum);
+  bool __builtin_saddl_overflow (long x, long y, long *sum);
+  bool __builtin_saddll_overflow(long long x, long long y, long long *sum);
+  bool __builtin_ssub_overflow  (int x, int y, int *diff);
+  bool __builtin_ssubl_overflow (long x, long y, long *diff);
+  bool __builtin_ssubll_overflow(long long x, long long y, long long *diff);
+  bool __builtin_smul_overflow  (int x, int y, int *prod);
+  bool __builtin_smull_overflow (long x, long y, long *prod);
+  bool __builtin_smulll_overflow(long long x, long long y, long long *prod);
+
 
 .. _langext-__c11_atomic:
 
@@ -1546,7 +1717,7 @@ are accepted with the ``__attribute__((foo))`` syntax are also accepted as
 <http://gcc.gnu.org/onlinedocs/gcc/Function-Attributes.html>`_, `GCC variable
 attributes <http://gcc.gnu.org/onlinedocs/gcc/Variable-Attributes.html>`_, and
 `GCC type attributes
-<http://gcc.gnu.org/onlinedocs/gcc/Type-Attributes.html>`_. As with the GCC
+<http://gcc.gnu.org/onlinedocs/gcc/Type-Attributes.html>`_). As with the GCC
 implementation, these attributes must appertain to the *declarator-id* in a
 declaration, which means they must go either at the start of the declaration or
 immediately after the name being declared.
@@ -1806,11 +1977,11 @@ Type Safety Checking
 ====================
 
 Clang supports additional attributes to enable checking type safety properties
-that can't be enforced by C type system.  Usecases include:
+that can't be enforced by the C type system.  Use cases include:
 
 * MPI library implementations, where these attributes enable checking that
-  buffer type matches the passed ``MPI_Datatype``;
-* for HDF5 library there is a similar usecase as MPI;
+  the buffer type matches the passed ``MPI_Datatype``;
+* for HDF5 library there is a similar use case to MPI;
 * checking types of variadic functions' arguments for functions like
   ``fcntl()`` and ``ioctl()``.
 
@@ -1845,7 +2016,7 @@ accepts a type tag that determines the type of some other argument.
 applicable type tags.
 
 This attribute is primarily useful for checking arguments of variadic functions
-(``pointer_with_type_tag`` can be used in most of non-variadic cases).
+(``pointer_with_type_tag`` can be used in most non-variadic cases).
 
 For example:
 

@@ -1,7 +1,7 @@
-// RUN: %clang_cc1 -fsyntax-only %s -std=c++11 2>&1 | FileCheck %s -check-prefix=CHECK-ELIDE-NOTREE
-// RUN: %clang_cc1 -fsyntax-only %s -fno-elide-type -std=c++11 2>&1 | FileCheck %s -check-prefix=CHECK-NOELIDE-NOTREE
-// RUN: %clang_cc1 -fsyntax-only %s -fdiagnostics-show-template-tree -std=c++11 2>&1 | FileCheck %s -check-prefix=CHECK-ELIDE-TREE
-// RUN: %clang_cc1 -fsyntax-only %s -fno-elide-type -fdiagnostics-show-template-tree -std=c++11 2>&1 | FileCheck %s -check-prefix=CHECK-NOELIDE-TREE
+// RUN: not %clang_cc1 -fsyntax-only %s -std=c++11 2>&1 | FileCheck %s -check-prefix=CHECK-ELIDE-NOTREE
+// RUN: not %clang_cc1 -fsyntax-only %s -fno-elide-type -std=c++11 2>&1 | FileCheck %s -check-prefix=CHECK-NOELIDE-NOTREE
+// RUN: not %clang_cc1 -fsyntax-only %s -fdiagnostics-show-template-tree -std=c++11 2>&1 | FileCheck %s -check-prefix=CHECK-ELIDE-TREE
+// RUN: not %clang_cc1 -fsyntax-only %s -fno-elide-type -fdiagnostics-show-template-tree -std=c++11 2>&1 | FileCheck %s -check-prefix=CHECK-NOELIDE-TREE
 
 // PR9548 - "no known conversion from 'vector<string>' to 'vector<string>'"
 // vector<string> refers to two different types here.  Make sure the message
@@ -999,6 +999,33 @@ namespace VariadicDefault {
     c3 = c1;
     // CHECK-ELIDE-NOTREE: no viable overloaded '='
     // CHECK-ELIDE-NOTREE: no known conversion from 'C<(default) void, (no argument)>' to 'C<char, char>'
+  }
+}
+
+namespace PointerArguments {
+  template <int *p> class T {};
+  template <int* ...> class U {};
+  int a, b, c;
+  int z[5];
+  void test() {
+    T<&a> ta;
+    T<z> tz;
+    T<&b> tb(ta);
+    // CHECK-ELIDE-NOTREE: no matching constructor for initialization of 'T<&b>'
+    // CHECK-ELIDE-NOTREE: candidate constructor (the implicit copy constructor) not viable: no known conversion from 'T<&a>' to 'const T<&b>' for 1st argument
+    T<&c> tc(tz);
+    // CHECK-ELIDE-NOTREE: no matching constructor for initialization of 'T<&c>'
+    // CHECK-ELIDE-NOTREE: candidate constructor (the implicit copy constructor) not viable: no known conversion from 'T<z>' to 'const T<&c>' for 1st argument
+
+    U<&a, &a> uaa;
+    U<&b> ub(uaa);
+    // CHECK-ELIDE-NOTREE: no matching constructor for initialization of 'U<&b>'
+    // CHECK-ELIDE-NOTREE: candidate constructor (the implicit copy constructor) not viable: no known conversion from 'U<&a, &a>' to 'const U<&b, (no argument)>' for 1st argument
+
+    U<&b, &b, &b> ubbb(uaa);
+    // CHECK-ELIDE-NOTREE: no matching constructor for initialization of 'U<&b, &b, &b>'
+    // CHECK-ELIDE-NOTREE: candidate constructor (the implicit copy constructor) not viable: no known conversion from 'U<&a, &a, (no argument)>' to 'const U<&b, &b, &b>' for 1st argument
+
   }
 }
 

@@ -1,0 +1,429 @@
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: 
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: -c
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Determining if the CXX compiler works failed with the following output:
+Change Dir: /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp
+
+Run Build Command:/usr/bin/make "cmTryCompileExec2293053024/fast"
+/usr/bin/make -f CMakeFiles/cmTryCompileExec2293053024.dir/build.make CMakeFiles/cmTryCompileExec2293053024.dir/build
+/usr/local/bin/cmake -E cmake_progress_report /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building CXX object CMakeFiles/cmTryCompileExec2293053024.dir/testCXXCompiler.cxx.o
+/usr/bin/c++    -std=c++11     -o CMakeFiles/cmTryCompileExec2293053024.dir/testCXXCompiler.cxx.o -c /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+cc1plus: error: unrecognized command line option "-std=c++11"
+make[1]: *** [CMakeFiles/cmTryCompileExec2293053024.dir/testCXXCompiler.cxx.o] Error 1
+make: *** [cmTryCompileExec2293053024/fast] Error 2
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: 
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: -c
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Determining if the CXX compiler works failed with the following output:
+Change Dir: /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp
+
+Run Build Command:/usr/bin/make "cmTryCompileExec1948493510/fast"
+/usr/bin/make -f CMakeFiles/cmTryCompileExec1948493510.dir/build.make CMakeFiles/cmTryCompileExec1948493510.dir/build
+/usr/local/bin/cmake -E cmake_progress_report /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building CXX object CMakeFiles/cmTryCompileExec1948493510.dir/testCXXCompiler.cxx.o
+/usr/bin/c++    -std=c++11     -o CMakeFiles/cmTryCompileExec1948493510.dir/testCXXCompiler.cxx.o -c /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+cc1plus: error: unrecognized command line option "-std=c++11"
+make[1]: *** [CMakeFiles/cmTryCompileExec1948493510.dir/testCXXCompiler.cxx.o] Error 1
+make: *** [cmTryCompileExec1948493510/fast] Error 2
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: 
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: -c
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Determining if the CXX compiler works failed with the following output:
+Change Dir: /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp
+
+Run Build Command:/usr/bin/make "cmTryCompileExec2757972142/fast"
+/usr/bin/make -f CMakeFiles/cmTryCompileExec2757972142.dir/build.make CMakeFiles/cmTryCompileExec2757972142.dir/build
+/usr/local/bin/cmake -E cmake_progress_report /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building CXX object CMakeFiles/cmTryCompileExec2757972142.dir/testCXXCompiler.cxx.o
+/usr/bin/c++    -std=c++11     -o CMakeFiles/cmTryCompileExec2757972142.dir/testCXXCompiler.cxx.o -c /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+cc1plus: error: unrecognized command line option "-std=c++11"
+make[1]: *** [CMakeFiles/cmTryCompileExec2757972142.dir/testCXXCompiler.cxx.o] Error 1
+make: *** [cmTryCompileExec2757972142/fast] Error 2
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: 
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: -c
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Determining if the CXX compiler works failed with the following output:
+Change Dir: /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp
+
+Run Build Command:/usr/bin/make "cmTryCompileExec4280459449/fast"
+/usr/bin/make -f CMakeFiles/cmTryCompileExec4280459449.dir/build.make CMakeFiles/cmTryCompileExec4280459449.dir/build
+/usr/local/bin/cmake -E cmake_progress_report /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building CXX object CMakeFiles/cmTryCompileExec4280459449.dir/testCXXCompiler.cxx.o
+/usr/bin/c++    -std=c++11     -o CMakeFiles/cmTryCompileExec4280459449.dir/testCXXCompiler.cxx.o -c /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+cc1plus: error: unrecognized command line option "-std=c++11"
+make[1]: *** [CMakeFiles/cmTryCompileExec4280459449.dir/testCXXCompiler.cxx.o] Error 1
+make: *** [cmTryCompileExec4280459449/fast] Error 2
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: 
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: -c
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Determining if the CXX compiler works failed with the following output:
+Change Dir: /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp
+
+Run Build Command:/usr/bin/make "cmTryCompileExec1925092038/fast"
+/usr/bin/make -f CMakeFiles/cmTryCompileExec1925092038.dir/build.make CMakeFiles/cmTryCompileExec1925092038.dir/build
+/usr/local/bin/cmake -E cmake_progress_report /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building CXX object CMakeFiles/cmTryCompileExec1925092038.dir/testCXXCompiler.cxx.o
+/usr/bin/c++    -std=c++11     -o CMakeFiles/cmTryCompileExec1925092038.dir/testCXXCompiler.cxx.o -c /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+cc1plus: error: unrecognized command line option "-std=c++11"
+make[1]: *** [CMakeFiles/cmTryCompileExec1925092038.dir/testCXXCompiler.cxx.o] Error 1
+make: *** [cmTryCompileExec1925092038/fast] Error 2
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: 
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: -c
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Determining if the CXX compiler works failed with the following output:
+Change Dir: /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp
+
+Run Build Command:/usr/bin/make "cmTryCompileExec3368032061/fast"
+/usr/bin/make -f CMakeFiles/cmTryCompileExec3368032061.dir/build.make CMakeFiles/cmTryCompileExec3368032061.dir/build
+/usr/local/bin/cmake -E cmake_progress_report /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building CXX object CMakeFiles/cmTryCompileExec3368032061.dir/testCXXCompiler.cxx.o
+/usr/bin/c++    -std=c++11     -o CMakeFiles/cmTryCompileExec3368032061.dir/testCXXCompiler.cxx.o -c /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+cc1plus: error: unrecognized command line option "-std=c++11"
+make[1]: *** [CMakeFiles/cmTryCompileExec3368032061.dir/testCXXCompiler.cxx.o] Error 1
+make: *** [cmTryCompileExec3368032061/fast] Error 2
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: 
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: -c
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Determining if the CXX compiler works failed with the following output:
+Change Dir: /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp
+
+Run Build Command:/usr/bin/make "cmTryCompileExec2996522803/fast"
+/usr/bin/make -f CMakeFiles/cmTryCompileExec2996522803.dir/build.make CMakeFiles/cmTryCompileExec2996522803.dir/build
+/usr/local/bin/cmake -E cmake_progress_report /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building CXX object CMakeFiles/cmTryCompileExec2996522803.dir/testCXXCompiler.cxx.o
+/usr/bin/c++    -std=c++11     -o CMakeFiles/cmTryCompileExec2996522803.dir/testCXXCompiler.cxx.o -c /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+cc1plus: error: unrecognized command line option "-std=c++11"
+make[1]: *** [CMakeFiles/cmTryCompileExec2996522803.dir/testCXXCompiler.cxx.o] Error 1
+make: *** [cmTryCompileExec2996522803/fast] Error 2
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: 
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: -c
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Determining if the CXX compiler works failed with the following output:
+Change Dir: /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp
+
+Run Build Command:/usr/bin/make "cmTryCompileExec3007543727/fast"
+/usr/bin/make -f CMakeFiles/cmTryCompileExec3007543727.dir/build.make CMakeFiles/cmTryCompileExec3007543727.dir/build
+/usr/local/bin/cmake -E cmake_progress_report /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building CXX object CMakeFiles/cmTryCompileExec3007543727.dir/testCXXCompiler.cxx.o
+/usr/bin/c++    -std=c++11     -o CMakeFiles/cmTryCompileExec3007543727.dir/testCXXCompiler.cxx.o -c /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+cc1plus: error: unrecognized command line option "-std=c++11"
+make[1]: *** [CMakeFiles/cmTryCompileExec3007543727.dir/testCXXCompiler.cxx.o] Error 1
+make: *** [cmTryCompileExec3007543727/fast] Error 2
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: 
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: -c
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Determining if the CXX compiler works failed with the following output:
+Change Dir: /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp
+
+Run Build Command:/usr/bin/make "cmTryCompileExec3331456133/fast"
+/usr/bin/make -f CMakeFiles/cmTryCompileExec3331456133.dir/build.make CMakeFiles/cmTryCompileExec3331456133.dir/build
+/usr/local/bin/cmake -E cmake_progress_report /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building CXX object CMakeFiles/cmTryCompileExec3331456133.dir/testCXXCompiler.cxx.o
+/usr/bin/c++    -std=c++11     -o CMakeFiles/cmTryCompileExec3331456133.dir/testCXXCompiler.cxx.o -c /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+cc1plus: error: unrecognized command line option "-std=c++11"
+make[1]: *** [CMakeFiles/cmTryCompileExec3331456133.dir/testCXXCompiler.cxx.o] Error 1
+make: *** [cmTryCompileExec3331456133/fast] Error 2
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: 
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: -c
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Determining if the CXX compiler works failed with the following output:
+Change Dir: /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp
+
+Run Build Command:/usr/bin/make "cmTryCompileExec1118677403/fast"
+/usr/bin/make -f CMakeFiles/cmTryCompileExec1118677403.dir/build.make CMakeFiles/cmTryCompileExec1118677403.dir/build
+/usr/local/bin/cmake -E cmake_progress_report /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building CXX object CMakeFiles/cmTryCompileExec1118677403.dir/testCXXCompiler.cxx.o
+/usr/bin/c++    -std=c++11     -o CMakeFiles/cmTryCompileExec1118677403.dir/testCXXCompiler.cxx.o -c /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+cc1plus: error: unrecognized command line option "-std=c++11"
+make[1]: *** [CMakeFiles/cmTryCompileExec1118677403.dir/testCXXCompiler.cxx.o] Error 1
+make: *** [cmTryCompileExec1118677403/fast] Error 2
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: 
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: -c
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Determining if the CXX compiler works failed with the following output:
+Change Dir: /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp
+
+Run Build Command:/usr/bin/make "cmTryCompileExec594650648/fast"
+/usr/bin/make -f CMakeFiles/cmTryCompileExec594650648.dir/build.make CMakeFiles/cmTryCompileExec594650648.dir/build
+/usr/local/bin/cmake -E cmake_progress_report /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building CXX object CMakeFiles/cmTryCompileExec594650648.dir/testCXXCompiler.cxx.o
+/usr/bin/c++    -std=c++11     -o CMakeFiles/cmTryCompileExec594650648.dir/testCXXCompiler.cxx.o -c /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+cc1plus: error: unrecognized command line option "-std=c++11"
+make[1]: *** [CMakeFiles/cmTryCompileExec594650648.dir/testCXXCompiler.cxx.o] Error 1
+make: *** [cmTryCompileExec594650648/fast] Error 2
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: 
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: -c
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Determining if the CXX compiler works failed with the following output:
+Change Dir: /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp
+
+Run Build Command:/usr/bin/make "cmTryCompileExec811377610/fast"
+/usr/bin/make -f CMakeFiles/cmTryCompileExec811377610.dir/build.make CMakeFiles/cmTryCompileExec811377610.dir/build
+/usr/local/bin/cmake -E cmake_progress_report /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building CXX object CMakeFiles/cmTryCompileExec811377610.dir/testCXXCompiler.cxx.o
+/usr/bin/c++    -std=c++11     -o CMakeFiles/cmTryCompileExec811377610.dir/testCXXCompiler.cxx.o -c /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+cc1plus: error: unrecognized command line option "-std=c++11"
+make[1]: *** [CMakeFiles/cmTryCompileExec811377610.dir/testCXXCompiler.cxx.o] Error 1
+make: *** [cmTryCompileExec811377610/fast] Error 2
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: 
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/bin/c++ 
+Build flags: -std=c++11
+Id flags: -c
+
+The output was:
+1
+cc1plus: error: unrecognized command line option "-std=c++11"
+
+
+Determining if the CXX compiler works failed with the following output:
+Change Dir: /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp
+
+Run Build Command:/usr/bin/make "cmTryCompileExec4220460553/fast"
+/usr/bin/make -f CMakeFiles/cmTryCompileExec4220460553.dir/build.make CMakeFiles/cmTryCompileExec4220460553.dir/build
+/usr/local/bin/cmake -E cmake_progress_report /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building CXX object CMakeFiles/cmTryCompileExec4220460553.dir/testCXXCompiler.cxx.o
+/usr/bin/c++    -std=c++11     -o CMakeFiles/cmTryCompileExec4220460553.dir/testCXXCompiler.cxx.o -c /Users/jeffbush/src/llvm-vectorproc/llvm/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+cc1plus: error: unrecognized command line option "-std=c++11"
+make[1]: *** [CMakeFiles/cmTryCompileExec4220460553.dir/testCXXCompiler.cxx.o] Error 1
+make: *** [cmTryCompileExec4220460553/fast] Error 2
+
+

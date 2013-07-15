@@ -226,19 +226,14 @@ public:
     SCS_private_extern,
     SCS_mutable
   };
-  /// \brief Thread storage-class-specifier. These can be combined with
-  /// SCS_extern and SCS_static.
-  enum TSCS {
-    TSCS_unspecified,
-    /// GNU __thread.
-    TSCS___thread,
-    /// C++11 thread_local. Implies 'static' at block scope, but not at
-    /// class scope.
-    TSCS_thread_local,
-    /// C11 _Thread_local. Must be combined with either 'static' or 'extern'
-    /// if used at block scope.
-    TSCS__Thread_local
-  };
+
+  // Import thread storage class specifier enumeration and constants.
+  // These can be combined with SCS_extern and SCS_static.
+  typedef ThreadStorageClassSpecifier TSCS;
+  static const TSCS TSCS_unspecified = clang::TSCS_unspecified;
+  static const TSCS TSCS___thread = clang::TSCS___thread;
+  static const TSCS TSCS_thread_local = clang::TSCS_thread_local;
+  static const TSCS TSCS__Thread_local = clang::TSCS__Thread_local;
 
   // Import type specifier width enumeration and constants.
   typedef TypeSpecifierWidth TSW;
@@ -285,6 +280,7 @@ public:
   static const TST TST_typeofType = clang::TST_typeofType;
   static const TST TST_typeofExpr = clang::TST_typeofExpr;
   static const TST TST_decltype = clang::TST_decltype;
+  static const TST TST_decltype_auto = clang::TST_decltype_auto;
   static const TST TST_underlyingType = clang::TST_underlyingType;
   static const TST TST_auto = clang::TST_auto;
   static const TST TST_unknown_anytype = clang::TST_unknown_anytype;
@@ -504,6 +500,10 @@ public:
   SourceRange getTypeofParensRange() const { return TypeofParensRange; }
   void setTypeofParensRange(SourceRange range) { TypeofParensRange = range; }
 
+  bool containsPlaceholderType() const {
+    return TypeSpecType == TST_auto || TypeSpecType == TST_decltype_auto;
+  }
+
   /// \brief Turn a type-specifier-type into a string like "_Bool" or "union".
   static const char *getSpecifierName(DeclSpec::TST T);
   static const char *getSpecifierName(DeclSpec::TQ Q);
@@ -614,6 +614,8 @@ public:
   bool SetTypeAltiVecVector(bool isAltiVecVector, SourceLocation Loc,
                        const char *&PrevSpec, unsigned &DiagID);
   bool SetTypeAltiVecPixel(bool isAltiVecPixel, SourceLocation Loc,
+                       const char *&PrevSpec, unsigned &DiagID);
+  bool SetTypeAltiVecBool(bool isAltiVecBool, SourceLocation Loc,
                        const char *&PrevSpec, unsigned &DiagID);
   bool SetTypeSpecError();
   void UpdateDeclRep(Decl *Rep) {
@@ -1498,8 +1500,9 @@ public:
     CXXNewContext,       // C++ new-expression.
     CXXCatchContext,     // C++ catch exception-declaration
     ObjCCatchContext,    // Objective-C catch exception-declaration
-    BlockLiteralContext,  // Block literal declarator.
+    BlockLiteralContext, // Block literal declarator.
     LambdaExprContext,   // Lambda-expression declarator.
+    ConversionIdContext, // C++ conversion-type-id.
     TrailingReturnContext, // C++11 trailing-type-specifier.
     TemplateTypeArgContext, // Template type argument.
     AliasDeclContext,    // C++11 alias-declaration.
@@ -1675,6 +1678,7 @@ public:
     case ObjCCatchContext:
     case BlockLiteralContext:
     case LambdaExprContext:
+    case ConversionIdContext:
     case TemplateTypeArgContext:
     case TrailingReturnContext:
       return true;
@@ -1707,9 +1711,42 @@ public:
     case ObjCResultContext:
     case BlockLiteralContext:
     case LambdaExprContext:
+    case ConversionIdContext:
     case TemplateTypeArgContext:
     case TrailingReturnContext:
       return false;
+    }
+    llvm_unreachable("unknown context kind!");
+  }
+
+  /// diagnoseIdentifier - Return true if the identifier is prohibited and
+  /// should be diagnosed (because it cannot be anything else).
+  bool diagnoseIdentifier() const {
+    switch (Context) {
+    case FileContext:
+    case KNRTypeListContext:
+    case MemberContext:
+    case BlockContext:
+    case ForContext:
+    case ConditionContext:
+    case PrototypeContext:
+    case TemplateParamContext:
+    case CXXCatchContext:
+    case ObjCCatchContext:
+    case TypeNameContext:
+    case ConversionIdContext:
+    case ObjCParameterContext:
+    case ObjCResultContext:
+    case BlockLiteralContext:
+    case CXXNewContext:
+    case LambdaExprContext:
+      return false;
+
+    case AliasDeclContext:
+    case AliasTemplateContext:
+    case TemplateTypeArgContext:
+    case TrailingReturnContext:
+      return true;
     }
     llvm_unreachable("unknown context kind!");
   }
@@ -1756,6 +1793,7 @@ public:
     case AliasTemplateContext:
     case BlockLiteralContext:
     case LambdaExprContext:
+    case ConversionIdContext:
     case TemplateTypeArgContext:
     case TrailingReturnContext:
       return false;
@@ -1938,6 +1976,7 @@ public:
     case ObjCCatchContext:
     case BlockLiteralContext:
     case LambdaExprContext:
+    case ConversionIdContext:
     case TemplateTypeArgContext:
     case TrailingReturnContext:
       return false;
@@ -1990,7 +2029,7 @@ public:
 
   /// \brief Return a source range list of C++11 attributes associated
   /// with the declarator.
-  void getCXX11AttributeRanges(SmallVector<SourceRange, 4> &Ranges) {
+  void getCXX11AttributeRanges(SmallVectorImpl<SourceRange> &Ranges) {
     AttributeList *AttrList = Attrs.getList();
     while (AttrList) {
       if (AttrList->isCXX11Attribute())
@@ -2083,13 +2122,15 @@ private:
 struct LambdaCapture {
   LambdaCaptureKind Kind;
   SourceLocation Loc;
-  IdentifierInfo* Id;
+  IdentifierInfo *Id;
   SourceLocation EllipsisLoc;
-  
+  ExprResult Init;
+
   LambdaCapture(LambdaCaptureKind Kind, SourceLocation Loc,
                 IdentifierInfo* Id = 0,
-                SourceLocation EllipsisLoc = SourceLocation())
-    : Kind(Kind), Loc(Loc), Id(Id), EllipsisLoc(EllipsisLoc)
+                SourceLocation EllipsisLoc = SourceLocation(),
+                ExprResult Init = ExprResult())
+    : Kind(Kind), Loc(Loc), Id(Id), EllipsisLoc(EllipsisLoc), Init(Init)
   {}
 };
 
@@ -2106,11 +2147,11 @@ struct LambdaIntroducer {
   /// \brief Append a capture in a lambda introducer.
   void addCapture(LambdaCaptureKind Kind,
                   SourceLocation Loc,
-                  IdentifierInfo* Id = 0, 
-                  SourceLocation EllipsisLoc = SourceLocation()) {
-    Captures.push_back(LambdaCapture(Kind, Loc, Id, EllipsisLoc));
+                  IdentifierInfo* Id = 0,
+                  SourceLocation EllipsisLoc = SourceLocation(),
+                  ExprResult Init = ExprResult()) {
+    Captures.push_back(LambdaCapture(Kind, Loc, Id, EllipsisLoc, Init));
   }
-
 };
 
 } // end namespace clang

@@ -17,7 +17,7 @@ declare void @test0_helper(i8*, i8**)
 ; FIXME: the fact that we re-order retains w.r.t. @clang.arc.use could
 ; be problematic if we get run twice, e.g. under LTO.
 ;
-; CHECK:      define void @test0(
+; CHECK-LABEL:      define void @test0(
 ; CHECK:        @objc_retain(i8* %x)
 ; CHECK-NEXT:   store i8* %y, i8** %temp0
 ; CHECK-NEXT:   @objc_retain(i8* %y)
@@ -38,6 +38,7 @@ declare void @test0_helper(i8*, i8**)
 ; CHECK-NEXT:   @objc_release(i8* [[VAL2]])
 ; CHECK-NEXT:   @objc_release(i8* %x)
 ; CHECK-NEXT:   ret void
+; CHECK-NEXT: }
 define void @test0(i8** %out, i8* %x, i8* %y) {
 entry:
   %temp0 = alloca i8*, align 8
@@ -64,7 +65,7 @@ entry:
   ret void
 }
 
-; CHECK:      define void @test0a(
+; CHECK-LABEL:      define void @test0a(
 ; CHECK:        @objc_retain(i8* %x)
 ; CHECK-NEXT:   store i8* %y, i8** %temp0
 ; CHECK-NEXT:   @objc_retain(i8* %y)
@@ -83,6 +84,7 @@ entry:
 ; CHECK-NEXT:   @objc_release(i8* [[VAL2]])
 ; CHECK-NEXT:   store i8* %x, i8** %out
 ; CHECK-NEXT:   ret void
+; CHECK-NEXT: }
 define void @test0a(i8** %out, i8* %x, i8* %y) {
 entry:
   %temp0 = alloca i8*, align 8

@@ -145,6 +145,33 @@ class BForm_2<bits<6> opcode, bits<5> bo, bits<5> bi, bit aa, bit lk,
   let Inst{31}    = lk;
 }
 
+class BForm_3<bits<6> opcode, bit aa, bit lk,
+              dag OOL, dag IOL, string asmstr>
+  : I<opcode, OOL, IOL, asmstr, BrB> {
+  bits<5> BO;
+  bits<5> BI;
+  bits<14> BD;
+
+  let Inst{6-10}  = BO;
+  let Inst{11-15} = BI;
+  let Inst{16-29} = BD;
+  let Inst{30}    = aa;
+  let Inst{31}    = lk;
+}
+
+// 1.7.3 SC-Form
+class SCForm<bits<6> opcode, bits<1> xo,
+                     dag OOL, dag IOL, string asmstr, InstrItinClass itin,
+                     list<dag> pattern>
+  : I<opcode, OOL, IOL, asmstr, itin> {
+  bits<7>  LEV;
+
+  let Pattern = pattern;
+
+  let Inst{20-26} = LEV;
+  let Inst{30}    = xo;
+}
+
 // 1.7.4 D-Form
 class DForm_base<bits<6> opcode, dag OOL, dag IOL, string asmstr,
                  InstrItinClass itin, list<dag> pattern> 
@@ -365,6 +392,12 @@ class XForm_1<bits<6> opcode, bits<10> xo, dag OOL, dag IOL, string asmstr,
               InstrItinClass itin, list<dag> pattern> 
   : XForm_base_r3xo<opcode, xo, OOL, IOL, asmstr, itin, pattern>;
 
+class XForm_1a<bits<6> opcode, bits<10> xo, dag OOL, dag IOL, string asmstr,
+              InstrItinClass itin, list<dag> pattern>
+  : XForm_base_r3xo<opcode, xo, OOL, IOL, asmstr, itin, pattern> {
+  let RST = 0;
+}
+
 class XForm_6<bits<6> opcode, bits<10> xo, dag OOL, dag IOL, string asmstr,
               InstrItinClass itin, list<dag> pattern> 
   : XForm_base_r3xo_swapped<opcode, xo, OOL, IOL, asmstr, itin> {
@@ -440,12 +473,21 @@ class XForm_24<bits<6> opcode, bits<10> xo, dag OOL, dag IOL, string asmstr,
 class XForm_24_sync<bits<6> opcode, bits<10> xo, dag OOL, dag IOL,
                string asmstr, InstrItinClass itin, list<dag> pattern> 
   : I<opcode, OOL, IOL, asmstr, itin> {
+  bits<2> L;
+
   let Pattern = pattern;
-  let Inst{6-10}  = 0;
+  let Inst{6-8}   = 0;
+  let Inst{9-10}  = L;
   let Inst{11-15} = 0;
   let Inst{16-20} = 0;
   let Inst{21-30} = xo;
   let Inst{31}    = 0;
+}
+
+class XForm_24_eieio<bits<6> opcode, bits<10> xo, dag OOL, dag IOL,
+               string asmstr, InstrItinClass itin, list<dag> pattern> 
+  : XForm_24_sync<opcode, xo, OOL, IOL, asmstr, itin, pattern> {
+  let L = 0;
 }
 
 class XForm_25<bits<6> opcode, bits<10> xo, dag OOL, dag IOL, string asmstr,
@@ -855,6 +897,25 @@ class MDForm_1<bits<6> opcode, bits<3> xo, dag OOL, dag IOL, string asmstr,
   let Inst{31}    = RC;
 }
 
+class MDSForm_1<bits<6> opcode, bits<4> xo, dag OOL, dag IOL, string asmstr,
+                InstrItinClass itin, list<dag> pattern>
+    : I<opcode, OOL, IOL, asmstr, itin> {
+  bits<5> RA;
+  bits<5> RS;
+  bits<5> RB;
+  bits<6> MBE;
+
+  let Pattern = pattern;
+
+  bit RC = 0;    // set by isDOT
+
+  let Inst{6-10}  = RS;
+  let Inst{11-15} = RA;
+  let Inst{16-20} = RB;
+  let Inst{21-26} = MBE{4,3,2,1,0,5};
+  let Inst{27-30} = xo;
+  let Inst{31}    = RC;
+}
 
 
 // E-1 VA-Form

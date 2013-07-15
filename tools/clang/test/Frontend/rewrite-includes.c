@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -verify -E -frewrite-includes -DFIRST -I %S/Inputs %s -o - | FileCheck -strict-whitespace %s
-// RUN: %clang_cc1 -verify -E -frewrite-includes -P -DFIRST -I %S/Inputs %s -o - | FileCheck -check-prefix=CHECKNL -strict-whitespace %s
+// RUN: not %clang_cc1 -verify -E -frewrite-includes -DFIRST -I %S/Inputs %s -o - | FileCheck -strict-whitespace %s
+// RUN: not %clang_cc1 -verify -E -frewrite-includes -P -DFIRST -I %S/Inputs %s -o - | FileCheck -check-prefix=CHECKNL -strict-whitespace %s
 // STARTCOMPARE
 #define A(a,b) a ## b
 A(1,2)
@@ -18,6 +18,7 @@ A(1,2)
                                   continues */
 #include "rewrite-includes7.h"
 #include "rewrite-includes7.h"
+#include "rewrite-includes8.h"
 // ENDCOMPARE
 // CHECK: {{^}}// STARTCOMPARE{{$}}
 // CHECK-NEXT: {{^}}#define A(a,b) a ## b{{$}}
@@ -88,6 +89,16 @@ A(1,2)
 // CHECK-NEXT: {{^}}#include "rewrite-includes7.h"{{$}}
 // CHECK-NEXT: {{^}}#endif /* expanded by -frewrite-includes */{{$}}
 // CHECK-NEXT: {{^}}# 21 "{{.*}}rewrite-includes.c"{{$}}
+// CHECK-NEXT: {{^}}#if 0 /* expanded by -frewrite-includes */{{$}}
+// CHECK-NEXT: {{^}}#include "rewrite-includes8.h"{{$}}
+// CHECK-NEXT: {{^}}#endif /* expanded by -frewrite-includes */{{$}}
+// CHECK-NEXT: {{^}}# 1 "{{.*[/\\]Inputs[/\\]}}rewrite-includes8.h" 1{{$}}
+// CHECK-NEXT: {{^}}#if (1)/*__has_include_next(<rewrite-includes8.h>)*/{{$}}
+// CHECK-NEXT: {{^}}#elif (0)/*__has_include(<rewrite-includes8.hfail>)*/{{$}}
+// CHECK-NEXT: {{^}}#endif{{$}}
+// CHECK-NEXT: {{^}}#if !(1)/*__has_include("rewrite-includes8.h")*/{{$}}
+// CHECK-NEXT: {{^}}#endif{{$}}
+// CHECK-NEXT: {{^}}# 22 "{{.*}}rewrite-includes.c" 2{{$}}
 // CHECK-NEXT: {{^}}// ENDCOMPARE{{$}}
 
 // CHECKNL: {{^}}// STARTCOMPARE{{$}}
@@ -142,4 +153,12 @@ A(1,2)
 // CHECKNL-NEXT: {{^}}#if 0 /* expanded by -frewrite-includes */{{$}}
 // CHECKNL-NEXT: {{^}}#include "rewrite-includes7.h"{{$}}
 // CHECKNL-NEXT: {{^}}#endif /* expanded by -frewrite-includes */{{$}}
+// CHECKNL-NEXT: {{^}}#if 0 /* expanded by -frewrite-includes */{{$}}
+// CHECKNL-NEXT: {{^}}#include "rewrite-includes8.h"{{$}}
+// CHECKNL-NEXT: {{^}}#endif /* expanded by -frewrite-includes */{{$}}
+// CHECKNL-NEXT: {{^}}#if (1)/*__has_include_next(<rewrite-includes8.h>)*/{{$}}
+// CHECKNL-NEXT: {{^}}#elif (0)/*__has_include(<rewrite-includes8.hfail>)*/{{$}}
+// CHECKNL-NEXT: {{^}}#endif{{$}}
+// CHECKNL-NEXT: {{^}}#if !(1)/*__has_include("rewrite-includes8.h")*/{{$}}
+// CHECKNL-NEXT: {{^}}#endif{{$}}
 // CHECKNL-NEXT: {{^}}// ENDCOMPARE{{$}}

@@ -400,6 +400,13 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
       return false;
     break;
   
+  case Type::Decayed:
+    if (!IsStructurallyEquivalent(Context,
+                                  cast<DecayedType>(T1)->getPointeeType(),
+                                  cast<DecayedType>(T2)->getPointeeType()))
+      return false;
+    break;
+
   case Type::Pointer:
     if (!IsStructurallyEquivalent(Context,
                                   cast<PointerType>(T1)->getPointeeType(),
@@ -839,6 +846,12 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
     RecordDecl *D2 = Field2->getType()->castAs<RecordType>()->getDecl();
     return IsStructurallyEquivalent(Context, D1, D2);
   }
+    
+  // Check for equivalent field names.
+  IdentifierInfo *Name1 = Field1->getIdentifier();
+  IdentifierInfo *Name2 = Field2->getIdentifier();
+  if (!::IsStructurallyEquivalent(Name1, Name2))
+    return false;
 
   if (!IsStructurallyEquivalent(Context,
                                 Field1->getType(), Field2->getType())) {
@@ -1680,7 +1693,7 @@ QualType ASTNodeImporter::VisitUnaryTransformType(const UnaryTransformType *T) {
 }
 
 QualType ASTNodeImporter::VisitAutoType(const AutoType *T) {
-  // FIXME: Make sure that the "to" context supports C++0x!
+  // FIXME: Make sure that the "to" context supports C++11!
   QualType FromDeduced = T->getDeducedType();
   QualType ToDeduced;
   if (!FromDeduced.isNull()) {
@@ -1689,7 +1702,7 @@ QualType ASTNodeImporter::VisitAutoType(const AutoType *T) {
       return QualType();
   }
   
-  return Importer.getToContext().getAutoType(ToDeduced);
+  return Importer.getToContext().getAutoType(ToDeduced, T->isDecltypeAuto());
 }
 
 QualType ASTNodeImporter::VisitRecordType(const RecordType *T) {
@@ -2604,8 +2617,8 @@ Decl *ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
         continue;
     
       if (FunctionDecl *FoundFunction = dyn_cast<FunctionDecl>(FoundDecls[I])) {
-        if (isExternalLinkage(FoundFunction->getLinkage()) &&
-            isExternalLinkage(D->getLinkage())) {
+        if (FoundFunction->hasExternalFormalLinkage() &&
+            D->hasExternalFormalLinkage()) {
           if (Importer.IsStructurallyEquivalent(D->getType(), 
                                                 FoundFunction->getType())) {
             // FIXME: Actually try to merge the body and other attributes.
@@ -2658,10 +2671,7 @@ Decl *ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
         FromEPI.NoexceptExpr) {
       FunctionProtoType::ExtProtoInfo DefaultEPI;
       FromTy = Importer.getFromContext().getFunctionType(
-                            FromFPT->getResultType(),
-                            ArrayRef<QualType>(FromFPT->arg_type_begin(),
-                                               FromFPT->getNumArgs()),
-                            DefaultEPI);
+          FromFPT->getResultType(), FromFPT->getArgTypes(), DefaultEPI);
       usedDifferentExceptionSpec = true;
     }
   }
@@ -2872,7 +2882,7 @@ Decl *ASTNodeImporter::VisitIndirectFieldDecl(IndirectFieldDecl *D) {
 
       if (Importer.IsStructurallyEquivalent(D->getType(), 
                                             FoundField->getType(),
-                                            Name)) {
+                                            !Name.isEmpty())) {
         Importer.Imported(D, FoundField);
         return FoundField;
       }
@@ -2989,8 +2999,8 @@ Decl *ASTNodeImporter::VisitVarDecl(VarDecl *D) {
       
       if (VarDecl *FoundVar = dyn_cast<VarDecl>(FoundDecls[I])) {
         // We have found a variable that we may need to merge with. Check it.
-        if (isExternalLinkage(FoundVar->getLinkage()) &&
-            isExternalLinkage(D->getLinkage())) {
+        if (FoundVar->hasExternalFormalLinkage() &&
+            D->hasExternalFormalLinkage()) {
           if (Importer.IsStructurallyEquivalent(D->getType(), 
                                                 FoundVar->getType())) {
             MergeWithVar = FoundVar;
@@ -3644,6 +3654,7 @@ Decl *ASTNodeImporter::VisitObjCImplementationDecl(ObjCImplementationDecl *D) {
                                           Iface, Super,
                                           Importer.Import(D->getLocation()),
                                           Importer.Import(D->getAtStartLoc()),
+                                          Importer.Import(D->getSuperClassLoc()),
                                           Importer.Import(D->getIvarLBraceLoc()),
                                           Importer.Import(D->getIvarRBraceLoc()));
     
@@ -4399,7 +4410,7 @@ Decl *ASTImporter::Import(Decl *FromD) {
   } else if (TypedefNameDecl *FromTypedef = dyn_cast<TypedefNameDecl>(FromD)) {
     // When we've finished transforming a typedef, see whether it was the
     // typedef for an anonymous tag.
-    for (SmallVector<TagDecl *, 4>::iterator
+    for (SmallVectorImpl<TagDecl *>::iterator
                FromTag = AnonTagsWithPendingTypedefs.begin(), 
             FromTagEnd = AnonTagsWithPendingTypedefs.end();
          FromTag != FromTagEnd; ++FromTag) {

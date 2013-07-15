@@ -16,6 +16,8 @@
 
 #include "CGCXXABI.h"
 #include "CodeGenModule.h"
+#include "CGVTables.h"
+#include "MicrosoftVBTables.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
 
@@ -28,6 +30,19 @@ class MicrosoftCXXABI : public CGCXXABI {
 public:
   MicrosoftCXXABI(CodeGenModule &CGM) : CGCXXABI(CGM) {}
 
+  bool HasThisReturn(GlobalDecl GD) const;
+
+  bool isReturnTypeIndirect(const CXXRecordDecl *RD) const {
+    // Structures that are not C++03 PODs are always indirect.
+    return !RD->isPOD();
+  }
+
+  RecordArgABI getRecordArgABI(const CXXRecordDecl *RD) const {
+    if (RD->hasNonTrivialCopyConstructor() || RD->hasNonTrivialDestructor())
+      return RAA_DirectInMemory;
+    return RAA_Default;
+  }
+
   StringRef GetPureVirtualCallName() { return "_purecall"; }
   // No known support for deleted functions in MSVC yet, so this choice is
   // arbitrary.
@@ -37,12 +52,18 @@ public:
                                       llvm::Value *ptr,
                                       QualType type);
 
+  llvm::Value *GetVirtualBaseClassOffset(CodeGenFunction &CGF,
+                                         llvm::Value *This,
+                                         const CXXRecordDecl *ClassDecl,
+                                         const CXXRecordDecl *BaseClassDecl);
+
   void BuildConstructorSignature(const CXXConstructorDecl *Ctor,
                                  CXXCtorType Type,
                                  CanQualType &ResTy,
                                  SmallVectorImpl<CanQualType> &ArgTys);
 
-  llvm::BasicBlock *EmitCtorCompleteObjectHandler(CodeGenFunction &CGF);
+  llvm::BasicBlock *EmitCtorCompleteObjectHandler(CodeGenFunction &CGF,
+                                                  const CXXRecordDecl *RD);
 
   void BuildDestructorSignature(const CXXDestructorDecl *Ctor,
                                 CXXDtorType Type,
@@ -55,20 +76,20 @@ public:
 
   void EmitInstanceFunctionProlog(CodeGenFunction &CGF);
 
-  llvm::Value *EmitConstructorCall(CodeGenFunction &CGF,
-                           const CXXConstructorDecl *D,
-                           CXXCtorType Type, bool ForVirtualBase,
-                           bool Delegating,
+  void EmitConstructorCall(CodeGenFunction &CGF,
+                           const CXXConstructorDecl *D, CXXCtorType Type,
+                           bool ForVirtualBase, bool Delegating,
                            llvm::Value *This,
                            CallExpr::const_arg_iterator ArgBeg,
                            CallExpr::const_arg_iterator ArgEnd);
+ 
+  void EmitVirtualDestructorCall(CodeGenFunction &CGF,
+                                 const CXXDestructorDecl *Dtor,
+                                 CXXDtorType DtorType, SourceLocation CallLoc,
+                                 llvm::Value *This);
 
-  RValue EmitVirtualDestructorCall(CodeGenFunction &CGF,
-                                   const CXXDestructorDecl *Dtor,
-                                   CXXDtorType DtorType,
-                                   SourceLocation CallLoc,
-                                   ReturnValueSlot ReturnValue,
-                                   llvm::Value *This);
+  void EmitVirtualInheritanceTables(llvm::GlobalVariable::LinkageTypes Linkage,
+                                    const CXXRecordDecl *RD);
 
   void EmitGuardedInit(CodeGenFunction &CGF, const VarDecl &D,
                        llvm::GlobalVariable *DeclPtr,
@@ -108,7 +129,6 @@ public:
   llvm::Value *readArrayCookieImpl(CodeGenFunction &CGF,
                                    llvm::Value *allocPtr,
                                    CharUnits cookieSize);
-  static bool needThisReturn(GlobalDecl GD);
 
 private:
   llvm::Constant *getZeroInt() {
@@ -119,14 +139,58 @@ private:
     return  llvm::Constant::getAllOnesValue(CGM.IntTy);
   }
 
+  llvm::Constant *getConstantOrZeroInt(llvm::Constant *C) {
+    return C ? C : getZeroInt();
+  }
+
+  llvm::Value *getValueOrZeroInt(llvm::Value *C) {
+    return C ? C : getZeroInt();
+  }
+
   void
   GetNullMemberPointerFields(const MemberPointerType *MPT,
                              llvm::SmallVectorImpl<llvm::Constant *> &fields);
 
+  /// \brief Finds the offset from the base of RD to the vbptr it uses, even if
+  /// it is reusing a vbptr from a non-virtual base.  RD must have morally
+  /// virtual bases.
+  CharUnits GetVBPtrOffsetFromBases(const CXXRecordDecl *RD);
+
+  /// \brief Shared code for virtual base adjustment.  Returns the offset from
+  /// the vbptr to the virtual base.  Optionally returns the address of the
+  /// vbptr itself.
+  llvm::Value *GetVBaseOffsetFromVBPtr(CodeGenFunction &CGF,
+                                       llvm::Value *Base,
+                                       llvm::Value *VBPtrOffset,
+                                       llvm::Value *VBTableOffset,
+                                       llvm::Value **VBPtr = 0);
+
+  /// \brief Performs a full virtual base adjustment.  Used to dereference
+  /// pointers to members of virtual bases.
   llvm::Value *AdjustVirtualBase(CodeGenFunction &CGF, const CXXRecordDecl *RD,
                                  llvm::Value *Base,
                                  llvm::Value *VirtualBaseAdjustmentOffset,
                                  llvm::Value *VBPtrOffset /* optional */);
+
+  /// \brief Emits a full member pointer with the fields common to data and
+  /// function member pointers.
+  llvm::Constant *EmitFullMemberPointer(llvm::Constant *FirstField,
+                                        bool IsMemberFunction,
+                                        const CXXRecordDecl *RD,
+                                        CharUnits NonVirtualBaseAdjustment);
+
+  llvm::Constant *BuildMemberPointer(const CXXRecordDecl *RD,
+                                     const CXXMethodDecl *MD,
+                                     CharUnits NonVirtualBaseAdjustment);
+
+  bool MemberPointerConstantIsNull(const MemberPointerType *MPT,
+                                   llvm::Constant *MP);
+
+  /// \brief - Initialize all vbptrs of 'this' with RD as the complete type.
+  void EmitVBPtrStores(CodeGenFunction &CGF, const CXXRecordDecl *RD);
+
+  /// \brief Caching wrapper around VBTableBuilder::enumerateVBTables().
+  const VBTableVector &EnumerateVBTables(const CXXRecordDecl *RD);
 
 public:
   virtual llvm::Type *ConvertMemberPointerType(const MemberPointerType *MPT);
@@ -137,6 +201,14 @@ public:
 
   virtual llvm::Constant *EmitMemberDataPointer(const MemberPointerType *MPT,
                                                 CharUnits offset);
+  virtual llvm::Constant *EmitMemberPointer(const CXXMethodDecl *MD);
+  virtual llvm::Constant *EmitMemberPointer(const APValue &MP, QualType MPT);
+
+  virtual llvm::Value *EmitMemberPointerComparison(CodeGenFunction &CGF,
+                                                   llvm::Value *L,
+                                                   llvm::Value *R,
+                                                   const MemberPointerType *MPT,
+                                                   bool Inequality);
 
   virtual llvm::Value *EmitMemberPointerIsNotNull(CodeGenFunction &CGF,
                                                   llvm::Value *MemPtr,
@@ -147,12 +219,22 @@ public:
                                                     llvm::Value *MemPtr,
                                                   const MemberPointerType *MPT);
 
+  virtual llvm::Value *EmitMemberPointerConversion(CodeGenFunction &CGF,
+                                                   const CastExpr *E,
+                                                   llvm::Value *Src);
+
+  virtual llvm::Constant *EmitMemberPointerConversion(const CastExpr *E,
+                                                      llvm::Constant *Src);
+
   virtual llvm::Value *
   EmitLoadOfMemberFunctionPointer(CodeGenFunction &CGF,
                                   llvm::Value *&This,
                                   llvm::Value *MemPtr,
                                   const MemberPointerType *MPT);
 
+private:
+  /// VBTables - All the vbtables which have been referenced.
+  llvm::DenseMap<const CXXRecordDecl *, VBTableVector> VBTablesMap;
 };
 
 }
@@ -164,19 +246,81 @@ llvm::Value *MicrosoftCXXABI::adjustToCompleteObject(CodeGenFunction &CGF,
   return ptr;
 }
 
-bool MicrosoftCXXABI::needThisReturn(GlobalDecl GD) {
-  const CXXMethodDecl* MD = cast<CXXMethodDecl>(GD.getDecl());
-  return isa<CXXConstructorDecl>(MD);
+/// \brief Finds the first non-virtual base of RD that has virtual bases.  If RD
+/// doesn't have a vbptr, it will reuse the vbptr of the returned class.
+static const CXXRecordDecl *FindFirstNVBaseWithVBases(const CXXRecordDecl *RD) {
+  for (CXXRecordDecl::base_class_const_iterator I = RD->bases_begin(),
+       E = RD->bases_end(); I != E; ++I) {
+    const CXXRecordDecl *Base = I->getType()->getAsCXXRecordDecl();
+    if (!I->isVirtual() && Base->getNumVBases() > 0)
+      return Base;
+  }
+  llvm_unreachable("RD must have an nv base with vbases");
+}
+
+CharUnits MicrosoftCXXABI::GetVBPtrOffsetFromBases(const CXXRecordDecl *RD) {
+  assert(RD->getNumVBases());
+  CharUnits Total = CharUnits::Zero();
+  while (RD) {
+    const ASTRecordLayout &RDLayout = getContext().getASTRecordLayout(RD);
+    CharUnits VBPtrOffset = RDLayout.getVBPtrOffset();
+    // -1 is the sentinel for no vbptr.
+    if (VBPtrOffset != CharUnits::fromQuantity(-1)) {
+      Total += VBPtrOffset;
+      break;
+    }
+    RD = FindFirstNVBaseWithVBases(RD);
+    Total += RDLayout.getBaseClassOffset(RD);
+  }
+  return Total;
+}
+
+/// \brief Computes the index of BaseClassDecl in the vbtable of ClassDecl.
+/// BaseClassDecl must be a morally virtual base of ClassDecl.  The vbtable is
+/// an array of i32 offsets.  The first entry is a self entry, and the rest are
+/// offsets from the vbptr to virtual bases.  The bases are ordered the same way
+/// our vbases are ordered: as they appear in a left-to-right depth-first search
+/// of the hierarchy.
+static unsigned GetVBTableIndex(const CXXRecordDecl *ClassDecl,
+                                const CXXRecordDecl *BaseClassDecl) {
+  unsigned VBTableIndex = 1;  // Start with one to skip the self entry.
+  for (CXXRecordDecl::base_class_const_iterator I = ClassDecl->vbases_begin(),
+       E = ClassDecl->vbases_end(); I != E; ++I) {
+    if (I->getType()->getAsCXXRecordDecl() == BaseClassDecl)
+      return VBTableIndex;
+    VBTableIndex++;
+  }
+  llvm_unreachable("BaseClassDecl must be a vbase of ClassDecl");
+}
+
+llvm::Value *
+MicrosoftCXXABI::GetVirtualBaseClassOffset(CodeGenFunction &CGF,
+                                           llvm::Value *This,
+                                           const CXXRecordDecl *ClassDecl,
+                                           const CXXRecordDecl *BaseClassDecl) {
+  int64_t VBPtrChars = GetVBPtrOffsetFromBases(ClassDecl).getQuantity();
+  llvm::Value *VBPtrOffset = llvm::ConstantInt::get(CGM.PtrDiffTy, VBPtrChars);
+  CharUnits IntSize = getContext().getTypeSizeInChars(getContext().IntTy);
+  CharUnits VBTableChars = IntSize * GetVBTableIndex(ClassDecl, BaseClassDecl);
+  llvm::Value *VBTableOffset =
+    llvm::ConstantInt::get(CGM.IntTy, VBTableChars.getQuantity());
+
+  llvm::Value *VBPtrToNewBase =
+    GetVBaseOffsetFromVBPtr(CGF, This, VBTableOffset, VBPtrOffset);
+  VBPtrToNewBase =
+    CGF.Builder.CreateSExtOrBitCast(VBPtrToNewBase, CGM.PtrDiffTy);
+  return CGF.Builder.CreateNSWAdd(VBPtrOffset, VBPtrToNewBase);
+}
+
+bool MicrosoftCXXABI::HasThisReturn(GlobalDecl GD) const {
+  return isa<CXXConstructorDecl>(GD.getDecl());
 }
 
 void MicrosoftCXXABI::BuildConstructorSignature(const CXXConstructorDecl *Ctor,
                                  CXXCtorType Type,
                                  CanQualType &ResTy,
                                  SmallVectorImpl<CanQualType> &ArgTys) {
-  // 'this' is already in place
-
-  // Ctor returns this ptr
-  ResTy = ArgTys[0];
+  // 'this' parameter and 'this' return are already in place
 
   const CXXRecordDecl *Class = Ctor->getParent();
   if (Class->getNumVBases()) {
@@ -185,13 +329,14 @@ void MicrosoftCXXABI::BuildConstructorSignature(const CXXConstructorDecl *Ctor,
   }
 }
 
-llvm::BasicBlock *MicrosoftCXXABI::EmitCtorCompleteObjectHandler(
-                                                         CodeGenFunction &CGF) {
+llvm::BasicBlock *
+MicrosoftCXXABI::EmitCtorCompleteObjectHandler(CodeGenFunction &CGF,
+                                               const CXXRecordDecl *RD) {
   llvm::Value *IsMostDerivedClass = getStructorImplicitParamValue(CGF);
   assert(IsMostDerivedClass &&
          "ctor for a class with virtual bases must have an implicit parameter");
-  llvm::Value *IsCompleteObject
-    = CGF.Builder.CreateIsNotNull(IsMostDerivedClass, "is_complete_object");
+  llvm::Value *IsCompleteObject =
+    CGF.Builder.CreateIsNotNull(IsMostDerivedClass, "is_complete_object");
 
   llvm::BasicBlock *CallVbaseCtorsBB = CGF.createBasicBlock("ctor.init_vbases");
   llvm::BasicBlock *SkipVbaseCtorsBB = CGF.createBasicBlock("ctor.skip_vbases");
@@ -199,11 +344,33 @@ llvm::BasicBlock *MicrosoftCXXABI::EmitCtorCompleteObjectHandler(
                            CallVbaseCtorsBB, SkipVbaseCtorsBB);
 
   CGF.EmitBlock(CallVbaseCtorsBB);
-  // FIXME: emit vbtables somewhere around here.
+
+  // Fill in the vbtable pointers here.
+  EmitVBPtrStores(CGF, RD);
 
   // CGF will put the base ctor calls in this basic block for us later.
 
   return SkipVbaseCtorsBB;
+}
+
+void MicrosoftCXXABI::EmitVBPtrStores(CodeGenFunction &CGF,
+                                      const CXXRecordDecl *RD) {
+  llvm::Value *ThisInt8Ptr =
+    CGF.Builder.CreateBitCast(getThisValue(CGF), CGM.Int8PtrTy, "this.int8");
+
+  const VBTableVector &VBTables = EnumerateVBTables(RD);
+  for (VBTableVector::const_iterator I = VBTables.begin(), E = VBTables.end();
+       I != E; ++I) {
+    const ASTRecordLayout &SubobjectLayout =
+      CGM.getContext().getASTRecordLayout(I->VBPtrSubobject.getBase());
+    uint64_t Offs = (I->VBPtrSubobject.getBaseOffset() +
+                     SubobjectLayout.getVBPtrOffset()).getQuantity();
+    llvm::Value *VBPtr =
+        CGF.Builder.CreateConstInBoundsGEP1_64(ThisInt8Ptr, Offs);
+    VBPtr = CGF.Builder.CreateBitCast(VBPtr, I->GV->getType()->getPointerTo(0),
+                                      "vbptr." + I->ReusingBase->getName());
+    CGF.Builder.CreateStore(I->GV, VBPtr);
+  }
 }
 
 void MicrosoftCXXABI::BuildDestructorSignature(const CXXDestructorDecl *Dtor,
@@ -211,6 +378,7 @@ void MicrosoftCXXABI::BuildDestructorSignature(const CXXDestructorDecl *Dtor,
                                                CanQualType &ResTy,
                                         SmallVectorImpl<CanQualType> &ArgTys) {
   // 'this' is already in place
+
   // TODO: 'for base' flag
 
   if (Type == Dtor_Deleting) {
@@ -231,9 +399,6 @@ void MicrosoftCXXABI::BuildInstanceFunctionParams(CodeGenFunction &CGF,
                                                   QualType &ResTy,
                                                   FunctionArgList &Params) {
   BuildThisParam(CGF, Params);
-  if (needThisReturn(CGF.CurGD)) {
-    ResTy = Params[0]->getType();
-  }
 
   ASTContext &Context = getContext();
   const CXXMethodDecl *MD = cast<CXXMethodDecl>(CGF.CurGD.getDecl());
@@ -258,9 +423,17 @@ void MicrosoftCXXABI::BuildInstanceFunctionParams(CodeGenFunction &CGF,
 
 void MicrosoftCXXABI::EmitInstanceFunctionProlog(CodeGenFunction &CGF) {
   EmitThisParam(CGF);
-  if (needThisReturn(CGF.CurGD)) {
+
+  /// If this is a function that the ABI specifies returns 'this', initialize
+  /// the return slot to 'this' at the start of the function.
+  ///
+  /// Unlike the setting of return types, this is done within the ABI
+  /// implementation instead of by clients of CGCXXABI because:
+  /// 1) getThisValue is currently protected
+  /// 2) in theory, an ABI could implement 'this' returns some other way;
+  ///    HasThisReturn only specifies a contract, not the implementation    
+  if (HasThisReturn(CGF.CurGD))
     CGF.Builder.CreateStore(getThisValue(CGF), CGF.ReturnValue);
-  }
 
   const CXXMethodDecl *MD = cast<CXXMethodDecl>(CGF.CurGD.getDecl());
   if (isa<CXXConstructorDecl>(MD) && MD->getParent()->getNumVBases()) {
@@ -282,9 +455,10 @@ void MicrosoftCXXABI::EmitInstanceFunctionProlog(CodeGenFunction &CGF) {
   }
 }
 
-llvm::Value *MicrosoftCXXABI::EmitConstructorCall(CodeGenFunction &CGF,
+void MicrosoftCXXABI::EmitConstructorCall(CodeGenFunction &CGF,
                                           const CXXConstructorDecl *D,
-                                          CXXCtorType Type, bool ForVirtualBase,
+                                          CXXCtorType Type, 
+                                          bool ForVirtualBase,
                                           bool Delegating,
                                           llvm::Value *This,
                                           CallExpr::const_arg_iterator ArgBeg,
@@ -301,17 +475,14 @@ llvm::Value *MicrosoftCXXABI::EmitConstructorCall(CodeGenFunction &CGF,
 
   // FIXME: Provide a source location here.
   CGF.EmitCXXMemberCall(D, SourceLocation(), Callee, ReturnValueSlot(), This,
-                        ImplicitParam, ImplicitParamTy,
-                        ArgBeg, ArgEnd);
-  return Callee;
+                        ImplicitParam, ImplicitParamTy, ArgBeg, ArgEnd);
 }
 
-RValue MicrosoftCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
-                                                  const CXXDestructorDecl *Dtor,
-                                                  CXXDtorType DtorType,
-                                                  SourceLocation CallLoc,
-                                                  ReturnValueSlot ReturnValue,
-                                                  llvm::Value *This) {
+void MicrosoftCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
+                                                const CXXDestructorDecl *Dtor,
+                                                CXXDtorType DtorType,
+                                                SourceLocation CallLoc,
+                                                llvm::Value *This) {
   assert(DtorType == Dtor_Deleting || DtorType == Dtor_Complete);
 
   // We have only one destructor in the vftable but can get both behaviors
@@ -326,8 +497,33 @@ RValue MicrosoftCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
     = llvm::ConstantInt::get(llvm::IntegerType::getInt1Ty(CGF.getLLVMContext()),
                              DtorType == Dtor_Deleting);
 
-  return CGF.EmitCXXMemberCall(Dtor, CallLoc, Callee, ReturnValue, This,
-                               ImplicitParam, Context.BoolTy, 0, 0);
+  CGF.EmitCXXMemberCall(Dtor, CallLoc, Callee, ReturnValueSlot(), This,
+                        ImplicitParam, Context.BoolTy, 0, 0);
+}
+
+const VBTableVector &
+MicrosoftCXXABI::EnumerateVBTables(const CXXRecordDecl *RD) {
+  // At this layer, we can key the cache off of a single class, which is much
+  // easier than caching at the GlobalVariable layer.
+  llvm::DenseMap<const CXXRecordDecl*, VBTableVector>::iterator I;
+  bool added;
+  llvm::tie(I, added) = VBTablesMap.insert(std::make_pair(RD, VBTableVector()));
+  VBTableVector &VBTables = I->second;
+  if (!added)
+    return VBTables;
+
+  VBTableBuilder(CGM, RD).enumerateVBTables(VBTables);
+
+  return VBTables;
+}
+
+void MicrosoftCXXABI::EmitVirtualInheritanceTables(
+    llvm::GlobalVariable::LinkageTypes Linkage, const CXXRecordDecl *RD) {
+  const VBTableVector &VBTables = EnumerateVBTables(RD);
+  for (VBTableVector::const_iterator I = VBTables.begin(), E = VBTables.end();
+       I != E; ++I) {
+    I->EmitVBTableDefinition(CGM, RD, Linkage);
+  }
 }
 
 bool MicrosoftCXXABI::requiresArrayCookie(const CXXDeleteExpr *expr,
@@ -392,6 +588,9 @@ void MicrosoftCXXABI::EmitGuardedInit(CodeGenFunction &CGF, const VarDecl &D,
   // Not sure whether we want thread-safe static local variables as VS
   // doesn't make them thread-safe.
 
+  if (D.getTLSKind())
+    CGM.ErrorUnsupported(&D, "dynamic TLS initialization");
+
   // Emit the initializer and add a global destructor if appropriate.
   CGF.EmitCXXGlobalVarDeclInit(D, DeclPtr, PerformInit);
 }
@@ -401,12 +600,17 @@ static bool hasVBPtrOffsetField(MSInheritanceModel Inheritance) {
   return Inheritance == MSIM_Unspecified;
 }
 
+static bool hasOnlyOneField(bool IsMemberFunction,
+                            MSInheritanceModel Inheritance) {
+  return Inheritance <= MSIM_SinglePolymorphic ||
+      (!IsMemberFunction && Inheritance <= MSIM_MultiplePolymorphic);
+}
+
 // Only member pointers to functions need a this adjustment, since it can be
 // combined with the field offset for data pointers.
-static bool hasNonVirtualBaseAdjustmentField(const MemberPointerType *MPT,
+static bool hasNonVirtualBaseAdjustmentField(bool IsMemberFunction,
                                              MSInheritanceModel Inheritance) {
-  return (MPT->isMemberFunctionPointer() &&
-          Inheritance >= MSIM_Multiple);
+  return (IsMemberFunction && Inheritance >= MSIM_Multiple);
 }
 
 static bool hasVirtualBaseAdjustmentField(MSInheritanceModel Inheritance) {
@@ -448,9 +652,10 @@ MicrosoftCXXABI::ConvertMemberPointerType(const MemberPointerType *MPT) {
   else
     fields.push_back(CGM.IntTy);  // FieldOffset
 
-  if (hasVBPtrOffsetField(Inheritance))
+  if (hasNonVirtualBaseAdjustmentField(MPT->isMemberFunctionPointer(),
+                                       Inheritance))
     fields.push_back(CGM.IntTy);
-  if (hasNonVirtualBaseAdjustmentField(MPT, Inheritance))
+  if (hasVBPtrOffsetField(Inheritance))
     fields.push_back(CGM.IntTy);
   if (hasVirtualBaseAdjustmentField(Inheritance))
     fields.push_back(CGM.IntTy);  // VirtualBaseAdjustmentOffset
@@ -476,9 +681,10 @@ GetNullMemberPointerFields(const MemberPointerType *MPT,
       fields.push_back(getAllOnesInt());  // FieldOffset
   }
 
-  if (hasVBPtrOffsetField(Inheritance))
+  if (hasNonVirtualBaseAdjustmentField(MPT->isMemberFunctionPointer(),
+                                       Inheritance))
     fields.push_back(getZeroInt());
-  if (hasNonVirtualBaseAdjustmentField(MPT, Inheritance))
+  if (hasVBPtrOffsetField(Inheritance))
     fields.push_back(getZeroInt());
   if (hasVirtualBaseAdjustmentField(Inheritance))
     fields.push_back(getAllOnesInt());
@@ -496,25 +702,165 @@ MicrosoftCXXABI::EmitNullMemberPointer(const MemberPointerType *MPT) {
 }
 
 llvm::Constant *
+MicrosoftCXXABI::EmitFullMemberPointer(llvm::Constant *FirstField,
+                                       bool IsMemberFunction,
+                                       const CXXRecordDecl *RD,
+                                       CharUnits NonVirtualBaseAdjustment)
+{
+  MSInheritanceModel Inheritance = RD->getMSInheritanceModel();
+
+  // Single inheritance class member pointer are represented as scalars instead
+  // of aggregates.
+  if (hasOnlyOneField(IsMemberFunction, Inheritance))
+    return FirstField;
+
+  llvm::SmallVector<llvm::Constant *, 4> fields;
+  fields.push_back(FirstField);
+
+  if (hasNonVirtualBaseAdjustmentField(IsMemberFunction, Inheritance))
+    fields.push_back(llvm::ConstantInt::get(
+      CGM.IntTy, NonVirtualBaseAdjustment.getQuantity()));
+
+  if (hasVBPtrOffsetField(Inheritance)) {
+    fields.push_back(llvm::ConstantInt::get(
+      CGM.IntTy, GetVBPtrOffsetFromBases(RD).getQuantity()));
+  }
+
+  // The rest of the fields are adjusted by conversions to a more derived class.
+  if (hasVirtualBaseAdjustmentField(Inheritance))
+    fields.push_back(getZeroInt());
+
+  return llvm::ConstantStruct::getAnon(fields);
+}
+
+llvm::Constant *
 MicrosoftCXXABI::EmitMemberDataPointer(const MemberPointerType *MPT,
                                        CharUnits offset) {
   const CXXRecordDecl *RD = MPT->getClass()->getAsCXXRecordDecl();
-  MSInheritanceModel Inheritance = RD->getMSInheritanceModel();
-  llvm::SmallVector<llvm::Constant *, 4> fields;
-  fields.push_back(llvm::ConstantInt::get(CGM.IntTy, offset.getQuantity()));
-  if (hasVBPtrOffsetField(Inheritance)) {
-    int64_t VBPtrOffset =
-      getContext().getASTRecordLayout(RD).getVBPtrOffset().getQuantity();
-    fields.push_back(llvm::ConstantInt::get(CGM.IntTy, VBPtrOffset));
+  llvm::Constant *FirstField =
+    llvm::ConstantInt::get(CGM.IntTy, offset.getQuantity());
+  return EmitFullMemberPointer(FirstField, /*IsMemberFunction=*/false, RD,
+                               CharUnits::Zero());
+}
+
+llvm::Constant *MicrosoftCXXABI::EmitMemberPointer(const CXXMethodDecl *MD) {
+  return BuildMemberPointer(MD->getParent(), MD, CharUnits::Zero());
+}
+
+llvm::Constant *MicrosoftCXXABI::EmitMemberPointer(const APValue &MP,
+                                                   QualType MPType) {
+  const MemberPointerType *MPT = MPType->castAs<MemberPointerType>();
+  const ValueDecl *MPD = MP.getMemberPointerDecl();
+  if (!MPD)
+    return EmitNullMemberPointer(MPT);
+
+  CharUnits ThisAdjustment = getMemberPointerPathAdjustment(MP);
+
+  // FIXME PR15713: Support virtual inheritance paths.
+
+  if (const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(MPD))
+    return BuildMemberPointer(MPT->getClass()->getAsCXXRecordDecl(),
+                              MD, ThisAdjustment);
+
+  CharUnits FieldOffset =
+    getContext().toCharUnitsFromBits(getContext().getFieldOffset(MPD));
+  return EmitMemberDataPointer(MPT, ThisAdjustment + FieldOffset);
+}
+
+llvm::Constant *
+MicrosoftCXXABI::BuildMemberPointer(const CXXRecordDecl *RD,
+                                    const CXXMethodDecl *MD,
+                                    CharUnits NonVirtualBaseAdjustment) {
+  assert(MD->isInstance() && "Member function must not be static!");
+  MD = MD->getCanonicalDecl();
+  CodeGenTypes &Types = CGM.getTypes();
+
+  llvm::Constant *FirstField;
+  if (MD->isVirtual()) {
+    // FIXME: We have to instantiate a thunk that loads the vftable and jumps to
+    // the right offset.
+    FirstField = llvm::Constant::getNullValue(CGM.VoidPtrTy);
+  } else {
+    const FunctionProtoType *FPT = MD->getType()->castAs<FunctionProtoType>();
+    llvm::Type *Ty;
+    // Check whether the function has a computable LLVM signature.
+    if (Types.isFuncTypeConvertible(FPT)) {
+      // The function has a computable LLVM signature; use the correct type.
+      Ty = Types.GetFunctionType(Types.arrangeCXXMethodDeclaration(MD));
+    } else {
+      // Use an arbitrary non-function type to tell GetAddrOfFunction that the
+      // function type is incomplete.
+      Ty = CGM.PtrDiffTy;
+    }
+    FirstField = CGM.GetAddrOfFunction(MD, Ty);
+    FirstField = llvm::ConstantExpr::getBitCast(FirstField, CGM.VoidPtrTy);
   }
-  assert(!hasNonVirtualBaseAdjustmentField(MPT, Inheritance));
-  // The virtual base field starts out zero.  It is adjusted by conversions to
-  // member pointer types of a more derived class.  See http://llvm.org/PR15713
-  if (hasVirtualBaseAdjustmentField(Inheritance))
-    fields.push_back(getZeroInt());
-  if (fields.size() == 1)
-    return fields[0];
-  return llvm::ConstantStruct::getAnon(fields);
+
+  // The rest of the fields are common with data member pointers.
+  return EmitFullMemberPointer(FirstField, /*IsMemberFunction=*/true, RD,
+                               NonVirtualBaseAdjustment);
+}
+
+/// Member pointers are the same if they're either bitwise identical *or* both
+/// null.  Null-ness for function members is determined by the first field,
+/// while for data member pointers we must compare all fields.
+llvm::Value *
+MicrosoftCXXABI::EmitMemberPointerComparison(CodeGenFunction &CGF,
+                                             llvm::Value *L,
+                                             llvm::Value *R,
+                                             const MemberPointerType *MPT,
+                                             bool Inequality) {
+  CGBuilderTy &Builder = CGF.Builder;
+
+  // Handle != comparisons by switching the sense of all boolean operations.
+  llvm::ICmpInst::Predicate Eq;
+  llvm::Instruction::BinaryOps And, Or;
+  if (Inequality) {
+    Eq = llvm::ICmpInst::ICMP_NE;
+    And = llvm::Instruction::Or;
+    Or = llvm::Instruction::And;
+  } else {
+    Eq = llvm::ICmpInst::ICMP_EQ;
+    And = llvm::Instruction::And;
+    Or = llvm::Instruction::Or;
+  }
+
+  // If this is a single field member pointer (single inheritance), this is a
+  // single icmp.
+  const CXXRecordDecl *RD = MPT->getClass()->getAsCXXRecordDecl();
+  MSInheritanceModel Inheritance = RD->getMSInheritanceModel();
+  if (hasOnlyOneField(MPT->isMemberFunctionPointer(), Inheritance))
+    return Builder.CreateICmp(Eq, L, R);
+
+  // Compare the first field.
+  llvm::Value *L0 = Builder.CreateExtractValue(L, 0, "lhs.0");
+  llvm::Value *R0 = Builder.CreateExtractValue(R, 0, "rhs.0");
+  llvm::Value *Cmp0 = Builder.CreateICmp(Eq, L0, R0, "memptr.cmp.first");
+
+  // Compare everything other than the first field.
+  llvm::Value *Res = 0;
+  llvm::StructType *LType = cast<llvm::StructType>(L->getType());
+  for (unsigned I = 1, E = LType->getNumElements(); I != E; ++I) {
+    llvm::Value *LF = Builder.CreateExtractValue(L, I);
+    llvm::Value *RF = Builder.CreateExtractValue(R, I);
+    llvm::Value *Cmp = Builder.CreateICmp(Eq, LF, RF, "memptr.cmp.rest");
+    if (Res)
+      Res = Builder.CreateBinOp(And, Res, Cmp);
+    else
+      Res = Cmp;
+  }
+
+  // Check if the first field is 0 if this is a function pointer.
+  if (MPT->isMemberFunctionPointer()) {
+    // (l1 == r1 && ...) || l0 == 0
+    llvm::Value *Zero = llvm::Constant::getNullValue(L0->getType());
+    llvm::Value *IsZero = Builder.CreateICmp(Eq, L0, Zero, "memptr.cmp.iszero");
+    Res = Builder.CreateBinOp(Or, Res, IsZero);
+  }
+
+  // Combine the comparison of the first field, which must always be true for
+  // this comparison to succeeed.
+  return Builder.CreateBinOp(And, Res, Cmp0, "memptr.cmp");
 }
 
 llvm::Value *
@@ -548,12 +894,64 @@ MicrosoftCXXABI::EmitMemberPointerIsNotNull(CodeGenFunction &CGF,
   return Res;
 }
 
+bool MicrosoftCXXABI::MemberPointerConstantIsNull(const MemberPointerType *MPT,
+                                                  llvm::Constant *Val) {
+  // Function pointers are null if the pointer in the first field is null.
+  if (MPT->isMemberFunctionPointer()) {
+    llvm::Constant *FirstField = Val->getType()->isStructTy() ?
+      Val->getAggregateElement(0U) : Val;
+    return FirstField->isNullValue();
+  }
+
+  // If it's not a function pointer and it's zero initializable, we can easily
+  // check zero.
+  if (isZeroInitializable(MPT) && Val->isNullValue())
+    return true;
+
+  // Otherwise, break down all the fields for comparison.  Hopefully these
+  // little Constants are reused, while a big null struct might not be.
+  llvm::SmallVector<llvm::Constant *, 4> Fields;
+  GetNullMemberPointerFields(MPT, Fields);
+  if (Fields.size() == 1) {
+    assert(Val->getType()->isIntegerTy());
+    return Val == Fields[0];
+  }
+
+  unsigned I, E;
+  for (I = 0, E = Fields.size(); I != E; ++I) {
+    if (Val->getAggregateElement(I) != Fields[I])
+      break;
+  }
+  return I == E;
+}
+
+llvm::Value *
+MicrosoftCXXABI::GetVBaseOffsetFromVBPtr(CodeGenFunction &CGF,
+                                         llvm::Value *This,
+                                         llvm::Value *VBTableOffset,
+                                         llvm::Value *VBPtrOffset,
+                                         llvm::Value **VBPtrOut) {
+  CGBuilderTy &Builder = CGF.Builder;
+  // Load the vbtable pointer from the vbptr in the instance.
+  This = Builder.CreateBitCast(This, CGM.Int8PtrTy);
+  llvm::Value *VBPtr =
+    Builder.CreateInBoundsGEP(This, VBPtrOffset, "vbptr");
+  if (VBPtrOut) *VBPtrOut = VBPtr;
+  VBPtr = Builder.CreateBitCast(VBPtr, CGM.Int8PtrTy->getPointerTo(0));
+  llvm::Value *VBTable = Builder.CreateLoad(VBPtr, "vbtable");
+
+  // Load an i32 offset from the vb-table.
+  llvm::Value *VBaseOffs = Builder.CreateInBoundsGEP(VBTable, VBTableOffset);
+  VBaseOffs = Builder.CreateBitCast(VBaseOffs, CGM.Int32Ty->getPointerTo(0));
+  return Builder.CreateLoad(VBaseOffs, "vbase_offs");
+}
+
 // Returns an adjusted base cast to i8*, since we do more address arithmetic on
 // it.
 llvm::Value *
 MicrosoftCXXABI::AdjustVirtualBase(CodeGenFunction &CGF,
                                    const CXXRecordDecl *RD, llvm::Value *Base,
-                                   llvm::Value *VirtualBaseAdjustmentOffset,
+                                   llvm::Value *VBTableOffset,
                                    llvm::Value *VBPtrOffset) {
   CGBuilderTy &Builder = CGF.Builder;
   Base = Builder.CreateBitCast(Base, CGM.Int8PtrTy);
@@ -570,7 +968,7 @@ MicrosoftCXXABI::AdjustVirtualBase(CodeGenFunction &CGF,
     VBaseAdjustBB = CGF.createBasicBlock("memptr.vadjust");
     SkipAdjustBB = CGF.createBasicBlock("memptr.skip_vadjust");
     llvm::Value *IsVirtual =
-      Builder.CreateICmpNE(VirtualBaseAdjustmentOffset, getZeroInt(),
+      Builder.CreateICmpNE(VBTableOffset, getZeroInt(),
                            "memptr.is_vbase");
     Builder.CreateCondBr(IsVirtual, VBaseAdjustBB, SkipAdjustBB);
     CGF.EmitBlock(VBaseAdjustBB);
@@ -579,21 +977,15 @@ MicrosoftCXXABI::AdjustVirtualBase(CodeGenFunction &CGF,
   // If we weren't given a dynamic vbptr offset, RD should be complete and we'll
   // know the vbptr offset.
   if (!VBPtrOffset) {
-    CharUnits offs = getContext().getASTRecordLayout(RD).getVBPtrOffset();
+    CharUnits offs = CharUnits::Zero();
+    if (RD->getNumVBases()) {
+      offs = GetVBPtrOffsetFromBases(RD);
+    }
     VBPtrOffset = llvm::ConstantInt::get(CGM.IntTy, offs.getQuantity());
   }
-  // Load the vbtable pointer from the vbtable offset in the instance.
-  llvm::Value *VBPtr =
-    Builder.CreateInBoundsGEP(Base, VBPtrOffset, "memptr.vbptr");
-  llvm::Value *VBTable =
-    Builder.CreateBitCast(VBPtr, CGM.Int8PtrTy->getPointerTo(0));
-  VBTable = Builder.CreateLoad(VBTable, "memptr.vbtable");
-  // Load an i32 offset from the vb-table.
+  llvm::Value *VBPtr = 0;
   llvm::Value *VBaseOffs =
-    Builder.CreateInBoundsGEP(VBTable, VirtualBaseAdjustmentOffset);
-  VBaseOffs = Builder.CreateBitCast(VBaseOffs, CGM.Int32Ty->getPointerTo(0));
-  VBaseOffs = Builder.CreateLoad(VBaseOffs, "memptr.vbase_offs");
-  // Add it to VBPtr.  GEP will sign extend the i32 value for us.
+    GetVBaseOffsetFromVBPtr(CGF, Base, VBTableOffset, VBPtrOffset, &VBPtr);
   llvm::Value *AdjustedBase = Builder.CreateInBoundsGEP(VBPtr, VBaseOffs);
 
   // Merge control flow with the case where we didn't have to adjust.
@@ -648,6 +1040,194 @@ MicrosoftCXXABI::EmitMemberDataPointerAddress(CodeGenFunction &CGF,
   return Builder.CreateBitCast(Addr, PType);
 }
 
+static MSInheritanceModel
+getInheritanceFromMemptr(const MemberPointerType *MPT) {
+  return MPT->getClass()->getAsCXXRecordDecl()->getMSInheritanceModel();
+}
+
+llvm::Value *
+MicrosoftCXXABI::EmitMemberPointerConversion(CodeGenFunction &CGF,
+                                             const CastExpr *E,
+                                             llvm::Value *Src) {
+  assert(E->getCastKind() == CK_DerivedToBaseMemberPointer ||
+         E->getCastKind() == CK_BaseToDerivedMemberPointer ||
+         E->getCastKind() == CK_ReinterpretMemberPointer);
+
+  // Use constant emission if we can.
+  if (isa<llvm::Constant>(Src))
+    return EmitMemberPointerConversion(E, cast<llvm::Constant>(Src));
+
+  // We may be adding or dropping fields from the member pointer, so we need
+  // both types and the inheritance models of both records.
+  const MemberPointerType *SrcTy =
+    E->getSubExpr()->getType()->castAs<MemberPointerType>();
+  const MemberPointerType *DstTy = E->getType()->castAs<MemberPointerType>();
+  MSInheritanceModel SrcInheritance = getInheritanceFromMemptr(SrcTy);
+  MSInheritanceModel DstInheritance = getInheritanceFromMemptr(DstTy);
+  bool IsFunc = SrcTy->isMemberFunctionPointer();
+
+  // If the classes use the same null representation, reinterpret_cast is a nop.
+  bool IsReinterpret = E->getCastKind() == CK_ReinterpretMemberPointer;
+  if (IsReinterpret && (IsFunc ||
+                        nullFieldOffsetIsZero(SrcInheritance) ==
+                        nullFieldOffsetIsZero(DstInheritance)))
+    return Src;
+
+  CGBuilderTy &Builder = CGF.Builder;
+
+  // Branch past the conversion if Src is null.
+  llvm::Value *IsNotNull = EmitMemberPointerIsNotNull(CGF, Src, SrcTy);
+  llvm::Constant *DstNull = EmitNullMemberPointer(DstTy);
+
+  // C++ 5.2.10p9: The null member pointer value is converted to the null member
+  //   pointer value of the destination type.
+  if (IsReinterpret) {
+    // For reinterpret casts, sema ensures that src and dst are both functions
+    // or data and have the same size, which means the LLVM types should match.
+    assert(Src->getType() == DstNull->getType());
+    return Builder.CreateSelect(IsNotNull, Src, DstNull);
+  }
+
+  llvm::BasicBlock *OriginalBB = Builder.GetInsertBlock();
+  llvm::BasicBlock *ConvertBB = CGF.createBasicBlock("memptr.convert");
+  llvm::BasicBlock *ContinueBB = CGF.createBasicBlock("memptr.converted");
+  Builder.CreateCondBr(IsNotNull, ConvertBB, ContinueBB);
+  CGF.EmitBlock(ConvertBB);
+
+  // Decompose src.
+  llvm::Value *FirstField = Src;
+  llvm::Value *NonVirtualBaseAdjustment = 0;
+  llvm::Value *VirtualBaseAdjustmentOffset = 0;
+  llvm::Value *VBPtrOffset = 0;
+  if (!hasOnlyOneField(IsFunc, SrcInheritance)) {
+    // We need to extract values.
+    unsigned I = 0;
+    FirstField = Builder.CreateExtractValue(Src, I++);
+    if (hasNonVirtualBaseAdjustmentField(IsFunc, SrcInheritance))
+      NonVirtualBaseAdjustment = Builder.CreateExtractValue(Src, I++);
+    if (hasVBPtrOffsetField(SrcInheritance))
+      VBPtrOffset = Builder.CreateExtractValue(Src, I++);
+    if (hasVirtualBaseAdjustmentField(SrcInheritance))
+      VirtualBaseAdjustmentOffset = Builder.CreateExtractValue(Src, I++);
+  }
+
+  // For data pointers, we adjust the field offset directly.  For functions, we
+  // have a separate field.
+  llvm::Constant *Adj = getMemberPointerAdjustment(E);
+  if (Adj) {
+    Adj = llvm::ConstantExpr::getTruncOrBitCast(Adj, CGM.IntTy);
+    llvm::Value *&NVAdjustField = IsFunc ? NonVirtualBaseAdjustment : FirstField;
+    bool isDerivedToBase = (E->getCastKind() == CK_DerivedToBaseMemberPointer);
+    if (!NVAdjustField)  // If this field didn't exist in src, it's zero.
+      NVAdjustField = getZeroInt();
+    if (isDerivedToBase)
+      NVAdjustField = Builder.CreateNSWSub(NVAdjustField, Adj, "adj");
+    else
+      NVAdjustField = Builder.CreateNSWAdd(NVAdjustField, Adj, "adj");
+  }
+
+  // FIXME PR15713: Support conversions through virtually derived classes.
+
+  // Recompose dst from the null struct and the adjusted fields from src.
+  llvm::Value *Dst;
+  if (hasOnlyOneField(IsFunc, DstInheritance)) {
+    Dst = FirstField;
+  } else {
+    Dst = llvm::UndefValue::get(DstNull->getType());
+    unsigned Idx = 0;
+    Dst = Builder.CreateInsertValue(Dst, FirstField, Idx++);
+    if (hasNonVirtualBaseAdjustmentField(IsFunc, DstInheritance))
+      Dst = Builder.CreateInsertValue(
+        Dst, getValueOrZeroInt(NonVirtualBaseAdjustment), Idx++);
+    if (hasVBPtrOffsetField(DstInheritance))
+      Dst = Builder.CreateInsertValue(
+        Dst, getValueOrZeroInt(VBPtrOffset), Idx++);
+    if (hasVirtualBaseAdjustmentField(DstInheritance))
+      Dst = Builder.CreateInsertValue(
+        Dst, getValueOrZeroInt(VirtualBaseAdjustmentOffset), Idx++);
+  }
+  Builder.CreateBr(ContinueBB);
+
+  // In the continuation, choose between DstNull and Dst.
+  CGF.EmitBlock(ContinueBB);
+  llvm::PHINode *Phi = Builder.CreatePHI(DstNull->getType(), 2, "memptr.converted");
+  Phi->addIncoming(DstNull, OriginalBB);
+  Phi->addIncoming(Dst, ConvertBB);
+  return Phi;
+}
+
+llvm::Constant *
+MicrosoftCXXABI::EmitMemberPointerConversion(const CastExpr *E,
+                                             llvm::Constant *Src) {
+  const MemberPointerType *SrcTy =
+    E->getSubExpr()->getType()->castAs<MemberPointerType>();
+  const MemberPointerType *DstTy = E->getType()->castAs<MemberPointerType>();
+
+  // If src is null, emit a new null for dst.  We can't return src because dst
+  // might have a new representation.
+  if (MemberPointerConstantIsNull(SrcTy, Src))
+    return EmitNullMemberPointer(DstTy);
+
+  // We don't need to do anything for reinterpret_casts of non-null member
+  // pointers.  We should only get here when the two type representations have
+  // the same size.
+  if (E->getCastKind() == CK_ReinterpretMemberPointer)
+    return Src;
+
+  MSInheritanceModel SrcInheritance = getInheritanceFromMemptr(SrcTy);
+  MSInheritanceModel DstInheritance = getInheritanceFromMemptr(DstTy);
+
+  // Decompose src.
+  llvm::Constant *FirstField = Src;
+  llvm::Constant *NonVirtualBaseAdjustment = 0;
+  llvm::Constant *VirtualBaseAdjustmentOffset = 0;
+  llvm::Constant *VBPtrOffset = 0;
+  bool IsFunc = SrcTy->isMemberFunctionPointer();
+  if (!hasOnlyOneField(IsFunc, SrcInheritance)) {
+    // We need to extract values.
+    unsigned I = 0;
+    FirstField = Src->getAggregateElement(I++);
+    if (hasNonVirtualBaseAdjustmentField(IsFunc, SrcInheritance))
+      NonVirtualBaseAdjustment = Src->getAggregateElement(I++);
+    if (hasVBPtrOffsetField(SrcInheritance))
+      VBPtrOffset = Src->getAggregateElement(I++);
+    if (hasVirtualBaseAdjustmentField(SrcInheritance))
+      VirtualBaseAdjustmentOffset = Src->getAggregateElement(I++);
+  }
+
+  // For data pointers, we adjust the field offset directly.  For functions, we
+  // have a separate field.
+  llvm::Constant *Adj = getMemberPointerAdjustment(E);
+  if (Adj) {
+    Adj = llvm::ConstantExpr::getTruncOrBitCast(Adj, CGM.IntTy);
+    llvm::Constant *&NVAdjustField =
+      IsFunc ? NonVirtualBaseAdjustment : FirstField;
+    bool IsDerivedToBase = (E->getCastKind() == CK_DerivedToBaseMemberPointer);
+    if (!NVAdjustField)  // If this field didn't exist in src, it's zero.
+      NVAdjustField = getZeroInt();
+    if (IsDerivedToBase)
+      NVAdjustField = llvm::ConstantExpr::getNSWSub(NVAdjustField, Adj);
+    else
+      NVAdjustField = llvm::ConstantExpr::getNSWAdd(NVAdjustField, Adj);
+  }
+
+  // FIXME PR15713: Support conversions through virtually derived classes.
+
+  // Recompose dst from the null struct and the adjusted fields from src.
+  if (hasOnlyOneField(IsFunc, DstInheritance))
+    return FirstField;
+
+  llvm::SmallVector<llvm::Constant *, 4> Fields;
+  Fields.push_back(FirstField);
+  if (hasNonVirtualBaseAdjustmentField(IsFunc, DstInheritance))
+    Fields.push_back(getConstantOrZeroInt(NonVirtualBaseAdjustment));
+  if (hasVBPtrOffsetField(DstInheritance))
+    Fields.push_back(getConstantOrZeroInt(VBPtrOffset));
+  if (hasVirtualBaseAdjustmentField(DstInheritance))
+    Fields.push_back(getConstantOrZeroInt(VirtualBaseAdjustmentOffset));
+  return llvm::ConstantStruct::getAnon(Fields);
+}
+
 llvm::Value *
 MicrosoftCXXABI::EmitLoadOfMemberFunctionPointer(CodeGenFunction &CGF,
                                                  llvm::Value *&This,
@@ -674,10 +1254,10 @@ MicrosoftCXXABI::EmitLoadOfMemberFunctionPointer(CodeGenFunction &CGF,
     // We need to extract values.
     unsigned I = 0;
     FunctionPointer = Builder.CreateExtractValue(MemPtr, I++);
-    if (hasVBPtrOffsetField(Inheritance))
-      VBPtrOffset = Builder.CreateExtractValue(MemPtr, I++);
     if (hasNonVirtualBaseAdjustmentField(MPT, Inheritance))
       NonVirtualBaseAdjustment = Builder.CreateExtractValue(MemPtr, I++);
+    if (hasVBPtrOffsetField(Inheritance))
+      VBPtrOffset = Builder.CreateExtractValue(MemPtr, I++);
     if (hasVirtualBaseAdjustmentField(Inheritance))
       VirtualBaseAdjustmentOffset = Builder.CreateExtractValue(MemPtr, I++);
   }

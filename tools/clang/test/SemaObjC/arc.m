@@ -411,7 +411,7 @@ void test17(void) {
 
 void test18(void) {
   id x;
-  [x test18]; // expected-error {{no known instance method for selector 'test18'}}
+  [x test18]; // expected-error {{instance method 'test18' not found ; did you mean 'test17'?}}
 }
 
 extern struct Test19 *test19a;
@@ -756,3 +756,14 @@ void rdar12569201(id key, id value) {
 @interface C
 - (void)method:(id[])objects; // expected-error{{must explicitly describe intended ownership of an object array parameter}}
 @end
+
+// rdar://13752880
+@interface NSMutableArray : NSArray @end
+
+typedef __strong NSMutableArray * PSNS;
+
+void test(NSArray *x) {
+  NSMutableArray *y = x; // expected-warning {{incompatible pointer types initializing 'NSMutableArray *' with an expression of type 'NSArray *'}}
+  __strong NSMutableArray *y1 = x; // expected-warning {{incompatible pointer types initializing 'NSMutableArray *' with an expression of type 'NSArray *'}}
+  PSNS y2 = x; // expected-warning {{incompatible pointer types initializing 'NSMutableArray *' with an expression of type 'NSArray *'}}
+}

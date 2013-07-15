@@ -63,6 +63,7 @@ class Sema;
 class SourceManager;
 class SwitchCase;
 class TargetInfo;
+class Token;
 class VersionTuple;
 class ASTUnresolvedSet;
 
@@ -498,6 +499,9 @@ public:
                 Module *WritingModule, StringRef isysroot,
                 bool hasErrors = false);
 
+  /// \brief Emit a token.
+  void AddToken(const Token &Tok, RecordDataImpl &Record);
+
   /// \brief Emit a source location.
   void AddSourceLocation(SourceLocation Loc, RecordDataImpl &Record);
 
@@ -721,6 +725,7 @@ public:
                                     const ClassTemplateSpecializationDecl *D);
   virtual void AddedCXXTemplateSpecialization(const FunctionTemplateDecl *TD,
                                               const FunctionDecl *D);
+  virtual void DeducedReturnType(const FunctionDecl *FD, QualType ReturnType);
   virtual void CompletedImplicitDefinition(const FunctionDecl *D);
   virtual void StaticDataMemberInstantiated(const VarDecl *D);
   virtual void AddedObjCCategoryToInterface(const ObjCCategoryDecl *CatD,
@@ -742,6 +747,8 @@ class PCHGenerator : public SemaConsumer {
   SmallVector<char, 128> Buffer;
   llvm::BitstreamWriter Stream;
   ASTWriter Writer;
+  bool AllowASTWithErrors;
+  bool HasEmittedPCH;
 
 protected:
   ASTWriter &getWriter() { return Writer; }
@@ -750,12 +757,15 @@ protected:
 public:
   PCHGenerator(const Preprocessor &PP, StringRef OutputFile,
                clang::Module *Module,
-               StringRef isysroot, raw_ostream *Out);
+               StringRef isysroot, raw_ostream *Out,
+               bool AllowASTWithErrors = false);
   ~PCHGenerator();
   virtual void InitializeSema(Sema &S) { SemaPtr = &S; }
   virtual void HandleTranslationUnit(ASTContext &Ctx);
   virtual ASTMutationListener *GetASTMutationListener();
   virtual ASTDeserializationListener *GetASTDeserializationListener();
+
+  bool hasEmittedPCH() const { return HasEmittedPCH; }
 };
 
 } // end namespace clang

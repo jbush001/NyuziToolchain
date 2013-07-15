@@ -674,15 +674,15 @@ Decl *Parser::ParseStaticAssertDeclaration(SourceLocation &DeclEnd){
                                               T.getCloseLocation());
 }
 
-/// ParseDecltypeSpecifier - Parse a C++0x decltype specifier.
+/// ParseDecltypeSpecifier - Parse a C++11 decltype specifier.
 ///
 /// 'decltype' ( expression )
+/// 'decltype' ( 'auto' )      [C++1y]
 ///
 SourceLocation Parser::ParseDecltypeSpecifier(DeclSpec &DS) {
   assert((Tok.is(tok::kw_decltype) || Tok.is(tok::annot_decltype))
            && "Not a decltype specifier");
   
-
   ExprResult Result;
   SourceLocation StartLoc = Tok.getLocation();
   SourceLocation EndLoc;
@@ -709,29 +709,44 @@ SourceLocation Parser::ParseDecltypeSpecifier(DeclSpec &DS) {
              StartLoc : T.getOpenLocation();
     }
 
-    // Parse the expression
+    // Check for C++1y 'decltype(auto)'.
+    if (Tok.is(tok::kw_auto)) {
+      // No need to disambiguate here: an expression can't start with 'auto',
+      // because the typename-specifier in a function-style cast operation can't
+      // be 'auto'.
+      Diag(Tok.getLocation(),
+           getLangOpts().CPlusPlus1y
+             ? diag::warn_cxx11_compat_decltype_auto_type_specifier
+             : diag::ext_decltype_auto_type_specifier);
+      ConsumeToken();
+    } else {
+      // Parse the expression
 
-    // C++0x [dcl.type.simple]p4:
-    //   The operand of the decltype specifier is an unevaluated operand.
-    EnterExpressionEvaluationContext Unevaluated(Actions, Sema::Unevaluated,
-                                                 0, /*IsDecltype=*/true);
-    Result = ParseExpression();
-    if (Result.isInvalid()) {
-      DS.SetTypeSpecError();
-      if (SkipUntil(tok::r_paren, /*StopAtSemi=*/true, /*DontConsume=*/true)) {
-        EndLoc = ConsumeParen();
-      } else {
-        if (PP.isBacktrackEnabled() && Tok.is(tok::semi)) {
-          // Backtrack to get the location of the last token before the semi.
-          PP.RevertCachedTokens(2);
-          ConsumeToken(); // the semi.
-          EndLoc = ConsumeAnyToken();
-          assert(Tok.is(tok::semi));
+      // C++11 [dcl.type.simple]p4:
+      //   The operand of the decltype specifier is an unevaluated operand.
+      EnterExpressionEvaluationContext Unevaluated(Actions, Sema::Unevaluated,
+                                                   0, /*IsDecltype=*/true);
+      Result = ParseExpression();
+      if (Result.isInvalid()) {
+        DS.SetTypeSpecError();
+        if (SkipUntil(tok::r_paren, /*StopAtSemi=*/true,
+                      /*DontConsume=*/true)) {
+          EndLoc = ConsumeParen();
         } else {
-          EndLoc = Tok.getLocation();
+          if (PP.isBacktrackEnabled() && Tok.is(tok::semi)) {
+            // Backtrack to get the location of the last token before the semi.
+            PP.RevertCachedTokens(2);
+            ConsumeToken(); // the semi.
+            EndLoc = ConsumeAnyToken();
+            assert(Tok.is(tok::semi));
+          } else {
+            EndLoc = Tok.getLocation();
+          }
         }
+        return EndLoc;
       }
-      return EndLoc;
+
+      Result = Actions.ActOnDecltypeExpression(Result.take());
     }
 
     // Match the ')'
@@ -743,7 +758,6 @@ SourceLocation Parser::ParseDecltypeSpecifier(DeclSpec &DS) {
       return T.getCloseLocation();
     }
 
-    Result = Actions.ActOnDecltypeExpression(Result.take());
     if (Result.isInvalid()) {
       DS.SetTypeSpecError();
       return T.getCloseLocation();
@@ -751,12 +765,16 @@ SourceLocation Parser::ParseDecltypeSpecifier(DeclSpec &DS) {
 
     EndLoc = T.getCloseLocation();
   }
+  assert(!Result.isInvalid());
 
   const char *PrevSpec = 0;
   unsigned DiagID;
   // Check for duplicate type specifiers (e.g. "int decltype(a)").
-  if (DS.SetTypeSpecType(DeclSpec::TST_decltype, StartLoc, PrevSpec,
-                         DiagID, Result.release())) {
+  if (Result.get()
+        ? DS.SetTypeSpecType(DeclSpec::TST_decltype, StartLoc, PrevSpec,
+                             DiagID, Result.release())
+        : DS.SetTypeSpecType(DeclSpec::TST_decltype_auto, StartLoc, PrevSpec,
+                             DiagID)) {
     Diag(StartLoc, DiagID) << PrevSpec;
     DS.SetTypeSpecError();
   }
@@ -773,8 +791,10 @@ void Parser::AnnotateExistingDecltypeSpecifier(const DeclSpec& DS,
     PP.EnterToken(Tok);
 
   Tok.setKind(tok::annot_decltype);
-  setExprAnnotation(Tok, DS.getTypeSpecType() == TST_decltype ? 
-                         DS.getRepAsExpr() : ExprResult());
+  setExprAnnotation(Tok,
+                    DS.getTypeSpecType() == TST_decltype ? DS.getRepAsExpr() :
+                    DS.getTypeSpecType() == TST_decltype_auto ? ExprResult() :
+                    ExprError());
   Tok.setAnnotationEndLoc(EndLoc);
   Tok.setLocation(StartLoc);
   PP.AnnotateCachedTokens(Tok);
@@ -807,6 +827,7 @@ void Parser::ParseUnderlyingTypeSpecifier(DeclSpec &DS) {
   if (DS.SetTypeSpecType(DeclSpec::TST_underlyingType, StartLoc, PrevSpec,
                          DiagID, Result.release()))
     Diag(StartLoc, DiagID) << PrevSpec;
+  DS.setTypeofParensRange(T.getRange());
 }
 
 /// ParseBaseTypeSpecifier - Parse a C++ base-type-specifier which is either a
@@ -1252,7 +1273,7 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
         Range.setBegin(SS.getBeginLoc());
 
       Diag(TemplateId->LAngleLoc, diag::err_template_spec_syntax_non_template)
-        << Name << static_cast<int>(TemplateId->Kind) << Range;
+        << TemplateId->Name << static_cast<int>(TemplateId->Kind) << Range;
 
       DS.SetTypeSpecError();
       SkipUntil(tok::semi, false, true);
@@ -1445,7 +1466,6 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
       // This is an explicit specialization or a class template
       // partial specialization.
       TemplateParameterLists FakedParamLists;
-
       if (TemplateInfo.Kind == ParsedTemplateInfo::ExplicitInstantiation) {
         // This looks like an explicit instantiation, because we have
         // something like
@@ -1455,25 +1475,35 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
         // but it actually has a definition. Most likely, this was
         // meant to be an explicit specialization, but the user forgot
         // the '<>' after 'template'.
-        assert(TUK == Sema::TUK_Definition && "Expected a definition here");
+	// It this is friend declaration however, since it cannot have a
+	// template header, it is most likely that the user meant to
+	// remove the 'template' keyword.
+        assert((TUK == Sema::TUK_Definition || TUK == Sema::TUK_Friend) &&
+	       "Expected a definition here");
 
-        SourceLocation LAngleLoc
-          = PP.getLocForEndOfToken(TemplateInfo.TemplateLoc);
-        Diag(TemplateId->TemplateNameLoc,
-             diag::err_explicit_instantiation_with_definition)
-          << SourceRange(TemplateInfo.TemplateLoc)
-          << FixItHint::CreateInsertion(LAngleLoc, "<>");
-
-        // Create a fake template parameter list that contains only
-        // "template<>", so that we treat this construct as a class
-        // template specialization.
-        FakedParamLists.push_back(
-          Actions.ActOnTemplateParameterList(0, SourceLocation(),
-                                             TemplateInfo.TemplateLoc,
-                                             LAngleLoc,
-                                             0, 0,
-                                             LAngleLoc));
-        TemplateParams = &FakedParamLists;
+	if (TUK == Sema::TUK_Friend) {
+	  Diag(DS.getFriendSpecLoc(), 
+	       diag::err_friend_explicit_instantiation);
+	  TemplateParams = 0;
+	} else {
+	  SourceLocation LAngleLoc
+	    = PP.getLocForEndOfToken(TemplateInfo.TemplateLoc);
+	  Diag(TemplateId->TemplateNameLoc,
+	       diag::err_explicit_instantiation_with_definition)
+	    << SourceRange(TemplateInfo.TemplateLoc)
+	    << FixItHint::CreateInsertion(LAngleLoc, "<>");
+	  
+	  // Create a fake template parameter list that contains only
+	  // "template<>", so that we treat this construct as a class
+	  // template specialization.
+	  FakedParamLists.push_back(
+	    Actions.ActOnTemplateParameterList(0, SourceLocation(),
+					       TemplateInfo.TemplateLoc,
+					       LAngleLoc,
+					       0, 0,
+					       LAngleLoc));
+	  TemplateParams = &FakedParamLists;
+	}
       }
 
       // Build the class template specialization.
@@ -1519,6 +1549,15 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
   } else {
     if (TUK != Sema::TUK_Declaration && TUK != Sema::TUK_Definition)
       ProhibitAttributes(attrs);
+    
+    if (TUK == Sema::TUK_Definition &&
+        TemplateInfo.Kind == ParsedTemplateInfo::ExplicitInstantiation) {
+      // If the declarator-id is not a template-id, issue a diagnostic and
+      // recover by ignoring the 'template' keyword.
+      Diag(Tok, diag::err_template_defn_explicit_instantiation)
+        << 1 << FixItHint::CreateRemoval(TemplateInfo.TemplateLoc);
+      TemplateParams = 0;
+    }
 
     bool IsDependent = false;
 
@@ -2205,7 +2244,7 @@ void Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
       SmallVector<SourceRange, 4> Ranges;
       DeclaratorInfo.getCXX11AttributeRanges(Ranges);
       if (!Ranges.empty()) {
-        for (SmallVector<SourceRange, 4>::iterator I = Ranges.begin(), 
+        for (SmallVectorImpl<SourceRange>::iterator I = Ranges.begin(),
              E = Ranges.end(); I != E; ++I) {
           Diag((*I).getBegin(), diag::err_attributes_not_allowed) 
             << *I;
@@ -2267,11 +2306,10 @@ void Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
         SkipUntil(tok::comma, true, true);
       else if (ThisDecl)
         Actions.AddInitializerToDecl(ThisDecl, Init.get(), EqualLoc.isInvalid(),
-                                   DS.getTypeSpecType() == DeclSpec::TST_auto);      
+                                     DS.containsPlaceholderType());
     } else if (ThisDecl && DS.getStorageClassSpec() == DeclSpec::SCS_static) {
       // No initializer.
-      Actions.ActOnUninitializedDecl(ThisDecl, 
-                                   DS.getTypeSpecType() == DeclSpec::TST_auto);
+      Actions.ActOnUninitializedDecl(ThisDecl, DS.containsPlaceholderType());
     }
     
     if (ThisDecl) {
@@ -2330,8 +2368,7 @@ void Parser::ParseCXXClassMemberDeclaration(AccessSpecifier AS,
     return;
   }
 
-  Actions.FinalizeDeclaratorGroup(getCurScope(), DS, DeclsInGroup.data(),
-                                  DeclsInGroup.size());
+  Actions.FinalizeDeclaratorGroup(getCurScope(), DS, DeclsInGroup);
 }
 
 /// ParseCXXMemberInitializer - Parse the brace-or-equal-initializer or
@@ -2672,9 +2709,8 @@ void Parser::ParseConstructorInitializer(Decl *ConstructorDecl) {
 
   do {
     if (Tok.is(tok::code_completion)) {
-      Actions.CodeCompleteConstructorInitializer(ConstructorDecl, 
-                                                 MemInitializers.data(), 
-                                                 MemInitializers.size());
+      Actions.CodeCompleteConstructorInitializer(ConstructorDecl,
+                                                 MemInitializers);
       return cutOffParsing();
     } else {
       MemInitResult MemInit = ParseMemInitializer(ConstructorDecl);
@@ -2790,9 +2826,8 @@ Parser::MemInitResult Parser::ParseMemInitializer(Decl *ConstructorDecl) {
 
     return Actions.ActOnMemInitializer(ConstructorDecl, getCurScope(), SS, II,
                                        TemplateTypeTy, DS, IdLoc,
-                                       T.getOpenLocation(), ArgExprs.data(),
-                                       ArgExprs.size(), T.getCloseLocation(),
-                                       EllipsisLoc);
+                                       T.getOpenLocation(), ArgExprs,
+                                       T.getCloseLocation(), EllipsisLoc);
   }
 
   Diag(Tok, getLangOpts().CPlusPlus11 ? diag::err_expected_lparen_or_lbrace
@@ -2875,6 +2910,16 @@ Parser::tryParseExceptionSpecification(
   return Result;
 }
 
+static void diagnoseDynamicExceptionSpecification(
+    Parser &P, const SourceRange &Range, bool IsNoexcept) {
+  if (P.getLangOpts().CPlusPlus11) {
+    const char *Replacement = IsNoexcept ? "noexcept" : "noexcept(false)";
+    P.Diag(Range.getBegin(), diag::warn_exception_spec_deprecated) << Range;
+    P.Diag(Range.getBegin(), diag::note_exception_spec_deprecated)
+      << Replacement << FixItHint::CreateReplacement(Range, Replacement);
+  }
+}
+
 /// ParseDynamicExceptionSpecification - Parse a C++
 /// dynamic-exception-specification (C++ [except.spec]).
 ///
@@ -2908,6 +2953,7 @@ ExceptionSpecificationType Parser::ParseDynamicExceptionSpecification(
       Diag(EllipsisLoc, diag::ext_ellipsis_exception_spec);
     T.consumeClose();
     SpecificationRange.setEnd(T.getCloseLocation());
+    diagnoseDynamicExceptionSpecification(*this, SpecificationRange, false);
     return EST_MSAny;
   }
 
@@ -2939,6 +2985,8 @@ ExceptionSpecificationType Parser::ParseDynamicExceptionSpecification(
 
   T.consumeClose();
   SpecificationRange.setEnd(T.getCloseLocation());
+  diagnoseDynamicExceptionSpecification(*this, SpecificationRange,
+                                        Exceptions.empty());
   return Exceptions.empty() ? EST_DynamicNone : EST_Dynamic;
 }
 

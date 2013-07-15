@@ -277,7 +277,6 @@ public:
     MLV_IncompleteType,
     MLV_ConstQualified,
     MLV_ArrayType,
-    MLV_ReadonlyProperty,
     MLV_NoSetterProperty,
     MLV_MemberFunction,
     MLV_SubObjCPropertySetting,
@@ -427,12 +426,24 @@ private:
 
 public:
 
+  /// \brief Returns true if this expression is a gl-value that
+  /// potentially refers to a bit-field.
+  ///
+  /// In C++, whether a gl-value refers to a bitfield is essentially
+  /// an aspect of the value-kind type system.
+  bool refersToBitField() const { return getObjectKind() == OK_BitField; }
+
   /// \brief If this expression refers to a bit-field, retrieve the
   /// declaration of that bit-field.
-  FieldDecl *getBitField();
+  ///
+  /// Note that this returns a non-null pointer in subtly different
+  /// places than refersToBitField returns true.  In particular, this can
+  /// return a non-null pointer even for r-values loaded from
+  /// bit-fields, but it will return null for a conditional bit-field.
+  FieldDecl *getSourceBitField();
 
-  const FieldDecl *getBitField() const {
-    return const_cast<Expr*>(this)->getBitField();
+  const FieldDecl *getSourceBitField() const {
+    return const_cast<Expr*>(this)->getSourceBitField();
   }
 
   /// \brief If this expression is an l-value for an Objective C
@@ -748,10 +759,10 @@ public:
 
   /// Walk outwards from an expression we want to bind a reference to and
   /// find the expression whose lifetime needs to be extended. Record
-  /// the adjustments needed along the path.
-  const Expr *
-  skipRValueSubobjectAdjustments(
-                       SmallVectorImpl<SubobjectAdjustment> &Adjustments) const;
+  /// the LHSs of comma expressions and adjustments needed along the path.
+  const Expr *skipRValueSubobjectAdjustments(
+      SmallVectorImpl<const Expr *> &CommaLHS,
+      SmallVectorImpl<SubobjectAdjustment> &Adjustments) const;
 
   /// Skip irrelevant expressions to find what should be materialize for
   /// binding with a reference.
@@ -2644,7 +2655,7 @@ protected:
          (ty->isInstantiationDependentType() ||
           (op && op->isInstantiationDependent())),
          (ty->containsUnexpandedParameterPack() ||
-          op->containsUnexpandedParameterPack())),
+          (op && op->containsUnexpandedParameterPack()))),
     Op(op) {
     assert(kind != CK_Invalid && "creating cast with invalid cast kind");
     CastExprBits.Kind = kind;
@@ -3438,7 +3449,7 @@ public:
     return cast<Expr>(SubExprs[Index]);
   }
 
-  void setExprs(ASTContext &C, Expr ** Exprs, unsigned NumExprs);
+  void setExprs(ASTContext &C, ArrayRef<Expr *> Exprs);
 
   unsigned getShuffleMaskIdx(ASTContext &Ctx, unsigned N) const {
     assert((N < NumExprs - 2) && "Shuffle idx out of range!");
@@ -3780,13 +3791,6 @@ public:
   }
   void sawArrayRangeDesignator(bool ARD = true) {
     InitListExprBits.HadArrayRangeDesignator = ARD;
-  }
-
-  bool initializesStdInitializerList() const {
-    return InitListExprBits.InitializesStdInitializerList != 0;
-  }
-  void setInitializesStdInitializerList(bool ISIL = true) {
-    InitListExprBits.InitializesStdInitializerList = ISIL;
   }
 
   SourceLocation getLocStart() const LLVM_READONLY;

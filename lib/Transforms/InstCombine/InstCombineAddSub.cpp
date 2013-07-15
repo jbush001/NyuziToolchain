@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "InstCombine.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/Support/GetElementPtrTypeIterator.h"
@@ -488,7 +489,7 @@ Value *FAddCombine::performFactorization(Instruction *I) {
                       createFSub(AddSub0, AddSub1);
   if (ConstantFP *CFP = dyn_cast<ConstantFP>(NewAddSub)) {
     const APFloat &F = CFP->getValueAPF();
-    if (!F.isNormal() || F.isDenormal())
+    if (!F.isNormal())
       return 0;
   }
 
@@ -659,7 +660,7 @@ Value *FAddCombine::simplifyFAdd(AddendVect& Addends, unsigned InstrQuota) {
     }
   }
 
-  assert((NextTmpIdx <= sizeof(TmpResult)/sizeof(TmpResult[0]) + 1) &&
+  assert((NextTmpIdx <= array_lengthof(TmpResult) + 1) &&
          "out-of-bound access");
 
   if (ConstAdd)
@@ -876,7 +877,7 @@ static inline Value *dyn_castFoldableMul(Value *V, ConstantInt *&CST) {
       uint32_t BitWidth = cast<IntegerType>(V->getType())->getBitWidth();
       uint32_t CSTVal = CST->getLimitedValue(BitWidth);
       CST = ConstantInt::get(V->getType()->getContext(),
-                             APInt(BitWidth, 1).shl(CSTVal));
+                             APInt::getOneBitSet(BitWidth, CSTVal));
       return I->getOperand(0);
     }
   return 0;
@@ -974,6 +975,11 @@ Instruction *InstCombiner::visitAdd(BinaryOperator &I) {
           return BinaryOperator::CreateSub(ConstantExpr::getAdd(XorRHS, CI),
                                            XorLHS);
       }
+      // (X + signbit) + C could have gotten canonicalized to (X ^ signbit) + C,
+      // transform them into (X + (signbit ^ C))
+      if (XorRHS->getValue().isSignBit())
+          return BinaryOperator::CreateAdd(XorLHS,
+                                           ConstantExpr::getXor(XorRHS, CI));
     }
   }
 
@@ -1232,6 +1238,74 @@ Instruction *InstCombiner::visitFAdd(BinaryOperator &I) {
     }
   }
 
+  // select C, 0, B + select C, A, 0 -> select C, A, B
+  {
+    Value *A1, *B1, *C1, *A2, *B2, *C2;
+    if (match(LHS, m_Select(m_Value(C1), m_Value(A1), m_Value(B1))) &&
+        match(RHS, m_Select(m_Value(C2), m_Value(A2), m_Value(B2)))) {
+      if (C1 == C2) {
+        Constant *Z1=0, *Z2=0;
+        Value *A, *B, *C=C1;
+        if (match(A1, m_AnyZero()) && match(B2, m_AnyZero())) {
+            Z1 = dyn_cast<Constant>(A1); A = A2;
+            Z2 = dyn_cast<Constant>(B2); B = B1;
+        } else if (match(B1, m_AnyZero()) && match(A2, m_AnyZero())) {
+            Z1 = dyn_cast<Constant>(B1); B = B2;
+            Z2 = dyn_cast<Constant>(A2); A = A1; 
+        }
+        
+        if (Z1 && Z2 && 
+            (I.hasNoSignedZeros() || 
+             (Z1->isNegativeZeroValue() && Z2->isNegativeZeroValue()))) {
+          return SelectInst::Create(C, A, B);
+        }
+      }
+    }
+  }
+
+  // A * (1 - uitofp i1 C) + B * (uitofp i1 C) -> select C, B, A
+  {
+    if (I.hasNoNaNs() && I.hasNoInfs() && I.hasNoSignedZeros()) {
+      Value *M1L, *M1R, *M2L, *M2R;
+      if (match(LHS, m_FMul(m_Value(M1L), m_Value(M1R))) &&
+          match(RHS, m_FMul(m_Value(M2L), m_Value(M2R)))) {
+
+        Value *A, *B, *C1, *C2;
+        if (!match(M1R, m_FSub(m_FPOne(), m_UIToFp(m_Value(C1)))))
+          std::swap(M1L, M1R);
+        if (!match(M2R, m_UIToFp(m_Value(C2)))) 
+          std::swap(M2L, M2R);
+
+        if (match(M1R, m_FSub(m_FPOne(), m_UIToFp(m_Value(C1)))) &&
+            match(M2R, m_UIToFp(m_Value(C2))) &&
+            C2->getType()->isIntegerTy(1) &&
+            C1 == C2) {
+          A = M1L;
+          B = M2L;
+          return SelectInst::Create(C1, B, A);
+        }
+        
+        std::swap(M1L, M2L);
+        std::swap(M1R, M2R);
+        
+        if (!match(M1R, m_FSub(m_FPOne(), m_UIToFp(m_Value(C1)))))
+          std::swap(M1L, M1R);
+        if (!match(M2R, m_UIToFp(m_Value(C2)))) 
+          std::swap(M2L, M2R);
+
+        if (match(M1R, m_FSub(m_FPOne(), m_UIToFp(m_Value(C1)))) &&
+            match(M2R, m_UIToFp(m_Value(C2))) &&
+            C2->getType()->isIntegerTy(1) &&
+            C1 == C2) {
+          A = M1L;
+          B = M2L;
+          return SelectInst::Create(C1, B, A);
+        }
+      }
+    }
+  }
+
+  
   if (I.hasUnsafeAlgebra()) {
     if (Value *V = FAddCombine(Builder).simplify(&I))
       return ReplaceInstUsesWith(I, V);

@@ -300,6 +300,7 @@ D: Added STI Cell SPU backend.
 N: Kai Nacke
 E: kai@redstar.de
 D: Support for implicit TLS model used with MS VC runtime
+D: Dumping of Win64 EH structures
 
 N: Takumi Nakamura
 E: geek4civic@gmail.com
@@ -428,6 +429,7 @@ D: ARM backend improvements
 D: Thread Local Storage implementation
 
 N: Bill Wendling
+I: wendling
 E: wendling@apple.com
 D: Release manager
 D: Bunches of stuff

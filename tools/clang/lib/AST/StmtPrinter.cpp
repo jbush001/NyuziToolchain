@@ -445,9 +445,13 @@ void StmtPrinter::VisitMSAsmStmt(MSAsmStmt *Node) {
   Indent() << "__asm ";
   if (Node->hasBraces())
     OS << "{\n";
-  OS << *(Node->getAsmString()) << "\n";
+  OS << Node->getAsmString() << "\n";
   if (Node->hasBraces())
     Indent() << "}\n";
+}
+
+void StmtPrinter::VisitCapturedStmt(CapturedStmt *Node) {
+  PrintStmt(Node->getCapturedDecl()->getBody());
 }
 
 void StmtPrinter::VisitObjCAtTryStmt(ObjCAtTryStmt *Node) {
@@ -1109,24 +1113,25 @@ void StmtPrinter::VisitAtomicExpr(AtomicExpr *Node) {
 
   // AtomicExpr stores its subexpressions in a permuted order.
   PrintExpr(Node->getPtr());
-  OS << ", ";
   if (Node->getOp() != AtomicExpr::AO__c11_atomic_load &&
       Node->getOp() != AtomicExpr::AO__atomic_load_n) {
-    PrintExpr(Node->getVal1());
     OS << ", ";
+    PrintExpr(Node->getVal1());
   }
   if (Node->getOp() == AtomicExpr::AO__atomic_exchange ||
       Node->isCmpXChg()) {
-    PrintExpr(Node->getVal2());
     OS << ", ";
+    PrintExpr(Node->getVal2());
   }
   if (Node->getOp() == AtomicExpr::AO__atomic_compare_exchange ||
       Node->getOp() == AtomicExpr::AO__atomic_compare_exchange_n) {
-    PrintExpr(Node->getWeak());
     OS << ", ";
+    PrintExpr(Node->getWeak());
   }
-  if (Node->getOp() != AtomicExpr::AO__c11_atomic_init)
+  if (Node->getOp() != AtomicExpr::AO__c11_atomic_init) {
+    OS << ", ";
     PrintExpr(Node->getOrder());
+  }
   if (Node->isCmpXChg()) {
     OS << ", ";
     PrintExpr(Node->getOrderFail());
@@ -1238,6 +1243,18 @@ void StmtPrinter::VisitCXXUuidofExpr(CXXUuidofExpr *Node) {
   OS << ")";
 }
 
+void StmtPrinter::VisitMSPropertyRefExpr(MSPropertyRefExpr *Node) {
+  PrintExpr(Node->getBaseExpr());
+  if (Node->isArrow())
+    OS << "->";
+  else
+    OS << ".";
+  if (NestedNameSpecifier *Qualifier =
+      Node->getQualifierLoc().getNestedNameSpecifier())
+    Qualifier->print(OS, Policy);
+  OS << Node->getPropertyDecl()->getDeclName();
+}
+
 void StmtPrinter::VisitUserDefinedLiteral(UserDefinedLiteral *Node) {
   switch (Node->getLiteralOperatorKind()) {
   case UserDefinedLiteral::LOK_Raw:
@@ -1298,7 +1315,11 @@ void StmtPrinter::VisitCXXThrowExpr(CXXThrowExpr *Node) {
 }
 
 void StmtPrinter::VisitCXXDefaultArgExpr(CXXDefaultArgExpr *Node) {
-  // Nothing to print: we picked up the default argument
+  // Nothing to print: we picked up the default argument.
+}
+
+void StmtPrinter::VisitCXXDefaultInitExpr(CXXDefaultInitExpr *Node) {
+  // Nothing to print: we picked up the default initializer.
 }
 
 void StmtPrinter::VisitCXXFunctionalCastExpr(CXXFunctionalCastExpr *Node) {
@@ -1318,6 +1339,8 @@ void StmtPrinter::VisitCXXTemporaryObjectExpr(CXXTemporaryObjectExpr *Node) {
   for (CXXTemporaryObjectExpr::arg_iterator Arg = Node->arg_begin(),
                                          ArgEnd = Node->arg_end();
        Arg != ArgEnd; ++Arg) {
+    if (Arg->isDefaultArgument())
+      break;
     if (Arg != Node->arg_begin())
       OS << ", ";
     PrintExpr(*Arg);
@@ -1365,6 +1388,13 @@ void StmtPrinter::VisitLambdaExpr(LambdaExpr *Node) {
       if (Node->getCaptureDefault() != LCD_ByCopy)
         OS << '=';
       OS << C->getCapturedVar()->getName();
+      break;
+
+    case LCK_Init:
+      if (C->getInitCaptureField()->getType()->isReferenceType())
+        OS << '&';
+      OS << C->getInitCaptureField()->getName();
+      PrintExpr(Node->getInitCaptureInit(C));
       break;
     }
   }
@@ -1502,6 +1532,10 @@ void StmtPrinter::VisitCXXConstructExpr(CXXConstructExpr *E) {
 
   if (E->isListInitialization())
     OS << " }";
+}
+
+void StmtPrinter::VisitCXXStdInitializerListExpr(CXXStdInitializerListExpr *E) {
+  PrintExpr(E->getSubExpr());
 }
 
 void StmtPrinter::VisitExprWithCleanups(ExprWithCleanups *E) {

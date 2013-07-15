@@ -46,7 +46,7 @@ using PR14855 = int S::; // expected-error {{expected ';' after alias declaratio
 // a constexpr function.
 struct ConstexprTrailingReturn {
   int n;
-  constexpr auto f() -> decltype((n));
+  constexpr auto f() const -> decltype((n));
 };
 constexpr const int &ConstexprTrailingReturn::f() const { return n; }
 
@@ -72,4 +72,11 @@ enum E {};
 enum E
 [[]] e;
 
+}
+
+namespace PR5066 {
+  using T = int (*f)(); // expected-error {{type-id cannot have a name}}
+  template<typename T> using U = int (*f)(); // expected-error {{type-id cannot have a name}}
+  auto f() -> int (*f)(); // expected-error {{type-id cannot have a name}}
+  auto g = []() -> int (*f)() {}; // expected-error {{type-id cannot have a name}}
 }

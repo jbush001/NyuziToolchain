@@ -166,12 +166,19 @@ public:
     return false;
   }
 
-  /// \brief Receives a HeaderFileInfo entry.
-  virtual void ReadHeaderFileInfo(const HeaderFileInfo &HFI, unsigned ID) {}
-
   /// \brief Receives __COUNTER__ value.
   virtual void ReadCounter(const serialization::ModuleFile &M,
                            unsigned Value) {}
+
+  /// \brief Returns true if this \c ASTReaderListener wants to receive the
+  /// input files of the AST file via \c visitInputFile, false otherwise.
+  virtual bool needsInputFileVisitation() { return false; }
+
+  /// \brief if \c needsInputFileVisitation returns true, this is called for each
+  /// input file of the AST file.
+  ///
+  /// \returns true to continue receiving the next input file, false to stop.
+  virtual bool visitInputFile(StringRef Filename, bool isSystem) { return true;}
 };
 
 /// \brief ASTReaderListener implementation to validate the information of
@@ -180,11 +187,9 @@ class PCHValidator : public ASTReaderListener {
   Preprocessor &PP;
   ASTReader &Reader;
 
-  unsigned NumHeaderInfos;
-
 public:
   PCHValidator(Preprocessor &PP, ASTReader &Reader)
-    : PP(PP), Reader(Reader), NumHeaderInfos(0) {}
+    : PP(PP), Reader(Reader) {}
 
   virtual bool ReadLanguageOptions(const LangOptions &LangOpts,
                                    bool Complain);
@@ -193,7 +198,6 @@ public:
   virtual bool ReadPreprocessorOptions(const PreprocessorOptions &PPOpts,
                                        bool Complain,
                                        std::string &SuggestedPredefines);
-  virtual void ReadHeaderFileInfo(const HeaderFileInfo &HFI, unsigned ID);
   virtual void ReadCounter(const serialization::ModuleFile &M, unsigned Value);
 
 private:
@@ -304,6 +308,10 @@ private:
 
   /// \brief The module manager which manages modules and their dependencies
   ModuleManager ModuleMgr;
+
+  /// \brief The location where the module file will be considered as
+  /// imported from. For non-module AST types it should be invalid.
+  SourceLocation CurrentImportLoc;
 
   /// \brief The global module index, if loaded.
   llvm::OwningPtr<GlobalModuleIndex> GlobalIndex;
@@ -1106,6 +1114,8 @@ private:
 
   void finishPendingActions();
 
+  void pushExternalDeclIntoScope(NamedDecl *D, DeclarationName Name);
+
   void addPendingDeclContextInfo(Decl *D,
                                  serialization::GlobalDeclID SemaDC,
                                  serialization::GlobalDeclID LexicalDC) {
@@ -1226,7 +1236,7 @@ public:
   void setDeserializationListener(ASTDeserializationListener *Listener);
 
   /// \brief Determine whether this AST reader has a global index.
-  bool hasGlobalIndex() const { return GlobalIndex; }
+  bool hasGlobalIndex() const { return GlobalIndex.isValid(); }
 
   /// \brief Attempts to load the global index.
   ///
@@ -1558,7 +1568,7 @@ public:
 
   /// \brief Retrieve an iterator into the set of all identifiers
   /// in all loaded AST files.
-  virtual IdentifierIterator *getIdentifiers() const;
+  virtual IdentifierIterator *getIdentifiers();
 
   /// \brief Load the contents of the global method pool for a given
   /// selector.
@@ -1722,7 +1732,7 @@ public:
 
   /// \brief Read a template argument array.
   void
-  ReadTemplateArgumentList(SmallVector<TemplateArgument, 8> &TemplArgs,
+  ReadTemplateArgumentList(SmallVectorImpl<TemplateArgument> &TemplArgs,
                            ModuleFile &F, const RecordData &Record,
                            unsigned &Idx);
 
@@ -1799,6 +1809,9 @@ public:
 
   /// \brief Reads a sub-expression operand during statement reading.
   Expr *ReadSubExpr();
+
+  /// \brief Reads a token out of a record.
+  Token ReadToken(ModuleFile &M, const RecordData &Record, unsigned &Idx);
 
   /// \brief Reads the macro record located at the given offset.
   MacroInfo *ReadMacroRecord(ModuleFile &F, uint64_t Offset);

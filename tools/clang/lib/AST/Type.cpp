@@ -93,7 +93,7 @@ unsigned ConstantArrayType::getNumAddressingBits(ASTContext &Context,
   if ((ElementSize >> 32) == 0 && NumElements.getBitWidth() <= 64 &&
       (NumElements.getZExtValue() >> 32) == 0) {
     uint64_t TotalSize = NumElements.getZExtValue() * ElementSize;
-    return 64 - llvm::CountLeadingZeros_64(TotalSize);
+    return 64 - llvm::countLeadingZeros(TotalSize);
   }
 
   // Otherwise, use APSInt to handle arbitrary sized values.
@@ -355,23 +355,6 @@ const Type *Type::getUnqualifiedDesugaredType() const {
     }
 #include "clang/AST/TypeNodes.def"
     }
-  }
-}
-
-bool Type::isDerivedType() const {
-  switch (CanonicalType->getTypeClass()) {
-  case Pointer:
-  case VariableArray:
-  case ConstantArray:
-  case IncompleteArray:
-  case FunctionProto:
-  case FunctionNoProto:
-  case LValueReference:
-  case RValueReference:
-  case Record:
-    return true;
-  default:
-    return false;
   }
 }
 bool Type::isClassType() const {
@@ -1142,16 +1125,20 @@ bool QualType::isTriviallyCopyableType(ASTContext &Context) const {
 
 
 
-bool Type::isLiteralType() const {
+bool Type::isLiteralType(ASTContext &Ctx) const {
   if (isDependentType())
     return false;
 
-  // C++0x [basic.types]p10:
+  // C++1y [basic.types]p10:
+  //   A type is a literal type if it is:
+  //   -- cv void; or
+  if (Ctx.getLangOpts().CPlusPlus1y && isVoidType())
+    return true;
+
+  // C++11 [basic.types]p10:
   //   A type is a literal type if it is:
   //   [...]
-  //   -- an array of literal type.
-  // Extension: variable arrays cannot be literal types, since they're
-  // runtime-sized.
+  //   -- an array of literal type other than an array of runtime bound; or
   if (isVariableArrayType())
     return false;
   const Type *BaseTy = getBaseElementTypeUnsafe();
@@ -1162,7 +1149,7 @@ bool Type::isLiteralType() const {
   if (BaseTy->isIncompleteType())
     return false;
 
-  // C++0x [basic.types]p10:
+  // C++11 [basic.types]p10:
   //   A type is a literal type if it is:
   //    -- a scalar type; or
   // As an extension, Clang treats vector types and complex types as
@@ -1191,6 +1178,15 @@ bool Type::isLiteralType() const {
 
     return true;
   }
+
+  // We treat _Atomic T as a literal type if T is a literal type.
+  if (const AtomicType *AT = BaseTy->getAs<AtomicType>())
+    return AT->getValueType()->isLiteralType(Ctx);
+
+  // If this type hasn't been deduced yet, then conservatively assume that
+  // it'll work out to be a literal type.
+  if (isa<AutoType>(BaseTy->getCanonicalTypeInternal()))
+    return true;
 
   return false;
 }
@@ -1517,7 +1513,7 @@ StringRef BuiltinType::getName(const PrintingPolicy &Policy) const {
   case Double:            return "double";
   case LongDouble:        return "long double";
   case WChar_S:
-  case WChar_U:           return "wchar_t";
+  case WChar_U:           return Policy.MSWChar ? "__wchar_t" : "wchar_t";
   case Char16:            return "char16_t";
   case Char32:            return "char32_t";
   case NullPtr:           return "nullptr_t";
@@ -1904,7 +1900,8 @@ anyDependentTemplateArguments(const TemplateArgumentLoc *Args, unsigned N,
   return false;
 }
 
-bool TemplateSpecializationType::
+#ifndef NDEBUG
+static bool 
 anyDependentTemplateArguments(const TemplateArgument *Args, unsigned N,
                               bool &InstantiationDependent) {
   for (unsigned i = 0; i != N; ++i) {
@@ -1918,6 +1915,7 @@ anyDependentTemplateArguments(const TemplateArgument *Args, unsigned N,
   }
   return false;
 }
+#endif
 
 TemplateSpecializationType::
 TemplateSpecializationType(TemplateName T,
@@ -1941,8 +1939,8 @@ TemplateSpecializationType(TemplateName T,
   (void)InstantiationDependent;
   assert((!Canon.isNull() ||
           T.isDependent() || 
-          anyDependentTemplateArguments(Args, NumArgs, 
-                                        InstantiationDependent)) &&
+          ::anyDependentTemplateArguments(Args, NumArgs, 
+                                          InstantiationDependent)) &&
          "No canonical type for non-dependent class template specialization");
 
   TemplateArgument *TemplateArgs
@@ -2101,6 +2099,11 @@ static CachedProperties computeCachedProperties(const Type *T) {
     assert(T->isInstantiationDependentType());
     return CachedProperties(ExternalLinkage, false);
 
+  case Type::Auto:
+    // Give non-deduced 'auto' types external linkage. We should only see them
+    // here in error recovery.
+    return CachedProperties(ExternalLinkage, false);
+
   case Type::Builtin:
     // C++ [basic.link]p8:
     //   A type is said to have linkage if and only if:
@@ -2115,7 +2118,7 @@ static CachedProperties computeCachedProperties(const Type *T) {
     //     - it is a class or enumeration type that is named (or has a name
     //       for linkage purposes (7.1.3)) and the name has linkage; or
     //     -  it is a specialization of a class template (14); or
-    Linkage L = Tag->getLinkage();
+    Linkage L = Tag->getLinkageInternal();
     bool IsLocalOrUnnamed =
       Tag->getDeclContext()->isFunctionOrMethod() ||
       !Tag->hasNameForLinkage();
@@ -2157,7 +2160,7 @@ static CachedProperties computeCachedProperties(const Type *T) {
     return result;
   }
   case Type::ObjCInterface: {
-    Linkage L = cast<ObjCInterfaceType>(T)->getDecl()->getLinkage();
+    Linkage L = cast<ObjCInterfaceType>(T)->getDecl()->getLinkageInternal();
     return CachedProperties(L, false);
   }
   case Type::ObjCObject:
@@ -2200,6 +2203,9 @@ static LinkageInfo computeLinkageInfo(const Type *T) {
     return LinkageInfo::external();
 
   case Type::Builtin:
+    return LinkageInfo::external();
+
+  case Type::Auto:
     return LinkageInfo::external();
 
   case Type::Record:
