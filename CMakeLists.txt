@@ -86,6 +86,7 @@ set(LLVM_ALL_TARGETS
   Sparc
   X86
   XCore
+  VectorProc
   )
 
 # List of targets with JIT support:
