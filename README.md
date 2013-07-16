@@ -47,13 +47,13 @@ type 'make'.
 * Generate LLVM IR code for source file:
 
 <pre>
-./Debug+Asserts/bin/clang branch.c -emit-llvm  -o branch.llvm -S
+build/bin/clang -target vectorproc branch.c -emit-llvm  -o branch.llvm -S
 </pre>
 
 * Run llc on the code to view the output:
 
 <pre>
-./Debug+Asserts/bin/llc -view-dag-combine1-dags branch.llvm 
+build/bin/llc -view-dag-combine1-dags branch.llvm 
 </pre>
 
 The following options are legal:
