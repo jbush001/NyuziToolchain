@@ -9,6 +9,7 @@
 
 #include "VectorProcTargetHandler.h"
 #include "VectorProcTargetInfo.h"
+#include "llvm/Support/Debug.h"
 
 using namespace lld;
 using namespace elf;
@@ -17,18 +18,19 @@ using namespace llvm::ELF;
 
 namespace {
 int relocBRANCH(uint8_t *location, uint64_t relocAddr, uint64_t target, uint64_t addend) {
-  int32_t offset = (uint32_t)(((target + addend) - relocAddr));
+  int32_t offset = (uint32_t)(((target + addend) - (relocAddr + 4)));
   if ((offset < 0x7ffff) && (offset > -0x7ffff)) {
-    offset &= ~0xfffff;
-    *reinterpret_cast<llvm::support::ubig32_t *>(location) = (offset << 5) |
-               (uint32_t)*reinterpret_cast<llvm::support::ubig32_t *>(location);
+    offset &= 0xfffff;
+    *reinterpret_cast<llvm::support::ulittle32_t *>(location) = 
+               (uint32_t)*reinterpret_cast<llvm::support::ulittle32_t *>(location)
+               | (offset << 5);
     return 0;
   }
   return 1;
 }
 
 int relocABS32(uint8_t *location, uint64_t relocAddr, uint64_t target, uint64_t addend) {
-    *reinterpret_cast<llvm::support::ubig32_t *>(location) = target;
+    *reinterpret_cast<llvm::support::ulittle32_t *>(location) = target;
     return 0;
 }
 
