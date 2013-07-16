@@ -1,10 +1,16 @@
 ; RUN: llc -O0 -mtriple=x86_64-apple-darwin %s -o %t -filetype=obj
-; RUN: llvm-dwarfdump -debug-dump=info %t | FileCheck %s
+; RUN: llvm-dwarfdump -debug-dump=info %t | FileCheck %s -check-prefix=DW-CHECK
 
-; CHECK: DW_AT_name [DW_FORM_strp]  ( .debug_str[0x00000067] = "vla")
+; DW-CHECK: DW_AT_name [DW_FORM_strp]  ( .debug_str[0x00000067] = "vla")
 ; FIXME: The location here needs to be fixed, but llvm-dwarfdump doesn't handle
 ; DW_AT_location lists yet.
-; CHECK: DW_AT_location [DW_FORM_data4]                      (0x00000000)
+; DW-CHECK: DW_AT_location [DW_FORM_data4]                      (0x00000000)
+
+; Unfortunately llvm-dwarfdump can't unparse a list of DW_AT_locations
+; right now, so we check the asm output:
+; RUN: llc -O0 -mtriple=x86_64-apple-darwin %s -o - -filetype=asm | FileCheck %s -check-prefix=ASM-CHECK
+; vla should have a register-indirect address at one point.
+; ASM-CHECK: DEBUG_VALUE: vla <- [RCX+0]
 
 define void @testVLAwithSize(i32 %s) nounwind uwtable ssp {
 entry:
@@ -59,7 +65,7 @@ declare void @llvm.stackrestore(i8*) nounwind
 
 !llvm.dbg.cu = !{!0}
 
-!0 = metadata !{i32 786449, metadata !28, i32 12, metadata !"clang version 3.2 (trunk 156005) (llvm/trunk 156000)", i1 false, metadata !"", i32 0, metadata !1, metadata !1, metadata !3, metadata !1, metadata !""} ; [ DW_TAG_compile_unit ]
+!0 = metadata !{i32 786449, metadata !28, i32 12, metadata !"clang version 3.2 (trunk 156005) (llvm/trunk 156000)", i1 false, metadata !"", i32 0, metadata !1, metadata !1, metadata !3, metadata !1,  metadata !1, metadata !""} ; [ DW_TAG_compile_unit ]
 !1 = metadata !{i32 0}
 !3 = metadata !{metadata !5}
 !5 = metadata !{i32 786478, metadata !6, metadata !"testVLAwithSize", metadata !"testVLAwithSize", metadata !"", metadata !6, i32 1, metadata !7, i1 false, i1 true, i32 0, i32 0, null, i32 256, i1 false, void (i32)* @testVLAwithSize, null, null, metadata !1, i32 2} ; [ DW_TAG_subprogram ]

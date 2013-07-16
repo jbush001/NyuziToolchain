@@ -7,14 +7,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-class InstSP<dag outs, dag ins, string asmstr, list<dag> pattern> : Instruction {
+class InstSP<dag outs, dag ins, string asmstr, list<dag> pattern>
+          : Instruction {
   field bits<32> Inst;
 
   let Namespace = "SP";
 
   bits<2> op;
   let Inst{31-30} = op;               // Top two bits are the 'op' field
-  
+
   dag OutOperandList = outs;
   dag InOperandList = ins;
   let AsmString   = asmstr;
@@ -46,7 +47,7 @@ class F2_1<bits<3> op2Val, dag outs, dag ins, string asmstr, list<dag> pattern>
   let Inst{29-25} = rd;
 }
 
-class F2_2<bits<4> condVal, bits<3> op2Val, dag outs, dag ins, string asmstr, 
+class F2_2<bits<4> condVal, bits<3> op2Val, dag outs, dag ins, string asmstr,
            list<dag> pattern> : F2<outs, ins, asmstr, pattern> {
   bits<4>   cond;
   bit       annul = 0;     // currently unused
@@ -88,7 +89,7 @@ class F3_1<bits<2> opVal, bits<6> op3val, dag outs, dag ins,
   let Inst{4-0}  = rs2;
 }
 
-class F3_2<bits<2> opVal, bits<6> op3val, dag outs, dag ins, 
+class F3_2<bits<2> opVal, bits<6> op3val, dag outs, dag ins,
            string asmstr, list<dag> pattern> : F3<outs, ins, asmstr, pattern> {
   bits<13> simm13;
 
@@ -142,10 +143,10 @@ class F3_Si<bits<2> opVal, bits<6> op3val, bit xVal, dag outs, dag ins,
 // Define rr and ri shift instructions with patterns.
 multiclass F3_S<string OpcStr, bits<6> Op3Val, bit XVal, SDNode OpNode,
                 ValueType VT, RegisterClass RC> {
-  def rr : F3_Sr<2, Op3Val, XVal, (outs RC:$rd), (ins RC:$rs, RC:$rs2),
+  def rr : F3_Sr<2, Op3Val, XVal, (outs RC:$rd), (ins RC:$rs, IntRegs:$rs2),
                  !strconcat(OpcStr, " $rs, $rs2, $rd"),
-                 [(set VT:$rd, (OpNode VT:$rs, VT:$rs2))]>;
-  def ri : F3_Si<2, Op3Val, XVal, (outs RC:$rd), (ins RC:$rs, unknown:$shcnt),
+                 [(set VT:$rd, (OpNode VT:$rs, i32:$rs2))]>;
+  def ri : F3_Si<2, Op3Val, XVal, (outs RC:$rd), (ins RC:$rs, i32imm:$shcnt),
                  !strconcat(OpcStr, " $rs, $shcnt, $rd"),
-                 [(set VT:$rd, (OpNode VT:$rs, (VT imm:$shcnt)))]>;
+                 [(set VT:$rd, (OpNode VT:$rs, (i32 imm:$shcnt)))]>;
 }

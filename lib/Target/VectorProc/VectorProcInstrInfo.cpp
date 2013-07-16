@@ -32,7 +32,7 @@ using namespace llvm;
 
 VectorProcInstrInfo::VectorProcInstrInfo(VectorProcSubtarget &ST)
   : VectorProcGenInstrInfo(VectorProc::ADJCALLSTACKDOWN, VectorProc::ADJCALLSTACKUP),
-    RI(ST, *this), Subtarget(ST) {
+    RI(ST, *this) {
 }
 
 /// isLoadFromStackSlot - If the specified machine instruction is a direct
@@ -178,17 +178,6 @@ loadRegFromStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
 
 unsigned VectorProcInstrInfo::getGlobalBaseReg(MachineFunction *MF) const
 {
-	VectorProcMachineFunctionInfo *VectorProcFI = MF->getInfo<VectorProcMachineFunctionInfo>();
-	unsigned GlobalBaseReg = VectorProcFI->getGlobalBaseReg();
-	if (GlobalBaseReg != 0)
-		return GlobalBaseReg;
-
-	// Insert the set of GlobalBaseReg into the first MBB of the function
-	MachineBasicBlock &FirstMBB = MF->front();
-	MachineBasicBlock::iterator MBBI = FirstMBB.begin();
-	MachineRegisterInfo &RegInfo = MF->getRegInfo();
-
-	GlobalBaseReg = RegInfo.createVirtualRegister(&VectorProc::ScalarRegRegClass);
-
-	return GlobalBaseReg;
+	// This is unused
+	return 0;
 }

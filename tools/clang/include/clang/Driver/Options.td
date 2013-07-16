@@ -12,7 +12,35 @@
 //===----------------------------------------------------------------------===//
 
 // Include the common option parsing interfaces.
-include "OptParser.td"
+include "llvm/Option/OptParser.td"
+
+/////////
+// Flags
+
+// DriverOption - The option is a "driver" option, and should not be forwarded
+// to gcc.
+def DriverOption : OptionFlag;
+
+// LinkerInput - The option is a linker input.
+def LinkerInput : OptionFlag;
+
+// NoArgumentUnused - Don't report argument unused warnings for this option; this
+// is useful for options like -static or -dynamic which a user may always end up
+// passing, even if the platform defaults to (or only supports) that option.
+def NoArgumentUnused : OptionFlag;
+
+// Unsupported - The option is unsupported, and the driver will reject command
+// lines that use it.
+def Unsupported : OptionFlag;
+
+// NoForward - The option should not be implicitly forwarded to other tools.
+def NoForward : OptionFlag;
+
+// CC1Option - This option should be accepted by clang -cc1.
+def CC1Option : OptionFlag;
+
+// NoDriverOption - This option should not be accepted by the driver.
+def NoDriverOption : OptionFlag;
 
 /////////
 // Groups
@@ -132,7 +160,8 @@ def objcmt_migrate_literals : Flag<["-"], "objcmt-migrate-literals">, Flags<[CC1
   HelpText<"Enable migration to modern ObjC literals">;
 def objcmt_migrate_subscripting : Flag<["-"], "objcmt-migrate-subscripting">, Flags<[CC1Option]>,
   HelpText<"Enable migration to modern ObjC subscripting">;
-
+def objcmt_migrate_property : Flag<["-"], "objcmt-migrate-property">, Flags<[CC1Option]>,
+  HelpText<"Enable migration to modern ObjC property">;
 // Make sure all other -ccc- options are rejected.
 def ccc_ : Joined<["-"], "ccc-">, Group<ccc_Group>, Flags<[Unsupported]>;
 
@@ -311,6 +340,11 @@ def fastcp : Flag<["-"], "fastcp">, Group<f_Group>;
 def fastf : Flag<["-"], "fastf">, Group<f_Group>;
 def fast : Flag<["-"], "fast">, Group<f_Group>;
 def fasynchronous_unwind_tables : Flag<["-"], "fasynchronous-unwind-tables">, Group<f_Group>;
+
+def fautolink : Flag <["-"], "fautolink">, Group<f_Group>;
+def fno_autolink : Flag <["-"], "fno-autolink">, Group<f_Group>, Flags<[NoForward, CC1Option]>,
+  HelpText<"Disable generation of linker directives for automatic library linking">;
+
 def fblocks : Flag<["-"], "fblocks">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Enable the 'blocks' language feature">;
 def fbootclasspath_EQ : Joined<["-"], "fbootclasspath=">, Group<f_Group>;
@@ -328,6 +362,8 @@ def fcatch_undefined_behavior : Flag<["-"], "fcatch-undefined-behavior">, Group<
 def fclasspath_EQ : Joined<["-"], "fclasspath=">, Group<f_Group>;
 def fcolor_diagnostics : Flag<["-"], "fcolor-diagnostics">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Use colors in diagnostics">;
+def fdiagnostics_color : Flag<["-"], "fdiagnostics-color">, Group<f_Group>;
+def fdiagnostics_color_EQ : Joined<["-"], "fdiagnostics-color=">, Group<f_Group>;
 def fcomment_block_commands : CommaJoined<["-"], "fcomment-block-commands=">, Group<f_clang_Group>, Flags<[CC1Option]>,
   HelpText<"Treat each comma separated argument in <arg> as a documentation comment block command">,
   MetaVarName<"<arg>">;
@@ -337,6 +373,7 @@ def fcompile_resource_EQ : Joined<["-"], "fcompile-resource=">, Group<f_Group>;
 def fconstant_cfstrings : Flag<["-"], "fconstant-cfstrings">, Group<f_Group>;
 def fconstant_string_class_EQ : Joined<["-"], "fconstant-string-class=">, Group<f_Group>;
 def fconstexpr_depth_EQ : Joined<["-"], "fconstexpr-depth=">, Group<f_Group>;
+def fconstexpr_steps_EQ : Joined<["-"], "fconstexpr-steps=">, Group<f_Group>;
 def fconstexpr_backtrace_limit_EQ : Joined<["-"], "fconstexpr-backtrace-limit=">,
                                     Group<f_Group>;
 def fno_crash_diagnostics : Flag<["-"], "fno-crash-diagnostics">, Group<f_clang_Group>, Flags<[NoArgumentUnused]>;
@@ -405,7 +442,7 @@ def fsanitize_EQ : CommaJoined<["-"], "fsanitize=">, Group<f_clang_Group>,
 def fno_sanitize_EQ : CommaJoined<["-"], "fno-sanitize=">, Group<f_clang_Group>;
 def fsanitize_address_zero_base_shadow : Flag<["-"], "fsanitize-address-zero-base-shadow">,
                                          Group<f_clang_Group>, Flags<[CC1Option]>,
-                                         HelpText<"Make AddressSanitizer map shadow memory"
+                                         HelpText<"Make AddressSanitizer map shadow memory "
                                                   "at zero offset">;
 def fno_sanitize_address_zero_base_shadow : Flag<["-"], "fno-sanitize-address-zero-base-shadow">,
                                             Group<f_clang_Group>;
@@ -509,10 +546,6 @@ def fmodules_prune_after : Joined<["-"], "fmodules-prune-after=">, Group<i_Group
   HelpText<"Specify the interval (in seconds) after which a module file will be considered unused">;
 def fmodules : Flag <["-"], "fmodules">, Group<f_Group>, Flags<[NoForward,CC1Option]>,
   HelpText<"Enable the 'modules' language feature">;
-def fmodules_autolink : Flag <["-"], "fmodules-autolink">, Group<f_Group>, Flags<[NoForward,CC1Option]>,
-  HelpText<"Enable autolinking of the libraries for imported modules">;
-def fno_modules_autolink : Flag <["-"], "fno-modules-autolink">, Group<f_Group>,
-  HelpText<"Disable autolinking of the libraries for imported modules">;
 def fmodules_ignore_macro : Joined<["-"], "fmodules-ignore-macro=">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Ignore the definition of the given macro when building and loading modules">;
 def fretain_comments_from_system_headers : Flag<["-"], "fretain-comments-from-system-headers">, Group<f_Group>, Flags<[CC1Option]>;
@@ -538,6 +571,7 @@ def fno_builtin : Flag<["-"], "fno-builtin">, Group<f_Group>, Flags<[CC1Option]>
 def fno_caret_diagnostics : Flag<["-"], "fno-caret-diagnostics">, Group<f_Group>,
  Flags<[CC1Option]>;
 def fno_color_diagnostics : Flag<["-"], "fno-color-diagnostics">, Group<f_Group>;
+def fno_diagnostics_color : Flag<["-"], "fno-diagnostics-color">, Group<f_Group>;
 def fno_common : Flag<["-"], "fno-common">, Group<f_Group>, Flags<[CC1Option]>,
     HelpText<"Compile common globals like normal definitions">;
 def fno_constant_cfstrings : Flag<["-"], "fno-constant-cfstrings">, Group<f_Group>,
@@ -654,6 +688,8 @@ def fpack_struct_EQ : Joined<["-"], "fpack-struct=">, Group<f_Group>, Flags<[CC1
   HelpText<"Specify the default maximum struct packing alignment">;
 def fpascal_strings : Flag<["-"], "fpascal-strings">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Recognize and construct Pascal-style string literals">;
+def fpcc_struct_return : Flag<["-"], "fpcc-struct-return">, Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Override the default ABI to return all structs on the stack">;
 def fpch_preprocess : Flag<["-"], "fpch-preprocess">, Group<f_Group>;
 def fpic : Flag<["-"], "fpic">, Group<f_Group>;
 def fno_pic : Flag<["-"], "fno-pic">, Group<f_Group>;
@@ -663,6 +699,8 @@ def fprofile_arcs : Flag<["-"], "fprofile-arcs">, Group<f_Group>;
 def fprofile_generate : Flag<["-"], "fprofile-generate">, Group<f_Group>;
 def framework : Separate<["-"], "framework">, Flags<[LinkerInput]>;
 def frandom_seed_EQ : Joined<["-"], "frandom-seed=">, Group<clang_ignored_f_Group>;
+def freg_struct_return : Flag<["-"], "freg-struct-return">, Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Override the default ABI to return small structs in registers">;
 def frtti : Flag<["-"], "frtti">, Group<f_Group>;
 def fsched_interblock : Flag<["-"], "fsched-interblock">, Group<clang_ignored_f_Group>;
 def fshort_enums : Flag<["-"], "fshort-enums">, Group<f_Group>, Flags<[CC1Option]>,
@@ -701,6 +739,9 @@ def fno_tree_vectorize : Flag<["-"], "fno-tree-vectorize">, Alias<fno_vectorize>
 def fslp_vectorize : Flag<["-"], "fslp-vectorize">, Group<f_Group>,
   HelpText<"Enable the superword-level parallelism vectorization passes">;
 def fno_slp_vectorize : Flag<["-"], "fno-slp-vectorize">, Group<f_Group>;
+def fslp_vectorize_aggressive : Flag<["-"], "fslp-vectorize-aggressive">, Group<f_Group>,
+  HelpText<"Enable the BB vectorization passes">;
+def fno_slp_vectorize_aggressive : Flag<["-"], "fno-slp-vectorize-aggressive">, Group<f_Group>;
 def ftree_slp_vectorize : Flag<["-"], "ftree-slp-vectorize">, Alias<fslp_vectorize>;
 def fno_tree_slp_vectorize : Flag<["-"], "fno-tree-slp-vectorize">, Alias<fno_slp_vectorize>;
 def Wlarge_by_value_copy_def : Flag<["-"], "Wlarge-by-value-copy">,
@@ -754,6 +795,8 @@ def ffunction_sections: Flag <["-"], "ffunction-sections">, Group<f_Group>,
   Flags<[CC1Option]>, HelpText<"Place each function in its own section (ELF Only)">;
 def fdata_sections : Flag <["-"], "fdata-sections">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Place each data in its own section (ELF Only)">;
+def fdebug_types_section: Flag <["-"], "fdebug-types-section">, Group<f_Group>,
+  Flags<[CC1Option]>, HelpText<"Place debug types in their own section (ELF Only)">;
 def f : Joined<["-"], "f">, Group<f_Group>;
 def g_Flag : Flag<["-"], "g">, Group<g_Group>,
   HelpText<"Generate source level debug information">, Flags<[CC1Option]>;
@@ -768,9 +811,12 @@ def ggdb0 : Flag<["-"], "ggdb0">, Group<g_Group>;
 def ggdb1 : Flag<["-"], "ggdb1">, Group<g_Group>;
 def ggdb2 : Flag<["-"], "ggdb2">, Group<g_Group>;
 def ggdb3 : Flag<["-"], "ggdb3">, Group<g_Group>;
-def gdwarf_2 : Flag<["-"], "gdwarf-2">, Group<g_Group>;
-def gdwarf_3 : Flag<["-"], "gdwarf-3">, Group<g_Group>;
-def gdwarf_4 : Flag<["-"], "gdwarf-4">, Group<g_Group>;
+def gdwarf_2 : Flag<["-"], "gdwarf-2">, Group<g_Group>,
+  HelpText<"Generate source level debug information with dwarf version 2">, Flags<[CC1Option]>;
+def gdwarf_3 : Flag<["-"], "gdwarf-3">, Group<g_Group>,
+  HelpText<"Generate source level debug information with dwarf version 3">, Flags<[CC1Option]>;
+def gdwarf_4 : Flag<["-"], "gdwarf-4">, Group<g_Group>,
+  HelpText<"Generate source level debug information with dwarf version 4">, Flags<[CC1Option]>;
 def gfull : Flag<["-"], "gfull">, Group<g_Group>;
 def gused : Flag<["-"], "gused">, Group<g_Group>;
 def gstabs : Joined<["-"], "gstabs">, Group<g_Group>, Flags<[Unsupported]>;
@@ -957,12 +1003,18 @@ def mprfchw : Flag<["-"], "mprfchw">, Group<m_x86_Features_Group>;
 def mrdseed : Flag<["-"], "mrdseed">, Group<m_x86_Features_Group>;
 def mips16 : Flag<["-"], "mips16">, Group<m_Group>;
 def mno_mips16 : Flag<["-"], "mno-mips16">, Group<m_Group>;
+def mmicromips : Flag<["-"], "mmicromips">, Group<m_Group>;
+def mno_micromips : Flag<["-"], "mno-micromips">, Group<m_Group>;
 def mxgot : Flag<["-"], "mxgot">, Group<m_Group>;
 def mno_xgot : Flag<["-"], "mno-xgot">, Group<m_Group>;
+def mldc1_sdc1 : Flag<["-"], "mldc1-sdc1">, Group<m_Group>;
+def mno_ldc1_sdc1 : Flag<["-"], "mno-ldc1-sdc1">, Group<m_Group>;
 def mdsp : Flag<["-"], "mdsp">, Group<m_Group>;
 def mno_dsp : Flag<["-"], "mno-dsp">, Group<m_Group>;
 def mdspr2 : Flag<["-"], "mdspr2">, Group<m_Group>;
 def mno_dspr2 : Flag<["-"], "mno-dspr2">, Group<m_Group>;
+def msingle_float : Flag<["-"], "msingle-float">, Group<m_Group>;
+def mdouble_float : Flag<["-"], "mdouble-float">, Group<m_Group>;
 def mips32 : Flag<["-"], "mips32">, Group<mips_CPUs_Group>,
   HelpText<"Equivalent to -march=mips32">, Flags<[HelpHidden]>;
 def mips32r2 : Flag<["-"], "mips32r2">, Group<mips_CPUs_Group>,
@@ -993,6 +1045,7 @@ def nodefaultlibs : Flag<["-"], "nodefaultlibs">;
 def nofixprebinding : Flag<["-"], "nofixprebinding">;
 def nolibc : Flag<["-"], "nolibc">;
 def nomultidefs : Flag<["-"], "nomultidefs">;
+def nopie : Flag<["-"], "nopie">;
 def noprebind : Flag<["-"], "noprebind">;
 def noseglinkedit : Flag<["-"], "noseglinkedit">;
 def nostartfiles : Flag<["-"], "nostartfiles">;
@@ -1080,9 +1133,9 @@ def stdlib_EQ : Joined<["-", "--"], "stdlib=">, Flags<[CC1Option]>,
 def sub__library : JoinedOrSeparate<["-"], "sub_library">;
 def sub__umbrella : JoinedOrSeparate<["-"], "sub_umbrella">;
 def s : Flag<["-"], "s">;
-def target : Separate<["-"], "target">, Flags<[DriverOption]>,
+def target : Joined<["--"], "target=">, Flags<[DriverOption]>,
   HelpText<"Generate code for the given target">;
-def gcc_toolchain : Separate<["-"], "gcc-toolchain">, Flags<[DriverOption]>,
+def gcc_toolchain : Joined<["--"], "gcc-toolchain=">, Flags<[DriverOption]>,
   HelpText<"Use the gcc toolchain at the given directory">;
 def time : Flag<["-"], "time">,
   HelpText<"Time individual commands">;
@@ -1149,6 +1202,8 @@ def _debug : Flag<["--"], "debug">, Alias<g_Flag>;
 def _define_macro_EQ : Joined<["--"], "define-macro=">, Alias<D>;
 def _define_macro : Separate<["--"], "define-macro">, Alias<D>;
 def _dependencies : Flag<["--"], "dependencies">, Alias<M>;
+def _dyld_prefix_EQ : Joined<["--"], "dyld-prefix=">;
+def _dyld_prefix : Separate<["--"], "dyld-prefix">, Alias<_dyld_prefix_EQ>;
 def _encoding_EQ : Joined<["--"], "encoding=">, Alias<fencoding_EQ>;
 def _encoding : Separate<["--"], "encoding">, Alias<fencoding_EQ>;
 def _entry : Flag<["--"], "entry">, Alias<e>;
@@ -1230,6 +1285,12 @@ def _write_dependencies : Flag<["--"], "write-dependencies">, Alias<MD>;
 def _write_user_dependencies : Flag<["--"], "write-user-dependencies">, Alias<MMD>;
 def _ : Joined<["--"], "">, Flags<[Unsupported]>;
 def mieee_rnd_near : Flag<["-"], "mieee-rnd-near">, Group<m_hexagon_Features_Group>;
+
+// These are legacy user-facing driver-level option spellings. They are always
+// aliases for options that are spelled using the more common Unix / GNU flag
+// style of double-dash and equals-joined flags.
+def gcc_toolchain_legacy_spelling : Separate<["-"], "gcc-toolchain">, Alias<gcc_toolchain>;
+def target_legacy_spelling : Separate<["-"], "target">, Alias<target>;
 
 // Special internal option to handle -Xlinker --no-demangle.
 def Z_Xlinker__no_demangle : Flag<["-"], "Z-Xlinker-no-demangle">,

@@ -36,7 +36,6 @@ namespace SPII {
 
 class VectorProcInstrInfo : public VectorProcGenInstrInfo {
   const VectorProcRegisterInfo RI;
-  const VectorProcSubtarget& Subtarget;
 public:
 	explicit VectorProcInstrInfo(VectorProcSubtarget &ST);
 

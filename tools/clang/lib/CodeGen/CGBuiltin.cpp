@@ -296,7 +296,7 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
     Value *F = CGM.getIntrinsic(Intrinsic::cttz, ArgType);
 
     llvm::Type *ResultType = ConvertType(E->getType());
-    Value *ZeroUndef = Builder.getInt1(Target.isCLZForZeroUndef());
+    Value *ZeroUndef = Builder.getInt1(getTarget().isCLZForZeroUndef());
     Value *Result = Builder.CreateCall2(F, ArgValue, ZeroUndef);
     if (Result->getType() != ResultType)
       Result = Builder.CreateIntCast(Result, ResultType, /*isSigned*/true,
@@ -313,7 +313,7 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
     Value *F = CGM.getIntrinsic(Intrinsic::ctlz, ArgType);
 
     llvm::Type *ResultType = ConvertType(E->getType());
-    Value *ZeroUndef = Builder.getInt1(Target.isCLZForZeroUndef());
+    Value *ZeroUndef = Builder.getInt1(getTarget().isCLZForZeroUndef());
     Value *Result = Builder.CreateCall2(F, ArgValue, ZeroUndef);
     if (Result->getType() != ResultType)
       Result = Builder.CreateIntCast(Result, ResultType, /*isSigned*/true,
@@ -1293,14 +1293,18 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
   case Builtin::BIpow:
   case Builtin::BIpowf:
   case Builtin::BIpowl: {
-    // Rewrite sqrt to intrinsic if allowed.
-    if (!FD->hasAttr<ConstAttr>())
-      break;
-    Value *Base = EmitScalarExpr(E->getArg(0));
-    Value *Exponent = EmitScalarExpr(E->getArg(1));
-    llvm::Type *ArgType = Base->getType();
-    Value *F = CGM.getIntrinsic(Intrinsic::pow, ArgType);
-    return RValue::get(Builder.CreateCall2(F, Base, Exponent));
+    // Transform a call to pow* into a @llvm.pow.* intrinsic call, but only
+    // if the target agrees.
+    if (getTargetHooks().emitIntrinsicForPow()) {
+      if (!FD->hasAttr<ConstAttr>())
+        break;
+      Value *Base = EmitScalarExpr(E->getArg(0));
+      Value *Exponent = EmitScalarExpr(E->getArg(1));
+      llvm::Type *ArgType = Base->getType();
+      Value *F = CGM.getIntrinsic(Intrinsic::pow, ArgType);
+      return RValue::get(Builder.CreateCall2(F, Base, Exponent));
+    }
+    break;
   }
 
   case Builtin::BIfma:
@@ -1345,10 +1349,12 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
     StringRef Str = cast<StringLiteral>(AnnotationStrExpr)->getString();
     return RValue::get(EmitAnnotationCall(F, AnnVal, Str, E->getExprLoc()));
   }
+  case Builtin::BI__builtin_addcb:
   case Builtin::BI__builtin_addcs:
   case Builtin::BI__builtin_addc:
   case Builtin::BI__builtin_addcl:
   case Builtin::BI__builtin_addcll:
+  case Builtin::BI__builtin_subcb:
   case Builtin::BI__builtin_subcs:
   case Builtin::BI__builtin_subc:
   case Builtin::BI__builtin_subcl:
@@ -1382,12 +1388,14 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
     llvm::Intrinsic::ID IntrinsicId;
     switch (BuiltinID) {
     default: llvm_unreachable("Unknown multiprecision builtin id.");
+    case Builtin::BI__builtin_addcb:
     case Builtin::BI__builtin_addcs:
     case Builtin::BI__builtin_addc:
     case Builtin::BI__builtin_addcl:
     case Builtin::BI__builtin_addcll:
       IntrinsicId = llvm::Intrinsic::uadd_with_overflow;
       break;
+    case Builtin::BI__builtin_subcb:
     case Builtin::BI__builtin_subcs:
     case Builtin::BI__builtin_subc:
     case Builtin::BI__builtin_subcl:
@@ -1410,6 +1418,79 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
     CarryOutStore->setAlignment(CarryOutPtr.second);
     return RValue::get(Sum2);
   }
+  case Builtin::BI__builtin_uadd_overflow:
+  case Builtin::BI__builtin_uaddl_overflow:
+  case Builtin::BI__builtin_uaddll_overflow:
+  case Builtin::BI__builtin_usub_overflow:
+  case Builtin::BI__builtin_usubl_overflow:
+  case Builtin::BI__builtin_usubll_overflow:
+  case Builtin::BI__builtin_umul_overflow:
+  case Builtin::BI__builtin_umull_overflow:
+  case Builtin::BI__builtin_umulll_overflow:
+  case Builtin::BI__builtin_sadd_overflow:
+  case Builtin::BI__builtin_saddl_overflow:
+  case Builtin::BI__builtin_saddll_overflow:
+  case Builtin::BI__builtin_ssub_overflow:
+  case Builtin::BI__builtin_ssubl_overflow:
+  case Builtin::BI__builtin_ssubll_overflow:
+  case Builtin::BI__builtin_smul_overflow:
+  case Builtin::BI__builtin_smull_overflow:
+  case Builtin::BI__builtin_smulll_overflow: {
+
+    // We translate all of these builtins directly to the relevant llvm IR node.
+
+    // Scalarize our inputs.
+    llvm::Value *X = EmitScalarExpr(E->getArg(0));
+    llvm::Value *Y = EmitScalarExpr(E->getArg(1));
+    std::pair<llvm::Value *, unsigned> SumOutPtr =
+      EmitPointerWithAlignment(E->getArg(2));
+
+    // Decide which of the overflow intrinsics we are lowering to:
+    llvm::Intrinsic::ID IntrinsicId;
+    switch (BuiltinID) {
+    default: llvm_unreachable("Unknown security overflow builtin id.");
+    case Builtin::BI__builtin_uadd_overflow:
+    case Builtin::BI__builtin_uaddl_overflow:
+    case Builtin::BI__builtin_uaddll_overflow:
+      IntrinsicId = llvm::Intrinsic::uadd_with_overflow;
+      break;
+    case Builtin::BI__builtin_usub_overflow:
+    case Builtin::BI__builtin_usubl_overflow:
+    case Builtin::BI__builtin_usubll_overflow:
+      IntrinsicId = llvm::Intrinsic::usub_with_overflow;
+      break;
+    case Builtin::BI__builtin_umul_overflow:
+    case Builtin::BI__builtin_umull_overflow:
+    case Builtin::BI__builtin_umulll_overflow:
+      IntrinsicId = llvm::Intrinsic::umul_with_overflow;
+      break;
+    case Builtin::BI__builtin_sadd_overflow:
+    case Builtin::BI__builtin_saddl_overflow:
+    case Builtin::BI__builtin_saddll_overflow:
+      IntrinsicId = llvm::Intrinsic::sadd_with_overflow;
+      break;
+    case Builtin::BI__builtin_ssub_overflow:
+    case Builtin::BI__builtin_ssubl_overflow:
+    case Builtin::BI__builtin_ssubll_overflow:
+      IntrinsicId = llvm::Intrinsic::ssub_with_overflow;
+      break;
+    case Builtin::BI__builtin_smul_overflow:
+    case Builtin::BI__builtin_smull_overflow:
+    case Builtin::BI__builtin_smulll_overflow:
+      IntrinsicId = llvm::Intrinsic::smul_with_overflow;
+      break;
+    }
+
+    
+    llvm::Value *Carry;
+    llvm::Value *Sum = EmitOverflowIntrinsic(*this, IntrinsicId, X, Y, Carry);
+    llvm::StoreInst *SumOutStore = Builder.CreateStore(Sum, SumOutPtr.first);
+    SumOutStore->setAlignment(SumOutPtr.second);
+
+    return RValue::get(Carry);
+  }
+  case Builtin::BI__builtin_addressof:
+    return RValue::get(EmitLValue(E->getArg(0)).getAddress());
   case Builtin::BI__noop:
     return RValue::get(0);
   }
@@ -1430,7 +1511,7 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
   const char *Name = getContext().BuiltinInfo.GetName(BuiltinID);
   Intrinsic::ID IntrinsicID = Intrinsic::not_intrinsic;
   if (const char *Prefix =
-      llvm::Triple::getArchTypePrefix(Target.getTriple().getArch()))
+      llvm::Triple::getArchTypePrefix(getTarget().getTriple().getArch()))
     IntrinsicID = Intrinsic::getIntrinsicForGCCBuiltin(Prefix, Name);
 
   if (IntrinsicID != Intrinsic::not_intrinsic) {
@@ -1501,7 +1582,9 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
 
 Value *CodeGenFunction::EmitTargetBuiltinExpr(unsigned BuiltinID,
                                               const CallExpr *E) {
-  switch (Target.getTriple().getArch()) {
+  switch (getTarget().getTriple().getArch()) {
+  case llvm::Triple::aarch64:
+    return EmitAArch64BuiltinExpr(BuiltinID, E);
   case llvm::Triple::arm:
   case llvm::Triple::thumb:
     return EmitARMBuiltinExpr(BuiltinID, E);
@@ -1623,14 +1706,32 @@ CodeGenFunction::EmitPointerWithAlignment(const Expr *Addr) {
   return std::make_pair(EmitScalarExpr(Addr), Align);
 }
 
+Value *CodeGenFunction::EmitAArch64BuiltinExpr(unsigned BuiltinID,
+                                               const CallExpr *E) {
+  if (BuiltinID == AArch64::BI__clear_cache) {
+    assert(E->getNumArgs() == 2 &&
+           "Variadic __clear_cache slipped through on AArch64");
+
+    const FunctionDecl *FD = E->getDirectCallee();
+    SmallVector<Value *, 2> Ops;
+    for (unsigned i = 0; i < E->getNumArgs(); i++)
+      Ops.push_back(EmitScalarExpr(E->getArg(i)));
+    llvm::Type *Ty = CGM.getTypes().ConvertType(FD->getType());
+    llvm::FunctionType *FTy = cast<llvm::FunctionType>(Ty);
+    StringRef Name = FD->getName();
+    return EmitNounwindRuntimeCall(CGM.CreateRuntimeFunction(FTy, Name), Ops);
+  }
+
+  return 0;
+}
+
 Value *CodeGenFunction::EmitARMBuiltinExpr(unsigned BuiltinID,
                                            const CallExpr *E) {
   if (BuiltinID == ARM::BI__clear_cache) {
+    assert(E->getNumArgs() == 2 && "__clear_cache takes 2 arguments");
     const FunctionDecl *FD = E->getDirectCallee();
-    // Oddly people write this call without args on occasion and gcc accepts
-    // it - it's also marked as varargs in the description file.
     SmallVector<Value*, 2> Ops;
-    for (unsigned i = 0; i < E->getNumArgs(); i++)
+    for (unsigned i = 0; i < 2; i++)
       Ops.push_back(EmitScalarExpr(E->getArg(i)));
     llvm::Type *Ty = CGM.getTypes().ConvertType(FD->getType());
     llvm::FunctionType *FTy = cast<llvm::FunctionType>(Ty);
@@ -1854,7 +1955,7 @@ Value *CodeGenFunction::EmitARMBuiltinExpr(unsigned BuiltinID,
     // Generate target-independent intrinsic; also need to add second argument
     // for whether or not clz of zero is undefined; on ARM it isn't.
     Function *F = CGM.getIntrinsic(Intrinsic::ctlz, Ty);
-    Ops.push_back(Builder.getInt1(Target.isCLZForZeroUndef()));
+    Ops.push_back(Builder.getInt1(getTarget().isCLZForZeroUndef()));
     return EmitNeonCall(F, Ops, "vclz");
   }
   case ARM::BI__builtin_neon_vcnt_v:

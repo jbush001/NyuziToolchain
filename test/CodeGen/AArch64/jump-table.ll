@@ -1,4 +1,5 @@
 ; RUN: llc -verify-machineinstrs < %s -mtriple=aarch64-none-linux-gnu | FileCheck %s
+; RUN: llc -code-model=large -verify-machineinstrs < %s -mtriple=aarch64-none-linux-gnu | FileCheck --check-prefix=CHECK-LARGE %s
 ; RUN: llc -verify-machineinstrs < %s -mtriple=aarch64-none-linux-gnu -filetype=obj | llvm-readobj -r | FileCheck %s -check-prefix=CHECK-ELF
 
 define i32 @test_jumptable(i32 %in) {
@@ -14,6 +15,13 @@ define i32 @test_jumptable(i32 %in) {
 ; CHECK: add x[[JT:[0-9]+]], [[JTPAGE]], #:lo12:.LJTI0_0
 ; CHECK: ldr [[DEST:x[0-9]+]], [x[[JT]], {{x[0-9]+}}, lsl #3]
 ; CHECK: br [[DEST]]
+
+; CHECK-LARGE: movz x[[JTADDR:[0-9]+]], #:abs_g3:.LJTI0_0
+; CHECK-LARGE: movk x[[JTADDR]], #:abs_g2_nc:.LJTI0_0
+; CHECK-LARGE: movk x[[JTADDR]], #:abs_g1_nc:.LJTI0_0
+; CHECK-LARGE: movk x[[JTADDR]], #:abs_g0_nc:.LJTI0_0
+; CHECK-LARGE: ldr [[DEST:x[0-9]+]], [x[[JTADDR]], {{x[0-9]+}}, lsl #3]
+; CHECK-LARGE: br [[DEST]]
 
 def:
   ret i32 0
@@ -46,13 +54,13 @@ lbl4:
 ; First make sure we get a page/lo12 pair in .text to pick up the jump-table
 
 ; CHECK-ELF:      Relocations [
-; CHECK-ELF:        Section ({{[0-9]+}}) .text {
+; CHECK-ELF:        Section ({{[0-9]+}}) .rela.text {
 ; CHECK-ELF-NEXT:     0x{{[0-9,A-F]+}} R_AARCH64_ADR_PREL_PG_HI21 .rodata
 ; CHECK-ELF-NEXT:     0x{{[0-9,A-F]+}} R_AARCH64_ADD_ABS_LO12_NC .rodata
 ; CHECK-ELF:        }
 
 ; Also check the targets in .rodata are relocated
-; CHECK-ELF:        Section ({{[0-9]+}}) .rodata {
+; CHECK-ELF:        Section ({{[0-9]+}}) .rela.rodata {
 ; CHECK-ELF-NEXT:     0x{{[0-9,A-F]+}} R_AARCH64_ABS64 .text
 ; CHECK-ELF:        }
 ; CHECK-ELF:      ]

@@ -647,7 +647,6 @@ TargetLoweringBase::TargetLoweringBase(const TargetMachine &tm,
   PrefFunctionAlignment = 0;
   PrefLoopAlignment = 0;
   MinStackArgumentAlignment = 1;
-  ShouldFoldAtomicFences = false;
   InsertFencesForAtomic = false;
   SupportJumpTables = true;
   MinimumJumpTableEntries = 4;
@@ -1034,7 +1033,7 @@ void TargetLoweringBase::computeRegisterProperties() {
   }
 }
 
-EVT TargetLoweringBase::getSetCCResultType(EVT VT) const {
+EVT TargetLoweringBase::getSetCCResultType(LLVMContext &, EVT VT) const {
   assert(!VT.isVector() && "No default SetCC type for vectors!");
   return getPointerTy(0).SimpleTy;
 }

@@ -48,6 +48,7 @@ PPCTargetMachine::PPCTargetMachine(const Target &T, StringRef TT,
   // The binutils for the BG/P are too old for CFI.
   if (Subtarget.isBGP())
     setMCUseCFI(false);
+  initAsmInfo();
 }
 
 void PPC32TargetMachine::anchor() { }
@@ -90,7 +91,7 @@ public:
     return *getPPCTargetMachine().getSubtargetImpl();
   }
 
-  virtual bool addPreRegAlloc();
+  virtual bool addPreISel();
   virtual bool addILPOpts();
   virtual bool addInstSelector();
   virtual bool addPreSched2();
@@ -102,9 +103,9 @@ TargetPassConfig *PPCTargetMachine::createPassConfig(PassManagerBase &PM) {
   return new PPCPassConfig(this, PM);
 }
 
-bool PPCPassConfig::addPreRegAlloc() {
+bool PPCPassConfig::addPreISel() {
   if (!DisableCTRLoops && getOptLevel() != CodeGenOpt::None)
-    addPass(createPPCCTRLoops());
+    addPass(createPPCCTRLoops(getPPCTargetMachine()));
 
   return false;
 }
@@ -121,6 +122,12 @@ bool PPCPassConfig::addILPOpts() {
 bool PPCPassConfig::addInstSelector() {
   // Install an instruction selector.
   addPass(createPPCISelDag(getPPCTargetMachine()));
+
+#ifndef NDEBUG
+  if (!DisableCTRLoops && getOptLevel() != CodeGenOpt::None)
+    addPass(createPPCCTRLoopsVerify());
+#endif
+
   return false;
 }
 
@@ -155,7 +162,7 @@ void PPCTargetMachine::addAnalysisPasses(PassManagerBase &PM) {
   // Add first the target-independent BasicTTI pass, then our PPC pass. This
   // allows the PPC pass to delegate to the target independent layer when
   // appropriate.
-  PM.add(createBasicTargetTransformInfoPass(getTargetLowering()));
+  PM.add(createBasicTargetTransformInfoPass(this));
   PM.add(createPPCTargetTransformInfoPass(this));
 }
 

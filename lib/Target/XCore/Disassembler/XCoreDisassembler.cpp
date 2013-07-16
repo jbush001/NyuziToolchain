@@ -53,7 +53,7 @@ static bool readInstruction16(const MemoryObject &region,
   uint8_t Bytes[4];
 
   // We want to read exactly 2 Bytes of data.
-  if (region.readBytes(address, 2, Bytes, NULL) == -1) {
+  if (region.readBytes(address, 2, Bytes) == -1) {
     size = 0;
     return false;
   }
@@ -69,7 +69,7 @@ static bool readInstruction32(const MemoryObject &region,
   uint8_t Bytes[4];
 
   // We want to read exactly 4 Bytes of data.
-  if (region.readBytes(address, 4, Bytes, NULL) == -1) {
+  if (region.readBytes(address, 4, Bytes) == -1) {
     size = 0;
     return false;
   }
@@ -97,8 +97,8 @@ static DecodeStatus DecodeRRegsRegisterClass(MCInst &Inst,
 static DecodeStatus DecodeBitpOperand(MCInst &Inst, unsigned Val,
                                       uint64_t Address, const void *Decoder);
 
-static DecodeStatus DecodeMEMiiOperand(MCInst &Inst, unsigned Val,
-                                       uint64_t Address, const void *Decoder);
+static DecodeStatus DecodeNegImmOperand(MCInst &Inst, unsigned Val,
+                                        uint64_t Address, const void *Decoder);
 
 static DecodeStatus Decode2RInstruction(MCInst &Inst,
                                         unsigned Insn,
@@ -242,10 +242,9 @@ static DecodeStatus DecodeBitpOperand(MCInst &Inst, unsigned Val,
   return MCDisassembler::Success;
 }
 
-static DecodeStatus DecodeMEMiiOperand(MCInst &Inst, unsigned Val,
-                                       uint64_t Address, const void *Decoder) {
-  Inst.addOperand(MCOperand::CreateImm(Val));
-  Inst.addOperand(MCOperand::CreateImm(0));
+static DecodeStatus DecodeNegImmOperand(MCInst &Inst, unsigned Val,
+                                        uint64_t Address, const void *Decoder) {
+  Inst.addOperand(MCOperand::CreateImm(-(int64_t)Val));
   return MCDisassembler::Success;
 }
 

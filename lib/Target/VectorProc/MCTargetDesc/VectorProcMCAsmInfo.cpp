@@ -18,7 +18,7 @@ using namespace llvm;
 
 void VectorProcMCAsmInfo::anchor() { }
 
-VectorProcMCAsmInfo::VectorProcMCAsmInfo(const Target &T, StringRef TT) {
+VectorProcMCAsmInfo::VectorProcMCAsmInfo(StringRef TT) {
   IsLittleEndian = true;
   Triple TheTriple(TT);
 
@@ -27,8 +27,8 @@ VectorProcMCAsmInfo::VectorProcMCAsmInfo(const Target &T, StringRef TT) {
   Data64bitsDirective = 0; 
   ZeroDirective = "";	// What is this?
   CommentString = ";";
-  HasLEB128 = true;
-  SupportsDebugInformation = true;
+  SupportsDebugInformation = false;
+  ExceptionsType = ExceptionHandling::None;
   
   WeakRefDirective = "";
 

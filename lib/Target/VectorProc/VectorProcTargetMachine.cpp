@@ -33,6 +33,7 @@ VectorProcTargetMachine::VectorProcTargetMachine(const Target &T, StringRef TT,
     InstrInfo(Subtarget),
     TLInfo(*this), TSInfo(*this),
     FrameLowering(Subtarget) {
+	initAsmInfo();
 }
 
 namespace {

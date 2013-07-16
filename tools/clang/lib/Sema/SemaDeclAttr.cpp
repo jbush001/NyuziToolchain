@@ -682,7 +682,7 @@ static void handleNoSanitizeThread(Sema &S, Decl *D,
 
 static bool checkAcquireOrderAttrCommon(Sema &S, Decl *D,
                                         const AttributeList &Attr,
-                                        SmallVector<Expr*, 1> &Args) {
+                                        SmallVectorImpl<Expr *> &Args) {
   assert(!Attr.isInvalid());
 
   if (!checkAttributeAtLeastNumArgs(S, Attr, 1))
@@ -709,7 +709,7 @@ static bool checkAcquireOrderAttrCommon(Sema &S, Decl *D,
 
   // Check that all arguments are lockable objects.
   checkAttrArgsAreLockableObjs(S, D, Attr, Args);
-  if (Args.size() == 0)
+  if (Args.empty())
     return false;
 
   return true;
@@ -743,7 +743,7 @@ static void handleAcquiredBeforeAttr(Sema &S, Decl *D,
 
 static bool checkLockFunAttrCommon(Sema &S, Decl *D,
                                    const AttributeList &Attr,
-                                   SmallVector<Expr*, 1> &Args) {
+                                   SmallVectorImpl<Expr *> &Args) {
   assert(!Attr.isInvalid());
 
   // zero or more arguments ok
@@ -788,9 +788,37 @@ static void handleExclusiveLockFunctionAttr(Sema &S, Decl *D,
                                        Attr.getAttributeSpellingListIndex()));
 }
 
+static void handleAssertSharedLockAttr(Sema &S, Decl *D,
+                                       const AttributeList &Attr) {
+  SmallVector<Expr*, 1> Args;
+  if (!checkLockFunAttrCommon(S, D, Attr, Args))
+    return;
+
+  unsigned Size = Args.size();
+  Expr **StartArg = Size == 0 ? 0 : &Args[0];
+  D->addAttr(::new (S.Context)
+             AssertSharedLockAttr(Attr.getRange(), S.Context, StartArg, Size,
+                                  Attr.getAttributeSpellingListIndex()));
+}
+
+static void handleAssertExclusiveLockAttr(Sema &S, Decl *D,
+                                          const AttributeList &Attr) {
+  SmallVector<Expr*, 1> Args;
+  if (!checkLockFunAttrCommon(S, D, Attr, Args))
+    return;
+
+  unsigned Size = Args.size();
+  Expr **StartArg = Size == 0 ? 0 : &Args[0];
+  D->addAttr(::new (S.Context)
+             AssertExclusiveLockAttr(Attr.getRange(), S.Context,
+                                     StartArg, Size,
+                                     Attr.getAttributeSpellingListIndex()));
+}
+
+
 static bool checkTryLockFunAttrCommon(Sema &S, Decl *D,
                                       const AttributeList &Attr,
-                                      SmallVector<Expr*, 2> &Args) {
+                                      SmallVectorImpl<Expr *> &Args) {
   assert(!Attr.isInvalid());
 
   if (!checkAttributeAtLeastNumArgs(S, Attr, 1))
@@ -844,7 +872,7 @@ static void handleExclusiveTrylockFunctionAttr(Sema &S, Decl *D,
 
 static bool checkLocksRequiredCommon(Sema &S, Decl *D,
                                      const AttributeList &Attr,
-                                     SmallVector<Expr*, 1> &Args) {
+                                     SmallVectorImpl<Expr *> &Args) {
   assert(!Attr.isInvalid());
 
   if (!checkAttributeAtLeastNumArgs(S, Attr, 1))
@@ -858,7 +886,7 @@ static bool checkLocksRequiredCommon(Sema &S, Decl *D,
 
   // check that all arguments are lockable objects
   checkAttrArgsAreLockableObjs(S, D, Attr, Args);
-  if (Args.size() == 0)
+  if (Args.empty())
     return false;
 
   return true;
@@ -1718,6 +1746,12 @@ static void handleNoCommonAttr(Sema &S, Decl *D, const AttributeList &Attr) {
 
 static void handleCommonAttr(Sema &S, Decl *D, const AttributeList &Attr) {
   assert(!Attr.isInvalid());
+
+  if (S.LangOpts.CPlusPlus) {
+    S.Diag(Attr.getLoc(), diag::err_common_not_supported_cplusplus);
+    return;
+  }
+
   if (isa<VarDecl>(D))
     D->addAttr(::new (S.Context)
                CommonAttr(Attr.getRange(), S.Context,
@@ -2697,9 +2731,8 @@ static void handleWeakImportAttr(Sema &S, Decl *D, const AttributeList &Attr) {
   bool isDef = false;
   if (!D->canBeWeakImported(isDef)) {
     if (isDef)
-      S.Diag(Attr.getLoc(),
-             diag::warn_attribute_weak_import_invalid_on_definition)
-        << "weak_import" << 2 /*variable and function*/;
+      S.Diag(Attr.getLoc(), diag::warn_attribute_invalid_on_definition)
+        << "weak_import";
     else if (isa<ObjCPropertyDecl>(D) || isa<ObjCMethodDecl>(D) ||
              (S.Context.getTargetInfo().getTriple().isOSDarwin() &&
               (isa<ObjCInterfaceDecl>(D) || isa<EnumDecl>(D)))) {
@@ -3697,14 +3730,18 @@ static void handleModeAttr(Sema &S, Decl *D, const AttributeList &Attr) {
     NewTy = S.Context.LongDoubleTy;
     break;
   case 128:
-    if (!IntegerMode) {
+    if (!IntegerMode && &S.Context.getTargetInfo().getLongDoubleFormat() !=
+        &llvm::APFloat::PPCDoubleDouble) {
       S.Diag(Attr.getLoc(), diag::err_unsupported_machine_mode) << Name;
       return;
     }
-    if (OldTy->isSignedIntegerType())
-      NewTy = S.Context.Int128Ty;
-    else
-      NewTy = S.Context.UnsignedInt128Ty;
+    if (IntegerMode) {
+      if (OldTy->isSignedIntegerType())
+        NewTy = S.Context.Int128Ty;
+      else
+        NewTy = S.Context.UnsignedInt128Ty;
+    } else
+      NewTy = S.Context.LongDoubleTy;
     break;
   }
 
@@ -3713,11 +3750,14 @@ static void handleModeAttr(Sema &S, Decl *D, const AttributeList &Attr) {
   }
 
   // Install the new type.
-  if (TypedefNameDecl *TD = dyn_cast<TypedefNameDecl>(D)) {
-    // FIXME: preserve existing source info.
-    TD->setTypeSourceInfo(S.Context.getTrivialTypeSourceInfo(NewTy));
-  } else
+  if (TypedefNameDecl *TD = dyn_cast<TypedefNameDecl>(D))
+    TD->setModedTypeSourceInfo(TD->getTypeSourceInfo(), NewTy);
+  else
     cast<ValueDecl>(D)->setType(NewTy);
+
+  D->addAttr(::new (S.Context)
+             ModeAttr(Attr.getRange(), S.Context, Name,
+                      Attr.getAttributeSpellingListIndex()));
 }
 
 static void handleNoDebugAttr(Sema &S, Decl *D, const AttributeList &Attr) {
@@ -4225,7 +4265,7 @@ static void handleArgumentWithTypeTagAttr(Sema &S, Decl *D,
     QualType BufferTy = getFunctionOrMethodArgType(D, ArgumentIdx);
     if (!BufferTy->isPointerType()) {
       S.Diag(Attr.getLoc(), diag::err_attribute_pointers_only)
-        << AttrName;
+        << Attr.getName();
     }
   }
 
@@ -4576,66 +4616,74 @@ static void handleObjCPreciseLifetimeAttr(Sema &S, Decl *D,
 // Microsoft specific attribute handlers.
 //===----------------------------------------------------------------------===//
 
+// Check if MS extensions or some other language extensions are enabled.  If
+// not, issue a diagnostic that the given attribute is unused.
+static bool checkMicrosoftExt(Sema &S, const AttributeList &Attr,
+                              bool OtherExtension = false) {
+  if (S.LangOpts.MicrosoftExt || OtherExtension)
+    return true;
+  S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << Attr.getName();
+  return false;
+}
+
 static void handleUuidAttr(Sema &S, Decl *D, const AttributeList &Attr) {
-  if (S.LangOpts.MicrosoftExt || S.LangOpts.Borland) {
-    // check the attribute arguments.
-    if (!checkAttributeNumArgs(S, Attr, 1))
-      return;
+  if (!checkMicrosoftExt(S, Attr, S.LangOpts.Borland))
+    return;
 
-    Expr *Arg = Attr.getArg(0);
-    StringLiteral *Str = dyn_cast<StringLiteral>(Arg);
-    if (!Str || !Str->isAscii()) {
-      S.Diag(Attr.getLoc(), diag::err_attribute_argument_n_not_string)
-        << "uuid" << 1;
-      return;
-    }
+  // check the attribute arguments.
+  if (!checkAttributeNumArgs(S, Attr, 1))
+    return;
 
-    StringRef StrRef = Str->getString();
+  Expr *Arg = Attr.getArg(0);
+  StringLiteral *Str = dyn_cast<StringLiteral>(Arg);
+  if (!Str || !Str->isAscii()) {
+    S.Diag(Attr.getLoc(), diag::err_attribute_argument_n_not_string)
+      << "uuid" << 1;
+    return;
+  }
 
-    bool IsCurly = StrRef.size() > 1 && StrRef.front() == '{' &&
-                   StrRef.back() == '}';
+  StringRef StrRef = Str->getString();
 
-    // Validate GUID length.
-    if (IsCurly && StrRef.size() != 38) {
-      S.Diag(Attr.getLoc(), diag::err_attribute_uuid_malformed_guid);
-      return;
-    }
-    if (!IsCurly && StrRef.size() != 36) {
-      S.Diag(Attr.getLoc(), diag::err_attribute_uuid_malformed_guid);
-      return;
-    }
+  bool IsCurly = StrRef.size() > 1 && StrRef.front() == '{' &&
+                 StrRef.back() == '}';
 
-    // GUID format is "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX" or
-    // "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"
-    StringRef::iterator I = StrRef.begin();
-    if (IsCurly) // Skip the optional '{'
-       ++I;
+  // Validate GUID length.
+  if (IsCurly && StrRef.size() != 38) {
+    S.Diag(Attr.getLoc(), diag::err_attribute_uuid_malformed_guid);
+    return;
+  }
+  if (!IsCurly && StrRef.size() != 36) {
+    S.Diag(Attr.getLoc(), diag::err_attribute_uuid_malformed_guid);
+    return;
+  }
 
-    for (int i = 0; i < 36; ++i) {
-      if (i == 8 || i == 13 || i == 18 || i == 23) {
-        if (*I != '-') {
-          S.Diag(Attr.getLoc(), diag::err_attribute_uuid_malformed_guid);
-          return;
-        }
-      } else if (!isHexDigit(*I)) {
+  // GUID format is "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX" or
+  // "{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"
+  StringRef::iterator I = StrRef.begin();
+  if (IsCurly) // Skip the optional '{'
+     ++I;
+
+  for (int i = 0; i < 36; ++i) {
+    if (i == 8 || i == 13 || i == 18 || i == 23) {
+      if (*I != '-') {
         S.Diag(Attr.getLoc(), diag::err_attribute_uuid_malformed_guid);
         return;
       }
-      I++;
+    } else if (!isHexDigit(*I)) {
+      S.Diag(Attr.getLoc(), diag::err_attribute_uuid_malformed_guid);
+      return;
     }
+    I++;
+  }
 
-    D->addAttr(::new (S.Context)
-               UuidAttr(Attr.getRange(), S.Context, Str->getString(),
-                        Attr.getAttributeSpellingListIndex()));
-  } else
-    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << "uuid";
+  D->addAttr(::new (S.Context)
+             UuidAttr(Attr.getRange(), S.Context, Str->getString(),
+                      Attr.getAttributeSpellingListIndex()));
 }
 
 static void handleInheritanceAttr(Sema &S, Decl *D, const AttributeList &Attr) {
-  if (!S.LangOpts.MicrosoftExt) {
-    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << Attr.getName();
+  if (!checkMicrosoftExt(S, Attr))
     return;
-  }
 
   AttributeList::Kind Kind = Attr.getKind();
   if (Kind == AttributeList::AT_SingleInheritance)
@@ -4656,31 +4704,32 @@ static void handleInheritanceAttr(Sema &S, Decl *D, const AttributeList &Attr) {
 }
 
 static void handlePortabilityAttr(Sema &S, Decl *D, const AttributeList &Attr) {
-  if (S.LangOpts.MicrosoftExt) {
-    AttributeList::Kind Kind = Attr.getKind();
-    if (Kind == AttributeList::AT_Ptr32)
-      D->addAttr(
-          ::new (S.Context) Ptr32Attr(Attr.getRange(), S.Context,
-                                      Attr.getAttributeSpellingListIndex()));
-    else if (Kind == AttributeList::AT_Ptr64)
-      D->addAttr(
-          ::new (S.Context) Ptr64Attr(Attr.getRange(), S.Context,
-                                      Attr.getAttributeSpellingListIndex()));
-    else if (Kind == AttributeList::AT_Win64)
-      D->addAttr(
-          ::new (S.Context) Win64Attr(Attr.getRange(), S.Context,
-                                      Attr.getAttributeSpellingListIndex()));
-  } else
-    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << Attr.getName();
+  if (!checkMicrosoftExt(S, Attr))
+    return;
+
+  AttributeList::Kind Kind = Attr.getKind();
+    if (Kind == AttributeList::AT_Win64)
+    D->addAttr(
+        ::new (S.Context) Win64Attr(Attr.getRange(), S.Context,
+                                    Attr.getAttributeSpellingListIndex()));
 }
 
 static void handleForceInlineAttr(Sema &S, Decl *D, const AttributeList &Attr) {
-  if (S.LangOpts.MicrosoftExt)
-    D->addAttr(::new (S.Context)
-               ForceInlineAttr(Attr.getRange(), S.Context,
-                               Attr.getAttributeSpellingListIndex()));
-  else
-    S.Diag(Attr.getLoc(), diag::warn_attribute_ignored) << Attr.getName();
+  if (!checkMicrosoftExt(S, Attr))
+    return;
+  D->addAttr(::new (S.Context)
+             ForceInlineAttr(Attr.getRange(), S.Context,
+                             Attr.getAttributeSpellingListIndex()));
+}
+
+static void handleSelectAnyAttr(Sema &S, Decl *D, const AttributeList &Attr) {
+  if (!checkMicrosoftExt(S, Attr))
+    return;
+  // Check linkage after possibly merging declaratinos.  See
+  // checkAttributesAfterMerging().
+  D->addAttr(::new (S.Context)
+             SelectAnyAttr(Attr.getRange(), S.Context,
+                           Attr.getAttributeSpellingListIndex()));
 }
 
 //===----------------------------------------------------------------------===//
@@ -4710,6 +4759,10 @@ static void ProcessInheritableDeclAttr(Sema &S, Scope *scope, Decl *D,
   case AttributeList::AT_VectorSize:
   case AttributeList::AT_NeonVectorType:
   case AttributeList::AT_NeonPolyVectorType:
+  case AttributeList::AT_Ptr32:
+  case AttributeList::AT_Ptr64:
+  case AttributeList::AT_SPtr:
+  case AttributeList::AT_UPtr:
     // Ignore these, these are type attributes, handled by
     // ProcessTypeAttributes.
     break;
@@ -4889,6 +4942,7 @@ static void ProcessInheritableDeclAttr(Sema &S, Scope *scope, Decl *D,
     break;
 
   // Microsoft attributes:
+  case AttributeList::AT_MsProperty: break;
   case AttributeList::AT_MsStruct:
     handleMsStructAttr(S, D, Attr);
     break;
@@ -4901,15 +4955,22 @@ static void ProcessInheritableDeclAttr(Sema &S, Scope *scope, Decl *D,
     handleInheritanceAttr(S, D, Attr);
     break;
   case AttributeList::AT_Win64:
-  case AttributeList::AT_Ptr32:
-  case AttributeList::AT_Ptr64:
     handlePortabilityAttr(S, D, Attr);
     break;
   case AttributeList::AT_ForceInline:
     handleForceInlineAttr(S, D, Attr);
     break;
+  case AttributeList::AT_SelectAny:
+    handleSelectAnyAttr(S, D, Attr);
+    break;
 
   // Thread safety attributes:
+  case AttributeList::AT_AssertExclusiveLock:
+    handleAssertExclusiveLockAttr(S, D, Attr);
+    break;
+  case AttributeList::AT_AssertSharedLock:
+    handleAssertSharedLockAttr(S, D, Attr);
+    break;
   case AttributeList::AT_GuardedVar:
     handleGuardedVarAttr(S, D, Attr);
     break;

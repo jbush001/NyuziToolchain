@@ -694,7 +694,13 @@ static void PrintCursor(CXCursor Cursor,
       printf(" (static)");
     if (clang_CXXMethod_isVirtual(Cursor))
       printf(" (virtual)");
-    
+    if (clang_CXXMethod_isPureVirtual(Cursor))
+      printf(" (pure)");
+    if (clang_Cursor_isVariadic(Cursor))
+      printf(" (variadic)");
+    if (clang_Cursor_isObjCOptional(Cursor))
+      printf(" (@optional)");
+
     if (Cursor.kind == CXCursor_IBOutletCollectionAttr) {
       CXType T =
         clang_getCanonicalType(clang_getIBOutletCollectionType(Cursor));
@@ -787,6 +793,44 @@ static void PrintCursor(CXCursor Cursor,
     }
 
     PrintCursorComments(Cursor, ValidationData);
+
+    {
+      unsigned PropAttrs = clang_Cursor_getObjCPropertyAttributes(Cursor, 0);
+      if (PropAttrs != CXObjCPropertyAttr_noattr) {
+        printf(" [");
+        #define PRINT_PROP_ATTR(A) \
+          if (PropAttrs & CXObjCPropertyAttr_##A) printf(#A ",")
+        PRINT_PROP_ATTR(readonly);
+        PRINT_PROP_ATTR(getter);
+        PRINT_PROP_ATTR(assign);
+        PRINT_PROP_ATTR(readwrite);
+        PRINT_PROP_ATTR(retain);
+        PRINT_PROP_ATTR(copy);
+        PRINT_PROP_ATTR(nonatomic);
+        PRINT_PROP_ATTR(setter);
+        PRINT_PROP_ATTR(atomic);
+        PRINT_PROP_ATTR(weak);
+        PRINT_PROP_ATTR(strong);
+        PRINT_PROP_ATTR(unsafe_unretained);
+        printf("]");
+      }
+    }
+
+    {
+      unsigned QT = clang_Cursor_getObjCDeclQualifiers(Cursor);
+      if (QT != CXObjCDeclQualifier_None) {
+        printf(" [");
+        #define PRINT_OBJC_QUAL(A) \
+          if (QT & CXObjCDeclQualifier_##A) printf(#A ",")
+        PRINT_OBJC_QUAL(In);
+        PRINT_OBJC_QUAL(Inout);
+        PRINT_OBJC_QUAL(Out);
+        PRINT_OBJC_QUAL(Bycopy);
+        PRINT_OBJC_QUAL(Byref);
+        PRINT_OBJC_QUAL(Oneway);
+        printf("]");
+      }
+    }
   }
 }
 
@@ -2064,14 +2108,19 @@ static int inspect_cursor_at(int argc, const char **argv) {
 
         {
           CXModule mod = clang_Cursor_getModule(Cursor);
-          CXString name;
+          CXFile astFile;
+          CXString name, astFilename;
           unsigned i, numHeaders;
           if (mod) {
+            astFile = clang_Module_getASTFile(mod);
+            astFilename = clang_getFileName(astFile);
             name = clang_Module_getFullName(mod);
             numHeaders = clang_Module_getNumTopLevelHeaders(TU, mod);
-            printf(" ModuleName=%s Headers(%d):",
-                   clang_getCString(name), numHeaders);
+            printf(" ModuleName=%s (%s) Headers(%d):",
+                   clang_getCString(name), clang_getCString(astFilename),
+                   numHeaders);
             clang_disposeString(name);
+            clang_disposeString(astFilename);
             for (i = 0; i < numHeaders; ++i) {
               CXFile file = clang_Module_getTopLevelHeader(TU, mod, i);
               CXString filename = clang_getFileName(file);
@@ -3467,6 +3516,7 @@ int write_pch_file(const char *filename, int argc, const char *argv[]) {
                                   unsaved_files,
                                   num_unsaved_files,
                                   CXTranslationUnit_Incomplete |
+                                  CXTranslationUnit_DetailedPreprocessingRecord|
                                     CXTranslationUnit_ForSerialization);
   if (!TU) {
     fprintf(stderr, "Unable to load translation unit!\n");

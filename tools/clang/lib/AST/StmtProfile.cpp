@@ -215,6 +215,10 @@ void StmtProfiler::VisitSEHExceptStmt(const SEHExceptStmt *S) {
   VisitStmt(S);
 }
 
+void StmtProfiler::VisitCapturedStmt(const CapturedStmt *S) {
+  VisitStmt(S);
+}
+
 void StmtProfiler::VisitObjCForCollectionStmt(const ObjCForCollectionStmt *S) {
   VisitStmt(S);
 }
@@ -754,6 +758,11 @@ void StmtProfiler::VisitCXXNullPtrLiteralExpr(const CXXNullPtrLiteralExpr *S) {
   VisitExpr(S);
 }
 
+void StmtProfiler::VisitCXXStdInitializerListExpr(
+    const CXXStdInitializerListExpr *S) {
+  VisitExpr(S);
+}
+
 void StmtProfiler::VisitCXXTypeidExpr(const CXXTypeidExpr *S) {
   VisitExpr(S);
   if (S->isTypeOperand())
@@ -764,6 +773,11 @@ void StmtProfiler::VisitCXXUuidofExpr(const CXXUuidofExpr *S) {
   VisitExpr(S);
   if (S->isTypeOperand())
     VisitType(S->getTypeOperand());
+}
+
+void StmtProfiler::VisitMSPropertyRefExpr(const MSPropertyRefExpr *S) {
+  VisitExpr(S);
+  VisitDecl(S->getPropertyDecl());
 }
 
 void StmtProfiler::VisitCXXThisExpr(const CXXThisExpr *S) {
@@ -778,6 +792,11 @@ void StmtProfiler::VisitCXXThrowExpr(const CXXThrowExpr *S) {
 void StmtProfiler::VisitCXXDefaultArgExpr(const CXXDefaultArgExpr *S) {
   VisitExpr(S);
   VisitDecl(S->getParam());
+}
+
+void StmtProfiler::VisitCXXDefaultInitExpr(const CXXDefaultInitExpr *S) {
+  VisitExpr(S);
+  VisitDecl(S->getField());
 }
 
 void StmtProfiler::VisitCXXBindTemporaryExpr(const CXXBindTemporaryExpr *S) {
@@ -808,9 +827,17 @@ StmtProfiler::VisitLambdaExpr(const LambdaExpr *S) {
                                  CEnd = S->explicit_capture_end();
        C != CEnd; ++C) {
     ID.AddInteger(C->getCaptureKind());
-    if (C->capturesVariable()) {
+    switch (C->getCaptureKind()) {
+    case LCK_This:
+      break;
+    case LCK_ByRef:
+    case LCK_ByCopy:
       VisitDecl(C->getCapturedVar());
       ID.AddBoolean(C->isPackExpansion());
+      break;
+    case LCK_Init:
+      VisitDecl(C->getInitCaptureField());
+      break;
     }
   }
   // Note: If we actually needed to be able to match lambda

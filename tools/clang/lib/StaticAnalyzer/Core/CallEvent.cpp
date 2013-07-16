@@ -239,8 +239,28 @@ QualType CallEvent::getDeclaredResultType(const Decl *D) {
   assert(D);
   if (const FunctionDecl* FD = dyn_cast<FunctionDecl>(D))
     return FD->getResultType();
-  else if (const ObjCMethodDecl* MD = dyn_cast<ObjCMethodDecl>(D))
+  if (const ObjCMethodDecl* MD = dyn_cast<ObjCMethodDecl>(D))
     return MD->getResultType();
+  if (const BlockDecl *BD = dyn_cast<BlockDecl>(D)) {
+    // Blocks are difficult because the return type may not be stored in the
+    // BlockDecl itself. The AST should probably be enhanced, but for now we
+    // just do what we can.
+    // If the block is declared without an explicit argument list, the
+    // signature-as-written just includes the return type, not the entire
+    // function type.
+    // FIXME: All blocks should have signatures-as-written, even if the return
+    // type is inferred. (That's signified with a dependent result type.)
+    if (const TypeSourceInfo *TSI = BD->getSignatureAsWritten()) {
+      QualType Ty = TSI->getType();
+      if (const FunctionType *FT = Ty->getAs<FunctionType>())
+        Ty = FT->getResultType();
+      if (!Ty->isDependentType())
+        return Ty;
+    }
+
+    return QualType();
+  }
+  
   return QualType();
 }
 
@@ -252,8 +272,11 @@ static void addParameterValuesToBindings(const StackFrameContext *CalleeCtx,
                                          CallEvent::param_iterator E) {
   MemRegionManager &MRMgr = SVB.getRegionManager();
 
+  // If the function has fewer parameters than the call has arguments, we simply
+  // do not bind any values to them.
+  unsigned NumArgs = Call.getNumArgs();
   unsigned Idx = 0;
-  for (; I != E; ++I, ++Idx) {
+  for (; I != E && Idx < NumArgs; ++I, ++Idx) {
     const ParmVarDecl *ParamDecl = *I;
     assert(ParamDecl && "Formal parameter has no decl?");
 

@@ -20,6 +20,9 @@ DIRS := $(filter-out compiler-rt,$(DIRS))
 # Don't build libcxx, it isn't designed to be built directly.
 DIRS := $(filter-out libcxx,$(DIRS))
 
+# DragonEgg may be checked out here but doesn't (yet) build directly.
+DIRS := $(filter-out dragonegg,$(DIRS))
+
 # Sparc cannot link shared libraries (libtool problem?)
 # XXX jbush: disabled this for now because it causes build problems
 #ifeq ($(ARCH), Sparc)

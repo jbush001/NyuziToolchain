@@ -88,7 +88,7 @@ entry:
 
 !llvm.dbg.cu = !{!0}
 
-!0 = metadata !{i32 720913, i32 4, metadata !6, metadata !"clang version 3.1 (trunk 146596)", i1 false, metadata !"", i32 0, metadata !1, metadata !3, metadata !27, metadata !1, metadata !""} ; [ DW_TAG_compile_unit ]
+!0 = metadata !{i32 720913, i32 4, metadata !6, metadata !"clang version 3.1 (trunk 146596)", i1 false, metadata !"", i32 0, metadata !1, metadata !3, metadata !27, metadata !1,  metadata !1, metadata !""} ; [ DW_TAG_compile_unit ]
 !1 = metadata !{i32 0}
 !3 = metadata !{metadata !5, metadata !9}
 !5 = metadata !{i32 720898, metadata !82, null, metadata !"bar", i32 9, i64 128, i64 64, i32 0, i32 0, null, metadata !7, i32 0, null, null} ; [ DW_TAG_class_type ]
@@ -122,16 +122,16 @@ entry:
 !34 = metadata !{i32 720932, null, null, metadata !"char", i32 0, i64 8, i64 8, i64 0, i32 0, i32 6} ; [ DW_TAG_base_type ]
 !35 = metadata !{metadata !36}
 !36 = metadata !{i32 720932}                      ; [ DW_TAG_base_type ]
-!37 = metadata !{i32 720942, metadata !6, null, metadata !"bar", metadata !"bar", metadata !"_ZN3barC1Ei", i32 13, metadata !22, i1 false, i1 true, i32 0, i32 0, i32 0, i32 256, i1 false, void (%struct.bar*, i32)* @_ZN3barC1Ei, null, metadata !21, metadata !38} ; [ DW_TAG_subprogram ]
+!37 = metadata !{i32 720942, metadata !6, null, metadata !"bar", metadata !"bar", metadata !"_ZN3barC1Ei", i32 13, metadata !22, i1 false, i1 true, i32 0, i32 0, i32 0, i32 256, i1 false, void (%struct.bar*, i32)* @_ZN3barC1Ei, null, metadata !21, metadata !38, i32 0} ; [ DW_TAG_subprogram ]
 !38 = metadata !{metadata !39}
 !39 = metadata !{i32 720932}                      ; [ DW_TAG_base_type ]
-!40 = metadata !{i32 720942, metadata !6, null, metadata !"bar", metadata !"bar", metadata !"_ZN3barC2Ei", i32 13, metadata !22, i1 false, i1 true, i32 0, i32 0, i32 0, i32 256, i1 false, void (%struct.bar*, i32)* @_ZN3barC2Ei, null, metadata !21, metadata !41} ; [ DW_TAG_subprogram ]
+!40 = metadata !{i32 720942, metadata !6, null, metadata !"bar", metadata !"bar", metadata !"_ZN3barC2Ei", i32 13, metadata !22, i1 false, i1 true, i32 0, i32 0, i32 0, i32 256, i1 false, void (%struct.bar*, i32)* @_ZN3barC2Ei, null, metadata !21, metadata !41, i32 0} ; [ DW_TAG_subprogram ]
 !41 = metadata !{metadata !42}
 !42 = metadata !{i32 720932}                      ; [ DW_TAG_base_type ]
-!43 = metadata !{i32 720942, metadata !6, null, metadata !"baz", metadata !"baz", metadata !"_ZN3bazC1Ei", i32 6, metadata !14, i1 false, i1 true, i32 0, i32 0, i32 0, i32 256, i1 false, void (%struct.baz*, i32)* @_ZN3bazC1Ei, null, metadata !13, metadata !44} ; [ DW_TAG_subprogram ]
+!43 = metadata !{i32 720942, metadata !6, null, metadata !"baz", metadata !"baz", metadata !"_ZN3bazC1Ei", i32 6, metadata !14, i1 false, i1 true, i32 0, i32 0, i32 0, i32 256, i1 false, void (%struct.baz*, i32)* @_ZN3bazC1Ei, null, metadata !13, metadata !44, i32 0} ; [ DW_TAG_subprogram ]
 !44 = metadata !{metadata !45}
 !45 = metadata !{i32 720932}                      ; [ DW_TAG_base_type ]
-!46 = metadata !{i32 720942, metadata !6, null, metadata !"baz", metadata !"baz", metadata !"_ZN3bazC2Ei", i32 6, metadata !14, i1 false, i1 true, i32 0, i32 0, i32 0, i32 256, i1 false, void (%struct.baz*, i32)* @_ZN3bazC2Ei, null, metadata !13, metadata !47} ; [ DW_TAG_subprogram ]
+!46 = metadata !{i32 720942, metadata !6, null, metadata !"baz", metadata !"baz", metadata !"_ZN3bazC2Ei", i32 6, metadata !14, i1 false, i1 true, i32 0, i32 0, i32 0, i32 256, i1 false, void (%struct.baz*, i32)* @_ZN3bazC2Ei, null, metadata !13, metadata !47, i32 0} ; [ DW_TAG_subprogram ]
 !47 = metadata !{metadata !48}
 !48 = metadata !{i32 720932}                      ; [ DW_TAG_base_type ]
 !49 = metadata !{i32 721153, metadata !29, metadata !"argc", metadata !6, i32 16777232, metadata !12, i32 0, i32 0} ; [ DW_TAG_arg_variable ]

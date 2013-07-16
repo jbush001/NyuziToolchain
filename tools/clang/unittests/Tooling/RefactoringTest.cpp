@@ -151,37 +151,68 @@ TEST_F(ReplacementTest, ApplyAllFailsIfOneApplyFails) {
   EXPECT_EQ("z", Context.getRewrittenText(IDz));
 }
 
+TEST(ShiftedCodePositionTest, FindsNewCodePosition) {
+  Replacements Replaces;
+  Replaces.insert(Replacement("", 0, 1, ""));
+  Replaces.insert(Replacement("", 4, 3, " "));
+  // Assume ' int   i;' is turned into 'int i;' and cursor is located at '|'.
+  EXPECT_EQ(0u, shiftedCodePosition(Replaces, 0)); // |int   i;
+  EXPECT_EQ(0u, shiftedCodePosition(Replaces, 1)); //  |nt   i;
+  EXPECT_EQ(1u, shiftedCodePosition(Replaces, 2)); //  i|t   i;
+  EXPECT_EQ(2u, shiftedCodePosition(Replaces, 3)); //  in|   i;
+  EXPECT_EQ(3u, shiftedCodePosition(Replaces, 4)); //  int|  i;
+  EXPECT_EQ(4u, shiftedCodePosition(Replaces, 5)); //  int | i;
+  EXPECT_EQ(4u, shiftedCodePosition(Replaces, 6)); //  int  |i;
+  EXPECT_EQ(4u, shiftedCodePosition(Replaces, 7)); //  int   |;
+  EXPECT_EQ(5u, shiftedCodePosition(Replaces, 8)); //  int   i|
+}
+
+TEST(ShiftedCodePositionTest, FindsNewCodePositionWithInserts) {
+  Replacements Replaces;
+  Replaces.insert(Replacement("", 4, 0, "\"\n\""));
+  // Assume '"12345678"' is turned into '"1234"\n"5678"'.
+  EXPECT_EQ(4u, shiftedCodePosition(Replaces, 4)); // "123|5678"
+  EXPECT_EQ(8u, shiftedCodePosition(Replaces, 5)); // "1234|678"
+}
+
 class FlushRewrittenFilesTest : public ::testing::Test {
- public:
-  FlushRewrittenFilesTest() {
-    std::string ErrorInfo;
-    TemporaryDirectory = llvm::sys::Path::GetTemporaryDirectory(&ErrorInfo);
-    assert(ErrorInfo.empty());
-  }
+public:
+   FlushRewrittenFilesTest() {}
 
   ~FlushRewrittenFilesTest() {
-    std::string ErrorInfo;
-    TemporaryDirectory.eraseFromDisk(true, &ErrorInfo);
-    assert(ErrorInfo.empty());
+    for (llvm::StringMap<std::string>::iterator I = TemporaryFiles.begin(),
+                                                E = TemporaryFiles.end();
+         I != E; ++I) {
+      llvm::StringRef Name = I->second;
+      llvm::error_code EC = llvm::sys::fs::remove(Name);
+      (void)EC;
+      assert(!EC);
+    }
   }
 
   FileID createFile(llvm::StringRef Name, llvm::StringRef Content) {
-    SmallString<1024> Path(TemporaryDirectory.str());
-    llvm::sys::path::append(Path, Name);
-    std::string ErrorInfo;
-    llvm::raw_fd_ostream OutStream(Path.c_str(),
-                                   ErrorInfo, llvm::raw_fd_ostream::F_Binary);
-    assert(ErrorInfo.empty());
+    SmallString<1024> Path;
+    int FD;
+    llvm::error_code EC =
+        llvm::sys::fs::createTemporaryFile(Name, "", FD, Path);
+    assert(!EC);
+    (void)EC;
+
+    llvm::raw_fd_ostream OutStream(FD, true);
     OutStream << Content;
     OutStream.close();
     const FileEntry *File = Context.Files.getFile(Path);
     assert(File != NULL);
+
+    StringRef Found = TemporaryFiles.GetOrCreateValue(Name, Path.str()).second;
+    assert(Found == Path);
+    (void)Found;
     return Context.Sources.createFileID(File, SourceLocation(), SrcMgr::C_User);
   }
 
   std::string getFileContentFromDisk(llvm::StringRef Name) {
-    SmallString<1024> Path(TemporaryDirectory.str());
-    llvm::sys::path::append(Path, Name);
+    std::string Path = TemporaryFiles.lookup(Name);
+    assert(!Path.empty());
     // We need to read directly from the FileManager without relaying through
     // a FileEntry, as otherwise we'd read through an already opened file
     // descriptor, which might not see the changes made.
@@ -190,7 +221,7 @@ class FlushRewrittenFilesTest : public ::testing::Test {
     return Context.Files.getBufferForFile(Path, NULL)->getBuffer();
   }
 
-  llvm::sys::Path TemporaryDirectory;
+  llvm::StringMap<std::string> TemporaryFiles;
   RewriterTestContext Context;
 };
 

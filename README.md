@@ -10,17 +10,19 @@ cd build
 </pre>
 
 ### Configure and build:
-
+This requires a newer version of a compiler that supports c++11.
+cmake must be installed (http://www.cmake.org/)
+Note that -stdlib=libc++ is required on MacOS to pick up the correct libc.  This may differ on other platforms.
 <pre>
 cd build
-../llvm/configure --enable-targets=vectorproc --target=vectorproc-elf --prefix=/usr/local/gpgpu_toolchain/
+cmake   -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++11 -stdlib=libc++" -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGET_ARCH="VectorProc" ../llvm
 make
 </pre>
 
 ### To run compiler
 
 <pre>
-./Debug+Asserts/bin/clang &lt;test_program.c&gt; -S -o -
+./bin/clang &lt;test_program.c&gt; -S -o -
 </pre>
 
 ## Running unit tests

@@ -294,6 +294,8 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
       source.reset(ChainedIncludesSource::create(CI));
       if (!source)
         goto failure;
+      CI.setModuleManager(static_cast<ASTReader*>(
+         &static_cast<ChainedIncludesSource*>(source.get())->getFinalReader()));
       CI.getASTContext().setExternalSource(source);
 
     } else if (!CI.getPreprocessorOpts().ImplicitPCHInclude.empty()) {
@@ -427,9 +429,9 @@ void FrontendAction::EndSourceFile() {
     llvm::errs() << "\n";
   }
 
-  // Cleanup the output streams, and erase the output files if we encountered
-  // an error.
-  CI.clearOutputFiles(/*EraseFiles=*/CI.getDiagnostics().hasErrorOccurred());
+  // Cleanup the output streams, and erase the output files if instructed by the
+  // FrontendAction.
+  CI.clearOutputFiles(/*EraseFiles=*/shouldEraseOutputFiles());
 
   if (isCurrentFileAST()) {
     CI.takeSema();
@@ -441,6 +443,10 @@ void FrontendAction::EndSourceFile() {
 
   setCompilerInstance(0);
   setCurrentInput(FrontendInputFile());
+}
+
+bool FrontendAction::shouldEraseOutputFiles() {
+  return getCompilerInstance().getDiagnostics().hasErrorOccurred();
 }
 
 //===----------------------------------------------------------------------===//

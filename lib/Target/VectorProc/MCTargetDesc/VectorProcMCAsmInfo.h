@@ -23,7 +23,7 @@ namespace llvm {
   class VectorProcMCAsmInfo : public MCAsmInfo {
     virtual void anchor();
   public:
-    explicit VectorProcMCAsmInfo(const Target &T, StringRef TT);
+    explicit VectorProcMCAsmInfo(StringRef TT);
   };
 
 } // namespace llvm

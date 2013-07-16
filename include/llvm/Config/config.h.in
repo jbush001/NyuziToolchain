@@ -81,6 +81,9 @@
 /* Define to 1 if you have the <ctype.h> header file. */
 #undef HAVE_CTYPE_H
 
+/* Define to 1 if you have the <cxxabi.h> header file. */
+#undef HAVE_CXXABI_H
+
 /* Define to 1 if you have the declaration of `FE_ALL_EXCEPT', and to 0 if you
    don't. */
 #undef HAVE_DECL_FE_ALL_EXCEPT
@@ -166,6 +169,12 @@
 /* Define to 1 if you have the `fmodf' function. */
 #undef HAVE_FMODF
 
+/* Define to 1 if you have the `futimens' function. */
+#undef HAVE_FUTIMENS
+
+/* Define to 1 if you have the `futimes' function. */
+#undef HAVE_FUTIMES
+
 /* Define to 1 if you have the `getcwd' function. */
 #undef HAVE_GETCWD
 
@@ -228,6 +237,9 @@
 
 /* Define to 1 if you have the `udis86' library (-ludis86). */
 #undef HAVE_LIBUDIS86
+
+/* Define to 1 if you have the `z' library (-lz). */
+#undef HAVE_LIBZ
 
 /* Define to 1 if you have the <limits.h> header file. */
 #undef HAVE_LIMITS_H
@@ -503,8 +515,11 @@
 /* Define to 1 if you have the `writev' function. */
 #undef HAVE_WRITEV
 
-/* Define if the xdot.py program is available */
-#undef HAVE_XDOT_PY
+/* Define if the xdot program is available */
+#undef HAVE_XDOT
+
+/* Define to 1 if you have the <zlib.h> header file. */
+#undef HAVE_ZLIB_H
 
 /* Have host's _alloca */
 #undef HAVE__ALLOCA
@@ -578,6 +593,9 @@
 /* Define if threads enabled */
 #undef LLVM_ENABLE_THREADS
 
+/* Define if zlib is enabled */
+#undef LLVM_ENABLE_ZLIB
+
 /* Installation directory for config files */
 #undef LLVM_ETCDIR
 
@@ -585,16 +603,13 @@
 #undef LLVM_HAS_ATOMICS
 
 /* Host triple LLVM will be executed on */
-#undef LLVM_HOSTTRIPLE
+#undef LLVM_HOST_TRIPLE
 
 /* Installation directory for include files */
 #undef LLVM_INCLUDEDIR
 
 /* Installation directory for .info files */
 #undef LLVM_INFODIR
-
-/* Installation directory for libraries */
-#undef LLVM_LIBDIR
 
 /* Installation directory for man pages */
 #undef LLVM_MANDIR
@@ -650,8 +665,8 @@
 /* Define to path to twopi program if found or 'echo twopi' otherwise */
 #undef LLVM_PATH_TWOPI
 
-/* Define to path to xdot.py program if found or 'echo xdot.py' otherwise */
-#undef LLVM_PATH_XDOT_PY
+/* Define to path to xdot program if found or 'echo xdot' otherwise */
+#undef LLVM_PATH_XDOT
 
 /* Installation prefix directory */
 #undef LLVM_PREFIX
@@ -674,10 +689,6 @@
 /* Define to the sub-directory in which libtool stores uninstalled libraries.
    */
 #undef LTDL_OBJDIR
-
-/* Define to the name of the environment variable that determines the dynamic
-   library search path. */
-#undef LTDL_SHLIBPATH_VAR
 
 /* Define to the extension used for shared libraries, say, ".so". */
 #undef LTDL_SHLIB_EXT

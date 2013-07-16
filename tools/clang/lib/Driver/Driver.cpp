@@ -12,19 +12,20 @@
 #include "ToolChains.h"
 #include "clang/Basic/Version.h"
 #include "clang/Driver/Action.h"
-#include "clang/Driver/Arg.h"
-#include "clang/Driver/ArgList.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/Job.h"
-#include "clang/Driver/OptTable.h"
-#include "clang/Driver/Option.h"
 #include "clang/Driver/Options.h"
 #include "clang/Driver/Tool.h"
 #include "clang/Driver/ToolChain.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/Option/Arg.h"
+#include "llvm/Option/ArgList.h"
+#include "llvm/Option/OptTable.h"
+#include "llvm/Option/Option.h"
+#include "llvm/Option/OptSpecifier.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
@@ -40,6 +41,7 @@
 
 using namespace clang::driver;
 using namespace clang;
+using namespace llvm::opt;
 
 Driver::Driver(StringRef ClangExecutable,
                StringRef DefaultTargetTriple,
@@ -241,7 +243,7 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
     StringRef CompilerPath = env;
     while (!CompilerPath.empty()) {
       std::pair<StringRef, StringRef> Split
-        = CompilerPath.split(llvm::sys::PathSeparator);
+        = CompilerPath.split(llvm::sys::EnvPathSeparator);
       PrefixDirs.push_back(Split.first);
       CompilerPath = Split.second;
     }
@@ -289,6 +291,8 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
   }
   if (const Arg *A = Args->getLastArg(options::OPT__sysroot_EQ))
     SysRoot = A->getValue();
+  if (const Arg *A = Args->getLastArg(options::OPT__dyld_prefix_EQ))
+    DyldPrefix = A->getValue();
   if (Args->hasArg(options::OPT_nostdlib))
     UseStdLib = false;
 
@@ -491,9 +495,8 @@ void Driver::generateCompilationDiagnostics(Compilation &C,
       << "\n\n********************";
   } else {
     // Failure, remove preprocessed files.
-    if (!C.getArgs().hasArg(options::OPT_save_temps)) {
+    if (!C.getArgs().hasArg(options::OPT_save_temps))
       C.CleanupFileList(C.getTempFiles(), true);
-    }
 
     Diag(clang::diag::note_drv_command_failed_diag_msg)
       << "Error generating preprocessed source(s).";
@@ -578,10 +581,9 @@ void Driver::PrintOptions(const ArgList &Args) const {
 }
 
 void Driver::PrintHelp(bool ShowHidden) const {
-  getOpts().PrintHelp(llvm::outs(), Name.c_str(), DriverTitle.c_str(),
-                      /*Include*/0,
-                      /*Exclude*/options::NoDriverOption |
-                      (ShowHidden ? 0 : options::HelpHidden));
+  getOpts().PrintHelp(
+      llvm::outs(), Name.c_str(), DriverTitle.c_str(), /*Include*/ 0,
+      /*Exclude*/ options::NoDriverOption | (ShowHidden ? 0 : HelpHidden));
 }
 
 void Driver::PrintVersion(const Compilation &C, raw_ostream &OS) const {
@@ -825,17 +827,6 @@ void Driver::BuildUniversalActions(const ToolChain &TC,
   if (!Archs.size())
     Archs.push_back(Args.MakeArgString(TC.getDefaultUniversalArchName()));
 
-  // FIXME: We killed off some others but these aren't yet detected in a
-  // functional manner. If we added information to jobs about which "auxiliary"
-  // files they wrote then we could detect the conflict these cause downstream.
-  if (Archs.size() > 1) {
-    // No recovery needed, the point of this is just to prevent
-    // overwriting the same files.
-    if (const Arg *A = Args.getLastArg(options::OPT_save_temps))
-      Diag(clang::diag::err_drv_invalid_opt_with_multiple_archs)
-        << A->getAsString(Args);
-  }
-
   ActionList SingleActions;
   BuildActions(TC, Args, BAInputs, SingleActions);
 
@@ -985,8 +976,7 @@ void Driver::BuildInputs(const ToolChain &TC, const DerivedArgList &Args,
           }
         }
 
-        bool exists = false;
-        if (llvm::sys::fs::exists(Path.c_str(), exists) || !exists)
+        if (!llvm::sys::fs::exists(Twine(Path)))
           Diag(clang::diag::err_drv_no_such_file) << Path.str();
         else
           Inputs.push_back(std::make_pair(Ty, A));
@@ -1087,7 +1077,7 @@ void Driver::BuildActions(const ToolChain &TC, const DerivedArgList &Args,
 
     // Build the pipeline for this file.
     OwningPtr<Action> Current(new InputAction(*InputArg, InputType));
-    for (llvm::SmallVector<phases::ID, phases::MaxNumberOfPhases>::iterator
+    for (SmallVectorImpl<phases::ID>::iterator
            i = PL.begin(), e = PL.end(); i != e; ++i) {
       phases::ID Phase = *i;
 
@@ -1221,6 +1211,17 @@ void Driver::BuildJobs(Compilation &C) const {
     }
   }
 
+  // Collect the list of architectures.
+  llvm::StringSet<> ArchNames;
+  if (C.getDefaultToolChain().getTriple().isOSDarwin()) {
+    for (ArgList::const_iterator it = C.getArgs().begin(), ie = C.getArgs().end();
+         it != ie; ++it) {
+      Arg *A = *it;
+      if (A->getOption().matches(options::OPT_arch))
+        ArchNames.insert(A->getValue());
+    }
+  }
+
   for (ActionList::const_iterator it = C.getActions().begin(),
          ie = C.getActions().end(); it != ie; ++it) {
     Action *A = *it;
@@ -1243,6 +1244,7 @@ void Driver::BuildJobs(Compilation &C) const {
     BuildJobsForAction(C, A, &C.getDefaultToolChain(),
                        /*BoundArch*/0,
                        /*AtTopLevel*/ true,
+                       /*MultipleArchs*/ ArchNames.size() > 1,
                        /*LinkingOutput*/ LinkingOutput,
                        II);
   }
@@ -1337,6 +1339,7 @@ void Driver::BuildJobsForAction(Compilation &C,
                                 const ToolChain *TC,
                                 const char *BoundArch,
                                 bool AtTopLevel,
+                                bool MultipleArchs,
                                 const char *LinkingOutput,
                                 InputInfo &Result) const {
   llvm::PrettyStackTraceString CrashInfo("Building compilation jobs");
@@ -1364,7 +1367,7 @@ void Driver::BuildJobsForAction(Compilation &C,
       TC = &C.getDefaultToolChain();
 
     BuildJobsForAction(C, *BAA->begin(), TC, BAA->getArchName(),
-                       AtTopLevel, LinkingOutput, Result);
+                       AtTopLevel, MultipleArchs, LinkingOutput, Result);
     return;
   }
 
@@ -1387,8 +1390,8 @@ void Driver::BuildJobsForAction(Compilation &C,
       SubJobAtTopLevel = true;
 
     InputInfo II;
-    BuildJobsForAction(C, *it, TC, BoundArch,
-                       SubJobAtTopLevel, LinkingOutput, II);
+    BuildJobsForAction(C, *it, TC, BoundArch, SubJobAtTopLevel, MultipleArchs,
+                       LinkingOutput, II);
     InputInfos.push_back(II);
   }
 
@@ -1404,7 +1407,8 @@ void Driver::BuildJobsForAction(Compilation &C,
   if (JA->getType() == types::TY_Nothing)
     Result = InputInfo(A->getType(), BaseInput);
   else
-    Result = InputInfo(GetNamedOutputPath(C, *JA, BaseInput, AtTopLevel),
+    Result = InputInfo(GetNamedOutputPath(C, *JA, BaseInput, BoundArch,
+                                          AtTopLevel, MultipleArchs),
                        A->getType(), BaseInput);
 
   if (CCCPrintBindings && !CCGenDiagnostics) {
@@ -1425,7 +1429,9 @@ void Driver::BuildJobsForAction(Compilation &C,
 const char *Driver::GetNamedOutputPath(Compilation &C,
                                        const JobAction &JA,
                                        const char *BaseInput,
-                                       bool AtTopLevel) const {
+                                       const char *BoundArch,
+                                       bool AtTopLevel,
+                                       bool MultipleArchs) const {
   llvm::PrettyStackTraceString CrashInfo("Computing output path");
   // Output to a user requested destination?
   if (AtTopLevel && !isa<DsymutilJobAction>(JA) &&
@@ -1460,8 +1466,14 @@ const char *Driver::GetNamedOutputPath(Compilation &C,
 
   // Determine what the derived output name should be.
   const char *NamedOutput;
-  if (JA.getType() == types::TY_Image) {
-    NamedOutput = DefaultImageName.c_str();
+  if (JA.getType() == types::TY_Image) {    
+    if (MultipleArchs && BoundArch) {
+      SmallString<128> Output(DefaultImageName.c_str());
+      Output += "-";
+      Output.append(BoundArch);
+      NamedOutput = C.getArgs().MakeArgString(Output.c_str());
+    } else
+      NamedOutput = DefaultImageName.c_str();
   } else {
     const char *Suffix = types::getTypeTempSuffix(JA.getType());
     assert(Suffix && "All types used for output should have a suffix.");
@@ -1469,7 +1481,11 @@ const char *Driver::GetNamedOutputPath(Compilation &C,
     std::string::size_type End = std::string::npos;
     if (!types::appendSuffixForType(JA.getType()))
       End = BaseName.rfind('.');
-    std::string Suffixed(BaseName.substr(0, End));
+    SmallString<128> Suffixed(BaseName.substr(0, End));
+    if (MultipleArchs && BoundArch) {
+      Suffixed += "-";
+      Suffixed.append(BoundArch);
+    }
     Suffixed += '.';
     Suffixed += Suffix;
     NamedOutput = C.getArgs().MakeArgString(Suffixed.c_str());
@@ -1518,17 +1534,15 @@ std::string Driver::GetFilePath(const char *Name, const ToolChain &TC) const {
       continue;
     if (Dir[0] == '=')
       Dir = SysRoot + Dir.substr(1);
-    llvm::sys::Path P(Dir);
-    P.appendComponent(Name);
-    bool Exists;
-    if (!llvm::sys::fs::exists(P.str(), Exists) && Exists)
+    SmallString<128> P(Dir);
+    llvm::sys::path::append(P, Name);
+    if (llvm::sys::fs::exists(Twine(P)))
       return P.str();
   }
 
-  llvm::sys::Path P(ResourceDir);
-  P.appendComponent(Name);
-  bool Exists;
-  if (!llvm::sys::fs::exists(P.str(), Exists) && Exists)
+  SmallString<128> P(ResourceDir);
+  llvm::sys::path::append(P, Name);
+  if (llvm::sys::fs::exists(Twine(P)))
     return P.str();
 
   const ToolChain::path_list &List = TC.getFilePaths();
@@ -1539,10 +1553,9 @@ std::string Driver::GetFilePath(const char *Name, const ToolChain &TC) const {
       continue;
     if (Dir[0] == '=')
       Dir = SysRoot + Dir.substr(1);
-    llvm::sys::Path P(Dir);
-    P.appendComponent(Name);
-    bool Exists;
-    if (!llvm::sys::fs::exists(P.str(), Exists) && Exists)
+    SmallString<128> P(Dir);
+    llvm::sys::path::append(P, Name);
+    if (llvm::sys::fs::exists(Twine(P)))
       return P.str();
   }
 
@@ -1559,67 +1572,57 @@ std::string Driver::GetProgramPath(const char *Name,
        ie = PrefixDirs.end(); it != ie; ++it) {
     bool IsDirectory;
     if (!llvm::sys::fs::is_directory(*it, IsDirectory) && IsDirectory) {
-      llvm::sys::Path P(*it);
-      P.appendComponent(TargetSpecificExecutable);
-      if (P.canExecute()) return P.str();
-      P.eraseComponent();
-      P.appendComponent(Name);
-      if (P.canExecute()) return P.str();
+      SmallString<128> P(*it);
+      llvm::sys::path::append(P, TargetSpecificExecutable);
+      if (llvm::sys::fs::can_execute(Twine(P)))
+        return P.str();
+      llvm::sys::path::remove_filename(P);
+      llvm::sys::path::append(P, Name);
+      if (llvm::sys::fs::can_execute(Twine(P)))
+        return P.str();
     } else {
-      llvm::sys::Path P(*it + Name);
-      if (P.canExecute()) return P.str();
+      SmallString<128> P(*it + Name);
+      if (llvm::sys::fs::can_execute(Twine(P)))
+        return P.str();
     }
   }
 
   const ToolChain::path_list &List = TC.getProgramPaths();
   for (ToolChain::path_list::const_iterator
          it = List.begin(), ie = List.end(); it != ie; ++it) {
-    llvm::sys::Path P(*it);
-    P.appendComponent(TargetSpecificExecutable);
-    if (P.canExecute()) return P.str();
-    P.eraseComponent();
-    P.appendComponent(Name);
-    if (P.canExecute()) return P.str();
+    SmallString<128> P(*it);
+    llvm::sys::path::append(P, TargetSpecificExecutable);
+    if (llvm::sys::fs::can_execute(Twine(P)))
+      return P.str();
+    llvm::sys::path::remove_filename(P);
+    llvm::sys::path::append(P, Name);
+    if (llvm::sys::fs::can_execute(Twine(P)))
+      return P.str();
   }
 
   // If all else failed, search the path.
-  llvm::sys::Path
-      P(llvm::sys::Program::FindProgramByName(TargetSpecificExecutable));
+  std::string P(llvm::sys::FindProgramByName(TargetSpecificExecutable));
   if (!P.empty())
-    return P.str();
+    return P;
 
-  P = llvm::sys::Path(llvm::sys::Program::FindProgramByName(Name));
+  P = llvm::sys::FindProgramByName(Name);
   if (!P.empty())
-    return P.str();
+    return P;
 
   return Name;
 }
 
 std::string Driver::GetTemporaryPath(StringRef Prefix, const char *Suffix)
   const {
-  // FIXME: This is lame; sys::Path should provide this function (in particular,
-  // it should know how to find the temporary files dir).
-  std::string Error;
-  const char *TmpDir = ::getenv("TMPDIR");
-  if (!TmpDir)
-    TmpDir = ::getenv("TEMP");
-  if (!TmpDir)
-    TmpDir = ::getenv("TMP");
-  if (!TmpDir)
-    TmpDir = "/tmp";
-  llvm::sys::Path P(TmpDir);
-  P.appendComponent(Prefix);
-  if (P.makeUnique(false, &Error)) {
-    Diag(clang::diag::err_unable_to_make_temp) << Error;
+  SmallString<128> Path;
+  llvm::error_code EC =
+      llvm::sys::fs::createTemporaryFile(Prefix, Suffix, Path);
+  if (EC) {
+    Diag(clang::diag::err_unable_to_make_temp) << EC.message();
     return "";
   }
 
-  // FIXME: Grumble, makeUnique sometimes leaves the file around!?  PR3837.
-  P.eraseFromDisk(false, 0);
-
-  if (Suffix)
-    P.appendSuffix(Suffix);
-  return P.str();
+  return Path.str();
 }
 
 /// \brief Compute target triple from args.

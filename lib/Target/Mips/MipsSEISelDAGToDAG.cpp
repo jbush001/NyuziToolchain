@@ -41,6 +41,31 @@ bool MipsSEDAGToDAGISel::runOnMachineFunction(MachineFunction &MF) {
   return MipsDAGToDAGISel::runOnMachineFunction(MF);
 }
 
+void MipsSEDAGToDAGISel::addDSPCtrlRegOperands(bool IsDef, MachineInstr &MI,
+                                               MachineFunction &MF) {
+  MachineInstrBuilder MIB(MF, &MI);
+  unsigned Mask = MI.getOperand(1).getImm();
+  unsigned Flag = IsDef ? RegState::ImplicitDefine : RegState::Implicit;
+
+  if (Mask & 1)
+    MIB.addReg(Mips::DSPPos, Flag);
+
+  if (Mask & 2)
+    MIB.addReg(Mips::DSPSCount, Flag);
+
+  if (Mask & 4)
+    MIB.addReg(Mips::DSPCarry, Flag);
+
+  if (Mask & 8)
+    MIB.addReg(Mips::DSPOutFlag, Flag);
+
+  if (Mask & 16)
+    MIB.addReg(Mips::DSPCCond, Flag);
+
+  if (Mask & 32)
+    MIB.addReg(Mips::DSPEFI, Flag);
+}
+
 bool MipsSEDAGToDAGISel::replaceUsesWithZeroReg(MachineRegisterInfo *MRI,
                                                 const MachineInstr& MI) {
   unsigned DstReg = 0, ZeroReg = 0;
@@ -178,12 +203,18 @@ void MipsSEDAGToDAGISel::processFunctionAfterISel(MachineFunction &MF) {
 
   for (MachineFunction::iterator MFI = MF.begin(), MFE = MF.end(); MFI != MFE;
        ++MFI)
-    for (MachineBasicBlock::iterator I = MFI->begin(); I != MFI->end(); ++I)
-      replaceUsesWithZeroReg(MRI, *I);
+    for (MachineBasicBlock::iterator I = MFI->begin(); I != MFI->end(); ++I) {
+      if (I->getOpcode() == Mips::RDDSP)
+        addDSPCtrlRegOperands(false, *I, MF);
+      else if (I->getOpcode() == Mips::WRDSP)
+        addDSPCtrlRegOperands(true, *I, MF);
+      else
+        replaceUsesWithZeroReg(MRI, *I);
+    }
 }
 
 SDNode *MipsSEDAGToDAGISel::selectAddESubE(unsigned MOp, SDValue InFlag,
-                                           SDValue CmpLHS, DebugLoc DL,
+                                           SDValue CmpLHS, SDLoc DL,
                                            SDNode *Node) const {
   unsigned Opc = InFlag.getOpcode(); (void)Opc;
 
@@ -195,7 +226,7 @@ SDNode *MipsSEDAGToDAGISel::selectAddESubE(unsigned MOp, SDValue InFlag,
   SDValue LHS = Node->getOperand(0), RHS = Node->getOperand(1);
   EVT VT = LHS.getValueType();
 
-  SDNode *Carry = CurDAG->getMachineNode(Mips::SLTu, DL, VT, Ops, 2);
+  SDNode *Carry = CurDAG->getMachineNode(Mips::SLTu, DL, VT, Ops);
   SDNode *AddCarry = CurDAG->getMachineNode(Mips::ADDu, DL, VT,
                                             SDValue(Carry, 0), RHS);
   return CurDAG->SelectNodeTo(Node, MOp, VT, MVT::Glue, LHS,
@@ -285,7 +316,7 @@ bool MipsSEDAGToDAGISel::selectIntAddr(SDValue Addr, SDValue &Base,
 
 std::pair<bool, SDNode*> MipsSEDAGToDAGISel::selectNode(SDNode *Node) {
   unsigned Opcode = Node->getOpcode();
-  DebugLoc DL = Node->getDebugLoc();
+  SDLoc DL(Node);
 
   ///
   // Instruction Selection not handled by the auto-generated
@@ -343,7 +374,7 @@ std::pair<bool, SDNode*> MipsSEDAGToDAGISel::selectNode(SDNode *Node) {
       AnalyzeImm.Analyze(Imm, Size, false);
 
     MipsAnalyzeImmediate::InstSeq::const_iterator Inst = Seq.begin();
-    DebugLoc DL = CN->getDebugLoc();
+    SDLoc DL(CN);
     SDNode *RegOpnd;
     SDValue ImmOpnd = CurDAG->getTargetConstant(SignExtend64<16>(Inst->ImmOpnd),
                                                 MVT::i64);
@@ -371,7 +402,7 @@ std::pair<bool, SDNode*> MipsSEDAGToDAGISel::selectNode(SDNode *Node) {
   }
 
   case MipsISD::ThreadPointer: {
-    EVT PtrVT = TLI.getPointerTy();
+    EVT PtrVT = getTargetLowering()->getPointerTy();
     unsigned RdhwrOpc, SrcReg, DestReg;
 
     if (PtrVT == MVT::i32) {
@@ -385,7 +416,7 @@ std::pair<bool, SDNode*> MipsSEDAGToDAGISel::selectNode(SDNode *Node) {
     }
 
     SDNode *Rdhwr =
-      CurDAG->getMachineNode(RdhwrOpc, Node->getDebugLoc(),
+      CurDAG->getMachineNode(RdhwrOpc, SDLoc(Node),
                              Node->getValueType(0),
                              CurDAG->getRegister(SrcReg, PtrVT));
     SDValue Chain = CurDAG->getCopyToReg(CurDAG->getEntryNode(), DL, DestReg,
@@ -404,7 +435,7 @@ std::pair<bool, SDNode*> MipsSEDAGToDAGISel::selectNode(SDNode *Node) {
     const SDValue Ops[] = { RegClass, Node->getOperand(0), LoIdx,
                             Node->getOperand(1), HiIdx };
     SDNode *Res = CurDAG->getMachineNode(TargetOpcode::REG_SEQUENCE, DL,
-                                         MVT::Untyped, Ops, 5);
+                                         MVT::Untyped, Ops);
     return std::make_pair(true, Res);
   }
   }

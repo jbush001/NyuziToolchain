@@ -84,6 +84,14 @@ void testMultipleStore(void *p) {
 #endif
 }
 
+// Test that div by zero does not get suppressed. This is a policy choice.
+int retZero() {
+  return 0;
+}
+int triggerDivZero () {
+  int y = retZero();
+  return 5/y; // expected-warning {{Division by zero}}
+}
 
 // --------------------------
 // "Suppression suppression"
@@ -141,6 +149,27 @@ void testTrackNullVariable() {
 #ifndef SUPPRESSED
   // expected-warning@-2 {{Dereference of null pointer}}
 #endif
+}
+
+void inlinedIsDifferent(int inlined) {
+  int i;
+
+  // We were erroneously picking up the inner stack frame's initialization,
+  // even though the error occurs in the outer stack frame!
+  int *p = inlined ? &i : getNull();
+
+  if (!inlined)
+    inlinedIsDifferent(1);
+
+  *p = 1;
+#ifndef SUPPRESSED
+  // expected-warning@-2 {{Dereference of null pointer}}
+#endif
+}
+
+void testInlinedIsDifferent() {
+  // <rdar://problem/13787723>
+  inlinedIsDifferent(0);
 }
 
 

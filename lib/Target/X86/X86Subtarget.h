@@ -165,6 +165,9 @@ protected:
   /// CallRegIndirect - True if the Calls with memory reference should be converted
   /// to a register-based indirect call.
   bool CallRegIndirect;
+  /// LEAUsesAG - True if the LEA instruction inputs have to be ready at
+  ///             address generation (AG) time.
+  bool LEAUsesAG;
 
   /// stackAlignment - The minimum alignment known to hold of the stack frame on
   /// entry to the function and which must be maintained by every function.
@@ -278,6 +281,7 @@ public:
   bool hasSlowDivide() const { return HasSlowDivide; }
   bool padShortFunctions() const { return PadShortFunctions; }
   bool callRegIndirect() const { return CallRegIndirect; }
+  bool LEAusesAG() const { return LEAUsesAG; }
 
   bool isAtom() const { return X86ProcFamily == IntelAtom; }
 
@@ -334,7 +338,13 @@ public:
   }
   bool isPICStyleStubAny() const {
     return PICStyle == PICStyles::StubDynamicNoPIC ||
-           PICStyle == PICStyles::StubPIC; }
+           PICStyle == PICStyles::StubPIC;
+  }
+
+  bool isCallingConvWin64(CallingConv::ID CC) const {
+    return (isTargetWin64() && CC != CallingConv::X86_64_SysV) ||
+           CC == CallingConv::X86_64_Win64;
+  }
 
   /// ClassifyGlobalReference - Classify a global variable reference for the
   /// current subtarget according to how we should reference it in a non-pcrel

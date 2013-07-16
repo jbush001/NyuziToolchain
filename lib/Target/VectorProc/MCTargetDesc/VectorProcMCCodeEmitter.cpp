@@ -100,7 +100,7 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
                   SmallVectorImpl<MCFixup> &Fixups) const {
 
   if (MO.isReg())
-    return Ctx.getRegisterInfo().getEncodingValue(MO.getReg());
+    return Ctx.getRegisterInfo()->getEncodingValue(MO.getReg());
 
   if (MO.isImm())
     return static_cast<unsigned>(MO.getImm());
@@ -170,7 +170,6 @@ void VectorProcMCCodeEmitter::
 EncodeInstruction(const MCInst &MI, raw_ostream &OS,
                          SmallVectorImpl<MCFixup> &Fixups) const {
   unsigned Opcode = MI.getOpcode();
-  const MCInstrDesc &Desc = MCII.get(Opcode);
   // Keep track of the current byte being emitted
   unsigned CurByte = 0;
 
@@ -192,7 +191,7 @@ getMemoryOpValue(const MCInst &MI, unsigned Op,
 	const MCOperand op1 = MI.getOperand(1);
 	// This is register/offset.  No need for relocation.
 	assert(op1.isReg() && "First operand is not register.");
-	encoding = Ctx.getRegisterInfo().getEncodingValue(op1.getReg());
+	encoding = Ctx.getRegisterInfo()->getEncodingValue(op1.getReg());
 
 	// Offset
 	MCOperand op2 = MI.getOperand(2);

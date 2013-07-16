@@ -43,7 +43,7 @@ namespace llvm {
 		virtual const char *getTargetNodeName(unsigned Opcode) const;
 		ConstraintType getConstraintType(const std::string &Constraint) const;
 		std::pair<unsigned, const TargetRegisterClass*>
-			getRegForInlineAsmConstraint(const std::string &Constraint, EVT VT) const;
+			getRegForInlineAsmConstraint(const std::string &Constraint, MVT VT) const;
 		virtual bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const;
 		SDValue LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const;
@@ -52,18 +52,18 @@ namespace llvm {
 		SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerConstant(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerFDIV(SDValue Op, SelectionDAG &DAG) const;
-		EVT getSetCCResultType(EVT VT) const;
+		EVT getSetCCResultType(LLVMContext &Context, EVT VT) const;
 		virtual SDValue LowerReturn(SDValue Chain,
 			CallingConv::ID CallConv, bool isVarArg,
 			const SmallVectorImpl<ISD::OutputArg> &Outs,
 			const SmallVectorImpl<SDValue> &OutVals,
-			DebugLoc dl, SelectionDAG &DAG) const;
+			SDLoc dl, SelectionDAG &DAG) const;
 		SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
 		virtual SDValue LowerFormalArguments(SDValue Chain,
 			CallingConv::ID CallConv,
 			bool isVarArg,
 			const SmallVectorImpl<ISD::InputArg> &Ins,
-			DebugLoc dl, SelectionDAG &DAG,
+			SDLoc dl, SelectionDAG &DAG,
 			SmallVectorImpl<SDValue> &InVals) const;
 		virtual SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
 			SmallVectorImpl<SDValue> &InVals) const;

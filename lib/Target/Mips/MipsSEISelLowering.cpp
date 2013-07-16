@@ -52,6 +52,12 @@ MipsSETargetLowering::MipsSETargetLowering(MipsTargetMachine &TM)
       setOperationAction(ISD::STORE, VecTys[i], Legal);
       setOperationAction(ISD::BITCAST, VecTys[i], Legal);
     }
+
+    setTargetDAGCombine(ISD::SHL);
+    setTargetDAGCombine(ISD::SRA);
+    setTargetDAGCombine(ISD::SRL);
+    setTargetDAGCombine(ISD::SETCC);
+    setTargetDAGCombine(ISD::VSELECT);
   }
 
   if (Subtarget->hasDSPR2())
@@ -87,13 +93,13 @@ MipsSETargetLowering::MipsSETargetLowering(MipsTargetMachine &TM)
   setOperationAction(ISD::UDIVREM, MVT::i32, Custom);
   setOperationAction(ISD::SDIVREM, MVT::i64, Custom);
   setOperationAction(ISD::UDIVREM, MVT::i64, Custom);
-  setOperationAction(ISD::MEMBARRIER,         MVT::Other, Custom);
   setOperationAction(ISD::ATOMIC_FENCE,       MVT::Other, Custom);
   setOperationAction(ISD::LOAD,               MVT::i32, Custom);
   setOperationAction(ISD::STORE,              MVT::i32, Custom);
 
   setTargetDAGCombine(ISD::ADDE);
   setTargetDAGCombine(ISD::SUBE);
+  setTargetDAGCombine(ISD::MUL);
 
   computeRegisterProperties();
 }
@@ -128,7 +134,8 @@ SDValue MipsSETargetLowering::LowerOperation(SDValue Op,
   case ISD::MULHU:     return lowerMulDiv(Op, MipsISD::Multu, false, true, DAG);
   case ISD::MUL:       return lowerMulDiv(Op, MipsISD::Mult, true, false, DAG);
   case ISD::SDIVREM:   return lowerMulDiv(Op, MipsISD::DivRem, true, true, DAG);
-  case ISD::UDIVREM:   return lowerMulDiv(Op, MipsISD::DivRemU, true, true, DAG);
+  case ISD::UDIVREM:   return lowerMulDiv(Op, MipsISD::DivRemU, true, true,
+                                          DAG);
   case ISD::INTRINSIC_WO_CHAIN: return lowerINTRINSIC_WO_CHAIN(Op, DAG);
   case ISD::INTRINSIC_W_CHAIN:  return lowerINTRINSIC_W_CHAIN(Op, DAG);
   }
@@ -180,7 +187,7 @@ static bool selectMADD(SDNode *ADDENode, SelectionDAG *CurDAG) {
   if (!MultHi.hasOneUse() || !MultLo.hasOneUse())
     return false;
 
-  DebugLoc DL = ADDENode->getDebugLoc();
+  SDLoc DL(ADDENode);
 
   // Initialize accumulator.
   SDValue ACCIn = CurDAG->getNode(MipsISD::InsertLOHI, DL, MVT::Untyped,
@@ -256,7 +263,7 @@ static bool selectMSUB(SDNode *SUBENode, SelectionDAG *CurDAG) {
   if (!MultHi.hasOneUse() || !MultLo.hasOneUse())
     return false;
 
-  DebugLoc DL = SUBENode->getDebugLoc();
+  SDLoc DL(SUBENode);
 
   // Initialize accumulator.
   SDValue ACCIn = CurDAG->getNode(MipsISD::InsertLOHI, DL, MVT::Untyped,
@@ -314,18 +321,189 @@ static SDValue performSUBECombine(SDNode *N, SelectionDAG &DAG,
   return SDValue();
 }
 
+static SDValue genConstMult(SDValue X, uint64_t C, SDLoc DL, EVT VT,
+                            EVT ShiftTy, SelectionDAG &DAG) {
+  // Clear the upper (64 - VT.sizeInBits) bits.
+  C &= ((uint64_t)-1) >> (64 - VT.getSizeInBits());
+
+  // Return 0.
+  if (C == 0)
+    return DAG.getConstant(0, VT);
+
+  // Return x.
+  if (C == 1)
+    return X;
+
+  // If c is power of 2, return (shl x, log2(c)).
+  if (isPowerOf2_64(C))
+    return DAG.getNode(ISD::SHL, DL, VT, X,
+                       DAG.getConstant(Log2_64(C), ShiftTy));
+
+  unsigned Log2Ceil = Log2_64_Ceil(C);
+  uint64_t Floor = 1LL << Log2_64(C);
+  uint64_t Ceil = Log2Ceil == 64 ? 0LL : 1LL << Log2Ceil;
+
+  // If |c - floor_c| <= |c - ceil_c|,
+  // where floor_c = pow(2, floor(log2(c))) and ceil_c = pow(2, ceil(log2(c))),
+  // return (add constMult(x, floor_c), constMult(x, c - floor_c)).
+  if (C - Floor <= Ceil - C) {
+    SDValue Op0 = genConstMult(X, Floor, DL, VT, ShiftTy, DAG);
+    SDValue Op1 = genConstMult(X, C - Floor, DL, VT, ShiftTy, DAG);
+    return DAG.getNode(ISD::ADD, DL, VT, Op0, Op1);
+  }
+
+  // If |c - floor_c| > |c - ceil_c|,
+  // return (sub constMult(x, ceil_c), constMult(x, ceil_c - c)).
+  SDValue Op0 = genConstMult(X, Ceil, DL, VT, ShiftTy, DAG);
+  SDValue Op1 = genConstMult(X, Ceil - C, DL, VT, ShiftTy, DAG);
+  return DAG.getNode(ISD::SUB, DL, VT, Op0, Op1);
+}
+
+static SDValue performMULCombine(SDNode *N, SelectionDAG &DAG,
+                                 const TargetLowering::DAGCombinerInfo &DCI,
+                                 const MipsSETargetLowering *TL) {
+  EVT VT = N->getValueType(0);
+
+  if (ConstantSDNode *C = dyn_cast<ConstantSDNode>(N->getOperand(1)))
+    if (!VT.isVector())
+      return genConstMult(N->getOperand(0), C->getZExtValue(), SDLoc(N),
+                          VT, TL->getScalarShiftAmountTy(VT), DAG);
+
+  return SDValue(N, 0);
+}
+
+static SDValue performDSPShiftCombine(unsigned Opc, SDNode *N, EVT Ty,
+                                      SelectionDAG &DAG,
+                                      const MipsSubtarget *Subtarget) {
+  // See if this is a vector splat immediate node.
+  APInt SplatValue, SplatUndef;
+  unsigned SplatBitSize;
+  bool HasAnyUndefs;
+  unsigned EltSize = Ty.getVectorElementType().getSizeInBits();
+  BuildVectorSDNode *BV = dyn_cast<BuildVectorSDNode>(N->getOperand(1));
+
+  if (!BV ||
+      !BV->isConstantSplat(SplatValue, SplatUndef, SplatBitSize, HasAnyUndefs,
+                           EltSize, !Subtarget->isLittle()) ||
+      (SplatBitSize != EltSize) ||
+      (SplatValue.getZExtValue() >= EltSize))
+    return SDValue();
+
+  return DAG.getNode(Opc, SDLoc(N), Ty, N->getOperand(0),
+                     DAG.getConstant(SplatValue.getZExtValue(), MVT::i32));
+}
+
+static SDValue performSHLCombine(SDNode *N, SelectionDAG &DAG,
+                                 TargetLowering::DAGCombinerInfo &DCI,
+                                 const MipsSubtarget *Subtarget) {
+  EVT Ty = N->getValueType(0);
+
+  if ((Ty != MVT::v2i16) && (Ty != MVT::v4i8))
+    return SDValue();
+
+  return performDSPShiftCombine(MipsISD::SHLL_DSP, N, Ty, DAG, Subtarget);
+}
+
+static SDValue performSRACombine(SDNode *N, SelectionDAG &DAG,
+                                 TargetLowering::DAGCombinerInfo &DCI,
+                                 const MipsSubtarget *Subtarget) {
+  EVT Ty = N->getValueType(0);
+
+  if ((Ty != MVT::v2i16) && ((Ty != MVT::v4i8) || !Subtarget->hasDSPR2()))
+    return SDValue();
+
+  return performDSPShiftCombine(MipsISD::SHRA_DSP, N, Ty, DAG, Subtarget);
+}
+
+
+static SDValue performSRLCombine(SDNode *N, SelectionDAG &DAG,
+                                 TargetLowering::DAGCombinerInfo &DCI,
+                                 const MipsSubtarget *Subtarget) {
+  EVT Ty = N->getValueType(0);
+
+  if (((Ty != MVT::v2i16) || !Subtarget->hasDSPR2()) && (Ty != MVT::v4i8))
+    return SDValue();
+
+  return performDSPShiftCombine(MipsISD::SHRL_DSP, N, Ty, DAG, Subtarget);
+}
+
+static bool isLegalDSPCondCode(EVT Ty, ISD::CondCode CC) {
+  bool IsV216 = (Ty == MVT::v2i16);
+
+  switch (CC) {
+  case ISD::SETEQ:
+  case ISD::SETNE:  return true;
+  case ISD::SETLT:
+  case ISD::SETLE:
+  case ISD::SETGT:
+  case ISD::SETGE:  return IsV216;
+  case ISD::SETULT:
+  case ISD::SETULE:
+  case ISD::SETUGT:
+  case ISD::SETUGE: return !IsV216;
+  default:          return false;
+  }
+}
+
+static SDValue performSETCCCombine(SDNode *N, SelectionDAG &DAG) {
+  EVT Ty = N->getValueType(0);
+
+  if ((Ty != MVT::v2i16) && (Ty != MVT::v4i8))
+    return SDValue();
+
+  if (!isLegalDSPCondCode(Ty, cast<CondCodeSDNode>(N->getOperand(2))->get()))
+    return SDValue();
+
+  return DAG.getNode(MipsISD::SETCC_DSP, SDLoc(N), Ty, N->getOperand(0),
+                     N->getOperand(1), N->getOperand(2));
+}
+
+static SDValue performVSELECTCombine(SDNode *N, SelectionDAG &DAG) {
+  EVT Ty = N->getValueType(0);
+
+  if ((Ty != MVT::v2i16) && (Ty != MVT::v4i8))
+    return SDValue();
+
+  SDValue SetCC = N->getOperand(0);
+
+  if (SetCC.getOpcode() != MipsISD::SETCC_DSP)
+    return SDValue();
+
+  return DAG.getNode(MipsISD::SELECT_CC_DSP, SDLoc(N), Ty,
+                     SetCC.getOperand(0), SetCC.getOperand(1), N->getOperand(1),
+                     N->getOperand(2), SetCC.getOperand(2));
+}
+
 SDValue
 MipsSETargetLowering::PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const {
   SelectionDAG &DAG = DCI.DAG;
+  SDValue Val;
 
   switch (N->getOpcode()) {
   case ISD::ADDE:
     return performADDECombine(N, DAG, DCI, Subtarget);
   case ISD::SUBE:
     return performSUBECombine(N, DAG, DCI, Subtarget);
-  default:
-    return MipsTargetLowering::PerformDAGCombine(N, DCI);
+  case ISD::MUL:
+    return performMULCombine(N, DAG, DCI, this);
+  case ISD::SHL:
+    return performSHLCombine(N, DAG, DCI, Subtarget);
+  case ISD::SRA:
+    return performSRACombine(N, DAG, DCI, Subtarget);
+  case ISD::SRL:
+    return performSRLCombine(N, DAG, DCI, Subtarget);
+  case ISD::VSELECT:
+    return performVSELECTCombine(N, DAG);
+  case ISD::SETCC: {
+    Val = performSETCCCombine(N, DAG);
+    break;
   }
+  }
+
+  if (Val.getNode())
+    return Val;
+
+  return MipsTargetLowering::PerformDAGCombine(N, DCI);
 }
 
 MachineBasicBlock *
@@ -376,7 +554,7 @@ SDValue MipsSETargetLowering::lowerMulDiv(SDValue Op, unsigned NewOpc,
                                           bool HasLo, bool HasHi,
                                           SelectionDAG &DAG) const {
   EVT Ty = Op.getOperand(0).getValueType();
-  DebugLoc DL = Op.getDebugLoc();
+  SDLoc DL(Op);
   SDValue Mult = DAG.getNode(NewOpc, DL, MVT::Untyped,
                              Op.getOperand(0), Op.getOperand(1));
   SDValue Lo, Hi;
@@ -396,7 +574,7 @@ SDValue MipsSETargetLowering::lowerMulDiv(SDValue Op, unsigned NewOpc,
 }
 
 
-static SDValue initAccumulator(SDValue In, DebugLoc DL, SelectionDAG &DAG) {
+static SDValue initAccumulator(SDValue In, SDLoc DL, SelectionDAG &DAG) {
   SDValue InLo = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, In,
                              DAG.getConstant(0, MVT::i32));
   SDValue InHi = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, In,
@@ -404,7 +582,7 @@ static SDValue initAccumulator(SDValue In, DebugLoc DL, SelectionDAG &DAG) {
   return DAG.getNode(MipsISD::InsertLOHI, DL, MVT::Untyped, InLo, InHi);
 }
 
-static SDValue extractLOHI(SDValue Op, DebugLoc DL, SelectionDAG &DAG) {
+static SDValue extractLOHI(SDValue Op, SDLoc DL, SelectionDAG &DAG) {
   SDValue Lo = DAG.getNode(MipsISD::ExtractLOHI, DL, MVT::i32, Op,
                            DAG.getConstant(Mips::sub_lo, MVT::i32));
   SDValue Hi = DAG.getNode(MipsISD::ExtractLOHI, DL, MVT::i32, Op,
@@ -425,7 +603,7 @@ static SDValue extractLOHI(SDValue Op, DebugLoc DL, SelectionDAG &DAG) {
 // out64 = merge-values (v0, v1)
 //
 static SDValue lowerDSPIntr(SDValue Op, SelectionDAG &DAG, unsigned Opc) {
-  DebugLoc DL = Op.getDebugLoc();
+  SDLoc DL(Op);
   bool HasChainIn = Op->getOperand(0).getValueType() == MVT::Other;
   SmallVector<SDValue, 3> Ops;
   unsigned OpNo = 0;

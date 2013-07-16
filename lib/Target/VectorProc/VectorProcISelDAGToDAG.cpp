@@ -66,7 +66,7 @@ private:
 
 SDNode* VectorProcDAGToDAGISel::getGlobalBaseReg() {
   unsigned GlobalBaseReg = TM.getInstrInfo()->getGlobalBaseReg(MF);
-  return CurDAG->getRegister(GlobalBaseReg, TLI.getPointerTy()).getNode();
+  return CurDAG->getRegister(GlobalBaseReg, getTargetLowering()->getPointerTy()).getNode();
 }
 
 bool VectorProcDAGToDAGISel::SelectADDRri(SDValue Addr,
@@ -102,7 +102,6 @@ bool VectorProcDAGToDAGISel::SelectADDRri(SDValue Addr,
 
 
 SDNode *VectorProcDAGToDAGISel::Select(SDNode *N) {
-  DebugLoc dl = N->getDebugLoc();
   if (N->isMachineOpcode())
     return NULL;   // Already selected.
 

@@ -60,10 +60,8 @@ static MCCodeGenInfo *createVectorProcMCCodeGenInfo(StringRef TT, Reloc::Model R
   return X;
 }
 
-static MCAsmInfo *createVectorProcMCAsmInfo(const Target &T, StringRef TT) {
-  Triple TheTriple(TT);
-
-  return new VectorProcMCAsmInfo(T, TT);
+static MCAsmInfo *createVectorProcMCAsmInfo(const MCRegisterInfo &MRI, StringRef TT) {
+  return new VectorProcMCAsmInfo(TT);
 }
 
 static MCStreamer *createVectorProcMCStreamer(const Target &T, StringRef TT,

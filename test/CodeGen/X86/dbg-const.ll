@@ -1,14 +1,26 @@
 ; RUN: llc < %s - | FileCheck %s
+;
+; FIXME: A potentially more interesting test case would be:
+; %call = @bar()
+; dbg.value j=0
+; %call2 = @bar()
+; dbg.value j=%call
+;
+; We cannot current handle the above sequence because codegenprepare
+; hoists the second dbg.value above %call2, which then appears to
+; conflict with j=0. It does this because SelectionDAG cannot handle
+; global debug values.
+
 target triple = "x86_64-apple-darwin10.0.0"
 
 ;CHECK:        ## DW_OP_constu
 ;CHECK-NEXT:  .byte	42
 define i32 @foobar() nounwind readonly noinline ssp {
 entry:
-  %call = tail call i32 @bar(), !dbg !11
   tail call void @llvm.dbg.value(metadata !8, i64 0, metadata !6), !dbg !9
-  %call2 = tail call i32 @bar(), !dbg !11
+  %call = tail call i32 @bar(), !dbg !11
   tail call void @llvm.dbg.value(metadata !{i32 %call}, i64 0, metadata !6), !dbg !11
+  %call2 = tail call i32 @bar(), !dbg !11
   %add = add nsw i32 %call2, %call, !dbg !12
   ret i32 %add, !dbg !10
 }
@@ -20,7 +32,7 @@ declare i32 @bar() nounwind readnone
 
 !0 = metadata !{i32 786478, metadata !1, metadata !"foobar", metadata !"foobar", metadata !"foobar", metadata !1, i32 12, metadata !3, i1 false, i1 true, i32 0, i32 0, null, i1 false, i1 true, i32 ()* @foobar, null, null, metadata !14, i32 0} ; [ DW_TAG_subprogram ]
 !1 = metadata !{i32 786473, metadata !15} ; [ DW_TAG_file_type ]
-!2 = metadata !{i32 786449, i32 12, metadata !1, metadata !"clang version 2.9 (trunk 114183)", i1 true, metadata !"", i32 0, null, null, metadata !13, null, metadata !""} ; [ DW_TAG_compile_unit ]
+!2 = metadata !{i32 786449, i32 12, metadata !1, metadata !"clang version 2.9 (trunk 114183)", i1 true, metadata !"", i32 0, null, null, metadata !13, null,  null, metadata !""} ; [ DW_TAG_compile_unit ]
 !3 = metadata !{i32 786453, metadata !1, metadata !"", metadata !1, i32 0, i64 0, i64 0, i64 0, i32 0, null, metadata !4, i32 0, null}
 !4 = metadata !{metadata !5}
 !5 = metadata !{i32 786468, metadata !1, metadata !"int", metadata !1, i32 0, i64 32, i64 32, i64 0, i32 0, i32 5}

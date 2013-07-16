@@ -122,7 +122,6 @@ namespace {
   class XorOpnd {
   public:
     XorOpnd(Value *V);
-    const XorOpnd &operator=(const XorOpnd &That);
 
     bool isInvalid() const { return SymbolicPart == 0; }
     bool isOrExpr() const { return isOr; }
@@ -223,15 +222,6 @@ XorOpnd::XorOpnd(Value *V) {
   SymbolicPart = V;
   ConstPart = APInt::getNullValue(V->getType()->getIntegerBitWidth());
   isOr = true;
-}
-
-const XorOpnd &XorOpnd::operator=(const XorOpnd &That) {
-  OrigVal = That.OrigVal;
-  SymbolicPart = That.SymbolicPart;
-  ConstPart = That.ConstPart;
-  SymbolicRank = That.SymbolicRank;
-  isOr = That.isOr;
-  return *this;
 }
 
 char Reassociate::ID = 0;
@@ -1195,9 +1185,6 @@ bool Reassociate::CombineXorOpnd(Instruction *I, XorOpnd *Opnd1, XorOpnd *Opnd2,
   if (X != Opnd2->getSymbolicPart())
     return false;
 
-  const APInt &C1 = Opnd1->getConstPart();
-  const APInt &C2 = Opnd2->getConstPart();
-
   // This many instruction become dead.(At least "Opnd1 ^ Opnd2" will die.)
   int DeadInstNum = 1;
   if (Opnd1->getValue()->hasOneUse())
@@ -1215,6 +1202,8 @@ bool Reassociate::CombineXorOpnd(Instruction *I, XorOpnd *Opnd1, XorOpnd *Opnd2,
     if (Opnd2->isOrExpr())
       std::swap(Opnd1, Opnd2);
 
+    const APInt &C1 = Opnd1->getConstPart();
+    const APInt &C2 = Opnd2->getConstPart();
     APInt C3((~C1) ^ C2);
 
     // Do not increase code size!
@@ -1230,6 +1219,8 @@ bool Reassociate::CombineXorOpnd(Instruction *I, XorOpnd *Opnd1, XorOpnd *Opnd2,
   } else if (Opnd1->isOrExpr()) {
     // Xor-Rule 3: (x | c1) ^ (x | c2) = (x & c3) ^ c3 where c3 = c1 ^ c2
     //
+    const APInt &C1 = Opnd1->getConstPart();
+    const APInt &C2 = Opnd2->getConstPart();
     APInt C3 = C1 ^ C2;
     
     // Do not increase code size
@@ -1244,6 +1235,8 @@ bool Reassociate::CombineXorOpnd(Instruction *I, XorOpnd *Opnd1, XorOpnd *Opnd2,
   } else {
     // Xor-Rule 4: (x & c1) ^ (x & c2) = (x & (c1^c2))
     //
+    const APInt &C1 = Opnd1->getConstPart();
+    const APInt &C2 = Opnd2->getConstPart();
     APInt C3 = C1 ^ C2;
     Res = createAndInstr(I, X, C3);
   }
