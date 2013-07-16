@@ -59,6 +59,8 @@ uint16_t ELFTargetInfo::getOutputMachine() const {
     return llvm::ELF::EM_HEXAGON;
   case llvm::Triple::ppc:
     return llvm::ELF::EM_PPC;
+  case llvm::Triple::vectorproc:
+    return llvm::ELF::EM_VECTORPROC;
   default:
     llvm_unreachable("Unhandled arch");
   }
@@ -130,6 +132,8 @@ std::unique_ptr<ELFTargetInfo> ELFTargetInfo::create(llvm::Triple triple) {
         ELFTargetInfo>(new lld::elf::HexagonTargetInfo(triple));
   case llvm::Triple::ppc:
     return std::unique_ptr<ELFTargetInfo>(new lld::elf::PPCTargetInfo(triple));
+  case llvm::Triple::vectorproc:
+    return std::unique_ptr<ELFTargetInfo>(new lld::elf::VectorProcTargetInfo(triple));
   default:
     return nullptr;
   }
