@@ -48,7 +48,8 @@ public:
 	    Value >>= 2;	// Divide by 4 for memory access offsets (XXX will be changed in ISA)
 		break;
 	
-	  default:
+	  case VectorProc::fixup_VectorProc_PCRel_Branch:
+	    Value -= 4;		// Branch source is PC + 4
 	    break;
     }
     
