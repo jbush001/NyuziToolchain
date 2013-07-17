@@ -1,8 +1,8 @@
-This is a port of LLVM and the clang compiler an experimental GPGPU architecture (https://github.com/jbush001/GPGPU). It's currently a work in progress and only partially functional.
+This is a port of LLVM and the clang compiler an experimental GPGPU architecture (https://github.com/jbush001/GPGPU). 
 
 ## To build:
 
-### Create a build directory outside the llvm/ directory (usually at the same level)
+### Create a build directory within the llvm/ directory
 
 <pre>
 mkdir build
@@ -11,19 +11,30 @@ cd build
 
 ### Configure and build:
 This requires a newer version of a compiler that supports c++11.
-cmake must be installed (http://www.cmake.org/)
-Note that -stdlib=libc++ is required on MacOS to pick up the correct libc.  This may differ on other platforms.
+cmake must be installed (http://www.cmake.org/). 
+* Note that there is also a 'configure' script in the directory.  It doesn't work, because lld specifically is cmake only.
+* -stdlib=libc++ is required on MacOS to pick up the correct libc.  This may differ on other platforms.
+* MAKE_INSTALL_PREFIX will put this in a different path than the default compiler.  Since this only builds for VectorProc, be careful not to overwrite your system compiler.
+
 <pre>
 cd build
-cmake   -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++11 -stdlib=libc++" -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGET_ARCH="VectorProc" ../llvm
+cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++11 -stdlib=libc++"  -DLLVM_TARGET_ARCH="VectorProc" ../llvm
 make
 </pre>
 
 ### To run compiler
 
 <pre>
-./bin/clang &lt;test_program.c&gt; -S -o -
+./bin/clang -target vectorproc &lt;test_program.c&gt; -S -o -
 </pre>
+
+Or
+
+<pre>
+/usr/local/llvm-vectorproc/clang -c -integrated-as -target vectorproc &lt;test_program.c&gt; 
+/usr/local/llvm-vectorproc/ lld -flavor gnu -target vectorproc  -static &lt;test_program.o&gt;
+</pre>
+
 
 ## Running unit tests
 
