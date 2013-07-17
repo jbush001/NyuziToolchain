@@ -20,6 +20,7 @@ cmake must be installed (http://www.cmake.org/).
 cd build
 cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++11 -stdlib=libc++"  -DLLVM_TARGET_ARCH="VectorProc" ../llvm
 make
+make install
 </pre>
 
 ### To run compiler
