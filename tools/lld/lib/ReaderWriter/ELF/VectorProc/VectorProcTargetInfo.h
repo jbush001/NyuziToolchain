@@ -30,6 +30,14 @@ public:
   	return ref.kind() == R_VECTORPROC_BRANCH; 
   }
 
+  virtual uint64_t getBaseAddress() const {
+    return 0;
+  }
+
+  virtual uint64_t getPageSize() const { 
+    return 0; 
+  }
+
   virtual ErrorOr<Reference::Kind> relocKindFromString(StringRef str) const;
   virtual ErrorOr<std::string> stringFromRelocKind(Reference::Kind kind) const;
 };
