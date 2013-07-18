@@ -59,6 +59,7 @@ public:
   virtual MachineLocation getDebugValueLocation(const MachineInstr *MI) const;
   virtual void EmitFunctionBodyStart();
   virtual void EmitFunctionBodyEnd();
+  virtual void EmitConstantPool();
 };
 }
 

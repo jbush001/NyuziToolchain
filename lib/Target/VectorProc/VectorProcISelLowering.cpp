@@ -16,7 +16,6 @@
 #include "VectorProcISelLowering.h"
 #include "VectorProcMachineFunctionInfo.h"
 #include "VectorProcTargetMachine.h"
-#include "VectorProcTargetLoweringObjectFile.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -421,7 +420,7 @@ VectorProcTargetLowering::getSRetArgSize(SelectionDAG &DAG, SDValue Callee) cons
 }
 
 VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
-	: TargetLowering(TM, new VectorProcTargetLoweringObjectFile()) 
+	: TargetLowering(TM, new TargetLoweringObjectFileELF()) 
 {
 	Subtarget = &TM.getSubtarget<VectorProcSubtarget>();
 
