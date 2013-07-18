@@ -15,7 +15,7 @@
 
 namespace lld {
 namespace elf {
-typedef llvm::object::ELFType<llvm::support::big, 4, false> VectorProcELFType;
+typedef llvm::object::ELFType<llvm::support::little, 4, false> VectorProcELFType;
 class VectorProcTargetInfo;
 
 class VectorProcTargetRelocationHandler LLVM_FINAL
