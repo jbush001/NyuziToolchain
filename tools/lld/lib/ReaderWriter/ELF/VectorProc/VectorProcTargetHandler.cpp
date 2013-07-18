@@ -23,7 +23,7 @@ int relocBRANCH(uint8_t *location, uint64_t relocAddr, uint64_t target, uint64_t
     offset &= 0xfffff;
     *reinterpret_cast<llvm::support::ulittle32_t *>(location) = 
                ((uint32_t)*reinterpret_cast<llvm::support::ulittle32_t *>(location)
-               & ~(0xfffff << 5)) | ((offset - 4) << 5);
+               & ~(0xfffff << 5)) | (offset << 5);
     return 0;
   }
   return 1;
