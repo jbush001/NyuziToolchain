@@ -35,7 +35,7 @@ public:
   }
 
   virtual uint64_t getPageSize() const { 
-    return 0; 
+    return 1; 
   }
 
   virtual ErrorOr<Reference::Kind> relocKindFromString(StringRef str) const;
