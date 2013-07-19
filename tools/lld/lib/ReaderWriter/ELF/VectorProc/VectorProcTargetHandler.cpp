@@ -30,7 +30,7 @@ int relocBRANCH(uint8_t *location, uint64_t relocAddr, uint64_t target, uint64_t
 }
 
 int relocABS32(uint8_t *location, uint64_t relocAddr, uint64_t target, uint64_t addend) {
-    *reinterpret_cast<llvm::support::ulittle32_t *>(location) = target;
+    *reinterpret_cast<llvm::support::ulittle32_t *>(location) = target + addend;
     return 0;
 }
 
