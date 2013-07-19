@@ -103,24 +103,23 @@ class FormatAInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	: VPInstruction<outputs, inputs, asmString, pattern>
 {
 	bits <5> dest;
-	bits <5> src1;
 
 	let Inst{31-29} = 6;
 	let Inst{28-26} = fmt.Value;
 	let Inst{25-20} = opcode;
 	let Inst{9-5} = dest;
-	let Inst{4-0} = src1;
 }
 
-class FormatAUnmaskedTwoOpInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
+class FormatAUnmaskedOneOpInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	bits<6> opcode, AFmt fmt> 
 	: FormatAInst<outputs, inputs, asmString, pattern, opcode, fmt>
 {
 	bits <5> src2;
 	let Inst{19-15} = src2;
+	let Inst{4-0} = 0;
 }
 
-class FormatAMaskedTwoOpInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
+class FormatAMaskedOneOpInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	bits<6> opcode, AFmt fmt> 
 	: FormatAInst<outputs, inputs, asmString, pattern, opcode, fmt>
 {
@@ -128,6 +127,29 @@ class FormatAMaskedTwoOpInst<dag outputs, dag inputs, string asmString, list<dag
 	bits <5> mask;
 	let Inst{19-15} = src2;
 	let Inst{14-10} = mask;
+	let Inst{4-0} = 0;
+}
+
+class FormatAUnmaskedTwoOpInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
+	bits<6> opcode, AFmt fmt> 
+	: FormatAInst<outputs, inputs, asmString, pattern, opcode, fmt>
+{
+	bits <5> src1;
+	bits <5> src2;
+	let Inst{19-15} = src2;
+	let Inst{4-0} = src1;
+}
+
+class FormatAMaskedTwoOpInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
+	bits<6> opcode, AFmt fmt> 
+	: FormatAInst<outputs, inputs, asmString, pattern, opcode, fmt>
+{
+	bits <5> src1;
+	bits <5> src2;
+	bits <5> mask;
+	let Inst{19-15} = src2;
+	let Inst{14-10} = mask;
+	let Inst{4-0} = src1;
 }
 
 class BFmt<bits<3> val> {
@@ -325,31 +347,47 @@ multiclass TwoOpFloatArith<string operator, SDNode OpNode, bits<6> opcode>
 }
 
 multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
-	def S : FormatAInst<
+	def SS : FormatAUnmaskedOneOpInst<
 		(outs ScalarReg:$dest), 
-		(ins ScalarReg:$src1),
-		operator # " $dest, $src1",
-		[(set i32:$dest, (OpNode i32:$src1))],
+		(ins ScalarReg:$src2),
+		operator # " $dest, $src2",
+		[(set i32:$dest, (OpNode i32:$src2))],
 		opcode,
 		FmtA_SSS>;
 
-	def V : FormatAInst<
+	def VS : FormatAUnmaskedOneOpInst<
 		(outs VectorReg:$dest), 
-		(ins VectorReg:$src1),
-		operator # " $dest, $src1",
-		[(set v16i32:$dest, (OpNode v16i32:$src1))],
+		(ins ScalarReg:$src2),
+		operator # " $dest, $src2",
+		[(set v16i32:$dest, (OpNode (splat i32:$src2)))],
+		opcode,
+		FmtA_VVS>;
+
+	def VV : FormatAUnmaskedOneOpInst<
+		(outs VectorReg:$dest), 
+		(ins VectorReg:$src2),
+		operator # " $dest, $src2",
+		[(set v16i32:$dest, (OpNode v16i32:$src2))],
 		opcode,
 		FmtA_VVV>;
 
 	// Predicated
 	let Constraints = "$dest = $oldvalue" in {
-		def VM : FormatAInst<
+		def VVM : FormatAMaskedOneOpInst<
 			(outs VectorReg:$dest),
-			(ins ScalarReg:$mask, VectorReg:$src, VectorReg:$oldvalue),
-			operator # ".mask $dest, $mask, $src",
-			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src), v16i32:$oldvalue))],
+			(ins ScalarReg:$mask, VectorReg:$src2, VectorReg:$oldvalue),
+			operator # ".mask $dest, $mask, $src2",
+			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode v16i32:$src2), v16i32:$oldvalue))],
 			opcode,
 			FmtA_VVVM>;
+
+		def VSM : FormatAMaskedOneOpInst<
+			(outs VectorReg:$dest),
+			(ins ScalarReg:$mask, ScalarReg:$src2, VectorReg:$oldvalue),
+			operator # ".mask $dest, $mask, $src2",
+			[(set v16i32:$dest, (vselect v16i1:$mask, (OpNode (splat i32:$src2)), v16i32:$oldvalue))],
+			opcode,
+			FmtA_VVSM>;
 	}
 }
 

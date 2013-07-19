@@ -59,7 +59,7 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const
 		++MBBI;
 
 	// fp = sp
-	BuildMI(MBB, MBBI, dl, TII.get(VectorProc::MOVEREG)).addReg(VectorProc::FP_REG)
+	BuildMI(MBB, MBBI, dl, TII.get(VectorProc::MOVESS)).addReg(VectorProc::FP_REG)
 		.addReg(VectorProc::SP_REG);
 }
 

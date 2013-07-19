@@ -115,7 +115,7 @@ void VectorProcInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                  unsigned DestReg, unsigned SrcReg,
                                  bool KillSrc) const 
 {
-	BuildMI(MBB, I, DL, get(VectorProc::MOVEREG), DestReg).addReg(SrcReg, 
+	BuildMI(MBB, I, DL, get(VectorProc::MOVESS), DestReg).addReg(SrcReg, 
 		getKillRegState(KillSrc));
 }
 

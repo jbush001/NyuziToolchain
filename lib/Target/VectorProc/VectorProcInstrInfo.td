@@ -34,62 +34,54 @@ defm CLZ_ZU	: OneOpIntArith<"clz", ctlz_zero_undef, 0x0c>;
 defm CTZ_ZU	: OneOpIntArith<"ctz", cttz_zero_undef, 0x0e>;
 defm RECIP  : OneOpFloatArith<"reciprocal", reciprocal, 0x1c>;
 
-def SEXT16 : FormatAInst<
+def SEXT16 : FormatAUnmaskedOneOpInst<
 		(outs ScalarReg:$dest), 
-		(ins ScalarReg:$src),
-		"sext.16 $dest, $src",
-		[(set ScalarReg:$dest, (sext_inreg i32:$src, i16))],
+		(ins ScalarReg:$src2),
+		"sext.16 $dest, $src2",
+		[(set ScalarReg:$dest, (sext_inreg i32:$src2, i16))],
 		0x1e,
 		FmtA_SSS>;
 
-def SEXT8 : FormatAInst<
+def SEXT8 : FormatAUnmaskedOneOpInst<
 		(outs ScalarReg:$dest), 
-		(ins ScalarReg:$src),
-		"sext.8 $dest, $src",
-		[(set ScalarReg:$dest, (sext_inreg i32:$src, i8))],
+		(ins ScalarReg:$src2),
+		"sext.8 $dest, $src2",
+		[(set ScalarReg:$dest, (sext_inreg i32:$src2, i8))],
 		0x1d,
 		FmtA_SSS>;
 
 // XXX need predicated versions of these
-def SITOF : FormatAInst<
+def SITOF : FormatAUnmaskedOneOpInst<
 			(outs ScalarReg:$dest), 
-			(ins ScalarReg:$src),
-            "itof $dest, $src",
-        	[(set f32:$dest, (sint_to_fp i32:$src))],
+			(ins ScalarReg:$src2),
+            "itof $dest, $src2",
+        	[(set f32:$dest, (sint_to_fp i32:$src2))],
         	0x2a,
         	FmtA_SSS>;
 
-def SITOFV : FormatAInst<
+def SITOFV : FormatAUnmaskedOneOpInst<
 			(outs VectorReg:$dest), 
-			(ins VectorReg:$src),
-            "itof $dest, $src",
-        	[(set v16f32:$dest, (sint_to_fp v16i32:$src))],
+			(ins VectorReg:$src2),
+            "itof $dest, $src2",
+        	[(set v16f32:$dest, (sint_to_fp v16i32:$src2))],
         	0x2a,
         	FmtA_VVV>;
 
-def FTOSI : FormatAInst<
+def FTOSI : FormatAUnmaskedOneOpInst<
 			(outs ScalarReg:$dest), 
-			(ins ScalarReg:$src),
-        	"ftoi $dest, $src",
-        	[(set i32:$dest, (fp_to_sint f32:$src))],
+			(ins ScalarReg:$src2),
+        	"ftoi $dest, $src2",
+        	[(set i32:$dest, (fp_to_sint f32:$src2))],
         	0x1b,
         	FmtA_SSS>;
 
-def FTOSIV : FormatAInst<
+def FTOSIV : FormatAUnmaskedOneOpInst<
 			(outs VectorReg:$dest), 
-			(ins VectorReg:$src),
-        	"ftoi $dest, $src",
-        	[(set v16i32:$dest, (fp_to_sint v16f32:$src))],
+			(ins VectorReg:$src2),
+        	"ftoi $dest, $src2",
+        	[(set v16i32:$dest, (fp_to_sint v16f32:$src2))],
         	0x1b,
         	FmtA_VVV>;
-
-def MOVEREG : FormatAInst<
-			(outs ScalarReg:$dest), 
-			(ins ScalarReg:$src),
-        	"move $dest, $src",
-        	[],
-        	0x0f,
-        	FmtA_SSS>;
 
 defm SGTSI : IntCompareInst<"setgt", "i", SETGT, int_vp_mask_cmpi_sgt, 0x12>;	
 defm SGESI : IntCompareInst<"setge", "i", SETGE, int_vp_mask_cmpi_sge, 0x13>;
@@ -116,63 +108,97 @@ defm SLEFU : FloatCompareInst<"setle", SETULE, int_vp_mask_cmpf_le, 0x2f>;
 defm SEQFU : FloatCompareInst<"seteq", SETUEQ, int_vp_mask_cmpf_eq, 0x10>;
 defm SNEFU : FloatCompareInst<"setne", SETUNE, int_vp_mask_cmpf_ne, 0x11>;
 
-def GET_FIELDI : FormatAInst<
+def GET_FIELDI : FormatAUnmaskedTwoOpInst<
 	(outs ScalarReg:$dest),
-	(ins VectorReg:$src, ScalarReg:$index),
-	"getfield $dest, $src, $index",
-	[(set i32:$dest, (extractelt v16i32:$src, i32:$index))],
+	(ins VectorReg:$src1, ScalarReg:$src2),
+	"getfield $dest, $src1, $src2",
+	[(set i32:$dest, (extractelt v16i32:$src1, i32:$src2))],
 	0x1a,
-	FmtA_VVV>;
+	FmtA_VVS>;
 
-def GET_FIELDF : FormatAInst<
-	(outs ScalarReg:$dest),
-	(ins VectorReg:$src, ScalarReg:$index),
-	"getfield $dest, $src, $index",
-	[(set f32:$dest, (extractelt v16f32:$src, i32:$index))],
-	0x1a,
-	FmtA_VVV>;
-
-def SHUFFLE : FormatAInst<
+def SHUFFLEI : FormatAUnmaskedTwoOpInst<
 	(outs VectorReg:$dest),
-	(ins VectorReg:$src, VectorReg:$indices),
-	"shuffle $dest, $src, $indices",
-	[(set v16i32:$dest, (vector_shuffle v16i32:$src, v16i32:$indices))],
+	(ins VectorReg:$src1, VectorReg:$src2),
+	"shuffle $dest, $src1, $src2",
+	[(set v16i32:$dest, (vector_shuffle v16i32:$src1, v16i32:$src2))],
 	0x0d,
 	FmtA_VVV>;
 
-def CLONE_SCALARI : FormatAInst<
-	(outs VectorReg:$dest),
-	(ins ScalarReg:$src),
-	"move $dest, $src",
-	[(set v16i32:$dest, (splat i32:$src))],
-	0x0f,
+def GET_FIELDF : FormatAUnmaskedTwoOpInst<
+	(outs ScalarReg:$dest),
+	(ins VectorReg:$src1, ScalarReg:$src2),
+	"getfield $dest, $src1, $src2",
+	[(set f32:$dest, (extractelt v16f32:$src1, i32:$src2))],
+	0x1a,
 	FmtA_VVS>;
 
-def CLONE_SCALARF : FormatAInst<
-	(outs VectorReg:$dest),
-	(ins ScalarReg:$src),
-	"move $dest, $src",
-	[(set v16f32:$dest, (splat f32:$src))],
-	0x0f,
+def MOVESS : FormatAUnmaskedOneOpInst<
+	(outs ScalarReg:$dest), 
+	(ins ScalarReg:$src2),
+	"move $dest, $src2",
+	[],
+	0xf,
+	FmtA_SSS>;
+
+def MOVEVSI : FormatAUnmaskedOneOpInst<
+	(outs VectorReg:$dest), 
+	(ins ScalarReg:$src2),
+	"move $dest, $src2",
+	[(set v16i32:$dest, (splat i32:$src2))],
+	0xf,
 	FmtA_VVS>;
 
+def MOVEVSF : FormatAUnmaskedOneOpInst<
+	(outs VectorReg:$dest), 
+	(ins ScalarReg:$src2),
+	"move $dest, $src2",
+	[(set v16f32:$dest, (splat f32:$src2))],
+	0xf,
+	FmtA_VVS>;
+
+def MOVEVV : FormatAUnmaskedOneOpInst<
+	(outs VectorReg:$dest), 
+	(ins VectorReg:$src2),
+	"move $dest, $src2",
+	[],
+	0xf,
+	FmtA_VVV>;
+
+// Predicated
 let Constraints = "$dest = $oldvalue" in {
-	def INSERT_VECTORI : FormatAInst<
+	def MOVEVVMI : FormatAMaskedOneOpInst<
 		(outs VectorReg:$dest),
-		(ins ScalarReg:$mask, ScalarReg:$newLane, VectorReg:$oldvalue),
-		"move.mask $dest, $mask, $newLane",
-		[(set v16i32:$dest, (vselect i32:$mask, (splat i32:$newLane), v16i32:$oldvalue))],
-		0x0f,
-		FmtA_VVS>;
+		(ins ScalarReg:$mask, VectorReg:$src2, VectorReg:$oldvalue),
+		"move.mask $dest, $mask, $src2",
+		[(set v16i32:$dest, (vselect i32:$mask, v16i32:$src2, v16i32:$oldvalue))],
+		0xf,
+		FmtA_VVVM>;
 
-	def INSERT_VECTORF : FormatAInst<
+	def MOVEVSMI : FormatAMaskedOneOpInst<
 		(outs VectorReg:$dest),
-		(ins ScalarReg:$mask, ScalarReg:$newLane, VectorReg:$oldvalue),
-		"move.mask $dest, $mask, $newLane",
-		[(set v16f32:$dest, (vselect i32:$mask, (splat f32:$newLane), v16f32:$oldvalue))],
-		0x0f,
-		FmtA_VVS>;
+		(ins ScalarReg:$mask, ScalarReg:$src2, VectorReg:$oldvalue),
+		"move.mask $dest, $mask, $src2",
+		[(set v16i32:$dest, (vselect i32:$mask, (splat i32:$src2), v16i32:$oldvalue))],
+		0xf,
+		FmtA_VVSM>;
+
+	def MOVEVVMF : FormatAMaskedOneOpInst<
+		(outs VectorReg:$dest),
+		(ins ScalarReg:$mask, VectorReg:$src2, VectorReg:$oldvalue),
+		"move.mask $dest, $mask, $src2",
+		[(set v16f32:$dest, (vselect i32:$mask, v16f32:$src2, v16f32:$oldvalue))],
+		0xf,
+		FmtA_VVVM>;
+
+	def MOVEVSMF : FormatAMaskedOneOpInst<
+		(outs VectorReg:$dest),
+		(ins ScalarReg:$mask, ScalarReg:$src2, VectorReg:$oldvalue),
+		"move.mask $dest, $mask, $src2",
+		[(set v16f32:$dest, (vselect i32:$mask, (splat f32:$src2), v16f32:$oldvalue))],
+		0xf,
+		FmtA_VVSM>;
 }
+
 
 //////////////////////////////////////////////////////////////////
 // Memory Access (Format C)
@@ -386,7 +412,7 @@ let isReturn = 1, isTerminator = 1, isBarrier = 1, Uses = [FP_REG] in {
 		let Inst{31-29} = 6;	// format A instruction
 		let Inst{25-20} = 0xf;	// opcode
 		let Inst{9-5} = 31;		// dest (reg 31)
-		let Inst{4-0} = 30;		// src (link)
+		let Inst{19-15} = 30;	// src (link)
 	}
 }
 

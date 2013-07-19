@@ -45,6 +45,7 @@ public:
     {
 	  case VectorProc::fixup_VectorProc_PCRel_MemAccExt:
 	  case VectorProc::fixup_VectorProc_PCRel_MemAcc:
+	    Value -= 4;		// source location is PC + 4
 	    Value >>= 2;	// Divide by 4 for memory access offsets (XXX will be changed in ISA)
 		break;
 	

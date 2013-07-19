@@ -29,9 +29,7 @@ def make_bprime_instruction(fmt, opcode, dest, src1, imm):
 binaryOps = [
 	(0, 'or'),
 	(1, 'and'),
-	# Not implemented (2, 'uminus')
 	(3, 'xor'),
-	# Not implemented (4, 'not')
 	(5, 'add.i'),
 	(6, 'sub.i'),
 	(7, 'mul.i'),
@@ -100,7 +98,51 @@ for opcode, mnemonic in binaryOps:
 			print '\t' + mnemonic + '.mask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb) + ', ' + str(imm) \
 				+ make_b_instruction(bFormat, opcode, rega, regb, imm, regm)
 
-# XXX add test for unary ops
+unaryOps = [
+	(12, 'clz'),
+	(14, 'ctz'),
+	(0xf, 'move'),
+#	(0x1b, 'ftoi'),
+#	(0x1c, 'recip'),
+#	(0x1d, 'sext.8'),
+#	(0x1e, 'sext.16'),
+#	(0x2a, 'itof')
+]
+
+for opcode, mnemonic in unaryOps:
+	for aFormat in [ 0, 1, 2, 4, 5 ]:
+		rega = random.randint(0, 27)
+		regb = random.randint(0, 27)
+		regm = random.randint(0, 27)
+
+		if aFormat == 0:
+			# Scalar/Scalar
+			print '\t' + mnemonic + ' s' + str(rega) + ', s' + str(regb) \
+				+ make_a_instruction(aFormat, opcode, rega, 0, regb, 0)
+		elif aFormat == 1:
+			# Vector/Scalar
+			print '\t' + mnemonic + ' v' + str(rega) + ', s' + str(regb) \
+				+ make_a_instruction(aFormat, opcode, rega, 0, regb, 0)
+		elif aFormat == 2:
+			# Vector/Scalar Masked
+			print '\t' + mnemonic + '.mask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb) \
+				+ make_a_instruction(aFormat, opcode, rega, 0, regb, regm)
+		elif aFormat == 4:
+			# Vector/Vector
+			print '\t' + mnemonic + ' v' + str(rega) + ', v' + str(regb) \
+				+ make_a_instruction(aFormat, opcode, rega, 0, regb, 0)
+		elif aFormat == 5:
+			# Vector/Vector masked	
+			print '\t' + mnemonic + '.mask v' + str(rega) + ', s' + str(regm) + ', v' \
+				+ str(regb) + make_a_instruction(aFormat, opcode, rega, 0, regb, regm)
+
+print '\tshuffle v1, v2, v3' + make_a_instruction(4, 0xd, 1, 2, 3, 0)
+
+# XXX shuffle.mask should be supported, but isn't by compiler
+
+print '\tgetfield s4, v5, s6' + make_a_instruction(1, 0x1a, 4, 5, 6, 0)
+
+# getfield with an immediate param should be supported, but isn't by compiler
 
 cmpOps = [
 	(0x12, 'gt.i'),
