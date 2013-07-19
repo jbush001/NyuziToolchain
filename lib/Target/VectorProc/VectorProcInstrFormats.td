@@ -173,7 +173,6 @@ class FormatBInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 {
 	bits <5> dest;
 	bits <5> src1;
-	bits <5> src2;
 
 	let Inst{31} = 0;
 	let Inst{30-28} = fmt.Value;

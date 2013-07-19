@@ -516,11 +516,11 @@ def LOAD_CPOOLI : FormatCUnmaskedInst<
 // This should only be invoked for types that will fit in the immediate field 
 // of the instruction.  The lowering code will transform other types into
 // constant pool loads.
-def LOADIMM : FormatBInst<
+def LOADIMM : FormatBUnmaskedInst<
 	(outs ScalarReg:$dest),
-	(ins i32imm:$val),
-	"move $dest, $val",
-	[(set i32:$dest, imm:$val)],
+	(ins i32imm:$imm),
+	"move $dest, $imm",
+	[(set i32:$dest, imm:$imm)],
 	0x0f,
 	FmtB_SS>;
 
