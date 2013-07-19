@@ -20,6 +20,7 @@
 #include "llvm/MC/MCELFObjectWriter.h"
 #include "llvm/MC/MCFixupKindInfo.h"
 #include "llvm/MC/MCObjectWriter.h"
+#include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
@@ -62,9 +63,8 @@ public:
   {
     MCFixupKind Kind = Fixup.getKind();
     Value = adjustFixupValue((unsigned)Kind, Value);
-
     unsigned Offset = Fixup.getOffset();
-    unsigned NumBytes = (getFixupKindInfo(Kind).TargetSize + 7) / 8;
+    unsigned NumBytes = 4;
 
     uint64_t CurVal = 0;
     for (unsigned i = 0; i != NumBytes; ++i) {

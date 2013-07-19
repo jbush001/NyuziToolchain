@@ -38,6 +38,11 @@ def MEMri : Operand<iPTR> {
 	let MIOperandInfo = (ops ScalarReg, i32imm);
 }
 
+def cpooladdr : Operand<iPTR> {
+	let PrintMethod = "printMemOperand";
+	let EncoderMethod = "getMemoryOpValue";
+}
+
 def brtarget : Operand<OtherVT> 
 {
 	let EncoderMethod = "getJumpTargetOpValue";

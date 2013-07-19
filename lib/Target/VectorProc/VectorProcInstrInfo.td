@@ -505,11 +505,13 @@ def LOAD_FRAME_ADDR : VPInstruction<
 	"add.i $dest, $expr",
 	[(set i32:$dest, ADDRri:$expr)]>;
 
-def LOAD_CPOOLI : VPInstruction<
-	(outs ScalarReg:$dest),
-	(ins Operand<iPTR>:$label),
-	"load.32 $dest, $label",
-	[(set i32:$dest, (load tconstpool:$label))]>;
+def LOAD_CPOOLI : FormatCUnmaskedInst<
+	(outs ScalarReg:$srcDest),
+	(ins cpooladdr:$addr),
+	"load.32 $srcDest, $addr",
+	[(set i32:$srcDest, (load tconstpool:$addr))],
+	FmtC_Word,
+	1>;
 
 // This should only be invoked for types that will fit in the immediate field 
 // of the instruction.  The lowering code will transform other types into
