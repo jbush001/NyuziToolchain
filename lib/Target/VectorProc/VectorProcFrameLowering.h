@@ -36,14 +36,12 @@ public:
 		MachineBasicBlock &MBB,
 		MachineBasicBlock::iterator I) const;
 	bool hasFP(const MachineFunction &MF) const;
-	bool spillCalleeSavedRegisters(MachineBasicBlock &MBB,
-		MachineBasicBlock::iterator MI,
-		const std::vector<CalleeSavedInfo> &CSI,
-		const TargetRegisterInfo *TRI) const;
-
 	virtual bool targetHandlesStackFrameRounding() const {
 		return true;
 	}
+
+	void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
+                                     RegScavenger *RS) const;
 };
 
 } // End llvm namespace

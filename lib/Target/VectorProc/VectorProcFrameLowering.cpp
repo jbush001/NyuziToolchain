@@ -114,26 +114,10 @@ VectorProcFrameLowering::hasFP(const MachineFunction &MF) const
 	return true;	
 }
 
-bool 
-VectorProcFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
-	MachineBasicBlock::iterator MI,
-	const std::vector<CalleeSavedInfo> &CSI,
-	const TargetRegisterInfo *TRI) const 
+void VectorProcFrameLowering::processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
+                                     RegScavenger *RS) const
 {
-	MachineFunction *MF = MBB.getParent();
-	MachineBasicBlock *EntryBlock = MF->begin();
-	const TargetInstrInfo &TII = *MF->getTarget().getInstrInfo();
-
-	for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
-		// Add the callee-saved register as live-in. 
-		unsigned Reg = CSI[i].getReg();
-		EntryBlock->addLiveIn(Reg);
-
-		// Insert the spill to the stack frame.
-		const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(Reg);
-		TII.storeRegToStackSlot(*EntryBlock, MI, Reg, true,
-			CSI[i].getFrameIdx(), RC, TRI);
-	}
-
-	return true;
+	// Need to ensure the FP register is always saved.  The prologue code we 
+	// insert above will overwrite it, so mark it used here.
+	MF.getRegInfo().setPhysRegUsed(VectorProc::FP_REG);
 }
