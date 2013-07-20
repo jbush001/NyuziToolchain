@@ -98,15 +98,36 @@ bool VectorProcInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
 }
 
 unsigned
-VectorProcInstrInfo::InsertBranch(MachineBasicBlock &MBB,MachineBasicBlock *TBB,
-                             MachineBasicBlock *FBB,
-                             const SmallVectorImpl<MachineOperand> &Cond,
-                             DebugLoc DL) const {
-	return 0;
+VectorProcInstrInfo::InsertBranch(MachineBasicBlock &MBB,
+	MachineBasicBlock *TBB,	// If true
+	MachineBasicBlock *FBB,	// If false
+	const SmallVectorImpl<MachineOperand> &Cond,
+	DebugLoc dl) const 
+{
+	assert(TBB);
+	if (FBB)
+	{
+		// Has a false block, this is a two way conditional branch 
+		BuildMI(&MBB, dl, get(VectorProc::IFTRUE)).addMBB(TBB);
+		BuildMI(&MBB, dl, get(VectorProc::GOTO)).addMBB(FBB);
+		return 2;
+	}
+	
+	if (Cond.empty())
+	{
+		// Unconditional branch
+		BuildMI(&MBB, dl, get(VectorProc::GOTO)).addMBB(TBB);
+		return 1;
+	}
+
+	// One-way conditional branch
+	BuildMI(&MBB, dl, get(VectorProc::IFTRUE)).addMBB(TBB);
+	return 1;
 }
 
 unsigned VectorProcInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const
 {
+	llvm_unreachable("VectorProcInstrInfo::RemoveBranch: not implemented");
 	return 0;
 }
 
