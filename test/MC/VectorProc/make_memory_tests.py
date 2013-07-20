@@ -15,12 +15,10 @@ def make_encoding(x):
 	return str + ']'
 
 def make_c_instruction(isLoad, op, srcDest, ptr, offs, mask):
-	offs /= 4
 	return make_encoding((1 << 31) | (isLoad << 29) | (op << 25) | (offs << 15) 
 		| (mask << 10) | (srcDest << 5) | ptr)
 
 def make_cprime_instruction(isLoad, op, srcDest, ptr, offs):
-	offs /= 4
 	return make_encoding((1 << 31) | (isLoad << 29) | (op << 25) | (offs << 10) 
 		| (srcDest << 5) | ptr)
 		

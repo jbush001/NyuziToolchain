@@ -204,7 +204,7 @@ getMemoryOpValue(const MCInst &MI, unsigned Op,
 			 MCFixupKind(VectorProc::fixup_VectorProc_PCRel_MemAccExt)));
 	}
 	else if (op2.isImm())
-		encoding |= static_cast<short>(op2.getImm() / 4) << 5;
+		encoding |= static_cast<short>(op2.getImm()) << 5;
 	else
 		assert(op2.isImm() && "Second operand of memory op is unknown type.");
 	
