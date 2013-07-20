@@ -13,7 +13,6 @@ entry:
 
 if.then:
   br label %return
-  ; CHECK: goto {{[A-Z0-9_]+}}
 
 if.else:  
   ; CHECK: [[FALSELABEL]]:
