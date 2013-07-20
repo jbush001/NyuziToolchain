@@ -375,16 +375,17 @@ let hasSideEffects = 1, mayStore = 1 in {
 // Flow Control (format E)
 //////////////////////////////////////////////////////////////////
 
-let isBarrier = 1 in {
+let isTerminator = 1 in {
 	def GOTO : UnconditionalBranchInst<
 		(outs),
 		(ins brtarget:$offset),
 		"goto $offset",
 		[(br bb:$offset)],
-		BT_Uncond>;
-}
+		BT_Uncond>
+	{
+		let isBarrier = 1;
+	}
 
-let isTerminator = 1 in {
 	def IFFALSE	: ConditionalBranchInst<
 		(outs), 
 		(ins ScalarReg:$test, brtarget:$dest),
