@@ -498,12 +498,23 @@ def GET_CURRENT_STRAND : FormatCInst<
 	FmtC_ControlReg,
 	1>;
 
+// Load effective address.
 // $expr will actually expand to "fp + <offset>"
 def LOAD_FRAME_ADDR : VPInstruction<
 	(outs ScalarReg:$dest),
-	(ins MEMri:$expr),
-	"add.i $dest, $expr",
-	[(set i32:$dest, ADDRri:$expr)]>;
+	(ins MEMri:$addr),
+	"lea $dest, $addr",
+	[(set i32:$dest, ADDRri:$addr)]>
+{
+	bits<20> addr;
+	bits<5> dest;
+
+	let Inst{30-28} = FmtB_SS.Value;
+	let Inst{27-23} = 5;	// Add
+	let Inst{22-10} = addr{17-5};	// Grab the offset part of address
+	let Inst{9-5} = dest;
+	let Inst{4-0} = addr{4-0};		// base register
+}
 
 def LOAD_CPOOLI : FormatCUnmaskedInst<
 	(outs ScalarReg:$srcDest),
