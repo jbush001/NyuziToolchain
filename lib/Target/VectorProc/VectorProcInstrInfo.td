@@ -384,37 +384,42 @@ let isBarrier = 1 in {
 		BT_Uncond>;
 }
 
-def IFFALSE	: ConditionalBranchInst<
-	(outs), 
-	(ins ScalarReg:$test, brtarget:$dest),
-	"bfalse $test, $dest",
-	[(brcond (i32 (seteq i32:$test, 0)), bb:$dest)],
-	BT_IfFalse> ;
+let isTerminator = 1 in {
+	def IFFALSE	: ConditionalBranchInst<
+		(outs), 
+		(ins ScalarReg:$test, brtarget:$dest),
+		"bfalse $test, $dest",
+		[(brcond (i32 (seteq i32:$test, 0)), bb:$dest)],
+		BT_IfFalse> ;
 
-def IFTRUE	: ConditionalBranchInst<
-	(outs), 
-	(ins ScalarReg:$test, brtarget:$dest),
-	"btrue $test, $dest",
-	[(brcond i32:$test, bb:$dest)],
-	BT_IfTrue> ;
+	def IFTRUE	: ConditionalBranchInst<
+		(outs), 
+		(ins ScalarReg:$test, brtarget:$dest),
+		"btrue $test, $dest",
+		[(brcond i32:$test, bb:$dest)],
+		BT_IfTrue> ;
+}
 
 def return : SDNode<"VectorProcISD::RET_FLAG", 
 	SDTypeProfile<0, 0, []>,
     [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
-let isReturn = 1, isTerminator = 1, isBarrier = 1, Uses = [FP_REG] in {
-	def RET : VPInstruction<
-		(outs),
-		(ins),
-		"ret",
-		[(return)]>
-	{
-		// This is encoded as move pc, link
-		let Inst{31-29} = 6;	// format A instruction
-		let Inst{25-20} = 0xf;	// opcode
-		let Inst{9-5} = 31;		// dest (reg 31)
-		let Inst{19-15} = 30;	// src (link)
-	}
+def RET : VPInstruction<
+	(outs),
+	(ins),
+	"ret",
+	[(return)]>
+{
+	// This is encoded as move pc, link
+	let Inst{31-29} = 6;	// format A instruction
+	let Inst{25-20} = 0xf;	// opcode
+	let Inst{9-5} = 31;		// dest (reg 31)
+	let Inst{19-15} = 30;	// src (link)
+	
+	let isReturn = 1;
+	let isTerminator = 1;
+	let isBarrier = 1;
+	let Uses = [FP_REG];
 }
 
 let Defs = [SP_REG], Uses = [SP_REG], hasSideEffects = 1 in {
@@ -426,6 +431,8 @@ let Defs = [SP_REG], Uses = [SP_REG], hasSideEffects = 1 in {
 								[(callseq_end timm:$amt1, timm:$amt2)]>;
 }
 
+// Note: Unlike other branches, call is not a terminator: it does not end a 
+// basic block.
 let isCall = 1, Defs = [S0, S1, S2, S3, S4, LINK_REG ] in {
 	def CALL : UnconditionalBranchInst<
 		(outs), 

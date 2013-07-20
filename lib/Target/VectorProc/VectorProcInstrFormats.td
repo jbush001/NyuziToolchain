@@ -668,15 +668,11 @@ class BranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	: VPInstruction<outputs, inputs, asmString, pattern>
 {
 	let isBranch = 1;
-	let isTerminator = 1;	// Ends current basic block and starts another one
 
 	bits<20> dest;
 
 	let Inst{31-28} = 0xf;
 	let Inst{27-25} = type.Value;
-
- 	let Inst{31-28} = 0xf;
- 	let Inst{27-25} = type.Value;
 	let Inst{24-5} = dest;
 }
 
