@@ -2,6 +2,11 @@
 
 target triple = "vectorproc"
 
+;
+; The original bug was that the goto was not inserted at the end of the first block
+; when two blocks were tail merged.
+;
+
 define i32 @_Z3fibi(i32 %n) {
 entry:
   %cmp = icmp slt i32 %n, 2
