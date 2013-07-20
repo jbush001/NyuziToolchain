@@ -63,28 +63,6 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const
 		.addReg(VectorProc::SP_REG);
 }
 
-void VectorProcFrameLowering::
-eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
- 	MachineBasicBlock::iterator I) const 
-{
-	MachineInstr &MI = *I;
-	DebugLoc DL = MI.getDebugLoc();
-	int Size = MI.getOperand(0).getImm();
-	if (MI.getOpcode() == VectorProc::ADJCALLSTACKDOWN)
-		Size = -Size;
-
-	const VectorProcInstrInfo &TII =
-		*static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
-
-	if (Size)
-	{
-		BuildMI(MBB, I, DL, TII.get(VectorProc::ADDISSI), VectorProc::SP_REG).addReg(VectorProc::SP_REG)
-			.addImm(Size);
-	}
-	
-	MBB.erase(I);
-}
-
 void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
 	MachineBasicBlock &MBB) const 
 {
@@ -108,6 +86,28 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
 	}
 }
 
+void VectorProcFrameLowering::
+eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
+ 	MachineBasicBlock::iterator I) const 
+{
+	MachineInstr &MI = *I;
+	DebugLoc DL = MI.getDebugLoc();
+	int Size = MI.getOperand(0).getImm();
+	if (MI.getOpcode() == VectorProc::ADJCALLSTACKDOWN)
+		Size = -Size;
+
+	const VectorProcInstrInfo &TII =
+		*static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
+
+	if (Size)
+	{
+		BuildMI(MBB, I, DL, TII.get(VectorProc::ADDISSI), VectorProc::SP_REG).addReg(VectorProc::SP_REG)
+			.addImm(Size);
+	}
+	
+	MBB.erase(I);
+}
+
 bool 
 VectorProcFrameLowering::hasFP(const MachineFunction &MF) const 
 {
@@ -126,18 +126,12 @@ VectorProcFrameLowering::spillCalleeSavedRegisters(MachineBasicBlock &MBB,
 
 	for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
 		// Add the callee-saved register as live-in. 
-		// It's killed at the spill, unless the register is RA and return address
-		// is taken.
 		unsigned Reg = CSI[i].getReg();
-		bool IsRAAndRetAddrIsTaken = Reg == VectorProc::LINK_REG
-			&& MF->getFrameInfo()->isReturnAddressTaken();
-		if (!IsRAAndRetAddrIsTaken)
-			EntryBlock->addLiveIn(Reg);
+		EntryBlock->addLiveIn(Reg);
 
 		// Insert the spill to the stack frame.
-		bool IsKill = !IsRAAndRetAddrIsTaken;
 		const TargetRegisterClass *RC = TRI->getMinimalPhysRegClass(Reg);
-		TII.storeRegToStackSlot(*EntryBlock, MI, Reg, IsKill,
+		TII.storeRegToStackSlot(*EntryBlock, MI, Reg, true,
 			CSI[i].getFrameIdx(), RC, TRI);
 	}
 

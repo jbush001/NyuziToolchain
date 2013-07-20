@@ -1,4 +1,5 @@
 ; RUN: llc %s -o - | FileCheck %s
+; XFAIL:
 
 target triple = "vectorproc"
 

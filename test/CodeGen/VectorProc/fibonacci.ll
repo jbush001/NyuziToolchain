@@ -26,7 +26,7 @@ return:
   %0 = phi i32 [ %sum, %if.then ], [ %a, %entry ]
 
 	; CHECK: add.i sp, sp, 64
-	; CHECK: move pc, link
+	; CHECK: ret
 	
   ret i32 %0
 }

@@ -406,9 +406,10 @@ let isReturn = 1, isTerminator = 1, isBarrier = 1, Uses = [FP_REG] in {
 	def RET : VPInstruction<
 		(outs),
 		(ins),
-		"move pc, link",
+		"ret",
 		[(return)]>
 	{
+		// This is encoded as move pc, link
 		let Inst{31-29} = 6;	// format A instruction
 		let Inst{25-20} = 0xf;	// opcode
 		let Inst{9-5} = 31;		// dest (reg 31)
