@@ -26,3 +26,5 @@ foo: .word bar
 	load.32 s4, foo		# CHECK: encoding: [0x9f,0bAAAAAA00,A,0b1010100A]
 		# CHECK: fixup A - offset: 0, value: foo, kind: fixup_VectorProc_PCRel_MemAccExt
 
+getcr s7, 9 ; CHECK: encoding: [0xe9,0x00,0x00,0xac]
+setcr s11, 13 ; CHECK: encoding: [0x6d,0x01,0x00,0x8c]

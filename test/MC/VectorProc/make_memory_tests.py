@@ -56,3 +56,8 @@ foo: .word bar
 	load.32 s4, foo		# CHECK: encoding: [0x9f,0bAAAAAA00,A,0b1010100A]
 		# CHECK: fixup A - offset: 0, value: foo, kind: fixup_VectorProc_PCRel_MemAccExt
 '''
+
+# Control register
+print 'getcr s7, 9' + make_cprime_instruction(1, 6, 7, 9, 0)
+print 'setcr s11, 13' + make_cprime_instruction(0, 6, 11, 13, 0)
+

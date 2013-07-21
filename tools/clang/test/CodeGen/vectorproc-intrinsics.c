@@ -6,7 +6,7 @@ typedef float vecf16 __attribute__((__vector_size__(16 * sizeof(float))));
 int test_strand()	// CHECK: test_strand:
 {
 	return __builtin_vp_get_current_strand();
-	// CHECK: loadcr s{{[0-9]+}}, 0
+	// CHECK: getcr s{{[0-9]+}}, 0
 }
 
 veci16 test_gatherloadi(veci16 ptr) 	// CHECK: test_gatherloadi

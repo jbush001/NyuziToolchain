@@ -499,13 +499,35 @@ let usesCustomInserter = 1 in {
 // Misc 
 //////////////////////////////////////////////////////////////////
 
-def GET_CURRENT_STRAND : FormatCInst<
+def GET_CONTROL_REG : FormatCInst<
 	(outs ScalarReg:$dest),
-	(ins),
-	"loadcr $dest, 0",
-	[(set i32:$dest, (int_vp_get_current_strand))],
+	(ins i32imm:$cr),
+	"getcr $dest, $cr",
+	[(set i32:$dest, (int_vp_get_control_reg imm:$cr))],
 	FmtC_ControlReg,
-	1>;
+	1>
+{
+	bits <5> cr;
+	bits <5> dest;
+	
+	let Inst{4-0} = cr;
+	let Inst{9-5} = dest;
+}
+
+def SET_CONTROL_REG : FormatCInst<
+	(outs),
+	(ins ScalarReg:$src, i32imm:$cr),
+	"setcr $src, $cr",
+	[],
+	FmtC_ControlReg,
+	0>
+{
+	bits <5> cr;
+	bits <5> src;
+
+	let Inst{4-0} = cr;
+	let Inst{9-5} = src;
+}
 
 // Load effective address.
 // $expr will actually expand to "fp + <offset>"

@@ -2848,7 +2848,15 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
 
 Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
                                            const CallExpr *E) {
+
     SmallVector<Value*, 2> Ops;
+	if (BuiltinID == VectorProc::BI__builtin_vp_get_current_strand)
+	{
+		Ops.push_back(llvm::ConstantInt::get(Int32Ty, 0));
+		return Builder.CreateCall(CGM.getIntrinsic(Intrinsic::vp_get_control_reg), 
+			Ops, "");
+	}
+
     for (unsigned i = 0; i < E->getNumArgs(); i++)
       Ops.push_back(EmitScalarExpr(E->getArg(i)));
 
@@ -2871,16 +2879,11 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 		return BuildVector(Lanes);	
 	}
 
-
 	// This is an LLVM intrinsic.  Look up the function name and create
 	// a call (which will be transformed automatically in the appropriate
 	// instruction in the backend).
 	llvm::Function *F;
 	switch (BuiltinID) {
-		case VectorProc::BI__builtin_vp_get_current_strand:
-			F = CGM.getIntrinsic(Intrinsic::vp_get_current_strand);
-			break;
-
 		case VectorProc::BI__builtin_vp_gather_loadi:
 			F = CGM.getIntrinsic(Intrinsic::vp_gather_loadi);
 			break;
