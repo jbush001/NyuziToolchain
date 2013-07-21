@@ -24,6 +24,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/Debug.h"
+#include "VectorProcRegisterInfo.h"
 
 #define GET_INSTRINFO_CTOR
 #include "VectorProcGenInstrInfo.inc"
@@ -136,7 +137,20 @@ void VectorProcInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                  unsigned DestReg, unsigned SrcReg,
                                  bool KillSrc) const 
 {
-	BuildMI(MBB, I, DL, get(VectorProc::MOVESS), DestReg).addReg(SrcReg, 
+	bool destIsScalar = VectorProc::ScalarRegRegClass.contains(DestReg);
+	bool srcIsScalar = VectorProc::ScalarRegRegClass.contains(SrcReg);
+	unsigned operation;
+	
+	if (destIsScalar && srcIsScalar)
+		operation = VectorProc::MOVESS;
+	else if (!destIsScalar && srcIsScalar)
+		operation = VectorProc::MOVEVSI;
+	else if (!destIsScalar && !srcIsScalar)
+		operation = VectorProc::MOVEVV;
+	else
+		llvm_unreachable("unsupported physical reg copy type");
+
+	BuildMI(MBB, I, DL, get(operation), DestReg).addReg(SrcReg, 
 		getKillRegState(KillSrc));
 }
 
