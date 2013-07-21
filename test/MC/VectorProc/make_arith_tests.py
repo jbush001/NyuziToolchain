@@ -185,4 +185,7 @@ for opcode, mnemonic in cmpOps:
 				+ make_bprime_instruction(bFormat, opcode, rega, regb, imm)
 	
 	
+print '\n\t;\n\t; getfield\n\t;\n'
+print '\tgetfield s1, v2, s3 ' + make_a_instruction(1, 0x1a, 1, 2, 3, 0)
+
 	
