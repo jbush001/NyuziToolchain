@@ -199,7 +199,6 @@ let Constraints = "$dest = $oldvalue" in {
 		FmtA_VVSM>;
 }
 
-
 //////////////////////////////////////////////////////////////////
 // Memory Access (Format C)
 //////////////////////////////////////////////////////////////////
@@ -565,4 +564,9 @@ def LOADIMM : FormatBUnmaskedInst<
 	[(set i32:$dest, imm:$imm)],
 	0x0f,
 	FmtB_SS>;
-
+	
+// Conversions
+def : Pat<(v16f32 (bitconvert (v16i32 VectorReg:$src))), (v16f32 VectorReg:$src)>;
+def : Pat<(v16i32 (bitconvert (v16f32 VectorReg:$src))), (v16i32 VectorReg:$src)>;
+def : Pat<(f32 (bitconvert (i32 ScalarReg:$src))), (f32 ScalarReg:$src)>;
+def : Pat<(i32 (bitconvert (f32 ScalarReg:$src))), (i32 ScalarReg:$src)>;
