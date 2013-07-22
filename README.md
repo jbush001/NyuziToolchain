@@ -13,7 +13,7 @@ cd build
 This requires a newer version of a compiler that supports c++11.
 cmake must be installed (http://www.cmake.org/). 
 * Note that there is also a 'configure' script in the directory.  It doesn't work, because lld specifically is cmake only.
-* -std=c++11 -stdlib=libc++ is required on MacOS, but seem to cause problems on Linux. Replace with "-std=c++0x"
+* -std=c++11 -stdlib=libc++ is required on MacOS. If you're building with GCC, replace with "-std=c++0x"
 * MAKE_INSTALL_PREFIX will put this in a different path than the default compiler.  Since this only builds for VectorProc, be careful not to overwrite your system compiler.
 
 <pre>

@@ -179,7 +179,7 @@ public:
   void                updateLoadCommandContent(const lld::File &file);
 
 private:
-  friend LoadCommandPaddingChunk;
+  friend class LoadCommandPaddingChunk;
 
   void                addLoadCommand(load_command* lc);
   void                setMachOSection(SectionChunk *chunk,
@@ -353,9 +353,9 @@ public:
   bool use64BitMachO() const;
 
 private:
-  friend LoadCommandsChunk;
-  friend LazyBindingInfoChunk;
-  friend BindingInfoChunk;
+  friend class LoadCommandsChunk;
+  friend class LazyBindingInfoChunk;
+  friend class BindingInfoChunk;
 
   void        build(const lld::File &file);
   void        createChunks(const lld::File &file);
