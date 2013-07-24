@@ -2863,10 +2863,12 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 	if (BuiltinID == VectorProc::BI__builtin_vp_vector_muxi
 		|| BuiltinID == VectorProc::BI__builtin_vp_vector_muxf)
 	{
-		// XXX select is not the right instruction for this.  This probably should
-		// use vselect, but IRBuilder doesn't seem to have a method to create that.
-		return Builder.CreateSelect(Builder.CreateTrunc(Ops[2], Builder.getInt1Ty()), 
-			Ops[0], Ops[1]);
+		// Convert to a v16i1 mask and select from it. This should
+		// create a vselect.
+		Value *truncated = Builder.CreateTrunc(Ops[2], Builder.getInt16Ty());
+		Value *predicate = Builder.CreateBitCast(truncated, 
+			llvm::VectorType::get(Builder.getInt1Ty(), 16));
+		return Builder.CreateSelect(predicate, Ops[0], Ops[1]);
 	}
 
 	if (BuiltinID == VectorProc::BI__builtin_vp_makevectori
