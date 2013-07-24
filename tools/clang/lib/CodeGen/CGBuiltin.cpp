@@ -2852,36 +2852,49 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
     SmallVector<Value*, 2> Ops;
 	if (BuiltinID == VectorProc::BI__builtin_vp_get_current_strand)
 	{
+		// Turn this into get_control_reg(0)
 		Ops.push_back(llvm::ConstantInt::get(Int32Ty, 0));
 		return Builder.CreateCall(CGM.getIntrinsic(Intrinsic::vp_get_control_reg), 
 			Ops, "");
 	}
 
+	// Push parameters into array.
     for (unsigned i = 0; i < E->getNumArgs(); i++)
       Ops.push_back(EmitScalarExpr(E->getArg(i)));
 
-	if (BuiltinID == VectorProc::BI__builtin_vp_vector_muxi
-		|| BuiltinID == VectorProc::BI__builtin_vp_vector_muxf)
+	switch (BuiltinID)
 	{
-		// Convert to a v16i1 mask and select from it. This should
-		// create a vselect.
-		Value *truncated = Builder.CreateTrunc(Ops[2], Builder.getInt16Ty());
-		Value *predicate = Builder.CreateBitCast(truncated, 
-			llvm::VectorType::get(Builder.getInt1Ty(), 16));
-		return Builder.CreateSelect(predicate, Ops[0], Ops[1]);
-	}
-
-	if (BuiltinID == VectorProc::BI__builtin_vp_makevectori
-		|| BuiltinID == VectorProc::BI__builtin_vp_makevectorf)
-	{
-		SmallVector<Value*, 16> Lanes;
-		for (int i = 0; i < 16; i++)
-			Lanes.push_back(Ops[0]);
+		case VectorProc::BI__builtin_vp_vector_muxi:
+		case VectorProc::BI__builtin_vp_vector_muxf:
+		{
+			// Convert to a v16i1 mask and select from it.
+			// XXX This should  create a vselect.
+			Value *truncated = Builder.CreateTrunc(Ops[2], Builder.getInt16Ty());
+			Value *predicate = Builder.CreateBitCast(truncated, 
+				llvm::VectorType::get(Builder.getInt1Ty(), 16));
+			return Builder.CreateSelect(predicate, Ops[0], Ops[1]);
+		}
+		
+		case VectorProc::BI__builtin_vp_makevectori:
+		case VectorProc::BI__builtin_vp_makevectorf:
+		{
+			SmallVector<Value*, 16> Lanes;
+			for (int i = 0; i < 16; i++)
+				Lanes.push_back(Ops[0]);
 			
-		return BuildVector(Lanes);	
+			return BuildVector(Lanes);	
+		}
+
+		case VectorProc::BI__builtin_vp_vitof:
+			return Builder.CreateSIToFP(Ops[0], llvm::VectorType::get(Builder.getFloatTy(),
+				16));
+
+		case VectorProc::BI__builtin_vp_vftoi:
+			return Builder.CreateFPToSI(Ops[0], llvm::VectorType::get(Builder.getInt32Ty(),
+				16));
 	}
 
-	// This is an LLVM intrinsic.  Look up the function name and create
+	// This maps directly to an LLVM intrinsic.  Look up the function name and create
 	// a call (which will be transformed automatically in the appropriate
 	// instruction in the backend).
 	llvm::Function *F;
