@@ -95,7 +95,51 @@ bool VectorProcInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
                                    SmallVectorImpl<MachineOperand> &Cond,
                                    bool AllowModify) const
 {
-	return true;	// Indicate we can't analyze branch
+	MachineBasicBlock::iterator I = MBB.end();
+	MachineBasicBlock::iterator UnCondBrIter = MBB.end();
+	while (I != MBB.begin()) {
+		--I;
+
+		if (I->isDebugValue())
+			continue;
+
+		// When we see a non-terminator, we are done.
+		if (!isUnpredicatedTerminator(I))
+			break;
+
+		// Terminator is not a branch.
+		if (!I->isBranch())
+			return true;
+
+		// Handle Unconditional branches.
+		if (I->getOpcode() == VectorProc::GOTO) {
+			UnCondBrIter = I;
+
+			if (!AllowModify) {
+				TBB = I->getOperand(0).getMBB();
+				continue;
+			}
+
+			while (llvm::next(I) != MBB.end())
+				llvm::next(I)->eraseFromParent();
+
+			FBB = 0;
+			if (MBB.isLayoutSuccessor(I->getOperand(0).getMBB())) {
+				TBB = 0;
+				I->eraseFromParent();
+				I = MBB.end();
+				UnCondBrIter = MBB.end();
+				continue;
+			}
+
+			TBB = I->getOperand(0).getMBB();
+			continue;
+		}
+
+		return true;
+	}
+
+	return false;
 }
 
 unsigned
@@ -128,8 +172,24 @@ VectorProcInstrInfo::InsertBranch(MachineBasicBlock &MBB,
 
 unsigned VectorProcInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const
 {
-	llvm_unreachable("VectorProcInstrInfo::RemoveBranch: not implemented");
-	return 0;
+  MachineBasicBlock::iterator I = MBB.end();
+  unsigned Count = 0;
+  while (I != MBB.begin()) {
+    --I;
+
+    if (I->isDebugValue())
+      continue;
+
+    if (I->getOpcode() != VectorProc::GOTO
+        && I->getOpcode() != VectorProc::IFTRUE
+        && I->getOpcode() != VectorProc::IFFALSE)
+      break; // Not a branch
+
+    I->eraseFromParent();
+    I = MBB.end();
+    ++Count;
+  }
+  return Count;
 }
 
 void VectorProcInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
