@@ -370,6 +370,22 @@ let hasSideEffects = 1, mayStore = 1 in {
 		0>;
 }
 
+def LOAD_SYNC : FormatCUnmaskedInst<
+	(outs ScalarReg:$srcDest),
+	(ins MEMri:$addr),
+	"load.sync $srcDest, $addr",
+	[],
+	FmtC_Sync,
+	1>;
+
+def STORE_SYNC : FormatCUnmaskedInst<
+	(outs),
+	(ins ScalarReg:$srcDest, MEMri:$addr),
+	"store.sync $srcDest, $addr	",
+	[],
+	FmtC_Sync,
+	0>;
+
 //////////////////////////////////////////////////////////////////
 // Flow Control (format E)
 //////////////////////////////////////////////////////////////////

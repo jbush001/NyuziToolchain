@@ -11,9 +11,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-//
+//////////////////////////////////////////////////////////////////
 // Node types
-//
+//////////////////////////////////////////////////////////////////
 
 def simm13  : PatLeaf<(imm), [{ return isInt<13>(N->getSExtValue()); }]>;
 def simm8  : PatLeaf<(imm), [{ return isInt<8>(N->getSExtValue()); }]>;
@@ -64,9 +64,9 @@ def call       : SDNode<"VectorProcISD::CALL", SDT_SPCall,
                            [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
                             SDNPVariadic]>;
 
-//
+//////////////////////////////////////////////////////////////////
 // Instruction Classes
-//
+//////////////////////////////////////////////////////////////////
 
 class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
 	: Instruction 
@@ -94,9 +94,9 @@ class Pseudo<dag outputs, dag inputs, string asmString, list<dag> pattern>
 }
 
 
-//
+//////////////////////////////////////////////////////////////////
 // Format A: Register arithmetic
-//
+//////////////////////////////////////////////////////////////////
 
 class AFmt<bits<3> val> {
 	bits<3> Value = val;
@@ -162,9 +162,9 @@ class FormatAMaskedTwoOpInst<dag outputs, dag inputs, string asmString, list<dag
 	let Inst{4-0} = src1;
 }
 
-//
+//////////////////////////////////////////////////////////////////
 // Format B: Register/Immediate Arithmetic
-//
+//////////////////////////////////////////////////////////////////
 
 class BFmt<bits<3> val> {
 	bits<3> Value = val;
@@ -566,9 +566,9 @@ multiclass FloatCompareInst<string operator, CondCode condition, Intrinsic vecto
 		FmtA_VVS>;
 }
 
-//
+//////////////////////////////////////////////////////////////////
 // Format C: Memory instructions
-//
+//////////////////////////////////////////////////////////////////
 
 class CFmt<bits<4> val> {
 	bits<4> Value = val;
@@ -664,9 +664,9 @@ multiclass ScalarStoreInst<string suffix, PatFrag op, CFmt fmt>  {
 	}
 }
 
-//
+//////////////////////////////////////////////////////////////////
 // Format D (cache control)
-//
+//////////////////////////////////////////////////////////////////
 
 class DFmt<bits<3> val> {
 	bits<3> Value = val;
@@ -686,9 +686,9 @@ class FormatDInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	let Inst{27-25} = fmt.Value;
 }
 
-//
+//////////////////////////////////////////////////////////////////
 // Format E: Branch Instruction
-//
+//////////////////////////////////////////////////////////////////
 
 class BranchType<bits<3> val> {
 	bits<3> Value = val;
