@@ -153,7 +153,7 @@ VectorProcInstrInfo::InsertBranch(MachineBasicBlock &MBB,
 	if (FBB)
 	{
 		// Has a false block, this is a two way conditional branch 
-		BuildMI(&MBB, dl, get(VectorProc::IFTRUE)).addMBB(TBB);
+		BuildMI(&MBB, dl, get(VectorProc::BTRUE)).addMBB(TBB);
 		BuildMI(&MBB, dl, get(VectorProc::GOTO)).addMBB(FBB);
 		return 2;
 	}
@@ -166,7 +166,7 @@ VectorProcInstrInfo::InsertBranch(MachineBasicBlock &MBB,
 	}
 
 	// One-way conditional branch
-	BuildMI(&MBB, dl, get(VectorProc::IFTRUE)).addMBB(TBB);
+	BuildMI(&MBB, dl, get(VectorProc::BTRUE)).addMBB(TBB);
 	return 1;
 }
 
@@ -181,8 +181,8 @@ unsigned VectorProcInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const
       continue;
 
     if (I->getOpcode() != VectorProc::GOTO
-        && I->getOpcode() != VectorProc::IFTRUE
-        && I->getOpcode() != VectorProc::IFFALSE)
+        && I->getOpcode() != VectorProc::BTRUE
+        && I->getOpcode() != VectorProc::BFALSE)
       break; // Not a branch
 
     I->eraseFromParent();

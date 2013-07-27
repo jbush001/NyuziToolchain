@@ -40,6 +40,9 @@ namespace llvm {
 		virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const;
 		virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI,
 			MachineBasicBlock *MBB) const;
+		MachineBasicBlock *EmitSelectCC(MachineInstr *MI, MachineBasicBlock *BB) const;
+		MachineBasicBlock *EmitAtomicRMW(MachineInstr *MI, MachineBasicBlock *BB,
+			unsigned Opcode) const;
 		virtual const char *getTargetNodeName(unsigned Opcode) const;
 		ConstraintType getConstraintType(const std::string &Constraint) const;
 		std::pair<unsigned, const TargetRegisterClass*>

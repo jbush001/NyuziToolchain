@@ -1,15 +1,13 @@
 // RUN: %clang %s -O3 -target vectorproc -S -o - | FileCheck %s
-// XFAIL: 
 
-typedef int veci16 __attribute__((__vector_size__(16 * sizeof(float))));
-
-volatile int lockvar;
-
-void atomic_add(volatile int *lockvar)
+int atomic_add(volatile int *lockvar)
 {
-	while (__sync_fetch_and_and(lockvar, 1) != 0)
-		;
+	return __sync_fetch_and_and(lockvar, 1);
 
-	// CHECK: load.sync
-	// CHECK: store.sync
+	// CHECK: [[LABEL:L[0-9A-Za-z_]+]]:
+	// CHECK: load.sync [[SCRATCH1:s[0-9]+]], (s0)
+	// CHECK: and [[SCRATCH2:s[0-9]+]], [[SCRATCH1]], 
+	// CHECK: move {{s[0-9]+}}, [[SCRATCH2]]
+	// CHECK: store.sync [[SCRATCH2]], (s0)	
+	// CHECK: bfalse [[SCRATCH2]], [[LABEL]]
 }

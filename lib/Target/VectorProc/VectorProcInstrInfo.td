@@ -379,12 +379,44 @@ def LOAD_SYNC : FormatCUnmaskedInst<
 	1>;
 
 def STORE_SYNC : FormatCUnmaskedInst<
-	(outs),
+	(outs ScalarReg:$result),
 	(ins ScalarReg:$srcDest, MEMri:$addr),
 	"store.sync $srcDest, $addr	",
 	[],
 	FmtC_Sync,
-	0>;
+	0>
+{
+	let Constraints = "$result = $srcDest";
+}
+
+// Atomics	
+let usesCustomInserter = 1 in {
+	def ATOMIC_LOAD_ADD : Pseudo<
+		(outs ScalarReg:$dest),
+		(ins ScalarReg:$ptr, ScalarReg:$offset),
+		[(set i32:$dest, (atomic_load_add ScalarReg:$ptr, ScalarReg:$offset))]>;
+
+	def ATOMIC_LOAD_SUB : Pseudo<
+		(outs ScalarReg:$dest),
+		(ins ScalarReg:$ptr, ScalarReg:$offset),
+		[(set i32:$dest, (atomic_load_sub ScalarReg:$ptr, ScalarReg:$offset))]>;
+
+	def ATOMIC_LOAD_AND : Pseudo<
+		(outs ScalarReg:$dest),
+		(ins ScalarReg:$ptr, ScalarReg:$offset),
+		[(set i32:$dest, (atomic_load_and ScalarReg:$ptr, ScalarReg:$offset))]>;
+
+	def ATOMIC_LOAD_OR : Pseudo<
+		(outs ScalarReg:$dest),
+		(ins ScalarReg:$ptr, ScalarReg:$offset),
+		[(set i32:$dest, (atomic_load_or ScalarReg:$ptr, ScalarReg:$offset))]>;
+
+	def ATOMIC_LOAD_XOR : Pseudo<
+		(outs ScalarReg:$dest),
+		(ins ScalarReg:$ptr, ScalarReg:$offset),
+		[(set i32:$dest, (atomic_load_xor ScalarReg:$ptr, ScalarReg:$offset))]>;
+}	
+	
 
 //////////////////////////////////////////////////////////////////
 // Flow Control (format E)
@@ -401,14 +433,14 @@ let isTerminator = 1 in {
 		let isBarrier = 1;
 	}
 
-	def IFFALSE	: ConditionalBranchInst<
+	def BFALSE	: ConditionalBranchInst<
 		(outs), 
 		(ins ScalarReg:$test, brtarget:$dest),
 		"bfalse $test, $dest",
 		[(brcond (i32 (seteq i32:$test, 0)), bb:$dest)],
 		BT_IfFalse> ;
 
-	def IFTRUE	: ConditionalBranchInst<
+	def BTRUE	: ConditionalBranchInst<
 		(outs), 
 		(ins ScalarReg:$test, brtarget:$dest),
 		"btrue $test, $dest",
@@ -440,10 +472,8 @@ def RET : VPInstruction<
 
 let Defs = [SP_REG], Uses = [SP_REG], hasSideEffects = 1 in {
 	def ADJCALLSTACKDOWN : Pseudo<(outs), (ins i32imm:$amt),
-								   " ; ADJCALLSTACKDOWN",
 								   [(callseq_start timm:$amt)]>;
 	def ADJCALLSTACKUP : Pseudo<(outs), (ins i32imm:$amt1, i32imm:$amt2),
-								" ; ADJCALLSTACKUP",
 								[(callseq_end timm:$amt1, timm:$amt2)]>;
 }
 
@@ -488,25 +518,21 @@ let usesCustomInserter = 1 in {
 	def SELECTI : Pseudo<
 		(outs ScalarReg:$dest),
 		(ins ScalarReg:$pred, ScalarReg:$true, ScalarReg:$false),
-		"; SELECTI Pseudo",
 		[(set i32:$dest, (selcondresult i32:$pred, i32:$true, i32:$false))]>;
 
 	def SELECTF : Pseudo<
 		(outs ScalarReg:$dest),
 		(ins ScalarReg:$pred, ScalarReg:$true, ScalarReg:$false),
-		"; SELECTF Pseudo",
 		[(set f32:$dest, (selcondresult i32:$pred, f32:$true, f32:$false))]>;
 
 	def SELECTVI : Pseudo<
 		(outs VectorReg:$dest),
 		(ins ScalarReg:$pred, VectorReg:$true, VectorReg:$false),
-		"; SELECTVI Pseudo",
 		[(set v16i32:$dest, (selcondresult i32:$pred, v16i32:$true, v16i32:$false))]>;
 
 	def SELECTVF : Pseudo<
 		(outs VectorReg:$dest),
 		(ins ScalarReg:$pred, VectorReg:$true, VectorReg:$false),
-		"; SELECTVF Pseudo",
 		[(set v16f32:$dest, (selcondresult i32:$pred, v16f32:$true, v16f32:$false))]>;
 }
 

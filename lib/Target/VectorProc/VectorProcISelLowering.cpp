@@ -688,6 +688,38 @@ MachineBasicBlock *
 VectorProcTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
 	MachineBasicBlock *BB) const 
 {
+	switch (MI->getOpcode())
+	{
+		case VectorProc::SELECTI:
+		case VectorProc::SELECTF:
+		case VectorProc::SELECTVI:
+		case VectorProc::SELECTVF:
+			return EmitSelectCC(MI, BB);
+
+		case VectorProc::ATOMIC_LOAD_ADD:
+			return EmitAtomicRMW(MI, BB, VectorProc::ADDISSS);
+
+		case VectorProc::ATOMIC_LOAD_SUB:
+			return EmitAtomicRMW(MI, BB, VectorProc::SUBISSS);
+			
+		case VectorProc::ATOMIC_LOAD_AND:
+			return EmitAtomicRMW(MI, BB, VectorProc::ANDSSS);
+
+		case VectorProc::ATOMIC_LOAD_OR:
+			return EmitAtomicRMW(MI, BB, VectorProc::ORSSS);
+
+		case VectorProc::ATOMIC_LOAD_XOR:
+			return EmitAtomicRMW(MI, BB, VectorProc::XORSSS);
+
+		default:
+			llvm_unreachable("unimplemented atomic operation");
+	}
+}
+
+MachineBasicBlock *
+VectorProcTargetLowering::EmitSelectCC(MachineInstr *MI,
+	MachineBasicBlock *BB) const 
+{
 	const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
 	DebugLoc dl = MI->getDebugLoc();
 
@@ -724,7 +756,7 @@ VectorProcTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
 	BB->addSuccessor(copy0MBB);
 	BB->addSuccessor(sinkMBB);
 
-	BuildMI(BB, dl, TII->get(VectorProc::IFTRUE)).addReg(MI->getOperand(1).getReg())
+	BuildMI(BB, dl, TII->get(VectorProc::BTRUE)).addReg(MI->getOperand(1).getReg())
 		.addMBB(sinkMBB);
 
 	//  copy0MBB:
@@ -746,6 +778,67 @@ VectorProcTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
 
 	MI->eraseFromParent();   // The pseudo instruction is gone now.
 	return BB;
+}
+
+MachineBasicBlock *VectorProcTargetLowering::EmitAtomicRMW(MachineInstr *MI, 
+	MachineBasicBlock *BB, unsigned Opcode) const
+{
+	const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
+
+	unsigned dest = MI->getOperand(0).getReg();
+	unsigned ptr = MI->getOperand(1).getReg();
+	unsigned incr = MI->getOperand(2).getReg();
+	DebugLoc dl = MI->getDebugLoc();
+	MachineRegisterInfo &MRI = BB->getParent()->getRegInfo();
+	unsigned scratch1 = MRI.createVirtualRegister(&VectorProc::ScalarRegRegClass);
+	unsigned scratch2 = MRI.createVirtualRegister(&VectorProc::ScalarRegRegClass);
+	unsigned scratch3 = MRI.createVirtualRegister(&VectorProc::ScalarRegRegClass);
+
+	const BasicBlock *LLVM_BB = BB->getBasicBlock();
+	MachineFunction *MF = BB->getParent();
+	MachineFunction::iterator It = BB;
+	++It;
+
+	MachineBasicBlock *loopMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+	MachineBasicBlock *exitMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+	MF->insert(It, loopMBB);
+	MF->insert(It, exitMBB);
+
+	// Transfer the remainder of BB and its successor edges to exitMBB.
+	exitMBB->splice(exitMBB->begin(), BB,
+		llvm::next(MachineBasicBlock::iterator(MI)),
+		BB->end());
+	exitMBB->transferSuccessorsAndUpdatePHIs(BB);
+
+	//  thisMBB:
+	//   ...
+	//   fallthrough --> loopMBB
+	BB->addSuccessor(loopMBB);
+
+	//  loopMBB:
+	//   load.sync scratch1, ptr
+	//   <op> scratch2, scratch1, incr
+	//   move dest, scratch2
+	//   store.sync ptr, scratch2/3
+	//   iffalse scratch3 goto loopMBB
+	//   fallthrough --> exitMBB
+	BB = loopMBB;
+	BuildMI(BB, dl, TII->get(VectorProc::LOAD_SYNC), scratch1).addReg(ptr).addImm(0);
+	BuildMI(BB, dl, TII->get(Opcode), scratch2).addReg(scratch1).addReg(incr);
+	BuildMI(BB, dl, TII->get(VectorProc::MOVESS), dest).addReg(scratch2);
+	BuildMI(BB, dl, TII->get(VectorProc::STORE_SYNC), scratch3).addReg(scratch2)
+		.addReg(ptr).addImm(0);
+	BuildMI(BB, dl, TII->get(VectorProc::BFALSE)).addReg(scratch3).addMBB(loopMBB);
+	BB->addSuccessor(loopMBB);
+	BB->addSuccessor(exitMBB);
+
+	//  exitMBB:
+	//   ...
+	BB = exitMBB;
+
+	MI->eraseFromParent();   // The instruction is gone now.
+
+	return BB;	
 }
 
 

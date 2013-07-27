@@ -81,8 +81,8 @@ class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern
 	field bits<32> Inst;
 }
 
-class Pseudo<dag outputs, dag inputs, string asmString, list<dag> pattern>
-	: VPInstruction<outputs, inputs, asmString, pattern>
+class Pseudo<dag outputs, dag inputs, list<dag> pattern>
+	: VPInstruction<outputs, inputs, "Pseudo", pattern>
 {
 	let Namespace = "VectorProc";
 	dag OutOperandList = outputs;
