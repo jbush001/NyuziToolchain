@@ -6,8 +6,8 @@ int atomic_add(volatile int *lockvar)
 
 	// CHECK: [[LABEL:L[0-9A-Za-z_]+]]:
 	// CHECK: load.sync [[SCRATCH1:s[0-9]+]], (s0)
+	// CHECK: move {{s[0-9]+}}, [[SCRATCH1]]
 	// CHECK: and [[SCRATCH2:s[0-9]+]], [[SCRATCH1]], 
-	// CHECK: move {{s[0-9]+}}, [[SCRATCH2]]
 	// CHECK: store.sync [[SCRATCH2]], (s0)	
 	// CHECK: bfalse [[SCRATCH2]], [[LABEL]]
 }

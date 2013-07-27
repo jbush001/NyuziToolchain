@@ -817,15 +817,15 @@ MachineBasicBlock *VectorProcTargetLowering::EmitAtomicRMW(MachineInstr *MI,
 
 	//  loopMBB:
 	//   load.sync scratch1, ptr
+	//   move dest, scratch1
 	//   <op> scratch2, scratch1, incr
-	//   move dest, scratch2
 	//   store.sync ptr, scratch2/3
 	//   iffalse scratch3 goto loopMBB
 	//   fallthrough --> exitMBB
 	BB = loopMBB;
 	BuildMI(BB, dl, TII->get(VectorProc::LOAD_SYNC), scratch1).addReg(ptr).addImm(0);
+	BuildMI(BB, dl, TII->get(VectorProc::MOVESS), dest).addReg(scratch1);
 	BuildMI(BB, dl, TII->get(Opcode), scratch2).addReg(scratch1).addReg(incr);
-	BuildMI(BB, dl, TII->get(VectorProc::MOVESS), dest).addReg(scratch2);
 	BuildMI(BB, dl, TII->get(VectorProc::STORE_SYNC), scratch3).addReg(scratch2)
 		.addReg(ptr).addImm(0);
 	BuildMI(BB, dl, TII->get(VectorProc::BFALSE)).addReg(scratch3).addMBB(loopMBB);
