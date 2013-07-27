@@ -187,26 +187,39 @@ getMemoryOpValue(const MCInst &MI, unsigned Op,
 	SmallVectorImpl<MCFixup> &Fixups) const {
 	unsigned encoding;
 
+	MCOperand baseReg;
+	MCOperand offsetOp;
+
+	if (MI.getOpcode() == VectorProc::STORE_SYNC)
+	{
+		// Store sync has an additional machine operand for the success value
+		baseReg = MI.getOperand(2);
+		offsetOp = MI.getOperand(3);
+	}
+	else
+	{
+		baseReg = MI.getOperand(1);
+		offsetOp = MI.getOperand(2);
+	}
+
 	// Register
-	const MCOperand op1 = MI.getOperand(1);
 	// This is register/offset.  No need for relocation.
-	assert(op1.isReg() && "First operand is not register.");
-	encoding = Ctx.getRegisterInfo()->getEncodingValue(op1.getReg());
+	assert(baseReg.isReg() && "First operand is not register.");
+	encoding = Ctx.getRegisterInfo()->getEncodingValue(baseReg.getReg());
 
 	// Offset
-	MCOperand op2 = MI.getOperand(2);
-	if (op2.isExpr())
+	if (offsetOp.isExpr())
 	{
 		// Load with a label. This is a PC relative load.  Add a fixup.
 		// XXX Note that this assumes unmasked instructions.  A masked
 		// instruction will not work and should nto be used.
-		Fixups.push_back(MCFixup::Create(0, op2.getExpr(),
+		Fixups.push_back(MCFixup::Create(0, offsetOp.getExpr(),
 			 MCFixupKind(VectorProc::fixup_VectorProc_PCRel_MemAccExt)));
 	}
-	else if (op2.isImm())
-		encoding |= static_cast<short>(op2.getImm()) << 5;
+	else if (offsetOp.isImm())
+		encoding |= static_cast<short>(offsetOp.getImm()) << 5;
 	else
-		assert(op2.isImm() && "Second operand of memory op is unknown type.");
+		assert(offsetOp.isImm() && "Second operand of memory op is unknown type.");
 	
 	return encoding;
 }
