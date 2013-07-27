@@ -564,7 +564,18 @@ def LOADIMM : FormatBUnmaskedInst<
 	[(set i32:$dest, imm:$imm)],
 	0x0f,
 	FmtB_SS>;
-	
+
+def DFLUSH : FormatDInst<
+	(outs),
+	(ins ScalarReg:$ptr),
+	"dflush $ptr",
+	[],
+	FmtD_DFlush>
+{
+	bits<5> ptr;
+	let Inst{4-0} = ptr;
+}
+			
 // Conversions
 def : Pat<(v16f32 (bitconvert (v16i32 VectorReg:$src))), (v16f32 VectorReg:$src)>;
 def : Pat<(v16i32 (bitconvert (v16f32 VectorReg:$src))), (v16i32 VectorReg:$src)>;

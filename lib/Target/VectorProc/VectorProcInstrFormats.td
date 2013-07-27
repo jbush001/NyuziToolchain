@@ -93,6 +93,11 @@ class Pseudo<dag outputs, dag inputs, string asmString, list<dag> pattern>
 	let Inst{31-0} = 0;
 }
 
+
+//
+// Format A: Register arithmetic
+//
+
 class AFmt<bits<3> val> {
 	bits<3> Value = val;
 }
@@ -156,6 +161,10 @@ class FormatAMaskedTwoOpInst<dag outputs, dag inputs, string asmString, list<dag
 	let Inst{14-10} = mask;
 	let Inst{4-0} = src1;
 }
+
+//
+// Format B: Register/Immediate Arithmetic
+//
 
 class BFmt<bits<3> val> {
 	bits<3> Value = val;
@@ -557,6 +566,10 @@ multiclass FloatCompareInst<string operator, CondCode condition, Intrinsic vecto
 		FmtA_VVS>;
 }
 
+//
+// Format C: Memory instructions
+//
+
 class CFmt<bits<4> val> {
 	bits<4> Value = val;
 }
@@ -650,6 +663,32 @@ multiclass ScalarStoreInst<string suffix, PatFrag op, CFmt fmt>  {
 			0>;
 	}
 }
+
+//
+// Format D (cache control)
+//
+
+class DFmt<bits<3> val> {
+	bits<3> Value = val;
+}
+
+def FmtD_Preload : DFmt<0>;
+def FmtD_Invalidate : DFmt<1>;
+def FmtD_DFlush : DFmt<2>;
+def FmtD_IInvalidate : DFmt<3>;
+def FmtD_StBar : DFmt<4>;
+
+class FormatDInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
+	DFmt fmt> 
+	: VPInstruction<outputs, inputs, asmString, pattern>
+{
+	let Inst{31-29} = 7;
+	let Inst{27-25} = fmt.Value;
+}
+
+//
+// Format E: Branch Instruction
+//
 
 class BranchType<bits<3> val> {
 	bits<3> Value = val;
