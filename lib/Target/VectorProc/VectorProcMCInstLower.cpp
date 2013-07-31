@@ -124,7 +124,8 @@ void VectorProcMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
 {
 	OutMI.setOpcode(MI->getOpcode());
 	if (MI->getNumOperands() > 1 
-		&& MI->getOperand(1).getType() == MachineOperand::MO_ConstantPoolIndex)
+		&& (MI->getOperand(1).getType() == MachineOperand::MO_ConstantPoolIndex
+		|| MI->getOperand(1).getType() == MachineOperand::MO_JumpTableIndex))
 	{
 		OutMI.addOperand(LowerOperand(MI->getOperand(0)));	// result
 	

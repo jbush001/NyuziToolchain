@@ -49,19 +49,22 @@ namespace llvm {
 			getRegForInlineAsmConstraint(const std::string &Constraint, MVT VT) const;
 		virtual bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const;
 		SDValue LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const;
+		SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
+		SDValue LowerJumpTable(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerConstant(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerFDIV(SDValue Op, SelectionDAG &DAG) const;
+		SDValue LowerBR_JT(SDValue Op, SelectionDAG &DAG) const;
+		SDValue LowerBRIND(SDValue Op, SelectionDAG &DAG) const;
 		EVT getSetCCResultType(LLVMContext &Context, EVT VT) const;
 		virtual SDValue LowerReturn(SDValue Chain,
 			CallingConv::ID CallConv, bool isVarArg,
 			const SmallVectorImpl<ISD::OutputArg> &Outs,
 			const SmallVectorImpl<SDValue> &OutVals,
 			SDLoc dl, SelectionDAG &DAG) const;
-		SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
 		virtual SDValue LowerFormalArguments(SDValue Chain,
 			CallingConv::ID CallConv,
 			bool isVarArg,

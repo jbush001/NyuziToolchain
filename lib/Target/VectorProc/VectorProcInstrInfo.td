@@ -446,6 +446,25 @@ let isTerminator = 1 in {
 		"btrue $test, $dest",
 		[(brcond i32:$test, bb:$dest)],
 		BT_IfTrue> ;
+
+	// Converts to MOVE pc, <srcreg>
+	def JUMPREG : VPInstruction<
+		(outs), 
+		(ins ScalarReg:$dest),
+		"goto $dest",
+		[(brind i32:$dest)]>
+	{
+		bits<5> dest;
+	
+		let Inst{31-30} = 3;
+		let Inst{25-20} = 0xf;	// opcode: move
+		let Inst{9-5} = 31;
+		let Inst{4-0} = dest;
+
+		let isBranch = 1;
+		let isIndirectBranch = 1;
+		let isBarrier = 1;
+	}
 }
 
 def return : SDNode<"VectorProcISD::RET_FLAG", 
@@ -486,20 +505,6 @@ let isCall = 1, Defs = [S0, S1, S2, S3, S4, LINK_REG ] in {
 		"call $dest", 
 		[],
 		BT_Call>;
-
-	def JMPLri : BranchInst<
-		(outs), 
-		(ins MEMri:$ptr, variable_ops),
-		"call $ptr",
-		[(call ADDRri:$ptr)],
-		BT_CallReg>
-	{
-		// XXX this instruction will probably assert because there is no $dest
-		
-		bits<5> ptr;
-
-		let Inst{4-0} = ptr;
-	}
 }
 
 def : Pat<(call tglobaladdr:$dest),

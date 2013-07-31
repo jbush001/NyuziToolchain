@@ -12,3 +12,5 @@ foo:	goto foo		; CHECK: encoding: [0bAAA00000,A,A,0b1111011A]
 	
 bar:
 		
+		goto s2	; CHECK: encoding: [0xe2,0x03,0xf0,0xc0]
+		
