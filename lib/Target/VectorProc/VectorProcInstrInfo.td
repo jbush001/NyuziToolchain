@@ -499,18 +499,30 @@ let Defs = [SP_REG], Uses = [SP_REG], hasSideEffects = 1 in {
 // Note: Unlike other branches, call is not a terminator: it does not end a 
 // basic block.
 let isCall = 1, Defs = [S0, S1, S2, S3, S4, LINK_REG ] in {
-	def CALL : UnconditionalBranchInst<
+	def CALLSYM : UnconditionalBranchInst<
 		(outs), 
 		(ins calltarget:$dest, variable_ops),
 		"call $dest", 
 		[],
 		BT_Call>;
+
+	def CALLREG : UnconditionalBranchInst<
+		(outs), 
+		(ins ScalarReg:$targetreg, variable_ops),
+		"call $targetreg", 
+		[(call i32:$targetreg)],
+		BT_CallReg>
+	{
+		bits<5> targetreg;
+	
+		let Inst{4-0} = targetreg;
+	}
 }
 
 def : Pat<(call tglobaladdr:$dest),
-          (CALL tglobaladdr:$dest)>;
+          (CALLSYM tglobaladdr:$dest)>;
 def : Pat<(call texternalsym:$dest),
-          (CALL texternalsym:$dest)>;
+          (CALLSYM texternalsym:$dest)>;
 
 // XXXX need pattern fragment for VMUX
 
