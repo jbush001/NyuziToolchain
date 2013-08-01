@@ -436,6 +436,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::BR_CC, MVT::f32, Expand);
 	setOperationAction(ISD::BRCOND, MVT::i32, Expand);
 	setOperationAction(ISD::BRCOND, MVT::f32, Expand);
+	setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
+	setOperationAction(ISD::CTPOP, MVT::i32, Expand);
 	setOperationAction(ISD::BUILD_VECTOR, MVT::v16f32, Custom);
 	setOperationAction(ISD::BUILD_VECTOR, MVT::v16i32, Custom);
 	setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v16f32, Custom);
@@ -455,9 +457,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::FDIV, MVT::f32, Custom);
 	setOperationAction(ISD::FDIV, MVT::v16f32, Custom);
 	setOperationAction(ISD::BR_JT, MVT::Other, Custom);
-	setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
-	setOperationAction(ISD::CTPOP, MVT::i32, Expand);
-
+	setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16i32, Custom);
+	setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16i32, Custom);
 
 	setStackPointerRegisterToSaveRestore(VectorProc::SP_REG);
 	setMinFunctionAlignment(2);
@@ -702,6 +703,18 @@ LowerBR_JT(SDValue Op, SelectionDAG &DAG) const
   return DAG.getNode(ISD::BRIND, DL, MVT::Other, Chain, Addr);
 }
 
+// SCALAR_TO_VECTOR loads the scalar register into lane 0 of the register.
+// The rest of the lanes are undefined.  For simplicity, we just load the same
+// value into all lanes.
+SDValue VectorProcTargetLowering::
+LowerSCALAR_TO_VECTOR(SDValue Op, SelectionDAG &DAG) const
+{
+	MVT VT = Op.getValueType().getSimpleVT();
+	SDLoc dl(Op);
+	return DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(0));
+}
+
+
 SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const 
 {
@@ -717,6 +730,7 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const
 		case ISD::Constant: return LowerConstant(Op, DAG);
 		case ISD::FDIV: return LowerFDIV(Op, DAG);
 		case ISD::BR_JT: return LowerBR_JT(Op, DAG);
+		case ISD::SCALAR_TO_VECTOR: return LowerSCALAR_TO_VECTOR(Op, DAG);
 		default:
 			llvm_unreachable("Should not custom lower this!");
 	}
