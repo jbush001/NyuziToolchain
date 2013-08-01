@@ -2894,6 +2894,87 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 				16));
 	}
 
+	//
+	// Attempt to convert vector comparisons
+	//
+	Value *comparison = NULL;
+	switch (BuiltinID)
+	{
+		// Vector comparisons
+		// Ideally, these would just use the compare instruction, but I had a hard 
+		// time coercing that into a scalar register, so they are intrinsics for now.
+		case VectorProc::BI__builtin_vp_mask_cmpi_ugt: 
+			comparison = Builder.CreateICmpUGT(Ops[0], Ops[1]);
+			break;
+			
+		case VectorProc::BI__builtin_vp_mask_cmpi_uge: 
+			comparison = Builder.CreateICmpUGE(Ops[0], Ops[1]);
+			break;
+			
+		case VectorProc::BI__builtin_vp_mask_cmpi_ult: 
+			comparison = Builder.CreateICmpULT(Ops[0], Ops[1]);
+			break;
+		
+		case VectorProc::BI__builtin_vp_mask_cmpi_ule: 
+			comparison = Builder.CreateICmpULE(Ops[0], Ops[1]);
+			break;
+
+		case VectorProc::BI__builtin_vp_mask_cmpi_sgt: 
+			comparison = Builder.CreateICmpSGT(Ops[0], Ops[1]);
+			break;
+
+		case VectorProc::BI__builtin_vp_mask_cmpi_sge: 
+			comparison = Builder.CreateICmpSGE(Ops[0], Ops[1]);
+			break;
+
+		case VectorProc::BI__builtin_vp_mask_cmpi_slt: 
+			comparison = Builder.CreateICmpSLT(Ops[0], Ops[1]);
+			break;
+
+		case VectorProc::BI__builtin_vp_mask_cmpi_sle: 
+			comparison = Builder.CreateICmpSLE(Ops[0], Ops[1]);
+			break;
+
+		case VectorProc::BI__builtin_vp_mask_cmpi_eq:
+			comparison = Builder.CreateICmpEQ(Ops[0], Ops[1]);
+			break;
+
+		case VectorProc::BI__builtin_vp_mask_cmpi_ne:
+			comparison = Builder.CreateICmpNE(Ops[0], Ops[1]);
+			break;
+
+		case VectorProc::BI__builtin_vp_mask_cmpf_gt:
+			comparison = Builder.CreateFCmpUGT(Ops[0], Ops[1]);
+			break;
+
+		case VectorProc::BI__builtin_vp_mask_cmpf_ge:
+			comparison = Builder.CreateFCmpUGE(Ops[0], Ops[1]);
+			break;
+
+		case VectorProc::BI__builtin_vp_mask_cmpf_lt:
+			comparison = Builder.CreateFCmpULT(Ops[0], Ops[1]);
+			break;
+
+		case VectorProc::BI__builtin_vp_mask_cmpf_le:
+			comparison = Builder.CreateFCmpULE(Ops[0], Ops[1]);
+			break;
+
+		case VectorProc::BI__builtin_vp_mask_cmpf_eq:
+			comparison = Builder.CreateFCmpUEQ(Ops[0], Ops[1]);
+			break;
+
+		case VectorProc::BI__builtin_vp_mask_cmpf_ne:
+			comparison = Builder.CreateFCmpUNE(Ops[0], Ops[1]);
+			break;
+	}
+	
+	if (comparison)
+	{
+		// The result of this is v16i1.  Coerce it into i32
+		return Builder.CreateZExt(Builder.CreateBitCast(comparison, Builder.getInt16Ty()), 
+			Builder.getInt32Ty());
+	}
+
 	// This maps directly to an LLVM intrinsic.  Look up the function name and create
 	// a call (which will be transformed automatically in the appropriate
 	// instruction in the backend).
@@ -2945,73 +3026,6 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 		
 		case VectorProc::BI__builtin_vp_block_storef_masked:
 			F = CGM.getIntrinsic(Intrinsic::vp_block_storef_masked);
-			break;
-
-		// Vector comparisions
-		// Ideally, these would just use the compare instruction, but I had a hard 
-		// time coercing that into a scalar register, so they are intrinsics for now.
-		case VectorProc::BI__builtin_vp_mask_cmpi_ugt: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_ugt);
-			break;
-			
-		case VectorProc::BI__builtin_vp_mask_cmpi_uge: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_uge);
-			break;
-			
-		case VectorProc::BI__builtin_vp_mask_cmpi_ult: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_ult);
-			break;
-		
-		case VectorProc::BI__builtin_vp_mask_cmpi_ule: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_ule);
-			break;
-
-		case VectorProc::BI__builtin_vp_mask_cmpi_sgt: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_sgt);
-			break;
-
-		case VectorProc::BI__builtin_vp_mask_cmpi_sge: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_sge);
-			break;
-
-		case VectorProc::BI__builtin_vp_mask_cmpi_slt: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_slt);
-			break;
-
-		case VectorProc::BI__builtin_vp_mask_cmpi_sle: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_sle);
-			break;
-
-		case VectorProc::BI__builtin_vp_mask_cmpi_eq:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_eq);
-			break;
-
-		case VectorProc::BI__builtin_vp_mask_cmpi_ne:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_ne);
-			break;
-
-		case VectorProc::BI__builtin_vp_mask_cmpf_gt:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpf_gt);
-			break;
-
-		case VectorProc::BI__builtin_vp_mask_cmpf_ge:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpf_ge);
-			break;
-
-		case VectorProc::BI__builtin_vp_mask_cmpf_lt:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpf_lt);
-			break;
-
-		case VectorProc::BI__builtin_vp_mask_cmpf_le:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpf_le);
-			break;
-
-		case VectorProc::BI__builtin_vp_mask_cmpf_eq:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpf_eq);
-			break;
-
-		case VectorProc::BI__builtin_vp_mask_cmpf_ne:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpf_ne);
 			break;
 		
 		default:

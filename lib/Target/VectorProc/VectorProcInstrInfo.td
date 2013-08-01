@@ -83,30 +83,30 @@ def FTOSIV : FormatAUnmaskedOneOpInst<
         	0x1b,
         	FmtA_VVV>;
 
-defm SGTSI : IntCompareInst<"setgt", "i", SETGT, int_vp_mask_cmpi_sgt, 0x12>;	
-defm SGESI : IntCompareInst<"setge", "i", SETGE, int_vp_mask_cmpi_sge, 0x13>;
-defm SLTSI : IntCompareInst<"setlt", "i", SETLT, int_vp_mask_cmpi_slt, 0x14>;
-defm SLESI : IntCompareInst<"setle", "i", SETLE, int_vp_mask_cmpi_sle, 0x15>;
-defm SEQSI : IntCompareInst<"seteq", "i", SETEQ, int_vp_mask_cmpi_eq, 0x10>;
-defm SNESI : IntCompareInst<"setne", "i", SETNE, int_vp_mask_cmpi_ne, 0x11>;
-defm SGTUI : IntCompareInst<"setgt", "u", SETUGT, int_vp_mask_cmpi_ugt, 0x16>;	
-defm SGEUI : IntCompareInst<"setge", "u", SETUGE, int_vp_mask_cmpi_uge, 0x17>;
-defm SLTUI : IntCompareInst<"setlt", "u", SETULT, int_vp_mask_cmpi_ult, 0x18>;
-defm SLEUI : IntCompareInst<"setle", "u", SETULE, int_vp_mask_cmpi_ule, 0x19>;
+defm SGTSI : IntCompareInst<"setgt", "i", SETGT, 0x12>;	
+defm SGESI : IntCompareInst<"setge", "i", SETGE, 0x13>;
+defm SLTSI : IntCompareInst<"setlt", "i", SETLT, 0x14>;
+defm SLESI : IntCompareInst<"setle", "i", SETLE, 0x15>;
+defm SEQSI : IntCompareInst<"seteq", "i", SETEQ, 0x10>;
+defm SNESI : IntCompareInst<"setne", "i", SETNE, 0x11>;
+defm SGTUI : IntCompareInst<"setgt", "u", SETUGT, 0x16>;	
+defm SGEUI : IntCompareInst<"setge", "u", SETUGE, 0x17>;
+defm SLTUI : IntCompareInst<"setlt", "u", SETULT, 0x18>;
+defm SLEUI : IntCompareInst<"setle", "u", SETULE, 0x19>;
 
 // Note: unordered and ordered treated the same
-defm SGTFO : FloatCompareInst<"setgt", SETOGT, int_vp_mask_cmpf_gt, 0x2c>;	
-defm SGEFO : FloatCompareInst<"setge", SETOGE, int_vp_mask_cmpf_ge, 0x2d>;
-defm SLTFO : FloatCompareInst<"setlt", SETOLT, int_vp_mask_cmpf_lt, 0x2e>;
-defm SLEFO : FloatCompareInst<"setle", SETOLE, int_vp_mask_cmpf_le, 0x2f>;
-defm SEQFO : FloatCompareInst<"seteq", SETOEQ, int_vp_mask_cmpf_eq, 0x10>;
-defm SNEFO : FloatCompareInst<"setne", SETONE, int_vp_mask_cmpf_ne, 0x11>;
-defm SGTFU : FloatCompareInst<"setgt", SETUGT, int_vp_mask_cmpf_gt, 0x2c>;
-defm SGEFU : FloatCompareInst<"setge", SETUGE, int_vp_mask_cmpf_ge, 0x2d>;
-defm SLTFU : FloatCompareInst<"setlt", SETULT, int_vp_mask_cmpf_lt, 0x2e>;
-defm SLEFU : FloatCompareInst<"setle", SETULE, int_vp_mask_cmpf_le, 0x2f>;
-defm SEQFU : FloatCompareInst<"seteq", SETUEQ, int_vp_mask_cmpf_eq, 0x10>;
-defm SNEFU : FloatCompareInst<"setne", SETUNE, int_vp_mask_cmpf_ne, 0x11>;
+defm SGTFO : FloatCompareInst<"setgt", SETOGT, 0x2c>;	
+defm SGEFO : FloatCompareInst<"setge", SETOGE, 0x2d>;
+defm SLTFO : FloatCompareInst<"setlt", SETOLT, 0x2e>;
+defm SLEFO : FloatCompareInst<"setle", SETOLE, 0x2f>;
+defm SEQFO : FloatCompareInst<"seteq", SETOEQ, 0x10>;
+defm SNEFO : FloatCompareInst<"setne", SETONE, 0x11>;
+defm SGTFU : FloatCompareInst<"setgt", SETUGT, 0x2c>;
+defm SGEFU : FloatCompareInst<"setge", SETUGE, 0x2d>;
+defm SLTFU : FloatCompareInst<"setlt", SETULT, 0x2e>;
+defm SLEFU : FloatCompareInst<"setle", SETULE, 0x2f>;
+defm SEQFU : FloatCompareInst<"seteq", SETUEQ, 0x10>;
+defm SNEFU : FloatCompareInst<"setne", SETUNE, 0x11>;
 
 def GET_FIELDI : FormatAUnmaskedTwoOpInst<
 	(outs ScalarReg:$dest),

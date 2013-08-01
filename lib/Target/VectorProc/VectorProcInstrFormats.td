@@ -433,7 +433,7 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
 	}
 }
 
-multiclass IntCompareInst<string operator, string opsign, CondCode condition, Intrinsic vectorIntrinsic,
+multiclass IntCompareInst<string operator, string opsign, CondCode condition,
 	bits<6> opcode> {
 	// Instruction format A, integer
 	def SSS : FormatAUnmaskedTwoOpInst<
@@ -484,46 +484,9 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition, In
 		[(set i32:$dest, (setcc (splat i32:$src1), (splat simm13:$imm), condition))],
 		opcode{4-0},
 		FmtB_VS>;
-
-	// Intrinsic forms
-	// Ideally, vector comparisons would just use native instructions, but I had a hard 
-	// time coercing that into a scalar register, so they are intrinsics for now.
-
-	def VVVint : FormatAUnmaskedTwoOpInst<
-		(outs ScalarReg:$dest), 
-		(ins VectorReg:$src1, VectorReg:$src2),
-		operator # "." # opsign # " $dest, $src1, $src2",
-		[(set i32:$dest, (vectorIntrinsic v16i32:$src1, v16i32:$src2))],
-		opcode,
-		FmtA_VVV>;
-
-	def VVSint : FormatAUnmaskedTwoOpInst<
-		(outs ScalarReg:$dest), 
-		(ins VectorReg:$src1, ScalarReg:$src2),
-		operator # "." # opsign # " $dest, $src1, $src2",
-		[(set i32:$dest, (vectorIntrinsic v16i32:$src1, (splat i32:$src2)))],
-		opcode,
-		FmtA_VVS>;
-
-	def VVIint : FormatBUnmaskedInst<
-		(outs ScalarReg:$dest), 
-		(ins VectorReg:$src1, i32imm:$imm),
-		operator # "." # opsign # " $dest, $src1, $imm",
-		[(set i32:$dest, (vectorIntrinsic v16i32:$src1, (splat simm13:$imm)))],
-		opcode{4-0},
-		FmtB_VV>;
-
-	def VSIint : FormatBUnmaskedInst<
-		(outs ScalarReg:$dest), 
-		(ins ScalarReg:$src1, i32imm:$imm),
-		operator # "." # opsign # " $dest, $src1, $imm",
-		[(set i32:$dest, (vectorIntrinsic (splat i32:$src1), (splat simm13:$imm)))],
-		opcode{4-0},
-		FmtB_VS>;
 }
 
-multiclass FloatCompareInst<string operator, CondCode condition, Intrinsic vectorIntrinsic,
-	bits<6> opcode> {
+multiclass FloatCompareInst<string operator, CondCode condition, bits<6> opcode> {
 	def SSS : FormatAUnmaskedTwoOpInst<
 		(outs ScalarReg:$dest),
 		(ins ScalarReg:$src1, ScalarReg:$src2),
@@ -545,23 +508,6 @@ multiclass FloatCompareInst<string operator, CondCode condition, Intrinsic vecto
 		(ins VectorReg:$src1, ScalarReg:$src2),
 		operator # ".f $dest, $src1, $src2",
 		[(set v16i1:$dest, (setcc v16f32:$src1, (splat f32:$src2), condition))],
-		opcode,
-		FmtA_VVS>;
-
-	// Intrinsic forms.  See note above.
-	def VVVint : FormatAUnmaskedTwoOpInst<
-		(outs ScalarReg:$dest),
-		(ins VectorReg:$src1, VectorReg:$src2),
-		operator # ".f $dest, $src1, $src2",
-		[(set i32:$dest, (vectorIntrinsic v16f32:$src1, v16f32:$src2))],
-		opcode,
-		FmtA_VVV>;
-
-	def VVSint : FormatAUnmaskedTwoOpInst<
-		(outs ScalarReg:$dest),
-		(ins VectorReg:$src1, ScalarReg:$src2),
-		operator # ".f $dest, $src1, $src2",
-		[(set i32:$dest, (vectorIntrinsic v16f32:$src1, (splat f32:$src2)))],
 		opcode,
 		FmtA_VVS>;
 }
