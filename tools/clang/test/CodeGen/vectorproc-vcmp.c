@@ -2,25 +2,12 @@
 
 typedef int veci16 __attribute__((__vector_size__(16 * sizeof(int))));
 
-void fillMasked(int mask);
-
-void subdivideTile(
-	int acceptCornerValue1, 
-	int acceptCornerValue2, 
+int subdivideTile(
 	veci16 acceptStep1, 
 	veci16 acceptStep2)
 {
-	veci16 acceptEdgeValue1;
-	veci16 acceptEdgeValue2;
-	int trivialAcceptMask;
+	int trivialAcceptMask = __builtin_vp_mask_cmpi_sle(acceptStep1, __builtin_vp_makevectori(0))
+		& __builtin_vp_mask_cmpi_sle(acceptStep2, __builtin_vp_makevectori(0));
 
-	// Compute accept masks
-	acceptEdgeValue1 = acceptStep1 + __builtin_vp_makevectori(acceptCornerValue1);
-	trivialAcceptMask = __builtin_vp_mask_cmpi_sle(acceptEdgeValue1, __builtin_vp_makevectori(0));
-	acceptEdgeValue2 = acceptStep2 + __builtin_vp_makevectori(acceptCornerValue2);
-	trivialAcceptMask &= __builtin_vp_mask_cmpi_sle(acceptEdgeValue2, __builtin_vp_makevectori(0));
-
-	// End recursion
-	fillMasked(trivialAcceptMask);
-	return;
+	return trivialAcceptMask;
 }
