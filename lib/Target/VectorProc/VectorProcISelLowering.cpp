@@ -455,6 +455,7 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::FDIV, MVT::f32, Custom);
 	setOperationAction(ISD::FDIV, MVT::v16f32, Custom);
 	setOperationAction(ISD::BR_JT, MVT::Other, Custom);
+	setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
 
 	setStackPointerRegisterToSaveRestore(VectorProc::SP_REG);
 	setMinFunctionAlignment(2);
