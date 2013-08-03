@@ -9,5 +9,9 @@ int subdivideTile(
 	int trivialAcceptMask = __builtin_vp_mask_cmpi_sle(acceptStep1, __builtin_vp_makevectori(0))
 		& __builtin_vp_mask_cmpi_sle(acceptStep2, __builtin_vp_makevectori(0));
 
+	// CHECK: setle.i s{{[0-9]+}}, v{{[0-9]+}}
+	// CHECK: setle.i s{{[0-9]+}}, v{{[0-9]+}}
+	// CHECK: and
+
 	return trivialAcceptMask;
 }
