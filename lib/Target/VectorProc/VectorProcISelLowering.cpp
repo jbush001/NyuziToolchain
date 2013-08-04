@@ -462,6 +462,10 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 
 	setStackPointerRegisterToSaveRestore(VectorProc::SP_REG);
 	setMinFunctionAlignment(2);
+	setSelectIsExpensive();		// Because there is no CMOV 
+	setIntDivIsCheap(false);
+	setSchedulingPreference(Sched::RegPressure);	// because we hide latency
+	
 	computeRegisterProperties();
 }
 
