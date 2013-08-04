@@ -27,7 +27,7 @@ VectorProcMCAsmInfo::VectorProcMCAsmInfo(StringRef TT) {
   Data64bitsDirective = 0; 
   ZeroDirective = "";	// What is this?
   CommentString = ";";
-  SupportsDebugInformation = false;
+  SupportsDebugInformation = true;
   ExceptionsType = ExceptionHandling::None;
   
   WeakRefDirective = "";

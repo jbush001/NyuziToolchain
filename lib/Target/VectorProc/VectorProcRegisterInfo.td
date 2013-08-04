@@ -17,16 +17,16 @@ let Namespace = "VectorProc" in {
 	}
 
 	foreach i = 0-27 in {
-		def S#i : VectorProcReg<"s"#i, i>;
+		def S#i : VectorProcReg<"s"#i, i>, DwarfRegNum<[i]>;
 	}
 
-	def FP_REG : VectorProcReg<"fp", 28>;
-	def SP_REG : VectorProcReg<"sp", 29>;
-	def LINK_REG : VectorProcReg<"link", 30>;
-	def PC_REG : VectorProcReg<"pc", 31>;
+	def FP_REG : VectorProcReg<"fp", 28>, DwarfRegNum<[28]>;
+	def SP_REG : VectorProcReg<"sp", 29>, DwarfRegNum<[29]>;
+	def LINK_REG : VectorProcReg<"link", 30>, DwarfRegNum<[30]>;
+	def PC_REG : VectorProcReg<"pc", 31>, DwarfRegNum<[31]>;
 
 	foreach i = 0-31 in {
-		def V#i : VectorProcReg<"v"#i, i>;
+		def V#i : VectorProcReg<"v"#i, i>, DwarfRegNum<[!add(i, 32)]>;
 	}
 }
 

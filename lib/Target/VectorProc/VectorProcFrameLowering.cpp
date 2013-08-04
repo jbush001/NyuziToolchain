@@ -33,6 +33,8 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const
 	MachineFrameInfo *MFI = MF.getFrameInfo();
 	const VectorProcInstrInfo &TII =
 		*static_cast<const VectorProcInstrInfo*>(MF.getTarget().getInstrInfo());
+	MachineModuleInfo &MMI = MF.getMMI();
+	const MCRegisterInfo *MRI = MMI.getContext().getRegisterInfo();
 	MachineBasicBlock::iterator MBBI = MBB.begin();
 	DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
 
@@ -47,9 +49,13 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const
 		BuildMI(MBB, MBBI, dl, TII.get(VectorProc::SUBISSI), VectorProc::SP_REG).addReg(VectorProc::SP_REG)
 			.addImm(StackSize);
 	}
-	
-	// XXX we are not generating cfi_def_cfa_offset or cfo_offset, which would be needed
-	// for debug information.
+
+	// emit ".cfi_def_cfa_offset StackSize" (debug information)
+	MCSymbol *AdjustSPLabel = MMI.getContext().CreateTempSymbol();
+	BuildMI(MBB, MBBI, dl,
+		TII.get(TargetOpcode::PROLOG_LABEL)).addSym(AdjustSPLabel);
+	MMI.addFrameInst(
+		MCCFIInstruction::createDefCfaOffset(AdjustSPLabel, -StackSize));
 
     // Find the instruction past the last instruction that saves a callee-saved
     // register to the stack.  We need to set up FP after its old value has been
@@ -58,9 +64,31 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const
 	for (unsigned i = 0; i < CSI.size(); ++i)
 		++MBBI;
 
+    // Iterate over list of callee-saved registers and emit .cfi_offset
+    // directives (debug information)
+	MCSymbol *CSLabel = MMI.getContext().CreateTempSymbol();
+	BuildMI(MBB, MBBI, dl,
+		TII.get(TargetOpcode::PROLOG_LABEL)).addSym(CSLabel);
+    for (std::vector<CalleeSavedInfo>::const_iterator I = CSI.begin(),
+		E = CSI.end(); I != E; ++I) 
+	{
+		int64_t Offset = MFI->getObjectOffset(I->getFrameIdx());
+		unsigned Reg = I->getReg();
+		MMI.addFrameInst(MCCFIInstruction::createOffset(
+			CSLabel, MRI->getDwarfRegNum(Reg, 1), Offset));
+	}
+
 	// fp = sp
 	BuildMI(MBB, MBBI, dl, TII.get(VectorProc::MOVESS)).addReg(VectorProc::FP_REG)
 		.addReg(VectorProc::SP_REG);
+
+
+    // emit ".cfi_def_cfa_register $fp" (debug information)
+    MCSymbol *SetFPLabel = MMI.getContext().CreateTempSymbol();
+    BuildMI(MBB, MBBI, dl,
+            TII.get(TargetOpcode::PROLOG_LABEL)).addSym(SetFPLabel);
+    MMI.addFrameInst(MCCFIInstruction::createDefCfaRegister(
+        SetFPLabel, MRI->getDwarfRegNum(VectorProc::FP_REG, true)));
 }
 
 void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
