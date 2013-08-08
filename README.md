@@ -53,6 +53,13 @@ type 'make'.
   llvm-lit tools/clang/test/CodeGen/vectorproc*
 </pre>
 
+## Running whole program tests
+
+There are a set of tests in https://github.com/jbush001/GPGPU/tests/compiler
+Each test case is compiled and then run in the instruction set simulator.
+The output is checked for validity. This is similar to the test-suite project
+in LLVM.
+
 ## To view DAGs graphically
 
 * Make sure GraphViz is in PATH.  Run configure and build.
