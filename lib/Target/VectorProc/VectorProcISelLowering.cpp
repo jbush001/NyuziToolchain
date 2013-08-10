@@ -293,7 +293,6 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
 		if (Flags.isSRet()) {
 			// Structure return
-			assert(VA.needsCustom());
 			SDValue StackPtr = DAG.getRegister(VectorProc::SP_REG, MVT::i32);
 			SDValue PtrOff = DAG.getIntPtrConstant(64);
 			PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
