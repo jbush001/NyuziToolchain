@@ -610,15 +610,27 @@ VectorProcTargetLowering::LowerConstantPool(SDValue Op, SelectionDAG &DAG) const
 	return Res;
 }
 
+// Get number of bits available in immediate field
+static int getImmediateFieldSize(unsigned int Opcode)
+{
+
+	// XXX we should figure out the size based on the instruction format
+	// currently hard-coded to the smallest size.
+
+	return 13;
+}
+
 SDValue 
 VectorProcTargetLowering::LowerConstant(SDValue Op, SelectionDAG &DAG) const
 {
 	SDLoc dl(Op);
 	ConstantSDNode *C = cast<ConstantSDNode>(Op);
-	if (C->getAPIntValue().abs().ult(0x4000))
+	int maxSize = getImmediateFieldSize(Op.getOpcode());
+
+	if (C->getAPIntValue().abs().ult((1 << (maxSize - 1)) - 1))
 	{
 		// Don't need to convert to constant pool reference.  This will fit in
-		// the immediate field of a single instruction, sign extended (15 bits).
+		// the immediate field of a single instruction, sign extended.
 		return SDValue();	
 	}
 		
