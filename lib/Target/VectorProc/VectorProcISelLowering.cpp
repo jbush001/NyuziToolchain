@@ -455,6 +455,7 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
 	setOperationAction(ISD::SELECT_CC, MVT::v16i32, Custom);
 	setOperationAction(ISD::SELECT_CC, MVT::v16f32, Custom);
+	setOperationAction(ISD::SELECT, MVT::i32, Expand);
 	setOperationAction(ISD::ConstantPool, MVT::i32, Custom);
 	setOperationAction(ISD::ConstantPool, MVT::f32, Custom);
 	setOperationAction(ISD::Constant, MVT::i32, Custom);
