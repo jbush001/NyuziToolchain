@@ -23,12 +23,13 @@ def simm8  : PatLeaf<(imm), [{ return isInt<8>(N->getSExtValue()); }]>;
 // Many instructions for this architecture can mix scalar and vector operands.  
 // This pattern allows us to detect that case and match it explicitly. 
 def splat : SDNode<"VectorProcISD::SPLAT", SDTypeProfile<1, 1, [SDTCisEltOfVec<1, 0>]>>;
-
 def wrapper : SDNode<"VectorProcISD::WRAPPER", SDTIntUnaryOp>;
-
 def reciprocal : SDNode<"VectorProcISD::RECIPROCAL_EST", SDTFPUnaryOp>;
-
 def LoadLiteral : SDNode<"VectorProcISD::LOAD_LITERAL", SDTIntUnaryOp>;
+def jtwrapper : SDNode<"VectorProcISD::JT_WRAPPER", SDTIntUnaryOp>;
+def SDT_BRJT    : SDTypeProfile<0, 2,
+	[SDTCisPtrTy<0>, SDTCisVT<1, i32>]>;
+def BRjt : SDNode<"VectorProcISD::BR_JT", SDT_BRJT, [SDNPHasChain]>;
 
 def ADDRri : ComplexPattern<iPTR, 2, "SelectADDRri", [frameindex], []>;
 
@@ -36,6 +37,11 @@ def MEMri : Operand<iPTR> {
 	let PrintMethod = "printMemOperand";
 	let EncoderMethod = "getMemoryOpValue";
 	let MIOperandInfo = (ops ScalarReg, i32imm);
+}
+
+def JTADDR : Operand<iPTR> {
+	let EncoderMethod = "encodeJumpTableAddr";
+	let PrintMethod = "printJumpTableOperand";
 }
 
 def cpooladdr : Operand<iPTR> {

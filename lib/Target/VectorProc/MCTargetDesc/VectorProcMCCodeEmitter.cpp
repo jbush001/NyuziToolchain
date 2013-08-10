@@ -62,6 +62,9 @@ public:
   unsigned getJumpTargetOpValue(const MCInst &MI, unsigned OpNo,
                      SmallVectorImpl<MCFixup> &Fixups) const;
 
+  unsigned encodeJumpTableAddr(const MCInst &MI, unsigned OpNo,
+                     SmallVectorImpl<MCFixup> &Fixups) const;
+
   // Emit one byte through output stream (from MCBlazeMCCodeEmitter)
   void EmitByte(unsigned char C, unsigned &CurByte, raw_ostream &OS) const {
     OS << (char)C;
@@ -104,44 +107,6 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
 
   if (MO.isImm())
     return static_cast<unsigned>(MO.getImm());
-  
-  // MO must be an expression
-  assert(MO.isExpr());
-
-  const MCExpr *Expr = MO.getExpr();
-  MCExpr::ExprKind Kind = Expr->getKind();
-
-  if (Kind == MCExpr::Binary) {
-    Expr = static_cast<const MCBinaryExpr*>(Expr)->getLHS();
-    Kind = Expr->getKind();
-  }
-
-  assert (Kind == MCExpr::SymbolRef);
-
-  VectorProc::Fixups FixupKind = VectorProc::Fixups(0);
-
-  switch(cast<MCSymbolRefExpr>(Expr)->getKind()) {
-    default: llvm_unreachable("Unknown fixup kind!");
-
-    case MCSymbolRefExpr::VK_VectorProc_Abs32:
-      FixupKind = VectorProc::fixup_VectorProc_Abs32;
-      break;
-
-    case MCSymbolRefExpr::VK_VectorProc_PCRel_MemAccExt:
-      FixupKind = VectorProc::fixup_VectorProc_PCRel_MemAccExt;
-      break;
-
-    case MCSymbolRefExpr::VK_VectorProc_PCRel_MemAcc:
-      FixupKind = VectorProc::fixup_VectorProc_PCRel_MemAcc;
-      break;
-
-    case MCSymbolRefExpr::VK_VectorProc_PCRel_Branch:
-      FixupKind = VectorProc::fixup_VectorProc_PCRel_Branch;
-      break;
-  }
-
-  // Push fixup (all info is contained within)
-  Fixups.push_back(MCFixup::Create(0, MO.getExpr(), MCFixupKind(FixupKind)));
 
   return 0;
 }
@@ -179,12 +144,21 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
   EmitLEConstant(Value, 4, CurByte, OS);
 }
 
+unsigned VectorProcMCCodeEmitter::encodeJumpTableAddr(const MCInst &MI, unsigned Op,
+	SmallVectorImpl<MCFixup> &Fixups) const 
+{
+	MCOperand label = MI.getOperand(2);
+	Fixups.push_back(MCFixup::Create(0, label.getExpr(),
+		 MCFixupKind(VectorProc::fixup_VectorProc_PCRel_ComputeLabelAddress)));
+	return 0;
+}
+
 // Encode VectorProc Memory Operand.  The result is a packed field with the register
 // in the low 5 bits and the offset in the remainder.  The instruction patterns
 // will put these into the proper part of the instruction (VectorProcInstrFormats.td).
-unsigned VectorProcMCCodeEmitter::
-getMemoryOpValue(const MCInst &MI, unsigned Op,
-	SmallVectorImpl<MCFixup> &Fixups) const {
+unsigned VectorProcMCCodeEmitter::getMemoryOpValue(const MCInst &MI, unsigned Op,
+	SmallVectorImpl<MCFixup> &Fixups) const 
+{
 	unsigned encoding;
 
 	MCOperand baseReg;

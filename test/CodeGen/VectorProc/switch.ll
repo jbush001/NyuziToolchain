@@ -10,8 +10,9 @@ entry:
     i32 2, label %sw.bb2
     i32 3, label %sw.bb4
   ]
-  
-  ; CHECK: goto s{{[0-9]+}}
+
+  ; CHECK: lea s{{[0-9]+}}, LJTI  
+  ; CHECK: load.32 pc, 
 
 sw.bb: 
   %add = add nsw i32 %j, 1

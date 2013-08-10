@@ -42,8 +42,6 @@ public:
   void printOperand(const MachineInstr *MI, int opNum, raw_ostream &OS);
   void printMemOperand(const MachineInstr *MI, int opNum, raw_ostream &OS,
                        const char *Modifier = 0);
-
-
   virtual void EmitInstruction(const MachineInstr *MI);
   
   bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
@@ -60,6 +58,10 @@ public:
   virtual void EmitFunctionBodyStart();
   virtual void EmitFunctionBodyEnd();
   virtual void EmitConstantPool();
+  virtual void EmitInlineJumpTable(const MachineInstr *MI);
+
+private:
+  MCSymbol *GetJumpTableLabel(unsigned uid) const;
 };
 }
 

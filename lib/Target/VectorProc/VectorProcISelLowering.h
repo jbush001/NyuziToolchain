@@ -29,7 +29,9 @@ namespace llvm {
 			RET_FLAG,    // Return with a flag operand.
 			SPLAT,			// Copy scalar register into all lanes of a vector
 			SEL_COND_RESULT,
-			RECIPROCAL_EST
+			RECIPROCAL_EST,
+			BR_JT,
+			JT_WRAPPER
 		};
 	}
 
@@ -75,6 +77,7 @@ namespace llvm {
 		virtual SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
 			SmallVectorImpl<SDValue> &InVals) const;
 		unsigned getSRetArgSize(SelectionDAG &DAG, SDValue Callee) const;
+		virtual unsigned getJumpTableEncoding() const; 
 	};
 } // end namespace llvm
 

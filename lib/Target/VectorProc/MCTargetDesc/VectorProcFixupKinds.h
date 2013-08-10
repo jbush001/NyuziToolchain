@@ -27,6 +27,7 @@ namespace VectorProc {
     fixup_VectorProc_PCRel_MemAccExt,	// PC relative offset for extended memory access
     fixup_VectorProc_PCRel_MemAcc,		// PC relative offset for memory access
     fixup_VectorProc_PCRel_Branch,		// PC relative for branch instruction
+    fixup_VectorProc_PCRel_ComputeLabelAddress, // For getting jump table addresses
 
     // Marker
     LastTargetFixupKind,

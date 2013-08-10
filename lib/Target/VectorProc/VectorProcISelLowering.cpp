@@ -420,6 +420,12 @@ VectorProcTargetLowering::getSRetArgSize(SelectionDAG &DAG, SDValue Callee) cons
 	return getDataLayout()->getTypeAllocSize(ElementTy);
 }
 
+unsigned 
+VectorProcTargetLowering::getJumpTableEncoding() const 
+{
+	return MachineJumpTableInfo::EK_Inline;
+}
+
 VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	: TargetLowering(TM, new TargetLoweringObjectFileELF()) 
 {
@@ -446,7 +452,6 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16f32, Custom);
 	setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
 	setOperationAction(ISD::GlobalAddress, MVT::f32, Custom);
-	setOperationAction(ISD::JumpTable, MVT::i32, Custom);
 	setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
 	setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
 	setOperationAction(ISD::SELECT_CC, MVT::v16i32, Custom);
@@ -476,6 +481,9 @@ const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
 		case VectorProcISD::LOAD_LITERAL: return "VectorProcISD::LOAD_LITERAL";
 		case VectorProcISD::SPLAT: return "VectorProcISD::SPLAT";
 		case VectorProcISD::SEL_COND_RESULT: return "VectorProcISD::SEL_COND_RESULT";
+		case VectorProcISD::RECIPROCAL_EST: return "VectorProcISD::RECIPROCAL_EST";
+		case VectorProcISD::BR_JT: return "VectorProcISD::BR_JT";
+		case VectorProcISD::JT_WRAPPER: return "VectorProcISD::JT_WRAPPER";
 		default: return 0;
 	}
 }
@@ -490,17 +498,6 @@ VectorProcTargetLowering::LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) cons
 	return DAG.getLoad(MVT::i32, dl, DAG.getEntryNode(), CPIdx,
 		MachinePointerInfo::getConstantPool(), false, false, false, 4);
 }
-
-SDValue 
-VectorProcTargetLowering::LowerJumpTable(SDValue Op, SelectionDAG &DAG) const
-{
-	SDLoc dl(Op);
-	JumpTableSDNode *N = cast<JumpTableSDNode>(Op);
-	SDValue JTIndex = DAG.getTargetJumpTable(N->getIndex(), Op.getValueType(), 0);
-	return DAG.getLoad(MVT::i32, dl, DAG.getEntryNode(), JTIndex,
-		MachinePointerInfo::getJumpTable(), false, false, false, 4);
-}
-
 
 /// isSplatVector - Returns true if N is a BUILD_VECTOR node whose elements are
 /// all the same.
@@ -684,27 +681,17 @@ VectorProcTargetLowering::LowerFDIV(SDValue Op, SelectionDAG &DAG) const
 SDValue VectorProcTargetLowering::
 LowerBR_JT(SDValue Op, SelectionDAG &DAG) const
 {
-  SDValue Chain = Op.getOperand(0);
-  SDValue Table = Op.getOperand(1);
-  SDValue Index = Op.getOperand(2);
-  SDLoc DL(Op);
-  EVT PTy = getPointerTy();
-  unsigned EntrySize =
-    DAG.getMachineFunction().getJumpTableInfo()->getEntrySize(*getDataLayout());
-
-  Index = DAG.getNode(ISD::MUL, DL, PTy, Index,
-                      DAG.getConstant(EntrySize, PTy));
-  SDValue Addr = DAG.getNode(ISD::ADD, DL, PTy, Index, Table);
-
-  EVT MemVT = EVT::getIntegerVT(*DAG.getContext(), EntrySize * 8);
-  Addr = DAG.getExtLoad(ISD::SEXTLOAD, DL, PTy, Chain, Addr,
-                        MachinePointerInfo::getJumpTable(), MemVT, false, false,
-                        0);
-  Chain = Addr.getValue(1);
- 
-  // XXX should lower this into a direct load from the table into PC
-  
-  return DAG.getNode(ISD::BRIND, DL, MVT::Other, Chain, Addr);
+	SDValue Chain = Op.getOperand(0);
+	SDValue Table = Op.getOperand(1);
+	SDValue Index = Op.getOperand(2);
+	SDLoc dl(Op);
+	EVT PTy = getPointerTy();
+	JumpTableSDNode *JT = cast<JumpTableSDNode>(Table);
+	SDValue JTI = DAG.getTargetJumpTable(JT->getIndex(), PTy);
+	SDValue TableWrapper = DAG.getNode(VectorProcISD::JT_WRAPPER, dl, PTy, JTI); 
+	SDValue TableMul = DAG.getNode(ISD::MUL, dl, PTy, Index, DAG.getConstant(4, PTy));
+	SDValue JTAddr = DAG.getNode(ISD::ADD, dl, PTy, TableWrapper, TableMul);
+	return DAG.getNode(VectorProcISD::BR_JT, dl, MVT::Other, Chain, JTAddr, JTI);
 }
 
 // SCALAR_TO_VECTOR loads the scalar register into lane 0 of the register.
@@ -718,7 +705,6 @@ LowerSCALAR_TO_VECTOR(SDValue Op, SelectionDAG &DAG) const
 	return DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(0));
 }
 
-
 SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const 
 {
@@ -727,7 +713,6 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const
 		case ISD::VECTOR_SHUFFLE: return LowerVECTOR_SHUFFLE(Op, DAG);
 		case ISD::BUILD_VECTOR:  return LowerBUILD_VECTOR(Op, DAG);
 		case ISD::GlobalAddress: return LowerGlobalAddress(Op, DAG);
-		case ISD::JumpTable: return LowerJumpTable(Op, DAG);
 		case ISD::INSERT_VECTOR_ELT: return LowerINSERT_VECTOR_ELT(Op, DAG);	
 		case ISD::SELECT_CC: return LowerSELECT_CC(Op, DAG);
 		case ISD::ConstantPool: return LowerConstantPool(Op, DAG);

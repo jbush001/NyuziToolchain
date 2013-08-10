@@ -433,19 +433,19 @@ let isTerminator = 1 in {
 		let isBarrier = 1;
 	}
 
-	def BFALSE	: ConditionalBranchInst<
+	def BFALSE : ConditionalBranchInst<
 		(outs), 
 		(ins ScalarReg:$test, brtarget:$dest),
 		"bfalse $test, $dest",
 		[(brcond (i32 (seteq i32:$test, 0)), bb:$dest)],
-		BT_IfFalse> ;
+		BT_IfFalse>;
 
-	def BTRUE	: ConditionalBranchInst<
+	def BTRUE : ConditionalBranchInst<
 		(outs), 
 		(ins ScalarReg:$test, brtarget:$dest),
 		"btrue $test, $dest",
 		[(brcond i32:$test, bb:$dest)],
-		BT_IfTrue> ;
+		BT_IfTrue>;
 
 	// Converts to MOVE pc, <srcreg>
 	def JUMPREG : VPInstruction<
@@ -455,7 +455,7 @@ let isTerminator = 1 in {
 		[(brind i32:$dest)]>
 	{
 		bits<5> dest;
-	
+
 		let Inst{31-30} = 3;
 		let Inst{25-20} = 0xf;	// opcode: move
 		let Inst{9-5} = 31;
@@ -464,6 +464,29 @@ let isTerminator = 1 in {
 		let isBranch = 1;
 		let isIndirectBranch = 1;
 		let isBarrier = 1;
+	}
+
+	// This loads the destination from the jump table directly into PC,
+	// branching as a side effect.
+	// $jumptable is not a real instruction operand. The AsmPrinter
+	// will use it to output the jump table in-line.
+	def JUMP_TABLE : VPInstruction<
+		(outs), 
+		(ins ScalarReg:$tableptr, ScalarReg:$jt),
+		"load.32 pc, ( $tableptr )",
+		[(BRjt i32:$tableptr, tjumptable:$jt)]>
+	{
+		let isBranch = 1;
+		let isIndirectBranch = 1;
+		let isBarrier = 1;
+
+		bits<5> tableptr;
+
+		let Inst{31} = 1;
+		let Inst{29} = 1;		// Is load
+		let Inst{28-25} = 4;	// Scalar, 32-bit
+		let Inst{9-5} = 31;		// PC is destination
+		let Inst{4-0} = tableptr;	// Register holds computed pointer into table
 	}
 }
 
@@ -587,7 +610,7 @@ def SET_CONTROL_REG : FormatCInst<
 	let Inst{9-5} = src;
 }
 
-// Load effective address.
+// Load address within frame
 // $expr will actually expand to "fp + <offset>"
 def LOAD_FRAME_ADDR : VPInstruction<
 	(outs ScalarReg:$dest),
@@ -612,6 +635,24 @@ def LOAD_CPOOLI : FormatCUnmaskedInst<
 	[(set i32:$srcDest, (load tconstpool:$addr))],
 	FmtC_Word,
 	1>;
+
+// Get address of jump table
+// This turns into add.i <destreg>, pc, <offset from pc>
+def LOAD_JTABLE_ADDR : VPInstruction<
+	(outs ScalarReg:$dest),
+	(ins JTADDR:$addr),
+	"lea $dest, $addr",
+	[(set i32:$dest, (jtwrapper tjumptable:$addr))]>
+{
+	bits<13> addr;
+	bits<5> dest;
+
+	let Inst{30-28} = FmtB_SS.Value;
+	let Inst{27-23} = 5;    // Add
+	let Inst{22-10} = addr; // Offset from PC
+	let Inst{9-5} = dest;
+	let Inst{4-0} = 31;     // base register (PC)
+}
 
 // This should only be invoked for types that will fit in the immediate field 
 // of the instruction.  The lowering code will transform other types into

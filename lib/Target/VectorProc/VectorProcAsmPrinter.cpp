@@ -23,9 +23,12 @@
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
+#include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbol.h"
+#include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Debug.h"
@@ -38,10 +41,13 @@ void VectorProcAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   MachineBasicBlock::const_instr_iterator E = MI->getParent()->instr_end();
 
   do {
-	MCInst TmpInst;
-	MCInstLowering.Lower(MI, TmpInst);
-
-	OutStreamer.EmitInstruction(TmpInst);
+    MCInst TmpInst;
+    MCInstLowering.Lower(MI, TmpInst);
+    OutStreamer.EmitInstruction(TmpInst);
+    if (MI->getOpcode() == VectorProc::JUMP_TABLE)
+    {
+      EmitInlineJumpTable(MI);
+    }
   } while ((I != E) && I->isInsideBundle());
 }
 
@@ -218,6 +224,32 @@ EmitConstantPool()
       EmitGlobalConstant(CPE.Val.ConstVal);
   }
 }
+
+void VectorProcAsmPrinter::
+EmitInlineJumpTable(const MachineInstr *MI)
+{
+  const MachineOperand &MO1 = MI->getOperand(1);
+  unsigned JTI = MO1.getIndex();
+  MCSymbol *JTISymbol = GetJumpTableLabel(JTI);
+  OutStreamer.EmitLabel(JTISymbol);
+  const MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
+  const std::vector<MachineJumpTableEntry> &JT = MJTI->getJumpTables();
+  const std::vector<MachineBasicBlock*> &JTBBs = JT[JTI].MBBs;
+  for (unsigned i = 0, e = JTBBs.size(); i != e; ++i) {
+    MachineBasicBlock *MBB = JTBBs[i];
+    const MCExpr *Expr = MCSymbolRefExpr::Create(MBB->getSymbol(), OutContext);
+    OutStreamer.EmitValue(Expr, 4);
+  }
+}
+
+MCSymbol *VectorProcAsmPrinter::
+GetJumpTableLabel(unsigned uid) const {
+  SmallString<60> Name;
+  raw_svector_ostream(Name) << MAI->getPrivateGlobalPrefix() << "JTI"
+    << getFunctionNumber() << '_' << uid;
+  return OutContext.GetOrCreateSymbol(Name.str());
+}
+
 
 // Force static initialization.
 extern "C" void LLVMInitializeVectorProcAsmPrinter() { 

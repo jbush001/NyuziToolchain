@@ -33,6 +33,7 @@ void VectorProcInstPrinter::printRegName(raw_ostream &OS, unsigned RegNo) const 
 
 void VectorProcInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
                                 StringRef Annot) {
+
   printInstruction(MI, O);
   printAnnotation(O, Annot);
 }
@@ -96,7 +97,8 @@ void VectorProcInstPrinter::printUnsignedImm(const MCInst *MI, int opNum,
 }
 
 void VectorProcInstPrinter::
-printMemOperand(const MCInst *MI, int opNum, raw_ostream &O) {
+printMemOperand(const MCInst *MI, int opNum, raw_ostream &O) 
+{
   if (MI->getOperand(opNum + 1).isExpr())
   {
   	// PC relative memory access to a local label
@@ -115,5 +117,12 @@ printMemOperand(const MCInst *MI, int opNum, raw_ostream &O) {
 	  printOperand(MI, opNum, O);
 	  O << ")";
   }
+}
+
+void VectorProcInstPrinter::
+printJumpTableOperand(const MCInst *MI, int opNum, raw_ostream &O)
+{
+  const MCOperand &Op = MI->getOperand(2);
+  printExpr(Op.getExpr(), O);
 }
 

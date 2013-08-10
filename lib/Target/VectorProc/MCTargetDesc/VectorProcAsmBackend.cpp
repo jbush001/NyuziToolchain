@@ -47,6 +47,7 @@ public:
 	  case VectorProc::fixup_VectorProc_PCRel_MemAccExt:
 	  case VectorProc::fixup_VectorProc_PCRel_MemAcc:
 	  case VectorProc::fixup_VectorProc_PCRel_Branch:
+      case VectorProc::fixup_VectorProc_PCRel_ComputeLabelAddress:
 	    Value -= 4;		// source location is PC + 4
 		break;
     }
@@ -91,7 +92,8 @@ public:
       { "fixup_VectorProc_Abs32",           0,     32,   0 },
       { "fixup_VectorProc_PCRel_MemAccExt", 10,    15,   MCFixupKindInfo::FKF_IsPCRel },
       { "fixup_VectorProc_PCRel_MemAcc",    15,    10,   MCFixupKindInfo::FKF_IsPCRel },
-      { "fixup_VectorProc_PCRel_Branch",    5,     20,   MCFixupKindInfo::FKF_IsPCRel }
+      { "fixup_VectorProc_PCRel_Branch",    5,     20,   MCFixupKindInfo::FKF_IsPCRel },
+      { "fixup_VectorProc_PCRel_ComputeLabelAddress", 10, 13, MCFixupKindInfo::FKF_IsPCRel }
     };
 
     if (Kind < FirstTargetFixupKind)

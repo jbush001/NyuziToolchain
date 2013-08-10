@@ -137,7 +137,12 @@ void VectorProcMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
 		// <MCInst #97 LWi <MCOperand Reg:8> <MCOperand Reg:3> <MCOperand Expr:(foo)>>
 		//		
 		OutMI.addOperand(MCOperand::CreateReg(VectorProc::PC_REG));
-	    const MCSymbol *Symbol = AsmPrinter.GetCPISymbol(cpEntry.getIndex());
+	    const MCSymbol *Symbol;
+	    if (MI->getOperand(1).getType() == MachineOperand::MO_ConstantPoolIndex)
+			Symbol = AsmPrinter.GetCPISymbol(cpEntry.getIndex());
+		else
+			Symbol = AsmPrinter.GetJTISymbol(cpEntry.getIndex());
+
 		const MCSymbolRefExpr *MCSym = MCSymbolRefExpr::Create(Symbol, 
 			MCSymbolRefExpr::VK_None, *Ctx);
 		MCOperand MCOp = MCOperand::CreateExpr(MCSym);
