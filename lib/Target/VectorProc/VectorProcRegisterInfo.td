@@ -31,6 +31,11 @@ let Namespace = "VectorProc" in {
 }
 
 def ScalarReg : RegisterClass<"VectorProc", [v16i1, i32, f32], 32, (add (sequence "S%u", 0, 27),
-	FP_REG, SP_REG, LINK_REG, PC_REG)>;
+	FP_REG, SP_REG, LINK_REG, PC_REG)>
+{
+	// Explicitly specific size, otherwise TableGen will use 16 (looking at v16i1 type)
+	let Size = 32;
+}
+
 def VectorReg : RegisterClass<"VectorProc", [v16i32, v16f32], 512, (sequence "V%u", 0, 31)>;
 
