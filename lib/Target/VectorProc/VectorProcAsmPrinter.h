@@ -39,21 +39,10 @@ public:
     return "VectorProc Assembly Printer";
   }
 
-  void printOperand(const MachineInstr *MI, int opNum, raw_ostream &OS);
-  void printMemOperand(const MachineInstr *MI, int opNum, raw_ostream &OS,
-                       const char *Modifier = 0);
   virtual void EmitInstruction(const MachineInstr *MI);
   
-  bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
-                       unsigned AsmVariant, const char *ExtraCode,
-                       raw_ostream &O);
-  bool PrintAsmMemoryOperand(const MachineInstr *MI, unsigned OpNo,
-                             unsigned AsmVariant, const char *ExtraCode,
-                             raw_ostream &O);
-
   virtual bool isBlockOnlyReachableByFallthrough(const MachineBasicBlock *MBB)
                      const;
-
   virtual MachineLocation getDebugValueLocation(const MachineInstr *MI) const;
   virtual void EmitFunctionBodyStart();
   virtual void EmitFunctionBodyEnd();
