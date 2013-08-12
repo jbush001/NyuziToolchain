@@ -466,6 +466,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16i32, Custom);
 	setOperationAction(ISD::ROTL, MVT::i32, Expand);
 	setOperationAction(ISD::ROTR, MVT::i32, Expand);
+	setOperationAction(ISD::FNEG, MVT::f32, Custom);
+	setOperationAction(ISD::FNEG, MVT::v16f32, Custom);
 
 	setStackPointerRegisterToSaveRestore(VectorProc::SP_REG);
 	setMinFunctionAlignment(2);
@@ -719,6 +721,24 @@ LowerSCALAR_TO_VECTOR(SDValue Op, SelectionDAG &DAG) const
 	return DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(0));
 }
 
+// There is no native FNEG instruction, so we emulate it by XORing with 0x80000000
+SDValue VectorProcTargetLowering::
+LowerFNEG(SDValue Op, SelectionDAG &DAG) const
+{
+	SDLoc dl(Op);
+	MVT ResultVT = Op.getValueType().getSimpleVT();
+	MVT IntermediateVT = ResultVT.isVector() ? MVT::v16i32 : MVT::i32;
+	
+	SDValue rhs = DAG.getConstant(0x80000000, MVT::i32);
+	SDValue iconv;
+	if (ResultVT.isVector())
+		rhs = DAG.getNode(VectorProcISD::SPLAT, dl, MVT::v16i32, rhs);
+
+	iconv = DAG.getNode(ISD::BITCAST, dl, IntermediateVT, Op.getOperand(0));
+	SDValue flipped = DAG.getNode(ISD::XOR, dl, IntermediateVT, iconv, rhs);
+	return DAG.getNode(ISD::BITCAST, dl, ResultVT, flipped);
+}
+
 SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const 
 {
@@ -734,6 +754,7 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const
 		case ISD::FDIV: return LowerFDIV(Op, DAG);
 		case ISD::BR_JT: return LowerBR_JT(Op, DAG);
 		case ISD::SCALAR_TO_VECTOR: return LowerSCALAR_TO_VECTOR(Op, DAG);
+		case ISD::FNEG: return LowerFNEG(Op, DAG);
 		default:
 			llvm_unreachable("Should not custom lower this!");
 	}
