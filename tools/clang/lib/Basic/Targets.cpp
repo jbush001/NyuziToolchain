@@ -5041,203 +5041,106 @@ public:
 };
 } // end anonymous namespace.
 
+
 namespace {
-class VectorProcTargetInfoBase : public TargetInfo {
-  static const Builtin::Info BuiltinInfo[];
-  std::string CPU;
+  class VectorProcTargetInfo : public TargetInfo {
+    static const char *const GCCRegNames[];
+	static const Builtin::Info BuiltinInfo[];
+  public:
+    VectorProcTargetInfo(const llvm::Triple &Triple) : TargetInfo(Triple) {
+      TLSSupported = false;
+      IntWidth = IntAlign = 32;
+      PointerWidth = PointerAlign = 32;
+      SizeType = UnsignedInt;
+      PtrDiffType = SignedInt;
+      MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 32;
+      DescriptionString = "e-p:32:32:32-i32:32:32-f32:32:32";
+    }
 
-protected:
-  std::string ABI;
+    virtual void getTargetDefines(const LangOptions &Opts,
+                                  MacroBuilder &Builder) const {
+      Builder.defineMacro("__VECTORPROC__");
+    }
 
-public:
-  VectorProcTargetInfoBase(const llvm::Triple &triple,
-                     const std::string& ABIStr,
-                     const std::string& CPUStr)
-    : TargetInfo(triple),
-      CPU(CPUStr),
-      ABI(ABIStr)
-  {}
+	virtual void getTargetBuiltins(const Builtin::Info *&Records,
+		unsigned &NumRecords) const 
+	{
+		Records = BuiltinInfo;
+		NumRecords = clang::VectorProc::LastTSBuiltin - Builtin::FirstTSBuiltin;
+	}
 
-  virtual const char *getABI() const { return ABI.c_str(); }
-  virtual bool setABI(const std::string &Name) = 0;
-  virtual bool setCPU(const std::string &Name) {
-    CPU = Name;
-    return true;
-  }
-  void getDefaultFeatures(llvm::StringMap<bool> &Features) const {
-    Features[ABI] = true;
-    Features[CPU] = true;
-  }
+    virtual void getGCCRegNames(const char *const *&Names,
+                                unsigned &NumNames) const;
+    virtual void getGCCRegAliases(const GCCRegAlias *&Aliases,
+                                  unsigned &NumAliases) const {
+      // No aliases.
+      Aliases = 0;
+      NumAliases = 0;
+    }
+    virtual bool validateAsmConstraint(const char *&Name,
+                                       TargetInfo::ConstraintInfo &info) const;
+    virtual const char *getClobbers() const {
+      return "";
+    }
 
-  virtual void getTargetDefines(const LangOptions &Opts,
-                                MacroBuilder &Builder) const {
-    DefineStd(Builder, "vectorproc", Opts);
-    Builder.defineMacro("_vectorproc");
-    Builder.defineMacro("__REGISTER_PREFIX__", "");
+	virtual BuiltinVaListKind getBuiltinVaListKind() const {
+		return TargetInfo::VoidPtrBuiltinVaList;
+	}
+  };
 
-    Builder.defineMacro("_VECTORPROC_SZPTR", Twine(getPointerWidth(0)));
-    Builder.defineMacro("_VECTORPROC_SZINT", Twine(getIntWidth()));
-    Builder.defineMacro("_VECTORPROC_SZLONG", Twine(getLongWidth()));
+  const char *const VectorProcTargetInfo::GCCRegNames[] = {
+    "s0",  "s1",  "s2",  "s3",  "s4",  "s5",  "s6",  "s7",
+    "s8",  "s9",  "s10", "s11", "s12", "s13", "s14", "s15",
+    "s16",  "s17",  "s18",  "s19",  "s20",  "s21",  "s22",  "s23",
+    "s24",  "s25",  "s26", "s27", "s28", "s29", "s30", "s31",
+    "v0",  "v1",  "v2",  "v3",  "v4",  "v5",  "v6",  "v7",
+    "v8",  "v9",  "v10", "v11", "v12", "v13", "v14", "v15",
+    "v16",  "v17",  "v18",  "v19",  "v20",  "v21",  "v22",  "v23",
+    "v24",  "v25",  "v26", "v27", "v28", "v29", "v30", "v31",
+  };
 
-    Builder.defineMacro("_VECTORPROC_ARCH", "\"" + CPU + "\"");
-    Builder.defineMacro("_VECTORPROC_ARCH_" + StringRef(CPU).upper());
-  }
-
-  virtual void getTargetBuiltins(const Builtin::Info *&Records,
-                                 unsigned &NumRecords) const {
-    Records = BuiltinInfo;
-    NumRecords = clang::VectorProc::LastTSBuiltin - Builtin::FirstTSBuiltin;
-  }
-  virtual bool hasFeature(StringRef Feature) const {
-    return Feature == "vectorproc";
-  }
-  virtual BuiltinVaListKind getBuiltinVaListKind() const {
-    return TargetInfo::VoidPtrBuiltinVaList;
-  }
-  virtual void getGCCRegNames(const char * const *&Names,
-                              unsigned &NumNames) const {
-    static const char * const GCCRegNames[] = {
-      // CPU register names
-      // Must match second column of GCCRegAliases
-      "$0",   "$1",   "$2",   "$3",   "$4",   "$5",   "$6",   "$7",
-      "$8",   "$9",   "$10",  "$11",  "$12",  "$13",  "$14",  "$15",
-      "$16",  "$17",  "$18",  "$19",  "$20",  "$21",  "$22",  "$23",
-      "$24",  "$25",  "$26",  "$27",  "$28",  "$29",  "$30",  "$31",
-      // Floating point register names
-      "$f0",  "$f1",  "$f2",  "$f3",  "$f4",  "$f5",  "$f6",  "$f7",
-      "$f8",  "$f9",  "$f10", "$f11", "$f12", "$f13", "$f14", "$f15",
-      "$f16", "$f17", "$f18", "$f19", "$f20", "$f21", "$f22", "$f23",
-      "$f24", "$f25", "$f26", "$f27", "$f28", "$f29", "$f30", "$f31",
-      // Hi/lo and condition register names
-      "hi",   "lo",   "",     "$fcc0","$fcc1","$fcc2","$fcc3","$fcc4",
-      "$fcc5","$fcc6","$fcc7"
-    };
+  void VectorProcTargetInfo::getGCCRegNames(const char *const *&Names,
+                                         unsigned &NumNames) const {
     Names = GCCRegNames;
     NumNames = llvm::array_lengthof(GCCRegNames);
   }
-  virtual void getGCCRegAliases(const GCCRegAlias *&Aliases,
-                                unsigned &NumAliases) const = 0;
-  virtual bool validateAsmConstraint(const char *&Name,
-                                     TargetInfo::ConstraintInfo &Info) const {
+
+  bool VectorProcTargetInfo::
+  validateAsmConstraint(const char *&Name,
+                        TargetInfo::ConstraintInfo &Info) const {
     switch (*Name) {
     default:
       return false;
-        
-    case 'r': // CPU registers.
-    case 'd': // Equivalent to "r" unless generating VECTORPROC16 code.
-    case 'y': // Equivalent to "r", backwards compatibility only.
-    case 'f': // floating-point registers.
-    case 'c': // $25 for indirect jumps
-    case 'l': // lo register
-    case 'x': // hilo register pair
+
+    case 's': 
+    case 'v': 
       Info.setAllowsRegister();
       return true;
-    case 'R': // An address that can be used in a non-macro load or store
+
+    case 'I': // Unsigned 8-bit constant
+    case 'J': // Unsigned 12-bit constant
+    case 'K': // Signed 16-bit constant
+    case 'L': // Signed 20-bit displacement (on all targets we support)
+    case 'M': // 0x7fffffff
+      return true;
+
+    case 'Q': // Memory with base and unsigned 12-bit displacement
+    case 'R': // Likewise, plus an index
+    case 'S': // Memory with base and signed 20-bit displacement
+    case 'T': // Likewise, plus an index
       Info.setAllowsMemory();
       return true;
     }
   }
 
-  virtual const char *getClobbers() const {
-    // FIXME: Implement!
-    return "";
-  }
-
-  virtual bool setFeatureEnabled(llvm::StringMap<bool> &Features,
-                                 StringRef Name,
-                                 bool Enabled) const {
-    return false;
-  }
-
-  virtual void HandleTargetFeatures(std::vector<std::string> &Features) {
-  }
-
-  virtual int getEHDataRegisterNumber(unsigned RegNo) const {
-    if (RegNo == 0) return 4;
-    if (RegNo == 1) return 5;
-    return -1;
-  }
-};
-
-const Builtin::Info VectorProcTargetInfoBase::BuiltinInfo[] = {
+const Builtin::Info VectorProcTargetInfo::BuiltinInfo[] = {
 #define BUILTIN(ID, TYPE, ATTRS) { #ID, TYPE, ATTRS, 0, ALL_LANGUAGES },
 #define LIBBUILTIN(ID, TYPE, ATTRS, HEADER) { #ID, TYPE, ATTRS, HEADER,\
                                               ALL_LANGUAGES },
 #include "clang/Basic/BuiltinsVectorProc.def"
 };
 
-class VectorProc32TargetInfoBase : public VectorProcTargetInfoBase {
-public:
-  VectorProc32TargetInfoBase(const llvm::Triple &triple) :
-    VectorProcTargetInfoBase(triple, "o32", "vectorproc32") {
-    SizeType = UnsignedInt;
-    PtrDiffType = SignedInt;
-    MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 32;
-  }
-  virtual bool setABI(const std::string &Name) {
-    if ((Name == "o32") || (Name == "eabi")) {
-      ABI = Name;
-      return true;
-    } else if (Name == "32") {
-      ABI = "o32";
-      return true;
-    } else
-      return false;
-  }
-  virtual void getTargetDefines(const LangOptions &Opts,
-                                MacroBuilder &Builder) const {
-    VectorProcTargetInfoBase::getTargetDefines(Opts, Builder);
-
-    if (ABI == "o32") {
-      Builder.defineMacro("__vectorproc_o32");
-      Builder.defineMacro("_ABIO32", "1");
-      Builder.defineMacro("_VECTORPROC_SIM", "_ABIO32");
-    }
-    else if (ABI == "eabi")
-      Builder.defineMacro("__vectorproc_eabi");
-    else
-      llvm_unreachable("Invalid ABI for VectorProc32.");
-  }
-  virtual void getGCCRegAliases(const GCCRegAlias *&Aliases,
-                                unsigned &NumAliases) const {
-    static const TargetInfo::GCCRegAlias GCCRegAliases[] = {
-      { { "at" },  "$1" },
-      { { "v0" },  "$2" },
-      { { "v1" },  "$3" },
-      { { "a0" },  "$4" },
-      { { "a1" },  "$5" },
-      { { "a2" },  "$6" },
-      { { "a3" },  "$7" },
-      { { "t0" },  "$8" },
-      { { "t1" },  "$9" },
-      { { "t2" }, "$10" },
-      { { "t3" }, "$11" },
-      { { "t4" }, "$12" },
-      { { "t5" }, "$13" },
-      { { "t6" }, "$14" },
-      { { "t7" }, "$15" },
-      { { "s0" }, "$16" },
-      { { "s1" }, "$17" },
-      { { "s2" }, "$18" },
-      { { "s3" }, "$19" },
-      { { "s4" }, "$20" },
-      { { "s5" }, "$21" },
-      { { "s6" }, "$22" },
-      { { "s7" }, "$23" },
-      { { "t8" }, "$24" },
-      { { "t9" }, "$25" },
-      { { "k0" }, "$26" },
-      { { "k1" }, "$27" },
-      { { "gp" }, "$28" },
-      { { "sp","$sp" }, "$29" },
-      { { "fp","$fp" }, "$30" },
-      { { "ra" }, "$31" }
-    };
-    Aliases = GCCRegAliases;
-    NumAliases = llvm::array_lengthof(GCCRegAliases);
-  }
-};
-} // end anonymous namespace.
+}
 
 
 namespace {
@@ -5468,7 +5371,7 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple) {
     }
 
   case llvm::Triple::vectorproc:
-      return new VectorProc32TargetInfoBase(Triple);
+      return new VectorProcTargetInfo(Triple);
 
   case llvm::Triple::mipsel:
     switch (os) {
