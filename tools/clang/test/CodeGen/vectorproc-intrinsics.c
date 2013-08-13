@@ -13,56 +13,56 @@ veci16 test_gatherloadi(veci16 ptr) 	// CHECK: test_gatherloadi
 {
 	return __builtin_vp_gather_loadi(ptr);
 
-	// CHECK: load.v v{{[0-9]+}}, ( v0 )
+	// CHECK: load.gath v{{[0-9]+}}, (v0)
 }
 
 vecf16 test_gatherloadf(veci16 ptr) 	// CHECK: test_gatherloadf
 {
 	return __builtin_vp_gather_loadf(ptr);
 
-	// CHECK: load.v v{{[0-9]+}}, ( v0 )
+	// CHECK: load.gath v{{[0-9]+}}, (v0)
 }
 
 veci16 test_gatherloadi_masked(veci16 ptr, int mask) // CHECK: test_gatherloadi_masked
 {
 	return __builtin_vp_gather_loadi_masked(ptr, mask);
 
-	// CHECK: load.v.mask v{{[0-9]+}}, s0, ( v0 )
+	// CHECK: load.gath.mask v{{[0-9]+}}, s0, (v0)
 }
 
 vecf16 test_gatherloadf_masked(veci16 ptr, int mask) // CHECK: test_gatherloadf_masked
 {
 	return __builtin_vp_gather_loadf_masked(ptr, mask);
 
-	// CHECK: load.v.mask v{{[0-9]+}}, s0, ( v0 )
+	// CHECK: load.gath.mask v{{[0-9]+}}, s0, (v0)
 }
 
 void test_scatter_storei(veci16 ptr, veci16 value) // CHECK: test_scatter_storei
 {
 	__builtin_vp_scatter_storei(ptr, value);
 
-	// CHECK: store.v v1, ( v0 )
+	// CHECK: store.scat v1, (v0)
 }
 
 void test_scatter_storef(veci16 ptr, vecf16 value) // CHECK: test_scatter_storef
 {
 	__builtin_vp_scatter_storef(ptr, value);
 
-	// CHECK: store.v v1, ( v0 )
+	// CHECK: store.scat v1, (v0)
 }
 
 void test_scatter_storei_masked(veci16 ptr, veci16 value, int mask) // CHECK: test_scatter_storei_masked
 {
 	__builtin_vp_scatter_storei_masked(ptr, value, mask);
 
-	// CHECK: store.v.mask v1, s0, ( v0 )
+	// CHECK: store.scat.mask v1, s0, (v0)
 }
 
 void test_scatter_storef_masked(veci16 ptr, vecf16 value, int mask) // CHECK: test_scatter_storef_masked
 {
 	__builtin_vp_scatter_storef_masked(ptr, value, mask);
 
-	// CHECK: store.v.mask v1, s0, ( v0 )
+	// CHECK: store.scat.mask v1, s0, (v0)
 }
 
 veci16 test_block_loadi_masked(veci16 *ptr, int mask)	// CHECK: test_block_loadi_masked:

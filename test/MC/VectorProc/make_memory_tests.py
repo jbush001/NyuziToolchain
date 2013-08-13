@@ -38,7 +38,7 @@ print 'store.8 s1, 50(s2)' + make_cprime_instruction(0, 1, 1, 2, 50)
 print 'store.16 s3, 60(s4)' + make_cprime_instruction(0, 3, 3, 4, 60)
 print 'store.32 s5, 70(s6)' + make_cprime_instruction(0, 4, 5, 6, 70)
 
-# Vector load/stores
+# Block Vector load/stores
 print 'load.v v2, 20(s5)' + make_cprime_instruction(1, 7, 2, 5, 20)
 print 'load.v v3, (s6)' + make_cprime_instruction(1, 7, 3, 6, 0)
 print 'store.v v2, 20(s5)' + make_cprime_instruction(0, 7, 2, 5, 20)
@@ -48,6 +48,10 @@ print 'load.v.mask v2, s7, 20(s5)' + make_c_instruction(1, 8, 2, 5, 20, 7)
 print 'load.v.mask v3, s7, (s6)' + make_c_instruction(1, 8, 3, 6, 0, 7)
 print 'store.v.mask v2, s7, 20(s5)' + make_c_instruction(0, 8, 2, 5, 20, 7)
 print 'store.v.mask v3, s7, (s6)' + make_c_instruction(0, 8, 3, 6, 0, 7)
+
+# Scatter vector stores (partial)
+print 'store.scat v2, (v5)' + make_c_instruction(0, 0xd, 2, 5, 0, 0)
+print 'store.scat.mask v3, s7, (v6)' + make_c_instruction(0, 0xe, 3, 6, 0, 7)
 
 # Synchronized load/stores
 print 'load.sync s2, 20(s5)' + make_cprime_instruction(1, 5, 2, 5, 20)

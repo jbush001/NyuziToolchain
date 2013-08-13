@@ -31,7 +31,8 @@ namespace llvm {
 			SEL_COND_RESULT,
 			RECIPROCAL_EST,
 			BR_JT,
-			JT_WRAPPER
+			JT_WRAPPER,		// Jump table wraper
+			GETFIELD
 		};
 	}
 
@@ -63,6 +64,7 @@ namespace llvm {
 		SDValue LowerBRIND(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerSCALAR_TO_VECTOR(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerFNEG(SDValue Op, SelectionDAG &DAG) const;
+		SDValue LowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
 		EVT getSetCCResultType(LLVMContext &Context, EVT VT) const;
 		virtual SDValue LowerReturn(SDValue Chain,
 			CallingConv::ID CallConv, bool isVarArg,

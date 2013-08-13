@@ -36,14 +36,14 @@ define i32 @get_control_reg() {	; CHECK: get_control_reg:
 define <16 x i32> @gather_loadi(<16 x i32> %ptr) {	; CHECK: gather_loadi:
 entry:
 	%0 = call <16 x i32> @llvm.vectorproc.__builtin_vp_gather_loadi(<16 x i32> %ptr)
-	; CHECK: load.v v0, ( v0 )
+	; CHECK: load.gath v0, (v0)
 
 	ret <16 x i32> %0
 }
 
 define <16 x float> @gather_loadf(<16 x i32> %ptr) {	; CHECK: gather_loadf:
 	%1 = call <16 x float> @llvm.vectorproc.__builtin_vp_gather_loadf(<16 x i32> %ptr)
-	; CHECK: load.v v0, ( v0 )
+	; CHECK: load.gath v0, (v0)
 
 	ret <16 x float> %1
 }
@@ -51,21 +51,21 @@ define <16 x float> @gather_loadf(<16 x i32> %ptr) {	; CHECK: gather_loadf:
 define <16 x i32> @gather_loadi_masked(<16 x i32> %ptr, i32 %mask) { ; CHECK: gather_loadi_masked:
 entry:
 	%0 = call <16 x i32> @llvm.vectorproc.__builtin_vp_gather_loadi_masked(<16 x i32> %ptr, i32 %mask)
-	; CHECK: load.v.mask v0, s0, ( v0 )
+	; CHECK: load.gath.mask v0, s0, (v0)
 
 	ret <16 x i32> %0
 }
 
 define <16 x float> @gather_loadf_masked(<16 x i32> %ptr, i32 %mask) {	; CHECK: gather_loadf_masked:
 	%1 = call <16 x float> @llvm.vectorproc.__builtin_vp_gather_loadf_masked(<16 x i32> %ptr, i32 %mask)
-	; CHECK: load.v.mask v0, s0, ( v0 )
+	; CHECK: load.gath.mask v0, s0, (v0)
 
 	ret <16 x float> %1
 }
 
 define void @scatter_storei(<16 x i32> %ptr, <16 x i32> %value) { ; CHECK: scatter_storei:
 	call void @llvm.vectorproc.__builtin_vp_scatter_storei(<16 x i32> %ptr, <16 x i32> %value)
-	; CHECK: store.v v1, ( v0 )
+	; CHECK: store.scat v1, (v0)
 
 	ret void
 }
@@ -73,7 +73,7 @@ define void @scatter_storei(<16 x i32> %ptr, <16 x i32> %value) { ; CHECK: scatt
 define void @scatter_storef(<16 x i32> %ptr, <16 x float> %value) { ; CHECK: scatter_storef:
 	call void @llvm.vectorproc.__builtin_vp_scatter_storef(<16 x i32> %ptr, <16 x float> %value)
 
-	; CHECK: store.v v1, ( v0 )
+	; CHECK: store.scat v1, (v0)
 
 	ret void
 }
@@ -81,7 +81,7 @@ define void @scatter_storef(<16 x i32> %ptr, <16 x float> %value) { ; CHECK: sca
 define void @scatter_storei_masked(<16 x i32> %ptr, <16 x i32> %value, i32 %mask) { ; CHECK: scatter_storei_masked:
 	call void @llvm.vectorproc.__builtin_vp_scatter_storei_masked(<16 x i32> %ptr, <16 x i32> %value, i32 %mask)
 
-	; CHECK: store.v.mask v1, s0, ( v0 )
+	; CHECK: store.scat.mask v1, s0, (v0)
 
 	ret void
 }
@@ -89,7 +89,7 @@ define void @scatter_storei_masked(<16 x i32> %ptr, <16 x i32> %value, i32 %mask
 define void @scatter_storef_masked(<16 x i32> %ptr, <16 x float> %value, i32 %mask) { ; CHECK: scatter_storef_masked:
 	call void @llvm.vectorproc.__builtin_vp_scatter_storef_masked(<16 x i32> %ptr, <16 x float> %value, i32 %mask)
 
-	; CHECK: store.v.mask v1, s0, ( v0 )
+	; CHECK: store.scat.mask v1, s0, (v0)
 
 	ret void
 }

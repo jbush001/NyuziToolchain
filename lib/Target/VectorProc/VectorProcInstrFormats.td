@@ -27,16 +27,27 @@ def wrapper : SDNode<"VectorProcISD::WRAPPER", SDTIntUnaryOp>;
 def reciprocal : SDNode<"VectorProcISD::RECIPROCAL_EST", SDTFPUnaryOp>;
 def LoadLiteral : SDNode<"VectorProcISD::LOAD_LITERAL", SDTIntUnaryOp>;
 def jtwrapper : SDNode<"VectorProcISD::JT_WRAPPER", SDTIntUnaryOp>;
+def getfield : SDNode<"VectorProcISD::GETFIELD", SDTypeProfile<1, 2, [ 
+	SDTCisEltOfVec<0, 1>]>>;
+
 def SDT_BRJT    : SDTypeProfile<0, 2,
 	[SDTCisPtrTy<0>, SDTCisVT<1, i32>]>;
 def BRjt : SDNode<"VectorProcISD::BR_JT", SDT_BRJT, [SDNPHasChain]>;
 
+
 def ADDRri : ComplexPattern<iPTR, 2, "SelectADDRri", [frameindex], []>;
+def VADDRri : ComplexPattern<v16i32, 2, "SelectADDRri", [], []>;
 
 def MEMri : Operand<iPTR> {
 	let PrintMethod = "printMemOperand";
 	let EncoderMethod = "getMemoryOpValue";
 	let MIOperandInfo = (ops ScalarReg, i32imm);
+}
+
+def VMEMri : Operand<iPTR> {
+	let PrintMethod = "printMemOperand";
+	let EncoderMethod = "getMemoryOpValue";
+	let MIOperandInfo = (ops VectorReg, i32imm);
 }
 
 def JTADDR : Operand<iPTR> {

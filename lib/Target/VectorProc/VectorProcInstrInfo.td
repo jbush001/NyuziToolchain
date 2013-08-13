@@ -112,7 +112,7 @@ def GET_FIELDI : FormatAUnmaskedTwoOpInst<
 	(outs ScalarReg:$dest),
 	(ins VectorReg:$src1, ScalarReg:$src2),
 	"getfield $dest, $src1, $src2",
-	[(set i32:$dest, (extractelt v16i32:$src1, i32:$src2))],
+	[(set i32:$dest, (getfield v16i32:$src1, i32:$src2))],
 	0x1a,
 	FmtA_VVS>;
 
@@ -128,7 +128,7 @@ def GET_FIELDF : FormatAUnmaskedTwoOpInst<
 	(outs ScalarReg:$dest),
 	(ins VectorReg:$src1, ScalarReg:$src2),
 	"getfield $dest, $src1, $src2",
-	[(set f32:$dest, (extractelt v16f32:$src1, i32:$src2))],
+	[(set f32:$dest, (getfield v16f32:$src1, i32:$src2))],
 	0x1a,
 	FmtA_VVS>;
 
@@ -290,66 +290,66 @@ def INT_BLOCK_LOADF_MASKED : FormatCMaskedInst<
 
 def INT_GATHER_LOADI : FormatCUnmaskedInst<
 	(outs VectorReg:$srcDest),
-	(ins VectorReg:$ptr),
-	"load.v $srcDest, ( $ptr )",
-	[(set v16i32:$srcDest, (int_vp_gather_loadi v16i32:$ptr))],
+	(ins VMEMri:$addr),
+	"load.gath $srcDest, $addr",
+	[(set v16i32:$srcDest, (int_vp_gather_loadi VADDRri:$addr))],
 	FmtC_ScGath,
 	1>;
 
 def INT_GATHER_LOADF : FormatCUnmaskedInst<
 	(outs VectorReg:$srcDest),
-	(ins VectorReg:$ptr),
-	"load.v $srcDest, ( $ptr )",
-	[(set v16f32:$srcDest, (int_vp_gather_loadf v16i32:$ptr))],
+	(ins VMEMri:$addr),
+	"load.gath $srcDest, $addr",
+	[(set v16f32:$srcDest, (int_vp_gather_loadf VADDRri:$addr))],
 	FmtC_ScGath,
 	1>;
 
 def INT_GATHER_LOADI_MASKED : FormatCMaskedInst<
 	(outs VectorReg:$srcDest),
-	(ins VectorReg:$ptr, ScalarReg:$mask),
-	"load.v.mask $srcDest, $mask, ( $ptr )",
-	[(set v16i32:$srcDest, (int_vp_gather_loadi_masked v16i32:$ptr, i32:$mask))],
+	(ins VMEMri:$addr, ScalarReg:$mask),
+	"load.gath.mask $srcDest, $mask, $addr",
+	[(set v16i32:$srcDest, (int_vp_gather_loadi_masked VADDRri:$addr, i32:$mask))],
 	FmtC_ScGathMasked,
 	1>;
 
 def INT_GATHER_LOADF_MASKED : FormatCMaskedInst<
 	(outs VectorReg:$srcDest),
-	(ins VectorReg:$ptr, ScalarReg:$mask),
-	"load.v.mask $srcDest, $mask, ( $ptr )",
-	[(set v16f32:$srcDest, (int_vp_gather_loadf_masked v16i32:$ptr, i32:$mask))],
+	(ins VMEMri:$addr, ScalarReg:$mask),
+	"load.gath.mask $srcDest, $mask, $addr",
+	[(set v16f32:$srcDest, (int_vp_gather_loadf_masked VADDRri:$addr, i32:$mask))],
 	FmtC_ScGathMasked,
 	1>;
 
 let hasSideEffects = 1, mayStore = 1 in {
 	def INT_SCATTER_STOREI : FormatCUnmaskedInst<
 		(outs),
-		(ins VectorReg:$srcDest, VectorReg:$ptr),
-		"store.v $srcDest, ( $ptr )",
-		[(int_vp_scatter_storei v16i32:$ptr, v16i32:$srcDest)],
+		(ins VectorReg:$srcDest, VMEMri:$addr),
+		"store.scat $srcDest, $addr",
+		[(int_vp_scatter_storei VADDRri:$addr, v16i32:$srcDest)],
 		FmtC_ScGath,
 		0>;
 
 	def INT_SCATTER_STOREF : FormatCUnmaskedInst<
 		(outs),
-		(ins VectorReg:$srcDest, VectorReg:$ptr),
-		"store.v $srcDest, ( $ptr )",
-		[(int_vp_scatter_storef v16i32:$ptr, v16f32:$srcDest)],
+		(ins VectorReg:$srcDest, VMEMri:$addr),
+		"store.scat $srcDest, $addr",
+		[(int_vp_scatter_storef VADDRri:$addr, v16f32:$srcDest)],
 		FmtC_ScGath,
 		0>;
 
 	def INT_SCATTER_STOREI_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins VectorReg:$srcDest, VectorReg:$ptr, ScalarReg:$mask),
-		"store.v.mask $srcDest, $mask, ( $ptr )",
-		[(int_vp_scatter_storei_masked v16i32:$ptr, v16i32:$srcDest, i32:$mask)],
+		(ins VectorReg:$srcDest, VMEMri:$addr, ScalarReg:$mask),
+		"store.scat.mask $srcDest, $mask, $addr",
+		[(int_vp_scatter_storei_masked VADDRri:$addr, v16i32:$srcDest, i32:$mask)],
 		FmtC_ScGathMasked,
 		0>;
 
 	def INT_SCATTER_STOREF_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins VectorReg:$srcDest, VectorReg:$ptr, ScalarReg:$mask),
-		"store.v.mask $srcDest, $mask, ( $ptr )",
-		[(int_vp_scatter_storef_masked v16i32:$ptr, v16f32:$srcDest, i32:$mask)],
+		(ins VectorReg:$srcDest, VMEMri:$addr, ScalarReg:$mask),
+		"store.scat.mask $srcDest, $mask, $addr",
+		[(int_vp_scatter_storef_masked VADDRri:$addr, v16f32:$srcDest, i32:$mask)],
 		FmtC_ScGathMasked,
 		0>;
 

@@ -468,6 +468,10 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::ROTR, MVT::i32, Expand);
 	setOperationAction(ISD::FNEG, MVT::f32, Custom);
 	setOperationAction(ISD::FNEG, MVT::v16f32, Custom);
+	setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::i32, Custom);
+	setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::f32, Custom);
+	setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v16i32, Custom);
+	setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v16f32, Custom);
 
 	setStackPointerRegisterToSaveRestore(VectorProc::SP_REG);
 	setMinFunctionAlignment(2);
@@ -564,15 +568,18 @@ VectorProcTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) con
 }
 
 // (VECTOR, VAL, IDX)
-// Convert to a vselect with a mask (1 << IDX) and a splatted scalar operand.
+// Convert to a vselect with a mask (0x8000 >> IDX) and a splatted scalar operand.
+// NOTE: LLVM numbers vectors reversed from how VectorProc refers to them.
 SDValue
 VectorProcTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const 
 {
 	MVT VT = Op.getValueType().getSimpleVT();
 	SDLoc dl(Op);
 
-	SDValue mask = DAG.getNode(ISD::SHL, dl, MVT::i32, DAG.getConstant(1, MVT::i32),
-		Op.getOperand(2));
+	// This could also be (1 << (15 - index)), which avoids the load of 0x8000
+	// but requires more operations.
+	SDValue mask = DAG.getNode(ISD::SRL, dl, MVT::i32, DAG.getConstant(0x8000, 
+		MVT::i32), Op.getOperand(2));
 	SDValue splat = DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(1));
 	return DAG.getNode(ISD::VSELECT, dl, VT, mask, splat, Op.getOperand(0));
 }
@@ -739,6 +746,18 @@ LowerFNEG(SDValue Op, SelectionDAG &DAG) const
 	return DAG.getNode(ISD::BITCAST, dl, ResultVT, flipped);
 }
 
+// NOTE: LLVM numbers vector elements the opposite of VectorProc. Need to reverse
+// it here.
+SDValue VectorProcTargetLowering::
+LowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const
+{
+	SDLoc dl(Op);
+
+	SDValue index = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(15, MVT::i32),
+		Op.getOperand(1));
+	return DAG.getNode(VectorProcISD::GETFIELD, dl, MVT::i32, Op.getOperand(0), index);
+}
+
 SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const 
 {
@@ -755,6 +774,7 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const
 		case ISD::BR_JT: return LowerBR_JT(Op, DAG);
 		case ISD::SCALAR_TO_VECTOR: return LowerSCALAR_TO_VECTOR(Op, DAG);
 		case ISD::FNEG: return LowerFNEG(Op, DAG);
+		case ISD::EXTRACT_VECTOR_ELT: return LowerEXTRACT_VECTOR_ELT(Op, DAG);
 		default:
 			llvm_unreachable("Should not custom lower this!");
 	}
