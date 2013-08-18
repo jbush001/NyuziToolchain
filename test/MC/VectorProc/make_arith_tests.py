@@ -103,12 +103,14 @@ unaryOps = [
 	(12, 'clz'),
 	(14, 'ctz'),
 	(0xf, 'move'),
+]
+
+# These unary ops do not support all form
 #	(0x1b, 'ftoi'),
-#	(0x1c, 'recip'),
+#	(0x1c, 'reciprocal'),
 #	(0x1d, 'sext.8'),
 #	(0x1e, 'sext.16'),
 #	(0x2a, 'itof')
-]
 
 for opcode, mnemonic in unaryOps:
 	for aFormat in [ 0, 1, 2, 4, 5 ]:
@@ -136,6 +138,10 @@ for opcode, mnemonic in unaryOps:
 			# Vector/Vector masked	
 			print '\t' + mnemonic + '.mask v' + str(rega) + ', s' + str(regm) + ', v' \
 				+ str(regb) + make_a_instruction(aFormat, opcode, rega, 0, regb, regm)
+
+# XXX HACK: These instructions should support all forms, but this is here in the interim
+
+print '\treciprocal s7, s9' + make_a_instruction(0, 0x1c, 7, 0, 9, 0)
 
 print '\tshuffle v1, v2, v3' + make_a_instruction(4, 0xd, 1, 2, 3, 0)
 

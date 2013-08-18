@@ -422,29 +422,29 @@ multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 }
 
 multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
-	def S : FormatAInst<
+	def S : FormatAUnmaskedOneOpInst<
 		(outs ScalarReg:$dest), 
-		(ins ScalarReg:$src1),
-		operator # " $dest, $src1",
-		[(set f32:$dest, (OpNode f32:$src1))],
+		(ins ScalarReg:$src2),
+		operator # " $dest, $src2",
+		[(set f32:$dest, (OpNode f32:$src2))],
 		opcode,
 		FmtA_SSS>;
 
-	def V : FormatAInst<
+	def V : FormatAUnmaskedOneOpInst<
 		(outs VectorReg:$dest), 
-		(ins VectorReg:$src1),
-		operator # " $dest, $src1",
-		[(set v16f32:$dest, (OpNode v16f32:$src1))],
+		(ins VectorReg:$src2),
+		operator # " $dest, $src2",
+		[(set v16f32:$dest, (OpNode v16f32:$src2))],
 		opcode,
 		FmtA_VVV>;
 
 	// Predicated
 	let Constraints = "$dest = $oldvalue" in {
-		def VM : FormatAInst<
+		def VM : FormatAMaskedOneOpInst<
 			(outs VectorReg:$dest),
-			(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$oldvalue),
-			operator # ".mask $dest, $mask, $src1",
-			[(set v16f32:$dest, (vselect v16i1:$mask, (OpNode v16f32:$src1), v16f32:$oldvalue))],
+			(ins ScalarReg:$mask, VectorReg:$src2, VectorReg:$oldvalue),
+			operator # ".mask $dest, $mask, $src2",
+			[(set v16f32:$dest, (vselect v16i1:$mask, (OpNode v16f32:$src2), v16f32:$oldvalue))],
 			opcode,
 			FmtA_VVVM>;
 	}
