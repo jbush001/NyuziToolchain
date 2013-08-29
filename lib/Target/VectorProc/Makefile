@@ -17,7 +17,7 @@ BUILT_SOURCES = VectorProcGenRegisterInfo.inc VectorProcGenInstrInfo.inc \
 		VectorProcGenSubtargetInfo.inc VectorProcGenCallingConv.inc \
 		VectorProcGenMCCodeEmitter.inc
 
-DIRS = TargetInfo MCTargetDesc AsmParser InstPrinter
+DIRS = TargetInfo MCTargetDesc AsmParser InstPrinter Disassembler
 
 include $(LEVEL)/Makefile.common
 

@@ -9,6 +9,7 @@ tablegen(LLVM VectorProcGenSubtargetInfo.inc -gen-subtarget)
 tablegen(LLVM VectorProcGenCallingConv.inc -gen-callingconv)
 tablegen(LLVM VectorProcGenAsmMatcher.inc -gen-asm-matcher)
 tablegen(LLVM VectorProcGenMCCodeEmitter.inc -gen-emitter -mc-emitter)
+tablegen(LLVM VectorProcGenDisassemblerTables.inc -gen-disassembler)
 add_public_tablegen_target(VectorProcCommonTableGen)
 
 add_llvm_target(VectorProcCodeGen
@@ -31,4 +32,5 @@ add_subdirectory(TargetInfo)
 add_subdirectory(MCTargetDesc)
 add_subdirectory(AsmParser)
 add_subdirectory(InstPrinter)
+add_subdirectory(Disassembler)
 

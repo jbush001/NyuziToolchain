@@ -40,13 +40,15 @@ def VADDRri : ComplexPattern<v16i32, 2, "SelectADDRri", [], []>;
 
 def MEMri : Operand<iPTR> {
 	let PrintMethod = "printMemOperand";
-	let EncoderMethod = "getMemoryOpValue";
+	let EncoderMethod = "encodeMemoryOpValue";
+	let DecoderMethod = "decodeScalarMemoryOpValue";
 	let MIOperandInfo = (ops ScalarReg, i32imm);
 }
 
 def VMEMri : Operand<iPTR> {
 	let PrintMethod = "printMemOperand";
-	let EncoderMethod = "getMemoryOpValue";
+	let EncoderMethod = "encodeMemoryOpValue";
+	let DecoderMethod = "decodeVectorMemoryOpValue";
 	let MIOperandInfo = (ops VectorReg, i32imm);
 }
 
@@ -57,7 +59,7 @@ def JTADDR : Operand<iPTR> {
 
 def cpooladdr : Operand<iPTR> {
 	let PrintMethod = "printMemOperand";
-	let EncoderMethod = "getMemoryOpValue";
+	let EncoderMethod = "encodeMemoryOpValue";
 }
 
 def brtarget : Operand<OtherVT> 
@@ -96,6 +98,7 @@ class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern
 	let Size = 4;
 
 	field bits<32> Inst;
+	field bits<32> SoftFail = 0;	// needed for disassembler
 }
 
 class Pseudo<dag outputs, dag inputs, list<dag> pattern>
@@ -621,7 +624,7 @@ class FormatCMaskedInst<dag outputs, dag inputs, string asmString, list<dag> pat
 	CFmt fmt, bits <1> isLoad> 
 	: FormatCInst<outputs, inputs, asmString, pattern, fmt, isLoad> 
 {
-	bits <20> addr;	// Is offset/ptr, this is set up by getMemoryOpValue.
+	bits <20> addr;	// Is offset/ptr, this is set up by encodeMemoryOpValue.
 	bits <5> mask;
 	bits <5> srcDest;
 
@@ -635,7 +638,7 @@ class FormatCUnmaskedInst<dag outputs, dag inputs, string asmString, list<dag> p
 	CFmt fmt, bits <1> isLoad> 
 	: FormatCInst<outputs, inputs, asmString, pattern, fmt, isLoad> 
 {
-	bits <20> addr;	// Is offset/ptr, this is set up by getMemoryOpValue.
+	bits <20> addr;	// Is offset/ptr, this is set up by encodeMemoryOpValue.
 	bits <5> srcDest;
 
 	let Inst{24-10} = addr{19-5};

@@ -56,7 +56,7 @@ public:
   unsigned getMachineOpValue(const MCInst &MI,const MCOperand &MO,
                              SmallVectorImpl<MCFixup> &Fixups) const;
 
-  unsigned getMemoryOpValue(const MCInst &MI, unsigned Op,
+  unsigned encodeMemoryOpValue(const MCInst &MI, unsigned Op,
                             SmallVectorImpl<MCFixup> &Fixups) const;
 
   unsigned getJumpTargetOpValue(const MCInst &MI, unsigned OpNo,
@@ -156,7 +156,7 @@ unsigned VectorProcMCCodeEmitter::encodeJumpTableAddr(const MCInst &MI, unsigned
 // Encode VectorProc Memory Operand.  The result is a packed field with the register
 // in the low 5 bits and the offset in the remainder.  The instruction patterns
 // will put these into the proper part of the instruction (VectorProcInstrFormats.td).
-unsigned VectorProcMCCodeEmitter::getMemoryOpValue(const MCInst &MI, unsigned Op,
+unsigned VectorProcMCCodeEmitter::encodeMemoryOpValue(const MCInst &MI, unsigned Op,
 	SmallVectorImpl<MCFixup> &Fixups) const 
 {
 	unsigned encoding;
