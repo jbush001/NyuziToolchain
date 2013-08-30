@@ -13,12 +13,20 @@ cd build
 This requires a newer version of a compiler that supports c++11.
 cmake must be installed (http://www.cmake.org/). 
 * Note that there is also a 'configure' script in the directory.  It doesn't work, because lld specifically is cmake only.
-* -std=c++11 -stdlib=libc++ is required on MacOS. If you're building with GCC, replace with "-std=c++0x"
 * MAKE_INSTALL_PREFIX will put this in a different path than the default compiler.  Since this only builds for VectorProc, be careful not to overwrite your system compiler.
 
+__MacOS__
 <pre>
 cd build
 cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++11 -stdlib=libc++"  -DLLVM_TARGET_ARCH="VectorProc" ..
+make
+make install
+</pre>
+
+__Linux/GCC__
+<pre>
+cd build
+cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++0x"  -DLLVM_TARGET_ARCH="VectorProc" ..
 make
 make install
 </pre>
