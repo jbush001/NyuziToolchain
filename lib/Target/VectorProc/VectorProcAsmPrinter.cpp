@@ -151,6 +151,17 @@ GetJumpTableLabel(unsigned uid) const {
   return OutContext.GetOrCreateSymbol(Name.str());
 }
 
+// Print operand for inline assembly
+bool VectorProcAsmPrinter::
+PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+	unsigned AsmVariant,
+	const char *ExtraCode,
+	raw_ostream &O)
+{
+	dbgs() << "PrintAsmOperand\n";
+
+	return AsmPrinter::PrintAsmOperand(MI, OpNo, AsmVariant, ExtraCode, O);
+}
 
 // Force static initialization.
 extern "C" void LLVMInitializeVectorProcAsmPrinter() { 
