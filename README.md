@@ -68,27 +68,6 @@ Each test case is compiled and then run in the instruction set simulator.
 The output is checked for validity. This is similar to the test-suite project
 in LLVM.
 
-## To view DAGs graphically
 
-* Make sure GraphViz is in PATH.  Run configure and build.
-* Generate LLVM IR code for source file:
-
-<pre>
-build/bin/clang -target vectorproc branch.c -emit-llvm  -o branch.llvm -S
-</pre>
-
-* Run llc on the code to view the output:
-
-<pre>
-build/bin/llc -view-dag-combine1-dags branch.llvm 
-</pre>
-
-The following options are legal:
-
-* -view-dag-combine1-dags displays the DAG after being built, before the first optimization pass.
-* -view-legalize-dags displays the DAG before Legalization.
-* -view-dag-combine2-dags displays the DAG before the second optimization pass.
-* -view-isel-dags displays the DAG before the Select phase.
-* -view-sched-dags displays the DAG before Scheduling.
 
 
