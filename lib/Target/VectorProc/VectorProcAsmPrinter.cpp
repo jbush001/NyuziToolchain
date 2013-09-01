@@ -113,10 +113,8 @@ EmitConstantPool()
   // they are close by and can be accessed with PC relative addresses.
   const Function *F = MF->getFunction();
   OutStreamer.SwitchSection(getObjFileLowering().SectionForGlobal(F, Mang, TM));
-  unsigned Offset = 0;
   for (unsigned i = 0, e = CP.size(); i != e; ++i) {
     const MachineConstantPoolEntry &CPE = CP[i];
-    unsigned Align = CPE.getAlignment();
     EmitAlignment(Log2_32(CPE.getAlignment()));
     OutStreamer.EmitLabel(GetCPISymbol(i));
     if (CPE.isMachineConstantPoolEntry())
@@ -158,9 +156,14 @@ PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
 	const char *ExtraCode,
 	raw_ostream &O)
 {
-	dbgs() << "PrintAsmOperand\n";
+	const MachineOperand &MO = MI->getOperand(OpNo);
+	if (MO.getType() == MachineOperand::MO_Register)
+	{
+		O << VectorProcInstPrinter::getRegisterName(MO.getReg());
+		return false;
+	}
 
-	return AsmPrinter::PrintAsmOperand(MI, OpNo, AsmVariant, ExtraCode, O);
+	return true;
 }
 
 // Force static initialization.

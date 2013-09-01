@@ -956,7 +956,8 @@ VectorProcTargetLowering::ConstraintType
 VectorProcTargetLowering::getConstraintType(const std::string &Constraint) const {
 	if (Constraint.size() == 1) {
 		switch (Constraint[0]) {
-			case 'r': return C_RegisterClass;
+			case 's': 
+			case 'v': return C_RegisterClass;
 			default:  break;
 		}
 	}
@@ -970,8 +971,11 @@ VectorProcTargetLowering::getRegForInlineAsmConstraint(const std::string &Constr
 {
 	if (Constraint.size() == 1) {
 		switch (Constraint[0]) {
-			case 'r':
+			case 's':
 				return std::make_pair(0U, &VectorProc::ScalarRegRegClass);
+
+			case 'v':
+				return std::make_pair(0U, &VectorProc::VectorRegRegClass);
 		}
 	}
 

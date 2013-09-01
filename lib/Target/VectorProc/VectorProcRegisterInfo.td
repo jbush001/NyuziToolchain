@@ -30,7 +30,11 @@ let Namespace = "VectorProc" in {
 	}
 }
 
-def ScalarReg : RegisterClass<"VectorProc", [v16i1, i32, f32], 32, (add (sequence "S%u", 0, 27),
+// Note that we put v16i1 as a ScalarRegister class to handle vector comparisons
+// This isn't fully working with type legalization.  It is important that this type
+// is not first in the list, because some parts of code assume the first type in the 
+// list is the default type (it used to be first, didn't work...)
+def ScalarReg : RegisterClass<"VectorProc", [i32, f32, v16i1], 32, (add (sequence "S%u", 0, 27),
 	FP_REG, SP_REG, LINK_REG, PC_REG)>
 {
 	// Explicitly specific size, otherwise TableGen will use 16 (looking at v16i1 type)
