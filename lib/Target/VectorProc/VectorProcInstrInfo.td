@@ -30,8 +30,6 @@ defm SUBF   : TwoOpFloatArith<"sub.f", fsub, 0x21>;
 defm MULF   : TwoOpFloatArith<"mul.f", fmul, 0x22>;
 defm CLZ 	: OneOpIntArith<"clz", ctlz, 0x0c>;
 defm CTZ 	: OneOpIntArith<"ctz", cttz, 0x0e>;
-defm CLZ_ZU	: OneOpIntArith<"clz", ctlz_zero_undef, 0x0c>;
-defm CTZ_ZU	: OneOpIntArith<"ctz", cttz_zero_undef, 0x0e>;
 defm RECIP  : OneOpFloatArith<"reciprocal", reciprocal, 0x1c>;
 
 def SEXT16 : FormatAUnmaskedOneOpInst<

@@ -66,6 +66,9 @@ namespace llvm {
 		SDValue LowerFNEG(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
+		SDValue LowerCTLZ_ZERO_UNDEF(SDValue Op, SelectionDAG &DAG) const;
+		SDValue LowerCTTZ_ZERO_UNDEF(SDValue Op, SelectionDAG &DAG) const;
+		
 		EVT getSetCCResultType(LLVMContext &Context, EVT VT) const;
 		virtual SDValue LowerReturn(SDValue Chain,
 			CallingConv::ID CallConv, bool isVarArg,

@@ -475,6 +475,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v16f32, Custom);
 	setOperationAction(ISD::SETCC, MVT::f32, Custom);
 	setOperationAction(ISD::SETCC, MVT::v16f32, Custom);
+	setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Custom);
+	setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Custom);
 
 	setStackPointerRegisterToSaveRestore(VectorProc::SP_REG);
 	setMinFunctionAlignment(2);
@@ -761,6 +763,8 @@ LowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const
 	return DAG.getNode(VectorProcISD::GETFIELD, dl, MVT::i32, Op.getOperand(0), index);
 }
 
+// Handle unsupported floating point operations: unordered comparisons
+// and equality.
 SDValue VectorProcTargetLowering::
 LowerSETCC(SDValue Op, SelectionDAG &DAG) const
 {
@@ -818,6 +822,20 @@ LowerSETCC(SDValue Op, SelectionDAG &DAG) const
 }
 
 SDValue VectorProcTargetLowering::
+LowerCTLZ_ZERO_UNDEF(SDValue Op, SelectionDAG &DAG) const
+{
+	SDLoc dl(Op);
+	return DAG.getNode(ISD::CTLZ, dl, Op.getValueType(), Op.getOperand(0));
+}
+
+SDValue  VectorProcTargetLowering::
+LowerCTTZ_ZERO_UNDEF(SDValue Op, SelectionDAG &DAG) const
+{
+	SDLoc dl(Op);
+	return DAG.getNode(ISD::CTTZ, dl, Op.getValueType(), Op.getOperand(0));
+}
+
+SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const 
 {
 	switch (Op.getOpcode())
@@ -835,6 +853,8 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const
 		case ISD::FNEG: return LowerFNEG(Op, DAG);
 		case ISD::EXTRACT_VECTOR_ELT: return LowerEXTRACT_VECTOR_ELT(Op, DAG);
 		case ISD::SETCC: return LowerSETCC(Op, DAG);
+		case ISD::CTLZ_ZERO_UNDEF: return LowerCTLZ_ZERO_UNDEF(Op, DAG);
+		case ISD::CTTZ_ZERO_UNDEF: return LowerCTTZ_ZERO_UNDEF(Op, DAG);
 		default:
 			llvm_unreachable("Should not custom lower this!");
 	}
