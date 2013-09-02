@@ -138,6 +138,7 @@ VectorProcDisassembler::getInstruction(MCInst &instr,
   return MCDisassembler::Fail;
 }
 
+// This does not work correctly.
 static unsigned getReg(const void *D, unsigned RC, unsigned RegNo) {
 	const VectorProcDisassembler *Dis = static_cast<const VectorProcDisassembler*>(D);
 	return *(Dis->getRegInfo()->getRegClass(RC).begin() + RegNo);
@@ -149,19 +150,14 @@ static DecodeStatus decodeMemoryOpValue(MCInst &Inst,
                               const void *Decoder,
                               unsigned RC) 
 {
-  int Offset = SignExtend32<16>(Insn & 0xffff);
-  unsigned Reg = fieldFromInstruction(Insn, 5, 5);
+
+  // XXX this depends on the instruction type (has mask or not)
+  int Offset = SignExtend32<15>(fieldFromInstruction(Insn, 10, 15));
+
   unsigned Base = fieldFromInstruction(Insn, 0, 5);
 
-  Reg = getReg(Decoder, RC, Reg);
   Base = getReg(Decoder, RC, Base);
 
-  if(Inst.getOpcode() == VectorProc::STORE_SYNC) {
-	// Store sync has an additional machine operand for the success value
-    Inst.addOperand(MCOperand::CreateReg(Reg));
-  }
-
-  Inst.addOperand(MCOperand::CreateReg(Reg));
   Inst.addOperand(MCOperand::CreateReg(Base));
   Inst.addOperand(MCOperand::CreateImm(Offset));
 
