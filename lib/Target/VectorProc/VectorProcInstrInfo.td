@@ -147,14 +147,8 @@ def MOVEVSI : FormatAUnmaskedOneOpInst<
 	[(set v16i32:$dest, (splat i32:$src2))],
 	0xf,
 	FmtA_VVS>;
-
-def MOVEVSF : FormatAUnmaskedOneOpInst<
-	(outs VectorReg:$dest), 
-	(ins ScalarReg:$src2),
-	"move $dest, $src2",
-	[(set v16f32:$dest, (splat f32:$src2))],
-	0xf,
-	FmtA_VVS>;
+	
+def : Pat<(v16f32 (splat f32:$src2)), (MOVEVSI f32:$src2)>;
 
 def MOVEVV : FormatAUnmaskedOneOpInst<
 	(outs VectorReg:$dest), 
@@ -181,23 +175,12 @@ let Constraints = "$dest = $oldvalue" in {
 		[(set v16i32:$dest, (vselect i32:$mask, (splat i32:$src2), v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVSM>;
-
-	def MOVEVVMF : FormatAMaskedOneOpInst<
-		(outs VectorReg:$dest),
-		(ins ScalarReg:$mask, VectorReg:$src2, VectorReg:$oldvalue),
-		"move.mask $dest, $mask, $src2",
-		[(set v16f32:$dest, (vselect i32:$mask, v16f32:$src2, v16f32:$oldvalue))],
-		0xf,
-		FmtA_VVVM>;
-
-	def MOVEVSMF : FormatAMaskedOneOpInst<
-		(outs VectorReg:$dest),
-		(ins ScalarReg:$mask, ScalarReg:$src2, VectorReg:$oldvalue),
-		"move.mask $dest, $mask, $src2",
-		[(set v16f32:$dest, (vselect i32:$mask, (splat f32:$src2), v16f32:$oldvalue))],
-		0xf,
-		FmtA_VVSM>;
 }
+
+def : Pat<(vselect i32:$mask, v16f32:$src2, v16f32:$oldvalue), 
+	(MOVEVVMI i32:$mask, v16f32:$src2, v16f32:$oldvalue)>;
+def : Pat<(vselect i32:$mask, (splat f32:$src2), v16f32:$oldvalue),
+	(MOVEVSMI i32:$mask, f32:$src2, v16f32:$oldvalue)>; 
 
 //////////////////////////////////////////////////////////////////
 // Memory Access (Format C)
