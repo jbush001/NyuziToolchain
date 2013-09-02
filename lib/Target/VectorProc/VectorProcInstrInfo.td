@@ -142,8 +142,6 @@ defm SGTFO : FloatCompareInst<"setgt", SETOGT, 0x2c>;
 defm SGEFO : FloatCompareInst<"setge", SETOGE, 0x2d>;
 defm SLTFO : FloatCompareInst<"setlt", SETOLT, 0x2e>;
 defm SLEFO : FloatCompareInst<"setle", SETOLE, 0x2f>;
-defm SEQFO : FloatCompareInst<"seteq", SETOEQ, 0x10>;
-defm SNEFO : FloatCompareInst<"setne", SETONE, 0x11>;
 
 // Intrinsic forms of compare instructions.  This is a bit of a hack,
 // since I can't match the instruction forms in a way that works properly
@@ -164,14 +162,17 @@ def : Pat<(int_vp_mask_cmpf_le v16f32:$src1, v16f32:$src2),
 	(SLEFOVVV  v16f32:$src1, v16f32:$src2)>;
 def : Pat<(int_vp_mask_cmpf_le v16f32:$src1, (splat f32:$src2)),
 	(SLEFOVVS  v16f32:$src1, f32:$src2)>;
+	
+// Note: there is no floating point eq/ne.  Just use integer
+// forms
 def : Pat<(int_vp_mask_cmpf_eq v16f32:$src1, v16f32:$src2),
-	(SEQFOVVV  v16f32:$src1, v16f32:$src2)>;
+	(SEQSIVVV  v16f32:$src1, v16f32:$src2)>;
 def : Pat<(int_vp_mask_cmpf_eq v16f32:$src1, (splat f32:$src2)),
-	(SEQFOVVS  v16f32:$src1, f32:$src2)>;
+	(SEQSIVVS  v16f32:$src1, f32:$src2)>;
 def : Pat<(int_vp_mask_cmpf_ne v16f32:$src1, v16f32:$src2),
-	(SNEFOVVV  v16f32:$src1, v16f32:$src2)>;
+	(SNESIVVV  v16f32:$src1, v16f32:$src2)>;
 def : Pat<(int_vp_mask_cmpf_ne v16f32:$src1, (splat f32:$src2)),
-	(SNEFOVVS  v16f32:$src1, f32:$src2)>;
+	(SNESIVVS  v16f32:$src1, f32:$src2)>;
 
 def GET_FIELDI : FormatAUnmaskedTwoOpInst<
 	(outs ScalarReg:$dest),

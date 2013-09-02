@@ -111,7 +111,7 @@ define i32 @cmpfle(<16 x float> %a, <16 x float> %b) #0 {	; CHECK: cmpfle
 }
 
 define i32 @cmpfeq(<16 x float> %a, <16 x float> %b) #0 {	; CHECK: cmpfeq
-	%cmp = fcmp oeq <16 x float> %a, %b			; CHECK: seteq.f s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+	%cmp = fcmp oeq <16 x float> %a, %b			; CHECK: seteq.i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
 	%cnv = bitcast <16 x i1> %cmp to i16
 	%ret = zext i16 %cnv to i32
 
@@ -119,7 +119,7 @@ define i32 @cmpfeq(<16 x float> %a, <16 x float> %b) #0 {	; CHECK: cmpfeq
 }
 
 define i32 @cmpfne(<16 x float> %a, <16 x float> %b) #0 {	; CHECK: cmpfne
-	%cmp = fcmp one <16 x float> %a, %b			; CHECK: setne.f s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+	%cmp = fcmp one <16 x float> %a, %b			; CHECK: setne.i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
 	%cnv = bitcast <16 x i1> %cmp to i16
 	%ret = zext i16 %cnv to i32
 
@@ -159,7 +159,7 @@ define i32 @cmpfleu(<16 x float> %a, <16 x float> %b) #0 {	; CHECK: cmpfleu
 }
 
 define i32 @cmpfequ(<16 x float> %a, <16 x float> %b) #0 {	; CHECK: cmpfequ
-	%cmp = fcmp ueq <16 x float> %a, %b			; CHECK: seteq.f s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+	%cmp = fcmp ueq <16 x float> %a, %b			; CHECK: seteq.i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
 	%cnv = bitcast <16 x i1> %cmp to i16
 	%ret = zext i16 %cnv to i32
 
@@ -167,7 +167,7 @@ define i32 @cmpfequ(<16 x float> %a, <16 x float> %b) #0 {	; CHECK: cmpfequ
 }
 
 define i32 @cmpfneu(<16 x float> %a, <16 x float> %b) #0 {	; CHECK: cmpfneu
-	%cmp = fcmp une <16 x float> %a, %b			; CHECK: setne.f s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
+	%cmp = fcmp une <16 x float> %a, %b			; CHECK: setne.i s{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
 	%cnv = bitcast <16 x i1> %cmp to i16
 	%ret = zext i16 %cnv to i32
 

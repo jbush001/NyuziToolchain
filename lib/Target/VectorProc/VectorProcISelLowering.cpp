@@ -28,6 +28,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Debug.h"
 using namespace llvm;
 
@@ -769,15 +770,10 @@ LowerSETCC(SDValue Op, SelectionDAG &DAG) const
 
 	switch (CC)
 	{
-		default: return Op;	// No change
-		
+		default: 
+			return Op;	// No change
+
 		// Convert unordered comparisons to ordered
-		case ISD::SETUEQ: 
-			newCode = ISD::SETOEQ;
-			break;
-		case ISD::SETUNE: 
-			newCode = ISD::SETONE;
-			break;
 		case ISD::SETUGT:  
 			newCode = ISD::SETOGT;
 			break;
@@ -790,12 +786,35 @@ LowerSETCC(SDValue Op, SelectionDAG &DAG) const
 		case ISD::SETULE:  
 			newCode = ISD::SETOLE;
 			break;
+			
+		// Note: there is no floating point eq/ne.  Just use integer
+		// forms
+		case ISD::SETUEQ:
+		case ISD::SETOEQ:
+			newCode = ISD::SETEQ;
+			break;
+
+		case ISD::SETUNE:
+		case ISD::SETONE:
+			newCode = ISD::SETNE;
+			break;
 	}
 	
-	// XXX Need to add additional code here to handle handle these properly.
+	// XXX Need to add additional code here to check for NaN properly?
+	
+	SDValue op0 = Op.getOperand(0);
+	SDValue op1 = Op.getOperand(1);
+	if (newCode == ISD::SETEQ || newCode == ISD::SETNE)
+	{
+		// Need to bitcast so we will match
+		op0 = DAG.getNode(ISD::BITCAST, dl, op0.getValueType().isVector() ? MVT::v16i32 : MVT::i32,
+			op0); 
+		op1 = DAG.getNode(ISD::BITCAST, dl, op1.getValueType().isVector() ? MVT::v16i32 : MVT::i32,
+			op1); 
+	}
 	
 	return DAG.getNode(ISD::SETCC, dl, Op.getValueType().getSimpleVT(), 
-		Op.getOperand(0), Op.getOperand(1), DAG.getCondCode(newCode));
+		op0, op1, DAG.getCondCode(newCode));
 }
 
 SDValue VectorProcTargetLowering::

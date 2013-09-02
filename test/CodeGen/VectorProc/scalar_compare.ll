@@ -89,13 +89,13 @@ define i32 @cmpfle(float %a, float %b) #0 {	; CHECK: cmpfle:
 }
 
 define i32 @cmpfeq(float %a, float %b) #0 {	; CHECK: cmpfeq:
-	%cmp = fcmp oeq float %a, %b			; CHECK: seteq.f s{{[0-9]+}}, s0, s1
+	%cmp = fcmp oeq float %a, %b			; CHECK: seteq.i s{{[0-9]+}}, s0, s1
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpfne(float %a, float %b) #0 {	; CHECK: cmpfne:
-	%cmp = fcmp one float %a, %b			; CHECK: setne.f s{{[0-9]+}}, s0, s1
+	%cmp = fcmp one float %a, %b			; CHECK: setne.i s{{[0-9]+}}, s0, s1
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
@@ -125,13 +125,13 @@ define i32 @cmpfleu(float %a, float %b) #0 {	; CHECK: cmpfleu:
 }
 
 define i32 @cmpfequ(float %a, float %b) #0 {	; CHECK: cmpfequ:
-	%cmp = fcmp ueq float %a, %b			; CHECK: seteq.f s{{[0-9]+}}, s0, s1
+	%cmp = fcmp ueq float %a, %b			; CHECK: seteq.i s{{[0-9]+}}, s0, s1
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpfneu(float %a, float %b) #0 {	; CHECK: cmpfneu:
-	%cmp = fcmp une float %a, %b			; CHECK: setne.f s{{[0-9]+}}, s0, s1
+	%cmp = fcmp une float %a, %b			; CHECK: setne.i s{{[0-9]+}}, s0, s1
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }

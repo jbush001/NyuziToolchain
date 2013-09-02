@@ -18,7 +18,7 @@ entry:
 define float @self(float %a, float %b, float %c) {  ;CHECK: self:
 entry:
     %cmp = fcmp oeq float %a, %b
-	; CHECK: seteq.f [[PRED:s[0-9]+]], s0, s1
+	; CHECK: seteq.i [[PRED:s[0-9]+]], s0, s1
 
     %val = select i1 %cmp, float %b, float %c
 
