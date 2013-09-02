@@ -646,8 +646,8 @@ class FormatCUnmaskedInst<dag outputs, dag inputs, string asmString, list<dag> p
 	let Inst{4-0} = addr{4-0};
 }
 
-multiclass ScalarLoadInst<string suffix, PatFrag op, CFmt fmt>  {
-	def i : FormatCUnmaskedInst<
+class ScalarLoadInst<string suffix, PatFrag op, CFmt fmt>
+	: FormatCUnmaskedInst<
 		(outs ScalarReg:$srcDest),
 		(ins MEMri:$addr),
 		"load." # suffix # " $srcDest, $addr",
@@ -655,34 +655,19 @@ multiclass ScalarLoadInst<string suffix, PatFrag op, CFmt fmt>  {
 		fmt,
 		1>;
 
-	def f : FormatCUnmaskedInst<
-		(outs ScalarReg:$srcDest),
-		(ins MEMri:$addr),
-		"load." # suffix # " $srcDest, $addr",
-		[(set f32:$srcDest, (op ADDRri:$addr))],
-		fmt,
-		1>;
-}
-
-multiclass ScalarStoreInst<string suffix, PatFrag op, CFmt fmt>  {
-	let hasSideEffects = 1, mayStore = 1 in {
-		def i : FormatCUnmaskedInst<
+class ScalarStoreInst<string suffix, PatFrag op, CFmt fmt>  
+	: FormatCUnmaskedInst<
 			(outs),
 			(ins ScalarReg:$srcDest, MEMri:$addr),
 			"store." # suffix # " $srcDest, $addr",
 			[(op i32:$srcDest, ADDRri:$addr)],
 			fmt, 
-			0>;
-
-		def f : FormatCUnmaskedInst<
-			(outs),
-			(ins ScalarReg:$srcDest, MEMri:$addr),
-			"store." # suffix # " $srcDest, $addr",
-			[(op f32:$srcDest, ADDRri:$addr)],
-			fmt,
-			0>;
-	}
+			0>
+{
+	let hasSideEffects = 1;
+	let mayStore = 1;
 }
+
 
 //////////////////////////////////////////////////////////////////
 // Format D (cache control)

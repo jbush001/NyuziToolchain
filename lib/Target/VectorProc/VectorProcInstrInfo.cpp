@@ -43,9 +43,8 @@ VectorProcInstrInfo::VectorProcInstrInfo(VectorProcSubtarget &ST)
 /// any side effects other than loading from the stack slot.
 unsigned VectorProcInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
                                              int &FrameIndex) const {
-	if (MI->getOpcode() == VectorProc::LWi || MI->getOpcode() == VectorProc::LWf
-		|| MI->getOpcode() == VectorProc::BLOCK_LOADI
-		|| MI->getOpcode() == VectorProc::BLOCK_LOADF) {
+	if (MI->getOpcode() == VectorProc::LW
+		|| MI->getOpcode() == VectorProc::BLOCK_LOADI) {
 		if (MI->getOperand(1).isFI() && MI->getOperand(2).isImm() &&
 			MI->getOperand(2).getImm() == 0) {
 			FrameIndex = MI->getOperand(1).getIndex();
@@ -63,9 +62,8 @@ unsigned VectorProcInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
 /// any side effects other than storing to the stack slot.
 unsigned VectorProcInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
 	int &FrameIndex) const {
-	if (MI->getOpcode() == VectorProc::SWi || MI->getOpcode() == VectorProc::SWf
-		|| MI->getOpcode() == VectorProc::BLOCK_STOREI
-		|| MI->getOpcode() == VectorProc::BLOCK_STOREF) {
+	if (MI->getOpcode() == VectorProc::SW
+		|| MI->getOpcode() == VectorProc::BLOCK_STOREI) {
 		if (MI->getOperand(1).isFI() && MI->getOperand(2).isImm() &&
 			MI->getOperand(2).getImm() == 0) {
 			FrameIndex = MI->getOperand(1).getIndex();
@@ -239,7 +237,7 @@ storeRegToStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
 	unsigned Opc = 0;
 
 	if (VectorProc::ScalarRegRegClass.hasSubClassEq(RC))
-		Opc = VectorProc::SWi;
+		Opc = VectorProc::SW;
 	else if (VectorProc::VectorRegRegClass.hasSubClassEq(RC))
 		Opc = VectorProc::BLOCK_STOREI;
 	else
@@ -261,7 +259,7 @@ loadRegFromStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
 	unsigned Opc = 0;
 
 	if (VectorProc::ScalarRegRegClass.hasSubClassEq(RC))
-		Opc = VectorProc::LWi;
+		Opc = VectorProc::LW;
 	else if (VectorProc::VectorRegRegClass.hasSubClassEq(RC))
 		Opc = VectorProc::BLOCK_LOADI;
 	else

@@ -204,14 +204,14 @@ let Constraints = "$dest = $oldvalue" in {
 //////////////////////////////////////////////////////////////////
 
 // Scalar
-defm LBS : ScalarLoadInst<"s8", sextloadi8, FmtC_Byte_Signed>;
-defm LBU : ScalarLoadInst<"u8", zextloadi8, FmtC_Byte_Unsigned>;
-defm LSS : ScalarLoadInst<"s16", sextloadi16, FmtC_Short_Signed>;
-defm LSU : ScalarLoadInst<"u16", zextloadi16, FmtC_Short_Unsigned>;
-defm LW : ScalarLoadInst<"32", load, FmtC_Word>;
-defm SB : ScalarStoreInst<"8", truncstorei8, FmtC_Byte_Signed>;
-defm SS : ScalarStoreInst<"16", truncstorei16, FmtC_Short_Signed>;
-defm SW : ScalarStoreInst<"32", store, FmtC_Word>;
+def LBS : ScalarLoadInst<"s8", sextloadi8, FmtC_Byte_Signed>;
+def LBU : ScalarLoadInst<"u8", zextloadi8, FmtC_Byte_Unsigned>;
+def LSS : ScalarLoadInst<"s16", sextloadi16, FmtC_Short_Signed>;
+def LSU : ScalarLoadInst<"u16", zextloadi16, FmtC_Short_Unsigned>;
+def LW : ScalarLoadInst<"32", load, FmtC_Word>;
+def SB : ScalarStoreInst<"8", truncstorei8, FmtC_Byte_Signed>;
+def SS : ScalarStoreInst<"16", truncstorei16, FmtC_Short_Signed>;
+def SW : ScalarStoreInst<"32", store, FmtC_Word>;
 
 // A bit of a kludge.  Used to store the result of a vector comparison. 
 // The compiler does this in some cases and the normal store does not match it.
@@ -227,11 +227,21 @@ def STORE_MASK : FormatCUnmaskedInst<
 	let mayStore = 1;
 }
 
-def : Pat<(i32 (extloadi1 ADDRri:$src)), (LBUi ADDRri:$src)>;
-def : Pat<(i32 (extloadi8 ADDRri:$src)), (LBUi ADDRri:$src)>;
-def : Pat<(i32 (extloadi16 ADDRri:$src)), (LSSi ADDRri:$src)>;
+def : Pat<(i32 (extloadi1 ADDRri:$addr)), (LBU ADDRri:$addr)>;
+def : Pat<(i32 (extloadi8 ADDRri:$addr)), (LBU ADDRri:$addr)>;
+def : Pat<(i32 (extloadi16 ADDRri:$addr)), (LSS ADDRri:$addr)>;
+def : Pat<(f32 (load ADDRri:$addr)), (LW ADDRri:$addr)>;
+def : Pat<(store f32:$srcDest, ADDRri:$addr), (SW f32:$srcDest, ADDRri:$addr)>;
 
 // Vector
+def BLOCK_LOADI : FormatCUnmaskedInst<
+	(outs VectorReg:$srcDest),
+	(ins MEMri:$addr),
+	"load.v $srcDest, $addr",
+	[(set v16i32:$srcDest, (load ADDRri:$addr))],
+	FmtC_Block,
+	1>;
+
 def BLOCK_STOREI : FormatCUnmaskedInst<
 	(outs),
 	(ins VectorReg:$srcDest, MEMri:$addr),
@@ -244,34 +254,9 @@ def BLOCK_STOREI : FormatCUnmaskedInst<
 	let mayStore = 1;
 }
 
-def BLOCK_STOREF : FormatCUnmaskedInst<
-	(outs),
-	(ins VectorReg:$srcDest, MEMri:$addr),
-	"store.v $srcDest, $addr",
-	[(store v16f32:$srcDest, ADDRri:$addr)],
-	FmtC_Block,
-	0>
-{
-	let hasSideEffects = 1;
-	let mayStore = 1;
-}
+def : Pat<(v16f32 (load ADDRri:$addr)), (BLOCK_LOADI ADDRri:$addr)>;
+def : Pat<(store v16f32:$srcDest, ADDRri:$addr), (BLOCK_STOREI v16f32:$srcDest, ADDRri:$addr)>;
 
-def BLOCK_LOADI : FormatCUnmaskedInst<
-	(outs VectorReg:$srcDest),
-	(ins MEMri:$addr),
-	"load.v $srcDest, $addr",
-	[(set v16i32:$srcDest, (load ADDRri:$addr))],
-	FmtC_Block,
-	1>;
-
-def BLOCK_LOADF : FormatCUnmaskedInst<
-	(outs VectorReg:$srcDest),
-	(ins MEMri:$addr),
-	"load.v $srcDest, $addr",
-	[(set v16f32:$srcDest, (load ADDRri:$addr))],
-	FmtC_Block,
-	1>;
-	
 def INT_BLOCK_LOADI_MASKED : FormatCMaskedInst<
 	(outs VectorReg:$srcDest),
 	(ins MEMri:$addr, ScalarReg:$mask),
