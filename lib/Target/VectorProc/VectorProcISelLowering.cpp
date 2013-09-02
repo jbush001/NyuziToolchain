@@ -472,6 +472,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::f32, Custom);
 	setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v16i32, Custom);
 	setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v16f32, Custom);
+	setOperationAction(ISD::SETCC, MVT::f32, Custom);
+	setOperationAction(ISD::SETCC, MVT::v16f32, Custom);
 
 	setStackPointerRegisterToSaveRestore(VectorProc::SP_REG);
 	setMinFunctionAlignment(2);
@@ -759,6 +761,44 @@ LowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const
 }
 
 SDValue VectorProcTargetLowering::
+LowerSETCC(SDValue Op, SelectionDAG &DAG) const
+{
+	ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
+	ISD::CondCode newCode;
+	SDLoc dl(Op);
+
+	switch (CC)
+	{
+		default: return Op;	// No change
+		
+		// Convert unordered comparisons to ordered
+		case ISD::SETUEQ: 
+			newCode = ISD::SETOEQ;
+			break;
+		case ISD::SETUNE: 
+			newCode = ISD::SETONE;
+			break;
+		case ISD::SETUGT:  
+			newCode = ISD::SETOGT;
+			break;
+		case ISD::SETUGE:  
+			newCode = ISD::SETOGE;
+			break;
+		case ISD::SETULT:  
+			newCode = ISD::SETOLT;
+			break;
+		case ISD::SETULE:  
+			newCode = ISD::SETOLE;
+			break;
+	}
+	
+	// XXX Need to add additional code here to handle handle these properly.
+	
+	return DAG.getNode(ISD::SETCC, dl, Op.getValueType().getSimpleVT(), 
+		Op.getOperand(0), Op.getOperand(1), DAG.getCondCode(newCode));
+}
+
+SDValue VectorProcTargetLowering::
 LowerOperation(SDValue Op, SelectionDAG &DAG) const 
 {
 	switch (Op.getOpcode())
@@ -775,6 +815,7 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const
 		case ISD::SCALAR_TO_VECTOR: return LowerSCALAR_TO_VECTOR(Op, DAG);
 		case ISD::FNEG: return LowerFNEG(Op, DAG);
 		case ISD::EXTRACT_VECTOR_ELT: return LowerEXTRACT_VECTOR_ELT(Op, DAG);
+		case ISD::SETCC: return LowerSETCC(Op, DAG);
 		default:
 			llvm_unreachable("Should not custom lower this!");
 	}

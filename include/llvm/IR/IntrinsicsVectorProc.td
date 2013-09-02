@@ -80,7 +80,7 @@ def int_vp_mask_cmpi_sge : Intrinsic<[llvm_i32_ty], [llvm_v16i32_ty, llvm_v16i32
 	[IntrNoMem], "llvm.vectorproc.__builtin_vp_mask_cmpi_sge">;
 
 def int_vp_mask_cmpi_slt : Intrinsic<[llvm_i32_ty], [llvm_v16i32_ty, llvm_v16i32_ty], 
-	[], "llvm.vectorproc.__builtin_vp_mask_cmpi_slt">;
+	[IntrNoMem], "llvm.vectorproc.__builtin_vp_mask_cmpi_slt">;
 
 def int_vp_mask_cmpi_sle : Intrinsic<[llvm_i32_ty], [llvm_v16i32_ty, llvm_v16i32_ty], 
 	[IntrNoMem], "llvm.vectorproc.__builtin_vp_mask_cmpi_sle">;

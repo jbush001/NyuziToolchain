@@ -83,30 +83,95 @@ def FTOSIV : FormatAUnmaskedOneOpInst<
         	0x1b,
         	FmtA_VVV>;
 
-defm SGTSI : IntCompareInst<"setgt", "i", SETGT, int_vp_mask_cmpi_sgt, 0x12>;	
-defm SGESI : IntCompareInst<"setge", "i", SETGE, int_vp_mask_cmpi_sge, 0x13>;
-defm SLTSI : IntCompareInst<"setlt", "i", SETLT, int_vp_mask_cmpi_slt, 0x14>;
-defm SLESI : IntCompareInst<"setle", "i", SETLE, int_vp_mask_cmpi_sle, 0x15>;
-defm SEQSI : IntCompareInst<"seteq", "i", SETEQ, int_vp_mask_cmpi_eq, 0x10>;
-defm SNESI : IntCompareInst<"setne", "i", SETNE, int_vp_mask_cmpi_ne, 0x11>;
-defm SGTUI : IntCompareInst<"setgt", "u", SETUGT, int_vp_mask_cmpi_ugt, 0x16>;	
-defm SGEUI : IntCompareInst<"setge", "u", SETUGE, int_vp_mask_cmpi_uge, 0x17>;
-defm SLTUI : IntCompareInst<"setlt", "u", SETULT, int_vp_mask_cmpi_ult, 0x18>;
-defm SLEUI : IntCompareInst<"setle", "u", SETULE, int_vp_mask_cmpi_ule, 0x19>;
+defm SGTSI : IntCompareInst<"setgt", "i", SETGT, 0x12>;	
+defm SGESI : IntCompareInst<"setge", "i", SETGE, 0x13>;
+defm SLTSI : IntCompareInst<"setlt", "i", SETLT, 0x14>;
+defm SLESI : IntCompareInst<"setle", "i", SETLE, 0x15>;
+defm SEQSI : IntCompareInst<"seteq", "i", SETEQ, 0x10>;
+defm SNESI : IntCompareInst<"setne", "i", SETNE, 0x11>;
+defm SGTUI : IntCompareInst<"setgt", "u", SETUGT, 0x16>;	
+defm SGEUI : IntCompareInst<"setge", "u", SETUGE, 0x17>;
+defm SLTUI : IntCompareInst<"setlt", "u", SETULT, 0x18>;
+defm SLEUI : IntCompareInst<"setle", "u", SETULE, 0x19>;
 
-// Note: unordered and ordered treated the same
-defm SGTFO : FloatCompareInst<"setgt", SETOGT, int_vp_mask_cmpf_gt, 0x2c>;	
-defm SGEFO : FloatCompareInst<"setge", SETOGE, int_vp_mask_cmpf_ge, 0x2d>;
-defm SLTFO : FloatCompareInst<"setlt", SETOLT, int_vp_mask_cmpf_lt, 0x2e>;
-defm SLEFO : FloatCompareInst<"setle", SETOLE, int_vp_mask_cmpf_le, 0x2f>;
-defm SEQFO : FloatCompareInst<"seteq", SETOEQ, int_vp_mask_cmpf_eq, 0x10>;
-defm SNEFO : FloatCompareInst<"setne", SETONE, int_vp_mask_cmpf_ne, 0x11>;
-defm SGTFU : FloatCompareInst<"setgt", SETUGT, int_vp_mask_cmpf_gt, 0x2c>;
-defm SGEFU : FloatCompareInst<"setge", SETUGE, int_vp_mask_cmpf_ge, 0x2d>;
-defm SLTFU : FloatCompareInst<"setlt", SETULT, int_vp_mask_cmpf_lt, 0x2e>;
-defm SLEFU : FloatCompareInst<"setle", SETULE, int_vp_mask_cmpf_le, 0x2f>;
-defm SEQFU : FloatCompareInst<"seteq", SETUEQ, int_vp_mask_cmpf_eq, 0x10>;
-defm SNEFU : FloatCompareInst<"setne", SETUNE, int_vp_mask_cmpf_ne, 0x11>;
+// Intrinsic forms of compare instructions.  This is a bit of a hack,
+// since I can't match the instruction forms in a way that works properly
+// with the type legalizer.
+def : Pat<(int_vp_mask_cmpi_sgt v16i32:$src1, v16i32:$src2),
+	(SGTSIVVV v16i32:$src1, v16i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_sgt v16i32:$src1, (splat i32:$src2)),
+	(SGTSIVVS v16i32:$src1, i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_sge v16i32:$src1, v16i32:$src2),
+	(SGESIVVV v16i32:$src1, v16i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_sge v16i32:$src1, (splat i32:$src2)),
+	(SGESIVVS v16i32:$src1, i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_slt v16i32:$src1, v16i32:$src2),
+	(SLTSIVVV v16i32:$src1, v16i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_slt v16i32:$src1, (splat i32:$src2)),
+	(SLTSIVVS v16i32:$src1, i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_sle v16i32:$src1, v16i32:$src2),
+	(SLESIVVV v16i32:$src1, v16i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_sle v16i32:$src1, (splat i32:$src2)),
+	(SLESIVVS v16i32:$src1, i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_eq v16i32:$src1, v16i32:$src2),
+	(SEQSIVVV v16i32:$src1, v16i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_eq v16i32:$src1, (splat i32:$src2)),
+	(SEQSIVVS v16i32:$src1, i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_ne v16i32:$src1, v16i32:$src2),
+	(SNESIVVV v16i32:$src1, v16i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_ne v16i32:$src1, (splat i32:$src2)),
+	(SNESIVVS v16i32:$src1, i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_ugt v16i32:$src1, v16i32:$src2),
+	(SGTUIVVV v16i32:$src1, v16i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_ugt v16i32:$src1, (splat i32:$src2)),
+	(SGTUIVVS v16i32:$src1, i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_uge v16i32:$src1, v16i32:$src2),
+	(SGEUIVVV v16i32:$src1, v16i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_uge v16i32:$src1, (splat i32:$src2)),
+	(SGEUIVVS v16i32:$src1, i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_ult v16i32:$src1, v16i32:$src2),
+	(SLTUIVVV v16i32:$src1, v16i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_ult v16i32:$src1, (splat i32:$src2)),
+	(SLTUIVVS v16i32:$src1, i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_ule v16i32:$src1, v16i32:$src2),
+	(SLEUIVVV v16i32:$src1, v16i32:$src2)>;
+def : Pat<(int_vp_mask_cmpi_ule v16i32:$src1, (splat i32:$src2)),
+	(SLEUIVVS v16i32:$src1, i32:$src2)>;
+
+defm SGTFO : FloatCompareInst<"setgt", SETOGT, 0x2c>;	
+defm SGEFO : FloatCompareInst<"setge", SETOGE, 0x2d>;
+defm SLTFO : FloatCompareInst<"setlt", SETOLT, 0x2e>;
+defm SLEFO : FloatCompareInst<"setle", SETOLE, 0x2f>;
+defm SEQFO : FloatCompareInst<"seteq", SETOEQ, 0x10>;
+defm SNEFO : FloatCompareInst<"setne", SETONE, 0x11>;
+
+// Intrinsic forms of compare instructions.  This is a bit of a hack,
+// since I can't match the instruction forms in a way that works properly
+// with the type legalizer.
+def : Pat<(int_vp_mask_cmpf_gt v16f32:$src1, v16f32:$src2),
+	(SGTFOVVV  v16f32:$src1, v16f32:$src2)>;
+def : Pat<(int_vp_mask_cmpf_gt v16f32:$src1, (splat f32:$src2)),
+	(SGTFOVVS  v16f32:$src1, f32:$src2)>;
+def : Pat<(int_vp_mask_cmpf_ge v16f32:$src1, v16f32:$src2),
+	(SGEFOVVV  v16f32:$src1, v16f32:$src2)>;
+def : Pat<(int_vp_mask_cmpf_ge v16f32:$src1, (splat f32:$src2)),
+	(SGEFOVVS  v16f32:$src1, f32:$src2)>;
+def : Pat<(int_vp_mask_cmpf_lt v16f32:$src1, v16f32:$src2),
+	(SLTFOVVV  v16f32:$src1, v16f32:$src2)>;
+def : Pat<(int_vp_mask_cmpf_lt v16f32:$src1, (splat f32:$src2)),
+	(SLTFOVVS  v16f32:$src1, f32:$src2)>;
+def : Pat<(int_vp_mask_cmpf_le v16f32:$src1, v16f32:$src2),
+	(SLEFOVVV  v16f32:$src1, v16f32:$src2)>;
+def : Pat<(int_vp_mask_cmpf_le v16f32:$src1, (splat f32:$src2)),
+	(SLEFOVVS  v16f32:$src1, f32:$src2)>;
+def : Pat<(int_vp_mask_cmpf_eq v16f32:$src1, v16f32:$src2),
+	(SEQFOVVV  v16f32:$src1, v16f32:$src2)>;
+def : Pat<(int_vp_mask_cmpf_eq v16f32:$src1, (splat f32:$src2)),
+	(SEQFOVVS  v16f32:$src1, f32:$src2)>;
+def : Pat<(int_vp_mask_cmpf_ne v16f32:$src1, v16f32:$src2),
+	(SNEFOVVV  v16f32:$src1, v16f32:$src2)>;
+def : Pat<(int_vp_mask_cmpf_ne v16f32:$src1, (splat f32:$src2)),
+	(SNEFOVVS  v16f32:$src1, f32:$src2)>;
 
 def GET_FIELDI : FormatAUnmaskedTwoOpInst<
 	(outs ScalarReg:$dest),
