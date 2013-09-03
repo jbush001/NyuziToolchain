@@ -319,14 +319,6 @@ def INT_GATHER_LOADI : FormatCUnmaskedInst<
 	FmtC_ScGath,
 	1>;
 
-def INT_GATHER_LOADF : FormatCUnmaskedInst<
-	(outs VectorReg:$srcDest),
-	(ins VMEMri:$addr),
-	"load.gath $srcDest, $addr",
-	[(set v16f32:$srcDest, (int_vp_gather_loadf VADDRri:$addr))],
-	FmtC_ScGath,
-	1>;
-
 def INT_GATHER_LOADI_MASKED : FormatCMaskedInst<
 	(outs VectorReg:$srcDest),
 	(ins VMEMri:$addr, ScalarReg:$mask),
@@ -335,13 +327,9 @@ def INT_GATHER_LOADI_MASKED : FormatCMaskedInst<
 	FmtC_ScGathMasked,
 	1>;
 
-def INT_GATHER_LOADF_MASKED : FormatCMaskedInst<
-	(outs VectorReg:$srcDest),
-	(ins VMEMri:$addr, ScalarReg:$mask),
-	"load.gath.mask $srcDest, $mask, $addr",
-	[(set v16f32:$srcDest, (int_vp_gather_loadf_masked VADDRri:$addr, i32:$mask))],
-	FmtC_ScGathMasked,
-	1>;
+def : Pat<(int_vp_gather_loadf VADDRri:$addr), (INT_GATHER_LOADI VADDRri:$addr)>;
+def : Pat<(int_vp_gather_loadf_masked VADDRri:$addr, i32:$mask),
+	(INT_GATHER_LOADI_MASKED VADDRri:$addr, i32:$mask)>;
 
 let hasSideEffects = 1, mayStore = 1 in {
 	def INT_SCATTER_STOREI : FormatCUnmaskedInst<
@@ -352,27 +340,11 @@ let hasSideEffects = 1, mayStore = 1 in {
 		FmtC_ScGath,
 		0>;
 
-	def INT_SCATTER_STOREF : FormatCUnmaskedInst<
-		(outs),
-		(ins VectorReg:$srcDest, VMEMri:$addr),
-		"store.scat $srcDest, $addr",
-		[(int_vp_scatter_storef VADDRri:$addr, v16f32:$srcDest)],
-		FmtC_ScGath,
-		0>;
-
 	def INT_SCATTER_STOREI_MASKED : FormatCMaskedInst<
 		(outs),
 		(ins VectorReg:$srcDest, VMEMri:$addr, ScalarReg:$mask),
 		"store.scat.mask $srcDest, $mask, $addr",
 		[(int_vp_scatter_storei_masked VADDRri:$addr, v16i32:$srcDest, i32:$mask)],
-		FmtC_ScGathMasked,
-		0>;
-
-	def INT_SCATTER_STOREF_MASKED : FormatCMaskedInst<
-		(outs),
-		(ins VectorReg:$srcDest, VMEMri:$addr, ScalarReg:$mask),
-		"store.scat.mask $srcDest, $mask, $addr",
-		[(int_vp_scatter_storef_masked VADDRri:$addr, v16f32:$srcDest, i32:$mask)],
 		FmtC_ScGathMasked,
 		0>;
 
@@ -385,6 +357,10 @@ let hasSideEffects = 1, mayStore = 1 in {
 		0>;
 }
 
+def : Pat<(int_vp_scatter_storef VADDRri:$addr, v16f32:$srcDest),
+	(INT_SCATTER_STOREI v16f32:$srcDest, VADDRri:$addr)>;
+def : Pat<(int_vp_scatter_storef_masked VADDRri:$addr, v16f32:$srcDest, i32:$mask),
+	(INT_SCATTER_STOREI_MASKED v16f32:$srcDest, VADDRri:$addr, i32:$mask)>;
 def : Pat<(int_vp_block_storef_masked ADDRri:$addr, v16f32:$srcDest, i32:$mask),
 	(INT_BLOCK_STOREI_MASKED v16f32:$srcDest, ADDRri:$addr, i32:$mask)>;
 

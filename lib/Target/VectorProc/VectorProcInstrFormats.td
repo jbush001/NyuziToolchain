@@ -45,7 +45,7 @@ def MEMri : Operand<iPTR> {
 	let MIOperandInfo = (ops ScalarReg, i32imm);
 }
 
-def VMEMri : Operand<iPTR> {
+def VMEMri : Operand<v16i32> {
 	let PrintMethod = "printMemOperand";
 	let EncoderMethod = "encodeMemoryOpValue";
 	let DecoderMethod = "decodeVectorMemoryOpValue";
