@@ -539,7 +539,11 @@ def : Pat<(call texternalsym:$dest),
 def selcondresult : SDNode<"VectorProcISD::SEL_COND_RESULT", SDTypeProfile<1, 3, [  
 	SDTCisSameAs<0, 2>, SDTCisSameAs<0, 3>]>>;
 
-// SELECT pseudo instructions
+//
+// SELECT pseudo instructions. This architecture doesn't actually have a scalar
+// conditional move instruction. These will be replaced in a later pass 
+// with a diamond pattern of conditional branches.
+//
 let usesCustomInserter = 1 in {
 	def SELECTI : Pseudo<
 		(outs ScalarReg:$dest),
