@@ -258,17 +258,8 @@ def SW : ScalarStoreInst<"32", store, FmtC_Word>;
 
 // A bit of a kludge.  Used to store the result of a vector comparison. 
 // The compiler does this in some cases and the normal store does not match it.
-def STORE_MASK : FormatCUnmaskedInst<
-	(outs),
-	(ins MEMri:$ptr, ScalarReg:$srcDest),
-	"store.v $srcDest, $ptr",
-	[(store v16i1:$srcDest, ADDRri:$ptr)],
-	FmtC_Word,
-	0>
-{
-	let hasSideEffects = 1;
-	let mayStore = 1;
-}
+def : Pat<(store v16i1:$srcDest, ADDRri:$ptr),
+	(SW v16i1:$srcDest, ADDRri:$ptr)>;
 
 def : Pat<(i32 (extloadi1 ADDRri:$addr)), (LBU ADDRri:$addr)>;
 def : Pat<(i32 (extloadi8 ADDRri:$addr)), (LBU ADDRri:$addr)>;
