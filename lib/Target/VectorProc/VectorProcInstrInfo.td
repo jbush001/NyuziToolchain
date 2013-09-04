@@ -618,13 +618,8 @@ def LOAD_FRAME_ADDR : VPInstruction<
 	let Inst{4-0} = addr{4-0};		// base register
 }
 
-def LOAD_CPOOLI : FormatCUnmaskedInst<
-	(outs ScalarReg:$srcDest),
-	(ins cpooladdr:$addr),
-	"load.32 $srcDest, $addr",
-	[(set i32:$srcDest, (load tconstpool:$addr))],
-	FmtC_Word,
-	1>;
+def : Pat<(i32 (load tconstpool:$addr)), (LW tconstpool:$addr, 0)>;
+def : Pat<(f32 (load tconstpool:$addr)), (LW tconstpool:$addr, 0)>;
 
 // Get address of jump table
 // This turns into add.i <destreg>, pc, <offset from pc>
