@@ -64,12 +64,12 @@ def cpooladdr : Operand<iPTR> {
 
 def brtarget : Operand<OtherVT> 
 {
-	let EncoderMethod = "getJumpTargetOpValue";
+	let EncoderMethod = "encodeJumpTargetOpValue";
 }
 
 def calltarget : Operand<iPTR>
 {
-	let EncoderMethod = "getJumpTargetOpValue";
+	let EncoderMethod = "encodeJumpTargetOpValue";
 }
 
 def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
