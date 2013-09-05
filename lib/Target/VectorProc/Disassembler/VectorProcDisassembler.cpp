@@ -143,7 +143,6 @@ VectorProcDisassembler::getInstruction(MCInst &instr,
   return MCDisassembler::Fail;
 }
 
-// This does not work correctly.
 static unsigned getReg(const void *D, unsigned RC, unsigned RegNo) {
 	const VectorProcDisassembler *Dis = static_cast<const VectorProcDisassembler*>(D);
 	return *(Dis->getRegInfo()->getRegClass(RC).begin() + RegNo);
@@ -155,13 +154,10 @@ static DecodeStatus decodeMemoryOpValue(MCInst &Inst,
                               const void *Decoder,
                               unsigned RC) 
 {
-
   // XXX this depends on the instruction type (has mask or not)
-  int Offset = SignExtend32<15>(fieldFromInstruction(Insn, 10, 15));
+  int Offset = SignExtend32<15>(fieldFromInstruction(Insn, 5, 15));
 
-  unsigned Base = fieldFromInstruction(Insn, 0, 5);
-
-  Base = getReg(Decoder, RC, Base);
+  unsigned Base = getReg(Decoder, RC, fieldFromInstruction(Insn, 0, 5));
 
   Inst.addOperand(MCOperand::CreateReg(Base));
   Inst.addOperand(MCOperand::CreateImm(Offset));
