@@ -61,6 +61,11 @@ static DecodeStatus decodeVectorMemoryOpValue(MCInst &Inst,
                               uint64_t Address,
                               const void *Decoder);
 
+static DecodeStatus decodeJumpTargetOpValue(MCInst &Inst,
+                              unsigned Insn,
+                              uint64_t Address,
+                              const void *Decoder);
+
 DecodeStatus DecodeScalarRegRegisterClass(MCInst &Inst,
                                     unsigned RegNo,
                                     uint64_t Address,
@@ -178,6 +183,16 @@ static DecodeStatus decodeVectorMemoryOpValue(MCInst &Inst,
                               const void *Decoder) 
 {
 	return decodeMemoryOpValue(Inst, Insn, Address, Decoder, VectorProc::VectorRegRegClassID);
+}
+
+static DecodeStatus decodeJumpTargetOpValue(MCInst &Inst,
+                              unsigned Insn,
+                              uint64_t Address,
+                              const void *Decoder) 
+{
+	Inst.addOperand(MCOperand::CreateImm(SignExtend32<20>(Insn)));
+
+	return MCDisassembler::Success;
 }
 
 DecodeStatus DecodeScalarRegRegisterClass(MCInst &Inst,

@@ -65,11 +65,13 @@ def cpooladdr : Operand<iPTR> {
 def brtarget : Operand<OtherVT> 
 {
 	let EncoderMethod = "encodeJumpTargetOpValue";
+	let DecoderMethod = "decodeJumpTargetOpValue";
 }
 
 def calltarget : Operand<iPTR>
 {
 	let EncoderMethod = "encodeJumpTargetOpValue";
+	let DecoderMethod = "decodeJumpTargetOpValue";
 }
 
 def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
@@ -679,6 +681,5 @@ class UnconditionalBranchInst<dag outputs, dag inputs, string asmString, list<da
 	BranchType type>
 	: BranchInst<outputs, inputs, asmString, pattern, type>
 {
-	let Inst{4-0} = 0;
 }
 

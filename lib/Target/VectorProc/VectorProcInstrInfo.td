@@ -411,9 +411,9 @@ let usesCustomInserter = 1 in {
 let isTerminator = 1 in {
 	def GOTO : UnconditionalBranchInst<
 		(outs),
-		(ins brtarget:$offset),
-		"goto $offset",
-		[(br bb:$offset)],
+		(ins brtarget:$dest),
+		"goto $dest",
+		[(br bb:$dest)],
 		BT_Uncond>
 	{
 		let isBarrier = 1;
