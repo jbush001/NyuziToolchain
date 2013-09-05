@@ -204,7 +204,8 @@ DecodeStatus DecodeScalarRegRegisterClass(MCInst &Inst,
     return MCDisassembler::Fail;
 
   // The internal representation of the registers counts r0: 1, r1: 2, etc.
-  Inst.addOperand(MCOperand::CreateReg(RegNo+1));
+  Inst.addOperand(MCOperand::CreateReg(getReg(Decoder, VectorProc::ScalarRegRegClassID,
+  	RegNo)));
   return MCDisassembler::Success;
 }        
 
@@ -217,7 +218,8 @@ DecodeStatus DecodeVectorRegRegisterClass(MCInst &Inst,
     return MCDisassembler::Fail;
 
   // The internal representation of the registers counts r0: 1, r1: 2, etc.
-  Inst.addOperand(MCOperand::CreateReg(RegNo+1));
+  Inst.addOperand(MCOperand::CreateReg(getReg(Decoder, VectorProc::VectorRegRegClassID, 
+  	RegNo)));
   return MCDisassembler::Success;
 } 
 
