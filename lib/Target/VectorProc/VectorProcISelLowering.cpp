@@ -497,6 +497,7 @@ const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
 		case VectorProcISD::RECIPROCAL_EST: return "VectorProcISD::RECIPROCAL_EST";
 		case VectorProcISD::BR_JT: return "VectorProcISD::BR_JT";
 		case VectorProcISD::JT_WRAPPER: return "VectorProcISD::JT_WRAPPER";
+		case VectorProcISD::GETFIELD: return "VectorProcISD::GETFIELD";
 		default: return 0;
 	}
 }
