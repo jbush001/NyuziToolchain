@@ -477,6 +477,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::SETCC, MVT::v16f32, Custom);
 	setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Custom);
 	setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Custom);
+	setOperationAction(ISD::UDIVREM, MVT::i32, Expand);
+	setOperationAction(ISD::SDIVREM, MVT::i32, Expand);
 	
 	// Hardware does not have an integer divider, so convert these to 
 	// library calls
