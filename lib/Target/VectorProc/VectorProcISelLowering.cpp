@@ -479,7 +479,11 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Custom);
 	setOperationAction(ISD::UDIVREM, MVT::i32, Expand);
 	setOperationAction(ISD::SDIVREM, MVT::i32, Expand);
-	
+	setOperationAction(ISD::MULHU, MVT::i32, Expand);
+	setOperationAction(ISD::MULHS, MVT::i32, Expand);
+	setOperationAction(ISD::UMUL_LOHI, MVT::i32, Expand);
+	setOperationAction(ISD::SMUL_LOHI, MVT::i32, Expand);
+
 	// Hardware does not have an integer divider, so convert these to 
 	// library calls
     setLibcallName(RTLIB::UDIV_I32, "__udivsi3");
