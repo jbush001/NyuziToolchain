@@ -477,6 +477,17 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::SETCC, MVT::v16f32, Custom);
 	setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Custom);
 	setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Custom);
+	
+	// Hardware does not have an integer divider, so convert these to 
+	// library calls
+    setLibcallName(RTLIB::UDIV_I32, "__udivsi3");
+    setLibcallName(RTLIB::UREM_I32, "__umodsi3");
+    setLibcallName(RTLIB::SDIV_I32, "__divsi3");
+    setLibcallName(RTLIB::SREM_I32, "__modsi3");
+    setOperationAction(ISD::UDIV,  MVT::i32, Expand);
+    setOperationAction(ISD::UREM,  MVT::i32, Expand);
+    setOperationAction(ISD::SDIV,  MVT::i32, Expand);
+    setOperationAction(ISD::SREM,  MVT::i32, Expand);
 
 	setStackPointerRegisterToSaveRestore(VectorProc::SP_REG);
 	setMinFunctionAlignment(2);
