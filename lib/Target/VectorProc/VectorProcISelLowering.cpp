@@ -16,6 +16,7 @@
 #include "VectorProcISelLowering.h"
 #include "VectorProcMachineFunctionInfo.h"
 #include "VectorProcTargetMachine.h"
+#include "VectorProcTargetObjectFile.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -427,7 +428,7 @@ VectorProcTargetLowering::getJumpTableEncoding() const
 }
 
 VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
-	: TargetLowering(TM, new TargetLoweringObjectFileELF()) 
+	: TargetLowering(TM, new VectorProcTargetObjectFile()) 
 {
 	Subtarget = &TM.getSubtarget<VectorProcSubtarget>();
 

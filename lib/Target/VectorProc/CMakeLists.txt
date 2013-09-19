@@ -24,6 +24,7 @@ add_llvm_target(VectorProcCodeGen
   VectorProcTargetMachine.cpp
   VectorProcSelectionDAGInfo.cpp
   VectorProcMCInstLower.cpp
+  VectorProcTargetObjectFile.cpp
   )
 
 add_dependencies(LLVMVectorProcCodeGen intrinsics_gen)
