@@ -776,10 +776,11 @@ SDValue VectorProcTargetLowering::
 LowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const
 {
 	SDLoc dl(Op);
+	MVT VT = Op.getValueType().getSimpleVT();
 
 	SDValue index = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(15, MVT::i32),
 		Op.getOperand(1));
-	return DAG.getNode(VectorProcISD::GETFIELD, dl, MVT::i32, Op.getOperand(0), index);
+	return DAG.getNode(VectorProcISD::GETFIELD, dl, VT, Op.getOperand(0), index);
 }
 
 // Handle unsupported floating point operations: unordered comparisons
