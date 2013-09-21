@@ -797,7 +797,15 @@ LowerSETCC(SDValue Op, SelectionDAG &DAG) const
 		default: 
 			return Op;	// No change
 
-		// Convert unordered comparisons to ordered
+		// Convert unordered comparisons to ordered.
+		// An ordered comparison is always false if either operand is NaN
+		// An unordered comparision is always true if either operand is NaN
+		// The hardware implements ordered comparisons.  Clang generally emits
+		// ordered comparisons.
+		//
+		// XXX In order to be correct, we should probably emit code that explicitly
+		// checks for NaN and forces the result to true.
+		//
 		case ISD::SETUGT:  
 			newCode = ISD::SETOGT;
 			break;
@@ -823,8 +831,6 @@ LowerSETCC(SDValue Op, SelectionDAG &DAG) const
 			newCode = ISD::SETNE;
 			break;
 	}
-	
-	// XXX Need to add additional code here to check for NaN properly?
 	
 	SDValue op0 = Op.getOperand(0);
 	SDValue op1 = Op.getOperand(1);
