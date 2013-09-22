@@ -83,7 +83,6 @@ namespace llvm {
 			SmallVectorImpl<SDValue> &InVals) const;
 		virtual SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
 			SmallVectorImpl<SDValue> &InVals) const;
-		unsigned getSRetArgSize(SelectionDAG &DAG, SDValue Callee) const;
 		virtual unsigned getJumpTableEncoding() const; 
 	};
 } // end namespace llvm

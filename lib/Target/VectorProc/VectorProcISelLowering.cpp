@@ -113,16 +113,6 @@ LowerFormalArguments(SDValue Chain,
 	for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i) {
 		CCValAssign &VA = ArgLocs[i];
 
-		if (i == 0  && Ins[i].Flags.isSRet()) {
-			// Structure return?
-			int FrameIdx = MF.getFrameInfo()->CreateFixedObject(4, 64, true);
-			SDValue FIPtr = DAG.getFrameIndex(FrameIdx, MVT::i32);
-			SDValue Arg = DAG.getLoad(MVT::i32, dl, Chain, FIPtr,
-				MachinePointerInfo(), false, false, false, 0);
-			InVals.push_back(Arg);
-			continue;
-		}
-
 		if (VA.isRegLoc()) {
 			// Argument is in register
 			EVT RegVT = VA.getLocVT();
@@ -293,17 +283,6 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 				llvm_unreachable("Unknown loc info!");
 		}
 
-		if (Flags.isSRet()) {
-			// Structure return
-			SDValue StackPtr = DAG.getRegister(VectorProc::SP_REG, MVT::i32);
-			SDValue PtrOff = DAG.getIntPtrConstant(64);
-			PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
-			MemOpChains.push_back(DAG.getStore(Chain, dl, Arg, PtrOff,
-				MachinePointerInfo(), false, false, 0));
-			hasStructRetAttr = true;
-			continue;
-		}
-
 		// Arguments that can be passed on register must be kept at
 		// RegsToPass vector
 		if (VA.isRegLoc()) {
@@ -339,8 +318,6 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 		InFlag = Chain.getValue(1);
 	}
 
-	unsigned SRetArgSize = hasStructRetAttr ? getSRetArgSize(DAG, Callee) : 0;
-
 	// Get the function address.
 	// If the callee is a GlobalAddress node (quite common, every direct call is)
 	// turn it into a TargetGlobalAddress node so that legalize doesn't hack it.
@@ -355,8 +332,6 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 	SmallVector<SDValue, 8> Ops;
 	Ops.push_back(Chain);
 	Ops.push_back(Callee);
-	if (hasStructRetAttr)
-		Ops.push_back(DAG.getTargetConstant(SRetArgSize, MVT::i32));
 
 	for (unsigned i = 0, e = RegsToPass.size(); i != e; ++i)
 	{
@@ -396,29 +371,6 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 	}
 
 	return Chain;
-}
-
-unsigned
-VectorProcTargetLowering::getSRetArgSize(SelectionDAG &DAG, SDValue Callee) const
-{
-	const Function *CalleeFn = 0;
-	if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee)) {
-		CalleeFn = dyn_cast<Function>(G->getGlobal());
-	} else if (ExternalSymbolSDNode *E = dyn_cast<ExternalSymbolSDNode>(Callee)) {
-		const Function *Fn = DAG.getMachineFunction().getFunction();
-		const Module *M = Fn->getParent();
-		CalleeFn = M->getFunction(E->getSymbol());
-	}
-
-	if (!CalleeFn)
-		return 0;
-
-	assert(CalleeFn->hasStructRetAttr() &&
-		 "Callee does not have the StructRet attribute.");
-
-	PointerType *Ty = cast<PointerType>(CalleeFn->arg_begin()->getType());
-	Type *ElementTy = Ty->getElementType();
-	return getDataLayout()->getTypeAllocSize(ElementTy);
 }
 
 unsigned 
