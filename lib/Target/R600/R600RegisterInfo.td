@@ -23,6 +23,14 @@ class R600Reg_128<string n, list<Register> subregs, bits<16> encoding> :
   let HWEncoding = encoding;
 }
 
+class R600Reg_64<string n, list<Register> subregs, bits<16> encoding> :
+    RegisterWithSubRegs<n, subregs> {
+  let Namespace = "AMDGPU";
+  let SubRegIndices = [sub0, sub1];
+  let HWEncoding = encoding;
+}
+
+
 foreach Index = 0-127 in {
   foreach Chan = [ "X", "Y", "Z", "W" ] in {
     // 32-bit Temporary Registers
@@ -41,16 +49,21 @@ foreach Index = 0-127 in {
                                     !cast<Register>("T"#Index#"_Z"),
                                     !cast<Register>("T"#Index#"_W")],
                                    Index>;
+
+  def T#Index#_XY : R600Reg_64 <"T"#Index#"",
+                                   [!cast<Register>("T"#Index#"_X"),
+                                    !cast<Register>("T"#Index#"_Y")],
+                                   Index>;
 }
 
 // KCACHE_BANK0
 foreach Index = 159-128 in {
   foreach Chan = [ "X", "Y", "Z", "W" ] in {
     // 32-bit Temporary Registers
-    def KC0_#Index#_#Chan : R600RegWithChan <"KC0["#Index#"-128]."#Chan, Index, Chan>;
+    def KC0_#Index#_#Chan : R600RegWithChan <"KC0["#!add(Index,-128)#"]."#Chan, Index, Chan>;
   }
   // 128-bit Temporary Registers
-  def KC0_#Index#_XYZW : R600Reg_128 <"KC0["#Index#"-128].XYZW",
+  def KC0_#Index#_XYZW : R600Reg_128 <"KC0["#!add(Index, -128)#"].XYZW",
                                  [!cast<Register>("KC0_"#Index#"_X"),
                                   !cast<Register>("KC0_"#Index#"_Y"),
                                   !cast<Register>("KC0_"#Index#"_Z"),
@@ -62,10 +75,10 @@ foreach Index = 159-128 in {
 foreach Index = 191-160 in {
   foreach Chan = [ "X", "Y", "Z", "W" ] in {
     // 32-bit Temporary Registers
-    def KC1_#Index#_#Chan : R600RegWithChan <"KC1["#Index#"-160]."#Chan, Index, Chan>;
+    def KC1_#Index#_#Chan : R600RegWithChan <"KC1["#!add(Index,-160)#"]."#Chan, Index, Chan>;
   }
   // 128-bit Temporary Registers
-  def KC1_#Index#_XYZW : R600Reg_128 <"KC1["#Index#"-160].XYZW",
+  def KC1_#Index#_XYZW : R600Reg_128 <"KC1["#!add(Index, -160)#"].XYZW",
                                  [!cast<Register>("KC1_"#Index#"_X"),
                                   !cast<Register>("KC1_"#Index#"_Y"),
                                   !cast<Register>("KC1_"#Index#"_Z"),
@@ -82,6 +95,12 @@ foreach Index = 448-480 in {
 
 // Special Registers
 
+def OQA : R600Reg<"OQA", 219>;
+def OQB : R600Reg<"OQB", 220>;
+def OQAP : R600Reg<"OQAP", 221>;
+def OQBP : R600Reg<"OQAP", 222>;
+def LDS_DIRECT_A : R600Reg<"LDS_DIRECT_A", 223>;
+def LDS_DIRECT_B : R600Reg<"LDS_DIRECT_B", 224>;
 def ZERO : R600Reg<"0.0", 248>;
 def ONE : R600Reg<"1.0", 249>;
 def NEG_ONE : R600Reg<"-1.0", 249>;
@@ -102,7 +121,6 @@ def PRED_SEL_OFF: R600Reg<"Pred_sel_off", 0>;
 def PRED_SEL_ZERO : R600Reg<"Pred_sel_zero", 2>;
 def PRED_SEL_ONE : R600Reg<"Pred_sel_one", 3>;
 def AR_X : R600Reg<"AR.x", 0>;
-def OQAP : R600Reg<"OQAP", 221>;
 
 def R600_ArrayBase : RegisterClass <"AMDGPU", [f32, i32], 32,
                           (add (sequence "ArrayBase%u", 448, 480))>;
@@ -116,6 +134,9 @@ let isAllocatable = 0 in {
 
 // XXX: Only use the X channel, until we support wider stack widths
 def R600_Addr : RegisterClass <"AMDGPU", [i32], 127, (add (sequence "Addr%u_X", 0, 127))>;
+
+def R600_LDS_SRC_REG : RegisterClass<"AMDGPU", [i32], 32,
+  (add OQA, OQB, OQAP, OQBP, LDS_DIRECT_A, LDS_DIRECT_B)>;
 
 } // End isAllocatable = 0
 
@@ -185,6 +206,9 @@ def R600_Reg128 : RegisterClass<"AMDGPU", [v4f32, v4i32], 128,
                                 (add (sequence "T%u_XYZW", 0, 127))> {
   let CopyCost = -1;
 }
+
+def R600_Reg64 : RegisterClass<"AMDGPU", [v2f32, v2i32], 64,
+                                (add (sequence "T%u_XY", 0, 63))>;
 
 //===----------------------------------------------------------------------===//
 // Register classes for indirect addressing

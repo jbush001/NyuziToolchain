@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fsyntax-only -std=c++98 -verify %s 
+// RUN: %clang_cc1 -fsyntax-only -std=c++98 -verify -fblocks %s 
 namespace A {
   struct C {
     static int cx;
@@ -50,6 +50,7 @@ namespace B {
 
 void f1() {
   void A::Af(); // expected-error {{definition or redeclaration of 'Af' not allowed inside a function}}
+  void (^x)() = ^{ void A::Af(); }; // expected-error {{definition or redeclaration of 'Af' not allowed inside a block}}
 }
 
 void f2() {
@@ -260,7 +261,7 @@ namespace PR8159 {
 
 namespace rdar7980179 {
   class A { void f0(); }; // expected-note {{previous}}
-  int A::f0() {} // expected-error {{out-of-line definition of 'rdar7980179::A::f0' differs from the declaration in the return type}}
+  int A::f0() {} // expected-error {{return type of out-of-line definition of 'rdar7980179::A::f0' differs}}
 }
 
 namespace alias = A;

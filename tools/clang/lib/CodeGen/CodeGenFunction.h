@@ -953,14 +953,6 @@ public:
 
   CodeGenTypes &getTypes() const { return CGM.getTypes(); }
   ASTContext &getContext() const { return CGM.getContext(); }
-  /// Returns true if DebugInfo is actually initialized.
-  bool maybeInitializeDebugInfo() {
-    if (CGM.getModuleDebugInfo()) {
-      DebugInfo = CGM.getModuleDebugInfo();
-      return true;
-    }
-    return false;
-  }
   CGDebugInfo *getDebugInfo() { 
     if (DisableDebugInfo) 
       return NULL;
@@ -1029,10 +1021,10 @@ public:
                                    bool useEHCleanupForArray);
   void emitDestroy(llvm::Value *addr, QualType type, Destroyer *destroyer,
                    bool useEHCleanupForArray);
-  llvm::Function *generateDestroyHelper(llvm::Constant *addr,
-                                        QualType type,
+  llvm::Function *generateDestroyHelper(llvm::Constant *addr, QualType type,
                                         Destroyer *destroyer,
-                                        bool useEHCleanupForArray);
+                                        bool useEHCleanupForArray,
+                                        const VarDecl *VD);
   void emitArrayDestroy(llvm::Value *begin, llvm::Value *end,
                         QualType type, Destroyer *destroyer,
                         bool checkZeroLength, bool useEHCleanup);
@@ -1180,7 +1172,6 @@ public:
   void InitializeVTablePointer(BaseSubobject Base,
                                const CXXRecordDecl *NearestVBase,
                                CharUnits OffsetFromNearestVBase,
-                               llvm::Constant *VTable,
                                const CXXRecordDecl *VTableClass);
 
   typedef llvm::SmallPtrSet<const CXXRecordDecl *, 4> VisitedVirtualBasesSetTy;
@@ -1188,7 +1179,6 @@ public:
                                 const CXXRecordDecl *NearestVBase,
                                 CharUnits OffsetFromNearestVBase,
                                 bool BaseIsNonVirtualPrimaryBase,
-                                llvm::Constant *VTable,
                                 const CXXRecordDecl *VTableClass,
                                 VisitedVirtualBasesSetTy& VBases);
 
@@ -1197,6 +1187,12 @@ public:
   /// GetVTablePtr - Return the Value of the vtable pointer member pointed
   /// to by This.
   llvm::Value *GetVTablePtr(llvm::Value *This, llvm::Type *Ty);
+
+
+  /// CanDevirtualizeMemberFunctionCalls - Checks whether virtual calls on given
+  /// expr can be devirtualized.
+  bool CanDevirtualizeMemberFunctionCall(const Expr *Base,
+                                         const CXXMethodDecl *MD);
 
   /// EnterDtorCleanups - Enter the cleanups necessary to complete the
   /// given phase of destruction for a destructor.  The end result
@@ -1327,8 +1323,7 @@ public:
 
   /// ErrorUnsupported - Print out an error that codegen doesn't support the
   /// specified stmt yet.
-  void ErrorUnsupported(const Stmt *S, const char *Type,
-                        bool OmitOnError=false);
+  void ErrorUnsupported(const Stmt *S, const char *Type);
 
   //===--------------------------------------------------------------------===//
   //                                  Helpers
@@ -1843,6 +1838,7 @@ public:
   void ExitCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock = false);
 
   void EmitCXXTryStmt(const CXXTryStmt &S);
+  void EmitSEHTryStmt(const SEHTryStmt &S);
   void EmitCXXForRangeStmt(const CXXForRangeStmt &S);
 
   llvm::Function *EmitCapturedStmt(const CapturedStmt &S, CapturedRegionKind K);
@@ -2103,10 +2099,6 @@ public:
   void EmitNoreturnRuntimeCallOrInvoke(llvm::Value *callee,
                                        ArrayRef<llvm::Value*> args);
 
-  llvm::Value *BuildVirtualCall(const CXXMethodDecl *MD, llvm::Value *This,
-                                llvm::Type *Ty);
-  llvm::Value *BuildVirtualCall(const CXXDestructorDecl *DD, CXXDtorType Type,
-                                llvm::Value *This, llvm::Type *Ty);
   llvm::Value *BuildAppleKextVirtualCall(const CXXMethodDecl *MD, 
                                          NestedNameSpecifier *Qual,
                                          llvm::Type *Ty);
@@ -2314,7 +2306,8 @@ public:
 
   /// Call atexit() with a function that passes the given argument to
   /// the given function.
-  void registerGlobalDtorWithAtExit(llvm::Constant *fn, llvm::Constant *addr);
+  void registerGlobalDtorWithAtExit(const VarDecl &D, llvm::Constant *fn,
+                                    llvm::Constant *addr);
 
   /// Emit code in this function to perform a guarded variable
   /// initialization.  Guarded initializations are used when it's not
@@ -2485,8 +2478,13 @@ private:
   template<typename T>
   void EmitCallArgs(CallArgList& Args, const T* CallArgTypeInfo,
                     CallExpr::const_arg_iterator ArgBeg,
-                    CallExpr::const_arg_iterator ArgEnd) {
-      CallExpr::const_arg_iterator Arg = ArgBeg;
+                    CallExpr::const_arg_iterator ArgEnd,
+                    bool ForceColumnInfo = false) {
+    CGDebugInfo *DI = getDebugInfo();
+    SourceLocation CallLoc;
+    if (DI) CallLoc = DI->getLocation();
+
+    CallExpr::const_arg_iterator Arg = ArgBeg;
 
     // First, use the argument types that the type info knows about
     if (CallArgTypeInfo) {
@@ -2515,6 +2513,10 @@ private:
                "type mismatch in call argument!");
 #endif
         EmitCallArg(Args, *Arg, ArgType);
+
+        // Each argument expression could modify the debug
+        // location. Restore it.
+        if (DI) DI->EmitLocation(Builder, CallLoc, ForceColumnInfo);
       }
 
       // Either we've emitted all the call args, or we have a call to a
@@ -2525,8 +2527,12 @@ private:
     }
 
     // If we still have any arguments, emit them using the type of the argument.
-    for (; Arg != ArgEnd; ++Arg)
+    for (; Arg != ArgEnd; ++Arg) {
       EmitCallArg(Args, *Arg, Arg->getType());
+
+      // Restore the debug location.
+      if (DI) DI->EmitLocation(Builder, CallLoc, ForceColumnInfo);
+    }
   }
 
   const TargetCodeGenInfo &getTargetHooks() const {

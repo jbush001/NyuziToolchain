@@ -176,7 +176,6 @@ ScalarEnumerationTraits<ELFYAML::ELF_EM>::enumeration(IO &IO,
   ECase(EM_STM8)
   ECase(EM_TILE64)
   ECase(EM_TILEPRO)
-  ECase(EM_MICROBLAZE)
   ECase(EM_CUDA)
   ECase(EM_TILEGX)
   ECase(EM_CLOUDSHIELD)
@@ -188,7 +187,6 @@ ScalarEnumerationTraits<ELFYAML::ELF_EM>::enumeration(IO &IO,
   ECase(EM_VIDEOCORE5)
   ECase(EM_78KOR)
   ECase(EM_56800EX)
-  ECase(EM_MBLAZE)
 #undef ECase
 }
 
@@ -268,6 +266,7 @@ void ScalarBitSetTraits<ELFYAML::ELF_SHF>::bitset(IO &IO,
 #define BCase(X) IO.bitSetCase(Value, #X, ELF::X);
   BCase(SHF_WRITE)
   BCase(SHF_ALLOC)
+  BCase(SHF_EXCLUDE)
   BCase(SHF_EXECINSTR)
   BCase(SHF_MERGE)
   BCase(SHF_STRINGS)

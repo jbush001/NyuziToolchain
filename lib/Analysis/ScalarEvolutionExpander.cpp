@@ -14,6 +14,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/ScalarEvolutionExpander.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
@@ -406,6 +407,10 @@ Value *SCEVExpander::expandAddToGEP(const SCEV *const *op_begin,
   // without the other.
   SplitAddRecs(Ops, Ty, SE);
 
+  Type *IntPtrTy = SE.TD
+                 ? SE.TD->getIntPtrType(PTy)
+                 : Type::getInt64Ty(PTy->getContext());
+
   // Descend down the pointer's type and attempt to convert the other
   // operands into GEP indices, at each level. The first index in a GEP
   // indexes into the array implied by the pointer operand; the rest of
@@ -416,7 +421,7 @@ Value *SCEVExpander::expandAddToGEP(const SCEV *const *op_begin,
     // array indexing.
     SmallVector<const SCEV *, 8> ScaledOps;
     if (ElTy->isSized()) {
-      const SCEV *ElSize = SE.getSizeOfExpr(ElTy);
+      const SCEV *ElSize = SE.getSizeOfExpr(IntPtrTy, ElTy);
       if (!ElSize->isZero()) {
         SmallVector<const SCEV *, 8> NewOps;
         for (unsigned i = 0, e = Ops.size(); i != e; ++i) {
@@ -1342,9 +1347,13 @@ Value *SCEVExpander::visitAddRecExpr(const SCEVAddRecExpr *S) {
                                   Header->begin());
     rememberInstruction(CanonicalIV);
 
+    SmallSet<BasicBlock *, 4> PredSeen;
     Constant *One = ConstantInt::get(Ty, 1);
     for (pred_iterator HPI = HPB; HPI != HPE; ++HPI) {
       BasicBlock *HP = *HPI;
+      if (!PredSeen.insert(HP))
+        continue;
+
       if (L->contains(HP)) {
         // Insert a unit add instruction right before the terminator
         // corresponding to the back-edge.

@@ -32,7 +32,7 @@ ReserveR9("arm-reserve-r9", cl::Hidden,
           cl::desc("Reserve R9, making it unavailable as GPR"));
 
 static cl::opt<bool>
-DarwinUseMOVT("arm-darwin-use-movt", cl::init(true), cl::Hidden);
+ArmUseMOVT("arm-use-movt", cl::init(true), cl::Hidden);
 
 static cl::opt<bool>
 UseFusedMulOps("arm-use-mulops",
@@ -81,7 +81,7 @@ void ARMSubtarget::initializeEnvironment() {
   HasVFPv2 = false;
   HasVFPv3 = false;
   HasVFPv4 = false;
-  HasV8FP = false;
+  HasFPARMv8 = false;
   HasNEON = false;
   UseNEONForSinglePrecisionFP = false;
   UseMulOps = UseFusedMulOps;
@@ -110,6 +110,7 @@ void ARMSubtarget::initializeEnvironment() {
   FPOnlySP = false;
   HasPerfMon = false;
   HasTrustZone = false;
+  HasCrypto = false;
   AllowsUnalignedMem = false;
   Thumb2DSP = false;
   UseNaClTrap = false;
@@ -133,8 +134,13 @@ void ARMSubtarget::resetSubtargetFeatures(const MachineFunction *MF) {
 }
 
 void ARMSubtarget::resetSubtargetFeatures(StringRef CPU, StringRef FS) {
-  if (CPUString.empty())
-    CPUString = "generic";
+  if (CPUString.empty()) {
+    if (isTargetIOS() && TargetTriple.getArchName().endswith("v7s"))
+      // Default to the Swift CPU when targeting armv7s/thumbv7s.
+      CPUString = "swift";
+    else
+      CPUString = "generic";
+  }
 
   // Insert the architecture feature derived from the target triple into the
   // feature string. This is important for setting features that are implied
@@ -169,11 +175,12 @@ void ARMSubtarget::resetSubtargetFeatures(StringRef CPU, StringRef FS) {
   if (isAAPCS_ABI())
     stackAlignment = 8;
 
-  if (!isTargetIOS())
-    UseMovt = hasV6T2Ops();
-  else {
+  UseMovt = hasV6T2Ops() && ArmUseMOVT;
+
+  if (!isTargetIOS()) {
+    IsR9Reserved = ReserveR9;
+  } else {
     IsR9Reserved = ReserveR9 | !HasV6Ops;
-    UseMovt = DarwinUseMOVT && hasV6T2Ops();
     SupportsTailCall = !getTargetTriple().isOSVersionLT(5, 0);
   }
 

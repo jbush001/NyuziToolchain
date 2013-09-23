@@ -142,6 +142,7 @@ class BitcodeReader : public GVMaterializer {
 
   std::vector<std::pair<GlobalVariable*, unsigned> > GlobalInits;
   std::vector<std::pair<GlobalAlias*, unsigned> > AliasInits;
+  std::vector<std::pair<Function*, unsigned> > FunctionPrefixes;
 
   /// MAttributes - The set of attributes by index.  Index zero in the
   /// file is for null, and is thus not represented here.  As such all indices
@@ -321,6 +322,7 @@ private:
     return getFnValueByID(ValNo, Ty);
   }
 
+  bool ParseAttrKind(uint64_t Code, Attribute::AttrKind *Kind);
   bool ParseModule(bool Resume);
   bool ParseAttributeBlock();
   bool ParseAttributeGroupBlock();

@@ -28,7 +28,7 @@ namespace native {
 ///
 class Writer : public lld::Writer {
 public:
-  Writer(const TargetInfo &ti) {}
+  Writer(const LinkingContext &context) {}
 
   virtual error_code writeFile(const lld::File &file, StringRef outPath) {
     // reserve first byte for unnamed atoms
@@ -52,7 +52,7 @@ public:
 
     std::string errorInfo;
     llvm::raw_fd_ostream out(outPath.data(), errorInfo,
-                              llvm::raw_fd_ostream::F_Binary);
+                             llvm::sys::fs::F_Binary);
     if (!errorInfo.empty())
       return error_code::success(); // FIXME
 
@@ -370,8 +370,7 @@ private:
 
   // append atom cotent to content pool and return offset
   uint32_t getContentOffset(const DefinedAtom& atom) {
-    if ((atom.contentType() == DefinedAtom::typeZeroFill ) ||
-        (atom.contentType() == DefinedAtom::typeZeroFillFast))
+    if (!atom.occupiesDiskSpace())
       return 0;
     uint32_t result = _contentPool.size();
     ArrayRef<uint8_t> cont = atom.rawContent();
@@ -552,7 +551,7 @@ private:
     out.write((char*)&addends[0], maxAddendIndex*sizeof(Reference::Addend));
   }
 
-  typedef std::vector<std::pair<StringRef, uint32_t> > NameToOffsetVector;
+  typedef std::vector<std::pair<StringRef, uint32_t>> NameToOffsetVector;
 
   typedef llvm::DenseMap<const Atom*, uint32_t> TargetToIndex;
   typedef llvm::DenseMap<Reference::Addend, uint32_t> AddendToIndex;
@@ -579,7 +578,7 @@ private:
 };
 } // end namespace native
 
-std::unique_ptr<Writer> createWriterNative(const TargetInfo &ti) {
-  return std::unique_ptr<Writer>(new native::Writer(ti));
+std::unique_ptr<Writer> createWriterNative(const LinkingContext &context) {
+  return std::unique_ptr<Writer>(new native::Writer(context));
 }
 } // end namespace lld

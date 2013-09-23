@@ -69,6 +69,12 @@ bool MipsDAGToDAGISel::selectAddrRegImm(SDValue Addr, SDValue &Base,
   return false;
 }
 
+bool MipsDAGToDAGISel::selectAddrRegReg(SDValue Addr, SDValue &Base,
+                                        SDValue &Offset) const {
+  llvm_unreachable("Unimplemented function.");
+  return false;
+}
+
 bool MipsDAGToDAGISel::selectAddrDefault(SDValue Addr, SDValue &Base,
                                          SDValue &Offset) const {
   llvm_unreachable("Unimplemented function.");
@@ -77,6 +83,12 @@ bool MipsDAGToDAGISel::selectAddrDefault(SDValue Addr, SDValue &Base,
 
 bool MipsDAGToDAGISel::selectIntAddr(SDValue Addr, SDValue &Base,
                                      SDValue &Offset) const {
+  llvm_unreachable("Unimplemented function.");
+  return false;
+}
+
+bool MipsDAGToDAGISel::selectIntAddrMM(SDValue Addr, SDValue &Base,
+                                       SDValue &Offset) const {
   llvm_unreachable("Unimplemented function.");
   return false;
 }
@@ -98,6 +110,7 @@ SDNode* MipsDAGToDAGISel::Select(SDNode *Node) {
   // If we have a custom node, we already have selected!
   if (Node->isMachineOpcode()) {
     DEBUG(errs() << "== "; Node->dump(CurDAG); errs() << "\n");
+    Node->setNodeId(-1);
     return NULL;
   }
 

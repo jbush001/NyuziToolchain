@@ -152,7 +152,9 @@ public:
   void mangleCXXDtor(const CXXDestructorDecl *D, CXXDtorType Type,
                      raw_ostream &);
 
-  void mangleItaniumGuardVariable(const VarDecl *D, raw_ostream &);
+  void mangleStaticGuardVariable(const VarDecl *D, raw_ostream &);
+  void mangleDynamicInitializer(const VarDecl *D, raw_ostream &Out);
+  void mangleDynamicAtExitDestructor(const VarDecl *D, raw_ostream &Out);
   void mangleItaniumThreadLocalInit(const VarDecl *D, raw_ostream &);
   void mangleItaniumThreadLocalWrapper(const VarDecl *D, raw_ostream &);
 
@@ -360,6 +362,7 @@ private:
   void mangleBareFunctionType(const FunctionType *T,
                               bool MangleReturnType);
   void mangleNeonVectorType(const VectorType *T);
+  void mangleAArch64NeonVectorType(const VectorType *T);
 
   void mangleIntegerLiteral(QualType T, const llvm::APSInt &Value);
   void mangleMemberExpr(const Expr *base, bool isArrow,
@@ -431,7 +434,8 @@ bool ItaniumMangleContext::shouldMangleDeclName(const NamedDecl *D) {
     if (DC->isFunctionOrMethod() && D->hasLinkage())
       while (!DC->isNamespace() && !DC->isTranslationUnit())
         DC = getEffectiveParentContext(DC);
-    if (DC->isTranslationUnit() && D->getFormalLinkage() != InternalLinkage)
+    if (DC->isTranslationUnit() && D->getFormalLinkage() != InternalLinkage &&
+        !isa<VarTemplateSpecializationDecl>(D))
       return false;
   }
 
@@ -549,6 +553,13 @@ isTemplate(const NamedDecl *ND, const TemplateArgumentList *&TemplateArgs) {
   // Check if we have a class template.
   if (const ClassTemplateSpecializationDecl *Spec =
         dyn_cast<ClassTemplateSpecializationDecl>(ND)) {
+    TemplateArgs = &Spec->getTemplateArgs();
+    return Spec->getSpecializedTemplate();
+  }
+
+  // Check if we have a variable template.
+  if (const VarTemplateSpecializationDecl *Spec =
+          dyn_cast<VarTemplateSpecializationDecl>(ND)) {
     TemplateArgs = &Spec->getTemplateArgs();
     return Spec->getSpecializedTemplate();
   }
@@ -1744,15 +1755,32 @@ void CXXNameMangler::mangleQualifiers(Qualifiers Quals) {
     Out << 'K';
 
   if (Quals.hasAddressSpace()) {
-    // Extension:
+    // Address space extension:
     //
-    //   <type> ::= U <address-space-number>
-    // 
-    // where <address-space-number> is a source name consisting of 'AS' 
-    // followed by the address space <number>.
+    //   <type> ::= U <target-addrspace>
+    //   <type> ::= U <OpenCL-addrspace>
+    //   <type> ::= U <CUDA-addrspace>
+
     SmallString<64> ASString;
-    ASString = "AS" + llvm::utostr_32(
-        Context.getASTContext().getTargetAddressSpace(Quals.getAddressSpace()));
+    unsigned AS = Quals.getAddressSpace();
+
+    if (Context.getASTContext().addressSpaceMapManglingFor(AS)) {
+      //  <target-addrspace> ::= "AS" <address-space-number>
+      unsigned TargetAS = Context.getASTContext().getTargetAddressSpace(AS);
+      ASString = "AS" + llvm::utostr_32(TargetAS);
+    } else {
+      switch (AS) {
+      default: llvm_unreachable("Not a language specific address space");
+      //  <OpenCL-addrspace> ::= "CL" [ "global" | "local" | "constant" ]
+      case LangAS::opencl_global:   ASString = "CLglobal";   break;
+      case LangAS::opencl_local:    ASString = "CLlocal";    break;
+      case LangAS::opencl_constant: ASString = "CLconstant"; break;
+      //  <CUDA-addrspace> ::= "CU" [ "device" | "constant" | "shared" ]
+      case LangAS::cuda_device:     ASString = "CUdevice";   break;
+      case LangAS::cuda_constant:   ASString = "CUconstant"; break;
+      case LangAS::cuda_shared:     ASString = "CUshared";   break;
+      }
+    }
     Out << 'U' << ASString.size() << ASString;
   }
   
@@ -1795,7 +1823,6 @@ void CXXNameMangler::mangleQualifiers(Qualifiers Quals) {
 void CXXNameMangler::mangleRefQualifier(RefQualifierKind RefQualifier) {
   // <ref-qualifier> ::= R                # lvalue reference
   //                 ::= O                # rvalue-reference
-  // Proposal to Itanium C++ ABI list on 1/26/11
   switch (RefQualifier) {
   case RQ_None:
     break;
@@ -1978,7 +2005,6 @@ void CXXNameMangler::mangleType(const BuiltinType *T) {
 // <type>          ::= <function-type>
 // <function-type> ::= [<CV-qualifiers>] F [Y]
 //                      <bare-function-type> [<ref-qualifier>] E
-// (Proposal to cxx-abi-dev, 2012-05-11)
 void CXXNameMangler::mangleType(const FunctionProtoType *T) {
   // Mangle CV-qualifiers, if present.  These are 'this' qualifiers,
   // e.g. "const" in "int (A::*)() const".
@@ -2174,7 +2200,9 @@ void CXXNameMangler::mangleNeonVectorType(const VectorType *T) {
     case BuiltinType::LongLong:  EltName = "int64_t"; break;
     case BuiltinType::ULongLong: EltName = "uint64_t"; break;
     case BuiltinType::Float:     EltName = "float32_t"; break;
-    default: llvm_unreachable("unexpected Neon vector element type");
+    case BuiltinType::Half:      EltName = "float16_t";break;
+    default:
+      llvm_unreachable("unexpected Neon vector element type");
     }
   }
   const char *BaseName = 0;
@@ -2190,6 +2218,71 @@ void CXXNameMangler::mangleNeonVectorType(const VectorType *T) {
   Out << BaseName << EltName;
 }
 
+static StringRef mangleAArch64VectorBase(const BuiltinType *EltType) {
+  switch (EltType->getKind()) {
+  case BuiltinType::SChar:
+    return "Int8";
+  case BuiltinType::Short:
+    return "Int16";
+  case BuiltinType::Int:
+    return "Int32";
+  case BuiltinType::LongLong:
+    return "Int64";
+  case BuiltinType::UChar:
+    return "Uint8";
+  case BuiltinType::UShort:
+    return "Uint16";
+  case BuiltinType::UInt:
+    return "Uint32";
+  case BuiltinType::ULongLong:
+    return "Uint64";
+  case BuiltinType::Half:
+    return "Float16";
+  case BuiltinType::Float:
+    return "Float32";
+  case BuiltinType::Double:
+    return "Float64";
+  default:
+    llvm_unreachable("Unexpected vector element base type");
+  }
+}
+
+// AArch64's ABI for Neon vector types specifies that they should be mangled as
+// the equivalent internal name. The vector type must be one of the special
+// types predefined by ARM.
+void CXXNameMangler::mangleAArch64NeonVectorType(const VectorType *T) {
+  QualType EltType = T->getElementType();
+  assert(EltType->isBuiltinType() && "Neon vector element not a BuiltinType");
+  unsigned BitSize =
+      (T->getNumElements() * getASTContext().getTypeSize(EltType));
+  (void)BitSize; // Silence warning.
+
+  assert((BitSize == 64 || BitSize == 128) &&
+         "Neon vector type not 64 or 128 bits");
+
+  assert(getASTContext().getTypeSize(EltType) != BitSize &&
+         "Vector of 1 element not permitted");
+
+  StringRef EltName;
+  if (T->getVectorKind() == VectorType::NeonPolyVector) {
+    switch (cast<BuiltinType>(EltType)->getKind()) {
+    case BuiltinType::UChar:
+      EltName = "Poly8";
+      break;
+    case BuiltinType::UShort:
+      EltName = "Poly16";
+      break;
+    default:
+      llvm_unreachable("unexpected Neon polynomial vector element type");
+    }
+  } else
+    EltName = mangleAArch64VectorBase(cast<BuiltinType>(EltType));
+
+  std::string TypeName =
+      ("__" + EltName + "x" + llvm::utostr(T->getNumElements()) + "_t").str();
+  Out << TypeName.length() << TypeName;
+}
+
 // GNU extension: vector types
 // <type>                  ::= <vector-type>
 // <vector-type>           ::= Dv <positive dimension number> _
@@ -2201,7 +2294,11 @@ void CXXNameMangler::mangleNeonVectorType(const VectorType *T) {
 void CXXNameMangler::mangleType(const VectorType *T) {
   if ((T->getVectorKind() == VectorType::NeonVector ||
        T->getVectorKind() == VectorType::NeonPolyVector)) {
-    mangleNeonVectorType(T);
+    if (getASTContext().getTargetInfo().getTriple().getArch() ==
+        llvm::Triple::aarch64)
+      mangleAArch64NeonVectorType(T);
+    else
+      mangleNeonVectorType(T);
     return;
   }
   Out << "Dv" << T->getNumElements() << '_';
@@ -2506,6 +2603,7 @@ recurse:
   case Expr::OffsetOfExprClass:
   case Expr::PredefinedExprClass:
   case Expr::ShuffleVectorExprClass:
+  case Expr::ConvertVectorExprClass:
   case Expr::StmtExprClass:
   case Expr::UnaryTypeTraitExprClass:
   case Expr::BinaryTypeTraitExprClass:
@@ -2764,8 +2862,8 @@ recurse:
 
   case Expr::CXXThrowExprClass: {
     const CXXThrowExpr *TE = cast<CXXThrowExpr>(E);
-
-    // Proposal from David Vandervoorde, 2010.06.30
+    //  <expression> ::= tw <expression>  # throw expression
+    //               ::= tr               # rethrow
     if (TE->getSubExpr()) {
       Out << "tw";
       mangleExpression(TE->getSubExpr());
@@ -2777,8 +2875,8 @@ recurse:
 
   case Expr::CXXTypeidExprClass: {
     const CXXTypeidExpr *TIE = cast<CXXTypeidExpr>(E);
-
-    // Proposal from David Vandervoorde, 2010.06.30
+    //  <expression> ::= ti <type>        # typeid (type)
+    //               ::= te <expression>  # typeid (expression)
     if (TIE->isTypeOperand()) {
       Out << "ti";
       mangleType(TIE->getTypeOperand());
@@ -2791,8 +2889,8 @@ recurse:
 
   case Expr::CXXDeleteExprClass: {
     const CXXDeleteExpr *DE = cast<CXXDeleteExpr>(E);
-
-    // Proposal from David Vandervoorde, 2010.06.30
+    //  <expression> ::= [gs] dl <expression>  # [::] delete expr
+    //               ::= [gs] da <expression>  # [::] delete [] expr
     if (DE->isGlobalDelete()) Out << "gs";
     Out << (DE->isArrayForm() ? "da" : "dl");
     mangleExpression(DE->getArgument());
@@ -3023,8 +3121,6 @@ recurse:
     // fallthrough
 
   case Expr::CXXNullPtrLiteralExprClass: {
-    // Proposal from David Vandervoorde, 2010.06.30, as
-    // modified by ABI list discussion.
     Out << "LDnE";
     break;
   }
@@ -3189,7 +3285,6 @@ void CXXNameMangler::mangleTemplateArg(TemplateArgument A) {
   //                ::= X <expression> E    # expression
   //                ::= <expr-primary>      # simple expressions
   //                ::= J <template-arg>* E # argument pack
-  //                ::= sp <expression>     # pack expansion of (C++0x)  
   if (!A.isInstantiationDependent() || A.isDependent())
     A = Context.getASTContext().getCanonicalTemplateArgument(A);
   
@@ -3269,9 +3364,9 @@ void CXXNameMangler::mangleTemplateArg(TemplateArgument A) {
     break;
   }
   case TemplateArgument::Pack: {
-    // Note: proposal by Mike Herrick on 12/20/10
+    //  <template-arg> ::= J <template-arg>* E
     Out << 'J';
-    for (TemplateArgument::pack_iterator PA = A.pack_begin(), 
+    for (TemplateArgument::pack_iterator PA = A.pack_begin(),
                                       PAEnd = A.pack_end();
          PA != PAEnd; ++PA)
       mangleTemplateArg(*PA);
@@ -3616,13 +3711,32 @@ ItaniumMangleContext::mangleCXXDtorThunk(const CXXDestructorDecl *DD,
 
 /// mangleGuardVariable - Returns the mangled name for a guard variable
 /// for the passed in VarDecl.
-void ItaniumMangleContext::mangleItaniumGuardVariable(const VarDecl *D,
-                                                      raw_ostream &Out) {
+void ItaniumMangleContext::mangleStaticGuardVariable(const VarDecl *D,
+                                                     raw_ostream &Out) {
   //  <special-name> ::= GV <object name>       # Guard variable for one-time
   //                                            # initialization
   CXXNameMangler Mangler(*this, Out);
   Mangler.getStream() << "_ZGV";
   Mangler.mangleName(D);
+}
+
+void ItaniumMangleContext::mangleDynamicInitializer(const VarDecl *MD,
+                                                    raw_ostream &Out) {
+  // These symbols are internal in the Itanium ABI, so the names don't matter.
+  // Clang has traditionally used this symbol and allowed LLVM to adjust it to
+  // avoid duplicate symbols.
+  Out << "__cxx_global_var_init";
+}
+
+void ItaniumMangleContext::mangleDynamicAtExitDestructor(const VarDecl *D,
+                                                         raw_ostream &Out) {
+  // Prefix the mangling of D with __dtor_.
+  CXXNameMangler Mangler(*this, Out);
+  Mangler.getStream() << "__dtor_";
+  if (shouldMangleDeclName(D))
+    Mangler.mangle(D);
+  else
+    Mangler.getStream() << D->getName();
 }
 
 void ItaniumMangleContext::mangleItaniumThreadLocalInit(const VarDecl *D,

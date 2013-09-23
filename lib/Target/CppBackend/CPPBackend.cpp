@@ -497,6 +497,7 @@ void CppWriter::printAttributes(const AttributeSet &PAL,
       HANDLE_ATTR(ReadOnly);
       HANDLE_ATTR(NoInline);
       HANDLE_ATTR(AlwaysInline);
+      HANDLE_ATTR(OptimizeNone);
       HANDLE_ATTR(OptimizeForSize);
       HANDLE_ATTR(StackProtect);
       HANDLE_ATTR(StackProtectReq);
@@ -1139,7 +1140,7 @@ void CppWriter::printInstruction(const Instruction *I,
     nl(Out);
     for (SwitchInst::ConstCaseIt i = SI->case_begin(), e = SI->case_end();
          i != e; ++i) {
-      const IntegersSubset CaseVal = i.getCaseValueEx();
+      const ConstantInt* CaseVal = i.getCaseValue();
       const BasicBlock *BB = i.getCaseSuccessor();
       Out << iName << "->addCase("
           << getOpName(CaseVal) << ", "
@@ -1832,7 +1833,7 @@ void CppWriter::printInline(const std::string& fname,
   unsigned arg_count = 1;
   for (Function::const_arg_iterator AI = F->arg_begin(), AE = F->arg_end();
        AI != AE; ++AI) {
-    Out << ", Value* arg_" << arg_count;
+    Out << ", Value* arg_" << arg_count++;
   }
   Out << ") {";
   nl(Out);

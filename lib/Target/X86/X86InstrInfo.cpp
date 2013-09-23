@@ -81,6 +81,7 @@ enum {
   TB_ALIGN_NONE  =    0 << TB_ALIGN_SHIFT,
   TB_ALIGN_16    =   16 << TB_ALIGN_SHIFT,
   TB_ALIGN_32    =   32 << TB_ALIGN_SHIFT,
+  TB_ALIGN_64    =   64 << TB_ALIGN_SHIFT,
   TB_ALIGN_MASK  = 0xff << TB_ALIGN_SHIFT
 };
 
@@ -374,7 +375,9 @@ X86InstrInfo::X86InstrInfo(X86TargetMachine &tm)
     { X86::VMOVAPSYrr,  X86::VMOVAPSYmr,    TB_FOLDED_STORE | TB_ALIGN_32 },
     { X86::VMOVDQAYrr,  X86::VMOVDQAYmr,    TB_FOLDED_STORE | TB_ALIGN_32 },
     { X86::VMOVUPDYrr,  X86::VMOVUPDYmr,    TB_FOLDED_STORE },
-    { X86::VMOVUPSYrr,  X86::VMOVUPSYmr,    TB_FOLDED_STORE }
+    { X86::VMOVUPSYrr,  X86::VMOVUPSYmr,    TB_FOLDED_STORE },
+    // AVX-512 foldable instructions
+    { X86::VMOVPDI2DIZrr,X86::VMOVPDI2DIZmr,  TB_FOLDED_STORE }
   };
 
   for (unsigned i = 0, e = array_lengthof(OpTbl0); i != e; ++i) {
@@ -580,6 +583,20 @@ X86InstrInfo::X86InstrInfo(X86TargetMachine &tm)
     { X86::TZCNT16rr,       X86::TZCNT16rm,           0 },
     { X86::TZCNT32rr,       X86::TZCNT32rm,           0 },
     { X86::TZCNT64rr,       X86::TZCNT64rm,           0 },
+
+    // AVX-512 foldable instructions
+    { X86::VMOV64toPQIZrr,  X86::VMOVQI2PQIZrm,       0 },
+    { X86::VMOVDI2SSZrr,    X86::VMOVDI2SSZrm,        0 },
+    { X86::VMOVDQA32rr,     X86::VMOVDQA32rm,         TB_ALIGN_64 },
+    { X86::VMOVDQA64rr,     X86::VMOVDQA64rm,         TB_ALIGN_64 },
+    { X86::VMOVDQU32rr,     X86::VMOVDQU32rm,         0 },
+    { X86::VMOVDQU64rr,     X86::VMOVDQU64rm,         0 },
+
+    // AES foldable instructions
+    { X86::AESIMCrr,              X86::AESIMCrm,              TB_ALIGN_16 },
+    { X86::AESKEYGENASSIST128rr,  X86::AESKEYGENASSIST128rm,  TB_ALIGN_16 },
+    { X86::VAESIMCrr,             X86::VAESIMCrm,             TB_ALIGN_16 },
+    { X86::VAESKEYGENASSIST128rr, X86::VAESKEYGENASSIST128rm, TB_ALIGN_16 },
   };
 
   for (unsigned i = 0, e = array_lengthof(OpTbl1); i != e; ++i) {
@@ -1177,6 +1194,56 @@ X86InstrInfo::X86InstrInfo(X86TargetMachine &tm)
     { X86::PDEP64rr,          X86::PDEP64rm,            0 },
     { X86::PEXT32rr,          X86::PEXT32rm,            0 },
     { X86::PEXT64rr,          X86::PEXT64rm,            0 },
+
+    // AVX-512 foldable instructions
+    { X86::VPADDDZrr,         X86::VPADDDZrm,           0 },
+    { X86::VPADDQZrr,         X86::VPADDQZrm,           0 },
+    { X86::VADDPSZrr,         X86::VADDPSZrm,           0 },
+    { X86::VADDPDZrr,         X86::VADDPDZrm,           0 },
+    { X86::VSUBPSZrr,         X86::VSUBPSZrm,           0 },
+    { X86::VSUBPDZrr,         X86::VSUBPDZrm,           0 },
+    { X86::VMULPSZrr,         X86::VMULPSZrm,           0 },
+    { X86::VMULPDZrr,         X86::VMULPDZrm,           0 },
+    { X86::VDIVPSZrr,         X86::VDIVPSZrm,           0 },
+    { X86::VDIVPDZrr,         X86::VDIVPDZrm,           0 },
+    { X86::VMINPSZrr,         X86::VMINPSZrm,           0 },
+    { X86::VMINPDZrr,         X86::VMINPDZrm,           0 },
+    { X86::VMAXPSZrr,         X86::VMAXPSZrm,           0 },
+    { X86::VMAXPDZrr,         X86::VMAXPDZrm,           0 },
+    { X86::VPERMPDZri,        X86::VPERMPDZmi,          0 },
+    { X86::VPERMPSZrr,        X86::VPERMPSZrm,          0 },
+    { X86::VPERMI2Drr,        X86::VPERMI2Drm,          0 },
+    { X86::VPERMI2Qrr,        X86::VPERMI2Qrm,          0 },
+    { X86::VPERMI2PSrr,       X86::VPERMI2PSrm,         0 },
+    { X86::VPERMI2PDrr,       X86::VPERMI2PDrm,         0 },
+    { X86::VPSLLVDZrr,        X86::VPSLLVDZrm,          0 },
+    { X86::VPSLLVQZrr,        X86::VPSLLVQZrm,          0 },
+    { X86::VPSRAVDZrr,        X86::VPSRAVDZrm,          0 },
+    { X86::VPSRLVDZrr,        X86::VPSRLVDZrm,          0 },
+    { X86::VPSRLVQZrr,        X86::VPSRLVQZrm,          0 },
+    { X86::VSHUFPDZrri,       X86::VSHUFPDZrmi,         0 },
+    { X86::VSHUFPSZrri,       X86::VSHUFPSZrmi,         0 },
+    { X86::VALIGNQrri,        X86::VALIGNQrmi,          0 },
+    { X86::VALIGNDrri,        X86::VALIGNDrmi,          0 },
+
+    // AES foldable instructions
+    { X86::AESDECLASTrr,      X86::AESDECLASTrm,        TB_ALIGN_16 },
+    { X86::AESDECrr,          X86::AESDECrm,            TB_ALIGN_16 },
+    { X86::AESENCLASTrr,      X86::AESENCLASTrm,        TB_ALIGN_16 },
+    { X86::AESENCrr,          X86::AESENCrm,            TB_ALIGN_16 },
+    { X86::VAESDECLASTrr,     X86::VAESDECLASTrm,       TB_ALIGN_16 },
+    { X86::VAESDECrr,         X86::VAESDECrm,           TB_ALIGN_16 },
+    { X86::VAESENCLASTrr,     X86::VAESENCLASTrm,       TB_ALIGN_16 },
+    { X86::VAESENCrr,         X86::VAESENCrm,           TB_ALIGN_16 },
+
+    // SHA foldable instructions
+    { X86::SHA1MSG1rr,        X86::SHA1MSG1rm,          TB_ALIGN_16 },
+    { X86::SHA1MSG2rr,        X86::SHA1MSG2rm,          TB_ALIGN_16 },
+    { X86::SHA1NEXTErr,       X86::SHA1NEXTErm,         TB_ALIGN_16 },
+    { X86::SHA1RNDS4rri,      X86::SHA1RNDS4rmi,        TB_ALIGN_16 },
+    { X86::SHA256MSG1rr,      X86::SHA256MSG1rm,        TB_ALIGN_16 },
+    { X86::SHA256MSG2rr,      X86::SHA256MSG2rm,        TB_ALIGN_16 },
+    { X86::SHA256RNDS2rr,     X86::SHA256RNDS2rm,       TB_ALIGN_16 },
   };
 
   for (unsigned i = 0, e = array_lengthof(OpTbl2); i != e; ++i) {
@@ -1454,6 +1521,8 @@ static bool isFrameLoadOpcode(int Opcode) {
   case X86::VMOVDQAYrm:
   case X86::MMX_MOVD64rm:
   case X86::MMX_MOVQ64rm:
+  case X86::VMOVDQA32rm:
+  case X86::VMOVDQA64rm:
     return true;
   }
 }
@@ -2890,23 +2959,29 @@ static bool isHReg(unsigned Reg) {
 
 // Try and copy between VR128/VR64 and GR64 registers.
 static unsigned CopyToFromAsymmetricReg(unsigned DestReg, unsigned SrcReg,
-                                        bool HasAVX) {
+                                        const X86Subtarget& Subtarget) {
+
+
   // SrcReg(VR128) -> DestReg(GR64)
   // SrcReg(VR64)  -> DestReg(GR64)
   // SrcReg(GR64)  -> DestReg(VR128)
   // SrcReg(GR64)  -> DestReg(VR64)
 
+  bool HasAVX = Subtarget.hasAVX();
+  bool HasAVX512 = Subtarget.hasAVX512();
   if (X86::GR64RegClass.contains(DestReg)) {
-    if (X86::VR128RegClass.contains(SrcReg))
+    if (X86::VR128XRegClass.contains(SrcReg))
       // Copy from a VR128 register to a GR64 register.
-      return HasAVX ? X86::VMOVPQIto64rr : X86::MOVPQIto64rr;
+      return HasAVX512 ? X86::VMOVPQIto64Zrr: (HasAVX ? X86::VMOVPQIto64rr :
+                                               X86::MOVPQIto64rr);
     if (X86::VR64RegClass.contains(SrcReg))
       // Copy from a VR64 register to a GR64 register.
       return X86::MOVSDto64rr;
   } else if (X86::GR64RegClass.contains(SrcReg)) {
     // Copy from a GR64 register to a VR128 register.
-    if (X86::VR128RegClass.contains(DestReg))
-      return HasAVX ? X86::VMOV64toPQIrr : X86::MOV64toPQIrr;
+    if (X86::VR128XRegClass.contains(DestReg))
+      return HasAVX512 ? X86::VMOV64toPQIZrr: (HasAVX ? X86::VMOV64toPQIrr :
+                                               X86::MOV64toPQIrr);
     // Copy from a GR64 register to a VR64 register.
     if (X86::VR64RegClass.contains(DestReg))
       return X86::MOV64toSDrr;
@@ -2915,14 +2990,30 @@ static unsigned CopyToFromAsymmetricReg(unsigned DestReg, unsigned SrcReg,
   // SrcReg(FR32) -> DestReg(GR32)
   // SrcReg(GR32) -> DestReg(FR32)
 
-  if (X86::GR32RegClass.contains(DestReg) && X86::FR32RegClass.contains(SrcReg))
+  if (X86::GR32RegClass.contains(DestReg) && X86::FR32XRegClass.contains(SrcReg))
     // Copy from a FR32 register to a GR32 register.
-    return HasAVX ? X86::VMOVSS2DIrr : X86::MOVSS2DIrr;
+    return HasAVX512 ? X86::VMOVSS2DIZrr : (HasAVX ? X86::VMOVSS2DIrr : X86::MOVSS2DIrr);
 
-  if (X86::FR32RegClass.contains(DestReg) && X86::GR32RegClass.contains(SrcReg))
+  if (X86::FR32XRegClass.contains(DestReg) && X86::GR32RegClass.contains(SrcReg))
     // Copy from a GR32 register to a FR32 register.
-    return HasAVX ? X86::VMOVDI2SSrr : X86::MOVDI2SSrr;
+    return HasAVX512 ? X86::VMOVDI2SSZrr : (HasAVX ? X86::VMOVDI2SSrr : X86::MOVDI2SSrr);
+  return 0;
+}
 
+static
+unsigned copyPhysRegOpcode_AVX512(unsigned& DestReg, unsigned& SrcReg) {
+  if (X86::VR128XRegClass.contains(DestReg, SrcReg) ||
+      X86::VR256XRegClass.contains(DestReg, SrcReg) ||
+      X86::VR512RegClass.contains(DestReg, SrcReg)) {
+     DestReg = get512BitSuperRegister(DestReg);
+     SrcReg = get512BitSuperRegister(SrcReg);
+     return X86::VMOVAPSZrr;
+  }
+  if ((X86::VK8RegClass.contains(DestReg) ||
+       X86::VK16RegClass.contains(DestReg)) &&
+      (X86::VK8RegClass.contains(SrcReg) ||
+       X86::VK16RegClass.contains(SrcReg)))
+    return X86::KMOVWkk;
   return 0;
 }
 
@@ -2932,7 +3023,8 @@ void X86InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                bool KillSrc) const {
   // First deal with the normal symmetric copies.
   bool HasAVX = TM.getSubtarget<X86Subtarget>().hasAVX();
-  unsigned Opc;
+  bool HasAVX512 = TM.getSubtarget<X86Subtarget>().hasAVX512();
+  unsigned Opc = 0;
   if (X86::GR64RegClass.contains(DestReg, SrcReg))
     Opc = X86::MOV64rr;
   else if (X86::GR32RegClass.contains(DestReg, SrcReg))
@@ -2950,14 +3042,17 @@ void X86InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
              "8-bit H register can not be copied outside GR8_NOREX");
     } else
       Opc = X86::MOV8rr;
-  } else if (X86::VR128RegClass.contains(DestReg, SrcReg))
+  }
+  else if (X86::VR64RegClass.contains(DestReg, SrcReg))
+    Opc = X86::MMX_MOVQ64rr;
+  else if (HasAVX512)
+    Opc = copyPhysRegOpcode_AVX512(DestReg, SrcReg);
+  else if (X86::VR128RegClass.contains(DestReg, SrcReg))
     Opc = HasAVX ? X86::VMOVAPSrr : X86::MOVAPSrr;
   else if (X86::VR256RegClass.contains(DestReg, SrcReg))
     Opc = X86::VMOVAPSYrr;
-  else if (X86::VR64RegClass.contains(DestReg, SrcReg))
-    Opc = X86::MMX_MOVQ64rr;
-  else
-    Opc = CopyToFromAsymmetricReg(DestReg, SrcReg, HasAVX);
+  if (!Opc)
+    Opc = CopyToFromAsymmetricReg(DestReg, SrcReg, TM.getSubtarget<X86Subtarget>());
 
   if (Opc) {
     BuildMI(MBB, MI, DL, get(Opc), DestReg)
@@ -3005,6 +3100,21 @@ static unsigned getLoadStoreRegOpcode(unsigned Reg,
                                       bool isStackAligned,
                                       const TargetMachine &TM,
                                       bool load) {
+  if (TM.getSubtarget<X86Subtarget>().hasAVX512()) {
+    if (X86::VK8RegClass.hasSubClassEq(RC)  || 
+      X86::VK16RegClass.hasSubClassEq(RC))
+      return load ? X86::KMOVWkm : X86::KMOVWmk;
+
+    if (X86::FR32XRegClass.hasSubClassEq(RC))
+      return load ? X86::VMOVSSZrm : X86::VMOVSSZmr;
+    if (X86::FR64XRegClass.hasSubClassEq(RC))
+      return load ? X86::VMOVSDZrm : X86::VMOVSDZmr;
+    if (X86::VR128XRegClass.hasSubClassEq(RC) ||
+        X86::VR256XRegClass.hasSubClassEq(RC) ||
+        X86::VR512RegClass.hasSubClassEq(RC))
+      return load ? X86::VMOVUPSZrm : X86::VMOVUPSZmr;
+  }
+
   bool HasAVX = TM.getSubtarget<X86Subtarget>().hasAVX();
   switch (RC->getSize()) {
   default:
@@ -3064,6 +3174,12 @@ static unsigned getLoadStoreRegOpcode(unsigned Reg,
       return load ? X86::VMOVAPSYrm : X86::VMOVAPSYmr;
     else
       return load ? X86::VMOVUPSYrm : X86::VMOVUPSYmr;
+  case 64:
+    assert(X86::VR512RegClass.hasSubClassEq(RC) && "Unknown 64-byte regclass");
+    if (isStackAligned)
+      return load ? X86::VMOVAPSZrm : X86::VMOVAPSZmr;
+    else
+      return load ? X86::VMOVUPSZrm : X86::VMOVUPSZmr;
   }
 }
 
@@ -3090,7 +3206,7 @@ void X86InstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
   const MachineFunction &MF = *MBB.getParent();
   assert(MF.getFrameInfo()->getObjectSize(FrameIdx) >= RC->getSize() &&
          "Stack slot too small for store");
-  unsigned Alignment = RC->getSize() == 32 ? 32 : 16;
+  unsigned Alignment = std::max<uint32_t>(RC->getSize(), 16);
   bool isAligned = (TM.getFrameLowering()->getStackAlignment() >= Alignment) ||
     RI.canRealignStack(MF);
   unsigned Opc = getStoreRegOpcode(SrcReg, RC, isAligned, TM);
@@ -3106,7 +3222,7 @@ void X86InstrInfo::storeRegToAddr(MachineFunction &MF, unsigned SrcReg,
                                   MachineInstr::mmo_iterator MMOBegin,
                                   MachineInstr::mmo_iterator MMOEnd,
                                   SmallVectorImpl<MachineInstr*> &NewMIs) const {
-  unsigned Alignment = RC->getSize() == 32 ? 32 : 16;
+  unsigned Alignment = std::max<uint32_t>(RC->getSize(), 16);
   bool isAligned = MMOBegin != MMOEnd &&
                    (*MMOBegin)->getAlignment() >= Alignment;
   unsigned Opc = getStoreRegOpcode(SrcReg, RC, isAligned, TM);
@@ -3126,7 +3242,7 @@ void X86InstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
                                         const TargetRegisterClass *RC,
                                         const TargetRegisterInfo *TRI) const {
   const MachineFunction &MF = *MBB.getParent();
-  unsigned Alignment = RC->getSize() == 32 ? 32 : 16;
+  unsigned Alignment = std::max<uint32_t>(RC->getSize(), 16);
   bool isAligned = (TM.getFrameLowering()->getStackAlignment() >= Alignment) ||
     RI.canRealignStack(MF);
   unsigned Opc = getLoadRegOpcode(DestReg, RC, isAligned, TM);
@@ -3140,7 +3256,7 @@ void X86InstrInfo::loadRegFromAddr(MachineFunction &MF, unsigned DestReg,
                                  MachineInstr::mmo_iterator MMOBegin,
                                  MachineInstr::mmo_iterator MMOEnd,
                                  SmallVectorImpl<MachineInstr*> &NewMIs) const {
-  unsigned Alignment = RC->getSize() == 32 ? 32 : 16;
+  unsigned Alignment = std::max<uint32_t>(RC->getSize(), 16);
   bool isAligned = MMOBegin != MMOEnd &&
                    (*MMOBegin)->getAlignment() >= Alignment;
   unsigned Opc = getLoadRegOpcode(DestReg, RC, isAligned, TM);
@@ -3722,6 +3838,8 @@ bool X86InstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
   case X86::AVX_SET0:
     assert(HasAVX && "AVX not supported");
     return Expand2AddrUndef(MIB, get(X86::VXORPSYrr));
+  case X86::AVX512_512_SET0:
+    return Expand2AddrUndef(MIB, get(X86::VPXORDZrr));
   case X86::V_SETALLONES:
     return Expand2AddrUndef(MIB, get(HasAVX ? X86::VPCMPEQDrr : X86::PCMPEQDrr));
   case X86::AVX2_SETALLONES:
@@ -3729,6 +3847,9 @@ bool X86InstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
   case X86::TEST8ri_NOREX:
     MI->setDesc(get(X86::TEST8ri));
     return true;
+  case X86::KSET0W: return Expand2AddrUndef(MIB, get(X86::KXORWrr));
+  case X86::KSET1B:
+  case X86::KSET1W: return Expand2AddrUndef(MIB, get(X86::KXNORWrr));
   }
   return false;
 }
@@ -3947,6 +4068,8 @@ static bool hasPartialRegUpdate(unsigned Opcode) {
   case X86::Int_VCVTSD2SSrr:
   case X86::VCVTSS2SDrr:
   case X86::Int_VCVTSS2SDrr:
+  case X86::VCVTSD2SSZrr:
+  case X86::VCVTSS2SDZrr:
   case X86::VRCPSSr:
   case X86::VROUNDSDr:
   case X86::VROUNDSDr_Int:
@@ -5001,6 +5124,37 @@ bool X86InstrInfo::isHighLatencyDef(int opc) const {
   case X86::VSQRTSSm:
   case X86::VSQRTSSm_Int:
   case X86::VSQRTSSr:
+  case X86::VSQRTPDZrm:
+  case X86::VSQRTPDZrr:
+  case X86::VSQRTPSZrm:
+  case X86::VSQRTPSZrr:
+  case X86::VSQRTSDZm:
+  case X86::VSQRTSDZm_Int:
+  case X86::VSQRTSDZr:
+  case X86::VSQRTSSZm_Int:
+  case X86::VSQRTSSZr:
+  case X86::VSQRTSSZm:
+  case X86::VDIVSDZrm:
+  case X86::VDIVSDZrr:
+  case X86::VDIVSSZrm:
+  case X86::VDIVSSZrr:
+
+  case X86::VGATHERQPSZrm:
+  case X86::VGATHERQPDZrm:
+  case X86::VGATHERDPDZrm:
+  case X86::VGATHERDPSZrm:
+  case X86::VPGATHERQDZrm:
+  case X86::VPGATHERQQZrm:
+  case X86::VPGATHERDDZrm:
+  case X86::VPGATHERDQZrm:
+  case X86::VSCATTERQPDZmr:
+  case X86::VSCATTERQPSZmr:
+  case X86::VSCATTERDPDZmr:
+  case X86::VSCATTERDPSZmr:
+  case X86::VPSCATTERQDZmr:
+  case X86::VPSCATTERQQZmr:
+  case X86::VPSCATTERDDZmr:
+  case X86::VPSCATTERDQZmr:
     return true;
   }
 }

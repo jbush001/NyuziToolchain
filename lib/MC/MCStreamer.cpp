@@ -10,6 +10,7 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/MC/MCAsmBackend.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
@@ -70,6 +71,13 @@ const MCExpr *MCStreamer::ForceExpAbs(const MCExpr* Expr) {
 raw_ostream &MCStreamer::GetCommentOS() {
   // By default, discard comments.
   return nulls();
+}
+
+void MCStreamer::generateCompactUnwindEncodings(MCAsmBackend *MAB) {
+  for (std::vector<MCDwarfFrameInfo>::iterator I = FrameInfos.begin(),
+         E = FrameInfos.end(); I != E; ++I)
+    I->CompactUnwindEncoding =
+      (MAB ? MAB->generateCompactUnwindEncoding(I->Instructions) : 0);
 }
 
 void MCStreamer::EmitDwarfSetLineAddr(int64_t LineDelta,
@@ -183,17 +191,28 @@ void MCStreamer::EmitEHSymAttributes(const MCSymbol *Symbol,
                                      MCSymbol *EHSymbol) {
 }
 
+void MCStreamer::AssignSection(MCSymbol *Symbol, const MCSection *Section) {
+  if (Section)
+    Symbol->setSection(*Section);
+  else
+    Symbol->setUndefined();
+
+  // As we emit symbols into a section, track the order so that they can
+  // be sorted upon later. Zero is reserved to mean 'unemitted'.
+  SymbolOrdering[Symbol] = 1 + SymbolOrdering.size();
+}
+
 void MCStreamer::EmitLabel(MCSymbol *Symbol) {
   assert(!Symbol->isVariable() && "Cannot emit a variable symbol!");
   assert(getCurrentSection().first && "Cannot emit before setting section!");
-  Symbol->setSection(*getCurrentSection().first);
+  AssignSection(Symbol, getCurrentSection().first);
   LastSymbol = Symbol;
 }
 
 void MCStreamer::EmitDebugLabel(MCSymbol *Symbol) {
   assert(!Symbol->isVariable() && "Cannot emit a variable symbol!");
   assert(getCurrentSection().first && "Cannot emit before setting section!");
-  Symbol->setSection(*getCurrentSection().first);
+  AssignSection(Symbol, getCurrentSection().first);
   LastSymbol = Symbol;
 }
 
@@ -470,7 +489,9 @@ void MCStreamer::EmitWin64EHSetFrame(unsigned Register, unsigned Offset) {
     report_fatal_error("Frame register and offset already specified!");
   if (Offset & 0x0F)
     report_fatal_error("Misaligned frame pointer offset!");
-  MCWin64EHInstruction Inst(Win64EH::UOP_SetFPReg, 0, Register, Offset);
+  MCSymbol *Label = getContext().CreateTempSymbol();
+  MCWin64EHInstruction Inst(Win64EH::UOP_SetFPReg, Label, Register, Offset);
+  EmitLabel(Label);
   CurFrame->LastFrameInst = CurFrame->Instructions.size();
   CurFrame->Instructions.push_back(Inst);
 }
@@ -593,15 +614,15 @@ void MCStreamer::EmitRawText(const Twine &T) {
   EmitRawText(Str.str());
 }
 
-void MCStreamer::EmitFrames(bool usingCFI) {
+void MCStreamer::EmitFrames(MCAsmBackend *MAB, bool usingCFI) {
   if (!getNumFrameInfos())
     return;
 
   if (EmitEHFrame)
-    MCDwarfFrameEmitter::Emit(*this, usingCFI, true);
+    MCDwarfFrameEmitter::Emit(*this, MAB, usingCFI, true);
 
   if (EmitDebugFrame)
-    MCDwarfFrameEmitter::Emit(*this, usingCFI, false);
+    MCDwarfFrameEmitter::Emit(*this, MAB, usingCFI, false);
 }
 
 void MCStreamer::EmitW64Tables() {

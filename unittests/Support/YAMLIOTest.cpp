@@ -273,7 +273,64 @@ TEST(YAMLIO, TestReadWriteBuiltInTypes) {
   }
 }
 
+struct StringTypes {
+  llvm::StringRef str1;
+  llvm::StringRef str2;
+  llvm::StringRef str3;
+  llvm::StringRef str4;
+  llvm::StringRef str5;
+};
 
+namespace llvm {
+namespace yaml {
+  template <>
+  struct MappingTraits<StringTypes> {
+    static void mapping(IO &io, StringTypes& st) {
+      io.mapRequired("str1",      st.str1);
+      io.mapRequired("str2",      st.str2);
+      io.mapRequired("str3",      st.str3);
+      io.mapRequired("str4",      st.str4);
+      io.mapRequired("str5",      st.str5);
+    }
+  };
+}
+}
+
+TEST(YAMLIO, TestReadWriteStringTypes) {
+  std::string intermediate;
+  {
+    StringTypes map;
+    map.str1 = "'aaa";
+    map.str2 = "\"bbb";
+    map.str3 = "`ccc";
+    map.str4 = "@ddd";
+    map.str5 = "";
+
+    llvm::raw_string_ostream ostr(intermediate);
+    Output yout(ostr);
+    yout << map;
+  }
+
+  llvm::StringRef flowOut(intermediate);
+  EXPECT_NE(llvm::StringRef::npos, flowOut.find("'''aaa"));
+  EXPECT_NE(llvm::StringRef::npos, flowOut.find("'\"bbb'"));
+  EXPECT_NE(llvm::StringRef::npos, flowOut.find("'`ccc'"));
+  EXPECT_NE(llvm::StringRef::npos, flowOut.find("'@ddd'"));
+  EXPECT_NE(llvm::StringRef::npos, flowOut.find("''\n"));
+
+  {
+    Input yin(intermediate);
+    StringTypes map;
+    yin >> map;
+
+    EXPECT_FALSE(yin.error());
+    EXPECT_TRUE(map.str1.equals("'aaa"));
+    EXPECT_TRUE(map.str2.equals("\"bbb"));
+    EXPECT_TRUE(map.str3.equals("`ccc"));
+    EXPECT_TRUE(map.str4.equals("@ddd"));
+    EXPECT_TRUE(map.str5.equals(""));
+  }
+}
 
 //===----------------------------------------------------------------------===//
 //  Test ScalarEnumerationTraits
@@ -600,9 +657,9 @@ TEST(YAMLIO, TestReadWriteMyFlowSequence) {
     map.numbers.push_back(1024);
 
     llvm::raw_string_ostream ostr(intermediate);
-    Output yout(ostr); 
+    Output yout(ostr);
     yout << map;
-    
+
     // Verify sequences were written in flow style
     ostr.flush();
     llvm::StringRef flowOut(intermediate);
@@ -1297,3 +1354,66 @@ TEST(YAMLIO, TestReadBuiltInTypesHex64Error) {
   EXPECT_TRUE(yin.error());
 }
 
+struct OptionalTest {
+  std::vector<int> Numbers;
+};
+
+struct OptionalTestSeq {
+  std::vector<OptionalTest> Tests;
+};
+
+LLVM_YAML_IS_SEQUENCE_VECTOR(OptionalTest)
+namespace llvm {
+namespace yaml {
+  template <>
+  struct MappingTraits<OptionalTest> {
+    static void mapping(IO& IO, OptionalTest &OT) {
+      IO.mapOptional("Numbers", OT.Numbers);
+    }
+  };
+
+  template <>
+  struct MappingTraits<OptionalTestSeq> {
+    static void mapping(IO &IO, OptionalTestSeq &OTS) {
+      IO.mapOptional("Tests", OTS.Tests);
+    }
+  };
+}
+}
+
+TEST(YAMLIO, SequenceElideTest) {
+  // Test that writing out a purely optional structure with its fields set to
+  // default followed by other data is properly read back in.
+  OptionalTestSeq Seq;
+  OptionalTest One, Two, Three, Four;
+  int N[] = {1, 2, 3};
+  Three.Numbers.assign(N, N + 3);
+  Seq.Tests.push_back(One);
+  Seq.Tests.push_back(Two);
+  Seq.Tests.push_back(Three);
+  Seq.Tests.push_back(Four);
+
+  std::string intermediate;
+  {
+    llvm::raw_string_ostream ostr(intermediate);
+    Output yout(ostr);
+    yout << Seq;
+  }
+
+  Input yin(intermediate);
+  OptionalTestSeq Seq2;
+  yin >> Seq2;
+
+  EXPECT_FALSE(yin.error());
+
+  EXPECT_EQ(4UL, Seq2.Tests.size());
+
+  EXPECT_TRUE(Seq2.Tests[0].Numbers.empty());
+  EXPECT_TRUE(Seq2.Tests[1].Numbers.empty());
+
+  EXPECT_EQ(1, Seq2.Tests[2].Numbers[0]);
+  EXPECT_EQ(2, Seq2.Tests[2].Numbers[1]);
+  EXPECT_EQ(3, Seq2.Tests[2].Numbers[2]);
+
+  EXPECT_TRUE(Seq2.Tests[3].Numbers.empty());
+}

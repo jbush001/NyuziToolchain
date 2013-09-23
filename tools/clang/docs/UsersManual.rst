@@ -235,6 +235,11 @@ output format of the diagnostics that it generates.
                 ^
                 //
 
+**-fansi-escape-codes**
+   Controls whether ANSI escape codes are used instead of the Windows Console
+   API to output colored diagnostics. This option is only used on Windows and
+   defaults to off.
+
 .. option:: -fdiagnostics-format=clang/msvc/vi
 
    Changes diagnostic output format to better match IDEs and command line tools.
@@ -422,7 +427,7 @@ output format of the diagnostics that it generates.
            map<
              [...],
              map<
-               [float != float],
+               [float != double],
                [...]>>>
 
 .. _cl_diag_warning_groups:
@@ -895,6 +900,8 @@ are listed below.
       used in conjunction with the ``-fsanitize-undefined-trap-on-error``
       flag. This includes all of the checks listed below other than
       ``unsigned-integer-overflow`` and ``vptr``.
+   -  ``-fsanitize=dataflow``: :doc:`DataFlowSanitizer`, a general data
+      flow analysis.
 
    The following more fine-grained checks are also available:
 
@@ -940,6 +947,15 @@ are listed below.
       it is of the wrong dynamic type, or that its lifetime has not
       begun or has ended. Incompatible with ``-fno-rtti``.
 
+   You can turn off or modify checks for certain source files, functions
+   or even variables by providing a special file:
+
+   -  ``-fsanitize-blacklist=/path/to/blacklist/file``: disable or modify
+      sanitizer checks for objects listed in the file. See
+      :doc:`SanitizerSpecialCaseList` for file format description.
+   -  ``-fno-sanitize-blacklist``: don't use blacklist file, if it was
+      specified earlier in the command line.
+
    Experimental features of AddressSanitizer (not ready for widespread
    use, require explicit ``-fsanitize=address``):
 
@@ -971,9 +987,17 @@ are listed below.
       group.
 
    The ``-fsanitize=`` argument must also be provided when linking, in
-   order to link to the appropriate runtime library. It is not possible
-   to combine the ``-fsanitize=address`` and ``-fsanitize=thread``
-   checkers in the same program.
+   order to link to the appropriate runtime library. When using
+   ``-fsanitize=vptr`` (or a group that includes it, such as
+   ``-fsanitize=undefined``) with a C++ program, the link must be
+   performed by ``clang++``, not ``clang``, in order to link against the
+   C++-specific parts of the runtime library.
+
+   It is not possible to combine more than one of the ``-fsanitize=address``,
+   ``-fsanitize=thread``, and ``-fsanitize=memory`` checkers in the same
+   program. The ``-fsanitize=undefined`` checks can be combined with other
+   sanitizers.
+
 **-f[no-]address-sanitizer**
    Deprecated synonym for :ref:`-f[no-]sanitize=address
    <opt_fsanitize_address>`.
@@ -1191,26 +1215,30 @@ Microsoft extensions
 
 clang has some experimental support for extensions from Microsoft Visual
 C++; to enable it, use the -fms-extensions command-line option. This is
-the default for Windows targets. Note that the support is incomplete;
-enabling Microsoft extensions will silently drop certain constructs
-(including ``__declspec`` and Microsoft-style asm statements).
+the default for Windows targets. Note that the support is incomplete.
+Some constructs such as dllexport on classes are ignored with a warning,
+and others such as `Microsoft IDL annotations
+<http://msdn.microsoft.com/en-us/library/8tesw2eh.aspx>`_ are silently
+ignored.
 
 clang has a -fms-compatibility flag that makes clang accept enough
-invalid C++ to be able to parse most Microsoft headers. This flag is
-enabled by default for Windows targets.
+invalid C++ to be able to parse most Microsoft headers. For example, it
+allows `unqualified lookup of dependent base class members
+<http://clang.llvm.org/compatibility.html#dep_lookup_bases>`_, which is
+a common compatibility issue with clang. This flag is enabled by default
+for Windows targets.
 
 -fdelayed-template-parsing lets clang delay all template instantiation
 until the end of a translation unit. This flag is enabled by default for
 Windows targets.
 
 -  clang allows setting ``_MSC_VER`` with ``-fmsc-version=``. It defaults to
-   1300 which is the same as Visual C/C++ 2003. Any number is supported
+   1700 which is the same as Visual C/C++ 2012. Any number is supported
    and can greatly affect what Windows SDK and c++stdlib headers clang
-   can compile. This option will be removed when clang supports the full
-   set of MS extensions required for these headers.
+   can compile.
 -  clang does not support the Microsoft extension where anonymous record
    members can be declared using user defined typedefs.
--  clang supports the Microsoft "#pragma pack" feature for controlling
+-  clang supports the Microsoft ``#pragma pack`` feature for controlling
    record layout. GCC also contains support for this feature, however
    where MSVC and GCC are incompatible clang follows the MSVC
    definition.
@@ -1289,11 +1317,19 @@ C++, Objective-C, and Objective-C++ codebases. Clang only supports a
 limited number of ARM architectures. It does not yet fully support
 ARMv5, for example.
 
+PowerPC
+^^^^^^^
+
+The support for PowerPC (especially PowerPC64) is considered stable
+on Linux and FreeBSD: it has been tested to correctly compile many
+large C and C++ codebases. PowerPC (32bit) is still missing certain
+features (e.g. PIC code on ELF platforms).
+
 Other platforms
 ^^^^^^^^^^^^^^^
 
-clang currently contains some support for PPC and Sparc; however,
-significant pieces of code generation are still missing, and they
+clang currently contains some support for other architectures (e.g. Sparc);
+however, significant pieces of code generation are still missing, and they
 haven't undergone significant testing.
 
 clang contains limited support for the MSP430 embedded processor, but
@@ -1322,7 +1358,7 @@ Windows
 
 Experimental supports are on Cygming.
 
-See also `Microsoft Extensions <c_ms>`.
+See also :ref:`Microsoft Extensions <c_ms>`.
 
 Cygwin
 """"""

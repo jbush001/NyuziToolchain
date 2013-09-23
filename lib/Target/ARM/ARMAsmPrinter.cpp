@@ -111,7 +111,7 @@ namespace {
       unsigned Tag;
       unsigned IntValue;
       StringRef StringValue;
-    } AttributeItem;
+    };
 
     MCObjectStreamer &Streamer;
     StringRef CurrentVendor;
@@ -496,6 +496,23 @@ bool ARMAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
       if (!FlagsOP.isImm())
         return true;
       unsigned Flags = FlagsOP.getImm();
+
+      // This operand may not be the one that actually provides the register. If
+      // it's tied to a previous one then we should refer instead to that one
+      // for registers and their classes.
+      unsigned TiedIdx;
+      if (InlineAsm::isUseOperandTiedToDef(Flags, TiedIdx)) {
+        for (OpNum = InlineAsm::MIOp_FirstOperand; TiedIdx; --TiedIdx) {
+          unsigned OpFlags = MI->getOperand(OpNum).getImm();
+          OpNum += InlineAsm::getNumOperandRegisters(OpFlags) + 1;
+        }
+        Flags = MI->getOperand(OpNum).getImm();
+
+        // Later code expects OpNum to be pointing at the register rather than
+        // the flags.
+        OpNum += 1;
+      }
+
       unsigned NumVals = InlineAsm::getNumOperandRegisters(Flags);
       unsigned RC;
       InlineAsm::hasRegClassConstraint(Flags, RC);
@@ -790,8 +807,11 @@ void ARMAsmPrinter::emitAttributes() {
 
   if (Subtarget->hasNEON() && emitFPU) {
     /* NEON is not exactly a VFP architecture, but GAS emit one of
-     * neon/neon-vfpv4/vfpv3/vfpv2 for .fpu parameters */
-    if (Subtarget->hasVFP4())
+     * neon/neon-fp-armv8/neon-vfpv4/vfpv3/vfpv2 for .fpu parameters */
+    if (Subtarget->hasFPARMv8())
+      AttrEmitter->EmitTextAttribute(ARMBuildAttrs::Advanced_SIMD_arch,
+                                     "neon-fp-armv8");
+    else if (Subtarget->hasVFP4())
       AttrEmitter->EmitTextAttribute(ARMBuildAttrs::Advanced_SIMD_arch,
                                      "neon-vfpv4");
     else
@@ -801,12 +821,12 @@ void ARMAsmPrinter::emitAttributes() {
     emitFPU = false;
   }
 
-  /* V8FP + .fpu */
-  if (Subtarget->hasV8FP()) {
+  /* FPARMv8 + .fpu */
+  if (Subtarget->hasFPARMv8()) {
     AttrEmitter->EmitAttribute(ARMBuildAttrs::VFP_arch,
-                               ARMBuildAttrs::AllowV8FPA);
+                               ARMBuildAttrs::AllowFPARMv8A);
     if (emitFPU)
-      AttrEmitter->EmitTextAttribute(ARMBuildAttrs::VFP_arch, "v8fp");
+      AttrEmitter->EmitTextAttribute(ARMBuildAttrs::VFP_arch, "fp-armv8");
     /* VFPv4 + .fpu */
   } else if (Subtarget->hasVFP4()) {
     AttrEmitter->EmitAttribute(ARMBuildAttrs::VFP_arch,

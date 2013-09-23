@@ -632,6 +632,11 @@ def f64imm : Operand<f64>;
 ///
 def zero_reg;
 
+/// All operands which the MC layer classifies as predicates should inherit from
+/// this class in some manner. This is already handled for the most commonly
+/// used PredicateOperand, but may be useful in other circumstances.
+class PredicateOp;
+
 /// OperandWithDefaultOps - This Operand class can be used as the parent class
 /// for an Operand that needs to be initialized with a default value if
 /// no value is supplied in a pattern.  This class can be used to simplify the
@@ -647,7 +652,7 @@ class OperandWithDefaultOps<ValueType ty, dag defaultops>
 /// AlwaysVal specifies the value of this predicate when set to "always
 /// execute".
 class PredicateOperand<ValueType ty, dag OpTypes, dag AlwaysVal>
-  : OperandWithDefaultOps<ty, AlwaysVal> {
+  : OperandWithDefaultOps<ty, AlwaysVal>, PredicateOp {
   let MIOperandInfo = OpTypes;
 }
 
@@ -818,6 +823,9 @@ class AsmParser {
   // ShouldEmitMatchRegisterName - Set to false if the target needs a hand
   // written register name matcher
   bit ShouldEmitMatchRegisterName = 1;
+
+  /// Does the instruction mnemonic allow '.'
+  bit MnemonicContainsDot = 0;
 }
 def DefaultAsmParser : AsmParser;
 
@@ -1000,6 +1008,17 @@ class SubtargetFeature<string n, string a,  string v, string d,
   // features isn't set, then this one shouldn't be set either.
   //
   list<SubtargetFeature> Implies = i;
+}
+
+/// Specifies a Subtarget feature that this instruction is deprecated on.
+class Deprecated<SubtargetFeature dep> {
+  SubtargetFeature DeprecatedFeatureMask = dep;
+}
+
+/// A custom predicate used to determine if an instruction is
+/// deprecated or not.
+class ComplexDeprecationPredicate<string dep> {
+  string ComplexDeprecationPredicate = dep;
 }
 
 //===----------------------------------------------------------------------===//

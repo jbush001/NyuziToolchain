@@ -2,6 +2,8 @@
 @ RUN: FileCheck --check-prefix=CHECK-ERRORS < %t %s
 @ RUN: not llvm-mc -triple=thumbv5-apple-darwin < %s 2> %t
 @ RUN: FileCheck --check-prefix=CHECK-ERRORS-V5 < %t %s
+@ RUN: not llvm-mc -triple=thumbv8 < %s 2> %t
+@ RUN: FileCheck --check-prefix=CHECK-ERRORS-V8 < %t %s
 
 @ Check for various assembly diagnostic messages on invalid input.
 
@@ -38,6 +40,19 @@ error: invalid operand for instruction
         bkpt #-1
              ^
 
+@ Out of range immediates for v8 HLT instruction.
+        hlt #64
+        hlt #-1
+@CHECK-ERRORS: error: instruction requires: armv8 arm-mode
+@CHECK-ERRORS:        hlt #64
+@CHECK-ERRORS:        ^
+@CHECK-ERRORS-V8: error: instruction requires: arm-mode
+@CHECK-ERRORS-V8:         hlt #64
+@CHECK-ERRORS-V8:              ^
+@CHECK-ERRORS: error: invalid operand for instruction
+@CHECK-ERRORS:         hlt #-1
+@CHECK-ERRORS:              ^
+
 @ Invalid writeback and register lists for LDM
         ldm r2!, {r5, r8}
         ldm r2, {r5, r7}
@@ -51,7 +66,6 @@ error: invalid operand for instruction
 @ CHECK-ERRORS: error: writeback operator '!' not allowed when base register in register list
 @ CHECK-ERRORS:         ldm r2!, {r2, r3, r4}
 @ CHECK-ERRORS:               ^
-
 
 @ Invalid writeback and register lists for PUSH/POP
         pop {r1, r2, r10}
@@ -138,7 +152,26 @@ error: invalid operand for instruction
 @ CHECK-ERRORS: error: source register must be the same as destination
 @ CHECK-ERRORS:         add r2, sp, ip
 @ CHECK-ERRORS:                     ^
- 
+
+
+@------------------------------------------------------------------------------
+@ B/Bcc - out of range immediates for Thumb1 branches
+@------------------------------------------------------------------------------
+
+        beq    #-258
+        bne    #256
+        bgt    #13
+        b      #-1048578
+        b      #1048576
+        b      #10323
+
+@ CHECK-ERRORS: error: Branch target out of range
+@ CHECK-ERRORS: error: Branch target out of range
+@ CHECK-ERRORS: error: Branch target out of range
+@ CHECK-ERRORS: error: Branch target out of range
+@ CHECK-ERRORS: error: Branch target out of range
+@ CHECK-ERRORS: error: Branch target out of range
+
 @------------------------------------------------------------------------------
 @ WFE/WFI/YIELD - are not supported pre v6T2
 @------------------------------------------------------------------------------
@@ -155,4 +188,17 @@ error: invalid operand for instruction
 @ CHECK-ERRORS: error: instruction requires: thumb2
 @ CHECK-ERRORS: yield
 @ CHECK-ERRORS: ^
+
+@------------------------------------------------------------------------------
+@ PLDW required mp-extensions
+@------------------------------------------------------------------------------
+        pldw [r0, #4]
+@ CHECK-ERRORS: error: instruction requires: mp-extensions
+
+@------------------------------------------------------------------------------
+@ LDR(lit) - invalid offsets
+@------------------------------------------------------------------------------
+
+        ldr r4, [pc, #-12]
+@ CHECK-ERRORS: error: instruction requires: thumb2
 

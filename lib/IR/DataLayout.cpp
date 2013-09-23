@@ -507,6 +507,15 @@ std::string DataLayout::getStringRepresentation() const {
   return OS.str();
 }
 
+unsigned DataLayout::getPointerTypeSizeInBits(Type *Ty) const {
+  assert(Ty->isPtrOrPtrVectorTy() &&
+         "This should only be called with a pointer or pointer vector type");
+
+  if (Ty->isPointerTy())
+    return getTypeSizeInBits(Ty);
+
+  return getTypeSizeInBits(Ty->getScalarType());
+}
 
 /*!
   \param abi_or_pref Flag that determines which alignment is returned. true
@@ -618,6 +627,13 @@ Type *DataLayout::getSmallestLegalIntType(LLVMContext &C, unsigned Width) const 
     if (Width <= LegalIntWidths[i])
       return Type::getIntNTy(C, LegalIntWidths[i]);
   return 0;
+}
+
+unsigned DataLayout::getLargestLegalIntTypeSize() const {
+  unsigned MaxWidth = 0;
+  for (unsigned i = 0, e = (unsigned)LegalIntWidths.size(); i != e; ++i)
+    MaxWidth = std::max<unsigned>(MaxWidth, LegalIntWidths[i]);
+  return MaxWidth;
 }
 
 uint64_t DataLayout::getIndexedOffset(Type *ptrTy,

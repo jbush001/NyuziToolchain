@@ -47,9 +47,9 @@ template <class ELFT> class Segment;
 /// \brief An ELF section.
 template <class ELFT> class Section : public Chunk<ELFT> {
 public:
-  Section(const ELFTargetInfo &ti, StringRef name,
-          typename Chunk<ELFT>::Kind k = Chunk<ELFT>::K_ELFSection)
-      : Chunk<ELFT>(name, k, ti), _parent(nullptr), _flags(0), _entSize(0),
+  Section(const ELFLinkingContext &context, StringRef name,
+          typename Chunk<ELFT>::Kind k = Chunk<ELFT>::Kind::ELFSection)
+      : Chunk<ELFT>(name, k, context), _parent(nullptr), _flags(0), _entSize(0),
         _type(0), _link(0), _info(0), _segmentType(SHT_NULL) {}
 
   /// \brief Modify the section contents before assigning virtual addresses
@@ -63,6 +63,9 @@ public:
   virtual bool hasOutputSegment() {
     return false;
   }
+
+  /// Return if the section is a loadable section that occupies memory
+  virtual bool isLoadableSection() const { return false; }
 
   /// \brief Assign file offsets starting at offset.
   virtual void assignOffsets(uint64_t offset) {}
@@ -81,36 +84,31 @@ public:
   /// \brief Return the type of content that the section contains
   virtual int getContentType() const {
     if (_flags & llvm::ELF::SHF_EXECINSTR)
-      return Chunk<ELFT>::CT_Code;
+      return Chunk<ELFT>::ContentType::Code;
     else if (_flags & llvm::ELF::SHF_WRITE)
-      return Chunk<ELFT>::CT_Data;
+      return Chunk<ELFT>::ContentType::Data;
     else if (_flags & llvm::ELF::SHF_ALLOC)
-      return Chunk<ELFT>::CT_Code;
+      return Chunk<ELFT>::ContentType::Code;
     else
-      return Chunk<ELFT>::CT_Unknown;
+      return Chunk<ELFT>::ContentType::Unknown;
   }
 
   /// \brief convert the segment type to a String for diagnostics and printing
   /// purposes
   StringRef segmentKindToStr() const;
 
-  // TODO: Move this down to AtomSection.
-  virtual bool findAtomAddrByName(StringRef name, uint64_t &addr) {
-    return false;
-  }
-
   /// \brief Records the segmentType, that this section belongs to
   void setSegmentType(const Layout::SegmentType segmentType) {
     this->_segmentType = segmentType;
   }
 
-  void setMergedSection(MergedSections<ELFT> *ms) {
-    _parent = ms;
-  }
+  virtual bool findAtomAddrByName(StringRef, uint64_t &) { return false; }
+
+  void setMergedSection(MergedSections<ELFT> *ms) { _parent = ms; }
 
   static bool classof(const Chunk<ELFT> *c) {
-    return c->kind() == Chunk<ELFT>::K_ELFSection ||
-           c->kind() == Chunk<ELFT>::K_AtomSection;
+    return c->kind() == Chunk<ELFT>::Kind::ELFSection ||
+           c->kind() == Chunk<ELFT>::Kind::AtomSection;
   }
 
 protected:
@@ -133,11 +131,13 @@ protected:
 /// \brief A section containing atoms.
 template <class ELFT> class AtomSection : public Section<ELFT> {
 public:
-  AtomSection(const ELFTargetInfo &ti, StringRef name, int32_t contentType,
-              int32_t permissions, int32_t order)
-      : Section<ELFT>(ti, name, Chunk<ELFT>::K_AtomSection),
-        _contentType(contentType), _contentPermissions(permissions) {
+  AtomSection(const ELFLinkingContext &context, StringRef name,
+              int32_t contentType, int32_t permissions, int32_t order)
+      : Section<ELFT>(context, name, Chunk<ELFT>::Kind::AtomSection),
+        _contentType(contentType), _contentPermissions(permissions),
+        _isLoadedInMemory(true) {
     this->setOrder(order);
+
     switch (contentType) {
     case DefinedAtom::typeCode:
     case DefinedAtom::typeDataFast:
@@ -146,14 +146,24 @@ public:
     case DefinedAtom::typeGOT:
     case DefinedAtom::typeStub:
     case DefinedAtom::typeResolver:
-    case DefinedAtom::typeTLVInitialData:
+    case DefinedAtom::typeThreadData:
       this->_type = SHT_PROGBITS;
       break;
 
-    case DefinedAtom::typeTLVInitialZeroFill:
+    case DefinedAtom::typeThreadZeroFill:
     case DefinedAtom::typeZeroFillFast:
     case DefinedAtom::typeZeroFill:
       this->_type = SHT_NOBITS;
+      break;
+
+    case DefinedAtom::typeRONote:
+    case DefinedAtom::typeRWNote:
+      this->_type = SHT_NOTE;
+      break;
+
+    case DefinedAtom::typeNoAlloc:
+      this->_type = SHT_PROGBITS;
+      this->_isLoadedInMemory = false;
       break;
     }
 
@@ -167,18 +177,24 @@ public:
     case DefinedAtom::permRW_:
     case DefinedAtom::permRW_L:
       this->_flags = SHF_ALLOC | SHF_WRITE;
-      if (_contentType == DefinedAtom::typeTLVInitialData ||
-          _contentType == DefinedAtom::typeTLVInitialZeroFill)
+      if (_contentType == DefinedAtom::typeThreadData ||
+          _contentType == DefinedAtom::typeThreadZeroFill)
         this->_flags |= SHF_TLS;
       break;
     case DefinedAtom::permRWX:
       this->_flags = SHF_ALLOC | SHF_WRITE | SHF_EXECINSTR;
+      break;
+    case DefinedAtom::perm___:
+      this->_flags = 0;
       break;
     }
   }
 
   /// Align the offset to the required modulus defined by the atom alignment
   uint64_t alignOffset(uint64_t offset, DefinedAtom::Alignment &atomAlign);
+
+  /// Return if the section is a loadable section that occupies memory
+  virtual bool isLoadableSection() const { return _isLoadedInMemory; }
 
   // \brief Append an atom to a Section. The atom gets pushed into a vector
   // contains the atom, the atom file offset, the atom virtual address
@@ -202,7 +218,7 @@ public:
     }
   }
 
-  /// \brief Find the Atom address given a name, this is needed to to properly
+  /// \brief Find the Atom address given a name, this is needed to properly
   ///  apply relocation. The section class calls this to find the atom address
   ///  to fix the relocation
   virtual bool findAtomAddrByName(StringRef name, uint64_t &addr) {
@@ -213,18 +229,6 @@ public:
       }
     }
     return false;
-  }
-
-  /// \brief Does the Atom occupy any disk space
-  bool occupiesNoDiskSpace() const {
-    return ((_contentType == DefinedAtom::typeZeroFill) ||
-            (_contentType == DefinedAtom::typeZeroFillFast));
-  }
-
-  /// \brief The permission of the section is the most permissive permission
-  /// of all atoms that the section contains
-  void setContentPermissions(int32_t perm) {
-    _contentPermissions = std::max(perm, _contentPermissions);
   }
 
   /// \brief Return the raw flags, we need this to sort segments
@@ -240,13 +244,14 @@ public:
   virtual void write(ELFWriter *writer, llvm::FileOutputBuffer &buffer);
 
   static bool classof(const Chunk<ELFT> *c) {
-    return c->kind() == Chunk<ELFT>::K_AtomSection;
+    return c->kind() == Chunk<ELFT>::Kind::AtomSection;
   }
 
 protected:
   llvm::BumpPtrAllocator _alloc;
   int32_t _contentType;
   int32_t _contentPermissions;
+  bool _isLoadedInMemory;
   std::vector<lld::AtomLayout *> _atoms;
 };
 
@@ -292,7 +297,9 @@ const lld::AtomLayout &AtomSection<ELFT>::appendAtom(const Atom *atom) {
     case DefinedAtom::typeGOT:
     case DefinedAtom::typeStub:
     case DefinedAtom::typeResolver:
-    case DefinedAtom::typeTLVInitialData:
+    case DefinedAtom::typeThreadData:
+    case DefinedAtom::typeRONote:
+    case DefinedAtom::typeRWNote:
       _atoms.push_back(new (_alloc) lld::AtomLayout(atom, fOffset, 0));
       this->_fsize = fOffset + definedAtom->size();
       this->_msize = mOffset + definedAtom->size();
@@ -301,7 +308,15 @@ const lld::AtomLayout &AtomSection<ELFT>::appendAtom(const Atom *atom) {
                                    << "Adding atom: " << atom->name() << "@"
                                    << fOffset << "\n");
       break;
-    case DefinedAtom::typeTLVInitialZeroFill:
+    case DefinedAtom::typeNoAlloc:
+      _atoms.push_back(new (_alloc) lld::AtomLayout(atom, fOffset, 0));
+      this->_fsize = fOffset + definedAtom->size();
+      DEBUG_WITH_TYPE("Section", llvm::dbgs() << "[" << this->name() << " "
+                                              << this << "] "
+                                              << "Adding atom: " << atom->name()
+                                              << "@" << fOffset << "\n");
+      break;
+    case DefinedAtom::typeThreadZeroFill:
     case DefinedAtom::typeZeroFill:
     case DefinedAtom::typeZeroFillFast:
       _atoms.push_back(new (_alloc) lld::AtomLayout(atom, mOffset, 0));
@@ -354,13 +369,12 @@ template <class ELFT>
 void AtomSection<ELFT>::write(ELFWriter *writer,
                               llvm::FileOutputBuffer &buffer) {
   uint8_t *chunkBuffer = buffer.getBufferStart();
-  parallel_for_each(_atoms.begin(), _atoms.end(), [&] (lld::AtomLayout *ai) {
+  parallel_for_each(_atoms.begin(), _atoms.end(), [&](lld::AtomLayout * ai) {
     DEBUG_WITH_TYPE("Section",
                     llvm::dbgs() << "Writing atom: " << ai->_atom->name()
                                  << " | " << ai->_fileOffset << "\n");
     const DefinedAtom *definedAtom = cast<DefinedAtom>(ai->_atom);
-    if ((definedAtom->contentType() == DefinedAtom::typeZeroFill) ||
-        (definedAtom->contentType() == DefinedAtom::typeZeroFillFast))
+    if (!definedAtom->occupiesDiskSpace())
       return;
     // Copy raw content of atom to file buffer.
     llvm::ArrayRef<uint8_t> content = definedAtom->rawContent();
@@ -370,8 +384,7 @@ void AtomSection<ELFT>::write(ELFWriter *writer,
     uint8_t *atomContent = chunkBuffer + ai->_fileOffset;
     std::memcpy(atomContent, content.data(), contentSize);
     const TargetRelocationHandler<ELFT> &relHandler =
-        this->_targetInfo.template getTargetHandler<ELFT>()
-        .getRelocationHandler();
+        this->_context.template getTargetHandler<ELFT>().getRelocationHandler();
     for (const auto ref : *definedAtom)
       relHandler.applyRelocation(*writer, buffer, *ai, *ref);
   });
@@ -419,6 +432,14 @@ public:
   // Sets the starting address of the section
   inline void setAddr(uint64_t addr) {
     _virtualAddr = addr;
+  }
+
+  // Is the section loadable ?
+  inline bool isLoadableSection() const { return _isLoadableSection; }
+
+  // Set section Loadable
+  inline void setLoadableSection(bool isLoadable) {
+    _isLoadableSection = isLoadable;
   }
 
   void setLink(uint64_t link) { _link = link; }
@@ -471,27 +492,16 @@ private:
   uint64_t _align2;
   int64_t _kind;
   int64_t _type;
+  bool _isLoadableSection;
   std::vector<Chunk<ELFT> *> _sections;
 };
 
 /// MergedSections
-template<class ELFT>
+template <class ELFT>
 MergedSections<ELFT>::MergedSections(StringRef name)
-  : _name(name)
-  ,_hasSegment(false)
-  ,_ordinal(0)
-  ,_flags(0)
-  ,_size(0)
-  ,_memSize(0)
-  ,_fileOffset(0)
-  ,_virtualAddr(0)
-  ,_shInfo(0)
-  ,_entSize(0)
-  ,_link(0)
-  ,_align2(0)
-  ,_kind(0)
-  ,_type(0) { }
-
+    : _name(name), _hasSegment(false), _ordinal(0), _flags(0), _size(0),
+      _memSize(0), _fileOffset(0), _virtualAddr(0), _shInfo(0), _entSize(0),
+      _link(0), _align2(0), _kind(0), _type(0), _isLoadableSection(false) {}
 
 template<class ELFT>
 void
@@ -516,7 +526,7 @@ MergedSections<ELFT>::appendSection(Chunk<ELFT> *c) {
 template<class ELFT>
 class StringTable : public Section<ELFT> {
 public:
-  StringTable(const ELFTargetInfo &, const char *str, int32_t order,
+  StringTable(const ELFLinkingContext &, const char *str, int32_t order,
               bool dynamic = false);
 
   uint64_t addString(StringRef symname);
@@ -547,9 +557,9 @@ private:
 };
 
 template <class ELFT>
-StringTable<ELFT>::StringTable(const ELFTargetInfo &ti, const char *str,
-                               int32_t order, bool dynamic)
-    : Section<ELFT>(ti, str) {
+StringTable<ELFT>::StringTable(const ELFLinkingContext &context,
+                               const char *str, int32_t order, bool dynamic)
+    : Section<ELFT>(context, str) {
   // the string table has a NULL entry for which
   // add an empty string
   _strings.push_back("");
@@ -612,7 +622,7 @@ class SymbolTable : public Section<ELFT> {
   };
 
 public:
-  SymbolTable(const ELFTargetInfo &ti, const char *str, int32_t order);
+  SymbolTable(const ELFLinkingContext &context, const char *str, int32_t order);
 
   /// \brief set the number of entries that would exist in the symbol
   /// table for the current link
@@ -671,9 +681,9 @@ protected:
 
 /// ELF Symbol Table
 template <class ELFT>
-SymbolTable<ELFT>::SymbolTable(const ELFTargetInfo &ti, const char *str,
-                               int32_t order)
-    : Section<ELFT>(ti, str) {
+SymbolTable<ELFT>::SymbolTable(const ELFLinkingContext &context,
+                               const char *str, int32_t order)
+    : Section<ELFT>(context, str) {
   this->setOrder(order);
   Elf_Sym symbol;
   std::memset(&symbol, 0, sizeof(Elf_Sym));
@@ -715,8 +725,8 @@ void SymbolTable<ELFT>::addDefinedAtom(Elf_Sym &sym, const DefinedAtom *da,
     type = llvm::ELF::STT_OBJECT;
     sym.st_value = addr;
     break;
-  case DefinedAtom::typeTLVInitialData:
-  case DefinedAtom::typeTLVInitialZeroFill:
+  case DefinedAtom::typeThreadData:
+  case DefinedAtom::typeThreadZeroFill:
     type = llvm::ELF::STT_TLS;
     sym.st_value = addr;
     break;
@@ -850,8 +860,9 @@ template <class ELFT> class HashSection;
 
 template <class ELFT> class DynamicSymbolTable : public SymbolTable<ELFT> {
 public:
-  DynamicSymbolTable(const ELFTargetInfo &ti, const char *str, int32_t order)
-      : SymbolTable<ELFT>(ti, str, order), _hashTable(nullptr) {
+  DynamicSymbolTable(const ELFLinkingContext &context, const char *str,
+                     int32_t order)
+      : SymbolTable<ELFT>(context, str, order), _hashTable(nullptr) {
     this->_type = SHT_DYNSYM;
     this->_flags = SHF_ALLOC;
     this->_msize = this->_fsize;
@@ -895,8 +906,9 @@ template <class ELFT> class RelocationTable : public Section<ELFT> {
 public:
   typedef llvm::object::Elf_Rel_Impl<ELFT, true> Elf_Rela;
 
-  RelocationTable(const ELFTargetInfo &ti, StringRef str, int32_t order)
-      : Section<ELFT>(ti, str), _symbolTable(nullptr) {
+  RelocationTable(const ELFLinkingContext &context, StringRef str,
+                  int32_t order)
+      : Section<ELFT>(context, str), _symbolTable(nullptr) {
     this->setOrder(order);
     this->_entSize = sizeof(Elf_Rela);
     this->_align2 = llvm::alignOf<Elf_Rela>();
@@ -949,13 +961,13 @@ public:
           writer->addressOfAtom(rel.first) + rel.second->offsetInAtom();
       r->r_addend = 0;
       // The addend is used only by relative relocations
-      if (this->_targetInfo.isRelativeReloc(*rel.second))
+      if (this->_context.isRelativeReloc(*rel.second))
         r->r_addend =
             writer->addressOfAtom(rel.second->target()) + rel.second->addend();
       dest += sizeof(Elf_Rela);
       DEBUG_WITH_TYPE(
           "ELFRelocationTable",
-          llvm::dbgs() << kindOrUnknown(this->_targetInfo.stringFromRelocKind(
+          llvm::dbgs() << kindOrUnknown(this->_context.stringFromRelocKind(
                               rel.second->kind())) << " relocation at "
                        << rel.first->name() << "@" << r->r_offset << " to "
                        << rel.second->target()->name() << "@" << r->r_addend
@@ -975,8 +987,8 @@ template <class ELFT> class DynamicTable : public Section<ELFT> {
   typedef std::vector<Elf_Dyn> EntriesT;
 
 public:
-  DynamicTable(const ELFTargetInfo &ti, StringRef str, int32_t order)
-      : Section<ELFT>(ti, str) {
+  DynamicTable(const ELFLinkingContext &context, StringRef str, int32_t order)
+      : Section<ELFT>(context, str) {
     this->setOrder(order);
     this->_entSize = sizeof(Elf_Dyn);
     this->_align2 = llvm::alignOf<Elf_Dyn>();
@@ -985,7 +997,7 @@ public:
     this->_msize = sizeof(Elf_Dyn);
     this->_type = SHT_DYNAMIC;
     this->_flags = SHF_ALLOC;
-    _layout = &ti.getTargetHandler<ELFT>().targetLayout();
+    _layout = &context.getTargetHandler<ELFT>().targetLayout();
   }
 
   range<typename EntriesT::iterator> entries() { return _entries; }
@@ -1105,10 +1117,9 @@ private:
 
 template <class ELFT> class InterpSection : public Section<ELFT> {
 public:
-  InterpSection(const ELFTargetInfo &ti, StringRef str, int32_t order,
+  InterpSection(const ELFLinkingContext &context, StringRef str, int32_t order,
                 StringRef interp)
-      : Section<ELFT>(ti, str),
-        _interp(interp){
+      : Section<ELFT>(context, str), _interp(interp) {
     this->setOrder(order);
     this->_align2 = 1;
     // + 1 for null term.
@@ -1155,14 +1166,14 @@ template <class ELFT> class HashSection : public Section<ELFT> {
   };
 
 public:
-  HashSection(const ELFTargetInfo &ti, StringRef name, int32_t order)
-      : Section<ELFT>(ti, name), _symbolTable(nullptr) {
+  HashSection(const ELFLinkingContext &context, StringRef name, int32_t order)
+      : Section<ELFT>(context, name), _symbolTable(nullptr) {
     this->setOrder(order);
     this->_entSize = 4;
     this->_type = SHT_HASH;
     this->_flags = SHF_ALLOC;
     // Set the alignment properly depending on the target architecture
-    if (ti.is64Bits())
+    if (context.is64Bits())
       this->_align2 = 8;
     else
       this->_align2 = 4;

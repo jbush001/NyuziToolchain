@@ -34,6 +34,7 @@ namespace driver {
   class Compilation;
   class Driver;
   class JobAction;
+  class SanitizerArgs;
   class Tool;
 
 /// ToolChain - Access to tools for a single platform.
@@ -124,6 +125,8 @@ public:
   path_list &getProgramPaths() { return ProgramPaths; }
   const path_list &getProgramPaths() const { return ProgramPaths; }
 
+  const SanitizerArgs& getSanitizerArgs() const;
+
   // Tool access.
 
   /// TranslateArgs - Create a new derived argument list for any argument
@@ -144,6 +147,13 @@ public:
 
   std::string GetFilePath(const char *Name) const;
   std::string GetProgramPath(const char *Name) const;
+
+  /// \brief Dispatch to the specific toolchain for verbose printing.
+  ///
+  /// This is used when handling the verbose option to print detailed,
+  /// toolchain-specific information useful for understanding the behavior of
+  /// the driver on a specific platform.
+  virtual void printVerboseInfo(raw_ostream &OS) const {};
 
   // Platform defaults information
 

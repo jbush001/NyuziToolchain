@@ -20,10 +20,6 @@ namespace lld {
 namespace coff {
 class COFFDefinedAtom;
 
-using llvm::object::COFFObjectFile;
-using llvm::object::coff_section;
-using llvm::object::coff_symbol;
-
 /// A COFFReference represents relocation information for an atom. For
 /// example, if atom X has a reference to atom Y with offsetInAtom=8, that
 /// means that the address starting at 8th byte of the content of atom X needs
@@ -58,41 +54,36 @@ private:
 
 class COFFAbsoluteAtom : public AbsoluteAtom {
 public:
-  COFFAbsoluteAtom(const File &f, StringRef n, const coff_symbol *s)
-      : _owningFile(f), _name(n), _symbol(s) {}
+  COFFAbsoluteAtom(const File &f, StringRef name, Scope scope, uint64_t value)
+      : _owningFile(f), _name(name), _scope(scope), _value(value) {}
 
   virtual const File &file() const { return _owningFile; }
-
-  virtual Scope scope() const {
-    if (_symbol->StorageClass == llvm::COFF::IMAGE_SYM_CLASS_STATIC)
-      return scopeTranslationUnit;
-    return scopeGlobal;
-  }
-
+  virtual Scope scope() const { return _scope; }
   virtual StringRef name() const { return _name; }
-
-  virtual uint64_t value() const { return _symbol->Value; }
+  virtual uint64_t value() const { return _value; }
 
 private:
   const File &_owningFile;
   StringRef _name;
-  const coff_symbol *_symbol;
+  Scope _scope;
+  uint64_t _value;
 };
 
 class COFFUndefinedAtom : public UndefinedAtom {
 public:
-  COFFUndefinedAtom(const File &f, StringRef n)
-      : _owningFile(f), _name(n) {}
+  COFFUndefinedAtom(const File &file, StringRef name,
+                    const UndefinedAtom *fallback = nullptr)
+      : _owningFile(file), _name(name), _fallback(fallback) {}
 
   virtual const File &file() const { return _owningFile; }
-
   virtual StringRef name() const { return _name; }
-
   virtual CanBeNull canBeNull() const { return CanBeNull::canBeNullNever; }
+  virtual const UndefinedAtom *fallback() const { return _fallback; }
 
 private:
   const File &_owningFile;
   StringRef _name;
+  const UndefinedAtom *_fallback;
 };
 
 /// The base class of all COFF defined atoms. A derived class of
@@ -109,7 +100,7 @@ public:
   virtual StringRef name() const { return _name; }
   virtual Interposable interposable() const { return interposeNo; }
   virtual Merge merge() const { return mergeNo; }
-  virtual Alignment alignment() const { return Alignment(1); }
+  virtual Alignment alignment() const { return Alignment(0); }
   virtual SectionChoice sectionChoice() const { return sectionBasedOnContent; }
   virtual StringRef customSectionName() const { return ""; }
   virtual SectionPosition sectionPosition() const { return sectionPositionAny; }
@@ -152,68 +143,77 @@ private:
   std::vector<std::unique_ptr<COFFReference>> _references;
 };
 
-/// A COFFDefinedAtom represents an atom read from a file.
-class COFFDefinedAtom : public COFFBaseDefinedAtom {
+/// This is the root class of the atom read from a file. This class have two
+/// subclasses; one for the regular atom and another for the BSS atom.
+class COFFDefinedFileAtom : public COFFBaseDefinedAtom {
 public:
-  COFFDefinedAtom(const File &file, StringRef name, const coff_symbol *symbol,
-                  const coff_section *section, ArrayRef<uint8_t> data,
-                  StringRef sectionName, uint64_t ordinal)
-      : COFFBaseDefinedAtom(file, name, Kind::File), _symbol(symbol),
-        _section(section), _dataref(data), _sectionName(sectionName),
-        _ordinal(ordinal) {}
-
-  virtual uint64_t ordinal() const { return _ordinal; }
-  uint64_t originalOffset() const { return _symbol->Value; }
-  virtual StringRef getSectionName() const { return _sectionName; }
-  virtual uint64_t size() const { return _dataref.size(); }
-  virtual ArrayRef<uint8_t> rawContent() const { return _dataref; }
+  COFFDefinedFileAtom(const File &file, StringRef name, StringRef sectionName,
+                      Scope scope, ContentType contentType,
+                      ContentPermissions perms, uint64_t ordinal)
+      : COFFBaseDefinedAtom(file, name, Kind::File), _sectionName(sectionName),
+        _scope(scope), _contentType(contentType), _permissions(perms),
+        _ordinal(ordinal), _alignment(0) {}
 
   static bool classof(const COFFBaseDefinedAtom *atom) {
     return atom->getKind() == Kind::File;
   }
 
-  virtual Scope scope() const {
-    if (!_symbol)
-      return scopeTranslationUnit;
-    switch (_symbol->StorageClass) {
-    case llvm::COFF::IMAGE_SYM_CLASS_EXTERNAL:
-      return scopeGlobal;
-    case llvm::COFF::IMAGE_SYM_CLASS_STATIC:
-      return scopeTranslationUnit;
-    }
-    llvm_unreachable("Unknown scope!");
-  }
+  void setAlignment(Alignment val) { _alignment = val; };
 
-  virtual ContentType contentType() const {
-    if (_section->Characteristics & llvm::COFF::IMAGE_SCN_CNT_CODE)
-      return typeCode;
-    if (_section->Characteristics & llvm::COFF::IMAGE_SCN_CNT_INITIALIZED_DATA)
-      return typeData;
-    if (_section->Characteristics &
-        llvm::COFF::IMAGE_SCN_CNT_UNINITIALIZED_DATA)
-      return typeZeroFill;
-    return typeUnknown;
-  }
-
-  virtual ContentPermissions permissions() const {
-    if (_section->Characteristics & llvm::COFF::IMAGE_SCN_MEM_READ &&
-        _section->Characteristics & llvm::COFF::IMAGE_SCN_MEM_WRITE)
-      return permRW_;
-    if (_section->Characteristics & llvm::COFF::IMAGE_SCN_MEM_READ &&
-        _section->Characteristics & llvm::COFF::IMAGE_SCN_MEM_EXECUTE)
-      return permR_X;
-    if (_section->Characteristics & llvm::COFF::IMAGE_SCN_MEM_READ)
-      return permR__;
-    return perm___;
-  }
+  virtual StringRef getSectionName() const { return _sectionName; }
+  virtual Scope scope() const { return _scope; }
+  virtual ContentType contentType() const { return _contentType; }
+  virtual ContentPermissions permissions() const { return _permissions; }
+  virtual uint64_t ordinal() const { return _ordinal; }
+  virtual Alignment alignment() const { return _alignment; }
 
 private:
-  const coff_symbol *_symbol;
-  const coff_section *_section;
-  ArrayRef<uint8_t> _dataref;
   StringRef _sectionName;
-  std::vector<std::unique_ptr<COFFReference>> _references;
+  Scope _scope;
+  ContentType _contentType;
+  ContentPermissions _permissions;
   uint64_t _ordinal;
+  Alignment _alignment;
+  std::vector<std::unique_ptr<COFFReference>> _references;
+};
+
+// A COFFDefinedAtom represents an atom read from a file and has contents.
+class COFFDefinedAtom : public COFFDefinedFileAtom {
+public:
+  COFFDefinedAtom(const File &file, StringRef name, StringRef sectionName,
+                  Scope scope, ContentType type, ContentPermissions perms,
+                  Merge merge, ArrayRef<uint8_t> data, uint64_t ordinal)
+      : COFFDefinedFileAtom(file, name, sectionName, scope, type, perms,
+                            ordinal),
+        _merge(merge), _dataref(data) {}
+
+  virtual Merge merge() const { return _merge; }
+  virtual uint64_t size() const { return _dataref.size(); }
+  virtual ArrayRef<uint8_t> rawContent() const { return _dataref; }
+
+private:
+  Merge _merge;
+  ArrayRef<uint8_t> _dataref;
+};
+
+// A COFFDefinedAtom represents an atom for BSS section.
+class COFFBSSAtom : public COFFDefinedFileAtom {
+public:
+  COFFBSSAtom(const File &file, StringRef name, Scope scope,
+              ContentPermissions perms, Merge merge, uint32_t size,
+              uint64_t ordinal)
+      : COFFDefinedFileAtom(file, name, "", scope, typeZeroFill, perms,
+                            ordinal),
+        _merge(merge), _size(size) {}
+
+  virtual Merge merge() const { return _merge; }
+  virtual uint64_t size() const { return _size; }
+  virtual ArrayRef<uint8_t> rawContent() const { return _contents; }
+
+private:
+  Merge _merge;
+  uint32_t _size;
+  std::vector<uint8_t> _contents;
 };
 
 /// A COFFLinkerInternalAtom represents a defined atom created by the linker,
@@ -222,7 +222,7 @@ class COFFLinkerInternalAtom : public COFFBaseDefinedAtom {
 public:
   virtual uint64_t ordinal() const { return 0; }
   virtual Scope scope() const { return scopeGlobal; }
-  virtual Alignment alignment() const { return Alignment(1); }
+  virtual Alignment alignment() const { return Alignment(0); }
   virtual uint64_t size() const { return _data.size(); }
   virtual ArrayRef<uint8_t> rawContent() const { return _data; }
 
@@ -240,8 +240,8 @@ private:
 // COFF header.
 class COFFDataDirectoryAtom : public COFFLinkerInternalAtom {
 public:
-  COFFDataDirectoryAtom(const File &file, uint64_t ordinal)
-      : COFFLinkerInternalAtom(file, std::vector<uint8_t>(8)),
+  COFFDataDirectoryAtom(const File &file, uint64_t ordinal, uint32_t entrySize)
+      : COFFLinkerInternalAtom(file, assembleRawContent(entrySize)),
         _ordinal(ordinal) {}
 
   virtual uint64_t ordinal() const { return _ordinal; }
@@ -249,6 +249,12 @@ public:
   virtual ContentPermissions permissions() const { return permR__; }
 
 private:
+  std::vector<uint8_t> assembleRawContent(uint32_t entrySize) {
+    std::vector<uint8_t> data = std::vector<uint8_t>(8, 0);
+    *(reinterpret_cast<uint32_t *>(&data[4])) = entrySize;
+    return data;
+  }
+
   uint64_t _ordinal;
 };
 
@@ -257,17 +263,23 @@ private:
 // to an import address table entry in Idata pass.
 class COFFSharedLibraryAtom : public SharedLibraryAtom {
 public:
-  COFFSharedLibraryAtom(const File &file, uint16_t hint,
-                        StringRef symbolName, StringRef loadName)
-      : _file(file), _hint(hint), _unmangledName(symbolName),
-        _loadName(loadName), _mangledName(addImpPrefix(symbolName)),
+  COFFSharedLibraryAtom(const File &file, uint16_t hint, StringRef symbolName,
+                        StringRef importName, StringRef dllName)
+      : _file(file), _hint(hint), _mangledName(addImpPrefix(symbolName)),
+        _importName(importName), _dllName(dllName),
         _importTableEntry(nullptr) {}
 
   virtual const File &file() const { return _file; }
   uint16_t hint() const { return _hint; }
+
+  /// Returns the symbol name to be used by the core linker.
   virtual StringRef name() const { return _mangledName; }
-  virtual StringRef unmangledName() const { return _unmangledName; }
-  virtual StringRef loadName() const { return _loadName; }
+
+  /// Returns the symbol name to be used in the import description table in the
+  /// COFF header.
+  virtual StringRef importName() const { return _importName; }
+
+  virtual StringRef loadName() const { return _dllName; }
   virtual bool canBeNullAtRuntime() const { return false; }
 
   void setImportTableEntry(const DefinedAtom *atom) {
@@ -289,9 +301,9 @@ private:
 
   const File &_file;
   uint16_t _hint;
-  StringRef _unmangledName;
-  StringRef _loadName;
   std::string _mangledName;
+  std::string _importName;
+  StringRef _dllName;
   const DefinedAtom *_importTableEntry;
 };
 

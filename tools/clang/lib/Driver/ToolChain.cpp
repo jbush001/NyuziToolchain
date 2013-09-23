@@ -42,6 +42,10 @@ bool ToolChain::useIntegratedAs() const {
                       IsIntegratedAssemblerDefault());
 }
 
+const SanitizerArgs& ToolChain::getSanitizerArgs() const {
+  return D.getOrParseSanitizerArgs(Args);
+}
+
 std::string ToolChain::getDefaultUniversalArchName() const {
   // In universal driver terms, the arch name accepted by -arch isn't exactly
   // the same as the ones that appear in the triple. Roughly speaking, this is
@@ -52,6 +56,8 @@ std::string ToolChain::getDefaultUniversalArchName() const {
     return "ppc";
   case llvm::Triple::ppc64:
     return "ppc64";
+  case llvm::Triple::ppc64le:
+    return "ppc64le";
   default:
     return Triple.getArchName();
   }
@@ -174,7 +180,7 @@ static const char *getARMTargetCPU(const ArgList &Args,
     MArch = Triple.getArchName();
   }
 
-  return llvm::StringSwitch<const char *>(MArch)
+  const char *result = llvm::StringSwitch<const char *>(MArch)
     .Cases("armv2", "armv2a","arm2")
     .Case("armv3", "arm6")
     .Case("armv3m", "arm7m")
@@ -201,7 +207,15 @@ static const char *getARMTargetCPU(const ArgList &Args,
     .Case("xscale", "xscale")
     // If all else failed, return the most base CPU with thumb interworking
     // supported by LLVM.
-    .Default("arm7tdmi");
+    .Default(0);
+
+  if (result)
+    return result;
+
+  return
+    Triple.getEnvironment() == llvm::Triple::GNUEABIHF
+      ? "arm1176jzf-s"
+      : "arm7tdmi";
 }
 
 /// getLLVMArchSuffixForARM - Get the LLVM arch name to use for a particular
@@ -224,8 +238,8 @@ static const char *getLLVMArchSuffixForARM(StringRef CPU) {
     .Cases("arm1176jzf-s",  "mpcorenovfp",  "mpcore", "v6")
     .Cases("arm1156t2-s",  "arm1156t2f-s", "v6t2")
     .Cases("cortex-a5", "cortex-a7", "cortex-a8", "v7")
-    .Cases("cortex-a9", "cortex-a15", "v7")
-    .Case("cortex-r5", "v7r")
+    .Cases("cortex-a9", "cortex-a12", "cortex-a15", "v7")
+    .Cases("cortex-r4", "cortex-r5", "v7r")
     .Case("cortex-m0", "v6m")
     .Case("cortex-m3", "v7m")
     .Case("cortex-m4", "v7em")

@@ -685,8 +685,12 @@ const PseudoObjectExpr *ObjCMethodCall::getContainingPseudoObjectExpr() const {
 
 ObjCMessageKind ObjCMethodCall::getMessageKind() const {
   if (Data == 0) {
+
+    // Find the parent, ignoring implicit casts.
     ParentMap &PM = getLocationContext()->getParentMap();
-    const Stmt *S = PM.getParent(getOriginExpr());
+    const Stmt *S = PM.getParentIgnoreParenCasts(getOriginExpr());
+
+    // Check if parent is a PseudoObjectExpr.
     if (const PseudoObjectExpr *POE = dyn_cast_or_null<PseudoObjectExpr>(S)) {
       const Expr *Syntactic = POE->getSyntacticForm();
 
@@ -741,7 +745,7 @@ bool ObjCMethodCall::canBeOverridenInSubclass(ObjCInterfaceDecl *IDecl,
   // TODO: It could actually be subclassed if the subclass is private as well.
   // This is probably very rare.
   SourceLocation InterfLoc = IDecl->getEndOfDefinitionLoc();
-  if (InterfLoc.isValid() && SM.isFromMainFile(InterfLoc))
+  if (InterfLoc.isValid() && SM.isInMainFile(InterfLoc))
     return false;
 
   // Assume that property accessors are not overridden.
@@ -763,7 +767,7 @@ bool ObjCMethodCall::canBeOverridenInSubclass(ObjCInterfaceDecl *IDecl,
       return false;
 
     // If outside the main file,
-    if (D->getLocation().isValid() && !SM.isFromMainFile(D->getLocation()))
+    if (D->getLocation().isValid() && !SM.isInMainFile(D->getLocation()))
       return true;
 
     if (D->isOverriding()) {

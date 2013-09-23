@@ -16,9 +16,9 @@
 #include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCSectionMachO.h"
 #include "llvm/MC/MCValue.h"
-#include "llvm/Object/MachOFormat.h"
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MachO.h"
 #include "llvm/Support/TargetRegistry.h"
 using namespace llvm;
 
@@ -69,19 +69,6 @@ static unsigned getFixupKindNumBytes(unsigned Kind) {
 }
 
 namespace {
-class PPCMachObjectWriter : public MCMachObjectTargetWriter {
-public:
-  PPCMachObjectWriter(bool Is64Bit, uint32_t CPUType,
-                      uint32_t CPUSubtype)
-    : MCMachObjectTargetWriter(Is64Bit, CPUType, CPUSubtype) {}
-
-  void RecordRelocation(MachObjectWriter *Writer,
-                        const MCAssembler &Asm, const MCAsmLayout &Layout,
-                        const MCFragment *Fragment, const MCFixup &Fixup,
-                        MCValue Target, uint64_t &FixedValue) {
-    llvm_unreachable("Relocation emission for MachO/PPC unimplemented!");
-  }
-};
 
 class PPCAsmBackend : public MCAsmBackend {
 const Target &TheTarget;
@@ -158,7 +145,7 @@ public:
 
   unsigned getPointerSize() const {
     StringRef Name = TheTarget.getName();
-    if (Name == "ppc64") return 8;
+    if (Name == "ppc64" || Name == "ppc64le") return 8;
     assert(Name == "ppc32" && "Unknown target name!");
     return 4;
   }
@@ -174,12 +161,11 @@ namespace {
 
     MCObjectWriter *createObjectWriter(raw_ostream &OS) const {
       bool is64 = getPointerSize() == 8;
-      return createMachObjectWriter(new PPCMachObjectWriter(
-                                      /*Is64Bit=*/is64,
-                                      (is64 ? object::mach::CTM_PowerPC64 :
-                                       object::mach::CTM_PowerPC),
-                                      object::mach::CSPPC_ALL),
-                                    OS, /*IsLittleEndian=*/false);
+      return createPPCMachObjectWriter(
+          OS,
+          /*Is64Bit=*/is64,
+          (is64 ? MachO::CPU_TYPE_POWERPC64 : MachO::CPU_TYPE_POWERPC),
+          MachO::CPU_SUBTYPE_POWERPC_ALL);
     }
 
     virtual bool doesSectionRequireSymbols(const MCSection &Section) const {
@@ -206,10 +192,9 @@ namespace {
 
 } // end anonymous namespace
 
-
-
-
-MCAsmBackend *llvm::createPPCAsmBackend(const Target &T, StringRef TT, StringRef CPU) {
+MCAsmBackend *llvm::createPPCAsmBackend(const Target &T,
+                                        const MCRegisterInfo &MRI,
+                                        StringRef TT, StringRef CPU) {
   if (Triple(TT).isOSDarwin())
     return new DarwinPPCAsmBackend(T);
 

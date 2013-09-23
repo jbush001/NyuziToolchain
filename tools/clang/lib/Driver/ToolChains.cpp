@@ -8,13 +8,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "ToolChains.h"
-#include "SanitizerArgs.h"
 #include "clang/Basic/ObjCRuntime.h"
 #include "clang/Basic/Version.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/Options.h"
+#include "clang/Driver/SanitizerArgs.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
@@ -124,7 +124,9 @@ static const char *GetArmArchForMCpu(StringRef Value) {
     .Case("xscale", "xscale")
     .Cases("arm1136j-s", "arm1136jf-s", "arm1176jz-s", "arm1176jzf-s", "armv6")
     .Case("cortex-m0", "armv6m")
-    .Cases("cortex-a8", "cortex-r4", "cortex-a9", "cortex-a15", "armv7")
+    .Cases("cortex-a5", "cortex-a7", "cortex-a8", "armv7")
+    .Cases("cortex-a9", "cortex-a12", "cortex-a15", "armv7")
+    .Cases("cortex-r4", "cortex-r5", "armv7r")
     .Case("cortex-a9-mp", "armv7f")
     .Case("cortex-m3", "armv7m")
     .Case("cortex-m4", "armv7em")
@@ -290,7 +292,7 @@ void DarwinClang::AddLinkRuntimeLibArgs(const ArgList &Args,
     }
   }
 
-  SanitizerArgs Sanitize(*this, Args);
+  const SanitizerArgs &Sanitize = getDriver().getOrParseSanitizerArgs(Args);
 
   // Add Ubsan runtime library, if required.
   if (Sanitize.needsUbsanRt()) {
@@ -312,15 +314,13 @@ void DarwinClang::AddLinkRuntimeLibArgs(const ArgList &Args,
       getDriver().Diag(diag::err_drv_clang_unsupported_per_platform)
         << "-fsanitize=address";
     } else {
-      if (Args.hasArg(options::OPT_dynamiclib) ||
-          Args.hasArg(options::OPT_bundle)) {
-        // Assume the binary will provide the ASan runtime.
-      } else {
-        AddLinkRuntimeLib(Args, CmdArgs,
-                          "libclang_rt.asan_osx_dynamic.dylib", true);
+      if (!Args.hasArg(options::OPT_dynamiclib) &&
+          !Args.hasArg(options::OPT_bundle)) {
         // The ASAN runtime library requires C++.
         AddCXXStdlibLibArgs(Args, CmdArgs);
       }
+      AddLinkRuntimeLib(Args, CmdArgs,
+                        "libclang_rt.asan_osx_dynamic.dylib", true);
     }
   }
 
@@ -752,7 +752,7 @@ DerivedArgList *Darwin::TranslateArgs(const DerivedArgList &Args,
     else if (Name == "ppc970")
       DAL->AddJoinedArg(0, MCpu, "970");
 
-    else if (Name == "ppc64")
+    else if (Name == "ppc64" || Name == "ppc64le")
       DAL->AddFlagArg(0, Opts.getOption(options::OPT_m64));
 
     else if (Name == "i386")
@@ -907,17 +907,19 @@ Darwin_Generic_GCC::ComputeEffectiveClangTriple(const ArgList &Args,
 /// This is the primary means of forming GCCVersion objects.
 /*static*/
 Generic_GCC::GCCVersion Linux::GCCVersion::Parse(StringRef VersionText) {
-  const GCCVersion BadVersion = { VersionText.str(), -1, -1, -1, "" };
+  const GCCVersion BadVersion = { VersionText.str(), -1, -1, -1, "", "", "" };
   std::pair<StringRef, StringRef> First = VersionText.split('.');
   std::pair<StringRef, StringRef> Second = First.second.split('.');
 
-  GCCVersion GoodVersion = { VersionText.str(), -1, -1, -1, "" };
+  GCCVersion GoodVersion = { VersionText.str(), -1, -1, -1, "", "", "" };
   if (First.first.getAsInteger(10, GoodVersion.Major) ||
       GoodVersion.Major < 0)
     return BadVersion;
+  GoodVersion.MajorStr = First.first.str();
   if (Second.first.getAsInteger(10, GoodVersion.Minor) ||
       GoodVersion.Minor < 0)
     return BadVersion;
+  GoodVersion.MinorStr = Second.first.str();
 
   // First look for a number prefix and parse that if present. Otherwise just
   // stash the entire patch string in the suffix, and leave the number
@@ -935,7 +937,7 @@ Generic_GCC::GCCVersion Linux::GCCVersion::Parse(StringRef VersionText) {
       if (PatchText.slice(0, EndNumber).getAsInteger(10, GoodVersion.Patch) ||
           GoodVersion.Patch < 0)
         return BadVersion;
-      GoodVersion.PatchSuffix = PatchText.substr(EndNumber).str();
+      GoodVersion.PatchSuffix = PatchText.substr(EndNumber);
     }
   }
 
@@ -943,31 +945,33 @@ Generic_GCC::GCCVersion Linux::GCCVersion::Parse(StringRef VersionText) {
 }
 
 /// \brief Less-than for GCCVersion, implementing a Strict Weak Ordering.
-bool Generic_GCC::GCCVersion::operator<(const GCCVersion &RHS) const {
-  if (Major != RHS.Major)
-    return Major < RHS.Major;
-  if (Minor != RHS.Minor)
-    return Minor < RHS.Minor;
-  if (Patch != RHS.Patch) {
+bool Generic_GCC::GCCVersion::isOlderThan(int RHSMajor, int RHSMinor,
+                                          int RHSPatch,
+                                          StringRef RHSPatchSuffix) const {
+  if (Major != RHSMajor)
+    return Major < RHSMajor;
+  if (Minor != RHSMinor)
+    return Minor < RHSMinor;
+  if (Patch != RHSPatch) {
     // Note that versions without a specified patch sort higher than those with
     // a patch.
-    if (RHS.Patch == -1)
+    if (RHSPatch == -1)
       return true;
     if (Patch == -1)
       return false;
 
     // Otherwise just sort on the patch itself.
-    return Patch < RHS.Patch;
+    return Patch < RHSPatch;
   }
-  if (PatchSuffix != RHS.PatchSuffix) {
+  if (PatchSuffix != RHSPatchSuffix) {
     // Sort empty suffixes higher.
-    if (RHS.PatchSuffix.empty())
+    if (RHSPatchSuffix.empty())
       return true;
     if (PatchSuffix.empty())
       return false;
 
     // Provide a lexicographic sort to make this a total ordering.
-    return PatchSuffix < RHS.PatchSuffix;
+    return PatchSuffix < RHSPatchSuffix;
   }
 
   // The versions are equal.
@@ -1017,9 +1021,18 @@ Generic_GCC::GCCInstallationDetector::GCCInstallationDetector(
 
     Prefixes.push_back(GCCToolchainDir);
   } else {
-    Prefixes.push_back(D.SysRoot);
-    Prefixes.push_back(D.SysRoot + "/usr");
+    // If we have a SysRoot, try that first.
+    if (!D.SysRoot.empty()) {
+      Prefixes.push_back(D.SysRoot);
+      Prefixes.push_back(D.SysRoot + "/usr");
+    }
+
+    // Then look for gcc installed alongside clang.
     Prefixes.push_back(D.InstalledDir + "/..");
+
+    // And finally in /usr.
+    if (D.SysRoot.empty())
+      Prefixes.push_back("/usr");
   }
 
   // Loop over the various components which exist and select the best GCC
@@ -1047,6 +1060,16 @@ Generic_GCC::GCCInstallationDetector::GCCInstallationDetector(
                                /*NeedsBiarchSuffix=*/ true);
     }
   }
+}
+
+void Generic_GCC::GCCInstallationDetector::print(raw_ostream &OS) const {
+  for (std::set<std::string>::const_iterator
+           I = CandidateGCCInstallPaths.begin(),
+           E = CandidateGCCInstallPaths.end();
+       I != E; ++I)
+    OS << "Found candidate GCC installation: " << *I << "\n";
+
+  OS << "Selected GCC installation: " << GCCInstallPath << "\n";
 }
 
 /*static*/ void Generic_GCC::GCCInstallationDetector::CollectLibDirsAndTriples(
@@ -1104,6 +1127,11 @@ Generic_GCC::GCCInstallationDetector::GCCInstallationDetector(
                                               "powerpc64-unknown-linux-gnu",
                                               "powerpc64-suse-linux",
                                               "ppc64-redhat-linux" };
+  static const char *const PPC64LELibDirs[] = { "/lib64", "/lib" };
+  static const char *const PPC64LETriples[] = { "powerpc64le-linux-gnu",
+                                                "powerpc64le-unknown-linux-gnu",
+                                                "powerpc64le-suse-linux",
+                                                "ppc64le-redhat-linux" };
 
   static const char *const SystemZLibDirs[] = { "/lib64", "/lib" };
   static const char *const SystemZTriples[] = {
@@ -1213,6 +1241,12 @@ Generic_GCC::GCCInstallationDetector::GCCInstallationDetector(
                          PPCLibDirs + llvm::array_lengthof(PPCLibDirs));
     BiarchTripleAliases.append(PPCTriples,
                                PPCTriples + llvm::array_lengthof(PPCTriples));
+    break;
+  case llvm::Triple::ppc64le:
+    LibDirs.append(PPC64LELibDirs,
+                   PPC64LELibDirs + llvm::array_lengthof(PPC64LELibDirs));
+    TripleAliases.append(PPC64LETriples,
+                         PPC64LETriples + llvm::array_lengthof(PPC64LETriples));
     break;
   case llvm::Triple::systemz:
     LibDirs.append(SystemZLibDirs,
@@ -1343,6 +1377,8 @@ void Generic_GCC::GCCInstallationDetector::ScanLibDirForGCCTriple(
   // up to the lib directory.
   const std::string LibSuffixes[] = {
     "/gcc/" + CandidateTriple.str(),
+    // Debian puts cross-compilers in gcc-cross
+    "/gcc-cross/" + CandidateTriple.str(),
     "/" + CandidateTriple.str() + "/gcc/" + CandidateTriple.str(),
 
     // The Freescale PPC SDK has the gcc libraries in
@@ -1355,8 +1391,13 @@ void Generic_GCC::GCCInstallationDetector::ScanLibDirForGCCTriple(
     // triple.
     "/i386-linux-gnu/gcc/" + CandidateTriple.str()
   };
-  const std::string InstallSuffixes[] = { "/../../..", "/../../../..", "/../..",
-                                          "/../../../.." };
+  const std::string InstallSuffixes[] = {
+    "/../../..",    // gcc/
+    "/../../..",    // gcc-cross/
+    "/../../../..", // <triple>/gcc/
+    "/../..",       // <triple>/
+    "/../../../.."  // i386-linux-gnu/gcc/<triple>/
+  };
   // Only look at the final, weird Ubuntu suffix for i386-linux-gnu.
   const unsigned NumLibSuffixes =
       (llvm::array_lengthof(LibSuffixes) - (TargetArch != llvm::Triple::x86));
@@ -1367,8 +1408,10 @@ void Generic_GCC::GCCInstallationDetector::ScanLibDirForGCCTriple(
          !EC && LI != LE; LI = LI.increment(EC)) {
       StringRef VersionText = llvm::sys::path::filename(LI->path());
       GCCVersion CandidateVersion = GCCVersion::Parse(VersionText);
-      static const GCCVersion MinVersion = { "4.1.1", 4, 1, 1, "" };
-      if (CandidateVersion < MinVersion)
+      if (CandidateVersion.Major != -1) // Filter obviously bad entries.
+        if (!CandidateGCCInstallPaths.insert(LI->path()).second)
+          continue; // Saw this path before; no need to look at it again.
+      if (CandidateVersion.isOlderThan(4, 1, 1))
         continue;
       if (CandidateVersion <= Version)
         continue;
@@ -1438,6 +1481,11 @@ Tool *Generic_GCC::buildAssembler() const {
 
 Tool *Generic_GCC::buildLinker() const {
   return new tools::gcc::Link(*this);
+}
+
+void Generic_GCC::printVerboseInfo(raw_ostream &OS) const {
+  // Print the information about how we detected the GCC installation.
+  GCCInstallation.print(OS);
 }
 
 bool Generic_GCC::IsUnwindTablesDefault() const {
@@ -2117,6 +2165,9 @@ static std::string getMultiarchTriple(const llvm::Triple TargetTriple,
   case llvm::Triple::ppc64:
     if (llvm::sys::fs::exists(SysRoot + "/lib/powerpc64-linux-gnu"))
       return "powerpc64-linux-gnu";
+  case llvm::Triple::ppc64le:
+    if (llvm::sys::fs::exists(SysRoot + "/lib/powerpc64le-linux-gnu"))
+      return "powerpc64le-linux-gnu";
     return TargetTriple.str();
   }
 }
@@ -2244,32 +2295,47 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
                        GCCInstallation.getBiarchSuffix()),
                       Paths);
 
+    // Sourcery CodeBench MIPS toolchain holds some libraries under
+    // the parent prefix of the GCC installation.
+    // FIXME: It would be cleaner to model this as a variant of multilib. IE,
+    // instead of 'lib64' it would be 'lib/el'.
+    std::string MultilibSuffix;
+    appendMipsTargetSuffix(MultilibSuffix, Arch, Args);
+
+    // GCC cross compiling toolchains will install target libraries which ship
+    // as part of the toolchain under <prefix>/<triple>/<libdir> rather than as
+    // any part of the GCC installation in
+    // <prefix>/<libdir>/gcc/<triple>/<version>. This decision is somewhat
+    // debatable, but is the reality today. We need to search this tree even
+    // when we have a sysroot somewhere else. It is the responsibility of
+    // whomever is doing the cross build targetting a sysroot using a GCC
+    // installation that is *not* within the system root to ensure two things:
+    //
+    //  1) Any DSOs that are linked in from this tree or from the install path
+    //     above must be preasant on the system root and found via an
+    //     appropriate rpath.
+    //  2) There must not be libraries installed into
+    //     <prefix>/<triple>/<libdir> unless they should be preferred over
+    //     those within the system root.
+    //
+    // Note that this matches the GCC behavior. See the below comment for where
+    // Clang diverges from GCC's behavior.
+    addPathIfExists(LibPath + "/../" + GCCTriple.str() + "/lib/../" + Multilib +
+                        MultilibSuffix,
+                    Paths);
+
     // If the GCC installation we found is inside of the sysroot, we want to
     // prefer libraries installed in the parent prefix of the GCC installation.
     // It is important to *not* use these paths when the GCC installation is
     // outside of the system root as that can pick up unintended libraries.
     // This usually happens when there is an external cross compiler on the
     // host system, and a more minimal sysroot available that is the target of
-    // the cross.
+    // the cross. Note that GCC does include some of these directories in some
+    // configurations but this seems somewhere between questionable and simply
+    // a bug.
     if (StringRef(LibPath).startswith(SysRoot)) {
-      addPathIfExists(LibPath + "/../" + GCCTriple.str() + "/lib/../" + Multilib,
-                      Paths);
       addPathIfExists(LibPath + "/" + MultiarchTriple, Paths);
       addPathIfExists(LibPath + "/../" + Multilib, Paths);
-    }
-    // On Android, libraries in the parent prefix of the GCC installation are
-    // preferred to the ones under sysroot.
-    if (IsAndroid) {
-      addPathIfExists(LibPath + "/../" + GCCTriple.str() + "/lib", Paths);
-    }
-    // Sourcery CodeBench MIPS toolchain holds some libraries under
-    // the parent prefix of the GCC installation.
-    if (IsMips) {
-      std::string Suffix;
-      appendMipsTargetSuffix(Suffix, Arch, Args);
-      addPathIfExists(LibPath + "/../" + GCCTriple.str() + "/lib/../" +
-                      Multilib + Suffix,
-                      Paths);
     }
   }
   addPathIfExists(SysRoot + "/lib/" + MultiarchTriple, Paths);
@@ -2290,15 +2356,17 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
     if (!GCCInstallation.getBiarchSuffix().empty())
       addPathIfExists(GCCInstallation.getInstallPath(), Paths);
 
-    if (StringRef(LibPath).startswith(SysRoot)) {
-      addPathIfExists(LibPath + "/../" + GCCTriple.str() + "/lib", Paths);
+    // See comments above on the multilib variant for details of why this is
+    // included even from outside the sysroot.
+    addPathIfExists(LibPath + "/../" + GCCTriple.str() + "/lib", Paths);
+
+    // See comments above on the multilib variant for details of why this is
+    // only included from within the sysroot.
+    if (StringRef(LibPath).startswith(SysRoot))
       addPathIfExists(LibPath, Paths);
-    }
   }
   addPathIfExists(SysRoot + "/lib", Paths);
   addPathIfExists(SysRoot + "/usr/lib", Paths);
-
-  IsPIEDefault = SanitizerArgs(*this, Args).hasZeroBaseShadow();
 }
 
 bool Linux::HasNativeLLVMSupport() const {
@@ -2316,8 +2384,8 @@ Tool *Linux::buildAssembler() const {
 void Linux::addClangTargetOptions(const ArgList &DriverArgs,
                                   ArgStringList &CC1Args) const {
   const Generic_GCC::GCCVersion &V = GCCInstallation.getVersion();
-  bool UseInitArrayDefault
-    = V >= Generic_GCC::GCCVersion::Parse("4.7.0") ||
+  bool UseInitArrayDefault =
+      !V.isOlderThan(4, 7, 0) ||
       getTriple().getArch() == llvm::Triple::aarch64 ||
       getTriple().getEnvironment() == llvm::Triple::Android;
   if (DriverArgs.hasFlag(options::OPT_fuse_init_array,
@@ -2521,20 +2589,22 @@ void Linux::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
   // equivalent to '/usr/include/c++/X.Y' in almost all cases.
   StringRef LibDir = GCCInstallation.getParentLibPath();
   StringRef InstallDir = GCCInstallation.getInstallPath();
-  StringRef Version = GCCInstallation.getVersion().Text;
   StringRef TripleStr = GCCInstallation.getTriple().str();
+  const GCCVersion &Version = GCCInstallation.getVersion();
 
   if (addLibStdCXXIncludePaths(
-          LibDir.str() + "/../include", "/c++/" + Version.str(), TripleStr,
+          LibDir.str() + "/../include", "/c++/" + Version.Text, TripleStr,
           GCCInstallation.getBiarchSuffix(), DriverArgs, CC1Args))
     return;
 
   const std::string IncludePathCandidates[] = {
     // Gentoo is weird and places its headers inside the GCC install, so if the
-    // first attempt to find the headers fails, try this pattern.
-    InstallDir.str() + "/include/g++-v4",
+    // first attempt to find the headers fails, try these patterns.
+    InstallDir.str() + "/include/g++-v" + Version.MajorStr + "." +
+        Version.MinorStr,
+    InstallDir.str() + "/include/g++-v" + Version.MajorStr,
     // Android standalone toolchain has C++ headers in yet another place.
-    LibDir.str() + "/../" + TripleStr.str() + "/include/c++/" + Version.str(),
+    LibDir.str() + "/../" + TripleStr.str() + "/include/c++/" + Version.Text,
     // Freescale SDK C++ headers are directly in <sysroot>/usr/include/c++,
     // without a subdirectory corresponding to the gcc version.
     LibDir.str() + "/../include/c++",
@@ -2550,7 +2620,7 @@ void Linux::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
 }
 
 bool Linux::isPIEDefault() const {
-  return IsPIEDefault;
+  return getSanitizerArgs().hasZeroBaseShadow(*this);
 }
 
 /// DragonFly - DragonFly tool chain which can call as(1) and ld(1) directly.

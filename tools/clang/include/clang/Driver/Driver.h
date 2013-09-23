@@ -15,6 +15,7 @@
 #include "clang/Driver/Phases.h"
 #include "clang/Driver/Types.h"
 #include "clang/Driver/Util.h"
+#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
@@ -42,6 +43,7 @@ namespace driver {
   class Compilation;
   class InputInfo;
   class JobAction;
+  class SanitizerArgs;
   class ToolChain;
 
 /// Driver - Encapsulate logic for constructing compilation processes
@@ -50,6 +52,13 @@ class Driver {
   llvm::opt::OptTable *Opts;
 
   DiagnosticsEngine &Diags;
+
+  enum DriverMode {
+    GCCMode,
+    GXXMode,
+    CPPMode,
+    CLMode
+  } Mode;
 
 public:
   // Diag - Forwarding function for diagnostics.
@@ -117,13 +126,13 @@ public:
       InputList;
 
   /// Whether the driver should follow g++ like behavior.
-  unsigned CCCIsCXX : 1;
+  bool CCCIsCXX() const { return Mode == GXXMode; }
 
   /// Whether the driver is just the preprocessor.
-  unsigned CCCIsCPP : 1;
+  bool CCCIsCPP() const { return Mode == CPPMode; }
 
-  /// Echo commands while executing (in -v style).
-  unsigned CCCEcho : 1;
+  /// Whether the driver should follow cl.exe like behavior.
+  bool IsCLMode() const { return Mode == CLMode; }
 
   /// Only print tool bindings, don't build any jobs.
   unsigned CCCPrintBindings : 1;
@@ -169,6 +178,9 @@ private:
   /// created targeting that triple. The driver owns all the ToolChain objects
   /// stored in it, and will clean them up when torn down.
   mutable llvm::StringMap<ToolChain *> ToolChains;
+
+  /// Parsed arguments passed to sanitizer tools.
+  mutable llvm::OwningPtr<SanitizerArgs> SanitizerArguments;
 
 private:
   /// TranslateInputArgs - Create a new derived argument list from the input
@@ -236,6 +248,9 @@ public:
   /// @name Driver Steps
   /// @{
 
+  /// ParseDriverMode - Look for and handle the driver mode option in Args.
+  void ParseDriverMode(ArrayRef<const char *> Args);
+
   /// ParseArgStrings - Parse the given list of strings into an
   /// ArgList.
   llvm::opt::InputArgList *ParseArgStrings(ArrayRef<const char *> Args);
@@ -256,7 +271,7 @@ public:
   /// \param TC - The default host tool chain.
   /// \param Args - The input arguments.
   /// \param Actions - The list to store the resulting actions onto.
-  void BuildActions(const ToolChain &TC, const llvm::opt::DerivedArgList &Args,
+  void BuildActions(const ToolChain &TC, llvm::opt::DerivedArgList &Args,
                     const InputList &Inputs, ActionList &Actions) const;
 
   /// BuildUniversalActions - Construct the list of actions to perform
@@ -266,7 +281,7 @@ public:
   /// \param Args - The input arguments.
   /// \param Actions - The list to store the resulting actions onto.
   void BuildUniversalActions(const ToolChain &TC,
-                             const llvm::opt::DerivedArgList &Args,
+                             llvm::opt::DerivedArgList &Args,
                              const InputList &BAInputs,
                              ActionList &Actions) const;
 
@@ -302,9 +317,6 @@ public:
   ///
   /// \param ShowHidden - Show hidden options.
   void PrintHelp(bool ShowHidden) const;
-
-  /// PrintOptions - Print the list of arguments.
-  void PrintOptions(const llvm::opt::ArgList &Args) const;
 
   /// PrintVersion - Print the driver version.
   void PrintVersion(const Compilation &C, raw_ostream &OS) const;
@@ -389,7 +401,15 @@ private:
 
   /// @}
 
+  /// \brief Get bitmasks for which option flags to include and exclude based on
+  /// the driver mode.
+  std::pair<unsigned, unsigned> getIncludeExcludeOptionFlagMasks() const;
+
 public:
+  /// \brief Returns parsed arguments to sanitizer tools.
+  const SanitizerArgs &
+  getOrParseSanitizerArgs(const llvm::opt::ArgList &Args) const;
+
   /// GetReleaseVersion - Parse (([0-9]+)(.([0-9]+)(.([0-9]+)?))?)? and
   /// return the grouped values as integers. Numbers which are not
   /// provided are set to 0.

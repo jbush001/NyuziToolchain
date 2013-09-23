@@ -48,12 +48,12 @@ protected:
   bool HasV7Ops;
   bool HasV8Ops;
 
-  /// HasVFPv2, HasVFPv3, HasVFPv4, HasV8FP, HasNEON - Specify what
+  /// HasVFPv2, HasVFPv3, HasVFPv4, HasFPARMv8, HasNEON - Specify what
   /// floating point ISAs are supported.
   bool HasVFPv2;
   bool HasVFPv3;
   bool HasVFPv4;
-  bool HasV8FP;
+  bool HasFPARMv8;
   bool HasNEON;
 
   /// UseNEONForSinglePrecisionFP - if the NEONFP attribute has been
@@ -159,6 +159,9 @@ protected:
   /// HasTrustZone - if true, processor supports TrustZone security extensions
   bool HasTrustZone;
 
+  /// HasCrypto - if true, processor supports Cryptography extensions
+  bool HasCrypto;
+
   /// AllowsUnalignedMem - If true, the subtarget allows unaligned memory
   /// accesses for some types.  For details, see
   /// ARMTargetLowering::allowsUnalignedMemoryAccesses().
@@ -246,8 +249,9 @@ public:
   bool hasVFP2() const { return HasVFPv2; }
   bool hasVFP3() const { return HasVFPv3; }
   bool hasVFP4() const { return HasVFPv4; }
-  bool hasV8FP() const { return HasV8FP; }
+  bool hasFPARMv8() const { return HasFPARMv8; }
   bool hasNEON() const { return HasNEON;  }
+  bool hasCrypto() const { return HasCrypto; }
   bool useNEONForSinglePrecisionFP() const {
     return hasNEON() && UseNEONForSinglePrecisionFP; }
 
@@ -275,11 +279,19 @@ public:
 
   const Triple &getTargetTriple() const { return TargetTriple; }
 
-  bool isTargetIOS() const { return TargetTriple.getOS() == Triple::IOS; }
+  bool isTargetIOS() const { return TargetTriple.isiOS(); }
   bool isTargetDarwin() const { return TargetTriple.isOSDarwin(); }
-  bool isTargetNaCl() const { return TargetTriple.getOS() == Triple::NaCl; }
-  bool isTargetLinux() const { return TargetTriple.getOS() == Triple::Linux; }
+  bool isTargetNaCl() const { return TargetTriple.isOSNaCl(); }
+  bool isTargetLinux() const { return TargetTriple.isOSLinux(); }
   bool isTargetELF() const { return !isTargetDarwin(); }
+  // ARM EABI is the bare-metal EABI described in ARM ABI documents and
+  // can be accessed via -target arm-none-eabi. This is NOT GNUEABI.
+  // FIXME: Add a flag for bare-metal for that target and set Triple::EABI
+  // even for GNUEABI, so we can make a distinction here and still conform to
+  // the EABI on GNU (and Android) mode. This requires change in Clang, too.
+  bool isTargetAEABI() const {
+    return TargetTriple.getEnvironment() == Triple::EABI;
+  }
 
   bool isAPCS_ABI() const { return TargetABI == ARM_ABI_APCS; }
   bool isAAPCS_ABI() const { return TargetABI == ARM_ABI_AAPCS; }

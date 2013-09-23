@@ -17,7 +17,9 @@
 #define LLVM_CLANG_FORMAT_FORMAT_TOKEN_H
 
 #include "clang/Basic/OperatorPrecedence.h"
+#include "clang/Format/Format.h"
 #include "clang/Lex/Lexer.h"
+#include "llvm/ADT/OwningPtr.h"
 
 namespace clang {
 namespace format {
@@ -28,11 +30,13 @@ enum TokenType {
   TT_CastRParen,
   TT_ConditionalExpr,
   TT_CtorInitializerColon,
+  TT_CtorInitializerComma,
   TT_DesignatedInitializerPeriod,
   TT_ImplicitStringLiteral,
   TT_InlineASMColon,
   TT_InheritanceColon,
   TT_FunctionTypeLParen,
+  TT_LambdaLSquare,
   TT_LineComment,
   TT_ObjCArrayLiteral,
   TT_ObjCBlockLParen,
@@ -71,19 +75,24 @@ enum ParameterPackingKind {
   PPK_Inconclusive
 };
 
+class TokenRole;
+class AnnotatedLine;
+
 /// \brief A wrapper around a \c Token storing information about the
 /// whitespace characters preceeding it.
 struct FormatToken {
   FormatToken()
       : NewlinesBefore(0), HasUnescapedNewline(false), LastNewlineOffset(0),
-        CodePointCount(0), IsFirst(false), MustBreakBefore(false),
+        ColumnWidth(0), LastLineColumnWidth(0), IsMultiline(false),
+        IsFirst(false), MustBreakBefore(false), IsUnterminatedLiteral(false),
         BlockKind(BK_Unknown), Type(TT_Unknown), SpacesRequiredBefore(0),
         CanBreakBefore(false), ClosesTemplateDeclaration(false),
         ParameterCount(0), PackingKind(PPK_Inconclusive), TotalLength(0),
         UnbreakableTailLength(0), BindingStrength(0), SplitPenalty(0),
-        LongestObjCSelectorName(0), FakeRParens(0), LastInChainOfCalls(false),
-        PartOfMultiVariableDeclStmt(false), MatchingParen(NULL), Previous(NULL),
-        Next(NULL) {}
+        LongestObjCSelectorName(0), FakeRParens(0),
+        StartsBinaryExpression(false), EndsBinaryExpression(false),
+        LastInChainOfCalls(false), PartOfMultiVariableDeclStmt(false),
+        MatchingParen(NULL), Previous(NULL), Next(NULL) {}
 
   /// \brief The \c Token.
   Token Tok;
@@ -105,9 +114,17 @@ struct FormatToken {
   /// whitespace (relative to \c WhiteSpaceStart). 0 if there is no '\n'.
   unsigned LastNewlineOffset;
 
-  /// \brief The length of the non-whitespace parts of the token in CodePoints.
+  /// \brief The width of the non-whitespace parts of the token (or its first
+  /// line for multi-line tokens) in columns.
   /// We need this to correctly measure number of columns a token spans.
-  unsigned CodePointCount;
+  unsigned ColumnWidth;
+
+  /// \brief Contains the width in columns of the last line of a multi-line
+  /// token.
+  unsigned LastLineColumnWidth;
+
+  /// \brief Whether the token text contains newlines (escaped or not).
+  bool IsMultiline;
 
   /// \brief Indicates that this is the first token.
   bool IsFirst;
@@ -133,12 +150,18 @@ struct FormatToken {
   /// escaped newlines.
   StringRef TokenText;
 
+  /// \brief Set to \c true if this token is an unterminated literal.
+  bool IsUnterminatedLiteral;
+
   /// \brief Contains the kind of block if this token is a brace.
   BraceBlockKind BlockKind;
 
   TokenType Type;
 
+  /// \brief The number of spaces that should be inserted before this token.
   unsigned SpacesRequiredBefore;
+
+  /// \brief \c true if it is allowed to break before this token.
   bool CanBreakBefore;
 
   bool ClosesTemplateDeclaration;
@@ -150,11 +173,20 @@ struct FormatToken {
   /// the number of commas.
   unsigned ParameterCount;
 
+  /// \brief A token can have a special role that can carry extra information
+  /// about the token's formatting.
+  llvm::OwningPtr<TokenRole> Role;
+
   /// \brief If this is an opening parenthesis, how are the parameters packed?
   ParameterPackingKind PackingKind;
 
-  /// \brief The total length of the line up to and including this token.
+  /// \brief The total length of the unwrapped line up to and including this
+  /// token.
   unsigned TotalLength;
+
+  /// \brief The original 0-based column of this token, including expanded tabs.
+  /// The configured TabWidth is used as tab width.
+  unsigned OriginalColumn;
 
   /// \brief The length of following tokens until the next natural split point,
   /// or the next token that can be broken.
@@ -180,6 +212,12 @@ struct FormatToken {
   SmallVector<prec::Level, 4> FakeLParens;
   /// \brief Insert this many fake ) after this token for correct indentation.
   unsigned FakeRParens;
+
+  /// \brief \c true if this token starts a binary expression, i.e. has at least
+  /// one fake l_paren with a precedence greater than prec::Unknown.
+  bool StartsBinaryExpression;
+  /// \brief \c true if this token ends a binary expression.
+  bool EndsBinaryExpression;
 
   /// \brief Is this the last "." or "->" in a builder-type call?
   bool LastInChainOfCalls;
@@ -241,6 +279,12 @@ struct FormatToken {
            Type == TT_TemplateCloser;
   }
 
+  /// \brief Returns \c true if this is a "." or "->" accessing a member.
+  bool isMemberAccess() const {
+    return isOneOf(tok::arrow, tok::period) &&
+           Type != TT_DesignatedInitializerPeriod;
+  }
+
   bool isUnaryOperator() const {
     switch (Tok.getKind()) {
     case tok::plus:
@@ -256,10 +300,12 @@ struct FormatToken {
       return false;
     }
   }
+
   bool isBinaryOperator() const {
     // Comma is a binary operator, but does not behave as such wrt. formatting.
     return getPrecedence() > prec::Comma;
   }
+
   bool isTrailingComment() const {
     return is(tok::comment) && (!Next || Next->NewlinesBefore > 0);
   }
@@ -289,10 +335,84 @@ struct FormatToken {
   FormatToken *Previous;
   FormatToken *Next;
 
+  SmallVector<AnnotatedLine *, 1> Children;
+
 private:
   // Disallow copying.
   FormatToken(const FormatToken &) LLVM_DELETED_FUNCTION;
   void operator=(const FormatToken &) LLVM_DELETED_FUNCTION;
+};
+
+class ContinuationIndenter;
+struct LineState;
+
+class TokenRole {
+public:
+  TokenRole(const FormatStyle &Style) : Style(Style) {}
+  virtual ~TokenRole();
+
+  /// \brief After the \c TokenAnnotator has finished annotating all the tokens,
+  /// this function precomputes required information for formatting.
+  virtual void precomputeFormattingInfos(const FormatToken *Token);
+
+  /// \brief Apply the special formatting that the given role demands.
+  ///
+  /// Continues formatting from \p State leaving indentation to \p Indenter and
+  /// returns the total penalty that this formatting incurs.
+  virtual unsigned format(LineState &State, ContinuationIndenter *Indenter,
+                          bool DryRun) {
+    return 0;
+  }
+
+  /// \brief Notifies the \c Role that a comma was found.
+  virtual void CommaFound(const FormatToken *Token) {}
+
+protected:
+  const FormatStyle &Style;
+};
+
+class CommaSeparatedList : public TokenRole {
+public:
+  CommaSeparatedList(const FormatStyle &Style) : TokenRole(Style) {}
+
+  virtual void precomputeFormattingInfos(const FormatToken *Token);
+
+  virtual unsigned format(LineState &State, ContinuationIndenter *Indenter,
+                          bool DryRun);
+
+  /// \brief Adds \p Token as the next comma to the \c CommaSeparated list.
+  virtual void CommaFound(const FormatToken *Token) { Commas.push_back(Token); }
+
+private:
+  /// \brief A struct that holds information on how to format a given list with
+  /// a specific number of columns.
+  struct ColumnFormat {
+    /// \brief The number of columns to use.
+    unsigned Columns;
+
+    /// \brief The total width in characters.
+    unsigned TotalWidth;
+
+    /// \brief The number of lines required for this format.
+    unsigned LineCount;
+
+    /// \brief The size of each column in characters.
+    SmallVector<unsigned, 8> ColumnSizes;
+  };
+
+  /// \brief Calculate which \c ColumnFormat fits best into
+  /// \p RemainingCharacters.
+  const ColumnFormat *getColumnFormat(unsigned RemainingCharacters) const;
+
+  /// \brief The ordered \c FormatTokens making up the commas of this list.
+  SmallVector<const FormatToken *, 8> Commas;
+
+  /// \brief The length of each of the list's items in characters including the
+  /// trailing comma.
+  SmallVector<unsigned, 8> ItemLengths;
+
+  /// \brief Precomputed formats that can be used for this list.
+  SmallVector<ColumnFormat, 4> Formats;
 };
 
 } // namespace format

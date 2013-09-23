@@ -243,7 +243,9 @@ Sema::BuildCXXNamedCast(SourceLocation OpLoc, tok::TokenKind Kind,
 
   // If the type is dependent, we won't do the semantic analysis now.
   // FIXME: should we check this in a more fine-grained manner?
-  bool TypeDependent = DestType->isDependentType() || Ex.get()->isTypeDependent();
+  bool TypeDependent = DestType->isDependentType() ||
+                       Ex.get()->isTypeDependent() ||
+                       Ex.get()->isValueDependent();
 
   CastOperation Op(*this, DestType, E);
   Op.OpRange = SourceRange(OpLoc, Parens.getEnd());
@@ -554,6 +556,7 @@ void CastOperation::CheckDynamicCast() {
   } else {
     Self.Diag(OpRange.getBegin(), diag::err_bad_dynamic_cast_not_ref_or_ptr)
       << this->DestType << DestRange;
+    SrcExpr = ExprError();
     return;
   }
 
@@ -563,11 +566,14 @@ void CastOperation::CheckDynamicCast() {
   } else if (DestRecord) {
     if (Self.RequireCompleteType(OpRange.getBegin(), DestPointee,
                                  diag::err_bad_dynamic_cast_incomplete,
-                                 DestRange))
+                                 DestRange)) {
+      SrcExpr = ExprError();
       return;
+    }
   } else {
     Self.Diag(OpRange.getBegin(), diag::err_bad_dynamic_cast_not_class)
       << DestPointee.getUnqualifiedType() << DestRange;
+    SrcExpr = ExprError();
     return;
   }
 
@@ -583,6 +589,7 @@ void CastOperation::CheckDynamicCast() {
     } else {
       Self.Diag(OpRange.getBegin(), diag::err_bad_dynamic_cast_not_ptr)
         << OrigSrcType << SrcExpr.get()->getSourceRange();
+      SrcExpr = ExprError();
       return;
     }
   } else if (DestReference->isLValueReferenceType()) {
@@ -599,11 +606,14 @@ void CastOperation::CheckDynamicCast() {
   if (SrcRecord) {
     if (Self.RequireCompleteType(OpRange.getBegin(), SrcPointee,
                                  diag::err_bad_dynamic_cast_incomplete,
-                                 SrcExpr.get()))
+                                 SrcExpr.get())) {
+      SrcExpr = ExprError();
       return;
+    }
   } else {
     Self.Diag(OpRange.getBegin(), diag::err_bad_dynamic_cast_not_class)
       << SrcPointee.getUnqualifiedType() << SrcExpr.get()->getSourceRange();
+    SrcExpr = ExprError();
     return;
   }
 
@@ -617,6 +627,7 @@ void CastOperation::CheckDynamicCast() {
   if (!DestPointee.isAtLeastAsQualifiedAs(SrcPointee)) {
     Self.Diag(OpRange.getBegin(), diag::err_bad_cxx_cast_qualifiers_away)
       << CT_Dynamic << OrigSrcType << this->DestType << OpRange;
+    SrcExpr = ExprError();
     return;
   }
 
@@ -632,8 +643,10 @@ void CastOperation::CheckDynamicCast() {
   if (DestRecord && Self.IsDerivedFrom(SrcPointee, DestPointee)) {
     if (Self.CheckDerivedToBaseConversion(SrcPointee, DestPointee,
                                            OpRange.getBegin(), OpRange, 
-                                           &BasePath))
-        return;
+                                           &BasePath)) {
+      SrcExpr = ExprError();
+      return;
+    }
         
     Kind = CK_DerivedToBase;
 
@@ -651,9 +664,17 @@ void CastOperation::CheckDynamicCast() {
   if (!cast<CXXRecordDecl>(SrcDecl)->isPolymorphic()) {
     Self.Diag(OpRange.getBegin(), diag::err_bad_dynamic_cast_not_polymorphic)
       << SrcPointee.getUnqualifiedType() << SrcExpr.get()->getSourceRange();
+    SrcExpr = ExprError();
   }
   Self.MarkVTableUsed(OpRange.getBegin(), 
                       cast<CXXRecordDecl>(SrcRecord->getDecl()));
+
+  // dynamic_cast is not available with fno-rtti
+  if (!Self.getLangOpts().RTTI) {
+    Self.Diag(OpRange.getBegin(), diag::err_no_dynamic_cast_with_fno_rtti);
+    SrcExpr = ExprError();
+    return;
+  }
 
   // Done. Everything else is run-time checks.
   Kind = CK_Dynamic;
@@ -674,9 +695,11 @@ void CastOperation::CheckConstCast() {
 
   unsigned msg = diag::err_bad_cxx_cast_generic;
   if (TryConstCast(Self, SrcExpr, DestType, /*CStyle*/false, msg) != TC_Success
-      && msg != 0)
+      && msg != 0) {
     Self.Diag(OpRange.getBegin(), msg) << CT_Const
       << SrcExpr.get()->getType() << DestType << OpRange;
+    SrcExpr = ExprError();
+  }
 }
 
 /// Check that a reinterpret_cast\<DestType\>(SrcExpr) is not used as upcast
@@ -804,6 +827,7 @@ void CastOperation::CheckReinterpretCast() {
       diagnoseBadCast(Self, msg, CT_Reinterpret, OpRange, SrcExpr.get(),
                       DestType, /*listInitialization=*/false);
     }
+    SrcExpr = ExprError();
   } else if (tcr == TC_Success) {
     if (Self.getLangOpts().ObjCAutoRefCount)
       checkObjCARCConversion(Sema::CCK_OtherCast);
@@ -865,6 +889,7 @@ void CastOperation::CheckStaticCast() {
       diagnoseBadCast(Self, msg, CT_Static, OpRange, SrcExpr.get(), DestType,
                       /*listInitialization=*/false);
     }
+    SrcExpr = ExprError();
   } else if (tcr == TC_Success) {
     if (Kind == CK_BitCast)
       checkCastAlign();
@@ -1981,14 +2006,12 @@ void CastOperation::CheckCXXCStyleCast(bool FunctionalStyle,
     }
 
     SrcExpr = Self.IgnoredValueConversions(SrcExpr.take());
-    if (SrcExpr.isInvalid())
-      return;
-
     return;
   }
 
   // If the type is dependent, we won't do any other semantic analysis now.
-  if (DestType->isDependentType() || SrcExpr.get()->isTypeDependent()) {
+  if (DestType->isDependentType() || SrcExpr.get()->isTypeDependent() ||
+      SrcExpr.get()->isValueDependent()) {
     assert(Kind == CK_Dependent);
     return;
   }
@@ -2341,9 +2364,9 @@ ExprResult Sema::BuildCXXFunctionalCastExpr(TypeSourceInfo *CastTypeInfo,
     return ExprError();
   
   if (CXXConstructExpr *ConstructExpr = dyn_cast<CXXConstructExpr>(Op.SrcExpr.get()))
-    ConstructExpr->setParenRange(SourceRange(LPLoc, RPLoc));
+    ConstructExpr->setParenOrBraceRange(SourceRange(LPLoc, RPLoc));
 
   return Op.complete(CXXFunctionalCastExpr::Create(Context, Op.ResultType,
-                         Op.ValueKind, CastTypeInfo, Op.DestRange.getBegin(),
-                         Op.Kind, Op.SrcExpr.take(), &Op.BasePath, RPLoc));
+                         Op.ValueKind, CastTypeInfo, Op.Kind,
+                         Op.SrcExpr.take(), &Op.BasePath, LPLoc, RPLoc));
 }

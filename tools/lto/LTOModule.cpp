@@ -21,6 +21,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCParser/MCAsmParser.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
@@ -47,11 +48,6 @@ EnableFPMAD("enable-fp-mad",
 static cl::opt<bool>
 DisableFPElim("disable-fp-elim",
   cl::desc("Disable frame pointer elimination optimization"),
-  cl::init(false));
-
-static cl::opt<bool>
-DisableFPElimNonLeaf("disable-non-leaf-fp-elim",
-  cl::desc("Disable frame pointer elimination optimization for non-leaf funcs"),
   cl::init(false));
 
 static cl::opt<bool>
@@ -126,11 +122,6 @@ OverrideStackAlignment("stack-alignment",
   cl::desc("Override default stack alignment"),
   cl::init(0));
 
-static cl::opt<bool>
-EnableRealignStack("realign-stack",
-  cl::desc("Realign stack if needed"),
-  cl::init(true));
-
 static cl::opt<std::string>
 TrapFuncName("trap-func", cl::Hidden,
   cl::desc("Emit a call to trap function rather than a trap instruction"),
@@ -150,11 +141,6 @@ static cl::opt<bool>
 UseInitArray("use-init-array",
   cl::desc("Use .init_array instead of .ctors."),
   cl::init(false));
-
-static cl::opt<unsigned>
-SSPBufferSize("stack-protector-buffer-size", cl::init(8),
-              cl::desc("Lower bound for a buffer to be considered for "
-                       "stack protection"));
 
 LTOModule::LTOModule(llvm::Module *m, llvm::TargetMachine *t)
   : _module(m), _target(t),
@@ -214,17 +200,16 @@ LTOModule *LTOModule::makeLTOModule(const char *path, std::string &errMsg) {
 
 LTOModule *LTOModule::makeLTOModule(int fd, const char *path,
                                     size_t size, std::string &errMsg) {
-  return makeLTOModule(fd, path, size, size, 0, errMsg);
+  return makeLTOModule(fd, path, size, 0, errMsg);
 }
 
 LTOModule *LTOModule::makeLTOModule(int fd, const char *path,
-                                    size_t file_size,
                                     size_t map_size,
                                     off_t offset,
                                     std::string &errMsg) {
   OwningPtr<MemoryBuffer> buffer;
-  if (error_code ec = MemoryBuffer::getOpenFile(fd, path, buffer, file_size,
-                                                map_size, offset, false)) {
+  if (error_code ec =
+          MemoryBuffer::getOpenFileSlice(fd, path, buffer, map_size, offset)) {
     errMsg = ec.message();
     return NULL;
   }
@@ -242,7 +227,6 @@ LTOModule *LTOModule::makeLTOModule(const void *mem, size_t length,
 void LTOModule::getTargetOptions(TargetOptions &Options) {
   Options.LessPreciseFPMADOption = EnableFPMAD;
   Options.NoFramePointerElim = DisableFPElim;
-  Options.NoFramePointerElimNonLeaf = DisableFPElimNonLeaf;
   Options.AllowFPOpFusion = FuseFPOps;
   Options.UnsafeFPMath = EnableUnsafeFPMath;
   Options.NoInfsFPMath = EnableNoInfsFPMath;
@@ -256,12 +240,10 @@ void LTOModule::getTargetOptions(TargetOptions &Options) {
   Options.GuaranteedTailCallOpt = EnableGuaranteedTailCallOpt;
   Options.DisableTailCalls = DisableTailCalls;
   Options.StackAlignmentOverride = OverrideStackAlignment;
-  Options.RealignStack = EnableRealignStack;
   Options.TrapFuncName = TrapFuncName;
   Options.PositionIndependentExecutable = EnablePIE;
   Options.EnableSegmentedStacks = SegmentedStacks;
   Options.UseInitArray = UseInitArray;
-  Options.SSPBufferSize = SSPBufferSize;
 }
 
 LTOModule *LTOModule::makeLTOModule(MemoryBuffer *buffer,
@@ -757,9 +739,10 @@ namespace {
       // FIXME: should we handle aliases?
       markDefined(*Symbol);
     }
-    virtual void EmitSymbolAttribute(MCSymbol *Symbol, MCSymbolAttr Attribute) {
+    virtual bool EmitSymbolAttribute(MCSymbol *Symbol, MCSymbolAttr Attribute) {
       if (Attribute == MCSA_Global)
         markGlobal(*Symbol);
+      return true;
     }
     virtual void EmitZerofill(const MCSection *Section, MCSymbol *Symbol,
                               uint64_t Size , unsigned ByteAlignment) {
@@ -809,6 +792,9 @@ namespace {
                                           const MCSymbol *Label,
                                           unsigned PointerSize) {}
     virtual void FinishImpl() {}
+    virtual void EmitCFIEndProcImpl(MCDwarfFrameInfo &Frame) {
+      RecordProcEnd(Frame);
+    }
 
     static bool classof(const MCStreamer *S) {
       return S->getKind() == SK_RecordStreamer;
@@ -831,11 +817,12 @@ bool LTOModule::addAsmGlobalSymbols(std::string &errMsg) {
                                                   _context, *Streamer,
                                                   *_target->getMCAsmInfo()));
   const Target &T = _target->getTarget();
+  OwningPtr<MCInstrInfo> MCII(T.createMCInstrInfo());
   OwningPtr<MCSubtargetInfo>
     STI(T.createMCSubtargetInfo(_target->getTargetTriple(),
                                 _target->getTargetCPU(),
                                 _target->getTargetFeatureString()));
-  OwningPtr<MCTargetAsmParser> TAP(T.createMCAsmParser(*STI, *Parser.get()));
+  OwningPtr<MCTargetAsmParser> TAP(T.createMCAsmParser(*STI, *Parser.get(), *MCII));
   if (!TAP) {
     errMsg = "target " + std::string(T.getName()) +
       " does not define AsmParser.";

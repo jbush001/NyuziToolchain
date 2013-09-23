@@ -65,6 +65,8 @@ public:
     return this;
   }
 
+  virtual bool hasBranchDivergence() const;
+
   /// \name Scalar TTI Implementations
   /// @{
 
@@ -81,6 +83,8 @@ public:
   virtual unsigned getJumpBufAlignment() const;
   virtual unsigned getJumpBufSize() const;
   virtual bool shouldBuildLookupTables() const;
+  virtual bool haveFastSqrt(Type *Ty) const;
+  virtual void getUnrollingPreferences(Loop *L, UnrollingPreferences &UP) const;
 
   /// @}
 
@@ -109,6 +113,7 @@ public:
                                          ArrayRef<Type*> Tys) const;
   virtual unsigned getNumberOfParts(Type *Tp) const;
   virtual unsigned getAddressComputationCost(Type *Ty, bool IsComplex) const;
+  virtual unsigned getReductionCost(unsigned Opcode, Type *Ty, bool IsPairwise) const;
 
   /// @}
 };
@@ -124,6 +129,7 @@ llvm::createBasicTargetTransformInfoPass(const TargetMachine *TM) {
   return new BasicTTI(TM);
 }
 
+bool BasicTTI::hasBranchDivergence() const { return false; }
 
 bool BasicTTI::isLegalAddImmediate(int64_t imm) const {
   return getTLI()->isLegalAddImmediate(imm);
@@ -178,6 +184,14 @@ bool BasicTTI::shouldBuildLookupTables() const {
       (TLI->isOperationLegalOrCustom(ISD::BR_JT, MVT::Other) ||
        TLI->isOperationLegalOrCustom(ISD::BRIND, MVT::Other));
 }
+
+bool BasicTTI::haveFastSqrt(Type *Ty) const {
+  const TargetLoweringBase *TLI = getTLI();
+  EVT VT = TLI->getValueType(Ty);
+  return TLI->isTypeLegal(VT) && TLI->isOperationLegalOrCustom(ISD::FSQRT, VT);
+}
+
+void BasicTTI::getUnrollingPreferences(Loop *, UnrollingPreferences &) const { }
 
 //===----------------------------------------------------------------------===//
 //
@@ -440,15 +454,20 @@ unsigned BasicTTI::getIntrinsicInstrCost(Intrinsic::ID IID, Type *RetTy,
   case Intrinsic::log10:   ISD = ISD::FLOG10; break;
   case Intrinsic::log2:    ISD = ISD::FLOG2;  break;
   case Intrinsic::fabs:    ISD = ISD::FABS;   break;
+  case Intrinsic::copysign: ISD = ISD::FCOPYSIGN; break;
   case Intrinsic::floor:   ISD = ISD::FFLOOR; break;
   case Intrinsic::ceil:    ISD = ISD::FCEIL;  break;
   case Intrinsic::trunc:   ISD = ISD::FTRUNC; break;
   case Intrinsic::nearbyint:
                            ISD = ISD::FNEARBYINT; break;
   case Intrinsic::rint:    ISD = ISD::FRINT;  break;
+  case Intrinsic::round:   ISD = ISD::FROUND; break;
   case Intrinsic::pow:     ISD = ISD::FPOW;   break;
   case Intrinsic::fma:     ISD = ISD::FMA;    break;
   case Intrinsic::fmuladd: ISD = ISD::FMA;    break; // FIXME: mul + add?
+  case Intrinsic::lifetime_start:
+  case Intrinsic::lifetime_end:
+    return 0;
   }
 
   const TargetLoweringBase *TLI = getTLI();
@@ -491,4 +510,18 @@ unsigned BasicTTI::getNumberOfParts(Type *Tp) const {
 
 unsigned BasicTTI::getAddressComputationCost(Type *Ty, bool IsComplex) const {
   return 0;
+}
+
+unsigned BasicTTI::getReductionCost(unsigned Opcode, Type *Ty,
+                                    bool IsPairwise) const {
+  assert(Ty->isVectorTy() && "Expect a vector type");
+  unsigned NumVecElts = Ty->getVectorNumElements();
+  unsigned NumReduxLevels = Log2_32(NumVecElts);
+  unsigned ArithCost = NumReduxLevels *
+    TopTTI->getArithmeticInstrCost(Opcode, Ty);
+  // Assume the pairwise shuffles add a cost.
+  unsigned ShuffleCost =
+      NumReduxLevels * (IsPairwise + 1) *
+      TopTTI->getShuffleCost(SK_ExtractSubvector, Ty, NumVecElts / 2, Ty);
+  return ShuffleCost + ArithCost + getScalarizationOverhead(Ty, false, true);
 }

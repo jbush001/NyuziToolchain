@@ -1,7 +1,6 @@
-// RUN: %clang  -emit-llvm -g -S %s -o - | FileCheck %s
+// RUN: %clang -flimit-debug-info -emit-llvm -g -S %s -o - | FileCheck %s
 
-// TAG_member is used to encode debug info for 'z' in A.
-// CHECK: TAG_member
+// CHECK: ; [ DW_TAG_class_type ] [A] {{.*}} [def]
 class A {
 public:
   int z;
@@ -13,8 +12,7 @@ A *foo (A* x) {
 }
 
 // Verify that we're not emitting a full definition of B in limit debug mode.
-// RUN: %clang -emit-llvm -g -flimit-debug-info -S %s -o - | FileCheck %s
-// CHECK-NOT: TAG_member
+// CHECK: ; [ DW_TAG_class_type ] [B] {{.*}} [decl]
 
 class B {
 public:
@@ -26,3 +24,10 @@ int baz(B *b) {
   return bar(b);
 }
 
+
+// CHECK: ; [ DW_TAG_structure_type ] [C] {{.*}} [decl]
+
+struct C {
+};
+
+C (*x)(C);

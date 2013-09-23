@@ -18,9 +18,8 @@ This test serves two purposes:
 
 The list of warnings below should NEVER grow.  It should gradually shrink to 0.
 
-CHECK: Warnings without flags (140):
+CHECK: Warnings without flags (134):
 CHECK-NEXT:   ext_delete_void_ptr_operand
-CHECK-NEXT:   ext_enum_friend
 CHECK-NEXT:   ext_expected_semi_decl_list
 CHECK-NEXT:   ext_explicit_specialization_storage_class
 CHECK-NEXT:   ext_implicit_lib_function_decl
@@ -81,13 +80,11 @@ CHECK-NEXT:   warn_fe_cc_log_diagnostics_failure
 CHECK-NEXT:   warn_fe_cc_print_header_failure
 CHECK-NEXT:   warn_fe_macro_contains_embedded_newline
 CHECK-NEXT:   warn_file_asm_volatile
-CHECK-NEXT:   warn_hex_escape_too_large
 CHECK-NEXT:   warn_ignoring_ftabstop_value
 CHECK-NEXT:   warn_implements_nscopying
 CHECK-NEXT:   warn_incompatible_qualified_id
 CHECK-NEXT:   warn_initializer_string_for_char_array_too_long
 CHECK-NEXT:   warn_inline_namespace_reopened_noninline
-CHECK-NEXT:   warn_integer_too_large
 CHECK-NEXT:   warn_integer_too_large_for_signed
 CHECK-NEXT:   warn_invalid_asm_cast_lvalue
 CHECK-NEXT:   warn_many_braces_around_scalar_init
@@ -104,7 +101,6 @@ CHECK-NEXT:   warn_nonnull_pointers_only
 CHECK-NEXT:   warn_not_compound_assign
 CHECK-NEXT:   warn_objc_property_copy_missing_on_block
 CHECK-NEXT:   warn_objc_protocol_qualifier_missing_id
-CHECK-NEXT:   warn_octal_escape_too_large
 CHECK-NEXT:   warn_on_superclass_use
 CHECK-NEXT:   warn_param_default_argument_redefinition
 CHECK-NEXT:   warn_partial_specs_not_deducible
@@ -145,7 +141,6 @@ CHECK-NEXT:   warn_redeclaration_without_attribute_prev_attribute_ignored
 CHECK-NEXT:   warn_register_objc_catch_parm
 CHECK-NEXT:   warn_related_result_type_compatibility_class
 CHECK-NEXT:   warn_related_result_type_compatibility_protocol
-CHECK-NEXT:   warn_static_inline_explicit_inst_ignored
 CHECK-NEXT:   warn_static_non_static
 CHECK-NEXT:   warn_template_export_unsupported
 CHECK-NEXT:   warn_template_spec_extra_headers
@@ -155,11 +150,10 @@ CHECK-NEXT:   warn_unavailable_fwdclass_message
 CHECK-NEXT:   warn_undef_interface
 CHECK-NEXT:   warn_undef_interface_suggest
 CHECK-NEXT:   warn_undef_protocolref
-CHECK-NEXT:   warn_unknown_method_family
 CHECK-NEXT:   warn_use_out_of_scope_declaration
 CHECK-NEXT:   warn_weak_identifier_undeclared
 CHECK-NEXT:   warn_weak_import
 
 The list of warnings in -Wpedantic should NEVER grow.
 
-CHECK: Number in -Wpedantic (not covered by other -W flags): 29
+CHECK: Number in -Wpedantic (not covered by other -W flags): 28

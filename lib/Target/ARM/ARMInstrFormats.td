@@ -155,6 +155,16 @@ def pred : PredicateOperand<OtherVT, (ops i32imm, i32imm),
   let DecoderMethod = "DecodePredicateOperand";
 }
 
+// Selectable predicate operand for CMOV instructions. We can't use a normal
+// predicate because the default values interfere with instruction selection. In
+// all other respects it is identical though: pseudo-instruction expansion
+// relies on the MachineOperands being compatible.
+def cmovpred : Operand<i32>, PredicateOp,
+               ComplexPattern<i32, 2, "SelectCMOVPred"> {
+  let MIOperandInfo = (ops i32imm, i32imm);
+  let PrintMethod = "printPredicateOperand";
+}
+
 // Conditional code result for instructions whose 's' bit is set, e.g. subs.
 def CCOutOperand : AsmOperandClass { let Name = "CCOut"; }
 def cc_out : OptionalDefOperand<OtherVT, (ops CCR), (ops (i32 zero_reg))> {
@@ -490,8 +500,7 @@ class JTI<dag oops, dag iops, InstrItinClass itin,
   : XI<oops, iops, AddrModeNone, 0, IndexModeNone, BrMiscFrm, itin,
        asm, "", pattern>;
 
-// Atomic load/store instructions
-class AIldrex<bits<2> opcod, dag oops, dag iops, InstrItinClass itin,
+class AIldr_ex_or_acq<bits<2> opcod, bits<2> opcod2, dag oops, dag iops, InstrItinClass itin,
               string opc, string asm, list<dag> pattern>
   : I<oops, iops, AddrModeNone, 4, IndexModeNone, LdStExFrm, itin,
       opc, asm, "", pattern> {
@@ -502,23 +511,52 @@ class AIldrex<bits<2> opcod, dag oops, dag iops, InstrItinClass itin,
   let Inst{20}    = 1;
   let Inst{19-16} = addr;
   let Inst{15-12} = Rt;
-  let Inst{11-0}  = 0b111110011111;
+  let Inst{11-10} = 0b11;
+  let Inst{9-8}   = opcod2;
+  let Inst{7-0}   = 0b10011111;
 }
-class AIstrex<bits<2> opcod, dag oops, dag iops, InstrItinClass itin,
+class AIstr_ex_or_rel<bits<2> opcod, bits<2> opcod2, dag oops, dag iops, InstrItinClass itin,
               string opc, string asm, list<dag> pattern>
   : I<oops, iops, AddrModeNone, 4, IndexModeNone, LdStExFrm, itin,
       opc, asm, "", pattern> {
-  bits<4> Rd;
   bits<4> Rt;
   bits<4> addr;
   let Inst{27-23} = 0b00011;
   let Inst{22-21} = opcod;
   let Inst{20}    = 0;
   let Inst{19-16} = addr;
-  let Inst{15-12} = Rd;
-  let Inst{11-4}  = 0b11111001;
+  let Inst{11-10} = 0b11;
+  let Inst{9-8}   = opcod2;
+  let Inst{7-4}   = 0b1001;
   let Inst{3-0}   = Rt;
 }
+// Atomic load/store instructions
+class AIldrex<bits<2> opcod, dag oops, dag iops, InstrItinClass itin,
+              string opc, string asm, list<dag> pattern>
+  : AIldr_ex_or_acq<opcod, 0b11, oops, iops, itin, opc, asm, pattern>;
+
+class AIstrex<bits<2> opcod, dag oops, dag iops, InstrItinClass itin,
+              string opc, string asm, list<dag> pattern>
+  : AIstr_ex_or_rel<opcod, 0b11, oops, iops, itin, opc, asm, pattern> {
+  bits<4> Rd;
+  let Inst{15-12} = Rd;
+}
+
+// Exclusive load/store instructions
+
+class AIldaex<bits<2> opcod, dag oops, dag iops, InstrItinClass itin,
+              string opc, string asm, list<dag> pattern>
+  : AIldr_ex_or_acq<opcod, 0b10, oops, iops, itin, opc, asm, pattern>,
+    Requires<[IsARM, HasV8]>;
+
+class AIstlex<bits<2> opcod, dag oops, dag iops, InstrItinClass itin,
+              string opc, string asm, list<dag> pattern>
+  : AIstr_ex_or_rel<opcod, 0b10, oops, iops, itin, opc, asm, pattern>,
+    Requires<[IsARM, HasV8]> {
+  bits<4> Rd;
+  let Inst{15-12} = Rd;
+}
+
 class AIswp<bit b, dag oops, dag iops, string opc, list<dag> pattern>
   : AI<oops, iops, MiscFrm, NoItinerary, opc, "\t$Rt, $Rt2, $addr", pattern> {
   bits<4> Rt;
@@ -534,6 +572,18 @@ class AIswp<bit b, dag oops, dag iops, string opc, list<dag> pattern>
 
   let Unpredictable{11-8} = 0b1111;
   let DecoderMethod = "DecodeSwap";
+}
+// Acquire/Release load/store instructions
+class AIldracq<bits<2> opcod, dag oops, dag iops, InstrItinClass itin,
+              string opc, string asm, list<dag> pattern>
+  : AIldr_ex_or_acq<opcod, 0b00, oops, iops, itin, opc, asm, pattern>,
+    Requires<[IsARM, HasV8]>;
+
+class AIstrrel<bits<2> opcod, dag oops, dag iops, InstrItinClass itin,
+              string opc, string asm, list<dag> pattern>
+  : AIstr_ex_or_rel<opcod, 0b00, oops, iops, itin, opc, asm, pattern>,
+    Requires<[IsARM, HasV8]> {
+  let Inst{15-12}   = 0b1111;
 }
 
 // addrmode1 instructions
@@ -1830,6 +1880,21 @@ class NeonXI<dag oops, dag iops, AddrMode am, IndexMode im, Format f,
   let DecoderNamespace = "NEON";
 }
 
+// Same as NeonI except it is not predicated
+class NeonInp<dag oops, dag iops, AddrMode am, IndexMode im, Format f,
+            InstrItinClass itin, string opc, string dt, string asm, string cstr,
+            list<dag> pattern>
+  : InstARM<am, 4, im, f, NeonDomain, cstr, itin> {
+  let OutOperandList = oops;
+  let InOperandList = iops;
+  let AsmString = !strconcat(opc, ".", dt, "\t", asm);
+  let Pattern = pattern;
+  list<Predicate> Predicates = [HasNEON];
+  let DecoderNamespace = "NEON";
+
+  let Inst{31-28} = 0b1111;
+}
+
 class NLdSt<bit op23, bits<2> op21_20, bits<4> op11_8, bits<4> op7_4,
             dag oops, dag iops, InstrItinClass itin,
             string opc, string dt, string asm, string cstr, list<dag> pattern>
@@ -1949,6 +2014,35 @@ class N2V<bits<2> op24_23, bits<2> op21_20, bits<2> op19_18, bits<2> op17_16,
   let Inst{5}     = Vm{4};
 }
 
+// Same as N2V but not predicated.
+class N2Vnp<bits<2> op19_18, bits<2> op17_16, bits<3> op10_8, bit op7, bit op6,
+            dag oops, dag iops, InstrItinClass itin, string OpcodeStr,
+            string Dt, ValueType ResTy, ValueType OpTy, list<dag> pattern>
+   : NeonInp<oops, iops, AddrModeNone, IndexModeNone, N2RegFrm, itin,
+             OpcodeStr, Dt, "$Vd, $Vm", "", pattern> {
+  bits<5> Vd;
+  bits<5> Vm;
+
+  // Encode instruction operands
+  let Inst{22}    = Vd{4};
+  let Inst{15-12} = Vd{3-0};
+  let Inst{5}     = Vm{4};
+  let Inst{3-0}   = Vm{3-0};
+
+  // Encode constant bits
+  let Inst{27-23} = 0b00111;
+  let Inst{21-20} = 0b11;
+  let Inst{19-18} = op19_18;
+  let Inst{17-16} = op17_16;
+  let Inst{11} = 0;
+  let Inst{10-8} = op10_8;
+  let Inst{7} = op7;
+  let Inst{6} = op6;
+  let Inst{4} = 0;
+
+  let DecoderNamespace = "NEON";
+}
+
 // Same as N2V except it doesn't have a datatype suffix.
 class N2VX<bits<2> op24_23, bits<2> op21_20, bits<2> op19_18, bits<2> op17_16,
            bits<5> op11_7, bit op6, bit op4,
@@ -2028,6 +2122,32 @@ class N3V<bit op24, bit op23, bits<2> op21_20, bits<4> op11_8, bit op6, bit op4,
   let Inst{7}     = Vn{4};
   let Inst{3-0}   = Vm{3-0};
   let Inst{5}     = Vm{4};
+}
+
+class N3Vnp<bits<5> op27_23, bits<2> op21_20, bits<4> op11_8, bit op6,
+                bit op4, dag oops, dag iops,Format f, InstrItinClass itin,
+                string OpcodeStr, string Dt, ValueType ResTy, ValueType OpTy,
+                SDPatternOperator IntOp, bit Commutable, list<dag> pattern>
+  : NeonInp<oops, iops, AddrModeNone, IndexModeNone, f, itin, OpcodeStr,
+            Dt, "$Vd, $Vn, $Vm", "", pattern> {
+  bits<5> Vd;
+  bits<5> Vn;
+  bits<5> Vm;
+
+  // Encode instruction operands
+  let Inst{22} = Vd{4};
+  let Inst{15-12} = Vd{3-0};
+  let Inst{19-16} = Vn{3-0};
+  let Inst{7} = Vn{4};
+  let Inst{5} = Vm{4};
+  let Inst{3-0} = Vm{3-0};
+
+  // Encode constant bits
+  let Inst{27-23} = op27_23;
+  let Inst{21-20} = op21_20;
+  let Inst{11-8}  = op11_8;
+  let Inst{6}     = op6;
+  let Inst{4}     = op4;
 }
 
 class N3VLane32<bit op24, bit op23, bits<2> op21_20, bits<4> op11_8, bit op6,

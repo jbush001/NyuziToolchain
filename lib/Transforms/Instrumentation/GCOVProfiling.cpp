@@ -154,10 +154,10 @@ static std::string getFunctionName(DISubprogram SP) {
 namespace {
   class GCOVRecord {
    protected:
-    static const char *LinesTag;
-    static const char *FunctionTag;
-    static const char *BlockTag;
-    static const char *EdgeTag;
+    static const char *const LinesTag;
+    static const char *const FunctionTag;
+    static const char *const BlockTag;
+    static const char *const EdgeTag;
 
     GCOVRecord() {}
 
@@ -171,7 +171,7 @@ namespace {
 
     // Returns the length measured in 4-byte blocks that will be used to
     // represent this string in a GCOV file
-    unsigned lengthOfGCOVString(StringRef s) {
+    static unsigned lengthOfGCOVString(StringRef s) {
       // A GCOV string is a length, followed by a NUL, then between 0 and 3 NULs
       // padding out to the next 4-byte word. The length is measured in 4-byte
       // words including padding, not bytes of actual string.
@@ -191,10 +191,10 @@ namespace {
 
     raw_ostream *os;
   };
-  const char *GCOVRecord::LinesTag = "\0\0\x45\x01";
-  const char *GCOVRecord::FunctionTag = "\0\0\0\1";
-  const char *GCOVRecord::BlockTag = "\0\0\x41\x01";
-  const char *GCOVRecord::EdgeTag = "\0\0\x43\x01";
+  const char *const GCOVRecord::LinesTag = "\0\0\x45\x01";
+  const char *const GCOVRecord::FunctionTag = "\0\0\0\1";
+  const char *const GCOVRecord::BlockTag = "\0\0\x41\x01";
+  const char *const GCOVRecord::EdgeTag = "\0\0\x43\x01";
 
   class GCOVFunction;
   class GCOVBlock;
@@ -208,7 +208,7 @@ namespace {
       Lines.push_back(Line);
     }
 
-    uint32_t length() {
+    uint32_t length() const {
       // Here 2 = 1 for string length + 1 for '0' id#.
       return lengthOfGCOVString(Filename) + 2 + Lines.size();
     }
@@ -426,7 +426,7 @@ void GCOVProfiler::emitProfileNotes() {
     DICompileUnit CU(CU_Nodes->getOperand(i));
     std::string ErrorInfo;
     raw_fd_ostream out(mangleName(CU, "gcno").c_str(), ErrorInfo,
-                       raw_fd_ostream::F_Binary);
+                       sys::fs::F_Binary);
     out.write("oncg", 4);
     out.write(ReversedVersion, 4);
     out.write("MVLL", 4);
@@ -519,15 +519,15 @@ bool GCOVProfiler::emitProfileArcs() {
         TerminatorInst *TI = BB->getTerminator();
         int Successors = isa<ReturnInst>(TI) ? 1 : TI->getNumSuccessors();
         if (Successors) {
-          IRBuilder<> Builder(TI);
-          
           if (Successors == 1) {
+            IRBuilder<> Builder(BB->getFirstInsertionPt());
             Value *Counter = Builder.CreateConstInBoundsGEP2_64(Counters, 0,
                                                                 Edge);
             Value *Count = Builder.CreateLoad(Counter);
             Count = Builder.CreateAdd(Count, Builder.getInt64(1));
             Builder.CreateStore(Count, Counter);
           } else if (BranchInst *BI = dyn_cast<BranchInst>(TI)) {
+            IRBuilder<> Builder(BI);
             Value *Sel = Builder.CreateSelect(BI->getCondition(),
                                               Builder.getInt64(Edge),
                                               Builder.getInt64(Edge + 1));
@@ -543,6 +543,7 @@ bool GCOVProfiler::emitProfileArcs() {
             for (int i = 0; i != Successors; ++i)
               ComplexEdgeSuccs.insert(TI->getSuccessor(i));
           }
+
           Edge += Successors;
         }
       }
@@ -554,14 +555,13 @@ bool GCOVProfiler::emitProfileArcs() {
         GlobalVariable *EdgeState = getEdgeStateValue();
         
         for (int i = 0, e = ComplexEdgePreds.size(); i != e; ++i) {
-          IRBuilder<> Builder(ComplexEdgePreds[i+1]->getTerminator());
+          IRBuilder<> Builder(ComplexEdgePreds[i + 1]->getFirstInsertionPt());
           Builder.CreateStore(Builder.getInt32(i), EdgeState);
         }
+
         for (int i = 0, e = ComplexEdgeSuccs.size(); i != e; ++i) {
-          // call runtime to perform increment
-          BasicBlock::iterator InsertPt =
-            ComplexEdgeSuccs[i+1]->getFirstInsertionPt();
-          IRBuilder<> Builder(InsertPt);
+          // Call runtime to perform increment.
+          IRBuilder<> Builder(ComplexEdgeSuccs[i+1]->getFirstInsertionPt());
           Value *CounterPtrArray =
             Builder.CreateConstInBoundsGEP2_64(EdgeTable, 0,
                                                i * ComplexEdgePreds.size());

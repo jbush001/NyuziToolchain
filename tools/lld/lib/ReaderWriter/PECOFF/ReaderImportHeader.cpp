@@ -90,6 +90,25 @@
 /// data has to be accessed through dllimport'ed symbols or explicit _imp__
 /// prefix.
 ///
+/// Idata Sections in the Pseudo Object File
+/// ========================================
+///
+/// The object file created by cl.exe has several sections whose name starts
+/// with ".idata$" followed by a number. The contents of the sections seem the
+/// fragments of a complete ".idata" section. These sections has relocations for
+/// the data referenced from the idata secton. Generally, the linker discards
+/// "$" and all characters that follow from the section name and merges their
+/// contents to one section. So, it looks like if everything would work fine,
+/// the idata section would naturally be constructed without having any special
+/// code for doing that.
+///
+/// However, the LLD linker cannot do that. An idata section constructed in that
+/// way was never be in valid format. We don't know the reason yet. Our
+/// assumption on the idata fragment could simply be wrong, or the LLD linker is
+/// not powerful enough to do the job. Meanwhile, we construct the idata section
+/// ourselves. All the "idata$" sections in the pseudo object file are currently
+/// ignored.
+///
 /// Creating Atoms for the Import Address Table
 /// ===========================================
 ///
@@ -162,30 +181,42 @@ std::vector<uint8_t> FuncAtom::rawContent(
 
 class FileImportLibrary : public File {
 public:
-  FileImportLibrary(const TargetInfo &ti,
+  FileImportLibrary(const LinkingContext &context,
                     std::unique_ptr<llvm::MemoryBuffer> mb,
                     llvm::error_code &ec)
-      : File(mb->getBufferIdentifier(), kindSharedLibrary), _targetInfo(ti) {
+      : File(mb->getBufferIdentifier(), kindSharedLibrary), _context(context) {
     const char *buf = mb->getBufferStart();
     const char *end = mb->getBufferEnd();
 
     // The size of the string that follows the header.
-    uint32_t dataSize =
-        *reinterpret_cast<const support::ulittle32_t *>(buf + 12);
+    uint32_t dataSize = *reinterpret_cast<const support::ulittle32_t *>(
+        buf + offsetof(COFF::ImportHeader, SizeOfData));
 
-    // Check if the total size is valid. The file header is 20 byte long.
-    if (end - buf != 20 + dataSize) {
+    // Check if the total size is valid.
+    if (end - buf != sizeof(COFF::ImportHeader) + dataSize) {
       ec = make_error_code(native_reader_error::unknown_file_format);
       return;
     }
 
-    uint16_t hint = *reinterpret_cast<const support::ulittle16_t *>(buf + 16);
-    StringRef symbolName(buf + 20);
-    StringRef dllName(buf + 20 + symbolName.size() + 1);
+    uint16_t hint = *reinterpret_cast<const support::ulittle16_t *>(
+        buf + offsetof(COFF::ImportHeader, OrdinalHint));
+    StringRef symbolName(buf + sizeof(COFF::ImportHeader));
+    StringRef dllName(buf + sizeof(COFF::ImportHeader) + symbolName.size() + 1);
+
+    // TypeInfo is a bitfield. The least significant 2 bits are import
+    // type, followed by 3 bit import name type.
+    uint16_t typeInfo = *reinterpret_cast<const support::ulittle16_t *>(
+        buf + offsetof(COFF::ImportHeader, TypeInfo));
+    int type = typeInfo & 0x3;
+    int nameType = (typeInfo >> 2) & 0x7;
+
+    // Symbol name used by the linker may be different from the symbol name used
+    // by the loader. The latter may lack symbol decorations, or may not even
+    // have name if it's imported by ordinal.
+    StringRef importName = symbolNameToImportName(symbolName, nameType);
 
     const COFFSharedLibraryAtom *dataAtom = addSharedLibraryAtom(
-        hint, symbolName, dllName);
-    int type = *reinterpret_cast<const support::ulittle16_t *>(buf + 18) >> 16;
+        hint, symbolName, importName, dllName);
     if (type == llvm::COFF::IMPORT_CODE)
       addDefinedAtom(symbolName, dllName, dataAtom);
 
@@ -208,21 +239,21 @@ public:
     return _noAbsoluteAtoms;
   }
 
-  virtual const TargetInfo &getTargetInfo() const { return _targetInfo; }
+  virtual const LinkingContext &getLinkingContext() const { return _context; }
 
 private:
-  const COFFSharedLibraryAtom *addSharedLibraryAtom(
-      uint16_t hint, StringRef symbolName, StringRef dllName) {
-    auto *atom = new (_allocator.Allocate<COFFSharedLibraryAtom>())
-        COFFSharedLibraryAtom(*this, hint, symbolName, dllName);
+  const COFFSharedLibraryAtom *
+  addSharedLibraryAtom(uint16_t hint, StringRef symbolName,
+                       StringRef importName, StringRef dllName) {
+    auto *atom = new (_alloc) COFFSharedLibraryAtom(
+        *this, hint, symbolName, importName, dllName);
     _sharedLibraryAtoms._atoms.push_back(atom);
     return atom;
   }
 
   void addDefinedAtom(StringRef symbolName, StringRef dllName,
                       const COFFSharedLibraryAtom *dataAtom) {
-    auto *atom = new (_allocator.Allocate<FuncAtom>())
-        FuncAtom(*this, symbolName);
+    auto *atom = new (_alloc) FuncAtom(*this, symbolName);
 
     // The first two byte of the atom is JMP instruction.
     atom->addReference(std::unique_ptr<COFFReference>(
@@ -232,19 +263,55 @@ private:
 
   atom_collection_vector<DefinedAtom> _definedAtoms;
   atom_collection_vector<SharedLibraryAtom> _sharedLibraryAtoms;
-  const TargetInfo &_targetInfo;
-  mutable llvm::BumpPtrAllocator _allocator;
+  const LinkingContext &_context;
+  mutable llvm::BumpPtrAllocator _alloc;
+
+  // Does the same thing as StringRef::ltrim() but removes at most one
+  // character.
+  StringRef ltrim1(StringRef str, const char *chars) const {
+    if (!str.empty() && strchr(chars, str[0]))
+      return str.substr(1);
+    return str;
+  }
+
+  // Convert the given symbol name to the import symbol name exported by the
+  // DLL.
+  StringRef symbolNameToImportName(StringRef symbolName, int nameType) const {
+    StringRef ret;
+    switch (nameType) {
+    case llvm::COFF::IMPORT_ORDINAL:
+      // The import is by ordinal. No symbol name will be used to identify the
+      // item in the DLL. Only its ordinal will be used.
+      return "";
+    case llvm::COFF::IMPORT_NAME:
+      // The import name in this case is identical to the symbol name.
+      return symbolName;
+    case llvm::COFF::IMPORT_NAME_NOPREFIX:
+      // The import name is the symbol name without leading ?, @ or _.
+      ret = ltrim1(symbolName, "?@_");
+      break;
+    case llvm::COFF::IMPORT_NAME_UNDECORATE:
+      // Similar to NOPREFIX, but we also need to truncate at the first @.
+      ret = ltrim1(symbolName, "?@_");
+      ret = ret.substr(0, ret.find('@'));
+      break;
+    }
+    std::string *str = new (_alloc) std::string(ret);
+    return *str;
+  }
 };
 
 } // end anonymous namespace
 
-error_code parseCOFFImportLibrary(const TargetInfo &targetInfo,
+error_code parseCOFFImportLibrary(const LinkingContext &targetInfo,
                                   std::unique_ptr<MemoryBuffer> &mb,
-                                  std::vector<std::unique_ptr<File> > &result) {
+                                  std::vector<std::unique_ptr<File>> &result) {
   // Check the file magic.
   const char *buf = mb->getBufferStart();
   const char *end = mb->getBufferEnd();
-  if (end - buf < 20 || memcmp(buf, "\0\0\xFF\xFF", 4))
+  // Error if the file is too small or does not start with the magic.
+  if (end - buf < static_cast<ptrdiff_t>(sizeof(COFF::ImportHeader)) ||
+      memcmp(buf, "\0\0\xFF\xFF", 4))
     return make_error_code(native_reader_error::unknown_file_format);
 
   error_code ec;

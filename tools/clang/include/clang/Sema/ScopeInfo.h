@@ -567,6 +567,8 @@ public:
     switch (CapRegionKind) {
     case CR_Default:
       return "default captured statement";
+    case CR_OpenMP:
+      return "OpenMP region";
     }
     llvm_unreachable("Invalid captured region kind!");
   }
@@ -581,19 +583,23 @@ public:
   /// \brief The class that describes the lambda.
   CXXRecordDecl *Lambda;
 
-  /// \brief The class that describes the lambda.
+  /// \brief The lambda's compiler-generated \c operator().
   CXXMethodDecl *CallOperator;
 
   /// \brief Source range covering the lambda introducer [...].
   SourceRange IntroducerRange;
 
-  /// \brief The number of captures in the \c Captures list that are 
+  /// \brief Source location of the '&' or '=' specifying the default capture
+  /// type, if any.
+  SourceLocation CaptureDefaultLoc;
+
+  /// \brief The number of captures in the \c Captures list that are
   /// explicit captures.
   unsigned NumExplicitCaptures;
 
   /// \brief Whether this is a mutable lambda.
   bool Mutable;
-  
+
   /// \brief Whether the (empty) parameter list is explicit.
   bool ExplicitParams;
 
@@ -609,7 +615,7 @@ public:
   /// \brief Offsets into the ArrayIndexVars array at which each capture starts
   /// its list of array index variables.
   SmallVector<unsigned, 4> ArrayIndexStarts;
-  
+
   LambdaScopeInfo(DiagnosticsEngine &Diag, CXXRecordDecl *Lambda,
                   CXXMethodDecl *CallOperator)
     : CapturingScopeInfo(Diag, ImpCap_None), Lambda(Lambda),
@@ -621,13 +627,13 @@ public:
 
   virtual ~LambdaScopeInfo();
 
-  /// \brief Note when 
+  /// \brief Note when all explicit captures have been added.
   void finishedExplicitCaptures() {
     NumExplicitCaptures = Captures.size();
   }
 
   static bool classof(const FunctionScopeInfo *FSI) {
-    return FSI->Kind == SK_Lambda; 
+    return FSI->Kind == SK_Lambda;
   }
 };
 

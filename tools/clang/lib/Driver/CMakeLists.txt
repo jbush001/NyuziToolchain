@@ -6,6 +6,7 @@ add_clang_library(clangDriver
   DriverOptions.cpp
   Job.cpp
   Phases.cpp
+  SanitizerArgs.cpp
   Tool.cpp
   ToolChain.cpp
   ToolChains.cpp
@@ -25,4 +26,5 @@ add_dependencies(clangDriver
 target_link_libraries(clangDriver
   clangBasic
   LLVMOption
+  LLVMTransformUtils
   )

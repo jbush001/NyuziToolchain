@@ -19,7 +19,6 @@
 #include "clang/AST/CanonicalType.h"
 #include "clang/AST/CommentCommandTraits.h"
 #include "clang/AST/Decl.h"
-#include "clang/AST/MangleNumberingContext.h"
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/PrettyPrinter.h"
 #include "clang/AST/RawCommentList.h"
@@ -59,6 +58,7 @@ namespace clang {
   class SelectorTable;
   class TargetInfo;
   class CXXABI;
+  class MangleNumberingContext;
   // Decls
   class MangleContext;
   class ObjCIvarDecl;
@@ -148,7 +148,7 @@ class ASTContext : public RefCountedBase<ASTContext> {
   mutable TypeInfoMap MemoizedTypeInfo;
 
   /// \brief A cache mapping from CXXRecordDecls to key functions.
-  llvm::DenseMap<const CXXRecordDecl*, const CXXMethodDecl*> KeyFunctions;
+  llvm::DenseMap<const CXXRecordDecl*, LazyDeclPtr> KeyFunctions;
   
   /// \brief Mapping from ObjCContainers to their ObjCImplementations.
   llvm::DenseMap<ObjCContainerDecl*, ObjCImplDecl*> ObjCImpls;
@@ -271,13 +271,25 @@ class ASTContext : public RefCountedBase<ASTContext> {
   /// wasting space in the Decl class.
   llvm::DenseMap<const Decl*, AttrVec*> DeclAttrs;
 
-  /// \brief Keeps track of the static data member templates from which
-  /// static data members of class template specializations were instantiated.
+public:
+  /// \brief A type synonym for the TemplateOrInstantiation mapping.
+  typedef llvm::PointerUnion<VarTemplateDecl *, MemberSpecializationInfo *>
+  TemplateOrSpecializationInfo;
+
+private:
+
+  /// \brief A mapping to contain the template or declaration that
+  /// a variable declaration describes or was instantiated from,
+  /// respectively.
   ///
-  /// This data structure stores the mapping from instantiations of static
-  /// data members to the static data member representations within the
-  /// class template from which they were instantiated along with the kind
-  /// of instantiation or specialization (a TemplateSpecializationKind - 1).
+  /// For non-templates, this value will be NULL. For variable
+  /// declarations that describe a variable template, this will be a
+  /// pointer to a VarTemplateDecl. For static data members
+  /// of class template specializations, this will be the
+  /// MemberSpecializationInfo referring to the member variable that was
+  /// instantiated or specialized. Thus, the mapping will keep track of
+  /// the static data member templates from which static data members of
+  /// class template specializations were instantiated.
   ///
   /// Given the following example:
   ///
@@ -296,8 +308,8 @@ class ASTContext : public RefCountedBase<ASTContext> {
   /// This mapping will contain an entry that maps from the VarDecl for
   /// X<int>::value to the corresponding VarDecl for X<T>::value (within the
   /// class template X) and will be marked TSK_ImplicitInstantiation.
-  llvm::DenseMap<const VarDecl *, MemberSpecializationInfo *> 
-    InstantiatedFromStaticDataMember;
+  llvm::DenseMap<const VarDecl *, TemplateOrSpecializationInfo>
+  TemplateOrInstantiation;
 
   /// \brief Keeps track of the declaration from which a UsingDecl was
   /// created during instantiation.
@@ -341,7 +353,7 @@ class ASTContext : public RefCountedBase<ASTContext> {
   /// \brief Mapping from each declaration context to its corresponding
   /// mangling numbering context (used for constructs like lambdas which
   /// need to be consistently numbered for the mangler).
-  llvm::DenseMap<const DeclContext *, MangleNumberingContext>
+  llvm::DenseMap<const DeclContext *, MangleNumberingContext *>
       MangleNumberingContexts;
 
   /// \brief Side-table of mangling numbers for declarations which rarely
@@ -380,6 +392,10 @@ class ASTContext : public RefCountedBase<ASTContext> {
 
   /// \brief The logical -> physical address space map.
   const LangAS::Map *AddrSpaceMap;
+
+  /// \brief Address space map mangling must be used with language specific 
+  /// address spaces (e.g. OpenCL/CUDA)
+  bool AddrSpaceMapMangling;
 
   friend class ASTDeclReader;
   friend class ASTReader;
@@ -468,6 +484,17 @@ public:
 
   const TargetInfo &getTargetInfo() const { return *Target; }
   
+  /// getIntTypeForBitwidth -
+  /// sets integer QualTy according to specified details:
+  /// bitwidth, signed/unsigned.
+  /// Returns empty type if there is no appropriate target types.
+  QualType getIntTypeForBitwidth(unsigned DestWidth,
+                                 unsigned Signed) const;
+  /// getRealTypeForBitwidth -
+  /// sets floating point QualTy according to specified bitwidth.
+  /// Returns empty type if there is no appropriate target types.
+  QualType getRealTypeForBitwidth(unsigned DestWidth) const;
+
   bool AtomicUsesUnsupportedLibcall(const AtomicExpr *E) const;
   
   const LangOptions& getLangOpts() const { return LangOpts; }
@@ -606,8 +633,12 @@ public:
   /// \brief If this variable is an instantiated static data member of a
   /// class template specialization, returns the templated static data member
   /// from which it was instantiated.
+  // FIXME: Remove ?
   MemberSpecializationInfo *getInstantiatedFromStaticDataMember(
                                                            const VarDecl *Var);
+
+  TemplateOrSpecializationInfo
+  getTemplateOrSpecializationInfo(const VarDecl *Var);
 
   FunctionDecl *getClassScopeSpecializationPattern(const FunctionDecl *FD);
 
@@ -619,6 +650,9 @@ public:
   void setInstantiatedFromStaticDataMember(VarDecl *Inst, VarDecl *Tmpl,
                                            TemplateSpecializationKind TSK,
                         SourceLocation PointOfInstantiation = SourceLocation());
+
+  void setTemplateOrSpecializationInfo(VarDecl *Inst,
+                                       TemplateOrSpecializationInfo TSI);
 
   /// \brief If the given using decl \p Inst is an instantiation of a
   /// (possibly unresolved) using decl from a template instantiation,
@@ -1603,9 +1637,11 @@ public:
   /// \pre \p D must not be a bitfield type, as bitfields do not have a valid
   /// alignment.
   ///
-  /// If \p RefAsPointee, references are treated like their underlying type
-  /// (for alignof), else they're treated like pointers (for CodeGen).
-  CharUnits getDeclAlign(const Decl *D, bool RefAsPointee = false) const;
+  /// If \p ForAlignof, references are treated like their underlying type
+  /// and  large arrays don't get any special treatment. If not \p ForAlignof
+  /// it computes the value expected by CodeGen: references are treated like
+  /// pointers and large arrays get extra alignment.
+  CharUnits getDeclAlign(const Decl *D, bool ForAlignof = false) const;
 
   /// \brief Get or compute information about the layout of the specified
   /// record (struct/union/class) \p D, which indicates its size and field
@@ -1717,6 +1753,9 @@ public:
            getCanonicalType(T2).getTypePtr();
   }
 
+  bool ObjCMethodsAreEqual(const ObjCMethodDecl *MethodDecl,
+                           const ObjCMethodDecl *MethodImp);
+  
   bool UnwrapSimilarPointerTypes(QualType &T1, QualType &T2);
   
   /// \brief Retrieves the "canonical" nested name specifier for a
@@ -1745,19 +1784,9 @@ public:
   NestedNameSpecifier *
   getCanonicalNestedNameSpecifier(NestedNameSpecifier *NNS) const;
 
-  /// \brief Retrieves the default calling convention to use for
-  /// C++ instance methods.
-  CallingConv getDefaultCXXMethodCallConv(bool isVariadic);
-
-  /// \brief Retrieves the canonical representation of the given
-  /// calling convention.
-  CallingConv getCanonicalCallConv(CallingConv CC) const;
-
-  /// \brief Determines whether two calling conventions name the same
-  /// calling convention.
-  bool isSameCallConv(CallingConv lcc, CallingConv rcc) {
-    return (getCanonicalCallConv(lcc) == getCanonicalCallConv(rcc));
-  }
+  /// \brief Retrieves the default calling convention for the current target.
+  CallingConv getDefaultCallingConvention(bool isVariadic,
+                                          bool IsCXXMethod) const;
 
   /// \brief Retrieves the "canonical" template name that refers to a
   /// given template.
@@ -1893,6 +1922,12 @@ public:
       return AS;
     else
       return (*AddrSpaceMap)[AS - LangAS::Offset];
+  }
+
+  bool addressSpaceMapManglingFor(unsigned AS) const {
+    return AddrSpaceMapMangling || 
+           AS < LangAS::Offset || 
+           AS >= LangAS::Offset + LangAS::Count;
   }
 
 private:
@@ -2093,6 +2128,8 @@ public:
   /// \brief Retrieve the context for computing mangling numbers in the given
   /// DeclContext.
   MangleNumberingContext &getManglingNumberContext(const DeclContext *DC);
+
+  MangleNumberingContext *createMangleNumberingContext() const;
 
   /// \brief Used by ParmVarDecl to store on the side the
   /// index of the parameter when it exceeds the size of the normal bitfield.

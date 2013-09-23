@@ -148,8 +148,8 @@ static unsigned CombineSymbolTypes(unsigned T1, unsigned T2) {
   return T2;
 }
 
-void MCELFStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
-                                          MCSymbolAttr Attribute) {
+bool MCELFStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
+                                        MCSymbolAttr Attribute) {
   // Indirect symbols are handled differently, to match how 'as' handles
   // them. This makes writing matching .o files easier.
   if (Attribute == MCSA_IndirectSymbol) {
@@ -159,7 +159,7 @@ void MCELFStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
     ISD.Symbol = Symbol;
     ISD.SectionData = getCurrentSectionData();
     getAssembler().getIndirectSymbols().push_back(ISD);
-    return;
+    return true;
   }
 
   // Adding a symbol attribute always introduces the symbol, note that an
@@ -182,7 +182,7 @@ void MCELFStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
   case MCSA_WeakDefAutoPrivate:
   case MCSA_Invalid:
   case MCSA_IndirectSymbol:
-    llvm_unreachable("Invalid symbol attribute for ELF!");
+    return false;
 
   case MCSA_NoDeadStrip:
   case MCSA_ELF_TypeGnuUniqueObject:
@@ -251,6 +251,8 @@ void MCELFStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
     MCELF::SetVisibility(SD, ELF::STV_INTERNAL);
     break;
   }
+
+  return true;
 }
 
 void MCELFStreamer::EmitCommonSymbol(MCSymbol *Symbol, uint64_t Size,
@@ -270,7 +272,8 @@ void MCELFStreamer::EmitCommonSymbol(MCSymbol *Symbol, uint64_t Size,
                                                          ELF::SHF_WRITE |
                                                          ELF::SHF_ALLOC,
                                                          SectionKind::getBSS());
-    Symbol->setSection(*Section);
+
+    AssignSection(Symbol, Section);
 
     struct LocalCommon L = {&SD, Size, ByteAlignment};
     LocalCommons.push_back(L);
@@ -525,9 +528,7 @@ void MCELFStreamer::EmitBundleUnlock() {
   SD->setBundleLockState(MCSectionData::NotBundleLocked);
 }
 
-void MCELFStreamer::FinishImpl() {
-  EmitFrames(true);
-
+void MCELFStreamer::Flush() {
   for (std::vector<LocalCommon>::const_iterator i = LocalCommons.begin(),
                                                 e = LocalCommons.end();
        i != e; ++i) {
@@ -548,8 +549,17 @@ void MCELFStreamer::FinishImpl() {
       SectData.setAlignment(ByteAlignment);
   }
 
+  LocalCommons.clear();
+}
+
+void MCELFStreamer::FinishImpl() {
+  EmitFrames(NULL, true);
+
+  Flush();
+
   this->MCObjectStreamer::FinishImpl();
 }
+
 void MCELFStreamer::EmitTCEntry(const MCSymbol &S) {
   // Creates a R_PPC64_TOC relocation
   MCObjectStreamer::EmitSymbolValue(&S, 8);

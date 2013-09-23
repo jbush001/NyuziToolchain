@@ -51,9 +51,17 @@ R600InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                            MachineBasicBlock::iterator MI, DebugLoc DL,
                            unsigned DestReg, unsigned SrcReg,
                            bool KillSrc) const {
-  if (AMDGPU::R600_Reg128RegClass.contains(DestReg)
-      && AMDGPU::R600_Reg128RegClass.contains(SrcReg)) {
-    for (unsigned I = 0; I < 4; I++) {
+  unsigned VectorComponents = 0;
+  if (AMDGPU::R600_Reg128RegClass.contains(DestReg) &&
+      AMDGPU::R600_Reg128RegClass.contains(SrcReg)) {
+    VectorComponents = 4;
+  } else if(AMDGPU::R600_Reg64RegClass.contains(DestReg) &&
+            AMDGPU::R600_Reg64RegClass.contains(SrcReg)) {
+    VectorComponents = 2;
+  }
+
+  if (VectorComponents > 0) {
+    for (unsigned I = 0; I < VectorComponents; I++) {
       unsigned SubRegIndex = RI.getSubRegFromChannel(I);
       buildDefaultInstruction(MBB, MI, AMDGPU::MOV,
                               RI.getSubReg(DestReg, SubRegIndex),
@@ -62,11 +70,6 @@ R600InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                       RegState::Define | RegState::Implicit);
     }
   } else {
-
-    // We can't copy vec4 registers
-    assert(!AMDGPU::R600_Reg128RegClass.contains(DestReg)
-           && !AMDGPU::R600_Reg128RegClass.contains(SrcReg));
-
     MachineInstr *NewMI = buildDefaultInstruction(MBB, MI, AMDGPU::MOV,
                                                   DestReg, SrcReg);
     NewMI->getOperand(getOperandIdx(*NewMI, AMDGPU::OpName::src0))
@@ -146,15 +149,30 @@ bool R600InstrInfo::isLDSInstr(unsigned Opcode) const {
   unsigned TargetFlags = get(Opcode).TSFlags;
 
   return ((TargetFlags & R600_InstFlag::LDS_1A) |
-          (TargetFlags & R600_InstFlag::LDS_1A1D));
+          (TargetFlags & R600_InstFlag::LDS_1A1D) |
+          (TargetFlags & R600_InstFlag::LDS_1A2D));
 }
 
 bool R600InstrInfo::isTransOnly(unsigned Opcode) const {
-  return (get(Opcode).TSFlags & R600_InstFlag::TRANS_ONLY);
+  if (ST.hasCaymanISA())
+    return false;
+  return (get(Opcode).getSchedClass() == AMDGPU::Sched::TransALU);
 }
 
 bool R600InstrInfo::isTransOnly(const MachineInstr *MI) const {
   return isTransOnly(MI->getOpcode());
+}
+
+bool R600InstrInfo::isVectorOnly(unsigned Opcode) const {
+  return (get(Opcode).getSchedClass() == AMDGPU::Sched::VecALU);
+}
+
+bool R600InstrInfo::isVectorOnly(const MachineInstr *MI) const {
+  return isVectorOnly(MI->getOpcode());
+}
+
+bool R600InstrInfo::isExport(unsigned Opcode) const {
+  return (get(Opcode).TSFlags & R600_InstFlag::IS_EXPORT);
 }
 
 bool R600InstrInfo::usesVertexCache(unsigned Opcode) const {
@@ -185,6 +203,58 @@ bool R600InstrInfo::mustBeLastInClause(unsigned Opcode) const {
     return false;
   }
 }
+
+bool R600InstrInfo::readsLDSSrcReg(const MachineInstr *MI) const {
+  if (!isALUInstr(MI->getOpcode())) {
+    return false;
+  }
+  for (MachineInstr::const_mop_iterator I = MI->operands_begin(),
+                                        E = MI->operands_end(); I != E; ++I) {
+    if (!I->isReg() || !I->isUse() ||
+        TargetRegisterInfo::isVirtualRegister(I->getReg()))
+      continue;
+
+    if (AMDGPU::R600_LDS_SRC_REGRegClass.contains(I->getReg()))
+      return true;
+  }
+  return false;
+}
+
+int R600InstrInfo::getSrcIdx(unsigned Opcode, unsigned SrcNum) const {
+  static const unsigned OpTable[] = {
+    AMDGPU::OpName::src0,
+    AMDGPU::OpName::src1,
+    AMDGPU::OpName::src2
+  };
+
+  assert (SrcNum < 3);
+  return getOperandIdx(Opcode, OpTable[SrcNum]);
+}
+
+#define SRC_SEL_ROWS 11
+int R600InstrInfo::getSelIdx(unsigned Opcode, unsigned SrcIdx) const {
+  static const unsigned SrcSelTable[SRC_SEL_ROWS][2] = {
+    {AMDGPU::OpName::src0, AMDGPU::OpName::src0_sel},
+    {AMDGPU::OpName::src1, AMDGPU::OpName::src1_sel},
+    {AMDGPU::OpName::src2, AMDGPU::OpName::src2_sel},
+    {AMDGPU::OpName::src0_X, AMDGPU::OpName::src0_sel_X},
+    {AMDGPU::OpName::src0_Y, AMDGPU::OpName::src0_sel_Y},
+    {AMDGPU::OpName::src0_Z, AMDGPU::OpName::src0_sel_Z},
+    {AMDGPU::OpName::src0_W, AMDGPU::OpName::src0_sel_W},
+    {AMDGPU::OpName::src1_X, AMDGPU::OpName::src1_sel_X},
+    {AMDGPU::OpName::src1_Y, AMDGPU::OpName::src1_sel_Y},
+    {AMDGPU::OpName::src1_Z, AMDGPU::OpName::src1_sel_Z},
+    {AMDGPU::OpName::src1_W, AMDGPU::OpName::src1_sel_W}
+  };
+
+  for (unsigned i = 0; i < SRC_SEL_ROWS; ++i) {
+    if (getOperandIdx(Opcode, SrcSelTable[i][0]) == (int)SrcIdx) {
+      return getOperandIdx(Opcode, SrcSelTable[i][1]);
+    }
+  }
+  return -1;
+}
+#undef SRC_SEL_ROWS
 
 SmallVector<std::pair<MachineOperand *, int64_t>, 3>
 R600InstrInfo::getSrcs(MachineInstr *MI) const {
@@ -282,6 +352,8 @@ R600InstrInfo::ExtractSrcs(MachineInstr *MI,
 static std::vector<std::pair<int, unsigned> >
 Swizzle(std::vector<std::pair<int, unsigned> > Src,
         R600InstrInfo::BankSwizzle Swz) {
+  if (Src[0] == Src[1])
+    Src[1].first = -1;
   switch (Swz) {
   case R600InstrInfo::ALU_VEC_012_SCL_210:
     break;
@@ -423,6 +495,9 @@ static bool
 isConstCompatible(R600InstrInfo::BankSwizzle TransSwz,
                   const std::vector<std::pair<int, unsigned> > &TransOps,
                   unsigned ConstCount) {
+  // TransALU can't read 3 constants
+  if (ConstCount > 2)
+    return false;
   for (unsigned i = 0, e = TransOps.size(); i < e; ++i) {
     const std::pair<int, unsigned> &Src = TransOps[i];
     unsigned Cycle = getTransSwizzle(TransSwz, i);
@@ -514,6 +589,7 @@ bool
 R600InstrInfo::fitsConstReadLimitations(const std::vector<MachineInstr *> &MIs)
     const {
   std::vector<unsigned> Consts;
+  SmallSet<int64_t, 4> Literals;
   for (unsigned i = 0, n = MIs.size(); i < n; i++) {
     MachineInstr *MI = MIs[i];
     if (!isALUInstr(MI->getOpcode()))
@@ -524,6 +600,10 @@ R600InstrInfo::fitsConstReadLimitations(const std::vector<MachineInstr *> &MIs)
 
     for (unsigned j = 0, e = Srcs.size(); j < e; j++) {
       std::pair<MachineOperand *, unsigned> Src = Srcs[j];
+      if (Src.first->getReg() == AMDGPU::ALU_LITERAL_X)
+        Literals.insert(Src.second);
+      if (Literals.size() > 4)
+        return false;
       if (Src.first->getReg() == AMDGPU::ALU_CONST)
         Consts.push_back(Src.second);
       if (AMDGPU::R600_KC0RegClass.contains(Src.first->getReg()) ||

@@ -16,17 +16,17 @@
 namespace lld {
 class File;
 class LinkerInput;
-class TargetInfo;
+class LinkingContext;
 
 /// \brief ReaderLinkerScript is a class for reading linker scripts
 class ReaderLinkerScript : public Reader {
 public:
-  explicit ReaderLinkerScript(const TargetInfo &ti)
-      : Reader(ti) {}
+  explicit ReaderLinkerScript(const LinkingContext &context)
+      : Reader(context) {}
 
   /// \brief Returns a vector of Files that are contained in the archive file
   ///        pointed to by the Memorybuffer
-  error_code parseFile(std::unique_ptr<llvm::MemoryBuffer> &mb,
+  error_code parseFile(LinkerInput &input,
                        std::vector<std::unique_ptr<File>> &result) const;
 };
 

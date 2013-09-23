@@ -35,19 +35,11 @@ performance measurements.
 
 --
 
-We don't support tail calls at present.
-
---
-
-We don't support prefetching yet.
-
---
-
 There is no scheduling support.
 
 --
 
-We don't use the BRANCH ON COUNT or BRANCH ON INDEX families of instruction.
+We don't use the BRANCH ON INDEX instructions.
 
 --
 
@@ -56,18 +48,7 @@ and conditional returns.
 
 --
 
-We don't use the condition code results of anything except comparisons.
-
-Implementing this may need something more finely grained than the z_cmp
-and z_ucmp that we have now.  It might (or might not) also be useful to
-have a mask of "don't care" values in conditional branches.  For example,
-integer comparisons never set CC to 3, so the bottom bit of the CC mask
-isn't particularly relevant.  JNLH and JE are equally good for testing
-equality after an integer comparison, etc.
-
---
-
-We don't use the LOAD AND TEST or TEST DATA CLASS instructions.
+We don't use the TEST DATA CLASS instructions.
 
 --
 
@@ -77,20 +58,16 @@ condition codes.  For example, we could use LCDFR instead of LCDBR.
 
 --
 
-We don't optimize block memory operations.
+We only use MVC, XC and CLC for constant-length block operations.
+We could extend them to variable-length operations too,
+using EXECUTE RELATIVE LONG.
 
-It's definitely worth using things like MVC, CLC, NC, XC and OC with
-constant lengths.  MVCIN may be worthwhile too.
-
-We should probably implement things like memcpy using MVC with EXECUTE.
-Likewise memcmp and CLC.  MVCLE and CLCLE could be useful too.
+MVCIN, MVCLE and CLCLE may be worthwhile too.
 
 --
 
-We don't optimize string operations.
-
-MVST, CLST, SRST and CUSE could be useful here.  Some of the TRANSLATE
-family might be too, although they are probably more difficult to exploit.
+We don't use CUSE or the TRANSLATE family of instructions for string
+operations.  The TRANSLATE ones are probably more difficult to exploit.
 
 --
 
@@ -113,19 +90,7 @@ We don't use the halfword forms of LOAD REVERSED and STORE REVERSED
 
 --
 
-We could take advantage of the various ... UNDER MASK instructions,
-such as ICM and STCM.
-
---
-
-We could make more use of the ROTATE AND ... SELECTED BITS instructions.
-At the moment we only use RISBG, and only then for subword atomic operations.
-
---
-
-DAGCombiner can detect integer absolute, but there's not yet an associated
-ISD opcode.  We could add one and implement it using LOAD POSITIVE.
-Negated absolutes could use LOAD NEGATIVE.
+We don't use ICM or STCM.
 
 --
 

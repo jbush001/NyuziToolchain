@@ -20,9 +20,10 @@ namespace {
 class LinkerScriptFile : public File {
 public:
   static ErrorOr<std::unique_ptr<LinkerScriptFile> >
-  create(const TargetInfo &ti, std::unique_ptr<llvm::MemoryBuffer> mb) {
+  create(const LinkingContext &context,
+         std::unique_ptr<llvm::MemoryBuffer> mb) {
     std::unique_ptr<LinkerScriptFile> file(
-        new LinkerScriptFile(ti, std::move(mb)));
+        new LinkerScriptFile(context, std::move(mb)));
     file->_script = file->_parser.parse();
     if (!file->_script)
       return linker_script_reader_error::parse_error;
@@ -37,7 +38,7 @@ public:
     _ordinal = ordinal++;
   }
 
-  virtual const TargetInfo &getTargetInfo() const { return _targetInfo; }
+  virtual const LinkingContext &getLinkingContext() const { return _context; }
 
   virtual const atom_collection<DefinedAtom> &defined() const {
     return _definedAtoms;
@@ -55,19 +56,15 @@ public:
     return _absoluteAtoms;
   }
 
-  const LinkerScript *getScript() {
-    return _script;
-  }
+  const LinkerScript *getScript() { return _script; }
 
 private:
-  LinkerScriptFile(const TargetInfo &ti, std::unique_ptr<llvm::MemoryBuffer> mb)
-      : File(mb->getBufferIdentifier(), kindLinkerScript),
-        _targetInfo(ti),
-        _lexer(std::move(mb)),
-        _parser(_lexer),
-        _script(nullptr) {}
+  LinkerScriptFile(const LinkingContext &context,
+                   std::unique_ptr<llvm::MemoryBuffer> mb)
+      : File(mb->getBufferIdentifier(), kindLinkerScript), _context(context),
+        _lexer(std::move(mb)), _parser(_lexer), _script(nullptr) {}
 
-  const TargetInfo &_targetInfo;
+  const LinkingContext &_context;
   atom_collection_vector<DefinedAtom> _definedAtoms;
   atom_collection_vector<UndefinedAtom> _undefinedAtoms;
   atom_collection_vector<SharedLibraryAtom> _sharedLibraryAtoms;
@@ -79,18 +76,25 @@ private:
 } // end anon namespace
 
 namespace lld {
-error_code
-ReaderLinkerScript::parseFile(std::unique_ptr<llvm::MemoryBuffer> &mb,
-                            std::vector<std::unique_ptr<File> > &result) const {
-  auto lsf = LinkerScriptFile::create(_targetInfo, std::move(mb));
+error_code ReaderLinkerScript::parseFile(
+    LinkerInput &input, std::vector<std::unique_ptr<File> > &result) const {
+  auto lsf = LinkerScriptFile::create(_context, input.takeBuffer());
   if (!lsf)
     return lsf;
   const LinkerScript *ls = (*lsf)->getScript();
   result.push_back(std::move(*lsf));
   for (const auto &c : ls->_commands) {
-    if (auto group = dyn_cast<Group>(c))
+    if (auto group = dyn_cast<lld::script::Group>(c))
       for (const auto &path : group->getPaths()) {
-        if (error_code ec = _targetInfo.readFile(path._path, result))
+        OwningPtr<llvm::MemoryBuffer> opmb;
+        if (error_code ec =
+                llvm::MemoryBuffer::getFileOrSTDIN(path._path, opmb))
+          return ec;
+
+        LinkerInput newInput(std::unique_ptr<llvm::MemoryBuffer>(opmb.take()),
+                             input);
+
+        if (error_code ec = _context.parseFile(newInput, result))
           return ec;
       }
   }

@@ -41,6 +41,7 @@ namespace llvm {
   class MCAsmInfo;
   class MCCFIInstruction;
   class MCContext;
+  class MCInstrInfo;
   class MCSection;
   class MCStreamer;
   class MCSymbol;
@@ -64,6 +65,7 @@ namespace llvm {
     ///
     const MCAsmInfo *MAI;
 
+    const MCInstrInfo *MII;
     /// OutContext - This is the context for the output file that we are
     /// streaming.  This owns all of the global MC-related objects for the
     /// generated translation unit.
@@ -359,13 +361,15 @@ namespace llvm {
     /// where the size in bytes of the directive is specified by Size and Label
     /// specifies the label.  This implicitly uses .set if it is available.
     void EmitLabelPlusOffset(const MCSymbol *Label, uint64_t Offset,
-                                   unsigned Size) const;
+                                   unsigned Size, 
+                                   bool IsSectionRelative = false) const;
 
     /// EmitLabelReference - Emit something like ".long Label"
     /// where the size in bytes of the directive is specified by Size and Label
     /// specifies the label.
-    void EmitLabelReference(const MCSymbol *Label, unsigned Size) const {
-      EmitLabelPlusOffset(Label, 0, Size);
+    void EmitLabelReference(const MCSymbol *Label, unsigned Size, 
+        bool IsSectionRelative = false) const {
+      EmitLabelPlusOffset(Label, 0, Size, IsSectionRelative);
     }
 
     //===------------------------------------------------------------------===//

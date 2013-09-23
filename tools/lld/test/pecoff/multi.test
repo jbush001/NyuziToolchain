@@ -4,11 +4,11 @@
 # RUN: yaml2obj %p/Inputs/static-data1.obj.yaml > %t2.obj
 # RUN: yaml2obj %p/Inputs/static-data2.obj.yaml > %t3.obj
 #
-# RUN: lld -flavor link -out %t1 -subsystem console -- %t1.obj %t2.obj %t3.obj \
-# RUN:   && llvm-objdump -d %t1 | FileCheck %s
+# RUN: lld -flavor link /out:%t1 /subsystem:console /entry:main /opt:noref \
+# RUN:   -- %t1.obj %t2.obj %t3.obj && llvm-objdump -d %t1 | FileCheck %s
 
 CHECK: Disassembly of section .text:
 CHECK: .text:
-CHECK:     1000:       a1 00 20 40 00
-CHECK:     1005:       03 05 04 20 40 00
-CHECK:     100b:       c3
+CHECK:     1000: a1 04 20 40 00      movl 4202500, %eax
+CHECK:     1005: 03 05 00 20 40 00   addl 4202496, %eax
+CHECK:     100b: c3                  ret

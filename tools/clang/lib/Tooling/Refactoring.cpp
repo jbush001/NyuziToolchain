@@ -80,14 +80,21 @@ std::string Replacement::toString() const {
   return result;
 }
 
-bool Replacement::Less::operator()(const Replacement &R1,
-                                   const Replacement &R2) const {
-  if (R1.FilePath != R2.FilePath) return R1.FilePath < R2.FilePath;
-  if (R1.ReplacementRange.getOffset() != R2.ReplacementRange.getOffset())
-    return R1.ReplacementRange.getOffset() < R2.ReplacementRange.getOffset();
-  if (R1.ReplacementRange.getLength() != R2.ReplacementRange.getLength())
-    return R1.ReplacementRange.getLength() < R2.ReplacementRange.getLength();
-  return R1.ReplacementText < R2.ReplacementText;
+bool operator<(const Replacement &LHS, const Replacement &RHS) {
+  if (LHS.getOffset() != RHS.getOffset())
+    return LHS.getOffset() < RHS.getOffset();
+  if (LHS.getLength() != RHS.getLength())
+    return LHS.getLength() < RHS.getLength();
+  if (LHS.getFilePath() != RHS.getFilePath())
+    return LHS.getFilePath() < RHS.getFilePath();
+  return LHS.getReplacementText() < RHS.getReplacementText();
+}
+
+bool operator==(const Replacement &LHS, const Replacement &RHS) {
+  return LHS.getOffset() == RHS.getOffset() &&
+         LHS.getLength() == RHS.getLength() &&
+         LHS.getFilePath() == RHS.getFilePath() &&
+         LHS.getReplacementText() == RHS.getReplacementText();
 }
 
 void Replacement::setFromSourceLocation(SourceManager &Sources,
@@ -123,7 +130,7 @@ void Replacement::setFromSourceRange(SourceManager &Sources,
                         getRangeSize(Sources, Range), ReplacementText);
 }
 
-bool applyAllReplacements(Replacements &Replaces, Rewriter &Rewrite) {
+bool applyAllReplacements(const Replacements &Replaces, Rewriter &Rewrite) {
   bool Result = true;
   for (Replacements::const_iterator I = Replaces.begin(),
                                     E = Replaces.end();
@@ -137,7 +144,24 @@ bool applyAllReplacements(Replacements &Replaces, Rewriter &Rewrite) {
   return Result;
 }
 
-std::string applyAllReplacements(StringRef Code, Replacements &Replaces) {
+// FIXME: Remove this function when Replacements is implemented as std::vector
+// instead of std::set.
+bool applyAllReplacements(const std::vector<Replacement> &Replaces,
+                          Rewriter &Rewrite) {
+  bool Result = true;
+  for (std::vector<Replacement>::const_iterator I = Replaces.begin(),
+                                                E = Replaces.end();
+       I != E; ++I) {
+    if (I->isApplicable()) {
+      Result = I->apply(Rewrite) && Result;
+    } else {
+      Result = false;
+    }
+  }
+  return Result;
+}
+
+std::string applyAllReplacements(StringRef Code, const Replacements &Replaces) {
   FileManager Files((FileSystemOptions()));
   DiagnosticsEngine Diagnostics(
       IntrusiveRefCntPtr<DiagnosticIDs>(new DiagnosticIDs),
@@ -152,8 +176,8 @@ std::string applyAllReplacements(StringRef Code, Replacements &Replaces) {
   SourceMgr.overrideFileContents(Entry, Buf);
   FileID ID =
       SourceMgr.createFileID(Entry, SourceLocation(), clang::SrcMgr::C_User);
-  for (Replacements::iterator I = Replaces.begin(), E = Replaces.end(); I != E;
-       ++I) {
+  for (Replacements::const_iterator I = Replaces.begin(), E = Replaces.end();
+       I != E; ++I) {
     Replacement Replace("<stdin>", I->getOffset(), I->getLength(),
                         I->getReplacementText());
     if (!Replace.apply(Rewrite))
@@ -178,6 +202,62 @@ unsigned shiftedCodePosition(const Replacements &Replaces, unsigned Position) {
   }
   return NewPosition;
 }
+
+// FIXME: Remove this function when Replacements is implemented as std::vector
+// instead of std::set.
+unsigned shiftedCodePosition(const std::vector<Replacement> &Replaces,
+                             unsigned Position) {
+  unsigned NewPosition = Position;
+  for (std::vector<Replacement>::const_iterator I = Replaces.begin(),
+                                                E = Replaces.end();
+       I != E; ++I) {
+    if (I->getOffset() >= Position)
+      break;
+    if (I->getOffset() + I->getLength() > Position)
+      NewPosition += I->getOffset() + I->getLength() - Position;
+    NewPosition += I->getReplacementText().size() - I->getLength();
+  }
+  return NewPosition;
+}
+
+void deduplicate(std::vector<Replacement> &Replaces,
+                 std::vector<Range> &Conflicts) {
+  if (Replaces.empty())
+    return;
+
+  // Deduplicate
+  std::sort(Replaces.begin(), Replaces.end());
+  std::vector<Replacement>::iterator End =
+      std::unique(Replaces.begin(), Replaces.end());
+  Replaces.erase(End, Replaces.end());
+
+  // Detect conflicts
+  Range ConflictRange(Replaces.front().getOffset(),
+                      Replaces.front().getLength());
+  unsigned ConflictStart = 0;
+  unsigned ConflictLength = 1;
+  for (unsigned i = 1; i < Replaces.size(); ++i) {
+    Range Current(Replaces[i].getOffset(), Replaces[i].getLength());
+    if (ConflictRange.overlapsWith(Current)) {
+      // Extend conflicted range
+      ConflictRange = Range(ConflictRange.getOffset(),
+                            std::max(ConflictRange.getLength(),
+                                     Current.getOffset() + Current.getLength() -
+                                         ConflictRange.getOffset()));
+      ++ConflictLength;
+    } else {
+      if (ConflictLength > 1)
+        Conflicts.push_back(Range(ConflictStart, ConflictLength));
+      ConflictRange = Current;
+      ConflictStart = i;
+      ConflictLength = 1;
+    }
+  }
+
+  if (ConflictLength > 1)
+    Conflicts.push_back(Range(ConflictStart, ConflictLength));
+}
+
 
 RefactoringTool::RefactoringTool(const CompilationDatabase &Compilations,
                                  ArrayRef<std::string> SourcePaths)
@@ -220,8 +300,8 @@ int RefactoringTool::saveRewrittenFiles(Rewriter &Rewrite) {
     const FileEntry *Entry =
         Rewrite.getSourceMgr().getFileEntryForID(I->first);
     std::string ErrorInfo;
-    llvm::raw_fd_ostream FileStream(
-        Entry->getName(), ErrorInfo, llvm::raw_fd_ostream::F_Binary);
+    llvm::raw_fd_ostream FileStream(Entry->getName(), ErrorInfo,
+                                    llvm::sys::fs::F_Binary);
     if (!ErrorInfo.empty())
       return 1;
     I->second.write(FileStream);

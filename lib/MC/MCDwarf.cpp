@@ -873,9 +873,7 @@ namespace {
 
     void setSectionStart(const MCSymbol *Label) { SectionStart = Label; }
 
-    /// EmitCompactUnwind - Emit the unwind information in a compact way. If
-    /// we're successful, return 'true'. Otherwise, return 'false' and it will
-    /// emit the normal CIE and FDE.
+    /// EmitCompactUnwind - Emit the unwind information in a compact way.
     void EmitCompactUnwind(MCStreamer &streamer,
                            const MCDwarfFrameInfo &frame);
 
@@ -889,7 +887,7 @@ namespace {
                       const MCSymbol &cieStart,
                       const MCDwarfFrameInfo &frame);
     void EmitCFIInstructions(MCStreamer &streamer,
-                             const std::vector<MCCFIInstruction> &Instrs,
+                             ArrayRef<MCCFIInstruction> Instrs,
                              MCSymbol *BaseLabel);
     void EmitCFIInstruction(MCStreamer &Streamer,
                             const MCCFIInstruction &Instr);
@@ -1091,7 +1089,7 @@ void FrameEmitterImpl::EmitCFIInstruction(MCStreamer &Streamer,
 /// EmitFrameMoves - Emit frame instructions to describe the layout of the
 /// frame.
 void FrameEmitterImpl::EmitCFIInstructions(MCStreamer &streamer,
-                                    const std::vector<MCCFIInstruction> &Instrs,
+                                           ArrayRef<MCCFIInstruction> Instrs,
                                            MCSymbol *BaseLabel) {
   for (unsigned i = 0, N = Instrs.size(); i < N; ++i) {
     const MCCFIInstruction &Instr = Instrs[i];
@@ -1113,9 +1111,7 @@ void FrameEmitterImpl::EmitCFIInstructions(MCStreamer &streamer,
   }
 }
 
-/// EmitCompactUnwind - Emit the unwind information in a compact way. If we're
-/// successful, return 'true'. Otherwise, return 'false' and it will emit the
-/// normal CIE and FDE.
+/// EmitCompactUnwind - Emit the unwind information in a compact way.
 void FrameEmitterImpl::EmitCompactUnwind(MCStreamer &Streamer,
                                          const MCDwarfFrameInfo &Frame) {
   MCContext &Context = Streamer.getContext();
@@ -1419,9 +1415,10 @@ namespace llvm {
   };
 }
 
-void MCDwarfFrameEmitter::Emit(MCStreamer &Streamer,
-                               bool UsingCFI,
-                               bool IsEH) {
+void MCDwarfFrameEmitter::Emit(MCStreamer &Streamer, MCAsmBackend *MAB,
+                               bool UsingCFI, bool IsEH) {
+  Streamer.generateCompactUnwindEncodings(MAB);
+
   MCContext &Context = Streamer.getContext();
   const MCObjectFileInfo *MOFI = Context.getObjectFileInfo();
   FrameEmitterImpl Emitter(UsingCFI, IsEH);

@@ -6,9 +6,10 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-//
-//  This file implements serialization for Statements and Expressions.
-//
+///
+/// \file
+/// \brief Implements serialization for Statements and Expressions.
+///
 //===----------------------------------------------------------------------===//
 
 #include "clang/Serialization/ASTWriter.h"
@@ -26,7 +27,9 @@ using namespace clang;
 //===----------------------------------------------------------------------===//
 
 namespace clang {
+
   class ASTStmtWriter : public StmtVisitor<ASTStmtWriter, void> {
+    friend class OMPClauseWriter;
     ASTWriter &Writer;
     ASTWriter::RecordData &Record;
 
@@ -771,6 +774,7 @@ void ASTStmtWriter::VisitChooseExpr(ChooseExpr *E) {
   Writer.AddStmt(E->getRHS());
   Writer.AddSourceLocation(E->getBuiltinLoc(), Record);
   Writer.AddSourceLocation(E->getRParenLoc(), Record);
+  Record.push_back(E->isConditionDependent() ? false : E->isConditionTrue());
   Code = serialization::EXPR_CHOOSE;
 }
 
@@ -788,6 +792,15 @@ void ASTStmtWriter::VisitShuffleVectorExpr(ShuffleVectorExpr *E) {
   Writer.AddSourceLocation(E->getBuiltinLoc(), Record);
   Writer.AddSourceLocation(E->getRParenLoc(), Record);
   Code = serialization::EXPR_SHUFFLE_VECTOR;
+}
+
+void ASTStmtWriter::VisitConvertVectorExpr(ConvertVectorExpr *E) {
+  VisitExpr(E);
+  Writer.AddSourceLocation(E->getBuiltinLoc(), Record);
+  Writer.AddSourceLocation(E->getRParenLoc(), Record);
+  Writer.AddTypeSourceInfo(E->getTypeSourceInfo(), Record);
+  Writer.AddStmt(E->getSrcExpr());
+  Code = serialization::EXPR_CONVERT_VECTOR;
 }
 
 void ASTStmtWriter::VisitBlockExpr(BlockExpr *E) {
@@ -1144,7 +1157,7 @@ void ASTStmtWriter::VisitCXXConstructExpr(CXXConstructExpr *E) {
   Record.push_back(E->isListInitialization());
   Record.push_back(E->requiresZeroInitialization());
   Record.push_back(E->getConstructionKind()); // FIXME: stable encoding
-  Writer.AddSourceRange(E->getParenRange(), Record);
+  Writer.AddSourceRange(E->getParenOrBraceRange(), Record);
   Code = serialization::EXPR_CXX_CONSTRUCT;
 }
 
@@ -1163,6 +1176,7 @@ void ASTStmtWriter::VisitLambdaExpr(LambdaExpr *E) {
   Record.push_back(NumArrayIndexVars);
   Writer.AddSourceRange(E->IntroducerRange, Record);
   Record.push_back(E->CaptureDefault); // FIXME: stable encoding
+  Writer.AddSourceLocation(E->CaptureDefaultLoc, Record);
   Record.push_back(E->ExplicitParams);
   Record.push_back(E->ExplicitResultType);
   Writer.AddSourceLocation(E->ClosingBrace, Record);
@@ -1221,7 +1235,7 @@ void ASTStmtWriter::VisitCXXConstCastExpr(CXXConstCastExpr *E) {
 
 void ASTStmtWriter::VisitCXXFunctionalCastExpr(CXXFunctionalCastExpr *E) {
   VisitExplicitCastExpr(E);
-  Writer.AddSourceLocation(E->getTypeBeginLoc(), Record);
+  Writer.AddSourceLocation(E->getLParenLoc(), Record);
   Writer.AddSourceLocation(E->getRParenLoc(), Record);
   Code = serialization::EXPR_CXX_FUNCTIONAL_CAST;
 }
@@ -1656,6 +1670,75 @@ void ASTStmtWriter::VisitSEHTryStmt(SEHTryStmt *S) {
   Writer.AddStmt(S->getTryBlock());
   Writer.AddStmt(S->getHandler());
   Code = serialization::STMT_SEH_TRY;
+}
+
+//===----------------------------------------------------------------------===//
+// OpenMP Clauses.
+//===----------------------------------------------------------------------===//
+
+namespace clang {
+class OMPClauseWriter : public OMPClauseVisitor<OMPClauseWriter> {
+  ASTStmtWriter *Writer;
+  ASTWriter::RecordData &Record;
+public:
+  OMPClauseWriter(ASTStmtWriter *W, ASTWriter::RecordData &Record)
+    : Writer(W), Record(Record) { }
+#define OPENMP_CLAUSE(Name, Class)    \
+  void Visit##Class(Class *S);
+#include "clang/Basic/OpenMPKinds.def"
+  void writeClause(OMPClause *C);
+};
+}
+
+void OMPClauseWriter::writeClause(OMPClause *C) {
+  Record.push_back(C->getClauseKind());
+  Visit(C);
+  Writer->Writer.AddSourceLocation(C->getLocStart(), Record);
+  Writer->Writer.AddSourceLocation(C->getLocEnd(), Record);
+}
+
+void OMPClauseWriter::VisitOMPDefaultClause(OMPDefaultClause *C) {
+  Record.push_back(C->getDefaultKind());
+  Writer->Writer.AddSourceLocation(C->getLParenLoc(), Record);
+  Writer->Writer.AddSourceLocation(C->getDefaultKindKwLoc(), Record);
+}
+
+void OMPClauseWriter::VisitOMPPrivateClause(OMPPrivateClause *C) {
+  Record.push_back(C->varlist_size());
+  Writer->Writer.AddSourceLocation(C->getLParenLoc(), Record);
+  for (OMPVarList<OMPPrivateClause>::varlist_iterator I = C->varlist_begin(),
+                                                      E = C->varlist_end();
+       I != E; ++I)
+    Writer->Writer.AddStmt(*I);
+}
+
+void OMPClauseWriter::VisitOMPSharedClause(OMPSharedClause *C) {
+  Record.push_back(C->varlist_size());
+  Writer->Writer.AddSourceLocation(C->getLParenLoc(), Record);
+  for (OMPVarList<OMPSharedClause>::varlist_iterator I = C->varlist_begin(),
+                                                     E = C->varlist_end();
+       I != E; ++I)
+    Writer->Writer.AddStmt(*I);
+}
+
+//===----------------------------------------------------------------------===//
+// OpenMP Directives.
+//===----------------------------------------------------------------------===//
+void ASTStmtWriter::VisitOMPExecutableDirective(OMPExecutableDirective *E) {
+  VisitStmt(E);
+  Record.push_back(E->getNumClauses());
+  Writer.AddSourceLocation(E->getLocStart(), Record);
+  Writer.AddSourceLocation(E->getLocEnd(), Record);
+  OMPClauseWriter ClauseWriter(this, Record);
+  for (unsigned i = 0; i < E->getNumClauses(); ++i) {
+    ClauseWriter.writeClause(E->getClause(i));
+  }
+  Writer.AddStmt(E->getAssociatedStmt());
+}
+
+void ASTStmtWriter::VisitOMPParallelDirective(OMPParallelDirective *D) {
+  VisitOMPExecutableDirective(D);
+  Code = serialization::STMT_OMP_PARALLEL_DIRECTIVE;
 }
 
 //===----------------------------------------------------------------------===//

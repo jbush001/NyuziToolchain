@@ -807,8 +807,7 @@ Use ``__has_feature(cxx_contextual_conversions)`` or
 ``__has_extension(cxx_contextual_conversions)`` to determine if the C++1y rules
 are used when performing an implicit conversion for an array bound in a
 *new-expression*, the operand of a *delete-expression*, an integral constant
-expression, or a condition in a ``switch`` statement. Clang does not yet
-support this feature.
+expression, or a condition in a ``switch`` statement.
 
 C++1y decltype(auto)
 ^^^^^^^^^^^^^^^^^^^^
@@ -827,9 +826,9 @@ for default initializers in aggregate members is enabled.
 C++1y generalized lambda capture
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Use ``__has_feature(cxx_generalized_capture)`` or
-``__has_extension(cxx_generalized_capture`` to determine if support for
-generalized lambda captures is enabled
+Use ``__has_feature(cxx_init_capture)`` or
+``__has_extension(cxx_init_capture)`` to determine if support for
+lambda captures with explicit initializers is enabled
 (for instance, ``[n(0)] { return ++n; }``).
 Clang does not yet support this feature.
 
@@ -849,7 +848,6 @@ Use ``__has_feature(cxx_relaxed_constexpr)`` or
 ``__has_extension(cxx_relaxed_constexpr)`` to determine if variable
 declarations, local variable modification, and control flow constructs
 are permitted in ``constexpr`` functions.
-Clang's implementation of this feature is incomplete.
 
 C++1y return type deduction
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -923,8 +921,8 @@ enabled.
 C11 ``_Thread_local``
 ^^^^^^^^^^^^^^^^^^^^^
 
-Use ``__has_feature(c_thread_local)`` to determine if support for
-``_Thread_local`` variables is enabled.
+Use ``__has_feature(c_thread_local)`` or ``__has_extension(c_thread_local)``
+to determine if support for ``_Thread_local`` variables is enabled.
 
 Checks for Type Traits
 ======================
@@ -1440,8 +1438,8 @@ for the implementation of various target-specific header files like
 
 .. code-block:: c++
 
-  // Identity operation - return 4-element vector V1.
-  __builtin_shufflevector(V1, V1, 0, 1, 2, 3)
+  // identity operation - return 4-element vector v1.
+  __builtin_shufflevector(v1, v1, 0, 1, 2, 3)
 
   // "Splat" element 0 of V1 into a 4-element result.
   __builtin_shufflevector(V1, V1, 0, 0, 0, 0)
@@ -1455,6 +1453,9 @@ for the implementation of various target-specific header files like
   // Concatenate every other element of 8-element vectors V1 and V2.
   __builtin_shufflevector(V1, V2, 0, 2, 4, 6, 8, 10, 12, 14)
 
+  // Shuffle v1 with some elements being undefined
+  __builtin_shufflevector(v1, v1, 3, -1, 1, -1)
+
 **Description**:
 
 The first two arguments to ``__builtin_shufflevector`` are vectors that have
@@ -1463,13 +1464,58 @@ specify the elements indices of the first two vectors that should be extracted
 and returned in a new vector.  These element indices are numbered sequentially
 starting with the first vector, continuing into the second vector.  Thus, if
 ``vec1`` is a 4-element vector, index 5 would refer to the second element of
-``vec2``.
+``vec2``. An index of -1 can be used to indicate that the corresponding element
+in the returned vector is a don't care and can be optimized by the backend.
 
 The result of ``__builtin_shufflevector`` is a vector with the same element
 type as ``vec1``/``vec2`` but that has an element count equal to the number of
 indices specified.
 
 Query for this feature with ``__has_builtin(__builtin_shufflevector)``.
+
+``__builtin_convertvector``
+---------------------------
+
+``__builtin_convertvector`` is used to express generic vector
+type-conversion operations. The input vector and the output vector
+type must have the same number of elements.
+
+**Syntax**:
+
+.. code-block:: c++
+
+  __builtin_convertvector(src_vec, dst_vec_type)
+
+**Examples**:
+
+.. code-block:: c++
+
+  typedef double vector4double __attribute__((__vector_size__(32)));
+  typedef float  vector4float  __attribute__((__vector_size__(16)));
+  typedef short  vector4short  __attribute__((__vector_size__(8)));
+  vector4float vf; vector4short vs;
+
+  // convert from a vector of 4 floats to a vector of 4 doubles.
+  __builtin_convertvector(vf, vector4double)
+  // equivalent to:
+  (vector4double) { (double) vf[0], (double) vf[1], (double) vf[2], (double) vf[3] }
+
+  // convert from a vector of 4 shorts to a vector of 4 floats.
+  __builtin_convertvector(vs, vector4float)
+  // equivalent to:
+  (vector4float) { (float) vf[0], (float) vf[1], (float) vf[2], (float) vf[3] }
+
+**Description**:
+
+The first argument to ``__builtin_convertvector`` is a vector, and the second
+argument is a vector type with the same number of elements as the first
+argument.
+
+The result of ``__builtin_convertvector`` is a vector with the same element
+type as the second argument, with a value defined in terms of the action of a
+C-style cast applied to each element of the first argument.
+
+Query for this feature with ``__has_builtin(__builtin_convertvector)``.
 
 ``__builtin_unreachable``
 -------------------------
@@ -1655,6 +1701,37 @@ C11's ``<stdatomic.h>`` header.  These builtins provide the semantics of the
 * ``__c11_atomic_fetch_and``
 * ``__c11_atomic_fetch_or``
 * ``__c11_atomic_fetch_xor``
+
+Low-level ARM exclusive memory builtins
+---------------------------------------
+
+Clang provides overloaded builtins giving direct access to the three key ARM
+instructions for implementing atomic operations.
+
+.. code-block:: c
+
+  T __builtin_arm_ldrex(const volatile T *addr);
+  int __builtin_arm_strex(T val, volatile T *addr);
+  void __builtin_arm_clrex(void);
+
+The types ``T`` currently supported are:
+* Integer types with width at most 64 bits.
+* Floating-point types
+* Pointer types.
+
+Note that the compiler does not guarantee it will not insert stores which clear
+the exclusive monitor in between an ``ldrex`` and its paired ``strex``. In
+practice this is only usually a risk when the extra store is on the same cache
+line as the variable being modified and Clang will only insert stack stores on
+its own, so it is best not to use these operations on variables with automatic
+storage duration.
+
+Also, loads and stores may be implicit in code written between the ``ldrex`` and
+``strex``. Clang will not necessarily mitigate the effects of these either, so
+care should be exercised.
+
+For these reasons the higher level atomic primitives should be preferred where
+possible.
 
 Non-standard C++11 Attributes
 =============================
@@ -1972,6 +2049,33 @@ Use ``__attribute__((shared_locks_required(...)))`` on a function declaration
 to specify that the function must be called while holding the listed shared
 locks.  Arguments must be lockable type, and there must be at least one
 argument.
+
+Consumed Annotation Checking
+============================
+
+Clang supports additional attributes for checking basic resource management
+properties, specifically for unique objects that have a single owning reference.
+The following attributes are currently supported, although **the implementation
+for these annotations is currently in development and are subject to change.**
+
+``consumes``
+------------
+
+Use ``__attribute__((consumes))`` on a method that transitions an object into
+the consumed state.
+
+``callable_when_unconsumed``
+----------------------------
+
+Use ``__attribute__((callable_when_unconsumed))`` to indicate that a method may
+only be called when the object is not in the consumed state.
+
+``tests_unconsumed``
+--------------------
+
+Use `__attribute__((tests_unconsumed))`` to indicate that a method returns true
+if the object is in the unconsumed state.
+
 
 Type Safety Checking
 ====================

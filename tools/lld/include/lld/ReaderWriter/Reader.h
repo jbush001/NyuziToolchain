@@ -17,10 +17,11 @@
 #include <vector>
 
 namespace lld {
-class ELFTargetInfo;
+class ELFLinkingContext;
 class File;
 class LinkerInput;
-class TargetInfo;
+class LinkingContext;
+class PECOFFLinkingContext;
 
 /// \brief An abstract class for reading object files, library files, and
 /// executable files.
@@ -31,32 +32,25 @@ class Reader {
 public:
   virtual ~Reader();
 
-  /// \brief Parse a file given its file system path and create a File object.
-  virtual error_code readFile(StringRef path,
-                              std::vector<std::unique_ptr<File>> &result) const;
-
   /// \brief Parse a supplied buffer (already filled with the contents of a
   /// file) and create a File object.
   ///
   /// On success, the resulting File object takes ownership of the MemoryBuffer.
-  virtual error_code parseFile(std::unique_ptr<MemoryBuffer> &mb,
+  virtual error_code parseFile(LinkerInput &input,
                           std::vector<std::unique_ptr<File>> &result) const = 0;
 
 protected:
   // only concrete subclasses can be instantiated
-  Reader(const TargetInfo &ti)
-      : _targetInfo(ti) {}
+  Reader(const LinkingContext &context) : _context(context) {}
 
-  const TargetInfo &_targetInfo;
+  const LinkingContext &_context;
 };
 
-typedef ErrorOr<Reader &> ReaderFunc(const LinkerInput &);
-
-std::unique_ptr<Reader> createReaderELF(const ELFTargetInfo &);
-std::unique_ptr<Reader> createReaderMachO(const TargetInfo &);
-std::unique_ptr<Reader> createReaderNative(const TargetInfo &);
-std::unique_ptr<Reader> createReaderPECOFF(const TargetInfo &);
-std::unique_ptr<Reader> createReaderYAML(const TargetInfo &);
+std::unique_ptr<Reader> createReaderELF(const ELFLinkingContext &);
+std::unique_ptr<Reader> createReaderMachO(const LinkingContext &);
+std::unique_ptr<Reader> createReaderNative(const LinkingContext &);
+std::unique_ptr<Reader> createReaderPECOFF(PECOFFLinkingContext &);
+std::unique_ptr<Reader> createReaderYAML(const LinkingContext &);
 } // end namespace lld
 
 #endif

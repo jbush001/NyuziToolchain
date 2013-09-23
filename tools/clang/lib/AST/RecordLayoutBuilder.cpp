@@ -1532,17 +1532,18 @@ CharUnits RecordLayoutBuilder::LayoutBase(const BaseSubobjectInfo *Base) {
     }
   }
   
+  CharUnits UnpackedBaseAlign = Layout.getNonVirtualAlign();
+  CharUnits BaseAlign = (Packed) ? CharUnits::One() : UnpackedBaseAlign;
+ 
   // If we have an empty base class, try to place it at offset 0.
   if (Base->Class->isEmpty() &&
       (!HasExternalLayout || Offset == CharUnits::Zero()) &&
       EmptySubobjects->CanPlaceBaseAtOffset(Base, CharUnits::Zero())) {
     setSize(std::max(getSize(), Layout.getSize()));
+    UpdateAlignment(BaseAlign, UnpackedBaseAlign);
 
     return CharUnits::Zero();
   }
-
-  CharUnits UnpackedBaseAlign = Layout.getNonVirtualAlign();
-  CharUnits BaseAlign = (Packed) ? CharUnits::One() : UnpackedBaseAlign;
 
   // The maximum field alignment overrides base align.
   if (!MaxFieldAlignment.isZero()) {
@@ -2437,32 +2438,31 @@ const CXXMethodDecl *ASTContext::getCurrentKeyFunction(const CXXRecordDecl *RD) 
   assert(RD->getDefinition() && "Cannot get key function for forward decl!");
   RD = cast<CXXRecordDecl>(RD->getDefinition());
 
-  const CXXMethodDecl *&entry = KeyFunctions[RD];
-  if (!entry) {
-    entry = computeKeyFunction(*this, RD);
-  }
+  LazyDeclPtr &Entry = KeyFunctions[RD];
+  if (!Entry)
+    Entry = const_cast<CXXMethodDecl*>(computeKeyFunction(*this, RD));
 
-  return entry;
+  return cast_or_null<CXXMethodDecl>(Entry.get(getExternalSource()));
 }
 
-void ASTContext::setNonKeyFunction(const CXXMethodDecl *method) {
-  assert(method == method->getFirstDeclaration() &&
+void ASTContext::setNonKeyFunction(const CXXMethodDecl *Method) {
+  assert(Method == Method->getFirstDeclaration() &&
          "not working with method declaration from class definition");
 
   // Look up the cache entry.  Since we're working with the first
   // declaration, its parent must be the class definition, which is
   // the correct key for the KeyFunctions hash.
-  llvm::DenseMap<const CXXRecordDecl*, const CXXMethodDecl*>::iterator
-    i = KeyFunctions.find(method->getParent());
+  llvm::DenseMap<const CXXRecordDecl*, LazyDeclPtr>::iterator
+    I = KeyFunctions.find(Method->getParent());
 
   // If it's not cached, there's nothing to do.
-  if (i == KeyFunctions.end()) return;
+  if (I == KeyFunctions.end()) return;
 
   // If it is cached, check whether it's the target method, and if so,
   // remove it from the cache.
-  if (i->second == method) {
+  if (I->second.get(getExternalSource()) == Method) {
     // FIXME: remember that we did this for module / chained PCH state?
-    KeyFunctions.erase(i);
+    KeyFunctions.erase(I);
   }
 }
 

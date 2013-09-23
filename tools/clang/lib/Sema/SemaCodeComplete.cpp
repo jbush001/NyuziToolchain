@@ -464,9 +464,8 @@ getRequiredQualification(ASTContext &Context,
   
   NestedNameSpecifier *Result = 0;
   while (!TargetParents.empty()) {
-    const DeclContext *Parent = TargetParents.back();
-    TargetParents.pop_back();
-    
+    const DeclContext *Parent = TargetParents.pop_back_val();
+
     if (const NamespaceDecl *Namespace = dyn_cast<NamespaceDecl>(Parent)) {
       if (!Namespace->getIdentifier())
         continue;
@@ -716,8 +715,8 @@ unsigned ResultBuilder::getBasePriority(const NamedDecl *ND) {
     return CCP_Unlikely;
 
   // Context-based decisions.
-  const DeclContext *DC = ND->getDeclContext()->getRedeclContext();
-  if (DC->isFunctionOrMethod() || isa<BlockDecl>(DC)) {
+  const DeclContext *LexicalDC = ND->getLexicalDeclContext();
+  if (LexicalDC->isFunctionOrMethod()) {
     // _cmd is relatively rare
     if (const ImplicitParamDecl *ImplicitParam =
         dyn_cast<ImplicitParamDecl>(ND))
@@ -727,6 +726,8 @@ unsigned ResultBuilder::getBasePriority(const NamedDecl *ND) {
 
     return CCP_LocalDeclaration;
   }
+
+  const DeclContext *DC = ND->getDeclContext()->getRedeclContext();
   if (DC->isRecord() || isa<ObjCContainerDecl>(DC))
     return CCP_MemberDeclaration;
 
@@ -877,8 +878,8 @@ void ResultBuilder::MaybeAddResult(Result R, DeclContext *CurContext) {
     for (; I != IEnd; ++I) {
       // A tag declaration does not hide a non-tag declaration.
       if (I->first->hasTagIdentifierNamespace() &&
-          (IDNS & (Decl::IDNS_Member | Decl::IDNS_Ordinary | 
-                   Decl::IDNS_ObjCProtocol)))
+          (IDNS & (Decl::IDNS_Member | Decl::IDNS_Ordinary |
+                   Decl::IDNS_LocalExtern | Decl::IDNS_ObjCProtocol)))
         continue;
       
       // Protocols are in distinct namespaces from everything else.
@@ -1039,7 +1040,9 @@ void ResultBuilder::ExitScope() {
 bool ResultBuilder::IsOrdinaryName(const NamedDecl *ND) const {
   ND = cast<NamedDecl>(ND->getUnderlyingDecl());
 
-  unsigned IDNS = Decl::IDNS_Ordinary;
+  // If name lookup finds a local extern declaration, then we are in a
+  // context where it behaves like an ordinary name.
+  unsigned IDNS = Decl::IDNS_Ordinary | Decl::IDNS_LocalExtern;
   if (SemaRef.getLangOpts().CPlusPlus)
     IDNS |= Decl::IDNS_Tag | Decl::IDNS_Namespace | Decl::IDNS_Member;
   else if (SemaRef.getLangOpts().ObjC1) {
@@ -1057,7 +1060,7 @@ bool ResultBuilder::IsOrdinaryNonTypeName(const NamedDecl *ND) const {
   if (isa<TypeDecl>(ND) || isa<ObjCInterfaceDecl>(ND))
     return false;
   
-  unsigned IDNS = Decl::IDNS_Ordinary;
+  unsigned IDNS = Decl::IDNS_Ordinary | Decl::IDNS_LocalExtern;
   if (SemaRef.getLangOpts().CPlusPlus)
     IDNS |= Decl::IDNS_Tag | Decl::IDNS_Namespace | Decl::IDNS_Member;
   else if (SemaRef.getLangOpts().ObjC1) {
@@ -1084,7 +1087,7 @@ bool ResultBuilder::IsIntegralConstantValue(const NamedDecl *ND) const {
 bool ResultBuilder::IsOrdinaryNonValueName(const NamedDecl *ND) const {
   ND = cast<NamedDecl>(ND->getUnderlyingDecl());
 
-  unsigned IDNS = Decl::IDNS_Ordinary;
+  unsigned IDNS = Decl::IDNS_Ordinary | Decl::IDNS_LocalExtern;
   if (SemaRef.getLangOpts().CPlusPlus)
     IDNS |= Decl::IDNS_Tag | Decl::IDNS_Namespace;
   
@@ -3188,7 +3191,7 @@ void Sema::CodeCompleteModuleImport(SourceLocation ImportLoc,
                                  ? CXAvailability_Available
                                   : CXAvailability_NotAvailable));
     }
-  } else {
+  } else if (getLangOpts().Modules) {
     // Load the named module.
     Module *Mod = PP.getModuleLoader().loadModule(ImportLoc, Path,
                                                   Module::AllVisible,
@@ -3846,7 +3849,7 @@ namespace {
   };
 }
 
-static bool anyNullArguments(llvm::ArrayRef<Expr*> Args) {
+static bool anyNullArguments(ArrayRef<Expr *> Args) {
   if (Args.size() && !Args.data())
     return true;
 
@@ -3857,8 +3860,7 @@ static bool anyNullArguments(llvm::ArrayRef<Expr*> Args) {
   return false;
 }
 
-void Sema::CodeCompleteCall(Scope *S, Expr *FnIn,
-                            llvm::ArrayRef<Expr *> Args) {
+void Sema::CodeCompleteCall(Scope *S, Expr *FnIn, ArrayRef<Expr *> Args) {
   if (!CodeCompleter)
     return;
 
@@ -5672,7 +5674,7 @@ void Sema::CodeCompleteObjCForCollection(Scope *S,
   Data.ObjCCollection = true;
   
   if (IterationVar.getAsOpaquePtr()) {
-    DeclGroupRef DG = IterationVar.getAsVal<DeclGroupRef>();
+    DeclGroupRef DG = IterationVar.get();
     for (DeclGroupRef::iterator I = DG.begin(), End = DG.end(); I != End; ++I) {
       if (*I)
         Data.IgnoreDecls.push_back(*I);

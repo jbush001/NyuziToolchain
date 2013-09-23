@@ -28,6 +28,7 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramStateTrait.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/SymbolManager.h"
+#include "clang/StaticAnalyzer/Checkers/ObjCRetainCount.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/ImmutableList.h"
@@ -41,116 +42,36 @@
 
 using namespace clang;
 using namespace ento;
+using namespace objc_retain;
 using llvm::StrInStrNoCase;
 
 //===----------------------------------------------------------------------===//
-// Primitives used for constructing summaries for function/method calls.
+// Adapters for FoldingSet.
 //===----------------------------------------------------------------------===//
-
-/// ArgEffect is used to summarize a function/method call's effect on a
-/// particular argument.
-enum ArgEffect { DoNothing, Autorelease, Dealloc, DecRef, DecRefMsg,
-                 DecRefBridgedTransfered,
-                 IncRefMsg, IncRef, MakeCollectable, MayEscape,
-
-                 // Stop tracking the argument - the effect of the call is
-                 // unknown.
-                 StopTracking,
-
-                 // In some cases, we obtain a better summary for this checker
-                 // by looking at the call site than by inlining the function.
-                 // Signifies that we should stop tracking the symbol even if
-                 // the function is inlined.
-                 StopTrackingHard,
-
-                 // The function decrements the reference count and the checker 
-                 // should stop tracking the argument.
-                 DecRefAndStopTrackingHard, DecRefMsgAndStopTrackingHard
-               };
 
 namespace llvm {
 template <> struct FoldingSetTrait<ArgEffect> {
-static inline void Profile(const ArgEffect X, FoldingSetNodeID& ID) {
+static inline void Profile(const ArgEffect X, FoldingSetNodeID &ID) {
   ID.AddInteger((unsigned) X);
 }
 };
+template <> struct FoldingSetTrait<RetEffect> {
+  static inline void Profile(const RetEffect &X, FoldingSetNodeID &ID) {
+    ID.AddInteger((unsigned) X.getKind());
+    ID.AddInteger((unsigned) X.getObjKind());
+}
+};
 } // end llvm namespace
+
+//===----------------------------------------------------------------------===//
+// Reference-counting logic (typestate + counts).
+//===----------------------------------------------------------------------===//
 
 /// ArgEffects summarizes the effects of a function/method call on all of
 /// its arguments.
 typedef llvm::ImmutableMap<unsigned,ArgEffect> ArgEffects;
 
 namespace {
-
-///  RetEffect is used to summarize a function/method call's behavior with
-///  respect to its return value.
-class RetEffect {
-public:
-  enum Kind { NoRet, OwnedSymbol, OwnedAllocatedSymbol,
-              NotOwnedSymbol, GCNotOwnedSymbol, ARCNotOwnedSymbol,
-              OwnedWhenTrackedReceiver,
-              // Treat this function as returning a non-tracked symbol even if
-              // the function has been inlined. This is used where the call
-              // site summary is more presise than the summary indirectly produced 
-              // by inlining the function
-              NoRetHard
-            };
-
-  enum ObjKind { CF, ObjC, AnyObj };
-
-private:
-  Kind K;
-  ObjKind O;
-
-  RetEffect(Kind k, ObjKind o = AnyObj) : K(k), O(o) {}
-
-public:
-  Kind getKind() const { return K; }
-
-  ObjKind getObjKind() const { return O; }
-
-  bool isOwned() const {
-    return K == OwnedSymbol || K == OwnedAllocatedSymbol ||
-           K == OwnedWhenTrackedReceiver;
-  }
-
-  bool operator==(const RetEffect &Other) const {
-    return K == Other.K && O == Other.O;
-  }
-
-  static RetEffect MakeOwnedWhenTrackedReceiver() {
-    return RetEffect(OwnedWhenTrackedReceiver, ObjC);
-  }
-
-  static RetEffect MakeOwned(ObjKind o, bool isAllocated = false) {
-    return RetEffect(isAllocated ? OwnedAllocatedSymbol : OwnedSymbol, o);
-  }
-  static RetEffect MakeNotOwned(ObjKind o) {
-    return RetEffect(NotOwnedSymbol, o);
-  }
-  static RetEffect MakeGCNotOwned() {
-    return RetEffect(GCNotOwnedSymbol, ObjC);
-  }
-  static RetEffect MakeARCNotOwned() {
-    return RetEffect(ARCNotOwnedSymbol, ObjC);
-  }
-  static RetEffect MakeNoRet() {
-    return RetEffect(NoRet);
-  }
-  static RetEffect MakeNoRetHard() {
-    return RetEffect(NoRetHard);
-  }
-
-  void Profile(llvm::FoldingSetNodeID& ID) const {
-    ID.AddInteger((unsigned) K);
-    ID.AddInteger((unsigned) O);
-  }
-};
-
-//===----------------------------------------------------------------------===//
-// Reference-counting logic (typestate + counts).
-//===----------------------------------------------------------------------===//
-
 class RefVal {
 public:
   enum Kind {
@@ -396,7 +317,7 @@ public:
 
     return DefaultArgEffect;
   }
-  
+
   void addArg(ArgEffects::Factory &af, unsigned idx, ArgEffect e) {
     Args = af.add(Args, idx, e);
   }
@@ -496,8 +417,6 @@ template <> struct DenseMapInfo<ObjCSummaryKey> {
   }
 
 };
-template <>
-struct isPodLike<ObjCSummaryKey> { static const bool value = true; };
 } // end llvm namespace
 
 namespace {
@@ -1823,16 +1742,6 @@ void CFRefReport::addGCModeDescription(const LangOptions &LOpts,
   addExtraText(GCModeDescription);
 }
 
-// FIXME: This should be a method on SmallVector.
-static inline bool contains(const SmallVectorImpl<ArgEffect>& V,
-                            ArgEffect X) {
-  for (SmallVectorImpl<ArgEffect>::const_iterator I=V.begin(), E=V.end();
-       I!=E; ++I)
-    if (*I == X) return true;
-
-  return false;
-}
-
 static bool isNumericLiteralExpression(const Expr *E) {
   // FIXME: This set of cases was copied from SemaExprObjC.
   return isa<IntegerLiteral>(E) || 
@@ -1994,7 +1903,8 @@ PathDiagnosticPiece *CFRefReportVisitor::VisitNode(const ExplodedNode *N,
     RefVal PrevV = *PrevT;
 
     // Specially handle -dealloc.
-    if (!GCEnabled && contains(AEffects, Dealloc)) {
+    if (!GCEnabled && std::find(AEffects.begin(), AEffects.end(), Dealloc) !=
+                          AEffects.end()) {
       // Determine if the object's reference count was pushed to zero.
       assert(!(PrevV == CurrV) && "The typestate *must* have changed.");
       // We may not have transitioned to 'release' if we hit an error.
@@ -2007,7 +1917,8 @@ PathDiagnosticPiece *CFRefReportVisitor::VisitNode(const ExplodedNode *N,
     }
 
     // Specially handle CFMakeCollectable and friends.
-    if (contains(AEffects, MakeCollectable)) {
+    if (std::find(AEffects.begin(), AEffects.end(), MakeCollectable) !=
+        AEffects.end()) {
       // Get the name of the function.
       const Stmt *S = N->getLocation().castAs<StmtPoint>().getStmt();
       SVal X =
@@ -3445,6 +3356,16 @@ void RetainCountChecker::checkBind(SVal loc, SVal val, const Stmt *S,
     }
   }
 
+  // If we are storing the value into an auto function scope variable annotated
+  // with (__attribute__((cleanup))), stop tracking the value to avoid leak
+  // false positives.
+  if (const VarRegion *LVR = dyn_cast_or_null<VarRegion>(loc.getAsRegion())) {
+    const VarDecl *VD = LVR->getDecl();
+    if (VD->getAttr<CleanupAttr>()) {
+      escapes = true;
+    }
+  }
+
   // If our store can represent the binding and we aren't storing to something
   // that doesn't have local storage then just return and have the simulation
   // state continue as is.
@@ -3635,6 +3556,13 @@ void RetainCountChecker::checkEndFunction(CheckerContext &Ctx) const {
   RefBindingsTy B = state->get<RefBindings>();
   ExplodedNode *Pred = Ctx.getPredecessor();
 
+  // Don't process anything within synthesized bodies.
+  const LocationContext *LCtx = Pred->getLocationContext();
+  if (LCtx->getAnalysisDeclContext()->isBodyAutosynthesized()) {
+    assert(LCtx->getParent());
+    return;
+  }
+
   for (RefBindingsTy::iterator I = B.begin(), E = B.end(); I != E; ++I) {
     state = handleAutoreleaseCounts(state, Pred, /*Tag=*/0, Ctx,
                                     I->first, I->second);
@@ -3646,7 +3574,7 @@ void RetainCountChecker::checkEndFunction(CheckerContext &Ctx) const {
   // We will do that later.
   // FIXME: we should instead check for imbalances of the retain/releases,
   // and suggest annotations.
-  if (Ctx.getLocationContext()->getParent())
+  if (LCtx->getParent())
     return;
   
   B = state->get<RefBindings>();
@@ -3747,3 +3675,37 @@ void ento::registerRetainCountChecker(CheckerManager &Mgr) {
   Mgr.registerChecker<RetainCountChecker>(Mgr.getAnalyzerOptions());
 }
 
+//===----------------------------------------------------------------------===//
+// Implementation of the CallEffects API.
+//===----------------------------------------------------------------------===//
+
+namespace clang { namespace ento { namespace objc_retain {
+
+// This is a bit gross, but it allows us to populate CallEffects without
+// creating a bunch of accessors.  This kind is very localized, so the
+// damage of this macro is limited.
+#define createCallEffect(D, KIND)\
+  ASTContext &Ctx = D->getASTContext();\
+  LangOptions L = Ctx.getLangOpts();\
+  RetainSummaryManager M(Ctx, L.GCOnly, L.ObjCAutoRefCount);\
+  const RetainSummary *S = M.get ## KIND ## Summary(D);\
+  CallEffects CE(S->getRetEffect());\
+  CE.Receiver = S->getReceiverEffect();\
+  unsigned N = D->param_size();\
+  for (unsigned i = 0; i < N; ++i) {\
+    CE.Args.push_back(S->getArg(i));\
+  }
+
+CallEffects CallEffects::getEffect(const ObjCMethodDecl *MD) {
+  createCallEffect(MD, Method);
+  return CE;
+}
+
+CallEffects CallEffects::getEffect(const FunctionDecl *FD) {
+  createCallEffect(FD, Function);
+  return CE;
+}
+
+#undef createCallEffect
+
+}}}

@@ -52,54 +52,32 @@ void RegistryMaps::registerMatcher(StringRef MatcherName,
   registerMatcher(#name, internal::makeMatcherAutoMarshall(                    \
                              ::clang::ast_matchers::name, #name));
 
+#define SPECIFIC_MATCHER_OVERLOAD(name, Id)                                    \
+  static_cast< ::clang::ast_matchers::name##_Type##Id>(                        \
+      ::clang::ast_matchers::name)
+
+#define REGISTER_OVERLOADED_2(name)                                            \
+  do {                                                                         \
+    MatcherCreateCallback *Callbacks[] = {                                     \
+      internal::makeMatcherAutoMarshall(SPECIFIC_MATCHER_OVERLOAD(name, 0),    \
+                                        #name),                                \
+      internal::makeMatcherAutoMarshall(SPECIFIC_MATCHER_OVERLOAD(name, 1),    \
+                                        #name)                                 \
+    };                                                                         \
+    registerMatcher(#name,                                                     \
+                    new internal::OverloadedMatcherCreateCallback(Callbacks)); \
+  } while (0)
+
 /// \brief Generate a registry map with all the known matchers.
 RegistryMaps::RegistryMaps() {
   // TODO: Here is the list of the missing matchers, grouped by reason.
   //
-  // Need DynTypedNode fixes:
-  // hasAnyTemplateArgument
-  // hasTemplateArgument
-  //
   // Need Variant/Parser fixes:
   // ofKind
   //
-  // CXXCtorInitializer support:
-  // hasAnyConstructorInitializer
-  // forField
-  // withInitializer
-  // isWritten
-  //
-  // Type traversal:
-  // hasElementType
-  // hasValueType
-  // hasDeducedType
-  // innerType
-  // pointee
-  //
-  // Function overloaded by args:
-  // hasType
-  // callee
-  // hasPrefix
-  // isDerivedFrom
-  // isSameOrDerivedFrom
-  // pointsTo
-  // references
-  // thisPointerType
-  //
   // Polymorphic + argument overload:
   // unless
-  // eachOf
-  // anyOf
-  // allOf
   // findAll
-  //
-  // Adaptative matcher (similar to polymorphic matcher):
-  // has
-  // forEach
-  // forEachDescendant
-  // hasDescendant
-  // hasParent
-  // hasAncestor
   //
   // Other:
   // loc
@@ -107,8 +85,19 @@ RegistryMaps::RegistryMaps() {
   // equalsNode
   // hasDeclaration
 
+  REGISTER_OVERLOADED_2(callee);
+  REGISTER_OVERLOADED_2(hasPrefix);
+  REGISTER_OVERLOADED_2(hasType);
+  REGISTER_OVERLOADED_2(isDerivedFrom);
+  REGISTER_OVERLOADED_2(isSameOrDerivedFrom);
+  REGISTER_OVERLOADED_2(pointsTo);
+  REGISTER_OVERLOADED_2(references);
+  REGISTER_OVERLOADED_2(thisPointerType);
+
   REGISTER_MATCHER(accessSpecDecl);
   REGISTER_MATCHER(alignOfExpr);
+  REGISTER_MATCHER(allOf);
+  REGISTER_MATCHER(anyOf);
   REGISTER_MATCHER(anything);
   REGISTER_MATCHER(argumentCountIs);
   REGISTER_MATCHER(arraySubscriptExpr);
@@ -140,6 +129,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(constructorDecl);
   REGISTER_MATCHER(containsDeclaration);
   REGISTER_MATCHER(continueStmt);
+  REGISTER_MATCHER(ctorInitializer);
   REGISTER_MATCHER(decl);
   REGISTER_MATCHER(declCountIs);
   REGISTER_MATCHER(declRefExpr);
@@ -150,12 +140,17 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(destructorDecl);
   REGISTER_MATCHER(doStmt);
   REGISTER_MATCHER(dynamicCastExpr);
+  REGISTER_MATCHER(eachOf);
   REGISTER_MATCHER(elaboratedType);
   REGISTER_MATCHER(enumConstantDecl);
   REGISTER_MATCHER(enumDecl);
   REGISTER_MATCHER(explicitCastExpr);
   REGISTER_MATCHER(expr);
   REGISTER_MATCHER(fieldDecl);
+  REGISTER_MATCHER(floatLiteral);
+  REGISTER_MATCHER(forEach);
+  REGISTER_MATCHER(forEachDescendant);
+  REGISTER_MATCHER(forField);
   REGISTER_MATCHER(forRangeStmt);
   REGISTER_MATCHER(forStmt);
   REGISTER_MATCHER(functionDecl);
@@ -163,9 +158,13 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(functionType);
   REGISTER_MATCHER(functionalCastExpr);
   REGISTER_MATCHER(gotoStmt);
+  REGISTER_MATCHER(has);
+  REGISTER_MATCHER(hasAncestor);
   REGISTER_MATCHER(hasAnyArgument);
+  REGISTER_MATCHER(hasAnyConstructorInitializer);
   REGISTER_MATCHER(hasAnyParameter);
   REGISTER_MATCHER(hasAnySubstatement);
+  REGISTER_MATCHER(hasAnyTemplateArgument);
   REGISTER_MATCHER(hasAnyUsingShadowDecl);
   REGISTER_MATCHER(hasArgument);
   REGISTER_MATCHER(hasArgumentOfType);
@@ -175,8 +174,11 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(hasCondition);
   REGISTER_MATCHER(hasConditionVariableStatement);
   REGISTER_MATCHER(hasDeclContext);
+  REGISTER_MATCHER(hasDeducedType);
+  REGISTER_MATCHER(hasDescendant);
   REGISTER_MATCHER(hasDestinationType);
   REGISTER_MATCHER(hasEitherOperand);
+  REGISTER_MATCHER(hasElementType);
   REGISTER_MATCHER(hasFalseExpression);
   REGISTER_MATCHER(hasImplicitDestinationType);
   REGISTER_MATCHER(hasIncrement);
@@ -191,6 +193,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(hasOperatorName);
   REGISTER_MATCHER(hasOverloadedOperatorName);
   REGISTER_MATCHER(hasParameter);
+  REGISTER_MATCHER(hasParent);
   REGISTER_MATCHER(hasQualifier);
   REGISTER_MATCHER(hasRHS);
   REGISTER_MATCHER(hasSingleDecl);
@@ -198,8 +201,10 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(hasSizeExpr);
   REGISTER_MATCHER(hasSourceExpression);
   REGISTER_MATCHER(hasTargetDecl);
+  REGISTER_MATCHER(hasTemplateArgument);
   REGISTER_MATCHER(hasTrueExpression);
   REGISTER_MATCHER(hasUnaryOperand);
+  REGISTER_MATCHER(hasValueType);
   REGISTER_MATCHER(ifStmt);
   REGISTER_MATCHER(ignoringImpCasts);
   REGISTER_MATCHER(ignoringParenCasts);
@@ -207,6 +212,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(implicitCastExpr);
   REGISTER_MATCHER(incompleteArrayType);
   REGISTER_MATCHER(initListExpr);
+  REGISTER_MATCHER(innerType);
   REGISTER_MATCHER(integerLiteral);
   REGISTER_MATCHER(isArrow);
   REGISTER_MATCHER(isConstQualified);
@@ -221,6 +227,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(isPublic);
   REGISTER_MATCHER(isTemplateInstantiation);
   REGISTER_MATCHER(isVirtual);
+  REGISTER_MATCHER(isWritten);
   REGISTER_MATCHER(lValueReferenceType);
   REGISTER_MATCHER(labelStmt);
   REGISTER_MATCHER(lambdaExpr);
@@ -245,6 +252,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(operatorCallExpr);
   REGISTER_MATCHER(parameterCountIs);
   REGISTER_MATCHER(parenType);
+  REGISTER_MATCHER(pointee);
   REGISTER_MATCHER(pointerType);
   REGISTER_MATCHER(qualType);
   REGISTER_MATCHER(rValueReferenceType);
@@ -282,6 +290,7 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(varDecl);
   REGISTER_MATCHER(variableArrayType);
   REGISTER_MATCHER(whileStmt);
+  REGISTER_MATCHER(withInitializer);
 }
 
 RegistryMaps::~RegistryMaps() {
@@ -297,39 +306,38 @@ static llvm::ManagedStatic<RegistryMaps> RegistryData;
 } // anonymous namespace
 
 // static
-MatcherList Registry::constructMatcher(StringRef MatcherName,
-                                       const SourceRange &NameRange,
-                                       ArrayRef<ParserValue> Args,
-                                       Diagnostics *Error) {
+VariantMatcher Registry::constructMatcher(StringRef MatcherName,
+                                          const SourceRange &NameRange,
+                                          ArrayRef<ParserValue> Args,
+                                          Diagnostics *Error) {
   ConstructorMap::const_iterator it =
       RegistryData->constructors().find(MatcherName);
   if (it == RegistryData->constructors().end()) {
-    Error->pushErrorFrame(NameRange, Error->ET_RegistryNotFound)
-        << MatcherName;
-    return MatcherList();
+    Error->addError(NameRange, Error->ET_RegistryNotFound) << MatcherName;
+    return VariantMatcher();
   }
 
   return it->second->run(NameRange, Args, Error);
 }
 
 // static
-MatcherList Registry::constructBoundMatcher(StringRef MatcherName,
-                                            const SourceRange &NameRange,
-                                            StringRef BindID,
-                                            ArrayRef<ParserValue> Args,
-                                            Diagnostics *Error) {
-  MatcherList Out = constructMatcher(MatcherName, NameRange, Args, Error);
-  if (Out.empty()) return Out;
+VariantMatcher Registry::constructBoundMatcher(StringRef MatcherName,
+                                               const SourceRange &NameRange,
+                                               StringRef BindID,
+                                               ArrayRef<ParserValue> Args,
+                                               Diagnostics *Error) {
+  VariantMatcher Out = constructMatcher(MatcherName, NameRange, Args, Error);
+  if (Out.isNull()) return Out;
 
-  ArrayRef<const DynTypedMatcher*> Matchers = Out.matchers();
-  if (Matchers.size() == 1) {
-    OwningPtr<DynTypedMatcher> Bound(Matchers[0]->tryBind(BindID));
+  const DynTypedMatcher *Result;
+  if (Out.getSingleMatcher(Result)) {
+    OwningPtr<DynTypedMatcher> Bound(Result->tryBind(BindID));
     if (Bound) {
-      return *Bound;
+      return VariantMatcher::SingleMatcher(*Bound);
     }
   }
-  Error->pushErrorFrame(NameRange, Error->ET_RegistryNotBindable);
-  return MatcherList();
+  Error->addError(NameRange, Error->ET_RegistryNotBindable);
+  return VariantMatcher();
 }
 
 }  // namespace dynamic

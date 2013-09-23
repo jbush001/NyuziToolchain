@@ -41,6 +41,7 @@ static bool IsBlank(char C) {
 static BreakableToken::Split getCommentSplit(StringRef Text,
                                              unsigned ContentStartColumn,
                                              unsigned ColumnLimit,
+                                             unsigned TabWidth,
                                              encoding::Encoding Encoding) {
   if (ColumnLimit <= ContentStartColumn + 1)
     return BreakableToken::Split(StringRef::npos, 0);
@@ -49,9 +50,14 @@ static BreakableToken::Split getCommentSplit(StringRef Text,
   unsigned MaxSplitBytes = 0;
 
   for (unsigned NumChars = 0;
-       NumChars < MaxSplit && MaxSplitBytes < Text.size(); ++NumChars)
-    MaxSplitBytes +=
+       NumChars < MaxSplit && MaxSplitBytes < Text.size();) {
+    unsigned BytesInChar =
         encoding::getCodePointNumBytes(Text[MaxSplitBytes], Encoding);
+    NumChars +=
+        encoding::columnWidthWithTabs(Text.substr(MaxSplitBytes, BytesInChar),
+                                      ContentStartColumn, TabWidth, Encoding);
+    MaxSplitBytes += BytesInChar;
+  }
 
   StringRef::size_type SpaceOffset = Text.find_last_of(Blanks, MaxSplitBytes);
   if (SpaceOffset == StringRef::npos ||
@@ -76,17 +82,18 @@ static BreakableToken::Split getCommentSplit(StringRef Text,
 }
 
 static BreakableToken::Split getStringSplit(StringRef Text,
-                                            unsigned ContentStartColumn,
+                                            unsigned UsedColumns,
                                             unsigned ColumnLimit,
+                                            unsigned TabWidth,
                                             encoding::Encoding Encoding) {
   // FIXME: Reduce unit test case.
   if (Text.empty())
     return BreakableToken::Split(StringRef::npos, 0);
-  if (ColumnLimit <= ContentStartColumn)
+  if (ColumnLimit <= UsedColumns)
     return BreakableToken::Split(StringRef::npos, 0);
-  unsigned MaxSplit =
-      std::min<unsigned>(ColumnLimit - ContentStartColumn,
-                         encoding::getCodePointCount(Text, Encoding) - 1);
+  unsigned MaxSplit = std::min<unsigned>(
+      ColumnLimit - UsedColumns,
+      encoding::columnWidthWithTabs(Text, UsedColumns, TabWidth, Encoding) - 1);
   StringRef::size_type SpaceOffset = 0;
   StringRef::size_type SlashOffset = 0;
   StringRef::size_type WordStartOffset = 0;
@@ -98,7 +105,8 @@ static BreakableToken::Split getStringSplit(StringRef Text,
       Chars += Advance;
     } else {
       Advance = encoding::getCodePointNumBytes(Text[0], Encoding);
-      Chars += 1;
+      Chars += encoding::columnWidthWithTabs(
+          Text.substr(0, Advance), UsedColumns + Chars, TabWidth, Encoding);
     }
 
     if (Chars > MaxSplit)
@@ -131,31 +139,35 @@ unsigned BreakableSingleLineToken::getLineCount() const { return 1; }
 unsigned BreakableSingleLineToken::getLineLengthAfterSplit(
     unsigned LineIndex, unsigned Offset, StringRef::size_type Length) const {
   return StartColumn + Prefix.size() + Postfix.size() +
-         encoding::getCodePointCount(Line.substr(Offset, Length), Encoding);
+         encoding::columnWidthWithTabs(Line.substr(Offset, Length),
+                                       StartColumn + Prefix.size(),
+                                       Style.TabWidth, Encoding);
 }
 
 BreakableSingleLineToken::BreakableSingleLineToken(
     const FormatToken &Tok, unsigned StartColumn, StringRef Prefix,
-    StringRef Postfix, bool InPPDirective, encoding::Encoding Encoding)
-    : BreakableToken(Tok, InPPDirective, Encoding), StartColumn(StartColumn),
-      Prefix(Prefix), Postfix(Postfix) {
+    StringRef Postfix, bool InPPDirective, encoding::Encoding Encoding,
+    const FormatStyle &Style)
+    : BreakableToken(Tok, InPPDirective, Encoding, Style),
+      StartColumn(StartColumn), Prefix(Prefix), Postfix(Postfix) {
   assert(Tok.TokenText.startswith(Prefix) && Tok.TokenText.endswith(Postfix));
   Line = Tok.TokenText.substr(
       Prefix.size(), Tok.TokenText.size() - Prefix.size() - Postfix.size());
 }
 
-BreakableStringLiteral::BreakableStringLiteral(const FormatToken &Tok,
-                                               unsigned StartColumn,
-                                               bool InPPDirective,
-                                               encoding::Encoding Encoding)
-    : BreakableSingleLineToken(Tok, StartColumn, "\"", "\"", InPPDirective,
-                               Encoding) {}
+BreakableStringLiteral::BreakableStringLiteral(
+    const FormatToken &Tok, unsigned StartColumn, StringRef Prefix,
+    StringRef Postfix, bool InPPDirective, encoding::Encoding Encoding,
+    const FormatStyle &Style)
+    : BreakableSingleLineToken(Tok, StartColumn, Prefix, Postfix, InPPDirective,
+                               Encoding, Style) {}
 
 BreakableToken::Split
 BreakableStringLiteral::getSplit(unsigned LineIndex, unsigned TailOffset,
                                  unsigned ColumnLimit) const {
-  return getStringSplit(Line.substr(TailOffset), StartColumn + 2, ColumnLimit,
-                        Encoding);
+  return getStringSplit(Line.substr(TailOffset),
+                        StartColumn + Prefix.size() + Postfix.size(),
+                        ColumnLimit, Style.TabWidth, Encoding);
 }
 
 void BreakableStringLiteral::insertBreak(unsigned LineIndex,
@@ -177,10 +189,11 @@ static StringRef getLineCommentPrefix(StringRef Comment) {
 BreakableLineComment::BreakableLineComment(const FormatToken &Token,
                                            unsigned StartColumn,
                                            bool InPPDirective,
-                                           encoding::Encoding Encoding)
+                                           encoding::Encoding Encoding,
+                                           const FormatStyle &Style)
     : BreakableSingleLineToken(Token, StartColumn,
                                getLineCommentPrefix(Token.TokenText), "",
-                               InPPDirective, Encoding) {
+                               InPPDirective, Encoding, Style) {
   OriginalPrefix = Prefix;
   if (Token.TokenText.size() > Prefix.size() &&
       isAlphanumeric(Token.TokenText[Prefix.size()])) {
@@ -195,7 +208,7 @@ BreakableToken::Split
 BreakableLineComment::getSplit(unsigned LineIndex, unsigned TailOffset,
                                unsigned ColumnLimit) const {
   return getCommentSplit(Line.substr(TailOffset), StartColumn + Prefix.size(),
-                         ColumnLimit, Encoding);
+                         ColumnLimit, Style.TabWidth, Encoding);
 }
 
 void BreakableLineComment::insertBreak(unsigned LineIndex, unsigned TailOffset,
@@ -216,10 +229,10 @@ BreakableLineComment::replaceWhitespaceBefore(unsigned LineIndex,
 }
 
 BreakableBlockComment::BreakableBlockComment(
-    const FormatStyle &Style, const FormatToken &Token, unsigned StartColumn,
+    const FormatToken &Token, unsigned StartColumn,
     unsigned OriginalStartColumn, bool FirstInLine, bool InPPDirective,
-    encoding::Encoding Encoding)
-    : BreakableToken(Token, InPPDirective, Encoding) {
+    encoding::Encoding Encoding, const FormatStyle &Style)
+    : BreakableToken(Token, InPPDirective, Encoding, Style) {
   StringRef TokenText(Token.TokenText);
   assert(TokenText.startswith("/*") && TokenText.endswith("*/"));
   TokenText.substr(2, TokenText.size() - 4).split(Lines, "\n");
@@ -229,7 +242,7 @@ BreakableBlockComment::BreakableBlockComment(
   StartOfLineColumn.resize(Lines.size());
   StartOfLineColumn[0] = StartColumn + 2;
   for (size_t i = 1; i < Lines.size(); ++i)
-    adjustWhitespace(Style, i, IndentDelta);
+    adjustWhitespace(i, IndentDelta);
 
   Decoration = "* ";
   if (Lines.size() == 1 && !FirstInLine) {
@@ -282,8 +295,7 @@ BreakableBlockComment::BreakableBlockComment(
   });
 }
 
-void BreakableBlockComment::adjustWhitespace(const FormatStyle &Style,
-                                             unsigned LineIndex,
+void BreakableBlockComment::adjustWhitespace(unsigned LineIndex,
                                              int IndentDelta) {
   // When in a preprocessor directive, the trailing backslash in a block comment
   // is not needed, but can serve a purpose of uniformity with necessary escaped
@@ -306,6 +318,7 @@ void BreakableBlockComment::adjustWhitespace(const FormatStyle &Style,
   if (StartOfLine == StringRef::npos)
     StartOfLine = Lines[LineIndex].size();
 
+  StringRef Whitespace = Lines[LineIndex].substr(0, StartOfLine);
   // Adjust Lines to only contain relevant text.
   Lines[LineIndex - 1] = Lines[LineIndex - 1].substr(0, EndOfPreviousLine);
   Lines[LineIndex] = Lines[LineIndex].substr(StartOfLine);
@@ -321,16 +334,21 @@ void BreakableBlockComment::adjustWhitespace(const FormatStyle &Style,
   // if leading tabs are intermixed with spaces, that is not a high priority.
 
   // Adjust the start column uniformly accross all lines.
-  StartOfLineColumn[LineIndex] = std::max<int>(0, StartOfLine + IndentDelta);
+  StartOfLineColumn[LineIndex] = std::max<int>(
+      0,
+      encoding::columnWidthWithTabs(Whitespace, 0, Style.TabWidth, Encoding) +
+          IndentDelta);
 }
 
 unsigned BreakableBlockComment::getLineCount() const { return Lines.size(); }
 
 unsigned BreakableBlockComment::getLineLengthAfterSplit(
     unsigned LineIndex, unsigned Offset, StringRef::size_type Length) const {
-  return getContentStartColumn(LineIndex, Offset) +
-         encoding::getCodePointCount(Lines[LineIndex].substr(Offset, Length),
-                                     Encoding) +
+  unsigned ContentStartColumn = getContentStartColumn(LineIndex, Offset);
+  return ContentStartColumn +
+         encoding::columnWidthWithTabs(Lines[LineIndex].substr(Offset, Length),
+                                       ContentStartColumn, Style.TabWidth,
+                                       Encoding) +
          // The last line gets a "*/" postfix.
          (LineIndex + 1 == Lines.size() ? 2 : 0);
 }
@@ -340,7 +358,7 @@ BreakableBlockComment::getSplit(unsigned LineIndex, unsigned TailOffset,
                                 unsigned ColumnLimit) const {
   return getCommentSplit(Lines[LineIndex].substr(TailOffset),
                          getContentStartColumn(LineIndex, TailOffset),
-                         ColumnLimit, Encoding);
+                         ColumnLimit, Style.TabWidth, Encoding);
 }
 
 void BreakableBlockComment::insertBreak(unsigned LineIndex, unsigned TailOffset,

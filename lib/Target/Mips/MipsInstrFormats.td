@@ -297,17 +297,6 @@ class BGEZ_FM<bits<6> op, bits<5> funct> {
   let Inst{15-0}  = offset;
 }
 
-class B_FM {
-  bits<16> offset;
-
-  bits<32> Inst;
-
-  let Inst{31-26} = 4;
-  let Inst{25-21} = 0;
-  let Inst{20-16} = 0;
-  let Inst{15-0}  = offset;
-}
-
 class SLTI_FM<bits<6> op> : StdArch {
   bits<5> rt;
   bits<5> rs;
@@ -321,7 +310,7 @@ class SLTI_FM<bits<6> op> : StdArch {
   let Inst{15-0}  = imm16;
 }
 
-class MFLO_FM<bits<6> funct> {
+class MFLO_FM<bits<6> funct> : StdArch {
   bits<5> rd;
 
   bits<32> Inst;
@@ -333,7 +322,7 @@ class MFLO_FM<bits<6> funct> {
   let Inst{5-0}   = funct;
 }
 
-class MTLO_FM<bits<6> funct> {
+class MTLO_FM<bits<6> funct> : StdArch {
   bits<5> rs;
 
   bits<32> Inst;
@@ -344,7 +333,7 @@ class MTLO_FM<bits<6> funct> {
   let Inst{5-0}   = funct;
 }
 
-class SEB_FM<bits<5> funct, bits<6> funct2> {
+class SEB_FM<bits<5> funct, bits<6> funct2> : StdArch {
   bits<5> rd;
   bits<5> rt;
 
@@ -358,7 +347,7 @@ class SEB_FM<bits<5> funct, bits<6> funct2> {
   let Inst{5-0}   = funct2;
 }
 
-class CLO_FM<bits<6> funct> {
+class CLO_FM<bits<6> funct> : StdArch {
   bits<5> rd;
   bits<5> rs;
   bits<5> rt;
@@ -374,7 +363,7 @@ class CLO_FM<bits<6> funct> {
   let rt = rd;
 }
 
-class LUI_FM {
+class LUI_FM : StdArch {
   bits<5> rt;
   bits<16> imm16;
 
@@ -398,17 +387,6 @@ class JALR_FM {
   let Inst{15-11} = rd;
   let Inst{10-6}  = 0;
   let Inst{5-0}   = 9;
-}
-
-class BAL_FM {
-  bits<16> offset;
-
-  bits<32> Inst;
-
-  let Inst{31-26} = 1;
-  let Inst{25-21} = 0;
-  let Inst{20-16} = 0x11;
-  let Inst{15-0}  = offset;
 }
 
 class BGEZAL_FM<bits<5> funct> {
@@ -446,7 +424,7 @@ class MULT_FM<bits<6> op, bits<6> funct> : StdArch {
   let Inst{5-0}   = funct;
 }
 
-class EXT_FM<bits<6> funct> {
+class EXT_FM<bits<6> funct> : StdArch {
   bits<5> rt;
   bits<5> rs;
   bits<5> pos;
@@ -490,6 +468,17 @@ class TEQ_FM<bits<6> funct> {
   let Inst{5-0}   = funct;
 }
 
+class TEQI_FM<bits<5> funct> {
+  bits<5> rs;
+  bits<16> imm16;
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 1;
+  let Inst{25-21} = rs;
+  let Inst{20-16}   = funct;
+  let Inst{15-0}  = imm16;
+}
 //===----------------------------------------------------------------------===//
 //  System calls format <op|code_|funct>
 //===----------------------------------------------------------------------===//
@@ -516,6 +505,37 @@ class BRK_FM<bits<6> funct>
   let Inst{25-16} = code_1;
   let Inst{15-6}  = code_2;
   let Inst{5-0}   = funct;
+}
+
+//===----------------------------------------------------------------------===//
+//  Exception return format <Cop0|1|0|funct>
+//===----------------------------------------------------------------------===//
+
+class ER_FM<bits<6> funct>
+{
+  bits<32> Inst;
+  let Inst{31-26} = 0x10;
+  let Inst{25}    = 1;
+  let Inst{24-6}  = 0;
+  let Inst{5-0}   = funct;
+}
+
+
+//===----------------------------------------------------------------------===//
+//  Enable/disable interrupt instruction format <Cop0|MFMC0|rt|12|0|sc|0|0>
+//===----------------------------------------------------------------------===//
+
+class EI_FM<bits<1> sc>
+{
+  bits<32> Inst;
+  bits<5> rt;
+  let Inst{31-26} = 0x10;
+  let Inst{25-21} = 0xb;
+  let Inst{20-16} = rt;
+  let Inst{15-11} = 0xc;
+  let Inst{10-6}  = 0;
+  let Inst{5}     = sc;
+  let Inst{4-0}   = 0;
 }
 
 //===----------------------------------------------------------------------===//
@@ -651,13 +671,14 @@ class SWXC1_FM<bits<6> funct> {
 }
 
 class BC1F_FM<bit nd, bit tf> {
+  bits<3>  fcc;
   bits<16> offset;
 
   bits<32> Inst;
 
   let Inst{31-26} = 0x11;
   let Inst{25-21} = 0x8;
-  let Inst{20-18} = 0; // cc
+  let Inst{20-18} = fcc;
   let Inst{17} = nd;
   let Inst{16} = tf;
   let Inst{15-0} = offset;
@@ -679,6 +700,10 @@ class CEQS_FM<bits<5> fmt> {
   let Inst{3-0} = cond;
 }
 
+class C_COND_FM<bits<5> fmt, bits<4> c> : CEQS_FM<fmt> {
+  let cond = c;
+}
+
 class CMov_I_F_FM<bits<6> funct, bits<5> fmt> {
   bits<5> fd;
   bits<5> fs;
@@ -694,15 +719,16 @@ class CMov_I_F_FM<bits<6> funct, bits<5> fmt> {
   let Inst{5-0} = funct;
 }
 
-class CMov_F_I_FM<bit tf> {
+class CMov_F_I_FM<bit tf> : StdArch {
   bits<5> rd;
   bits<5> rs;
+  bits<3> fcc;
 
   bits<32> Inst;
 
   let Inst{31-26} = 0;
   let Inst{25-21} = rs;
-  let Inst{20-18} = 0; // cc
+  let Inst{20-18} = fcc;
   let Inst{17} = 0;
   let Inst{16} = tf;
   let Inst{15-11} = rd;
@@ -713,12 +739,13 @@ class CMov_F_I_FM<bit tf> {
 class CMov_F_F_FM<bits<5> fmt, bit tf> {
   bits<5> fd;
   bits<5> fs;
+  bits<3> fcc;
 
   bits<32> Inst;
 
   let Inst{31-26} = 0x11;
   let Inst{25-21} = fmt;
-  let Inst{20-18} = 0; // cc
+  let Inst{20-18} = fcc;
   let Inst{17} = 0;
   let Inst{16} = tf;
   let Inst{15-11} = fs;

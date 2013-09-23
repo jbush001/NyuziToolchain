@@ -23,8 +23,9 @@
 
 #include "lld/Core/File.h"
 #include "lld/Core/Pass.h"
-#include "llvm/Support/Debug.h"
+#include "lld/ReaderWriter/Simple.h"
 #include "llvm/Support/COFF.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/Endian.h"
 
 #include <algorithm>
@@ -51,16 +52,17 @@ class HintNameAtom;
 class ImportTableEntryAtom;
 
 void addDir32NBReloc(COFFBaseDefinedAtom *atom, const Atom *target,
-                     size_t offsetInAtom) {
+                     size_t offsetInAtom = 0) {
   atom->addReference(std::unique_ptr<COFFReference>(new COFFReference(
       target, offsetInAtom, llvm::COFF::IMAGE_REL_I386_DIR32NB)));
 }
 
 // A state object of this pass.
 struct Context {
-  explicit Context(MutableFile &f) : file(f) {}
+  explicit Context(MutableFile &f, File &g) : file(f), dummyFile(g) {}
 
   MutableFile &file;
+  File &dummyFile;
 
   // The object to accumulate idata atoms. Idata atoms need to be grouped by
   // type and be continuous in the output file. To force such layout, we
@@ -82,9 +84,9 @@ public:
   virtual ContentPermissions permissions() const { return permR__; }
 
 protected:
-  IdataAtom(MutableFile &file, vector<uint8_t> data)
-      : COFFLinkerInternalAtom(file, data) {
-    file.addAtom(*this);
+  IdataAtom(Context &context, vector<uint8_t> data)
+      : COFFLinkerInternalAtom(context.dummyFile, data) {
+    context.file.addAtom(*this);
   }
 };
 
@@ -92,9 +94,9 @@ protected:
 /// field in the import directory table entry.
 class DLLNameAtom : public IdataAtom {
 public:
-  DLLNameAtom(Context &ctx, StringRef name)
-      : IdataAtom(ctx.file, stringRefToVector(name)) {
-    ctx.dllNameAtoms.push_back(this);
+  DLLNameAtom(Context &context, StringRef name)
+      : IdataAtom(context, stringRefToVector(name)) {
+    context.dllNameAtoms.push_back(this);
   }
 
 private:
@@ -116,41 +118,42 @@ private:
 /// loader can find the symbol quickly.
 class HintNameAtom : public IdataAtom {
 public:
-  HintNameAtom(Context &ctx, uint16_t hint, StringRef name)
-      : IdataAtom(ctx.file, assembleRawContent(hint, name)), _name(name) {
-    ctx.hintNameAtoms.push_back(this);
+  HintNameAtom(Context &context, uint16_t hint, StringRef importName)
+      : IdataAtom(context, assembleRawContent(hint, importName)),
+        _importName(importName) {
+    context.hintNameAtoms.push_back(this);
   }
 
-  StringRef getContentString() { return _name; }
+  StringRef getContentString() { return _importName; }
 
 private:
   // The first two bytes of the content is a hint, followed by a null-terminated
   // symbol name. The total size needs to be multiple of 2.
-  vector<uint8_t> assembleRawContent(uint16_t hint, StringRef name) {
-    name = unmangle(name);
-    size_t size = llvm::RoundUpToAlignment(sizeof(hint) + name.size() + 1, 2);
+  vector<uint8_t> assembleRawContent(uint16_t hint, StringRef importName) {
+    size_t size =
+        llvm::RoundUpToAlignment(sizeof(hint) + importName.size() + 1, 2);
     vector<uint8_t> ret(size);
-    ret[name.size()] = 0;
-    ret[name.size() - 1] = 0;
+    ret[importName.size()] = 0;
+    ret[importName.size() - 1] = 0;
     *reinterpret_cast<llvm::support::ulittle16_t *>(&ret[0]) = hint;
-    std::memcpy(&ret[2], name.data(), name.size());
+    std::memcpy(&ret[2], importName.data(), importName.size());
     return ret;
   }
 
-  /// Undo name mangling. In Windows, the symbol name for function is encoded
-  /// as "_name@X", where X is the number of bytes of the arguments.
-  StringRef unmangle(StringRef mangledName) {
-    assert(mangledName.startswith("_"));
-    return mangledName.substr(1).split('@').first;
-  }
-
-  StringRef _name;
+  StringRef _importName;
 };
 
 class ImportTableEntryAtom : public IdataAtom {
 public:
-  explicit ImportTableEntryAtom(Context &ctx)
-      : IdataAtom(ctx.file, vector<uint8_t>(4, 0)) {}
+  explicit ImportTableEntryAtom(Context &context, uint32_t contents)
+      : IdataAtom(context, assembleRawContent(contents)) {}
+
+private:
+  vector<uint8_t> assembleRawContent(uint32_t contents) {
+    vector<uint8_t> ret(4);
+    *reinterpret_cast<llvm::support::ulittle32_t *>(&ret[0]) = contents;
+    return ret;
+  }
 };
 
 /// An ImportDirectoryAtom includes information to load a DLL, including a DLL
@@ -159,56 +162,66 @@ public:
 /// items. The executable has one ImportDirectoryAtom per one imported DLL.
 class ImportDirectoryAtom : public IdataAtom {
 public:
-  ImportDirectoryAtom(Context &ctx, StringRef loadName,
+  ImportDirectoryAtom(Context &context, StringRef loadName,
                       const vector<COFFSharedLibraryAtom *> &sharedAtoms)
-      : IdataAtom(ctx.file, vector<uint8_t>(20, 0)) {
-    addRelocations(ctx, loadName, sharedAtoms);
-    ctx.importDirectories.push_back(this);
+      : IdataAtom(context, vector<uint8_t>(20, 0)) {
+    addRelocations(context, loadName, sharedAtoms);
+    context.importDirectories.push_back(this);
   }
 
 private:
-  void addRelocations(Context &ctx, StringRef loadName,
+  void addRelocations(Context &context, StringRef loadName,
                       const vector<COFFSharedLibraryAtom *> &sharedAtoms) {
-    size_t lookupEnd = ctx.importLookupTables.size();
-    size_t addressEnd = ctx.importAddressTables.size();
+    size_t lookupEnd = context.importLookupTables.size();
+    size_t addressEnd = context.importAddressTables.size();
 
     // Create parallel arrays. The contents of the two are initially the
     // same. The PE/COFF loader overwrites the import address tables with the
     // pointers to the referenced items after loading the executable into
     // memory.
-    addImportTableAtoms(ctx, sharedAtoms, false, ctx.importLookupTables);
-    addImportTableAtoms(ctx, sharedAtoms, true, ctx.importAddressTables);
+    addImportTableAtoms(context, sharedAtoms, false,
+                        context.importLookupTables);
+    addImportTableAtoms(context, sharedAtoms, true,
+                        context.importAddressTables);
 
-    addDir32NBReloc(this, ctx.importLookupTables[lookupEnd],
+    addDir32NBReloc(this, context.importLookupTables[lookupEnd],
                     offsetof(ImportDirectoryTableEntry, ImportLookupTableRVA));
-    addDir32NBReloc(this, ctx.importAddressTables[addressEnd],
+    addDir32NBReloc(this, context.importAddressTables[addressEnd],
                     offsetof(ImportDirectoryTableEntry, ImportAddressTableRVA));
-    addDir32NBReloc(this, new (_alloc) DLLNameAtom(ctx, loadName),
+    addDir32NBReloc(this, new (_alloc) DLLNameAtom(context, loadName),
                     offsetof(ImportDirectoryTableEntry, NameRVA));
   }
 
   // Creates atoms for an import lookup table. The import lookup table is an
   // array of pointers to hint/name atoms. The array needs to be terminated with
   // the NULL entry.
-  void addImportTableAtoms(Context &ctx,
+  void addImportTableAtoms(Context &context,
                            const vector<COFFSharedLibraryAtom *> &sharedAtoms,
                            bool shouldAddReference,
                            vector<ImportTableEntryAtom *> &ret) const {
-    for (COFFSharedLibraryAtom *shared : sharedAtoms) {
-      HintNameAtom *hintName = createHintNameAtom(ctx, shared);
-      ImportTableEntryAtom *entry = new (_alloc) ImportTableEntryAtom(ctx);
-      addDir32NBReloc(entry, hintName, 0);
+    for (COFFSharedLibraryAtom *atom : sharedAtoms) {
+      ImportTableEntryAtom *entry = nullptr;
+      if (atom->importName().empty()) {
+        // Import by ordinal
+        uint32_t hint = (1U << 31) | atom->hint();
+        entry = new (_alloc) ImportTableEntryAtom(context, hint);
+      } else {
+        // Import by name
+        entry = new (_alloc) ImportTableEntryAtom(context, 0);
+        HintNameAtom *hintName = createHintNameAtom(context, atom);
+        addDir32NBReloc(entry, hintName);
+      }
       ret.push_back(entry);
       if (shouldAddReference)
-        shared->setImportTableEntry(entry);
+        atom->setImportTableEntry(entry);
     }
     // Add the NULL entry.
-    ret.push_back(new (_alloc) ImportTableEntryAtom(ctx));
+    ret.push_back(new (_alloc) ImportTableEntryAtom(context, 0));
   }
 
-  HintNameAtom *createHintNameAtom(
-      Context &ctx, const COFFSharedLibraryAtom *atom) const {
-    return new (_alloc) HintNameAtom(ctx, atom->hint(), atom->unmangledName());
+  HintNameAtom *createHintNameAtom(Context &context,
+                                   const COFFSharedLibraryAtom *atom) const {
+    return new (_alloc) HintNameAtom(context, atom->hint(), atom->importName());
   }
 
   mutable llvm::BumpPtrAllocator _alloc;
@@ -217,32 +230,42 @@ private:
 /// The last NULL entry in the import directory.
 class NullImportDirectoryAtom : public IdataAtom {
 public:
-  explicit NullImportDirectoryAtom(Context &ctx)
-      : IdataAtom(ctx.file, vector<uint8_t>(20, 0)) {
-    ctx.importDirectories.push_back(this);
+  explicit NullImportDirectoryAtom(Context &context)
+      : IdataAtom(context, vector<uint8_t>(20, 0)) {
+    context.importDirectories.push_back(this);
   }
 };
 
 } // anonymous namespace
 
+// An instance of this class represents "input file" for atoms created in this
+// pass. Only one instance of this class is created as a field of IdataPass.
+class IdataPassFile : public SimpleFile {
+public:
+  IdataPassFile(const LinkingContext &ctx)
+      : SimpleFile(ctx, "<idata-pass-file>") {}
+};
+
 class IdataPass : public lld::Pass {
 public:
+  IdataPass(const LinkingContext &ctx) : _dummyFile(ctx) {}
+
   virtual void perform(MutableFile &file) {
     if (file.sharedLibrary().size() == 0)
       return;
 
-    Context ctx(file);
-    map<StringRef, vector<COFFSharedLibraryAtom *>> sharedAtoms =
+    Context context(file, _dummyFile);
+    map<StringRef, vector<COFFSharedLibraryAtom *> > sharedAtoms =
         groupByLoadName(file);
     for (auto i : sharedAtoms) {
       StringRef loadName = i.first;
       vector<COFFSharedLibraryAtom *> &atoms = i.second;
-      createImportDirectory(ctx, loadName, atoms);
+      createImportDirectory(context, loadName, atoms);
     }
-    new (_alloc) NullImportDirectoryAtom(ctx);
-    connectAtoms(ctx);
-    createDataDirectoryAtoms(ctx);
-    replaceSharedLibraryAtoms(ctx);
+    new (_alloc) NullImportDirectoryAtom(context);
+    connectAtoms(context);
+    createDataDirectoryAtoms(context);
+    replaceSharedLibraryAtoms(context);
   }
 
 private:
@@ -260,18 +283,25 @@ private:
     return std::move(ret);
   }
 
-  void
-  createImportDirectory(Context &ctx, StringRef loadName,
-                        vector<COFFSharedLibraryAtom *> &dllAtoms) {
-    new (_alloc) ImportDirectoryAtom(ctx, loadName, dllAtoms);
+  void createImportDirectory(Context &context, StringRef loadName,
+                             vector<COFFSharedLibraryAtom *> &dllAtoms) {
+    new (_alloc) ImportDirectoryAtom(context, loadName, dllAtoms);
   }
 
-  void connectAtoms(Context &ctx) {
-    coff::connectAtomsWithLayoutEdge(ctx.importDirectories);
-    coff::connectAtomsWithLayoutEdge(ctx.importLookupTables);
-    coff::connectAtomsWithLayoutEdge(ctx.importAddressTables);
-    coff::connectAtomsWithLayoutEdge(ctx.hintNameAtoms);
-    coff::connectAtomsWithLayoutEdge(ctx.dllNameAtoms);
+  // Append vec2's elements at the end of vec1.
+  template <typename T, typename U>
+  void appendAtoms(vector<T *> &vec1, const vector<U *> &vec2) {
+    vec1.insert(vec1.end(), vec2.begin(), vec2.end());
+  }
+
+  void connectAtoms(Context &context) {
+    vector<COFFBaseDefinedAtom *> atoms;
+    appendAtoms(atoms, context.importDirectories);
+    appendAtoms(atoms, context.importLookupTables);
+    appendAtoms(atoms, context.importAddressTables);
+    appendAtoms(atoms, context.dllNameAtoms);
+    appendAtoms(atoms, context.hintNameAtoms);
+    coff::connectAtomsWithLayoutEdge(atoms);
   }
 
   /// The addresses of the import dirctory and the import address table needs to
@@ -279,19 +309,25 @@ private:
   /// represents an entry in the data directory header. We create atoms of class
   /// COFFDataDirectoryAtom and set relocations to them, so that the address
   /// will be set by the writer.
-  void createDataDirectoryAtoms(Context &ctx) {
-    auto *dir = new (_alloc) coff::COFFDataDirectoryAtom(ctx.file, 1);
-    addDir32NBReloc(dir, ctx.importDirectories[0], 0);
-    ctx.file.addAtom(*dir);
+  void createDataDirectoryAtoms(Context &context) {
+    auto *dir = new (_alloc) coff::COFFDataDirectoryAtom(
+        context.dummyFile, llvm::COFF::DataDirectoryIndex::IMPORT_TABLE,
+        context.importDirectories.size() *
+            context.importDirectories[0]->size());
+    addDir32NBReloc(dir, context.importDirectories[0]);
+    context.file.addAtom(*dir);
 
-    auto *iat = new (_alloc) coff::COFFDataDirectoryAtom(ctx.file, 12);
-    addDir32NBReloc(iat, ctx.importAddressTables[0], 0);
-    ctx.file.addAtom(*iat);
+    auto *iat = new (_alloc) coff::COFFDataDirectoryAtom(
+        context.dummyFile, llvm::COFF::DataDirectoryIndex::IAT,
+        context.importAddressTables.size() *
+            context.importAddressTables[0]->size());
+    addDir32NBReloc(iat, context.importAddressTables[0]);
+    context.file.addAtom(*iat);
   }
 
   /// Transforms a reference to a COFFSharedLibraryAtom to a real reference.
-  void replaceSharedLibraryAtoms(Context &ctx) {
-    for (const DefinedAtom *atom : ctx.file.defined()) {
+  void replaceSharedLibraryAtoms(Context &context) {
+    for (const DefinedAtom *atom : context.file.defined()) {
       for (const Reference *ref : *atom) {
         const Atom *target = ref->target();
         auto *sharedAtom = dyn_cast<SharedLibraryAtom>(target);
@@ -303,6 +339,11 @@ private:
       }
     }
   }
+
+  // A dummy file with which all the atoms created in the pass will be
+  // associated. Atoms need to be associated to an input file even if it's not
+  // read from a file, so we use this object.
+  IdataPassFile _dummyFile;
 
   llvm::BumpPtrAllocator _alloc;
 };

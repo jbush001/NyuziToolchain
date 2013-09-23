@@ -33,10 +33,10 @@
 using namespace llvm;
 
 /// CompileUnit - Compile unit constructor.
-CompileUnit::CompileUnit(unsigned UID, unsigned L, DIE *D, const MDNode *N,
-                         AsmPrinter *A, DwarfDebug *DW, DwarfUnits *DWU)
-  : UniqueID(UID), Language(L), CUDie(D), Asm(A), DD(DW), DU(DWU),
-    IndexTyDie(0), DebugInfoOffset(0) {
+CompileUnit::CompileUnit(unsigned UID, DIE *D, const MDNode *N, AsmPrinter *A,
+                         DwarfDebug *DW, DwarfUnits *DWU)
+    : UniqueID(UID), Node(N), CUDie(D), Asm(A), DD(DW), DU(DWU), IndexTyDie(0),
+      DebugInfoOffset(0) {
   DIEIntegerOne = new (DIEValueAllocator) DIEInteger(1);
   insertDIE(N, D);
 }
@@ -57,7 +57,7 @@ DIEEntry *CompileUnit::createDIEEntry(DIE *Entry) {
 /// getDefaultLowerBound - Return the default lower bound for an array. If the
 /// DWARF version doesn't handle the language, return -1.
 int64_t CompileUnit::getDefaultLowerBound() const {
-  switch (Language) {
+  switch (DICompileUnit(Node).getLanguage()) {
   default:
     break;
 
@@ -99,8 +99,8 @@ int64_t CompileUnit::getDefaultLowerBound() const {
 }
 
 /// addFlag - Add a flag that is true.
-void CompileUnit::addFlag(DIE *Die, unsigned Attribute) {
-  if (!DD->useDarwinGDBCompat())
+void CompileUnit::addFlag(DIE *Die, uint16_t Attribute) {
+  if (DD->getDwarfVersion() >= 4)
     Die->addValue(Attribute, dwarf::DW_FORM_flag_present,
                   DIEIntegerOne);
   else
@@ -109,8 +109,8 @@ void CompileUnit::addFlag(DIE *Die, unsigned Attribute) {
 
 /// addUInt - Add an unsigned integer attribute data and value.
 ///
-void CompileUnit::addUInt(DIE *Die, unsigned Attribute,
-                          unsigned Form, uint64_t Integer) {
+void CompileUnit::addUInt(DIE *Die, uint16_t Attribute,
+                          uint16_t Form, uint64_t Integer) {
   if (!Form) Form = DIEInteger::BestForm(false, Integer);
   DIEValue *Value = Integer == 1 ?
     DIEIntegerOne : new (DIEValueAllocator) DIEInteger(Integer);
@@ -119,8 +119,8 @@ void CompileUnit::addUInt(DIE *Die, unsigned Attribute,
 
 /// addSInt - Add an signed integer attribute data and value.
 ///
-void CompileUnit::addSInt(DIE *Die, unsigned Attribute,
-                          unsigned Form, int64_t Integer) {
+void CompileUnit::addSInt(DIE *Die, uint16_t Attribute,
+                          uint16_t Form, int64_t Integer) {
   if (!Form) Form = DIEInteger::BestForm(true, Integer);
   DIEValue *Value = new (DIEValueAllocator) DIEInteger(Integer);
   Die->addValue(Attribute, Form, Value);
@@ -131,27 +131,30 @@ void CompileUnit::addSInt(DIE *Die, unsigned Attribute,
 /// more predictable sizes. In the case of split dwarf we emit an index
 /// into another table which gets us the static offset into the string
 /// table.
-void CompileUnit::addString(DIE *Die, unsigned Attribute, StringRef String) {
+void CompileUnit::addString(DIE *Die, uint16_t Attribute, StringRef String) {
+  DIEValue *Value;
+  uint16_t Form;
   if (!DD->useSplitDwarf()) {
     MCSymbol *Symb = DU->getStringPoolEntry(String);
-    DIEValue *Value;
     if (Asm->needsRelocationsForDwarfStringPool())
       Value = new (DIEValueAllocator) DIELabel(Symb);
     else {
       MCSymbol *StringPool = DU->getStringPoolSym();
       Value = new (DIEValueAllocator) DIEDelta(Symb, StringPool);
     }
-    Die->addValue(Attribute, dwarf::DW_FORM_strp, Value);
+    Form = dwarf::DW_FORM_strp;
   } else {
     unsigned idx = DU->getStringPoolIndex(String);
-    DIEValue *Value = new (DIEValueAllocator) DIEInteger(idx);
-    Die->addValue(Attribute, dwarf::DW_FORM_GNU_str_index, Value);
+    Value = new (DIEValueAllocator) DIEInteger(idx);
+    Form = dwarf::DW_FORM_GNU_str_index;
   }
+  DIEValue *Str = new (DIEValueAllocator) DIEString(Value, String);
+  Die->addValue(Attribute, Form, Str);
 }
 
 /// addLocalString - Add a string attribute data and value. This is guaranteed
 /// to be in the local string pool instead of indirected.
-void CompileUnit::addLocalString(DIE *Die, unsigned Attribute,
+void CompileUnit::addLocalString(DIE *Die, uint16_t Attribute,
                                  StringRef String) {
   MCSymbol *Symb = DU->getStringPoolEntry(String);
   DIEValue *Value;
@@ -166,7 +169,7 @@ void CompileUnit::addLocalString(DIE *Die, unsigned Attribute,
 
 /// addExpr - Add a Dwarf expression attribute data and value.
 ///
-void CompileUnit::addExpr(DIE *Die, unsigned Attribute, unsigned Form,
+void CompileUnit::addExpr(DIE *Die, uint16_t Attribute, uint16_t Form,
                           const MCExpr *Expr) {
   DIEValue *Value = new (DIEValueAllocator) DIEExpr(Expr);
   Die->addValue(Attribute, Form, Value);
@@ -174,17 +177,31 @@ void CompileUnit::addExpr(DIE *Die, unsigned Attribute, unsigned Form,
 
 /// addLabel - Add a Dwarf label attribute data and value.
 ///
-void CompileUnit::addLabel(DIE *Die, unsigned Attribute, unsigned Form,
+void CompileUnit::addLabel(DIE *Die, uint16_t Attribute, uint16_t Form,
                            const MCSymbol *Label) {
   DIEValue *Value = new (DIEValueAllocator) DIELabel(Label);
   Die->addValue(Attribute, Form, Value);
+
+  SymbolCU Entry;
+  Entry.CU = this;
+  Entry.Sym = Label;
+
+  DD->addLabel(Entry);
 }
 
 /// addLabelAddress - Add a dwarf label attribute data and value using
 /// DW_FORM_addr or DW_FORM_GNU_addr_index.
 ///
-void CompileUnit::addLabelAddress(DIE *Die, unsigned Attribute,
+void CompileUnit::addLabelAddress(DIE *Die, uint16_t Attribute,
                                   MCSymbol *Label) {
+  if (Label) {
+    SymbolCU Entry;
+    Entry.CU = this;
+    Entry.Sym = Label;
+
+    DD->addLabel(Entry);
+  }
+
   if (!DD->useSplitDwarf()) {
     if (Label != NULL) {
       DIEValue *Value = new (DIEValueAllocator) DIELabel(Label);
@@ -215,7 +232,7 @@ void CompileUnit::addOpAddress(DIE *Die, const MCSymbol *Sym) {
 
 /// addDelta - Add a label delta attribute data and value.
 ///
-void CompileUnit::addDelta(DIE *Die, unsigned Attribute, unsigned Form,
+void CompileUnit::addDelta(DIE *Die, uint16_t Attribute, uint16_t Form,
                            const MCSymbol *Hi, const MCSymbol *Lo) {
   DIEValue *Value = new (DIEValueAllocator) DIEDelta(Hi, Lo);
   Die->addValue(Attribute, Form, Value);
@@ -223,14 +240,14 @@ void CompileUnit::addDelta(DIE *Die, unsigned Attribute, unsigned Form,
 
 /// addDIEEntry - Add a DIE attribute data and value.
 ///
-void CompileUnit::addDIEEntry(DIE *Die, unsigned Attribute, unsigned Form,
+void CompileUnit::addDIEEntry(DIE *Die, uint16_t Attribute, uint16_t Form,
                               DIE *Entry) {
   Die->addValue(Attribute, Form, createDIEEntry(Entry));
 }
 
 /// addBlock - Add block data.
 ///
-void CompileUnit::addBlock(DIE *Die, unsigned Attribute, unsigned Form,
+void CompileUnit::addBlock(DIE *Die, uint16_t Attribute, uint16_t Form,
                            DIEBlock *Block) {
   Block->ComputeSize(Asm);
   DIEBlocks.push_back(Block); // Memoize so we can call the destructor later on.
@@ -390,7 +407,7 @@ void CompileUnit::addRegisterOffset(DIE *TheDie, unsigned Reg,
 
 /// addAddress - Add an address attribute to a die based on the location
 /// provided.
-void CompileUnit::addAddress(DIE *Die, unsigned Attribute,
+void CompileUnit::addAddress(DIE *Die, uint16_t Attribute,
                              const MachineLocation &Location, bool Indirect) {
   DIEBlock *Block = new (DIEValueAllocator) DIEBlock();
 
@@ -413,7 +430,7 @@ void CompileUnit::addAddress(DIE *Die, unsigned Attribute,
 /// the starting location.  Add the DWARF information to the die.
 ///
 void CompileUnit::addComplexAddress(const DbgVariable &DV, DIE *Die,
-                                    unsigned Attribute,
+                                    uint16_t Attribute,
                                     const MachineLocation &Location) {
   DIEBlock *Block = new (DIEValueAllocator) DIEBlock();
   unsigned N = DV.getNumAddrElements();
@@ -506,11 +523,11 @@ void CompileUnit::addComplexAddress(const DbgVariable &DV, DIE *Die,
 /// more information, read large comment just above here.
 ///
 void CompileUnit::addBlockByrefAddress(const DbgVariable &DV, DIE *Die,
-                                       unsigned Attribute,
+                                       uint16_t Attribute,
                                        const MachineLocation &Location) {
   DIType Ty = DV.getType();
   DIType TmpTy = Ty;
-  unsigned Tag = Ty.getTag();
+  uint16_t Tag = Ty.getTag();
   bool isPointer = false;
 
   StringRef varName = DV.getName();
@@ -603,21 +620,36 @@ void CompileUnit::addConstantValue(DIE *Die, const MachineOperand &MO,
   // their maximum bit width which is a bit unfortunate (& doesn't prefer
   // udata/sdata over dataN as suggested by the DWARF spec)
   assert(MO.isImm() && "Invalid machine operand!");
-  DIEBlock *Block = new (DIEValueAllocator) DIEBlock();
   int SizeInBits = -1;
   bool SignedConstant = isTypeSigned(Ty, &SizeInBits);
-  unsigned Form = SignedConstant ? dwarf::DW_FORM_sdata : dwarf::DW_FORM_udata;
-  switch (SizeInBits) {
-    case 8:  Form = dwarf::DW_FORM_data1; break;
-    case 16: Form = dwarf::DW_FORM_data2; break;
-    case 32: Form = dwarf::DW_FORM_data4; break;
-    case 64: Form = dwarf::DW_FORM_data8; break;
-    default: break;
-  }
-  SignedConstant ? addSInt(Block, 0, Form, MO.getImm())
-    : addUInt(Block, 0, Form, MO.getImm());
+  uint16_t Form;
 
-  addBlock(Die, dwarf::DW_AT_const_value, 0, Block);
+  // If we're a signed constant definitely use sdata.
+  if (SignedConstant) {
+    addSInt(Die, dwarf::DW_AT_const_value, dwarf::DW_FORM_sdata, MO.getImm());
+    return;
+  }
+
+  // Else use data for now unless it's larger than we can deal with.
+  switch (SizeInBits) {
+  case 8:
+    Form = dwarf::DW_FORM_data1;
+    break;
+  case 16:
+    Form = dwarf::DW_FORM_data2;
+    break;
+  case 32:
+    Form = dwarf::DW_FORM_data4;
+    break;
+  case 64:
+    Form = dwarf::DW_FORM_data8;
+    break;
+  default:
+    Form = dwarf::DW_FORM_udata;
+    addUInt(Die, dwarf::DW_AT_const_value, Form, MO.getImm());
+    return;
+  }
+  addUInt(Die, dwarf::DW_AT_const_value, Form, MO.getImm());
 }
 
 /// addConstantFPValue - Add constant value entry in variable DIE.
@@ -646,7 +678,8 @@ void CompileUnit::addConstantFPValue(DIE *Die, const MachineOperand &MO) {
 
 /// addConstantFPValue - Add constant value entry in variable DIE.
 void CompileUnit::addConstantFPValue(DIE *Die, const ConstantFP *CFP) {
-  addConstantValue(Die, CFP->getValueAPF().bitcastToAPInt(), false);
+  // Pass this down to addConstantValue as an unsigned bag of bits.
+  addConstantValue(Die, CFP->getValueAPF().bitcastToAPInt(), true);
 }
 
 /// addConstantValue - Add constant value entry in variable DIE.
@@ -659,19 +692,34 @@ void CompileUnit::addConstantValue(DIE *Die, const ConstantInt *CI,
 void CompileUnit::addConstantValue(DIE *Die, const APInt &Val, bool Unsigned) {
   unsigned CIBitWidth = Val.getBitWidth();
   if (CIBitWidth <= 64) {
-    unsigned form = 0;
-    switch (CIBitWidth) {
-    case 8: form = dwarf::DW_FORM_data1; break;
-    case 16: form = dwarf::DW_FORM_data2; break;
-    case 32: form = dwarf::DW_FORM_data4; break;
-    case 64: form = dwarf::DW_FORM_data8; break;
-    default:
-      form = Unsigned ? dwarf::DW_FORM_udata : dwarf::DW_FORM_sdata;
+    // If we're a signed constant definitely use sdata.
+    if (!Unsigned) {
+      addSInt(Die, dwarf::DW_AT_const_value, dwarf::DW_FORM_sdata,
+              Val.getSExtValue());
+      return;
     }
-    if (Unsigned)
-      addUInt(Die, dwarf::DW_AT_const_value, form, Val.getZExtValue());
-    else
-      addSInt(Die, dwarf::DW_AT_const_value, form, Val.getSExtValue());
+
+    // Else use data for now unless it's larger than we can deal with.
+    uint16_t Form;
+    switch (CIBitWidth) {
+    case 8:
+      Form = dwarf::DW_FORM_data1;
+      break;
+    case 16:
+      Form = dwarf::DW_FORM_data2;
+      break;
+    case 32:
+      Form = dwarf::DW_FORM_data4;
+      break;
+    case 64:
+      Form = dwarf::DW_FORM_data8;
+      break;
+    default:
+      addUInt(Die, dwarf::DW_AT_const_value, dwarf::DW_FORM_udata,
+              Val.getZExtValue());
+      return;
+    }
+    addUInt(Die, dwarf::DW_AT_const_value, Form, Val.getZExtValue());
     return;
   }
 
@@ -762,19 +810,17 @@ DIE *CompileUnit::getOrCreateTypeDIE(const MDNode *TyNode) {
       IsImplementation = (CT.getRunTimeLang() == 0) ||
         CT.isObjcClassComplete();
     }
-    unsigned Flags = IsImplementation ?
-                     DwarfAccelTable::eTypeFlagClassIsImplementation : 0;
+    unsigned Flags = IsImplementation ? dwarf::DW_FLAG_type_implementation : 0;
     addAccelType(Ty.getName(), std::make_pair(TyDIE, Flags));
   }
 
-  addToContextOwner(TyDIE, Ty.getContext());
+  addToContextOwner(TyDIE, DD->resolve(Ty.getContext()));
   return TyDIE;
 }
 
 /// addType - Add a new type attribute to the specified entity.
-void CompileUnit::addType(DIE *Entity, DIType Ty, unsigned Attribute) {
-  if (!Ty.isType())
-    return;
+void CompileUnit::addType(DIE *Entity, DIType Ty, uint16_t Attribute) {
+  assert(Ty && "Trying to add a type that doesn't exist?");
 
   // Check for pre-existence.
   DIEEntry *Entry = getDIEEntry(Ty);
@@ -797,10 +843,43 @@ void CompileUnit::addType(DIE *Entity, DIType Ty, unsigned Attribute) {
   addGlobalType(Ty);
 }
 
+// Accelerator table mutators - add each name along with its companion
+// DIE to the proper table while ensuring that the name that we're going
+// to reference is in the string table. We do this since the names we
+// add may not only be identical to the names in the DIE.
+void CompileUnit::addAccelName(StringRef Name, DIE *Die) {
+  DU->getStringPoolEntry(Name);
+  std::vector<DIE*> &DIEs = AccelNames[Name];
+  DIEs.push_back(Die);
+}
+
+void CompileUnit::addAccelObjC(StringRef Name, DIE *Die) {
+  DU->getStringPoolEntry(Name);
+  std::vector<DIE*> &DIEs = AccelObjC[Name];
+  DIEs.push_back(Die);
+}
+
+void CompileUnit::addAccelNamespace(StringRef Name, DIE *Die) {
+  DU->getStringPoolEntry(Name);
+  std::vector<DIE*> &DIEs = AccelNamespace[Name];
+  DIEs.push_back(Die);
+}
+
+void CompileUnit::addAccelType(StringRef Name, std::pair<DIE *, unsigned> Die) {
+  DU->getStringPoolEntry(Name);
+  std::vector<std::pair<DIE *, unsigned> > &DIEs = AccelTypes[Name];
+  DIEs.push_back(Die);
+}
+
+/// addGlobalName - Add a new global name to the compile unit.
+void CompileUnit::addGlobalName(StringRef Name, DIE *Die) {
+  GlobalNames[Name] = Die;
+}
+
 /// addGlobalType - Add a new global type to the compile unit.
 ///
 void CompileUnit::addGlobalType(DIType Ty) {
-  DIDescriptor Context = Ty.getContext();
+  DIDescriptor Context = DD->resolve(Ty.getContext());
   if (Ty.isCompositeType() && !Ty.getName().empty() && !Ty.isForwardDecl()
       && (!Context || Context.isCompileUnit() || Context.isFile()
           || Context.isNameSpace()))
@@ -811,7 +890,7 @@ void CompileUnit::addGlobalType(DIType Ty) {
 /// addPubTypes - Add type for pubtypes section.
 void CompileUnit::addPubTypes(DISubprogram SP) {
   DICompositeType SPTy = SP.getType();
-  unsigned SPTag = SPTy.getTag();
+  uint16_t SPTag = SPTy.getTag();
   if (SPTag != dwarf::DW_TAG_subroutine_type)
     return;
 
@@ -851,7 +930,7 @@ void CompileUnit::constructTypeDIE(DIE &Buffer, DIDerivedType DTy) {
   // Get core information.
   StringRef Name = DTy.getName();
   uint64_t Size = DTy.getSizeInBits() >> 3;
-  unsigned Tag = DTy.getTag();
+  uint16_t Tag = DTy.getTag();
 
   // FIXME - Workaround for templates.
   if (Tag == dwarf::DW_TAG_inheritance) Tag = dwarf::DW_TAG_reference_type;
@@ -860,7 +939,8 @@ void CompileUnit::constructTypeDIE(DIE &Buffer, DIDerivedType DTy) {
 
   // Map to main type, void will not have a type.
   DIType FromTy = DTy.getTypeDerivedFrom();
-  addType(&Buffer, FromTy);
+  if (FromTy)
+    addType(&Buffer, FromTy);
 
   // Add name if not anonymous or intermediate type.
   if (!Name.empty())
@@ -872,10 +952,43 @@ void CompileUnit::constructTypeDIE(DIE &Buffer, DIDerivedType DTy) {
 
   if (Tag == dwarf::DW_TAG_ptr_to_member_type)
       addDIEEntry(&Buffer, dwarf::DW_AT_containing_type, dwarf::DW_FORM_ref4,
-                  getOrCreateTypeDIE(DTy.getClassType()));
+                  getOrCreateTypeDIE(DD->resolve(DTy.getClassType())));
   // Add source line info if available and TyDesc is not a forward declaration.
   if (!DTy.isForwardDecl())
     addSourceLine(&Buffer, DTy);
+}
+
+/// Return true if the type is appropriately scoped to be contained inside
+/// its own type unit.
+static bool isTypeUnitScoped(DIType Ty, const DwarfDebug *DD) {
+  DIScope Parent = DD->resolve(Ty.getContext());
+  while (Parent) {
+    // Don't generate a hash for anything scoped inside a function.
+    if (Parent.isSubprogram())
+      return false;
+    Parent = DD->resolve(Parent.getContext());
+  }
+  return true;
+}
+
+/// Return true if the type should be split out into a type unit.
+static bool shouldCreateTypeUnit(DICompositeType CTy, const DwarfDebug *DD) {
+  uint16_t Tag = CTy.getTag();
+
+  switch (Tag) {
+  case dwarf::DW_TAG_structure_type:
+  case dwarf::DW_TAG_union_type:
+  case dwarf::DW_TAG_enumeration_type:
+  case dwarf::DW_TAG_class_type:
+    // If this is a class, structure, union, or enumeration type
+    // that is not a declaration, is a type definition, and not scoped
+    // inside a function then separate this out as a type unit.
+    if (CTy.isForwardDecl() || !isTypeUnitScoped(CTy, DD))
+      return 0;
+    return 1;
+  default:
+    return 0;
+  }
 }
 
 /// constructTypeDIE - Construct type DIE from DICompositeType.
@@ -884,7 +997,7 @@ void CompileUnit::constructTypeDIE(DIE &Buffer, DICompositeType CTy) {
   StringRef Name = CTy.getName();
 
   uint64_t Size = CTy.getSizeInBits() >> 3;
-  unsigned Tag = CTy.getTag();
+  uint16_t Tag = CTy.getTag();
   Buffer.setTag(Tag);
 
   switch (Tag) {
@@ -904,17 +1017,18 @@ void CompileUnit::constructTypeDIE(DIE &Buffer, DICompositeType CTy) {
       }
     }
     DIType DTy = CTy.getTypeDerivedFrom();
-    if (DTy.isType()) {
+    if (DTy) {
       addType(&Buffer, DTy);
       addUInt(&Buffer, dwarf::DW_AT_enum_class, dwarf::DW_FORM_flag, 1);
     }
   }
     break;
   case dwarf::DW_TAG_subroutine_type: {
-    // Add return type.
+    // Add return type. A void return won't have a type.
     DIArray Elements = CTy.getTypeArray();
     DIDescriptor RTy = Elements.getElement(0);
-    addType(&Buffer, DIType(RTy));
+    if (RTy)
+      addType(&Buffer, DIType(RTy));
 
     bool isPrototyped = true;
     // Add arguments.
@@ -934,6 +1048,7 @@ void CompileUnit::constructTypeDIE(DIE &Buffer, DICompositeType CTy) {
     }
     // Add prototype flag if we're dealing with a C language and the
     // function has been prototyped.
+    uint16_t Language = DICompileUnit(Node).getLanguage();
     if (isPrototyped &&
         (Language == dwarf::DW_LANG_C89 ||
          Language == dwarf::DW_LANG_C99 ||
@@ -946,14 +1061,7 @@ void CompileUnit::constructTypeDIE(DIE &Buffer, DICompositeType CTy) {
   case dwarf::DW_TAG_class_type: {
     // Add elements to structure type.
     DIArray Elements = CTy.getTypeArray();
-
-    // A forward struct declared type may not have elements available.
-    unsigned N = Elements.getNumElements();
-    if (N == 0)
-      break;
-
-    // Add elements to structure type.
-    for (unsigned i = 0; i < N; ++i) {
+    for (unsigned i = 0, N = Elements.getNumElements(); i < N; ++i) {
       DIDescriptor Element = Elements.getElement(i);
       DIE *ElemDie = NULL;
       if (Element.isSubprogram()) {
@@ -1022,12 +1130,12 @@ void CompileUnit::constructTypeDIE(DIE &Buffer, DICompositeType CTy) {
     if (CTy.isAppleBlockExtension())
       addFlag(&Buffer, dwarf::DW_AT_APPLE_block);
 
-    DICompositeType ContainingType = CTy.getContainingType();
+    DICompositeType ContainingType(DD->resolve(CTy.getContainingType()));
     if (DIDescriptor(ContainingType).isCompositeType())
       addDIEEntry(&Buffer, dwarf::DW_AT_containing_type, dwarf::DW_FORM_ref4,
                   getOrCreateTypeDIE(DIType(ContainingType)));
     else
-      addToContextOwner(&Buffer, CTy.getContext());
+      addToContextOwner(&Buffer, DD->resolve(CTy.getContext()));
 
     if (CTy.isObjcClassComplete())
       addFlag(&Buffer, dwarf::DW_AT_APPLE_objc_complete_type);
@@ -1075,6 +1183,10 @@ void CompileUnit::constructTypeDIE(DIE &Buffer, DICompositeType CTy) {
       addUInt(&Buffer, dwarf::DW_AT_APPLE_runtime_class,
               dwarf::DW_FORM_data1, RLang);
   }
+  // If this is a type applicable to a type unit it then add it to the
+  // list of types we'll compute a hash for later.
+  if (shouldCreateTypeUnit(CTy, DD))
+    DD->addTypeUnitType(&Buffer);
 }
 
 /// getOrCreateTemplateTypeParameterDIE - Find existing DIE or create new DIE
@@ -1086,7 +1198,9 @@ CompileUnit::getOrCreateTemplateTypeParameterDIE(DITemplateTypeParameter TP) {
     return ParamDIE;
 
   ParamDIE = new DIE(dwarf::DW_TAG_template_type_parameter);
-  addType(ParamDIE, TP.getType());
+  // Add the type if it exists, it could be void and therefore no type.
+  if (TP.getType())
+    addType(ParamDIE, TP.getType());
   if (!TP.getName().empty())
     addString(ParamDIE, dwarf::DW_AT_name, TP.getName());
   return ParamDIE;
@@ -1095,18 +1209,22 @@ CompileUnit::getOrCreateTemplateTypeParameterDIE(DITemplateTypeParameter TP) {
 /// getOrCreateTemplateValueParameterDIE - Find existing DIE or create new DIE
 /// for the given DITemplateValueParameter.
 DIE *
-CompileUnit::getOrCreateTemplateValueParameterDIE(DITemplateValueParameter TPV){
-  DIE *ParamDIE = getDIE(TPV);
+CompileUnit::getOrCreateTemplateValueParameterDIE(DITemplateValueParameter VP) {
+  DIE *ParamDIE = getDIE(VP);
   if (ParamDIE)
     return ParamDIE;
 
-  ParamDIE = new DIE(TPV.getTag());
-  addType(ParamDIE, TPV.getType());
-  if (!TPV.getName().empty())
-    addString(ParamDIE, dwarf::DW_AT_name, TPV.getName());
-  if (Value *Val = TPV.getValue()) {
+  ParamDIE = new DIE(VP.getTag());
+
+  // Add the type if there is one, template template and template parameter
+  // packs will not have a type.
+  if (VP.getType())
+    addType(ParamDIE, VP.getType());
+  if (!VP.getName().empty())
+    addString(ParamDIE, dwarf::DW_AT_name, VP.getName());
+  if (Value *Val = VP.getValue()) {
     if (ConstantInt *CI = dyn_cast<ConstantInt>(Val))
-      addConstantValue(ParamDIE, CI, TPV.getType().isUnsignedDIType());
+      addConstantValue(ParamDIE, CI, VP.getType().isUnsignedDIType());
     else if (GlobalValue *GV = dyn_cast<GlobalValue>(Val)) {
       // For declaration non-type template parameters (such as global values and
       // functions)
@@ -1116,11 +1234,11 @@ CompileUnit::getOrCreateTemplateValueParameterDIE(DITemplateValueParameter TPV){
       // parameter, rather than a pointer to it.
       addUInt(Block, 0, dwarf::DW_FORM_data1, dwarf::DW_OP_stack_value);
       addBlock(ParamDIE, dwarf::DW_AT_location, 0, Block);
-    } else if (TPV.getTag() == dwarf::DW_TAG_GNU_template_template_param) {
+    } else if (VP.getTag() == dwarf::DW_TAG_GNU_template_template_param) {
       assert(isa<MDString>(Val));
       addString(ParamDIE, dwarf::DW_AT_GNU_template_name,
                 cast<MDString>(Val)->getString());
-    } else if (TPV.getTag() == dwarf::DW_TAG_GNU_template_parameter_pack) {
+    } else if (VP.getTag() == dwarf::DW_TAG_GNU_template_parameter_pack) {
       assert(isa<MDNode>(Val));
       DIArray A(cast<MDNode>(Val));
       addTemplateParams(*ParamDIE, A);
@@ -1170,17 +1288,6 @@ DIE *CompileUnit::getOrCreateSubprogramDIE(DISubprogram SP) {
   // Add function template parameters.
   addTemplateParams(*SPDie, SP.getTemplateParams());
 
-  // Unfortunately this code needs to stay here instead of below the
-  // AT_specification code in order to work around a bug in older
-  // gdbs that requires the linkage name to resolve multiple template
-  // functions.
-  // TODO: Remove this set of code when we get rid of the old gdb
-  // compatibility.
-  StringRef LinkageName = SP.getLinkageName();
-  if (!LinkageName.empty() && DD->useDarwinGDBCompat())
-    addString(SPDie, dwarf::DW_AT_MIPS_linkage_name,
-              GlobalValue::getRealLinkageName(LinkageName));
-
   // If this DIE is going to refer declaration info using AT_specification
   // then there is no need to add other attributes.
   if (DeclDie) {
@@ -1192,7 +1299,8 @@ DIE *CompileUnit::getOrCreateSubprogramDIE(DISubprogram SP) {
   }
 
   // Add the linkage name if we have one.
-  if (!LinkageName.empty() && !DD->useDarwinGDBCompat())
+  StringRef LinkageName = SP.getLinkageName();
+  if (!LinkageName.empty())
     addString(SPDie, dwarf::DW_AT_MIPS_linkage_name,
               GlobalValue::getRealLinkageName(LinkageName));
 
@@ -1204,19 +1312,21 @@ DIE *CompileUnit::getOrCreateSubprogramDIE(DISubprogram SP) {
 
   // Add the prototype if we have a prototype and we have a C like
   // language.
+  uint16_t Language = DICompileUnit(Node).getLanguage();
   if (SP.isPrototyped() &&
       (Language == dwarf::DW_LANG_C89 ||
        Language == dwarf::DW_LANG_C99 ||
        Language == dwarf::DW_LANG_ObjC))
     addFlag(SPDie, dwarf::DW_AT_prototyped);
 
-  // Add Return Type.
+  // Add Return Type. A void return type will not have a type.
   DICompositeType SPTy = SP.getType();
   assert(SPTy.getTag() == dwarf::DW_TAG_subroutine_type &&
          "the type of a subprogram should be a subroutine");
 
   DIArray Args = SPTy.getTypeArray();
-  addType(SPDie, DIType(Args.getElement(0)));
+  if (Args.getElement(0))
+    addType(SPDie, DIType(Args.getElement(0)));
 
   unsigned VK = SP.getVirtuality();
   if (VK) {
@@ -1226,7 +1336,7 @@ DIE *CompileUnit::getOrCreateSubprogramDIE(DISubprogram SP) {
     addUInt(Block, 0, dwarf::DW_FORM_udata, SP.getVirtualIndex());
     addBlock(SPDie, dwarf::DW_AT_vtable_elem_location, 0, Block);
     ContainingTypeMap.insert(std::make_pair(SPDie,
-                                            SP.getContainingType()));
+                                    DD->resolve(SP.getContainingType())));
   }
 
   if (!SP.isDefinition()) {
@@ -1310,7 +1420,7 @@ void CompileUnit::createGlobalVariableDIE(const MDNode *N) {
     // We need the declaration DIE that is in the static member's class.
     // But that class might not exist in the DWARF yet.
     // Creating the class will create the static member decl DIE.
-    getOrCreateContextDIE(SDMDecl.getContext());
+    getOrCreateContextDIE(DD->resolve(SDMDecl.getContext()));
     VariableDIE = getDIE(SDMDecl);
     assert(VariableDIE && "Static member decl has no context?");
     IsStaticMember = true;
@@ -1372,7 +1482,7 @@ void CompileUnit::createGlobalVariableDIE(const MDNode *N) {
     // Do not create specification DIE if context is either compile unit
     // or a subprogram.
     if (GVContext && GV.isDefinition() && !GVContext.isCompileUnit() &&
-        !GVContext.isFile() && !isSubprogramContext(GVContext)) {
+        !GVContext.isFile() && !DD->isSubprogramContext(GVContext)) {
       // Create specification DIE.
       VariableSpecDIE = new DIE(dwarf::DW_TAG_variable);
       addDIEEntry(VariableSpecDIE, dwarf::DW_AT_specification,
@@ -1385,21 +1495,15 @@ void CompileUnit::createGlobalVariableDIE(const MDNode *N) {
     } else {
       addBlock(VariableDIE, dwarf::DW_AT_location, 0, Block);
     }
-    // Add linkage name.
+    // Add the linkage name.
     StringRef LinkageName = GV.getLinkageName();
-    if (!LinkageName.empty()) {
+    if (!LinkageName.empty())
       // From DWARF4: DIEs to which DW_AT_linkage_name may apply include:
       // TAG_common_block, TAG_constant, TAG_entry_point, TAG_subprogram and
       // TAG_variable.
       addString(IsStaticMember && VariableSpecDIE ?
                 VariableSpecDIE : VariableDIE, dwarf::DW_AT_MIPS_linkage_name,
                 GlobalValue::getRealLinkageName(LinkageName));
-      // In compatibility mode with older gdbs we put the linkage name on both
-      // the TAG_variable DIE and on the TAG_member DIE.
-      if (IsStaticMember && VariableSpecDIE && DD->useDarwinGDBCompat())
-        addString(VariableDIE, dwarf::DW_AT_MIPS_linkage_name,
-                  GlobalValue::getRealLinkageName(LinkageName));
-    }
   } else if (const ConstantInt *CI =
              dyn_cast_or_null<ConstantInt>(GV.getConstant())) {
     // AT_const_value was added when the static member was created. To avoid
@@ -1466,9 +1570,8 @@ void CompileUnit::constructArrayTypeDIE(DIE &Buffer,
   if (CTy->isVector())
     addFlag(&Buffer, dwarf::DW_AT_GNU_vector);
 
-  // Emit derived type.
+  // Emit the element type.
   addType(&Buffer, CTy->getTypeDerivedFrom());
-  DIArray Elements = CTy->getTypeArray();
 
   // Get an anonymous type for index type.
   // FIXME: This type should be passed down from the front end
@@ -1486,6 +1589,7 @@ void CompileUnit::constructArrayTypeDIE(DIE &Buffer,
   }
 
   // Add subranges to array type.
+  DIArray Elements = CTy->getTypeArray();
   for (unsigned i = 0, N = Elements.getNumElements(); i < N; ++i) {
     DIDescriptor Element = Elements.getElement(i);
     if (Element.getTag() == dwarf::DW_TAG_subrange_type)
@@ -1523,7 +1627,7 @@ DIE *CompileUnit::constructVariableDIE(DbgVariable *DV,
   StringRef Name = DV->getName();
 
   // Translate tag to proper Dwarf tag.
-  unsigned Tag = DV->getTag();
+  uint16_t Tag = DV->getTag();
 
   // Define variable debug information entry.
   DIE *VariableDie = new DIE(Tag);
@@ -1533,7 +1637,8 @@ DIE *CompileUnit::constructVariableDIE(DbgVariable *DV,
     addDIEEntry(VariableDie, dwarf::DW_AT_abstract_origin,
                             dwarf::DW_FORM_ref4, AbsDIE);
   else {
-    addString(VariableDie, dwarf::DW_AT_name, Name);
+    if (!Name.empty())
+      addString(VariableDie, dwarf::DW_AT_name, Name);
     addSourceLine(VariableDie, DV->getVariable());
     addType(VariableDie, DV->getType());
   }

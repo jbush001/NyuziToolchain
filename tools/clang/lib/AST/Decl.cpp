@@ -1353,6 +1353,15 @@ bool NamedDecl::declarationReplaces(NamedDecl *OldD) const {
                                         cast<UsingDecl>(OldD)->getQualifier());
   }
 
+  if (isa<UnresolvedUsingValueDecl>(this) &&
+      isa<UnresolvedUsingValueDecl>(OldD)) {
+    ASTContext &Context = getASTContext();
+    return Context.getCanonicalNestedNameSpecifier(
+                      cast<UnresolvedUsingValueDecl>(this)->getQualifier()) ==
+           Context.getCanonicalNestedNameSpecifier(
+                        cast<UnresolvedUsingValueDecl>(OldD)->getQualifier());
+  }
+
   // A typedef of an Objective-C class type can replace an Objective-C class
   // declaration or definition, and vice versa.
   if ((isa<TypedefNameDecl>(this) && isa<ObjCInterfaceDecl>(OldD)) ||
@@ -1555,6 +1564,17 @@ const char *VarDecl::getStorageClassSpecifierString(StorageClass SC) {
   }
 
   llvm_unreachable("Invalid storage class");
+}
+
+VarDecl::VarDecl(Kind DK, DeclContext *DC, SourceLocation StartLoc,
+                 SourceLocation IdLoc, IdentifierInfo *Id, QualType T,
+                 TypeSourceInfo *TInfo, StorageClass SC)
+    : DeclaratorDecl(DK, DC, IdLoc, Id, T, TInfo, StartLoc), Init() {
+  assert(sizeof(VarDeclBitfields) <= sizeof(unsigned));
+  assert(sizeof(ParmVarDeclBitfields) <= sizeof(unsigned));
+  AllBits = 0;
+  VarDeclBits.SClass = SC;
+  // Everything else is implicitly initialized to false.
 }
 
 VarDecl *VarDecl::Create(ASTContext &C, DeclContext *DC,
@@ -1952,25 +1972,63 @@ VarDecl *VarDecl::getInstantiatedFromStaticDataMember() const {
 }
 
 TemplateSpecializationKind VarDecl::getTemplateSpecializationKind() const {
+  if (const VarTemplateSpecializationDecl *Spec =
+          dyn_cast<VarTemplateSpecializationDecl>(this))
+    return Spec->getSpecializationKind();
+
   if (MemberSpecializationInfo *MSI = getMemberSpecializationInfo())
     return MSI->getTemplateSpecializationKind();
   
   return TSK_Undeclared;
 }
 
+VarTemplateDecl *VarDecl::getDescribedVarTemplate() const {
+  return getASTContext().getTemplateOrSpecializationInfo(this)
+      .dyn_cast<VarTemplateDecl *>();
+}
+
+void VarDecl::setDescribedVarTemplate(VarTemplateDecl *Template) {
+  getASTContext().setTemplateOrSpecializationInfo(this, Template);
+}
+
 MemberSpecializationInfo *VarDecl::getMemberSpecializationInfo() const {
-  return getASTContext().getInstantiatedFromStaticDataMember(this);
+  if (isStaticDataMember())
+    // FIXME: Remove ?
+    // return getASTContext().getInstantiatedFromStaticDataMember(this);
+    return getASTContext().getTemplateOrSpecializationInfo(this)
+        .dyn_cast<MemberSpecializationInfo *>();
+  return 0;
 }
 
 void VarDecl::setTemplateSpecializationKind(TemplateSpecializationKind TSK,
                                          SourceLocation PointOfInstantiation) {
-  MemberSpecializationInfo *MSI = getMemberSpecializationInfo();
-  assert(MSI && "Not an instantiated static data member?");
-  MSI->setTemplateSpecializationKind(TSK);
-  if (TSK != TSK_ExplicitSpecialization &&
-      PointOfInstantiation.isValid() &&
-      MSI->getPointOfInstantiation().isInvalid())
-    MSI->setPointOfInstantiation(PointOfInstantiation);
+  if (VarTemplateSpecializationDecl *Spec =
+          dyn_cast<VarTemplateSpecializationDecl>(this)) {
+    Spec->setSpecializationKind(TSK);
+    if (TSK != TSK_ExplicitSpecialization && PointOfInstantiation.isValid() &&
+        Spec->getPointOfInstantiation().isInvalid())
+      Spec->setPointOfInstantiation(PointOfInstantiation);
+    return;
+  }
+
+  if (MemberSpecializationInfo *MSI = getMemberSpecializationInfo()) {
+    MSI->setTemplateSpecializationKind(TSK);
+    if (TSK != TSK_ExplicitSpecialization && PointOfInstantiation.isValid() &&
+        MSI->getPointOfInstantiation().isInvalid())
+      MSI->setPointOfInstantiation(PointOfInstantiation);
+    return;
+  }
+
+  llvm_unreachable(
+      "Not a variable or static data member template specialization");
+}
+
+void
+VarDecl::setInstantiationOfStaticDataMember(VarDecl *VD,
+                                            TemplateSpecializationKind TSK) {
+  assert(getASTContext().getTemplateOrSpecializationInfo(this).isNull() &&
+         "Previous template or instantiation?");
+  getASTContext().setInstantiatedFromStaticDataMember(this, VD, TSK);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2132,13 +2190,45 @@ void FunctionDecl::setPure(bool P) {
       Parent->markedVirtualFunctionPure();
 }
 
+template<std::size_t Len>
+static bool isNamed(const NamedDecl *ND, const char (&Str)[Len]) {
+  IdentifierInfo *II = ND->getIdentifier();
+  return II && II->isStr(Str);
+}
+
 bool FunctionDecl::isMain() const {
   const TranslationUnitDecl *tunit =
     dyn_cast<TranslationUnitDecl>(getDeclContext()->getRedeclContext());
   return tunit &&
          !tunit->getASTContext().getLangOpts().Freestanding &&
-         getIdentifier() &&
-         getIdentifier()->isStr("main");
+         isNamed(this, "main");
+}
+
+bool FunctionDecl::isMSVCRTEntryPoint() const {
+  const TranslationUnitDecl *TUnit =
+      dyn_cast<TranslationUnitDecl>(getDeclContext()->getRedeclContext());
+  if (!TUnit)
+    return false;
+
+  // Even though we aren't really targeting MSVCRT if we are freestanding,
+  // semantic analysis for these functions remains the same.
+
+  // MSVCRT entry points only exist on MSVCRT targets.
+  if (!TUnit->getASTContext().getTargetInfo().getTriple().isOSMSVCRT())
+    return false;
+
+  // Nameless functions like constructors cannot be entry points.
+  if (!getIdentifier())
+    return false;
+
+  return llvm::StringSwitch<bool>(getName())
+      .Cases("main",     // an ANSI console app
+             "wmain",    // a Unicode console App
+             "WinMain",  // an ANSI GUI app
+             "wWinMain", // a Unicode GUI app
+             "DllMain",  // a DLL
+             true)
+      .Default(false);
 }
 
 bool FunctionDecl::isReservedGlobalPlacementOperator() const {
@@ -2161,6 +2251,47 @@ bool FunctionDecl::isReservedGlobalPlacementOperator() const {
   // The result type and first argument type are constant across all
   // these operators.  The second argument must be exactly void*.
   return (proto->getArgType(1).getCanonicalType() == Context.VoidPtrTy);
+}
+
+static bool isNamespaceStd(const DeclContext *DC) {
+  const NamespaceDecl *ND = dyn_cast<NamespaceDecl>(DC->getRedeclContext());
+  return ND && isNamed(ND, "std") &&
+         ND->getParent()->getRedeclContext()->isTranslationUnit();
+}
+
+bool FunctionDecl::isReplaceableGlobalAllocationFunction() const {
+  if (getDeclName().getNameKind() != DeclarationName::CXXOperatorName)
+    return false;
+  if (getDeclName().getCXXOverloadedOperator() != OO_New &&
+      getDeclName().getCXXOverloadedOperator() != OO_Delete &&
+      getDeclName().getCXXOverloadedOperator() != OO_Array_New &&
+      getDeclName().getCXXOverloadedOperator() != OO_Array_Delete)
+    return false;
+
+  if (isa<CXXRecordDecl>(getDeclContext()))
+    return false;
+  assert(getDeclContext()->getRedeclContext()->isTranslationUnit());
+
+  const FunctionProtoType *FPT = getType()->castAs<FunctionProtoType>();
+  if (FPT->getNumArgs() > 2 || FPT->isVariadic())
+    return false;
+
+  // If this is a single-parameter function, it must be a replaceable global
+  // allocation or deallocation function.
+  if (FPT->getNumArgs() == 1)
+    return true;
+
+  // Otherwise, we're looking for a second parameter whose type is
+  // 'const std::nothrow_t &'.
+  QualType Ty = FPT->getArgType(1);
+  if (!Ty->isReferenceType())
+    return false;
+  Ty = Ty->getPointeeType();
+  if (Ty.getCVRQualifiers() != Qualifiers::Const)
+    return false;
+  // FIXME: Recognise nothrow_t in an inline namespace inside std?
+  const CXXRecordDecl *RD = Ty->getAsCXXRecordDecl();
+  return RD && isNamed(RD, "nothrow_t") && isNamespaceStd(RD->getDeclContext());
 }
 
 LanguageLinkage FunctionDecl::getLanguageLinkage() const {
@@ -2953,7 +3084,7 @@ TagDecl* TagDecl::getCanonicalDecl() {
 }
 
 void TagDecl::setTypedefNameForAnonDecl(TypedefNameDecl *TDD) {
-  TypedefNameDeclOrQualifier = TDD;
+  NamedDeclOrQualifier = TDD;
   if (TypeForDecl)
     assert(TypeForDecl->isLinkageValid());
   assert(isLinkageValid());
@@ -3010,7 +3141,7 @@ void TagDecl::setQualifierInfo(NestedNameSpecifierLoc QualifierLoc) {
   if (QualifierLoc) {
     // Make sure the extended qualifier info is allocated.
     if (!hasExtInfo())
-      TypedefNameDeclOrQualifier = new (getASTContext()) ExtInfo;
+      NamedDeclOrQualifier = new (getASTContext()) ExtInfo;
     // Set qualifier info.
     getExtInfo()->QualifierLoc = QualifierLoc;
   } else {
@@ -3018,7 +3149,7 @@ void TagDecl::setQualifierInfo(NestedNameSpecifierLoc QualifierLoc) {
     if (hasExtInfo()) {
       if (getExtInfo()->NumTemplParamLists == 0) {
         getASTContext().Deallocate(getExtInfo());
-        TypedefNameDeclOrQualifier = (TypedefNameDecl*) 0;
+        NamedDeclOrQualifier = (TypedefNameDecl*) 0;
       }
       else
         getExtInfo()->QualifierLoc = QualifierLoc;
@@ -3033,7 +3164,7 @@ void TagDecl::setTemplateParameterListsInfo(ASTContext &Context,
   // Make sure the extended decl info is allocated.
   if (!hasExtInfo())
     // Allocate external info struct.
-    TypedefNameDeclOrQualifier = new (getASTContext()) ExtInfo;
+    NamedDeclOrQualifier = new (getASTContext()) ExtInfo;
   // Set the template parameter lists info.
   getExtInfo()->setTemplateParameterListsInfo(Context, NumTPLists, TPLists);
 }

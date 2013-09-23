@@ -104,10 +104,12 @@ namespace llvm {
     typedef AsmPrinter *(*AsmPrinterCtorTy)(TargetMachine &TM,
                                             MCStreamer &Streamer);
     typedef MCAsmBackend *(*MCAsmBackendCtorTy)(const Target &T,
+                                                const MCRegisterInfo &MRI,
                                                 StringRef TT,
                                                 StringRef CPU);
     typedef MCTargetAsmParser *(*MCAsmParserCtorTy)(MCSubtargetInfo &STI,
-                                                    MCAsmParser &P);
+                                                    MCAsmParser &P,
+                                                    const MCInstrInfo &MII);
     typedef MCDisassembler *(*MCDisassemblerCtorTy)(const Target &T,
                                                     const MCSubtargetInfo &STI);
     typedef MCInstPrinter *(*MCInstPrinterCtorTy)(const Target &T,
@@ -373,10 +375,11 @@ namespace llvm {
     /// createMCAsmBackend - Create a target specific assembly parser.
     ///
     /// \param Triple The target triple string.
-    MCAsmBackend *createMCAsmBackend(StringRef Triple, StringRef CPU) const {
+    MCAsmBackend *createMCAsmBackend(const MCRegisterInfo &MRI,
+                                     StringRef Triple, StringRef CPU) const {
       if (!MCAsmBackendCtorFn)
         return 0;
-      return MCAsmBackendCtorFn(*this, Triple, CPU);
+      return MCAsmBackendCtorFn(*this, MRI, Triple, CPU);
     }
 
     /// createMCAsmParser - Create a target specific assembly parser.
@@ -384,10 +387,11 @@ namespace llvm {
     /// \param Parser The target independent parser implementation to use for
     /// parsing and lexing.
     MCTargetAsmParser *createMCAsmParser(MCSubtargetInfo &STI,
-                                         MCAsmParser &Parser) const {
+                                         MCAsmParser &Parser,
+                                         const MCInstrInfo &MII) const {
       if (!MCAsmParserCtorFn)
         return 0;
-      return MCAsmParserCtorFn(STI, Parser);
+      return MCAsmParserCtorFn(STI, Parser, MII);
     }
 
     /// createAsmPrinter - Create a target specific assembly printer pass.  This
@@ -1118,9 +1122,10 @@ namespace llvm {
     }
 
   private:
-    static MCAsmBackend *Allocator(const Target &T, StringRef Triple,
-                                   StringRef CPU) {
-      return new MCAsmBackendImpl(T, Triple, CPU);
+    static MCAsmBackend *Allocator(const Target &T,
+                                   const MCRegisterInfo &MRI,
+                                   StringRef Triple, StringRef CPU) {
+      return new MCAsmBackendImpl(T, MRI, Triple, CPU);
     }
   };
 
@@ -1139,8 +1144,9 @@ namespace llvm {
     }
 
   private:
-    static MCTargetAsmParser *Allocator(MCSubtargetInfo &STI, MCAsmParser &P) {
-      return new MCAsmParserImpl(STI, P);
+    static MCTargetAsmParser *Allocator(MCSubtargetInfo &STI, MCAsmParser &P,
+                                        const MCInstrInfo &MII) {
+      return new MCAsmParserImpl(STI, P, MII);
     }
   };
 

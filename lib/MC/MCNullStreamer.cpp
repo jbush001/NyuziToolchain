@@ -37,7 +37,7 @@ namespace {
     virtual void EmitLabel(MCSymbol *Symbol) {
       assert(Symbol->isUndefined() && "Cannot define a symbol twice!");
       assert(getCurrentSection().first &&"Cannot emit before setting section!");
-      Symbol->setSection(*getCurrentSection().first);
+      AssignSection(Symbol, getCurrentSection().first);
     }
     virtual void EmitDebugLabel(MCSymbol *Symbol) {
       EmitLabel(Symbol);
@@ -52,7 +52,9 @@ namespace {
                                           const MCSymbol *Label,
                                           unsigned PointerSize) {}
 
-    virtual void EmitSymbolAttribute(MCSymbol *Symbol, MCSymbolAttr Attribute){}
+    virtual bool EmitSymbolAttribute(MCSymbol *Symbol, MCSymbolAttr Attribute){
+      return true;
+    }
 
     virtual void EmitSymbolDesc(MCSymbol *Symbol, unsigned DescValue) {}
 

@@ -995,6 +995,7 @@ CanThrowResult Sema::canThrow(const Expr *E) {
   case Expr::ParenExprClass:
   case Expr::ParenListExprClass:
   case Expr::ShuffleVectorExprClass:
+  case Expr::ConvertVectorExprClass:
   case Expr::VAArgExprClass:
     return canSubExprsThrow(*this, E);
 
@@ -1025,7 +1026,7 @@ CanThrowResult Sema::canThrow(const Expr *E) {
   case Expr::ChooseExprClass:
     if (E->isTypeDependent() || E->isValueDependent())
       return CT_Dependent;
-    return canThrow(cast<ChooseExpr>(E)->getChosenSubExpr(Context));
+    return canThrow(cast<ChooseExpr>(E)->getChosenSubExpr());
 
   case Expr::GenericSelectionExprClass:
     if (cast<GenericSelectionExpr>(E)->isResultDependent())

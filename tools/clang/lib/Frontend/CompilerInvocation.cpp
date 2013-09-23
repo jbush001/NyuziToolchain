@@ -32,6 +32,7 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/Process.h"
 #include "llvm/Support/system_error.h"
 #include <sys/stat.h>
 using namespace clang;
@@ -167,7 +168,7 @@ static bool ParseAnalyzerArgs(AnalyzerOptions &Opts, ArgList &Args,
   if (Arg *A = Args.getLastArg(OPT_analyzer_output)) {
     StringRef Name = A->getValue();
     AnalysisDiagClients Value = llvm::StringSwitch<AnalysisDiagClients>(Name)
-#define ANALYSIS_DIAGNOSTICS(NAME, CMDFLAG, DESC, CREATFN, AUTOCREAT) \
+#define ANALYSIS_DIAGNOSTICS(NAME, CMDFLAG, DESC, CREATFN) \
       .Case(CMDFLAG, PD_##NAME)
 #include "clang/StaticAnalyzer/Core/Analyses.def"
       .Default(NUM_ANALYSIS_DIAG_CLIENTS);
@@ -334,8 +335,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   else if (Args.hasArg(OPT_gdwarf_4))
     Opts.DwarfVersion = 4;
   else if (Opts.getDebugInfo() != CodeGenOptions::NoDebugInfo)
-    // Default Dwarf version is 3 if we are generating debug information.
-    Opts.DwarfVersion = 3;
+    // Default Dwarf version is 4 if we are generating debug information.
+    Opts.DwarfVersion = 4;
 
   Opts.DisableLLVMOpts = Args.hasArg(OPT_disable_llvm_optzns);
   Opts.DisableRedZone = Args.hasArg(OPT_disable_red_zone);
@@ -351,8 +352,9 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.OptimizeSize = getOptimizationLevelSize(Args);
   Opts.SimplifyLibCalls = !(Args.hasArg(OPT_fno_builtin) ||
                             Args.hasArg(OPT_ffreestanding));
-  Opts.UnrollLoops = Args.hasArg(OPT_funroll_loops) ||
-                     (Opts.OptimizationLevel > 1 && !Opts.OptimizeSize);
+  Opts.UnrollLoops =
+      Args.hasFlag(OPT_funroll_loops, OPT_fno_unroll_loops,
+                   (Opts.OptimizationLevel > 1 && !Opts.OptimizeSize));
 
   Opts.Autolink = !Args.hasArg(OPT_fno_autolink);
   Opts.AsmVerbose = Args.hasArg(OPT_masm_verbose);
@@ -502,6 +504,8 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
     }
   }
 
+  Opts.DependentLibraries = Args.getAllArgValues(OPT_dependent_lib);
+
   return Success;
 }
 
@@ -515,6 +519,7 @@ static void ParseDependencyOutputArgs(DependencyOutputOptions &Opts,
   Opts.ShowHeaderIncludes = Args.hasArg(OPT_H);
   Opts.HeaderIncludeOutputFile = Args.getLastArgValue(OPT_header_include_file);
   Opts.AddMissingHeaderDeps = Args.hasArg(OPT_MG);
+  Opts.PrintShowIncludes = Args.hasArg(OPT_show_includes);
   Opts.DOTOutputFile = Args.getLastArgValue(OPT_dependency_dot);
 }
 
@@ -538,6 +543,8 @@ bool clang::ParseDiagnosticArgs(DiagnosticOptions &Opts, ArgList &Args,
   Opts.ShowFixits = !Args.hasArg(OPT_fno_diagnostics_fixit_info);
   Opts.ShowLocation = !Args.hasArg(OPT_fno_show_source_location);
   Opts.ShowOptionNames = Args.hasArg(OPT_fdiagnostics_show_option);
+
+  llvm::sys::Process::UseANSIEscapeCodes(Args.hasArg(OPT_fansi_escape_codes));
 
   // Default behavior is to not to show note include stacks.
   Opts.ShowNoteIncludeStack = false;
@@ -789,6 +796,8 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     Opts.ObjCMTAction |= FrontendOptions::ObjCMT_Subscripting;
   if (Args.hasArg(OPT_objcmt_migrate_property))
     Opts.ObjCMTAction |= FrontendOptions::ObjCMT_Property;
+  if (Args.hasArg(OPT_objcmt_migrate_readonly_property))
+    Opts.ObjCMTAction |= FrontendOptions::ObjCMT_ReadonlyProperty;
 
   if (Opts.ARCMTAction != FrontendOptions::ARCMT_None &&
       Opts.ObjCMTAction != FrontendOptions::ObjCMT_None) {
@@ -872,6 +881,8 @@ static void ParseHeaderSearchArgs(HeaderSearchOptions &Opts, ArgList &Args) {
   Opts.ResourceDir = Args.getLastArgValue(OPT_resource_dir);
   Opts.ModuleCachePath = Args.getLastArgValue(OPT_fmodules_cache_path);
   Opts.DisableModuleHash = Args.hasArg(OPT_fdisable_module_hash);
+  // -fmodules implies -fmodule-maps
+  Opts.ModuleMaps = Args.hasArg(OPT_fmodule_maps) || Args.hasArg(OPT_fmodules);
   Opts.ModuleCachePruneInterval =
       getLastArgIntValue(Args, OPT_fmodules_prune_interval, 7 * 24 * 60 * 60);
   Opts.ModuleCachePruneAfter =
@@ -1266,17 +1277,18 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.Blocks = Args.hasArg(OPT_fblocks);
   Opts.BlocksRuntimeOptional = Args.hasArg(OPT_fblocks_runtime_optional);
   Opts.Modules = Args.hasArg(OPT_fmodules);
-  Opts.CharIsSigned = !Args.hasArg(OPT_fno_signed_char);
+  Opts.CharIsSigned = Opts.OpenCL || !Args.hasArg(OPT_fno_signed_char);
   Opts.WChar = Opts.CPlusPlus && !Args.hasArg(OPT_fno_wchar);
   Opts.ShortWChar = Args.hasArg(OPT_fshort_wchar);
   Opts.ShortEnums = Args.hasArg(OPT_fshort_enums);
   Opts.Freestanding = Args.hasArg(OPT_ffreestanding);
   Opts.NoBuiltin = Args.hasArg(OPT_fno_builtin) || Opts.Freestanding;
+  Opts.NoMathBuiltin = Args.hasArg(OPT_fno_math_builtin);
   Opts.AssumeSaneOperatorNew = !Args.hasArg(OPT_fno_assume_sane_operator_new);
   Opts.HeinousExtensions = Args.hasArg(OPT_fheinous_gnu_extensions);
   Opts.AccessControl = !Args.hasArg(OPT_fno_access_control);
   Opts.ElideConstructors = !Args.hasArg(OPT_fno_elide_constructors);
-  Opts.MathErrno = Args.hasArg(OPT_fmath_errno);
+  Opts.MathErrno = !Opts.OpenCL && Args.hasArg(OPT_fmath_errno);
   Opts.InstantiationDepth =
       getLastArgIntValue(Args, OPT_ftemplate_depth, 256, Diags);
   Opts.ConstexprCallDepth =
@@ -1316,6 +1328,28 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.DebuggerObjCLiteral = Args.hasArg(OPT_fdebugger_objc_literal);
   Opts.ApplePragmaPack = Args.hasArg(OPT_fapple_pragma_pack);
   Opts.CurrentModule = Args.getLastArgValue(OPT_fmodule_name);
+
+  if (Arg *A = Args.getLastArg(OPT_faddress_space_map_mangling_EQ)) {
+    switch (llvm::StringSwitch<unsigned>(A->getValue())
+      .Case("target", LangOptions::ASMM_Target)
+      .Case("no", LangOptions::ASMM_Off)
+      .Case("yes", LangOptions::ASMM_On)
+      .Default(255)) {
+    default:
+      Diags.Report(diag::err_drv_invalid_value) 
+        << "-faddress-space-map-mangling=" << A->getValue();
+      break;
+    case LangOptions::ASMM_Target:
+      Opts.setAddressSpaceMapMangling(LangOptions::ASMM_Target);
+      break;
+    case LangOptions::ASMM_On:
+      Opts.setAddressSpaceMapMangling(LangOptions::ASMM_On);
+      break;
+    case LangOptions::ASMM_Off:
+      Opts.setAddressSpaceMapMangling(LangOptions::ASMM_Off);
+      break;
+    }
+  }
 
   // Check if -fopenmp is specified.
   Opts.OpenMP = Args.hasArg(OPT_fopenmp);
@@ -1534,6 +1568,7 @@ static void ParseTargetArgs(TargetOptions &Opts, ArgList &Args) {
   Opts.ABI = Args.getLastArgValue(OPT_target_abi);
   Opts.CXXABI = Args.getLastArgValue(OPT_cxx_abi);
   Opts.CPU = Args.getLastArgValue(OPT_target_cpu);
+  Opts.FPMath = Args.getLastArgValue(OPT_mfpmath);
   Opts.FeaturesAsWritten = Args.getAllArgValues(OPT_target_feature);
   Opts.LinkerVersion = Args.getLastArgValue(OPT_target_linker_version);
   Opts.Triple = llvm::Triple::normalize(Args.getLastArgValue(OPT_triple));
@@ -1553,9 +1588,11 @@ bool CompilerInvocation::CreateFromArgs(CompilerInvocation &Res,
 
   // Parse the arguments.
   OwningPtr<OptTable> Opts(createDriverOptTable());
+  const unsigned IncludedFlagsBitmask = options::CC1Option;
   unsigned MissingArgIndex, MissingArgCount;
   OwningPtr<InputArgList> Args(
-    Opts->ParseArgs(ArgBegin, ArgEnd,MissingArgIndex, MissingArgCount));
+    Opts->ParseArgs(ArgBegin, ArgEnd, MissingArgIndex, MissingArgCount,
+                    IncludedFlagsBitmask));
 
   // Check for missing argument error.
   if (MissingArgCount) {
@@ -1569,17 +1606,6 @@ bool CompilerInvocation::CreateFromArgs(CompilerInvocation &Res,
          ie = Args->filtered_end(); it != ie; ++it) {
     Diags.Report(diag::err_drv_unknown_argument) << (*it)->getAsString(*Args);
     Success = false;
-  }
-
-  // Issue errors on arguments that are not valid for CC1.
-  for (ArgList::iterator I = Args->begin(), E = Args->end();
-       I != E; ++I) {
-    if ((*I)->getOption().matches(options::OPT_INPUT))
-      continue;
-    if (!(*I)->getOption().hasFlag(options::CC1Option)) {
-      Diags.Report(diag::err_drv_unknown_argument) << (*I)->getAsString(*Args);
-      Success = false;
-    }
   }
 
   Success = ParseAnalyzerArgs(*Res.getAnalyzerOpts(), *Args, Diags) && Success;

@@ -20,8 +20,8 @@
 
 #include "lld/Core/InputFiles.h"
 #include "lld/Core/LLVM.h"
-#include "lld/Core/TargetInfo.h"
-#include "lld/ReaderWriter/ELFTargetInfo.h"
+#include "lld/Core/LinkingContext.h"
+#include "lld/ReaderWriter/ELFLinkingContext.h"
 
 #include "llvm/ADT/Hashing.h"
 #include "llvm/Support/FileOutputBuffer.h"
@@ -34,7 +34,7 @@ namespace elf {
 template <class ELFT> class ELFDefinedAtom;
 template <class ELFT> class ELFReference;
 class ELFWriter;
-template <class ELFT> class Header;
+template <class ELFT> class ELFHeader;
 template <class ELFT> class Section;
 template <class ELFT> class TargetLayout;
 
@@ -84,15 +84,15 @@ public:
 template <class ELFT> class TargetHandler : public TargetHandlerBase {
 
 public:
-  TargetHandler(ELFTargetInfo &targetInfo) : _targetInfo(targetInfo) {}
+  TargetHandler(ELFLinkingContext &targetInfo) : _context(targetInfo) {}
 
   /// If the target overrides ELF header information, this API would
   /// return true, so that the target can set all fields specific to
   /// that target
-  virtual bool doesOverrideHeader() = 0;
+  virtual bool doesOverrideELFHeader() = 0;
 
   /// Set the ELF Header information
-  virtual void setHeaderInfo(Header<ELFT> *Header) = 0;
+  virtual void setELFHeader(ELFHeader<ELFT> *elfHeader) = 0;
 
   /// TargetLayout
   virtual TargetLayout<ELFT> &targetLayout() = 0;
@@ -119,7 +119,7 @@ public:
   virtual void allocateCommons() = 0;
 
 protected:
-  const ELFTargetInfo &_targetInfo;
+  const ELFLinkingContext &_context;
 };
 } // end namespace elf
 } // end namespace lld

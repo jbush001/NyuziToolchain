@@ -45,7 +45,7 @@ def FeatureFP16   : SubtargetFeature<"fp16", "HasFP16", "true",
 def FeatureVFP4   : SubtargetFeature<"vfp4", "HasVFPv4", "true",
                                      "Enable VFP4 instructions",
                                      [FeatureVFP3, FeatureFP16]>;
-def FeatureV8FP : SubtargetFeature<"v8fp", "HasV8FP",
+def FeatureFPARMv8 : SubtargetFeature<"fp-armv8", "HasFPARMv8",
                                    "true", "Enable ARMv8 FP",
                                    [FeatureVFP4]>;
 def FeatureD16    : SubtargetFeature<"d16", "HasD16", "true",
@@ -67,6 +67,9 @@ def FeaturePerfMon : SubtargetFeature<"perfmon", "HasPerfMon", "true",
                            "Enable support for Performance Monitor extensions">;
 def FeatureTrustZone : SubtargetFeature<"trustzone", "HasTrustZone", "true",
                           "Enable support for TrustZone security extensions">;
+def FeatureCrypto : SubtargetFeature<"crypto", "HasCrypto", "true",
+                          "Enable support for Cryptography extensions",
+                          [FeatureNEON]>;
 
 // Some processors have FP multiply-accumulate instructions that don't
 // play nicely with other VFP / NEON instructions, and it's generally better
@@ -179,7 +182,7 @@ def ProcSwift   : SubtargetFeature<"swift", "ARMProcFamily", "Swift",
 // FIXME: It has not been determined if A15 has these features.
 def ProcA15      : SubtargetFeature<"a15", "ARMProcFamily", "CortexA15",
                                    "Cortex-A15 ARM processors",
-                                   [FeatureT2XtPk, FeatureFP16,
+                                   [FeatureT2XtPk, FeatureVFP4,
                                     FeatureAvoidPartialCPSR,
                                     FeatureTrustZone]>;
 def ProcR5      : SubtargetFeature<"r5", "ARMProcFamily", "CortexR5",

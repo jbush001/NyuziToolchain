@@ -51,8 +51,9 @@ public:
   virtual void FinishImpl();
 
 
-  virtual void EmitSymbolAttribute(MCSymbol *Symbol, MCSymbolAttr Attribute) {
+  virtual bool EmitSymbolAttribute(MCSymbol *Symbol, MCSymbolAttr Attribute) {
     report_fatal_error("unsupported directive in pure streamer");
+    return false;
   }
   virtual void EmitAssemblerFlag(MCAssemblerFlag Flag) {
     report_fatal_error("unsupported directive in pure streamer");
@@ -120,7 +121,7 @@ void MCPureStreamer::EmitLabel(MCSymbol *Symbol) {
   assert(!Symbol->isVariable() && "Cannot emit a variable symbol!");
   assert(getCurrentSection().first && "Cannot emit before setting section!");
 
-  Symbol->setSection(*getCurrentSection().first);
+  AssignSection(Symbol, getCurrentSection().first);
 
   MCSymbolData &SD = getAssembler().getOrCreateSymbolData(*Symbol);
 

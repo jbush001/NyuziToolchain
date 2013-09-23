@@ -2,36 +2,71 @@ include "llvm/Option/OptParser.td"
 
 // link.exe accepts options starting with either a dash or a slash.
 
-def mllvm : Separate<["-", "/"], "mllvm">,
-    HelpText<"Options to pass to LLVM">;
+class F<string name> : Flag<["/", "-", "-?"], name>;
 
-def out : Separate<["-", "/"], "out">,
-    HelpText<"Path to file to write output">;
-def out_c : Joined<["-", "/"], "out:">, Alias<out>;
+multiclass P<string name, string help> {
+  def "" : Joined<["/", "-", "-?"], name#":">, HelpText<help>;
+  def _c : Separate<["/", "-", "-?"], name>, Alias<!cast<Option>(name)>;
+}
 
-def stack : Separate<["-", "/"], "stack">,
-    HelpText<"Size of the stack">;
-def stack_c: Joined<["-", "/"], "stack:">, Alias<stack>;
+defm base    : P<"base", "Base address of the program">;
+defm defaultlib : P<"defaultlib", "Add the library to the list of input files">;
+defm entry   : P<"entry", "Name of entry point symbol">;
+// No help text because /failifmismatch is not intended to be used by the user.
+defm failifmismatch : P<"failifmismatch", "">;
+defm heap    : P<"heap", "Size of the heap">;
+defm libpath : P<"libpath", "Additional library search path">;
+defm mllvm   : P<"mllvm", "Options to pass to LLVM">;
+defm out     : P<"out", "Path to file to write output">;
+defm stack   : P<"stack", "Size of the stack">;
+defm machine : P<"machine", "Specify target platform">;
+defm version : P<"version", "Specify a version number in the PE header">;
+defm subsystem : P<"subsystem", "Specify subsystem">;
 
-def heap : Separate<["-", "/"], "heap">,
-    HelpText<"Size of the heap">;
-def heap_c: Joined<["-", "/"], "heap:">, Alias<heap>;
+// We cannot use multiclass P because class name "incl" is different
+// from its command line option name. We do this because "include" is
+// a reserved keyword in tablegen.
+def incl : Joined<["/", "-"], "include:">,
+    HelpText<"Force symbol to be added to symbol table as undefined one">;
+def incl_c : Separate<["/", "-"], "include">, Alias<incl>;
 
-def subsystem : Separate<["-", "/"], "subsystem">,
-    HelpText<"Specify subsystem">;
-def subsystem_c: Joined<["-", "/"], "subsystem:">, Alias<subsystem>;
-
-def entry : Separate<["-", "/"], "entry">,
-    HelpText<"Name of entry point symbol">;
-def entry_c: Joined<["-", "/"], "entry:">, Alias<entry>;
-
-def force : Flag<["-", "/"], "force">,
+def force : F<"force">,
     HelpText<"Allow undefined symbols when creating executables">;
+def force_unresolved : F<"force:unresolved">;
 
-def nxcompat : Flag<["-", "/"], "nxcompat">,
-    HelpText<"Enable data execution provention">;
-def no_nxcompat : Flag<["-", "/"], "nxcompat:no">,
+def ref : F<"opt:ref">;
+def no_ref : F<"opt:noref">,
+    HelpText<"Keep unreferenced symbols to be included to the output">;
+
+def nxcompat : F<"nxcompat">;
+def no_nxcompat : F<"nxcompat:no">,
     HelpText<"Disable data execution provention">;
 
-def help : Flag<["-", "/"], "help">;
-def help_q : Flag<["-", "/"], "?">, Alias<help>;
+def largeaddressaware : F<"largeaddressaware">;
+def no_largeaddressaware : F<"largeaddressaware:no">,
+    HelpText<"Disable large addresses">;
+
+def fixed : F<"fixed">;
+def no_fixed : F<"fixed:no">, HelpText<"Enable base relocations">;
+
+def dynamicbase : F<"dynamicbase">;
+def no_dynamicbase : F<"dynamicbase:no">, HelpText<"Disable address space layout randomization">;
+
+def tsaware : F<"tsaware">;
+def no_tsaware : F<"tsaware:no">,
+    HelpText<"Create non-Terminal Server aware executable">;
+
+def help : F<"help">;
+def help_q : F<"?">, Alias<help>;
+
+def DASH_DASH : Option<["--"], "", KIND_REMAINING_ARGS>;
+
+// The flags below do nothing. They are defined only for link.exe compatibility.
+multiclass Q<string name> {
+  def "" : Joined<["/", "-", "-?"], name#":">;
+  def _c : Separate<["/", "-", "-?"], name>, Alias<!cast<Option>(name)>;
+}
+def nologo : F<"nologo">;
+defm errorreport : Q<"errorreport">;
+def incremental : F<"incremental">;
+def no_incremental : F<"incremental:no">;

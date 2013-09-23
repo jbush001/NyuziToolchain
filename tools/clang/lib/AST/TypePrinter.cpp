@@ -81,10 +81,11 @@ namespace {
   class TypePrinter {
     PrintingPolicy Policy;
     bool HasEmptyPlaceHolder;
+    bool InsideCCAttribute;
 
   public:
     explicit TypePrinter(const PrintingPolicy &Policy)
-      : Policy(Policy), HasEmptyPlaceHolder(false) { }
+      : Policy(Policy), HasEmptyPlaceHolder(false), InsideCCAttribute(false) { }
 
     void print(const Type *ty, Qualifiers qs, raw_ostream &OS,
                StringRef PlaceHolder);
@@ -166,6 +167,7 @@ bool TypePrinter::canPrefixQualifiers(const Type *T,
     TC = Subst->getReplacementType()->getTypeClass();
   
   switch (TC) {
+    case Type::Auto:
     case Type::Builtin:
     case Type::Complex:
     case Type::UnresolvedUsing:
@@ -216,7 +218,6 @@ bool TypePrinter::canPrefixQualifiers(const Type *T,
     case Type::Attributed:
     case Type::PackExpansion:
     case Type::SubstTemplateTypeParm:
-    case Type::Auto:
       CanPrefixQualifiers = false;
       break;
   }
@@ -630,36 +631,51 @@ void TypePrinter::printFunctionProtoAfter(const FunctionProtoType *T,
   OS << ')';
 
   FunctionType::ExtInfo Info = T->getExtInfo();
-  switch(Info.getCC()) {
-  case CC_Default: break;
-  case CC_C:
-    OS << " __attribute__((cdecl))";
-    break;
-  case CC_X86StdCall:
-    OS << " __attribute__((stdcall))";
-    break;
-  case CC_X86FastCall:
-    OS << " __attribute__((fastcall))";
-    break;
-  case CC_X86ThisCall:
-    OS << " __attribute__((thiscall))";
-    break;
-  case CC_X86Pascal:
-    OS << " __attribute__((pascal))";
-    break;
-  case CC_AAPCS:
-    OS << " __attribute__((pcs(\"aapcs\")))";
-    break;
-  case CC_AAPCS_VFP:
-    OS << " __attribute__((pcs(\"aapcs-vfp\")))";
-    break;
-  case CC_PnaclCall:
-    OS << " __attribute__((pnaclcall))";
-    break;
-  case CC_IntelOclBicc:
-    OS << " __attribute__((intel_ocl_bicc))";
-    break;
+
+  if (!InsideCCAttribute) {
+    switch (Info.getCC()) {
+    case CC_C:
+      // The C calling convention is the default on the vast majority of platforms
+      // we support.  If the user wrote it explicitly, it will usually be printed
+      // while traversing the AttributedType.  If the type has been desugared, let
+      // the canonical spelling be the implicit calling convention.
+      // FIXME: It would be better to be explicit in certain contexts, such as a
+      // cdecl function typedef used to declare a member function with the
+      // Microsoft C++ ABI.
+      break;
+    case CC_X86StdCall:
+      OS << " __attribute__((stdcall))";
+      break;
+    case CC_X86FastCall:
+      OS << " __attribute__((fastcall))";
+      break;
+    case CC_X86ThisCall:
+      OS << " __attribute__((thiscall))";
+      break;
+    case CC_X86Pascal:
+      OS << " __attribute__((pascal))";
+      break;
+    case CC_AAPCS:
+      OS << " __attribute__((pcs(\"aapcs\")))";
+      break;
+    case CC_AAPCS_VFP:
+      OS << " __attribute__((pcs(\"aapcs-vfp\")))";
+      break;
+    case CC_PnaclCall:
+      OS << " __attribute__((pnaclcall))";
+      break;
+    case CC_IntelOclBicc:
+      OS << " __attribute__((intel_ocl_bicc))";
+      break;
+    case CC_X86_64Win64:
+      OS << " __attribute__((ms_abi))";
+      break;
+    case CC_X86_64SysV:
+      OS << " __attribute__((sysv_abi))";
+      break;
+    }
   }
+
   if (Info.getNoReturn())
     OS << " __attribute__((noreturn))";
   if (Info.getRegParm())
@@ -998,6 +1014,8 @@ void TypePrinter::printInjectedClassNameAfter(const InjectedClassNameType *T,
 
 void TypePrinter::printElaboratedBefore(const ElaboratedType *T,
                                         raw_ostream &OS) {
+  if (Policy.SuppressTag && isa<TagType>(T->getNamedType()))
+    return;
   OS << TypeWithKeyword::getKeywordName(T->getKeyword());
   if (T->getKeyword() != ETK_None)
     OS << " ";
@@ -1089,7 +1107,7 @@ void TypePrinter::printAttributedBefore(const AttributedType *T,
     case AttributedType::attr_ptr64: OS << " __ptr64"; break;
     case AttributedType::attr_sptr: OS << " __sptr"; break;
     case AttributedType::attr_uptr: OS << " __uptr"; break;
-}
+    }
     spaceBeforePlaceHolder(OS);
   }
 }
@@ -1104,6 +1122,12 @@ void TypePrinter::printAttributedAfter(const AttributedType *T,
   // TODO: not all attributes are GCC-style attributes.
   if (T->isMSTypeSpec())
     return;
+
+  // If this is a calling convention attribute, don't print the implicit CC from
+  // the modified type.
+  SaveAndRestore<bool> MaybeSuppressCC(InsideCCAttribute, T->isCallingConv());
+
+  printAfter(T->getModifiedType(), OS);
 
   OS << " __attribute__((";
   switch (T->getAttrKind()) {
@@ -1139,6 +1163,8 @@ void TypePrinter::printAttributedAfter(const AttributedType *T,
   }
 
   case AttributedType::attr_regparm: {
+    // FIXME: When Sema learns to form this AttributedType, avoid printing the
+    // attribute again in printFunctionProtoAfter.
     OS << "regparm(";
     QualType t = T->getEquivalentType();
     while (!t->isFunctionType())
@@ -1178,13 +1204,19 @@ void TypePrinter::printAttributedAfter(const AttributedType *T,
     OS << ')';
     break;
 
+  // FIXME: When Sema learns to form this AttributedType, avoid printing the
+  // attribute again in printFunctionProtoAfter.
   case AttributedType::attr_noreturn: OS << "noreturn"; break;
+
   case AttributedType::attr_cdecl: OS << "cdecl"; break;
   case AttributedType::attr_fastcall: OS << "fastcall"; break;
   case AttributedType::attr_stdcall: OS << "stdcall"; break;
   case AttributedType::attr_thiscall: OS << "thiscall"; break;
   case AttributedType::attr_pascal: OS << "pascal"; break;
-  case AttributedType::attr_pcs: {
+  case AttributedType::attr_ms_abi: OS << "ms_abi"; break;
+  case AttributedType::attr_sysv_abi: OS << "sysv_abi"; break;
+  case AttributedType::attr_pcs:
+  case AttributedType::attr_pcs_vfp: {
     OS << "pcs(";
    QualType t = T->getEquivalentType();
    while (!t->isFunctionType())
