@@ -35,6 +35,17 @@ AccessSpecDecl *AccessSpecDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
   return new (Mem) AccessSpecDecl(EmptyShell());
 }
 
+void LazyASTUnresolvedSet::getFromExternalSource(ASTContext &C) const {
+  ExternalASTSource *Source = C.getExternalSource();
+  assert(Impl.Decls.isLazy() && "getFromExternalSource for non-lazy set");
+  assert(Source && "getFromExternalSource with no external source");
+
+  for (ASTUnresolvedSet::iterator I = Impl.begin(); I != Impl.end(); ++I)
+    I.setDecl(cast<NamedDecl>(Source->GetExternalDecl(
+        reinterpret_cast<uintptr_t>(I.getDecl()) >> 2)));
+  Impl.Decls.setLazy(false);
+}
+
 CXXRecordDecl::DefinitionData::DefinitionData(CXXRecordDecl *D)
   : UserDeclaredConstructor(false), UserDeclaredSpecialMembers(0),
     Aggregate(true), PlainOldData(true), Empty(true), Polymorphic(false),
@@ -103,6 +114,7 @@ CXXRecordDecl *CXXRecordDecl::CreateLambda(const ASTContext &C, DeclContext *DC,
   R->IsBeingDefined = true;
   R->DefinitionData = new (C) struct LambdaDefinitionData(R, Info, Dependent);
   R->MayHaveOutOfDateDef = false;
+  R->setImplicit(true);
   C.getTypeDeclType(R, /*PrevDecl=*/0);
   return R;
 }
@@ -552,18 +564,16 @@ void CXXRecordDecl::addedMember(Decl *D) {
 
       if (Conversion->getPrimaryTemplate()) {
         // We don't record specializations.
-      } else if (FunTmpl) {
-        if (FunTmpl->getPreviousDecl())
-          data().Conversions.replace(FunTmpl->getPreviousDecl(),
-                                     FunTmpl, AS);
-        else
-          data().Conversions.addDecl(getASTContext(), FunTmpl, AS);
       } else {
-        if (Conversion->getPreviousDecl())
-          data().Conversions.replace(Conversion->getPreviousDecl(),
-                                     Conversion, AS);
+        ASTContext &Ctx = getASTContext();
+        ASTUnresolvedSet &Conversions = data().Conversions.get(Ctx);
+        NamedDecl *Primary =
+            FunTmpl ? cast<NamedDecl>(FunTmpl) : cast<NamedDecl>(Conversion);
+        if (Primary->getPreviousDecl())
+          Conversions.replace(cast<NamedDecl>(Primary->getPreviousDecl()),
+                              Primary, AS);
         else
-          data().Conversions.addDecl(getASTContext(), Conversion, AS);
+          Conversions.addDecl(Ctx, Primary, AS);
       }
     }
 
@@ -662,7 +672,7 @@ void CXXRecordDecl::addedMember(Decl *D) {
       if (!Context.getLangOpts().ObjCAutoRefCount ||
           T.getObjCLifetime() != Qualifiers::OCL_ExplicitNone)
         setHasObjectMember(true);
-    } else if (!T.isPODType(Context))
+    } else if (!T.isCXX98PODType(Context))
       data().PlainOldData = false;
     
     if (T->isReferenceType()) {
@@ -880,10 +890,13 @@ void CXXRecordDecl::addedMember(Decl *D) {
   }
   
   // Handle using declarations of conversion functions.
-  if (UsingShadowDecl *Shadow = dyn_cast<UsingShadowDecl>(D))
+  if (UsingShadowDecl *Shadow = dyn_cast<UsingShadowDecl>(D)) {
     if (Shadow->getDeclName().getNameKind()
-          == DeclarationName::CXXConversionFunctionName)
-      data().Conversions.addDecl(getASTContext(), Shadow, Shadow->getAccess());
+          == DeclarationName::CXXConversionFunctionName) {
+      ASTContext &Ctx = getASTContext();
+      data().Conversions.get(Ctx).addDecl(Ctx, Shadow, Shadow->getAccess());
+    }
+  }
 }
 
 void CXXRecordDecl::finishedDefaultedOrDeletedMember(CXXMethodDecl *D) {
@@ -1083,16 +1096,21 @@ static void CollectVisibleConversions(ASTContext &Context,
 /// in current class; including conversion function templates.
 std::pair<CXXRecordDecl::conversion_iterator,CXXRecordDecl::conversion_iterator>
 CXXRecordDecl::getVisibleConversionFunctions() {
-  // If root class, all conversions are visible.
-  if (bases_begin() == bases_end())
-    return std::make_pair(data().Conversions.begin(), data().Conversions.end());
-  // If visible conversion list is already evaluated, return it.
-  if (!data().ComputedVisibleConversions) {
-    CollectVisibleConversions(getASTContext(), this, data().VisibleConversions);
-    data().ComputedVisibleConversions = true;
+  ASTContext &Ctx = getASTContext();
+
+  ASTUnresolvedSet *Set;
+  if (bases_begin() == bases_end()) {
+    // If root class, all conversions are visible.
+    Set = &data().Conversions.get(Ctx);
+  } else {
+    Set = &data().VisibleConversions.get(Ctx);
+    // If visible conversion list is not evaluated, evaluate it.
+    if (!data().ComputedVisibleConversions) {
+      CollectVisibleConversions(Ctx, this, *Set);
+      data().ComputedVisibleConversions = true;
+    }
   }
-  return std::make_pair(data().VisibleConversions.begin(),
-                        data().VisibleConversions.end());
+  return std::make_pair(Set->begin(), Set->end());
 }
 
 void CXXRecordDecl::removeConversion(const NamedDecl *ConvDecl) {
@@ -1107,7 +1125,7 @@ void CXXRecordDecl::removeConversion(const NamedDecl *ConvDecl) {
   // with sufficiently large numbers of directly-declared conversions
   // that asymptotic behavior matters.
 
-  ASTUnresolvedSet &Convs = data().Conversions;
+  ASTUnresolvedSet &Convs = data().Conversions.get(getASTContext());
   for (unsigned I = 0, E = Convs.size(); I != E; ++I) {
     if (Convs[I].getDecl() == ConvDecl) {
       Convs.erase(I);
@@ -1233,8 +1251,7 @@ void CXXRecordDecl::completeDefinition(CXXFinalOverriderMap *FinalOverriders) {
   }
   
   // Set access bits correctly on the directly-declared conversions.
-  for (UnresolvedSetIterator I = data().Conversions.begin(), 
-                             E = data().Conversions.end(); 
+  for (conversion_iterator I = conversion_begin(), E = conversion_end();
        I != E; ++I)
     I.setAccess((*I)->getAccess());
 }
@@ -1959,14 +1976,20 @@ void UsingDecl::removeShadowDecl(UsingShadowDecl *S) {
 UsingDecl *UsingDecl::Create(ASTContext &C, DeclContext *DC, SourceLocation UL,
                              NestedNameSpecifierLoc QualifierLoc,
                              const DeclarationNameInfo &NameInfo,
-                             bool IsTypeNameArg) {
-  return new (C) UsingDecl(DC, UL, QualifierLoc, NameInfo, IsTypeNameArg);
+                             bool HasTypename) {
+  return new (C) UsingDecl(DC, UL, QualifierLoc, NameInfo, HasTypename);
 }
 
 UsingDecl *UsingDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
   void *Mem = AllocateDeserializedDecl(C, ID, sizeof(UsingDecl));
   return new (Mem) UsingDecl(0, SourceLocation(), NestedNameSpecifierLoc(),
                              DeclarationNameInfo(), false);
+}
+
+SourceRange UsingDecl::getSourceRange() const {
+  SourceLocation Begin = isAccessDeclaration()
+    ? getQualifierLoc().getBeginLoc() : UsingLocation;
+  return SourceRange(Begin, getNameInfo().getEndLoc());
 }
 
 void UnresolvedUsingValueDecl::anchor() { }
@@ -1986,6 +2009,12 @@ UnresolvedUsingValueDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
   return new (Mem) UnresolvedUsingValueDecl(0, QualType(), SourceLocation(),
                                             NestedNameSpecifierLoc(),
                                             DeclarationNameInfo());
+}
+
+SourceRange UnresolvedUsingValueDecl::getSourceRange() const {
+  SourceLocation Begin = isAccessDeclaration()
+    ? getQualifierLoc().getBeginLoc() : UsingLocation;
+  return SourceRange(Begin, getNameInfo().getEndLoc());
 }
 
 void UnresolvedUsingTypenameDecl::anchor() { }

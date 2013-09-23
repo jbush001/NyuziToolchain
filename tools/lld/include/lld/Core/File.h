@@ -14,7 +14,7 @@
 #include "lld/Core/DefinedAtom.h"
 #include "lld/Core/range.h"
 #include "lld/Core/SharedLibraryAtom.h"
-#include "lld/Core/TargetInfo.h"
+#include "lld/Core/LinkingContext.h"
 #include "lld/Core/UndefinedAtom.h"
 
 #include "llvm/ADT/StringRef.h"
@@ -23,6 +23,9 @@
 #include <vector>
 
 namespace lld {
+
+class LinkingContext;
+
 /// Every Atom is owned by some File. A common scenario is for a single
 /// object file (.o) to be parsed by some reader and produce a single
 /// File object that represents the content of that object file.
@@ -155,7 +158,7 @@ public:
   /// all AbsoluteAtoms in this File.
   virtual const atom_collection<AbsoluteAtom> &absolute() const = 0;
 
-  virtual const TargetInfo &getTargetInfo() const = 0;
+  virtual const LinkingContext &getLinkingContext() const = 0;
 
 protected:
   /// \brief only subclasses of File can be instantiated
@@ -215,7 +218,7 @@ protected:
 
   static atom_collection_empty<DefinedAtom>       _noDefinedAtoms;
   static atom_collection_empty<UndefinedAtom>     _noUndefinedAtoms;
-  static atom_collection_empty<SharedLibraryAtom> _noSharedLibaryAtoms;
+  static atom_collection_empty<SharedLibraryAtom> _noSharedLibraryAtoms;
   static atom_collection_empty<AbsoluteAtom>      _noAbsoluteAtoms;
 
   StringRef         _path;
@@ -233,15 +236,15 @@ public:
   typedef range<std::vector<const DefinedAtom *>::iterator> DefinedAtomRange;
   virtual DefinedAtomRange definedAtoms() = 0;
 
-  virtual const TargetInfo &getTargetInfo() const { return _targetInfo; }
+  virtual const LinkingContext &getLinkingContext() const { return _context; }
 
 protected:
   /// \brief only subclasses of MutableFile can be instantiated
-  MutableFile(const TargetInfo &ti, StringRef p)
-      : File(p, kindObject), _targetInfo(ti) {}
+  MutableFile(const LinkingContext &ctx, StringRef p)
+      : File(p, kindObject), _context(ctx) {}
 
 private:
-  const TargetInfo &_targetInfo;
+  const LinkingContext &_context;
 };
 } // end namespace lld
 

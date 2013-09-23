@@ -16,9 +16,7 @@
 #ifndef CLANG_C_INDEX_H
 #define CLANG_C_INDEX_H
 
-#include <sys/stat.h>
 #include <time.h>
-#include <stdio.h>
 
 #include "clang-c/Platform.h"
 #include "clang-c/CXString.h"
@@ -32,7 +30,7 @@
  * compatible, thus CINDEX_VERSION_MAJOR is expected to remain stable.
  */
 #define CINDEX_VERSION_MAJOR 0
-#define CINDEX_VERSION_MINOR 19
+#define CINDEX_VERSION_MINOR 20
 
 #define CINDEX_VERSION_ENCODE(major, minor) ( \
       ((major) * 10000)                       \
@@ -412,6 +410,12 @@ CINDEX_LINKAGE CXSourceLocation clang_getLocationForOffset(CXTranslationUnit tu,
  * \brief Returns non-zero if the given source location is in a system header.
  */
 CINDEX_LINKAGE int clang_Location_isInSystemHeader(CXSourceLocation location);
+
+/**
+ * \brief Returns non-zero if the given source location is in the main file of
+ * the corresponding translation unit.
+ */
+CINDEX_LINKAGE int clang_Location_isFromMainFile(CXSourceLocation location);
 
 /**
  * \brief Retrieve a NULL (invalid) source range.
@@ -2062,7 +2066,11 @@ enum CXCursorKind {
    */
   CXCursor_DeclStmt                      = 231,
 
-  CXCursor_LastStmt                      = CXCursor_DeclStmt,
+  /** \brief OpenMP parallel directive.
+   */
+  CXCursor_OMPParallelDirective          = 232,
+
+  CXCursor_LastStmt                      = CXCursor_OMPParallelDirective,
 
   /**
    * \brief Cursor that represents the translation unit itself.
@@ -2666,7 +2674,10 @@ enum CXTypeKind {
   CXType_FunctionNoProto = 110,
   CXType_FunctionProto = 111,
   CXType_ConstantArray = 112,
-  CXType_Vector = 113
+  CXType_Vector = 113,
+  CXType_IncompleteArray = 114,
+  CXType_VariableArray = 115,
+  CXType_DependentSizedArray = 116
 };
 
 /**
@@ -2683,6 +2694,8 @@ enum CXCallingConv {
   CXCallingConv_AAPCS_VFP = 7,
   CXCallingConv_PnaclCall = 8,
   CXCallingConv_IntelOclBicc = 9,
+  CXCallingConv_X86_64Win64 = 10,
+  CXCallingConv_X86_64SysV = 11,
 
   CXCallingConv_Invalid = 100,
   CXCallingConv_Unexposed = 200

@@ -417,3 +417,22 @@ namespace NoReturn {
     *x = 47; // no warning
   }
 }
+
+namespace PseudoDtor {
+  template <typename T>
+  void destroy(T &obj) {
+    clang_analyzer_checkInlined(true); // expected-warning{{TRUE}}
+    obj.~T();
+  }
+
+  void test() {
+    int i;
+    destroy(i);
+    clang_analyzer_eval(true); // expected-warning{{TRUE}}
+  }
+}
+
+namespace Incomplete {
+  class Foo; // expected-note{{forward declaration}}
+  void f(Foo *foo) { delete foo; } // expected-warning{{deleting pointer to incomplete type}}
+}

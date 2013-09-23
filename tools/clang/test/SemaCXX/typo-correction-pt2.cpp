@@ -14,3 +14,22 @@ void zif::nab(int) {
   nab();  // expected-error{{too few arguments to function call, expected 1, have 0; did you mean '::PR12287::nab'?}}
 }
 }
+
+namespace TemplateFunction {
+template <class T>
+void A(T) { }  // expected-note {{'::TemplateFunction::A' declared here}}
+
+template <class T>
+void B(T) { }  // expected-note {{'::TemplateFunction::B' declared here}}
+
+class Foo {
+ public:
+  void A(int, int) {}
+  void B() {}
+};
+
+void test(Foo F, int num) {
+  F.A(num);  // expected-error {{too few arguments to function call, expected 2, have 1; did you mean '::TemplateFunction::A'?}}
+  F.B(num);  // expected-error {{too many arguments to function call, expected 0, have 1; did you mean '::TemplateFunction::B'?}}
+}
+}

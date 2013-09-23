@@ -153,7 +153,9 @@ public:
 } // namespace
 
 // MCAsmBackend
-MCAsmBackend *llvm::createVectorProcAsmBackend(const Target &T, StringRef TT,
+MCAsmBackend *llvm::createVectorProcAsmBackend(const Target &T, 
+	                                       	const MCRegisterInfo &MRI,
+											StringRef TT,
                                              StringRef CPU) {
   return new VectorProcAsmBackend(T, Triple(TT).getOS());
 }

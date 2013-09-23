@@ -46,6 +46,8 @@ def note_constexpr_float_arithmetic : Note<
   "floating point arithmetic produces %select{an infinity|a NaN}0">;
 def note_constexpr_pointer_subtraction_not_same_array : Note<
   "subtracted pointers are not elements of the same array">;
+def note_constexpr_pointer_subtraction_zero_size : Note<
+  "subtraction of pointers to type %0 of zero size">;
 def note_constexpr_pointer_comparison_base_classes : Note<
   "comparison of addresses of subobjects of different base classes "
   "has unspecified value">;
@@ -93,6 +95,9 @@ def note_constexpr_lifetime_ended : Note<
 def note_constexpr_access_uninit : Note<
   "%select{read of|assignment to|increment of|decrement of}0 "
   "object outside its lifetime is not allowed in a constant expression">;
+def note_constexpr_use_uninit_reference : Note<
+  "use of reference outside its lifetime "
+  "is not allowed in a constant expression">;
 def note_constexpr_modify_const_type : Note<
   "modification of object of const-qualified type %0 is not allowed "
   "in a constant expression">;

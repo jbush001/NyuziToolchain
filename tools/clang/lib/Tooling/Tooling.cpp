@@ -67,7 +67,7 @@ static const llvm::opt::ArgStringList *getCC1Arguments(
   if (Jobs.size() != 1 || !isa<clang::driver::Command>(*Jobs.begin())) {
     SmallString<256> error_msg;
     llvm::raw_svector_ostream error_stream(error_msg);
-    Compilation->PrintJob(error_stream, Compilation->getJobs(), "; ", true);
+    Jobs.Print(error_stream, "; ", true);
     Diagnostics->Report(clang::diag::err_fe_expected_compiler_job)
         << error_stream.str();
     return NULL;
@@ -124,25 +124,18 @@ bool runToolOnCodeWithArgs(clang::FrontendAction *ToolAction, const Twine &Code,
 }
 
 std::string getAbsolutePath(StringRef File) {
-  SmallString<1024> BaseDirectory;
-  if (const char *PWD = ::getenv("PWD"))
-    BaseDirectory = PWD;
-  else
-    llvm::sys::fs::current_path(BaseDirectory);
-  SmallString<1024> PathStorage;
-  if (llvm::sys::path::is_absolute(File)) {
-    llvm::sys::path::native(File, PathStorage);
-    return PathStorage.str();
-  }
   StringRef RelativePath(File);
   // FIXME: Should '.\\' be accepted on Win32?
   if (RelativePath.startswith("./")) {
     RelativePath = RelativePath.substr(strlen("./"));
   }
-  SmallString<1024> AbsolutePath(BaseDirectory);
-  llvm::sys::path::append(AbsolutePath, RelativePath);
-  llvm::sys::path::native(Twine(AbsolutePath), PathStorage);
-  return PathStorage.str();
+
+  SmallString<1024> AbsolutePath = RelativePath;
+  llvm::error_code EC = llvm::sys::fs::make_absolute(AbsolutePath);
+  assert(!EC);
+  (void)EC;
+  llvm::sys::path::native(AbsolutePath);
+  return AbsolutePath.str();
 }
 
 ToolInvocation::ToolInvocation(
@@ -192,7 +185,7 @@ bool ToolInvocation::runInvocation(
   // Show the invocation, with -v.
   if (Invocation->getHeaderSearchOpts().Verbose) {
     llvm::errs() << "clang Invocation:\n";
-    Compilation->PrintJob(llvm::errs(), Compilation->getJobs(), "\n", true);
+    Compilation->getJobs().Print(llvm::errs(), "\n", true);
     llvm::errs() << "\n";
   }
 

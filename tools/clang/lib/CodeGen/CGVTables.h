@@ -31,7 +31,10 @@ namespace CodeGen {
 class CodeGenVTables {
   CodeGenModule &CGM;
 
+  // FIXME: Consider moving VTContext and VFTContext into respective CXXABI
+  // classes?
   VTableContext VTContext;
+  OwningPtr<MicrosoftVFTableContext> VFTContext;
 
   /// VTables - All the vtables which have been defined.
   llvm::DenseMap<const CXXRecordDecl *, llvm::GlobalVariable *> VTables;
@@ -76,6 +79,8 @@ public:
   CodeGenVTables(CodeGenModule &CGM);
 
   VTableContext &getVTableContext() { return VTContext; }
+
+  MicrosoftVFTableContext &getVFTableContext() { return *VFTContext.get(); }
 
   /// getSubVTTIndex - Return the index of the sub-VTT for the base class of the
   /// given record decl.

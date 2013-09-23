@@ -25,9 +25,9 @@ namespace lld {
 class AbsoluteAtom;
 class Atom;
 class DefinedAtom;
+class LinkingContext;
 class ResolverOptions;
 class SharedLibraryAtom;
-class TargetInfo;
 class UndefinedAtom;
 
 /// \brief The SymbolTable class is responsible for coalescing atoms.
@@ -37,7 +37,7 @@ class UndefinedAtom;
 /// if an atom has been coalesced away.
 class SymbolTable {
 public:
-  explicit SymbolTable(const TargetInfo &);
+  explicit SymbolTable(const LinkingContext &);
 
   /// @brief add atom to symbol table
   void add(const DefinedAtom &);
@@ -66,6 +66,9 @@ public:
 
   /// @brief count of by-name entries in symbol table
   unsigned int size();
+
+  /// @brief add atom to replacement table
+  void addReplacement(const Atom *replaced, const Atom *replacement);
 
   /// @brief if atom has been coalesced away, return replacement, else return atom
   const Atom *replacement(const Atom *);
@@ -96,10 +99,10 @@ private:
   void addByName(const Atom &);
   void addByContent(const DefinedAtom &);
 
-  const TargetInfo &_targetInfo;
-  AtomToAtom       _replacedAtoms;
-  NameToAtom       _nameTable;
-  AtomContentSet   _contentTable;
+  const LinkingContext &_context;
+  AtomToAtom _replacedAtoms;
+  NameToAtom _nameTable;
+  AtomContentSet _contentTable;
 };
 
 } // namespace lld

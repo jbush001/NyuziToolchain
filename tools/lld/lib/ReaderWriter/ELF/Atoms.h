@@ -16,6 +16,7 @@
 #include "lld/ReaderWriter/Simple.h"
 
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/StringSwitch.h"
 
 #include <memory>
 #include <vector>
@@ -211,7 +212,7 @@ public:
     if ((_symbol->st_shndx > llvm::ELF::SHN_LOPROC &&
          _symbol->st_shndx < llvm::ELF::SHN_HIPROC)) {
       if (!_targetAtomHandler) {
-        const ELFTargetInfo &eti = (_owningFile.getTargetInfo());
+        const ELFLinkingContext &eti = (_owningFile.getLinkingContext());
         TargetHandler<ELFT> &TargetHandler = eti.getTargetHandler<ELFT>();
         _targetAtomHandler = &TargetHandler.targetAtomHandler();
       }
@@ -250,7 +251,7 @@ public:
     if ((_symbol->st_shndx > llvm::ELF::SHN_LOPROC &&
          _symbol->st_shndx < llvm::ELF::SHN_HIPROC)) {
       if (!_targetAtomHandler) {
-        const ELFTargetInfo &eti = (_owningFile.getTargetInfo());
+        const ELFLinkingContext &eti = (_owningFile.getLinkingContext());
         TargetHandler<ELFT> &TargetHandler = eti.getTargetHandler<ELFT>();
         _targetAtomHandler = &TargetHandler.targetAtomHandler();
       }
@@ -277,18 +278,25 @@ public:
         ((_symbol->st_shndx > llvm::ELF::SHN_LOPROC &&
           _symbol->st_shndx < llvm::ELF::SHN_HIPROC))) {
       if (!_targetAtomHandler) {
-        const ELFTargetInfo &eti = (_owningFile.getTargetInfo());
+        const ELFLinkingContext &eti = (_owningFile.getLinkingContext());
         TargetHandler<ELFT> &TargetHandler = eti.getTargetHandler<ELFT>();
         _targetAtomHandler = &TargetHandler.targetAtomHandler();
       }
       return _contentType = _targetAtomHandler->contentType(this);
     }
 
+    if (!(flags & llvm::ELF::SHF_ALLOC))
+      return _contentType = typeNoAlloc;
+
     if (_section->sh_flags ==
         (llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_WRITE | llvm::ELF::SHF_TLS)) {
-      return _contentType = _section->sh_type == llvm::ELF::SHT_NOBITS ? typeTLVInitialZeroFill
-                                                        : typeTLVInitialData;
+      return _contentType = _section->sh_type == llvm::ELF::SHT_NOBITS ? typeThreadZeroFill
+                                                        : typeThreadData;
     }
+
+    if ((_section->sh_flags == llvm::ELF::SHF_ALLOC) &&
+        (_section->sh_type == llvm::ELF::SHT_PROGBITS))
+      return _contentType = typeConstant;
 
     if (_symbol->getType() == llvm::ELF::STT_GNU_IFUNC)
       return _contentType = typeResolver;
@@ -310,10 +318,22 @@ public:
         break;
       case (llvm::ELF::SHF_MERGE|llvm::ELF::SHF_STRINGS):
       case llvm::ELF::SHF_STRINGS:
+      case llvm::ELF::SHF_MERGE:
         ret = typeConstant;
         break;
       default:
         ret = typeCode;
+        break;
+      }
+      break;
+    case llvm::ELF::SHT_NOTE:
+      flags &= ~llvm::ELF::SHF_ALLOC;
+      switch (flags) {
+      case llvm::ELF::SHF_WRITE:
+        ret = typeRWNote;
+        break;
+      default:
+        ret = typeRONote;
         break;
       }
       break;
@@ -326,6 +346,7 @@ public:
         ret = typeZeroFill;
       break;
     case llvm::ELF::SHT_INIT_ARRAY:
+    case llvm::ELF::SHT_FINI_ARRAY:
       ret = typeData;
       break;
     }
@@ -341,7 +362,7 @@ public:
     if ((_symbol->st_shndx > llvm::ELF::SHN_LOPROC &&
          _symbol->st_shndx < llvm::ELF::SHN_HIPROC)) {
       if (!_targetAtomHandler) {
-        const ELFTargetInfo &eti = (_owningFile.getTargetInfo());
+        const ELFLinkingContext &eti = (_owningFile.getLinkingContext());
         TargetHandler<ELFT> &TargetHandler = eti.getTargetHandler<ELFT>();
         _targetAtomHandler = &TargetHandler.targetAtomHandler();
       }
@@ -359,9 +380,20 @@ public:
 
   // Do we have a choice for ELF?  All symbols live in explicit sections.
   virtual SectionChoice sectionChoice() const {
-    if (_symbol->st_shndx > llvm::ELF::SHN_LORESERVE)
-      return sectionBasedOnContent;
-
+    switch (contentType()) {
+    case typeCode:
+    case typeData:
+    case typeZeroFill:
+    case typeThreadZeroFill:
+    case typeThreadData:
+    case typeConstant:
+      if ((_sectionName == ".text") || (_sectionName == ".data") ||
+          (_sectionName == ".bss") || (_sectionName == ".rodata") ||
+          (_sectionName == ".tdata") || (_sectionName == ".tbss"))
+        return sectionBasedOnContent;
+    default:
+      break;
+    }
     return sectionCustomRequired;
   }
 
@@ -391,12 +423,16 @@ public:
     if ((_symbol->st_shndx > llvm::ELF::SHN_LOPROC &&
          _symbol->st_shndx < llvm::ELF::SHN_HIPROC)) {
       if (!_targetAtomHandler) {
-        const ELFTargetInfo &eti = (_owningFile.getTargetInfo());
+        const ELFLinkingContext &eti = (_owningFile.getLinkingContext());
         TargetHandler<ELFT> &TargetHandler = eti.getTargetHandler<ELFT>();
         _targetAtomHandler = &TargetHandler.targetAtomHandler();
       }
       return _permissions = _targetAtomHandler->contentPermissions(this);
     }
+
+    if (!(flags & llvm::ELF::SHF_ALLOC))
+      return _permissions = perm___;
+
     switch (_section->sh_type) {
     // permRW_L is for sections modified by the runtime
     // loader.
@@ -406,6 +442,7 @@ public:
 
     case llvm::ELF::SHT_DYNAMIC:
     case llvm::ELF::SHT_PROGBITS:
+    case llvm::ELF::SHT_NOTE:
       flags &= ~llvm::ELF::SHF_ALLOC;
       flags &= ~llvm::ELF::SHF_GROUP;
       switch (flags) {
@@ -432,6 +469,7 @@ public:
       return _permissions = permRW_;
 
     case llvm::ELF::SHT_INIT_ARRAY:
+    case llvm::ELF::SHT_FINI_ARRAY:
       return _permissions = permRW_;
 
     default:
@@ -582,6 +620,122 @@ private:
   llvm::ArrayRef<uint8_t> _contentData;
   uint64_t _ordinal;
   uint64_t _offset;
+};
+
+template <class ELFT>
+class ELFCommonAtom LLVM_FINAL : public DefinedAtom {
+  typedef llvm::object::Elf_Sym_Impl<ELFT> Elf_Sym;
+public:
+  ELFCommonAtom(const ELFFile<ELFT> &file,
+                StringRef symbolName,
+                const Elf_Sym *symbol)
+      : _owningFile(file),
+        _symbolName(symbolName),
+        _symbol(symbol) {}
+
+  virtual const ELFFile<ELFT> &file() const {
+    return _owningFile;
+  }
+
+  virtual StringRef name() const {
+    return _symbolName;
+  }
+
+  virtual uint64_t ordinal() const {
+    return _ordinal;
+  }
+
+  void setOrdinal(uint64_t ord) {
+    _ordinal = ord;
+  }
+
+  virtual uint64_t size() const {
+    return _symbol->st_size;
+  }
+
+  virtual Scope scope() const {
+    if (_symbol->st_other == llvm::ELF::STV_HIDDEN)
+      return scopeLinkageUnit;
+    else if (_symbol->getBinding() != llvm::ELF::STB_LOCAL)
+      return scopeGlobal;
+    else
+      return scopeTranslationUnit;
+  }
+
+  virtual Interposable interposable() const {
+    return interposeNo;
+  }
+
+  virtual Merge merge() const {
+    return mergeAsTentative;
+  }
+
+  virtual ContentType contentType() const {
+    if (_symbol->st_shndx >= llvm::ELF::SHN_LORESERVE &&
+        _symbol->st_shndx <= llvm::ELF::SHN_HIOS)
+      return _owningFile.getLinkingContext().template getTargetHandler<ELFT>().
+                 targetAtomHandler().contentType(nullptr, _symbol);
+    return typeZeroFill;
+  }
+
+  virtual Alignment alignment() const {
+    return Alignment(llvm::Log2_64(_symbol->st_value));
+  }
+
+  virtual SectionChoice sectionChoice() const {
+    return sectionBasedOnContent;
+  }
+
+  virtual StringRef customSectionName() const {
+    return ".bss";
+  }
+
+  virtual SectionPosition sectionPosition() const {
+    return sectionPositionAny;
+  }
+
+  virtual DeadStripKind deadStrip() const {
+    return deadStripNormal;
+  }
+
+  virtual ContentPermissions permissions() const {
+    return permRW_;
+  }
+
+  virtual bool isAlias() const {
+    return false;
+  }
+
+  virtual ArrayRef<uint8_t> rawContent() const {
+    return ArrayRef<uint8_t>();
+  }
+
+  virtual DefinedAtom::reference_iterator begin() const {
+    uintptr_t index = 0;
+    const void *it = reinterpret_cast<const void *>(index);
+    return reference_iterator(*this, it);
+  }
+
+  virtual DefinedAtom::reference_iterator end() const {
+    uintptr_t index = 0;
+    const void *it = reinterpret_cast<const void *>(index);
+    return reference_iterator(*this, it);
+  }
+protected:
+
+  virtual ~ELFCommonAtom() {}
+
+  virtual const Reference *derefIterator(const void *iter) const {
+    return nullptr;
+  }
+
+  virtual void incrementIterator(const void *&iter) const {}
+
+private:
+  const ELFFile<ELFT> &_owningFile;
+  StringRef _symbolName;
+  const Elf_Sym *_symbol;
+  uint64_t _ordinal;
 };
 
 /// \brief An atom from a shared library.
@@ -759,6 +913,64 @@ public:
   virtual Alignment alignment() const { return Alignment(0); }
 
   virtual ArrayRef<uint8_t> rawContent() const { return ArrayRef<uint8_t>(); }
+};
+
+class DYNAMICAtom : public SimpleDefinedAtom {
+public:
+  DYNAMICAtom(const File &f) : SimpleDefinedAtom(f) {}
+
+  virtual StringRef name() const { return "_DYNAMIC"; }
+
+  virtual Scope scope() const { return scopeLinkageUnit; }
+
+  virtual Merge merge() const { return mergeNo; }
+
+  virtual SectionChoice sectionChoice() const { return sectionCustomRequired; }
+
+  virtual StringRef customSectionName() const { return ".dynamic"; }
+
+  virtual ContentType contentType() const { return typeData; }
+
+  virtual uint64_t size() const { return 0; }
+
+  virtual ContentPermissions permissions() const { return permRW_; }
+
+  virtual Alignment alignment() const { return Alignment(0); }
+
+  virtual ArrayRef<uint8_t> rawContent() const { return ArrayRef<uint8_t>(); }
+};
+
+class InitFiniAtom : public SimpleDefinedAtom {
+  StringRef _section;
+
+public:
+  InitFiniAtom(const File &f, StringRef secName)
+      : SimpleDefinedAtom(f), _section(secName) {
+  }
+
+  virtual Scope scope() const { return scopeGlobal; }
+
+  virtual SectionChoice sectionChoice() const { return sectionCustomRequired; }
+
+  virtual StringRef customSectionName() const { return _section; }
+
+  virtual ContentType contentType() const { return typeData; }
+
+  virtual uint64_t size() const { return rawContent().size(); }
+
+  virtual ContentPermissions permissions() const { return permRW_; }
+
+  virtual ArrayRef<uint8_t> rawContent() const = 0;
+
+  virtual Alignment alignment() const { return size(); }
+
+#ifndef NDEBUG
+  virtual StringRef name() const { return _name; }
+
+  std::string _name;
+#else
+  virtual StringRef name() const { return ""; }
+#endif
 };
 
 } // end namespace elf

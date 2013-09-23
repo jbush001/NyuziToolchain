@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "VectorProcTargetHandler.h"
-#include "VectorProcTargetInfo.h"
+#include "VectorProcLinkingContext.h"
 #include "llvm/Support/Debug.h"
 
 using namespace lld;
@@ -72,7 +72,7 @@ ErrorOr<void> VectorProcTargetRelocationHandler::applyRelocation(
   return error_code::success();
 }
 
-VectorProcTargetHandler::VectorProcTargetHandler(VectorProcTargetInfo &targetInfo)
+VectorProcTargetHandler::VectorProcTargetHandler(VectorProcLinkingContext &targetInfo)
     : DefaultTargetHandler(targetInfo), _relocationHandler(targetInfo),
       _targetLayout(targetInfo) {
 }

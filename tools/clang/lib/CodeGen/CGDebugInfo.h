@@ -47,6 +47,8 @@ namespace CodeGen {
 /// and is responsible for emitting to llvm globals or pass directly to
 /// the backend.
 class CGDebugInfo {
+  friend class NoLocation;
+  friend class ArtificialLocation;
   CodeGenModule &CGM;
   const CodeGenOptions::DebugInfoKind DebugKind;
   llvm::DIBuilder DBuilder;
@@ -105,15 +107,17 @@ class CGDebugInfo {
   unsigned Checksum(const ObjCInterfaceDecl *InterfaceDecl);
   llvm::DIType CreateType(const BuiltinType *Ty);
   llvm::DIType CreateType(const ComplexType *Ty);
-  llvm::DIType CreateQualifiedType(QualType Ty, llvm::DIFile F, bool Declaration);
-  llvm::DIType CreateType(const TypedefType *Ty, llvm::DIFile F, bool Declaration);
+  llvm::DIType CreateQualifiedType(QualType Ty, llvm::DIFile Fg);
+  llvm::DIType CreateType(const TypedefType *Ty, llvm::DIFile Fg);
   llvm::DIType CreateType(const ObjCObjectPointerType *Ty,
                           llvm::DIFile F);
   llvm::DIType CreateType(const PointerType *Ty, llvm::DIFile F);
   llvm::DIType CreateType(const BlockPointerType *Ty, llvm::DIFile F);
   llvm::DIType CreateType(const FunctionType *Ty, llvm::DIFile F);
-  llvm::DIType CreateType(const RecordType *Ty, bool Declaration);
-  llvm::DIType CreateLimitedType(const RecordType *Ty);
+  llvm::DIType CreateType(const RecordType *Tyg);
+  llvm::DIType CreateTypeDefinition(const RecordType *Ty);
+  llvm::DICompositeType CreateLimitedType(const RecordType *Ty);
+  void CollectContainingType(const CXXRecordDecl *RD, llvm::DICompositeType CT);
   llvm::DIType CreateType(const ObjCInterfaceType *Ty, llvm::DIFile F);
   llvm::DIType CreateType(const ObjCObjectType *Ty, llvm::DIFile F);
   llvm::DIType CreateType(const VectorType *Ty, llvm::DIFile F);
@@ -122,7 +126,7 @@ class CGDebugInfo {
   llvm::DIType CreateType(const RValueReferenceType *Ty, llvm::DIFile Unit);
   llvm::DIType CreateType(const MemberPointerType *Ty, llvm::DIFile F);
   llvm::DIType CreateType(const AtomicType *Ty, llvm::DIFile F);
-  llvm::DIType CreateEnumType(const EnumDecl *ED);
+  llvm::DIType CreateEnumType(const EnumType *Ty);
   llvm::DIType CreateSelfType(const QualType &QualTy, llvm::DIType Ty);
   llvm::DIType getTypeOrNull(const QualType);
   llvm::DIType getCompletedTypeOrNull(const QualType);
@@ -151,11 +155,6 @@ class CGDebugInfo {
                                  SmallVectorImpl<llvm::Value *> &E,
                                  llvm::DIType T);
 
-  void CollectCXXFriends(const CXXRecordDecl *Decl,
-                       llvm::DIFile F,
-                       SmallVectorImpl<llvm::Value *> &EltTys,
-                       llvm::DIType RecordTy);
-
   void CollectCXXBases(const CXXRecordDecl *Decl,
                        llvm::DIFile F,
                        SmallVectorImpl<llvm::Value *> &EltTys,
@@ -175,22 +174,21 @@ class CGDebugInfo {
                                uint64_t sizeInBitsOverride, SourceLocation loc,
                                AccessSpecifier AS, uint64_t offsetInBits,
                                llvm::DIFile tunit,
-                               llvm::DIDescriptor scope);
+                               llvm::DIScope scope);
 
   // Helpers for collecting fields of a record.
   void CollectRecordLambdaFields(const CXXRecordDecl *CXXDecl,
                                  SmallVectorImpl<llvm::Value *> &E,
                                  llvm::DIType RecordTy);
-  void CollectRecordStaticField(const VarDecl *Var,
-                                SmallVectorImpl<llvm::Value *> &E,
-                                llvm::DIType RecordTy);
+  llvm::DIDerivedType CreateRecordStaticField(const VarDecl *Var,
+                                              llvm::DIType RecordTy);
   void CollectRecordNormalField(const FieldDecl *Field, uint64_t OffsetInBits,
                                 llvm::DIFile F,
                                 SmallVectorImpl<llvm::Value *> &E,
                                 llvm::DIType RecordTy);
   void CollectRecordFields(const RecordDecl *Decl, llvm::DIFile F,
                            SmallVectorImpl<llvm::Value *> &E,
-                           llvm::DIType RecordTy);
+                           llvm::DICompositeType RecordTy);
 
   void CollectVTableInfo(const CXXRecordDecl *Decl,
                          llvm::DIFile F,
@@ -286,7 +284,9 @@ public:
   llvm::DIType getOrCreateInterfaceType(QualType Ty,
                                         SourceLocation Loc);
 
-  void completeFwdDecl(const RecordDecl &TD);
+  void completeType(const RecordDecl *RD);
+  void completeRequiredType(const RecordDecl *RD);
+  void completeClassData(const RecordDecl *RD);
 
 private:
   /// EmitDeclare - Emit call to llvm.dbg.declare for a variable declaration.
@@ -303,9 +303,9 @@ private:
 
   llvm::DIScope getCurrentContextDescriptor(const Decl *Decl);
 
-  /// createRecordFwdDecl - Create a forward decl for a RecordType in a given
-  /// context.
-  llvm::DIType createRecordFwdDecl(const RecordDecl *, llvm::DIDescriptor);
+  /// \brief Create a forward decl for a RecordType in a given context.
+  llvm::DICompositeType getOrCreateRecordFwdDecl(const RecordType *,
+                                                 llvm::DIDescriptor);
 
   /// createContextChain - Create a set of decls for the context chain.
   llvm::DIDescriptor createContextChain(const Decl *Decl);
@@ -325,22 +325,18 @@ private:
 
   /// getOrCreateType - Get the type from the cache or create a new type if
   /// necessary.
-  llvm::DIType getOrCreateType(QualType Ty, llvm::DIFile F, bool Declaration = false);
+  llvm::DIType getOrCreateType(QualType Ty, llvm::DIFile Fg);
 
   /// getOrCreateLimitedType - Get the type from the cache or create a new
   /// partial type if necessary.
-  llvm::DIType getOrCreateLimitedType(QualType Ty, llvm::DIFile F);
+  llvm::DIType getOrCreateLimitedType(const RecordType *Ty, llvm::DIFile F);
 
   /// CreateTypeNode - Create type metadata for a source language type.
-  llvm::DIType CreateTypeNode(QualType Ty, llvm::DIFile F, bool Declaration);
+  llvm::DIType CreateTypeNode(QualType Ty, llvm::DIFile Fg);
 
   /// getObjCInterfaceDecl - return the underlying ObjCInterfaceDecl
   /// if Ty is an ObjCInterface or a pointer to one.
   ObjCInterfaceDecl* getObjCInterfaceDecl(QualType Ty);
-
-  /// CreateLimitedTypeNode - Create type metadata for a source language
-  /// type, but only partial types for records.
-  llvm::DIType CreateLimitedTypeNode(QualType Ty, llvm::DIFile F);
 
   /// CreateMemberType - Create new member and increase Offset by FType's size.
   llvm::DIType CreateMemberType(llvm::DIFile Unit, QualType FType,
@@ -354,13 +350,13 @@ private:
   /// declaration for the given method definition.
   llvm::DISubprogram getFunctionDeclaration(const Decl *D);
 
-  /// getStaticDataMemberDeclaration - Return debug info descriptor to
-  /// describe in-class static data member declaration for the given
-  /// out-of-class definition.
-  llvm::DIDerivedType getStaticDataMemberDeclaration(const Decl *D);
+  /// Return debug info descriptor to describe in-class static data member
+  /// declaration for the given out-of-class definition.
+  llvm::DIDerivedType
+  getOrCreateStaticDataMemberDeclarationOrNull(const VarDecl *D);
 
   /// getFunctionName - Get function name for the given FunctionDecl. If the
-  /// name is constructred on demand (e.g. C++ destructor) then the name
+  /// name is constructed on demand (e.g. C++ destructor) then the name
   /// is stored on the side.
   StringRef getFunctionName(const FunctionDecl *FD);
 
@@ -386,7 +382,58 @@ private:
   /// invalid then use current location.
   /// \param Force  Assume DebugColumnInfo option is true.
   unsigned getColumnNumber(SourceLocation Loc, bool Force=false);
+
+  /// internString - Allocate a copy of \p A using the DebugInfoNames allocator
+  /// and return a reference to it. If multiple arguments are given the strings
+  /// are concatenated.
+  StringRef internString(StringRef A, StringRef B = StringRef()) {
+    char *Data = DebugInfoNames.Allocate<char>(A.size() + B.size());
+    std::memcpy(Data, A.data(), A.size());
+    std::memcpy(Data + A.size(), B.data(), B.size());
+    return StringRef(Data, A.size() + B.size());
+  }
 };
+
+/// NoLocation - An RAII object that temporarily disables debug
+/// locations. This is useful for emitting instructions that should be
+/// counted towards the function prologue.
+class NoLocation {
+  SourceLocation SavedLoc;
+  CGDebugInfo *DI;
+  CGBuilderTy &Builder;
+public:
+  NoLocation(CodeGenFunction &CGF, CGBuilderTy &B);
+  /// ~NoLocation - Autorestore everything back to normal.
+  ~NoLocation();
+};
+
+/// ArtificialLocation - An RAII object that temporarily switches to
+/// an artificial debug location that has a valid scope, but no line
+/// information. This is useful when emitting compiler-generated
+/// helper functions that have no source location associated with
+/// them. The DWARF specification allows the compiler to use the
+/// special line number 0 to indicate code that can not be attributed
+/// to any source location.
+///
+/// This is necessary because passing an empty SourceLocation to
+/// CGDebugInfo::setLocation() will result in the last valid location
+/// being reused.
+class ArtificialLocation {
+  SourceLocation SavedLoc;
+  CGDebugInfo *DI;
+  CGBuilderTy &Builder;
+public:
+  ArtificialLocation(CodeGenFunction &CGF, CGBuilderTy &B);
+
+  /// Set the current location to line 0, but within the current scope
+  /// (= the top of the LexicalBlockStack).
+  void Emit();
+
+  /// ~ArtificialLocation - Autorestore everything back to normal.
+  ~ArtificialLocation();
+};
+
+
 } // namespace CodeGen
 } // namespace clang
 

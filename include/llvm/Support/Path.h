@@ -111,6 +111,7 @@ inline reverse_iterator rend(StringRef path) {
 /// @code
 ///   directory/filename.cpp => directory/
 ///   directory/             => directory
+///   filename.cpp           => <empty>
 ///   /                      => /
 /// @endcode
 ///
@@ -171,6 +172,13 @@ void append(SmallVectorImpl<char> &path,
 /// @param path A path that is transformed to native format.
 /// @param result Holds the result of the transformation.
 void native(const Twine &path, SmallVectorImpl<char> &result);
+
+/// Convert path to the native form in place. This is used to give paths to
+/// users and operating system calls in the platform's normal way. For example,
+/// on Windows all '/' are converted to '\'.
+///
+/// @param path A path that is transformed to native format.
+void native(SmallVectorImpl<char> &path);
 
 /// @}
 /// @name Lexical Observers

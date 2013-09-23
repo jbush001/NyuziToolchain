@@ -21,7 +21,7 @@
 #include "File.h"
 
 #include "lld/Core/Reference.h"
-#include "lld/ReaderWriter/ELFTargetInfo.h"
+#include "lld/ReaderWriter/ELFLinkingContext.h"
 #include "lld/ReaderWriter/ReaderArchive.h"
 
 #include "llvm/ADT/ArrayRef.h"
@@ -53,9 +53,9 @@ struct DynamicFileCreateELFTraits {
   typedef llvm::ErrorOr<std::unique_ptr<lld::SharedLibraryFile>> result_type;
 
   template <class ELFT>
-  static result_type create(const lld::ELFTargetInfo &ti,
+  static result_type create(const lld::ELFLinkingContext &ctx,
                             std::unique_ptr<llvm::MemoryBuffer> mb) {
-    return lld::elf::DynamicFile<ELFT>::create(ti, std::move(mb));
+    return lld::elf::DynamicFile<ELFT>::create(ctx, std::move(mb));
   }
 };
 
@@ -63,11 +63,11 @@ struct ELFFileCreateELFTraits {
   typedef std::unique_ptr<lld::File> result_type;
 
   template <class ELFT>
-  static result_type create(const lld::ELFTargetInfo &ti,
+  static result_type create(const lld::ELFLinkingContext &ctx,
                             std::unique_ptr<llvm::MemoryBuffer> mb,
                             lld::error_code &ec) {
     return std::unique_ptr<lld::File>(
-        new lld::elf::ELFFile<ELFT>(ti, std::move(mb), ec));
+        new lld::elf::ELFFile<ELFT>(ctx, std::move(mb), ec));
   }
 };
 }
@@ -78,25 +78,25 @@ namespace elf {
 /// memory buffer for ELF class and bit width
 class ELFReader : public Reader {
 public:
-  ELFReader(const ELFTargetInfo &ti)
-      : lld::Reader(ti), _elfTargetInfo(ti), _readerArchive(ti, *this) {
-  }
+  ELFReader(const ELFLinkingContext &ctx)
+      : lld::Reader(ctx), _elfLinkingContext(ctx), _readerArchive(ctx, *this) {}
 
-  error_code parseFile(std::unique_ptr<MemoryBuffer> &mb,
-                       std::vector<std::unique_ptr<File> > &result) const {
+  error_code parseFile(LinkerInput &input,
+                       std::vector<std::unique_ptr<File>> &result) const {
     using llvm::object::ELFType;
+    llvm::MemoryBuffer &mb(input.getBuffer());
     llvm::sys::fs::file_magic FileType =
-        llvm::sys::fs::identify_magic(mb->getBuffer());
+        llvm::sys::fs::identify_magic(mb.getBuffer());
 
     std::size_t MaxAlignment =
-        1ULL << llvm::countTrailingZeros(uintptr_t(mb->getBufferStart()));
+        1ULL << llvm::countTrailingZeros(uintptr_t(mb.getBufferStart()));
 
     llvm::error_code ec;
     switch (FileType) {
     case llvm::sys::fs::file_magic::elf_relocatable: {
       std::unique_ptr<File> f(createELF<ELFFileCreateELFTraits>(
-          getElfArchType(&*mb), MaxAlignment, _elfTargetInfo, std::move(mb),
-          ec));
+          getElfArchType(&mb), MaxAlignment, _elfLinkingContext,
+          std::move(input.takeBuffer()), ec));
       if (ec)
         return ec;
       result.push_back(std::move(f));
@@ -105,17 +105,18 @@ public:
     case llvm::sys::fs::file_magic::elf_shared_object: {
       // If the link doesnot allow dynamic libraries to be present during the
       // link, lets not parse the file and just return
-      if (!_elfTargetInfo.allowLinkWithDynamicLibraries())
+      if (!_elfLinkingContext.allowLinkWithDynamicLibraries())
         return llvm::make_error_code(llvm::errc::executable_format_error);
       auto f = createELF<DynamicFileCreateELFTraits>(
-          getElfArchType(&*mb), MaxAlignment, _elfTargetInfo, std::move(mb));
+          getElfArchType(&mb), MaxAlignment, _elfLinkingContext,
+          std::move(input.takeBuffer()));
       if (!f)
         return f;
       result.push_back(std::move(*f));
       break;
     }
     case llvm::sys::fs::file_magic::archive:
-      ec = _readerArchive.parseFile(mb, result);
+      ec = _readerArchive.parseFile(input, result);
       break;
     default:
       return llvm::make_error_code(llvm::errc::executable_format_error);
@@ -129,12 +130,12 @@ public:
   }
 
 private:
-  const ELFTargetInfo &_elfTargetInfo;
+  const ELFLinkingContext &_elfLinkingContext;
   ReaderArchive _readerArchive;
 };
 } // end namespace elf
 
-std::unique_ptr<Reader> createReaderELF(const ELFTargetInfo &targetinfo) {
-  return std::unique_ptr<Reader>(new elf::ELFReader(targetinfo));
+std::unique_ptr<Reader> createReaderELF(const ELFLinkingContext &context) {
+  return std::unique_ptr<Reader>(new elf::ELFReader(context));
 }
 } // end namespace lld

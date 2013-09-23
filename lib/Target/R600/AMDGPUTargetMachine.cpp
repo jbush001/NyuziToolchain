@@ -80,16 +80,18 @@ namespace {
 class AMDGPUPassConfig : public TargetPassConfig {
 public:
   AMDGPUPassConfig(AMDGPUTargetMachine *TM, PassManagerBase &PM)
-    : TargetPassConfig(TM, PM) {
-    const AMDGPUSubtarget &ST = TM->getSubtarget<AMDGPUSubtarget>();
-    if (ST.getGeneration() <= AMDGPUSubtarget::NORTHERN_ISLANDS) {
-      enablePass(&MachineSchedulerID);
-      MachineSchedRegistry::setDefault(createR600MachineScheduler);
-    }
-  }
+    : TargetPassConfig(TM, PM) {}
 
   AMDGPUTargetMachine &getAMDGPUTargetMachine() const {
     return getTM<AMDGPUTargetMachine>();
+  }
+
+  virtual ScheduleDAGInstrs *
+  createMachineScheduler(MachineSchedContext *C) const {
+    const AMDGPUSubtarget &ST = TM->getSubtarget<AMDGPUSubtarget>();
+    if (ST.getGeneration() <= AMDGPUSubtarget::NORTHERN_ISLANDS)
+      return createR600MachineScheduler(C);
+    return 0;
   }
 
   virtual bool addPreISel();
@@ -105,10 +107,24 @@ TargetPassConfig *AMDGPUTargetMachine::createPassConfig(PassManagerBase &PM) {
   return new AMDGPUPassConfig(this, PM);
 }
 
+//===----------------------------------------------------------------------===//
+// AMDGPU Analysis Pass Setup
+//===----------------------------------------------------------------------===//
+
+void AMDGPUTargetMachine::addAnalysisPasses(PassManagerBase &PM) {
+  // Add first the target-independent BasicTTI pass, then our AMDGPU pass. This
+  // allows the AMDGPU pass to delegate to the target independent layer when
+  // appropriate.
+  PM.add(createBasicTargetTransformInfoPass(this));
+  PM.add(createAMDGPUTargetTransformInfoPass(this));
+}
+
 bool
 AMDGPUPassConfig::addPreISel() {
   const AMDGPUSubtarget &ST = TM->getSubtarget<AMDGPUSubtarget>();
+  addPass(createFlattenCFGPass());
   if (ST.getGeneration() > AMDGPUSubtarget::NORTHERN_ISLANDS) {
+    addPass(createSITypeRewriter());
     addPass(createStructurizeCFGPass());
     addPass(createSIAnnotateControlFlowPass());
   } else {
@@ -134,6 +150,8 @@ bool AMDGPUPassConfig::addPreRegAlloc() {
 
   if (ST.getGeneration() <= AMDGPUSubtarget::NORTHERN_ISLANDS) {
     addPass(createR600VectorRegMerger(*TM));
+  } else {
+    addPass(createSIFixSGPRCopiesPass(*TM));
   }
   return false;
 }
@@ -160,7 +178,6 @@ bool AMDGPUPassConfig::addPreSched2() {
 bool AMDGPUPassConfig::addPreEmitPass() {
   const AMDGPUSubtarget &ST = TM->getSubtarget<AMDGPUSubtarget>();
   if (ST.getGeneration() <= AMDGPUSubtarget::NORTHERN_ISLANDS) {
-    addPass(createAMDGPUCFGPreparationPass(*TM));
     addPass(createAMDGPUCFGStructurizerPass(*TM));
     addPass(createR600ExpandSpecialInstrsPass(*TM));
     addPass(&FinalizeMachineBundlesID);
@@ -172,4 +189,3 @@ bool AMDGPUPassConfig::addPreEmitPass() {
 
   return false;
 }
-

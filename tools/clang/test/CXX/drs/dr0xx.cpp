@@ -280,7 +280,7 @@ namespace dr27 { // dr27: yes
 
 // dr28: na
 
-namespace dr29 { // dr29: no
+namespace dr29 { // dr29: 3.4
   void dr29_f0(); // expected-note {{here}}
   void g0() { void dr29_f0(); }
   extern "C++" void g0_cxx() { void dr29_f0(); }
@@ -291,17 +291,14 @@ namespace dr29 { // dr29: no
   extern "C" void g1_c() { void dr29_f1(); }
   extern "C++" void g1_cxx() { void dr29_f1(); } // expected-error {{different language linkage}}
 
-  // FIXME: We should reject this.
-  void g2() { void dr29_f2(); }
-  extern "C" void dr29_f2();
+  void g2() { void dr29_f2(); } // expected-note {{here}}
+  extern "C" void dr29_f2(); // expected-error {{different language linkage}}
 
-  // FIXME: We should reject this.
-  extern "C" void g3() { void dr29_f3(); }
-  extern "C++" void dr29_f3();
+  extern "C" void g3() { void dr29_f3(); } // expected-note {{here}}
+  extern "C++" void dr29_f3(); // expected-error {{different language linkage}}
 
-  // FIXME: We should reject this.
-  extern "C++" void g4() { void dr29_f4(); }
-  extern "C" void dr29_f4();
+  extern "C++" void g4() { void dr29_f4(); } // expected-note {{here}}
+  extern "C" void dr29_f4(); // expected-error {{different language linkage}}
 
   extern "C" void g5();
   extern "C++" void dr29_f5();
@@ -659,6 +656,7 @@ namespace dr61 { // dr61: yes
   // function name.
   void (*p)() = &x.f;
   void (*q)() = &y.f; // expected-error {{cannot create a non-constant pointer to member function}}
+  void (*r)() = y.f; // expected-error {{cannot create a non-constant pointer to member function}}
 }
 
 namespace dr62 { // dr62: yes

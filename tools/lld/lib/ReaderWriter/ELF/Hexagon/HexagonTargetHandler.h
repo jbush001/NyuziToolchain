@@ -19,8 +19,7 @@
 namespace lld {
 namespace elf {
 typedef llvm::object::ELFType<llvm::support::little, 4, false> HexagonELFType;
-class HexagonTargetInfo;
-
+class HexagonLinkingContext;
 
 /// \brief Handle Hexagon specific Atoms
 template <class HexagonELFType>
@@ -47,7 +46,9 @@ public:
       return DefinedAtom::typeZeroFillFast;
 
     default:
-      if (section->sh_flags & llvm::ELF::SHF_HEX_GPREL)
+      if (section->sh_type == llvm::ELF::SHT_NOBITS)
+        return DefinedAtom::typeZeroFillFast;
+      else if (section->sh_flags & llvm::ELF::SHF_HEX_GPREL)
         return DefinedAtom::typeDataFast;
       else
         llvm_unreachable("unknown symbol type");
@@ -85,7 +86,7 @@ public:
     ORDER_SDATA = 205
   };
 
-  HexagonTargetLayout(const HexagonTargetInfo &hti)
+  HexagonTargetLayout(const HexagonLinkingContext &hti)
       : TargetLayout<HexagonELFType>(hti), _sdataSection(nullptr) {
     _sdataSection = new (_alloc) SDataSection<HexagonELFType>(hti);
   }
@@ -102,13 +103,15 @@ public:
   }
 
   /// \brief This maps the input sections to the output section names
-  virtual StringRef getSectionName(StringRef name, const int32_t contentType,
-                                   const int32_t contentPermissions) {
-    if ((contentType == DefinedAtom::typeDataFast) ||
-       (contentType == DefinedAtom::typeZeroFillFast))
+  virtual StringRef getSectionName(const DefinedAtom *da) const {
+    switch (da->contentType()) {
+    case DefinedAtom::typeDataFast:
+    case DefinedAtom::typeZeroFillFast:
       return ".sdata";
-    return DefaultLayout<HexagonELFType>::getSectionName(name, contentType,
-                                                         contentPermissions);
+    default:
+      break;
+    }
+    return DefaultLayout<HexagonELFType>::getSectionName(da);
   }
 
   /// \brief Gets or creates a section.
@@ -145,15 +148,15 @@ private:
 class HexagonTargetHandler LLVM_FINAL :
     public DefaultTargetHandler<HexagonELFType> {
 public:
-  HexagonTargetHandler(HexagonTargetInfo &targetInfo);
+  HexagonTargetHandler(HexagonLinkingContext &targetInfo);
 
-  bool doesOverrideHeader() { return true; }
+  bool doesOverrideELFHeader() { return true; }
 
-  void setHeaderInfo(Header<HexagonELFType> *header) {
-    header->e_ident(llvm::ELF::EI_VERSION, 1);
-    header->e_ident(llvm::ELF::EI_OSABI, 0);
-    header->e_version(1);
-    header->e_flags(0x3);
+  void setELFHeader(ELFHeader<HexagonELFType> *elfHeader) {
+    elfHeader->e_ident(llvm::ELF::EI_VERSION, 1);
+    elfHeader->e_ident(llvm::ELF::EI_OSABI, 0);
+    elfHeader->e_version(1);
+    elfHeader->e_flags(0x3);
   }
 
   virtual HexagonTargetLayout<HexagonELFType> &targetLayout() {
@@ -170,7 +173,7 @@ public:
 
   void addDefaultAtoms() {
     _hexagonRuntimeFile.addAbsoluteAtom("_SDA_BASE_");
-    if (_targetInfo.isDynamic()) {
+    if (_context.isDynamic()) {
       _hexagonRuntimeFile.addAbsoluteAtom("_GLOBAL_OFFSET_TABLE_");
       _hexagonRuntimeFile.addAbsoluteAtom("_DYNAMIC");
     }
@@ -185,7 +188,7 @@ public:
     auto sdabaseAtomIter = _targetLayout.findAbsoluteAtom("_SDA_BASE_");
     (*sdabaseAtomIter)->_virtualAddr =
         _targetLayout.getSDataSection()->virtualAddr();
-    if (_targetInfo.isDynamic()) {
+    if (_context.isDynamic()) {
       auto gotAtomIter =
           _targetLayout.findAbsoluteAtom("_GLOBAL_OFFSET_TABLE_");
       _gotSymAtom = (*gotAtomIter);

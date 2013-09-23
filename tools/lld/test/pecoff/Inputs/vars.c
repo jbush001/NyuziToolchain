@@ -1,9 +1,18 @@
 // cl.exe /c vars.c
-// link.exe /debug /nodefaultlib /entry:dllmain vars.obj
-__declspec(dllexport) int var = 3;
+// link /dll /nodefaultlib /entry:dllmain /export:var,@1,NONAME,DATA \
+//   /export:fn /export:_name_with_underscore vars.obj
 
-__declspec(dllexport) int fn(void) {
+// will be exported by ordinal
+int var = 3;
+
+// will be exported by name
+int fn(void) {
   return 4;
+}
+
+// will be exported by name
+int _name_with_underscore(void) {
+  return 5;
 }
 
 int dllmain() {

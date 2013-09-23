@@ -84,14 +84,19 @@ void test1(A *a) {
 // rdar://8861761
 
 @interface B
--(id)alloc;
++ (id)alloc;
 - (id)initWithInt: (int) i;
+- (id)myInit __attribute__((objc_method_family(init)));
+- (id)myBadInit __attribute__((objc_method_family(12)));  // expected-error {{'objc_method_family' attribute requires parameter 1 to be an identifier}}
+
 @end
 
 void rdar8861761() {
   B *o1 = [[B alloc] initWithInt:0];
   B *o2 = [B alloc];
   [o2 initWithInt:0]; // expected-warning {{expression result unused}}
+  B *o3 = [[B alloc] myInit];
+  [[B alloc] myInit]; // expected-warning {{expression result unused}}
 }
 
 // rdar://8925835

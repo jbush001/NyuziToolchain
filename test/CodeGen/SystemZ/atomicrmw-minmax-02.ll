@@ -14,17 +14,17 @@
 ;   independent of the other loop prologue instructions.
 define i16 @f1(i16 *%src, i16 %b) {
 ; CHECK-LABEL: f1:
-; CHECK-DAG: sllg [[SHIFT:%r[1-9]+]], %r2, 3
-; CHECK-DAG: risbg [[BASE:%r[1-9]+]], %r2, 0, 189, 0
-; CHECK: l [[OLD:%r[0-9]+]], 0([[BASE]])
+; CHECK: sllg [[SHIFT:%r[1-9]+]], %r2, 3
+; CHECK: nill %r2, 65532
+; CHECK: l [[OLD:%r[0-9]+]], 0(%r2)
 ; CHECK: [[LOOP:\.[^:]*]]:
 ; CHECK: rll [[ROT:%r[0-9]+]], [[OLD]], 0([[SHIFT]])
 ; CHECK: crjle [[ROT]], %r3, [[KEEP:\..*]]
 ; CHECK: risbg [[ROT]], %r3, 32, 47, 0
 ; CHECK: [[KEEP]]:
 ; CHECK: rll [[NEW:%r[0-9]+]], [[ROT]], 0({{%r[1-9]+}})
-; CHECK: cs [[OLD]], [[NEW]], 0([[BASE]])
-; CHECK: jlh [[LOOP]]
+; CHECK: cs [[OLD]], [[NEW]], 0(%r2)
+; CHECK: jl [[LOOP]]
 ; CHECK: rll %r2, [[OLD]], 16([[SHIFT]])
 ; CHECK: br %r14
 ;
@@ -50,17 +50,17 @@ define i16 @f1(i16 *%src, i16 %b) {
 ; Check signed maximum.
 define i16 @f2(i16 *%src, i16 %b) {
 ; CHECK-LABEL: f2:
-; CHECK-DAG: sllg [[SHIFT:%r[1-9]+]], %r2, 3
-; CHECK-DAG: risbg [[BASE:%r[1-9]+]], %r2, 0, 189, 0
-; CHECK: l [[OLD:%r[0-9]+]], 0([[BASE]])
+; CHECK: sllg [[SHIFT:%r[1-9]+]], %r2, 3
+; CHECK: nill %r2, 65532
+; CHECK: l [[OLD:%r[0-9]+]], 0(%r2)
 ; CHECK: [[LOOP:\.[^:]*]]:
 ; CHECK: rll [[ROT:%r[0-9]+]], [[OLD]], 0([[SHIFT]])
 ; CHECK: crjhe [[ROT]], %r3, [[KEEP:\..*]]
 ; CHECK: risbg [[ROT]], %r3, 32, 47, 0
 ; CHECK: [[KEEP]]:
 ; CHECK: rll [[NEW:%r[0-9]+]], [[ROT]], 0({{%r[1-9]+}})
-; CHECK: cs [[OLD]], [[NEW]], 0([[BASE]])
-; CHECK: jlh [[LOOP]]
+; CHECK: cs [[OLD]], [[NEW]], 0(%r2)
+; CHECK: jl [[LOOP]]
 ; CHECK: rll %r2, [[OLD]], 16([[SHIFT]])
 ; CHECK: br %r14
 ;
@@ -86,18 +86,17 @@ define i16 @f2(i16 *%src, i16 %b) {
 ; Check unsigned minimum.
 define i16 @f3(i16 *%src, i16 %b) {
 ; CHECK-LABEL: f3:
-; CHECK-DAG: sllg [[SHIFT:%r[1-9]+]], %r2, 3
-; CHECK-DAG: risbg [[BASE:%r[1-9]+]], %r2, 0, 189, 0
-; CHECK: l [[OLD:%r[0-9]+]], 0([[BASE]])
+; CHECK: sllg [[SHIFT:%r[1-9]+]], %r2, 3
+; CHECK: nill %r2, 65532
+; CHECK: l [[OLD:%r[0-9]+]], 0(%r2)
 ; CHECK: [[LOOP:\.[^:]*]]:
 ; CHECK: rll [[ROT:%r[0-9]+]], [[OLD]], 0([[SHIFT]])
-; CHECK: clr [[ROT]], %r3
-; CHECK: jle [[KEEP:\..*]]
+; CHECK: clrjle [[ROT]], %r3, [[KEEP:\..*]]
 ; CHECK: risbg [[ROT]], %r3, 32, 47, 0
 ; CHECK: [[KEEP]]:
 ; CHECK: rll [[NEW:%r[0-9]+]], [[ROT]], 0({{%r[1-9]+}})
-; CHECK: cs [[OLD]], [[NEW]], 0([[BASE]])
-; CHECK: jlh [[LOOP]]
+; CHECK: cs [[OLD]], [[NEW]], 0(%r2)
+; CHECK: jl [[LOOP]]
 ; CHECK: rll %r2, [[OLD]], 16([[SHIFT]])
 ; CHECK: br %r14
 ;
@@ -112,7 +111,7 @@ define i16 @f3(i16 *%src, i16 %b) {
 ; CHECK-SHIFT2-LABEL: f3:
 ; CHECK-SHIFT2: sll %r3, 16
 ; CHECK-SHIFT2: rll
-; CHECK-SHIFT2: clr {{%r[0-9]+}}, %r3
+; CHECK-SHIFT2: clrjle {{%r[0-9]+}}, %r3,
 ; CHECK-SHIFT2: rll
 ; CHECK-SHIFT2: rll
 ; CHECK-SHIFT2: br %r14
@@ -123,18 +122,17 @@ define i16 @f3(i16 *%src, i16 %b) {
 ; Check unsigned maximum.
 define i16 @f4(i16 *%src, i16 %b) {
 ; CHECK-LABEL: f4:
-; CHECK-DAG: sllg [[SHIFT:%r[1-9]+]], %r2, 3
-; CHECK-DAG: risbg [[BASE:%r[1-9]+]], %r2, 0, 189, 0
-; CHECK: l [[OLD:%r[0-9]+]], 0([[BASE]])
+; CHECK: sllg [[SHIFT:%r[1-9]+]], %r2, 3
+; CHECK: nill %r2, 65532
+; CHECK: l [[OLD:%r[0-9]+]], 0(%r2)
 ; CHECK: [[LOOP:\.[^:]*]]:
 ; CHECK: rll [[ROT:%r[0-9]+]], [[OLD]], 0([[SHIFT]])
-; CHECK: clr [[ROT]], %r3
-; CHECK: jhe [[KEEP:\..*]]
+; CHECK: clrjhe [[ROT]], %r3, [[KEEP:\..*]]
 ; CHECK: risbg [[ROT]], %r3, 32, 47, 0
 ; CHECK: [[KEEP]]:
 ; CHECK: rll [[NEW:%r[0-9]+]], [[ROT]], 0({{%r[1-9]+}})
-; CHECK: cs [[OLD]], [[NEW]], 0([[BASE]])
-; CHECK: jlh [[LOOP]]
+; CHECK: cs [[OLD]], [[NEW]], 0(%r2)
+; CHECK: jl [[LOOP]]
 ; CHECK: rll %r2, [[OLD]], 16([[SHIFT]])
 ; CHECK: br %r14
 ;
@@ -149,7 +147,7 @@ define i16 @f4(i16 *%src, i16 %b) {
 ; CHECK-SHIFT2-LABEL: f4:
 ; CHECK-SHIFT2: sll %r3, 16
 ; CHECK-SHIFT2: rll
-; CHECK-SHIFT2: clr {{%r[0-9]+}}, %r3
+; CHECK-SHIFT2: clrjhe {{%r[0-9]+}}, %r3,
 ; CHECK-SHIFT2: rll
 ; CHECK-SHIFT2: rll
 ; CHECK-SHIFT2: br %r14
@@ -196,7 +194,7 @@ define i16 @f6(i16 *%src) {
 define i16 @f7(i16 *%src) {
 ; CHECK-LABEL: f7:
 ; CHECK: llilh [[SRC2:%r[0-9]+]], 1
-; CHECK: clr [[ROT:%r[0-9]+]], [[SRC2]]
+; CHECK: clrjle [[ROT:%r[0-9]+]], [[SRC2]],
 ; CHECK: risbg [[ROT]], [[SRC2]], 32, 47, 0
 ; CHECK: br %r14
 ;
@@ -213,7 +211,7 @@ define i16 @f7(i16 *%src) {
 define i16 @f8(i16 *%src) {
 ; CHECK-LABEL: f8:
 ; CHECK: llilh [[SRC2:%r[0-9]+]], 65534
-; CHECK: clr [[ROT:%r[0-9]+]], [[SRC2]]
+; CHECK: clrjhe [[ROT:%r[0-9]+]], [[SRC2]],
 ; CHECK: risbg [[ROT]], [[SRC2]], 32, 47, 0
 ; CHECK: br %r14
 ;

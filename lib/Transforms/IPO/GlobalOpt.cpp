@@ -38,6 +38,7 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetLibraryInfo.h"
+#include "llvm/Transforms/Utils/ModuleUtils.h"
 #include <algorithm>
 using namespace llvm;
 
@@ -79,7 +80,6 @@ namespace {
     bool OptimizeGlobalCtorsList(GlobalVariable *&GCL);
     bool ProcessGlobal(GlobalVariable *GV,Module::global_iterator &GVI);
     bool ProcessInternalGlobal(GlobalVariable *GV,Module::global_iterator &GVI,
-                               const SmallPtrSet<const PHINode*, 16> &PHIUsers,
                                const GlobalStatus &GS);
     bool OptimizeEmptyGlobalCXXDtors(Function *CXAAtExitFn);
 
@@ -1504,7 +1504,7 @@ static GlobalVariable *PerformHeapAllocSRoA(GlobalVariable *GV, CallInst *CI,
     unsigned TypeSize = TD->getTypeAllocSize(FieldTy);
     if (StructType *ST = dyn_cast<StructType>(FieldTy))
       TypeSize = TD->getStructLayout(ST)->getSizeInBytes();
-    Type *IntPtrTy = TD->getIntPtrType(CI->getContext());
+    Type *IntPtrTy = TD->getIntPtrType(CI->getType());
     Value *NMI = CallInst::CreateMalloc(CI, IntPtrTy, FieldTy,
                                         ConstantInt::get(IntPtrTy, TypeSize),
                                         NElems, 0,
@@ -1734,7 +1734,7 @@ static bool TryToOptimizeStoreOfMallocToGlobal(GlobalVariable *GV,
     // If this is a fixed size array, transform the Malloc to be an alloc of
     // structs.  malloc [100 x struct],1 -> malloc struct, 100
     if (ArrayType *AT = dyn_cast<ArrayType>(getMallocAllocatedType(CI, TLI))) {
-      Type *IntPtrTy = TD->getIntPtrType(CI->getContext());
+      Type *IntPtrTy = TD->getIntPtrType(CI->getType());
       unsigned TypeSize = TD->getStructLayout(AllocSTy)->getSizeInBytes();
       Value *AllocSize = ConstantInt::get(IntPtrTy, TypeSize);
       Value *NumElements = ConstantInt::get(IntPtrTy, AT->getNumElements());
@@ -1930,14 +1930,13 @@ bool GlobalOpt::ProcessGlobal(GlobalVariable *GV,
   if (GV->isConstant() || !GV->hasInitializer())
     return false;
 
-  return ProcessInternalGlobal(GV, GVI, PHIUsers, GS);
+  return ProcessInternalGlobal(GV, GVI, GS);
 }
 
 /// ProcessInternalGlobal - Analyze the specified global variable and optimize
 /// it if possible.  If we make a change, return true.
 bool GlobalOpt::ProcessInternalGlobal(GlobalVariable *GV,
                                       Module::global_iterator &GVI,
-                                const SmallPtrSet<const PHINode*, 16> &PHIUsers,
                                       const GlobalStatus &GS) {
   // If this is a first class global and has only one accessing function
   // and this function is main (which we know is not recursive), we replace
@@ -2047,11 +2046,14 @@ bool GlobalOpt::ProcessInternalGlobal(GlobalVariable *GV,
 
     // Otherwise, if the global was not a boolean, we can shrink it to be a
     // boolean.
-    if (Constant *SOVConstant = dyn_cast<Constant>(GS.StoredOnceValue))
-      if (TryToShrinkGlobalToBoolean(GV, SOVConstant)) {
-        ++NumShrunkToBool;
-        return true;
+    if (Constant *SOVConstant = dyn_cast<Constant>(GS.StoredOnceValue)) {
+      if (GS.Ordering == NotAtomic) {
+        if (TryToShrinkGlobalToBoolean(GV, SOVConstant)) {
+          ++NumShrunkToBool;
+          return true;
+        }
       }
+    }
   }
 
   return false;
@@ -2783,7 +2785,7 @@ bool Evaluator::EvaluateBlock(BasicBlock::iterator CurInst,
           Value *Ptr = PtrArg->stripPointerCasts();
           if (GlobalVariable *GV = dyn_cast<GlobalVariable>(Ptr)) {
             Type *ElemTy = cast<PointerType>(GV->getType())->getElementType();
-            if (!Size->isAllOnesValue() &&
+            if (TD && !Size->isAllOnesValue() &&
                 Size->getValue().getLimitedValue() >=
                 TD->getTypeStoreSize(ElemTy)) {
               Invariants.insert(GV);
@@ -3040,36 +3042,17 @@ bool GlobalOpt::OptimizeGlobalCtorsList(GlobalVariable *&GCL) {
   return true;
 }
 
-/// \brief Given "llvm.used" or "llvm.compiler_used" as a global name, collect
-/// the initializer elements of that global in Set and return the global itself.
-static GlobalVariable *
-collectUsedGlobalVariables(const Module &M, const char *Name,
-                           SmallPtrSet<GlobalValue *, 8> &Set) {
-  GlobalVariable *GV = M.getGlobalVariable(Name);
-  if (!GV || !GV->hasInitializer())
-    return GV;
-
-  const ConstantArray *Init = cast<ConstantArray>(GV->getInitializer());
-  for (unsigned I = 0, E = Init->getNumOperands(); I != E; ++I) {
-    Value *Op = Init->getOperand(I);
-    GlobalValue *G = cast<GlobalValue>(Op->stripPointerCastsNoFollowAliases());
-    Set.insert(G);
-  }
-  return GV;
-}
-
-static int compareNames(const void *A, const void *B) {
-  const GlobalValue *VA = *reinterpret_cast<GlobalValue* const*>(A);
-  const GlobalValue *VB = *reinterpret_cast<GlobalValue* const*>(B);
-  if (VA->getName() < VB->getName())
-    return -1;
-  if (VB->getName() < VA->getName())
-    return 1;
-  return 0;
+static int compareNames(Constant *const *A, Constant *const *B) {
+  return (*A)->getName().compare((*B)->getName());
 }
 
 static void setUsedInitializer(GlobalVariable &V,
                                SmallPtrSet<GlobalValue *, 8> Init) {
+  if (Init.empty()) {
+    V.eraseFromParent();
+    return;
+  }
+
   SmallVector<llvm::Constant *, 8> UsedArray;
   PointerType *Int8PtrTy = Type::getInt8PtrTy(V.getContext());
 
@@ -3093,7 +3076,7 @@ static void setUsedInitializer(GlobalVariable &V,
 }
 
 namespace {
-/// \brief An easy to access representation of llvm.used and llvm.compiler_used.
+/// \brief An easy to access representation of llvm.used and llvm.compiler.used.
 class LLVMUsed {
   SmallPtrSet<GlobalValue *, 8> Used;
   SmallPtrSet<GlobalValue *, 8> CompilerUsed;
@@ -3101,10 +3084,9 @@ class LLVMUsed {
   GlobalVariable *CompilerUsedV;
 
 public:
-  LLVMUsed(const Module &M) {
-    UsedV = collectUsedGlobalVariables(M, "llvm.used", Used);
-    CompilerUsedV =
-        collectUsedGlobalVariables(M, "llvm.compiler_used", CompilerUsed);
+  LLVMUsed(Module &M) {
+    UsedV = collectUsedGlobalVariables(M, Used, false);
+    CompilerUsedV = collectUsedGlobalVariables(M, CompilerUsed, true);
   }
   typedef SmallPtrSet<GlobalValue *, 8>::iterator iterator;
   iterator usedBegin() { return Used.begin(); }
@@ -3135,13 +3117,13 @@ static bool hasUseOtherThanLLVMUsed(GlobalAlias &GA, const LLVMUsed &U) {
 
   assert((!U.usedCount(&GA) || !U.compilerUsedCount(&GA)) &&
          "We should have removed the duplicated "
-         "element from llvm.compiler_used");
+         "element from llvm.compiler.used");
   if (!GA.hasOneUse())
     // Strictly more than one use. So at least one is not in llvm.used and
-    // llvm.compiler_used.
+    // llvm.compiler.used.
     return true;
 
-  // Exactly one use. Check if it is in llvm.used or llvm.compiler_used.
+  // Exactly one use. Check if it is in llvm.used or llvm.compiler.used.
   return !U.usedCount(&GA) && !U.compilerUsedCount(&GA);
 }
 
@@ -3150,7 +3132,7 @@ static bool hasMoreThanOneUseOtherThanLLVMUsed(GlobalValue &V,
   unsigned N = 2;
   assert((!U.usedCount(&V) || !U.compilerUsedCount(&V)) &&
          "We should have removed the duplicated "
-         "element from llvm.compiler_used");
+         "element from llvm.compiler.used");
   if (U.usedCount(&V) || U.compilerUsedCount(&V))
     ++N;
   return V.hasNUsesOrMore(N);

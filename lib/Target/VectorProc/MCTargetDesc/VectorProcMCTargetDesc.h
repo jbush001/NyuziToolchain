@@ -38,8 +38,10 @@ MCCodeEmitter *createVectorProcMCCodeEmitter(const MCInstrInfo &MCII,
 MCObjectWriter *createVectorProcELFObjectWriter(raw_ostream &OS,
                                                 uint8_t OSABI);
 
-MCAsmBackend *createVectorProcAsmBackend(const Target &T, StringRef TT,
-                                             StringRef CPU);
+MCAsmBackend *createVectorProcAsmBackend(const Target &T,  
+	                                       	const MCRegisterInfo &MRI,
+											StringRef TT,
+                                        	StringRef CPU);
                                              
 } // End llvm namespace
 

@@ -211,6 +211,15 @@ TEST(CXXFunctionalCastExpr, SourceRange) {
       functionalCastExpr(), Lang_CXX11));
 }
 
+TEST(CXXTemporaryObjectExpr, SourceRange) {
+  RangeVerifier<CXXTemporaryObjectExpr> Verifier;
+  Verifier.expectRange(2, 6, 2, 12);
+  EXPECT_TRUE(Verifier.match(
+      "struct A { A(int, int); };\n"
+      "A a( A{0, 0} );",
+      temporaryObjectExpr(), Lang_CXX11));
+}
+
 TEST(CXXUnresolvedConstructExpr, SourceRange) {
   RangeVerifier<CXXUnresolvedConstructExpr> Verifier;
   Verifier.expectRange(3, 10, 3, 12);
@@ -222,6 +231,39 @@ TEST(CXXUnresolvedConstructExpr, SourceRange) {
       "  return U{};\n"
       "}",
       unresolvedConstructExpr(), Args, Lang_CXX11));
+}
+
+TEST(UsingDecl, SourceRange) {
+  RangeVerifier<UsingDecl> Verifier;
+  Verifier.expectRange(2, 22, 2, 25);
+  EXPECT_TRUE(Verifier.match(
+      "class B { protected: int i; };\n"
+      "class D : public B { B::i; };",
+      usingDecl()));
+}
+
+TEST(UnresolvedUsingValueDecl, SourceRange) {
+  RangeVerifier<UnresolvedUsingValueDecl> Verifier;
+  Verifier.expectRange(3, 3, 3, 6);
+  EXPECT_TRUE(Verifier.match(
+      "template <typename B>\n"
+      "class D : public B {\n"
+      "  B::i;\n"
+      "};",
+      unresolvedUsingValueDecl()));
+}
+
+TEST(FriendDecl, InstantiationSourceRange) {
+  RangeVerifier<FriendDecl> Verifier;
+  Verifier.expectRange(4, 3, 4, 35);
+  EXPECT_TRUE(Verifier.match(
+      "template <typename T> class S;\n"
+      "template<class T> void operator+(S<T> x);\n"
+      "template<class T> struct S {\n"
+      "  friend void operator+<>(S<T> src);\n"
+      "};\n"
+      "void test(S<double> s) { +s; }",
+      friendDecl(hasParent(recordDecl(isTemplateInstantiation())))));
 }
 
 } // end namespace ast_matchers

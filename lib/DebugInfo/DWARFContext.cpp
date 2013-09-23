@@ -23,6 +23,11 @@ using namespace object;
 
 typedef DWARFDebugLine::LineTable DWARFLineTable;
 
+DWARFContext::~DWARFContext() {
+  DeleteContainerPointers(CUs);
+  DeleteContainerPointers(DWOCUs);
+}
+
 void DWARFContext::dump(raw_ostream &OS, DIDumpType DumpType) {
   if (DumpType == DIDT_All || DumpType == DIDT_Abbrev) {
     OS << ".debug_abbrev contents:\n";
@@ -112,6 +117,27 @@ void DWARFContext::dump(raw_ostream &OS, DIDumpType DumpType) {
         break;
       OS << format("%8x    ", n);
       OS << pubNames.getCStr(&offset) << "\n";
+    }
+  }
+
+  if (DumpType == DIDT_All || DumpType == DIDT_GnuPubnames) {
+    OS << "\n.debug_gnu_pubnames contents:\n";
+    DataExtractor pubNames(getGnuPubNamesSection(), isLittleEndian(), 0);
+    offset = 0;
+    OS << "Length:                " << pubNames.getU32(&offset) << "\n";
+    OS << "Version:               " << pubNames.getU16(&offset) << "\n";
+    OS << "Offset in .debug_info: " << pubNames.getU32(&offset) << "\n";
+    OS << "Size:                  " << pubNames.getU32(&offset) << "\n";
+    OS << "Offset     Linkage  Kind    Name\n";
+    while (offset < getGnuPubNamesSection().size()) {
+      uint32_t dieRef = pubNames.getU32(&offset);
+      if (dieRef == 0)
+        break;
+      PubIndexEntryDescriptor desc(pubNames.getU8(&offset));
+      OS << format("0x%8.8x ", dieRef)
+         << format("%-8s", dwarf::GDBIndexEntryLinkageString(desc.Linkage))
+         << ' ' << dwarf::GDBIndexEntryKindString(desc.Kind) << " \""
+         << pubNames.getCStr(&offset) << "\"\n";
     }
   }
 
@@ -249,18 +275,15 @@ void DWARFContext::parseCompileUnits() {
   const DataExtractor &DIData = DataExtractor(getInfoSection(),
                                               isLittleEndian(), 0);
   while (DIData.isValidOffset(offset)) {
-    CUs.push_back(DWARFCompileUnit(getDebugAbbrev(), getInfoSection(),
-                                   getAbbrevSection(), getRangeSection(),
-                                   getStringSection(), StringRef(),
-                                   getAddrSection(),
-                                   &infoRelocMap(),
-                                   isLittleEndian()));
-    if (!CUs.back().extract(DIData, &offset)) {
-      CUs.pop_back();
+    OwningPtr<DWARFCompileUnit> CU(new DWARFCompileUnit(
+        getDebugAbbrev(), getInfoSection(), getAbbrevSection(),
+        getRangeSection(), getStringSection(), StringRef(), getAddrSection(),
+        &infoRelocMap(), isLittleEndian()));
+    if (!CU->extract(DIData, &offset)) {
       break;
     }
-
-    offset = CUs.back().getNextCompileUnitOffset();
+    CUs.push_back(CU.take());
+    offset = CUs.back()->getNextCompileUnitOffset();
   }
 }
 
@@ -269,34 +292,30 @@ void DWARFContext::parseDWOCompileUnits() {
   const DataExtractor &DIData = DataExtractor(getInfoDWOSection(),
                                               isLittleEndian(), 0);
   while (DIData.isValidOffset(offset)) {
-    DWOCUs.push_back(DWARFCompileUnit(getDebugAbbrevDWO(), getInfoDWOSection(),
-                                      getAbbrevDWOSection(),
-                                      getRangeDWOSection(),
-                                      getStringDWOSection(),
-                                      getStringOffsetDWOSection(),
-                                      getAddrSection(),
-                                      &infoDWORelocMap(),
-                                      isLittleEndian()));
-    if (!DWOCUs.back().extract(DIData, &offset)) {
-      DWOCUs.pop_back();
+    OwningPtr<DWARFCompileUnit> DWOCU(new DWARFCompileUnit(
+        getDebugAbbrevDWO(), getInfoDWOSection(), getAbbrevDWOSection(),
+        getRangeDWOSection(), getStringDWOSection(),
+        getStringOffsetDWOSection(), getAddrSection(), &infoDWORelocMap(),
+        isLittleEndian()));
+    if (!DWOCU->extract(DIData, &offset)) {
       break;
     }
-
-    offset = DWOCUs.back().getNextCompileUnitOffset();
+    DWOCUs.push_back(DWOCU.take());
+    offset = DWOCUs.back()->getNextCompileUnitOffset();
   }
 }
 
 namespace {
   struct OffsetComparator {
-    bool operator()(const DWARFCompileUnit &LHS,
-                    const DWARFCompileUnit &RHS) const {
-      return LHS.getOffset() < RHS.getOffset();
+    bool operator()(const DWARFCompileUnit *LHS,
+                    const DWARFCompileUnit *RHS) const {
+      return LHS->getOffset() < RHS->getOffset();
     }
-    bool operator()(const DWARFCompileUnit &LHS, uint32_t RHS) const {
-      return LHS.getOffset() < RHS;
+    bool operator()(const DWARFCompileUnit *LHS, uint32_t RHS) const {
+      return LHS->getOffset() < RHS;
     }
-    bool operator()(uint32_t LHS, const DWARFCompileUnit &RHS) const {
-      return LHS < RHS.getOffset();
+    bool operator()(uint32_t LHS, const DWARFCompileUnit *RHS) const {
+      return LHS < RHS->getOffset();
     }
   };
 }
@@ -305,10 +324,11 @@ DWARFCompileUnit *DWARFContext::getCompileUnitForOffset(uint32_t Offset) {
   if (CUs.empty())
     parseCompileUnits();
 
-  DWARFCompileUnit *CU = std::lower_bound(CUs.begin(), CUs.end(), Offset,
-                                          OffsetComparator());
-  if (CU != CUs.end())
-    return &*CU;
+  DWARFCompileUnit **CU =
+      std::lower_bound(CUs.begin(), CUs.end(), Offset, OffsetComparator());
+  if (CU != CUs.end()) {
+    return *CU;
+  }
   return 0;
 }
 
@@ -376,11 +396,11 @@ DILineInfo DWARFContext::getLineInfoForAddress(uint64_t Address,
     // The address may correspond to instruction in some inlined function,
     // so we have to build the chain of inlined functions and take the
     // name of the topmost function in it.
-    const DWARFDebugInfoEntryMinimal::InlinedChain &InlinedChain =
+    const DWARFDebugInfoEntryInlinedChain &InlinedChain =
         CU->getInlinedChainForAddress(Address);
-    if (InlinedChain.size() > 0) {
-      const DWARFDebugInfoEntryMinimal &TopFunctionDIE = InlinedChain[0];
-      if (const char *Name = TopFunctionDIE.getSubroutineName(CU))
+    if (InlinedChain.DIEs.size() > 0) {
+      const DWARFDebugInfoEntryMinimal &TopFunctionDIE = InlinedChain.DIEs[0];
+      if (const char *Name = TopFunctionDIE.getSubroutineName(InlinedChain.CU))
         FunctionName = Name;
     }
   }
@@ -409,23 +429,20 @@ DILineInfoTable DWARFContext::getLineInfoForAddressRange(uint64_t Address,
     // The address may correspond to instruction in some inlined function,
     // so we have to build the chain of inlined functions and take the
     // name of the topmost function in it.
-    const DWARFDebugInfoEntryMinimal::InlinedChain &InlinedChain =
+    const DWARFDebugInfoEntryInlinedChain &InlinedChain =
         CU->getInlinedChainForAddress(Address);
-    if (InlinedChain.size() > 0) {
-      const DWARFDebugInfoEntryMinimal &TopFunctionDIE = InlinedChain[0];
-      if (const char *Name = TopFunctionDIE.getSubroutineName(CU))
+    if (InlinedChain.DIEs.size() > 0) {
+      const DWARFDebugInfoEntryMinimal &TopFunctionDIE = InlinedChain.DIEs[0];
+      if (const char *Name = TopFunctionDIE.getSubroutineName(InlinedChain.CU))
         FunctionName = Name;
     }
   }
 
-  StringRef  FuncNameRef = StringRef(FunctionName);
-
   // If the Specifier says we don't need FileLineInfo, just
   // return the top-most function at the starting address.
   if (!Specifier.needs(DILineInfoSpecifier::FileLineInfo)) {
-    Lines.push_back(std::make_pair(Address, 
-                                   DILineInfo(StringRef("<invalid>"), 
-                                              FuncNameRef, 0, 0)));
+    Lines.push_back(
+        std::make_pair(Address, DILineInfo("<invalid>", FunctionName, 0, 0)));
     return Lines;
   }
 
@@ -446,9 +463,8 @@ DILineInfoTable DWARFContext::getLineInfoForAddressRange(uint64_t Address,
     std::string FileName = "<invalid>";
     getFileNameForCompileUnit(CU, LineTable, Row.File,
                               NeedsAbsoluteFilePath, FileName);
-    Lines.push_back(std::make_pair(Row.Address, 
-                                   DILineInfo(StringRef(FileName),
-                                         FuncNameRef, Row.Line, Row.Column)));
+    Lines.push_back(std::make_pair(
+        Row.Address, DILineInfo(FileName, FunctionName, Row.Line, Row.Column)));
   }
 
   return Lines;
@@ -460,23 +476,23 @@ DIInliningInfo DWARFContext::getInliningInfoForAddress(uint64_t Address,
   if (!CU)
     return DIInliningInfo();
 
-  const DWARFDebugInfoEntryMinimal::InlinedChain &InlinedChain =
+  const DWARFDebugInfoEntryInlinedChain &InlinedChain =
       CU->getInlinedChainForAddress(Address);
-  if (InlinedChain.size() == 0)
+  if (InlinedChain.DIEs.size() == 0)
     return DIInliningInfo();
 
   DIInliningInfo InliningInfo;
   uint32_t CallFile = 0, CallLine = 0, CallColumn = 0;
   const DWARFLineTable *LineTable = 0;
-  for (uint32_t i = 0, n = InlinedChain.size(); i != n; i++) {
-    const DWARFDebugInfoEntryMinimal &FunctionDIE = InlinedChain[i];
+  for (uint32_t i = 0, n = InlinedChain.DIEs.size(); i != n; i++) {
+    const DWARFDebugInfoEntryMinimal &FunctionDIE = InlinedChain.DIEs[i];
     std::string FileName = "<invalid>";
     std::string FunctionName = "<invalid>";
     uint32_t Line = 0;
     uint32_t Column = 0;
     // Get function name if necessary.
     if (Specifier.needs(DILineInfoSpecifier::FunctionName)) {
-      if (const char *Name = FunctionDIE.getSubroutineName(CU))
+      if (const char *Name = FunctionDIE.getSubroutineName(InlinedChain.CU))
         FunctionName = Name;
     }
     if (Specifier.needs(DILineInfoSpecifier::FileLineInfo)) {
@@ -500,7 +516,8 @@ DIInliningInfo DWARFContext::getInliningInfoForAddress(uint64_t Address,
       }
       // Get call file/line/column of a current DIE.
       if (i + 1 < n) {
-        FunctionDIE.getCallerFrame(CU, CallFile, CallLine, CallColumn);
+        FunctionDIE.getCallerFrame(InlinedChain.CU, CallFile, CallLine,
+                                   CallColumn);
       }
     }
     DILineInfo Frame(StringRef(FileName), StringRef(FunctionName),
@@ -566,6 +583,7 @@ DWARFContextInMemory::DWARFContextInMemory(object::ObjectFile *Obj) :
         .Case("debug_str", &StringSection)
         .Case("debug_ranges", &RangeSection)
         .Case("debug_pubnames", &PubNamesSection)
+        .Case("debug_gnu_pubnames", &GnuPubNamesSection)
         .Case("debug_info.dwo", &InfoDWOSection)
         .Case("debug_abbrev.dwo", &AbbrevDWOSection)
         .Case("debug_str.dwo", &StringDWOSection)

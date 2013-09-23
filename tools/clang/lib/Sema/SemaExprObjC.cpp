@@ -324,7 +324,8 @@ ExprResult Sema::ActOnObjCBoolLiteral(SourceLocation AtLoc,
 /// \brief Check that the given expression is a valid element of an Objective-C
 /// collection literal.
 static ExprResult CheckObjCCollectionLiteralElement(Sema &S, Expr *Element, 
-                                                    QualType T) {  
+                                                    QualType T,
+                                                    bool ArrayLiteral = false) {
   // If the expression is type-dependent, there's nothing for us to do.
   if (Element->isTypeDependent())
     return Element;
@@ -401,14 +402,20 @@ static ExprResult CheckObjCCollectionLiteralElement(Sema &S, Expr *Element,
         Recovered = true;
       }
     }
-    
+  
     if (!Recovered) {
       S.Diag(Element->getLocStart(), diag::err_invalid_collection_element)
         << Element->getType();
       return ExprError();
     }
   }
-  
+  if (ArrayLiteral)
+    if (ObjCStringLiteral *getString = dyn_cast<ObjCStringLiteral>(OrigElement)) {
+      if (getString->getString() && getString->getString()->getNumConcatenated() > 1)
+        S.Diag(Element->getLocStart(), diag::warn_concatenated_nsarray_literal)
+        << Element->getType();
+    }
+
   // Make sure that the element has the type that the container factory 
   // function expects. 
   return S.PerformCopyInitialization(
@@ -710,7 +717,7 @@ ExprResult Sema::BuildObjCArrayLiteral(SourceRange SR, MultiExprArg Elements) {
   for (unsigned I = 0, N = Elements.size(); I != N; ++I) {
     ExprResult Converted = CheckObjCCollectionLiteralElement(*this,
                                                              ElementsBuffer[I],
-                                                             RequiredType);
+                                                             RequiredType, true);
     if (Converted.isInvalid())
       return ExprError();
     
@@ -902,14 +909,10 @@ ExprResult Sema::BuildObjCDictionaryLiteral(SourceRange SR,
   
   QualType Ty
     = Context.getObjCObjectPointerType(
-                                Context.getObjCInterfaceType(NSDictionaryDecl));  
-  return MaybeBindToTemporary(
-           ObjCDictionaryLiteral::Create(Context, 
-                                         llvm::makeArrayRef(Elements, 
-                                                            NumElements),
-                                         HasPackExpansions,
-                                         Ty, 
-                                         DictionaryWithObjectsMethod, SR));
+                                Context.getObjCInterfaceType(NSDictionaryDecl));
+  return MaybeBindToTemporary(ObjCDictionaryLiteral::Create(
+      Context, makeArrayRef(Elements, NumElements), HasPackExpansions, Ty,
+      DictionaryWithObjectsMethod, SR));
 }
 
 ExprResult Sema::BuildObjCEncodeExpression(SourceLocation AtLoc,
@@ -1358,8 +1361,7 @@ bool Sema::CheckMessageArgumentTypes(QualType ReceiverType,
 
   // Do additional checkings on method.
   IsError |= CheckObjCMethodCall(
-                  Method, SelLoc,
-                  llvm::makeArrayRef<const Expr *>(Args.data(), Args.size()));
+      Method, SelLoc, makeArrayRef<const Expr *>(Args.data(), Args.size()));
 
   return IsError;
 }
@@ -1601,16 +1603,11 @@ HandleExprPropertyRefExpr(const ObjCObjectPointerType *OPT,
   // Attempt to correct for typos in property names.
   DeclFilterCCC<ObjCPropertyDecl> Validator;
   if (TypoCorrection Corrected = CorrectTypo(
-      DeclarationNameInfo(MemberName, MemberLoc), LookupOrdinaryName, NULL,
-      NULL, Validator, IFace, false, OPT)) {
-    ObjCPropertyDecl *Property =
-        Corrected.getCorrectionDeclAs<ObjCPropertyDecl>();
+          DeclarationNameInfo(MemberName, MemberLoc), LookupOrdinaryName, NULL,
+          NULL, Validator, IFace, false, OPT)) {
+    diagnoseTypo(Corrected, PDiag(diag::err_property_not_found_suggest)
+                              << MemberName << QualType(OPT, 0));
     DeclarationName TypoResult = Corrected.getCorrection();
-    Diag(MemberLoc, diag::err_property_not_found_suggest)
-      << MemberName << QualType(OPT, 0) << TypoResult
-      << FixItHint::CreateReplacement(MemberLoc, TypoResult.getAsString());
-    Diag(Property->getLocation(), diag::note_previous_decl)
-      << Property->getDeclName();
     return HandleExprPropertyRefExpr(OPT, BaseExpr, OpLoc,
                                      TypoResult, MemberLoc,
                                      SuperLoc, SuperType, Super);
@@ -1848,28 +1845,22 @@ Sema::ObjCMessageKind Sema::getObjCMessageKind(Scope *S,
     if (Corrected.isKeyword()) {
       // If we've found the keyword "super" (the only keyword that would be
       // returned by CorrectTypo), this is a send to super.
-      Diag(NameLoc, diag::err_unknown_receiver_suggest)
-        << Name << Corrected.getCorrection()
-        << FixItHint::CreateReplacement(SourceRange(NameLoc), "super");
+      diagnoseTypo(Corrected,
+                   PDiag(diag::err_unknown_receiver_suggest) << Name);
       return ObjCSuperMessage;
     } else if (ObjCInterfaceDecl *Class =
-               Corrected.getCorrectionDeclAs<ObjCInterfaceDecl>()) {
+                   Corrected.getCorrectionDeclAs<ObjCInterfaceDecl>()) {
       // If we found a declaration, correct when it refers to an Objective-C
       // class.
-      Diag(NameLoc, diag::err_unknown_receiver_suggest)
-        << Name << Corrected.getCorrection()
-        << FixItHint::CreateReplacement(SourceRange(NameLoc),
-                                        Class->getNameAsString());
-      Diag(Class->getLocation(), diag::note_previous_decl)
-        << Corrected.getCorrection();
-
+      diagnoseTypo(Corrected,
+                   PDiag(diag::err_unknown_receiver_suggest) << Name);
       QualType T = Context.getObjCInterfaceType(Class);
       TypeSourceInfo *TSInfo = Context.getTrivialTypeSourceInfo(T, NameLoc);
       ReceiverType = CreateParsedType(T, TSInfo);
       return ObjCClassMessage;
     }
   }
-  
+
   // Fall back: let the parser try to parse it as an instance message.
   return ObjCInstanceMessage;
 }
@@ -3157,7 +3148,8 @@ diagnoseObjCARCConversion(Sema &S, SourceRange castRange,
 
 Sema::ARCConversionResult
 Sema::CheckObjCARCConversion(SourceRange castRange, QualType castType,
-                             Expr *&castExpr, CheckedConversionKind CCK) {
+                             Expr *&castExpr, CheckedConversionKind CCK,
+                             bool DiagnoseCFAudited) {
   QualType castExprType = castExpr->getType();
 
   // For the purposes of the classification, we assume reference types
@@ -3238,8 +3230,14 @@ Sema::CheckObjCARCConversion(SourceRange castRange, QualType castType,
       CCK != CCK_ImplicitConversion)
     return ACR_unbridged;
 
-  diagnoseObjCARCConversion(*this, castRange, castType, castACTC,
-                            castExpr, castExpr, exprACTC, CCK);
+  // Do not issue "bridge cast" diagnostic when implicit casting
+  // a retainable object to a CF type parameter belonging to an audited
+  // CF API function. Let caller issue a normal type mismatched diagnostic
+  // instead.
+  if (!DiagnoseCFAudited || exprACTC != ACTC_retainable ||
+      castACTC != ACTC_coreFoundation)
+    diagnoseObjCARCConversion(*this, castRange, castType, castACTC,
+                              castExpr, castExpr, exprACTC, CCK);
   return ACR_okay;
 }
 

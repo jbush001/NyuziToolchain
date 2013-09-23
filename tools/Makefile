@@ -54,11 +54,10 @@ endif
 ifndef ONLY_TOOLS
 ifeq ($(ENABLE_PIC),1)
   # gold only builds if binutils is around.  It requires "lto" to build before
-  # it so it is added to DIRS.
+  # it so it is added to DIRS. llvm-lto also requires lto
+  DIRS += lto llvm-lto
   ifdef BINUTILS_INCDIR
-    DIRS += lto gold
-  else
-    PARALLEL_DIRS += lto
+    DIRS += gold
   endif
 
   PARALLEL_DIRS += bugpoint-passes
@@ -72,6 +71,8 @@ endif
 # On Win32, loadable modules can be built with ENABLE_SHARED.
 ifneq ($(ENABLE_SHARED),1)
   ifneq (,$(filter $(HOST_OS), Cygwin MingW))
+    DIRS := $(filter-out llvm-lto, \
+                        $(DIRS))
     PARALLEL_DIRS := $(filter-out bugpoint-passes, \
                         $(PARALLEL_DIRS))
   endif

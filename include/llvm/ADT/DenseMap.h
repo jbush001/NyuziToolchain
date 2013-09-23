@@ -64,7 +64,9 @@ public:
     return const_iterator(getBucketsEnd(), getBucketsEnd(), true);
   }
 
-  bool empty() const { return getNumEntries() == 0; }
+  bool LLVM_ATTRIBUTE_UNUSED_RESULT empty() const {
+    return getNumEntries() == 0;
+  }
   unsigned size() const { return getNumEntries(); }
 
   /// Grow the densemap so that it has at least Size buckets. Does not shrink
@@ -713,13 +715,13 @@ public:
     init(NumInitBuckets);
   }
 
-  SmallDenseMap(const SmallDenseMap &other) {
+  SmallDenseMap(const SmallDenseMap &other) : BaseT() {
     init(0);
     copyFrom(other);
   }
 
 #if LLVM_HAS_RVALUE_REFERENCES
-  SmallDenseMap(SmallDenseMap &&other) {
+  SmallDenseMap(SmallDenseMap &&other) : BaseT() {
     init(0);
     swap(other);
   }

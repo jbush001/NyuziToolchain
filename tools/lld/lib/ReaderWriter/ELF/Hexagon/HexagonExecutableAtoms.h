@@ -10,20 +10,18 @@
 #ifndef LLD_READER_WRITER_ELF_HEXAGON_EXECUTABLE_ATOM_H
 #define LLD_READER_WRITER_ELF_HEXAGON_EXECUTABLE_ATOM_H
 
-#include "ExecutableAtoms.h"
+#include "File.h"
 
 namespace lld {
 namespace elf {
 typedef llvm::object::ELFType<llvm::support::little, 4, false> HexagonELFType;
-class HexagonTargetInfo;
+class HexagonLinkingContext;
 
 template <class HexagonELFType> class HexagonRuntimeFile
   : public CRuntimeFile<HexagonELFType> {
 public:
-  HexagonRuntimeFile(const HexagonTargetInfo &hti)
-    :CRuntimeFile<HexagonELFType>(hti, "Hexagon runtime file")
-  {}
-
+  HexagonRuntimeFile(const HexagonLinkingContext &context)
+      : CRuntimeFile<HexagonELFType>(context, "Hexagon runtime file") {}
 };
 } // elf
 } // lld

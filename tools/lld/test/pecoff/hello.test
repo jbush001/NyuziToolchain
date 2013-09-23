@@ -1,13 +1,15 @@
 # RUN: yaml2obj %p/Inputs/hello.obj.yaml > %t.obj
 
-# RUN: lld -flavor link -out %t1 -subsystem console -force -- %t.obj \
+# RUN: lld -flavor link /out:%t1 /subsystem:console /force /opt:noref \
+# RUN:   -- %t.obj \
 # RUN:   && llvm-readobj -file-headers %t1 | FileCheck -check-prefix=FILE %s
 
 FILE: ImageOptionalHeader {
-FILE:   SizeOfInitializedData: 512
+FILE:   SizeOfInitializedData: 1024
 FILE: }
 
-# RUN: lld -flavor link -out %t1 -subsystem console -force -- %t.obj \
+# RUN: lld -flavor link /out:%t1 /subsystem:console /force /opt:noref \
+# RUN:   -- %t.obj \
 # RUN:   && llvm-readobj -sections %t1 | FileCheck -check-prefix=SECTIONS %s
 
 SECTIONS: Format: COFF-i386
@@ -34,7 +36,7 @@ SECTIONS:   }
 SECTIONS:   Section {
 SECTIONS:     Number: 2
 SECTIONS:     Name: .data (2E 64 61 74 61 00 00 00)
-SECTIONS:     VirtualSize: 0x18
+SECTIONS:     VirtualSize: 0x12
 SECTIONS:     VirtualAddress: 0x2000
 SECTIONS:     RawDataSize: 512
 SECTIONS:     PointerToRawData: 0x400

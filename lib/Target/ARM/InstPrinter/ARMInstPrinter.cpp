@@ -249,9 +249,10 @@ void ARMInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
   // GPRs. However, when decoding them, the two GRPs cannot be automatically
   // expressed as a GPRPair, so we have to manually merge them.
   // FIXME: We would really like to be able to tablegen'erate this.
-  if (Opcode == ARM::LDREXD || Opcode == ARM::STREXD) {
+  if (Opcode == ARM::LDREXD || Opcode == ARM::STREXD ||
+      Opcode == ARM::LDAEXD || Opcode == ARM::STLEXD) {
     const MCRegisterClass& MRC = MRI.getRegClass(ARM::GPRRegClassID);
-    bool isStore = Opcode == ARM::STREXD;
+    bool isStore = Opcode == ARM::STREXD || Opcode == ARM::STLEXD;
     unsigned Reg = MI->getOperand(isStore ? 1 : 0).getReg();
     if (MRC.contains(Reg)) {
       MCInst NewMI;
@@ -676,7 +677,7 @@ void ARMInstPrinter::printBitfieldInvMaskImmOperand(const MCInst *MI,
 void ARMInstPrinter::printMemBOption(const MCInst *MI, unsigned OpNum,
                                      raw_ostream &O) {
   unsigned val = MI->getOperand(OpNum).getImm();
-  O << ARM_MB::MemBOptToString(val);
+  O << ARM_MB::MemBOptToString(val, (getAvailableFeatures() & ARM::HasV8Ops));
 }
 
 void ARMInstPrinter::printInstSyncBOption(const MCInst *MI, unsigned OpNum,

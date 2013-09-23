@@ -45,6 +45,7 @@
 #ifndef LLVM_CLANG_AST_MATCHERS_AST_MATCHERS_H
 #define LLVM_CLANG_AST_MATCHERS_AST_MATCHERS_H
 
+#include "clang/AST/DeclFriend.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/ASTMatchers/ASTMatchersInternal.h"
 #include "clang/ASTMatchers/ASTMatchersMacros.h"
@@ -240,6 +241,17 @@ const internal::VariadicDynCastAllOfMatcher<Decl, ParmVarDecl> parmVarDecl;
 const internal::VariadicDynCastAllOfMatcher<
   Decl,
   AccessSpecDecl> accessSpecDecl;
+
+/// \brief Matches constructor initializers.
+///
+/// Examples matches \c i(42).
+/// \code
+///   class C {
+///     C() : i(42) {}
+///     int i;
+///   };
+/// \endcode
+const internal::VariadicAllOfMatcher<CXXCtorInitializer> ctorInitializer;
 
 /// \brief Matches public C++ declarations.
 ///
@@ -539,6 +551,16 @@ const internal::VariadicDynCastAllOfMatcher<
   Decl,
   FunctionTemplateDecl> functionTemplateDecl;
 
+/// \brief Matches friend declarations.
+///
+/// Given
+/// \code
+///   class X { friend void foo(); };
+/// \endcode
+/// friendDecl()
+///   matches 'friend void foo()'.
+const internal::VariadicDynCastAllOfMatcher<Decl, FriendDecl> friendDecl;
+
 /// \brief Matches statements.
 ///
 /// Given
@@ -625,6 +647,21 @@ const internal::VariadicDynCastAllOfMatcher<Stmt, InitListExpr> initListExpr;
 /// usingDecl()
 ///   matches \code using X::x \endcode
 const internal::VariadicDynCastAllOfMatcher<Decl, UsingDecl> usingDecl;
+
+/// \brief Matches unresolved using value declarations.
+///
+/// Given
+/// \code
+///   template<typename X>
+///   class C : private X {
+///     using X::x;
+///   };
+/// \endcode
+/// unresolvedUsingValueDecl()
+///   matches \code using X::x \endcode
+const internal::VariadicDynCastAllOfMatcher<
+  Decl,
+  UnresolvedUsingValueDecl> unresolvedUsingValueDecl;
 
 /// \brief Matches constructor call expressions (including implicit ones).
 ///
@@ -1032,14 +1069,24 @@ const internal::VariadicDynCastAllOfMatcher<
   Stmt,
   CharacterLiteral> characterLiteral;
 
-/// \brief Matches integer literals of all sizes / encodings.
+/// \brief Matches integer literals of all sizes / encodings, e.g.
+/// 1, 1L, 0x1 and 1U.
 ///
-/// Not matching character-encoded integers such as L'a'.
-///
-/// Example matches 1, 1L, 0x1, 1U
+/// Does not match character-encoded integers such as L'a'.
 const internal::VariadicDynCastAllOfMatcher<
   Stmt,
   IntegerLiteral> integerLiteral;
+
+/// \brief Matches float literals of all sizes / encodings, e.g.
+/// 1.0, 1.0f, 1.0L and 1e10.
+///
+/// Does not match implicit conversions such as
+/// \code
+///   float a = 10;
+/// \endcode
+const internal::VariadicDynCastAllOfMatcher<
+  Stmt,
+  FloatingLiteral> floatLiteral;
 
 /// \brief Matches user defined literal operator call.
 ///
@@ -1222,6 +1269,16 @@ const internal::VariadicDynCastAllOfMatcher<
   Stmt,
   CXXFunctionalCastExpr> functionalCastExpr;
 
+/// \brief Matches functional cast expressions having N != 1 arguments
+///
+/// Example: Matches Foo(bar, bar)
+/// \code
+///   Foo h = Foo(bar, bar);
+/// \endcode
+const internal::VariadicDynCastAllOfMatcher<
+  Stmt,
+  CXXTemporaryObjectExpr> temporaryObjectExpr;
+
 /// \brief Matches \c QualTypes in the clang AST.
 const internal::VariadicAllOfMatcher<QualType> qualType;
 
@@ -1250,93 +1307,23 @@ const internal::VariadicAllOfMatcher<TypeLoc> typeLoc;
 /// \c b.
 ///
 /// Usable as: Any Matcher
-template <typename M1, typename M2>
-internal::PolymorphicMatcherWithParam2<internal::EachOfMatcher, M1, M2>
-eachOf(const M1 &P1, const M2 &P2) {
-  return internal::PolymorphicMatcherWithParam2<internal::EachOfMatcher, M1,
-                                                M2>(P1, P2);
-}
-
-/// \brief Various overloads for the anyOf matcher.
-/// @{
+const internal::VariadicOperatorMatcherFunc eachOf = {
+  internal::EachOfVariadicOperator
+};
 
 /// \brief Matches if any of the given matchers matches.
 ///
 /// Usable as: Any Matcher
-template<typename M1, typename M2>
-internal::PolymorphicMatcherWithParam2<internal::AnyOfMatcher, M1, M2>
-anyOf(const M1 &P1, const M2 &P2) {
-  return internal::PolymorphicMatcherWithParam2<internal::AnyOfMatcher,
-                                                M1, M2 >(P1, P2);
-}
-template<typename M1, typename M2, typename M3>
-internal::PolymorphicMatcherWithParam2<internal::AnyOfMatcher, M1,
-    internal::PolymorphicMatcherWithParam2<internal::AnyOfMatcher, M2, M3> >
-anyOf(const M1 &P1, const M2 &P2, const M3 &P3) {
-  return anyOf(P1, anyOf(P2, P3));
-}
-template<typename M1, typename M2, typename M3, typename M4>
-internal::PolymorphicMatcherWithParam2<internal::AnyOfMatcher, M1,
-    internal::PolymorphicMatcherWithParam2<internal::AnyOfMatcher, M2,
-        internal::PolymorphicMatcherWithParam2<internal::AnyOfMatcher,
-                                               M3, M4> > >
-anyOf(const M1 &P1, const M2 &P2, const M3 &P3, const M4 &P4) {
-  return anyOf(P1, anyOf(P2, anyOf(P3, P4)));
-}
-template<typename M1, typename M2, typename M3, typename M4, typename M5>
-internal::PolymorphicMatcherWithParam2<internal::AnyOfMatcher, M1,
-    internal::PolymorphicMatcherWithParam2<internal::AnyOfMatcher, M2,
-        internal::PolymorphicMatcherWithParam2<internal::AnyOfMatcher, M3,
-            internal::PolymorphicMatcherWithParam2<internal::AnyOfMatcher,
-                                                   M4, M5> > > >
-anyOf(const M1 &P1, const M2 &P2, const M3 &P3, const M4 &P4, const M5 &P5) {
-  return anyOf(P1, anyOf(P2, anyOf(P3, anyOf(P4, P5))));
-}
-
-/// @}
-
-/// \brief Various overloads for the allOf matcher.
-/// @{
+const internal::VariadicOperatorMatcherFunc anyOf = {
+  internal::AnyOfVariadicOperator
+};
 
 /// \brief Matches if all given matchers match.
 ///
 /// Usable as: Any Matcher
-template <typename M1, typename M2>
-internal::PolymorphicMatcherWithParam2<internal::AllOfMatcher, M1, M2>
-allOf(const M1 &P1, const M2 &P2) {
-  return internal::PolymorphicMatcherWithParam2<internal::AllOfMatcher, M1, M2>(
-      P1, P2);
-}
-template <typename M1, typename M2, typename M3>
-internal::PolymorphicMatcherWithParam2<
-    internal::AllOfMatcher, M1,
-    internal::PolymorphicMatcherWithParam2<internal::AllOfMatcher, M2, M3> >
-allOf(const M1 &P1, const M2 &P2, const M3 &P3) {
-  return allOf(P1, allOf(P2, P3));
-}
-template <typename M1, typename M2, typename M3, typename M4>
-internal::PolymorphicMatcherWithParam2<
-    internal::AllOfMatcher, M1,
-    internal::PolymorphicMatcherWithParam2<
-        internal::AllOfMatcher, M2, internal::PolymorphicMatcherWithParam2<
-                                        internal::AllOfMatcher, M3, M4> > >
-allOf(const M1 &P1, const M2 &P2, const M3 &P3, const M4 &P4) {
-  return allOf(P1, allOf(P2, P3, P4));
-}
-template <typename M1, typename M2, typename M3, typename M4, typename M5>
-internal::PolymorphicMatcherWithParam2<
-    internal::AllOfMatcher, M1,
-    internal::PolymorphicMatcherWithParam2<
-        internal::AllOfMatcher, M2,
-        internal::PolymorphicMatcherWithParam2<
-            internal::AllOfMatcher, M3,
-            internal::PolymorphicMatcherWithParam2<internal::AllOfMatcher, M4,
-                                                   M5> > > >
-allOf(const M1 &P1, const M2 &P2, const M3 &P3, const M4 &P4, const M5 &P5) {
-  return allOf(P1, allOf(P2, P3, P4, P5));
-}
-
-/// @}
+const internal::VariadicOperatorMatcherFunc allOf = {
+  internal::AllOfVariadicOperator
+};
 
 /// \brief Matches sizeof (C99), alignof (C++11) and vec_step (OpenCL)
 ///
@@ -1499,24 +1486,25 @@ AST_MATCHER_P(CXXRecordDecl, isDerivedFrom,
 }
 
 /// \brief Overloaded method as shortcut for \c isDerivedFrom(hasName(...)).
-inline internal::Matcher<CXXRecordDecl> isDerivedFrom(StringRef BaseName) {
+AST_MATCHER_P_OVERLOAD(CXXRecordDecl, isDerivedFrom, StringRef, BaseName, 1) {
   assert(!BaseName.empty());
-  return isDerivedFrom(hasName(BaseName));
+  return isDerivedFrom(hasName(BaseName)).matches(Node, Finder, Builder);
 }
 
 /// \brief Similar to \c isDerivedFrom(), but also matches classes that directly
 /// match \c Base.
-inline internal::Matcher<CXXRecordDecl> isSameOrDerivedFrom(
-    internal::Matcher<NamedDecl> Base) {
-  return anyOf(Base, isDerivedFrom(Base));
+AST_MATCHER_P_OVERLOAD(CXXRecordDecl, isSameOrDerivedFrom,
+                       internal::Matcher<NamedDecl>, Base, 0) {
+  return Matcher<CXXRecordDecl>(anyOf(Base, isDerivedFrom(Base)))
+      .matches(Node, Finder, Builder);
 }
 
 /// \brief Overloaded method as shortcut for
 /// \c isSameOrDerivedFrom(hasName(...)).
-inline internal::Matcher<CXXRecordDecl> isSameOrDerivedFrom(
-    StringRef BaseName) {
+AST_MATCHER_P_OVERLOAD(CXXRecordDecl, isSameOrDerivedFrom, StringRef, BaseName,
+                       1) {
   assert(!BaseName.empty());
-  return isSameOrDerivedFrom(hasName(BaseName));
+  return isSameOrDerivedFrom(hasName(BaseName)).matches(Node, Finder, Builder);
 }
 
 /// \brief Matches the first method of a class or struct that satisfies \c
@@ -1549,12 +1537,8 @@ AST_MATCHER_P(CXXRecordDecl, hasMethod, internal::Matcher<CXXMethodDecl>,
 /// ChildT must be an AST base type.
 ///
 /// Usable as: Any Matcher
-template <typename ChildT>
-internal::ArgumentAdaptingMatcher<internal::HasMatcher, ChildT> has(
-    const internal::Matcher<ChildT> &ChildMatcher) {
-  return internal::ArgumentAdaptingMatcher<internal::HasMatcher,
-                                           ChildT>(ChildMatcher);
-}
+const internal::ArgumentAdaptingMatcherFunc<internal::HasMatcher>
+LLVM_ATTRIBUTE_UNUSED has = {};
 
 /// \brief Matches AST nodes that have descendant AST nodes that match the
 /// provided matcher.
@@ -1570,13 +1554,8 @@ internal::ArgumentAdaptingMatcher<internal::HasMatcher, ChildT> has(
 /// DescendantT must be an AST base type.
 ///
 /// Usable as: Any Matcher
-template <typename DescendantT>
-internal::ArgumentAdaptingMatcher<internal::HasDescendantMatcher, DescendantT>
-hasDescendant(const internal::Matcher<DescendantT> &DescendantMatcher) {
-  return internal::ArgumentAdaptingMatcher<
-    internal::HasDescendantMatcher,
-    DescendantT>(DescendantMatcher);
-}
+const internal::ArgumentAdaptingMatcherFunc<internal::HasDescendantMatcher>
+LLVM_ATTRIBUTE_UNUSED hasDescendant = {};
 
 /// \brief Matches AST nodes that have child AST nodes that match the
 /// provided matcher.
@@ -1594,13 +1573,8 @@ hasDescendant(const internal::Matcher<DescendantT> &DescendantMatcher) {
 /// matches instead of only on the first one.
 ///
 /// Usable as: Any Matcher
-template <typename ChildT>
-internal::ArgumentAdaptingMatcher<internal::ForEachMatcher, ChildT> forEach(
-    const internal::Matcher<ChildT> &ChildMatcher) {
-  return internal::ArgumentAdaptingMatcher<
-    internal::ForEachMatcher,
-    ChildT>(ChildMatcher);
-}
+const internal::ArgumentAdaptingMatcherFunc<internal::ForEachMatcher>
+LLVM_ATTRIBUTE_UNUSED forEach = {};
 
 /// \brief Matches AST nodes that have descendant AST nodes that match the
 /// provided matcher.
@@ -1626,15 +1600,8 @@ internal::ArgumentAdaptingMatcher<internal::ForEachMatcher, ChildT> forEach(
 /// \endcode
 ///
 /// Usable as: Any Matcher
-template <typename DescendantT>
-internal::ArgumentAdaptingMatcher<internal::ForEachDescendantMatcher,
-                                  DescendantT>
-forEachDescendant(
-    const internal::Matcher<DescendantT> &DescendantMatcher) {
-  return internal::ArgumentAdaptingMatcher<
-    internal::ForEachDescendantMatcher,
-    DescendantT>(DescendantMatcher);
-}
+const internal::ArgumentAdaptingMatcherFunc<internal::ForEachDescendantMatcher>
+LLVM_ATTRIBUTE_UNUSED forEachDescendant = {};
 
 /// \brief Matches if the node or any descendant matches.
 ///
@@ -1652,10 +1619,7 @@ forEachDescendant(
 ///
 /// Usable as: Any Matcher
 template <typename T>
-internal::PolymorphicMatcherWithParam2<
-    internal::EachOfMatcher, internal::Matcher<T>,
-    internal::ArgumentAdaptingMatcher<internal::ForEachDescendantMatcher, T> >
-findAll(const internal::Matcher<T> &Matcher) {
+internal::Matcher<T> findAll(const internal::Matcher<T> &Matcher) {
   return eachOf(Matcher, forEachDescendant(Matcher));
 }
 
@@ -1669,13 +1633,9 @@ findAll(const internal::Matcher<T> &Matcher) {
 /// \c compoundStmt(hasParent(ifStmt())) matches "{ int x = 43; }".
 ///
 /// Usable as: Any Matcher
-template <typename ParentT>
-internal::ArgumentAdaptingMatcher<internal::HasParentMatcher, ParentT>
-hasParent(const internal::Matcher<ParentT> &ParentMatcher) {
-  return internal::ArgumentAdaptingMatcher<
-    internal::HasParentMatcher,
-    ParentT>(ParentMatcher);
-}
+const internal::ArgumentAdaptingMatcherFunc<
+    internal::HasParentMatcher, internal::TypeList<Decl, Stmt>,
+    internal::TypeList<Decl, Stmt> > LLVM_ATTRIBUTE_UNUSED hasParent = {};
 
 /// \brief Matches AST nodes that have an ancestor that matches the provided
 /// matcher.
@@ -1688,13 +1648,9 @@ hasParent(const internal::Matcher<ParentT> &ParentMatcher) {
 /// \c expr(integerLiteral(hasAncestor(ifStmt()))) matches \c 42, but not 43.
 ///
 /// Usable as: Any Matcher
-template <typename AncestorT>
-internal::ArgumentAdaptingMatcher<internal::HasAncestorMatcher, AncestorT>
-hasAncestor(const internal::Matcher<AncestorT> &AncestorMatcher) {
-  return internal::ArgumentAdaptingMatcher<
-    internal::HasAncestorMatcher,
-    AncestorT>(AncestorMatcher);
-}
+const internal::ArgumentAdaptingMatcherFunc<
+    internal::HasAncestorMatcher, internal::TypeList<Decl, Stmt>,
+    internal::TypeList<Decl, Stmt> > LLVM_ATTRIBUTE_UNUSED hasAncestor = {};
 
 /// \brief Matches if the provided matcher does not match.
 ///
@@ -1785,9 +1741,9 @@ AST_MATCHER_P(CallExpr, callee, internal::Matcher<Stmt>,
 ///   class Y { public: void x(); };
 ///   void z() { Y y; y.x();
 /// \endcode
-inline internal::Matcher<CallExpr> callee(
-    const internal::Matcher<Decl> &InnerMatcher) {
-  return callExpr(hasDeclaration(InnerMatcher));
+AST_MATCHER_P_OVERLOAD(CallExpr, callee, internal::Matcher<Decl>, InnerMatcher,
+                       1) {
+  return callExpr(hasDeclaration(InnerMatcher)).matches(Node, Finder, Builder);
 }
 
 /// \brief Matches if the expression's or declaration's type matches a type
@@ -1799,9 +1755,9 @@ inline internal::Matcher<CallExpr> callee(
 ///  class X {};
 ///  void y(X &x) { x; X z; }
 /// \endcode
-AST_POLYMORPHIC_MATCHER_P(hasType,
-                          AST_POLYMORPHIC_SUPPORTED_TYPES_2(Expr, ValueDecl),
-                          internal::Matcher<QualType>, InnerMatcher) {
+AST_POLYMORPHIC_MATCHER_P_OVERLOAD(
+    hasType, AST_POLYMORPHIC_SUPPORTED_TYPES_2(Expr, ValueDecl),
+    internal::Matcher<QualType>, InnerMatcher, 0) {
   return InnerMatcher.matches(Node.getType(), Finder, Builder);
 }
 
@@ -1822,11 +1778,11 @@ AST_POLYMORPHIC_MATCHER_P(hasType,
 /// \endcode
 ///
 /// Usable as: Matcher<Expr>, Matcher<ValueDecl>
-inline internal::PolymorphicMatcherWithParam1<
-    internal::matcher_hasType0Matcher, internal::Matcher<QualType>,
-    AST_POLYMORPHIC_SUPPORTED_TYPES_2(Expr, ValueDecl)>
-hasType(const internal::Matcher<Decl> &InnerMatcher) {
-  return hasType(qualType(hasDeclaration(InnerMatcher)));
+AST_POLYMORPHIC_MATCHER_P_OVERLOAD(
+    hasType, AST_POLYMORPHIC_SUPPORTED_TYPES_2(Expr, ValueDecl),
+    internal::Matcher<Decl>, InnerMatcher, 1) {
+  return qualType(hasDeclaration(InnerMatcher))
+      .matches(Node.getType(), Finder, Builder);
 }
 
 /// \brief Matches if the type location of the declarator decl's type matches
@@ -1875,9 +1831,10 @@ AST_MATCHER_P(
 }
 
 /// \brief Overloaded to match the pointee type's declaration.
-inline internal::Matcher<QualType> pointsTo(
-    const internal::Matcher<Decl> &InnerMatcher) {
-  return pointsTo(qualType(hasDeclaration(InnerMatcher)));
+AST_MATCHER_P_OVERLOAD(QualType, pointsTo, internal::Matcher<Decl>,
+                       InnerMatcher, 1) {
+  return pointsTo(qualType(hasDeclaration(InnerMatcher)))
+      .matches(Node, Finder, Builder);
 }
 
 /// \brief Matches if the matched type is a reference type and the referenced
@@ -1918,9 +1875,10 @@ AST_MATCHER_P(QualType, hasCanonicalType, internal::Matcher<QualType>,
 }
 
 /// \brief Overloaded to match the referenced type's declaration.
-inline internal::Matcher<QualType> references(
-    const internal::Matcher<Decl> &InnerMatcher) {
-  return references(qualType(hasDeclaration(InnerMatcher)));
+AST_MATCHER_P_OVERLOAD(QualType, references, internal::Matcher<Decl>,
+                       InnerMatcher, 1) {
+  return references(qualType(hasDeclaration(InnerMatcher)))
+      .matches(Node, Finder, Builder);
 }
 
 AST_MATCHER_P(CXXMemberCallExpr, onImplicitObjectArgument,
@@ -1932,17 +1890,19 @@ AST_MATCHER_P(CXXMemberCallExpr, onImplicitObjectArgument,
 
 /// \brief Matches if the expression's type either matches the specified
 /// matcher, or is a pointer to a type that matches the InnerMatcher.
-inline internal::Matcher<CXXMemberCallExpr> thisPointerType(
-    const internal::Matcher<QualType> &InnerMatcher) {
+AST_MATCHER_P_OVERLOAD(CXXMemberCallExpr, thisPointerType,
+                       internal::Matcher<QualType>, InnerMatcher, 0) {
   return onImplicitObjectArgument(
-      anyOf(hasType(InnerMatcher), hasType(pointsTo(InnerMatcher))));
+      anyOf(hasType(InnerMatcher), hasType(pointsTo(InnerMatcher))))
+      .matches(Node, Finder, Builder);
 }
 
 /// \brief Overloaded to match the type's declaration.
-inline internal::Matcher<CXXMemberCallExpr> thisPointerType(
-    const internal::Matcher<Decl> &InnerMatcher) {
+AST_MATCHER_P_OVERLOAD(CXXMemberCallExpr, thisPointerType,
+                       internal::Matcher<Decl>, InnerMatcher, 1) {
   return onImplicitObjectArgument(
-      anyOf(hasType(InnerMatcher), hasType(pointsTo(InnerMatcher))));
+      anyOf(hasType(InnerMatcher), hasType(pointsTo(InnerMatcher))))
+      .matches(Node, Finder, Builder);
 }
 
 /// \brief Matches a DeclRefExpr that refers to a declaration that matches the
@@ -2150,7 +2110,7 @@ AST_MATCHER_P(CXXCtorInitializer, withInitializer,
       InnerMatcher.matches(*NodeAsExpr, Finder, Builder));
 }
 
-/// \brief Matches a contructor initializer if it is explicitly written in
+/// \brief Matches a constructor initializer if it is explicitly written in
 /// code (as opposed to implicitly added by the compiler).
 ///
 /// Given
@@ -2905,7 +2865,9 @@ AST_TYPE_MATCHER(ComplexType, complexType);
 ///   matches "int b[7]"
 ///
 /// Usable as: Matcher<ArrayType>, Matcher<ComplexType>
-AST_TYPELOC_TRAVERSE_MATCHER(hasElementType, getElement);
+AST_TYPELOC_TRAVERSE_MATCHER(
+    hasElementType, getElement,
+    AST_POLYMORPHIC_SUPPORTED_TYPES_2(ArrayType, ComplexType));
 
 /// \brief Matches C arrays with a specified constant size.
 ///
@@ -3012,7 +2974,8 @@ AST_TYPE_MATCHER(AtomicType, atomicType);
 ///  matches "_Atomic(int) i"
 ///
 /// Usable as: Matcher<AtomicType>
-AST_TYPELOC_TRAVERSE_MATCHER(hasValueType, getValue);
+AST_TYPELOC_TRAVERSE_MATCHER(hasValueType, getValue,
+                             AST_POLYMORPHIC_SUPPORTED_TYPES_1(AtomicType));
 
 /// \brief Matches types nodes representing C++11 auto types.
 ///
@@ -3040,7 +3003,8 @@ AST_TYPE_MATCHER(AutoType, autoType);
 ///   matches "auto a"
 ///
 /// Usable as: Matcher<AutoType>
-AST_TYPE_TRAVERSE_MATCHER(hasDeducedType, getDeducedType);
+AST_TYPE_TRAVERSE_MATCHER(hasDeducedType, getDeducedType,
+                          AST_POLYMORPHIC_SUPPORTED_TYPES_1(AutoType));
 
 /// \brief Matches \c FunctionType nodes.
 ///
@@ -3077,7 +3041,8 @@ AST_TYPE_MATCHER(ParenType, parenType);
 /// \c ptr_to_func but not \c ptr_to_array.
 ///
 /// Usable as: Matcher<ParenType>
-AST_TYPE_TRAVERSE_MATCHER(innerType, getInnerType);
+AST_TYPE_TRAVERSE_MATCHER(innerType, getInnerType,
+                          AST_POLYMORPHIC_SUPPORTED_TYPES_1(ParenType));
 
 /// \brief Matches block pointer types, i.e. types syntactically represented as
 /// "void (^)(int)".
@@ -3171,7 +3136,10 @@ AST_TYPE_MATCHER(RValueReferenceType, rValueReferenceType);
 ///
 /// Usable as: Matcher<BlockPointerType>, Matcher<MemberPointerType>,
 ///   Matcher<PointerType>, Matcher<ReferenceType>
-AST_TYPELOC_TRAVERSE_MATCHER(pointee, getPointee);
+AST_TYPELOC_TRAVERSE_MATCHER(
+    pointee, getPointee,
+    AST_POLYMORPHIC_SUPPORTED_TYPES_4(BlockPointerType, MemberPointerType,
+                                      PointerType, ReferenceType));
 
 /// \brief Matches typedef types.
 ///
@@ -3465,6 +3433,31 @@ AST_MATCHER_P(SwitchStmt, forEachSwitchCase, internal::Matcher<SwitchCase>,
     if (CaseMatched) {
       Matched = true;
       Result.addMatch(CaseBuilder);
+    }
+  }
+  *Builder = Result;
+  return Matched;
+}
+
+/// \brief Matches each constructor initializer in a constructor definition.
+///
+/// Given
+/// \code
+///   class A { A() : i(42), j(42) {} int i; int j; };
+/// \endcode
+/// constructorDecl(forEachConstructorInitializer(forField(decl().bind("x"))))
+///   will trigger two matches, binding for 'i' and 'j' respectively.
+AST_MATCHER_P(CXXConstructorDecl, forEachConstructorInitializer,
+              internal::Matcher<CXXCtorInitializer>, InnerMatcher) {
+  BoundNodesTreeBuilder Result;
+  bool Matched = false;
+  for (CXXConstructorDecl::init_const_iterator I = Node.init_begin(),
+                                               E = Node.init_end();
+       I != E; ++I) {
+    BoundNodesTreeBuilder InitBuilder(*Builder);
+    if (InnerMatcher.matches(**I, Finder, &InitBuilder)) {
+      Matched = true;
+      Result.addMatch(InitBuilder);
     }
   }
   *Builder = Result;

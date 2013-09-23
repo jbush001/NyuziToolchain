@@ -1,4 +1,5 @@
 #include "MCTargetDesc/VectorProcMCTargetDesc.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/MC/MCParser/MCAsmLexer.h"
 #include "llvm/MC/MCParser/MCParsedAsmOperand.h"
 #include "llvm/MC/MCTargetAsmParser.h"
@@ -46,7 +47,8 @@ class VectorProcAsmParser : public MCTargetAsmParser {
 #include "VectorProcGenAsmMatcher.inc"
 
 public:
-  VectorProcAsmParser(MCSubtargetInfo &sti, MCAsmParser &_Parser)
+  VectorProcAsmParser(MCSubtargetInfo &sti, MCAsmParser &_Parser,
+	  const MCInstrInfo &MII)
     : MCTargetAsmParser(), Parser(_Parser), STI(sti) {
       setAvailableFeatures(ComputeAvailableFeatures(STI.getFeatureBits()));
   }

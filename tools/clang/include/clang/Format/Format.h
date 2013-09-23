@@ -31,6 +31,10 @@ namespace format {
 /// specific guidelines.
 struct FormatStyle {
   /// \brief The column limit.
+  ///
+  /// A column limit of \c 0 means that there is no column limit. In this case,
+  /// clang-format will respect the input's line breaking decisions within
+  /// statements.
   unsigned ColumnLimit;
 
   /// \brief The maximum number of consecutive empty lines to keep.
@@ -45,7 +49,7 @@ struct FormatStyle {
   /// \brief The penalty for each character outside of the column limit.
   unsigned PenaltyExcessCharacter;
 
-  /// \brief The penalty for breaking before the first "<<".
+  /// \brief The penalty for breaking before the first \c <<.
   unsigned PenaltyBreakFirstLessLess;
 
   /// \brief Set whether & and * bind to the type as opposed to the variable.
@@ -54,33 +58,51 @@ struct FormatStyle {
   /// \brief If \c true, analyze the formatted file for the most common binding.
   bool DerivePointerBinding;
 
-  /// \brief The extra indent or outdent of access modifiers (e.g.: public:).
+  /// \brief The extra indent or outdent of access modifiers, e.g. \c public:.
   int AccessModifierOffset;
 
+  /// \brief Supported language standards.
   enum LanguageStandard {
+    /// Use C++03-compatible syntax.
     LS_Cpp03,
+    /// Use features of C++11 (e.g. \c A<A<int>> instead of
+    /// <tt>A<A<int> ></tt>).
     LS_Cpp11,
+    /// Automatic detection based on the input.
     LS_Auto
   };
 
-  /// \brief Format compatible with this standard, e.g. use \c A<A<int> >
-  /// instead of \c A<A<int>> for LS_Cpp03.
+  /// \brief Format compatible with this standard, e.g. use
+  /// <tt>A<A<int> ></tt> instead of \c A<A<int>> for LS_Cpp03.
   LanguageStandard Standard;
 
   /// \brief Indent case labels one level from the switch statement.
   ///
-  /// When false, use the same indentation level as for the switch statement.
+  /// When \c false, use the same indentation level as for the switch statement.
   /// Switch statement body is always indented one level more than case labels.
   bool IndentCaseLabels;
+
+  /// \brief Different ways to indent namespace contents.
+  enum NamespaceIndentationKind {
+    /// Don't indent in namespaces.
+    NI_None,
+    /// Indent only in inner namespaces (nested in other namespaces).
+    NI_Inner,
+    /// Indent in all namespaces.
+    NI_All
+  };
+
+  /// \brief The indentation used for namespaces.
+  NamespaceIndentationKind NamespaceIndentation;
 
   /// \brief The number of spaces to before trailing line comments.
   unsigned SpacesBeforeTrailingComments;
 
-  /// \brief If false, a function call's or function definition's parameters
+  /// \brief If \c false, a function call's or function definition's parameters
   /// will either all be on the same line or will have one line each.
   bool BinPackParameters;
 
-  /// \brief If true, clang-format detects whether function calls and
+  /// \brief If \c true, clang-format detects whether function calls and
   /// definitions are formatted with one parameter per line.
   ///
   /// Each call can be bin-packed, one-per-line or inconclusive. If it is
@@ -104,33 +126,52 @@ struct FormatStyle {
   /// initializer on its own line.
   bool ConstructorInitializerAllOnOneLineOrOnePerLine;
 
-  /// \brief If true, "if (a) return;" can be put on a single line.
+  /// \brief Always break constructor initializers before commas and align
+  /// the commas with the colon.
+  bool BreakConstructorInitializersBeforeComma;
+
+  /// \brief If \c true, <tt>if (a) return;</tt> can be put on a single
+  /// line.
   bool AllowShortIfStatementsOnASingleLine;
 
-  /// \brief If true, "while (true) continue;" can be put on a single line.
+  /// \brief If \c true, <tt>while (true) continue;</tt> can be put on a
+  /// single line.
   bool AllowShortLoopsOnASingleLine;
 
   /// \brief Add a space in front of an Objective-C protocol list, i.e. use
-  /// Foo <Protocol> instead of Foo<Protocol>.
+  /// <tt>Foo <Protocol></tt> instead of \c Foo<Protocol>.
   bool ObjCSpaceBeforeProtocolList;
+
+  /// \brief If \c true, aligns trailing comments.
+  bool AlignTrailingComments;
 
   /// \brief If \c true, aligns escaped newlines as far left as possible.
   /// Otherwise puts them into the right-most column.
   bool AlignEscapedNewlinesLeft;
 
-  /// \brief The number of characters to use for indentation.
+  /// \brief The number of columns to use for indentation.
   unsigned IndentWidth;
 
-  /// \brief If \c true, always break after the \c template<...> of a template
-  /// declaration.
+  /// \brief The number of columns used for tab stops.
+  unsigned TabWidth;
+
+  /// \brief The number of characters to use for indentation of constructor
+  /// initializer lists.
+  unsigned ConstructorInitializerIndentWidth;
+
+  /// \brief If \c true, always break after the <tt>template<...></tt> of a
+  /// template declaration.
   bool AlwaysBreakTemplateDeclarations;
 
   /// \brief If \c true, always break before multiline string literals.
   bool AlwaysBreakBeforeMultilineStrings;
 
-  /// \brief If true, \c IndentWidth consecutive spaces will be replaced with
-  /// tab characters.
+  /// \brief If \c true, \c IndentWidth consecutive spaces will be replaced
+  /// with tab characters.
   bool UseTab;
+
+  /// \brief If \c true, binary operators will be placed after line breaks.
+  bool BreakBeforeBinaryOperators;
 
   /// \brief Different ways to attach braces to their surrounding context.
   enum BraceBreakingStyle {
@@ -140,32 +181,67 @@ struct FormatStyle {
     /// class definitions.
     BS_Linux,
     /// Like \c Attach, but break before function definitions.
-    BS_Stroustrup
+    BS_Stroustrup,
+    /// Always break before braces.
+    BS_Allman
   };
 
   /// \brief The brace breaking style to use.
   BraceBreakingStyle BreakBeforeBraces;
 
-  /// \brief If \c true, format { 1 }, otherwise {1}.
-  bool SpacesInBracedLists;
+  /// \brief If \c true, format braced lists as best suited for C++11 braced
+  /// lists.
+  ///
+  /// Important differences:
+  /// - No spaces inside the braced list.
+  /// - No line break before the closing brace.
+  /// - Indentation with the continuation indent, not with the block indent.
+  ///
+  /// Fundamentally, C++11 braced lists are formatted exactly like function
+  /// calls would be formatted in their place. If the braced list follows a name
+  /// (e.g. a type or variable name), clang-format formats as if the \c {} were
+  /// the parentheses of a function call with that name. If there is no name,
+  /// a zero-length name is assumed.
+  bool Cpp11BracedListStyle;
 
   /// \brief If \c true, indent when breaking function declarations which
   /// are not also definitions after the type.
   bool IndentFunctionDeclarationAfterType;
 
+  /// \brief If \c true, spaces will be inserted after every '(' and before
+  /// every ')'.
+  bool SpacesInParentheses;
+
+  /// \brief If \c false, spaces may be inserted into '()'.
+  bool SpaceInEmptyParentheses;
+
+  /// \brief If \c false, spaces may be inserted into C style casts.
+  bool SpacesInCStyleCastParentheses;
+
+  /// \brief If \c true, spaces will be inserted between 'for'/'if'/'while'/...
+  /// and '('.
+  bool SpaceAfterControlStatementKeyword;
+
   bool operator==(const FormatStyle &R) const {
     return AccessModifierOffset == R.AccessModifierOffset &&
+           ConstructorInitializerIndentWidth ==
+               R.ConstructorInitializerIndentWidth &&
            AlignEscapedNewlinesLeft == R.AlignEscapedNewlinesLeft &&
+           AlignTrailingComments == R.AlignTrailingComments &&
            AllowAllParametersOfDeclarationOnNextLine ==
                R.AllowAllParametersOfDeclarationOnNextLine &&
            AllowShortIfStatementsOnASingleLine ==
                R.AllowShortIfStatementsOnASingleLine &&
+           AllowShortLoopsOnASingleLine == R.AllowShortLoopsOnASingleLine &&
            AlwaysBreakTemplateDeclarations ==
                R.AlwaysBreakTemplateDeclarations &&
            AlwaysBreakBeforeMultilineStrings ==
                R.AlwaysBreakBeforeMultilineStrings &&
            BinPackParameters == R.BinPackParameters &&
+           BreakBeforeBinaryOperators == R.BreakBeforeBinaryOperators &&
            BreakBeforeBraces == R.BreakBeforeBraces &&
+           BreakConstructorInitializersBeforeComma ==
+               R.BreakConstructorInitializersBeforeComma &&
            ColumnLimit == R.ColumnLimit &&
            ConstructorInitializerAllOnOneLineOrOnePerLine ==
                R.ConstructorInitializerAllOnOneLineOrOnePerLine &&
@@ -173,8 +249,11 @@ struct FormatStyle {
            ExperimentalAutoDetectBinPacking ==
                R.ExperimentalAutoDetectBinPacking &&
            IndentCaseLabels == R.IndentCaseLabels &&
+           IndentFunctionDeclarationAfterType ==
+               R.IndentFunctionDeclarationAfterType &&
            IndentWidth == R.IndentWidth &&
            MaxEmptyLinesToKeep == R.MaxEmptyLinesToKeep &&
+           NamespaceIndentation == R.NamespaceIndentation &&
            ObjCSpaceBeforeProtocolList == R.ObjCSpaceBeforeProtocolList &&
            PenaltyBreakComment == R.PenaltyBreakComment &&
            PenaltyBreakFirstLessLess == R.PenaltyBreakFirstLessLess &&
@@ -183,10 +262,13 @@ struct FormatStyle {
            PenaltyReturnTypeOnItsOwnLine == R.PenaltyReturnTypeOnItsOwnLine &&
            PointerBindsToType == R.PointerBindsToType &&
            SpacesBeforeTrailingComments == R.SpacesBeforeTrailingComments &&
-           SpacesInBracedLists == R.SpacesInBracedLists &&
-           Standard == R.Standard && UseTab == R.UseTab &&
-           IndentFunctionDeclarationAfterType ==
-               R.IndentFunctionDeclarationAfterType;
+           Cpp11BracedListStyle == R.Cpp11BracedListStyle &&
+           Standard == R.Standard && TabWidth == R.TabWidth &&
+           UseTab == R.UseTab && SpacesInParentheses == R.SpacesInParentheses &&
+           SpaceInEmptyParentheses == R.SpaceInEmptyParentheses &&
+           SpacesInCStyleCastParentheses == R.SpacesInCStyleCastParentheses &&
+           SpaceAfterControlStatementKeyword ==
+               R.SpaceAfterControlStatementKeyword;
   }
 };
 
@@ -206,12 +288,16 @@ FormatStyle getChromiumStyle();
 /// https://developer.mozilla.org/en-US/docs/Developer_Guide/Coding_Style.
 FormatStyle getMozillaStyle();
 
+/// \brief Returns a format style complying with Webkit's style guide:
+/// http://www.webkit.org/coding/coding-style.html
+FormatStyle getWebKitStyle();
+
 /// \brief Gets a predefined style by name.
 ///
 /// Currently supported names: LLVM, Google, Chromium, Mozilla. Names are
 /// compared case-insensitively.
 ///
-/// Returns true if the Style has been set.
+/// Returns \c true if the Style has been set.
 bool getPredefinedStyle(StringRef Name, FormatStyle *Style);
 
 /// \brief Parse configuration from YAML-formatted text.

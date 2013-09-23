@@ -11,6 +11,7 @@
 #define LLD_READER_WRITER_ELF_X86_64_TARGET_HANDLER_H
 
 #include "DefaultTargetHandler.h"
+#include "File.h"
 #include "X86_64RelocationHandler.h"
 #include "TargetLayout.h"
 
@@ -19,12 +20,12 @@
 namespace lld {
 namespace elf {
 typedef llvm::object::ELFType<llvm::support::little, 8, true> X86_64ELFType;
-class X86_64TargetInfo;
+class X86_64LinkingContext;
 
 class X86_64TargetHandler LLVM_FINAL
     : public DefaultTargetHandler<X86_64ELFType> {
 public:
-  X86_64TargetHandler(X86_64TargetInfo &targetInfo);
+  X86_64TargetHandler(X86_64LinkingContext &targetInfo);
 
   virtual TargetLayout<X86_64ELFType> &targetLayout() {
     return _targetLayout;
@@ -39,7 +40,7 @@ public:
 private:
   class GOTFile : public SimpleFile {
   public:
-    GOTFile(const ELFTargetInfo &eti) : SimpleFile(eti, "GOTFile") {}
+    GOTFile(const ELFLinkingContext &eti) : SimpleFile(eti, "GOTFile") {}
     llvm::BumpPtrAllocator _alloc;
   } _gotFile;
 

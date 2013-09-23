@@ -145,6 +145,11 @@ public:
     typeTLVInitialZeroFill, // TLV initial zero fill data [Darwin]
     typeTLVInitializerPtr,  // pointer to thread local initializer [Darwin]
     typeDataDirectoryEntry, // linker created for data directory header [PECOFF]
+    typeThreadZeroFill,     // Uninitialized thread local data(TBSS) [ELF]
+    typeThreadData,         // Initialized thread local data(TDATA) [ELF]
+    typeRONote,             // Identifies readonly note sections [ELF]
+    typeRWNote,             // Identifies readwrite note sections [ELF]
+    typeNoAlloc,            // Identifies non allocatable sections [ELF]
   };
 
   // Permission bits for atoms and segments. The order of these values are
@@ -305,6 +310,15 @@ public:
 
   /// Utility for deriving permissions from content type
   static ContentPermissions permissions(ContentType type);
+
+  /// Utility function to check if the atom occupies file space
+  virtual bool occupiesDiskSpace() const {
+    ContentType atomContentType = contentType();
+    return !(atomContentType == DefinedAtom::typeZeroFill ||
+             atomContentType == DefinedAtom::typeZeroFillFast ||
+             atomContentType == DefinedAtom::typeTLVInitialZeroFill ||
+             atomContentType == DefinedAtom::typeThreadZeroFill);
+  }
 
 protected:
   // DefinedAtom is an abstract base class. Only subclasses can access

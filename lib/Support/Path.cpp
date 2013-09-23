@@ -18,6 +18,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <fcntl.h>
 
 #if !defined(_MSC_VER) && !defined(__MINGW32__)
 #include <unistd.h>
@@ -76,7 +77,7 @@ namespace {
       return path.substr(0, 1);
 
     // * {file,directory}name
-    size_t end = path.find_first_of(separators, 2);
+    size_t end = path.find_first_of(separators);
     return path.substr(0, end);
   }
 
@@ -448,23 +449,18 @@ void replace_extension(SmallVectorImpl<char> &path, const Twine &extension) {
 }
 
 void native(const Twine &path, SmallVectorImpl<char> &result) {
+  assert((!path.isSingleStringRef() ||
+          path.getSingleStringRef().data() != result.data()) &&
+         "path and result are not allowed to overlap!");
   // Clear result.
   result.clear();
-#ifdef LLVM_ON_WIN32
-  SmallString<128> path_storage;
-  StringRef p = path.toStringRef(path_storage);
-  result.reserve(p.size());
-  for (StringRef::const_iterator i = p.begin(),
-                                 e = p.end();
-                                 i != e;
-                                 ++i) {
-    if (*i == '/')
-      result.push_back('\\');
-    else
-      result.push_back(*i);
-  }
-#else
   path.toVector(result);
+  native(result);
+}
+
+void native(SmallVectorImpl<char> &path) {
+#ifdef LLVM_ON_WIN32
+  std::replace(path.begin(), path.end(), '/', '\\');
 #endif
 }
 
@@ -637,6 +633,15 @@ bool is_relative(const Twine &path) {
 
 namespace fs {
 
+error_code getUniqueID(const Twine Path, UniqueID &Result) {
+  file_status Status;
+  error_code EC = status(Path, Status);
+  if (EC)
+    return EC;
+  Result = Status.getUniqueID();
+  return error_code::success();
+}
+
 error_code createUniqueFile(const Twine &Model, int &ResultFd,
                             SmallVectorImpl<char> &ResultPath, unsigned Mode) {
   return createUniqueEntity(Model, ResultFd, ResultPath, false, Mode, FS_File);
@@ -664,7 +669,8 @@ static error_code
 createTemporaryFile(const Twine &Prefix, StringRef Suffix, int &ResultFD,
                     llvm::SmallVectorImpl<char> &ResultPath,
                     FSEntity Type) {
-  return createTemporaryFile(Prefix + "-%%%%%%." + Suffix, ResultFD, ResultPath,
+  const char *Middle = Suffix.empty() ? "-%%%%%%" : "-%%%%%%.";
+  return createTemporaryFile(Prefix + Middle + Suffix, ResultFD, ResultPath,
                              Type);
 }
 

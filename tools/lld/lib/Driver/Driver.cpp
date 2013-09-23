@@ -29,33 +29,51 @@
 namespace lld {
 
 /// This is where the link is actually performed.
-bool Driver::link(const TargetInfo &targetInfo) {
+bool Driver::link(const LinkingContext &context, raw_ostream &diagnostics) {
   // Honor -mllvm
-  if (!targetInfo.llvmOptions().empty()) {
-    unsigned numArgs = targetInfo.llvmOptions().size();
-    const char **args = new const char*[numArgs + 2];
+  if (!context.llvmOptions().empty()) {
+    unsigned numArgs = context.llvmOptions().size();
+    const char **args = new const char *[numArgs + 2];
     args[0] = "lld (LLVM option parsing)";
     for (unsigned i = 0; i != numArgs; ++i)
-      args[i + 1] = targetInfo.llvmOptions()[i];
+      args[i + 1] = context.llvmOptions()[i];
     args[numArgs + 1] = 0;
     llvm::cl::ParseCommandLineOptions(numArgs + 1, args);
   }
+  InputGraph &inputGraph = context.inputGraph();
+  if (!inputGraph.numFiles())
+    return true;
 
   // Read inputs
   ScopedTask readTask(getDefaultDomain(), "Read Args");
-  std::vector<std::vector<std::unique_ptr<File>>> files(
-      targetInfo.inputFiles().size());
+  std::vector<std::vector<std::unique_ptr<File> > > files(
+      inputGraph.numFiles());
   size_t index = 0;
   std::atomic<bool> fail(false);
   TaskGroup tg;
-  for (const auto &input : targetInfo.inputFiles()) {
-    if (targetInfo.logInputFiles())
-      llvm::outs() << input.getPath() << "\n";
+  std::vector<std::unique_ptr<LinkerInput> > linkerInputs;
+  for (auto &ie : inputGraph.inputElements()) {
+    if (ie->kind() == InputElement::Kind::File) {
+      FileNode *fileNode = (llvm::dyn_cast<FileNode>)(ie.get());
+      auto linkerInput = fileNode->createLinkerInput(context);
+      if (!linkerInput) {
+        llvm::outs() << fileNode->errStr(error_code(linkerInput)) << "\n";
+        return true;
+      }
+      linkerInputs.push_back(std::move(*linkerInput));
+    }
+    else {
+      llvm_unreachable("Not handling other types of InputElements");
+    }
+  }
+  for (const auto &input : linkerInputs) {
+    if (context.logInputFiles())
+      llvm::outs() << input->getUserPath() << "\n";
 
     tg.spawn([ &, index]{
-      if (error_code ec = targetInfo.readFile(input.getPath(), files[index])) {
-        llvm::errs() << "Failed to read file: " << input.getPath() << ": "
-                     << ec.message() << "\n";
+      if (error_code ec = context.parseFile(*input, files[index])) {
+        diagnostics << "Failed to read file: " << input->getUserPath() << ": "
+                    << ec.message() << "\n";
         fail = true;
         return;
       }
@@ -69,20 +87,24 @@ bool Driver::link(const TargetInfo &targetInfo) {
     return true;
 
   InputFiles inputs;
+
+  for (auto &f : inputGraph.internalFiles())
+    inputs.appendFile(*f.get());
+
   for (auto &f : files)
     inputs.appendFiles(f);
 
   // Give target a chance to add files.
-  targetInfo.addImplicitFiles(inputs);
+  context.addImplicitFiles(inputs);
 
   // assign an ordinal to each file so sort() can preserve command line order
   inputs.assignFileOrdinals();
 
   // Do core linking.
   ScopedTask resolveTask(getDefaultDomain(), "Resolve");
-  Resolver resolver(targetInfo, inputs);
+  Resolver resolver(context, inputs);
   if (resolver.resolve()) {
-    if (!targetInfo.allowRemainingUndefines())
+    if (!context.allowRemainingUndefines())
       return true;
   }
   MutableFile &merged = resolver.resultFile();
@@ -91,21 +113,19 @@ bool Driver::link(const TargetInfo &targetInfo) {
   // Run passes on linked atoms.
   ScopedTask passTask(getDefaultDomain(), "Passes");
   PassManager pm;
-  targetInfo.addPasses(pm);
+  context.addPasses(pm);
   pm.runOnFile(merged);
   passTask.end();
 
   // Give linked atoms to Writer to generate output file.
   ScopedTask writeTask(getDefaultDomain(), "Write");
-  if (error_code ec = targetInfo.writeFile(merged)) {
-    llvm::errs() << "Failed to write file '" << targetInfo.outputPath()
-                 << "': " << ec.message() << "\n";
+  if (error_code ec = context.writeFile(merged)) {
+    diagnostics << "Failed to write file '" << context.outputPath()
+                << "': " << ec.message() << "\n";
     return true;
   }
 
   return false;
 }
 
-
 } // namespace
-

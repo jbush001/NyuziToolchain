@@ -422,11 +422,20 @@ public: // Part of public interface to class.
   // BindDefault is only used to initialize a region with a default value.
   StoreRef BindDefault(Store store, const MemRegion *R, SVal V) {
     RegionBindingsRef B = getRegionBindings(store);
-    assert(!B.lookup(R, BindingKey::Default));
     assert(!B.lookup(R, BindingKey::Direct));
-    return StoreRef(B.addBinding(R, BindingKey::Default, V)
-                     .asImmutableMap()
-                     .getRootWithoutRetain(), *this);
+
+    BindingKey Key = BindingKey::Make(R, BindingKey::Default);
+    if (B.lookup(Key)) {
+      const SubRegion *SR = cast<SubRegion>(R);
+      assert(SR->getAsOffset().getOffset() ==
+             SR->getSuperRegion()->getAsOffset().getOffset() &&
+             "A default value must come from a super-region");
+      B = removeSubRegionBindings(B, SR);
+    } else {
+      B = B.addBinding(Key, V);
+    }
+
+    return StoreRef(B.asImmutableMap().getRootWithoutRetain(), *this);
   }
 
   /// Attempt to extract the fields of \p LCV and bind them to the struct region
@@ -1497,7 +1506,7 @@ SVal RegionStoreManager::getBindingForElement(RegionBindingsConstRef B,
     // FIXME: Handle loads from strings where the literal is treated as
     // an integer, e.g., *((unsigned int*)"hello")
     QualType T = Ctx.getAsArrayType(StrR->getValueType())->getElementType();
-    if (T != Ctx.getCanonicalType(R->getElementType()))
+    if (!Ctx.hasSameUnqualifiedType(T, R->getElementType()))
       return UnknownVal();
 
     const StringLiteral *Str = StrR->getStringLiteral();
@@ -1832,10 +1841,18 @@ NonLoc RegionStoreManager::createLazyBinding(RegionBindingsConstRef B,
   return svalBuilder.makeLazyCompoundVal(StoreRef(B.asStore(), *this), R);
 }
 
+static bool isRecordEmpty(const RecordDecl *RD) {
+  if (!RD->field_empty())
+    return false;
+  if (const CXXRecordDecl *CRD = dyn_cast<CXXRecordDecl>(RD))
+    return CRD->getNumBases() == 0;
+  return true;
+}
+
 SVal RegionStoreManager::getBindingForStruct(RegionBindingsConstRef B,
                                              const TypedValueRegion *R) {
   const RecordDecl *RD = R->getValueType()->castAs<RecordType>()->getDecl();
-  if (RD->field_empty())
+  if (!RD->getDefinition() || isRecordEmpty(RD))
     return UnknownVal();
 
   return createLazyBinding(B, R);

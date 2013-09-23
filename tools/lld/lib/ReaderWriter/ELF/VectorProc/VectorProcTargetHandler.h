@@ -16,25 +16,25 @@
 namespace lld {
 namespace elf {
 typedef llvm::object::ELFType<llvm::support::little, 4, false> VectorProcELFType;
-class VectorProcTargetInfo;
+class VectorProcLinkingContext;
 
 class VectorProcTargetRelocationHandler LLVM_FINAL
     : public TargetRelocationHandler<VectorProcELFType> {
 public:
-  VectorProcTargetRelocationHandler(const VectorProcTargetInfo &ti) : _targetInfo(ti) {}
+  VectorProcTargetRelocationHandler(const VectorProcLinkingContext &ti) : _targetInfo(ti) {}
 
   virtual ErrorOr<void> applyRelocation(ELFWriter &, llvm::FileOutputBuffer &,
                                         const lld::AtomLayout &,
                                         const Reference &)const;
 
 private:
-  const VectorProcTargetInfo &_targetInfo;
+  const VectorProcLinkingContext &_targetInfo;
 };
 
 class VectorProcTargetHandler LLVM_FINAL
     : public DefaultTargetHandler<VectorProcELFType> {
 public:
-  VectorProcTargetHandler(VectorProcTargetInfo &targetInfo);
+  VectorProcTargetHandler(VectorProcLinkingContext &targetInfo);
 
   virtual TargetLayout<VectorProcELFType> &targetLayout() {
     return _targetLayout;

@@ -23,8 +23,10 @@ namespace llvm {
 
   class FunctionPass;
   class MachineFunctionPass;
+  struct MachineSchedContext;
   class PassInfo;
   class PassManagerBase;
+  class ScheduleDAGInstrs;
   class TargetLoweringBase;
   class TargetLowering;
   class TargetRegisterClass;
@@ -204,6 +206,20 @@ public:
   /// Fully developed targets will not generally override this.
   virtual void addMachinePasses();
 
+  /// createTargetScheduler - Create an instance of ScheduleDAGInstrs to be run
+  /// within the standard MachineScheduler pass for this function and target at
+  /// the current optimization level.
+  ///
+  /// This can also be used to plug a new MachineSchedStrategy into an instance
+  /// of the standard ScheduleDAGMI:
+  ///   return new ScheduleDAGMI(C, new MyStrategy(C))
+  ///
+  /// Return NULL to select the default (generic) machine scheduler.
+  virtual ScheduleDAGInstrs *
+  createMachineScheduler(MachineSchedContext *C) const {
+    return 0;
+  }
+
 protected:
   // Helper to verify the analysis is really immutable.
   void setOpt(bool &Opt, bool Val);
@@ -308,7 +324,8 @@ protected:
   AnalysisID addPass(AnalysisID PassID);
 
   /// Add a pass to the PassManager if that pass is supposed to be run, as
-  /// determined by the StartAfter and StopAfter options.
+  /// determined by the StartAfter and StopAfter options. Takes ownership of the
+  /// pass.
   void addPass(Pass *P);
 
   /// addMachinePasses helper to create the target-selected or overriden

@@ -264,7 +264,7 @@ void Sema::ActOnPragmaMSStruct(PragmaMSStructKind Kind) {
   MSStructPragmaOn = (Kind == PMSST_ON);
 }
 
-void Sema::ActOnPragmaMSComment(PragmaMSCommentKind Kind, llvm::StringRef Arg) {
+void Sema::ActOnPragmaMSComment(PragmaMSCommentKind Kind, StringRef Arg) {
   // FIXME: Serialize this.
   switch (Kind) {
   case PCK_Unknown:
@@ -283,8 +283,7 @@ void Sema::ActOnPragmaMSComment(PragmaMSCommentKind Kind, llvm::StringRef Arg) {
   llvm_unreachable("invalid pragma comment kind");
 }
 
-void Sema::ActOnPragmaDetectMismatch(llvm::StringRef Name,
-                                     llvm::StringRef Value) {
+void Sema::ActOnPragmaDetectMismatch(StringRef Name, StringRef Value) {
   // FIXME: Serialize this.
   Consumer.HandleDetectMismatch(Name, Value);
 }
@@ -369,21 +368,12 @@ void Sema::ActOnPragmaVisibility(const IdentifierInfo* VisType,
                                  SourceLocation PragmaLoc) {
   if (VisType) {
     // Compute visibility to use.
-    VisibilityAttr::VisibilityType type;
-    if (VisType->isStr("default"))
-      type = VisibilityAttr::Default;
-    else if (VisType->isStr("hidden"))
-      type = VisibilityAttr::Hidden;
-    else if (VisType->isStr("internal"))
-      type = VisibilityAttr::Hidden; // FIXME
-    else if (VisType->isStr("protected"))
-      type = VisibilityAttr::Protected;
-    else {
-      Diag(PragmaLoc, diag::warn_attribute_unknown_visibility) <<
-        VisType->getName();
+    VisibilityAttr::VisibilityType T;
+    if (!VisibilityAttr::ConvertStrToVisibilityType(VisType->getName(), T)) {
+      Diag(PragmaLoc, diag::warn_attribute_unknown_visibility) << VisType;
       return;
     }
-    PushPragmaVisibility(*this, type, PragmaLoc);
+    PushPragmaVisibility(*this, T, PragmaLoc);
   } else {
     PopPragmaVisibility(false, PragmaLoc);
   }

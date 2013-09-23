@@ -71,8 +71,6 @@ using namespace llvm;
 STATISTIC(LongBranches, "Number of long branches.");
 
 namespace {
-  typedef MachineBasicBlock::iterator Iter;
-
   // Represents positional information about a basic block.
   struct MBBInfo {
     // The address that we currently assume the block has.
@@ -150,6 +148,7 @@ namespace {
     bool mustRelaxBranch(const TerminatorInfo &Terminator, uint64_t Address);
     bool mustRelaxABranch();
     void setWorstCaseAddresses();
+    void splitBranchOnCount(MachineInstr *MI, unsigned AddOpcode);
     void splitCompareBranch(MachineInstr *MI, unsigned CompareOpcode);
     void relaxBranch(TerminatorInfo &Terminator);
     void relaxBranches();
@@ -220,18 +219,30 @@ TerminatorInfo SystemZLongBranch::describeTerminator(MachineInstr *MI) {
       // Relaxes to BRCL, which is 2 bytes longer.
       Terminator.ExtraRelaxSize = 2;
       break;
+    case SystemZ::BRCT:
+    case SystemZ::BRCTG:
+      // Relaxes to A(G)HI and BRCL, which is 6 bytes longer.
+      Terminator.ExtraRelaxSize = 6;
+      break;
     case SystemZ::CRJ:
-      // Relaxes to a CR/BRCL sequence, which is 2 bytes longer.
+    case SystemZ::CLRJ:
+      // Relaxes to a C(L)R/BRCL sequence, which is 2 bytes longer.
       Terminator.ExtraRelaxSize = 2;
       break;
     case SystemZ::CGRJ:
-      // Relaxes to a CGR/BRCL sequence, which is 4 bytes longer.
+    case SystemZ::CLGRJ:
+      // Relaxes to a C(L)GR/BRCL sequence, which is 4 bytes longer.
       Terminator.ExtraRelaxSize = 4;
       break;
     case SystemZ::CIJ:
     case SystemZ::CGIJ:
       // Relaxes to a C(G)HI/BRCL sequence, which is 4 bytes longer.
       Terminator.ExtraRelaxSize = 4;
+      break;
+    case SystemZ::CLIJ:
+    case SystemZ::CLGIJ:
+      // Relaxes to a CL(G)FI/BRCL sequence, which is 6 bytes longer.
+      Terminator.ExtraRelaxSize = 6;
       break;
     default:
       llvm_unreachable("Unrecognized branch instruction");
@@ -332,6 +343,25 @@ void SystemZLongBranch::setWorstCaseAddresses() {
   }
 }
 
+// Split BRANCH ON COUNT MI into the addition given by AddOpcode followed
+// by a BRCL on the result.
+void SystemZLongBranch::splitBranchOnCount(MachineInstr *MI,
+                                           unsigned AddOpcode) {
+  MachineBasicBlock *MBB = MI->getParent();
+  DebugLoc DL = MI->getDebugLoc();
+  BuildMI(*MBB, MI, DL, TII->get(AddOpcode))
+    .addOperand(MI->getOperand(0))
+    .addOperand(MI->getOperand(1))
+    .addImm(-1);
+  MachineInstr *BRCL = BuildMI(*MBB, MI, DL, TII->get(SystemZ::BRCL))
+    .addImm(SystemZ::CCMASK_ICMP)
+    .addImm(SystemZ::CCMASK_CMP_NE)
+    .addOperand(MI->getOperand(2));
+  // The implicit use of CC is a killing use.
+  BRCL->addRegisterKilled(SystemZ::CC, &TII->getRegisterInfo());
+  MI->eraseFromParent();
+}
+
 // Split MI into the comparison given by CompareOpcode followed
 // a BRCL on the result.
 void SystemZLongBranch::splitCompareBranch(MachineInstr *MI,
@@ -342,10 +372,11 @@ void SystemZLongBranch::splitCompareBranch(MachineInstr *MI,
     .addOperand(MI->getOperand(0))
     .addOperand(MI->getOperand(1));
   MachineInstr *BRCL = BuildMI(*MBB, MI, DL, TII->get(SystemZ::BRCL))
+    .addImm(SystemZ::CCMASK_ICMP)
     .addOperand(MI->getOperand(2))
     .addOperand(MI->getOperand(3));
   // The implicit use of CC is a killing use.
-  BRCL->getOperand(2).setIsKill();
+  BRCL->addRegisterKilled(SystemZ::CC, &TII->getRegisterInfo());
   MI->eraseFromParent();
 }
 
@@ -359,6 +390,12 @@ void SystemZLongBranch::relaxBranch(TerminatorInfo &Terminator) {
   case SystemZ::BRC:
     Branch->setDesc(TII->get(SystemZ::BRCL));
     break;
+  case SystemZ::BRCT:
+    splitBranchOnCount(Branch, SystemZ::AHI);
+    break;
+  case SystemZ::BRCTG:
+    splitBranchOnCount(Branch, SystemZ::AGHI);
+    break;
   case SystemZ::CRJ:
     splitCompareBranch(Branch, SystemZ::CR);
     break;
@@ -370,6 +407,18 @@ void SystemZLongBranch::relaxBranch(TerminatorInfo &Terminator) {
     break;
   case SystemZ::CGIJ:
     splitCompareBranch(Branch, SystemZ::CGHI);
+    break;
+  case SystemZ::CLRJ:
+    splitCompareBranch(Branch, SystemZ::CLR);
+    break;
+  case SystemZ::CLGRJ:
+    splitCompareBranch(Branch, SystemZ::CLGR);
+    break;
+  case SystemZ::CLIJ:
+    splitCompareBranch(Branch, SystemZ::CLFI);
+    break;
+  case SystemZ::CLGIJ:
+    splitCompareBranch(Branch, SystemZ::CLGFI);
     break;
   default:
     llvm_unreachable("Unrecognized branch");

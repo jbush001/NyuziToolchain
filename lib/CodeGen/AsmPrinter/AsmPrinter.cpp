@@ -50,9 +50,9 @@
 #include "llvm/Target/TargetRegisterInfo.h"
 using namespace llvm;
 
-static const char *DWARFGroupName = "DWARF Emission";
-static const char *DbgTimerName = "DWARF Debug Writer";
-static const char *EHTimerName = "DWARF Exception Writer";
+static const char *const DWARFGroupName = "DWARF Emission";
+static const char *const DbgTimerName = "DWARF Debug Writer";
+static const char *const EHTimerName = "DWARF Exception Writer";
 
 STATISTIC(EmittedInsts, "Number of machine instrs printed");
 
@@ -94,7 +94,7 @@ static unsigned getGVAlignmentLog2(const GlobalValue *GV, const DataLayout &TD,
 
 AsmPrinter::AsmPrinter(TargetMachine &tm, MCStreamer &Streamer)
   : MachineFunctionPass(ID),
-    TM(tm), MAI(tm.getMCAsmInfo()),
+    TM(tm), MAI(tm.getMCAsmInfo()), MII(tm.getInstrInfo()),
     OutContext(Streamer.getContext()),
     OutStreamer(Streamer),
     LastMI(0), LastFn(0), Counter(~0U), SetCounter(0) {
@@ -368,9 +368,10 @@ void AsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
     MCSymbol *MangSym =
       OutContext.GetOrCreateSymbol(GVSym->getName() + Twine("$tlv$init"));
 
-    if (GVKind.isThreadBSS())
+    if (GVKind.isThreadBSS()) {
+      TheSection = getObjFileLowering().getTLSBSSSection();
       OutStreamer.EmitTBSSSymbol(TheSection, MangSym, Size, 1 << AlignLog);
-    else if (GVKind.isThreadData()) {
+    } else if (GVKind.isThreadData()) {
       OutStreamer.SwitchSection(TheSection);
 
       EmitAlignment(AlignLog, GV);
@@ -458,15 +459,9 @@ void AsmPrinter::EmitFunctionHeader() {
     OutStreamer.EmitLabel(DeadBlockSyms[i]);
   }
 
-  // Add some workaround for linkonce linkage on Cygwin\MinGW.
-  if (MAI->getLinkOnceDirective() != 0 &&
-      (F->hasLinkOnceLinkage() || F->hasWeakLinkage())) {
-    // FIXME: What is this?
-    MCSymbol *FakeStub =
-      OutContext.GetOrCreateSymbol(Twine("Lllvm$workaround$fake$stub$")+
-                                   CurrentFnSym->getName());
-    OutStreamer.EmitLabel(FakeStub);
-  }
+  // Emit the prefix data.
+  if (F->hasPrefixData())
+    EmitGlobalConstant(F->getPrefixData());
 
   // Emit pre-function debug and/or EH information.
   if (DE) {
@@ -645,7 +640,7 @@ bool AsmPrinter::needsRelocationsForDwarfStringPool() const {
 }
 
 void AsmPrinter::emitPrologLabel(const MachineInstr &MI) {
-  MCSymbol *Label = MI.getOperand(0).getMCSymbol();
+  const MCSymbol *Label = MI.getOperand(0).getMCSymbol();
 
   if (MAI->getExceptionHandlingType() != ExceptionHandling::DwarfCFI)
     return;
@@ -656,12 +651,12 @@ void AsmPrinter::emitPrologLabel(const MachineInstr &MI) {
   if (MMI->getCompactUnwindEncoding() != 0)
     OutStreamer.EmitCompactUnwindEncoding(MMI->getCompactUnwindEncoding());
 
-  MachineModuleInfo &MMI = MF->getMMI();
-  std::vector<MCCFIInstruction> Instructions = MMI.getFrameInstructions();
+  const MachineModuleInfo &MMI = MF->getMMI();
+  const std::vector<MCCFIInstruction> &Instrs = MMI.getFrameInstructions();
   bool FoundOne = false;
   (void)FoundOne;
-  for (std::vector<MCCFIInstruction>::iterator I = Instructions.begin(),
-         E = Instructions.end(); I != E; ++I) {
+  for (std::vector<MCCFIInstruction>::const_iterator I = Instrs.begin(),
+         E = Instrs.end(); I != E; ++I) {
     if (I->getLabel() == Label) {
       emitCFIInstruction(*I);
       FoundOne = true;
@@ -885,6 +880,9 @@ bool AsmPrinter::doFinalization(Module &M) {
   M.getModuleFlagsMetadata(ModuleFlags);
   if (!ModuleFlags.empty())
     getObjFileLowering().emitModuleFlags(OutStreamer, ModuleFlags, Mang, TM);
+
+  // Make sure we wrote out everything we need.
+  OutStreamer.Flush();
 
   // Finalize debug and EH information.
   if (DE) {
@@ -1286,12 +1284,6 @@ void AsmPrinter::EmitLLVMUsedList(const ConstantArray *InitList) {
   }
 }
 
-typedef std::pair<unsigned, Constant*> Structor;
-
-static bool priority_order(const Structor& lhs, const Structor& rhs) {
-  return lhs.first < rhs.first;
-}
-
 /// EmitXXStructorList - Emit the ctor or dtor list taking into account the init
 /// priority.
 void AsmPrinter::EmitXXStructorList(const Constant *List, bool isCtor) {
@@ -1308,6 +1300,7 @@ void AsmPrinter::EmitXXStructorList(const Constant *List, bool isCtor) {
       !isa<PointerType>(ETy->getTypeAtIndex(1U))) return; // Not (int, ptr).
 
   // Gather the structors in a form that's convenient for sorting by priority.
+  typedef std::pair<unsigned, Constant *> Structor;
   SmallVector<Structor, 8> Structors;
   for (unsigned i = 0, e = InitList->getNumOperands(); i != e; ++i) {
     ConstantStruct *CS = dyn_cast<ConstantStruct>(InitList->getOperand(i));
@@ -1323,7 +1316,7 @@ void AsmPrinter::EmitXXStructorList(const Constant *List, bool isCtor) {
   // Emit the function pointers in the target-specific order
   const DataLayout *TD = TM.getDataLayout();
   unsigned Align = Log2_32(TD->getPointerPrefAlignment());
-  std::stable_sort(Structors.begin(), Structors.end(), priority_order);
+  std::stable_sort(Structors.begin(), Structors.end(), less_first());
   for (unsigned i = 0, e = Structors.size(); i != e; ++i) {
     const MCSection *OutputSection =
       (isCtor ?
@@ -1414,8 +1407,12 @@ void AsmPrinter::EmitLabelOffsetDifference(const MCSymbol *Hi, uint64_t Offset,
 /// where the size in bytes of the directive is specified by Size and Label
 /// specifies the label.  This implicitly uses .set if it is available.
 void AsmPrinter::EmitLabelPlusOffset(const MCSymbol *Label, uint64_t Offset,
-                                      unsigned Size)
+                                      unsigned Size, bool IsSectionRelative)
   const {
+  if (MAI->needsDwarfSectionOffsetDirective() && IsSectionRelative) { 
+    OutStreamer.EmitCOFFSecRel32(Label);
+    return;
+  }
 
   // Emit Label+Offset (or just Label if Offset is zero)
   const MCExpr *Expr = MCSymbolRefExpr::Create(Label, OutContext);

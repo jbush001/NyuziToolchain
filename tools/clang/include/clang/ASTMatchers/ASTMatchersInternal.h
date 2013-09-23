@@ -285,6 +285,14 @@ public:
   /// compatible with T.
   static Matcher<T> constructFrom(const DynTypedMatcher &Other) {
     assert(canConstructFrom(Other));
+    return constructFromUnsafe(Other);
+  }
+
+  /// \brief Same as constructFrom(), but does not check that the underlying
+  ///   matcher can handle a value of T.
+  ///
+  /// If it is not compatible, then this matcher will never match anything.
+  static Matcher<T> constructFromUnsafe(const DynTypedMatcher &Other) {
     return Matcher<T>(new WrappedMatcher(Other));
   }
 
@@ -732,35 +740,6 @@ protected:
                                  AncestorMatchMode MatchMode) = 0;
 };
 
-/// \brief Converts a \c Matcher<T> to a matcher of desired type \c To by
-/// "adapting" a \c To into a \c T.
-///
-/// The \c ArgumentAdapterT argument specifies how the adaptation is done.
-///
-/// For example:
-///   \c ArgumentAdaptingMatcher<HasMatcher, T>(InnerMatcher);
-/// Given that \c InnerMatcher is of type \c Matcher<T>, this returns a matcher
-/// that is convertible into any matcher of type \c To by constructing
-/// \c HasMatcher<To, T>(InnerMatcher).
-///
-/// If a matcher does not need knowledge about the inner type, prefer to use
-/// PolymorphicMatcherWithParam1.
-template <template <typename ToArg, typename FromArg> class ArgumentAdapterT,
-          typename T>
-class ArgumentAdaptingMatcher {
-public:
-  explicit ArgumentAdaptingMatcher(const Matcher<T> &InnerMatcher)
-      : InnerMatcher(InnerMatcher) {}
-
-  template <typename To>
-  operator Matcher<To>() const {
-    return Matcher<To>(new ArgumentAdapterT<To, T>(InnerMatcher));
-  }
-
-private:
-  const Matcher<T> InnerMatcher;
-};
-
 /// \brief A simple type-list implementation.
 ///
 /// It is implemented as a flat struct with a maximum number of arguments to
@@ -811,6 +790,54 @@ typedef TypeList<Decl, Stmt, NestedNameSpecifier, NestedNameSpecifierLoc,
 template <class T> struct ExtractFunctionArgMeta;
 template <class T> struct ExtractFunctionArgMeta<void(T)> {
   typedef T type;
+};
+
+/// \brief Default type lists for ArgumentAdaptingMatcher matchers.
+typedef AllNodeBaseTypes AdaptativeDefaultFromTypes;
+typedef TypeList<Decl, Stmt, NestedNameSpecifier, NestedNameSpecifierLoc,
+                 TypeLoc, QualType> AdaptativeDefaultToTypes;
+
+/// \brief Converts a \c Matcher<T> to a matcher of desired type \c To by
+/// "adapting" a \c To into a \c T.
+///
+/// The \c ArgumentAdapterT argument specifies how the adaptation is done.
+///
+/// For example:
+///   \c ArgumentAdaptingMatcher<HasMatcher, T>(InnerMatcher);
+/// Given that \c InnerMatcher is of type \c Matcher<T>, this returns a matcher
+/// that is convertible into any matcher of type \c To by constructing
+/// \c HasMatcher<To, T>(InnerMatcher).
+///
+/// If a matcher does not need knowledge about the inner type, prefer to use
+/// PolymorphicMatcherWithParam1.
+template <template <typename ToArg, typename FromArg> class ArgumentAdapterT,
+          typename FromTypes = AdaptativeDefaultFromTypes,
+          typename ToTypes = AdaptativeDefaultToTypes>
+struct ArgumentAdaptingMatcherFunc {
+  template <typename T> class Adaptor {
+  public:
+    explicit Adaptor(const Matcher<T> &InnerMatcher)
+        : InnerMatcher(InnerMatcher) {}
+
+    typedef ToTypes ReturnTypes;
+
+    template <typename To> operator Matcher<To>() const {
+      return Matcher<To>(new ArgumentAdapterT<To, T>(InnerMatcher));
+    }
+
+  private:
+    const Matcher<T> InnerMatcher;
+  };
+
+  template <typename T>
+  static Adaptor<T> create(const Matcher<T> &InnerMatcher) {
+    return Adaptor<T>(InnerMatcher);
+  }
+
+  template <typename T>
+  Adaptor<T> operator()(const Matcher<T> &InnerMatcher) const {
+    return create(InnerMatcher);
+  }
 };
 
 /// \brief A PolymorphicMatcherWithParamN<MatcherT, P1, ..., PN> object can be
@@ -903,27 +930,6 @@ public:
   }
 };
 
-/// \brief Provides a MatcherInterface<T> for a Matcher<To> that matches if T is
-/// dyn_cast'able into To and the given Matcher<To> matches on the dyn_cast'ed
-/// node.
-template <typename T, typename To>
-class DynCastMatcher : public MatcherInterface<T> {
-public:
-  explicit DynCastMatcher(const Matcher<To> &InnerMatcher)
-      : InnerMatcher(InnerMatcher) {}
-
-  virtual bool matches(const T &Node,
-                       ASTMatchFinder *Finder,
-                       BoundNodesTreeBuilder *Builder) const {
-    const To *InnerMatchValue = dyn_cast<To>(&Node);
-    return InnerMatchValue != NULL &&
-      InnerMatcher.matches(*InnerMatchValue, Finder, Builder);
-  }
-
-private:
-  const Matcher<To> InnerMatcher;
-};
-
 /// \brief Matcher<T> that wraps an inner Matcher<T> and binds the matched node
 /// to an ID if the inner matcher matches on the node.
 template <typename T>
@@ -956,7 +962,8 @@ private:
 template <typename T>
 class BindableMatcher : public Matcher<T> {
 public:
-  BindableMatcher(MatcherInterface<T> *Implementation)
+  explicit BindableMatcher(const Matcher<T> &M) : Matcher<T>(M) {}
+  explicit BindableMatcher(MatcherInterface<T> *Implementation)
     : Matcher<T>(Implementation) {}
 
   /// \brief Returns a matcher that will bind the matched node on a match.
@@ -1061,115 +1068,159 @@ private:
   const Matcher<T> InnerMatcher;
 };
 
-/// \brief Matches nodes of type T for which both provided matchers match.
-///
-/// Type arguments MatcherT1 and MatcherT2 are required by
-/// PolymorphicMatcherWithParam2 but not actually used. They will
-/// always be instantiated with types convertible to Matcher<T>.
-template <typename T, typename MatcherT1, typename MatcherT2>
-class AllOfMatcher : public MatcherInterface<T> {
-public:
-  AllOfMatcher(const Matcher<T> &InnerMatcher1, const Matcher<T> &InnerMatcher2)
-      : InnerMatcher1(InnerMatcher1), InnerMatcher2(InnerMatcher2) {}
+/// \brief VariadicOperatorMatcher related types.
+/// @{
 
-  virtual bool matches(const T &Node,
-                       ASTMatchFinder *Finder,
-                       BoundNodesTreeBuilder *Builder) const {
-    // allOf leads to one matcher for each alternative in the first
-    // matcher combined with each alternative in the second matcher.
-    // Thus, we can reuse the same Builder.
-    return InnerMatcher1.matches(Node, Finder, Builder) &&
-           InnerMatcher2.matches(Node, Finder, Builder);
+/// \brief Function signature for any variadic operator. It takes the inner
+///   matchers as an array of DynTypedMatcher.
+typedef bool (*VariadicOperatorFunction)(
+    const ast_type_traits::DynTypedNode DynNode, ASTMatchFinder *Finder,
+    BoundNodesTreeBuilder *Builder,
+    ArrayRef<const DynTypedMatcher *> InnerMatchers);
+
+/// \brief \c MatcherInterface<T> implementation for an variadic operator.
+template <typename T>
+class VariadicOperatorMatcherInterface : public MatcherInterface<T> {
+public:
+  VariadicOperatorMatcherInterface(VariadicOperatorFunction Func,
+                                   ArrayRef<const Matcher<T> *> InputMatchers)
+      : Func(Func) {
+    for (size_t i = 0, e = InputMatchers.size(); i != e; ++i) {
+      InnerMatchers.push_back(new Matcher<T>(*InputMatchers[i]));
+    }
   }
 
-private:
-  const Matcher<T> InnerMatcher1;
-  const Matcher<T> InnerMatcher2;
-};
-
-/// \brief Matches nodes of type T for which at least one of the two provided
-/// matchers matches.
-///
-/// Type arguments MatcherT1 and MatcherT2 are
-/// required by PolymorphicMatcherWithParam2 but not actually
-/// used. They will always be instantiated with types convertible to
-/// Matcher<T>.
-template <typename T, typename MatcherT1, typename MatcherT2>
-class EachOfMatcher : public MatcherInterface<T> {
-public:
-  EachOfMatcher(const Matcher<T> &InnerMatcher1,
-                const Matcher<T> &InnerMatcher2)
-      : InnerMatcher1(InnerMatcher1), InnerMatcher2(InnerMatcher2) {
+  ~VariadicOperatorMatcherInterface() {
+    llvm::DeleteContainerPointers(InnerMatchers);
   }
 
   virtual bool matches(const T &Node, ASTMatchFinder *Finder,
                        BoundNodesTreeBuilder *Builder) const {
-    BoundNodesTreeBuilder Result;
-    BoundNodesTreeBuilder Builder1(*Builder);
-    bool Matched1 = InnerMatcher1.matches(Node, Finder, &Builder1);
-    if (Matched1)
-      Result.addMatch(Builder1);
-
-    BoundNodesTreeBuilder Builder2(*Builder);
-    bool Matched2 = InnerMatcher2.matches(Node, Finder, &Builder2);
-    if (Matched2)
-      Result.addMatch(Builder2);
-
-    *Builder = Result;
-    return Matched1 || Matched2;
+    return Func(ast_type_traits::DynTypedNode::create(Node), Finder, Builder,
+                InnerMatchers);
   }
 
 private:
-  const Matcher<T> InnerMatcher1;
-  const Matcher<T> InnerMatcher2;
+  const VariadicOperatorFunction Func;
+  std::vector<const DynTypedMatcher *> InnerMatchers;
 };
 
-/// \brief Matches nodes of type T for which at least one of the two provided
-/// matchers matches.
+/// \brief "No argument" placeholder to use as template paratemers.
+struct VariadicOperatorNoArg {};
+
+/// \brief Polymorphic matcher object that uses a \c VariadicOperatorFunction
+///   operator.
 ///
-/// Type arguments MatcherT1 and MatcherT2 are
-/// required by PolymorphicMatcherWithParam2 but not actually
-/// used. They will always be instantiated with types convertible to
-/// Matcher<T>.
-template <typename T, typename MatcherT1, typename MatcherT2>
-class AnyOfMatcher : public MatcherInterface<T> {
+/// Input matchers can have any type (including other polymorphic matcher
+/// types), and the actual Matcher<T> is generated on demand with an implicit
+/// coversion operator.
+template <typename P1, typename P2,
+          typename P3 = VariadicOperatorNoArg,
+          typename P4 = VariadicOperatorNoArg,
+          typename P5 = VariadicOperatorNoArg>
+class VariadicOperatorMatcher {
 public:
-  AnyOfMatcher(const Matcher<T> &InnerMatcher1, const Matcher<T> &InnerMatcher2)
-      : InnerMatcher1(InnerMatcher1), InnerMatcher2(InnerMatcher2) {}
+  VariadicOperatorMatcher(VariadicOperatorFunction Func, const P1 &Param1,
+                          const P2 &Param2,
+                          const P3 &Param3 = VariadicOperatorNoArg(),
+                          const P4 &Param4 = VariadicOperatorNoArg(),
+                          const P5 &Param5 = VariadicOperatorNoArg())
+      : Func(Func), Param1(Param1), Param2(Param2), Param3(Param3),
+        Param4(Param4), Param5(Param5) {}
 
-  virtual bool matches(const T &Node,
-                       ASTMatchFinder *Finder,
-                       BoundNodesTreeBuilder *Builder) const {
-    BoundNodesTreeBuilder Result = *Builder;
-    if (InnerMatcher1.matches(Node, Finder, &Result)) {
-      *Builder = Result;
-      return true;
-    }
-    Result = *Builder;
-    if (InnerMatcher2.matches(Node, Finder, &Result)) {
-      *Builder = Result;
-      return true;
-    }
-    return false;
+  template <typename T> operator Matcher<T>() const {
+    Matcher<T> *Array[5];
+    size_t Size = 0;
+
+    addMatcher<T>(Param1, Array, Size);
+    addMatcher<T>(Param2, Array, Size);
+    addMatcher<T>(Param3, Array, Size);
+    addMatcher<T>(Param4, Array, Size);
+    addMatcher<T>(Param5, Array, Size);
+    Matcher<T> Result(new VariadicOperatorMatcherInterface<T>(
+        Func, ArrayRef<const Matcher<T> *>(Array, Size)));
+    for (size_t i = 0, e = Size; i != e; ++i) delete Array[i];
+    return Result;
   }
 
 private:
-  const Matcher<T> InnerMatcher1;
-  const Matcher<T> InnerMatcher2;
+  template <typename T>
+  static void addMatcher(const Matcher<T> &M, Matcher<T> **Array,
+                         size_t &Size) {
+    Array[Size++] = new Matcher<T>(M);
+  }
+
+  /// \brief Overload to ignore \c VariadicOperatorNoArg arguments.
+  template <typename T>
+  static void addMatcher(VariadicOperatorNoArg, Matcher<T> **Array,
+                         size_t &Size) {}
+
+  const VariadicOperatorFunction Func;
+  const P1 Param1;
+  const P2 Param2;
+  const P3 Param3;
+  const P4 Param4;
+  const P5 Param5;
 };
+
+/// \brief Overloaded function object to generate VariadicOperatorMatcher
+///   objects from arbitrary matchers.
+///
+/// It supports 2-5 argument overloaded operator(). More can be added if needed.
+struct VariadicOperatorMatcherFunc {
+  VariadicOperatorFunction Func;
+
+  template <typename M1, typename M2>
+  VariadicOperatorMatcher<M1, M2> operator()(const M1 &P1, const M2 &P2) const {
+    return VariadicOperatorMatcher<M1, M2>(Func, P1, P2);
+  }
+  template <typename M1, typename M2, typename M3>
+  VariadicOperatorMatcher<M1, M2, M3> operator()(const M1 &P1, const M2 &P2,
+                                                 const M3 &P3) const {
+    return VariadicOperatorMatcher<M1, M2, M3>(Func, P1, P2, P3);
+  }
+  template <typename M1, typename M2, typename M3, typename M4>
+  VariadicOperatorMatcher<M1, M2, M3, M4>
+  operator()(const M1 &P1, const M2 &P2, const M3 &P3, const M4 &P4) const {
+    return VariadicOperatorMatcher<M1, M2, M3, M4>(Func, P1, P2, P3, P4);
+  }
+  template <typename M1, typename M2, typename M3, typename M4, typename M5>
+  VariadicOperatorMatcher<M1, M2, M3, M4, M5>
+  operator()(const M1 &P1, const M2 &P2, const M3 &P3, const M4 &P4,
+             const M5 &P5) const {
+    return VariadicOperatorMatcher<M1, M2, M3, M4, M5>(Func, P1, P2, P3, P4,
+                                                       P5);
+  }
+};
+
+/// @}
+
+/// \brief Matches nodes for which all provided matchers match.
+bool
+AllOfVariadicOperator(const ast_type_traits::DynTypedNode DynNode,
+                      ASTMatchFinder *Finder, BoundNodesTreeBuilder *Builder,
+                      ArrayRef<const DynTypedMatcher *> InnerMatchers);
+
+/// \brief Matches nodes for which at least one of the provided matchers
+/// matches, but doesn't stop at the first match.
+bool
+EachOfVariadicOperator(const ast_type_traits::DynTypedNode DynNode,
+                       ASTMatchFinder *Finder, BoundNodesTreeBuilder *Builder,
+                       ArrayRef<const DynTypedMatcher *> InnerMatchers);
+
+/// \brief Matches nodes for which at least one of the provided matchers
+/// matches.
+bool
+AnyOfVariadicOperator(const ast_type_traits::DynTypedNode DynNode,
+                      ASTMatchFinder *Finder, BoundNodesTreeBuilder *Builder,
+                      ArrayRef<const DynTypedMatcher *> InnerMatchers);
 
 /// \brief Creates a Matcher<T> that matches if all inner matchers match.
 template<typename T>
 BindableMatcher<T> makeAllOfComposite(
     ArrayRef<const Matcher<T> *> InnerMatchers) {
-  if (InnerMatchers.empty())
-    return BindableMatcher<T>(new TrueMatcher<T>);
-  MatcherInterface<T> *InnerMatcher = new TrueMatcher<T>;
-  for (int i = InnerMatchers.size() - 1; i >= 0; --i) {
-    InnerMatcher = new AllOfMatcher<T, Matcher<T>, Matcher<T> >(
-      *InnerMatchers[i], makeMatcher(InnerMatcher));
-  }
-  return BindableMatcher<T>(InnerMatcher);
+  return BindableMatcher<T>(new VariadicOperatorMatcherInterface<T>(
+      AllOfVariadicOperator, InnerMatchers));
 }
 
 /// \brief Creates a Matcher<T> that matches if
@@ -1181,8 +1232,8 @@ BindableMatcher<T> makeAllOfComposite(
 template<typename T, typename InnerT>
 BindableMatcher<T> makeDynCastAllOfComposite(
     ArrayRef<const Matcher<InnerT> *> InnerMatchers) {
-  return BindableMatcher<T>(new DynCastMatcher<T, InnerT>(
-    makeAllOfComposite(InnerMatchers)));
+  return BindableMatcher<T>(
+      Matcher<T>::constructFromUnsafe(makeAllOfComposite(InnerMatchers)));
 }
 
 /// \brief Matches nodes of type T that have at least one descendant node of
@@ -1434,9 +1485,53 @@ private:
   TypeLoc (T::*TraverseFunction)() const;
 };
 
-template <typename T, typename InnerT>
-T makeTypeAllOfComposite(ArrayRef<const Matcher<InnerT> *> InnerMatchers) {
-  return T(makeAllOfComposite<InnerT>(InnerMatchers));
+/// \brief Converts a \c Matcher<InnerT> to a \c Matcher<OuterT>, where
+/// \c OuterT is any type that is supported by \c Getter.
+///
+/// \code Getter<OuterT>::value() \endcode returns a
+/// \code InnerTBase (OuterT::*)() \endcode, which is used to adapt a \c OuterT
+/// object into a \c InnerT
+template <typename InnerTBase,
+          template <typename OuterT> class Getter,
+          template <typename OuterT> class MatcherImpl,
+          typename ReturnTypesF>
+class TypeTraversePolymorphicMatcher {
+private:
+  typedef TypeTraversePolymorphicMatcher<InnerTBase, Getter, MatcherImpl,
+                                         ReturnTypesF> Self;
+  static Self create(ArrayRef<const Matcher<InnerTBase> *> InnerMatchers);
+
+public:
+  typedef typename ExtractFunctionArgMeta<ReturnTypesF>::type ReturnTypes;
+
+  explicit TypeTraversePolymorphicMatcher(
+      ArrayRef<const Matcher<InnerTBase> *> InnerMatchers)
+      : InnerMatcher(makeAllOfComposite(InnerMatchers)) {}
+
+  template <typename OuterT> operator Matcher<OuterT>() const {
+    return Matcher<OuterT>(
+        new MatcherImpl<OuterT>(InnerMatcher, Getter<OuterT>::value()));
+  }
+
+  struct Func : public llvm::VariadicFunction<Self, Matcher<InnerTBase>,
+                                              &Self::create> {
+    Func() {}
+  };
+
+private:
+  const Matcher<InnerTBase> InnerMatcher;
+};
+
+// Define the create() method out of line to silence a GCC warning about
+// the struct "Func" having greater visibility than its base, which comes from
+// using the flag -fvisibility-inlines-hidden.
+template <typename InnerTBase, template <typename OuterT> class Getter,
+          template <typename OuterT> class MatcherImpl, typename ReturnTypesF>
+TypeTraversePolymorphicMatcher<InnerTBase, Getter, MatcherImpl, ReturnTypesF>
+TypeTraversePolymorphicMatcher<
+    InnerTBase, Getter, MatcherImpl,
+    ReturnTypesF>::create(ArrayRef<const Matcher<InnerTBase> *> InnerMatchers) {
+  return Self(InnerMatchers);
 }
 
 } // end namespace internal

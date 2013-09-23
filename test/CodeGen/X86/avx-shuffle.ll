@@ -220,7 +220,7 @@ define <16 x i16> @narrow(<16 x i16> %a) nounwind alwaysinline {
   ret <16 x i16> %t
 }
 
-;CHECK: test17
+;CHECK-LABEL: test17:
 ;CHECK-NOT: vinsertf128
 ;CHECK: ret
 define   <8 x float> @test17(<4 x float> %y) {
@@ -249,8 +249,6 @@ define <8 x float> @test19(<8 x float> %A, <8 x float>%B) nounwind {
 ; rdar://12684358
 ; Make sure loads happen before stores.
 ; CHECK: swap8doubles
-; CHECK: vmovups {{[0-9]*}}(%rdi), %xmm{{[0-9]+}}
-; CHECK: vmovups {{[0-9]*}}(%rdi), %xmm{{[0-9]+}}
 ; CHECK: vmovups {{[0-9]*}}(%rdi), %xmm{{[0-9]+}}
 ; CHECK: vmovups {{[0-9]*}}(%rdi), %xmm{{[0-9]+}}
 ; CHECK: vmovaps {{[0-9]*}}(%rsi), %ymm{{[0-9]+}}

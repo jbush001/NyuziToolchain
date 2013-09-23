@@ -1,5 +1,7 @@
 // RUN: %clang_cc1 -analyze -analyzer-checker=core,debug.ExprInspection -fobjc-arc -analyzer-config c++-inlining=constructors -Wno-null-dereference -std=c++11 -verify %s
 
+#include "Inputs/system-header-simulator-cxx.h"
+
 void clang_analyzer_eval(bool);
 void clang_analyzer_checkInlined(bool);
 
@@ -624,4 +626,51 @@ namespace ZeroInitialization {
       // initialized twice.
     }
   };
+
+  class Empty {
+  public:
+    Empty();
+  };
+
+  class PairContainer : public Empty {
+    raw_pair p;
+  public:
+    PairContainer() : Empty(), p() {
+      // This previously caused a crash because the empty base class looked
+      // like an initialization of 'p'.
+    }
+    PairContainer(int) : Empty(), p() {
+      // Test inlining something else here.
+    }
+  };
+
+  class PairContainerContainer {
+    int padding;
+    PairContainer pc;
+  public:
+    PairContainerContainer() : pc(1) {}
+  };
+}
+
+namespace InitializerList {
+  struct List {
+    bool usedInitializerList;
+
+    List() : usedInitializerList(false) {}
+    List(std::initializer_list<int>) : usedInitializerList(true) {}
+  };
+
+  void testStatic() {
+    List defaultCtor;
+    clang_analyzer_eval(!defaultCtor.usedInitializerList); // expected-warning{{TRUE}}
+
+    List list{1, 2};
+    clang_analyzer_eval(list.usedInitializerList); // expected-warning{{TRUE}}
+  }
+
+  void testDynamic() {
+    List *list = new List{1, 2};
+    // FIXME: When we handle constructors with 'new', this will be TRUE.
+    clang_analyzer_eval(list->usedInitializerList); // expected-warning{{UNKNOWN}}
+  }
 }

@@ -7,4 +7,4 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "VectorProcTargetInfo.h"
+#include "VectorProcLinkingContext.h"

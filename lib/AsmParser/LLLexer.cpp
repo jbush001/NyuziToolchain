@@ -540,6 +540,7 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(alignstack);
   KEYWORD(inteldialect);
   KEYWORD(gc);
+  KEYWORD(prefix);
 
   KEYWORD(ccc);
   KEYWORD(fastcc);
@@ -583,6 +584,7 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(noredzone);
   KEYWORD(noreturn);
   KEYWORD(nounwind);
+  KEYWORD(optnone);
   KEYWORD(optsize);
   KEYWORD(readnone);
   KEYWORD(readonly);

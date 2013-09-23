@@ -468,12 +468,12 @@ void MachineLICM::ProcessMI(MachineInstr *MI,
     for (MCRegAliasIterator AS(Reg, TRI, true); AS.isValid(); ++AS) {
       if (PhysRegDefs.test(*AS))
         PhysRegClobbers.set(*AS);
-      if (PhysRegClobbers.test(*AS))
-        // MI defined register is seen defined by another instruction in
-        // the loop, it cannot be a LICM candidate.
-        RuledOut = true;
       PhysRegDefs.set(*AS);
     }
+    if (PhysRegClobbers.test(Reg))
+      // MI defined register is seen defined by another instruction in
+      // the loop, it cannot be a LICM candidate.
+      RuledOut = true;
   }
 
   // Only consider reloads for now and remats which do not have register
@@ -502,7 +502,7 @@ void MachineLICM::HoistRegionPostRA() {
 
   // Walk the entire region, count number of defs for each register, and
   // collect potential LICM candidates.
-  const std::vector<MachineBasicBlock*> Blocks = CurLoop->getBlocks();
+  const std::vector<MachineBasicBlock *> &Blocks = CurLoop->getBlocks();
   for (unsigned i = 0, e = Blocks.size(); i != e; ++i) {
     MachineBasicBlock *BB = Blocks[i];
 
@@ -584,7 +584,7 @@ void MachineLICM::HoistRegionPostRA() {
 /// AddToLiveIns - Add register 'Reg' to the livein sets of BBs in the current
 /// loop, and make sure it is not killed by any instructions in the loop.
 void MachineLICM::AddToLiveIns(unsigned Reg) {
-  const std::vector<MachineBasicBlock*> Blocks = CurLoop->getBlocks();
+  const std::vector<MachineBasicBlock *> &Blocks = CurLoop->getBlocks();
   for (unsigned i = 0, e = Blocks.size(); i != e; ++i) {
     MachineBasicBlock *BB = Blocks[i];
     if (!BB->isLiveIn(Reg))

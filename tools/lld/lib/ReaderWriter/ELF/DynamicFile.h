@@ -13,7 +13,7 @@
 #include "Atoms.h"
 
 #include "lld/Core/SharedLibraryFile.h"
-#include "lld/ReaderWriter/ELFTargetInfo.h"
+#include "lld/ReaderWriter/ELFLinkingContext.h"
 
 #include "llvm/Object/ELF.h"
 #include "llvm/Support/Path.h"
@@ -24,26 +24,20 @@ namespace lld {
 namespace elf {
 template <class ELFT> class DynamicFile LLVM_FINAL : public SharedLibraryFile {
 public:
-  static ErrorOr<std::unique_ptr<DynamicFile> > create(
-      const ELFTargetInfo &ti, std::unique_ptr<llvm::MemoryBuffer> mb) {
+  static ErrorOr<std::unique_ptr<DynamicFile> >
+  create(const ELFLinkingContext &ctx, std::unique_ptr<llvm::MemoryBuffer> mb) {
     std::unique_ptr<DynamicFile> file(
-        new DynamicFile(ti, mb->getBufferIdentifier()));
-    llvm::OwningPtr<llvm::object::Binary> binaryFile;
-    bool useShlibUndefines = ti.useShlibUndefines();
+        new DynamicFile(ctx, mb->getBufferIdentifier()));
 
-    if (error_code ec = createBinary(mb.release(), binaryFile))
+    bool useShlibUndefines = ctx.useShlibUndefines();
+
+    error_code ec;
+    file->_objFile.reset(new llvm::object::ELFFile<ELFT>(mb.release(), ec));
+
+    if (ec)
       return ec;
 
-    // Point Obj to correct class and bitwidth ELF object
-    file->_objFile.reset(
-        dyn_cast<llvm::object::ELFObjectFile<ELFT>>(binaryFile.get()));
-
-    if (!file->_objFile)
-      return make_error_code(llvm::object::object_error::invalid_file_type);
-
-    binaryFile.take();
-
-    llvm::object::ELFObjectFile<ELFT> &obj = *file->_objFile;
+    llvm::object::ELFFile<ELFT> &obj = *file->_objFile;
 
     file->_soname = obj.getLoadName();
     if (file->_soname.empty())
@@ -52,28 +46,29 @@ public:
     // Create a map from names to dynamic symbol table entries.
     // TODO: This should use the object file's build in hash table instead if
     // it exists.
-    for (auto i = obj.begin_elf_dynamic_symbols(),
-              e = obj.end_elf_dynamic_symbols();
+    for (auto i = obj.begin_dynamic_symbols(),
+              e = obj.end_dynamic_symbols();
          i != e; ++i) {
-      StringRef name;
-      if (error_code ec = obj.getSymbolName(
-              obj.getDynamicSymbolTableSectionHeader(), &*i, name))
-        return ec;
+      auto name = obj.getSymbolName(i);
+      if (!name)
+        return error_code(name);
 
       // TODO: Add absolute symbols
       if (i->st_shndx == llvm::ELF::SHN_ABS)
         continue;
 
-      if (useShlibUndefines && (i->st_shndx == llvm::ELF::SHN_UNDEF)) {
+      if (i->st_shndx == llvm::ELF::SHN_UNDEF) {
+        if (!useShlibUndefines)
+          continue;
         // Create an undefined atom.
-        if (!name.empty()) {
+        if (!name->empty()) {
           auto *newAtom =
-              new (file->_alloc) ELFUndefinedAtom<ELFT>(*file.get(), name, &*i);
+              new (file->_alloc) ELFUndefinedAtom<ELFT>(*file.get(), *name, &*i);
           file->_undefinedAtoms._atoms.push_back(newAtom);
         }
         continue;
       }
-      file->_nameToSym[name]._symbol = &*i;
+      file->_nameToSym[*name]._symbol = &*i;
     }
 
     return std::move(file);
@@ -110,15 +105,17 @@ public:
         *this, name, _soname, sym->second._symbol);
   }
 
-  virtual const ELFTargetInfo &getTargetInfo() const { return _targetInfo; }
+  virtual const ELFLinkingContext &getLinkingContext() const {
+    return _context;
+  }
 
 private:
-  DynamicFile(const ELFTargetInfo &ti, StringRef name)
-      : SharedLibraryFile(name), _targetInfo(ti) {}
+  DynamicFile(const ELFLinkingContext &context, StringRef name)
+      : SharedLibraryFile(name), _context(context) {}
 
   mutable llvm::BumpPtrAllocator _alloc;
-  const ELFTargetInfo &_targetInfo;
-  std::unique_ptr<llvm::object::ELFObjectFile<ELFT>> _objFile;
+  const ELFLinkingContext &_context;
+  std::unique_ptr<llvm::object::ELFFile<ELFT>> _objFile;
   atom_collection_vector<DefinedAtom> _definedAtoms;
   atom_collection_vector<UndefinedAtom> _undefinedAtoms;
   atom_collection_vector<SharedLibraryAtom> _sharedLibraryAtoms;
@@ -128,7 +125,7 @@ private:
 
   struct SymAtomPair {
     SymAtomPair() : _symbol(nullptr), _atom(nullptr) {}
-    const typename llvm::object::ELFObjectFile<ELFT>::Elf_Sym *_symbol;
+    const typename llvm::object::ELFFile<ELFT>::Elf_Sym *_symbol;
     const SharedLibraryAtom *_atom;
   };
 

@@ -21,10 +21,11 @@
 using namespace lld;
 
 /// The function compares atoms by sorting atoms in the following order
-/// a) Sorts atoms with the same permissions
-/// b) Sorts atoms with the same content Type
-/// c) Sorts atoms by Section position preference
-/// d) Sorts atoms by how they follow / precede each atom
+/// a) Sorts atoms by Section position preference
+/// b) Sorts atoms by their ordinal overrides
+///    (layout-after/layout-before/ingroup)
+/// c) Sorts atoms by their permissions
+/// d) Sorts atoms by their content
 /// e) Sorts atoms on how they appear using File Ordinality
 /// f) Sorts atoms on how they appear within the File
 bool LayoutPass::CompareAtoms::operator()(const DefinedAtom *left,
@@ -52,22 +53,15 @@ bool LayoutPass::CompareAtoms::operator()(const DefinedAtom *left,
   AtomToOrdinalT::const_iterator lPos = _layout._ordinalOverrideMap.find(left);
   AtomToOrdinalT::const_iterator rPos = _layout._ordinalOverrideMap.find(right);
   AtomToOrdinalT::const_iterator end = _layout._ordinalOverrideMap.end();
-  if (lPos != end) {
-    if (rPos != end) {
-      // both left and right are overridden, so compare overridden ordinals
-      if (lPos->second != rPos->second)
-        return lPos->second < rPos->second;
-    } else {
-      // left is overridden and right is not, so left < right
-      return true;
-    }
-  } else {
-    if (rPos != end) {
-      // right is overridden and left is not, so right < left
-      return false;
-    } else {
-      // neither are overridden,
-      // fall into default sorting below
+
+  // Sort atoms by their ordinal overrides only if they fall in the same
+  // chain.
+  const DefinedAtom *leftAtom = _layout._followOnRoots.find(left)->second;
+  const DefinedAtom *rightAtom = _layout._followOnRoots.find(right)->second;
+
+  if (leftAtom == rightAtom) {
+    if ((lPos != end) && (rPos != end)) {
+      return lPos->second < rPos->second;
     }
   }
 
@@ -90,8 +84,6 @@ bool LayoutPass::CompareAtoms::operator()(const DefinedAtom *left,
 
   if (leftType != rightType)
     return leftType < rightType;
-
-  // TO DO: Sort atoms in customs sections together.
 
   // Sort by .o order.
   const File *leftFile = &left->file();
@@ -393,8 +385,6 @@ void LayoutPass::buildOrdinalOverrideMap(MutableFile::DefinedAtomRange &range) {
           _ordinalOverrideMap[nextAtom] = index++;
         }
       }
-    } else {
-      _ordinalOverrideMap[atom] = index++;
     }
   }
 }
@@ -433,7 +423,7 @@ void showCycleDetectedError(AtomToAtomT &followOnNexts,
     }
     atom = followOnNexts[atom];
   } while (atom != start);
-  llvm_unreachable("Cycle detected");
+  llvm::report_fatal_error("Cycle detected");
 }
 
 /// Exit if there's a cycle in a followon chain reachable from the

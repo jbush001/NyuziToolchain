@@ -1,5 +1,5 @@
 add_lld_library(lldELF
-  ELFTargetInfo.cpp
+  ELFLinkingContext.cpp
   Reader.cpp
   Writer.cpp
   )
@@ -7,11 +7,11 @@ add_lld_library(lldELF
 target_link_libraries(lldELF
   lldHexagonELFTarget
   lldPPCELFTarget
+  lldPasses
   lldReaderWriter
-  lldX86_64ELFTarget
   lldX86ELFTarget
   lldVectorProcELFTarget
-  lldPasses
+  lldX86_64ELFTarget
   )
 
 include_directories(.)

@@ -14,38 +14,41 @@
 
 #include "DriverTest.h"
 
-#include "lld/ReaderWriter/ELFTargetInfo.h"
+#include "lld/ReaderWriter/ELFLinkingContext.h"
 
 using namespace llvm;
 using namespace lld;
 
 namespace {
 
-class GnuLdParserTest : public ParserTest<GnuLdDriver, ELFTargetInfo> {
+class GnuLdParserTest
+    : public ParserTest<GnuLdDriver, std::unique_ptr<ELFLinkingContext>> {
 protected:
-  virtual ELFTargetInfo* doParse(int argc, const char **argv,
-                                 raw_ostream &diag) {
-    std::unique_ptr<ELFTargetInfo> info(GnuLdDriver::parse(argc, argv, diag));
-    return info.release();
-  }
+  virtual const LinkingContext *linkingContext() { return _context.get(); }
 };
 
+TEST_F(GnuLdParserTest, Empty) {
+  EXPECT_TRUE(parse("ld", nullptr));
+  EXPECT_EQ(linkingContext(), nullptr);
+  EXPECT_EQ("No input files\n", errorMessage());
+}
+
 TEST_F(GnuLdParserTest, Basic) {
-  parse("ld", "infile.o", nullptr);
-  ASSERT_TRUE(!!info);
-  EXPECT_EQ("a.out", info->outputPath());
-  EXPECT_EQ(1, (int)inputFiles.size());
-  EXPECT_EQ("infile.o", inputFiles[0]);
-  EXPECT_FALSE(info->outputYAML());
+  EXPECT_FALSE(parse("ld", "infile.o", nullptr));
+  EXPECT_NE(linkingContext(), nullptr);
+  EXPECT_EQ("a.out", linkingContext()->outputPath());
+  EXPECT_EQ(1, inputFileCount());
+  EXPECT_EQ("infile.o", inputFile(0));
+  EXPECT_FALSE(_context->outputYAML());
 }
 
 TEST_F(GnuLdParserTest, ManyOptions) {
-  parse("ld", "-entry", "_start", "-o", "outfile",
-        "-emit-yaml", "infile.o", nullptr);
-  ASSERT_TRUE(!!info);
-  EXPECT_EQ("outfile", info->outputPath());
-  EXPECT_EQ("_start", info->entrySymbolName());
-  EXPECT_TRUE(info->outputYAML());
+  EXPECT_FALSE(parse("ld", "-entry", "_start", "-o", "outfile",
+        "-emit-yaml", "infile.o", nullptr));
+  EXPECT_NE(linkingContext(), nullptr);
+  EXPECT_EQ("outfile", linkingContext()->outputPath());
+  EXPECT_EQ("_start", linkingContext()->entrySymbolName());
+  EXPECT_TRUE(_context->outputYAML());
 }
 
 }  // end anonymous namespace

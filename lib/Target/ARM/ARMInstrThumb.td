@@ -100,6 +100,13 @@ class OperandUnsignedOffset_b8s2 : AsmOperandClass {
 
 def UnsignedOffset_b8s2 : OperandUnsignedOffset_b8s2;
 
+// thumb style PC relative operand. signed, 8 bits magnitude,
+// two bits shift. can be represented as either [pc, #imm], #imm,
+// or relocatable expression...
+def ThumbMemPC : AsmOperandClass {
+  let Name = "ThumbMemPC";
+}
+
 let OperandType = "OPERAND_PCREL" in {
 def t_brtarget : Operand<OtherVT> {
   let EncoderMethod = "getThumbBRTargetOpValue";
@@ -131,6 +138,15 @@ def t_bltarget : Operand<i32> {
 def t_blxtarget : Operand<i32> {
   let EncoderMethod = "getThumbBLXTargetOpValue";
   let DecoderMethod = "DecodeThumbBLXOffset";
+}
+
+// t_addrmode_pc := <label> => pc + imm8 * 4
+//
+def t_addrmode_pc : Operand<i32> {
+  let EncoderMethod = "getAddrModePCOpValue";
+  let DecoderMethod = "DecodeThumbAddrModePC";
+  let PrintMethod = "printThumbLdrLabelOperand";
+  let ParserMatchClass = ThumbMemPC;
 }
 }
 
@@ -228,14 +244,6 @@ def t_addrmode_sp : Operand<i32>,
   let MIOperandInfo = (ops GPR:$base, i32imm:$offsimm);
 }
 
-// t_addrmode_pc := <label> => pc + imm8 * 4
-//
-def t_addrmode_pc : Operand<i32> {
-  let EncoderMethod = "getAddrModePCOpValue";
-  let DecoderMethod = "DecodeThumbAddrModePC";
-  let PrintMethod = "printThumbLdrLabelOperand";
-}
-
 //===----------------------------------------------------------------------===//
 //  Miscellaneous Instructions.
 //
@@ -290,6 +298,13 @@ def tBKPT : T1I<(outs), (ins imm0_255:$val), NoItinerary, "bkpt\t$val",
   // A8.6.22
   bits<8> val;
   let Inst{7-0} = val;
+}
+
+def tHLT : T1I<(outs), (ins imm0_63:$val), NoItinerary, "hlt\t$val",
+                []>, T1Encoding<0b101110>, Requires<[IsThumb, HasV8]> {
+  let Inst{9-6} = 0b1010;
+  bits<6> val;
+  let Inst{5-0} = val;
 }
 
 def tSETEND : T1I<(outs), (ins setend_op:$end), NoItinerary, "setend\t$end",
@@ -483,7 +498,8 @@ let isBranch = 1, isTerminator = 1, isBarrier = 1 in {
              T1Encoding<{1,1,1,0,0,?}>, Sched<[WriteBr]> {
     bits<11> target;
     let Inst{10-0} = target;
-  }
+    let AsmMatchConverter = "cvtThumbBranches";
+ }
 
   // Far jump
   // Just a pseudo for a tBL instruction. Needed to let regalloc know about
@@ -513,6 +529,7 @@ let isBranch = 1, isTerminator = 1 in
   bits<8> target;
   let Inst{11-8} = p;
   let Inst{7-0} = target;
+  let AsmMatchConverter = "cvtThumbBranches";
 }
 
 
@@ -640,25 +657,11 @@ def tLDRspi : T1pIs<(outs tGPR:$Rt), (ins t_addrmode_sp:$addr), IIC_iLoad_i,
   let Inst{7-0} = addr;
 }
 
-// Load tconstpool
-// FIXME: Use ldr.n to work around a darwin assembler bug.
-let canFoldAsLoad = 1, isReMaterializable = 1, isCodeGenOnly = 1 in
+let canFoldAsLoad = 1, isReMaterializable = 1 in
 def tLDRpci : T1pIs<(outs tGPR:$Rt), (ins t_addrmode_pc:$addr), IIC_iLoad_i,
-                  "ldr", ".n\t$Rt, $addr",
+                  "ldr", "\t$Rt, $addr",
                   [(set tGPR:$Rt, (load (ARMWrapper tconstpool:$addr)))]>,
               T1Encoding<{0,1,0,0,1,?}> {
-  // A6.2 & A8.6.59
-  bits<3> Rt;
-  bits<8> addr;
-  let Inst{10-8} = Rt;
-  let Inst{7-0}  = addr;
-}
-
-// FIXME: Remove this entry when the above ldr.n workaround is fixed.
-// For assembly/disassembly use only.
-def tLDRpciASM : T1pIs<(outs tGPR:$Rt), (ins t_addrmode_pc:$addr), IIC_iLoad_i,
-                       "ldr", "\t$Rt, $addr", []>,
-                 T1Encoding<{0,1,0,0,1,?}> {
   // A6.2 & A8.6.59
   bits<3> Rt;
   bits<8> addr;
@@ -1208,9 +1211,9 @@ def tUXTH :                     // A8.6.264
 // Expanded after instruction selection into a branch sequence.
 let usesCustomInserter = 1 in  // Expanded after instruction selection.
   def tMOVCCr_pseudo :
-  PseudoInst<(outs tGPR:$dst), (ins tGPR:$false, tGPR:$true, pred:$cc),
-              NoItinerary,
-             [/*(set tGPR:$dst, (ARMcmov tGPR:$false, tGPR:$true, imm:$cc))*/]>;
+  PseudoInst<(outs tGPR:$dst), (ins tGPR:$false, tGPR:$true, cmovpred:$p),
+             NoItinerary,
+             [(set tGPR:$dst, (ARMcmov tGPR:$false, tGPR:$true, cmovpred:$p))]>;
 
 // tLEApcrel - Load a pc-relative address into a register without offending the
 // assembler.
