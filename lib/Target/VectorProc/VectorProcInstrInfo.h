@@ -29,8 +29,7 @@ namespace SPII {
   enum {
     Pseudo = (1<<0),
     Load = (1<<1),
-    Store = (1<<2),
-    DelaySlot = (1<<3)
+    Store = (1<<2)
   };
 }
 

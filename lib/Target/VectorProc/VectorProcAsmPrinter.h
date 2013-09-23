@@ -47,8 +47,6 @@ public:
 
 	virtual void EmitInstruction(const MachineInstr *MI);
 
-	virtual bool isBlockOnlyReachableByFallthrough(const MachineBasicBlock *MBB)
-					 const;
 	virtual MachineLocation getDebugValueLocation(const MachineInstr *MI) const;
 	virtual void EmitFunctionBodyStart();
 	virtual void EmitFunctionBodyEnd();
