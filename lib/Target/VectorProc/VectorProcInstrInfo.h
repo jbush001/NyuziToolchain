@@ -114,8 +114,6 @@ public:
 
 	MachineMemOperand *GetMemOperand(MachineBasicBlock &MBB, int FI,
 		unsigned Flag) const;
-
-	unsigned getGlobalBaseReg(MachineFunction *MF) const;
 };
 
 }

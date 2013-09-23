@@ -49,10 +49,6 @@ struct VectorProcRegisterInfo : public VectorProcGenRegisterInfo {
 
   // Debug information queries.
   unsigned getFrameRegister(const MachineFunction &MF) const;
-
-  // Exception handling queries.
-  unsigned getEHExceptionRegister() const;
-  unsigned getEHHandlerRegister() const;
 };
 
 } // end namespace llvm

@@ -245,7 +245,6 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 	SmallVector<SDValue, 8> MemOpChains;
 
 	// Walk through arguments, storing each one to the proper palce
-	bool hasStructRetAttr = false;
 	for (unsigned i = 0, realArgIdx = 0, byvalArgIdx = 0, e = ArgLocs.size();
 		i != e; ++i, ++realArgIdx) {
 

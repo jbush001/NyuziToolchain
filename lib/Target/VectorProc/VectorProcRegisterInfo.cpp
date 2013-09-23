@@ -69,7 +69,6 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 	assert(SPAdj == 0 && "Unexpected");
 
 	MachineInstr &MI = *II;
-	DebugLoc dl = MI.getDebugLoc();
 	int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
 	MachineFunction &MF = *MI.getParent()->getParent();
 	MachineFrameInfo *MFI = MF.getFrameInfo();
@@ -115,14 +114,4 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 unsigned VectorProcRegisterInfo::getFrameRegister(const MachineFunction &MF) const 
 {
 	return VectorProc::FP_REG;
-}
-
-unsigned VectorProcRegisterInfo::getEHExceptionRegister() const 
-{
-	llvm_unreachable("What is the exception register");
-}
-
-unsigned VectorProcRegisterInfo::getEHHandlerRegister() const 
-{
-	llvm_unreachable("What is the exception handler register");
 }

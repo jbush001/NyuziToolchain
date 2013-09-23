@@ -268,9 +268,3 @@ loadRegFromStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
 	BuildMI(MBB, I, DL, get(Opc), DestReg).addFrameIndex(FI).addImm(Offset)
 		.addMemOperand(MMO);
 }
-
-unsigned VectorProcInstrInfo::getGlobalBaseReg(MachineFunction *MF) const
-{
-	// This is unused
-	return 0;
-}

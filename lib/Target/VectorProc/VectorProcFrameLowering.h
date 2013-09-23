@@ -22,11 +22,10 @@ namespace llvm {
   class VectorProcSubtarget;
 
 class VectorProcFrameLowering : public TargetFrameLowering {
-  const VectorProcSubtarget &SubTarget;
 public:
 	explicit VectorProcFrameLowering(const VectorProcSubtarget &ST)
 		: TargetFrameLowering(TargetFrameLowering::StackGrowsDown,
-			64, 0, 64), SubTarget(ST) {}
+			64, 0, 64) {}
 
 	/// emitProlog/emitEpilog - These methods insert prolog and epilog code into
 	/// the function.

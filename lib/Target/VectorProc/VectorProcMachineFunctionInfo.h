@@ -20,7 +20,6 @@ namespace llvm {
   class VectorProcMachineFunctionInfo : public MachineFunctionInfo {
     virtual void anchor();
   private:
-    unsigned GlobalBaseReg;
 
     /// VarArgsFrameOffset - Frame offset to start of varargs area.
     int VarArgsFrameOffset;
@@ -30,12 +29,9 @@ namespace llvm {
     unsigned SRetReturnReg;
   public:
     VectorProcMachineFunctionInfo()
-      : GlobalBaseReg(0), VarArgsFrameOffset(0), SRetReturnReg(0) {}
+      : VarArgsFrameOffset(0), SRetReturnReg(0) {}
     explicit VectorProcMachineFunctionInfo(MachineFunction &MF)
-      : GlobalBaseReg(0), VarArgsFrameOffset(0), SRetReturnReg(0) {}
-
-    unsigned getGlobalBaseReg() const { return GlobalBaseReg; }
-    void setGlobalBaseReg(unsigned Reg) { GlobalBaseReg = Reg; }
+      : VarArgsFrameOffset(0), SRetReturnReg(0) {}
 
     int getVarArgsFrameOffset() const { return VarArgsFrameOffset; }
     void setVarArgsFrameOffset(int Offset) { VarArgsFrameOffset = Offset; }
