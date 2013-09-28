@@ -12,7 +12,7 @@ cd build
 ### Configure and build:
 This requires a newer version of a compiler that supports c++11.
 cmake must be installed (http://www.cmake.org/). 
-* Note that there is also a 'configure' script in the directory.  It doesn't work, because lld specifically is cmake only.
+* Note that there is also an autoconf based build system in the directory.  They won't work, because lld specifically is cmake only.
 * MAKE_INSTALL_PREFIX will put this in a different path than the default compiler.  Since this only builds for VectorProc, be careful not to overwrite your system compiler.
 
 __MacOS__
@@ -34,12 +34,6 @@ make install
 ### To run compiler
 
 <pre>
-./bin/clang -target vectorproc &lt;test_program.c&gt; -S -o -
-</pre>
-
-Or
-
-<pre>
 /usr/local/llvm-vectorproc/clang -c -integrated-as -target vectorproc &lt;test_program.c&gt; 
 /usr/local/llvm-vectorproc/ lld -flavor gnu -target vectorproc  -static &lt;test_program.o&gt;
 </pre>
@@ -47,11 +41,10 @@ Or
 
 ## Running unit tests
 
-* Switch to *build* directory and cd into test/.  Type 'make'.  This will set up
-the configuration (it will try to run a bunch of tests, a bunch of which will fail.  
-It's okay to Ctrl-C at this point).
+* Switch to *build* directory and cd into test/.  Type 'make check'.  This will set up
+the configuration (it will try to run a bunch of tests, a bunch of which will fail.  It's okay to Ctrl-C at this point).
 * Same deal with clang.  From the top of the build directory, switch to tools/clang/test and
-type 'make'.
+type 'make check'.
 * Change PATH environment variable to include the binary directory (build/Debug+Asserts/bin) 
 * From the top of the source (not build) directory, run:
 
