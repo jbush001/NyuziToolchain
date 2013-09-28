@@ -56,7 +56,7 @@ type 'make check'.
 
 ## Running whole program tests
 
-There are a set of tests in https://github.com/jbush001/GPGPU/tests/compiler
+There are a set of tests in https://github.com/jbush001/GPGPU/tree/master/tests/compiler
 Each test case is compiled and then run in the instruction set simulator.
 The output is checked for validity. This is similar to the test-suite project
 in LLVM.
