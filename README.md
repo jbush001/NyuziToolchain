@@ -35,7 +35,7 @@ make install
 
 <pre>
 /usr/local/llvm-vectorproc/clang -c &lt;test_program.c&gt; 
-/usr/local/llvm-vectorproc/lld -flavor gnu -target vectorproc  -static &lt;test_program.o&gt;
+/usr/local/llvm-vectorproc/lld -flavor gnu -static &lt;test_program.o&gt;
 </pre>
 
 ## Running unit tests
