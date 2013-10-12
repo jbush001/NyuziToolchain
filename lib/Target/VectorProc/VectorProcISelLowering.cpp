@@ -871,6 +871,9 @@ VectorProcTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
 
 		case VectorProc::ATOMIC_LOAD_XOR:
 			return EmitAtomicRMW(MI, BB, VectorProc::XORSSS);
+			
+		case VectorProc::ATOMIC_CMP_SWAP:
+			return EmitAtomicCmpSwap(MI, BB);
 
 		default:
 			llvm_unreachable("unimplemented atomic operation");
@@ -1002,6 +1005,70 @@ MachineBasicBlock *VectorProcTargetLowering::EmitAtomicRMW(MachineInstr *MI,
 	return BB;	
 }
 
+MachineBasicBlock *
+VectorProcTargetLowering::EmitAtomicCmpSwap(MachineInstr *MI,
+                                      MachineBasicBlock *BB) const {
+  MachineFunction *MF = BB->getParent();
+  MachineRegisterInfo &RegInfo = MF->getRegInfo();
+  const TargetRegisterClass *RC = getRegClassFor(MVT::i32);
+  const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
+  DebugLoc DL = MI->getDebugLoc();
+
+  unsigned Dest    = MI->getOperand(0).getReg();
+  unsigned Ptr     = MI->getOperand(1).getReg();
+  unsigned OldVal  = MI->getOperand(2).getReg();
+  unsigned NewVal  = MI->getOperand(3).getReg();
+
+  unsigned Success = RegInfo.createVirtualRegister(RC);
+  unsigned CmpResult = RegInfo.createVirtualRegister(RC);
+
+  // insert new blocks after the current block
+  const BasicBlock *LLVM_BB = BB->getBasicBlock();
+  MachineBasicBlock *loop1MBB = MF->CreateMachineBasicBlock(LLVM_BB);
+  MachineBasicBlock *loop2MBB = MF->CreateMachineBasicBlock(LLVM_BB);
+  MachineBasicBlock *exitMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+  MachineFunction::iterator It = BB;
+  ++It;
+  MF->insert(It, loop1MBB);
+  MF->insert(It, loop2MBB);
+  MF->insert(It, exitMBB);
+
+  // Transfer the remainder of BB and its successor edges to exitMBB.
+  exitMBB->splice(exitMBB->begin(), BB,
+                  llvm::next(MachineBasicBlock::iterator(MI)), BB->end());
+  exitMBB->transferSuccessorsAndUpdatePHIs(BB);
+
+  //  thisMBB:
+  //    ...
+  //    fallthrough --> loop1MBB
+  BB->addSuccessor(loop1MBB);
+  loop1MBB->addSuccessor(exitMBB);
+  loop1MBB->addSuccessor(loop2MBB);
+  loop2MBB->addSuccessor(loop1MBB);
+  loop2MBB->addSuccessor(exitMBB);
+
+  // loop1MBB:
+  //   load.sync dest, 0(ptr)
+  //   setne cmpresult, dest, oldval
+  //   btrue cmpresult, exitMBB
+  BB = loop1MBB;
+  BuildMI(BB, DL, TII->get(VectorProc::LOAD_SYNC), Dest).addReg(Ptr).addImm(0);
+  BuildMI(BB, DL, TII->get(VectorProc::SNESISSS), CmpResult).addReg(Dest).addReg(OldVal);
+  BuildMI(BB, DL, TII->get(VectorProc::BTRUE)).addReg(CmpResult).addMBB(exitMBB);
+
+  // loop2MBB:
+  //   move success, newval			; need a temporary because
+  //   store.sync success, 0(ptr)	; store.sync will clobber success
+  //   bfalse success, loop1MBB
+  BB = loop2MBB;
+  BuildMI(BB, DL, TII->get(VectorProc::MOVESS), Success).addReg(NewVal);
+  BuildMI(BB, DL, TII->get(VectorProc::STORE_SYNC), Success).addReg(Ptr).addImm(0);
+  BuildMI(BB, DL, TII->get(VectorProc::BFALSE)).addReg(Success).addMBB(loop1MBB);
+
+  MI->eraseFromParent();   // The instruction is gone now.
+
+  return exitMBB;
+}
 
 //===----------------------------------------------------------------------===//
 //                         VectorProc Inline Assembly Support

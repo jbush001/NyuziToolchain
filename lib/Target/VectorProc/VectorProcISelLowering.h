@@ -46,6 +46,8 @@ namespace llvm {
 		MachineBasicBlock *EmitSelectCC(MachineInstr *MI, MachineBasicBlock *BB) const;
 		MachineBasicBlock *EmitAtomicRMW(MachineInstr *MI, MachineBasicBlock *BB,
 			unsigned Opcode) const;
+		MachineBasicBlock *EmitAtomicCmpSwap(MachineInstr *MI, MachineBasicBlock *BB) 
+			const;
 		virtual const char *getTargetNodeName(unsigned Opcode) const;
 		ConstraintType getConstraintType(const std::string &Constraint) const;
 		std::pair<unsigned, const TargetRegisterClass*>

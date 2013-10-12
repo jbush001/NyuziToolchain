@@ -16,3 +16,23 @@ void stbar()
 {
 	__sync_synchronize();	// CHECK: membar
 }
+
+void atomic_cmp_swap(volatile int *lockvar)
+{
+	int old;
+	do
+	{
+		 old = *lockvar;
+	}
+	while (__sync_val_compare_and_swap(lockvar, old, old + 1) != old);
+
+	// [[LOOP1MBB:L[0-9A-Za-z_]+]]
+	//   load.sync
+	//   setne [[CMPRES:s[0-9]+]]
+	//   btrue [[CMPRES]], [[EXITMBB]]
+	// {{L[0-9A-Za-z_]+}}
+	//   move [[SUCCESS:s[0-9]+]]
+	//   store.sync [[SUCCESS]]
+	//   bfalse [[SUCCESS]], [[LOOP1MBB]]
+	// [[EXITMBB:L[0-9A-Za-z_]+]]
+}

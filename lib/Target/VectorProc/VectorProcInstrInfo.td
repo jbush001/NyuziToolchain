@@ -379,30 +379,35 @@ def STORE_SYNC : FormatCUnmaskedInst<
 let usesCustomInserter = 1 in {
 	def ATOMIC_LOAD_ADD : Pseudo<
 		(outs ScalarReg:$dest),
-		(ins ScalarReg:$ptr, ScalarReg:$offset),
-		[(set i32:$dest, (atomic_load_add ScalarReg:$ptr, ScalarReg:$offset))]>;
+		(ins ScalarReg:$ptr, ScalarReg:$amt),
+		[(set i32:$dest, (atomic_load_add ScalarReg:$ptr, ScalarReg:$amt))]>;
 
 	def ATOMIC_LOAD_SUB : Pseudo<
 		(outs ScalarReg:$dest),
-		(ins ScalarReg:$ptr, ScalarReg:$offset),
-		[(set i32:$dest, (atomic_load_sub ScalarReg:$ptr, ScalarReg:$offset))]>;
+		(ins ScalarReg:$ptr, ScalarReg:$amt),
+		[(set i32:$dest, (atomic_load_sub ScalarReg:$ptr, ScalarReg:$amt))]>;
 
 	def ATOMIC_LOAD_AND : Pseudo<
 		(outs ScalarReg:$dest),
-		(ins ScalarReg:$ptr, ScalarReg:$offset),
-		[(set i32:$dest, (atomic_load_and ScalarReg:$ptr, ScalarReg:$offset))]>;
+		(ins ScalarReg:$ptr, ScalarReg:$amt),
+		[(set i32:$dest, (atomic_load_and ScalarReg:$ptr, ScalarReg:$amt))]>;
 
 	def ATOMIC_LOAD_OR : Pseudo<
 		(outs ScalarReg:$dest),
-		(ins ScalarReg:$ptr, ScalarReg:$offset),
-		[(set i32:$dest, (atomic_load_or ScalarReg:$ptr, ScalarReg:$offset))]>;
+		(ins ScalarReg:$ptr, ScalarReg:$amt),
+		[(set i32:$dest, (atomic_load_or ScalarReg:$ptr, ScalarReg:$amt))]>;
 
 	def ATOMIC_LOAD_XOR : Pseudo<
 		(outs ScalarReg:$dest),
-		(ins ScalarReg:$ptr, ScalarReg:$offset),
-		[(set i32:$dest, (atomic_load_xor ScalarReg:$ptr, ScalarReg:$offset))]>;
+		(ins ScalarReg:$ptr, ScalarReg:$amt),
+		[(set i32:$dest, (atomic_load_xor ScalarReg:$ptr, ScalarReg:$amt))]>;
+
+	def ATOMIC_CMP_SWAP : Pseudo<
+		(outs ScalarReg:$dest),
+		(ins ScalarReg:$ptr, ScalarReg:$cmp, ScalarReg:$swap),
+		[(set i32:$dest, (atomic_cmp_swap ScalarReg:$ptr, ScalarReg:$cmp, 
+			ScalarReg:$swap))]>;
 }	
-	
 
 //////////////////////////////////////////////////////////////////
 // Flow Control (format E)
