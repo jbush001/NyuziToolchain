@@ -1061,8 +1061,8 @@ VectorProcTargetLowering::EmitAtomicCmpSwap(MachineInstr *MI,
   //   store.sync success, 0(ptr)	; store.sync will clobber success
   //   bfalse success, loop1MBB
   BB = loop2MBB;
-  BuildMI(BB, DL, TII->get(VectorProc::MOVESS), Success).addReg(NewVal);
-  BuildMI(BB, DL, TII->get(VectorProc::STORE_SYNC), Success).addReg(Ptr).addImm(0);
+  BuildMI(BB, DL, TII->get(VectorProc::STORE_SYNC), Success).addReg(NewVal)
+  	.addReg(Ptr).addImm(0);
   BuildMI(BB, DL, TII->get(VectorProc::BFALSE)).addReg(Success).addMBB(loop1MBB);
 
   MI->eraseFromParent();   // The instruction is gone now.
