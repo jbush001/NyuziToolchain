@@ -660,7 +660,14 @@ def DFLUSH : FormatDInst<
 	bits<5> ptr;
 	let Inst{4-0} = ptr;
 }
-			
+
+def MEMBAR : FormatDInst<
+	(outs),
+	(ins i32imm:$imm1, i32imm:$imm2),
+	"membar",
+	[(atomic_fence imm:$imm1, imm:$imm2)],
+	FmtD_MemBar>;
+
 // Conversions
 def : Pat<(v16f32 (bitconvert (v16i32 VectorReg:$src))), (v16f32 VectorReg:$src)>;
 def : Pat<(v16i32 (bitconvert (v16f32 VectorReg:$src))), (v16i32 VectorReg:$src)>;

@@ -11,3 +11,8 @@ int atomic_add(volatile int *lockvar)
 	// CHECK: store.sync [[SCRATCH2]], (s0)	
 	// CHECK: bfalse [[SCRATCH2]], [[LABEL]]
 }
+
+void stbar()
+{
+	__sync_synchronize();	// CHECK: membar
+}

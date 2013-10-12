@@ -629,7 +629,7 @@ def FmtD_Preload : DFmt<0>;
 def FmtD_Invalidate : DFmt<1>;
 def FmtD_DFlush : DFmt<2>;
 def FmtD_IInvalidate : DFmt<3>;
-def FmtD_StBar : DFmt<4>;
+def FmtD_MemBar : DFmt<4>;
 
 class FormatDInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	DFmt fmt> 
