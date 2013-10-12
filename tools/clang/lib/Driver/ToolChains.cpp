@@ -1708,6 +1708,36 @@ StringRef Hexagon_TC::GetTargetCPU(const ArgList &Args)
 }
 // End Hexagon
 
+VectorProcToolChain::VectorProcToolChain(const Driver &D, const llvm::Triple &Triple,
+               const llvm::opt::ArgList &Args)
+	:	ToolChain(D, Triple, Args)
+{
+}
+
+VectorProcToolChain::~VectorProcToolChain()
+{
+}
+
+bool VectorProcToolChain::IsIntegratedAssemblerDefault() const
+{
+	return true;
+}
+
+bool VectorProcToolChain::isPICDefault() const
+{
+	return false;
+}
+
+bool VectorProcToolChain::isPIEDefault() const
+{
+	return false;
+}
+
+bool VectorProcToolChain::isPICDefaultForced() const
+{
+	return false;
+}
+
 /// TCEToolChain - A tool chain using the llvm bitcode tools to perform
 /// all subcommands. See http://tce.cs.tut.fi for our peculiar target.
 /// Currently does not support anything else but compilation.

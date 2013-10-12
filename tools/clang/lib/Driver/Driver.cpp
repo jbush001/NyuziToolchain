@@ -1947,6 +1947,12 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
         TC = new toolchains::Hexagon_TC(*this, Target, Args);
         break;
       }
+      // VectorProc is an OSless target
+      if (Target.getArch() == llvm::Triple::vectorproc) {
+        TC = new toolchains::VectorProcToolChain(*this, Target, Args);
+        break;
+      }
+      
       TC = new toolchains::Generic_GCC(*this, Target, Args);
       break;
     }

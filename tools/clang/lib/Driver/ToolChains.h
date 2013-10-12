@@ -630,6 +630,17 @@ public:
   bool isPICDefaultForced() const;
 };
 
+class LLVM_LIBRARY_VISIBILITY VectorProcToolChain : public ToolChain {
+public:
+  VectorProcToolChain(const Driver &D, const llvm::Triple &Triple,
+               const llvm::opt::ArgList &Args);
+  ~VectorProcToolChain();
+  virtual bool IsIntegratedAssemblerDefault() const;
+  virtual bool isPICDefault() const;
+  virtual bool isPIEDefault() const;
+  virtual bool isPICDefaultForced() const;
+};
+
 class LLVM_LIBRARY_VISIBILITY Windows : public ToolChain {
 public:
   Windows(const Driver &D, const llvm::Triple &Triple,
