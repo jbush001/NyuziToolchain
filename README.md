@@ -18,7 +18,7 @@ cmake must be installed (http://www.cmake.org/).
 __MacOS__
 <pre>
 cd build
-cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++11 -stdlib=libc++"  -DLLVM_TARGET_ARCH="VectorProc" ..
+cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++11 -stdlib=libc++" -DLLVM_DEFAULT_TARGET_TRIPLE=vectorproc ..
 make
 make install
 </pre>
@@ -26,7 +26,7 @@ make install
 __Linux/GCC__
 <pre>
 cd build
-cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++0x"  -DLLVM_TARGET_ARCH="VectorProc" ..
+cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++0x" -DLLVM_DEFAULT_TARGET_TRIPLE=vectorproc ..
 make
 make install
 </pre>
@@ -34,7 +34,7 @@ make install
 ### To run compiler
 
 <pre>
-/usr/local/llvm-vectorproc/clang -c -target vectorproc &lt;test_program.c&gt; 
+/usr/local/llvm-vectorproc/clang -c &lt;test_program.c&gt; 
 /usr/local/llvm-vectorproc/lld -flavor gnu -target vectorproc  -static &lt;test_program.o&gt;
 </pre>
 
