@@ -22,11 +22,5 @@ void
 VectorProcTargetObjectFile::Initialize(MCContext &Ctx,
                                          const TargetMachine &TM) {
   TargetLoweringObjectFileELF::Initialize(Ctx, TM);
-  
-//  InitializeELF(TM.Options.UseInitArray);
-
-	// XXX HACK HACK HACK HACK XXX
-	// clang refuses to pass this option for some reason, so just force it to true.
-  InitializeELF(true);
-
+  InitializeELF(TM.Options.UseInitArray);
 }

@@ -639,6 +639,8 @@ public:
   virtual bool isPICDefault() const;
   virtual bool isPIEDefault() const;
   virtual bool isPICDefaultForced() const;
+  virtual void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
+     tools::ArgStringList &CC1Args) const;
 };
 
 class LLVM_LIBRARY_VISIBILITY Windows : public ToolChain {

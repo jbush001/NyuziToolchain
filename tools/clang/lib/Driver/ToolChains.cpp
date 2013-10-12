@@ -1738,6 +1738,15 @@ bool VectorProcToolChain::isPICDefaultForced() const
 	return false;
 }
 
+void VectorProcToolChain::addClangTargetOptions(const ArgList &DriverArgs,
+                                  ArgStringList &CC1Args) const {
+  if (DriverArgs.hasFlag(options::OPT_fuse_init_array,
+                         options::OPT_fno_use_init_array,
+                         true))
+    CC1Args.push_back("-fuse-init-array");
+}
+
+
 /// TCEToolChain - A tool chain using the llvm bitcode tools to perform
 /// all subcommands. See http://tce.cs.tut.fi for our peculiar target.
 /// Currently does not support anything else but compilation.
