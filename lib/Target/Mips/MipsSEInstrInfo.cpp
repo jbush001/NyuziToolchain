@@ -154,6 +154,10 @@ void MipsSEInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     else if (Mips::FGR64RegClass.contains(DestReg))
       Opc = Mips::DMTC1;
   }
+  else if (Mips::MSA128BRegClass.contains(DestReg)) { // Copy to MSA reg
+    if (Mips::MSA128BRegClass.contains(SrcReg))
+      Opc = Mips::MOVE_V;
+  }
 
   assert(Opc && "Cannot copy registers");
 
@@ -261,6 +265,18 @@ bool MipsSEInstrInfo::expandPostRAPseudo(MachineBasicBlock::iterator MI) const {
     return false;
   case Mips::RetRA:
     expandRetRA(MBB, MI, Mips::RET);
+    break;
+  case Mips::PseudoMFHI:
+    expandPseudoMFHiLo(MBB, MI, Mips::MFHI);
+    break;
+  case Mips::PseudoMFLO:
+    expandPseudoMFHiLo(MBB, MI, Mips::MFLO);
+    break;
+  case Mips::PseudoMFHI64:
+    expandPseudoMFHiLo(MBB, MI, Mips::MFHI64);
+    break;
+  case Mips::PseudoMFLO64:
+    expandPseudoMFHiLo(MBB, MI, Mips::MFLO64);
     break;
   case Mips::PseudoCVT_S_W:
     expandCvtFPInt(MBB, MI, Mips::CVT_S_W, Mips::MTC1, false);
@@ -408,6 +424,12 @@ MipsSEInstrInfo::compareOpndSize(unsigned Opc,
   unsigned SrcRegSize = getRegClass(Desc, 1, RI, MF)->getSize();
 
   return std::make_pair(DstRegSize > SrcRegSize, DstRegSize < SrcRegSize);
+}
+
+void MipsSEInstrInfo::expandPseudoMFHiLo(MachineBasicBlock &MBB,
+                                         MachineBasicBlock::iterator I,
+                                         unsigned NewOpc) const {
+  BuildMI(MBB, I, I->getDebugLoc(), get(NewOpc), I->getOperand(0).getReg());
 }
 
 void MipsSEInstrInfo::expandCvtFPInt(MachineBasicBlock &MBB,

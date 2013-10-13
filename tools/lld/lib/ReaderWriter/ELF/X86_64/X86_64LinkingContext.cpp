@@ -78,7 +78,9 @@ public:
 
 class ELFPassFile : public SimpleFile {
 public:
-  ELFPassFile(const ELFLinkingContext &eti) : SimpleFile(eti, "ELFPassFile") {}
+  ELFPassFile(const ELFLinkingContext &eti) : SimpleFile(eti, "ELFPassFile") {
+    setOrdinal(eti.getNextOrdinalAndIncrement());
+  }
 
   llvm::BumpPtrAllocator _alloc;
 };
@@ -89,6 +91,9 @@ template <class Derived> class GOTPLTPass : public Pass {
   /// \brief Handle a specific reference.
   void handleReference(const DefinedAtom &atom, const Reference &ref) {
     switch (ref.kind()) {
+    case R_X86_64_32S:
+      static_cast<Derived *>(this)->handle32S(ref);
+      break;
     case R_X86_64_PLT32:
       static_cast<Derived *>(this)->handlePLT32(ref);
       break;
@@ -245,6 +250,10 @@ public:
       got->setOrdinal(ordinal++);
       mf.addAtom(*got);
     }
+    for (auto obj : _objectVector) {
+      obj->setOrdinal(ordinal++);
+      mf.addAtom(*obj);
+    }
   }
 
 protected:
@@ -257,9 +266,13 @@ protected:
   /// \brief Map Atoms to their PLT entries.
   llvm::DenseMap<const Atom *, PLTAtom *> _pltMap;
 
+  /// \brief Map Atoms to their Object entries.
+  llvm::DenseMap<const Atom *, ObjectAtom *> _objectMap;
+
   /// \brief the list of GOT/PLT atoms
   std::vector<GOTAtom *> _gotVector;
   std::vector<PLTAtom *> _pltVector;
+  std::vector<ObjectAtom *> _objectVector;
 
   /// \brief GOT entry that is always 0. Used for undefined weaks.
   GOTAtom *_null;
@@ -300,6 +313,11 @@ public:
   }
 
   ErrorOr<void> handlePC32(const Reference &ref) { return handleIFUNC(ref); }
+
+  ErrorOr<void> handle32S(const Reference &ref) {
+    // Do nothing.
+    return error_code::success();
+  }
 };
 
 class DynamicGOTPLTPass LLVM_FINAL : public GOTPLTPass<DynamicGOTPLTPass> {
@@ -349,6 +367,29 @@ public:
     return pa;
   }
 
+  const ObjectAtom *getObjectEntry(const SharedLibraryAtom *a) {
+    auto obj = _objectMap.find(a);
+    if (obj != _objectMap.end())
+      return obj->second;
+
+    auto oa = new (_file._alloc) ObjectAtom(_file);
+    oa->addReference(R_X86_64_COPY, 0, a, 0);
+
+    oa->_name = a->name();
+    oa->_size = a->size();
+
+    _objectMap[a] = oa;
+    _objectVector.push_back(oa);
+    return oa;
+  }
+
+  ErrorOr<void> handle32S(const Reference &ref) {
+    if (auto sla = dyn_cast_or_null<SharedLibraryAtom>(ref.target()))
+      if (sla->type() == SharedLibraryAtom::Type::Data)
+        const_cast<Reference &>(ref).setTarget(getObjectEntry(sla));
+    return error_code::success();
+  }
+
   ErrorOr<void> handlePLT32(const Reference &ref) {
     // Turn this into a PC32 to the PLT entry.
     const_cast<Reference &>(ref).setKind(R_X86_64_PC32);
@@ -363,8 +404,17 @@ public:
   }
 
   ErrorOr<void> handlePC32(const Reference &ref) {
-    if (ref.target() && isa<SharedLibraryAtom>(ref.target()))
-      return handlePLT32(ref);
+    if (!ref.target())
+      return error_code::success();
+    if (auto sla = dyn_cast<SharedLibraryAtom>(ref.target())) {
+      if (sla->type() == SharedLibraryAtom::Type::Code)
+        return handlePLT32(ref);
+      else if (sla->type() == SharedLibraryAtom::Type::Data) {
+        const_cast<Reference &>(ref).setTarget(getObjectEntry(sla));
+        return error_code::success();
+      } else
+        return handleGOTPCREL(ref);
+    }
     return handleIFUNC(ref);
   }
 
@@ -384,7 +434,7 @@ public:
     return got->second;
   }
 
-  void handleGOTPCREL(const Reference &ref) {
+  ErrorOr<void> handleGOTPCREL(const Reference &ref) {
     const_cast<Reference &>(ref).setKind(R_X86_64_PC32);
     if (isa<UndefinedAtom>(ref.target()))
       const_cast<Reference &>(ref).setTarget(getNullGOT());
@@ -392,6 +442,7 @@ public:
       const_cast<Reference &>(ref).setTarget(getGOT(da));
     else if (const auto sla = dyn_cast<const SharedLibraryAtom>(ref.target()))
       const_cast<Reference &>(ref).setTarget(getSharedGOT(sla));
+    return error_code::success();
   }
 };
 
@@ -429,9 +480,8 @@ public:
 
 class X86_64InitFiniFile : public SimpleFile {
 public:
-  X86_64InitFiniFile(const ELFLinkingContext &context):
-    SimpleFile(context, "command line option -init/-fini")
-  {}
+  X86_64InitFiniFile(const ELFLinkingContext &context)
+      : SimpleFile(context, "command line option -init/-fini"), _ordinal(0) {}
 
   void addInitFunction(StringRef name) {
     Atom *initFunctionAtom = new (_allocator) SimpleUndefinedAtom(*this, name);
@@ -455,13 +505,14 @@ public:
 
 private:
   llvm::BumpPtrAllocator _allocator;
+  uint64_t _ordinal;
 };
 
 } // end anon namespace
 
 
 void elf::X86_64LinkingContext::addPasses(PassManager &pm) const {
-  switch (_outputFileType) {
+  switch (_outputELFType) {
   case llvm::ELF::ET_EXEC:
     if (_isStaticExecutable)
       pm.add(std::unique_ptr<Pass>(new StaticGOTPLTPass(*this)));
@@ -479,18 +530,17 @@ void elf::X86_64LinkingContext::addPasses(PassManager &pm) const {
   ELFLinkingContext::addPasses(pm);
 }
 
-std::vector<std::unique_ptr<File>>
-  elf::X86_64LinkingContext::createInternalFiles(){
-  std::vector<std::unique_ptr<File> > result =
-    ELFLinkingContext::createInternalFiles();
-  std::unique_ptr<X86_64InitFiniFile>
-    initFiniFile(new X86_64InitFiniFile(*this));
-  for (auto ai:initFunctions())
+bool elf::X86_64LinkingContext::createInternalFiles(
+    std::vector<std::unique_ptr<File> > &result) const {
+  ELFLinkingContext::createInternalFiles(result);
+  std::unique_ptr<X86_64InitFiniFile> initFiniFile(
+      new X86_64InitFiniFile(*this));
+  for (auto ai : initFunctions())
     initFiniFile->addInitFunction(ai);
   for (auto ai:finiFunctions())
     initFiniFile->addFiniFunction(ai);
   result.push_back(std::move(initFiniFile));
-  return result;
+  return true;
 }
 
 #define LLD_CASE(name) .Case(#name, llvm::ELF::name)
@@ -519,7 +569,7 @@ elf::X86_64LinkingContext::relocKindFromString(StringRef str) const {
           .Default(-1);
 
   if (ret == -1)
-    return make_error_code(yaml_reader_error::illegal_value);
+    return make_error_code(YamlReaderError::illegal_value);
   return ret;
 }
 
@@ -574,6 +624,6 @@ elf::X86_64LinkingContext::stringFromRelocKind(Reference::Kind kind) const {
     return std::string("LLD_R_X86_64_GOTRELINDEX");
   }
 
-  return make_error_code(yaml_reader_error::illegal_value);
+  return make_error_code(YamlReaderError::illegal_value);
 }
 

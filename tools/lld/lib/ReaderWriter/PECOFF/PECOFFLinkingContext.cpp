@@ -15,7 +15,6 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Path.h"
-#include "lld/Core/InputFiles.h"
 #include "lld/Core/PassManager.h"
 #include "lld/Passes/LayoutPass.h"
 #include "lld/ReaderWriter/PECOFFLinkingContext.h"
@@ -23,50 +22,53 @@
 #include "lld/ReaderWriter/Simple.h"
 #include "lld/ReaderWriter/Writer.h"
 
+#include <bitset>
+
 namespace lld {
 
 namespace {} // anonymous namespace
-
-error_code PECOFFLinkingContext::parseFile(
-    LinkerInput &input,
-    std::vector<std::unique_ptr<File>> &result) const {
-  return _reader->parseFile(input, result);
-}
 
 bool PECOFFLinkingContext::validateImpl(raw_ostream &diagnostics) {
   if (_stackReserve < _stackCommit) {
     diagnostics << "Invalid stack size: reserve size must be equal to or "
                 << "greater than commit size, but got " << _stackCommit
                 << " and " << _stackReserve << ".\n";
-    return true;
+    return false;
   }
 
   if (_heapReserve < _heapCommit) {
     diagnostics << "Invalid heap size: reserve size must be equal to or "
                 << "greater than commit size, but got " << _heapCommit
                 << " and " << _heapReserve << ".\n";
-    return true;
+    return false;
   }
 
   // It's an error if the base address is not multiple of 64K.
   if (_baseAddress & 0xffff) {
     diagnostics << "Base address have to be multiple of 64K, but got "
                 << _baseAddress << "\n";
-    return true;
+    return false;
+  }
+
+  std::bitset<64> alignment(_sectionAlignment);
+  if (alignment.count() != 1) {
+    diagnostics << "Section alignment must be a power of 2, but got "
+                << _sectionAlignment << "\n";
+    return false;
   }
 
   // Architectures other than i386 is not supported yet.
   if (_machineType != llvm::COFF::IMAGE_FILE_MACHINE_I386) {
     diagnostics << "Machine type other than x86 is not supported.\n";
-    return true;
+    return false;
   }
 
   _reader = createReaderPECOFF(*this);
   _writer = createWriterPECOFF(*this);
-  return false;
+  return true;
 }
 
-std::unique_ptr<File> PECOFFLinkingContext::createEntrySymbolFile() {
+std::unique_ptr<File> PECOFFLinkingContext::createEntrySymbolFile() const {
   if (entrySymbolName().empty())
     return nullptr;
   std::unique_ptr<SimpleFile> entryFile(
@@ -76,7 +78,7 @@ std::unique_ptr<File> PECOFFLinkingContext::createEntrySymbolFile() {
   return std::move(entryFile);
 }
 
-std::unique_ptr<File> PECOFFLinkingContext::createUndefinedSymbolFile() {
+std::unique_ptr<File> PECOFFLinkingContext::createUndefinedSymbolFile() const {
   if (_initialUndefinedSymbols.empty())
     return nullptr;
   std::unique_ptr<SimpleFile> undefinedSymFile(
@@ -87,9 +89,16 @@ std::unique_ptr<File> PECOFFLinkingContext::createUndefinedSymbolFile() {
   return std::move(undefinedSymFile);
 }
 
-void PECOFFLinkingContext::addImplicitFiles(InputFiles &files) const {
-  auto *linkerFile = new (_alloc) coff::LinkerGeneratedSymbolFile(*this);
-  files.appendFile(*linkerFile);
+bool PECOFFLinkingContext::createImplicitFiles(
+    std::vector<std::unique_ptr<File> > &) const {
+  std::unique_ptr<SimpleFileNode> fileNode(
+      new SimpleFileNode("Implicit Files"));
+  std::unique_ptr<File> linkerGeneratedSymFile(
+      new coff::LinkerGeneratedSymbolFile(*this));
+  fileNode->appendInputFile(std::move(linkerGeneratedSymFile));
+  inputGraph().insertOneElementAt(std::move(fileNode),
+                                  InputGraph::Position::END);
+  return true;
 }
 
 /// Try to find the input library file from the search paths and append it to
@@ -112,12 +121,12 @@ Writer &PECOFFLinkingContext::writer() const { return *_writer; }
 
 ErrorOr<Reference::Kind>
 PECOFFLinkingContext::relocKindFromString(StringRef str) const {
-  return make_error_code(yaml_reader_error::illegal_value);
+  return make_error_code(YamlReaderError::illegal_value);
 }
 
 ErrorOr<std::string>
 PECOFFLinkingContext::stringFromRelocKind(Reference::Kind kind) const {
-  return make_error_code(yaml_reader_error::illegal_value);
+  return make_error_code(YamlReaderError::illegal_value);
 }
 
 void PECOFFLinkingContext::addPasses(PassManager &pm) const {

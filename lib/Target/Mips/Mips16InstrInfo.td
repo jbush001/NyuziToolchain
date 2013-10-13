@@ -343,6 +343,14 @@ class FRR16_JALRC_ins<bits<1> nd, bits<1> l, bits<1> ra,
   FRR16_JALRC<nd, l, ra, (outs), (ins CPU16Regs:$rx),
               !strconcat(asmstr, "\t $rx"), [], itin> ;
 
+class FRR_SF16_ins
+  <bits<5> _funct, bits<3> _subfunc,
+    string asmstr, InstrItinClass itin>:
+  FRR_SF16<_funct, _subfunc, (outs CPU16Regs:$rx), (ins CPU16Regs:$rx_),
+           !strconcat(asmstr, "\t $rx"),
+           [], itin> {
+  let Constraints = "$rx_ = $rx";
+  }
 //
 // RRR-type instruction format
 //
@@ -952,6 +960,22 @@ def SbRxRyOffMemX16:
   FEXT_RRI16_mem2_ins<0b11000, "sb", mem16, IIStore>, MayStore;
 
 //
+// Format: SEB rx MIPS16e
+// Purpose: Sign-Extend Byte
+// Sign-extend least significant byte in register rx.
+//
+def SebRx16
+  : FRR_SF16_ins<0b10001, 0b100, "seb", IIAlu>;
+
+//
+// Format: SEH rx MIPS16e
+// Purpose: Sign-Extend Halfword
+// Sign-extend least significant word in register rx.
+//
+def SehRx16
+  : FRR_SF16_ins<0b10001, 0b101, "seh", IIAlu>;
+
+//
 // The Sel(T) instructions are pseudos
 // T means that they use T8 implicitly.
 //
@@ -1331,9 +1355,7 @@ def: Mips16Pat<(i32  addr16:$addr),
 
 
 // Large (>16 bit) immediate loads
-def : Mips16Pat<(i32 imm:$imm),
-                (OrRxRxRy16 (SllX16 (LiRxImmX16 (HI16 imm:$imm)), 16),
-                (LiRxImmX16 (LO16 imm:$imm)))>;
+def : Mips16Pat<(i32 imm:$imm), (LwConstant32 imm:$imm)>;
 
 // Carry MipsPatterns
 def : Mips16Pat<(subc CPU16Regs:$lhs, CPU16Regs:$rhs),
@@ -1788,13 +1810,16 @@ def: Mips16Pat<(add CPU16Regs:$hi, (MipsLo tglobaladdr:$lo)),
                (AddiuRxRxImmX16 CPU16Regs:$hi, tglobaladdr:$lo)>;
 
 // hi/lo relocs
-
+def : Mips16Pat<(MipsHi tblockaddress:$in),
+                (SllX16 (LiRxImmX16 tblockaddress:$in), 16)>;
 def : Mips16Pat<(MipsHi tglobaladdr:$in),
                 (SllX16 (LiRxImmX16 tglobaladdr:$in), 16)>;
 def : Mips16Pat<(MipsHi tjumptable:$in),
                 (SllX16 (LiRxImmX16 tjumptable:$in), 16)>;
 def : Mips16Pat<(MipsHi tglobaltlsaddr:$in),
                 (SllX16 (LiRxImmX16 tglobaltlsaddr:$in), 16)>;
+
+def : Mips16Pat<(MipsLo tblockaddress:$in), (LiRxImmX16 tblockaddress:$in)>;
 
 // wrapper_pic
 class Wrapper16Pat<SDNode node, Instruction ADDiuOp, RegisterClass RC>:
@@ -1811,6 +1836,12 @@ def : Mips16Pat<(i32 (extloadi16  addr16:$src)),
                 (LhuRxRyOffMemX16  addr16:$src)>;
 
 def: Mips16Pat<(trap), (Break16)>;
+
+def : Mips16Pat<(sext_inreg CPU16Regs:$val, i8),
+                (SebRx16 CPU16Regs:$val)>;
+
+def : Mips16Pat<(sext_inreg CPU16Regs:$val, i16),
+                (SehRx16 CPU16Regs:$val)>;
 
 def GotPrologue16:   
   MipsPseudo16<

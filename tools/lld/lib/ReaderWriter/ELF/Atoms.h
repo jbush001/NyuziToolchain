@@ -773,12 +773,59 @@ public:
     return _symbol->getBinding() == llvm::ELF::STB_WEAK;
   }
 
+  virtual Type type() const {
+    switch (_symbol->getType()) {
+    case llvm::ELF::STT_FUNC:
+    case llvm::ELF::STT_GNU_IFUNC:
+      return Type::Code;
+    case llvm::ELF::STT_OBJECT:
+      return Type::Data;
+    default:
+      return Type::Unknown;
+    }
+  }
+
+  virtual uint64_t size() const LLVM_OVERRIDE {
+    return _symbol->st_size;
+  }
+
 private:
 
   const DynamicFile<ELFT> &_owningFile;
   StringRef _symbolName;
   StringRef _loadName;
   const Elf_Sym *_symbol;
+};
+
+/// \brief Atom which represents an object for which a COPY relocation will be
+///   generated.
+class ObjectAtom : public SimpleDefinedAtom {
+public:
+  ObjectAtom(const File &f) : SimpleDefinedAtom(f) {}
+
+  virtual Scope scope() const { return scopeGlobal; }
+
+  virtual SectionChoice sectionChoice() const { return sectionBasedOnContent; }
+
+  virtual ContentType contentType() const { return typeZeroFill; }
+
+  virtual uint64_t size() const { return _size; }
+
+  virtual ContentPermissions permissions() const { return permRW_; }
+
+  virtual ArrayRef<uint8_t> rawContent() const {
+    return ArrayRef<uint8_t>();
+  }
+
+  virtual Alignment alignment() const {
+    // The alignment should be 8 byte aligned
+    return Alignment(3);
+  }
+
+  virtual StringRef name() const { return _name; }
+
+  std::string _name;
+  uint64_t _size;
 };
 
 class GOTAtom : public SimpleDefinedAtom {

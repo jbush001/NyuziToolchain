@@ -298,7 +298,7 @@ protected:
       DefinedAtom::ContentPermissions contentPermissions,
       SectionOrder sectionOrder);
 
-private:
+protected:
   llvm::BumpPtrAllocator _allocator;
   SectionMapT _sectionMap;
   MergedSectionMapT _mergedSectionMap;
@@ -313,6 +313,16 @@ private:
   LLD_UNIQUE_BUMP_PTR(RelocationTable<ELFT>) _pltRelocationTable;
   std::vector<lld::AtomLayout *> _absoluteAtoms;
   const ELFLinkingContext &_context;
+};
+
+/// \brief Handle linker scripts. TargetLayouts would derive
+/// from this class to override some of the functionalities.
+template<class ELFT>
+class ScriptLayout: public DefaultLayout<ELFT> {
+public:
+  ScriptLayout(const ELFLinkingContext &context)
+    : DefaultLayout<ELFT>(context)
+  {}
 };
 
 template <class ELFT>
@@ -757,11 +767,9 @@ DefaultLayout<ELFT>::assignVirtualAddress() {
         continue;
 
       if (si->segmentType() == llvm::ELF::PT_NULL) {
+        // Handle Non allocatable sections.
         uint64_t nonLoadableAddr = 0;
         si->setVAddr(nonLoadableAddr);
-        // The first segment has the virtualAddress set to the base address as
-        // we have added the file header and the program header dont align the
-        // first segment to the pagesize
         si->assignVirtualAddress(nonLoadableAddr);
       } else {
         si->setVAddr(virtualAddress);

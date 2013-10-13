@@ -69,18 +69,7 @@ public:
 
 } // namespace
 
-llvm::ErrorOr<std::unique_ptr<lld::LinkerInput> >
-ELFFileNode::createLinkerInput(const LinkingContext &ctx) {
-  auto inputFile(FileNode::createLinkerInput(ctx));
-
-  if (inputFile) {
-    (*inputFile)->setAsNeeded(_asNeeded);
-    (*inputFile)->setWholeArchive(_isWholeArchive);
-  }
-  return std::move(inputFile);
-}
-
-llvm::ErrorOr<StringRef> ELFFileNode::path(const LinkingContext &) const {
+llvm::ErrorOr<StringRef> ELFFileNode::getPath(const LinkingContext &) const {
   if (!_isDashlPrefix)
     return _path;
   return _elfLinkingContext.searchLibrary(_path, _libraryPaths);
@@ -98,11 +87,10 @@ std::string ELFFileNode::errStr(llvm::error_code errc) {
 bool GnuLdDriver::linkELF(int argc, const char *argv[],
                           raw_ostream &diagnostics) {
   std::unique_ptr<ELFLinkingContext> options;
-  bool error = parse(argc, argv, options, diagnostics);
-  if (error)
-    return true;
-  if (!options)
+  if (!parse(argc, argv, options, diagnostics))
     return false;
+  if (!options)
+    return true;
 
   return link(*options, diagnostics);
 }
@@ -122,13 +110,13 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
     diagnostics << "error: missing arg value for '"
                 << parsedArgs->getArgString(missingIndex) << "' expected "
                 << missingCount << " argument(s).\n";
-    return true;
+    return false;
   }
 
   // Handle --help
   if (parsedArgs->getLastArg(OPT_help)) {
     table.PrintHelp(llvm::outs(), argv[0], "LLVM Linker", false);
-    return false;
+    return true;
   }
 
   // Use -target or use default target triple to instantiate LinkingContext
@@ -141,7 +129,7 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
 
   if (!ctx) {
     diagnostics << "unknown target triple\n";
-    return true;
+    return false;
   }
 
   std::unique_ptr<InputGraph> inputGraph(new InputGraph());
@@ -154,13 +142,12 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
   bool _outputOptionSet = false;
 
   // Create a dynamic executable by default
-  ctx->setOutputFileType(llvm::ELF::ET_EXEC);
+  ctx->setOutputELFType(llvm::ELF::ET_EXEC);
   ctx->setIsStaticExecutable(false);
   ctx->setAllowShlibUndefines(false);
   ctx->setUseShlibUndefines(true);
 
-  // Set the output file to be a.out
-  ctx->setOutputPath("a.out");
+  int index = 0;
 
   // Process all the arguments and create Input Elements
   for (auto inputArg : *parsedArgs) {
@@ -169,16 +156,16 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
       ctx->appendLLVMOption(inputArg->getValue());
       break;
     case OPT_relocatable:
-      ctx->setOutputFileType(llvm::ELF::ET_REL);
+      ctx->setOutputELFType(llvm::ELF::ET_REL);
       ctx->setPrintRemainingUndefines(false);
       ctx->setAllowRemainingUndefines(true);
       break;
     case OPT_static:
-      ctx->setOutputFileType(llvm::ELF::ET_EXEC);
+      ctx->setOutputELFType(llvm::ELF::ET_EXEC);
       ctx->setIsStaticExecutable(true);
       break;
     case OPT_shared:
-      ctx->setOutputFileType(llvm::ELF::ET_DYN);
+      ctx->setOutputELFType(llvm::ELF::ET_DYN);
       ctx->setAllowShlibUndefines(true);
       ctx->setUseShlibUndefines(false);
       break;
@@ -246,10 +233,8 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
       ctx->addFiniFunction(inputArg->getValue());
       break;
 
-    case OPT_emit_yaml:
-      if (!_outputOptionSet)
-        ctx->setOutputPath("-");
-      ctx->setOutputYAML(true);
+    case OPT_output_filetype:
+      ctx->setOutputFileType(inputArg->getValue());
       break;
 
     case OPT_no_whole_archive:
@@ -269,7 +254,7 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
       break;
 
     case OPT_start_group: {
-      std::unique_ptr<InputElement> controlStart(new ELFGroup(*ctx));
+      std::unique_ptr<InputElement> controlStart(new ELFGroup(*ctx, index++));
       controlNodeStack.push(controlStart.get());
       (llvm::dyn_cast<ControlNode>)(controlNodeStack.top())
           ->processControlEnter();
@@ -281,14 +266,13 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
       (llvm::dyn_cast<ControlNode>)(controlNodeStack.top())
           ->processControlExit();
       controlNodeStack.pop();
-      return false;
+      break;
 
     case OPT_INPUT:
     case OPT_l: {
-      std::unique_ptr<InputElement> inputFile =
-          std::move(std::unique_ptr<InputElement>(new ELFFileNode(
-              *ctx, inputArg->getValue(), searchPath, isWholeArchive, asNeeded,
-              inputArg->getOption().getID() == OPT_l)));
+      std::unique_ptr<InputElement> inputFile(new ELFFileNode(
+          *ctx, inputArg->getValue(), searchPath, index++, isWholeArchive,
+          asNeeded, inputArg->getOption().getID() == OPT_l));
       if (controlNodeStack.empty())
         inputGraph->addInputElement(std::move(inputFile));
       else
@@ -326,25 +310,39 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
     } // end switch on option ID
   }   // end for
 
-  if (!inputGraph->numFiles()) {
+  if (!inputGraph->size()) {
     diagnostics << "No input files\n";
-    return true;
+    return false;
   }
 
-  inputGraph->addInternalFile(ctx->createInternalFiles());
+  // Set default output file name if the output file was not
+  // specified.
+  if (!_outputOptionSet) {
+    switch (ctx->outputFileType()) {
+    case LinkingContext::OutputFileType::YAML:
+      ctx->setOutputPath("-");
+      break;
+    case LinkingContext::OutputFileType::Native:
+      ctx->setOutputPath("a.native");
+      break;
+    default:
+      ctx->setOutputPath("a.out");
+      break;
+    }
+  }
 
-  if (ctx->outputYAML())
+  if (ctx->outputFileType() == LinkingContext::OutputFileType::YAML)
     inputGraph->dump(diagnostics);
 
   // Validate the combination of options used.
-  if (ctx->validate(diagnostics))
-    return true;
+  if (!ctx->validate(diagnostics))
+    return false;
 
   ctx->setInputGraph(std::move(inputGraph));
 
   context.swap(ctx);
 
-  return false;
+  return true;
 }
 
 /// Get the default target triple based on either the program name

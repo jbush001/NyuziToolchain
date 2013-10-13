@@ -30,7 +30,6 @@
 
 #include "lld/Core/DefinedAtom.h"
 #include "lld/Core/File.h"
-#include "lld/Core/InputFiles.h"
 #include "lld/ReaderWriter/AtomLayout.h"
 #include "lld/ReaderWriter/PECOFFLinkingContext.h"
 #include "lld/ReaderWriter/Writer.h"
@@ -156,6 +155,10 @@ public:
                                llvm::COFF::IMAGE_FILE_EXECUTABLE_IMAGE;
     if (context.getLargeAddressAware())
       characteristics |= llvm::COFF::IMAGE_FILE_LARGE_ADDRESS_AWARE;
+    if (context.getSwapRunFromCD())
+      characteristics |= llvm::COFF::IMAGE_FILE_REMOVABLE_RUN_FROM_SWAP;
+    if (context.getSwapRunFromNet())
+      characteristics |= llvm::COFF::IMAGE_FILE_NET_RUN_FROM_SWAP;
     if (!context.getBaseRelocationEnabled())
       characteristics |= llvm::COFF::IMAGE_FILE_RELOCS_STRIPPED;
 
@@ -174,7 +177,7 @@ public:
 
     // Sections should be page-aligned when loaded into memory, which is 4KB on
     // x86.
-    _peHeader.SectionAlignment = PAGE_SIZE;
+    _peHeader.SectionAlignment = context.getSectionAlignment();
 
     // Sections in an executable file on disk should be sector-aligned (512 byte).
     _peHeader.FileAlignment = SECTOR_SIZE;
@@ -195,10 +198,6 @@ public:
     _peHeader.MajorSubsystemVersion = minOSVersion.majorVersion;
     _peHeader.MinorSubsystemVersion = minOSVersion.minorVersion;
 
-    // The combined size of the DOS, PE and section headers including garbage
-    // between the end of the header and the beginning of the first section.
-    // Must be multiple of FileAlignment.
-    _peHeader.SizeOfHeaders = 512;
     _peHeader.Subsystem = context.getSubsystem();
 
     // Despite its name, DLL characteristics field has meaning both for
@@ -214,6 +213,10 @@ public:
       dllCharacteristics |= llvm::COFF::IMAGE_DLL_CHARACTERISTICS_NX_COMPAT;
     if (context.getDynamicBaseEnabled())
       dllCharacteristics |= llvm::COFF::IMAGE_DLL_CHARACTERISTICS_DYNAMIC_BASE;
+    if (!context.getAllowBind())
+      dllCharacteristics |= llvm::COFF::IMAGE_DLL_CHARACTERISTICS_NO_BIND;
+    if (!context.getAllowIsolation())
+      dllCharacteristics |= llvm::COFF::IMAGE_DLL_CHARACTERISTICS_NO_ISOLATION;
     _peHeader.DLLCharacteristics = dllCharacteristics;
 
     _peHeader.SizeOfStackReserve = context.getStackReserve();
@@ -232,6 +235,11 @@ public:
     std::memcpy(fileBuffer, &_coffHeader, sizeof(_coffHeader));
     fileBuffer += sizeof(_coffHeader);
     std::memcpy(fileBuffer, &_peHeader, sizeof(_peHeader));
+  }
+
+  virtual void setSizeOfHeaders(uint64_t size) {
+    // Must be multiple of FileAlignment.
+    _peHeader.SizeOfHeaders = llvm::RoundUpToAlignment(size, SECTOR_SIZE);
   }
 
   virtual void setSizeOfCode(uint64_t size) {
@@ -424,7 +432,8 @@ public:
 
   void setBaseRelocField(uint32_t addr, uint32_t size) {
     auto *atom = new (_alloc) coff::COFFDataDirectoryAtom(
-        _file, llvm::COFF::DataDirectoryIndex::BASE_RELOCATION_TABLE, size);
+        _file, llvm::COFF::DataDirectoryIndex::BASE_RELOCATION_TABLE, size,
+        addr);
     uint64_t offset = atom->ordinal() * sizeof(llvm::object::data_directory);
     _atomLayouts.push_back(new (_alloc) AtomLayout(atom, offset, offset));
   }
@@ -819,9 +828,9 @@ public:
     if (baseReloc) {
       baseReloc->setContents(_chunks);
       if (baseReloc->size()) {
+        addSectionChunk(baseReloc, sectionTable);
         dataDirectory->setBaseRelocField(baseReloc->getSectionRva(),
                                          baseReloc->rawSize());
-        addSectionChunk(baseReloc, sectionTable);
       }
     }
 
@@ -842,6 +851,11 @@ public:
     peHeader->setSizeOfUninitializedData(calcSizeOfUninitializedData());
     peHeader->setNumberOfSections(_numSections);
     peHeader->setSizeOfImage(_imageSizeInMemory);
+
+    // The combined size of the DOS, PE and section headers including garbage
+    // between the end of the header and the beginning of the first section.
+    peHeader->setSizeOfHeaders(dosStub->size() + peHeader->size() +
+        sectionTable->size() + dataDirectory->size());
 
     setAddressOfEntryPoint(text, peHeader);
   }

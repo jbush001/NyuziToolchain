@@ -95,7 +95,7 @@ private:
                                      SDValue N1, SDValue N2,
                                      ArrayRef<int> Mask) const;
 
-  void LegalizeSetCCCondCode(EVT VT, SDValue &LHS, SDValue &RHS, SDValue &CC,
+  bool LegalizeSetCCCondCode(EVT VT, SDValue &LHS, SDValue &RHS, SDValue &CC,
                              SDLoc dl);
 
   SDValue ExpandLibCall(RTLIB::Libcall LC, SDNode *Node, bool isSigned);
@@ -1596,9 +1596,14 @@ void SelectionDAGLegalize::ExpandDYNAMIC_STACKALLOC(SDNode* Node,
 }
 
 /// LegalizeSetCCCondCode - Legalize a SETCC with given LHS and RHS and
-/// condition code CC on the current target. This routine expands SETCC with
-/// illegal condition code into AND / OR of multiple SETCC values.
-void SelectionDAGLegalize::LegalizeSetCCCondCode(EVT VT,
+/// condition code CC on the current target.
+/// If the SETCC has been legalized using AND / OR, then the legalized node
+/// will be stored in LHS.  RHS and CC will be set to SDValue().
+/// If the SETCC has been legalized by using getSetCCSwappedOperands(),
+/// then the values of LHS and RHS will be swapped and CC will be set to the
+/// new condition.
+/// \returns true if the SetCC has been legalized, false if it hasn't.
+bool SelectionDAGLegalize::LegalizeSetCCCondCode(EVT VT,
                                                  SDValue &LHS, SDValue &RHS,
                                                  SDValue &CC,
                                                  SDLoc dl) {
@@ -1610,8 +1615,13 @@ void SelectionDAGLegalize::LegalizeSetCCCondCode(EVT VT,
     // Nothing to do.
     break;
   case TargetLowering::Expand: {
+    ISD::CondCode InvCC = ISD::getSetCCSwappedOperands(CCCode);
+    if (TLI.isCondCodeLegal(InvCC, OpVT)) {
+      std::swap(LHS, RHS);
+      CC = DAG.getCondCode(InvCC);
+      return true;
+    }
     ISD::CondCode CC1 = ISD::SETCC_INVALID, CC2 = ISD::SETCC_INVALID;
-    ISD::CondCode InvCC = ISD::SETCC_INVALID;
     unsigned Opc = 0;
     switch (CCCode) {
     default: llvm_unreachable("Don't know how to expand this condition!");
@@ -1653,16 +1663,9 @@ void SelectionDAGLegalize::LegalizeSetCCCondCode(EVT VT,
     case ISD::SETLT:
     case ISD::SETNE:
     case ISD::SETEQ:
-      InvCC = ISD::getSetCCSwappedOperands(CCCode);
-      if (TLI.getCondCodeAction(InvCC, OpVT) == TargetLowering::Expand) {
-        // We only support using the inverted operation and not a
-        // different manner of supporting expanding these cases.
-        llvm_unreachable("Don't know how to expand this condition!");
-      }
-      LHS = DAG.getSetCC(dl, VT, RHS, LHS, InvCC);
-      RHS = SDValue();
-      CC = SDValue();
-      return;
+      // We only support using the inverted operation, which is computed above
+      // and not a different manner of supporting expanding these cases.
+      llvm_unreachable("Don't know how to expand this condition!");
     }
 
     SDValue SetCC1, SetCC2;
@@ -1679,9 +1682,10 @@ void SelectionDAGLegalize::LegalizeSetCCCondCode(EVT VT,
     LHS = DAG.getNode(Opc, dl, VT, SetCC1, SetCC2);
     RHS = SDValue();
     CC  = SDValue();
-    break;
+    return true;
   }
   }
+  return false;
 }
 
 /// EmitStackConvert - Emit a store/load combination to the stack.  This stores
@@ -3620,10 +3624,16 @@ void SelectionDAGLegalize::ExpandNode(SDNode *Node) {
     Tmp1 = Node->getOperand(0);
     Tmp2 = Node->getOperand(1);
     Tmp3 = Node->getOperand(2);
-    LegalizeSetCCCondCode(Node->getValueType(0), Tmp1, Tmp2, Tmp3, dl);
+    bool Legalized = LegalizeSetCCCondCode(Node->getValueType(0), Tmp1, Tmp2,
+                                           Tmp3, dl);
 
-    // If we expanded the SETCC into an AND/OR, return the new node
-    if (Tmp2.getNode() == 0) {
+    if (Legalized) {
+      // If we exapanded the SETCC by swapping LHS and RHS, create a new SETCC
+      // node.
+      if (Tmp3.getNode())
+        Tmp1 = DAG.getNode(ISD::SETCC, dl, Node->getValueType(0),
+                           Tmp1, Tmp2, Tmp3);
+
       Results.push_back(Tmp1);
       break;
     }
@@ -3654,14 +3664,45 @@ void SelectionDAGLegalize::ExpandNode(SDNode *Node) {
     Tmp4 = Node->getOperand(3);   // False
     SDValue CC = Node->getOperand(4);
 
-    LegalizeSetCCCondCode(getSetCCResultType(Tmp1.getValueType()),
-                          Tmp1, Tmp2, CC, dl);
+    bool Legalized = false;
+    // Try to legalize by inverting the condition.  This is for targets that
+    // might support an ordered version of a condition, but not the unordered
+    // version (or vice versa).
+    ISD::CondCode InvCC = ISD::getSetCCInverse(cast<CondCodeSDNode>(CC)->get(),
+                                               Tmp1.getValueType().isInteger());
+    if (TLI.isCondCodeLegal(InvCC, Tmp1.getSimpleValueType())) {
+      // Use the new condition code and swap true and false
+      Legalized = true;
+      Tmp1 = DAG.getSelectCC(dl, Tmp1, Tmp2, Tmp4, Tmp3, InvCC);
+    } else {
+      // If The inverse is not legal, then try to swap the arguments using
+      // the inverse condition code.
+      ISD::CondCode SwapInvCC = ISD::getSetCCSwappedOperands(InvCC);
+      if (TLI.isCondCodeLegal(SwapInvCC, Tmp1.getSimpleValueType())) {
+        // The swapped inverse condition is legal, so swap true and false,
+        // lhs and rhs.
+        Legalized = true;
+        Tmp1 = DAG.getSelectCC(dl, Tmp2, Tmp1, Tmp4, Tmp3, SwapInvCC);
+      }
+    }
 
-    assert(!Tmp2.getNode() && "Can't legalize SELECT_CC with legal condition!");
-    Tmp2 = DAG.getConstant(0, Tmp1.getValueType());
-    CC = DAG.getCondCode(ISD::SETNE);
-    Tmp1 = DAG.getNode(ISD::SELECT_CC, dl, Node->getValueType(0), Tmp1, Tmp2,
-                       Tmp3, Tmp4, CC);
+    if (!Legalized) {
+      Legalized = LegalizeSetCCCondCode(
+          getSetCCResultType(Tmp1.getValueType()), Tmp1, Tmp2, CC, dl);
+
+      assert(Legalized && "Can't legalize SELECT_CC with legal condition!");
+      // If we exapanded the SETCC by swapping LHS and RHS, create a new
+      // SELECT_CC node.
+      if (CC.getNode()) {
+        Tmp1 = DAG.getNode(ISD::SELECT_CC, dl, Node->getValueType(0),
+                           Tmp1, Tmp2, Tmp3, Tmp4, CC);
+      } else {
+        Tmp2 = DAG.getConstant(0, Tmp1.getValueType());
+        CC = DAG.getCondCode(ISD::SETNE);
+        Tmp1 = DAG.getNode(ISD::SELECT_CC, dl, Node->getValueType(0), Tmp1, Tmp2,
+                           Tmp3, Tmp4, CC);
+      }
+    }
     Results.push_back(Tmp1);
     break;
   }
@@ -3671,14 +3712,22 @@ void SelectionDAGLegalize::ExpandNode(SDNode *Node) {
     Tmp3 = Node->getOperand(3);              // RHS
     Tmp4 = Node->getOperand(1);              // CC
 
-    LegalizeSetCCCondCode(getSetCCResultType(Tmp2.getValueType()),
-                          Tmp2, Tmp3, Tmp4, dl);
+    bool Legalized = LegalizeSetCCCondCode(getSetCCResultType(
+        Tmp2.getValueType()), Tmp2, Tmp3, Tmp4, dl);
+    (void)Legalized;
+    assert(Legalized && "Can't legalize BR_CC with legal condition!");
 
-    assert(!Tmp3.getNode() && "Can't legalize BR_CC with legal condition!");
-    Tmp3 = DAG.getConstant(0, Tmp2.getValueType());
-    Tmp4 = DAG.getCondCode(ISD::SETNE);
-    Tmp1 = DAG.getNode(ISD::BR_CC, dl, Node->getValueType(0), Tmp1, Tmp4, Tmp2,
-                       Tmp3, Node->getOperand(4));
+    // If we exapanded the SETCC by swapping LHS and RHS, create a new BR_CC
+    // node.
+    if (Tmp4.getNode()) {
+      Tmp1 = DAG.getNode(ISD::BR_CC, dl, Node->getValueType(0), Tmp1,
+                         Tmp4, Tmp2, Tmp3, Node->getOperand(4));
+    } else {
+      Tmp3 = DAG.getConstant(0, Tmp2.getValueType());
+      Tmp4 = DAG.getCondCode(ISD::SETNE);
+      Tmp1 = DAG.getNode(ISD::BR_CC, dl, Node->getValueType(0), Tmp1, Tmp4, Tmp2,
+                         Tmp3, Node->getOperand(4));
+    }
     Results.push_back(Tmp1);
     break;
   }

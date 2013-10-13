@@ -203,3 +203,15 @@
 // SHANOSSSE2-NOT: #define __SHA__ 1
 // SHANOSSSE2-NOT: #define __SSE2__ 1
 // SHANOSSSE2-NOT: #define __SSE3__ 1
+
+// RUN: %clang -target i386-unknown-unknown -march=atom -mtbm -x c -E -dM -o - %s | FileCheck --check-prefix=TBM %s
+
+// TBM: #define __TBM__ 1
+
+// RUN: %clang -target i386-unknown-unknown -march=bdver2 -mno-tbm -x c -E -dM -o - %s | FileCheck --check-prefix=NOTBM %s
+
+// NOTBM-NOT: #define __TBM__ 1
+
+// RUN: %clang -target i386-unknown-unknown -march=pentiumpro -mcx16 -x c -E -dM -o - %s | FileCheck --check-prefix=MCX16 %s
+
+// MCX16: #define __GCC_HAVE_SYNC_COMPARE_AND_SWAP_16 1

@@ -165,12 +165,12 @@ error: invalid operand for instruction
         b      #1048576
         b      #10323
 
-@ CHECK-ERRORS: error: Branch target out of range
-@ CHECK-ERRORS: error: Branch target out of range
-@ CHECK-ERRORS: error: Branch target out of range
-@ CHECK-ERRORS: error: Branch target out of range
-@ CHECK-ERRORS: error: Branch target out of range
-@ CHECK-ERRORS: error: Branch target out of range
+@ CHECK-ERRORS: error: branch target out of range
+@ CHECK-ERRORS: error: branch target out of range
+@ CHECK-ERRORS: error: branch target out of range
+@ CHECK-ERRORS: error: branch target out of range
+@ CHECK-ERRORS: error: branch target out of range
+@ CHECK-ERRORS: error: branch target out of range
 
 @------------------------------------------------------------------------------
 @ WFE/WFI/YIELD - are not supported pre v6T2
@@ -179,13 +179,13 @@ error: invalid operand for instruction
         wfi
         yield
 
-@ CHECK-ERRORS: error: instruction requires: thumb2
+@ CHECK-ERRORS: error: instruction requires: armv6m or armv6t2
 @ CHECK-ERRORS: wfe
 @ CHECK-ERRORS: ^
-@ CHECK-ERRORS: error: instruction requires: thumb2
+@ CHECK-ERRORS: error: instruction requires: armv6m or armv6t2
 @ CHECK-ERRORS: wfi
 @ CHECK-ERRORS: ^
-@ CHECK-ERRORS: error: instruction requires: thumb2
+@ CHECK-ERRORS: error: instruction requires: armv6m or armv6t2
 @ CHECK-ERRORS: yield
 @ CHECK-ERRORS: ^
 

@@ -1,10 +1,10 @@
-======================
-Modules (EXPERIMENTAL)
-======================
+=======
+Modules
+=======
 
 .. warning::
-   The functionality described on this page is still experimental! Please
-   try it out and send us bug reports!
+   The functionality described on this page is supported for C and
+   Objective-C. C++ support is experimental.
 
 .. contents::
    :local:
@@ -106,24 +106,25 @@ Using Modules
 =============
 To enable modules, pass the command-line flag ``-fmodules`` [#]_. This will make any modules-enabled software libraries available as modules as well as introducing any modules-specific syntax. Additional `command-line parameters`_ are described in a separate section later.
 
-Import declaration
-------------------
-The most direct way to import a module is with an *import declaration*, which imports the named module:
+Objective-C Import declaration
+------------------------------
+Objective-C provides syntax for importing a module via an *@import declaration*, which imports the named module:
 
 .. parsed-literal::
 
-  import std;
+  @import std;
 
-The import declaration above imports the entire contents of the ``std`` module (which would contain, e.g., the entire C or C++ standard library) and make its API available within the current translation unit. To import only part of a module, one may use dot syntax to specific a particular submodule, e.g.,
+The @import declaration above imports the entire contents of the ``std`` module (which would contain, e.g., the entire C or C++ standard library) and make its API available within the current translation unit. To import only part of a module, one may use dot syntax to specific a particular submodule, e.g.,
 
 .. parsed-literal::
 
-  import std.io;
+  @import std.io;
 
 Redundant import declarations are ignored, and one is free to import modules at any point within the translation unit, so long as the import declaration is at global scope.
 
-.. warning::
-  The import declaration syntax described here does not actually exist. Rather, it is a straw man proposal that may very well change when modules are discussed in the C and C++ committees. See the section `Includes as imports`_ to see how modules get imported today.
+At present, there is no C or C++ syntax for import declarations. Clang
+will track the modules proposal in the C++ committee. See the section
+`Includes as imports`_ to see how modules get imported today.
 
 Includes as imports
 -------------------
@@ -188,6 +189,15 @@ Command-line parameters
 ``-module-file-info <module file name>``
   Debugging aid that prints information about a given module file (with a ``.pcm`` extension), including the language and preprocessor options that particular module variant was built with.
 
+``-fmodules-decluse``
+  Enable checking of module ``use`` declarations.
+
+``-fmodule-name=module-id``
+  Consider a source file as a part of the given module.
+
+``-fmodule-map-file=<file>``
+  Load the given module map file if a header from its directory or one of its subdirectories is loaded.
+
 Module Map Language
 ===================
 
@@ -238,7 +248,7 @@ Module map files use a simplified form of the C99 lexer, with the same rules for
   ``conflict``      ``framework``  ``requires``
   ``exclude``       ``header``     ``private``
   ``explicit``      ``link``       ``umbrella``
-  ``extern``
+  ``extern``        ``use``
 
 Module map file
 ---------------
@@ -293,6 +303,7 @@ Modules can have a number of different kinds of members, each of which is descri
     *umbrella-dir-declaration*
     *submodule-declaration*
     *export-declaration*
+    *use-declaration*
     *link-declaration*
     *config-macros-declaration*
     *conflict-declaration*
@@ -532,6 +543,36 @@ Note that, if ``Derived.h`` includes ``Base.h``, one can simply use a wildcard e
   Therefore, liberal use of ``export *`` provides excellent backward
   compatibility for programs that rely on transitive inclusion (i.e.,
   all of them).
+
+Use declaration
+~~~~~~~~~~~~~~~
+A *use-declaration* specifies one of the other modules that the module is allowed to use. An import or include not matching one of these is rejected when the option *-fmodules-decluse*.
+
+.. parsed-literal::
+
+  *use-declaration*:
+    ``use`` *module-id*
+
+**Example**:: In the following example, use of A from C is not declared, so will trigger a warning.
+
+.. parsed-literal::
+
+  module A {
+    header "a.h"
+  }
+
+  module B {
+    header "b.h"
+  }
+
+  module C {
+    header "c.h"
+    use B
+  }
+
+When compiling a source file that implements a module, use the option ``-fmodule-name=``module-id to indicate that the source file is logically part of that module.
+
+The compiler at present only applies restrictions to the module directly being built.
 
 Link declaration
 ~~~~~~~~~~~~~~~~

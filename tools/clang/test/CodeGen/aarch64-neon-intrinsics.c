@@ -566,30 +566,6 @@ float32x2_t test_vdiv_f32(float32x2_t v1, float32x2_t v2) {
   // CHECK: fdiv {{v[0-9]+}}.2s, {{v[0-9]+}}.2s, {{v[0-9]+}}.2s
 }
 
-uint64x1_t test_vaddd_u64(uint64x1_t v1, uint64x1_t v2) {
-   // CHECK: test_vaddd_u64
-  return vaddd_u64(v1, v2);
-  // CHECK: add {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
-}
-
-int64x1_t test_vaddd_s64(int64x1_t v1, int64x1_t v2) {
-   // CHECK: test_vaddd_s64
-  return vaddd_s64(v1, v2);
-  // CHECK: add {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
-}
-
-uint64x1_t test_vsubd_u64(uint64x1_t v1, uint64x1_t v2) {
-   // CHECK: test_vsubd_u64
-  return vsubd_u64(v1, v2);
-  // CHECK: sub {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
-}
-
-int64x1_t test_vsubd_s64(int64x1_t v1, int64x1_t v2) {
-   // CHECK: test_vsubd_s64
-  return vsubd_s64(v1, v2);
-  // CHECK: sub {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
-}
-
 int8x8_t test_vaba_s8(int8x8_t v1, int8x8_t v2, int8x8_t v3) {
   // CHECK: test_vaba_s8
   return vaba_s8(v1, v2, v3);
@@ -5253,4 +5229,1783 @@ poly16x8_t test_vmull_high_p8(poly8x16_t a, poly8x16_t b) {
   // CHECK: test_vmull_high_p8
   return vmull_high_p8(a, b);
   // CHECK: pmull2 {{v[0-31]+}}.8h, {{v[0-31]+}}.16b, {{v[0-31]+}}.16b
+}
+
+int64_t test_vaddd_s64(int64_t a, int64_t b) {
+// CHECK: test_vaddd_s64
+  return vaddd_s64(a, b);
+// CHECK: add {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+uint64_t test_vaddd_u64(uint64_t a, uint64_t b) {
+// CHECK: test_vaddd_u64
+  return vaddd_u64(a, b);
+// CHECK: add {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+int64_t test_vsubd_s64(int64_t a, int64_t b) {
+// CHECK: test_vsubd_s64
+  return vsubd_s64(a, b);
+// CHECK: sub {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+uint64_t test_vsubd_u64(uint64_t a, uint64_t b) {
+// CHECK: test_vsubd_u64
+  return vsubd_u64(a, b);
+// CHECK: sub {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+int8_t test_vqaddb_s8(int8_t a, int8_t b) {
+// CHECK: test_vqaddb_s8
+  return vqaddb_s8(a, b);
+// CHECK: sqadd {{b[0-9]+}}, {{b[0-9]+}}, {{b[0-9]+}}
+}
+
+int16_t test_vqaddh_s16(int16_t a, int16_t b) {
+// CHECK: test_vqaddh_s16
+  return vqaddh_s16(a, b);
+// CHECK: sqadd {{h[0-9]+}}, {{h[0-9]+}}, {{h[0-9]+}}
+}
+
+int32_t test_vqadds_s32(int32_t a, int32_t b) {
+// CHECK: test_vqadds_s32
+  return vqadds_s32(a, b);
+// CHECK: sqadd {{s[0-9]+}}, {{s[0-9]+}}, {{s[0-9]+}}
+}
+
+int64_t test_vqaddd_s64(int64_t a, int64_t b) {
+// CHECK: test_vqaddd_s64
+  return vqaddd_s64(a, b);
+// CHECK: sqadd {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+uint8_t test_vqaddb_u8(uint8_t a, uint8_t b) {
+// CHECK: test_vqaddb_u8
+  return vqaddb_u8(a, b);
+// CHECK: uqadd {{b[0-9]+}}, {{b[0-9]+}}, {{b[0-9]+}}
+}
+
+uint16_t test_vqaddh_u16(uint16_t a, uint16_t b) {
+// CHECK: test_vqaddh_u16
+  return vqaddh_u16(a, b);
+// CHECK: uqadd {{h[0-9]+}}, {{h[0-9]+}}, {{h[0-9]+}}
+}
+
+uint32_t test_vqadds_u32(uint32_t a, uint32_t b) {
+// CHECK: test_vqadds_u32
+  return vqadds_u32(a, b);
+// CHECK: uqadd {{s[0-9]+}}, {{s[0-9]+}}, {{s[0-9]+}}
+}
+
+uint64_t test_vqaddd_u64(uint64_t a, uint64_t b) {
+// CHECK: test_vqaddd_u64
+  return vqaddd_u64(a, b);
+// CHECK: uqadd {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+int8_t test_vqsubb_s8(int8_t a, int8_t b) {
+// CHECK: test_vqsubb_s8
+  return vqsubb_s8(a, b);
+// CHECK: sqsub {{b[0-9]+}}, {{b[0-9]+}}, {{b[0-9]+}}
+}
+
+int16_t test_vqsubh_s16(int16_t a, int16_t b) {
+// CHECK: test_vqsubh_s16
+  return vqsubh_s16(a, b);
+// CHECK: sqsub {{h[0-9]+}}, {{h[0-9]+}}, {{h[0-9]+}}
+}
+
+int32_t test_vqsubs_s32(int32_t a, int32_t b) {
+  // CHECK: test_vqsubs_s32
+  return vqsubs_s32(a, b);
+// CHECK: sqsub {{s[0-9]+}}, {{s[0-9]+}}, {{s[0-9]+}}
+}
+
+int64_t test_vqsubd_s64(int64_t a, int64_t b) {
+// CHECK: test_vqsubd_s64
+  return vqsubd_s64(a, b);
+// CHECK: sqsub {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+uint8_t test_vqsubb_u8(uint8_t a, uint8_t b) {
+// CHECK: test_vqsubb_u8
+  return vqsubb_u8(a, b);
+// CHECK: uqsub {{b[0-9]+}}, {{b[0-9]+}}, {{b[0-9]+}}
+}
+
+uint16_t test_vqsubh_u16(uint16_t a, uint16_t b) {
+// CHECK: test_vqsubh_u16
+  return vqsubh_u16(a, b);
+// CHECK: uqsub {{h[0-9]+}}, {{h[0-9]+}}, {{h[0-9]+}}
+}
+
+uint32_t test_vqsubs_u32(uint32_t a, uint32_t b) {
+// CHECK: test_vqsubs_u32
+  return vqsubs_u32(a, b);
+// CHECK: uqsub {{s[0-9]+}}, {{s[0-9]+}}, {{s[0-9]+}}
+}
+
+uint64_t test_vqsubd_u64(uint64_t a, uint64_t b) {
+// CHECK: test_vqsubd_u64
+  return vqsubd_u64(a, b);
+// CHECK: uqsub {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+int64_t test_vshld_s64(int64_t a, int64_t b) {
+// CHECK: test_vshld_s64
+  return vshld_s64(a, b);
+// CHECK: sshl {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+uint64_t test_vshld_u64(uint64_t a, uint64_t b) {
+// CHECK: test_vshld_u64
+  return vshld_u64(a, b);
+// CHECK: ushl {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+// CHECK: test_vqshlb_s8
+int8_t test_vqshlb_s8(int8_t a, int8_t b) {
+  return vqshlb_s8(a, b);
+// CHECK: sqshl {{b[0-9]+}}, {{b[0-9]+}}, {{b[0-9]+}}
+}
+
+// CHECK: test_vqshlh_s16
+int16_t test_vqshlh_s16(int16_t a, int16_t b) {
+  return vqshlh_s16(a, b);
+// CHECK: sqshl {{h[0-9]+}}, {{h[0-9]+}}, {{h[0-9]+}}
+}
+
+// CHECK: test_vqshls_s32
+int32_t test_vqshls_s32(int32_t a, int32_t b) {
+  return vqshls_s32(a, b);
+// CHECK: sqshl {{s[0-9]+}}, {{s[0-9]+}}, {{s[0-9]+}}
+}
+
+// CHECK: test_vqshld_s64
+int64_t test_vqshld_s64(int64_t a, int64_t b) {
+  return vqshld_s64(a, b);
+// CHECK: sqshl {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+// CHECK: test_vqshlb_u8
+uint8_t test_vqshlb_u8(uint8_t a, uint8_t b) {
+  return vqshlb_u8(a, b);
+// CHECK: uqshl {{b[0-9]+}}, {{b[0-9]+}}, {{b[0-9]+}}
+}
+
+// CHECK: test_vqshlh_u16
+uint16_t test_vqshlh_u16(uint16_t a, uint16_t b) {
+  return vqshlh_u16(a, b);
+// CHECK: uqshl {{h[0-9]+}}, {{h[0-9]+}}, {{h[0-9]+}}
+}
+
+// CHECK: test_vqshls_u32
+uint32_t test_vqshls_u32(uint32_t a, uint32_t b) {
+  return vqshls_u32(a, b);
+// CHECK: uqshl {{s[0-9]+}}, {{s[0-9]+}}, {{s[0-9]+}}
+}
+
+// CHECK: test_vqshld_u64
+uint64_t test_vqshld_u64(uint64_t a, uint64_t b) {
+  return vqshld_u64(a, b);
+// CHECK: uqshl {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+// CHECK: test_vrshld_s64
+int64_t test_vrshld_s64(int64_t a, int64_t b) {
+  return vrshld_s64(a, b);
+// CHECK: srshl {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+
+// CHECK: test_vrshld_u64
+uint64_t test_vrshld_u64(uint64_t a, uint64_t b) {
+  return vrshld_u64(a, b);
+// CHECK: urshl {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+// CHECK: test_vqrshlb_s8
+int8_t test_vqrshlb_s8(int8_t a, int8_t b) {
+  return vqrshlb_s8(a, b);
+// CHECK: sqrshl {{b[0-9]+}}, {{b[0-9]+}}, {{b[0-9]+}}
+}
+
+// CHECK: test_vqrshlh_s16
+int16_t test_vqrshlh_s16(int16_t a, int16_t b) {
+  return vqrshlh_s16(a, b);
+// CHECK: sqrshl {{h[0-9]+}}, {{h[0-9]+}}, {{h[0-9]+}}
+}
+
+// CHECK: test_vqrshls_s32
+int32_t test_vqrshls_s32(int32_t a, int32_t b) {
+  return vqrshls_s32(a, b);
+// CHECK: sqrshl {{s[0-9]+}}, {{s[0-9]+}}, {{s[0-9]+}}
+}
+
+// CHECK: test_vqrshld_s64
+int64_t test_vqrshld_s64(int64_t a, int64_t b) {
+  return vqrshld_s64(a, b);
+// CHECK: sqrshl {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+// CHECK: test_vqrshlb_u8
+uint8_t test_vqrshlb_u8(uint8_t a, uint8_t b) {
+  return vqrshlb_u8(a, b);
+// CHECK: uqrshl {{b[0-9]+}}, {{b[0-9]+}}, {{b[0-9]+}}
+}
+
+// CHECK: test_vqrshlh_u16
+uint16_t test_vqrshlh_u16(uint16_t a, uint16_t b) {
+  return vqrshlh_u16(a, b);
+// CHECK: uqrshl {{h[0-9]+}}, {{h[0-9]+}}, {{h[0-9]+}}
+}
+
+// CHECK: test_vqrshls_u32
+uint32_t test_vqrshls_u32(uint32_t a, uint32_t b) {
+  return vqrshls_u32(a, b);
+// CHECK: uqrshl {{s[0-9]+}}, {{s[0-9]+}}, {{s[0-9]+}}
+}
+
+// CHECK: test_vqrshld_u64
+uint64_t test_vqrshld_u64(uint64_t a, uint64_t b) {
+  return vqrshld_u64(a, b);
+// CHECK: uqrshl {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+// CHECK: test_vpaddd_s64
+int64_t test_vpaddd_s64(int64x2_t a) {
+  return vpaddd_s64(a);
+// CHECK: addp {{d[0-9]+}}, {{v[0-9]+}}.2d
+}
+
+// CHECK: test_vpadds_f32
+float32_t test_vpadds_f32(float32x2_t a) {
+  return vpadds_f32(a);
+// CHECK: faddp {{s[0-9]+}}, {{v[0-9]+}}.2s
+}
+
+// CHECK: test_vpaddd_f64
+float64_t test_vpaddd_f64(float64x2_t a) {
+  return vpaddd_f64(a);
+// CHECK: faddp {{d[0-9]+}}, {{v[0-9]+}}.2d
+}
+
+// CHECK: test_vpmaxnms_f32
+float32_t test_vpmaxnms_f32(float32x2_t a) {
+  return vpmaxnms_f32(a);
+// CHECK: fmaxnmp {{s[0-9]+}}, {{v[0-9]+}}.2s
+}
+
+// CHECK: test_vpmaxnmqd_f64
+float64_t test_vpmaxnmqd_f64(float64x2_t a) {
+  return vpmaxnmqd_f64(a);
+// CHECK: fmaxnmp {{d[0-9]+}}, {{v[0-9]+}}.2d
+}
+
+// CHECK: test_vpmaxs_f32
+float32_t test_vpmaxs_f32(float32x2_t a) {
+  return vpmaxs_f32(a);
+// CHECK: fmaxp {{s[0-9]+}}, {{v[0-9]+}}.2s
+}
+
+// CHECK: test_vpmaxqd_f64
+float64_t test_vpmaxqd_f64(float64x2_t a) {
+  return vpmaxqd_f64(a);
+// CHECK: fmaxp {{d[0-9]+}}, {{v[0-9]+}}.2d
+}
+
+// CHECK: test_vpminnms_f32
+float32_t test_vpminnms_f32(float32x2_t a) {
+  return vpminnms_f32(a);
+// CHECK: fminnmp {{s[0-9]+}}, {{v[0-9]+}}.2s
+}
+
+// CHECK: test_vpminnmqd_f64
+float64_t test_vpminnmqd_f64(float64x2_t a) {
+  return vpminnmqd_f64(a);
+// CHECK: fminnmp {{d[0-9]+}}, {{v[0-9]+}}.2d
+}
+
+// CHECK: test_vpmins_f32
+float32_t test_vpmins_f32(float32x2_t a) {
+  return vpmins_f32(a);
+// CHECK: fminp {{s[0-9]+}}, {{v[0-9]+}}.2s
+}
+
+// CHECK: test_vpminqd_f64
+float64_t test_vpminqd_f64(float64x2_t a) {
+  return vpminqd_f64(a);
+// CHECK: fminp {{d[0-9]+}}, {{v[0-9]+}}.2d
+}
+
+int16_t test_vqdmulhh_s16(int16_t a, int16_t b) {
+// CHECK: test_vqdmulhh_s16
+  return vqdmulhh_s16(a, b);
+// CHECK: sqdmulh {{h[0-9]+}}, {{h[0-9]+}}, {{h[0-9]+}}
+}
+
+int32_t test_vqdmulhs_s32(int32_t a, int32_t b) {
+// CHECK: test_vqdmulhs_s32
+  return vqdmulhs_s32(a, b);
+// CHECK: sqdmulh {{s[0-9]+}}, {{s[0-9]+}}, {{s[0-9]+}}
+}
+
+int16_t test_vqrdmulhh_s16(int16_t a, int16_t b) {
+// CHECK: test_vqrdmulhh_s16
+  return vqrdmulhh_s16(a, b);
+// CHECK: sqrdmulh {{h[0-9]+}}, {{h[0-9]+}}, {{h[0-9]+}}
+}
+
+int32_t test_vqrdmulhs_s32(int32_t a, int32_t b) {
+// CHECK: test_vqrdmulhs_s32
+  return vqrdmulhs_s32(a, b);
+// CHECK: sqrdmulh {{s[0-9]+}}, {{s[0-9]+}}, {{s[0-9]+}}
+}
+
+float32_t test_vmulxs_f32(float32_t a, float32_t b) {
+// CHECK: test_vmulxs_f32
+  return vmulxs_f32(a, b);
+// CHECK: fmulx {{s[0-9]+}}, {{s[0-9]+}}, {{s[0-9]+}}
+}
+
+float64_t test_vmulxd_f64(float64_t a, float64_t b) {
+// CHECK: test_vmulxd_f64
+  return vmulxd_f64(a, b);
+// CHECK: fmulx {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+float32_t test_vrecpss_f32(float32_t a, float32_t b) {
+// CHECK: test_vrecpss_f32
+  return vrecpss_f32(a, b);
+// CHECK: frecps {{s[0-9]+}}, {{s[0-9]+}}, {{s[0-9]+}}
+}
+
+float64_t test_vrecpsd_f64(float64_t a, float64_t b) {
+// CHECK: test_vrecpsd_f64
+  return vrecpsd_f64(a, b);
+// CHECK: frecps {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+float32_t test_vrsqrtss_f32(float32_t a, float32_t b) {
+// CHECK: test_vrsqrtss_f32
+  return vrsqrtss_f32(a, b);
+// CHECK: frsqrts {{s[0-9]+}}, {{s[0-9]+}}, {{s[0-9]+}}
+}
+
+float64_t test_vrsqrtsd_f64(float64_t a, float64_t b) {
+// CHECK: test_vrsqrtsd_f64
+  return vrsqrtsd_f64(a, b);
+// CHECK: frsqrts {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+float32_t test_vcvts_f32_s32(int32_t a) {
+// CHECK: test_vcvts_f32_s32
+// CHECK: scvtf {{s[0-9]+}}, {{s[0-9]+}}
+  return (float32_t)vcvts_f32_s32(a);
+}
+
+float64_t test_vcvtd_f64_s64(int64_t a) {
+// CHECK: test_vcvtd_f64_s64
+// CHECK: scvtf {{d[0-9]+}}, {{d[0-9]+}}
+  return (float64_t)vcvtd_f64_s64(a);
+}
+
+float32_t test_vcvts_f32_u32(uint32_t a) {
+// CHECK: test_vcvts_f32_u32
+// CHECK: ucvtf {{s[0-9]+}}, {{s[0-9]+}}
+  return (float32_t)vcvts_f32_u32(a);
+}
+
+float64_t test_vcvtd_f64_u64(uint64_t a) {
+// CHECK: test_vcvtd_f64_u64
+// CHECK: ucvtf {{d[0-9]+}}, {{d[0-9]+}}
+  return (float64_t)vcvtd_f64_u64(a);
+}
+
+float32_t test_vrecpes_f32(float32_t a) {
+// CHECK: test_vrecpes_f32
+// CHECK: frecpe {{s[0-9]+}}, {{s[0-9]+}}
+  return vrecpes_f32(a);
+}
+ 
+float64_t test_vrecped_f64(float64_t a) {
+// CHECK: test_vrecped_f64
+// CHECK: frecpe {{d[0-9]+}}, {{d[0-9]+}}
+  return vrecped_f64(a);
+}
+ 
+float32_t test_vrecpxs_f32(float32_t a) {
+// CHECK: test_vrecpxs_f32
+// CHECK: frecpx {{s[0-9]+}}, {{s[0-9]+}}
+  return vrecpxs_f32(a);
+ }
+ 
+float64_t test_vrecpxd_f64(float64_t a) {
+// CHECK: test_vrecpxd_f64
+// CHECK: frecpx {{d[0-9]+}}, {{d[0-9]+}}
+  return vrecpxd_f64(a);
+}
+
+float32_t test_vrsqrtes_f32(float32_t a) {
+// CHECK: vrsqrtes_f32
+// CHECK: frsqrte {{s[0-9]+}}, {{s[0-9]+}}
+  return vrsqrtes_f32(a);
+}
+
+float64_t test_vrsqrted_f64(float64_t a) {
+// CHECK: vrsqrted_f64
+// CHECK: frsqrte {{d[0-9]+}}, {{d[0-9]+}}
+  return vrsqrted_f64(a);
+}
+
+uint8x16_t test_vld1q_u8(uint8_t const *a) {
+  // CHECK: test_vld1q_u8
+  return vld1q_u8(a);
+  // CHECK: ld1 {v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+uint16x8_t test_vld1q_u16(uint16_t const *a) {
+  // CHECK: test_vld1q_u16
+  return vld1q_u16(a);
+  // CHECK: ld1 {v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+uint32x4_t test_vld1q_u32(uint32_t const *a) {
+  // CHECK: test_vld1q_u32
+  return vld1q_u32(a);
+  // CHECK: ld1 {v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+uint64x2_t test_vld1q_u64(uint64_t const *a) {
+  // CHECK: test_vld1q_u64
+  return vld1q_u64(a);
+  // CHECK: ld1 {v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+int8x16_t test_vld1q_s8(int8_t const *a) {
+  // CHECK: test_vld1q_s8
+  return vld1q_s8(a);
+  // CHECK: ld1 {v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+int16x8_t test_vld1q_s16(int16_t const *a) {
+  // CHECK: test_vld1q_s16
+  return vld1q_s16(a);
+  // CHECK: ld1 {v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+int32x4_t test_vld1q_s32(int32_t const *a) {
+  // CHECK: test_vld1q_s32
+  return vld1q_s32(a);
+  // CHECK: ld1 {v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+int64x2_t test_vld1q_s64(int64_t const *a) {
+  // CHECK: test_vld1q_s64
+  return vld1q_s64(a);
+  // CHECK: ld1 {v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+float16x8_t test_vld1q_f16(float16_t const *a) {
+  // CHECK: test_vld1q_f16
+  return vld1q_f16(a);
+  // CHECK: ld1 {v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+float32x4_t test_vld1q_f32(float32_t const *a) {
+  // CHECK: test_vld1q_f32
+  return vld1q_f32(a);
+  // CHECK: ld1 {v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+float64x2_t test_vld1q_f64(float64_t const *a) {
+  // CHECK: test_vld1q_f64
+  return vld1q_f64(a);
+  // CHECK: ld1 {v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+poly8x16_t test_vld1q_p8(poly8_t const *a) {
+  // CHECK: test_vld1q_p8
+  return vld1q_p8(a);
+  // CHECK: ld1 {v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+poly16x8_t test_vld1q_p16(poly16_t const *a) {
+  // CHECK: test_vld1q_p16
+  return vld1q_p16(a);
+  // CHECK: ld1 {v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+uint8x8_t test_vld1_u8(uint8_t const *a) {
+  // CHECK: test_vld1_u8
+  return vld1_u8(a);
+  // CHECK: ld1 {v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+uint16x4_t test_vld1_u16(uint16_t const *a) {
+  // CHECK: test_vld1_u16
+  return vld1_u16(a);
+  // CHECK: ld1 {v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+uint32x2_t test_vld1_u32(uint32_t const *a) {
+  // CHECK: test_vld1_u32
+  return vld1_u32(a);
+  // CHECK: ld1 {v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+uint64x1_t test_vld1_u64(uint64_t const *a) {
+  // CHECK: test_vld1_u64
+  return vld1_u64(a);
+  // CHECK: ld1 {v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+int8x8_t test_vld1_s8(int8_t const *a) {
+  // CHECK: test_vld1_s8
+  return vld1_s8(a);
+  // CHECK: ld1 {v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+int16x4_t test_vld1_s16(int16_t const *a) {
+  // CHECK: test_vld1_s16
+  return vld1_s16(a);
+  // CHECK: ld1 {v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+int32x2_t test_vld1_s32(int32_t const *a) {
+  // CHECK: test_vld1_s32
+  return vld1_s32(a);
+  // CHECK: ld1 {v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+int64x1_t test_vld1_s64(int64_t const *a) {
+  // CHECK: test_vld1_s64
+  return vld1_s64(a);
+  // CHECK: ld1 {v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+float16x4_t test_vld1_f16(float16_t const *a) {
+  // CHECK: test_vld1_f16
+  return vld1_f16(a);
+  // CHECK: ld1 {v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+float32x2_t test_vld1_f32(float32_t const *a) {
+  // CHECK: test_vld1_f32
+  return vld1_f32(a);
+  // CHECK: ld1 {v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+float64x1_t test_vld1_f64(float64_t const *a) {
+  // CHECK: test_vld1_f64
+  return vld1_f64(a);
+  // CHECK: ld1 {v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+poly8x8_t test_vld1_p8(poly8_t const *a) {
+  // CHECK: test_vld1_p8
+  return vld1_p8(a);
+  // CHECK: ld1 {v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+poly16x4_t test_vld1_p16(poly16_t const *a) {
+  // CHECK: test_vld1_p16
+  return vld1_p16(a);
+  // CHECK: ld1 {v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+uint8x16x2_t test_vld2q_u8(uint8_t const *a) {
+  // CHECK: test_vld2q_u8
+  return vld2q_u8(a);
+  // CHECK: ld2 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+uint16x8x2_t test_vld2q_u16(uint16_t const *a) {
+  // CHECK: test_vld2q_u16
+  return vld2q_u16(a);
+  // CHECK: ld2 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+uint32x4x2_t test_vld2q_u32(uint32_t const *a) {
+  // CHECK: test_vld2q_u32
+  return vld2q_u32(a);
+  // CHECK: ld2 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+uint64x2x2_t test_vld2q_u64(uint64_t const *a) {
+  // CHECK: test_vld2q_u64
+  return vld2q_u64(a);
+  // CHECK: ld2 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+int8x16x2_t test_vld2q_s8(int8_t const *a) {
+  // CHECK: test_vld2q_s8
+  return vld2q_s8(a);
+  // CHECK: ld2 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+int16x8x2_t test_vld2q_s16(int16_t const *a) {
+  // CHECK: test_vld2q_s16
+  return vld2q_s16(a);
+  // CHECK: ld2 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+int32x4x2_t test_vld2q_s32(int32_t const *a) {
+  // CHECK: test_vld2q_s32
+  return vld2q_s32(a);
+  // CHECK: ld2 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+int64x2x2_t test_vld2q_s64(int64_t const *a) {
+  // CHECK: test_vld2q_s64
+  return vld2q_s64(a);
+  // CHECK: ld2 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+float16x8x2_t test_vld2q_f16(float16_t const *a) {
+  // CHECK: test_vld2q_f16
+  return vld2q_f16(a);
+  // CHECK: ld2 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+float32x4x2_t test_vld2q_f32(float32_t const *a) {
+  // CHECK: test_vld2q_f32
+  return vld2q_f32(a);
+  // CHECK: ld2 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+float64x2x2_t test_vld2q_f64(float64_t const *a) {
+  // CHECK: test_vld2q_f64
+  return vld2q_f64(a);
+  // CHECK: ld2 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+poly8x16x2_t test_vld2q_p8(poly8_t const *a) {
+  // CHECK: test_vld2q_p8
+  return vld2q_p8(a);
+  // CHECK: ld2 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+poly16x8x2_t test_vld2q_p16(poly16_t const *a) {
+  // CHECK: test_vld2q_p16
+  return vld2q_p16(a);
+  // CHECK: ld2 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+uint8x8x2_t test_vld2_u8(uint8_t const *a) {
+  // CHECK: test_vld2_u8
+  return vld2_u8(a);
+  // CHECK: ld2 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+uint16x4x2_t test_vld2_u16(uint16_t const *a) {
+  // CHECK: test_vld2_u16
+  return vld2_u16(a);
+  // CHECK: ld2 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+uint32x2x2_t test_vld2_u32(uint32_t const *a) {
+  // CHECK: test_vld2_u32
+  return vld2_u32(a);
+  // CHECK: ld2 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+uint64x1x2_t test_vld2_u64(uint64_t const *a) {
+  // CHECK: test_vld2_u64
+  return vld2_u64(a);
+  // CHECK: ld1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+int8x8x2_t test_vld2_s8(int8_t const *a) {
+  // CHECK: test_vld2_s8
+  return vld2_s8(a);
+  // CHECK: ld2 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+int16x4x2_t test_vld2_s16(int16_t const *a) {
+  // CHECK: test_vld2_s16
+  return vld2_s16(a);
+  // CHECK: ld2 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+int32x2x2_t test_vld2_s32(int32_t const *a) {
+  // CHECK: test_vld2_s32
+  return vld2_s32(a);
+  // CHECK: ld2 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+int64x1x2_t test_vld2_s64(int64_t const *a) {
+  // CHECK: test_vld2_s64
+  return vld2_s64(a);
+  // CHECK: ld1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+float16x4x2_t test_vld2_f16(float16_t const *a) {
+  // CHECK: test_vld2_f16
+  return vld2_f16(a);
+  // CHECK: ld2 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+float32x2x2_t test_vld2_f32(float32_t const *a) {
+  // CHECK: test_vld2_f32
+  return vld2_f32(a);
+  // CHECK: ld2 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+float64x1x2_t test_vld2_f64(float64_t const *a) {
+  // CHECK: test_vld2_f64
+  return vld2_f64(a);
+  // CHECK: ld1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+poly8x8x2_t test_vld2_p8(poly8_t const *a) {
+  // CHECK: test_vld2_p8
+  return vld2_p8(a);
+  // CHECK: ld2 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+poly16x4x2_t test_vld2_p16(poly16_t const *a) {
+  // CHECK: test_vld2_p16
+  return vld2_p16(a);
+  // CHECK: ld2 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+uint8x16x3_t test_vld3q_u8(uint8_t const *a) {
+  // CHECK: test_vld3q_u8
+  return vld3q_u8(a);
+  // CHECK: ld3 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b, v{{[0-9]+}}.16b},
+  // [{{x[0-9]+|sp}}]
+}
+
+uint16x8x3_t test_vld3q_u16(uint16_t const *a) {
+  // CHECK: test_vld3q_u16
+  return vld3q_u16(a);
+  // CHECK: ld3 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h},
+  // [{{x[0-9]+|sp}}]
+}
+
+uint32x4x3_t test_vld3q_u32(uint32_t const *a) {
+  // CHECK: test_vld3q_u32
+  return vld3q_u32(a);
+  // CHECK: ld3 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s, v{{[0-9]+}}.4s},
+  // [{{x[0-9]+|sp}}]
+}
+
+uint64x2x3_t test_vld3q_u64(uint64_t const *a) {
+  // CHECK: test_vld3q_u64
+  return vld3q_u64(a);
+  // CHECK: ld3 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d, v{{[0-9]+}}.2d},
+  // [{{x[0-9]+|sp}}]
+}
+
+int8x16x3_t test_vld3q_s8(int8_t const *a) {
+  // CHECK: test_vld3q_s8
+  return vld3q_s8(a);
+  // CHECK: ld3 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b, v{{[0-9]+}}.16b},
+  // [{{x[0-9]+|sp}}]
+}
+
+int16x8x3_t test_vld3q_s16(int16_t const *a) {
+  // CHECK: test_vld3q_s16
+  return vld3q_s16(a);
+  // CHECK: ld3 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h},
+  // [{{x[0-9]+|sp}}]
+}
+
+int32x4x3_t test_vld3q_s32(int32_t const *a) {
+  // CHECK: test_vld3q_s32
+  return vld3q_s32(a);
+  // CHECK: ld3 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s, v{{[0-9]+}}.4s},
+  // [{{x[0-9]+|sp}}]
+}
+
+int64x2x3_t test_vld3q_s64(int64_t const *a) {
+  // CHECK: test_vld3q_s64
+  return vld3q_s64(a);
+  // CHECK: ld3 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d, v{{[0-9]+}}.2d},
+  // [{{x[0-9]+|sp}}]
+}
+
+float16x8x3_t test_vld3q_f16(float16_t const *a) {
+  // CHECK: test_vld3q_f16
+  return vld3q_f16(a);
+  // CHECK: ld3 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h},
+  // [{{x[0-9]+|sp}}]
+}
+
+float32x4x3_t test_vld3q_f32(float32_t const *a) {
+  // CHECK: test_vld3q_f32
+  return vld3q_f32(a);
+  // CHECK: ld3 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s, v{{[0-9]+}}.4s},
+  // [{{x[0-9]+|sp}}]
+}
+
+float64x2x3_t test_vld3q_f64(float64_t const *a) {
+  // CHECK: test_vld3q_f64
+  return vld3q_f64(a);
+  // CHECK: ld3 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d, v{{[0-9]+}}.2d},
+  // [{{x[0-9]+|sp}}]
+}
+
+poly8x16x3_t test_vld3q_p8(poly8_t const *a) {
+  // CHECK: test_vld3q_p8
+  return vld3q_p8(a);
+  // CHECK: ld3 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b, v{{[0-9]+}}.16b},
+  // [{{x[0-9]+|sp}}]
+}
+
+poly16x8x3_t test_vld3q_p16(poly16_t const *a) {
+  // CHECK: test_vld3q_p16
+  return vld3q_p16(a);
+  // CHECK: ld3 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h},
+  // [{{x[0-9]+|sp}}]
+}
+
+uint8x8x3_t test_vld3_u8(uint8_t const *a) {
+  // CHECK: test_vld3_u8
+  return vld3_u8(a);
+  // CHECK: ld3 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b, v{{[0-9]+}}.8b},
+  // [{{x[0-9]+|sp}}]
+}
+
+uint16x4x3_t test_vld3_u16(uint16_t const *a) {
+  // CHECK: test_vld3_u16
+  return vld3_u16(a);
+  // CHECK: ld3 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h},
+  // [{{x[0-9]+|sp}}]
+}
+
+uint32x2x3_t test_vld3_u32(uint32_t const *a) {
+  // CHECK: test_vld3_u32
+  return vld3_u32(a);
+  // CHECK: ld3 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s, v{{[0-9]+}}.2s},
+  // [{{x[0-9]+|sp}}]
+}
+
+uint64x1x3_t test_vld3_u64(uint64_t const *a) {
+  // CHECK: test_vld3_u64
+  return vld3_u64(a);
+  // CHECK: ld1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d, v{{[0-9]+}}.1d},
+  // [{{x[0-9]+|sp}}]
+}
+
+int8x8x3_t test_vld3_s8(int8_t const *a) {
+  // CHECK: test_vld3_s8
+  return vld3_s8(a);
+  // CHECK: ld3 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b, v{{[0-9]+}}.8b},
+  // [{{x[0-9]+|sp}}]
+}
+
+int16x4x3_t test_vld3_s16(int16_t const *a) {
+  // CHECK: test_vld3_s16
+  return vld3_s16(a);
+  // CHECK: ld3 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h},
+  // [{{x[0-9]+|sp}}]
+}
+
+int32x2x3_t test_vld3_s32(int32_t const *a) {
+  // CHECK: test_vld3_s32
+  return vld3_s32(a);
+  // CHECK: ld3 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s, v{{[0-9]+}}.2s},
+  // [{{x[0-9]+|sp}}]
+}
+
+int64x1x3_t test_vld3_s64(int64_t const *a) {
+  // CHECK: test_vld3_s64
+  return vld3_s64(a);
+  // CHECK: ld1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d, v{{[0-9]+}}.1d},
+  // [{{x[0-9]+|sp}}]
+}
+
+float16x4x3_t test_vld3_f16(float16_t const *a) {
+  // CHECK: test_vld3_f16
+  return vld3_f16(a);
+  // CHECK: ld3 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h},
+  // [{{x[0-9]+|sp}}]
+}
+
+float32x2x3_t test_vld3_f32(float32_t const *a) {
+  // CHECK: test_vld3_f32
+  return vld3_f32(a);
+  // CHECK: ld3 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s, v{{[0-9]+}}.2s},
+  // [{{x[0-9]+|sp}}]
+}
+
+float64x1x3_t test_vld3_f64(float64_t const *a) {
+  // CHECK: test_vld3_f64
+  return vld3_f64(a);
+  // CHECK: ld1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d, v{{[0-9]+}}.1d},
+  // [{{x[0-9]+|sp}}]
+}
+
+poly8x8x3_t test_vld3_p8(poly8_t const *a) {
+  // CHECK: test_vld3_p8
+  return vld3_p8(a);
+  // CHECK: ld3 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b, v{{[0-9]+}}.8b},
+  // [{{x[0-9]+|sp}}]
+}
+
+poly16x4x3_t test_vld3_p16(poly16_t const *a) {
+  // CHECK: test_vld3_p16
+  return vld3_p16(a);
+  // CHECK: ld3 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h},
+  // [{{x[0-9]+|sp}}]
+}
+
+uint8x16x4_t test_vld4q_u8(uint8_t const *a) {
+  // CHECK: test_vld4q_u8
+  return vld4q_u8(a);
+  // CHECK: ld4 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b, v{{[0-9]+}}.16b,
+  // v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+uint16x8x4_t test_vld4q_u16(uint16_t const *a) {
+  // CHECK: test_vld4q_u16
+  return vld4q_u16(a);
+  // CHECK: ld4 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h,
+  // v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+uint32x4x4_t test_vld4q_u32(uint32_t const *a) {
+  // CHECK: test_vld4q_u32
+  return vld4q_u32(a);
+  // CHECK: ld4 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s, v{{[0-9]+}}.4s,
+  // v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+uint64x2x4_t test_vld4q_u64(uint64_t const *a) {
+  // CHECK: test_vld4q_u64
+  return vld4q_u64(a);
+  // CHECK: ld4 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d, v{{[0-9]+}}.2d,
+  // v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+int8x16x4_t test_vld4q_s8(int8_t const *a) {
+  // CHECK: test_vld4q_s8
+  return vld4q_s8(a);
+  // CHECK: ld4 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b, v{{[0-9]+}}.16b,
+  // v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+int16x8x4_t test_vld4q_s16(int16_t const *a) {
+  // CHECK: test_vld4q_s16
+  return vld4q_s16(a);
+  // CHECK: ld4 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h,
+  // v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+int32x4x4_t test_vld4q_s32(int32_t const *a) {
+  // CHECK: test_vld4q_s32
+  return vld4q_s32(a);
+  // CHECK: ld4 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s, v{{[0-9]+}}.4s,
+  // v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+int64x2x4_t test_vld4q_s64(int64_t const *a) {
+  // CHECK: test_vld4q_s64
+  return vld4q_s64(a);
+  // CHECK: ld4 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d, v{{[0-9]+}}.2d,
+  // v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+float16x8x4_t test_vld4q_f16(float16_t const *a) {
+  // CHECK: test_vld4q_f16
+  return vld4q_f16(a);
+  // CHECK: ld4 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h,
+  // v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+float32x4x4_t test_vld4q_f32(float32_t const *a) {
+  // CHECK: test_vld4q_f32
+  return vld4q_f32(a);
+  // CHECK: ld4 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s, v{{[0-9]+}}.4s,
+  // v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+float64x2x4_t test_vld4q_f64(float64_t const *a) {
+  // CHECK: test_vld4q_f64
+  return vld4q_f64(a);
+  // CHECK: ld4 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d, v{{[0-9]+}}.2d,
+  // v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+poly8x16x4_t test_vld4q_p8(poly8_t const *a) {
+  // CHECK: test_vld4q_p8
+  return vld4q_p8(a);
+  // CHECK: ld4 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b, v{{[0-9]+}}.16b,
+  // v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+poly16x8x4_t test_vld4q_p16(poly16_t const *a) {
+  // CHECK: test_vld4q_p16
+  return vld4q_p16(a);
+  // CHECK: ld4 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h,
+  // v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+uint8x8x4_t test_vld4_u8(uint8_t const *a) {
+  // CHECK: test_vld4_u8
+  return vld4_u8(a);
+  // CHECK: ld4 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b, v{{[0-9]+}}.8b,
+  // v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+uint16x4x4_t test_vld4_u16(uint16_t const *a) {
+  // CHECK: test_vld4_u16
+  return vld4_u16(a);
+  // CHECK: ld4 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h,
+  // v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+uint32x2x4_t test_vld4_u32(uint32_t const *a) {
+  // CHECK: test_vld4_u32
+  return vld4_u32(a);
+  // CHECK: ld4 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s, v{{[0-9]+}}.2s,
+  // v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+uint64x1x4_t test_vld4_u64(uint64_t const *a) {
+  // CHECK: test_vld4_u64
+  return vld4_u64(a);
+  // CHECK: ld1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d, v{{[0-9]+}}.1d,
+  // v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+int8x8x4_t test_vld4_s8(int8_t const *a) {
+  // CHECK: test_vld4_s8
+  return vld4_s8(a);
+  // CHECK: ld4 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b, v{{[0-9]+}}.8b,
+  // v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+int16x4x4_t test_vld4_s16(int16_t const *a) {
+  // CHECK: test_vld4_s16
+  return vld4_s16(a);
+  // CHECK: ld4 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h,
+  // v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+int32x2x4_t test_vld4_s32(int32_t const *a) {
+  // CHECK: test_vld4_s32
+  return vld4_s32(a);
+  // CHECK: ld4 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s, v{{[0-9]+}}.2s,
+  // v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+int64x1x4_t test_vld4_s64(int64_t const *a) {
+  // CHECK: test_vld4_s64
+  return vld4_s64(a);
+  // CHECK: ld1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d, v{{[0-9]+}}.1d,
+  // v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+float16x4x4_t test_vld4_f16(float16_t const *a) {
+  // CHECK: test_vld4_f16
+  return vld4_f16(a);
+  // CHECK: ld4 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h,
+  // v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+float32x2x4_t test_vld4_f32(float32_t const *a) {
+  // CHECK: test_vld4_f32
+  return vld4_f32(a);
+  // CHECK: ld4 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s, v{{[0-9]+}}.2s,
+  // v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+float64x1x4_t test_vld4_f64(float64_t const *a) {
+  // CHECK: test_vld4_f64
+  return vld4_f64(a);
+  // CHECK: ld1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d, v{{[0-9]+}}.1d,
+  // v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+poly8x8x4_t test_vld4_p8(poly8_t const *a) {
+  // CHECK: test_vld4_p8
+  return vld4_p8(a);
+  // CHECK: ld4 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b, v{{[0-9]+}}.8b,
+  // v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+poly16x4x4_t test_vld4_p16(poly16_t const *a) {
+  // CHECK: test_vld4_p16
+  return vld4_p16(a);
+  // CHECK: ld4 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h,
+  // v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1q_u8(uint8_t *a, uint8x16_t b) {
+  // CHECK: test_vst1q_u8
+  vst1q_u8(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1q_u16(uint16_t *a, uint16x8_t b) {
+  // CHECK: test_vst1q_u16
+  vst1q_u16(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1q_u32(uint32_t *a, uint32x4_t b) {
+  // CHECK: test_vst1q_u32
+  vst1q_u32(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1q_u64(uint64_t *a, uint64x2_t b) {
+  // CHECK: test_vst1q_u64
+  vst1q_u64(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1q_s8(int8_t *a, int8x16_t b) {
+  // CHECK: test_vst1q_s8
+  vst1q_s8(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1q_s16(int16_t *a, int16x8_t b) {
+  // CHECK: test_vst1q_s16
+  vst1q_s16(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1q_s32(int32_t *a, int32x4_t b) {
+  // CHECK: test_vst1q_s32
+  vst1q_s32(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1q_s64(int64_t *a, int64x2_t b) {
+  // CHECK: test_vst1q_s64
+  vst1q_s64(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1q_f16(float16_t *a, float16x8_t b) {
+  // CHECK: test_vst1q_f16
+  vst1q_f16(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1q_f32(float32_t *a, float32x4_t b) {
+  // CHECK: test_vst1q_f32
+  vst1q_f32(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1q_f64(float64_t *a, float64x2_t b) {
+  // CHECK: test_vst1q_f64
+  vst1q_f64(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1q_p8(poly8_t *a, poly8x16_t b) {
+  // CHECK: test_vst1q_p8
+  vst1q_p8(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1q_p16(poly16_t *a, poly16x8_t b) {
+  // CHECK: test_vst1q_p16
+  vst1q_p16(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1_u8(uint8_t *a, uint8x8_t b) {
+  // CHECK: test_vst1_u8
+  vst1_u8(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1_u16(uint16_t *a, uint16x4_t b) {
+  // CHECK: test_vst1_u16
+  vst1_u16(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1_u32(uint32_t *a, uint32x2_t b) {
+  // CHECK: test_vst1_u32
+  vst1_u32(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1_u64(uint64_t *a, uint64x1_t b) {
+  // CHECK: test_vst1_u64
+  vst1_u64(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1_s8(int8_t *a, int8x8_t b) {
+  // CHECK: test_vst1_s8
+  vst1_s8(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1_s16(int16_t *a, int16x4_t b) {
+  // CHECK: test_vst1_s16
+  vst1_s16(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1_s32(int32_t *a, int32x2_t b) {
+  // CHECK: test_vst1_s32
+  vst1_s32(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1_s64(int64_t *a, int64x1_t b) {
+  // CHECK: test_vst1_s64
+  vst1_s64(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1_f16(float16_t *a, float16x4_t b) {
+  // CHECK: test_vst1_f16
+  vst1_f16(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1_f32(float32_t *a, float32x2_t b) {
+  // CHECK: test_vst1_f32
+  vst1_f32(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1_f64(float64_t *a, float64x1_t b) {
+  // CHECK: test_vst1_f64
+  vst1_f64(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1_p8(poly8_t *a, poly8x8_t b) {
+  // CHECK: test_vst1_p8
+  vst1_p8(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst1_p16(poly16_t *a, poly16x4_t b) {
+  // CHECK: test_vst1_p16
+  vst1_p16(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2q_u8(uint8_t *a, uint8x16x2_t b) {
+  // CHECK: test_vst2q_u8
+  vst2q_u8(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2q_u16(uint16_t *a, uint16x8x2_t b) {
+  // CHECK: test_vst2q_u16
+  vst2q_u16(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2q_u32(uint32_t *a, uint32x4x2_t b) {
+  // CHECK: test_vst2q_u32
+  vst2q_u32(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2q_u64(uint64_t *a, uint64x2x2_t b) {
+  // CHECK: test_vst2q_u64
+  vst2q_u64(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2q_s8(int8_t *a, int8x16x2_t b) {
+  // CHECK: test_vst2q_s8
+  vst2q_s8(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2q_s16(int16_t *a, int16x8x2_t b) {
+  // CHECK: test_vst2q_s16
+  vst2q_s16(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2q_s32(int32_t *a, int32x4x2_t b) {
+  // CHECK: test_vst2q_s32
+  vst2q_s32(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2q_s64(int64_t *a, int64x2x2_t b) {
+  // CHECK: test_vst2q_s64
+  vst2q_s64(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2q_f16(float16_t *a, float16x8x2_t b) {
+  // CHECK: test_vst2q_f16
+  vst2q_f16(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2q_f32(float32_t *a, float32x4x2_t b) {
+  // CHECK: test_vst2q_f32
+  vst2q_f32(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2q_f64(float64_t *a, float64x2x2_t b) {
+  // CHECK: test_vst2q_f64
+  vst2q_f64(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2q_p8(poly8_t *a, poly8x16x2_t b) {
+  // CHECK: test_vst2q_p8
+  vst2q_p8(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2q_p16(poly16_t *a, poly16x8x2_t b) {
+  // CHECK: test_vst2q_p16
+  vst2q_p16(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2_u8(uint8_t *a, uint8x8x2_t b) {
+  // CHECK: test_vst2_u8
+  vst2_u8(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2_u16(uint16_t *a, uint16x4x2_t b) {
+  // CHECK: test_vst2_u16
+  vst2_u16(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2_u32(uint32_t *a, uint32x2x2_t b) {
+  // CHECK: test_vst2_u32
+  vst2_u32(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2_u64(uint64_t *a, uint64x1x2_t b) {
+  // CHECK: test_vst2_u64
+  vst2_u64(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2_s8(int8_t *a, int8x8x2_t b) {
+  // CHECK: test_vst2_s8
+  vst2_s8(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2_s16(int16_t *a, int16x4x2_t b) {
+  // CHECK: test_vst2_s16
+  vst2_s16(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2_s32(int32_t *a, int32x2x2_t b) {
+  // CHECK: test_vst2_s32
+  vst2_s32(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2_s64(int64_t *a, int64x1x2_t b) {
+  // CHECK: test_vst2_s64
+  vst2_s64(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2_f16(float16_t *a, float16x4x2_t b) {
+  // CHECK: test_vst2_f16
+  vst2_f16(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2_f32(float32_t *a, float32x2x2_t b) {
+  // CHECK: test_vst2_f32
+  vst2_f32(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2_f64(float64_t *a, float64x1x2_t b) {
+  // CHECK: test_vst2_f64
+  vst2_f64(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2_p8(poly8_t *a, poly8x8x2_t b) {
+  // CHECK: test_vst2_p8
+  vst2_p8(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst2_p16(poly16_t *a, poly16x4x2_t b) {
+  // CHECK: test_vst2_p16
+  vst2_p16(a, b);
+  // CHECK: st2 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst3q_u8(uint8_t *a, uint8x16x3_t b) {
+  // CHECK: test_vst3q_u8
+  vst3q_u8(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b, v{{[0-9]+}}.16b},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3q_u16(uint16_t *a, uint16x8x3_t b) {
+  // CHECK: test_vst3q_u16
+  vst3q_u16(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3q_u32(uint32_t *a, uint32x4x3_t b) {
+  // CHECK: test_vst3q_u32
+  vst3q_u32(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s, v{{[0-9]+}}.4s},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3q_u64(uint64_t *a, uint64x2x3_t b) {
+  // CHECK: test_vst3q_u64
+  vst3q_u64(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d, v{{[0-9]+}}.2d},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3q_s8(int8_t *a, int8x16x3_t b) {
+  // CHECK: test_vst3q_s8
+  vst3q_s8(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b, v{{[0-9]+}}.16b},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3q_s16(int16_t *a, int16x8x3_t b) {
+  // CHECK: test_vst3q_s16
+  vst3q_s16(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3q_s32(int32_t *a, int32x4x3_t b) {
+  // CHECK: test_vst3q_s32
+  vst3q_s32(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s, v{{[0-9]+}}.4s},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3q_s64(int64_t *a, int64x2x3_t b) {
+  // CHECK: test_vst3q_s64
+  vst3q_s64(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d, v{{[0-9]+}}.2d},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3q_f16(float16_t *a, float16x8x3_t b) {
+  // CHECK: test_vst3q_f16
+  vst3q_f16(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3q_f32(float32_t *a, float32x4x3_t b) {
+  // CHECK: test_vst3q_f32
+  vst3q_f32(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s, v{{[0-9]+}}.4s},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3q_f64(float64_t *a, float64x2x3_t b) {
+  // CHECK: test_vst3q_f64
+  vst3q_f64(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d, v{{[0-9]+}}.2d},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3q_p8(poly8_t *a, poly8x16x3_t b) {
+  // CHECK: test_vst3q_p8
+  vst3q_p8(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b, v{{[0-9]+}}.16b},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3q_p16(poly16_t *a, poly16x8x3_t b) {
+  // CHECK: test_vst3q_p16
+  vst3q_p16(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3_u8(uint8_t *a, uint8x8x3_t b) {
+  // CHECK: test_vst3_u8
+  vst3_u8(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b, v{{[0-9]+}}.8b},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3_u16(uint16_t *a, uint16x4x3_t b) {
+  // CHECK: test_vst3_u16
+  vst3_u16(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3_u32(uint32_t *a, uint32x2x3_t b) {
+  // CHECK: test_vst3_u32
+  vst3_u32(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s, v{{[0-9]+}}.2s},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3_u64(uint64_t *a, uint64x1x3_t b) {
+  // CHECK: test_vst3_u64
+  vst3_u64(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d, v{{[0-9]+}}.1d},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3_s8(int8_t *a, int8x8x3_t b) {
+  // CHECK: test_vst3_s8
+  vst3_s8(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b, v{{[0-9]+}}.8b},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3_s16(int16_t *a, int16x4x3_t b) {
+  // CHECK: test_vst3_s16
+  vst3_s16(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3_s32(int32_t *a, int32x2x3_t b) {
+  // CHECK: test_vst3_s32
+  vst3_s32(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s, v{{[0-9]+}}.2s},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3_s64(int64_t *a, int64x1x3_t b) {
+  // CHECK: test_vst3_s64
+  vst3_s64(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d, v{{[0-9]+}}.1d},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3_f16(float16_t *a, float16x4x3_t b) {
+  // CHECK: test_vst3_f16
+  vst3_f16(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3_f32(float32_t *a, float32x2x3_t b) {
+  // CHECK: test_vst3_f32
+  vst3_f32(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s, v{{[0-9]+}}.2s},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3_f64(float64_t *a, float64x1x3_t b) {
+  // CHECK: test_vst3_f64
+  vst3_f64(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d, v{{[0-9]+}}.1d},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3_p8(poly8_t *a, poly8x8x3_t b) {
+  // CHECK: test_vst3_p8
+  vst3_p8(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b, v{{[0-9]+}}.8b},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst3_p16(poly16_t *a, poly16x4x3_t b) {
+  // CHECK: test_vst3_p16
+  vst3_p16(a, b);
+  // CHECK: st3 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h},
+  // [{{x[0-9]+|sp}}]
+}
+
+void test_vst4q_u8(uint8_t *a, uint8x16x4_t b) {
+  // CHECK: test_vst4q_u8
+  vst4q_u8(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b, v{{[0-9]+}}.16b,
+  // v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4q_u16(uint16_t *a, uint16x8x4_t b) {
+  // CHECK: test_vst4q_u16
+  vst4q_u16(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h,
+  // v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4q_u32(uint32_t *a, uint32x4x4_t b) {
+  // CHECK: test_vst4q_u32
+  vst4q_u32(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s, v{{[0-9]+}}.4s,
+  // v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4q_u64(uint64_t *a, uint64x2x4_t b) {
+  // CHECK: test_vst4q_u64
+  vst4q_u64(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d, v{{[0-9]+}}.2d,
+  // v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4q_s8(int8_t *a, int8x16x4_t b) {
+  // CHECK: test_vst4q_s8
+  vst4q_s8(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b, v{{[0-9]+}}.16b,
+  // v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4q_s16(int16_t *a, int16x8x4_t b) {
+  // CHECK: test_vst4q_s16
+  vst4q_s16(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h,
+  // v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4q_s32(int32_t *a, int32x4x4_t b) {
+  // CHECK: test_vst4q_s32
+  vst4q_s32(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s, v{{[0-9]+}}.4s,
+  // v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4q_s64(int64_t *a, int64x2x4_t b) {
+  // CHECK: test_vst4q_s64
+  vst4q_s64(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d, v{{[0-9]+}}.2d,
+  // v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4q_f16(float16_t *a, float16x8x4_t b) {
+  // CHECK: test_vst4q_f16
+  vst4q_f16(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h,
+  // v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4q_f32(float32_t *a, float32x4x4_t b) {
+  // CHECK: test_vst4q_f32
+  vst4q_f32(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.4s, v{{[0-9]+}}.4s, v{{[0-9]+}}.4s,
+  // v{{[0-9]+}}.4s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4q_f64(float64_t *a, float64x2x4_t b) {
+  // CHECK: test_vst4q_f64
+  vst4q_f64(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.2d, v{{[0-9]+}}.2d, v{{[0-9]+}}.2d,
+  // v{{[0-9]+}}.2d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4q_p8(poly8_t *a, poly8x16x4_t b) {
+  // CHECK: test_vst4q_p8
+  vst4q_p8(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.16b, v{{[0-9]+}}.16b, v{{[0-9]+}}.16b,
+  // v{{[0-9]+}}.16b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4q_p16(poly16_t *a, poly16x8x4_t b) {
+  // CHECK: test_vst4q_p16
+  vst4q_p16(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.8h, v{{[0-9]+}}.8h, v{{[0-9]+}}.8h,
+  // v{{[0-9]+}}.8h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4_u8(uint8_t *a, uint8x8x4_t b) {
+  // CHECK: test_vst4_u8
+  vst4_u8(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b, v{{[0-9]+}}.8b,
+  // v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4_u16(uint16_t *a, uint16x4x4_t b) {
+  // CHECK: test_vst4_u16
+  vst4_u16(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h,
+  // v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4_u32(uint32_t *a, uint32x2x4_t b) {
+  // CHECK: test_vst4_u32
+  vst4_u32(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s, v{{[0-9]+}}.2s,
+  // v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4_u64(uint64_t *a, uint64x1x4_t b) {
+  // CHECK: test_vst4_u64
+  vst4_u64(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d, v{{[0-9]+}}.1d,
+  // v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4_s8(int8_t *a, int8x8x4_t b) {
+  // CHECK: test_vst4_s8
+  vst4_s8(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b, v{{[0-9]+}}.8b,
+  // v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4_s16(int16_t *a, int16x4x4_t b) {
+  // CHECK: test_vst4_s16
+  vst4_s16(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h,
+  // v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4_s32(int32_t *a, int32x2x4_t b) {
+  // CHECK: test_vst4_s32
+  vst4_s32(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s, v{{[0-9]+}}.2s,
+  // v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4_s64(int64_t *a, int64x1x4_t b) {
+  // CHECK: test_vst4_s64
+  vst4_s64(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d, v{{[0-9]+}}.1d,
+  // v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4_f16(float16_t *a, float16x4x4_t b) {
+  // CHECK: test_vst4_f16
+  vst4_f16(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h,
+  // v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4_f32(float32_t *a, float32x2x4_t b) {
+  // CHECK: test_vst4_f32
+  vst4_f32(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.2s, v{{[0-9]+}}.2s, v{{[0-9]+}}.2s,
+  // v{{[0-9]+}}.2s}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4_f64(float64_t *a, float64x1x4_t b) {
+  // CHECK: test_vst4_f64
+  vst4_f64(a, b);
+  // CHECK: st1 {v{{[0-9]+}}.1d, v{{[0-9]+}}.1d, v{{[0-9]+}}.1d,
+  // v{{[0-9]+}}.1d}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4_p8(poly8_t *a, poly8x8x4_t b) {
+  // CHECK: test_vst4_p8
+  vst4_p8(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.8b, v{{[0-9]+}}.8b, v{{[0-9]+}}.8b,
+  // v{{[0-9]+}}.8b}, [{{x[0-9]+|sp}}]
+}
+
+void test_vst4_p16(poly16_t *a, poly16x4x4_t b) {
+  // CHECK: test_vst4_p16
+  vst4_p16(a, b);
+  // CHECK: st4 {v{{[0-9]+}}.4h, v{{[0-9]+}}.4h, v{{[0-9]+}}.4h,
+  // v{{[0-9]+}}.4h}, [{{x[0-9]+|sp}}]
 }

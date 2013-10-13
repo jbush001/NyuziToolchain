@@ -3565,7 +3565,8 @@ let isCall = 1, isTerminator = 1, isReturn = 1, isBarrier = 1 in {
 let Defs = [ITSTATE] in
 def t2IT : Thumb2XI<(outs), (ins it_pred:$cc, it_mask:$mask),
                     AddrModeNone, 2,  IIC_iALUx,
-                    "it$mask\t$cc", "", []> {
+                    "it$mask\t$cc", "", []>,
+           ComplexDeprecationPredicate<"IT"> {
   // 16-bit instruction.
   let Inst{31-16} = 0x0000;
   let Inst{15-8} = 0b10111111;
@@ -3652,18 +3653,21 @@ def : t2InstAlias<"cps.w $mode", (t2CPS1p imm0_31:$mode), 0>;
 
 // A6.3.4 Branches and miscellaneous control
 // Table A6-14 Change Processor State, and hint instructions
-def t2HINT : T2I<(outs), (ins imm0_4:$imm), NoItinerary, "hint", "\t$imm",[]> {
+def t2HINT : T2I<(outs), (ins imm0_255:$imm), NoItinerary, "hint", "\t$imm",[]> {
   bits<3> imm;
   let Inst{31-3} = 0b11110011101011111000000000000;
   let Inst{2-0} = imm;
 }
 
-def : t2InstAlias<"hint$p.w $imm", (t2HINT imm0_4:$imm, pred:$p)>;
+def : t2InstAlias<"hint$p.w $imm", (t2HINT imm0_255:$imm, pred:$p)>;
 def : t2InstAlias<"nop$p.w", (t2HINT 0, pred:$p)>;
 def : t2InstAlias<"yield$p.w", (t2HINT 1, pred:$p)>;
 def : t2InstAlias<"wfe$p.w", (t2HINT 2, pred:$p)>;
 def : t2InstAlias<"wfi$p.w", (t2HINT 3, pred:$p)>;
 def : t2InstAlias<"sev$p.w", (t2HINT 4, pred:$p)>;
+def : t2InstAlias<"sevl$p.w", (t2HINT 5, pred:$p)> {
+  let Predicates = [IsThumb2, HasV8];
+}
 
 def t2DBG : T2I<(outs), (ins imm0_15:$opt), NoItinerary, "dbg", "\t$opt", []> {
   bits<4> opt;
@@ -3755,9 +3759,12 @@ def t2RFEIA  : T2RFE<0b111010011001,
                    [/* For disassembly only; pattern left blank */]>;
 
 // B9.3.19 SUBS PC, LR, #imm (Thumb2) system instruction.
-let Defs = [PC], Uses = [LR] in
+// Exception return instruction is "subs pc, lr, #imm".
+let isReturn = 1, isBarrier = 1, isTerminator = 1, Defs = [PC] in
 def t2SUBS_PC_LR : T2I <(outs), (ins imm0_255:$imm), NoItinerary,
-                   "subs", "\tpc, lr, $imm", []>, Requires<[IsThumb2]> {
+                        "subs", "\tpc, lr, $imm",
+                        [(ARMintretflag imm0_255:$imm)]>,
+                   Requires<[IsThumb2]> {
   let Inst{31-8} = 0b111100111101111010001111;
 
   bits<8> imm;
@@ -3922,7 +3929,7 @@ defm t2STC2L : t2LdStCop<0b1111, 0, 1, "stc2l">;
 //
 // A/R class can only move from CPSR or SPSR.
 def t2MRS_AR : T2I<(outs GPR:$Rd), (ins), NoItinerary, "mrs", "\t$Rd, apsr",
-                  []>, Requires<[IsThumb2,IsARClass]> {
+                  []>, Requires<[IsThumb2,IsNotMClass]> {
   bits<4> Rd;
   let Inst{31-12} = 0b11110011111011111000;
   let Inst{11-8} = Rd;
@@ -3932,7 +3939,7 @@ def t2MRS_AR : T2I<(outs GPR:$Rd), (ins), NoItinerary, "mrs", "\t$Rd, apsr",
 def : t2InstAlias<"mrs${p} $Rd, cpsr", (t2MRS_AR GPR:$Rd, pred:$p)>;
 
 def t2MRSsys_AR: T2I<(outs GPR:$Rd), (ins), NoItinerary, "mrs", "\t$Rd, spsr",
-                   []>, Requires<[IsThumb2,IsARClass]> {
+                   []>, Requires<[IsThumb2,IsNotMClass]> {
   bits<4> Rd;
   let Inst{31-12} = 0b11110011111111111000;
   let Inst{11-8} = Rd;
@@ -3965,7 +3972,7 @@ def t2MRS_M : T2I<(outs rGPR:$Rd), (ins msr_mask:$mask), NoItinerary,
 // the mask with the fields to be accessed in the special register.
 def t2MSR_AR : T2I<(outs), (ins msr_mask:$mask, rGPR:$Rn),
                    NoItinerary, "msr", "\t$mask, $Rn", []>,
-               Requires<[IsThumb2,IsARClass]> {
+               Requires<[IsThumb2,IsNotMClass]> {
   bits<5> mask;
   bits<4> Rn;
   let Inst{31-21} = 0b11110011100;
@@ -4215,6 +4222,15 @@ def : T2Pat<(atomic_store_32 t2addrmode_negimm8:$addr, GPR:$val),
             (t2STRi8    GPR:$val, t2addrmode_negimm8:$addr)>;
 def : T2Pat<(atomic_store_32 t2addrmode_so_reg:$addr, GPR:$val),
             (t2STRs     GPR:$val, t2addrmode_so_reg:$addr)>;
+
+let AddedComplexity = 8 in {
+  def : T2Pat<(atomic_load_acquire_8 addr_offset_none:$addr),  (t2LDAB addr_offset_none:$addr)>;
+  def : T2Pat<(atomic_load_acquire_16 addr_offset_none:$addr), (t2LDAH addr_offset_none:$addr)>;
+  def : T2Pat<(atomic_load_acquire_32 addr_offset_none:$addr), (t2LDA  addr_offset_none:$addr)>;
+  def : T2Pat<(atomic_store_release_8 addr_offset_none:$addr, GPR:$val),  (t2STLB GPR:$val, addr_offset_none:$addr)>;
+  def : T2Pat<(atomic_store_release_16 addr_offset_none:$addr, GPR:$val), (t2STLH GPR:$val, addr_offset_none:$addr)>;
+  def : T2Pat<(atomic_store_release_32 addr_offset_none:$addr, GPR:$val), (t2STL  GPR:$val, addr_offset_none:$addr)>;
+}
 
 
 //===----------------------------------------------------------------------===//

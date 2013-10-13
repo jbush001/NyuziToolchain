@@ -368,23 +368,6 @@ void DIType::replaceAllUsesWith(MDNode *D) {
   }
 }
 
-/// isUnsignedDIType - Return true if type encoding is unsigned.
-bool DIType::isUnsignedDIType() {
-  DIDerivedType DTy(DbgNode);
-  if (DTy.Verify())
-    return DTy.getTypeDerivedFrom().isUnsignedDIType();
-
-  DIBasicType BTy(DbgNode);
-  if (BTy.Verify()) {
-    unsigned Encoding = BTy.getEncoding();
-    if (Encoding == dwarf::DW_ATE_unsigned ||
-        Encoding == dwarf::DW_ATE_unsigned_char ||
-        Encoding == dwarf::DW_ATE_boolean)
-      return true;
-  }
-  return false;
-}
-
 /// Verify - Verify that a compile unit is well formed.
 bool DICompileUnit::Verify() const {
   if (!isCompileUnit())
@@ -493,8 +476,8 @@ bool DIBasicType::Verify() const {
 
 /// Verify - Verify that a derived type descriptor is well formed.
 bool DIDerivedType::Verify() const {
-  // Make sure DerivedFrom @ field 9 is MDNode.
-  if (!fieldIsMDNode(DbgNode, 9))
+  // Make sure DerivedFrom @ field 9 is TypeRef.
+  if (!fieldIsTypeRef(DbgNode, 9))
     return false;
   if (getTag() == dwarf::DW_TAG_ptr_to_member_type)
     // Make sure ClassType @ field 10 is a TypeRef.
@@ -510,8 +493,8 @@ bool DICompositeType::Verify() const {
   if (!isCompositeType())
     return false;
 
-  // Make sure DerivedFrom @ field 9 and ContainingType @ field 12 are MDNodes.
-  if (!fieldIsMDNode(DbgNode, 9))
+  // Make sure DerivedFrom @ field 9 and ContainingType @ field 12 are TypeRef.
+  if (!fieldIsTypeRef(DbgNode, 9))
     return false;
   if (!fieldIsTypeRef(DbgNode, 12))
     return false;
@@ -519,12 +502,6 @@ bool DICompositeType::Verify() const {
   // Make sure the type identifier at field 14 is MDString, it can be null.
   if (!fieldIsMDString(DbgNode, 14))
     return false;
-
-  // If this is an array type verify that we have a DIType in the derived type
-  // field as that's the type of our element.
-  if (getTag() == dwarf::DW_TAG_array_type)
-    if (!DIType(getTypeDerivedFrom()))
-      return false;
 
   return DbgNode->getNumOperands() == 15;
 }
@@ -534,8 +511,8 @@ bool DISubprogram::Verify() const {
   if (!isSubprogram())
     return false;
 
-  // Make sure context @ field 2 and type @ field 7 are MDNodes.
-  if (!fieldIsMDNode(DbgNode, 2))
+  // Make sure context @ field 2 is a ScopeRef and type @ field 7 is a MDNode.
+  if (!fieldIsScopeRef(DbgNode, 2))
     return false;
   if (!fieldIsMDNode(DbgNode, 7))
     return false;
@@ -638,35 +615,6 @@ bool DIImportedEntity::Verify() const {
          (DbgNode->getNumOperands() == 4 || DbgNode->getNumOperands() == 5);
 }
 
-/// getOriginalTypeSize - If this type is derived from a base type then
-/// return base type size.
-uint64_t DIDerivedType::getOriginalTypeSize() const {
-  uint16_t Tag = getTag();
-
-  if (Tag != dwarf::DW_TAG_member && Tag != dwarf::DW_TAG_typedef &&
-      Tag != dwarf::DW_TAG_const_type && Tag != dwarf::DW_TAG_volatile_type &&
-      Tag != dwarf::DW_TAG_restrict_type)
-    return getSizeInBits();
-
-  DIType BaseType = getTypeDerivedFrom();
-
-  // If this type is not derived from any type then take conservative approach.
-  if (!BaseType.isValid())
-    return getSizeInBits();
-
-  // If this is a derived type, go ahead and get the base type, unless it's a
-  // reference then it's just the size of the field. Pointer types have no need
-  // of this since they're a different type of qualification on the type.
-  if (BaseType.getTag() == dwarf::DW_TAG_reference_type ||
-      BaseType.getTag() == dwarf::DW_TAG_rvalue_reference_type)
-    return getSizeInBits();
-
-  if (BaseType.isDerivedType())
-    return DIDerivedType(BaseType).getOriginalTypeSize();
-
-  return BaseType.getSizeInBits();
-}
-
 /// getObjCProperty - Return property node, if this ivar is associated with one.
 MDNode *DIDerivedType::getObjCProperty() const {
   return getNodeField(DbgNode, 10);
@@ -725,7 +673,7 @@ void DICompositeType::addMember(DIDescriptor D) {
 
 /// Generate a reference to this DIType. Uses the type identifier instead
 /// of the actual MDNode if possible, to help type uniquing.
-DIScopeRef DIScope::generateRef() {
+DIScopeRef DIScope::getRef() const {
   if (!isCompositeType())
     return DIScopeRef(*this);
   DICompositeType DTy(DbgNode);
@@ -737,7 +685,7 @@ DIScopeRef DIScope::generateRef() {
 /// \brief Set the containing type.
 void DICompositeType::setContainingType(DICompositeType ContainingType) {
   TrackingVH<MDNode> N(*this);
-  N->replaceOperandWith(12, ContainingType.generateRef());
+  N->replaceOperandWith(12, ContainingType.getRef());
   DbgNode = N;
 }
 
@@ -806,6 +754,19 @@ DIScopeRef DIScope::getContext() const {
 
   assert((isFile() || isCompileUnit()) && "Unhandled type of scope.");
   return DIScopeRef(NULL);
+}
+
+// If the scope node has a name, return that, else return an empty string.
+StringRef DIScope::getName() const {
+  if (isType())
+    return DIType(DbgNode).getName();
+  if (isSubprogram())
+    return DISubprogram(DbgNode).getName();
+  if (isNameSpace())
+    return DINameSpace(DbgNode).getName();
+  assert((isLexicalBlock() || isLexicalBlockFile() || isFile() ||
+          isCompileUnit()) && "Unhandled type of scope.");
+  return StringRef();
 }
 
 StringRef DIScope::getFilename() const {
@@ -942,8 +903,14 @@ DICompositeType llvm::getDICompositeType(DIType T) {
   if (T.isCompositeType())
     return DICompositeType(T);
 
-  if (T.isDerivedType())
-    return getDICompositeType(DIDerivedType(T).getTypeDerivedFrom());
+  if (T.isDerivedType()) {
+    // This function is currently used by dragonegg and dragonegg does
+    // not generate identifier for types, so using an empty map to resolve
+    // DerivedFrom should be fine.
+    DITypeIdentifierMap EmptyMap;
+    return getDICompositeType(DIDerivedType(T).getTypeDerivedFrom()
+                                              .resolve(EmptyMap));
+  }
 
   return DICompositeType();
 }
@@ -1044,7 +1011,7 @@ void DebugInfoFinder::processType(DIType DT) {
   processScope(DT.getContext().resolve(TypeIdentifierMap));
   if (DT.isCompositeType()) {
     DICompositeType DCT(DT);
-    processType(DCT.getTypeDerivedFrom());
+    processType(DCT.getTypeDerivedFrom().resolve(TypeIdentifierMap));
     DIArray DA = DCT.getTypeArray();
     for (unsigned i = 0, e = DA.getNumElements(); i != e; ++i) {
       DIDescriptor D = DA.getElement(i);
@@ -1055,7 +1022,7 @@ void DebugInfoFinder::processType(DIType DT) {
     }
   } else if (DT.isDerivedType()) {
     DIDerivedType DDT(DT);
-    processType(DDT.getTypeDerivedFrom());
+    processType(DDT.getTypeDerivedFrom().resolve(TypeIdentifierMap));
   }
 }
 
@@ -1104,19 +1071,19 @@ void DebugInfoFinder::processLexicalBlock(DILexicalBlock LB) {
 void DebugInfoFinder::processSubprogram(DISubprogram SP) {
   if (!addSubprogram(SP))
     return;
-  processScope(SP.getContext());
+  processScope(SP.getContext().resolve(TypeIdentifierMap));
   processType(SP.getType());
   DIArray TParams = SP.getTemplateParams();
   for (unsigned I = 0, E = TParams.getNumElements(); I != E; ++I) {
     DIDescriptor Element = TParams.getElement(I);
     if (Element.isTemplateTypeParameter()) {
       DITemplateTypeParameter TType(Element);
-      processScope(TType.getContext());
-      processType(TType.getType());
+      processScope(TType.getContext().resolve(TypeIdentifierMap));
+      processType(TType.getType().resolve(TypeIdentifierMap));
     } else if (Element.isTemplateValueParameter()) {
       DITemplateValueParameter TVal(Element);
-      processScope(TVal.getContext());
-      processType(TVal.getType());
+      processScope(TVal.getContext().resolve(TypeIdentifierMap));
+      processType(TVal.getType().resolve(TypeIdentifierMap));
     }
   }
 }

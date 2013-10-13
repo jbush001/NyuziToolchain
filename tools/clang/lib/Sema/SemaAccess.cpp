@@ -1714,14 +1714,14 @@ Sema::AccessResult Sema::CheckAllocationAccess(SourceLocation OpLoc,
 /// \brief Checks access to a member.
 Sema::AccessResult Sema::CheckMemberAccess(SourceLocation UseLoc,
                                            CXXRecordDecl *NamingClass,
-                                           NamedDecl *D) {
+                                           DeclAccessPair Found) {
   if (!getLangOpts().AccessControl ||
       !NamingClass ||
-      D->getAccess() == AS_public)
+      Found.getAccess() == AS_public)
     return AR_accessible;
 
   AccessTarget Entity(Context, AccessTarget::Member, NamingClass,
-                      DeclAccessPair::make(D, D->getAccess()), QualType());
+                      Found, QualType());
 
   return CheckAccess(*this, UseLoc, Entity);
 }

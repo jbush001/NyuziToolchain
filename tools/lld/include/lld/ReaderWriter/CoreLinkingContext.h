@@ -27,18 +27,16 @@ public:
   virtual ErrorOr<Reference::Kind> relocKindFromString(StringRef str) const;
   virtual ErrorOr<std::string> stringFromRelocKind(Reference::Kind kind) const;
 
-  virtual error_code
-  parseFile(LinkerInput &input,
-            std::vector<std::unique_ptr<File> > &result) const;
-
   void addPassNamed(StringRef name) { _passNames.push_back(name); }
+
+  virtual Reader &getDefaultReader() const { return *_reader; }
 
 protected:
   virtual Writer &writer() const;
 
 private:
-  mutable std::unique_ptr<Reader> _reader;
-  mutable std::unique_ptr<Writer> _writer;
+  std::unique_ptr<Reader> _reader;
+  std::unique_ptr<Writer> _writer;
   std::vector<StringRef> _passNames;
 };
 

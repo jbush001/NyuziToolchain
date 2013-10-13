@@ -22,6 +22,15 @@ if ( LLVM_USE_FOLDERS )
   set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 endif()
 
+if(MSVC AND NOT (${CMAKE_VERSION} VERSION_LESS 2.8.11))
+  # set stack reserved size to ~10MB
+  # CMake previously automatically set this value for MSVC builds, but the
+  # behavior was changed in CMake 2.8.11 (Issue 12437) to use the MSVC default
+  # value (1 MB) which is not enough for us in tasks such as parsing recursive
+  # C++ templates in Clang.
+  set(CMAKE_CXX_STACK_SIZE "10000000")
+endif()
+
 include(VersionFromVCS)
 
 option(LLVM_APPEND_VC_REV
@@ -237,18 +246,15 @@ if( WIN32 AND NOT CYGWIN )
 endif()
 
 # Define options to control the inclusion and default build behavior for
-# components which may not strictly be necessary (tools, runtime, examples, and
-# tests).
+# components which may not strictly be necessary (tools, examples, and tests).
 #
 # This is primarily to support building smaller or faster project files.
 option(LLVM_INCLUDE_TOOLS "Generate build targets for the LLVM tools." ON)
 option(LLVM_BUILD_TOOLS
   "Build the LLVM tools. If OFF, just generate build targets." ON)
 
-option(LLVM_INCLUDE_RUNTIME "Generate build targets for the LLVM runtimes" ON)
 option(LLVM_BUILD_RUNTIME
-  "Build the LLVM runtime libraries. If OFF, just generate build targets." ON)
-
+  "Build the LLVM runtime libraries." ON)
 option(LLVM_BUILD_EXAMPLES
   "Build the LLVM example programs. If OFF, just generate build targets." OFF)
 option(LLVM_INCLUDE_EXAMPLES "Generate build targets for the LLVM examples" ON)
@@ -460,10 +466,6 @@ add_subdirectory(projects)
 
 if( LLVM_INCLUDE_TOOLS )
   add_subdirectory(tools)
-endif()
-
-if( LLVM_INCLUDE_RUNTIME )
-  add_subdirectory(runtime)
 endif()
 
 if( LLVM_INCLUDE_EXAMPLES )

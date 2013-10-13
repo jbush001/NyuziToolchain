@@ -592,6 +592,29 @@ ActOnStartClassInterface(SourceLocation AtInterfaceLoc,
   return ActOnObjCContainerStartDefinition(IDecl);
 }
 
+/// ActOnTypedefedProtocols - this action finds protocol list as part of the
+/// typedef'ed use for a qualified super class and adds them to the list
+/// of the protocols.
+void Sema::ActOnTypedefedProtocols(SmallVectorImpl<Decl *> &ProtocolRefs,
+                                   IdentifierInfo *SuperName,
+                                   SourceLocation SuperLoc) {
+  if (!SuperName)
+    return;
+  NamedDecl* IDecl = LookupSingleName(TUScope, SuperName, SuperLoc,
+                                      LookupOrdinaryName);
+  if (!IDecl)
+    return;
+  
+  if (const TypedefNameDecl *TDecl = dyn_cast_or_null<TypedefNameDecl>(IDecl)) {
+    QualType T = TDecl->getUnderlyingType();
+    if (T->isObjCObjectType())
+      if (const ObjCObjectType *OPT = T->getAs<ObjCObjectType>())
+        for (ObjCObjectType::qual_iterator I = OPT->qual_begin(),
+             E = OPT->qual_end(); I != E; ++I)
+          ProtocolRefs.push_back(*I);
+  }
+}
+
 /// ActOnCompatibilityAlias - this action is called after complete parsing of
 /// a \@compatibility_alias declaration. It sets up the alias relationships.
 Decl *Sema::ActOnCompatibilityAlias(SourceLocation AtLoc,
@@ -809,12 +832,6 @@ Sema::ActOnForwardProtocolDeclaration(SourceLocation AtProtocolLoc,
                                       unsigned NumElts,
                                       AttributeList *attrList) {
   SmallVector<Decl *, 8> DeclsInGroup;
-  if (isa<ObjCContainerDecl>(CurContext)) {
-    Diag(AtProtocolLoc, 
-         diag::err_objc_decls_may_only_appear_in_global_scope);
-    return BuildDeclaratorGroup(DeclsInGroup, false);
-  }
-
   for (unsigned i = 0; i != NumElts; ++i) {
     IdentifierInfo *Ident = IdentList[i].first;
     ObjCProtocolDecl *PrevDecl = LookupProtocol(Ident, IdentList[i].second,
@@ -1933,12 +1950,6 @@ Sema::ActOnForwardClassDeclaration(SourceLocation AtClassLoc,
                                    SourceLocation *IdentLocs,
                                    unsigned NumElts) {
   SmallVector<Decl *, 8> DeclsInGroup;
-  if (isa<ObjCContainerDecl>(CurContext)) {
-    Diag(AtClassLoc, 
-         diag::err_objc_decls_may_only_appear_in_global_scope);
-    return BuildDeclaratorGroup(DeclsInGroup, false);
-  }
-
   for (unsigned i = 0; i != NumElts; ++i) {
     // Check for another declaration kind with the same name.
     NamedDecl *PrevDecl

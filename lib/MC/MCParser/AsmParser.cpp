@@ -355,7 +355,7 @@ private:
     DK_CFI_OFFSET, DK_CFI_REL_OFFSET, DK_CFI_PERSONALITY, DK_CFI_LSDA,
     DK_CFI_REMEMBER_STATE, DK_CFI_RESTORE_STATE, DK_CFI_SAME_VALUE,
     DK_CFI_RESTORE, DK_CFI_ESCAPE, DK_CFI_SIGNAL_FRAME, DK_CFI_UNDEFINED,
-    DK_CFI_REGISTER,
+    DK_CFI_REGISTER, DK_CFI_WINDOW_SAVE,
     DK_MACROS_ON, DK_MACROS_OFF, DK_MACRO, DK_ENDM, DK_ENDMACRO, DK_PURGEM,
     DK_SLEB128, DK_ULEB128
   };
@@ -384,6 +384,7 @@ private:
 
   // .cfi directives
   bool parseDirectiveCFIRegister(SMLoc DirectiveLoc);
+  bool parseDirectiveCFIWindowSave();
   bool parseDirectiveCFISections();
   bool parseDirectiveCFIStartProc();
   bool parseDirectiveCFIEndProc();
@@ -772,9 +773,20 @@ bool AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
   case AsmToken::Identifier: {
     StringRef Identifier;
     if (parseIdentifier(Identifier)) {
-      if (FirstTokenKind == AsmToken::Dollar)
-        return Error(FirstTokenLoc, "invalid token in expression");
-      return true;
+      if (FirstTokenKind == AsmToken::Dollar) {
+        if (Lexer.getMAI().getDollarIsPC()) {
+          // This is a '$' reference, which references the current PC.  Emit a
+          // temporary label to the streamer and refer to it.
+          MCSymbol *Sym = Ctx.CreateTempSymbol();
+          Out.EmitLabel(Sym);
+          Res = MCSymbolRefExpr::Create(Sym, MCSymbolRefExpr::VK_None,
+                                        getContext());
+          EndLoc = FirstTokenLoc;
+          return false;
+        } else
+          return Error(FirstTokenLoc, "invalid token in expression");
+        return true;
+      }
     }
 
     EndLoc = SMLoc::getFromPointer(Identifier.end());
@@ -1459,6 +1471,8 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info) {
       return parseDirectiveCFIUndefined(IDLoc);
     case DK_CFI_REGISTER:
       return parseDirectiveCFIRegister(IDLoc);
+    case DK_CFI_WINDOW_SAVE:
+      return parseDirectiveCFIWindowSave();
     case DK_MACROS_ON:
     case DK_MACROS_OFF:
       return parseDirectiveMacrosOnOff(IDVal);
@@ -2353,7 +2367,7 @@ bool AsmParser::parseDirectiveZero() {
 }
 
 /// parseDirectiveFill
-///  ::= .fill expression , expression , expression
+///  ::= .fill expression [ , expression [ , expression ] ]
 bool AsmParser::parseDirectiveFill() {
   checkForValidSection();
 
@@ -2361,26 +2375,31 @@ bool AsmParser::parseDirectiveFill() {
   if (parseAbsoluteExpression(NumValues))
     return true;
 
-  if (getLexer().isNot(AsmToken::Comma))
-    return TokError("unexpected token in '.fill' directive");
-  Lex();
+  int64_t FillSize = 1;
+  int64_t FillExpr = 0;
 
-  int64_t FillSize;
-  if (parseAbsoluteExpression(FillSize))
-    return true;
+  if (getLexer().isNot(AsmToken::EndOfStatement)) {
+    if (getLexer().isNot(AsmToken::Comma))
+      return TokError("unexpected token in '.fill' directive");
+    Lex();
 
-  if (getLexer().isNot(AsmToken::Comma))
-    return TokError("unexpected token in '.fill' directive");
-  Lex();
+    if (parseAbsoluteExpression(FillSize))
+      return true;
 
-  int64_t FillExpr;
-  if (parseAbsoluteExpression(FillExpr))
-    return true;
+    if (getLexer().isNot(AsmToken::EndOfStatement)) {
+      if (getLexer().isNot(AsmToken::Comma))
+        return TokError("unexpected token in '.fill' directive");
+      Lex();
 
-  if (getLexer().isNot(AsmToken::EndOfStatement))
-    return TokError("unexpected token in '.fill' directive");
+      if (parseAbsoluteExpression(FillExpr))
+        return true;
 
-  Lex();
+      if (getLexer().isNot(AsmToken::EndOfStatement))
+        return TokError("unexpected token in '.fill' directive");
+
+      Lex();
+    }
+  }
 
   if (FillSize != 1 && FillSize != 2 && FillSize != 4 && FillSize != 8)
     return TokError("invalid '.fill' size, expected 1, 2, 4, or 8");
@@ -2616,8 +2635,8 @@ bool AsmParser::parseDirectiveLoc() {
   int64_t LineNumber = 0;
   if (getLexer().is(AsmToken::Integer)) {
     LineNumber = getTok().getIntVal();
-    if (LineNumber < 1)
-      return TokError("line number less than one in '.loc' directive");
+    if (LineNumber < 0)
+      return TokError("line number less than zero in '.loc' directive");
     Lex();
   }
 
@@ -2809,6 +2828,13 @@ bool AsmParser::parseDirectiveCFIRegister(SMLoc DirectiveLoc) {
     return true;
 
   getStreamer().EmitCFIRegister(Register1, Register2);
+  return false;
+}
+
+/// parseDirectiveCFIWindowSave
+/// ::= .cfi_window_save
+bool AsmParser::parseDirectiveCFIWindowSave() {
+  getStreamer().EmitCFIWindowSave();
   return false;
 }
 
@@ -3805,6 +3831,7 @@ void AsmParser::initializeDirectiveKindMap() {
   DirectiveKindMap[".cfi_signal_frame"] = DK_CFI_SIGNAL_FRAME;
   DirectiveKindMap[".cfi_undefined"] = DK_CFI_UNDEFINED;
   DirectiveKindMap[".cfi_register"] = DK_CFI_REGISTER;
+  DirectiveKindMap[".cfi_window_save"] = DK_CFI_WINDOW_SAVE;
   DirectiveKindMap[".macros_on"] = DK_MACROS_ON;
   DirectiveKindMap[".macros_off"] = DK_MACROS_OFF;
   DirectiveKindMap[".macro"] = DK_MACRO;
