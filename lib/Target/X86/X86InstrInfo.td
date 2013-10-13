@@ -253,7 +253,7 @@ def X86blsi   : SDNode<"X86ISD::BLSI",   SDTIntUnaryOp>;
 def X86blsmsk : SDNode<"X86ISD::BLSMSK", SDTIntUnaryOp>;
 def X86blsr   : SDNode<"X86ISD::BLSR",   SDTIntUnaryOp>;
 def X86bzhi   : SDNode<"X86ISD::BZHI",   SDTIntShiftOp>;
-def X86bextr  : SDNode<"X86ISD::BEXTR",  SDTIntShiftOp>;
+def X86bextr  : SDNode<"X86ISD::BEXTR",  SDTIntBinOp>;
 
 def X86mul_imm : SDNode<"X86ISD::MUL_IMM", SDTIntBinOp>;
 
@@ -649,13 +649,13 @@ def HasSSE4A     : Predicate<"Subtarget->hasSSE4A()">;
 def HasAVX       : Predicate<"Subtarget->hasAVX()">;
 def HasAVX2      : Predicate<"Subtarget->hasAVX2()">;
 def HasAVX1Only  : Predicate<"Subtarget->hasAVX() && !Subtarget->hasAVX2()">;
-def HasAVX512      : Predicate<"Subtarget->hasAVX512()">;
+def HasAVX512    : Predicate<"Subtarget->hasAVX512()">;
 def UseAVX       : Predicate<"Subtarget->hasAVX() && !Subtarget->hasAVX512()">;
 def UseAVX2      : Predicate<"Subtarget->hasAVX2() && !Subtarget->hasAVX512()">;
 def NoAVX512       : Predicate<"!Subtarget->hasAVX512()">;
 def HasCDI       : Predicate<"Subtarget->hasCDI()">;
 def HasPFI       : Predicate<"Subtarget->hasPFI()">;
-def HasEMI       : Predicate<"Subtarget->hasERI()">;
+def HasERI       : Predicate<"Subtarget->hasERI()">;
 
 def HasPOPCNT    : Predicate<"Subtarget->hasPOPCNT()">;
 def HasAES       : Predicate<"Subtarget->hasAES()">;
@@ -664,6 +664,7 @@ def HasFMA       : Predicate<"Subtarget->hasFMA()">;
 def UseFMAOnAVX  : Predicate<"Subtarget->hasFMA() && !Subtarget->hasAVX512()">;
 def HasFMA4      : Predicate<"Subtarget->hasFMA4()">;
 def HasXOP       : Predicate<"Subtarget->hasXOP()">;
+def HasTBM       : Predicate<"Subtarget->hasTBM()">;
 def HasMOVBE     : Predicate<"Subtarget->hasMOVBE()">;
 def HasRDRAND    : Predicate<"Subtarget->hasRDRAND()">;
 def HasF16C      : Predicate<"Subtarget->hasF16C()">;
@@ -1874,14 +1875,16 @@ def : Pat<(X86bzhi (loadi64 addr:$src1), GR8:$src2),
           (BZHI64rm addr:$src1,
                     (INSERT_SUBREG (i64 (IMPLICIT_DEF)), GR8:$src2, sub_8bit))>;
 
-def : Pat<(X86bextr GR32:$src1, GR32:$src2),
-          (BEXTR32rr GR32:$src1, GR32:$src2)>;
-def : Pat<(X86bextr (loadi32 addr:$src1), GR32:$src2),
-          (BEXTR32rm addr:$src1, GR32:$src2)>;
-def : Pat<(X86bextr GR64:$src1, GR64:$src2),
-          (BEXTR64rr GR64:$src1, GR64:$src2)>;
-def : Pat<(X86bextr (loadi64 addr:$src1), GR64:$src2),
-          (BEXTR64rm addr:$src1, GR64:$src2)>;
+let Predicates = [HasBMI] in {
+  def : Pat<(X86bextr GR32:$src1, GR32:$src2),
+            (BEXTR32rr GR32:$src1, GR32:$src2)>;
+  def : Pat<(X86bextr (loadi32 addr:$src1), GR32:$src2),
+            (BEXTR32rm addr:$src1, GR32:$src2)>;
+  def : Pat<(X86bextr GR64:$src1, GR64:$src2),
+            (BEXTR64rr GR64:$src1, GR64:$src2)>;
+  def : Pat<(X86bextr (loadi64 addr:$src1), GR64:$src2),
+            (BEXTR64rm addr:$src1, GR64:$src2)>;
+} // HasBMI
 
 multiclass bmi_pdep_pext<string mnemonic, RegisterClass RC,
                          X86MemOperand x86memop, Intrinsic Int,
@@ -1905,6 +1908,134 @@ let Predicates = [HasBMI2] in {
   defm PEXT64 : bmi_pdep_pext<"pext{q}", GR64, i64mem,
                                int_x86_bmi_pext_64, loadi64>, T8XS, VEX_W;
 }
+
+//===----------------------------------------------------------------------===//
+// TBM Instructions
+//
+let Predicates = [HasTBM], Defs = [EFLAGS] in {
+
+multiclass tbm_ternary_imm_intr<bits<8> opc, RegisterClass RC, string OpcodeStr,
+                                X86MemOperand x86memop, PatFrag ld_frag,
+                                Intrinsic Int, Operand immtype,
+                                SDPatternOperator immoperator> {
+  def ri : Ii32<opc,  MRMSrcReg, (outs RC:$dst), (ins RC:$src1, immtype:$cntl),
+                !strconcat(OpcodeStr,
+                           "\t{$cntl, $src1, $dst|$dst, $src1, $cntl}"),
+                [(set RC:$dst, (Int RC:$src1, immoperator:$cntl))]>,
+           XOP, XOPA, VEX;
+  def mi : Ii32<opc,  MRMSrcMem, (outs RC:$dst),
+                (ins x86memop:$src1, immtype:$cntl),
+                !strconcat(OpcodeStr,
+                           "\t{$cntl, $src1, $dst|$dst, $src1, $cntl}"),
+                [(set RC:$dst, (Int (ld_frag addr:$src1), immoperator:$cntl))]>,
+           XOP, XOPA, VEX;
+}
+
+defm BEXTRI32 : tbm_ternary_imm_intr<0x10, GR32, "bextr", i32mem, loadi32,
+                                     int_x86_tbm_bextri_u32, i32imm, imm>;
+defm BEXTRI64 : tbm_ternary_imm_intr<0x10, GR64, "bextr", i64mem, loadi64,
+                                     int_x86_tbm_bextri_u64, i64i32imm,
+                                     i64immSExt32>, VEX_W;
+
+multiclass tbm_binary_rm<bits<8> opc, Format FormReg, Format FormMem,
+                         RegisterClass RC, string OpcodeStr,
+                         X86MemOperand x86memop, PatFrag ld_frag> {
+let hasSideEffects = 0 in {
+  def rr : I<opc,  FormReg, (outs RC:$dst), (ins RC:$src),
+             !strconcat(OpcodeStr,"\t{$src, $dst|$dst, $src}"),
+             []>, XOP, XOP9, VEX_4V;
+  let mayLoad = 1 in
+  def rm : I<opc,  FormMem, (outs RC:$dst), (ins x86memop:$src),
+             !strconcat(OpcodeStr,"\t{$src, $dst|$dst, $src}"),
+             []>, XOP, XOP9, VEX_4V;
+}
+}
+
+multiclass tbm_binary_intr<bits<8> opc, string OpcodeStr,
+                           Format FormReg, Format FormMem> {
+  defm NAME#32 : tbm_binary_rm<opc, FormReg, FormMem, GR32, OpcodeStr, i32mem,
+                               loadi32>;
+  defm NAME#64 : tbm_binary_rm<opc, FormReg, FormMem, GR64, OpcodeStr, i64mem,
+                               loadi64>, VEX_W;
+}
+
+defm BLCFILL : tbm_binary_intr<0x01, "blcfill", MRM1r, MRM1m>;
+defm BLCI    : tbm_binary_intr<0x02, "blci", MRM6r, MRM6m>;
+defm BLCIC   : tbm_binary_intr<0x01, "blcic", MRM5r, MRM5m>;
+defm BLCMSK  : tbm_binary_intr<0x02, "blcmsk", MRM1r, MRM1m>;
+defm BLCS    : tbm_binary_intr<0x01, "blcs", MRM3r, MRM3m>;
+defm BLSFILL : tbm_binary_intr<0x01, "blsfill", MRM2r, MRM2m>;
+defm BLSIC   : tbm_binary_intr<0x01, "blsic", MRM6r, MRM6m>;
+defm T1MSKC  : tbm_binary_intr<0x01, "t1mskc", MRM7r, MRM7m>;
+defm TZMSK   : tbm_binary_intr<0x01, "tzmsk", MRM4r, MRM4m>;
+} // HasTBM, EFLAGS
+
+//===----------------------------------------------------------------------===//
+// Pattern fragments to auto generate TBM instructions.
+//===----------------------------------------------------------------------===//
+
+let Predicates = [HasTBM] in {
+  def : Pat<(X86bextr GR32:$src1, (i32 imm:$src2)),
+            (BEXTRI32ri GR32:$src1, imm:$src2)>;
+  def : Pat<(X86bextr (loadi32 addr:$src1), (i32 imm:$src2)),
+            (BEXTRI32mi addr:$src1, imm:$src2)>;
+  def : Pat<(X86bextr GR64:$src1, i64immSExt32:$src2),
+            (BEXTRI64ri GR64:$src1, i64immSExt32:$src2)>;
+  def : Pat<(X86bextr (loadi64 addr:$src1), i64immSExt32:$src2),
+            (BEXTRI64mi addr:$src1, i64immSExt32:$src2)>;
+
+  // FIXME: patterns for the load versions are not implemented
+  def : Pat<(and GR32:$src, (add GR32:$src, 1)),
+            (BLCFILL32rr GR32:$src)>;
+  def : Pat<(and GR64:$src, (add GR64:$src, 1)),
+            (BLCFILL64rr GR64:$src)>;
+
+  def : Pat<(or GR32:$src, (not (add GR32:$src, 1))),
+            (BLCI32rr GR32:$src)>;
+  def : Pat<(or GR64:$src, (not (add GR64:$src, 1))),
+            (BLCI64rr GR64:$src)>;
+
+  // Extra patterns because opt can optimize the above patterns to this.
+  def : Pat<(or GR32:$src, (sub -2, GR32:$src)),
+            (BLCI32rr GR32:$src)>;
+  def : Pat<(or GR64:$src, (sub -2, GR64:$src)),
+            (BLCI64rr GR64:$src)>;
+
+  def : Pat<(and (not GR32:$src), (add GR32:$src, 1)),
+            (BLCIC32rr GR32:$src)>;
+  def : Pat<(and (not GR64:$src), (add GR64:$src, 1)),
+            (BLCIC64rr GR64:$src)>;
+
+  def : Pat<(xor GR32:$src, (add GR32:$src, 1)),
+            (BLCMSK32rr GR32:$src)>;
+  def : Pat<(xor GR64:$src, (add GR64:$src, 1)),
+            (BLCMSK64rr GR64:$src)>;
+
+  def : Pat<(or GR32:$src, (add GR32:$src, 1)),
+            (BLCS32rr GR32:$src)>;
+  def : Pat<(or GR64:$src, (add GR64:$src, 1)),
+            (BLCS64rr GR64:$src)>;
+
+  def : Pat<(or GR32:$src, (add GR32:$src, -1)),
+            (BLSFILL32rr GR32:$src)>;
+  def : Pat<(or GR64:$src, (add GR64:$src, -1)),
+            (BLSFILL64rr GR64:$src)>;
+
+  def : Pat<(or (not GR32:$src), (add GR32:$src, -1)),
+            (BLSIC32rr GR32:$src)>;
+  def : Pat<(or (not GR64:$src), (add GR64:$src, -1)),
+            (BLSIC64rr GR64:$src)>;
+
+  def : Pat<(or (not GR32:$src), (add GR32:$src, 1)),
+            (T1MSKC32rr GR32:$src)>;
+  def : Pat<(or (not GR64:$src), (add GR64:$src, 1)),
+            (T1MSKC64rr GR64:$src)>;
+
+  def : Pat<(and (not GR32:$src), (add GR32:$src, -1)),
+            (TZMSK32rr GR32:$src)>;
+  def : Pat<(and (not GR64:$src), (add GR64:$src, -1)),
+            (TZMSK64rr GR64:$src)>;
+} // HasTBM
 
 //===----------------------------------------------------------------------===//
 // Subsystems.

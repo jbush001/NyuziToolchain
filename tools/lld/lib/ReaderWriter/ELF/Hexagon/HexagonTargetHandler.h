@@ -18,7 +18,7 @@
 
 namespace lld {
 namespace elf {
-typedef llvm::object::ELFType<llvm::support::little, 4, false> HexagonELFType;
+typedef llvm::object::ELFType<llvm::support::little, 2, false> HexagonELFType;
 class HexagonLinkingContext;
 
 /// \brief Handle Hexagon specific Atoms
@@ -172,16 +172,19 @@ public:
   }
 
   void addDefaultAtoms() {
-    _hexagonRuntimeFile.addAbsoluteAtom("_SDA_BASE_");
+    _hexagonRuntimeFile->addAbsoluteAtom("_SDA_BASE_");
     if (_context.isDynamic()) {
-      _hexagonRuntimeFile.addAbsoluteAtom("_GLOBAL_OFFSET_TABLE_");
-      _hexagonRuntimeFile.addAbsoluteAtom("_DYNAMIC");
+      _hexagonRuntimeFile->addAbsoluteAtom("_GLOBAL_OFFSET_TABLE_");
+      _hexagonRuntimeFile->addAbsoluteAtom("_DYNAMIC");
     }
   }
 
-  virtual void addFiles(InputFiles &inputFiles) {
+  virtual bool
+  createImplicitFiles(std::vector<std::unique_ptr<File> > &result) {
+    // Add the default atoms as defined for hexagon
     addDefaultAtoms();
-    inputFiles.prependFile(_hexagonRuntimeFile);
+    result.push_back(std::move(_hexagonRuntimeFile));
+    return true;
   }
 
   void finalizeSymbolValues() {
@@ -215,7 +218,7 @@ private:
   HexagonTargetLayout<HexagonELFType> _targetLayout;
   HexagonTargetRelocationHandler _relocationHandler;
   HexagonTargetAtomHandler<HexagonELFType> _targetAtomHandler;
-  HexagonRuntimeFile<HexagonELFType> _hexagonRuntimeFile;
+  std::unique_ptr<HexagonRuntimeFile<HexagonELFType> > _hexagonRuntimeFile;
   AtomLayout *_gotSymAtom;
 };
 } // end namespace elf

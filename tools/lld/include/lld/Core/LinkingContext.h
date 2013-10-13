@@ -12,7 +12,6 @@
 
 #include "lld/Core/Error.h"
 #include "lld/Core/LLVM.h"
-#include "lld/Core/LinkerInput.h"
 #include "lld/Core/range.h"
 #include "lld/Core/Reference.h"
 
@@ -33,8 +32,8 @@ namespace lld {
 class PassManager;
 class File;
 class Writer;
-class InputFiles;
 class InputGraph;
+class InputElement;
 
 /// \brief The LinkingContext class encapsulates "what and how" to link.
 ///
@@ -44,8 +43,16 @@ class InputGraph;
 /// and Writers. For example, ELFLinkingContext has methods that supplies
 /// options
 /// to the ELF Reader and Writer.
-class LinkingContext : public Reader {
+class LinkingContext {
 public:
+  /// \brief The types of output file that the linker
+  /// creates.
+  enum class OutputFileType : uint8_t {
+    Default, // The default output type for this target
+    YAML,    // The output type is set to YAML
+    Native   // The output file format is Native (Atoms)
+  };
+
   virtual ~LinkingContext();
 
   /// \name Methods needed by core linking
@@ -228,7 +235,7 @@ public:
   /// during link. Flavors can override this function in their LinkingContext
   /// to add more internal files. These internal files are positioned before
   /// the actual input files.
-  virtual std::vector<std::unique_ptr<lld::File> > createInternalFiles();
+  virtual bool createInternalFiles(std::vector<std::unique_ptr<File> > &) const;
 
   /// Return the list of undefined symbols that are specified in the
   /// linker command line, using the -u option.
@@ -254,27 +261,35 @@ public:
   /// the linker to write to an in-memory buffer.
   StringRef outputPath() const { return _outputPath; }
 
-  /// Abstract method to parse a supplied input file buffer into one or
-  /// more lld::File objects. Subclasses of LinkingContext must implement this
-  /// method.
-  ///
-  /// \param input This is an in-memory read-only copy of the input file.
-  /// If the resulting lld::File object will contain pointers into
-  /// this memory buffer, the lld::File object should take ownership
-  /// of the buffer.  Otherwise core linking will maintain ownership of the
-  /// buffer and delete it at some point.
-  ///
-  /// \param [out] result The instantiated lld::File object is returned here.
-  /// The \p result is a vector because some input files parse into more than
-  /// one lld::File (e.g. YAML).
-  virtual error_code
-  parseFile(LinkerInput &input,
-            std::vector<std::unique_ptr<File> > &result) const = 0;
+  /// Set the various output file types that the linker would
+  /// create
+  bool setOutputFileType(StringRef outputFileType) {
+    StringRef lowerOutputFileType = outputFileType.lower();
+    if (lowerOutputFileType == "yaml")
+      _outputFileType = OutputFileType::YAML;
+    else if (lowerOutputFileType == "native")
+      _outputFileType = OutputFileType::YAML;
+    else
+      return false;
+    return true;
+  }
+
+  /// Returns the output file that that the linker needs to create
+  OutputFileType outputFileType() const { return _outputFileType; }
+
+  /// Returns the YAML reader.
+  virtual Reader &getYAMLReader() const { return *_yamlReader; }
+
+  /// Returns the LLD Native file format reader.
+  virtual Reader &getNativeReader() const { return *_nativeReader; }
+
+  /// Return the default reader for the target
+  virtual Reader &getDefaultReader() const = 0;
 
   /// This method is called by core linking to give the Writer a chance
   /// to add file format specific "files" to set of files to be linked. This is
   /// how file format specific atoms can be added to the link.
-  virtual void addImplicitFiles(InputFiles &) const;
+  virtual bool createImplicitFiles(std::vector<std::unique_ptr<File> > &) const;
 
   /// This method is called by core linking to build the list of Passes to be
   /// run on the merged/linked graph of all input files.
@@ -284,6 +299,24 @@ public:
   ///
   /// \param linkedFile This is the merged/linked graph of all input file Atoms.
   virtual error_code writeFile(const File &linkedFile) const;
+
+  /// nextFile returns the next file that needs to be processed by the resolver.
+  /// The LinkingContext's can override the default behavior to change the way
+  /// the resolver operates. This uses the currentInputElement. When there are
+  /// no more files to be processed an appropriate InputGraphError is
+  /// returned. Ordinals are assigned to files returned by nextFile, which means
+  /// ordinals would be assigned in the way files are resolved.
+  virtual ErrorOr<File &> nextFile();
+
+  /// Set the resolver state for the current Input element This is used by the
+  /// InputGraph to decide the next file that needs to be processed for various
+  /// types of nodes in the InputGraph. The resolver state is nothing but a
+  /// bitmask of various types of states that the resolver handles when adding
+  /// atoms.
+  virtual void setResolverState(uint32_t resolverState);
+
+  /// Return the next ordinal and Increment it.
+  virtual uint64_t getNextOrdinalAndIncrement() const { return _nextOrdinal++; }
 
   /// @}
 
@@ -308,10 +341,10 @@ protected:
   virtual Writer &writer() const = 0;
 
   /// Method to create a internal file for the entry symbol
-  virtual std::unique_ptr<File> createEntrySymbolFile();
+  virtual std::unique_ptr<File> createEntrySymbolFile() const;
 
   /// Method to create a internal file for an undefined symbol
-  virtual std::unique_ptr<File> createUndefinedSymbolFile();
+  virtual std::unique_ptr<File> createUndefinedSymbolFile() const;
 
   StringRef _outputPath;
   StringRef _entrySymbolName;
@@ -325,12 +358,16 @@ protected:
   bool _allowRemainingUndefines;
   bool _logInputFiles;
   bool _allowShlibUndefines;
+  OutputFileType _outputFileType;
   std::vector<StringRef> _deadStripRoots;
   std::vector<const char *> _llvmOptions;
   std::unique_ptr<Reader> _yamlReader;
+  std::unique_ptr<Reader> _nativeReader;
   StringRefVector _initialUndefinedSymbols;
   std::unique_ptr<InputGraph> _inputGraph;
-  llvm::BumpPtrAllocator _allocator;
+  mutable llvm::BumpPtrAllocator _allocator;
+  InputElement *_currentInputElement;
+  mutable uint64_t _nextOrdinal;
 
 private:
   /// Validate the subclass bits. Only called by validate.

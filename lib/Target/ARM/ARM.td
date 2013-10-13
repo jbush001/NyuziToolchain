@@ -117,9 +117,17 @@ def FeatureDSPThumb2 : SubtargetFeature<"t2dsp", "Thumb2DSP", "true",
 def FeatureMP : SubtargetFeature<"mp", "HasMPExtension", "true",
                                  "Supports Multiprocessing extension">;
 
-// M-series ISA?
-def FeatureMClass : SubtargetFeature<"mclass", "IsMClass", "true",
+// M-series ISA
+def FeatureMClass : SubtargetFeature<"mclass", "ARMProcClass", "MClass",
                                      "Is microcontroller profile ('M' series)">;
+
+// R-series ISA
+def FeatureRClass : SubtargetFeature<"rclass", "ARMProcClass", "RClass",
+                                     "Is realtime profile ('R' series)">;
+
+// A-series ISA
+def FeatureAClass : SubtargetFeature<"aclass", "ARMProcClass", "AClass",
+                                     "Is application profile ('A' series)">;
 
 // Special TRAP encoding for NaCl, which looks like a TRAP in Thumb too.
 // See ARMInstrInfo.td for details.
@@ -138,9 +146,12 @@ def HasV5TEOps  : SubtargetFeature<"v5te", "HasV5TEOps", "true",
 def HasV6Ops    : SubtargetFeature<"v6", "HasV6Ops", "true",
                                    "Support ARM v6 instructions",
                                    [HasV5TEOps]>;
+def HasV6MOps   : SubtargetFeature<"v6m", "HasV6MOps", "true",
+                                   "Support ARM v6M instructions",
+                                   [HasV6Ops]>;
 def HasV6T2Ops  : SubtargetFeature<"v6t2", "HasV6T2Ops", "true",
                                    "Support ARM v6t2 instructions",
-                                   [HasV6Ops, FeatureThumb2]>;
+                                   [HasV6MOps, FeatureThumb2]>;
 def HasV7Ops    : SubtargetFeature<"v7", "HasV7Ops", "true",
                                    "Support ARM v7 instructions",
                                    [HasV6T2Ops, FeaturePerfMon]>;
@@ -246,7 +257,7 @@ def : Processor<"mpcore",           ARMV6Itineraries, [HasV6Ops, FeatureVFP2,
                                                        FeatureHasSlowFPVMLx]>;
 
 // V6M Processors.
-def : Processor<"cortex-m0",        ARMV6Itineraries, [HasV6Ops, FeatureNoARM,
+def : Processor<"cortex-m0",        ARMV6Itineraries, [HasV6MOps, FeatureNoARM,
                                                        FeatureDB, FeatureMClass]>;
 
 // V6T2 Processors.
@@ -261,26 +272,30 @@ def : Processor<"arm1156t2f-s",     ARMV6Itineraries, [HasV6T2Ops, FeatureVFP2,
 def : ProcessorModel<"cortex-a5",   CortexA8Model,
                                     [ProcA5, HasV7Ops, FeatureNEON, FeatureDB,
                                      FeatureVFP4, FeatureDSPThumb2,
-                                     FeatureHasRAS]>;
+                                     FeatureHasRAS, FeatureAClass]>;
 def : ProcessorModel<"cortex-a8",   CortexA8Model,
                                     [ProcA8, HasV7Ops, FeatureNEON, FeatureDB,
-                                     FeatureDSPThumb2, FeatureHasRAS]>;
+                                     FeatureDSPThumb2, FeatureHasRAS,
+                                     FeatureAClass]>;
 def : ProcessorModel<"cortex-a9",   CortexA9Model,
                                     [ProcA9, HasV7Ops, FeatureNEON, FeatureDB,
-                                     FeatureDSPThumb2, FeatureHasRAS]>;
+                                     FeatureDSPThumb2, FeatureHasRAS,
+                                     FeatureAClass]>;
 def : ProcessorModel<"cortex-a9-mp", CortexA9Model,
                                     [ProcA9, HasV7Ops, FeatureNEON, FeatureDB,
                                      FeatureDSPThumb2, FeatureMP,
-                                     FeatureHasRAS]>;
+                                     FeatureHasRAS, FeatureAClass]>;
 // FIXME: A15 has currently the same ProcessorModel as A9.
 def : ProcessorModel<"cortex-a15",   CortexA9Model,
                                     [ProcA15, HasV7Ops, FeatureNEON, FeatureDB,
-                                     FeatureDSPThumb2, FeatureHasRAS]>;
+                                     FeatureDSPThumb2, FeatureHasRAS,
+                                     FeatureAClass]>;
 // FIXME: R5 has currently the same ProcessorModel as A8.
 def : ProcessorModel<"cortex-r5",   CortexA8Model,
                                     [ProcR5, HasV7Ops, FeatureDB,
                                      FeatureVFP3, FeatureDSPThumb2,
-                                     FeatureHasRAS]>;
+                                     FeatureHasRAS, FeatureVFPOnlySP,
+                                     FeatureRClass]>;
 
 // V7M Processors.
 def : ProcNoItin<"cortex-m3",       [HasV7Ops,
@@ -298,10 +313,10 @@ def : ProcNoItin<"cortex-m4",       [HasV7Ops,
 def : ProcessorModel<"swift",       SwiftModel,
                                     [ProcSwift, HasV7Ops, FeatureNEON,
                                      FeatureDB, FeatureDSPThumb2,
-                                     FeatureHasRAS]>;
+                                     FeatureHasRAS, FeatureAClass]>;
 
 // V8 Processors
-def : ProcNoItin<"cortex-a53",      [HasV8Ops]>;
+def : ProcNoItin<"cortex-a53",      [HasV8Ops, FeatureAClass]>;
 
 //===----------------------------------------------------------------------===//
 // Register File Description

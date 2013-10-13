@@ -134,7 +134,6 @@ encodeJumpTargetOpValue(const MCInst &MI, unsigned OpNo,
 void VectorProcMCCodeEmitter::
 EncodeInstruction(const MCInst &MI, raw_ostream &OS,
                          SmallVectorImpl<MCFixup> &Fixups) const {
-  unsigned Opcode = MI.getOpcode();
   // Keep track of the current byte being emitted
   unsigned CurByte = 0;
 

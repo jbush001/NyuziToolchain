@@ -49,6 +49,14 @@
 // C99:#define __STRICT_ANSI__ 1
 //
 // 
+// RUN: %clang_cc1 -std=c11 -E -dM < /dev/null | FileCheck -check-prefix C11 %s
+//
+// C11:#define __STDC_UTF_16__ 1
+// C11:#define __STDC_UTF_32__ 1
+// C11:#define __STDC_VERSION__ 201112L
+// C11:#define __STRICT_ANSI__ 1
+//
+// 
 // RUN: %clang_cc1 -E -dM < /dev/null | FileCheck -check-prefix COMMON %s
 //
 // COMMON:#define __CONSTANT_CFSTRINGS__ 1
@@ -1228,6 +1236,11 @@
 // RUN:   -E -dM -triple=mips-none-none < /dev/null \
 // RUN:   | FileCheck -check-prefix MIPS-MSA %s
 // MIPS-MSA:#define __mips_msa 1
+//
+// RUN: %clang_cc1 -target-feature +nan2008 \
+// RUN:   -E -dM -triple=mips-none-none < /dev/null \
+// RUN:   | FileCheck -check-prefix MIPS-NAN2008 %s
+// MIPS-NAN2008:#define __mips_nan2008 1
 //
 // RUN: %clang_cc1 -E -dM -ffreestanding -triple=msp430-none-none < /dev/null | FileCheck -check-prefix MSP430 %s
 //
@@ -2919,6 +2932,12 @@
 // X86_64-LINUX:#define __amd64__ 1
 // X86_64-LINUX:#define __x86_64 1
 // X86_64-LINUX:#define __x86_64__ 1
+//
+// RUN: %clang_cc1 -E -dM -ffreestanding -triple=x86_64-unknown-freebsd9.1 < /dev/null | FileCheck -check-prefix X86_64-FREEBSD %s
+//
+// X86_64-FREEBSD:#define __FreeBSD__ 9
+// X86_64-FREEBSD:#define __FreeBSD_cc_version 900001
+// X86_64-FREEBSD:#define __STDC_MB_MIGHT_NEQ_WC__ 1
 //
 // RUN: %clang_cc1 -E -dM -ffreestanding -triple=sparc64-none-none < /dev/null | FileCheck -check-prefix SPARCV9 %s
 // SPARCV9:#define __INT64_TYPE__ long int

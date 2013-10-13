@@ -1692,6 +1692,9 @@ let isCompare = 1, neverHasSideEffects = 1 in {
 
 let Uses = [RM] in {
   let neverHasSideEffects = 1 in {
+  defm FCTIW  : XForm_26r<63, 14, (outs f8rc:$frD), (ins f8rc:$frB),
+                          "fctiw", "$frD, $frB", FPGeneral,
+                          []>;
   defm FCTIWZ : XForm_26r<63, 15, (outs f8rc:$frD), (ins f8rc:$frB),
                           "fctiwz", "$frD, $frB", FPGeneral,
                           [(set f64:$frD, (PPCfctiwz f64:$frB))]>;

@@ -19,7 +19,7 @@
 
 namespace lld {
 namespace elf {
-typedef llvm::object::ELFType<llvm::support::little, 8, true> X86_64ELFType;
+typedef llvm::object::ELFType<llvm::support::little, 2, true> X86_64ELFType;
 class X86_64LinkingContext;
 
 class X86_64TargetHandler LLVM_FINAL
@@ -35,15 +35,16 @@ public:
     return _relocationHandler;
   }
 
-  virtual void addFiles(InputFiles &f);
+  virtual bool createImplicitFiles(std::vector<std::unique_ptr<File> > &);
 
 private:
   class GOTFile : public SimpleFile {
   public:
     GOTFile(const ELFLinkingContext &eti) : SimpleFile(eti, "GOTFile") {}
     llvm::BumpPtrAllocator _alloc;
-  } _gotFile;
+  };
 
+  std::unique_ptr<GOTFile> _gotFile;
   X86_64TargetRelocationHandler _relocationHandler;
   TargetLayout<X86_64ELFType> _targetLayout;
 };

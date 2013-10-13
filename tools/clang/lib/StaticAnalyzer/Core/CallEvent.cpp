@@ -140,8 +140,8 @@ ProgramStateRef CallEvent::invalidateRegions(unsigned BlockCount,
                                              ProgramStateRef Orig) const {
   ProgramStateRef Result = (Orig ? Orig : getState());
 
-  SmallVector<SVal, 8> ConstValues;
   SmallVector<SVal, 8> ValuesToInvalidate;
+  RegionAndSymbolInvalidationTraits ETraits;
 
   getExtraInvalidatedValues(ValuesToInvalidate);
 
@@ -154,9 +154,12 @@ ProgramStateRef CallEvent::invalidateRegions(unsigned BlockCount,
     // Mark this region for invalidation.  We batch invalidate regions
     // below for efficiency.
     if (PreserveArgs.count(Idx))
-      ConstValues.push_back(getArgSVal(Idx));
-    else
-      ValuesToInvalidate.push_back(getArgSVal(Idx));
+      if (const MemRegion *MR = getArgSVal(Idx).getAsRegion())
+        ETraits.setTrait(MR->StripCasts(), 
+                        RegionAndSymbolInvalidationTraits::TK_PreserveContents);
+        // TODO: Factor this out + handle the lower level const pointers.
+
+    ValuesToInvalidate.push_back(getArgSVal(Idx));
   }
 
   // Invalidate designated regions using the batch invalidation API.
@@ -165,7 +168,7 @@ ProgramStateRef CallEvent::invalidateRegions(unsigned BlockCount,
   return Result->invalidateRegions(ValuesToInvalidate, getOriginExpr(),
                                    BlockCount, getLocationContext(),
                                    /*CausedByPointerEscape*/ true,
-                                   /*Symbols=*/0, this, ConstValues);
+                                   /*Symbols=*/0, this, &ETraits);
 }
 
 ProgramPoint CallEvent::getProgramPoint(bool IsPreVisit,
@@ -261,7 +264,20 @@ QualType CallEvent::getDeclaredResultType(const Decl *D) {
     return QualType();
   }
   
-  return QualType();
+  llvm_unreachable("unknown callable kind");
+}
+
+bool CallEvent::isVariadic(const Decl *D) {
+  assert(D);
+
+  if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D))
+    return FD->isVariadic();
+  if (const ObjCMethodDecl *MD = dyn_cast<ObjCMethodDecl>(D))
+    return MD->isVariadic();
+  if (const BlockDecl *BD = dyn_cast<BlockDecl>(D))
+    return BD->isVariadic();
+
+  llvm_unreachable("unknown callable kind");
 }
 
 static void addParameterValuesToBindings(const StackFrameContext *CalleeCtx,
@@ -961,6 +977,8 @@ CallEventManager::getCaller(const StackFrameContext *CalleeCtx,
   const Stmt *Trigger;
   if (Optional<CFGAutomaticObjDtor> AutoDtor = E.getAs<CFGAutomaticObjDtor>())
     Trigger = AutoDtor->getTriggerStmt();
+  else if (Optional<CFGDeleteDtor> DeleteDtor = E.getAs<CFGDeleteDtor>())
+    Trigger = cast<Stmt>(DeleteDtor->getDeleteExpr());
   else
     Trigger = Dtor->getBody();
 

@@ -46,6 +46,7 @@ public:
     switch (r.kind()) {
     case llvm::ELF::R_X86_64_RELATIVE:
     case llvm::ELF::R_X86_64_GLOB_DAT:
+    case llvm::ELF::R_X86_64_COPY:
       return true;
     default:
       return false;
@@ -76,7 +77,7 @@ public:
   }
 
   /// \brief Create Internal files for Init/Fini
-  std::vector<std::unique_ptr<File>> createInternalFiles();
+  bool createInternalFiles(std::vector<std::unique_ptr<File> > &) const;
 
   virtual ErrorOr<Reference::Kind> relocKindFromString(StringRef str) const;
   virtual ErrorOr<std::string> stringFromRelocKind(Reference::Kind kind) const;

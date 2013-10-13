@@ -8682,6 +8682,10 @@ void DiagnoseBadDeduction(Sema &S, Decl *Templated,
         }
       }
     }
+    // FIXME: For generic lambda parameters, check if the function is a lambda
+    // call operator, and if so, emit a prettier and more informative 
+    // diagnostic that mentions 'auto' and lambda in addition to 
+    // (or instead of?) the canonical template type parameters.
     S.Diag(Templated->getLocation(),
            diag::note_ovl_candidate_non_deduced_mismatch)
         << FirstTA << SecondTA;
@@ -11392,21 +11396,6 @@ Sema::BuildCallToObjectOfClassType(Scope *S, Expr *Obj,
     Method->getType()->getAs<FunctionProtoType>();
 
   unsigned NumArgsInProto = Proto->getNumArgs();
-  unsigned NumArgsToCheck = Args.size();
-
-  // Build the full argument list for the method call (the
-  // implicit object parameter is placed at the beginning of the
-  // list).
-  Expr **MethodArgs;
-  if (Args.size() < NumArgsInProto) {
-    NumArgsToCheck = NumArgsInProto;
-    MethodArgs = new Expr*[NumArgsInProto + 1];
-  } else {
-    MethodArgs = new Expr*[Args.size() + 1];
-  }
-  MethodArgs[0] = Object.get();
-  for (unsigned ArgIdx = 0, e = Args.size(); ArgIdx != e; ++ArgIdx)
-    MethodArgs[ArgIdx + 1] = Args[ArgIdx];
 
   DeclarationNameInfo OpLocInfo(
                Context.DeclarationNames.getCXXOperatorName(OO_Call), LParenLoc);
@@ -11418,17 +11407,23 @@ Sema::BuildCallToObjectOfClassType(Scope *S, Expr *Obj,
   if (NewFn.isInvalid())
     return true;
 
+  // Build the full argument list for the method call (the implicit object
+  // parameter is placed at the beginning of the list).
+  llvm::OwningArrayPtr<Expr *> MethodArgs(new Expr*[Args.size() + 1]);
+  MethodArgs[0] = Object.get();
+  std::copy(Args.begin(), Args.end(), &MethodArgs[1]);
+
   // Once we've built TheCall, all of the expressions are properly
   // owned.
   QualType ResultTy = Method->getResultType();
   ExprValueKind VK = Expr::getValueKindForType(ResultTy);
   ResultTy = ResultTy.getNonLValueExprType(Context);
 
-  CXXOperatorCallExpr *TheCall =
-    new (Context) CXXOperatorCallExpr(Context, OO_Call, NewFn.take(),
-                                      llvm::makeArrayRef(MethodArgs, Args.size()+1),
-                                      ResultTy, VK, RParenLoc, false);
-  delete [] MethodArgs;
+  CXXOperatorCallExpr *TheCall = new (Context)
+      CXXOperatorCallExpr(Context, OO_Call, NewFn.take(),
+                          llvm::makeArrayRef(MethodArgs.get(), Args.size() + 1),
+                          ResultTy, VK, RParenLoc, false);
+  MethodArgs.reset();
 
   if (CheckCallReturnType(Method->getResultType(), LParenLoc, TheCall,
                           Method))
@@ -11438,8 +11433,6 @@ Sema::BuildCallToObjectOfClassType(Scope *S, Expr *Obj,
   // slots in the call for them.
   if (Args.size() < NumArgsInProto)
     TheCall->setNumArgs(Context, NumArgsInProto + 1);
-  else if (Args.size() > NumArgsInProto)
-    NumArgsToCheck = NumArgsInProto;
 
   bool IsError = false;
 
@@ -11454,7 +11447,7 @@ Sema::BuildCallToObjectOfClassType(Scope *S, Expr *Obj,
   TheCall->setArg(0, Object.take());
 
   // Check the argument types.
-  for (unsigned i = 0; i != NumArgsToCheck; i++) {
+  for (unsigned i = 0; i != NumArgsInProto; i++) {
     Expr *Arg;
     if (i < Args.size()) {
       Arg = Args[i];

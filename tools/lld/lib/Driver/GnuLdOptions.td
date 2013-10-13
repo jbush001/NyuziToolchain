@@ -25,7 +25,6 @@ multiclass dashEq<string opt1, string opt2, string help> {
       Alias<!cast<Option>(opt1)>;
 }
 
-
 //===----------------------------------------------------------------------===//
 /// Output Kinds
 //===----------------------------------------------------------------------===//
@@ -159,9 +158,13 @@ defm u : smDash<"u", "undefined",
 def start_group : Flag<["--"], "start-group">,
      HelpText<"Start a group">,
      Group<grp_resolveropt>;
+def alias_start_group: Flag<["-"], "(">,
+      Alias<start_group>;
 def end_group : Flag<["--"], "end-group">,
      HelpText<"End a group">,
      Group<grp_resolveropt>;
+def alias_end_group: Flag<["-"], ")">,
+      Alias<end_group>;
 def as_needed : Flag<["--"], "as-needed">,
      HelpText<"This option affects ELF DT_NEEDED tags for "
               "dynamic libraries mentioned on the command line">,
@@ -223,9 +226,11 @@ def t : Flag<["-"], "t">,
 //===----------------------------------------------------------------------===//
 def grp_extns : OptionGroup<"opts">,
      HelpText<"Extensions">;
-def emit_yaml : Flag<["-"], "emit-yaml">,
-     HelpText<"Write YAML instead of ELF">,
-     Group<grp_extns>;
+def output_filetype: Separate<["--"], "output-filetype">,
+      HelpText<"Specify what type of output file that lld creates, YAML/Native">,
+      Group<grp_extns>;
+def alias_output_filetype: Joined<["--"], "output-filetype=">,
+      Alias<output_filetype>;
 
 //===----------------------------------------------------------------------===//
 /// Help

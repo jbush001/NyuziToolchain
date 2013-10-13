@@ -27,6 +27,7 @@
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/YAMLTraits.h"
+#include "llvm/Support/Path.h"
 #include <queue>
 #include <string>
 
@@ -41,6 +42,19 @@ struct ScalarEnumerationTraits<clang::format::FormatStyle::LanguageStandard> {
     IO.enumCase(Value, "Cpp11", clang::format::FormatStyle::LS_Cpp11);
     IO.enumCase(Value, "C++11", clang::format::FormatStyle::LS_Cpp11);
     IO.enumCase(Value, "Auto", clang::format::FormatStyle::LS_Auto);
+  }
+};
+
+template <>
+struct ScalarEnumerationTraits<clang::format::FormatStyle::UseTabStyle> {
+  static void
+  enumeration(IO &IO, clang::format::FormatStyle::UseTabStyle &Value) {
+    IO.enumCase(Value, "Never", clang::format::FormatStyle::UT_Never);
+    IO.enumCase(Value, "false", clang::format::FormatStyle::UT_Never);
+    IO.enumCase(Value, "Always", clang::format::FormatStyle::UT_Always);
+    IO.enumCase(Value, "true", clang::format::FormatStyle::UT_Always);
+    IO.enumCase(Value, "ForIndentation",
+                clang::format::FormatStyle::UT_ForIndentation);
   }
 };
 
@@ -147,6 +161,8 @@ template <> struct MappingTraits<clang::format::FormatStyle> {
                    Style.SpacesInCStyleCastParentheses);
     IO.mapOptional("SpaceAfterControlStatementKeyword",
                    Style.SpaceAfterControlStatementKeyword);
+    IO.mapOptional("SpaceBeforeAssignmentOperators",
+                   Style.SpaceBeforeAssignmentOperators);
   }
 };
 }
@@ -192,11 +208,12 @@ FormatStyle getLLVMStyle() {
   LLVMStyle.PointerBindsToType = false;
   LLVMStyle.SpacesBeforeTrailingComments = 1;
   LLVMStyle.Standard = FormatStyle::LS_Cpp03;
-  LLVMStyle.UseTab = false;
+  LLVMStyle.UseTab = FormatStyle::UT_Never;
   LLVMStyle.SpacesInParentheses = false;
   LLVMStyle.SpaceInEmptyParentheses = false;
   LLVMStyle.SpacesInCStyleCastParentheses = false;
   LLVMStyle.SpaceAfterControlStatementKeyword = true;
+  LLVMStyle.SpaceBeforeAssignmentOperators = true;
 
   setDefaultPenalties(LLVMStyle);
   LLVMStyle.PenaltyReturnTypeOnItsOwnLine = 60;
@@ -234,11 +251,12 @@ FormatStyle getGoogleStyle() {
   GoogleStyle.PointerBindsToType = true;
   GoogleStyle.SpacesBeforeTrailingComments = 2;
   GoogleStyle.Standard = FormatStyle::LS_Auto;
-  GoogleStyle.UseTab = false;
+  GoogleStyle.UseTab = FormatStyle::UT_Never;
   GoogleStyle.SpacesInParentheses = false;
   GoogleStyle.SpaceInEmptyParentheses = false;
   GoogleStyle.SpacesInCStyleCastParentheses = false;
   GoogleStyle.SpaceAfterControlStatementKeyword = true;
+  GoogleStyle.SpaceBeforeAssignmentOperators = true;
 
   setDefaultPenalties(GoogleStyle);
   GoogleStyle.PenaltyReturnTypeOnItsOwnLine = 200;
@@ -429,14 +447,19 @@ private:
         // State already examined with lower penalty.
         continue;
 
-      addNextStateToQueue(Penalty, Node, /*NewLine=*/false);
-      addNextStateToQueue(Penalty, Node, /*NewLine=*/true);
+      FormatDecision LastFormat = Node->State.NextToken->Decision;
+      if (LastFormat == FD_Unformatted || LastFormat == FD_Continue)
+        addNextStateToQueue(Penalty, Node, /*NewLine=*/false);
+      if (LastFormat == FD_Unformatted || LastFormat == FD_Break)
+        addNextStateToQueue(Penalty, Node, /*NewLine=*/true);
     }
 
-    if (Queue.empty())
+    if (Queue.empty()) {
       // We were unable to find a solution, do nothing.
       // FIXME: Add diagnostic?
+      DEBUG(llvm::dbgs() << "Could not find a solution.\n");
       return 0;
+    }
 
     // Reconstruct the solution.
     if (!DryRun)
@@ -535,7 +558,7 @@ private:
                                        Style.MaxEmptyLinesToKeep + 1);
           Newlines = std::max(1u, Newlines);
           Whitespaces->replaceWhitespace(
-              *(*I)->First, Newlines, /*Spaces=*/Indent,
+              *(*I)->First, Newlines, (*I)->Level, /*Spaces=*/Indent,
               /*StartOfTokenColumn=*/Indent, Line.InPPDirective);
         }
         UnwrappedLineFormatter Formatter(Indenter, Whitespaces, Style, **I);
@@ -552,10 +575,10 @@ private:
       return false;
 
     if (!DryRun) {
-      Whitespaces->replaceWhitespace(*LBrace.Children[0]->First,
-                                     /*Newlines=*/0, /*Spaces=*/1,
-                                     /*StartOfTokenColumn=*/State.Column,
-                                     State.Line->InPPDirective);
+      Whitespaces->replaceWhitespace(
+          *LBrace.Children[0]->First,
+          /*Newlines=*/0, /*IndentLevel=*/1, /*Spaces=*/1,
+          /*StartOfTokenColumn=*/State.Column, State.Line->InPPDirective);
       UnwrappedLineFormatter Formatter(Indenter, Whitespaces, Style,
                                        *LBrace.Children[0]);
       Penalty += Formatter.format(State.Column + 1, DryRun);
@@ -673,18 +696,32 @@ private:
           FormatTok->LastNewlineOffset = WhitespaceLength + i + 1;
           Column = 0;
           break;
+        case '\r':
+        case '\f':
+        case '\v':
+          Column = 0;
+          break;
         case ' ':
           ++Column;
           break;
         case '\t':
           Column += Style.TabWidth - Column % Style.TabWidth;
           break;
+        case '\\':
+          ++Column;
+          if (i + 1 == e || (FormatTok->TokenText[i + 1] != '\r' &&
+                             FormatTok->TokenText[i + 1] != '\n'))
+            FormatTok->Type = TT_ImplicitStringLiteral;
+          break;
         default:
+          FormatTok->Type = TT_ImplicitStringLiteral;
           ++Column;
           break;
         }
       }
 
+      if (FormatTok->Type == TT_ImplicitStringLiteral)
+        break;
       WhitespaceLength += FormatTok->Tok.getLength();
 
       readRawToken(*FormatTok);
@@ -783,29 +820,54 @@ public:
             const std::vector<CharSourceRange> &Ranges)
       : Style(Style), Lex(Lex), SourceMgr(SourceMgr),
         Whitespaces(SourceMgr, Style, inputUsesCRLF(Lex.getBuffer())),
-        Ranges(Ranges), Encoding(encoding::detectEncoding(Lex.getBuffer())) {
+        Ranges(Ranges), UnwrappedLines(1),
+        Encoding(encoding::detectEncoding(Lex.getBuffer())) {
     DEBUG(llvm::dbgs() << "File encoding: "
                        << (Encoding == encoding::Encoding_UTF8 ? "UTF8"
                                                                : "unknown")
                        << "\n");
   }
 
-  virtual ~Formatter() {
-    for (unsigned i = 0, e = AnnotatedLines.size(); i != e; ++i) {
-      delete AnnotatedLines[i];
-    }
-  }
-
   tooling::Replacements format() {
+    tooling::Replacements Result;
     FormatTokenLexer Tokens(Lex, SourceMgr, Style, Encoding);
 
     UnwrappedLineParser Parser(Style, Tokens.lex(), *this);
     bool StructuralError = Parser.parse();
+    assert(UnwrappedLines.rbegin()->empty());
+    for (unsigned Run = 0, RunE = UnwrappedLines.size(); Run + 1 != RunE;
+         ++Run) {
+      DEBUG(llvm::dbgs() << "Run " << Run << "...\n");
+      SmallVector<AnnotatedLine *, 16> AnnotatedLines;
+      for (unsigned i = 0, e = UnwrappedLines[Run].size(); i != e; ++i) {
+        AnnotatedLines.push_back(new AnnotatedLine(UnwrappedLines[Run][i]));
+      }
+      tooling::Replacements RunResult =
+          format(AnnotatedLines, StructuralError, Tokens);
+      DEBUG({
+        llvm::dbgs() << "Replacements for run " << Run << ":\n";
+        for (tooling::Replacements::iterator I = RunResult.begin(),
+                                             E = RunResult.end();
+             I != E; ++I) {
+          llvm::dbgs() << I->toString() << "\n";
+        }
+      });
+      for (unsigned i = 0, e = AnnotatedLines.size(); i != e; ++i) {
+        delete AnnotatedLines[i];
+      }
+      Result.insert(RunResult.begin(), RunResult.end());
+      Whitespaces.reset();
+    }
+    return Result;
+  }
+
+  tooling::Replacements format(SmallVectorImpl<AnnotatedLine *> &AnnotatedLines,
+                               bool StructuralError, FormatTokenLexer &Tokens) {
     TokenAnnotator Annotator(Style, Tokens.getIdentTable().get("in"));
     for (unsigned i = 0, e = AnnotatedLines.size(); i != e; ++i) {
       Annotator.annotate(*AnnotatedLines[i]);
     }
-    deriveLocalStyle();
+    deriveLocalStyle(AnnotatedLines);
     for (unsigned i = 0, e = AnnotatedLines.size(); i != e; ++i) {
       Annotator.calculateFormattingInformation(*AnnotatedLines[i]);
     }
@@ -814,7 +876,7 @@ public:
 
     std::vector<int> IndentForLevel;
     bool PreviousLineWasTouched = false;
-    const FormatToken *PreviousLineLastToken = 0;
+    const AnnotatedLine *PreviousLine = NULL;
     bool FormatPPDirective = false;
     for (SmallVectorImpl<AnnotatedLine *>::iterator I = AnnotatedLines.begin(),
                                                     E = AnnotatedLines.end();
@@ -843,8 +905,9 @@ public:
       if (TheLine.First->is(tok::eof)) {
         if (PreviousLineWasTouched) {
           unsigned NewLines = std::min(FirstTok->NewlinesBefore, 1u);
-          Whitespaces.replaceWhitespace(*TheLine.First, NewLines, /*Indent*/ 0,
-                                        /*TargetColumn*/ 0);
+          Whitespaces.replaceWhitespace(*TheLine.First, NewLines,
+                                        /*IndentLevel=*/0, /*Spaces=*/0,
+                                        /*TargetColumn=*/0);
         }
       } else if (TheLine.Type != LT_Invalid &&
                  (WasMoved || FormatPPDirective || touchesLine(TheLine))) {
@@ -853,7 +916,7 @@ public:
             // Insert a break even if there is a structural error in case where
             // we break apart a line consisting of multiple unwrapped lines.
             (FirstTok->NewlinesBefore == 0 || !StructuralError)) {
-          formatFirstToken(*TheLine.First, PreviousLineLastToken, Indent,
+          formatFirstToken(*TheLine.First, PreviousLine, Indent,
                            TheLine.InPPDirective);
         } else {
           Indent = LevelIndent = FirstTok->OriginalColumn;
@@ -887,15 +950,14 @@ public:
       } else {
         // Format the first token if necessary, and notify the WhitespaceManager
         // about the unchanged whitespace.
-        for (const FormatToken *Tok = TheLine.First; Tok != NULL;
-             Tok = Tok->Next) {
+        for (FormatToken *Tok = TheLine.First; Tok != NULL; Tok = Tok->Next) {
           if (Tok == TheLine.First &&
               (Tok->NewlinesBefore > 0 || Tok->IsFirst)) {
             unsigned LevelIndent = Tok->OriginalColumn;
             // Remove trailing whitespace of the previous line if it was
             // touched.
             if (PreviousLineWasTouched || touchesEmptyLineBefore(TheLine)) {
-              formatFirstToken(*Tok, PreviousLineLastToken, LevelIndent,
+              formatFirstToken(*Tok, PreviousLine, LevelIndent,
                                TheLine.InPPDirective);
             } else {
               Whitespaces.addUntouchableToken(*Tok, TheLine.InPPDirective);
@@ -914,7 +976,10 @@ public:
         // last token.
         PreviousLineWasTouched = false;
       }
-      PreviousLineLastToken = TheLine.Last;
+      for (FormatToken *Tok = TheLine.First; Tok != NULL; Tok = Tok->Next) {
+        Tok->Finalized = true;
+      }
+      PreviousLine = *I;
     }
     return Whitespaces.generateReplacements();
   }
@@ -924,7 +989,8 @@ private:
     return Text.count('\r') * 2 > Text.count('\n');
   }
 
-  void deriveLocalStyle() {
+  void
+  deriveLocalStyle(const SmallVectorImpl<AnnotatedLine *> &AnnotatedLines) {
     unsigned CountBoundToVariable = 0;
     unsigned CountBoundToType = 0;
     bool HasCpp03IncompatibleFormat = false;
@@ -946,10 +1012,14 @@ private:
             ++CountBoundToType;
         }
 
-        if (Tok->Type == TT_TemplateCloser &&
-            Tok->Previous->Type == TT_TemplateCloser &&
-            Tok->WhitespaceRange.getBegin() == Tok->WhitespaceRange.getEnd())
-          HasCpp03IncompatibleFormat = true;
+        if (Tok->WhitespaceRange.getBegin() == Tok->WhitespaceRange.getEnd()) {
+          if (Tok->is(tok::coloncolon) &&
+              Tok->Previous->Type == TT_TemplateOpener)
+            HasCpp03IncompatibleFormat = true;
+          if (Tok->Type == TT_TemplateCloser &&
+              Tok->Previous->Type == TT_TemplateCloser)
+            HasCpp03IncompatibleFormat = true;
+        }
 
         if (Tok->PackingKind == PPK_BinPacked)
           HasBinPackedFunction = true;
@@ -1196,14 +1266,19 @@ private:
   }
 
   virtual void consumeUnwrappedLine(const UnwrappedLine &TheLine) {
-    AnnotatedLines.push_back(new AnnotatedLine(TheLine));
+    assert(!UnwrappedLines.empty());
+    UnwrappedLines.back().push_back(TheLine);
+  }
+
+  virtual void finishRun() {
+    UnwrappedLines.push_back(SmallVector<UnwrappedLine, 16>());
   }
 
   /// \brief Add a new line and the required indent before the first Token
   /// of the \c UnwrappedLine if there was no structural parsing error.
   /// Returns the indent level of the \c UnwrappedLine.
-  void formatFirstToken(const FormatToken &RootToken,
-                        const FormatToken *PreviousToken, unsigned Indent,
+  void formatFirstToken(FormatToken &RootToken,
+                        const AnnotatedLine *PreviousLine, unsigned Indent,
                         bool InPPDirective) {
     unsigned Newlines =
         std::min(RootToken.NewlinesBefore, Style.MaxEmptyLinesToKeep + 1);
@@ -1216,12 +1291,16 @@ private:
       Newlines = 1;
 
     // Insert extra new line before access specifiers.
-    if (PreviousToken && PreviousToken->isOneOf(tok::semi, tok::r_brace) &&
+    if (PreviousLine && PreviousLine->Last->isOneOf(tok::semi, tok::r_brace) &&
         RootToken.isAccessSpecifier() && RootToken.NewlinesBefore == 1)
       ++Newlines;
 
+    // Remove empty lines after access specifiers.
+    if (PreviousLine && PreviousLine->First->isAccessSpecifier())
+      Newlines = std::min(1u, Newlines);
+
     Whitespaces.replaceWhitespace(
-        RootToken, Newlines, Indent, Indent,
+        RootToken, Newlines, Indent / Style.IndentWidth, Indent, Indent,
         InPPDirective && !RootToken.HasUnescapedNewline);
   }
 
@@ -1235,7 +1314,7 @@ private:
   SourceManager &SourceMgr;
   WhitespaceManager Whitespaces;
   std::vector<CharSourceRange> Ranges;
-  SmallVector<AnnotatedLine *, 16> AnnotatedLines;
+  SmallVector<SmallVector<UnwrappedLine, 16>, 2> UnwrappedLines;
 
   encoding::Encoding Encoding;
   bool BinPackInconclusiveFunctions;
@@ -1285,6 +1364,83 @@ LangOptions getFormattingLangOpts(FormatStyle::LanguageStandard Standard) {
   LangOpts.ObjC1 = 1;
   LangOpts.ObjC2 = 1;
   return LangOpts;
+}
+
+const char *StyleOptionHelpDescription =
+    "Coding style, currently supports:\n"
+    "  LLVM, Google, Chromium, Mozilla, WebKit.\n"
+    "Use -style=file to load style configuration from\n"
+    ".clang-format file located in one of the parent\n"
+    "directories of the source file (or current\n"
+    "directory for stdin).\n"
+    "Use -style=\"{key: value, ...}\" to set specific\n"
+    "parameters, e.g.:\n"
+    "  -style=\"{BasedOnStyle: llvm, IndentWidth: 8}\"";
+
+FormatStyle getStyle(StringRef StyleName, StringRef FileName) {
+  // Fallback style in case the rest of this function can't determine a style.
+  StringRef FallbackStyle = "LLVM";
+  FormatStyle Style;
+  getPredefinedStyle(FallbackStyle, &Style);
+
+  if (StyleName.startswith("{")) {
+    // Parse YAML/JSON style from the command line.
+    if (llvm::error_code ec = parseConfiguration(StyleName, &Style)) {
+      llvm::errs() << "Error parsing -style: " << ec.message()
+                   << ", using " << FallbackStyle << " style\n";
+    }
+    return Style;
+  }
+
+  if (!StyleName.equals_lower("file")) {
+    if (!getPredefinedStyle(StyleName, &Style))
+      llvm::errs() << "Invalid value for -style, using " << FallbackStyle
+                   << " style\n";
+    return Style;
+  }
+
+  SmallString<128> Path(FileName);
+  llvm::sys::fs::make_absolute(Path);
+  for (StringRef Directory = Path;
+       !Directory.empty();
+       Directory = llvm::sys::path::parent_path(Directory)) {
+    if (!llvm::sys::fs::is_directory(Directory))
+      continue;
+    SmallString<128> ConfigFile(Directory);
+
+    llvm::sys::path::append(ConfigFile, ".clang-format");
+    DEBUG(llvm::dbgs() << "Trying " << ConfigFile << "...\n");
+    bool IsFile = false;
+    // Ignore errors from is_regular_file: we only need to know if we can read
+    // the file or not.
+    llvm::sys::fs::is_regular_file(Twine(ConfigFile), IsFile);
+
+    if (!IsFile) {
+      // Try _clang-format too, since dotfiles are not commonly used on Windows.
+      ConfigFile = Directory;
+      llvm::sys::path::append(ConfigFile, "_clang-format");
+      DEBUG(llvm::dbgs() << "Trying " << ConfigFile << "...\n");
+      llvm::sys::fs::is_regular_file(Twine(ConfigFile), IsFile);
+    }
+
+    if (IsFile) {
+      OwningPtr<llvm::MemoryBuffer> Text;
+      if (llvm::error_code ec = llvm::MemoryBuffer::getFile(ConfigFile, Text)) {
+        llvm::errs() << ec.message() << "\n";
+        continue;
+      }
+      if (llvm::error_code ec = parseConfiguration(Text->getBuffer(), &Style)) {
+        llvm::errs() << "Error reading " << ConfigFile << ": " << ec.message()
+                     << "\n";
+        continue;
+      }
+      DEBUG(llvm::dbgs() << "Using configuration file " << ConfigFile << "\n");
+      return Style;
+    }
+  }
+  llvm::errs() << "Can't find usable .clang-format, using " << FallbackStyle
+               << " style\n";
+  return Style;
 }
 
 } // namespace format

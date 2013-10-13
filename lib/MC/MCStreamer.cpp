@@ -22,10 +22,15 @@
 #include <cstdlib>
 using namespace llvm;
 
-MCStreamer::MCStreamer(StreamerKind Kind, MCContext &Ctx)
-    : Kind(Kind), Context(Ctx), EmitEHFrame(true), EmitDebugFrame(false),
-      CurrentW64UnwindInfo(0), LastSymbol(0), AutoInitSections(false) {
+MCTargetStreamer::~MCTargetStreamer() {}
+
+MCStreamer::MCStreamer(MCContext &Ctx, MCTargetStreamer *TargetStreamer)
+    : Context(Ctx), TargetStreamer(TargetStreamer), EmitEHFrame(true),
+      EmitDebugFrame(false), CurrentW64UnwindInfo(0), LastSymbol(0),
+      AutoInitSections(false) {
   SectionStack.push_back(std::pair<MCSectionSubPair, MCSectionSubPair>());
+  if (TargetStreamer)
+    TargetStreamer->setStreamer(this);
 }
 
 MCStreamer::~MCStreamer() {
@@ -399,6 +404,14 @@ void MCStreamer::EmitCFIRegister(int64_t Register1, int64_t Register2) {
   CurFrame->Instructions.push_back(Instruction);
 }
 
+void MCStreamer::EmitCFIWindowSave() {
+  MCSymbol *Label = EmitCFICommon();
+  MCCFIInstruction Instruction =
+    MCCFIInstruction::createWindowSave(Label);
+  MCDwarfFrameInfo *CurFrame = getCurrentFrameInfo();
+  CurFrame->Instructions.push_back(Instruction);
+}
+
 void MCStreamer::setCurrentW64UnwindInfo(MCWin64EHUnwindInfo *Frame) {
   W64UnwindInfos.push_back(Frame);
   CurrentW64UnwindInfo = W64UnwindInfos.back();
@@ -553,50 +566,6 @@ void MCStreamer::EmitWin64EHEndProlog() {
 
 void MCStreamer::EmitCOFFSecRel32(MCSymbol const *Symbol) {
   llvm_unreachable("This file format doesn't support this directive");
-}
-
-void MCStreamer::EmitFnStart() {
-  errs() << "Not implemented yet\n";
-  abort();
-}
-
-void MCStreamer::EmitFnEnd() {
-  errs() << "Not implemented yet\n";
-  abort();
-}
-
-void MCStreamer::EmitCantUnwind() {
-  errs() << "Not implemented yet\n";
-  abort();
-}
-
-void MCStreamer::EmitHandlerData() {
-  errs() << "Not implemented yet\n";
-  abort();
-}
-
-void MCStreamer::EmitPersonality(const MCSymbol *Personality) {
-  errs() << "Not implemented yet\n";
-  abort();
-}
-
-void MCStreamer::EmitSetFP(unsigned FpReg, unsigned SpReg, int64_t Offset) {
-  errs() << "Not implemented yet\n";
-  abort();
-}
-
-void MCStreamer::EmitPad(int64_t Offset) {
-  errs() << "Not implemented yet\n";
-  abort();
-}
-
-void MCStreamer::EmitRegSave(const SmallVectorImpl<unsigned> &RegList, bool) {
-  errs() << "Not implemented yet\n";
-  abort();
-}
-
-void MCStreamer::EmitTCEntry(const MCSymbol &S) {
-  llvm_unreachable("Unsupported method");
 }
 
 /// EmitRawText - If this file is backed by an assembly streamer, this dumps

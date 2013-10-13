@@ -1,7 +1,7 @@
 // RUN: rm -rf %t
-// RUN: %clang_cc1 -objcmt-migrate-property -mt-migrate-directory %t %s -x objective-c -fobjc-runtime-has-weak -fobjc-arc -fobjc-default-synthesize-properties -triple x86_64-apple-darwin11
+// RUN: %clang_cc1 -objcmt-migrate-ns-macros -mt-migrate-directory %t %s -x objective-c -fobjc-runtime-has-weak -fobjc-arc -triple x86_64-apple-darwin11
 // RUN: c-arcmt-test -mt-migrate-directory %t | arcmt-test -verify-transformed-files %s.result
-// RUN: %clang_cc1 -triple x86_64-apple-darwin10 -fsyntax-only -x objective-c -fobjc-runtime-has-weak -fobjc-arc -fobjc-default-synthesize-properties %s.result
+// RUN: %clang_cc1 -triple x86_64-apple-darwin10 -fsyntax-only -x objective-c -fobjc-runtime-has-weak -fobjc-arc %s.result
 
 typedef long NSInteger;
 typedef unsigned long NSUInteger;
@@ -146,3 +146,108 @@ enum {
 };
 
 typedef NSUInteger NSFOptions;
+
+typedef enum {
+  UIP0One = 0,
+  UIP0Two = 1,
+  UIP0Three = 2,
+  UIP0Four = 10,
+  UIP0Last = 0x100
+} UIP;
+
+typedef enum {
+  UIPZero = 0x0,
+  UIPOne = 0x1,
+  UIPTwo = 0x2,
+  UIP10 = 0x10,
+  UIPHundred = 0x100
+} UIP_3;
+
+typedef enum {
+  UIP4Zero = 0x0,
+  UIP4One = 0x1,
+  UIP4Two = 0x2,
+  UIP410 = 0x10,
+  UIP4Hundred = 100
+} UIP4_3;
+
+typedef enum {
+  UIP5Zero = 0x0,
+  UIP5Two = 0x2,
+  UIP510 = 0x3,
+  UIP5Hundred = 0x4
+} UIP5_3;
+
+typedef enum {
+  UIP6Zero = 0x0,
+  UIP6One = 0x1,
+  UIP6Two = 0x2,
+  UIP610 = 10,
+  UIP6Hundred = 0x100
+} UIP6_3;
+
+typedef enum {
+  UIP7Zero = 0x0,
+  UIP7One = 1,
+  UIP7Two = 0x2,
+  UIP710 = 10,
+  UIP7Hundred = 100
+} UIP7_3;
+
+
+typedef enum {
+  Random = 0,
+  Random1 = 2,
+  Random2 = 4,
+  Random3 = 0x12345,
+  Random4 = 0x3444444,
+  Random5 = 0xbadbeef,
+  Random6
+} UIP8_3;
+
+// rdar://15200602
+#define NS_AVAILABLE_MAC(X)  __attribute__((availability(macosx,introduced=X)))
+#define NS_ENUM_AVAILABLE_MAC(X) __attribute__((availability(macosx,introduced=X)))
+
+enum {
+    NSModalResponseStop                 = (-1000), // Also used as the default response for sheets
+    NSModalResponseAbort                = (-1001),
+    NSModalResponseContinue             = (-1002), 
+} NS_ENUM_AVAILABLE_MAC(10.9);
+typedef NSInteger NSModalResponse NS_AVAILABLE_MAC(10.9);
+
+// rdar://15200915
+typedef NSUInteger NSWorkspaceLaunchOptions;
+enum {
+     NSWorkspaceLaunchAndPrint =                 0x00000002,
+     NSWorkspaceLaunchWithErrorPresentation    = 0x00000040,
+     NSWorkspaceLaunchInhibitingBackgroundOnly = 0x00000080,
+     NSWorkspaceLaunchWithoutAddingToRecents   = 0x00000100,
+     NSWorkspaceLaunchWithoutActivation        = 0x00000200,
+     NSWorkspaceLaunchAsync                    = 0x00010000,
+     NSWorkspaceLaunchAllowingClassicStartup   = 0x00020000,
+     NSWorkspaceLaunchPreferringClassic        = 0x00040000,
+     NSWorkspaceLaunchNewInstance              = 0x00080000,
+     NSWorkspaceLaunchAndHide                  = 0x00100000,
+     NSWorkspaceLaunchAndHideOthers            = 0x00200000,
+     NSWorkspaceLaunchDefault = NSWorkspaceLaunchAsync | 
+NSWorkspaceLaunchAllowingClassicStartup
+};
+
+typedef NSUInteger NSWorkspaceIconCreationOptions;
+enum {
+    NSExcludeQuickDrawElementsIconCreationOption    = 1 << 1,
+    NSExclude10_4ElementsIconCreationOption         = 1 << 2
+};
+
+typedef NSUInteger NSWorkspaceCreationOptions;
+enum {
+    NSExcludeQuickDrawElementsCreationOption    = 1 << 1,
+    NSExclude10_4ElementsCreationOption         = 1 << 2
+};
+
+enum {
+    NSExcludeQuickDrawElementsIconOption    = 1 << 1,
+    NSExclude10_4ElementsIconOption         = 1 << 2
+};
+typedef NSUInteger NSWorkspaceIconOptions;

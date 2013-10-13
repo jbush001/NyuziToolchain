@@ -16,6 +16,7 @@
 #ifndef LLVM_SUPPORT_DWARF_H
 #define LLVM_SUPPORT_DWARF_H
 
+#include "llvm/Support/Compiler.h"
 #include "llvm/Support/DataTypes.h"
 
 namespace llvm {
@@ -23,7 +24,7 @@ namespace llvm {
 //===----------------------------------------------------------------------===//
 // Debug info constants.
 
-enum {
+enum LLVM_ENUM_INT_TYPE(uint32_t) {
   LLVMDebugVersion = (12 << 16),    // Current version of debug information.
   LLVMDebugVersion11 = (11 << 16),  // Constant for version 11.
   LLVMDebugVersion10 = (10 << 16),  // Constant for version 10.
@@ -46,7 +47,7 @@ namespace dwarf {
 // Do not mix the following two enumerations sets.  DW_TAG_invalid changes the
 // enumeration base type.
 
-enum LLVMConstants {
+enum LLVMConstants LLVM_ENUM_INT_TYPE(uint32_t) {
   // llvm mock tags
   DW_TAG_invalid = ~0U, // Tag for invalid results.
 
@@ -484,6 +485,9 @@ enum Constants {
   DW_OP_stack_value = 0x9f,
   DW_OP_lo_user = 0xe0,
   DW_OP_hi_user = 0xff,
+
+  // Extensions for GNU-style thread-local storage.
+  DW_OP_GNU_push_tls_address = 0xe0,
 
   // Extensions for Fission proposal.
   DW_OP_GNU_addr_index = 0xfb,

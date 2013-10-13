@@ -64,6 +64,7 @@ entry:
 
 ; HARD-LABEL: f128_compare
 ; HARD:       fcmpq
+; HARD-NEXT:  nop
 
 ; SOFT-LABEL: f128_compare
 ; SOFT:       _Q_cmp
@@ -113,3 +114,37 @@ entry:
 }
 
 declare fp128 @llvm.fabs.f128(fp128) nounwind readonly
+
+; HARD-LABEL: int_to_f128
+; HARD:       fitoq
+
+; SOFT-LABEL: int_to_f128
+; SOFT:       _Q_itoq
+
+define void @int_to_f128(fp128* noalias sret %scalar.result, i32 %i) {
+entry:
+  %0 = sitofp i32 %i to fp128
+  store fp128 %0, fp128* %scalar.result, align 8
+  ret void
+}
+
+; HARD-LABEL: fp128_unaligned
+; HARD:       ldub
+; HARD:       faddq
+; HARD:       stb
+; HARD:       jmp
+
+; SOFT-LABEL: fp128_unaligned
+; SOFT:       ldub
+; SOFT:       call _Q_add
+; SOFT:       stb
+; SOFT:       jmp
+
+define void @fp128_unaligned(fp128* %a, fp128* %b, fp128* %c) {
+entry:
+  %0 = load fp128* %a, align 1
+  %1 = load fp128* %b, align 1
+  %2 = fadd fp128 %0, %1
+  store fp128 %2, fp128* %c, align 1
+  ret void
+}

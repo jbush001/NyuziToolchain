@@ -36,9 +36,9 @@ public:
 
 ELFLinkingContext::ELFLinkingContext(
     llvm::Triple triple, std::unique_ptr<TargetHandlerBase> targetHandler)
-    : _outputFileType(elf::ET_EXEC), _triple(triple),
+    : _outputELFType(elf::ET_EXEC), _triple(triple),
       _targetHandler(std::move(targetHandler)), _baseAddress(0),
-      _isStaticExecutable(false), _outputYAML(false), _noInhibitExec(false),
+      _isStaticExecutable(false), _noInhibitExec(false),
       _mergeCommonStrings(false), _runLayoutPass(true),
       _useShlibUndefines(false), _dynamicLinkerArg(false),
       _noAllowDynamicLibraries(false), _outputMagic(OutputMagic::DEFAULT),
@@ -74,7 +74,7 @@ uint16_t ELFLinkingContext::getOutputMachine() const {
 }
 
 StringRef ELFLinkingContext::entrySymbolName() const {
-  if (_outputFileType == elf::ET_EXEC && _entrySymbolName.empty())
+  if (_outputELFType == elf::ET_EXEC && _entrySymbolName.empty())
     return "_start";
   return _entrySymbolName;
 }
@@ -82,12 +82,22 @@ StringRef ELFLinkingContext::entrySymbolName() const {
 bool ELFLinkingContext::validateImpl(raw_ostream &diagnostics) {
   _elfReader = createReaderELF(*this);
   _linkerScriptReader.reset(new ReaderLinkerScript(*this));
-  _writer = _outputYAML ? createWriterYAML(*this) : createWriterELF(*this);
-  return false;
+  switch (outputFileType()) {
+  case LinkingContext::OutputFileType::YAML:
+    _writer = createWriterYAML(*this);
+    break;
+  case LinkingContext::OutputFileType::Native:
+    llvm_unreachable("Unimplemented");
+    break;
+  default:
+    _writer = createWriterELF(*this);
+    break;
+  }
+  return true;
 }
 
 bool ELFLinkingContext::isDynamic() const {
-  switch (_outputFileType) {
+  switch (_outputELFType) {
   case llvm::ELF::ET_EXEC:
     return !_isStaticExecutable;
   case llvm::ELF::ET_DYN:
@@ -98,25 +108,6 @@ bool ELFLinkingContext::isDynamic() const {
 
 bool ELFLinkingContext::isRelativeReloc(const Reference &) const {
   return false;
-}
-
-error_code ELFLinkingContext::parseFile(LinkerInput &input,
-    std::vector<std::unique_ptr<File>> &result) const {
-  ScopedTask task(getDefaultDomain(), "parseFile");
-  error_code ec = _elfReader->parseFile(input, result);
-  if (!ec)
-    return ec;
-
-  // Not an ELF file, check file extension to see if it might be yaml
-  StringRef path = input.getBuffer().getBufferIdentifier();
-  if (path.endswith(".objtxt")) {
-    ec = _yamlReader->parseFile(input, result);
-    if (!ec)
-      return ec;
-  }
-
-  // Not a yaml file, assume it is a linkerscript
-  return _linkerScriptReader->parseFile(input, result);
 }
 
 Writer &ELFLinkingContext::writer() const { return *_writer; }
@@ -144,51 +135,52 @@ ELFLinkingContext::create(llvm::Triple triple) {
   }
 }
 
-llvm::ErrorOr<std::string> ELFLinkingContext::searchLibrary(
+llvm::ErrorOr<StringRef> ELFLinkingContext::searchLibrary(
     StringRef libName, const std::vector<StringRef> &searchPath) const {
   bool foundFile = false;
   StringRef pathref;
+  SmallString<128> path;
   for (StringRef dir : searchPath) {
     // Search for dynamic library
     if (!_isStaticExecutable) {
-      SmallString<128> dynlibPath;
+      path.clear();
       if (dir.startswith("=/")) {
-        dynlibPath.assign(_sysrootPath);
-        dynlibPath.append(dir.substr(1));
+        path.assign(_sysrootPath);
+        path.append(dir.substr(1));
       } else {
-        dynlibPath.assign(dir);
+        path.assign(dir);
       }
-      llvm::sys::path::append(dynlibPath, Twine("lib") + libName + ".so");
-      pathref = dynlibPath.str();
+      llvm::sys::path::append(path, Twine("lib") + libName + ".so");
+      pathref = path.str();
       if (llvm::sys::fs::exists(pathref)) {
         foundFile = true;
       }
     }
     // Search for static libraries too
     if (!foundFile) {
-      SmallString<128> archivefullPath;
+      path.clear();
       if (dir.startswith("=/")) {
-        archivefullPath.assign(_sysrootPath);
-        archivefullPath.append(dir.substr(1));
+        path.assign(_sysrootPath);
+        path.append(dir.substr(1));
       } else {
-        archivefullPath.assign(dir);
+        path.assign(dir);
       }
-      llvm::sys::path::append(archivefullPath, Twine("lib") + libName + ".a");
-      pathref = archivefullPath.str();
+      llvm::sys::path::append(path, Twine("lib") + libName + ".a");
+      pathref = path.str();
       if (llvm::sys::fs::exists(pathref)) {
         foundFile = true;
       }
     }
     if (foundFile)
-      return (*(new (_alloc) std::string(pathref.str())));
+      return StringRef(*new (_allocator) std::string(pathref));
   }
   if (!llvm::sys::fs::exists(libName))
     return llvm::make_error_code(llvm::errc::no_such_file_or_directory);
 
-  return std::string(libName);
+  return libName;
 }
 
-std::unique_ptr<File> ELFLinkingContext::createUndefinedSymbolFile() {
+std::unique_ptr<File> ELFLinkingContext::createUndefinedSymbolFile() const {
   if (_initialUndefinedSymbols.empty())
     return nullptr;
   std::unique_ptr<SimpleFile> undefinedSymFile(

@@ -153,6 +153,24 @@ bool R600InstrInfo::isLDSInstr(unsigned Opcode) const {
           (TargetFlags & R600_InstFlag::LDS_1A2D));
 }
 
+bool R600InstrInfo::canBeConsideredALU(const MachineInstr *MI) const {
+  if (isALUInstr(MI->getOpcode()))
+    return true;
+  if (isVector(*MI) || isCubeOp(MI->getOpcode()))
+    return true;
+  switch (MI->getOpcode()) {
+  case AMDGPU::PRED_X:
+  case AMDGPU::INTERP_PAIR_XY:
+  case AMDGPU::INTERP_PAIR_ZW:
+  case AMDGPU::INTERP_VEC_LOAD:
+  case AMDGPU::COPY:
+  case AMDGPU::DOT_4:
+    return true;
+  default:
+    return false;
+  }
+}
+
 bool R600InstrInfo::isTransOnly(unsigned Opcode) const {
   if (ST.hasCaymanISA())
     return false;
@@ -651,6 +669,11 @@ bool isJump(unsigned Opcode) {
   return Opcode == AMDGPU::JUMP || Opcode == AMDGPU::JUMP_COND;
 }
 
+static bool isBranch(unsigned Opcode) {
+  return Opcode == AMDGPU::BRANCH || Opcode == AMDGPU::BRANCH_COND_i32 ||
+      Opcode == AMDGPU::BRANCH_COND_f32;
+}
+
 bool
 R600InstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
                              MachineBasicBlock *&TBB,
@@ -669,6 +692,10 @@ R600InstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
       return false;
     --I;
   }
+  // AMDGPU::BRANCH* instructions are only available after isel and are not
+  // handled
+  if (isBranch(I->getOpcode()))
+    return true;
   if (!isJump(static_cast<MachineInstr *>(I)->getOpcode())) {
     return false;
   }
@@ -987,6 +1014,10 @@ R600InstrInfo::PredicateInstruction(MachineInstr *MI,
   }
 
   return false;
+}
+
+unsigned int R600InstrInfo::getPredicationCost(const MachineInstr *) const {
+  return 2;
 }
 
 unsigned int R600InstrInfo::getInstrLatency(const InstrItineraryData *ItinData,

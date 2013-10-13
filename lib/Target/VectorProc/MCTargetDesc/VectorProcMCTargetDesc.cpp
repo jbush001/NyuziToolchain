@@ -77,7 +77,8 @@ static MCStreamer *createVectorProcMCStreamer(const Target &T, StringRef TT,
   if (TheTriple.isOSWindows()) {
     llvm_unreachable("VectorProc does not support Windows COFF format");
   }
-  return createELFStreamer(Ctx, MAB, _OS, _Emitter, RelaxAll, NoExecStack);
+  MCTargetStreamer *streamer = new MCTargetStreamer;
+  return createELFStreamer(Ctx, streamer, MAB, _OS, _Emitter, RelaxAll, NoExecStack);
 }
 
 static MCInstPrinter *createVectorProcMCInstPrinter(const Target &T,

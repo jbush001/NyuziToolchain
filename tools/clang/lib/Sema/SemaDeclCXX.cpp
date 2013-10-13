@@ -14,6 +14,7 @@
 #include "clang/Sema/SemaInternal.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/ASTLambda.h"
 #include "clang/AST/ASTMutationListener.h"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/CharUnits.h"
@@ -4450,6 +4451,13 @@ void Sema::CheckCompletedCXXClass(CXXRecordDecl *Record) {
     }
   }
 
+  // Check to see if we're trying to lay out a struct using the ms_struct
+  // attribute that is dynamic.
+  if (Record->isMsStruct(Context) && Record->isDynamicClass()) {
+    Diag(Record->getLocation(), diag::warn_pragma_ms_struct_failed);
+    Record->dropAttr<MsStructAttr>();
+  }
+
   // Declare inheriting constructors. We do this eagerly here because:
   // - The standard requires an eager diagnostic for conflicting inheriting
   //   constructors from different classes.
@@ -6933,7 +6941,7 @@ void Sema::PushUsingDirective(Scope *S, UsingDirectiveDecl *UDir) {
   // If the scope has an associated entity and the using directive is at
   // namespace or translation unit scope, add the UsingDirectiveDecl into
   // its lookup structure so qualified name lookup can find it.
-  DeclContext *Ctx = static_cast<DeclContext*>(S->getEntity());
+  DeclContext *Ctx = S->getEntity();
   if (Ctx && !Ctx->isFunctionOrMethod())
     Ctx->addDecl(UDir);
   else
@@ -10350,58 +10358,92 @@ bool Sema::isImplicitlyDeleted(FunctionDecl *FD) {
   return FD->isDeleted() && FD->isDefaulted() && isa<CXXMethodDecl>(FD);
 }
 
-/// \brief Mark the call operator of the given lambda closure type as "used".
-static void markLambdaCallOperatorUsed(Sema &S, CXXRecordDecl *Lambda) {
-  CXXMethodDecl *CallOperator 
-    = cast<CXXMethodDecl>(
-        Lambda->lookup(
-          S.Context.DeclarationNames.getCXXOperatorName(OO_Call)).front());
-  CallOperator->setReferenced();
-  CallOperator->markUsed(S.Context);
-}
-
 void Sema::DefineImplicitLambdaToFunctionPointerConversion(
-       SourceLocation CurrentLocation,
-       CXXConversionDecl *Conv) 
-{
+                            SourceLocation CurrentLocation,
+                            CXXConversionDecl *Conv) {
   CXXRecordDecl *Lambda = Conv->getParent();
+  CXXMethodDecl *CallOp = Lambda->getLambdaCallOperator();
+  // If we are defining a specialization of a conversion to function-ptr
+  // cache the deduced template arguments for this specialization
+  // so that we can use them to retrieve the corresponding call-operator
+  // and static-invoker. 
+  const TemplateArgumentList *DeducedTemplateArgs = 0;
+   
   
-  // Make sure that the lambda call operator is marked used.
-  markLambdaCallOperatorUsed(*this, Lambda);
-  
-  Conv->markUsed(Context);
-  
+  // Retrieve the corresponding call-operator specialization.
+  if (Lambda->isGenericLambda()) {
+    assert(Conv->isFunctionTemplateSpecialization());
+    FunctionTemplateDecl *CallOpTemplate = 
+        CallOp->getDescribedFunctionTemplate();
+    DeducedTemplateArgs = Conv->getTemplateSpecializationArgs();
+    void *InsertPos = 0;
+    FunctionDecl *CallOpSpec = CallOpTemplate->findSpecialization(
+                                                DeducedTemplateArgs->data(), 
+                                                DeducedTemplateArgs->size(), 
+                                                InsertPos);
+    assert(CallOpSpec && 
+          "Conversion operator must have a corresponding call operator");
+    CallOp = cast<CXXMethodDecl>(CallOpSpec);
+  }
+  // Mark the call operator referenced (and add to pending instantiations
+  // if necessary).
+  // For both the conversion and static-invoker template specializations
+  // we construct their body's in this function, so no need to add them
+  // to the PendingInstantiations.
+  MarkFunctionReferenced(CurrentLocation, CallOp);
+
   SynthesizedFunctionScope Scope(*this, Conv);
   DiagnosticErrorTrap Trap(Diags);
+   
+  // Retreive the static invoker...
+  CXXMethodDecl *Invoker = Lambda->getLambdaStaticInvoker();
+  // ... and get the corresponding specialization for a generic lambda.
+  if (Lambda->isGenericLambda()) {
+    assert(DeducedTemplateArgs && 
+      "Must have deduced template arguments from Conversion Operator");
+    FunctionTemplateDecl *InvokeTemplate = 
+                          Invoker->getDescribedFunctionTemplate();
+    void *InsertPos = 0;
+    FunctionDecl *InvokeSpec = InvokeTemplate->findSpecialization(
+                                                DeducedTemplateArgs->data(), 
+                                                DeducedTemplateArgs->size(), 
+                                                InsertPos);
+    assert(InvokeSpec && 
+      "Must have a corresponding static invoker specialization");
+    Invoker = cast<CXXMethodDecl>(InvokeSpec);
+  }
+  // Construct the body of the conversion function { return __invoke; }.
+  Expr *FunctionRef = BuildDeclRefExpr(Invoker, Invoker->getType(),
+                                        VK_LValue, Conv->getLocation()).take();
+   assert(FunctionRef && "Can't refer to __invoke function?");
+   Stmt *Return = ActOnReturnStmt(Conv->getLocation(), FunctionRef).take();
+   Conv->setBody(new (Context) CompoundStmt(Context, Return,
+                                            Conv->getLocation(),
+                                            Conv->getLocation()));
+
+  Conv->markUsed(Context);
+  Conv->setReferenced();
   
-  // Return the address of the __invoke function.
-  DeclarationName InvokeName = &Context.Idents.get("__invoke");
-  CXXMethodDecl *Invoke 
-    = cast<CXXMethodDecl>(Lambda->lookup(InvokeName).front());
-  Expr *FunctionRef = BuildDeclRefExpr(Invoke, Invoke->getType(),
-                                       VK_LValue, Conv->getLocation()).take();
-  assert(FunctionRef && "Can't refer to __invoke function?");
-  Stmt *Return = ActOnReturnStmt(Conv->getLocation(), FunctionRef).take();
-  Conv->setBody(new (Context) CompoundStmt(Context, Return,
-                                           Conv->getLocation(),
-                                           Conv->getLocation()));
-    
   // Fill in the __invoke function with a dummy implementation. IR generation
   // will fill in the actual details.
-  Invoke->markUsed(Context);
-  Invoke->setReferenced();
-  Invoke->setBody(new (Context) CompoundStmt(Conv->getLocation()));
-  
+  Invoker->markUsed(Context);
+  Invoker->setReferenced();
+  Invoker->setBody(new (Context) CompoundStmt(Conv->getLocation()));
+   
   if (ASTMutationListener *L = getASTMutationListener()) {
     L->CompletedImplicitDefinition(Conv);
-    L->CompletedImplicitDefinition(Invoke);
-  }
+    L->CompletedImplicitDefinition(Invoker);
+   }
 }
+
+
 
 void Sema::DefineImplicitLambdaToBlockPointerConversion(
        SourceLocation CurrentLocation,
        CXXConversionDecl *Conv) 
 {
+  assert(!Conv->getParent()->isGenericLambda());
+
   Conv->markUsed(Context);
   
   SynthesizedFunctionScope Scope(*this, Conv);
@@ -10882,11 +10924,12 @@ bool Sema::CheckLiteralOperatorDeclaration(FunctionDecl *FnDecl) {
   if (!TpDecl)
     TpDecl = FnDecl->getPrimaryTemplate();
 
-  // template <char...> type operator "" name() is the only valid template
-  // signature, and the only valid signature with no parameters.
+  // template <char...> type operator "" name() and
+  // template <class T, T...> type operator "" name() are the only valid
+  // template signatures, and the only valid signatures with no parameters.
   if (TpDecl) {
     if (FnDecl->param_size() == 0) {
-      // Must have only one template parameter
+      // Must have one or two template parameters
       TemplateParameterList *Params = TpDecl->getTemplateParameters();
       if (Params->size() == 1) {
         NonTypeTemplateParmDecl *PmDecl =
@@ -10896,6 +10939,27 @@ bool Sema::CheckLiteralOperatorDeclaration(FunctionDecl *FnDecl) {
         if (PmDecl && PmDecl->isTemplateParameterPack() &&
             Context.hasSameType(PmDecl->getType(), Context.CharTy))
           Valid = true;
+      } else if (Params->size() == 2) {
+        TemplateTypeParmDecl *PmType =
+          dyn_cast<TemplateTypeParmDecl>(Params->getParam(0));
+        NonTypeTemplateParmDecl *PmArgs =
+          dyn_cast<NonTypeTemplateParmDecl>(Params->getParam(1));
+
+        // The second template parameter must be a parameter pack with the
+        // first template parameter as its type.
+        if (PmType && PmArgs &&
+            !PmType->isTemplateParameterPack() &&
+            PmArgs->isTemplateParameterPack()) {
+          const TemplateTypeParmType *TArgs =
+            PmArgs->getType()->getAs<TemplateTypeParmType>();
+          if (TArgs && TArgs->getDepth() == PmType->getDepth() &&
+              TArgs->getIndex() == PmType->getIndex()) {
+            Valid = true;
+            if (ActiveTemplateInstantiations.empty())
+              Diag(FnDecl->getLocation(),
+                   diag::ext_string_literal_operator_template);
+          }
+        }
       }
     }
   } else if (FnDecl->param_size()) {

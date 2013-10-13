@@ -20,7 +20,6 @@
 #include "llvm/Analysis/Dominators.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
-#include "llvm/Analysis/ProfileInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/DIBuilder.h"
 #include "llvm/DebugInfo.h"
@@ -413,7 +412,7 @@ bool llvm::SimplifyInstructionsInBlock(BasicBlock *BB, const DataLayout *TD,
     Instruction *Inst = BI++;
 
     WeakVH BIHandle(BI);
-    if (recursivelySimplifyInstruction(Inst, TD)) {
+    if (recursivelySimplifyInstruction(Inst, TD, TLI)) {
       MadeChange = true;
       if (BIHandle != BI)
         BI = BB->begin();
@@ -512,11 +511,6 @@ void llvm::MergeBasicBlockIntoOnlyPred(BasicBlock *DestBB, Pass *P) {
       BasicBlock *PredBBIDom = DT->getNode(PredBB)->getIDom()->getBlock();
       DT->changeImmediateDominator(DestBB, PredBBIDom);
       DT->eraseNode(PredBB);
-    }
-    ProfileInfo *PI = P->getAnalysisIfAvailable<ProfileInfo>();
-    if (PI) {
-      PI->replaceAllUses(PredBB, DestBB);
-      PI->removeEdge(ProfileInfo::getEdge(PredBB, DestBB));
     }
   }
   // Nuke BB.

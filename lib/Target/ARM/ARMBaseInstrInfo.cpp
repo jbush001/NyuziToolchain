@@ -11,10 +11,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "ARMBaseInstrInfo.h"
 #include "ARM.h"
+#include "ARMBaseInstrInfo.h"
 #include "ARMBaseRegisterInfo.h"
 #include "ARMConstantPoolValue.h"
+#include "ARMFeatures.h"
 #include "ARMHazardRecognizer.h"
 #include "ARMMachineFunctionInfo.h"
 #include "MCTargetDesc/ARMAddressingModes.h"
@@ -511,74 +512,6 @@ bool ARMBaseInstrInfo::DefinesPredicate(MachineInstr *MI,
   }
 
   return Found;
-}
-
-static bool isV8EligibleForIT(MachineInstr *MI) {
-  switch (MI->getOpcode()) {
-  default:
-    return false;
-  case ARM::tADC:
-  case ARM::tADDi3:
-  case ARM::tADDi8:
-  case ARM::tADDrSPi:
-  case ARM::tADDrr:
-  case ARM::tAND:
-  case ARM::tASRri:
-  case ARM::tASRrr:
-  case ARM::tBIC:
-  case ARM::tCMNz:
-  case ARM::tCMPi8:
-  case ARM::tCMPr:
-  case ARM::tEOR:
-  case ARM::tLDRBi:
-  case ARM::tLDRBr:
-  case ARM::tLDRHi:
-  case ARM::tLDRHr:
-  case ARM::tLDRSB:
-  case ARM::tLDRSH:
-  case ARM::tLDRi:
-  case ARM::tLDRr:
-  case ARM::tLDRspi:
-  case ARM::tLSLri:
-  case ARM::tLSLrr:
-  case ARM::tLSRri:
-  case ARM::tLSRrr:
-  case ARM::tMOVi8:
-  case ARM::tMUL:
-  case ARM::tMVN:
-  case ARM::tORR:
-  case ARM::tROR:
-  case ARM::tRSB:
-  case ARM::tSBC:
-  case ARM::tSTRBi:
-  case ARM::tSTRBr:
-  case ARM::tSTRHi:
-  case ARM::tSTRHr:
-  case ARM::tSTRi:
-  case ARM::tSTRr:
-  case ARM::tSTRspi:
-  case ARM::tSUBi3:
-  case ARM::tSUBi8:
-  case ARM::tSUBrr:
-  case ARM::tTST:
-    return true;
-// there are some "conditionally deprecated" opcodes
-  case ARM::tADDspr:
-    return MI->getOperand(2).getReg() != ARM::PC;
-  case ARM::tADDrSP:
-  case ARM::tBX:
-  case ARM::tBLXr:
-  // ADD PC, SP and BLX PC were always unpredictable,
-  // now on top of it they're deprecated
-    return MI->getOperand(0).getReg() != ARM::PC;
-  case ARM::tADDhirr:
-    return MI->getOperand(0).getReg() != ARM::PC &&
-           MI->getOperand(2).getReg() != ARM::PC;
-  case ARM::tCMPhir:
-  case ARM::tMOVr:
-    return MI->getOperand(0).getReg() != ARM::PC &&
-           MI->getOperand(1).getReg() != ARM::PC;
-  }
 }
 
 /// isPredicable - Return true if the specified instruction can be predicated.
@@ -1773,7 +1706,7 @@ MachineInstr *ARMBaseInstrInfo::optimizeSelect(MachineInstr *MI,
                                                bool PreferFalse) const {
   assert((MI->getOpcode() == ARM::MOVCCr || MI->getOpcode() == ARM::t2MOVCCr) &&
          "Unknown select instruction");
-  const MachineRegisterInfo &MRI = MI->getParent()->getParent()->getRegInfo();
+  MachineRegisterInfo &MRI = MI->getParent()->getParent()->getRegInfo();
   MachineInstr *DefMI = canFoldIntoMOVCC(MI->getOperand(2).getReg(), MRI, this);
   bool Invert = !DefMI;
   if (!DefMI)
@@ -1781,11 +1714,17 @@ MachineInstr *ARMBaseInstrInfo::optimizeSelect(MachineInstr *MI,
   if (!DefMI)
     return 0;
 
+  // Find new register class to use.
+  MachineOperand FalseReg = MI->getOperand(Invert ? 2 : 1);
+  unsigned       DestReg  = MI->getOperand(0).getReg();
+  const TargetRegisterClass *PreviousClass = MRI.getRegClass(FalseReg.getReg());
+  if (!MRI.constrainRegClass(DestReg, PreviousClass))
+    return 0;
+
   // Create a new predicated version of DefMI.
   // Rfalse is the first use.
   MachineInstrBuilder NewMI = BuildMI(*MI->getParent(), MI, MI->getDebugLoc(),
-                                      DefMI->getDesc(),
-                                      MI->getOperand(0).getReg());
+                                      DefMI->getDesc(), DestReg);
 
   // Copy all the DefMI operands, excluding its (null) predicate.
   const MCInstrDesc &DefDesc = DefMI->getDesc();
@@ -1808,7 +1747,6 @@ MachineInstr *ARMBaseInstrInfo::optimizeSelect(MachineInstr *MI,
   // register operand tied to the first def.
   // The tie makes the register allocator ensure the FalseReg is allocated the
   // same register as operand 0.
-  MachineOperand FalseReg = MI->getOperand(Invert ? 2 : 1);
   FalseReg.setImplicit();
   NewMI.addOperand(FalseReg);
   NewMI->tieOperands(0, NewMI->getNumOperands() - 1);
@@ -3667,6 +3605,24 @@ ARMBaseInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
     }
 
   return Latency;
+}
+
+unsigned ARMBaseInstrInfo::getPredicationCost(const MachineInstr *MI) const {
+   if (MI->isCopyLike() || MI->isInsertSubreg() ||
+      MI->isRegSequence() || MI->isImplicitDef())
+    return 0;
+
+  if (MI->isBundle())
+    return 0;
+
+  const MCInstrDesc &MCID = MI->getDesc();
+
+  if (MCID.isCall() || MCID.hasImplicitDefOfPhysReg(ARM::CPSR)) {
+    // When predicated, CPSR is an additional source operand for CPSR updating
+    // instructions, this apparently increases their latencies.
+    return 1;
+  }
+  return 0;
 }
 
 unsigned ARMBaseInstrInfo::getInstrLatency(const InstrItineraryData *ItinData,

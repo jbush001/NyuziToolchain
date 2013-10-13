@@ -404,7 +404,7 @@ struct BreakpointPrinter : public ModulePass {
           "A MDNode in llvm.dbg.sp should be null or a DISubprogram.");
         if (!SP)
           continue;
-        getContextName(SP.getContext(), Name);
+        getContextName(SP.getContext().resolve(TypeIdentifierMap), Name);
         Name = Name + SP.getDisplayName().str();
         if (!Name.empty() && Processed.insert(Name)) {
           Out << Name << "\n";
@@ -417,7 +417,7 @@ struct BreakpointPrinter : public ModulePass {
     AU.setPreservesAll();
   }
 };
- 
+
 } // anonymous namespace
 
 char BreakpointPrinter::ID = 0;
@@ -460,7 +460,7 @@ static void AddOptimizationPasses(PassManagerBase &MPM,FunctionPassManager &FPM,
   Builder.DisableUnitAtATime = !UnitAtATime;
   Builder.DisableUnrollLoops = (DisableLoopUnrolling.getNumOccurrences() > 0) ?
                                DisableLoopUnrolling : OptLevel == 0;
-  
+
   Builder.LoopVectorize = OptLevel > 1 && SizeLevel < 2;
   Builder.SLPVectorize = true;
 

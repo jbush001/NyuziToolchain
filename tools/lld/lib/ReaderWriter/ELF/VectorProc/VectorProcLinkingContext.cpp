@@ -17,7 +17,7 @@ ErrorOr<Reference::Kind> elf::VectorProcLinkingContext::relocKindFromString(
     .Default(-1);
 
   if (ret == -1)
-    return make_error_code(yaml_reader_error::illegal_value);
+    return make_error_code(YamlReaderError::illegal_value);
   return ret;
 }
 
@@ -32,5 +32,5 @@ elf::VectorProcLinkingContext::stringFromRelocKind(Reference::Kind kind) const {
   LLD_CASE(R_VECTORPROC_ABS32)
   }
 
-  return make_error_code(yaml_reader_error::illegal_value);
+  return make_error_code(YamlReaderError::illegal_value);
 }

@@ -787,7 +787,8 @@ public:
     // Note, IsDependent is always false here: we implicitly convert an 'auto'
     // which has been deduced to a dependent type into an undeduced 'auto', so
     // that we'll retry deduction after the transformation.
-    return SemaRef.Context.getAutoType(Deduced, IsDecltypeAuto);
+    return SemaRef.Context.getAutoType(Deduced, IsDecltypeAuto, 
+                                       /*IsDependent*/ false);
   }
 
   /// \brief Build a new template specialization type.
@@ -1310,6 +1311,18 @@ public:
                                      SourceLocation EndLoc) {
     return getSema().ActOnOpenMPPrivateClause(VarList, StartLoc, LParenLoc,
                                               EndLoc);
+  }
+
+  /// \brief Build a new OpenMP 'firstprivate' clause.
+  ///
+  /// By default, performs semantic analysis to build the new statement.
+  /// Subclasses may override this routine to provide different behavior.
+  OMPClause *RebuildOMPFirstprivateClause(ArrayRef<Expr *> VarList,
+                                          SourceLocation StartLoc,
+                                          SourceLocation LParenLoc,
+                                          SourceLocation EndLoc) {
+    return getSema().ActOnOpenMPFirstprivateClause(VarList, StartLoc, LParenLoc,
+                                                   EndLoc);
   }
 
   OMPClause *RebuildOMPSharedClause(ArrayRef<Expr *> VarList,
@@ -3514,7 +3527,8 @@ TreeTransform<Derived>::TransformQualifiedType(TypeLocBuilder &TLB,
         Qs.removeObjCLifetime();
         Deduced = SemaRef.Context.getQualifiedType(Deduced.getUnqualifiedType(),
                                                    Qs);
-        Result = SemaRef.Context.getAutoType(Deduced, AutoTy->isDecltypeAuto());
+        Result = SemaRef.Context.getAutoType(Deduced, AutoTy->isDecltypeAuto(), 
+                                AutoTy->isDependentType());
         TLB.TypeWasModifiedSafely(Result);
       } else {
         // Otherwise, complain about the addition of a qualifier to an
@@ -6325,8 +6339,8 @@ OMPClause *
 TreeTransform<Derived>::TransformOMPPrivateClause(OMPPrivateClause *C) {
   llvm::SmallVector<Expr *, 16> Vars;
   Vars.reserve(C->varlist_size());
-  for (OMPVarList<OMPPrivateClause>::varlist_iterator I = C->varlist_begin(),
-                                                      E = C->varlist_end();
+  for (OMPPrivateClause::varlist_iterator I = C->varlist_begin(),
+                                          E = C->varlist_end();
        I != E; ++I) {
     ExprResult EVar = getDerived().TransformExpr(cast<Expr>(*I));
     if (EVar.isInvalid())
@@ -6341,11 +6355,31 @@ TreeTransform<Derived>::TransformOMPPrivateClause(OMPPrivateClause *C) {
 
 template<typename Derived>
 OMPClause *
+TreeTransform<Derived>::TransformOMPFirstprivateClause(
+                                                 OMPFirstprivateClause *C) {
+  llvm::SmallVector<Expr *, 16> Vars;
+  Vars.reserve(C->varlist_size());
+  for (OMPFirstprivateClause::varlist_iterator I = C->varlist_begin(),
+                                               E = C->varlist_end();
+       I != E; ++I) {
+    ExprResult EVar = getDerived().TransformExpr(cast<Expr>(*I));
+    if (EVar.isInvalid())
+      return 0;
+    Vars.push_back(EVar.take());
+  }
+  return getDerived().RebuildOMPFirstprivateClause(Vars,
+                                                   C->getLocStart(),
+                                                   C->getLParenLoc(),
+                                                   C->getLocEnd());
+}
+
+template<typename Derived>
+OMPClause *
 TreeTransform<Derived>::TransformOMPSharedClause(OMPSharedClause *C) {
   llvm::SmallVector<Expr *, 16> Vars;
   Vars.reserve(C->varlist_size());
-  for (OMPVarList<OMPSharedClause>::varlist_iterator I = C->varlist_begin(),
-                                                     E = C->varlist_end();
+  for (OMPSharedClause::varlist_iterator I = C->varlist_begin(),
+                                         E = C->varlist_end();
        I != E; ++I) {
     ExprResult EVar = getDerived().TransformExpr(cast<Expr>(*I));
     if (EVar.isInvalid())
@@ -8249,6 +8283,14 @@ TreeTransform<Derived>::TransformCXXTemporaryObjectExpr(
 template<typename Derived>
 ExprResult
 TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
+ 
+  // FIXME: Implement nested generic lambda transformations.
+  if (E->isGenericLambda()) {
+    getSema().Diag(E->getIntroducerRange().getBegin(), 
+      diag::err_glambda_not_fully_implemented) 
+      << " template transformation of generic lambdas not implemented yet";
+    return ExprError();
+  }
   // Transform the type of the lambda parameters and start the definition of
   // the lambda itself.
   TypeSourceInfo *MethodTy
@@ -8271,7 +8313,10 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
         E->getCallOperator()->param_size(),
         0, ParamTypes, &Params))
     return ExprError();
-
+  getSema().PushLambdaScope();
+  LambdaScopeInfo *LSI = getSema().getCurLambda();
+  // TODO: Fix for nested lambdas
+  LSI->GLTemplateParameterList = 0;
   // Build the call operator.
   CXXMethodDecl *CallOperator
     = getSema().startLambdaDefinition(Class, E->getIntroducerRange(),
@@ -8300,15 +8345,17 @@ TreeTransform<Derived>::TransformLambdaScope(LambdaExpr *E,
     if (!C->isInitCapture())
       continue;
     InitCaptureExprs[C - E->capture_begin()] =
-        getDerived().TransformExpr(E->getInitCaptureInit(C));
+        getDerived().TransformInitializer(
+            C->getCapturedVar()->getInit(),
+            C->getCapturedVar()->getInitStyle() == VarDecl::CallInit);
   }
 
   // Introduce the context of the call operator.
   Sema::ContextRAII SavedContext(getSema(), CallOperator);
 
+  LambdaScopeInfo *const LSI = getSema().getCurLambda();
   // Enter the scope of the lambda.
-  sema::LambdaScopeInfo *LSI
-    = getSema().enterLambdaScope(CallOperator, E->getIntroducerRange(),
+  getSema().buildLambdaScope(LSI, CallOperator, E->getIntroducerRange(),
                                  E->getCaptureDefault(),
                                  E->getCaptureDefaultLoc(),
                                  E->hasExplicitParameters(),
@@ -8340,14 +8387,15 @@ TreeTransform<Derived>::TransformLambdaScope(LambdaExpr *E,
         Invalid = true;
         continue;
       }
-      FieldDecl *OldFD = C->getInitCaptureField();
-      FieldDecl *NewFD = getSema().checkInitCapture(
-          C->getLocation(), OldFD->getType()->isReferenceType(),
-          OldFD->getIdentifier(), Init.take());
-      if (!NewFD)
+      VarDecl *OldVD = C->getCapturedVar();
+      VarDecl *NewVD = getSema().checkInitCapture(
+          C->getLocation(), OldVD->getType()->isReferenceType(),
+          OldVD->getIdentifier(), Init.take());
+      if (!NewVD)
         Invalid = true;
       else
-        getDerived().transformedLocalDecl(OldFD, NewFD);
+        getDerived().transformedLocalDecl(OldVD, NewVD);
+      getSema().buildInitCaptureField(LSI, NewVD);
       continue;
     }
 

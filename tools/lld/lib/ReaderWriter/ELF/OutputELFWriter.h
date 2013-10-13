@@ -77,7 +77,7 @@ protected:
   virtual void addDefaultAtoms() = 0;
 
   // Add any runtime files and their atoms to the output
-  virtual void addFiles(InputFiles &);
+  virtual bool createImplicitFiles(std::vector<std::unique_ptr<File> > &);
 
   // Finalize the default atom values
   virtual void finalizeDefaultAtomValues() = 0;
@@ -170,7 +170,7 @@ void OutputELFWriter<ELFT>::buildDynamicSymbolTable(const File &file) {
     _dynamicTable->addEntry(dyn);
   }
   StringRef soname = _context.sharedObjectName();
-  if (!soname.empty() && _context.getOutputType() == llvm::ELF::ET_DYN) {
+  if (!soname.empty() && _context.getOutputELFType() == llvm::ELF::ET_DYN) {
     Elf_Dyn dyn;
     dyn.d_tag = DT_SONAME;
     dyn.d_un.d_val = _dynamicStringTable->addString(soname);
@@ -239,9 +239,11 @@ void OutputELFWriter<ELFT>::assignSectionsWithNoSegments() {
 }
 
 template <class ELFT>
-void OutputELFWriter<ELFT>::addFiles(InputFiles &inputFiles) {
+bool OutputELFWriter<ELFT>::createImplicitFiles(
+    std::vector<std::unique_ptr<File> > &result) {
   // Add all input Files that are defined by the target
-  _targetHandler.addFiles(inputFiles);
+  _targetHandler.createImplicitFiles(result);
+  return true;
 }
 
 template <class ELFT> void OutputELFWriter<ELFT>::createDefaultSections() {
@@ -368,7 +370,7 @@ error_code OutputELFWriter<ELFT>::writeFile(const File &file, StringRef path) {
   _elfHeader->e_ident(ELF::EI_DATA, _context.isLittleEndian()
                                         ? ELF::ELFDATA2LSB
                                         : ELF::ELFDATA2MSB);
-  _elfHeader->e_type(_context.getOutputType());
+  _elfHeader->e_type(_context.getOutputELFType());
   _elfHeader->e_machine(_context.getOutputMachine());
 
   if (!_targetHandler.doesOverrideELFHeader()) {

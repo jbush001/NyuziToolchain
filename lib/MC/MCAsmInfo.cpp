@@ -35,7 +35,7 @@ MCAsmInfo::MCAsmInfo() {
   LinkerRequiresNonEmptyDwarfLines = false;
   MaxInstLength = 4;
   MinInstAlignment = 1;
-  PCSymbol = "$";
+  DollarIsPC = false;
   SeparatorString = ";";
   CommentColumn = 40;
   CommentString = "#";

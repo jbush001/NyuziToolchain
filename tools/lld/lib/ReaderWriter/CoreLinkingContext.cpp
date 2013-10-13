@@ -271,8 +271,10 @@ private:
 
 CoreLinkingContext::CoreLinkingContext() {}
 
-bool CoreLinkingContext::validateImpl(raw_ostream &diagnostics) {
-  return false;
+bool CoreLinkingContext::validateImpl(raw_ostream &) {
+  _reader = createReaderYAML(*this);
+  _writer = createWriterYAML(*this);
+  return true;
 }
 
 void CoreLinkingContext::addPasses(PassManager &pm) const {
@@ -288,18 +290,7 @@ void CoreLinkingContext::addPasses(PassManager &pm) const {
   }
 }
 
-error_code CoreLinkingContext::parseFile(LinkerInput &input,
-    std::vector<std::unique_ptr<File>> &result) const {
-  if (!_reader)
-    _reader = createReaderYAML(*this);
-  return _reader->parseFile(input, result);
-}
-
-Writer &CoreLinkingContext::writer() const {
-  if (!_writer)
-    _writer = createWriterYAML(*this);
-  return *_writer;
-}
+Writer &CoreLinkingContext::writer() const { return *_writer; }
 
 ErrorOr<Reference::Kind>
 CoreLinkingContext::relocKindFromString(StringRef str) const {
@@ -307,7 +298,7 @@ CoreLinkingContext::relocKindFromString(StringRef str) const {
     if (str.equals(p->string))
       return p->value;
   }
-  return make_error_code(yaml_reader_error::illegal_value);
+  return make_error_code(YamlReaderError::illegal_value);
 }
 
 ErrorOr<std::string>
@@ -316,5 +307,5 @@ CoreLinkingContext::stringFromRelocKind(Reference::Kind kind) const {
     if (kind == p->value)
       return std::string(p->string);
   }
-  return make_error_code(yaml_reader_error::illegal_value);
+  return make_error_code(YamlReaderError::illegal_value);
 }

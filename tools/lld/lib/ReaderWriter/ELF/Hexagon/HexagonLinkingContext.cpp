@@ -62,9 +62,8 @@ public:
 
 class HexagonInitFiniFile : public SimpleFile {
 public:
-  HexagonInitFiniFile(const ELFLinkingContext &context):
-    SimpleFile(context, "command line option -init/-fini")
-  {}
+  HexagonInitFiniFile(const ELFLinkingContext &context)
+      : SimpleFile(context, "command line option -init/-fini"), _ordinal(0) {}
 
   void addInitFunction(StringRef name) {
     Atom *initFunctionAtom = new (_allocator) SimpleUndefinedAtom(*this, name);
@@ -88,24 +87,22 @@ public:
 
 private:
   llvm::BumpPtrAllocator _allocator;
+  uint64_t _ordinal;
 };
 }
 
-
-std::vector<std::unique_ptr<File>>
-  elf::HexagonLinkingContext::createInternalFiles(){
-  std::vector<std::unique_ptr<File> > result =
-    ELFLinkingContext::createInternalFiles();
-  std::unique_ptr<HexagonInitFiniFile>
-    initFiniFile(new HexagonInitFiniFile(*this));
-  for (auto ai:initFunctions())
+bool elf::HexagonLinkingContext::createInternalFiles(
+    std::vector<std::unique_ptr<File> > &result) const {
+  ELFLinkingContext::createInternalFiles(result);
+  std::unique_ptr<HexagonInitFiniFile> initFiniFile(
+      new HexagonInitFiniFile(*this));
+  for (auto ai : initFunctions())
     initFiniFile->addInitFunction(ai);
   for (auto ai:finiFunctions())
     initFiniFile->addFiniFunction(ai);
   result.push_back(std::move(initFiniFile));
-  return result;
+  return true;
 }
-
 
 ErrorOr<Reference::Kind>
 elf::HexagonLinkingContext::relocKindFromString(StringRef str) const {
@@ -150,7 +147,7 @@ elf::HexagonLinkingContext::relocKindFromString(StringRef str) const {
       LLD_CASE(R_HEX_TPREL_16_X) LLD_CASE(R_HEX_TPREL_11_X).Default(-1);
 
   if (ret == -1)
-    return make_error_code(yaml_reader_error::illegal_value);
+    return make_error_code(YamlReaderError::illegal_value);
   return ret;
 }
 
@@ -251,5 +248,5 @@ elf::HexagonLinkingContext::stringFromRelocKind(int32_t kind) const {
     LLD_CASE(R_HEX_TPREL_11_X)
   }
 
-  return make_error_code(yaml_reader_error::illegal_value);
+  return make_error_code(YamlReaderError::illegal_value);
 }

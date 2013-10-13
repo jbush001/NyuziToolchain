@@ -1452,3 +1452,83 @@
 0x20 0x60 0x22 0x6e
 0x20 0x60 0x62 0x6e
 0x20 0x60 0xa2 0x6e
+
+#----------------------------------------------------------------------
+# Scalar Integer Saturating Doubling Multiply Half High
+#----------------------------------------------------------------------
+# CHECK: sqdmulh h10, h11, h12
+# CHECK: sqdmulh s20, s21, s2
+0x6a,0xb5,0x6c,0x5e
+0xb4,0xb6,0xa2,0x5e
+
+#----------------------------------------------------------------------
+# Scalar Integer Saturating Rounding Doubling Multiply Half High
+#----------------------------------------------------------------------
+# CHECK: sqrdmulh h10, h11, h12
+# CHECK: sqrdmulh s20, s21, s2
+0x6a,0xb5,0x6c,0x7e
+0xb4,0xb6,0xa2,0x7e
+
+#----------------------------------------------------------------------
+# Floating-point multiply extended
+#----------------------------------------------------------------------
+# CHECK: fmulx s20, s22, s15
+# CHECK: fmulx d23, d11, d1
+0xd4,0xde,0x2f,0x5e
+0x77,0xdd,0x61,0x5e
+
+#----------------------------------------------------------------------
+# Floating-point Reciprocal Step
+#----------------------------------------------------------------------
+# CHECK: frecps s21, s16, s13
+# CHECK: frecps d22, d30, d21
+0x15,0xfe,0x2d,0x5e
+0xd6,0xff,0x75,0x5e
+
+#----------------------------------------------------------------------
+# Floating-point Reciprocal Square Root Step
+#----------------------------------------------------------------------
+# CHECK: frsqrts s21, s5, s12
+# CHECK: frsqrts d8, d22, d18
+0xb5,0xfc,0xac,0x5e
+0xc8,0xfe,0xf2,0x5e
+
+#----------------------------------------------------------------------
+# Scalar Signed Integer Convert To Floating-point
+#----------------------------------------------------------------------
+# CHECK: scvtf s22, s13
+# CHECK: scvtf d21, d12
+0xb6,0xd9,0x21,0x5e
+0x95,0xd9,0x61,0x5e
+
+#----------------------------------------------------------------------
+# Scalar Unsigned Integer Convert To Floating-point
+#----------------------------------------------------------------------
+# CHECK: ucvtf s22, s13
+# CHECK: ucvtf d21, d14
+0xb6,0xd9,0x21,0x7e
+0xd5,0xd9,0x61,0x7e
+
+#----------------------------------------------------------------------
+# Scalar Floating-point Reciprocal Estimate
+#----------------------------------------------------------------------
+# CHECK: frecpe s19, s14
+# CHECK: frecpe d13, d13
+0xd3,0xd9,0xa1,0x5e
+0xad,0xd9,0xe1,0x5e
+
+#----------------------------------------------------------------------
+# Scalar Floating-point Reciprocal Exponent
+#----------------------------------------------------------------------
+# CHECK: frecpx s18, s10
+# CHECK: frecpx d16, d19
+0x52,0xf9,0xa1,0x5e
+0x70,0xfa,0xe1,0x5e
+
+#----------------------------------------------------------------------
+# Scalar Floating-point Reciprocal Square Root Estimate
+#----------------------------------------------------------------------
+# CHECK: frsqrte s22, s13
+# CHECK: frsqrte d21, d12
+0xb6,0xd9,0xa1,0x7e
+0x95,0xd9,0xe1,0x7e

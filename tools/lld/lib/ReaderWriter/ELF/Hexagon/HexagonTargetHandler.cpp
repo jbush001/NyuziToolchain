@@ -18,7 +18,7 @@ using namespace llvm::ELF;
 HexagonTargetHandler::HexagonTargetHandler(HexagonLinkingContext &context)
     : DefaultTargetHandler(context), _targetLayout(context),
       _relocationHandler(context, *this, _targetLayout),
-      _hexagonRuntimeFile(context) {}
+      _hexagonRuntimeFile(new HexagonRuntimeFile<HexagonELFType>(context)) {}
 
 namespace {
 
@@ -107,7 +107,9 @@ public:
 
 class ELFPassFile : public SimpleFile {
 public:
-  ELFPassFile(const ELFLinkingContext &eti) : SimpleFile(eti, "ELFPassFile") {}
+  ELFPassFile(const ELFLinkingContext &eti) : SimpleFile(eti, "ELFPassFile") {
+    setOrdinal(eti.getNextOrdinalAndIncrement());
+  }
 
   llvm::BumpPtrAllocator _alloc;
 };

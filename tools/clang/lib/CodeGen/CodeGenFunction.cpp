@@ -238,7 +238,7 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
     DI->EmitFunctionEnd(Builder);
   }
 
-  EmitFunctionEpilog(*CurFnInfo, EmitRetDbgLoc);
+  EmitFunctionEpilog(*CurFnInfo, EmitRetDbgLoc, EndLoc);
   EmitEndEHSpec(CurCodeDecl);
 
   assert(EHStack.empty() &&
@@ -591,7 +591,8 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
       if (LambdaThisCaptureField) {
         // If this lambda captures this, load it.
         LValue ThisLValue = EmitLValueForLambdaField(LambdaThisCaptureField);
-        CXXThisValue = EmitLoadOfLValue(ThisLValue).getScalarVal();
+        CXXThisValue = EmitLoadOfLValue(ThisLValue,
+                                        SourceLocation()).getScalarVal();
       }
     } else {
       // Not in a lambda; just use 'this' from the method.
@@ -698,7 +699,7 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     EmitLambdaToBlockPointerBody(Args);
   } else if (isa<CXXMethodDecl>(FD) &&
              cast<CXXMethodDecl>(FD)->isLambdaStaticInvoker()) {
-    // The lambda "__invoke" function is special, because it forwards or
+    // The lambda static invoker function is special, because it forwards or
     // clones the body of the function call operator (but is actually static).
     EmitLambdaStaticInvokeFunction(cast<CXXMethodDecl>(FD));
   } else if (FD->isDefaulted() && isa<CXXMethodDecl>(FD) &&

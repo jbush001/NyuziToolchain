@@ -394,63 +394,63 @@ def LDQFri : F3_2<3, 0b100010,
 
 // Section B.4 - Store Integer Instructions, p. 95
 def STBrr : F3_1<3, 0b000101,
-                 (outs), (ins MEMrr:$addr, IntRegs:$src),
-                 "stb $src, [$addr]",
-                 [(truncstorei8 i32:$src, ADDRrr:$addr)]>;
+                 (outs), (ins MEMrr:$addr, IntRegs:$rd),
+                 "stb $rd, [$addr]",
+                 [(truncstorei8 i32:$rd, ADDRrr:$addr)]>;
 def STBri : F3_2<3, 0b000101,
-                 (outs), (ins MEMri:$addr, IntRegs:$src),
-                 "stb $src, [$addr]",
-                 [(truncstorei8 i32:$src, ADDRri:$addr)]>;
+                 (outs), (ins MEMri:$addr, IntRegs:$rd),
+                 "stb $rd, [$addr]",
+                 [(truncstorei8 i32:$rd, ADDRri:$addr)]>;
 def STHrr : F3_1<3, 0b000110,
-                 (outs), (ins MEMrr:$addr, IntRegs:$src),
-                 "sth $src, [$addr]",
-                 [(truncstorei16 i32:$src, ADDRrr:$addr)]>;
+                 (outs), (ins MEMrr:$addr, IntRegs:$rd),
+                 "sth $rd, [$addr]",
+                 [(truncstorei16 i32:$rd, ADDRrr:$addr)]>;
 def STHri : F3_2<3, 0b000110,
-                 (outs), (ins MEMri:$addr, IntRegs:$src),
-                 "sth $src, [$addr]",
-                 [(truncstorei16 i32:$src, ADDRri:$addr)]>;
+                 (outs), (ins MEMri:$addr, IntRegs:$rd),
+                 "sth $rd, [$addr]",
+                 [(truncstorei16 i32:$rd, ADDRri:$addr)]>;
 def STrr  : F3_1<3, 0b000100,
-                 (outs), (ins MEMrr:$addr, IntRegs:$src),
-                 "st $src, [$addr]",
-                 [(store i32:$src, ADDRrr:$addr)]>;
+                 (outs), (ins MEMrr:$addr, IntRegs:$rd),
+                 "st $rd, [$addr]",
+                 [(store i32:$rd, ADDRrr:$addr)]>;
 def STri  : F3_2<3, 0b000100,
-                 (outs), (ins MEMri:$addr, IntRegs:$src),
-                 "st $src, [$addr]",
-                 [(store i32:$src, ADDRri:$addr)]>;
+                 (outs), (ins MEMri:$addr, IntRegs:$rd),
+                 "st $rd, [$addr]",
+                 [(store i32:$rd, ADDRri:$addr)]>;
 
 // Section B.5 - Store Floating-point Instructions, p. 97
 def STFrr   : F3_1<3, 0b100100,
-                   (outs), (ins MEMrr:$addr, FPRegs:$src),
-                   "st $src, [$addr]",
-                   [(store f32:$src, ADDRrr:$addr)]>;
+                   (outs), (ins MEMrr:$addr, FPRegs:$rd),
+                   "st $rd, [$addr]",
+                   [(store f32:$rd, ADDRrr:$addr)]>;
 def STFri   : F3_2<3, 0b100100,
-                   (outs), (ins MEMri:$addr, FPRegs:$src),
-                   "st $src, [$addr]",
-                   [(store f32:$src, ADDRri:$addr)]>;
+                   (outs), (ins MEMri:$addr, FPRegs:$rd),
+                   "st $rd, [$addr]",
+                   [(store f32:$rd, ADDRri:$addr)]>;
 def STDFrr  : F3_1<3, 0b100111,
-                   (outs), (ins MEMrr:$addr, DFPRegs:$src),
-                   "std  $src, [$addr]",
-                   [(store f64:$src, ADDRrr:$addr)]>;
+                   (outs), (ins MEMrr:$addr, DFPRegs:$rd),
+                   "std  $rd, [$addr]",
+                   [(store f64:$rd, ADDRrr:$addr)]>;
 def STDFri  : F3_2<3, 0b100111,
-                   (outs), (ins MEMri:$addr, DFPRegs:$src),
-                   "std $src, [$addr]",
-                   [(store f64:$src, ADDRri:$addr)]>;
+                   (outs), (ins MEMri:$addr, DFPRegs:$rd),
+                   "std $rd, [$addr]",
+                   [(store f64:$rd, ADDRri:$addr)]>;
 def STQFrr  : F3_1<3, 0b100110,
-                   (outs), (ins MEMrr:$addr, QFPRegs:$src),
-                   "stq  $src, [$addr]",
-                   [(store f128:$src, ADDRrr:$addr)]>,
+                   (outs), (ins MEMrr:$addr, QFPRegs:$rd),
+                   "stq  $rd, [$addr]",
+                   [(store f128:$rd, ADDRrr:$addr)]>,
                    Requires<[HasV9, HasHardQuad]>;
 def STQFri  : F3_2<3, 0b100110,
-                   (outs), (ins MEMri:$addr, QFPRegs:$src),
-                   "stq $src, [$addr]",
-                   [(store f128:$src, ADDRri:$addr)]>,
+                   (outs), (ins MEMri:$addr, QFPRegs:$rd),
+                   "stq $rd, [$addr]",
+                   [(store f128:$rd, ADDRri:$addr)]>,
                    Requires<[HasV9, HasHardQuad]>;
 
 // Section B.9 - SETHI Instruction, p. 104
 def SETHIi: F2_1<0b100,
-                 (outs IntRegs:$dst), (ins i32imm:$src),
-                 "sethi $src, $dst",
-                 [(set i32:$dst, SETHIimm:$src)]>;
+                 (outs IntRegs:$rd), (ins i32imm:$imm22),
+                 "sethi $imm22, $rd",
+                 [(set i32:$rd, SETHIimm:$imm22)]>;
 
 // Section B.10 - NOP Instruction, p. 105
 // (It's a special case of SETHI)
@@ -504,13 +504,13 @@ def LEA_ADDri   : F3_2<2, 0b000000,
 let Defs = [ICC] in
   defm ADDCC  : F3_12<"addcc", 0b010000, addc>;
 
-let Uses = [ICC] in
-  defm ADDX  : F3_12<"addx", 0b001000, adde>;
+let Uses = [ICC], Defs = [ICC] in
+  defm ADDX  : F3_12<"addxcc", 0b011000, adde>;
 
 // Section B.15 - Subtract Instructions, p. 110
 defm SUB    : F3_12  <"sub"  , 0b000100, sub>;
-let Uses = [ICC] in
-  defm SUBX   : F3_12  <"subx" , 0b001100, sube>;
+let Uses = [ICC], Defs = [ICC] in
+  defm SUBX   : F3_12  <"subxcc" , 0b011100, sube>;
 
 let Defs = [ICC] in
   defm SUBCC  : F3_12  <"subcc", 0b010100, subc>;
@@ -807,20 +807,22 @@ def FDIVQ  : F3_3<2, 0b110100, 0b001001111,
 // Floating-point Compare Instructions, p. 148
 // Note: the 2nd template arg is different for these guys.
 // Note 2: the result of a FCMP is not available until the 2nd cycle
-// after the instr is retired, but there is no interlock. This behavior
-// is modelled with a forced noop after the instruction.
+// after the instr is retired, but there is no interlock in Sparc V8.
+// This behavior is modeled with a forced noop after the instruction in
+// DelaySlotFiller.
+
 let Defs = [FCC] in {
   def FCMPS  : F3_3c<2, 0b110101, 0b001010001,
                    (outs), (ins FPRegs:$src1, FPRegs:$src2),
-                   "fcmps $src1, $src2\n\tnop",
+                   "fcmps $src1, $src2",
                    [(SPcmpfcc f32:$src1, f32:$src2)]>;
   def FCMPD  : F3_3c<2, 0b110101, 0b001010010,
                    (outs), (ins DFPRegs:$src1, DFPRegs:$src2),
-                   "fcmpd $src1, $src2\n\tnop",
+                   "fcmpd $src1, $src2",
                    [(SPcmpfcc f64:$src1, f64:$src2)]>;
   def FCMPQ  : F3_3c<2, 0b110101, 0b001010011,
                    (outs), (ins QFPRegs:$src1, QFPRegs:$src2),
-                   "fcmpq $src1, $src2\n\tnop",
+                   "fcmpq $src1, $src2",
                    [(SPcmpfcc f128:$src1, f128:$src2)]>,
                    Requires<[HasHardQuad]>;
 }
@@ -843,10 +845,10 @@ let mayLoad = 1 in
                       [(set i32:$dst,
                           (tlsld ADDRrr:$addr, tglobaltlsaddr:$sym))]>;
 
-let Uses = [O6], isCall = 1 in
+let Uses = [O6], isCall = 1, hasDelaySlot = 1 in
   def TLS_CALL : InstSP<(outs),
                         (ins calltarget:$disp, TLSSym:$sym, variable_ops),
-                        "call $disp, $sym\n\tnop",
+                        "call $disp, $sym",
                         [(tlscall texternalsym:$disp, tglobaltlsaddr:$sym)]> {
   bits<30> disp;
   let op = 1;

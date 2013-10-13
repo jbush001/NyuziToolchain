@@ -23,8 +23,7 @@ def SDT_MipsCMov         : SDTypeProfile<1, 4, [SDTCisSameAs<0, 1>,
                                                 SDTCisInt<4>]>;
 def SDT_MipsCallSeqStart : SDCallSeqStart<[SDTCisVT<0, i32>]>;
 def SDT_MipsCallSeqEnd   : SDCallSeqEnd<[SDTCisVT<0, i32>, SDTCisVT<1, i32>]>;
-def SDT_ExtractLOHI : SDTypeProfile<1, 2, [SDTCisInt<0>, SDTCisVT<1, untyped>,
-                                           SDTCisVT<2, i32>]>;
+def SDT_ExtractLOHI : SDTypeProfile<1, 1, [SDTCisInt<0>, SDTCisVT<1, untyped>]>;
 def SDT_InsertLOHI : SDTypeProfile<1, 2, [SDTCisVT<0, untyped>,
                                           SDTCisVT<1, i32>,
                                           SDTCisSameAs<1, 2>]>;
@@ -86,8 +85,9 @@ def callseq_end   : SDNode<"ISD::CALLSEQ_END", SDT_MipsCallSeqEnd,
                            [SDNPHasChain, SDNPSideEffect,
                             SDNPOptInGlue, SDNPOutGlue]>;
 
-// Node used to extract integer from LO/HI register.
-def ExtractLOHI : SDNode<"MipsISD::ExtractLOHI", SDT_ExtractLOHI>;
+// Nodes used to extract LO/HI registers.
+def MipsExtractHI : SDNode<"MipsISD::ExtractHI", SDT_ExtractLOHI>;
+def MipsExtractLO : SDNode<"MipsISD::ExtractLO", SDT_ExtractLOHI>;
 
 // Node used to insert 32-bit integers to LOHI register pair.
 def InsertLOHI : SDNode<"MipsISD::InsertLOHI", SDT_InsertLOHI>;
@@ -115,7 +115,7 @@ def MipsDivRemU16 : SDNode<"MipsISD::DivRemU16", SDT_MipsDivRem16,
 // Wrapper node patterns give the instruction selector a chance to replace
 // target constant nodes that would otherwise remain unchanged with ADDiu
 // nodes. Without these wrapper node patterns, the following conditional move
-// instrucion is emitted when function cmov2 in test/CodeGen/Mips/cmov.ll is
+// instruction is emitted when function cmov2 in test/CodeGen/Mips/cmov.ll is
 // compiled:
 //  movn  %got(d)($gp), %got(c)($gp), $4
 // This instruction is illegal since movn can take only register operands.
@@ -262,7 +262,9 @@ def uimm20      : Operand<i32> {
 def uimm10      : Operand<i32> {
 }
 
-def simm16_64   : Operand<i64>;
+def simm16_64   : Operand<i64> {
+  let DecoderMethod = "DecodeSimm16";
+}
 
 // Unsigned Operand
 def uimm5       : Operand<i32> {
@@ -282,9 +284,20 @@ def MipsMemAsmOperand : AsmOperandClass {
   let ParserMethod = "parseMemOperand";
 }
 
+def MipsInvertedImmoperand : AsmOperandClass {
+  let Name = "InvNum";
+  let RenderMethod = "addImmOperands";
+  let ParserMethod = "parseInvNum";
+}
+
 def PtrRegAsmOperand : AsmOperandClass {
   let Name = "PtrReg";
   let ParserMethod = "parsePtrReg";
+}
+
+
+def InvertedImOperand : Operand<i32> {
+  let ParserMatchClass = MipsInvertedImmoperand;
 }
 
 // Address operand
@@ -686,10 +699,14 @@ class Div<string opstr, InstrItinClass itin, RegisterOperand RO,
 }
 
 // Move from Hi/Lo
-class MoveFromLOHI<string opstr, RegisterOperand RO, list<Register> UseRegs>:
-  InstSE<(outs RO:$rd), (ins), !strconcat(opstr, "\t$rd"), [], IIHiLo,
-  FrmR, opstr> {
-  let Uses = UseRegs;
+class PseudoMFLOHI<RegisterClass DstRC, RegisterClass SrcRC, SDNode OpNode>
+  : PseudoSE<(outs DstRC:$rd), (ins SrcRC:$hilo),
+             [(set DstRC:$rd, (OpNode SrcRC:$hilo))], IIHiLo>;
+
+class MoveFromLOHI<string opstr, RegisterOperand RO, Register UseReg>:
+  InstSE<(outs RO:$rd), (ins), !strconcat(opstr, "\t$rd"), [], IIHiLo, FrmR,
+         opstr> {
+  let Uses = [UseReg];
   let neverHasSideEffects = 1;
 }
 
@@ -1024,8 +1041,10 @@ def PseudoUDIV : MultDivPseudo<UDIV, ACC64, GPR32Opnd, MipsDivRemU, IIIdiv,
 
 def MTHI : MMRel, MoveToLOHI<"mthi", GPR32Opnd, [HI0]>, MTLO_FM<0x11>;
 def MTLO : MMRel, MoveToLOHI<"mtlo", GPR32Opnd, [LO0]>, MTLO_FM<0x13>;
-def MFHI : MMRel, MoveFromLOHI<"mfhi", GPR32Opnd, [HI0]>, MFLO_FM<0x10>;
-def MFLO : MMRel, MoveFromLOHI<"mflo", GPR32Opnd, [LO0]>, MFLO_FM<0x12>;
+def MFHI : MMRel, MoveFromLOHI<"mfhi", GPR32Opnd, AC0>, MFLO_FM<0x10>;
+def MFLO : MMRel, MoveFromLOHI<"mflo", GPR32Opnd, AC0>, MFLO_FM<0x12>;
+def PseudoMFHI : PseudoMFLOHI<GPR32, ACC64, MipsExtractHI>;
+def PseudoMFLO : PseudoMFLOHI<GPR32, ACC64, MipsExtractLO>;
 
 /// Sign Ext In Register Instructions.
 def SEB : MMRel, SignExtInReg<"seb", i8, GPR32Opnd>, SEB_FM<0x10, 0x20>;
@@ -1120,6 +1139,11 @@ def  : InstAlias<"tgeu $rs, $rt", (TGEU GPR32Opnd:$rs, GPR32Opnd:$rt, 0), 1>;
 def  : InstAlias<"tlt $rs, $rt", (TLT GPR32Opnd:$rs, GPR32Opnd:$rt, 0), 1>;
 def  : InstAlias<"tltu $rs, $rt", (TLTU GPR32Opnd:$rs, GPR32Opnd:$rt, 0), 1>;
 def  : InstAlias<"tne $rs, $rt", (TNE GPR32Opnd:$rs, GPR32Opnd:$rt, 0), 1>;
+def : InstAlias<"sub, $rd, $rs, $imm",
+                (ADDi GPR32Opnd:$rd, GPR32Opnd:$rs, InvertedImOperand:$imm)>;
+def : InstAlias<"subu, $rd, $rs, $imm",
+                (ADDiu GPR32Opnd:$rd, GPR32Opnd:$rs, InvertedImOperand:$imm)>;
+
 //===----------------------------------------------------------------------===//
 // Assembler Pseudo Instructions
 //===----------------------------------------------------------------------===//
@@ -1138,8 +1162,6 @@ class LoadAddressImm<string instr_asm, Operand Od, RegisterOperand RO> :
   MipsAsmPseudoInst<(outs RO:$rt), (ins Od:$imm32),
                      !strconcat(instr_asm, "\t$rt, $imm32")> ;
 def LoadAddr32Imm : LoadAddressImm<"la", uimm5, GPR32Opnd>;
-
-
 
 //===----------------------------------------------------------------------===//
 //  Arbitrary patterns that map to one or more instructions
@@ -1334,10 +1356,6 @@ defm : SetgeImmPats<GPR32, SLTi, SLTiu>;
 
 // bswap pattern
 def : MipsPat<(bswap GPR32:$rt), (ROTR (WSBH GPR32:$rt), 16)>;
-
-// mflo/hi patterns.
-def : MipsPat<(i32 (ExtractLOHI ACC64:$ac, imm:$lohi_idx)),
-              (EXTRACT_SUBREG ACC64:$ac, imm:$lohi_idx)>;
 
 // Load halfword/word patterns.
 let AddedComplexity = 40 in {

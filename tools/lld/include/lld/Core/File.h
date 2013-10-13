@@ -73,12 +73,11 @@ public:
     return _ordinal;
   }
 
-  /// Sets the command line order of the file.  The parameter must
-  /// also be incremented to the next available ordinal number.
-  virtual void setOrdinalAndIncrement(uint64_t &ordinal) const {
-    _ordinal = ordinal;
-    ++ordinal;
-  }
+  /// Returns true/false depending on whether an ordinal has been set.
+  bool hasOrdinal() const { return (_ordinal != UINT64_MAX); }
+
+  /// Sets the command line order of the file.
+  void setOrdinal(uint64_t ordinal) const { _ordinal = ordinal; }
 
 public:
   template <typename T> class atom_iterator; // forward reference
@@ -221,7 +220,8 @@ protected:
   static atom_collection_empty<SharedLibraryAtom> _noSharedLibraryAtoms;
   static atom_collection_empty<AbsoluteAtom>      _noAbsoluteAtoms;
 
-  StringRef         _path;
+private:
+  StringRef _path;
   Kind              _kind;
   mutable uint64_t  _ordinal;
 };

@@ -19,6 +19,7 @@
 
 #include "lld/Driver/InputGraph.h"
 #include "lld/ReaderWriter/PECOFFLinkingContext.h"
+#include "lld/ReaderWriter/FileArchive.h"
 
 #include <map>
 
@@ -34,7 +35,35 @@ public:
     return a->kind() == InputElement::Kind::File;
   }
 
-  virtual llvm::ErrorOr<StringRef> path(const LinkingContext &ctx) const;
+  virtual llvm::ErrorOr<StringRef> getPath(const LinkingContext &ctx) const;
+
+  /// \brief Parse the input file to lld::File.
+  error_code parse(const LinkingContext &ctx, raw_ostream &diagnostics) {
+    // Read the file to _buffer.
+    bool isYaml = false;
+    if (error_code ec = readFile(ctx, diagnostics, isYaml))
+      return ec;
+    if (isYaml)
+      return error_code::success();
+
+    llvm::sys::fs::file_magic FileType =
+        llvm::sys::fs::identify_magic(_buffer->getBuffer());
+    std::unique_ptr<File> f;
+
+    switch (FileType) {
+    case llvm::sys::fs::file_magic::archive: {
+      // Archive File
+      error_code ec;
+      f.reset(new FileArchive(ctx, std::move(_buffer), ec, false));
+      _files.push_back(std::move(f));
+      return ec;
+    }
+
+    case llvm::sys::fs::file_magic::coff_object:
+    default:
+      return _ctx.getDefaultReader().parseFile(_buffer, _files);
+    }
+  }
 
   /// \brief validates the Input Element
   virtual bool validate() { return true; }
@@ -42,30 +71,23 @@ public:
   /// \brief Dump the Input Element
   virtual bool dump(raw_ostream &) { return true; }
 
-private:
+  virtual ErrorOr<File &> getNextFile() {
+    if (_nextFileIndex == _files.size())
+      return make_error_code(InputGraphError::no_more_files);
+    return *_files[_nextFileIndex++];
+  }
+
+protected:
   const PECOFFLinkingContext &_ctx;
 };
 
 /// \brief Represents a PECOFF Library File
-class PECOFFLibraryNode : public FileNode {
+class PECOFFLibraryNode : public PECOFFFileNode {
 public:
   PECOFFLibraryNode(PECOFFLinkingContext &ctx, StringRef path)
-      : FileNode(path), _ctx(ctx) {}
+      : PECOFFFileNode(ctx, path) {}
 
-  static inline bool classof(const InputElement *a) {
-    return a->kind() == InputElement::Kind::File;
-  }
-
-  virtual llvm::ErrorOr<StringRef> path(const LinkingContext &ctx) const;
-
-  /// \brief validates the Input Element
-  virtual bool validate() { return true; }
-
-  /// \brief Dump the Input Element
-  virtual bool dump(raw_ostream &) { return true; }
-
-private:
-  const PECOFFLinkingContext &_ctx;
+  virtual llvm::ErrorOr<StringRef> getPath(const LinkingContext &ctx) const;
 };
 
 } // namespace lld

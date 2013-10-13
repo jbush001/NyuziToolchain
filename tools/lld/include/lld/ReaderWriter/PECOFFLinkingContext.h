@@ -10,6 +10,7 @@
 #ifndef LLD_READER_WRITER_PECOFF_LINKER_CONTEXT_H
 #define LLD_READER_WRITER_PECOFF_LINKER_CONTEXT_H
 
+#include <set>
 #include <vector>
 
 #include "lld/Core/LinkingContext.h"
@@ -29,12 +30,15 @@ class PECOFFLinkingContext : public LinkingContext {
 public:
   PECOFFLinkingContext()
       : _baseAddress(0x400000), _stackReserve(1024 * 1024), _stackCommit(4096),
-        _heapReserve(1024 * 1024), _heapCommit(4096),
+        _heapReserve(1024 * 1024), _heapCommit(4096), _noDefaultLibAll(false),
+        _sectionAlignment(4096),
         _subsystem(llvm::COFF::IMAGE_SUBSYSTEM_UNKNOWN),
         _machineType(llvm::COFF::IMAGE_FILE_MACHINE_I386), _imageVersion(0, 0),
         _minOSVersion(6, 0), _nxCompat(true), _largeAddressAware(false),
-        _baseRelocationEnabled(true), _terminalServerAware(true),
-        _dynamicBaseEnabled(true), _imageType(ImageType::IMAGE_EXE) {
+        _allowBind(true), _allowIsolation(true), _swapRunFromCD(false),
+        _swapRunFromNet(false), _baseRelocationEnabled(true),
+        _terminalServerAware(true), _dynamicBaseEnabled(true),
+        _imageType(ImageType::IMAGE_EXE) {
     setDeadStripping(true);
   }
 
@@ -52,16 +56,15 @@ public:
     IMAGE_DLL
   };
 
-  virtual error_code
-  parseFile(LinkerInput &input,
-            std::vector<std::unique_ptr<File> > &result) const;
+  virtual Reader &getDefaultReader() const { return *_reader; }
 
   virtual Writer &writer() const;
   virtual bool validateImpl(raw_ostream &diagnostics);
 
   virtual void addPasses(PassManager &pm) const;
 
-  virtual void addImplicitFiles(InputFiles &) const;
+  virtual bool
+  createImplicitFiles(std::vector<std::unique_ptr<File> > &result) const;
 
   void appendInputSearchPath(StringRef dirPath) {
     _inputSearchPaths.push_back(dirPath);
@@ -102,6 +105,9 @@ public:
   uint64_t getHeapReserve() const { return _heapReserve; }
   uint64_t getHeapCommit() const { return _heapCommit; }
 
+  void setSectionAlignment(uint32_t val) { _sectionAlignment = val; }
+  uint32_t getSectionAlignment() const { return _sectionAlignment; }
+
   void setSubsystem(WindowsSubsystem ss) { _subsystem = ss; }
   WindowsSubsystem getSubsystem() const { return _subsystem; }
 
@@ -120,6 +126,18 @@ public:
   void setLargeAddressAware(bool val) { _largeAddressAware = val; }
   bool getLargeAddressAware() const { return _largeAddressAware; }
 
+  void setAllowBind(bool val) { _allowBind = val; }
+  bool getAllowBind() const { return _allowBind; }
+
+  void setAllowIsolation(bool val) { _allowIsolation = val; }
+  bool getAllowIsolation() const { return _allowIsolation; }
+
+  void setSwapRunFromCD(bool val) { _swapRunFromCD = val; }
+  bool getSwapRunFromCD() const { return _swapRunFromCD; }
+
+  void setSwapRunFromNet(bool val) { _swapRunFromNet = val; }
+  bool getSwapRunFromNet() const { return _swapRunFromNet; }
+
   void setBaseRelocationEnabled(bool val) { _baseRelocationEnabled = val; }
   bool getBaseRelocationEnabled() const { return _baseRelocationEnabled; }
 
@@ -132,11 +150,19 @@ public:
   void setImageType(ImageType type) { _imageType = type; }
   ImageType getImageType() const { return _imageType; }
 
+  void addNoDefaultLib(StringRef libName) { _noDefaultLibs.insert(libName); }
+  const std::set<std::string> &getNoDefaultLibs() const {
+    return _noDefaultLibs;
+  }
+
+  void setNoDefaultLibAll(bool val) { _noDefaultLibAll = val; }
+  bool getNoDefaultLibAll() const { return _noDefaultLibAll; }
+
   virtual ErrorOr<Reference::Kind> relocKindFromString(StringRef str) const;
   virtual ErrorOr<std::string> stringFromRelocKind(Reference::Kind kind) const;
 
   StringRef allocateString(StringRef ref) const {
-    char *x = _alloc.Allocate<char>(ref.size() + 1);
+    char *x = _allocator.Allocate<char>(ref.size() + 1);
     memcpy(x, ref.data(), ref.size());
     x[ref.size()] = '\0';
     return x;
@@ -150,10 +176,10 @@ public:
 
 protected:
   /// Method to create a internal file for the entry symbol
-  virtual std::unique_ptr<File> createEntrySymbolFile();
+  virtual std::unique_ptr<File> createEntrySymbolFile() const;
 
   /// Method to create a internal file for an undefined symbol
-  virtual std::unique_ptr<File> createUndefinedSymbolFile();
+  virtual std::unique_ptr<File> createUndefinedSymbolFile() const;
 
 private:
   // The start address for the program. The default value for the executable is
@@ -164,21 +190,29 @@ private:
   uint64_t _stackCommit;
   uint64_t _heapReserve;
   uint64_t _heapCommit;
+  bool _noDefaultLibAll;
+  uint32_t _sectionAlignment;
   WindowsSubsystem _subsystem;
   MachineTypes _machineType;
   Version _imageVersion;
   Version _minOSVersion;
   bool _nxCompat;
   bool _largeAddressAware;
+  bool _allowBind;
+  bool _allowIsolation;
+  bool _swapRunFromCD;
+  bool _swapRunFromNet;
   bool _baseRelocationEnabled;
   bool _terminalServerAware;
   bool _dynamicBaseEnabled;
   ImageType _imageType;
 
+  // The set to store /nodefaultlib arguments.
+  std::set<std::string> _noDefaultLibs;
+
   std::vector<StringRef> _inputSearchPaths;
-  mutable std::unique_ptr<Reader> _reader;
-  mutable std::unique_ptr<Writer> _writer;
-  mutable llvm::BumpPtrAllocator _alloc;
+  std::unique_ptr<Reader> _reader;
+  std::unique_ptr<Writer> _writer;
 };
 
 } // end namespace lld

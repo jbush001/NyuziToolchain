@@ -326,6 +326,7 @@ static void assureFPCallStub(Function &F, Module *M,
 //
 static const char *IntrinsicInline[] =
   {"fabs",
+   "fabsf",
    "llvm.ceil.f32", "llvm.ceil.f64",
    "llvm.copysign.f32", "llvm.copysign.f64",
    "llvm.cos.f32", "llvm.cos.f64",
@@ -421,7 +422,7 @@ static void createFPFnStub(Function *F, Module *M, FPParamVariant PV,
   std::string Name = F->getName();
   std::string SectionName = ".mips16.fn." + Name;
   std::string StubName = "__fn_stub_" + Name;
-  std::string LocalName = "__fn_local_" + Name;
+  std::string LocalName = "$$__fn_local_" + Name;
   Function *FStub = Function::Create
     (F->getFunctionType(),
      Function::InternalLinkage, StubName, M);
@@ -436,14 +437,14 @@ static void createFPFnStub(Function *F, Module *M, FPParamVariant PV,
   IAH.Out(" .set  macro");
   if (PicMode) {
     IAH.Out(".set noreorder");
-    IAH.Out(".cpload  $$2");
+    IAH.Out(".cpload  $$25");
     IAH.Out(".set reorder");
     IAH.Out(".reloc 0,R_MIPS_NONE," + Name);
     IAH.Out("la $$25," + LocalName);
   }
   else {
     IAH.Out(".set reorder");
-    IAH.Out("la $$25, " + Name);
+    IAH.Out("la $$25," + Name);
   }
   swapFPIntParams(PV, M, IAH, LE, false);
   IAH.Out("jr $$25");

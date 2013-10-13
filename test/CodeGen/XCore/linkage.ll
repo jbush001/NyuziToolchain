@@ -6,6 +6,23 @@ define weak void @fd() {
   ret void
 }
 
+; CHECK-NOT: .hidden
+define hidden void @test_hidden() {
+  unreachable
+}
+
+; CHECK-NOT: .protected
+define protected void @test_protected() {
+  unreachable
+}
+
+; CHECK: .globl array.globound
+; CHECK: array.globound = 2
+; CHECK: .weak array.globound
+; CHECK: .globl array
+; CHECK: .weak array
+@array = weak global [2 x i32] zeroinitializer
+
 ; CHECK: .weak gd
 @gd = weak global i32 0
 

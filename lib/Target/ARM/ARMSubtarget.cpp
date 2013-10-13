@@ -61,6 +61,7 @@ ARMSubtarget::ARMSubtarget(const std::string &TT, const std::string &CPU,
                            const std::string &FS, const TargetOptions &Options)
   : ARMGenSubtargetInfo(TT, CPU, FS)
   , ARMProcFamily(Others)
+  , ARMProcClass(None)
   , stackAlignment(4)
   , CPUString(CPU)
   , TargetTriple(TT)
@@ -75,6 +76,7 @@ void ARMSubtarget::initializeEnvironment() {
   HasV5TOps = false;
   HasV5TEOps = false;
   HasV6Ops = false;
+  HasV6MOps = false;
   HasV6T2Ops = false;
   HasV7Ops = false;
   HasV8Ops = false;
@@ -90,7 +92,6 @@ void ARMSubtarget::initializeEnvironment() {
   SlowFPBrcc = false;
   InThumbMode = false;
   HasThumb2 = false;
-  IsMClass = false;
   NoARM = false;
   PostRAScheduler = false;
   IsR9Reserved = ReserveR9;
@@ -158,7 +159,7 @@ void ARMSubtarget::resetSubtargetFeatures(StringRef CPU, StringRef FS) {
   // Thumb2 implies at least V6T2. FIXME: Fix tests to explicitly specify a
   // ARM version or CPU and then remove this.
   if (!HasV6T2Ops && hasThumb2())
-    HasV4TOps = HasV5TOps = HasV5TEOps = HasV6Ops = HasV6T2Ops = true;
+    HasV4TOps = HasV5TOps = HasV5TEOps = HasV6Ops = HasV6MOps = HasV6T2Ops = true;
 
   // Keep a pointer to static instruction cost data for the specified CPU.
   SchedModel = getSchedModelForCPU(CPUString);
@@ -282,8 +283,6 @@ bool ARMSubtarget::enablePostRAScheduler(
            CodeGenOpt::Level OptLevel,
            TargetSubtargetInfo::AntiDepBreakMode& Mode,
            RegClassVector& CriticalPathRCs) const {
-  Mode = TargetSubtargetInfo::ANTIDEP_CRITICAL;
-  CriticalPathRCs.clear();
-  CriticalPathRCs.push_back(&ARM::GPRRegClass);
+  Mode = TargetSubtargetInfo::ANTIDEP_NONE;
   return PostRAScheduler && OptLevel >= CodeGenOpt::Default;
 }

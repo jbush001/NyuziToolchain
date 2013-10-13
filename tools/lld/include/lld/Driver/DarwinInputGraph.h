@@ -34,13 +34,30 @@ public:
     return a->kind() == InputElement::Kind::File;
   }
 
-  virtual llvm::ErrorOr<std::unique_ptr<lld::LinkerInput> >
-  createLinkerInput(const lld::LinkingContext &);
-
   /// \brief validates the Input Element
   virtual bool validate() {
     (void)_ctx;
     return true;
+  }
+
+  /// \brief Parse the input file to lld::File.
+  llvm::error_code parse(const LinkingContext &ctx, raw_ostream &diagnostics) {
+    // Read the file to _buffer.
+    bool isYaml = false;
+    if (error_code ec = readFile(ctx, diagnostics, isYaml))
+      return ec;
+    (void) (_isWholeArchive);
+    return llvm::error_code::success();
+  }
+
+  /// \brief Return the file that has to be processed by the resolver
+  /// to resolve atoms. This iterates over all the files thats part
+  /// of this node. Returns no_more_files when there are no files to be
+  /// processed
+  virtual ErrorOr<File &> getNextFile() {
+    if (_files.size() == _nextFileIndex)
+      return make_error_code(InputGraphError::no_more_files);
+    return *_files[_nextFileIndex++];
   }
 
   /// \brief Dump the Input Element

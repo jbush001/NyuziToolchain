@@ -15,7 +15,7 @@
 #include "lld/Core/File.h"
 #include "lld/Core/Reference.h"
 #include "lld/ReaderWriter/ELFLinkingContext.h"
-#include "lld/ReaderWriter/ReaderArchive.h"
+#include "lld/ReaderWriter/FileArchive.h"
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallString.h"
@@ -302,6 +302,7 @@ public:
       } else if (isCommonSymbol(&*SymI)) {
         auto *newAtom = new (_readerStorage)
           ELFCommonAtom<ELFT>(*this, *symbolName, &*SymI);
+        newAtom->setOrdinal(_ordinal++);
         _definedAtoms._atoms.push_back(newAtom);
         _symbolToAtomMapping.insert(std::make_pair(&*SymI, newAtom));
       } else {

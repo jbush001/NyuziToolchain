@@ -26,16 +26,12 @@ public:
         new LinkerScriptFile(context, std::move(mb)));
     file->_script = file->_parser.parse();
     if (!file->_script)
-      return linker_script_reader_error::parse_error;
+      return LinkerScriptReaderError::parse_error;
     return std::move(file);
   }
 
   static inline bool classof(const File *f) {
     return f->kind() == kindLinkerScript;
-  }
-
-  virtual void setOrdinalAndIncrement(uint64_t &ordinal) const {
-    _ordinal = ordinal++;
   }
 
   virtual const LinkingContext &getLinkingContext() const { return _context; }
@@ -77,8 +73,9 @@ private:
 
 namespace lld {
 error_code ReaderLinkerScript::parseFile(
-    LinkerInput &input, std::vector<std::unique_ptr<File> > &result) const {
-  auto lsf = LinkerScriptFile::create(_context, input.takeBuffer());
+    std::unique_ptr<MemoryBuffer> &mb,
+    std::vector<std::unique_ptr<File> > &result) const {
+  auto lsf = LinkerScriptFile::create(_context, std::move(mb));
   if (!lsf)
     return lsf;
   const LinkerScript *ls = (*lsf)->getScript();
@@ -90,11 +87,9 @@ error_code ReaderLinkerScript::parseFile(
         if (error_code ec =
                 llvm::MemoryBuffer::getFileOrSTDIN(path._path, opmb))
           return ec;
-
-        LinkerInput newInput(std::unique_ptr<llvm::MemoryBuffer>(opmb.take()),
-                             input);
-
-        if (error_code ec = _context.parseFile(newInput, result))
+        std::unique_ptr<llvm::MemoryBuffer> eachMB(opmb.take());
+        if (error_code ec =
+                _context.getDefaultReader().parseFile(eachMB, result))
           return ec;
       }
   }

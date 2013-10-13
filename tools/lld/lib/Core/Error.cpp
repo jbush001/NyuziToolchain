@@ -13,102 +13,117 @@
 
 using namespace lld;
 
-class _native_reader_error_category : public llvm::_do_message {
+class _NativeReaderErrorCategory : public llvm::_do_message {
 public:
   virtual const char* name() const {
     return "lld.native.reader";
   }
 
   virtual std::string message(int ev) const {
-    switch (ev) {
-    case native_reader_error::success:
+    if (NativeReaderError(ev) == NativeReaderError::success)
       return "Success";
-    case native_reader_error::unknown_file_format:
+    if (NativeReaderError(ev) == NativeReaderError::unknown_file_format)
       return "Unknown file format";
-    case native_reader_error::file_too_short:
+    if (NativeReaderError(ev) == NativeReaderError::file_too_short)
       return "file truncated";
-    case native_reader_error::file_malformed:
+    if (NativeReaderError(ev) == NativeReaderError::file_malformed)
       return "file malformed";
-    case native_reader_error::memory_error:
+    if (NativeReaderError(ev) == NativeReaderError::memory_error)
       return "out of memory";
-    case native_reader_error::unknown_chunk_type:
+    if (NativeReaderError(ev) == NativeReaderError::unknown_chunk_type)
       return "unknown chunk type";
-    default:
-      llvm_unreachable("An enumerator of native_reader_error does not have a "
-                       "message defined.");
-    }
+    llvm_unreachable("An enumerator of NativeReaderError does not have a "
+                     "message defined.");
   }
 
   virtual llvm::error_condition default_error_condition(int ev) const {
-    if (ev == native_reader_error::success)
+    if (NativeReaderError(ev) == NativeReaderError::success)
       return llvm::errc::success;
     return llvm::errc::invalid_argument;
   }
 };
 
 const llvm::error_category &lld::native_reader_category() {
-  static _native_reader_error_category o;
+  static _NativeReaderErrorCategory o;
   return o;
 }
 
-class _yaml_reader_error_category : public llvm::_do_message {
+class _YamlReaderErrorCategory : public llvm::_do_message {
 public:
   virtual const char* name() const {
     return "lld.yaml.reader";
   }
 
   virtual std::string message(int ev) const {
-    switch (ev) {
-    case yaml_reader_error::success:
+    if (YamlReaderError(ev) == YamlReaderError::success)
       return "Success";
-    case yaml_reader_error::unknown_keyword:
+    if (YamlReaderError(ev) == YamlReaderError::unknown_keyword)
       return "Unknown keyword found in yaml file";
-    case yaml_reader_error::illegal_value:
+    if (YamlReaderError(ev) == YamlReaderError::illegal_value)
       return "Bad value found in yaml file";
-    default:
-      llvm_unreachable("An enumerator of yaml_reader_error does not have a "
-                       "message defined.");
-    }
+    llvm_unreachable("An enumerator of YamlReaderError does not have a "
+                     "message defined.");
   }
 
   virtual llvm::error_condition default_error_condition(int ev) const {
-    if (ev == yaml_reader_error::success)
+    if (YamlReaderError(ev) == YamlReaderError::success)
       return llvm::errc::success;
     return llvm::errc::invalid_argument;
   }
 };
 
-const llvm::error_category &lld::yaml_reader_category() {
-  static _yaml_reader_error_category o;
+const llvm::error_category &lld::YamlReaderCategory() {
+  static _YamlReaderErrorCategory o;
   return o;
 }
 
-class _linker_script_reader_error_category : public llvm::_do_message {
+class _LinkerScriptReaderErrorCategory : public llvm::_do_message {
 public:
   virtual const char *name() const { return "lld.linker-script.reader"; }
 
   virtual std::string message(int ev) const {
-    switch (ev) {
-    case static_cast<int>(linker_script_reader_error::success):
+    LinkerScriptReaderError e = LinkerScriptReaderError(ev);
+    if (e == LinkerScriptReaderError::success)
       return "Success";
-    case static_cast<int>(linker_script_reader_error::parse_error):
+    if (e == LinkerScriptReaderError::parse_error)
       return "Error parsing linker script";
-    default:
-      llvm_unreachable(
-          "An enumerator of linker_script_reader_error does not have a "
-          "message defined.");
-    }
+    llvm_unreachable(
+        "An enumerator of LinkerScriptReaderError does not have a "
+        "message defined.");
   }
 
   virtual llvm::error_condition default_error_condition(int ev) const {
-    if (ev == static_cast<int>(linker_script_reader_error::success))
+    LinkerScriptReaderError e = LinkerScriptReaderError(ev);
+    if (e == LinkerScriptReaderError::success)
       return llvm::errc::success;
     return llvm::errc::invalid_argument;
   }
 };
 
-const llvm::error_category &lld::linker_script_reader_category() {
-  static _linker_script_reader_error_category o;
+const llvm::error_category &lld::LinkerScriptReaderCategory() {
+  static _LinkerScriptReaderErrorCategory o;
   return o;
 }
 
+class _InputGraphErrorCategory : public llvm::_do_message {
+public:
+  virtual const char *name() const { return "lld.inputGraph.parse"; }
+
+  virtual std::string message(int ev) const {
+    if (InputGraphError(ev) == InputGraphError::success)
+      return "Success";
+    llvm_unreachable("An enumerator of InputGraphError does not have a "
+                     "message defined.");
+  }
+
+  virtual llvm::error_condition default_error_condition(int ev) const {
+    if (InputGraphError(ev) == InputGraphError::success)
+      return llvm::errc::success;
+    return llvm::errc::invalid_argument;
+  }
+};
+
+const llvm::error_category &lld::InputGraphErrorCategory() {
+  static _InputGraphErrorCategory i;
+  return i;
+}

@@ -253,6 +253,11 @@ protected:
     Builder.defineMacro("__KPRINTF_ATTRIBUTE__");
     DefineStd(Builder, "unix", Opts);
     Builder.defineMacro("__ELF__");
+
+    // On FreeBSD, wchar_t contains the number of the code point as
+    // used by the character set of the locale. These character sets are
+    // not necessarily a superset of ASCII.
+    Builder.defineMacro("__STDC_MB_MIGHT_NEQ_WC__", "1");
   }
 public:
   FreeBSDTargetInfo(const llvm::Triple &Triple) : OSTargetInfo<Target>(Triple) {
@@ -1586,10 +1591,12 @@ class X86TargetInfo : public TargetInfo {
   bool HasRTM;
   bool HasPRFCHW;
   bool HasRDSEED;
+  bool HasTBM;
   bool HasFMA;
   bool HasF16C;
   bool HasAVX512CD, HasAVX512ER, HasAVX512PF;
   bool HasSHA;
+  bool HasCX16;
 
   /// \brief Enumeration of all of the X86 CPUs supported by Clang.
   ///
@@ -1748,9 +1755,10 @@ public:
       : TargetInfo(Triple), SSELevel(NoSSE), MMX3DNowLevel(NoMMX3DNow),
         XOPLevel(NoXOP), HasAES(false), HasPCLMUL(false), HasLZCNT(false),
         HasRDRND(false), HasBMI(false), HasBMI2(false), HasPOPCNT(false),
-        HasRTM(false), HasPRFCHW(false), HasRDSEED(false), HasFMA(false),
-        HasF16C(false), HasAVX512CD(false), HasAVX512ER(false),
-        HasAVX512PF(false), HasSHA(false), CPU(CK_Generic), FPMath(FP_Default) {
+        HasRTM(false), HasPRFCHW(false), HasRDSEED(false), HasTBM(false),
+        HasFMA(false), HasF16C(false), HasAVX512CD(false), HasAVX512ER(false),
+        HasAVX512PF(false), HasSHA(false), HasCX16(false), CPU(CK_Generic),
+        FPMath(FP_Default) {
     BigEndian = false;
     LongDoubleFormat = &llvm::APFloat::x87DoubleExtended;
   }
@@ -2000,27 +2008,34 @@ void X86TargetInfo::getDefaultFeatures(llvm::StringMap<bool> &Features) const {
   case CK_Prescott:
   case CK_Nocona:
     setFeatureEnabledImpl(Features, "sse3", true);
+    setFeatureEnabledImpl(Features, "cx16", true);
     break;
   case CK_Core2:
     setFeatureEnabledImpl(Features, "ssse3", true);
+    setFeatureEnabledImpl(Features, "cx16", true);
     break;
   case CK_Penryn:
     setFeatureEnabledImpl(Features, "sse4.1", true);
+    setFeatureEnabledImpl(Features, "cx16", true);
     break;
   case CK_Atom:
     setFeatureEnabledImpl(Features, "ssse3", true);
+    setFeatureEnabledImpl(Features, "cx16", true);
     break;
   case CK_Silvermont:
     setFeatureEnabledImpl(Features, "sse4.2", true);
     setFeatureEnabledImpl(Features, "aes", true);
+    setFeatureEnabledImpl(Features, "cx16", true);
     setFeatureEnabledImpl(Features, "pclmul", true);
     break;
   case CK_Corei7:
     setFeatureEnabledImpl(Features, "sse4.2", true);
+    setFeatureEnabledImpl(Features, "cx16", true);
     break;
   case CK_Corei7AVX:
     setFeatureEnabledImpl(Features, "avx", true);
     setFeatureEnabledImpl(Features, "aes", true);
+    setFeatureEnabledImpl(Features, "cx16", true);
     setFeatureEnabledImpl(Features, "pclmul", true);
     break;
   case CK_CoreAVXi:
@@ -2041,6 +2056,7 @@ void X86TargetInfo::getDefaultFeatures(llvm::StringMap<bool> &Features) const {
     setFeatureEnabledImpl(Features, "bmi2", true);
     setFeatureEnabledImpl(Features, "rtm", true);
     setFeatureEnabledImpl(Features, "fma", true);
+    setFeatureEnabledImpl(Features, "cx16", true);
     break;
   case CK_KNL:
     setFeatureEnabledImpl(Features, "avx512f", true);
@@ -2101,6 +2117,7 @@ void X86TargetInfo::getDefaultFeatures(llvm::StringMap<bool> &Features) const {
   case CK_BTVER1:
     setFeatureEnabledImpl(Features, "ssse3", true);
     setFeatureEnabledImpl(Features, "sse4a", true);
+    setFeatureEnabledImpl(Features, "cx16", true);
     setFeatureEnabledImpl(Features, "lzcnt", true);
     setFeatureEnabledImpl(Features, "popcnt", true);
     break;
@@ -2112,12 +2129,14 @@ void X86TargetInfo::getDefaultFeatures(llvm::StringMap<bool> &Features) const {
     setFeatureEnabledImpl(Features, "pclmul", true);
     setFeatureEnabledImpl(Features, "bmi", true);
     setFeatureEnabledImpl(Features, "f16c", true);
+    setFeatureEnabledImpl(Features, "cx16", true);
     break;
   case CK_BDVER1:
     setFeatureEnabledImpl(Features, "xop", true);
     setFeatureEnabledImpl(Features, "lzcnt", true);
     setFeatureEnabledImpl(Features, "aes", true);
     setFeatureEnabledImpl(Features, "pclmul", true);
+    setFeatureEnabledImpl(Features, "cx16", true);
     break;
   case CK_BDVER2:
     setFeatureEnabledImpl(Features, "xop", true);
@@ -2127,6 +2146,8 @@ void X86TargetInfo::getDefaultFeatures(llvm::StringMap<bool> &Features) const {
     setFeatureEnabledImpl(Features, "bmi", true);
     setFeatureEnabledImpl(Features, "fma", true);
     setFeatureEnabledImpl(Features, "f16c", true);
+    setFeatureEnabledImpl(Features, "tbm", true);
+    setFeatureEnabledImpl(Features, "cx16", true);
     break;
   case CK_C3_2:
     setFeatureEnabledImpl(Features, "sse", true);
@@ -2367,6 +2388,11 @@ bool X86TargetInfo::HandleTargetFeatures(std::vector<std::string> &Features,
       continue;
     }
 
+    if (Feature == "tbm") {
+      HasTBM = true;
+      continue;
+    }
+
     if (Feature == "fma") {
       HasFMA = true;
       continue;
@@ -2394,6 +2420,11 @@ bool X86TargetInfo::HandleTargetFeatures(std::vector<std::string> &Features,
 
     if (Feature == "sha") {
       HasSHA = true;
+      continue;
+    }
+
+    if (Feature == "cx16") {
+      HasCX16 = true;
       continue;
     }
 
@@ -2642,6 +2673,9 @@ void X86TargetInfo::getTargetDefines(const LangOptions &Opts,
   if (HasRDSEED)
     Builder.defineMacro("__RDSEED__");
 
+  if (HasTBM)
+    Builder.defineMacro("__TBM__");
+
   switch (XOPLevel) {
   case XOP:
     Builder.defineMacro("__XOP__");
@@ -2668,6 +2702,9 @@ void X86TargetInfo::getTargetDefines(const LangOptions &Opts,
 
   if (HasSHA)
     Builder.defineMacro("__SHA__");
+
+  if (HasCX16)
+    Builder.defineMacro("__GCC_HAVE_SYNC_COMPARE_AND_SWAP_16");
 
   // Each case falls through to the previous one here.
   switch (SSELevel) {
@@ -2747,8 +2784,11 @@ bool X86TargetInfo::hasFeature(StringRef Feature) const {
       .Case("avx512pf", HasAVX512PF)
       .Case("bmi", HasBMI)
       .Case("bmi2", HasBMI2)
+      .Case("cx16", HasCX16)
+      .Case("f16c", HasF16C)
       .Case("fma", HasFMA)
       .Case("fma4", XOPLevel >= FMA4)
+      .Case("tbm", HasTBM)
       .Case("lzcnt", HasLZCNT)
       .Case("rdrnd", HasRDRND)
       .Case("mm3dnow", MMX3DNowLevel >= AMD3DNow)
@@ -2771,7 +2811,6 @@ bool X86TargetInfo::hasFeature(StringRef Feature) const {
       .Case("x86_32", getTriple().getArch() == llvm::Triple::x86)
       .Case("x86_64", getTriple().getArch() == llvm::Triple::x86_64)
       .Case("xop", XOPLevel >= XOP)
-      .Case("f16c", HasF16C)
       .Default(false);
 }
 
@@ -3846,6 +3885,13 @@ public:
 
     if (CPUArch.startswith("8"))
       Builder.defineMacro("__ARM_FEATURE_CRC32");
+
+    if (CPUArch[0] >= '6' && CPUArch != "6M") {
+      Builder.defineMacro("__GCC_HAVE_SYNC_COMPARE_AND_SWAP_1");
+      Builder.defineMacro("__GCC_HAVE_SYNC_COMPARE_AND_SWAP_2");
+      Builder.defineMacro("__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4");
+      Builder.defineMacro("__GCC_HAVE_SYNC_COMPARE_AND_SWAP_8");
+    }
   }
   virtual void getTargetBuiltins(const Builtin::Info *&Records,
                                  unsigned &NumRecords) const {
@@ -4647,6 +4693,7 @@ class MipsTargetInfoBase : public TargetInfo {
   std::string CPU;
   bool IsMips16;
   bool IsMicromips;
+  bool IsNan2008;
   bool IsSingleFloat;
   enum MipsFloatABI {
     HardFloat, SoftFloat
@@ -4663,8 +4710,8 @@ public:
   MipsTargetInfoBase(const llvm::Triple &Triple, const std::string &ABIStr,
                      const std::string &CPUStr)
       : TargetInfo(Triple), CPU(CPUStr), IsMips16(false), IsMicromips(false),
-        IsSingleFloat(false), FloatABI(HardFloat), DspRev(NoDSP),
-        HasMSA(false), ABI(ABIStr) {}
+        IsNan2008(false), IsSingleFloat(false), FloatABI(HardFloat),
+        DspRev(NoDSP), HasMSA(false), ABI(ABIStr) {}
 
   virtual const char *getABI() const { return ABI.c_str(); }
   virtual bool setABI(const std::string &Name) = 0;
@@ -4700,6 +4747,9 @@ public:
 
     if (IsMicromips)
       Builder.defineMacro("__mips_micromips", Twine(1));
+
+    if (IsNan2008)
+      Builder.defineMacro("__mips_nan2008", Twine(1));
 
     switch (DspRev) {
     default:
@@ -4790,6 +4840,7 @@ public:
                                     DiagnosticsEngine &Diags) {
     IsMips16 = false;
     IsMicromips = false;
+    IsNan2008 = false;
     IsSingleFloat = false;
     FloatABI = HardFloat;
     DspRev = NoDSP;
@@ -4810,11 +4861,16 @@ public:
         DspRev = std::max(DspRev, DSP2);
       else if (*it == "+msa")
         HasMSA = true;
+      else if (*it == "+nan2008")
+        IsNan2008 = true;
     }
 
-    // Remove front-end specific option.
+    // Remove front-end specific options.
     std::vector<std::string>::iterator it =
       std::find(Features.begin(), Features.end(), "+soft-float");
+    if (it != Features.end())
+      Features.erase(it);
+    it = std::find(Features.begin(), Features.end(), "+nan2008");
     if (it != Features.end())
       Features.erase(it);
 

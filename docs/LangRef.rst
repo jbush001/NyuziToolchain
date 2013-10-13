@@ -614,6 +614,12 @@ Syntax::
 
     @<Name> = alias [Linkage] [Visibility] <AliaseeTy> @<Aliasee>
 
+The linkage must be one of ``private``, ``linker_private``,
+``linker_private_weak``, ``internal``, ``linkonce``, ``weak``,
+``linkonce_odr``, ``weak_odr``, ``linkonce_odr_auto_hide``, ``external``. Note
+that some system linkers might not correctly handle dropping a weak symbol that
+is aliased by a non weak alias.
+
 .. _namedmetadatastructure:
 
 Named Metadata
@@ -779,6 +785,11 @@ the prefix data, without performing any other visible action.  This allows
 the inliner and other passes to reason about the semantics of the function
 definition without needing to reason about the prefix data.  Obviously this
 makes the format of the prefix data highly target dependent.
+
+Prefix data is laid out as if it were an initializer for a global variable
+of the prefix data's type.  No padding is automatically placed between the
+prefix data and the function body.  If padding is required, it must be part
+of the prefix data.
 
 A trivial example of valid prefix data for the x86 architecture is ``i8 144``,
 which encodes the ``nop`` instruction:
