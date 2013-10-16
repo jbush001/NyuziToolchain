@@ -23,10 +23,9 @@ def SDT_MipsCMov         : SDTypeProfile<1, 4, [SDTCisSameAs<0, 1>,
                                                 SDTCisInt<4>]>;
 def SDT_MipsCallSeqStart : SDCallSeqStart<[SDTCisVT<0, i32>]>;
 def SDT_MipsCallSeqEnd   : SDCallSeqEnd<[SDTCisVT<0, i32>, SDTCisVT<1, i32>]>;
-def SDT_ExtractLOHI : SDTypeProfile<1, 1, [SDTCisInt<0>, SDTCisVT<1, untyped>]>;
-def SDT_InsertLOHI : SDTypeProfile<1, 2, [SDTCisVT<0, untyped>,
-                                          SDTCisVT<1, i32>,
-                                          SDTCisSameAs<1, 2>]>;
+def SDT_MFLOHI : SDTypeProfile<1, 1, [SDTCisInt<0>, SDTCisVT<1, untyped>]>;
+def SDT_MTLOHI : SDTypeProfile<1, 2, [SDTCisVT<0, untyped>,
+                                      SDTCisInt<1>, SDTCisSameAs<1, 2>]>;
 def SDT_MipsMultDiv : SDTypeProfile<1, 2, [SDTCisVT<0, untyped>, SDTCisInt<1>,
                                     SDTCisSameAs<1, 2>]>;
 def SDT_MipsMAddMSub : SDTypeProfile<1, 3,
@@ -86,11 +85,11 @@ def callseq_end   : SDNode<"ISD::CALLSEQ_END", SDT_MipsCallSeqEnd,
                             SDNPOptInGlue, SDNPOutGlue]>;
 
 // Nodes used to extract LO/HI registers.
-def MipsExtractHI : SDNode<"MipsISD::ExtractHI", SDT_ExtractLOHI>;
-def MipsExtractLO : SDNode<"MipsISD::ExtractLO", SDT_ExtractLOHI>;
+def MipsMFHI : SDNode<"MipsISD::MFHI", SDT_MFLOHI>;
+def MipsMFLO : SDNode<"MipsISD::MFLO", SDT_MFLOHI>;
 
 // Node used to insert 32-bit integers to LOHI register pair.
-def InsertLOHI : SDNode<"MipsISD::InsertLOHI", SDT_InsertLOHI>;
+def MipsMTLOHI : SDNode<"MipsISD::MTLOHI", SDT_MTLOHI>;
 
 // Mult nodes.
 def MipsMult  : SDNode<"MipsISD::Mult", SDT_MipsMultDiv>;
@@ -710,6 +709,10 @@ class MoveFromLOHI<string opstr, RegisterOperand RO, Register UseReg>:
   let neverHasSideEffects = 1;
 }
 
+class PseudoMTLOHI<RegisterClass DstRC, RegisterClass SrcRC>
+  : PseudoSE<(outs DstRC:$lohi), (ins SrcRC:$lo, SrcRC:$hi),
+             [(set DstRC:$lohi, (MipsMTLOHI SrcRC:$lo, SrcRC:$hi))], IIHiLo>;
+
 class MoveToLOHI<string opstr, RegisterOperand RO, list<Register> DefRegs>:
   InstSE<(outs), (ins RO:$rs), !strconcat(opstr, "\t$rs"), [], IIHiLo,
   FrmR, opstr> {
@@ -1030,21 +1033,13 @@ def MULT  : MMRel, Mult<"mult", IIImult, GPR32Opnd, [HI0, LO0]>,
             MULT_FM<0, 0x18>;
 def MULTu : MMRel, Mult<"multu", IIImult, GPR32Opnd, [HI0, LO0]>,
             MULT_FM<0, 0x19>;
-def PseudoMULT  : MultDivPseudo<MULT, ACC64, GPR32Opnd, MipsMult, IIImult>;
-def PseudoMULTu : MultDivPseudo<MULTu, ACC64, GPR32Opnd, MipsMultu, IIImult>;
 def SDIV  : Div<"div", IIIdiv, GPR32Opnd, [HI0, LO0]>, MULT_FM<0, 0x1a>;
 def UDIV  : Div<"divu", IIIdiv, GPR32Opnd, [HI0, LO0]>, MULT_FM<0, 0x1b>;
-def PseudoSDIV : MultDivPseudo<SDIV, ACC64, GPR32Opnd, MipsDivRem, IIIdiv,
-                               0, 1, 1>;
-def PseudoUDIV : MultDivPseudo<UDIV, ACC64, GPR32Opnd, MipsDivRemU, IIIdiv,
-                               0, 1, 1>;
 
 def MTHI : MMRel, MoveToLOHI<"mthi", GPR32Opnd, [HI0]>, MTLO_FM<0x11>;
 def MTLO : MMRel, MoveToLOHI<"mtlo", GPR32Opnd, [LO0]>, MTLO_FM<0x13>;
 def MFHI : MMRel, MoveFromLOHI<"mfhi", GPR32Opnd, AC0>, MFLO_FM<0x10>;
 def MFLO : MMRel, MoveFromLOHI<"mflo", GPR32Opnd, AC0>, MFLO_FM<0x12>;
-def PseudoMFHI : PseudoMFLOHI<GPR32, ACC64, MipsExtractHI>;
-def PseudoMFLO : PseudoMFLOHI<GPR32, ACC64, MipsExtractLO>;
 
 /// Sign Ext In Register Instructions.
 def SEB : MMRel, SignExtInReg<"seb", i8, GPR32Opnd>, SEB_FM<0x10, 0x20>;
@@ -1071,10 +1066,23 @@ def MADD  : MMRel, MArithR<"madd", 1>, MULT_FM<0x1c, 0>;
 def MADDU : MMRel, MArithR<"maddu", 1>, MULT_FM<0x1c, 1>;
 def MSUB  : MMRel, MArithR<"msub">, MULT_FM<0x1c, 4>;
 def MSUBU : MMRel, MArithR<"msubu">, MULT_FM<0x1c, 5>;
+
+let Predicates = [HasStdEnc, NotDSP] in {
+def PseudoMULT  : MultDivPseudo<MULT, ACC64, GPR32Opnd, MipsMult, IIImult>;
+def PseudoMULTu : MultDivPseudo<MULTu, ACC64, GPR32Opnd, MipsMultu, IIImult>;
+def PseudoMFHI : PseudoMFLOHI<GPR32, ACC64, MipsMFHI>;
+def PseudoMFLO : PseudoMFLOHI<GPR32, ACC64, MipsMFLO>;
+def PseudoMTLOHI : PseudoMTLOHI<ACC64, GPR32>;
 def PseudoMADD  : MAddSubPseudo<MADD, MipsMAdd>;
 def PseudoMADDU : MAddSubPseudo<MADDU, MipsMAddu>;
 def PseudoMSUB  : MAddSubPseudo<MSUB, MipsMSub>;
 def PseudoMSUBU : MAddSubPseudo<MSUBU, MipsMSubu>;
+}
+
+def PseudoSDIV : MultDivPseudo<SDIV, ACC64, GPR32Opnd, MipsDivRem, IIIdiv,
+                               0, 1, 1>;
+def PseudoUDIV : MultDivPseudo<UDIV, ACC64, GPR32Opnd, MipsDivRemU, IIIdiv,
+                               0, 1, 1>;
 
 def RDHWR : ReadHardware<GPR32Opnd, HWRegsOpnd>, RDHWR_FM;
 

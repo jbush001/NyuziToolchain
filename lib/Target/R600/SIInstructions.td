@@ -25,6 +25,8 @@ def InterpSlot : Operand<i32> {
 def isSI : Predicate<"Subtarget.getGeneration() "
                       "== AMDGPUSubtarget::SOUTHERN_ISLANDS">;
 
+def WAIT_FLAG : InstFlag<"printWaitFlag">;
+
 let Predicates = [isSI] in {
 
 let neverHasSideEffects = 1 in {
@@ -815,7 +817,7 @@ def S_BARRIER : SOPP <0x0000000a, (ins), "S_BARRIER",
   let mayStore = 1;
 }
 
-def S_WAITCNT : SOPP <0x0000000c, (ins i32imm:$simm16), "S_WAITCNT $simm16",
+def S_WAITCNT : SOPP <0x0000000c, (ins WAIT_FLAG:$simm16), "S_WAITCNT $simm16",
   []
 >;
 } // End hasSideEffects
@@ -1293,7 +1295,7 @@ def SI_INDIRECT_DST_V16 : SI_INDIRECT_DST<VReg_512>;
 
 let usesCustomInserter = 1 in {
 
-// This psuedo instruction takes a pointer as input and outputs a resource
+// This pseudo instruction takes a pointer as input and outputs a resource
 // constant that can be used with the ADDR64 MUBUF instructions.
 def SI_ADDR64_RSRC : InstSI <
   (outs SReg_128:$srsrc),
