@@ -21,21 +21,17 @@
 
 namespace llvm {
 
-  class FunctionPass;
-  class MachineFunctionPass;
-  struct MachineSchedContext;
-  class PassInfo;
-  class PassManagerBase;
-  class ScheduleDAGInstrs;
-  class TargetLoweringBase;
-  class TargetLowering;
-  class TargetRegisterClass;
-  class raw_ostream;
-}
-
-namespace llvm {
-
+class FunctionPass;
+class MachineFunctionPass;
 class PassConfigImpl;
+class PassInfo;
+class PassManagerBase;
+class ScheduleDAGInstrs;
+class TargetLowering;
+class TargetLoweringBase;
+class TargetRegisterClass;
+class raw_ostream;
+struct MachineSchedContext;
 
 /// Discriminated union of Pass ID types.
 ///
@@ -380,14 +376,6 @@ namespace llvm {
   /// desired input for some register allocators.  This pass is "required" by
   /// these register allocator like this: AU.addRequiredID(PHIEliminationID);
   extern char &PHIEliminationID;
-
-  /// StrongPHIElimination - This pass eliminates machine instruction PHI
-  /// nodes by inserting copy instructions.  This destroys SSA information, but
-  /// is the desired input for some register allocators.  This pass is
-  /// "required" by these register allocator like this:
-  ///    AU.addRequiredID(PHIEliminationID);
-  ///  This pass is still in development
-  extern char &StrongPHIEliminationID;
 
   /// LiveIntervals - This analysis keeps track of the live ranges of virtual
   /// and physical registers.

@@ -1029,8 +1029,8 @@ static bool checkForConsumableClass(Sema &S, const CXXMethodDecl *MD,
 
 static void handleCallableWhenAttr(Sema &S, Decl *D,
                                    const AttributeList &Attr) {
-  
-  if (!checkAttributeAtLeastNumArgs(S, Attr, 1)) return;
+  if (!checkAttributeAtLeastNumArgs(S, Attr, 1))
+    return;
 
   if (!isa<CXXMethodDecl>(D)) {
     S.Diag(Attr.getLoc(), diag::warn_attribute_wrong_decl_type) <<
@@ -1118,7 +1118,8 @@ static void handleReturnTypestateAttr(Sema &S, Decl *D,
 
 
 static void handleSetTypestateAttr(Sema &S, Decl *D, const AttributeList &Attr) {
-  if (!checkAttributeNumArgs(S, Attr, 1)) return;
+  if (!checkAttributeNumArgs(S, Attr, 1))
+    return;
 
   if (!isa<CXXMethodDecl>(D)) {
     S.Diag(Attr.getLoc(), diag::warn_attribute_wrong_decl_type) <<
@@ -1130,21 +1131,14 @@ static void handleSetTypestateAttr(Sema &S, Decl *D, const AttributeList &Attr) 
     return;
   
   SetTypestateAttr::ConsumedState NewState;
-  
   if (Attr.isArgIdent(0)) {
-    StringRef Param = Attr.getArgAsIdent(0)->Ident->getName();
-    
-    if (Param == "unknown") {
-      NewState = SetTypestateAttr::Unknown;
-    } else if (Param == "consumed") {
-      NewState = SetTypestateAttr::Consumed;
-    } else if (Param == "unconsumed") {
-      NewState = SetTypestateAttr::Unconsumed;
-    } else {
-      S.Diag(Attr.getLoc(), diag::warn_unknown_consumed_state) << Param;
+    IdentifierLoc *Ident = Attr.getArgAsIdent(0);
+    StringRef Param = Ident->Ident->getName();
+    if (!SetTypestateAttr::ConvertStrToConsumedState(Param, NewState)) {
+      S.Diag(Ident->Loc, diag::warn_attribute_type_not_supported)
+        << Attr.getName() << Param;
       return;
     }
-    
   } else {
     S.Diag(Attr.getLoc(), diag::err_attribute_argument_type) <<
       Attr.getName() << AANT_ArgumentIdentifier;
@@ -1158,7 +1152,8 @@ static void handleSetTypestateAttr(Sema &S, Decl *D, const AttributeList &Attr) 
 
 static void handleTestsTypestateAttr(Sema &S, Decl *D,
                                         const AttributeList &Attr) {
-  if (!checkAttributeNumArgs(S, Attr, 1)) return;
+  if (!checkAttributeNumArgs(S, Attr, 1))
+    return;
   
   if (!isa<CXXMethodDecl>(D)) {
     S.Diag(Attr.getLoc(), diag::warn_attribute_wrong_decl_type) <<
@@ -1169,20 +1164,15 @@ static void handleTestsTypestateAttr(Sema &S, Decl *D,
   if (!checkForConsumableClass(S, cast<CXXMethodDecl>(D), Attr))
     return;
   
-  TestsTypestateAttr::ConsumedState TestState;
-  
+  TestsTypestateAttr::ConsumedState TestState;  
   if (Attr.isArgIdent(0)) {
-    StringRef Param = Attr.getArgAsIdent(0)->Ident->getName();
-    
-    if (Param == "consumed") {
-      TestState = TestsTypestateAttr::Consumed;
-    } else if (Param == "unconsumed") {
-      TestState = TestsTypestateAttr::Unconsumed;
-    } else {
-      S.Diag(Attr.getLoc(), diag::warn_unknown_consumed_state) << Param;
+    IdentifierLoc *Ident = Attr.getArgAsIdent(0);
+    StringRef Param = Ident->Ident->getName();
+    if (!TestsTypestateAttr::ConvertStrToConsumedState(Param, TestState)) {
+      S.Diag(Ident->Loc, diag::warn_attribute_type_not_supported)
+        << Attr.getName() << Param;
       return;
     }
-    
   } else {
     S.Diag(Attr.getLoc(), diag::err_attribute_argument_type) <<
       Attr.getName() << AANT_ArgumentIdentifier;

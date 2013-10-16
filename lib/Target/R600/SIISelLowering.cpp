@@ -158,7 +158,8 @@ SDValue SITargetLowering::LowerFormalArguments(
     const ISD::InputArg &Arg = Ins[i];
 
     // First check if it's a PS input addr
-    if (Info->ShaderType == ShaderType::PIXEL && !Arg.Flags.isInReg()) {
+    if (Info->ShaderType == ShaderType::PIXEL && !Arg.Flags.isInReg() &&
+        !Arg.Flags.isByVal()) {
 
       assert((PSInputNum <= 15) && "Too many PS inputs!");
 
@@ -683,7 +684,6 @@ SDValue SITargetLowering::PerformDAGCombine(SDNode *N,
   switch (N->getOpcode()) {
     default: break;
     case ISD::SELECT_CC: {
-      N->dump();
       ConstantSDNode *True, *False;
       // i1 selectcc(l, r, -1, 0, cc) -> i1 setcc(l, r, cc)
       if ((True = dyn_cast<ConstantSDNode>(N->getOperand(2)))
