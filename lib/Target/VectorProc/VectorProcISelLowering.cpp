@@ -436,7 +436,7 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::UMUL_LOHI, MVT::i32, Expand);
 	setOperationAction(ISD::SMUL_LOHI, MVT::i32, Expand);
 	setOperationAction(ISD::FP_TO_UINT, MVT::i32, Expand);
-	setOperationAction(ISD::UINT_TO_FP, MVT::i32, Expand);
+	setOperationAction(ISD::UINT_TO_FP, MVT::i32, Custom);
 
 	// Hardware does not have an integer divider, so convert these to 
 	// library calls
@@ -821,11 +821,38 @@ LowerCTLZ_ZERO_UNDEF(SDValue Op, SelectionDAG &DAG) const
 	return DAG.getNode(ISD::CTLZ, dl, Op.getValueType(), Op.getOperand(0));
 }
 
-SDValue  VectorProcTargetLowering::
+SDValue VectorProcTargetLowering::
 LowerCTTZ_ZERO_UNDEF(SDValue Op, SelectionDAG &DAG) const
 {
 	SDLoc dl(Op);
 	return DAG.getNode(ISD::CTTZ, dl, Op.getValueType(), Op.getOperand(0));
+}
+
+//
+// The architecture only supports signed integer to floating point.  If the
+// source value is negative (when treated as signed), then add UINT_MAX to the 
+// resulting floating point value to adjust it.
+// This is a simpler version of SelectionDAGLegalize::ExpandLegalINT_TO_FP.
+// The latter creates instruction forms that don't generate proper code
+//
+SDValue VectorProcTargetLowering::
+LowerUINT_TO_FP(SDValue Op, SelectionDAG &DAG) const
+{
+	SDLoc dl(Op);
+
+	SDValue RVal = Op.getOperand(0);
+	SDValue SignedVal = DAG.getNode(ISD::SINT_TO_FP, dl, MVT::f32, RVal);
+	Constant *FudgeFactor = ConstantInt::get(Type::getInt32Ty(*DAG.getContext()), 
+		0x4f800000);	// UINT_MAX in float format
+	SDValue CPIdx = DAG.getConstantPool(FudgeFactor, MVT::f32);
+	SDValue FudgeInReg = DAG.getLoad(MVT::f32, dl, DAG.getEntryNode(), CPIdx,
+		MachinePointerInfo::getConstantPool(), false, false, false, 4);
+	SDValue IsNegative = DAG.getSetCC(dl, getSetCCResultType(*DAG.getContext(), 
+		MVT::i32), RVal, DAG.getConstant(0, MVT::i32), ISD::SETLT);
+	SDValue Adjusted = DAG.getNode(ISD::FADD, dl, MVT::f32, SignedVal, FudgeInReg);
+
+	return DAG.getNode(VectorProcISD::SEL_COND_RESULT, dl, MVT::f32, IsNegative, 
+		Adjusted, SignedVal);
 }
 
 SDValue VectorProcTargetLowering::
@@ -848,6 +875,7 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const
 		case ISD::SETCC: return LowerSETCC(Op, DAG);
 		case ISD::CTLZ_ZERO_UNDEF: return LowerCTLZ_ZERO_UNDEF(Op, DAG);
 		case ISD::CTTZ_ZERO_UNDEF: return LowerCTTZ_ZERO_UNDEF(Op, DAG);
+		case ISD::UINT_TO_FP: return LowerUINT_TO_FP(Op, DAG);
 		default:
 			llvm_unreachable("Should not custom lower this!");
 	}

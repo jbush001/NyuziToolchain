@@ -70,6 +70,7 @@ namespace llvm {
 		SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerCTLZ_ZERO_UNDEF(SDValue Op, SelectionDAG &DAG) const;
 		SDValue LowerCTTZ_ZERO_UNDEF(SDValue Op, SelectionDAG &DAG) const;
+		SDValue LowerUINT_TO_FP(SDValue Op, SelectionDAG &DAG) const;
 		
 		EVT getSetCCResultType(LLVMContext &Context, EVT VT) const;
 		virtual SDValue LowerReturn(SDValue Chain,
