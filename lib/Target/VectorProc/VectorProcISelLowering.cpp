@@ -435,6 +435,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::MULHS, MVT::i32, Expand);
 	setOperationAction(ISD::UMUL_LOHI, MVT::i32, Expand);
 	setOperationAction(ISD::SMUL_LOHI, MVT::i32, Expand);
+	setOperationAction(ISD::FP_TO_UINT, MVT::i32, Expand);
+	setOperationAction(ISD::UINT_TO_FP, MVT::i32, Expand);
 
 	// Hardware does not have an integer divider, so convert these to 
 	// library calls
@@ -767,6 +769,20 @@ LowerSETCC(SDValue Op, SelectionDAG &DAG) const
 			newCode = ISD::SETOLT;
 			break;
 		case ISD::SETULE:  
+			newCode = ISD::SETOLE;
+			break;
+			
+		// Change don't care floating point comparisons to the default CPU type
+		case ISD::SETGT:  
+			newCode = ISD::SETOGT;
+			break;
+		case ISD::SETGE:  
+			newCode = ISD::SETOGE;
+			break;
+		case ISD::SETLT:  
+			newCode = ISD::SETOLT;
+			break;
+		case ISD::SETLE:  
 			newCode = ISD::SETOLE;
 			break;
 			
