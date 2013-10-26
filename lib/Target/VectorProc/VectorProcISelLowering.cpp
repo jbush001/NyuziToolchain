@@ -833,7 +833,9 @@ LowerCTTZ_ZERO_UNDEF(SDValue Op, SelectionDAG &DAG) const
 // source value is negative (when treated as signed), then add UINT_MAX to the 
 // resulting floating point value to adjust it.
 // This is a simpler version of SelectionDAGLegalize::ExpandLegalINT_TO_FP.
-// The latter creates instruction forms that don't generate proper code
+// I've done a custom expansion because the default version uses arithmetic
+// with constant pool symbols, and that gets clobbered (see comments in 
+// VectorProcMCInstLower::Lower)
 //
 SDValue VectorProcTargetLowering::
 LowerUINT_TO_FP(SDValue Op, SelectionDAG &DAG) const
