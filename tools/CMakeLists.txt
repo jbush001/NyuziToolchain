@@ -38,6 +38,7 @@ add_llvm_tool_subdirectory(llvm-stress)
 add_llvm_tool_subdirectory(llvm-mcmarkup)
 
 add_llvm_tool_subdirectory(llvm-symbolizer)
+add_llvm_tool_subdirectory(elf2hex)
 
 add_llvm_tool_subdirectory(obj2yaml)
 add_llvm_tool_subdirectory(yaml2obj)
