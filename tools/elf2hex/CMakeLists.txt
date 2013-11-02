@@ -1,3 +1,3 @@
-add_llvm_utility(elf2hex
+add_llvm_tool(elf2hex
   elf2hex.cpp
   )

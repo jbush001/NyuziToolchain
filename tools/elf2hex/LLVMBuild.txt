@@ -1,0 +1,5 @@
+[component_0]
+type = Tool
+name = elf2hex
+parent = Tools
+required_libraries = 
