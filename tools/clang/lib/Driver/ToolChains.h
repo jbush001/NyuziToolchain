@@ -651,6 +651,9 @@ public:
   virtual bool isPICDefaultForced() const;
   virtual void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
      tools::ArgStringList &CC1Args) const;
+
+protected:
+   virtual Tool *buildLinker() const;
 };
 
 class LLVM_LIBRARY_VISIBILITY Windows : public ToolChain {

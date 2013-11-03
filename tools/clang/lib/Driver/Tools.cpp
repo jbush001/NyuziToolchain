@@ -28,6 +28,7 @@
 #include "llvm/Option/Arg.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/Option.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Format.h"
@@ -6842,4 +6843,28 @@ void XCore::Link::ConstructJob(Compilation &C, const JobAction &JA,
   const char *Exec =
     Args.MakeArgString(getToolChain().GetProgramPath("xcc"));
   C.addCommand(new Command(JA, *this, Exec, CmdArgs));
+}
+
+// VectorProc tools
+void VectorProc::Link::ConstructJob(Compilation &C, const JobAction &JA,
+                                   const InputInfo &Output,
+                                   const InputInfoList &Inputs,
+                                   const ArgList &Args,
+                                   const char *LinkingOutput) const {
+  ArgStringList CmdArgs;
+
+  CmdArgs.push_back("-flavor");
+  CmdArgs.push_back("gnu");
+  CmdArgs.push_back("-static");
+  if (Output.isFilename()) {
+    CmdArgs.push_back("-o");
+    CmdArgs.push_back(Output.getFilename());
+  } else {
+    assert(Output.isNothing() && "Invalid output.");
+  }
+
+  AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs);
+
+  std::string Linker = std::string(LLVM_PREFIX) + "/bin/lld";
+  C.addCommand(new Command(JA, *this, Args.MakeArgString(Linker), CmdArgs));
 }

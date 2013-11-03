@@ -658,6 +658,22 @@ namespace XCore {
   };
 } // end namespace XCore.
 
+namespace VectorProc {
+  class LLVM_LIBRARY_VISIBILITY Link : public Tool {
+  public:
+    Link(const ToolChain &TC) : Tool("VectorProc::Link",
+      "VectorProc-ld", TC) {}
+
+    virtual bool hasIntegratedCPP() const { return false; }
+    virtual bool isLinkJob() const { return true; }
+    virtual void ConstructJob(Compilation &C, const JobAction &JA,
+                              const InputInfo &Output,
+                              const InputInfoList &Inputs,
+                              const llvm::opt::ArgList &TCArgs,
+                              const char *LinkingOutput) const;
+  };
+} // end namespace VectorProc.
+
 
 } // end namespace toolchains
 } // end namespace driver

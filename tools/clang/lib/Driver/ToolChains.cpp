@@ -1829,12 +1829,18 @@ bool VectorProcToolChain::isPICDefaultForced() const
 
 void VectorProcToolChain::addClangTargetOptions(const ArgList &DriverArgs,
                                   ArgStringList &CC1Args) const {
+  CC1Args.push_back("-nostdsysteminc");
   if (DriverArgs.hasFlag(options::OPT_fuse_init_array,
                          options::OPT_fno_use_init_array,
                          true))
+  {
     CC1Args.push_back("-fuse-init-array");
+  }
 }
 
+Tool *VectorProcToolChain::buildLinker() const {
+  return new tools::VectorProc::Link(*this);
+}
 
 /// TCEToolChain - A tool chain using the llvm bitcode tools to perform
 /// all subcommands. See http://tce.cs.tut.fi for our peculiar target.
