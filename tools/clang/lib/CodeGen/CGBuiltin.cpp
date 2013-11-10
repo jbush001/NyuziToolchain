@@ -3876,11 +3876,10 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 
 	switch (BuiltinID)
 	{
-		case VectorProc::BI__builtin_vp_vector_muxi:
-		case VectorProc::BI__builtin_vp_vector_muxf:
+		case VectorProc::BI__builtin_vp_vector_blendi:
+		case VectorProc::BI__builtin_vp_vector_blendf:
 		{
 			// Convert to a v16i1 mask and select from it.
-			// XXX This should  create a vselect.
 			Value *truncated = Builder.CreateTrunc(Ops[2], Builder.getInt16Ty());
 			Value *predicate = Builder.CreateBitCast(truncated, 
 				llvm::VectorType::get(Builder.getInt1Ty(), 16));
