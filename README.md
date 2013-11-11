@@ -6,27 +6,26 @@ This is a port of LLVM and the clang compiler to an experimental GPGPU architect
 
 <pre>
 mkdir build
-cd build
 </pre>
 
 ### Configure and build:
-* This requires a newer version of a compiler that supports c++11.  Upgrade your compiler.
-* cmake must be installed.  On Linux, apt-get or yum can install this automatically.  Sources are available here:  http://www.cmake.org/
+* This requires a newer version of a compiler that supports c++11.  Upgrade your compiler if necessary.
+* cmake must be installed. This is available for most Linux distros and can be installed automatically using the standard package manager (apt-get, yum, etc).  Sources are available here:  http://www.cmake.org/
 
 __MacOS__
 <pre>
-cd build
-cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++11 -stdlib=libc++" -DLLVM_DEFAULT_TARGET_TRIPLE=vectorproc ..
-make
-make install
+> cd build
+> cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++11 -stdlib=libc++" -DLLVM_DEFAULT_TARGET_TRIPLE=vectorproc ..
+> make
+> sudo make install
 </pre>
 
 __Linux/GCC__
 <pre>
-cd build
-cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++0x" -DLLVM_DEFAULT_TARGET_TRIPLE=vectorproc ..
-make
-make install
+> cd build
+> cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++0x" -DLLVM_DEFAULT_TARGET_TRIPLE=vectorproc ..
+> make
+> sudo make install
 </pre>
 
 A few other things to note:
@@ -38,17 +37,15 @@ A few other things to note:
 ### To run compiler
 
 <pre>
-/usr/local/llvm-vectorproc/clang -c &lt;test_program.c&gt; 
-/usr/local/llvm-vectorproc/lld -flavor gnu -static &lt;test_program.o&gt;
+/usr/local/llvm-vectorproc/clang -o program.elf test_program.c 
 </pre>
 
 ## Running unit tests
 
 * Switch to *build* directory and cd into test/.  Type 'make check'.  This will set up
-the configuration (it will try to run a bunch of tests, a bunch of which will fail.  It's okay to Ctrl-C at this point).
-* Same deal with clang.  From the top of the build directory, switch to tools/clang/test and
-type 'make check'.
-* Change PATH environment variable to include the binary directory (build/Debug+Asserts/bin) 
+the configuration (it will try to run a bunch of tests, many of which will fail.  It's okay to Ctrl-C at this point).
+* Do the same thing for clang.  From the top of the build directory, switch to tools/clang/test and type 'make check'.
+* Change PATH environment variable to include the binary directory (build/bin) 
 * From the top of the source (not build) directory, run:
 
 <pre>
