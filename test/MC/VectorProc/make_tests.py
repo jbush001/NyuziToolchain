@@ -194,8 +194,8 @@ for opcode, mnemonic in unaryOps:
 make_test_case('reciprocal s7, s9', make_a_instruction(0, 0x1c, 7, 0, 9, 0))
 
 make_test_case('shuffle v1, v2, v3', make_a_instruction(4, 0xd, 1, 2, 3, 0))
-
-# XXX shuffle.mask should be supported, but isn't by compiler
+make_test_case('shuffle.mask v1, s4, v2, v3', make_a_instruction(5, 0xd, 1, 2, 3, 4))
+make_test_case('shuffle.invmask v1, s4, v2, v3', make_a_instruction(6, 0xd, 1, 2, 3, 4))
 
 make_test_case('getfield s4, v5, s6', make_a_instruction(1, 0x1a, 4, 5, 6, 0))
 

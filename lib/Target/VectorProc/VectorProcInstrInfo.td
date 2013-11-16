@@ -123,10 +123,31 @@ def SHUFFLEI : FormatAUnmaskedTwoOpInst<
 	(outs VectorReg:$dest),
 	(ins VectorReg:$src1, VectorReg:$src2),
 	"shuffle $dest, $src1, $src2",
-	[(set v16i32:$dest, (vector_shuffle v16i32:$src1, v16i32:$src2))],
+	[(set v16i32:$dest, (int_vp_shufflei v16i32:$src1, v16i32:$src2))],
 	0x0d,
 	FmtA_VVV>;
+	
+let Constraints = "$dest = $oldvalue" in {
+	def SHUFFLEI_MASK : FormatAMaskedTwoOpInst<
+		(outs VectorReg:$dest),
+		(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
+		"shuffle.mask $dest, $mask, $src1, $src2",
+		[(set v16i32:$dest, (int_vp_blendi i32:$mask, (int_vp_shufflei v16i32:$src1, 
+			v16i32:$src2), v16i32:$oldvalue))],
+		0x0d,
+		FmtA_VVVM>;
 
+	def SHUFFLEI_MASKinv : FormatAMaskedTwoOpInst<
+		(outs VectorReg:$dest),
+		(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
+		"shuffle.invmask $dest, $mask, $src1, $src2",
+		[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), (int_vp_shufflei v16i32:$src1, 
+			v16i32:$src2), v16i32:$oldvalue))],
+		0x0d,
+		FmtA_VVVMinv>;
+}
+
+// XXX SHUFFLEF Pat<>s
 
 def MOVESS : FormatAUnmaskedOneOpInst<
 	(outs ScalarReg:$dest), 

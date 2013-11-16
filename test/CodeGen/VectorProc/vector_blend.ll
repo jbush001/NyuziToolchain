@@ -5,6 +5,7 @@ target triple = "vectorproc"
 declare <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %mask, <16 x i32> %a, <16 x i32> %b)
 declare <16 x float> @llvm.vectorproc.__builtin_vp_blendf(i32 %mask, <16 x float> %a, <16 x float> %b)
 declare <16 x i32> @llvm.ctlz.v16i32(<16 x i32> %src, i1 %zero_undef)
+declare <16 x i32> @llvm.vectorproc.__builtin_vp_shufflei(<16 x i32> %a, <16 x i32> %b)
 
 ; Format A, Vector op vector masked
 define <16 x i32> @test1(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: test1
@@ -227,4 +228,28 @@ define <16 x i32> @test18(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: te
 }
 
 ; XXX vector = scalar, inverted and non-inverted
+
+
+; Shuffle, masked
+define <16 x i32> @test19(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: test19
+	%shuffled = call <16 x i32> @llvm.vectorproc.__builtin_vp_shufflei(<16 x i32> %a, <16 x i32> %b)
+	%blended = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %mask, <16 x i32> %shuffled, <16 x i32> %a)
+
+	; CHECK: shuffle.mask v{{[0-9]+}}, s0, v0
+
+	ret <16 x i32> %blended
+}
+
+
+; Shuffle, invert mask
+define <16 x i32> @test20(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: test20
+	%notmask = xor i32 %mask, -1
+	%shuffled = call <16 x i32> @llvm.vectorproc.__builtin_vp_shufflei(<16 x i32> %a, <16 x i32> %b)
+	%blended = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %notmask, <16 x i32> %shuffled, <16 x i32> %a)
+
+	; CHECK: shuffle.invmask v{{[0-9]+}}, s0, v0
+
+	ret <16 x i32> %blended
+}
+
 
