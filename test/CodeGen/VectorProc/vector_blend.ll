@@ -4,6 +4,7 @@ target triple = "vectorproc"
 
 declare <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %mask, <16 x i32> %a, <16 x i32> %b)
 declare <16 x float> @llvm.vectorproc.__builtin_vp_blendf(i32 %mask, <16 x float> %a, <16 x float> %b)
+declare <16 x i32> @llvm.ctlz.v16i32(<16 x i32> %src, i1 %zero_undef)
 
 ; Format A, Vector op vector masked
 define <16 x i32> @test1(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: test1
@@ -156,8 +157,73 @@ define <16 x float> @test12(i32 %mask, <16 x float> %a, float %b) { ; CHECK: tes
 	ret <16 x float> %c
 }
 
-; XXX single op integer
+; vector = unaryop vector, masked
+define <16 x i32> @test13(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: test13
+	%res = call <16 x i32> @llvm.ctlz.v16i32(<16 x i32> %b, i1 0)
+	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %mask, <16 x i32> %res, <16 x i32> %a)
 
+	; CHECK: clz.mask v0, s0, v1
 
-; XXX Register move forms
+	ret <16 x i32> %c
+}
+
+; vector = unaryop vector, invert mask
+define <16 x i32> @test14(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: test14
+	%res = call <16 x i32> @llvm.ctlz.v16i32(<16 x i32> %b, i1 0)
+	%notmask = xor i32 %mask, -1
+	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %notmask, <16 x i32> %res, <16 x i32> %a)
+
+	; CHECK: clz.invmask v0, s0, v1
+
+	ret <16 x i32> %c
+}
+
+; vector = unaryop scalar, masked
+define <16 x i32> @test15(i32 %mask, <16 x i32> %a, i32 %b) {	; CHECK: test15
+	%single = insertelement <16 x i32> undef, i32 %b, i32 0 
+	%splat = shufflevector <16 x i32> %single, <16 x i32> undef, 
+                           <16 x i32> zeroinitializer
+
+	%res = call <16 x i32> @llvm.ctlz.v16i32(<16 x i32> %splat, i1 0)
+	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %mask, <16 x i32> %res, <16 x i32> %a)
+
+	; CHECK: clz.mask v0, s0, s1
+
+	ret <16 x i32> %c
+}
+
+; vector = unaryop scalar, invert mask
+define <16 x i32> @test16(i32 %mask, <16 x i32> %a, i32 %b) {	; CHECK: test15
+	%single = insertelement <16 x i32> undef, i32 %b, i32 0 
+	%splat = shufflevector <16 x i32> %single, <16 x i32> undef, 
+                           <16 x i32> zeroinitializer
+
+	%res = call <16 x i32> @llvm.ctlz.v16i32(<16 x i32> %splat, i1 0)
+	%notmask = xor i32 %mask, -1
+	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %notmask, <16 x i32> %res, <16 x i32> %a)
+
+	; CHECK: clz.invmask v0, s0, s1
+
+	ret <16 x i32> %c
+}
+
+; Register move, masked
+define <16 x i32> @test17(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: test17
+	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %mask, <16 x i32> %a, <16 x i32> %b)
+
+	; CHECK: move.mask v{{[0-9]+}}, s0, v0
+
+	ret <16 x i32> %c
+}
+
+; Register move, inverted mask
+define <16 x i32> @test18(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: test18
+	%notmask = xor i32 %mask, -1
+	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %notmask, <16 x i32> %a, <16 x i32> %b)
+
+	; CHECK: move.invmask v{{[0-9]+}}, s0, v0
+
+	ret <16 x i32> %c
+}
+
 
