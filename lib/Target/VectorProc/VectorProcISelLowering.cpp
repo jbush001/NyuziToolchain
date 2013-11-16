@@ -462,7 +462,6 @@ const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
 	switch (Opcode) {
 		case VectorProcISD::CALL:       return "VectorProcISD::CALL";
 		case VectorProcISD::RET_FLAG:   return "VectorProcISD::RET_FLAG";
-		case VectorProcISD::LOAD_LITERAL: return "VectorProcISD::LOAD_LITERAL";
 		case VectorProcISD::SPLAT: return "VectorProcISD::SPLAT";
 		case VectorProcISD::SEL_COND_RESULT: return "VectorProcISD::SEL_COND_RESULT";
 		case VectorProcISD::RECIPROCAL_EST: return "VectorProcISD::RECIPROCAL_EST";

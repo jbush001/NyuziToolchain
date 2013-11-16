@@ -16,20 +16,20 @@
 // Arithmetic (Format A & B)
 //////////////////////////////////////////////////////////////////
 
-defm AND    : TwoOpIntArith<"and", and, 0x01>;
 defm OR     : TwoOpIntArith<"or", or, 0x00>;
+defm AND    : TwoOpIntArith<"and", and, 0x01>;
 defm XOR    : TwoOpIntArith<"xor", xor, 0x03>;
-defm SLL    : TwoOpIntArith<"shl", shl, 0x0b>;
-defm SRL    : TwoOpIntArith<"shr", srl, 0x0a>;
-defm SRA    : TwoOpIntArith<"ashr", sra, 0x09>;	
 defm ADDI   : TwoOpIntArith<"add.i", add, 0x05>;
 defm SUBI   : TwoOpIntArith<"sub.i", sub, 0x06>;
 defm SMULI  : TwoOpIntArith  <"mul.i", mul, 0x07>;
+defm SRA    : TwoOpIntArith<"ashr", sra, 0x09>;	
+defm SRL    : TwoOpIntArith<"shr", srl, 0x0a>;
+defm SLL    : TwoOpIntArith<"shl", shl, 0x0b>;
+defm CLZ 	: OneOpIntArith<"clz", ctlz, 0x0c>;
+defm CTZ 	: OneOpIntArith<"ctz", cttz, 0x0e>;
 defm ADDF   : TwoOpFloatArith<"add.f", fadd, 0x20>;
 defm SUBF   : TwoOpFloatArith<"sub.f", fsub, 0x21>;
 defm MULF   : TwoOpFloatArith<"mul.f", fmul, 0x22>;
-defm CLZ 	: OneOpIntArith<"clz", ctlz, 0x0c>;
-defm CTZ 	: OneOpIntArith<"ctz", cttz, 0x0e>;
 defm RECIP  : OneOpFloatArith<"reciprocal", reciprocal, 0x1c>;
 
 def SEXT16 : FormatAUnmaskedOneOpInst<
@@ -164,6 +164,14 @@ let Constraints = "$dest = $oldvalue" in {
 		0xf,
 		FmtA_VVVM>;
 
+	def MOVEVVMIinv : FormatAMaskedOneOpInst<
+		(outs VectorReg:$dest),
+		(ins ScalarReg:$mask, VectorReg:$src2, VectorReg:$oldvalue),
+		"move.invmask $dest, $mask, $src2",
+		[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), v16i32:$src2, v16i32:$oldvalue))],
+		0xf,
+		FmtA_VVVMinv>;
+
 	def MOVEVSMI : FormatAMaskedOneOpInst<
 		(outs VectorReg:$dest),
 		(ins ScalarReg:$mask, ScalarReg:$src2, VectorReg:$oldvalue),
@@ -171,12 +179,24 @@ let Constraints = "$dest = $oldvalue" in {
 		[(set v16i32:$dest, (int_vp_blendi i32:$mask, (splat i32:$src2), v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVSM>;
+
+	def MOVEVSMIinv : FormatAMaskedOneOpInst<
+		(outs VectorReg:$dest),
+		(ins ScalarReg:$mask, ScalarReg:$src2, VectorReg:$oldvalue),
+		"move.invmask $dest, $mask, $src2",
+		[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), (splat i32:$src2), v16i32:$oldvalue))],
+		0xf,
+		FmtA_VVSMinv>;
 }
 
 def : Pat<(int_vp_blendf i32:$mask, v16f32:$src2, v16f32:$oldvalue), 
 	(MOVEVVMI i32:$mask, v16f32:$src2, v16f32:$oldvalue)>;
+def : Pat<(int_vp_blendf (not i32:$mask), v16f32:$src2, v16f32:$oldvalue), 
+	(MOVEVVMIinv i32:$mask, v16f32:$src2, v16f32:$oldvalue)>;
 def : Pat<(int_vp_blendf i32:$mask, (splat f32:$src2), v16f32:$oldvalue),
 	(MOVEVSMI i32:$mask, f32:$src2, v16f32:$oldvalue)>; 
+def : Pat<(int_vp_blendf (not i32:$mask), (splat f32:$src2), v16f32:$oldvalue),
+	(MOVEVSMIinv i32:$mask, f32:$src2, v16f32:$oldvalue)>; 
 
 //////////////////////////////////////////////////////////////////
 // Memory Access (Format C)

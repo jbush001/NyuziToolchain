@@ -69,7 +69,7 @@ binaryOps = [
 ]
 
 for opcode, mnemonic in binaryOps:
-	for aFormat in [ 0, 1, 2, 4, 5 ]:
+	for aFormat in range(7):
 		rega = random.randint(0, 27)
 		regb = random.randint(0, 27)
 		regc = random.randint(0, 27)
@@ -90,6 +90,11 @@ for opcode, mnemonic in binaryOps:
 			make_test_case(mnemonic + '.mask v' + str(rega) + ', s' + str(regm) 
 				+ ', v' + str(regb) + ', s' + str(regc),
 				make_a_instruction(aFormat, opcode, rega, regb, regc, regm))
+		elif aFormat == 3:
+			# vector/vector/scalar invert mask
+			make_test_case(mnemonic + '.invmask v' + str(rega) + ', s' + str(regm) 
+				+ ', v' + str(regb) + ', s' + str(regc),
+				make_a_instruction(aFormat, opcode, rega, regb, regc, regm))
 		elif aFormat == 4:
 			# vector/vector/vector		
 			make_test_case(mnemonic + ' v' + str(rega) + ', v' + str(regb) 
@@ -100,11 +105,16 @@ for opcode, mnemonic in binaryOps:
 			make_test_case(mnemonic + '.mask v' + str(rega) + ', s' + str(regm) 
 				+ ', v' + str(regb) + ', v' + str(regc),
 				make_a_instruction(aFormat, opcode, rega, regb, regc, regm))
+		elif aFormat == 6:
+			# vector/vector/vector invert mask
+			make_test_case(mnemonic + '.invmask v' + str(rega) + ', s' + str(regm) 
+				+ ', v' + str(regb) + ', v' + str(regc),
+				make_a_instruction(aFormat, opcode, rega, regb, regc, regm))
 
 	if mnemonic[-2:] == '.f':
 		continue	# Can't do immediate for FP instructions
 
-	for bFormat in [ 0, 1, 2, 4, 5 ]:
+	for bFormat in range(7):
 		imm = random.randint(0, 255)
 		if bFormat == 0:
 			# scalar/scalar
@@ -119,6 +129,10 @@ for opcode, mnemonic in binaryOps:
 			# vector/vector masked
 			make_test_case(mnemonic + '.mask v' + str(rega) + ', s' + str(regm) + ', v' + str(regb) + ', ' + str(imm),
 				make_b_instruction(bFormat, opcode, rega, regb, imm, regm))
+		elif bFormat == 3:
+			# vector/vector invert mask
+			make_test_case(mnemonic + '.invmask v' + str(rega) + ', s' + str(regm) + ', v' + str(regb) + ', ' + str(imm),
+				make_b_instruction(bFormat, opcode, rega, regb, imm, regm))
 		elif bFormat == 4:
 			# vector/scalar
 			make_test_case(mnemonic + ' v' + str(rega) + ', s' + str(regb) + ', ' + str(imm),
@@ -126,6 +140,10 @@ for opcode, mnemonic in binaryOps:
 		elif bFormat == 5:
 			# vector/scalar masked
 			make_test_case(mnemonic + '.mask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb) + ', ' + str(imm),
+				make_b_instruction(bFormat, opcode, rega, regb, imm, regm))
+		elif bFormat == 6:
+			# vector/scalar invert mask
+			make_test_case(mnemonic + '.invmask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb) + ', ' + str(imm),
 				make_b_instruction(bFormat, opcode, rega, regb, imm, regm))
 
 unaryOps = [
@@ -142,7 +160,7 @@ unaryOps = [
 #	(0x2a, 'itof')
 
 for opcode, mnemonic in unaryOps:
-	for aFormat in [ 0, 1, 2, 4, 5 ]:
+	for aFormat in range(7):
 		rega = random.randint(0, 27)
 		regb = random.randint(0, 27)
 		regm = random.randint(0, 27)
@@ -159,6 +177,10 @@ for opcode, mnemonic in unaryOps:
 			# Vector/Scalar Masked
 			make_test_case(mnemonic + '.mask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb),
 				make_a_instruction(aFormat, opcode, rega, 0, regb, regm))
+		elif aFormat == 3:
+			# Vector/Scalar Invert Mask
+			make_test_case(mnemonic + '.invmask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb),
+				make_a_instruction(aFormat, opcode, rega, 0, regb, regm))
 		elif aFormat == 4:
 			# Vector/Vector
 			make_test_case(mnemonic + ' v' + str(rega) + ', v' + str(regb),
@@ -166,6 +188,10 @@ for opcode, mnemonic in unaryOps:
 		elif aFormat == 5:
 			# Vector/Vector masked	
 			make_test_case(mnemonic + '.mask v' + str(rega) + ', s' + str(regm) + ', v'
+				+ str(regb), make_a_instruction(aFormat, opcode, rega, 0, regb, regm))
+		elif aFormat == 6:
+			# Vector/Vector invert mask	
+			make_test_case(mnemonic + '.invmask v' + str(rega) + ', s' + str(regm) + ', v'
 				+ str(regb), make_a_instruction(aFormat, opcode, rega, 0, regb, regm))
 
 # XXX HACK: These instructions should support all forms, but this is here in the interim
