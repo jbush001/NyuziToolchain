@@ -147,7 +147,15 @@ let Constraints = "$dest = $oldvalue" in {
 		FmtA_VVVMinv>;
 }
 
-// XXX SHUFFLEF Pat<>s
+// Floating point shuffle forms
+def : Pat<(int_vp_shufflef v16f32:$src1, v16i32:$src2), 
+	(SHUFFLEI v16f32:$src1, v16i32:$src2)>;
+def : Pat<(int_vp_blendf i32:$mask, (int_vp_shufflef v16f32:$src1, v16i32:$src2), 
+	v16f32:$oldvalue), 
+	(SHUFFLEI_MASK i32:$mask, v16f32:$src1, v16i32:$src2, v16f32:$oldvalue)>;
+def : Pat<(int_vp_blendf (not i32:$mask), (int_vp_shufflef v16f32:$src1, v16i32:$src2), 
+	v16f32:$oldvalue), 
+	(SHUFFLEI_MASKinv i32:$mask, v16f32:$src1, v16i32:$src2, v16f32:$oldvalue)>;
 
 def MOVESS : FormatAUnmaskedOneOpInst<
 	(outs ScalarReg:$dest), 

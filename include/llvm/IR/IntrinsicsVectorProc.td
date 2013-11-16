@@ -67,6 +67,8 @@ def int_vp_blendf : Intrinsic<[llvm_v16f32_ty], [llvm_i32_ty, llvm_v16f32_ty,
 // Shuffle vector elements
 def int_vp_shufflei : Intrinsic<[llvm_v16i32_ty], [llvm_v16i32_ty, llvm_v16i32_ty],
 	[IntrNoMem], "llvm.vectorproc.__builtin_vp_shufflei">;
+def int_vp_shufflef : Intrinsic<[llvm_v16f32_ty], [llvm_v16f32_ty, llvm_v16i32_ty],
+	[IntrNoMem], "llvm.vectorproc.__builtin_vp_shufflef">;
 
 // Vector Comparisions
 def int_vp_mask_cmpi_ugt : Intrinsic<[llvm_i32_ty], [llvm_v16i32_ty, llvm_v16i32_ty], 

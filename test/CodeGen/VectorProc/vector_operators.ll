@@ -60,12 +60,21 @@ define <16 x float> @fmul(<16 x float> %a, <16 x float> %b) { 	; CHECK: fmul:
 ; Not implemented: udiv, sdiv, urem, srem, frem
 
 declare <16 x i32> @llvm.vectorproc.__builtin_vp_shufflei(<16 x i32> %a, <16 x i32> %b)
+declare <16 x float> @llvm.vectorproc.__builtin_vp_shufflef(<16 x float> %a, <16 x i32> %b)
 
-define <16 x i32> @shuffle(<16 x i32> %a, <16 x i32> %b) {	; CHECK: shuffle:
+define <16 x i32> @shufflei(<16 x i32> %a, <16 x i32> %b) {	; CHECK: shufflei:
 	%shuffled = call <16 x i32> @llvm.vectorproc.__builtin_vp_shufflei(<16 x i32> %a, <16 x i32> %b)
 
 	; CHECK: shuffle v{{[0-9]+}}, v0, v1
 
 	ret <16 x i32> %shuffled
+}
+
+define <16 x float> @shufflef(<16 x float> %a, <16 x i32> %b) {	; CHECK: shufflef:
+	%shuffled = call <16 x float> @llvm.vectorproc.__builtin_vp_shufflef(<16 x float> %a, <16 x i32> %b)
+
+	; CHECK: shuffle v{{[0-9]+}}, v0, v1
+
+	ret <16 x float> %shuffled
 }
 

@@ -3903,6 +3903,10 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 		case VectorProc::BI__builtin_vp_shufflei:
 			F = CGM.getIntrinsic(Intrinsic::vp_shufflei);
 			break;
+
+		case VectorProc::BI__builtin_vp_shufflef:
+			F = CGM.getIntrinsic(Intrinsic::vp_shufflef);
+			break;
 		
 		case VectorProc::BI__builtin_vp_blendi:
 			F = CGM.getIntrinsic(Intrinsic::vp_blendi);
