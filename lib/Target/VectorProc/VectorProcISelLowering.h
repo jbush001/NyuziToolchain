@@ -30,8 +30,7 @@ namespace llvm {
 			SEL_COND_RESULT,
 			RECIPROCAL_EST,
 			BR_JT,
-			JT_WRAPPER,		// Jump table wraper
-			GETFIELD
+			JT_WRAPPER
 		};
 	}
 

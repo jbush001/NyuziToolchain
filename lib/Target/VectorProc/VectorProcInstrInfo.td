@@ -112,11 +112,11 @@ def GET_FIELDI : FormatAUnmaskedTwoOpInst<
 	(outs ScalarReg:$dest),
 	(ins VectorReg:$src1, ScalarReg:$src2),
 	"getfield $dest, $src1, $src2",
-	[(set i32:$dest, (getfield v16i32:$src1, i32:$src2))],
+	[(set i32:$dest, (extractelt v16i32:$src1, i32:$src2))],
 	0x1a,
 	FmtA_VVS>;
 
-def : Pat<(getfield v16f32:$src1, i32:$src2),
+def : Pat<(extractelt v16f32:$src1, i32:$src2),
 	(GET_FIELDI v16f32:$src1, i32:$src2)>; 
 
 def SHUFFLEI : FormatAUnmaskedTwoOpInst<

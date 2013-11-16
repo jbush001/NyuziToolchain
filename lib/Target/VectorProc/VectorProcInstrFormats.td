@@ -26,8 +26,6 @@ def splat : SDNode<"VectorProcISD::SPLAT", SDTypeProfile<1, 1, [SDTCisEltOfVec<1
 def wrapper : SDNode<"VectorProcISD::WRAPPER", SDTIntUnaryOp>;
 def reciprocal : SDNode<"VectorProcISD::RECIPROCAL_EST", SDTFPUnaryOp>;
 def jtwrapper : SDNode<"VectorProcISD::JT_WRAPPER", SDTIntUnaryOp>;
-def getfield : SDNode<"VectorProcISD::GETFIELD", SDTypeProfile<1, 2, [ 
-	SDTCisEltOfVec<0, 1>]>>;
 
 def SDT_BRJT    : SDTypeProfile<0, 2,
 	[SDTCisPtrTy<0>, SDTCisVT<1, i32>]>;

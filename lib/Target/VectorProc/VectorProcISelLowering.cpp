@@ -421,10 +421,6 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::ROTR, MVT::i32, Expand);
 	setOperationAction(ISD::FNEG, MVT::f32, Custom);
 	setOperationAction(ISD::FNEG, MVT::v16f32, Custom);
-	setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::i32, Custom);
-	setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::f32, Custom);
-	setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v16i32, Custom);
-	setOperationAction(ISD::EXTRACT_VECTOR_ELT, MVT::v16f32, Custom);
 	setOperationAction(ISD::SETCC, MVT::f32, Custom);
 	setOperationAction(ISD::SETCC, MVT::v16f32, Custom);
 	setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Custom);
@@ -467,7 +463,6 @@ const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
 		case VectorProcISD::RECIPROCAL_EST: return "VectorProcISD::RECIPROCAL_EST";
 		case VectorProcISD::BR_JT: return "VectorProcISD::BR_JT";
 		case VectorProcISD::JT_WRAPPER: return "VectorProcISD::JT_WRAPPER";
-		case VectorProcISD::GETFIELD: return "VectorProcISD::GETFIELD";
 		default: return 0;
 	}
 }
@@ -726,19 +721,6 @@ LowerFNEG(SDValue Op, SelectionDAG &DAG) const
 	return DAG.getNode(ISD::BITCAST, dl, ResultVT, flipped);
 }
 
-// NOTE: LLVM numbers vector elements the opposite of VectorProc. Need to reverse
-// it here.
-SDValue VectorProcTargetLowering::
-LowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const
-{
-	SDLoc dl(Op);
-	MVT VT = Op.getValueType().getSimpleVT();
-
-	SDValue index = DAG.getNode(ISD::SUB, dl, MVT::i32, DAG.getConstant(15, MVT::i32),
-		Op.getOperand(1));
-	return DAG.getNode(VectorProcISD::GETFIELD, dl, VT, Op.getOperand(0), index);
-}
-
 // Handle unsupported floating point operations: unordered comparisons
 // and equality.
 SDValue VectorProcTargetLowering::
@@ -876,7 +858,6 @@ LowerOperation(SDValue Op, SelectionDAG &DAG) const
 		case ISD::BR_JT: return LowerBR_JT(Op, DAG);
 		case ISD::SCALAR_TO_VECTOR: return LowerSCALAR_TO_VECTOR(Op, DAG);
 		case ISD::FNEG: return LowerFNEG(Op, DAG);
-		case ISD::EXTRACT_VECTOR_ELT: return LowerEXTRACT_VECTOR_ELT(Op, DAG);
 		case ISD::SETCC: return LowerSETCC(Op, DAG);
 		case ISD::CTLZ_ZERO_UNDEF: return LowerCTLZ_ZERO_UNDEF(Op, DAG);
 		case ISD::CTTZ_ZERO_UNDEF: return LowerCTTZ_ZERO_UNDEF(Op, DAG);
