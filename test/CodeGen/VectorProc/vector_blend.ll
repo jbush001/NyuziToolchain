@@ -207,7 +207,7 @@ define <16 x i32> @test16(i32 %mask, <16 x i32> %a, i32 %b) {	; CHECK: test15
 	ret <16 x i32> %c
 }
 
-; Register move, masked
+; Register move, vector = vector, masked
 define <16 x i32> @test17(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: test17
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %mask, <16 x i32> %a, <16 x i32> %b)
 
@@ -216,7 +216,7 @@ define <16 x i32> @test17(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: te
 	ret <16 x i32> %c
 }
 
-; Register move, inverted mask
+; Register move, vector = vector, inverted mask
 define <16 x i32> @test18(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: test18
 	%notmask = xor i32 %mask, -1
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %notmask, <16 x i32> %a, <16 x i32> %b)
@@ -226,4 +226,5 @@ define <16 x i32> @test18(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: te
 	ret <16 x i32> %c
 }
 
+; XXX vector = scalar, inverted and non-inverted
 
