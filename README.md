@@ -32,7 +32,6 @@ A few other things to note:
 * There is also an autoconf based build system in the directory.  They won't work, because lld specifically is cmake only.
 * MAKE_INSTALL_PREFIX will put this in a different path than the default compiler.  Since this only builds for VectorProc, this is important to avoid overwriting the system compiler (on a Mac, which uses clang as the system compiler).
 * It will probably be necessary to add 'sudo' to the beginning of make install. However, this can leave files with root ownership in your build directory, which can then cause cryptic build errors later when building as non-root.  Doing a 'sudo chown -R &#x60;whoami&#x60; .' in the build directory can fix this.
-* clang is statically linked and the link phase uses a lot of memory.  If you don't have enough virtual memory, the build may fail with the message 'ld terminated with signal 9'.  Adding -DCMAKE_BUILD_TYPE=Release as one of the parameters on the cmake command line above may help with this.
 
 ### To run compiler
 

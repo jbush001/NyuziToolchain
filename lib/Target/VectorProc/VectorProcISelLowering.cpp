@@ -31,6 +31,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/IR/Intrinsics.h"
 using namespace llvm;
 
 #include "VectorProcGenCallingConv.inc"
@@ -118,7 +119,7 @@ LowerFormalArguments(SDValue Chain,
 			EVT RegVT = VA.getLocVT();
 			const TargetRegisterClass *RC;
 
-			if (RegVT == MVT::i32 || RegVT == MVT::f32 || RegVT == MVT::v16i1)
+			if (RegVT == MVT::i32 || RegVT == MVT::f32)
 				RC = &VectorProc::ScalarRegRegClass;
 			else if (RegVT == MVT::v16i32 || RegVT == MVT::v16f32)
 				RC = &VectorProc::VectorRegRegClass;
@@ -386,7 +387,6 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	// Set up the register classes.
 	addRegisterClass(MVT::i32, &VectorProc::ScalarRegRegClass);
 	addRegisterClass(MVT::f32, &VectorProc::ScalarRegRegClass);
-	addRegisterClass(MVT::v16i1, &VectorProc::ScalarRegRegClass);
 	addRegisterClass(MVT::v16i32, &VectorProc::VectorRegRegClass);
 	addRegisterClass(MVT::v16f32, &VectorProc::VectorRegRegClass);
 
@@ -558,7 +558,11 @@ VectorProcTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) 
 	SDValue mask = DAG.getNode(ISD::SRL, dl, MVT::i32, DAG.getConstant(0x8000, 
 		MVT::i32), Op.getOperand(2));
 	SDValue splat = DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(1));
-	return DAG.getNode(ISD::VSELECT, dl, VT, mask, splat, Op.getOperand(0));
+
+	// XXX also should probably try to use inverted mask, because that allows
+	// splat on RHS, which uses scalar properly.
+	return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, dl, VT, DAG.getConstant(Intrinsic::vp_blendi, MVT::i32),
+		mask, splat, Op.getOperand(0));
 }
 
 // This architecture does not support conditional moves for scalar registers.

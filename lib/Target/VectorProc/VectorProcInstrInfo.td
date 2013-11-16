@@ -81,85 +81,21 @@ def FTOSIV : FormatAUnmaskedOneOpInst<
         	0x1b,
         	FmtA_VVV>;
 
-defm SGTSI : IntCompareInst<"setgt", "i", SETGT, 0x12>;	
-defm SGESI : IntCompareInst<"setge", "i", SETGE, 0x13>;
-defm SLTSI : IntCompareInst<"setlt", "i", SETLT, 0x14>;
-defm SLESI : IntCompareInst<"setle", "i", SETLE, 0x15>;
-defm SEQSI : IntCompareInst<"seteq", "i", SETEQ, 0x10>;
-defm SNESI : IntCompareInst<"setne", "i", SETNE, 0x11>;
-defm SGTUI : IntCompareInst<"setgt", "u", SETUGT, 0x16>;	
-defm SGEUI : IntCompareInst<"setge", "u", SETUGE, 0x17>;
-defm SLTUI : IntCompareInst<"setlt", "u", SETULT, 0x18>;
-defm SLEUI : IntCompareInst<"setle", "u", SETULE, 0x19>;
+defm SGTSI : IntCompareInst<"setgt", "i", SETGT, 0x12, int_vp_mask_cmpi_sgt>;	
+defm SGESI : IntCompareInst<"setge", "i", SETGE, 0x13, int_vp_mask_cmpi_sge>;
+defm SLTSI : IntCompareInst<"setlt", "i", SETLT, 0x14, int_vp_mask_cmpi_slt>;
+defm SLESI : IntCompareInst<"setle", "i", SETLE, 0x15, int_vp_mask_cmpi_sle>;
+defm SEQSI : IntCompareInst<"seteq", "i", SETEQ, 0x10, int_vp_mask_cmpi_eq>;
+defm SNESI : IntCompareInst<"setne", "i", SETNE, 0x11, int_vp_mask_cmpi_ne>;
+defm SGTUI : IntCompareInst<"setgt", "u", SETUGT, 0x16, int_vp_mask_cmpi_ugt>;	
+defm SGEUI : IntCompareInst<"setge", "u", SETUGE, 0x17, int_vp_mask_cmpi_uge>;
+defm SLTUI : IntCompareInst<"setlt", "u", SETULT, 0x18, int_vp_mask_cmpi_ult>;
+defm SLEUI : IntCompareInst<"setle", "u", SETULE, 0x19, int_vp_mask_cmpi_ule>;
 
-// Intrinsic forms of compare instructions.  This is a bit of a hack,
-// since I can't match the instruction forms in a way that works properly
-// with the type legalizer.
-def : Pat<(int_vp_mask_cmpi_sgt v16i32:$src1, v16i32:$src2),
-	(SGTSIVVV v16i32:$src1, v16i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_sgt v16i32:$src1, (splat i32:$src2)),
-	(SGTSIVVS v16i32:$src1, i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_sge v16i32:$src1, v16i32:$src2),
-	(SGESIVVV v16i32:$src1, v16i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_sge v16i32:$src1, (splat i32:$src2)),
-	(SGESIVVS v16i32:$src1, i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_slt v16i32:$src1, v16i32:$src2),
-	(SLTSIVVV v16i32:$src1, v16i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_slt v16i32:$src1, (splat i32:$src2)),
-	(SLTSIVVS v16i32:$src1, i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_sle v16i32:$src1, v16i32:$src2),
-	(SLESIVVV v16i32:$src1, v16i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_sle v16i32:$src1, (splat i32:$src2)),
-	(SLESIVVS v16i32:$src1, i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_eq v16i32:$src1, v16i32:$src2),
-	(SEQSIVVV v16i32:$src1, v16i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_eq v16i32:$src1, (splat i32:$src2)),
-	(SEQSIVVS v16i32:$src1, i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_ne v16i32:$src1, v16i32:$src2),
-	(SNESIVVV v16i32:$src1, v16i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_ne v16i32:$src1, (splat i32:$src2)),
-	(SNESIVVS v16i32:$src1, i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_ugt v16i32:$src1, v16i32:$src2),
-	(SGTUIVVV v16i32:$src1, v16i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_ugt v16i32:$src1, (splat i32:$src2)),
-	(SGTUIVVS v16i32:$src1, i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_uge v16i32:$src1, v16i32:$src2),
-	(SGEUIVVV v16i32:$src1, v16i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_uge v16i32:$src1, (splat i32:$src2)),
-	(SGEUIVVS v16i32:$src1, i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_ult v16i32:$src1, v16i32:$src2),
-	(SLTUIVVV v16i32:$src1, v16i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_ult v16i32:$src1, (splat i32:$src2)),
-	(SLTUIVVS v16i32:$src1, i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_ule v16i32:$src1, v16i32:$src2),
-	(SLEUIVVV v16i32:$src1, v16i32:$src2)>;
-def : Pat<(int_vp_mask_cmpi_ule v16i32:$src1, (splat i32:$src2)),
-	(SLEUIVVS v16i32:$src1, i32:$src2)>;
-
-defm SGTFO : FloatCompareInst<"setgt", SETOGT, 0x2c>;	
-defm SGEFO : FloatCompareInst<"setge", SETOGE, 0x2d>;
-defm SLTFO : FloatCompareInst<"setlt", SETOLT, 0x2e>;
-defm SLEFO : FloatCompareInst<"setle", SETOLE, 0x2f>;
-
-// Intrinsic forms of compare instructions.  This is a bit of a hack,
-// since I can't match the instruction forms in a way that works properly
-// with the type legalizer.
-def : Pat<(int_vp_mask_cmpf_gt v16f32:$src1, v16f32:$src2),
-	(SGTFOVVV  v16f32:$src1, v16f32:$src2)>;
-def : Pat<(int_vp_mask_cmpf_gt v16f32:$src1, (splat f32:$src2)),
-	(SGTFOVVS  v16f32:$src1, f32:$src2)>;
-def : Pat<(int_vp_mask_cmpf_ge v16f32:$src1, v16f32:$src2),
-	(SGEFOVVV  v16f32:$src1, v16f32:$src2)>;
-def : Pat<(int_vp_mask_cmpf_ge v16f32:$src1, (splat f32:$src2)),
-	(SGEFOVVS  v16f32:$src1, f32:$src2)>;
-def : Pat<(int_vp_mask_cmpf_lt v16f32:$src1, v16f32:$src2),
-	(SLTFOVVV  v16f32:$src1, v16f32:$src2)>;
-def : Pat<(int_vp_mask_cmpf_lt v16f32:$src1, (splat f32:$src2)),
-	(SLTFOVVS  v16f32:$src1, f32:$src2)>;
-def : Pat<(int_vp_mask_cmpf_le v16f32:$src1, v16f32:$src2),
-	(SLEFOVVV  v16f32:$src1, v16f32:$src2)>;
-def : Pat<(int_vp_mask_cmpf_le v16f32:$src1, (splat f32:$src2)),
-	(SLEFOVVS  v16f32:$src1, f32:$src2)>;
+defm SGTFO : FloatCompareInst<"setgt", SETOGT, 0x2c, int_vp_mask_cmpf_gt>;	
+defm SGEFO : FloatCompareInst<"setge", SETOGE, 0x2d, int_vp_mask_cmpf_ge>;
+defm SLTFO : FloatCompareInst<"setlt", SETOLT, 0x2e, int_vp_mask_cmpf_lt>;
+defm SLEFO : FloatCompareInst<"setle", SETOLE, 0x2f, int_vp_mask_cmpf_le>;
 	
 // Note: there is no floating point eq/ne.  Just use integer
 // forms
@@ -224,7 +160,7 @@ let Constraints = "$dest = $oldvalue" in {
 		(outs VectorReg:$dest),
 		(ins ScalarReg:$mask, VectorReg:$src2, VectorReg:$oldvalue),
 		"move.mask $dest, $mask, $src2",
-		[(set v16i32:$dest, (vselect i32:$mask, v16i32:$src2, v16i32:$oldvalue))],
+		[(set v16i32:$dest, (int_vp_blendi i32:$mask, v16i32:$src2, v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVVM>;
 
@@ -232,14 +168,14 @@ let Constraints = "$dest = $oldvalue" in {
 		(outs VectorReg:$dest),
 		(ins ScalarReg:$mask, ScalarReg:$src2, VectorReg:$oldvalue),
 		"move.mask $dest, $mask, $src2",
-		[(set v16i32:$dest, (vselect i32:$mask, (splat i32:$src2), v16i32:$oldvalue))],
+		[(set v16i32:$dest, (int_vp_blendi i32:$mask, (splat i32:$src2), v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVSM>;
 }
 
-def : Pat<(vselect i32:$mask, v16f32:$src2, v16f32:$oldvalue), 
+def : Pat<(int_vp_blendf i32:$mask, v16f32:$src2, v16f32:$oldvalue), 
 	(MOVEVVMI i32:$mask, v16f32:$src2, v16f32:$oldvalue)>;
-def : Pat<(vselect i32:$mask, (splat f32:$src2), v16f32:$oldvalue),
+def : Pat<(int_vp_blendf i32:$mask, (splat f32:$src2), v16f32:$oldvalue),
 	(MOVEVSMI i32:$mask, f32:$src2, v16f32:$oldvalue)>; 
 
 //////////////////////////////////////////////////////////////////
@@ -255,11 +191,6 @@ def LW : ScalarLoadInst<"32", load, FmtC_Word>;
 def SB : ScalarStoreInst<"8", truncstorei8, FmtC_Byte_Signed>;
 def SS : ScalarStoreInst<"16", truncstorei16, FmtC_Short_Signed>;
 def SW : ScalarStoreInst<"32", store, FmtC_Word>;
-
-// A bit of a kludge.  Used to store the result of a vector comparison. 
-// The compiler does this in some cases and the normal store does not match it.
-def : Pat<(store v16i1:$srcDest, ADDRri:$ptr),
-	(SW v16i1:$srcDest, ADDRri:$ptr)>;
 
 def : Pat<(i32 (extloadi1 ADDRri:$addr)), (LBU ADDRri:$addr)>;
 def : Pat<(i32 (extloadi8 ADDRri:$addr)), (LBU ADDRri:$addr)>;

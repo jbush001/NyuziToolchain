@@ -57,10 +57,14 @@ def int_vp_block_storei_masked : Intrinsic<[], [v16i32_ptr_ty, llvm_v16i32_ty, l
 def int_vp_block_storef_masked : Intrinsic<[], [v16i32_ptr_ty, llvm_v16f32_ty, llvm_i32_ty], 
 	[IntrReadWriteArgMem], "llvm.vectorproc.__builtin_vp_block_storef_masked">;
 
+// The blend pattern is a pseudo-instruction used to encode masked operations
+def int_vp_blendi : Intrinsic<[llvm_v16i32_ty], [llvm_i32_ty, llvm_v16i32_ty, 
+	llvm_v16i32_ty], [IntrNoMem], "llvm.vectorproc.__builtin_vp_blendi">;
+
+def int_vp_blendf : Intrinsic<[llvm_v16f32_ty], [llvm_i32_ty, llvm_v16f32_ty,
+	llvm_v16f32_ty], [IntrNoMem], "llvm.vectorproc.__builtin_vp_blendf">;
 
 // Vector Comparisions
-// Ideally, these would just use the compare instruction, but I had a hard time
-// coercing that into a scalar register, so they are intrinsics for now.
 def int_vp_mask_cmpi_ugt : Intrinsic<[llvm_i32_ty], [llvm_v16i32_ty, llvm_v16i32_ty], 
 	[IntrNoMem], "llvm.vectorproc.__builtin_vp_mask_cmpi_ugt">;
 

@@ -3876,16 +3876,6 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 
 	switch (BuiltinID)
 	{
-		case VectorProc::BI__builtin_vp_vector_blendi:
-		case VectorProc::BI__builtin_vp_vector_blendf:
-		{
-			// Convert to a v16i1 mask and select from it.
-			Value *truncated = Builder.CreateTrunc(Ops[2], Builder.getInt16Ty());
-			Value *predicate = Builder.CreateBitCast(truncated, 
-				llvm::VectorType::get(Builder.getInt1Ty(), 16));
-			return Builder.CreateSelect(predicate, Ops[0], Ops[1]);
-		}
-		
 		case VectorProc::BI__builtin_vp_makevectori:
 		case VectorProc::BI__builtin_vp_makevectorf:
 		{
@@ -3910,6 +3900,14 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 	// instruction in the backend).
 	llvm::Function *F;
 	switch (BuiltinID) {
+		case VectorProc::BI__builtin_vp_blendi:
+			F = CGM.getIntrinsic(Intrinsic::vp_blendi);
+			break;
+
+		case VectorProc::BI__builtin_vp_blendf:
+			F = CGM.getIntrinsic(Intrinsic::vp_blendf);
+			break;
+
 		case VectorProc::BI__builtin_vp_gather_loadi:
 			F = CGM.getIntrinsic(Intrinsic::vp_gather_loadi);
 			break;

@@ -15,8 +15,8 @@
 // The format of this database matches clang/Basic/Builtins.def.
 
 BUILTIN(__builtin_vp_get_current_strand, "i", "nc")
-BUILTIN(__builtin_vp_vector_blendi, "V16iV16iV16ii", "nc")
-BUILTIN(__builtin_vp_vector_blendf, "V16fV16fV16fi", "nc")
+BUILTIN(__builtin_vp_blendi, "V16iiV16iV16i", "nc")
+BUILTIN(__builtin_vp_blendf, "V16fiV16fV16f", "nc")
 BUILTIN(__builtin_vp_gather_loadi, "V16iV16i", "nc")
 BUILTIN(__builtin_vp_gather_loadi_masked, "V16iV16ii", "nc")
 BUILTIN(__builtin_vp_scatter_storei, "vV16iV16i", "nc")
