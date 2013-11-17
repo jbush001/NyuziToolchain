@@ -1,7 +1,7 @@
 This is a port of LLVM and the clang compiler to an experimental GPGPU architecture (https://github.com/jbush001/GPGPU). 
 
 ## Building:
-* This requires a newer version of a compiler that supports c++11.  Upgrade your compiler if necessary.
+* This requires a newer version of a compiler that supports c++11.  Upgrade your host compiler if necessary.
 * cmake must be installed. This is available for most Linux distros and can be installed automatically using the standard package manager (apt-get, yum, etc).  Sources are available here:  http://www.cmake.org/
 
 Create a build directory from within the top level directory of this project:
@@ -31,8 +31,8 @@ Build and install
 A few other things to note:
 
 * There is also an autoconf based build system in the directory.  They won't work, because a number of tools only have cmake configurations.
-* MAKE_INSTALL_PREFIX will put this in a different path than the default compiler.  Since this only builds for VectorProc, this is important to avoid overwriting the system compiler (on a Mac, which uses clang as the system compiler).
-* It will probably be necessary to add 'sudo' to the beginning of make install. However, this can leave files with root ownership in your build directory, which can then cause cryptic build errors later when building as non-root.  Doing a 'sudo chown -R &#x60;whoami&#x60; .' in the build directory can fix this.
+* Using sudo on make install as described can leave files with root ownership in your build directory, which can then cause cryptic build errors later when building as non-root.  Doing a 'sudo chown -R &#x60;whoami&#x60; .' in the build directory will fix this.
+* MAKE_INSTALL_PREFIX in the above cmake config will put this in a different path than the default host compiler to avoid overwriting it on osx.
 
 ### Invoking compiler
 
@@ -45,10 +45,10 @@ The toolchain will be installed into /usr/local/llvm-vectorproc
 ## Running unit tests
 
 * From the shell, switch to the directory build/test/.  Type 'make check'.  This will set up
-the configuration (it will try to run a bunch of tests, many of which will fail.  It's okay to Ctrl-C at this point).
-* Do the same thing for clang.  From the top of the build directory, switch to tools/clang/test and type 'make check'.
+the configuration (it will try to run a bunch of tests, many of which will fail.  It's okay to Ctrl-C at this point).  
+* Do the same thing for clang.  From the top of the build directory, switch to tools/clang/test and type 'make check'. These two steps only need to be done once when setting up the project for the first time.
 * Change PATH environment variable to include the binary directory (build/bin) 
-* From the top of the source (not build) directory, run:
+* From the top of the source (not build) directory, the test can be run as follows:
 
 <pre>
   llvm-lit test/CodeGen/VectorProc
