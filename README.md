@@ -11,6 +11,7 @@ Create a build directory from within the top level directory of this project:
 </pre>
 
 Configure:
+
 __MacOS__
 <pre>
 > cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++11 -stdlib=libc++" -DLLVM_DEFAULT_TARGET_TRIPLE=vectorproc ..
