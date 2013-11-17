@@ -595,7 +595,7 @@ VectorProcTargetLowering::LowerConstant(SDValue Op, SelectionDAG &DAG) const
 	ConstantSDNode *C = cast<ConstantSDNode>(Op);
 
 	// The size of the immediate field is determined by the instruction format and
-	// whether a max is present.  At this level of the tree, we cannot know that,
+	// whether a mask is present.  At this level of the tree, we cannot know that,
 	// so we use the smallest size.
 	const int kMaxImmediateSize = 13;
 
