@@ -436,14 +436,10 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 
 	// Hardware does not have an integer divider, so convert these to 
 	// library calls
-    setLibcallName(RTLIB::UDIV_I32, "__udivsi3");
-    setLibcallName(RTLIB::UREM_I32, "__umodsi3");
-    setLibcallName(RTLIB::SDIV_I32, "__divsi3");
-    setLibcallName(RTLIB::SREM_I32, "__modsi3");
-    setOperationAction(ISD::UDIV,  MVT::i32, Expand);
-    setOperationAction(ISD::UREM,  MVT::i32, Expand);
-    setOperationAction(ISD::SDIV,  MVT::i32, Expand);
-    setOperationAction(ISD::SREM,  MVT::i32, Expand);
+    setOperationAction(ISD::UDIV,  MVT::i32, Expand);	// __udivsi3
+    setOperationAction(ISD::UREM,  MVT::i32, Expand);	// __umodsi3
+    setOperationAction(ISD::SDIV,  MVT::i32, Expand);	// __divsi3
+    setOperationAction(ISD::SREM,  MVT::i32, Expand);	// __modsi3
 
 	setStackPointerRegisterToSaveRestore(VectorProc::SP_REG);
 	setMinFunctionAlignment(2);
@@ -539,8 +535,7 @@ VectorProcTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) con
 }
 
 // (VECTOR, VAL, IDX)
-// Convert to a vselect with a mask (0x8000 >> IDX) and a splatted scalar operand.
-// NOTE: LLVM numbers vectors reversed from how VectorProc refers to them.
+// Convert to a move with a mask (0x8000 >> IDX) and a splatted scalar operand.
 SDValue
 VectorProcTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const 
 {
@@ -552,9 +547,6 @@ VectorProcTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) 
 	SDValue mask = DAG.getNode(ISD::SRL, dl, MVT::i32, DAG.getConstant(0x8000, 
 		MVT::i32), Op.getOperand(2));
 	SDValue splat = DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(1));
-
-	// XXX also should probably try to use inverted mask, because that allows
-	// splat on RHS, which uses scalar properly.
 	return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, dl, VT, DAG.getConstant(Intrinsic::vp_blendi, MVT::i32),
 		mask, splat, Op.getOperand(0));
 }
