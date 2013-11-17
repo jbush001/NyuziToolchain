@@ -3878,13 +3878,7 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 	{
 		case VectorProc::BI__builtin_vp_makevectori:
 		case VectorProc::BI__builtin_vp_makevectorf:
-		{
-			SmallVector<Value*, 16> Lanes;
-			for (int i = 0; i < 16; i++)
-				Lanes.push_back(Ops[0]);
-			
-			return BuildVector(Lanes);	
-		}
+			return Builder.CreateVectorSplat(16, Ops[0]);
 
 		case VectorProc::BI__builtin_vp_vitof:
 			return Builder.CreateSIToFP(Ops[0], llvm::VectorType::get(Builder.getFloatTy(),
@@ -3965,8 +3959,6 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 			break;
 
 		// Vector comparisions
-		// Ideally, these would just use the compare instruction, but I had a hard 
-		// time coercing that into a scalar register, so they are intrinsics for now.
 		case VectorProc::BI__builtin_vp_mask_cmpi_ugt: 
 			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_ugt);
 			break;
