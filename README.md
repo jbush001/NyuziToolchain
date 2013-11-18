@@ -32,7 +32,6 @@ A few other things to note:
 
 * There is also an autoconf based build system in the directory.  They won't work, because a number of tools only have cmake configurations.
 * Using sudo on make install as described can leave files with root ownership in your build directory, which can then cause cryptic build errors later when building as non-root.  Doing a 'sudo chown -R &#x60;whoami&#x60; .' in the build directory will fix this.
-* MAKE_INSTALL_PREFIX in the above cmake config will put this in a different path than the default host compiler to avoid overwriting it on osx.
 
 ### Invoking compiler
 
