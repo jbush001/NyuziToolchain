@@ -3,6 +3,12 @@
 project(LLVM)
 cmake_minimum_required(VERSION 2.8)
 
+IF(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+SET(CMAKE_INSTALL_PREFIX
+"/usr/local/llvm-vectorproc/" CACHE PATH "LLVM-GPGPU install prefix" FORCE
+)
+ENDIF(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+
 # Add path for custom modules
 set(CMAKE_MODULE_PATH
   ${CMAKE_MODULE_PATH}
@@ -42,7 +48,7 @@ endif()
 
 set(PACKAGE_NAME LLVM)
 set(PACKAGE_STRING "${PACKAGE_NAME} ${PACKAGE_VERSION}")
-set(PACKAGE_BUGREPORT "http://llvm.org/bugs/")
+set(PACKAGE_BUGREPORT "https://github.com/jbush001/LLVM-GPGPU/issues")
 
 # Configure CPack.
 set(CPACK_PACKAGE_VENDOR "LLVM")
@@ -125,7 +131,7 @@ set(LLVM_ALL_TARGETS
 # List of targets with JIT support:
 set(LLVM_TARGETS_WITH_JIT X86 PowerPC AArch64 ARM Mips SystemZ)
 
-set(LLVM_TARGETS_TO_BUILD "all"
+set(LLVM_TARGETS_TO_BUILD "VectorProc"
     CACHE STRING "Semicolon-separated list of targets to build, or \"all\".")
 
 set(LLVM_EXPERIMENTAL_TARGETS_TO_BUILD ""
@@ -275,7 +281,7 @@ include(config-ix)
 
 # By default, we target the host, but this can be overridden at CMake
 # invocation time.
-set(LLVM_DEFAULT_TARGET_TRIPLE "${LLVM_HOST_TRIPLE}" CACHE STRING
+set(LLVM_DEFAULT_TARGET_TRIPLE "vectorproc" CACHE STRING
   "Default target for which LLVM will generate code." )
 set(TARGET_TRIPLE "${LLVM_DEFAULT_TARGET_TRIPLE}")
 

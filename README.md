@@ -14,12 +14,12 @@ Configure:
 
 __MacOS__
 <pre>
-> cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++11 -stdlib=libc++" -DLLVM_DEFAULT_TARGET_TRIPLE=vectorproc ..
+> cmake -DCMAKE_CXX_FLAGS="-std=c++11 -stdlib=libc++"  ..
 </pre>
 
 __Linux/GCC__
 <pre>
-> cmake -DCMAKE_INSTALL_PREFIX=/usr/local/llvm-vectorproc/ -DLLVM_TARGETS_TO_BUILD="VectorProc" -DCMAKE_CXX_FLAGS="-std=c++0x" -DLLVM_DEFAULT_TARGET_TRIPLE=vectorproc ..
+> cmake -DCMAKE_CXX_FLAGS="-std=c++0x"  ..
 </pre>
 
 Build and install
