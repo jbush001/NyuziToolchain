@@ -653,6 +653,12 @@ def MEMBAR : FormatDInst<
 	[(atomic_fence imm:$imm1, imm:$imm2)],
 	FmtD_MemBar>;
 
+def NOP : VPInstruction<
+	(outs),
+	(ins),
+	"nop",
+	[]>;
+
 // Conversions
 def : Pat<(v16f32 (bitconvert (v16i32 VectorReg:$src))), (v16f32 VectorReg:$src)>;
 def : Pat<(v16i32 (bitconvert (v16f32 VectorReg:$src))), (v16i32 VectorReg:$src)>;
