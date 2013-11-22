@@ -418,6 +418,20 @@ let isTerminator = 1 in {
 		[(brcond i32:$test, bb:$dest)],
 		BT_IfTrue>;
 
+	def BALL: ConditionalBranchInst<
+		(outs),
+		(ins ScalarReg:$test, brtarget:$dest),
+		"ball $test, $dest",
+		[],	// assembler only XXX expose this to compiler
+		BT_All>;
+
+	def BNALL: ConditionalBranchInst<
+		(outs),
+		(ins ScalarReg:$test, brtarget:$dest),
+		"bnall $test, $dest",
+		[], // assembler only XXX expose this to compiler
+		BT_NAll>;
+
 	// Converts to MOVE pc, <srcreg>
 	def JUMPREG : VPInstruction<
 		(outs), 
