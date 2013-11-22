@@ -469,7 +469,8 @@ multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src2, VectorReg:$oldvalue),
 			operator # ".mask $dest, $mask, $src2",
-			[(set v16i32:$dest, (int_vp_blendi i32:$mask, (OpNode v16i32:$src2), v16i32:$oldvalue))],
+			[(set v16i32:$dest, (int_vp_blendi i32:$mask, (OpNode v16i32:$src2), 
+				v16i32:$oldvalue))],
 			opcode,
 			FmtA_VVVM>;
 
@@ -477,7 +478,8 @@ multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src2, VectorReg:$oldvalue),
 			operator # ".invmask $dest, $mask, $src2",
-			[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), (OpNode v16i32:$src2), v16i32:$oldvalue))],
+			[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), (OpNode v16i32:$src2), 
+				v16i32:$oldvalue))],
 			opcode,
 			FmtA_VVVMinv>;
 
@@ -485,7 +487,8 @@ multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, ScalarReg:$src2, VectorReg:$oldvalue),
 			operator # ".mask $dest, $mask, $src2",
-			[(set v16i32:$dest, (int_vp_blendi i32:$mask, (OpNode (splat i32:$src2)), v16i32:$oldvalue))],
+			[(set v16i32:$dest, (int_vp_blendi i32:$mask, (OpNode (splat i32:$src2)), 
+				v16i32:$oldvalue))],
 			opcode,
 			FmtA_VVSM>;
 
@@ -493,14 +496,15 @@ multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, ScalarReg:$src2, VectorReg:$oldvalue),
 			operator # ".invmask $dest, $mask, $src2",
-			[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), (OpNode (splat i32:$src2)), v16i32:$oldvalue))],
+			[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), (OpNode (splat i32:$src2)), 
+				v16i32:$oldvalue))],
 			opcode,
 			FmtA_VVSMinv>;
 	}
 }
 
 multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
-	def S : FormatAUnmaskedOneOpInst<
+	def SS : FormatAUnmaskedOneOpInst<
 		(outs ScalarReg:$dest), 
 		(ins ScalarReg:$src2),
 		operator # " $dest, $src2",
@@ -508,7 +512,15 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
 		opcode,
 		FmtA_SSS>;
 
-	def V : FormatAUnmaskedOneOpInst<
+	def VS : FormatAUnmaskedOneOpInst<
+		(outs VectorReg:$dest), 
+		(ins ScalarReg:$src2),
+		operator # " $dest, $src2",
+		[(set v16f32:$dest, (OpNode (splat f32:$src2)))],
+		opcode,
+		FmtA_VVS>;
+
+	def VV : FormatAUnmaskedOneOpInst<
 		(outs VectorReg:$dest), 
 		(ins VectorReg:$src2),
 		operator # " $dest, $src2",
@@ -518,21 +530,41 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
 
 	// Predicated
 	let Constraints = "$dest = $oldvalue" in {
-		def VM : FormatAMaskedOneOpInst<
+		def VVM : FormatAMaskedOneOpInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src2, VectorReg:$oldvalue),
 			operator # ".mask $dest, $mask, $src2",
-			[(set v16f32:$dest, (int_vp_blendf i32:$mask, (OpNode v16f32:$src2), v16f32:$oldvalue))],
+			[(set v16f32:$dest, (int_vp_blendf i32:$mask, (OpNode v16f32:$src2), 
+				v16f32:$oldvalue))],
 			opcode,
 			FmtA_VVVM>;
 
-		def VMinv : FormatAMaskedOneOpInst<
+		def VSM : FormatAMaskedOneOpInst<
+			(outs VectorReg:$dest),
+			(ins ScalarReg:$mask, ScalarReg:$src2, VectorReg:$oldvalue),
+			operator # ".mask $dest, $mask, $src2",
+			[(set v16f32:$dest, (int_vp_blendf i32:$mask, (OpNode (splat f32:$src2)), 
+				v16f32:$oldvalue))],
+			opcode,
+			FmtA_VVSM>;
+
+		def VVMinv : FormatAMaskedOneOpInst<
 			(outs VectorReg:$dest),
 			(ins ScalarReg:$mask, VectorReg:$src2, VectorReg:$oldvalue),
 			operator # ".invmask $dest, $mask, $src2",
-			[(set v16f32:$dest, (int_vp_blendf (not i32:$mask), (OpNode v16f32:$src2), v16f32:$oldvalue))],
+			[(set v16f32:$dest, (int_vp_blendf (not i32:$mask), (OpNode v16f32:$src2), 
+				v16f32:$oldvalue))],
 			opcode,
 			FmtA_VVVMinv>;
+
+		def VSMinv : FormatAMaskedOneOpInst<
+			(outs VectorReg:$dest),
+			(ins ScalarReg:$mask, ScalarReg:$src2, VectorReg:$oldvalue),
+			operator # ".invmask $dest, $mask, $src2",
+			[(set v16f32:$dest, (int_vp_blendf (not i32:$mask), (OpNode (splat f32:$src2)), 
+				v16f32:$oldvalue))],
+			opcode,
+			FmtA_VVSMinv>;
 	}
 }
 
