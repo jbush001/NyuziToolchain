@@ -17,7 +17,7 @@
 #ifndef LLD_DRIVER_WIN_LINK_INPUT_GRAPH_H
 #define LLD_DRIVER_WIN_LINK_INPUT_GRAPH_H
 
-#include "lld/Driver/InputGraph.h"
+#include "lld/Core/InputGraph.h"
 #include "lld/ReaderWriter/PECOFFLinkingContext.h"
 #include "lld/ReaderWriter/FileArchive.h"
 
@@ -35,35 +35,10 @@ public:
     return a->kind() == InputElement::Kind::File;
   }
 
-  virtual llvm::ErrorOr<StringRef> getPath(const LinkingContext &ctx) const;
+  virtual ErrorOr<StringRef> getPath(const LinkingContext &ctx) const;
 
   /// \brief Parse the input file to lld::File.
-  error_code parse(const LinkingContext &ctx, raw_ostream &diagnostics) {
-    // Read the file to _buffer.
-    bool isYaml = false;
-    if (error_code ec = readFile(ctx, diagnostics, isYaml))
-      return ec;
-    if (isYaml)
-      return error_code::success();
-
-    llvm::sys::fs::file_magic FileType =
-        llvm::sys::fs::identify_magic(_buffer->getBuffer());
-    std::unique_ptr<File> f;
-
-    switch (FileType) {
-    case llvm::sys::fs::file_magic::archive: {
-      // Archive File
-      error_code ec;
-      f.reset(new FileArchive(ctx, std::move(_buffer), ec, false));
-      _files.push_back(std::move(f));
-      return ec;
-    }
-
-    case llvm::sys::fs::file_magic::coff_object:
-    default:
-      return _ctx.getDefaultReader().parseFile(_buffer, _files);
-    }
-  }
+  error_code parse(const LinkingContext &ctx, raw_ostream &diagnostics);
 
   /// \brief validates the Input Element
   virtual bool validate() { return true; }
@@ -71,11 +46,7 @@ public:
   /// \brief Dump the Input Element
   virtual bool dump(raw_ostream &) { return true; }
 
-  virtual ErrorOr<File &> getNextFile() {
-    if (_nextFileIndex == _files.size())
-      return make_error_code(InputGraphError::no_more_files);
-    return *_files[_nextFileIndex++];
-  }
+  virtual ErrorOr<File &> getNextFile();
 
 protected:
   const PECOFFLinkingContext &_ctx;
@@ -87,7 +58,7 @@ public:
   PECOFFLibraryNode(PECOFFLinkingContext &ctx, StringRef path)
       : PECOFFFileNode(ctx, path) {}
 
-  virtual llvm::ErrorOr<StringRef> getPath(const LinkingContext &ctx) const;
+  virtual ErrorOr<StringRef> getPath(const LinkingContext &ctx) const;
 };
 
 } // namespace lld

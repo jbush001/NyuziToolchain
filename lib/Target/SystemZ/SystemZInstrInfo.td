@@ -67,6 +67,8 @@ let isBranch = 1, isTerminator = 1, Uses = [CC] in {
                       "brc\t$R1, $I2", []>;
   def AsmBRCL : InstRIL<0xC04, (outs), (ins uimm8zx4:$R1, brtarget32:$I2),
                         "brcl\t$R1, $I2", []>;
+  def AsmBCR : InstRR<0x07, (outs), (ins uimm8zx4:$R1, GR64:$R2),
+                      "bcr\t$R1, $R2", []>;
 }
 
 // Fused compare-and-branch instructions.  As for normal branches,
@@ -117,6 +119,7 @@ multiclass CondExtendedMnemonic<bits<4> ccmask, string name> {
                    "j"##name##"\t$I2", []>;
     def JG : InstRIL<0xC04, (outs), (ins brtarget32:$I2),
                      "jg"##name##"\t$I2", []>;
+    def BR : InstRR<0x07, (outs), (ins ADDR64:$R2), "b"##name##"r\t$R2", []>;
   }
   def LOCR  : FixedCondUnaryRRF<"locr"##name,  0xB9F2, GR32, GR32, ccmask>;
   def LOCGR : FixedCondUnaryRRF<"locgr"##name, 0xB9E2, GR64, GR64, ccmask>;
@@ -1173,12 +1176,13 @@ let Defs = [CC] in {
   def TMHL : CompareRI<"tmhl", 0xA73, z_tm_reg, GRH32, imm32ll16>;
   def TMHH : CompareRI<"tmhh", 0xA72, z_tm_reg, GRH32, imm32lh16>;
 
+  def TMLL64 : CompareAliasRI<z_tm_reg, GR64, imm64ll16>;
+  def TMLH64 : CompareAliasRI<z_tm_reg, GR64, imm64lh16>;
+  def TMHL64 : CompareAliasRI<z_tm_reg, GR64, imm64hl16>;
+  def TMHH64 : CompareAliasRI<z_tm_reg, GR64, imm64hh16>;
+
   defm TM : CompareSIPair<"tm", 0x91, 0xEB51, z_tm_mem, anyextloadi8, imm32zx8>;
 }
-def : CompareGR64RI<TMLL, z_tm_reg, imm64ll16, subreg_l32>;
-def : CompareGR64RI<TMLH, z_tm_reg, imm64lh16, subreg_l32>;
-def : CompareGR64RI<TMHL, z_tm_reg, imm64hl16, subreg_h32>;
-def : CompareGR64RI<TMHH, z_tm_reg, imm64hh16, subreg_h32>;
 
 //===----------------------------------------------------------------------===//
 // Prefetch

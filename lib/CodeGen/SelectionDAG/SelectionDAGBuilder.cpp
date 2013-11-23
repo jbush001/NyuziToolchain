@@ -33,6 +33,7 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
+#include "llvm/CodeGen/StackMaps.h"
 #include "llvm/DebugInfo.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Constants.h"
@@ -1063,8 +1064,10 @@ SDValue SelectionDAGBuilder::getValueImpl(const Value *V) {
     if (const GlobalValue *GV = dyn_cast<GlobalValue>(C))
       return DAG.getGlobalAddress(GV, getCurSDLoc(), VT);
 
-    if (isa<ConstantPointerNull>(C))
-      return DAG.getConstant(0, TLI->getPointerTy());
+    if (isa<ConstantPointerNull>(C)) {
+      unsigned AS = V->getType()->getPointerAddressSpace();
+      return DAG.getConstant(0, TLI->getPointerTy(AS));
+    }
 
     if (const ConstantFP *CFP = dyn_cast<ConstantFP>(C))
       return DAG.getConstantFP(*CFP, VT);
@@ -1268,7 +1271,7 @@ void SelectionDAGBuilder::visitRet(const ReturnInst &I) {
 
         for (unsigned i = 0; i < NumParts; ++i) {
           Outs.push_back(ISD::OutputArg(Flags, Parts[i].getValueType(),
-                                        /*isfixed=*/true, 0, 0));
+                                        VT, /*isfixed=*/true, 0, 0));
           OutVals.push_back(Parts[i]);
         }
       }
@@ -2448,7 +2451,7 @@ bool SelectionDAGBuilder::handleBitTestsSwitchCase(CaseRec& CR,
   MachineFunction *CurMF = FuncInfo.MF;
 
   // If target does not have legal shift left, do not emit bit tests at all.
-  if (!TLI->isOperationLegal(ISD::SHL, TLI->getPointerTy()))
+  if (!TLI->isOperationLegal(ISD::SHL, PTy))
     return false;
 
   size_t numCmps = 0;
@@ -2937,6 +2940,21 @@ void SelectionDAGBuilder::visitBitCast(const User &I) {
     setValue(&I, N);            // noop cast.
 }
 
+void SelectionDAGBuilder::visitAddrSpaceCast(const User &I) {
+  const TargetLowering &TLI = DAG.getTargetLoweringInfo();
+  const Value *SV = I.getOperand(0);
+  SDValue N = getValue(SV);
+  EVT DestVT = TM.getTargetLowering()->getValueType(I.getType());
+
+  unsigned SrcAS = SV->getType()->getPointerAddressSpace();
+  unsigned DestAS = I.getType()->getPointerAddressSpace();
+
+  if (!TLI.isNoopAddrSpaceCast(SrcAS, DestAS))
+    N = DAG.getAddrSpaceCast(getCurSDLoc(), DestVT, N, SrcAS, DestAS);
+
+  setValue(&I, N);
+}
+
 void SelectionDAGBuilder::visitInsertElement(const User &I) {
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
   SDValue InVec = getValue(I.getOperand(0));
@@ -3229,10 +3247,12 @@ void SelectionDAGBuilder::visitExtractValue(const ExtractValueInst &I) {
 }
 
 void SelectionDAGBuilder::visitGetElementPtr(const User &I) {
-  SDValue N = getValue(I.getOperand(0));
+  Value *Op0 = I.getOperand(0);
   // Note that the pointer operand may be a vector of pointers. Take the scalar
   // element which holds a pointer.
-  Type *Ty = I.getOperand(0)->getType()->getScalarType();
+  Type *Ty = Op0->getType()->getScalarType();
+  unsigned AS = Ty->getPointerAddressSpace();
+  SDValue N = getValue(Op0);
 
   for (GetElementPtrInst::const_op_iterator OI = I.op_begin()+1, E = I.op_end();
        OI != E; ++OI) {
@@ -3248,10 +3268,6 @@ void SelectionDAGBuilder::visitGetElementPtr(const User &I) {
 
       Ty = StTy->getElementType(Field);
     } else {
-      uint32_t AS = 0;
-      if (PointerType *PtrType = dyn_cast<PointerType>(Ty)) {
-        AS = PtrType->getAddressSpace();
-      }
       Ty = cast<SequentialType>(Ty)->getElementType();
 
       // If this is a constant subscript, handle it quickly.
@@ -5311,6 +5327,15 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
   case Intrinsic::donothing:
     // ignore
     return 0;
+  case Intrinsic::experimental_stackmap: {
+    visitStackmap(I);
+    return 0;
+  }
+  case Intrinsic::experimental_patchpoint_void:
+  case Intrinsic::experimental_patchpoint_i64: {
+    visitPatchpoint(I);
+    return 0;
+  }
   }
 }
 
@@ -5375,15 +5400,8 @@ void SelectionDAGBuilder::LowerCallTo(ImmutableCallSite CS, SDValue Callee,
     SDValue ArgNode = getValue(V);
     Entry.Node = ArgNode; Entry.Ty = V->getType();
 
-    unsigned attrInd = i - CS.arg_begin() + 1;
-    Entry.isSExt     = CS.paramHasAttr(attrInd, Attribute::SExt);
-    Entry.isZExt     = CS.paramHasAttr(attrInd, Attribute::ZExt);
-    Entry.isInReg    = CS.paramHasAttr(attrInd, Attribute::InReg);
-    Entry.isSRet     = CS.paramHasAttr(attrInd, Attribute::StructRet);
-    Entry.isNest     = CS.paramHasAttr(attrInd, Attribute::Nest);
-    Entry.isByVal    = CS.paramHasAttr(attrInd, Attribute::ByVal);
-    Entry.isReturned = CS.paramHasAttr(attrInd, Attribute::Returned);
-    Entry.Alignment  = CS.getParamAlignment(attrInd);
+    // Skip the first return-type Attribute to get to params.
+    Entry.setAttributes(&CS, i - CS.arg_begin() + 1);
     Args.push_back(Entry);
   }
 
@@ -5465,8 +5483,8 @@ void SelectionDAGBuilder::LowerCallTo(ImmutableCallSite CS, SDValue Callee,
   }
 
   if (!Result.second.getNode()) {
-    // As a special case, a null chain means that a tail call has been emitted and
-    // the DAG root is already updated.
+    // As a special case, a null chain means that a tail call has been emitted
+    // and the DAG root is already updated.
     HasTailCall = true;
 
     // Since there's no actual continuation from this block, nothing can be
@@ -6723,6 +6741,260 @@ void SelectionDAGBuilder::visitVACopy(const CallInst &I) {
                           DAG.getSrcValue(I.getArgOperand(1))));
 }
 
+/// \brief Lower an argument list according to the target calling convention.
+///
+/// \return A tuple of <return-value, token-chain>
+///
+/// This is a helper for lowering intrinsics that follow a target calling
+/// convention or require stack pointer adjustment. Only a subset of the
+/// intrinsic's operands need to participate in the calling convention.
+std::pair<SDValue, SDValue>
+SelectionDAGBuilder::LowerCallOperands(const CallInst &CI, unsigned ArgIdx,
+                                       unsigned NumArgs, SDValue Callee,
+                                       bool useVoidTy) {
+  TargetLowering::ArgListTy Args;
+  Args.reserve(NumArgs);
+
+  // Populate the argument list.
+  // Attributes for args start at offset 1, after the return attribute.
+  ImmutableCallSite CS(&CI);
+  for (unsigned ArgI = ArgIdx, ArgE = ArgIdx + NumArgs, AttrI = ArgIdx + 1;
+       ArgI != ArgE; ++ArgI) {
+    const Value *V = CI.getOperand(ArgI);
+
+    assert(!V->getType()->isEmptyTy() && "Empty type passed to intrinsic.");
+
+    TargetLowering::ArgListEntry Entry;
+    Entry.Node = getValue(V);
+    Entry.Ty = V->getType();
+    Entry.setAttributes(&CS, AttrI);
+    Args.push_back(Entry);
+  }
+
+  Type *retTy = useVoidTy ? Type::getVoidTy(*DAG.getContext()) : CI.getType();
+  TargetLowering::CallLoweringInfo CLI(getRoot(), retTy, /*retSExt*/ false,
+    /*retZExt*/ false, /*isVarArg*/ false, /*isInReg*/ false, NumArgs,
+    CI.getCallingConv(), /*isTailCall*/ false, /*doesNotReturn*/ false,
+    /*isReturnValueUsed*/ CI.use_empty(), Callee, Args, DAG, getCurSDLoc());
+
+  const TargetLowering *TLI = TM.getTargetLowering();
+  return TLI->LowerCallTo(CLI);
+}
+
+/// \brief Add a stack map intrinsic call's live variable operands to a stackmap
+/// or patchpoint target node's operand list.
+static void addStackMapLiveVars(const CallInst &CI, unsigned StartIdx,
+                                SmallVectorImpl<SDValue> &Ops,
+                                SelectionDAGBuilder &Builder) {
+  for (unsigned i = StartIdx, e = CI.getNumArgOperands(); i != e; ++i) {
+    SDValue OpVal = Builder.getValue(CI.getArgOperand(i));
+    if (ConstantSDNode *C = dyn_cast<ConstantSDNode>(OpVal)) {
+      Ops.push_back(
+        Builder.DAG.getTargetConstant(StackMaps::ConstantOp, MVT::i64));
+      Ops.push_back(
+        Builder.DAG.getTargetConstant(C->getSExtValue(), MVT::i64));
+    } else
+      Ops.push_back(OpVal);
+  }
+}
+
+/// \brief Lower llvm.experimental.stackmap directly to its target opcode.
+void SelectionDAGBuilder::visitStackmap(const CallInst &CI) {
+  // void @llvm.experimental.stackmap(i32 <id>, i32 <numShadowBytes>,
+  //                                  [live variables...])
+
+  assert(CI.getType()->isVoidTy() && "Stackmap cannot return a value.");
+
+  SDValue Callee = getValue(CI.getCalledValue());
+
+  // Lower into a call sequence with no args and no return value.
+  std::pair<SDValue, SDValue> Result = LowerCallOperands(CI, 0, 0, Callee);
+  // Set the root to the target-lowered call chain.
+  SDValue Chain = Result.second;
+  DAG.setRoot(Chain);
+
+  /// Get a call instruction from the call sequence chain.
+  /// Tail calls are not allowed.
+  SDNode *CallEnd = Chain.getNode();
+  assert(CallEnd->getOpcode() == ISD::CALLSEQ_END &&
+         "Expected a callseq node.");
+  SDNode *Call = CallEnd->getOperand(0).getNode();
+  bool hasGlue = Call->getGluedNode();
+
+  // Replace the target specific call node with the stackmap intrinsic.
+  SmallVector<SDValue, 8> Ops;
+
+  // Add the <id> and <numShadowBytes> constants.
+  for (unsigned i = 0; i < 2; ++i) {
+    SDValue tmp = getValue(CI.getOperand(i));
+    Ops.push_back(DAG.getTargetConstant(
+        cast<ConstantSDNode>(tmp)->getZExtValue(), MVT::i32));
+  }
+  // Push live variables for the stack map.
+  addStackMapLiveVars(CI, 2, Ops, *this);
+
+  // Push the chain (this is originally the first operand of the call, but
+  // becomes now the last or second to last operand).
+  Ops.push_back(*(Call->op_begin()));
+
+    // Push the glue flag (last operand).
+  if (hasGlue)
+    Ops.push_back(*(Call->op_end()-1));
+
+  SDVTList NodeTys = DAG.getVTList(MVT::Other, MVT::Glue);
+
+  // Replace the target specific call node with a STACKMAP node.
+  MachineSDNode *MN = DAG.getMachineNode(TargetOpcode::STACKMAP, getCurSDLoc(),
+                                         NodeTys, Ops);
+
+  // StackMap generates no value, so nothing goes in the NodeMap.
+
+  // Fixup the consumers of the intrinsic. The chain and glue may be used in the
+  // call sequence.
+  DAG.ReplaceAllUsesWith(Call, MN);
+
+  DAG.DeleteNode(Call);
+}
+
+/// \brief Lower llvm.experimental.patchpoint directly to its target opcode.
+void SelectionDAGBuilder::visitPatchpoint(const CallInst &CI) {
+  // void|i64 @llvm.experimental.patchpoint.void|i64(i32 <id>,
+  //                                                 i32 <numBytes>,
+  //                                                 i8* <target>,
+  //                                                 i32 <numArgs>,
+  //                                                 [Args...],
+  //                                                 [live variables...])
+
+  CallingConv::ID CC = CI.getCallingConv();
+  bool isAnyRegCC = CC == CallingConv::AnyReg;
+  bool hasDef = !CI.getType()->isVoidTy();
+  SDValue Callee = getValue(CI.getOperand(2)); // <target>
+
+  // Get the real number of arguments participating in the call <numArgs>
+  SDValue NArgVal = getValue(CI.getArgOperand(PatchPointOpers::NArgPos));
+  unsigned NumArgs = cast<ConstantSDNode>(NArgVal)->getZExtValue();
+
+  // Skip the four meta args: <id>, <numNopBytes>, <target>, <numArgs>
+  // Intrinsics include all meta-operands up to but not including CC.
+  unsigned NumMetaOpers = PatchPointOpers::CCPos;
+  assert(CI.getNumArgOperands() >= NumMetaOpers + NumArgs &&
+         "Not enough arguments provided to the patchpoint intrinsic");
+
+  // For AnyRegCC the arguments are lowered later on manually.
+  unsigned NumCallArgs = isAnyRegCC ? 0 : NumArgs;
+  std::pair<SDValue, SDValue> Result =
+    LowerCallOperands(CI, NumMetaOpers, NumCallArgs, Callee, isAnyRegCC);
+
+  // Set the root to the target-lowered call chain.
+  SDValue Chain = Result.second;
+  DAG.setRoot(Chain);
+
+  SDNode *CallEnd = Chain.getNode();
+  if (hasDef && (CallEnd->getOpcode() == ISD::CopyFromReg))
+    CallEnd = CallEnd->getOperand(0).getNode();
+
+  /// Get a call instruction from the call sequence chain.
+  /// Tail calls are not allowed.
+  assert(CallEnd->getOpcode() == ISD::CALLSEQ_END &&
+         "Expected a callseq node.");
+  SDNode *Call = CallEnd->getOperand(0).getNode();
+  bool hasGlue = Call->getGluedNode();
+
+  // Replace the target specific call node with the patchable intrinsic.
+  SmallVector<SDValue, 8> Ops;
+
+  // Add the <id> and <numBytes> constants.
+  SDValue IDVal = getValue(CI.getOperand(PatchPointOpers::IDPos));
+  Ops.push_back(DAG.getTargetConstant(
+                  cast<ConstantSDNode>(IDVal)->getZExtValue(), MVT::i32));
+  SDValue NBytesVal = getValue(CI.getOperand(PatchPointOpers::NBytesPos));
+  Ops.push_back(DAG.getTargetConstant(
+                  cast<ConstantSDNode>(NBytesVal)->getZExtValue(), MVT::i32));
+
+  // Assume that the Callee is a constant address.
+  // FIXME: handle function symbols in the future.
+  Ops.push_back(
+    DAG.getIntPtrConstant(cast<ConstantSDNode>(Callee)->getZExtValue(),
+                          /*isTarget=*/true));
+
+  // Adjust <numArgs> to account for any arguments that have been passed on the
+  // stack instead.
+  // Call Node: Chain, Target, {Args}, RegMask, [Glue]
+  unsigned NumCallRegArgs = Call->getNumOperands() - (hasGlue ? 4 : 3);
+  NumCallRegArgs = isAnyRegCC ? NumArgs : NumCallRegArgs;
+  Ops.push_back(DAG.getTargetConstant(NumCallRegArgs, MVT::i32));
+
+  // Add the calling convention
+  Ops.push_back(DAG.getTargetConstant((unsigned)CC, MVT::i32));
+
+  // Add the arguments we omitted previously. The register allocator should
+  // place these in any free register.
+  if (isAnyRegCC)
+    for (unsigned i = NumMetaOpers, e = NumMetaOpers + NumArgs; i != e; ++i)
+      Ops.push_back(getValue(CI.getArgOperand(i)));
+
+  // Push the arguments from the call instruction up to the register mask.
+  SDNode::op_iterator e = hasGlue ? Call->op_end()-2 : Call->op_end()-1;
+  for (SDNode::op_iterator i = Call->op_begin()+2; i != e; ++i)
+    Ops.push_back(*i);
+
+  // Push live variables for the stack map.
+  addStackMapLiveVars(CI, NumMetaOpers + NumArgs, Ops, *this);
+
+  // Push the register mask info.
+  if (hasGlue)
+    Ops.push_back(*(Call->op_end()-2));
+  else
+    Ops.push_back(*(Call->op_end()-1));
+
+  // Push the chain (this is originally the first operand of the call, but
+  // becomes now the last or second to last operand).
+  Ops.push_back(*(Call->op_begin()));
+
+  // Push the glue flag (last operand).
+  if (hasGlue)
+    Ops.push_back(*(Call->op_end()-1));
+
+  SDVTList NodeTys;
+  if (isAnyRegCC && hasDef) {
+    // Create the return types based on the intrinsic definition
+    const TargetLowering &TLI = DAG.getTargetLoweringInfo();
+    SmallVector<EVT, 3> ValueVTs;
+    ComputeValueVTs(TLI, CI.getType(), ValueVTs);
+    assert(ValueVTs.size() == 1 && "Expected only one return value type.");
+
+    // There is always a chain and a glue type at the end
+    ValueVTs.push_back(MVT::Other);
+    ValueVTs.push_back(MVT::Glue);
+    NodeTys = DAG.getVTList(ValueVTs.data(), ValueVTs.size());
+  } else
+    NodeTys = DAG.getVTList(MVT::Other, MVT::Glue);
+
+  // Replace the target specific call node with a PATCHPOINT node.
+  MachineSDNode *MN = DAG.getMachineNode(TargetOpcode::PATCHPOINT,
+                                         getCurSDLoc(), NodeTys, Ops);
+
+  // Update the NodeMap.
+  if (hasDef) {
+    if (isAnyRegCC)
+      setValue(&CI, SDValue(MN, 0));
+    else
+      setValue(&CI, Result.first);
+  }
+
+  // Fixup the consumers of the intrinsic. The chain and glue may be used in the
+  // call sequence. Furthermore the location of the chain and glue can change
+  // when the AnyReg calling convention is used and the intrinsic returns a
+  // value.
+  if (isAnyRegCC && hasDef) {
+    SDValue From[] = {SDValue(Call, 0), SDValue(Call, 1)};
+    SDValue To[] = {SDValue(MN, 1), SDValue(MN, 2)};
+    DAG.ReplaceAllUsesOfValuesWith(From, To, 2);
+  } else
+    DAG.ReplaceAllUsesWith(Call, MN);
+  DAG.DeleteNode(Call);
+}
+
 /// TargetLowering::LowerCallTo - This is the default LowerCallTo
 /// implementation, which just calls LowerCall.
 /// FIXME: When all targets are
@@ -6740,6 +7012,7 @@ TargetLowering::LowerCallTo(TargetLowering::CallLoweringInfo &CLI) const {
     for (unsigned i = 0; i != NumRegs; ++i) {
       ISD::InputArg MyFlags;
       MyFlags.VT = RegisterVT;
+      MyFlags.ArgVT = VT;
       MyFlags.Used = CLI.IsReturnValueUsed;
       if (CLI.RetSExt)
         MyFlags.Flags.setSExt();
@@ -6829,7 +7102,7 @@ TargetLowering::LowerCallTo(TargetLowering::CallLoweringInfo &CLI) const {
 
       for (unsigned j = 0; j != NumParts; ++j) {
         // if it isn't first piece, alignment must be 1
-        ISD::OutputArg MyFlags(Flags, Parts[j].getValueType(),
+        ISD::OutputArg MyFlags(Flags, Parts[j].getValueType(), VT,
                                i < CLI.NumFixedArgs,
                                i, j*Parts[j].getValueType().getStoreSize());
         if (NumParts > 1 && j == 0)
@@ -6968,7 +7241,7 @@ void SelectionDAGISel::LowerArguments(const Function &F) {
     ISD::ArgFlagsTy Flags;
     Flags.setSRet();
     MVT RegisterVT = TLI->getRegisterType(*DAG.getContext(), ValueVTs[0]);
-    ISD::InputArg RetArg(Flags, RegisterVT, true, 0, 0);
+    ISD::InputArg RetArg(Flags, RegisterVT, ValueVTs[0], true, 0, 0);
     Ins.push_back(RetArg);
   }
 
@@ -6979,6 +7252,7 @@ void SelectionDAGISel::LowerArguments(const Function &F) {
     SmallVector<EVT, 4> ValueVTs;
     ComputeValueVTs(*TLI, I->getType(), ValueVTs);
     bool isArgValueUsed = !I->use_empty();
+    unsigned PartBase = 0;
     for (unsigned Value = 0, NumValues = ValueVTs.size();
          Value != NumValues; ++Value) {
       EVT VT = ValueVTs[Value];
@@ -7016,8 +7290,8 @@ void SelectionDAGISel::LowerArguments(const Function &F) {
       MVT RegisterVT = TLI->getRegisterType(*CurDAG->getContext(), VT);
       unsigned NumRegs = TLI->getNumRegisters(*CurDAG->getContext(), VT);
       for (unsigned i = 0; i != NumRegs; ++i) {
-        ISD::InputArg MyFlags(Flags, RegisterVT, isArgValueUsed,
-                              Idx-1, i*RegisterVT.getStoreSize());
+        ISD::InputArg MyFlags(Flags, RegisterVT, VT, isArgValueUsed,
+                              Idx-1, PartBase+i*RegisterVT.getStoreSize());
         if (NumRegs > 1 && i == 0)
           MyFlags.Flags.setSplit();
         // if it isn't first piece, alignment must be 1
@@ -7025,6 +7299,7 @@ void SelectionDAGISel::LowerArguments(const Function &F) {
           MyFlags.Flags.setOrigAlign(1);
         Ins.push_back(MyFlags);
       }
+      PartBase += VT.getStoreSize();
     }
   }
 

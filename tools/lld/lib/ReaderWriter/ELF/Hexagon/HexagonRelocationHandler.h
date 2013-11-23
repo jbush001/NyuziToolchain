@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef LLD_READER_WRITER_ELF_HEXAGON_RELOCATION_HANDLER_H
-#define LLD_READER_WRITER_ELF_HEXAGON_RELOCATION_HANDLER_H
+#ifndef LLD_READER_WRITER_ELF_HEXAGON_HEXAGON_RELOCATION_HANDLER_H
+#define LLD_READER_WRITER_ELF_HEXAGON_HEXAGON_RELOCATION_HANDLER_H
 
 #include "HexagonSectionChunks.h"
 #include "HexagonTargetHandler.h"
@@ -28,7 +28,7 @@ public:
       const HexagonTargetLayout<HexagonELFType> &layout)
       : _context(context), _targetHandler(tH), _targetLayout(layout) {}
 
-  virtual ErrorOr<void>
+  virtual error_code
   applyRelocation(ELFWriter &, llvm::FileOutputBuffer &,
                   const lld::AtomLayout &, const Reference &) const;
 private:

@@ -34,15 +34,15 @@ namespace {
 /// This is used as a filter function to std::remove_if to dead strip atoms.
 class NotLive {
 public:
-  explicit NotLive(const llvm::DenseSet<const Atom*>& la) : _liveAtoms(la) { }
+  explicit NotLive(const llvm::DenseSet<const Atom *> &la) : _liveAtoms(la) {}
 
   bool operator()(const Atom *atom) const {
     // don't remove if live
-    if ( _liveAtoms.count(atom) )
+    if (_liveAtoms.count(atom))
       return false;
-   // don't remove if marked never-dead-strip
-    if (const DefinedAtom* defAtom = dyn_cast<DefinedAtom>(atom)) {
-      if ( defAtom->deadStrip() == DefinedAtom::deadStripNever )
+    // don't remove if marked never-dead-strip
+    if (const DefinedAtom *defAtom = dyn_cast<DefinedAtom>(atom)) {
+      if (defAtom->deadStrip() == DefinedAtom::deadStripNever)
         return false;
     }
     // do remove this atom
@@ -50,9 +50,8 @@ public:
   }
 
 private:
-  const llvm::DenseSet<const Atom*> _liveAtoms;
+  const llvm::DenseSet<const Atom *> _liveAtoms;
 };
-
 
 /// This is used as a filter function to std::remove_if to coalesced atoms.
 class AtomCoalescedAway {
@@ -75,14 +74,29 @@ void Resolver::doFile(const File &file) {}
 
 void Resolver::handleFile(const File &file) {
   uint32_t resolverState = Resolver::StateNoChange;
+  const SharedLibraryFile *sharedLibraryFile =
+      llvm::dyn_cast<SharedLibraryFile>(&file);
+
   doFile(file);
   for (const DefinedAtom *atom : file.defined()) {
     doDefinedAtom(*atom);
     resolverState |= StateNewDefinedAtoms;
   }
-  for (const UndefinedAtom *undefAtom : file.undefined()) {
-    doUndefinedAtom(*undefAtom);
-    resolverState |= StateNewUndefinedAtoms;
+  if (!sharedLibraryFile ||
+      _context.addUndefinedAtomsFromSharedLibrary(sharedLibraryFile)) {
+    for (const UndefinedAtom *undefAtom : file.undefined()) {
+      doUndefinedAtom(*undefAtom);
+      resolverState |= StateNewUndefinedAtoms;
+      // If the undefined symbol has an alternative name, try to resolve the
+      // symbol with the name to give it a second chance. This feature is used
+      // for COFF "weak external" symbol.
+      if (!_symbolTable.isDefined(undefAtom->name())) {
+        if (const UndefinedAtom *fallbackAtom = undefAtom->fallback()) {
+          doUndefinedAtom(*fallbackAtom);
+          _symbolTable.addReplacement(undefAtom, fallbackAtom);
+        }
+      }
+    }
   }
   for (const SharedLibraryAtom *shlibAtom : file.sharedLibrary()) {
     doSharedLibraryAtom(*shlibAtom);
@@ -95,9 +109,8 @@ void Resolver::handleFile(const File &file) {
   _context.setResolverState(resolverState);
 }
 
-void Resolver::handleArchiveFile(const File &file) {
-  const ArchiveLibraryFile *archiveFile = dyn_cast<ArchiveLibraryFile>(&file);
-
+void Resolver::forEachUndefines(UndefCallback callback,
+                                bool searchForOverrides) {
   // Handle normal archives
   int64_t undefineGenCount = 0;
   do {
@@ -107,24 +120,11 @@ void Resolver::handleArchiveFile(const File &file) {
     for (const UndefinedAtom *undefAtom : undefines) {
       StringRef undefName = undefAtom->name();
       // load for previous undefine may also have loaded this undefine
-      if (!_symbolTable.isDefined(undefName)) {
-        if (const File *member = archiveFile->find(undefName, false)) {
-          member->setOrdinal(_context.getNextOrdinalAndIncrement());
-          handleFile(*member);
-        }
-      }
-      // If the undefined symbol has an alternative name, try to resolve the
-      // symbol with the name to give it a second chance. This feature is used
-      // for COFF "weak external" symbol.
-      if (!_symbolTable.isDefined(undefName)) {
-        if (const UndefinedAtom *fallbackUndefAtom = undefAtom->fallback()) {
-          _symbolTable.addReplacement(undefAtom, fallbackUndefAtom);
-          _symbolTable.add(*fallbackUndefAtom);
-        }
-      }
+      if (!_symbolTable.isDefined(undefName))
+        callback(undefName, false);
     }
     // search libraries for overrides of common symbols
-    if (_context.searchArchivesToOverrideTentativeDefinitions()) {
+    if (searchForOverrides) {
       std::vector<StringRef> tentDefNames;
       _symbolTable.tentativeDefinitions(tentDefNames);
       for (StringRef tentDefName : tentDefNames) {
@@ -133,68 +133,43 @@ void Resolver::handleArchiveFile(const File &file) {
         const Atom *curAtom = _symbolTable.findByName(tentDefName);
         assert(curAtom != nullptr);
         if (const DefinedAtom *curDefAtom = dyn_cast<DefinedAtom>(curAtom)) {
-          if (curDefAtom->merge() == DefinedAtom::mergeAsTentative) {
-            if (const File *member = archiveFile->find(tentDefName, true)) {
-              member->setOrdinal(_context.getNextOrdinalAndIncrement());
-              handleFile(*member);
-            }
-          }
+          if (curDefAtom->merge() == DefinedAtom::mergeAsTentative)
+            callback(tentDefName, true);
         }
       }
     }
   } while (undefineGenCount != _symbolTable.size());
+}
+
+void Resolver::handleArchiveFile(const File &file) {
+  const ArchiveLibraryFile *archiveFile = dyn_cast<ArchiveLibraryFile>(&file);
+  auto callback = [&](StringRef undefName, bool dataSymbolOnly) {
+    if (const File *member = archiveFile->find(undefName, dataSymbolOnly)) {
+      member->setOrdinal(_context.getNextOrdinalAndIncrement());
+      handleFile(*member);
+    }
+  };
+  bool searchForOverrides =
+      _context.searchArchivesToOverrideTentativeDefinitions();
+  forEachUndefines(callback, searchForOverrides);
 }
 
 void Resolver::handleSharedLibrary(const File &file) {
-  const SharedLibraryFile *sharedLibrary = dyn_cast<SharedLibraryFile>(&file);
-  int64_t undefineGenCount = 0;
-
   // Add all the atoms from the shared library
+  const SharedLibraryFile *sharedLibrary = dyn_cast<SharedLibraryFile>(&file);
   handleFile(*sharedLibrary);
-  do {
-    undefineGenCount = _symbolTable.size();
-    std::vector<const UndefinedAtom *> undefines;
-    _symbolTable.undefines(undefines);
-    for (const UndefinedAtom *undefAtom : undefines) {
-      StringRef undefName = undefAtom->name();
-      // load for previous undefine may also have loaded this undefine
-      if (!_symbolTable.isDefined(undefName)) {
-        if (const SharedLibraryAtom *shAtom =
-                sharedLibrary->exports(undefName, false))
-          doSharedLibraryAtom(*shAtom);
-      }
-      // If the undefined symbol has an alternative name, try to resolve the
-      // symbol with the name to give it a second chance. This feature is used
-      // for COFF "weak external" symbol.
-      if (!_symbolTable.isDefined(undefName)) {
-        if (const UndefinedAtom *fallbackUndefAtom = undefAtom->fallback()) {
-          _symbolTable.addReplacement(undefAtom, fallbackUndefAtom);
-          _symbolTable.add(*fallbackUndefAtom);
-        }
-      }
-    }
-    // search libraries for overrides of common symbols
-    if (_context.searchSharedLibrariesToOverrideTentativeDefinitions()) {
-      std::vector<StringRef> tentDefNames;
-      _symbolTable.tentativeDefinitions(tentDefNames);
-      for (StringRef tentDefName : tentDefNames) {
-        // Load for previous tentative may also have loaded
-        // something that overrode this tentative, so always check.
-        const Atom *curAtom = _symbolTable.findByName(tentDefName);
-        assert(curAtom != nullptr);
-        if (const DefinedAtom *curDefAtom = dyn_cast<DefinedAtom>(curAtom)) {
-          if (curDefAtom->merge() == DefinedAtom::mergeAsTentative) {
-            if (const SharedLibraryAtom *shAtom =
-                    sharedLibrary->exports(tentDefName, true))
-              doSharedLibraryAtom(*shAtom);
-          }
-        }
-      }
-    }
-  } while (undefineGenCount != _symbolTable.size());
+
+  auto callback = [&](StringRef undefName, bool dataSymbolOnly) {
+    if (const SharedLibraryAtom *shAtom =
+            sharedLibrary->exports(undefName, dataSymbolOnly))
+      doSharedLibraryAtom(*shAtom);
+  };
+  bool searchForOverrides =
+      _context.searchSharedLibrariesToOverrideTentativeDefinitions();
+  forEachUndefines(callback, searchForOverrides);
 }
 
-void Resolver::doUndefinedAtom(const UndefinedAtom& atom) {
+void Resolver::doUndefinedAtom(const UndefinedAtom &atom) {
   DEBUG_WITH_TYPE("resolver", llvm::dbgs()
                     << "       UndefinedAtom: "
                     << llvm::format("0x%09lX", &atom)
@@ -202,13 +177,12 @@ void Resolver::doUndefinedAtom(const UndefinedAtom& atom) {
                     << atom.name()
                     << "\n");
 
- // add to list of known atoms
+  // add to list of known atoms
   _atoms.push_back(&atom);
 
   // tell symbol table
   _symbolTable.add(atom);
 }
-
 
 // called on each atom when a file is added
 void Resolver::doDefinedAtom(const DefinedAtom &atom) {
@@ -224,7 +198,7 @@ void Resolver::doDefinedAtom(const DefinedAtom &atom) {
                     << "\n");
 
   // Verify on zero-size atoms are pinned to start or end of section.
-  switch ( atom.sectionPosition() ) {
+  switch (atom.sectionPosition()) {
   case DefinedAtom::sectionPositionStart:
   case DefinedAtom::sectionPositionEnd:
     assert(atom.size() == 0);
@@ -248,8 +222,8 @@ void Resolver::doDefinedAtom(const DefinedAtom &atom) {
   }
 }
 
-void Resolver::doSharedLibraryAtom(const SharedLibraryAtom& atom) {
-   DEBUG_WITH_TYPE("resolver", llvm::dbgs()
+void Resolver::doSharedLibraryAtom(const SharedLibraryAtom &atom) {
+  DEBUG_WITH_TYPE("resolver", llvm::dbgs()
                     << "   SharedLibraryAtom: "
                     << llvm::format("0x%09lX", &atom)
                     << ", name="
@@ -263,12 +237,12 @@ void Resolver::doSharedLibraryAtom(const SharedLibraryAtom& atom) {
   _symbolTable.add(atom);
 }
 
-void Resolver::doAbsoluteAtom(const AbsoluteAtom& atom) {
-   DEBUG_WITH_TYPE("resolver", llvm::dbgs()
+void Resolver::doAbsoluteAtom(const AbsoluteAtom &atom) {
+  DEBUG_WITH_TYPE("resolver", llvm::dbgs()
                     << "       AbsoluteAtom: "
                     << llvm::format("0x%09lX", &atom)
                     << ", name="
-                     << atom.name()
+                    << atom.name()
                     << "\n");
 
   // add to list of known atoms
@@ -280,10 +254,8 @@ void Resolver::doAbsoluteAtom(const AbsoluteAtom& atom) {
   }
 }
 
-
-
 // utility to add a vector of atoms
-void Resolver::addAtoms(const std::vector<const DefinedAtom*>& newAtoms) {
+void Resolver::addAtoms(const std::vector<const DefinedAtom *> &newAtoms) {
   for (const DefinedAtom *newAtom : newAtoms) {
     this->doDefinedAtom(*newAtom);
   }
@@ -331,36 +303,34 @@ bool Resolver::resolveUndefines() {
 // to the new defined atom
 void Resolver::updateReferences() {
   ScopedTask task(getDefaultDomain(), "updateReferences");
-  for(const Atom *atom : _atoms) {
-    if (const DefinedAtom* defAtom = dyn_cast<DefinedAtom>(atom)) {
+  for (const Atom *atom : _atoms) {
+    if (const DefinedAtom *defAtom = dyn_cast<DefinedAtom>(atom)) {
       for (const Reference *ref : *defAtom) {
-        const Atom* newTarget = _symbolTable.replacement(ref->target());
-        (const_cast<Reference*>(ref))->setTarget(newTarget);
+        const Atom *newTarget = _symbolTable.replacement(ref->target());
+        const_cast<Reference *>(ref)->setTarget(newTarget);
       }
     }
   }
 }
 
-
 // for dead code stripping, recursively mark atoms "live"
 void Resolver::markLive(const Atom &atom) {
   // if already marked live, then done (stop recursion)
-  if ( _liveAtoms.count(&atom) )
+  if (_liveAtoms.count(&atom))
     return;
 
   // mark this atom is live
   _liveAtoms.insert(&atom);
 
   // mark all atoms it references as live
-  if ( const DefinedAtom* defAtom = dyn_cast<DefinedAtom>(&atom)) {
+  if (const DefinedAtom *defAtom = dyn_cast<DefinedAtom>(&atom)) {
     for (const Reference *ref : *defAtom) {
       const Atom *target = ref->target();
-      if ( target != nullptr )
+      if (target != nullptr)
         this->markLive(*target);
     }
   }
 }
-
 
 // remove all atoms not actually used
 void Resolver::deadStripOptimize() {
@@ -378,7 +348,7 @@ void Resolver::deadStripOptimize() {
       const DefinedAtom *defAtom = dyn_cast<DefinedAtom>(atom);
       if (defAtom == nullptr)
         continue;
-      if ( defAtom->scope() == DefinedAtom::scopeGlobal )
+      if (defAtom->scope() == DefinedAtom::scopeGlobal)
         _deadStripRoots.insert(defAtom);
     }
   }
@@ -386,24 +356,24 @@ void Resolver::deadStripOptimize() {
   // Or, use list of names that are dead stip roots.
   for (const StringRef &name : _context.deadStripRoots()) {
     const Atom *symAtom = _symbolTable.findByName(name);
-    if (symAtom->definition() == Atom::definitionUndefined) {
-      llvm::errs() << "Dead strip root '" << symAtom->name()
-                   << "' is not defined\n";
-      return;
-    }
+    assert(symAtom);
+    if (symAtom->definition() == Atom::definitionUndefined)
+      // Dead-strip root atoms can be undefined at this point only when
+      // allowUndefines flag is on. Skip such undefines.
+      continue;
     _deadStripRoots.insert(symAtom);
   }
 
   // mark all roots as live, and recursively all atoms they reference
-  for ( const Atom *dsrAtom : _deadStripRoots) {
+  for (const Atom *dsrAtom : _deadStripRoots) {
     this->markLive(*dsrAtom);
   }
 
   // now remove all non-live atoms from _atoms
-  _atoms.erase(std::remove_if(_atoms.begin(), _atoms.end(),
-                              NotLive(_liveAtoms)), _atoms.end());
+  _atoms.erase(
+      std::remove_if(_atoms.begin(), _atoms.end(), NotLive(_liveAtoms)),
+      _atoms.end());
 }
-
 
 // error out if some undefines remain
 bool Resolver::checkUndefines(bool final) {
@@ -416,9 +386,10 @@ bool Resolver::checkUndefines(bool final) {
   _symbolTable.undefines(undefinedAtoms);
   if (_context.deadStrip()) {
     // When dead code stripping, we don't care if dead atoms are undefined.
-    undefinedAtoms.erase(std::remove_if(
-                           undefinedAtoms.begin(), undefinedAtoms.end(),
-                           NotLive(_liveAtoms)), undefinedAtoms.end());
+    undefinedAtoms.erase(std::remove_if(undefinedAtoms.begin(),
+                                        undefinedAtoms.end(),
+                                        NotLive(_liveAtoms)),
+                         undefinedAtoms.end());
   }
 
   // error message about missing symbols
@@ -457,12 +428,12 @@ bool Resolver::checkUndefines(bool final) {
   return false;
 }
 
-
 // remove from _atoms all coaleseced away atoms
 void Resolver::removeCoalescedAwayAtoms() {
   ScopedTask task(getDefaultDomain(), "removeCoalescedAwayAtoms");
   _atoms.erase(std::remove_if(_atoms.begin(), _atoms.end(),
-                              AtomCoalescedAway(_symbolTable)), _atoms.end());
+                              AtomCoalescedAway(_symbolTable)),
+               _atoms.end());
 }
 
 void Resolver::linkTimeOptimize() {
@@ -480,37 +451,34 @@ bool Resolver::resolve() {
   }
   this->removeCoalescedAwayAtoms();
   this->linkTimeOptimize();
-  this->_result.addAtoms(_atoms);
+  this->_result->addAtoms(_atoms);
   return true;
 }
 
-void Resolver::MergedFile::addAtom(const Atom& atom) {
-  if (const DefinedAtom* defAtom = dyn_cast<DefinedAtom>(&atom)) {
+void Resolver::MergedFile::addAtom(const Atom &atom) {
+  if (const DefinedAtom *defAtom = dyn_cast<DefinedAtom>(&atom)) {
     _definedAtoms._atoms.push_back(defAtom);
-  } else if (const UndefinedAtom* undefAtom = dyn_cast<UndefinedAtom>(&atom)) {
+  } else if (const UndefinedAtom *undefAtom = dyn_cast<UndefinedAtom>(&atom)) {
     _undefinedAtoms._atoms.push_back(undefAtom);
-  } else if (const SharedLibraryAtom* slAtom =
-               dyn_cast<SharedLibraryAtom>(&atom)) {
+  } else if (const SharedLibraryAtom *slAtom =
+                 dyn_cast<SharedLibraryAtom>(&atom)) {
     _sharedLibraryAtoms._atoms.push_back(slAtom);
-  } else if (const AbsoluteAtom* abAtom = dyn_cast<AbsoluteAtom>(&atom)) {
+  } else if (const AbsoluteAtom *abAtom = dyn_cast<AbsoluteAtom>(&atom)) {
     _absoluteAtoms._atoms.push_back(abAtom);
   } else {
     llvm_unreachable("atom has unknown definition kind");
   }
 }
 
-
 MutableFile::DefinedAtomRange Resolver::MergedFile::definedAtoms() {
-  return range<std::vector<const DefinedAtom*>::iterator>(
-                    _definedAtoms._atoms.begin(), _definedAtoms._atoms.end());
+  return range<std::vector<const DefinedAtom *>::iterator>(
+      _definedAtoms._atoms.begin(), _definedAtoms._atoms.end());
 }
 
-
-
-void Resolver::MergedFile::addAtoms(std::vector<const Atom*>& all) {
+void Resolver::MergedFile::addAtoms(std::vector<const Atom *> &all) {
   ScopedTask task(getDefaultDomain(), "addAtoms");
   DEBUG_WITH_TYPE("resolver", llvm::dbgs() << "Resolver final atom list:\n");
-  for ( const Atom *atom : all ) {
+  for (const Atom *atom : all) {
     DEBUG_WITH_TYPE("resolver", llvm::dbgs()
                     << llvm::format("    0x%09lX", atom)
                     << ", name="
@@ -519,6 +487,5 @@ void Resolver::MergedFile::addAtoms(std::vector<const Atom*>& all) {
     this->addAtom(*atom);
   }
 }
-
 
 } // namespace lld

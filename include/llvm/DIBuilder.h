@@ -289,7 +289,7 @@ namespace llvm {
                                     uint64_t SizeInBits, uint64_t AlignInBits,
                                     uint64_t OffsetInBits, unsigned Flags,
                                     DIType DerivedFrom, DIArray Elements,
-                                    DIType VTableHolder = NULL,
+                                    DIType VTableHolder = DIType(),
                                     MDNode *TemplateParms = 0,
                                     StringRef UniqueIdentifier = StringRef());
 
@@ -309,7 +309,7 @@ namespace llvm {
                                      uint64_t SizeInBits, uint64_t AlignInBits,
                                      unsigned Flags, DIType DerivedFrom,
                                      DIArray Elements, unsigned RunTimeLang = 0,
-                                     DIType VTableHolder = NULL,
+                                     DIType VTableHolder = DIType(),
                                      StringRef UniqueIdentifier = StringRef());
 
     /// createUnionType - Create debugging information entry for an union.
@@ -507,7 +507,7 @@ namespace llvm {
     /// @param AlwaysPreserve Boolean. Set to true if debug info for this
     ///                       variable should be preserved in optimized build.
     /// @param Flags          Flags, e.g. artificial variable.
-    /// @param ArgNo       If this variable is an arugment then this argument's
+    /// @param ArgNo       If this variable is an argument then this argument's
     ///                    number. 1 indicates 1st argument.
     DIVariable createLocalVariable(unsigned Tag, DIDescriptor Scope,
                                    StringRef Name,
@@ -527,7 +527,7 @@ namespace llvm {
     /// @param LineNo      Line number.
     /// @param Ty          Variable Type
     /// @param Addr        An array of complex address operations.
-    /// @param ArgNo       If this variable is an arugment then this argument's
+    /// @param ArgNo       If this variable is an argument then this argument's
     ///                    number. 1 indicates 1st argument.
     DIVariable createComplexVariable(unsigned Tag, DIDescriptor Scope,
                                      StringRef Name, DIFile F, unsigned LineNo,
@@ -601,7 +601,7 @@ namespace llvm {
                               DICompositeType Ty, bool isLocalToUnit,
                               bool isDefinition,
                               unsigned Virtuality = 0, unsigned VTableIndex = 0,
-                              DIType VTableHolder = NULL,
+                              DIType VTableHolder = DIType(),
                               unsigned Flags = 0,
                               bool isOptimized = false,
                               Function *Fn = 0,

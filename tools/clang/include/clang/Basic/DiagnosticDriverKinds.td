@@ -33,10 +33,10 @@ def err_drv_use_of_Z_option : Error<
   "unsupported use of internal gcc -Z option '%0'">;
 def err_drv_output_argument_with_multiple_files : Error<
   "cannot specify -o when generating multiple output files">;
-def err_drv_obj_file_argument_with_multiple_sources : Error<
+def err_drv_out_file_argument_with_multiple_sources : Error<
   "cannot specify '%0%1' when compiling multiple source files">;
-def err_no_external_windows_assembler : Error<
-  "there is no external assembler we can use on windows">;
+def err_no_external_assembler : Error<
+  "there is no external assembler that can be used on this platform">;
 def err_drv_unable_to_remove_file : Error<
   "unable to remove file: %0">;
 def err_drv_command_failure : Error<
@@ -113,6 +113,8 @@ def err_drv_unknown_toolchain : Error<
   "cannot recognize the type of the toolchain">;
 
 def warn_O4_is_O3 : Warning<"-O4 is equivalent to -O3">, InGroup<Deprecated>;
+def warn_drv_optimization_value : Warning<"optimization level '%0' is unsupported; using '%1%2' instead">,
+  InGroup<InvalidCommandLineArgument>;
 def warn_c_kext : Warning<
   "ignoring -fapple-kext which is valid for C++ and Objective-C++ only">;
 def warn_drv_input_file_unused : Warning<

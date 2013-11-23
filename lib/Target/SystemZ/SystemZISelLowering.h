@@ -198,9 +198,7 @@ public:
   virtual MVT getScalarShiftAmountTy(EVT LHSTy) const LLVM_OVERRIDE {
     return MVT::i32;
   }
-  virtual EVT getSetCCResultType(LLVMContext &, EVT) const LLVM_OVERRIDE {
-    return MVT::i32;
-  }
+  virtual EVT getSetCCResultType(LLVMContext &, EVT) const LLVM_OVERRIDE;
   virtual bool isFMAFasterThanFMulAndFAdd(EVT VT) const LLVM_OVERRIDE;
   virtual bool isFPImmLegal(const APFloat &Imm, EVT VT) const LLVM_OVERRIDE;
   virtual bool isLegalAddressingMode(const AddrMode &AM, Type *Ty) const
@@ -252,6 +250,7 @@ private:
   const SystemZTargetMachine &TM;
 
   // Implement LowerOperation for individual opcodes.
+  SDValue lowerSETCC(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerBR_CC(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerGlobalAddress(GlobalAddressSDNode *Node,

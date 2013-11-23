@@ -323,8 +323,7 @@ private:
     } else if (const CXXMemberCallExpr *CMCE = dyn_cast<CXXMemberCallExpr>(Exp)) {
       // When calling a function with a lock_returned attribute, replace
       // the function call with the expression in lock_returned.
-      const CXXMethodDecl* MD =
-        cast<CXXMethodDecl>(CMCE->getMethodDecl()->getMostRecentDecl());
+      const CXXMethodDecl *MD = CMCE->getMethodDecl()->getMostRecentDecl();
       if (LockReturnedAttr* At = MD->getAttr<LockReturnedAttr>()) {
         CallingContext LRCallCtx(CMCE->getMethodDecl());
         LRCallCtx.SelfArg = CMCE->getImplicitObjectArgument();
@@ -353,8 +352,7 @@ private:
       NodeVec[Root].setSize(Sz + 1);
       return Sz + 1;
     } else if (const CallExpr *CE = dyn_cast<CallExpr>(Exp)) {
-      const FunctionDecl* FD =
-        cast<FunctionDecl>(CE->getDirectCallee()->getMostRecentDecl());
+      const FunctionDecl *FD = CE->getDirectCallee()->getMostRecentDecl();
       if (LockReturnedAttr* At = FD->getAttr<LockReturnedAttr>()) {
         CallingContext LRCallCtx(CE->getDirectCallee());
         LRCallCtx.NumArgs = CE->getNumArgs();
@@ -1877,6 +1875,13 @@ void BuildLockset::checkAccess(const Expr *Exp, AccessKind AK) {
     return;
   }
 
+  if (const ArraySubscriptExpr *AE = dyn_cast<ArraySubscriptExpr>(Exp)) {
+    if (Analyzer->Handler.issueBetaWarnings()) {
+      checkPtAccess(AE->getLHS(), AK);
+      return;
+    }
+  }
+
   if (const MemberExpr *ME = dyn_cast<MemberExpr>(Exp)) {
     if (ME->isArrow())
       checkPtAccess(ME->getBase(), AK);
@@ -1900,7 +1905,27 @@ void BuildLockset::checkAccess(const Expr *Exp, AccessKind AK) {
 
 /// \brief Checks pt_guarded_by and pt_guarded_var attributes.
 void BuildLockset::checkPtAccess(const Expr *Exp, AccessKind AK) {
-  Exp = Exp->IgnoreParenCasts();
+  if (Analyzer->Handler.issueBetaWarnings()) {
+    while (true) {
+      if (const ParenExpr *PE = dyn_cast<ParenExpr>(Exp)) {
+        Exp = PE->getSubExpr();
+        continue;
+      }
+      if (const CastExpr *CE = dyn_cast<CastExpr>(Exp)) {
+        if (CE->getCastKind() == CK_ArrayToPointerDecay) {
+          // If it's an actual array, and not a pointer, then it's elements
+          // are protected by GUARDED_BY, not PT_GUARDED_BY;
+          checkAccess(CE->getSubExpr(), AK);
+          return;
+        }
+        Exp = CE->getSubExpr();
+        continue;
+      }
+      break;
+    }
+  }
+  else
+    Exp = Exp->IgnoreParenCasts();
 
   const ValueDecl *D = getValueDecl(Exp);
   if (!D || !D->hasAttrs())
@@ -2097,6 +2122,7 @@ void BuildLockset::VisitBinaryOperator(BinaryOperator *BO) {
   checkAccess(BO->getLHS(), AK_Written);
 }
 
+
 /// Whenever we do an LValue to Rvalue cast, we are reading a variable and
 /// need to ensure we hold any required mutexes.
 /// FIXME: Deal with non-primitive types.
@@ -2136,9 +2162,19 @@ void BuildLockset::VisitCallExpr(CallExpr *Exp) {
         checkAccess(Source, AK_Read);
         break;
       }
+      case OO_Star:
+      case OO_Arrow:
+      case OO_Subscript: {
+        if (Analyzer->Handler.issueBetaWarnings()) {
+          const Expr *Obj = OE->getArg(0);
+          checkAccess(Obj, AK_Read);
+          checkPtAccess(Obj, AK_Read);
+        }
+        break;
+      }
       default: {
-        const Expr *Source = OE->getArg(0);
-        checkAccess(Source, AK_Read);
+        const Expr *Obj = OE->getArg(0);
+        checkAccess(Obj, AK_Read);
         break;
       }
     }

@@ -148,3 +148,87 @@ entry:
   store fp128 %2, fp128* %c, align 1
   ret void
 }
+
+; HARD-LABEL: uint_to_f128
+; HARD:       fdtoq
+
+; SOFT-LABEL: uint_to_f128
+; SOFT:       _Q_utoq
+
+define void @uint_to_f128(fp128* noalias sret %scalar.result, i32 %i) {
+entry:
+  %0 = uitofp i32 %i to fp128
+  store fp128 %0, fp128* %scalar.result, align 8
+  ret void
+}
+
+; HARD-LABEL: f128_to_i32
+; HARD:       fqtoi
+; HARD:       fqtoi
+
+; SOFT-LABEL: f128_to_i32
+; SOFT:       call _Q_qtou
+; SOFT:       call _Q_qtoi
+
+
+define i32 @f128_to_i32(fp128* %a, fp128* %b) {
+entry:
+  %0 = load fp128* %a, align 8
+  %1 = load fp128* %b, align 8
+  %2 = fptoui fp128 %0 to i32
+  %3 = fptosi fp128 %1 to i32
+  %4 = add i32 %2, %3
+  ret i32 %4
+}
+
+; HARD-LABEL:    test_itoq_qtoi
+; HARD:          call _Q_lltoq
+; HARD:          call _Q_qtoll
+; HARD:          fitoq
+; HARD:          fqtoi
+
+; SOFT-LABEL:    test_itoq_qtoi
+; SOFT:          call _Q_lltoq
+; SOFT:          call _Q_qtoll
+; SOFT:          call _Q_itoq
+; SOFT:          call _Q_qtoi
+
+define void @test_itoq_qtoi(i64 %a, i32 %b, i64* %ptr0, fp128* %ptr1) {
+entry:
+  %0 = sitofp i64 %a to fp128
+  store  fp128 %0, fp128* %ptr1, align 8
+  %1 = fptosi fp128 %0 to i64
+  store  i64 %1, i64* %ptr0, align 8
+  %2 = sitofp i32 %b to fp128
+  store  fp128 %2, fp128* %ptr1, align 8
+  %3 = fptosi fp128 %2 to i32
+  %4 = bitcast i64* %ptr0 to i32*
+  store  i32 %3, i32* %4, align 8
+  ret void
+}
+
+; HARD-LABEL:    test_utoq_qtou
+; HARD-DAG:      call _Q_ulltoq
+; HARD-DAG:      call _Q_qtoull
+; HARD-DAG:      fdtoq
+; HARD-DAG:      fqtoi
+
+; SOFT-LABEL:    test_utoq_qtou
+; SOFT-DAG:      call _Q_ulltoq
+; SOFT-DAG:      call _Q_qtoull
+; SOFT-DAG:      call _Q_utoq
+; SOFT-DAG:      call _Q_qtou
+
+define void @test_utoq_qtou(i64 %a, i32 %b, i64* %ptr0, fp128* %ptr1) {
+entry:
+  %0 = uitofp i64 %a to fp128
+  store  fp128 %0, fp128* %ptr1, align 8
+  %1 = fptoui fp128 %0 to i64
+  store  i64 %1, i64* %ptr0, align 8
+  %2 = uitofp i32 %b to fp128
+  store  fp128 %2, fp128* %ptr1, align 8
+  %3 = fptoui fp128 %2 to i32
+  %4 = bitcast i64* %ptr0 to i32*
+  store  i32 %3, i32* %4, align 8
+  ret void
+}

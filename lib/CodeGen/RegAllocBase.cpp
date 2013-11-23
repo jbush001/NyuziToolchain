@@ -50,6 +50,9 @@ bool RegAllocBase::VerifyEnabled = false;
 //                         RegAllocBase Implementation
 //===----------------------------------------------------------------------===//
 
+// Pin the vtable to this file.
+void RegAllocBase::anchor() {}
+
 void RegAllocBase::init(VirtRegMap &vrm,
                         LiveIntervals &lis,
                         LiveRegMatrix &mat) {
@@ -98,8 +101,8 @@ void RegAllocBase::allocatePhysRegs() {
     // register if possible and populate a list of new live intervals that
     // result from splitting.
     DEBUG(dbgs() << "\nselectOrSplit "
-                 << MRI->getRegClass(VirtReg->reg)->getName()
-                 << ':' << *VirtReg << '\n');
+          << MRI->getRegClass(VirtReg->reg)->getName()
+          << ':' << *VirtReg << " w=" << VirtReg->weight << '\n');
     typedef SmallVector<unsigned, 4> VirtRegVec;
     VirtRegVec SplitVRegs;
     unsigned AvailablePhysReg = selectOrSplit(*VirtReg, SplitVRegs);

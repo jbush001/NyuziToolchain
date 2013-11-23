@@ -50,10 +50,7 @@ MCAsmInfo::MCAsmInfo() {
   Code32Directive = ".code32";
   Code64Directive = ".code64";
   AssemblerDialect = 0;
-  AllowQuotesInName = false;
-  AllowNameToStartWithDigit = false;
-  AllowPeriodsInName = true;
-  AllowUTF8 = true;
+  AllowAtInName = false;
   UseDataRegionDirectives = false;
   ZeroDirective = "\t.zero\t";
   AsciiDirective = "\t.ascii\t";
@@ -78,7 +75,6 @@ MCAsmInfo::MCAsmInfo() {
   HasSingleParameterDotFile = true;
   HasIdentDirective = false;
   HasNoDeadStrip = false;
-  HasSymbolResolver = false;
   WeakRefDirective = 0;
   WeakDefDirective = 0;
   LinkOnceDirective = 0;

@@ -85,6 +85,7 @@ namespace llvm {
 		virtual SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
 			SmallVectorImpl<SDValue> &InVals) const;
 		virtual unsigned getJumpTableEncoding() const; 
+		virtual bool isShuffleMaskLegal(const SmallVectorImpl<int> &M, EVT VT) const;
 	};
 } // end namespace llvm
 

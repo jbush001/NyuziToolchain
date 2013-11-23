@@ -62,7 +62,7 @@ getDebugValueLocation(const MachineInstr *MI) const {
 
 void VectorProcAsmPrinter::
 EmitFunctionBodyStart() {
-  MCInstLowering.Initialize(Mang, &MF->getContext());
+  MCInstLowering.Initialize(&MF->getContext());
 }
 
 void VectorProcAsmPrinter::

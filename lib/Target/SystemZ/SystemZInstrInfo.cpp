@@ -17,7 +17,7 @@
 #include "llvm/CodeGen/LiveVariables.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 
-#define GET_INSTRINFO_CTOR
+#define GET_INSTRINFO_CTOR_DTOR
 #define GET_INSTRMAP_INFO
 #include "SystemZGenInstrInfo.inc"
 
@@ -36,6 +36,9 @@ static bool isHighReg(unsigned int Reg) {
   assert(SystemZ::GR32BitRegClass.contains(Reg) && "Invalid GRX32");
   return false;
 }
+
+// Pin the vtable to this file.
+void SystemZInstrInfo::anchor() {}
 
 SystemZInstrInfo::SystemZInstrInfo(SystemZTargetMachine &tm)
   : SystemZGenInstrInfo(SystemZ::ADJCALLSTACKDOWN, SystemZ::ADJCALLSTACKUP),
@@ -449,7 +452,7 @@ static bool removeIPMBasedCompare(MachineInstr *Compare, unsigned SrcReg,
     return false;
 
   MachineInstr *SRL = getDef(RLL->getOperand(1).getReg(), MRI);
-  if (!SRL || !isShift(SRL, SystemZ::SRL, 28))
+  if (!SRL || !isShift(SRL, SystemZ::SRL, SystemZ::IPM_CC))
     return false;
 
   MachineInstr *IPM = getDef(SRL->getOperand(1).getReg(), MRI);

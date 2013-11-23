@@ -71,6 +71,104 @@ define <2 x i64> @ins2d2(<2 x i64> %tmp1, <2 x i64> %tmp2) {
   ret <2 x i64> %tmp4
 }
 
+define <4 x float> @ins4f4(<4 x float> %tmp1, <4 x float> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.s[1], {{v[0-31]+}}.s[2]
+  %tmp3 = extractelement <4 x float> %tmp1, i32 2
+  %tmp4 = insertelement <4 x float> %tmp2, float %tmp3, i32 1
+  ret <4 x float> %tmp4
+}
+
+define <2 x double> @ins2df2(<2 x double> %tmp1, <2 x double> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.d[1], {{v[0-31]+}}.d[0]
+  %tmp3 = extractelement <2 x double> %tmp1, i32 0
+  %tmp4 = insertelement <2 x double> %tmp2, double %tmp3, i32 1
+  ret <2 x double> %tmp4
+}
+
+define <16 x i8> @ins8b16(<8 x i8> %tmp1, <16 x i8> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.b[15], {{v[0-31]+}}.b[2]
+  %tmp3 = extractelement <8 x i8> %tmp1, i32 2
+  %tmp4 = insertelement <16 x i8> %tmp2, i8 %tmp3, i32 15
+  ret <16 x i8> %tmp4
+}
+
+define <8 x i16> @ins4h8(<4 x i16> %tmp1, <8 x i16> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.h[7], {{v[0-31]+}}.h[2]
+  %tmp3 = extractelement <4 x i16> %tmp1, i32 2
+  %tmp4 = insertelement <8 x i16> %tmp2, i16 %tmp3, i32 7
+  ret <8 x i16> %tmp4
+}
+
+define <4 x i32> @ins2s4(<2 x i32> %tmp1, <4 x i32> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.s[1], {{v[0-31]+}}.s[1]
+  %tmp3 = extractelement <2 x i32> %tmp1, i32 1
+  %tmp4 = insertelement <4 x i32> %tmp2, i32 %tmp3, i32 1
+  ret <4 x i32> %tmp4
+}
+
+define <2 x i64> @ins1d2(<1 x i64> %tmp1, <2 x i64> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.d[1], {{v[0-31]+}}.d[0]
+  %tmp3 = extractelement <1 x i64> %tmp1, i32 0
+  %tmp4 = insertelement <2 x i64> %tmp2, i64 %tmp3, i32 1
+  ret <2 x i64> %tmp4
+}
+
+define <4 x float> @ins2f4(<2 x float> %tmp1, <4 x float> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.s[1], {{v[0-31]+}}.s[1]
+  %tmp3 = extractelement <2 x float> %tmp1, i32 1
+  %tmp4 = insertelement <4 x float> %tmp2, float %tmp3, i32 1
+  ret <4 x float> %tmp4
+}
+
+define <2 x double> @ins1f2(<1 x double> %tmp1, <2 x double> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.d[1], {{v[0-31]+}}.d[0]
+  %tmp3 = extractelement <1 x double> %tmp1, i32 0
+  %tmp4 = insertelement <2 x double> %tmp2, double %tmp3, i32 1
+  ret <2 x double> %tmp4
+}
+
+define <8 x i8> @ins16b8(<16 x i8> %tmp1, <8 x i8> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.b[7], {{v[0-31]+}}.b[2]
+  %tmp3 = extractelement <16 x i8> %tmp1, i32 2
+  %tmp4 = insertelement <8 x i8> %tmp2, i8 %tmp3, i32 7
+  ret <8 x i8> %tmp4
+}
+
+define <4 x i16> @ins8h4(<8 x i16> %tmp1, <4 x i16> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.h[3], {{v[0-31]+}}.h[2]
+  %tmp3 = extractelement <8 x i16> %tmp1, i32 2
+  %tmp4 = insertelement <4 x i16> %tmp2, i16 %tmp3, i32 3
+  ret <4 x i16> %tmp4
+}
+
+define <2 x i32> @ins4s2(<4 x i32> %tmp1, <2 x i32> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.s[1], {{v[0-31]+}}.s[2]
+  %tmp3 = extractelement <4 x i32> %tmp1, i32 2
+  %tmp4 = insertelement <2 x i32> %tmp2, i32 %tmp3, i32 1
+  ret <2 x i32> %tmp4
+}
+
+define <1 x i64> @ins2d1(<2 x i64> %tmp1, <1 x i64> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.d[0], {{v[0-31]+}}.d[0]
+  %tmp3 = extractelement <2 x i64> %tmp1, i32 0
+  %tmp4 = insertelement <1 x i64> %tmp2, i64 %tmp3, i32 0
+  ret <1 x i64> %tmp4
+}
+
+define <2 x float> @ins4f2(<4 x float> %tmp1, <2 x float> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.s[1], {{v[0-31]+}}.s[2]
+  %tmp3 = extractelement <4 x float> %tmp1, i32 2
+  %tmp4 = insertelement <2 x float> %tmp2, float %tmp3, i32 1
+  ret <2 x float> %tmp4
+}
+
+define <1 x double> @ins2f1(<2 x double> %tmp1, <1 x double> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.d[0], {{v[0-31]+}}.d[0]
+  %tmp3 = extractelement <2 x double> %tmp1, i32 0
+  %tmp4 = insertelement <1 x double> %tmp2, double %tmp3, i32 0
+  ret <1 x double> %tmp4
+}
+
 define <8 x i8> @ins8b8(<8 x i8> %tmp1, <8 x i8> %tmp2) {
 ;CHECK: ins {{v[0-31]+}}.b[4], {{v[0-31]+}}.b[2]
   %tmp3 = extractelement <8 x i8> %tmp1, i32 2
@@ -97,6 +195,20 @@ define <1 x i64> @ins1d1(<1 x i64> %tmp1, <1 x i64> %tmp2) {
   %tmp3 = extractelement <1 x i64> %tmp1, i32 0
   %tmp4 = insertelement <1 x i64> %tmp2, i64 %tmp3, i32 0
   ret <1 x i64> %tmp4
+}
+
+define <2 x float> @ins2f2(<2 x float> %tmp1, <2 x float> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.s[1], {{v[0-31]+}}.s[0]
+  %tmp3 = extractelement <2 x float> %tmp1, i32 0
+  %tmp4 = insertelement <2 x float> %tmp2, float %tmp3, i32 1
+  ret <2 x float> %tmp4
+}
+
+define <1 x double> @ins1df1(<1 x double> %tmp1, <1 x double> %tmp2) {
+;CHECK: ins {{v[0-31]+}}.d[0], {{v[0-31]+}}.d[0]
+  %tmp3 = extractelement <1 x double> %tmp1, i32 0
+  %tmp4 = insertelement <1 x double> %tmp2, double %tmp3, i32 0
+  ret <1 x double> %tmp4
 }
 
 define i32 @umovw16b(<16 x i8> %tmp1) {
@@ -418,3 +530,86 @@ define <2 x i64> @test_vdupq_laneq_s64(<2 x i64> %v1) #0 {
   ret <2 x i64> %shuffle
 }
 
+define i64 @test_bitcastv8i8toi64(<8 x i8> %in) {
+; CHECK-LABEL: test_bitcastv8i8toi64:
+   %res = bitcast <8 x i8> %in to i64
+; CHECK: fmov {{x[0-9]+}}, {{d[0-9]+}}
+   ret i64 %res
+}
+
+define i64 @test_bitcastv4i16toi64(<4 x i16> %in) {
+; CHECK-LABEL: test_bitcastv4i16toi64:
+   %res = bitcast <4 x i16> %in to i64
+; CHECK: fmov {{x[0-9]+}}, {{d[0-9]+}}
+   ret i64 %res
+}
+
+define i64 @test_bitcastv2i32toi64(<2 x i32> %in) {
+; CHECK-LABEL: test_bitcastv2i32toi64:
+   %res = bitcast <2 x i32> %in to i64
+; CHECK: fmov {{x[0-9]+}}, {{d[0-9]+}}
+   ret i64 %res
+}
+
+define i64 @test_bitcastv2f32toi64(<2 x float> %in) {
+; CHECK-LABEL: test_bitcastv2f32toi64:
+   %res = bitcast <2 x float> %in to i64
+; CHECK: fmov {{x[0-9]+}}, {{d[0-9]+}}
+   ret i64 %res
+}
+
+define i64 @test_bitcastv1i64toi64(<1 x i64> %in) {
+; CHECK-LABEL: test_bitcastv1i64toi64:
+   %res = bitcast <1 x i64> %in to i64
+; CHECK: fmov {{x[0-9]+}}, {{d[0-9]+}}
+   ret i64 %res
+}
+
+define i64 @test_bitcastv1f64toi64(<1 x double> %in) {
+; CHECK-LABEL: test_bitcastv1f64toi64:
+   %res = bitcast <1 x double> %in to i64
+; CHECK: fmov {{x[0-9]+}}, {{d[0-9]+}}
+   ret i64 %res
+}
+
+define <8 x i8> @test_bitcasti64tov8i8(i64 %in) {
+; CHECK-LABEL: test_bitcasti64tov8i8:
+   %res = bitcast i64 %in to <8 x i8>
+; CHECK: fmov {{d[0-9]+}}, {{x[0-9]+}}
+   ret <8 x i8> %res
+}
+
+define <4 x i16> @test_bitcasti64tov4i16(i64 %in) {
+; CHECK-LABEL: test_bitcasti64tov4i16:
+   %res = bitcast i64 %in to <4 x i16>
+; CHECK: fmov {{d[0-9]+}}, {{x[0-9]+}}
+   ret <4 x i16> %res
+}
+
+define <2 x i32> @test_bitcasti64tov2i32(i64 %in) {
+; CHECK-LABEL: test_bitcasti64tov2i32:
+   %res = bitcast i64 %in to <2 x i32>
+; CHECK: fmov {{d[0-9]+}}, {{x[0-9]+}}
+   ret <2 x i32> %res
+}
+
+define <2 x float> @test_bitcasti64tov2f32(i64 %in) {
+; CHECK-LABEL: test_bitcasti64tov2f32:
+   %res = bitcast i64 %in to <2 x float>
+; CHECK: fmov {{d[0-9]+}}, {{x[0-9]+}}
+   ret <2 x float> %res
+}
+
+define <1 x i64> @test_bitcasti64tov1i64(i64 %in) {
+; CHECK-LABEL: test_bitcasti64tov1i64:
+   %res = bitcast i64 %in to <1 x i64>
+; CHECK: fmov {{d[0-9]+}}, {{x[0-9]+}}
+   ret <1 x i64> %res
+}
+
+define <1 x double> @test_bitcasti64tov1f64(i64 %in) {
+; CHECK-LABEL: test_bitcasti64tov1f64:
+   %res = bitcast i64 %in to <1 x double>
+; CHECK: fmov {{d[0-9]+}}, {{x[0-9]+}}
+   ret <1 x double> %res
+}

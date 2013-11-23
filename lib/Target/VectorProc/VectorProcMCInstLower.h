@@ -28,11 +28,10 @@ namespace llvm {
 class LLVM_LIBRARY_VISIBILITY VectorProcMCInstLower {
   typedef MachineOperand::MachineOperandType MachineOperandType;
   MCContext *Ctx;
-  Mangler *Mang;
   VectorProcAsmPrinter &AsmPrinter;
 public:
   VectorProcMCInstLower(VectorProcAsmPrinter &asmprinter);
-  void Initialize(Mangler *mang, MCContext *C);
+  void Initialize(MCContext *C);
   void Lower(const MachineInstr *MI, MCInst &OutMI) const;
   MCOperand LowerOperand(const MachineOperand& MO, unsigned offset = 0) const;
 

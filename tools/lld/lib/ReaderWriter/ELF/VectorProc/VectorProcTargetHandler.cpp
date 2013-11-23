@@ -36,7 +36,7 @@ int relocABS32(uint8_t *location, uint64_t relocAddr, uint64_t target, uint64_t 
 
 } // end anon namespace
 
-ErrorOr<void> VectorProcTargetRelocationHandler::applyRelocation(
+error_code VectorProcTargetRelocationHandler::applyRelocation(
     ELFWriter &writer, llvm::FileOutputBuffer &buf, const lld::AtomLayout &atom,
     const Reference &ref) const {
   uint8_t *atomContent = buf.getBufferStart() + atom._fileOffset;

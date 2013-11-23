@@ -22,6 +22,7 @@
 #include "llvm/Object/ELF.h"
 #include "llvm/Support/ELF.h"
 
+#include <map>
 #include <memory>
 
 namespace lld {
@@ -130,7 +131,7 @@ public:
     return static_cast<lld::elf::TargetHandler<ELFT> &>(*_targetHandler.get());
   }
 
-  virtual void addPasses(PassManager &pm) const;
+  virtual void addPasses(PassManager &pm);
 
   void setTriple(llvm::Triple trip) { _triple = trip; }
   void setNoInhibitExec(bool v) { _noInhibitExec = v; }
@@ -156,7 +157,7 @@ public:
   virtual void setNoAllowDynamicLibraries() { _noAllowDynamicLibraries = true; }
 
   /// Searches directories for a match on the input File
-  llvm::ErrorOr<StringRef>
+  ErrorOr<StringRef>
   searchLibrary(StringRef libName,
                 const std::vector<StringRef> &searchPath) const;
 
@@ -206,6 +207,13 @@ public:
     return _rpathLinkList;
   }
 
+  virtual bool addUndefinedAtomsFromSharedLibrary(const SharedLibraryFile *s) {
+    if (_undefinedAtomsFromFile.find(s) != _undefinedAtomsFromFile.end())
+      return false;
+    _undefinedAtomsFromFile[s] = true;
+    return true;
+  }
+
 private:
   ELFLinkingContext() LLVM_DELETED_FUNCTION;
 
@@ -240,6 +248,7 @@ protected:
   StringRef _soname;
   StringRefVector _rpathList;
   StringRefVector _rpathLinkList;
+  std::map<const SharedLibraryFile *, bool> _undefinedAtomsFromFile;
 };
 } // end namespace lld
 

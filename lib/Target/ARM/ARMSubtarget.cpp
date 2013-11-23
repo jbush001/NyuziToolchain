@@ -57,6 +57,23 @@ Align(cl::desc("Load/store alignment support"),
                      "Allow unaligned memory accesses"),
           clEnumValEnd));
 
+enum ITMode {
+  DefaultIT,
+  RestrictedIT,
+  NoRestrictedIT
+};
+
+static cl::opt<ITMode>
+IT(cl::desc("IT block support"), cl::Hidden, cl::init(DefaultIT),
+   cl::ZeroOrMore,
+   cl::values(clEnumValN(DefaultIT, "arm-default-it",
+                         "Generate IT block based on arch"),
+              clEnumValN(RestrictedIT, "arm-restrict-it",
+                         "Disallow deprecated IT based on ARMv8"),
+              clEnumValN(NoRestrictedIT, "arm-no-restrict-it",
+                         "Allow IT blocks based on ARMv7"),
+              clEnumValEnd));
+
 ARMSubtarget::ARMSubtarget(const std::string &TT, const std::string &CPU,
                            const std::string &FS, const TargetOptions &Options)
   : ARMGenSubtargetInfo(TT, CPU, FS)
@@ -108,10 +125,12 @@ void ARMSubtarget::initializeEnvironment() {
   AvoidMOVsShifterOperand = false;
   HasRAS = false;
   HasMPExtension = false;
+  HasVirtualization = false;
   FPOnlySP = false;
   HasPerfMon = false;
   HasTrustZone = false;
   HasCrypto = false;
+  HasCRC = false;
   AllowsUnalignedMem = false;
   Thumb2DSP = false;
   UseNaClTrap = false;
@@ -215,6 +234,18 @@ void ARMSubtarget::resetSubtargetFeatures(StringRef CPU, StringRef FS) {
       break;
   }
 
+  switch (IT) {
+  case DefaultIT:
+    RestrictIT = hasV8Ops() ? true : false;
+    break;
+  case RestrictedIT:
+    RestrictIT = true;
+    break;
+  case NoRestrictedIT:
+    RestrictIT = false;
+    break;
+  }
+
   // NEON f32 ops are non-IEEE 754 compliant. Darwin is ok with it by default.
   uint64_t Bits = getFeatureBits();
   if ((Bits & ARM::ProcA5 || Bits & ARM::ProcA8) && // Where this matters
@@ -277,6 +308,11 @@ ARMSubtarget::GVIsIndirectSymbol(const GlobalValue *GV,
 
 unsigned ARMSubtarget::getMispredictionPenalty() const {
   return SchedModel->MispredictPenalty;
+}
+
+bool ARMSubtarget::hasSinCos() const {
+  return getTargetTriple().getOS() == Triple::IOS &&
+    !getTargetTriple().isOSVersionLT(7, 0);
 }
 
 bool ARMSubtarget::enablePostRAScheduler(

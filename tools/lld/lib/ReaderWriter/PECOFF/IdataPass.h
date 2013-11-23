@@ -16,8 +16,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLD_READER_WRITER_PE_COFF_IDATA_PASS_H_
-#define LLD_READER_WRITER_PE_COFF_IDATA_PASS_H_
+#ifndef LLD_READER_WRITER_PE_COFF_IDATA_PASS_H
+#define LLD_READER_WRITER_PE_COFF_IDATA_PASS_H
 
 #include "Atoms.h"
 
@@ -59,7 +59,7 @@ void addDir32NBReloc(COFFBaseDefinedAtom *atom, const Atom *target,
 
 // A state object of this pass.
 struct Context {
-  explicit Context(MutableFile &f, File &g) : file(f), dummyFile(g) {}
+  Context(MutableFile &f, File &g) : file(f), dummyFile(g) {}
 
   MutableFile &file;
   File &dummyFile;
@@ -104,7 +104,7 @@ private:
     vector<uint8_t> ret(name.size() + 1);
     memcpy(&ret[0], name.data(), name.size());
     ret[name.size()] = 0;
-    return std::move(ret);
+    return ret;
   }
 };
 
@@ -145,7 +145,7 @@ private:
 
 class ImportTableEntryAtom : public IdataAtom {
 public:
-  explicit ImportTableEntryAtom(Context &context, uint32_t contents)
+  ImportTableEntryAtom(Context &context, uint32_t contents)
       : IdataAtom(context, assembleRawContent(contents)) {}
 
 private:
@@ -243,26 +243,32 @@ public:
 class IdataPassFile : public SimpleFile {
 public:
   IdataPassFile(const LinkingContext &ctx)
-      : SimpleFile(ctx, "<idata-pass-file>") {}
+      : SimpleFile(ctx, "<idata-pass-file>") {
+    setOrdinal(ctx.getNextOrdinalAndIncrement());
+  }
 };
 
 class IdataPass : public lld::Pass {
 public:
   IdataPass(const LinkingContext &ctx) : _dummyFile(ctx) {}
 
-  virtual void perform(MutableFile &file) {
-    if (file.sharedLibrary().size() == 0)
+  virtual void perform(std::unique_ptr<MutableFile> &file) {
+    if (file->sharedLibrary().size() == 0)
       return;
 
-    Context context(file, _dummyFile);
+    Context context(*file, _dummyFile);
     map<StringRef, vector<COFFSharedLibraryAtom *> > sharedAtoms =
-        groupByLoadName(file);
+        groupByLoadName(*file);
     for (auto i : sharedAtoms) {
       StringRef loadName = i.first;
       vector<COFFSharedLibraryAtom *> &atoms = i.second;
       createImportDirectory(context, loadName, atoms);
     }
+
+    // All atoms, including those of tyep NullImportDirectoryAtom, are added to
+    // context.file in the IdataAtom's constructor.
     new (_alloc) NullImportDirectoryAtom(context);
+
     connectAtoms(context);
     createDataDirectoryAtoms(context);
     replaceSharedLibraryAtoms(context);
@@ -280,7 +286,7 @@ private:
       COFFSharedLibraryAtom *atom = i.second;
       ret[atom->loadName()].push_back(atom);
     }
-    return std::move(ret);
+    return ret;
   }
 
   void createImportDirectory(Context &context, StringRef loadName,
@@ -306,23 +312,35 @@ private:
 
   /// The addresses of the import dirctory and the import address table needs to
   /// be set to the COFF Optional Data Directory header. A COFFDataDirectoryAtom
-  /// represents an entry in the data directory header. We create atoms of class
-  /// COFFDataDirectoryAtom and set relocations to them, so that the address
-  /// will be set by the writer.
+  /// represents the data directory header. We create a COFFDataDirectoryAtom
+  /// and set relocations to them, so that the address will be set by the
+  /// writer.
   void createDataDirectoryAtoms(Context &context) {
-    auto *dir = new (_alloc) coff::COFFDataDirectoryAtom(
-        context.dummyFile, llvm::COFF::DataDirectoryIndex::IMPORT_TABLE,
-        context.importDirectories.size() *
-            context.importDirectories[0]->size());
-    addDir32NBReloc(dir, context.importDirectories[0]);
-    context.file.addAtom(*dir);
+    // CLR_RUNTIME_HEADER is the last index of the data directory.
+    int nentries = llvm::COFF::CLR_RUNTIME_HEADER + 1;
+    int entSize = sizeof(llvm::object::data_directory);
+    std::vector<uint8_t> contents(nentries * entSize, 0);
 
-    auto *iat = new (_alloc) coff::COFFDataDirectoryAtom(
-        context.dummyFile, llvm::COFF::DataDirectoryIndex::IAT,
-        context.importAddressTables.size() *
-            context.importAddressTables[0]->size());
-    addDir32NBReloc(iat, context.importAddressTables[0]);
-    context.file.addAtom(*iat);
+    auto importTableOffset = llvm::COFF::DataDirectoryIndex::IMPORT_TABLE
+        * entSize;
+    auto iatOffset = llvm::COFF::DataDirectoryIndex::IAT * entSize;
+
+    auto *importTableEntry = reinterpret_cast<llvm::object::data_directory *>(
+        &contents[0] + importTableOffset);
+    auto *iatEntry = reinterpret_cast<llvm::object::data_directory *>(
+        &contents[0] + iatOffset);
+
+    importTableEntry->Size = context.importDirectories.size()
+        * context.importDirectories[0]->size();
+    iatEntry->Size = context.importAddressTables.size()
+        * context.importAddressTables[0]->size();
+
+    auto *dir = new (_alloc) coff::COFFDataDirectoryAtom(
+        context.dummyFile, std::move(contents));
+    addDir32NBReloc(dir, context.importDirectories[0], importTableOffset);
+    addDir32NBReloc(dir, context.importAddressTables[0], iatOffset);
+
+    context.file.addAtom(*dir);
   }
 
   /// Transforms a reference to a COFFSharedLibraryAtom to a real reference.

@@ -34,8 +34,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLD_READER_WRITER_PE_COFF_GROUPED_SECTIONS_PASS_H_
-#define LLD_READER_WRITER_PE_COFF_GROUPED_SECTIONS_PASS_H_
+#ifndef LLD_READER_WRITER_PE_COFF_GROUPED_SECTIONS_PASS_H
+#define LLD_READER_WRITER_PE_COFF_GROUPED_SECTIONS_PASS_H
 
 #include "Atoms.h"
 #include "lld/Core/Pass.h"
@@ -60,9 +60,9 @@ class GroupedSectionsPass : public lld::Pass {
 public:
   GroupedSectionsPass() {}
 
-  virtual void perform(MutableFile &mergedFile) {
-    std::map<StringRef, std::vector<COFFDefinedAtom *>> sectionToHeadAtoms(
-        filterHeadAtoms(mergedFile));
+  virtual void perform(std::unique_ptr<MutableFile> &mergedFile) {
+    std::map<StringRef, std::vector<COFFDefinedAtom *> > sectionToHeadAtoms(
+        filterHeadAtoms(*mergedFile));
     std::vector<std::vector<COFFDefinedAtom *>> groupedAtomsList(
         groupBySectionName(sectionToHeadAtoms));
     for (auto &groupedAtoms : groupedAtomsList)
@@ -80,7 +80,7 @@ private:
       if (coffAtom && coffAtom->ordinal() == 0)
         result[coffAtom->getSectionName()].push_back(coffAtom);
     }
-    return std::move(result);
+    return result;
   }
 
   /// Group atoms that needs to be merged. Returned atoms are sorted by section
@@ -105,7 +105,7 @@ private:
     std::vector<std::vector<COFFDefinedAtom *>> vec;
     for (auto &i : res)
       vec.push_back(std::move(i.second));
-    return std::move(vec);
+    return vec;
   }
 
   /// For each pair of atoms in the given vector, add a layout edge from the

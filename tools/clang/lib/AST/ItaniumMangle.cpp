@@ -144,6 +144,7 @@ public:
                            raw_ostream &);
   void mangleCXXRTTI(QualType T, raw_ostream &);
   void mangleCXXRTTIName(QualType T, raw_ostream &);
+  void mangleTypeName(QualType T, raw_ostream &);
   void mangleCXXCtor(const CXXConstructorDecl *D, CXXCtorType Type,
                      raw_ostream &);
   void mangleCXXDtor(const CXXDestructorDecl *D, CXXDtorType Type,
@@ -439,6 +440,8 @@ void CXXNameMangler::mangle(const NamedDecl *D, StringRef Prefix) {
     mangleFunctionEncoding(FD);
   else if (const VarDecl *VD = dyn_cast<VarDecl>(D))
     mangleName(VD);
+  else if (const IndirectFieldDecl *IFD = dyn_cast<IndirectFieldDecl>(D))
+    mangleName(IFD->getAnonField());
   else
     mangleName(cast<FieldDecl>(D));
 }
@@ -1237,7 +1240,12 @@ void CXXNameMangler::mangleNestedName(const NamedDecl *ND,
 
   Out << 'N';
   if (const CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(ND)) {
-    mangleQualifiers(Qualifiers::fromCVRMask(Method->getTypeQualifiers()));
+    Qualifiers MethodQuals =
+        Qualifiers::fromCVRMask(Method->getTypeQualifiers());
+    // We do not consider restrict a distinguishing attribute for overloading
+    // purposes so we must not mangle it.
+    MethodQuals.removeRestrict();
+    mangleQualifiers(MethodQuals);
     mangleRefQualifier(Method->getRefQualifier());
   }
   
@@ -1911,7 +1919,7 @@ void CXXNameMangler::mangleType(const BuiltinType *T) {
   //                 ::= x  # long long, __int64
   //                 ::= y  # unsigned long long, __int64
   //                 ::= n  # __int128
-  // UNSUPPORTED:    ::= o  # unsigned __int128
+  //                 ::= o  # unsigned __int128
   //                 ::= f  # float
   //                 ::= d  # double
   //                 ::= e  # long double, __float80
@@ -2228,9 +2236,6 @@ void CXXNameMangler::mangleAArch64NeonVectorType(const VectorType *T) {
   assert((BitSize == 64 || BitSize == 128) &&
          "Neon vector type not 64 or 128 bits");
 
-  assert(getASTContext().getTypeSize(EltType) != BitSize &&
-         "Vector of 1 element not permitted");
-
   StringRef EltName;
   if (T->getVectorKind() == VectorType::NeonPolyVector) {
     switch (cast<BuiltinType>(EltType)->getKind()) {
@@ -2239,6 +2244,9 @@ void CXXNameMangler::mangleAArch64NeonVectorType(const VectorType *T) {
       break;
     case BuiltinType::UShort:
       EltName = "Poly16";
+      break;
+    case BuiltinType::ULongLong:
+      EltName = "Poly64";
       break;
     default:
       llvm_unreachable("unexpected Neon polynomial vector element type");
@@ -3650,13 +3658,14 @@ void ItaniumMangleContextImpl::mangleThunk(const CXXMethodDecl *MD,
     Mangler.getStream() << 'c';
   
   // Mangle the 'this' pointer adjustment.
-  Mangler.mangleCallOffset(Thunk.This.NonVirtual, Thunk.This.VCallOffsetOffset);
-  
+  Mangler.mangleCallOffset(Thunk.This.NonVirtual,
+                           Thunk.This.Virtual.Itanium.VCallOffsetOffset);
+
   // Mangle the return pointer adjustment if there is one.
   if (!Thunk.Return.isEmpty())
     Mangler.mangleCallOffset(Thunk.Return.NonVirtual,
-                             Thunk.Return.VBaseOffsetOffset);
-  
+                             Thunk.Return.Virtual.Itanium.VBaseOffsetOffset);
+
   Mangler.mangleFunctionEncoding(MD);
 }
 
@@ -3670,7 +3679,7 @@ void ItaniumMangleContextImpl::mangleCXXDtorThunk(
 
   // Mangle the 'this' pointer adjustment.
   Mangler.mangleCallOffset(ThisAdjustment.NonVirtual, 
-                           ThisAdjustment.VCallOffsetOffset);
+                           ThisAdjustment.Virtual.Itanium.VCallOffsetOffset);
 
   Mangler.mangleFunctionEncoding(DD);
 }
@@ -3774,6 +3783,10 @@ void ItaniumMangleContextImpl::mangleCXXRTTIName(QualType Ty,
   CXXNameMangler Mangler(*this, Out);
   Mangler.getStream() << "_ZTS";
   Mangler.mangleType(Ty);
+}
+
+void ItaniumMangleContextImpl::mangleTypeName(QualType Ty, raw_ostream &Out) {
+  mangleCXXRTTIName(Ty, Out);
 }
 
 ItaniumMangleContext *

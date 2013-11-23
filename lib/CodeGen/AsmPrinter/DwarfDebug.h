@@ -37,6 +37,7 @@ class MachineFrameInfo;
 class MachineModuleInfo;
 class MachineOperand;
 class MCAsmInfo;
+class MCObjectFileInfo;
 class DIEAbbrev;
 class DIE;
 class DIEBlock;
@@ -226,7 +227,7 @@ class DwarfUnits {
   FoldingSet<DIEAbbrev> *AbbreviationsSet;
 
   // A list of all the unique abbreviations in use.
-  std::vector<DIEAbbrev *> *Abbreviations;
+  std::vector<DIEAbbrev *> &Abbreviations;
 
   // A pointer to all units in the section.
   SmallVector<CompileUnit *, 1> CUs;
@@ -249,11 +250,13 @@ class DwarfUnits {
 
 public:
   DwarfUnits(AsmPrinter *AP, FoldingSet<DIEAbbrev> *AS,
-             std::vector<DIEAbbrev *> *A, const char *Pref,
+             std::vector<DIEAbbrev *> &A, const char *Pref,
              BumpPtrAllocator &DA)
       : Asm(AP), AbbreviationsSet(AS), Abbreviations(A), StringPool(DA),
         NextStringPoolNumber(0), StringPref(Pref), AddressPool(),
         NextAddrPoolNumber(0) {}
+
+  ~DwarfUnits();
 
   /// \brief Compute the size and offset of a DIE given an incoming Offset.
   unsigned computeSizeAndOffset(DIE *Die, unsigned Offset);
@@ -302,7 +305,7 @@ public:
   AddrPool *getAddrPool() { return &AddressPool; }
 };
 
-/// \brief Helper used to pair up a symbol and it's DWARF compile unit.
+/// \brief Helper used to pair up a symbol and its DWARF compile unit.
 struct SymbolCU {
   SymbolCU(CompileUnit *CU, const MCSymbol *Sym) : Sym(Sym), CU(CU) {}
   const MCSymbol *Sym;
@@ -328,6 +331,14 @@ class DwarfDebug {
 
   // Maps subprogram MDNode with its corresponding CompileUnit.
   DenseMap <const MDNode *, CompileUnit *> SPMap;
+
+  // Maps a CU DIE with its corresponding CompileUnit.
+  DenseMap <const DIE *, CompileUnit *> CUDieMap;
+
+  /// Maps MDNodes for type sysstem with the corresponding DIEs. These DIEs can
+  /// be shared across CUs, that is why we keep the map here instead
+  /// of in CompileUnit.
+  DenseMap<const MDNode *, DIE *> MDTypeNodeToDieMap;
 
   // Used to uniquely define abbreviations.
   FoldingSet<DIEAbbrev> AbbreviationsSet;
@@ -434,14 +445,21 @@ class DwarfDebug {
     ImportedEntityMap;
   ImportedEntityMap ScopesWithImportedEntities;
 
-  // Holder for types that are going to be extracted out into a type unit.
-  std::vector<DIE *> TypeUnits;
+  // Map from type MDNodes to a pair used as a union. If the pointer is
+  // non-null, proxy DIEs in CUs meant to reference this type should be stored
+  // in the vector. The hash will be added to these DIEs once it is computed. If
+  // the pointer is null, the hash is immediately available in the uint64_t and
+  // should be directly used for proxy DIEs.
+  DenseMap<const MDNode *, std::pair<uint64_t, SmallVectorImpl<DIE*>* > > TypeUnits;
 
   // Whether to emit the pubnames/pubtypes sections.
   bool HasDwarfPubSections;
 
   // Version of dwarf we're emitting.
   unsigned DwarfVersion;
+
+  // Maps from a type identifier to the actual MDNode.
+  DITypeIdentifierMap TypeIdentifierMap;
 
   // DWARF5 Experimental Options
   bool HasDwarfAccelTables;
@@ -452,9 +470,6 @@ class DwarfDebug {
   // original object file, rather than things that are meant
   // to be in the .dwo sections.
 
-  // The CUs left in the original object file for separated debug info.
-  SmallVector<CompileUnit *, 1> SkeletonCUs;
-
   // Used to uniquely define abbreviations for the skeleton emission.
   FoldingSet<DIEAbbrev> SkeletonAbbrevSet;
 
@@ -463,9 +478,6 @@ class DwarfDebug {
 
   // Holder for the skeleton information.
   DwarfUnits SkeletonHolder;
-
-  // Maps from a type identifier to the actual MDNode.
-  DITypeIdentifierMap TypeIdentifierMap;
 
 private:
 
@@ -478,7 +490,7 @@ private:
   /// DW_AT_low_pc and DW_AT_high_pc attributes. If there are global
   /// variables in this scope then create and insert DIEs for these
   /// variables.
-  DIE *updateSubprogramScopeDIE(CompileUnit *SPCU, const MDNode *SPNode);
+  DIE *updateSubprogramScopeDIE(CompileUnit *SPCU, DISubprogram SP);
 
   /// \brief Construct new DW_TAG_lexical_block for this scope and
   /// attach DW_AT_low_pc/DW_AT_high_pc labels.
@@ -596,7 +608,7 @@ private:
 
   /// \brief Create new CompileUnit for the given metadata node with tag
   /// DW_TAG_compile_unit.
-  CompileUnit *constructCompileUnit(const MDNode *N);
+  CompileUnit *constructCompileUnit(DICompileUnit DIUnit);
 
   /// \brief Construct subprogram DIE.
   void constructSubprogramDIE(CompileUnit *TheCU, const MDNode *N);
@@ -659,6 +671,13 @@ public:
   //
   DwarfDebug(AsmPrinter *A, Module *M);
 
+  void insertDIE(const MDNode *TypeMD, DIE *Die) {
+    MDTypeNodeToDieMap.insert(std::make_pair(TypeMD, Die));
+  }
+  DIE *getDIE(const MDNode *TypeMD) {
+    return MDTypeNodeToDieMap.lookup(TypeMD);
+  }
+
   /// \brief Emit all Dwarf sections that should come prior to the
   /// content.
   void beginModule();
@@ -680,7 +699,7 @@ public:
 
   /// \brief Add a DIE to the set of types that we're going to pull into
   /// type units.
-  void addTypeUnitType(DIE *Die) { TypeUnits.push_back(Die); }
+  void addTypeUnitType(DIE *Die, DICompositeType CTy);
 
   /// \brief Add a label so that arange data can be generated for it.
   void addArangeLabel(SymbolCU SCU) { ArangeLabels.push_back(SCU); }
@@ -696,7 +715,7 @@ public:
                                unsigned CUID);
 
   /// \brief Recursively Emits a debug information entry.
-  void emitDIE(DIE *Die, std::vector<DIEAbbrev *> *Abbrevs);
+  void emitDIE(DIE *Die, ArrayRef<DIEAbbrev *> Abbrevs);
 
   // Experimental DWARF5 features.
 

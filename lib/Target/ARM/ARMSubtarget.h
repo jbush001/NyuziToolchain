@@ -31,7 +31,8 @@ class TargetOptions;
 class ARMSubtarget : public ARMGenSubtargetInfo {
 protected:
   enum ARMProcFamilyEnum {
-    Others, CortexA5, CortexA8, CortexA9, CortexA15, CortexR5, Swift, CortexA53, CortexA57
+    Others, CortexA5, CortexA7, CortexA8, CortexA9, CortexA12, CortexA15, 
+    CortexR5, Swift, CortexA53, CortexA57
   };
   enum ARMProcClassEnum {
     None, AClass, RClass, MClass
@@ -150,6 +151,10 @@ protected:
   /// extension (ARMv7 only).
   bool HasMPExtension;
 
+  /// HasVirtualization - True if the subtarget supports the Virtualization
+  /// extension.
+  bool HasVirtualization;
+
   /// FPOnlySP - If true, the floating point unit only supports single
   /// precision.
   bool FPOnlySP;
@@ -165,10 +170,17 @@ protected:
   /// HasCrypto - if true, processor supports Cryptography extensions
   bool HasCrypto;
 
+  /// HasCRC - if true, processor supports CRC instructions
+  bool HasCRC;
+
   /// AllowsUnalignedMem - If true, the subtarget allows unaligned memory
   /// accesses for some types.  For details, see
   /// ARMTargetLowering::allowsUnalignedMemoryAccesses().
   bool AllowsUnalignedMem;
+
+  /// RestrictIT - If true, the subtarget disallows generation of deprecated IT
+  ///  blocks to conform to ARMv8 rule.
+  bool RestrictIT;
 
   /// Thumb2DSP - If true, the subtarget supports the v7 DSP (saturating arith
   /// and such) instructions in Thumb2 code.
@@ -256,6 +268,8 @@ public:
   bool hasFPARMv8() const { return HasFPARMv8; }
   bool hasNEON() const { return HasNEON;  }
   bool hasCrypto() const { return HasCrypto; }
+  bool hasCRC() const { return HasCRC; }
+  bool hasVirtualization() const { return HasVirtualization; }
   bool useNEONForSinglePrecisionFP() const {
     return hasNEON() && UseNEONForSinglePrecisionFP; }
 
@@ -263,6 +277,9 @@ public:
   bool hasDivideInARMMode() const { return HasHardwareDivideInARM; }
   bool hasT2ExtractPack() const { return HasT2ExtractPack; }
   bool hasDataBarrier() const { return HasDataBarrier; }
+  bool hasAnyDataBarrier() const {
+    return HasDataBarrier || (hasV6Ops() && !isThumb());
+  }
   bool useMulOps() const { return UseMulOps; }
   bool useFPVMLx() const { return !SlowFPVMLx; }
   bool hasVMLxForwarding() const { return HasVMLxForwarding; }
@@ -315,9 +332,15 @@ public:
 
   bool allowsUnalignedMem() const { return AllowsUnalignedMem; }
 
+  bool restrictIT() const { return RestrictIT; }
+
   const std::string & getCPUString() const { return CPUString; }
 
   unsigned getMispredictionPenalty() const;
+  
+  /// This function returns true if the target has sincos() routine in its
+  /// compiler runtime or math libraries.
+  bool hasSinCos() const;
 
   /// enablePostRAScheduler - True at 'More' optimization.
   bool enablePostRAScheduler(CodeGenOpt::Level OptLevel,

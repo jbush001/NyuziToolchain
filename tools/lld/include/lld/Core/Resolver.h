@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLD_CORE_RESOLVER_H_
-#define LLD_CORE_RESOLVER_H_
+#ifndef LLD_CORE_RESOLVER_H
+#define LLD_CORE_RESOLVER_H
 
 #include "lld/Core/File.h"
 #include "lld/Core/SharedLibraryFile.h"
@@ -37,8 +37,9 @@ public:
   };
 
   Resolver(LinkingContext &context)
-      : _context(context), _symbolTable(context), _result(context),
-        _haveLLVMObjs(false), _addToFinalSection(false) {}
+      : _context(context), _symbolTable(context),
+        _result(new MergedFile(context)), _haveLLVMObjs(false),
+        _addToFinalSection(false) {}
 
   virtual ~Resolver() {}
 
@@ -62,11 +63,10 @@ public:
   /// @brief do work of merging and resolving and return list
   bool resolve();
 
-  MutableFile& resultFile() {
-    return _result;
-  }
+  std::unique_ptr<MutableFile> resultFile() { return std::move(_result); }
 
 private:
+  typedef std::function<void(StringRef, bool)> UndefCallback;
 
   /// \brief The main function that iterates over the files to resolve
   bool resolveUndefines();
@@ -77,6 +77,7 @@ private:
   void checkDylibSymbolCollisions();
   void linkTimeOptimize();
   void tweakAtoms();
+  void forEachUndefines(UndefCallback callback, bool searchForOverrides);
 
   void markLive(const Atom &atom);
   void addAtoms(const std::vector<const DefinedAtom *>&);
@@ -117,11 +118,11 @@ private:
   std::set<const Atom *>        _deadStripRoots;
   std::vector<const Atom *>     _atomsWithUnresolvedReferences;
   llvm::DenseSet<const Atom *>  _liveAtoms;
-  MergedFile                    _result;
+  std::unique_ptr<MergedFile> _result;
   bool                          _haveLLVMObjs;
   bool _addToFinalSection;
 };
 
 } // namespace lld
 
-#endif // LLD_CORE_RESOLVER_H_
+#endif // LLD_CORE_RESOLVER_H

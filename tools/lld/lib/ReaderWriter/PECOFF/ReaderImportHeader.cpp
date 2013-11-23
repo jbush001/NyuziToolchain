@@ -150,40 +150,33 @@ namespace coff {
 
 namespace {
 
+uint8_t FuncAtomContent[] = {
+  0xff, 0x25, 0x00, 0x00, 0x00, 0x00,  // jmp *0x0
+  0xcc, 0xcc                           // int 3; int 3
+};
+
 /// The defined atom for jump table.
 class FuncAtom : public COFFLinkerInternalAtom {
 public:
   FuncAtom(const File &file, StringRef symbolName)
-      : COFFLinkerInternalAtom(file, std::vector<uint8_t>(rawContent),
-                               symbolName) {}
+      : COFFLinkerInternalAtom(
+            file,
+            std::vector<uint8_t>(FuncAtomContent,
+                                 FuncAtomContent + sizeof(FuncAtomContent)),
+            symbolName) {}
 
   virtual uint64_t ordinal() const { return 0; }
   virtual Scope scope() const { return scopeGlobal; }
   virtual ContentType contentType() const { return typeCode; }
   virtual Alignment alignment() const { return Alignment(1); }
   virtual ContentPermissions permissions() const { return permR_X; }
-
-private:
-  static std::vector<uint8_t> rawContent;
 };
-
-// MSVC doesn't seem to like C++11 initializer list, so initialize the
-// vector from an array.
-namespace {
-uint8_t FuncAtomContent[] = {
-  0xff, 0x25, 0x00, 0x00, 0x00, 0x00,  // jmp *0x0
-  0x90, 0x90                           // nop; nop
-};
-} // anonymous namespace
-
-std::vector<uint8_t> FuncAtom::rawContent(
-    FuncAtomContent, FuncAtomContent + sizeof(FuncAtomContent));
 
 class FileImportLibrary : public File {
 public:
   FileImportLibrary(const LinkingContext &context,
-                    std::unique_ptr<llvm::MemoryBuffer> mb,
-                    llvm::error_code &ec)
+                    std::unique_ptr<MemoryBuffer> mb,
+                    error_code &ec)
       : File(mb->getBufferIdentifier(), kindSharedLibrary), _context(context) {
     const char *buf = mb->getBufferStart();
     const char *end = mb->getBufferEnd();

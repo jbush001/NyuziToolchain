@@ -4301,19 +4301,19 @@ def : Pat<(v2i64 (int_arm_neon_vqsubs (v2i64 QPR:$src1),
 // Fused Vector Multiply-Accumulate and Fused Multiply-Subtract Operations.
 def  VFMAfd   : N3VDMulOp<0, 0, 0b00, 0b1100, 1, IIC_VFMACD, "vfma", "f32",
                           v2f32, fmul_su, fadd_mlx>,
-                Requires<[HasVFP4,UseFusedMAC]>;
+                Requires<[HasNEON,HasVFP4,UseFusedMAC]>;
 
 def  VFMAfq   : N3VQMulOp<0, 0, 0b00, 0b1100, 1, IIC_VFMACQ, "vfma", "f32",
                           v4f32, fmul_su, fadd_mlx>,
-                Requires<[HasVFP4,UseFusedMAC]>;
+                Requires<[HasNEON,HasVFP4,UseFusedMAC]>;
 
 //   Fused Vector Multiply Subtract (floating-point)
 def  VFMSfd   : N3VDMulOp<0, 0, 0b10, 0b1100, 1, IIC_VFMACD, "vfms", "f32",
                           v2f32, fmul_su, fsub_mlx>,
-                Requires<[HasVFP4,UseFusedMAC]>;
+                Requires<[HasNEON,HasVFP4,UseFusedMAC]>;
 def  VFMSfq   : N3VQMulOp<0, 0, 0b10, 0b1100, 1, IIC_VFMACQ, "vfms", "f32",
                           v4f32, fmul_su, fsub_mlx>,
-                Requires<[HasVFP4,UseFusedMAC]>;
+                Requires<[HasNEON,HasVFP4,UseFusedMAC]>;
 
 // Match @llvm.fma.* intrinsics
 def : Pat<(v2f32 (fma DPR:$Vn, DPR:$Vm, DPR:$src1)),
@@ -5158,10 +5158,10 @@ def  VSWPq    : N2VX<0b11, 0b11, 0b00, 0b10, 0b00000, 1, 0,
 // Vector Move Operations.
 
 //   VMOV     : Vector Move (Register)
-def : InstAlias<"vmov${p} $Vd, $Vm",
-                (VORRd DPR:$Vd, DPR:$Vm, DPR:$Vm, pred:$p)>;
-def : InstAlias<"vmov${p} $Vd, $Vm",
-                (VORRq QPR:$Vd, QPR:$Vm, QPR:$Vm, pred:$p)>;
+def : NEONInstAlias<"vmov${p} $Vd, $Vm",
+                    (VORRd DPR:$Vd, DPR:$Vm, DPR:$Vm, pred:$p)>;
+def : NEONInstAlias<"vmov${p} $Vd, $Vm",
+                    (VORRq QPR:$Vd, QPR:$Vm, QPR:$Vm, pred:$p)>;
 
 //   VMOV     : Vector Move (Immediate)
 

@@ -267,13 +267,6 @@ linkage:
     ``linkonce_odr`` and ``weak_odr`` linkage types to indicate that the
     global will only be merged with equivalent globals. These linkage
     types are otherwise the same as their non-``odr`` versions.
-``linkonce_odr_auto_hide``
-    Similar to "``linkonce_odr``", but nothing in the translation unit
-    takes the address of this definition. For instance, functions that
-    had an inline definition, but the compiler decided not to inline it.
-    ``linkonce_odr_auto_hide`` may have only ``default`` visibility. The
-    symbols are removed by the linker from the final linked image
-    (executable or dynamic library).
 ``external``
     If none of the above identifiers are used, the global is externally
     visible, meaning that it participates in linkage and can be used to
@@ -304,9 +297,6 @@ declarations), they are accessible outside of the current module.
 
 It is illegal for a function *declaration* to have any linkage type
 other than ``external``, ``dllimport`` or ``extern_weak``.
-
-Aliases can have only ``external``, ``internal``, ``weak`` or
-``weak_odr`` linkages.
 
 .. _callingconv:
 
@@ -448,9 +438,13 @@ Global Variables
 ----------------
 
 Global variables define regions of memory allocated at compilation time
-instead of run-time. Global variables may optionally be initialized, may
-have an explicit section to be placed in, and may have an optional
-explicit alignment specified.
+instead of run-time.
+
+Global variables definitions must be initialized, may have an explicit section
+to be placed in, and may have an optional explicit alignment specified.
+
+Global variables in other translation units can also be declared, in which
+case they don't have an initializer.
 
 A variable may be defined as ``thread_local``, which means that it will
 not be shared by threads (each thread will have a separated copy of the
@@ -532,6 +526,12 @@ with an initializer, section, and alignment:
 
     @G = addrspace(5) constant float 1.0, section "foo", align 4
 
+The following example just declares a global variable
+
+.. code-block:: llvm
+
+   @G = external global i32
+
 The following example defines a thread-local global with the
 ``initialexec`` TLS model:
 
@@ -563,16 +563,15 @@ an optional ``unnamed_addr`` attribute, a return type, an optional
 name, a possibly empty list of arguments, an optional alignment, an optional
 :ref:`garbage collector name <gc>` and an optional :ref:`prefix <prefixdata>`.
 
-A function definition contains a list of basic blocks, forming the CFG
-(Control Flow Graph) for the function. Each basic block may optionally
-start with a label (giving the basic block a symbol table entry),
-contains a list of instructions, and ends with a
-:ref:`terminator <terminators>` instruction (such as a branch or function
-return). If explicit label is not provided, a block is assigned an
-implicit numbered label, using a next value from the same counter as used
-for unnamed temporaries (:ref:`see above<identifiers>`). For example, if a
-function entry block does not have explicit label, it will be assigned
-label "%0", then first unnamed temporary in that block will be "%1", etc.
+A function definition contains a list of basic blocks, forming the CFG (Control
+Flow Graph) for the function. Each basic block may optionally start with a label
+(giving the basic block a symbol table entry), contains a list of instructions,
+and ends with a :ref:`terminator <terminators>` instruction (such as a branch or
+function return). If an explicit label is not provided, a block is assigned an
+implicit numbered label, using the next value from the same counter as used for
+unnamed temporaries (:ref:`see above<identifiers>`). For example, if a function
+entry block does not have an explicit label, it will be assigned label "%0",
+then the first unnamed temporary in that block will be "%1", etc.
 
 The first basic block in a function is special in two ways: it is
 immediately executed on entrance to the function, and it is not allowed
@@ -616,9 +615,9 @@ Syntax::
 
 The linkage must be one of ``private``, ``linker_private``,
 ``linker_private_weak``, ``internal``, ``linkonce``, ``weak``,
-``linkonce_odr``, ``weak_odr``, ``linkonce_odr_auto_hide``, ``external``. Note
-that some system linkers might not correctly handle dropping a weak symbol that
-is aliased by a non weak alias.
+``linkonce_odr``, ``weak_odr``, ``external``. Note that some system linkers
+might not correctly handle dropping a weak symbol that is aliased by a non weak
+alias.
 
 .. _namedmetadatastructure:
 
@@ -891,7 +890,7 @@ example:
 ``minsize``
     This attribute suggests that optimization passes and code generator
     passes make choices that keep the code size of this function as small
-    as possible and perform optimizations that may sacrifice runtime 
+    as possible and perform optimizations that may sacrifice runtime
     performance in order to minimize the size of the generated code.
 ``naked``
     This attribute disables prologue / epilogue emission for the
@@ -936,15 +935,16 @@ example:
     unwind, its runtime behavior is undefined.
 ``optnone``
     This function attribute indicates that the function is not optimized
-    by any optimization or code generator passes with the 
+    by any optimization or code generator passes with the
     exception of interprocedural optimization passes.
     This attribute cannot be used together with the ``alwaysinline``
     attribute; this attribute is also incompatible
     with the ``minsize`` attribute and the ``optsize`` attribute.
-    
-    The inliner should never inline this function in any situation.
+
+    This attribute requires the ``noinline`` attribute to be specified on
+    the function as well, so the function is never inlined into any caller.
     Only functions with the ``alwaysinline`` attribute are valid
-    candidates for inlining inside the body of this function.
+    candidates for inlining into the body of this function.
 ``optsize``
     This attribute suggests that optimization passes and code generator
     passes make choices that keep the code size of this function low,
@@ -959,7 +959,7 @@ example:
     (including ``byval`` arguments) and never changes any state visible
     to callers. This means that it cannot unwind exceptions by calling
     the ``C++`` exception throwing methods.
-    
+
     On an argument, this attribute indicates that the function does not
     dereference that pointer argument, even though it may read or write the
     memory that the pointer points to if accessed through other pointers.
@@ -973,7 +973,7 @@ example:
     called with the same set of arguments and global state. It cannot
     unwind an exception by calling the ``C++`` exception throwing
     methods.
-    
+
     On an argument, this attribute indicates that the function does not write
     through this pointer argument, even though it may write to the memory that
     the pointer points to.
@@ -1180,6 +1180,30 @@ that does not embed this target-specific detail into the IR, then you
 don't have to specify the string. This will disable some optimizations
 that require precise layout information, but this also prevents those
 optimizations from introducing target specificity into the IR.
+
+.. _langref_triple:
+
+Target Triple
+-------------
+
+A module may specify a target triple string that describes the target
+host. The syntax for the target triple is simply:
+
+.. code-block:: llvm
+
+    target triple = "x86_64-apple-macosx10.7.0"
+
+The *target triple* string consists of a series of identifiers delimited
+by the minus sign character ('-'). The canonical forms are:
+
+::
+
+    ARCHITECTURE-VENDOR-OPERATING_SYSTEM
+    ARCHITECTURE-VENDOR-OPERATING_SYSTEM-ENVIRONMENT
+
+This information is passed along to the backend so that it generates
+code for the proper architecture. It's possible to override this on the
+command line with the ``-mtriple`` command line option.
 
 .. _pointeraliasing:
 
@@ -1731,9 +1755,10 @@ Function Type
 Overview:
 """""""""
 
-The function type can be thought of as a function signature. It consists
-of a return type and a list of formal parameter types. The return type
-of a function type is a first class type or a void type.
+The function type can be thought of as a function signature. It consists of a
+return type and a list of formal parameter types. The return type of a function
+type is a void type or first class type --- except for :ref:`label <t_label>`
+and :ref:`metadata <t_metadata>` types.
 
 Syntax:
 """""""
@@ -1743,11 +1768,11 @@ Syntax:
       <returntype> (<parameter list>)
 
 ...where '``<parameter list>``' is a comma-separated list of type
-specifiers. Optionally, the parameter list may include a type ``...``,
-which indicates that the function takes a variable number of arguments.
-Variable argument functions can access their arguments with the
-:ref:`variable argument handling intrinsic <int_varargs>` functions.
-'``<returntype>``' is any type except :ref:`label <t_label>`.
+specifiers. Optionally, the parameter list may include a type ``...``, which
+indicates that the function takes a variable number of arguments.  Variable
+argument functions can access their arguments with the :ref:`variable argument
+handling intrinsic <int_varargs>` functions.  '``<returntype>``' is any type
+except :ref:`label <t_label>` and :ref:`metadata <t_metadata>`.
 
 Examples:
 """""""""
@@ -2358,6 +2383,10 @@ The following is the syntax for constant expressions:
     Convert a constant, CST, to another TYPE. The constraints of the
     operands are the same as those for the :ref:`bitcast
     instruction <i_bitcast>`.
+``addrspacecast (CST to TYPE)``
+    Convert a constant pointer or constant vector of pointer, CST, to another
+    TYPE in a different address space. The constraints of the operands are the
+    same as those for the :ref:`addrspacecast instruction <i_addrspacecast>`.
 ``getelementptr (CSTPTR, IDX0, IDX1, ...)``, ``getelementptr inbounds (CSTPTR, IDX0, IDX1, ...)``
     Perform the :ref:`getelementptr operation <i_getelementptr>` on
     constants. As with the :ref:`getelementptr <i_getelementptr>`
@@ -5702,9 +5731,9 @@ is always a *no-op cast* because no bits change with this
 conversion. The conversion is done as if the ``value`` had been stored
 to memory and read back as type ``ty2``. Pointer (or vector of
 pointers) types may only be converted to other pointer (or vector of
-pointers) types with this instruction if the pointer sizes are
-equal. To convert pointers to other types, use the :ref:`inttoptr
-<i_inttoptr>` or :ref:`ptrtoint <i_ptrtoint>` instructions first.
+pointers) types with the same address space through this instruction.
+To convert pointers to other types, use the :ref:`inttoptr <i_inttoptr>`
+or :ref:`ptrtoint <i_ptrtoint>` instructions first.
 
 Example:
 """"""""
@@ -5715,6 +5744,51 @@ Example:
       %Y = bitcast i32* %x to sint*          ; yields sint*:%x
       %Z = bitcast <2 x int> %V to i64;        ; yields i64: %V
       %Z = bitcast <2 x i32*> %V to <2 x i64*> ; yields <2 x i64*>
+
+.. _i_addrspacecast:
+
+'``addrspacecast .. to``' Instruction
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      <result> = addrspacecast <pty> <ptrval> to <pty2>       ; yields pty2
+
+Overview:
+"""""""""
+
+The '``addrspacecast``' instruction converts ``ptrval`` from ``pty`` in
+address space ``n`` to type ``pty2`` in address space ``m``.
+
+Arguments:
+""""""""""
+
+The '``addrspacecast``' instruction takes a pointer or vector of pointer value
+to cast and a pointer type to cast it to, which must have a different
+address space.
+
+Semantics:
+""""""""""
+
+The '``addrspacecast``' instruction converts the pointer value
+``ptrval`` to type ``pty2``. It can be a *no-op cast* or a complex
+value modification, depending on the target and the address space
+pair. Pointer conversions within the same address space must be
+performed with the ``bitcast`` instruction. Note that if the address space
+conversion is legal then both result and operand refer to the same memory
+location.
+
+Example:
+""""""""
+
+.. code-block:: llvm
+
+      %X = addrspacecast i32* %x to i32 addrspace(1)*    ; yields i32 addrspace(1)*:%x
+      %Y = addrspacecast i32 addrspace(1)* %y to i64 addrspace(2)*    ; yields i64 addrspace(2)*:%y
+      %Z = addrspacecast <4 x i32*> %z to <4 x float addrspace(3)*>   ; yields <4 x float addrspace(3)*>:%z
 
 .. _otherops:
 
@@ -6877,7 +6951,7 @@ The '``llvm.memcpy.*``' intrinsics copy a block of memory from the
 source location to the destination location, which are not allowed to
 overlap. It copies "len" bytes of memory over. If the argument is known
 to be aligned to some boundary, this can be specified as the fourth
-argument, otherwise it should be set to 0 or 1.
+argument, otherwise it should be set to 0 or 1 (both meaning no alignment).
 
 '``llvm.memmove``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -6932,7 +7006,7 @@ The '``llvm.memmove.*``' intrinsics copy a block of memory from the
 source location to the destination location, which may overlap. It
 copies "len" bytes of memory over. If the argument is known to be
 aligned to some boundary, this can be specified as the fourth argument,
-otherwise it should be set to 0 or 1.
+otherwise it should be set to 0 or 1 (both meaning no alignment).
 
 '``llvm.memset.*``' Intrinsics
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -6983,7 +7057,7 @@ Semantics:
 The '``llvm.memset.*``' intrinsics fill "len" bytes of memory starting
 at the destination location. If the argument is known to be aligned to
 some boundary, this can be specified as the fourth argument, otherwise
-it should be set to 0 or 1.
+it should be set to 0 or 1 (both meaning no alignment).
 
 '``llvm.sqrt.*``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -8787,7 +8861,7 @@ level without an intrinsic, one would need to create additional basic blocks to
 handle the success/failure cases. This makes it difficult to stop the stack
 protector check from disrupting sibling tail calls in Codegen. With this
 intrinsic, we are able to generate the stack protector basic blocks late in
-codegen after the tail call decision has occured.
+codegen after the tail call decision has occurred.
 
 '``llvm.objectsize``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

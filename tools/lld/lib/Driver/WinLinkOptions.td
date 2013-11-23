@@ -18,6 +18,7 @@ multiclass B<string name, string help> {
 def base    : P<"base", "Base address of the program">;
 def defaultlib : P<"defaultlib", "Add the library to the list of input files">;
 def nodefaultlib : P<"nodefaultlib", "Remove a default library">;
+def disallowlib : Joined<["/", "-", "-?"], "disallowlib:">, Alias<nodefaultlib>;
 def entry   : P<"entry", "Name of entry point symbol">;
 // No help text because /failifmismatch is not intended to be used by the user.
 def failifmismatch : P<"failifmismatch", "">;
@@ -29,7 +30,17 @@ def out     : P<"out", "Path to file to write output">;
 def stack   : P<"stack", "Size of the stack">;
 def machine : P<"machine", "Specify target platform">;
 def version : P<"version", "Specify a version number in the PE header">;
+def merge   : P<"merge", "Combine sections">;
+def section : P<"section", "Specify section attributes">;
 def subsystem : P<"subsystem", "Specify subsystem">;
+def stub    : P<"stub", "Specify DOS stub file">;
+
+def manifest : F<"manifest">;
+def manifest_colon : P<"manifest", "Create manifest file">;
+def manifestuac : P<"manifestuac", "User access control">;
+def manifestfile : P<"manifestfile", "Manifest file path">;
+def manifestdependency : P<"manifestdependency",
+                           "Attributes for <dependency> in manifest file">;
 
 // We cannot use multiclass P because class name "incl" is different
 // from its command line option name. We do this because "include" is
@@ -39,6 +50,8 @@ def incl : Joined<["/", "-"], "include:">,
 def incl_c : Separate<["/", "-"], "include">, Alias<incl>;
 
 def nodefaultlib_all : F<"nodefaultlib">;
+def noentry : F<"noentry">;
+def dll : F<"dll">;
 
 def debug : F<"debug">;
 def swaprun_cd : F<"swaprun:cd">;
@@ -66,9 +79,9 @@ def help_q : Flag<["/?", "-?"], "">, Alias<help>;
 
 def DASH_DASH : Option<["--"], "", KIND_REMAINING_ARGS>;
 
-//
+//==============================================================================
 // The flags below do nothing. They are defined only for link.exe compatibility.
-//
+//==============================================================================
 
 class QF<string name> : Joined<["/", "-", "-?"], name#":">;
 
@@ -77,6 +90,7 @@ multiclass QB<string name> {
   def _no : F<name#":no">;
 }
 
+def ignoreidl : F<"ignoreidl">;
 def incremental : F<"incremental">;
 def no_incremental : F<"incremental:no">;
 def nologo : F<"nologo">;
@@ -85,8 +99,13 @@ def verbose : F<"verbose">;
 def delay : QF<"delay">;
 def delayload : QF<"delayload">;
 def errorreport : QF<"errorreport">;
+def idlout : QF<"idlout">;
+def implib : QF<"implib">;
 def pdb : QF<"pdb">;
 def pdbaltpath : QF<"pdbaltpath">;
+def tlbid : QF<"tlbid">;
+def tlbout : QF<"tlbout">;
 def verbose_all : QF<"verbose">;
 
 defm wx : QB<"wx">;
+defm safeseh : QB<"safeseh">;

@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLD_READER_WRITER_MACHO_STUBS_PASS_H_
-#define LLD_READER_WRITER_MACHO_STUBS_PASS_H_
+#ifndef LLD_READER_WRITER_MACHO_STUBS_PASS_H
+#define LLD_READER_WRITER_MACHO_STUBS_PASS_H
 
 #include "llvm/ADT/DenseMap.h"
 
@@ -123,7 +123,7 @@ public:
 
   virtual void addStubAtoms(MutableFile &mergedFile) {
     // Exit early if no stubs needed.
-    if ( _targetToStub.size() == 0 )
+    if (_targetToStub.empty())
       return;
     // Add all stubs to master file.
     for (auto it : _targetToStub) {
@@ -170,4 +170,4 @@ private:
 } // namespace lld
 
 
-#endif // LLD_READER_WRITER_MACHO_STUBS_PASS_H_
+#endif // LLD_READER_WRITER_MACHO_STUBS_PASS_H

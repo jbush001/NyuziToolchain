@@ -112,10 +112,8 @@ error_code COFFObjectFile::getSymbolFileOffset(DataRefImpl Symb,
   const coff_section *Section = NULL;
   if (error_code ec = getSection(symb->SectionNumber, Section))
     return ec;
-  char Type;
-  if (error_code ec = getSymbolNMTypeChar(Symb, Type))
-    return ec;
-  if (Type == 'U' || Type == 'w')
+
+  if (symb->SectionNumber == COFF::IMAGE_SYM_UNDEFINED)
     Result = UnknownAddressOrSize;
   else if (Section)
     Result = Section->PointerToRawData + symb->Value;
@@ -130,10 +128,8 @@ error_code COFFObjectFile::getSymbolAddress(DataRefImpl Symb,
   const coff_section *Section = NULL;
   if (error_code ec = getSection(symb->SectionNumber, Section))
     return ec;
-  char Type;
-  if (error_code ec = getSymbolNMTypeChar(Symb, Type))
-    return ec;
-  if (Type == 'U' || Type == 'w')
+
+  if (symb->SectionNumber == COFF::IMAGE_SYM_UNDEFINED)
     Result = UnknownAddressOrSize;
   else if (Section)
     Result = Section->VirtualAddress + symb->Value;
@@ -153,12 +149,16 @@ error_code COFFObjectFile::getSymbolType(DataRefImpl Symb,
     if (symb->getComplexType() == COFF::IMAGE_SYM_DTYPE_FUNCTION) {
       Result = SymbolRef::ST_Function;
     } else {
-      char Type;
-      if (error_code ec = getSymbolNMTypeChar(Symb, Type))
-        return ec;
-      if (Type == 'r' || Type == 'R') {
-        Result = SymbolRef::ST_Data;
+      uint32_t Characteristics = 0;
+      if (symb->SectionNumber > 0) {
+        const coff_section *Section = NULL;
+        if (error_code ec = getSection(symb->SectionNumber, Section))
+          return ec;
+        Characteristics = Section->Characteristics;
       }
+      if (Characteristics & COFF::IMAGE_SCN_MEM_READ &&
+          ~Characteristics & COFF::IMAGE_SCN_MEM_WRITE) // Read only.
+        Result = SymbolRef::ST_Data;
     }
   }
   return object_error::success;
@@ -197,83 +197,13 @@ error_code COFFObjectFile::getSymbolSize(DataRefImpl Symb,
   const coff_section *Section = NULL;
   if (error_code ec = getSection(symb->SectionNumber, Section))
     return ec;
-  char Type;
-  if (error_code ec = getSymbolNMTypeChar(Symb, Type))
-    return ec;
-  if (Type == 'U' || Type == 'w')
+
+  if (symb->SectionNumber == COFF::IMAGE_SYM_UNDEFINED)
     Result = UnknownAddressOrSize;
   else if (Section)
     Result = Section->SizeOfRawData - symb->Value;
   else
     Result = 0;
-  return object_error::success;
-}
-
-error_code COFFObjectFile::getSymbolNMTypeChar(DataRefImpl Symb,
-                                               char &Result) const {
-  const coff_symbol *symb = toSymb(Symb);
-  StringRef name;
-  if (error_code ec = getSymbolName(Symb, name))
-    return ec;
-  char ret = StringSwitch<char>(name)
-    .StartsWith(".debug", 'N')
-    .StartsWith(".sxdata", 'N')
-    .Default('?');
-
-  if (ret != '?') {
-    Result = ret;
-    return object_error::success;
-  }
-
-  uint32_t Characteristics = 0;
-  if (symb->SectionNumber > 0) {
-    const coff_section *Section = NULL;
-    if (error_code ec = getSection(symb->SectionNumber, Section))
-      return ec;
-    Characteristics = Section->Characteristics;
-  }
-
-  switch (symb->SectionNumber) {
-  case COFF::IMAGE_SYM_UNDEFINED:
-    // Check storage classes.
-    if (symb->StorageClass == COFF::IMAGE_SYM_CLASS_WEAK_EXTERNAL) {
-      Result = 'w';
-      return object_error::success; // Don't do ::toupper.
-    } else if (symb->Value != 0) // Check for common symbols.
-      ret = 'c';
-    else
-      ret = 'u';
-    break;
-  case COFF::IMAGE_SYM_ABSOLUTE:
-    ret = 'a';
-    break;
-  case COFF::IMAGE_SYM_DEBUG:
-    ret = 'n';
-    break;
-  default:
-    // Check section type.
-    if (Characteristics & COFF::IMAGE_SCN_CNT_CODE)
-      ret = 't';
-    else if (  Characteristics & COFF::IMAGE_SCN_MEM_READ
-            && ~Characteristics & COFF::IMAGE_SCN_MEM_WRITE) // Read only.
-      ret = 'r';
-    else if (Characteristics & COFF::IMAGE_SCN_CNT_INITIALIZED_DATA)
-      ret = 'd';
-    else if (Characteristics & COFF::IMAGE_SCN_CNT_UNINITIALIZED_DATA)
-      ret = 'b';
-    else if (Characteristics & COFF::IMAGE_SCN_LNK_INFO)
-      ret = 'i';
-
-    // Check for section symbol.
-    else if (  symb->StorageClass == COFF::IMAGE_SYM_CLASS_STATIC
-            && symb->Value == 0)
-       ret = 's';
-  }
-
-  if (symb->StorageClass == COFF::IMAGE_SYM_CLASS_EXTERNAL)
-    ret = ::toupper(static_cast<unsigned char>(ret));
-
-  Result = ret;
   return object_error::success;
 }
 
@@ -577,9 +507,10 @@ COFFObjectFile::COFFObjectFile(MemoryBuffer *Object, error_code &ec)
     CurPtr += COFFHeader->SizeOfOptionalHeader;
   }
 
-  if ((ec = getObject(SectionTable, Data, base() + CurPtr,
-                      COFFHeader->NumberOfSections * sizeof(coff_section))))
-    return;
+  if (!COFFHeader->isImportLibrary())
+    if ((ec = getObject(SectionTable, Data, base() + CurPtr,
+                        COFFHeader->NumberOfSections * sizeof(coff_section))))
+      return;
 
   // Initialize the pointer to the symbol table.
   if (COFFHeader->PointerToSymbolTable != 0)
@@ -656,7 +587,9 @@ section_iterator COFFObjectFile::begin_sections() const {
 
 section_iterator COFFObjectFile::end_sections() const {
   DataRefImpl ret;
-  ret.p = reinterpret_cast<uintptr_t>(SectionTable + COFFHeader->NumberOfSections);
+  int numSections = COFFHeader->isImportLibrary()
+      ? 0 : COFFHeader->NumberOfSections;
+  ret.p = reinterpret_cast<uintptr_t>(SectionTable + numSections);
   return section_iterator(SectionRef(ret, this));
 }
 

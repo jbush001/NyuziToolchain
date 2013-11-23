@@ -915,8 +915,9 @@ public:
     return SI;
   }
   FenceInst *CreateFence(AtomicOrdering Ordering,
-                         SynchronizationScope SynchScope = CrossThread) {
-    return Insert(new FenceInst(Context, Ordering, SynchScope));
+                         SynchronizationScope SynchScope = CrossThread,
+                         const Twine &Name = "") {
+    return Insert(new FenceInst(Context, Ordering, SynchScope), Name);
   }
   AtomicCmpXchgInst *CreateAtomicCmpXchg(Value *Ptr, Value *Cmp, Value *New,
                                          AtomicOrdering Ordering,
@@ -1132,6 +1133,10 @@ public:
   Value *CreateBitCast(Value *V, Type *DestTy,
                        const Twine &Name = "") {
     return CreateCast(Instruction::BitCast, V, DestTy, Name);
+  }
+  Value *CreateAddrSpaceCast(Value *V, Type *DestTy,
+                             const Twine &Name = "") {
+    return CreateCast(Instruction::AddrSpaceCast, V, DestTy, Name);
   }
   Value *CreateZExtOrBitCast(Value *V, Type *DestTy,
                              const Twine &Name = "") {

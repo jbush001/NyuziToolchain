@@ -322,7 +322,7 @@ void UnwrappedLineParser::calculateBraceTypes() {
           // (for example while parsing lambdas).
           //
           // We exclude + and - as they can be ObjC visibility modifiers.
-          if (NextTok->isOneOf(tok::comma, tok::semi, tok::r_paren,
+          if (NextTok->isOneOf(tok::comma, tok::semi, tok::r_paren, tok::period,
                                tok::r_square, tok::l_brace, tok::colon) ||
               (NextTok->isBinaryOperator() &&
                !NextTok->isOneOf(tok::plus, tok::minus))) {
@@ -485,7 +485,6 @@ void UnwrappedLineParser::parsePPEndIf() {
   assert(PPBranchLevel < (int)PPLevelBranchIndex.size());
   if (PPBranchLevel >= 0 && !PPChainBranchIndex.empty()) {
     if (PPChainBranchIndex.top() + 1 > PPLevelBranchCount[PPBranchLevel]) {
-      assert(PPLevelBranchCount[PPBranchLevel] == 0);
       PPLevelBranchCount[PPBranchLevel] = PPChainBranchIndex.top() + 1;
     }
   }
@@ -682,6 +681,7 @@ void UnwrappedLineParser::parseStructuralElement() {
             Style.BreakBeforeBraces == FormatStyle::BS_Stroustrup ||
             Style.BreakBeforeBraces == FormatStyle::BS_Allman)
           addUnwrappedLine();
+        FormatTok->Type = TT_FunctionLBrace;
         parseBlock(/*MustBeDeclaration=*/false);
         addUnwrappedLine();
         return;

@@ -9,12 +9,15 @@
 
 #include "lld/ReaderWriter/ELFLinkingContext.h"
 
+#include "ArrayOrderPass.h"
 #include "File.h"
 #include "TargetHandler.h"
 #include "Targets.h"
 
 #include "lld/Core/Instrumentation.h"
 #include "lld/Passes/LayoutPass.h"
+#include "lld/Passes/RoundTripNativePass.h"
+#include "lld/Passes/RoundTripYAMLPass.h"
 #include "lld/ReaderWriter/ReaderLinkerScript.h"
 
 #include "llvm/ADT/Triple.h"
@@ -51,9 +54,10 @@ bool ELFLinkingContext::isLittleEndian() const {
   return true;
 }
 
-void ELFLinkingContext::addPasses(PassManager &pm) const {
+void ELFLinkingContext::addPasses(PassManager &pm) {
   if (_runLayoutPass)
     pm.add(std::unique_ptr<Pass>(new LayoutPass()));
+  pm.add(std::unique_ptr<Pass>(new elf::ArrayOrderPass()));
 }
 
 uint16_t ELFLinkingContext::getOutputMachine() const {
@@ -135,7 +139,7 @@ ELFLinkingContext::create(llvm::Triple triple) {
   }
 }
 
-llvm::ErrorOr<StringRef> ELFLinkingContext::searchLibrary(
+ErrorOr<StringRef> ELFLinkingContext::searchLibrary(
     StringRef libName, const std::vector<StringRef> &searchPath) const {
   bool foundFile = false;
   StringRef pathref;

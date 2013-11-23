@@ -15,6 +15,7 @@
 #include "DriverTest.h"
 
 #include "lld/ReaderWriter/PECOFFLinkingContext.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/Support/COFF.h"
 
 #include <vector>
@@ -49,7 +50,7 @@ TEST_F(WinLinkParserTest, Basic) {
   EXPECT_EQ(0x400000U, _context.getBaseAddress());
   EXPECT_EQ(1024 * 1024U, _context.getStackReserve());
   EXPECT_EQ(4096U, _context.getStackCommit());
-  EXPECT_EQ(4096U, _context.getSectionAlignment());
+  EXPECT_EQ(4096U, _context.getSectionDefaultAlignment());
   EXPECT_FALSE(_context.allowRemainingUndefines());
   EXPECT_TRUE(_context.isNxCompat());
   EXPECT_FALSE(_context.getLargeAddressAware());
@@ -60,6 +61,13 @@ TEST_F(WinLinkParserTest, Basic) {
   EXPECT_TRUE(_context.getBaseRelocationEnabled());
   EXPECT_TRUE(_context.isTerminalServerAware());
   EXPECT_TRUE(_context.getDynamicBaseEnabled());
+  EXPECT_TRUE(_context.getCreateManifest());
+  EXPECT_EQ("a.exe.manifest", _context.getManifestOutputPath());
+  EXPECT_EQ("", _context.getManifestDependency());
+  EXPECT_FALSE(_context.getEmbedManifest());
+  EXPECT_EQ(1, _context.getManifestId());
+  EXPECT_EQ("'asInvoker'", _context.getManifestLevel());
+  EXPECT_EQ("'false'", _context.getManifestUiAccess());
   EXPECT_TRUE(_context.deadStrip());
   EXPECT_FALSE(_context.logInputFiles());
 }
@@ -120,6 +128,21 @@ TEST_F(WinLinkParserTest, Libpath) {
   EXPECT_EQ(2U, paths.size());
   EXPECT_EQ("dir1", paths[0]);
   EXPECT_EQ("dir2", paths[1]);
+}
+
+//
+// Tests for input file order
+//
+
+TEST_F(WinLinkParserTest, InputOrder) {
+  EXPECT_TRUE(parse("link.exe", "b.lib", "b.obj", "c.obj", "a.lib", "a.obj",
+                    nullptr));
+  EXPECT_EQ(5, inputFileCount());
+  EXPECT_EQ("b.obj", inputFile(0));
+  EXPECT_EQ("c.obj", inputFile(1));
+  EXPECT_EQ("a.obj", inputFile(2));
+  EXPECT_EQ("b.lib", inputFile(3));
+  EXPECT_EQ("a.lib", inputFile(4));
 }
 
 //
@@ -210,7 +233,38 @@ TEST_F(WinLinkParserTest, InvalidHeapSize) {
 
 TEST_F(WinLinkParserTest, SectionAlignment) {
   EXPECT_TRUE(parse("link.exe", "/align:8192", "a.obj", nullptr));
-  EXPECT_EQ(8192U, _context.getSectionAlignment());
+  EXPECT_EQ(8192U, _context.getSectionDefaultAlignment());
+}
+
+TEST_F(WinLinkParserTest, Section) {
+  EXPECT_TRUE(parse("link.exe", "/section:.teXT,dekpRSW", "a.obj", nullptr));
+  uint32_t expect = llvm::COFF::IMAGE_SCN_MEM_DISCARDABLE |
+      llvm::COFF::IMAGE_SCN_MEM_NOT_CACHED |
+      llvm::COFF::IMAGE_SCN_MEM_NOT_PAGED |
+      llvm::COFF::IMAGE_SCN_MEM_SHARED |
+      llvm::COFF::IMAGE_SCN_MEM_EXECUTE |
+      llvm::COFF::IMAGE_SCN_MEM_READ |
+      llvm::COFF::IMAGE_SCN_MEM_WRITE;
+  llvm::Optional<uint32_t> val = _context.getSectionAttributes(".teXT");
+  EXPECT_TRUE(val.hasValue());
+  EXPECT_EQ(expect, *val);
+
+  EXPECT_EQ(0U, _context.getSectionAttributeMask(".teXT"));
+}
+
+TEST_F(WinLinkParserTest, SectionNegative) {
+  EXPECT_TRUE(parse("link.exe", "/section:.teXT,!dekpRSW", "a.obj", nullptr));
+  llvm::Optional<uint32_t> val = _context.getSectionAttributes(".teXT");
+  EXPECT_FALSE(val.hasValue());
+
+  uint32_t expect = llvm::COFF::IMAGE_SCN_MEM_DISCARDABLE |
+      llvm::COFF::IMAGE_SCN_MEM_NOT_CACHED |
+      llvm::COFF::IMAGE_SCN_MEM_NOT_PAGED |
+      llvm::COFF::IMAGE_SCN_MEM_SHARED |
+      llvm::COFF::IMAGE_SCN_MEM_EXECUTE |
+      llvm::COFF::IMAGE_SCN_MEM_READ |
+      llvm::COFF::IMAGE_SCN_MEM_WRITE;
+  EXPECT_EQ(expect, _context.getSectionAttributeMask(".teXT"));
 }
 
 TEST_F(WinLinkParserTest, InvalidAlignment) {
@@ -224,8 +278,19 @@ TEST_F(WinLinkParserTest, Include) {
   auto symbols = _context.initialUndefinedSymbols();
   EXPECT_FALSE(symbols.empty());
   EXPECT_EQ("foo", symbols[0]);
-  symbols.pop_front();
-  EXPECT_TRUE(symbols.empty());
+}
+
+TEST_F(WinLinkParserTest, Merge) {
+  EXPECT_TRUE(parse("link.exe", "/merge:.foo=.bar", "/merge:.bar=.baz",
+                    "a.out", nullptr));
+  EXPECT_EQ(".baz", _context.getFinalSectionName(".foo"));
+  EXPECT_EQ(".baz", _context.getFinalSectionName(".bar"));
+  EXPECT_EQ(".abc", _context.getFinalSectionName(".abc"));
+}
+
+TEST_F(WinLinkParserTest, Merge_Circular) {
+  EXPECT_FALSE(parse("link.exe", "/merge:.foo=.bar", "/merge:.bar=.foo",
+                     "a.out", nullptr));
 }
 
 //
@@ -239,6 +304,15 @@ TEST_F(WinLinkParserTest, DefaultLib) {
   EXPECT_EQ("a.obj", inputFile(0));
   EXPECT_EQ("user32.lib", inputFile(1));
   EXPECT_EQ("kernel32.lib", inputFile(2));
+}
+
+TEST_F(WinLinkParserTest, DefaultLibDuplicates) {
+  EXPECT_TRUE(parse("link.exe", "/defaultlib:user32.lib",
+                    "/defaultlib:user32.lib", "a.obj", nullptr));
+  EXPECT_EQ(3, inputFileCount());
+  EXPECT_EQ("a.obj", inputFile(0));
+  EXPECT_EQ("user32.lib", inputFile(1));
+  EXPECT_EQ("user32.lib", inputFile(2));
 }
 
 TEST_F(WinLinkParserTest, NoDefaultLib) {
@@ -255,6 +329,30 @@ TEST_F(WinLinkParserTest, NoDefaultLibAll) {
                     "/defaultlib:kernel32", "/nodefaultlib", "a.obj", nullptr));
   EXPECT_EQ(1, inputFileCount());
   EXPECT_EQ("a.obj", inputFile(0));
+}
+
+TEST_F(WinLinkParserTest, DisallowLib) {
+  EXPECT_TRUE(parse("link.exe", "/defaultlib:user32.lib",
+                    "/defaultlib:kernel32", "/disallowlib:user32.lib", "a.obj",
+                    nullptr));
+  EXPECT_EQ(2, inputFileCount());
+  EXPECT_EQ("a.obj", inputFile(0));
+  EXPECT_EQ("kernel32.lib", inputFile(1));
+}
+
+//
+// Tests for DLL.
+//
+
+TEST_F(WinLinkParserTest, NoEntry) {
+  EXPECT_TRUE(parse("link.exe", "/noentry", "/dll", "a.obj", nullptr));
+  EXPECT_EQ("", _context.entrySymbolName());
+}
+
+TEST_F(WinLinkParserTest, NoEntryError) {
+  // /noentry without /dll is an error.
+  EXPECT_FALSE(parse("link.exe", "/noentry", "a.obj", nullptr));
+  EXPECT_EQ("/noentry must be specified with /dll\n", errorMessage());
 }
 
 //
@@ -369,6 +467,74 @@ TEST_F(WinLinkParserTest, FailIfMismatch_Mismatch) {
 }
 
 //
+// Tests for /manifest, /manifestuac, /manifestfile, and /manifestdependency.
+//
+TEST_F(WinLinkParserTest, Manifest_Default) {
+  EXPECT_TRUE(parse("link.exe", "/manifest", "a.out", nullptr));
+  EXPECT_TRUE(_context.getCreateManifest());
+  EXPECT_FALSE(_context.getEmbedManifest());
+  EXPECT_EQ(1, _context.getManifestId());
+  EXPECT_EQ("'asInvoker'", _context.getManifestLevel());
+  EXPECT_EQ("'false'", _context.getManifestUiAccess());
+}
+
+TEST_F(WinLinkParserTest, Manifest_No) {
+  EXPECT_TRUE(parse("link.exe", "/manifest:no", "a.out", nullptr));
+  EXPECT_FALSE(_context.getCreateManifest());
+}
+
+TEST_F(WinLinkParserTest, Manifest_Embed) {
+  EXPECT_TRUE(parse("link.exe", "/manifest:embed", "a.out", nullptr));
+  EXPECT_TRUE(_context.getCreateManifest());
+  EXPECT_TRUE(_context.getEmbedManifest());
+  EXPECT_EQ(1, _context.getManifestId());
+  EXPECT_EQ("'asInvoker'", _context.getManifestLevel());
+  EXPECT_EQ("'false'", _context.getManifestUiAccess());
+}
+
+TEST_F(WinLinkParserTest, Manifest_Embed_ID42) {
+  EXPECT_TRUE(parse("link.exe", "/manifest:embed,id=42", "a.out", nullptr));
+  EXPECT_TRUE(_context.getCreateManifest());
+  EXPECT_TRUE(_context.getEmbedManifest());
+  EXPECT_EQ(42, _context.getManifestId());
+  EXPECT_EQ("'asInvoker'", _context.getManifestLevel());
+  EXPECT_EQ("'false'", _context.getManifestUiAccess());
+}
+
+TEST_F(WinLinkParserTest, Manifestuac_Level) {
+  EXPECT_TRUE(parse("link.exe", "/manifestuac:level='requireAdministrator'",
+                    "a.out", nullptr));
+  EXPECT_EQ("'requireAdministrator'", _context.getManifestLevel());
+  EXPECT_EQ("'false'", _context.getManifestUiAccess());
+}
+
+TEST_F(WinLinkParserTest, Manifestuac_UiAccess) {
+  EXPECT_TRUE(parse("link.exe", "/manifestuac:uiAccess='true'", "a.out", nullptr));
+  EXPECT_EQ("'asInvoker'", _context.getManifestLevel());
+  EXPECT_EQ("'true'", _context.getManifestUiAccess());
+}
+
+TEST_F(WinLinkParserTest, Manifestuac_LevelAndUiAccess) {
+  EXPECT_TRUE(parse("link.exe",
+                    "/manifestuac:level='requireAdministrator' uiAccess='true'",
+                    "a.out", nullptr));
+  EXPECT_EQ("'requireAdministrator'", _context.getManifestLevel());
+  EXPECT_EQ("'true'", _context.getManifestUiAccess());
+}
+
+TEST_F(WinLinkParserTest, Manifestfile) {
+  EXPECT_TRUE(parse("link.exe", "/manifestfile:bar.manifest",
+                    "a.out", nullptr));
+  EXPECT_EQ("bar.manifest", _context.getManifestOutputPath());
+}
+
+TEST_F(WinLinkParserTest, Manifestdependency) {
+  EXPECT_TRUE(parse("link.exe", "/manifestdependency:foo bar", "a.out",
+                    nullptr));
+  EXPECT_EQ("foo bar", _context.getManifestDependency());
+}
+
+//
 // Test for command line flags that are ignored.
 //
 
@@ -377,9 +543,11 @@ TEST_F(WinLinkParserTest, Ignore) {
   // compatibility with link.exe.
   EXPECT_TRUE(parse("link.exe", "/nologo", "/errorreport:prompt",
                     "/incremental", "/incremental:no", "/delay:unload",
-                    "/delayload:user32", "/pdb:foo", "/pdbaltpath:bar",
-                    "/verbose", "/verbose:icf", "/wx", "/wx:no", "a.obj",
-                    nullptr));
+                    "/disallowlib:foo", "/delayload:user32", "/pdb:foo",
+                    "/pdbaltpath:bar", "/verbose", "/verbose:icf", "/wx",
+                    "/wx:no", "/tlbid:1", "/tlbout:foo", "/idlout:foo",
+                    "/ignoreidl", "/implib:foo", "/safeseh", "/safeseh:no",
+                    "a.obj", nullptr));
   EXPECT_EQ("", errorMessage());
   EXPECT_EQ(1, inputFileCount());
   EXPECT_EQ("a.obj", inputFile(0));

@@ -20,16 +20,13 @@
 #include "llvm/Support/ThreadLocal.h"
 #include "llvm/Support/Watchdog.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm-c/Core.h"
 
 #ifdef HAVE_CRASHREPORTERCLIENT_H
 #include <CrashReporterClient.h>
 #endif
 
 using namespace llvm;
-
-namespace llvm {
-  bool DisablePrettyStackTrace = false;
-}
 
 static ManagedStatic<sys::ThreadLocal<const PrettyStackTraceEntry> > PrettyStackTraceHead;
 
@@ -102,17 +99,7 @@ static void CrashHandler(void *) {
 #endif
 }
 
-static bool RegisterCrashPrinter() {
-  if (!DisablePrettyStackTrace)
-    sys::AddSignalHandler(CrashHandler, 0);
-  return false;
-}
-
 PrettyStackTraceEntry::PrettyStackTraceEntry() {
-  // The first time this is called, we register the crash printer.
-  static bool HandlerRegistered = RegisterCrashPrinter();
-  (void)HandlerRegistered;
-    
   // Link ourselves.
   NextEntry = PrettyStackTraceHead->get();
   PrettyStackTraceHead->set(this);
@@ -146,4 +133,19 @@ void PrettyStackTraceProgram::print(raw_ostream &OS) const {
   for (unsigned i = 0, e = ArgC; i != e; ++i)
     OS << ArgV[i] << ' ';
   OS << '\n';
+}
+
+static bool RegisterCrashPrinter() {
+  sys::AddSignalHandler(CrashHandler, 0);
+  return false;
+}
+
+void llvm::EnablePrettyStackTrace() {
+  // The first time this is called, we register the crash printer.
+  static bool HandlerRegistered = RegisterCrashPrinter();
+  (void)HandlerRegistered;
+}
+
+void LLVMEnablePrettyStackTrace() {
+  EnablePrettyStackTrace();
 }

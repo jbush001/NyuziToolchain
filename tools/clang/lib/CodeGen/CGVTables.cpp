@@ -16,6 +16,7 @@
 #include "CodeGenModule.h"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/RecordLayout.h"
+#include "clang/CodeGen/CGFunctionInfo.h"
 #include "clang/Frontend/CodeGenOptions.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
@@ -29,12 +30,12 @@ using namespace clang;
 using namespace CodeGen;
 
 CodeGenVTables::CodeGenVTables(CodeGenModule &CGM)
-  : CGM(CGM), VTContext(CGM.getContext()) {
+  : CGM(CGM), ItaniumVTContext(CGM.getContext()) {
   if (CGM.getTarget().getCXXABI().isMicrosoft()) {
     // FIXME: Eventually, we should only have one of V*TContexts available.
     // Today we use both in the Microsoft ABI as MicrosoftVFTableContext
     // is not completely supported in CodeGen yet.
-    VFTContext.reset(new MicrosoftVFTableContext(CGM.getContext()));
+    MicrosoftVTContext.reset(new MicrosoftVTableContext(CGM.getContext()));
   }
 }
 
@@ -54,53 +55,6 @@ llvm::Constant *CodeGenModule::GetAddrOfThunk(GlobalDecl GD,
 
   llvm::Type *Ty = getTypes().GetFunctionTypeForVTable(GD);
   return GetOrCreateLLVMFunction(Name, Ty, GD, /*ForVTable=*/true);
-}
-
-static llvm::Value *PerformTypeAdjustment(CodeGenFunction &CGF,
-                                          llvm::Value *Ptr,
-                                          int64_t NonVirtualAdjustment,
-                                          int64_t VirtualAdjustment,
-                                          bool IsReturnAdjustment) {
-  if (!NonVirtualAdjustment && !VirtualAdjustment)
-    return Ptr;
-
-  llvm::Type *Int8PtrTy = CGF.Int8PtrTy;
-  llvm::Value *V = CGF.Builder.CreateBitCast(Ptr, Int8PtrTy);
-
-  if (NonVirtualAdjustment && !IsReturnAdjustment) {
-    // Perform the non-virtual adjustment for a base-to-derived cast.
-    V = CGF.Builder.CreateConstInBoundsGEP1_64(V, NonVirtualAdjustment);
-  }
-
-  if (VirtualAdjustment) {
-    llvm::Type *PtrDiffTy = 
-      CGF.ConvertType(CGF.getContext().getPointerDiffType());
-
-    // Perform the virtual adjustment.
-    llvm::Value *VTablePtrPtr = 
-      CGF.Builder.CreateBitCast(V, Int8PtrTy->getPointerTo());
-    
-    llvm::Value *VTablePtr = CGF.Builder.CreateLoad(VTablePtrPtr);
-  
-    llvm::Value *OffsetPtr =
-      CGF.Builder.CreateConstInBoundsGEP1_64(VTablePtr, VirtualAdjustment);
-    
-    OffsetPtr = CGF.Builder.CreateBitCast(OffsetPtr, PtrDiffTy->getPointerTo());
-    
-    // Load the adjustment offset from the vtable.
-    llvm::Value *Offset = CGF.Builder.CreateLoad(OffsetPtr);
-    
-    // Adjust our pointer.
-    V = CGF.Builder.CreateInBoundsGEP(V, Offset);
-  }
-
-  if (NonVirtualAdjustment && IsReturnAdjustment) {
-    // Perform the non-virtual adjustment for a derived-to-base cast.
-    V = CGF.Builder.CreateConstInBoundsGEP1_64(V, NonVirtualAdjustment);
-  }
-
-  // Cast back to the original type.
-  return CGF.Builder.CreateBitCast(V, Ptr->getType());
 }
 
 static void setThunkVisibility(CodeGenModule &CGM, const CXXMethodDecl *MD,
@@ -181,12 +135,10 @@ static RValue PerformReturnAdjustment(CodeGenFunction &CGF,
     CGF.Builder.CreateCondBr(IsNull, AdjustNull, AdjustNotNull);
     CGF.EmitBlock(AdjustNotNull);
   }
-  
-  ReturnValue = PerformTypeAdjustment(CGF, ReturnValue, 
-                                      Thunk.Return.NonVirtual, 
-                                      Thunk.Return.VBaseOffsetOffset,
-                                      /*IsReturnAdjustment*/true);
-  
+
+  ReturnValue = CGF.CGM.getCXXABI().performReturnAdjustment(CGF, ReturnValue,
+                                                            Thunk.Return);
+
   if (NullCheckValue) {
     CGF.Builder.CreateBr(AdjustEnd);
     CGF.EmitBlock(AdjustNull);
@@ -266,11 +218,8 @@ void CodeGenFunction::GenerateVarArgsThunk(
   assert(ThisStore && "Store of this should be in entry block?");
   // Adjust "this", if necessary.
   Builder.SetInsertPoint(ThisStore);
-  llvm::Value *AdjustedThisPtr = 
-    PerformTypeAdjustment(*this, ThisPtr, 
-                          Thunk.This.NonVirtual, 
-                          Thunk.This.VCallOffsetOffset,
-                          /*IsReturnAdjustment*/false);
+  llvm::Value *AdjustedThisPtr =
+      CGM.getCXXABI().performThisAdjustment(*this, ThisPtr, Thunk.This);
   ThisStore->setOperand(0, AdjustedThisPtr);
 
   if (!Thunk.Return.isEmpty()) {
@@ -289,95 +238,99 @@ void CodeGenFunction::GenerateVarArgsThunk(
   }
 }
 
-void CodeGenFunction::GenerateThunk(llvm::Function *Fn,
-                                    const CGFunctionInfo &FnInfo,
-                                    GlobalDecl GD, const ThunkInfo &Thunk) {
+void CodeGenFunction::StartThunk(llvm::Function *Fn, GlobalDecl GD,
+                                 const CGFunctionInfo &FnInfo) {
+  assert(!CurGD.getDecl() && "CurGD was already set!");
+  CurGD = GD;
+
+  // Build FunctionArgs.
   const CXXMethodDecl *MD = cast<CXXMethodDecl>(GD.getDecl());
-  const FunctionProtoType *FPT = MD->getType()->getAs<FunctionProtoType>();
   QualType ThisType = MD->getThisType(getContext());
+  const FunctionProtoType *FPT = MD->getType()->getAs<FunctionProtoType>();
   QualType ResultType =
     CGM.getCXXABI().HasThisReturn(GD) ? ThisType : FPT->getResultType();
-
   FunctionArgList FunctionArgs;
 
-  // FIXME: It would be nice if more of this code could be shared with 
-  // CodeGenFunction::GenerateCode.
-
   // Create the implicit 'this' parameter declaration.
-  CurGD = GD;
   CGM.getCXXABI().BuildInstanceFunctionParams(*this, ResultType, FunctionArgs);
 
   // Add the rest of the parameters.
   for (FunctionDecl::param_const_iterator I = MD->param_begin(),
-       E = MD->param_end(); I != E; ++I) {
-    ParmVarDecl *Param = *I;
-    
-    FunctionArgs.push_back(Param);
-  }
+                                          E = MD->param_end();
+       I != E; ++I)
+    FunctionArgs.push_back(*I);
 
+  // Start defining the function.
   StartFunction(GlobalDecl(), ResultType, Fn, FnInfo, FunctionArgs,
                 SourceLocation());
 
+  // Since we didn't pass a GlobalDecl to StartFunction, do this ourselves.
   CGM.getCXXABI().EmitInstanceFunctionProlog(*this);
   CXXThisValue = CXXABIThisValue;
+}
 
-  // Adjust the 'this' pointer if necessary.
-  llvm::Value *AdjustedThisPtr = 
-    PerformTypeAdjustment(*this, LoadCXXThis(), 
-                          Thunk.This.NonVirtual, 
-                          Thunk.This.VCallOffsetOffset,
-                          /*IsReturnAdjustment*/false);
-  
+void CodeGenFunction::EmitCallAndReturnForThunk(GlobalDecl GD,
+                                                llvm::Value *Callee,
+                                                const ThunkInfo *Thunk) {
+  assert(isa<CXXMethodDecl>(CurGD.getDecl()) &&
+         "Please use a new CGF for this thunk");
+  const CXXMethodDecl *MD = cast<CXXMethodDecl>(GD.getDecl());
+
+  // Adjust the 'this' pointer if necessary
+  llvm::Value *AdjustedThisPtr = Thunk ? CGM.getCXXABI().performThisAdjustment(
+                                             *this, LoadCXXThis(), Thunk->This)
+                                       : LoadCXXThis();
+
+  // Start building CallArgs.
   CallArgList CallArgs;
-  
-  // Add our adjusted 'this' pointer.
+  QualType ThisType = MD->getThisType(getContext());
   CallArgs.add(RValue::get(AdjustedThisPtr), ThisType);
 
   if (isa<CXXDestructorDecl>(MD))
     CGM.getCXXABI().adjustCallArgsForDestructorThunk(*this, GD, CallArgs);
 
-  // Add the rest of the parameters.
+  // Add the rest of the arguments.
   for (FunctionDecl::param_const_iterator I = MD->param_begin(),
-       E = MD->param_end(); I != E; ++I) {
-    ParmVarDecl *param = *I;
-    EmitDelegateCallArg(CallArgs, param, param->getLocStart());
-  }
+       E = MD->param_end(); I != E; ++I)
+    EmitDelegateCallArg(CallArgs, *I, (*I)->getLocStart());
 
-  // Get our callee.
-  llvm::Type *Ty =
-    CGM.getTypes().GetFunctionType(CGM.getTypes().arrangeGlobalDeclaration(GD));
-  llvm::Value *Callee = CGM.GetAddrOfFunction(GD, Ty, /*ForVTable=*/true);
+  const FunctionProtoType *FPT = MD->getType()->getAs<FunctionProtoType>();
 
 #ifndef NDEBUG
   const CGFunctionInfo &CallFnInfo =
     CGM.getTypes().arrangeCXXMethodCall(CallArgs, FPT,
                                        RequiredArgs::forPrototypePlus(FPT, 1));
-  assert(CallFnInfo.getRegParm() == FnInfo.getRegParm() &&
-         CallFnInfo.isNoReturn() == FnInfo.isNoReturn() &&
-         CallFnInfo.getCallingConvention() == FnInfo.getCallingConvention());
+  assert(CallFnInfo.getRegParm() == CurFnInfo->getRegParm() &&
+         CallFnInfo.isNoReturn() == CurFnInfo->isNoReturn() &&
+         CallFnInfo.getCallingConvention() == CurFnInfo->getCallingConvention());
   assert(isa<CXXDestructorDecl>(MD) || // ignore dtor return types
          similar(CallFnInfo.getReturnInfo(), CallFnInfo.getReturnType(),
-                 FnInfo.getReturnInfo(), FnInfo.getReturnType()));
-  assert(CallFnInfo.arg_size() == FnInfo.arg_size());
-  for (unsigned i = 0, e = FnInfo.arg_size(); i != e; ++i)
+                 CurFnInfo->getReturnInfo(), CurFnInfo->getReturnType()));
+  assert(CallFnInfo.arg_size() == CurFnInfo->arg_size());
+  for (unsigned i = 0, e = CurFnInfo->arg_size(); i != e; ++i)
     assert(similar(CallFnInfo.arg_begin()[i].info,
                    CallFnInfo.arg_begin()[i].type,
-                   FnInfo.arg_begin()[i].info, FnInfo.arg_begin()[i].type));
+                   CurFnInfo->arg_begin()[i].info,
+                   CurFnInfo->arg_begin()[i].type));
 #endif
-  
+
   // Determine whether we have a return value slot to use.
+  QualType ResultType =
+    CGM.getCXXABI().HasThisReturn(GD) ? ThisType : FPT->getResultType();
   ReturnValueSlot Slot;
   if (!ResultType->isVoidType() &&
-      FnInfo.getReturnInfo().getKind() == ABIArgInfo::Indirect &&
+      CurFnInfo->getReturnInfo().getKind() == ABIArgInfo::Indirect &&
       !hasScalarEvaluationKind(CurFnInfo->getReturnType()))
     Slot = ReturnValueSlot(ReturnValue, ResultType.isVolatileQualified());
   
   // Now emit our call.
-  RValue RV = EmitCall(FnInfo, Callee, Slot, CallArgs, MD);
+  RValue RV = EmitCall(*CurFnInfo, Callee, Slot, CallArgs, MD);
   
-  if (!Thunk.Return.isEmpty())
-    RV = PerformReturnAdjustment(*this, ResultType, RV, Thunk);
+  // Consider return adjustment if we have ThunkInfo.
+  if (Thunk && !Thunk->Return.isEmpty())
+    RV = PerformReturnAdjustment(*this, ResultType, RV, *Thunk);
 
+  // Emit return.
   if (!ResultType->isVoidType() && Slot.isNull())
     CGM.getCXXABI().EmitReturnFromThunk(*this, RV, ResultType);
 
@@ -385,11 +338,26 @@ void CodeGenFunction::GenerateThunk(llvm::Function *Fn,
   AutoreleaseResult = false;
 
   FinishFunction();
+}
+
+void CodeGenFunction::GenerateThunk(llvm::Function *Fn,
+                                    const CGFunctionInfo &FnInfo,
+                                    GlobalDecl GD, const ThunkInfo &Thunk) {
+  StartThunk(Fn, GD, FnInfo);
+
+  // Get our callee.
+  llvm::Type *Ty =
+    CGM.getTypes().GetFunctionType(CGM.getTypes().arrangeGlobalDeclaration(GD));
+  llvm::Value *Callee = CGM.GetAddrOfFunction(GD, Ty, /*ForVTable=*/true);
+
+  // Make the call and return the result.
+  EmitCallAndReturnForThunk(GD, Callee, &Thunk);
 
   // Set the right linkage.
   CGM.setFunctionLinkage(GD, Fn);
   
   // Set the right visibility.
+  const CXXMethodDecl *MD = cast<CXXMethodDecl>(GD.getDecl());
   setThunkVisibility(CGM, MD, Thunk, Fn);
 }
 
@@ -440,10 +408,6 @@ void CodeGenVTables::emitThunk(GlobalDecl GD, const ThunkInfo &Thunk,
       // There is already a thunk emitted for this function, do nothing.
       return;
     }
-
-    // If a function has a body, it should have available_externally linkage.
-    assert(ThunkFn->hasAvailableExternallyLinkage() &&
-           "Function should have available_externally linkage!");
 
     // Change the linkage.
     CGM.setFunctionLinkage(GD, ThunkFn);
@@ -497,10 +461,10 @@ void CodeGenVTables::EmitThunks(GlobalDecl GD)
     return;
 
   const VTableContextBase::ThunkInfoVectorTy *ThunkInfoVector;
-  if (VFTContext.isValid()) {
-    ThunkInfoVector = VFTContext->getThunkInfo(GD);
+  if (MicrosoftVTContext.isValid()) {
+    ThunkInfoVector = MicrosoftVTContext->getThunkInfo(GD);
   } else {
-    ThunkInfoVector = VTContext.getThunkInfo(GD);
+    ThunkInfoVector = ItaniumVTContext.getThunkInfo(GD);
   }
 
   if (!ThunkInfoVector)
@@ -639,9 +603,8 @@ CodeGenVTables::GenerateConstructionVTable(const CXXRecordDecl *RD,
     DI->completeClassData(Base.getBase());
 
   OwningPtr<VTableLayout> VTLayout(
-    VTContext.createConstructionVTableLayout(Base.getBase(),
-                                             Base.getBaseOffset(),
-                                             BaseIsVirtual, RD));
+      ItaniumVTContext.createConstructionVTableLayout(
+          Base.getBase(), Base.getBaseOffset(), BaseIsVirtual, RD));
 
   // Add the address points.
   AddressPoints = VTLayout->getAddressPoints();

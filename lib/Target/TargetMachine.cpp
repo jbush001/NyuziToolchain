@@ -67,7 +67,7 @@ TargetMachine::~TargetMachine() {
 void TargetMachine::resetTargetOptions(const MachineFunction *MF) const {
   const Function *F = MF->getFunction();
   TargetOptions &TO = MF->getTarget().Options;
-  
+
 #define RESET_OPTION(X, Y)                                              \
   do {                                                                  \
     if (F->hasFnAttribute(Y))                                           \
@@ -162,6 +162,11 @@ CodeGenOpt::Level TargetMachine::getOptLevel() const {
   if (!CodeGenInfo)
     return CodeGenOpt::Default;
   return CodeGenInfo->getOptLevel();
+}
+
+void TargetMachine::setOptLevel(CodeGenOpt::Level Level) const {
+  if (CodeGenInfo)
+    CodeGenInfo->setOptLevel(Level);
 }
 
 bool TargetMachine::getAsmVerbosityDefault() {

@@ -18,6 +18,7 @@
 #include "llvm/Analysis/Passes.h"
 #include "llvm/Analysis/Verifier.h"
 #include "llvm/Bitcode/ReaderWriter.h"
+#include "llvm/CodeGen/RuntimeLibcalls.h"
 #include "llvm/Config/config.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
@@ -40,6 +41,8 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/system_error.h"
+#include "llvm/Target/TargetLibraryInfo.h"
+#include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Target/Mangler.h"
@@ -66,7 +69,10 @@ LTOCodeGenerator::LTOCodeGenerator()
 LTOCodeGenerator::~LTOCodeGenerator() {
   delete TargetMach;
   delete NativeObjectFile;
-  delete Linker.getModule();
+  TargetMach = NULL;
+  NativeObjectFile = NULL;
+
+  Linker.deleteModule();
 
   for (std::vector<char *>::iterator I = CodegenOptions.begin(),
                                      E = CodegenOptions.end();
@@ -309,8 +315,8 @@ bool LTOCodeGenerator::determineTarget(std::string &errMsg) {
 
 void LTOCodeGenerator::
 applyRestriction(GlobalValue &GV,
+                 const ArrayRef<StringRef> &Libcalls,
                  std::vector<const char*> &MustPreserveList,
-                 std::vector<const char*> &DSOList,
                  SmallPtrSet<GlobalValue*, 8> &AsmUsed,
                  Mangler &Mangler) {
   SmallString<64> Buffer;
@@ -320,9 +326,16 @@ applyRestriction(GlobalValue &GV,
     return;
   if (MustPreserveSymbols.count(Buffer))
     MustPreserveList.push_back(GV.getName().data());
-  if (DSOSymbols.count(Buffer))
-    DSOList.push_back(GV.getName().data());
   if (AsmUndefinedRefs.count(Buffer))
+    AsmUsed.insert(&GV);
+
+  // Conservatively append user-supplied runtime library functions to
+  // llvm.compiler.used.  These could be internalized and deleted by
+  // optimizations like -globalopt, causing problems when later optimizations
+  // add new library calls (e.g., llvm.memset => memset and printf => puts).
+  // Leave it to the linker to remove any dead code (e.g. with -dead_strip).
+  if (isa<Function>(GV) &&
+      std::binary_search(Libcalls.begin(), Libcalls.end(), GV.getName()))
     AsmUsed.insert(&GV);
 }
 
@@ -337,6 +350,33 @@ static void findUsedValues(GlobalVariable *LLVMUsed,
       UsedValues.insert(GV);
 }
 
+static void accumulateAndSortLibcalls(std::vector<StringRef> &Libcalls,
+                                      const TargetLibraryInfo& TLI,
+                                      const TargetLowering *Lowering)
+{
+  // TargetLibraryInfo has info on C runtime library calls on the current
+  // target.
+  for (unsigned I = 0, E = static_cast<unsigned>(LibFunc::NumLibFuncs);
+       I != E; ++I) {
+    LibFunc::Func F = static_cast<LibFunc::Func>(I);
+    if (TLI.has(F))
+      Libcalls.push_back(TLI.getName(F));
+  }
+
+  // TargetLowering has info on library calls that CodeGen expects to be
+  // available, both from the C runtime and compiler-rt.
+  if (Lowering)
+    for (unsigned I = 0, E = static_cast<unsigned>(RTLIB::UNKNOWN_LIBCALL);
+         I != E; ++I)
+      if (const char *Name
+          = Lowering->getLibcallName(static_cast<RTLIB::Libcall>(I)))
+        Libcalls.push_back(Name);
+
+  array_pod_sort(Libcalls.begin(), Libcalls.end());
+  Libcalls.erase(std::unique(Libcalls.begin(), Libcalls.end()),
+                 Libcalls.end());
+}
+
 void LTOCodeGenerator::applyScopeRestrictions() {
   if (ScopeRestrictionsDone)
     return;
@@ -347,22 +387,22 @@ void LTOCodeGenerator::applyScopeRestrictions() {
   passes.add(createVerifierPass());
 
   // mark which symbols can not be internalized
-  MCContext MContext(TargetMach->getMCAsmInfo(), TargetMach->getRegisterInfo(),
-                     NULL);
-  Mangler Mangler(MContext, TargetMach);
+  Mangler Mangler(TargetMach);
   std::vector<const char*> MustPreserveList;
-  std::vector<const char*> DSOList;
   SmallPtrSet<GlobalValue*, 8> AsmUsed;
+  std::vector<StringRef> Libcalls;
+  TargetLibraryInfo TLI(Triple(TargetMach->getTargetTriple()));
+  accumulateAndSortLibcalls(Libcalls, TLI, TargetMach->getTargetLowering());
 
   for (Module::iterator f = mergedModule->begin(),
          e = mergedModule->end(); f != e; ++f)
-    applyRestriction(*f, MustPreserveList, DSOList, AsmUsed, Mangler);
+    applyRestriction(*f, Libcalls, MustPreserveList, AsmUsed, Mangler);
   for (Module::global_iterator v = mergedModule->global_begin(),
          e = mergedModule->global_end(); v !=  e; ++v)
-    applyRestriction(*v, MustPreserveList, DSOList, AsmUsed, Mangler);
+    applyRestriction(*v, Libcalls, MustPreserveList, AsmUsed, Mangler);
   for (Module::alias_iterator a = mergedModule->alias_begin(),
          e = mergedModule->alias_end(); a != e; ++a)
-    applyRestriction(*a, MustPreserveList, DSOList, AsmUsed, Mangler);
+    applyRestriction(*a, Libcalls, MustPreserveList, AsmUsed, Mangler);
 
   GlobalVariable *LLVMCompilerUsed =
     mergedModule->getGlobalVariable("llvm.compiler.used");
@@ -390,7 +430,7 @@ void LTOCodeGenerator::applyScopeRestrictions() {
     LLVMCompilerUsed->setSection("llvm.metadata");
   }
 
-  passes.add(createInternalizePass(MustPreserveList, DSOList));
+  passes.add(createInternalizePass(MustPreserveList));
 
   // apply scope restrictions
   passes.run(*mergedModule);

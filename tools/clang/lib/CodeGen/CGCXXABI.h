@@ -356,6 +356,14 @@ public:
 
   virtual void setThunkLinkage(llvm::Function *Thunk, bool ForVTable) = 0;
 
+  virtual llvm::Value *performThisAdjustment(CodeGenFunction &CGF,
+                                             llvm::Value *This,
+                                             const ThisAdjustment &TA) = 0;
+
+  virtual llvm::Value *performReturnAdjustment(CodeGenFunction &CGF,
+                                               llvm::Value *Ret,
+                                               const ReturnAdjustment &RA) = 0;
+
   virtual void EmitReturnFromThunk(CodeGenFunction &CGF,
                                    RValue RV, QualType ResultType);
 
@@ -364,6 +372,10 @@ public:
 
   /// Gets the deleted virtual member call name.
   virtual StringRef GetDeletedVirtualCallName() = 0;
+
+  /// \brief Returns true iff static data members that are initialized in the
+  /// class definition should have linkonce linkage.
+  virtual bool isInlineInitializedStaticDataMemberLinkOnce() { return false; }
 
   /**************************** Array cookies ******************************/
 

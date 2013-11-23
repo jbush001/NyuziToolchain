@@ -20,6 +20,7 @@
 #include "MipsTargetMachine.h"
 #include "MipsTargetObjectFile.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -2207,7 +2208,7 @@ static bool CC_MipsO32_FP32(unsigned ValNo, MVT ValVT,
 static bool CC_MipsO32_FP64(unsigned ValNo, MVT ValVT,
                             MVT LocVT, CCValAssign::LocInfo LocInfo,
                             ISD::ArgFlagsTy ArgFlags, CCState &State) {
-  static const uint16_t F64Regs[] = { Mips::D12_64, Mips::D12_64 };
+  static const uint16_t F64Regs[] = { Mips::D12_64, Mips::D14_64 };
 
   return CC_MipsO32(ValNo, ValVT, LocVT, LocInfo, ArgFlags, State, F64Regs);
 }
@@ -2598,22 +2599,9 @@ MipsTargetLowering::LowerFormalArguments(SDValue Chain,
 
     // Arguments stored on registers
     if (IsRegLoc) {
-      EVT RegVT = VA.getLocVT();
+      MVT RegVT = VA.getLocVT();
       unsigned ArgReg = VA.getLocReg();
-      const TargetRegisterClass *RC;
-
-      if (RegVT == MVT::i32)
-        RC = Subtarget->inMips16Mode()? &Mips::CPU16RegsRegClass :
-                                        &Mips::GPR32RegClass;
-      else if (RegVT == MVT::i64)
-        RC = &Mips::GPR64RegClass;
-      else if (RegVT == MVT::f32)
-        RC = &Mips::FGR32RegClass;
-      else if (RegVT == MVT::f64)
-        RC = Subtarget->isFP64bit() ? &Mips::FGR64RegClass :
-                                      &Mips::AFGR64RegClass;
-      else
-        llvm_unreachable("RegVT not supported by FormalArguments Lowering");
+      const TargetRegisterClass *RC = getRegClassFor(RegVT);
 
       // Transform the arguments stored on
       // physical registers into virtual ones
@@ -2663,9 +2651,11 @@ MipsTargetLowering::LowerFormalArguments(SDValue Chain,
 
       // Create load nodes to retrieve arguments from the stack
       SDValue FIN = DAG.getFrameIndex(FI, getPointerTy());
-      InVals.push_back(DAG.getLoad(ValVT, DL, Chain, FIN,
-                                   MachinePointerInfo::getFixedStack(FI),
-                                   false, false, false, 0));
+      SDValue Load = DAG.getLoad(ValVT, DL, Chain, FIN,
+                                 MachinePointerInfo::getFixedStack(FI),
+                                 false, false, false, 0);
+      InVals.push_back(Load);
+      OutChains.push_back(Load.getValue(1));
     }
   }
 
@@ -2788,7 +2778,7 @@ MipsTargetLowering::LowerReturn(SDValue Chain,
 MipsTargetLowering::ConstraintType MipsTargetLowering::
 getConstraintType(const std::string &Constraint) const
 {
-  // Mips specific constrainy
+  // Mips specific constraints
   // GCC config/mips/constraints.md
   //
   // 'd' : An address register. Equivalent to r
@@ -2839,16 +2829,19 @@ MipsTargetLowering::getSingleConstraintMatchWeight(
     if (type->isIntegerTy())
       weight = CW_Register;
     break;
-  case 'f':
-    if (type->isFloatTy())
+  case 'f': // FPU or MSA register
+    if (Subtarget->hasMSA() && type->isVectorTy() &&
+        cast<VectorType>(type)->getBitWidth() == 128)
+      weight = CW_Register;
+    else if (type->isFloatTy())
       weight = CW_Register;
     break;
   case 'c': // $25 for indirect jumps
   case 'l': // lo register
   case 'x': // hilo register pair
-      if (type->isIntegerTy())
+    if (type->isIntegerTy())
       weight = CW_SpecificReg;
-      break;
+    break;
   case 'I': // signed 16 bit immediate
   case 'J': // integer zero
   case 'K': // unsigned 16 bit immediate
@@ -2911,6 +2904,29 @@ parseRegForInlineAsmConstraint(const StringRef &C, MVT VT) const {
     RC = TRI->getRegClass(Prefix == "hi" ?
                           Mips::HI32RegClassID : Mips::LO32RegClassID);
     return std::make_pair(*(RC->begin()), RC);
+  } else if (Prefix.compare(0, 4, "$msa") == 0) {
+    // Parse $msa(ir|csr|access|save|modify|request|map|unmap)
+
+    // No numeric characters follow the name.
+    if (R.second)
+      return std::make_pair((unsigned)0, (const TargetRegisterClass *)0);
+
+    Reg = StringSwitch<unsigned long long>(Prefix)
+              .Case("$msair", Mips::MSAIR)
+              .Case("$msacsr", Mips::MSACSR)
+              .Case("$msaaccess", Mips::MSAAccess)
+              .Case("$msasave", Mips::MSASave)
+              .Case("$msamodify", Mips::MSAModify)
+              .Case("$msarequest", Mips::MSARequest)
+              .Case("$msamap", Mips::MSAMap)
+              .Case("$msaunmap", Mips::MSAUnmap)
+              .Default(0);
+
+    if (!Reg)
+      return std::make_pair((unsigned)0, (const TargetRegisterClass *)0);
+
+    RC = TRI->getRegClass(Mips::MSACtrlRegClassID);
+    return std::make_pair(Reg, RC);
   }
 
   if (!R.second)
@@ -2928,8 +2944,10 @@ parseRegForInlineAsmConstraint(const StringRef &C, MVT VT) const {
       assert(Reg % 2 == 0);
       Reg >>= 1;
     }
-  } else if (Prefix == "$fcc") { // Parse $fcc0-$fcc7.
+  } else if (Prefix == "$fcc") // Parse $fcc0-$fcc7.
     RC = TRI->getRegClass(Mips::FCCRegClassID);
+  else if (Prefix == "$w") { // Parse $w0-$w31.
+    RC = getRegClassFor((VT == MVT::Other) ? MVT::v16i8 : VT);
   } else { // Parse $0-$31.
     assert(Prefix == "$");
     RC = getRegClassFor((VT == MVT::Other) ? MVT::i32 : VT);
@@ -2961,10 +2979,18 @@ getRegForInlineAsmConstraint(const std::string &Constraint, MVT VT) const
         return std::make_pair(0U, &Mips::GPR64RegClass);
       // This will generate an error message
       return std::make_pair(0u, static_cast<const TargetRegisterClass*>(0));
-    case 'f':
-      if (VT == MVT::f32)
+    case 'f': // FPU or MSA register
+      if (VT == MVT::v16i8)
+        return std::make_pair(0U, &Mips::MSA128BRegClass);
+      else if (VT == MVT::v8i16 || VT == MVT::v8f16)
+        return std::make_pair(0U, &Mips::MSA128HRegClass);
+      else if (VT == MVT::v4i32 || VT == MVT::v4f32)
+        return std::make_pair(0U, &Mips::MSA128WRegClass);
+      else if (VT == MVT::v2i64 || VT == MVT::v2f64)
+        return std::make_pair(0U, &Mips::MSA128DRegClass);
+      else if (VT == MVT::f32)
         return std::make_pair(0U, &Mips::FGR32RegClass);
-      if ((VT == MVT::f64) && (!Subtarget->isSingleFloat())) {
+      else if ((VT == MVT::f64) && (!Subtarget->isSingleFloat())) {
         if (Subtarget->isFP64bit())
           return std::make_pair(0U, &Mips::FGR64RegClass);
         return std::make_pair(0U, &Mips::AFGR64RegClass);

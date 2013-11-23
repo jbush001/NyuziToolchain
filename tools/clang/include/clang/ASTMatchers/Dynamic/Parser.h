@@ -34,9 +34,11 @@
 #define LLVM_CLANG_AST_MATCHERS_DYNAMIC_PARSER_H
 
 #include "clang/ASTMatchers/Dynamic/Diagnostics.h"
+#include "clang/ASTMatchers/Dynamic/Registry.h"
 #include "clang/ASTMatchers/Dynamic/VariantValue.h"
 #include "clang/Basic/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringRef.h"
 
 namespace clang {
@@ -64,7 +66,7 @@ public:
     ///
     /// All the arguments passed here have already been processed.
     ///
-    /// \param MatcherName The matcher name found by the parser.
+    /// \param Ctor A matcher constructor looked up by lookupMatcherCtor.
     ///
     /// \param NameRange The location of the name in the matcher source.
     ///   Useful for error reporting.
@@ -77,11 +79,25 @@ public:
     /// \return The matcher objects constructed by the processor, or a null
     ///   matcher if an error occurred. In that case, \c Error will contain a
     ///   description of the error.
-    virtual VariantMatcher actOnMatcherExpression(StringRef MatcherName,
+    virtual VariantMatcher actOnMatcherExpression(MatcherCtor Ctor,
                                                   const SourceRange &NameRange,
                                                   StringRef BindID,
                                                   ArrayRef<ParserValue> Args,
                                                   Diagnostics *Error) = 0;
+
+    /// \brief Look up a matcher by name.
+    ///
+    /// \param MatcherName The matcher name found by the parser.
+    ///
+    /// \param NameRange The location of the name in the matcher source.
+    ///   Useful for error reporting.
+    ///
+    /// \return The matcher constructor, or Optional<MatcherCtor>() if an error
+    ///   occurred. In that case, \c Error will contain a description of the
+    ///   error.
+    virtual llvm::Optional<MatcherCtor>
+    lookupMatcherCtor(StringRef MatcherName, const SourceRange &NameRange,
+                      Diagnostics *Error) = 0;
   };
 
   /// \brief Parse a matcher expression, creating matchers from the registry.
@@ -92,11 +108,12 @@ public:
   ///
   /// \param MatcherCode The matcher expression to parse.
   ///
-  /// \return The matcher object constructed, or NULL if an error occurred.
-  //    In that case, \c Error will contain a description of the error.
+  /// \return The matcher object constructed, or an empty Optional if an error
+  ///   occurred.
+  ///   In that case, \c Error will contain a description of the error.
   ///   The caller takes ownership of the DynTypedMatcher object returned.
-  static DynTypedMatcher *parseMatcherExpression(StringRef MatcherCode,
-                                                 Diagnostics *Error);
+  static llvm::Optional<DynTypedMatcher>
+  parseMatcherExpression(StringRef MatcherCode, Diagnostics *Error);
 
   /// \brief Parse a matcher expression.
   ///
@@ -104,13 +121,12 @@ public:
   ///
   /// \param S The Sema instance that will help the parser
   ///   construct the matchers.
-  /// \return The matcher object constructed by the processor, or NULL
-  ///   if an error occurred. In that case, \c Error will contain a
+  /// \return The matcher object constructed by the processor, or an empty
+  ///   Optional if an error occurred. In that case, \c Error will contain a
   ///   description of the error.
   ///   The caller takes ownership of the DynTypedMatcher object returned.
-  static DynTypedMatcher *parseMatcherExpression(StringRef MatcherCode,
-                                                 Sema *S,
-                                                 Diagnostics *Error);
+  static llvm::Optional<DynTypedMatcher>
+  parseMatcherExpression(StringRef MatcherCode, Sema *S, Diagnostics *Error);
 
   /// \brief Parse an expression, creating matchers from the registry.
   ///

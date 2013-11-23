@@ -16,6 +16,8 @@
 #include "lld/Core/Resolver.h"
 #include "lld/ReaderWriter/Reader.h"
 #include "lld/ReaderWriter/Writer.h"
+#include "lld/Passes/RoundTripNativePass.h"
+#include "lld/Passes/RoundTripYAMLPass.h"
 
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -52,6 +54,9 @@ bool Driver::link(LinkingContext &context, raw_ostream &diagnostics) {
   TaskGroup tg;
   std::mutex diagnosticsMutex;
   for (auto &ie : inputGraph.inputElements()) {
+    // Skip Hidden elements.
+    if (ie->isHidden())
+      continue;
     tg.spawn([&] {
       // Writes to the same output stream is not guaranteed to be thread-safe.
       // We buffer the diagnostics output to a separate string-backed output
@@ -60,7 +65,7 @@ bool Driver::link(LinkingContext &context, raw_ostream &diagnostics) {
       llvm::raw_string_ostream stream(buf);
 
       if (error_code ec = ie->parse(context, stream)) {
-        FileNode *fileNode = llvm::dyn_cast<FileNode>(ie.get());
+        FileNode *fileNode = dyn_cast<FileNode>(ie.get());
         stream << fileNode->errStr(ec) << "\n";
         fail = true;
       }
@@ -105,19 +110,25 @@ bool Driver::link(LinkingContext &context, raw_ostream &diagnostics) {
   Resolver resolver(context);
   if (!resolver.resolve())
     return false;
-  MutableFile &merged = resolver.resultFile();
+  std::unique_ptr<MutableFile> merged = resolver.resultFile();
   resolveTask.end();
 
   // Run passes on linked atoms.
   ScopedTask passTask(getDefaultDomain(), "Passes");
   PassManager pm;
   context.addPasses(pm);
+
+#ifndef NDEBUG
+  pm.add(std::unique_ptr<Pass>(new RoundTripYAMLPass(context)));
+  pm.add(std::unique_ptr<Pass>(new RoundTripNativePass(context)));
+#endif
+
   pm.runOnFile(merged);
   passTask.end();
 
   // Give linked atoms to Writer to generate output file.
   ScopedTask writeTask(getDefaultDomain(), "Write");
-  if (error_code ec = context.writeFile(merged)) {
+  if (error_code ec = context.writeFile(*merged)) {
     diagnostics << "Failed to write file '" << context.outputPath()
                 << "': " << ec.message() << "\n";
     return false;

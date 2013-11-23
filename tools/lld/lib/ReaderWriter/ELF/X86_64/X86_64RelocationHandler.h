@@ -8,8 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef X86_64_RELOCATION_HANDLER_H
-#define X86_64_RELOCATION_HANDLER_H
+#ifndef LLD_READER_WRITER_ELF_X86_64_X86_64_RELOCATION_HANDLER_H
+#define LLD_READER_WRITER_ELF_X86_64_X86_64_RELOCATION_HANDLER_H
 
 #include "X86_64TargetHandler.h"
 
@@ -24,9 +24,9 @@ public:
   X86_64TargetRelocationHandler(const X86_64LinkingContext &context)
       : _tlsSize(0), _context(context) {}
 
-  virtual ErrorOr<void> applyRelocation(ELFWriter &, llvm::FileOutputBuffer &,
-                                        const lld::AtomLayout &,
-                                        const Reference &) const;
+  virtual error_code applyRelocation(ELFWriter &, llvm::FileOutputBuffer &,
+                                     const lld::AtomLayout &,
+                                     const Reference &) const;
 
   virtual int64_t relocAddend(const Reference &) const;
 

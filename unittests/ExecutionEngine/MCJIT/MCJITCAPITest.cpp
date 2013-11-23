@@ -59,6 +59,7 @@ static void roundTripDestroy(void *object) {
   delete static_cast<SectionMemoryManager*>(object);
 }
 
+namespace {
 class MCJITCAPITest : public testing::Test, public MCJITTestAPICommon {
 protected:
   MCJITCAPITest() {
@@ -156,6 +157,7 @@ protected:
   LLVMExecutionEngineRef Engine;
   char *Error;
 };
+} // end anonymous namespace
 
 TEST_F(MCJITCAPITest, simple_function) {
   SKIP_UNSUPPORTED_PLATFORM;

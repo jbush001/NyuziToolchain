@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLD_CORE_PASS_H_
-#define LLD_CORE_PASS_H_
+#ifndef LLD_CORE_PASS_H
+#define LLD_CORE_PASS_H
 
 #include "lld/Core/Atom.h"
 #include "lld/Core/File.h"
@@ -36,7 +36,7 @@ public:
   virtual ~Pass() { }
 
   /// Do the actual work of the Pass.
-  virtual void perform(MutableFile &mergedFile) = 0;
+  virtual void perform(std::unique_ptr<MutableFile> &mergedFile) = 0;
 
 protected:
   // Only subclassess can be instantiated.
@@ -53,7 +53,7 @@ public:
   /// Scans all Atoms looking for call-site uses of SharedLibraryAtoms
   /// and transfroms the call-site to call a stub instead using the
   /// helper methods below.
-  virtual void perform(MutableFile &mergedFile);
+  virtual void perform(std::unique_ptr<MutableFile> &mergedFile);
 
   /// If true, the pass should use stubs for references
   /// to shared library symbols. If false, the pass
@@ -75,6 +75,9 @@ public:
   /// it will call this method to add all the stub (and support) atoms to the
   /// master file object.
   virtual void addStubAtoms(MutableFile &masterFile) = 0;
+
+private:
+  void replaceCalleeWithStub(const Atom *target, const Reference *ref);
 };
 
 /// Pass for adding GOT entries for pointers to functions/data
@@ -87,7 +90,7 @@ public:
   /// Scans all Atoms looking for pointer to SharedLibraryAtoms
   /// and transfroms them to a pointer to a GOT entry using the
   /// helper methods below.
-  virtual void perform(MutableFile &mergedFile);
+  virtual void perform(std::unique_ptr<MutableFile> &mergedFile);
 
   /// If true, the pass will use GOT entries for references
   /// to shared library symbols. If false, the pass
@@ -115,4 +118,4 @@ public:
 
 } // namespace lld
 
-#endif // LLD_CORE_PASS_H_
+#endif // LLD_CORE_PASS_H

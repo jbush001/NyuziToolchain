@@ -275,6 +275,10 @@ lltok::Kind LLLexer::LexAt() {
       if (CurChar == '"') {
         StrVal.assign(TokStart+2, CurPtr-1);
         UnEscapeLexed(StrVal);
+        if (StringRef(StrVal).find_first_of(0) != StringRef::npos) {
+          Error("Null bytes are not allowed in names");
+          return lltok::Error;
+        }
         return lltok::GlobalVar;
       }
     }
@@ -478,12 +482,10 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(private);
   KEYWORD(linker_private);
   KEYWORD(linker_private_weak);
-  KEYWORD(linker_private_weak_def_auto); // FIXME: For backwards compatibility.
   KEYWORD(internal);
   KEYWORD(available_externally);
   KEYWORD(linkonce);
   KEYWORD(linkonce_odr);
-  KEYWORD(linkonce_odr_auto_hide);
   KEYWORD(weak);
   KEYWORD(weak_odr);
   KEYWORD(appending);
@@ -559,6 +561,8 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(intel_ocl_bicc);
   KEYWORD(x86_64_sysvcc);
   KEYWORD(x86_64_win64cc);
+  KEYWORD(webkit_jscc);
+  KEYWORD(anyregcc);
 
   KEYWORD(cc);
   KEYWORD(c);
@@ -665,6 +669,7 @@ lltok::Kind LLLexer::LexIdentifier() {
   INSTKEYWORD(inttoptr,    IntToPtr);
   INSTKEYWORD(ptrtoint,    PtrToInt);
   INSTKEYWORD(bitcast,     BitCast);
+  INSTKEYWORD(addrspacecast, AddrSpaceCast);
   INSTKEYWORD(select,      Select);
   INSTKEYWORD(va_arg,      VAArg);
   INSTKEYWORD(ret,         Ret);

@@ -197,7 +197,7 @@ LLVMMCJITMemoryManagerRef LLVMCreateSimpleMCJITMemoryManager(
   LLVMMemoryManagerAllocateCodeSectionCallback AllocateCodeSection,
   LLVMMemoryManagerAllocateDataSectionCallback AllocateDataSection,
   LLVMMemoryManagerFinalizeMemoryCallback FinalizeMemory,
-  LLVMMemoryManagerDestroyCallback Destory);
+  LLVMMemoryManagerDestroyCallback Destroy);
 
 void LLVMDisposeMCJITMemoryManager(LLVMMCJITMemoryManagerRef MM);
 
@@ -206,7 +206,7 @@ void LLVMDisposeMCJITMemoryManager(LLVMMCJITMemoryManagerRef MM);
  */
 
 #ifdef __cplusplus
-}  
+}
 #endif /* defined(__cplusplus) */
 
 #endif

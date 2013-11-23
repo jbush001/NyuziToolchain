@@ -28,38 +28,43 @@ declare void @llvm.dbg.declare(metadata, metadata) nounwind readnone
 ; An empty array should not have an AT_upper_bound attribute. But an array of 1
 ; should.
 
-; CHECK:      DW_TAG_base_type [5]
+; CHECK:      DW_TAG_base_type
 ; CHECK-NEXT: DW_AT_name [DW_FORM_strp]  ( .debug_str[{{.*}}] = "int")
 ; CHECK-NEXT: DW_AT_encoding [DW_FORM_data1]   (0x05)
 ; CHECK-NEXT: DW_AT_byte_size [DW_FORM_data1]  (0x04)
 
-; int[1]:
-; CHECK:      DW_TAG_array_type [7] *
+; int foo::b[1]:
+; CHECK: DW_TAG_structure_type
+; CHECK: DW_AT_name{{.*}}"foo"
+; CHECK:      DW_TAG_member
+; CHECK:      DW_TAG_member
+; CHECK-NEXT: DW_AT_name [DW_FORM_strp]  ( .debug_str[{{.*}}] = "b")
 ; CHECK-NEXT: DW_AT_type [DW_FORM_ref4]
-; CHECK:      DW_TAG_subrange_type [8]
+
+; int[1]:
+; CHECK:      DW_TAG_array_type [{{.*}}] *
+; CHECK-NEXT: DW_AT_type [DW_FORM_ref4]
+; CHECK:      DW_TAG_subrange_type [{{.*}}]
 ; CHECK-NEXT: DW_AT_type [DW_FORM_ref4]
 ; CHECK-NEXT: DW_AT_upper_bound [DW_FORM_data1]  (0x00)
 
-; int foo::b[1]:
-; CHECK:      DW_TAG_member [10]
-; CHECK:      DW_TAG_member [10]
+; int bar::b[0]:
+; CHECK: DW_TAG_structure_type
+; CHECK: DW_AT_name{{.*}}"bar"
+; CHECK:      DW_TAG_member
+; CHECK:      DW_TAG_member
 ; CHECK-NEXT: DW_AT_name [DW_FORM_strp]  ( .debug_str[{{.*}}] = "b")
 ; CHECK-NEXT: DW_AT_type [DW_FORM_ref4]
 
 ; int[0]:
-; CHECK:      DW_TAG_array_type [7] *
+; CHECK:      DW_TAG_array_type [{{.*}}] *
 ; CHECK-NEXT: DW_AT_type [DW_FORM_ref4]
 ; CHECK:      DW_TAG_subrange_type [11]
 ; CHECK-NEXT: DW_AT_type [DW_FORM_ref4]
 ; CHECK-NOT:  DW_AT_upper_bound
 
-; int bar::b[0]:
-; CHECK:      DW_TAG_member [10]
-; CHECK:      DW_TAG_member [10]
-; CHECK-NEXT: DW_AT_name [DW_FORM_strp]  ( .debug_str[{{.*}}] = "b")
-; CHECK-NEXT: DW_AT_type [DW_FORM_ref4]
-
 !llvm.dbg.cu = !{!0}
+!llvm.module.flags = !{!33}
 
 !0 = metadata !{i32 786449, metadata !32, i32 12, metadata !"clang version 3.3 (trunk 169136)", i1 false, metadata !"", i32 0, metadata !1, metadata !1, metadata !3, metadata !1,  metadata !1, metadata !""} ; [ DW_TAG_compile_unit ] [/Volumes/Sandbox/llvm/test.c] [DW_LANG_C99]
 !1 = metadata !{i32 0}
@@ -92,3 +97,4 @@ declare void @llvm.dbg.declare(metadata, metadata) nounwind readnone
 !30 = metadata !{i32 16, i32 0, metadata !11, null}
 !31 = metadata !{i32 17, i32 0, metadata !11, null}
 !32 = metadata !{metadata !"test.c", metadata !"/Volumes/Sandbox/llvm"}
+!33 = metadata !{i32 1, metadata !"Debug Info Version", i32 1}

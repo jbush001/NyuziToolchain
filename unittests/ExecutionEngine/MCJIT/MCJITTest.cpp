@@ -18,15 +18,12 @@
 
 using namespace llvm;
 
+namespace {
+
 class MCJITTest : public testing::Test, public MCJITTestBase {
 protected:
-
-  virtual void SetUp() {
-    M.reset(createEmptyModule("<main>"));
-  }
+  virtual void SetUp() { M.reset(createEmptyModule("<main>")); }
 };
-
-namespace {
 
 // FIXME: Ensure creating an execution engine does not crash when constructed
 //        with a null module.

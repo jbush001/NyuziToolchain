@@ -738,6 +738,9 @@ void StmtPrinter::VisitPredefinedExpr(PredefinedExpr *Node) {
     case PredefinedExpr::Function:
       OS << "__FUNCTION__";
       break;
+    case PredefinedExpr::FuncDName:
+      OS << "__FUNCDNAME__";
+      break;
     case PredefinedExpr::LFunction:
       OS << "L__FUNCTION__";
       break;
@@ -1712,6 +1715,7 @@ static const char *getTypeTraitName(UnaryTypeTrait UTT) {
   case UTT_IsReference:             return "__is_reference";
   case UTT_IsRvalueReference:       return "__is_rvalue_reference";
   case UTT_IsScalar:                return "__is_scalar";
+  case UTT_IsSealed:                return "__is_sealed";
   case UTT_IsSigned:                return "__is_signed";
   case UTT_IsStandardLayout:        return "__is_standard_layout";
   case UTT_IsTrivial:               return "__is_trivial";

@@ -26,7 +26,7 @@
 #include "llvm/Support/Debug.h"
 #include "VectorProcRegisterInfo.h"
 
-#define GET_INSTRINFO_CTOR
+#define GET_INSTRINFO_CTOR_DTOR
 #include "VectorProcGenInstrInfo.inc"
 
 using namespace llvm;

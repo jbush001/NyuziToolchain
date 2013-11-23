@@ -77,6 +77,7 @@ public:
 // FIXME: declared here because it is used from
 // lib/CodeGen/AsmPrinter/ARMException.cpp.
 class ARMTargetStreamer : public MCTargetStreamer {
+  virtual void anchor();
 public:
   virtual void emitFnStart() = 0;
   virtual void emitFnEnd() = 0;
@@ -88,6 +89,12 @@ public:
   virtual void emitPad(int64_t Offset) = 0;
   virtual void emitRegSave(const SmallVectorImpl<unsigned> &RegList,
                            bool isVector) = 0;
+
+  virtual void switchVendor(StringRef Vendor) = 0;
+  virtual void emitAttribute(unsigned Attribute, unsigned Value) = 0;
+  virtual void emitTextAttribute(unsigned Attribute, StringRef String) = 0;
+  virtual void emitFPU(unsigned FPU) = 0;
+  virtual void finishAttributeSection() = 0;
 };
 
 /// MCStreamer - Streaming machine code generation interface.  This interface
@@ -149,6 +156,8 @@ protected:
     return CurrentW64UnwindInfo;
   }
   void EmitW64Tables();
+
+  virtual void EmitRawTextImpl(StringRef String);
 
 public:
   virtual ~MCStreamer();
@@ -658,7 +667,6 @@ public:
   /// EmitRawText - If this file is backed by a assembly streamer, this dumps
   /// the specified string in the output .s file.  This capability is
   /// indicated by the hasRawTextSupport() predicate.  By default this aborts.
-  virtual void EmitRawText(StringRef String);
   void EmitRawText(const Twine &String);
 
   /// Flush - Causes any cached state to be written out.

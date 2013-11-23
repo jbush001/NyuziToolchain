@@ -19,6 +19,7 @@
 #include "llvm/ADT/DenseMap.h"
 
 #include <map>
+#include <string>
 #include <vector>
 
 namespace lld {
@@ -39,13 +40,15 @@ public:
     explicit CompareAtoms(const LayoutPass &pass) : _layout(pass) {}
     bool operator()(const DefinedAtom *left, const DefinedAtom *right) const;
   private:
+    bool compare(const DefinedAtom *left, const DefinedAtom *right,
+                 std::string &reason) const;
     const LayoutPass &_layout;
   };
 
   LayoutPass() : Pass(), _compareAtoms(*this) {}
 
   /// Sorts atoms in mergedFile by content type then by command line order.
-  virtual void perform(MutableFile &mergedFile);
+  virtual void perform(std::unique_ptr<MutableFile> &mergedFile);
 
   virtual ~LayoutPass() {}
 
@@ -64,11 +67,6 @@ private:
 
   // Build a map of Atoms to ordinals for sorting the atoms
   void buildOrdinalOverrideMap(MutableFile::DefinedAtomRange &range);
-
-#ifndef NDEBUG
-  // Check if the follow-on graph is a correct structure. For debugging only.
-  void checkFollowonChain(MutableFile::DefinedAtomRange &range);
-#endif
 
   typedef llvm::DenseMap<const DefinedAtom *, const DefinedAtom *> AtomToAtomT;
   typedef llvm::DenseMap<const DefinedAtom *, uint64_t> AtomToOrdinalT;
@@ -93,6 +91,14 @@ private:
   bool checkAllPrevAtomsZeroSize(const DefinedAtom *targetAtom);
 
   void setChainRoot(const DefinedAtom *targetAtom, const DefinedAtom *root);
+
+#ifndef NDEBUG
+  // Check if the follow-on graph is a correct structure. For debugging only.
+  void checkFollowonChain(MutableFile::DefinedAtomRange &range);
+
+  typedef std::vector<const DefinedAtom *>::iterator DefinedAtomIter;
+  void checkTransitivity(DefinedAtomIter begin, DefinedAtomIter end) const;
+#endif
 };
 
 } // namespace lld

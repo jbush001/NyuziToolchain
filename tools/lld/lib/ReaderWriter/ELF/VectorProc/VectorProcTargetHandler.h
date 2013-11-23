@@ -23,7 +23,7 @@ class VectorProcTargetRelocationHandler LLVM_FINAL
 public:
   VectorProcTargetRelocationHandler(const VectorProcLinkingContext &ti) : _targetInfo(ti) {}
 
-  virtual ErrorOr<void> applyRelocation(ELFWriter &, llvm::FileOutputBuffer &,
+  virtual error_code applyRelocation(ELFWriter &, llvm::FileOutputBuffer &,
                                         const lld::AtomLayout &,
                                         const Reference &)const;
 

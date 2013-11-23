@@ -1,11 +1,10 @@
-//===- Passes/LayoutPass.cpp - Layout atoms -------------------------------===//
+//===--Passes/LayoutPass.cpp - Layout atoms -------------------------------===//
 //
 //                             The LLVM Linker
 //
 // This file is distributed under the University of Illinois Open Source
 // License. See LICENSE.TXT for details.
 //
-//===----------------------------------------------------------------------===//
 //===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "LayoutPass"
@@ -20,6 +19,30 @@
 
 using namespace lld;
 
+#ifndef NDEBUG
+namespace {
+// Return "reason (leftval, rightval)"
+std::string formatReason(StringRef reason, int leftVal, int rightVal) {
+  Twine msg =
+      Twine(reason) + " (" + Twine(leftVal) + ", " + Twine(rightVal) + ")";
+  return msg.str();
+}
+} // end anonymous namespace
+
+// Less-than relationship of two atoms must be transitive, which is, if a < b
+// and b < c, a < c must be true. This function checks the transitivity by
+// checking the sort results.
+void LayoutPass::checkTransitivity(DefinedAtomIter begin,
+                                   DefinedAtomIter end) const {
+  for (DefinedAtomIter i = begin; (i + 1) != end; ++i) {
+    for (DefinedAtomIter j = i + 1; j != end; ++j) {
+      assert(_compareAtoms(*i, *j));
+      assert(!_compareAtoms(*j, *i));
+    }
+  }
+}
+#endif // NDEBUG
+
 /// The function compares atoms by sorting atoms in the following order
 /// a) Sorts atoms by Section position preference
 /// b) Sorts atoms by their ordinal overrides
@@ -28,90 +51,98 @@ using namespace lld;
 /// d) Sorts atoms by their content
 /// e) Sorts atoms on how they appear using File Ordinality
 /// f) Sorts atoms on how they appear within the File
-bool LayoutPass::CompareAtoms::operator()(const DefinedAtom *left,
-                                          const DefinedAtom *right) const {
-  DEBUG(llvm::dbgs() << "Sorting " << left->name() << " " << right->name() << "\n");
-  if (left == right)
+bool LayoutPass::CompareAtoms::compare(const DefinedAtom *left,
+                                       const DefinedAtom *right,
+                                       std::string &reason) const {
+  if (left == right) {
+    reason = "same";
     return false;
+  }
 
   // Sort by section position preference.
   DefinedAtom::SectionPosition leftPos = left->sectionPosition();
   DefinedAtom::SectionPosition rightPos = right->sectionPosition();
 
-  DEBUG(llvm::dbgs() << "Sorting by sectionPos"
-                     << "(" << leftPos << "," << rightPos << ")\n");
-
   bool leftSpecialPos = (leftPos != DefinedAtom::sectionPositionAny);
   bool rightSpecialPos = (rightPos != DefinedAtom::sectionPositionAny);
   if (leftSpecialPos || rightSpecialPos) {
-    if (leftPos != rightPos)
+    if (leftPos != rightPos) {
+      DEBUG(reason = formatReason("sectionPos", (int)leftPos, (int)rightPos));
       return leftPos < rightPos;
-  }
-
-  DEBUG(llvm::dbgs() << "Sorting by override\n");
-
-  AtomToOrdinalT::const_iterator lPos = _layout._ordinalOverrideMap.find(left);
-  AtomToOrdinalT::const_iterator rPos = _layout._ordinalOverrideMap.find(right);
-  AtomToOrdinalT::const_iterator end = _layout._ordinalOverrideMap.end();
-
-  // Sort atoms by their ordinal overrides only if they fall in the same
-  // chain.
-  auto leftAtom = _layout._followOnRoots.find(left);
-  auto rightAtom = _layout._followOnRoots.find(right);
-
-  if (leftAtom != _layout._followOnRoots.end() &&
-      rightAtom != _layout._followOnRoots.end() &&
-      leftAtom->second == rightAtom->second) {
-    if ((lPos != end) && (rPos != end)) {
-      return lPos->second < rPos->second;
     }
   }
 
+  // Find the root of the chain if it is a part of a follow-on chain.
+  auto leftFind = _layout._followOnRoots.find(left);
+  auto rightFind = _layout._followOnRoots.find(right);
+  const DefinedAtom *leftRoot =
+      (leftFind == _layout._followOnRoots.end()) ? left : leftFind->second;
+  const DefinedAtom *rightRoot =
+      (rightFind == _layout._followOnRoots.end()) ? right : rightFind->second;
+
+  // Sort atoms by their ordinal overrides only if they fall in the same
+  // chain.
+  AtomToOrdinalT::const_iterator lPos = _layout._ordinalOverrideMap.find(left);
+  AtomToOrdinalT::const_iterator rPos = _layout._ordinalOverrideMap.find(right);
+  AtomToOrdinalT::const_iterator end = _layout._ordinalOverrideMap.end();
+  if (leftRoot == rightRoot && lPos != end && rPos != end) {
+    DEBUG(reason = formatReason("override", lPos->second, rPos->second));
+    return lPos->second < rPos->second;
+  }
+
   // Sort same permissions together.
-  DefinedAtom::ContentPermissions leftPerms = left->permissions();
-  DefinedAtom::ContentPermissions rightPerms = right->permissions();
+  DefinedAtom::ContentPermissions leftPerms = leftRoot->permissions();
+  DefinedAtom::ContentPermissions rightPerms = rightRoot->permissions();
 
-  DEBUG(llvm::dbgs() << "Sorting by contentPerms"
-                     << "(" << leftPerms << "," << rightPerms << ")\n");
-
-  if (leftPerms != rightPerms)
+  if (leftPerms != rightPerms) {
+    DEBUG(reason =
+              formatReason("contentPerms", (int)leftPerms, (int)rightPerms));
     return leftPerms < rightPerms;
+  }
 
   // Sort same content types together.
-  DefinedAtom::ContentType leftType = left->contentType();
-  DefinedAtom::ContentType rightType = right->contentType();
+  DefinedAtom::ContentType leftType = leftRoot->contentType();
+  DefinedAtom::ContentType rightType = rightRoot->contentType();
 
-  DEBUG(llvm::dbgs() << "Sorting by contentType"
-                     << "(" << leftType << "," << rightType << ")\n");
-
-  if (leftType != rightType)
+  if (leftType != rightType) {
+    DEBUG(reason = formatReason("contentType", (int)leftType, (int)rightType));
     return leftType < rightType;
+  }
 
   // Sort by .o order.
-  const File *leftFile = &left->file();
-  const File *rightFile = &right->file();
+  const File *leftFile = &leftRoot->file();
+  const File *rightFile = &rightRoot->file();
 
-  DEBUG(llvm::dbgs()
-        << "Sorting by .o order("
-        << "(" << leftFile->ordinal() << "," << rightFile->ordinal() << ")"
-        << "[" << leftFile->path() << "," << rightFile->path() << "]\n");
-
-  if (leftFile != rightFile)
+  if (leftFile != rightFile) {
+    DEBUG(reason = formatReason(".o order", (int)leftFile->ordinal(),
+                                (int)rightFile->ordinal()));
     return leftFile->ordinal() < rightFile->ordinal();
+  }
 
   // Sort by atom order with .o file.
-  uint64_t leftOrdinal = left->ordinal();
-  uint64_t rightOrdinal = right->ordinal();
+  uint64_t leftOrdinal = leftRoot->ordinal();
+  uint64_t rightOrdinal = rightRoot->ordinal();
 
-  DEBUG(llvm::dbgs() << "Sorting by ordinal(" << left->ordinal() << ","
-                     << right->ordinal() << ")\n");
-
-  if (leftOrdinal != rightOrdinal)
+  if (leftOrdinal != rightOrdinal) {
+    DEBUG(reason = formatReason("ordinal", (int)leftRoot->ordinal(),
+                                (int)rightRoot->ordinal()));
     return leftOrdinal < rightOrdinal;
+  }
 
   DEBUG(llvm::dbgs() << "Unordered\n");
-
   llvm_unreachable("Atoms with Same Ordinal!");
+}
+
+bool LayoutPass::CompareAtoms::operator()(const DefinedAtom *left,
+                                          const DefinedAtom *right) const {
+  std::string reason;
+  bool result = compare(left, right, reason);
+  DEBUG({
+    StringRef comp = result ? "<" : ">=";
+    llvm::dbgs() << "Layout: '" << left->name() << "' " << comp << " '"
+                 << right->name() << "' (" << reason << ")\n";
+  });
+  return result;
 }
 
 // Returns the atom immediately followed by the given atom in the followon
@@ -192,7 +223,7 @@ void LayoutPass::buildFollowOnTable(MutableFile::DefinedAtomRange &range) {
     for (const Reference *r : *ai) {
       if (r->kind() != lld::Reference::kindLayoutAfter)
         continue;
-      const DefinedAtom *targetAtom = llvm::dyn_cast<DefinedAtom>(r->target());
+      const DefinedAtom *targetAtom = dyn_cast<DefinedAtom>(r->target());
       _followOnNexts[ai] = targetAtom;
 
       // If we find a followon for the first time, lets make that atom as the
@@ -252,7 +283,7 @@ void LayoutPass::buildInGroupTable(MutableFile::DefinedAtomRange &range) {
   for (const DefinedAtom *ai : range) {
     for (const Reference *r : *ai) {
       if (r->kind() == lld::Reference::kindInGroup) {
-        const DefinedAtom *rootAtom = llvm::dyn_cast<DefinedAtom>(r->target());
+        const DefinedAtom *rootAtom = dyn_cast<DefinedAtom>(r->target());
         // If the root atom is not part of any root
         // create a new root
         if (_followOnRoots.count(rootAtom) == 0) {
@@ -324,7 +355,7 @@ void LayoutPass::buildPrecededByTable(MutableFile::DefinedAtomRange &range) {
   for (const DefinedAtom *ai : range) {
     for (const Reference *r : *ai) {
       if (r->kind() == lld::Reference::kindLayoutBefore) {
-        const DefinedAtom *targetAtom = llvm::dyn_cast<DefinedAtom>(r->target());
+        const DefinedAtom *targetAtom = dyn_cast<DefinedAtom>(r->target());
         // Is the targetAtom not chained
         if (_followOnRoots.count(targetAtom) == 0) {
           // Is the current atom not part of any root ?
@@ -397,7 +428,7 @@ namespace {
 typedef llvm::DenseMap<const DefinedAtom *, const DefinedAtom *> AtomToAtomT;
 
 std::string atomToDebugString(const Atom *atom) {
-  const DefinedAtom *definedAtom = llvm::dyn_cast<DefinedAtom>(atom);
+  const DefinedAtom *definedAtom = dyn_cast<DefinedAtom>(atom);
   std::string str;
   llvm::raw_string_ostream s(str);
   if (definedAtom->name().empty())
@@ -502,9 +533,9 @@ void LayoutPass::checkFollowonChain(MutableFile::DefinedAtomRange &range) {
 #endif  // #ifndef NDEBUG
 
 /// Perform the actual pass
-void LayoutPass::perform(MutableFile &mergedFile) {
+void LayoutPass::perform(std::unique_ptr<MutableFile> &mergedFile) {
   ScopedTask task(getDefaultDomain(), "LayoutPass");
-  MutableFile::DefinedAtomRange atomRange = mergedFile.definedAtoms();
+  MutableFile::DefinedAtomRange atomRange = mergedFile->definedAtoms();
 
   // Build follow on tables
   buildFollowOnTable(atomRange);
@@ -528,6 +559,8 @@ void LayoutPass::perform(MutableFile &mergedFile) {
 
   // sort the atoms
   std::sort(atomRange.begin(), atomRange.end(), _compareAtoms);
+
+  DEBUG(checkTransitivity(atomRange.begin(), atomRange.end()));
 
   DEBUG({
     llvm::dbgs() << "sorted atoms:\n";

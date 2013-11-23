@@ -31,9 +31,6 @@ AMDGPUMCAsmInfo::AMDGPUMCAsmInfo(StringRef &TT) : MCAsmInfo() {
   InlineAsmStart = ";#ASMSTART";
   InlineAsmEnd = ";#ASMEND";
   AssemblerDialect = 0;
-  AllowQuotesInName = false;
-  AllowNameToStartWithDigit = false;
-  AllowPeriodsInName = false;
 
   //===--- Data Emission Directives -------------------------------------===//
   ZeroDirective = ".zero";
@@ -55,13 +52,11 @@ AMDGPUMCAsmInfo::AMDGPUMCAsmInfo(StringRef &TT) : MCAsmInfo() {
 
   //===--- Global Variable Emission Directives --------------------------===//
   GlobalDirective = ".global";
-  ExternDirective = ".extern";
   HasSetDirective = false;
   HasAggressiveSymbolFolding = true;
   COMMDirectiveAlignmentIsInBytes = false;
   HasDotTypeDotSizeDirective = false;
   HasNoDeadStrip = true;
-  HasSymbolResolver = false;
   WeakRefDirective = ".weakref\t";
   LinkOnceDirective = 0;
   //===--- Dwarf Emission Directives -----------------------------------===//

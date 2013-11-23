@@ -7,13 +7,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLD_READER_WRITER_NATIVE_FILE_FORMAT_H_
-#define LLD_READER_WRITER_NATIVE_FILE_FORMAT_H_
+#ifndef LLD_READER_WRITER_NATIVE_NATIVE_FILE_FORMAT_H
+#define LLD_READER_WRITER_NATIVE_NATIVE_FILE_FORMAT_H
+
+#include <cstdint>
 
 #include "llvm/Support/DataTypes.h"
 
 namespace lld {
-
 
 //
 // Overview:
@@ -152,6 +153,7 @@ struct NativeAtomAttributesV1 {
   uint8_t   contentType;
   uint8_t   sectionChoiceAndPosition; // high nibble is choice, low is position
   uint8_t   deadStrip;
+  uint8_t   dynamicExport;
   uint8_t   permissions;
   uint8_t   alias;
 };
@@ -198,7 +200,7 @@ struct NativeAbsoluteAtomIvarsV1 {
 //
 struct NativeReferenceIvarsV1 {
   enum {
-    noTarget = 0xFFFF
+    noTarget = UINT16_MAX
   };
   uint16_t  offsetInAtom;
    int16_t  kind;
@@ -211,6 +213,9 @@ struct NativeReferenceIvarsV1 {
 // The NCS_ReferencesArrayV2 chunk contains an array of these structs
 //
 struct NativeReferenceIvarsV2 {
+  enum {
+    noTarget = UINT32_MAX
+  };
   uint64_t  offsetInAtom;
   int64_t   addend;
   int32_t   kind;
@@ -244,4 +249,4 @@ struct NativeReferenceIvarsV2 {
 
 } // namespace lld
 
-#endif // LLD_READER_WRITER_NATIVE_FILE_FORMAT_H_
+#endif // LLD_READER_WRITER_NATIVE_NATIVE_FILE_FORMAT_H

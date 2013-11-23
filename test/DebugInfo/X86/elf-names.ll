@@ -4,11 +4,14 @@
 
 ; CHECK: 0x0000000b: DW_TAG_compile_unit
 ; CHECK:               DW_AT_name [DW_FORM_strp] ( .debug_str[0x00000035] = "foo.cpp")
-; CHECK: 0x0000003c:   DW_TAG_class_type
-; CHECK:                 DW_AT_name [DW_FORM_strp]       ( .debug_str[0x0000006d] = "D")
-; CHECK: 0x00000044:     DW_TAG_member
-; CHECK:                   DW_AT_name [DW_FORM_strp]     ( .debug_str[0x0000005d] = "c1")
-; CHECK:                   DW_AT_artificial [DW_FORM_flag_present]       (true)
+; CHECK: 0x{{[0-9a-f]+}}:   DW_TAG_class_type
+; CHECK:                 DW_AT_name [DW_FORM_strp]       ( .debug_str[0x{{[0-9a-f]+}}] = "D")
+; CHECK: 0x{{[0-9a-f]+}}:     DW_TAG_member
+; CHECK:                   DW_AT_name [DW_FORM_strp]     ( .debug_str[0x{{[0-9a-f]+}}] = "c1")
+; CHECK: DW_TAG_subprogram
+; CHECK-NEXT: DW_AT_name [DW_FORM_strp]     ( .debug_str[0x{{[0-9a-f]+}}] = "D")
+; CHECK: DW_TAG_formal_parameter
+; CHECK: DW_AT_artificial [DW_FORM_flag_present]       (true)
 
 ; CHECK-DIS: [artificial]
 
@@ -57,6 +60,7 @@ entry:
 declare void @llvm.dbg.value(metadata, i64, metadata) nounwind readnone
 
 !llvm.dbg.cu = !{!0}
+!llvm.module.flags = !{!54}
 
 !0 = metadata !{i32 786449, metadata !53, i32 4, metadata !"clang version 3.2 (trunk 167506) (llvm/trunk 167505)", i1 true, metadata !"", i32 0, metadata !1, metadata !1, metadata !3, metadata !1,  metadata !1, metadata !""} ; [ DW_TAG_compile_unit ] [/usr/local/google/home/echristo/foo.cpp] [DW_LANG_C_plus_plus]
 !1 = metadata !{i32 0}
@@ -107,3 +111,4 @@ declare void @llvm.dbg.value(metadata, i64, metadata) nounwind readnone
 !51 = metadata !{i32 23, i32 0, metadata !48, null}
 !52 = metadata !{i32 24, i32 0, metadata !48, null}
 !53 = metadata !{metadata !"foo.cpp", metadata !"/usr/local/google/home/echristo"}
+!54 = metadata !{i32 1, metadata !"Debug Info Version", i32 1}

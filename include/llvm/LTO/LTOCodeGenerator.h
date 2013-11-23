@@ -38,6 +38,7 @@
 #include "llvm-c/lto.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/Linker.h"
 #include "llvm/Target/TargetOptions.h"
 #include <string>
@@ -48,6 +49,7 @@ namespace llvm {
   class GlobalValue;
   class Mangler;
   class MemoryBuffer;
+  class TargetLibraryInfo;
   class TargetMachine;
   class raw_ostream;
 }
@@ -72,10 +74,6 @@ struct LTOCodeGenerator {
   void setCpu(const char *mCpu) { MCpu = mCpu; }
 
   void addMustPreserveSymbol(const char *sym) { MustPreserveSymbols[sym] = 1; }
-
-  void addDSOSymbol(const char* Sym) {
-    DSOSymbols[Sym] = 1;
-  }
 
   // To pass options to the driver and optimization passes. These options are
   // not necessarily for debugging purpose (The function name is misleading).
@@ -129,8 +127,8 @@ private:
                           std::string &errMsg);
   void applyScopeRestrictions();
   void applyRestriction(llvm::GlobalValue &GV,
+                        const llvm::ArrayRef<llvm::StringRef> &Libcalls,
                         std::vector<const char*> &MustPreserveList,
-                        std::vector<const char*> &SymtabList,
                         llvm::SmallPtrSet<llvm::GlobalValue*, 8> &AsmUsed,
                         llvm::Mangler &Mangler);
   bool determineTarget(std::string &errMsg);
@@ -143,7 +141,6 @@ private:
   bool EmitDwarfDebugInfo;
   bool ScopeRestrictionsDone;
   lto_codegen_model CodeModel;
-  StringSet DSOSymbols;
   StringSet MustPreserveSymbols;
   StringSet AsmUndefinedRefs;
   llvm::MemoryBuffer *NativeObjectFile;

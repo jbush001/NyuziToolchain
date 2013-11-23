@@ -164,7 +164,7 @@ def FPR64 : RegisterClass<"AArch64",
                           64, (sequence "D%u", 0, 31)>;
 
 def FPR128 : RegisterClass<"AArch64",
-                           [f128,v2f64, v2i64, v4f32, v4i32, v8i16, v16i8],
+                           [f128, v2f64, v2i64, v4f32, v4i32, v8i16, v16i8],
                            128, (sequence "Q%u", 0, 31)>;
 
 def FPR64Lo : RegisterClass<"AArch64",
@@ -172,7 +172,7 @@ def FPR64Lo : RegisterClass<"AArch64",
                             64, (sequence "D%u", 0, 15)>;
 
 def FPR128Lo : RegisterClass<"AArch64",
-                             [f128,v2f64, v2i64, v4f32, v4i32, v8i16, v16i8],
+                             [f128, v2f64, v2i64, v4f32, v4i32, v8i16, v16i8],
                              128, (sequence "Q%u", 0, 15)>;
 
 //===----------------------------------------------------------------------===//
@@ -261,12 +261,12 @@ multiclass VectorList_operands<string PREFIX, string LAYOUT, int Count,
     let Name = PREFIX # LAYOUT # Count;
     let RenderMethod = "addVectorListOperands";
     let PredicateMethod = 
-        "isVectorList<A64Layout::_" # LAYOUT # ", " # Count # ">";
+        "isVectorList<A64Layout::VL_" # LAYOUT # ", " # Count # ">";
     let ParserMethod = "ParseVectorList";
   }
 
   def _operand : RegisterOperand<RegList,
-        "printVectorList<A64Layout::_" # LAYOUT # ", " # Count # ">"> {
+        "printVectorList<A64Layout::VL_" # LAYOUT # ", " # Count # ">"> {
     let ParserMatchClass =
       !cast<AsmOperandClass>(PREFIX # LAYOUT # "_asmoperand");
   }

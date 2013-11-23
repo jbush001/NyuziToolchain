@@ -90,10 +90,16 @@ R600TargetLowering::R600TargetLowering(TargetMachine &TM) :
   setOperationAction(ISD::LOAD, MVT::i32, Custom);
   setOperationAction(ISD::LOAD, MVT::v2i32, Custom);
   setOperationAction(ISD::LOAD, MVT::v4i32, Custom);
+
+  // EXTLOAD should be the same as ZEXTLOAD. It is legal for some address
+  // spaces, so it is custom lowered to handle those where it isn't.
   setLoadExtAction(ISD::SEXTLOAD, MVT::i8, Custom);
   setLoadExtAction(ISD::SEXTLOAD, MVT::i16, Custom);
   setLoadExtAction(ISD::ZEXTLOAD, MVT::i8, Custom);
   setLoadExtAction(ISD::ZEXTLOAD, MVT::i16, Custom);
+  setLoadExtAction(ISD::EXTLOAD, MVT::i8, Custom);
+  setLoadExtAction(ISD::EXTLOAD, MVT::i16, Custom);
+
   setOperationAction(ISD::STORE, MVT::i8, Custom);
   setOperationAction(ISD::STORE, MVT::i32, Custom);
   setOperationAction(ISD::STORE, MVT::v2i32, Custom);
@@ -128,21 +134,17 @@ MachineBasicBlock * R600TargetLowering::EmitInstrWithCustomInserter(
 
   switch (MI->getOpcode()) {
   default:
-    if (TII->isLDSInstr(MI->getOpcode()) &&
-        TII->getOperandIdx(MI->getOpcode(), AMDGPU::OpName::dst) != -1) {
+    // Replace LDS_*_RET instruction that don't have any uses with the
+    // equivalent LDS_*_NORET instruction.
+    if (TII->isLDSRetInstr(MI->getOpcode())) {
       int DstIdx = TII->getOperandIdx(MI->getOpcode(), AMDGPU::OpName::dst);
       assert(DstIdx != -1);
       MachineInstrBuilder NewMI;
-      if (!MRI.use_empty(MI->getOperand(DstIdx).getReg())) {
-        NewMI = BuildMI(*BB, I, BB->findDebugLoc(I), TII->get(MI->getOpcode()),
-                        AMDGPU::OQAP);
-        TII->buildDefaultInstruction(*BB, I, AMDGPU::MOV,
-                                     MI->getOperand(0).getReg(),
-                                     AMDGPU::OQAP);
-      } else {
-        NewMI = BuildMI(*BB, I, BB->findDebugLoc(I),
-                        TII->get(AMDGPU::getLDSNoRetOp(MI->getOpcode())));
-      }
+      if (!MRI.use_empty(MI->getOperand(DstIdx).getReg()))
+        return BB;
+
+      NewMI = BuildMI(*BB, I, BB->findDebugLoc(I),
+                      TII->get(AMDGPU::getLDSNoRetOp(MI->getOpcode())));
       for (unsigned i = 1, e = MI->getNumOperands(); i < e; ++i) {
         NewMI.addOperand(MI->getOperand(i));
       }
@@ -513,7 +515,6 @@ SDValue R600TargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const 
   case ISD::SELECT_CC: return LowerSELECT_CC(Op, DAG);
   case ISD::STORE: return LowerSTORE(Op, DAG);
   case ISD::LOAD: return LowerLOAD(Op, DAG);
-  case ISD::FrameIndex: return LowerFrameIndex(Op, DAG);
   case ISD::GlobalAddress: return LowerGlobalAddress(MFI, Op, DAG);
   case ISD::INTRINSIC_VOID: {
     SDValue Chain = Op.getOperand(0);
@@ -578,7 +579,6 @@ SDValue R600TargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const 
             TII->getRegisterInfo().getSubRegFromChannel(slot % 4),
             DL, MVT::f32, SDValue(interp, 0));
       }
-
       MachineFunction &MF = DAG.getMachineFunction();
       MachineRegisterInfo &MRI = MF.getRegInfo();
       unsigned RegisterI = AMDGPU::R600_TReg32RegClass.getRegister(2 * ijb);
@@ -599,6 +599,24 @@ SDValue R600TargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const 
             MVT::f32, MVT::f32, DAG.getTargetConstant(slot / 4 , MVT::i32),
             RegisterJNode, RegisterINode);
       return SDValue(interp, slot % 2);
+    }
+    case AMDGPUIntrinsic::R600_interp_xy:
+    case AMDGPUIntrinsic::R600_interp_zw: {
+      int slot = cast<ConstantSDNode>(Op.getOperand(1))->getZExtValue();
+      MachineSDNode *interp;
+      SDValue RegisterINode = Op.getOperand(2);
+      SDValue RegisterJNode = Op.getOperand(3);
+
+      if (IntrinsicID == AMDGPUIntrinsic::R600_interp_xy)
+        interp = DAG.getMachineNode(AMDGPU::INTERP_PAIR_XY, DL,
+            MVT::f32, MVT::f32, DAG.getTargetConstant(slot, MVT::i32),
+            RegisterJNode, RegisterINode);
+      else
+        interp = DAG.getMachineNode(AMDGPU::INTERP_PAIR_ZW, DL,
+            MVT::f32, MVT::f32, DAG.getTargetConstant(slot, MVT::i32),
+            RegisterJNode, RegisterINode);
+      return DAG.getNode(ISD::BUILD_VECTOR, DL, MVT::v2f32,
+          SDValue(interp, 0), SDValue(interp, 1));
     }
     case AMDGPUIntrinsic::R600_tex:
     case AMDGPUIntrinsic::R600_texc:
@@ -818,20 +836,6 @@ SDValue R600TargetLowering::LowerImplicitParameter(SelectionDAG &DAG, EVT VT,
                      DAG.getConstant(ByteOffset, MVT::i32), // PTR
                      MachinePointerInfo(ConstantPointerNull::get(PtrType)),
                      false, false, false, 0);
-}
-
-SDValue R600TargetLowering::LowerFrameIndex(SDValue Op, SelectionDAG &DAG) const {
-
-  MachineFunction &MF = DAG.getMachineFunction();
-  const AMDGPUFrameLowering *TFL =
-   static_cast<const AMDGPUFrameLowering*>(getTargetMachine().getFrameLowering());
-
-  FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>(Op);
-  assert(FIN);
-
-  unsigned FrameIndex = FIN->getIndex();
-  unsigned Offset = TFL->getFrameIndexOffset(MF, FrameIndex);
-  return DAG.getConstant(Offset * 4 * TFL->getStackWidth(MF), MVT::i32);
 }
 
 bool R600TargetLowering::isZero(SDValue Op) const {
@@ -1209,11 +1213,13 @@ SDValue R600TargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const
   }
 
   int ConstantBlock = ConstantAddressBlock(LoadNode->getAddressSpace());
-  if (ConstantBlock > -1) {
+  if (ConstantBlock > -1 &&
+      ((LoadNode->getExtensionType() == ISD::NON_EXTLOAD) ||
+       (LoadNode->getExtensionType() == ISD::ZEXTLOAD))) {
     SDValue Result;
-    if (dyn_cast<ConstantExpr>(LoadNode->getSrcValue()) ||
-        dyn_cast<Constant>(LoadNode->getSrcValue()) ||
-        dyn_cast<ConstantSDNode>(Ptr)) {
+    if (isa<ConstantExpr>(LoadNode->getSrcValue()) ||
+        isa<Constant>(LoadNode->getSrcValue()) ||
+        isa<ConstantSDNode>(Ptr)) {
       SDValue Slots[4];
       for (unsigned i = 0; i < 4; i++) {
         // We want Const position encoded with the following formula :
@@ -1253,13 +1259,13 @@ SDValue R600TargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const
     return DAG.getMergeValues(MergedValues, 2, DL);
   }
 
-  // For most operations returning SDValue() will result int he node being
-  // expanded by the DAG Legalizer.  This is not the case for ISD::LOAD, so
-  // we need to manually expand loads that may be legal in some address spaces
-  // and illegal in others.  SEXT loads from CONSTANT_BUFFER_0 are supported
-  // for compute shaders, since the data is sign extended when it is uploaded
-  // to the buffer.  Howerver SEXT loads from other addresspaces are not
-  // supported, so we need to expand them here.
+  // For most operations returning SDValue() will result in the node being
+  // expanded by the DAG Legalizer. This is not the case for ISD::LOAD, so we
+  // need to manually expand loads that may be legal in some address spaces and
+  // illegal in others. SEXT loads from CONSTANT_BUFFER_0 are supported for
+  // compute shaders, since the data is sign extended when it is uploaded to the
+  // buffer. However SEXT loads from other address spaces are not supported, so
+  // we need to expand them here.
   if (LoadNode->getExtensionType() == ISD::SEXTLOAD) {
     EVT MemVT = LoadNode->getMemoryVT();
     assert(!MemVT.isVector() && (MemVT == MVT::i16 || MemVT == MVT::i8));
@@ -1339,23 +1345,39 @@ SDValue R600TargetLowering::LowerFormalArguments(
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
                  getTargetMachine(), ArgLocs, *DAG.getContext());
+  MachineFunction &MF = DAG.getMachineFunction();
+  unsigned ShaderType = MF.getInfo<R600MachineFunctionInfo>()->ShaderType;
 
-  AnalyzeFormalArguments(CCInfo, Ins);
+  SmallVector<ISD::InputArg, 8> LocalIns;
+
+  getOriginalFunctionArgs(DAG, DAG.getMachineFunction().getFunction(), Ins,
+                          LocalIns);
+
+  AnalyzeFormalArguments(CCInfo, LocalIns);
 
   for (unsigned i = 0, e = Ins.size(); i < e; ++i) {
     CCValAssign &VA = ArgLocs[i];
-    EVT VT = VA.getLocVT();
+    EVT VT = Ins[i].VT;
+    EVT MemVT = LocalIns[i].VT;
+
+    if (ShaderType != ShaderType::COMPUTE) {
+      unsigned Reg = MF.addLiveIn(VA.getLocReg(), &AMDGPU::R600_Reg128RegClass);
+      SDValue Register = DAG.getCopyFromReg(Chain, DL, Reg, VT);
+      InVals.push_back(Register);
+      continue;
+    }
 
     PointerType *PtrTy = PointerType::get(VT.getTypeForEVT(*DAG.getContext()),
                                                    AMDGPUAS::CONSTANT_BUFFER_0);
 
     // The first 36 bytes of the input buffer contains information about
     // thread group and global sizes.
-    SDValue Arg = DAG.getLoad(VT, DL, Chain,
-                           DAG.getConstant(36 + VA.getLocMemOffset(), MVT::i32),
-                           MachinePointerInfo(UndefValue::get(PtrTy)), false,
-                           false, false, 4); // 4 is the prefered alignment for
-                                             // the CONSTANT memory space.
+    SDValue Arg = DAG.getExtLoad(ISD::SEXTLOAD, DL, VT, Chain,
+                                 DAG.getConstant(36 + VA.getLocMemOffset(), MVT::i32),
+                                 MachinePointerInfo(UndefValue::get(PtrTy)),
+                                 MemVT, false, false, 4);
+                                 // 4 is the prefered alignment for
+                                 // the CONSTANT memory space.
     InVals.push_back(Arg);
   }
   return Chain;
@@ -1518,8 +1540,8 @@ SDValue R600TargetLowering::PerformDAGCombine(SDNode *N,
     break;
   }
 
-  // insert_vector_elt (build_vector elt0, …, eltN), NewEltIdx, idx
-  // => build_vector elt0, …, NewEltIdx, …, eltN
+  // insert_vector_elt (build_vector elt0, ... , eltN), NewEltIdx, idx
+  // => build_vector elt0, ... , NewEltIdx, ... , eltN
   case ISD::INSERT_VECTOR_ELT: {
     SDValue InVec = N->getOperand(0);
     SDValue InVal = N->getOperand(1);
@@ -1827,7 +1849,7 @@ SDNode *R600TargetLowering::PostISelFolding(MachineSDNode *Node,
   std::vector<SDValue> Ops;
   for(SDNode::op_iterator I = Node->op_begin(), E = Node->op_end();
               I != E; ++I)
-	  Ops.push_back(*I);
+          Ops.push_back(*I);
 
   if (Opcode == AMDGPU::DOT_4) {
     int OperandIdx[] = {
@@ -1839,7 +1861,7 @@ SDNode *R600TargetLowering::PostISelFolding(MachineSDNode *Node,
       TII->getOperandIdx(Opcode, AMDGPU::OpName::src1_Y),
       TII->getOperandIdx(Opcode, AMDGPU::OpName::src1_Z),
       TII->getOperandIdx(Opcode, AMDGPU::OpName::src1_W)
-	};
+        };
     int NegIdx[] = {
       TII->getOperandIdx(Opcode, AMDGPU::OpName::src0_neg_X),
       TII->getOperandIdx(Opcode, AMDGPU::OpName::src0_neg_Y),
@@ -1892,7 +1914,7 @@ SDNode *R600TargetLowering::PostISelFolding(MachineSDNode *Node,
     std::vector<SDValue> Ops;
     unsigned NumOp = Src.getNumOperands();
     for(unsigned i = 0; i < NumOp; ++i)
-  	  Ops.push_back(Src.getOperand(i));
+          Ops.push_back(Src.getOperand(i));
     Ops[ClampIdx - 1] = DAG.getTargetConstant(1, MVT::i32);
     return DAG.getMachineNode(Src.getMachineOpcode(), SDLoc(Node),
         Node->getVTList(), Ops);

@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef LLD_READER_WRITER_OUTPUT_ELF_WRITER_H
-#define LLD_READER_WRITER_OUTPUT_ELF_WRITER_H
+#ifndef LLD_READER_WRITER_ELF_OUTPUT_WRITER_H
+#define LLD_READER_WRITER_ELF_OUTPUT_WRITER_H
 
 #include "lld/Core/Instrumentation.h"
 #include "lld/Core/Parallel.h"
@@ -105,6 +105,7 @@ protected:
   LLD_UNIQUE_BUMP_PTR(StringTable<ELFT>) _strtab;
   LLD_UNIQUE_BUMP_PTR(StringTable<ELFT>) _shstrtab;
   LLD_UNIQUE_BUMP_PTR(SectionHeader<ELFT>) _shdrtab;
+  LLD_UNIQUE_BUMP_PTR(EHFrameHeader<ELFT>) _ehFrameHeader;
   /// \name Dynamic sections.
   /// @{
   LLD_UNIQUE_BUMP_PTR(DynamicTable<ELFT>) _dynamicTable;
@@ -150,6 +151,14 @@ void OutputELFWriter<ELFT>::buildStaticSymbolTable(const File &file) {
 template <class ELFT>
 void OutputELFWriter<ELFT>::buildDynamicSymbolTable(const File &file) {
   ScopedTask task(getDefaultDomain(), "buildDynamicSymbolTable");
+  for (auto sec : this->_layout->sections())
+    if (auto section = dyn_cast<AtomSection<ELFT>>(sec))
+      for (const auto &atom : section->atoms()) {
+        const DefinedAtom *da = dyn_cast<const DefinedAtom>(atom->_atom);
+        if (da && da->dynamicExport() == DefinedAtom::dynamicExportAlways)
+          _dynamicSymbolTable->addSymbol(atom->_atom, section->ordinal(),
+                                         atom->_virtualAddr, atom);
+      }
   for (const auto sla : file.sharedLibrary()) {
     _dynamicSymbolTable->addSymbol(sla, ELF::SHN_UNDEF);
     _soNeeded.insert(sla->loadName());
@@ -266,6 +275,15 @@ template <class ELFT> void OutputELFWriter<ELFT>::createDefaultSections() {
   _shdrtab->setStringSection(_shstrtab.get());
   _symtab->setStringSection(_strtab.get());
   _layout->addSection(_shdrtab.get());
+
+  for (auto sec : _layout->sections()) {
+    if (sec->name() != ".eh_frame")
+      continue;
+    _ehFrameHeader.reset(new (_alloc) EHFrameHeader<ELFT>(
+        _context, ".eh_frame_hdr", DefaultLayout<ELFT>::ORDER_EH_FRAMEHDR));
+    _layout->addSection(_ehFrameHeader.get());
+    break;
+  }
 
   if (_context.isDynamic()) {
     _dynamicTable.reset(new (_alloc) DynamicTable<ELFT>(
@@ -409,4 +427,4 @@ error_code OutputELFWriter<ELFT>::writeFile(const File &file, StringRef path) {
 } // namespace elf
 } // namespace lld
 
-#endif // LLD_READER_WRITER_OUTPUT_ELF_WRITER_H
+#endif // LLD_READER_WRITER_ELF_OUTPUT_WRITER_H

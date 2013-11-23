@@ -5,16 +5,16 @@ This test serves two purposes:
 
 (1) It documents all existing warnings that currently have no associated -W flag,
     and ensures that the list never grows.
-    
+
     If take an existing warning and add a flag, this test will fail.  To
     fix this test, simply remove that warning from the list below.
-    
+
 (2) It prevents us adding new warnings to Clang that have no -W flag.  All
     new warnings should have -W flags.
-    
+
     If you add a new warning without a flag, this test will fail.  To fix
     this test, simply add a warning group to that warning.
-    
+
 
 The list of warnings below should NEVER grow.  It should gradually shrink to 0.
 
@@ -23,6 +23,7 @@ CHECK-NEXT:   ext_delete_void_ptr_operand
 CHECK-NEXT:   ext_expected_semi_decl_list
 CHECK-NEXT:   ext_explicit_specialization_storage_class
 CHECK-NEXT:   ext_implicit_lib_function_decl
+CHECK-NEXT:   ext_many_braces_around_scalar_init
 CHECK-NEXT:   ext_missing_declspec
 CHECK-NEXT:   ext_missing_whitespace_after_macro_name
 CHECK-NEXT:   ext_new_paren_array_nonconst
@@ -87,7 +88,6 @@ CHECK-NEXT:   warn_initializer_string_for_char_array_too_long
 CHECK-NEXT:   warn_inline_namespace_reopened_noninline
 CHECK-NEXT:   warn_integer_too_large_for_signed
 CHECK-NEXT:   warn_invalid_asm_cast_lvalue
-CHECK-NEXT:   warn_many_braces_around_scalar_init
 CHECK-NEXT:   warn_maynot_respond
 CHECK-NEXT:   warn_method_param_redefinition
 CHECK-NEXT:   warn_mismatched_exception_spec

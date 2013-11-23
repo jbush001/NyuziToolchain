@@ -37,43 +37,9 @@
 using llvm::StringRef;
 using llvm::error_code;
 using llvm::dyn_cast;
-
-using llvm::yaml::MappingTraits;
-using llvm::yaml::SequenceTraits;
-using llvm::yaml::ScalarEnumerationTraits;
-using llvm::yaml::ScalarBitSetTraits;
-using llvm::yaml::ScalarTraits;
-using llvm::yaml::IO;
-using llvm::yaml::Hex64;
-using llvm::yaml::Hex32;
-using llvm::yaml::Hex8;
-
-using llvm::MachO::HeaderFileType;
-using llvm::MachO::RebaseType;
-using llvm::MachO::BindType;
-using llvm::MachO::NListType;
-using llvm::MachO::RelocationInfoType;
-using llvm::MachO::SectionType;
-using llvm::MachO::LoadCommandType;
-
-using lld::mach_o::normalized::Section;
-using lld::mach_o::normalized::Symbol;
-using lld::mach_o::normalized::Relocation;
-using lld::mach_o::normalized::Relocations;
-using lld::mach_o::normalized::IndirectSymbols;
-using lld::mach_o::normalized::ContentBytes;
-using lld::mach_o::normalized::FileFlags;
-using lld::mach_o::normalized::SectionAttr;
-using lld::mach_o::normalized::SymbolScope;
-using lld::mach_o::normalized::SymbolDesc;
-using lld::mach_o::normalized::VMProtect;
-using lld::mach_o::normalized::Segment;
-using lld::mach_o::normalized::DependentDylib;
-using lld::mach_o::normalized::RebaseLocation;
-using lld::mach_o::normalized::BindLocation;
-using lld::mach_o::normalized::ExportFlags;
-using lld::mach_o::normalized::Export;
-using lld::mach_o::normalized::NormalizedFile;
+using namespace llvm::yaml;
+using namespace llvm::MachO;
+using namespace lld::mach_o::normalized;
 
 
 LLVM_YAML_IS_SEQUENCE_VECTOR(Segment);
@@ -416,7 +382,7 @@ struct MappingTraits<Symbol> {
 // Custom mapping for VMProtect (e.g. "r-x").
 template <>
 struct ScalarTraits<VMProtect> {
-  static void output(const VMProtect &value, void*, llvm::raw_ostream &out) {
+  static void output(const VMProtect &value, void*, raw_ostream &out) {
     out << ( (value & llvm::MachO::VM_PROT_READ)    ? 'r' : '-');
     out << ( (value & llvm::MachO::VM_PROT_WRITE)   ? 'w' : '-');
     out << ( (value & llvm::MachO::VM_PROT_EXECUTE) ? 'x' : '-');
@@ -641,7 +607,7 @@ readYaml(std::unique_ptr<MemoryBuffer> &mb) {
 
 /// Writes a yaml encoded mach-o files from an in-memory normalized view.
 error_code 
-writeYaml(const NormalizedFile &file, llvm::raw_ostream &out) {
+writeYaml(const NormalizedFile &file, raw_ostream &out) {
   // YAML I/O is not const aware, so need to cast away ;-(
   NormalizedFile *f = const_cast<NormalizedFile*>(&file);
 

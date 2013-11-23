@@ -35,8 +35,7 @@ VectorProcMCInstLower::VectorProcMCInstLower(VectorProcAsmPrinter &asmprinter)
 {
 }
 
-void VectorProcMCInstLower::Initialize(Mangler *M, MCContext *C) {
-  Mang = M;
+void VectorProcMCInstLower::Initialize(MCContext *C) {
   Ctx = C;
 }
 
@@ -52,7 +51,7 @@ MCOperand VectorProcMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
     break;
 
   case MachineOperand::MO_GlobalAddress:
-    Symbol = Mang->getSymbol(MO.getGlobal());
+    Symbol = AsmPrinter.getSymbol(MO.getGlobal());
     Offset += MO.getOffset();
     break;
 

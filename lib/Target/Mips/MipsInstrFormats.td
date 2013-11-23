@@ -183,7 +183,7 @@ class BranchBase<bits<6> op, dag outs, dag ins, string asmstr,
 // Format J instruction class in Mips : <|opcode|address|>
 //===----------------------------------------------------------------------===//
 
-class FJ<bits<6> op>
+class FJ<bits<6> op> : StdArch
 {
   bits<26> target;
 
@@ -272,7 +272,7 @@ class SRLV_FM<bits<6> funct, bit rotate> : StdArch {
   let Inst{5-0}   = funct;
 }
 
-class BEQ_FM<bits<6> op> {
+class BEQ_FM<bits<6> op> : StdArch {
   bits<5>  rs;
   bits<5>  rt;
   bits<16> offset;
@@ -285,7 +285,7 @@ class BEQ_FM<bits<6> op> {
   let Inst{15-0}  = offset;
 }
 
-class BGEZ_FM<bits<6> op, bits<5> funct> {
+class BGEZ_FM<bits<6> op, bits<5> funct> : StdArch {
   bits<5>  rs;
   bits<16> offset;
 
@@ -375,7 +375,7 @@ class LUI_FM : StdArch {
   let Inst{15-0}  = imm16;
 }
 
-class JALR_FM {
+class JALR_FM : StdArch {
   bits<5> rd;
   bits<5> rs;
 
@@ -389,7 +389,7 @@ class JALR_FM {
   let Inst{5-0}   = 9;
 }
 
-class BGEZAL_FM<bits<5> funct> {
+class BGEZAL_FM<bits<5> funct> : StdArch {
   bits<5>  rs;
   bits<16> offset;
 
@@ -454,7 +454,7 @@ class RDHWR_FM {
   let Inst{5-0}   = 0x3b;
 }
 
-class TEQ_FM<bits<6> funct> {
+class TEQ_FM<bits<6> funct> : StdArch {
   bits<5> rs;
   bits<5> rt;
   bits<10> code_;
@@ -468,7 +468,7 @@ class TEQ_FM<bits<6> funct> {
   let Inst{5-0}   = funct;
 }
 
-class TEQI_FM<bits<5> funct> {
+class TEQI_FM<bits<5> funct> : StdArch {
   bits<5> rs;
   bits<16> imm16;
 

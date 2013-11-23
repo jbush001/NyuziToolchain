@@ -416,7 +416,7 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 	setOperationAction(ISD::FDIV, MVT::v16f32, Custom);
 	setOperationAction(ISD::BR_JT, MVT::Other, Custom);
 	setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16i32, Custom);
-	setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16i32, Custom);
+	setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16f32, Custom);
 	setOperationAction(ISD::ROTL, MVT::i32, Expand);
 	setOperationAction(ISD::ROTR, MVT::i32, Expand);
 	setOperationAction(ISD::FNEG, MVT::f32, Custom);
@@ -505,32 +505,51 @@ VectorProcTargetLowering::LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG) const
 		return DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(0));
 	}
 	
-	return SDValue();
+	return SDValue();	// Expand
 }
 
+bool 
+VectorProcTargetLowering::isShuffleMaskLegal(const SmallVectorImpl<int> &M, EVT VT) const
+{
+	if (M.size() != 16)
+		return false;
+	
+	for (int i = 0; i < 16; i++)
+	{
+		if (M[i] != 0)
+			return false;
+	}
+	
+	return true;
+}
+
+//
+// Look for patterns that built splats
+//
 SDValue
 VectorProcTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const 
 {
 	MVT VT = Op.getValueType().getSimpleVT();
 	SDLoc dl(Op);
 
-	//
-	// The way to turn a scalar value into a splat in LLVM is 
-	// with the following pattern:
-	// %single = insertelement <16 x i32> undef, i32 %b, i32 0 
-	// %vector = shufflevector <16 x i32> %single, <16 x i32> undef, 
+	// isShuffleMaskLegal should prevent this from being called inappropriately.
+	assert(ISD::isBuildVectorAllZeros(Op.getOperand(2).getNode()) && "non-zero build vector");
+
+	// Using shufflevector to build a splat like this:
+	// %vector = shufflevector <16 x i32> %single, <16 x i32> (don't care), 
     //                       <16 x i32> zeroinitializer
-	// Detect this pattern and convert it to a SPLAT node.
-	//
-	if (ISD::isBuildVectorAllZeros(Op.getOperand(1).getNode())
-		&& Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT
+	
+	// %single = insertelement <16 x i32> (don't care), i32 %value, i32 0 
+	if (Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT
 		&& isZero(Op.getOperand(0).getOperand(2)))
 	{
 		return DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(0).getOperand(1));
 	}
 
-	// Otherwise, just let normal instruction selection take care of this.
-	// (there is a rule for actual shuffles)
+	// %single = scalar_to_vector i32 %b
+	if (Op.getOperand(0).getOpcode() == ISD::SCALAR_TO_VECTOR)
+		return DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(0).getOperand(0));
+
 	return SDValue();
 }
 
@@ -605,7 +624,7 @@ VectorProcTargetLowering::LowerConstant(SDValue Op, SelectionDAG &DAG) const
 		// the immediate field of a single instruction, sign extended.
 		return SDValue();	
 	}
-		
+
 	SDValue CPIdx = DAG.getConstantPool(C->getConstantIntValue(), MVT::i32);
 	return DAG.getLoad(MVT::i32, dl, DAG.getEntryNode(), CPIdx,
 		MachinePointerInfo::getConstantPool(), false, false, false, 4);

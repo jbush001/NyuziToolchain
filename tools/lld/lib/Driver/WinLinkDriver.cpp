@@ -13,6 +13,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
+#include <algorithm>
+#include <cctype>
 #include <sstream>
 #include <map>
 
@@ -20,6 +22,7 @@
 #include "lld/Driver/WinLinkInputGraph.h"
 #include "lld/ReaderWriter/PECOFFLinkingContext.h"
 
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -27,10 +30,16 @@
 #include "llvm/Option/Option.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
+#include "llvm/Support/Program.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace lld {
 
 namespace {
+
+//
+// Option definitions
+//
 
 // Create enum with OPT_xxx values for each option in WinLinkOptions.td
 enum {
@@ -67,6 +76,10 @@ public:
                  /* ignoreCase */ true) {}
 };
 
+//
+// Functions to parse each command line option
+//
+
 // Split the given string with spaces.
 std::vector<std::string> splitArgList(const std::string &str) {
   std::stringstream stream(str);
@@ -83,7 +96,7 @@ std::vector<StringRef> splitPathList(StringRef str) {
     llvm::tie(path, str) = str.split(';');
     ret.push_back(path);
   }
-  return std::move(ret);
+  return ret;
 }
 
 // Parse an argument for /base, /stack or /heap. The expected string
@@ -92,10 +105,10 @@ bool parseMemoryOption(StringRef arg, uint64_t &reserve, uint64_t &commit) {
   StringRef reserveStr, commitStr;
   llvm::tie(reserveStr, commitStr) = arg.split(',');
   if (reserveStr.getAsInteger(0, reserve))
-    return true;
+    return false;
   if (!commitStr.empty() && commitStr.getAsInteger(0, commit))
-    return true;
-  return false;
+    return false;
+  return true;
 }
 
 // Parse an argument for /version or /subsystem. The expected string is
@@ -106,10 +119,10 @@ bool parseVersion(StringRef arg, uint32_t &major, uint32_t &minor) {
   if (minorVersion.empty())
     minorVersion = "0";
   if (majorVersion.getAsInteger(0, major))
-    return true;
+    return false;
   if (minorVersion.getAsInteger(0, minor))
-    return true;
-  return false;
+    return false;
+  return true;
 }
 
 // Returns subsystem type for the given string.
@@ -139,6 +152,295 @@ llvm::COFF::MachineTypes stringToMachineType(StringRef str) {
       .Default(llvm::COFF::IMAGE_FILE_MACHINE_UNKNOWN);
 }
 
+// Parse /section:name,[[!]{DEKPRSW}]
+//
+// /section option is to set non-default bits in the Characteristics fields of
+// the section header. D, E, K, P, R, S, and W represent discardable,
+// not_cachable, not_pageable, shared, execute, read, and write bits,
+// respectively. You can specify multiple flags in one /section option.
+//
+// If the flag starts with "!", the flags represent a mask that should be turned
+// off regardless of the default value. You can even create a section which is
+// not readable, writable nor executable with this -- although it's probably
+// useless.
+bool parseSection(StringRef option, std::string &section,
+                  llvm::Optional<uint32_t> &flags,
+                  llvm::Optional<uint32_t> &mask) {
+  StringRef flagString;
+  llvm::tie(section, flagString) = option.split(",");
+
+  bool negative = false;
+  if (flagString.startswith("!")) {
+    negative = true;
+    flagString = flagString.substr(1);
+  }
+  if (flagString.empty())
+    return false;
+
+  uint32_t attribs = 0;
+  for (size_t i = 0, e = flagString.size(); i < e; ++i) {
+    switch (tolower(flagString[i])) {
+#define CASE(c, flag)                           \
+    case c:                                     \
+      attribs |= flag;                          \
+      break
+    CASE('d', llvm::COFF::IMAGE_SCN_MEM_DISCARDABLE);
+    CASE('e', llvm::COFF::IMAGE_SCN_MEM_NOT_CACHED);
+    CASE('k', llvm::COFF::IMAGE_SCN_MEM_NOT_PAGED);
+    CASE('p', llvm::COFF::IMAGE_SCN_MEM_SHARED);
+    CASE('r', llvm::COFF::IMAGE_SCN_MEM_EXECUTE);
+    CASE('s', llvm::COFF::IMAGE_SCN_MEM_READ);
+    CASE('w', llvm::COFF::IMAGE_SCN_MEM_WRITE);
+#undef CASE
+    default:
+      return false;
+    }
+  }
+
+  if (negative) {
+    mask = attribs;
+  } else {
+    flags = attribs;
+  }
+  return true;
+}
+
+bool readFile(PECOFFLinkingContext &ctx, StringRef path,
+              ArrayRef<uint8_t> &result) {
+  OwningPtr<MemoryBuffer> buf;
+  if (MemoryBuffer::getFile(path, buf))
+    return false;
+  result = ctx.allocate(ArrayRef<uint8_t>(
+      reinterpret_cast<const uint8_t *>(buf->getBufferStart()),
+      buf->getBufferSize()));
+  return true;
+}
+
+// Parse /manifest:EMBED[,ID=#]|NO.
+bool parseManifest(StringRef option, bool &enable, bool &embed, int &id) {
+  if (option.equals_lower("no")) {
+    enable = false;
+    return true;
+  }
+  if (!option.startswith_lower("embed"))
+    return false;
+
+  embed = true;
+  option = option.substr(strlen("embed"));
+  if (option.empty())
+    return true;
+  if (!option.startswith_lower(",id="))
+    return false;
+  option = option.substr(strlen(",id="));
+  if (option.getAsInteger(0, id))
+    return false;
+  return true;
+}
+
+// Parse /manifestuac:(level=<string>|uiAccess=<string>).
+//
+// The arguments will be embedded to the manifest XML file with no error check,
+// so the values given via the command line must be valid as XML attributes.
+// This may sound a bit odd, but that's how link.exe works, so we will follow.
+bool parseManifestUac(StringRef option, llvm::Optional<std::string> &level,
+                      llvm::Optional<std::string> &uiAccess) {
+  for (;;) {
+    option = option.ltrim();
+    if (option.empty())
+      return true;
+    if (option.startswith_lower("level=")) {
+      option = option.substr(strlen("level="));
+      StringRef value;
+      llvm::tie(value, option) = option.split(" ");
+      level = value.str();
+      continue;
+    }
+    if (option.startswith_lower("uiaccess=")) {
+      option = option.substr(strlen("uiaccess="));
+      StringRef value;
+      llvm::tie(value, option) = option.split(" ");
+      uiAccess = value.str();
+      continue;
+    }
+    return false;
+  }
+}
+
+StringRef replaceExtension(PECOFFLinkingContext &ctx,
+                           StringRef path, StringRef extension) {
+  SmallString<128> val = path;
+  llvm::sys::path::replace_extension(val, extension);
+  return ctx.allocate(val.str());
+}
+
+// Create a manifest file contents.
+std::string createManifestXml(PECOFFLinkingContext &ctx) {
+  std::string ret;
+  llvm::raw_string_ostream out(ret);
+  // Emit the XML. Note that we do *not* verify that the XML attributes are
+  // syntactically correct. This is intentional for link.exe compatibility.
+  out << "<?xml version=\"1.0\" standalone=\"yes\"?>\n"
+         "<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\"\n"
+         "          manifestVersion=\"1.0\">\n"
+         "  <trustInfo>\n"
+         "    <security>\n"
+         "      <requestedPrivileges>\n"
+         "         <requestedExecutionLevel level=" << ctx.getManifestLevel()
+      << " uiAccess=" << ctx.getManifestUiAccess()
+      << "/>\n"
+         "      </requestedPrivileges>\n"
+         "    </security>\n"
+         "  </trustInfo>\n";
+  const std::string &dependency = ctx.getManifestDependency();
+  if (!dependency.empty()) {
+    out << "  <dependency>\n"
+           "    <dependentAssembly>\n"
+           "      <assemblyIdentity " << dependency
+        << " />\n"
+           "    </dependentAssembly>\n"
+           "  </dependency>\n";
+  }
+  out << "</assembly>\n";
+  out.flush();
+  return ret;
+}
+
+// Convert one doublequote to two doublequotes, so that we can embed the string
+// into a resource script file.
+void quoteAndPrintXml(raw_ostream &out, StringRef str) {
+  for (;;) {
+    if (str.empty())
+      return;
+    StringRef line;
+    llvm::tie(line, str) = str.split("\n");
+    if (line.empty())
+      continue;
+    out << '\"';
+    const char *p = line.data();
+    for (int i = 0, size = line.size(); i < size; ++i) {
+      switch (p[i]) {
+      case '\"':
+        out << '\"';
+        // fallthrough
+      default:
+        out << p[i];
+      }
+    }
+    out << "\"\n";
+  }
+}
+
+// Create a resource file (.res file) containing the manifest XML. This is done
+// in two steps:
+//
+//  1. Create a resource script file containing the XML as a literal string.
+//  2. Run RC.EXE command to compile the script file to a resource file.
+//
+// The temporary file created in step 1 will be deleted on exit from this
+// function. The file created in step 2 will have the same lifetime as the
+// PECOFFLinkingContext.
+bool createManifestResourceFile(PECOFFLinkingContext &ctx,
+                                raw_ostream &diagnostics,
+                                std::string &resFile) {
+  // Create a temporary file for the resource script file.
+  SmallString<128> rcFileSmallString;
+  if (llvm::sys::fs::createTemporaryFile("tmp", "rc", rcFileSmallString)) {
+    diagnostics << "Cannot create a temporary file\n";
+    return false;
+  }
+  StringRef rcFile(rcFileSmallString.str());
+  llvm::FileRemover rcFileRemover((Twine(rcFile)));
+
+  // Open the temporary file for writing.
+  std::string errorInfo;
+  llvm::raw_fd_ostream out(rcFileSmallString.c_str(), errorInfo);
+  if (!errorInfo.empty()) {
+    diagnostics << "Failed to open " << ctx.getManifestOutputPath() << ": "
+                << errorInfo << "\n";
+    return false;
+  }
+
+  // Write resource script to the RC file.
+  out << "#define LANG_ENGLISH 9\n"
+      << "#define SUBLANG_DEFAULT 1\n"
+      << "#define APP_MANIFEST " << ctx.getManifestId() << "\n"
+      << "#define RT_MANIFEST 24\n"
+      << "LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT\n"
+      << "APP_MANIFEST RT_MANIFEST {\n";
+  quoteAndPrintXml(out, createManifestXml(ctx));
+  out << "}\n";
+  out.close();
+
+  // Create output resource file.
+  SmallString<128> resFileSmallString;
+  if (llvm::sys::fs::createTemporaryFile("tmp", "res", resFileSmallString)) {
+    diagnostics << "Cannot create a temporary file";
+    return false;
+  }
+  resFile = resFileSmallString.str();
+
+  // Register the resource file path so that the file will be deleted when the
+  // context's destructor is called.
+  ctx.registerTemporaryFile(resFile);
+
+  // Run RC.EXE /fo tmp.res tmp.rc
+  std::string program = "rc.exe";
+  std::string programPath = llvm::sys::FindProgramByName(program);
+  if (programPath.empty()) {
+    diagnostics << "Unable to find " << program << " in PATH\n";
+    return false;
+  }
+  std::vector<const char *> args;
+  args.push_back(programPath.c_str());
+  args.push_back("/fo");
+  args.push_back(resFile.c_str());
+  args.push_back("/nologo");
+  args.push_back(rcFileSmallString.c_str());
+  args.push_back(nullptr);
+
+  if (llvm::sys::ExecuteAndWait(programPath.c_str(), &args[0]) != 0) {
+    diagnostics << program << " failed\n";
+    return false;
+  }
+  return true;
+}
+
+// Create a side-by-side manifest file. The side-by-side manifest file is a
+// separate XML file having ".manifest" extension. It will be created in the
+// same directory as the resulting executable.
+bool createSideBySideManifestFile(PECOFFLinkingContext &ctx,
+                                  raw_ostream &diagnostics) {
+  std::string errorInfo;
+  llvm::raw_fd_ostream out(ctx.getManifestOutputPath().data(), errorInfo);
+  if (!errorInfo.empty()) {
+    diagnostics << "Failed to open " << ctx.getManifestOutputPath() << ": "
+                << errorInfo << "\n";
+    return false;
+  }
+  out << createManifestXml(ctx);
+  return true;
+}
+
+// Create the a side-by-side manifest file, or create a resource file for the
+// manifest file and add it to the input graph.
+//
+// The manifest file will convey some information to the linker, such as whether
+// the binary needs to run as Administrator or not. Instead of being placed in
+// the PE/COFF header, it's in XML format for some reason -- I guess it's
+// probably because it's invented in the early dot-com era.
+bool createManifest(PECOFFLinkingContext &ctx, raw_ostream &diagnostics) {
+  if (ctx.getEmbedManifest()) {
+    std::string resourceFilePath;
+    if (!createManifestResourceFile(ctx, diagnostics, resourceFilePath))
+      return false;
+    std::unique_ptr<InputElement> inputElement(
+        new PECOFFFileNode(ctx, ctx.allocate(resourceFilePath)));
+    ctx.inputGraph().addInputElement(std::move(inputElement));
+    return true;
+  }
+  return createSideBySideManifestFile(ctx, diagnostics);
+}
+
 // Handle /failifmismatch option.
 bool handleFailIfMismatchOption(StringRef option,
                                 std::map<StringRef, StringRef> &mustMatch,
@@ -159,6 +461,10 @@ bool handleFailIfMismatchOption(StringRef option,
   return false;
 }
 
+//
+// Environment variable
+//
+
 // Process "LINK" environment variable. If defined, the value of the variable
 // should be processed as command line arguments.
 std::vector<const char *> processLinkEnv(PECOFFLinkingContext &context,
@@ -173,13 +479,13 @@ std::vector<const char *> processLinkEnv(PECOFFLinkingContext &context,
   llvm::Optional<std::string> env = llvm::sys::Process::GetEnv("LINK");
   if (env.hasValue())
     for (std::string &arg : splitArgList(*env))
-      ret.push_back(context.allocateString(arg).data());
+      ret.push_back(context.allocate(arg).data());
 
   // Add the rest of arguments passed via the command line.
   for (int i = 1; i < argc; ++i)
     ret.push_back(argv[i]);
   ret.push_back(nullptr);
-  return std::move(ret);
+  return ret;
 }
 
 // Process "LIB" environment variable. The variable contains a list of search
@@ -188,7 +494,7 @@ void processLibEnv(PECOFFLinkingContext &context) {
   llvm::Optional<std::string> env = llvm::sys::Process::GetEnv("LIB");
   if (env.hasValue())
     for (StringRef path : splitPathList(*env))
-      context.appendInputSearchPath(context.allocateString(path));
+      context.appendInputSearchPath(context.allocate(path));
 }
 
 // Returns a default entry point symbol name depending on context image type and
@@ -228,7 +534,7 @@ parseArgs(int argc, const char *argv[], raw_ostream &diagnostics,
   // new linker option to an object file while keeping backward compatibility.
   for (auto it = parsedArgs->filtered_begin(OPT_UNKNOWN),
             ie = parsedArgs->filtered_end(); it != ie; ++it) {
-    StringRef arg = (*it)->getAsString(*parsedArgs);
+    StringRef arg = (*it)->getSpelling();
     if (isReadingDirectiveSection && arg.startswith("-?"))
       continue;
     diagnostics << "warning: ignoring unknown argument: " << arg << "\n";
@@ -238,19 +544,9 @@ parseArgs(int argc, const char *argv[], raw_ostream &diagnostics,
 
 } // namespace
 
-ErrorOr<StringRef> PECOFFFileNode::getPath(const LinkingContext &) const {
-  if (_path.endswith(".lib"))
-    return _ctx.searchLibraryFile(_path);
-  if (llvm::sys::path::extension(_path).empty())
-    return _ctx.allocateString(_path.str() + ".obj");
-  return _path;
-}
-
-ErrorOr<StringRef> PECOFFLibraryNode::getPath(const LinkingContext &) const {
-  if (!_path.endswith(".lib"))
-    return _ctx.searchLibraryFile(_ctx.allocateString(_path.str() + ".lib"));
-  return _ctx.searchLibraryFile(_path);
-}
+//
+// Main driver
+//
 
 bool WinLinkDriver::linkPECOFF(int argc, const char *argv[],
                                raw_ostream &diagnostics) {
@@ -259,6 +555,12 @@ bool WinLinkDriver::linkPECOFF(int argc, const char *argv[],
   processLibEnv(context);
   if (!parse(newargv.size() - 1, &newargv[0], context, diagnostics))
     return false;
+
+  // Create the file if needed.
+  if (context.getCreateManifest())
+    if (!createManifest(context, diagnostics))
+      return false;
+
   return link(context, diagnostics);
 }
 
@@ -299,6 +601,8 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
     defaultLibs.push_back((*it)->getValue());
   }
 
+  std::vector<StringRef> inputFiles;
+
   // Process all the arguments and create Input Elements
   for (auto inputArg : *parsedArgs) {
     switch (inputArg->getOption().getID()) {
@@ -314,7 +618,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       // Size should be set to SizeOfImage field in the COFF header, and if
       // it's smaller than the actual size, the linker should warn about that.
       // Currently we just ignore the value of size parameter.
-      if (parseMemoryOption(inputArg->getValue(), addr, size))
+      if (!parseMemoryOption(inputArg->getValue(), addr, size))
         return false;
       ctx.setBaseAddress(addr);
       break;
@@ -323,7 +627,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       // Parse /stack command line option
       uint64_t reserve;
       uint64_t commit = ctx.getStackCommit();
-      if (parseMemoryOption(inputArg->getValue(), reserve, commit))
+      if (!parseMemoryOption(inputArg->getValue(), reserve, commit))
         return false;
       ctx.setStackReserve(reserve);
       ctx.setStackCommit(commit);
@@ -334,7 +638,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       // Parse /heap command line option
       uint64_t reserve;
       uint64_t commit = ctx.getHeapCommit();
-      if (parseMemoryOption(inputArg->getValue(), reserve, commit))
+      if (!parseMemoryOption(inputArg->getValue(), reserve, commit))
         return false;
       ctx.setHeapReserve(reserve);
       ctx.setHeapCommit(commit);
@@ -348,7 +652,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
         diagnostics << "error: invalid value for /align: " << arg << "\n";
         return false;
       }
-      ctx.setSectionAlignment(align);
+      ctx.setSectionDefaultAlignment(align);
       break;
     }
 
@@ -365,9 +669,23 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
 
     case OPT_version: {
       uint32_t major, minor;
-      if (parseVersion(inputArg->getValue(), major, minor))
+      if (!parseVersion(inputArg->getValue(), major, minor))
         return false;
       ctx.setImageVersion(PECOFFLinkingContext::Version(major, minor));
+      break;
+    }
+
+    case OPT_merge: {
+      // Parse /merge:<from>=<to>.
+      StringRef from, to;
+      llvm::tie(from, to) = StringRef(inputArg->getValue()).split('=');
+      if (from.empty() || to.empty()) {
+        diagnostics << "error: malformed /merge option: "
+                    << inputArg->getValue() << "\n";
+        return false;
+      }
+      if (!ctx.addSectionRenaming(diagnostics, from, to))
+        return false;
       break;
     }
 
@@ -379,7 +697,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
           StringRef(inputArg->getValue()).split(',');
       if (!osVersion.empty()) {
         uint32_t major, minor;
-        if (parseVersion(osVersion, major, minor))
+        if (!parseVersion(osVersion, major, minor))
           return false;
         ctx.setMinOSVersion(PECOFFLinkingContext::Version(major, minor));
       }
@@ -395,6 +713,70 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       break;
     }
 
+    case OPT_section: {
+      // Parse /section:name,[[!]{DEKPRSW}]
+      std::string section;
+      llvm::Optional<uint32_t> flags, mask;
+      if (!parseSection(inputArg->getValue(), section, flags, mask)) {
+        diagnostics << "Unknown argument for /section: "
+                    << inputArg->getValue() << "\n";
+        return false;
+      }
+      if (flags.hasValue())
+        ctx.setSectionAttributes(section, *flags);
+      if (mask.hasValue())
+        ctx.setSectionAttributeMask(section, *mask);
+      break;
+    }
+
+    case OPT_manifest:
+      // Do nothing. This is default.
+      break;
+
+    case OPT_manifest_colon: {
+      // Parse /manifest:EMBED[,ID=#]|NO.
+      bool enable = true;
+      bool embed = false;
+      int id = 1;
+      if (!parseManifest(inputArg->getValue(), enable, embed, id)) {
+        diagnostics << "Unknown argument for /manifest: "
+                    << inputArg->getValue() << "\n";
+        return false;
+      }
+      ctx.setCreateManifest(enable);
+      ctx.setEmbedManifest(embed);
+      ctx.setManifestId(id);
+      break;
+    }
+
+    case OPT_manifestuac: {
+      // Parse /manifestuac.
+      llvm::Optional<std::string> privilegeLevel;
+      llvm::Optional<std::string> uiAccess;
+      if (!parseManifestUac(inputArg->getValue(), privilegeLevel, uiAccess)) {
+        diagnostics << "Unknown argument for /manifestuac: "
+                    << inputArg->getValue() << "\n";
+        return false;
+      }
+      if (privilegeLevel.hasValue())
+        ctx.setManifestLevel(privilegeLevel.getValue());
+      if (uiAccess.hasValue())
+        ctx.setManifestUiAccess(uiAccess.getValue());
+      break;
+    }
+
+    case OPT_manifestfile:
+      ctx.setManifestOutputPath(ctx.allocate(inputArg->getValue()));
+      break;
+
+    case OPT_manifestdependency:
+      // /manifestdependency:<string> option. Note that the argument will be
+      // embedded to the manifest XML file with no error check, for link.exe
+      // compatibility. We do not gurantete that the resulting XML file is
+      // valid.
+      ctx.setManifestDependency(ctx.allocate(inputArg->getValue()));
+      break;
+
     case OPT_failifmismatch:
       if (handleFailIfMismatchOption(inputArg->getValue(), failIfMismatchMap,
                                      diagnostics))
@@ -402,11 +784,11 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       break;
 
     case OPT_entry:
-      ctx.setEntrySymbolName(ctx.allocateString(inputArg->getValue()));
+      ctx.setEntrySymbolName(ctx.allocate(inputArg->getValue()));
       break;
 
     case OPT_libpath:
-      ctx.appendInputSearchPath(ctx.allocateString(inputArg->getValue()));
+      ctx.appendInputSearchPath(ctx.allocate(inputArg->getValue()));
       break;
 
     case OPT_debug:
@@ -447,8 +829,19 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       ctx.setSwapRunFromNet(true);
       break;
 
+    case OPT_stub: {
+      ArrayRef<uint8_t> contents;
+      if (!readFile(ctx, inputArg->getValue(), contents)) {
+        diagnostics << "Failed to read DOS stub file "
+                    << inputArg->getValue() << "\n";
+        return false;
+      }
+      ctx.setDosStub(contents);
+      break;
+    }
+
     case OPT_incl:
-      ctx.addInitialUndefinedSymbol(ctx.allocateString(inputArg->getValue()));
+      ctx.addInitialUndefinedSymbol(ctx.allocate(inputArg->getValue()));
       break;
 
     case OPT_nodefaultlib_all:
@@ -456,12 +849,11 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       break;
 
     case OPT_out:
-      ctx.setOutputPath(ctx.allocateString(inputArg->getValue()));
+      ctx.setOutputPath(ctx.allocate(inputArg->getValue()));
       break;
 
     case OPT_INPUT:
-      inputElements.push_back(std::unique_ptr<InputElement>(
-          new PECOFFFileNode(ctx, inputArg->getValue())));
+      inputFiles.push_back(ctx.allocate(inputArg->getValue()));
       break;
 
 #define DEFINE_BOOLEAN_FLAG(name, setter)       \
@@ -487,9 +879,29 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
     }
   }
 
+  // Move files with ".lib" extension at the end of the input file list. Say
+  // foo.obj depends on bar.lib. The linker needs to accept both "bar.lib
+  // foo.obj" and "foo.obj bar.lib".
+  auto compfn = [](StringRef a, StringRef b) {
+    return !a.endswith_lower(".lib") && b.endswith_lower(".lib");
+  };
+  std::stable_sort(inputFiles.begin(), inputFiles.end(), compfn);
+  for (StringRef path : inputFiles)
+    inputElements.push_back(std::unique_ptr<InputElement>(
+        new PECOFFFileNode(ctx, path)));
+
   // Use the default entry name if /entry option is not given.
-  if (ctx.entrySymbolName().empty())
+  if (ctx.entrySymbolName().empty() && !parsedArgs->getLastArg(OPT_noentry))
     ctx.setEntrySymbolName(getDefaultEntrySymbolName(ctx));
+  StringRef entry = ctx.entrySymbolName();
+  if (!entry.empty())
+    ctx.addInitialUndefinedSymbol(entry);
+
+  // Specify /noentry without /dll is an error.
+  if (parsedArgs->getLastArg(OPT_noentry) && !parsedArgs->getLastArg(OPT_dll)) {
+    diagnostics << "/noentry must be specified with /dll\n";
+    return false;
+  }
 
   // Specifying both /opt:ref and /opt:noref is an error.
   if (parsedArgs->getLastArg(OPT_ref) && parsedArgs->getLastArg(OPT_ref_no)) {
@@ -500,31 +912,30 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
   // If dead-stripping is enabled, we need to add the entry symbol and
   // symbols given by /include to the dead strip root set, so that it
   // won't be removed from the output.
-  if (ctx.deadStrip()) {
-    ctx.addDeadStripRoot(ctx.entrySymbolName());
+  if (ctx.deadStrip())
     for (const StringRef symbolName : ctx.initialUndefinedSymbols())
       ctx.addDeadStripRoot(symbolName);
-  }
 
   // Arguments after "--" are interpreted as filenames even if they
   // start with a hypen or a slash. This is not compatible with link.exe
   // but useful for us to test lld on Unix.
   if (llvm::opt::Arg *dashdash = parsedArgs->getLastArg(OPT_DASH_DASH)) {
-    for (const StringRef value : dashdash->getValues())
-      inputElements.push_back(
-          std::unique_ptr<InputElement>(new PECOFFFileNode(ctx, value)));
+    for (const StringRef value : dashdash->getValues()) {
+      std::unique_ptr<InputElement> elem(
+          new PECOFFFileNode(ctx, ctx.allocate(value)));
+      inputElements.push_back(std::move(elem));
+    }
   }
 
-  // Add the libraries specified by /defaultlib unless they are blacklisted by
-  // /nodefaultlib.
+  // Add the libraries specified by /defaultlib unless they are already added
+  // nor blacklisted by /nodefaultlib.
   if (!ctx.getNoDefaultLibAll())
-    for (const StringRef defaultLibPath : defaultLibs)
-      if (ctx.getNoDefaultLibs().find(defaultLibPath) ==
-          ctx.getNoDefaultLibs().end())
+    for (const StringRef path : defaultLibs)
+      if (!ctx.hasNoDefaultLib(path))
         inputElements.push_back(std::unique_ptr<InputElement>(
-            new PECOFFLibraryNode(ctx, defaultLibPath)));
+            new PECOFFLibraryNode(ctx, path)));
 
-  if (inputElements.size() == 0 && !isReadingDirectiveSection) {
+  if (inputElements.empty() && !isReadingDirectiveSection) {
     diagnostics << "No input files\n";
     return false;
   }
@@ -533,10 +944,16 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
   // constructed by replacing an extension of the first input file
   // with ".exe".
   if (ctx.outputPath().empty()) {
-    SmallString<128> firstInputFilePath =
-        *dyn_cast<FileNode>(&*inputElements[0])->getPath(ctx);
-    llvm::sys::path::replace_extension(firstInputFilePath, ".exe");
-    ctx.setOutputPath(ctx.allocateString(firstInputFilePath.str()));
+    StringRef path = *dyn_cast<FileNode>(&*inputElements[0])->getPath(ctx);
+    ctx.setOutputPath(replaceExtension(ctx, path, ".exe"));
+  }
+
+  // Default name of the manifest file is "foo.exe.manifest" where "foo.exe" is
+  // the output path.
+  if (ctx.getManifestOutputPath().empty()) {
+    std::string path = ctx.outputPath();
+    path.append(".manifest");
+    ctx.setManifestOutputPath(ctx.allocate(path));
   }
 
   // If the core linker already started, we need to explicitly call parse() for
@@ -544,8 +961,8 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
   // has already done.
   if (isReadingDirectiveSection)
     for (auto &e : inputElements)
-      if (error_code ec = e->parse(ctx, diagnostics))
-        return ec;
+      if (e->parse(ctx, diagnostics))
+        return false;
 
   // Add the input files to the input graph.
   if (!ctx.hasInputGraph())

@@ -25,7 +25,16 @@
 #include "clang/Basic/LLVM.h"
 #include "llvm/Support/AlignOf.h"
 
+namespace llvm {
+
+class raw_ostream;
+
+}
+
 namespace clang {
+
+struct PrintingPolicy;
+
 namespace ast_type_traits {
 
 /// \brief Kind identifier.
@@ -48,7 +57,9 @@ public:
   bool isSame(ASTNodeKind Other) const;
 
   /// \brief Returns \c true if \c this is a base kind of (or same as) \c Other.
-  bool isBaseOf(ASTNodeKind Other) const;
+  /// \param Distance If non-null, used to return the distance between \c this
+  /// and \c Other in the class hierarchy.
+  bool isBaseOf(ASTNodeKind Other, unsigned *Distance = 0) const;
 
   /// \brief String representation of the kind.
   StringRef asStringRef() const;
@@ -82,7 +93,9 @@ private:
 
   /// \brief Returns \c true if \c Base is a base kind of (or same as) \c
   ///   Derived.
-  static bool isBaseOf(NodeKindId Base, NodeKindId Derived);
+  /// \param Distance If non-null, used to return the distance between \c Base
+  /// and \c Derived in the class hierarchy.
+  static bool isBaseOf(NodeKindId Base, NodeKindId Derived, unsigned *Distance);
 
   /// \brief Helper meta-function to convert a kind T to its enum value.
   ///
@@ -167,6 +180,16 @@ public:
   /// that don't have a pointer-defined identity inside the AST, this
   /// method returns NULL.
   const void *getMemoizationData() const;
+
+  /// \brief Prints the node to the given output stream.
+  void print(llvm::raw_ostream &OS, const PrintingPolicy &PP) const;
+
+  /// \brief Dumps the node to the given output stream.
+  void dump(llvm::raw_ostream &OS, SourceManager &SM) const;
+
+  /// \brief For nodes which represent textual entities in the source code,
+  /// return their SourceRange.  For all other nodes, return SourceRange().
+  SourceRange getSourceRange() const;
 
   /// @{
   /// \brief Imposes an order on \c DynTypedNode.

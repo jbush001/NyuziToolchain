@@ -80,7 +80,7 @@ static int gettok() {
 //===----------------------------------------------------------------------===//
 // Abstract Syntax Tree (aka Parse Tree)
 //===----------------------------------------------------------------------===//
-
+namespace {
 /// ExprAST - Base class for all expression nodes.
 class ExprAST {
 public:
@@ -147,6 +147,7 @@ public:
   
   Function *Codegen();
 };
+} // end anonymous namespace
 
 //===----------------------------------------------------------------------===//
 // Parser

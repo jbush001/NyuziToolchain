@@ -90,7 +90,8 @@ static BasicBlock *FoldBlockIntoPredecessor(BasicBlock *BB, LoopInfo* LI,
   // Move all definitions in the successor to the predecessor...
   OnlyPred->getInstList().splice(OnlyPred->end(), BB->getInstList());
 
-  std::string OldName = BB->getName();
+  // OldName will be valid until erased.
+  StringRef OldName = BB->getName();
 
   // Erase basic block from the function...
 
@@ -102,11 +103,12 @@ static BasicBlock *FoldBlockIntoPredecessor(BasicBlock *BB, LoopInfo* LI,
     }
   }
   LI->removeBlock(BB);
-  BB->eraseFromParent();
 
   // Inherit predecessor's name if it exists...
   if (!OldName.empty() && !OnlyPred->hasName())
     OnlyPred->setName(OldName);
+
+  BB->eraseFromParent();
 
   return OnlyPred;
 }

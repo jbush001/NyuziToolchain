@@ -17,7 +17,7 @@
 #ifndef LLD_DRIVER_DARWIN_INPUT_GRAPH_H
 #define LLD_DRIVER_DARWIN_INPUT_GRAPH_H
 
-#include "lld/Driver/InputGraph.h"
+#include "lld/Core/InputGraph.h"
 #include "lld/ReaderWriter/MachOLinkingContext.h"
 
 #include <map>
@@ -41,13 +41,22 @@ public:
   }
 
   /// \brief Parse the input file to lld::File.
-  llvm::error_code parse(const LinkingContext &ctx, raw_ostream &diagnostics) {
-    // Read the file to _buffer.
-    bool isYaml = false;
-    if (error_code ec = readFile(ctx, diagnostics, isYaml))
+  error_code parse(const LinkingContext &ctx, raw_ostream &diagnostics) {
+    ErrorOr<StringRef> filePath = getPath(ctx);
+    if (!filePath)
+      return error_code(filePath);
+
+    if (error_code ec = getBuffer(*filePath))
       return ec;
+
+    if (ctx.logInputFiles())
+      diagnostics << *filePath << "\n";
+
+    if (filePath->endswith(".objtxt"))
+      return ctx.getYAMLReader().parseFile(_buffer, _files);
+
     (void) (_isWholeArchive);
-    return llvm::error_code::success();
+    return error_code::success();
   }
 
   /// \brief Return the file that has to be processed by the resolver

@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLD_READER_WRITER_ELF_PPC_TARGET_HANDLER_H
-#define LLD_READER_WRITER_ELF_PPC_TARGET_HANDLER_H
+#ifndef LLD_READER_WRITER_ELF_PPC_PPC_TARGET_HANDLER_H
+#define LLD_READER_WRITER_ELF_PPC_PPC_TARGET_HANDLER_H
 
 #include "DefaultTargetHandler.h"
 #include "TargetLayout.h"
@@ -24,9 +24,9 @@ public:
   PPCTargetRelocationHandler(const PPCLinkingContext &context)
       : _context(context) {}
 
-  virtual ErrorOr<void> applyRelocation(ELFWriter &, llvm::FileOutputBuffer &,
-                                        const lld::AtomLayout &,
-                                        const Reference &)const;
+  virtual error_code applyRelocation(ELFWriter &, llvm::FileOutputBuffer &,
+                                     const lld::AtomLayout &,
+                                     const Reference &) const;
 
 private:
   const PPCLinkingContext &_context;
