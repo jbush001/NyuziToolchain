@@ -7,6 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "ARMBuildAttrs.h"
+#include "ARMFPUName.h"
 #include "ARMFeatures.h"
 #include "llvm/MC/MCTargetAsmParser.h"
 #include "MCTargetDesc/ARMAddressingModes.h"
@@ -74,6 +76,8 @@ class ARMAsmParser : public MCTargetAsmParser {
   // Map of register aliases registers via the .req directive.
   StringMap<unsigned> RegisterReqs;
 
+  bool NextSymbolIsThumb;
+
   struct {
     ARMCC::CondCodes Cond;    // Condition for IT block.
     unsigned Mask:4;          // Condition mask for instructions.
@@ -135,6 +139,8 @@ class ARMAsmParser : public MCTargetAsmParser {
   bool parseDirectiveUnreq(SMLoc L);
   bool parseDirectiveArch(SMLoc L);
   bool parseDirectiveEabiAttr(SMLoc L);
+  bool parseDirectiveCPU(SMLoc L);
+  bool parseDirectiveFPU(SMLoc L);
   bool parseDirectiveFnStart(SMLoc L);
   bool parseDirectiveFnEnd(SMLoc L);
   bool parseDirectiveCantUnwind(SMLoc L);
@@ -268,6 +274,8 @@ public:
 
     // Not in an ITBlock to start with.
     ITState.CurPosition = ~0U;
+
+    NextSymbolIsThumb = false;
   }
 
   // Implementation of the MCTargetAsmParser interface:
@@ -284,6 +292,8 @@ public:
                                SmallVectorImpl<MCParsedAsmOperand*> &Operands,
                                MCStreamer &Out, unsigned &ErrorInfo,
                                bool MatchingInlineAsm);
+  void onLabelParsed(MCSymbol *Symbol);
+
 };
 } // end anonymous namespace
 
@@ -702,6 +712,13 @@ public:
     int64_t Value = -CE->getValue();
     // explicitly exclude zero. we want that to use the normal 0_508 version.
     return ((Value & 3) == 0) && Value > 0 && Value <= 508;
+  }
+  bool isImm0_239() const {
+    if (!isImm()) return false;
+    const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(getImm());
+    if (!CE) return false;
+    int64_t Value = CE->getValue();
+    return Value >= 0 && Value < 240;
   }
   bool isImm0_255() const {
     if (!isImm()) return false;
@@ -2855,8 +2872,9 @@ static int MatchCoprocessorOperandName(StringRef Name, char CoprocOp) {
       return -1;
     switch (Name[2]) {
     default:  return -1;
-    case '0': return 10;
-    case '1': return 11;
+    // p10 and p11 are invalid for coproc instructions (reserved for FP/NEON)
+    case '0': return CoprocOp == 'p'? -1: 10;
+    case '1': return CoprocOp == 'p'? -1: 11;
     case '2': return 12;
     case '3': return 13;
     case '4': return 14;
@@ -3531,7 +3549,7 @@ parseInstSyncBarrierOptOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
   if (Tok.is(AsmToken::Identifier)) {
     StringRef OptStr = Tok.getString();
 
-    if (OptStr.lower() == "sy")
+    if (OptStr.equals_lower("sy"))
       Opt = ARM_ISB::SY;
     else
       return MatchOperand_NoMatch;
@@ -5416,6 +5434,7 @@ validateInstruction(MCInst &Inst,
                    "bitfield width must be in range [1,32-lsb]");
     return false;
   }
+  // Notionally handles ARM::tLDMIA_UPD too.
   case ARM::tLDMIA: {
     // If we're parsing Thumb2, the .w variant is available and handles
     // most cases that are normally illegal for a Thumb1 LDM instruction.
@@ -5444,13 +5463,40 @@ validateInstruction(MCInst &Inst,
 
     break;
   }
-  case ARM::t2LDMIA_UPD: {
+  case ARM::LDMIA_UPD:
+  case ARM::LDMDB_UPD:
+  case ARM::LDMIB_UPD:
+  case ARM::LDMDA_UPD:
+    // ARM variants loading and updating the same register are only officially
+    // UNPREDICTABLE on v7 upwards. Goodness knows what they did before.
+    if (!hasV7Ops())
+      break;
+    // Fallthrough
+  case ARM::t2LDMIA_UPD:
+  case ARM::t2LDMDB_UPD:
+  case ARM::t2STMIA_UPD:
+  case ARM::t2STMDB_UPD: {
     if (listContainsReg(Inst, 3, Inst.getOperand(0).getReg()))
-      return Error(Operands[4]->getStartLoc(),
-                   "writeback operator '!' not allowed when base register "
-                   "in register list");
+      return Error(Operands.back()->getStartLoc(),
+                   "writeback register not allowed in register list");
     break;
   }
+  case ARM::sysLDMIA_UPD:
+  case ARM::sysLDMDA_UPD:
+  case ARM::sysLDMDB_UPD:
+  case ARM::sysLDMIB_UPD:
+    if (!listContainsReg(Inst, 3, ARM::PC))
+      return Error(Operands[4]->getStartLoc(),
+                   "writeback register only allowed on system LDM "
+                   "if PC in register-list");
+    break;
+  case ARM::sysSTMIA_UPD:
+  case ARM::sysSTMDA_UPD:
+  case ARM::sysSTMDB_UPD:
+  case ARM::sysSTMIB_UPD:
+    return Error(Operands[2]->getStartLoc(),
+                 "system STM cannot have writeback register");
+    break;
   case ARM::tMUL: {
     // The second source operand must be the same register as the destination
     // operand.
@@ -5490,10 +5536,19 @@ validateInstruction(MCInst &Inst,
     break;
   }
   case ARM::tSTMIA_UPD: {
-    bool ListContainsBase;
-    if (checkLowRegisterList(Inst, 4, 0, 0, ListContainsBase) && !isThumbTwo())
+    bool ListContainsBase, InvalidLowList;
+    InvalidLowList = checkLowRegisterList(Inst, 4, Inst.getOperand(0).getReg(),
+                                          0, ListContainsBase);
+    if (InvalidLowList && !isThumbTwo())
       return Error(Operands[4]->getStartLoc(),
                    "registers must be in range r0-r7");
+
+    // This would be converted to a 32-bit stm, but that's not valid if the
+    // writeback register is in the list.
+    if (InvalidLowList && ListContainsBase)
+      return Error(Operands[4]->getStartLoc(),
+                   "writeback operator '!' not allowed when base register "
+                   "in register list");
     break;
   }
   case ARM::tADDrSP: {
@@ -7700,6 +7755,11 @@ MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     if (ErrorLoc == SMLoc()) ErrorLoc = IDLoc;
     return Error(ErrorLoc, "immediate operand must be in the range [0,15]");
   }
+  case Match_ImmRange0_239: {
+    SMLoc ErrorLoc = ((ARMOperand*)Operands[ErrorInfo])->getStartLoc();
+    if (ErrorLoc == SMLoc()) ErrorLoc = IDLoc;
+    return Error(ErrorLoc, "immediate operand must be in the range [0,239]");
+  }
   }
 
   llvm_unreachable("Implement any new match types added!");
@@ -7726,6 +7786,10 @@ bool ARMAsmParser::ParseDirective(AsmToken DirectiveID) {
     return parseDirectiveArch(DirectiveID.getLoc());
   else if (IDVal == ".eabi_attribute")
     return parseDirectiveEabiAttr(DirectiveID.getLoc());
+  else if (IDVal == ".cpu")
+    return parseDirectiveCPU(DirectiveID.getLoc());
+  else if (IDVal == ".fpu")
+    return parseDirectiveFPU(DirectiveID.getLoc());
   else if (IDVal == ".fnstart")
     return parseDirectiveFnStart(DirectiveID.getLoc());
   else if (IDVal == ".fnend")
@@ -7804,13 +7868,18 @@ bool ARMAsmParser::parseDirectiveARM(SMLoc L) {
   return false;
 }
 
+void ARMAsmParser::onLabelParsed(MCSymbol *Symbol) {
+  if (NextSymbolIsThumb) {
+    getParser().getStreamer().EmitThumbFunc(Symbol);
+    NextSymbolIsThumb = false;
+  }
+}
+
 /// parseDirectiveThumbFunc
 ///  ::= .thumbfunc symbol_name
 bool ARMAsmParser::parseDirectiveThumbFunc(SMLoc L) {
   const MCAsmInfo *MAI = getParser().getStreamer().getContext().getAsmInfo();
   bool isMachO = MAI->hasSubsectionsViaSymbols();
-  StringRef Name;
-  bool needFuncName = true;
 
   // Darwin asm has (optionally) function name after .thumb_func direction
   // ELF doesn't
@@ -7819,29 +7888,19 @@ bool ARMAsmParser::parseDirectiveThumbFunc(SMLoc L) {
     if (Tok.isNot(AsmToken::EndOfStatement)) {
       if (Tok.isNot(AsmToken::Identifier) && Tok.isNot(AsmToken::String))
         return Error(L, "unexpected token in .thumb_func directive");
-      Name = Tok.getIdentifier();
+      MCSymbol *Func =
+          getParser().getContext().GetOrCreateSymbol(Tok.getIdentifier());
+      getParser().getStreamer().EmitThumbFunc(Func);
       Parser.Lex(); // Consume the identifier token.
-      needFuncName = false;
+      return false;
     }
   }
 
   if (getLexer().isNot(AsmToken::EndOfStatement))
     return Error(L, "unexpected token in directive");
 
-  // Eat the end of statement and any blank lines that follow.
-  while (getLexer().is(AsmToken::EndOfStatement))
-    Parser.Lex();
+  NextSymbolIsThumb = true;
 
-  // FIXME: assuming function name will be the line following .thumb_func
-  // We really should be checking the next symbol definition even if there's
-  // stuff in between.
-  if (needFuncName) {
-    Name = Parser.getTok().getIdentifier();
-  }
-
-  // Mark symbol as a thumb symbol.
-  MCSymbol *Func = getParser().getContext().GetOrCreateSymbol(Name);
-  getParser().getStreamer().EmitThumbFunc(Func);
   return false;
 }
 
@@ -7953,7 +8012,48 @@ bool ARMAsmParser::parseDirectiveArch(SMLoc L) {
 /// parseDirectiveEabiAttr
 ///  ::= .eabi_attribute int, int
 bool ARMAsmParser::parseDirectiveEabiAttr(SMLoc L) {
-  return true;
+  if (Parser.getTok().isNot(AsmToken::Integer))
+    return Error(L, "integer expected");
+  int64_t Tag = Parser.getTok().getIntVal();
+  Parser.Lex(); // eat tag integer
+
+  if (Parser.getTok().isNot(AsmToken::Comma))
+    return Error(L, "comma expected");
+  Parser.Lex(); // skip comma
+
+  L = Parser.getTok().getLoc();
+  if (Parser.getTok().isNot(AsmToken::Integer))
+    return Error(L, "integer expected");
+  int64_t Value = Parser.getTok().getIntVal();
+  Parser.Lex(); // eat value integer
+
+  getTargetStreamer().emitAttribute(Tag, Value);
+  return false;
+}
+
+/// parseDirectiveCPU
+///  ::= .cpu str
+bool ARMAsmParser::parseDirectiveCPU(SMLoc L) {
+  StringRef CPU = getParser().parseStringToEndOfStatement().trim();
+  getTargetStreamer().emitTextAttribute(ARMBuildAttrs::CPU_name, CPU);
+  return false;
+}
+
+/// parseDirectiveFPU
+///  ::= .fpu str
+bool ARMAsmParser::parseDirectiveFPU(SMLoc L) {
+  StringRef FPU = getParser().parseStringToEndOfStatement().trim();
+
+  unsigned ID = StringSwitch<unsigned>(FPU)
+#define ARM_FPU_NAME(NAME, ID) .Case(NAME, ARM::ID)
+#include "ARMFPUName.def"
+    .Default(ARM::INVALID_FPU);
+
+  if (ID == ARM::INVALID_FPU)
+    return Error(L, "Unknown FPU name");
+
+  getTargetStreamer().emitFPU(ID);
+  return false;
 }
 
 /// parseDirectiveFnStart

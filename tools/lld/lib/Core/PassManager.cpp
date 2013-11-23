@@ -15,10 +15,9 @@
 #include "llvm/Support/ErrorOr.h"
 
 namespace lld {
-ErrorOr<void> PassManager::runOnFile(MutableFile &mf) {
-  for (auto &pass : _passes) {
+error_code PassManager::runOnFile(std::unique_ptr<MutableFile> &mf) {
+  for (auto &pass : _passes)
     pass->perform(mf);
-  }
-  return llvm::error_code::success();
+  return error_code::success();
 }
 } // end namespace lld

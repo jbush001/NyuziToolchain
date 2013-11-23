@@ -142,6 +142,9 @@ protected:
   /// IsBTMemSlow - True if BT (bit test) of memory instructions are slow.
   bool IsBTMemSlow;
 
+  /// IsSHLDSlow - True if SHLD instructions are slow.
+  bool IsSHLDSlow;
+
   /// IsUAMemFast - True if unaligned memory access is fast.
   bool IsUAMemFast;
 
@@ -292,6 +295,7 @@ public:
   bool hasPRFCHW() const { return HasPRFCHW; }
   bool hasRDSEED() const { return HasRDSEED; }
   bool isBTMemSlow() const { return IsBTMemSlow; }
+  bool isSHLDSlow() const { return IsSHLDSlow; }
   bool isUnalignedMemAccessFast() const { return IsUAMemFast; }
   bool hasVectorUAMem() const { return HasVectorUAMem; }
   bool hasCmpxchg16b() const { return HasCmpxchg16b; }
@@ -332,6 +336,8 @@ public:
             TargetTriple.isOSBinFormatCOFF());
   }
   bool isTargetEnvMacho() const { return TargetTriple.isEnvironmentMachO(); }
+
+  bool isOSWindows() const { return TargetTriple.isOSWindows(); }
 
   bool isTargetWin64() const {
     return In64BitMode && TargetTriple.isOSWindows();

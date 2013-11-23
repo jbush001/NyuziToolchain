@@ -583,33 +583,33 @@ bool Preprocessor::violatesUseDeclarations(
   return Declared == AllowedUses.end();
 }
 
-void Preprocessor::verifyModuleInclude(
-    SourceLocation FilenameLoc,
-    StringRef Filename,
-    const FileEntry *IncFileEnt,
-    ModuleMap::KnownHeader *SuggestedModule) {
+void Preprocessor::verifyModuleInclude(SourceLocation FilenameLoc,
+                                       StringRef Filename,
+                                       const FileEntry *IncFileEnt) {
   Module *RequestingModule = getModuleForLocation(FilenameLoc);
-  Module *RequestedModule = SuggestedModule->getModule();
-  if (!RequestedModule)
-    RequestedModule = HeaderInfo.findModuleForHeader(IncFileEnt).getModule();
+  if (RequestingModule)
+    HeaderInfo.getModuleMap().resolveUses(RequestingModule, /*Complain=*/false);
+  ModuleMap::KnownHeader RequestedModule =
+      HeaderInfo.getModuleMap().findModuleForHeader(IncFileEnt,
+                                                    RequestingModule);
 
-  if (RequestingModule == RequestedModule)
+  if (RequestingModule == RequestedModule.getModule())
     return; // No faults wihin a module, or between files both not in modules.
 
   if (RequestingModule != HeaderInfo.getModuleMap().SourceModule)
     return; // No errors for indirect modules.
             // This may be a bit of a problem for modules with no source files.
 
-  if (RequestedModule &&
-      violatesPrivateInclude(RequestingModule, IncFileEnt,
-                             SuggestedModule->getRole(), RequestedModule))
+  if (RequestedModule && violatesPrivateInclude(RequestingModule, IncFileEnt,
+                                                RequestedModule.getRole(),
+                                                RequestedModule.getModule()))
     Diag(FilenameLoc, diag::error_use_of_private_header_outside_module)
         << Filename;
 
   // FIXME: Add support for FixIts in module map files and offer adding the
   // required use declaration.
   if (RequestingModule && getLangOpts().ModulesDeclUse &&
-      violatesUseDeclarations(RequestingModule, RequestedModule))
+      violatesUseDeclarations(RequestingModule, RequestedModule.getModule()))
     Diag(FilenameLoc, diag::error_undeclared_use_of_module)
         << Filename;
 }
@@ -650,7 +650,7 @@ const FileEntry *Preprocessor::LookupFile(
       SearchPath, RelativePath, SuggestedModule, SkipCache);
   if (FE) {
     if (SuggestedModule)
-      verifyModuleInclude(FilenameLoc, Filename, FE, SuggestedModule);
+      verifyModuleInclude(FilenameLoc, Filename, FE);
     return FE;
   }
 
@@ -1389,6 +1389,19 @@ bool Preprocessor::ConcatenateIncludeName(
   return true;
 }
 
+/// \brief Push a token onto the token stream containing an annotation.
+static void EnterAnnotationToken(Preprocessor &PP,
+                                 SourceLocation Begin, SourceLocation End,
+                                 tok::TokenKind Kind, void *AnnotationVal) {
+  Token *Tok = new Token[1];
+  Tok[0].startToken();
+  Tok[0].setKind(Kind);
+  Tok[0].setLocation(Begin);
+  Tok[0].setAnnotationEndLoc(End);
+  Tok[0].setAnnotationValue(AnnotationVal);
+  PP.EnterTokenStream(Tok, 1, true, true);
+}
+
 /// HandleIncludeDirective - The "\#include" tokens have just been read, read
 /// the file to be included from the lexer, then include it!  This is a common
 /// routine with functionality shared between \#include, \#include_next and
@@ -1590,7 +1603,7 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
     // include directive maps to.
     bool BuildingImportedModule
       = Path[0].first->getName() == getLangOpts().CurrentModule;
-    
+
     if (!BuildingImportedModule && getLangOpts().ObjC2) {
       // If we're not building the imported module, warn that we're going
       // to automatically turn this inclusion directive into a module import.
@@ -1603,10 +1616,9 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
              "@import " + PathString.str().str() + ";");
     }
     
-    // Load the module.
-    // If this was an #__include_macros directive, only make macros visible.
-    Module::NameVisibilityKind Visibility 
-      = (IncludeKind == 3)? Module::MacrosVisible : Module::AllVisible;
+    // Load the module. Only make macros visible. We'll make the declarations
+    // visible when the parser gets here.
+    Module::NameVisibilityKind Visibility = Module::MacrosVisible;
     ModuleLoadResult Imported
       = TheModuleLoader.loadModule(IncludeTok.getLocation(), Path, Visibility,
                                    /*IsIncludeDirective=*/true);
@@ -1626,13 +1638,22 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
       }
       return;
     }
-    
+
     // If this header isn't part of the module we're building, we're done.
     if (!BuildingImportedModule && Imported) {
       if (Callbacks) {
         Callbacks->InclusionDirective(HashLoc, IncludeTok, Filename, isAngled,
                                       FilenameRange, File,
                                       SearchPath, RelativePath, Imported);
+      }
+
+      if (IncludeKind != 3) {
+        // Let the parser know that we hit a module import, and it should
+        // make the module visible.
+        // FIXME: Produce this as the current token directly, rather than
+        // allocating a new token for it.
+        EnterAnnotationToken(*this, HashLoc, End, tok::annot_module_include,
+                             Imported);
       }
       return;
     }
@@ -1679,8 +1700,23 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
   FileID FID = SourceMgr.createFileID(File, IncludePos, FileCharacter);
   assert(!FID.isInvalid() && "Expected valid file ID");
 
-  // Finally, if all is good, enter the new file!
-  EnterSourceFile(FID, CurDir, FilenameTok.getLocation());
+  // Determine if we're switching to building a new submodule, and which one.
+  ModuleMap::KnownHeader BuildingModule;
+  if (getLangOpts().Modules && !getLangOpts().CurrentModule.empty()) {
+    Module *RequestingModule = getModuleForLocation(FilenameLoc);
+    BuildingModule =
+        HeaderInfo.getModuleMap().findModuleForHeader(File, RequestingModule);
+  }
+
+  // If all is good, enter the new file!
+  EnterSourceFile(FID, CurDir, FilenameTok.getLocation(),
+                  static_cast<bool>(BuildingModule));
+
+  // If we're walking into another part of the same module, let the parser
+  // know that any future declarations are within that other submodule.
+  if (BuildingModule)
+    EnterAnnotationToken(*this, HashLoc, End, tok::annot_module_begin,
+                         BuildingModule.getModule());
 }
 
 /// HandleIncludeNextDirective - Implements \#include_next.
@@ -2005,13 +2041,8 @@ void Preprocessor::HandleDefineDirective(Token &DefineTok,
             MI->getReplacementToken(NumTokens-1).is(tok::comma))
           MI->setHasCommaPasting();
 
-        // Things look ok, add the '##' and param name tokens to the macro.
+        // Things look ok, add the '##' token to the macro.
         MI->AddTokenToBody(LastTok);
-        MI->AddTokenToBody(Tok);
-        LastTok = Tok;
-
-        // Get the next token of the macro.
-        LexUnexpandedToken(Tok);
         continue;
       }
 

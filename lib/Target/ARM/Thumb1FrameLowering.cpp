@@ -127,7 +127,6 @@ void Thumb1FrameLowering::emitPrologue(MachineFunction &MF) const {
     case ARM::LR:
       if (Reg == FramePtr)
         FramePtrSpillFI = FI;
-      AFI->addGPRCalleeSavedArea1Frame(FI);
       GPRCS1Size += 4;
       break;
     case ARM::R8:
@@ -136,16 +135,12 @@ void Thumb1FrameLowering::emitPrologue(MachineFunction &MF) const {
     case ARM::R11:
       if (Reg == FramePtr)
         FramePtrSpillFI = FI;
-      if (STI.isTargetIOS()) {
-        AFI->addGPRCalleeSavedArea2Frame(FI);
+      if (STI.isTargetIOS())
         GPRCS2Size += 4;
-      } else {
-        AFI->addGPRCalleeSavedArea1Frame(FI);
+      else
         GPRCS1Size += 4;
-      }
       break;
     default:
-      AFI->addDPRCalleeSavedAreaFrame(FI);
       DPRCSSize += 8;
     }
   }
@@ -169,10 +164,17 @@ void Thumb1FrameLowering::emitPrologue(MachineFunction &MF) const {
   AFI->setDPRCalleeSavedAreaOffset(DPRCSOffset);
   NumBytes = DPRCSOffset;
 
+  int FramePtrOffsetInBlock = 0;
+  if (tryFoldSPUpdateIntoPushPop(MF, prior(MBBI), NumBytes)) {
+    FramePtrOffsetInBlock = NumBytes;
+    NumBytes = 0;
+  }
+
   // Adjust FP so it point to the stack slot that contains the previous FP.
   if (HasFP) {
+    FramePtrOffsetInBlock += MFI->getObjectOffset(FramePtrSpillFI) + GPRCS1Size;
     AddDefaultPred(BuildMI(MBB, MBBI, dl, TII.get(ARM::tADDrSPi), FramePtr)
-      .addFrameIndex(FramePtrSpillFI).addImm(0)
+      .addReg(ARM::SP).addImm(FramePtrOffsetInBlock / 4)
       .setMIFlags(MachineInstr::FrameSetup));
     if (NumBytes > 508)
       // If offset is > 508 then sp cannot be adjusted in a single instruction,
@@ -296,8 +298,9 @@ void Thumb1FrameLowering::emitEpilogue(MachineFunction &MF,
           &MBB.front() != MBBI &&
           prior(MBBI)->getOpcode() == ARM::tPOP) {
         MachineBasicBlock::iterator PMBBI = prior(MBBI);
-        emitSPUpdate(MBB, PMBBI, TII, dl, *RegInfo, NumBytes);
-      } else
+        if (!tryFoldSPUpdateIntoPushPop(MF, PMBBI, NumBytes))
+          emitSPUpdate(MBB, PMBBI, TII, dl, *RegInfo, NumBytes);
+      } else if (!tryFoldSPUpdateIntoPushPop(MF, MBBI, NumBytes))
         emitSPUpdate(MBB, MBBI, TII, dl, *RegInfo, NumBytes);
     }
   }

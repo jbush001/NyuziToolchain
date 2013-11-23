@@ -75,8 +75,8 @@ uint64_t DIDescriptor::getUInt64Field(unsigned Elt) const {
     return 0;
 
   if (Elt < DbgNode->getNumOperands())
-    if (ConstantInt *CI
-        = dyn_cast_or_null<ConstantInt>(DbgNode->getOperand(Elt)))
+    if (ConstantInt *CI =
+            dyn_cast_or_null<ConstantInt>(DbgNode->getOperand(Elt)))
       return CI->getZExtValue();
 
   return 0;
@@ -87,8 +87,8 @@ int64_t DIDescriptor::getInt64Field(unsigned Elt) const {
     return 0;
 
   if (Elt < DbgNode->getNumOperands())
-    if (ConstantInt *CI
-        = dyn_cast_or_null<ConstantInt>(DbgNode->getOperand(Elt)))
+    if (ConstantInt *CI =
+            dyn_cast_or_null<ConstantInt>(DbgNode->getOperand(Elt)))
       return CI->getSExtValue();
 
   return 0;
@@ -104,7 +104,7 @@ GlobalVariable *DIDescriptor::getGlobalVariableField(unsigned Elt) const {
     return 0;
 
   if (Elt < DbgNode->getNumOperands())
-      return dyn_cast_or_null<GlobalVariable>(DbgNode->getOperand(Elt));
+    return dyn_cast_or_null<GlobalVariable>(DbgNode->getOperand(Elt));
   return 0;
 }
 
@@ -113,7 +113,7 @@ Constant *DIDescriptor::getConstantField(unsigned Elt) const {
     return 0;
 
   if (Elt < DbgNode->getNumOperands())
-      return dyn_cast_or_null<Constant>(DbgNode->getOperand(Elt));
+    return dyn_cast_or_null<Constant>(DbgNode->getOperand(Elt));
   return 0;
 }
 
@@ -122,7 +122,7 @@ Function *DIDescriptor::getFunctionField(unsigned Elt) const {
     return 0;
 
   if (Elt < DbgNode->getNumOperands())
-      return dyn_cast_or_null<Function>(DbgNode->getOperand(Elt));
+    return dyn_cast_or_null<Function>(DbgNode->getOperand(Elt));
   return 0;
 }
 
@@ -131,19 +131,17 @@ void DIDescriptor::replaceFunctionField(unsigned Elt, Function *F) {
     return;
 
   if (Elt < DbgNode->getNumOperands()) {
-    MDNode *Node = const_cast<MDNode*>(DbgNode);
+    MDNode *Node = const_cast<MDNode *>(DbgNode);
     Node->replaceOperandWith(Elt, F);
   }
 }
 
 unsigned DIVariable::getNumAddrElements() const {
-  return DbgNode->getNumOperands()-8;
+  return DbgNode->getNumOperands() - 8;
 }
 
 /// getInlinedAt - If this variable is inlined then return inline location.
-MDNode *DIVariable::getInlinedAt() const {
-  return getNodeField(DbgNode, 7);
-}
+MDNode *DIVariable::getInlinedAt() const { return getNodeField(DbgNode, 7); }
 
 //===----------------------------------------------------------------------===//
 // Predicates
@@ -152,7 +150,8 @@ MDNode *DIVariable::getInlinedAt() const {
 /// isBasicType - Return true if the specified tag is legal for
 /// DIBasicType.
 bool DIDescriptor::isBasicType() const {
-  if (!DbgNode) return false;
+  if (!DbgNode)
+    return false;
   switch (getTag()) {
   case dwarf::DW_TAG_base_type:
   case dwarf::DW_TAG_unspecified_type:
@@ -164,7 +163,8 @@ bool DIDescriptor::isBasicType() const {
 
 /// isDerivedType - Return true if the specified tag is legal for DIDerivedType.
 bool DIDescriptor::isDerivedType() const {
-  if (!DbgNode) return false;
+  if (!DbgNode)
+    return false;
   switch (getTag()) {
   case dwarf::DW_TAG_typedef:
   case dwarf::DW_TAG_pointer_type:
@@ -187,7 +187,8 @@ bool DIDescriptor::isDerivedType() const {
 /// isCompositeType - Return true if the specified tag is legal for
 /// DICompositeType.
 bool DIDescriptor::isCompositeType() const {
-  if (!DbgNode) return false;
+  if (!DbgNode)
+    return false;
   switch (getTag()) {
   case dwarf::DW_TAG_array_type:
   case dwarf::DW_TAG_structure_type:
@@ -203,7 +204,8 @@ bool DIDescriptor::isCompositeType() const {
 
 /// isVariable - Return true if the specified tag is legal for DIVariable.
 bool DIDescriptor::isVariable() const {
-  if (!DbgNode) return false;
+  if (!DbgNode)
+    return false;
   switch (getTag()) {
   case dwarf::DW_TAG_auto_variable:
   case dwarf::DW_TAG_arg_variable:
@@ -240,7 +242,8 @@ bool DIDescriptor::isUnspecifiedParameter() const {
 /// isScope - Return true if the specified tag is one of the scope
 /// related tag.
 bool DIDescriptor::isScope() const {
-  if (!DbgNode) return false;
+  if (!DbgNode)
+    return false;
   switch (getTag()) {
   case dwarf::DW_TAG_compile_unit:
   case dwarf::DW_TAG_lexical_block:
@@ -287,13 +290,13 @@ bool DIDescriptor::isNameSpace() const {
 /// lexical block with an extra file.
 bool DIDescriptor::isLexicalBlockFile() const {
   return DbgNode && getTag() == dwarf::DW_TAG_lexical_block &&
-    (DbgNode->getNumOperands() == 3);
+         (DbgNode->getNumOperands() == 3);
 }
 
 /// isLexicalBlock - Return true if the specified tag is DW_TAG_lexical_block.
 bool DIDescriptor::isLexicalBlock() const {
   return DbgNode && getTag() == dwarf::DW_TAG_lexical_block &&
-    (DbgNode->getNumOperands() > 3);
+         (DbgNode->getNumOperands() > 3);
 }
 
 /// isSubrange - Return true if the specified tag is DW_TAG_subrange_type.
@@ -340,10 +343,10 @@ void DIType::replaceAllUsesWith(DIDescriptor &D) {
   // this detail by allowing a value to be replaced with replaceAllUsesWith()
   // itself.
   if (DbgNode != D) {
-    MDNode *Node = const_cast<MDNode*>(DbgNode);
+    MDNode *Node = const_cast<MDNode *>(DbgNode);
     const MDNode *DN = D;
     const Value *V = cast_or_null<Value>(DN);
-    Node->replaceAllUsesWith(const_cast<Value*>(V));
+    Node->replaceAllUsesWith(const_cast<Value *>(V));
     MDNode::deleteTemporary(Node);
   }
 }
@@ -360,10 +363,10 @@ void DIType::replaceAllUsesWith(MDNode *D) {
   // this detail by allowing a value to be replaced with replaceAllUsesWith()
   // itself.
   if (DbgNode != D) {
-    MDNode *Node = const_cast<MDNode*>(DbgNode);
+    MDNode *Node = const_cast<MDNode *>(DbgNode);
     const MDNode *DN = D;
     const Value *V = cast_or_null<Value>(DN);
-    Node->replaceAllUsesWith(const_cast<Value*>(V));
+    Node->replaceAllUsesWith(const_cast<Value *>(V));
     MDNode::deleteTemporary(Node);
   }
 }
@@ -397,8 +400,7 @@ static bool fieldIsMDNode(const MDNode *DbgNode, unsigned Elt) {
   // FIXME: This function should return true, if the field is null or the field
   // is indeed a MDNode: return !Fld || isa<MDNode>(Fld).
   Value *Fld = getField(DbgNode, Elt);
-  if (Fld && isa<MDString>(Fld) &&
-      !cast<MDString>(Fld)->getString().empty())
+  if (Fld && isa<MDString>(Fld) && !cast<MDString>(Fld)->getString().empty())
     return false;
   return true;
 }
@@ -570,9 +572,7 @@ bool DINameSpace::Verify() const {
 }
 
 /// \brief Retrieve the MDNode for the directory/file pair.
-MDNode *DIFile::getFileNode() const {
-  return getNodeField(DbgNode, 1);
-}
+MDNode *DIFile::getFileNode() const { return getNodeField(DbgNode, 1); }
 
 /// \brief Verify that the file descriptor is well formed.
 bool DIFile::Verify() const {
@@ -715,7 +715,7 @@ bool DISubprogram::describes(const Function *F) {
 }
 
 unsigned DISubprogram::isOptimized() const {
-  assert (DbgNode && "Invalid subprogram descriptor!");
+  assert(DbgNode && "Invalid subprogram descriptor!");
   if (DbgNode->getNumOperands() == 15)
     return getUnsignedField(14);
   return 0;
@@ -765,7 +765,8 @@ StringRef DIScope::getName() const {
   if (isNameSpace())
     return DINameSpace(DbgNode).getName();
   assert((isLexicalBlock() || isLexicalBlockFile() || isFile() ||
-          isCompileUnit()) && "Unhandled type of scope.");
+          isCompileUnit()) &&
+         "Unhandled type of scope.");
   return StringRef();
 }
 
@@ -801,7 +802,6 @@ DIArray DICompileUnit::getSubprograms() const {
 
   return DIArray(getNodeField(DbgNode, 9));
 }
-
 
 DIArray DICompileUnit::getGlobalVariables() const {
   if (!DbgNode || DbgNode->getNumOperands() < 13)
@@ -867,8 +867,7 @@ DIVariable llvm::createInlinedVariable(MDNode *DV, MDNode *InlinedScope,
   SmallVector<Value *, 16> Elts;
   // Insert inlined scope as 7th element.
   for (unsigned i = 0, e = DV->getNumOperands(); i != e; ++i)
-    i == 7 ? Elts.push_back(InlinedScope) :
-             Elts.push_back(DV->getOperand(i));
+    i == 7 ? Elts.push_back(InlinedScope) : Elts.push_back(DV->getOperand(i));
   return DIVariable(MDNode::get(VMContext, Elts));
 }
 
@@ -877,9 +876,8 @@ DIVariable llvm::cleanseInlinedVariable(MDNode *DV, LLVMContext &VMContext) {
   SmallVector<Value *, 16> Elts;
   // Insert inlined scope as 7th element.
   for (unsigned i = 0, e = DV->getNumOperands(); i != e; ++i)
-    i == 7 ?
-      Elts.push_back(Constant::getNullValue(Type::getInt32Ty(VMContext))):
-      Elts.push_back(DV->getOperand(i));
+    i == 7 ? Elts.push_back(Constant::getNullValue(Type::getInt32Ty(VMContext)))
+           : Elts.push_back(DV->getOperand(i));
   return DIVariable(MDNode::get(VMContext, Elts));
 }
 
@@ -908,16 +906,16 @@ DICompositeType llvm::getDICompositeType(DIType T) {
     // not generate identifier for types, so using an empty map to resolve
     // DerivedFrom should be fine.
     DITypeIdentifierMap EmptyMap;
-    return getDICompositeType(DIDerivedType(T).getTypeDerivedFrom()
-                                              .resolve(EmptyMap));
+    return getDICompositeType(
+        DIDerivedType(T).getTypeDerivedFrom().resolve(EmptyMap));
   }
 
   return DICompositeType();
 }
 
 /// Update DITypeIdentifierMap by going through retained types of each CU.
-DITypeIdentifierMap llvm::generateDITypeIdentifierMap(
-                              const NamedMDNode *CU_Nodes) {
+DITypeIdentifierMap
+llvm::generateDITypeIdentifierMap(const NamedMDNode *CU_Nodes) {
   DITypeIdentifierMap Map;
   for (unsigned CUi = 0, CUe = CU_Nodes->getNumOperands(); CUi != CUe; ++CUi) {
     DICompileUnit CU(CU_Nodes->getOperand(CUi));
@@ -953,12 +951,21 @@ void DebugInfoFinder::reset() {
   Scopes.clear();
   NodesSeen.clear();
   TypeIdentifierMap.clear();
+  TypeMapInitialized = false;
+}
+
+void DebugInfoFinder::InitializeTypeMap(const Module &M) {
+  if (!TypeMapInitialized)
+    if (NamedMDNode *CU_Nodes = M.getNamedMetadata("llvm.dbg.cu")) {
+      TypeIdentifierMap = generateDITypeIdentifierMap(CU_Nodes);
+      TypeMapInitialized = true;
+    }
 }
 
 /// processModule - Process entire module and collect debug info.
 void DebugInfoFinder::processModule(const Module &M) {
+  InitializeTypeMap(M);
   if (NamedMDNode *CU_Nodes = M.getNamedMetadata("llvm.dbg.cu")) {
-    TypeIdentifierMap = generateDITypeIdentifierMap(CU_Nodes);
     for (unsigned i = 0, e = CU_Nodes->getNumOperands(); i != e; ++i) {
       DICompileUnit CU(CU_Nodes->getOperand(i));
       addCompileUnit(CU);
@@ -981,8 +988,7 @@ void DebugInfoFinder::processModule(const Module &M) {
         processType(DIType(RetainedTypes.getElement(i)));
       DIArray Imports = CU.getImportedEntities();
       for (unsigned i = 0, e = Imports.getNumElements(); i != e; ++i) {
-        DIImportedEntity Import = DIImportedEntity(
-                                    Imports.getElement(i));
+        DIImportedEntity Import = DIImportedEntity(Imports.getElement(i));
         DIDescriptor Entity = Import.getEntity();
         if (Entity.isType())
           processType(DIType(Entity));
@@ -991,17 +997,17 @@ void DebugInfoFinder::processModule(const Module &M) {
         else if (Entity.isNameSpace())
           processScope(DINameSpace(Entity).getContext());
       }
-      // FIXME: We really shouldn't be bailing out after visiting just one CU
-      return;
     }
   }
 }
 
 /// processLocation - Process DILocation.
-void DebugInfoFinder::processLocation(DILocation Loc) {
-  if (!Loc) return;
+void DebugInfoFinder::processLocation(const Module &M, DILocation Loc) {
+  if (!Loc)
+    return;
+  InitializeTypeMap(M);
   processScope(Loc.getScope());
-  processLocation(Loc.getOrigLocation());
+  processLocation(M, Loc.getOrigLocation());
 }
 
 /// processType - Process DIType.
@@ -1062,8 +1068,7 @@ void DebugInfoFinder::processLexicalBlock(DILexicalBlock LB) {
   else if (Context.isLexicalBlockFile()) {
     DILexicalBlockFile DBF = DILexicalBlockFile(Context);
     return processLexicalBlock(DILexicalBlock(DBF.getScope()));
-  }
-  else
+  } else
     return processSubprogram(DISubprogram(Context));
 }
 
@@ -1089,9 +1094,12 @@ void DebugInfoFinder::processSubprogram(DISubprogram SP) {
 }
 
 /// processDeclare - Process DbgDeclareInst.
-void DebugInfoFinder::processDeclare(const DbgDeclareInst *DDI) {
+void DebugInfoFinder::processDeclare(const Module &M,
+                                     const DbgDeclareInst *DDI) {
   MDNode *N = dyn_cast<MDNode>(DDI->getVariable());
-  if (!N) return;
+  if (!N)
+    return;
+  InitializeTypeMap(M);
 
   DIDescriptor DV(N);
   if (!DV.isVariable())
@@ -1103,9 +1111,11 @@ void DebugInfoFinder::processDeclare(const DbgDeclareInst *DDI) {
   processType(DIVariable(N).getType());
 }
 
-void DebugInfoFinder::processValue(const DbgValueInst *DVI) {
+void DebugInfoFinder::processValue(const Module &M, const DbgValueInst *DVI) {
   MDNode *N = dyn_cast<MDNode>(DVI->getVariable());
-  if (!N) return;
+  if (!N)
+    return;
+  InitializeTypeMap(M);
 
   DIDescriptor DV(N);
   if (!DV.isVariable())
@@ -1183,12 +1193,14 @@ bool DebugInfoFinder::addScope(DIScope Scope) {
 
 /// dump - Print descriptor to dbgs() with a newline.
 void DIDescriptor::dump() const {
-  print(dbgs()); dbgs() << '\n';
+  print(dbgs());
+  dbgs() << '\n';
 }
 
 /// print - Print descriptor.
 void DIDescriptor::print(raw_ostream &OS) const {
-  if (!DbgNode) return;
+  if (!DbgNode)
+    return;
 
   if (const char *Tag = dwarf::TagString(getTag()))
     OS << "[ " << Tag << " ]";
@@ -1250,7 +1262,8 @@ void DIEnumerator::printInternal(raw_ostream &OS) const {
 }
 
 void DIType::printInternal(raw_ostream &OS) const {
-  if (!DbgNode) return;
+  if (!DbgNode)
+    return;
 
   StringRef Res = getName();
   if (!Res.empty())
@@ -1258,13 +1271,11 @@ void DIType::printInternal(raw_ostream &OS) const {
 
   // TODO: Print context?
 
-  OS << " [line " << getLineNumber()
-     << ", size " << getSizeInBits()
-     << ", align " << getAlignInBits()
-     << ", offset " << getOffsetInBits();
+  OS << " [line " << getLineNumber() << ", size " << getSizeInBits()
+     << ", align " << getAlignInBits() << ", offset " << getOffsetInBits();
   if (isBasicType())
     if (const char *Enc =
-        dwarf::AttributeEncodingString(DIBasicType(DbgNode).getEncoding()))
+            dwarf::AttributeEncodingString(DIBasicType(DbgNode).getEncoding()))
       OS << ", enc " << Enc;
   OS << "]";
 
@@ -1360,16 +1371,15 @@ void DIObjCProperty::printInternal(raw_ostream &OS) const {
   if (!Name.empty())
     OS << " [" << Name << ']';
 
-  OS << " [line " << getLineNumber()
-     << ", properties " << getUnsignedField(6) << ']';
+  OS << " [line " << getLineNumber() << ", properties " << getUnsignedField(6)
+     << ']';
 }
 
 static void printDebugLoc(DebugLoc DL, raw_ostream &CommentOS,
                           const LLVMContext &Ctx) {
-  if (!DL.isUnknown()) {          // Print source line info.
+  if (!DL.isUnknown()) { // Print source line info.
     DIScope Scope(DL.getScope(Ctx));
-    assert(Scope.isScope() &&
-      "Scope of a DebugLoc should be a DIScope.");
+    assert(Scope.isScope() && "Scope of a DebugLoc should be a DIScope.");
     // Omit the directory, because it's likely to be long and uninteresting.
     CommentOS << Scope.getFilename();
     CommentOS << ':' << DL.getLine();
@@ -1400,12 +1410,10 @@ void DIVariable::printExtendedName(raw_ostream &OS) const {
 }
 
 /// Specialize constructor to make sure it has the correct type.
-template <>
-DIRef<DIScope>::DIRef(const Value *V) : Val(V) {
+template <> DIRef<DIScope>::DIRef(const Value *V) : Val(V) {
   assert(isScopeRef(V) && "DIScopeRef should be a MDString or MDNode");
 }
-template <>
-DIRef<DIType>::DIRef(const Value *V) : Val(V) {
+template <> DIRef<DIType>::DIRef(const Value *V) : Val(V) {
   assert(isTypeRef(V) && "DITypeRef should be a MDString or MDNode");
 }
 
@@ -1415,7 +1423,58 @@ DIScopeRef DIDescriptor::getFieldAs<DIScopeRef>(unsigned Elt) const {
   return DIScopeRef(getField(DbgNode, Elt));
 }
 /// Specialize getFieldAs to handle fields that are references to DITypes.
-template <>
-DITypeRef DIDescriptor::getFieldAs<DITypeRef>(unsigned Elt) const {
+template <> DITypeRef DIDescriptor::getFieldAs<DITypeRef>(unsigned Elt) const {
   return DITypeRef(getField(DbgNode, Elt));
+}
+
+/// Strip debug info in the module if it exists.
+/// To do this, we remove all calls to the debugger intrinsics and any named
+/// metadata for debugging. We also remove debug locations for instructions.
+/// Return true if module is modified.
+bool llvm::StripDebugInfo(Module &M) {
+
+  bool Changed = false;
+
+  // Remove all of the calls to the debugger intrinsics, and remove them from
+  // the module.
+  if (Function *Declare = M.getFunction("llvm.dbg.declare")) {
+    while (!Declare->use_empty()) {
+      CallInst *CI = cast<CallInst>(Declare->use_back());
+      CI->eraseFromParent();
+    }
+    Declare->eraseFromParent();
+    Changed = true;
+  }
+
+  if (Function *DbgVal = M.getFunction("llvm.dbg.value")) {
+    while (!DbgVal->use_empty()) {
+      CallInst *CI = cast<CallInst>(DbgVal->use_back());
+      CI->eraseFromParent();
+    }
+    DbgVal->eraseFromParent();
+    Changed = true;
+  }
+
+  for (Module::named_metadata_iterator NMI = M.named_metadata_begin(),
+         NME = M.named_metadata_end(); NMI != NME;) {
+    NamedMDNode *NMD = NMI;
+    ++NMI;
+    if (NMD->getName().startswith("llvm.dbg.")) {
+      NMD->eraseFromParent();
+      Changed = true;
+    }
+  }
+
+  for (Module::iterator MI = M.begin(), ME = M.end(); MI != ME; ++MI)
+    for (Function::iterator FI = MI->begin(), FE = MI->end(); FI != FE;
+         ++FI)
+      for (BasicBlock::iterator BI = FI->begin(), BE = FI->end(); BI != BE;
+           ++BI) {
+        if (!BI->getDebugLoc().isUnknown()) {
+          Changed = true;
+          BI->setDebugLoc(DebugLoc());
+        }
+      }
+
+  return Changed;
 }

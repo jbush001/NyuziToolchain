@@ -12,21 +12,22 @@
 #include "IdataPass.h"
 #include "LinkerGeneratedSymbolFile.h"
 
-#include "llvm/ADT/SmallString.h"
-#include "llvm/Support/Allocator.h"
-#include "llvm/Support/Path.h"
 #include "lld/Core/PassManager.h"
 #include "lld/Passes/LayoutPass.h"
+#include "lld/Passes/RoundTripNativePass.h"
+#include "lld/Passes/RoundTripYAMLPass.h"
 #include "lld/ReaderWriter/PECOFFLinkingContext.h"
 #include "lld/ReaderWriter/Reader.h"
 #include "lld/ReaderWriter/Simple.h"
 #include "lld/ReaderWriter/Writer.h"
+#include "llvm/ADT/SmallString.h"
+#include "llvm/Support/Allocator.h"
+#include "llvm/Support/Path.h"
 
 #include <bitset>
+#include <set>
 
 namespace lld {
-
-namespace {} // anonymous namespace
 
 bool PECOFFLinkingContext::validateImpl(raw_ostream &diagnostics) {
   if (_stackReserve < _stackCommit) {
@@ -50,10 +51,10 @@ bool PECOFFLinkingContext::validateImpl(raw_ostream &diagnostics) {
     return false;
   }
 
-  std::bitset<64> alignment(_sectionAlignment);
+  std::bitset<64> alignment(_sectionDefaultAlignment);
   if (alignment.count() != 1) {
     diagnostics << "Section alignment must be a power of 2, but got "
-                << _sectionAlignment << "\n";
+                << _sectionDefaultAlignment << "\n";
     return false;
   }
 
@@ -101,6 +102,58 @@ bool PECOFFLinkingContext::createImplicitFiles(
   return true;
 }
 
+/// Returns the section name in the resulting executable.
+///
+/// Sections in object files are usually output to the executable with the same
+/// name, but you can rename by command line option. /merge:from=to makes the
+/// linker to combine "from" section contents to "to" section in the
+/// executable. We have a mapping for the renaming. This method looks up the
+/// table and returns a new section name if renamed.
+StringRef
+PECOFFLinkingContext::getFinalSectionName(StringRef sectionName) const {
+  auto it = _renamedSections.find(sectionName);
+  if (it == _renamedSections.end())
+    return sectionName;
+  return getFinalSectionName(it->second);
+}
+
+/// Adds a mapping to the section renaming table. This method will be used for
+/// /merge command line option.
+bool PECOFFLinkingContext::addSectionRenaming(raw_ostream &diagnostics,
+                                              StringRef from, StringRef to) {
+  auto it = _renamedSections.find(from);
+  if (it != _renamedSections.end()) {
+    if (it->second == to)
+      // There's already the same mapping.
+      return true;
+    diagnostics << "Section \"" << from << "\" is already mapped to \""
+                << it->second << ", so it cannot be mapped to \"" << to << "\".";
+    return true;
+  }
+
+  // Add a mapping, and check if there's no cycle in the renaming mapping. The
+  // cycle detection algorithm we use here is naive, but that's OK because the
+  // number of mapping is usually less than 10.
+  _renamedSections[from] = to;
+  for (auto elem : _renamedSections) {
+    StringRef sectionName = elem.first;
+    std::set<StringRef> visited;
+    visited.insert(sectionName);
+    for (;;) {
+      auto pos = _renamedSections.find(sectionName);
+      if (pos == _renamedSections.end())
+        break;
+      if (visited.count(pos->second)) {
+        diagnostics << "/merge:" << from << "=" << to << " makes a cycle";
+        return false;
+      }
+      sectionName = pos->second;
+      visited.insert(sectionName);
+    }
+  }
+  return true;
+}
+
 /// Try to find the input library file from the search paths and append it to
 /// the input file list. Returns true if the library file is found.
 StringRef PECOFFLinkingContext::searchLibraryFile(StringRef filename) const {
@@ -112,7 +165,7 @@ StringRef PECOFFLinkingContext::searchLibraryFile(StringRef filename) const {
     SmallString<128> path = dir;
     llvm::sys::path::append(path, filename);
     if (llvm::sys::fs::exists(path.str()))
-      return allocateString(path.str());
+      return allocate(path.str());
   }
   return filename;
 }
@@ -121,15 +174,36 @@ Writer &PECOFFLinkingContext::writer() const { return *_writer; }
 
 ErrorOr<Reference::Kind>
 PECOFFLinkingContext::relocKindFromString(StringRef str) const {
-  return make_error_code(YamlReaderError::illegal_value);
+#define LLD_CASE(name) .Case(#name, llvm::COFF::name)
+  int32_t ret = llvm::StringSwitch<int32_t>(str)
+        LLD_CASE(IMAGE_REL_I386_ABSOLUTE)
+        LLD_CASE(IMAGE_REL_I386_DIR32)
+        LLD_CASE(IMAGE_REL_I386_DIR32NB)
+        LLD_CASE(IMAGE_REL_I386_REL32)
+        .Default(-1);
+#undef LLD_CASE
+  if (ret == -1)
+    return make_error_code(YamlReaderError::illegal_value);
+  return ret;
 }
 
 ErrorOr<std::string>
 PECOFFLinkingContext::stringFromRelocKind(Reference::Kind kind) const {
+  switch (kind) {
+#define LLD_CASE(name)                          \
+    case llvm::COFF::name:                      \
+      return std::string(#name);
+
+    LLD_CASE(IMAGE_REL_I386_ABSOLUTE)
+    LLD_CASE(IMAGE_REL_I386_DIR32)
+    LLD_CASE(IMAGE_REL_I386_DIR32NB)
+    LLD_CASE(IMAGE_REL_I386_REL32)
+#undef LLD_CASE
+  }
   return make_error_code(YamlReaderError::illegal_value);
 }
 
-void PECOFFLinkingContext::addPasses(PassManager &pm) const {
+void PECOFFLinkingContext::addPasses(PassManager &pm) {
   pm.add(std::unique_ptr<Pass>(new pecoff::GroupedSectionsPass()));
   pm.add(std::unique_ptr<Pass>(new pecoff::IdataPass(*this)));
   pm.add(std::unique_ptr<Pass>(new LayoutPass()));

@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLD_READER_WRITER_PE_COFF_ATOMS_H_
-#define LLD_READER_WRITER_PE_COFF_ATOMS_H_
+#ifndef LLD_READER_WRITER_PE_COFF_ATOMS_H
+#define LLD_READER_WRITER_PE_COFF_ATOMS_H
 
 #include "lld/Core/File.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -181,17 +181,24 @@ private:
 class COFFDefinedAtom : public COFFDefinedFileAtom {
 public:
   COFFDefinedAtom(const File &file, StringRef name, StringRef sectionName,
-                  Scope scope, ContentType type, ContentPermissions perms,
-                  Merge merge, ArrayRef<uint8_t> data, uint64_t ordinal)
+                  Scope scope, ContentType type, bool isComdat,
+                  ContentPermissions perms, Merge merge, ArrayRef<uint8_t> data,
+                  uint64_t ordinal)
       : COFFDefinedFileAtom(file, name, sectionName, scope, type, perms,
                             ordinal),
-        _merge(merge), _dataref(data) {}
+        _isComdat(isComdat), _merge(merge), _dataref(data) {}
 
   virtual Merge merge() const { return _merge; }
   virtual uint64_t size() const { return _dataref.size(); }
   virtual ArrayRef<uint8_t> rawContent() const { return _dataref; }
 
+  virtual DeadStripKind deadStrip() const {
+    // Only COMDAT symbols would be dead-stripped.
+    return _isComdat ? deadStripNormal : deadStripNever;
+  }
+
 private:
+  bool _isComdat;
   Merge _merge;
   ArrayRef<uint8_t> _dataref;
 };
@@ -202,7 +209,7 @@ public:
   COFFBSSAtom(const File &file, StringRef name, Scope scope,
               ContentPermissions perms, Merge merge, uint32_t size,
               uint64_t ordinal)
-      : COFFDefinedFileAtom(file, name, "", scope, typeZeroFill, perms,
+      : COFFDefinedFileAtom(file, name, ".bss", scope, typeZeroFill, perms,
                             ordinal),
         _merge(merge), _size(size) {}
 
@@ -240,24 +247,11 @@ private:
 // COFF header.
 class COFFDataDirectoryAtom : public COFFLinkerInternalAtom {
 public:
-  COFFDataDirectoryAtom(const File &file, uint64_t ordinal, uint32_t entrySize,
-                        uint32_t entryAddr = 0)
-      : COFFLinkerInternalAtom(file, assembleRawContent(entrySize, entryAddr)),
-        _ordinal(ordinal) {}
+  COFFDataDirectoryAtom(const File &file, std::vector<uint8_t> contents)
+      : COFFLinkerInternalAtom(file, contents) {}
 
-  virtual uint64_t ordinal() const { return _ordinal; }
   virtual ContentType contentType() const { return typeDataDirectoryEntry; }
   virtual ContentPermissions permissions() const { return permR__; }
-
-private:
-  std::vector<uint8_t> assembleRawContent(uint32_t entrySize, uint32_t entryAddr) {
-    std::vector<uint8_t> data = std::vector<uint8_t>(8, 0);
-    *(reinterpret_cast<llvm::support::ulittle32_t *>(&data[0])) = entryAddr;
-    *(reinterpret_cast<llvm::support::ulittle32_t *>(&data[4])) = entrySize;
-    return data;
-  }
-
-  uint64_t _ordinal;
 };
 
 // A COFFSharedLibraryAtom represents a symbol for data in an import library.  A
@@ -300,7 +294,7 @@ private:
   std::string addImpPrefix(StringRef symbolName) {
     std::string ret("__imp_");
     ret.append(symbolName);
-    return std::move(ret);
+    return ret;
   }
 
   const File &_file;

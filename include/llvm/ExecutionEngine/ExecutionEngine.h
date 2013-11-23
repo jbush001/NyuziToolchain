@@ -153,7 +153,7 @@ protected:
   void *(*LazyFunctionCreator)(const std::string &);
 
 public:
-  /// lock - This lock protects the ExecutionEngine, JIT, JITResolver and
+  /// lock - This lock protects the ExecutionEngine, MCJIT, JIT, JITResolver and
   /// JITEmitter classes.  It must be held while changing the internal state of
   /// any of those classes.
   sys::Mutex lock;
@@ -215,7 +215,7 @@ public:
   /// FindFunctionNamed - Search all of the active modules to find the one that
   /// defines FnName.  This is very slow operation and shouldn't be used for
   /// general code.
-  Function *FindFunctionNamed(const char *FnName);
+  virtual Function *FindFunctionNamed(const char *FnName);
 
   /// runFunction - Execute the specified function with the specified arguments,
   /// and return the result.
@@ -231,6 +231,9 @@ public:
   /// it prints a message to stderr and aborts.
   ///
   /// This function is deprecated for the MCJIT execution engine.
+  ///
+  /// FIXME: the JIT and MCJIT interfaces should be disentangled or united 
+  /// again, if possible.
   ///
   virtual void *getPointerToNamedFunction(const std::string &Name,
                                           bool AbortOnFailure = true) = 0;
@@ -275,7 +278,7 @@ public:
   /// the static constructors or destructors for a program.
   ///
   /// \param isDtors - Run the destructors instead of constructors.
-  void runStaticConstructorsDestructors(bool isDtors);
+  virtual void runStaticConstructorsDestructors(bool isDtors);
 
   /// runStaticConstructorsDestructors - This method is used to execute all of
   /// the static constructors or destructors for a particular module.

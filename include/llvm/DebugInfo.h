@@ -281,7 +281,7 @@ protected:
   void printInternal(raw_ostream &OS) const;
 
 public:
-  DIType(const MDNode *N = 0) : DIScope(N) {}
+  explicit DIType(const MDNode *N = 0) : DIScope(N) {}
 
   /// Verify - Verify that a type descriptor is well formed.
   bool Verify() const;
@@ -753,6 +753,12 @@ DIVariable cleanseInlinedVariable(MDNode *DV, LLVMContext &VMContext);
 /// Construct DITypeIdentifierMap by going through retained types of each CU.
 DITypeIdentifierMap generateDITypeIdentifierMap(const NamedMDNode *CU_Nodes);
 
+/// Strip debug info in the module if it exists.
+/// To do this, we remove all calls to the debugger intrinsics and any named
+/// metadata for debugging. We also remove debug locations for instructions.
+/// Return true if module is modified.
+bool StripDebugInfo(Module &M);
+
 /// DebugInfoFinder tries to list all debug info MDNodes used in a module. To
 /// list debug info MDNodes used by an instruction, DebugInfoFinder uses
 /// processDeclare, processValue and processLocation to handle DbgDeclareInst,
@@ -761,21 +767,26 @@ DITypeIdentifierMap generateDITypeIdentifierMap(const NamedMDNode *CU_Nodes);
 /// used by the CUs.
 class DebugInfoFinder {
 public:
+  DebugInfoFinder() : TypeMapInitialized(false) {}
+
   /// processModule - Process entire module and collect debug info
   /// anchors.
   void processModule(const Module &M);
 
   /// processDeclare - Process DbgDeclareInst.
-  void processDeclare(const DbgDeclareInst *DDI);
+  void processDeclare(const Module &M, const DbgDeclareInst *DDI);
   /// Process DbgValueInst.
-  void processValue(const DbgValueInst *DVI);
+  void processValue(const Module &M, const DbgValueInst *DVI);
   /// processLocation - Process DILocation.
-  void processLocation(DILocation Loc);
+  void processLocation(const Module &M, DILocation Loc);
 
   /// Clear all lists.
   void reset();
 
 private:
+  /// Initialize TypeIdentifierMap.
+  void InitializeTypeMap(const Module &M);
+
   /// processType - Process DIType.
   void processType(DIType DT);
 
@@ -828,6 +839,8 @@ private:
   SmallVector<MDNode *, 8> Scopes; // Scopes
   SmallPtrSet<MDNode *, 64> NodesSeen;
   DITypeIdentifierMap TypeIdentifierMap;
+  /// Specify if TypeIdentifierMap is initialized.
+  bool TypeMapInitialized;
 };
 } // end namespace llvm
 

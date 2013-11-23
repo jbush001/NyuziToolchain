@@ -121,6 +121,10 @@ class SGPRImm <dag frag> : PatLeaf<frag, [{
   return false;
 }]>;
 
+def FRAMEri64 : Operand<iPTR> {
+  let MIOperandInfo = (ops SReg_32:$ptr, i32imm:$index);
+}
+
 //===----------------------------------------------------------------------===//
 // SI assembler operands
 //===----------------------------------------------------------------------===//
@@ -169,6 +173,11 @@ class SOP2_32 <bits<7> op, string opName, list<dag> pattern> : SOP2 <
 
 class SOP2_64 <bits<7> op, string opName, list<dag> pattern> : SOP2 <
   op, (outs SReg_64:$dst), (ins SSrc_64:$src0, SSrc_64:$src1),
+  opName#" $dst, $src0, $src1", pattern
+>;
+
+class SOP2_SHIFT_64 <bits<7> op, string opName, list<dag> pattern> : SOP2 <
+  op, (outs SReg_64:$dst), (ins SSrc_64:$src0, SSrc_32:$src1),
   opName#" $dst, $src0, $src1", pattern
 >;
 

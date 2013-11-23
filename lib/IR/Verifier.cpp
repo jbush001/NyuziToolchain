@@ -78,7 +78,7 @@
 using namespace llvm;
 
 static cl::opt<bool> DisableDebugInfoVerifier("disable-debug-info-verifier",
-                                              cl::init(false));
+                                              cl::init(true));
 
 namespace {  // Anonymous namespace for class
   struct PreVerifier : public FunctionPass {
@@ -167,11 +167,8 @@ namespace {
     bool doInitialization(Module &M) {
       Mod = &M;
       Context = &M.getContext();
-      Finder.reset();
 
       DL = getAnalysisIfAvailable<DataLayout>();
-      if (!DisableDebugInfoVerifier)
-        Finder.processModule(M);
 
       // We must abort before returning back to the pass manager, or else the
       // pass manager may try to run other passes on the broken module.
@@ -185,9 +182,14 @@ namespace {
       Mod = F.getParent();
       if (!Context) Context = &F.getContext();
 
+      Finder.reset();
       visit(F);
       InstsInThisBlock.clear();
       PersonalityFn = 0;
+
+      if (!DisableDebugInfoVerifier)
+        // Verify Debug Info.
+        verifyDebugInfo();
 
       // We must abort before returning back to the pass manager, or else the
       // pass manager may try to run other passes on the broken module.
@@ -218,8 +220,12 @@ namespace {
       visitModuleFlags(M);
       visitModuleIdents(M);
 
-      // Verify Debug Info.
-      verifyDebugInfo(M);
+      if (!DisableDebugInfoVerifier) {
+        Finder.reset();
+        Finder.processModule(M);
+        // Verify Debug Info.
+        verifyDebugInfo();
+      }
 
       // If the module is broken, abort at this time.
       return abortIfBroken();
@@ -283,6 +289,7 @@ namespace {
     void visitIntToPtrInst(IntToPtrInst &I);
     void visitPtrToIntInst(PtrToIntInst &I);
     void visitBitCastInst(BitCastInst &I);
+    void visitAddrSpaceCastInst(AddrSpaceCastInst &I);
     void visitPHINode(PHINode &PN);
     void visitBinaryOperator(BinaryOperator &B);
     void visitICmpInst(ICmpInst &IC);
@@ -321,6 +328,8 @@ namespace {
     bool VerifyIntrinsicType(Type *Ty,
                              ArrayRef<Intrinsic::IITDescriptor> &Infos,
                              SmallVectorImpl<Type*> &ArgTys);
+    bool VerifyIntrinsicIsVarArg(bool isVarArg,
+                                 ArrayRef<Intrinsic::IITDescriptor> &Infos);
     bool VerifyAttributeCount(AttributeSet Attrs, unsigned Params);
     void VerifyAttributeTypes(AttributeSet Attrs, unsigned Idx,
                               bool isFunction, const Value *V);
@@ -332,7 +341,7 @@ namespace {
     void VerifyBitcastType(const Value *V, Type *DestTy, Type *SrcTy);
     void VerifyConstantExprBitcastType(const ConstantExpr *CE);
 
-    void verifyDebugInfo(Module &M);
+    void verifyDebugInfo();
 
     void WriteValue(const Value *V) {
       if (!V) return;
@@ -431,10 +440,6 @@ void Verifier::visitGlobalValue(GlobalValue &GV) {
     Assert1(GVar && GVar->getType()->getElementType()->isArrayTy(),
             "Only global arrays can have appending linkage!", GVar);
   }
-
-  Assert1(!GV.hasLinkOnceODRAutoHideLinkage() || GV.hasDefaultVisibility(),
-          "linkonce_odr_auto_hide can only have default visibility!",
-          &GV);
 }
 
 void Verifier::visitGlobalVariable(GlobalVariable &GV) {
@@ -922,9 +927,9 @@ void Verifier::VerifyFunctionAttrs(FunctionType *FT, AttributeSet Attrs,
 
   if (Attrs.hasAttribute(AttributeSet::FunctionIndex, 
                          Attribute::OptimizeNone)) {
-    Assert1(!Attrs.hasAttribute(AttributeSet::FunctionIndex,
-                                Attribute::AlwaysInline),
-            "Attributes 'alwaysinline and optnone' are incompatible!", V);
+    Assert1(Attrs.hasAttribute(AttributeSet::FunctionIndex,
+                               Attribute::NoInline),
+            "Attribute 'optnone' requires 'noinline'!", V);
 
     Assert1(!Attrs.hasAttribute(AttributeSet::FunctionIndex,
                                 Attribute::OptimizeForSize),
@@ -967,11 +972,9 @@ void Verifier::VerifyBitcastType(const Value *V, Type *DestTy, Type *SrcTy) {
   unsigned SrcAS = SrcTy->getPointerAddressSpace();
   unsigned DstAS = DestTy->getPointerAddressSpace();
 
-  unsigned SrcASSize = DL->getPointerSizeInBits(SrcAS);
-  unsigned DstASSize = DL->getPointerSizeInBits(DstAS);
-  Assert1(SrcASSize == DstASSize,
-          "Bitcasts between pointers of different address spaces must have "
-          "the same size pointers, otherwise use PtrToInt/IntToPtr.", V);
+  Assert1(SrcAS == DstAS,
+          "Bitcasts between pointers of different address spaces is not legal."
+          "Use AddrSpaceCast instead.", V);
 }
 
 void Verifier::VerifyConstantExprBitcastType(const ConstantExpr *CE) {
@@ -1454,6 +1457,22 @@ void Verifier::visitBitCastInst(BitCastInst &I) {
   Type *SrcTy = I.getOperand(0)->getType();
   Type *DestTy = I.getType();
   VerifyBitcastType(&I, DestTy, SrcTy);
+  visitInstruction(I);
+}
+
+void Verifier::visitAddrSpaceCastInst(AddrSpaceCastInst &I) {
+  Type *SrcTy = I.getOperand(0)->getType();
+  Type *DestTy = I.getType();
+
+  Assert1(SrcTy->isPtrOrPtrVectorTy(),
+          "AddrSpaceCast source must be a pointer", &I);
+  Assert1(DestTy->isPtrOrPtrVectorTy(),
+          "AddrSpaceCast result must be a pointer", &I);
+  Assert1(SrcTy->getPointerAddressSpace() != DestTy->getPointerAddressSpace(),
+          "AddrSpaceCast must be between different address spaces", &I);
+  if (SrcTy->isVectorTy())
+    Assert1(SrcTy->getVectorNumElements() == DestTy->getVectorNumElements(),
+            "AddrSpaceCast vector pointer number of elements mismatch", &I);
   visitInstruction(I);
 }
 
@@ -2112,7 +2131,7 @@ void Verifier::visitInstruction(Instruction &I) {
 
   if (!DisableDebugInfoVerifier) {
     MD = I.getMetadata(LLVMContext::MD_dbg);
-    Finder.processLocation(DILocation(MD));
+    Finder.processLocation(*Mod, DILocation(MD));
   }
 
   InstsInThisBlock.insert(&I);
@@ -2135,6 +2154,7 @@ bool Verifier::VerifyIntrinsicType(Type *Ty,
 
   switch (D.Kind) {
   case IITDescriptor::Void: return !Ty->isVoidTy();
+  case IITDescriptor::VarArg: return true;
   case IITDescriptor::MMX:  return !Ty->isX86_MMXTy();
   case IITDescriptor::Metadata: return !Ty->isMetadataTy();
   case IITDescriptor::Half: return !Ty->isHalfTy();
@@ -2199,6 +2219,33 @@ bool Verifier::VerifyIntrinsicType(Type *Ty,
   llvm_unreachable("unhandled");
 }
 
+/// \brief Verify if the intrinsic has variable arguments.
+/// This method is intended to be called after all the fixed arguments have been
+/// verified first.
+///
+/// This method returns true on error and does not print an error message.
+bool
+Verifier::VerifyIntrinsicIsVarArg(bool isVarArg,
+                                  ArrayRef<Intrinsic::IITDescriptor> &Infos) {
+  using namespace Intrinsic;
+
+  // If there are no descriptors left, then it can't be a vararg.
+  if (Infos.empty())
+    return isVarArg ? true : false;
+
+  // There should be only one descriptor remaining at this point.
+  if (Infos.size() != 1)
+    return true;
+
+  // Check and verify the descriptor.
+  IITDescriptor D = Infos.front();
+  Infos = Infos.slice(1);
+  if (D.Kind == IITDescriptor::VarArg)
+    return isVarArg ? false : true;
+
+  return true;
+}
+
 /// visitIntrinsicFunction - Allow intrinsics to be verified in different ways.
 ///
 void Verifier::visitIntrinsicFunctionCall(Intrinsic::ID ID, CallInst &CI) {
@@ -2209,7 +2256,7 @@ void Verifier::visitIntrinsicFunctionCall(Intrinsic::ID ID, CallInst &CI) {
   // Verify that the intrinsic prototype lines up with what the .td files
   // describe.
   FunctionType *IFTy = IF->getFunctionType();
-  Assert1(!IFTy->isVarArg(), "Intrinsic prototypes are not varargs", IF);
+  bool IsVarArg = IFTy->isVarArg();
 
   SmallVector<Intrinsic::IITDescriptor, 8> Table;
   getIntrinsicInfoTableEntries(ID, Table);
@@ -2221,6 +2268,16 @@ void Verifier::visitIntrinsicFunctionCall(Intrinsic::ID ID, CallInst &CI) {
   for (unsigned i = 0, e = IFTy->getNumParams(); i != e; ++i)
     Assert1(!VerifyIntrinsicType(IFTy->getParamType(i), TableRef, ArgTys),
             "Intrinsic has incorrect argument type!", IF);
+
+  // Verify if the intrinsic call matches the vararg property.
+  if (IsVarArg)
+    Assert1(!VerifyIntrinsicIsVarArg(IsVarArg, TableRef),
+            "Intrinsic was not defined with variable arguments!", IF);
+  else
+    Assert1(!VerifyIntrinsicIsVarArg(IsVarArg, TableRef),
+            "Callsite was not defined with variable arguments!", IF);
+
+  // All descriptors should be absorbed by now.
   Assert1(TableRef.empty(), "Intrinsic has too few arguments!", IF);
 
   // Now that we have the intrinsic ID and the actual argument types (and we
@@ -2252,13 +2309,13 @@ void Verifier::visitIntrinsicFunctionCall(Intrinsic::ID ID, CallInst &CI) {
     Assert1(MD->getNumOperands() == 1,
                 "invalid llvm.dbg.declare intrinsic call 2", &CI);
     if (!DisableDebugInfoVerifier)
-      Finder.processDeclare(cast<DbgDeclareInst>(&CI));
+      Finder.processDeclare(*Mod, cast<DbgDeclareInst>(&CI));
   } break;
   case Intrinsic::dbg_value: { //llvm.dbg.value
     if (!DisableDebugInfoVerifier) {
       Assert1(CI.getArgOperand(0) && isa<MDNode>(CI.getArgOperand(0)),
               "invalid llvm.dbg.value intrinsic call 1", &CI);
-      Finder.processValue(cast<DbgValueInst>(&CI));
+      Finder.processValue(*Mod, cast<DbgValueInst>(&CI));
     }
     break;
   }
@@ -2323,7 +2380,7 @@ void Verifier::visitIntrinsicFunctionCall(Intrinsic::ID ID, CallInst &CI) {
   }
 }
 
-void Verifier::verifyDebugInfo(Module &M) {
+void Verifier::verifyDebugInfo() {
   // Verify Debug Info.
   if (!DisableDebugInfoVerifier) {
     for (DebugInfoFinder::iterator I = Finder.compile_unit_begin(),
@@ -2364,6 +2421,7 @@ bool llvm::verifyFunction(const Function &f, VerifierFailureAction action) {
   FunctionPassManager FPM(F.getParent());
   Verifier *V = new Verifier(action);
   FPM.add(V);
+  FPM.doInitialization();
   FPM.run(F);
   return V->Broken;
 }

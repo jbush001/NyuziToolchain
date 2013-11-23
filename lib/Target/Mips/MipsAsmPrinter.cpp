@@ -55,6 +55,7 @@ bool MipsAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
     const_cast<TargetLoweringObjectFile&>(getObjFileLowering())
       .Initialize(OutContext, TM);
   MipsFI = MF.getInfo<MipsFunctionInfo>();
+  MCP = MF.getConstantPool();
   AsmPrinter::runOnMachineFunction(MF);
   return true;
 }
@@ -74,6 +75,39 @@ void MipsAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     PrintDebugValueComment(MI, OS);
     return;
   }
+
+  // If we just ended a constant pool, mark it as such.
+  if (InConstantPool && MI->getOpcode() != Mips::CONSTPOOL_ENTRY) {
+    OutStreamer.EmitDataRegion(MCDR_DataRegionEnd);
+    InConstantPool = false;
+  }
+  if (MI->getOpcode() == Mips::CONSTPOOL_ENTRY) {
+    // CONSTPOOL_ENTRY - This instruction represents a floating
+    //constant pool in the function.  The first operand is the ID#
+    // for this instruction, the second is the index into the
+    // MachineConstantPool that this is, the third is the size in
+    // bytes of this constant pool entry.
+    // The required alignment is specified on the basic block holding this MI.
+    //
+    unsigned LabelId = (unsigned)MI->getOperand(0).getImm();
+    unsigned CPIdx   = (unsigned)MI->getOperand(1).getIndex();
+
+    // If this is the first entry of the pool, mark it.
+    if (!InConstantPool) {
+      OutStreamer.EmitDataRegion(MCDR_DataRegion);
+      InConstantPool = true;
+    }
+
+    OutStreamer.EmitLabel(GetCPISymbol(LabelId));
+
+    const MachineConstantPoolEntry &MCPE = MCP->getConstants()[CPIdx];
+    if (MCPE.isMachineConstantPoolEntry())
+      EmitMachineConstantPoolValue(MCPE.Val.MachineCPVal);
+    else
+      EmitGlobalConstant(MCPE.Val.ConstVal);
+    return;
+  }
+
 
   MachineBasicBlock::const_instr_iterator I = MI;
   MachineBasicBlock::const_instr_iterator E = MI->getParent()->instr_end();
@@ -250,7 +284,7 @@ void MipsAsmPrinter::EmitFunctionEntryLabel() {
 /// EmitFunctionBodyStart - Targets can override this to emit stuff before
 /// the first basic block in the function.
 void MipsAsmPrinter::EmitFunctionBodyStart() {
-  MCInstLowering.Initialize(Mang, &MF->getContext());
+  MCInstLowering.Initialize(&MF->getContext());
 
   bool IsNakedFunction =
     MF->getFunction()->
@@ -287,6 +321,12 @@ void MipsAsmPrinter::EmitFunctionBodyEnd() {
     }
     OutStreamer.EmitRawText("\t.end\t" + Twine(CurrentFnSym->getName()));
   }
+  // Make sure to terminate any constant pools that were at the end
+  // of the function.
+  if (!InConstantPool)
+    return;
+  InConstantPool = false;
+  OutStreamer.EmitDataRegion(MCDR_DataRegionEnd);
 }
 
 /// isBlockOnlyReachableByFallthough - Return true if the basic block has
@@ -421,6 +461,11 @@ bool MipsAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNum,
         return false;
       }
     }
+    case 'w':
+      // Print MSA registers for the 'f' constraint
+      // In LLVM, the 'w' modifier doesn't need to do anything.
+      // We can just call printOperand as normal.
+      break;
     }
   }
 
@@ -488,7 +533,7 @@ void MipsAsmPrinter::printOperand(const MachineInstr *MI, int opNum,
       return;
 
     case MachineOperand::MO_GlobalAddress:
-      O << *Mang->getSymbol(MO.getGlobal());
+      O << *getSymbol(MO.getGlobal());
       break;
 
     case MachineOperand::MO_BlockAddress: {
@@ -525,6 +570,15 @@ void MipsAsmPrinter::printUnsignedImm(const MachineInstr *MI, int opNum,
   const MachineOperand &MO = MI->getOperand(opNum);
   if (MO.isImm())
     O << (unsigned short int)MO.getImm();
+  else
+    printOperand(MI, opNum, O);
+}
+
+void MipsAsmPrinter::printUnsignedImm8(const MachineInstr *MI, int opNum,
+                                       raw_ostream &O) {
+  const MachineOperand &MO = MI->getOperand(opNum);
+  if (MO.isImm())
+    O << (unsigned short int)(unsigned char)MO.getImm();
   else
     printOperand(MI, opNum, O);
 }

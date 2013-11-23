@@ -212,18 +212,23 @@ def HasVFP3          : Predicate<"Subtarget->hasVFP3()">,
                                  AssemblerPredicate<"FeatureVFP3", "VFP3">;
 def HasVFP4          : Predicate<"Subtarget->hasVFP4()">,
                                  AssemblerPredicate<"FeatureVFP4", "VFP4">;
+def HasDPVFP         : Predicate<"!Subtarget->isFPOnlySP()">,
+                                 AssemblerPredicate<"!FeatureVFPOnlySP",
+                                                    "double precision VFP">;
 def HasFPARMv8       : Predicate<"Subtarget->hasFPARMv8()">,
                                  AssemblerPredicate<"FeatureFPARMv8", "FPARMv8">;
 def HasNEON          : Predicate<"Subtarget->hasNEON()">,
                                  AssemblerPredicate<"FeatureNEON", "NEON">;
 def HasCrypto        : Predicate<"Subtarget->hasCrypto()">,
                                  AssemblerPredicate<"FeatureCrypto", "crypto">;
+def HasCRC           : Predicate<"Subtarget->hasCRC()">,
+                                 AssemblerPredicate<"FeatureCRC", "crc">;
 def HasFP16          : Predicate<"Subtarget->hasFP16()">,
                                  AssemblerPredicate<"FeatureFP16","half-float">;
 def HasDivide        : Predicate<"Subtarget->hasDivide()">,
-                                 AssemblerPredicate<"FeatureHWDiv", "divide">;
+                                 AssemblerPredicate<"FeatureHWDiv", "divide in THUMB">;
 def HasDivideInARM   : Predicate<"Subtarget->hasDivideInARMMode()">,
-                                 AssemblerPredicate<"FeatureHWDivARM">;
+                                 AssemblerPredicate<"FeatureHWDivARM", "divide in ARM">;
 def HasT2ExtractPack : Predicate<"Subtarget->hasT2ExtractPack()">,
                                  AssemblerPredicate<"FeatureT2XtPk",
                                                      "pack/extract">;
@@ -675,6 +680,15 @@ def imm0_63 : Operand<i32>, ImmLeaf<i32, [{
   return Imm >= 0 && Imm < 64;
 }]> {
   let ParserMatchClass = Imm0_63AsmOperand;
+}
+
+/// imm0_239 predicate - Immediate in the range [0,239].
+def Imm0_239AsmOperand : ImmAsmOperand {
+  let Name = "Imm0_239";
+  let DiagnosticType = "ImmRange0_239";
+}
+def imm0_239 : Operand<i32>, ImmLeaf<i32, [{ return Imm >= 0 && Imm < 240; }]> {
+  let ParserMatchClass = Imm0_239AsmOperand;
 }
 
 /// imm0_255 predicate - Immediate in the range [0,255].
@@ -1670,7 +1684,7 @@ PseudoInst<(outs), (ins i32imm:$amt, pred:$p), NoItinerary,
            [(ARMcallseq_start timm:$amt)]>;
 }
 
-def HINT : AI<(outs), (ins imm0_255:$imm), MiscFrm, NoItinerary,
+def HINT : AI<(outs), (ins imm0_239:$imm), MiscFrm, NoItinerary,
               "hint", "\t$imm", []>, Requires<[IsARM, HasV6]> {
   bits<8> imm;
   let Inst{27-8} = 0b00110010000011110000;
@@ -4020,7 +4034,7 @@ class AI_crc32<bit C, bits<2> sz, string suffix, SDPatternOperator builtin>
   : AInoP<(outs GPRnopc:$Rd), (ins GPRnopc:$Rn, GPRnopc:$Rm), MiscFrm, NoItinerary,
                !strconcat("crc32", suffix), "\t$Rd, $Rn, $Rm",
                [(set GPRnopc:$Rd, (builtin GPRnopc:$Rn, GPRnopc:$Rm))]>,
-               Requires<[IsARM, HasV8]> {
+               Requires<[IsARM, HasV8, HasCRC]> {
   bits<4> Rd;
   bits<4> Rn;
   bits<4> Rm;
@@ -4662,7 +4676,8 @@ def CDP : ABI<0b1110, (outs), (ins p_imm:$cop, imm0_15:$opc1,
             c_imm:$CRd, c_imm:$CRn, c_imm:$CRm, imm0_7:$opc2),
             NoItinerary, "cdp", "\t$cop, $opc1, $CRd, $CRn, $CRm, $opc2",
             [(int_arm_cdp imm:$cop, imm:$opc1, imm:$CRd, imm:$CRn,
-                          imm:$CRm, imm:$opc2)]> {
+                          imm:$CRm, imm:$opc2)]>,
+            Requires<[PreV8]> {
   bits<4> opc1;
   bits<4> CRn;
   bits<4> CRd;
@@ -4683,7 +4698,8 @@ def CDP2 : ABXI<0b1110, (outs), (ins p_imm:$cop, imm0_15:$opc1,
                c_imm:$CRd, c_imm:$CRn, c_imm:$CRm, imm0_7:$opc2),
                NoItinerary, "cdp2\t$cop, $opc1, $CRd, $CRn, $CRm, $opc2",
                [(int_arm_cdp2 imm:$cop, imm:$opc1, imm:$CRd, imm:$CRn,
-                              imm:$CRm, imm:$opc2)]> {
+                              imm:$CRm, imm:$opc2)]>,
+               Requires<[PreV8]> {
   let Inst{31-28} = 0b1111;
   bits<4> opc1;
   bits<4> CRn;
@@ -4861,10 +4877,10 @@ defm LDC   : LdStCop <1, 0, "ldc">;
 defm LDCL  : LdStCop <1, 1, "ldcl">;
 defm STC   : LdStCop <0, 0, "stc">;
 defm STCL  : LdStCop <0, 1, "stcl">;
-defm LDC2  : LdSt2Cop<1, 0, "ldc2">;
-defm LDC2L : LdSt2Cop<1, 1, "ldc2l">;
-defm STC2  : LdSt2Cop<0, 0, "stc2">;
-defm STC2L : LdSt2Cop<0, 1, "stc2l">;
+defm LDC2  : LdSt2Cop<1, 0, "ldc2">, Requires<[PreV8]>;
+defm LDC2L : LdSt2Cop<1, 1, "ldc2l">, Requires<[PreV8]>;
+defm STC2  : LdSt2Cop<0, 0, "stc2">, Requires<[PreV8]>;
+defm STC2L : LdSt2Cop<0, 1, "stc2l">, Requires<[PreV8]>;
 
 //===----------------------------------------------------------------------===//
 // Move between coprocessor and ARM core register.
@@ -4941,14 +4957,16 @@ def MCR2 : MovRCopro2<"mcr2", 0 /* from ARM core register to coprocessor */,
                       (ins p_imm:$cop, imm0_7:$opc1, GPR:$Rt, c_imm:$CRn,
                            c_imm:$CRm, imm0_7:$opc2),
                       [(int_arm_mcr2 imm:$cop, imm:$opc1, GPR:$Rt, imm:$CRn,
-                                     imm:$CRm, imm:$opc2)]>;
+                                     imm:$CRm, imm:$opc2)]>,
+                      Requires<[PreV8]>;
 def : ARMInstAlias<"mcr2$ $cop, $opc1, $Rt, $CRn, $CRm",
                    (MCR2 p_imm:$cop, imm0_7:$opc1, GPR:$Rt, c_imm:$CRn,
                          c_imm:$CRm, 0)>;
 def MRC2 : MovRCopro2<"mrc2", 1 /* from coprocessor to ARM core register */,
                       (outs GPRwithAPSR:$Rt),
                       (ins p_imm:$cop, imm0_7:$opc1, c_imm:$CRn, c_imm:$CRm,
-                           imm0_7:$opc2), []>;
+                           imm0_7:$opc2), []>,
+                      Requires<[PreV8]>;
 def : ARMInstAlias<"mrc2$ $cop, $opc1, $Rt, $CRn, $CRm",
                    (MRC2 GPRwithAPSR:$Rt, p_imm:$cop, imm0_7:$opc1, c_imm:$CRn,
                          c_imm:$CRm, 0)>;
@@ -4985,7 +5003,8 @@ def MRRC : MovRRCopro<"mrrc", 1 /* from coprocessor to ARM core register */>;
 class MovRRCopro2<string opc, bit direction, list<dag> pattern = []>
   : ABXI<0b1100, (outs), (ins p_imm:$cop, imm0_15:$opc1,
          GPRnopc:$Rt, GPRnopc:$Rt2, c_imm:$CRm), NoItinerary,
-         !strconcat(opc, "\t$cop, $opc1, $Rt, $Rt2, $CRm"), pattern> {
+         !strconcat(opc, "\t$cop, $opc1, $Rt, $Rt2, $CRm"), pattern>,
+    Requires<[PreV8]> {
   let Inst{31-28} = 0b1111;
   let Inst{23-21} = 0b010;
   let Inst{20} = direction;

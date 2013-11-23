@@ -34,6 +34,7 @@
 #include "clang/Basic/TargetInfo.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/Support/Capacity.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
@@ -1387,7 +1388,9 @@ static getConstantArrayInfoInChars(const ASTContext &Context,
          "Overflow in array type char size evaluation");
   uint64_t Width = EltInfo.first.getQuantity() * Size;
   unsigned Align = EltInfo.second.getQuantity();
-  Width = llvm::RoundUpToAlignment(Width, Align);
+  if (!Context.getTargetInfo().getCXXABI().isMicrosoft() ||
+      Context.getTargetInfo().getPointerWidth(0) == 64)
+    Width = llvm::RoundUpToAlignment(Width, Align);
   return std::make_pair(CharUnits::fromQuantity(Width),
                         CharUnits::fromQuantity(Align));
 }
@@ -1460,7 +1463,9 @@ ASTContext::getTypeInfoImpl(const Type *T) const {
            "Overflow in array type bit size evaluation");
     Width = EltInfo.first*Size;
     Align = EltInfo.second;
-    Width = llvm::RoundUpToAlignment(Width, Align);
+    if (!getTargetInfo().getCXXABI().isMicrosoft() ||
+        getTargetInfo().getPointerWidth(0) == 64)
+      Width = llvm::RoundUpToAlignment(Width, Align);
     break;
   }
   case Type::ExtVector:
@@ -1752,6 +1757,9 @@ CharUnits ASTContext::getTypeAlignInChars(const Type *T) const {
 /// a data type.
 unsigned ASTContext::getPreferredTypeAlign(const Type *T) const {
   unsigned ABIAlign = getTypeAlign(T);
+
+  if (Target->getTriple().getArch() == llvm::Triple::xcore)
+    return ABIAlign;  // Never overalign on XCore.
 
   // Double and long long should be naturally aligned if possible.
   if (const ComplexType* CT = T->getAs<ComplexType>())
@@ -2922,13 +2930,11 @@ QualType ASTContext::getTypeDeclTypeSlow(const TypeDecl *Decl) const {
          "Template type parameter types are always available.");
 
   if (const RecordDecl *Record = dyn_cast<RecordDecl>(Decl)) {
-    assert(!Record->getPreviousDecl() &&
-           "struct/union has previous declaration");
+    assert(Record->isFirstDecl() && "struct/union has previous declaration");
     assert(!NeedsInjectedClassNameType(Record));
     return getRecordType(Record);
   } else if (const EnumDecl *Enum = dyn_cast<EnumDecl>(Decl)) {
-    assert(!Enum->getPreviousDecl() &&
-           "enum has previous declaration");
+    assert(Enum->isFirstDecl() && "enum has previous declaration");
     return getEnumType(Enum);
   } else if (const UnresolvedUsingTypenameDecl *Using =
                dyn_cast<UnresolvedUsingTypenameDecl>(Decl)) {
@@ -3499,6 +3505,62 @@ QualType ASTContext::getObjCObjectType(QualType BaseType,
   Types.push_back(T);
   ObjCObjectTypes.InsertNode(T, InsertPos);
   return QualType(T, 0);
+}
+
+/// ObjCObjectAdoptsQTypeProtocols - Checks that protocols in IC's
+/// protocol list adopt all protocols in QT's qualified-id protocol
+/// list.
+bool ASTContext::ObjCObjectAdoptsQTypeProtocols(QualType QT,
+                                                ObjCInterfaceDecl *IC) {
+  if (!QT->isObjCQualifiedIdType())
+    return false;
+  
+  if (const ObjCObjectPointerType *OPT = QT->getAs<ObjCObjectPointerType>()) {
+    // If both the right and left sides have qualifiers.
+    for (ObjCObjectPointerType::qual_iterator I = OPT->qual_begin(),
+         E = OPT->qual_end(); I != E; ++I) {
+      ObjCProtocolDecl *Proto = *I;
+      if (!IC->ClassImplementsProtocol(Proto, false))
+        return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+/// QIdProtocolsAdoptObjCObjectProtocols - Checks that protocols in
+/// QT's qualified-id protocol list adopt all protocols in IDecl's list
+/// of protocols.
+bool ASTContext::QIdProtocolsAdoptObjCObjectProtocols(QualType QT,
+                                                ObjCInterfaceDecl *IDecl) {
+  if (!QT->isObjCQualifiedIdType())
+    return false;
+  const ObjCObjectPointerType *OPT = QT->getAs<ObjCObjectPointerType>();
+  if (!OPT)
+    return false;
+  if (!IDecl->hasDefinition())
+    return false;
+  llvm::SmallPtrSet<ObjCProtocolDecl *, 8> InheritedProtocols;
+  CollectInheritedProtocols(IDecl, InheritedProtocols);
+  if (InheritedProtocols.empty())
+    return false;
+      
+  for (llvm::SmallPtrSet<ObjCProtocolDecl*,8>::iterator PI =
+       InheritedProtocols.begin(),
+       E = InheritedProtocols.end(); PI != E; ++PI) {
+    // If both the right and left sides have qualifiers.
+    bool Adopts = false;
+    for (ObjCObjectPointerType::qual_iterator I = OPT->qual_begin(),
+         E = OPT->qual_end(); I != E; ++I) {
+      ObjCProtocolDecl *Proto = *I;
+      // return 'true' if '*PI' is in the inheritance hierarchy of Proto
+      if ((Adopts = ProtocolCompatibleWithProtocol(*PI, Proto)))
+        break;
+    }
+    if (!Adopts)
+      return false;
+  }
+  return true;
 }
 
 /// getObjCObjectPointerType - Return a ObjCObjectPointerType type for
@@ -8105,6 +8167,10 @@ ASTContext::getMaterializedTemporaryValue(const MaterializeTemporaryExpr *E,
 bool ASTContext::AtomicUsesUnsupportedLibcall(const AtomicExpr *E) const {
   const llvm::Triple &T = getTargetInfo().getTriple();
   if (!T.isOSDarwin())
+    return false;
+
+  if (!(T.isiOS() && T.isOSVersionLT(7)) &&
+      !(T.isMacOSX() && T.isOSVersionLT(10, 9)))
     return false;
 
   QualType AtomicTy = E->getPtr()->getType()->getPointeeType();

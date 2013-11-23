@@ -1,4 +1,5 @@
 ; RUN: llc -march=mips -mattr=+msa,+fp64 < %s | FileCheck %s
+; RUN: llc -march=mipsel -mattr=+msa,+fp64 < %s | FileCheck %s
 
 define void @ceq_v16i8(<16 x i8>* %c, <16 x i8>* %a, <16 x i8>* %b) nounwind {
   ; CHECK: ceq_v16i8:
@@ -340,6 +341,91 @@ define void @clt_u_v2i64(<2 x i64>* %c, <2 x i64>* %a, <2 x i64>* %b) nounwind {
   ; CHECK: .size clt_u_v2i64
 }
 
+; There is no != comparison, but test it anyway since we've had legalizer
+; issues in this area.
+define void @cne_v16i8(<16 x i8>* %c, <16 x i8>* %a, <16 x i8>* %b) nounwind {
+  ; CHECK: cne_v16i8:
+  %1 = load <16 x i8>* %a
+  ; CHECK-DAG: ld.b [[R1:\$w[0-9]+]], 0($5)
+  %2 = load <16 x i8>* %b
+  ; CHECK-DAG: ld.b [[R2:\$w[0-9]+]], 0($6)
+  %3 = icmp ne <16 x i8> %1, %2
+  %4 = sext <16 x i1> %3 to <16 x i8>
+  ; CHECK-DAG: ceq.b [[R3:\$w[0-9]+]], [[R1]], [[R2]]
+  ; CHECK-DAG: xori.b [[R3]], [[R3]], 255
+  store <16 x i8> %4, <16 x i8>* %c
+  ; CHECK-DAG: st.b [[R3]], 0($4)
+
+  ret void
+  ; CHECK: .size cne_v16i8
+}
+
+; There is no != comparison, but test it anyway since we've had legalizer
+; issues in this area.
+define void @cne_v8i16(<8 x i16>* %c, <8 x i16>* %a, <8 x i16>* %b) nounwind {
+  ; CHECK: cne_v8i16:
+
+  %1 = load <8 x i16>* %a
+  ; CHECK-DAG: ld.h [[R1:\$w[0-9]+]], 0($5)
+  %2 = load <8 x i16>* %b
+  ; CHECK-DAG: ld.h [[R2:\$w[0-9]+]], 0($6)
+  %3 = icmp ne <8 x i16> %1, %2
+  %4 = sext <8 x i1> %3 to <8 x i16>
+  ; CHECK-DAG: ceq.h [[R3:\$w[0-9]+]], [[R1]], [[R2]]
+  ; TODO: This should be an 'xori.b [[R3]], [[R3]], 255' but thats an optimisation issue
+  ; CHECK-DAG: ldi.b [[R4:\$w[0-9]+]], -1
+  ; CHECK-DAG: xor.v [[R3]], [[R3]], [[R4]]
+  store <8 x i16> %4, <8 x i16>* %c
+  ; CHECK-DAG: st.h [[R3]], 0($4)
+
+  ret void
+  ; CHECK: .size cne_v8i16
+}
+
+; There is no != comparison, but test it anyway since we've had legalizer
+; issues in this area.
+define void @cne_v4i32(<4 x i32>* %c, <4 x i32>* %a, <4 x i32>* %b) nounwind {
+  ; CHECK: cne_v4i32:
+
+  %1 = load <4 x i32>* %a
+  ; CHECK-DAG: ld.w [[R1:\$w[0-9]+]], 0($5)
+  %2 = load <4 x i32>* %b
+  ; CHECK-DAG: ld.w [[R2:\$w[0-9]+]], 0($6)
+  %3 = icmp ne <4 x i32> %1, %2
+  %4 = sext <4 x i1> %3 to <4 x i32>
+  ; CHECK-DAG: ceq.w [[R3:\$w[0-9]+]], [[R1]], [[R2]]
+  ; TODO: This should be an 'xori.b [[R3]], [[R3]], 255' but thats an optimisation issue
+  ; CHECK-DAG: ldi.b [[R4:\$w[0-9]+]], -1
+  ; CHECK-DAG: xor.v [[R3]], [[R3]], [[R4]]
+  store <4 x i32> %4, <4 x i32>* %c
+  ; CHECK-DAG: st.w [[R3]], 0($4)
+
+  ret void
+  ; CHECK: .size cne_v4i32
+}
+
+; There is no != comparison, but test it anyway since we've had legalizer
+; issues in this area.
+define void @cne_v2i64(<2 x i64>* %c, <2 x i64>* %a, <2 x i64>* %b) nounwind {
+  ; CHECK: cne_v2i64:
+
+  %1 = load <2 x i64>* %a
+  ; CHECK-DAG: ld.d [[R1:\$w[0-9]+]], 0($5)
+  %2 = load <2 x i64>* %b
+  ; CHECK-DAG: ld.d [[R2:\$w[0-9]+]], 0($6)
+  %3 = icmp ne <2 x i64> %1, %2
+  %4 = sext <2 x i1> %3 to <2 x i64>
+  ; CHECK-DAG: ceq.d [[R3:\$w[0-9]+]], [[R1]], [[R2]]
+  ; TODO: This should be an 'xori.b [[R3]], [[R3]], 255' but thats an optimisation issue
+  ; CHECK-DAG: ldi.b [[R4:\$w[0-9]+]], -1
+  ; CHECK-DAG: xor.v [[R3]], [[R3]], [[R4]]
+  store <2 x i64> %4, <2 x i64>* %c
+  ; CHECK-DAG: st.d [[R3]], 0($4)
+
+  ret void
+  ; CHECK: .size cne_v2i64
+}
+
 define void @ceqi_v16i8(<16 x i8>* %c, <16 x i8>* %a) nounwind {
   ; CHECK: ceqi_v16i8:
 
@@ -653,9 +739,10 @@ define void @bsel_s_v16i8(<16 x i8>* %d, <16 x i8>* %a, <16 x i8>* %b,
   %4 = icmp sgt <16 x i8> %1, %2
   ; CHECK-DAG: clt_s.b [[R4:\$w[0-9]+]], [[R2]], [[R1]]
   %5 = select <16 x i1> %4, <16 x i8> %1, <16 x i8> %3
-  ; CHECK-DAG: bsel.v [[R4]], [[R1]], [[R3]]
+  ; bmnz.v is the same operation
+  ; CHECK-DAG: bmnz.v [[R3]], [[R1]], [[R4]]
   store <16 x i8> %5, <16 x i8>* %d
-  ; CHECK-DAG: st.b [[R4]], 0($4)
+  ; CHECK-DAG: st.b [[R3]], 0($4)
 
   ret void
   ; CHECK: .size bsel_s_v16i8
@@ -737,9 +824,10 @@ define void @bsel_u_v16i8(<16 x i8>* %d, <16 x i8>* %a, <16 x i8>* %b,
   %4 = icmp ugt <16 x i8> %1, %2
   ; CHECK-DAG: clt_u.b [[R4:\$w[0-9]+]], [[R2]], [[R1]]
   %5 = select <16 x i1> %4, <16 x i8> %1, <16 x i8> %3
-  ; CHECK-DAG: bsel.v [[R4]], [[R1]], [[R3]]
+  ; bmnz.v is the same operation
+  ; CHECK-DAG: bmnz.v [[R3]], [[R1]], [[R4]]
   store <16 x i8> %5, <16 x i8>* %d
-  ; CHECK-DAG: st.b [[R4]], 0($4)
+  ; CHECK-DAG: st.b [[R3]], 0($4)
 
   ret void
   ; CHECK: .size bsel_u_v16i8

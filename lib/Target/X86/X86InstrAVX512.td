@@ -391,6 +391,11 @@ def : Pat<(v16f32 (X86VBroadcast (loadf32 addr:$src))),
 def : Pat<(v8f64 (X86VBroadcast (loadf64 addr:$src))),
           (VBROADCASTSDZrm addr:$src)>;
 
+def : Pat<(int_x86_avx512_vbroadcast_ss_512 addr:$src),
+          (VBROADCASTSSZrm addr:$src)>;
+def : Pat<(int_x86_avx512_vbroadcast_sd_512 addr:$src),
+          (VBROADCASTSDZrm addr:$src)>;
+
 multiclass avx512_int_broadcast_reg<bits<8> opc, string OpcodeStr,
                           RegisterClass SrcRC, RegisterClass KRC> {
   def Zrr : AVX5128I<opc, MRMSrcReg, (outs VR512:$dst), (ins SrcRC:$src),
@@ -417,6 +422,13 @@ def : Pat<(v16i32 (X86VBroadcast (i32 GR32:$src))),
         (VPBROADCASTDrZrr GR32:$src)>;
 def : Pat<(v8i64 (X86VBroadcast (i64 GR64:$src))),
         (VPBROADCASTQrZrr GR64:$src)>;
+def : Pat<(v8i64 (X86VBroadcastm VK8WM:$mask, (i64 GR64:$src))),
+        (VPBROADCASTQrZkrr VK8WM:$mask, GR64:$src)>;
+
+def : Pat<(v16i32 (int_x86_avx512_pbroadcastd_i32_512 (i32 GR32:$src))),
+        (VPBROADCASTDrZrr GR32:$src)>;
+def : Pat<(v8i64 (int_x86_avx512_pbroadcastq_i64_512 (i64 GR64:$src))),
+        (VPBROADCASTQrZrr GR64:$src)>;
 
 multiclass avx512_int_broadcast_rm<bits<8> opc, string OpcodeStr,
                           X86MemOperand x86memop, PatFrag ld_frag,
@@ -433,6 +445,7 @@ multiclass avx512_int_broadcast_rm<bits<8> opc, string OpcodeStr,
                     [(set DstRC:$dst,
                       (OpVT (X86VBroadcastm KRC:$mask, (SrcVT VR128X:$src))))]>,
                     EVEX, EVEX_KZ;
+  let mayLoad = 1 in {
   def rm : AVX5128I<opc, MRMSrcMem, (outs DstRC:$dst), (ins x86memop:$src),
                   !strconcat(OpcodeStr, "\t{$src, $dst|$dst, $src}"),
                   [(set DstRC:$dst, 
@@ -443,6 +456,7 @@ multiclass avx512_int_broadcast_rm<bits<8> opc, string OpcodeStr,
                       "\t{$src, ${dst} {${mask}} {z}|${dst} {${mask}} {z}, $src}"),
                   [(set DstRC:$dst, (OpVT (X86VBroadcastm KRC:$mask, 
                                      (ld_frag addr:$src))))]>, EVEX, EVEX_KZ;
+  }
 }
 
 defm VPBROADCASTDZ  : avx512_int_broadcast_rm<0x58, "vpbroadcastd", i32mem,
@@ -452,9 +466,19 @@ defm VPBROADCASTQZ  : avx512_int_broadcast_rm<0x59, "vpbroadcastq", i64mem,
                       loadi64, VR512, v8i64, v2i64, VK8WM>,  EVEX_V512, VEX_W,
                       EVEX_CD8<64, CD8VT1>;
 
+def : Pat<(v16i32 (int_x86_avx512_pbroadcastd_512 (v4i32 VR128X:$src))),
+          (VPBROADCASTDZrr VR128X:$src)>;
+def : Pat<(v8i64 (int_x86_avx512_pbroadcastq_512 (v2i64 VR128X:$src))),
+          (VPBROADCASTQZrr VR128X:$src)>;
+
 def : Pat<(v16f32 (X86VBroadcast (v4f32 VR128X:$src))),
           (VBROADCASTSSZrr VR128X:$src)>;
 def : Pat<(v8f64 (X86VBroadcast (v2f64 VR128X:$src))),
+          (VBROADCASTSDZrr VR128X:$src)>;
+
+def : Pat<(v16f32 (int_x86_avx512_vbroadcast_ss_ps_512 (v4f32 VR128X:$src))),
+          (VBROADCASTSSZrr VR128X:$src)>;
+def : Pat<(v8f64 (int_x86_avx512_vbroadcast_sd_pd_512 (v2f64 VR128X:$src))),
           (VBROADCASTSDZrr VR128X:$src)>;
     
 // Provide fallback in case the load node that is used in the patterns above
@@ -582,7 +606,7 @@ defm VPERMI2PD : avx512_perm_3src<0x77, "vpermi2pd",  VR512, memopv8f64, i512mem
 //===----------------------------------------------------------------------===//
 // AVX-512 - BLEND using mask
 //
-multiclass avx512_blendmask<bits<8> opc, string OpcodeStr,
+multiclass avx512_blendmask<bits<8> opc, string OpcodeStr, Intrinsic Int, 
                           RegisterClass KRC, RegisterClass RC,
                           X86MemOperand x86memop, PatFrag mem_frag,
                           SDNode OpNode, ValueType vt> {
@@ -592,31 +616,55 @@ multiclass avx512_blendmask<bits<8> opc, string OpcodeStr,
                 "\t{$src2, $src1, ${dst} {${mask}}|${dst} {${mask}}, $src1, $src2}"),
                [(set RC:$dst, (OpNode KRC:$mask, (vt RC:$src2), 
                  (vt RC:$src1)))]>, EVEX_4V, EVEX_K;
-
-  def rm : AVX5128I<opc, MRMSrcMem, (outs RC:$dst),
-               (ins KRC:$mask, RC:$src1, x86memop:$src2),
+  def rr_Int : AVX5128I<opc, MRMSrcReg, (outs RC:$dst),
+               (ins KRC:$mask, RC:$src1, RC:$src2),
                !strconcat(OpcodeStr,
-                "\t{$src2, $src1, $mask, $dst|$dst, $mask, $src1, $src2}"),
-               []>, 
-               EVEX_4V, EVEX_K;
+                "\t{$src2, $src1, ${dst} {${mask}}|${dst} {${mask}}, $src1, $src2}"),
+               [(set RC:$dst, (Int KRC:$mask, (vt RC:$src2),
+                 (vt RC:$src1)))]>, EVEX_4V, EVEX_K;
+
+  let mayLoad = 1 in {
+    def rm : AVX5128I<opc, MRMSrcMem, (outs RC:$dst),
+                 (ins KRC:$mask, RC:$src1, x86memop:$src2),
+                 !strconcat(OpcodeStr,
+                  "\t{$src2, $src1, $mask, $dst|$dst, $mask, $src1, $src2}"),
+                 []>, 
+                 EVEX_4V, EVEX_K;
+
+    def rm_Int : AVX5128I<opc, MRMSrcMem, (outs RC:$dst),
+                 (ins KRC:$mask, RC:$src1, x86memop:$src2),
+                 !strconcat(OpcodeStr,
+                  "\t{$src2, $src1, $mask, $dst|$dst, $mask, $src1, $src2}"),
+                 [(set RC:$dst, (Int KRC:$mask, (vt RC:$src1),
+                   (mem_frag addr:$src2)))]>,
+                 EVEX_4V, EVEX_K;
+  }
 }
 
 let ExeDomain = SSEPackedSingle in
-defm VBLENDMPSZ : avx512_blendmask<0x65, "vblendmps", VK16WM, VR512, f512mem,
+defm VBLENDMPSZ : avx512_blendmask<0x65, "vblendmps", 
+                              int_x86_avx512_mskblend_ps_512,
+                              VK16WM, VR512, f512mem,
                               memopv16f32, vselect, v16f32>, 
                               EVEX_CD8<32, CD8VF>, EVEX_V512;
 let ExeDomain = SSEPackedDouble in
-defm VBLENDMPDZ : avx512_blendmask<0x65, "vblendmpd", VK8WM, VR512, f512mem,
+defm VBLENDMPDZ : avx512_blendmask<0x65, "vblendmpd", 
+                              int_x86_avx512_mskblend_pd_512,
+                              VK8WM, VR512, f512mem,
                               memopv8f64, vselect, v8f64>, 
                               VEX_W, EVEX_CD8<64, CD8VF>, EVEX_V512;
 
-defm VPBLENDMDZ : avx512_blendmask<0x64, "vpblendmd", VK16WM, VR512, f512mem, 
-                                memopv8i64, vselect, v16i32>, 
-                                EVEX_CD8<32, CD8VF>, EVEX_V512;
+defm VPBLENDMDZ : avx512_blendmask<0x64, "vpblendmd", 
+                              int_x86_avx512_mskblend_d_512,
+                              VK16WM, VR512, f512mem, 
+                              memopv16i32, vselect, v16i32>, 
+                              EVEX_CD8<32, CD8VF>, EVEX_V512;
 
-defm VPBLENDMQZ : avx512_blendmask<0x64, "vpblendmq", VK8WM, VR512, f512mem, 
-                                memopv8i64, vselect, v8i64>, VEX_W, 
-                                EVEX_CD8<64, CD8VF>, EVEX_V512;
+defm VPBLENDMQZ : avx512_blendmask<0x64, "vpblendmq", 
+                              int_x86_avx512_mskblend_q_512, 
+                              VK8WM, VR512, f512mem, 
+                              memopv8i64, vselect, v8i64>, 
+                              VEX_W, EVEX_CD8<64, CD8VF>, EVEX_V512;
 
 let Predicates = [HasAVX512] in {
 def : Pat<(v8f32 (vselect (v8i1 VK8WM:$mask), (v8f32 VR256X:$src1),
@@ -1067,23 +1115,6 @@ def VMOVUPDZmr : AVX512PI<0x11, MRMDestMem, (outs), (ins f512mem:$dst, VR512:$sr
                     SSEPackedDouble>, EVEX, EVEX_V512,
                     OpSize, VEX_W, EVEX_CD8<64, CD8VF>;
 
-// Use vmovaps/vmovups for AVX-512 integer load/store.
-// 512-bit load/store
-def : Pat<(alignedloadv8i64 addr:$src),
-          (VMOVAPSZrm addr:$src)>;
-def : Pat<(loadv8i64 addr:$src),
-          (VMOVUPSZrm addr:$src)>;
-
-def : Pat<(alignedstore512 (v8i64  VR512:$src), addr:$dst), 
-          (VMOVAPSZmr addr:$dst, VR512:$src)>;
-def : Pat<(alignedstore512 (v16i32 VR512:$src), addr:$dst), 
-          (VMOVAPSZmr addr:$dst, VR512:$src)>;
-
-def : Pat<(store (v8i64  VR512:$src), addr:$dst), 
-          (VMOVUPDZmr addr:$dst, VR512:$src)>;
-def : Pat<(store (v16i32 VR512:$src), addr:$dst), 
-          (VMOVUPSZmr addr:$dst, VR512:$src)>;
-
 let neverHasSideEffects = 1 in {
   def VMOVDQA32rr  : AVX512BI<0x6F, MRMSrcReg, (outs VR512:$dst),
                              (ins VR512:$src),
@@ -1115,25 +1146,36 @@ def VMOVDQA64rm  : AVX512BI<0x6F, MRMSrcMem, (outs VR512:$dst),
 }
 }
 
-multiclass avx512_mov_int<bits<8> opc, string asm, RegisterClass RC,
-                          RegisterClass KRC,
+// 512-bit aligned load/store
+def : Pat<(alignedloadv8i64 addr:$src),  (VMOVDQA64rm addr:$src)>;
+def : Pat<(alignedloadv16i32 addr:$src), (VMOVDQA32rm addr:$src)>;
+
+def : Pat<(alignedstore512 (v8i64  VR512:$src), addr:$dst),
+          (VMOVDQA64mr addr:$dst, VR512:$src)>;
+def : Pat<(alignedstore512 (v16i32 VR512:$src), addr:$dst),
+          (VMOVDQA32mr addr:$dst, VR512:$src)>;
+
+multiclass avx512_mov_int<bits<8> load_opc, bits<8> store_opc, string asm,
+                          RegisterClass RC, RegisterClass KRC,
                           PatFrag ld_frag, X86MemOperand x86memop> {
 let neverHasSideEffects = 1 in
-  def rr : AVX512XSI<opc, MRMSrcReg, (outs RC:$dst), (ins RC:$src),
-              !strconcat(asm, "\t{$src, $dst|$dst, $src}"), []>,
-              EVEX;
+  def rr : AVX512XSI<load_opc, MRMSrcReg, (outs RC:$dst), (ins RC:$src),
+                     !strconcat(asm, "\t{$src, $dst|$dst, $src}"), []>, EVEX;
 let canFoldAsLoad = 1 in
-  def rm : AVX512XSI<opc, MRMSrcMem, (outs RC:$dst), (ins x86memop:$src),
-              !strconcat(asm, "\t{$src, $dst|$dst, $src}"),
-               [(set RC:$dst, (ld_frag addr:$src))]>,
-               EVEX;
+  def rm : AVX512XSI<load_opc, MRMSrcMem, (outs RC:$dst), (ins x86memop:$src),
+                     !strconcat(asm, "\t{$src, $dst|$dst, $src}"),
+                     [(set RC:$dst, (ld_frag addr:$src))]>, EVEX;
+let mayStore = 1 in
+  def mr : AVX512XSI<store_opc, MRMDestMem, (outs),
+                     (ins x86memop:$dst, VR512:$src),
+                     !strconcat(asm, "\t{$src, $dst|$dst, $src}"), []>, EVEX;
 let Constraints = "$src1 = $dst" in {
-  def rrk : AVX512XSI<opc, MRMSrcReg, (outs RC:$dst),
+  def rrk : AVX512XSI<load_opc, MRMSrcReg, (outs RC:$dst),
                                       (ins RC:$src1, KRC:$mask, RC:$src2),
               !strconcat(asm, 
               "\t{$src2, ${dst} {${mask}}|${dst} {${mask}}, $src2}"), []>,
               EVEX, EVEX_K;
-  def rmk : AVX512XSI<opc, MRMSrcMem, (outs RC:$dst),
+  def rmk : AVX512XSI<load_opc, MRMSrcMem, (outs RC:$dst),
                                   (ins RC:$src1, KRC:$mask, x86memop:$src2),
               !strconcat(asm, 
               "\t{$src2, ${dst} {${mask}}|${dst} {${mask}}, $src2}"),
@@ -1141,10 +1183,21 @@ let Constraints = "$src1 = $dst" in {
 }
 }
 
-defm VMOVDQU32 : avx512_mov_int<0x6F, "vmovdqu32", VR512, VK16WM, memopv16i32, i512mem>,
+defm VMOVDQU32 : avx512_mov_int<0x6F, 0x7F, "vmovdqu32", VR512, VK16WM,
+                                memopv16i32, i512mem>,
                                 EVEX_V512, EVEX_CD8<32, CD8VF>;
-defm VMOVDQU64 : avx512_mov_int<0x6F, "vmovdqu64", VR512, VK8WM, memopv8i64, i512mem>,
+defm VMOVDQU64 : avx512_mov_int<0x6F, 0x7F, "vmovdqu64", VR512, VK8WM,
+                                memopv8i64, i512mem>,
                                 EVEX_V512, VEX_W, EVEX_CD8<64, CD8VF>;
+
+// 512-bit unaligned load/store
+def : Pat<(loadv8i64 addr:$src),         (VMOVDQU64rm addr:$src)>;
+def : Pat<(loadv16i32 addr:$src),        (VMOVDQU32rm addr:$src)>;
+
+def : Pat<(store (v8i64  VR512:$src), addr:$dst),
+          (VMOVDQU64mr addr:$dst, VR512:$src)>;
+def : Pat<(store (v16i32 VR512:$src), addr:$dst),
+          (VMOVDQU32mr addr:$dst, VR512:$src)>;
 
 let AddedComplexity = 20 in {
 def : Pat<(v16f32 (vselect VK16WM:$mask, (v16f32 VR512:$src1), 
@@ -1580,6 +1633,34 @@ defm VPMULUDQZ : avx512_binop_rm2<0xF4, "vpmuludq", v8i64, v16i32,
 def : Pat<(v8i64 (X86pmuludq (v16i32 VR512:$src1), (v16i32 VR512:$src2))),
           (VPMULUDQZrr VR512:$src1, VR512:$src2)>;
 
+defm VPMAXUDZ : avx512_binop_rm<0x3F, "vpmaxud", X86umax, v16i32, VR512, memopv16i32,
+                   i512mem, loadi32, i32mem, "{1to16}", SSE_INTALU_ITINS_P, 1>,
+                   T8, EVEX_V512, EVEX_CD8<32, CD8VF>;
+defm VPMAXUQZ : avx512_binop_rm<0x3F, "vpmaxuq", X86umax, v8i64, VR512, memopv8i64,
+                   i512mem, loadi64, i64mem, "{1to8}", SSE_INTALU_ITINS_P, 0>,
+                   T8, EVEX_V512, VEX_W, EVEX_CD8<64, CD8VF>;
+
+defm VPMAXSDZ : avx512_binop_rm<0x3D, "vpmaxsd", X86smax, v16i32, VR512, memopv16i32,
+                   i512mem, loadi32, i32mem, "{1to16}", SSE_INTALU_ITINS_P, 1>,
+                   EVEX_V512, EVEX_CD8<32, CD8VF>;
+defm VPMAXSQZ : avx512_binop_rm<0x3D, "vpmaxsq", X86smax, v8i64, VR512, memopv8i64,
+                   i512mem, loadi64, i64mem, "{1to8}", SSE_INTALU_ITINS_P, 0>,
+                   T8, EVEX_V512, VEX_W, EVEX_CD8<64, CD8VF>;
+
+defm VPMINUDZ : avx512_binop_rm<0x3B, "vpminud", X86umin, v16i32, VR512, memopv16i32,
+                   i512mem, loadi32, i32mem, "{1to16}", SSE_INTALU_ITINS_P, 1>,
+                   T8, EVEX_V512, EVEX_CD8<32, CD8VF>;
+defm VPMINUQZ : avx512_binop_rm<0x3B, "vpminuq", X86umin, v8i64, VR512, memopv8i64,
+                   i512mem, loadi64, i64mem, "{1to8}", SSE_INTALU_ITINS_P, 0>,
+                   T8, EVEX_V512, VEX_W, EVEX_CD8<64, CD8VF>;
+
+defm VPMINSDZ : avx512_binop_rm<0x39, "vpminsd", X86smin, v16i32, VR512, memopv16i32,
+                   i512mem, loadi32, i32mem, "{1to16}", SSE_INTALU_ITINS_P, 1>,
+                   T8, EVEX_V512, EVEX_CD8<32, CD8VF>;
+defm VPMINSQZ : avx512_binop_rm<0x39, "vpminsq", X86smin, v8i64, VR512, memopv8i64,
+                   i512mem, loadi64, i64mem, "{1to8}", SSE_INTALU_ITINS_P, 0>,
+                   T8, EVEX_V512, VEX_W, EVEX_CD8<64, CD8VF>;
+
 //===----------------------------------------------------------------------===//
 // AVX-512 - Unpack Instructions
 //===----------------------------------------------------------------------===//
@@ -1845,22 +1926,22 @@ multiclass avx512_shift_rmi<bits<8> opc, Format ImmFormR, Format ImmFormM,
                          ValueType vt, X86MemOperand x86memop, PatFrag mem_frag,
                          RegisterClass KRC> {
   def ri : AVX512BIi8<opc, ImmFormR, (outs RC:$dst),
-       (ins RC:$src1, i32i8imm:$src2),
+       (ins RC:$src1, i8imm:$src2),
            !strconcat(OpcodeStr, "\t{$src2, $src1, $dst|$dst, $src1, $src2}"),
-       [(set RC:$dst, (vt (OpNode RC:$src1, (i32 imm:$src2))))],
+       [(set RC:$dst, (vt (OpNode RC:$src1, (i8 imm:$src2))))],
         SSE_INTSHIFT_ITINS_P.rr>, EVEX_4V;
   def rik : AVX512BIi8<opc, ImmFormR, (outs RC:$dst),
-       (ins KRC:$mask, RC:$src1, i32i8imm:$src2),
+       (ins KRC:$mask, RC:$src1, i8imm:$src2),
            !strconcat(OpcodeStr,
                 "\t{$src2, $src1, $dst {${mask}}|$dst {${mask}}, $src1, $src2}"),
        [], SSE_INTSHIFT_ITINS_P.rr>, EVEX_4V, EVEX_K;
   def mi: AVX512BIi8<opc, ImmFormM, (outs RC:$dst),
-       (ins x86memop:$src1, i32i8imm:$src2),
+       (ins x86memop:$src1, i8imm:$src2),
            !strconcat(OpcodeStr, "\t{$src2, $src1, $dst|$dst, $src1, $src2}"),
        [(set RC:$dst, (OpNode (mem_frag addr:$src1),
-                     (i32 imm:$src2)))], SSE_INTSHIFT_ITINS_P.rm>, EVEX_4V;
+                     (i8 imm:$src2)))], SSE_INTSHIFT_ITINS_P.rm>, EVEX_4V;
   def mik: AVX512BIi8<opc, ImmFormM, (outs RC:$dst),
-       (ins KRC:$mask, x86memop:$src1, i32i8imm:$src2),
+       (ins KRC:$mask, x86memop:$src1, i8imm:$src2),
            !strconcat(OpcodeStr,
                 "\t{$src2, $src1, $dst {${mask}}|$dst {${mask}}, $src1, $src2}"),
        [], SSE_INTSHIFT_ITINS_P.rm>, EVEX_4V, EVEX_K;
@@ -1994,6 +2075,38 @@ defm VMOVDDUPZ : avx512_movddup<"vmovddup", VR512, v8f64, f512mem, memopv8f64>,
 def : Pat<(X86Movddup (v8f64 (scalar_to_vector (loadf64 addr:$src)))),
           (VMOVDDUPZrm addr:$src)>;
 
+//===---------------------------------------------------------------------===//
+// Replicate Single FP - MOVSHDUP and MOVSLDUP
+//===---------------------------------------------------------------------===//
+multiclass avx512_replicate_sfp<bits<8> op, SDNode OpNode, string OpcodeStr,
+                              ValueType vt, RegisterClass RC, PatFrag mem_frag,
+                              X86MemOperand x86memop> {
+  def rr : AVX512XSI<op, MRMSrcReg, (outs RC:$dst), (ins RC:$src),
+                    !strconcat(OpcodeStr, "\t{$src, $dst|$dst, $src}"),
+                      [(set RC:$dst, (vt (OpNode RC:$src)))]>, EVEX;
+  let mayLoad = 1 in
+  def rm : AVX512XSI<op, MRMSrcMem, (outs RC:$dst), (ins x86memop:$src),
+                    !strconcat(OpcodeStr, "\t{$src, $dst|$dst, $src}"),
+                      [(set RC:$dst, (OpNode (mem_frag addr:$src)))]>, EVEX;
+}
+
+defm VMOVSHDUPZ  : avx512_replicate_sfp<0x16, X86Movshdup, "vmovshdup",
+                       v16f32, VR512, memopv16f32, f512mem>, EVEX_V512,
+                       EVEX_CD8<32, CD8VF>;
+defm VMOVSLDUPZ  : avx512_replicate_sfp<0x12, X86Movsldup, "vmovsldup",
+                       v16f32, VR512, memopv16f32, f512mem>, EVEX_V512,
+                       EVEX_CD8<32, CD8VF>;
+
+def : Pat<(v16i32 (X86Movshdup VR512:$src)), (VMOVSHDUPZrr VR512:$src)>;
+def : Pat<(v16i32 (X86Movshdup (memopv16i32 addr:$src))),
+           (VMOVSHDUPZrm addr:$src)>;
+def : Pat<(v16i32 (X86Movsldup VR512:$src)), (VMOVSLDUPZrr VR512:$src)>;
+def : Pat<(v16i32 (X86Movsldup (memopv16i32 addr:$src))),
+           (VMOVSLDUPZrm addr:$src)>;
+
+//===----------------------------------------------------------------------===//
+// Move Low to High and High to Low packed FP Instructions
+//===----------------------------------------------------------------------===//
 def VMOVLHPSZrr : AVX512PSI<0x16, MRMSrcReg, (outs VR128X:$dst),
           (ins VR128X:$src1, VR128X:$src2),
           "vmovlhps{z}\t{$src2, $src1, $dst|$dst, $src1, $src2}",
@@ -2566,6 +2679,38 @@ let Predicates = [HasAVX512] in {
   def : Pat<(v8f64 (extloadv8f32 addr:$src)),
             (VCVTPS2PDZrm addr:$src)>;
 }
+
+//===----------------------------------------------------------------------===//
+// Half precision conversion instructions
+//===----------------------------------------------------------------------===//
+multiclass avx512_f16c_ph2ps<RegisterClass destRC, RegisterClass srcRC,
+                             X86MemOperand x86memop, Intrinsic Int> {
+  def rr : AVX5128I<0x13, MRMSrcReg, (outs destRC:$dst), (ins srcRC:$src),
+             "vcvtph2ps\t{$src, $dst|$dst, $src}",
+             [(set destRC:$dst, (Int srcRC:$src))]>, EVEX;
+  let neverHasSideEffects = 1, mayLoad = 1 in
+  def rm : AVX5128I<0x13, MRMSrcMem, (outs destRC:$dst), (ins x86memop:$src),
+             "vcvtph2ps\t{$src, $dst|$dst, $src}", []>, EVEX;
+}
+
+multiclass avx512_f16c_ps2ph<RegisterClass destRC, RegisterClass srcRC,
+                             X86MemOperand x86memop, Intrinsic Int> {
+  def rr : AVX512AIi8<0x1D, MRMDestReg, (outs destRC:$dst),
+               (ins srcRC:$src1, i32i8imm:$src2),
+               "vcvtps2ph\t{$src2, $src1, $dst|$dst, $src1, $src2}",
+               [(set destRC:$dst, (Int srcRC:$src1, imm:$src2))]>, EVEX;
+  let neverHasSideEffects = 1, mayStore = 1 in
+  def mr : AVX512AIi8<0x1D, MRMDestMem, (outs),
+               (ins x86memop:$dst, srcRC:$src1, i32i8imm:$src2),
+               "vcvtps2ph\t{$src2, $src1, $dst|$dst, $src1, $src2}", []>, EVEX;
+}
+
+defm VCVTPH2PSZ : avx512_f16c_ph2ps<VR512, VR256X, f256mem,
+                                    int_x86_avx512_vcvtph2ps_512>, EVEX_V512,
+                                    EVEX_CD8<32, CD8VH>;
+defm VCVTPS2PHZ : avx512_f16c_ps2ph<VR256X, VR512, f256mem,
+                                    int_x86_avx512_vcvtps2ph_512>, EVEX_V512,
+                                    EVEX_CD8<32, CD8VH>;
 
 let Defs = [EFLAGS], Predicates = [HasAVX512] in {
   defm VUCOMISSZ : sse12_ord_cmp<0x2E, FR32X, X86cmp, f32, f32mem, loadf32,
@@ -3272,6 +3417,7 @@ multiclass avx512_alignr<string OpcodeStr, RegisterClass RC,
                      !strconcat(OpcodeStr,
                      "\t{$src3, $src2, $src1, $dst|$dst, $src1, $src2, $src3}"),
                      []>, EVEX_4V;
+  let mayLoad = 1 in
   def rmi : AVX512AIi8<0x03, MRMSrcMem, (outs RC:$dst),
                      (ins RC:$src1, x86memop:$src2, i8imm:$src3),
                      !strconcat(OpcodeStr,
@@ -3308,3 +3454,73 @@ defm VPABSD : avx512_vpabs<0x1E, "vpabsd", VR512, i512mem>, EVEX_V512,
 defm VPABSQ : avx512_vpabs<0x1F, "vpabsq", VR512, i512mem>, EVEX_V512, VEX_W,
                         EVEX_CD8<64, CD8VF>;
 
+multiclass avx512_conflict<bits<8> opc, string OpcodeStr, 
+                        RegisterClass RC, RegisterClass KRC, PatFrag memop_frag,
+                        X86MemOperand x86memop, PatFrag scalar_mfrag,
+                        X86MemOperand x86scalar_mop, string BrdcstStr,
+                        Intrinsic Int, Intrinsic maskInt, Intrinsic maskzInt> {
+  def rr : AVX5128I<opc, MRMSrcReg, (outs RC:$dst),
+       (ins RC:$src),
+       !strconcat(OpcodeStr, "\t{$src, ${dst} |${dst}, $src}"),
+       [(set RC:$dst, (Int RC:$src))]>, EVEX;
+  def rm : AVX5128I<opc, MRMSrcMem, (outs RC:$dst),
+       (ins x86memop:$src),
+       !strconcat(OpcodeStr, "\t{$src, ${dst}|${dst}, $src}"),
+       [(set RC:$dst, (Int (memop_frag addr:$src)))]>, EVEX;
+  def rmb : AVX5128I<opc, MRMSrcMem, (outs RC:$dst),
+       (ins x86scalar_mop:$src),
+       !strconcat(OpcodeStr, "\t{${src}", BrdcstStr,
+                  ", ${dst}|${dst}, ${src}", BrdcstStr, "}"),
+       []>, EVEX, EVEX_B;
+  def rrkz : AVX5128I<opc, MRMSrcReg, (outs RC:$dst),
+       (ins KRC:$mask, RC:$src),
+       !strconcat(OpcodeStr,
+                  "\t{$src, ${dst} {${mask}} {z}|${dst} {${mask}} {z}, $src}"),
+       [(set RC:$dst, (maskzInt KRC:$mask, RC:$src))]>, EVEX, EVEX_KZ;
+  def rmkz : AVX5128I<opc, MRMSrcMem, (outs RC:$dst),
+       (ins KRC:$mask, x86memop:$src),
+       !strconcat(OpcodeStr,
+                  "\t{$src, ${dst} {${mask}} {z}|${dst} {${mask}} {z}, $src}"),
+       [(set RC:$dst, (maskzInt KRC:$mask, (memop_frag addr:$src)))]>,
+       EVEX, EVEX_KZ;
+  def rmbkz : AVX5128I<opc, MRMSrcMem, (outs RC:$dst),
+       (ins KRC:$mask, x86scalar_mop:$src),
+       !strconcat(OpcodeStr, "\t{${src}", BrdcstStr,
+                  ", ${dst} {${mask}} {z}|${dst} {${mask}} {z}, ${src}",
+                  BrdcstStr, "}"),
+       []>, EVEX, EVEX_KZ, EVEX_B;
+       
+  let Constraints = "$src1 = $dst" in {
+  def rrk : AVX5128I<opc, MRMSrcReg, (outs RC:$dst),
+       (ins RC:$src1, KRC:$mask, RC:$src2),
+       !strconcat(OpcodeStr,
+                  "\t{$src2, ${dst} {${mask}}|${dst} {${mask}}, $src2}"),
+       [(set RC:$dst, (maskInt RC:$src1, KRC:$mask, RC:$src2))]>, EVEX, EVEX_K;
+  def rmk : AVX5128I<opc, MRMSrcMem, (outs RC:$dst),
+       (ins RC:$src1, KRC:$mask, x86memop:$src2),
+       !strconcat(OpcodeStr,
+                  "\t{$src2, ${dst} {${mask}}|${dst} {${mask}}, $src2}"),
+       [(set RC:$dst, (maskInt RC:$src1, KRC:$mask, (memop_frag addr:$src2)))]>, EVEX, EVEX_K;
+  def rmbk : AVX5128I<opc, MRMSrcMem, (outs RC:$dst),
+       (ins RC:$src1, KRC:$mask, x86scalar_mop:$src2),
+       !strconcat(OpcodeStr, "\t{${src2}", BrdcstStr,
+                  ", ${dst} {${mask}}|${dst} {${mask}}, ${src2}", BrdcstStr, "}"),
+       []>, EVEX, EVEX_K, EVEX_B;
+   }
+}
+
+let Predicates = [HasCDI] in {
+defm VPCONFLICTD : avx512_conflict<0xC4, "vpconflictd", VR512, VK16WM,
+                    memopv16i32, i512mem, loadi32, i32mem, "{1to16}",
+                    int_x86_avx512_conflict_d_512,
+                    int_x86_avx512_conflict_d_mask_512,
+                    int_x86_avx512_conflict_d_maskz_512>,
+                    EVEX_V512, EVEX_CD8<32, CD8VF>;
+
+defm VPCONFLICTQ : avx512_conflict<0xC4, "vpconflictq", VR512, VK8WM,
+                    memopv8i64, i512mem, loadi64, i64mem, "{1to8}",
+                    int_x86_avx512_conflict_q_512,
+                    int_x86_avx512_conflict_q_mask_512,
+                    int_x86_avx512_conflict_q_maskz_512>,
+                    EVEX_V512, VEX_W, EVEX_CD8<64, CD8VF>;
+}

@@ -17,6 +17,7 @@
 #include "llvm/Transforms/Utils/SimplifyLibCalls.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Function.h"
@@ -26,10 +27,15 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/Allocator.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Transforms/Utils/BuildLibCalls.h"
 
 using namespace llvm;
+
+static cl::opt<bool>
+ColdErrorCalls("error-reporting-is-cold",  cl::init(true),
+  cl::Hidden, cl::desc("Treat error-reporting calls as cold"));
 
 /// This class is the abstract base class for the set of optimizations that
 /// corresponds to one library call.
@@ -1046,7 +1052,7 @@ struct MemSetOpt : public LibCallOptimization {
     if (FT->getNumParams() != 3 || FT->getReturnType() != FT->getParamType(0) ||
         !FT->getParamType(0)->isPointerTy() ||
         !FT->getParamType(1)->isIntegerTy() ||
-        FT->getParamType(2) != TD->getIntPtrType(*Context))
+        FT->getParamType(2) != TD->getIntPtrType(FT->getParamType(0)))
       return 0;
 
     // memset(p, v, n) -> llvm.memset(p, v, n, 1)
@@ -1252,6 +1258,155 @@ struct Exp2Opt : public UnsafeFPLibCallOptimization {
   }
 };
 
+struct SinCosPiOpt : public LibCallOptimization {
+  SinCosPiOpt() {}
+
+  virtual Value *callOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
+    // Make sure the prototype is as expected, otherwise the rest of the
+    // function is probably invalid and likely to abort.
+    if (!isTrigLibCall(CI))
+      return 0;
+
+    Value *Arg = CI->getArgOperand(0);
+    SmallVector<CallInst *, 1> SinCalls;
+    SmallVector<CallInst *, 1> CosCalls;
+    SmallVector<CallInst *, 1> SinCosCalls;
+
+    bool IsFloat = Arg->getType()->isFloatTy();
+
+    // Look for all compatible sinpi, cospi and sincospi calls with the same
+    // argument. If there are enough (in some sense) we can make the
+    // substitution.
+    for (Value::use_iterator UI = Arg->use_begin(), UE = Arg->use_end();
+         UI != UE; ++UI)
+      classifyArgUse(*UI, CI->getParent(), IsFloat, SinCalls, CosCalls,
+                     SinCosCalls);
+
+    // It's only worthwhile if both sinpi and cospi are actually used.
+    if (SinCosCalls.empty() && (SinCalls.empty() || CosCalls.empty()))
+      return 0;
+
+    Value *Sin, *Cos, *SinCos;
+    insertSinCosCall(B, CI->getCalledFunction(), Arg, IsFloat, Sin, Cos,
+                     SinCos);
+
+    replaceTrigInsts(SinCalls, Sin);
+    replaceTrigInsts(CosCalls, Cos);
+    replaceTrigInsts(SinCosCalls, SinCos);
+
+    return 0;
+  }
+
+  bool isTrigLibCall(CallInst *CI) {
+    Function *Callee = CI->getCalledFunction();
+    FunctionType *FT = Callee->getFunctionType();
+
+    // We can only hope to do anything useful if we can ignore things like errno
+    // and floating-point exceptions.
+    bool AttributesSafe = CI->hasFnAttr(Attribute::NoUnwind) &&
+                          CI->hasFnAttr(Attribute::ReadNone);
+
+    // Other than that we need float(float) or double(double)
+    return AttributesSafe && FT->getNumParams() == 1 &&
+           FT->getReturnType() == FT->getParamType(0) &&
+           (FT->getParamType(0)->isFloatTy() ||
+            FT->getParamType(0)->isDoubleTy());
+  }
+
+  void classifyArgUse(Value *Val, BasicBlock *BB, bool IsFloat,
+                      SmallVectorImpl<CallInst *> &SinCalls,
+                      SmallVectorImpl<CallInst *> &CosCalls,
+                      SmallVectorImpl<CallInst *> &SinCosCalls) {
+    CallInst *CI = dyn_cast<CallInst>(Val);
+
+    if (!CI)
+      return;
+
+    Function *Callee = CI->getCalledFunction();
+    StringRef FuncName = Callee->getName();
+    LibFunc::Func Func;
+    if (!TLI->getLibFunc(FuncName, Func) || !TLI->has(Func) ||
+        !isTrigLibCall(CI))
+      return;
+
+    if (IsFloat) {
+      if (Func == LibFunc::sinpif)
+        SinCalls.push_back(CI);
+      else if (Func == LibFunc::cospif)
+        CosCalls.push_back(CI);
+      else if (Func == LibFunc::sincospi_stretf)
+        SinCosCalls.push_back(CI);
+    } else {
+      if (Func == LibFunc::sinpi)
+        SinCalls.push_back(CI);
+      else if (Func == LibFunc::cospi)
+        CosCalls.push_back(CI);
+      else if (Func == LibFunc::sincospi_stret)
+        SinCosCalls.push_back(CI);
+    }
+  }
+
+  void replaceTrigInsts(SmallVectorImpl<CallInst*> &Calls, Value *Res) {
+    for (SmallVectorImpl<CallInst*>::iterator I = Calls.begin(),
+           E = Calls.end();
+         I != E; ++I) {
+      LCS->replaceAllUsesWith(*I, Res);
+    }
+  }
+
+  void insertSinCosCall(IRBuilder<> &B, Function *OrigCallee, Value *Arg,
+                        bool UseFloat, Value *&Sin, Value *&Cos,
+                        Value *&SinCos) {
+    Type *ArgTy = Arg->getType();
+    Type *ResTy;
+    StringRef Name;
+
+    Triple T(OrigCallee->getParent()->getTargetTriple());
+    if (UseFloat) {
+      Name = "__sincospi_stretf";
+
+      assert(T.getArch() != Triple::x86 && "x86 messy and unsupported for now");
+      // x86_64 can't use {float, float} since that would be returned in both
+      // xmm0 and xmm1, which isn't what a real struct would do.
+      ResTy = T.getArch() == Triple::x86_64
+                  ? static_cast<Type *>(VectorType::get(ArgTy, 2))
+                  : static_cast<Type *>(StructType::get(ArgTy, ArgTy, NULL));
+    } else {
+      Name = "__sincospi_stret";
+      ResTy = StructType::get(ArgTy, ArgTy, NULL);
+    }
+
+    Module *M = OrigCallee->getParent();
+    Value *Callee = M->getOrInsertFunction(Name, OrigCallee->getAttributes(),
+                                           ResTy, ArgTy, NULL);
+
+    if (Instruction *ArgInst = dyn_cast<Instruction>(Arg)) {
+      // If the argument is an instruction, it must dominate all uses so put our
+      // sincos call there.
+      BasicBlock::iterator Loc = ArgInst;
+      B.SetInsertPoint(ArgInst->getParent(), ++Loc);
+    } else {
+      // Otherwise (e.g. for a constant) the beginning of the function is as
+      // good a place as any.
+      BasicBlock &EntryBB = B.GetInsertBlock()->getParent()->getEntryBlock();
+      B.SetInsertPoint(&EntryBB, EntryBB.begin());
+    }
+
+    SinCos = B.CreateCall(Callee, Arg, "sincospi");
+
+    if (SinCos->getType()->isStructTy()) {
+      Sin = B.CreateExtractValue(SinCos, 0, "sinpi");
+      Cos = B.CreateExtractValue(SinCos, 1, "cospi");
+    } else {
+      Sin = B.CreateExtractElement(SinCos, ConstantInt::get(B.getInt32Ty(), 0),
+                                   "sinpi");
+      Cos = B.CreateExtractElement(SinCos, ConstantInt::get(B.getInt32Ty(), 1),
+                                   "cospi");
+    }
+  }
+
+};
+
 //===----------------------------------------------------------------------===//
 // Integer Library Call Optimizations
 //===----------------------------------------------------------------------===//
@@ -1355,6 +1510,54 @@ struct ToAsciiOpt : public LibCallOptimization {
 //===----------------------------------------------------------------------===//
 // Formatting and IO Library Call Optimizations
 //===----------------------------------------------------------------------===//
+
+struct ErrorReportingOpt : public LibCallOptimization {
+  ErrorReportingOpt(int S = -1) : StreamArg(S) {}
+
+  virtual Value *callOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &) {
+    // Error reporting calls should be cold, mark them as such.
+    // This applies even to non-builtin calls: it is only a hint and applies to
+    // functions that the frontend might not understand as builtins.
+
+    // This heuristic was suggested in:
+    // Improving Static Branch Prediction in a Compiler
+    // Brian L. Deitrich, Ben-Chung Cheng, Wen-mei W. Hwu
+    // Proceedings of PACT'98, Oct. 1998, IEEE
+
+    if (!CI->hasFnAttr(Attribute::Cold) && isReportingError(Callee, CI)) {
+      CI->addAttribute(AttributeSet::FunctionIndex, Attribute::Cold);
+    }
+
+    return 0;
+  }
+
+protected:
+  bool isReportingError(Function *Callee, CallInst *CI) {
+    if (!ColdErrorCalls)
+      return false;
+ 
+    if (!Callee || !Callee->isDeclaration())
+      return false;
+
+    if (StreamArg < 0)
+      return true;
+
+    // These functions might be considered cold, but only if their stream
+    // argument is stderr.
+
+    if (StreamArg >= (int) CI->getNumArgOperands())
+      return false;
+    LoadInst *LI = dyn_cast<LoadInst>(CI->getArgOperand(StreamArg));
+    if (!LI)
+      return false;
+    GlobalVariable *GV = dyn_cast<GlobalVariable>(LI->getPointerOperand());
+    if (!GV || !GV->isDeclaration())
+      return false;
+    return GV->getName() == "stderr";
+  }
+
+  int StreamArg;
+};
 
 struct PrintFOpt : public LibCallOptimization {
   Value *optimizeFixedFormatString(Function *Callee, CallInst *CI,
@@ -1536,6 +1739,9 @@ struct SPrintFOpt : public LibCallOptimization {
 struct FPrintFOpt : public LibCallOptimization {
   Value *optimizeFixedFormatString(Function *Callee, CallInst *CI,
                                    IRBuilder<> &B) {
+    ErrorReportingOpt ER(/* StreamArg = */ 0);
+    (void) ER.callOptimizer(Callee, CI, B);
+
     // All the optimizations depend on the format string.
     StringRef FormatStr;
     if (!getConstantStringInfo(CI->getArgOperand(1), FormatStr))
@@ -1613,6 +1819,9 @@ struct FPrintFOpt : public LibCallOptimization {
 
 struct FWriteOpt : public LibCallOptimization {
   virtual Value *callOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
+    ErrorReportingOpt ER(/* StreamArg = */ 3);
+    (void) ER.callOptimizer(Callee, CI, B);
+
     // Require a pointer, an integer, an integer, a pointer, returning integer.
     FunctionType *FT = Callee->getFunctionType();
     if (FT->getNumParams() != 4 || !FT->getParamType(0)->isPointerTy() ||
@@ -1646,6 +1855,9 @@ struct FWriteOpt : public LibCallOptimization {
 
 struct FPutsOpt : public LibCallOptimization {
   virtual Value *callOptimizer(Function *Callee, CallInst *CI, IRBuilder<> &B) {
+    ErrorReportingOpt ER(/* StreamArg = */ 1);
+    (void) ER.callOptimizer(Callee, CI, B);
+
     // These optimizations require DataLayout.
     if (!TD) return 0;
 
@@ -1764,6 +1976,7 @@ static MemSetOpt MemSet;
 // Math library call optimizations.
 static UnaryDoubleFPOpt UnaryDoubleFP(false);
 static UnaryDoubleFPOpt UnsafeUnaryDoubleFP(true);
+static SinCosPiOpt SinCosPi;
 
   // Integer library call optimizations.
 static FFSOpt FFS;
@@ -1773,6 +1986,9 @@ static IsAsciiOpt IsAscii;
 static ToAsciiOpt ToAscii;
 
 // Formatting and IO library call optimizations.
+static ErrorReportingOpt ErrorReporting;
+static ErrorReportingOpt ErrorReporting0(0);
+static ErrorReportingOpt ErrorReporting1(1);
 static PrintFOpt PrintF;
 static SPrintFOpt SPrintF;
 static FPrintFOpt FPrintF;
@@ -1848,6 +2064,11 @@ LibCallOptimization *LibCallSimplifierImpl::lookupOptimization(CallInst *CI) {
       case LibFunc::cos:
       case LibFunc::cosl:
         return &Cos;
+      case LibFunc::sinpif:
+      case LibFunc::sinpi:
+      case LibFunc::cospif:
+      case LibFunc::cospi:
+        return &SinCosPi;
       case LibFunc::powf:
       case LibFunc::pow:
       case LibFunc::powl:
@@ -1882,6 +2103,13 @@ LibCallOptimization *LibCallSimplifierImpl::lookupOptimization(CallInst *CI) {
         return &FPuts;
       case LibFunc::puts:
         return &Puts;
+      case LibFunc::perror:
+        return &ErrorReporting;
+      case LibFunc::vfprintf:
+      case LibFunc::fiprintf:
+        return &ErrorReporting0;
+      case LibFunc::fputc:
+        return &ErrorReporting1;
       case LibFunc::ceil:
       case LibFunc::fabs:
       case LibFunc::floor:

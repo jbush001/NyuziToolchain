@@ -698,6 +698,25 @@ public:
 
   bool isShrImm64() const { return isShrFixedWidth(64); }
 
+  // if 0 <= value < w, return true
+  bool isShlFixedWidth(int w) const {
+    if (!isImm())
+      return false;
+    const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(getImm());
+    if (!CE)
+      return false;
+    int64_t Value = CE->getValue();
+    return Value >= 0 && Value < w;
+  }
+
+  bool isShlImm8() const { return isShlFixedWidth(8); }
+
+  bool isShlImm16() const { return isShlFixedWidth(16); }
+
+  bool isShlImm32() const { return isShlFixedWidth(32); }
+
+  bool isShlImm64() const { return isShlFixedWidth(64); }
+
   bool isNeonMovImmShiftLSL() const {
     if (!isShiftOrExtend())
       return false;
@@ -794,6 +813,17 @@ public:
       if ((Value & 0xff) != 0 && (Value & 0xff) != 0xff)
         return false;
     return true;
+  }
+
+  // if value == N, return true
+  template<int N>
+  bool isExactImm() const {
+    if (!isImm()) return false;
+
+    const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(getImm());
+    if (!CE) return false;
+
+    return CE->getValue() == N;
   }
 
   static AArch64Operand *CreateImmWithLSL(const MCExpr *Val,
@@ -1461,7 +1491,7 @@ AArch64AsmParser::ParseImmWithLSLOperand(
 
   // The optional operand must be "lsl #N" where N is non-negative.
   if (Parser.getTok().is(AsmToken::Identifier)
-      && Parser.getTok().getIdentifier().lower() == "lsl") {
+      && Parser.getTok().getIdentifier().equals_lower("lsl")) {
     Parser.Lex();
 
     if (Parser.getTok().is(AsmToken::Hash)) {
@@ -1518,9 +1548,8 @@ AArch64AsmParser::ParseCRxOperand(
     return MatchOperand_ParseFail;
   }
 
-  std::string LowerTok = Parser.getTok().getIdentifier().lower();
-  StringRef Tok(LowerTok);
-  if (Tok[0] != 'c') {
+  StringRef Tok = Parser.getTok().getIdentifier();
+  if (Tok[0] != 'c' && Tok[0] != 'C') {
     Error(S, "Expected cN operand where 0 <= N <= 15");
     return MatchOperand_ParseFail;
   }
@@ -1606,10 +1635,11 @@ AArch64AsmParser::IdentifyRegister(unsigned &RegNum, SMLoc &RegEndLoc,
     // gives us a permanent string to use in the token (a pointer into LowerReg
     // would go out of scope when we return).
     LayoutLoc = SMLoc::getFromPointer(S.getPointer() + DotPos + 1);
-    std::string LayoutText = LowerReg.substr(DotPos, StringRef::npos);
+    StringRef LayoutText = StringRef(LowerReg).substr(DotPos);
 
     // See if it's a 128-bit layout first.
     Layout = StringSwitch<const char *>(LayoutText)
+      .Case(".q", ".q").Case(".1q", ".1q")
       .Case(".d", ".d").Case(".2d", ".2d")
       .Case(".s", ".s").Case(".4s", ".4s")
       .Case(".h", ".h").Case(".8h", ".8h")
@@ -1708,6 +1738,7 @@ AArch64AsmParser::ParseRegister(SmallVectorImpl<MCParsedAsmOperand*> &Operands,
       case 'h': NumLanes = 8; break;
       case 's': NumLanes = 4; break;
       case 'd': NumLanes = 2; break;
+      case 'q': NumLanes = 1; break;
       }
     }
 
@@ -1934,12 +1965,12 @@ bool AArch64AsmParser::TryParseVector(uint32_t &RegNum, SMLoc &RegEndLoc,
 
   if (!IdentifyRegister(RegNum, RegEndLoc, Layout, LayoutLoc))
     IsVector = false;
-
-  if (!AArch64MCRegisterClasses[AArch64::FPR64RegClassID].contains(RegNum) &&
-      !AArch64MCRegisterClasses[AArch64::FPR128RegClassID].contains(RegNum))
+  else if (!AArch64MCRegisterClasses[AArch64::FPR64RegClassID]
+                .contains(RegNum) &&
+           !AArch64MCRegisterClasses[AArch64::FPR128RegClassID]
+                .contains(RegNum))
     IsVector = false;
-
-  if (Layout.size() == 0)
+  else if (Layout.size() == 0)
     IsVector = false;
 
   if (!IsVector)
@@ -1954,6 +1985,7 @@ bool AArch64AsmParser::TryParseVector(uint32_t &RegNum, SMLoc &RegEndLoc,
 // Now there are two kinds of vector list when number of vector > 1:
 //   (1) {Vn.layout, Vn+1.layout, ... , Vm.layout}
 //   (2) {Vn.layout - Vm.layout}
+// If the layout is like .b/.h/.s/.d, also parse the lane.
 AArch64AsmParser::OperandMatchResultTy AArch64AsmParser::ParseVectorList(
     SmallVectorImpl<MCParsedAsmOperand *> &Operands) {
   if (Parser.getTok().isNot(AsmToken::LCurly)) {
@@ -2034,7 +2066,7 @@ AArch64AsmParser::OperandMatchResultTy AArch64AsmParser::ParseVectorList(
 
   A64Layout::VectorLayout Layout = A64StringToVectorLayout(LayoutStr);
   if (Count > 1) { // If count > 1, create vector list using super register.
-    bool IsVec64 = (Layout < A64Layout::_16B) ? true : false;
+    bool IsVec64 = (Layout < A64Layout::VL_16B);
     static unsigned SupRegIDs[3][2] = {
       { AArch64::QPairRegClassID, AArch64::DPairRegClassID },
       { AArch64::QTripleRegClassID, AArch64::DTripleRegClassID },
@@ -2049,7 +2081,22 @@ AArch64AsmParser::OperandMatchResultTy AArch64AsmParser::ParseVectorList(
   Operands.push_back(
       AArch64Operand::CreateVectorList(Reg, Count, Layout, SLoc, ELoc));
 
-  return MatchOperand_Success;
+  if (Parser.getTok().is(AsmToken::LBrac)) {
+    uint32_t NumLanes = 0;
+    switch(Layout) {
+    case A64Layout::VL_B : NumLanes = 16; break;
+    case A64Layout::VL_H : NumLanes = 8; break;
+    case A64Layout::VL_S : NumLanes = 4; break;
+    case A64Layout::VL_D : NumLanes = 2; break;
+    default:
+      SMLoc Loc = getLexer().getLoc();
+      Error(Loc, "expected comma before next operand");
+      return MatchOperand_ParseFail;
+    }
+    return ParseNEONLane(Operands, NumLanes);
+  } else {
+    return MatchOperand_Success;
+  }
 }
 
 // FIXME: We would really like to be able to tablegen'erate this.
@@ -2480,6 +2527,18 @@ bool AArch64AsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   case Match_ShrImm64:
     return Error(((AArch64Operand *)Operands[ErrorInfo])->getStartLoc(),
                  "expected integer in range [1, 64]");
+  case Match_ShlImm8:
+    return Error(((AArch64Operand *)Operands[ErrorInfo])->getStartLoc(),
+                 "expected integer in range [0, 7]");
+  case Match_ShlImm16:
+    return Error(((AArch64Operand *)Operands[ErrorInfo])->getStartLoc(),
+                 "expected integer in range [0, 15]");
+  case Match_ShlImm32:
+    return Error(((AArch64Operand *)Operands[ErrorInfo])->getStartLoc(),
+                 "expected integer in range [0, 31]");
+  case Match_ShlImm64:
+    return Error(((AArch64Operand *)Operands[ErrorInfo])->getStartLoc(),
+                 "expected integer in range [0, 63]");
   }
 
   llvm_unreachable("Implement any new match types added!");

@@ -848,11 +848,18 @@ error_code has_magic(const Twine &path, const Twine &magic, bool &result) {
     return file_magic::unknown;
   switch ((unsigned char)Magic[0]) {
     case 0x00: {
+      // COFF short import library file
+      if (Magic[1] == (char)0x00 && Magic[2] == (char)0xff &&
+          Magic[3] == (char)0xff)
+        return file_magic::coff_import_library;
       // Windows resource file
       const char Expected[] = { 0, 0, 0, 0, '\x20', 0, 0, 0, '\xff' };
       if (Magic.size() >= sizeof(Expected) &&
           memcmp(Magic.data(), Expected, sizeof(Expected)) == 0)
         return file_magic::windows_resource;
+      // 0x0000 = COFF unknown machine type
+      if (Magic[1] == 0)
+        return file_magic::coff_object;
       break;
     }
     case 0xDE:  // 0x0B17C0DE = BC wraper

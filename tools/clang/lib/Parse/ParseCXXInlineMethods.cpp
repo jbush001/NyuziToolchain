@@ -109,12 +109,15 @@ NamedDecl *Parser::ParseCXXInlineMethodDef(AccessSpecifier AS,
 
     return FnD;
   }
-
+  
   // In delayed template parsing mode, if we are within a class template
   // or if we are about to parse function member template then consume
   // the tokens and store them for parsing at the end of the translation unit.
   if (getLangOpts().DelayedTemplateParsing &&
       DefinitionKind == FDK_Definition &&
+      !D.getDeclSpec().isConstexprSpecified() && 
+      !(FnD && getFunctionDecl(FnD) && 
+          getFunctionDecl(FnD)->getResultType()->getContainedAutoType()) &&
       ((Actions.CurContext->isDependentContext() ||
         (TemplateInfo.Kind != ParsedTemplateInfo::NonTemplate &&
          TemplateInfo.Kind != ParsedTemplateInfo::ExplicitSpecialization)) &&
@@ -176,7 +179,9 @@ NamedDecl *Parser::ParseCXXInlineMethodDef(AccessSpecifier AS,
     // If you remove this, you can remove the code that clears the flag
     // after parsing the member.
     if (D.getDeclSpec().isFriendSpecified()) {
-      getFunctionDecl(FnD)->setLateTemplateParsed(true);
+      FunctionDecl *FD = getFunctionDecl(FnD);
+      Actions.CheckForFunctionRedefinition(FD);
+      FD->setLateTemplateParsed(true);
     }
   } else {
     // If semantic analysis could not build a function declaration,
@@ -575,6 +580,9 @@ bool Parser::ConsumeAndStoreUntil(tok::TokenKind T1, tok::TokenKind T2,
 
     switch (Tok.getKind()) {
     case tok::eof:
+    case tok::annot_module_begin:
+    case tok::annot_module_end:
+    case tok::annot_module_include:
       // Ran out of tokens.
       return false;
 
@@ -863,7 +871,7 @@ public:
     Revert();
 
     // Put back the original tokens.
-    Self.SkipUntil(EndKind, true, /*DontConsume*/true);
+    Self.SkipUntil(EndKind, StopAtSemi | StopBeforeMatch);
     if (Toks.size()) {
       Token *Buffer = new Token[Toks.size()];
       std::copy(Toks.begin() + 1, Toks.end(), Buffer);
@@ -960,6 +968,9 @@ bool Parser::ConsumeAndStoreInitializer(CachedTokens &Toks,
       goto consume_token;
 
     case tok::eof:
+    case tok::annot_module_begin:
+    case tok::annot_module_end:
+    case tok::annot_module_include:
       // Ran out of tokens.
       return false;
 

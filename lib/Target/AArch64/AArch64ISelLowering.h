@@ -125,6 +125,11 @@ namespace AArch64ISD {
     // Vector FP move immediate
     NEON_FMOVIMM,
 
+    // Vector Element reverse
+    NEON_REV64,
+    NEON_REV32,
+    NEON_REV16,
+
     // Vector compare
     NEON_CMP,
 
@@ -142,7 +147,48 @@ namespace AArch64ISD {
     NEON_VDUP,
 
     // Vector dup by lane
-    NEON_VDUPLANE
+    NEON_VDUPLANE,
+
+    // Vector extract
+    NEON_VEXTRACT,
+
+    // NEON duplicate lane loads
+    NEON_LD2DUP = ISD::FIRST_TARGET_MEMORY_OPCODE,
+    NEON_LD3DUP,
+    NEON_LD4DUP,
+
+    // NEON loads with post-increment base updates:
+    NEON_LD1_UPD,
+    NEON_LD2_UPD,
+    NEON_LD3_UPD,
+    NEON_LD4_UPD,
+    NEON_LD1x2_UPD,
+    NEON_LD1x3_UPD,
+    NEON_LD1x4_UPD,
+
+    // NEON stores with post-increment base updates:
+    NEON_ST1_UPD,
+    NEON_ST2_UPD,
+    NEON_ST3_UPD,
+    NEON_ST4_UPD,
+    NEON_ST1x2_UPD,
+    NEON_ST1x3_UPD,
+    NEON_ST1x4_UPD,
+
+    // NEON duplicate lane loads with post-increment base updates:
+    NEON_LD2DUP_UPD,
+    NEON_LD3DUP_UPD,
+    NEON_LD4DUP_UPD,
+
+    // NEON lane loads with post-increment base updates:
+    NEON_LD2LN_UPD,
+    NEON_LD3LN_UPD,
+    NEON_LD4LN_UPD,
+
+    // NEON lane store with post-increment base updates:
+    NEON_ST2LN_UPD,
+    NEON_ST3LN_UPD,
+    NEON_ST4LN_UPD
   };
 }
 
@@ -246,6 +292,8 @@ public:
   SDValue LowerFP_EXTEND(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFP_ROUND(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFP_TO_INT(SDValue Op, SelectionDAG &DAG, bool IsSigned) const;
+  SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
 
   SDValue LowerGlobalAddressELFSmall(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerGlobalAddressELFLarge(SDValue Op, SelectionDAG &DAG) const;

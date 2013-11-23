@@ -39,8 +39,8 @@ class SLTI_FM_MM<bits<6> op> : MMArch {
   bits<32> Inst;
 
   let Inst{31-26} = op;
-  let Inst{25-21} = rs;
-  let Inst{20-16} = rt;
+  let Inst{25-21} = rt;
+  let Inst{20-16} = rs;
   let Inst{15-0}  = imm16;
 }
 
@@ -203,4 +203,102 @@ class EXT_FM_MM<bits<6> funct> : MMArch {
   let Inst{15-11} = size;
   let Inst{10-6}  = pos;
   let Inst{5-0}   = funct;
+}
+
+class J_FM_MM<bits<6> op> : MMArch {
+  bits<26> target;
+
+  bits<32> Inst;
+
+  let Inst{31-26} = op;
+  let Inst{25-0}  = target;
+}
+
+class JR_FM_MM<bits<8> funct> : MMArch {
+  bits<5> rs;
+
+  bits<32> Inst;
+
+  let Inst{31-21} = 0x00;
+  let Inst{20-16} = rs;
+  let Inst{15-14} = 0x0;
+  let Inst{13-6}  = funct;
+  let Inst{5-0}   = 0x3c;
+}
+
+class JALR_FM_MM<bits<10> funct> : MMArch {
+  bits<5> rs;
+  bits<5> rd;
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 0x00;
+  let Inst{25-21} = rd;
+  let Inst{20-16} = rs;
+  let Inst{15-6}  = funct;
+  let Inst{5-0}   = 0x3c;
+}
+
+class BEQ_FM_MM<bits<6> op> : MMArch {
+  bits<5>  rs;
+  bits<5>  rt;
+  bits<16> offset;
+
+  bits<32> Inst;
+
+  let Inst{31-26} = op;
+  let Inst{25-21} = rt;
+  let Inst{20-16} = rs;
+  let Inst{15-0}  = offset;
+}
+
+class BGEZ_FM_MM<bits<5> funct> : MMArch {
+  bits<5>  rs;
+  bits<16> offset;
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 0x10;
+  let Inst{25-21} = funct;
+  let Inst{20-16} = rs;
+  let Inst{15-0}  = offset;
+}
+
+class BGEZAL_FM_MM<bits<5> funct> : MMArch {
+  bits<5>  rs;
+  bits<16> offset;
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 0x10;
+  let Inst{25-21} = funct;
+  let Inst{20-16} = rs;
+  let Inst{15-0}  = offset;
+}
+
+class TEQ_FM_MM<bits<6> funct> : MMArch {
+  bits<5> rs;
+  bits<5> rt;
+  bits<4> code_;
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 0x00;
+  let Inst{25-21} = rt;
+  let Inst{20-16} = rs;
+  let Inst{15-12} = code_;
+  let Inst{11-6}  = funct;
+  let Inst{5-0}   = 0x3c;
+}
+
+class TEQI_FM_MM<bits<5> funct> : MMArch {
+  bits<5> rs;
+  bits<16> imm16;
+
+  bits<32> Inst;
+
+  let Inst{31-26} = 0x10;
+  let Inst{25-21} = funct;
+  let Inst{20-16} = rs;
+  let Inst{15-0}  = imm16;
 }

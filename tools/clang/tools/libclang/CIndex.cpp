@@ -22,7 +22,6 @@
 #include "CXTranslationUnit.h"
 #include "CXType.h"
 #include "CursorVisitor.h"
-#include "SimpleFormatContext.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/Diagnostic.h"
@@ -30,6 +29,7 @@
 #include "clang/Frontend/ASTUnit.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
+#include "clang/Index/CommentToXML.h"
 #include "clang/Lex/HeaderSearch.h"
 #include "clang/Lex/Lexer.h"
 #include "clang/Lex/PreprocessingRecord.h"
@@ -43,7 +43,6 @@
 #include "llvm/Support/Format.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Mutex.h"
-#include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/Signals.h"
@@ -69,8 +68,7 @@ CXTranslationUnit cxtu::MakeCXTranslationUnit(CIndexer *CIdx, ASTUnit *AU) {
   D->StringPool = new cxstring::CXStringPool();
   D->Diagnostics = 0;
   D->OverridenCursorsPool = createOverridenCXCursorsPool();
-  D->FormatContext = 0;
-  D->FormatInMemoryUniqueId = 0;
+  D->CommentToXML = 0;
   return D;
 }
 
@@ -532,9 +530,10 @@ bool CursorVisitor::VisitChildren(CXCursor Cursor) {
   if (Cursor.kind == CXCursor_IBOutletCollectionAttr) {
     const IBOutletCollectionAttr *A =
       cast<IBOutletCollectionAttr>(cxcursor::getCursorAttr(Cursor));
-    if (const ObjCInterfaceType *InterT = A->getInterface()->getAs<ObjCInterfaceType>())
-      return Visit(cxcursor::MakeCursorObjCClassRef(InterT->getInterface(),
-                                                    A->getInterfaceLoc(), TU));
+    if (const ObjCObjectType *ObjT = A->getInterface()->getAs<ObjCObjectType>())
+      return Visit(cxcursor::MakeCursorObjCClassRef(
+          ObjT->getInterface(),
+          A->getInterfaceLoc()->getTypeLoc().getLocStart(), TU));
   }
 
   // If pointing inside a macro definition, check if the token is an identifier
@@ -2543,10 +2542,6 @@ static void fatal_error_handler(void *user_data, const std::string& reason,
 extern "C" {
 CXIndex clang_createIndex(int excludeDeclarationsFromPCH,
                           int displayDiagnostics) {
-  // Disable pretty stack trace functionality, which will otherwise be a very
-  // poor citizen of the world and set up all sorts of signal handlers.
-  llvm::DisablePrettyStackTrace = true;
-
   // We use crash recovery to make some of our APIs more reliable, implicitly
   // enable it.
   llvm::CrashRecoveryContext::Enable();
@@ -2908,7 +2903,7 @@ void clang_disposeTranslationUnit(CXTranslationUnit CTUnit) {
     delete CTUnit->StringPool;
     delete static_cast<CXDiagnosticSetImpl *>(CTUnit->Diagnostics);
     disposeOverridenCXCursorsPool(CTUnit->OverridenCursorsPool);
-    delete CTUnit->FormatContext;
+    delete CTUnit->CommentToXML;
     delete CTUnit;
   }
 }

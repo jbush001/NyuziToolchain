@@ -179,7 +179,7 @@ def RelocPIC    :     Predicate<"TM.getRelocationModel() == Reloc::PIC_">,
 def NoNaNsFPMath :    Predicate<"TM.Options.NoNaNsFPMath">,
                       AssemblerPredicate<"FeatureMips32">;
 def HasStdEnc :       Predicate<"Subtarget.hasStandardEncoding()">,
-                      AssemblerPredicate<"!FeatureMips16,!FeatureMicroMips">;
+                      AssemblerPredicate<"!FeatureMips16">;
 def NotDSP :          Predicate<"!Subtarget.hasDSP()">;
 def InMicroMips    :  Predicate<"Subtarget.inMicroMipsMode()">,
                       AssemblerPredicate<"FeatureMicroMips">;
@@ -276,6 +276,9 @@ def uimm6 : Operand<i32> {
 
 def uimm16      : Operand<i32> {
   let PrintMethod = "printUnsignedImm";
+}
+
+def pcrel16      : Operand<i32> {
 }
 
 def MipsMemAsmOperand : AsmOperandClass {
@@ -501,21 +504,24 @@ class StoreLeftRight<string opstr, SDNode OpNode, RegisterOperand RO,
 }
 
 // Conditional Branch
-class CBranch<string opstr, PatFrag cond_op, RegisterOperand RO> :
-  InstSE<(outs), (ins RO:$rs, RO:$rt, brtarget:$offset),
+class CBranch<string opstr, DAGOperand opnd, PatFrag cond_op,
+              RegisterOperand RO> :
+  InstSE<(outs), (ins RO:$rs, RO:$rt, opnd:$offset),
          !strconcat(opstr, "\t$rs, $rt, $offset"),
          [(brcond (i32 (cond_op RO:$rs, RO:$rt)), bb:$offset)], IIBranch,
-         FrmI> {
+         FrmI, opstr> {
   let isBranch = 1;
   let isTerminator = 1;
   let hasDelaySlot = 1;
   let Defs = [AT];
 }
 
-class CBranchZero<string opstr, PatFrag cond_op, RegisterOperand RO> :
-  InstSE<(outs), (ins RO:$rs, brtarget:$offset),
+class CBranchZero<string opstr, DAGOperand opnd, PatFrag cond_op,
+                  RegisterOperand RO> :
+  InstSE<(outs), (ins RO:$rs, opnd:$offset),
          !strconcat(opstr, "\t$rs, $offset"),
-         [(brcond (i32 (cond_op RO:$rs, 0)), bb:$offset)], IIBranch, FrmI> {
+         [(brcond (i32 (cond_op RO:$rs, 0)), bb:$offset)], IIBranch,
+         FrmI, opstr> {
   let isBranch = 1;
   let isTerminator = 1;
   let hasDelaySlot = 1;
@@ -538,9 +544,9 @@ class SetCC_I<string opstr, PatFrag cond_op, Operand Od, PatLeaf imm_type,
 
 // Jump
 class JumpFJ<DAGOperand opnd, string opstr, SDPatternOperator operator,
-             SDPatternOperator targetoperator> :
+             SDPatternOperator targetoperator, string bopstr> :
   InstSE<(outs), (ins opnd:$target), !strconcat(opstr, "\t$target"),
-         [(operator targetoperator:$target)], IIBranch, FrmJ> {
+         [(operator targetoperator:$target)], IIBranch, FrmJ, bopstr> {
   let isTerminator=1;
   let isBarrier=1;
   let hasDelaySlot = 1;
@@ -562,17 +568,20 @@ class UncondBranch<Instruction BEQInst> :
 
 // Base class for indirect branch and return instruction classes.
 let isTerminator=1, isBarrier=1, hasDelaySlot = 1 in
-class JumpFR<RegisterOperand RO, SDPatternOperator operator = null_frag>:
-  InstSE<(outs), (ins RO:$rs), "jr\t$rs", [(operator RO:$rs)], IIBranch, FrmR>;
+class JumpFR<string opstr, RegisterOperand RO,
+             SDPatternOperator operator = null_frag>:
+  InstSE<(outs), (ins RO:$rs), "jr\t$rs", [(operator RO:$rs)], IIBranch,
+         FrmR, opstr>;
 
 // Indirect branch
-class IndirectBranch<RegisterOperand RO>: JumpFR<RO, brind> {
+class IndirectBranch<string opstr, RegisterOperand RO> :
+      JumpFR<opstr, RO, brind> {
   let isBranch = 1;
   let isIndirectBranch = 1;
 }
 
 // Return instruction
-class RetBase<RegisterOperand RO>: JumpFR<RO> {
+class RetBase<string opstr, RegisterOperand RO>: JumpFR<opstr, RO> {
   let isReturn = 1;
   let isCodeGenOnly = 1;
   let hasCtrlDep = 1;
@@ -581,9 +590,9 @@ class RetBase<RegisterOperand RO>: JumpFR<RO> {
 
 // Jump and Link (Call)
 let isCall=1, hasDelaySlot=1, Defs = [RA] in {
-  class JumpLink<string opstr> :
-    InstSE<(outs), (ins calltarget:$target), !strconcat(opstr, "\t$target"),
-           [(MipsJmpLink imm:$target)], IIBranch, FrmJ> {
+  class JumpLink<string opstr, DAGOperand opnd> :
+    InstSE<(outs), (ins opnd:$target), !strconcat(opstr, "\t$target"),
+           [(MipsJmpLink imm:$target)], IIBranch, FrmJ, opstr> {
     let DecoderMethod = "DecodeJumpTarget";
   }
 
@@ -594,11 +603,11 @@ let isCall=1, hasDelaySlot=1, Defs = [RA] in {
 
   class JumpLinkReg<string opstr, RegisterOperand RO>:
     InstSE<(outs RO:$rd), (ins RO:$rs), !strconcat(opstr, "\t$rd, $rs"),
-           [], IIBranch, FrmR>;
+           [], IIBranch, FrmR, opstr>;
 
-  class BGEZAL_FT<string opstr, RegisterOperand RO> :
-    InstSE<(outs), (ins RO:$rs, brtarget:$offset),
-           !strconcat(opstr, "\t$rs, $offset"), [], IIBranch, FrmI>;
+  class BGEZAL_FT<string opstr, DAGOperand opnd, RegisterOperand RO> :
+    InstSE<(outs), (ins RO:$rs, opnd:$offset),
+           !strconcat(opstr, "\t$rs, $offset"), [], IIBranch, FrmI, opstr>;
 
 }
 
@@ -649,11 +658,12 @@ class SYNC_FT :
 let hasSideEffects = 1 in
 class TEQ_FT<string opstr, RegisterOperand RO> :
   InstSE<(outs), (ins RO:$rs, RO:$rt, uimm16:$code_),
-         !strconcat(opstr, "\t$rs, $rt, $code_"), [], NoItinerary, FrmI>;
+         !strconcat(opstr, "\t$rs, $rt, $code_"), [], NoItinerary,
+         FrmI, opstr>;
 
 class TEQI_FT<string opstr, RegisterOperand RO> :
   InstSE<(outs), (ins RO:$rs, uimm16:$imm16),
-         !strconcat(opstr, "\t$rs, $imm16"), [], NoItinerary, FrmOther>;
+         !strconcat(opstr, "\t$rs, $imm16"), [], NoItinerary, FrmOther, opstr>;
 // Mul, Div
 class Mult<string opstr, InstrItinClass itin, RegisterOperand RO,
            list<Register> DefRegs> :
@@ -948,25 +958,27 @@ def SH  : Store<"sh", GPR32Opnd, truncstorei16, IIStore>, MMRel, LW_FM<0x29>;
 def SW  : Store<"sw", GPR32Opnd, store, IIStore>, MMRel, LW_FM<0x2b>;
 
 /// load/store left/right
+let Predicates = [NotInMicroMips] in {
 def LWL : LoadLeftRight<"lwl", MipsLWL, GPR32Opnd, IILoad>, LW_FM<0x22>;
 def LWR : LoadLeftRight<"lwr", MipsLWR, GPR32Opnd, IILoad>, LW_FM<0x26>;
 def SWL : StoreLeftRight<"swl", MipsSWL, GPR32Opnd, IIStore>, LW_FM<0x2a>;
 def SWR : StoreLeftRight<"swr", MipsSWR, GPR32Opnd, IIStore>, LW_FM<0x2e>;
+}
 
 def SYNC : SYNC_FT, SYNC_FM;
-def TEQ : TEQ_FT<"teq", GPR32Opnd>, TEQ_FM<0x34>;
-def TGE : TEQ_FT<"tge", GPR32Opnd>, TEQ_FM<0x30>;
-def TGEU : TEQ_FT<"tgeu", GPR32Opnd>, TEQ_FM<0x31>;
-def TLT : TEQ_FT<"tlt", GPR32Opnd>, TEQ_FM<0x32>;
-def TLTU : TEQ_FT<"tltu", GPR32Opnd>, TEQ_FM<0x33>;
-def TNE : TEQ_FT<"tne", GPR32Opnd>, TEQ_FM<0x36>;
+def TEQ : MMRel, TEQ_FT<"teq", GPR32Opnd>, TEQ_FM<0x34>;
+def TGE : MMRel, TEQ_FT<"tge", GPR32Opnd>, TEQ_FM<0x30>;
+def TGEU : MMRel, TEQ_FT<"tgeu", GPR32Opnd>, TEQ_FM<0x31>;
+def TLT : MMRel, TEQ_FT<"tlt", GPR32Opnd>, TEQ_FM<0x32>;
+def TLTU : MMRel, TEQ_FT<"tltu", GPR32Opnd>, TEQ_FM<0x33>;
+def TNE : MMRel, TEQ_FT<"tne", GPR32Opnd>, TEQ_FM<0x36>;
 
-def TEQI : TEQI_FT<"teqi", GPR32Opnd>, TEQI_FM<0xc>;
-def TGEI : TEQI_FT<"tgei", GPR32Opnd>, TEQI_FM<0x8>;
-def TGEIU : TEQI_FT<"tgeiu", GPR32Opnd>, TEQI_FM<0x9>;
-def TLTI : TEQI_FT<"tlti", GPR32Opnd>, TEQI_FM<0xa>;
-def TTLTIU : TEQI_FT<"tltiu", GPR32Opnd>, TEQI_FM<0xb>;
-def TNEI : TEQI_FT<"tnei", GPR32Opnd>, TEQI_FM<0xe>;
+def TEQI : MMRel, TEQI_FT<"teqi", GPR32Opnd>, TEQI_FM<0xc>;
+def TGEI : MMRel, TEQI_FT<"tgei", GPR32Opnd>, TEQI_FM<0x8>;
+def TGEIU : MMRel, TEQI_FT<"tgeiu", GPR32Opnd>, TEQI_FM<0x9>;
+def TLTI : MMRel, TEQI_FT<"tlti", GPR32Opnd>, TEQI_FM<0xa>;
+def TTLTIU : MMRel, TEQI_FT<"tltiu", GPR32Opnd>, TEQI_FM<0xb>;
+def TNEI : MMRel, TEQI_FT<"tnei", GPR32Opnd>, TEQI_FM<0xe>;
 
 def BREAK : BRK_FT<"break">, BRK_FM<0xd>;
 def SYSCALL : SYS_FT<"syscall">, SYS_FM<0xc>;
@@ -985,27 +997,33 @@ def LL : LLBase<"ll", GPR32Opnd>, LW_FM<0x30>;
 def SC : SCBase<"sc", GPR32Opnd>, LW_FM<0x38>;
 
 /// Jump and Branch Instructions
-def J       : JumpFJ<jmptarget, "j", br, bb>, FJ<2>,
+def J       : MMRel, JumpFJ<jmptarget, "j", br, bb, "j">, FJ<2>,
               Requires<[RelocStatic, HasStdEnc]>, IsBranch;
-def JR      : IndirectBranch<GPR32Opnd>, MTLO_FM<8>;
-def BEQ     : CBranch<"beq", seteq, GPR32Opnd>, BEQ_FM<4>;
-def BNE     : CBranch<"bne", setne, GPR32Opnd>, BEQ_FM<5>;
-def BGEZ    : CBranchZero<"bgez", setge, GPR32Opnd>, BGEZ_FM<1, 1>;
-def BGTZ    : CBranchZero<"bgtz", setgt, GPR32Opnd>, BGEZ_FM<7, 0>;
-def BLEZ    : CBranchZero<"blez", setle, GPR32Opnd>, BGEZ_FM<6, 0>;
-def BLTZ    : CBranchZero<"bltz", setlt, GPR32Opnd>, BGEZ_FM<1, 0>;
+def JR      : MMRel, IndirectBranch<"jr", GPR32Opnd>, MTLO_FM<8>;
+def BEQ     : MMRel, CBranch<"beq", brtarget, seteq, GPR32Opnd>, BEQ_FM<4>;
+def BNE     : MMRel, CBranch<"bne", brtarget, setne, GPR32Opnd>, BEQ_FM<5>;
+def BGEZ    : MMRel, CBranchZero<"bgez", brtarget, setge, GPR32Opnd>,
+              BGEZ_FM<1, 1>;
+def BGTZ    : MMRel, CBranchZero<"bgtz", brtarget, setgt, GPR32Opnd>,
+              BGEZ_FM<7, 0>;
+def BLEZ    : MMRel, CBranchZero<"blez", brtarget, setle, GPR32Opnd>,
+              BGEZ_FM<6, 0>;
+def BLTZ    : MMRel, CBranchZero<"bltz", brtarget, setlt, GPR32Opnd>,
+              BGEZ_FM<1, 0>;
 def B       : UncondBranch<BEQ>;
 
-def JAL  : JumpLink<"jal">, FJ<3>;
-def JALR : JumpLinkReg<"jalr", GPR32Opnd>, JALR_FM;
+def JAL  : MMRel, JumpLink<"jal", calltarget>, FJ<3>;
+def JALR : MMRel, JumpLinkReg<"jalr", GPR32Opnd>, JALR_FM;
 def JALRPseudo : JumpLinkRegPseudo<GPR32Opnd, JALR, RA>;
-def BGEZAL : BGEZAL_FT<"bgezal", GPR32Opnd>, BGEZAL_FM<0x11>;
-def BLTZAL : BGEZAL_FT<"bltzal", GPR32Opnd>, BGEZAL_FM<0x10>;
+def BGEZAL : MMRel, BGEZAL_FT<"bgezal", brtarget, GPR32Opnd>, BGEZAL_FM<0x11>;
+def BLTZAL : MMRel, BGEZAL_FT<"bltzal", brtarget, GPR32Opnd>, BGEZAL_FM<0x10>;
 def BAL_BR : BAL_BR_Pseudo<BGEZAL>;
-def TAILCALL : JumpFJ<calltarget, "j", MipsTailCall, imm>, FJ<2>, IsTailCall;
-def TAILCALL_R : JumpFR<GPR32Opnd, MipsTailCall>, MTLO_FM<8>, IsTailCall;
+def TAILCALL : MMRel, JumpFJ<calltarget, "j", MipsTailCall, imm, "tcall">,
+               FJ<2>, IsTailCall;
+def TAILCALL_R : MMRel, JumpFR<"tcallr", GPR32Opnd, MipsTailCall>, MTLO_FM<8>,
+                 IsTailCall;
 
-def RET : RetBase<GPR32Opnd>, MTLO_FM<8>;
+def RET : MMRel, RetBase<"ret", GPR32Opnd>, MTLO_FM<8>;
 
 // Exception handling related node and instructions.
 // The conversion sequence is:
@@ -1033,8 +1051,10 @@ def MULT  : MMRel, Mult<"mult", IIImult, GPR32Opnd, [HI0, LO0]>,
             MULT_FM<0, 0x18>;
 def MULTu : MMRel, Mult<"multu", IIImult, GPR32Opnd, [HI0, LO0]>,
             MULT_FM<0, 0x19>;
-def SDIV  : Div<"div", IIIdiv, GPR32Opnd, [HI0, LO0]>, MULT_FM<0, 0x1a>;
-def UDIV  : Div<"divu", IIIdiv, GPR32Opnd, [HI0, LO0]>, MULT_FM<0, 0x1b>;
+def SDIV  : MMRel, Div<"div", IIIdiv, GPR32Opnd, [HI0, LO0]>,
+            MULT_FM<0, 0x1a>;
+def UDIV  : MMRel, Div<"divu", IIIdiv, GPR32Opnd, [HI0, LO0]>,
+            MULT_FM<0, 0x1b>;
 
 def MTHI : MMRel, MoveToLOHI<"mthi", GPR32Opnd, [HI0]>, MTLO_FM<0x11>;
 def MTLO : MMRel, MoveToLOHI<"mtlo", GPR32Opnd, [LO0]>, MTLO_FM<0x13>;

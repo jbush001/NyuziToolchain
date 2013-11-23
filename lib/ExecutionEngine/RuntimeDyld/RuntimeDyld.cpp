@@ -13,12 +13,14 @@
 
 #define DEBUG_TYPE "dyld"
 #include "llvm/ExecutionEngine/RuntimeDyld.h"
+#include "JITRegistrar.h"
 #include "ObjectImageCommon.h"
 #include "RuntimeDyldELF.h"
 #include "RuntimeDyldImpl.h"
 #include "RuntimeDyldMachO.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MathExtras.h"
+#include "llvm/Support/MutexGuard.h"
 #include "llvm/Object/ELF.h"
 
 using namespace llvm;
@@ -26,6 +28,11 @@ using namespace llvm::object;
 
 // Empty out-of-line virtual destructor as the key function.
 RuntimeDyldImpl::~RuntimeDyldImpl() {}
+
+// Pin the JITRegistrar's and ObjectImage*'s vtables to this file.
+void JITRegistrar::anchor() {}
+void ObjectImage::anchor() {}
+void ObjectImageCommon::anchor() {}
 
 namespace llvm {
 
@@ -37,6 +44,8 @@ void RuntimeDyldImpl::deregisterEHFrames() {
 
 // Resolve the relocations for all symbols we currently know about.
 void RuntimeDyldImpl::resolveRelocations() {
+  MutexGuard locked(lock);
+
   // First, resolve relocations associated with external symbols.
   resolveExternalSymbols();
 
@@ -57,6 +66,7 @@ void RuntimeDyldImpl::resolveRelocations() {
 
 void RuntimeDyldImpl::mapSectionAddress(const void *LocalAddress,
                                         uint64_t TargetAddress) {
+  MutexGuard locked(lock);
   for (unsigned i = 0, e = Sections.size(); i != e; ++i) {
     if (Sections[i].Address == LocalAddress) {
       reassignSectionAddress(i, TargetAddress);
@@ -73,6 +83,8 @@ ObjectImage *RuntimeDyldImpl::createObjectImage(ObjectBuffer *InputBuffer) {
 }
 
 ObjectImage *RuntimeDyldImpl::loadObject(ObjectBuffer *InputBuffer) {
+  MutexGuard locked(lock);
+
   OwningPtr<ObjectImage> obj(createObjectImage(InputBuffer));
   if (!obj)
     report_fatal_error("Unable to create object image from memory buffer!");
@@ -488,10 +500,10 @@ void RuntimeDyldImpl::resolveExternalSymbols() {
     StringMap<RelocationList>::iterator i = ExternalSymbolRelocations.begin();
 
     StringRef Name = i->first();
-    RelocationList &Relocs = i->second;
     if (Name.size() == 0) {
       // This is an absolute symbol, use an address of zero.
       DEBUG(dbgs() << "Resolving absolute relocations." << "\n");
+      RelocationList &Relocs = i->second;
       resolveRelocationList(Relocs, 0);
     } else {
       uint64_t Addr = 0;
@@ -500,10 +512,17 @@ void RuntimeDyldImpl::resolveExternalSymbols() {
           // This is an external symbol, try to get its address from
           // MemoryManager.
           Addr = MemMgr->getSymbolAddress(Name.data());
+          // The call to getSymbolAddress may have caused additional modules to
+          // be loaded, which may have added new entries to the
+          // ExternalSymbolRelocations map.  Consquently, we need to update our
+          // iterator.  This is also why retrieval of the relocation list
+          // associated with this symbol is deferred until below this point.
+          // New entries may have been added to the relocation list.
+          i = ExternalSymbolRelocations.find(Name);
       } else {
         // We found the symbol in our global table.  It was probably in a
         // Module that we loaded previously.
-        SymbolLoc SymLoc = GlobalSymbolTable.lookup(Name);
+        SymbolLoc SymLoc = Loc->second;
         Addr = getSectionLoadAddress(SymLoc.first) + SymLoc.second;
       }
 
@@ -516,10 +535,13 @@ void RuntimeDyldImpl::resolveExternalSymbols() {
       DEBUG(dbgs() << "Resolving relocations Name: " << Name
               << "\t" << format("0x%lx", Addr)
               << "\n");
+      // This list may have been updated when we called getSymbolAddress, so
+      // don't change this code to get the list earlier.
+      RelocationList &Relocs = i->second;
       resolveRelocationList(Relocs, Addr);
     }
 
-    ExternalSymbolRelocations.erase(i->first());
+    ExternalSymbolRelocations.erase(i);
   }
 }
 
@@ -568,6 +590,7 @@ ObjectImage *RuntimeDyld::loadObject(ObjectBuffer *InputBuffer) {
     case sys::fs::file_magic::bitcode:
     case sys::fs::file_magic::archive:
     case sys::fs::file_magic::coff_object:
+    case sys::fs::file_magic::coff_import_library:
     case sys::fs::file_magic::pecoff_executable:
     case sys::fs::file_magic::macho_universal_binary:
     case sys::fs::file_magic::windows_resource:

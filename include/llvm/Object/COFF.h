@@ -57,6 +57,8 @@ struct coff_file_header {
   support::ulittle32_t NumberOfSymbols;
   support::ulittle16_t SizeOfOptionalHeader;
   support::ulittle16_t Characteristics;
+
+  bool isImportLibrary() const { return NumberOfSections == 0xffff; }
 };
 
 /// The 32-bit PE header that follows the COFF header.
@@ -246,7 +248,6 @@ protected:
   virtual error_code getSymbolFileOffset(DataRefImpl Symb, uint64_t &Res) const;
   virtual error_code getSymbolAddress(DataRefImpl Symb, uint64_t &Res) const;
   virtual error_code getSymbolSize(DataRefImpl Symb, uint64_t &Res) const;
-  virtual error_code getSymbolNMTypeChar(DataRefImpl Symb, char &Res) const;
   virtual error_code getSymbolFlags(DataRefImpl Symb, uint32_t &Res) const;
   virtual error_code getSymbolType(DataRefImpl Symb, SymbolRef::Type &Res) const;
   virtual error_code getSymbolSection(DataRefImpl Symb,

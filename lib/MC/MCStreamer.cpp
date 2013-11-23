@@ -22,7 +22,9 @@
 #include <cstdlib>
 using namespace llvm;
 
+// Pin the vtables to this file.
 MCTargetStreamer::~MCTargetStreamer() {}
+void ARMTargetStreamer::anchor() {}
 
 MCStreamer::MCStreamer(MCContext &Ctx, MCTargetStreamer *TargetStreamer)
     : Context(Ctx), TargetStreamer(TargetStreamer), EmitEHFrame(true),
@@ -571,7 +573,7 @@ void MCStreamer::EmitCOFFSecRel32(MCSymbol const *Symbol) {
 /// EmitRawText - If this file is backed by an assembly streamer, this dumps
 /// the specified string in the output .s file.  This capability is
 /// indicated by the hasRawTextSupport() predicate.
-void MCStreamer::EmitRawText(StringRef String) {
+void MCStreamer::EmitRawTextImpl(StringRef String) {
   errs() << "EmitRawText called on an MCStreamer that doesn't support it, "
   " something must not be fully mc'ized\n";
   abort();
@@ -579,8 +581,7 @@ void MCStreamer::EmitRawText(StringRef String) {
 
 void MCStreamer::EmitRawText(const Twine &T) {
   SmallString<128> Str;
-  T.toVector(Str);
-  EmitRawText(Str.str());
+  EmitRawTextImpl(T.toStringRef(Str));
 }
 
 void MCStreamer::EmitFrames(MCAsmBackend *MAB, bool usingCFI) {

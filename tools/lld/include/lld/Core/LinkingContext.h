@@ -7,15 +7,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLD_CORE_TARGET_INFO_H
-#define LLD_CORE_TARGET_INFO_H
+#ifndef LLD_CORE_LINKING_CONTEXT_H
+#define LLD_CORE_LINKING_CONTEXT_H
 
 #include "lld/Core/Error.h"
+#include "lld/Core/InputGraph.h"
 #include "lld/Core/LLVM.h"
 #include "lld/Core/range.h"
 #include "lld/Core/Reference.h"
 
-#include "lld/Driver/InputGraph.h"
 #include "lld/ReaderWriter/Reader.h"
 
 #include "llvm/Support/ErrorOr.h"
@@ -34,6 +34,7 @@ class File;
 class Writer;
 class InputGraph;
 class InputElement;
+class SharedLibraryFile;
 
 /// \brief The LinkingContext class encapsulates "what and how" to link.
 ///
@@ -88,6 +89,7 @@ public:
   /// deadStrip() returns true.
   void addDeadStripRoot(StringRef symbolName) {
     assert(_deadStrip && "only applicable when deadstripping enabled");
+    assert(!symbolName.empty() && "Empty symbol cannot be a dead strip root");
     _deadStripRoots.push_back(symbolName);
   }
 
@@ -161,6 +163,11 @@ public:
   /// whether core linking considers remaining undefines from the shared library
   /// to be an error.
   bool allowShlibUndefines() const { return _allowShlibUndefines; }
+
+  /// Add undefined symbols from shared libraries ?
+  virtual bool addUndefinedAtomsFromSharedLibrary(const SharedLibraryFile *) {
+    return true;
+  }
 
   /// If true, core linking will write the path to each input file to stdout
   /// (i.e. llvm::outs()) as it is used.  This is used to implement the -t
@@ -264,10 +271,9 @@ public:
   /// Set the various output file types that the linker would
   /// create
   bool setOutputFileType(StringRef outputFileType) {
-    StringRef lowerOutputFileType = outputFileType.lower();
-    if (lowerOutputFileType == "yaml")
+    if (outputFileType.equals_lower("yaml"))
       _outputFileType = OutputFileType::YAML;
-    else if (lowerOutputFileType == "native")
+    else if (outputFileType.equals_lower("native"))
       _outputFileType = OutputFileType::YAML;
     else
       return false;
@@ -293,7 +299,7 @@ public:
 
   /// This method is called by core linking to build the list of Passes to be
   /// run on the merged/linked graph of all input files.
-  virtual void addPasses(PassManager &pm) const;
+  virtual void addPasses(PassManager &pm);
 
   /// Calls through to the writeFile() method on the specified Writer.
   ///

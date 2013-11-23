@@ -6,6 +6,7 @@
 @c = global i32 0, align 4
 
 !llvm.dbg.cu = !{!0}
+!llvm.module.flags = !{!23}
 
 !0 = metadata !{i32 786449, metadata !22, i32 4, metadata !"clang version 3.2 (trunk 157269) (llvm/trunk 157264)", i1 false, metadata !"", i32 0, metadata !1, metadata !15, metadata !15, metadata !17,  metadata !17, metadata !""} ; [ DW_TAG_compile_unit ]
 !1 = metadata !{metadata !3, metadata !8, metadata !12}
@@ -28,12 +29,12 @@
 !21 = metadata !{i32 786484, i32 0, null, metadata !"c", metadata !"c", metadata !"", metadata !4, i32 6, metadata !12, i32 0, i32 1, i32* @c, null} ; [ DW_TAG_variable ]
 !22 = metadata !{metadata !"foo.cpp", metadata !"/Users/echristo/tmp"}
 
-; CHECK: DW_TAG_enumeration_type [3]
+; CHECK: DW_TAG_enumeration_type [{{.*}}]
 ; CHECK: DW_AT_type [DW_FORM_ref4]
 ; CHECK: DW_AT_enum_class [DW_FORM_flag_present] (true)
 ; CHECK: DW_AT_name [DW_FORM_strp]      ( .debug_str[{{.*}}] = "A")
 
-; CHECK: DW_TAG_enumeration_type [3] *
+; CHECK: DW_TAG_enumeration_type [{{.*}}] *
 ; CHECK: DW_AT_type [DW_FORM_ref4]
 ; CHECK: DW_AT_enum_class [DW_FORM_flag_present] (true)
 ; CHECK: DW_AT_name [DW_FORM_strp]          ( .debug_str[{{.*}}] = "B")
@@ -41,3 +42,4 @@
 ; CHECK: DW_TAG_enumeration_type [6]
 ; CHECK-NOT: DW_AT_enum_class
 ; CHECK: DW_AT_name [DW_FORM_strp]      ( .debug_str[{{.*}}] = "C")
+!23 = metadata !{i32 1, metadata !"Debug Info Version", i32 1}

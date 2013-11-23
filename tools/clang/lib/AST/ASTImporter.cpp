@@ -1983,9 +1983,6 @@ bool ASTNodeImporter::ImportDefinition(RecordDecl *From, RecordDecl *To,
       = FromData.HasDeclaredCopyConstructorWithConstParam;
     ToData.HasDeclaredCopyAssignmentWithConstParam
       = FromData.HasDeclaredCopyAssignmentWithConstParam;
-    ToData.FailedImplicitMoveConstructor
-      = FromData.FailedImplicitMoveConstructor;
-    ToData.FailedImplicitMoveAssignment = FromData.FailedImplicitMoveAssignment;
     ToData.IsLambda = FromData.IsLambda;
 
     SmallVector<CXXBaseSpecifier *, 4> Bases;
@@ -3017,7 +3014,8 @@ Decl *ASTNodeImporter::VisitObjCIvarDecl(ObjCIvarDecl *D) {
                                        Importer.Import(D->getInnerLocStart()),
                                               Loc, Name.getAsIdentifierInfo(),
                                               T, TInfo, D->getAccessControl(),
-                                              BitWidth, D->getSynthesize());
+                                              BitWidth, D->getSynthesize(),
+                                              D->getBackingIvarReferencedInAccessor());
   ToIvar->setLexicalDeclContext(LexicalDC);
   Importer.Imported(D, ToIvar);
   LexicalDC->addDeclInternal(ToIvar);

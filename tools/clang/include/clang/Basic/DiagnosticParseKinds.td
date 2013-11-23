@@ -23,6 +23,8 @@ def err_asm_empty : Error<"__asm used with no assembly instructions">;
 def err_inline_ms_asm_parsing : Error<"%0">;
 def err_msasm_unsupported_arch : Error<
   "Unsupported architecture '%0' for MS-style inline assembly">;
+def err_msasm_unable_to_create_target : Error<
+  "MS-style inline assembly is not available: %0">;
 }
 
 let CategoryName = "Parse Issue" in {
@@ -71,8 +73,6 @@ def ext_c99_variable_decl_in_for_loop : Extension<
   "variable declaration in for loop is a C99-specific feature">, InGroup<C99>;
 def ext_c99_compound_literal : Extension<
   "compound literals are a C99-specific feature">, InGroup<C99>;
-def ext_c99_flexible_array_member : Extension<
-  "Flexible array members are a C99-specific feature">, InGroup<C99>;
 def ext_enumerator_list_comma_c : Extension<
   "commas at the end of enumerator lists are a C99-specific "
   "feature">, InGroup<C99>;
@@ -167,10 +167,6 @@ def err_expected_member_name_or_semi : Error<
   "expected member name or ';' after declaration specifiers">;
 def err_function_declared_typedef : Error<
   "function definition declared 'typedef'">;
-def err_iboutletcollection_builtintype : Error<
-  "type argument of iboutletcollection attribute cannot be a builtin type">;
-def err_iboutletcollection_with_protocol : Error<
-  "invalid argument of iboutletcollection attribute">;
 def err_at_defs_cxx : Error<"@defs is not supported in Objective-C++">;
 def err_at_in_class : Error<"unexpected '@' in member specification">;
 
@@ -468,6 +464,10 @@ def err_expected_member_or_base_name : Error<
   "expected class member or base class name">;
 def err_expected_lbrace_after_base_specifiers : Error<
   "expected '{' after base class list">;
+def err_missing_end_of_definition : Error<
+  "missing '}' at end of definition of %q0">;
+def note_missing_end_of_definition_before : Note<
+  "still within definition of %q0 here">;
 def ext_ellipsis_exception_spec : Extension<
   "exception specification of '...' is a Microsoft extension">,
   InGroup<Microsoft>;
@@ -704,6 +704,9 @@ def warn_cxx98_compat_override_control_keyword : Warning<
   InGroup<CXX98Compat>, DefaultIgnore;
 def err_override_control_interface : Error<
   "'%0' keyword not permitted with interface types">;
+def ext_ms_sealed_keyword : ExtWarn<
+  "'sealed' keyword is a Microsoft extension">,
+  InGroup<Microsoft>;
 
 def err_access_specifier_interface : Error<
   "interface types cannot specify '%select{private|protected}0' access">;
@@ -794,8 +797,8 @@ def warn_pragma_unused_expected_punc : Warning<
   "expected ')' or ',' in '#pragma unused'">;
 // - #pragma fp_contract
 def err_pragma_fp_contract_scope : Error<
-  "'#pragma fp_contract' should only appear at file scope or at the start of a "
-  "compound expression">; 
+  "'#pragma fp_contract' can only appear at file scope or at the start of a "
+  "compound statement">; 
 // - #pragma comment
 def err_pragma_comment_malformed : Error<
   "pragma comment requires parenthesized identifier and optional string">;

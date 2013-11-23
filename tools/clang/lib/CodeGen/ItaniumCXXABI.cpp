@@ -180,6 +180,12 @@ public:
       Thunk->setLinkage(llvm::GlobalValue::AvailableExternallyLinkage);
   }
 
+  llvm::Value *performThisAdjustment(CodeGenFunction &CGF, llvm::Value *This,
+                                     const ThisAdjustment &TA);
+
+  llvm::Value *performReturnAdjustment(CodeGenFunction &CGF, llvm::Value *Ret,
+                                       const ReturnAdjustment &RA);
+
   StringRef GetPureVirtualCallName() { return "__cxa_pure_virtual"; }
   StringRef GetDeletedVirtualCallName() { return "__cxa_deleted_virtual"; }
 
@@ -564,7 +570,7 @@ llvm::Constant *ItaniumCXXABI::BuildMemberPointer(const CXXMethodDecl *MD,
   // Get the function pointer (or index if this is a virtual function).
   llvm::Constant *MemPtr[2];
   if (MD->isVirtual()) {
-    uint64_t Index = CGM.getVTableContext().getMethodVTableIndex(MD);
+    uint64_t Index = CGM.getItaniumVTableContext().getMethodVTableIndex(MD);
 
     const ASTContext &Context = getContext();
     CharUnits PointerWidth =
@@ -774,7 +780,8 @@ ItaniumCXXABI::GetVirtualBaseClassOffset(CodeGenFunction &CGF,
                                          const CXXRecordDecl *BaseClassDecl) {
   llvm::Value *VTablePtr = CGF.GetVTablePtr(This, CGM.Int8PtrTy);
   CharUnits VBaseOffsetOffset =
-    CGM.getVTableContext().getVirtualBaseOffsetOffset(ClassDecl, BaseClassDecl);
+      CGM.getItaniumVTableContext().getVirtualBaseOffsetOffset(ClassDecl,
+                                                               BaseClassDecl);
 
   llvm::Value *VBaseOffsetPtr =
     CGF.Builder.CreateConstGEP1_64(VTablePtr, VBaseOffsetOffset.getQuantity(),
@@ -921,7 +928,7 @@ void ItaniumCXXABI::emitVTableDefinitions(CodeGenVTables &CGVT,
   if (VTable->hasInitializer())
     return;
 
-  ItaniumVTableContext &VTContext = CGM.getVTableContext();
+  ItaniumVTableContext &VTContext = CGM.getItaniumVTableContext();
   const VTableLayout &VTLayout = VTContext.getVTableLayout(RD);
   llvm::GlobalVariable::LinkageTypes Linkage = CGM.getVTableLinkage(RD);
 
@@ -971,8 +978,9 @@ llvm::Value *ItaniumCXXABI::getVTableAddressPointInStructor(
   } else {
     llvm::Constant *VTable =
         CGM.getCXXABI().getAddrOfVTable(VTableClass, CharUnits());
-    uint64_t AddressPoint = CGM.getVTableContext().getVTableLayout(VTableClass)
-        .getAddressPoint(Base);
+    uint64_t AddressPoint = CGM.getItaniumVTableContext()
+                                .getVTableLayout(VTableClass)
+                                .getAddressPoint(Base);
     VTableAddressPoint =
         CGF.Builder.CreateConstInBoundsGEP2_64(VTable, 0, AddressPoint);
   }
@@ -985,8 +993,9 @@ llvm::Constant *ItaniumCXXABI::getVTableAddressPointForConstExpr(
   llvm::Constant *VTable = getAddrOfVTable(VTableClass, CharUnits());
 
   // Find the appropriate vtable within the vtable group.
-  uint64_t AddressPoint =
-    CGM.getVTableContext().getVTableLayout(VTableClass).getAddressPoint(Base);
+  uint64_t AddressPoint = CGM.getItaniumVTableContext()
+                              .getVTableLayout(VTableClass)
+                              .getAddressPoint(Base);
   llvm::Value *Indices[] = {
     llvm::ConstantInt::get(CGM.Int64Ty, 0),
     llvm::ConstantInt::get(CGM.Int64Ty, AddressPoint)
@@ -1012,7 +1021,7 @@ llvm::GlobalVariable *ItaniumCXXABI::getAddrOfVTable(const CXXRecordDecl *RD,
   Out.flush();
   StringRef Name = OutName.str();
 
-  ItaniumVTableContext &VTContext = CGM.getVTableContext();
+  ItaniumVTableContext &VTContext = CGM.getItaniumVTableContext();
   llvm::ArrayType *ArrayType = llvm::ArrayType::get(
       CGM.Int8PtrTy, VTContext.getVTableLayout(RD).getNumVTableComponents());
 
@@ -1030,7 +1039,7 @@ llvm::Value *ItaniumCXXABI::getVirtualFunctionPointer(CodeGenFunction &CGF,
   Ty = Ty->getPointerTo()->getPointerTo();
   llvm::Value *VTable = CGF.GetVTablePtr(This, Ty);
 
-  uint64_t VTableIndex = CGM.getVTableContext().getMethodVTableIndex(GD);
+  uint64_t VTableIndex = CGM.getItaniumVTableContext().getMethodVTableIndex(GD);
   llvm::Value *VFuncPtr =
       CGF.Builder.CreateConstInBoundsGEP1_64(VTable, VTableIndex, "vfn");
   return CGF.Builder.CreateLoad(VFuncPtr);
@@ -1057,6 +1066,69 @@ void ItaniumCXXABI::emitVirtualInheritanceTables(const CXXRecordDecl *RD) {
   CodeGenVTables &VTables = CGM.getVTables();
   llvm::GlobalVariable *VTT = VTables.GetAddrOfVTT(RD);
   VTables.EmitVTTDefinition(VTT, CGM.getVTableLinkage(RD), RD);
+}
+
+static llvm::Value *performTypeAdjustment(CodeGenFunction &CGF,
+                                          llvm::Value *Ptr,
+                                          int64_t NonVirtualAdjustment,
+                                          int64_t VirtualAdjustment,
+                                          bool IsReturnAdjustment) {
+  if (!NonVirtualAdjustment && !VirtualAdjustment)
+    return Ptr;
+
+  llvm::Type *Int8PtrTy = CGF.Int8PtrTy;
+  llvm::Value *V = CGF.Builder.CreateBitCast(Ptr, Int8PtrTy);
+
+  if (NonVirtualAdjustment && !IsReturnAdjustment) {
+    // Perform the non-virtual adjustment for a base-to-derived cast.
+    V = CGF.Builder.CreateConstInBoundsGEP1_64(V, NonVirtualAdjustment);
+  }
+
+  if (VirtualAdjustment) {
+    llvm::Type *PtrDiffTy =
+        CGF.ConvertType(CGF.getContext().getPointerDiffType());
+
+    // Perform the virtual adjustment.
+    llvm::Value *VTablePtrPtr =
+        CGF.Builder.CreateBitCast(V, Int8PtrTy->getPointerTo());
+
+    llvm::Value *VTablePtr = CGF.Builder.CreateLoad(VTablePtrPtr);
+
+    llvm::Value *OffsetPtr =
+        CGF.Builder.CreateConstInBoundsGEP1_64(VTablePtr, VirtualAdjustment);
+
+    OffsetPtr = CGF.Builder.CreateBitCast(OffsetPtr, PtrDiffTy->getPointerTo());
+
+    // Load the adjustment offset from the vtable.
+    llvm::Value *Offset = CGF.Builder.CreateLoad(OffsetPtr);
+
+    // Adjust our pointer.
+    V = CGF.Builder.CreateInBoundsGEP(V, Offset);
+  }
+
+  if (NonVirtualAdjustment && IsReturnAdjustment) {
+    // Perform the non-virtual adjustment for a derived-to-base cast.
+    V = CGF.Builder.CreateConstInBoundsGEP1_64(V, NonVirtualAdjustment);
+  }
+
+  // Cast back to the original type.
+  return CGF.Builder.CreateBitCast(V, Ptr->getType());
+}
+
+llvm::Value *ItaniumCXXABI::performThisAdjustment(CodeGenFunction &CGF,
+                                                  llvm::Value *This,
+                                                  const ThisAdjustment &TA) {
+  return performTypeAdjustment(CGF, This, TA.NonVirtual,
+                               TA.Virtual.Itanium.VCallOffsetOffset,
+                               /*IsReturnAdjustment=*/false);
+}
+
+llvm::Value *
+ItaniumCXXABI::performReturnAdjustment(CodeGenFunction &CGF, llvm::Value *Ret,
+                                       const ReturnAdjustment &RA) {
+  return performTypeAdjustment(CGF, Ret, RA.NonVirtual,
+                               RA.Virtual.Itanium.VBaseOffsetOffset,
+                               /*IsReturnAdjustment=*/true);
 }
 
 void ARMCXXABI::EmitReturnFromThunk(CodeGenFunction &CGF,

@@ -157,9 +157,9 @@ public:
   ///
   /// After all references are handled, the atoms created during that are all
   /// added to mf.
-  virtual void perform(MutableFile &mf) {
+  virtual void perform(std::unique_ptr<MutableFile> &mf) {
     // Process all references.
-    for (const auto &atom : mf.defined())
+    for (const auto &atom : mf->defined())
       for (const auto &ref : *atom)
         handleReference(*atom, *ref);
 
@@ -167,23 +167,23 @@ public:
     uint64_t ordinal = 0;
     if (_PLT0) {
       _PLT0->setOrdinal(ordinal++);
-      mf.addAtom(*_PLT0);
+      mf->addAtom(*_PLT0);
     }
     for (auto &plt : _pltVector) {
       plt->setOrdinal(ordinal++);
-      mf.addAtom(*plt);
+      mf->addAtom(*plt);
     }
     if (_null) {
       _null->setOrdinal(ordinal++);
-      mf.addAtom(*_null);
+      mf->addAtom(*_null);
     }
     if (_got0) {
       _got0->setOrdinal(ordinal++);
-      mf.addAtom(*_got0);
+      mf->addAtom(*_got0);
     }
     for (auto &got : _gotVector) {
       got->setOrdinal(ordinal++);
-      mf.addAtom(*got);
+      mf->addAtom(*got);
     }
   }
 
@@ -278,13 +278,13 @@ public:
     return ga;
   }
 
-  ErrorOr<void> handleGOTREL(const Reference &ref) {
+  error_code handleGOTREL(const Reference &ref) {
     // Turn this so that the target is set to the GOT entry
     const_cast<Reference &>(ref).setTarget(getGOTEntry(ref.target()));
     return error_code::success();
   }
 
-  ErrorOr<void> handlePLT32(const Reference &ref) {
+  error_code handlePLT32(const Reference &ref) {
     // Turn this into a PC32 to the PLT entry.
     const_cast<Reference &>(ref).setKind(R_HEX_B22_PCREL);
     const_cast<Reference &>(ref).setTarget(getPLTEntry(ref.target()));
@@ -293,7 +293,7 @@ public:
 };
 } // end anonymous namespace
 
-void elf::HexagonLinkingContext::addPasses(PassManager &pm) const {
+void elf::HexagonLinkingContext::addPasses(PassManager &pm) {
   if (isDynamic())
     pm.add(std::unique_ptr<Pass>(new DynamicGOTPLTPass(*this)));
   ELFLinkingContext::addPasses(pm);

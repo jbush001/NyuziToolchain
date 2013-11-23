@@ -29,7 +29,7 @@
 using namespace llvm;
 
 static cl::opt<bool>
-RunLoopVectorization("vectorize-loops",
+RunLoopVectorization("vectorize-loops", cl::Hidden,
                      cl::desc("Run the Loop vectorization passes"));
 
 static cl::opt<bool>
@@ -38,11 +38,11 @@ LateVectorization("late-vectorize", cl::init(true), cl::Hidden,
                            "pipeline (after the inliner)"));
 
 static cl::opt<bool>
-RunSLPVectorization("vectorize-slp",
+RunSLPVectorization("vectorize-slp", cl::Hidden,
                     cl::desc("Run the SLP vectorization passes"));
 
 static cl::opt<bool>
-RunBBVectorization("vectorize-slp-aggressive",
+RunBBVectorization("vectorize-slp-aggressive", cl::Hidden,
                     cl::desc("Run the BB vectorization passes"));
 
 static cl::opt<bool>
@@ -53,6 +53,10 @@ UseGVNAfterVectorization("use-gvn-after-vectorization",
 static cl::opt<bool> UseNewSROA("use-new-sroa",
   cl::init(true), cl::Hidden,
   cl::desc("Enable the new, experimental SROA pass"));
+
+static cl::opt<bool>
+RunLoopRerolling("reroll-loops", cl::Hidden,
+                 cl::desc("Run the loop rerolling pass"));
 
 PassManagerBuilder::PassManagerBuilder() {
     OptLevel = 2;
@@ -65,6 +69,7 @@ PassManagerBuilder::PassManagerBuilder() {
     SLPVectorize = RunSLPVectorization;
     LoopVectorize = RunLoopVectorization;
     LateVectorize = LateVectorization;
+    RerollLoops = RunLoopRerolling;
 }
 
 PassManagerBuilder::~PassManagerBuilder() {
@@ -216,6 +221,8 @@ void PassManagerBuilder::populateModulePassManager(PassManagerBase &MPM) {
 
   addExtensionsToPM(EP_ScalarOptimizerLate, MPM);
 
+  if (RerollLoops)
+    MPM.add(createLoopRerollPass());
   if (SLPVectorize)
     MPM.add(createSLPVectorizerPass());   // Vectorize parallel scalar chains.
 
@@ -277,7 +284,7 @@ void PassManagerBuilder::populateLTOPassManager(PassManagerBase &PM,
   // for a main function.  If main is defined, mark all other functions
   // internal.
   if (Internalize)
-    PM.add(createInternalizePass("main", None));
+    PM.add(createInternalizePass("main"));
 
   // Propagate constants at call sites into the functions they call.  This
   // opens opportunities for globalopt (and inlining) by substituting function

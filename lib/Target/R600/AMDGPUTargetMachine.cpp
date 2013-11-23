@@ -59,8 +59,9 @@ AMDGPUTargetMachine::AMDGPUTargetMachine(const Target &T, StringRef TT,
   LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OptLevel),
   Subtarget(TT, CPU, FS),
   Layout(Subtarget.getDataLayout()),
-  FrameLowering(TargetFrameLowering::StackGrowsUp, 16 // Stack Alignment
-                                                 , 0),
+  FrameLowering(TargetFrameLowering::StackGrowsUp,
+                64 * 16 // Maximum stack alignment (long16)
+               , 0),
   IntrinsicInfo(this),
   InstrItins(&Subtarget.getInstrItineraryData()) {
   // TLInfo uses InstrInfo so it must be initialized after.
@@ -124,8 +125,7 @@ bool
 AMDGPUPassConfig::addPreISel() {
   const AMDGPUSubtarget &ST = TM->getSubtarget<AMDGPUSubtarget>();
   addPass(createFlattenCFGPass());
-  if (ST.IsIRStructurizerEnabled() ||
-      ST.getGeneration() > AMDGPUSubtarget::NORTHERN_ISLANDS)
+  if (ST.IsIRStructurizerEnabled())
     addPass(createStructurizeCFGPass());
   if (ST.getGeneration() > AMDGPUSubtarget::NORTHERN_ISLANDS) {
     addPass(createSinkingPass());
@@ -139,12 +139,6 @@ AMDGPUPassConfig::addPreISel() {
 
 bool AMDGPUPassConfig::addInstSelector() {
   addPass(createAMDGPUISelDag(getAMDGPUTargetMachine()));
-
-  const AMDGPUSubtarget &ST = TM->getSubtarget<AMDGPUSubtarget>();
-  if (ST.getGeneration() <= AMDGPUSubtarget::NORTHERN_ISLANDS) {
-    // This callbacks this pass uses are not implemented yet on SI.
-    addPass(createAMDGPUIndirectAddressingPass(*TM));
-  }
   return false;
 }
 
@@ -174,7 +168,8 @@ bool AMDGPUPassConfig::addPreSched2() {
 
   if (ST.getGeneration() <= AMDGPUSubtarget::NORTHERN_ISLANDS)
     addPass(createR600EmitClauseMarkers(*TM));
-  addPass(&IfConverterID);
+  if (ST.isIfCvtEnabled())
+    addPass(&IfConverterID);
   if (ST.getGeneration() <= AMDGPUSubtarget::NORTHERN_ISLANDS)
     addPass(createR600ClauseMergePass(*TM));
   return false;

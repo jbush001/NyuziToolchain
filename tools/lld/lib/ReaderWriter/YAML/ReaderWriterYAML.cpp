@@ -90,7 +90,7 @@ public:
           std::string storage;
           llvm::raw_string_ostream buffer(storage);
           buffer << llvm::format("L%03d", _unnamedCounter++);
-          llvm::StringRef newName = copyString(buffer.str());
+          StringRef newName = copyString(buffer.str());
           _refNames[target] = newName;
           DEBUG_WITH_TYPE("WriterYAML",
                           llvm::dbgs() << "unnamed atom: creating ref-name: '"
@@ -119,7 +119,7 @@ public:
       std::string Storage;
       llvm::raw_string_ostream buffer(Storage);
       buffer << atom.name() << llvm::format(".%03d", ++_collisionCount);
-      llvm::StringRef newName = copyString(buffer.str());
+      StringRef newName = copyString(buffer.str());
       _refNames[&atom] = newName;
       DEBUG_WITH_TYPE("WriterYAML",
                       llvm::dbgs() << "name collsion: creating ref-name: '"
@@ -132,7 +132,7 @@ public:
         std::string Storage2;
         llvm::raw_string_ostream buffer2(Storage2);
         buffer2 << prevAtom->name() << llvm::format(".%03d", ++_collisionCount);
-        llvm::StringRef newName2 = copyString(buffer2.str());
+        StringRef newName2 = copyString(buffer2.str());
         _refNames[prevAtom] = newName2;
         DEBUG_WITH_TYPE("WriterYAML",
                         llvm::dbgs() << "name collsion: creating ref-name: '"
@@ -153,7 +153,7 @@ public:
 
   bool hasRefName(const lld::Atom *atom) { return _refNames.count(atom); }
 
-  llvm::StringRef refName(const lld::Atom *atom) {
+  StringRef refName(const lld::Atom *atom) {
     return _refNames.find(atom)->second;
   }
 
@@ -163,13 +163,13 @@ private:
 
   // Allocate a new copy of this string and keep track of allocations
   // in _stringCopies, so they can be freed when RefNameBuilder is destroyed.
-  llvm::StringRef copyString(llvm::StringRef str) {
+  StringRef copyString(StringRef str) {
     // We want _stringCopies to own the string memory so it is deallocated
     // when the File object is destroyed.  But we need a StringRef that
     // points into that memory.
     std::unique_ptr<char[]> s(new char[str.size()]);
     memcpy(s.get(), str.data(), str.size());
-    llvm::StringRef r = llvm::StringRef(s.get(), str.size());
+    StringRef r = StringRef(s.get(), str.size());
     _stringCopies.push_back(std::move(s));
     return r;
   }
@@ -187,12 +187,12 @@ class RefNameResolver {
 public:
   RefNameResolver(const lld::File *file, IO &io);
 
-  const lld::Atom *lookup(llvm::StringRef name) const {
+  const lld::Atom *lookup(StringRef name) const {
     NameToAtom::const_iterator pos = _nameMap.find(name);
     if (pos != _nameMap.end()) {
       return pos->second;
     } else {
-      _io.setError(llvm::Twine("no such atom name: ") + name);
+      _io.setError(Twine("no such atom name: ") + name);
       return nullptr;
     }
   }
@@ -200,9 +200,9 @@ public:
 private:
   typedef llvm::StringMap<const lld::Atom *> NameToAtom;
 
-  void add(llvm::StringRef name, const lld::Atom *atom) {
+  void add(StringRef name, const lld::Atom *atom) {
     if (_nameMap.count(name)) {
-      _io.setError(llvm::Twine("duplicate atom name: ") + name);
+      _io.setError(Twine("duplicate atom name: ") + name);
     } else {
       _nameMap[name] = atom;
     }
@@ -248,7 +248,7 @@ enum FileKinds {
 
 struct ArchMember {
   FileKinds _kind;
-  llvm::StringRef _name;
+  StringRef _name;
   const lld::File *_content;
 };
 
@@ -276,7 +276,7 @@ namespace yaml {
 
 // This is a custom formatter for RefKind
 template <> struct ScalarTraits<RefKind> {
-  static void output(const RefKind &value, void *ctxt, llvm::raw_ostream &out) {
+  static void output(const RefKind &value, void *ctxt, raw_ostream &out) {
     assert(ctxt != nullptr);
     ContextInfo *info = reinterpret_cast<ContextInfo *>(ctxt);
     switch (value) {
@@ -384,6 +384,13 @@ template <> struct ScalarEnumerationTraits<lld::DefinedAtom::DeadStripKind> {
   }
 };
 
+template <> struct ScalarEnumerationTraits<lld::DefinedAtom::DynamicExport> {
+  static void enumeration(IO &io, lld::DefinedAtom::DynamicExport &value) {
+    io.enumCase(value, "normal", lld::DefinedAtom::dynamicExportNormal);
+    io.enumCase(value, "always", lld::DefinedAtom::dynamicExportAlways);
+  }
+};
+
 template <>
 struct ScalarEnumerationTraits<lld::DefinedAtom::ContentPermissions> {
   static void enumeration(IO &io, lld::DefinedAtom::ContentPermissions &value) {
@@ -438,6 +445,8 @@ template <> struct ScalarEnumerationTraits<lld::DefinedAtom::ContentType> {
     io.enumCase(value, "lto-temp", lld::DefinedAtom::typeTempLTO);
     io.enumCase(value, "compact-unwind",
                 lld::DefinedAtom::typeCompactUnwindInfo);
+    io.enumCase(value, "dataDirectoryEntry",
+                lld::DefinedAtom::typeDataDirectoryEntry);
     io.enumCase(value, "tlv-thunk", lld::DefinedAtom::typeThunkTLV);
     io.enumCase(value, "tlv-data", lld::DefinedAtom::typeTLVInitialData);
     io.enumCase(value, "tlv-zero-fill",
@@ -447,8 +456,8 @@ template <> struct ScalarEnumerationTraits<lld::DefinedAtom::ContentType> {
     io.enumCase(value, "thread-data", lld::DefinedAtom::typeThreadData);
     io.enumCase(value, "thread-zero-fill",
                 lld::DefinedAtom::typeThreadZeroFill);
-    io.enumCase(value, "note", lld::DefinedAtom::typeRONote);
-    io.enumCase(value, "note", lld::DefinedAtom::typeRWNote);
+    io.enumCase(value, "ro-note", lld::DefinedAtom::typeRONote);
+    io.enumCase(value, "rw-note", lld::DefinedAtom::typeRWNote);
     io.enumCase(value, "no-alloc", lld::DefinedAtom::typeNoAlloc);
   }
 };
@@ -484,7 +493,7 @@ struct ScalarEnumerationTraits<lld::SharedLibraryAtom::Type> {
 ///     7 mod 2^4    # 16-byte aligned plus 7 bytes
 template <> struct ScalarTraits<lld::DefinedAtom::Alignment> {
   static void output(const lld::DefinedAtom::Alignment &value, void *ctxt,
-                     llvm::raw_ostream &out) {
+                     raw_ostream &out) {
     if (value.modulus == 0) {
       out << llvm::format("2^%d", value.powerOf2);
     } else {
@@ -553,12 +562,12 @@ template <typename T> struct SequenceTraits<AtomList<T> > {
 // Used to allow DefinedAtom content bytes to be a flow sequence of
 // two-digit hex numbers without the leading 0x (e.g. FF, 04, 0A)
 template <> struct ScalarTraits<ImplicitHex8> {
-  static void output(const ImplicitHex8 &val, void *, llvm::raw_ostream &out) {
+  static void output(const ImplicitHex8 &val, void *, raw_ostream &out) {
     uint8_t num = val;
     out << llvm::format("%02X", num);
   }
 
-  static llvm::StringRef input(llvm::StringRef str, void *, ImplicitHex8 &val) {
+  static StringRef input(StringRef str, void *, ImplicitHex8 &val) {
     unsigned long long n;
     if (getAsUnsignedInteger(str, 16, n))
       return "invalid two-digit-hex number";
@@ -679,7 +688,7 @@ template <> struct MappingTraits<const lld::File *> {
       // points into that memory.
       std::unique_ptr<char[]> s(new char[str.size()]);
       memcpy(s.get(), str.data(), str.size());
-      llvm::StringRef r = llvm::StringRef(s.get(), str.size());
+      StringRef r = StringRef(s.get(), str.size());
       _stringCopies.push_back(std::move(s));
       return r;
     }
@@ -810,8 +819,9 @@ template <> struct MappingTraits<const lld::DefinedAtom *> {
           _merge(atom->merge()), _contentType(atom->contentType()),
           _alignment(atom->alignment()), _sectionChoice(atom->sectionChoice()),
           _sectionPosition(atom->sectionPosition()),
-          _deadStrip(atom->deadStrip()), _permissions(atom->permissions()),
-          _size(atom->size()), _sectionName(atom->customSectionName()) {
+          _deadStrip(atom->deadStrip()), _dynamicExport(atom->dynamicExport()),
+          _permissions(atom->permissions()), _size(atom->size()),
+          _sectionName(atom->customSectionName()) {
       for (const lld::Reference *r : *atom)
         _references.push_back(r);
       if (!atom->occupiesDiskSpace())
@@ -860,6 +870,7 @@ template <> struct MappingTraits<const lld::DefinedAtom *> {
     virtual StringRef customSectionName() const { return _sectionName; }
     virtual SectionPosition sectionPosition() const { return _sectionPosition; }
     virtual DeadStripKind deadStrip() const { return _deadStrip; }
+    virtual DynamicExport dynamicExport() const { return _dynamicExport; }
     virtual ContentPermissions permissions() const { return _permissions; }
     virtual bool isAlias() const { return false; }
     ArrayRef<uint8_t> rawContent() const {
@@ -903,6 +914,7 @@ template <> struct MappingTraits<const lld::DefinedAtom *> {
     SectionChoice _sectionChoice;
     SectionPosition _sectionPosition;
     DeadStripKind _deadStrip;
+    DynamicExport _dynamicExport;
     ContentPermissions _permissions;
     uint32_t _ordinal;
     std::vector<ImplicitHex8> _content;
@@ -947,6 +959,8 @@ template <> struct MappingTraits<const lld::DefinedAtom *> {
                    lld::DefinedAtom::sectionPositionAny);
     io.mapOptional("dead-strip", keys->_deadStrip,
                    lld::DefinedAtom::deadStripNormal);
+    io.mapOptional("dynamic-export", keys->_dynamicExport,
+                   lld::DefinedAtom::dynamicExportNormal);
     // default permissions based on content type
     io.mapOptional("permissions", keys->_permissions,
                    lld::DefinedAtom::permissions(keys->_contentType));
@@ -1209,11 +1223,11 @@ inline void MappingTraits<const lld::Reference *>::NormalizedReference::bind(
   _target = resolver.lookup(_targetName);
 }
 
-inline llvm::StringRef
+inline StringRef
 MappingTraits<const lld::Reference *>::NormalizedReference::targetName(
     IO &io, const lld::Reference *ref) {
   if (ref->target() == nullptr)
-    return llvm::StringRef();
+    return StringRef();
   ContextInfo *info = reinterpret_cast<ContextInfo *>(io.getContext());
   assert(info != nullptr);
   typedef MappingTraits<const lld::File *>::NormalizedFile NormalizedFile;

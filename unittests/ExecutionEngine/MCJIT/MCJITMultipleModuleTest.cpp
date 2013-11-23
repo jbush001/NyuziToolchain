@@ -18,9 +18,9 @@
 
 using namespace llvm;
 
-class MCJITMultipleModuleTest : public testing::Test, public MCJITTestBase {};
-
 namespace {
+
+class MCJITMultipleModuleTest : public testing::Test, public MCJITTestBase {};
 
 // FIXME: ExecutionEngine has no support empty modules
 /*

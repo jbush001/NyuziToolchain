@@ -37,7 +37,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 
-#define GET_INSTRINFO_CTOR
+#define GET_INSTRINFO_CTOR_DTOR
 #include "ARMGenInstrInfo.inc"
 
 using namespace llvm;
@@ -525,7 +525,7 @@ bool ARMBaseInstrInfo::isPredicable(MachineInstr *MI) const {
     MI->getParent()->getParent()->getInfo<ARMFunctionInfo>();
 
   if (AFI->isThumb2Function()) {
-    if (getSubtarget().hasV8Ops())
+    if (getSubtarget().restrictIT())
       return isV8EligibleForIT(MI);
   } else { // non-Thumb
     if ((MI->getDesc().TSFlags & ARMII::DomainMask) == ARMII::DomainNEON)
@@ -652,16 +652,16 @@ void ARMBaseInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                    unsigned DestReg, unsigned SrcReg,
                                    bool KillSrc) const {
   bool GPRDest = ARM::GPRRegClass.contains(DestReg);
-  bool GPRSrc  = ARM::GPRRegClass.contains(SrcReg);
+  bool GPRSrc = ARM::GPRRegClass.contains(SrcReg);
 
   if (GPRDest && GPRSrc) {
     AddDefaultCC(AddDefaultPred(BuildMI(MBB, I, DL, get(ARM::MOVr), DestReg)
-                                  .addReg(SrcReg, getKillRegState(KillSrc))));
+                                    .addReg(SrcReg, getKillRegState(KillSrc))));
     return;
   }
 
   bool SPRDest = ARM::SPRRegClass.contains(DestReg);
-  bool SPRSrc  = ARM::SPRRegClass.contains(SrcReg);
+  bool SPRSrc = ARM::SPRRegClass.contains(SrcReg);
 
   unsigned Opc = 0;
   if (SPRDest && SPRSrc)
@@ -690,26 +690,47 @@ void ARMBaseInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   int Spacing = 1;
 
   // Use VORRq when possible.
-  if (ARM::QQPRRegClass.contains(DestReg, SrcReg))
-    Opc = ARM::VORRq, BeginIdx = ARM::qsub_0, SubRegs = 2;
-  else if (ARM::QQQQPRRegClass.contains(DestReg, SrcReg))
-    Opc = ARM::VORRq, BeginIdx = ARM::qsub_0, SubRegs = 4;
+  if (ARM::QQPRRegClass.contains(DestReg, SrcReg)) {
+    Opc = ARM::VORRq;
+    BeginIdx = ARM::qsub_0;
+    SubRegs = 2;
+  } else if (ARM::QQQQPRRegClass.contains(DestReg, SrcReg)) {
+    Opc = ARM::VORRq;
+    BeginIdx = ARM::qsub_0;
+    SubRegs = 4;
   // Fall back to VMOVD.
-  else if (ARM::DPairRegClass.contains(DestReg, SrcReg))
-    Opc = ARM::VMOVD, BeginIdx = ARM::dsub_0, SubRegs = 2;
-  else if (ARM::DTripleRegClass.contains(DestReg, SrcReg))
-    Opc = ARM::VMOVD, BeginIdx = ARM::dsub_0, SubRegs = 3;
-  else if (ARM::DQuadRegClass.contains(DestReg, SrcReg))
-    Opc = ARM::VMOVD, BeginIdx = ARM::dsub_0, SubRegs = 4;
-  else if (ARM::GPRPairRegClass.contains(DestReg, SrcReg))
-    Opc = ARM::MOVr, BeginIdx = ARM::gsub_0, SubRegs = 2;
-
-  else if (ARM::DPairSpcRegClass.contains(DestReg, SrcReg))
-    Opc = ARM::VMOVD, BeginIdx = ARM::dsub_0, SubRegs = 2, Spacing = 2;
-  else if (ARM::DTripleSpcRegClass.contains(DestReg, SrcReg))
-    Opc = ARM::VMOVD, BeginIdx = ARM::dsub_0, SubRegs = 3, Spacing = 2;
-  else if (ARM::DQuadSpcRegClass.contains(DestReg, SrcReg))
-    Opc = ARM::VMOVD, BeginIdx = ARM::dsub_0, SubRegs = 4, Spacing = 2;
+  } else if (ARM::DPairRegClass.contains(DestReg, SrcReg)) {
+    Opc = ARM::VMOVD;
+    BeginIdx = ARM::dsub_0;
+    SubRegs = 2;
+  } else if (ARM::DTripleRegClass.contains(DestReg, SrcReg)) {
+    Opc = ARM::VMOVD;
+    BeginIdx = ARM::dsub_0;
+    SubRegs = 3;
+  } else if (ARM::DQuadRegClass.contains(DestReg, SrcReg)) {
+    Opc = ARM::VMOVD;
+    BeginIdx = ARM::dsub_0;
+    SubRegs = 4;
+  } else if (ARM::GPRPairRegClass.contains(DestReg, SrcReg)) {
+    Opc = Subtarget.isThumb2() ? ARM::tMOVr : ARM::MOVr;
+    BeginIdx = ARM::gsub_0;
+    SubRegs = 2;
+  } else if (ARM::DPairSpcRegClass.contains(DestReg, SrcReg)) {
+    Opc = ARM::VMOVD;
+    BeginIdx = ARM::dsub_0;
+    SubRegs = 2;
+    Spacing = 2;
+  } else if (ARM::DTripleSpcRegClass.contains(DestReg, SrcReg)) {
+    Opc = ARM::VMOVD;
+    BeginIdx = ARM::dsub_0;
+    SubRegs = 3;
+    Spacing = 2;
+  } else if (ARM::DQuadSpcRegClass.contains(DestReg, SrcReg)) {
+    Opc = ARM::VMOVD;
+    BeginIdx = ARM::dsub_0;
+    SubRegs = 4;
+    Spacing = 2;
+  }
 
   assert(Opc && "Impossible reg-to-reg copy");
 
@@ -718,22 +739,21 @@ void ARMBaseInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
 
   // Copy register tuples backward when the first Dest reg overlaps with SrcReg.
   if (TRI->regsOverlap(SrcReg, TRI->getSubReg(DestReg, BeginIdx))) {
-    BeginIdx = BeginIdx + ((SubRegs-1)*Spacing);
+    BeginIdx = BeginIdx + ((SubRegs - 1) * Spacing);
     Spacing = -Spacing;
   }
 #ifndef NDEBUG
   SmallSet<unsigned, 4> DstRegs;
 #endif
   for (unsigned i = 0; i != SubRegs; ++i) {
-    unsigned Dst = TRI->getSubReg(DestReg, BeginIdx + i*Spacing);
-    unsigned Src = TRI->getSubReg(SrcReg,  BeginIdx + i*Spacing);
+    unsigned Dst = TRI->getSubReg(DestReg, BeginIdx + i * Spacing);
+    unsigned Src = TRI->getSubReg(SrcReg, BeginIdx + i * Spacing);
     assert(Dst && Src && "Bad sub-register");
 #ifndef NDEBUG
     assert(!DstRegs.count(Src) && "destructive vector copy");
     DstRegs.insert(Dst);
 #endif
-    Mov = BuildMI(MBB, I, I->getDebugLoc(), get(Opc), Dst)
-      .addReg(Src);
+    Mov = BuildMI(MBB, I, I->getDebugLoc(), get(Opc), Dst).addReg(Src);
     // VORR takes two source operands.
     if (Opc == ARM::VORRq)
       Mov.addReg(Src);
@@ -1806,6 +1826,14 @@ void llvm::emitARMRegPlusImmediate(MachineBasicBlock &MBB,
                                unsigned DestReg, unsigned BaseReg, int NumBytes,
                                ARMCC::CondCodes Pred, unsigned PredReg,
                                const ARMBaseInstrInfo &TII, unsigned MIFlags) {
+  if (NumBytes == 0 && DestReg != BaseReg) {
+    BuildMI(MBB, MBBI, dl, TII.get(ARM::MOVr), DestReg)
+      .addReg(BaseReg, RegState::Kill)
+      .addImm((unsigned)Pred).addReg(PredReg).addReg(0)
+      .setMIFlags(MIFlags);
+    return;
+  }
+
   bool isSub = NumBytes < 0;
   if (isSub) NumBytes = -NumBytes;
 
@@ -1827,6 +1855,104 @@ void llvm::emitARMRegPlusImmediate(MachineBasicBlock &MBB,
       .setMIFlags(MIFlags);
     BaseReg = DestReg;
   }
+}
+
+bool llvm::tryFoldSPUpdateIntoPushPop(MachineFunction &MF,
+                                      MachineInstr *MI,
+                                      unsigned NumBytes) {
+  // This optimisation potentially adds lots of load and store
+  // micro-operations, it's only really a great benefit to code-size.
+  if (!MF.getFunction()->hasFnAttribute(Attribute::MinSize))
+    return false;
+
+  // If only one register is pushed/popped, LLVM can use an LDR/STR
+  // instead. We can't modify those so make sure we're dealing with an
+  // instruction we understand.
+  bool IsPop = isPopOpcode(MI->getOpcode());
+  bool IsPush = isPushOpcode(MI->getOpcode());
+  if (!IsPush && !IsPop)
+    return false;
+
+  bool IsVFPPushPop = MI->getOpcode() == ARM::VSTMDDB_UPD ||
+                      MI->getOpcode() == ARM::VLDMDIA_UPD;
+  bool IsT1PushPop = MI->getOpcode() == ARM::tPUSH ||
+                     MI->getOpcode() == ARM::tPOP ||
+                     MI->getOpcode() == ARM::tPOP_RET;
+
+  assert((IsT1PushPop || (MI->getOperand(0).getReg() == ARM::SP &&
+                          MI->getOperand(1).getReg() == ARM::SP)) &&
+         "trying to fold sp update into non-sp-updating push/pop");
+
+  // The VFP push & pop act on D-registers, so we can only fold an adjustment
+  // by a multiple of 8 bytes in correctly. Similarly rN is 4-bytes. Don't try
+  // if this is violated.
+  if (NumBytes % (IsVFPPushPop ? 8 : 4) != 0)
+    return false;
+
+  // ARM and Thumb2 push/pop insts have explicit "sp, sp" operands (+
+  // pred) so the list starts at 4. Thumb1 starts after the predicate.
+  int RegListIdx = IsT1PushPop ? 2 : 4;
+
+  // Calculate the space we'll need in terms of registers.
+  unsigned FirstReg = MI->getOperand(RegListIdx).getReg();
+  unsigned RD0Reg, RegsNeeded;
+  if (IsVFPPushPop) {
+    RD0Reg = ARM::D0;
+    RegsNeeded = NumBytes / 8;
+  } else {
+    RD0Reg = ARM::R0;
+    RegsNeeded = NumBytes / 4;
+  }
+
+  // We're going to have to strip all list operands off before
+  // re-adding them since the order matters, so save the existing ones
+  // for later.
+  SmallVector<MachineOperand, 4> RegList;
+  for (int i = MI->getNumOperands() - 1; i >= RegListIdx; --i)
+    RegList.push_back(MI->getOperand(i));
+
+  MachineBasicBlock *MBB = MI->getParent();
+  const TargetRegisterInfo *TRI = MF.getRegInfo().getTargetRegisterInfo();
+
+  // Now try to find enough space in the reglist to allocate NumBytes.
+  for (unsigned CurReg = FirstReg - 1; CurReg >= RD0Reg && RegsNeeded;
+       --CurReg, --RegsNeeded) {
+    if (!IsPop) {
+      // Pushing any register is completely harmless, mark the
+      // register involved as undef since we don't care about it in
+      // the slightest.
+      RegList.push_back(MachineOperand::CreateReg(CurReg, false, false,
+                                                  false, false, true));
+      continue;
+    }
+
+    // However, we can only pop an extra register if it's not live. Otherwise we
+    // might clobber a return value register. We assume that once we find a live
+    // return register all lower ones will be too so there's no use proceeding.
+    if (MBB->computeRegisterLiveness(TRI, CurReg, MI) !=
+        MachineBasicBlock::LQR_Dead)
+      return false;
+
+    // Mark the unimportant registers as <def,dead> in the POP.
+    RegList.push_back(MachineOperand::CreateReg(CurReg, true, false, false,
+                                                true));
+  }
+
+  if (RegsNeeded > 0)
+    return false;
+
+  // Finally we know we can profitably perform the optimisation so go
+  // ahead: strip all existing registers off and add them back again
+  // in the right order.
+  for (int i = MI->getNumOperands() - 1; i >= RegListIdx; --i)
+    MI->RemoveOperand(i);
+
+  // Add the complete list back in.
+  MachineInstrBuilder MIB(MF, &*MI);
+  for (int i = RegList.size() - 1; i >= 0; --i)
+    MIB.addOperand(RegList[i]);
+
+  return true;
 }
 
 bool llvm::rewriteARMFrameIndex(MachineInstr &MI, unsigned FrameRegIdx,

@@ -167,6 +167,7 @@ void AMDGPUAsmPrinter::EmitProgramInfoR600(MachineFunction &MF) {
 }
 
 void AMDGPUAsmPrinter::EmitProgramInfoSI(MachineFunction &MF) {
+  const AMDGPUSubtarget &STM = TM.getSubtarget<AMDGPUSubtarget>();
   unsigned MaxSGPR = 0;
   unsigned MaxVGPR = 0;
   bool VCCUsed = false;
@@ -182,7 +183,7 @@ void AMDGPUAsmPrinter::EmitProgramInfoSI(MachineFunction &MF) {
 
       unsigned numOperands = MI.getNumOperands();
       for (unsigned op_idx = 0; op_idx < numOperands; op_idx++) {
-        MachineOperand & MO = MI.getOperand(op_idx);
+        MachineOperand &MO = MI.getOperand(op_idx);
         unsigned maxUsed;
         unsigned width = 0;
         bool isSGPR = false;
@@ -196,8 +197,10 @@ void AMDGPUAsmPrinter::EmitProgramInfoSI(MachineFunction &MF) {
           VCCUsed = true;
           continue;
         }
+
         switch (reg) {
         default: break;
+        case AMDGPU::SCC:
         case AMDGPU::EXEC:
         case AMDGPU::M0:
           continue;
@@ -230,6 +233,9 @@ void AMDGPUAsmPrinter::EmitProgramInfoSI(MachineFunction &MF) {
         } else if (AMDGPU::VReg_256RegClass.contains(reg)) {
           isSGPR = false;
           width = 8;
+        } else if (AMDGPU::SReg_512RegClass.contains(reg)) {
+          isSGPR = true;
+          width = 16;
         } else if (AMDGPU::VReg_512RegClass.contains(reg)) {
           isSGPR = false;
           width = 16;
@@ -262,13 +268,24 @@ void AMDGPUAsmPrinter::EmitProgramInfoSI(MachineFunction &MF) {
   OutStreamer.EmitIntValue(RsrcReg, 4);
   OutStreamer.EmitIntValue(S_00B028_VGPRS(MaxVGPR / 4) | S_00B028_SGPRS(MaxSGPR / 8), 4);
 
+  unsigned LDSAlignShift;
+  if (STM.getGeneration() < AMDGPUSubtarget::SEA_ISLANDS) {
+    // LDS is allocated in 64 dword blocks
+    LDSAlignShift = 8;
+  } else {
+    // LDS is allocated in 128 dword blocks
+    LDSAlignShift = 9;
+  }
+  unsigned LDSBlocks =
+          RoundUpToAlignment(MFI->LDSSize, 1 << LDSAlignShift) >> LDSAlignShift;
+
   if (MFI->ShaderType == ShaderType::COMPUTE) {
     OutStreamer.EmitIntValue(R_00B84C_COMPUTE_PGM_RSRC2, 4);
-    OutStreamer.EmitIntValue(S_00B84C_LDS_SIZE(RoundUpToAlignment(MFI->LDSSize, 256) >> 8), 4);
+    OutStreamer.EmitIntValue(S_00B84C_LDS_SIZE(LDSBlocks), 4);
   }
   if (MFI->ShaderType == ShaderType::PIXEL) {
     OutStreamer.EmitIntValue(R_00B02C_SPI_SHADER_PGM_RSRC2_PS, 4);
-    OutStreamer.EmitIntValue(S_00B02C_EXTRA_LDS_SIZE(RoundUpToAlignment(MFI->LDSSize, 256) >> 8), 4);
+    OutStreamer.EmitIntValue(S_00B02C_EXTRA_LDS_SIZE(LDSBlocks), 4);
     OutStreamer.EmitIntValue(R_0286CC_SPI_PS_INPUT_ENA, 4);
     OutStreamer.EmitIntValue(MFI->PSInputAddr, 4);
   }

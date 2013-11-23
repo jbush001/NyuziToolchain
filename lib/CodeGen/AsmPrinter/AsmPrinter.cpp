@@ -48,6 +48,7 @@
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Target/TargetRegisterInfo.h"
+#include "llvm/Transforms/Utils/GlobalStatus.h"
 using namespace llvm;
 
 static const char *const DWARFGroupName = "DWARF Emission";
@@ -164,7 +165,7 @@ bool AsmPrinter::doInitialization(Module &M) {
 
   OutStreamer.InitStreamer();
 
-  Mang = new Mangler(OutContext, &TM);
+  Mang = new Mangler(&TM);
 
   // Allow the target to emit any magic that it wants at the start of the file.
   EmitStartOfAsmFile(M);
@@ -212,12 +213,12 @@ bool AsmPrinter::doInitialization(Module &M) {
   llvm_unreachable("Unknown exception type.");
 }
 
-void AsmPrinter::EmitLinkage(unsigned Linkage, MCSymbol *GVSym) const {
-  switch ((GlobalValue::LinkageTypes)Linkage) {
+void AsmPrinter::EmitLinkage(const GlobalValue *GV, MCSymbol *GVSym) const {
+  GlobalValue::LinkageTypes Linkage = GV->getLinkage();
+  switch (Linkage) {
   case GlobalValue::CommonLinkage:
   case GlobalValue::LinkOnceAnyLinkage:
   case GlobalValue::LinkOnceODRLinkage:
-  case GlobalValue::LinkOnceODRAutoHideLinkage:
   case GlobalValue::WeakAnyLinkage:
   case GlobalValue::WeakODRLinkage:
   case GlobalValue::LinkerPrivateWeakLinkage:
@@ -225,8 +226,19 @@ void AsmPrinter::EmitLinkage(unsigned Linkage, MCSymbol *GVSym) const {
       // .globl _foo
       OutStreamer.EmitSymbolAttribute(GVSym, MCSA_Global);
 
-      if ((GlobalValue::LinkageTypes)Linkage !=
-          GlobalValue::LinkOnceODRAutoHideLinkage)
+      bool CanBeHidden = false;
+
+      if (Linkage == GlobalValue::LinkOnceODRLinkage) {
+        if (GV->hasUnnamedAddr()) {
+          CanBeHidden = true;
+        } else {
+          GlobalStatus GS;
+          if (!GlobalStatus::analyzeGlobal(GV, GS) && !GS.IsCompared)
+            CanBeHidden = true;
+        }
+      }
+
+      if (!CanBeHidden)
         // .weak_definition _foo
         OutStreamer.EmitSymbolAttribute(GVSym, MCSA_WeakDefinition);
       else
@@ -239,7 +251,7 @@ void AsmPrinter::EmitLinkage(unsigned Linkage, MCSymbol *GVSym) const {
       // .weak _foo
       OutStreamer.EmitSymbolAttribute(GVSym, MCSA_Weak);
     }
-    break;
+    return;
   case GlobalValue::DLLExportLinkage:
   case GlobalValue::AppendingLinkage:
     // FIXME: appending linkage variables should go into a section of
@@ -248,16 +260,23 @@ void AsmPrinter::EmitLinkage(unsigned Linkage, MCSymbol *GVSym) const {
     // If external or appending, declare as a global symbol.
     // .globl _foo
     OutStreamer.EmitSymbolAttribute(GVSym, MCSA_Global);
-    break;
+    return;
   case GlobalValue::PrivateLinkage:
   case GlobalValue::InternalLinkage:
   case GlobalValue::LinkerPrivateLinkage:
-    break;
-  default:
-    llvm_unreachable("Unknown linkage type!");
+    return;
+  case GlobalValue::AvailableExternallyLinkage:
+    llvm_unreachable("Should never emit this");
+  case GlobalValue::DLLImportLinkage:
+  case GlobalValue::ExternalWeakLinkage:
+    llvm_unreachable("Don't know how to emit these");
   }
+  llvm_unreachable("Unknown linkage type!");
 }
 
+MCSymbol *AsmPrinter::getSymbol(const GlobalValue *GV) const {
+  return getObjFileLowering().getSymbol(*Mang, GV);
+}
 
 /// EmitGlobalVariable - Emit the specified global variable to the .s file.
 void AsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
@@ -273,7 +292,7 @@ void AsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
     }
   }
 
-  MCSymbol *GVSym = Mang->getSymbol(GV);
+  MCSymbol *GVSym = getSymbol(GV);
   EmitVisibility(GVSym, GV->getVisibility(), !GV->isDeclaration());
 
   if (!GV->hasInitializer())   // External globals require no extra code.
@@ -391,14 +410,14 @@ void AsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
 
     OutStreamer.SwitchSection(TLVSect);
     // Emit the linkage here.
-    EmitLinkage(GV->getLinkage(), GVSym);
+    EmitLinkage(GV, GVSym);
     OutStreamer.EmitLabel(GVSym);
 
     // Three pointers in size:
     //   - __tlv_bootstrap - used to make sure support exists
     //   - spare pointer, used when mapped by the runtime
     //   - pointer to mangled symbol above with initializer
-    unsigned PtrSize = DL->getPointerSizeInBits()/8;
+    unsigned PtrSize = DL->getPointerTypeSize(GV->getType());
     OutStreamer.EmitSymbolValue(GetExternalSymbolSymbol("_tlv_bootstrap"),
                                 PtrSize);
     OutStreamer.EmitIntValue(0, PtrSize);
@@ -410,7 +429,7 @@ void AsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
 
   OutStreamer.SwitchSection(TheSection);
 
-  EmitLinkage(GV->getLinkage(), GVSym);
+  EmitLinkage(GV, GVSym);
   EmitAlignment(AlignLog, GV);
 
   OutStreamer.EmitLabel(GVSym);
@@ -436,7 +455,7 @@ void AsmPrinter::EmitFunctionHeader() {
   OutStreamer.SwitchSection(getObjFileLowering().SectionForGlobal(F, Mang, TM));
   EmitVisibility(CurrentFnSym, F->getVisibility());
 
-  EmitLinkage(F->getLinkage(), CurrentFnSym);
+  EmitLinkage(F, CurrentFnSym);
   EmitAlignment(MF->getAlignment(), F);
 
   if (MAI->hasDotTypeDotSizeDirective())
@@ -462,10 +481,6 @@ void AsmPrinter::EmitFunctionHeader() {
     OutStreamer.EmitLabel(DeadBlockSyms[i]);
   }
 
-  // Emit the prefix data.
-  if (F->hasPrefixData())
-    EmitGlobalConstant(F->getPrefixData());
-
   // Emit pre-function debug and/or EH information.
   if (DE) {
     NamedRegionTimer T(EHTimerName, DWARFGroupName, TimePassesIsEnabled);
@@ -475,6 +490,10 @@ void AsmPrinter::EmitFunctionHeader() {
     NamedRegionTimer T(DbgTimerName, DWARFGroupName, TimePassesIsEnabled);
     DD->beginFunction(MF);
   }
+
+  // Emit the prefix data.
+  if (F->hasPrefixData())
+    EmitGlobalConstant(F->getPrefixData());
 }
 
 /// EmitFunctionEntryLabel - Emit the label that is the entrypoint for the
@@ -874,7 +893,7 @@ bool AsmPrinter::doFinalization(Module &M) {
     if (V == GlobalValue::DefaultVisibility)
       continue;
 
-    MCSymbol *Name = Mang->getSymbol(&F);
+    MCSymbol *Name = getSymbol(&F);
     EmitVisibility(Name, V, false);
   }
 
@@ -914,12 +933,12 @@ bool AsmPrinter::doFinalization(Module &M) {
     for (Module::const_global_iterator I = M.global_begin(), E = M.global_end();
          I != E; ++I) {
       if (!I->hasExternalWeakLinkage()) continue;
-      OutStreamer.EmitSymbolAttribute(Mang->getSymbol(I), MCSA_WeakReference);
+      OutStreamer.EmitSymbolAttribute(getSymbol(I), MCSA_WeakReference);
     }
 
     for (Module::const_iterator I = M.begin(), E = M.end(); I != E; ++I) {
       if (!I->hasExternalWeakLinkage()) continue;
-      OutStreamer.EmitSymbolAttribute(Mang->getSymbol(I), MCSA_WeakReference);
+      OutStreamer.EmitSymbolAttribute(getSymbol(I), MCSA_WeakReference);
     }
   }
 
@@ -927,10 +946,15 @@ bool AsmPrinter::doFinalization(Module &M) {
     OutStreamer.AddBlankLine();
     for (Module::const_alias_iterator I = M.alias_begin(), E = M.alias_end();
          I != E; ++I) {
-      MCSymbol *Name = Mang->getSymbol(I);
+      MCSymbol *Name = getSymbol(I);
 
       const GlobalValue *GV = I->getAliasedGlobal();
-      MCSymbol *Target = Mang->getSymbol(GV);
+      if (GV->isDeclaration()) {
+        report_fatal_error(Name->getName() +
+                           ": Target doesn't support aliases to declarations");
+      }
+
+      MCSymbol *Target = getSymbol(GV);
 
       if (I->hasExternalLinkage() || !MAI->getWeakRefDirective())
         OutStreamer.EmitSymbolAttribute(Name, MCSA_Global);
@@ -979,7 +1003,7 @@ bool AsmPrinter::doFinalization(Module &M) {
 void AsmPrinter::SetupMachineFunction(MachineFunction &MF) {
   this->MF = &MF;
   // Get the function symbol.
-  CurrentFnSym = Mang->getSymbol(MF.getFunction());
+  CurrentFnSym = getSymbol(MF.getFunction());
   CurrentFnSymForSize = CurrentFnSym;
 
   if (isVerbose())
@@ -1286,7 +1310,7 @@ void AsmPrinter::EmitLLVMUsedList(const ConstantArray *InitList) {
     const GlobalValue *GV =
       dyn_cast<GlobalValue>(InitList->getOperand(i)->stripPointerCasts());
     if (GV && getObjFileLowering().shouldEmitUsedDirectiveFor(GV, Mang))
-      OutStreamer.EmitSymbolAttribute(Mang->getSymbol(GV), MCSA_NoDeadStrip);
+      OutStreamer.EmitSymbolAttribute(getSymbol(GV), MCSA_NoDeadStrip);
   }
 }
 
@@ -1415,12 +1439,12 @@ void AsmPrinter::EmitLabelOffsetDifference(const MCSymbol *Hi, uint64_t Offset,
                             OutContext);
 
   if (!MAI->hasSetDirective())
-    OutStreamer.EmitValue(Diff, 4);
+    OutStreamer.EmitValue(Diff, Size);
   else {
     // Otherwise, emit with .set (aka assignment).
     MCSymbol *SetLabel = GetTempSymbol("set", SetCounter++);
     OutStreamer.EmitAssignment(SetLabel, Diff);
-    OutStreamer.EmitSymbolValue(SetLabel, 4);
+    OutStreamer.EmitSymbolValue(SetLabel, Size);
   }
 }
 
@@ -1428,8 +1452,8 @@ void AsmPrinter::EmitLabelOffsetDifference(const MCSymbol *Hi, uint64_t Offset,
 /// where the size in bytes of the directive is specified by Size and Label
 /// specifies the label.  This implicitly uses .set if it is available.
 void AsmPrinter::EmitLabelPlusOffset(const MCSymbol *Label, uint64_t Offset,
-                                      unsigned Size, bool IsSectionRelative)
-  const {
+                                     unsigned Size,
+                                     bool IsSectionRelative) const {
   if (MAI->needsDwarfSectionOffsetDirective() && IsSectionRelative) {
     OutStreamer.EmitCOFFSecRel32(Label);
     return;
@@ -1438,13 +1462,11 @@ void AsmPrinter::EmitLabelPlusOffset(const MCSymbol *Label, uint64_t Offset,
   // Emit Label+Offset (or just Label if Offset is zero)
   const MCExpr *Expr = MCSymbolRefExpr::Create(Label, OutContext);
   if (Offset)
-    Expr = MCBinaryExpr::CreateAdd(Expr,
-                                   MCConstantExpr::Create(Offset, OutContext),
-                                   OutContext);
+    Expr = MCBinaryExpr::CreateAdd(
+        Expr, MCConstantExpr::Create(Offset, OutContext), OutContext);
 
   OutStreamer.EmitValue(Expr, Size);
 }
-
 
 //===----------------------------------------------------------------------===//
 
@@ -1481,7 +1503,7 @@ static const MCExpr *lowerConstant(const Constant *CV, AsmPrinter &AP) {
     return MCConstantExpr::Create(CI->getZExtValue(), Ctx);
 
   if (const GlobalValue *GV = dyn_cast<GlobalValue>(CV))
-    return MCSymbolRefExpr::Create(AP.Mang->getSymbol(GV), Ctx);
+    return MCSymbolRefExpr::Create(AP.getSymbol(GV), Ctx);
 
   if (const BlockAddress *BA = dyn_cast<BlockAddress>(CV))
     return MCSymbolRefExpr::Create(AP.GetBlockAddressSymbol(BA), Ctx);
@@ -1513,7 +1535,7 @@ static const MCExpr *lowerConstant(const Constant *CV, AsmPrinter &AP) {
   case Instruction::GetElementPtr: {
     const DataLayout &DL = *AP.TM.getDataLayout();
     // Generate a symbolic expression for the byte address
-    APInt OffsetAI(DL.getPointerSizeInBits(), 0);
+    APInt OffsetAI(DL.getPointerTypeSizeInBits(CE->getType()), 0);
     cast<GEPOperator>(CE)->accumulateConstantOffset(DL, OffsetAI);
 
     const MCExpr *Base = lowerConstant(CE->getOperand(0), AP);
@@ -1539,7 +1561,7 @@ static const MCExpr *lowerConstant(const Constant *CV, AsmPrinter &AP) {
     // Handle casts to pointers by changing them into casts to the appropriate
     // integer type.  This promotes constant folding and simplifies this code.
     Constant *Op = CE->getOperand(0);
-    Op = ConstantExpr::getIntegerCast(Op, DL.getIntPtrType(CV->getContext()),
+    Op = ConstantExpr::getIntegerCast(Op, DL.getIntPtrType(CV->getType()),
                                       false/*ZExt*/);
     return lowerConstant(Op, AP);
   }

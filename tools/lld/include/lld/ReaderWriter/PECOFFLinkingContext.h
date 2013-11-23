@@ -7,9 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLD_READER_WRITER_PECOFF_LINKER_CONTEXT_H
-#define LLD_READER_WRITER_PECOFF_LINKER_CONTEXT_H
+#ifndef LLD_READER_WRITER_PECOFF_LINKING_CONTEXT_H
+#define LLD_READER_WRITER_PECOFF_LINKING_CONTEXT_H
 
+#include <map>
 #include <set>
 #include <vector>
 
@@ -17,12 +18,17 @@
 #include "lld/ReaderWriter/Reader.h"
 #include "lld/ReaderWriter/Writer.h"
 
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/COFF.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FileUtilities.h"
 
 using llvm::COFF::MachineTypes;
 using llvm::COFF::WindowsSubsystem;
+
+static const uint8_t DEFAULT_DOS_STUB[128] = {'M', 'Z'};
 
 namespace lld {
 
@@ -31,14 +37,17 @@ public:
   PECOFFLinkingContext()
       : _baseAddress(0x400000), _stackReserve(1024 * 1024), _stackCommit(4096),
         _heapReserve(1024 * 1024), _heapCommit(4096), _noDefaultLibAll(false),
-        _sectionAlignment(4096),
+        _sectionDefaultAlignment(4096),
         _subsystem(llvm::COFF::IMAGE_SUBSYSTEM_UNKNOWN),
         _machineType(llvm::COFF::IMAGE_FILE_MACHINE_I386), _imageVersion(0, 0),
         _minOSVersion(6, 0), _nxCompat(true), _largeAddressAware(false),
         _allowBind(true), _allowIsolation(true), _swapRunFromCD(false),
         _swapRunFromNet(false), _baseRelocationEnabled(true),
         _terminalServerAware(true), _dynamicBaseEnabled(true),
-        _imageType(ImageType::IMAGE_EXE) {
+        _createManifest(true), _embedManifest(false), _manifestId(1),
+        _manifestLevel("'asInvoker'"), _manifestUiAccess("'false'"),
+        _imageType(ImageType::IMAGE_EXE),
+        _dosStub(llvm::makeArrayRef(DEFAULT_DOS_STUB)) {
     setDeadStripping(true);
   }
 
@@ -61,7 +70,7 @@ public:
   virtual Writer &writer() const;
   virtual bool validateImpl(raw_ostream &diagnostics);
 
-  virtual void addPasses(PassManager &pm) const;
+  virtual void addPasses(PassManager &pm);
 
   virtual bool
   createImplicitFiles(std::vector<std::unique_ptr<File> > &result) const;
@@ -74,6 +83,12 @@ public:
     return _inputSearchPaths;
   }
 
+  void registerTemporaryFile(StringRef path) {
+    std::unique_ptr<llvm::FileRemover> fileRemover(
+        new llvm::FileRemover(Twine(allocate(path))));
+    _tempFiles.push_back(std::move(fileRemover));
+  }
+
   StringRef searchLibraryFile(StringRef path) const;
 
   /// Returns the decorated name of the given symbol name. On 32-bit x86, it
@@ -84,7 +99,7 @@ public:
       return name;
     std::string str = "_";
     str.append(name);
-    return allocateString(str);
+    return allocate(str);
   }
 
   void setEntrySymbolName(StringRef name) {
@@ -105,8 +120,12 @@ public:
   uint64_t getHeapReserve() const { return _heapReserve; }
   uint64_t getHeapCommit() const { return _heapCommit; }
 
-  void setSectionAlignment(uint32_t val) { _sectionAlignment = val; }
-  uint32_t getSectionAlignment() const { return _sectionAlignment; }
+  void setSectionDefaultAlignment(uint32_t val) {
+    _sectionDefaultAlignment = val;
+  }
+  uint32_t getSectionDefaultAlignment() const {
+    return _sectionDefaultAlignment;
+  }
 
   void setSubsystem(WindowsSubsystem ss) { _subsystem = ss; }
   WindowsSubsystem getSubsystem() const { return _subsystem; }
@@ -147,12 +166,41 @@ public:
   void setDynamicBaseEnabled(bool val) { _dynamicBaseEnabled = val; }
   bool getDynamicBaseEnabled() const { return _dynamicBaseEnabled; }
 
+  void setCreateManifest(bool val) { _createManifest = val; }
+  bool getCreateManifest() const { return _createManifest; }
+
+  void setManifestOutputPath(std::string val) { _manifestOutputPath = val; }
+  const std::string &getManifestOutputPath() const {
+    return _manifestOutputPath;
+  }
+
+  void setEmbedManifest(bool val) { _embedManifest = val; }
+  bool getEmbedManifest() const { return _embedManifest; }
+
+  void setManifestId(int val) { _manifestId = val; }
+  int getManifestId() const { return _manifestId; }
+
+  void setManifestLevel(std::string val) { _manifestLevel = std::move(val); }
+  const std::string &getManifestLevel() const { return _manifestLevel; }
+
+  void setManifestUiAccess(std::string val) { _manifestUiAccess = val; }
+  const std::string &getManifestUiAccess() const { return _manifestUiAccess; }
+
+  void setManifestDependency(std::string val) { _manifestDependency = val; }
+  const std::string &getManifestDependency() const {
+    return _manifestDependency;
+  }
+
   void setImageType(ImageType type) { _imageType = type; }
   ImageType getImageType() const { return _imageType; }
 
-  void addNoDefaultLib(StringRef libName) { _noDefaultLibs.insert(libName); }
-  const std::set<std::string> &getNoDefaultLibs() const {
-    return _noDefaultLibs;
+  StringRef getFinalSectionName(StringRef sectionName) const;
+  bool addSectionRenaming(raw_ostream &diagnostics,
+                          StringRef from, StringRef to);
+
+  void addNoDefaultLib(StringRef path) { _noDefaultLibs.insert(path); }
+  bool hasNoDefaultLib(StringRef path) const {
+    return _noDefaultLibs.count(path) == 1;
   }
 
   void setNoDefaultLibAll(bool val) { _noDefaultLibAll = val; }
@@ -161,11 +209,41 @@ public:
   virtual ErrorOr<Reference::Kind> relocKindFromString(StringRef str) const;
   virtual ErrorOr<std::string> stringFromRelocKind(Reference::Kind kind) const;
 
-  StringRef allocateString(StringRef ref) const {
+  void setSectionAttributes(StringRef sectionName, uint32_t flags) {
+    _sectionAttributes[sectionName] = flags;
+  }
+
+  llvm::Optional<uint32_t> getSectionAttributes(StringRef sectionName) const {
+    auto it = _sectionAttributes.find(sectionName);
+    if (it == _sectionAttributes.end())
+      return llvm::None;
+    return it->second;
+  }
+
+  void setSectionAttributeMask(StringRef sectionName, uint32_t flags) {
+    _sectionAttributeMask[sectionName] = flags;
+  }
+
+  uint32_t getSectionAttributeMask(StringRef sectionName) const {
+    auto it = _sectionAttributeMask.find(sectionName);
+    return it == _sectionAttributeMask.end() ? 0 : it->second;
+  }
+
+  void setDosStub(ArrayRef<uint8_t> data) { _dosStub = data; }
+  ArrayRef<uint8_t> getDosStub() const { return _dosStub; }
+
+  StringRef allocate(StringRef ref) const {
     char *x = _allocator.Allocate<char>(ref.size() + 1);
     memcpy(x, ref.data(), ref.size());
     x[ref.size()] = '\0';
     return x;
+  }
+
+  ArrayRef<uint8_t> allocate(ArrayRef<uint8_t> array) const {
+    size_t size = array.size();
+    uint8_t *p = _allocator.Allocate<uint8_t>(size);
+    memcpy(p, array.data(), size);
+    return ArrayRef<uint8_t>(p, p + array.size());
   }
 
   virtual bool hasInputGraph() {
@@ -191,7 +269,7 @@ private:
   uint64_t _heapReserve;
   uint64_t _heapCommit;
   bool _noDefaultLibAll;
-  uint32_t _sectionAlignment;
+  uint32_t _sectionDefaultAlignment;
   WindowsSubsystem _subsystem;
   MachineTypes _machineType;
   Version _imageVersion;
@@ -205,6 +283,13 @@ private:
   bool _baseRelocationEnabled;
   bool _terminalServerAware;
   bool _dynamicBaseEnabled;
+  bool _createManifest;
+  std::string _manifestOutputPath;
+  bool _embedManifest;
+  int _manifestId;
+  std::string _manifestLevel;
+  std::string _manifestUiAccess;
+  std::string _manifestDependency;
   ImageType _imageType;
 
   // The set to store /nodefaultlib arguments.
@@ -213,6 +298,29 @@ private:
   std::vector<StringRef> _inputSearchPaths;
   std::unique_ptr<Reader> _reader;
   std::unique_ptr<Writer> _writer;
+
+  // A map for section renaming. For example, if there is an entry in the map
+  // whose value is .rdata -> .text, the section contens of .rdata will be
+  // merged to .text in the resulting executable.
+  std::map<std::string, std::string> _renamedSections;
+
+  // Section attributes specified by /section option. The uint32_t value will be
+  // copied to the Characteristics field of the section header.
+  std::map<std::string, uint32_t> _sectionAttributes;
+
+  // Section attributes specified by /section option in conjunction with the
+  // negative flag "!". The uint32_t value is a mask of section attributes that
+  // should be disabled.
+  std::map<std::string, uint32_t> _sectionAttributeMask;
+
+  // List of files that will be removed on destruction.
+  std::vector<std::unique_ptr<llvm::FileRemover> > _tempFiles;
+
+  // DOS Stub. DOS stub is data located at the beginning of PE/COFF file.
+  // Windows loader do not really care about DOS stub contents, but it's usually
+  // a small DOS program that prints out a message "This program requires
+  // Microsoft Windows." This feature was somewhat useful before Windows 95.
+  ArrayRef<uint8_t> _dosStub;
 };
 
 } // end namespace lld

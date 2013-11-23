@@ -299,14 +299,15 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   using namespace options;
   bool Success = true;
 
-  unsigned OptLevel = getOptimizationLevel(Args, IK, Diags);
-  if (OptLevel > 3) {
-    Diags.Report(diag::err_drv_invalid_value)
-      << Args.getLastArg(OPT_O)->getAsString(Args) << OptLevel;
-    OptLevel = 3;
-    Success = false;
+  Opts.OptimizationLevel = getOptimizationLevel(Args, IK, Diags);
+  // TODO: This could be done in Driver
+  unsigned MaxOptLevel = 3;
+  if (Opts.OptimizationLevel > MaxOptLevel) {
+    // If the optimization level is not supported, fall back on the default optimization
+    Diags.Report(diag::warn_drv_optimization_value)
+        << Args.getLastArg(OPT_O)->getAsString(Args) << "-O" << MaxOptLevel;
+    Opts.OptimizationLevel = MaxOptLevel;
   }
-  Opts.OptimizationLevel = OptLevel;
 
   // We must always run at least the always inlining pass.
   Opts.setInlining(
@@ -355,8 +356,10 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.UnrollLoops =
       Args.hasFlag(OPT_funroll_loops, OPT_fno_unroll_loops,
                    (Opts.OptimizationLevel > 1 && !Opts.OptimizeSize));
+  Opts.RerollLoops = Args.hasArg(OPT_freroll_loops);
 
   Opts.Autolink = !Args.hasArg(OPT_fno_autolink);
+  Opts.SampleProfileFile = Args.getLastArgValue(OPT_fprofile_sample_use_EQ);
   Opts.AsmVerbose = Args.hasArg(OPT_masm_verbose);
   Opts.ObjCAutoRefCountExceptions = Args.hasArg(OPT_fobjc_arc_exceptions);
   Opts.CUDAIsDevice = Args.hasArg(OPT_fcuda_is_device);
@@ -805,6 +808,8 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     Opts.ObjCMTAction |= FrontendOptions::ObjCMT_ReadwriteProperty;
   if (Args.hasArg(OPT_objcmt_migrate_annotation))
     Opts.ObjCMTAction |= FrontendOptions::ObjCMT_Annotation;
+  if (Args.hasArg(OPT_objcmt_returns_innerpointer_property))
+    Opts.ObjCMTAction |= FrontendOptions::ObjCMT_ReturnsInnerPointerProperty;
   if (Args.hasArg(OPT_objcmt_migrate_instancetype))
     Opts.ObjCMTAction |= FrontendOptions::ObjCMT_Instancetype;
   if (Args.hasArg(OPT_objcmt_migrate_nsmacros))
@@ -813,8 +818,12 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     Opts.ObjCMTAction |= FrontendOptions::ObjCMT_ProtocolConformance;
   if (Args.hasArg(OPT_objcmt_atomic_property))
     Opts.ObjCMTAction |= FrontendOptions::ObjCMT_AtomicProperty;
+  if (Args.hasArg(OPT_objcmt_ns_nonatomic_iosonly))
+    Opts.ObjCMTAction |= FrontendOptions::ObjCMT_NsAtomicIOSOnlyProperty;
   if (Args.hasArg(OPT_objcmt_migrate_all))
     Opts.ObjCMTAction |= FrontendOptions::ObjCMT_MigrateDecls;
+
+  Opts.ObjCMTWhiteListPath = Args.getLastArgValue(OPT_objcmt_white_list_dir_path);
 
   if (Opts.ARCMTAction != FrontendOptions::ARCMT_None &&
       Opts.ObjCMTAction != FrontendOptions::ObjCMT_None) {
@@ -1093,6 +1102,9 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
   Opts.Trigraphs = !Opts.GNUMode;
 
   Opts.DollarIdents = !Opts.AsmPreprocessor;
+
+  // C++1y onwards has sized global deallocation functions.
+  Opts.SizedDeallocation = Opts.CPlusPlus1y;
 }
 
 /// Attempt to parse a visibility value out of the given argument.
@@ -1218,6 +1230,10 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
 
     if (Args.hasArg(OPT_fno_objc_infer_related_result_type))
       Opts.ObjCInferRelatedResultType = 0;
+    
+    if (Args.hasArg(OPT_fobjc_subscripting_legacy_runtime))
+      Opts.ObjCSubscriptingLegacyRuntime =
+        (Opts.ObjCRuntime.getKind() == ObjCRuntime::FragileMacOSX);
   }
     
   if (Args.hasArg(OPT_fgnu89_inline))
@@ -1306,13 +1322,15 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.NoBuiltin = Args.hasArg(OPT_fno_builtin) || Opts.Freestanding;
   Opts.NoMathBuiltin = Args.hasArg(OPT_fno_math_builtin);
   Opts.AssumeSaneOperatorNew = !Args.hasArg(OPT_fno_assume_sane_operator_new);
-  Opts.SizedDeallocation = Args.hasArg(OPT_fsized_deallocation);
+  Opts.SizedDeallocation |= Args.hasArg(OPT_fsized_deallocation);
   Opts.HeinousExtensions = Args.hasArg(OPT_fheinous_gnu_extensions);
   Opts.AccessControl = !Args.hasArg(OPT_fno_access_control);
   Opts.ElideConstructors = !Args.hasArg(OPT_fno_elide_constructors);
   Opts.MathErrno = !Opts.OpenCL && Args.hasArg(OPT_fmath_errno);
   Opts.InstantiationDepth =
       getLastArgIntValue(Args, OPT_ftemplate_depth, 256, Diags);
+  Opts.ArrowDepth =
+      getLastArgIntValue(Args, OPT_foperator_arrow_depth, 256, Diags);
   Opts.ConstexprCallDepth =
       getLastArgIntValue(Args, OPT_fconstexpr_depth, 512, Diags);
   Opts.ConstexprStepLimit =
@@ -1780,7 +1798,7 @@ std::string CompilerInvocation::getModuleHash() const {
     llvm::sys::path::append(systemVersionFile, "Library");
     llvm::sys::path::append(systemVersionFile, "CoreServices");
     llvm::sys::path::append(systemVersionFile, "SystemVersion.plist");
-    if (!llvm::MemoryBuffer::getFile(systemVersionFile, buffer)) {
+    if (!llvm::MemoryBuffer::getFile(systemVersionFile.str(), buffer)) {
       code = hash_combine(code, buffer.get()->getBuffer());
 
       struct stat statBuf;

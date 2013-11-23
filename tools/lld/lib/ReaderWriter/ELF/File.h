@@ -122,7 +122,7 @@ public:
       : File(name, kindObject), _elfLinkingContext(context) {}
 
   ELFFile(const ELFLinkingContext &context,
-          std::unique_ptr<llvm::MemoryBuffer> MB, llvm::error_code &EC)
+          std::unique_ptr<MemoryBuffer> MB, error_code &EC)
       : File(MB->getBufferIdentifier(), kindObject),
         _elfLinkingContext(context), _ordinal(0), _doStringsMerge(false) {
     _objFile.reset(new llvm::object::ELFFile<ELFT>(MB.release(), EC));
@@ -134,27 +134,27 @@ public:
 
     // Read input sections from the input file that need to be converted to
     // atoms
-    if (auto err = createAtomizableSections()) ; else {
+    if (auto err = createAtomizableSections()) {
       EC = err;
       return;
     }
 
     // For mergeable strings, we would need to split the section into various
     // atoms
-    if (auto err = createMergeableAtoms()) ; else {
+    if (auto err = createMergeableAtoms()) {
       EC = err;
       return;
     }
 
     // Create the necessary symbols that are part of the section that we
     // created in createAtomizableSections function
-    if (auto err = createSymbolsFromAtomizableSections()) ; else {
+    if (auto err = createSymbolsFromAtomizableSections()) {
       EC = err;
       return;
     }
 
     // Create the appropriate atoms from the file
-    if (auto err = createAtoms()) ; else {
+    if (auto err = createAtoms()) {
       EC = err;
       return;
     }
@@ -162,7 +162,7 @@ public:
 
   /// \brief Read input sections and populate necessary data structures
   /// to read them later and create atoms
-  ErrorOr<void> createAtomizableSections() {
+  error_code createAtomizableSections() {
     // Handle: SHT_REL and SHT_RELA sections:
     // Increment over the sections, when REL/RELA section types are found add
     // the contents to the RelocationReferences map.
@@ -220,7 +220,7 @@ public:
 
   /// \brief Create mergeable atoms from sections that have the merge attribute
   /// set
-  ErrorOr<void> createMergeableAtoms() {
+  error_code createMergeableAtoms() {
     // Divide the section that contains mergeable strings into tokens
     // TODO
     // a) add resolver support to recognize multibyte chars
@@ -268,7 +268,7 @@ public:
   /// \brief Add the symbols that the sections contain. The symbols will be
   /// converted to atoms for
   /// Undefined symbols, absolute symbols
-  ErrorOr<void> createSymbolsFromAtomizableSections() {
+  error_code createSymbolsFromAtomizableSections() {
     // Increment over all the symbols collecting atoms and symbol names for
     // later use.
     auto SymI = _objFile->begin_symbols(),
@@ -302,7 +302,7 @@ public:
       } else if (isCommonSymbol(&*SymI)) {
         auto *newAtom = new (_readerStorage)
           ELFCommonAtom<ELFT>(*this, *symbolName, &*SymI);
-        newAtom->setOrdinal(_ordinal++);
+        newAtom->setOrdinal(++_ordinal);
         _definedAtoms._atoms.push_back(newAtom);
         _symbolToAtomMapping.insert(std::make_pair(&*SymI, newAtom));
       } else {
@@ -327,7 +327,7 @@ public:
   }
 
   /// \brief Create individual atoms
-  ErrorOr<void> createAtoms() {
+  error_code createAtoms() {
     for (auto &i : _sectionSymbols) {
       const Elf_Shdr *section = i.first;
       std::vector<Elf_Sym_Iter> &symbols = i.second;
@@ -361,6 +361,7 @@ public:
         ELFDefinedAtom<ELFT> *newAtom = createSectionAtom(
             section, *sectionName, secCont);
         _definedAtoms._atoms.push_back(newAtom);
+        newAtom->setOrdinal(++_ordinal);
         continue;
       }
 
@@ -408,6 +409,7 @@ public:
                 *this, symbolName, *sectionName, &**si, section, symbolData,
                 _references.size(), _references.size(), _references);
             _definedAtoms._atoms.push_back(definedMergeAtom);
+            definedMergeAtom->setOrdinal(++_ordinal);
           }
           continue;
         }

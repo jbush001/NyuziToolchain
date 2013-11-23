@@ -114,7 +114,7 @@ private:
                        RecordDecl::field_iterator &FI,
                        RecordDecl::field_iterator FE);
 
-  /// LayoutField - try to layout all fields in the record decl.
+  /// LayoutFields - try to layout all fields in the record decl.
   /// Returns false if the operation failed because the struct is not packed.
   bool LayoutFields(const RecordDecl *D);
 
@@ -201,8 +201,9 @@ public:
 }
 
 void CGRecordLayoutBuilder::Layout(const RecordDecl *D) {
-  Alignment = Types.getContext().getASTRecordLayout(D).getAlignment();
-  Packed = D->hasAttr<PackedAttr>();
+  const ASTRecordLayout &Layout = Types.getContext().getASTRecordLayout(D);
+  Alignment = Layout.getAlignment();
+  Packed = D->hasAttr<PackedAttr>() || Layout.getSize() % Alignment != 0;
 
   if (D->isUnion()) {
     LayoutUnion(D);
