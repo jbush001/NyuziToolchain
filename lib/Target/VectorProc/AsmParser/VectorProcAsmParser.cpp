@@ -1,3 +1,12 @@
+//===-- VectorProcAsmParser.cpp - Parse VectorProc assembly to MCInst instructions ------===//
+//
+//                     The LLVM Compiler Infrastructure
+//
+// This file is distributed under the University of Illinois Open Source
+// License. See LICENSE.TXT for details.
+//
+//===----------------------------------------------------------------------===//
+
 #include "MCTargetDesc/VectorProcMCTargetDesc.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/MC/MCParser/MCAsmLexer.h"

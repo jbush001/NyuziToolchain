@@ -22,17 +22,6 @@
 
 namespace llvm {
 
-/// SPII - This namespace holds all of the target specific flags that
-/// instruction info tracks.
-///
-namespace SPII {
-  enum {
-    Pseudo = (1<<0),
-    Load = (1<<1),
-    Store = (1<<2)
-  };
-}
-
 class VectorProcInstrInfo : public VectorProcGenInstrInfo {
   const VectorProcRegisterInfo RI;
 public:

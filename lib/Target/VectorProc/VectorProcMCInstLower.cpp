@@ -134,12 +134,12 @@ void VectorProcMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
 		OutMI.addOperand(LowerOperand(MI->getOperand(0)));	// result
 	
 		const MachineOperand &cpEntry = MI->getOperand(1);
+
 		// This is a PC relative constant pool access.  Add the PC register 
 		// to this instruction to match what the assembly parser produces
 		// (and InstPrinter/Encoder expects)
 		// It should look like this:
 		// <MCInst #97 LWi <MCOperand Reg:8> <MCOperand Reg:3> <MCOperand Expr:(foo)>>
-		//		
 		OutMI.addOperand(MCOperand::CreateReg(VectorProc::PC_REG));
 	    const MCSymbol *Symbol;
 	    if (MI->getOperand(1).getType() == MachineOperand::MO_ConstantPoolIndex)

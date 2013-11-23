@@ -506,7 +506,7 @@ let Defs = [SP_REG], Uses = [SP_REG], hasSideEffects = 1 in {
 
 // Note: Unlike other branches, call is not a terminator: it does not end a 
 // basic block.
-let isCall = 1, Defs = [S0, S1, S2, S3, S4, LINK_REG ] in {
+let isCall = 1, Defs = [ LINK_REG ] in {
 	def CALLSYM : UnconditionalBranchInst<
 		(outs), 
 		(ins calltarget:$dest, variable_ops),
