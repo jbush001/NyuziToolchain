@@ -524,7 +524,11 @@ VectorProcTargetLowering::isShuffleMaskLegal(const SmallVectorImpl<int> &M, EVT 
 }
 
 //
-// Look for patterns that built splats
+// Look for patterns that built splats.  isShuffleMaskLegal should ensure this will only be 
+// called with splat masks, but I don't know if there are edge cases where it will
+// still be called.  Perhaps need to check explicitly (note that the shuffle mask doesn't
+// appear to be an operand, but must be accessed by casting the SDNode and using a separate
+// accessor).
 //
 SDValue
 VectorProcTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) const 
@@ -532,19 +536,13 @@ VectorProcTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) con
 	MVT VT = Op.getValueType().getSimpleVT();
 	SDLoc dl(Op);
 
-	// isShuffleMaskLegal should prevent this from being called inappropriately.
-	assert(ISD::isBuildVectorAllZeros(Op.getOperand(2).getNode()) && "non-zero build vector");
-
 	// Using shufflevector to build a splat like this:
 	// %vector = shufflevector <16 x i32> %single, <16 x i32> (don't care), 
     //                       <16 x i32> zeroinitializer
 	
 	// %single = insertelement <16 x i32> (don't care), i32 %value, i32 0 
-	if (Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT
-		&& isZero(Op.getOperand(0).getOperand(2)))
-	{
+	if (Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT)
 		return DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(0).getOperand(1));
-	}
 
 	// %single = scalar_to_vector i32 %b
 	if (Op.getOperand(0).getOpcode() == ISD::SCALAR_TO_VECTOR)
