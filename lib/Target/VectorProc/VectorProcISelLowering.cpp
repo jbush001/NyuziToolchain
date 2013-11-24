@@ -541,7 +541,8 @@ VectorProcTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op, SelectionDAG &DAG) con
     //                       <16 x i32> zeroinitializer
 	
 	// %single = insertelement <16 x i32> (don't care), i32 %value, i32 0 
-	if (Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT)
+	if (Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT
+		&& isZero(Op.getOperand(0).getOperand(2)))
 		return DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(0).getOperand(1));
 
 	// %single = scalar_to_vector i32 %b
