@@ -46,7 +46,6 @@ class VectorProcAsmParser : public MCTargetAsmParser {
                 SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
   bool ParseDirective(AsmToken DirectiveID);
-  bool parseDirectiveWord(unsigned Size, SMLoc L);
 
   bool ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, StringRef Name);
 
@@ -465,40 +464,9 @@ ParseInstruction(ParseInstructionInfo &Info,
 	return false;
 }
 
-/// parseDirectiveWord
-///  ::= .word [ expression (, expression)* ]
-bool VectorProcAsmParser::parseDirectiveWord(unsigned Size, SMLoc L) {
-  if (getLexer().isNot(AsmToken::EndOfStatement)) {
-    for (;;) {
-      const MCExpr *Value;
-      if (getParser().parseExpression(Value))
-        return true;
 
-      getParser().getStreamer().EmitValue(Value, Size);
-
-      if (getLexer().is(AsmToken::EndOfStatement))
-        break;
-
-      if (getLexer().isNot(AsmToken::Comma))
-        return Error(L, "unexpected token in directive");
-
-      Parser.Lex();
-    }
-  }
-
-  Parser.Lex();
-  return false;
-}
-
-// XXX probably not needed, there is a standard directive (.long). Remove.
 bool VectorProcAsmParser::
 ParseDirective(AsmToken DirectiveID) {
-  StringRef IDVal = DirectiveID.getString();
-  if (IDVal == ".word") {
-    parseDirectiveWord(4, DirectiveID.getLoc());
-    return false;
-  }
-
   return true;
 }
 

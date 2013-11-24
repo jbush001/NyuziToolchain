@@ -10,5 +10,5 @@ call memcpy
 	; CHECK: 4 R_VECTORPROC_BRANCH memcpy
 call exit
 	; CHECK: 8 R_VECTORPROC_BRANCH exit
-.word ioctl
+.long ioctl
 	; CHECK: 12 R_VECTORPROC_ABS32 ioctl
