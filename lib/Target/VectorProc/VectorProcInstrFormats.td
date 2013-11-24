@@ -575,13 +575,13 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
 	}
 }
 
-multiclass IntCompareInst<string operator, string opsign, CondCode condition, 
+multiclass IntCompareInst<string operator, CondCode condition, 
 	bits<6> opcode, Intrinsic vectorIntr> {
 	// Instruction format A, integer
 	def SSS : FormatAUnmaskedTwoOpInst<
 		(outs ScalarReg:$dest), 
 		(ins ScalarReg:$src1, ScalarReg:$src2),
-		operator # "_" # opsign # " $dest, $src1, $src2",
+		operator # " $dest, $src1, $src2",
 		[(set i32:$dest, (setcc i32:$src1, i32:$src2, condition))],
 		opcode,
 		FmtA_SSS>;
@@ -589,7 +589,7 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition,
 	def VVV : FormatAUnmaskedTwoOpInst<
 		(outs ScalarReg:$dest), 
 		(ins VectorReg:$src1, VectorReg:$src2),
-		operator # "_" # opsign # " $dest, $src1, $src2",
+		operator # " $dest, $src1, $src2",
 		[(set i32:$dest, (vectorIntr v16i32:$src1, v16i32:$src2))],
 		opcode,
 		FmtA_VVV>;
@@ -597,7 +597,7 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition,
 	def VVS : FormatAUnmaskedTwoOpInst<
 		(outs ScalarReg:$dest), 
 		(ins VectorReg:$src1, ScalarReg:$src2),
-		operator # "_" # opsign # " $dest, $src1, $src2",
+		operator # " $dest, $src1, $src2",
 		[(set i32:$dest, (vectorIntr v16i32:$src1, (splat i32:$src2)))],
 		opcode,
 		FmtA_VVS>;
@@ -606,7 +606,7 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition,
 	def SSI : FormatBUnmaskedInst<
 		(outs ScalarReg:$dest), 
 		(ins ScalarReg:$src1, i32imm:$imm),
-		operator # "_" # opsign # " $dest, $src1, $imm",
+		operator # " $dest, $src1, $imm",
 		[(set i32:$dest, (setcc i32:$src1, simm13:$imm, condition))],
 		opcode{4-0},
 		FmtB_SS>;
@@ -614,7 +614,7 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition,
 	def VVI : FormatBUnmaskedInst<
 		(outs ScalarReg:$dest), 
 		(ins VectorReg:$src1, i32imm:$imm),
-		operator # "_" # opsign # " $dest, $src1, $imm",
+		operator # " $dest, $src1, $imm",
 		[(set i32:$dest, (vectorIntr v16i32:$src1, (splat simm13:$imm)))],
 		opcode{4-0},
 		FmtB_VV>;
@@ -622,7 +622,7 @@ multiclass IntCompareInst<string operator, string opsign, CondCode condition,
 	def VSI : FormatBUnmaskedInst<
 		(outs ScalarReg:$dest), 
 		(ins ScalarReg:$src1, i32imm:$imm),
-		operator # "_" # opsign # " $dest, $src1, $imm",
+		operator # " $dest, $src1, $imm",
 		[(set i32:$dest, (vectorIntr (splat i32:$src1), (splat simm13:$imm)))],
 		opcode{4-0},
 		FmtB_VS>;
