@@ -4,26 +4,11 @@ This is a port of LLVM and the clang compiler to an experimental GPGPU architect
 * This requires a newer version of a compiler that supports c++11.  Upgrade your host compiler if necessary.
 * cmake must be installed. This is available for most Linux distros and can be installed automatically using the standard package manager (apt-get, yum, etc).  Sources are available here:  http://www.cmake.org/
 
-Create a build directory from within the top level directory of this project:
+Configure and build using the following commands
 <pre>
 > mkdir build
 > cd build
-</pre>
-
-Configure:
-
-__MacOS__
-<pre>
-> cmake -DCMAKE_CXX_FLAGS="-std=c++11 -stdlib=libc++"  ..
-</pre>
-
-__Linux/GCC__
-<pre>
-> cmake -DCMAKE_CXX_FLAGS="-std=c++0x"  ..
-</pre>
-
-Build and install
-<pre>
+> cmake ..
 > make
 > sudo make install
 </pre>

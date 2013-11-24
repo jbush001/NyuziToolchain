@@ -3,11 +3,19 @@
 project(LLVM)
 cmake_minimum_required(VERSION 2.8)
 
-IF(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-SET(CMAKE_INSTALL_PREFIX
-"/usr/local/llvm-vectorproc/" CACHE PATH "LLVM-GPGPU install prefix" FORCE
-)
-ENDIF(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+	set(CMAKE_INSTALL_PREFIX
+		"/usr/local/llvm-vectorproc/" CACHE PATH "LLVM-GPGPU install prefix" FORCE
+	)
+endif()
+
+# Need to enable C++11 for LLD. Set appropriate compiler specific flags.
+if (CMAKE_COMPILER_IS_GNUCXX)
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
+elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -stdlib=libc++" )
+endif()
+
 
 # Add path for custom modules
 set(CMAKE_MODULE_PATH
