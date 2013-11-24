@@ -9,12 +9,12 @@ define <16 x i32> @somefunc(i32 %a, <16 x i32> %b, <16 x i32> %c, <16 x i32> %d,
 
 	%result = alloca <16 x i32>
 	
-	%1 = add <16 x i32> %b, %c ; CHECK: add.i [[RES1:v[0-9]+]], v0, v1
-	%2 = add <16 x i32> %1, %d ; CHECK: add.i [[RES2:v[0-9]+]], [[RES1]], v2
-	%3 = add <16 x i32> %2, %e ; CHECK: add.i [[RES3:v[0-9]+]], [[RES2]], v3
-	%4 = add <16 x i32> %3, %f ; CHECK: add.i [[RES4:v[0-9]+]], [[RES3]], v4
-	%5 = add <16 x i32> %4, %g ; CHECK: add.i [[RES5:v[0-9]+]], [[RES4]], v5
-	%6 = add <16 x i32> %5, %h ; CHECK: add.i [[RES5:v[0-9]+]], [[RES4]], v6
+	%1 = add <16 x i32> %b, %c ; CHECK: add_i [[RES1:v[0-9]+]], v0, v1
+	%2 = add <16 x i32> %1, %d ; CHECK: add_i [[RES2:v[0-9]+]], [[RES1]], v2
+	%3 = add <16 x i32> %2, %e ; CHECK: add_i [[RES3:v[0-9]+]], [[RES2]], v3
+	%4 = add <16 x i32> %3, %f ; CHECK: add_i [[RES4:v[0-9]+]], [[RES3]], v4
+	%5 = add <16 x i32> %4, %g ; CHECK: add_i [[RES5:v[0-9]+]], [[RES4]], v5
+	%6 = add <16 x i32> %5, %h ; CHECK: add_i [[RES5:v[0-9]+]], [[RES4]], v6
 	
 	ret <16 x i32> %6
 }

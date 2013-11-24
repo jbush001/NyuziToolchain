@@ -12,7 +12,7 @@ define <16 x i32> @test1(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: tes
 	%sum = add <16 x i32> %a, %b
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %mask, <16 x i32> %sum, <16 x i32> %a)
 
-	; CHECK: add.i.mask v0, s0, v0, v1
+	; CHECK: add_i_mask v0, s0, v0, v1
 
 	ret <16 x i32> %c
 }
@@ -23,7 +23,7 @@ define <16 x i32> @test2(i32 %mask, <16 x i32> %a, <16 x i32> %b) { ; CHECK: tes
 	%notmask = xor i32 %mask, -1
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %notmask, <16 x i32> %sum, <16 x i32> %a)
 
-	; CHECK: add.i.invmask v0, s0, v0, v1
+	; CHECK: add_i_invmask v0, s0, v0, v1
 
 	ret <16 x i32> %c
 }
@@ -36,7 +36,7 @@ define <16 x i32> @test3(i32 %mask, <16 x i32> %a, i32 %b) {	; CHECK: test3
 	%sum = add <16 x i32> %a, %splat
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %mask, <16 x i32> %sum, <16 x i32> %a)
 
-	; CHECK: add.i.mask v0, s0, v0, s1
+	; CHECK: add_i_mask v0, s0, v0, s1
 
 	ret <16 x i32> %c
 }
@@ -50,7 +50,7 @@ define <16 x i32> @test4(i32 %mask, <16 x i32> %a, i32 %b) {	; CHECK: test4
 	%notmask = xor i32 %mask, -1
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %notmask, <16 x i32> %sum, <16 x i32> %a)
 
-	; CHECK: add.i.invmask v0, s0, v0, s1
+	; CHECK: add_i_invmask v0, s0, v0, s1
 
 	ret <16 x i32> %c
 }
@@ -61,7 +61,7 @@ define <16 x i32> @test5(i32 %mask, <16 x i32> %a, <16 x i32> %b) { ; CHECK: tes
 	    i32 48, i32 48, i32 48, i32 48, i32 48, i32 48, i32 48, i32 48, i32 48>
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %mask, <16 x i32> %sum, <16 x i32> %a)
 
-	; CHECK: add.i.mask v0, s0, v0, 48
+	; CHECK: add_i_mask v0, s0, v0, 48
 
 	ret <16 x i32> %c
 }
@@ -73,7 +73,7 @@ define <16 x i32> @test6(i32 %mask, <16 x i32> %a, <16 x i32> %b) { ; CHECK: tes
 	%notmask = xor i32 %mask, -1
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %notmask, <16 x i32> %sum, <16 x i32> %a)
 
-	; CHECK: add.i.invmask v0, s0, v0, 48
+	; CHECK: add_i_invmask v0, s0, v0, 48
 
 	ret <16 x i32> %c
 }
@@ -88,7 +88,7 @@ define <16 x i32> @test7(i32 %mask, i32 %a, <16 x i32> %b) {	; CHECK: test7:
 
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %mask, <16 x i32> %sum, <16 x i32> %b)
 
-	; CHECK: add.i.mask v0, s0, s1, 48
+	; CHECK: add_i_mask v0, s0, s1, 48
 
 	ret <16 x i32> %c
 }
@@ -103,7 +103,7 @@ define <16 x i32> @test8(i32 %mask, i32 %a, <16 x i32> %b) {	; CHECK: test8:
 	%notmask = xor i32 %mask, -1
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %notmask, <16 x i32> %sum, <16 x i32> %b)
 
-	; CHECK: add.i.invmask v0, s0, s1, 48
+	; CHECK: add_i_invmask v0, s0, s1, 48
 
 	ret <16 x i32> %c
 }
@@ -113,7 +113,7 @@ define <16 x float> @test9(i32 %mask, <16 x float> %a, <16 x float> %b) { ; CHEC
 	%sum = fadd <16 x float> %a, %b
 	%c = call <16 x float> @llvm.vectorproc.__builtin_vp_blendf(i32 %mask, <16 x float> %sum, <16 x float> %a)
 
-	; CHECK: add.f.mask v0, s0, v0, v1
+	; CHECK: add_f_mask v0, s0, v0, v1
 
 	ret <16 x float> %c
 }
@@ -124,7 +124,7 @@ define <16 x float> @test10(i32 %mask, <16 x float> %a, <16 x float> %b) { ; CHE
 	%notmask = xor i32 %mask, -1
 	%c = call <16 x float> @llvm.vectorproc.__builtin_vp_blendf(i32 %notmask, <16 x float> %sum, <16 x float> %a)
 
-	; CHECK: add.f.invmask v0, s0, v0, v1
+	; CHECK: add_f_invmask v0, s0, v0, v1
 
 	ret <16 x float> %c
 }
@@ -138,7 +138,7 @@ define <16 x float> @test11(i32 %mask, <16 x float> %a, float %b) { ; CHECK: tes
 
 	%c = call <16 x float> @llvm.vectorproc.__builtin_vp_blendf(i32 %mask, <16 x float> %sum, <16 x float> %a)
 
-	; CHECK: add.f.mask v0, s0, v0, s1
+	; CHECK: add_f_mask v0, s0, v0, s1
 
 	ret <16 x float> %c
 }
@@ -153,7 +153,7 @@ define <16 x float> @test12(i32 %mask, <16 x float> %a, float %b) { ; CHECK: tes
 
 	%c = call <16 x float> @llvm.vectorproc.__builtin_vp_blendf(i32 %notmask, <16 x float> %sum, <16 x float> %a)
 
-	; CHECK: add.f.invmask v0, s0, v0, s1
+	; CHECK: add_f_invmask v0, s0, v0, s1
 
 	ret <16 x float> %c
 }
@@ -163,7 +163,7 @@ define <16 x i32> @test13(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: te
 	%res = call <16 x i32> @llvm.ctlz.v16i32(<16 x i32> %b, i1 0)
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %mask, <16 x i32> %res, <16 x i32> %a)
 
-	; CHECK: clz.mask v0, s0, v1
+	; CHECK: clz_mask v0, s0, v1
 
 	ret <16 x i32> %c
 }
@@ -174,7 +174,7 @@ define <16 x i32> @test14(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: te
 	%notmask = xor i32 %mask, -1
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %notmask, <16 x i32> %res, <16 x i32> %a)
 
-	; CHECK: clz.invmask v0, s0, v1
+	; CHECK: clz_invmask v0, s0, v1
 
 	ret <16 x i32> %c
 }
@@ -188,7 +188,7 @@ define <16 x i32> @test15(i32 %mask, <16 x i32> %a, i32 %b) {	; CHECK: test15
 	%res = call <16 x i32> @llvm.ctlz.v16i32(<16 x i32> %splat, i1 0)
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %mask, <16 x i32> %res, <16 x i32> %a)
 
-	; CHECK: clz.mask v0, s0, s1
+	; CHECK: clz_mask v0, s0, s1
 
 	ret <16 x i32> %c
 }
@@ -203,7 +203,7 @@ define <16 x i32> @test16(i32 %mask, <16 x i32> %a, i32 %b) {	; CHECK: test15
 	%notmask = xor i32 %mask, -1
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %notmask, <16 x i32> %res, <16 x i32> %a)
 
-	; CHECK: clz.invmask v0, s0, s1
+	; CHECK: clz_invmask v0, s0, s1
 
 	ret <16 x i32> %c
 }
@@ -212,7 +212,7 @@ define <16 x i32> @test16(i32 %mask, <16 x i32> %a, i32 %b) {	; CHECK: test15
 define <16 x i32> @test17(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: test17
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %mask, <16 x i32> %a, <16 x i32> %b)
 
-	; CHECK: move.mask v{{[0-9]+}}, s0, v0
+	; CHECK: move_mask v{{[0-9]+}}, s0, v0
 
 	ret <16 x i32> %c
 }
@@ -222,7 +222,7 @@ define <16 x i32> @test18(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: te
 	%notmask = xor i32 %mask, -1
 	%c = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %notmask, <16 x i32> %a, <16 x i32> %b)
 
-	; CHECK: move.invmask v{{[0-9]+}}, s0, v0
+	; CHECK: move_invmask v{{[0-9]+}}, s0, v0
 
 	ret <16 x i32> %c
 }
@@ -235,7 +235,7 @@ define <16 x i32> @test19(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: te
 	%shuffled = call <16 x i32> @llvm.vectorproc.__builtin_vp_shufflei(<16 x i32> %a, <16 x i32> %b)
 	%blended = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %mask, <16 x i32> %shuffled, <16 x i32> %a)
 
-	; CHECK: shuffle.mask v{{[0-9]+}}, s0, v0
+	; CHECK: shuffle_mask v{{[0-9]+}}, s0, v0
 
 	ret <16 x i32> %blended
 }
@@ -247,7 +247,7 @@ define <16 x i32> @test20(i32 %mask, <16 x i32> %a, <16 x i32> %b) {	; CHECK: te
 	%shuffled = call <16 x i32> @llvm.vectorproc.__builtin_vp_shufflei(<16 x i32> %a, <16 x i32> %b)
 	%blended = call <16 x i32> @llvm.vectorproc.__builtin_vp_blendi(i32 %notmask, <16 x i32> %shuffled, <16 x i32> %a)
 
-	; CHECK: shuffle.invmask v{{[0-9]+}}, s0, v0
+	; CHECK: shuffle_invmask v{{[0-9]+}}, s0, v0
 
 	ret <16 x i32> %blended
 }

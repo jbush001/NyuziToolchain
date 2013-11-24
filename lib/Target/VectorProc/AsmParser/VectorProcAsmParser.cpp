@@ -48,12 +48,13 @@ class VectorProcAsmParser : public MCTargetAsmParser {
   bool ParseDirective(AsmToken DirectiveID);
   bool parseDirectiveWord(unsigned Size, SMLoc L);
 
-  bool ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
-  bool ParseMemoryOperands(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool hasMask);
+  bool ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, StringRef Name);
 
   // Auto-generated instruction matching functions
 #define GET_ASSEMBLER_HEADER
 #include "VectorProcGenAsmMatcher.inc"
+
+  OperandMatchResultTy ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
 public:
   VectorProcAsmParser(MCSubtargetInfo &sti, MCAsmParser &_Parser,
@@ -137,6 +138,16 @@ public:
     return StringRef(Tok.Data, Tok.Length);
   }
 
+  unsigned getMemBase() const {
+    assert((Kind == k_Memory) && "Invalid access!");
+    return Mem.BaseReg;
+  }
+
+  const MCExpr *getMemOff() const {
+    assert((Kind == k_Memory) && "Invalid access!");
+    return Mem.Off;
+  }
+
   // Functions for testing operand type
   bool isReg() const { return Kind == Register; }
   bool isImm() const { return Kind == Immediate; }
@@ -163,9 +174,38 @@ public:
     addExpr(Inst, getImm());
   }
 
-  // FIXME: Implement this
-  void print(raw_ostream &OS) const {}
+  void addMemOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 2 && "Invalid number of operands!");
 
+    Inst.addOperand(MCOperand::CreateReg(getMemBase()));
+    const MCExpr *Expr = getMemOff();
+    addExpr(Inst, Expr);
+  }
+
+  void print(raw_ostream &OS) const {
+  	switch (Kind)
+	{
+		case Token:
+			OS << "Tok ";
+			OS.write(Tok.Data, Tok.Length);
+			break;
+		case Register:
+			OS << "Reg " << Reg.RegNum;
+			break;
+		case Immediate:
+			OS << "Imm ";
+			Imm.Val->print(OS);
+			break;
+		case Memory:
+			OS << "Mem " << Mem.BaseReg << " ";
+			if (Mem.Off)
+				Mem.Off->print(OS);
+			else
+				OS << "0";
+			
+			break;
+	}
+  }
 
   static VectorProcOperand *CreateToken(StringRef Str, SMLoc S) {
     VectorProcOperand *Op = new VectorProcOperand(Token);
@@ -190,6 +230,16 @@ public:
     Op->StartLoc = S;
     Op->EndLoc = E;
     return Op;
+  }
+  
+  static VectorProcOperand *CreateMem(unsigned BaseReg, const MCExpr *Offset, SMLoc S,
+  	SMLoc E) {
+    VectorProcOperand *Op = new VectorProcOperand(Memory);
+  	Op->Mem.BaseReg = BaseReg;
+	Op->Mem.Off = Offset;
+	Op->StartLoc = S;
+	Op->EndLoc = E;
+	return Op;
   }
 };
 } // end anonymous namespace.
@@ -228,7 +278,7 @@ MatchAndEmitInstruction(SMLoc IDLoc,
           ErrorLoc = IDLoc;
       }
 
-      return Error(IDLoc, "Invalid operand for instruction");
+      return Error(ErrorLoc, "Invalid operand for instruction");
   }
 
   llvm_unreachable("Unknown match type detected!");
@@ -275,8 +325,14 @@ VectorProcOperand *VectorProcAsmParser::ParseImmediate() {
 }
 
 bool VectorProcAsmParser::
-ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands) 
+ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, StringRef Mnemonic) 
 {
+	// Check if the current operand has a custom associated parser, if so, try to
+	// custom parse the operand, or fallback to the general approach.
+	OperandMatchResultTy ResTy = MatchOperandParserImpl(Operands, Mnemonic);
+	if (ResTy == MatchOperand_Success)
+		return false;
+		
 	VectorProcOperand *Op;
 	unsigned RegNo;
 
@@ -312,78 +368,61 @@ ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)
 	return true;
 }
 
-bool VectorProcAsmParser::
-ParseMemoryOperands(SmallVectorImpl<MCParsedAsmOperand*> &Operands, bool hasMask) 
+VectorProcAsmParser::OperandMatchResultTy VectorProcAsmParser::
+ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands) 
 {
-	VectorProcOperand *MaskOp = 0;
-	if (hasMask)
-	{
-		unsigned RegNo;
-		MaskOp = ParseRegister(RegNo);
-		if (getLexer().isNot(AsmToken::Comma))
-		{
-			Error(Parser.getTok().getLoc(), "missing ,");
-			return true;
-		}
-
-		getLexer().Lex();
-		Operands.push_back(MaskOp);
-	}
-
+	SMLoc S = Parser.getTok().getLoc();
 	if (getLexer().is(AsmToken::Identifier))
 	{
 		// PC relative memory label memory access
 		// load.32 s0, aLabel
 
 		const MCExpr *IdVal;
-		SMLoc S = Parser.getTok().getLoc();
 		if (getParser().parseExpression(IdVal))
-			return true;	// Bad identifier
+			return MatchOperand_ParseFail; // Bad identifier
 			
 		SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
 
-		// This will be turned into a PC relative load.  First push the
-		// PC register (31), then add the identifier, which will be fixed up
-		// later
-		Operands.push_back(VectorProcOperand::CreateReg(MatchRegisterName("pc"), S, E));
-		Operands.push_back(VectorProcOperand::CreateImm(IdVal, S, E));
-		return false;
+		// This will be turned into a PC relative load.
+		Operands.push_back(VectorProcOperand::CreateMem(MatchRegisterName("pc"), IdVal, S, E));
+        return MatchOperand_Success;
 	}
 
-	VectorProcOperand *OffsetOp;
+	const MCExpr *Offset;
 	if (getLexer().is(AsmToken::Integer))
-		OffsetOp = ParseImmediate();	// There is an offset 
+	{
+		if(getParser().parseExpression(Offset))
+  	        return MatchOperand_ParseFail;
+	}
 	else
-		OffsetOp = VectorProcOperand::CreateImm(0, Parser.getTok().getLoc(), Parser.getTok().getLoc()); 
-			// Offset is zero
+		Offset = NULL;
 
   	if (!getLexer().is(AsmToken::LParen)) 
   	{
 		Error(Parser.getTok().getLoc(), "bad memory operand, missing (");
-		return true;
+		return MatchOperand_ParseFail;
 	}
 
 	getLexer().Lex();
 	unsigned RegNo;
-	VectorProcOperand *RegOp = ParseRegister(RegNo);
-	if (!RegOp)
+	if (!ParseRegister(RegNo))
 	{
 		Error(Parser.getTok().getLoc(), "bad memory operand: invalid register");
-		return true;
+		return MatchOperand_ParseFail;
 	}
 
 	if (getLexer().isNot(AsmToken::RParen)) 
 	{
-		Error(Parser.getTok().getLoc(), "bad memory operand, missing (");
-		return true;
+		Error(Parser.getTok().getLoc(), "bad memory operand, missing )");
+		return MatchOperand_ParseFail;
 	}
 
 	getLexer().Lex();
 
-	Operands.push_back(RegOp);
-	Operands.push_back(OffsetOp);
+	SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+	Operands.push_back(VectorProcOperand::CreateMem(RegNo, Offset, S, E));
 
-	return false;
+	return MatchOperand_Success;
 }
 
 bool VectorProcAsmParser::
@@ -400,7 +439,7 @@ ParseInstruction(ParseInstructionInfo &Info,
 			Operands.push_back(VectorProcOperand::CreateToken(Name.substr(dotLoc),NameLoc));
 		else {
 			Operands.push_back(VectorProcOperand::CreateToken(Name.substr
-				(dotLoc, dotLoc2-dotLoc), NameLoc));
+				(dotLoc, dotLoc2 - dotLoc), NameLoc));
 			Operands.push_back(VectorProcOperand::CreateToken(Name.substr
 				(dotLoc2), NameLoc));
 		}
@@ -410,40 +449,19 @@ ParseInstruction(ParseInstructionInfo &Info,
 	if (getLexer().is(AsmToken::EndOfStatement))
 		return false;
 
-	// Parse first operand (usually the destination of the instruction)
-	if (ParseOperand(Operands))
-		return true;
-
-	if (stem == "load" || stem == "store")
+	// parse operands
+	for (;;)
 	{
-		if (getLexer().is(AsmToken::EndOfStatement) 
-			|| getLexer().isNot(AsmToken::Comma)) 
-		{
-			Error(Parser.getTok().getLoc(), "bad memory operand, missing ,");
-			return true;	
-		}
-
-		getLexer().Lex(); // Consume comma token
-
-		bool hasMask = Name.find(".mask") != StringRef::npos;
-		if (ParseMemoryOperands(Operands, hasMask))
+		if (ParseOperand(Operands, stem))
 			return true;
-	}
-	else
-	{
-		// Parse until end of statement, consuming commas between operands
-		while (getLexer().isNot(AsmToken::EndOfStatement) 
-			&& getLexer().is(AsmToken::Comma)) 
-		{
-			// Consume comma token
-			getLexer().Lex();
 
-			// Parse next operand
-			if (ParseOperand(Operands))
-				return true;
-		}
+		if (getLexer().isNot(AsmToken::Comma))
+			break;
+		
+		// Consume comma token
+		getLexer().Lex();
 	}
-
+	
 	return false;
 }
 
@@ -472,6 +490,7 @@ bool VectorProcAsmParser::parseDirectiveWord(unsigned Size, SMLoc L) {
   return false;
 }
 
+// XXX probably not needed, there is a standard directive (.long). Remove.
 bool VectorProcAsmParser::
 ParseDirective(AsmToken DirectiveID) {
   StringRef IDVal = DirectiveID.getString();

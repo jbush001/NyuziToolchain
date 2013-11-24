@@ -11,7 +11,7 @@ define <16 x i32> @ivvs(<16 x i32> %a, i32 %b) { ; CHECK: ivvs:
 	%splat = shufflevector <16 x i32> %single, <16 x i32> undef, 
                            <16 x i32> zeroinitializer
 	%sum = add <16 x i32> %a, %splat
-	; CHECK: add.i v{{[0-9]+}}, v0, s0
+	; CHECK: add_i v{{[0-9]+}}, v0, s0
 	ret <16 x i32> %sum
 }
 
@@ -20,7 +20,7 @@ define <16 x i32> @ivvi(<16 x i32> %a) {	; CHECK: ivvi:
 	%sum = add <16 x i32> %a, <i32 48, i32 48, i32 48, i32 48, i32 48, i32 48, i32 48, 
 	    i32 48, i32 48, i32 48, i32 48, i32 48, i32 48, i32 48, i32 48, i32 48>
 
-	; CHECK: add.i v{{[0-9]+}}, v{{[0-9]+}}, 48
+	; CHECK: add_i v{{[0-9]+}}, v{{[0-9]+}}, 48
 	ret <16 x i32> %sum
 }
 
@@ -30,6 +30,6 @@ define <16 x float> @fvvs(<16 x float> %a, float %b) { ; CHECK: fvvs:
 	%splat = shufflevector <16 x float> %single, <16 x float> undef, 
                            <16 x i32> zeroinitializer
 	%sum = fadd <16 x float> %a, %splat
-	; CHECK: add.f v{{[0-9]+}}, v0, s0
+	; CHECK: add_f v{{[0-9]+}}, v0, s0
 	ret <16 x float> %sum
 }

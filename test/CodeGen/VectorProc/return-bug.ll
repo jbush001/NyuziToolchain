@@ -21,6 +21,6 @@ define void @_Z8printHexj(i32 %value) {
 
 ; CHECK: move s{{[0-9]+}}, 10
 ; CHECK: call _Z9printCharc
-; CHECK: load.32 link, {{[0-9]+}}(sp) 
+; CHECK: load_32 link, {{[0-9]+}}(sp) 
 
 }

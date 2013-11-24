@@ -19,23 +19,23 @@
 defm OR     : TwoOpIntArith<"or", or, 0x00>;
 defm AND    : TwoOpIntArith<"and", and, 0x01>;
 defm XOR    : TwoOpIntArith<"xor", xor, 0x03>;
-defm ADDI   : TwoOpIntArith<"add.i", add, 0x05>;
-defm SUBI   : TwoOpIntArith<"sub.i", sub, 0x06>;
-defm SMULI  : TwoOpIntArith  <"mul.i", mul, 0x07>;
+defm ADDI   : TwoOpIntArith<"add_i", add, 0x05>;
+defm SUBI   : TwoOpIntArith<"sub_i", sub, 0x06>;
+defm SMULI  : TwoOpIntArith  <"mul_i", mul, 0x07>;
 defm SRA    : TwoOpIntArith<"ashr", sra, 0x09>;	
 defm SRL    : TwoOpIntArith<"shr", srl, 0x0a>;
 defm SLL    : TwoOpIntArith<"shl", shl, 0x0b>;
 defm CLZ 	: OneOpIntArith<"clz", ctlz, 0x0c>;
 defm CTZ 	: OneOpIntArith<"ctz", cttz, 0x0e>;
-defm ADDF   : TwoOpFloatArith<"add.f", fadd, 0x20>;
-defm SUBF   : TwoOpFloatArith<"sub.f", fsub, 0x21>;
-defm MULF   : TwoOpFloatArith<"mul.f", fmul, 0x22>;
+defm ADDF   : TwoOpFloatArith<"add_f", fadd, 0x20>;
+defm SUBF   : TwoOpFloatArith<"sub_f", fsub, 0x21>;
+defm MULF   : TwoOpFloatArith<"mul_f", fmul, 0x22>;
 defm RECIP  : OneOpFloatArith<"reciprocal", reciprocal, 0x1c>;
 
 def SEXT16 : FormatAUnmaskedOneOpInst<
 		(outs ScalarReg:$dest), 
 		(ins ScalarReg:$src2),
-		"sext.16 $dest, $src2",
+		"sext_16 $dest, $src2",
 		[(set ScalarReg:$dest, (sext_inreg i32:$src2, i16))],
 		0x1e,
 		FmtA_SSS>;
@@ -43,7 +43,7 @@ def SEXT16 : FormatAUnmaskedOneOpInst<
 def SEXT8 : FormatAUnmaskedOneOpInst<
 		(outs ScalarReg:$dest), 
 		(ins ScalarReg:$src2),
-		"sext.8 $dest, $src2",
+		"sext_8 $dest, $src2",
 		[(set ScalarReg:$dest, (sext_inreg i32:$src2, i8))],
 		0x1d,
 		FmtA_SSS>;
@@ -131,7 +131,7 @@ let Constraints = "$dest = $oldvalue" in {
 	def SHUFFLEI_MASK : FormatAMaskedTwoOpInst<
 		(outs VectorReg:$dest),
 		(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
-		"shuffle.mask $dest, $mask, $src1, $src2",
+		"shuffle_mask $dest, $mask, $src1, $src2",
 		[(set v16i32:$dest, (int_vp_blendi i32:$mask, (int_vp_shufflei v16i32:$src1, 
 			v16i32:$src2), v16i32:$oldvalue))],
 		0x0d,
@@ -140,7 +140,7 @@ let Constraints = "$dest = $oldvalue" in {
 	def SHUFFLEI_MASKinv : FormatAMaskedTwoOpInst<
 		(outs VectorReg:$dest),
 		(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
-		"shuffle.invmask $dest, $mask, $src1, $src2",
+		"shuffle_invmask $dest, $mask, $src1, $src2",
 		[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), (int_vp_shufflei v16i32:$src1, 
 			v16i32:$src2), v16i32:$oldvalue))],
 		0x0d,
@@ -188,7 +188,7 @@ let Constraints = "$dest = $oldvalue" in {
 	def MOVEVVMI : FormatAMaskedOneOpInst<
 		(outs VectorReg:$dest),
 		(ins ScalarReg:$mask, VectorReg:$src2, VectorReg:$oldvalue),
-		"move.mask $dest, $mask, $src2",
+		"move_mask $dest, $mask, $src2",
 		[(set v16i32:$dest, (int_vp_blendi i32:$mask, v16i32:$src2, v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVVM>;
@@ -196,7 +196,7 @@ let Constraints = "$dest = $oldvalue" in {
 	def MOVEVVMIinv : FormatAMaskedOneOpInst<
 		(outs VectorReg:$dest),
 		(ins ScalarReg:$mask, VectorReg:$src2, VectorReg:$oldvalue),
-		"move.invmask $dest, $mask, $src2",
+		"move_invmask $dest, $mask, $src2",
 		[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), v16i32:$src2, v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVVMinv>;
@@ -204,7 +204,7 @@ let Constraints = "$dest = $oldvalue" in {
 	def MOVEVSMI : FormatAMaskedOneOpInst<
 		(outs VectorReg:$dest),
 		(ins ScalarReg:$mask, ScalarReg:$src2, VectorReg:$oldvalue),
-		"move.mask $dest, $mask, $src2",
+		"move_mask $dest, $mask, $src2",
 		[(set v16i32:$dest, (int_vp_blendi i32:$mask, (splat i32:$src2), v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVSM>;
@@ -212,7 +212,7 @@ let Constraints = "$dest = $oldvalue" in {
 	def MOVEVSMIinv : FormatAMaskedOneOpInst<
 		(outs VectorReg:$dest),
 		(ins ScalarReg:$mask, ScalarReg:$src2, VectorReg:$oldvalue),
-		"move.invmask $dest, $mask, $src2",
+		"move_invmask $dest, $mask, $src2",
 		[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), (splat i32:$src2), v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVSMinv>;
@@ -251,7 +251,7 @@ def : Pat<(store f32:$srcDest, ADDRri:$addr), (SW f32:$srcDest, ADDRri:$addr)>;
 def BLOCK_LOADI : FormatCUnmaskedInst<
 	(outs VectorReg:$srcDest),
 	(ins MEMri:$addr),
-	"load.v $srcDest, $addr",
+	"load_v $srcDest, $addr",
 	[(set v16i32:$srcDest, (load ADDRri:$addr))],
 	FmtC_Block,
 	1>;
@@ -259,7 +259,7 @@ def BLOCK_LOADI : FormatCUnmaskedInst<
 def BLOCK_STOREI : FormatCUnmaskedInst<
 	(outs),
 	(ins VectorReg:$srcDest, MEMri:$addr),
-	"store.v $srcDest, $addr",
+	"store_v $srcDest, $addr",
 	[(store v16i32:$srcDest, ADDRri:$addr)],
 	FmtC_Block,
 	0>
@@ -274,7 +274,7 @@ def : Pat<(store v16f32:$srcDest, ADDRri:$addr), (BLOCK_STOREI v16f32:$srcDest, 
 def INT_BLOCK_LOADI_MASKED : FormatCMaskedInst<
 	(outs VectorReg:$srcDest),
 	(ins MEMri:$addr, ScalarReg:$mask),
-	"load.v.mask $srcDest, $mask, $addr",
+	"load_v_mask $srcDest, $mask, $addr",
 	[(set v16i32:$srcDest, (int_vp_block_loadi_masked ADDRri:$addr, i32:$mask))],
 	FmtC_BlockMasked,
 	1>;
@@ -285,7 +285,7 @@ def : Pat<(int_vp_block_loadf_masked ADDRri:$addr, i32:$mask),
 def INT_GATHER_LOADI : FormatCUnmaskedInst<
 	(outs VectorReg:$srcDest),
 	(ins VMEMri:$addr),
-	"load.gath $srcDest, $addr",
+	"load_gath $srcDest, $addr",
 	[(set v16i32:$srcDest, (int_vp_gather_loadi VADDRri:$addr))],
 	FmtC_ScGath,
 	1>;
@@ -293,7 +293,7 @@ def INT_GATHER_LOADI : FormatCUnmaskedInst<
 def INT_GATHER_LOADI_MASKED : FormatCMaskedInst<
 	(outs VectorReg:$srcDest),
 	(ins VMEMri:$addr, ScalarReg:$mask),
-	"load.gath.mask $srcDest, $mask, $addr",
+	"load_gath_mask $srcDest, $mask, $addr",
 	[(set v16i32:$srcDest, (int_vp_gather_loadi_masked VADDRri:$addr, i32:$mask))],
 	FmtC_ScGathMasked,
 	1>;
@@ -306,7 +306,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 	def INT_SCATTER_STOREI : FormatCUnmaskedInst<
 		(outs),
 		(ins VectorReg:$srcDest, VMEMri:$addr),
-		"store.scat $srcDest, $addr",
+		"store_scat $srcDest, $addr",
 		[(int_vp_scatter_storei VADDRri:$addr, v16i32:$srcDest)],
 		FmtC_ScGath,
 		0>;
@@ -314,7 +314,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 	def INT_SCATTER_STOREI_MASKED : FormatCMaskedInst<
 		(outs),
 		(ins VectorReg:$srcDest, VMEMri:$addr, ScalarReg:$mask),
-		"store.scat.mask $srcDest, $mask, $addr",
+		"store_scat_mask $srcDest, $mask, $addr",
 		[(int_vp_scatter_storei_masked VADDRri:$addr, v16i32:$srcDest, i32:$mask)],
 		FmtC_ScGathMasked,
 		0>;
@@ -322,7 +322,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 	def INT_BLOCK_STOREI_MASKED : FormatCMaskedInst<
 		(outs),
 		(ins VectorReg:$srcDest, MEMri:$addr, ScalarReg:$mask),
-		"store.v.mask $srcDest, $mask, $addr",
+		"store_v_mask $srcDest, $mask, $addr",
 		[(int_vp_block_storei_masked ADDRri:$addr, v16i32:$srcDest, i32:$mask)],
 		FmtC_BlockMasked,
 		0>;
@@ -339,7 +339,7 @@ def : Pat<(int_vp_block_storef_masked ADDRri:$addr, v16f32:$srcDest, i32:$mask),
 def LOAD_SYNC : FormatCUnmaskedInst<
 	(outs ScalarReg:$srcDest),
 	(ins MEMri:$addr),
-	"load.sync $srcDest, $addr",
+	"load_sync $srcDest, $addr",
 	[],
 	FmtC_Sync,
 	1>;
@@ -347,7 +347,7 @@ def LOAD_SYNC : FormatCUnmaskedInst<
 def STORE_SYNC : FormatCUnmaskedInst<
 	(outs ScalarReg:$result),
 	(ins ScalarReg:$srcDest, MEMri:$addr),
-	"store.sync $srcDest, $addr	",
+	"store_sync $srcDest, $addr	",
 	[],
 	FmtC_Sync,
 	0>
@@ -458,7 +458,7 @@ let isTerminator = 1 in {
 	def JUMP_TABLE : VPInstruction<
 		(outs), 
 		(ins ScalarReg:$tableptr, ScalarReg:$jt),
-		"load.32 pc, ( $tableptr )",
+		"load_32 pc, ( $tableptr )",
 		[(BRjt i32:$tableptr, tjumptable:$jt)]>
 	{
 		let isBranch = 1;

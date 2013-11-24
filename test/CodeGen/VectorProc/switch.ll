@@ -12,7 +12,7 @@ entry:
   ]
 
   ; CHECK: lea s{{[0-9]+}}, LJTI  
-  ; CHECK: load.32 pc, 
+  ; CHECK: load_32 pc, 
 
 sw.bb: 
   %add = add nsw i32 %j, 1

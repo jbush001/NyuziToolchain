@@ -4,6 +4,6 @@
 	membar		; CHECK: encoding: [0x00,0x00,0x00,0xe8]
 	
 foo: .word bar
-	load.32 s4, foo		# CHECK: encoding: [0x9f,0bAAAAAA00,A,0b1010100A]
+	load_32 s4, foo		# CHECK: encoding: [0x9f,0bAAAAAA00,A,0b1010100A]
 		# CHECK: fixup A - offset: 0, value: foo, kind: fixup_VectorProc_PCRel_MemAccExt
 	

@@ -56,16 +56,16 @@ binaryOps = [
 	(0, 'or'),
 	(1, 'and'),
 	(3, 'xor'),
-	(5, 'add.i'),
-	(6, 'sub.i'),
-	(7, 'mul.i'),
-	# Not implemented (8, 'div.i')
+	(5, 'add_i'),
+	(6, 'sub_i'),
+	(7, 'mul_i'),
+	# Not implemented (8, 'div_i')
 	(9, 'ashr'),
 	(10, 'shr'),
 	(11, 'shl'),
-	(0x20, 'add.f'),
-	(0x21, 'sub.f'),
-	(0x22, 'mul.f'),
+	(0x20, 'add_f'),
+	(0x21, 'sub_f'),
+	(0x22, 'mul_f'),
 ]
 
 for opcode, mnemonic in binaryOps:
@@ -85,12 +85,12 @@ for opcode, mnemonic in binaryOps:
 		make_a_instruction(1, opcode, rega, regb, regc, 0))
 
 	# vector/vector/scalar masked
-	make_test_case(mnemonic + '.mask v' + str(rega) + ', s' + str(regm) 
+	make_test_case(mnemonic + '_mask v' + str(rega) + ', s' + str(regm) 
 		+ ', v' + str(regb) + ', s' + str(regc),
 		make_a_instruction(2, opcode, rega, regb, regc, regm))
 
 	# vector/vector/scalar invert mask
-	make_test_case(mnemonic + '.invmask v' + str(rega) + ', s' + str(regm) 
+	make_test_case(mnemonic + '_invmask v' + str(rega) + ', s' + str(regm) 
 		+ ', v' + str(regb) + ', s' + str(regc),
 		make_a_instruction(3, opcode, rega, regb, regc, regm))
 
@@ -100,16 +100,16 @@ for opcode, mnemonic in binaryOps:
 		make_a_instruction(4, opcode, rega, regb, regc, 0))
 
 	# vector/vector/vector masked
-	make_test_case(mnemonic + '.mask v' + str(rega) + ', s' + str(regm) 
+	make_test_case(mnemonic + '_mask v' + str(rega) + ', s' + str(regm) 
 		+ ', v' + str(regb) + ', v' + str(regc),
 		make_a_instruction(5, opcode, rega, regb, regc, regm))
 
 	# vector/vector/vector invert mask
-	make_test_case(mnemonic + '.invmask v' + str(rega) + ', s' + str(regm) 
+	make_test_case(mnemonic + '_invmask v' + str(rega) + ', s' + str(regm) 
 		+ ', v' + str(regb) + ', v' + str(regc),
 		make_a_instruction(6, opcode, rega, regb, regc, regm))
 
-	if mnemonic[-2:] == '.f':
+	if mnemonic[-2:] == '_f':
 		continue	# Can't do immediate for FP instructions
 
 	imm = random.randint(0, 255)
@@ -124,11 +124,11 @@ for opcode, mnemonic in binaryOps:
 		make_bprime_instruction(1, opcode, rega, regb, imm))
 
 	# vector/vector masked
-	make_test_case(mnemonic + '.mask v' + str(rega) + ', s' + str(regm) + ', v' + str(regb) + ', ' + str(imm),
+	make_test_case(mnemonic + '_mask v' + str(rega) + ', s' + str(regm) + ', v' + str(regb) + ', ' + str(imm),
 		make_b_instruction(2, opcode, rega, regb, imm, regm))
 
 	# vector/vector invert mask
-	make_test_case(mnemonic + '.invmask v' + str(rega) + ', s' + str(regm) + ', v' + str(regb) + ', ' + str(imm),
+	make_test_case(mnemonic + '_invmask v' + str(rega) + ', s' + str(regm) + ', v' + str(regb) + ', ' + str(imm),
 		make_b_instruction(3, opcode, rega, regb, imm, regm))
 
 	# vector/scalar
@@ -136,11 +136,11 @@ for opcode, mnemonic in binaryOps:
 		make_bprime_instruction(4, opcode, rega, regb, imm))
 
 	# vector/scalar masked
-	make_test_case(mnemonic + '.mask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb) + ', ' + str(imm),
+	make_test_case(mnemonic + '_mask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb) + ', ' + str(imm),
 		make_b_instruction(5, opcode, rega, regb, imm, regm))
 
 	# vector/scalar invert mask
-	make_test_case(mnemonic + '.invmask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb) + ', ' + str(imm),
+	make_test_case(mnemonic + '_invmask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb) + ', ' + str(imm),
 		make_b_instruction(6, opcode, rega, regb, imm, regm))
 
 unaryOps = [
@@ -152,8 +152,8 @@ unaryOps = [
 # These unary ops do not support all form
 #	(0x1b, 'ftoi'),
 #	(0x1c, 'reciprocal'),
-#	(0x1d, 'sext.8'),
-#	(0x1e, 'sext.16'),
+#	(0x1d, 'sext_8'),
+#	(0x1e, 'sext_16'),
 #	(0x2a, 'itof')
 
 for opcode, mnemonic in unaryOps:
@@ -170,11 +170,11 @@ for opcode, mnemonic in unaryOps:
 		make_a_instruction(1, opcode, rega, 0, regb, 0))
 
 	# Vector/Scalar Masked
-	make_test_case(mnemonic + '.mask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb),
+	make_test_case(mnemonic + '_mask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb),
 		make_a_instruction(2, opcode, rega, 0, regb, regm))
 
 	# Vector/Scalar Invert Mask
-	make_test_case(mnemonic + '.invmask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb),
+	make_test_case(mnemonic + '_invmask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb),
 		make_a_instruction(3, opcode, rega, 0, regb, regm))
 
 	# Vector/Vector
@@ -182,11 +182,11 @@ for opcode, mnemonic in unaryOps:
 		make_a_instruction(4, opcode, rega, 0, regb, 0))
 
 	# Vector/Vector masked	
-	make_test_case(mnemonic + '.mask v' + str(rega) + ', s' + str(regm) + ', v'
+	make_test_case(mnemonic + '_mask v' + str(rega) + ', s' + str(regm) + ', v'
 		+ str(regb), make_a_instruction(5, opcode, rega, 0, regb, regm))
 
 	# Vector/Vector invert mask	
-	make_test_case(mnemonic + '.invmask v' + str(rega) + ', s' + str(regm) + ', v'
+	make_test_case(mnemonic + '_invmask v' + str(rega) + ', s' + str(regm) + ', v'
 		+ str(regb), make_a_instruction(6, opcode, rega, 0, regb, regm))
 
 # XXX HACK: These instructions should support all forms, but this is here in the interim
@@ -194,26 +194,26 @@ for opcode, mnemonic in unaryOps:
 make_test_case('reciprocal s7, s9', make_a_instruction(0, 0x1c, 7, 0, 9, 0))
 
 make_test_case('shuffle v1, v2, v3', make_a_instruction(4, 0xd, 1, 2, 3, 0))
-make_test_case('shuffle.mask v1, s4, v2, v3', make_a_instruction(5, 0xd, 1, 2, 3, 4))
-make_test_case('shuffle.invmask v1, s4, v2, v3', make_a_instruction(6, 0xd, 1, 2, 3, 4))
+make_test_case('shuffle_mask v1, s4, v2, v3', make_a_instruction(5, 0xd, 1, 2, 3, 4))
+make_test_case('shuffle_invmask v1, s4, v2, v3', make_a_instruction(6, 0xd, 1, 2, 3, 4))
 
 make_test_case('getfield s4, v5, s6', make_a_instruction(1, 0x1a, 4, 5, 6, 0))
 
 # getfield with an immediate param should be supported, but isn't by compiler
 
 cmpOps = [
-	(0x12, 'gt.i'),
-	(0x13, 'ge.i'),
-	(0x14, 'lt.i'),
-	(0x15, 'le.i'),
-	(0x16, 'gt.u'),
-	(0x17, 'ge.u'),
-	(0x18, 'lt.u'),
-	(0x19, 'le.u'),
-	(0x2c, 'gt.f'),
-	(0x2d, 'ge.f'),
-	(0x2e, 'lt.f'),
-	(0x2f, 'le.f')
+	(0x12, 'gt_i'),
+	(0x13, 'ge_i'),
+	(0x14, 'lt_i'),
+	(0x15, 'le_i'),
+	(0x16, 'gt_u'),
+	(0x17, 'ge_u'),
+	(0x18, 'lt_u'),
+	(0x19, 'le_u'),
+	(0x2c, 'gt_f'),
+	(0x2d, 'ge_f'),
+	(0x2e, 'lt_f'),
+	(0x2f, 'le_f')
 ]
 
 for opcode, mnemonic in cmpOps:
@@ -226,7 +226,7 @@ for opcode, mnemonic in cmpOps:
 	make_test_case('set' + mnemonic + ' s' + str(rega) + ', v' + str(regb) + ', v' + str(regc),
 		make_a_instruction(4, opcode, rega, regb, regc, 0))
 
-	if mnemonic[-2:] == '.f':
+	if mnemonic[-2:] == '_f':
 		continue	# Can't do immediate for FP instructions
 			
 	imm = random.randint(0, 255)
@@ -239,40 +239,40 @@ for opcode, mnemonic in cmpOps:
 make_test_case('getfield s1, v2, s3 ', make_a_instruction(1, 0x1a, 1, 2, 3, 0))
 
 # Scalar load/stores
-make_test_case('load.u8 s10, 20(s5)', make_cprime_instruction(1, 0, 10, 5, 20))
-make_test_case('load.u8 s11, (s6)', make_cprime_instruction(1, 0, 11, 6, 0))
-make_test_case('load.s8 s10, 20(s5)', make_cprime_instruction(1, 1, 10, 5, 20))
-make_test_case('load.s8 s11, (s6)', make_cprime_instruction(1, 1, 11, 6, 0))
-make_test_case('load.u16 s12, 30(s7)', make_cprime_instruction(1, 2, 12, 7, 30))
-make_test_case('load.u16 s13, (s8)', make_cprime_instruction(1, 2, 13, 8, 0))
-make_test_case('load.s16 s12, 30(s7)', make_cprime_instruction(1, 3, 12, 7, 30))
-make_test_case('load.s16 s13, (s8)', make_cprime_instruction(1, 3, 13, 8, 0))
-make_test_case('load.32 s14, 40(s9)', make_cprime_instruction(1, 4, 14, 9, 40))
-make_test_case('load.32 s15, (s10)', make_cprime_instruction(1, 4, 15, 10, 0))
-make_test_case('store.8 s1, 50(s2)', make_cprime_instruction(0, 1, 1, 2, 50))
-make_test_case('store.16 s3, 60(s4)', make_cprime_instruction(0, 3, 3, 4, 60))
-make_test_case('store.32 s5, 70(s6)', make_cprime_instruction(0, 4, 5, 6, 70))
+make_test_case('load_u8 s10, 20(s5)', make_cprime_instruction(1, 0, 10, 5, 20))
+make_test_case('load_u8 s11, (s6)', make_cprime_instruction(1, 0, 11, 6, 0))
+make_test_case('load_s8 s10, 20(s5)', make_cprime_instruction(1, 1, 10, 5, 20))
+make_test_case('load_s8 s11, (s6)', make_cprime_instruction(1, 1, 11, 6, 0))
+make_test_case('load_u16 s12, 30(s7)', make_cprime_instruction(1, 2, 12, 7, 30))
+make_test_case('load_u16 s13, (s8)', make_cprime_instruction(1, 2, 13, 8, 0))
+make_test_case('load_s16 s12, 30(s7)', make_cprime_instruction(1, 3, 12, 7, 30))
+make_test_case('load_s16 s13, (s8)', make_cprime_instruction(1, 3, 13, 8, 0))
+make_test_case('load_32 s14, 40(s9)', make_cprime_instruction(1, 4, 14, 9, 40))
+make_test_case('load_32 s15, (s10)', make_cprime_instruction(1, 4, 15, 10, 0))
+make_test_case('store_8 s1, 50(s2)', make_cprime_instruction(0, 1, 1, 2, 50))
+make_test_case('store_16 s3, 60(s4)', make_cprime_instruction(0, 3, 3, 4, 60))
+make_test_case('store_32 s5, 70(s6)', make_cprime_instruction(0, 4, 5, 6, 70))
 
 # Block Vector load/stores
-make_test_case('load.v v2, 20(s5)', make_cprime_instruction(1, 7, 2, 5, 20))
-make_test_case('load.v v3, (s6)', make_cprime_instruction(1, 7, 3, 6, 0))
-make_test_case('store.v v2, 20(s5)', make_cprime_instruction(0, 7, 2, 5, 20))
-make_test_case('store.v v3, (s6)', make_cprime_instruction(0, 7, 3, 6, 0))
+make_test_case('load_v v2, 20(s5)', make_cprime_instruction(1, 7, 2, 5, 20))
+make_test_case('load_v v3, (s6)', make_cprime_instruction(1, 7, 3, 6, 0))
+make_test_case('store_v v2, 20(s5)', make_cprime_instruction(0, 7, 2, 5, 20))
+make_test_case('store_v v3, (s6)', make_cprime_instruction(0, 7, 3, 6, 0))
 
-make_test_case('load.v.mask v2, s7, 20(s5)', make_c_instruction(1, 8, 2, 5, 20, 7))
-make_test_case('load.v.mask v3, s7, (s6)', make_c_instruction(1, 8, 3, 6, 0, 7))
-make_test_case('store.v.mask v2, s7, 20(s5)', make_c_instruction(0, 8, 2, 5, 20, 7))
-make_test_case('store.v.mask v3, s7, (s6)', make_c_instruction(0, 8, 3, 6, 0, 7))
+make_test_case('load_v_mask v2, s7, 20(s5)', make_c_instruction(1, 8, 2, 5, 20, 7))
+make_test_case('load_v_mask v3, s7, (s6)', make_c_instruction(1, 8, 3, 6, 0, 7))
+make_test_case('store_v_mask v2, s7, 20(s5)', make_c_instruction(0, 8, 2, 5, 20, 7))
+make_test_case('store_v_mask v3, s7, (s6)', make_c_instruction(0, 8, 3, 6, 0, 7))
 
 # Scatter vector stores (partial)
-make_test_case('store.scat v2, (v5)', make_c_instruction(0, 0xd, 2, 5, 0, 0))
-make_test_case('store.scat.mask v3, s7, (v6)', make_c_instruction(0, 0xe, 3, 6, 0, 7))
+make_test_case('store_scat v2, (v5)', make_c_instruction(0, 0xd, 2, 5, 0, 0))
+make_test_case('store_scat_mask v3, s7, (v6)', make_c_instruction(0, 0xe, 3, 6, 0, 7))
 
 # Synchronized load/stores
-make_test_case('load.sync s2, 20(s5)', make_cprime_instruction(1, 5, 2, 5, 20))
-make_test_case('load.sync s3, (s6)', make_cprime_instruction(1, 5, 3, 6, 0))
-make_test_case('store.sync s2, 20(s5)', make_cprime_instruction(0, 5, 2, 5, 20))
-make_test_case('store.sync s3, (s6)', make_cprime_instruction(0, 5, 3, 6, 0))
+make_test_case('load_sync s2, 20(s5)', make_cprime_instruction(1, 5, 2, 5, 20))
+make_test_case('load_sync s3, (s6)', make_cprime_instruction(1, 5, 3, 6, 0))
+make_test_case('store_sync s2, 20(s5)', make_cprime_instruction(0, 5, 2, 5, 20))
+make_test_case('store_sync s3, (s6)', make_cprime_instruction(0, 5, 3, 6, 0))
 
 # XXX scatter/gather vector loads
 
