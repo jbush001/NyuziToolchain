@@ -432,7 +432,7 @@ namespace {
     bool Partial;
 
     /// The current position in the sequence.
-    Sequence Seq : 8;
+    Sequence Seq;
 
     /// Unidirectional information about the current sequence.
     RRInfo RRI;

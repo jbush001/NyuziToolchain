@@ -400,12 +400,12 @@ public:
   virtual const LinkingContext &getLinkingContext() const { return _context; }
 
 private:
-  friend NativeDefinedAtomV1;
-  friend NativeUndefinedAtomV1;
-  friend NativeSharedLibraryAtomV1;
-  friend NativeAbsoluteAtomV1;
-  friend NativeReferenceV1;
-  friend NativeReferenceV2;
+  friend class NativeDefinedAtomV1;
+  friend class NativeUndefinedAtomV1;
+  friend class NativeSharedLibraryAtomV1;
+  friend class NativeAbsoluteAtomV1;
+  friend class NativeReferenceV1;
+  friend class NativeReferenceV2;
 
   // instantiate array of DefinedAtoms from v1 ivar data in file
   error_code processDefinedAtomsV1(const uint8_t *base,
