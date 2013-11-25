@@ -35,29 +35,29 @@ class raw_ostream;
 class VectorProcAsmPrinter : public AsmPrinter {
   VectorProcMCInstLower MCInstLowering;
 public:
-	explicit VectorProcAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
-	: AsmPrinter(TM, Streamer),
-	 MCInstLowering(*this) 
-	{
-	}
+  explicit VectorProcAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
+    : AsmPrinter(TM, Streamer),
+      MCInstLowering(*this)
+  {
+  }
 
-	virtual const char *getPassName() const {
-		return "VectorProc Assembly Printer";
-	}
+  virtual const char *getPassName() const {
+    return "VectorProc Assembly Printer";
+  }
 
-	virtual void EmitInstruction(const MachineInstr *MI);
+  virtual void EmitInstruction(const MachineInstr *MI);
 
-	virtual MachineLocation getDebugValueLocation(const MachineInstr *MI) const;
-	virtual void EmitFunctionBodyStart();
-	virtual void EmitFunctionBodyEnd();
-	virtual void EmitConstantPool();
-	virtual void EmitInlineJumpTable(const MachineInstr *MI);
-  
-	// Print operand for inline assembly
-	bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
-		unsigned AsmVariant,
-		const char *ExtraCode,
-		raw_ostream &O);
+  virtual MachineLocation getDebugValueLocation(const MachineInstr *MI) const;
+  virtual void EmitFunctionBodyStart();
+  virtual void EmitFunctionBodyEnd();
+  virtual void EmitConstantPool();
+  virtual void EmitInlineJumpTable(const MachineInstr *MI);
+
+  // Print operand for inline assembly
+  bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+                       unsigned AsmVariant,
+                       const char *ExtraCode,
+                       raw_ostream &O);
 
 private:
   MCSymbol *GetJumpTableLabel(unsigned uid) const;

@@ -23,17 +23,17 @@ extern "C" void LLVMInitializeVectorProcTarget() {
 }
 
 VectorProcTargetMachine::VectorProcTargetMachine(const Target &T, StringRef TT,
-                                       StringRef CPU, StringRef FS,
-                                       const TargetOptions &Options,
-                                       Reloc::Model RM, CodeModel::Model CM,
-                                       CodeGenOpt::Level OL)
+    StringRef CPU, StringRef FS,
+    const TargetOptions &Options,
+    Reloc::Model RM, CodeModel::Model CM,
+    CodeGenOpt::Level OL)
   : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
     Subtarget(TT, CPU, FS),
     DL(Subtarget.getDataLayout()),
     InstrInfo(Subtarget),
     TLInfo(*this), TSInfo(*this),
     FrameLowering(Subtarget) {
-	initAsmInfo();
+  initAsmInfo();
 }
 
 namespace {
@@ -64,6 +64,6 @@ bool VectorProcPassConfig::addInstSelector() {
 /// addPreEmitPass - This pass may be implemented by targets that want to run
 /// passes immediately before machine code is emitted.  This should return
 /// true if -print-machineinstrs should print out the code after the passes.
-bool VectorProcPassConfig::addPreEmitPass(){
+bool VectorProcPassConfig::addPreEmitPass() {
   return true;
 }

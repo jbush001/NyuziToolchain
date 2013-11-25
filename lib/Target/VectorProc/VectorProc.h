@@ -20,11 +20,11 @@
 #include "llvm/Target/TargetMachine.h"
 
 namespace llvm {
-  class FunctionPass;
-  class VectorProcTargetMachine;
-  class formatted_raw_ostream;
+class FunctionPass;
+class VectorProcTargetMachine;
+class formatted_raw_ostream;
 
-  FunctionPass *createVectorProcISelDag(VectorProcTargetMachine &TM);
+FunctionPass *createVectorProcISelDag(VectorProcTargetMachine &TM);
 
 } // end namespace llvm;
 

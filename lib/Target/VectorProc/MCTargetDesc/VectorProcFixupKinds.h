@@ -14,25 +14,25 @@
 
 namespace llvm {
 namespace VectorProc {
-  // Although most of the current fixup types reflect a unique relocation
-  // one can have multiple fixup types for a given relocation and thus need
-  // to be uniquely named.
-  //
-  // This table *must* be in the save order of
-  // MCFixupKindInfo Infos[VectorProc::NumTargetFixupKinds]
-  // in VectorProcAsmBackend.cpp.
-  //
-  enum Fixups {
-    fixup_VectorProc_Abs32 = FirstTargetFixupKind,	// Pure 32-bit absolute fixup
-    fixup_VectorProc_PCRel_MemAccExt,	// PC relative offset for extended memory access
-    fixup_VectorProc_PCRel_MemAcc,		// PC relative offset for memory access
-    fixup_VectorProc_PCRel_Branch,		// PC relative for branch instruction
-    fixup_VectorProc_PCRel_ComputeLabelAddress, // For getting jump table addresses
+// Although most of the current fixup types reflect a unique relocation
+// one can have multiple fixup types for a given relocation and thus need
+// to be uniquely named.
+//
+// This table *must* be in the save order of
+// MCFixupKindInfo Infos[VectorProc::NumTargetFixupKinds]
+// in VectorProcAsmBackend.cpp.
+//
+enum Fixups {
+  fixup_VectorProc_Abs32 = FirstTargetFixupKind,	// Pure 32-bit absolute fixup
+  fixup_VectorProc_PCRel_MemAccExt,	// PC relative offset for extended memory access
+  fixup_VectorProc_PCRel_MemAcc,		// PC relative offset for memory access
+  fixup_VectorProc_PCRel_Branch,		// PC relative for branch instruction
+  fixup_VectorProc_PCRel_ComputeLabelAddress, // For getting jump table addresses
 
-    // Marker
-    LastTargetFixupKind,
-    NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind
-  };
+  // Marker
+  LastTargetFixupKind,
+  NumTargetFixupKinds = LastTargetFixupKind - FirstTargetFixupKind
+};
 } // namespace VectorProc
 } // namespace llvm
 

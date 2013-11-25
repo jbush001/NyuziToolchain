@@ -46,15 +46,15 @@ static MCRegisterInfo *createVectorProcMCRegisterInfo(StringRef TT) {
 }
 
 static MCSubtargetInfo *createVectorProcMCSubtargetInfo(StringRef TT, StringRef CPU,
-                                                   StringRef FS) {
+    StringRef FS) {
   MCSubtargetInfo *X = new MCSubtargetInfo();
   InitVectorProcMCSubtargetInfo(X, TT, CPU, FS);
   return X;
 }
 
 static MCCodeGenInfo *createVectorProcMCCodeGenInfo(StringRef TT, Reloc::Model RM,
-                                               CodeModel::Model CM,
-                                               CodeGenOpt::Level OL) {
+    CodeModel::Model CM,
+    CodeGenOpt::Level OL) {
   MCCodeGenInfo *X = new MCCodeGenInfo();
   X->InitMCCodeGenInfo(RM, CM, OL);
   return X;
@@ -65,11 +65,11 @@ static MCAsmInfo *createVectorProcMCAsmInfo(const MCRegisterInfo &MRI, StringRef
 }
 
 static MCStreamer *createVectorProcMCStreamer(const Target &T, StringRef TT,
-                                    MCContext &Ctx, MCAsmBackend &MAB,
-                                    raw_ostream &_OS,
-                                    MCCodeEmitter *_Emitter,
-                                    bool RelaxAll,
-                                    bool NoExecStack) {
+    MCContext &Ctx, MCAsmBackend &MAB,
+    raw_ostream &_OS,
+    MCCodeEmitter *_Emitter,
+    bool RelaxAll,
+    bool NoExecStack) {
   Triple TheTriple(TT);
   if (TheTriple.isOSDarwin()) {
     llvm_unreachable("VectorProc does not support Darwin MACH-O format");
@@ -82,11 +82,11 @@ static MCStreamer *createVectorProcMCStreamer(const Target &T, StringRef TT,
 }
 
 static MCInstPrinter *createVectorProcMCInstPrinter(const Target &T,
-                                              unsigned SyntaxVariant,
-                                              const MCAsmInfo &MAI,
-                                              const MCInstrInfo &MII,
-                                              const MCRegisterInfo &MRI,
-                                              const MCSubtargetInfo &STI) {
+    unsigned SyntaxVariant,
+    const MCAsmInfo &MAI,
+    const MCInstrInfo &MII,
+    const MCRegisterInfo &MRI,
+    const MCSubtargetInfo &STI) {
   return new VectorProcInstPrinter(MAI, MII, MRI);
 }
 
@@ -96,7 +96,7 @@ extern "C" void LLVMInitializeVectorProcTargetMC() {
 
   // Register the MC codegen info.
   TargetRegistry::RegisterMCCodeGenInfo(TheVectorProcTarget,
-                                       createVectorProcMCCodeGenInfo);
+                                        createVectorProcMCCodeGenInfo);
 
   // Register the MC instruction info.
   TargetRegistry::RegisterMCInstrInfo(TheVectorProcTarget, createVectorProcMCInstrInfo);
@@ -116,7 +116,7 @@ extern "C" void LLVMInitializeVectorProcTargetMC() {
 
   // Register the object streamer
   TargetRegistry::RegisterMCObjectStreamer(TheVectorProcTarget,
-                                           createVectorProcMCStreamer);
+      createVectorProcMCStreamer);
 
   // MC instruction printer
   TargetRegistry::RegisterMCInstPrinter(TheVectorProcTarget,

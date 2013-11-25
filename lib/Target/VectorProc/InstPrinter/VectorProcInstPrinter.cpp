@@ -32,7 +32,7 @@ void VectorProcInstPrinter::printRegName(raw_ostream &OS, unsigned RegNo) const 
 }
 
 void VectorProcInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
-                                StringRef Annot) {
+                                      StringRef Annot) {
 
   printInstruction(MI, O);
   printAnnotation(O, Annot);
@@ -66,12 +66,12 @@ static void printExpr(const MCExpr *Expr, raw_ostream &OS) {
 }
 
 void VectorProcInstPrinter::printCPURegs(const MCInst *MI, unsigned OpNo,
-                                   raw_ostream &O) {
+    raw_ostream &O) {
   printRegName(O, MI->getOperand(OpNo).getReg());
 }
 
 void VectorProcInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
-                                   raw_ostream &O) {
+    raw_ostream &O) {
   const MCOperand &Op = MI->getOperand(OpNo);
   if (Op.isReg()) {
     printRegName(O, Op.getReg());
@@ -88,7 +88,7 @@ void VectorProcInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
 }
 
 void VectorProcInstPrinter::printUnsignedImm(const MCInst *MI, int opNum,
-                                       raw_ostream &O) {
+    raw_ostream &O) {
   const MCOperand &MO = MI->getOperand(opNum);
   if (MO.isImm())
     O << (unsigned short int)MO.getImm();
@@ -97,25 +97,25 @@ void VectorProcInstPrinter::printUnsignedImm(const MCInst *MI, int opNum,
 }
 
 void VectorProcInstPrinter::
-printMemOperand(const MCInst *MI, int opNum, raw_ostream &O) 
+printMemOperand(const MCInst *MI, int opNum, raw_ostream &O)
 {
   if (MI->getOperand(opNum + 1).isExpr())
   {
-  	// PC relative memory access to a local label
-  	printOperand(MI, opNum + 1, O);
+    // PC relative memory access to a local label
+    printOperand(MI, opNum + 1, O);
   }
   else
   {
-      // Register/offset
-	  assert(MI->getOperand(opNum).isReg());
-	  assert(MI->getOperand(opNum + 1).isImm());
-  
-      if (MI->getOperand(opNum + 1).getImm())
-		  printOperand(MI, opNum+1, O);
+    // Register/offset
+    assert(MI->getOperand(opNum).isReg());
+    assert(MI->getOperand(opNum + 1).isImm());
 
-	  O << "(";
-	  printOperand(MI, opNum, O);
-	  O << ")";
+    if (MI->getOperand(opNum + 1).getImm())
+      printOperand(MI, opNum+1, O);
+
+    O << "(";
+    printOperand(MI, opNum, O);
+    O << ")";
   }
 }
 

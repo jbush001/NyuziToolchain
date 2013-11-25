@@ -20,7 +20,7 @@ using namespace llvm;
 
 void
 VectorProcTargetObjectFile::Initialize(MCContext &Ctx,
-                                         const TargetMachine &TM) {
+                                       const TargetMachine &TM) {
   TargetLoweringObjectFileELF::Initialize(Ctx, TM);
   InitializeELF(TM.Options.UseInitArray);
 }

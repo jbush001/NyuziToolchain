@@ -15,13 +15,13 @@
 #include "llvm/Support/Compiler.h"
 
 namespace llvm {
-  class MCContext;
-  class MCInst;
-  class MCOperand;
-  class MachineInstr;
-  class MachineFunction;
-  class Mangler;
-  class VectorProcAsmPrinter;
+class MCContext;
+class MCInst;
+class MCOperand;
+class MachineInstr;
+class MachineFunction;
+class Mangler;
+class VectorProcAsmPrinter;
 
 /// VectorProcMCInstLower - This class is used to lower an MachineInstr into an
 //                    MCInst.

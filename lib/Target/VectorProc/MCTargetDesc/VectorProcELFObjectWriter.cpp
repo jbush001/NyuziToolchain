@@ -16,49 +16,50 @@
 using namespace llvm;
 
 namespace {
-  class VectorProcELFObjectWriter : public MCELFObjectTargetWriter {
-  public:
-    VectorProcELFObjectWriter(uint8_t OSABI);
+class VectorProcELFObjectWriter : public MCELFObjectTargetWriter {
+public:
+  VectorProcELFObjectWriter(uint8_t OSABI);
 
-    virtual ~VectorProcELFObjectWriter();
-  protected:
-    virtual unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
-                                  bool IsPCRel, bool IsRelocWithSymbol,
-                                  int64_t Addend) const;
-  };
+  virtual ~VectorProcELFObjectWriter();
+protected:
+  virtual unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
+                                bool IsPCRel, bool IsRelocWithSymbol,
+                                int64_t Addend) const;
+};
 }
 
 VectorProcELFObjectWriter::VectorProcELFObjectWriter(uint8_t OSABI)
   : MCELFObjectTargetWriter(/*Is64Bit*/ false, OSABI, ELF::EM_VECTORPROC,
-                            /*HasRelocationAddend*/ true) {}
+                                      /*HasRelocationAddend*/ true) {}
 
 VectorProcELFObjectWriter::~VectorProcELFObjectWriter() {}
 
 unsigned VectorProcELFObjectWriter::GetRelocType(const MCValue &Target,
-                                           const MCFixup &Fixup,
-                                           bool IsPCRel,
-                                           bool IsRelocWithSymbol,
-                                           int64_t Addend) const 
+    const MCFixup &Fixup,
+    bool IsPCRel,
+    bool IsRelocWithSymbol,
+    int64_t Addend) const
 {
-	unsigned Type;
-	unsigned Kind = (unsigned)Fixup.getKind();
-	switch (Kind) {
-		default: llvm_unreachable("Invalid fixup kind!");
-		case FK_Data_4:
-		case VectorProc::fixup_VectorProc_Abs32:
-			Type = ELF::R_VECTORPROC_ABS32;
-			break;
-	
-		case VectorProc::fixup_VectorProc_PCRel_Branch:
-			Type = ELF::R_VECTORPROC_BRANCH;
-			break;
-	}
-	
-	return Type;
+  unsigned Type;
+  unsigned Kind = (unsigned)Fixup.getKind();
+  switch (Kind) {
+  default:
+    llvm_unreachable("Invalid fixup kind!");
+  case FK_Data_4:
+  case VectorProc::fixup_VectorProc_Abs32:
+    Type = ELF::R_VECTORPROC_ABS32;
+    break;
+
+  case VectorProc::fixup_VectorProc_PCRel_Branch:
+    Type = ELF::R_VECTORPROC_BRANCH;
+    break;
+  }
+
+  return Type;
 }
 
 MCObjectWriter *llvm::createVectorProcELFObjectWriter(raw_ostream &OS,
-                                                uint8_t OSABI) {
+    uint8_t OSABI) {
   MCELFObjectTargetWriter *MOTW = new VectorProcELFObjectWriter(OSABI);
   return createELFObjectWriter(MOTW, OS, true);
 }

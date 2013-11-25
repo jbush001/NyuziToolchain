@@ -25,8 +25,12 @@ struct VectorProcOperand;
 
 class VectorProcAsmParser : public MCTargetAsmParser {
   MCAsmParser &Parser;
-  MCAsmParser &getParser() const { return Parser; }
-  MCAsmLexer &getLexer() const { return Parser.getLexer(); }
+  MCAsmParser &getParser() const {
+    return Parser;
+  }
+  MCAsmLexer &getLexer() const {
+    return Parser.getLexer();
+  }
   MCSubtargetInfo &STI;
 
   bool MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
@@ -41,9 +45,9 @@ class VectorProcAsmParser : public MCTargetAsmParser {
   VectorProcOperand *ParseImmediate();
 
 
-  bool ParseInstruction(ParseInstructionInfo &Info, 
-				StringRef Name, SMLoc NameLoc,
-                SmallVectorImpl<MCParsedAsmOperand*> &Operands);
+  bool ParseInstruction(ParseInstructionInfo &Info,
+                        StringRef Name, SMLoc NameLoc,
+                        SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
   bool ParseDirective(AsmToken DirectiveID);
 
@@ -57,9 +61,9 @@ class VectorProcAsmParser : public MCTargetAsmParser {
 
 public:
   VectorProcAsmParser(MCSubtargetInfo &sti, MCAsmParser &_Parser,
-	  const MCInstrInfo &MII)
+                      const MCInstrInfo &MII)
     : MCTargetAsmParser(), Parser(_Parser), STI(sti) {
-      setAvailableFeatures(ComputeAvailableFeatures(STI.getFeatureBits()));
+    setAvailableFeatures(ComputeAvailableFeatures(STI.getFeatureBits()));
   }
 
 };
@@ -101,26 +105,30 @@ public:
     StartLoc = o.StartLoc;
     EndLoc = o.EndLoc;
     switch (Kind) {
-      case Register:
-        Reg = o.Reg;
-        break;
-      case Immediate:
-        Imm = o.Imm;
-        break;
-      case Token:
-        Tok = o.Tok;
-        break;
-      case Memory:
-        Mem = o.Mem;
-        break;
+    case Register:
+      Reg = o.Reg;
+      break;
+    case Immediate:
+      Imm = o.Imm;
+      break;
+    case Token:
+      Tok = o.Tok;
+      break;
+    case Memory:
+      Mem = o.Mem;
+      break;
     }
   }
 
   /// getStartLoc - Gets location of the first token of this operand
-  SMLoc getStartLoc() const { return StartLoc; }
+  SMLoc getStartLoc() const {
+    return StartLoc;
+  }
 
   /// getEndLoc - Gets location of the last token of this operand
-  SMLoc getEndLoc() const { return EndLoc; }
+  SMLoc getEndLoc() const {
+    return EndLoc;
+  }
 
   unsigned getReg() const {
     assert(Kind == Register && "Invalid type access!");
@@ -148,10 +156,18 @@ public:
   }
 
   // Functions for testing operand type
-  bool isReg() const { return Kind == Register; }
-  bool isImm() const { return Kind == Immediate; }
-  bool isToken() const { return Kind == Token; }
-  bool isMem() const { return Kind == Memory; }
+  bool isReg() const {
+    return Kind == Register;
+  }
+  bool isImm() const {
+    return Kind == Immediate;
+  }
+  bool isToken() const {
+    return Kind == Token;
+  }
+  bool isMem() const {
+    return Kind == Memory;
+  }
 
   void addExpr(MCInst &Inst, const MCExpr *Expr) const {
     // Add as immediates where possible. Null MCExpr = 0
@@ -182,28 +198,28 @@ public:
   }
 
   void print(raw_ostream &OS) const {
-  	switch (Kind)
-	{
-		case Token:
-			OS << "Tok ";
-			OS.write(Tok.Data, Tok.Length);
-			break;
-		case Register:
-			OS << "Reg " << Reg.RegNum;
-			break;
-		case Immediate:
-			OS << "Imm ";
-			Imm.Val->print(OS);
-			break;
-		case Memory:
-			OS << "Mem " << Mem.BaseReg << " ";
-			if (Mem.Off)
-				Mem.Off->print(OS);
-			else
-				OS << "0";
-			
-			break;
-	}
+    switch (Kind)
+    {
+    case Token:
+      OS << "Tok ";
+      OS.write(Tok.Data, Tok.Length);
+      break;
+    case Register:
+      OS << "Reg " << Reg.RegNum;
+      break;
+    case Immediate:
+      OS << "Imm ";
+      Imm.Val->print(OS);
+      break;
+    case Memory:
+      OS << "Mem " << Mem.BaseReg << " ";
+      if (Mem.Off)
+        Mem.Off->print(OS);
+      else
+        OS << "0";
+
+      break;
+    }
   }
 
   static VectorProcOperand *CreateToken(StringRef Str, SMLoc S) {
@@ -222,7 +238,7 @@ public:
     Op->EndLoc = E;
     return Op;
   }
-  
+
   static VectorProcOperand *CreateImm(const MCExpr *Val, SMLoc S, SMLoc E) {
     VectorProcOperand *Op = new VectorProcOperand(Immediate);
     Op->Imm.Val = Val;
@@ -230,15 +246,15 @@ public:
     Op->EndLoc = E;
     return Op;
   }
-  
+
   static VectorProcOperand *CreateMem(unsigned BaseReg, const MCExpr *Offset, SMLoc S,
-  	SMLoc E) {
+                                      SMLoc E) {
     VectorProcOperand *Op = new VectorProcOperand(Memory);
-  	Op->Mem.BaseReg = BaseReg;
-	Op->Mem.Off = Offset;
-	Op->StartLoc = S;
-	Op->EndLoc = E;
-	return Op;
+    Op->Mem.BaseReg = BaseReg;
+    Op->Mem.Off = Offset;
+    Op->StartLoc = S;
+    Op->EndLoc = E;
+    return Op;
   }
 };
 } // end anonymous namespace.
@@ -248,9 +264,9 @@ static unsigned MatchRegisterName(StringRef Name);
 
 bool VectorProcAsmParser::
 MatchAndEmitInstruction(SMLoc IDLoc,
-						unsigned &Opcode,
+                        unsigned &Opcode,
                         SmallVectorImpl<MCParsedAsmOperand*> &Operands,
-                        MCStreamer &Out, 
+                        MCStreamer &Out,
                         unsigned &ErrorInfo,
                         bool MatchingInlineAsm) {
   MCInst Inst;
@@ -258,26 +274,27 @@ MatchAndEmitInstruction(SMLoc IDLoc,
   SmallVector<std::pair< unsigned, std::string >, 4> MapAndConstraints;
 
   switch (MatchInstructionImpl(Operands, Inst, ErrorInfo, MatchingInlineAsm)) {
-    default: break;
-    case Match_Success:
-      Out.EmitInstruction(Inst);
-      return false;
-    case Match_MissingFeature:
-      return Error(IDLoc, "Instruction use requires option to be enabled");
-    case Match_MnemonicFail:
-      return Error(IDLoc, "Unrecognized instruction mnemonic");
-    case Match_InvalidOperand:
-      ErrorLoc = IDLoc;
-      if (ErrorInfo != ~0U) {
-        if (ErrorInfo >= Operands.size())
-          return Error(IDLoc, "Too few operands for instruction");
+  default:
+    break;
+  case Match_Success:
+    Out.EmitInstruction(Inst);
+    return false;
+  case Match_MissingFeature:
+    return Error(IDLoc, "Instruction use requires option to be enabled");
+  case Match_MnemonicFail:
+    return Error(IDLoc, "Unrecognized instruction mnemonic");
+  case Match_InvalidOperand:
+    ErrorLoc = IDLoc;
+    if (ErrorInfo != ~0U) {
+      if (ErrorInfo >= Operands.size())
+        return Error(IDLoc, "Too few operands for instruction");
 
-        ErrorLoc = ((VectorProcOperand*)Operands[ErrorInfo])->getStartLoc();
-        if (ErrorLoc == SMLoc())
-          ErrorLoc = IDLoc;
-      }
+      ErrorLoc = ((VectorProcOperand*)Operands[ErrorInfo])->getStartLoc();
+      if (ErrorLoc == SMLoc())
+        ErrorLoc = IDLoc;
+    }
 
-      return Error(ErrorLoc, "Invalid operand for instruction");
+    return Error(ErrorLoc, "Invalid operand for instruction");
   }
 
   llvm_unreachable("Unknown match type detected!");
@@ -293,13 +310,14 @@ VectorProcOperand *VectorProcAsmParser::ParseRegister(unsigned &RegNo) {
   SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() -1);
 
   switch(getLexer().getKind()) {
-    default: return 0;
-    case AsmToken::Identifier:
-      RegNo = MatchRegisterName(getLexer().getTok().getIdentifier());
-      if (RegNo == 0)
-        return 0;
-      getLexer().Lex();
-      return VectorProcOperand::CreateReg(RegNo, S, E);
+  default:
+    return 0;
+  case AsmToken::Identifier:
+    RegNo = MatchRegisterName(getLexer().getTok().getIdentifier());
+    if (RegNo == 0)
+      return 0;
+    getLexer().Lex();
+    return VectorProcOperand::CreateReg(RegNo, S, E);
   }
   return 0;
 }
@@ -310,158 +328,159 @@ VectorProcOperand *VectorProcAsmParser::ParseImmediate() {
 
   const MCExpr *EVal;
   switch(getLexer().getKind()) {
-    default: return 0;
-    case AsmToken::Plus:
-    case AsmToken::Minus:
-    case AsmToken::Integer:
-      if(getParser().parseExpression(EVal))
-        return 0;
+  default:
+    return 0;
+  case AsmToken::Plus:
+  case AsmToken::Minus:
+  case AsmToken::Integer:
+    if(getParser().parseExpression(EVal))
+      return 0;
 
-      int64_t ans;
-      EVal->EvaluateAsAbsolute(ans);
-      return VectorProcOperand::CreateImm(EVal, S, E);
+    int64_t ans;
+    EVal->EvaluateAsAbsolute(ans);
+    return VectorProcOperand::CreateImm(EVal, S, E);
   }
 }
 
 bool VectorProcAsmParser::
-ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, StringRef Mnemonic) 
+ParseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands, StringRef Mnemonic)
 {
-	// Check if the current operand has a custom associated parser, if so, try to
-	// custom parse the operand, or fallback to the general approach.
-	OperandMatchResultTy ResTy = MatchOperandParserImpl(Operands, Mnemonic);
-	if (ResTy == MatchOperand_Success)
-		return false;
-		
-	VectorProcOperand *Op;
-	unsigned RegNo;
+  // Check if the current operand has a custom associated parser, if so, try to
+  // custom parse the operand, or fallback to the general approach.
+  OperandMatchResultTy ResTy = MatchOperandParserImpl(Operands, Mnemonic);
+  if (ResTy == MatchOperand_Success)
+    return false;
 
-	// Attempt to parse token as register
-	Op = ParseRegister(RegNo);
-	if (Op)
-	{
-		Operands.push_back(Op);
-		return false;
-	}  	
-  
-	Op = ParseImmediate();
-	if (Op)
-	{
-		// Just an immediate
-		Operands.push_back(Op);
-		return false;
-	}
+  VectorProcOperand *Op;
+  unsigned RegNo;
 
-	// Identifier
-	const MCExpr *IdVal;
-	SMLoc S = Parser.getTok().getLoc();
-	if (!getParser().parseExpression(IdVal))
-	{
-		SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-		Op = VectorProcOperand::CreateImm(IdVal, S, E);
-		Operands.push_back(Op);
-		return false;
-	}
+  // Attempt to parse token as register
+  Op = ParseRegister(RegNo);
+  if (Op)
+  {
+    Operands.push_back(Op);
+    return false;
+  }
 
-	// Error
-	Error(Parser.getTok().getLoc(), "unknown operand");
-	return true;
+  Op = ParseImmediate();
+  if (Op)
+  {
+    // Just an immediate
+    Operands.push_back(Op);
+    return false;
+  }
+
+  // Identifier
+  const MCExpr *IdVal;
+  SMLoc S = Parser.getTok().getLoc();
+  if (!getParser().parseExpression(IdVal))
+  {
+    SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+    Op = VectorProcOperand::CreateImm(IdVal, S, E);
+    Operands.push_back(Op);
+    return false;
+  }
+
+  // Error
+  Error(Parser.getTok().getLoc(), "unknown operand");
+  return true;
 }
 
 VectorProcAsmParser::OperandMatchResultTy VectorProcAsmParser::
-ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands) 
+ParseMemoryOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands)
 {
-	SMLoc S = Parser.getTok().getLoc();
-	if (getLexer().is(AsmToken::Identifier))
-	{
-		// PC relative memory label memory access
-		// load.32 s0, aLabel
+  SMLoc S = Parser.getTok().getLoc();
+  if (getLexer().is(AsmToken::Identifier))
+  {
+    // PC relative memory label memory access
+    // load.32 s0, aLabel
 
-		const MCExpr *IdVal;
-		if (getParser().parseExpression(IdVal))
-			return MatchOperand_ParseFail; // Bad identifier
-			
-		SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+    const MCExpr *IdVal;
+    if (getParser().parseExpression(IdVal))
+      return MatchOperand_ParseFail; // Bad identifier
 
-		// This will be turned into a PC relative load.
-		Operands.push_back(VectorProcOperand::CreateMem(MatchRegisterName("pc"), IdVal, S, E));
-        return MatchOperand_Success;
-	}
+    SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
 
-	const MCExpr *Offset;
-	if (getLexer().is(AsmToken::Integer))
-	{
-		if(getParser().parseExpression(Offset))
-  	        return MatchOperand_ParseFail;
-	}
-	else
-		Offset = NULL;
+    // This will be turned into a PC relative load.
+    Operands.push_back(VectorProcOperand::CreateMem(MatchRegisterName("pc"), IdVal, S, E));
+    return MatchOperand_Success;
+  }
 
-  	if (!getLexer().is(AsmToken::LParen)) 
-  	{
-		Error(Parser.getTok().getLoc(), "bad memory operand, missing (");
-		return MatchOperand_ParseFail;
-	}
+  const MCExpr *Offset;
+  if (getLexer().is(AsmToken::Integer))
+  {
+    if(getParser().parseExpression(Offset))
+      return MatchOperand_ParseFail;
+  }
+  else
+    Offset = NULL;
 
-	getLexer().Lex();
-	unsigned RegNo;
-	if (!ParseRegister(RegNo))
-	{
-		Error(Parser.getTok().getLoc(), "bad memory operand: invalid register");
-		return MatchOperand_ParseFail;
-	}
+  if (!getLexer().is(AsmToken::LParen))
+  {
+    Error(Parser.getTok().getLoc(), "bad memory operand, missing (");
+    return MatchOperand_ParseFail;
+  }
 
-	if (getLexer().isNot(AsmToken::RParen)) 
-	{
-		Error(Parser.getTok().getLoc(), "bad memory operand, missing )");
-		return MatchOperand_ParseFail;
-	}
+  getLexer().Lex();
+  unsigned RegNo;
+  if (!ParseRegister(RegNo))
+  {
+    Error(Parser.getTok().getLoc(), "bad memory operand: invalid register");
+    return MatchOperand_ParseFail;
+  }
 
-	getLexer().Lex();
+  if (getLexer().isNot(AsmToken::RParen))
+  {
+    Error(Parser.getTok().getLoc(), "bad memory operand, missing )");
+    return MatchOperand_ParseFail;
+  }
 
-	SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-	Operands.push_back(VectorProcOperand::CreateMem(RegNo, Offset, S, E));
+  getLexer().Lex();
 
-	return MatchOperand_Success;
+  SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
+  Operands.push_back(VectorProcOperand::CreateMem(RegNo, Offset, S, E));
+
+  return MatchOperand_Success;
 }
 
 bool VectorProcAsmParser::
-ParseInstruction(ParseInstructionInfo &Info, 
-				StringRef Name, SMLoc NameLoc,
-                SmallVectorImpl<MCParsedAsmOperand*> &Operands) 
+ParseInstruction(ParseInstructionInfo &Info,
+                 StringRef Name, SMLoc NameLoc,
+                 SmallVectorImpl<MCParsedAsmOperand*> &Operands)
 {
-	size_t dotLoc = Name.find('.');
-	StringRef stem = Name.substr(0,dotLoc);
-	Operands.push_back(VectorProcOperand::CreateToken(stem,NameLoc));
-	if (dotLoc < Name.size()) {
-		size_t dotLoc2 = Name.rfind('.');
-		if (dotLoc == dotLoc2)
-			Operands.push_back(VectorProcOperand::CreateToken(Name.substr(dotLoc),NameLoc));
-		else {
-			Operands.push_back(VectorProcOperand::CreateToken(Name.substr
-				(dotLoc, dotLoc2 - dotLoc), NameLoc));
-			Operands.push_back(VectorProcOperand::CreateToken(Name.substr
-				(dotLoc2), NameLoc));
-		}
-	}
+  size_t dotLoc = Name.find('.');
+  StringRef stem = Name.substr(0,dotLoc);
+  Operands.push_back(VectorProcOperand::CreateToken(stem,NameLoc));
+  if (dotLoc < Name.size()) {
+    size_t dotLoc2 = Name.rfind('.');
+    if (dotLoc == dotLoc2)
+      Operands.push_back(VectorProcOperand::CreateToken(Name.substr(dotLoc),NameLoc));
+    else {
+      Operands.push_back(VectorProcOperand::CreateToken(Name.substr
+                         (dotLoc, dotLoc2 - dotLoc), NameLoc));
+      Operands.push_back(VectorProcOperand::CreateToken(Name.substr
+                         (dotLoc2), NameLoc));
+    }
+  }
 
-	// If there are no more operands, then finish
-	if (getLexer().is(AsmToken::EndOfStatement))
-		return false;
+  // If there are no more operands, then finish
+  if (getLexer().is(AsmToken::EndOfStatement))
+    return false;
 
-	// parse operands
-	for (;;)
-	{
-		if (ParseOperand(Operands, stem))
-			return true;
+  // parse operands
+  for (;;)
+  {
+    if (ParseOperand(Operands, stem))
+      return true;
 
-		if (getLexer().isNot(AsmToken::Comma))
-			break;
-		
-		// Consume comma token
-		getLexer().Lex();
-	}
-	
-	return false;
+    if (getLexer().isNot(AsmToken::Comma))
+      break;
+
+    // Consume comma token
+    getLexer().Lex();
+  }
+
+  return false;
 }
 
 

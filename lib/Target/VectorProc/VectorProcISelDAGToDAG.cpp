@@ -47,8 +47,8 @@ public:
   /// SelectInlineAsmMemoryOperand - Implement addressing mode selection for
   /// inline asm expressions.
   virtual bool SelectInlineAsmMemoryOperand(const SDValue &Op,
-                                            char ConstraintCode,
-                                            std::vector<SDValue> &OutOps);
+      char ConstraintCode,
+      std::vector<SDValue> &OutOps);
 
   virtual const char *getPassName() const {
     return "VECTORPROC DAG->DAG Pattern Instruction Selection";
@@ -61,7 +61,7 @@ public:
 }  // end anonymous namespace
 
 bool VectorProcDAGToDAGISel::SelectADDRri(SDValue Addr,
-                                     SDValue &Base, SDValue &Offset) {
+    SDValue &Base, SDValue &Offset) {
   if (FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>(Addr)) {
     Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), MVT::i32);
     Offset = CurDAG->getTargetConstant(0, MVT::i32);
@@ -75,7 +75,7 @@ bool VectorProcDAGToDAGISel::SelectADDRri(SDValue Addr,
     if (ConstantSDNode *CN = dyn_cast<ConstantSDNode>(Addr.getOperand(1))) {
       if (isInt<13>(CN->getSExtValue())) {
         if (FrameIndexSDNode *FIN =
-                dyn_cast<FrameIndexSDNode>(Addr.getOperand(0))) {
+              dyn_cast<FrameIndexSDNode>(Addr.getOperand(0))) {
           // Constant offset from frame ref.
           Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), MVT::i32);
         } else {
@@ -104,14 +104,15 @@ SDNode *VectorProcDAGToDAGISel::Select(SDNode *N) {
 /// inline asm expressions.
 bool
 VectorProcDAGToDAGISel::SelectInlineAsmMemoryOperand(const SDValue &Op,
-                                                char ConstraintCode,
-                                                std::vector<SDValue> &OutOps) {
+    char ConstraintCode,
+    std::vector<SDValue> &OutOps) {
   SDValue Op0, Op1;
   switch (ConstraintCode) {
-  default: return true;
+  default:
+    return true;
   case 'm':   // memory
-   SelectADDRri(Op, Op0, Op1);
-   break;
+    SelectADDRri(Op, Op0, Op1);
+    break;
   }
 
   OutOps.push_back(Op0);

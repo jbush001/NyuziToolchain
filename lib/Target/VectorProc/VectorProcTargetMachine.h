@@ -34,17 +34,21 @@ class VectorProcTargetMachine : public LLVMTargetMachine {
   VectorProcFrameLowering FrameLowering;
 public:
   VectorProcTargetMachine(const Target &T, StringRef TT,
-                     StringRef CPU, StringRef FS, const TargetOptions &Options,
-                     Reloc::Model RM, CodeModel::Model CM,
-                     CodeGenOpt::Level OL);
+                          StringRef CPU, StringRef FS, const TargetOptions &Options,
+                          Reloc::Model RM, CodeModel::Model CM,
+                          CodeGenOpt::Level OL);
 
 
 
-  virtual const VectorProcInstrInfo *getInstrInfo() const { return &InstrInfo; }
+  virtual const VectorProcInstrInfo *getInstrInfo() const {
+    return &InstrInfo;
+  }
   virtual const TargetFrameLowering  *getFrameLowering() const {
     return &FrameLowering;
   }
-  virtual const VectorProcSubtarget   *getSubtargetImpl() const{ return &Subtarget; }
+  virtual const VectorProcSubtarget   *getSubtargetImpl() const {
+    return &Subtarget;
+  }
   virtual const VectorProcRegisterInfo *getRegisterInfo() const {
     return &InstrInfo.getRegisterInfo();
   }
@@ -54,7 +58,9 @@ public:
   virtual const VectorProcSelectionDAGInfo* getSelectionDAGInfo() const {
     return &TSInfo;
   }
-  virtual const DataLayout       *getDataLayout() const { return &DL; }
+  virtual const DataLayout       *getDataLayout() const {
+    return &DL;
+  }
 
   // Pass Pipeline Configuration
   virtual TargetPassConfig *createPassConfig(PassManagerBase &PM);

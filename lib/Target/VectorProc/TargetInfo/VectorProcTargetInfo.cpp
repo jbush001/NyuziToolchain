@@ -14,6 +14,6 @@ using namespace llvm;
 
 Target llvm::TheVectorProcTarget;
 
-extern "C" void LLVMInitializeVectorProcTargetInfo() { 
+extern "C" void LLVMInitializeVectorProcTargetInfo() {
   RegisterTarget<Triple::vectorproc> X(TheVectorProcTarget, "vectorproc", "VectorProc");
 }

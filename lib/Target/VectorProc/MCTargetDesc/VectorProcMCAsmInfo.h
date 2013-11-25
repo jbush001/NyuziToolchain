@@ -17,14 +17,14 @@
 #include "llvm/MC/MCAsmInfo.h"
 
 namespace llvm {
-  class StringRef;
-  class Target;
+class StringRef;
+class Target;
 
-  class VectorProcMCAsmInfo : public MCAsmInfo {
-    virtual void anchor();
-  public:
-    explicit VectorProcMCAsmInfo(StringRef TT);
-  };
+class VectorProcMCAsmInfo : public MCAsmInfo {
+  virtual void anchor();
+public:
+  explicit VectorProcMCAsmInfo(StringRef TT);
+};
 
 } // namespace llvm
 

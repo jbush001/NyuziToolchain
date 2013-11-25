@@ -24,13 +24,13 @@ using namespace llvm;
 void VectorProcSubtarget::anchor() { }
 
 VectorProcSubtarget::VectorProcSubtarget(const std::string &TT, const std::string &CPU,
-                               const std::string &FS) :
+    const std::string &FS) :
   VectorProcGenSubtargetInfo(TT, CPU, FS) {
-  
+
   // Determine default and user specified characteristics
   std::string CPUName = CPU;
   if (CPUName.empty()) {
-      CPUName = "vectorproc";
+    CPUName = "vectorproc";
   }
 
   // Parse features string.

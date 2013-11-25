@@ -38,25 +38,25 @@ public:
 
   MCObjectWriter *createObjectWriter(raw_ostream &OS) const {
     return createVectorProcELFObjectWriter(OS,
-      MCELFObjectTargetWriter::getOSABI(OSType));
+                                           MCELFObjectTargetWriter::getOSABI(OSType));
   }
 
   static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
     switch (Kind)
     {
-	  case VectorProc::fixup_VectorProc_PCRel_MemAccExt:
-	  case VectorProc::fixup_VectorProc_PCRel_MemAcc:
-	  case VectorProc::fixup_VectorProc_PCRel_Branch:
-      case VectorProc::fixup_VectorProc_PCRel_ComputeLabelAddress:
-	    Value -= 4;		// source location is PC + 4
-		break;
+    case VectorProc::fixup_VectorProc_PCRel_MemAccExt:
+    case VectorProc::fixup_VectorProc_PCRel_MemAcc:
+    case VectorProc::fixup_VectorProc_PCRel_Branch:
+    case VectorProc::fixup_VectorProc_PCRel_ComputeLabelAddress:
+      Value -= 4;		// source location is PC + 4
+      break;
     }
-    
+
     return Value;
   }
 
   void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
-                  uint64_t Value) const 
+                  uint64_t Value) const
   {
     MCFixupKind Kind = Fixup.getKind();
     Value = adjustFixupValue((unsigned)Kind, Value);
@@ -71,8 +71,8 @@ public:
     uint64_t Mask = ((uint64_t)(-1) >>
                      (64 - getFixupKindInfo(Kind).TargetSize));
 
-	Value <<= getFixupKindInfo(Kind).TargetOffset;
-	Mask <<= getFixupKindInfo(Kind).TargetOffset;
+    Value <<= getFixupKindInfo(Kind).TargetOffset;
+    Mask <<= getFixupKindInfo(Kind).TargetOffset;
     CurVal |= Value & Mask;
 
     // Write out the fixed up bytes back to the code/data bits.
@@ -81,7 +81,9 @@ public:
     }
   }
 
-  unsigned getNumFixupKinds() const { return VectorProc::NumTargetFixupKinds; }
+  unsigned getNumFixupKinds() const {
+    return VectorProc::NumTargetFixupKinds;
+  }
 
   const MCFixupKindInfo &getFixupKindInfo(MCFixupKind Kind) const {
     const static MCFixupKindInfo Infos[VectorProc::NumTargetFixupKinds] = {
@@ -153,10 +155,10 @@ public:
 } // namespace
 
 // MCAsmBackend
-MCAsmBackend *llvm::createVectorProcAsmBackend(const Target &T, 
-	                                       	const MCRegisterInfo &MRI,
-											StringRef TT,
-                                             StringRef CPU) {
+MCAsmBackend *llvm::createVectorProcAsmBackend(const Target &T,
+    const MCRegisterInfo &MRI,
+    StringRef TT,
+    StringRef CPU) {
   return new VectorProcAsmBackend(T, Triple(TT).getOS());
 }
 

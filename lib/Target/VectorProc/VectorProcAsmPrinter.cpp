@@ -68,17 +68,17 @@ EmitFunctionBodyStart() {
 void VectorProcAsmPrinter::
 EmitFunctionBodyEnd()
 {
-	OutStreamer.EmitDataRegion(MCDR_DataRegionEnd);
+  OutStreamer.EmitDataRegion(MCDR_DataRegionEnd);
 }
 
 void VectorProcAsmPrinter::
-EmitConstantPool() 
+EmitConstantPool()
 {
   const MachineConstantPool *MCP = MF->getConstantPool();
   const std::vector<MachineConstantPoolEntry> &CP = MCP->getConstants();
   if (CP.empty()) return;
 
-  // Emit constants for this function in the same section as the function so 
+  // Emit constants for this function in the same section as the function so
   // they are close by and can be accessed with PC relative addresses.
   const Function *F = MF->getFunction();
   OutStreamer.SwitchSection(getObjFileLowering().SectionForGlobal(F, Mang, TM));
@@ -114,28 +114,28 @@ MCSymbol *VectorProcAsmPrinter::
 GetJumpTableLabel(unsigned uid) const {
   SmallString<60> Name;
   raw_svector_ostream(Name) << MAI->getPrivateGlobalPrefix() << "JTI"
-    << getFunctionNumber() << '_' << uid;
+                            << getFunctionNumber() << '_' << uid;
   return OutContext.GetOrCreateSymbol(Name.str());
 }
 
 // Print operand for inline assembly
 bool VectorProcAsmPrinter::
 PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
-	unsigned AsmVariant,
-	const char *ExtraCode,
-	raw_ostream &O)
+                unsigned AsmVariant,
+                const char *ExtraCode,
+                raw_ostream &O)
 {
-	const MachineOperand &MO = MI->getOperand(OpNo);
-	if (MO.getType() == MachineOperand::MO_Register)
-	{
-		O << VectorProcInstPrinter::getRegisterName(MO.getReg());
-		return false;
-	}
+  const MachineOperand &MO = MI->getOperand(OpNo);
+  if (MO.getType() == MachineOperand::MO_Register)
+  {
+    O << VectorProcInstPrinter::getRegisterName(MO.getReg());
+    return false;
+  }
 
-	return true;
+  return true;
 }
 
 // Force static initialization.
-extern "C" void LLVMInitializeVectorProcAsmPrinter() { 
+extern "C" void LLVMInitializeVectorProcAsmPrinter() {
   RegisterAsmPrinter<VectorProcAsmPrinter> X(TheVectorProcTarget);
 }

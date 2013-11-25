@@ -29,20 +29,20 @@
 using namespace llvm;
 
 VectorProcRegisterInfo::VectorProcRegisterInfo(VectorProcSubtarget &st,
-	const TargetInstrInfo &tii)
-	: VectorProcGenRegisterInfo(VectorProc::FP_REG), Subtarget(st), TII(tii) 
+    const TargetInstrInfo &tii)
+  : VectorProcGenRegisterInfo(VectorProc::FP_REG), Subtarget(st), TII(tii)
 {
 }
 
 const uint16_t* VectorProcRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF)
-                                                                         const 
+const
 {
-	return VectorProcCSR_SaveList;
+  return VectorProcCSR_SaveList;
 }
 
-const uint32_t* VectorProcRegisterInfo::getCallPreservedMask(CallingConv::ID) const 
+const uint32_t* VectorProcRegisterInfo::getCallPreservedMask(CallingConv::ID) const
 {
-	return VectorProcCSR_RegMask;
+  return VectorProcCSR_RegMask;
 }
 
 
@@ -57,61 +57,61 @@ BitVector VectorProcRegisterInfo::getReservedRegs(const MachineFunction &MF) con
 
 const TargetRegisterClass*
 VectorProcRegisterInfo::getPointerRegClass(const MachineFunction &MF,
-	unsigned Kind) const {
-	return &VectorProc::ScalarRegRegClass;
+    unsigned Kind) const {
+  return &VectorProc::ScalarRegRegClass;
 }
 
 void
 VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
-                                       int SPAdj, unsigned FIOperandNum,
-                                       RegScavenger *RS) const 
+    int SPAdj, unsigned FIOperandNum,
+    RegScavenger *RS) const
 {
-	assert(SPAdj == 0 && "Unexpected");
+  assert(SPAdj == 0 && "Unexpected");
 
-	MachineInstr &MI = *II;
-	int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
-	MachineFunction &MF = *MI.getParent()->getParent();
-	MachineFrameInfo *MFI = MF.getFrameInfo();
+  MachineInstr &MI = *II;
+  int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
+  MachineFunction &MF = *MI.getParent()->getParent();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
 
-	// Round stack size to multiple of 64, consistent with frame pointer info.
-	int stackSize = (MF.getFrameInfo()->getStackSize() + 63) & ~63;
+  // Round stack size to multiple of 64, consistent with frame pointer info.
+  int stackSize = (MF.getFrameInfo()->getStackSize() + 63) & ~63;
 
-	// Frame index is relative to where SP is before it is decremented on 
-	// entry to the function.  Need to add stackSize to adjust for this.
-	int64_t Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex) 
-		+ MI.getOperand(FIOperandNum + 1).getImm() 
-		+ stackSize;
+  // Frame index is relative to where SP is before it is decremented on
+  // entry to the function.  Need to add stackSize to adjust for this.
+  int64_t Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex)
+                   + MI.getOperand(FIOperandNum + 1).getImm()
+                   + stackSize;
 
-	// Determine where callee saved registers live in the frame
-	const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
-	int MinCSFI = 0;
-	int MaxCSFI = -1;
-	if (CSI.size()) {
-		MinCSFI = CSI[0].getFrameIdx();
-		MaxCSFI = CSI[CSI.size() - 1].getFrameIdx();
-	}
+  // Determine where callee saved registers live in the frame
+  const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
+  int MinCSFI = 0;
+  int MaxCSFI = -1;
+  if (CSI.size()) {
+    MinCSFI = CSI[0].getFrameIdx();
+    MaxCSFI = CSI[CSI.size() - 1].getFrameIdx();
+  }
 
-	// When we save callee saved registers (which includes FP), we must use
-	// the SP reg, because FP is not set up yet.
-	unsigned FrameReg;
-	if (FrameIndex >= MinCSFI && FrameIndex <= MaxCSFI)
-		FrameReg = VectorProc::SP_REG;
-	else
-		FrameReg = getFrameRegister(MF);
+  // When we save callee saved registers (which includes FP), we must use
+  // the SP reg, because FP is not set up yet.
+  unsigned FrameReg;
+  if (FrameIndex >= MinCSFI && FrameIndex <= MaxCSFI)
+    FrameReg = VectorProc::SP_REG;
+  else
+    FrameReg = getFrameRegister(MF);
 
-	// Replace frame index with a frame pointer reference.
-	if (Offset >= -16384 && Offset <= 16384) {
-		// If the offset is small enough to fit in the immediate field, directly
-		// encode it.
-		MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, false);
-		MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
-	} else {
-		// XXX for large indices, need to load indirectly. Look at ARM.
-		llvm_unreachable("frame index out of bounds, not implemented");
-	}
+  // Replace frame index with a frame pointer reference.
+  if (Offset >= -16384 && Offset <= 16384) {
+    // If the offset is small enough to fit in the immediate field, directly
+    // encode it.
+    MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, false);
+    MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
+  } else {
+    // XXX for large indices, need to load indirectly. Look at ARM.
+    llvm_unreachable("frame index out of bounds, not implemented");
+  }
 }
 
-unsigned VectorProcRegisterInfo::getFrameRegister(const MachineFunction &MF) const 
+unsigned VectorProcRegisterInfo::getFrameRegister(const MachineFunction &MF) const
 {
-	return VectorProc::FP_REG;
+  return VectorProc::FP_REG;
 }

@@ -31,18 +31,18 @@ class StringRef;
 extern Target TheVectorProcTarget;
 
 MCCodeEmitter *createVectorProcMCCodeEmitter(const MCInstrInfo &MCII,
-                                       const MCRegisterInfo &MRI,
-                                       const MCSubtargetInfo &STI,
-                                       MCContext &Ctx);
+    const MCRegisterInfo &MRI,
+    const MCSubtargetInfo &STI,
+    MCContext &Ctx);
 
 MCObjectWriter *createVectorProcELFObjectWriter(raw_ostream &OS,
-                                                uint8_t OSABI);
+    uint8_t OSABI);
 
-MCAsmBackend *createVectorProcAsmBackend(const Target &T,  
-	                                       	const MCRegisterInfo &MRI,
-											StringRef TT,
-                                        	StringRef CPU);
-                                             
+MCAsmBackend *createVectorProcAsmBackend(const Target &T,
+    const MCRegisterInfo &MRI,
+    StringRef TT,
+    StringRef CPU);
+
 } // End llvm namespace
 
 // Defines symbolic names for VectorProc registers.  This defines a mapping from

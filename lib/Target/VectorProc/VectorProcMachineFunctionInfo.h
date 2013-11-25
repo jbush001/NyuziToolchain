@@ -17,28 +17,36 @@
 
 namespace llvm {
 
-  class VectorProcMachineFunctionInfo : public MachineFunctionInfo {
-    virtual void anchor();
-  private:
+class VectorProcMachineFunctionInfo : public MachineFunctionInfo {
+  virtual void anchor();
+private:
 
-    /// VarArgsFrameOffset - Frame offset to start of varargs area.
-    int VarArgsFrameOffset;
+  /// VarArgsFrameOffset - Frame offset to start of varargs area.
+  int VarArgsFrameOffset;
 
-    /// SRetReturnReg - Holds the virtual register into which the sret
-    /// argument is passed.
-    unsigned SRetReturnReg;
-  public:
-    VectorProcMachineFunctionInfo()
-      : VarArgsFrameOffset(0), SRetReturnReg(0) {}
-    explicit VectorProcMachineFunctionInfo(MachineFunction &MF)
-      : VarArgsFrameOffset(0), SRetReturnReg(0) {}
+  /// SRetReturnReg - Holds the virtual register into which the sret
+  /// argument is passed.
+  unsigned SRetReturnReg;
+public:
+  VectorProcMachineFunctionInfo()
+    : VarArgsFrameOffset(0), SRetReturnReg(0) {}
+  explicit VectorProcMachineFunctionInfo(MachineFunction &MF)
+    : VarArgsFrameOffset(0), SRetReturnReg(0) {}
 
-    int getVarArgsFrameOffset() const { return VarArgsFrameOffset; }
-    void setVarArgsFrameOffset(int Offset) { VarArgsFrameOffset = Offset; }
+  int getVarArgsFrameOffset() const {
+    return VarArgsFrameOffset;
+  }
+  void setVarArgsFrameOffset(int Offset) {
+    VarArgsFrameOffset = Offset;
+  }
 
-    unsigned getSRetReturnReg() const { return SRetReturnReg; }
-    void setSRetReturnReg(unsigned Reg) { SRetReturnReg = Reg; }
-  };
+  unsigned getSRetReturnReg() const {
+    return SRetReturnReg;
+  }
+  void setSRetReturnReg(unsigned Reg) {
+    SRetReturnReg = Reg;
+  }
+};
 }
 
 #endif
