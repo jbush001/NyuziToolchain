@@ -3,6 +3,7 @@
 project(LLVM)
 cmake_minimum_required(VERSION 2.8)
 
+# Set install path
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 	set(CMAKE_INSTALL_PREFIX
 		"/usr/local/llvm-vectorproc/" CACHE PATH "LLVM-GPGPU install prefix" FORCE
@@ -31,7 +32,7 @@ if (NOT PACKAGE_VERSION)
   set(PACKAGE_VERSION "${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR}svn")
 endif()
 
-option(LLVM_INSTALL_TOOLCHAIN_ONLY "Only include toolchain files in the 'install' target." OFF)
+option(LLVM_INSTALL_TOOLCHAIN_ONLY "Only include toolchain files in the 'install' target." ON)
 
 option(LLVM_USE_FOLDERS "Enable solution folders in Visual Studio. Disable for Express versions." ON)
 if ( LLVM_USE_FOLDERS )
@@ -260,17 +261,17 @@ option(LLVM_BUILD_TOOLS
   "Build the LLVM tools. If OFF, just generate build targets." ON)
 
 option(LLVM_BUILD_RUNTIME
-  "Build the LLVM runtime libraries." ON)
+  "Build the LLVM runtime libraries." OFF)
 option(LLVM_BUILD_EXAMPLES
   "Build the LLVM example programs. If OFF, just generate build targets." OFF)
-option(LLVM_INCLUDE_EXAMPLES "Generate build targets for the LLVM examples" ON)
+option(LLVM_INCLUDE_EXAMPLES "Generate build targets for the LLVM examples" OFF)
 
 option(LLVM_BUILD_TESTS
   "Build LLVM unit tests. If OFF, just generate build targets." OFF)
 option(LLVM_INCLUDE_TESTS "Generate build targets for the LLVM unit tests." ON)
 
 option (LLVM_BUILD_DOCS "Build the llvm documentation." OFF)
-option (LLVM_INCLUDE_DOCS "Generate build targets for llvm documentation." ON)
+option (LLVM_INCLUDE_DOCS "Generate build targets for llvm documentation." OFF)
 option (LLVM_ENABLE_DOXYGEN "Use doxygen to generate llvm documentation." OFF)
 
 # All options referred to from HandleLLVMOptions have to be specified
@@ -278,8 +279,7 @@ option (LLVM_ENABLE_DOXYGEN "Use doxygen to generate llvm documentation." OFF)
 # first cmake run
 include(config-ix)
 
-# By default, we target the host, but this can be overridden at CMake
-# invocation time.
+# Default to building vectorproc
 set(LLVM_DEFAULT_TARGET_TRIPLE "vectorproc" CACHE STRING
   "Default target for which LLVM will generate code." )
 set(TARGET_TRIPLE "${LLVM_DEFAULT_TARGET_TRIPLE}")

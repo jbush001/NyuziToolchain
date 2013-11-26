@@ -103,6 +103,7 @@ endmacro(add_llvm_executable name)
 set (LLVM_TOOLCHAIN_TOOLS
   llvm-ar
   llvm-objdump
+  elf2hex
   )
 
 macro(add_llvm_tool name)
