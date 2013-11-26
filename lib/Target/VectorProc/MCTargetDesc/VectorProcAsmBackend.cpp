@@ -1,4 +1,5 @@
-//===-- VectorProcASMBackend.cpp - VectorProc Asm Backend  ----------------------------===//
+//===-- VectorProcASMBackend.cpp - VectorProc Asm Backend
+//----------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -33,22 +34,21 @@ class VectorProcAsmBackend : public MCAsmBackend {
   Triple::OSType OSType;
 
 public:
-  VectorProcAsmBackend(const Target &T,  Triple::OSType _OSType)
-    :MCAsmBackend(), OSType(_OSType) {}
+  VectorProcAsmBackend(const Target &T, Triple::OSType _OSType)
+      : MCAsmBackend(), OSType(_OSType) {}
 
   MCObjectWriter *createObjectWriter(raw_ostream &OS) const {
-    return createVectorProcELFObjectWriter(OS,
-                                           MCELFObjectTargetWriter::getOSABI(OSType));
+    return createVectorProcELFObjectWriter(
+        OS, MCELFObjectTargetWriter::getOSABI(OSType));
   }
 
   static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
-    switch (Kind)
-    {
+    switch (Kind) {
     case VectorProc::fixup_VectorProc_PCRel_MemAccExt:
     case VectorProc::fixup_VectorProc_PCRel_MemAcc:
     case VectorProc::fixup_VectorProc_PCRel_Branch:
     case VectorProc::fixup_VectorProc_PCRel_ComputeLabelAddress:
-      Value -= 4;		// source location is PC + 4
+      Value -= 4; // source location is PC + 4
       break;
     }
 
@@ -56,8 +56,7 @@ public:
   }
 
   void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
-                  uint64_t Value) const
-  {
+                  uint64_t Value) const {
     MCFixupKind Kind = Fixup.getKind();
     Value = adjustFixupValue((unsigned)Kind, Value);
     unsigned Offset = Fixup.getOffset();
@@ -65,11 +64,11 @@ public:
 
     uint64_t CurVal = 0;
     for (unsigned i = 0; i != NumBytes; ++i) {
-      CurVal |= (uint64_t)((uint8_t)Data[Offset + i]) << (i*8);
+      CurVal |= (uint64_t)((uint8_t)Data[Offset + i]) << (i * 8);
     }
 
-    uint64_t Mask = ((uint64_t)(-1) >>
-                     (64 - getFixupKindInfo(Kind).TargetSize));
+    uint64_t Mask =
+        ((uint64_t)(-1) >> (64 - getFixupKindInfo(Kind).TargetSize));
 
     Value <<= getFixupKindInfo(Kind).TargetOffset;
     Mask <<= getFixupKindInfo(Kind).TargetOffset;
@@ -77,13 +76,11 @@ public:
 
     // Write out the fixed up bytes back to the code/data bits.
     for (unsigned i = 0; i != NumBytes; ++i) {
-      Data[Offset + i] = (uint8_t)((CurVal >> (i*8)) & 0xff);
+      Data[Offset + i] = (uint8_t)((CurVal >> (i * 8)) & 0xff);
     }
   }
 
-  unsigned getNumFixupKinds() const {
-    return VectorProc::NumTargetFixupKinds;
-  }
+  unsigned getNumFixupKinds() const { return VectorProc::NumTargetFixupKinds; }
 
   const MCFixupKindInfo &getFixupKindInfo(MCFixupKind Kind) const {
     const static MCFixupKindInfo Infos[VectorProc::NumTargetFixupKinds] = {
@@ -91,11 +88,13 @@ public:
       // VectorProcFixupKinds.h.
       //
       // name                          offset  bits  flags
-      { "fixup_VectorProc_Abs32",           0,     32,   0 },
-      { "fixup_VectorProc_PCRel_MemAccExt", 10,    15,   MCFixupKindInfo::FKF_IsPCRel },
-      { "fixup_VectorProc_PCRel_MemAcc",    15,    10,   MCFixupKindInfo::FKF_IsPCRel },
-      { "fixup_VectorProc_PCRel_Branch",    5,     20,   MCFixupKindInfo::FKF_IsPCRel },
-      { "fixup_VectorProc_PCRel_ComputeLabelAddress", 10, 13, MCFixupKindInfo::FKF_IsPCRel }
+      { "fixup_VectorProc_Abs32", 0, 32, 0 }, { "fixup_VectorProc_PCRel_"
+                                                "MemAccExt", 10, 15,
+                                                MCFixupKindInfo::FKF_IsPCRel },
+      { "fixup_VectorProc_PCRel_MemAcc", 15, 10, MCFixupKindInfo::FKF_IsPCRel },
+      { "fixup_VectorProc_PCRel_Branch", 5, 20, MCFixupKindInfo::FKF_IsPCRel },
+      { "fixup_VectorProc_PCRel_ComputeLabelAddress", 10, 13,
+        MCFixupKindInfo::FKF_IsPCRel }
     };
 
     if (Kind < FirstTargetFixupKind)
@@ -110,14 +109,11 @@ public:
   /// relaxation.
   ///
   /// \param Inst - The instruction to test.
-  bool mayNeedRelaxation(const MCInst &Inst) const {
-    return false;
-  }
+  bool mayNeedRelaxation(const MCInst &Inst) const { return false; }
 
   /// fixupNeedsRelaxation - Target specific predicate for whether a given
   /// fixup requires the associated instruction to be relaxed.
-  bool fixupNeedsRelaxation(const MCFixup &Fixup,
-                            uint64_t Value,
+  bool fixupNeedsRelaxation(const MCFixup &Fixup, uint64_t Value,
                             const MCRelaxableFragment *DF,
                             const MCAsmLayout &Layout) const {
     // FIXME.
@@ -131,8 +127,7 @@ public:
   /// \param Inst - The instruction to relax, which may be the same
   /// as the output.
   /// \param [out] Res On return, the relaxed instruction.
-  void relaxInstruction(const MCInst &Inst, MCInst &Res) const {
-  }
+  void relaxInstruction(const MCInst &Inst, MCInst &Res) const {}
 
   /// @}
 
@@ -143,7 +138,8 @@ public:
   /// \return - True on success.
   bool writeNopData(uint64_t Count, MCObjectWriter *OW) const {
     // Check for a less than instruction size number of bytes
-    if (Count % 4) return false;
+    if (Count % 4)
+      return false;
 
     uint64_t NumNops = Count / 4;
     for (uint64_t i = 0; i != NumNops; ++i)
@@ -156,9 +152,7 @@ public:
 
 // MCAsmBackend
 MCAsmBackend *llvm::createVectorProcAsmBackend(const Target &T,
-    const MCRegisterInfo &MRI,
-    StringRef TT,
-    StringRef CPU) {
+                                               const MCRegisterInfo &MRI,
+                                               StringRef TT, StringRef CPU) {
   return new VectorProcAsmBackend(T, Triple(TT).getOS());
 }
-

@@ -1,4 +1,5 @@
-//===-- VectorProcSelectionDAGInfo.cpp - VectorProc SelectionDAG Info ---------------===//
+//===-- VectorProcSelectionDAGInfo.cpp - VectorProc SelectionDAG Info
+//---------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -15,9 +16,8 @@
 #include "VectorProcTargetMachine.h"
 using namespace llvm;
 
-VectorProcSelectionDAGInfo::VectorProcSelectionDAGInfo(const VectorProcTargetMachine &TM)
-  : TargetSelectionDAGInfo(TM) {
-}
+VectorProcSelectionDAGInfo::VectorProcSelectionDAGInfo(
+    const VectorProcTargetMachine &TM)
+    : TargetSelectionDAGInfo(TM) {}
 
-VectorProcSelectionDAGInfo::~VectorProcSelectionDAGInfo() {
-}
+VectorProcSelectionDAGInfo::~VectorProcSelectionDAGInfo() {}

@@ -1,4 +1,5 @@
-//===- VectorProcDisassembler.cpp - Disassembler for VectorProc -------------*- C++ -*-===//
+//===- VectorProcDisassembler.cpp - Disassembler for VectorProc -------------*-
+//C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -33,59 +34,50 @@ class VectorProcDisassembler : public MCDisassembler {
 public:
   /// Constructor     - Initializes the disassembler.
   ///
-  VectorProcDisassembler(const MCSubtargetInfo &STI, const MCRegisterInfo *Info) :
-    MCDisassembler(STI), RegInfo(Info) {}
+  VectorProcDisassembler(const MCSubtargetInfo &STI, const MCRegisterInfo *Info)
+      : MCDisassembler(STI), RegInfo(Info) {}
 
-  const MCRegisterInfo *getRegInfo() const {
-    return RegInfo;
-  }
+  const MCRegisterInfo *getRegInfo() const { return RegInfo; }
 
   /// getInstruction - See MCDisassembler.
-  virtual DecodeStatus getInstruction(MCInst &instr,
-                                      uint64_t &size,
+  virtual DecodeStatus getInstruction(MCInst &instr, uint64_t &size,
                                       const MemoryObject &region,
-                                      uint64_t address,
-                                      raw_ostream &vStream,
+                                      uint64_t address, raw_ostream &vStream,
                                       raw_ostream &cStream) const;
+
 private:
   const MCRegisterInfo *RegInfo;
 };
 
 } // end anonymous namespace
 
-static DecodeStatus decodeScalarMemoryOpValue(MCInst &Inst,
-    unsigned Insn,
-    uint64_t Address,
-    const void *Decoder);
+static DecodeStatus decodeScalarMemoryOpValue(MCInst &Inst, unsigned Insn,
+                                              uint64_t Address,
+                                              const void *Decoder);
 
-static DecodeStatus decodeVectorMemoryOpValue(MCInst &Inst,
-    unsigned Insn,
-    uint64_t Address,
-    const void *Decoder);
+static DecodeStatus decodeVectorMemoryOpValue(MCInst &Inst, unsigned Insn,
+                                              uint64_t Address,
+                                              const void *Decoder);
 
-static DecodeStatus decodeJumpTargetOpValue(MCInst &Inst,
-    unsigned Insn,
-    uint64_t Address,
-    const void *Decoder);
+static DecodeStatus decodeJumpTargetOpValue(MCInst &Inst, unsigned Insn,
+                                            uint64_t Address,
+                                            const void *Decoder);
 
-DecodeStatus DecodeScalarRegRegisterClass(MCInst &Inst,
-    unsigned RegNo,
-    uint64_t Address,
-    const void *Decoder);
+DecodeStatus DecodeScalarRegRegisterClass(MCInst &Inst, unsigned RegNo,
+                                          uint64_t Address,
+                                          const void *Decoder);
 
-DecodeStatus DecodeVectorRegRegisterClass(MCInst &Inst,
-    unsigned RegNo,
-    uint64_t Address,
-    const void *Decoder);
+DecodeStatus DecodeVectorRegRegisterClass(MCInst &Inst, unsigned RegNo,
+                                          uint64_t Address,
+                                          const void *Decoder);
 
 namespace llvm {
 extern Target TheVectorProcelTarget, TheVectorProcTarget, TheVectorProc64Target,
-       TheVectorProc64elTarget;
+    TheVectorProc64elTarget;
 }
 
-static MCDisassembler *createVectorProcDisassembler(
-  const Target &T,
-  const MCSubtargetInfo &STI) {
+static MCDisassembler *
+createVectorProcDisassembler(const Target &T, const MCSubtargetInfo &STI) {
   return new VectorProcDisassembler(STI, T.createMCRegInfo(""));
 }
 
@@ -95,14 +87,12 @@ extern "C" void LLVMInitializeVectorProcDisassembler() {
                                          createVectorProcDisassembler);
 }
 
-
 #include "VectorProcGenDisassemblerTables.inc"
 
 /// readInstruction - read four bytes from the MemoryObject
 /// and return 32 bit word sorted according to the given endianess
 static DecodeStatus readInstruction32(const MemoryObject &region,
-                                      uint64_t address,
-                                      uint64_t &size,
+                                      uint64_t address, uint64_t &size,
                                       uint32_t &insn) {
   uint8_t Bytes[4];
 
@@ -112,31 +102,23 @@ static DecodeStatus readInstruction32(const MemoryObject &region,
     return MCDisassembler::Fail;
   }
 
-  insn = (Bytes[0] <<  0) |
-         (Bytes[1] <<  8) |
-         (Bytes[2] << 16) |
-         (Bytes[3] << 24);
+  insn =
+      (Bytes[0] << 0) | (Bytes[1] << 8) | (Bytes[2] << 16) | (Bytes[3] << 24);
 
   return MCDisassembler::Success;
 }
 
-DecodeStatus
-VectorProcDisassembler::getInstruction(MCInst &instr,
-                                       uint64_t &Size,
-                                       const MemoryObject &Region,
-                                       uint64_t Address,
-                                       raw_ostream &vStream,
-                                       raw_ostream &cStream) const {
+DecodeStatus VectorProcDisassembler::getInstruction(
+    MCInst &instr, uint64_t &Size, const MemoryObject &Region, uint64_t Address,
+    raw_ostream &vStream, raw_ostream &cStream) const {
   uint32_t Insn;
 
-  DecodeStatus Result = readInstruction32(Region, Address, Size,
-                                          Insn);
+  DecodeStatus Result = readInstruction32(Region, Address, Size, Insn);
   if (Result == MCDisassembler::Fail)
     return MCDisassembler::Fail;
 
   // Calling the auto-generated decoder function.
-  Result = decodeInstruction(DecoderTable32, instr, Insn, Address,
-                             this, STI);
+  Result = decodeInstruction(DecoderTable32, instr, Insn, Address, this, STI);
   if (Result != MCDisassembler::Fail) {
     Size = 4;
     return Result;
@@ -146,16 +128,14 @@ VectorProcDisassembler::getInstruction(MCInst &instr,
 }
 
 static unsigned getReg(const void *D, unsigned RC, unsigned RegNo) {
-  const VectorProcDisassembler *Dis = static_cast<const VectorProcDisassembler*>(D);
+  const VectorProcDisassembler *Dis =
+      static_cast<const VectorProcDisassembler *>(D);
   return *(Dis->getRegInfo()->getRegClass(RC).begin() + RegNo);
 }
 
-static DecodeStatus decodeMemoryOpValue(MCInst &Inst,
-                                        unsigned Insn,
-                                        uint64_t Address,
-                                        const void *Decoder,
-                                        unsigned RC)
-{
+static DecodeStatus decodeMemoryOpValue(MCInst &Inst, unsigned Insn,
+                                        uint64_t Address, const void *Decoder,
+                                        unsigned RC) {
   // XXX this depends on the instruction type (has mask or not)
   int Offset = SignExtend32<15>(fieldFromInstruction(Insn, 5, 15));
 
@@ -167,57 +147,50 @@ static DecodeStatus decodeMemoryOpValue(MCInst &Inst,
   return MCDisassembler::Success;
 }
 
-static DecodeStatus decodeScalarMemoryOpValue(MCInst &Inst,
-    unsigned Insn,
-    uint64_t Address,
-    const void *Decoder)
-{
-  return decodeMemoryOpValue(Inst, Insn, Address, Decoder, VectorProc::ScalarRegRegClassID);
+static DecodeStatus decodeScalarMemoryOpValue(MCInst &Inst, unsigned Insn,
+                                              uint64_t Address,
+                                              const void *Decoder) {
+  return decodeMemoryOpValue(Inst, Insn, Address, Decoder,
+                             VectorProc::ScalarRegRegClassID);
 }
 
-static DecodeStatus decodeVectorMemoryOpValue(MCInst &Inst,
-    unsigned Insn,
-    uint64_t Address,
-    const void *Decoder)
-{
-  return decodeMemoryOpValue(Inst, Insn, Address, Decoder, VectorProc::VectorRegRegClassID);
+static DecodeStatus decodeVectorMemoryOpValue(MCInst &Inst, unsigned Insn,
+                                              uint64_t Address,
+                                              const void *Decoder) {
+  return decodeMemoryOpValue(Inst, Insn, Address, Decoder,
+                             VectorProc::VectorRegRegClassID);
 }
 
-static DecodeStatus decodeJumpTargetOpValue(MCInst &Inst,
-    unsigned Insn,
-    uint64_t Address,
-    const void *Decoder)
-{
+static DecodeStatus decodeJumpTargetOpValue(MCInst &Inst, unsigned Insn,
+                                            uint64_t Address,
+                                            const void *Decoder) {
   Inst.addOperand(MCOperand::CreateImm(SignExtend32<20>(Insn)));
 
   return MCDisassembler::Success;
 }
 
-DecodeStatus DecodeScalarRegRegisterClass(MCInst &Inst,
-    unsigned RegNo,
-    uint64_t Address,
-    const void *Decoder) {
+DecodeStatus DecodeScalarRegRegisterClass(MCInst &Inst, unsigned RegNo,
+                                          uint64_t Address,
+                                          const void *Decoder) {
 
   if (RegNo > 31)
     return MCDisassembler::Fail;
 
   // The internal representation of the registers counts r0: 1, r1: 2, etc.
-  Inst.addOperand(MCOperand::CreateReg(getReg(Decoder, VectorProc::ScalarRegRegClassID,
-                                       RegNo)));
+  Inst.addOperand(MCOperand::CreateReg(
+      getReg(Decoder, VectorProc::ScalarRegRegClassID, RegNo)));
   return MCDisassembler::Success;
 }
 
-DecodeStatus DecodeVectorRegRegisterClass(MCInst &Inst,
-    unsigned RegNo,
-    uint64_t Address,
-    const void *Decoder) {
+DecodeStatus DecodeVectorRegRegisterClass(MCInst &Inst, unsigned RegNo,
+                                          uint64_t Address,
+                                          const void *Decoder) {
 
   if (RegNo > 31)
     return MCDisassembler::Fail;
 
   // The internal representation of the registers counts r0: 1, r1: 2, etc.
-  Inst.addOperand(MCOperand::CreateReg(getReg(Decoder, VectorProc::VectorRegRegClassID,
-                                       RegNo)));
+  Inst.addOperand(MCOperand::CreateReg(
+      getReg(Decoder, VectorProc::VectorRegRegClassID, RegNo)));
   return MCDisassembler::Success;
 }
-

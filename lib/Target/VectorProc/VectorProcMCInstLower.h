@@ -1,4 +1,5 @@
-//===-- VectorProcMCInstLower.h - Lower MachineInstr to MCInst -------*- C++ -*--===//
+//===-- VectorProcMCInstLower.h - Lower MachineInstr to MCInst -------*- C++
+//-*--===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -29,11 +30,12 @@ class LLVM_LIBRARY_VISIBILITY VectorProcMCInstLower {
   typedef MachineOperand::MachineOperandType MachineOperandType;
   MCContext *Ctx;
   VectorProcAsmPrinter &AsmPrinter;
+
 public:
   VectorProcMCInstLower(VectorProcAsmPrinter &asmprinter);
   void Initialize(MCContext *C);
   void Lower(const MachineInstr *MI, MCInst &OutMI) const;
-  MCOperand LowerOperand(const MachineOperand& MO, unsigned offset = 0) const;
+  MCOperand LowerOperand(const MachineOperand &MO, unsigned offset = 0) const;
 
 private:
   MCOperand LowerSymbolOperand(const MachineOperand &MO,

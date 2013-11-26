@@ -1,4 +1,5 @@
-//===-- VectorProcAsmPrinter.cpp - VectorProc LLVM assembly writer ------------------===//
+//===-- VectorProcAsmPrinter.cpp - VectorProc LLVM assembly writer
+//------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -44,15 +45,14 @@ void VectorProcAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     MCInst TmpInst;
     MCInstLowering.Lower(MI, TmpInst);
     OutStreamer.EmitInstruction(TmpInst);
-    if (MI->getOpcode() == VectorProc::JUMP_TABLE)
-    {
+    if (MI->getOpcode() == VectorProc::JUMP_TABLE) {
       EmitInlineJumpTable(MI);
     }
   } while ((I != E) && I->isInsideBundle());
 }
 
-MachineLocation VectorProcAsmPrinter::
-getDebugValueLocation(const MachineInstr *MI) const {
+MachineLocation
+VectorProcAsmPrinter::getDebugValueLocation(const MachineInstr *MI) const {
   assert(MI->getNumOperands() == 4 && "Invalid number of operands!");
   assert(MI->getOperand(0).isReg() && MI->getOperand(1).isImm() &&
          "Unexpected MachineOperand types");
@@ -60,23 +60,19 @@ getDebugValueLocation(const MachineInstr *MI) const {
                          MI->getOperand(1).getImm());
 }
 
-void VectorProcAsmPrinter::
-EmitFunctionBodyStart() {
+void VectorProcAsmPrinter::EmitFunctionBodyStart() {
   MCInstLowering.Initialize(&MF->getContext());
 }
 
-void VectorProcAsmPrinter::
-EmitFunctionBodyEnd()
-{
+void VectorProcAsmPrinter::EmitFunctionBodyEnd() {
   OutStreamer.EmitDataRegion(MCDR_DataRegionEnd);
 }
 
-void VectorProcAsmPrinter::
-EmitConstantPool()
-{
+void VectorProcAsmPrinter::EmitConstantPool() {
   const MachineConstantPool *MCP = MF->getConstantPool();
   const std::vector<MachineConstantPoolEntry> &CP = MCP->getConstants();
-  if (CP.empty()) return;
+  if (CP.empty())
+    return;
 
   // Emit constants for this function in the same section as the function so
   // they are close by and can be accessed with PC relative addresses.
@@ -93,16 +89,14 @@ EmitConstantPool()
   }
 }
 
-void VectorProcAsmPrinter::
-EmitInlineJumpTable(const MachineInstr *MI)
-{
+void VectorProcAsmPrinter::EmitInlineJumpTable(const MachineInstr *MI) {
   const MachineOperand &MO1 = MI->getOperand(1);
   unsigned JTI = MO1.getIndex();
   MCSymbol *JTISymbol = GetJumpTableLabel(JTI);
   OutStreamer.EmitLabel(JTISymbol);
   const MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
   const std::vector<MachineJumpTableEntry> &JT = MJTI->getJumpTables();
-  const std::vector<MachineBasicBlock*> &JTBBs = JT[JTI].MBBs;
+  const std::vector<MachineBasicBlock *> &JTBBs = JT[JTI].MBBs;
   for (unsigned i = 0, e = JTBBs.size(); i != e; ++i) {
     MachineBasicBlock *MBB = JTBBs[i];
     const MCExpr *Expr = MCSymbolRefExpr::Create(MBB->getSymbol(), OutContext);
@@ -110,8 +104,7 @@ EmitInlineJumpTable(const MachineInstr *MI)
   }
 }
 
-MCSymbol *VectorProcAsmPrinter::
-GetJumpTableLabel(unsigned uid) const {
+MCSymbol *VectorProcAsmPrinter::GetJumpTableLabel(unsigned uid) const {
   SmallString<60> Name;
   raw_svector_ostream(Name) << MAI->getPrivateGlobalPrefix() << "JTI"
                             << getFunctionNumber() << '_' << uid;
@@ -119,15 +112,12 @@ GetJumpTableLabel(unsigned uid) const {
 }
 
 // Print operand for inline assembly
-bool VectorProcAsmPrinter::
-PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
-                unsigned AsmVariant,
-                const char *ExtraCode,
-                raw_ostream &O)
-{
+bool VectorProcAsmPrinter::PrintAsmOperand(const MachineInstr *MI,
+                                           unsigned OpNo, unsigned AsmVariant,
+                                           const char *ExtraCode,
+                                           raw_ostream &O) {
   const MachineOperand &MO = MI->getOperand(OpNo);
-  if (MO.getType() == MachineOperand::MO_Register)
-  {
+  if (MO.getType() == MachineOperand::MO_Register) {
     O << VectorProcInstPrinter::getRegisterName(MO.getReg());
     return false;
   }

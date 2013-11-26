@@ -1,4 +1,5 @@
-//===-- VectorProc.h - Top-level interface for VectorProc representation --*- C++ -*-===//
+//===-- VectorProc.h - Top-level interface for VectorProc representation --*-
+//C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //

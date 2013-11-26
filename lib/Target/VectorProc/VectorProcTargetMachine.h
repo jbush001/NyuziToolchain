@@ -1,4 +1,5 @@
-//===-- VectorProcTargetMachine.h - Define TargetMachine for VectorProc ---*- C++ -*-===//
+//===-- VectorProcTargetMachine.h - Define TargetMachine for VectorProc ---*-
+//C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -27,40 +28,35 @@ namespace llvm {
 
 class VectorProcTargetMachine : public LLVMTargetMachine {
   VectorProcSubtarget Subtarget;
-  const DataLayout DL;       // Calculates type size & alignment
+  const DataLayout DL; // Calculates type size & alignment
   VectorProcInstrInfo InstrInfo;
   VectorProcTargetLowering TLInfo;
   VectorProcSelectionDAGInfo TSInfo;
   VectorProcFrameLowering FrameLowering;
+
 public:
-  VectorProcTargetMachine(const Target &T, StringRef TT,
-                          StringRef CPU, StringRef FS, const TargetOptions &Options,
+  VectorProcTargetMachine(const Target &T, StringRef TT, StringRef CPU,
+                          StringRef FS, const TargetOptions &Options,
                           Reloc::Model RM, CodeModel::Model CM,
                           CodeGenOpt::Level OL);
 
-
-
-  virtual const VectorProcInstrInfo *getInstrInfo() const {
-    return &InstrInfo;
-  }
-  virtual const TargetFrameLowering  *getFrameLowering() const {
+  virtual const VectorProcInstrInfo *getInstrInfo() const { return &InstrInfo; }
+  virtual const TargetFrameLowering *getFrameLowering() const {
     return &FrameLowering;
   }
-  virtual const VectorProcSubtarget   *getSubtargetImpl() const {
+  virtual const VectorProcSubtarget *getSubtargetImpl() const {
     return &Subtarget;
   }
   virtual const VectorProcRegisterInfo *getRegisterInfo() const {
     return &InstrInfo.getRegisterInfo();
   }
-  virtual const VectorProcTargetLowering* getTargetLowering() const {
+  virtual const VectorProcTargetLowering *getTargetLowering() const {
     return &TLInfo;
   }
-  virtual const VectorProcSelectionDAGInfo* getSelectionDAGInfo() const {
+  virtual const VectorProcSelectionDAGInfo *getSelectionDAGInfo() const {
     return &TSInfo;
   }
-  virtual const DataLayout       *getDataLayout() const {
-    return &DL;
-  }
+  virtual const DataLayout *getDataLayout() const { return &DL; }
 
   // Pass Pipeline Configuration
   virtual TargetPassConfig *createPassConfig(PassManagerBase &PM);

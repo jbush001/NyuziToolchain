@@ -1,4 +1,5 @@
-//===-- VectorProcMCAsmInfo.h - VectorProc asm properties ----------------*- C++ -*--===//
+//===-- VectorProcMCAsmInfo.h - VectorProc asm properties ----------------*- C++
+//-*--===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -22,6 +23,7 @@ class Target;
 
 class VectorProcMCAsmInfo : public MCAsmInfo {
   virtual void anchor();
+
 public:
   explicit VectorProcMCAsmInfo(StringRef TT);
 };

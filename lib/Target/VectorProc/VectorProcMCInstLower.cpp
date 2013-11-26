@@ -1,4 +1,5 @@
-//===-- VectorProcMCInstLower.cpp - Convert VectorProc MachineInstr to MCInst ---------===//
+//===-- VectorProcMCInstLower.cpp - Convert VectorProc MachineInstr to MCInst
+//---------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,7 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains code to lower VectorProc MachineInstrs to their corresponding
+// This file contains code to lower VectorProc MachineInstrs to their
+// corresponding
 // MCInst records.
 //
 //===----------------------------------------------------------------------===//
@@ -31,17 +33,13 @@
 using namespace llvm;
 
 VectorProcMCInstLower::VectorProcMCInstLower(VectorProcAsmPrinter &asmprinter)
-  : AsmPrinter(asmprinter)
-{
-}
+    : AsmPrinter(asmprinter) {}
 
-void VectorProcMCInstLower::Initialize(MCContext *C) {
-  Ctx = C;
-}
+void VectorProcMCInstLower::Initialize(MCContext *C) { Ctx = C; }
 
 MCOperand VectorProcMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
-    MachineOperandType MOTy,
-    unsigned Offset) const {
+                                                    MachineOperandType MOTy,
+                                                    unsigned Offset) const {
   MCSymbolRefExpr::VariantKind Kind = MCSymbolRefExpr::VK_None;
   const MCSymbol *Symbol;
 
@@ -85,13 +83,13 @@ MCOperand VectorProcMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
   // Assume offset is never negative.
   assert(Offset > 0);
 
-  const MCConstantExpr *OffsetExpr =  MCConstantExpr::Create(Offset, *Ctx);
+  const MCConstantExpr *OffsetExpr = MCConstantExpr::Create(Offset, *Ctx);
   const MCBinaryExpr *Add = MCBinaryExpr::CreateAdd(MCSym, OffsetExpr, *Ctx);
   return MCOperand::CreateExpr(Add);
 }
 
 MCOperand VectorProcMCInstLower::LowerOperand(const MachineOperand &MO,
-    unsigned offset) const {
+                                              unsigned offset) const {
   MachineOperandType MOTy = MO.getType();
 
   switch (MOTy) {
@@ -99,7 +97,8 @@ MCOperand VectorProcMCInstLower::LowerOperand(const MachineOperand &MO,
     llvm_unreachable("unknown operand type");
   case MachineOperand::MO_Register:
     // Ignore all implicit register operands.
-    if (MO.isImplicit()) break;
+    if (MO.isImplicit())
+      break;
     return MCOperand::CreateReg(MO.getReg());
 
   case MachineOperand::MO_Immediate:
@@ -120,18 +119,17 @@ MCOperand VectorProcMCInstLower::LowerOperand(const MachineOperand &MO,
   return MCOperand();
 }
 
-void VectorProcMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
-{
+void VectorProcMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
   OutMI.setOpcode(MI->getOpcode());
 
   // XXX note that this chunk of code assumes a load instruction. It's also
-  // possible for MO_ConstantPoolIndex to appear in arithmetic.  In this situation,
+  // possible for MO_ConstantPoolIndex to appear in arithmetic.  In this
+  // situation,
   // the instruction would be clobbered.
-  if (MI->getNumOperands() > 1
-      && (MI->getOperand(1).getType() == MachineOperand::MO_ConstantPoolIndex
-          || MI->getOperand(1).getType() == MachineOperand::MO_JumpTableIndex))
-  {
-    OutMI.addOperand(LowerOperand(MI->getOperand(0)));	// result
+  if (MI->getNumOperands() > 1 &&
+      (MI->getOperand(1).getType() == MachineOperand::MO_ConstantPoolIndex ||
+       MI->getOperand(1).getType() == MachineOperand::MO_JumpTableIndex)) {
+    OutMI.addOperand(LowerOperand(MI->getOperand(0))); // result
 
     const MachineOperand &cpEntry = MI->getOperand(1);
 
@@ -139,7 +137,8 @@ void VectorProcMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
     // to this instruction to match what the assembly parser produces
     // (and InstPrinter/Encoder expects)
     // It should look like this:
-    // <MCInst #97 LWi <MCOperand Reg:8> <MCOperand Reg:3> <MCOperand Expr:(foo)>>
+    // <MCInst #97 LWi <MCOperand Reg:8> <MCOperand Reg:3> <MCOperand
+    // Expr:(foo)>>
     OutMI.addOperand(MCOperand::CreateReg(VectorProc::PC_REG));
     const MCSymbol *Symbol;
     if (MI->getOperand(1).getType() == MachineOperand::MO_ConstantPoolIndex)
@@ -147,13 +146,11 @@ void VectorProcMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
     else
       Symbol = AsmPrinter.GetJTISymbol(cpEntry.getIndex());
 
-    const MCSymbolRefExpr *MCSym = MCSymbolRefExpr::Create(Symbol,
-                                   MCSymbolRefExpr::VK_None, *Ctx);
+    const MCSymbolRefExpr *MCSym =
+        MCSymbolRefExpr::Create(Symbol, MCSymbolRefExpr::VK_None, *Ctx);
     MCOperand MCOp = MCOperand::CreateExpr(MCSym);
     OutMI.addOperand(MCOp);
-  }
-  else
-  {
+  } else {
     for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
       const MachineOperand &MO = MI->getOperand(i);
       MCOperand MCOp = LowerOperand(MO);
@@ -163,4 +160,3 @@ void VectorProcMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const
     }
   }
 }
-

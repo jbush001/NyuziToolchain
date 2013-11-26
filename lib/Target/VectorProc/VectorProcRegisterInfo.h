@@ -1,4 +1,5 @@
-//===-- VectorProcRegisterInfo.h - VectorProc Register Information Impl ---*- C++ -*-===//
+//===-- VectorProcRegisterInfo.h - VectorProc Register Information Impl ---*-
+//C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,7 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the VectorProc implementation of the TargetRegisterInfo class.
+// This file contains the VectorProc implementation of the TargetRegisterInfo
+// class.
 //
 //===----------------------------------------------------------------------===//
 
@@ -33,19 +35,19 @@ struct VectorProcRegisterInfo : public VectorProcGenRegisterInfo {
 
   /// Code Generation virtual methods...
   const uint16_t *getCalleeSavedRegs(const MachineFunction *MF = 0) const;
-  const uint32_t* getCallPreservedMask(CallingConv::ID) const;
+  const uint32_t *getCallPreservedMask(CallingConv::ID) const;
 
   BitVector getReservedRegs(const MachineFunction &MF) const;
 
   const TargetRegisterClass *getPointerRegClass(const MachineFunction &MF,
-      unsigned Kind) const;
+                                                unsigned Kind) const;
 
-  void eliminateFrameIndex(MachineBasicBlock::iterator II,
-                           int SPAdj, unsigned FIOperandNum,
+  void eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
+                           unsigned FIOperandNum,
                            RegScavenger *RS = NULL) const;
 
   void processFunctionBeforeFrameFinalized(MachineFunction &MF,
-      RegScavenger *RS = NULL) const;
+                                           RegScavenger *RS = NULL) const;
 
   // Debug information queries.
   unsigned getFrameRegister(const MachineFunction &MF) const;

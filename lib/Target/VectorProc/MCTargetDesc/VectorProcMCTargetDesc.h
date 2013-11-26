@@ -1,4 +1,5 @@
-//===-- VectorProcMCTargetDesc.h - VectorProc Target Descriptions ---------*- C++ -*-===//
+//===-- VectorProcMCTargetDesc.h - VectorProc Target Descriptions ---------*-
+//C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -31,17 +32,15 @@ class StringRef;
 extern Target TheVectorProcTarget;
 
 MCCodeEmitter *createVectorProcMCCodeEmitter(const MCInstrInfo &MCII,
-    const MCRegisterInfo &MRI,
-    const MCSubtargetInfo &STI,
-    MCContext &Ctx);
+                                             const MCRegisterInfo &MRI,
+                                             const MCSubtargetInfo &STI,
+                                             MCContext &Ctx);
 
-MCObjectWriter *createVectorProcELFObjectWriter(raw_ostream &OS,
-    uint8_t OSABI);
+MCObjectWriter *createVectorProcELFObjectWriter(raw_ostream &OS, uint8_t OSABI);
 
 MCAsmBackend *createVectorProcAsmBackend(const Target &T,
-    const MCRegisterInfo &MRI,
-    StringRef TT,
-    StringRef CPU);
+                                         const MCRegisterInfo &MRI,
+                                         StringRef TT, StringRef CPU);
 
 } // End llvm namespace
 

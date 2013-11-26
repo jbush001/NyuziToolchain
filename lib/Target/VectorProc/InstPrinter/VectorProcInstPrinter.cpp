@@ -1,4 +1,5 @@
-//===-- VectorProcInstPrinter.cpp - Convert VectorProc MCInst to assembly syntax ------===//
+//===-- VectorProcInstPrinter.cpp - Convert VectorProc MCInst to assembly syntax
+//------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -27,7 +28,8 @@ using namespace llvm;
 #define PRINT_ALIAS_INSTR
 #include "VectorProcGenAsmWriter.inc"
 
-void VectorProcInstPrinter::printRegName(raw_ostream &OS, unsigned RegNo) const {
+void VectorProcInstPrinter::printRegName(raw_ostream &OS,
+                                         unsigned RegNo) const {
   OS << StringRef(getRegisterName(RegNo)).lower();
 }
 
@@ -47,8 +49,7 @@ static void printExpr(const MCExpr *Expr, raw_ostream &OS) {
     const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(BE->getRHS());
     assert(SRE && CE && "Binary expression must be sym+const.");
     Offset = CE->getValue();
-  }
-  else if (!(SRE = dyn_cast<MCSymbolRefExpr>(Expr)))
+  } else if (!(SRE = dyn_cast<MCSymbolRefExpr>(Expr)))
     assert(false && "Unexpected MCExpr type.");
 
   MCSymbolRefExpr::VariantKind Kind = SRE->getKind();
@@ -66,12 +67,12 @@ static void printExpr(const MCExpr *Expr, raw_ostream &OS) {
 }
 
 void VectorProcInstPrinter::printCPURegs(const MCInst *MI, unsigned OpNo,
-    raw_ostream &O) {
+                                         raw_ostream &O) {
   printRegName(O, MI->getOperand(OpNo).getReg());
 }
 
 void VectorProcInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
-    raw_ostream &O) {
+                                         raw_ostream &O) {
   const MCOperand &Op = MI->getOperand(OpNo);
   if (Op.isReg()) {
     printRegName(O, Op.getReg());
@@ -88,7 +89,7 @@ void VectorProcInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
 }
 
 void VectorProcInstPrinter::printUnsignedImm(const MCInst *MI, int opNum,
-    raw_ostream &O) {
+                                             raw_ostream &O) {
   const MCOperand &MO = MI->getOperand(opNum);
   if (MO.isImm())
     O << (unsigned short int)MO.getImm();
@@ -96,22 +97,18 @@ void VectorProcInstPrinter::printUnsignedImm(const MCInst *MI, int opNum,
     printOperand(MI, opNum, O);
 }
 
-void VectorProcInstPrinter::
-printMemOperand(const MCInst *MI, int opNum, raw_ostream &O)
-{
-  if (MI->getOperand(opNum + 1).isExpr())
-  {
+void VectorProcInstPrinter::printMemOperand(const MCInst *MI, int opNum,
+                                            raw_ostream &O) {
+  if (MI->getOperand(opNum + 1).isExpr()) {
     // PC relative memory access to a local label
     printOperand(MI, opNum + 1, O);
-  }
-  else
-  {
+  } else {
     // Register/offset
     assert(MI->getOperand(opNum).isReg());
     assert(MI->getOperand(opNum + 1).isImm());
 
     if (MI->getOperand(opNum + 1).getImm())
-      printOperand(MI, opNum+1, O);
+      printOperand(MI, opNum + 1, O);
 
     O << "(";
     printOperand(MI, opNum, O);
@@ -119,10 +116,8 @@ printMemOperand(const MCInst *MI, int opNum, raw_ostream &O)
   }
 }
 
-void VectorProcInstPrinter::
-printJumpTableOperand(const MCInst *MI, int opNum, raw_ostream &O)
-{
+void VectorProcInstPrinter::printJumpTableOperand(const MCInst *MI, int opNum,
+                                                  raw_ostream &O) {
   const MCOperand &Op = MI->getOperand(2);
   printExpr(Op.getExpr(), O);
 }
-

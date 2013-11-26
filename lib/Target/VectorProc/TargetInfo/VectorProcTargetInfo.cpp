@@ -1,4 +1,5 @@
-//===-- VectorProcTargetInfo.cpp - VectorProc Target Implementation -----------------===//
+//===-- VectorProcTargetInfo.cpp - VectorProc Target Implementation
+//-----------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -15,5 +16,6 @@ using namespace llvm;
 Target llvm::TheVectorProcTarget;
 
 extern "C" void LLVMInitializeVectorProcTargetInfo() {
-  RegisterTarget<Triple::vectorproc> X(TheVectorProcTarget, "vectorproc", "VectorProc");
+  RegisterTarget<Triple::vectorproc> X(TheVectorProcTarget, "vectorproc",
+                                       "VectorProc");
 }

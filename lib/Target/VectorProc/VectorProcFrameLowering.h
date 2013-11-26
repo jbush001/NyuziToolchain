@@ -1,4 +1,5 @@
-//===-- VectorProcFrameLowering.h - Define frame lowering for VectorProc --*- C++ -*-===//
+//===-- VectorProcFrameLowering.h - Define frame lowering for VectorProc --*-
+//C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -24,8 +25,7 @@ class VectorProcSubtarget;
 class VectorProcFrameLowering : public TargetFrameLowering {
 public:
   explicit VectorProcFrameLowering(const VectorProcSubtarget &ST)
-    : TargetFrameLowering(TargetFrameLowering::StackGrowsDown,
-                          64, 0, 64) {}
+      : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 64, 0, 64) {}
 
   /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
   /// the function.
@@ -35,12 +35,10 @@ public:
                                      MachineBasicBlock &MBB,
                                      MachineBasicBlock::iterator I) const;
   bool hasFP(const MachineFunction &MF) const;
-  virtual bool targetHandlesStackFrameRounding() const {
-    return true;
-  }
+  virtual bool targetHandlesStackFrameRounding() const { return true; }
 
   void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
-      RegScavenger *RS) const;
+                                            RegScavenger *RS) const;
 };
 
 } // End llvm namespace

@@ -1,4 +1,5 @@
-//===-- VectorProcMCAsmInfo.cpp - VectorProc asm properties -------------------------===//
+//===-- VectorProcMCAsmInfo.cpp - VectorProc asm properties
+//-------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -16,7 +17,7 @@
 
 using namespace llvm;
 
-void VectorProcMCAsmInfo::anchor() { }
+void VectorProcMCAsmInfo::anchor() {}
 
 VectorProcMCAsmInfo::VectorProcMCAsmInfo(StringRef TT) {
   IsLittleEndian = true;
@@ -25,7 +26,7 @@ VectorProcMCAsmInfo::VectorProcMCAsmInfo(StringRef TT) {
   Data16bitsDirective = "\t.short\t";
   Data32bitsDirective = "\t.word\t";
   Data64bitsDirective = 0;
-  ZeroDirective = "";	// What is this?
+  ZeroDirective = ""; // What is this?
   CommentString = ";";
   SupportsDebugInformation = true;
   ExceptionsType = ExceptionHandling::None;
@@ -34,5 +35,3 @@ VectorProcMCAsmInfo::VectorProcMCAsmInfo(StringRef TT) {
 
   PrivateGlobalPrefix = "L";
 }
-
-

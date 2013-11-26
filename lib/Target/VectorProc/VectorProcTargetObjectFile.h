@@ -1,4 +1,5 @@
-//===-- VectorProcTargetObjectFile.h - VectorProc Object Info ---------*- C++ -*-===//
+//===-- VectorProcTargetObjectFile.h - VectorProc Object Info ---------*- C++
+//-*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //

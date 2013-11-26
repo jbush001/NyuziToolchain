@@ -1,4 +1,5 @@
-//===-- VectorProcSubtarget.h - Define Subtarget for the VECTORPROC -------*- C++ -*-===//
+//===-- VectorProcSubtarget.h - Define Subtarget for the VECTORPROC -------*-
+//C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -40,9 +41,7 @@ public:
     return std::string(p);
   }
 
-  int64_t getStackPointerBias() const {
-    return 0;
-  }
+  int64_t getStackPointerBias() const { return 0; }
 };
 
 } // end namespace llvm

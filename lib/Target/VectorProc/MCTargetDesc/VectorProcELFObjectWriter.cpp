@@ -1,4 +1,5 @@
-//===-- VectorProcELFObjectWriter.cpp - VectorProc ELF Writer -------------------------===//
+//===-- VectorProcELFObjectWriter.cpp - VectorProc ELF Writer
+//-------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -21,6 +22,7 @@ public:
   VectorProcELFObjectWriter(uint8_t OSABI);
 
   virtual ~VectorProcELFObjectWriter();
+
 protected:
   virtual unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
                                 bool IsPCRel, bool IsRelocWithSymbol,
@@ -29,17 +31,16 @@ protected:
 }
 
 VectorProcELFObjectWriter::VectorProcELFObjectWriter(uint8_t OSABI)
-  : MCELFObjectTargetWriter(/*Is64Bit*/ false, OSABI, ELF::EM_VECTORPROC,
-                                      /*HasRelocationAddend*/ true) {}
+    : MCELFObjectTargetWriter(/*Is64Bit*/ false, OSABI, ELF::EM_VECTORPROC,
+                              /*HasRelocationAddend*/ true) {}
 
 VectorProcELFObjectWriter::~VectorProcELFObjectWriter() {}
 
 unsigned VectorProcELFObjectWriter::GetRelocType(const MCValue &Target,
-    const MCFixup &Fixup,
-    bool IsPCRel,
-    bool IsRelocWithSymbol,
-    int64_t Addend) const
-{
+                                                 const MCFixup &Fixup,
+                                                 bool IsPCRel,
+                                                 bool IsRelocWithSymbol,
+                                                 int64_t Addend) const {
   unsigned Type;
   unsigned Kind = (unsigned)Fixup.getKind();
   switch (Kind) {
@@ -59,7 +60,7 @@ unsigned VectorProcELFObjectWriter::GetRelocType(const MCValue &Target,
 }
 
 MCObjectWriter *llvm::createVectorProcELFObjectWriter(raw_ostream &OS,
-    uint8_t OSABI) {
+                                                      uint8_t OSABI) {
   MCELFObjectTargetWriter *MOTW = new VectorProcELFObjectWriter(OSABI);
   return createELFObjectWriter(MOTW, OS, true);
 }

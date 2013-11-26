@@ -1,4 +1,5 @@
-//===-- VectorProcRegisterInfo.cpp - VECTORPROC Register Information ----------------===//
+//===-- VectorProcRegisterInfo.cpp - VECTORPROC Register Information
+//----------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,7 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the VECTORPROC implementation of the TargetRegisterInfo class.
+// This file contains the VECTORPROC implementation of the TargetRegisterInfo
+// class.
 //
 //===----------------------------------------------------------------------===//
 
@@ -29,24 +31,21 @@
 using namespace llvm;
 
 VectorProcRegisterInfo::VectorProcRegisterInfo(VectorProcSubtarget &st,
-    const TargetInstrInfo &tii)
-  : VectorProcGenRegisterInfo(VectorProc::FP_REG), Subtarget(st), TII(tii)
-{
-}
+                                               const TargetInstrInfo &tii)
+    : VectorProcGenRegisterInfo(VectorProc::FP_REG), Subtarget(st), TII(tii) {}
 
-const uint16_t* VectorProcRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF)
-const
-{
+const uint16_t *
+VectorProcRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
   return VectorProcCSR_SaveList;
 }
 
-const uint32_t* VectorProcRegisterInfo::getCallPreservedMask(CallingConv::ID) const
-{
+const uint32_t *
+VectorProcRegisterInfo::getCallPreservedMask(CallingConv::ID) const {
   return VectorProcCSR_RegMask;
 }
 
-
-BitVector VectorProcRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
+BitVector
+VectorProcRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
   Reserved.set(VectorProc::SP_REG);
   Reserved.set(VectorProc::LINK_REG);
@@ -55,17 +54,16 @@ BitVector VectorProcRegisterInfo::getReservedRegs(const MachineFunction &MF) con
   return Reserved;
 }
 
-const TargetRegisterClass*
+const TargetRegisterClass *
 VectorProcRegisterInfo::getPointerRegClass(const MachineFunction &MF,
-    unsigned Kind) const {
+                                           unsigned Kind) const {
   return &VectorProc::ScalarRegRegClass;
 }
 
-void
-VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
-    int SPAdj, unsigned FIOperandNum,
-    RegScavenger *RS) const
-{
+void VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
+                                                 int SPAdj,
+                                                 unsigned FIOperandNum,
+                                                 RegScavenger *RS) const {
   assert(SPAdj == 0 && "Unexpected");
 
   MachineInstr &MI = *II;
@@ -78,9 +76,8 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
   // Frame index is relative to where SP is before it is decremented on
   // entry to the function.  Need to add stackSize to adjust for this.
-  int64_t Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex)
-                   + MI.getOperand(FIOperandNum + 1).getImm()
-                   + stackSize;
+  int64_t Offset = MF.getFrameInfo()->getObjectOffset(FrameIndex) +
+                   MI.getOperand(FIOperandNum + 1).getImm() + stackSize;
 
   // Determine where callee saved registers live in the frame
   const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
@@ -111,7 +108,7 @@ VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   }
 }
 
-unsigned VectorProcRegisterInfo::getFrameRegister(const MachineFunction &MF) const
-{
+unsigned
+VectorProcRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
   return VectorProc::FP_REG;
 }

@@ -1,4 +1,5 @@
-//===-- VectorProcMachineFunctionInfo.cpp - VectorProc Machine Function Info --------===//
+//===-- VectorProcMachineFunctionInfo.cpp - VectorProc Machine Function Info
+//--------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -11,4 +12,4 @@
 
 using namespace llvm;
 
-void VectorProcMachineFunctionInfo::anchor() { }
+void VectorProcMachineFunctionInfo::anchor() {}

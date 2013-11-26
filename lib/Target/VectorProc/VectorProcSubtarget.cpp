@@ -1,4 +1,5 @@
-//===-- VectorProcSubtarget.cpp - VECTORPROC Subtarget Information ------------------===//
+//===-- VectorProcSubtarget.cpp - VECTORPROC Subtarget Information
+//------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -21,11 +22,12 @@
 
 using namespace llvm;
 
-void VectorProcSubtarget::anchor() { }
+void VectorProcSubtarget::anchor() {}
 
-VectorProcSubtarget::VectorProcSubtarget(const std::string &TT, const std::string &CPU,
-    const std::string &FS) :
-  VectorProcGenSubtargetInfo(TT, CPU, FS) {
+VectorProcSubtarget::VectorProcSubtarget(const std::string &TT,
+                                         const std::string &CPU,
+                                         const std::string &FS)
+    : VectorProcGenSubtargetInfo(TT, CPU, FS) {
 
   // Determine default and user specified characteristics
   std::string CPUName = CPU;

@@ -23,11 +23,13 @@ namespace VectorProc {
 // in VectorProcAsmBackend.cpp.
 //
 enum Fixups {
-  fixup_VectorProc_Abs32 = FirstTargetFixupKind,	// Pure 32-bit absolute fixup
-  fixup_VectorProc_PCRel_MemAccExt,	// PC relative offset for extended memory access
-  fixup_VectorProc_PCRel_MemAcc,		// PC relative offset for memory access
-  fixup_VectorProc_PCRel_Branch,		// PC relative for branch instruction
-  fixup_VectorProc_PCRel_ComputeLabelAddress, // For getting jump table addresses
+  fixup_VectorProc_Abs32 = FirstTargetFixupKind, // Pure 32-bit absolute fixup
+  fixup_VectorProc_PCRel_MemAccExt, // PC relative offset for extended memory
+                                    // access
+  fixup_VectorProc_PCRel_MemAcc,    // PC relative offset for memory access
+  fixup_VectorProc_PCRel_Branch,    // PC relative for branch instruction
+  fixup_VectorProc_PCRel_ComputeLabelAddress, // For getting jump table
+                                              // addresses
 
   // Marker
   LastTargetFixupKind,
@@ -35,6 +37,5 @@ enum Fixups {
 };
 } // namespace VectorProc
 } // namespace llvm
-
 
 #endif // LLVM_MIPS_VECTORPROCFIXUPKINDS_H

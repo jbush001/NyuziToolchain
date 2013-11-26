@@ -1,4 +1,5 @@
-//===-- VectorProcMCTargetDesc.cpp - VectorProc Target Descriptions -----------------===//
+//===-- VectorProcMCTargetDesc.cpp - VectorProc Target Descriptions
+//-----------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -45,31 +46,32 @@ static MCRegisterInfo *createVectorProcMCRegisterInfo(StringRef TT) {
   return X;
 }
 
-static MCSubtargetInfo *createVectorProcMCSubtargetInfo(StringRef TT, StringRef CPU,
-    StringRef FS) {
+static MCSubtargetInfo *
+createVectorProcMCSubtargetInfo(StringRef TT, StringRef CPU, StringRef FS) {
   MCSubtargetInfo *X = new MCSubtargetInfo();
   InitVectorProcMCSubtargetInfo(X, TT, CPU, FS);
   return X;
 }
 
-static MCCodeGenInfo *createVectorProcMCCodeGenInfo(StringRef TT, Reloc::Model RM,
-    CodeModel::Model CM,
-    CodeGenOpt::Level OL) {
+static MCCodeGenInfo *createVectorProcMCCodeGenInfo(StringRef TT,
+                                                    Reloc::Model RM,
+                                                    CodeModel::Model CM,
+                                                    CodeGenOpt::Level OL) {
   MCCodeGenInfo *X = new MCCodeGenInfo();
   X->InitMCCodeGenInfo(RM, CM, OL);
   return X;
 }
 
-static MCAsmInfo *createVectorProcMCAsmInfo(const MCRegisterInfo &MRI, StringRef TT) {
+static MCAsmInfo *createVectorProcMCAsmInfo(const MCRegisterInfo &MRI,
+                                            StringRef TT) {
   return new VectorProcMCAsmInfo(TT);
 }
 
 static MCStreamer *createVectorProcMCStreamer(const Target &T, StringRef TT,
-    MCContext &Ctx, MCAsmBackend &MAB,
-    raw_ostream &_OS,
-    MCCodeEmitter *_Emitter,
-    bool RelaxAll,
-    bool NoExecStack) {
+                                              MCContext &Ctx, MCAsmBackend &MAB,
+                                              raw_ostream &_OS,
+                                              MCCodeEmitter *_Emitter,
+                                              bool RelaxAll, bool NoExecStack) {
   Triple TheTriple(TT);
   if (TheTriple.isOSDarwin()) {
     llvm_unreachable("VectorProc does not support Darwin MACH-O format");
@@ -78,15 +80,15 @@ static MCStreamer *createVectorProcMCStreamer(const Target &T, StringRef TT,
     llvm_unreachable("VectorProc does not support Windows COFF format");
   }
   MCTargetStreamer *streamer = new MCTargetStreamer;
-  return createELFStreamer(Ctx, streamer, MAB, _OS, _Emitter, RelaxAll, NoExecStack);
+  return createELFStreamer(Ctx, streamer, MAB, _OS, _Emitter, RelaxAll,
+                           NoExecStack);
 }
 
-static MCInstPrinter *createVectorProcMCInstPrinter(const Target &T,
-    unsigned SyntaxVariant,
-    const MCAsmInfo &MAI,
-    const MCInstrInfo &MII,
-    const MCRegisterInfo &MRI,
-    const MCSubtargetInfo &STI) {
+static MCInstPrinter *
+createVectorProcMCInstPrinter(const Target &T, unsigned SyntaxVariant,
+                              const MCAsmInfo &MAI, const MCInstrInfo &MII,
+                              const MCRegisterInfo &MRI,
+                              const MCSubtargetInfo &STI) {
   return new VectorProcInstPrinter(MAI, MII, MRI);
 }
 
@@ -99,12 +101,15 @@ extern "C" void LLVMInitializeVectorProcTargetMC() {
                                         createVectorProcMCCodeGenInfo);
 
   // Register the MC instruction info.
-  TargetRegistry::RegisterMCInstrInfo(TheVectorProcTarget, createVectorProcMCInstrInfo);
+  TargetRegistry::RegisterMCInstrInfo(TheVectorProcTarget,
+                                      createVectorProcMCInstrInfo);
 
   // Register the MC register info.
-  TargetRegistry::RegisterMCRegInfo(TheVectorProcTarget, createVectorProcMCRegisterInfo);
+  TargetRegistry::RegisterMCRegInfo(TheVectorProcTarget,
+                                    createVectorProcMCRegisterInfo);
 
-  TargetRegistry::RegisterMCCodeEmitter(TheVectorProcTarget, createVectorProcMCCodeEmitter);
+  TargetRegistry::RegisterMCCodeEmitter(TheVectorProcTarget,
+                                        createVectorProcMCCodeEmitter);
 
   // Register the MC subtarget info.
   TargetRegistry::RegisterMCSubtargetInfo(TheVectorProcTarget,
@@ -116,7 +121,7 @@ extern "C" void LLVMInitializeVectorProcTargetMC() {
 
   // Register the object streamer
   TargetRegistry::RegisterMCObjectStreamer(TheVectorProcTarget,
-      createVectorProcMCStreamer);
+                                           createVectorProcMCStreamer);
 
   // MC instruction printer
   TargetRegistry::RegisterMCInstPrinter(TheVectorProcTarget,

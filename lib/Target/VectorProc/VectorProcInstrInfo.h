@@ -1,4 +1,5 @@
-//===-- VectorProcInstrInfo.h - VectorProc Instruction Information --------*- C++ -*-===//
+//===-- VectorProcInstrInfo.h - VectorProc Instruction Information --------*-
+//C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,7 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the VectorProc implementation of the TargetInstrInfo class.
+// This file contains the VectorProc implementation of the TargetInstrInfo
+// class.
 //
 //===----------------------------------------------------------------------===//
 
@@ -24,6 +26,7 @@ namespace llvm {
 
 class VectorProcInstrInfo : public VectorProcGenInstrInfo {
   const VectorProcRegisterInfo RI;
+
 public:
   explicit VectorProcInstrInfo(VectorProcSubtarget &ST);
 
@@ -31,9 +34,7 @@ public:
   /// such, whenever a client has an instance of instruction info, it should
   /// always be able to get register info as well (through this method).
   ///
-  virtual const VectorProcRegisterInfo &getRegisterInfo() const {
-    return RI;
-  }
+  virtual const VectorProcRegisterInfo &getRegisterInfo() const { return RI; }
 
   /// isLoadFromStackSlot - If the specified machine instruction is a direct
   /// load from a stack slot, return the virtual or physical register number of
@@ -54,10 +55,9 @@ public:
   /// emitFrameIndexDebugValue - Emit a target-dependent form of
   /// DBG_VALUE encoding the address of a frame index.
   virtual MachineInstr *emitFrameIndexDebugValue(MachineFunction &MF,
-      int FrameIx,
-      uint64_t Offset,
-      const MDNode *MDPtr,
-      DebugLoc dl) const;
+                                                 int FrameIx, uint64_t Offset,
+                                                 const MDNode *MDPtr,
+                                                 DebugLoc dl) const;
 
   virtual bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
                              MachineBasicBlock *&FBB,
@@ -80,8 +80,7 @@ public:
                                    MachineBasicBlock::iterator MBBI,
                                    unsigned SrcReg, bool isKill, int FrameIndex,
                                    const TargetRegisterClass *RC,
-                                   const TargetRegisterInfo *TRI) const
-  {
+                                   const TargetRegisterInfo *TRI) const {
     storeRegToStack(MBB, MBBI, SrcReg, isKill, FrameIndex, RC, TRI, 0);
   }
 
@@ -89,15 +88,14 @@ public:
                                     MachineBasicBlock::iterator MBBI,
                                     unsigned DestReg, int FrameIndex,
                                     const TargetRegisterClass *RC,
-                                    const TargetRegisterInfo *TRI) const
-  {
+                                    const TargetRegisterInfo *TRI) const {
     loadRegFromStack(MBB, MBBI, DestReg, FrameIndex, RC, TRI, 0);
   }
 
   void storeRegToStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                        unsigned SrcReg, bool isKill, int FI,
-                       const TargetRegisterClass *RC, const TargetRegisterInfo *TRI,
-                       int64_t Offset) const;
+                       const TargetRegisterClass *RC,
+                       const TargetRegisterInfo *TRI, int64_t Offset) const;
 
   void loadRegFromStack(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                         unsigned DestReg, int FI, const TargetRegisterClass *RC,
@@ -106,7 +104,6 @@ public:
   MachineMemOperand *GetMemOperand(MachineBasicBlock &MBB, int FI,
                                    unsigned Flag) const;
 };
-
 }
 
 #endif

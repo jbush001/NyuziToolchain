@@ -1,4 +1,5 @@
-//===-- VectorProcSelectionDAGInfo.h - VectorProc SelectionDAG Info -------*- C++ -*-===//
+//===-- VectorProcSelectionDAGInfo.h - VectorProc SelectionDAG Info -------*-
+//C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -25,7 +26,6 @@ public:
   explicit VectorProcSelectionDAGInfo(const VectorProcTargetMachine &TM);
   ~VectorProcSelectionDAGInfo();
 };
-
 }
 
 #endif

@@ -1,4 +1,5 @@
-//===-- VectorProcMCCodeEmitter.cpp - Convert VectorProc code to machine code ---------===//
+//===-- VectorProcMCCodeEmitter.cpp - Convert VectorProc code to machine code
+//---------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -33,7 +34,7 @@ STATISTIC(MCNumEmitted, "Number of MC instructions emitted");
 namespace {
 class VectorProcMCCodeEmitter : public MCCodeEmitter {
   VectorProcMCCodeEmitter(const VectorProcMCCodeEmitter &); // DO NOT IMPLEMENT
-  void operator=(const VectorProcMCCodeEmitter &); // DO NOT IMPLEMENT
+  void operator=(const VectorProcMCCodeEmitter &);          // DO NOT IMPLEMENT
   const MCInstrInfo &MCII;
   const MCSubtargetInfo &STI;
   MCContext &Ctx;
@@ -41,8 +42,7 @@ class VectorProcMCCodeEmitter : public MCCodeEmitter {
 public:
   VectorProcMCCodeEmitter(const MCInstrInfo &mcii, const MCSubtargetInfo &sti,
                           MCContext &ctx)
-    : MCII(mcii), STI(sti), Ctx(ctx) {
-  }
+      : MCII(mcii), STI(sti), Ctx(ctx) {}
 
   ~VectorProcMCCodeEmitter() {}
 
@@ -53,7 +53,7 @@ public:
 
   // getMachineOpValue - Return binary encoding of operand. If the machin
   // operand requires relocation, record the relocation and return zero.
-  unsigned getMachineOpValue(const MCInst &MI,const MCOperand &MO,
+  unsigned getMachineOpValue(const MCInst &MI, const MCOperand &MO,
                              SmallVectorImpl<MCFixup> &Fixups) const;
 
   unsigned encodeMemoryOpValue(const MCInst &MI, unsigned Op,
@@ -82,25 +82,24 @@ public:
     }
   }
 
-
   void EncodeInstruction(const MCInst &MI, raw_ostream &OS,
                          SmallVectorImpl<MCFixup> &Fixups) const;
 };
 } // end anonymous namepsace
 
 MCCodeEmitter *llvm::createVectorProcMCCodeEmitter(const MCInstrInfo &MCII,
-    const MCRegisterInfo &MRI,
-    const MCSubtargetInfo &STI,
-    MCContext &Ctx) {
+                                                   const MCRegisterInfo &MRI,
+                                                   const MCSubtargetInfo &STI,
+                                                   MCContext &Ctx) {
 
   return new VectorProcMCCodeEmitter(MCII, STI, Ctx);
 }
 
 /// getMachineOpValue - Return binary encoding of operand. If the machine
 /// operand requires relocation, record the relocation and return zero.
-unsigned VectorProcMCCodeEmitter::
-getMachineOpValue(const MCInst &MI, const MCOperand &MO,
-                  SmallVectorImpl<MCFixup> &Fixups) const {
+unsigned VectorProcMCCodeEmitter::getMachineOpValue(
+    const MCInst &MI, const MCOperand &MO,
+    SmallVectorImpl<MCFixup> &Fixups) const {
 
   if (MO.isReg())
     return Ctx.getRegisterInfo()->getEncodingValue(MO.getReg());
@@ -114,63 +113,59 @@ getMachineOpValue(const MCInst &MI, const MCOperand &MO,
 /// encodeJumpTargetOpValue - Return binary encoding of the jump
 /// target operand. If the machine operand requires relocation,
 /// record the relocation and return zero.
-unsigned VectorProcMCCodeEmitter::
-encodeJumpTargetOpValue(const MCInst &MI, unsigned OpNo,
-                        SmallVectorImpl<MCFixup> &Fixups) const {
+unsigned VectorProcMCCodeEmitter::encodeJumpTargetOpValue(
+    const MCInst &MI, unsigned OpNo, SmallVectorImpl<MCFixup> &Fixups) const {
 
   const MCOperand &MO = MI.getOperand(OpNo);
-  if (MO.isImm()) return MO.getImm();
+  if (MO.isImm())
+    return MO.getImm();
 
   assert(MO.isExpr() &&
          "encodeJumpTargetOpValue expects only expressions or an immediate");
 
   const MCExpr *Expr = MO.getExpr();
-  Fixups.push_back(MCFixup::Create(0, Expr,
-                                   MCFixupKind(VectorProc::fixup_VectorProc_PCRel_Branch)));
+  Fixups.push_back(MCFixup::Create(
+      0, Expr, MCFixupKind(VectorProc::fixup_VectorProc_PCRel_Branch)));
   return 0;
 }
 
-
-void VectorProcMCCodeEmitter::
-EncodeInstruction(const MCInst &MI, raw_ostream &OS,
-                  SmallVectorImpl<MCFixup> &Fixups) const {
+void VectorProcMCCodeEmitter::EncodeInstruction(
+    const MCInst &MI, raw_ostream &OS, SmallVectorImpl<MCFixup> &Fixups) const {
   // Keep track of the current byte being emitted
   unsigned CurByte = 0;
 
   // Get instruction encoding and emit it
-  ++MCNumEmitted;       // Keep track of the number of emitted insns.
+  ++MCNumEmitted; // Keep track of the number of emitted insns.
   unsigned Value = getBinaryCodeForInstr(MI, Fixups);
   EmitLEConstant(Value, 4, CurByte, OS);
 }
 
-unsigned VectorProcMCCodeEmitter::encodeJumpTableAddr(const MCInst &MI, unsigned Op,
-    SmallVectorImpl<MCFixup> &Fixups) const
-{
+unsigned VectorProcMCCodeEmitter::encodeJumpTableAddr(
+    const MCInst &MI, unsigned Op, SmallVectorImpl<MCFixup> &Fixups) const {
   MCOperand label = MI.getOperand(2);
-  Fixups.push_back(MCFixup::Create(0, label.getExpr(),
-                                   MCFixupKind(VectorProc::fixup_VectorProc_PCRel_ComputeLabelAddress)));
+  Fixups.push_back(MCFixup::Create(
+      0, label.getExpr(),
+      MCFixupKind(VectorProc::fixup_VectorProc_PCRel_ComputeLabelAddress)));
   return 0;
 }
 
-// Encode VectorProc Memory Operand.  The result is a packed field with the register
+// Encode VectorProc Memory Operand.  The result is a packed field with the
+// register
 // in the low 5 bits and the offset in the remainder.  The instruction patterns
-// will put these into the proper part of the instruction (VectorProcInstrFormats.td).
-unsigned VectorProcMCCodeEmitter::encodeMemoryOpValue(const MCInst &MI, unsigned Op,
-    SmallVectorImpl<MCFixup> &Fixups) const
-{
+// will put these into the proper part of the instruction
+// (VectorProcInstrFormats.td).
+unsigned VectorProcMCCodeEmitter::encodeMemoryOpValue(
+    const MCInst &MI, unsigned Op, SmallVectorImpl<MCFixup> &Fixups) const {
   unsigned encoding;
 
   MCOperand baseReg;
   MCOperand offsetOp;
 
-  if (MI.getOpcode() == VectorProc::STORE_SYNC)
-  {
+  if (MI.getOpcode() == VectorProc::STORE_SYNC) {
     // Store sync has an additional machine operand for the success value
     baseReg = MI.getOperand(2);
     offsetOp = MI.getOperand(3);
-  }
-  else
-  {
+  } else {
     baseReg = MI.getOperand(1);
     offsetOp = MI.getOperand(2);
   }
@@ -181,15 +176,14 @@ unsigned VectorProcMCCodeEmitter::encodeMemoryOpValue(const MCInst &MI, unsigned
   encoding = Ctx.getRegisterInfo()->getEncodingValue(baseReg.getReg());
 
   // Offset
-  if (offsetOp.isExpr())
-  {
+  if (offsetOp.isExpr()) {
     // Load with a label. This is a PC relative load.  Add a fixup.
     // XXX Note that this assumes unmasked instructions.  A masked
     // instruction will not work and should nto be used.
-    Fixups.push_back(MCFixup::Create(0, offsetOp.getExpr(),
-                                     MCFixupKind(VectorProc::fixup_VectorProc_PCRel_MemAccExt)));
-  }
-  else if (offsetOp.isImm())
+    Fixups.push_back(MCFixup::Create(
+        0, offsetOp.getExpr(),
+        MCFixupKind(VectorProc::fixup_VectorProc_PCRel_MemAccExt)));
+  } else if (offsetOp.isImm())
     encoding |= static_cast<short>(offsetOp.getImm()) << 5;
   else
     assert(offsetOp.isImm() && "Second operand of memory op is unknown type.");
