@@ -464,6 +464,7 @@ let isTerminator = 1 in {
 		let isBranch = 1;
 		let isIndirectBranch = 1;
 		let isBarrier = 1;
+		let isCodeGenOnly = 1;  // Don't use this for assembler or disassembler
 
 		bits<5> tableptr;
 
@@ -599,14 +600,14 @@ def SET_CONTROL_REG : FormatCInst<
 	let Inst{9-5} = src;
 }
 
-// Load address within frame
-// $expr will actually expand to "fp + <offset>"
 def LOAD_FRAME_ADDR : VPInstruction<
 	(outs ScalarReg:$dest),
 	(ins MEMri:$addr),
 	"lea $dest, $addr",
 	[(set i32:$dest, ADDRri:$addr)]>
 {
+	let isCodeGenOnly = 1; 	// Don't use for assembler or disassembler
+
 	bits<20> addr;
 	bits<5> dest;
 
@@ -628,6 +629,8 @@ def LOAD_JTABLE_ADDR : VPInstruction<
 	"lea $dest, $addr",
 	[(set i32:$dest, (jtwrapper tjumptable:$addr))]>
 {
+	let isCodeGenOnly = 1;  // Don't use for assembler or disassembler
+  
 	bits<13> addr;
 	bits<5> dest;
 
