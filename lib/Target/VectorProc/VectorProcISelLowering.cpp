@@ -41,7 +41,7 @@ using namespace llvm;
 SDValue VectorProcTargetLowering::LowerReturn(
     SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
     const SmallVectorImpl<ISD::OutputArg> &Outs,
-    const SmallVectorImpl<SDValue> &OutVals, SDLoc dl,
+    const SmallVectorImpl<SDValue> &OutVals, SDLoc DL,
     SelectionDAG &DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
 
@@ -62,7 +62,7 @@ SDValue VectorProcTargetLowering::LowerReturn(
   for (unsigned i = 0; i != RVLocs.size(); ++i) {
     CCValAssign &VA = RVLocs[i];
     assert(VA.isRegLoc() && "Can only return in registers!");
-    Chain = DAG.getCopyToReg(Chain, dl, VA.getLocReg(), OutVals[i], Flag);
+    Chain = DAG.getCopyToReg(Chain, DL, VA.getLocReg(), OutVals[i], Flag);
 
     // Guarantee that all emitted copies are stuck together with flags.
     Flag = Chain.getValue(1);
@@ -76,8 +76,8 @@ SDValue VectorProcTargetLowering::LowerReturn(
     if (!Reg)
       llvm_unreachable("sret virtual register not created in the entry block");
 
-    SDValue Val = DAG.getCopyFromReg(Chain, dl, Reg, getPointerTy());
-    Chain = DAG.getCopyToReg(Chain, dl, VectorProc::S0, Val, Flag);
+    SDValue Val = DAG.getCopyFromReg(Chain, DL, Reg, getPointerTy());
+    Chain = DAG.getCopyToReg(Chain, DL, VectorProc::S0, Val, Flag);
     Flag = Chain.getValue(1);
     RetOps.push_back(DAG.getRegister(VectorProc::S0, getPointerTy()));
   }
@@ -88,13 +88,13 @@ SDValue VectorProcTargetLowering::LowerReturn(
   if (Flag.getNode())
     RetOps.push_back(Flag);
 
-  return DAG.getNode(VectorProcISD::RET_FLAG, dl, MVT::Other, &RetOps[0],
+  return DAG.getNode(VectorProcISD::RET_FLAG, DL, MVT::Other, &RetOps[0],
                      RetOps.size());
 }
 
 SDValue VectorProcTargetLowering::LowerFormalArguments(
     SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
-    const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc dl, SelectionDAG &DAG,
+    const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc DL, SelectionDAG &DAG,
     SmallVectorImpl<SDValue> &InVals) const {
   MachineFunction &MF = DAG.getMachineFunction();
   MachineRegisterInfo &RegInfo = MF.getRegInfo();
@@ -121,11 +121,11 @@ SDValue VectorProcTargetLowering::LowerFormalArguments(
       else if (RegVT == MVT::v16i32 || RegVT == MVT::v16f32)
         RC = &VectorProc::VectorRegRegClass;
       else
-        llvm_unreachable("Unsupported formal argument type");
+        llvm_unreachable("Unsupported formal argument Type");
 
       unsigned VReg = RegInfo.createVirtualRegister(RC);
       MF.getRegInfo().addLiveIn(VA.getLocReg(), VReg);
-      SDValue Arg = DAG.getCopyFromReg(Chain, dl, VReg, VA.getLocVT());
+      SDValue Arg = DAG.getCopyFromReg(Chain, DL, VReg, VA.getLocVT());
       InVals.push_back(Arg);
       continue;
     }
@@ -139,19 +139,19 @@ SDValue VectorProcTargetLowering::LowerFormalArguments(
     SDValue Load;
     if (VA.getValVT() == MVT::i32 || VA.getValVT() == MVT::f32 ||
         VA.getValVT() == MVT::v16i32) {
-      // Primitive types are loaded directly from the stack
-      Load = DAG.getLoad(VA.getValVT(), dl, Chain, FIPtr, MachinePointerInfo(),
+      // Primitive Types are loaded directly from the stack
+      Load = DAG.getLoad(VA.getValVT(), DL, Chain, FIPtr, MachinePointerInfo(),
                          false, false, false, 0);
     } else {
-      // This is a smaller type (char, etc).  Sign extend.
+      // This is a smaller Type (char, etc).  Sign extend.
       ISD::LoadExtType LoadOp = ISD::SEXTLOAD;
       unsigned Offset = 4 - std::max(1U, VA.getValVT().getSizeInBits() / 8);
-      FIPtr = DAG.getNode(ISD::ADD, dl, MVT::i32, FIPtr,
+      FIPtr = DAG.getNode(ISD::ADD, DL, MVT::i32, FIPtr,
                           DAG.getConstant(Offset, MVT::i32));
       Load =
-          DAG.getExtLoad(LoadOp, dl, MVT::i32, Chain, FIPtr,
+          DAG.getExtLoad(LoadOp, DL, MVT::i32, Chain, FIPtr,
                          MachinePointerInfo(), VA.getValVT(), false, false, 0);
-      Load = DAG.getNode(ISD::TRUNCATE, dl, VA.getValVT(), Load);
+      Load = DAG.getNode(ISD::TRUNCATE, DL, VA.getValVT(), Load);
     }
 
     InVals.push_back(Load);
@@ -169,8 +169,8 @@ SDValue VectorProcTargetLowering::LowerFormalArguments(
       SFI->setSRetReturnReg(Reg);
     }
 
-    SDValue Copy = DAG.getCopyToReg(DAG.getEntryNode(), dl, Reg, InVals[0]);
-    Chain = DAG.getNode(ISD::TokenFactor, dl, MVT::Other, Copy, Chain);
+    SDValue Copy = DAG.getCopyToReg(DAG.getEntryNode(), DL, Reg, InVals[0]);
+    Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Copy, Chain);
   }
 
   // Here is where variable arguments would be handled.
@@ -186,7 +186,7 @@ SDValue
 VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
                                     SmallVectorImpl<SDValue> &InVals) const {
   SelectionDAG &DAG = CLI.DAG;
-  SDLoc &dl = CLI.DL;
+  SDLoc &DL = CLI.DL;
   SmallVector<ISD::OutputArg, 32> &Outs = CLI.Outs;
   SmallVector<SDValue, 32> &OutVals = CLI.OutVals;
   SmallVector<ISD::InputArg, 32> &Ins = CLI.Ins;
@@ -230,7 +230,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     int FI = MFI->CreateStackObject(Size, Align, false);
     SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy());
     SDValue SizeNode = DAG.getConstant(Size, MVT::i32);
-    Chain = DAG.getMemcpy(Chain, dl, FIPtr, Arg, SizeNode, Align,
+    Chain = DAG.getMemcpy(Chain, DL, FIPtr, Arg, SizeNode, Align,
                           false, // isVolatile,
                           (Size <= 32), // AlwaysInline if size <= 32
                           MachinePointerInfo(), MachinePointerInfo());
@@ -240,7 +240,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   // CALLSEQ_START will decrement the stack to reserve space
   Chain =
-      DAG.getCALLSEQ_START(Chain, DAG.getIntPtrConstant(ArgsSize, true), dl);
+      DAG.getCALLSEQ_START(Chain, DAG.getIntPtrConstant(ArgsSize, true), DL);
 
   SmallVector<std::pair<unsigned, SDValue>, 8> RegsToPass;
   SmallVector<SDValue, 8> MemOpChains;
@@ -264,19 +264,19 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
       break;
 
     case CCValAssign::SExt:
-      Arg = DAG.getNode(ISD::SIGN_EXTEND, dl, VA.getLocVT(), Arg);
+      Arg = DAG.getNode(ISD::SIGN_EXTEND, DL, VA.getLocVT(), Arg);
       break;
 
     case CCValAssign::ZExt:
-      Arg = DAG.getNode(ISD::ZERO_EXTEND, dl, VA.getLocVT(), Arg);
+      Arg = DAG.getNode(ISD::ZERO_EXTEND, DL, VA.getLocVT(), Arg);
       break;
 
     case CCValAssign::AExt:
-      Arg = DAG.getNode(ISD::ANY_EXTEND, dl, VA.getLocVT(), Arg);
+      Arg = DAG.getNode(ISD::ANY_EXTEND, DL, VA.getLocVT(), Arg);
       break;
 
     case CCValAssign::BCvt:
-      Arg = DAG.getNode(ISD::BITCAST, dl, VA.getLocVT(), Arg);
+      Arg = DAG.getNode(ISD::BITCAST, DL, VA.getLocVT(), Arg);
       break;
 
     default:
@@ -296,14 +296,14 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     // Create a store off the stack pointer for this argument.
     SDValue StackPtr = DAG.getRegister(VectorProc::SP_REG, MVT::i32);
     SDValue PtrOff = DAG.getIntPtrConstant(VA.getLocMemOffset());
-    PtrOff = DAG.getNode(ISD::ADD, dl, MVT::i32, StackPtr, PtrOff);
-    MemOpChains.push_back(DAG.getStore(Chain, dl, Arg, PtrOff,
+    PtrOff = DAG.getNode(ISD::ADD, DL, MVT::i32, StackPtr, PtrOff);
+    MemOpChains.push_back(DAG.getStore(Chain, DL, Arg, PtrOff,
                                        MachinePointerInfo(), false, false, 0));
   }
 
   // Emit all stores, make sure the occur before any copies into physregs.
   if (!MemOpChains.empty()) {
-    Chain = DAG.getNode(ISD::TokenFactor, dl, MVT::Other, &MemOpChains[0],
+    Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, &MemOpChains[0],
                         MemOpChains.size());
   }
 
@@ -313,7 +313,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // stuck together.
   SDValue InFlag;
   for (unsigned i = 0, e = RegsToPass.size(); i != e; ++i) {
-    Chain = DAG.getCopyToReg(Chain, dl, RegsToPass[i].first,
+    Chain = DAG.getCopyToReg(Chain, DL, RegsToPass[i].first,
                              RegsToPass[i].second, InFlag);
     InFlag = Chain.getValue(1);
   }
@@ -323,7 +323,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // turn it into a TargetGlobalAddress node so that legalize doesn't hack it.
   // Likewise ExternalSymbol -> TargetExternalSymbol.
   if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(Callee))
-    Callee = DAG.getTargetGlobalAddress(G->getGlobal(), dl, MVT::i32);
+    Callee = DAG.getTargetGlobalAddress(G->getGlobal(), DL, MVT::i32);
   else if (ExternalSymbolSDNode *E = dyn_cast<ExternalSymbolSDNode>(Callee))
     Callee = DAG.getTargetExternalSymbol(E->getSymbol(), MVT::i32);
 
@@ -347,11 +347,11 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   if (InFlag.getNode())
     Ops.push_back(InFlag);
 
-  Chain = DAG.getNode(VectorProcISD::CALL, dl, NodeTys, &Ops[0], Ops.size());
+  Chain = DAG.getNode(VectorProcISD::CALL, DL, NodeTys, &Ops[0], Ops.size());
   InFlag = Chain.getValue(1);
 
   Chain = DAG.getCALLSEQ_END(Chain, DAG.getIntPtrConstant(ArgsSize, true),
-                             DAG.getIntPtrConstant(0, true), InFlag, dl);
+                             DAG.getIntPtrConstant(0, true), InFlag, DL);
   InFlag = Chain.getValue(1);
 
   // The call has returned, handle return values
@@ -363,7 +363,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   // Copy all of the result registers out of their specified physreg.
   for (unsigned i = 0; i != RVLocs.size(); ++i) {
-    Chain = DAG.getCopyFromReg(Chain, dl, RVLocs[i].getLocReg(),
+    Chain = DAG.getCopyFromReg(Chain, DL, RVLocs[i].getLocReg(),
                                RVLocs[i].getValVT(), InFlag).getValue(1);
     InFlag = Chain.getValue(2);
     InVals.push_back(Chain.getValue(0));
@@ -470,10 +470,10 @@ const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
 // Global addresses are stored in the per-function constant pool.
 SDValue VectorProcTargetLowering::LowerGlobalAddress(SDValue Op,
                                                      SelectionDAG &DAG) const {
-  SDLoc dl(Op);
+  SDLoc DL(Op);
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
   SDValue CPIdx = DAG.getTargetConstantPool(GV, MVT::i32);
-  return DAG.getLoad(MVT::i32, dl, DAG.getEntryNode(), CPIdx,
+  return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
                      MachinePointerInfo::getConstantPool(), false, false, false,
                      4);
 }
@@ -497,12 +497,12 @@ static bool isZero(SDValue V) {
 SDValue VectorProcTargetLowering::LowerBUILD_VECTOR(SDValue Op,
                                                     SelectionDAG &DAG) const {
   MVT VT = Op.getValueType().getSimpleVT();
-  SDLoc dl(Op);
+  SDLoc DL(Op);
 
   if (isSplatVector(Op.getNode())) {
     // This is a constant node that is duplicated to all lanes.
     // Convert it to a SPLAT node.
-    return DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(0));
+    return DAG.getNode(VectorProcISD::SPLAT, DL, VT, Op.getOperand(0));
   }
 
   return SDValue(); // Expand
@@ -535,7 +535,7 @@ bool VectorProcTargetLowering::isShuffleMaskLegal(const SmallVectorImpl<int> &M,
 SDValue VectorProcTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
                                                       SelectionDAG &DAG) const {
   MVT VT = Op.getValueType().getSimpleVT();
-  SDLoc dl(Op);
+  SDLoc DL(Op);
 
   // Using shufflevector to build a splat like this:
   // %vector = shufflevector <16 x i32> %single, <16 x i32> (don't care),
@@ -544,12 +544,12 @@ SDValue VectorProcTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
   // %single = insertelement <16 x i32> (don't care), i32 %value, i32 0
   if (Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT &&
       isZero(Op.getOperand(0).getOperand(2)))
-    return DAG.getNode(VectorProcISD::SPLAT, dl, VT,
+    return DAG.getNode(VectorProcISD::SPLAT, DL, VT,
                        Op.getOperand(0).getOperand(1));
 
   // %single = scalar_to_vector i32 %b
   if (Op.getOperand(0).getOpcode() == ISD::SCALAR_TO_VECTOR)
-    return DAG.getNode(VectorProcISD::SPLAT, dl, VT,
+    return DAG.getNode(VectorProcISD::SPLAT, DL, VT,
                        Op.getOperand(0).getOperand(0));
 
   return SDValue();
@@ -561,17 +561,17 @@ SDValue
 VectorProcTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op,
                                                  SelectionDAG &DAG) const {
   MVT VT = Op.getValueType().getSimpleVT();
-  SDLoc dl(Op);
+  SDLoc DL(Op);
 
   // This could also be (1 << (15 - index)), which avoids the load of 0x8000
   // but requires more operations.
-  SDValue mask =
-      DAG.getNode(ISD::SRL, dl, MVT::i32, DAG.getConstant(0x8000, MVT::i32),
+  SDValue Mask =
+      DAG.getNode(ISD::SRL, DL, MVT::i32, DAG.getConstant(0x8000, MVT::i32),
                   Op.getOperand(2));
-  SDValue splat = DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(1));
-  return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, dl, VT,
-                     DAG.getConstant(Intrinsic::vp_blendi, MVT::i32), mask,
-                     splat, Op.getOperand(0));
+  SDValue Splat = DAG.getNode(VectorProcISD::SPLAT, DL, VT, Op.getOperand(1));
+  return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, VT,
+                     DAG.getConstant(Intrinsic::vp_blendi, MVT::i32), Mask,
+                     Splat, Op.getOperand(0));
 }
 
 // This architecture does not support conditional moves for scalar registers.
@@ -580,19 +580,19 @@ VectorProcTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op,
 // transformed.
 SDValue VectorProcTargetLowering::LowerSELECT_CC(SDValue Op,
                                                  SelectionDAG &DAG) const {
-  SDLoc dl(Op);
+  SDLoc DL(Op);
   EVT Ty = Op.getOperand(0).getValueType();
   SDValue Pred =
-      DAG.getNode(ISD::SETCC, dl, getSetCCResultType(*DAG.getContext(), Ty),
+      DAG.getNode(ISD::SETCC, DL, getSetCCResultType(*DAG.getContext(), Ty),
                   Op.getOperand(0), Op.getOperand(1), Op.getOperand(4));
 
-  return DAG.getNode(VectorProcISD::SEL_COND_RESULT, dl, Op.getValueType(),
+  return DAG.getNode(VectorProcISD::SEL_COND_RESULT, DL, Op.getValueType(),
                      Pred, Op.getOperand(2), Op.getOperand(3));
 }
 
 SDValue VectorProcTargetLowering::LowerConstantPool(SDValue Op,
                                                     SelectionDAG &DAG) const {
-  SDLoc dl(Op);
+  SDLoc DL(Op);
   EVT PtrVT = Op.getValueType();
   ConstantPoolSDNode *CP = cast<ConstantPoolSDNode>(Op);
   SDValue Res;
@@ -609,7 +609,7 @@ SDValue VectorProcTargetLowering::LowerConstantPool(SDValue Op,
 
 SDValue VectorProcTargetLowering::LowerConstant(SDValue Op,
                                                 SelectionDAG &DAG) const {
-  SDLoc dl(Op);
+  SDLoc DL(Op);
   ConstantSDNode *C = cast<ConstantSDNode>(Op);
 
   // The size of the immediate field is determined by the instruction format and
@@ -624,7 +624,7 @@ SDValue VectorProcTargetLowering::LowerConstant(SDValue Op,
   }
 
   SDValue CPIdx = DAG.getConstantPool(C->getConstantIntValue(), MVT::i32);
-  return DAG.getLoad(MVT::i32, dl, DAG.getEntryNode(), CPIdx,
+  return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
                      MachinePointerInfo::getConstantPool(), false, false, false,
                      4);
 }
@@ -634,46 +634,46 @@ SDValue VectorProcTargetLowering::LowerConstant(SDValue Op,
 // just a reciprocal will suffice.
 SDValue VectorProcTargetLowering::LowerFDIV(SDValue Op,
                                             SelectionDAG &DAG) const {
-  SDLoc dl(Op);
+  SDLoc DL(Op);
 
-  EVT type = Op.getOperand(1).getValueType();
+  EVT Type = Op.getOperand(1).getValueType();
 
-  SDValue two = DAG.getConstantFP(2.0, type);
-  SDValue denom = Op.getOperand(1);
-  SDValue estimate =
-      DAG.getNode(VectorProcISD::RECIPROCAL_EST, dl, type, denom);
+  SDValue Two = DAG.getConstantFP(2.0, Type);
+  SDValue Denominator = Op.getOperand(1);
+  SDValue Estimate =
+      DAG.getNode(VectorProcISD::RECIPROCAL_EST, DL, Type, Denominator);
 
   // Perform a series of newton/raphson refinements.  Each iteration doubles
-  // the precision. The initial estimate has 6 bits of precision, so two
+  // the precision. The initial Estimate has 6 bits of precision, so Two
   // iteration
   // results in 24 bits, which is larger than the significand.
   for (int i = 0; i < 2; i++) {
-    // trial = x * estimate (ideally, x * 1/x should be 1.0)
-    // error = 2.0 - trial
-    // estimate = estimate * error
-    SDValue trial = DAG.getNode(ISD::FMUL, dl, type, estimate, denom);
-    SDValue error = DAG.getNode(ISD::FSUB, dl, type, two, trial);
-    estimate = DAG.getNode(ISD::FMUL, dl, type, estimate, error);
+    // Trial = x * Estimate (ideally, x * 1/x should be 1.0)
+    // Error = 2.0 - Trial
+    // Estimate = Estimate * Error
+    SDValue Trial = DAG.getNode(ISD::FMUL, DL, Type, Estimate, Denominator);
+    SDValue Error = DAG.getNode(ISD::FSUB, DL, Type, Two, Trial);
+    Estimate = DAG.getNode(ISD::FMUL, DL, Type, Estimate, Error);
   }
 
   // Check if the first parameter is constant 1.0.  If so, we don't need
   // to multiply.
-  bool isOne = false;
-  if (type.isVector()) {
+  bool IsOne = false;
+  if (Type.isVector()) {
     if (isSplatVector(Op.getOperand(0).getNode())) {
       ConstantFPSDNode *C =
           dyn_cast<ConstantFPSDNode>(Op.getOperand(0).getOperand(0));
-      isOne = C && C->isExactlyValue(1.0);
+      IsOne = C && C->isExactlyValue(1.0);
     }
   } else {
     ConstantFPSDNode *C = dyn_cast<ConstantFPSDNode>(Op.getOperand(0));
-    isOne = C && C->isExactlyValue(1.0);
+    IsOne = C && C->isExactlyValue(1.0);
   }
 
-  if (!isOne)
-    estimate = DAG.getNode(ISD::FMUL, dl, type, Op.getOperand(0), estimate);
+  if (!IsOne)
+    Estimate = DAG.getNode(ISD::FMUL, DL, Type, Op.getOperand(0), Estimate);
 
-  return estimate;
+  return Estimate;
 }
 
 // Branch using jump table
@@ -682,15 +682,15 @@ SDValue VectorProcTargetLowering::LowerBR_JT(SDValue Op,
   SDValue Chain = Op.getOperand(0);
   SDValue Table = Op.getOperand(1);
   SDValue Index = Op.getOperand(2);
-  SDLoc dl(Op);
+  SDLoc DL(Op);
   EVT PTy = getPointerTy();
   JumpTableSDNode *JT = cast<JumpTableSDNode>(Table);
   SDValue JTI = DAG.getTargetJumpTable(JT->getIndex(), PTy);
-  SDValue TableWrapper = DAG.getNode(VectorProcISD::JT_WRAPPER, dl, PTy, JTI);
+  SDValue TableWrapper = DAG.getNode(VectorProcISD::JT_WRAPPER, DL, PTy, JTI);
   SDValue TableMul =
-      DAG.getNode(ISD::MUL, dl, PTy, Index, DAG.getConstant(4, PTy));
-  SDValue JTAddr = DAG.getNode(ISD::ADD, dl, PTy, TableWrapper, TableMul);
-  return DAG.getNode(VectorProcISD::BR_JT, dl, MVT::Other, Chain, JTAddr, JTI);
+      DAG.getNode(ISD::MUL, DL, PTy, Index, DAG.getConstant(4, PTy));
+  SDValue JTAddr = DAG.getNode(ISD::ADD, DL, PTy, TableWrapper, TableMul);
+  return DAG.getNode(VectorProcISD::BR_JT, DL, MVT::Other, Chain, JTAddr, JTI);
 }
 
 // SCALAR_TO_VECTOR loads the scalar register into lane 0 of the register.
@@ -700,26 +700,26 @@ SDValue
 VectorProcTargetLowering::LowerSCALAR_TO_VECTOR(SDValue Op,
                                                 SelectionDAG &DAG) const {
   MVT VT = Op.getValueType().getSimpleVT();
-  SDLoc dl(Op);
-  return DAG.getNode(VectorProcISD::SPLAT, dl, VT, Op.getOperand(0));
+  SDLoc DL(Op);
+  return DAG.getNode(VectorProcISD::SPLAT, DL, VT, Op.getOperand(0));
 }
 
 // There is no native FNEG instruction, so we emulate it by XORing with
 // 0x80000000
 SDValue VectorProcTargetLowering::LowerFNEG(SDValue Op,
                                             SelectionDAG &DAG) const {
-  SDLoc dl(Op);
+  SDLoc DL(Op);
   MVT ResultVT = Op.getValueType().getSimpleVT();
   MVT IntermediateVT = ResultVT.isVector() ? MVT::v16i32 : MVT::i32;
 
   SDValue rhs = DAG.getConstant(0x80000000, MVT::i32);
   SDValue iconv;
   if (ResultVT.isVector())
-    rhs = DAG.getNode(VectorProcISD::SPLAT, dl, MVT::v16i32, rhs);
+    rhs = DAG.getNode(VectorProcISD::SPLAT, DL, MVT::v16i32, rhs);
 
-  iconv = DAG.getNode(ISD::BITCAST, dl, IntermediateVT, Op.getOperand(0));
-  SDValue flipped = DAG.getNode(ISD::XOR, dl, IntermediateVT, iconv, rhs);
-  return DAG.getNode(ISD::BITCAST, dl, ResultVT, flipped);
+  iconv = DAG.getNode(ISD::BITCAST, DL, IntermediateVT, Op.getOperand(0));
+  SDValue flipped = DAG.getNode(ISD::XOR, DL, IntermediateVT, iconv, rhs);
+  return DAG.getNode(ISD::BITCAST, DL, ResultVT, flipped);
 }
 
 // Handle unsupported floating point operations: unordered comparisons
@@ -727,8 +727,8 @@ SDValue VectorProcTargetLowering::LowerFNEG(SDValue Op,
 SDValue VectorProcTargetLowering::LowerSETCC(SDValue Op,
                                              SelectionDAG &DAG) const {
   ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
-  ISD::CondCode newCode;
-  SDLoc dl(Op);
+  ISD::CondCode NewCode;
+  SDLoc DL(Op);
 
   switch (CC) {
   default:
@@ -744,73 +744,73 @@ SDValue VectorProcTargetLowering::LowerSETCC(SDValue Op,
   // checks for NaN and forces the result to true.
   //
   case ISD::SETUGT:
-    newCode = ISD::SETOGT;
+    NewCode = ISD::SETOGT;
     break;
   case ISD::SETUGE:
-    newCode = ISD::SETOGE;
+    NewCode = ISD::SETOGE;
     break;
   case ISD::SETULT:
-    newCode = ISD::SETOLT;
+    NewCode = ISD::SETOLT;
     break;
   case ISD::SETULE:
-    newCode = ISD::SETOLE;
+    NewCode = ISD::SETOLE;
     break;
 
-  // Change don't care floating point comparisons to the default CPU type
+  // Change don't care floating point comparisons to the default CPU Type
   case ISD::SETGT:
-    newCode = ISD::SETOGT;
+    NewCode = ISD::SETOGT;
     break;
   case ISD::SETGE:
-    newCode = ISD::SETOGE;
+    NewCode = ISD::SETOGE;
     break;
   case ISD::SETLT:
-    newCode = ISD::SETOLT;
+    NewCode = ISD::SETOLT;
     break;
   case ISD::SETLE:
-    newCode = ISD::SETOLE;
+    NewCode = ISD::SETOLE;
     break;
 
   // Note: there is no floating point eq/ne.  Just use integer
   // forms
   case ISD::SETUEQ:
   case ISD::SETOEQ:
-    newCode = ISD::SETEQ;
+    NewCode = ISD::SETEQ;
     break;
 
   case ISD::SETUNE:
   case ISD::SETONE:
-    newCode = ISD::SETNE;
+    NewCode = ISD::SETNE;
     break;
   }
 
-  SDValue op0 = Op.getOperand(0);
-  SDValue op1 = Op.getOperand(1);
-  if (newCode == ISD::SETEQ || newCode == ISD::SETNE) {
+  SDValue Op0 = Op.getOperand(0);
+  SDValue Op1 = Op.getOperand(1);
+  if (NewCode == ISD::SETEQ || NewCode == ISD::SETNE) {
     // Need to bitcast so we will match
-    op0 = DAG.getNode(ISD::BITCAST, dl,
-                      op0.getValueType().isVector() ? MVT::v16i32 : MVT::i32,
-                      op0);
-    op1 = DAG.getNode(ISD::BITCAST, dl,
-                      op1.getValueType().isVector() ? MVT::v16i32 : MVT::i32,
-                      op1);
+    Op0 = DAG.getNode(ISD::BITCAST, DL,
+                      Op0.getValueType().isVector() ? MVT::v16i32 : MVT::i32,
+                      Op0);
+    Op1 = DAG.getNode(ISD::BITCAST, DL,
+                      Op1.getValueType().isVector() ? MVT::v16i32 : MVT::i32,
+                      Op1);
   }
 
-  return DAG.getNode(ISD::SETCC, dl, Op.getValueType().getSimpleVT(), op0, op1,
-                     DAG.getCondCode(newCode));
+  return DAG.getNode(ISD::SETCC, DL, Op.getValueType().getSimpleVT(), Op0, Op1,
+                     DAG.getCondCode(NewCode));
 }
 
 SDValue
 VectorProcTargetLowering::LowerCTLZ_ZERO_UNDEF(SDValue Op,
                                                SelectionDAG &DAG) const {
-  SDLoc dl(Op);
-  return DAG.getNode(ISD::CTLZ, dl, Op.getValueType(), Op.getOperand(0));
+  SDLoc DL(Op);
+  return DAG.getNode(ISD::CTLZ, DL, Op.getValueType(), Op.getOperand(0));
 }
 
 SDValue
 VectorProcTargetLowering::LowerCTTZ_ZERO_UNDEF(SDValue Op,
                                                SelectionDAG &DAG) const {
-  SDLoc dl(Op);
-  return DAG.getNode(ISD::CTTZ, dl, Op.getValueType(), Op.getOperand(0));
+  SDLoc DL(Op);
+  return DAG.getNode(ISD::CTTZ, DL, Op.getValueType(), Op.getOperand(0));
 }
 
 //
@@ -824,24 +824,24 @@ VectorProcTargetLowering::LowerCTTZ_ZERO_UNDEF(SDValue Op,
 //
 SDValue VectorProcTargetLowering::LowerUINT_TO_FP(SDValue Op,
                                                   SelectionDAG &DAG) const {
-  SDLoc dl(Op);
+  SDLoc DL(Op);
 
   SDValue RVal = Op.getOperand(0);
-  SDValue SignedVal = DAG.getNode(ISD::SINT_TO_FP, dl, MVT::f32, RVal);
+  SDValue SignedVal = DAG.getNode(ISD::SINT_TO_FP, DL, MVT::f32, RVal);
   Constant *FudgeFactor =
       ConstantInt::get(Type::getInt32Ty(*DAG.getContext()),
                        0x4f800000); // UINT_MAX in float format
   SDValue CPIdx = DAG.getConstantPool(FudgeFactor, MVT::f32);
-  SDValue FudgeInReg = DAG.getLoad(MVT::f32, dl, DAG.getEntryNode(), CPIdx,
+  SDValue FudgeInReg = DAG.getLoad(MVT::f32, DL, DAG.getEntryNode(), CPIdx,
                                    MachinePointerInfo::getConstantPool(), false,
                                    false, false, 4);
   SDValue IsNegative =
-      DAG.getSetCC(dl, getSetCCResultType(*DAG.getContext(), MVT::i32), RVal,
+      DAG.getSetCC(DL, getSetCCResultType(*DAG.getContext(), MVT::i32), RVal,
                    DAG.getConstant(0, MVT::i32), ISD::SETLT);
   SDValue Adjusted =
-      DAG.getNode(ISD::FADD, dl, MVT::f32, SignedVal, FudgeInReg);
+      DAG.getNode(ISD::FADD, DL, MVT::f32, SignedVal, FudgeInReg);
 
-  return DAG.getNode(VectorProcISD::SEL_COND_RESULT, dl, MVT::f32, IsNegative,
+  return DAG.getNode(VectorProcISD::SEL_COND_RESULT, DL, MVT::f32, IsNegative,
                      Adjusted, SignedVal);
 }
 
@@ -927,64 +927,64 @@ MachineBasicBlock *
 VectorProcTargetLowering::EmitSelectCC(MachineInstr *MI,
                                        MachineBasicBlock *BB) const {
   const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
-  DebugLoc dl = MI->getDebugLoc();
+  DebugLoc DL = MI->getDebugLoc();
 
-  // The instruction we are replacing is SELECTI (dest, predicate, trueval,
+  // The instruction we are replacing is SELECTI (Dest, predicate, trueval,
   // falseval)
 
   // To "insert" a SELECT_CC instruction, we actually have to insert the
   // diamond control-flow pattern.  The incoming instruction knows the
-  // destination vreg to set, the condition code register to branch on, the
+  // Destination vreg to set, the condition code register to branch on, the
   // true/false values to select between, and a branch opcode to use.
   const BasicBlock *LLVM_BB = BB->getBasicBlock();
   MachineFunction::iterator It = BB;
   ++It;
 
-  //  thisMBB:
+  //  ThisMBB:
   //  ...
   //   TrueVal = ...
   //   setcc r1, r2, r3
   //   if r1 goto copy1MBB
-  //   fallthrough --> copy0MBB
-  MachineBasicBlock *thisMBB = BB;
+  //   fallthrough --> Copy0MBB
+  MachineBasicBlock *ThisMBB = BB;
   MachineFunction *F = BB->getParent();
-  MachineBasicBlock *copy0MBB = F->CreateMachineBasicBlock(LLVM_BB);
-  MachineBasicBlock *sinkMBB = F->CreateMachineBasicBlock(LLVM_BB);
-  F->insert(It, copy0MBB);
-  F->insert(It, sinkMBB);
+  MachineBasicBlock *Copy0MBB = F->CreateMachineBasicBlock(LLVM_BB);
+  MachineBasicBlock *SinkMBB = F->CreateMachineBasicBlock(LLVM_BB);
+  F->insert(It, Copy0MBB);
+  F->insert(It, SinkMBB);
 
-  // Transfer the remainder of BB and its successor edges to sinkMBB.
-  sinkMBB->splice(sinkMBB->begin(), BB,
+  // Transfer the remainder of BB and its successor edges to SinkMBB.
+  SinkMBB->splice(SinkMBB->begin(), BB,
                   llvm::next(MachineBasicBlock::iterator(MI)), BB->end());
-  sinkMBB->transferSuccessorsAndUpdatePHIs(BB);
+  SinkMBB->transferSuccessorsAndUpdatePHIs(BB);
 
   // Next, add the true and fallthrough blocks as its successors.
-  BB->addSuccessor(copy0MBB);
-  BB->addSuccessor(sinkMBB);
+  BB->addSuccessor(Copy0MBB);
+  BB->addSuccessor(SinkMBB);
 
-  BuildMI(BB, dl, TII->get(VectorProc::BTRUE))
+  BuildMI(BB, DL, TII->get(VectorProc::BTRUE))
       .addReg(MI->getOperand(1).getReg())
-      .addMBB(sinkMBB);
+      .addMBB(SinkMBB);
 
-  //  copy0MBB:
+  //  Copy0MBB:
   //   %FalseValue = ...
-  //   # fallthrough to sinkMBB
-  BB = copy0MBB;
+  //   # fallthrough to SinkMBB
+  BB = Copy0MBB;
 
   // Update machine-CFG edges
-  BB->addSuccessor(sinkMBB);
+  BB->addSuccessor(SinkMBB);
 
-  //  sinkMBB:
-  //   %Result = phi [ %TrueValue, thisMBB ], [ %FalseValue, copy0MBB ]
+  //  SinkMBB:
+  //   %Result = phi [ %TrueValue, ThisMBB ], [ %FalseValue, Copy0MBB ]
   //  ...
-  BB = sinkMBB;
+  BB = SinkMBB;
 
-  BuildMI(*BB, BB->begin(), dl, TII->get(VectorProc::PHI),
+  BuildMI(*BB, BB->begin(), DL, TII->get(VectorProc::PHI),
           MI->getOperand(0).getReg())
       .addReg(MI->getOperand(2).getReg())
-      .addMBB(thisMBB)
+      .addMBB(ThisMBB)
       .addReg(MI->getOperand(3).getReg())
-      .addMBB(copy0MBB);
+      .addMBB(Copy0MBB);
 
   MI->eraseFromParent(); // The pseudo instruction is gone now.
   return BB;
@@ -995,59 +995,59 @@ VectorProcTargetLowering::EmitAtomicRMW(MachineInstr *MI, MachineBasicBlock *BB,
                                         unsigned Opcode) const {
   const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
 
-  unsigned dest = MI->getOperand(0).getReg();
-  unsigned ptr = MI->getOperand(1).getReg();
-  unsigned incr = MI->getOperand(2).getReg();
-  DebugLoc dl = MI->getDebugLoc();
+  unsigned Dest = MI->getOperand(0).getReg();
+  unsigned Ptr = MI->getOperand(1).getReg();
+  unsigned Incr = MI->getOperand(2).getReg();
+  DebugLoc DL = MI->getDebugLoc();
   MachineRegisterInfo &MRI = BB->getParent()->getRegInfo();
-  unsigned scratch1 = MRI.createVirtualRegister(&VectorProc::ScalarRegRegClass);
-  unsigned scratch2 = MRI.createVirtualRegister(&VectorProc::ScalarRegRegClass);
-  unsigned scratch3 = MRI.createVirtualRegister(&VectorProc::ScalarRegRegClass);
+  unsigned Scratch1 = MRI.createVirtualRegister(&VectorProc::ScalarRegRegClass);
+  unsigned Scratch2 = MRI.createVirtualRegister(&VectorProc::ScalarRegRegClass);
+  unsigned Scratch3 = MRI.createVirtualRegister(&VectorProc::ScalarRegRegClass);
 
   const BasicBlock *LLVM_BB = BB->getBasicBlock();
   MachineFunction *MF = BB->getParent();
   MachineFunction::iterator It = BB;
   ++It;
 
-  MachineBasicBlock *loopMBB = MF->CreateMachineBasicBlock(LLVM_BB);
-  MachineBasicBlock *exitMBB = MF->CreateMachineBasicBlock(LLVM_BB);
-  MF->insert(It, loopMBB);
-  MF->insert(It, exitMBB);
+  MachineBasicBlock *LoopMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+  MachineBasicBlock *ExitMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+  MF->insert(It, LoopMBB);
+  MF->insert(It, ExitMBB);
 
-  // Transfer the remainder of BB and its successor edges to exitMBB.
-  exitMBB->splice(exitMBB->begin(), BB,
+  // Transfer the remainder of BB and its successor edges to ExitMBB.
+  ExitMBB->splice(ExitMBB->begin(), BB,
                   llvm::next(MachineBasicBlock::iterator(MI)), BB->end());
-  exitMBB->transferSuccessorsAndUpdatePHIs(BB);
+  ExitMBB->transferSuccessorsAndUpdatePHIs(BB);
 
-  //  thisMBB:
+  //  ThisMBB:
   //   ...
-  //   fallthrough --> loopMBB
-  BB->addSuccessor(loopMBB);
+  //   fallthrough --> LoopMBB
+  BB->addSuccessor(LoopMBB);
 
-  //  loopMBB:
-  //   load.sync scratch1, ptr
-  //   move dest, scratch1
-  //   <op> scratch2, scratch1, incr
-  //   store.sync ptr, scratch2/3
-  //   iffalse scratch3 goto loopMBB
-  //   fallthrough --> exitMBB
-  BB = loopMBB;
-  BuildMI(BB, dl, TII->get(VectorProc::LOAD_SYNC), scratch1).addReg(ptr).addImm(
+  //  LoopMBB:
+  //   load.sync Scratch1, Ptr
+  //   move Dest, Scratch1
+  //   <op> Scratch2, Scratch1, Incr
+  //   store.sync Ptr, Scratch2/3
+  //   iffalse Scratch3 goto LoopMBB
+  //   fallthrough --> ExitMBB
+  BB = LoopMBB;
+  BuildMI(BB, DL, TII->get(VectorProc::LOAD_SYNC), Scratch1).addReg(Ptr).addImm(
       0);
-  BuildMI(BB, dl, TII->get(VectorProc::MOVESS), dest).addReg(scratch1);
-  BuildMI(BB, dl, TII->get(Opcode), scratch2).addReg(scratch1).addReg(incr);
-  BuildMI(BB, dl, TII->get(VectorProc::STORE_SYNC), scratch3)
-      .addReg(scratch2)
-      .addReg(ptr)
+  BuildMI(BB, DL, TII->get(VectorProc::MOVESS), Dest).addReg(Scratch1);
+  BuildMI(BB, DL, TII->get(Opcode), Scratch2).addReg(Scratch1).addReg(Incr);
+  BuildMI(BB, DL, TII->get(VectorProc::STORE_SYNC), Scratch3)
+      .addReg(Scratch2)
+      .addReg(Ptr)
       .addImm(0);
-  BuildMI(BB, dl, TII->get(VectorProc::BFALSE)).addReg(scratch3).addMBB(
-      loopMBB);
-  BB->addSuccessor(loopMBB);
-  BB->addSuccessor(exitMBB);
+  BuildMI(BB, DL, TII->get(VectorProc::BFALSE)).addReg(Scratch3).addMBB(
+      LoopMBB);
+  BB->addSuccessor(LoopMBB);
+  BB->addSuccessor(ExitMBB);
 
-  //  exitMBB:
+  //  ExitMBB:
   //   ...
-  BB = exitMBB;
+  BB = ExitMBB;
 
   MI->eraseFromParent(); // The instruction is gone now.
 
@@ -1073,63 +1073,63 @@ VectorProcTargetLowering::EmitAtomicCmpSwap(MachineInstr *MI,
 
   // insert new blocks after the current block
   const BasicBlock *LLVM_BB = BB->getBasicBlock();
-  MachineBasicBlock *loop1MBB = MF->CreateMachineBasicBlock(LLVM_BB);
-  MachineBasicBlock *loop2MBB = MF->CreateMachineBasicBlock(LLVM_BB);
-  MachineBasicBlock *exitMBB = MF->CreateMachineBasicBlock(LLVM_BB);
+  MachineBasicBlock *Loop1MBB = MF->CreateMachineBasicBlock(LLVM_BB);
+  MachineBasicBlock *Loop2MBB = MF->CreateMachineBasicBlock(LLVM_BB);
+  MachineBasicBlock *ExitMBB = MF->CreateMachineBasicBlock(LLVM_BB);
   MachineFunction::iterator It = BB;
   ++It;
-  MF->insert(It, loop1MBB);
-  MF->insert(It, loop2MBB);
-  MF->insert(It, exitMBB);
+  MF->insert(It, Loop1MBB);
+  MF->insert(It, Loop2MBB);
+  MF->insert(It, ExitMBB);
 
-  // Transfer the remainder of BB and its successor edges to exitMBB.
-  exitMBB->splice(exitMBB->begin(), BB,
+  // Transfer the remainder of BB and its successor edges to ExitMBB.
+  ExitMBB->splice(ExitMBB->begin(), BB,
                   llvm::next(MachineBasicBlock::iterator(MI)), BB->end());
-  exitMBB->transferSuccessorsAndUpdatePHIs(BB);
+  ExitMBB->transferSuccessorsAndUpdatePHIs(BB);
 
-  //  thisMBB:
+  //  ThisMBB:
   //    ...
-  //    fallthrough --> loop1MBB
-  BB->addSuccessor(loop1MBB);
-  loop1MBB->addSuccessor(exitMBB);
-  loop1MBB->addSuccessor(loop2MBB);
-  loop2MBB->addSuccessor(loop1MBB);
-  loop2MBB->addSuccessor(exitMBB);
+  //    fallthrough --> Loop1MBB
+  BB->addSuccessor(Loop1MBB);
+  Loop1MBB->addSuccessor(ExitMBB);
+  Loop1MBB->addSuccessor(Loop2MBB);
+  Loop2MBB->addSuccessor(Loop1MBB);
+  Loop2MBB->addSuccessor(ExitMBB);
 
-  // loop1MBB:
-  //   load.sync dest, 0(ptr)
-  //   setne cmpresult, dest, oldval
-  //   btrue cmpresult, exitMBB
-  BB = loop1MBB;
+  // Loop1MBB:
+  //   load.sync Dest, 0(Ptr)
+  //   setne cmpresult, Dest, oldval
+  //   btrue cmpresult, ExitMBB
+  BB = Loop1MBB;
   BuildMI(BB, DL, TII->get(VectorProc::LOAD_SYNC), Dest).addReg(Ptr).addImm(0);
   BuildMI(BB, DL, TII->get(VectorProc::SNESISSS), CmpResult)
       .addReg(Dest)
       .addReg(OldVal);
   BuildMI(BB, DL, TII->get(VectorProc::BTRUE)).addReg(CmpResult).addMBB(
-      exitMBB);
+      ExitMBB);
 
-  // loop2MBB:
+  // Loop2MBB:
   //   move success, newval			; need a temporary because
-  //   store.sync success, 0(ptr)	; store.sync will clobber success
-  //   bfalse success, loop1MBB
-  BB = loop2MBB;
+  //   store.sync success, 0(Ptr)	; store.sync will clobber success
+  //   bfalse success, Loop1MBB
+  BB = Loop2MBB;
   BuildMI(BB, DL, TII->get(VectorProc::STORE_SYNC), Success)
       .addReg(NewVal)
       .addReg(Ptr)
       .addImm(0);
   BuildMI(BB, DL, TII->get(VectorProc::BFALSE)).addReg(Success).addMBB(
-      loop1MBB);
+      Loop1MBB);
 
   MI->eraseFromParent(); // The instruction is gone now.
 
-  return exitMBB;
+  return ExitMBB;
 }
 
 //===----------------------------------------------------------------------===//
 //                         VectorProc Inline Assembly Support
 //===----------------------------------------------------------------------===//
 
-/// getConstraintType - Given a constraint letter, return the type of
+/// getConstraintType - Given a constraint letter, return the Type of
 /// constraint it is for this target.
 VectorProcTargetLowering::ConstraintType
 VectorProcTargetLowering::getConstraintType(const std::string &Constraint)
