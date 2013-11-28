@@ -385,7 +385,8 @@ VectorProcAsmParser::ParseMemoryOperand(
   }
 
   const MCExpr *Offset;
-  if (getLexer().is(AsmToken::Integer)) {
+  if (getLexer().is(AsmToken::Integer) || getLexer().is(AsmToken::Minus)
+    || getLexer().is(AsmToken::Plus)) {
     if (getParser().parseExpression(Offset))
       return MatchOperand_ParseFail;
   } else
