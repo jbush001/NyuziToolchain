@@ -684,6 +684,7 @@ def FmtC_Strided : CFmt<10>;
 def FmtC_StridedMasked : CFmt<11>;
 def FmtC_ScGath : CFmt<13>;
 def FmtC_ScGathMasked : CFmt<14>;
+def FmtC_ScGathInvMasked : CFmt<15>;
 
 class FormatCInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	CFmt fmt, bits <1> isLoad>  
