@@ -261,6 +261,8 @@ make_test_case('store_v v3, (s6)', make_cprime_instruction(0, 7, 3, 6, 0))
 
 make_test_case('load_v_mask v2, s7, 20(s5)', make_c_instruction(1, 8, 2, 5, 20, 7))
 make_test_case('load_v_mask v3, s7, (s6)', make_c_instruction(1, 8, 3, 6, 0, 7))
+make_test_case('load_v_invmask v2, s7, 20(s5)', make_c_instruction(1, 9, 2, 5, 20, 7))
+make_test_case('load_v_invmask v3, s7, (s6)', make_c_instruction(1, 9, 3, 6, 0, 7))
 make_test_case('store_v_mask v2, s7, 20(s5)', make_c_instruction(0, 8, 2, 5, 20, 7))
 make_test_case('store_v_mask v3, s7, (s6)', make_c_instruction(0, 8, 3, 6, 0, 7))
 
