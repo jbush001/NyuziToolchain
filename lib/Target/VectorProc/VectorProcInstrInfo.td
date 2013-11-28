@@ -289,7 +289,6 @@ def INT_BLOCK_LOADI_INVMASKED : FormatCMaskedInst<
 
 def : Pat<(int_vp_block_loadf_masked ADDRri:$addr, i32:$mask),
 	(INT_BLOCK_LOADI_MASKED ADDRri:$addr, i32:$mask)>;
-
 def : Pat<(int_vp_block_loadf_masked ADDRri:$addr, (not i32:$mask)),
 	(INT_BLOCK_LOADI_INVMASKED ADDRri:$addr, i32:$mask)>;
 
@@ -336,6 +335,14 @@ let hasSideEffects = 1, mayStore = 1 in {
 		"store_v_mask $srcDest, $mask, $addr",
 		[(int_vp_block_storei_masked ADDRri:$addr, v16i32:$srcDest, i32:$mask)],
 		FmtC_BlockMasked,
+		0>;
+
+	def INT_BLOCK_STOREI_INVMASKED : FormatCMaskedInst<
+		(outs),
+		(ins VectorReg:$srcDest, MEMri:$addr, ScalarReg:$mask),
+		"store_v_invmask $srcDest, $mask, $addr",
+		[(int_vp_block_storei_masked ADDRri:$addr, v16i32:$srcDest, (not i32:$mask))],
+		FmtC_BlockInvMasked,
 		0>;
 }
 

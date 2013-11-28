@@ -265,6 +265,8 @@ make_test_case('load_v_invmask v2, s7, 20(s5)', make_c_instruction(1, 9, 2, 5, 2
 make_test_case('load_v_invmask v3, s7, (s6)', make_c_instruction(1, 9, 3, 6, 0, 7))
 make_test_case('store_v_mask v2, s7, 20(s5)', make_c_instruction(0, 8, 2, 5, 20, 7))
 make_test_case('store_v_mask v3, s7, (s6)', make_c_instruction(0, 8, 3, 6, 0, 7))
+make_test_case('store_v_invmask v2, s7, 20(s5)', make_c_instruction(0, 9, 2, 5, 20, 7))
+make_test_case('store_v_invmask v3, s7, (s6)', make_c_instruction(0, 9, 3, 6, 0, 7))
 
 # Scatter vector stores (partial)
 make_test_case('store_scat v2, (v5)', make_c_instruction(0, 0xd, 2, 5, 0, 0))
