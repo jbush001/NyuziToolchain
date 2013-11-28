@@ -322,6 +322,30 @@ def : Pat<(int_vp_gather_loadf_masked VADDRri:$addr, i32:$mask),
 def : Pat<(int_vp_gather_loadf_masked VADDRri:$addr, (not i32:$mask)),
 	(INT_GATHER_LOADI_INVMASKED VADDRri:$addr, i32:$mask)>;
 
+def INT_STRIDED_LOADI : FormatCUnmaskedInst<
+	(outs VectorReg:$srcDest),
+	(ins VMEMri:$addr),
+	"load_strd $srcDest, $addr",
+	[],	// Assembler only...
+	FmtC_Strided,
+	1>;
+
+def INT_STRIDED_LOADI_MASKED : FormatCMaskedInst<
+	(outs VectorReg:$srcDest),
+	(ins VMEMri:$addr, ScalarReg:$mask),
+	"load_strd_mask $srcDest, $mask, $addr",
+	[],	// Assembler only...
+	FmtC_StridedMasked,
+	1>;
+
+def INT_STRIDED_LOADI_INVMASKED : FormatCMaskedInst<
+	(outs VectorReg:$srcDest),
+	(ins VMEMri:$addr, ScalarReg:$mask),
+	"load_strd_invmask $srcDest, $mask, $addr",
+	[],	// Assembler only...
+	FmtC_StridedInvMasked,
+	1>;
+
 let hasSideEffects = 1, mayStore = 1 in {
 	def INT_SCATTER_STOREI : FormatCUnmaskedInst<
 		(outs),
@@ -345,6 +369,30 @@ let hasSideEffects = 1, mayStore = 1 in {
 		"store_scat_invmask $srcDest, $mask, $addr",
 		[(int_vp_scatter_storei_masked VADDRri:$addr, v16i32:$srcDest, (not i32:$mask))],
 		FmtC_ScGathInvMasked,
+		0>;
+
+	def INT_STRIDED_STOREI : FormatCUnmaskedInst<
+		(outs),
+		(ins VectorReg:$srcDest, VMEMri:$addr),
+		"store_strd $srcDest, $addr",
+		[],	// Assembly only
+		FmtC_Strided,
+		0>;
+
+	def INT_STRIDED_STOREI_MASKED : FormatCMaskedInst<
+		(outs),
+		(ins VectorReg:$srcDest, VMEMri:$addr, ScalarReg:$mask),
+		"store_strd_mask $srcDest, $mask, $addr",
+		[],	// Assembly only
+		FmtC_StridedMasked,
+		0>;
+
+	def INT_STRIDED_STOREI_INVMASKED : FormatCMaskedInst<
+		(outs),
+		(ins VectorReg:$srcDest, VMEMri:$addr, ScalarReg:$mask),
+		"store_strd_invmask $srcDest, $mask, $addr",
+		[],	// Assembly only
+		FmtC_StridedInvMasked,
 		0>;
 
 	def INT_BLOCK_STOREI_MASKED : FormatCMaskedInst<

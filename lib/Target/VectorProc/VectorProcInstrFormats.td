@@ -682,6 +682,7 @@ def FmtC_BlockMasked : CFmt<8>;
 def FmtC_BlockInvMasked : CFmt<9>;
 def FmtC_Strided : CFmt<10>;
 def FmtC_StridedMasked : CFmt<11>;
+def FmtC_StridedInvMasked : CFmt<12>;
 def FmtC_ScGath : CFmt<13>;
 def FmtC_ScGathMasked : CFmt<14>;
 def FmtC_ScGathInvMasked : CFmt<15>;

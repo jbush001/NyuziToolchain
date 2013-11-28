@@ -278,7 +278,7 @@ make_test_case('load_sync s3, (s6)', make_cprime_instruction(1, 5, 3, 6, 0))
 make_test_case('store_sync s2, 20(s5)', make_cprime_instruction(0, 5, 2, 5, 20))
 make_test_case('store_sync s3, (s6)', make_cprime_instruction(0, 5, 3, 6, 0))
 
-# scatter/gather vector loads
+# scatter/gather vector load/stores
 make_test_case('load_gath v1, (v2)', make_cprime_instruction(1, 13, 1, 2, 0))
 make_test_case('load_gath v3, 24(v4)', make_cprime_instruction(1, 13, 3, 4, 24))
 make_test_case('load_gath_mask v3, s4, (v5)', make_c_instruction(1, 14, 3, 5, 0, 4))
@@ -287,6 +287,16 @@ make_test_case('store_scat v1, (v2)', make_cprime_instruction(0, 13, 1, 2, 0))
 make_test_case('store_scat v3, 24(v4)', make_cprime_instruction(0, 13, 3, 4, 24))
 make_test_case('store_scat_mask v3, s4, (v5)', make_c_instruction(0, 14, 3, 5, 0, 4))
 make_test_case('store_scat_invmask v5, s6, (v7)', make_c_instruction(0, 15, 5, 7, 0, 6))
+
+# Strided vector load/stores
+make_test_case('load_strd v1, (v2)', make_cprime_instruction(1, 10, 1, 2, 0))
+make_test_case('load_strd v3, 24(v4)', make_cprime_instruction(1, 10, 3, 4, 24))
+make_test_case('load_strd_mask v3, s4, (v5)', make_c_instruction(1, 11, 3, 5, 0, 4))
+make_test_case('load_strd_invmask v5, s6, (v7)', make_c_instruction(1, 12, 5, 7, 0, 6))
+make_test_case('store_strd v1, (v2)', make_cprime_instruction(0, 10, 1, 2, 0))
+make_test_case('store_strd v3, 24(v4)', make_cprime_instruction(0, 10, 3, 4, 24))
+make_test_case('store_strd_mask v3, s4, (v5)', make_c_instruction(0, 11, 3, 5, 0, 4))
+make_test_case('store_strd_invmask v5, s6, (v7)', make_c_instruction(0, 12, 5, 7, 0, 6))
 
 # Control register
 make_test_case('getcr s7, 9', make_cprime_instruction(1, 6, 7, 9, 0))
