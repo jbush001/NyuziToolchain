@@ -56,6 +56,13 @@ def VMEMri : Operand<v16i32> {
 	let MIOperandInfo = (ops VectorReg, i32imm);
 }
 
+def LEAri : Operand<iPTR> {
+	let PrintMethod = "printMemOperand";
+	let EncoderMethod = "encodeLEAValue";
+	let ParserMatchClass = MemAsmOperand;
+	let MIOperandInfo = (ops ScalarReg, i32imm);
+}
+
 def JTADDR : Operand<iPTR> {
 	let EncoderMethod = "encodeJumpTableAddr";
 	let PrintMethod = "printJumpTableOperand";

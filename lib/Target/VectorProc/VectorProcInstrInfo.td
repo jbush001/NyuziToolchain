@@ -600,13 +600,13 @@ def SET_CONTROL_REG : FormatCInst<
 	let Inst{9-5} = src;
 }
 
-def LOAD_FRAME_ADDR : VPInstruction<
+def LOAD_EFFECTIVE_ADDR : VPInstruction<
 	(outs ScalarReg:$dest),
-	(ins MEMri:$addr),
+	(ins LEAri:$addr),
 	"lea $dest, $addr",
 	[(set i32:$dest, ADDRri:$addr)]>
 {
-	let isCodeGenOnly = 1; 	// Don't use for assembler or disassembler
+	let isAsmParserOnly = 1; 	// Don't disassemble
 
 	bits<20> addr;
 	bits<5> dest;
