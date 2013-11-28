@@ -679,6 +679,7 @@ def FmtC_Sync : CFmt<5>;
 def FmtC_ControlReg : CFmt<6>;
 def FmtC_Block : CFmt<7>;
 def FmtC_BlockMasked : CFmt<8>;
+def FmtC_BlockInvMasked : CFmt<9>;
 def FmtC_Strided : CFmt<10>;
 def FmtC_StridedMasked : CFmt<11>;
 def FmtC_ScGath : CFmt<13>;

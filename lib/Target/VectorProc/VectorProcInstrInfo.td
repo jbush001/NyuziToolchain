@@ -279,8 +279,19 @@ def INT_BLOCK_LOADI_MASKED : FormatCMaskedInst<
 	FmtC_BlockMasked,
 	1>;
 
+def INT_BLOCK_LOADI_INVMASKED : FormatCMaskedInst<
+	(outs VectorReg:$srcDest),
+	(ins MEMri:$addr, ScalarReg:$mask),
+	"load_v_invmask $srcDest, $mask, $addr",
+	[(set v16i32:$srcDest, (int_vp_block_loadi_masked ADDRri:$addr, (not i32:$mask)))],
+	FmtC_BlockInvMasked,
+	1>;
+
 def : Pat<(int_vp_block_loadf_masked ADDRri:$addr, i32:$mask),
 	(INT_BLOCK_LOADI_MASKED ADDRri:$addr, i32:$mask)>;
+
+def : Pat<(int_vp_block_loadf_masked ADDRri:$addr, (not i32:$mask)),
+	(INT_BLOCK_LOADI_INVMASKED ADDRri:$addr, i32:$mask)>;
 
 def INT_GATHER_LOADI : FormatCUnmaskedInst<
 	(outs VectorReg:$srcDest),
