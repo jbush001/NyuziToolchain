@@ -198,8 +198,7 @@ make_test_case('shuffle_mask v1, s4, v2, v3', make_a_instruction(5, 0xd, 1, 2, 3
 make_test_case('shuffle_invmask v1, s4, v2, v3', make_a_instruction(6, 0xd, 1, 2, 3, 4))
 
 make_test_case('getfield s4, v5, s6', make_a_instruction(1, 0x1a, 4, 5, 6, 0))
-
-# getfield with an immediate param should be supported, but isn't by compiler
+make_test_case('getfield s4, v5, 7', make_bprime_instruction(1, 0x1a, 4, 5, 7))
 
 cmpOps = [
 	(0x12, 'gt_i'),

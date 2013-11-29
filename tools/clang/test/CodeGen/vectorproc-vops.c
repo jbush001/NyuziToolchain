@@ -15,6 +15,8 @@ vecf16 test_vaddf(vecf16 a, vecf16 b)	// CHECK: test_vaddf:
 	// CHECK: add_f v{{[0-9]+}}, v0, v1
 }
 
+// Note: the following two will probably unroll loops and use the immediate form of getfield
+
 int sum_lanesi(veci16 a)	// CHECK: sum_lanesi:
 {
 	int sum = 0;
@@ -22,7 +24,7 @@ int sum_lanesi(veci16 a)	// CHECK: sum_lanesi:
 	for (int index = 0; index < 16; index++)
 	{
 		sum += a[index];
-		// CHECK: getfield s{{[0-9]+}}, v0, s{{[0-9]+}}
+		// CHECK: getfield s{{[0-9]+}}, v0,
 	}
 
 	return sum;
@@ -35,7 +37,7 @@ float sum_lanesf(vecf16 a)	// CHECK: sum_lanesf:
 	for (int index = 0; index < 16; index++)
 	{
 		sum += a[index];
-		// CHECK: getfield s{{[0-9]+}}, v0, s{{[0-9]+}}
+		// CHECK: getfield s{{[0-9]+}}, v0, 
 	}
 
 	return sum;
