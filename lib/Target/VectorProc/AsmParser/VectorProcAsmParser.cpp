@@ -437,7 +437,8 @@ bool VectorProcAsmParser::ParseInstruction(
   }
 
   // If there are no more operands, then finish
-  if (getLexer().is(AsmToken::EndOfStatement))
+  // XXX hash should start a comment, should the lexer just be consuming that?
+  if (getLexer().is(AsmToken::EndOfStatement) || getLexer().is(AsmToken::Hash))
     return false;
 
   // parse operands

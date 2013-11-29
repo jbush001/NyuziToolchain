@@ -757,7 +757,7 @@ class DFmt<bits<3> val> {
 }
 
 def FmtD_Preload : DFmt<0>;
-def FmtD_Invalidate : DFmt<1>;
+def FmtD_DInvalidate : DFmt<1>;
 def FmtD_DFlush : DFmt<2>;
 def FmtD_IInvalidate : DFmt<3>;
 def FmtD_MemBar : DFmt<4>;
@@ -766,8 +766,18 @@ class FormatDInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	DFmt fmt> 
 	: VPInstruction<outputs, inputs, asmString, pattern>
 {
-	let Inst{31-29} = 7;
+	let Inst{31-28} = 0xe;
 	let Inst{27-25} = fmt.Value;
+}
+
+// XXX Haven't implemented adding an offset
+class FormatDOneOp<dag outputs, dag inputs, string asmString, list<dag> pattern,
+	DFmt fmt> 
+	: FormatDInst<outputs, inputs, asmString, pattern, fmt>
+{
+	bits<5> ptr;
+
+	let Inst{4-0} = ptr;
 }
 
 //////////////////////////////////////////////////////////////////

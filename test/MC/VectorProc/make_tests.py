@@ -20,6 +20,9 @@ def make_cprime_instruction(isLoad, op, srcDest, ptr, offs):
 	return ((1 << 31) | (isLoad << 29) | (op << 25) | (offs << 10) 
 		| (srcDest << 5) | ptr)
 
+def make_d_instruction(op, reg):
+	return 0xe0000000 | (op << 25) | reg
+
 def make_text_encoding(x, sep):
 	str = ''
 	for y in range(4):
@@ -300,6 +303,12 @@ make_test_case('store_strd_invmask v5, s6, (v7)', make_c_instruction(0, 12, 5, 7
 # Control register
 make_test_case('getcr s7, 9', make_cprime_instruction(1, 6, 7, 9, 0))
 make_test_case('setcr s11, 13', make_cprime_instruction(0, 6, 11, 13, 0))
+
+# Cache control
+make_test_case('dflush s7', make_d_instruction(2, 7))
+make_test_case('membar', make_d_instruction(4, 0))
+make_test_case('dinvalidate s9', make_d_instruction(1, 9))
+make_test_case('iinvalidate s11', make_d_instruction(3, 11))
 
 # Cleanup
 disasm_fp.close()

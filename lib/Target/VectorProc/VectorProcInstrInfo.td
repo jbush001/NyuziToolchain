@@ -489,6 +489,38 @@ let usesCustomInserter = 1 in {
 }	
 
 //////////////////////////////////////////////////////////////////
+// Cache Control (format D)
+//////////////////////////////////////////////////////////////////
+
+def DFLUSH : FormatDOneOp<
+	(outs),
+	(ins ScalarReg:$ptr),
+	"dflush $ptr",
+	[],
+	FmtD_DFlush>;
+
+def DINVALIDATE : FormatDOneOp<
+	(outs),
+	(ins ScalarReg:$ptr),
+	"dinvalidate $ptr",
+	[],
+	FmtD_DInvalidate>;
+
+def IINVALIDATE : FormatDOneOp<
+	(outs),
+	(ins ScalarReg:$ptr),
+	"iinvalidate $ptr",
+	[],
+	FmtD_IInvalidate>;
+
+def MEMBAR : FormatDInst<
+	(outs),
+	(ins i32imm:$imm1, i32imm:$imm2),
+	"membar",
+	[(atomic_fence imm:$imm1, imm:$imm2)],
+	FmtD_MemBar>;
+
+//////////////////////////////////////////////////////////////////
 // Flow Control (format E)
 //////////////////////////////////////////////////////////////////
 
@@ -750,24 +782,6 @@ def LOADIMM : FormatBUnmaskedInst<
 	[(set i32:$dest, imm:$imm)],
 	0x0f,
 	FmtB_SS>;
-
-def DFLUSH : FormatDInst<
-	(outs),
-	(ins ScalarReg:$ptr),
-	"dflush $ptr",
-	[],
-	FmtD_DFlush>
-{
-	bits<5> ptr;
-	let Inst{4-0} = ptr;
-}
-
-def MEMBAR : FormatDInst<
-	(outs),
-	(ins i32imm:$imm1, i32imm:$imm2),
-	"membar",
-	[(atomic_fence imm:$imm1, imm:$imm2)],
-	FmtD_MemBar>;
 
 def NOP : VPInstruction<
 	(outs),
