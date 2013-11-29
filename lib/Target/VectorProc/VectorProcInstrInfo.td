@@ -120,14 +120,19 @@ def GET_FIELDIimm : FormatBUnmaskedInst<
 	(outs ScalarReg:$dest),
 	(ins VectorReg:$src1, i32imm:$imm),
 	"getfield $dest, $src1, $imm",	// XXX this isn't a good name, replace
-	[(set i32:$dest, (extractelt v16i32:$src1, simm13:$imm))],
+
+// Currently disabled for codegen because it causes rendering problems with 3D engine
+//	[(set i32:$dest, (extractelt v16i32:$src1, simm13:$imm))],
+	[],
 	0x1a,
 	FmtB_VV>;
 
 def : Pat<(extractelt v16f32:$src1, i32:$src2),
 	(GET_FIELDI v16f32:$src1, i32:$src2)>; 
-def : Pat<(extractelt v16f32:$src1, simm13:$imm),
-	(GET_FIELDI v16f32:$src1, simm13:$imm)>; 
+
+// XXX currently disabled, per above
+//def : Pat<(extractelt v16f32:$src1, simm13:$imm),
+//	(GET_FIELDI v16f32:$src1, imm:$imm)>; 
 
 def SHUFFLEI : FormatAUnmaskedTwoOpInst<
 	(outs VectorReg:$dest),
