@@ -1,7 +1,7 @@
-This is a port of LLVM and the clang compiler to an experimental GPGPU architecture (https://github.com/jbush001/GPGPU). 
+This is a toolchain for an an experimental GPGPU architecture (https://github.com/jbush001/GPGPU), including a C/C++ compiler, assembler, and linker, based on the LLVM compiler infrastructure and clang compiler. 
 
-## Building:
-* This requires a newer version of a compiler that supports c++11.  Upgrade your host compiler if necessary.
+## Building
+* This requires a host compiler that supports c++11.  Upgrade if necessary.
 * cmake 2.8.8 or newer must be installed. This is available for most Linux distros and can be installed automatically using the standard package manager (apt-get, yum, etc).  Sources are available here:  http://www.cmake.org/
 
 Configure and build using the following commands
@@ -15,7 +15,7 @@ Configure and build using the following commands
 
 A few other things to note:
 
-* There is also an autoconf based build system in the directory.  They won't work, because a number of tools only have cmake configurations.
+* There is also an autoconf based build system in this project.  It doesn't work.
 * Using sudo on make install as described can leave files with root ownership in your build directory, which can then cause cryptic build errors later when building as non-root.  Doing a 'sudo chown -R &#x60;whoami&#x60; .' in the build directory will fix this.
 * If you are building on a multi-core machine, use 'make -j <i>n</i>' to do a faster parallel build, where <i>n</i> is the number of cores.
 
