@@ -190,8 +190,8 @@ void VectorProcInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                       MachineBasicBlock::iterator I,
                                       DebugLoc DL, unsigned DestReg,
                                       unsigned SrcReg, bool KillSrc) const {
-  bool destIsScalar = VectorProc::ScalarRegRegClass.contains(DestReg);
-  bool srcIsScalar = VectorProc::ScalarRegRegClass.contains(SrcReg);
+  bool destIsScalar = VectorProc::GPR32RegClass.contains(DestReg);
+  bool srcIsScalar = VectorProc::GPR32RegClass.contains(SrcReg);
   unsigned operation;
 
   if (destIsScalar && srcIsScalar)
@@ -231,9 +231,9 @@ void VectorProcInstrInfo::storeRegToStack(MachineBasicBlock &MBB,
   MachineMemOperand *MMO = GetMemOperand(MBB, FI, MachineMemOperand::MOStore);
   unsigned Opc = 0;
 
-  if (VectorProc::ScalarRegRegClass.hasSubClassEq(RC))
+  if (VectorProc::GPR32RegClass.hasSubClassEq(RC))
     Opc = VectorProc::SW;
-  else if (VectorProc::VectorRegRegClass.hasSubClassEq(RC))
+  else if (VectorProc::VR512RegClass.hasSubClassEq(RC))
     Opc = VectorProc::BLOCK_STOREI;
   else
     llvm_unreachable("unknown register class in storeRegToStack");
@@ -258,9 +258,9 @@ void VectorProcInstrInfo::loadRegFromStack(MachineBasicBlock &MBB,
   MachineMemOperand *MMO = GetMemOperand(MBB, FI, MachineMemOperand::MOLoad);
   unsigned Opc = 0;
 
-  if (VectorProc::ScalarRegRegClass.hasSubClassEq(RC))
+  if (VectorProc::GPR32RegClass.hasSubClassEq(RC))
     Opc = VectorProc::LW;
-  else if (VectorProc::VectorRegRegClass.hasSubClassEq(RC))
+  else if (VectorProc::VR512RegClass.hasSubClassEq(RC))
     Opc = VectorProc::BLOCK_LOADI;
   else
     llvm_unreachable("unknown register class in storeRegToStack");

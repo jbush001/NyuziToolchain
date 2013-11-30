@@ -117,9 +117,9 @@ SDValue VectorProcTargetLowering::LowerFormalArguments(
       const TargetRegisterClass *RC;
 
       if (RegVT == MVT::i32 || RegVT == MVT::f32)
-        RC = &VectorProc::ScalarRegRegClass;
+        RC = &VectorProc::GPR32RegClass;
       else if (RegVT == MVT::v16i32 || RegVT == MVT::v16f32)
-        RC = &VectorProc::VectorRegRegClass;
+        RC = &VectorProc::VR512RegClass;
       else
         llvm_unreachable("Unsupported formal argument Type");
 
@@ -165,7 +165,7 @@ SDValue VectorProcTargetLowering::LowerFormalArguments(
     unsigned Reg = SFI->getSRetReturnReg();
     if (!Reg) {
       Reg =
-          MF.getRegInfo().createVirtualRegister(&VectorProc::ScalarRegRegClass);
+          MF.getRegInfo().createVirtualRegister(&VectorProc::GPR32RegClass);
       SFI->setSRetReturnReg(Reg);
     }
 
@@ -381,10 +381,10 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   Subtarget = &TM.getSubtarget<VectorProcSubtarget>();
 
   // Set up the register classes.
-  addRegisterClass(MVT::i32, &VectorProc::ScalarRegRegClass);
-  addRegisterClass(MVT::f32, &VectorProc::ScalarRegRegClass);
-  addRegisterClass(MVT::v16i32, &VectorProc::VectorRegRegClass);
-  addRegisterClass(MVT::v16f32, &VectorProc::VectorRegRegClass);
+  addRegisterClass(MVT::i32, &VectorProc::GPR32RegClass);
+  addRegisterClass(MVT::f32, &VectorProc::GPR32RegClass);
+  addRegisterClass(MVT::v16i32, &VectorProc::VR512RegClass);
+  addRegisterClass(MVT::v16f32, &VectorProc::VR512RegClass);
 
   setOperationAction(ISD::BR_CC, MVT::i32, Expand);
   setOperationAction(ISD::BR_CC, MVT::f32, Expand);
@@ -1000,9 +1000,9 @@ VectorProcTargetLowering::EmitAtomicRMW(MachineInstr *MI, MachineBasicBlock *BB,
   unsigned Incr = MI->getOperand(2).getReg();
   DebugLoc DL = MI->getDebugLoc();
   MachineRegisterInfo &MRI = BB->getParent()->getRegInfo();
-  unsigned Scratch1 = MRI.createVirtualRegister(&VectorProc::ScalarRegRegClass);
-  unsigned Scratch2 = MRI.createVirtualRegister(&VectorProc::ScalarRegRegClass);
-  unsigned Scratch3 = MRI.createVirtualRegister(&VectorProc::ScalarRegRegClass);
+  unsigned Scratch1 = MRI.createVirtualRegister(&VectorProc::GPR32RegClass);
+  unsigned Scratch2 = MRI.createVirtualRegister(&VectorProc::GPR32RegClass);
+  unsigned Scratch3 = MRI.createVirtualRegister(&VectorProc::GPR32RegClass);
 
   const BasicBlock *LLVM_BB = BB->getBasicBlock();
   MachineFunction *MF = BB->getParent();
@@ -1153,10 +1153,10 @@ VectorProcTargetLowering::getRegForInlineAsmConstraint(
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
     case 's':
-      return std::make_pair(0U, &VectorProc::ScalarRegRegClass);
+      return std::make_pair(0U, &VectorProc::GPR32RegClass);
 
     case 'v':
-      return std::make_pair(0U, &VectorProc::VectorRegRegClass);
+      return std::make_pair(0U, &VectorProc::VR512RegClass);
     }
   }
 

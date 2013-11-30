@@ -30,8 +30,8 @@ let Namespace = "VectorProc" in {
 	}
 }
 
-def ScalarReg : RegisterClass<"VectorProc", [i32, f32], 32, (add (sequence "S%u", 0, 27),
+def GPR32 : RegisterClass<"VectorProc", [i32, f32], 32, (add (sequence "S%u", 0, 27),
 	FP_REG, SP_REG, LINK_REG, PC_REG)>;
 
-def VectorReg : RegisterClass<"VectorProc", [v16i32, v16f32], 512, (sequence "V%u", 0, 31)>;
+def VR512 : RegisterClass<"VectorProc", [v16i32, v16f32], 512, (sequence "V%u", 0, 31)>;
 

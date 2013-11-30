@@ -33,49 +33,49 @@ defm MULF   : TwoOpFloatArith<"mul_f", fmul, 0x22>;
 defm RECIP  : OneOpFloatArith<"reciprocal", reciprocal, 0x1c>;
 
 def SEXT16 : FormatAUnmaskedOneOpInst<
-		(outs ScalarReg:$dest), 
-		(ins ScalarReg:$src2),
+		(outs GPR32:$dest), 
+		(ins GPR32:$src2),
 		"sext_16 $dest, $src2",
-		[(set ScalarReg:$dest, (sext_inreg i32:$src2, i16))],
+		[(set GPR32:$dest, (sext_inreg i32:$src2, i16))],
 		0x1e,
 		FmtA_SSS>;
 
 def SEXT8 : FormatAUnmaskedOneOpInst<
-		(outs ScalarReg:$dest), 
-		(ins ScalarReg:$src2),
+		(outs GPR32:$dest), 
+		(ins GPR32:$src2),
 		"sext_8 $dest, $src2",
-		[(set ScalarReg:$dest, (sext_inreg i32:$src2, i8))],
+		[(set GPR32:$dest, (sext_inreg i32:$src2, i8))],
 		0x1d,
 		FmtA_SSS>;
 
 // XXX need predicated versions of these
 def SITOF : FormatAUnmaskedOneOpInst<
-			(outs ScalarReg:$dest), 
-			(ins ScalarReg:$src2),
+			(outs GPR32:$dest), 
+			(ins GPR32:$src2),
             "itof $dest, $src2",
         	[(set f32:$dest, (sint_to_fp i32:$src2))],
         	0x2a,
         	FmtA_SSS>;
 
 def SITOFV : FormatAUnmaskedOneOpInst<
-			(outs VectorReg:$dest), 
-			(ins VectorReg:$src2),
+			(outs VR512:$dest), 
+			(ins VR512:$src2),
             "itof $dest, $src2",
         	[(set v16f32:$dest, (sint_to_fp v16i32:$src2))],
         	0x2a,
         	FmtA_VVV>;
 
 def FTOSI : FormatAUnmaskedOneOpInst<
-			(outs ScalarReg:$dest), 
-			(ins ScalarReg:$src2),
+			(outs GPR32:$dest), 
+			(ins GPR32:$src2),
         	"ftoi $dest, $src2",
         	[(set i32:$dest, (fp_to_sint f32:$src2))],
         	0x1b,
         	FmtA_SSS>;
 
 def FTOSIV : FormatAUnmaskedOneOpInst<
-			(outs VectorReg:$dest), 
-			(ins VectorReg:$src2),
+			(outs VR512:$dest), 
+			(ins VR512:$src2),
         	"ftoi $dest, $src2",
         	[(set v16i32:$dest, (fp_to_sint v16f32:$src2))],
         	0x1b,
@@ -109,16 +109,16 @@ def : Pat<(int_vp_mask_cmpf_ne v16f32:$src1, (splat f32:$src2)),
 	(SNESIVVS  v16f32:$src1, f32:$src2)>;
 
 def GET_FIELDI : FormatAUnmaskedTwoOpInst<
-	(outs ScalarReg:$dest),
-	(ins VectorReg:$src1, ScalarReg:$src2),
+	(outs GPR32:$dest),
+	(ins VR512:$src1, GPR32:$src2),
 	"getfield $dest, $src1, $src2",	// XXX this isn't a good name, replace
 	[(set i32:$dest, (extractelt v16i32:$src1, i32:$src2))],
 	0x1a,
 	FmtA_VVS>;
 
 def GET_FIELDIimm : FormatBUnmaskedInst<
-	(outs ScalarReg:$dest),
-	(ins VectorReg:$src1, i32imm:$imm),
+	(outs GPR32:$dest),
+	(ins VR512:$src1, i32imm:$imm),
 	"getfield $dest, $src1, $imm",	// XXX this isn't a good name, replace
 
 // Currently disabled for codegen because it causes rendering problems with 3D engine
@@ -135,8 +135,8 @@ def : Pat<(extractelt v16f32:$src1, i32:$src2),
 //	(GET_FIELDI v16f32:$src1, imm:$imm)>; 
 
 def SHUFFLEI : FormatAUnmaskedTwoOpInst<
-	(outs VectorReg:$dest),
-	(ins VectorReg:$src1, VectorReg:$src2),
+	(outs VR512:$dest),
+	(ins VR512:$src1, VR512:$src2),
 	"shuffle $dest, $src1, $src2",
 	[(set v16i32:$dest, (int_vp_shufflei v16i32:$src1, v16i32:$src2))],
 	0x0d,
@@ -144,8 +144,8 @@ def SHUFFLEI : FormatAUnmaskedTwoOpInst<
 	
 let Constraints = "$dest = $oldvalue" in {
 	def SHUFFLEI_MASK : FormatAMaskedTwoOpInst<
-		(outs VectorReg:$dest),
-		(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
+		(outs VR512:$dest),
+		(ins GPR32:$mask, VR512:$src1, VR512:$src2, VR512:$oldvalue),
 		"shuffle_mask $dest, $mask, $src1, $src2",
 		[(set v16i32:$dest, (int_vp_blendi i32:$mask, (int_vp_shufflei v16i32:$src1, 
 			v16i32:$src2), v16i32:$oldvalue))],
@@ -153,8 +153,8 @@ let Constraints = "$dest = $oldvalue" in {
 		FmtA_VVVM>;
 
 	def SHUFFLEI_MASKinv : FormatAMaskedTwoOpInst<
-		(outs VectorReg:$dest),
-		(ins ScalarReg:$mask, VectorReg:$src1, VectorReg:$src2, VectorReg:$oldvalue),
+		(outs VR512:$dest),
+		(ins GPR32:$mask, VR512:$src1, VR512:$src2, VR512:$oldvalue),
 		"shuffle_invmask $dest, $mask, $src1, $src2",
 		[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), (int_vp_shufflei v16i32:$src1, 
 			v16i32:$src2), v16i32:$oldvalue))],
@@ -173,16 +173,16 @@ def : Pat<(int_vp_blendf (not i32:$mask), (int_vp_shufflef v16f32:$src1, v16i32:
 	(SHUFFLEI_MASKinv i32:$mask, v16f32:$src1, v16i32:$src2, v16f32:$oldvalue)>;
 
 def MOVESS : FormatAUnmaskedOneOpInst<
-	(outs ScalarReg:$dest), 
-	(ins ScalarReg:$src2),
+	(outs GPR32:$dest), 
+	(ins GPR32:$src2),
 	"move $dest, $src2",
 	[],
 	0xf,
 	FmtA_SSS>;
 
 def MOVEVSI : FormatAUnmaskedOneOpInst<
-	(outs VectorReg:$dest), 
-	(ins ScalarReg:$src2),
+	(outs VR512:$dest), 
+	(ins GPR32:$src2),
 	"move $dest, $src2",
 	[(set v16i32:$dest, (splat i32:$src2))],
 	0xf,
@@ -191,8 +191,8 @@ def MOVEVSI : FormatAUnmaskedOneOpInst<
 def : Pat<(v16f32 (splat f32:$src2)), (MOVEVSI f32:$src2)>;
 
 def MOVEVV : FormatAUnmaskedOneOpInst<
-	(outs VectorReg:$dest), 
-	(ins VectorReg:$src2),
+	(outs VR512:$dest), 
+	(ins VR512:$src2),
 	"move $dest, $src2",
 	[],
 	0xf,
@@ -201,32 +201,32 @@ def MOVEVV : FormatAUnmaskedOneOpInst<
 // Predicated
 let Constraints = "$dest = $oldvalue" in {
 	def MOVEVVMI : FormatAMaskedOneOpInst<
-		(outs VectorReg:$dest),
-		(ins ScalarReg:$mask, VectorReg:$src2, VectorReg:$oldvalue),
+		(outs VR512:$dest),
+		(ins GPR32:$mask, VR512:$src2, VR512:$oldvalue),
 		"move_mask $dest, $mask, $src2",
 		[(set v16i32:$dest, (int_vp_blendi i32:$mask, v16i32:$src2, v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVVM>;
 
 	def MOVEVVMIinv : FormatAMaskedOneOpInst<
-		(outs VectorReg:$dest),
-		(ins ScalarReg:$mask, VectorReg:$src2, VectorReg:$oldvalue),
+		(outs VR512:$dest),
+		(ins GPR32:$mask, VR512:$src2, VR512:$oldvalue),
 		"move_invmask $dest, $mask, $src2",
 		[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), v16i32:$src2, v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVVMinv>;
 
 	def MOVEVSMI : FormatAMaskedOneOpInst<
-		(outs VectorReg:$dest),
-		(ins ScalarReg:$mask, ScalarReg:$src2, VectorReg:$oldvalue),
+		(outs VR512:$dest),
+		(ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
 		"move_mask $dest, $mask, $src2",
 		[(set v16i32:$dest, (int_vp_blendi i32:$mask, (splat i32:$src2), v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVSM>;
 
 	def MOVEVSMIinv : FormatAMaskedOneOpInst<
-		(outs VectorReg:$dest),
-		(ins ScalarReg:$mask, ScalarReg:$src2, VectorReg:$oldvalue),
+		(outs VR512:$dest),
+		(ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
 		"move_invmask $dest, $mask, $src2",
 		[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), (splat i32:$src2), v16i32:$oldvalue))],
 		0xf,
@@ -264,7 +264,7 @@ def : Pat<(store f32:$srcDest, ADDRri:$addr), (SW f32:$srcDest, ADDRri:$addr)>;
 
 // Vector
 def BLOCK_LOADI : FormatCUnmaskedInst<
-	(outs VectorReg:$srcDest),
+	(outs VR512:$srcDest),
 	(ins MEMri:$addr),
 	"load_v $srcDest, $addr",
 	[(set v16i32:$srcDest, (load ADDRri:$addr))],
@@ -273,7 +273,7 @@ def BLOCK_LOADI : FormatCUnmaskedInst<
 
 def BLOCK_STOREI : FormatCUnmaskedInst<
 	(outs),
-	(ins VectorReg:$srcDest, MEMri:$addr),
+	(ins VR512:$srcDest, MEMri:$addr),
 	"store_v $srcDest, $addr",
 	[(store v16i32:$srcDest, ADDRri:$addr)],
 	FmtC_Block,
@@ -287,16 +287,16 @@ def : Pat<(v16f32 (load ADDRri:$addr)), (BLOCK_LOADI ADDRri:$addr)>;
 def : Pat<(store v16f32:$srcDest, ADDRri:$addr), (BLOCK_STOREI v16f32:$srcDest, ADDRri:$addr)>;
 
 def INT_BLOCK_LOADI_MASKED : FormatCMaskedInst<
-	(outs VectorReg:$srcDest),
-	(ins MEMri:$addr, ScalarReg:$mask),
+	(outs VR512:$srcDest),
+	(ins MEMri:$addr, GPR32:$mask),
 	"load_v_mask $srcDest, $mask, $addr",
 	[(set v16i32:$srcDest, (int_vp_block_loadi_masked ADDRri:$addr, i32:$mask))],
 	FmtC_BlockMasked,
 	1>;
 
 def INT_BLOCK_LOADI_INVMASKED : FormatCMaskedInst<
-	(outs VectorReg:$srcDest),
-	(ins MEMri:$addr, ScalarReg:$mask),
+	(outs VR512:$srcDest),
+	(ins MEMri:$addr, GPR32:$mask),
 	"load_v_invmask $srcDest, $mask, $addr",
 	[(set v16i32:$srcDest, (int_vp_block_loadi_masked ADDRri:$addr, (not i32:$mask)))],
 	FmtC_BlockInvMasked,
@@ -308,7 +308,7 @@ def : Pat<(int_vp_block_loadf_masked ADDRri:$addr, (not i32:$mask)),
 	(INT_BLOCK_LOADI_INVMASKED ADDRri:$addr, i32:$mask)>;
 
 def INT_GATHER_LOADI : FormatCUnmaskedInst<
-	(outs VectorReg:$srcDest),
+	(outs VR512:$srcDest),
 	(ins VMEMri:$addr),
 	"load_gath $srcDest, $addr",
 	[(set v16i32:$srcDest, (int_vp_gather_loadi VADDRri:$addr))],
@@ -316,16 +316,16 @@ def INT_GATHER_LOADI : FormatCUnmaskedInst<
 	1>;
 
 def INT_GATHER_LOADI_MASKED : FormatCMaskedInst<
-	(outs VectorReg:$srcDest),
-	(ins VMEMri:$addr, ScalarReg:$mask),
+	(outs VR512:$srcDest),
+	(ins VMEMri:$addr, GPR32:$mask),
 	"load_gath_mask $srcDest, $mask, $addr",
 	[(set v16i32:$srcDest, (int_vp_gather_loadi_masked VADDRri:$addr, i32:$mask))],
 	FmtC_ScGathMasked,
 	1>;
 
 def INT_GATHER_LOADI_INVMASKED : FormatCMaskedInst<
-	(outs VectorReg:$srcDest),
-	(ins VMEMri:$addr, ScalarReg:$mask),
+	(outs VR512:$srcDest),
+	(ins VMEMri:$addr, GPR32:$mask),
 	"load_gath_invmask $srcDest, $mask, $addr",
 	[(set v16i32:$srcDest, (int_vp_gather_loadi_masked VADDRri:$addr, (not i32:$mask)))],
 	FmtC_ScGathInvMasked,
@@ -338,7 +338,7 @@ def : Pat<(int_vp_gather_loadf_masked VADDRri:$addr, (not i32:$mask)),
 	(INT_GATHER_LOADI_INVMASKED VADDRri:$addr, i32:$mask)>;
 
 def INT_STRIDED_LOADI : FormatCUnmaskedInst<
-	(outs VectorReg:$srcDest),
+	(outs VR512:$srcDest),
 	(ins VMEMri:$addr),
 	"load_strd $srcDest, $addr",
 	[],	// Assembler only...
@@ -346,16 +346,16 @@ def INT_STRIDED_LOADI : FormatCUnmaskedInst<
 	1>;
 
 def INT_STRIDED_LOADI_MASKED : FormatCMaskedInst<
-	(outs VectorReg:$srcDest),
-	(ins VMEMri:$addr, ScalarReg:$mask),
+	(outs VR512:$srcDest),
+	(ins VMEMri:$addr, GPR32:$mask),
 	"load_strd_mask $srcDest, $mask, $addr",
 	[],	// Assembler only...
 	FmtC_StridedMasked,
 	1>;
 
 def INT_STRIDED_LOADI_INVMASKED : FormatCMaskedInst<
-	(outs VectorReg:$srcDest),
-	(ins VMEMri:$addr, ScalarReg:$mask),
+	(outs VR512:$srcDest),
+	(ins VMEMri:$addr, GPR32:$mask),
 	"load_strd_invmask $srcDest, $mask, $addr",
 	[],	// Assembler only...
 	FmtC_StridedInvMasked,
@@ -364,7 +364,7 @@ def INT_STRIDED_LOADI_INVMASKED : FormatCMaskedInst<
 let hasSideEffects = 1, mayStore = 1 in {
 	def INT_SCATTER_STOREI : FormatCUnmaskedInst<
 		(outs),
-		(ins VectorReg:$srcDest, VMEMri:$addr),
+		(ins VR512:$srcDest, VMEMri:$addr),
 		"store_scat $srcDest, $addr",
 		[(int_vp_scatter_storei VADDRri:$addr, v16i32:$srcDest)],
 		FmtC_ScGath,
@@ -372,7 +372,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_SCATTER_STOREI_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins VectorReg:$srcDest, VMEMri:$addr, ScalarReg:$mask),
+		(ins VR512:$srcDest, VMEMri:$addr, GPR32:$mask),
 		"store_scat_mask $srcDest, $mask, $addr",
 		[(int_vp_scatter_storei_masked VADDRri:$addr, v16i32:$srcDest, i32:$mask)],
 		FmtC_ScGathMasked,
@@ -380,7 +380,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_SCATTER_STOREI_INVMASKED : FormatCMaskedInst<
 		(outs),
-		(ins VectorReg:$srcDest, VMEMri:$addr, ScalarReg:$mask),
+		(ins VR512:$srcDest, VMEMri:$addr, GPR32:$mask),
 		"store_scat_invmask $srcDest, $mask, $addr",
 		[(int_vp_scatter_storei_masked VADDRri:$addr, v16i32:$srcDest, (not i32:$mask))],
 		FmtC_ScGathInvMasked,
@@ -388,7 +388,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_STRIDED_STOREI : FormatCUnmaskedInst<
 		(outs),
-		(ins VectorReg:$srcDest, VMEMri:$addr),
+		(ins VR512:$srcDest, VMEMri:$addr),
 		"store_strd $srcDest, $addr",
 		[],	// Assembly only
 		FmtC_Strided,
@@ -396,7 +396,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_STRIDED_STOREI_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins VectorReg:$srcDest, VMEMri:$addr, ScalarReg:$mask),
+		(ins VR512:$srcDest, VMEMri:$addr, GPR32:$mask),
 		"store_strd_mask $srcDest, $mask, $addr",
 		[],	// Assembly only
 		FmtC_StridedMasked,
@@ -404,7 +404,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_STRIDED_STOREI_INVMASKED : FormatCMaskedInst<
 		(outs),
-		(ins VectorReg:$srcDest, VMEMri:$addr, ScalarReg:$mask),
+		(ins VR512:$srcDest, VMEMri:$addr, GPR32:$mask),
 		"store_strd_invmask $srcDest, $mask, $addr",
 		[],	// Assembly only
 		FmtC_StridedInvMasked,
@@ -412,7 +412,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_BLOCK_STOREI_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins VectorReg:$srcDest, MEMri:$addr, ScalarReg:$mask),
+		(ins VR512:$srcDest, MEMri:$addr, GPR32:$mask),
 		"store_v_mask $srcDest, $mask, $addr",
 		[(int_vp_block_storei_masked ADDRri:$addr, v16i32:$srcDest, i32:$mask)],
 		FmtC_BlockMasked,
@@ -420,7 +420,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_BLOCK_STOREI_INVMASKED : FormatCMaskedInst<
 		(outs),
-		(ins VectorReg:$srcDest, MEMri:$addr, ScalarReg:$mask),
+		(ins VR512:$srcDest, MEMri:$addr, GPR32:$mask),
 		"store_v_invmask $srcDest, $mask, $addr",
 		[(int_vp_block_storei_masked ADDRri:$addr, v16i32:$srcDest, (not i32:$mask))],
 		FmtC_BlockInvMasked,
@@ -436,7 +436,7 @@ def : Pat<(int_vp_block_storef_masked ADDRri:$addr, v16f32:$srcDest, i32:$mask),
 
 
 def LOAD_SYNC : FormatCUnmaskedInst<
-	(outs ScalarReg:$srcDest),
+	(outs GPR32:$srcDest),
 	(ins MEMri:$addr),
 	"load_sync $srcDest, $addr",
 	[],
@@ -444,8 +444,8 @@ def LOAD_SYNC : FormatCUnmaskedInst<
 	1>;
 
 def STORE_SYNC : FormatCUnmaskedInst<
-	(outs ScalarReg:$result),
-	(ins ScalarReg:$srcDest, MEMri:$addr),
+	(outs GPR32:$result),
+	(ins GPR32:$srcDest, MEMri:$addr),
 	"store_sync $srcDest, $addr	",
 	[],
 	FmtC_Sync,
@@ -457,35 +457,35 @@ def STORE_SYNC : FormatCUnmaskedInst<
 // Atomics	
 let usesCustomInserter = 1 in {
 	def ATOMIC_LOAD_ADD : Pseudo<
-		(outs ScalarReg:$dest),
-		(ins ScalarReg:$ptr, ScalarReg:$amt),
-		[(set i32:$dest, (atomic_load_add ScalarReg:$ptr, ScalarReg:$amt))]>;
+		(outs GPR32:$dest),
+		(ins GPR32:$ptr, GPR32:$amt),
+		[(set i32:$dest, (atomic_load_add GPR32:$ptr, GPR32:$amt))]>;
 
 	def ATOMIC_LOAD_SUB : Pseudo<
-		(outs ScalarReg:$dest),
-		(ins ScalarReg:$ptr, ScalarReg:$amt),
-		[(set i32:$dest, (atomic_load_sub ScalarReg:$ptr, ScalarReg:$amt))]>;
+		(outs GPR32:$dest),
+		(ins GPR32:$ptr, GPR32:$amt),
+		[(set i32:$dest, (atomic_load_sub GPR32:$ptr, GPR32:$amt))]>;
 
 	def ATOMIC_LOAD_AND : Pseudo<
-		(outs ScalarReg:$dest),
-		(ins ScalarReg:$ptr, ScalarReg:$amt),
-		[(set i32:$dest, (atomic_load_and ScalarReg:$ptr, ScalarReg:$amt))]>;
+		(outs GPR32:$dest),
+		(ins GPR32:$ptr, GPR32:$amt),
+		[(set i32:$dest, (atomic_load_and GPR32:$ptr, GPR32:$amt))]>;
 
 	def ATOMIC_LOAD_OR : Pseudo<
-		(outs ScalarReg:$dest),
-		(ins ScalarReg:$ptr, ScalarReg:$amt),
-		[(set i32:$dest, (atomic_load_or ScalarReg:$ptr, ScalarReg:$amt))]>;
+		(outs GPR32:$dest),
+		(ins GPR32:$ptr, GPR32:$amt),
+		[(set i32:$dest, (atomic_load_or GPR32:$ptr, GPR32:$amt))]>;
 
 	def ATOMIC_LOAD_XOR : Pseudo<
-		(outs ScalarReg:$dest),
-		(ins ScalarReg:$ptr, ScalarReg:$amt),
-		[(set i32:$dest, (atomic_load_xor ScalarReg:$ptr, ScalarReg:$amt))]>;
+		(outs GPR32:$dest),
+		(ins GPR32:$ptr, GPR32:$amt),
+		[(set i32:$dest, (atomic_load_xor GPR32:$ptr, GPR32:$amt))]>;
 
 	def ATOMIC_CMP_SWAP : Pseudo<
-		(outs ScalarReg:$dest),
-		(ins ScalarReg:$ptr, ScalarReg:$cmp, ScalarReg:$swap),
-		[(set i32:$dest, (atomic_cmp_swap ScalarReg:$ptr, ScalarReg:$cmp, 
-			ScalarReg:$swap))]>;
+		(outs GPR32:$dest),
+		(ins GPR32:$ptr, GPR32:$cmp, GPR32:$swap),
+		[(set i32:$dest, (atomic_cmp_swap GPR32:$ptr, GPR32:$cmp, 
+			GPR32:$swap))]>;
 }	
 
 //////////////////////////////////////////////////////////////////
@@ -494,21 +494,21 @@ let usesCustomInserter = 1 in {
 
 def DFLUSH : FormatDOneOp<
 	(outs),
-	(ins ScalarReg:$ptr),
+	(ins GPR32:$ptr),
 	"dflush $ptr",
 	[],
 	FmtD_DFlush>;
 
 def DINVALIDATE : FormatDOneOp<
 	(outs),
-	(ins ScalarReg:$ptr),
+	(ins GPR32:$ptr),
 	"dinvalidate $ptr",
 	[],
 	FmtD_DInvalidate>;
 
 def IINVALIDATE : FormatDOneOp<
 	(outs),
-	(ins ScalarReg:$ptr),
+	(ins GPR32:$ptr),
 	"iinvalidate $ptr",
 	[],
 	FmtD_IInvalidate>;
@@ -537,28 +537,28 @@ let isTerminator = 1 in {
 
 	def BFALSE : ConditionalBranchInst<
 		(outs), 
-		(ins ScalarReg:$test, brtarget:$dest),
+		(ins GPR32:$test, brtarget:$dest),
 		"bfalse $test, $dest",
 		[(brcond (i32 (seteq i32:$test, 0)), bb:$dest)],
 		BT_IfFalse>;
 
 	def BTRUE : ConditionalBranchInst<
 		(outs), 
-		(ins ScalarReg:$test, brtarget:$dest),
+		(ins GPR32:$test, brtarget:$dest),
 		"btrue $test, $dest",
 		[(brcond i32:$test, bb:$dest)],
 		BT_IfTrue>;
 
 	def BALL: ConditionalBranchInst<
 		(outs),
-		(ins ScalarReg:$test, brtarget:$dest),
+		(ins GPR32:$test, brtarget:$dest),
 		"ball $test, $dest",
 		[],	// assembler only XXX expose this to compiler
 		BT_All>;
 
 	def BNALL: ConditionalBranchInst<
 		(outs),
-		(ins ScalarReg:$test, brtarget:$dest),
+		(ins GPR32:$test, brtarget:$dest),
 		"bnall $test, $dest",
 		[], // assembler only XXX expose this to compiler
 		BT_NAll>;
@@ -566,7 +566,7 @@ let isTerminator = 1 in {
 	// Converts to MOVE pc, <srcreg>
 	def JUMPREG : VPInstruction<
 		(outs), 
-		(ins ScalarReg:$dest),
+		(ins GPR32:$dest),
 		"goto $dest",
 		[(brind i32:$dest)]>
 	{
@@ -588,7 +588,7 @@ let isTerminator = 1 in {
 	// will use it to output the jump table in-line.
 	def JUMP_TABLE : VPInstruction<
 		(outs), 
-		(ins ScalarReg:$tableptr, ScalarReg:$jt),
+		(ins GPR32:$tableptr, GPR32:$jt),
 		"load_32 pc, ( $tableptr )",
 		[(BRjt i32:$tableptr, tjumptable:$jt)]>
 	{
@@ -648,7 +648,7 @@ let isCall = 1, Defs = [ LINK_REG ] in {
 
 	def CALLREG : UnconditionalBranchInst<
 		(outs), 
-		(ins ScalarReg:$targetreg, variable_ops),
+		(ins GPR32:$targetreg, variable_ops),
 		"call $targetreg", 
 		[(call i32:$targetreg)],
 		BT_CallReg>
@@ -677,23 +677,23 @@ def selcondresult : SDNode<"VectorProcISD::SEL_COND_RESULT", SDTypeProfile<1, 3,
 //
 let usesCustomInserter = 1 in {
 	def SELECTI : Pseudo<
-		(outs ScalarReg:$dest),
-		(ins ScalarReg:$pred, ScalarReg:$true, ScalarReg:$false),
+		(outs GPR32:$dest),
+		(ins GPR32:$pred, GPR32:$true, GPR32:$false),
 		[(set i32:$dest, (selcondresult i32:$pred, i32:$true, i32:$false))]>;
 
 	def SELECTF : Pseudo<
-		(outs ScalarReg:$dest),
-		(ins ScalarReg:$pred, ScalarReg:$true, ScalarReg:$false),
+		(outs GPR32:$dest),
+		(ins GPR32:$pred, GPR32:$true, GPR32:$false),
 		[(set f32:$dest, (selcondresult i32:$pred, f32:$true, f32:$false))]>;
 
 	def SELECTVI : Pseudo<
-		(outs VectorReg:$dest),
-		(ins ScalarReg:$pred, VectorReg:$true, VectorReg:$false),
+		(outs VR512:$dest),
+		(ins GPR32:$pred, VR512:$true, VR512:$false),
 		[(set v16i32:$dest, (selcondresult i32:$pred, v16i32:$true, v16i32:$false))]>;
 
 	def SELECTVF : Pseudo<
-		(outs VectorReg:$dest),
-		(ins ScalarReg:$pred, VectorReg:$true, VectorReg:$false),
+		(outs VR512:$dest),
+		(ins GPR32:$pred, VR512:$true, VR512:$false),
 		[(set v16f32:$dest, (selcondresult i32:$pred, v16f32:$true, v16f32:$false))]>;
 }
 
@@ -702,7 +702,7 @@ let usesCustomInserter = 1 in {
 //////////////////////////////////////////////////////////////////
 
 def GET_CONTROL_REG : FormatCInst<
-	(outs ScalarReg:$dest),
+	(outs GPR32:$dest),
 	(ins i32imm:$cr),
 	"getcr $dest, $cr",
 	[(set i32:$dest, (int_vp_get_control_reg imm:$cr))],
@@ -718,7 +718,7 @@ def GET_CONTROL_REG : FormatCInst<
 
 def SET_CONTROL_REG : FormatCInst<
 	(outs),
-	(ins ScalarReg:$src, i32imm:$cr),
+	(ins GPR32:$src, i32imm:$cr),
 	"setcr $src, $cr",
 	[],
 	FmtC_ControlReg,
@@ -732,7 +732,7 @@ def SET_CONTROL_REG : FormatCInst<
 }
 
 def LOAD_EFFECTIVE_ADDR : VPInstruction<
-	(outs ScalarReg:$dest),
+	(outs GPR32:$dest),
 	(ins LEAri:$addr),
 	"lea $dest, $addr",
 	[(set i32:$dest, ADDRri:$addr)]>
@@ -755,7 +755,7 @@ def : Pat<(f32 (load tconstpool:$addr)), (LW tconstpool:$addr, 0)>;
 // Get address of jump table
 // This turns into add.i <destreg>, pc, <offset from pc>
 def LOAD_JTABLE_ADDR : VPInstruction<
-	(outs ScalarReg:$dest),
+	(outs GPR32:$dest),
 	(ins JTADDR:$addr),
 	"lea $dest, $addr",
 	[(set i32:$dest, (jtwrapper tjumptable:$addr))]>
@@ -776,7 +776,7 @@ def LOAD_JTABLE_ADDR : VPInstruction<
 // of the instruction.  The lowering code will transform other types into
 // constant pool loads.
 def LOADIMM : FormatBUnmaskedInst<
-	(outs ScalarReg:$dest),
+	(outs GPR32:$dest),
 	(ins i32imm:$imm),
 	"move $dest, $imm",
 	[(set i32:$dest, imm:$imm)],
@@ -790,7 +790,7 @@ def NOP : VPInstruction<
 	[]>;
 
 // Conversions
-def : Pat<(v16f32 (bitconvert (v16i32 VectorReg:$src))), (v16f32 VectorReg:$src)>;
-def : Pat<(v16i32 (bitconvert (v16f32 VectorReg:$src))), (v16i32 VectorReg:$src)>;
-def : Pat<(f32 (bitconvert (i32 ScalarReg:$src))), (f32 ScalarReg:$src)>;
-def : Pat<(i32 (bitconvert (f32 ScalarReg:$src))), (i32 ScalarReg:$src)>;
+def : Pat<(v16f32 (bitconvert (v16i32 VR512:$src))), (v16f32 VR512:$src)>;
+def : Pat<(v16i32 (bitconvert (v16f32 VR512:$src))), (v16i32 VR512:$src)>;
+def : Pat<(f32 (bitconvert (i32 GPR32:$src))), (f32 GPR32:$src)>;
+def : Pat<(i32 (bitconvert (f32 GPR32:$src))), (i32 GPR32:$src)>;

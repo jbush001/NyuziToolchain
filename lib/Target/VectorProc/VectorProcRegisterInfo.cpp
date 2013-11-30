@@ -57,7 +57,7 @@ VectorProcRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 const TargetRegisterClass *
 VectorProcRegisterInfo::getPointerRegClass(const MachineFunction &MF,
                                            unsigned Kind) const {
-  return &VectorProc::ScalarRegRegClass;
+  return &VectorProc::GPR32RegClass;
 }
 
 void VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,

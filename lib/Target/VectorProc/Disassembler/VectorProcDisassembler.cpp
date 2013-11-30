@@ -63,11 +63,11 @@ static DecodeStatus decodeJumpTargetOpValue(MCInst &Inst, unsigned Insn,
                                             uint64_t Address,
                                             const void *Decoder);
 
-DecodeStatus DecodeScalarRegRegisterClass(MCInst &Inst, unsigned RegNo,
+DecodeStatus DecodeGPR32RegisterClass(MCInst &Inst, unsigned RegNo,
                                           uint64_t Address,
                                           const void *Decoder);
 
-DecodeStatus DecodeVectorRegRegisterClass(MCInst &Inst, unsigned RegNo,
+DecodeStatus DecodeVR512RegisterClass(MCInst &Inst, unsigned RegNo,
                                           uint64_t Address,
                                           const void *Decoder);
 
@@ -151,14 +151,14 @@ static DecodeStatus decodeScalarMemoryOpValue(MCInst &Inst, unsigned Insn,
                                               uint64_t Address,
                                               const void *Decoder) {
   return decodeMemoryOpValue(Inst, Insn, Address, Decoder,
-                             VectorProc::ScalarRegRegClassID);
+                             VectorProc::GPR32RegClassID);
 }
 
 static DecodeStatus decodeVectorMemoryOpValue(MCInst &Inst, unsigned Insn,
                                               uint64_t Address,
                                               const void *Decoder) {
   return decodeMemoryOpValue(Inst, Insn, Address, Decoder,
-                             VectorProc::VectorRegRegClassID);
+                             VectorProc::VR512RegClassID);
 }
 
 static DecodeStatus decodeJumpTargetOpValue(MCInst &Inst, unsigned Insn,
@@ -169,7 +169,7 @@ static DecodeStatus decodeJumpTargetOpValue(MCInst &Inst, unsigned Insn,
   return MCDisassembler::Success;
 }
 
-DecodeStatus DecodeScalarRegRegisterClass(MCInst &Inst, unsigned RegNo,
+DecodeStatus DecodeGPR32RegisterClass(MCInst &Inst, unsigned RegNo,
                                           uint64_t Address,
                                           const void *Decoder) {
 
@@ -178,11 +178,11 @@ DecodeStatus DecodeScalarRegRegisterClass(MCInst &Inst, unsigned RegNo,
 
   // The internal representation of the registers counts r0: 1, r1: 2, etc.
   Inst.addOperand(MCOperand::CreateReg(
-      getReg(Decoder, VectorProc::ScalarRegRegClassID, RegNo)));
+      getReg(Decoder, VectorProc::GPR32RegClassID, RegNo)));
   return MCDisassembler::Success;
 }
 
-DecodeStatus DecodeVectorRegRegisterClass(MCInst &Inst, unsigned RegNo,
+DecodeStatus DecodeVR512RegisterClass(MCInst &Inst, unsigned RegNo,
                                           uint64_t Address,
                                           const void *Decoder) {
 
@@ -191,6 +191,6 @@ DecodeStatus DecodeVectorRegRegisterClass(MCInst &Inst, unsigned RegNo,
 
   // The internal representation of the registers counts r0: 1, r1: 2, etc.
   Inst.addOperand(MCOperand::CreateReg(
-      getReg(Decoder, VectorProc::VectorRegRegClassID, RegNo)));
+      getReg(Decoder, VectorProc::VR512RegClassID, RegNo)));
   return MCDisassembler::Success;
 }
