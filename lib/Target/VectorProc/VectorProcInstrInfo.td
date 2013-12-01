@@ -111,7 +111,7 @@ def : Pat<(int_vp_mask_cmpf_ne v16f32:$src1, (splat f32:$src2)),
 def GET_FIELDI : FormatAUnmaskedTwoOpInst<
 	(outs GPR32:$dest),
 	(ins VR512:$src1, GPR32:$src2),
-	"getfield $dest, $src1, $src2",	// XXX this isn't a good name, replace
+	"getlane $dest, $src1, $src2",	// XXX this isn't a good name, replace
 	[(set i32:$dest, (extractelt v16i32:$src1, i32:$src2))],
 	0x1a,
 	FmtA_VVS>;
@@ -119,7 +119,7 @@ def GET_FIELDI : FormatAUnmaskedTwoOpInst<
 def GET_FIELDIimm : FormatBUnmaskedInst<
 	(outs GPR32:$dest),
 	(ins VR512:$src1, i32imm:$imm),
-	"getfield $dest, $src1, $imm",	// XXX this isn't a good name, replace
+	"getlane $dest, $src1, $imm",	// XXX this isn't a good name, replace
 
 // Currently disabled for codegen because it causes rendering problems with 3D engine
 //	[(set i32:$dest, (extractelt v16i32:$src1, simm13:$imm))],
