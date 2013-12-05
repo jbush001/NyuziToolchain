@@ -6,3 +6,5 @@ foo: .long bar
 
   # Load effective address of label (this converts to add_i s5, pc, <offset to label>)	
   lea s5, foo  # CHECK: encoding: [0xbf,0bAAAAAA00,0b1AAAAAAA,0x02]
+
+  nop # CHECK: encoding: [0x00,0x00,0x00,0x00]

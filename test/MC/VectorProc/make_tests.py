@@ -200,8 +200,8 @@ make_test_case('shuffle v1, v2, v3', make_a_instruction(4, 0xd, 1, 2, 3, 0))
 make_test_case('shuffle_mask v1, s4, v2, v3', make_a_instruction(5, 0xd, 1, 2, 3, 4))
 make_test_case('shuffle_invmask v1, s4, v2, v3', make_a_instruction(6, 0xd, 1, 2, 3, 4))
 
-make_test_case('getfield s4, v5, s6', make_a_instruction(1, 0x1a, 4, 5, 6, 0))
-make_test_case('getfield s4, v5, 7', make_bprime_instruction(1, 0x1a, 4, 5, 7))
+make_test_case('getlane s4, v5, s6', make_a_instruction(1, 0x1a, 4, 5, 6, 0))
+make_test_case('getlane s4, v5, 7', make_bprime_instruction(1, 0x1a, 4, 5, 7))
 
 cmpOps = [
 	(0x12, 'gt_i'),
@@ -238,7 +238,7 @@ for opcode, mnemonic in cmpOps:
 	make_test_case('set' + mnemonic + ' s' + str(rega) + ', v' + str(regb) + ', ' + str(imm),
 		make_bprime_instruction(1, opcode, rega, regb, imm))
 	
-make_test_case('getfield s1, v2, s3 ', make_a_instruction(1, 0x1a, 1, 2, 3, 0))
+make_test_case('getlane s1, v2, s3 ', make_a_instruction(1, 0x1a, 1, 2, 3, 0))
 
 # Scalar load/stores
 make_test_case('load_u8 s10, 20(s5)', make_cprime_instruction(1, 0, 10, 5, 20))
