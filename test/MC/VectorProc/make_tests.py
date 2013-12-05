@@ -219,6 +219,10 @@ cmpOps = [
 ]
 
 for opcode, mnemonic in cmpOps:
+	rega = random.randint(0, 27)
+	regb = random.randint(0, 27)
+	regc = random.randint(0, 27)
+
 	make_test_case('set' + mnemonic +  ' s' + str(rega) + ', s' + str(regb) + ', s' + str(regc),
 		make_a_instruction(0, opcode, rega, regb, regc, 0))
 
@@ -241,16 +245,23 @@ for opcode, mnemonic in cmpOps:
 make_test_case('getlane s1, v2, s3 ', make_a_instruction(1, 0x1a, 1, 2, 3, 0))
 
 # Scalar load/stores
-make_test_case('load_u8 s10, 20(s5)', make_cprime_instruction(1, 0, 10, 5, 20))
-make_test_case('load_u8 s11, (s6)', make_cprime_instruction(1, 0, 11, 6, 0))
-make_test_case('load_s8 s10, 20(s5)', make_cprime_instruction(1, 1, 10, 5, 20))
-make_test_case('load_s8 s11, (s6)', make_cprime_instruction(1, 1, 11, 6, 0))
-make_test_case('load_u16 s12, 30(s7)', make_cprime_instruction(1, 2, 12, 7, 30))
-make_test_case('load_u16 s13, (s8)', make_cprime_instruction(1, 2, 13, 8, 0))
-make_test_case('load_s16 s12, 30(s7)', make_cprime_instruction(1, 3, 12, 7, 30))
-make_test_case('load_s16 s13, (s8)', make_cprime_instruction(1, 3, 13, 8, 0))
-make_test_case('load_32 s14, 40(s9)', make_cprime_instruction(1, 4, 14, 9, 40))
-make_test_case('load_32 s15, (s10)', make_cprime_instruction(1, 4, 15, 10, 0))
+loadFmts = [
+	( 'load_u8', 0 ), 
+	( 'load_s8', 1 ), 
+	( 'load_u16', 2 ), 
+	( 'load_s16', 3 ), 
+	( 'load_32', 4 )
+]
+
+for stem, fmt in loadFmts:
+	rega = random.randint(0, 27)
+	regb = random.randint(0, 27)
+	offs = random.randint(0, 255)
+	make_test_case(stem + ' s' + str(rega) + ', (s' + str(regb) + ')',
+		 make_cprime_instruction(1, fmt, rega, regb, 0))	# No offset
+	make_test_case(stem + ' s' + str(rega) + ', ' + str(offs) + '(s' + str(regb) + ')', 
+		make_cprime_instruction(1, fmt, rega, regb, offs))	# offset
+
 make_test_case('store_8 s1, 50(s2)', make_cprime_instruction(0, 1, 1, 2, 50))
 make_test_case('store_16 s3, 60(s4)', make_cprime_instruction(0, 3, 3, 4, 60))
 make_test_case('store_32 s5, 70(s6)', make_cprime_instruction(0, 4, 5, 6, 70))
