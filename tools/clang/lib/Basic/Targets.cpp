@@ -5308,6 +5308,12 @@ namespace {
       PtrDiffType = SignedInt;
       MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 32;
       DescriptionString = "e-p:32:32:32-i32:32:32-f32:32:32";
+      LongDoubleWidth = 32;
+      LongDoubleAlign = 32;
+      DoubleWidth = 32;
+      DoubleAlign = 32;
+      DoubleFormat = &llvm::APFloat::IEEEsingle;
+      LongDoubleFormat = &llvm::APFloat::IEEEsingle;
     }
 
     virtual void getTargetDefines(const LangOptions &Opts,
