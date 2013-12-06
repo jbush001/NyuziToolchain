@@ -339,7 +339,7 @@ def : Pat<(int_vp_gather_loadf_masked VADDRri:$addr, (not i32:$mask)),
 
 def INT_STRIDED_LOADI : FormatCUnmaskedInst<
 	(outs VR512:$srcDest),
-	(ins VMEMri:$addr),
+	(ins MEMri:$addr),
 	"load_strd $srcDest, $addr",
 	[],	// Assembler only...
 	FmtC_Strided,
@@ -347,7 +347,7 @@ def INT_STRIDED_LOADI : FormatCUnmaskedInst<
 
 def INT_STRIDED_LOADI_MASKED : FormatCMaskedInst<
 	(outs VR512:$srcDest),
-	(ins VMEMri:$addr, GPR32:$mask),
+	(ins MEMri:$addr, GPR32:$mask),
 	"load_strd_mask $srcDest, $mask, $addr",
 	[],	// Assembler only...
 	FmtC_StridedMasked,
@@ -355,7 +355,7 @@ def INT_STRIDED_LOADI_MASKED : FormatCMaskedInst<
 
 def INT_STRIDED_LOADI_INVMASKED : FormatCMaskedInst<
 	(outs VR512:$srcDest),
-	(ins VMEMri:$addr, GPR32:$mask),
+	(ins MEMri:$addr, GPR32:$mask),
 	"load_strd_invmask $srcDest, $mask, $addr",
 	[],	// Assembler only...
 	FmtC_StridedInvMasked,
@@ -388,7 +388,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_STRIDED_STOREI : FormatCUnmaskedInst<
 		(outs),
-		(ins VR512:$srcDest, VMEMri:$addr),
+		(ins VR512:$srcDest, MEMri:$addr),
 		"store_strd $srcDest, $addr",
 		[],	// Assembly only
 		FmtC_Strided,
@@ -396,7 +396,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_STRIDED_STOREI_MASKED : FormatCMaskedInst<
 		(outs),
-		(ins VR512:$srcDest, VMEMri:$addr, GPR32:$mask),
+		(ins VR512:$srcDest, MEMri:$addr, GPR32:$mask),
 		"store_strd_mask $srcDest, $mask, $addr",
 		[],	// Assembly only
 		FmtC_StridedMasked,
@@ -404,7 +404,7 @@ let hasSideEffects = 1, mayStore = 1 in {
 
 	def INT_STRIDED_STOREI_INVMASKED : FormatCMaskedInst<
 		(outs),
-		(ins VR512:$srcDest, VMEMri:$addr, GPR32:$mask),
+		(ins VR512:$srcDest, MEMri:$addr, GPR32:$mask),
 		"store_strd_invmask $srcDest, $mask, $addr",
 		[],	// Assembly only
 		FmtC_StridedInvMasked,

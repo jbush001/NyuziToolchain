@@ -203,6 +203,9 @@ make_test_case('shuffle_invmask v1, s4, v2, v3', make_a_instruction(6, 0xd, 1, 2
 make_test_case('getlane s4, v5, s6', make_a_instruction(1, 0x1a, 4, 5, 6, 0))
 make_test_case('getlane s4, v5, 7', make_bprime_instruction(1, 0x1a, 4, 5, 7))
 
+#
+# Comparisons
+#
 cmpOps = [
 	(0x12, 'gt_i'),
 	(0x13, 'ge_i'),
@@ -244,72 +247,83 @@ for opcode, mnemonic in cmpOps:
 	
 make_test_case('getlane s1, v2, s3 ', make_a_instruction(1, 0x1a, 1, 2, 3, 0))
 
+#
 # Scalar load/stores
-loadFmts = [
-	( 'load_u8', 0 ), 
-	( 'load_s8', 1 ), 
-	( 'load_u16', 2 ), 
-	( 'load_s16', 3 ), 
-	( 'load_32', 4 )
+#
+
+scalarMemFormats = [
+	( 'load_u8', 0, 1 ), 
+	( 'load_s8', 1, 1 ), 
+	( 'load_u16', 2, 1 ), 
+	( 'load_s16', 3 ,1 ), 
+	( 'load_32', 4, 1 ),
+	( 'load_sync', 5, 1 ),
+	( 'store_8', 1, 0 ),
+	( 'store_16', 3, 0 ),
+	( 'store_32', 4, 0),
+	( 'store_sync', 5, 0)
 ]
 
-for stem, fmt in loadFmts:
+for stem, fmt, isLoad in scalarMemFormats:
 	rega = random.randint(0, 27)
 	regb = random.randint(0, 27)
 	offs = random.randint(0, 255)
 	make_test_case(stem + ' s' + str(rega) + ', (s' + str(regb) + ')',
-		 make_cprime_instruction(1, fmt, rega, regb, 0))	# No offset
+		 make_cprime_instruction(isLoad, fmt, rega, regb, 0))	# No offset
 	make_test_case(stem + ' s' + str(rega) + ', ' + str(offs) + '(s' + str(regb) + ')', 
-		make_cprime_instruction(1, fmt, rega, regb, offs))	# offset
+		make_cprime_instruction(isLoad, fmt, rega, regb, offs))	# offset
 
-make_test_case('store_8 s1, 50(s2)', make_cprime_instruction(0, 1, 1, 2, 50))
-make_test_case('store_16 s3, 60(s4)', make_cprime_instruction(0, 3, 3, 4, 60))
-make_test_case('store_32 s5, 70(s6)', make_cprime_instruction(0, 4, 5, 6, 70))
+#
+# Vector load/stores
+#
 
-# Block Vector load/stores
-make_test_case('load_v v2, 20(s5)', make_cprime_instruction(1, 7, 2, 5, 20))
-make_test_case('load_v v3, (s6)', make_cprime_instruction(1, 7, 3, 6, 0))
-make_test_case('store_v v2, 20(s5)', make_cprime_instruction(0, 7, 2, 5, 20))
-make_test_case('store_v v3, (s6)', make_cprime_instruction(0, 7, 3, 6, 0))
+vectorMemFormats = [
+	( 'v', 'v', 's', 7 ),
+	( 'gath', 'scat', 'v', 0xd),
+	( 'strd', 'strd', 's', 10)
+]
 
-make_test_case('load_v_mask v2, s7, 20(s5)', make_c_instruction(1, 8, 2, 5, 20, 7))
-make_test_case('load_v_mask v3, s7, (s6)', make_c_instruction(1, 8, 3, 6, 0, 7))
-make_test_case('load_v_invmask v2, s7, 20(s5)', make_c_instruction(1, 9, 2, 5, 20, 7))
-make_test_case('load_v_invmask v3, s7, (s6)', make_c_instruction(1, 9, 3, 6, 0, 7))
-make_test_case('store_v_mask v2, s7, 20(s5)', make_c_instruction(0, 8, 2, 5, 20, 7))
-make_test_case('store_v_mask v3, s7, (s6)', make_c_instruction(0, 8, 3, 6, 0, 7))
-make_test_case('store_v_invmask v2, s7, 20(s5)', make_c_instruction(0, 9, 2, 5, 20, 7))
-make_test_case('store_v_invmask v3, s7, (s6)', make_c_instruction(0, 9, 3, 6, 0, 7))
+for loadSuffix, storeSuffix, ptrType, op in vectorMemFormats:
+	rega = random.randint(0, 27)
+	regb = random.randint(0, 27)
+	mask = random.randint(0, 27)
+	offs = random.randint(0, 128) * 4
 
-# Scatter vector stores (partial)
-make_test_case('store_scat v2, (v5)', make_c_instruction(0, 0xd, 2, 5, 0, 0))
-make_test_case('store_scat_mask v3, s7, (v6)', make_c_instruction(0, 0xe, 3, 6, 0, 7))
+	loadStem = 'load_' + loadSuffix
+	
+	# Offset
+	make_test_case(loadStem + ' v' + str(rega) + ', ' + str(offs) + '(' + ptrType + str(regb) + ')', 
+		make_cprime_instruction(1, op, rega, regb, offs))
+	make_test_case(loadStem + '_mask v' + str(rega) + ', s' + str(mask) + ', ' + str(offs) + '(' + ptrType + str(regb) + ')', 
+		make_c_instruction(1, op + 1, rega, regb, offs, mask))
+	make_test_case(loadStem + '_invmask v' + str(rega) + ', s' + str(mask) + ', ' + str(offs) + '(' + ptrType + str(regb) + ')', 
+		make_c_instruction(1, op + 2, rega, regb, offs, mask))
 
-# Synchronized load/stores
-make_test_case('load_sync s2, 20(s5)', make_cprime_instruction(1, 5, 2, 5, 20))
-make_test_case('load_sync s3, (s6)', make_cprime_instruction(1, 5, 3, 6, 0))
-make_test_case('store_sync s2, 20(s5)', make_cprime_instruction(0, 5, 2, 5, 20))
-make_test_case('store_sync s3, (s6)', make_cprime_instruction(0, 5, 3, 6, 0))
+	# No offset
+	make_test_case(loadStem + ' v' + str(rega) + ', (' + ptrType + str(regb) + ')', 
+		make_cprime_instruction(1, op, rega, regb, 0))
+	make_test_case(loadStem + '_mask v' + str(rega) + ', s' + str(mask) + ', (' + ptrType + str(regb) + ')', 
+		make_c_instruction(1, op + 1, rega, regb, 0, mask))
+	make_test_case(loadStem + '_invmask v' + str(rega) + ', s' + str(mask)  + ', (' + ptrType + str(regb) + ')', 
+		make_c_instruction(1, op + 2, rega, regb, 0, mask))
 
-# scatter/gather vector load/stores
-make_test_case('load_gath v1, (v2)', make_cprime_instruction(1, 13, 1, 2, 0))
-make_test_case('load_gath v3, 24(v4)', make_cprime_instruction(1, 13, 3, 4, 24))
-make_test_case('load_gath_mask v3, s4, (v5)', make_c_instruction(1, 14, 3, 5, 0, 4))
-make_test_case('load_gath_invmask v5, s6, (v7)', make_c_instruction(1, 15, 5, 7, 0, 6))
-make_test_case('store_scat v1, (v2)', make_cprime_instruction(0, 13, 1, 2, 0))
-make_test_case('store_scat v3, 24(v4)', make_cprime_instruction(0, 13, 3, 4, 24))
-make_test_case('store_scat_mask v3, s4, (v5)', make_c_instruction(0, 14, 3, 5, 0, 4))
-make_test_case('store_scat_invmask v5, s6, (v7)', make_c_instruction(0, 15, 5, 7, 0, 6))
+	storeStem = 'store_' + storeSuffix
 
-# Strided vector load/stores
-make_test_case('load_strd v1, (v2)', make_cprime_instruction(1, 10, 1, 2, 0))
-make_test_case('load_strd v3, 24(v4)', make_cprime_instruction(1, 10, 3, 4, 24))
-make_test_case('load_strd_mask v3, s4, (v5)', make_c_instruction(1, 11, 3, 5, 0, 4))
-make_test_case('load_strd_invmask v5, s6, (v7)', make_c_instruction(1, 12, 5, 7, 0, 6))
-make_test_case('store_strd v1, (v2)', make_cprime_instruction(0, 10, 1, 2, 0))
-make_test_case('store_strd v3, 24(v4)', make_cprime_instruction(0, 10, 3, 4, 24))
-make_test_case('store_strd_mask v3, s4, (v5)', make_c_instruction(0, 11, 3, 5, 0, 4))
-make_test_case('store_strd_invmask v5, s6, (v7)', make_c_instruction(0, 12, 5, 7, 0, 6))
+	# Offset
+	make_test_case(storeStem + ' v' + str(rega) + ', ' + str(offs) + '(' + ptrType + str(regb) + ')', 
+		make_cprime_instruction(0, op, rega, regb, offs))
+	make_test_case(storeStem + '_mask v' + str(rega) + ', s' + str(mask) + ', ' + str(offs) + '(' + ptrType + str(regb) + ')', 
+		make_c_instruction(0, op + 1, rega, regb, offs, mask))
+	make_test_case(storeStem + '_invmask v' + str(rega) + ', s' + str(mask) + ', ' + str(offs) + '(' + ptrType + str(regb) + ')', 
+		make_c_instruction(0, op + 2, rega, regb, offs, mask))
+
+	# No offset
+	make_test_case(storeStem + ' v' + str(rega) + ', (' + ptrType + str(regb) + ')', 
+		make_cprime_instruction(0, op, rega, regb, 0))
+	make_test_case(storeStem + '_mask v' + str(rega) + ', s' + str(mask) + ', (' + ptrType + str(regb) + ')', 
+		make_c_instruction(0, op + 1, rega, regb, 0, mask))
+	make_test_case(storeStem + '_invmask v' + str(rega) + ', s' + str(mask) + ', (' + ptrType + str(regb) + ')', 
+		make_c_instruction(0, op + 2, rega, regb, 0, mask))
 
 # Control register
 make_test_case('getcr s7, 9', make_cprime_instruction(1, 6, 7, 9, 0))
