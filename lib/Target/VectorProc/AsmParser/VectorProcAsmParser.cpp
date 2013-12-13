@@ -140,12 +140,12 @@ public:
   }
 
   unsigned getMemBase() const {
-    assert((Kind == k_Memory) && "Invalid access!");
+    assert((Kind == Memory) && "Invalid access!");
     return Mem.BaseReg;
   }
 
   const MCExpr *getMemOff() const {
-    assert((Kind == k_Memory) && "Invalid access!");
+    assert((Kind == Memory) && "Invalid access!");
     return Mem.Off;
   }
 

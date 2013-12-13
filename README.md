@@ -18,6 +18,7 @@ A few other things to note:
 * There is also an autoconf based build system in this project.  It doesn't work.
 * Using sudo on make install as described can leave files with root ownership in your build directory, which can then cause cryptic build errors later when building as non-root.  Doing a 'sudo chown -R &#x60;whoami&#x60; .' in the build directory will fix this.
 * If you are building on a multi-core machine, use 'make -j <i>n</i>' to do a faster parallel build, where <i>n</i> is the number of cores.
+* If you want to hack on the compiler, enable a debug build by replacing the cmake command above with 'cmake -DCMAKE_BUILD_TYPE=Debug ..'.  This enables the -debug flag for command line tools, which is important to see various transormations and output of intermediate passes.
 
 ### Invoking compiler
 
