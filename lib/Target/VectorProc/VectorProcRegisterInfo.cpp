@@ -24,6 +24,7 @@
 #include "llvm/IR/Type.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Target/TargetInstrInfo.h"
+#include "llvm/Target/TargetFrameLowering.h"
 
 #define GET_REGINFO_TARGET_DESC
 #include "VectorProcGenRegisterInfo.inc"
@@ -110,5 +111,6 @@ void VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
 unsigned
 VectorProcRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
-  return VectorProc::FP_REG;
+  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
+  return TFI->hasFP(MF) ? VectorProc::FP_REG : VectorProc::SP_REG;
 }

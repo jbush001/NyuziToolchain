@@ -1928,6 +1928,7 @@ static bool shouldUseFramePointerForTarget(const ArgList &Args,
           return false;
     return true;
   case llvm::Triple::xcore:
+  case llvm::Triple::vectorproc:
     return false;
   default:
     return true;

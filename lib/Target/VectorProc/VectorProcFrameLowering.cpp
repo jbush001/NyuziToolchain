@@ -45,11 +45,13 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
   StackSize = (StackSize + 63) & ~63; // Round up to 64 bytes
   assert(StackSize < 16384);          // XXX need to handle this.
 
-  if (StackSize != 0) {
-    BuildMI(MBB, MBBI, dl, TII.get(VectorProc::SUBISSI), VectorProc::SP_REG)
-        .addReg(VectorProc::SP_REG)
-        .addImm(StackSize);
-  }
+  // Bail if there is no stack allocation
+  if (StackSize == 0 && !MFI->adjustsStack()) return;
+
+  // Adjust stack
+  BuildMI(MBB, MBBI, dl, TII.get(VectorProc::SUBISSI), VectorProc::SP_REG)
+      .addReg(VectorProc::SP_REG)
+      .addImm(StackSize);
 
   // emit ".cfi_def_cfa_offset StackSize" (debug information)
   MCSymbol *AdjustSPLabel = MMI.getContext().CreateTempSymbol();
@@ -62,33 +64,39 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
   // register to the stack.  We need to set up FP after its old value has been
   // saved.
   const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
-  for (unsigned i = 0; i < CSI.size(); ++i)
-    ++MBBI;
+  if (CSI.size())
+  {
+    for (unsigned i = 0; i < CSI.size(); ++i)
+      ++MBBI;
 
-  // Iterate over list of callee-saved registers and emit .cfi_offset
-  // directives (debug information)
-  MCSymbol *CSLabel = MMI.getContext().CreateTempSymbol();
-  BuildMI(MBB, MBBI, dl, TII.get(TargetOpcode::PROLOG_LABEL)).addSym(CSLabel);
-  for (std::vector<CalleeSavedInfo>::const_iterator I = CSI.begin(),
-                                                    E = CSI.end();
-       I != E; ++I) {
-    int64_t Offset = MFI->getObjectOffset(I->getFrameIdx());
-    unsigned Reg = I->getReg();
-    MMI.addFrameInst(MCCFIInstruction::createOffset(
-        CSLabel, MRI->getDwarfRegNum(Reg, 1), Offset));
+    // Iterate over list of callee-saved registers and emit .cfi_offset
+    // directives (debug information)
+    MCSymbol *CSLabel = MMI.getContext().CreateTempSymbol();
+    BuildMI(MBB, MBBI, dl, TII.get(TargetOpcode::PROLOG_LABEL)).addSym(CSLabel);
+    for (std::vector<CalleeSavedInfo>::const_iterator I = CSI.begin(),
+                                                      E = CSI.end();
+         I != E; ++I) {
+      int64_t Offset = MFI->getObjectOffset(I->getFrameIdx());
+      unsigned Reg = I->getReg();
+      MMI.addFrameInst(MCCFIInstruction::createOffset(
+          CSLabel, MRI->getDwarfRegNum(Reg, 1), Offset));
+    }
   }
 
   // fp = sp
-  BuildMI(MBB, MBBI, dl, TII.get(VectorProc::MOVESS))
-      .addReg(VectorProc::FP_REG)
-      .addReg(VectorProc::SP_REG);
+  if (hasFP(MF))
+  {
+    BuildMI(MBB, MBBI, dl, TII.get(VectorProc::MOVESS))
+        .addReg(VectorProc::FP_REG)
+        .addReg(VectorProc::SP_REG);
 
-  // emit ".cfi_def_cfa_register $fp" (debug information)
-  MCSymbol *SetFPLabel = MMI.getContext().CreateTempSymbol();
-  BuildMI(MBB, MBBI, dl, TII.get(TargetOpcode::PROLOG_LABEL))
-      .addSym(SetFPLabel);
-  MMI.addFrameInst(MCCFIInstruction::createDefCfaRegister(
-      SetFPLabel, MRI->getDwarfRegNum(VectorProc::FP_REG, true)));
+    // emit ".cfi_def_cfa_register $fp" (debug information)
+    MCSymbol *SetFPLabel = MMI.getContext().CreateTempSymbol();
+    BuildMI(MBB, MBBI, dl, TII.get(TargetOpcode::PROLOG_LABEL))
+        .addSym(SetFPLabel);
+    MMI.addFrameInst(MCCFIInstruction::createDefCfaRegister(
+        SetFPLabel, MRI->getDwarfRegNum(VectorProc::FP_REG, true)));
+  }
 }
 
 void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
@@ -101,26 +109,34 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
   assert(MBBI->getOpcode() == VectorProc::RET &&
          "Can only put epilog before 'retl' instruction!");
 
-  // Find the first instruction that restores a callee-saved register.
-  MachineBasicBlock::iterator I = MBBI;
-  for (unsigned i = 0; i < MFI->getCalleeSavedInfo().size(); ++i)
-    --I;
+  // if framepointer enabled, restore the stack pointer.
+  if (hasFP(MF)) 
+  {
+    // Find the first instruction that restores a callee-saved register.
+    MachineBasicBlock::iterator I = MBBI;
+    for (unsigned i = 0; i < MFI->getCalleeSavedInfo().size(); ++i)
+      --I;
 
-  // Restore frame pointer
-  BuildMI(MBB, I, dl, TII.get(VectorProc::MOVESS))
-      .addReg(VectorProc::SP_REG)
-      .addReg(VectorProc::FP_REG);
+    BuildMI(MBB, I, dl, TII.get(VectorProc::MOVESS))
+        .addReg(VectorProc::SP_REG)
+        .addReg(VectorProc::FP_REG);
+  }
 
   uint64_t StackSize = MFI->getStackSize();
 
   StackSize = (StackSize + 63) & ~63; // Round up to 64 bytes
   assert(StackSize < 16384);          // XXX need to handle this.
 
-  if (StackSize != 0) {
-    BuildMI(MBB, MBBI, dl, TII.get(VectorProc::ADDISSI), VectorProc::SP_REG)
-        .addReg(VectorProc::SP_REG)
-        .addImm(StackSize);
-  }
+  if (!StackSize)
+    return;
+
+  BuildMI(MBB, MBBI, dl, TII.get(VectorProc::ADDISSI), VectorProc::SP_REG)
+      .addReg(VectorProc::SP_REG)
+      .addImm(StackSize);
+}
+
+bool VectorProcFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
+  return !MF.getFrameInfo()->hasVarSizedObjects();
 }
 
 void VectorProcFrameLowering::eliminateCallFramePseudoInstr(
@@ -128,29 +144,31 @@ void VectorProcFrameLowering::eliminateCallFramePseudoInstr(
     MachineBasicBlock::iterator I) const {
   MachineInstr &MI = *I;
   DebugLoc DL = MI.getDebugLoc();
-  int Size = MI.getOperand(0).getImm();
-  if (MI.getOpcode() == VectorProc::ADJCALLSTACKDOWN)
-    Size = -Size;
 
   const VectorProcInstrInfo &TII =
       *static_cast<const VectorProcInstrInfo *>(MF.getTarget().getInstrInfo());
 
-  if (Size) {
-    BuildMI(MBB, I, DL, TII.get(VectorProc::ADDISSI), VectorProc::SP_REG)
-        .addReg(VectorProc::SP_REG)
-        .addImm(Size);
-  }
+  int Size = MI.getOperand(0).getImm();
+  if (MI.getOpcode() == VectorProc::ADJCALLSTACKDOWN)
+    Size = -Size;
+
+  BuildMI(MBB, I, DL, TII.get(VectorProc::ADDISSI), VectorProc::SP_REG)
+      .addReg(VectorProc::SP_REG)
+      .addImm(Size);
 
   MBB.erase(I);
 }
 
 bool VectorProcFrameLowering::hasFP(const MachineFunction &MF) const {
-  return true;
+  const MachineFrameInfo *MFI = MF.getFrameInfo();
+  return MF.getTarget().Options.DisableFramePointerElim(MF) 
+    || MFI->hasVarSizedObjects() 
+    || MFI->isFrameAddressTaken()
+    || MFI->adjustsStack();
 }
 
 void VectorProcFrameLowering::processFunctionBeforeCalleeSavedScan(
     MachineFunction &MF, RegScavenger *RS) const {
-  // Need to ensure the FP register is always saved.  The prologue code we
-  // insert above will overwrite it, so mark it used here.
-  MF.getRegInfo().setPhysRegUsed(VectorProc::FP_REG);
+  if (hasFP(MF))
+    MF.getRegInfo().setPhysRegUsed(VectorProc::FP_REG);
 }

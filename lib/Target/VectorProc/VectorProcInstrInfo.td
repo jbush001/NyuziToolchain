@@ -626,7 +626,6 @@ def RET : VPInstruction<
 	let isReturn = 1;
 	let isTerminator = 1;
 	let isBarrier = 1;
-	let Uses = [FP_REG];
 }
 
 let Defs = [SP_REG], Uses = [SP_REG], hasSideEffects = 1 in {

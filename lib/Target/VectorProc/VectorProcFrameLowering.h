@@ -39,6 +39,7 @@ public:
 
   void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
                                             RegScavenger *RS) const;
+  bool hasReservedCallFrame(const MachineFunction &MF) const;
 };
 
 } // End llvm namespace
