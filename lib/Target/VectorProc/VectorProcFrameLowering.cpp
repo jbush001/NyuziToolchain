@@ -101,6 +101,16 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
   assert(MBBI->getOpcode() == VectorProc::RET &&
          "Can only put epilog before 'retl' instruction!");
 
+  // Find the first instruction that restores a callee-saved register.
+  MachineBasicBlock::iterator I = MBBI;
+  for (unsigned i = 0; i < MFI->getCalleeSavedInfo().size(); ++i)
+    --I;
+
+  // Restore frame pointer
+  BuildMI(MBB, I, dl, TII.get(VectorProc::MOVESS))
+      .addReg(VectorProc::SP_REG)
+      .addReg(VectorProc::FP_REG);
+
   uint64_t StackSize = MFI->getStackSize();
 
   StackSize = (StackSize + 63) & ~63; // Round up to 64 bytes
