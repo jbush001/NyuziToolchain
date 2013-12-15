@@ -81,14 +81,14 @@ def cpooladdr : Operand<iPTR> {
 
 def brtarget : Operand<OtherVT> 
 {
-	let EncoderMethod = "encodeJumpTargetOpValue";
-	let DecoderMethod = "decodeJumpTargetOpValue";
+	let EncoderMethod = "encodeBranchTargetOpValue";
+	let DecoderMethod = "decodeBranchTargetOpValue";
 }
 
 def calltarget : Operand<iPTR>
 {
-	let EncoderMethod = "encodeJumpTargetOpValue";
-	let DecoderMethod = "decodeJumpTargetOpValue";
+	let EncoderMethod = "encodeBranchTargetOpValue";
+	let DecoderMethod = "decodeBranchTargetOpValue";
 }
 
 def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;

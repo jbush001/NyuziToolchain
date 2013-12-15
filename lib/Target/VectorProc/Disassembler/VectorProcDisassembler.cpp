@@ -59,7 +59,7 @@ static DecodeStatus decodeVectorMemoryOpValue(MCInst &Inst, unsigned Insn,
                                               uint64_t Address,
                                               const void *Decoder);
 
-static DecodeStatus decodeJumpTargetOpValue(MCInst &Inst, unsigned Insn,
+static DecodeStatus decodeBranchTargetOpValue(MCInst &Inst, unsigned Insn,
                                             uint64_t Address,
                                             const void *Decoder);
 
@@ -138,12 +138,12 @@ static DecodeStatus decodeMemoryOpValue(MCInst &Inst, unsigned Insn,
                                         unsigned RC) {
   // XXX this depends on the instruction type (has mask or not)
   int Offset = SignExtend32<15>(fieldFromInstruction(Insn, 5, 15));
+  int RegisterIndex = fieldFromInstruction(Insn, 0, 5);
+  unsigned BaseReg = getReg(Decoder, RC, RegisterIndex);
 
-  unsigned Base = getReg(Decoder, RC, fieldFromInstruction(Insn, 0, 5));
-
-  Inst.addOperand(MCOperand::CreateReg(Base));
+  Inst.addOperand(MCOperand::CreateReg(BaseReg));
   Inst.addOperand(MCOperand::CreateImm(Offset));
-
+  
   return MCDisassembler::Success;
 }
 
@@ -161,10 +161,15 @@ static DecodeStatus decodeVectorMemoryOpValue(MCInst &Inst, unsigned Insn,
                              VectorProc::VR512RegClassID);
 }
 
-static DecodeStatus decodeJumpTargetOpValue(MCInst &Inst, unsigned Insn,
+static DecodeStatus decodeBranchTargetOpValue(MCInst &Inst, unsigned Insn,
                                             uint64_t Address,
                                             const void *Decoder) {
-  Inst.addOperand(MCOperand::CreateImm(SignExtend32<20>(Insn)));
+  const MCDisassembler *Dis = static_cast<const MCDisassembler*>(Decoder);
+  if (!Dis->tryAddingSymbolicOperand(Inst, Address + 4 + SignExtend32<20>(Insn), 
+    Address, true, 0, 4))
+  {
+    Inst.addOperand(MCOperand::CreateImm(SignExtend32<20>(Insn)));
+  }
 
   return MCDisassembler::Success;
 }

@@ -62,7 +62,7 @@ public:
   unsigned encodeLEAValue(const MCInst &MI, unsigned Op,
                           SmallVectorImpl<MCFixup> &Fixups) const;
   
-  unsigned encodeJumpTargetOpValue(const MCInst &MI, unsigned OpNo,
+  unsigned encodeBranchTargetOpValue(const MCInst &MI, unsigned OpNo,
                                    SmallVectorImpl<MCFixup> &Fixups) const;
 
   unsigned encodeJumpTableAddr(const MCInst &MI, unsigned OpNo,
@@ -112,10 +112,10 @@ unsigned VectorProcMCCodeEmitter::getMachineOpValue(
   return 0;
 }
 
-/// encodeJumpTargetOpValue - Return binary encoding of the jump
+/// encodeBranchTargetOpValue - Return binary encoding of the jump
 /// target operand. If the machine operand requires relocation,
 /// record the relocation and return zero.
-unsigned VectorProcMCCodeEmitter::encodeJumpTargetOpValue(
+unsigned VectorProcMCCodeEmitter::encodeBranchTargetOpValue(
     const MCInst &MI, unsigned OpNo, SmallVectorImpl<MCFixup> &Fixups) const {
 
   const MCOperand &MO = MI.getOperand(OpNo);
@@ -123,7 +123,7 @@ unsigned VectorProcMCCodeEmitter::encodeJumpTargetOpValue(
     return MO.getImm();
 
   assert(MO.isExpr() &&
-         "encodeJumpTargetOpValue expects only expressions or an immediate");
+         "encodeBranchTargetOpValue expects only expressions or an immediate");
 
   const MCExpr *Expr = MO.getExpr();
   Fixups.push_back(MCFixup::Create(

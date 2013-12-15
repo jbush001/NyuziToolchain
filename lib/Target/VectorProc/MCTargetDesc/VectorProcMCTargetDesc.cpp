@@ -126,4 +126,5 @@ extern "C" void LLVMInitializeVectorProcTargetMC() {
   // MC instruction printer
   TargetRegistry::RegisterMCInstPrinter(TheVectorProcTarget,
                                         createVectorProcMCInstPrinter);
+
 }
