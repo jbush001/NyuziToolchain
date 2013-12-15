@@ -108,7 +108,7 @@ def : Pat<(int_vp_mask_cmpf_ne v16f32:$src1, v16f32:$src2),
 def : Pat<(int_vp_mask_cmpf_ne v16f32:$src1, (splat f32:$src2)),
 	(SNESIVVS  v16f32:$src1, f32:$src2)>;
 
-def GET_FIELDI : FormatAUnmaskedTwoOpInst<
+def GET_LANEI : FormatAUnmaskedTwoOpInst<
 	(outs GPR32:$dest),
 	(ins VR512:$src1, GPR32:$src2),
 	"getlane $dest, $src1, $src2",	// XXX this isn't a good name, replace
@@ -116,7 +116,7 @@ def GET_FIELDI : FormatAUnmaskedTwoOpInst<
 	0x1a,
 	FmtA_VVS>;
 
-def GET_FIELDIimm : FormatBUnmaskedInst<
+def GET_LANEIimm : FormatBUnmaskedInst<
 	(outs GPR32:$dest),
 	(ins VR512:$src1, i32imm:$imm),
 	"getlane $dest, $src1, $imm",
@@ -125,11 +125,9 @@ def GET_FIELDIimm : FormatBUnmaskedInst<
 	FmtB_VV>;
 
 def : Pat<(extractelt v16f32:$src1, i32:$src2),
-	(GET_FIELDI v16f32:$src1, i32:$src2)>; 
-
-// XXX currently disabled, per above
-//def : Pat<(extractelt v16f32:$src1, simm13:$imm),
-//	(GET_FIELDI v16f32:$src1, imm:$imm)>; 
+	(GET_LANEI v16f32:$src1, i32:$src2)>; 
+def : Pat<(extractelt v16f32:$src1, simm13:$imm),
+	(GET_LANEIimm v16f32:$src1, imm:$imm)>; 
 
 def SHUFFLEI : FormatAUnmaskedTwoOpInst<
 	(outs VR512:$dest),
