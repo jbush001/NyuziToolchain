@@ -147,12 +147,15 @@ void VectorProcFrameLowering::eliminateCallFramePseudoInstr(
       *static_cast<const VectorProcInstrInfo *>(MF.getTarget().getInstrInfo());
 
   int Size = MI.getOperand(0).getImm();
-  if (MI.getOpcode() == VectorProc::ADJCALLSTACKDOWN)
-    Size = -Size;
+  if (Size != 0)
+  {
+    if (MI.getOpcode() == VectorProc::ADJCALLSTACKDOWN)
+      Size = -Size;
 
-  BuildMI(MBB, I, DL, TII.get(VectorProc::ADDISSI), VectorProc::SP_REG)
-      .addReg(VectorProc::SP_REG)
-      .addImm(Size);
+    BuildMI(MBB, I, DL, TII.get(VectorProc::ADDISSI), VectorProc::SP_REG)
+        .addReg(VectorProc::SP_REG)
+        .addImm(Size);
+  }
 
   MBB.erase(I);
 }
