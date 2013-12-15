@@ -146,8 +146,11 @@ void VectorProcFrameLowering::eliminateCallFramePseudoInstr(
   const VectorProcInstrInfo &TII =
       *static_cast<const VectorProcInstrInfo *>(MF.getTarget().getInstrInfo());
 
+  // Note the check for hasReservedCallFrame.  If this returns true, 
+  // PEI::calculateFrameObjectOffsets will reserved stack locations for 
+  // these variables and we don't need to adjust the stack here.
   int Size = MI.getOperand(0).getImm();
-  if (Size != 0)
+  if (Size != 0 && !hasReservedCallFrame(MF))
   {
     if (MI.getOpcode() == VectorProc::ADJCALLSTACKDOWN)
       Size = -Size;
@@ -164,8 +167,7 @@ bool VectorProcFrameLowering::hasFP(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
   return MF.getTarget().Options.DisableFramePointerElim(MF) 
     || MFI->hasVarSizedObjects() 
-    || MFI->isFrameAddressTaken()
-    || MFI->adjustsStack();
+    || MFI->isFrameAddressTaken();
 }
 
 void VectorProcFrameLowering::processFunctionBeforeCalleeSavedScan(
