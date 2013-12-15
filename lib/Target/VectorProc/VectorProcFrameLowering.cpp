@@ -37,7 +37,7 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
   MachineModuleInfo &MMI = MF.getMMI();
   const MCRegisterInfo *MRI = MMI.getContext().getRegisterInfo();
   MachineBasicBlock::iterator MBBI = MBB.begin();
-  DebugLoc dl = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
+  DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
 
   // Compute stack size. Allocate space, keeping SP 64 byte aligned so we
   // can do block vector load/stores
@@ -49,13 +49,13 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
   if (StackSize == 0 && !MFI->adjustsStack()) return;
 
   // Adjust stack
-  BuildMI(MBB, MBBI, dl, TII.get(VectorProc::SUBISSI), VectorProc::SP_REG)
+  BuildMI(MBB, MBBI, DL, TII.get(VectorProc::SUBISSI), VectorProc::SP_REG)
       .addReg(VectorProc::SP_REG)
       .addImm(StackSize);
 
   // emit ".cfi_def_cfa_offset StackSize" (debug information)
   MCSymbol *AdjustSPLabel = MMI.getContext().CreateTempSymbol();
-  BuildMI(MBB, MBBI, dl, TII.get(TargetOpcode::PROLOG_LABEL))
+  BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::PROLOG_LABEL))
       .addSym(AdjustSPLabel);
   MMI.addFrameInst(
       MCCFIInstruction::createDefCfaOffset(AdjustSPLabel, -StackSize));
@@ -72,7 +72,7 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
     // Iterate over list of callee-saved registers and emit .cfi_offset
     // directives (debug information)
     MCSymbol *CSLabel = MMI.getContext().CreateTempSymbol();
-    BuildMI(MBB, MBBI, dl, TII.get(TargetOpcode::PROLOG_LABEL)).addSym(CSLabel);
+    BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::PROLOG_LABEL)).addSym(CSLabel);
     for (std::vector<CalleeSavedInfo>::const_iterator I = CSI.begin(),
                                                       E = CSI.end();
          I != E; ++I) {
@@ -86,13 +86,13 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
   // fp = sp
   if (hasFP(MF))
   {
-    BuildMI(MBB, MBBI, dl, TII.get(VectorProc::MOVESS))
+    BuildMI(MBB, MBBI, DL, TII.get(VectorProc::MOVESS))
         .addReg(VectorProc::FP_REG)
         .addReg(VectorProc::SP_REG);
 
     // emit ".cfi_def_cfa_register $fp" (debug information)
     MCSymbol *SetFPLabel = MMI.getContext().CreateTempSymbol();
-    BuildMI(MBB, MBBI, dl, TII.get(TargetOpcode::PROLOG_LABEL))
+    BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::PROLOG_LABEL))
         .addSym(SetFPLabel);
     MMI.addFrameInst(MCCFIInstruction::createDefCfaRegister(
         SetFPLabel, MRI->getDwarfRegNum(VectorProc::FP_REG, true)));
@@ -105,7 +105,7 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
   MachineFrameInfo *MFI = MF.getFrameInfo();
   const VectorProcInstrInfo &TII =
       *static_cast<const VectorProcInstrInfo *>(MF.getTarget().getInstrInfo());
-  DebugLoc dl = MBBI->getDebugLoc();
+  DebugLoc DL = MBBI->getDebugLoc();
   assert(MBBI->getOpcode() == VectorProc::RET &&
          "Can only put epilog before 'retl' instruction!");
 
@@ -117,7 +117,7 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
     for (unsigned i = 0; i < MFI->getCalleeSavedInfo().size(); ++i)
       --I;
 
-    BuildMI(MBB, I, dl, TII.get(VectorProc::MOVESS))
+    BuildMI(MBB, I, DL, TII.get(VectorProc::MOVESS))
         .addReg(VectorProc::SP_REG)
         .addReg(VectorProc::FP_REG);
   }
@@ -130,7 +130,7 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
   if (!StackSize)
     return;
 
-  BuildMI(MBB, MBBI, dl, TII.get(VectorProc::ADDISSI), VectorProc::SP_REG)
+  BuildMI(MBB, MBBI, DL, TII.get(VectorProc::ADDISSI), VectorProc::SP_REG)
       .addReg(VectorProc::SP_REG)
       .addImm(StackSize);
 }

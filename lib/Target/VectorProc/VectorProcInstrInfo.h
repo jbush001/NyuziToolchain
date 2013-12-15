@@ -57,7 +57,7 @@ public:
   virtual MachineInstr *emitFrameIndexDebugValue(MachineFunction &MF,
                                                  int FrameIx, uint64_t Offset,
                                                  const MDNode *MDPtr,
-                                                 DebugLoc dl) const;
+                                                 DebugLoc) const;
 
   virtual bool AnalyzeBranch(MachineBasicBlock &MBB, MachineBasicBlock *&TBB,
                              MachineBasicBlock *&FBB,

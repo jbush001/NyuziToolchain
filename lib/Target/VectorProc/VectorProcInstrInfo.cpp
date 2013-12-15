@@ -80,8 +80,8 @@ MachineInstr *VectorProcInstrInfo::emitFrameIndexDebugValue(MachineFunction &MF,
                                                             int FrameIx,
                                                             uint64_t Offset,
                                                             const MDNode *MDPtr,
-                                                            DebugLoc dl) const {
-  MachineInstrBuilder MIB = BuildMI(MF, dl, get(VectorProc::DBG_VALUE))
+                                                            DebugLoc DL) const {
+  MachineInstrBuilder MIB = BuildMI(MF, DL, get(VectorProc::DBG_VALUE))
                                 .addFrameIndex(FrameIx)
                                 .addImm(0)
                                 .addImm(Offset)
@@ -145,23 +145,23 @@ bool VectorProcInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
 unsigned VectorProcInstrInfo::InsertBranch(
     MachineBasicBlock &MBB, MachineBasicBlock *TBB, // If true
     MachineBasicBlock *FBB,                         // If false
-    const SmallVectorImpl<MachineOperand> &Cond, DebugLoc dl) const {
+    const SmallVectorImpl<MachineOperand> &Cond, DebugLoc DL) const {
   assert(TBB);
   if (FBB) {
     // Has a false block, this is a two way conditional branch
-    BuildMI(&MBB, dl, get(VectorProc::BTRUE)).addMBB(TBB);
-    BuildMI(&MBB, dl, get(VectorProc::GOTO)).addMBB(FBB);
+    BuildMI(&MBB, DL, get(VectorProc::BTRUE)).addMBB(TBB);
+    BuildMI(&MBB, DL, get(VectorProc::GOTO)).addMBB(FBB);
     return 2;
   }
 
   if (Cond.empty()) {
     // Unconditional branch
-    BuildMI(&MBB, dl, get(VectorProc::GOTO)).addMBB(TBB);
+    BuildMI(&MBB, DL, get(VectorProc::GOTO)).addMBB(TBB);
     return 1;
   }
 
   // One-way conditional branch
-  BuildMI(&MBB, dl, get(VectorProc::BTRUE)).addMBB(TBB);
+  BuildMI(&MBB, DL, get(VectorProc::BTRUE)).addMBB(TBB);
   return 1;
 }
 

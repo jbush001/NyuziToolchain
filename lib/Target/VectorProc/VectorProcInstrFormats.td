@@ -27,10 +27,16 @@ def wrapper : SDNode<"VectorProcISD::WRAPPER", SDTIntUnaryOp>;
 def reciprocal : SDNode<"VectorProcISD::RECIPROCAL_EST", SDTFPUnaryOp>;
 def jtwrapper : SDNode<"VectorProcISD::JT_WRAPPER", SDTIntUnaryOp>;
 
-def SDT_BRJT    : SDTypeProfile<0, 2,
-	[SDTCisPtrTy<0>, SDTCisVT<1, i32>]>;
-def BRjt : SDNode<"VectorProcISD::BR_JT", SDT_BRJT, [SDNPHasChain]>;
+def SDT_BRJT    : SDTypeProfile<0, 2, [SDTCisPtrTy<0>, SDTCisVT<1, i32>]>;
+def brjt : SDNode<"VectorProcISD::BR_JT", SDT_BRJT, [SDNPHasChain]>;
 
+def return : SDNode<"VectorProcISD::RET_FLAG", 
+	SDTypeProfile<0, 0, []>,
+    [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
+
+// selcondresult is (dest, predicate, trueval, falseval)
+def selcondresult : SDNode<"VectorProcISD::SEL_COND_RESULT", SDTypeProfile<1, 3, [  
+	SDTCisSameAs<0, 2>, SDTCisSameAs<0, 3>]>>;
 
 def ADDRri : ComplexPattern<iPTR, 2, "SelectADDRri", [frameindex], []>;
 def VADDRri : ComplexPattern<v16i32, 2, "SelectADDRri", [], []>;

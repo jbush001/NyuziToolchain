@@ -78,11 +78,11 @@ public:
   virtual SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv,
                               bool isVarArg,
                               const SmallVectorImpl<ISD::OutputArg> &Outs,
-                              const SmallVectorImpl<SDValue> &OutVals, SDLoc dl,
+                              const SmallVectorImpl<SDValue> &OutVals, SDLoc,
                               SelectionDAG &DAG) const;
   virtual SDValue
   LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
-                       const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc dl,
+                       const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc,
                        SelectionDAG &DAG,
                        SmallVectorImpl<SDValue> &InVals) const;
   virtual SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,

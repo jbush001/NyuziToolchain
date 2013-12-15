@@ -590,7 +590,7 @@ let isTerminator = 1 in {
 		(outs), 
 		(ins GPR32:$tableptr, GPR32:$jt),
 		"load_32 pc, ( $tableptr )",
-		[(BRjt i32:$tableptr, tjumptable:$jt)]>
+		[(brjt i32:$tableptr, tjumptable:$jt)]>
 	{
 		let isBranch = 1;
 		let isIndirectBranch = 1;
@@ -606,10 +606,6 @@ let isTerminator = 1 in {
 		let Inst{4-0} = tableptr;	// Register holds computed pointer into table
 	}
 }
-
-def return : SDNode<"VectorProcISD::RET_FLAG", 
-	SDTypeProfile<0, 0, []>,
-    [SDNPHasChain, SDNPOptInGlue, SDNPVariadic]>;
 
 def RET : VPInstruction<
 	(outs),
@@ -662,12 +658,6 @@ def : Pat<(call tglobaladdr:$dest),
           (CALLSYM tglobaladdr:$dest)>;
 def : Pat<(call texternalsym:$dest),
           (CALLSYM texternalsym:$dest)>;
-
-// XXXX need pattern fragment for VMUX
-
-// selcondresult is (dest, predicate, trueval, falseval)
-def selcondresult : SDNode<"VectorProcISD::SEL_COND_RESULT", SDTypeProfile<1, 3, [  
-	SDTCisSameAs<0, 2>, SDTCisSameAs<0, 3>]>>;
 
 //
 // SELECT pseudo instructions. This architecture doesn't actually have a scalar
