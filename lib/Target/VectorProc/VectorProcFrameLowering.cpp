@@ -133,8 +133,20 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
       .addImm(StackSize);
 }
 
+// Returns true if the prologue inserter should reserve space for outgoing arguments 
+// to called.  
 bool VectorProcFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
   return !MF.getFrameInfo()->hasVarSizedObjects();
+}
+
+// We must use an FP in a few situations.  Note that this *must* return true if
+// hasReservedCallFrame returns false.  Otherwise an ADJCALLSTACKDOWN could mess
+// up frame offsets from the stack pointer.
+bool VectorProcFrameLowering::hasFP(const MachineFunction &MF) const {
+  const MachineFrameInfo *MFI = MF.getFrameInfo();
+  return MF.getTarget().Options.DisableFramePointerElim(MF) 
+    || MFI->hasVarSizedObjects() 
+    || MFI->isFrameAddressTaken();
 }
 
 void VectorProcFrameLowering::eliminateCallFramePseudoInstr(
@@ -146,12 +158,14 @@ void VectorProcFrameLowering::eliminateCallFramePseudoInstr(
   const VectorProcInstrInfo &TII =
       *static_cast<const VectorProcInstrInfo *>(MF.getTarget().getInstrInfo());
 
-  // Note the check for hasReservedCallFrame.  If this returns true, 
-  // PEI::calculateFrameObjectOffsets will reserved stack locations for 
+  // Note the check for hasReservedCallFrame.  If it returns true, 
+  // PEI::calculateFrameObjectOffsets has already reserved stack locations for 
   // these variables and we don't need to adjust the stack here.
   int Size = MI.getOperand(0).getImm();
   if (Size != 0 && !hasReservedCallFrame(MF))
   {
+    assert(hasFP(MF) && "Cannot adjust stack mid-function without a frame pointer");
+    
     if (MI.getOpcode() == VectorProc::ADJCALLSTACKDOWN)
       Size = -Size;
 
@@ -161,13 +175,6 @@ void VectorProcFrameLowering::eliminateCallFramePseudoInstr(
   }
 
   MBB.erase(I);
-}
-
-bool VectorProcFrameLowering::hasFP(const MachineFunction &MF) const {
-  const MachineFrameInfo *MFI = MF.getFrameInfo();
-  return MF.getTarget().Options.DisableFramePointerElim(MF) 
-    || MFI->hasVarSizedObjects() 
-    || MFI->isFrameAddressTaken();
 }
 
 void VectorProcFrameLowering::processFunctionBeforeCalleeSavedScan(
