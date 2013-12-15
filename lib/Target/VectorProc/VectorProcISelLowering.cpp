@@ -210,11 +210,10 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   CCInfo.AnalyzeCallOperands(Outs, CC_VectorProc32);
 
   // Get the size of the outgoing arguments stack space requirement.
-  unsigned ArgsSize = CCInfo.getNextStackOffset();
-
   // We always keep the stack pointer 64 byte aligned so we can use block
   // loads/stores for vector arguments
-  ArgsSize = (ArgsSize + 63) & ~63;
+  unsigned ArgsSize = RoundUpToAlignment(CCInfo.getNextStackOffset(), 
+    kVectorProcStackFrameAlign);
 
   // Create local copies for all arguments that are passed by value
   SmallVector<SDValue, 8> ByValArgs;

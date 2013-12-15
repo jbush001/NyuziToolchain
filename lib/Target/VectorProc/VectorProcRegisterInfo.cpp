@@ -73,7 +73,8 @@ void VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   MachineFrameInfo *MFI = MF.getFrameInfo();
 
   // Round stack size to multiple of 64, consistent with frame pointer info.
-  int stackSize = (MF.getFrameInfo()->getStackSize() + 63) & ~63;
+  int stackSize = RoundUpToAlignment(MF.getFrameInfo()->getStackSize(), 
+    kVectorProcStackFrameAlign);
 
   // Frame index is relative to where SP is before it is decremented on
   // entry to the function.  Need to add stackSize to adjust for this.

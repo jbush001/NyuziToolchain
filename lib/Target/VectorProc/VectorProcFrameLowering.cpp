@@ -41,8 +41,8 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
 
   // Compute stack size. Allocate space, keeping SP 64 byte aligned so we
   // can do block vector load/stores
-  int StackSize = (int)MFI->getStackSize();
-  StackSize = (StackSize + 63) & ~63; // Round up to 64 bytes
+  int StackSize = RoundUpToAlignment(MFI->getStackSize(), 
+    kVectorProcStackFrameAlign); 
   assert(StackSize < 16384);          // XXX need to handle this.
 
   // Bail if there is no stack allocation
@@ -122,11 +122,9 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
         .addReg(VectorProc::FP_REG);
   }
 
-  uint64_t StackSize = MFI->getStackSize();
-
-  StackSize = (StackSize + 63) & ~63; // Round up to 64 bytes
+  uint64_t StackSize = RoundUpToAlignment(MFI->getStackSize(), 
+    kVectorProcStackFrameAlign);
   assert(StackSize < 16384);          // XXX need to handle this.
-
   if (!StackSize)
     return;
 
