@@ -119,11 +119,8 @@ def GET_FIELDI : FormatAUnmaskedTwoOpInst<
 def GET_FIELDIimm : FormatBUnmaskedInst<
 	(outs GPR32:$dest),
 	(ins VR512:$src1, i32imm:$imm),
-	"getlane $dest, $src1, $imm",	// XXX this isn't a good name, replace
-
-// Currently disabled for codegen because it causes rendering problems with 3D engine
-//	[(set i32:$dest, (extractelt v16i32:$src1, simm13:$imm))],
-	[],
+	"getlane $dest, $src1, $imm",
+	[(set i32:$dest, (extractelt v16i32:$src1, simm13:$imm))],
 	0x1a,
 	FmtB_VV>;
 
