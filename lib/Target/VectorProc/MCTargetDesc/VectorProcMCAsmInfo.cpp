@@ -23,15 +23,8 @@ VectorProcMCAsmInfo::VectorProcMCAsmInfo(StringRef TT) {
   IsLittleEndian = true;
   Triple TheTriple(TT);
 
-  Data16bitsDirective = "\t.short\t";
-  Data32bitsDirective = "\t.word\t";
-  Data64bitsDirective = 0;
-  ZeroDirective = ""; // What is this?
   CommentString = ";";
   SupportsDebugInformation = true;
   ExceptionsType = ExceptionHandling::None;
-
-  WeakRefDirective = "";
-
-  PrivateGlobalPrefix = "L";
+  PrivateGlobalPrefix = ".L";
 }

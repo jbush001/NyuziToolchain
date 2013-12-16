@@ -88,13 +88,11 @@ public:
       // VectorProcFixupKinds.h.
       //
       // name                          offset  bits  flags
-      { "fixup_VectorProc_Abs32", 0, 32, 0 }, { "fixup_VectorProc_PCRel_"
-                                                "MemAccExt", 10, 15,
-                                                MCFixupKindInfo::FKF_IsPCRel },
+      { "fixup_VectorProc_Abs32", 0, 32, 0 }, 
+      { "fixup_VectorProc_PCRel_MemAccExt", 10, 15, MCFixupKindInfo::FKF_IsPCRel },
       { "fixup_VectorProc_PCRel_MemAcc", 15, 10, MCFixupKindInfo::FKF_IsPCRel },
       { "fixup_VectorProc_PCRel_Branch", 5, 20, MCFixupKindInfo::FKF_IsPCRel },
-      { "fixup_VectorProc_PCRel_ComputeLabelAddress", 10, 13,
-        MCFixupKindInfo::FKF_IsPCRel }
+      { "fixup_VectorProc_PCRel_ComputeLabelAddress", 10, 13, MCFixupKindInfo::FKF_IsPCRel }
     };
 
     if (Kind < FirstTargetFixupKind)
@@ -105,10 +103,6 @@ public:
     return Infos[Kind - FirstTargetFixupKind];
   }
 
-  /// MayNeedRelaxation - Check whether the given instruction may need
-  /// relaxation.
-  ///
-  /// \param Inst - The instruction to test.
   bool mayNeedRelaxation(const MCInst &Inst) const { return false; }
 
   /// fixupNeedsRelaxation - Target specific predicate for whether a given
@@ -116,20 +110,12 @@ public:
   bool fixupNeedsRelaxation(const MCFixup &Fixup, uint64_t Value,
                             const MCRelaxableFragment *DF,
                             const MCAsmLayout &Layout) const {
-    // FIXME.
-    assert(0 && "RelaxInstruction() unimplemented");
     return false;
   }
 
-  /// RelaxInstruction - Relax the instruction in the given fragment
-  /// to the next wider instruction.
-  ///
-  /// \param Inst - The instruction to relax, which may be the same
-  /// as the output.
-  /// \param [out] Res On return, the relaxed instruction.
-  void relaxInstruction(const MCInst &Inst, MCInst &Res) const {}
-
-  /// @}
+  void relaxInstruction(const MCInst &Inst, MCInst &Res) const {
+    assert(0 && "relaxInstruction() unimplemented");
+  }
 
   /// WriteNopData - Write an (optimal) nop sequence of Count bytes
   /// to the given output. If the target cannot generate such a sequence,
@@ -144,6 +130,7 @@ public:
     uint64_t NumNops = Count / 4;
     for (uint64_t i = 0; i != NumNops; ++i)
       OW->Write32(0);
+    
     return true;
   }
 }; // class VectorProcAsmBackend

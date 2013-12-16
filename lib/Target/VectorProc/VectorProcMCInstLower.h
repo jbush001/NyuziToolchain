@@ -24,8 +24,8 @@ class MachineFunction;
 class Mangler;
 class VectorProcAsmPrinter;
 
-/// VectorProcMCInstLower - This class is used to lower an MachineInstr into an
-//                    MCInst.
+// VectorProcMCInstLower - Helper class used by VectorProcAsmPrinter to convert
+// MachineInstrs into MCInsts
 class LLVM_LIBRARY_VISIBILITY VectorProcMCInstLower {
   typedef MachineOperand::MachineOperandType MachineOperandType;
   MCContext *Ctx;

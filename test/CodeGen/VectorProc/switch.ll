@@ -11,7 +11,7 @@ entry:
     i32 3, label %sw.bb4
   ]
 
-  ; CHECK: lea s{{[0-9]+}}, LJTI  
+  ; CHECK: lea s{{[0-9]+}}, .LJTI  
   ; CHECK: load_32 pc, 
 
 sw.bb: 

@@ -6,10 +6,10 @@ target triple = "vectorproc"
 @bar = global i32 13, align 4
 
 ; These are emitted into the constant pool
-; CHECK: [[FOO_LBL:LCP[0-9A-Za-z_]+]]: 
-; CHECK: .word foo
-; CHECK: [[BAR_LBL:LCP[0-9A-Za-z_]+]]: 
-; CHECK: .word bar
+; CHECK: [[FOO_LBL:\.LCP[0-9A-Za-z_]+]]: 
+; CHECK: .long foo
+; CHECK: [[BAR_LBL:\.LCP[0-9A-Za-z_]+]]: 
+; CHECK: .long bar
 
 define void @test() #0 {
 	%1 = load i32* @foo, align 4

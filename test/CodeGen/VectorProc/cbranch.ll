@@ -9,7 +9,7 @@ entry:
   ; CHECK: setgt_i s[[CHECKVAL:[0-9]+]], s{{[0-9]+}}, s{{[0-9]+}}
 
   br i1 %cmp, label %if.then, label %if.else
-  ; CHECK: btrue s[[CHECKVAL]], [[FALSELABEL:[A-Z0-9_]+]]
+  ; CHECK: btrue s[[CHECKVAL]], [[FALSELABEL:[\.A-Z0-9_]+]]
 
 if.then:
   br label %return
