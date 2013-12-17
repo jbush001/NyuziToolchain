@@ -62,7 +62,6 @@ binaryOps = [
 	(5, 'add_i'),
 	(6, 'sub_i'),
 	(7, 'mul_i'),
-	# Not implemented (8, 'div_i')
 	(9, 'ashr'),
 	(10, 'shr'),
 	(11, 'shl'),
@@ -150,11 +149,11 @@ unaryOps = [
 	(12, 'clz'),
 	(14, 'ctz'),
 	(0xf, 'move'),
+	(0x1c, 'reciprocal')
 ]
 
-# These unary ops do not support all form
+# These unary ops do not support all forms
 #	(0x1b, 'ftoi'),
-#	(0x1c, 'reciprocal'),
 #	(0x1d, 'sext_8'),
 #	(0x1e, 'sext_16'),
 #	(0x2a, 'itof')
@@ -194,8 +193,6 @@ for opcode, mnemonic in unaryOps:
 
 # XXX HACK: These instructions should support all forms, but this is here in the interim
 
-make_test_case('reciprocal s7, s9', make_a_instruction(0, 0x1c, 7, 0, 9, 0))
-
 make_test_case('shuffle v1, v2, v3', make_a_instruction(4, 0xd, 1, 2, 3, 0))
 make_test_case('shuffle_mask v1, s4, v2, v3', make_a_instruction(5, 0xd, 1, 2, 3, 4))
 make_test_case('shuffle_invmask v1, s4, v2, v3', make_a_instruction(6, 0xd, 1, 2, 3, 4))
@@ -206,6 +203,7 @@ make_test_case('getlane s4, v5, 7', make_bprime_instruction(1, 0x1a, 4, 5, 7))
 #
 # Comparisons
 #
+
 cmpOps = [
 	(0x12, 'gt_i'),
 	(0x13, 'ge_i'),
@@ -245,7 +243,6 @@ for opcode, mnemonic in cmpOps:
 	make_test_case('set' + mnemonic + ' s' + str(rega) + ', v' + str(regb) + ', ' + str(imm),
 		make_bprime_instruction(1, opcode, rega, regb, imm))
 	
-make_test_case('getlane s1, v2, s3 ', make_a_instruction(1, 0x1a, 1, 2, 3, 0))
 
 #
 # Scalar load/stores
