@@ -1105,7 +1105,7 @@ VectorProcTargetLowering::EmitAtomicCmpSwap(MachineInstr *MI,
   //   btrue cmpresult, ExitMBB
   BB = Loop1MBB;
   BuildMI(BB, DL, TII->get(VectorProc::LOAD_SYNC), Dest).addReg(Ptr).addImm(0);
-  BuildMI(BB, DL, TII->get(VectorProc::SNESISSS), CmpResult)
+  BuildMI(BB, DL, TII->get(VectorProc::SNESISS), CmpResult)
       .addReg(Dest)
       .addReg(OldVal);
   BuildMI(BB, DL, TII->get(VectorProc::BTRUE)).addReg(CmpResult).addMBB(

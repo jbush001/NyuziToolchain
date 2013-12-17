@@ -100,13 +100,13 @@ defm SLEFO : FloatCompareInst<"setle", SETOLE, 0x2f, int_vp_mask_cmpf_le>;
 // Note: there is no floating point eq/ne.  Just use integer
 // forms
 def : Pat<(int_vp_mask_cmpf_eq v16f32:$src1, v16f32:$src2),
-	(SEQSIVVV  v16f32:$src1, v16f32:$src2)>;
+	(SEQSIVV  v16f32:$src1, v16f32:$src2)>;
 def : Pat<(int_vp_mask_cmpf_eq v16f32:$src1, (splat f32:$src2)),
-	(SEQSIVVS  v16f32:$src1, f32:$src2)>;
+	(SEQSIVS  v16f32:$src1, f32:$src2)>;
 def : Pat<(int_vp_mask_cmpf_ne v16f32:$src1, v16f32:$src2),
-	(SNESIVVV  v16f32:$src1, v16f32:$src2)>;
+	(SNESIVV  v16f32:$src1, v16f32:$src2)>;
 def : Pat<(int_vp_mask_cmpf_ne v16f32:$src1, (splat f32:$src2)),
-	(SNESIVVS  v16f32:$src1, f32:$src2)>;
+	(SNESIVS  v16f32:$src1, f32:$src2)>;
 
 def GET_LANEI : FormatAUnmaskedTwoOpInst<
 	(outs GPR32:$dest),

@@ -591,7 +591,7 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
 multiclass IntCompareInst<string operator, CondCode condition, 
 	bits<6> opcode, Intrinsic vectorIntr> {
 	// Instruction format A, integer
-	def SSS : FormatAUnmaskedTwoOpInst<
+	def SS : FormatAUnmaskedTwoOpInst<
 		(outs GPR32:$dest), 
 		(ins GPR32:$src1, GPR32:$src2),
 		operator # " $dest, $src1, $src2",
@@ -599,7 +599,7 @@ multiclass IntCompareInst<string operator, CondCode condition,
 		opcode,
 		FmtA_SSS>;
 
-	def VVV : FormatAUnmaskedTwoOpInst<
+	def VV : FormatAUnmaskedTwoOpInst<
 		(outs GPR32:$dest), 
 		(ins VR512:$src1, VR512:$src2),
 		operator # " $dest, $src1, $src2",
@@ -607,7 +607,7 @@ multiclass IntCompareInst<string operator, CondCode condition,
 		opcode,
 		FmtA_VVV>;
 
-	def VVS : FormatAUnmaskedTwoOpInst<
+	def VS : FormatAUnmaskedTwoOpInst<
 		(outs GPR32:$dest), 
 		(ins VR512:$src1, GPR32:$src2),
 		operator # " $dest, $src1, $src2",
@@ -616,7 +616,7 @@ multiclass IntCompareInst<string operator, CondCode condition,
 		FmtA_VVS>;
 
 	// Instruction format B
-	def SSI : FormatBUnmaskedInst<
+	def SI : FormatBUnmaskedInst<
 		(outs GPR32:$dest), 
 		(ins GPR32:$src1, i32imm:$imm),
 		operator # " $dest, $src1, $imm",
@@ -624,26 +624,18 @@ multiclass IntCompareInst<string operator, CondCode condition,
 		opcode{4-0},
 		FmtB_SS>;
 
-	def VVI : FormatBUnmaskedInst<
+	def VI : FormatBUnmaskedInst<
 		(outs GPR32:$dest), 
 		(ins VR512:$src1, i32imm:$imm),
 		operator # " $dest, $src1, $imm",
 		[(set i32:$dest, (vectorIntr v16i32:$src1, (splat simm13:$imm)))],
 		opcode{4-0},
 		FmtB_VV>;
-
-	def VSI : FormatBUnmaskedInst<
-		(outs GPR32:$dest), 
-		(ins GPR32:$src1, i32imm:$imm),
-		operator # " $dest, $src1, $imm",
-		[(set i32:$dest, (vectorIntr (splat i32:$src1), (splat simm13:$imm)))],
-		opcode{4-0},
-		FmtB_VS>;
 }
 
 multiclass FloatCompareInst<string operator, CondCode condition, bits<6> opcode,
 	Intrinsic vectorIntr> {
-	def SSS : FormatAUnmaskedTwoOpInst<
+	def SS : FormatAUnmaskedTwoOpInst<
 		(outs GPR32:$dest),
 		(ins GPR32:$src1, GPR32:$src2),
 		operator # "_f $dest, $src1, $src2",
@@ -651,7 +643,7 @@ multiclass FloatCompareInst<string operator, CondCode condition, bits<6> opcode,
 		opcode,
 		FmtA_SSS>;
 
-	def VVV : FormatAUnmaskedTwoOpInst<
+	def VV : FormatAUnmaskedTwoOpInst<
 		(outs GPR32:$dest),
 		(ins VR512:$src1, VR512:$src2),
 		operator # "_f $dest, $src1, $src2",
@@ -659,7 +651,7 @@ multiclass FloatCompareInst<string operator, CondCode condition, bits<6> opcode,
 		opcode,
 		FmtA_VVV>;
 
-	def VVS : FormatAUnmaskedTwoOpInst<
+	def VS : FormatAUnmaskedTwoOpInst<
 		(outs GPR32:$dest),
 		(ins VR512:$src1, GPR32:$src2),
 		operator # "_f $dest, $src1, $src2",
