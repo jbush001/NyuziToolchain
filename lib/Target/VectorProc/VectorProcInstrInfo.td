@@ -175,6 +175,17 @@ def MOVESS : FormatAUnmaskedOneOpInst<
 	0xf,
 	FmtA_SSS>;
 
+// This should only be invoked for types that will fit in the immediate field 
+// of the instruction.  The lowering code will transform other types into
+// constant pool loads.
+def MOVESSimm : FormatBUnmaskedInst<
+	(outs GPR32:$dest),
+	(ins i32imm:$imm),
+	"move $dest, $imm",
+	[(set i32:$dest, imm:$imm)],
+	0x0f,
+	FmtB_SS>;
+
 def MOVEVSI : FormatAUnmaskedOneOpInst<
 	(outs VR512:$dest), 
 	(ins GPR32:$src2),
@@ -256,6 +267,25 @@ def : Pat<(i32 (extloadi8 ADDRri:$addr)), (LBU ADDRri:$addr)>;
 def : Pat<(i32 (extloadi16 ADDRri:$addr)), (LSS ADDRri:$addr)>;
 def : Pat<(f32 (load ADDRri:$addr)), (LW ADDRri:$addr)>;
 def : Pat<(store f32:$srcDest, ADDRri:$addr), (SW f32:$srcDest, ADDRri:$addr)>;
+
+def LOAD_SYNC : FormatCUnmaskedInst<
+	(outs GPR32:$srcDest),
+	(ins MEMri:$addr),
+	"load_sync $srcDest, $addr",
+	[],
+	FmtC_Sync,
+	1>;
+
+def STORE_SYNC : FormatCUnmaskedInst<
+	(outs GPR32:$result),
+	(ins GPR32:$srcDest, MEMri:$addr),
+	"store_sync $srcDest, $addr	",
+	[],
+	FmtC_Sync,
+	0>
+{
+	let Constraints = "$result = $srcDest";
+}
 
 // Vector
 def BLOCK_LOADI : FormatCUnmaskedInst<
@@ -428,26 +458,6 @@ def : Pat<(int_vp_scatter_storef_masked VADDRri:$addr, v16f32:$srcDest, i32:$mas
 	(INT_SCATTER_STOREI_MASKED v16f32:$srcDest, VADDRri:$addr, i32:$mask)>;
 def : Pat<(int_vp_block_storef_masked ADDRri:$addr, v16f32:$srcDest, i32:$mask),
 	(INT_BLOCK_STOREI_MASKED v16f32:$srcDest, ADDRri:$addr, i32:$mask)>;
-
-
-def LOAD_SYNC : FormatCUnmaskedInst<
-	(outs GPR32:$srcDest),
-	(ins MEMri:$addr),
-	"load_sync $srcDest, $addr",
-	[],
-	FmtC_Sync,
-	1>;
-
-def STORE_SYNC : FormatCUnmaskedInst<
-	(outs GPR32:$result),
-	(ins GPR32:$srcDest, MEMri:$addr),
-	"store_sync $srcDest, $addr	",
-	[],
-	FmtC_Sync,
-	0>
-{
-	let Constraints = "$result = $srcDest";
-}
 
 // Atomics	
 let usesCustomInserter = 1 in {
@@ -755,17 +765,6 @@ def LOAD_JTABLE_ADDR : VPInstruction<
 	let Inst{9-5} = dest;
 	let Inst{4-0} = 31;     // base register (PC)
 }
-
-// This should only be invoked for types that will fit in the immediate field 
-// of the instruction.  The lowering code will transform other types into
-// constant pool loads.
-def LOADIMM : FormatBUnmaskedInst<
-	(outs GPR32:$dest),
-	(ins i32imm:$imm),
-	"move $dest, $imm",
-	[(set i32:$dest, imm:$imm)],
-	0x0f,
-	FmtB_SS>;
 
 def NOP : VPInstruction<
 	(outs),

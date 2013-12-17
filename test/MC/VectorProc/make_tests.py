@@ -213,6 +213,8 @@ make_test_case('ftoi v8, v9', make_a_instruction(4, 0x1b, 8, 0, 9, 0))
 #
 
 cmpOps = [
+	(0x10, 'eq_i'),
+	(0x11, 'ne_i'),
 	(0x12, 'gt_i'),
 	(0x13, 'ge_i'),
 	(0x14, 'lt_i'),
