@@ -200,6 +200,14 @@ make_test_case('shuffle_invmask v1, s4, v2, v3', make_a_instruction(6, 0xd, 1, 2
 make_test_case('getlane s4, v5, s6', make_a_instruction(1, 0x1a, 4, 5, 6, 0))
 make_test_case('getlane s4, v5, 7', make_bprime_instruction(1, 0x1a, 4, 5, 7))
 
+make_test_case('sext_8 s8, s9', make_a_instruction(0, 0x1d, 8, 0, 9, 0))
+make_test_case('sext_16 s8, s9', make_a_instruction(0, 0x1e, 8, 0, 9, 0))
+make_test_case('itof s8, s9', make_a_instruction(0, 0x2a, 8, 0, 9, 0))
+make_test_case('ftoi s8, s9', make_a_instruction(0, 0x1b, 8, 0, 9, 0))
+make_test_case('itof v8, v9', make_a_instruction(4, 0x2a, 8, 0, 9, 0))
+make_test_case('ftoi v8, v9', make_a_instruction(4, 0x1b, 8, 0, 9, 0))
+
+
 #
 # Comparisons
 #
