@@ -1,5 +1,6 @@
 // RUN: %clang %s -O3 -target vectorproc -S -o - | FileCheck %s
 
+// CHECK: atomic_add:
 int atomic_add(volatile int *lockvar)
 {
 	return __sync_fetch_and_and(lockvar, 1);
@@ -12,27 +13,31 @@ int atomic_add(volatile int *lockvar)
 	// CHECK: bfalse [[SCRATCH2]], [[LABEL]]
 }
 
+// CHECK: stbar:
 void stbar()
 {
 	__sync_synchronize();	// CHECK: membar
 }
 
+// CHECK: atomic_cmp_swap:
 void atomic_cmp_swap(volatile int *lockvar)
 {
 	int old;
-	do
+
+
+	do	// CHECK: {{\.L[0-9A-Za-z_]+}}
 	{
 		 old = *lockvar;
 	}
 	while (__sync_val_compare_and_swap(lockvar, old, old + 1) != old);
 
-	// [[LOOP1MBB:\.L[0-9A-Za-z_]+]]
-	//   load_sync
-	//   setne [[CMPRES:s[0-9]+]]
-	//   btrue [[CMPRES]], [[EXITMBB]]
-	// {{L[0-9A-Za-z_]+}}
-	//   move [[SUCCESS:s[0-9]+]]
-	//   store_sync [[SUCCESS]]
-	//   bfalse [[SUCCESS]], [[LOOP1MBB]]
-	// [[EXITMBB:\.L[0-9A-Za-z_]+]]
+	// CHECK: [[LOOP1MBB:\.L[0-9A-Za-z_]+]]
+	// CHECK:   load_sync
+	// CHECK:   setne_i [[CMPRES:s[0-9]+]]
+	// CHECK:   btrue [[CMPRES]], [[EXITMBB:\.L[0-9A-Za-z_]+]]
+
+	// CHECK:   move [[SUCCESS:s[0-9]+]]
+	// CHECK:   store_sync [[SUCCESS]]
+	// CHECK:   bfalse [[SUCCESS]], [[LOOP1MBB]]
+	// CHECK: [[EXITMBB]]
 }
