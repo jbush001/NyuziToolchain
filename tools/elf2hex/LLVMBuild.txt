@@ -2,4 +2,4 @@
 type = Tool
 name = elf2hex
 parent = Tools
-required_libraries = 
+required_libraries = all-targets
