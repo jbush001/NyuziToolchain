@@ -33,53 +33,69 @@ defm MULF   : TwoOpFloatArith<"mul_f", fmul, 0x22>;
 defm RECIP  : OneOpFloatArith<"reciprocal", reciprocal, 0x1c>;
 
 def SEXT16 : FormatAUnmaskedOneOpInst<
-		(outs GPR32:$dest), 
-		(ins GPR32:$src2),
-		"sext_16 $dest, $src2",
-		[(set GPR32:$dest, (sext_inreg i32:$src2, i16))],
-		0x1e,
-		FmtA_SSS>;
+	(outs GPR32:$dest), 
+	(ins GPR32:$src2),
+	"sext_16 $dest, $src2",
+	[(set GPR32:$dest, (sext_inreg i32:$src2, i16))],
+	0x1e,
+	FmtA_SSS>;
 
 def SEXT8 : FormatAUnmaskedOneOpInst<
-		(outs GPR32:$dest), 
-		(ins GPR32:$src2),
-		"sext_8 $dest, $src2",
-		[(set GPR32:$dest, (sext_inreg i32:$src2, i8))],
-		0x1d,
-		FmtA_SSS>;
+	(outs GPR32:$dest), 
+	(ins GPR32:$src2),
+	"sext_8 $dest, $src2",
+	[(set GPR32:$dest, (sext_inreg i32:$src2, i8))],
+	0x1d,
+	FmtA_SSS>;
 
 // XXX need predicated versions of these
-def SITOF : FormatAUnmaskedOneOpInst<
-			(outs GPR32:$dest), 
-			(ins GPR32:$src2),
-            "itof $dest, $src2",
-        	[(set f32:$dest, (sint_to_fp i32:$src2))],
-        	0x2a,
-        	FmtA_SSS>;
+def SITOFSS : FormatAUnmaskedOneOpInst<
+	(outs GPR32:$dest), 
+	(ins GPR32:$src2),
+	"itof $dest, $src2",
+	[(set f32:$dest, (sint_to_fp i32:$src2))],
+	0x2a,
+	FmtA_SSS>;
 
-def SITOFV : FormatAUnmaskedOneOpInst<
-			(outs VR512:$dest), 
-			(ins VR512:$src2),
-            "itof $dest, $src2",
-        	[(set v16f32:$dest, (sint_to_fp v16i32:$src2))],
-        	0x2a,
-        	FmtA_VVV>;
+def SITOFVV : FormatAUnmaskedOneOpInst<
+	(outs VR512:$dest), 
+	(ins VR512:$src2),
+	"itof $dest, $src2",
+	[(set v16f32:$dest, (sint_to_fp v16i32:$src2))],
+	0x2a,
+	FmtA_VVV>;
 
-def FTOSI : FormatAUnmaskedOneOpInst<
-			(outs GPR32:$dest), 
-			(ins GPR32:$src2),
-        	"ftoi $dest, $src2",
-        	[(set i32:$dest, (fp_to_sint f32:$src2))],
-        	0x1b,
-        	FmtA_SSS>;
+def SITOFVS : FormatAUnmaskedOneOpInst<
+	(outs VR512:$dest), 
+	(ins GPR32:$src2),
+	"itof $dest, $src2",
+	[(set v16f32:$dest, (sint_to_fp (splat i32:$src2)))],
+	0x2a,
+	FmtA_VVS>;
 
-def FTOSIV : FormatAUnmaskedOneOpInst<
-			(outs VR512:$dest), 
-			(ins VR512:$src2),
-        	"ftoi $dest, $src2",
-        	[(set v16i32:$dest, (fp_to_sint v16f32:$src2))],
-        	0x1b,
-        	FmtA_VVV>;
+def FTOSISS : FormatAUnmaskedOneOpInst<
+	(outs GPR32:$dest), 
+	(ins GPR32:$src2),
+	"ftoi $dest, $src2",
+	[(set i32:$dest, (fp_to_sint f32:$src2))],
+	0x1b,
+	FmtA_SSS>;
+
+def FTOSIVV : FormatAUnmaskedOneOpInst<
+	(outs VR512:$dest), 
+	(ins VR512:$src2),
+	"ftoi $dest, $src2",
+	[(set v16i32:$dest, (fp_to_sint v16f32:$src2))],
+	0x1b,
+	FmtA_VVV>;
+
+def FTOSIVS : FormatAUnmaskedOneOpInst<
+	(outs VR512:$dest), 
+	(ins GPR32:$src2),
+	"ftoi $dest, $src2",
+	[(set v16i32:$dest, (fp_to_sint (splat f32:$src2)))],
+	0x1b,
+	FmtA_VVS>;
 
 defm SGTSI : IntCompareInst<"setgt_i", SETGT, 0x12, int_vp_mask_cmpi_sgt>;	
 defm SGESI : IntCompareInst<"setge_i", SETGE, 0x13, int_vp_mask_cmpi_sge>;
