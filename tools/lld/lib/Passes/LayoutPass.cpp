@@ -9,6 +9,7 @@
 
 #define DEBUG_TYPE "LayoutPass"
 
+#include <algorithm>
 #include <set>
 
 #include "lld/Passes/LayoutPass.h"
@@ -19,29 +20,134 @@
 
 using namespace lld;
 
+static bool compareAtoms(const LayoutPass::SortKey &,
+                         const LayoutPass::SortKey &);
+
 #ifndef NDEBUG
-namespace {
 // Return "reason (leftval, rightval)"
-std::string formatReason(StringRef reason, int leftVal, int rightVal) {
+static std::string formatReason(StringRef reason, int leftVal, int rightVal) {
   Twine msg =
       Twine(reason) + " (" + Twine(leftVal) + ", " + Twine(rightVal) + ")";
   return msg.str();
 }
-} // end anonymous namespace
 
 // Less-than relationship of two atoms must be transitive, which is, if a < b
 // and b < c, a < c must be true. This function checks the transitivity by
 // checking the sort results.
-void LayoutPass::checkTransitivity(DefinedAtomIter begin,
-                                   DefinedAtomIter end) const {
-  for (DefinedAtomIter i = begin; (i + 1) != end; ++i) {
-    for (DefinedAtomIter j = i + 1; j != end; ++j) {
-      assert(_compareAtoms(*i, *j));
-      assert(!_compareAtoms(*j, *i));
+static void checkTransitivity(std::vector<LayoutPass::SortKey> &vec) {
+  for (auto i = vec.begin(), e = vec.end(); (i + 1) != e; ++i) {
+    for (auto j = i + 1; j != e; ++j) {
+      assert(compareAtoms(*i, *j));
+      assert(!compareAtoms(*j, *i));
     }
   }
 }
-#endif // NDEBUG
+
+// Helper functions to check follow-on graph.
+typedef llvm::DenseMap<const DefinedAtom *, const DefinedAtom *> AtomToAtomT;
+
+static std::string atomToDebugString(const Atom *atom) {
+  const DefinedAtom *definedAtom = dyn_cast<DefinedAtom>(atom);
+  std::string str;
+  llvm::raw_string_ostream s(str);
+  if (definedAtom->name().empty())
+    s << "<anonymous " << definedAtom << ">";
+  else
+    s << definedAtom->name();
+  s << " in ";
+  if (definedAtom->customSectionName().empty())
+    s << "<anonymous>";
+  else
+    s << definedAtom->customSectionName();
+  s.flush();
+  return str;
+}
+
+static void showCycleDetectedError(AtomToAtomT &followOnNexts,
+                                   const DefinedAtom *atom) {
+  const DefinedAtom *start = atom;
+  llvm::dbgs() << "There's a cycle in a follow-on chain!\n";
+  do {
+    llvm::dbgs() << "  " << atomToDebugString(atom) << "\n";
+    for (const Reference *ref : *atom) {
+      llvm::dbgs() << "  " << atomToDebugString(ref->target()) << "\n";
+    }
+    atom = followOnNexts[atom];
+  } while (atom != start);
+  llvm::report_fatal_error("Cycle detected");
+}
+
+/// Exit if there's a cycle in a followon chain reachable from the
+/// given root atom. Uses the tortoise and hare algorithm to detect a
+/// cycle.
+static void checkNoCycleInFollowonChain(AtomToAtomT &followOnNexts,
+                                        const DefinedAtom *root) {
+  const DefinedAtom *tortoise = root;
+  const DefinedAtom *hare = followOnNexts[root];
+  while (true) {
+    if (!tortoise || !hare)
+      return;
+    if (tortoise == hare)
+      showCycleDetectedError(followOnNexts, tortoise);
+    tortoise = followOnNexts[tortoise];
+    hare = followOnNexts[followOnNexts[hare]];
+  }
+}
+
+static void checkReachabilityFromRoot(AtomToAtomT &followOnRoots,
+                                      const DefinedAtom *atom) {
+  if (!atom) return;
+  auto i = followOnRoots.find(atom);
+  if (i == followOnRoots.end()) {
+    Twine msg(Twine("Atom <") + atomToDebugString(atom)
+              + "> has no follow-on root!");
+    llvm_unreachable(msg.str().c_str());
+  }
+  const DefinedAtom *ap = i->second;
+  while (true) {
+    const DefinedAtom *next = followOnRoots[ap];
+    if (!next) {
+      Twine msg(Twine("Atom <" + atomToDebugString(atom)
+                      + "> is not reachable from its root!"));
+      llvm_unreachable(msg.str().c_str());
+    }
+    if (next == ap)
+      return;
+    ap = next;
+  }
+}
+
+static void printDefinedAtoms(const MutableFile::DefinedAtomRange &atomRange) {
+  for (const DefinedAtom *atom : atomRange) {
+    llvm::dbgs() << "  file=" << atom->file().path()
+                 << ", name=" << atom->name()
+                 << ", size=" << atom->size()
+                 << ", type=" << atom->contentType()
+                 << ", ordinal=" << atom->ordinal()
+                 << "\n";
+  }
+}
+
+/// Verify that the followon chain is sane. Should not be called in
+/// release binary.
+void LayoutPass::checkFollowonChain(MutableFile::DefinedAtomRange &range) {
+  ScopedTask task(getDefaultDomain(), "LayoutPass::checkFollowonChain");
+
+  // Verify that there's no cycle in follow-on chain.
+  std::set<const DefinedAtom *> roots;
+  for (const auto &ai : _followOnRoots)
+    roots.insert(ai.second);
+  for (const DefinedAtom *root : roots)
+    checkNoCycleInFollowonChain(_followOnNexts, root);
+
+  // Verify that all the atoms in followOnNexts have references to
+  // their roots.
+  for (const auto &ai : _followOnNexts) {
+    checkReachabilityFromRoot(_followOnRoots, ai.first);
+    checkReachabilityFromRoot(_followOnRoots, ai.second);
+  }
+}
+#endif // #ifndef NDEBUG
 
 /// The function compares atoms by sorting atoms in the following order
 /// a) Sorts atoms by Section position preference
@@ -51,9 +157,11 @@ void LayoutPass::checkTransitivity(DefinedAtomIter begin,
 /// d) Sorts atoms by their content
 /// e) Sorts atoms on how they appear using File Ordinality
 /// f) Sorts atoms on how they appear within the File
-bool LayoutPass::CompareAtoms::compare(const DefinedAtom *left,
-                                       const DefinedAtom *right,
-                                       std::string &reason) const {
+static bool compareAtomsSub(const LayoutPass::SortKey &lc,
+                            const LayoutPass::SortKey &rc,
+                            std::string &reason) {
+  const DefinedAtom *left = lc._atom;
+  const DefinedAtom *right = rc._atom;
   if (left == right) {
     reason = "same";
     return false;
@@ -73,21 +181,14 @@ bool LayoutPass::CompareAtoms::compare(const DefinedAtom *left,
   }
 
   // Find the root of the chain if it is a part of a follow-on chain.
-  auto leftFind = _layout._followOnRoots.find(left);
-  auto rightFind = _layout._followOnRoots.find(right);
-  const DefinedAtom *leftRoot =
-      (leftFind == _layout._followOnRoots.end()) ? left : leftFind->second;
-  const DefinedAtom *rightRoot =
-      (rightFind == _layout._followOnRoots.end()) ? right : rightFind->second;
+  const DefinedAtom *leftRoot = lc._root;
+  const DefinedAtom *rightRoot = rc._root;
 
   // Sort atoms by their ordinal overrides only if they fall in the same
   // chain.
-  AtomToOrdinalT::const_iterator lPos = _layout._ordinalOverrideMap.find(left);
-  AtomToOrdinalT::const_iterator rPos = _layout._ordinalOverrideMap.find(right);
-  AtomToOrdinalT::const_iterator end = _layout._ordinalOverrideMap.end();
-  if (leftRoot == rightRoot && lPos != end && rPos != end) {
-    DEBUG(reason = formatReason("override", lPos->second, rPos->second));
-    return lPos->second < rPos->second;
+  if (leftRoot == rightRoot) {
+    DEBUG(reason = formatReason("override", lc._override, rc._override));
+    return lc._override < rc._override;
   }
 
   // Sort same permissions together.
@@ -129,18 +230,19 @@ bool LayoutPass::CompareAtoms::compare(const DefinedAtom *left,
     return leftOrdinal < rightOrdinal;
   }
 
-  DEBUG(llvm::dbgs() << "Unordered\n");
+  llvm::errs() << "Unordered: <" << left->name() << "> <"
+               << right->name() << ">\n";
   llvm_unreachable("Atoms with Same Ordinal!");
 }
 
-bool LayoutPass::CompareAtoms::operator()(const DefinedAtom *left,
-                                          const DefinedAtom *right) const {
+static bool compareAtoms(const LayoutPass::SortKey &lc,
+                         const LayoutPass::SortKey &rc) {
   std::string reason;
-  bool result = compare(left, right, reason);
+  bool result = compareAtomsSub(lc, rc, reason);
   DEBUG({
     StringRef comp = result ? "<" : ">=";
-    llvm::dbgs() << "Layout: '" << left->name() << "' " << comp << " '"
-                 << right->name() << "' (" << reason << ")\n";
+    llvm::dbgs() << "Layout: '" << lc._atom->name() << "' " << comp << " '"
+                 << rc._atom->name() << "' (" << reason << ")\n";
   });
   return result;
 }
@@ -221,19 +323,21 @@ void LayoutPass::buildFollowOnTable(MutableFile::DefinedAtomRange &range) {
   _followOnNexts.resize(range.size());
   for (const DefinedAtom *ai : range) {
     for (const Reference *r : *ai) {
-      if (r->kind() != lld::Reference::kindLayoutAfter)
+      if (r->kindNamespace() != lld::Reference::KindNamespace::all)
+        continue;
+      if (r->kindValue() != lld::Reference::kindLayoutAfter)
         continue;
       const DefinedAtom *targetAtom = dyn_cast<DefinedAtom>(r->target());
       _followOnNexts[ai] = targetAtom;
 
-      // If we find a followon for the first time, lets make that atom as the
+      // If we find a followon for the first time, let's make that atom as the
       // root atom.
       if (_followOnRoots.count(ai) == 0)
         _followOnRoots[ai] = ai;
 
       auto iter = _followOnRoots.find(targetAtom);
       if (iter == _followOnRoots.end()) {
-        // If the targetAtom is not a root of any chain, lets make the root of
+        // If the targetAtom is not a root of any chain, let's make the root of
         // the targetAtom to the root of the current chain.
         _followOnRoots[targetAtom] = _followOnRoots[ai];
       } else if (iter->second == targetAtom) {
@@ -282,7 +386,9 @@ void LayoutPass::buildInGroupTable(MutableFile::DefinedAtomRange &range) {
   // references so that we have only one table
   for (const DefinedAtom *ai : range) {
     for (const Reference *r : *ai) {
-      if (r->kind() == lld::Reference::kindInGroup) {
+      if (r->kindNamespace() != lld::Reference::KindNamespace::all)
+        continue;
+      if (r->kindValue() == lld::Reference::kindInGroup) {
         const DefinedAtom *rootAtom = dyn_cast<DefinedAtom>(r->target());
         // If the root atom is not part of any root
         // create a new root
@@ -313,19 +419,17 @@ void LayoutPass::buildInGroupTable(MutableFile::DefinedAtomRange &range) {
         // Check if the current atom is part of the chain
         bool isAtomInChain = false;
         const DefinedAtom *lastAtom = rootAtom;
-        while (true) {
+        for (;;) {
           AtomToAtomT::iterator followOnAtomsIter =
-                  _followOnNexts.find(lastAtom);
+              _followOnNexts.find(lastAtom);
           if (followOnAtomsIter != _followOnNexts.end()) {
             lastAtom = followOnAtomsIter->second;
-            if (lastAtom == ai) {
-              isAtomInChain = true;
-              break;
-            }
+            if (lastAtom != ai)
+              continue;
+            isAtomInChain = true;
           }
-          else
-            break;
-        } // findAtomInChain
+          break;
+        }
 
         if (!isAtomInChain)
           _followOnNexts[lastAtom] = ai;
@@ -354,7 +458,9 @@ void LayoutPass::buildPrecededByTable(MutableFile::DefinedAtomRange &range) {
   // references so that we have only one table
   for (const DefinedAtom *ai : range) {
     for (const Reference *r : *ai) {
-      if (r->kind() == lld::Reference::kindLayoutBefore) {
+      if (r->kindNamespace() != lld::Reference::KindNamespace::all)
+        continue;
+      if (r->kindValue() == lld::Reference::kindLayoutBefore) {
         const DefinedAtom *targetAtom = dyn_cast<DefinedAtom>(r->target());
         // Is the targetAtom not chained
         if (_followOnRoots.count(targetAtom) == 0) {
@@ -414,126 +520,36 @@ void LayoutPass::buildOrdinalOverrideMap(MutableFile::DefinedAtomRange &range) {
       for (const DefinedAtom *nextAtom = start->second; nextAtom != NULL;
            nextAtom = _followOnNexts[nextAtom]) {
         AtomToOrdinalT::iterator pos = _ordinalOverrideMap.find(nextAtom);
-        if (pos == _ordinalOverrideMap.end()) {
+        if (pos == _ordinalOverrideMap.end())
           _ordinalOverrideMap[nextAtom] = index++;
-        }
       }
     }
   }
 }
 
-// Helper functions to check follow-on graph.
-#ifndef NDEBUG
-namespace {
-typedef llvm::DenseMap<const DefinedAtom *, const DefinedAtom *> AtomToAtomT;
-
-std::string atomToDebugString(const Atom *atom) {
-  const DefinedAtom *definedAtom = dyn_cast<DefinedAtom>(atom);
-  std::string str;
-  llvm::raw_string_ostream s(str);
-  if (definedAtom->name().empty())
-    s << "<anonymous " << definedAtom << ">";
-  else
-    s << definedAtom->name();
-  s << " in ";
-  if (definedAtom->customSectionName().empty())
-    s << "<anonymous>";
-  else
-    s << definedAtom->customSectionName();
-  s.flush();
-  return str;
-}
-
-void showCycleDetectedError(AtomToAtomT &followOnNexts,
-                            const DefinedAtom *atom) {
-  const DefinedAtom *start = atom;
-  llvm::dbgs() << "There's a cycle in a follow-on chain!\n";
-  do {
-    llvm::dbgs() << "  " << atomToDebugString(atom) << "\n";
-    for (const Reference *ref : *atom) {
-      llvm::dbgs() << "    " << ref->kindToString()
-                   << ": " << atomToDebugString(ref->target()) << "\n";
-    }
-    atom = followOnNexts[atom];
-  } while (atom != start);
-  llvm::report_fatal_error("Cycle detected");
-}
-
-/// Exit if there's a cycle in a followon chain reachable from the
-/// given root atom. Uses the tortoise and hare algorithm to detect a
-/// cycle.
-void checkNoCycleInFollowonChain(AtomToAtomT &followOnNexts,
-                                 const DefinedAtom *root) {
-  const DefinedAtom *tortoise = root;
-  const DefinedAtom *hare = followOnNexts[root];
-  while (true) {
-    if (!tortoise || !hare)
-      return;
-    if (tortoise == hare)
-      showCycleDetectedError(followOnNexts, tortoise);
-    tortoise = followOnNexts[tortoise];
-    hare = followOnNexts[followOnNexts[hare]];
-  }
-}
-
-void checkReachabilityFromRoot(AtomToAtomT &followOnRoots,
-                               const DefinedAtom *atom) {
-  if (!atom) return;
-  auto i = followOnRoots.find(atom);
-  if (i == followOnRoots.end()) {
-    Twine msg(Twine("Atom <") + atomToDebugString(atom)
-              + "> has no follow-on root!");
-    llvm_unreachable(msg.str().c_str());
-  }
-  const DefinedAtom *ap = i->second;
-  while (true) {
-    const DefinedAtom *next = followOnRoots[ap];
-    if (!next) {
-      Twine msg(Twine("Atom <" + atomToDebugString(atom)
-                      + "> is not reachable from its root!"));
-      llvm_unreachable(msg.str().c_str());
-    }
-    if (next == ap)
-      return;
-    ap = next;
-  }
-}
-
-void printDefinedAtoms(const MutableFile::DefinedAtomRange &atomRange) {
+std::vector<LayoutPass::SortKey>
+LayoutPass::decorate(MutableFile::DefinedAtomRange &atomRange) const {
+  std::vector<SortKey> ret;
   for (const DefinedAtom *atom : atomRange) {
-    llvm::dbgs() << "  file=" << atom->file().path()
-                 << ", name=" << atom->name()
-                 << ", size=" << atom->size()
-                 << ", type=" << atom->contentType()
-                 << ", ordinal=" << atom->ordinal()
-                 << "\n";
+    auto ri = _followOnRoots.find(atom);
+    auto oi = _ordinalOverrideMap.find(atom);
+    const DefinedAtom *root = (ri == _followOnRoots.end()) ? atom : ri->second;
+    uint64_t override = (oi == _ordinalOverrideMap.end()) ? 0 : oi->second;
+    ret.push_back(SortKey(atom, root, override));
   }
+  return ret;
 }
-} // end anonymous namespace
 
-/// Verify that the followon chain is sane. Should not be called in
-/// release binary.
-void LayoutPass::checkFollowonChain(MutableFile::DefinedAtomRange &range) {
-  ScopedTask task(getDefaultDomain(), "LayoutPass::checkFollowonChain");
-
-  // Verify that there's no cycle in follow-on chain.
-  std::set<const DefinedAtom *> roots;
-  for (const auto &ai : _followOnRoots)
-    roots.insert(ai.second);
-  for (const DefinedAtom *root : roots)
-    checkNoCycleInFollowonChain(_followOnNexts, root);
-
-  // Verify that all the atoms in followOnNexts have references to
-  // their roots.
-  for (const auto &ai : _followOnNexts) {
-    checkReachabilityFromRoot(_followOnRoots, ai.first);
-    checkReachabilityFromRoot(_followOnRoots, ai.second);
-  }
+void LayoutPass::undecorate(MutableFile::DefinedAtomRange &atomRange,
+                            std::vector<SortKey> &keys) const {
+  size_t i = 0;
+  for (SortKey &k : keys)
+    atomRange[i++] = k._atom;
 }
-#endif  // #ifndef NDEBUG
 
 /// Perform the actual pass
 void LayoutPass::perform(std::unique_ptr<MutableFile> &mergedFile) {
+  // sort the atoms
   ScopedTask task(getDefaultDomain(), "LayoutPass");
   MutableFile::DefinedAtomRange atomRange = mergedFile->definedAtoms();
 
@@ -557,10 +573,10 @@ void LayoutPass::perform(std::unique_ptr<MutableFile> &mergedFile) {
     printDefinedAtoms(atomRange);
   });
 
-  // sort the atoms
-  std::sort(atomRange.begin(), atomRange.end(), _compareAtoms);
-
-  DEBUG(checkTransitivity(atomRange.begin(), atomRange.end()));
+  std::vector<LayoutPass::SortKey> vec = decorate(atomRange);
+  std::sort(vec.begin(), vec.end(), compareAtoms);
+  DEBUG(checkTransitivity(vec));
+  undecorate(atomRange, vec);
 
   DEBUG({
     llvm::dbgs() << "sorted atoms:\n";

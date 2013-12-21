@@ -36,6 +36,7 @@ template <typename ELFT> class TargetHandler;
 class TargetHandlerBase {
 public:
   virtual ~TargetHandlerBase() {}
+  virtual void registerRelocationNames(Registry &) = 0;
 };
 
 class ELFLinkingContext : public LinkingContext {
@@ -45,9 +46,9 @@ public:
   /// creates.
   enum class OutputMagic : uint8_t {
     DEFAULT, // The default mode, no specific magic set
-    NMAGIC,  // Disallow shared libraries and dont align sections
+    NMAGIC,  // Disallow shared libraries and don't align sections
              // PageAlign Data, Mark Text Segment/Data segment RW
-    OMAGIC   // Disallow shared libraries and dont align sections,
+    OMAGIC   // Disallow shared libraries and don't align sections,
              // Mark Text Segment/Data segment RW
   };
 
@@ -115,10 +116,6 @@ public:
     return getDefaultInterpreter();
   }
 
-  virtual Reader &getDefaultReader() const { return *_elfReader; }
-
-  virtual Reader &getLinkerScriptReader() const { return *_linkerScriptReader; }
-
   /// \brief Does the output have dynamic sections.
   virtual bool isDynamic() const;
 
@@ -131,6 +128,7 @@ public:
     return static_cast<lld::elf::TargetHandler<ELFT> &>(*_targetHandler.get());
   }
 
+  TargetHandlerBase *targetHandler() const { return _targetHandler.get(); }
   virtual void addPasses(PassManager &pm);
 
   void setTriple(llvm::Triple trip) { _triple = trip; }
@@ -157,9 +155,7 @@ public:
   virtual void setNoAllowDynamicLibraries() { _noAllowDynamicLibraries = true; }
 
   /// Searches directories for a match on the input File
-  ErrorOr<StringRef>
-  searchLibrary(StringRef libName,
-                const std::vector<StringRef> &searchPath) const;
+  ErrorOr<StringRef> searchLibrary(StringRef libName) const;
 
   /// Get the entry symbol name
   virtual StringRef entrySymbolName() const;
@@ -214,6 +210,20 @@ public:
     return true;
   }
 
+  /// \brief Helper function to allocate strings.
+  StringRef allocateString(StringRef ref) const {
+    char *x = _allocator.Allocate<char>(ref.size() + 1);
+    memcpy(x, ref.data(), ref.size());
+    x[ref.size()] = '\0';
+    return x;
+  }
+
+  // add search path to list.
+  virtual bool addSearchPath(StringRef ref) {
+    _inputSearchPaths.push_back(ref);
+    return true;
+  }
+
 private:
   ELFLinkingContext() LLVM_DELETED_FUNCTION;
 
@@ -238,9 +248,7 @@ protected:
   bool _noAllowDynamicLibraries;
   OutputMagic _outputMagic;
   StringRefVector _inputSearchPaths;
-  std::unique_ptr<Reader> _elfReader;
   std::unique_ptr<Writer> _writer;
-  std::unique_ptr<Reader> _linkerScriptReader;
   StringRef _dynamicLinkerPath;
   StringRefVector _initFunctions;
   StringRefVector _finiFunctions;

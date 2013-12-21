@@ -285,14 +285,6 @@ public:
   static const TST TST_auto = clang::TST_auto;
   static const TST TST_unknown_anytype = clang::TST_unknown_anytype;
   static const TST TST_atomic = clang::TST_atomic;
-  static const TST TST_image1d_t = clang::TST_image1d_t;
-  static const TST TST_image1d_array_t = clang::TST_image1d_array_t;
-  static const TST TST_image1d_buffer_t = clang::TST_image1d_buffer_t;
-  static const TST TST_image2d_t = clang::TST_image2d_t;
-  static const TST TST_image2d_array_t = clang::TST_image2d_array_t;
-  static const TST TST_image3d_t = clang::TST_image3d_t;
-  static const TST TST_sampler_t = clang::TST_sampler_t;
-  static const TST TST_event_t = clang::TST_event_t;
   static const TST TST_error = clang::TST_error;
 
   // type-qualifiers
@@ -2166,12 +2158,13 @@ struct LambdaCapture {
   IdentifierInfo *Id;
   SourceLocation EllipsisLoc;
   ExprResult Init;
-
+  ParsedType InitCaptureType;
   LambdaCapture(LambdaCaptureKind Kind, SourceLocation Loc,
-                IdentifierInfo* Id = 0,
-                SourceLocation EllipsisLoc = SourceLocation(),
-                ExprResult Init = ExprResult())
-    : Kind(Kind), Loc(Loc), Id(Id), EllipsisLoc(EllipsisLoc), Init(Init)
+                IdentifierInfo* Id,
+                SourceLocation EllipsisLoc,
+                ExprResult Init, ParsedType InitCaptureType)
+    : Kind(Kind), Loc(Loc), Id(Id), EllipsisLoc(EllipsisLoc), Init(Init),
+        InitCaptureType(InitCaptureType)
   {}
 };
 
@@ -2188,10 +2181,12 @@ struct LambdaIntroducer {
   /// \brief Append a capture in a lambda introducer.
   void addCapture(LambdaCaptureKind Kind,
                   SourceLocation Loc,
-                  IdentifierInfo* Id = 0,
-                  SourceLocation EllipsisLoc = SourceLocation(),
-                  ExprResult Init = ExprResult()) {
-    Captures.push_back(LambdaCapture(Kind, Loc, Id, EllipsisLoc, Init));
+                  IdentifierInfo* Id,
+                  SourceLocation EllipsisLoc,
+                  ExprResult Init, 
+                  ParsedType InitCaptureType) {
+    Captures.push_back(LambdaCapture(Kind, Loc, Id, EllipsisLoc, Init, 
+        InitCaptureType));
   }
 };
 

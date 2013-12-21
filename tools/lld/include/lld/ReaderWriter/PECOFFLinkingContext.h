@@ -10,20 +10,19 @@
 #ifndef LLD_READER_WRITER_PECOFF_LINKING_CONTEXT_H
 #define LLD_READER_WRITER_PECOFF_LINKING_CONTEXT_H
 
-#include <map>
-#include <set>
-#include <vector>
-
 #include "lld/Core/LinkingContext.h"
 #include "lld/ReaderWriter/Reader.h"
 #include "lld/ReaderWriter/Writer.h"
 
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/COFF.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileUtilities.h"
+
+#include <map>
+#include <set>
+#include <vector>
 
 using llvm::COFF::MachineTypes;
 using llvm::COFF::WindowsSubsystem;
@@ -31,6 +30,7 @@ using llvm::COFF::WindowsSubsystem;
 static const uint8_t DEFAULT_DOS_STUB[128] = {'M', 'Z'};
 
 namespace lld {
+class Group;
 
 class PECOFFLinkingContext : public LinkingContext {
 public:
@@ -57,6 +57,14 @@ public:
     int minorVersion;
   };
 
+  struct ExportDesc {
+    ExportDesc() : ordinal(-1), noname(false), isData(false) {}
+    std::string name;
+    int ordinal;
+    bool noname;
+    bool isData;
+  };
+
   /// \brief Casting support
   static inline bool classof(const LinkingContext *info) { return true; }
 
@@ -64,8 +72,6 @@ public:
     IMAGE_EXE,
     IMAGE_DLL
   };
-
-  virtual Reader &getDefaultReader() const { return *_reader; }
 
   virtual Writer &writer() const;
   virtual bool validateImpl(raw_ostream &diagnostics);
@@ -91,16 +97,7 @@ public:
 
   StringRef searchLibraryFile(StringRef path) const;
 
-  /// Returns the decorated name of the given symbol name. On 32-bit x86, it
-  /// adds "_" at the beginning of the string. On other architectures, the
-  /// return value is the same as the argument.
-  StringRef decorateSymbol(StringRef name) const {
-    if (_machineType != llvm::COFF::IMAGE_FILE_MACHINE_I386)
-      return name;
-    std::string str = "_";
-    str.append(name);
-    return allocate(str);
-  }
+  StringRef decorateSymbol(StringRef name) const;
 
   void setEntrySymbolName(StringRef name) {
     if (!name.empty())
@@ -194,9 +191,15 @@ public:
   void setImageType(ImageType type) { _imageType = type; }
   ImageType getImageType() const { return _imageType; }
 
-  StringRef getFinalSectionName(StringRef sectionName) const;
+  StringRef getOutputSectionName(StringRef sectionName) const;
   bool addSectionRenaming(raw_ostream &diagnostics,
                           StringRef from, StringRef to);
+
+  StringRef getAlternateName(StringRef def) const;
+  const std::map<std::string, std::string> &alternateNames() {
+    return _alternateNames;
+  }
+  void setAlternateName(StringRef def, StringRef weak);
 
   void addNoDefaultLib(StringRef path) { _noDefaultLibs.insert(path); }
   bool hasNoDefaultLib(StringRef path) const {
@@ -206,31 +209,16 @@ public:
   void setNoDefaultLibAll(bool val) { _noDefaultLibAll = val; }
   bool getNoDefaultLibAll() const { return _noDefaultLibAll; }
 
-  virtual ErrorOr<Reference::Kind> relocKindFromString(StringRef str) const;
-  virtual ErrorOr<std::string> stringFromRelocKind(Reference::Kind kind) const;
-
-  void setSectionAttributes(StringRef sectionName, uint32_t flags) {
-    _sectionAttributes[sectionName] = flags;
-  }
-
-  llvm::Optional<uint32_t> getSectionAttributes(StringRef sectionName) const {
-    auto it = _sectionAttributes.find(sectionName);
-    if (it == _sectionAttributes.end())
-      return llvm::None;
-    return it->second;
-  }
-
-  void setSectionAttributeMask(StringRef sectionName, uint32_t flags) {
-    _sectionAttributeMask[sectionName] = flags;
-  }
-
-  uint32_t getSectionAttributeMask(StringRef sectionName) const {
-    auto it = _sectionAttributeMask.find(sectionName);
-    return it == _sectionAttributeMask.end() ? 0 : it->second;
-  }
+  void setSectionSetMask(StringRef sectionName, uint32_t flags);
+  void setSectionClearMask(StringRef sectionName, uint32_t flags);
+  uint32_t getSectionAttributes(StringRef sectionName, uint32_t flags) const;
 
   void setDosStub(ArrayRef<uint8_t> data) { _dosStub = data; }
   ArrayRef<uint8_t> getDosStub() const { return _dosStub; }
+
+  void addDllExport(ExportDesc &desc) { _dllExports.push_back(desc); }
+  std::vector<ExportDesc> &getDllExports() { return _dllExports; }
+  const std::vector<ExportDesc> &getDllExports() const { return _dllExports; }
 
   StringRef allocate(StringRef ref) const {
     char *x = _allocator.Allocate<char>(ref.size() + 1);
@@ -246,11 +234,10 @@ public:
     return ArrayRef<uint8_t>(p, p + array.size());
   }
 
-  virtual bool hasInputGraph() {
-    if (_inputGraph)
-      return true;
-    return false;
-  }
+  virtual bool hasInputGraph() { return !!_inputGraph; }
+
+  void setLibraryGroup(Group *group) { _libraryGroup = group; }
+  Group *getLibraryGroup() const { return _libraryGroup; }
 
 protected:
   /// Method to create a internal file for the entry symbol
@@ -261,7 +248,7 @@ protected:
 
 private:
   // The start address for the program. The default value for the executable is
-  // 0x400000, but can be altered using -base command line option.
+  // 0x400000, but can be altered using /base command line option.
   uint64_t _baseAddress;
 
   uint64_t _stackReserve;
@@ -296,22 +283,22 @@ private:
   std::set<std::string> _noDefaultLibs;
 
   std::vector<StringRef> _inputSearchPaths;
-  std::unique_ptr<Reader> _reader;
   std::unique_ptr<Writer> _writer;
+
+  // A map for weak aliases.
+  std::map<std::string, std::string> _alternateNames;
 
   // A map for section renaming. For example, if there is an entry in the map
   // whose value is .rdata -> .text, the section contens of .rdata will be
   // merged to .text in the resulting executable.
   std::map<std::string, std::string> _renamedSections;
 
-  // Section attributes specified by /section option. The uint32_t value will be
-  // copied to the Characteristics field of the section header.
-  std::map<std::string, uint32_t> _sectionAttributes;
+  // Section attributes specified by /section option.
+  std::map<std::string, uint32_t> _sectionSetMask;
+  std::map<std::string, uint32_t> _sectionClearMask;
 
-  // Section attributes specified by /section option in conjunction with the
-  // negative flag "!". The uint32_t value is a mask of section attributes that
-  // should be disabled.
-  std::map<std::string, uint32_t> _sectionAttributeMask;
+  // DLLExport'ed symbols.
+  std::vector<ExportDesc> _dllExports;
 
   // List of files that will be removed on destruction.
   std::vector<std::unique_ptr<llvm::FileRemover> > _tempFiles;
@@ -321,6 +308,9 @@ private:
   // a small DOS program that prints out a message "This program requires
   // Microsoft Windows." This feature was somewhat useful before Windows 95.
   ArrayRef<uint8_t> _dosStub;
+
+  // The PECOFFGroup that contains all the .lib files.
+  Group *_libraryGroup;
 };
 
 } // end namespace lld

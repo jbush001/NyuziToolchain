@@ -140,21 +140,22 @@ public:
                                                 GlobalDecl GD,
                                                 llvm::Value *This);
 
-  void BuildInstanceFunctionParams(CodeGenFunction &CGF,
-                                   QualType &ResTy,
-                                   FunctionArgList &Params);
+  void addImplicitStructorParams(CodeGenFunction &CGF, QualType &ResTy,
+                                 FunctionArgList &Params);
 
   llvm::Value *adjustThisParameterInVirtualFunctionPrologue(
       CodeGenFunction &CGF, GlobalDecl GD, llvm::Value *This);
 
   void EmitInstanceFunctionProlog(CodeGenFunction &CGF);
 
-  void EmitConstructorCall(CodeGenFunction &CGF,
-                           const CXXConstructorDecl *D, CXXCtorType Type,
-                           bool ForVirtualBase, bool Delegating,
-                           llvm::Value *This,
-                           CallExpr::const_arg_iterator ArgBeg,
-                           CallExpr::const_arg_iterator ArgEnd);
+  unsigned addImplicitConstructorArgs(CodeGenFunction &CGF,
+                                      const CXXConstructorDecl *D,
+                                      CXXCtorType Type, bool ForVirtualBase,
+                                      bool Delegating, CallArgList &Args);
+
+  void EmitDestructorCall(CodeGenFunction &CGF, const CXXDestructorDecl *DD,
+                          CXXDtorType Type, bool ForVirtualBase,
+                          bool Delegating, llvm::Value *This);
 
   void emitVTableDefinitions(CodeGenVTables &CGVT, const CXXRecordDecl *RD);
 
@@ -446,16 +447,20 @@ bool MicrosoftCXXABI::HasThisReturn(GlobalDecl GD) const {
   return isa<CXXConstructorDecl>(GD.getDecl());
 }
 
-void MicrosoftCXXABI::BuildConstructorSignature(const CXXConstructorDecl *Ctor,
-                                 CXXCtorType Type,
-                                 CanQualType &ResTy,
-                                 SmallVectorImpl<CanQualType> &ArgTys) {
-  // 'this' parameter and 'this' return are already in place
+void MicrosoftCXXABI::BuildConstructorSignature(
+    const CXXConstructorDecl *Ctor, CXXCtorType Type, CanQualType &ResTy,
+    SmallVectorImpl<CanQualType> &ArgTys) {
+
+  // All parameters are already in place except is_most_derived, which goes
+  // after 'this' if it's variadic and last if it's not.
 
   const CXXRecordDecl *Class = Ctor->getParent();
+  const FunctionProtoType *FPT = Ctor->getType()->castAs<FunctionProtoType>();
   if (Class->getNumVBases()) {
-    // Constructors of classes with virtual bases take an implicit parameter.
-    ArgTys.push_back(CGM.getContext().IntTy);
+    if (FPT->isVariadic())
+      ArgTys.insert(ArgTys.begin() + 1, CGM.getContext().IntTy);
+    else
+      ArgTys.push_back(CGM.getContext().IntTy);
   }
 }
 
@@ -678,20 +683,25 @@ static bool IsDeletingDtor(GlobalDecl GD) {
   return false;
 }
 
-void MicrosoftCXXABI::BuildInstanceFunctionParams(CodeGenFunction &CGF,
-                                                  QualType &ResTy,
-                                                  FunctionArgList &Params) {
-  BuildThisParam(CGF, Params);
-
+void MicrosoftCXXABI::addImplicitStructorParams(CodeGenFunction &CGF,
+                                                QualType &ResTy,
+                                                FunctionArgList &Params) {
   ASTContext &Context = getContext();
   const CXXMethodDecl *MD = cast<CXXMethodDecl>(CGF.CurGD.getDecl());
+  assert(isa<CXXConstructorDecl>(MD) || isa<CXXDestructorDecl>(MD));
   if (isa<CXXConstructorDecl>(MD) && MD->getParent()->getNumVBases()) {
     ImplicitParamDecl *IsMostDerived
       = ImplicitParamDecl::Create(Context, 0,
                                   CGF.CurGD.getDecl()->getLocation(),
                                   &Context.Idents.get("is_most_derived"),
                                   Context.IntTy);
-    Params.push_back(IsMostDerived);
+    // The 'most_derived' parameter goes second if the ctor is variadic and last
+    // if it's not.  Dtors can't be variadic.
+    const FunctionProtoType *FPT = MD->getType()->castAs<FunctionProtoType>();
+    if (FPT->isVariadic())
+      Params.insert(Params.begin() + 1, IsMostDerived);
+    else
+      Params.push_back(IsMostDerived);
     getStructorImplicitParamDecl(CGF) = IsMostDerived;
   } else if (IsDeletingDtor(CGF.CurGD)) {
     ImplicitParamDecl *ShouldDelete
@@ -723,7 +733,7 @@ llvm::Value *MicrosoftCXXABI::adjustThisParameterInVirtualFunctionPrologue(
 
   // In this ABI, every virtual function takes a pointer to one of the
   // subobjects that first defines it as the 'this' parameter, rather than a
-  // pointer to ther final overrider subobject. Thus, we need to adjust it back
+  // pointer to the final overrider subobject. Thus, we need to adjust it back
   // to the final overrider subobject before use.
   // See comments in the MicrosoftVFTableContext implementation for the details.
 
@@ -784,27 +794,43 @@ void MicrosoftCXXABI::EmitInstanceFunctionProlog(CodeGenFunction &CGF) {
   }
 }
 
-void MicrosoftCXXABI::EmitConstructorCall(CodeGenFunction &CGF,
-                                          const CXXConstructorDecl *D,
-                                          CXXCtorType Type, 
-                                          bool ForVirtualBase,
-                                          bool Delegating,
-                                          llvm::Value *This,
-                                          CallExpr::const_arg_iterator ArgBeg,
-                                          CallExpr::const_arg_iterator ArgEnd) {
+unsigned MicrosoftCXXABI::addImplicitConstructorArgs(
+    CodeGenFunction &CGF, const CXXConstructorDecl *D, CXXCtorType Type,
+    bool ForVirtualBase, bool Delegating, CallArgList &Args) {
   assert(Type == Ctor_Complete || Type == Ctor_Base);
-  llvm::Value *Callee = CGM.GetAddrOfCXXConstructor(D, Ctor_Complete);
 
-  llvm::Value *ImplicitParam = 0;
-  QualType ImplicitParamTy;
-  if (D->getParent()->getNumVBases()) {
-    ImplicitParam = llvm::ConstantInt::get(CGM.Int32Ty, Type == Ctor_Complete);
-    ImplicitParamTy = getContext().IntTy;
+  // Check if we need a 'most_derived' parameter.
+  if (!D->getParent()->getNumVBases())
+    return 0;
+
+  // Add the 'most_derived' argument second if we are variadic or last if not.
+  const FunctionProtoType *FPT = D->getType()->castAs<FunctionProtoType>();
+  llvm::Value *MostDerivedArg =
+      llvm::ConstantInt::get(CGM.Int32Ty, Type == Ctor_Complete);
+  RValue RV = RValue::get(MostDerivedArg);
+  if (MostDerivedArg) {
+    if (FPT->isVariadic())
+      Args.insert(Args.begin() + 1,
+                  CallArg(RV, getContext().IntTy, /*needscopy=*/false));
+    else
+      Args.add(RV, getContext().IntTy);
   }
 
+  return 1;  // Added one arg.
+}
+
+void MicrosoftCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
+                                         const CXXDestructorDecl *DD,
+                                         CXXDtorType Type, bool ForVirtualBase,
+                                         bool Delegating, llvm::Value *This) {
+  llvm::Value *Callee = CGM.GetAddrOfCXXDestructor(DD, Type);
+
+  if (DD->isVirtual())
+    This = adjustThisArgumentForVirtualCall(CGF, GlobalDecl(DD, Type), This);
+
   // FIXME: Provide a source location here.
-  CGF.EmitCXXMemberCall(D, SourceLocation(), Callee, ReturnValueSlot(), This,
-                        ImplicitParam, ImplicitParamTy, ArgBeg, ArgEnd);
+  CGF.EmitCXXMemberCall(DD, SourceLocation(), Callee, ReturnValueSlot(), This,
+                        /*ImplicitParam=*/0, /*ImplicitParamTy=*/QualType(), 0, 0);
 }
 
 void MicrosoftCXXABI::emitVTableDefinitions(CodeGenVTables &CGVT,
@@ -1443,9 +1469,9 @@ MicrosoftCXXABI::BuildMemberPointer(const CXXRecordDecl *RD,
       FirstField = llvm::Constant::getNullValue(CGM.VoidPtrTy);
     } else {
       SmallString<256> ThunkName;
-      int OffsetInVFTable =
-          ML.Index *
-          getContext().getTypeSizeInChars(getContext().VoidPtrTy).getQuantity();
+      CharUnits PointerWidth = getContext().toCharUnitsFromBits(
+          getContext().getTargetInfo().getPointerWidth(0));
+      uint64_t OffsetInVFTable = ML.Index * PointerWidth.getQuantity();
       llvm::raw_svector_ostream Out(ThunkName);
       getMangleContext().mangleVirtualMemPtrThunk(MD, OffsetInVFTable, Out);
       Out.flush();
@@ -1691,6 +1717,11 @@ MicrosoftCXXABI::EmitMemberDataPointerAddress(CodeGenFunction &CGF,
     Base = AdjustVirtualBase(CGF, RD, Base, VirtualBaseAdjustmentOffset,
                              VBPtrOffset);
   }
+
+  // Cast to char*.
+  Base = Builder.CreateBitCast(Base, Builder.getInt8Ty()->getPointerTo(AS));
+
+  // Apply the offset, which we assume is non-null.
   llvm::Value *Addr =
     Builder.CreateInBoundsGEP(Base, FieldOffset, "memptr.offset");
 

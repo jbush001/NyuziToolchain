@@ -10,11 +10,8 @@
 #ifndef LLD_PASSES_LAYOUT_PASS_H
 #define LLD_PASSES_LAYOUT_PASS_H
 
-#include "lld/Core/Atom.h"
 #include "lld/Core/File.h"
 #include "lld/Core/Pass.h"
-#include "lld/Core/range.h"
-#include "lld/Core/Reference.h"
 
 #include "llvm/ADT/DenseMap.h"
 
@@ -28,24 +25,18 @@ class MutableFile;
 
 /// This linker pass does the layout of the atoms. The pass is done after the
 /// order their .o files were found on the command line, then by order of the
-/// atoms (address) in the .o file.  But some atoms have a prefered location
+/// atoms (address) in the .o file.  But some atoms have a preferred location
 /// in their section (such as pinned to the start or end of the section), so
 /// the sort must take that into account too.
 class LayoutPass : public Pass {
 public:
-
-  // Compare and Sort Atoms by their ordinals
-  class CompareAtoms {
-  public:
-    explicit CompareAtoms(const LayoutPass &pass) : _layout(pass) {}
-    bool operator()(const DefinedAtom *left, const DefinedAtom *right) const;
-  private:
-    bool compare(const DefinedAtom *left, const DefinedAtom *right,
-                 std::string &reason) const;
-    const LayoutPass &_layout;
+  struct SortKey {
+    SortKey(const DefinedAtom *atom, const DefinedAtom *root, uint64_t override)
+        : _atom(atom), _root(root), _override(override) {}
+    const DefinedAtom *_atom;
+    const DefinedAtom *_root;
+    uint64_t _override;
   };
-
-  LayoutPass() : Pass(), _compareAtoms(*this) {}
 
   /// Sorts atoms in mergedFile by content type then by command line order.
   virtual void perform(std::unique_ptr<MutableFile> &mergedFile);
@@ -84,7 +75,6 @@ private:
   AtomToAtomT _followOnRoots;
 
   AtomToOrdinalT _ordinalOverrideMap;
-  CompareAtoms _compareAtoms;
 
   // Helper methods for buildFollowOnTable().
   const DefinedAtom *findAtomFollowedBy(const DefinedAtom *targetAtom);
@@ -92,13 +82,12 @@ private:
 
   void setChainRoot(const DefinedAtom *targetAtom, const DefinedAtom *root);
 
-#ifndef NDEBUG
+  std::vector<SortKey> decorate(MutableFile::DefinedAtomRange &atomRange) const;
+  void undecorate(MutableFile::DefinedAtomRange &atomRange,
+                  std::vector<SortKey> &keys) const;
+
   // Check if the follow-on graph is a correct structure. For debugging only.
   void checkFollowonChain(MutableFile::DefinedAtomRange &range);
-
-  typedef std::vector<const DefinedAtom *>::iterator DefinedAtomIter;
-  void checkTransitivity(DefinedAtomIter begin, DefinedAtomIter end) const;
-#endif
 };
 
 } // namespace lld

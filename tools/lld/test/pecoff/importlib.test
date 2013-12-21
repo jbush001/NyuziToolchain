@@ -4,35 +4,43 @@
 # RUN: yaml2obj %p/Inputs/vars-main.obj.yaml > %t.obj
 #
 # RUN: lld -flavor link /out:%t1 /subsystem:console /entry:main /opt:noref \
-# RUN:    -- %t.obj %p/Inputs/vars.lib && llvm-objdump -d %t1 | FileCheck %s
+# RUN:   -- %t.obj %p/Inputs/vars.lib
+# RUN: llvm-objdump -d %t1 | FileCheck -check-prefix=TEXT %s
+# RUN: llvm-readobj -sections %t1 | FileCheck -check-prefix=SECTION %s
 #
 # RUN: lld -flavor link /out:%t1 /subsystem:console /entry:main /opt:noref \
-# RUN:    /libpath:%p/Inputs -- %t.obj vars.lib && llvm-objdump -d %t1 \
-# RUN:    | FileCheck %s
+# RUN:   /libpath:%p/Inputs -- %t.obj vars.lib
+# RUN: llvm-objdump -d %t1 | FileCheck -check-prefix=TEXT %s
+# RUN: llvm-readobj -sections %t1 | FileCheck -check-prefix=SECTION %s
 #
 # RUN: lld -flavor link /out:%t1 /subsystem:console /entry:main /opt:noref \
-# RUN:    /libpath:%p/Inputs /defaultlib:vars.lib -- %t.obj \
-# RUN:    && llvm-objdump -d %t1 | FileCheck %s
+# RUN:   /libpath:%p/Inputs /defaultlib:vars.lib -- %t.obj
+# RUN: llvm-objdump -d %t1 | FileCheck -check-prefix=TEXT %s
+# RUN: llvm-readobj -sections %t1 | FileCheck -check-prefix=SECTION %s
 #
 # RUN: env LIB=%p/Inputs lld -flavor link /out:%t1 /subsystem:console \
-# RUN:    /opt:noref /entry:main -- %t.obj vars.lib \
-# RUN:    && llvm-objdump -d %t1 | FileCheck %s
+# RUN:   /opt:noref /entry:main -- %t.obj vars.lib
+# RUN: llvm-objdump -d %t1 | FileCheck -check-prefix=TEXT %s
+# RUN: llvm-readobj -sections %t1 | FileCheck -check-prefix=SECTION %s
 #
 # RUN: env LINK="/out:%t1 /subsystem:console /entry:main /opt:noref \
-# RUN:    -- %t.obj" lld -flavor link %p/Inputs/vars.lib \
-# RUN:    && llvm-objdump -d %t1 | FileCheck %s
+# RUN:   -- %t.obj" lld -flavor link %p/Inputs/vars.lib
+# RUN: llvm-objdump -d %t1 | FileCheck -check-prefix=TEXT %s
+# RUN: llvm-readobj -sections %t1 | FileCheck -check-prefix=SECTION %s
 
-CHECK: Disassembly of section .text:
-CHECK-NEXT: .text:
-CHECK-NEXT:     1000:       55                   pushl   %ebp
-CHECK-NEXT:     1001:       8b ec                movl    %esp, %ebp
-CHECK-NEXT:     1003:       56                   pushl   %esi
-CHECK-NEXT:     1004:       {{[0-9 a-f]+}}       calll *{{[0-9a-f]+}}
-CHECK-NEXT:     100a:       {{[0-9 a-f]+}}       movl {{[0-9a-f]+}}, %ecx
-CHECK-NEXT:     1010:       8b 31                movl    (%ecx), %esi
-CHECK-NEXT:     1012:       03 f0                addl    %eax, %esi
-CHECK-NEXT:     1014:       {{[0-9 a-f]+}}       calll *{{[0-9a-f]+}}
-CHECK-NEXT:     101a:       03 c6                addl    %esi, %eax
-CHECK-NEXT:     101c:       5e                   popl    %esi
-CHECK-NEXT:     101d:       5d                   popl    %ebp
-CHECK-NEXT:     101e:       c3                   ret
+TEXT: Disassembly of section .text:
+TEXT-NEXT: .text:
+TEXT-NEXT:     pushl   %ebp
+TEXT-NEXT:     movl    %esp, %ebp
+TEXT-NEXT:     pushl   %esi
+TEXT-NEXT:     calll   *{{[0-9]+}}
+TEXT-NEXT:     movl    {{[0-9]+}}, %ecx
+TEXT-NEXT:     movl    (%ecx), %esi
+TEXT-NEXT:     addl    %eax, %esi
+TEXT-NEXT:     calll   *{{[0-9]+}}
+TEXT-NEXT:     addl    %esi, %eax
+TEXT-NEXT:     popl    %esi
+TEXT-NEXT:     popl    %ebp
+TEXT-NEXT:     ret
+
+SECTION: Name: .idata (2E 69 64 61 74 61 00 00)

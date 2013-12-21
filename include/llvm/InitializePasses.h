@@ -73,7 +73,7 @@ void initializeArgPromotionPass(PassRegistry&);
 void initializeSampleProfileLoaderPass(PassRegistry&);
 void initializeBarrierNoopPass(PassRegistry&);
 void initializeBasicAliasAnalysisPass(PassRegistry&);
-void initializeCallGraphPass(PassRegistry&);
+void initializeCallGraphWrapperPassPass(PassRegistry &);
 void initializeBasicTTIPass(PassRegistry&);
 void initializeBlockExtractorPassPass(PassRegistry&);
 void initializeBlockFrequencyInfoPass(PassRegistry&);
@@ -266,6 +266,7 @@ void initializeLoopVectorizePass(PassRegistry&);
 void initializeSLPVectorizerPass(PassRegistry&);
 void initializeBBVectorizePass(PassRegistry&);
 void initializeMachineFunctionPrinterPassPass(PassRegistry&);
+void initializeStackMapLivenessPass(PassRegistry&);
 }
 
 #endif

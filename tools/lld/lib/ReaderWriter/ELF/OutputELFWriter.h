@@ -188,7 +188,7 @@ void OutputELFWriter<ELFT>::buildDynamicSymbolTable(const File &file) {
   // The dynamic symbol table need to be sorted earlier because the hash
   // table needs to be built using the dynamic symbol table. It would be
   // late to sort the symbols due to that in finalize. In the dynamic symbol
-  // table finalize, we call the symbol table finalize and we dont want to
+  // table finalize, we call the symbol table finalize and we don't want to
   // sort again
   _dynamicSymbolTable->sortSymbols();
 
@@ -286,12 +286,10 @@ template <class ELFT> void OutputELFWriter<ELFT>::createDefaultSections() {
   }
 
   if (_context.isDynamic()) {
-    _dynamicTable.reset(new (_alloc) DynamicTable<ELFT>(
-        _context, ".dynamic", DefaultLayout<ELFT>::ORDER_DYNAMIC));
+    _dynamicTable = std::move(_targetHandler.createDynamicTable());
     _dynamicStringTable.reset(new (_alloc) StringTable<ELFT>(
         _context, ".dynstr", DefaultLayout<ELFT>::ORDER_DYNAMIC_STRINGS, true));
-    _dynamicSymbolTable.reset(new (_alloc) DynamicSymbolTable<ELFT>(
-        _context, ".dynsym", DefaultLayout<ELFT>::ORDER_DYNAMIC_SYMBOLS));
+    _dynamicSymbolTable = std::move(_targetHandler.createDynamicSymbolTable());
     _hashTable.reset(new (_alloc) HashSection<ELFT>(
         _context, ".hash", DefaultLayout<ELFT>::ORDER_HASH));
     // Set the hash table in the dynamic symbol table so that the entries in the

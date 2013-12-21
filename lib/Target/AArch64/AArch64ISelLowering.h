@@ -113,9 +113,6 @@ namespace AArch64ISD {
     // get selected.
     WrapperSmall,
 
-    // Vector bitwise select
-    NEON_BSL,
-
     // Vector move immediate
     NEON_MOVIMM,
 
@@ -124,6 +121,14 @@ namespace AArch64ISD {
 
     // Vector FP move immediate
     NEON_FMOVIMM,
+
+    // Vector permute
+    NEON_UZP1,
+    NEON_UZP2,
+    NEON_ZIP1,
+    NEON_ZIP2,
+    NEON_TRN1,
+    NEON_TRN2,
 
     // Vector Element reverse
     NEON_REV64,
@@ -225,6 +230,8 @@ public:
                           SDLoc dl, SelectionDAG &DAG,
                           SmallVectorImpl<SDValue> &InVals) const;
 
+  bool isKnownShuffleVector(SDValue Op, SelectionDAG &DAG, SDValue &Res) const;
+
   SDValue LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG,
                             const AArch64Subtarget *ST) const;
 
@@ -299,6 +306,8 @@ public:
   SDValue LowerGlobalAddressELFLarge(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerGlobalAddressELF(SDValue Op, SelectionDAG &DAG) const;
 
+  SDValue LowerConstantPool(SDValue Op, SelectionDAG &DAG) const;
+
   SDValue LowerTLSDescCall(SDValue SymAddr, SDValue DescAddr, SDLoc DL,
                            SelectionDAG &DAG) const;
   SDValue LowerGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const;
@@ -332,6 +341,10 @@ public:
 
   virtual bool getTgtMemIntrinsic(IntrinsicInfo &Info, const CallInst &I,
                                   unsigned Intrinsic) const LLVM_OVERRIDE;
+
+protected:
+  std::pair<const TargetRegisterClass*, uint8_t>
+  findRepresentativeClass(MVT VT) const;
 
 private:
   const InstrItineraryData *Itins;

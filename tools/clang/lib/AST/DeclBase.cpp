@@ -85,6 +85,7 @@ const char *Decl::getDeclKindName() const {
 
 void Decl::setInvalidDecl(bool Invalid) {
   InvalidDecl = Invalid;
+  assert(!isa<TagDecl>(this) || !cast<TagDecl>(this)->isCompleteDefinition());
   if (Invalid && !isa<ParmVarDecl>(this)) {
     // Defensive maneuver for ill-formed code: we're likely not to make it to
     // a point where we set the access specifier, so default it to "public"
@@ -667,7 +668,7 @@ SourceLocation Decl::getBodyRBrace() const {
   return SourceLocation();
 }
 
-void Decl::CheckAccessDeclContext() const {
+bool Decl::AccessDeclContextSanity() const {
 #ifndef NDEBUG
   // Suppress this check if any of the following hold:
   // 1. this is the translation unit (and thus has no parent)
@@ -689,11 +690,12 @@ void Decl::CheckAccessDeclContext() const {
       // AS_none as access specifier.
       isa<CXXRecordDecl>(this) ||
       isa<ClassScopeFunctionSpecializationDecl>(this))
-    return;
+    return true;
 
   assert(Access != AS_none &&
          "Access specifier is AS_none inside a record decl");
 #endif
+  return true;
 }
 
 static Decl::Kind getKind(const Decl *D) { return D->getKind(); }

@@ -67,12 +67,30 @@ public:
   GnuLdOptTable() : OptTable(infoTable, llvm::array_lengthof(infoTable)){}
 };
 
+// Get the Input file magic for creating appropriate InputGraph nodes.
+error_code getFileMagic(ELFLinkingContext &ctx, StringRef path,
+                        llvm::sys::fs::file_magic &magic) {
+  error_code ec = llvm::sys::fs::identify_magic(path, magic);
+  if (ec)
+    return ec;
+  switch (magic) {
+  case llvm::sys::fs::file_magic::archive:
+  case llvm::sys::fs::file_magic::elf_relocatable:
+  case llvm::sys::fs::file_magic::elf_shared_object:
+  case llvm::sys::fs::file_magic::unknown:
+    return error_code::success();
+  default:
+    break;
+  }
+  return make_error_code(ReaderError::unknown_file_format);
+}
+
 } // namespace
 
 llvm::ErrorOr<StringRef> ELFFileNode::getPath(const LinkingContext &) const {
   if (!_isDashlPrefix)
     return _path;
-  return _elfLinkingContext.searchLibrary(_path, _libraryPaths);
+  return _elfLinkingContext.searchLibrary(_path);
 }
 
 std::string ELFFileNode::errStr(error_code errc) {
@@ -91,6 +109,16 @@ bool GnuLdDriver::linkELF(int argc, const char *argv[],
     return false;
   if (!options)
     return true;
+
+  // Register possible input file parsers.
+  options->registry().addSupportELFObjects(options->mergeCommonStrings(),
+                                           options->targetHandler());
+  options->registry().addSupportArchives(options->logInputFiles());
+  options->registry().addSupportYamlFiles();
+  options->registry().addSupportNativeObjects();
+  if (options->allowLinkWithDynamicLibraries())
+    options->registry().addSupportELFDynamicSharedObjects(
+        options->useShlibUndefines());
 
   return link(*options, diagnostics);
 }
@@ -136,30 +164,40 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
   std::stack<InputElement *> controlNodeStack;
 
   // Positional options for an Input File
-  std::vector<StringRef> searchPath;
   bool isWholeArchive = false;
   bool asNeeded = false;
   bool _outputOptionSet = false;
 
-  // Create a dynamic executable by default
-  ctx->setOutputELFType(llvm::ELF::ET_EXEC);
-  ctx->setIsStaticExecutable(false);
-  ctx->setAllowShlibUndefines(false);
-  ctx->setUseShlibUndefines(true);
-
   int index = 0;
 
-  // Process all the arguments and create Input Elements
-  for (auto inputArg : *parsedArgs) {
-    switch (inputArg->getOption().getID()) {
-    case OPT_mllvm:
-      ctx->appendLLVMOption(inputArg->getValue());
-      break;
+  // Ignore unknown arguments.
+  for (auto it = parsedArgs->filtered_begin(OPT_UNKNOWN),
+            ie = parsedArgs->filtered_end();
+       it != ie; ++it)
+    diagnostics << "warning: ignoring unknown argument: " << (*it)->getValue()
+                << "\n";
+
+  // Set sys root path.
+  if (llvm::opt::Arg *sysRootPath = parsedArgs->getLastArg(OPT_sysroot))
+    ctx->setSysroot(sysRootPath->getValue());
+
+  // Add all search paths.
+  for (auto it = parsedArgs->filtered_begin(OPT_L),
+            ie = parsedArgs->filtered_end();
+       it != ie; ++it)
+    ctx->addSearchPath((*it)->getValue());
+
+  // Figure out output kind ( -r, -static, -shared)
+  if ( llvm::opt::Arg *kind = parsedArgs->getLastArg(OPT_relocatable, OPT_static,
+                                      OPT_shared, OPT_nmagic,
+                                      OPT_omagic, OPT_no_omagic)) {
+    switch (kind->getOption().getID()) {
     case OPT_relocatable:
       ctx->setOutputELFType(llvm::ELF::ET_REL);
       ctx->setPrintRemainingUndefines(false);
       ctx->setAllowRemainingUndefines(true);
       break;
+
     case OPT_static:
       ctx->setOutputELFType(llvm::ELF::ET_EXEC);
       ctx->setIsStaticExecutable(true);
@@ -168,6 +206,36 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
       ctx->setOutputELFType(llvm::ELF::ET_DYN);
       ctx->setAllowShlibUndefines(true);
       ctx->setUseShlibUndefines(false);
+      break;
+    }
+  }
+
+  // Figure out if the output type is nmagic/omagic
+  if ( llvm::opt::Arg *kind = parsedArgs->getLastArg(OPT_nmagic, OPT_omagic,
+                                                     OPT_no_omagic)) {
+    switch (kind->getOption().getID()) {
+    case OPT_nmagic:
+      ctx->setOutputMagic(ELFLinkingContext::OutputMagic::NMAGIC);
+      ctx->setIsStaticExecutable(true);
+      break;
+
+    case OPT_omagic:
+      ctx->setOutputMagic(ELFLinkingContext::OutputMagic::OMAGIC);
+      ctx->setIsStaticExecutable(true);
+      break;
+
+    case OPT_no_omagic:
+      ctx->setOutputMagic(ELFLinkingContext::OutputMagic::DEFAULT);
+      ctx->setNoAllowDynamicLibraries();
+      break;
+    }
+  }
+
+  // Process all the arguments and create Input Elements
+  for (auto inputArg : *parsedArgs) {
+    switch (inputArg->getOption().getID()) {
+    case OPT_mllvm:
+      ctx->appendLLVMOption(inputArg->getValue());
       break;
     case OPT_e:
       ctx->setEntrySymbolName(inputArg->getValue());
@@ -206,21 +274,6 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
       ctx->setInterpreter(inputArg->getValue());
       break;
 
-    case OPT_nmagic:
-      ctx->setOutputMagic(ELFLinkingContext::OutputMagic::NMAGIC);
-      ctx->setIsStaticExecutable(true);
-      break;
-
-    case OPT_omagic:
-      ctx->setOutputMagic(ELFLinkingContext::OutputMagic::OMAGIC);
-      ctx->setIsStaticExecutable(true);
-      break;
-
-    case OPT_no_omagic:
-      ctx->setOutputMagic(ELFLinkingContext::OutputMagic::DEFAULT);
-      ctx->setNoAllowDynamicLibraries();
-      break;
-
     case OPT_u:
       ctx->addInitialUndefinedSymbol(inputArg->getValue());
       break;
@@ -240,17 +293,17 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
     case OPT_no_whole_archive:
       isWholeArchive = false;
       break;
+
     case OPT_whole_archive:
       isWholeArchive = true;
       break;
+
     case OPT_as_needed:
       asNeeded = true;
       break;
+
     case OPT_no_as_needed:
       asNeeded = false;
-      break;
-    case OPT_L:
-      searchPath.push_back(inputArg->getValue());
       break;
 
     case OPT_start_group: {
@@ -268,9 +321,47 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
 
     case OPT_INPUT:
     case OPT_l: {
-      std::unique_ptr<InputElement> inputFile(new ELFFileNode(
-          *ctx, inputArg->getValue(), searchPath, index++, isWholeArchive,
-          asNeeded, inputArg->getOption().getID() == OPT_l));
+      bool isDashlPrefix = (inputArg->getOption().getID() == OPT_l);
+      bool isELFFileNode = true;
+      StringRef userPath = inputArg->getValue();
+      std::string resolvedInputPath = userPath;
+
+      // If the path was referred to by using a -l argument, let's search
+      // for the file in the search path.
+      if (isDashlPrefix) {
+        ErrorOr<StringRef> resolvedPath = ctx->searchLibrary(userPath);
+        if (!resolvedPath) {
+          diagnostics << " Unable to find library -l" << userPath << "\n";
+          return false;
+        }
+        resolvedInputPath = resolvedPath->str();
+      }
+      // FIXME: Calling getFileMagic() is expensive.  It would be better to
+      // wire up the LdScript parser into the registry.
+      llvm::sys::fs::file_magic magic = llvm::sys::fs::file_magic::unknown;
+      error_code ec = getFileMagic(*ctx, resolvedInputPath, magic);
+      if (ec) {
+        diagnostics << "lld: unknown input file format for file " << userPath
+                    << "\n";
+        return false;
+      }
+      if ((!userPath.endswith(".objtxt")) &&
+          (magic == llvm::sys::fs::file_magic::unknown))
+        isELFFileNode = false;
+      FileNode *inputNode = nullptr;
+      if (isELFFileNode)
+        inputNode = new ELFFileNode(*ctx, userPath, index++, isWholeArchive,
+                                    asNeeded, isDashlPrefix);
+      else {
+        inputNode = new ELFGNULdScript(*ctx, resolvedInputPath, index++);
+        ec = inputNode->parse(*ctx, diagnostics);
+        if (ec) {
+          diagnostics << userPath << ": Error parsing linker script"
+                      << "\n";
+          return false;
+        }
+      }
+      std::unique_ptr<InputElement> inputFile(inputNode);
       if (controlNodeStack.empty())
         inputGraph->addInputElement(std::move(inputFile));
       else
@@ -294,10 +385,6 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
         ctx->addRpathLink(path);
       break;
     }
-
-    case OPT_sysroot:
-      ctx->setSysroot(inputArg->getValue());
-      break;
 
     case OPT_soname:
       ctx->setSharedObjectName(inputArg->getValue());
@@ -335,6 +422,9 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
   // Validate the combination of options used.
   if (!ctx->validate(diagnostics))
     return false;
+
+  // Normalize the InputGraph.
+  inputGraph->normalize();
 
   ctx->setInputGraph(std::move(inputGraph));
 

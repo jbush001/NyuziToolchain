@@ -37,12 +37,12 @@
 #include <vector>
 
 using std::vector;
-using lld::coff::COFFAbsoluteAtom;
-using lld::coff::COFFBSSAtom;
-using lld::coff::COFFDefinedAtom;
-using lld::coff::COFFDefinedFileAtom;
-using lld::coff::COFFReference;
-using lld::coff::COFFUndefinedAtom;
+using lld::pecoff::COFFAbsoluteAtom;
+using lld::pecoff::COFFBSSAtom;
+using lld::pecoff::COFFDefinedAtom;
+using lld::pecoff::COFFDefinedFileAtom;
+using lld::pecoff::COFFReference;
+using lld::pecoff::COFFUndefinedAtom;
 using llvm::object::coff_aux_section_definition;
 using llvm::object::coff_aux_weak_external;
 using llvm::object::coff_relocation;
@@ -58,11 +58,13 @@ private:
   typedef vector<const coff_symbol *> SymbolVectorT;
   typedef std::map<const coff_section *, SymbolVectorT> SectionToSymbolsT;
   typedef std::map<const StringRef, Atom *> SymbolNameToAtomT;
-  typedef std::map<const coff_section *, vector<COFFDefinedFileAtom *> >
+  typedef std::map<const coff_section *, vector<COFFDefinedFileAtom *>>
   SectionToAtomsT;
 
 public:
-  FileCOFF(const LinkingContext &context, std::unique_ptr<MemoryBuffer> mb,
+  typedef const std::map<std::string, std::string> StringMap;
+
+  FileCOFF(std::unique_ptr<MemoryBuffer> mb, StringMap &altNames,
            error_code &ec);
 
   virtual const atom_collection<DefinedAtom> &defined() const {
@@ -81,8 +83,6 @@ public:
     return _absoluteAtoms;
   }
 
-  virtual const LinkingContext &getLinkingContext() const { return _context; }
-
   StringRef getLinkerDirectives() const { return _directives; }
 
 private:
@@ -95,16 +95,19 @@ private:
                                   vector<const UndefinedAtom *> &result);
 
   error_code createDefinedSymbols(const SymbolVectorT &symbols,
+                                  StringMap &altNames,
                                   vector<const DefinedAtom *> &result);
 
   error_code cacheSectionAttributes();
 
   error_code
   AtomizeDefinedSymbolsInSection(const coff_section *section,
+                                 StringMap &altNames,
                                  vector<const coff_symbol *> &symbols,
                                  vector<COFFDefinedFileAtom *> &atoms);
 
   error_code AtomizeDefinedSymbols(SectionToSymbolsT &definedSymbols,
+                                   StringMap &altNames,
                                    vector<const DefinedAtom *> &definedAtoms);
 
   error_code findAtomAt(const coff_section *section, uint32_t targetAddress,
@@ -152,11 +155,11 @@ private:
   // A sorted map to find an atom from a section and an offset within
   // the section.
   std::map<const coff_section *,
-           std::map<uint32_t, std::vector<COFFDefinedAtom *> > >
+           std::map<uint32_t, std::vector<COFFDefinedAtom *>>>
   _definedAtomLocations;
 
   mutable llvm::BumpPtrAllocator _alloc;
-  const LinkingContext &_context;
+  uint64_t _ordinal;
 };
 
 class BumpPtrStringSaver : public llvm::cl::StringSaver {
@@ -170,34 +173,6 @@ public:
 
 private:
   llvm::BumpPtrAllocator _alloc;
-};
-
-class ReaderCOFF : public Reader {
-public:
-  explicit ReaderCOFF(PECOFFLinkingContext &context)
-      : Reader(context), _PECOFFLinkingContext(context) {}
-
-  error_code parseFile(std::unique_ptr<MemoryBuffer> &mb,
-                       std::vector<std::unique_ptr<File> > &result) const;
-
-private:
-  error_code handleDirectiveSection(StringRef directives) const;
-
-  ErrorOr<std::string>
-  writeResToTemporaryFile(std::unique_ptr<MemoryBuffer> mb) const;
-
-  ErrorOr<std::string>
-  convertResourceFileToCOFF(std::unique_ptr<MemoryBuffer> mb) const;
-
-  error_code convertAndParseResourceFile(
-      std::unique_ptr<MemoryBuffer> &mb,
-      std::vector<std::unique_ptr<File> > &result) const;
-
-  error_code parseCOFFFile(std::unique_ptr<MemoryBuffer> &mb,
-                           std::vector<std::unique_ptr<File> > &result) const;
-
-  PECOFFLinkingContext &_PECOFFLinkingContext;
-  mutable BumpPtrStringSaver _stringSaver;
 };
 
 // Converts the COFF symbol attribute to the LLD's atom attribute.
@@ -277,9 +252,9 @@ DefinedAtom::Merge getMerge(const coff_aux_section_definition *auxsym) {
   }
 }
 
-FileCOFF::FileCOFF(const LinkingContext &context,
-                   std::unique_ptr<MemoryBuffer> mb, error_code &ec)
-    : File(mb->getBufferIdentifier(), kindObject), _context(context) {
+FileCOFF::FileCOFF(std::unique_ptr<MemoryBuffer> mb, StringMap &altNames,
+                   error_code &ec)
+    : File(mb->getBufferIdentifier(), kindObject), _ordinal(0) {
   OwningPtr<llvm::object::Binary> bin;
   ec = llvm::object::createBinary(mb.release(), bin);
   if (ec)
@@ -302,7 +277,7 @@ FileCOFF::FileCOFF(const LinkingContext &context,
   createAbsoluteAtoms(symbols, _absoluteAtoms._atoms);
   if ((ec = createUndefinedAtoms(symbols, _undefinedAtoms._atoms)))
     return;
-  if ((ec = createDefinedSymbols(symbols, _definedAtoms._atoms)))
+  if ((ec = createDefinedSymbols(symbols, altNames, _definedAtoms._atoms)))
     return;
 
   if ((ec = addRelocationReferenceToAtoms()))
@@ -425,6 +400,7 @@ FileCOFF::createUndefinedAtoms(const SymbolVectorT &symbols,
 /// the other two, because in order to create the atom for the defined symbol
 /// we need to know the adjacent symbols.
 error_code FileCOFF::createDefinedSymbols(const SymbolVectorT &symbols,
+                                          StringMap &altNames,
                                           vector<const DefinedAtom *> &result) {
   // A defined atom can be merged if its section attribute allows its contents
   // to be merged. In COFF, it's not very easy to get the section attribute
@@ -457,7 +433,7 @@ error_code FileCOFF::createDefinedSymbols(const SymbolVectorT &symbols,
       uint32_t size = sym->Value;
       auto *atom = new (_alloc)
           COFFBSSAtom(*this, name, getScope(sym), DefinedAtom::permRW_,
-                      DefinedAtom::mergeAsWeakAndAddressUsed, size, 0);
+                      DefinedAtom::mergeAsWeakAndAddressUsed, size, _ordinal++);
       result.push_back(atom);
       continue;
     }
@@ -497,7 +473,7 @@ error_code FileCOFF::createDefinedSymbols(const SymbolVectorT &symbols,
   }
 
   // Atomize the defined symbols.
-  if (error_code ec = AtomizeDefinedSymbols(definedSymbols, result))
+  if (error_code ec = AtomizeDefinedSymbols(definedSymbols, altNames, result))
     return ec;
 
   return error_code::success();
@@ -550,6 +526,7 @@ error_code FileCOFF::cacheSectionAttributes() {
 /// assumed to have been defined in the \p section.
 error_code
 FileCOFF::AtomizeDefinedSymbolsInSection(const coff_section *section,
+                                         StringMap &altNames,
                                          vector<const coff_symbol *> &symbols,
                                          vector<COFFDefinedFileAtom *> &atoms) {
   // Sort symbols by position.
@@ -565,7 +542,6 @@ FileCOFF::AtomizeDefinedSymbolsInSection(const coff_section *section,
   StringRef sectionName;
   if (error_code ec = _obj->getSectionName(section, sectionName))
     return ec;
-  uint64_t ordinal = -1;
 
   // BSS section does not have contents. If this is the BSS section, create
   // COFFBSSAtom instead of COFFDefinedAtom.
@@ -576,7 +552,7 @@ FileCOFF::AtomizeDefinedSymbolsInSection(const coff_section *section,
                                      : si[1]->Value - sym->Value;
       auto *atom = new (_alloc) COFFBSSAtom(
           *this, _symbolName[sym], getScope(sym), getPermissions(section),
-          DefinedAtom::mergeAsWeakAndAddressUsed, size, ++ordinal);
+          DefinedAtom::mergeAsWeakAndAddressUsed, size, _ordinal++);
       atoms.push_back(atom);
       _symbolAtom[sym] = atom;
     }
@@ -587,16 +563,10 @@ FileCOFF::AtomizeDefinedSymbolsInSection(const coff_section *section,
   if (error_code ec = _obj->getSectionContents(section, secData))
     return ec;
 
-  // We do not support debug information yet. We could keep data in ".debug$S"
-  // section in the resultant binary by copying as opaque bytes, but it would
-  // make the binary hard to debug because of extraneous data. So we'll skip
-  // the debug info.
-  if (sectionName == ".debug$S")
-    return error_code::success();
-
-  // A section with IMAGE_SCN_LNK_REMOVE attribute will never become
+  // A section with IMAGE_SCN_LNK_{INFO,REMOVE} attribute will never become
   // a part of the output image. That's what the COFF spec says.
-  if (section->Characteristics & llvm::COFF::IMAGE_SCN_LNK_REMOVE)
+  if (section->Characteristics & llvm::COFF::IMAGE_SCN_LNK_INFO ||
+      section->Characteristics & llvm::COFF::IMAGE_SCN_LNK_REMOVE)
     return error_code::success();
 
   DefinedAtom::ContentType type = getContentType(section);
@@ -606,9 +576,9 @@ FileCOFF::AtomizeDefinedSymbolsInSection(const coff_section *section,
   // Create an atom for the entire section.
   if (symbols.empty()) {
     ArrayRef<uint8_t> data(secData.data(), secData.size());
-    auto *atom = new (_alloc)
-        COFFDefinedAtom(*this, "", sectionName, Atom::scopeTranslationUnit,
-                        type, isComdat, perms, _merge[section], data, 0);
+    auto *atom = new (_alloc) COFFDefinedAtom(
+        *this, "", sectionName, Atom::scopeTranslationUnit, type, isComdat,
+        perms, _merge[section], data, _ordinal++);
     atoms.push_back(atom);
     _definedAtomLocations[section][0].push_back(atom);
     return error_code::success();
@@ -621,7 +591,7 @@ FileCOFF::AtomizeDefinedSymbolsInSection(const coff_section *section,
     ArrayRef<uint8_t> data(secData.data(), size);
     auto *atom = new (_alloc) COFFDefinedAtom(
         *this, "", sectionName, Atom::scopeTranslationUnit, type, isComdat,
-        perms, _merge[section], data, ++ordinal);
+        perms, _merge[section], data, _ordinal++);
     atoms.push_back(atom);
     _definedAtomLocations[section][0].push_back(atom);
   }
@@ -631,10 +601,20 @@ FileCOFF::AtomizeDefinedSymbolsInSection(const coff_section *section,
     // if this is the last symbol, take up the remaining data.
     const uint8_t *end = (si + 1 == se) ? secData.data() + secData.size()
                                         : secData.data() + (*(si + 1))->Value;
+    auto pos = altNames.find(_symbolName[*si]);
+    if (pos != altNames.end()) {
+      auto *atom = new (_alloc) COFFDefinedAtom(
+          *this, pos->second, sectionName, getScope(*si), type, isComdat, perms,
+          DefinedAtom::mergeAsWeak, ArrayRef<uint8_t>(), _ordinal++);
+      atoms.push_back(atom);
+      _symbolAtom[*si] = atom;
+      _definedAtomLocations[section][(*si)->Value].push_back(atom);
+    }
+
     ArrayRef<uint8_t> data(start, end);
     auto *atom = new (_alloc) COFFDefinedAtom(
         *this, _symbolName[*si], sectionName, getScope(*si), type, isComdat,
-        perms, _merge[section], data, ++ordinal);
+        perms, _merge[section], data, _ordinal++);
     atoms.push_back(atom);
     _symbolAtom[*si] = atom;
     _definedAtomLocations[section][(*si)->Value].push_back(atom);
@@ -648,6 +628,7 @@ FileCOFF::AtomizeDefinedSymbolsInSection(const coff_section *section,
 
 error_code
 FileCOFF::AtomizeDefinedSymbols(SectionToSymbolsT &definedSymbols,
+                                StringMap &altNames,
                                 vector<const DefinedAtom *> &definedAtoms) {
   // For each section, make atoms for all the symbols defined in the
   // section, and append the atoms to the result objects.
@@ -655,7 +636,8 @@ FileCOFF::AtomizeDefinedSymbols(SectionToSymbolsT &definedSymbols,
     const coff_section *section = i.first;
     vector<const coff_symbol *> &symbols = i.second;
     vector<COFFDefinedFileAtom *> atoms;
-    if (error_code ec = AtomizeDefinedSymbolsInSection(section, symbols, atoms))
+    if (error_code ec =
+            AtomizeDefinedSymbolsInSection(section, altNames, symbols, atoms))
       return ec;
 
     // Connect atoms with layout-before/layout-after edges.
@@ -808,126 +790,6 @@ error_code FileCOFF::maybeReadLinkerDirectives() {
   return error_code::success();
 }
 
-error_code
-ReaderCOFF::parseFile(std::unique_ptr<MemoryBuffer> &mb,
-                      std::vector<std::unique_ptr<File> > &result) const {
-  StringRef magic(mb->getBufferStart(), mb->getBufferSize());
-
-  // The input file should be a resource file, an archive file, a regular COFF
-  // file, or an import library member file. Try to parse in that order. If
-  // the input file does not start with a known magic, parseCOFFImportLibrary
-  // will return an error object.
-  llvm::sys::fs::file_magic fileType = llvm::sys::fs::identify_magic(magic);
-
-  if (fileType == llvm::sys::fs::file_magic::windows_resource)
-    return convertAndParseResourceFile(mb, result);
-  if (fileType == llvm::sys::fs::file_magic::coff_import_library)
-    return lld::coff::parseCOFFImportLibrary(_context, mb, result);
-  return parseCOFFFile(mb, result);
-}
-
-// Interpret the contents of .drectve section. If exists, the section contains
-// a string containing command line options. The linker is expected to
-// interpret the options as if they were given via the command line.
-//
-// The section mainly contains /defaultlib (-l in Unix), but can contain any
-// options as long as they are valid.
-error_code ReaderCOFF::handleDirectiveSection(StringRef directives) const {
-  DEBUG(llvm::dbgs() << ".drectve: " << directives << "\n");
-
-  // Split the string into tokens, as the shell would do for argv.
-  SmallVector<const char *, 16> tokens;
-  tokens.push_back("link"); // argv[0] is the command name. Will be ignored.
-  llvm::cl::TokenizeWindowsCommandLine(directives, _stringSaver, tokens);
-  tokens.push_back(nullptr);
-
-  // Calls the command line parser to interpret the token string as if they
-  // were given via the command line.
-  int argc = tokens.size() - 1;
-  const char **argv = &tokens[0];
-  std::string errorMessage;
-  llvm::raw_string_ostream stream(errorMessage);
-  bool parseFailed = !WinLinkDriver::parse(argc, argv, _PECOFFLinkingContext,
-                                           stream, /*isDirective*/ true);
-  stream.flush();
-
-  // Print error message if error.
-  if (parseFailed) {
-    llvm::errs() << "Failed to parse '" << directives << "'\n";
-    return make_error_code(llvm::object::object_error::invalid_file_type);
-  }
-  if (!errorMessage.empty()) {
-    llvm::errs() << "lld warning: " << errorMessage << "\n";
-  }
-  return error_code::success();
-}
-
-ErrorOr<std::string>
-ReaderCOFF::writeResToTemporaryFile(std::unique_ptr<MemoryBuffer> mb) const {
-  // Get a temporary file path for .res file.
-  SmallString<128> tempFilePath;
-  if (error_code ec =
-          llvm::sys::fs::createTemporaryFile("tmp", "res", tempFilePath))
-    return ec;
-
-  // Write the memory buffer contents to .res file, so that we can run
-  // cvtres.exe on it.
-  OwningPtr<llvm::FileOutputBuffer> buffer;
-  if (error_code ec = llvm::FileOutputBuffer::create(
-          tempFilePath.str(), mb->getBufferSize(), buffer))
-    return ec;
-  memcpy(buffer->getBufferStart(), mb->getBufferStart(), mb->getBufferSize());
-  if (error_code ec = buffer->commit())
-    return ec;
-
-  // Convert SmallString -> StringRef -> std::string.
-  return tempFilePath.str().str();
-}
-
-ErrorOr<std::string>
-ReaderCOFF::convertResourceFileToCOFF(std::unique_ptr<MemoryBuffer> mb) const {
-  // Write the resource file to a temporary file.
-  ErrorOr<std::string> inFilePath = writeResToTemporaryFile(std::move(mb));
-  if (!inFilePath)
-    return error_code(inFilePath);
-  llvm::FileRemover inFileRemover(*inFilePath);
-
-  // Create an output file path.
-  SmallString<128> outFilePath;
-  if (error_code ec =
-          llvm::sys::fs::createTemporaryFile("tmp", "obj", outFilePath))
-    return ec;
-  std::string outFileArg = ("/out:" + outFilePath).str();
-
-  // Construct CVTRES.EXE command line and execute it.
-  std::string program = "cvtres.exe";
-  std::string programPath = llvm::sys::FindProgramByName(program);
-  if (programPath.empty()) {
-    llvm::errs() << "Unable to find " << program << " in PATH\n";
-    return llvm::errc::broken_pipe;
-  }
-  std::vector<const char *> args;
-  args.push_back(programPath.c_str());
-  args.push_back("/machine:x86");
-  args.push_back("/readonly");
-  args.push_back("/nologo");
-  args.push_back(outFileArg.c_str());
-  args.push_back(inFilePath->c_str());
-  args.push_back(nullptr);
-
-  DEBUG({
-    for (const char **p = &args[0]; *p; ++p)
-      llvm::dbgs() << *p << " ";
-    llvm::dbgs() << "\n";
-  });
-
-  if (llvm::sys::ExecuteAndWait(programPath.c_str(), &args[0]) != 0) {
-    llvm::errs() << program << " failed\n";
-    return llvm::errc::broken_pipe;
-  }
-  return outFilePath.str().str();
-}
-
 // Convert .res file to .coff file and then parse it. Resource file is a file
 // containing various types of data, such as icons, translation texts,
 // etc. "cvtres.exe" command reads an RC file to create a COFF file which
@@ -935,56 +797,227 @@ ReaderCOFF::convertResourceFileToCOFF(std::unique_ptr<MemoryBuffer> mb) const {
 //
 // The linker is not capable to handle RC files directly. Instead, it runs
 // cvtres.exe on RC files and then then link its outputs.
-error_code ReaderCOFF::convertAndParseResourceFile(
-    std::unique_ptr<MemoryBuffer> &mb,
-    std::vector<std::unique_ptr<File> > &result) const {
-  // Convert an RC to a COFF
-  ErrorOr<std::string> coffFilePath = convertResourceFileToCOFF(std::move(mb));
-  if (!coffFilePath)
-    return error_code(coffFilePath);
-  llvm::FileRemover coffFileRemover(*coffFilePath);
+class ResourceFileReader : public Reader {
+public:
+  virtual bool canParse(file_magic magic, StringRef ext,
+                        const MemoryBuffer &) const {
+    return (magic == llvm::sys::fs::file_magic::windows_resource);
+  }
 
-  // Read and parse the COFF
-  OwningPtr<MemoryBuffer> opmb;
-  if (error_code ec = MemoryBuffer::getFile(*coffFilePath, opmb))
-    return ec;
-  std::unique_ptr<MemoryBuffer> newmb(opmb.take());
-  return parseCOFFFile(newmb, result);
-}
+  virtual error_code
+  parseFile(std::unique_ptr<MemoryBuffer> &mb, const class Registry &,
+            std::vector<std::unique_ptr<File>> &result) const {
+    // Convert RC file to COFF
+    ErrorOr<std::string> coffPath = convertResourceFileToCOFF(std::move(mb));
+    if (!coffPath)
+      return error_code(coffPath);
+    llvm::FileRemover coffFileRemover(*coffPath);
 
-error_code
-ReaderCOFF::parseCOFFFile(std::unique_ptr<MemoryBuffer> &mb,
-                          std::vector<std::unique_ptr<File> > &result) const {
-  // Parse the memory buffer as PECOFF file.
-  error_code ec;
-  std::unique_ptr<FileCOFF> file(new FileCOFF(_context, std::move(mb), ec));
-  if (ec)
-    return ec;
+    // Read and parse the COFF
+    OwningPtr<MemoryBuffer> opmb;
+    if (error_code ec = MemoryBuffer::getFile(*coffPath, opmb))
+      return ec;
+    std::unique_ptr<MemoryBuffer> newmb(opmb.take());
+    error_code ec;
+    FileCOFF::StringMap emptyMap;
+    std::unique_ptr<FileCOFF> file(
+        new FileCOFF(std::move(newmb), emptyMap, ec));
+    if (ec)
+      return ec;
+    result.push_back(std::move(file));
+    return error_code::success();
+  }
 
-  DEBUG({
-    llvm::dbgs() << "Defined atoms:\n";
-    for (const auto &atom : file->defined()) {
-      llvm::dbgs() << "  " << atom->name() << "\n";
-      for (const Reference *ref : *atom)
-        llvm::dbgs() << "    @" << ref->offsetInAtom() << " -> "
-                     << ref->target()->name() << "\n";
-    }
-  });
-
-  // Interpret .drectve section if the section has contents.
-  StringRef directives = file->getLinkerDirectives();
-  if (!directives.empty())
-    if (error_code ec = handleDirectiveSection(directives))
+private:
+  static ErrorOr<std::string>
+  writeResToTemporaryFile(std::unique_ptr<MemoryBuffer> mb) {
+    // Get a temporary file path for .res file.
+    SmallString<128> tempFilePath;
+    if (error_code ec =
+            llvm::sys::fs::createTemporaryFile("tmp", "res", tempFilePath))
       return ec;
 
-  result.push_back(std::move(file));
-  return error_code::success();
-}
+    // Write the memory buffer contents to .res file, so that we can run
+    // cvtres.exe on it.
+    OwningPtr<llvm::FileOutputBuffer> buffer;
+    if (error_code ec = llvm::FileOutputBuffer::create(
+            tempFilePath.str(), mb->getBufferSize(), buffer))
+      return ec;
+    memcpy(buffer->getBufferStart(), mb->getBufferStart(), mb->getBufferSize());
+    if (error_code ec = buffer->commit())
+      return ec;
+
+    // Convert SmallString -> StringRef -> std::string.
+    return tempFilePath.str().str();
+  }
+
+  static ErrorOr<std::string>
+  convertResourceFileToCOFF(std::unique_ptr<MemoryBuffer> mb) {
+    // Write the resource file to a temporary file.
+    ErrorOr<std::string> inFilePath = writeResToTemporaryFile(std::move(mb));
+    if (!inFilePath)
+      return error_code(inFilePath);
+    llvm::FileRemover inFileRemover(*inFilePath);
+
+    // Create an output file path.
+    SmallString<128> outFilePath;
+    if (error_code ec =
+            llvm::sys::fs::createTemporaryFile("tmp", "obj", outFilePath))
+      return ec;
+    std::string outFileArg = ("/out:" + outFilePath).str();
+
+    // Construct CVTRES.EXE command line and execute it.
+    std::string program = "cvtres.exe";
+    std::string programPath = llvm::sys::FindProgramByName(program);
+    if (programPath.empty()) {
+      llvm::errs() << "Unable to find " << program << " in PATH\n";
+      return llvm::errc::broken_pipe;
+    }
+    std::vector<const char *> args;
+    args.push_back(programPath.c_str());
+    args.push_back("/machine:x86");
+    args.push_back("/readonly");
+    args.push_back("/nologo");
+    args.push_back(outFileArg.c_str());
+    args.push_back(inFilePath->c_str());
+    args.push_back(nullptr);
+
+    DEBUG({
+      for (const char **p = &args[0]; *p; ++p)
+        llvm::dbgs() << *p << " ";
+      llvm::dbgs() << "\n";
+    });
+
+    if (llvm::sys::ExecuteAndWait(programPath.c_str(), &args[0]) != 0) {
+      llvm::errs() << program << " failed\n";
+      return llvm::errc::broken_pipe;
+    }
+    return outFilePath.str().str();
+  }
+};
+
+class COFFObjectReader : public Reader {
+public:
+  COFFObjectReader(PECOFFLinkingContext &ctx) : _context(ctx) {}
+
+  virtual bool canParse(file_magic magic, StringRef ext,
+                        const MemoryBuffer &) const {
+    return (magic == llvm::sys::fs::file_magic::coff_object);
+  }
+
+  virtual error_code
+  parseFile(std::unique_ptr<MemoryBuffer> &mb, const Registry &registry,
+            std::vector<std::unique_ptr<File>> &result) const {
+    // Parse the memory buffer as PECOFF file.
+    error_code ec;
+    std::unique_ptr<FileCOFF> file(
+        new FileCOFF(std::move(mb), _context.alternateNames(), ec));
+    if (ec)
+      return ec;
+
+    // Interpret .drectve section if the section has contents.
+    StringRef directives = file->getLinkerDirectives();
+    if (!directives.empty())
+      if (error_code ec2 = handleDirectiveSection(registry, directives))
+        return ec2;
+
+    result.push_back(std::move(file));
+    return error_code::success();
+  }
+
+private:
+  // Interpret the contents of .drectve section. If exists, the section contains
+  // a string containing command line options. The linker is expected to
+  // interpret the options as if they were given via the command line.
+  //
+  // The section mainly contains /defaultlib (-l in Unix), but can contain any
+  // options as long as they are valid.
+  error_code handleDirectiveSection(const Registry &registry,
+                                    StringRef directives) const {
+    DEBUG(llvm::dbgs() << ".drectve: " << directives << "\n");
+
+    // Split the string into tokens, as the shell would do for argv.
+    SmallVector<const char *, 16> tokens;
+    tokens.push_back("link"); // argv[0] is the command name. Will be ignored.
+    llvm::cl::TokenizeWindowsCommandLine(directives, _stringSaver, tokens);
+    tokens.push_back(nullptr);
+
+    // Calls the command line parser to interpret the token string as if they
+    // were given via the command line.
+    int argc = tokens.size() - 1;
+    const char **argv = &tokens[0];
+    std::string errorMessage;
+    llvm::raw_string_ostream stream(errorMessage);
+    bool parseFailed = !WinLinkDriver::parse(argc, argv, _context, stream,
+                                             /*isDirective*/ true);
+    stream.flush();
+    // Print error message if error.
+    if (parseFailed) {
+      llvm::errs() << "Failed to parse '" << directives << "'\n"
+                   << "Reason: " << errorMessage;
+      return make_error_code(llvm::object::object_error::invalid_file_type);
+    }
+    if (!errorMessage.empty()) {
+      llvm::errs() << "lld warning: " << errorMessage << "\n";
+    }
+    return error_code::success();
+  }
+
+  PECOFFLinkingContext &_context;
+  mutable BumpPtrStringSaver _stringSaver;
+};
+
+using namespace llvm::COFF;
+
+const Registry::KindStrings kindStringsI386[] = {
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_I386_ABSOLUTE),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_I386_DIR16),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_I386_REL16),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_I386_DIR32),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_I386_DIR32NB),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_I386_SEG12),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_I386_SECTION),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_I386_SECREL),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_I386_TOKEN),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_I386_SECREL7),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_I386_REL32),
+  LLD_KIND_STRING_END
+};
+
+const Registry::KindStrings kindStringsAMD64[] = {
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_ABSOLUTE),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_ADDR64),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_ADDR32),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_ADDR32NB),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_REL32),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_REL32_1),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_REL32_2),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_REL32_3),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_REL32_4),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_REL32_5),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_SECTION),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_SECREL),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_SECREL7),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_TOKEN),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_SREL32),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_PAIR),
+  LLD_KIND_STRING_ENTRY(IMAGE_REL_AMD64_SSPAN32),
+  LLD_KIND_STRING_END
+};
 
 } // end namespace anonymous
 
 namespace lld {
-std::unique_ptr<Reader> createReaderPECOFF(PECOFFLinkingContext &context) {
-  return std::unique_ptr<Reader>(new ReaderCOFF(context));
+
+void Registry::addSupportCOFFObjects(PECOFFLinkingContext &ctx) {
+  add(std::unique_ptr<Reader>(new COFFObjectReader(ctx)));
+  addKindTable(Reference::KindNamespace::COFF, Reference::KindArch::x86,
+               kindStringsI386);
+  addKindTable(Reference::KindNamespace::COFF, Reference::KindArch::x86_64,
+               kindStringsAMD64);
+}
+
+void Registry::addSupportWindowsResourceFiles() {
+  add(std::unique_ptr<Reader>(new ResourceFileReader()));
 }
 }

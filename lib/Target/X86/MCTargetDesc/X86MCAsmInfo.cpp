@@ -65,6 +65,12 @@ X86MCAsmInfoDarwin::X86MCAsmInfoDarwin(const Triple &T) {
 
   // Exceptions handling
   ExceptionsType = ExceptionHandling::DwarfCFI;
+
+  // old assembler lacks some directives
+  // FIXME: this should really be a check on the assembler characteristics
+  // rather than OS version
+  if (T.isMacOSX() && T.isMacOSXVersionLT(10, 6))
+    HasWeakDefCanBeHiddenDirective = false;
 }
 
 X86_64MCAsmInfoDarwin::X86_64MCAsmInfoDarwin(const Triple &Triple)
@@ -88,8 +94,6 @@ X86ELFMCAsmInfo::X86ELFMCAsmInfo(const Triple &T) {
   AssemblerDialect = AsmWriterFlavor;
 
   TextAlignFillValue = 0x90;
-
-  PrivateGlobalPrefix = ".L";
 
   // Set up DWARF directives
   HasLEB128 = true;  // Target asm supports leb128 directives (little-endian)
@@ -128,8 +132,9 @@ void X86MCAsmInfoMicrosoft::anchor() { }
 
 X86MCAsmInfoMicrosoft::X86MCAsmInfoMicrosoft(const Triple &Triple) {
   if (Triple.getArch() == Triple::x86_64) {
-    GlobalPrefix = "";
+    GlobalPrefix = '\0';
     PrivateGlobalPrefix = ".L";
+    HasMicrosoftFastStdCallMangling = false;
   }
 
   AssemblerDialect = AsmWriterFlavor;
@@ -143,8 +148,9 @@ void X86MCAsmInfoGNUCOFF::anchor() { }
 
 X86MCAsmInfoGNUCOFF::X86MCAsmInfoGNUCOFF(const Triple &Triple) {
   if (Triple.getArch() == Triple::x86_64) {
-    GlobalPrefix = "";
+    GlobalPrefix = '\0';
     PrivateGlobalPrefix = ".L";
+    HasMicrosoftFastStdCallMangling = false;
   }
 
   AssemblerDialect = AsmWriterFlavor;

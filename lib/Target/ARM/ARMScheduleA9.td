@@ -1905,7 +1905,7 @@ def A9UnitALU : ProcResource<2>;
 def A9UnitMul : ProcResource<1> { let Super = A9UnitALU; }
 def A9UnitAGU : ProcResource<1>;
 def A9UnitLS  : ProcResource<1>;
-def A9UnitFP  : ProcResource<1> { let BufferSize = 0; }
+def A9UnitFP  : ProcResource<1> { let BufferSize = 1; }
 def A9UnitB   : ProcResource<1>;
 
 //===----------------------------------------------------------------------===//
@@ -2217,7 +2217,7 @@ def A9WriteLMfp : SchedWriteVariant<[
   SchedVar<A9PostRA, [A9WriteLMfpPostRA]>]>;
 
 //===----------------------------------------------------------------------===//
-// Resources for other (non LDM/VLDM) Variants.
+// Resources for other (non-LDM/VLDM) Variants.
 
 // These mov immediate writers are unconditionally expanded with
 // additive latency.
@@ -2431,7 +2431,7 @@ def :ItinRW<[A9WriteV3], [IIC_VSHLiD, IIC_VSHLiQ]>;
 def :ItinRW<[A9WriteV4], [IIC_VSHLi4D, IIC_VSHLi4Q]>;
 
 // NEON permute
-def :ItinRW<[A9WriteV2], [IIC_VPERMD, IIC_VPERMQ, IIC_VEXTD]>;
+def :ItinRW<[A9WriteV2, A9WriteV2], [IIC_VPERMD, IIC_VPERMQ, IIC_VEXTD]>;
 def :ItinRW<[A9WriteV3, A9WriteV4, ReadDefault, A9Read2],
             [IIC_VPERMQ3, IIC_VEXTQ]>;
 def :ItinRW<[A9WriteV3, A9Read2], [IIC_VTB1]>;

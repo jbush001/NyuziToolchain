@@ -432,7 +432,7 @@ namespace {
     bool Partial;
 
     /// The current position in the sequence.
-    Sequence Seq : 8;
+    unsigned char Seq : 8;
 
     /// Unidirectional information about the current sequence.
     RRInfo RRI;
@@ -498,7 +498,7 @@ namespace {
     }
 
     Sequence GetSeq() const {
-      return Seq;
+      return static_cast<Sequence>(Seq);
     }
 
     void ClearSequenceProgress() {
@@ -538,7 +538,7 @@ namespace {
 
 void
 PtrState::Merge(const PtrState &Other, bool TopDown) {
-  Seq = MergeSeqs(Seq, Other.Seq, TopDown);
+  Seq = MergeSeqs(GetSeq(), Other.GetSeq(), TopDown);
   KnownPositiveRefCount &= Other.KnownPositiveRefCount;
 
   // If we're not in a sequence (anymore), drop all associated state.
@@ -1005,7 +1005,7 @@ static void GenerateARCAnnotation(unsigned InstMDId,
     // llvm-arc-annotation-processor tool to cross reference where the source
     // pointer is in the LLVM IR since the LLVM IR parser does not submit such
     // information via debug info for backends to use (since why would anyone
-    // need such a thing from LLVM IR besides in non standard cases
+    // need such a thing from LLVM IR besides in non-standard cases
     // [i.e. this]).
     MDString *SourcePtrMDNode =
       AppendMDNodeToSourcePtr(PtrMDId, Ptr);

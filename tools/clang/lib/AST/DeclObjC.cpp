@@ -368,6 +368,89 @@ void ObjCInterfaceDecl::mergeClassExtensionProtocolList(
   data().AllReferencedProtocols.set(ProtocolRefs.data(), ProtocolRefs.size(),C);
 }
 
+const ObjCInterfaceDecl *
+ObjCInterfaceDecl::findInterfaceWithDesignatedInitializers() const {
+  const ObjCInterfaceDecl *IFace = this;
+  while (IFace) {
+    if (IFace->hasDesignatedInitializers())
+      return IFace;
+    if (!IFace->inheritsDesignatedInitializers())
+      break;
+    IFace = IFace->getSuperClass();
+  }
+  return 0;
+}
+
+bool ObjCInterfaceDecl::inheritsDesignatedInitializers() const {
+  switch (data().InheritedDesignatedInitializers) {
+  case DefinitionData::IDI_Inherited:
+    return true;
+  case DefinitionData::IDI_NotInherited:
+    return false;
+  case DefinitionData::IDI_Unknown: {
+    bool isIntroducingInitializers = false;
+    for (instmeth_iterator I = instmeth_begin(),
+                           E = instmeth_end(); I != E; ++I) {
+      const ObjCMethodDecl *MD = *I;
+      if (MD->getMethodFamily() == OMF_init && !MD->isOverriding()) {
+        isIntroducingInitializers = true;
+        break;
+      }
+    }
+    // If the class introduced initializers we conservatively assume that we
+    // don't know if any of them is a designated initializer to avoid possible
+    // misleading warnings.
+    if (isIntroducingInitializers) {
+      data().InheritedDesignatedInitializers = DefinitionData::IDI_NotInherited;
+      return false;
+    } else {
+      data().InheritedDesignatedInitializers = DefinitionData::IDI_Inherited;
+      return true;
+    }
+  }
+  }
+
+  llvm_unreachable("unexpected InheritedDesignatedInitializers value");
+}
+
+void ObjCInterfaceDecl::getDesignatedInitializers(
+    llvm::SmallVectorImpl<const ObjCMethodDecl *> &Methods) const {
+  assert(hasDefinition());
+  if (data().ExternallyCompleted)
+    LoadExternalDefinition();
+
+  const ObjCInterfaceDecl *IFace= findInterfaceWithDesignatedInitializers();
+  if (!IFace)
+    return;
+
+  for (instmeth_iterator I = IFace->instmeth_begin(),
+                         E = IFace->instmeth_end(); I != E; ++I) {
+    const ObjCMethodDecl *MD = *I;
+    if (MD->isThisDeclarationADesignatedInitializer())
+      Methods.push_back(MD);
+  }
+}
+
+bool ObjCInterfaceDecl::isDesignatedInitializer(Selector Sel,
+                                      const ObjCMethodDecl **InitMethod) const {
+  assert(hasDefinition());
+  if (data().ExternallyCompleted)
+    LoadExternalDefinition();
+
+  const ObjCInterfaceDecl *IFace= findInterfaceWithDesignatedInitializers();
+  if (!IFace)
+    return false;
+
+  if (const ObjCMethodDecl *MD = IFace->getMethod(Sel, /*isInstance=*/true)) {
+    if (MD->isThisDeclarationADesignatedInitializer()) {
+      if (InitMethod)
+        *InitMethod = MD;
+      return true;
+    }
+  }
+  return false;
+}
+
 void ObjCInterfaceDecl::allocateDefinitionData() {
   assert(!hasDefinition() && "ObjC class already has a definition");
   Data.setPointer(new (getASTContext()) DefinitionData());
@@ -460,8 +543,7 @@ ObjCMethodDecl *ObjCInterfaceDecl::lookupMethod(Selector Sel,
                                                 bool isInstance,
                                                 bool shallowCategoryLookup,
                                                 bool followSuper,
-                                                const ObjCCategoryDecl *C,
-                                                const ObjCProtocolDecl *P) const
+                                                const ObjCCategoryDecl *C) const
 {
   // FIXME: Should make sure no callers ever do this.
   if (!hasDefinition())
@@ -474,22 +556,6 @@ ObjCMethodDecl *ObjCInterfaceDecl::lookupMethod(Selector Sel,
     LoadExternalDefinition();
 
   while (ClassDecl) {
-    // If we are looking for a method that is part of protocol conformance,
-    // check if the superclass has been marked to suppress conformance
-    // of that protocol.
-    if (P && ClassDecl->hasAttrs()) {
-      const AttrVec &V = ClassDecl->getAttrs();
-      const IdentifierInfo *PI = P->getIdentifier();
-      for (AttrVec::const_iterator I = V.begin(), E = V.end(); I != E; ++I) {
-        if (const ObjCSuppressProtocolAttr *A =
-            dyn_cast<ObjCSuppressProtocolAttr>(*I)){
-          if (A->getProtocol() == PI) {
-            return 0;
-          }
-        }
-      }
-    }
-
     if ((MethodDecl = ClassDecl->getMethod(Sel, isInstance)))
       return MethodDecl;
 
@@ -595,6 +661,23 @@ ObjCMethodDecl *ObjCMethodDecl::Create(ASTContext &C,
 ObjCMethodDecl *ObjCMethodDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
   return new (C, ID) ObjCMethodDecl(SourceLocation(), SourceLocation(),
                                     Selector(), QualType(), 0, 0);
+}
+
+bool ObjCMethodDecl::isThisDeclarationADesignatedInitializer() const {
+  return getMethodFamily() == OMF_init &&
+      hasAttr<ObjCDesignatedInitializerAttr>();
+}
+
+bool ObjCMethodDecl::isDesignatedInitializerForTheInterface(
+    const ObjCMethodDecl **InitMethod) const {
+  if (getMethodFamily() != OMF_init)
+    return false;
+  const DeclContext *DC = getDeclContext();
+  if (isa<ObjCProtocolDecl>(DC))
+    return false;
+  if (const ObjCInterfaceDecl *ID = getClassInterface())
+    return ID->isDesignatedInitializer(getSelector(), InitMethod);
+  return false;
 }
 
 Stmt *ObjCMethodDecl::getBody() const {
@@ -1120,6 +1203,19 @@ void ObjCInterfaceDecl::setExternallyCompleted() {
   assert(hasDefinition() && 
          "Forward declarations can't be externally completed");
   data().ExternallyCompleted = true;
+}
+
+void ObjCInterfaceDecl::setHasDesignatedInitializers() {
+  assert(hasDefinition() && "Forward declarations can't contain methods");
+  data().HasDesignatedInitializers = true;
+}
+
+bool ObjCInterfaceDecl::hasDesignatedInitializers() const {
+  assert(hasDefinition() && "Forward declarations can't contain methods");
+  if (data().ExternallyCompleted)
+    LoadExternalDefinition();
+
+  return data().HasDesignatedInitializers;
 }
 
 ObjCImplementationDecl *ObjCInterfaceDecl::getImplementation() const {

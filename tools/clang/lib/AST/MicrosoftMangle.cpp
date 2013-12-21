@@ -121,8 +121,7 @@ public:
   void mangleDeclaration(const NamedDecl *ND);
   void mangleFunctionEncoding(const FunctionDecl *FD);
   void mangleVariableEncoding(const VarDecl *VD);
-  void mangleNumber(uint32_t Number);
-  void mangleNumber(const llvm::APSInt &Value);
+  void mangleNumber(int64_t Number);
   void mangleType(QualType T, SourceRange Range,
                   QualifierMangleMode QMM = QMM_Mangle);
   void mangleFunctionType(const FunctionType *T, const FunctionDecl *D = 0,
@@ -135,7 +134,7 @@ private:
     mangleUnqualifiedName(ND, ND->getDeclName());
   }
   void mangleUnqualifiedName(const NamedDecl *ND, DeclarationName Name);
-  void mangleSourceName(const IdentifierInfo *II);
+  void mangleSourceName(StringRef Name);
   void mangleOperatorName(OverloadedOperatorKind OO, SourceLocation Loc);
   void mangleCXXDtorType(CXXDtorType T);
   void mangleQualifiers(Qualifiers Quals, bool IsMember);
@@ -158,7 +157,7 @@ private:
 #undef ABSTRACT_TYPE
 #undef NON_CANONICAL_TYPE
 #undef TYPE
-  
+
   void mangleType(const TagDecl *TD);
   void mangleDecayedArrayType(const ArrayType *T);
   void mangleArrayType(const ArrayType *T);
@@ -182,7 +181,8 @@ public:
   virtual bool shouldMangleCXXName(const NamedDecl *D);
   virtual void mangleCXXName(const NamedDecl *D, raw_ostream &Out);
   virtual void mangleVirtualMemPtrThunk(const CXXMethodDecl *MD,
-                                        int OffsetInVFTable, raw_ostream &);
+                                        uint64_t OffsetInVFTable,
+                                        raw_ostream &);
   virtual void mangleThunk(const CXXMethodDecl *MD,
                            const ThunkInfo &Thunk,
                            raw_ostream &);
@@ -324,7 +324,7 @@ void MicrosoftCXXNameMangler::mangleVariableEncoding(const VarDecl *VD) {
   //                 ::= 2  # public static member
   //                 ::= 3  # global
   //                 ::= 4  # static local
-  
+
   // The first character in the encoding (after the name) is the storage class.
   if (VD->isStaticDataMember()) {
     // If it's a static member, it also encodes the access level.
@@ -376,7 +376,7 @@ void MicrosoftCXXNameMangler::mangleName(const NamedDecl *ND) {
   const DeclContext *DC = ND->getDeclContext();
 
   // Always start with the unqualified name.
-  mangleUnqualifiedName(ND);    
+  mangleUnqualifiedName(ND);
 
   // If this is an extern variable declared locally, the relevant DeclContext
   // is that of the containing namespace, or the translation unit.
@@ -390,40 +390,33 @@ void MicrosoftCXXNameMangler::mangleName(const NamedDecl *ND) {
   Out << '@';
 }
 
-void MicrosoftCXXNameMangler::mangleNumber(uint32_t Number) {
-  llvm::APSInt APSNumber(/*BitWidth=*/32, /*isUnsigned=*/true);
-  APSNumber = Number;
-  mangleNumber(APSNumber);
-}
+void MicrosoftCXXNameMangler::mangleNumber(int64_t Number) {
+  // <non-negative integer> ::= A@              # when Number == 0
+  //                        ::= <decimal digit> # when 1 <= Number <= 10
+  //                        ::= <hex digit>+ @  # when Number >= 10
+  //
+  // <number>               ::= [?] <non-negative integer>
 
-void MicrosoftCXXNameMangler::mangleNumber(const llvm::APSInt &Value) {
-  // <number> ::= [?] <decimal digit> # 1 <= Number <= 10
-  //          ::= [?] <hex digit>+ @ # 0 or > 9; A = 0, B = 1, etc...
-  //          ::= [?] @ # 0 (alternate mangling, not emitted by VC)
-  if (Value.isSigned() && Value.isNegative()) {
+  uint64_t Value = static_cast<uint64_t>(Number);
+  if (Number < 0) {
+    Value = -Value;
     Out << '?';
-    mangleNumber(llvm::APSInt(Value.abs()));
-    return;
   }
-  llvm::APSInt Temp(Value);
-  // There's a special shorter mangling for 0, but Microsoft
-  // chose not to use it. Instead, 0 gets mangled as "A@". Oh well...
-  if (Value.uge(1) && Value.ule(10)) {
-    --Temp;
-    Temp.print(Out, false);
-  } else {
-    // We have to build up the encoding in reverse order, so it will come
-    // out right when we write it out.
-    char Encoding[64];
-    char *EndPtr = Encoding+sizeof(Encoding);
-    char *CurPtr = EndPtr;
-    llvm::APSInt NibbleMask(Value.getBitWidth(), Value.isUnsigned());
-    NibbleMask = 0xf;
-    do {
-      *--CurPtr = 'A' + Temp.And(NibbleMask).getLimitedValue(0xf);
-      Temp = Temp.lshr(4);
-    } while (Temp != 0);
-    Out.write(CurPtr, EndPtr-CurPtr);
+
+  if (Value == 0)
+    Out << "A@";
+  else if (Value >= 1 && Value <= 10)
+    Out << (Value - 1);
+  else {
+    // Numbers that are not encoded as decimal digits are represented as nibbles
+    // in the range of ASCII characters 'A' to 'P'.
+    // The number 0x123450 would be encoded as 'BCDEFA'
+    char EncodedNumberBuffer[sizeof(uint64_t) * 2];
+    llvm::MutableArrayRef<char> BufferRef(EncodedNumberBuffer);
+    llvm::MutableArrayRef<char>::reverse_iterator I = BufferRef.rbegin();
+    for (; Value != 0; Value >>= 4)
+      *I++ = 'A' + (Value & 0xf);
+    Out.write(I.base(), I - BufferRef.rbegin());
     Out << '@';
   }
 }
@@ -510,20 +503,20 @@ MicrosoftCXXNameMangler::mangleUnqualifiedName(const NamedDecl *ND,
   switch (Name.getNameKind()) {
     case DeclarationName::Identifier: {
       if (const IdentifierInfo *II = Name.getAsIdentifierInfo()) {
-        mangleSourceName(II);
+        mangleSourceName(II->getName());
         break;
       }
-      
+
       // Otherwise, an anonymous entity.  We must have a declaration.
       assert(ND && "mangling empty name without declaration");
-      
+
       if (const NamespaceDecl *NS = dyn_cast<NamespaceDecl>(ND)) {
         if (NS->isAnonymousNamespace()) {
           Out << "?A@";
           break;
         }
       }
-      
+
       // We must have an anonymous struct.
       const TagDecl *TD = cast<TagDecl>(ND);
       if (const TypedefNameDecl *D = TD->getTypedefNameForAnonDecl()) {
@@ -531,27 +524,30 @@ MicrosoftCXXNameMangler::mangleUnqualifiedName(const NamedDecl *ND,
                "Typedef should not be in another decl context!");
         assert(D->getDeclName().getAsIdentifierInfo() &&
                "Typedef was not named!");
-        mangleSourceName(D->getDeclName().getAsIdentifierInfo());
+        mangleSourceName(D->getDeclName().getAsIdentifierInfo()->getName());
         break;
       }
 
-      if (TD->hasDeclaratorForAnonDecl())
+      if (TD->hasDeclaratorForAnonDecl()) {
         // Anonymous types with no tag or typedef get the name of their
         // declarator mangled in.
-        Out << "<unnamed-type-" << TD->getDeclaratorForAnonDecl()->getName()
-            << ">@";
-      else
+        llvm::SmallString<64> Name("<unnamed-type-");
+        Name += TD->getDeclaratorForAnonDecl()->getName();
+        Name += ">";
+        mangleSourceName(Name.str());
+      } else {
         // Anonymous types with no tag, no typedef, or declarator get
-        // '<unnamed-tag>@'.
-        Out << "<unnamed-tag>@";
+        // '<unnamed-tag>'.
+        mangleSourceName("<unnamed-tag>");
+      }
       break;
     }
-      
+
     case DeclarationName::ObjCZeroArgSelector:
     case DeclarationName::ObjCOneArgSelector:
     case DeclarationName::ObjCMultiArgSelector:
       llvm_unreachable("Can't mangle Objective-C selector names here!");
-      
+
     case DeclarationName::CXXConstructorName:
       if (ND == Structor) {
         assert(StructorType == Ctor_Complete &&
@@ -559,7 +555,7 @@ MicrosoftCXXNameMangler::mangleUnqualifiedName(const NamedDecl *ND,
       }
       Out << "?0";
       break;
-      
+
     case DeclarationName::CXXDestructorName:
       if (ND == Structor)
         // If the named decl is the C++ destructor we're mangling,
@@ -570,17 +566,17 @@ MicrosoftCXXNameMangler::mangleUnqualifiedName(const NamedDecl *ND,
         // class with a destructor is declared within a destructor.
         mangleCXXDtorType(Dtor_Base);
       break;
-      
+
     case DeclarationName::CXXConversionFunctionName:
       // <operator-name> ::= ?B # (cast)
       // The target type is encoded as the return type.
       Out << "?B";
       break;
-      
+
     case DeclarationName::CXXOperatorName:
       mangleOperatorName(Name.getCXXOverloadedOperator(), ND->getLocation());
       break;
-      
+
     case DeclarationName::CXXLiteralOperatorName: {
       // FIXME: Was this added in VS2010? Does MS even know how to mangle this?
       DiagnosticsEngine Diags = Context.getDiags();
@@ -589,7 +585,7 @@ MicrosoftCXXNameMangler::mangleUnqualifiedName(const NamedDecl *ND,
       Diags.Report(ND->getLocation(), DiagID);
       break;
     }
-      
+
     case DeclarationName::CXXUsingDirective:
       llvm_unreachable("Can't mangle a using directive name!");
   }
@@ -772,7 +768,7 @@ void MicrosoftCXXNameMangler::mangleOperatorName(OverloadedOperatorKind OO,
   case OO_Array_New: Out << "?_U"; break;
   // <operator-name> ::= ?_V # delete[]
   case OO_Array_Delete: Out << "?_V"; break;
-    
+
   case OO_Conditional: {
     DiagnosticsEngine &Diags = Context.getDiags();
     unsigned DiagID = Diags.getCustomDiagID(DiagnosticsEngine::Error,
@@ -780,24 +776,23 @@ void MicrosoftCXXNameMangler::mangleOperatorName(OverloadedOperatorKind OO,
     Diags.Report(Loc, DiagID);
     break;
   }
-    
+
   case OO_None:
   case NUM_OVERLOADED_OPERATORS:
     llvm_unreachable("Not an overloaded operator");
   }
 }
 
-void MicrosoftCXXNameMangler::mangleSourceName(const IdentifierInfo *II) {
+void MicrosoftCXXNameMangler::mangleSourceName(StringRef Name) {
   // <source name> ::= <identifier> @
-  std::string key = II->getNameStart();
   BackRefMap::iterator Found;
   if (UseNameBackReferences)
-    Found = NameBackReferences.find(key);
+    Found = NameBackReferences.find(Name);
   if (!UseNameBackReferences || Found == NameBackReferences.end()) {
-    Out << II->getName() << '@';
+    Out << Name << '@';
     if (UseNameBackReferences && NameBackReferences.size() < 10) {
       size_t Size = NameBackReferences.size();
-      NameBackReferences[key] = Size;
+      NameBackReferences[Name] = Size;
     }
   } else {
     Out << Found->second;
@@ -883,7 +878,7 @@ MicrosoftCXXNameMangler::mangleIntegerLiteral(const llvm::APSInt &Value,
   if (IsBoolean && Value.getBoolValue())
     mangleNumber(1);
   else
-    mangleNumber(Value);
+    mangleNumber(Value.getSExtValue());
 }
 
 void
@@ -1259,7 +1254,7 @@ void MicrosoftCXXNameMangler::mangleType(const BuiltinType *T,
   case BuiltinType::OCLImage3d: Out << "PAUocl_image3d@@"; break;
   case BuiltinType::OCLSampler: Out << "PAUocl_sampler@@"; break;
   case BuiltinType::OCLEvent: Out << "PAUocl_event@@"; break;
- 
+
   case BuiltinType::NullPtr: Out << "$$T"; break;
 
   case BuiltinType::Char16:
@@ -1470,7 +1465,7 @@ void MicrosoftCXXNameMangler::mangleType(const UnresolvedUsingType *T,
 // <union-type>  ::= T <name>
 // <struct-type> ::= U <name>
 // <class-type>  ::= V <name>
-// <enum-type>   ::= W <size> <name>
+// <enum-type>   ::= W4 <name>
 void MicrosoftCXXNameMangler::mangleType(const EnumType *T, SourceRange) {
   mangleType(cast<TagType>(T)->getDecl());
 }
@@ -1490,9 +1485,7 @@ void MicrosoftCXXNameMangler::mangleType(const TagDecl *TD) {
       Out << 'V';
       break;
     case TTK_Enum:
-      Out << 'W';
-      Out << getASTContext().getTypeSizeInChars(
-                cast<EnumDecl>(TD)->getIntegerType()).getQuantity();
+      Out << "W4";
       break;
   }
   mangleName(TD);
@@ -1609,7 +1602,7 @@ void MicrosoftCXXNameMangler::mangleType(
 
 // <type> ::= <pointer-type>
 // <pointer-type> ::= E? <pointer-cvr-qualifiers> <cvr-qualifiers> <type>
-//                       # the E is required for 64-bit non static pointers
+//                       # the E is required for 64-bit non-static pointers
 void MicrosoftCXXNameMangler::mangleType(const PointerType *T,
                                          SourceRange Range) {
   QualType PointeeTy = T->getPointeeType();
@@ -1628,7 +1621,7 @@ void MicrosoftCXXNameMangler::mangleType(const ObjCObjectPointerType *T,
 
 // <type> ::= <reference-type>
 // <reference-type> ::= A E? <cvr-qualifiers> <type>
-//                 # the E is required for 64-bit non static lvalue references
+//                 # the E is required for 64-bit non-static lvalue references
 void MicrosoftCXXNameMangler::mangleType(const LValueReferenceType *T,
                                          SourceRange Range) {
   Out << 'A';
@@ -1639,7 +1632,7 @@ void MicrosoftCXXNameMangler::mangleType(const LValueReferenceType *T,
 
 // <type> ::= <r-value-reference-type>
 // <r-value-reference-type> ::= $$Q E? <cvr-qualifiers> <type>
-//                 # the E is required for 64-bit non static rvalue references
+//                 # the E is required for 64-bit non-static rvalue references
 void MicrosoftCXXNameMangler::mangleType(const RValueReferenceType *T,
                                          SourceRange Range) {
   Out << "$$Q";
@@ -1885,14 +1878,18 @@ static void mangleThunkThisAdjustment(const CXXMethodDecl *MD,
     }
     if (Adjustment.Virtual.Microsoft.VBPtrOffset) {
       Out << 'R' << AccessSpec;
-      Mangler.mangleNumber(Adjustment.Virtual.Microsoft.VBPtrOffset);
-      Mangler.mangleNumber(Adjustment.Virtual.Microsoft.VBOffsetOffset);
-      Mangler.mangleNumber(Adjustment.Virtual.Microsoft.VtordispOffset);
-      Mangler.mangleNumber(Adjustment.NonVirtual);
+      Mangler.mangleNumber(
+          static_cast<uint32_t>(Adjustment.Virtual.Microsoft.VBPtrOffset));
+      Mangler.mangleNumber(
+          static_cast<uint32_t>(Adjustment.Virtual.Microsoft.VBOffsetOffset));
+      Mangler.mangleNumber(
+          static_cast<uint32_t>(Adjustment.Virtual.Microsoft.VtordispOffset));
+      Mangler.mangleNumber(static_cast<uint32_t>(Adjustment.NonVirtual));
     } else {
       Out << AccessSpec;
-      Mangler.mangleNumber(Adjustment.Virtual.Microsoft.VtordispOffset);
-      Mangler.mangleNumber(-Adjustment.NonVirtual);
+      Mangler.mangleNumber(
+          static_cast<uint32_t>(Adjustment.Virtual.Microsoft.VtordispOffset));
+      Mangler.mangleNumber(-static_cast<uint32_t>(Adjustment.NonVirtual));
     }
   } else if (Adjustment.NonVirtual != 0) {
     switch (MD->getAccess()) {
@@ -1907,7 +1904,7 @@ static void mangleThunkThisAdjustment(const CXXMethodDecl *MD,
     case AS_public:
       Out << 'W';
     }
-    Mangler.mangleNumber(-Adjustment.NonVirtual);
+    Mangler.mangleNumber(-static_cast<uint32_t>(Adjustment.NonVirtual));
   } else {
     switch (MD->getAccess()) {
     case AS_none:
@@ -1925,7 +1922,7 @@ static void mangleThunkThisAdjustment(const CXXMethodDecl *MD,
 }
 
 void MicrosoftMangleContextImpl::mangleVirtualMemPtrThunk(
-    const CXXMethodDecl *MD, int OffsetInVFTable, raw_ostream &Out) {
+    const CXXMethodDecl *MD, uint64_t OffsetInVFTable, raw_ostream &Out) {
   bool Is64Bit = getASTContext().getTargetInfo().getPointerWidth(0) == 64;
 
   MicrosoftCXXNameMangler Mangler(*this, Out);
@@ -2051,6 +2048,15 @@ void MicrosoftMangleContextImpl::mangleReferenceTemporary(const VarDecl *VD,
 
 void MicrosoftMangleContextImpl::mangleStaticGuardVariable(const VarDecl *VD,
                                                            raw_ostream &Out) {
+  // TODO: This is not correct, especially with respect to MSVC2013.  MSVC2013
+  // utilizes thread local variables to implement thread safe, re-entrant
+  // initialization for statics.  They no longer differentiate between an
+  // externally visible and non-externally visible static with respect to
+  // mangling, they all get $TSS <number>.
+  //
+  // N.B. This means that they can get more than 32 static variable guards in a
+  // scope.  It also means that they broke compatibility with their own ABI.
+
   // <guard-name> ::= ?_B <postfix> @51
   //              ::= ?$S <guard-num> @ <postfix> @4IA
 

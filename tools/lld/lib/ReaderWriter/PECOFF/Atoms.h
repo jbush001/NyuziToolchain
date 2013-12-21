@@ -11,13 +11,14 @@
 #define LLD_READER_WRITER_PE_COFF_ATOMS_H
 
 #include "lld/Core/File.h"
+#include "lld/ReaderWriter/Simple.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Object/COFF.h"
 
 #include <vector>
 
 namespace lld {
-namespace coff {
+namespace pecoff {
 class COFFDefinedAtom;
 
 /// A COFFReference represents relocation information for an atom. For
@@ -26,14 +27,11 @@ class COFFDefinedAtom;
 /// to be fixed up so that the address points to atom Y's address.
 class COFFReference LLVM_FINAL : public Reference {
 public:
-  explicit COFFReference(Kind kind) : _target(nullptr), _offsetInAtom(0) {
-    _kind = kind;
-  }
-
-  COFFReference(const Atom *target, uint32_t offsetInAtom, uint16_t relocType)
-      : _target(target), _offsetInAtom(offsetInAtom) {
-    setKind(static_cast<Reference::Kind>(relocType));
-  }
+  COFFReference(const Atom *target, uint32_t offsetInAtom, uint16_t relocType,
+                Reference::KindNamespace ns = Reference::KindNamespace::COFF,
+                Reference::KindArch arch = Reference::KindArch::x86)
+      : Reference(ns, arch, relocType), _target(target),
+        _offsetInAtom(offsetInAtom) {}
 
   virtual const Atom *target() const { return _target; }
   virtual void setTarget(const Atom *newAtom) { _target = newAtom; }
@@ -93,7 +91,8 @@ private:
 class COFFBaseDefinedAtom : public DefinedAtom {
 public:
   enum class Kind {
-    File, Internal
+    File,
+    Internal
   };
 
   virtual const File &file() const { return _file; }
@@ -101,7 +100,7 @@ public:
   virtual Interposable interposable() const { return interposeNo; }
   virtual Merge merge() const { return mergeNo; }
   virtual Alignment alignment() const { return Alignment(0); }
-  virtual SectionChoice sectionChoice() const { return sectionBasedOnContent; }
+  virtual SectionChoice sectionChoice() const = 0;
   virtual StringRef customSectionName() const { return ""; }
   virtual SectionPosition sectionPosition() const { return sectionPositionAny; }
   virtual DeadStripKind deadStrip() const { return deadStripNormal; }
@@ -140,7 +139,7 @@ private:
   const File &_file;
   StringRef _name;
   Kind _kind;
-  std::vector<std::unique_ptr<COFFReference>> _references;
+  std::vector<std::unique_ptr<COFFReference> > _references;
 };
 
 /// This is the root class of the atom read from a file. This class have two
@@ -158,9 +157,10 @@ public:
     return atom->getKind() == Kind::File;
   }
 
-  void setAlignment(Alignment val) { _alignment = val; };
+  void setAlignment(Alignment val) { _alignment = val; }
 
-  virtual StringRef getSectionName() const { return _sectionName; }
+  virtual SectionChoice sectionChoice() const { return sectionCustomRequired; }
+  virtual StringRef customSectionName() const { return _sectionName; }
   virtual Scope scope() const { return _scope; }
   virtual ContentType contentType() const { return _contentType; }
   virtual ContentPermissions permissions() const { return _permissions; }
@@ -174,7 +174,7 @@ private:
   ContentPermissions _permissions;
   uint64_t _ordinal;
   Alignment _alignment;
-  std::vector<std::unique_ptr<COFFReference>> _references;
+  std::vector<std::unique_ptr<COFFReference> > _references;
 };
 
 // A COFFDefinedAtom represents an atom read from a file and has contents.
@@ -227,31 +227,45 @@ private:
 /// not read from file.
 class COFFLinkerInternalAtom : public COFFBaseDefinedAtom {
 public:
-  virtual uint64_t ordinal() const { return 0; }
+  virtual SectionChoice sectionChoice() const { return sectionBasedOnContent; }
+  virtual uint64_t ordinal() const { return _ordinal; }
   virtual Scope scope() const { return scopeGlobal; }
   virtual Alignment alignment() const { return Alignment(0); }
   virtual uint64_t size() const { return _data.size(); }
   virtual ArrayRef<uint8_t> rawContent() const { return _data; }
 
 protected:
-  COFFLinkerInternalAtom(const File &file, std::vector<uint8_t> data,
-                         StringRef symbolName = "")
+  COFFLinkerInternalAtom(const File &file, uint64_t ordinal,
+                         std::vector<uint8_t> data, StringRef symbolName = "")
       : COFFBaseDefinedAtom(file, symbolName, Kind::Internal),
-        _data(std::move(data)) {}
+        _ordinal(ordinal), _data(std::move(data)) {}
 
 private:
+  uint64_t _ordinal;
   std::vector<uint8_t> _data;
 };
 
-// A COFFDataDirectoryAtom represents an entry of Optional Data Directory in the
-// COFF header.
-class COFFDataDirectoryAtom : public COFFLinkerInternalAtom {
+class COFFStringAtom : public COFFLinkerInternalAtom {
 public:
-  COFFDataDirectoryAtom(const File &file, std::vector<uint8_t> contents)
-      : COFFLinkerInternalAtom(file, contents) {}
+  COFFStringAtom(const File &file, uint64_t ordinal, StringRef sectionName,
+                 StringRef contents)
+      : COFFLinkerInternalAtom(file, ordinal, stringRefToVector(contents)),
+        _sectionName(sectionName) {}
 
-  virtual ContentType contentType() const { return typeDataDirectoryEntry; }
+  virtual SectionChoice sectionChoice() const { return sectionCustomRequired; }
+  virtual StringRef customSectionName() const { return _sectionName; }
+  virtual ContentType contentType() const { return typeData; }
   virtual ContentPermissions permissions() const { return permR__; }
+
+private:
+  StringRef _sectionName;
+
+  std::vector<uint8_t> stringRefToVector(StringRef name) const {
+    std::vector<uint8_t> ret(name.size() + 1);
+    memcpy(&ret[0], name.data(), name.size());
+    ret[name.size()] = 0;
+    return ret;
+  }
 };
 
 // A COFFSharedLibraryAtom represents a symbol for data in an import library.  A
@@ -262,8 +276,8 @@ public:
   COFFSharedLibraryAtom(const File &file, uint16_t hint, StringRef symbolName,
                         StringRef importName, StringRef dllName)
       : _file(file), _hint(hint), _mangledName(addImpPrefix(symbolName)),
-        _importName(importName), _dllName(dllName),
-        _importTableEntry(nullptr) {}
+        _importName(importName), _dllName(dllName), _importTableEntry(nullptr) {
+  }
 
   virtual const File &file() const { return _file; }
   uint16_t hint() const { return _hint; }
@@ -284,9 +298,7 @@ public:
     _importTableEntry = atom;
   }
 
-  const DefinedAtom *getImportTableEntry() const {
-    return _importTableEntry;
-  }
+  const DefinedAtom *getImportTableEntry() const { return _importTableEntry; }
 
 private:
   /// Mangle the symbol name by adding "__imp_" prefix. See the file comment of
@@ -305,21 +317,37 @@ private:
   const DefinedAtom *_importTableEntry;
 };
 
+// An instance of this class represents "input file" for atoms created in a
+// pass. Atoms need to be associated to an input file even if it's not read from
+// a file, so we use this class for that.
+class VirtualFile : public SimpleFile {
+public:
+  VirtualFile(const LinkingContext &ctx)
+      : SimpleFile("<virtual-file>"), _nextOrdinal(0) {
+    setOrdinal(ctx.getNextOrdinalAndIncrement());
+  }
+
+  uint64_t getNextOrdinal() { return _nextOrdinal++; }
+
+private:
+  uint64_t _nextOrdinal;
+};
+
 //===----------------------------------------------------------------------===//
 //
 // Utility functions to handle layout edges.
 //
 //===----------------------------------------------------------------------===//
 
-template<typename T, typename U>
-void addLayoutEdge(T *a, U *b, lld::Reference::Kind kind) {
-  auto ref = new COFFReference(kind);
+template <typename T, typename U>
+void addLayoutEdge(T *a, U *b, uint32_t which) {
+  auto ref = new COFFReference(nullptr, 0, which, Reference::KindNamespace::all,
+                               Reference::KindArch::all);
   ref->setTarget(b);
   a->addReference(std::unique_ptr<COFFReference>(ref));
 }
 
-template<typename T, typename U>
-void connectWithLayoutEdge(T *a, U *b) {
+template <typename T, typename U> void connectWithLayoutEdge(T *a, U *b) {
   addLayoutEdge(a, b, lld::Reference::kindLayoutAfter);
   addLayoutEdge(b, a, lld::Reference::kindLayoutBefore);
 }
@@ -335,15 +363,14 @@ void connectWithLayoutEdge(T *a, U *b) {
 ///     GC'ed.
 ///   - To preserve the order of atmos. We want to emit the atoms in the
 ///     same order as they appeared in the input object file.
-template<typename T>
-void connectAtomsWithLayoutEdge(std::vector<T *> &atoms) {
+template <typename T> void connectAtomsWithLayoutEdge(std::vector<T *> &atoms) {
   if (atoms.size() < 2)
     return;
   for (auto it = atoms.begin(), e = atoms.end(); it + 1 != e; ++it)
     connectWithLayoutEdge(*it, *(it + 1));
 }
 
-} // namespace coff
+} // namespace pecoff
 } // namespace lld
 
 #endif

@@ -109,6 +109,10 @@ N: Nadav Rotem
 E: nrotem@apple.com
 D: X86 Backend, Loop Vectorizer
 
+N: Daniel Sanders
+E: daniel.sanders@imgtec.com
+D: MIPS Backend (lib/Target/Mips/*)
+
 N: Richard Sandiford
 E: rsandifo@linux.vnet.ibm.com
 D: SystemZ Backend
@@ -139,7 +143,7 @@ E: atrick@apple.com
 D: IndVar Simplify, Loop Strength Reduction, Instruction Scheduling
 
 N: Bill Wendling
-E: wendling@apple.com
+E: isanbard@gmail.com
 D: libLTO, IR Linker
 
 N: Peter Zotov

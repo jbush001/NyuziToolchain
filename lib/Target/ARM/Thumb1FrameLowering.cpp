@@ -165,7 +165,7 @@ void Thumb1FrameLowering::emitPrologue(MachineFunction &MF) const {
   NumBytes = DPRCSOffset;
 
   int FramePtrOffsetInBlock = 0;
-  if (tryFoldSPUpdateIntoPushPop(MF, prior(MBBI), NumBytes)) {
+  if (tryFoldSPUpdateIntoPushPop(STI, MF, prior(MBBI), NumBytes)) {
     FramePtrOffsetInBlock = NumBytes;
     NumBytes = 0;
   }
@@ -213,13 +213,6 @@ void Thumb1FrameLowering::emitPrologue(MachineFunction &MF) const {
   // checks for hasVarSizedObjects.
   if (MFI->hasVarSizedObjects())
     AFI->setShouldRestoreSPFromFP(true);
-}
-
-static bool isCalleeSavedRegister(unsigned Reg, const uint16_t *CSRegs) {
-  for (unsigned i = 0; CSRegs[i]; ++i)
-    if (Reg == CSRegs[i])
-      return true;
-  return false;
 }
 
 static bool isCSRestore(MachineInstr *MI, const uint16_t *CSRegs) {
@@ -298,9 +291,9 @@ void Thumb1FrameLowering::emitEpilogue(MachineFunction &MF,
           &MBB.front() != MBBI &&
           prior(MBBI)->getOpcode() == ARM::tPOP) {
         MachineBasicBlock::iterator PMBBI = prior(MBBI);
-        if (!tryFoldSPUpdateIntoPushPop(MF, PMBBI, NumBytes))
+        if (!tryFoldSPUpdateIntoPushPop(STI, MF, PMBBI, NumBytes))
           emitSPUpdate(MBB, PMBBI, TII, dl, *RegInfo, NumBytes);
-      } else if (!tryFoldSPUpdateIntoPushPop(MF, MBBI, NumBytes))
+      } else if (!tryFoldSPUpdateIntoPushPop(STI, MF, MBBI, NumBytes))
         emitSPUpdate(MBB, MBBI, TII, dl, *RegInfo, NumBytes);
     }
   }

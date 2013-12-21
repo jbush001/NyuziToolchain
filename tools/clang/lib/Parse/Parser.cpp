@@ -298,6 +298,8 @@ bool Parser::SkipUntil(ArrayRef<tok::TokenKind> Toks, SkipUntilFlags Flags) {
       // Ran out of tokens.
       return false;
 
+    case tok::annot_pragma_openmp_end:
+      // Stop before an OpenMP pragma boundary.
     case tok::annot_module_begin:
     case tok::annot_module_end:
     case tok::annot_module_include:
@@ -584,10 +586,8 @@ bool Parser::ParseTopLevelDecl(DeclGroupPtrTy &Result) {
 
   // Skip over the EOF token, flagging end of previous input for incremental
   // processing
-  if (PP.isIncrementalProcessingEnabled() && Tok.is(tok::eof)) {
+  if (PP.isIncrementalProcessingEnabled() && Tok.is(tok::eof))
     ConsumeToken();
-    return false;
-  }
 
   Result = DeclGroupPtrTy();
   switch (Tok.getKind()) {
@@ -1356,16 +1356,15 @@ Parser::ExprResult Parser::ParseSimpleAsm(SourceLocation *EndLoc) {
 
   ExprResult Result(ParseAsmStringLiteral());
 
-  if (Result.isInvalid()) {
-    SkipUntil(tok::r_paren, StopAtSemi | StopBeforeMatch);
-    if (EndLoc)
-      *EndLoc = Tok.getLocation();
-    ConsumeAnyToken();
-  } else {
+  if (!Result.isInvalid()) {
     // Close the paren and get the location of the end bracket
     T.consumeClose();
     if (EndLoc)
       *EndLoc = T.getCloseLocation();
+  } else if (SkipUntil(tok::r_paren, StopAtSemi | StopBeforeMatch)) {
+    if (EndLoc)
+      *EndLoc = Tok.getLocation();
+    ConsumeParen();
   }
 
   return Result;
@@ -1446,8 +1445,8 @@ Parser::TryAnnotateName(bool IsAddressOfOperand,
 
   // Look up and classify the identifier. We don't perform any typo-correction
   // after a scope specifier, because in general we can't recover from typos
-  // there (eg, after correcting 'A::tempalte B<X>::C', we would need to jump
-  // back into scope specifier parsing).
+  // there (eg, after correcting 'A::tempalte B<X>::C' [sic], we would need to
+  // jump back into scope specifier parsing).
   Sema::NameClassification Classification
     = Actions.ClassifyName(getCurScope(), SS, Name, NameLoc, Next,
                            IsAddressOfOperand, SS.isEmpty() ? CCC : 0);
@@ -1517,6 +1516,35 @@ Parser::TryAnnotateName(bool IsAddressOfOperand,
   if (SS.isNotEmpty())
     AnnotateScopeToken(SS, !WasScopeAnnotation);
   return ANK_Unresolved;
+}
+
+bool Parser::TryKeywordIdentFallback(bool DisableKeyword) {
+  assert(!Tok.is(tok::identifier) && !Tok.isAnnotation());
+  Diag(Tok, diag::ext_keyword_as_ident)
+    << PP.getSpelling(Tok)
+    << DisableKeyword;
+  if (DisableKeyword) {
+    IdentifierInfo *II = Tok.getIdentifierInfo();
+    ContextualKeywords[II] = Tok.getKind();
+    II->RevertTokenIDToIdentifier();
+  }
+  Tok.setKind(tok::identifier);
+  return true;
+}
+
+bool Parser::TryIdentKeywordUpgrade() {
+  assert(Tok.is(tok::identifier));
+  const IdentifierInfo *II = Tok.getIdentifierInfo();
+  assert(II->hasRevertedTokenIDToIdentifier());
+  // If we find that this is in fact the name of a type trait,
+  // update the token kind in place and parse again to treat it as
+  // the appropriate kind of type trait.
+  llvm::SmallDenseMap<const IdentifierInfo *, tok::TokenKind>::iterator Known =
+      ContextualKeywords.find(II);
+  if (Known == ContextualKeywords.end())
+    return false;
+  Tok.setKind(Known->second);
+  return true;
 }
 
 /// TryAnnotateTypeOrScopeToken - If the current token position is on a
@@ -1606,7 +1634,8 @@ bool Parser::TryAnnotateTypeOrScopeToken(bool EnteringContext, bool NeedType) {
                                      Tok.getLocation());
     } else if (Tok.is(tok::annot_template_id)) {
       TemplateIdAnnotation *TemplateId = takeTemplateIdAnnotation(Tok);
-      if (TemplateId->Kind == TNK_Function_template) {
+      if (TemplateId->Kind != TNK_Type_template &&
+          TemplateId->Kind != TNK_Dependent_template_name) {
         Diag(Tok, diag::err_typename_refers_to_non_type_template)
           << Tok.getAnnotationRange();
         return true;
@@ -1730,8 +1759,7 @@ bool Parser::TryAnnotateTypeOrScopeTokenAfterScopeSpec(bool EnteringContext,
       // annotation token to a type annotation token now.
       AnnotateTemplateIdTokenAsType();
       return false;
-    } else if (TemplateId->Kind == TNK_Var_template)
-      return false;
+    }
   }
 
   if (SS.isEmpty())

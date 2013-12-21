@@ -21,15 +21,12 @@ class PPCLinkingContext;
 class PPCTargetRelocationHandler LLVM_FINAL
     : public TargetRelocationHandler<PPCELFType> {
 public:
-  PPCTargetRelocationHandler(const PPCLinkingContext &context)
-      : _context(context) {}
+  PPCTargetRelocationHandler(const PPCLinkingContext &context) {}
 
   virtual error_code applyRelocation(ELFWriter &, llvm::FileOutputBuffer &,
                                      const lld::AtomLayout &,
                                      const Reference &) const;
 
-private:
-  const PPCLinkingContext &_context;
 };
 
 class PPCTargetHandler LLVM_FINAL
@@ -37,15 +34,17 @@ class PPCTargetHandler LLVM_FINAL
 public:
   PPCTargetHandler(PPCLinkingContext &targetInfo);
 
-  virtual TargetLayout<PPCELFType> &targetLayout() {
-    return _targetLayout;
-  }
+  virtual void registerRelocationNames(Registry &registry);
+
+  virtual TargetLayout<PPCELFType> &targetLayout() { return _targetLayout; }
 
   virtual const PPCTargetRelocationHandler &getRelocationHandler() const {
     return _relocationHandler;
   }
 
 private:
+  static const Registry::KindStrings kindStrings[];
+  
   PPCTargetRelocationHandler _relocationHandler;
   TargetLayout<PPCELFType> _targetLayout;
 };

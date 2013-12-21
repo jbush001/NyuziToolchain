@@ -24,12 +24,10 @@ namespace lld {
 namespace elf {
 template <class ELFT> class DynamicFile LLVM_FINAL : public SharedLibraryFile {
 public:
-  static ErrorOr<std::unique_ptr<DynamicFile> >
-  create(const ELFLinkingContext &ctx, std::unique_ptr<llvm::MemoryBuffer> mb) {
+  static ErrorOr<std::unique_ptr<DynamicFile>>
+  create(std::unique_ptr<llvm::MemoryBuffer> mb, bool useShlibUndefines) {
     std::unique_ptr<DynamicFile> file(
-        new DynamicFile(ctx, mb->getBufferIdentifier()));
-
-    bool useShlibUndefines = ctx.useShlibUndefines();
+        new DynamicFile(mb->getBufferIdentifier()));
 
     error_code ec;
     file->_objFile.reset(new llvm::object::ELFFile<ELFT>(mb.release(), ec));
@@ -105,16 +103,10 @@ public:
         *this, name, _soname, sym->second._symbol);
   }
 
-  virtual const ELFLinkingContext &getLinkingContext() const {
-    return _context;
-  }
-
 private:
-  DynamicFile(const ELFLinkingContext &context, StringRef name)
-      : SharedLibraryFile(name), _context(context) {}
+  DynamicFile(StringRef name) : SharedLibraryFile(name) {}
 
   mutable llvm::BumpPtrAllocator _alloc;
-  const ELFLinkingContext &_context;
   std::unique_ptr<llvm::object::ELFFile<ELFT>> _objFile;
   atom_collection_vector<DefinedAtom> _definedAtoms;
   atom_collection_vector<UndefinedAtom> _undefinedAtoms;

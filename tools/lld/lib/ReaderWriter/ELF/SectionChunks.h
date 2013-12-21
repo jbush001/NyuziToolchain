@@ -31,14 +31,6 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileOutputBuffer.h"
 
-namespace {
-LLVM_ATTRIBUTE_UNUSED std::string kindOrUnknown(llvm::ErrorOr<std::string> k) {
-  if (k)
-    return *k;
-  return "<unknown>";
-}
-}
-
 namespace lld {
 namespace elf {
 template <class> class MergedSections;
@@ -284,7 +276,7 @@ const lld::AtomLayout &AtomSection<ELFT>::appendAtom(const Atom *atom) {
   DefinedAtom::Alignment atomAlign = definedAtom->alignment();
   uint64_t align2 = 1u << atomAlign.powerOf2;
   // Align the atom to the required modulus/ align the file offset and the
-  // memory offset seperately this is required so that BSS symbols are handled
+  // memory offset separately this is required so that BSS symbols are handled
   // properly as the BSS symbols only occupy memory size and not file size
   uint64_t fOffset = alignOffset(this->fileSize(), atomAlign);
   uint64_t mOffset = alignOffset(this->memSize(), atomAlign);
@@ -333,7 +325,7 @@ const lld::AtomLayout &AtomSection<ELFT>::appendAtom(const Atom *atom) {
     break;
   }
   // Set the section alignment to the largest alignment
-  // std::max doesnot support uint64_t
+  // std::max doesn't support uint64_t
   if (this->_align2 < align2)
     this->_align2 = align2;
 
@@ -393,7 +385,7 @@ void AtomSection<ELFT>::write(ELFWriter *writer,
 
 /// \brief A MergedSections represents a set of sections grouped by the same
 /// name. The output file that gets written by the linker has sections grouped
-/// by similiar names
+/// by similar names
 template<class ELFT>
 class MergedSections {
 public:
@@ -608,19 +600,10 @@ template<class ELFT>
 class SymbolTable : public Section<ELFT> {
   typedef typename llvm::object::ELFDataTypeTypedefHelper<ELFT>::Elf_Addr
       Elf_Addr;
-  typedef llvm::object::Elf_Sym_Impl<ELFT> Elf_Sym;
-
-  struct SymbolEntry {
-    SymbolEntry(const Atom *a, const Elf_Sym &sym,
-                const lld::AtomLayout *layout)
-        : _atom(a), _atomLayout(layout), _symbol(sym) {}
-
-    const Atom *_atom;
-    const lld::AtomLayout *_atomLayout;
-    Elf_Sym _symbol;
-  };
 
 public:
+  typedef llvm::object::Elf_Sym_Impl<ELFT> Elf_Sym;
+
   SymbolTable(const ELFLinkingContext &context, const char *str, int32_t order);
 
   /// \brief set the number of entries that would exist in the symbol
@@ -629,6 +612,9 @@ public:
     if (_stringSection)
       _stringSection->setNumEntries(numEntries);
   }
+
+  /// \brief return number of entries
+  std::size_t size() const { return _symbolTable.size(); }
 
   void addSymbol(const Atom *atom, int32_t sectionIndex, uint64_t addr = 0,
                  const lld::AtomLayout *layout = nullptr);
@@ -670,6 +656,16 @@ public:
   StringTable<ELFT> *getStringTable() const { return _stringSection; }
 
 protected:
+  struct SymbolEntry {
+    SymbolEntry(const Atom *a, const Elf_Sym &sym,
+                const lld::AtomLayout *layout)
+        : _atom(a), _atomLayout(layout), _symbol(sym) {}
+
+    const Atom *_atom;
+    const lld::AtomLayout *_atomLayout;
+    Elf_Sym _symbol;
+  };
+
   llvm::BumpPtrAllocator _symbolAllocate;
   StringTable<ELFT> *_stringSection;
   std::vector<SymbolEntry> _symbolTable;
@@ -790,7 +786,7 @@ void SymbolTable<ELFT>::addUndefinedAtom(Elf_Sym &sym,
 }
 
 /// Add a symbol to the symbol Table, definedAtoms which get added to the symbol
-/// section dont have their virtual addresses set at the time of adding the
+/// section don't have their virtual addresses set at the time of adding the
 /// symbol to the symbol table(Example: dynamic symbols), the addresses needs
 /// to be updated in the table before writing the dynamic symbol table
 /// information
@@ -885,8 +881,8 @@ public:
 
   virtual void finalize() {
     // Defined symbols which have been added into the dynamic symbol table
-    // dont have their addresses known until addresses have been assigned
-    // so lets update the symbol values after they have got assigned
+    // don't have their addresses known until addresses have been assigned
+    // so let's update the symbol values after they have got assigned
     for (auto &ste: this->_symbolTable) {
       const lld::AtomLayout *atomLayout = ste._atomLayout;
       if (!atomLayout)
@@ -894,7 +890,7 @@ public:
       ste._symbol.st_value = atomLayout->_virtualAddr;
     }
 
-    // Dont sort the symbols
+    // Don't sort the symbols
     SymbolTable<ELFT>::finalize(false);
   }
 
@@ -956,7 +952,7 @@ public:
       uint32_t index =
           _symbolTable ? _symbolTable->getSymbolTableIndex(rel.second->target())
                        : (uint32_t) STN_UNDEF;
-      r->setSymbolAndType(index, rel.second->kind());
+      r->setSymbolAndType(index, rel.second->kindValue());
       r->r_offset =
           writer->addressOfAtom(rel.first) + rel.second->offsetInAtom();
       r->r_addend = 0;
@@ -965,13 +961,12 @@ public:
         r->r_addend =
             writer->addressOfAtom(rel.second->target()) + rel.second->addend();
       dest += sizeof(Elf_Rela);
-      DEBUG_WITH_TYPE(
-          "ELFRelocationTable",
-          llvm::dbgs() << kindOrUnknown(this->_context.stringFromRelocKind(
-                              rel.second->kind())) << " relocation at "
-                       << rel.first->name() << "@" << r->r_offset << " to "
-                       << rel.second->target()->name() << "@" << r->r_addend
-                       << "\n");
+      DEBUG_WITH_TYPE("ELFRelocationTable",
+                      llvm::dbgs() << rel.second->kindValue()
+                                   << " relocation at " << rel.first->name()
+                                   << "@" << r->r_offset << " to "
+                                   << rel.second->target()->name() << "@"
+                                   << r->r_addend << "\n";);
     }
   }
 
@@ -983,10 +978,10 @@ private:
 template <class ELFT> class HashSection;
 
 template <class ELFT> class DynamicTable : public Section<ELFT> {
+public:
   typedef llvm::object::Elf_Dyn_Impl<ELFT> Elf_Dyn;
   typedef std::vector<Elf_Dyn> EntriesT;
 
-public:
   DynamicTable(const ELFLinkingContext &context, StringRef str, int32_t order)
       : Section<ELFT>(context, str) {
     this->setOrder(order);
@@ -1021,7 +1016,7 @@ public:
     std::memcpy(dest, _entries.data(), this->_fsize);
   }
 
-  void createDefaultEntries() {
+  virtual void createDefaultEntries() {
     Elf_Dyn dyn;
     dyn.d_un.d_val = 0;
 
@@ -1075,9 +1070,13 @@ public:
     _dynamicSymbolTable = dynsym;
   }
 
+  const DynamicSymbolTable<ELFT> *getSymbolTable() const {
+    return _dynamicSymbolTable;
+  }
+
   void setHashTable(HashSection<ELFT> *hsh) { _hashTable = hsh; }
 
-  void updateDynamicTable() {
+  virtual void updateDynamicTable() {
     StringTable<ELFT> *dynamicStringTable =
         _dynamicSymbolTable->getStringTable();
     _entries[_dt_hash].d_un.d_val = _hashTable->virtualAddr();
@@ -1105,8 +1104,10 @@ public:
     }
   }
 
-private:
+protected:
   EntriesT _entries;
+
+private:
   std::size_t _dt_hash;
   std::size_t _dt_strtab;
   std::size_t _dt_symtab;
@@ -1207,7 +1208,7 @@ public:
   }
 
   // The size of the section has to be determined so that fileoffsets
-  // may be properly assigned. Lets calculate the buckets and the chains
+  // may be properly assigned. Let's calculate the buckets and the chains
   // and fill the chains and the buckets hash table used by the dynamic
   // linker and update the filesize and memory size accordingly
   virtual void doPreFlight() {

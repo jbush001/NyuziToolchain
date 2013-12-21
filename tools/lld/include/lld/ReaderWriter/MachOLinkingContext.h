@@ -30,9 +30,29 @@ public:
   MachOLinkingContext();
   ~MachOLinkingContext();
 
+  enum Arch {
+    arch_unknown,
+    arch_ppc,
+    arch_x86,
+    arch_x86_64,
+    arch_armv6,
+    arch_armv7,
+    arch_armv7s,
+  };
+
+  enum class OS {
+    unknown,
+    macOSX,
+    iOS,
+    iOS_simulator
+  };
+
+  /// Initializes the context to sane default values given the specified output
+  /// file type, arch, os, and minimum os version.  This should be called before
+  /// other setXXX() methods.
+  void configure(HeaderFileType type, Arch arch, OS os, uint32_t minOSVersion);
+
   virtual void addPasses(PassManager &pm);
-  virtual ErrorOr<Reference::Kind> relocKindFromString(StringRef str) const;
-  virtual ErrorOr<std::string> stringFromRelocKind(Reference::Kind kind) const;
   virtual bool validateImpl(raw_ostream &diagnostics);
 
   uint32_t getCPUType() const;
@@ -50,31 +70,13 @@ public:
 
   HeaderFileType outputFileType() const { return _outputFileType; }
 
-  enum Arch {
-    arch_unknown,
-    arch_ppc,
-    arch_x86,
-    arch_x86_64,
-    arch_armv6,
-    arch_armv7,
-    arch_armv7s,
-  };
-
-  enum class OS {
-    unknown, macOSX, iOS, iOS_simulator
-  };
-
   Arch arch() const { return _arch; }
+  StringRef archName() const { return nameFromArch(_arch); }
   OS os() const { return _os; }
 
-  void setOutputFileType(HeaderFileType type) { _outputFileType = type; }
-  void setArch(Arch arch) { _arch = arch; }
-  bool setOS(OS os, StringRef minOSVersion);
   bool minOS(StringRef mac, StringRef iOS) const;
   void setDoNothing(bool value) { _doNothing = value; }
   bool doNothing() const { return _doNothing; }
-
-  virtual Reader &getDefaultReader() const { return *_machoReader; }
 
   /// \brief The dylib's binary compatibility version, in the raw uint32 format.
   ///
@@ -125,6 +127,7 @@ public:
 
   static Arch archFromCpuType(uint32_t cputype, uint32_t cpusubtype);
   static Arch archFromName(StringRef archName);
+  static StringRef nameFromArch(Arch arch);
   static uint32_t cpuTypeFromArch(Arch arch);
   static uint32_t cpuSubtypeFromArch(Arch arch);
   static bool is64Bit(Arch arch);
@@ -147,7 +150,6 @@ private:
   };
 
   static ArchInfo _s_archInfos[];
-  static const uint64_t unspecifiedPageZeroSize = UINT64_MAX;
 
   HeaderFileType _outputFileType;   // e.g MH_EXECUTE
   bool _outputFileTypeStatic; // Disambiguate static vs dynamic prog
@@ -163,10 +165,7 @@ private:
   bool _deadStrippableDylib;
   StringRef _bundleLoader;
   mutable std::unique_ptr<mach_o::KindHandler> _kindHandler;
-  mutable std::unique_ptr<Reader> _machoReader;
   mutable std::unique_ptr<Writer> _writer;
-  
-
 };
 
 } // end namespace lld

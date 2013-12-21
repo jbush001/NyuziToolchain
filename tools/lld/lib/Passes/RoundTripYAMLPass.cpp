@@ -45,8 +45,13 @@ void RoundTripYAMLPass::perform(std::unique_ptr<MutableFile> &mergedFile) {
 
   if (buff->getBufferSize() < MAX_YAML_FILE_SIZE) {
     std::unique_ptr<MemoryBuffer> mb(buff.take());
-    _context.getYAMLReader().parseFile(mb, _yamlFile);
-    mergedFile.reset(new FileToMutable(_context, *_yamlFile[0].get()));
+    error_code ec = _context.registry().parseFile(mb, _yamlFile);
+    if (ec) {
+      // Note: we need a way for Passes to report errors.
+      llvm_unreachable("yaml reader not registered or read error");
+    }
+    File *objFile = _yamlFile[0].get();
+    mergedFile.reset(new FileToMutable(_context, *objFile));
   }
 
   llvm::sys::fs::remove(tmpYAMLFile.str());

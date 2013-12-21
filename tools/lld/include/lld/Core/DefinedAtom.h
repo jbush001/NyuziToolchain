@@ -11,16 +11,11 @@
 #define LLD_CORE_DEFINED_ATOM_H
 
 #include "lld/Core/Atom.h"
-#include "lld/Core/Reference.h"
-
-namespace llvm {
-  template <typename T>
-  class ArrayRef;
-  class StringRef;
-}
+#include "lld/Core/LLVM.h"
 
 namespace lld {
 class File;
+class Reference;
 
 /// \brief The fundamental unit of linking.
 ///
@@ -97,7 +92,7 @@ public:
 
   enum Merge {
     mergeNo,                // Another atom with same name is error
-    mergeAsTentative,       // Is ANSI C tentative defintion, can be coalesced
+    mergeAsTentative,       // Is ANSI C tentative definition, can be coalesced
     mergeAsWeak,            // is C++ inline definition that was not inlined,
                             // but address was not taken, so atom can be hidden
                             // by linker
@@ -144,7 +139,6 @@ public:
     typeTLVInitialData,     // initial data for a TLV [Darwin]
     typeTLVInitialZeroFill, // TLV initial zero fill data [Darwin]
     typeTLVInitializerPtr,  // pointer to thread local initializer [Darwin]
-    typeDataDirectoryEntry, // linker created for data directory header [PECOFF]
     typeThreadZeroFill,     // Uninitialized thread local data(TBSS) [ELF]
     typeThreadData,         // Initialized thread local data(TDATA) [ELF]
     typeRONote,             // Identifies readonly note sections [ELF]

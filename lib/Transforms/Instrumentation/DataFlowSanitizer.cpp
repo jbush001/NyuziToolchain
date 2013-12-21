@@ -735,10 +735,9 @@ bool DataFlowSanitizer::runOnModule(Module &M) {
         while (isa<PHINode>(Pos) || isa<AllocaInst>(Pos))
           Pos = Pos->getNextNode();
         IRBuilder<> IRB(Pos);
-        Instruction *NeInst = cast<Instruction>(
-            IRB.CreateICmpNE(*i, DFSF.DFS.ZeroShadow));
+        Value *Ne = IRB.CreateICmpNE(*i, DFSF.DFS.ZeroShadow);
         BranchInst *BI = cast<BranchInst>(SplitBlockAndInsertIfThen(
-            NeInst, /*Unreachable=*/ false, ColdCallWeights));
+            Ne, Pos, /*Unreachable=*/false, ColdCallWeights));
         IRBuilder<> ThenIRB(BI);
         ThenIRB.CreateCall(DFSF.DFS.DFSanNonzeroLabelFn);
       }
@@ -838,26 +837,20 @@ Value *DataFlowSanitizer::combineShadows(Value *V1, Value *V2,
   IRBuilder<> IRB(Pos);
   BasicBlock *Head = Pos->getParent();
   Value *Ne = IRB.CreateICmpNE(V1, V2);
-  Instruction *NeInst = dyn_cast<Instruction>(Ne);
-  if (NeInst) {
-    BranchInst *BI = cast<BranchInst>(SplitBlockAndInsertIfThen(
-        NeInst, /*Unreachable=*/ false, ColdCallWeights));
-    IRBuilder<> ThenIRB(BI);
-    CallInst *Call = ThenIRB.CreateCall2(DFSanUnionFn, V1, V2);
-    Call->addAttribute(AttributeSet::ReturnIndex, Attribute::ZExt);
-    Call->addAttribute(1, Attribute::ZExt);
-    Call->addAttribute(2, Attribute::ZExt);
+  BranchInst *BI = cast<BranchInst>(SplitBlockAndInsertIfThen(
+      Ne, Pos, /*Unreachable=*/false, ColdCallWeights));
+  IRBuilder<> ThenIRB(BI);
+  CallInst *Call = ThenIRB.CreateCall2(DFSanUnionFn, V1, V2);
+  Call->addAttribute(AttributeSet::ReturnIndex, Attribute::ZExt);
+  Call->addAttribute(1, Attribute::ZExt);
+  Call->addAttribute(2, Attribute::ZExt);
 
-    BasicBlock *Tail = BI->getSuccessor(0);
-    PHINode *Phi = PHINode::Create(ShadowTy, 2, "", Tail->begin());
-    Phi->addIncoming(Call, Call->getParent());
-    Phi->addIncoming(V1, Head);
-    Pos = Phi;
-    return Phi;
-  } else {
-    assert(0 && "todo");
-    return 0;
-  }
+  BasicBlock *Tail = BI->getSuccessor(0);
+  PHINode *Phi = PHINode::Create(ShadowTy, 2, "", Tail->begin());
+  Phi->addIncoming(Call, Call->getParent());
+  Phi->addIncoming(V1, Head);
+  Pos = Phi;
+  return Phi;
 }
 
 // A convenience function which folds the shadows of each of the operands

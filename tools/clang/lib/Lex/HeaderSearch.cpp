@@ -48,7 +48,7 @@ HeaderSearch::HeaderSearch(IntrusiveRefCntPtr<HeaderSearchOptions> HSOpts,
                            const LangOptions &LangOpts, 
                            const TargetInfo *Target)
   : HSOpts(HSOpts), FileMgr(SourceMgr.getFileManager()), FrameworkMap(64),
-    ModMap(SourceMgr, *Diags.getClient(), LangOpts, Target, *this)
+    ModMap(SourceMgr, Diags, LangOpts, Target, *this)
 {
   AngledDirIdx = 0;
   SystemDirIdx = 0;
@@ -59,6 +59,8 @@ HeaderSearch::HeaderSearch(IntrusiveRefCntPtr<HeaderSearchOptions> HSOpts,
   NumIncluded = 0;
   NumMultiIncludeFileOptzn = 0;
   NumFrameworkLookups = NumSubFrameworkLookups = 0;
+
+  EnabledModules = LangOpts.Modules;
 }
 
 HeaderSearch::~HeaderSearch() {
@@ -509,7 +511,7 @@ const FileEntry *HeaderSearch::LookupFile(
     // Preload all explicitly specified module map files. This enables modules
     // map files lying in a directory structure separate from the header files
     // that they describe. These cannot be loaded lazily upon encountering a
-    // header file, as there is no other knwon mapping from a header file to its
+    // header file, as there is no other known mapping from a header file to its
     // module map file.
     for (llvm::SetVector<std::string>::iterator
              I = HSOpts->ModuleMapFiles.begin(),
@@ -953,6 +955,9 @@ StringRef HeaderSearch::getUniqueFrameworkName(StringRef Framework) {
 bool HeaderSearch::hasModuleMap(StringRef FileName, 
                                 const DirectoryEntry *Root,
                                 bool IsSystem) {
+  if (!enabledModules())
+    return false;
+
   SmallVector<const DirectoryEntry *, 2> FixUpDirectories;
   
   StringRef DirName = FileName;

@@ -259,6 +259,12 @@ void Parser::ParseGNUAttributeArgs(IdentifierInfo *AttrName,
     ParseAvailabilityAttribute(*AttrName, AttrNameLoc, Attrs, EndLoc);
     return;
   }
+  
+  if (AttrKind == AttributeList::AT_ObjCBridgeRelated) {
+    ParseObjCBridgeRelatedAttribute(*AttrName, AttrNameLoc, Attrs, EndLoc);
+    return;
+  }
+  
   // Thread safety attributes are parsed in an unevaluated context.
   // FIXME: Share the bulk of the parsing code here and just pull out
   // the unevaluated context.
@@ -288,7 +294,8 @@ void Parser::ParseGNUAttributeArgs(IdentifierInfo *AttrName,
 
     // If we don't know how to parse this attribute, but this is the only
     // token in this argument, assume it's meant to be an identifier.
-    if (AttrKind == AttributeList::UnknownAttribute) {
+    if (AttrKind == AttributeList::UnknownAttribute ||
+        AttrKind == AttributeList::IgnoredAttribute) {
       const Token &Next = NextToken();
       IsIdentifierArg = Next.is(tok::r_paren) || Next.is(tok::comma);
     }
@@ -303,17 +310,15 @@ void Parser::ParseGNUAttributeArgs(IdentifierInfo *AttrName,
       ConsumeToken();
 
     // Parse the non-empty comma-separated list of expressions.
-    while (1) {
+    do {
       ExprResult ArgExpr(ParseAssignmentExpression());
       if (ArgExpr.isInvalid()) {
         SkipUntil(tok::r_paren, StopAtSemi);
         return;
       }
       ArgExprs.push_back(ArgExpr.release());
-      if (Tok.isNot(tok::comma))
-        break;
-      ConsumeToken(); // Eat the comma, move to the next argument
-    }
+      // Eat the comma, move to the next argument
+    } while (TryConsumeToken(tok::comma));
   }
 
   SourceLocation RParen = Tok.getLocation();
@@ -462,9 +467,7 @@ void Parser::ParseComplexMicrosoftDeclSpec(IdentifierInfo *Ident,
       ConsumeToken();
 
       // Consume the '='.
-      if (Tok.is(tok::equal)) {
-        ConsumeToken();
-      } else {
+      if (!TryConsumeToken(tok::equal)) {
         Diag(Tok.getLocation(), diag::err_ms_property_expected_equal)
           << KindStr;
         break;
@@ -626,7 +629,6 @@ void Parser::ParseOpenCLQualifiers(DeclSpec &DS) {
   switch(Tok.getKind()) {
     // OpenCL qualifiers:
     case tok::kw___private:
-    case tok::kw_private:
       DS.getAttributes().addNewInteger(
           Actions.getASTContext(),
           PP.getIdentifierInfo("address_space"), Loc, 0);
@@ -958,6 +960,87 @@ void Parser::ParseAvailabilityAttribute(IdentifierInfo &Availability,
                AttributeList::AS_GNU);
 }
 
+/// \brief Parse the contents of the "objc_bridge_related" attribute.
+/// objc_bridge_related '(' related_class ',' opt-class_method ',' opt-instance_method ')'
+/// related_class:
+///     Identifier
+///
+/// opt-class_method:
+///     Identifier: | <empty>
+///
+/// opt-instance_method:
+///     Identifier | <empty>
+///
+void Parser::ParseObjCBridgeRelatedAttribute(IdentifierInfo &ObjCBridgeRelated,
+                                SourceLocation ObjCBridgeRelatedLoc,
+                                ParsedAttributes &attrs,
+                                SourceLocation *endLoc) {
+  // Opening '('.
+  BalancedDelimiterTracker T(*this, tok::l_paren);
+  if (T.consumeOpen()) {
+    Diag(Tok, diag::err_expected_lparen);
+    return;
+  }
+  
+  // Parse the related class name.
+  if (Tok.isNot(tok::identifier)) {
+    Diag(Tok, diag::err_objcbridge_related_expected_related_class);
+    SkipUntil(tok::r_paren, StopAtSemi);
+    return;
+  }
+  IdentifierLoc *RelatedClass = ParseIdentifierLoc();
+  if (!TryConsumeToken(tok::comma)) {
+    Diag(Tok, diag::err_expected_comma);
+    SkipUntil(tok::r_paren, StopAtSemi);
+    return;
+  }
+
+  // Parse optional class method name.
+  IdentifierLoc *ClassMethod = 0;
+  if (Tok.is(tok::identifier)) {
+    ClassMethod = ParseIdentifierLoc();
+    if (!TryConsumeToken(tok::colon)) {
+      Diag(Tok, diag::err_objcbridge_related_selector_name);
+      SkipUntil(tok::r_paren, StopAtSemi);
+      return;
+    }
+  }
+  if (!TryConsumeToken(tok::comma)) {
+    if (Tok.is(tok::colon))
+      Diag(Tok, diag::err_objcbridge_related_selector_name);
+    else
+      Diag(Tok, diag::err_expected_comma);
+    SkipUntil(tok::r_paren, StopAtSemi);
+    return;
+  }
+  
+  // Parse optional instance method name.
+  IdentifierLoc *InstanceMethod = 0;
+  if (Tok.is(tok::identifier))
+    InstanceMethod = ParseIdentifierLoc();
+  else if (Tok.isNot(tok::r_paren)) {
+    Diag(Tok, diag::err_expected_rparen);
+    SkipUntil(tok::r_paren, StopAtSemi);
+    return;
+  }
+  
+  // Closing ')'.
+  if (T.consumeClose())
+    return;
+  
+  if (endLoc)
+    *endLoc = T.getCloseLocation();
+  
+  // Record this attribute
+  attrs.addNew(&ObjCBridgeRelated,
+               SourceRange(ObjCBridgeRelatedLoc, T.getCloseLocation()),
+               0, ObjCBridgeRelatedLoc,
+               RelatedClass,
+               ClassMethod,
+               InstanceMethod,
+               AttributeList::AS_GNU);
+  
+}
 
 // Late Parsed Attributes:
 // See other examples of late parsing in lib/Parse/ParseCXXInlineMethods
@@ -1165,9 +1248,9 @@ void Parser::ParseThreadSafetyAttribute(IdentifierInfo &AttrName,
     } else {
       ArgExprs.push_back(ArgExpr.release());
     }
-    if (Tok.isNot(tok::comma))
+    // Eat the comma, move to the next argument
+    if (!TryConsumeToken(tok::comma))
       break;
-    ConsumeToken(); // Eat the comma, move to the next argument
   }
   // Match the ')'.
   if (ArgExprsOk && !T.consumeClose()) {
@@ -1210,8 +1293,7 @@ void Parser::ParseTypeTagForDatatypeAttribute(IdentifierInfo &AttrName,
 
   bool LayoutCompatible = false;
   bool MustBeNull = false;
-  while (Tok.is(tok::comma)) {
-    ConsumeToken();
+  while (TryConsumeToken(tok::comma)) {
     if (Tok.isNot(tok::identifier)) {
       Diag(Tok, diag::err_expected_ident);
       T.skipToEnd();
@@ -1507,8 +1589,7 @@ void Parser::SkipMalformedDecl() {
         // This declaration isn't over yet. Keep skipping.
         continue;
       }
-      if (Tok.is(tok::semi))
-        ConsumeToken();
+      TryConsumeToken(tok::semi);
       return;
 
     case tok::l_square:
@@ -1634,7 +1715,8 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
     } else {
       if (Tok.is(tok::l_brace)) {
         Diag(Tok, diag::err_function_definition_not_allowed);
-        SkipUntil(tok::r_brace, StopAtSemi | StopBeforeMatch);
+        SkipMalformedDecl();
+        return DeclGroupPtrTy();
       }
     }
   }
@@ -1650,9 +1732,8 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
   // don't need to parse the container in advance.
   if (FRI && (Tok.is(tok::colon) || isTokIdentifier_in())) {
     bool IsForRangeLoop = false;
-    if (Tok.is(tok::colon)) {
+    if (TryConsumeToken(tok::colon, FRI->ColonLoc)) {
       IsForRangeLoop = true;
-      FRI->ColonLoc = ConsumeToken();
       if (Tok.is(tok::l_brace))
         FRI->RangeExpr = ParseBraceInitializer();
       else
@@ -1679,9 +1760,8 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
   
   // If we don't have a comma, it is either the end of the list (a ';') or an
   // error, bail out.
-  while (Tok.is(tok::comma)) {
-    SourceLocation CommaLoc = ConsumeToken();
-
+  SourceLocation CommaLoc;
+  while (TryConsumeToken(tok::comma, CommaLoc)) {
     if (Tok.isAtStartOfLine() && ExpectSemi && !MightBeDeclarator(Context)) {
       // This comma was followed by a line-break and something which can't be
       // the start of a declarator. The comma was probably a typo for a
@@ -1726,8 +1806,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
     // Otherwise things are very confused and we skip to recover.
     if (!isDeclarationSpecifier()) {
       SkipUntil(tok::r_brace, StopAtSemi | StopBeforeMatch);
-      if (Tok.is(tok::semi))
-        ConsumeToken();
+      TryConsumeToken(tok::semi);
     }
   }
 
@@ -2284,8 +2363,8 @@ ExprResult Parser::ParseAlignArgument(SourceLocation Start,
   } else
     ER = ParseConstantExpression();
 
-  if (getLangOpts().CPlusPlus11 && Tok.is(tok::ellipsis))
-    EllipsisLoc = ConsumeToken();
+  if (getLangOpts().CPlusPlus11)
+    TryConsumeToken(tok::ellipsis, EllipsisLoc);
 
   return ER;
 }
@@ -2739,10 +2818,8 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
       // then treat __is_signed as an identifier rather than as a keyword.
       if (DS.getTypeSpecType() == TST_bool &&
           DS.getTypeQualifiers() == DeclSpec::TQ_const &&
-          DS.getStorageClassSpec() == DeclSpec::SCS_static) {
-        Tok.getIdentifierInfo()->RevertTokenIDToIdentifier();
-        Tok.setKind(tok::identifier);
-      }
+          DS.getStorageClassSpec() == DeclSpec::SCS_static)
+        TryKeywordIdentFallback(true);
 
       // We're done with the declaration-specifiers.
       goto DoneWithDeclSpec;
@@ -3096,38 +3173,6 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
     case tok::kw___pixel:
       isInvalid = DS.SetTypeAltiVecPixel(true, Loc, PrevSpec, DiagID);
       break;
-    case tok::kw_image1d_t:
-       isInvalid = DS.SetTypeSpecType(DeclSpec::TST_image1d_t, Loc,
-                                      PrevSpec, DiagID);
-      break;
-    case tok::kw_image1d_array_t:
-       isInvalid = DS.SetTypeSpecType(DeclSpec::TST_image1d_array_t, Loc,
-                                      PrevSpec, DiagID);
-      break;
-    case tok::kw_image1d_buffer_t:
-       isInvalid = DS.SetTypeSpecType(DeclSpec::TST_image1d_buffer_t, Loc,
-                                      PrevSpec, DiagID);
-      break;
-    case tok::kw_image2d_t:
-       isInvalid = DS.SetTypeSpecType(DeclSpec::TST_image2d_t, Loc,
-                                      PrevSpec, DiagID);
-      break;
-    case tok::kw_image2d_array_t:
-       isInvalid = DS.SetTypeSpecType(DeclSpec::TST_image2d_array_t, Loc,
-                                      PrevSpec, DiagID);
-      break;
-    case tok::kw_image3d_t:
-      isInvalid = DS.SetTypeSpecType(DeclSpec::TST_image3d_t, Loc,
-                                     PrevSpec, DiagID);
-      break;
-    case tok::kw_sampler_t:
-      isInvalid = DS.SetTypeSpecType(DeclSpec::TST_sampler_t, Loc,
-                                     PrevSpec, DiagID);
-      break;
-    case tok::kw_event_t:
-      isInvalid = DS.SetTypeSpecType(DeclSpec::TST_event_t, Loc,
-                                     PrevSpec, DiagID);
-      break;
     case tok::kw___unknown_anytype:
       isInvalid = DS.SetTypeSpecType(TST_unknown_anytype, Loc,
                                      PrevSpec, DiagID);
@@ -3214,9 +3259,6 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
       break;
 
     // OpenCL qualifiers:
-    case tok::kw_private:
-      if (!getLangOpts().OpenCL)
-        goto DoneWithDeclSpec;
     case tok::kw___private:
     case tok::kw___global:
     case tok::kw___local:
@@ -3321,8 +3363,7 @@ ParseStructDeclaration(ParsingDeclSpec &DS, FieldCallback &Fields) {
       ParseDeclarator(DeclaratorInfo.D);
     }
 
-    if (Tok.is(tok::colon)) {
-      ConsumeToken();
+    if (TryConsumeToken(tok::colon)) {
       ExprResult Res(ParseConstantExpression());
       if (Res.isInvalid())
         SkipUntil(tok::semi, StopBeforeMatch);
@@ -3338,11 +3379,8 @@ ParseStructDeclaration(ParsingDeclSpec &DS, FieldCallback &Fields) {
 
     // If we don't have a comma, it is either the end of the list (a ';')
     // or an error, bail out.
-    if (Tok.isNot(tok::comma))
+    if (!TryConsumeToken(tok::comma, CommaLoc))
       return;
-
-    // Consume the comma.
-    CommaLoc = ConsumeToken();
 
     FirstDeclarator = false;
   }
@@ -3445,18 +3483,19 @@ void Parser::ParseStructUnionBody(SourceLocation RecordLoc,
       ExpectAndConsume(tok::r_paren, diag::err_expected_rparen);
     }
 
-    if (Tok.is(tok::semi)) {
-      ConsumeToken();
-    } else if (Tok.is(tok::r_brace)) {
+    if (TryConsumeToken(tok::semi))
+      continue;
+
+    if (Tok.is(tok::r_brace)) {
       ExpectAndConsume(tok::semi, diag::ext_expected_semi_decl_list);
       break;
-    } else {
-      ExpectAndConsume(tok::semi, diag::err_expected_semi_decl_list);
-      // Skip to end of block or statement to avoid ext-warning on extra ';'.
-      SkipUntil(tok::r_brace, StopAtSemi | StopBeforeMatch);
-      // If we stopped at a ';', eat it.
-      if (Tok.is(tok::semi)) ConsumeToken();
     }
+
+    ExpectAndConsume(tok::semi, diag::err_expected_semi_decl_list);
+    // Skip to end of block or statement to avoid ext-warning on extra ';'.
+    SkipUntil(tok::r_brace, StopAtSemi | StopBeforeMatch);
+    // If we stopped at a ';', eat it.
+    TryConsumeToken(tok::semi);
   }
 
   T.consumeClose();
@@ -3864,8 +3903,7 @@ void Parser::ParseEnumBody(SourceLocation StartLoc, Decl *EnumDecl) {
     ExprResult AssignedVal;
     ParsingDeclRAIIObject PD(*this, ParsingDeclRAIIObject::NoParent);
 
-    if (Tok.is(tok::equal)) {
-      EqualLoc = ConsumeToken();
+    if (TryConsumeToken(tok::equal, EqualLoc)) {
       AssignedVal = ParseConstantExpression();
       if (AssignedVal.isInvalid())
         SkipUntil(tok::comma, tok::r_brace, StopAtSemi | StopBeforeMatch);
@@ -3890,9 +3928,9 @@ void Parser::ParseEnumBody(SourceLocation StartLoc, Decl *EnumDecl) {
       continue;
     }
 
-    if (Tok.isNot(tok::comma))
+    SourceLocation CommaLoc;
+    if (!TryConsumeToken(tok::comma, CommaLoc))
       break;
-    SourceLocation CommaLoc = ConsumeToken();
 
     if (Tok.isNot(tok::identifier)) {
       if (!getLangOpts().C99 && !getLangOpts().CPlusPlus11)
@@ -3940,12 +3978,7 @@ void Parser::ParseEnumBody(SourceLocation StartLoc, Decl *EnumDecl) {
 bool Parser::isTypeQualifier() const {
   switch (Tok.getKind()) {
   default: return false;
-
-    // type-qualifier only in OpenCL
-  case tok::kw_private:
-    return getLangOpts().OpenCL;
-
-    // type-qualifier
+  // type-qualifier
   case tok::kw_const:
   case tok::kw_volatile:
   case tok::kw_restrict:
@@ -3990,16 +4023,6 @@ bool Parser::isKnownToBeTypeSpecifier(const Token &Tok) const {
   case tok::kw__Decimal64:
   case tok::kw__Decimal128:
   case tok::kw___vector:
-
-    // OpenCL specific types:
-  case tok::kw_image1d_t:
-  case tok::kw_image1d_array_t:
-  case tok::kw_image1d_buffer_t:
-  case tok::kw_image2d_t:
-  case tok::kw_image2d_array_t:
-  case tok::kw_image3d_t:
-  case tok::kw_sampler_t:
-  case tok::kw_event_t:
 
     // struct-or-union-specifier (C99) or class-specifier (C++)
   case tok::kw_class:
@@ -4073,16 +4096,6 @@ bool Parser::isTypeSpecifierQualifier() {
   case tok::kw__Decimal128:
   case tok::kw___vector:
 
-    // OpenCL specific types:
-  case tok::kw_image1d_t:
-  case tok::kw_image1d_array_t:
-  case tok::kw_image1d_buffer_t:
-  case tok::kw_image2d_t:
-  case tok::kw_image2d_array_t:
-  case tok::kw_image3d_t:
-  case tok::kw_sampler_t:
-  case tok::kw_event_t:
-
     // struct-or-union-specifier (C99) or class-specifier (C++)
   case tok::kw_class:
   case tok::kw_struct:
@@ -4127,9 +4140,6 @@ bool Parser::isTypeSpecifierQualifier() {
 
     return true;
 
-  case tok::kw_private:
-    return getLangOpts().OpenCL;
-
   // C11 _Atomic
   case tok::kw__Atomic:
     return true;
@@ -4144,9 +4154,6 @@ bool Parser::isTypeSpecifierQualifier() {
 bool Parser::isDeclarationSpecifier(bool DisambiguatingWithExpression) {
   switch (Tok.getKind()) {
   default: return false;
-
-  case tok::kw_private:
-    return getLangOpts().OpenCL;
 
   case tok::identifier:   // foo::bar
     // Unfortunate hack to support "Class.factoryMethod" notation.
@@ -4228,16 +4235,6 @@ bool Parser::isDeclarationSpecifier(bool DisambiguatingWithExpression) {
   case tok::kw__Decimal64:
   case tok::kw__Decimal128:
   case tok::kw___vector:
-
-    // OpenCL specific types:
-  case tok::kw_image1d_t:
-  case tok::kw_image1d_array_t:
-  case tok::kw_image1d_buffer_t:
-  case tok::kw_image2d_t:
-  case tok::kw_image2d_array_t:
-  case tok::kw_image3d_t:
-  case tok::kw_sampler_t:
-  case tok::kw_event_t:
 
     // struct-or-union-specifier (C99) or class-specifier (C++)
   case tok::kw_class:
@@ -4429,7 +4426,8 @@ bool Parser::isConstructorDeclarator() {
 void Parser::ParseTypeQualifierListOpt(DeclSpec &DS,
                                        bool VendorAttributesAllowed,
                                        bool CXX11AttributesAllowed,
-                                       bool AtomicAllowed) {
+                                       bool AtomicAllowed,
+                                       bool IdentifierRequired) {
   if (getLangOpts().CPlusPlus11 && CXX11AttributesAllowed &&
       isCXX11AttributeSpecifier()) {
     ParsedAttributesWithRange attrs(AttrFactory);
@@ -4470,9 +4468,6 @@ void Parser::ParseTypeQualifierListOpt(DeclSpec &DS,
       break;
 
     // OpenCL qualifiers:
-    case tok::kw_private:
-      if (!getLangOpts().OpenCL)
-        goto DoneWithTypeQuals;
     case tok::kw___private:
     case tok::kw___global:
     case tok::kw___local:
@@ -4483,8 +4478,15 @@ void Parser::ParseTypeQualifierListOpt(DeclSpec &DS,
       ParseOpenCLQualifiers(DS);
       break;
 
-    case tok::kw___sptr:
     case tok::kw___uptr:
+      // GNU libc headers in C mode use '__uptr' as an identifer which conflicts
+      // with the MS modifier keyword.
+      if (VendorAttributesAllowed && !getLangOpts().CPlusPlus &&
+          IdentifierRequired && DS.isEmpty() && NextToken().is(tok::semi)) {
+        if (TryKeywordIdentFallback(false))
+          continue;
+      }
+    case tok::kw___sptr:
     case tok::kw___w64:
     case tok::kw___ptr64:
     case tok::kw___ptr32:
@@ -4640,7 +4642,7 @@ void Parser::ParseDeclaratorInternal(Declarator &D,
     DeclSpec DS(AttrFactory);
 
     // FIXME: GNU attributes are not allowed here in a new-type-id.
-    ParseTypeQualifierListOpt(DS);
+    ParseTypeQualifierListOpt(DS, true, true, true, !D.mayOmitIdentifier());
     D.ExtendWithDeclSpec(DS);
 
     // Recursively parse the declarator.
@@ -5311,7 +5313,7 @@ void Parser::ParseFunctionDeclaratorIdentifierList(
   // Maintain an efficient lookup of params we have seen so far.
   llvm::SmallSet<const IdentifierInfo*, 16> ParamsSoFar;
 
-  while (1) {
+  do {
     // If this isn't an identifier, report the error and skip until ')'.
     if (Tok.isNot(tok::identifier)) {
       Diag(Tok, diag::err_expected_ident);
@@ -5339,12 +5341,8 @@ void Parser::ParseFunctionDeclaratorIdentifierList(
 
     // Eat the identifier.
     ConsumeToken();
-
     // The list continues if we see a comma.
-    if (Tok.isNot(tok::comma))
-      break;
-    ConsumeToken();
-  }
+  } while (TryConsumeToken(tok::comma));
 }
 
 /// ParseParameterDeclarationClause - Parse a (possibly empty) parameter-list
@@ -5383,13 +5381,11 @@ void Parser::ParseParameterDeclarationClause(
        ParsedAttributes &FirstArgAttrs,
        SmallVectorImpl<DeclaratorChunk::ParamInfo> &ParamInfo,
        SourceLocation &EllipsisLoc) {
-  while (1) {
-    if (Tok.is(tok::ellipsis)) {
-      // FIXME: Issue a diagnostic if we parsed an attribute-specifier-seq
-      // before deciding this was a parameter-declaration-clause.
-      EllipsisLoc = ConsumeToken();     // Consume the ellipsis.
+  do {
+    // FIXME: Issue a diagnostic if we parsed an attribute-specifier-seq
+    // before deciding this was a parameter-declaration-clause.
+    if (TryConsumeToken(tok::ellipsis, EllipsisLoc))
       break;
-    }
 
     // Parse the declaration-specifiers.
     // Just use the ParsingDeclaration "scope" of the declarator.
@@ -5508,26 +5504,17 @@ void Parser::ParseParameterDeclarationClause(
                                           Param, DefArgToks));
     }
 
-    // If the next token is a comma, consume it and keep reading arguments.
-    if (Tok.isNot(tok::comma)) {
-      if (Tok.is(tok::ellipsis)) {
-        EllipsisLoc = ConsumeToken();     // Consume the ellipsis.
-
-        if (!getLangOpts().CPlusPlus) {
-          // We have ellipsis without a preceding ',', which is ill-formed
-          // in C. Complain and provide the fix.
-          Diag(EllipsisLoc, diag::err_missing_comma_before_ellipsis)
-            << FixItHint::CreateInsertion(EllipsisLoc, ", ");
-        }
-      }
-
+    if (TryConsumeToken(tok::ellipsis, EllipsisLoc) &&
+        !getLangOpts().CPlusPlus) {
+      // We have ellipsis without a preceding ',', which is ill-formed
+      // in C. Complain and provide the fix.
+      Diag(EllipsisLoc, diag::err_missing_comma_before_ellipsis)
+          << FixItHint::CreateInsertion(EllipsisLoc, ", ");
       break;
     }
 
-    // Consume the comma.
-    ConsumeToken();
-  }
-
+    // If the next token is a comma, consume it and keep reading arguments.
+  } while (TryConsumeToken(tok::comma));
 }
 
 /// [C90]   direct-declarator '[' constant-expression[opt] ']'
@@ -5552,7 +5539,6 @@ void Parser::ParseBracketDeclarator(Declarator &D) {
     MaybeParseCXX11Attributes(attrs);
 
     // Remember that we parsed the empty array type.
-    ExprResult NumElements;
     D.AddTypeInfo(DeclaratorChunk::getArray(0, false, false, 0,
                                             T.getOpenLocation(),
                                             T.getCloseLocation()),
@@ -5579,8 +5565,7 @@ void Parser::ParseBracketDeclarator(Declarator &D) {
 
   // If valid, this location is the position where we read the 'static' keyword.
   SourceLocation StaticLoc;
-  if (Tok.is(tok::kw_static))
-    StaticLoc = ConsumeToken();
+  TryConsumeToken(tok::kw_static, StaticLoc);
 
   // If there is a type-qualifier-list, read it now.
   // Type qualifiers in an array subscript are a C99 feature.
@@ -5589,8 +5574,8 @@ void Parser::ParseBracketDeclarator(Declarator &D) {
 
   // If we haven't already read 'static', check to see if there is one after the
   // type-qualifier-list.
-  if (!StaticLoc.isValid() && Tok.is(tok::kw_static))
-    StaticLoc = ConsumeToken();
+  if (!StaticLoc.isValid())
+    TryConsumeToken(tok::kw_static, StaticLoc);
 
   // Handle "direct-declarator [ type-qual-list[opt] * ]".
   bool isStar = false;

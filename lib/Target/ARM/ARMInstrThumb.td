@@ -1306,9 +1306,21 @@ def : T1Pat<(addc   tGPR:$lhs, imm8_255_neg:$rhs),
 def : T1Pat<(subc   tGPR:$lhs, tGPR:$rhs),
             (tSUBrr tGPR:$lhs, tGPR:$rhs)>;
 
-// ConstantPool, GlobalAddress
-def : T1Pat<(ARMWrapper  tglobaladdr :$dst), (tLEApcrel tglobaladdr :$dst)>;
+// ConstantPool
 def : T1Pat<(ARMWrapper  tconstpool  :$dst), (tLEApcrel tconstpool  :$dst)>;
+
+// GlobalAddress
+def tLDRLIT_ga_pcrel : PseudoInst<(outs GPR:$dst), (ins i32imm:$addr),
+                                  IIC_iLoadiALU,
+                                  [(set GPR:$dst,
+                                        (ARMWrapperPIC tglobaladdr:$addr))]>,
+                       Requires<[IsThumb, DontUseMovt]>;
+
+def tLDRLIT_ga_abs : PseudoInst<(outs GPR:$dst), (ins i32imm:$src), IIC_iLoad_i,
+                                [(set GPR:$dst,
+                                      (ARMWrapper tglobaladdr:$src))]>,
+                     Requires<[IsThumb, DontUseMovt]>;
+
 
 // JumpTable
 def : T1Pat<(ARMWrapperJT tjumptable:$dst, imm:$id),

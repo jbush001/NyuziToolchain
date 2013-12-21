@@ -24,10 +24,6 @@
 #include <string>
 #include <vector>
 
-namespace llvm {
-class Triple;
-}
-
 namespace lld {
 class PassManager;
 class File;
@@ -40,14 +36,11 @@ class SharedLibraryFile;
 ///
 /// The base class LinkingContext contains the options needed by core linking.
 /// Subclasses of LinkingContext have additional options needed by specific
-/// Readers
-/// and Writers. For example, ELFLinkingContext has methods that supplies
-/// options
-/// to the ELF Reader and Writer.
+/// Writers. For example, ELFLinkingContext has methods that supplies
+/// options to the ELF Writer and ELF Passes.
 class LinkingContext {
 public:
-  /// \brief The types of output file that the linker
-  /// creates.
+  /// \brief The types of output file that the linker creates.
   enum class OutputFileType : uint8_t {
     Default, // The default output type for this target
     YAML,    // The output type is set to YAML
@@ -82,6 +75,7 @@ public:
   /// reference). Only Atoms with scope scopeLinkageUnit or scopeGlobal can
   /// be kept live using this method.
   const std::vector<StringRef> &deadStripRoots() const {
+    assert(_deadStrip && "only applicable when deadstripping enabled");
     return _deadStripRoots;
   }
 
@@ -226,14 +220,14 @@ public:
 
   /// This method adds undefined symbols specified by the -u option to the to
   /// the list of undefined symbols known to the linker. This option essentially
-  /// forces an undefined symbol to be create. You may also need to call
+  /// forces an undefined symbol to be created. You may also need to call
   /// addDeadStripRoot() for the symbol if your platform supports dead
   /// stripping, so that the symbol will not be removed from the output.
   void addInitialUndefinedSymbol(StringRef symbolName) {
     _initialUndefinedSymbols.push_back(symbolName);
   }
 
-  /// Iterators for symbols that appear on the command line
+  /// Iterators for symbols that appear on the command line.
   typedef std::vector<StringRef> StringRefVector;
   typedef StringRefVector::iterator StringRefVectorIter;
   typedef StringRefVector::const_iterator StringRefVectorConstIter;
@@ -280,17 +274,12 @@ public:
     return true;
   }
 
-  /// Returns the output file that that the linker needs to create
+  /// Returns the output file type that that the linker needs to create.
   OutputFileType outputFileType() const { return _outputFileType; }
 
-  /// Returns the YAML reader.
-  virtual Reader &getYAMLReader() const { return *_yamlReader; }
-
-  /// Returns the LLD Native file format reader.
-  virtual Reader &getNativeReader() const { return *_nativeReader; }
-
-  /// Return the default reader for the target
-  virtual Reader &getDefaultReader() const = 0;
+  /// Accessor for Register object embedded in LinkingContext.
+  const Registry &registry() const { return _registry; }
+  Registry &registry() { return _registry; }
 
   /// This method is called by core linking to give the Writer a chance
   /// to add file format specific "files" to set of files to be linked. This is
@@ -326,20 +315,6 @@ public:
 
   /// @}
 
-  /// \name Methods needed by YAML I/O and error messages to convert Kind values
-  /// to and from strings.
-  /// @{
-
-  /// Abstract method to parse a kind name string into an integral
-  /// Reference::Kind
-  virtual ErrorOr<Reference::Kind> relocKindFromString(StringRef str) const = 0;
-
-  /// Abstract method to return the name for a given integral
-  /// Reference::Kind.
-  virtual ErrorOr<std::string> stringFromRelocKind(Reference::Kind k) const = 0;
-
-  /// @}
-
 protected:
   LinkingContext(); // Must be subclassed
 
@@ -367,18 +342,18 @@ protected:
   OutputFileType _outputFileType;
   std::vector<StringRef> _deadStripRoots;
   std::vector<const char *> _llvmOptions;
-  std::unique_ptr<Reader> _yamlReader;
-  std::unique_ptr<Reader> _nativeReader;
   StringRefVector _initialUndefinedSymbols;
   std::unique_ptr<InputGraph> _inputGraph;
   mutable llvm::BumpPtrAllocator _allocator;
   InputElement *_currentInputElement;
   mutable uint64_t _nextOrdinal;
+  Registry _registry;
 
 private:
   /// Validate the subclass bits. Only called by validate.
   virtual bool validateImpl(raw_ostream &diagnostics) = 0;
 };
+
 } // end namespace lld
 
 #endif
