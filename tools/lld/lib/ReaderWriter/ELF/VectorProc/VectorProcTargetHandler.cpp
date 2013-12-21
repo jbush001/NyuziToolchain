@@ -44,6 +44,9 @@ error_code VectorProcTargetRelocationHandler::applyRelocation(
   uint64_t targetVAddress = writer.addressOfAtom(ref.target());
   uint64_t relocVAddress = atom._virtualAddr + ref.offsetInAtom();
 
+  if (ref.kindNamespace() != Reference::KindNamespace::ELF)
+    return error_code::success();
+
   switch (ref.kindValue()) {
   case R_VECTORPROC_BRANCH:
     relocBRANCH(location, relocVAddress, targetVAddress, ref.addend());
