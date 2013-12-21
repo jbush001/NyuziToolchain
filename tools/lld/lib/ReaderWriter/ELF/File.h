@@ -174,6 +174,8 @@ public:
       return Reference::KindArch::Hexagon;
     case llvm::ELF::EM_MIPS:
       return Reference::KindArch::Mips;
+    case llvm::ELF::EM_VECTORPROC:
+      return Reference::KindArch::VectorProc;
     }
     llvm_unreachable("unsupported e_machine value");
   }
