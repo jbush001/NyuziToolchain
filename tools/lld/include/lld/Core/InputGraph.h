@@ -17,7 +17,6 @@
 #define LLD_CORE_INPUT_GRAPH_H
 
 #include "lld/Core/File.h"
-#include "llvm/ADT/StringRef.h"
 #include "llvm/Option/ArgList.h"
 
 #include "llvm/Support/ErrorOr.h"
@@ -75,8 +74,8 @@ public:
 
   /// \brief Do postprocessing of the InputGraph if there is a need for the
   /// to provide additional information to the user, also rearranges
-  /// InputElements by their ordinals. If an user wants to place an input file
-  /// at the desired position, the user can do that
+  /// InputElements by their ordinals. If a user wants to place an input file
+  /// at the desired position, the user can do that.
   virtual void doPostProcess();
 
   range<InputElementIterT> inputElements() {
@@ -130,7 +129,6 @@ public:
   /// Each input element in the graph can be a File or a control
   enum class Kind : uint8_t {
     Control,    // Represents a type associated with ControlNodes
-    SimpleFile, // Represents a type reserved for internal files
     File        // Represents a type associated with File Nodes
   };
 
@@ -210,7 +208,7 @@ class ControlNode : public InputElement {
 public:
   /// A control node could be of several types supported by InputGraph
   /// Future kinds of Control node could be added
-  enum class ControlKind : uint8_t{
+  enum class ControlKind : uint8_t {
     Simple, // Represents a simple control node
     Group   // Represents a type associated with ControlNodes
   };
@@ -225,7 +223,7 @@ public:
   virtual ~ControlNode() {}
 
   /// \brief Return the kind of control node
-  virtual ControlNode::ControlKind controlKind() { return _controlKind; }
+  virtual ControlKind controlKind() { return _controlKind; }
 
   /// \brief Process control start/exit
   virtual bool processControlEnter() { return true; }
@@ -298,7 +296,7 @@ public:
     return make_range(_files.begin(), _files.end());
   }
 
-  /// \brief  number of files.
+  /// \brief number of files.
   size_t numFiles() const { return _files.size(); }
 
   /// \brief add a file to the list of files
@@ -355,42 +353,15 @@ public:
 };
 
 /// \brief Represents Internal Input files
-class SimpleFileNode : public InputElement {
+class SimpleFileNode : public FileNode {
 public:
   SimpleFileNode(StringRef path, int64_t ordinal = -1);
 
-  virtual ErrorOr<StringRef> path(const LinkingContext &) const {
-    return _path;
-  }
-
-  // The saved input path thats used when a file is not found while
-  // trying to parse a file
-  StringRef getUserPath() const { return _path; }
-
   virtual ~SimpleFileNode() {}
-
-  /// \brief Casting support
-  static inline bool classof(const InputElement *a) {
-    return a->kind() == InputElement::Kind::SimpleFile;
-  }
-
-  /// \brief Get the list of files
-  range<InputGraph::FileIterT> files() {
-    return make_range(_files.begin(), _files.end());
-  }
-
-  /// \brief  number of files.
-  size_t numFiles() const { return _files.size(); }
 
   /// \brief add a file to the list of files
   virtual void appendInputFile(std::unique_ptr<File> f) {
     _files.push_back(std::move(f));
-  }
-
-  /// \brief add a file to the list of files
-  virtual void appendInputFiles(InputGraph::FileVectorT files) {
-    for (auto &ai : files)
-      _files.push_back(std::move(ai));
   }
 
   /// \brief validates the Input Element
@@ -412,24 +383,9 @@ public:
     return *_files[_nextFileIndex++];
   }
 
-  /// \brief Set the resolver state.
-  virtual void setResolveState(uint32_t resolveState) {
-    _resolveState = resolveState;
-  }
-
-  /// \brief Retrieve the resolve state.
-  virtual uint32_t getResolveState() const { return _resolveState; }
-
   // Do nothing here.
   virtual void resetNextIndex() {}
-
-protected:
-  StringRef _path;                // A string associated with this file.
-  InputGraph::FileVectorT _files; // Vector of lld::File objects
-  uint32_t _nextFileIndex; // The next file that would be processed by the
-                           // resolver
-  uint32_t _resolveState;  // The resolve state associated with this Node
 };
 } // namespace lld
 
-#endif // LLD_DRIVER_INPUT_GRAPH_H
+#endif // LLD_CORE_INPUT_GRAPH_H

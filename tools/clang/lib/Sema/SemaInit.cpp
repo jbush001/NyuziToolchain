@@ -2508,7 +2508,7 @@ DeclarationName InitializedEntity::getName() const {
     return VariableOrMember->getDeclName();
 
   case EK_LambdaCapture:
-    return Capture.Var->getDeclName();
+    return DeclarationName(Capture.VarID);
       
   case EK_Result:
   case EK_Exception:
@@ -2610,7 +2610,7 @@ unsigned InitializedEntity::dumpImpl(raw_ostream &OS) const {
   case EK_BlockElement: OS << "Block"; break;
   case EK_LambdaCapture:
     OS << "LambdaCapture ";
-    getCapturedVar()->printName(OS);
+    OS << DeclarationName(Capture.VarID);
     break;
   }
 
@@ -3522,10 +3522,13 @@ static OverloadingResult TryRefInitWithConversionFunction(Sema &S,
         if (ConvTemplate)
           S.AddTemplateConversionCandidate(ConvTemplate, I.getPair(),
                                            ActingDC, Initializer,
-                                           DestType, CandidateSet);
+                                           DestType, CandidateSet,
+                                           /*AllowObjCConversionOnExplicit=*/
+                                             false);
         else
           S.AddConversionCandidate(Conv, I.getPair(), ActingDC,
-                                   Initializer, DestType, CandidateSet);
+                                   Initializer, DestType, CandidateSet,
+                                   /*AllowObjCConversionOnExplicit=*/false);
       }
     }
   }
@@ -4145,10 +4148,11 @@ static void TryUserDefinedConversion(Sema &S,
           if (ConvTemplate)
             S.AddTemplateConversionCandidate(ConvTemplate, I.getPair(),
                                              ActingDC, Initializer, DestType,
-                                             CandidateSet);
+                                             CandidateSet, AllowExplicit);
           else
             S.AddConversionCandidate(Conv, I.getPair(), ActingDC,
-                                     Initializer, DestType, CandidateSet);
+                                     Initializer, DestType, CandidateSet,
+                                     AllowExplicit);
         }
       }
     }
@@ -4462,6 +4466,14 @@ void InitializationSequence::InitializeFrom(Sema &S,
   Expr *Initializer = 0;
   if (Args.size() == 1) {
     Initializer = Args[0];
+    if (S.getLangOpts().ObjC1) {
+      if (S.CheckObjCBridgeRelatedConversions(Initializer->getLocStart(),
+                                              DestType, Initializer->getType(),
+                                              Initializer) ||
+          S.ConversionToObjCStringLiteralCheck(DestType, Initializer))
+        Args[0] = Initializer;
+        
+    }
     if (!isa<InitListExpr>(Initializer))
       SourceType = Initializer->getType();
   }
@@ -6198,7 +6210,7 @@ InitializationSequence::Perform(Sema &S,
 
     case SK_OCLSamplerInit: {
       assert(Step->Type->isSamplerT() && 
-             "Sampler initialization on non sampler type.");
+             "Sampler initialization on non-sampler type.");
 
       QualType SourceType = CurInit.get()->getType();
 
@@ -6214,7 +6226,7 @@ InitializationSequence::Perform(Sema &S,
     }
     case SK_OCLZeroEvent: {
       assert(Step->Type->isEventT() && 
-             "Event initialization on non event type.");
+             "Event initialization on non-event type.");
 
       CurInit = S.ImpCastExprToType(CurInit.take(), Step->Type,
                                     CK_ZeroToOCLEvent,

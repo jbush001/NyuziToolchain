@@ -36,6 +36,8 @@ class VectorProcTargetHandler LLVM_FINAL
 public:
   VectorProcTargetHandler(VectorProcLinkingContext &targetInfo);
 
+  virtual void registerRelocationNames(Registry &registry);
+
   virtual TargetLayout<VectorProcELFType> &targetLayout() {
     return _targetLayout;
   }
@@ -45,6 +47,8 @@ public:
   }
 
 private:
+  static const Registry::KindStrings kindStrings[];
+
   VectorProcTargetRelocationHandler _relocationHandler;
   TargetLayout<VectorProcELFType> _targetLayout;
 };

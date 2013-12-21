@@ -213,17 +213,8 @@ void ARMAsmPrinter::printOperand(const MachineInstr *MI, int OpNum,
       O << "(PLT)";
     break;
   }
-  case MachineOperand::MO_ExternalSymbol: {
-    O << *GetExternalSymbolSymbol(MO.getSymbolName());
-    if (TF == ARMII::MO_PLT)
-      O << "(PLT)";
-    break;
-  }
   case MachineOperand::MO_ConstantPoolIndex:
     O << *GetCPISymbol(MO.getIndex());
-    break;
-  case MachineOperand::MO_JumpTableIndex:
-    O << *GetJTISymbol(MO.getIndex());
     break;
   }
 }
@@ -618,7 +609,8 @@ void ARMAsmPrinter::emitAttributes() {
 
   std::string CPUString = Subtarget->getCPUString();
 
-  if (CPUString != "generic")
+  // FIXME: remove krait check when GNU tools support krait cpu
+  if (CPUString != "generic" && CPUString != "krait")
     ATS.emitTextAttribute(ARMBuildAttrs::CPU_name, CPUString);
 
   ATS.emitAttribute(ARMBuildAttrs::CPU_arch,
@@ -765,23 +757,25 @@ static MCSymbolRefExpr::VariantKind
 getModifierVariantKind(ARMCP::ARMCPModifier Modifier) {
   switch (Modifier) {
   case ARMCP::no_modifier: return MCSymbolRefExpr::VK_None;
-  case ARMCP::TLSGD:       return MCSymbolRefExpr::VK_ARM_TLSGD;
-  case ARMCP::TPOFF:       return MCSymbolRefExpr::VK_ARM_TPOFF;
-  case ARMCP::GOTTPOFF:    return MCSymbolRefExpr::VK_ARM_GOTTPOFF;
-  case ARMCP::GOT:         return MCSymbolRefExpr::VK_ARM_GOT;
-  case ARMCP::GOTOFF:      return MCSymbolRefExpr::VK_ARM_GOTOFF;
+  case ARMCP::TLSGD:       return MCSymbolRefExpr::VK_TLSGD;
+  case ARMCP::TPOFF:       return MCSymbolRefExpr::VK_TPOFF;
+  case ARMCP::GOTTPOFF:    return MCSymbolRefExpr::VK_GOTTPOFF;
+  case ARMCP::GOT:         return MCSymbolRefExpr::VK_GOT;
+  case ARMCP::GOTOFF:      return MCSymbolRefExpr::VK_GOTOFF;
   }
   llvm_unreachable("Invalid ARMCPModifier!");
 }
 
-MCSymbol *ARMAsmPrinter::GetARMGVSymbol(const GlobalValue *GV) {
+MCSymbol *ARMAsmPrinter::GetARMGVSymbol(const GlobalValue *GV,
+                                        unsigned char TargetFlags) {
   bool isIndirect = Subtarget->isTargetDarwin() &&
+    (TargetFlags & ARMII::MO_NONLAZY) &&
     Subtarget->GVIsIndirectSymbol(GV, TM.getRelocationModel());
   if (!isIndirect)
     return getSymbol(GV);
 
   // FIXME: Remove this when Darwin transition to @GOT like syntax.
-  MCSymbol *MCSym = GetSymbolWithGlobalValueBase(GV, "$non_lazy_ptr");
+  MCSymbol *MCSym = getSymbolWithGlobalValueBase(GV, "$non_lazy_ptr");
   MachineModuleInfoMachO &MMIMachO =
     MMI->getObjFileInfo<MachineModuleInfoMachO>();
   MachineModuleInfoImpl::StubValueTy &StubSym =
@@ -811,7 +805,11 @@ EmitMachineConstantPoolValue(MachineConstantPoolValue *MCPV) {
     MCSym = GetBlockAddressSymbol(BA);
   } else if (ACPV->isGlobalValue()) {
     const GlobalValue *GV = cast<ARMConstantPoolConstant>(ACPV)->getGV();
-    MCSym = GetARMGVSymbol(GV);
+
+    // On Darwin, const-pool entries may get the "FOO$non_lazy_ptr" mangling, so
+    // flag the global as MO_NONLAZY.
+    unsigned char TF = Subtarget->isTargetDarwin() ? ARMII::MO_NONLAZY : 0;
+    MCSym = GetARMGVSymbol(GV, TF);
   } else if (ACPV->isMachineBasicBlock()) {
     const MachineBasicBlock *MBB = cast<ARMConstantPoolMBB>(ACPV)->getMBB();
     MCSym = MBB->getSymbol();
@@ -1239,26 +1237,21 @@ void ARMAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     TmpInst.addOperand(MCOperand::CreateReg(MI->getOperand(0).getReg()));
 
     unsigned TF = MI->getOperand(1).getTargetFlags();
-    bool isPIC = TF == ARMII::MO_LO16_NONLAZY_PIC;
     const GlobalValue *GV = MI->getOperand(1).getGlobal();
-    MCSymbol *GVSym = GetARMGVSymbol(GV);
+    MCSymbol *GVSym = GetARMGVSymbol(GV, TF);
     const MCExpr *GVSymExpr = MCSymbolRefExpr::Create(GVSym, OutContext);
-    if (isPIC) {
-      MCSymbol *LabelSym = getPICLabel(MAI->getPrivateGlobalPrefix(),
-                                       getFunctionNumber(),
-                                       MI->getOperand(2).getImm(), OutContext);
-      const MCExpr *LabelSymExpr= MCSymbolRefExpr::Create(LabelSym, OutContext);
-      unsigned PCAdj = (Opc == ARM::MOVi16_ga_pcrel) ? 8 : 4;
-      const MCExpr *PCRelExpr =
-        ARMMCExpr::CreateLower16(MCBinaryExpr::CreateSub(GVSymExpr,
-                                  MCBinaryExpr::CreateAdd(LabelSymExpr,
+
+    MCSymbol *LabelSym = getPICLabel(MAI->getPrivateGlobalPrefix(),
+                                     getFunctionNumber(),
+                                     MI->getOperand(2).getImm(), OutContext);
+    const MCExpr *LabelSymExpr= MCSymbolRefExpr::Create(LabelSym, OutContext);
+    unsigned PCAdj = (Opc == ARM::MOVi16_ga_pcrel) ? 8 : 4;
+    const MCExpr *PCRelExpr =
+      ARMMCExpr::CreateLower16(MCBinaryExpr::CreateSub(GVSymExpr,
+                                      MCBinaryExpr::CreateAdd(LabelSymExpr,
                                       MCConstantExpr::Create(PCAdj, OutContext),
-                                          OutContext), OutContext), OutContext);
+                                      OutContext), OutContext), OutContext);
       TmpInst.addOperand(MCOperand::CreateExpr(PCRelExpr));
-    } else {
-      const MCExpr *RefExpr= ARMMCExpr::CreateLower16(GVSymExpr, OutContext);
-      TmpInst.addOperand(MCOperand::CreateExpr(RefExpr));
-    }
 
     // Add predicate operands.
     TmpInst.addOperand(MCOperand::CreateImm(ARMCC::AL));
@@ -1277,26 +1270,21 @@ void ARMAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     TmpInst.addOperand(MCOperand::CreateReg(MI->getOperand(1).getReg()));
 
     unsigned TF = MI->getOperand(2).getTargetFlags();
-    bool isPIC = TF == ARMII::MO_HI16_NONLAZY_PIC;
     const GlobalValue *GV = MI->getOperand(2).getGlobal();
-    MCSymbol *GVSym = GetARMGVSymbol(GV);
+    MCSymbol *GVSym = GetARMGVSymbol(GV, TF);
     const MCExpr *GVSymExpr = MCSymbolRefExpr::Create(GVSym, OutContext);
-    if (isPIC) {
-      MCSymbol *LabelSym = getPICLabel(MAI->getPrivateGlobalPrefix(),
-                                       getFunctionNumber(),
-                                       MI->getOperand(3).getImm(), OutContext);
-      const MCExpr *LabelSymExpr= MCSymbolRefExpr::Create(LabelSym, OutContext);
-      unsigned PCAdj = (Opc == ARM::MOVTi16_ga_pcrel) ? 8 : 4;
-      const MCExpr *PCRelExpr =
+
+    MCSymbol *LabelSym = getPICLabel(MAI->getPrivateGlobalPrefix(),
+                                     getFunctionNumber(),
+                                     MI->getOperand(3).getImm(), OutContext);
+    const MCExpr *LabelSymExpr= MCSymbolRefExpr::Create(LabelSym, OutContext);
+    unsigned PCAdj = (Opc == ARM::MOVTi16_ga_pcrel) ? 8 : 4;
+    const MCExpr *PCRelExpr =
         ARMMCExpr::CreateUpper16(MCBinaryExpr::CreateSub(GVSymExpr,
                                    MCBinaryExpr::CreateAdd(LabelSymExpr,
                                       MCConstantExpr::Create(PCAdj, OutContext),
                                           OutContext), OutContext), OutContext);
       TmpInst.addOperand(MCOperand::CreateExpr(PCRelExpr));
-    } else {
-      const MCExpr *RefExpr= ARMMCExpr::CreateUpper16(GVSymExpr, OutContext);
-      TmpInst.addOperand(MCOperand::CreateExpr(RefExpr));
-    }
     // Add predicate operands.
     TmpInst.addOperand(MCOperand::CreateImm(ARMCC::AL));
     TmpInst.addOperand(MCOperand::CreateReg(0));

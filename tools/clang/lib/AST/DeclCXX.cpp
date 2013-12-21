@@ -50,7 +50,7 @@ CXXRecordDecl::DefinitionData::DefinitionData(CXXRecordDecl *D)
     Aggregate(true), PlainOldData(true), Empty(true), Polymorphic(false),
     Abstract(false), IsStandardLayout(true), HasNoNonEmptyBases(true),
     HasPrivateFields(false), HasProtectedFields(false), HasPublicFields(false),
-    HasMutableFields(false), HasOnlyCMembers(true),
+    HasMutableFields(false), HasVariantMembers(false), HasOnlyCMembers(true),
     HasInClassInitializer(false), HasUninitializedReferenceMember(false),
     NeedOverloadResolutionForMoveConstructor(false),
     NeedOverloadResolutionForMoveAssignment(false),
@@ -653,7 +653,13 @@ void CXXRecordDecl::addedMember(Decl *D) {
     // Keep track of the presence of mutable fields.
     if (Field->isMutable())
       data().HasMutableFields = true;
-    
+
+    // C++11 [class.union]p8, DR1460:
+    //   If X is a union, a non-static data member of X that is not an anonymous
+    //   union is a variant member of X.
+    if (isUnion() && !Field->isAnonymousStructOrUnion())
+      data().HasVariantMembers = true;
+
     // C++0x [class]p9:
     //   A POD struct is a class that is both a trivial class and a 
     //   standard-layout class, and has no non-static data members of type 
@@ -689,7 +695,9 @@ void CXXRecordDecl::addedMember(Decl *D) {
     if (!T->isLiteralType(Context) || T.isVolatileQualified())
       data().HasNonLiteralTypeFieldsOrBases = true;
 
-    if (Field->hasInClassInitializer()) {
+    if (Field->hasInClassInitializer() ||
+        (Field->isAnonymousStructOrUnion() &&
+         Field->getType()->getAsCXXRecordDecl()->hasInClassInitializer())) {
       data().HasInClassInitializer = true;
 
       // C++11 [class]p5:
@@ -721,6 +729,13 @@ void CXXRecordDecl::addedMember(Decl *D) {
       CXXRecordDecl* FieldRec = cast<CXXRecordDecl>(RecordTy->getDecl());
       if (FieldRec->getDefinition()) {
         addedClassSubobject(FieldRec);
+
+        // We may need to perform overload resolution to determine whether a
+        // field can be moved if it's const or volatile qualified.
+        if (T.getCVRQualifiers() & (Qualifiers::Const | Qualifiers::Volatile)) {
+          data().NeedOverloadResolutionForMoveConstructor = true;
+          data().NeedOverloadResolutionForMoveAssignment = true;
+        }
 
         // C++11 [class.ctor]p5, C++11 [class.copy]p11:
         //   A defaulted [special member] for a class X is defined as
@@ -799,7 +814,7 @@ void CXXRecordDecl::addedMember(Decl *D) {
         // Virtual bases and virtual methods make a class non-empty, but they
         // also make it non-standard-layout so we needn't check here.
         // A non-empty base class may leave the class standard-layout, but not
-        // if we have arrived here, and have at least on non-static data
+        // if we have arrived here, and have at least one non-static data
         // member. If IsStandardLayout remains true, then the first non-static
         // data member must come through here with Empty still true, and Empty
         // will subsequently be set to false below.
@@ -852,6 +867,13 @@ void CXXRecordDecl::addedMember(Decl *D) {
         if (FieldRec->hasUninitializedReferenceMember() &&
             !Field->hasInClassInitializer())
           data().HasUninitializedReferenceMember = true;
+
+        // C++11 [class.union]p8, DR1460:
+        //   a non-static data member of an anonymous union that is a member of
+        //   X is also a variant member of X.
+        if (FieldRec->hasVariantMembers() &&
+            Field->isAnonymousStructOrUnion())
+          data().HasVariantMembers = true;
       }
     } else {
       // Base element type of field is a non-class type.
@@ -1196,7 +1218,7 @@ CXXRecordDecl::setInstantiationOfMemberClass(CXXRecordDecl *RD,
                                              TemplateSpecializationKind TSK) {
   assert(TemplateOrInstantiation.isNull() && 
          "Previous template or instantiation?");
-  assert(!isa<ClassTemplateSpecializationDecl>(this));
+  assert(!isa<ClassTemplatePartialSpecializationDecl>(this));
   TemplateOrInstantiation 
     = new (getASTContext()) MemberSpecializationInfo(RD, TSK);
 }
@@ -1907,8 +1929,6 @@ NamespaceDecl *UsingDirectiveDecl::getNominatedNamespace() {
   return cast_or_null<NamespaceDecl>(NominatedNamespace);
 }
 
-void NamespaceDecl::anchor() { }
-
 NamespaceDecl::NamespaceDecl(DeclContext *DC, bool Inline, 
                              SourceLocation StartLoc,
                              SourceLocation IdLoc, IdentifierInfo *Id,
@@ -1932,6 +1952,16 @@ NamespaceDecl *NamespaceDecl::Create(ASTContext &C, DeclContext *DC,
 NamespaceDecl *NamespaceDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
   return new (C, ID) NamespaceDecl(0, false, SourceLocation(), SourceLocation(),
                                    0, 0);
+}
+
+NamespaceDecl *NamespaceDecl::getNextRedeclaration() {
+  return RedeclLink.getNext();
+}
+NamespaceDecl *NamespaceDecl::getPreviousDeclImpl() {
+  return getPreviousDecl();
+}
+NamespaceDecl *NamespaceDecl::getMostRecentDeclImpl() {
+  return getMostRecentDecl();
 }
 
 void NamespaceAliasDecl::anchor() { }

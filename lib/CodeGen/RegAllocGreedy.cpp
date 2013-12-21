@@ -423,7 +423,14 @@ void RAGreedy::enqueue(LiveInterval *LI) {
       // Allocate original local ranges in linear instruction order. Since they
       // are singly defined, this produces optimal coloring in the absence of
       // global interference and other constraints.
-      Prio = LI->beginIndex().getInstrDistance(Indexes->getLastIndex());
+      if (!TRI->reverseLocalAssignment())
+        Prio = LI->beginIndex().getInstrDistance(Indexes->getLastIndex());
+      else {
+        // Allocating bottom up may allow many short LRGs to be assigned first
+        // to one of the cheap registers. This could be much faster for very
+        // large blocks on targets with many physical registers.
+        Prio = Indexes->getZeroIndex().getInstrDistance(LI->beginIndex());
+      }
     }
     else {
       // Allocate global and split ranges in long->short order. Long ranges that
@@ -627,6 +634,9 @@ bool RAGreedy::canEvictInterference(LiveInterval &VirtReg, unsigned PhysReg,
         return false;
       if (Urgent)
         continue;
+      // Apply the eviction policy for non-urgent evictions.
+      if (!shouldEvict(VirtReg, IsHint, *Intf, BreaksHint))
+        return false;
       // If !MaxCost.isMax(), then we're just looking for a cheap register.
       // Evicting another local live range in this case could lead to suboptimal
       // coloring.
@@ -634,9 +644,6 @@ bool RAGreedy::canEvictInterference(LiveInterval &VirtReg, unsigned PhysReg,
           !canReassign(*Intf, PhysReg)) {
         return false;
       }
-      // Finally, apply the eviction policy for non-urgent evictions.
-      if (!shouldEvict(VirtReg, IsHint, *Intf, BreaksHint))
-        return false;
     }
   }
   MaxCost = Cost;
@@ -723,7 +730,7 @@ unsigned RAGreedy::tryEvict(LiveInterval &VirtReg,
   }
 
   Order.rewind();
-  while (unsigned PhysReg = Order.nextWithDups(OrderLimit)) {
+  while (unsigned PhysReg = Order.next(OrderLimit)) {
     if (TRI->getCostPerUse(PhysReg) >= CostPerUseLimit)
       continue;
     // The first use of a callee-saved register in a function has cost 1.
@@ -1196,7 +1203,8 @@ unsigned RAGreedy::tryRegionSplit(LiveInterval &VirtReg, AllocationOrder &Order,
     // No benefit from the compact region, our fallback will be per-block
     // splitting. Make sure we find a solution that is cheaper than spilling.
     BestCost = calcSpillCost();
-    DEBUG(dbgs() << "Cost of isolating all blocks = " << BestCost << '\n');
+    DEBUG(dbgs() << "Cost of isolating all blocks = ";
+                 MBFI->printBlockFreq(dbgs(), BestCost) << '\n');
   }
 
   Order.rewind();
@@ -1230,7 +1238,8 @@ unsigned RAGreedy::tryRegionSplit(LiveInterval &VirtReg, AllocationOrder &Order,
       DEBUG(dbgs() << PrintReg(PhysReg, TRI) << "\tno positive bundles\n");
       continue;
     }
-    DEBUG(dbgs() << PrintReg(PhysReg, TRI) << "\tstatic = " << Cost);
+    DEBUG(dbgs() << PrintReg(PhysReg, TRI) << "\tstatic = ";
+                 MBFI->printBlockFreq(dbgs(), Cost));
     if (Cost >= BestCost) {
       DEBUG({
         if (BestCand == NoCand)
@@ -1253,7 +1262,8 @@ unsigned RAGreedy::tryRegionSplit(LiveInterval &VirtReg, AllocationOrder &Order,
 
     Cost += calcGlobalSplitCost(Cand);
     DEBUG({
-      dbgs() << ", total = " << Cost << " with bundles";
+      dbgs() << ", total = "; MBFI->printBlockFreq(dbgs(), Cost)
+                                << " with bundles";
       for (int i = Cand.LiveBundles.find_first(); i>=0;
            i = Cand.LiveBundles.find_next(i))
         dbgs() << " EB#" << i;
@@ -1581,7 +1591,7 @@ unsigned RAGreedy::tryLocalSplit(LiveInterval &VirtReg, AllocationOrder &Order,
 
   const float blockFreq =
     SpillPlacer->getBlockFrequency(BI.MBB->getNumber()).getFrequency() *
-    (1.0f / BlockFrequency::getEntryFrequency());
+    (1.0f / MBFI->getEntryFreq());
   SmallVector<float, 8> GapWeight;
 
   Order.rewind();

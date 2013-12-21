@@ -122,6 +122,7 @@ public:
     GNUEABIHF,
     GNUX32,
     EABI,
+    EABIHF,
     MachO,
     Android,
     ELF
@@ -342,17 +343,17 @@ public:
 
   /// \brief Tests whether the OS uses the ELF binary format.
   bool isOSBinFormatELF() const {
-    return !isOSDarwin() && !isOSWindows();
+    return !isOSBinFormatMachO() && !isOSBinFormatCOFF();
   }
 
   /// \brief Tests whether the OS uses the COFF binary format.
   bool isOSBinFormatCOFF() const {
-    return isOSWindows();
+    return getEnvironment() != Triple::ELF &&
+           getEnvironment() != Triple::MachO && isOSWindows();
   }
 
   /// \brief Tests whether the environment is MachO.
-  // FIXME: Should this be an OSBinFormat predicate?
-  bool isEnvironmentMachO() const {
+  bool isOSBinFormatMachO() const {
     return getEnvironment() == Triple::MachO || isOSDarwin();
   }
 

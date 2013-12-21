@@ -44,7 +44,7 @@ error_code VectorProcTargetRelocationHandler::applyRelocation(
   uint64_t targetVAddress = writer.addressOfAtom(ref.target());
   uint64_t relocVAddress = atom._virtualAddr + ref.offsetInAtom();
 
-  switch (ref.kind()) {
+  switch (ref.kindValue()) {
   case R_VECTORPROC_BRANCH:
     relocBRANCH(location, relocVAddress, targetVAddress, ref.addend());
     break;
@@ -53,17 +53,10 @@ error_code VectorProcTargetRelocationHandler::applyRelocation(
     relocABS32(location, relocVAddress, targetVAddress, ref.addend());
     break;
 
-  case lld::Reference::kindLayoutAfter:
-  case lld::Reference::kindLayoutBefore:
-  case lld::Reference::kindInGroup:
-    break;
-
   default : {
     std::string str;
     llvm::raw_string_ostream s(str);
-    auto name = _targetInfo.stringFromRelocKind(ref.kind());
-    s << "Unhandled relocation: "
-      << (name ? *name : "<unknown>" ) << " (" << ref.kind() << ")";
+    s << "Unhandled relocation #" << ref.kindValue();
     s.flush();
     llvm_unreachable(str.c_str());
   }
@@ -76,3 +69,15 @@ VectorProcTargetHandler::VectorProcTargetHandler(VectorProcLinkingContext &targe
     : DefaultTargetHandler(targetInfo), _relocationHandler(targetInfo),
       _targetLayout(targetInfo) {
 }
+
+void VectorProcTargetHandler::registerRelocationNames(Registry &registry) {
+  registry.addKindTable(Reference::KindNamespace::ELF,
+                        Reference::KindArch::VectorProc, kindStrings);
+}
+
+const Registry::KindStrings VectorProcTargetHandler::kindStrings[] = {
+  LLD_KIND_STRING_ENTRY(R_VECTORPROC_BRANCH),
+  LLD_KIND_STRING_ENTRY(R_VECTORPROC_ABS32),
+  LLD_KIND_STRING_END
+};
+

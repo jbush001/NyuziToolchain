@@ -461,14 +461,13 @@ bool DIType::Verify() const {
   // DIType is abstract, it should be a BasicType, a DerivedType or
   // a CompositeType.
   if (isBasicType())
-    DIBasicType(DbgNode).Verify();
+    return DIBasicType(DbgNode).Verify();
   else if (isCompositeType())
-    DICompositeType(DbgNode).Verify();
+    return DICompositeType(DbgNode).Verify();
   else if (isDerivedType())
-    DIDerivedType(DbgNode).Verify();
+    return DIDerivedType(DbgNode).Verify();
   else
     return false;
-  return true;
 }
 
 /// Verify - Verify that a basic type descriptor is well formed.
@@ -505,6 +504,10 @@ bool DICompositeType::Verify() const {
   if (!fieldIsMDString(DbgNode, 14))
     return false;
 
+  // A subroutine type can't be both & and &&.
+  if (isLValueReference() && isRValueReference())
+    return false;
+
   return DbgNode->getNumOperands() == 15;
 }
 
@@ -521,6 +524,11 @@ bool DISubprogram::Verify() const {
   // Containing type @ field 12.
   if (!fieldIsTypeRef(DbgNode, 12))
     return false;
+
+  // A subprogram can't be both & and &&.
+  if (isLValueReference() && isRValueReference())
+    return false;
+
   return DbgNode->getNumOperands() == 20;
 }
 
@@ -1298,6 +1306,12 @@ void DIType::printInternal(raw_ostream &OS) const {
     OS << " [vector]";
   if (isStaticMember())
     OS << " [static]";
+
+  if (isLValueReference())
+    OS << " [reference]";
+
+  if (isRValueReference())
+    OS << " [rvalue reference]";
 }
 
 void DIDerivedType::printInternal(raw_ostream &OS) const {
@@ -1336,6 +1350,12 @@ void DISubprogram::printInternal(raw_ostream &OS) const {
     OS << " [private]";
   else if (isProtected())
     OS << " [protected]";
+
+  if (isLValueReference())
+    OS << " [reference]";
+
+  if (isRValueReference())
+    OS << " [rvalue reference]";
 
   StringRef Res = getName();
   if (!Res.empty())
@@ -1477,4 +1497,12 @@ bool llvm::StripDebugInfo(Module &M) {
       }
 
   return Changed;
+}
+
+/// Return Debug Info Metadata Version by checking module flags.
+unsigned llvm::getDebugMetadataVersionFromModule(const Module &M) {
+  Value *Val = M.getModuleFlag("Debug Info Version");
+  if (!Val)
+    return 0;
+  return cast<ConstantInt>(Val)->getZExtValue();
 }

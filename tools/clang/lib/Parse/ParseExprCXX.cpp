@@ -233,12 +233,13 @@ bool Parser::ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
     DeclSpec DS(AttrFactory);
     SourceLocation DeclLoc = Tok.getLocation();
     SourceLocation EndLoc  = ParseDecltypeSpecifier(DS);
-    if (Tok.isNot(tok::coloncolon)) {
+
+    SourceLocation CCLoc;
+    if (!TryConsumeToken(tok::coloncolon, CCLoc)) {
       AnnotateExistingDecltypeSpecifier(DS, DeclLoc, EndLoc);
       return false;
     }
-    
-    SourceLocation CCLoc = ConsumeToken();
+
     if (Actions.ActOnCXXNestedNameSpecifierDecltype(SS, DS, CCLoc))
       SS.SetInvalid(SourceRange(DeclLoc, CCLoc));
 
@@ -287,19 +288,23 @@ bool Parser::ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
 
       TentativeParsingAction TPA(*this);
       SourceLocation TemplateKWLoc = ConsumeToken();
-      
+
       UnqualifiedId TemplateName;
       if (Tok.is(tok::identifier)) {
         // Consume the identifier.
         TemplateName.setIdentifier(Tok.getIdentifierInfo(), Tok.getLocation());
         ConsumeToken();
       } else if (Tok.is(tok::kw_operator)) {
-        if (ParseUnqualifiedIdOperator(SS, EnteringContext, ObjectType, 
+        // We don't need to actually parse the unqualified-id in this case,
+        // because a simple-template-id cannot start with 'operator', but
+        // go ahead and parse it anyway for consistency with the case where
+        // we already annotated the template-id.
+        if (ParseUnqualifiedIdOperator(SS, EnteringContext, ObjectType,
                                        TemplateName)) {
           TPA.Commit();
           break;
         }
-        
+
         if (TemplateName.getKind() != UnqualifiedId::IK_OperatorFunctionId &&
             TemplateName.getKind() != UnqualifiedId::IK_LiteralOperatorId) {
           Diag(TemplateName.getSourceRange().getBegin(),
@@ -341,10 +346,10 @@ bool Parser::ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
     if (Tok.is(tok::annot_template_id) && NextToken().is(tok::coloncolon)) {
       // We have
       //
-      //   simple-template-id '::'
+      //   template-id '::'
       //
-      // So we need to check whether the simple-template-id is of the
-      // right kind (it should name a type or be dependent), and then
+      // So we need to check whether the template-id is a simple-template-id of
+      // the right kind (it should name a type or be dependent), and then
       // convert it into a type within the nested-name-specifier.
       TemplateIdAnnotation *TemplateId = takeTemplateIdAnnotation(Tok);
       if (CheckForDestructor && GetLookAheadToken(2).is(tok::tilde)) {
@@ -633,8 +638,7 @@ ExprResult Parser::ParseCXXIdExpression(bool isAddressOfOperand) {
 ExprResult Parser::ParseLambdaExpression() {
   // Parse lambda-introducer.
   LambdaIntroducer Intro;
-
-  Optional<unsigned> DiagID(ParseLambdaIntroducer(Intro));
+  Optional<unsigned> DiagID = ParseLambdaIntroducer(Intro);
   if (DiagID) {
     Diag(Tok, DiagID.getValue());
     SkipUntil(tok::r_square, StopAtSemi);
@@ -674,7 +678,7 @@ ExprResult Parser::TryParseLambdaExpression() {
   if (Next.is(tok::identifier) && After.is(tok::identifier)) {
     return ExprEmpty();
   }
-
+ 
   // Here, we're stuck: lambda introducers and Objective-C message sends are
   // unambiguous, but it requires arbitrary lookhead.  [a,b,c,d,e,f,g] is a
   // lambda, and [a,b,c,d,e,f,g h] is a Objective-C message send.  Instead of
@@ -684,6 +688,7 @@ ExprResult Parser::TryParseLambdaExpression() {
   LambdaIntroducer Intro;
   if (TryParseLambdaIntroducer(Intro))
     return ExprEmpty();
+
   return ParseLambdaExpressionAfterIntroducer(Intro);
 }
 
@@ -809,8 +814,12 @@ Optional<unsigned> Parser::ParseLambdaIntroducer(LambdaIntroducer &Intro,
                                             Exprs);
         }
       } else if (Tok.is(tok::l_brace) || Tok.is(tok::equal)) {
-        if (Tok.is(tok::equal))
-          ConsumeToken();
+        // Each lambda init-capture forms its own full expression, which clears
+        // Actions.MaybeODRUseExprs. So create an expression evaluation context
+        // to save the necessary state, and restore it later.
+        EnterExpressionEvaluationContext EC(Actions,
+                                            Sema::PotentiallyEvaluated);
+        TryConsumeToken(tok::equal);
 
         if (!SkippedInits)
           Init = ParseInitializer();
@@ -859,16 +868,64 @@ Optional<unsigned> Parser::ParseLambdaIntroducer(LambdaIntroducer &Intro,
             ConsumeToken();
           }
         }
-      } else if (Tok.is(tok::ellipsis))
-        EllipsisLoc = ConsumeToken();
+      } else
+        TryConsumeToken(tok::ellipsis, EllipsisLoc);
     }
+    // If this is an init capture, process the initialization expression
+    // right away.  For lambda init-captures such as the following:
+    // const int x = 10;
+    //  auto L = [i = x+1](int a) {
+    //    return [j = x+2,
+    //           &k = x](char b) { };
+    //  };
+    // keep in mind that each lambda init-capture has to have:
+    //  - its initialization expression executed in the context
+    //    of the enclosing/parent decl-context.
+    //  - but the variable itself has to be 'injected' into the
+    //    decl-context of its lambda's call-operator (which has
+    //    not yet been created).
+    // Each init-expression is a full-expression that has to get
+    // Sema-analyzed (for capturing etc.) before its lambda's
+    // call-operator's decl-context, scope & scopeinfo are pushed on their
+    // respective stacks.  Thus if any variable is odr-used in the init-capture
+    // it will correctly get captured in the enclosing lambda, if one exists.
+    // The init-variables above are created later once the lambdascope and
+    // call-operators decl-context is pushed onto its respective stack.
 
-    Intro.addCapture(Kind, Loc, Id, EllipsisLoc, Init);
+    // Since the lambda init-capture's initializer expression occurs in the
+    // context of the enclosing function or lambda, therefore we can not wait
+    // till a lambda scope has been pushed on before deciding whether the
+    // variable needs to be captured.  We also need to process all
+    // lvalue-to-rvalue conversions and discarded-value conversions,
+    // so that we can avoid capturing certain constant variables.
+    // For e.g.,
+    //  void test() {
+    //   const int x = 10;
+    //   auto L = [&z = x](char a) { <-- don't capture by the current lambda
+    //     return [y = x](int i) { <-- don't capture by enclosing lambda
+    //          return y;
+    //     }
+    //   };
+    // If x was not const, the second use would require 'L' to capture, and
+    // that would be an error.
+
+    ParsedType InitCaptureParsedType;
+    if (Init.isUsable()) {
+      // Get the pointer and store it in an lvalue, so we can use it as an
+      // out argument.
+      Expr *InitExpr = Init.get();
+      // This performs any lvalue-to-rvalue conversions if necessary, which
+      // can affect what gets captured in the containing decl-context.
+      QualType InitCaptureType = Actions.performLambdaInitCaptureInitialization(
+        Loc, Kind == LCK_ByRef, Id, InitExpr);
+      Init = InitExpr;
+      InitCaptureParsedType.set(InitCaptureType);
+    }
+    Intro.addCapture(Kind, Loc, Id, EllipsisLoc, Init, InitCaptureParsedType);
   }
 
   T.consumeClose();
   Intro.Range.setEnd(T.getCloseLocation());
-
   return DiagResult();
 }
 
@@ -1882,6 +1939,7 @@ bool Parser::ParseUnqualifiedIdTemplateId(CXXScopeSpec &SS,
     TemplateIdAnnotation *TemplateId
       = TemplateIdAnnotation::Allocate(TemplateArgs.size(), TemplateIds);
 
+    // FIXME: Store name for literal operator too.
     if (Id.getKind() == UnqualifiedId::IK_Identifier) {
       TemplateId->Name = Id.Identifier;
       TemplateId->Operator = OO_None;
@@ -2130,9 +2188,10 @@ bool Parser::ParseUnqualifiedIdOperator(CXXScopeSpec &SS, bool EnteringContext,
     }
 
     Result.setLiteralOperatorId(II, KeywordLoc, SuffixLoc);
-    return false;
+
+    return Actions.checkLiteralOperatorId(SS, Result);
   }
-  
+
   // Parse a conversion-function-id.
   //
   //   conversion-function-id: [C++ 12.3.2]
@@ -2628,76 +2687,21 @@ Parser::ParseCXXDeleteExpression(bool UseGlobal, SourceLocation Start) {
 static UnaryTypeTrait UnaryTypeTraitFromTokKind(tok::TokenKind kind) {
   switch(kind) {
   default: llvm_unreachable("Not a known unary type trait.");
-  case tok::kw___has_nothrow_assign:      return UTT_HasNothrowAssign;
-  case tok::kw___has_nothrow_move_assign: return UTT_HasNothrowMoveAssign;
-  case tok::kw___has_nothrow_constructor: return UTT_HasNothrowConstructor;
-  case tok::kw___has_nothrow_copy:           return UTT_HasNothrowCopy;
-  case tok::kw___has_trivial_assign:      return UTT_HasTrivialAssign;
-  case tok::kw___has_trivial_move_assign: return UTT_HasTrivialMoveAssign;
-  case tok::kw___has_trivial_constructor:
-                                    return UTT_HasTrivialDefaultConstructor;
-  case tok::kw___has_trivial_move_constructor:
-                                    return UTT_HasTrivialMoveConstructor;
-  case tok::kw___has_trivial_copy:           return UTT_HasTrivialCopy;
-  case tok::kw___has_trivial_destructor:  return UTT_HasTrivialDestructor;
-  case tok::kw___has_virtual_destructor:  return UTT_HasVirtualDestructor;
-  case tok::kw___is_abstract:             return UTT_IsAbstract;
-  case tok::kw___is_arithmetic:              return UTT_IsArithmetic;
-  case tok::kw___is_array:                   return UTT_IsArray;
-  case tok::kw___is_class:                return UTT_IsClass;
-  case tok::kw___is_complete_type:           return UTT_IsCompleteType;
-  case tok::kw___is_compound:                return UTT_IsCompound;
-  case tok::kw___is_const:                   return UTT_IsConst;
-  case tok::kw___is_empty:                return UTT_IsEmpty;
-  case tok::kw___is_enum:                 return UTT_IsEnum;
-  case tok::kw___is_final:                 return UTT_IsFinal;
-  case tok::kw___is_floating_point:          return UTT_IsFloatingPoint;
-  case tok::kw___is_function:                return UTT_IsFunction;
-  case tok::kw___is_fundamental:             return UTT_IsFundamental;
-  case tok::kw___is_integral:                return UTT_IsIntegral;
-  case tok::kw___is_interface_class:         return UTT_IsInterfaceClass;
-  case tok::kw___is_lvalue_reference:        return UTT_IsLvalueReference;
-  case tok::kw___is_member_function_pointer: return UTT_IsMemberFunctionPointer;
-  case tok::kw___is_member_object_pointer:   return UTT_IsMemberObjectPointer;
-  case tok::kw___is_member_pointer:          return UTT_IsMemberPointer;
-  case tok::kw___is_object:                  return UTT_IsObject;
-  case tok::kw___is_literal:              return UTT_IsLiteral;
-  case tok::kw___is_literal_type:         return UTT_IsLiteral;
-  case tok::kw___is_pod:                  return UTT_IsPOD;
-  case tok::kw___is_pointer:                 return UTT_IsPointer;
-  case tok::kw___is_polymorphic:          return UTT_IsPolymorphic;
-  case tok::kw___is_reference:               return UTT_IsReference;
-  case tok::kw___is_rvalue_reference:        return UTT_IsRvalueReference;
-  case tok::kw___is_scalar:                  return UTT_IsScalar;
-  case tok::kw___is_sealed:                  return UTT_IsSealed;
-  case tok::kw___is_signed:                  return UTT_IsSigned;
-  case tok::kw___is_standard_layout:         return UTT_IsStandardLayout;
-  case tok::kw___is_trivial:                 return UTT_IsTrivial;
-  case tok::kw___is_trivially_copyable:      return UTT_IsTriviallyCopyable;
-  case tok::kw___is_union:                return UTT_IsUnion;
-  case tok::kw___is_unsigned:                return UTT_IsUnsigned;
-  case tok::kw___is_void:                    return UTT_IsVoid;
-  case tok::kw___is_volatile:                return UTT_IsVolatile;
-  }
-}
-
-static BinaryTypeTrait BinaryTypeTraitFromTokKind(tok::TokenKind kind) {
-  switch(kind) {
-  default: llvm_unreachable("Not a known binary type trait");
-  case tok::kw___is_base_of:                 return BTT_IsBaseOf;
-  case tok::kw___is_convertible:             return BTT_IsConvertible;
-  case tok::kw___is_same:                    return BTT_IsSame;
-  case tok::kw___builtin_types_compatible_p: return BTT_TypeCompatible;
-  case tok::kw___is_convertible_to:          return BTT_IsConvertibleTo;
-  case tok::kw___is_trivially_assignable:    return BTT_IsTriviallyAssignable;
+#define TYPE_TRAIT_1(Spelling, Name, Key) \
+  case tok::kw_ ## Spelling: return UTT_ ## Name;
+#include "clang/Basic/TokenKinds.def"
   }
 }
 
 static TypeTrait TypeTraitFromTokKind(tok::TokenKind kind) {
   switch (kind) {
   default: llvm_unreachable("Not a known type trait");
-  case tok::kw___is_trivially_constructible: 
-    return TT_IsTriviallyConstructible;
+#define TYPE_TRAIT_2(Spelling, Name, Key) \
+case tok::kw_ ## Spelling: return BTT_ ## Name;
+#include "clang/Basic/TokenKinds.def"
+#define TYPE_TRAIT_N(Spelling, Name, Key) \
+  case tok::kw_ ## Spelling: return TT_ ## Name;
+#include "clang/Basic/TokenKinds.def"
   }
 }
 
@@ -2717,83 +2721,29 @@ static ExpressionTrait ExpressionTraitFromTokKind(tok::TokenKind kind) {
   }
 }
 
-/// ParseUnaryTypeTrait - Parse the built-in unary type-trait
-/// pseudo-functions that allow implementation of the TR1/C++0x type traits
-/// templates.
-///
-///       primary-expression:
-/// [GNU]             unary-type-trait '(' type-id ')'
-///
-ExprResult Parser::ParseUnaryTypeTrait() {
-  UnaryTypeTrait UTT = UnaryTypeTraitFromTokKind(Tok.getKind());
-  SourceLocation Loc = ConsumeToken();
-
-  BalancedDelimiterTracker T(*this, tok::l_paren);
-  if (T.expectAndConsume(diag::err_expected_lparen))
-    return ExprError();
-
-  // FIXME: Error reporting absolutely sucks! If the this fails to parse a type
-  // there will be cryptic errors about mismatched parentheses and missing
-  // specifiers.
-  TypeResult Ty = ParseTypeName();
-
-  T.consumeClose();
-
-  if (Ty.isInvalid())
-    return ExprError();
-
-  return Actions.ActOnUnaryTypeTrait(UTT, Loc, Ty.get(), T.getCloseLocation());
-}
-
-/// ParseBinaryTypeTrait - Parse the built-in binary type-trait
-/// pseudo-functions that allow implementation of the TR1/C++0x type traits
-/// templates.
-///
-///       primary-expression:
-/// [GNU]             binary-type-trait '(' type-id ',' type-id ')'
-///
-ExprResult Parser::ParseBinaryTypeTrait() {
-  BinaryTypeTrait BTT = BinaryTypeTraitFromTokKind(Tok.getKind());
-  SourceLocation Loc = ConsumeToken();
-
-  BalancedDelimiterTracker T(*this, tok::l_paren);
-  if (T.expectAndConsume(diag::err_expected_lparen))
-    return ExprError();
-
-  TypeResult LhsTy = ParseTypeName();
-  if (LhsTy.isInvalid()) {
-    SkipUntil(tok::r_paren, StopAtSemi);
-    return ExprError();
+static unsigned TypeTraitArity(tok::TokenKind kind) {
+  switch (kind) {
+    default: llvm_unreachable("Not a known type trait");
+#define TYPE_TRAIT(N,Spelling,K) case tok::kw_##Spelling: return N;
+#include "clang/Basic/TokenKinds.def"
   }
-
-  if (ExpectAndConsume(tok::comma, diag::err_expected_comma)) {
-    SkipUntil(tok::r_paren, StopAtSemi);
-    return ExprError();
-  }
-
-  TypeResult RhsTy = ParseTypeName();
-  if (RhsTy.isInvalid()) {
-    SkipUntil(tok::r_paren, StopAtSemi);
-    return ExprError();
-  }
-
-  T.consumeClose();
-
-  return Actions.ActOnBinaryTypeTrait(BTT, Loc, LhsTy.get(), RhsTy.get(),
-                                      T.getCloseLocation());
 }
 
 /// \brief Parse the built-in type-trait pseudo-functions that allow 
 /// implementation of the TR1/C++11 type traits templates.
 ///
 ///       primary-expression:
+///          unary-type-trait '(' type-id ')'
+///          binary-type-trait '(' type-id ',' type-id ')'
 ///          type-trait '(' type-id-seq ')'
 ///
 ///       type-id-seq:
 ///          type-id ...[opt] type-id-seq[opt]
 ///
 ExprResult Parser::ParseTypeTrait() {
-  TypeTrait Kind = TypeTraitFromTokKind(Tok.getKind());
+  tok::TokenKind Kind = Tok.getKind();
+  unsigned Arity = TypeTraitArity(Kind);
+
   SourceLocation Loc = ConsumeToken();
   
   BalancedDelimiterTracker Parens(*this, tok::l_paren);
@@ -2820,19 +2770,30 @@ ExprResult Parser::ParseTypeTrait() {
     
     // Add this type to the list of arguments.
     Args.push_back(Ty.get());
-    
-    if (Tok.is(tok::comma)) {
-      ConsumeToken();
-      continue;
-    }
-    
-    break;
-  } while (true);
-  
+  } while (TryConsumeToken(tok::comma));
+
   if (Parens.consumeClose())
     return ExprError();
-  
-  return Actions.ActOnTypeTrait(Kind, Loc, Args, Parens.getCloseLocation());
+
+  SourceLocation EndLoc = Parens.getCloseLocation();
+
+  if (Arity && Args.size() != Arity) {
+    Diag(EndLoc, diag::err_type_trait_arity)
+      << Arity << 0 << (Arity > 1) << (int)Args.size() << SourceRange(Loc);
+    return ExprError();
+  }
+
+  if (!Arity && Args.empty()) {
+    Diag(EndLoc, diag::err_type_trait_arity)
+      << 1 << 1 << 1 << (int)Args.size() << SourceRange(Loc);
+    return ExprError();
+  }
+
+  if (Arity == 1)
+    return Actions.ActOnUnaryTypeTrait(UnaryTypeTraitFromTokKind(Kind), Loc,
+                                       Args[0], EndLoc);
+
+  return Actions.ActOnTypeTrait(TypeTraitFromTokKind(Kind), Loc, Args, EndLoc);
 }
 
 /// ParseArrayTypeTrait - Parse the built-in array type-trait

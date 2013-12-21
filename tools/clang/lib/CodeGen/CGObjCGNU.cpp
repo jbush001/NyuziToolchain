@@ -796,8 +796,7 @@ class CGObjCGNUstep : public CGObjCGNU {
     }
 };
 
-/// Support for the ObjFW runtime. Support here is due to
-/// Jonathan Schleifer <js@webkeks.org>, the ObjFW maintainer.
+/// Support for the ObjFW runtime.
 class CGObjCObjFW: public CGObjCGNU {
 protected:
   /// The GCC ABI message lookup function.  Returns an IMP pointing to the
@@ -2596,7 +2595,7 @@ llvm::Function *CGObjCGNU::ModuleInitFunction() {
             llvm::Constant::getNullValue(RegisterAlias->getType()));
     Builder.CreateCondBr(HasRegisterAlias, AliasBB, NoAliasBB);
 
-    // The true branch (has alias registration fucntion):
+    // The true branch (has alias registration function):
     Builder.SetInsertPoint(AliasBB);
     // Emit alias registration calls:
     for (std::vector<ClassAliasPair>::iterator iter = ClassAliases.begin();

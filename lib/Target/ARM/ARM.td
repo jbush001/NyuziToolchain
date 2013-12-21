@@ -179,7 +179,7 @@ def ProcA5      : SubtargetFeature<"a5", "ARMProcFamily", "CortexA5",
                                    "Cortex-A5 ARM processors",
                                    [FeatureSlowFPBrcc, FeatureHasSlowFPVMLx,
                                     FeatureVMLxForwarding, FeatureT2XtPk,
-                                    FeatureTrustZone]>;
+                                    FeatureTrustZone, FeatureMP]>;
 def ProcA7      : SubtargetFeature<"a7", "ARMProcFamily", "CortexA7",
                                    "Cortex-A7 ARM processors",
                                    [FeatureSlowFPBrcc, FeatureHasSlowFPVMLx,
@@ -242,6 +242,18 @@ def ProcR5      : SubtargetFeature<"r5", "ARMProcFamily", "CortexR5",
                                     FeatureHasSlowFPVMLx,
                                     FeatureAvoidPartialCPSR,
                                     FeatureT2XtPk]>;
+
+// FIXME: krait has currently the same features as A9
+// plus VFP4 and hardware division features.
+def ProcKrait   : SubtargetFeature<"krait", "ARMProcFamily", "Krait",
+                                   "Qualcomm ARM processors",
+                                   [FeatureVMLxForwarding,
+                                    FeatureT2XtPk, FeatureFP16,
+                                    FeatureAvoidPartialCPSR,
+                                    FeatureTrustZone,
+                                    FeatureVFP4,
+                                    FeatureHWDiv,
+                                    FeatureHWDivARM]>;
 
 class ProcNoItin<string Name, list<SubtargetFeature> Features>
  : Processor<Name, NoItineraries, Features>;
@@ -375,6 +387,13 @@ def : ProcNoItin<"cortex-a57",      [ProcA57, HasV8Ops, FeatureAClass,
                                     FeatureDB, FeatureFPARMv8,
                                     FeatureNEON, FeatureDSPThumb2]>;
 
+// FIXME: krait has currently the same Schedule model as A9
+def : ProcessorModel<"krait",       CortexA9Model,
+                                    [ProcKrait, HasV7Ops,
+                                     FeatureNEON, FeatureDB,
+                                     FeatureDSPThumb2, FeatureHasRAS,
+                                     FeatureAClass]>;
+
 //===----------------------------------------------------------------------===//
 // Register File Description
 //===----------------------------------------------------------------------===//
@@ -391,17 +410,6 @@ include "ARMInstrInfo.td"
 
 def ARMInstrInfo : InstrInfo;
 
-
-//===----------------------------------------------------------------------===//
-// Assembly printer
-//===----------------------------------------------------------------------===//
-// ARM Uses the MC printer for asm output, so make sure the TableGen
-// AsmWriter bits get associated with the correct class.
-def ARMAsmWriter : AsmWriter {
-  string AsmWriterClassName  = "InstPrinter";
-  bit isMCAsmWriter = 1;
-}
-
 //===----------------------------------------------------------------------===//
 // Declare the target which we are implementing
 //===----------------------------------------------------------------------===//
@@ -409,6 +417,4 @@ def ARMAsmWriter : AsmWriter {
 def ARM : Target {
   // Pull in Instruction Info:
   let InstructionSet = ARMInstrInfo;
-
-  let AssemblyWriters = [ARMAsmWriter];
 }

@@ -266,13 +266,18 @@ private:
     return NodeVec.size()-1;
   }
 
+  inline bool isCalleeArrow(const Expr *E) {
+    const MemberExpr *ME = dyn_cast<MemberExpr>(E->IgnoreParenCasts());
+    return ME ? ME->isArrow() : false;
+  }
+
   /// Build an SExpr from the given C++ expression.
   /// Recursive function that terminates on DeclRefExpr.
   /// Note: this function merely creates a SExpr; it does not check to
   /// ensure that the original expression is a valid mutex expression.
   ///
   /// NDeref returns the number of Derefence and AddressOf operations
-  /// preceeding the Expr; this is used to decide whether to pretty-print
+  /// preceding the Expr; this is used to decide whether to pretty-print
   /// SExprs with . or ->.
   unsigned buildSExpr(const Expr *Exp, CallingContext* CallCtx,
                       int* NDeref = 0) {
@@ -327,8 +332,7 @@ private:
       if (LockReturnedAttr* At = MD->getAttr<LockReturnedAttr>()) {
         CallingContext LRCallCtx(CMCE->getMethodDecl());
         LRCallCtx.SelfArg = CMCE->getImplicitObjectArgument();
-        LRCallCtx.SelfArrow =
-          dyn_cast<MemberExpr>(CMCE->getCallee())->isArrow();
+        LRCallCtx.SelfArrow = isCalleeArrow(CMCE->getCallee());
         LRCallCtx.NumArgs = CMCE->getNumArgs();
         LRCallCtx.FunArgs = CMCE->getArgs();
         LRCallCtx.PrevCtx = CallCtx;
@@ -338,7 +342,7 @@ private:
       // ignore any method named get().
       if (CMCE->getMethodDecl()->getNameAsString() == "get" &&
           CMCE->getNumArgs() == 0) {
-        if (NDeref && dyn_cast<MemberExpr>(CMCE->getCallee())->isArrow())
+        if (NDeref && isCalleeArrow(CMCE->getCallee()))
           ++(*NDeref);
         return buildSExpr(CMCE->getImplicitObjectArgument(), CallCtx, NDeref);
       }
@@ -496,11 +500,10 @@ private:
     } else if (const CXXMemberCallExpr *CE =
                dyn_cast<CXXMemberCallExpr>(DeclExp)) {
       CallCtx.SelfArg   = CE->getImplicitObjectArgument();
-      CallCtx.SelfArrow = dyn_cast<MemberExpr>(CE->getCallee())->isArrow();
+      CallCtx.SelfArrow = isCalleeArrow(CE->getCallee());
       CallCtx.NumArgs   = CE->getNumArgs();
       CallCtx.FunArgs   = CE->getArgs();
-    } else if (const CallExpr *CE =
-               dyn_cast<CallExpr>(DeclExp)) {
+    } else if (const CallExpr *CE = dyn_cast<CallExpr>(DeclExp)) {
       CallCtx.NumArgs = CE->getNumArgs();
       CallCtx.FunArgs = CE->getArgs();
     } else if (const CXXConstructExpr *CE =
@@ -1893,14 +1896,14 @@ void BuildLockset::checkAccess(const Expr *Exp, AccessKind AK) {
   if (!D || !D->hasAttrs())
     return;
 
-  if (D->getAttr<GuardedVarAttr>() && FSet.isEmpty())
+  if (D->hasAttr<GuardedVarAttr>() && FSet.isEmpty())
     Analyzer->Handler.handleNoMutexHeld(D, POK_VarAccess, AK,
                                         Exp->getExprLoc());
 
-  const AttrVec &ArgAttrs = D->getAttrs();
-  for (unsigned i = 0, Size = ArgAttrs.size(); i < Size; ++i)
-    if (GuardedByAttr *GBAttr = dyn_cast<GuardedByAttr>(ArgAttrs[i]))
-      warnIfMutexNotHeld(D, Exp, AK, GBAttr->getArg(), POK_VarAccess);
+  for (specific_attr_iterator<GuardedByAttr>
+         I = D->specific_attr_begin<GuardedByAttr>(),
+         E = D->specific_attr_end<GuardedByAttr>(); I != E; ++I)
+    warnIfMutexNotHeld(D, Exp, AK, (*I)->getArg(), POK_VarAccess);
 }
 
 /// \brief Checks pt_guarded_by and pt_guarded_var attributes.
@@ -1931,14 +1934,14 @@ void BuildLockset::checkPtAccess(const Expr *Exp, AccessKind AK) {
   if (!D || !D->hasAttrs())
     return;
 
-  if (D->getAttr<PtGuardedVarAttr>() && FSet.isEmpty())
+  if (D->hasAttr<PtGuardedVarAttr>() && FSet.isEmpty())
     Analyzer->Handler.handleNoMutexHeld(D, POK_VarDereference, AK,
                                         Exp->getExprLoc());
 
-  const AttrVec &ArgAttrs = D->getAttrs();
-  for (unsigned i = 0, Size = ArgAttrs.size(); i < Size; ++i)
-    if (PtGuardedByAttr *GBAttr = dyn_cast<PtGuardedByAttr>(ArgAttrs[i]))
-      warnIfMutexNotHeld(D, Exp, AK, GBAttr->getArg(), POK_VarDereference);
+  for (specific_attr_iterator<PtGuardedByAttr>
+          I = D->specific_attr_begin<PtGuardedByAttr>(),
+          E = D->specific_attr_end<PtGuardedByAttr>(); I != E; ++I)
+    warnIfMutexNotHeld(D, Exp, AK, (*I)->getArg(), POK_VarDereference);
 }
 
 
@@ -2040,7 +2043,7 @@ void BuildLockset::handleCall(Expr *Exp, const NamedDecl *D, VarDecl *VD) {
         break;
       }
 
-      // Ignore other (non thread-safety) attributes
+      // Ignore attributes unrelated to thread-safety
       default:
         break;
     }
@@ -2051,7 +2054,7 @@ void BuildLockset::handleCall(Expr *Exp, const NamedDecl *D, VarDecl *VD) {
   if (VD) {
     if (const CXXConstructorDecl *CD = dyn_cast<const CXXConstructorDecl>(D)) {
       const CXXRecordDecl* PD = CD->getParent();
-      if (PD && PD->getAttr<ScopedLockableAttr>())
+      if (PD && PD->hasAttr<ScopedLockableAttr>())
         isScopedVar = true;
     }
   }
@@ -2339,7 +2342,7 @@ void ThreadSafetyAnalyzer::runAnalysis(AnalysisDeclContext &AC) {
 
   if (!D)
     return;  // Ignore anonymous functions for now.
-  if (D->getAttr<NoThreadSafetyAnalysisAttr>())
+  if (D->hasAttr<NoThreadSafetyAnalysisAttr>())
     return;
   // FIXME: Do something a bit more intelligent inside constructor and
   // destructor code.  Constructors and destructors must assume unique access

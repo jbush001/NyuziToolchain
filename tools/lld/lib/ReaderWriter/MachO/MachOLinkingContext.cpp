@@ -16,7 +16,6 @@
 #include "lld/ReaderWriter/Reader.h"
 #include "lld/ReaderWriter/Writer.h"
 #include "lld/Passes/LayoutPass.h"
-#include "lld/Passes/RoundTripNativePass.h"
 #include "lld/Passes/RoundTripYAMLPass.h"
 
 #include "llvm/ADT/StringExtras.h"
@@ -93,6 +92,14 @@ MachOLinkingContext::archFromName(StringRef archName) {
   return arch_unknown;
 }
 
+StringRef MachOLinkingContext::nameFromArch(Arch arch) {
+  for (ArchInfo *info = _s_archInfos; !info->archName.empty(); ++info) {
+    if (info->arch == arch)
+      return info->archName;
+  }
+  return "<unknown>";
+}
+
 uint32_t MachOLinkingContext::cpuTypeFromArch(Arch arch) {
   assert(arch != arch_unknown);
   for (ArchInfo *info = _s_archInfos; !info->archName.empty(); ++info) {
@@ -114,12 +121,49 @@ uint32_t MachOLinkingContext::cpuSubtypeFromArch(Arch arch) {
 MachOLinkingContext::MachOLinkingContext()
     : _outputFileType(MH_EXECUTE), _outputFileTypeStatic(false),
       _doNothing(false), _arch(arch_unknown), _os(OS::macOSX), _osMinVersion(0),
-      _pageZeroSize(unspecifiedPageZeroSize), 
-      _pageSize(4096), 
-      _compatibilityVersion(0), _currentVersion(0),
-      _deadStrippableDylib(false), _kindHandler(nullptr) {}
+      _pageZeroSize(0), _pageSize(4096), _compatibilityVersion(0),
+      _currentVersion(0), _deadStrippableDylib(false), _kindHandler(nullptr) {}
 
 MachOLinkingContext::~MachOLinkingContext() {}
+
+void MachOLinkingContext::configure(HeaderFileType type, Arch arch, OS os,
+                                    uint32_t minOSVersion) {
+  _outputFileType = type;
+  _arch = arch;
+  _os = os;
+  _osMinVersion = minOSVersion;
+
+  switch (_outputFileType) {
+  case llvm::MachO::MH_EXECUTE:
+    // If targeting newer OS, use _main
+    if (minOS("10.8", "6.0")) {
+      _entrySymbolName = "_main";
+    } else {
+      // If targeting older OS, use start (in crt1.o)
+      _entrySymbolName = "start";
+    }
+
+    // __PAGEZERO defaults to 4GB on 64-bit (except for PP64 which lld does not
+    // support) and 4KB on 32-bit.
+    if (is64Bit(_arch)) {
+      _pageZeroSize = 0x100000000;
+    } else {
+      _pageZeroSize = 0x1000;
+    }
+
+    break;
+  case llvm::MachO::MH_DYLIB:
+    _globalsAreDeadStripRoots = true;
+    break;
+  case llvm::MachO::MH_BUNDLE:
+    break;
+  case llvm::MachO::MH_OBJECT:
+    _printRemainingUndefines = false;
+    _allowRemainingUndefines = true;
+  default:
+    break;
+  }
+}
 
 uint32_t MachOLinkingContext::getCPUType() const {
   return cpuTypeFromArch(_arch);
@@ -218,28 +262,7 @@ bool MachOLinkingContext::addUnixThreadLoadCommand() const {
 }
 
 bool MachOLinkingContext::validateImpl(raw_ostream &diagnostics) {
-  if ((_outputFileType == MH_EXECUTE) && _entrySymbolName.empty()){
-    if (_outputFileTypeStatic) {
-      _entrySymbolName = "start";
-    } else if (addUnixThreadLoadCommand()) {
-      // If targeting older OS, use start (in crt1.o)
-      _entrySymbolName = "start";
-    } else if (addEntryPointLoadCommand()) {
-      // If targeting newer OS, use _main
-      _entrySymbolName = "_main";
-    }
-  }
-
   // TODO: if -arch not specified, look at arch of first .o file.
-
-  // Set default __PAGEZERO for main executables
-  if ((_outputFileType == MH_EXECUTE) && !_outputFileTypeStatic
-                                && (_pageZeroSize == unspecifiedPageZeroSize)) {
-    if (is64Bit(_arch))
-      _pageZeroSize = 0x100000000;
-    else
-      _pageZeroSize = 0x00010000;
-  }
 
   if (_currentVersion && _outputFileType != MH_DYLIB) {
     diagnostics << "error: -current_version can only be used with dylibs\n";
@@ -267,11 +290,6 @@ bool MachOLinkingContext::validateImpl(raw_ostream &diagnostics) {
   return true;
 }
 
-bool MachOLinkingContext::setOS(OS os, StringRef minOSVersion) {
-  _os = os;
-  return parsePackedVersion(minOSVersion, _osMinVersion);
-}
-
 void MachOLinkingContext::addPasses(PassManager &pm) {
   if (outputFileType() != MH_OBJECT) {
     pm.add(std::unique_ptr<Pass>(new mach_o::GOTPass));
@@ -293,14 +311,5 @@ KindHandler &MachOLinkingContext::kindHandler() const {
   return *_kindHandler;
 }
 
-ErrorOr<Reference::Kind>
-MachOLinkingContext::relocKindFromString(StringRef str) const {
-  return kindHandler().stringToKind(str);
-}
-
-ErrorOr<std::string>
-MachOLinkingContext::stringFromRelocKind(Reference::Kind kind) const {
-  return std::string(kindHandler().kindToString(kind));
-}
 
 } // end namespace lld

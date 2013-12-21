@@ -19,7 +19,6 @@
 
 #include "lld/Core/InputGraph.h"
 #include "lld/ReaderWriter/PECOFFLinkingContext.h"
-#include "lld/ReaderWriter/FileArchive.h"
 
 #include <map>
 
@@ -30,10 +29,6 @@ class PECOFFFileNode : public FileNode {
 public:
   PECOFFFileNode(PECOFFLinkingContext &ctx, StringRef path)
       : FileNode(path), _ctx(ctx) {}
-
-  static inline bool classof(const InputElement *a) {
-    return a->kind() == InputElement::Kind::File;
-  }
 
   virtual ErrorOr<StringRef> getPath(const LinkingContext &ctx) const;
 
@@ -59,6 +54,23 @@ public:
       : PECOFFFileNode(ctx, path) {}
 
   virtual ErrorOr<StringRef> getPath(const LinkingContext &ctx) const;
+};
+
+/// \brief Represents a ELF control node
+class PECOFFGroup : public Group {
+public:
+  PECOFFGroup() : Group(0) {}
+
+  virtual bool validate() { return true; }
+  virtual bool dump(raw_ostream &) { return true; }
+
+  /// \brief Parse the group members.
+  error_code parse(const LinkingContext &ctx, raw_ostream &diagnostics) {
+    for (auto &elem : _elements)
+      if (error_code ec = elem->parse(ctx, diagnostics))
+        return ec;
+    return error_code::success();
+  }
 };
 
 } // namespace lld

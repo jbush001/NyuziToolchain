@@ -13,23 +13,24 @@
 #include "DefaultTargetHandler.h"
 #include "TargetLayout.h"
 
+#include "lld/ReaderWriter/Reader.h"
+
 namespace lld {
 namespace elf {
+
 typedef llvm::object::ELFType<llvm::support::little, 2, false> X86ELFType;
 class X86LinkingContext;
 
 class X86TargetRelocationHandler LLVM_FINAL
     : public TargetRelocationHandler<X86ELFType> {
 public:
-  X86TargetRelocationHandler(const X86LinkingContext &context)
-      : _context(context) {}
+  X86TargetRelocationHandler(const X86LinkingContext &context) {}
 
   virtual error_code applyRelocation(ELFWriter &, llvm::FileOutputBuffer &,
                                      const lld::AtomLayout &,
                                      const Reference &) const;
 
-private:
-  const X86LinkingContext &_context;
+  static const Registry::KindStrings kindStrings[];
 };
 
 class X86TargetHandler LLVM_FINAL
@@ -37,15 +38,17 @@ class X86TargetHandler LLVM_FINAL
 public:
   X86TargetHandler(X86LinkingContext &context);
 
-  virtual TargetLayout<X86ELFType> &targetLayout() {
-    return _targetLayout;
-  }
+  virtual void registerRelocationNames(Registry &registry);
+
+  virtual TargetLayout<X86ELFType> &targetLayout() { return _targetLayout; }
 
   virtual const X86TargetRelocationHandler &getRelocationHandler() const {
     return _relocationHandler;
   }
 
 private:
+  static const Registry::KindStrings kindStrings[];
+
   X86TargetRelocationHandler _relocationHandler;
   TargetLayout<X86ELFType> _targetLayout;
 };

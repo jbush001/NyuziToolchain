@@ -38,13 +38,14 @@ TEST_F(WinLinkParserTest, Basic) {
   EXPECT_EQ(llvm::COFF::IMAGE_FILE_MACHINE_I386, _context.getMachineType());
   EXPECT_EQ("a.exe", _context.outputPath());
   EXPECT_EQ("_start", _context.entrySymbolName());
-  EXPECT_EQ(3, inputFileCount());
+  EXPECT_EQ(4, inputFileCount());
   EXPECT_EQ("a.obj", inputFile(0));
   EXPECT_EQ("b.obj", inputFile(1));
   EXPECT_EQ("c.obj", inputFile(2));
   EXPECT_TRUE(_context.getInputSearchPaths().empty());
 
   // Unspecified flags will have default values.
+  EXPECT_EQ(PECOFFLinkingContext::IMAGE_EXE, _context.getImageType());
   EXPECT_EQ(6, _context.getMinOSVersion().majorVersion);
   EXPECT_EQ(0, _context.getMinOSVersion().minorVersion);
   EXPECT_EQ(0x400000U, _context.getBaseAddress());
@@ -77,7 +78,7 @@ TEST_F(WinLinkParserTest, StartsWithHyphen) {
       parse("link.exe", "-subsystem:console", "-out:a.exe", "a.obj", nullptr));
   EXPECT_EQ(llvm::COFF::IMAGE_SUBSYSTEM_WINDOWS_CUI, _context.getSubsystem());
   EXPECT_EQ("a.exe", _context.outputPath());
-  EXPECT_EQ(1, inputFileCount());
+  EXPECT_EQ(2, inputFileCount());
   EXPECT_EQ("a.obj", inputFile(0));
 }
 
@@ -86,7 +87,7 @@ TEST_F(WinLinkParserTest, UppercaseOption) {
       parse("link.exe", "/SUBSYSTEM:CONSOLE", "/OUT:a.exe", "a.obj", nullptr));
   EXPECT_EQ(llvm::COFF::IMAGE_SUBSYSTEM_WINDOWS_CUI, _context.getSubsystem());
   EXPECT_EQ("a.exe", _context.outputPath());
-  EXPECT_EQ(1, inputFileCount());
+  EXPECT_EQ(2, inputFileCount());
   EXPECT_EQ("a.obj", inputFile(0));
 }
 
@@ -109,7 +110,7 @@ TEST_F(WinLinkParserTest, NoInputFiles) {
 TEST_F(WinLinkParserTest, NoFileExtension) {
   EXPECT_TRUE(parse("link.exe", "foo", "bar", nullptr));
   EXPECT_EQ("foo.exe", _context.outputPath());
-  EXPECT_EQ(2, inputFileCount());
+  EXPECT_EQ(3, inputFileCount());
   EXPECT_EQ("foo.obj", inputFile(0));
   EXPECT_EQ("bar.obj", inputFile(1));
 }
@@ -117,7 +118,7 @@ TEST_F(WinLinkParserTest, NoFileExtension) {
 TEST_F(WinLinkParserTest, NonStandardFileExtension) {
   EXPECT_TRUE(parse("link.exe", "foo.o", nullptr));
   EXPECT_EQ("foo.exe", _context.outputPath());
-  EXPECT_EQ(1, inputFileCount());
+  EXPECT_EQ(2, inputFileCount());
   EXPECT_EQ("foo.o", inputFile(0));
 }
 
@@ -137,7 +138,7 @@ TEST_F(WinLinkParserTest, Libpath) {
 TEST_F(WinLinkParserTest, InputOrder) {
   EXPECT_TRUE(parse("link.exe", "b.lib", "b.obj", "c.obj", "a.lib", "a.obj",
                     nullptr));
-  EXPECT_EQ(5, inputFileCount());
+  EXPECT_EQ(6, inputFileCount());
   EXPECT_EQ("b.obj", inputFile(0));
   EXPECT_EQ("c.obj", inputFile(1));
   EXPECT_EQ("a.obj", inputFile(2));
@@ -148,6 +149,52 @@ TEST_F(WinLinkParserTest, InputOrder) {
 //
 // Tests for command line options that take values.
 //
+
+TEST_F(WinLinkParserTest, AlternateName) {
+  EXPECT_TRUE(parse("link.exe", "/alternatename:sym1=sym2", "a.out", nullptr));
+  EXPECT_EQ("sym1", _context.getAlternateName("sym2"));
+  EXPECT_EQ("", _context.getAlternateName("foo"));
+}
+
+TEST_F(WinLinkParserTest, Export) {
+  EXPECT_TRUE(parse("link.exe", "/export:foo", "a.out", nullptr));
+  const std::vector<PECOFFLinkingContext::ExportDesc> &exports =
+      _context.getDllExports();
+  EXPECT_TRUE(exports.size() == 1);
+  EXPECT_EQ("foo", exports[0].name);
+  EXPECT_EQ(1, exports[0].ordinal);
+  EXPECT_FALSE(exports[0].noname);
+  EXPECT_FALSE(exports[0].isData);
+}
+
+TEST_F(WinLinkParserTest, ExportWithOptions) {
+  EXPECT_TRUE(parse("link.exe", "/export:foo,@8,noname,data",
+                    "/export:bar,@10,data", "a.out", nullptr));
+  const std::vector<PECOFFLinkingContext::ExportDesc> &exports =
+      _context.getDllExports();
+  EXPECT_TRUE(exports.size() == 2);
+  EXPECT_EQ("foo", exports[0].name);
+  EXPECT_EQ(8, exports[0].ordinal);
+  EXPECT_TRUE(exports[0].noname);
+  EXPECT_TRUE(exports[0].isData);
+  EXPECT_EQ("bar", exports[1].name);
+  EXPECT_EQ(10, exports[1].ordinal);
+  EXPECT_FALSE(exports[1].noname);
+  EXPECT_TRUE(exports[1].isData);
+}
+
+TEST_F(WinLinkParserTest, ExportDuplicates) {
+  EXPECT_FALSE(
+      parse("link.exe", "/export:foo,@1", "/export:bar,@1", "a.out", nullptr));
+}
+
+TEST_F(WinLinkParserTest, ExportInvalid1) {
+  EXPECT_FALSE(parse("link.exe", "/export:foo,@0", "a.out", nullptr));
+}
+
+TEST_F(WinLinkParserTest, ExportInvalid2) {
+  EXPECT_FALSE(parse("link.exe", "/export:foo,@65536", "a.out", nullptr));
+}
 
 TEST_F(WinLinkParserTest, MachineX86) {
   EXPECT_TRUE(parse("link.exe", "/machine:x86", "a.obj", nullptr));
@@ -236,37 +283,6 @@ TEST_F(WinLinkParserTest, SectionAlignment) {
   EXPECT_EQ(8192U, _context.getSectionDefaultAlignment());
 }
 
-TEST_F(WinLinkParserTest, Section) {
-  EXPECT_TRUE(parse("link.exe", "/section:.teXT,dekpRSW", "a.obj", nullptr));
-  uint32_t expect = llvm::COFF::IMAGE_SCN_MEM_DISCARDABLE |
-      llvm::COFF::IMAGE_SCN_MEM_NOT_CACHED |
-      llvm::COFF::IMAGE_SCN_MEM_NOT_PAGED |
-      llvm::COFF::IMAGE_SCN_MEM_SHARED |
-      llvm::COFF::IMAGE_SCN_MEM_EXECUTE |
-      llvm::COFF::IMAGE_SCN_MEM_READ |
-      llvm::COFF::IMAGE_SCN_MEM_WRITE;
-  llvm::Optional<uint32_t> val = _context.getSectionAttributes(".teXT");
-  EXPECT_TRUE(val.hasValue());
-  EXPECT_EQ(expect, *val);
-
-  EXPECT_EQ(0U, _context.getSectionAttributeMask(".teXT"));
-}
-
-TEST_F(WinLinkParserTest, SectionNegative) {
-  EXPECT_TRUE(parse("link.exe", "/section:.teXT,!dekpRSW", "a.obj", nullptr));
-  llvm::Optional<uint32_t> val = _context.getSectionAttributes(".teXT");
-  EXPECT_FALSE(val.hasValue());
-
-  uint32_t expect = llvm::COFF::IMAGE_SCN_MEM_DISCARDABLE |
-      llvm::COFF::IMAGE_SCN_MEM_NOT_CACHED |
-      llvm::COFF::IMAGE_SCN_MEM_NOT_PAGED |
-      llvm::COFF::IMAGE_SCN_MEM_SHARED |
-      llvm::COFF::IMAGE_SCN_MEM_EXECUTE |
-      llvm::COFF::IMAGE_SCN_MEM_READ |
-      llvm::COFF::IMAGE_SCN_MEM_WRITE;
-  EXPECT_EQ(expect, _context.getSectionAttributeMask(".teXT"));
-}
-
 TEST_F(WinLinkParserTest, InvalidAlignment) {
   EXPECT_FALSE(parse("link.exe", "/align:1000", "a.obj", nullptr));
   EXPECT_EQ("Section alignment must be a power of 2, but got 1000\n",
@@ -283,9 +299,9 @@ TEST_F(WinLinkParserTest, Include) {
 TEST_F(WinLinkParserTest, Merge) {
   EXPECT_TRUE(parse("link.exe", "/merge:.foo=.bar", "/merge:.bar=.baz",
                     "a.out", nullptr));
-  EXPECT_EQ(".baz", _context.getFinalSectionName(".foo"));
-  EXPECT_EQ(".baz", _context.getFinalSectionName(".bar"));
-  EXPECT_EQ(".abc", _context.getFinalSectionName(".abc"));
+  EXPECT_EQ(".baz", _context.getOutputSectionName(".foo"));
+  EXPECT_EQ(".baz", _context.getOutputSectionName(".bar"));
+  EXPECT_EQ(".abc", _context.getOutputSectionName(".abc"));
 }
 
 TEST_F(WinLinkParserTest, Merge_Circular) {
@@ -294,25 +310,74 @@ TEST_F(WinLinkParserTest, Merge_Circular) {
 }
 
 //
+// Tests for /section
+//
+
+namespace {
+const uint32_t discardable = llvm::COFF::IMAGE_SCN_MEM_DISCARDABLE;
+const uint32_t not_cached = llvm::COFF::IMAGE_SCN_MEM_NOT_CACHED;
+const uint32_t not_paged = llvm::COFF::IMAGE_SCN_MEM_NOT_PAGED;
+const uint32_t shared = llvm::COFF::IMAGE_SCN_MEM_SHARED;
+const uint32_t execute = llvm::COFF::IMAGE_SCN_MEM_EXECUTE;
+const uint32_t read = llvm::COFF::IMAGE_SCN_MEM_READ;
+const uint32_t write = llvm::COFF::IMAGE_SCN_MEM_WRITE;
+
+#define TEST_SECTION(testname, arg, expect)                                    \
+  TEST_F(WinLinkParserTest, testname) {                                        \
+    EXPECT_TRUE(parse("link.exe", "/section:.text," arg, "a.obj", nullptr));   \
+    EXPECT_EQ(expect, _context.getSectionAttributes(".text", execute | read)); \
+  }
+
+TEST_SECTION(SectionD, "d", execute | read | discardable);
+TEST_SECTION(SectionE, "e", execute);
+TEST_SECTION(SectionK, "k", execute | read | not_cached);
+TEST_SECTION(SectionP, "p", execute | read | not_paged);
+TEST_SECTION(SectionR, "r", read);
+TEST_SECTION(SectionS, "s", execute | read | shared);
+TEST_SECTION(SectionW, "w", write);
+
+#undef TEST_SECTION
+
+TEST_F(WinLinkParserTest, Section) {
+  EXPECT_TRUE(parse("link.exe", "/section:.text,dekprsw",
+                    "/section:.text,!dekprsw", "a.obj", nullptr));
+  EXPECT_EQ(0U, _context.getSectionAttributes(".text", execute | read));
+}
+
+TEST_F(WinLinkParserTest, SectionNegate) {
+  EXPECT_TRUE(parse("link.exe", "/section:.text,!e", "a.obj", nullptr));
+  EXPECT_EQ(read, _context.getSectionAttributes(".text", execute | read));
+}
+
+TEST_F(WinLinkParserTest, SectionMultiple) {
+  EXPECT_TRUE(parse("link.exe", "/section:.foo,e", "/section:.foo,rw",
+                    "/section:.foo,!d", "a.obj", nullptr));
+  uint32_t flags = execute | read | not_paged | discardable;
+  uint32_t expected = execute | read | write | not_paged;
+  EXPECT_EQ(expected, _context.getSectionAttributes(".foo", flags));
+}
+
+} // end anonymous namespace
+
+//
 // Tests for /defaultlib and /nodefaultlib.
 //
 
 TEST_F(WinLinkParserTest, DefaultLib) {
   EXPECT_TRUE(parse("link.exe", "/defaultlib:user32.lib",
                     "/defaultlib:kernel32", "a.obj", nullptr));
-  EXPECT_EQ(3, inputFileCount());
+  EXPECT_EQ(2, inputFileCount());
   EXPECT_EQ("a.obj", inputFile(0));
-  EXPECT_EQ("user32.lib", inputFile(1));
-  EXPECT_EQ("kernel32.lib", inputFile(2));
+  EXPECT_EQ("user32.lib", inputFile(1, 0));
+  EXPECT_EQ("kernel32.lib", inputFile(1, 1));
 }
 
 TEST_F(WinLinkParserTest, DefaultLibDuplicates) {
   EXPECT_TRUE(parse("link.exe", "/defaultlib:user32.lib",
                     "/defaultlib:user32.lib", "a.obj", nullptr));
-  EXPECT_EQ(3, inputFileCount());
+  EXPECT_EQ(2, inputFileCount());
   EXPECT_EQ("a.obj", inputFile(0));
-  EXPECT_EQ("user32.lib", inputFile(1));
-  EXPECT_EQ("user32.lib", inputFile(2));
+  EXPECT_EQ("user32.lib", inputFile(1, 0));
 }
 
 TEST_F(WinLinkParserTest, NoDefaultLib) {
@@ -321,13 +386,13 @@ TEST_F(WinLinkParserTest, NoDefaultLib) {
                     nullptr));
   EXPECT_EQ(2, inputFileCount());
   EXPECT_EQ("a.obj", inputFile(0));
-  EXPECT_EQ("kernel32.lib", inputFile(1));
+  EXPECT_EQ("kernel32.lib", inputFile(1, 0));
 }
 
 TEST_F(WinLinkParserTest, NoDefaultLibAll) {
   EXPECT_TRUE(parse("link.exe", "/defaultlib:user32.lib",
                     "/defaultlib:kernel32", "/nodefaultlib", "a.obj", nullptr));
-  EXPECT_EQ(1, inputFileCount());
+  EXPECT_EQ(2, inputFileCount());
   EXPECT_EQ("a.obj", inputFile(0));
 }
 
@@ -337,7 +402,7 @@ TEST_F(WinLinkParserTest, DisallowLib) {
                     nullptr));
   EXPECT_EQ(2, inputFileCount());
   EXPECT_EQ("a.obj", inputFile(0));
-  EXPECT_EQ("kernel32.lib", inputFile(1));
+  EXPECT_EQ("kernel32.lib", inputFile(1, 0));
 }
 
 //
@@ -346,6 +411,8 @@ TEST_F(WinLinkParserTest, DisallowLib) {
 
 TEST_F(WinLinkParserTest, NoEntry) {
   EXPECT_TRUE(parse("link.exe", "/noentry", "/dll", "a.obj", nullptr));
+  EXPECT_EQ(PECOFFLinkingContext::IMAGE_DLL, _context.getImageType());
+  EXPECT_EQ(0x10000000U, _context.getBaseAddress());
   EXPECT_EQ("", _context.entrySymbolName());
 }
 
@@ -417,7 +484,6 @@ TEST_F(WinLinkParserTest, SwapRunFromNet) {
 TEST_F(WinLinkParserTest, Debug) {
   EXPECT_TRUE(parse("link.exe", "/debug", "a.out", nullptr));
   EXPECT_FALSE(_context.deadStrip());
-  EXPECT_TRUE(_context.logInputFiles());
 }
 
 TEST_F(WinLinkParserTest, Fixed) {
@@ -547,9 +613,9 @@ TEST_F(WinLinkParserTest, Ignore) {
                     "/pdbaltpath:bar", "/verbose", "/verbose:icf", "/wx",
                     "/wx:no", "/tlbid:1", "/tlbout:foo", "/idlout:foo",
                     "/ignoreidl", "/implib:foo", "/safeseh", "/safeseh:no",
-                    "a.obj", nullptr));
+                    "/functionpadmin", "a.obj", nullptr));
   EXPECT_EQ("", errorMessage());
-  EXPECT_EQ(1, inputFileCount());
+  EXPECT_EQ(2, inputFileCount());
   EXPECT_EQ("a.obj", inputFile(0));
 }
 
@@ -562,7 +628,7 @@ TEST_F(WinLinkParserTest, DashDash) {
                     "--", "b.obj", "-c.obj", nullptr));
   EXPECT_EQ(llvm::COFF::IMAGE_SUBSYSTEM_WINDOWS_CUI, _context.getSubsystem());
   EXPECT_EQ("a.exe", _context.outputPath());
-  EXPECT_EQ(3, inputFileCount());
+  EXPECT_EQ(4, inputFileCount());
   EXPECT_EQ("a.obj", inputFile(0));
   EXPECT_EQ("b.obj", inputFile(1));
   EXPECT_EQ("-c.obj", inputFile(2));

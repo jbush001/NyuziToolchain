@@ -15,12 +15,14 @@ multiclass B<string name, string help> {
   def _no : F<name#":no">, HelpText<help>;
 }
 
+def alternatename : P<"alternatename", "Define weak alias">;
 def base    : P<"base", "Base address of the program">;
 def defaultlib : P<"defaultlib", "Add the library to the list of input files">;
 def nodefaultlib : P<"nodefaultlib", "Remove a default library">;
 def disallowlib : Joined<["/", "-", "-?"], "disallowlib:">, Alias<nodefaultlib>;
 def entry   : P<"entry", "Name of entry point symbol">;
 // No help text because /failifmismatch is not intended to be used by the user.
+def export  : P<"export", "Export a function">;
 def failifmismatch : P<"failifmismatch", "">;
 def heap    : P<"heap", "Size of the heap">;
 def align   : P<"align", "Section alignment">;
@@ -52,7 +54,7 @@ def incl_c : Separate<["/", "-"], "include">, Alias<incl>;
 def nodefaultlib_all : F<"nodefaultlib">;
 def noentry : F<"noentry">;
 def dll : F<"dll">;
-
+def verbose : F<"verbose">;
 def debug : F<"debug">;
 def swaprun_cd : F<"swaprun:cd">;
 def swaprun_net : F<"swaprun:net">;
@@ -90,11 +92,11 @@ multiclass QB<string name> {
   def _no : F<name#":no">;
 }
 
+def functionpadmin : F<"functionpadmin">;
 def ignoreidl : F<"ignoreidl">;
 def incremental : F<"incremental">;
 def no_incremental : F<"incremental:no">;
 def nologo : F<"nologo">;
-def verbose : F<"verbose">;
 
 def delay : QF<"delay">;
 def delayload : QF<"delayload">;

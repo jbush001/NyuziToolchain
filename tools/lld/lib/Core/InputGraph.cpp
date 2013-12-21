@@ -13,11 +13,9 @@
 
 using namespace lld;
 
-namespace {
-bool sortInputElements(const std::unique_ptr<InputElement> &a,
-                       const std::unique_ptr<InputElement> &b) {
+static bool sortInputElements(const std::unique_ptr<InputElement> &a,
+                              const std::unique_ptr<InputElement> &b) {
   return a->getOrdinal() < b->getOrdinal();
-}
 }
 
 bool InputGraph::addInputElement(std::unique_ptr<InputElement> ie) {
@@ -179,8 +177,7 @@ void ControlNode::setResolveState(uint32_t resolveState) {
 /// SimpleFileNode
 
 SimpleFileNode::SimpleFileNode(StringRef path, int64_t ordinal)
-    : InputElement(InputElement::Kind::SimpleFile, ordinal), _path(path),
-      _nextFileIndex(0), _resolveState(Resolver::StateNoChange) {}
+    : FileNode(path, ordinal) {}
 
 /// Group
 

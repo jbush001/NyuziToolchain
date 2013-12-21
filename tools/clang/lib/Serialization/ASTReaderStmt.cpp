@@ -1494,23 +1494,15 @@ void ASTStmtReader::VisitUnaryTypeTraitExpr(UnaryTypeTraitExpr *E) {
   E->QueriedType = GetTypeSourceInfo(Record, Idx);
 }
 
-void ASTStmtReader::VisitBinaryTypeTraitExpr(BinaryTypeTraitExpr *E) {
-  VisitExpr(E);
-  E->BTT = (BinaryTypeTrait)Record[Idx++];
-  E->Value = (bool)Record[Idx++];
-  SourceRange Range = ReadSourceRange(Record, Idx);
-  E->Loc = Range.getBegin();
-  E->RParen = Range.getEnd();
-  E->LhsType = GetTypeSourceInfo(Record, Idx);
-  E->RhsType = GetTypeSourceInfo(Record, Idx);
-}
-
 void ASTStmtReader::VisitTypeTraitExpr(TypeTraitExpr *E) {
   VisitExpr(E);
   E->TypeTraitExprBits.NumArgs = Record[Idx++];
   E->TypeTraitExprBits.Kind = Record[Idx++];
   E->TypeTraitExprBits.Value = Record[Idx++];
-  
+  SourceRange Range = ReadSourceRange(Record, Idx);
+  E->Loc = Range.getBegin();
+  E->RParenLoc = Range.getEnd();
+
   TypeSourceInfo **Args = E->getTypeSourceInfos();
   for (unsigned I = 0, N = E->getNumArgs(); I != N; ++I)
     Args[I] = GetTypeSourceInfo(Record, Idx);
@@ -2398,10 +2390,6 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       S = new (Context) UnaryTypeTraitExpr(Empty);
       break;
 
-    case EXPR_BINARY_TYPE_TRAIT:
-      S = new (Context) BinaryTypeTraitExpr(Empty);
-      break;
-
     case EXPR_TYPE_TRAIT:
       S = TypeTraitExpr::CreateDeserialized(Context, 
             Record[ASTStmtReader::NumExprFields]);
@@ -2491,7 +2479,7 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
     StmtStack.push_back(S);
   }
 Done:
-  assert(StmtStack.size() > PrevNumStmts && "Read too many sub stmts!");
+  assert(StmtStack.size() > PrevNumStmts && "Read too many sub-stmts!");
   assert(StmtStack.size() == PrevNumStmts + 1 && "Extra expressions on stack!");
   return StmtStack.pop_back_val();
 }

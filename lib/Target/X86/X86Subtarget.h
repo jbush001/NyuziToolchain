@@ -246,7 +246,8 @@ public:
 
   /// Is this x86_64 with the ILP32 programming model (x32 ABI)?
   bool isTarget64BitILP32() const {
-    return In64BitMode && (TargetTriple.getEnvironment() == Triple::GNUX32);
+    return In64BitMode && (TargetTriple.getEnvironment() == Triple::GNUX32 ||
+                           TargetTriple.getOS() == Triple::NaCl);
   }
 
   /// Is this x86_64 with the LP64 programming model (standard AMD64, no x32)?
@@ -319,10 +320,11 @@ public:
   bool isTargetSolaris() const {
     return TargetTriple.getOS() == Triple::Solaris;
   }
-  bool isTargetELF() const {
-    return (TargetTriple.getEnvironment() == Triple::ELF ||
-            TargetTriple.isOSBinFormatELF());
-  }
+
+  bool isTargetELF() const { return TargetTriple.isOSBinFormatELF(); }
+  bool isTargetCOFF() const { return TargetTriple.isOSBinFormatCOFF(); }
+  bool isTargetMacho() const { return TargetTriple.isOSBinFormatMachO(); }
+
   bool isTargetLinux() const { return TargetTriple.isOSLinux(); }
   bool isTargetNaCl() const { return TargetTriple.isOSNaCl(); }
   bool isTargetNaCl32() const { return isTargetNaCl() && !is64Bit(); }
@@ -331,11 +333,6 @@ public:
   bool isTargetMingw() const { return TargetTriple.getOS() == Triple::MinGW32; }
   bool isTargetCygwin() const { return TargetTriple.getOS() == Triple::Cygwin; }
   bool isTargetCygMing() const { return TargetTriple.isOSCygMing(); }
-  bool isTargetCOFF() const {
-    return (TargetTriple.getEnvironment() != Triple::ELF &&
-            TargetTriple.isOSBinFormatCOFF());
-  }
-  bool isTargetEnvMacho() const { return TargetTriple.isEnvironmentMachO(); }
 
   bool isOSWindows() const { return TargetTriple.isOSWindows(); }
 

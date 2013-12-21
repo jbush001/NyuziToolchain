@@ -99,6 +99,18 @@ std::vector<StringRef> splitPathList(StringRef str) {
   return ret;
 }
 
+// Parse an argument for /alternatename. The expected string is
+// "<string>=<string>".
+bool parseAlternateName(StringRef arg, StringRef &weak, StringRef &def,
+                        raw_ostream &diagnostics) {
+  llvm::tie(weak, def) = arg.split('=');
+  if (weak.empty() || def.empty()) {
+    diagnostics << "Error: malformed /alternatename option: " << arg << "\n";
+    return false;
+  }
+  return true;
+}
+
 // Parse an argument for /base, /stack or /heap. The expected string
 // is "<integer>[,<integer>]".
 bool parseMemoryOption(StringRef arg, uint64_t &reserve, uint64_t &commit) {
@@ -143,6 +155,28 @@ llvm::COFF::WindowsSubsystem stringToWinSubsystem(StringRef str) {
       .Default(llvm::COFF::IMAGE_SUBSYSTEM_UNKNOWN);
 }
 
+// Parse /subsystem command line option. The form of /subsystem is
+// "subsystem_name[,majorOSVersion[.minorOSVersion]]".
+bool parseSubsystem(StringRef arg, llvm::COFF::WindowsSubsystem &subsystem,
+                    llvm::Optional<uint32_t> &major,
+                    llvm::Optional<uint32_t> &minor, raw_ostream &diagnostics) {
+  StringRef subsystemStr, osVersion;
+  llvm::tie(subsystemStr, osVersion) = arg.split(',');
+  if (!osVersion.empty()) {
+    uint32_t v1, v2;
+    if (!parseVersion(osVersion, v1, v2))
+      return false;
+    major = v1;
+    minor = v2;
+  }
+  subsystem = stringToWinSubsystem(subsystemStr);
+  if (subsystem == llvm::COFF::IMAGE_SUBSYSTEM_UNKNOWN) {
+    diagnostics << "error: unknown subsystem name: " << subsystemStr << "\n";
+    return false;
+  }
+  return true;
+}
+
 llvm::COFF::MachineTypes stringToMachineType(StringRef str) {
   return llvm::StringSwitch<llvm::COFF::MachineTypes>(str.lower())
       .Case("arm", llvm::COFF::IMAGE_FILE_MACHINE_ARM)
@@ -156,7 +190,7 @@ llvm::COFF::MachineTypes stringToMachineType(StringRef str) {
 //
 // /section option is to set non-default bits in the Characteristics fields of
 // the section header. D, E, K, P, R, S, and W represent discardable,
-// not_cachable, not_pageable, shared, execute, read, and write bits,
+// execute, not_cachable, not_pageable, read, shared, and write bits,
 // respectively. You can specify multiple flags in one /section option.
 //
 // If the flag starts with "!", the flags represent a mask that should be turned
@@ -185,11 +219,11 @@ bool parseSection(StringRef option, std::string &section,
       attribs |= flag;                          \
       break
     CASE('d', llvm::COFF::IMAGE_SCN_MEM_DISCARDABLE);
-    CASE('e', llvm::COFF::IMAGE_SCN_MEM_NOT_CACHED);
-    CASE('k', llvm::COFF::IMAGE_SCN_MEM_NOT_PAGED);
-    CASE('p', llvm::COFF::IMAGE_SCN_MEM_SHARED);
-    CASE('r', llvm::COFF::IMAGE_SCN_MEM_EXECUTE);
-    CASE('s', llvm::COFF::IMAGE_SCN_MEM_READ);
+    CASE('e', llvm::COFF::IMAGE_SCN_MEM_EXECUTE);
+    CASE('k', llvm::COFF::IMAGE_SCN_MEM_NOT_CACHED);
+    CASE('p', llvm::COFF::IMAGE_SCN_MEM_NOT_PAGED);
+    CASE('r', llvm::COFF::IMAGE_SCN_MEM_READ);
+    CASE('s', llvm::COFF::IMAGE_SCN_MEM_SHARED);
     CASE('w', llvm::COFF::IMAGE_SCN_MEM_WRITE);
 #undef CASE
     default:
@@ -260,6 +294,43 @@ bool parseManifestUac(StringRef option, llvm::Optional<std::string> &level,
       StringRef value;
       llvm::tie(value, option) = option.split(" ");
       uiAccess = value.str();
+      continue;
+    }
+    return false;
+  }
+}
+
+// Parse /export:name[,@ordinal[,NONAME]][,DATA].
+bool parseExport(StringRef option, PECOFFLinkingContext::ExportDesc &ret) {
+  StringRef name;
+  StringRef rest;
+  llvm::tie(name, rest) = option.split(",");
+  if (name.empty())
+    return false;
+  ret.name = name;
+
+  for (;;) {
+    if (rest.empty())
+      return true;
+    StringRef arg;
+    llvm::tie(arg, rest) = rest.split(",");
+    if (arg.equals_lower("noname")) {
+      if (ret.ordinal < 0)
+        return false;
+      ret.noname = true;
+      continue;
+    }
+    if (arg.equals_lower("data")) {
+      ret.isData = true;
+      continue;
+    }
+    if (arg.startswith("@")) {
+      int ordinal;
+      if (arg.substr(1).getAsInteger(0, ordinal))
+        return false;
+      if (ordinal <= 0 || 65535 < ordinal)
+        return false;
+      ret.ordinal = ordinal;
       continue;
     }
     return false;
@@ -542,6 +613,19 @@ parseArgs(int argc, const char *argv[], raw_ostream &diagnostics,
   return parsedArgs;
 }
 
+// Returns true if the given file node has already been added to the input
+// graph.
+bool hasLibrary(const PECOFFLinkingContext &ctx, FileNode *fileNode) {
+  ErrorOr<StringRef> path = fileNode->getPath(ctx);
+  if (!path)
+    return false;
+  for (std::unique_ptr<InputElement> &p : ctx.getLibraryGroup()->elements())
+    if (auto *f = dyn_cast<FileNode>(p.get()))
+      if (*path == *f->getPath(ctx))
+        return true;
+  return false;
+}
+
 } // namespace
 
 //
@@ -561,6 +645,14 @@ bool WinLinkDriver::linkPECOFF(int argc, const char *argv[],
     if (!createManifest(context, diagnostics))
       return false;
 
+  // Register possible input file parsers.
+  context.registry().addSupportCOFFObjects(context);
+  context.registry().addSupportCOFFImportLibraries();
+  context.registry().addSupportWindowsResourceFiles();
+  context.registry().addSupportArchives(context.logInputFiles());
+  context.registry().addSupportNativeObjects();
+  context.registry().addSupportYamlFiles();
+
   return link(context, diagnostics);
 }
 
@@ -575,7 +667,8 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
     return false;
 
   // The list of input files.
-  std::vector<std::unique_ptr<InputElement> > inputElements;
+  std::vector<std::unique_ptr<FileNode> > files;
+  std::vector<std::unique_ptr<FileNode> > libraries;
 
   // Handle /help
   if (parsedArgs->getLastArg(OPT_help)) {
@@ -610,6 +703,14 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       ctx.appendLLVMOption(inputArg->getValue());
       break;
 
+    case OPT_alternatename: {
+      StringRef weak, def;
+      if (!parseAlternateName(inputArg->getValue(), weak, def, diagnostics))
+        return false;
+      ctx.setAlternateName(weak, def);
+      break;
+    }
+
     case OPT_base:
       // Parse /base command line option. The argument for the parameter is in
       // the form of "<address>[:<size>]".
@@ -621,6 +722,14 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       if (!parseMemoryOption(inputArg->getValue(), addr, size))
         return false;
       ctx.setBaseAddress(addr);
+      break;
+
+    case OPT_dll:
+      // Parse /dll command line option
+      ctx.setImageType(PECOFFLinkingContext::IMAGE_DLL);
+      // Default base address of a DLL is 0x10000000.
+      if (!parsedArgs->getLastArg(OPT_base))
+        ctx.setBaseAddress(0x10000000);
       break;
 
     case OPT_stack: {
@@ -690,26 +799,15 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
     }
 
     case OPT_subsystem: {
-      // Parse /subsystem command line option. The form of /subsystem is
-      // "subsystem_name[,majorOSVersion[.minorOSVersion]]".
-      StringRef subsystemStr, osVersion;
-      llvm::tie(subsystemStr, osVersion) =
-          StringRef(inputArg->getValue()).split(',');
-      if (!osVersion.empty()) {
-        uint32_t major, minor;
-        if (!parseVersion(osVersion, major, minor))
-          return false;
-        ctx.setMinOSVersion(PECOFFLinkingContext::Version(major, minor));
-      }
-      // Parse subsystem name.
-      llvm::COFF::WindowsSubsystem subsystem =
-          stringToWinSubsystem(subsystemStr);
-      if (subsystem == llvm::COFF::IMAGE_SUBSYSTEM_UNKNOWN) {
-        diagnostics << "error: unknown subsystem name: " << subsystemStr
-                    << "\n";
+      // Parse /subsystem:<subsystem>[,<majorOSVersion>[.<minorOSVersion>]].
+      llvm::COFF::WindowsSubsystem subsystem;
+      llvm::Optional<uint32_t> major, minor;
+      if (!parseSubsystem(inputArg->getValue(), subsystem, major, minor,
+                          diagnostics))
         return false;
-      }
       ctx.setSubsystem(subsystem);
+      if (major.hasValue())
+        ctx.setMinOSVersion(PECOFFLinkingContext::Version(*major, *minor));
       break;
     }
 
@@ -723,9 +821,9 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
         return false;
       }
       if (flags.hasValue())
-        ctx.setSectionAttributes(section, *flags);
+        ctx.setSectionSetMask(section, *flags);
       if (mask.hasValue())
-        ctx.setSectionAttributeMask(section, *mask);
+        ctx.setSectionClearMask(section, *mask);
       break;
     }
 
@@ -787,6 +885,17 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       ctx.setEntrySymbolName(ctx.allocate(inputArg->getValue()));
       break;
 
+    case OPT_export: {
+      PECOFFLinkingContext::ExportDesc desc;
+      if (!parseExport(inputArg->getValue(), desc)) {
+        diagnostics << "Error: malformed /export option: "
+                    << inputArg->getValue() << "\n";
+        return false;
+      }
+      ctx.addDllExport(desc);
+      break;
+    }
+
     case OPT_libpath:
       ctx.appendInputSearchPath(ctx.allocate(inputArg->getValue()));
       break;
@@ -795,8 +904,9 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       // LLD is not yet capable of creating a PDB file, so /debug does not have
       // any effect, other than disabling dead stripping.
       ctx.setDeadStripping(false);
+      break;
 
-      // Prints out input files during core linking to help debugging.
+    case OPT_verbose:
       ctx.setLogInputFiles(true);
       break;
 
@@ -887,8 +997,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
   };
   std::stable_sort(inputFiles.begin(), inputFiles.end(), compfn);
   for (StringRef path : inputFiles)
-    inputElements.push_back(std::unique_ptr<InputElement>(
-        new PECOFFFileNode(ctx, path)));
+    files.push_back(std::unique_ptr<FileNode>(new PECOFFFileNode(ctx, path)));
 
   // Use the default entry name if /entry option is not given.
   if (ctx.entrySymbolName().empty() && !parsedArgs->getLastArg(OPT_noentry))
@@ -921,9 +1030,9 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
   // but useful for us to test lld on Unix.
   if (llvm::opt::Arg *dashdash = parsedArgs->getLastArg(OPT_DASH_DASH)) {
     for (const StringRef value : dashdash->getValues()) {
-      std::unique_ptr<InputElement> elem(
+      std::unique_ptr<FileNode> elem(
           new PECOFFFileNode(ctx, ctx.allocate(value)));
-      inputElements.push_back(std::move(elem));
+      files.push_back(std::move(elem));
     }
   }
 
@@ -932,10 +1041,10 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
   if (!ctx.getNoDefaultLibAll())
     for (const StringRef path : defaultLibs)
       if (!ctx.hasNoDefaultLib(path))
-        inputElements.push_back(std::unique_ptr<InputElement>(
-            new PECOFFLibraryNode(ctx, path)));
+        libraries.push_back(std::unique_ptr<FileNode>(
+                              new PECOFFLibraryNode(ctx, ctx.allocate(path.lower()))));
 
-  if (inputElements.empty() && !isReadingDirectiveSection) {
+  if (files.empty() && !isReadingDirectiveSection) {
     diagnostics << "No input files\n";
     return false;
   }
@@ -944,7 +1053,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
   // constructed by replacing an extension of the first input file
   // with ".exe".
   if (ctx.outputPath().empty()) {
-    StringRef path = *dyn_cast<FileNode>(&*inputElements[0])->getPath(ctx);
+    StringRef path = *dyn_cast<FileNode>(&*files[0])->getPath(ctx);
     ctx.setOutputPath(replaceExtension(ctx, path, ".exe"));
   }
 
@@ -956,19 +1065,32 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
     ctx.setManifestOutputPath(ctx.allocate(path));
   }
 
-  // If the core linker already started, we need to explicitly call parse() for
-  // each input element, because the pass to parse input files in Driver::link
-  // has already done.
-  if (isReadingDirectiveSection)
-    for (auto &e : inputElements)
-      if (e->parse(ctx, diagnostics))
-        return false;
-
   // Add the input files to the input graph.
   if (!ctx.hasInputGraph())
     ctx.setInputGraph(std::unique_ptr<InputGraph>(new InputGraph()));
-  for (auto &e : inputElements)
-    ctx.inputGraph().addInputElement(std::move(e));
+  for (auto &file : files) {
+    if (isReadingDirectiveSection)
+      if (file->parse(ctx, diagnostics))
+        return false;
+    ctx.inputGraph().addInputElement(std::move(file));
+  }
+
+  // Add the library group to the input graph.
+  if (!isReadingDirectiveSection) {
+    auto group = std::unique_ptr<Group>(new PECOFFGroup());
+    ctx.setLibraryGroup(group.get());
+    ctx.inputGraph().addInputElement(std::move(group));
+  }
+
+  // Add the library files to the library group.
+  for (std::unique_ptr<FileNode> &lib : libraries) {
+    if (!hasLibrary(ctx, lib.get())) {
+      if (isReadingDirectiveSection)
+        if (lib->parse(ctx, diagnostics))
+          return false;
+      ctx.getLibraryGroup()->processInputElement(std::move(lib));
+    }
+  }
 
   // Validate the combination of options used.
   return ctx.validate(diagnostics);

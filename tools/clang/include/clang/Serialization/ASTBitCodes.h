@@ -841,7 +841,9 @@ namespace clang {
       /// \brief An AtomicType record.
       TYPE_ATOMIC                = 40,
       /// \brief A DecayedType record.
-      TYPE_DECAYED               = 41
+      TYPE_DECAYED               = 41,
+      /// \brief An AdjustedType record.
+      TYPE_ADJUSTED              = 42
     };
 
     /// \brief The type IDs for special types constructed by semantic
@@ -1306,7 +1308,6 @@ namespace clang {
 
       EXPR_OPAQUE_VALUE,          // OpaqueValueExpr
       EXPR_BINARY_CONDITIONAL_OPERATOR,  // BinaryConditionalOperator
-      EXPR_BINARY_TYPE_TRAIT,     // BinaryTypeTraitExpr
       EXPR_TYPE_TRAIT,            // TypeTraitExpr
       EXPR_ARRAY_TYPE_TRAIT,      // ArrayTypeTraitIntExpr
       

@@ -46,12 +46,14 @@ void SymbolTable::add(const AbsoluteAtom &atom) {
 
 void SymbolTable::add(const DefinedAtom &atom) {
   if (!atom.name().empty() &&
-      (atom.scope() != DefinedAtom::scopeTranslationUnit)) {
+      atom.scope() != DefinedAtom::scopeTranslationUnit) {
     // Named atoms cannot be merged by content.
     assert(atom.merge() != DefinedAtom::mergeByContent);
     // Track named atoms that are not scoped to file (static).
     this->addByName(atom);
-  } else if (atom.merge() == DefinedAtom::mergeByContent) {
+    return;
+  }
+  if (atom.merge() == DefinedAtom::mergeByContent) {
     // Named atoms cannot be merged by content.
     assert(atom.name().empty());
     this->addByContent(atom);
@@ -148,27 +150,27 @@ void SymbolTable::addByName(const Atom & newAtom) {
     assert(newAtom.definition() == Atom::definitionRegular);
     switch (mergeSelect(((DefinedAtom*)existing)->merge(),
                         ((DefinedAtom*)(&newAtom))->merge())) {
-      case MCR_First:
-        useNew = false;
-        break;
-      case MCR_Second:
-        useNew = true;
-        break;
-      case MCR_Largest:
-        useNew = true;
-        break;
-      case MCR_Error:
-        llvm::errs() << "Duplicate symbols: "
-                     << existing->name()
-                     << ":"
-                     << existing->file().path()
-                     << " and "
-                     << newAtom.name()
-                     << ":"
-                     << newAtom.file().path()
-                     << "\n";
-        llvm::report_fatal_error("duplicate symbol error");
-        break;
+    case MCR_First:
+      useNew = false;
+      break;
+    case MCR_Second:
+      useNew = true;
+      break;
+    case MCR_Largest:
+      useNew = true;
+      break;
+    case MCR_Error:
+      llvm::errs() << "Duplicate symbols: "
+                   << existing->name()
+                   << ":"
+                   << existing->file().path()
+                   << " and "
+                   << newAtom.name()
+                   << ":"
+                   << newAtom.file().path()
+                   << "\n";
+      llvm::report_fatal_error("duplicate symbol error");
+      break;
     }
     break;
   case NCR_DupUndef: {
@@ -338,9 +340,8 @@ unsigned int SymbolTable::size() {
 }
 
 void SymbolTable::undefines(std::vector<const UndefinedAtom *> &undefs) {
-  for (NameToAtom::iterator it = _nameTable.begin(),
-       end = _nameTable.end(); it != end; ++it) {
-    const Atom *atom = it->second;
+  for (auto it : _nameTable) {
+    const Atom *atom = it.second;
     assert(atom != nullptr);
     if (const auto undef = dyn_cast<const UndefinedAtom>(atom)) {
       AtomToAtom::iterator pos = _replacedAtoms.find(undef);

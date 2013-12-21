@@ -51,6 +51,11 @@ static QualType Desugar(ASTContext &Context, QualType QT, bool &ShouldAKA) {
       QT = AT->desugar();
       continue;
     }
+    // ...or an adjusted type...
+    if (const AdjustedType *AT = dyn_cast<AdjustedType>(Ty)) {
+      QT = AT->desugar();
+      continue;
+    }
     // ... or an auto type.
     if (const AutoType *AT = dyn_cast<AutoType>(Ty)) {
       if (!AT->isSugared())
@@ -1349,8 +1354,7 @@ class TemplateDiff {
         FromType.getLocalUnqualifiedType() ==
         ToType.getLocalUnqualifiedType()) {
       Qualifiers FromQual = FromType.getLocalQualifiers(),
-                 ToQual = ToType.getLocalQualifiers(),
-                 CommonQual;
+                 ToQual = ToType.getLocalQualifiers();
       PrintQualifiers(FromQual, ToQual);
       FromType.getLocalUnqualifiedType().print(OS, Policy);
       return;

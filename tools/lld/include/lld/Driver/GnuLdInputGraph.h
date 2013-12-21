@@ -17,30 +17,23 @@
 #ifndef LLD_DRIVER_GNU_LD_INPUT_GRAPH_H
 #define LLD_DRIVER_GNU_LD_INPUT_GRAPH_H
 
+#include "lld/Core/ArchiveLibraryFile.h"
 #include "lld/Core/InputGraph.h"
 #include "lld/Core/Resolver.h"
 #include "lld/ReaderWriter/ELFLinkingContext.h"
-#include "lld/ReaderWriter/FileArchive.h"
+#include "lld/ReaderWriter/LinkerScript.h"
 
 namespace lld {
 
 /// \brief Represents a ELF File
 class ELFFileNode : public FileNode {
 public:
-  ELFFileNode(ELFLinkingContext &ctx, StringRef path,
-              std::vector<StringRef> searchPath, int64_t ordinal = -1,
+  ELFFileNode(ELFLinkingContext &ctx, StringRef path, int64_t ordinal = -1,
               bool isWholeArchive = false, bool asNeeded = false,
               bool dashlPrefix = false)
       : FileNode(path, ordinal), _elfLinkingContext(ctx),
         _isWholeArchive(isWholeArchive), _asNeeded(asNeeded),
-        _isDashlPrefix(dashlPrefix) {
-    std::copy(searchPath.begin(), searchPath.end(),
-              std::back_inserter(_libraryPaths));
-  }
-
-  static inline bool classof(const InputElement *a) {
-    return a->kind() == InputElement::Kind::File;
-  }
+        _isDashlPrefix(dashlPrefix) {}
 
   virtual ErrorOr<StringRef> getPath(const LinkingContext &ctx) const;
 
@@ -63,59 +56,11 @@ public:
                 << ((_isWholeArchive) ? "true" : "false") << "\n";
     diagnostics << "  - asNeeded : " << ((_asNeeded) ? "true" : "false")
                 << "\n";
-    diagnostics << "  contextPath : " << ((_libraryPaths.size()) ? "" : "None")
-                << "\n";
-    for (auto path : _libraryPaths)
-      diagnostics << "    - " << path << "\n";
     return true;
   }
 
   /// \brief Parse the input file to lld::File.
-  error_code parse(const LinkingContext &ctx, raw_ostream &diagnostics) {
-    ErrorOr<StringRef> filePath = getPath(ctx);
-    if (!filePath)
-      return error_code(filePath);
-
-    if (error_code ec = getBuffer(*filePath))
-      return ec;
-
-    if (ctx.logInputFiles())
-      diagnostics << *filePath << "\n";
-
-    if (filePath->endswith(".objtxt"))
-      return ctx.getYAMLReader().parseFile(_buffer, _files);
-
-    // Identify File type
-    llvm::sys::fs::file_magic FileType =
-        llvm::sys::fs::identify_magic(_buffer->getBuffer());
-
-    switch (FileType) {
-    case llvm::sys::fs::file_magic::elf_relocatable:
-    case llvm::sys::fs::file_magic::elf_shared_object:
-      // Call the default reader to read object files and shared objects
-      return _elfLinkingContext.getDefaultReader().parseFile(_buffer, _files);
-
-    case llvm::sys::fs::file_magic::archive: {
-      // Process archive files. If Whole Archive option is set,
-      // parse all members of the archive.
-      error_code ec;
-      std::unique_ptr<FileArchive> fileArchive(
-          new FileArchive(ctx, std::move(_buffer), ec, _isWholeArchive));
-      if (_isWholeArchive) {
-        fileArchive->parseAllMembers(_files);
-        _archiveFile = std::move(fileArchive);
-      } else {
-        _files.push_back(std::move(fileArchive));
-      }
-      return ec;
-    }
-
-    default:
-      // Process Linker script
-      return _elfLinkingContext.getLinkerScriptReader().parseFile(_buffer,
-                                                                  _files);
-    }
-  }
+  error_code parse(const LinkingContext &, raw_ostream &);
 
   /// \brief This is used by Group Nodes, when there is a need to reset the
   /// the file to be processed next. When handling a group node that contains
@@ -146,19 +91,14 @@ private:
   bool _isWholeArchive;
   bool _asNeeded;
   bool _isDashlPrefix;
-  std::vector<StringRef> _libraryPaths;
-  std::unique_ptr<FileArchive> _archiveFile;
+  std::unique_ptr<const ArchiveLibraryFile> _archiveFile;
 };
 
 /// \brief Represents a ELF control node
 class ELFGroup : public Group {
 public:
-  ELFGroup(ELFLinkingContext &ctx, int64_t ordinal)
+  ELFGroup(const ELFLinkingContext &ctx, int64_t ordinal)
       : Group(ordinal), _elfLinkingContext(ctx) {}
-
-  static inline bool classof(const InputElement *a) {
-    return a->kind() == InputElement::Kind::Control;
-  }
 
   /// \brief Validate the options
   virtual bool validate() {
@@ -179,6 +119,73 @@ public:
 
 private:
   const ELFLinkingContext &_elfLinkingContext;
+};
+
+/// \brief Parse GNU Linker scripts.
+class GNULdScript : public FileNode {
+public:
+  GNULdScript(ELFLinkingContext &ctx, StringRef userPath, int64_t ordinal)
+      : FileNode(userPath, ordinal), _elfLinkingContext(ctx),
+        _linkerScript(nullptr)
+  {}
+
+  /// \brief Is this node part of resolution ?
+  virtual bool isHidden() const { return true; }
+
+  /// \brief Validate the options
+  virtual bool validate() {
+    (void)_elfLinkingContext;
+    return true;
+  }
+
+  /// \brief Dump the Linker script.
+  virtual bool dump(raw_ostream &) { return true; }
+
+  /// \brief Parse the linker script.
+  virtual error_code parse(const LinkingContext &, raw_ostream &);
+
+protected:
+  ELFLinkingContext &_elfLinkingContext;
+  std::unique_ptr<script::Parser> _parser;
+  std::unique_ptr<script::Lexer> _lexer;
+  script::LinkerScript *_linkerScript;
+};
+
+/// \brief Handle ELF style with GNU Linker scripts.
+class ELFGNULdScript : public GNULdScript {
+public:
+  ELFGNULdScript(ELFLinkingContext &ctx, StringRef userPath, int64_t ordinal)
+      : GNULdScript(ctx, userPath, ordinal) {}
+
+  virtual error_code parse(const LinkingContext &ctx, raw_ostream &diagnostics);
+
+  virtual ExpandType expandType() const {
+    return InputElement::ExpandType::ExpandOnly;
+  }
+
+  /// Unused functions for ELFGNULdScript Nodes.
+  virtual ErrorOr<File &> getNextFile() {
+    return make_error_code(InputGraphError::no_more_files);
+  }
+
+  /// Return the elements that we would want to expand with.
+  range<InputGraph::InputElementIterT> expandElements() {
+    return make_range(_expandElements.begin(), _expandElements.end());
+  }
+
+  virtual void setResolveState(uint32_t) {
+    llvm_unreachable("cannot use this function: setResolveState");
+  }
+
+  virtual uint32_t getResolveState() const {
+    llvm_unreachable("cannot use this function: getResolveState");
+  }
+
+  // Do nothing here.
+  virtual void resetNextIndex() {}
+
+private:
+  InputGraph::InputElementVectorT _expandElements;
 };
 
 } // namespace lld

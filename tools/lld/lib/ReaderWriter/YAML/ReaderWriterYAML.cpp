@@ -10,6 +10,7 @@
 #include "lld/ReaderWriter/Reader.h"
 #include "lld/ReaderWriter/Simple.h"
 #include "lld/ReaderWriter/Writer.h"
+#include "lld/ReaderWriter/YamlContext.h"
 
 #include "lld/Core/ArchiveLibraryFile.h"
 #include "lld/Core/DefinedAtom.h"
@@ -46,18 +47,6 @@ using namespace lld;
 /// how the mapping is done to and from YAML.
 
 namespace {
-/// Most of the traits are context-free and always do the same transformation.
-/// But, there are some traits that need some contextual information to properly
-/// do their transform.  This struct is available via io.getContext() and
-/// supplies contextual information.
-class ContextInfo {
-public:
-  ContextInfo(const LinkingContext &context)
-      : _currentFile(nullptr), _context(context) {}
-
-  lld::File *_currentFile;
-  const LinkingContext &_context;
-};
 
 /// Used when writing yaml files.
 /// In most cases, atoms names are unambiguous, so references can just
@@ -174,11 +163,11 @@ private:
     return r;
   }
 
-  unsigned int _collisionCount;
-  unsigned int _unnamedCounter;
-  NameToAtom _nameMap;
-  AtomToRefName _refNames;
-  std::vector<std::unique_ptr<char[]> > _stringCopies;
+  unsigned int                         _collisionCount;
+  unsigned int                         _unnamedCounter;
+  NameToAtom                           _nameMap;
+  AtomToRefName                        _refNames;
+  std::vector<std::unique_ptr<char[]>> _stringCopies;
 };
 
 /// Used when reading yaml files to find the target of a reference
@@ -247,9 +236,9 @@ enum FileKinds {
 };
 
 struct ArchMember {
-  FileKinds _kind;
-  StringRef _name;
-  const lld::File *_content;
+  FileKinds         _kind;
+  StringRef         _name;
+  const lld::File  *_content;
 };
 
 // The content bytes in a DefinedAtom are just uint8_t but we want
@@ -260,9 +249,13 @@ LLVM_YAML_STRONG_TYPEDEF(uint8_t, ImplicitHex8)
 // more readable than just true/false.
 LLVM_YAML_STRONG_TYPEDEF(bool, ShlibCanBeNull)
 
-// lld::Reference::Kind is a typedef of int32.  We need a stronger
-// type to make template matching work, so invent RefKind.
-LLVM_YAML_STRONG_TYPEDEF(lld::Reference::Kind, RefKind)
+// lld::Reference::Kind is a tuple of <namespace, arch, value>.
+// For yaml, we just want one string that encapsulates the tuple.
+struct RefKind {
+  Reference::KindNamespace  ns;
+  Reference::KindArch       arch;
+  uint16_t                  value;
+};
 
 } // namespace anon
 
@@ -276,55 +269,32 @@ namespace yaml {
 
 // This is a custom formatter for RefKind
 template <> struct ScalarTraits<RefKind> {
-  static void output(const RefKind &value, void *ctxt, raw_ostream &out) {
+  static void output(const RefKind &kind, void *ctxt, raw_ostream &out) {
     assert(ctxt != nullptr);
-    ContextInfo *info = reinterpret_cast<ContextInfo *>(ctxt);
-    switch (value) {
-    case lld::Reference::kindLayoutAfter:
-      out << "layout-after";
-      break;
-    case lld::Reference::kindLayoutBefore:
-      out << "layout-before";
-      break;
-    case lld::Reference::kindInGroup:
-      out << "in-group";
-      break;
-    default:
-      if (auto relocStr = info->_context.stringFromRelocKind(value))
-        out << *relocStr;
-      else
-        out << "<unknown>";
-      break;
-    }
+    YamlContext *info = reinterpret_cast<YamlContext *>(ctxt);
+    assert(info->_registry);
+    StringRef str;
+    if (info->_registry->referenceKindToString(kind.ns, kind.arch, kind.value,
+                                               str))
+      out << str;
+    else
+      out << (int)(kind.ns) << "-" << (int)(kind.arch) << "-" << kind.value;
   }
 
-  static StringRef input(StringRef scalar, void *ctxt, RefKind &value) {
+  static StringRef input(StringRef scalar, void *ctxt, RefKind &kind) {
     assert(ctxt != nullptr);
-    ContextInfo *info = reinterpret_cast<ContextInfo *>(ctxt);
-    auto relocKind = info->_context.relocKindFromString(scalar);
-    if (!relocKind) {
-      if (scalar.equals("layout-after")) {
-        value = lld::Reference::kindLayoutAfter;
-        return StringRef();
-      }
-      if (scalar.equals("layout-before")) {
-        value = lld::Reference::kindLayoutBefore;
-        return StringRef();
-      }
-      if (scalar.equals("in-group")) {
-        value = lld::Reference::kindInGroup;
-        return StringRef();
-      }
-      return "Invalid relocation kind";
-    }
-    value = *relocKind;
-    return StringRef();
+    YamlContext *info = reinterpret_cast<YamlContext *>(ctxt);
+    assert(info->_registry);
+    if (info->_registry->referenceKindFromString(scalar, kind.ns, kind.arch,
+                                                 kind.value))
+      return StringRef();
+    return StringRef("unknown reference kind");
   }
 };
 
 template <> struct ScalarEnumerationTraits<lld::File::Kind> {
   static void enumeration(IO &io, lld::File::Kind &value) {
-    io.enumCase(value, "object", lld::File::kindObject);
+    io.enumCase(value, "object",         lld::File::kindObject);
     io.enumCase(value, "shared-library", lld::File::kindSharedLibrary);
     io.enumCase(value, "static-library", lld::File::kindArchiveLibrary);
   }
@@ -341,9 +311,9 @@ template <> struct ScalarEnumerationTraits<lld::Atom::Scope> {
 template <> struct ScalarEnumerationTraits<lld::DefinedAtom::SectionChoice> {
   static void enumeration(IO &io, lld::DefinedAtom::SectionChoice &value) {
     io.enumCase(value, "content", lld::DefinedAtom::sectionBasedOnContent);
-    io.enumCase(value, "custom", lld::DefinedAtom::sectionCustomPreferred);
+    io.enumCase(value, "custom",  lld::DefinedAtom::sectionCustomPreferred);
     io.enumCase(value, "custom-required",
-                lld::DefinedAtom::sectionCustomRequired);
+                                 lld::DefinedAtom::sectionCustomRequired);
   }
 };
 
@@ -351,35 +321,34 @@ template <> struct ScalarEnumerationTraits<lld::DefinedAtom::SectionPosition> {
   static void enumeration(IO &io, lld::DefinedAtom::SectionPosition &value) {
     io.enumCase(value, "start", lld::DefinedAtom::sectionPositionStart);
     io.enumCase(value, "early", lld::DefinedAtom::sectionPositionEarly);
-    io.enumCase(value, "any", lld::DefinedAtom::sectionPositionAny);
-    io.enumCase(value, "end", lld::DefinedAtom::sectionPositionEnd);
+    io.enumCase(value, "any",   lld::DefinedAtom::sectionPositionAny);
+    io.enumCase(value, "end",   lld::DefinedAtom::sectionPositionEnd);
   }
 };
 
 template <> struct ScalarEnumerationTraits<lld::DefinedAtom::Interposable> {
   static void enumeration(IO &io, lld::DefinedAtom::Interposable &value) {
-    io.enumCase(value, "no", lld::DefinedAtom::interposeNo);
-    io.enumCase(value, "yes", lld::DefinedAtom::interposeYes);
-    io.enumCase(value, "yes-and-weak",
-                lld::DefinedAtom::interposeYesAndRuntimeWeak);
+    io.enumCase(value, "no",           DefinedAtom::interposeNo);
+    io.enumCase(value, "yes",          DefinedAtom::interposeYes);
+    io.enumCase(value, "yes-and-weak", DefinedAtom::interposeYesAndRuntimeWeak);
   }
 };
 
 template <> struct ScalarEnumerationTraits<lld::DefinedAtom::Merge> {
   static void enumeration(IO &io, lld::DefinedAtom::Merge &value) {
-    io.enumCase(value, "no", lld::DefinedAtom::mergeNo);
+    io.enumCase(value, "no",           lld::DefinedAtom::mergeNo);
     io.enumCase(value, "as-tentative", lld::DefinedAtom::mergeAsTentative);
-    io.enumCase(value, "as-weak", lld::DefinedAtom::mergeAsWeak);
+    io.enumCase(value, "as-weak",      lld::DefinedAtom::mergeAsWeak);
     io.enumCase(value, "as-addressed-weak",
-                lld::DefinedAtom::mergeAsWeakAndAddressUsed);
-    io.enumCase(value, "by-content", lld::DefinedAtom::mergeByContent);
+                                   lld::DefinedAtom::mergeAsWeakAndAddressUsed);
+    io.enumCase(value, "by-content",  lld::DefinedAtom::mergeByContent);
   }
 };
 
 template <> struct ScalarEnumerationTraits<lld::DefinedAtom::DeadStripKind> {
   static void enumeration(IO &io, lld::DefinedAtom::DeadStripKind &value) {
     io.enumCase(value, "normal", lld::DefinedAtom::deadStripNormal);
-    io.enumCase(value, "never", lld::DefinedAtom::deadStripNever);
+    io.enumCase(value, "never",  lld::DefinedAtom::deadStripNever);
     io.enumCase(value, "always", lld::DefinedAtom::deadStripAlways);
   }
 };
@@ -394,86 +363,80 @@ template <> struct ScalarEnumerationTraits<lld::DefinedAtom::DynamicExport> {
 template <>
 struct ScalarEnumerationTraits<lld::DefinedAtom::ContentPermissions> {
   static void enumeration(IO &io, lld::DefinedAtom::ContentPermissions &value) {
-    io.enumCase(value, "---", lld::DefinedAtom::perm___);
-    io.enumCase(value, "r--", lld::DefinedAtom::permR__);
-    io.enumCase(value, "r-x", lld::DefinedAtom::permR_X);
-    io.enumCase(value, "rw-", lld::DefinedAtom::permRW_);
-    io.enumCase(value, "rwx", lld::DefinedAtom::permRWX);
-    io.enumCase(value, "rw-l", lld::DefinedAtom::permRW_L);
+    io.enumCase(value, "---",     lld::DefinedAtom::perm___);
+    io.enumCase(value, "r--",     lld::DefinedAtom::permR__);
+    io.enumCase(value, "r-x",     lld::DefinedAtom::permR_X);
+    io.enumCase(value, "rw-",     lld::DefinedAtom::permRW_);
+    io.enumCase(value, "rwx",     lld::DefinedAtom::permRWX);
+    io.enumCase(value, "rw-l",    lld::DefinedAtom::permRW_L);
     io.enumCase(value, "unknown", lld::DefinedAtom::permUnknown);
   }
 };
 
 template <> struct ScalarEnumerationTraits<lld::DefinedAtom::ContentType> {
   static void enumeration(IO &io, lld::DefinedAtom::ContentType &value) {
-    io.enumCase(value, "unknown", lld::DefinedAtom::typeUnknown);
-    io.enumCase(value, "code", lld::DefinedAtom::typeCode);
-    io.enumCase(value, "stub", lld::DefinedAtom::typeStub);
-    io.enumCase(value, "constant", lld::DefinedAtom::typeConstant);
-    io.enumCase(value, "data", lld::DefinedAtom::typeData);
-    io.enumCase(value, "quick-data", lld::DefinedAtom::typeDataFast);
-    io.enumCase(value, "zero-fill", lld::DefinedAtom::typeZeroFill);
-    io.enumCase(value, "zero-fill-quick", lld::DefinedAtom::typeZeroFillFast);
-    io.enumCase(value, "const-data", lld::DefinedAtom::typeConstData);
-    io.enumCase(value, "got", lld::DefinedAtom::typeGOT);
-    io.enumCase(value, "resolver", lld::DefinedAtom::typeResolver);
-    io.enumCase(value, "branch-island", lld::DefinedAtom::typeBranchIsland);
-    io.enumCase(value, "branch-shim", lld::DefinedAtom::typeBranchShim);
-    io.enumCase(value, "stub-helper", lld::DefinedAtom::typeStubHelper);
-    io.enumCase(value, "c-string", lld::DefinedAtom::typeCString);
-    io.enumCase(value, "utf16-string", lld::DefinedAtom::typeUTF16String);
-    io.enumCase(value, "unwind-cfi", lld::DefinedAtom::typeCFI);
-    io.enumCase(value, "unwind-lsda", lld::DefinedAtom::typeLSDA);
-    io.enumCase(value, "const-4-byte", lld::DefinedAtom::typeLiteral4);
-    io.enumCase(value, "const-8-byte", lld::DefinedAtom::typeLiteral8);
-    io.enumCase(value, "const-16-byte", lld::DefinedAtom::typeLiteral16);
-    io.enumCase(value, "lazy-pointer", lld::DefinedAtom::typeLazyPointer);
+    io.enumCase(value, "unknown",         DefinedAtom::typeUnknown);
+    io.enumCase(value, "code",            DefinedAtom::typeCode);
+    io.enumCase(value, "stub",            DefinedAtom::typeStub);
+    io.enumCase(value, "constant",        DefinedAtom::typeConstant);
+    io.enumCase(value, "data",            DefinedAtom::typeData);
+    io.enumCase(value, "quick-data",      DefinedAtom::typeDataFast);
+    io.enumCase(value, "zero-fill",       DefinedAtom::typeZeroFill);
+    io.enumCase(value, "zero-fill-quick", DefinedAtom::typeZeroFillFast);
+    io.enumCase(value, "const-data",      DefinedAtom::typeConstData);
+    io.enumCase(value, "got",             DefinedAtom::typeGOT);
+    io.enumCase(value, "resolver",        DefinedAtom::typeResolver);
+    io.enumCase(value, "branch-island",   DefinedAtom::typeBranchIsland);
+    io.enumCase(value, "branch-shim",     DefinedAtom::typeBranchShim);
+    io.enumCase(value, "stub-helper",     DefinedAtom::typeStubHelper);
+    io.enumCase(value, "c-string",        DefinedAtom::typeCString);
+    io.enumCase(value, "utf16-string",    DefinedAtom::typeUTF16String);
+    io.enumCase(value, "unwind-cfi",      DefinedAtom::typeCFI);
+    io.enumCase(value, "unwind-lsda",     DefinedAtom::typeLSDA);
+    io.enumCase(value, "const-4-byte",    DefinedAtom::typeLiteral4);
+    io.enumCase(value, "const-8-byte",    DefinedAtom::typeLiteral8);
+    io.enumCase(value, "const-16-byte",   DefinedAtom::typeLiteral16);
+    io.enumCase(value, "lazy-pointer",    DefinedAtom::typeLazyPointer);
     io.enumCase(value, "lazy-dylib-pointer",
-                lld::DefinedAtom::typeLazyDylibPointer);
-    io.enumCase(value, "cfstring", lld::DefinedAtom::typeCFString);
+                                          DefinedAtom::typeLazyDylibPointer);
+    io.enumCase(value, "cfstring",        DefinedAtom::typeCFString);
     io.enumCase(value, "initializer-pointer",
-                lld::DefinedAtom::typeInitializerPtr);
+                                          DefinedAtom::typeInitializerPtr);
     io.enumCase(value, "terminator-pointer",
-                lld::DefinedAtom::typeTerminatorPtr);
-    io.enumCase(value, "c-string-pointer", lld::DefinedAtom::typeCStringPtr);
+                                          DefinedAtom::typeTerminatorPtr);
+    io.enumCase(value, "c-string-pointer",DefinedAtom::typeCStringPtr);
     io.enumCase(value, "objc-class-pointer",
-                lld::DefinedAtom::typeObjCClassPtr);
+                                          DefinedAtom::typeObjCClassPtr);
     io.enumCase(value, "objc-category-list",
-                lld::DefinedAtom::typeObjC2CategoryList);
-    io.enumCase(value, "objc-class1", lld::DefinedAtom::typeObjC1Class);
-    io.enumCase(value, "dtraceDOF", lld::DefinedAtom::typeDTraceDOF);
-    io.enumCase(value, "lto-temp", lld::DefinedAtom::typeTempLTO);
-    io.enumCase(value, "compact-unwind",
-                lld::DefinedAtom::typeCompactUnwindInfo);
-    io.enumCase(value, "dataDirectoryEntry",
-                lld::DefinedAtom::typeDataDirectoryEntry);
-    io.enumCase(value, "tlv-thunk", lld::DefinedAtom::typeThunkTLV);
-    io.enumCase(value, "tlv-data", lld::DefinedAtom::typeTLVInitialData);
-    io.enumCase(value, "tlv-zero-fill",
-                lld::DefinedAtom::typeTLVInitialZeroFill);
+                                          DefinedAtom::typeObjC2CategoryList);
+    io.enumCase(value, "objc-class1",     DefinedAtom::typeObjC1Class);
+    io.enumCase(value, "dtraceDOF",       DefinedAtom::typeDTraceDOF);
+    io.enumCase(value, "lto-temp",        DefinedAtom::typeTempLTO);
+    io.enumCase(value, "compact-unwind",  DefinedAtom::typeCompactUnwindInfo);
+    io.enumCase(value, "tlv-thunk",       DefinedAtom::typeThunkTLV);
+    io.enumCase(value, "tlv-data",        DefinedAtom::typeTLVInitialData);
+    io.enumCase(value, "tlv-zero-fill",   DefinedAtom::typeTLVInitialZeroFill);
     io.enumCase(value, "tlv-initializer-ptr",
-                lld::DefinedAtom::typeTLVInitializerPtr);
-    io.enumCase(value, "thread-data", lld::DefinedAtom::typeThreadData);
-    io.enumCase(value, "thread-zero-fill",
-                lld::DefinedAtom::typeThreadZeroFill);
-    io.enumCase(value, "ro-note", lld::DefinedAtom::typeRONote);
-    io.enumCase(value, "rw-note", lld::DefinedAtom::typeRWNote);
-    io.enumCase(value, "no-alloc", lld::DefinedAtom::typeNoAlloc);
+                                          DefinedAtom::typeTLVInitializerPtr);
+    io.enumCase(value, "thread-data",     DefinedAtom::typeThreadData);
+    io.enumCase(value, "thread-zero-fill",DefinedAtom::typeThreadZeroFill);
+    io.enumCase(value, "ro-note",         DefinedAtom::typeRONote);
+    io.enumCase(value, "rw-note",         DefinedAtom::typeRWNote);
+    io.enumCase(value, "no-alloc",        DefinedAtom::typeNoAlloc);
   }
 };
 
 template <> struct ScalarEnumerationTraits<lld::UndefinedAtom::CanBeNull> {
   static void enumeration(IO &io, lld::UndefinedAtom::CanBeNull &value) {
-    io.enumCase(value, "never", lld::UndefinedAtom::canBeNullNever);
-    io.enumCase(value, "at-runtime", lld::UndefinedAtom::canBeNullAtRuntime);
-    io.enumCase(value, "at-buildtime",
-                lld::UndefinedAtom::canBeNullAtBuildtime);
+    io.enumCase(value, "never",       lld::UndefinedAtom::canBeNullNever);
+    io.enumCase(value, "at-runtime",  lld::UndefinedAtom::canBeNullAtRuntime);
+    io.enumCase(value, "at-buildtime",lld::UndefinedAtom::canBeNullAtBuildtime);
   }
 };
 
 template <> struct ScalarEnumerationTraits<ShlibCanBeNull> {
   static void enumeration(IO &io, ShlibCanBeNull &value) {
-    io.enumCase(value, "never", false);
+    io.enumCase(value, "never",      false);
     io.enumCase(value, "at-runtime", true);
   }
 };
@@ -481,8 +444,8 @@ template <> struct ScalarEnumerationTraits<ShlibCanBeNull> {
 template <>
 struct ScalarEnumerationTraits<lld::SharedLibraryAtom::Type> {
   static void enumeration(IO &io, lld::SharedLibraryAtom::Type &value) {
-    io.enumCase(value, "code", lld::SharedLibraryAtom::Type::Code);
-    io.enumCase(value, "data", lld::SharedLibraryAtom::Type::Data);
+    io.enumCase(value, "code",    lld::SharedLibraryAtom::Type::Code);
+    io.enumCase(value, "data",    lld::SharedLibraryAtom::Type::Data);
     io.enumCase(value, "unknown", lld::SharedLibraryAtom::Type::Unknown);
   }
 };
@@ -534,17 +497,17 @@ template <> struct ScalarTraits<lld::DefinedAtom::Alignment> {
 
 template <> struct ScalarEnumerationTraits<FileKinds> {
   static void enumeration(IO &io, FileKinds &value) {
-    io.enumCase(value, "object", fileKindObjectAtoms);
-    io.enumCase(value, "archive", fileKindArchive);
-    io.enumCase(value, "object-elf", fileKindObjectELF);
+    io.enumCase(value, "object",        fileKindObjectAtoms);
+    io.enumCase(value, "archive",       fileKindArchive);
+    io.enumCase(value, "object-elf",    fileKindObjectELF);
     io.enumCase(value, "object-mach-o", fileKindObjectMachO);
   }
 };
 
 template <> struct MappingTraits<ArchMember> {
   static void mapping(IO &io, ArchMember &member) {
-    io.mapOptional("kind", member._kind, fileKindObjectAtoms);
-    io.mapOptional("name", member._name);
+    io.mapOptional("kind",    member._kind, fileKindObjectAtoms);
+    io.mapOptional("name",    member._name);
     io.mapRequired("content", member._content);
   }
 };
@@ -596,13 +559,9 @@ template <> struct MappingTraits<const lld::File *> {
 
   class NormArchiveFile : public lld::ArchiveLibraryFile {
   public:
-    NormArchiveFile(IO &io)
-        : ArchiveLibraryFile(((ContextInfo *)io.getContext())->_context, ""),
-          _path() {}
+    NormArchiveFile(IO &io) : ArchiveLibraryFile(""), _path() {}
     NormArchiveFile(IO &io, const lld::File *file)
-        : ArchiveLibraryFile(((ContextInfo *)io.getContext())->_context,
-                             file->path()),
-          _path(file->path()) {
+        : ArchiveLibraryFile(file->path()), _path(file->path()) {
       // If we want to support writing archives, this constructor would
       // need to populate _members.
     }
@@ -641,15 +600,20 @@ template <> struct MappingTraits<const lld::File *> {
       return nullptr;
     }
 
-    StringRef _path;
+    virtual error_code
+    parseAllMembers(std::vector<std::unique_ptr<File>> &result) const {
+      return error_code::success();
+    }
+
+    StringRef               _path;
     std::vector<ArchMember> _members;
   };
 
   class NormalizedFile : public lld::File {
   public:
-    NormalizedFile(IO &io) : File("", kindObject), _IO(io), _rnb(nullptr) {}
+    NormalizedFile(IO &io) : File("", kindObject), _io(io), _rnb(nullptr) {}
     NormalizedFile(IO &io, const lld::File *file)
-        : File(file->path(), kindObject), _IO(io),
+        : File(file->path(), kindObject), _io(io),
           _rnb(new RefNameBuilder(*file)), _path(file->path()) {
       for (const lld::DefinedAtom *a : file->defined())
         _definedAtoms.push_back(a);
@@ -676,10 +640,6 @@ template <> struct MappingTraits<const lld::File *> {
       return _absoluteAtoms;
     }
 
-    virtual const LinkingContext &getLinkingContext() const {
-      return ((ContextInfo *)_IO.getContext())->_context;
-    }
-
     // Allocate a new copy of this string and keep track of allocations
     // in _stringCopies, so they can be freed when File is destroyed.
     StringRef copyString(StringRef str) {
@@ -693,14 +653,14 @@ template <> struct MappingTraits<const lld::File *> {
       return r;
     }
 
-    IO &_IO;
-    RefNameBuilder *_rnb;
-    StringRef _path;
-    AtomList<lld::DefinedAtom> _definedAtoms;
-    AtomList<lld::UndefinedAtom> _undefinedAtoms;
-    AtomList<lld::SharedLibraryAtom> _sharedLibraryAtoms;
-    AtomList<lld::AbsoluteAtom> _absoluteAtoms;
-    std::vector<std::unique_ptr<char[]> > _stringCopies;
+    IO                                  &_io;
+    RefNameBuilder                      *_rnb;
+    StringRef                            _path;
+    AtomList<lld::DefinedAtom>           _definedAtoms;
+    AtomList<lld::UndefinedAtom>         _undefinedAtoms;
+    AtomList<lld::SharedLibraryAtom>     _sharedLibraryAtoms;
+    AtomList<lld::AbsoluteAtom>          _absoluteAtoms;
+    std::vector<std::unique_ptr<char[]>> _stringCopies;
   };
 
   static void mapping(IO &io, const lld::File *&file) {
@@ -708,7 +668,6 @@ template <> struct MappingTraits<const lld::File *> {
     FileKinds kind = fileKindObjectAtoms;
     // If reading, peek ahead to see what kind of file this is.
     io.mapOptional("kind", kind, fileKindObjectAtoms);
-    //
     switch (kind) {
     case fileKindObjectAtoms:
       mappingAtoms(io, file);
@@ -727,21 +686,21 @@ template <> struct MappingTraits<const lld::File *> {
 
   static void mappingAtoms(IO &io, const lld::File *&file) {
     MappingNormalizationHeap<NormalizedFile, const lld::File *> keys(io, file);
-    ContextInfo *info = reinterpret_cast<ContextInfo *>(io.getContext());
+    YamlContext *info = reinterpret_cast<YamlContext *>(io.getContext());
     assert(info != nullptr);
-    info->_currentFile = keys.operator->();
+    info->_file = keys.operator->();
 
-    io.mapOptional("path", keys->_path);
-    io.mapOptional("defined-atoms", keys->_definedAtoms);
-    io.mapOptional("undefined-atoms", keys->_undefinedAtoms);
+    io.mapOptional("path",                 keys->_path);
+    io.mapOptional("defined-atoms",        keys->_definedAtoms);
+    io.mapOptional("undefined-atoms",      keys->_undefinedAtoms);
     io.mapOptional("shared-library-atoms", keys->_sharedLibraryAtoms);
-    io.mapOptional("absolute-atoms", keys->_absoluteAtoms);
+    io.mapOptional("absolute-atoms",       keys->_absoluteAtoms);
   }
 
   static void mappingArchive(IO &io, const lld::File *&file) {
     MappingNormalizationHeap<NormArchiveFile, const lld::File *> keys(io, file);
 
-    io.mapOptional("path", keys->_path);
+    io.mapOptional("path",    keys->_path);
     io.mapOptional("members", keys->_members);
   }
 };
@@ -752,19 +711,25 @@ template <> struct MappingTraits<const lld::Reference *> {
   class NormalizedReference : public lld::Reference {
   public:
     NormalizedReference(IO &io)
-        : _target(nullptr), _targetName(), _offset(0), _addend(0) {}
+        : lld::Reference(lld::Reference::KindNamespace::all,
+                         lld::Reference::KindArch::all, 0),
+          _target(nullptr), _targetName(), _offset(0), _addend(0) {}
 
     NormalizedReference(IO &io, const lld::Reference *ref)
-        : _target(nullptr), _targetName(targetName(io, ref)),
-          _offset(ref->offsetInAtom()), _addend(ref->addend()),
-          _mappedKind(ref->kind()) {}
+        : lld::Reference(ref->kindNamespace(), ref->kindArch(),
+                         ref->kindValue()),
+          _target(nullptr), _targetName(targetName(io, ref)),
+          _offset(ref->offsetInAtom()), _addend(ref->addend()) {
+      _mappedKind.ns = ref->kindNamespace();
+      _mappedKind.arch = ref->kindArch();
+      _mappedKind.value = ref->kindValue();
+    }
 
     const lld::Reference *denormalize(IO &io) {
-      ContextInfo *info = reinterpret_cast<ContextInfo *>(io.getContext());
+      YamlContext *info = reinterpret_cast<YamlContext *>(io.getContext());
       assert(info != nullptr);
       typedef MappingTraits<const lld::File *>::NormalizedFile NormalizedFile;
-      NormalizedFile *f =
-          reinterpret_cast<NormalizedFile *>(info->_currentFile);
+      NormalizedFile *f = reinterpret_cast<NormalizedFile *>(info->_file);
       if (!_targetName.empty())
         _targetName = f->copyString(_targetName);
       DEBUG_WITH_TYPE("WriterYAML", llvm::dbgs()
@@ -772,7 +737,9 @@ template <> struct MappingTraits<const lld::Reference *> {
                                         << _targetName << "' ("
                                         << (void *)_targetName.data() << ", "
                                         << _targetName.size() << ")\n");
-      setKind(_mappedKind);
+      setKindNamespace(_mappedKind.ns);
+      setKindArch(_mappedKind.arch);
+      setKindValue(_mappedKind.value);
       return this;
     }
     void bind(const RefNameResolver &);
@@ -785,17 +752,17 @@ template <> struct MappingTraits<const lld::Reference *> {
     virtual void setTarget(const lld::Atom *a) { _target = a; }
 
     const lld::Atom *_target;
-    StringRef _targetName;
-    uint32_t _offset;
-    Addend _addend;
-    RefKind _mappedKind;
+    StringRef        _targetName;
+    uint32_t         _offset;
+    Addend           _addend;
+    RefKind          _mappedKind;
   };
 
   static void mapping(IO &io, const lld::Reference *&ref) {
     MappingNormalizationHeap<NormalizedReference, const lld::Reference *> keys(
         io, ref);
 
-    io.mapRequired("kind", keys->_mappedKind);
+    io.mapRequired("kind",   keys->_mappedKind);
     io.mapOptional("offset", keys->_offset);
     io.mapOptional("target", keys->_targetName);
     io.mapOptional("addend", keys->_addend, (lld::Reference::Addend)0);
@@ -832,11 +799,10 @@ template <> struct MappingTraits<const lld::DefinedAtom *> {
         _content.push_back(x);
     }
     const lld::DefinedAtom *denormalize(IO &io) {
-      ContextInfo *info = reinterpret_cast<ContextInfo *>(io.getContext());
+      YamlContext *info = reinterpret_cast<YamlContext *>(io.getContext());
       assert(info != nullptr);
       typedef MappingTraits<const lld::File *>::NormalizedFile NormalizedFile;
-      NormalizedFile *f =
-          reinterpret_cast<NormalizedFile *>(info->_currentFile);
+      NormalizedFile *f = reinterpret_cast<NormalizedFile *>(info->_file);
       if (!_name.empty())
         _name = f->copyString(_name);
       if (!_refName.empty())
@@ -852,10 +818,10 @@ template <> struct MappingTraits<const lld::DefinedAtom *> {
     void bind(const RefNameResolver &);
     // Extract current File object from YAML I/O parsing context
     const lld::File &fileFromContext(IO &io) {
-      ContextInfo *info = reinterpret_cast<ContextInfo *>(io.getContext());
+      YamlContext *info = reinterpret_cast<YamlContext *>(io.getContext());
       assert(info != nullptr);
-      assert(info->_currentFile != nullptr);
-      return *info->_currentFile;
+      assert(info->_file != nullptr);
+      return *info->_file;
     }
 
     virtual const lld::File &file() const { return _file; }
@@ -903,23 +869,23 @@ template <> struct MappingTraits<const lld::DefinedAtom *> {
       it = reinterpret_cast<const void *>(index);
     }
 
-    const lld::File &_file;
-    StringRef _name;
-    StringRef _refName;
-    Scope _scope;
-    Interposable _interpose;
-    Merge _merge;
-    ContentType _contentType;
-    Alignment _alignment;
-    SectionChoice _sectionChoice;
-    SectionPosition _sectionPosition;
-    DeadStripKind _deadStrip;
-    DynamicExport _dynamicExport;
-    ContentPermissions _permissions;
-    uint32_t _ordinal;
-    std::vector<ImplicitHex8> _content;
-    uint64_t _size;
-    StringRef _sectionName;
+    const lld::File                    &_file;
+    StringRef                           _name;
+    StringRef                           _refName;
+    Scope                               _scope;
+    Interposable                        _interpose;
+    Merge                               _merge;
+    ContentType                         _contentType;
+    Alignment                           _alignment;
+    SectionChoice                       _sectionChoice;
+    SectionPosition                     _sectionPosition;
+    DeadStripKind                       _deadStrip;
+    DynamicExport                       _dynamicExport;
+    ContentPermissions                  _permissions;
+    uint32_t                            _ordinal;
+    std::vector<ImplicitHex8>           _content;
+    uint64_t                            _size;
+    StringRef                           _sectionName;
     std::vector<const lld::Reference *> _references;
   };
 
@@ -929,10 +895,9 @@ template <> struct MappingTraits<const lld::DefinedAtom *> {
     if (io.outputting()) {
       // If writing YAML, check if atom needs a ref-name.
       typedef MappingTraits<const lld::File *>::NormalizedFile NormalizedFile;
-      ContextInfo *info = reinterpret_cast<ContextInfo *>(io.getContext());
+      YamlContext *info = reinterpret_cast<YamlContext *>(io.getContext());
       assert(info != nullptr);
-      NormalizedFile *f =
-          reinterpret_cast<NormalizedFile *>(info->_currentFile);
+      NormalizedFile *f = reinterpret_cast<NormalizedFile *>(info->_file);
       assert(f);
       assert(f->_rnb);
       if (f->_rnb->hasRefName(atom)) {
@@ -940,31 +905,33 @@ template <> struct MappingTraits<const lld::DefinedAtom *> {
       }
     }
 
-    io.mapOptional("name", keys->_name, StringRef());
-    io.mapOptional("ref-name", keys->_refName, StringRef());
-    io.mapOptional("scope", keys->_scope,
-                   lld::DefinedAtom::scopeTranslationUnit);
-    io.mapOptional("type", keys->_contentType, lld::DefinedAtom::typeCode);
-    io.mapOptional("content", keys->_content);
-    io.mapOptional("size", keys->_size, (uint64_t)keys->_content.size());
-    io.mapOptional("interposable", keys->_interpose,
-                   lld::DefinedAtom::interposeNo);
-    io.mapOptional("merge", keys->_merge, lld::DefinedAtom::mergeNo);
-    io.mapOptional("alignment", keys->_alignment,
-                   lld::DefinedAtom::Alignment(0));
-    io.mapOptional("section-choice", keys->_sectionChoice,
-                   lld::DefinedAtom::sectionBasedOnContent);
-    io.mapOptional("section-name", keys->_sectionName, StringRef());
+    io.mapOptional("name",             keys->_name,    StringRef());
+    io.mapOptional("ref-name",         keys->_refName, StringRef());
+    io.mapOptional("scope",            keys->_scope,
+                                         DefinedAtom::scopeTranslationUnit);
+    io.mapOptional("type",             keys->_contentType, 
+                                         DefinedAtom::typeCode);
+    io.mapOptional("content",          keys->_content);
+    io.mapOptional("size",             keys->_size, (uint64_t)keys->_content.size());
+    io.mapOptional("interposable",     keys->_interpose,
+                                         DefinedAtom::interposeNo);
+    io.mapOptional("merge",            keys->_merge, DefinedAtom::mergeNo);
+    io.mapOptional("alignment",        keys->_alignment,
+                                         DefinedAtom::Alignment(0));
+    io.mapOptional("section-choice",   keys->_sectionChoice,
+                                         DefinedAtom::sectionBasedOnContent);
+    io.mapOptional("section-name",     keys->_sectionName, StringRef());
     io.mapOptional("section-position", keys->_sectionPosition,
-                   lld::DefinedAtom::sectionPositionAny);
-    io.mapOptional("dead-strip", keys->_deadStrip,
-                   lld::DefinedAtom::deadStripNormal);
-    io.mapOptional("dynamic-export", keys->_dynamicExport,
-                   lld::DefinedAtom::dynamicExportNormal);
+                                         DefinedAtom::sectionPositionAny);
+    io.mapOptional("dead-strip",       keys->_deadStrip,
+                                         DefinedAtom::deadStripNormal);
+    io.mapOptional("dynamic-export",   keys->_dynamicExport,
+                                         DefinedAtom::dynamicExportNormal);
     // default permissions based on content type
-    io.mapOptional("permissions", keys->_permissions,
-                   lld::DefinedAtom::permissions(keys->_contentType));
-    io.mapOptional("references", keys->_references);
+    io.mapOptional("permissions",      keys->_permissions,
+                                         DefinedAtom::permissions(
+                                                          keys->_contentType));
+    io.mapOptional("references",       keys->_references);
   }
 };
 
@@ -982,11 +949,10 @@ template <> struct MappingTraits<const lld::UndefinedAtom *> {
           _canBeNull(atom->canBeNull()), _fallback(atom->fallback()) {}
 
     const lld::UndefinedAtom *denormalize(IO &io) {
-      ContextInfo *info = reinterpret_cast<ContextInfo *>(io.getContext());
+      YamlContext *info = reinterpret_cast<YamlContext *>(io.getContext());
       assert(info != nullptr);
       typedef MappingTraits<const lld::File *>::NormalizedFile NormalizedFile;
-      NormalizedFile *f =
-          reinterpret_cast<NormalizedFile *>(info->_currentFile);
+      NormalizedFile *f = reinterpret_cast<NormalizedFile *>(info->_file);
       if (!_name.empty())
         _name = f->copyString(_name);
 
@@ -999,10 +965,10 @@ template <> struct MappingTraits<const lld::UndefinedAtom *> {
 
     // Extract current File object from YAML I/O parsing context
     const lld::File &fileFromContext(IO &io) {
-      ContextInfo *info = reinterpret_cast<ContextInfo *>(io.getContext());
+      YamlContext *info = reinterpret_cast<YamlContext *>(io.getContext());
       assert(info != nullptr);
-      assert(info->_currentFile != nullptr);
-      return *info->_currentFile;
+      assert(info->_file != nullptr);
+      return *info->_file;
     }
 
     virtual const lld::File &file() const { return _file; }
@@ -1010,9 +976,9 @@ template <> struct MappingTraits<const lld::UndefinedAtom *> {
     virtual CanBeNull canBeNull() const { return _canBeNull; }
     virtual const UndefinedAtom *fallback() const { return _fallback; }
 
-    const lld::File &_file;
-    StringRef _name;
-    CanBeNull _canBeNull;
+    const lld::File     &_file;
+    StringRef            _name;
+    CanBeNull            _canBeNull;
     const UndefinedAtom *_fallback;
   };
 
@@ -1020,11 +986,11 @@ template <> struct MappingTraits<const lld::UndefinedAtom *> {
     MappingNormalizationHeap<NormalizedAtom, const lld::UndefinedAtom *> keys(
         io, atom);
 
-    io.mapRequired("name", keys->_name);
+    io.mapRequired("name",        keys->_name);
     io.mapOptional("can-be-null", keys->_canBeNull,
-                   lld::UndefinedAtom::canBeNullNever);
-    io.mapOptional("fallback", keys->_fallback,
-                   (const lld::UndefinedAtom *)nullptr);
+                                  lld::UndefinedAtom::canBeNullNever);
+    io.mapOptional("fallback",    keys->_fallback,
+                                  (const lld::UndefinedAtom *)nullptr);
   }
 };
 
@@ -1042,11 +1008,10 @@ template <> struct MappingTraits<const lld::SharedLibraryAtom *> {
           _type(atom->type()), _size(atom->size()) {}
 
     const lld::SharedLibraryAtom *denormalize(IO &io) {
-      ContextInfo *info = reinterpret_cast<ContextInfo *>(io.getContext());
+      YamlContext *info = reinterpret_cast<YamlContext *>(io.getContext());
       assert(info != nullptr);
       typedef MappingTraits<const lld::File *>::NormalizedFile NormalizedFile;
-      NormalizedFile *f =
-          reinterpret_cast<NormalizedFile *>(info->_currentFile);
+      NormalizedFile *f = reinterpret_cast<NormalizedFile *>(info->_file);
       if (!_name.empty())
         _name = f->copyString(_name);
       if (!_loadName.empty())
@@ -1061,10 +1026,10 @@ template <> struct MappingTraits<const lld::SharedLibraryAtom *> {
 
     // Extract current File object from YAML I/O parsing context
     const lld::File &fileFromContext(IO &io) {
-      ContextInfo *info = reinterpret_cast<ContextInfo *>(io.getContext());
+      YamlContext *info = reinterpret_cast<YamlContext *>(io.getContext());
       assert(info != nullptr);
-      assert(info->_currentFile != nullptr);
-      return *info->_currentFile;
+      assert(info->_file != nullptr);
+      return *info->_file;
     }
 
     virtual const lld::File &file() const { return _file; }
@@ -1075,11 +1040,11 @@ template <> struct MappingTraits<const lld::SharedLibraryAtom *> {
     virtual uint64_t size() const { return _size; }
 
     const lld::File &_file;
-    StringRef _name;
-    StringRef _loadName;
-    ShlibCanBeNull _canBeNull;
-    Type _type;
-    uint64_t _size;
+    StringRef        _name;
+    StringRef        _loadName;
+    ShlibCanBeNull   _canBeNull;
+    Type             _type;
+    uint64_t         _size;
   };
 
   static void mapping(IO &io, const lld::SharedLibraryAtom *&atom) {
@@ -1087,11 +1052,11 @@ template <> struct MappingTraits<const lld::SharedLibraryAtom *> {
     MappingNormalizationHeap<NormalizedAtom, const lld::SharedLibraryAtom *>
     keys(io, atom);
 
-    io.mapRequired("name", keys->_name);
-    io.mapOptional("load-name", keys->_loadName);
+    io.mapRequired("name",        keys->_name);
+    io.mapOptional("load-name",   keys->_loadName);
     io.mapOptional("can-be-null", keys->_canBeNull, (ShlibCanBeNull) false);
-    io.mapOptional("type", keys->_type, SharedLibraryAtom::Type::Code);
-    io.mapOptional("size", keys->_size, uint64_t(0));
+    io.mapOptional("type",        keys->_type, SharedLibraryAtom::Type::Code);
+    io.mapOptional("size",        keys->_size, uint64_t(0));
   }
 };
 
@@ -1106,11 +1071,10 @@ template <> struct MappingTraits<const lld::AbsoluteAtom *> {
         : _file(fileFromContext(io)), _name(atom->name()),
           _scope(atom->scope()), _value(atom->value()) {}
     const lld::AbsoluteAtom *denormalize(IO &io) {
-      ContextInfo *info = reinterpret_cast<ContextInfo *>(io.getContext());
+      YamlContext *info = reinterpret_cast<YamlContext *>(io.getContext());
       assert(info != nullptr);
       typedef MappingTraits<const lld::File *>::NormalizedFile NormalizedFile;
-      NormalizedFile *f =
-          reinterpret_cast<NormalizedFile *>(info->_currentFile);
+      NormalizedFile *f = reinterpret_cast<NormalizedFile *>(info->_file);
       if (!_name.empty())
         _name = f->copyString(_name);
 
@@ -1122,10 +1086,10 @@ template <> struct MappingTraits<const lld::AbsoluteAtom *> {
     }
     // Extract current File object from YAML I/O parsing context
     const lld::File &fileFromContext(IO &io) {
-      ContextInfo *info = reinterpret_cast<ContextInfo *>(io.getContext());
+      YamlContext *info = reinterpret_cast<YamlContext *>(io.getContext());
       assert(info != nullptr);
-      assert(info->_currentFile != nullptr);
-      return *info->_currentFile;
+      assert(info->_file != nullptr);
+      return *info->_file;
     }
 
     virtual const lld::File &file() const { return _file; }
@@ -1134,10 +1098,10 @@ template <> struct MappingTraits<const lld::AbsoluteAtom *> {
     virtual Scope scope() const { return _scope; }
 
     const lld::File &_file;
-    StringRef _name;
-    StringRef _refName;
-    Scope _scope;
-    Hex64 _value;
+    StringRef        _name;
+    StringRef        _refName;
+    Scope            _scope;
+    Hex64            _value;
   };
 
   static void mapping(IO &io, const lld::AbsoluteAtom *&atom) {
@@ -1146,10 +1110,9 @@ template <> struct MappingTraits<const lld::AbsoluteAtom *> {
 
     if (io.outputting()) {
       typedef MappingTraits<const lld::File *>::NormalizedFile NormalizedFile;
-      ContextInfo *info = reinterpret_cast<ContextInfo *>(io.getContext());
+      YamlContext *info = reinterpret_cast<YamlContext *>(io.getContext());
       assert(info != nullptr);
-      NormalizedFile *f =
-          reinterpret_cast<NormalizedFile *>(info->_currentFile);
+      NormalizedFile *f = reinterpret_cast<NormalizedFile *>(info->_file);
       assert(f);
       assert(f->_rnb);
       if (f->_rnb->hasRefName(atom)) {
@@ -1157,10 +1120,10 @@ template <> struct MappingTraits<const lld::AbsoluteAtom *> {
       }
     }
 
-    io.mapRequired("name", keys->_name);
+    io.mapRequired("name",     keys->_name);
     io.mapOptional("ref-name", keys->_refName, StringRef());
-    io.mapOptional("scope", keys->_scope);
-    io.mapRequired("value", keys->_value);
+    io.mapOptional("scope",    keys->_scope);
+    io.mapRequired("value",    keys->_value);
   }
 };
 
@@ -1228,10 +1191,10 @@ MappingTraits<const lld::Reference *>::NormalizedReference::targetName(
     IO &io, const lld::Reference *ref) {
   if (ref->target() == nullptr)
     return StringRef();
-  ContextInfo *info = reinterpret_cast<ContextInfo *>(io.getContext());
+  YamlContext *info = reinterpret_cast<YamlContext *>(io.getContext());
   assert(info != nullptr);
   typedef MappingTraits<const lld::File *>::NormalizedFile NormalizedFile;
-  NormalizedFile *f = reinterpret_cast<NormalizedFile *>(info->_currentFile);
+  NormalizedFile *f = reinterpret_cast<NormalizedFile *>(info->_file);
   RefNameBuilder *rnb = f->_rnb;
   if (rnb->hasRefName(ref->target()))
     return rnb->refName(ref->target());
@@ -1253,8 +1216,10 @@ public:
       return llvm::make_error_code(llvm::errc::no_such_file_or_directory);
 
     // Create yaml Output writer, using yaml options for context.
-    ContextInfo context(_context);
-    llvm::yaml::Output yout(out, &context);
+    YamlContext yamlContext;
+    yamlContext._linkingContext = &_context;
+    yamlContext._registry = &_context.registry();
+    llvm::yaml::Output yout(out, &yamlContext);
 
     // Write yaml output.
     const lld::File *fileRef = &file;
@@ -1267,12 +1232,21 @@ private:
   const LinkingContext &_context;
 };
 
-class ReaderYAML : public Reader {
-public:
-  ReaderYAML(const LinkingContext &context) : Reader(context) {}
+} // end namespace yaml
 
-  error_code parseFile(std::unique_ptr<MemoryBuffer> &mb,
-                       std::vector<std::unique_ptr<File> > &result) const {
+namespace {
+
+class YAMLReader : public Reader {
+public:
+  YAMLReader(const Registry &registry) : _registry(registry) {}
+
+  virtual bool canParse(file_magic, StringRef ext, const MemoryBuffer &) const {
+    return (ext.equals(".objtxt") || ext.equals(".yaml"));
+  }
+
+  virtual error_code
+  parseFile(std::unique_ptr<MemoryBuffer> &mb, const class Registry &,
+            std::vector<std::unique_ptr<File>> &result) const {
     // Note: we do not take ownership of the MemoryBuffer.  That is
     // because yaml may produce multiple File objects, so there is no
     // *one* File to take ownership.  Therefore, the yaml File objects
@@ -1280,15 +1254,16 @@ public:
     // Otherwise the strings will become invalid when this MemoryBuffer
     // is deallocated.
 
-    // Create YAML Input parser.
-    ContextInfo context(_context);
-    llvm::yaml::Input yin(mb->getBuffer(), &context);
+    // Create YAML Input Reader.
+    YamlContext yamlContext;
+    yamlContext._registry = &_registry;
+    llvm::yaml::Input yin(mb->getBuffer(), &yamlContext);
 
     // Fill vector with File objects created by parsing yaml.
     std::vector<const lld::File *> createdFiles;
     yin >> createdFiles;
 
-    // Quit now if there were parsing errors.
+    // Error out now if there were parsing errors.
     if (yin.error())
       return make_error_code(lld::YamlReaderError::illegal_value);
 
@@ -1299,14 +1274,19 @@ public:
     }
     return make_error_code(lld::YamlReaderError::success);
   }
+
+private:
+  const Registry &_registry;
 };
-} // end namespace yaml
+
+} // anonymous namespace
+
+void Registry::addSupportYamlFiles() {
+  add(std::unique_ptr<Reader>(new YAMLReader(*this)));
+}
 
 std::unique_ptr<Writer> createWriterYAML(const LinkingContext &context) {
   return std::unique_ptr<Writer>(new lld::yaml::Writer(context));
 }
 
-std::unique_ptr<Reader> createReaderYAML(const LinkingContext &context) {
-  return std::unique_ptr<Reader>(new lld::yaml::ReaderYAML(context));
-}
 } // end namespace lld

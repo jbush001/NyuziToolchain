@@ -820,10 +820,12 @@ static InputKind ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     Opts.ObjCMTAction |= FrontendOptions::ObjCMT_AtomicProperty;
   if (Args.hasArg(OPT_objcmt_ns_nonatomic_iosonly))
     Opts.ObjCMTAction |= FrontendOptions::ObjCMT_NsAtomicIOSOnlyProperty;
+  if (Args.hasArg(OPT_objcmt_migrate_designated_init))
+    Opts.ObjCMTAction |= FrontendOptions::ObjCMT_DesignatedInitializer;
   if (Args.hasArg(OPT_objcmt_migrate_all))
     Opts.ObjCMTAction |= FrontendOptions::ObjCMT_MigrateDecls;
 
-  Opts.ObjCMTWhiteListPath = Args.getLastArgValue(OPT_objcmt_white_list_dir_path);
+  Opts.ObjCMTWhiteListPath = Args.getLastArgValue(OPT_objcmt_whitelist_dir_path);
 
   if (Opts.ARCMTAction != FrontendOptions::ARCMT_None &&
       Opts.ObjCMTAction != FrontendOptions::ObjCMT_None) {
@@ -1139,7 +1141,8 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
       Diags.Report(diag::err_drv_invalid_value)
         << A->getAsString(Args) << A->getValue();
     else {
-      // Valid standard, check to make sure language and standard are compatable.    
+      // Valid standard, check to make sure language and standard are
+      // compatible.
       const LangStandard &Std = LangStandard::getLangStandardForKind(LangStd);
       switch (IK) {
       case IK_C:
@@ -1763,7 +1766,6 @@ std::string CompilerInvocation::getModuleHash() const {
   const HeaderSearchOptions &hsOpts = getHeaderSearchOpts();
   code = hash_combine(code, ppOpts.UsePredefines, ppOpts.DetailedRecord);
 
-  std::vector<StringRef> MacroDefs;
   for (std::vector<std::pair<std::string, bool/*isUndef*/> >::const_iterator 
             I = getPreprocessorOpts().Macros.begin(),
          IEnd = getPreprocessorOpts().Macros.end();

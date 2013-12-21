@@ -688,23 +688,12 @@ bool SystemZDAGToDAGISel::refineRxSBGMask(RxSBGOperands &RxSBG,
   return false;
 }
 
-// RxSBG.Input is a shift of Count bits in the direction given by IsLeft.
-// Return true if the result depends on the signs or zeros that are
-// shifted in.
-static bool shiftedInBitsMatter(RxSBGOperands &RxSBG, uint64_t Count,
-                                bool IsLeft) {
-  // Work out which bits of the shift result are zeros or sign copies.
-  uint64_t ShiftedIn = allOnes(Count);
-  if (!IsLeft)
-    ShiftedIn <<= RxSBG.BitSize - Count;
-
-  // Rotate that mask in the same way as RxSBG.Input is rotated.
+// Return true if any bits of (RxSBG.Input & Mask) are significant.
+static bool maskMatters(RxSBGOperands &RxSBG, uint64_t Mask) {
+  // Rotate the mask in the same way as RxSBG.Input is rotated.
   if (RxSBG.Rotate != 0)
-    ShiftedIn = ((ShiftedIn << RxSBG.Rotate) |
-                 (ShiftedIn >> (64 - RxSBG.Rotate)));
-
-  // Fail if any of the zero or sign bits are used.
-  return (ShiftedIn & RxSBG.Mask) != 0;
+    Mask = ((Mask << RxSBG.Rotate) | (Mask >> (64 - RxSBG.Rotate)));
+  return (Mask & RxSBG.Mask) != 0;
 }
 
 bool SystemZDAGToDAGISel::expandRxSBG(RxSBGOperands &RxSBG) const {
@@ -775,13 +764,26 @@ bool SystemZDAGToDAGISel::expandRxSBG(RxSBGOperands &RxSBG) const {
     return true;
   }
       
-  case ISD::SIGN_EXTEND:
-  case ISD::ZERO_EXTEND:
-  case ISD::ANY_EXTEND: {
+  case ISD::ANY_EXTEND:
+    // Bits above the extended operand are don't-care.
+    RxSBG.Input = N.getOperand(0);
+    return true;
+
+  case ISD::ZERO_EXTEND: {
+    // Restrict the mask to the extended operand.
+    unsigned InnerBitSize = N.getOperand(0).getValueType().getSizeInBits();
+    if (!refineRxSBGMask(RxSBG, allOnes(InnerBitSize)))
+      return false;
+
+    RxSBG.Input = N.getOperand(0);
+    return true;
+  }
+    
+  case ISD::SIGN_EXTEND: {
     // Check that the extension bits are don't-care (i.e. are masked out
     // by the final mask).
     unsigned InnerBitSize = N.getOperand(0).getValueType().getSizeInBits();
-    if (shiftedInBitsMatter(RxSBG, RxSBG.BitSize - InnerBitSize, false))
+    if (maskMatters(RxSBG, allOnes(RxSBG.BitSize) - allOnes(InnerBitSize)))
       return false;
 
     RxSBG.Input = N.getOperand(0);
@@ -802,7 +804,7 @@ bool SystemZDAGToDAGISel::expandRxSBG(RxSBGOperands &RxSBG) const {
     if (RxSBG.Opcode == SystemZ::RNSBG) {
       // Treat (shl X, count) as (rotl X, size-count) as long as the bottom
       // count bits from RxSBG.Input are ignored.
-      if (shiftedInBitsMatter(RxSBG, Count, true))
+      if (maskMatters(RxSBG, allOnes(Count)))
         return false;
     } else {
       // Treat (shl X, count) as (and (rotl X, count), ~0<<count).
@@ -830,7 +832,7 @@ bool SystemZDAGToDAGISel::expandRxSBG(RxSBGOperands &RxSBG) const {
     if (RxSBG.Opcode == SystemZ::RNSBG || Opcode == ISD::SRA) {
       // Treat (srl|sra X, count) as (rotl X, size-count) as long as the top
       // count bits from RxSBG.Input are ignored.
-      if (shiftedInBitsMatter(RxSBG, Count, false))
+      if (maskMatters(RxSBG, allOnes(Count) << (BitSize - Count)))
         return false;
     } else {
       // Treat (srl X, count), mask) as (and (rotl X, size-count), ~0>>count),
@@ -1075,6 +1077,7 @@ SDNode *SystemZDAGToDAGISel::Select(SDNode *Node) {
   case ISD::ROTL:
   case ISD::SHL:
   case ISD::SRL:
+  case ISD::ZERO_EXTEND:
     if (!ResNode)
       ResNode = tryRISBGZero(Node);
     break;

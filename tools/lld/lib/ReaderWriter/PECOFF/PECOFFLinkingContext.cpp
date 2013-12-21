@@ -8,9 +8,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "Atoms.h"
+#include "EdataPass.h"
 #include "GroupedSectionsPass.h"
 #include "IdataPass.h"
 #include "LinkerGeneratedSymbolFile.h"
+#include "SetSubsystemPass.h"
 
 #include "lld/Core/PassManager.h"
 #include "lld/Passes/LayoutPass.h"
@@ -25,9 +27,20 @@
 #include "llvm/Support/Path.h"
 
 #include <bitset>
+#include <climits>
 #include <set>
 
 namespace lld {
+
+static void assignOrdinals(PECOFFLinkingContext &ctx) {
+  int maxOrdinal = -1;
+  for (const PECOFFLinkingContext::ExportDesc &desc : ctx.getDllExports())
+    maxOrdinal = std::max(maxOrdinal, desc.ordinal);
+  int nextOrdinal = (maxOrdinal == -1) ? 1 : (maxOrdinal + 1);
+  for (PECOFFLinkingContext::ExportDesc &desc : ctx.getDllExports())
+    if (desc.ordinal == -1)
+      desc.ordinal = nextOrdinal++;
+}
 
 bool PECOFFLinkingContext::validateImpl(raw_ostream &diagnostics) {
   if (_stackReserve < _stackCommit) {
@@ -51,6 +64,18 @@ bool PECOFFLinkingContext::validateImpl(raw_ostream &diagnostics) {
     return false;
   }
 
+  // Check for duplicate export ordinals.
+  std::set<int> exports;
+  for (const PECOFFLinkingContext::ExportDesc &desc : getDllExports()) {
+    if (desc.ordinal == -1)
+      continue;
+    if (exports.count(desc.ordinal) == 1) {
+      diagnostics << "Duplicate export ordinals: " << desc.ordinal << "\n";
+      return false;
+    }
+    exports.insert(desc.ordinal);
+  }
+
   std::bitset<64> alignment(_sectionDefaultAlignment);
   if (alignment.count() != 1) {
     diagnostics << "Section alignment must be a power of 2, but got "
@@ -64,7 +89,9 @@ bool PECOFFLinkingContext::validateImpl(raw_ostream &diagnostics) {
     return false;
   }
 
-  _reader = createReaderPECOFF(*this);
+  // Assign default ordinals to export symbols.
+  assignOrdinals(*this);
+
   _writer = createWriterPECOFF(*this);
   return true;
 }
@@ -73,7 +100,7 @@ std::unique_ptr<File> PECOFFLinkingContext::createEntrySymbolFile() const {
   if (entrySymbolName().empty())
     return nullptr;
   std::unique_ptr<SimpleFile> entryFile(
-      new SimpleFile(*this, "command line option /entry"));
+      new SimpleFile("command line option /entry"));
   entryFile->addAtom(
       *(new (_allocator) SimpleUndefinedAtom(*entryFile, entrySymbolName())));
   return std::move(entryFile);
@@ -83,7 +110,7 @@ std::unique_ptr<File> PECOFFLinkingContext::createUndefinedSymbolFile() const {
   if (_initialUndefinedSymbols.empty())
     return nullptr;
   std::unique_ptr<SimpleFile> undefinedSymFile(
-      new SimpleFile(*this, "command line option /c (or) /include"));
+      new SimpleFile("command line option /c (or) /include"));
   for (auto undefSymStr : _initialUndefinedSymbols)
     undefinedSymFile->addAtom(*(new (_allocator) SimpleUndefinedAtom(
                                    *undefinedSymFile, undefSymStr)));
@@ -95,7 +122,7 @@ bool PECOFFLinkingContext::createImplicitFiles(
   std::unique_ptr<SimpleFileNode> fileNode(
       new SimpleFileNode("Implicit Files"));
   std::unique_ptr<File> linkerGeneratedSymFile(
-      new coff::LinkerGeneratedSymbolFile(*this));
+      new pecoff::LinkerGeneratedSymbolFile(*this));
   fileNode->appendInputFile(std::move(linkerGeneratedSymFile));
   inputGraph().insertOneElementAt(std::move(fileNode),
                                   InputGraph::Position::END);
@@ -110,11 +137,11 @@ bool PECOFFLinkingContext::createImplicitFiles(
 /// executable. We have a mapping for the renaming. This method looks up the
 /// table and returns a new section name if renamed.
 StringRef
-PECOFFLinkingContext::getFinalSectionName(StringRef sectionName) const {
+PECOFFLinkingContext::getOutputSectionName(StringRef sectionName) const {
   auto it = _renamedSections.find(sectionName);
   if (it == _renamedSections.end())
     return sectionName;
-  return getFinalSectionName(it->second);
+  return getOutputSectionName(it->second);
 }
 
 /// Adds a mapping to the section renaming table. This method will be used for
@@ -154,6 +181,17 @@ bool PECOFFLinkingContext::addSectionRenaming(raw_ostream &diagnostics,
   return true;
 }
 
+StringRef PECOFFLinkingContext::getAlternateName(StringRef def) const {
+  auto it = _alternateNames.find(def);
+  if (it == _alternateNames.end())
+    return "";
+  return it->second;
+}
+
+void PECOFFLinkingContext::setAlternateName(StringRef weak, StringRef def) {
+  _alternateNames[def] = weak;
+}
+
 /// Try to find the input library file from the search paths and append it to
 /// the input file list. Returns true if the library file is found.
 StringRef PECOFFLinkingContext::searchLibraryFile(StringRef filename) const {
@@ -170,42 +208,54 @@ StringRef PECOFFLinkingContext::searchLibraryFile(StringRef filename) const {
   return filename;
 }
 
-Writer &PECOFFLinkingContext::writer() const { return *_writer; }
-
-ErrorOr<Reference::Kind>
-PECOFFLinkingContext::relocKindFromString(StringRef str) const {
-#define LLD_CASE(name) .Case(#name, llvm::COFF::name)
-  int32_t ret = llvm::StringSwitch<int32_t>(str)
-        LLD_CASE(IMAGE_REL_I386_ABSOLUTE)
-        LLD_CASE(IMAGE_REL_I386_DIR32)
-        LLD_CASE(IMAGE_REL_I386_DIR32NB)
-        LLD_CASE(IMAGE_REL_I386_REL32)
-        .Default(-1);
-#undef LLD_CASE
-  if (ret == -1)
-    return make_error_code(YamlReaderError::illegal_value);
-  return ret;
+/// Returns the decorated name of the given symbol name. On 32-bit x86, it
+/// adds "_" at the beginning of the string. On other architectures, the
+/// return value is the same as the argument.
+StringRef PECOFFLinkingContext::decorateSymbol(StringRef name) const {
+  if (_machineType != llvm::COFF::IMAGE_FILE_MACHINE_I386)
+    return name;
+  std::string str = "_";
+  str.append(name);
+  return allocate(str);
 }
 
-ErrorOr<std::string>
-PECOFFLinkingContext::stringFromRelocKind(Reference::Kind kind) const {
-  switch (kind) {
-#define LLD_CASE(name)                          \
-    case llvm::COFF::name:                      \
-      return std::string(#name);
+Writer &PECOFFLinkingContext::writer() const { return *_writer; }
 
-    LLD_CASE(IMAGE_REL_I386_ABSOLUTE)
-    LLD_CASE(IMAGE_REL_I386_DIR32)
-    LLD_CASE(IMAGE_REL_I386_DIR32NB)
-    LLD_CASE(IMAGE_REL_I386_REL32)
-#undef LLD_CASE
-  }
-  return make_error_code(YamlReaderError::illegal_value);
+
+void PECOFFLinkingContext::setSectionSetMask(StringRef sectionName,
+                                             uint32_t newFlags) {
+  _sectionSetMask[sectionName] |= newFlags;
+  _sectionClearMask[sectionName] &= ~newFlags;
+  const uint32_t rwx = (llvm::COFF::IMAGE_SCN_MEM_READ |
+                        llvm::COFF::IMAGE_SCN_MEM_WRITE |
+                        llvm::COFF::IMAGE_SCN_MEM_EXECUTE);
+  if (newFlags & rwx)
+    _sectionClearMask[sectionName] |= ~_sectionSetMask[sectionName] & rwx;
+  assert((_sectionSetMask[sectionName] & _sectionClearMask[sectionName]) == 0);
+}
+
+void PECOFFLinkingContext::setSectionClearMask(StringRef sectionName,
+                                               uint32_t newFlags) {
+  _sectionClearMask[sectionName] |= newFlags;
+  _sectionSetMask[sectionName] &= ~newFlags;
+  assert((_sectionSetMask[sectionName] & _sectionClearMask[sectionName]) == 0);
+}
+
+uint32_t PECOFFLinkingContext::getSectionAttributes(StringRef sectionName,
+                                                    uint32_t flags) const {
+  auto si = _sectionSetMask.find(sectionName);
+  uint32_t setMask = (si == _sectionSetMask.end()) ? 0 : si->second;
+  auto ci = _sectionClearMask.find(sectionName);
+  uint32_t clearMask = (ci == _sectionClearMask.end()) ? 0 : ci->second;
+  return (flags | setMask) & ~clearMask;
 }
 
 void PECOFFLinkingContext::addPasses(PassManager &pm) {
-  pm.add(std::unique_ptr<Pass>(new pecoff::GroupedSectionsPass()));
+  pm.add(std::unique_ptr<Pass>(new pecoff::SetSubsystemPass(*this)));
+  pm.add(std::unique_ptr<Pass>(new pecoff::EdataPass(*this)));
   pm.add(std::unique_ptr<Pass>(new pecoff::IdataPass(*this)));
   pm.add(std::unique_ptr<Pass>(new LayoutPass()));
+  pm.add(std::unique_ptr<Pass>(new pecoff::GroupedSectionsPass()));
 }
+
 } // end namespace lld

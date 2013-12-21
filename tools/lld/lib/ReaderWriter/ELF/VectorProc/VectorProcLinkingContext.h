@@ -27,7 +27,7 @@ public:
   virtual bool isLittleEndian() const { return true; }
 
   virtual bool isRelativeReloc(const Reference &ref) const { 
-  	return ref.kind() == R_VECTORPROC_BRANCH; 
+  	return ref.kindValue() == R_VECTORPROC_BRANCH; 
   }
 
   virtual uint64_t getBaseAddress() const {
@@ -37,9 +37,6 @@ public:
   virtual uint64_t getPageSize() const { 
     return 64; 
   }
-
-  virtual ErrorOr<Reference::Kind> relocKindFromString(StringRef str) const;
-  virtual ErrorOr<std::string> stringFromRelocKind(Reference::Kind kind) const;
 };
 
 } // elf

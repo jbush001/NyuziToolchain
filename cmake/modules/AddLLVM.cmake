@@ -153,7 +153,7 @@ endmacro(add_llvm_target)
 # Add external project that may want to be built as part of llvm such as Clang,
 # lld, and Polly. This adds two options. One for the source directory of the
 # project, which defaults to ${CMAKE_CURRENT_SOURCE_DIR}/${name}. Another to
-# enable or disable building it with everthing else.
+# enable or disable building it with everything else.
 # Additional parameter can be specified as the name of directory.
 macro(add_llvm_external_project name)
   set(add_llvm_external_dir "${ARGN}")
@@ -249,7 +249,7 @@ function(add_unittest test_suite test_name)
 endfunction()
 
 # This function provides an automatic way to 'configure'-like generate a file
-# based on a set of common and custom variables, specifically targetting the
+# based on a set of common and custom variables, specifically targeting the
 # variables needed for the 'lit.site.cfg' files. This function bundles the
 # common variables that any Lit instance is likely to need, and custom
 # variables can be passed in.
@@ -260,7 +260,7 @@ function(configure_lit_site_cfg input output)
   set(TARGETS_TO_BUILD ${TARGETS_BUILT})
 
   set(SHLIBEXT "${LTDL_SHLIB_EXT}")
-  set(SHLIBDIR "${LLVM_BINARY_DIR}/lib/${CMAKE_CFG_INTDIR}")
+  set(SHLIBDIR "${LLVM_LIBRARY_OUTPUT_INTDIR}")
 
   if(BUILD_SHARED_LIBS)
     set(LLVM_SHARED_LIBS_ENABLED "1")
@@ -278,12 +278,16 @@ function(configure_lit_site_cfg input output)
   endif()
 
   # Configuration-time: See Unit/lit.site.cfg.in
-  set(LLVM_BUILD_MODE "%(build_mode)s")
+  if (CMAKE_CFG_INTDIR STREQUAL ".")
+    set(LLVM_BUILD_MODE ".")
+  else ()
+    set(LLVM_BUILD_MODE "%(build_mode)s")
+  endif ()
 
   set(LLVM_SOURCE_DIR ${LLVM_MAIN_SRC_DIR})
   set(LLVM_BINARY_DIR ${LLVM_BINARY_DIR})
-  set(LLVM_TOOLS_DIR "${LLVM_TOOLS_BINARY_DIR}/%(build_mode)s")
-  set(LLVM_LIBS_DIR "${LLVM_BINARY_DIR}/lib/%(build_mode)s")
+  string(REPLACE ${CMAKE_CFG_INTDIR} ${LLVM_BUILD_MODE} LLVM_TOOLS_DIR ${LLVM_RUNTIME_OUTPUT_INTDIR})
+  string(REPLACE ${CMAKE_CFG_INTDIR} ${LLVM_BUILD_MODE} LLVM_LIBS_DIR  ${LLVM_LIBRARY_OUTPUT_INTDIR})
   set(PYTHON_EXECUTABLE ${PYTHON_EXECUTABLE})
   set(ENABLE_SHARED ${LLVM_SHARED_LIBS_ENABLED})
   set(SHLIBPATH_VAR ${SHLIBPATH_VAR})
@@ -322,10 +326,12 @@ function(add_lit_target target comment)
   parse_arguments(ARG "PARAMS;DEPENDS;ARGS" "" ${ARGN})
   set(LIT_ARGS "${ARG_ARGS} ${LLVM_LIT_ARGS}")
   separate_arguments(LIT_ARGS)
+  if (NOT CMAKE_CFG_INTDIR STREQUAL ".")
+    list(APPEND LIT_ARGS --param build_mode=${CMAKE_CFG_INTDIR})
+  endif ()
   set(LIT_COMMAND
     ${PYTHON_EXECUTABLE}
     ${LLVM_MAIN_SRC_DIR}/utils/lit/lit.py
-    --param build_mode=${CMAKE_CFG_INTDIR}
     ${LIT_ARGS}
     )
   foreach(param ${ARG_PARAMS})
@@ -342,6 +348,9 @@ function(add_lit_target target comment)
       COMMAND cmake -E echo "${target} does nothing, no tools built.")
     message(STATUS "${target} does nothing.")
   endif()
+
+  # Tests should be excluded from "Build Solution".
+  set_target_properties(${target} PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD ON)
 endfunction()
 
 # A function to add a set of lit test suites to be driven through 'check-*' targets.

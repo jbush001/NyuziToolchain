@@ -341,6 +341,8 @@ static unsigned RFT(unsigned t, bool shift = false) {
   case NeonTypeFlags::Int64:
   case NeonTypeFlags::Poly64:
     return shift ? 63 : (1 << IsQuad) - 1;
+  case NeonTypeFlags::Poly128:
+    return shift ? 127 : (1 << IsQuad) - 1;
   case NeonTypeFlags::Float16:
     assert(!shift && "cannot shift float types!");
     return (4 << IsQuad) - 1;
@@ -374,6 +376,8 @@ static QualType getNeonEltType(NeonTypeFlags Flags, ASTContext &Context,
     return IsAArch64 ? Context.UnsignedShortTy : Context.ShortTy;
   case NeonTypeFlags::Poly64:
     return Context.UnsignedLongLongTy;
+  case NeonTypeFlags::Poly128:
+    break;
   case NeonTypeFlags::Float16:
     return Context.HalfTy;
   case NeonTypeFlags::Float32:
@@ -6190,8 +6194,9 @@ bool Sema::CheckParmsForFunctionDef(ParmVarDecl *const *P,
     // MSVC destroys objects passed by value in the callee.  Therefore a
     // function definition which takes such a parameter must be able to call the
     // object's destructor.
-    if (getLangOpts().CPlusPlus &&
-        Context.getTargetInfo().getCXXABI().isArgumentDestroyedByCallee()) {
+    if (getLangOpts().CPlusPlus && Context.getTargetInfo()
+                                       .getCXXABI()
+                                       .areArgsDestroyedLeftToRightInCallee()) {
       if (const RecordType *RT = Param->getType()->getAs<RecordType>())
         FinalizeVarWithDestructor(Param, RT);
     }
@@ -6784,7 +6789,7 @@ void Sema::checkUnsafeExprAssigns(SourceLocation Loc,
                               Expr *LHS, Expr *RHS) {
   QualType LHSType;
   // PropertyRef on LHS type need be directly obtained from
-  // its declaration as it has a PsuedoType.
+  // its declaration as it has a PseudoType.
   ObjCPropertyRefExpr *PRE
     = dyn_cast<ObjCPropertyRefExpr>(LHS->IgnoreParens());
   if (PRE && !PRE->isImplicitProperty()) {

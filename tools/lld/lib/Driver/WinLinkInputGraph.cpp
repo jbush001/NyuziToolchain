@@ -15,34 +15,20 @@ namespace lld {
 error_code PECOFFFileNode::parse(const LinkingContext &ctx,
                                  raw_ostream &diagnostics) {
   ErrorOr<StringRef> filePath = getPath(ctx);
-  if (!filePath)
+  if (!filePath) {
+    diagnostics << "File not found: " << _path << "\n";
     return error_code(filePath);
+  }
 
-  if (error_code ec = getBuffer(*filePath))
+  if (error_code ec = getBuffer(*filePath)) {
+    diagnostics << "Cannot open file: " << *filePath << "\n";
     return ec;
+  }
 
   if (ctx.logInputFiles())
     diagnostics << *filePath << "\n";
 
-  if (filePath->endswith(".objtxt"))
-    return ctx.getYAMLReader().parseFile(_buffer, _files);
-
-  llvm::sys::fs::file_magic FileType =
-      llvm::sys::fs::identify_magic(_buffer->getBuffer());
-  std::unique_ptr<File> f;
-
-  switch (FileType) {
-  case llvm::sys::fs::file_magic::archive: {
-    // Archive File
-    error_code ec;
-    f.reset(new FileArchive(ctx, std::move(_buffer), ec, false));
-    _files.push_back(std::move(f));
-    return ec;
-  }
-  case llvm::sys::fs::file_magic::coff_object:
-  default:
-    return _ctx.getDefaultReader().parseFile(_buffer, _files);
-  }
+  return ctx.registry().parseFile(_buffer, _files);
 }
 
 ErrorOr<File &> PECOFFFileNode::getNextFile() {
