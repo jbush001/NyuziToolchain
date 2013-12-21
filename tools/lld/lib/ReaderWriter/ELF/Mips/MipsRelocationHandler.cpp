@@ -99,8 +99,11 @@ void
 MipsTargetRelocationHandler::savePairedRelocation(const lld::AtomLayout &atom,
                                                   const Reference &ref) const {
   auto pi = _pairedRelocations.find(&atom);
+#if 0
+  // XXX disabled to fix GCC build
   if (pi == _pairedRelocations.end())
     pi = _pairedRelocations.emplace(&atom, PairedRelocationsT()).first;
+#endif
 
   pi->second.push_back(&ref);
 }
