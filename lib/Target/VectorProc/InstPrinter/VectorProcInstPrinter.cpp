@@ -15,17 +15,18 @@
 #define DEBUG_TYPE "asm-printer"
 #include "VectorProcInstPrinter.h"
 #include "VectorProcInstrInfo.h"
+#include "MCTargetDesc/VectorProcMCTargetDesc.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCSymbol.h"
+#include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Debug.h"
 using namespace llvm;
 
-#define PRINT_ALIAS_INSTR
 #include "VectorProcGenAsmWriter.inc"
 
 void VectorProcInstPrinter::printRegName(raw_ostream &OS,
@@ -35,6 +36,16 @@ void VectorProcInstPrinter::printRegName(raw_ostream &OS,
 
 void VectorProcInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
                                       StringRef Annot) {
+
+  // NOP is or s0, s0, 0
+  if (MI->getOpcode() == VectorProc::ORSSI 
+	  && MI->getOperand(0).isReg() && MI->getOperand(0).getReg() == VectorProc::S0
+	  && MI->getOperand(1).isReg() && MI->getOperand(1).getReg() == VectorProc::S0
+	  && MI->getOperand(2).isImm() && MI->getOperand(2).getImm() == 0)
+  {
+  	O << "\tnop";
+	return;
+  }
 
   printInstruction(MI, O);
   printAnnotation(O, Annot);

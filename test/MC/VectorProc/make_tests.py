@@ -209,6 +209,7 @@ make_test_case('ftoi v8, v9', make_a_instruction(4, 0x1b, 8, 0, 9, 0))
 make_test_case('itof v8, s9', make_a_instruction(1, 0x2a, 8, 0, 9, 0))
 make_test_case('ftoi v8, s9', make_a_instruction(1, 0x1b, 8, 0, 9, 0))
 
+make_test_case('nop', make_b_instruction(0, 0, 0, 0, 0, 0))
 
 #
 # Comparisons

@@ -10,6 +10,5 @@ baz: .long 12
 		# CHECK: fixup A - offset: 0, value: baz, kind: fixup_VectorProc_PCRel_ComputeLabelAddress
 
 bar:
-  nop # CHECK: encoding: [0x00,0x00,0x00,0x00]
   
 ret  # CHECK: [0xe0,0x03,0xff,0xc0]
