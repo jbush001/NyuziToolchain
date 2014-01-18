@@ -507,6 +507,11 @@ let usesCustomInserter = 1 in {
 		(ins GPR32:$ptr, GPR32:$cmp, GPR32:$swap),
 		[(set i32:$dest, (atomic_cmp_swap GPR32:$ptr, GPR32:$cmp, 
 			GPR32:$swap))]>;
+
+	def ATOMIC_SWAP : Pseudo<
+		(outs GPR32:$dest),
+		(ins GPR32:$ptr, GPR32:$swap),
+		[(set i32:$dest, (atomic_swap GPR32:$ptr, GPR32:$swap))]>;
 }	
 
 //////////////////////////////////////////////////////////////////

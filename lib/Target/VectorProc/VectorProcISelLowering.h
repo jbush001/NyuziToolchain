@@ -46,7 +46,7 @@ public:
   EmitInstrWithCustomInserter(MachineInstr *MI, MachineBasicBlock *MBB) const;
   MachineBasicBlock *EmitSelectCC(MachineInstr *MI,
                                   MachineBasicBlock *BB) const;
-  MachineBasicBlock *EmitAtomicRMW(MachineInstr *MI, MachineBasicBlock *BB,
+  MachineBasicBlock *EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *BB,
                                    unsigned Opcode) const;
   MachineBasicBlock *EmitAtomicCmpSwap(MachineInstr *MI,
                                        MachineBasicBlock *BB) const;

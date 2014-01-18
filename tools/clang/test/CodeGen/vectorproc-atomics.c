@@ -24,7 +24,6 @@ void atomic_cmp_swap(volatile int *lockvar)
 {
 	int old;
 
-
 	do	// CHECK: {{\.L[0-9A-Za-z_]+}}
 	{
 		 old = *lockvar;
@@ -40,4 +39,17 @@ void atomic_cmp_swap(volatile int *lockvar)
 	// CHECK:   store_sync [[SUCCESS]]
 	// CHECK:   bfalse [[SUCCESS]], [[LOOP1MBB]]
 	// CHECK: [[EXITMBB]]
+}
+
+// CHECK: atomic_test_set:
+void atomic_test_set(volatile int *lockvar)
+{
+	while (!__sync_lock_test_and_set(lockvar, 1))
+		;
+
+	// CHECK: [[LABEL:\.L[0-9A-Za-z_]+]]:
+	// CHECK: load_sync [[SCRATCH1:s[0-9]+]], (s0)
+	// CHECK: move {{s[0-9]+}}, [[SCRATCH1]]
+	// CHECK: store_sync [[SCRATCH1]], (s0)	
+	// CHECK: bfalse [[SCRATCH1]], [[LABEL]]
 }

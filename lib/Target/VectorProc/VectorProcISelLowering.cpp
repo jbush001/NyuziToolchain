@@ -904,20 +904,23 @@ MachineBasicBlock *VectorProcTargetLowering::EmitInstrWithCustomInserter(
     return EmitSelectCC(MI, BB);
 
   case VectorProc::ATOMIC_LOAD_ADD:
-    return EmitAtomicRMW(MI, BB, VectorProc::ADDISSS);
+    return EmitAtomicBinary(MI, BB, VectorProc::ADDISSS);
 
   case VectorProc::ATOMIC_LOAD_SUB:
-    return EmitAtomicRMW(MI, BB, VectorProc::SUBISSS);
+    return EmitAtomicBinary(MI, BB, VectorProc::SUBISSS);
 
   case VectorProc::ATOMIC_LOAD_AND:
-    return EmitAtomicRMW(MI, BB, VectorProc::ANDSSS);
+    return EmitAtomicBinary(MI, BB, VectorProc::ANDSSS);
 
   case VectorProc::ATOMIC_LOAD_OR:
-    return EmitAtomicRMW(MI, BB, VectorProc::ORSSS);
+    return EmitAtomicBinary(MI, BB, VectorProc::ORSSS);
 
   case VectorProc::ATOMIC_LOAD_XOR:
-    return EmitAtomicRMW(MI, BB, VectorProc::XORSSS);
+    return EmitAtomicBinary(MI, BB, VectorProc::XORSSS);
 
+  case VectorProc::ATOMIC_SWAP:
+    return EmitAtomicBinary(MI, BB, 0);
+    
   case VectorProc::ATOMIC_CMP_SWAP:
     return EmitAtomicCmpSwap(MI, BB);
 
@@ -994,7 +997,7 @@ VectorProcTargetLowering::EmitSelectCC(MachineInstr *MI,
 }
 
 MachineBasicBlock *
-VectorProcTargetLowering::EmitAtomicRMW(MachineInstr *MI, MachineBasicBlock *BB,
+VectorProcTargetLowering::EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *BB,
                                         unsigned Opcode) const {
   const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
 
@@ -1003,9 +1006,8 @@ VectorProcTargetLowering::EmitAtomicRMW(MachineInstr *MI, MachineBasicBlock *BB,
   unsigned Incr = MI->getOperand(2).getReg();
   DebugLoc DL = MI->getDebugLoc();
   MachineRegisterInfo &MRI = BB->getParent()->getRegInfo();
-  unsigned Scratch1 = MRI.createVirtualRegister(&VectorProc::GPR32RegClass);
-  unsigned Scratch2 = MRI.createVirtualRegister(&VectorProc::GPR32RegClass);
-  unsigned Scratch3 = MRI.createVirtualRegister(&VectorProc::GPR32RegClass);
+  unsigned OldValue = MRI.createVirtualRegister(&VectorProc::GPR32RegClass);
+  unsigned Success = MRI.createVirtualRegister(&VectorProc::GPR32RegClass);
 
   const BasicBlock *LLVM_BB = BB->getBasicBlock();
   MachineFunction *MF = BB->getParent();
@@ -1023,33 +1025,32 @@ VectorProcTargetLowering::EmitAtomicRMW(MachineInstr *MI, MachineBasicBlock *BB,
   ExitMBB->transferSuccessorsAndUpdatePHIs(BB);
 
   //  ThisMBB:
-  //   ...
-  //   fallthrough --> LoopMBB
   BB->addSuccessor(LoopMBB);
 
   //  LoopMBB:
-  //   load.sync Scratch1, Ptr
-  //   move Dest, Scratch1
-  //   <op> Scratch2, Scratch1, Incr
-  //   store.sync Ptr, Scratch2/3
-  //   iffalse Scratch3 goto LoopMBB
-  //   fallthrough --> ExitMBB
   BB = LoopMBB;
-  BuildMI(BB, DL, TII->get(VectorProc::LOAD_SYNC), Scratch1).addReg(Ptr).addImm(
-      0);
-  BuildMI(BB, DL, TII->get(VectorProc::MOVESS), Dest).addReg(Scratch1);
-  BuildMI(BB, DL, TII->get(Opcode), Scratch2).addReg(Scratch1).addReg(Incr);
-  BuildMI(BB, DL, TII->get(VectorProc::STORE_SYNC), Scratch3)
-      .addReg(Scratch2)
+  BuildMI(BB, DL, TII->get(VectorProc::LOAD_SYNC), OldValue).addReg(Ptr).addImm(0);
+  BuildMI(BB, DL, TII->get(VectorProc::MOVESS), Dest).addReg(OldValue);
+  
+  unsigned NewValue;
+  if (Opcode != 0)
+  {
+    // Perform an operation
+    NewValue = MRI.createVirtualRegister(&VectorProc::GPR32RegClass);
+    BuildMI(BB, DL, TII->get(Opcode), NewValue).addReg(OldValue).addReg(Incr);
+  }
+  else
+    NewValue = OldValue; // This is just swap: use old value
+  
+  BuildMI(BB, DL, TII->get(VectorProc::STORE_SYNC), Success)
+      .addReg(NewValue)
       .addReg(Ptr)
       .addImm(0);
-  BuildMI(BB, DL, TII->get(VectorProc::BFALSE)).addReg(Scratch3).addMBB(
-      LoopMBB);
+  BuildMI(BB, DL, TII->get(VectorProc::BFALSE)).addReg(Success).addMBB(LoopMBB);
   BB->addSuccessor(LoopMBB);
   BB->addSuccessor(ExitMBB);
 
   //  ExitMBB:
-  //   ...
   BB = ExitMBB;
 
   MI->eraseFromParent(); // The instruction is gone now.
