@@ -646,13 +646,13 @@ SDValue VectorProcTargetLowering::LowerFDIV(SDValue Op,
   SDValue Estimate =
       DAG.getNode(VectorProcISD::RECIPROCAL_EST, DL, Type, Denominator);
 
-  // Perform a series of newton/raphson refinements.  Each iteration doubles
-  // the precision. The initial Estimate has 6 bits of precision, so Two
-  // iteration
-  // results in 24 bits, which is larger than the significand.
+  // Perform a series of Newton Raphson refinements to determine 1/divisor. Each 
+  // iteration doubles the precision of the result. The initial estimate has 6 bits 
+  // of precision, so two iterations results in 24 bits, which is larger than the 
+  // (23 bit) significand.
   for (int i = 0; i < 2; i++) {
     // Trial = x * Estimate (ideally, x * 1/x should be 1.0)
-    // Error = 2.0 - Trial
+    // Error = 2.0 - Trial 
     // Estimate = Estimate * Error
     SDValue Trial = DAG.getNode(ISD::FMUL, DL, Type, Estimate, Denominator);
     SDValue Error = DAG.getNode(ISD::FSUB, DL, Type, Two, Trial);
@@ -660,7 +660,7 @@ SDValue VectorProcTargetLowering::LowerFDIV(SDValue Op,
   }
 
   // Check if the first parameter is constant 1.0.  If so, we don't need
-  // to multiply.
+  // to multiply by the dividend.
   bool IsOne = false;
   if (Type.isVector()) {
     if (isSplatVector(Op.getOperand(0).getNode())) {
@@ -679,7 +679,7 @@ SDValue VectorProcTargetLowering::LowerFDIV(SDValue Op,
   return Estimate;
 }
 
-// Branch using jump table
+// Branch using jump table (used for switch statements)
 SDValue VectorProcTargetLowering::LowerBR_JT(SDValue Op,
                                              SelectionDAG &DAG) const {
   SDValue Chain = Op.getOperand(0);
@@ -918,6 +918,8 @@ MachineBasicBlock *VectorProcTargetLowering::EmitInstrWithCustomInserter(
   case VectorProc::ATOMIC_LOAD_XOR:
     return EmitAtomicBinary(MI, BB, VectorProc::XORSSS);
 
+  // XXX ATOMIC_LOAD_NAND is not supported
+
   case VectorProc::ATOMIC_SWAP:
     return EmitAtomicBinary(MI, BB, 0);
     
@@ -938,9 +940,9 @@ VectorProcTargetLowering::EmitSelectCC(MachineInstr *MI,
   // The instruction we are replacing is SELECTI (Dest, predicate, trueval,
   // falseval)
 
-  // To "insert" a SELECT_CC instruction, we actually have to insert the
+  // To "insert" a SELECT_CC instruction, we actually have to rewrite it into a
   // diamond control-flow pattern.  The incoming instruction knows the
-  // Destination vreg to set, the condition code register to branch on, the
+  // destination vreg to set, the condition code register to branch on, the
   // true/false values to select between, and a branch opcode to use.
   const BasicBlock *LLVM_BB = BB->getBasicBlock();
   MachineFunction::iterator It = BB;
