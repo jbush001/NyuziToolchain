@@ -30,10 +30,6 @@ public:
   	return ref.kindValue() == R_VECTORPROC_BRANCH; 
   }
 
-  virtual uint64_t getBaseAddress() const {
-    return 0;
-  }
-
   virtual uint64_t getPageSize() const { 
     return 64; 
   }

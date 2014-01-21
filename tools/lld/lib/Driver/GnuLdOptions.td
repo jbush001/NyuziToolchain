@@ -114,6 +114,10 @@ def no_omagic : Flag<["--"], "no-omagic">,
      HelpText<"This option negates most of the effects of the -N option."
               "Disable linking with shared libraries">,
      Group<grp_staticexec>;
+def base    : Separate<["--"], "image-base">,
+     HelpText<"Set base address of executable">,
+     Group<grp_staticexec>;
+
 // Compatible Aliases
 def nmagic_alias : Flag<["-"], "n">,
      Alias<nmagic>;

@@ -201,7 +201,16 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
     case OPT_static:
       ctx->setOutputELFType(llvm::ELF::ET_EXEC);
       ctx->setIsStaticExecutable(true);
+      if (llvm::opt::Arg *baseAddress = parsedArgs->getLastArg(OPT_base))
+      {
+        uint64_t addr;
+        if (StringRef(baseAddress->getValue()).getAsInteger(0, addr))
+          return false;
+
+        ctx->setBaseAddress(addr);
+      }
       break;
+
     case OPT_shared:
       ctx->setOutputELFType(llvm::ELF::ET_DYN);
       ctx->setAllowShlibUndefines(true);

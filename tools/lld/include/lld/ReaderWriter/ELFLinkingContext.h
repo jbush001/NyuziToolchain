@@ -61,6 +61,7 @@ public:
   uint16_t getOutputMachine() const;
   bool mergeCommonStrings() const { return _mergeCommonStrings; }
   virtual uint64_t getBaseAddress() const { return _baseAddress; }
+  void setBaseAddress(uint64_t address) { _baseAddress = address; }
 
   /// This controls if undefined atoms need to be created for undefines that are
   /// present in a SharedLibrary. If this option is set, undefined atoms are
