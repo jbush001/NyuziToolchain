@@ -23,6 +23,8 @@ InputFilename(cl::Positional, cl::desc("<input ELF file>"), cl::init("a.out"));
 
 static cl::opt<std::string> OutputFilename("o", cl::desc("Output hex file"),
                                            cl::value_desc("filename"));
+static cl::opt<uint64_t> BaseAddress("b", cl::desc("Base Address"),
+                                           cl::init(0));
 
 int main(int argc, const char *argv[]) {
   cl::ParseCommandLineOptions(argc, argv, "elf2hex converter\n");
@@ -63,7 +65,8 @@ int main(int argc, const char *argv[]) {
   }
 
   int totalSize = pheader[eheader.e_phnum - 1].p_vaddr +
-                  pheader[eheader.e_phnum - 1].p_memsz;
+                  pheader[eheader.e_phnum - 1].p_memsz -
+                  BaseAddress;
   unsigned char *memoryImage = (unsigned char *)calloc(totalSize, 1);
   if (!memoryImage) {
     errs() << "not enough memory for program image\n";
@@ -73,7 +76,7 @@ int main(int argc, const char *argv[]) {
   for (int segment = 0; segment < eheader.e_phnum; segment++) {
     if (pheader[segment].p_type == PT_LOAD) {
       fseek(inputFile, pheader[segment].p_offset, SEEK_SET);
-      if (fread(memoryImage + pheader[segment].p_vaddr, 1,
+      if (fread(memoryImage + pheader[segment].p_vaddr - BaseAddress, 1,
                 pheader[segment].p_filesz,
                 inputFile) != pheader[segment].p_filesz) {
         errs() << "Error reading segment " << segment << "\n";
@@ -85,7 +88,7 @@ int main(int argc, const char *argv[]) {
   fclose(inputFile);
 
   // Convert the first word into a jump instruction to the appropriate location
-  *((unsigned int *)memoryImage) = 0xf6000000 | ((eheader.e_entry - 4) << 5);
+  *((unsigned int *)memoryImage) = 0xf6000000 | ((eheader.e_entry - 4 - BaseAddress) << 5);
 
 
   FILE *outputFile = fopen(OutputFilename.c_str(), "wb");
