@@ -52,7 +52,7 @@ int main(int argc, const char *argv[]) {
   }
 
   if (eheader.e_phoff == 0) {
-    fprintf(stderr, "File has no program header\n");
+    errs() << "File has no program header\n";
     return 1;
   }
 
