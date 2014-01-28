@@ -708,6 +708,8 @@ StringRef getELFRelocationTypeName(uint32_t Machine, uint32_t Type) {
     switch (Type) {
       LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_VECTORPROC_ABS32);
       LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_VECTORPROC_BRANCH);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_VECTORPROC_PCREL_MEM_EXT);
+      LLVM_ELF_SWITCH_RELOC_TYPE_NAME(R_VECTORPROC_PCREL_MEM);
     default: break;
     }
     break;

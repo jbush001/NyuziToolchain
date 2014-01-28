@@ -54,8 +54,18 @@ unsigned VectorProcELFObjectWriter::GetRelocType(const MCValue &Target,
   case VectorProc::fixup_VectorProc_PCRel_Branch:
     Type = ELF::R_VECTORPROC_BRANCH;
     break;
-  }
 
+  // In normal cases, these types should not be emitted because they can be fixed up immediately.
+  // This generally happens if there is an undefined symbol.  This will cause an error later
+  // during linking.
+  case VectorProc::fixup_VectorProc_PCRel_MemAccExt:
+    Type = ELF::R_VECTORPROC_PCREL_MEM_EXT;
+    break;
+    
+  case VectorProc::fixup_VectorProc_PCRel_MemAcc:
+    Type = ELF::R_VECTORPROC_PCREL_MEM;
+    break;
+  }
   return Type;
 }
 

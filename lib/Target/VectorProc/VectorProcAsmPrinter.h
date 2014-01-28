@@ -28,8 +28,7 @@ class raw_ostream;
 
 //
 // The name is a bit misleading.  Because we use the MC layer for code
-// generation,
-// the job of this class is now to convert MachineInstrs into MCInsts.
+// generation, the job of this class is now to convert MachineInstrs into MCInsts.
 // Most of the work is done by MCInstLowering (which in turn uses code generated
 // by TableGen).
 //

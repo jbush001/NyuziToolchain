@@ -1028,7 +1028,9 @@ enum {
 enum
 {
   R_VECTORPROC_ABS32 = 0,	
-  R_VECTORPROC_BRANCH = 1
+  R_VECTORPROC_BRANCH = 1,
+  R_VECTORPROC_PCREL_MEM = 2,
+  R_VECTORPROC_PCREL_MEM_EXT = 3
 };
 
 // ELF Relocation types for S390/zSeries

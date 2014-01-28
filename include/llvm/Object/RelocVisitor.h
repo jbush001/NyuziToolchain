@@ -113,7 +113,7 @@ public:
         HasError = true;
         return RelocToApply();
       }
-    } else if (FileFormat == "ELF64-vectorproc") {
+    } else if (FileFormat == "ELF32-vectorproc") {
       switch (RelocType) {
       case llvm::ELF::R_VECTORPROC_ABS32:
         return visitELF_VECTORPROC_ABS32(R, Value);
