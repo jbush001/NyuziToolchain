@@ -148,10 +148,26 @@ define i32 @atomic_xor_large_imm(i32* %ptr) { ; CHECK: atomic_xor_large_imm:
 define i32 @atomic_xchg(i32* %ptr, i32 %value) { ; CHECK: atomic_xchg:
 	%tmp = atomicrmw volatile xchg i32* %ptr, i32 %value monotonic
 
+; CHECK: [[TOPLABEL4:\.[A-Za-z_0-9]+]]:
 ; CHECK: load_sync s{{[0-9]+}}, (s0)
 ; CHECK: move s{{[0-9]+}}, s{{[0-9]+}}
 ; CHECK: store_sync s{{[0-9]+}}, (s0)	
-; CHECK: bfalse s{{[0-9]+}}, .L
+; CHECK: bfalse s{{[0-9]+}}, [[TOPLABEL4]]
+
+	ret i32 %tmp
+}
+
+define i32 @atomic_cmpxchg(i32* %ptr, i32 %cmp, i32 %newvalue) { ; CHECK: atomic_cmpxchg:
+	%tmp = cmpxchg volatile i32* %ptr, i32 %cmp, i32 %newvalue monotonic
+
+; CHECK: [[LOOP1:\.[A-Za-z_0-9]+]]:
+; CHECK: load_sync [[DEST:s[0-9]+]], (s0)
+; CHECK: setne_i [[CMPRES:s[0-9]+]], [[DEST]], s1
+; CHECK: btrue [[CMPRES]], [[EXIT:\.[A-Za-z_0-9]+]]
+; CHECK: move [[SUCCESS:s[0-9]+]], s2
+; CHECK: store_sync [[SUCCESS]], (s0)	
+; CHECK: bfalse [[SUCCESS]], [[LOOP1]]
+; CHECK: [[EXIT]]:
 
 	ret i32 %tmp
 }
