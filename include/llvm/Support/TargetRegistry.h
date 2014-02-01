@@ -19,9 +19,9 @@
 #ifndef LLVM_SUPPORT_TARGETREGISTRY_H
 #define LLVM_SUPPORT_TARGETREGISTRY_H
 
+#include "llvm-c/Disassembler.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Support/CodeGen.h"
-#include "llvm-c/Disassembler.h"
 #include <cassert>
 #include <string>
 
@@ -46,13 +46,11 @@ namespace llvm {
   class MCRelocationInfo;
   class MCTargetAsmParser;
   class TargetMachine;
-  class MCTargetStreamer;
   class TargetOptions;
   class raw_ostream;
   class formatted_raw_ostream;
 
   MCStreamer *createAsmStreamer(MCContext &Ctx,
-                                MCTargetStreamer *TargetStreamer,
                                 formatted_raw_ostream &OS, bool isVerboseAsm,
                                 bool useLoc, bool useCFI,
                                 bool useDwarfDirectory,
@@ -128,6 +126,7 @@ namespace llvm {
                                                   MCAsmBackend &TAB,
                                                   raw_ostream &_OS,
                                                   MCCodeEmitter *_Emitter,
+                                                  const MCSubtargetInfo &STI,
                                                   bool RelaxAll,
                                                   bool NoExecStack);
     typedef MCStreamer *(*AsmStreamerCtorTy)(MCContext &Ctx,
@@ -420,11 +419,12 @@ namespace llvm {
                                        MCAsmBackend &TAB,
                                        raw_ostream &_OS,
                                        MCCodeEmitter *_Emitter,
+                                       const MCSubtargetInfo &STI,
                                        bool RelaxAll,
                                        bool NoExecStack) const {
       if (!MCObjectStreamerCtorFn)
         return 0;
-      return MCObjectStreamerCtorFn(*this, TT, Ctx, TAB, _OS, _Emitter,
+      return MCObjectStreamerCtorFn(*this, TT, Ctx, TAB, _OS, _Emitter, STI,
                                     RelaxAll, NoExecStack);
     }
 
@@ -443,7 +443,7 @@ namespace llvm {
         return AsmStreamerCtorFn(Ctx, OS, isVerboseAsm, useLoc, useCFI,
                                  useDwarfDirectory, InstPrint, CE, TAB,
                                  ShowInst);
-      return llvm::createAsmStreamer(Ctx, 0, OS, isVerboseAsm, useLoc, useCFI,
+      return llvm::createAsmStreamer(Ctx, OS, isVerboseAsm, useLoc, useCFI,
                                      useDwarfDirectory, InstPrint, CE, TAB,
                                      ShowInst);
     }

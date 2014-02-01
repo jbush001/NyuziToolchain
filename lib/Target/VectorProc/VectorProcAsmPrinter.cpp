@@ -33,7 +33,6 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Target/Mangler.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 using namespace llvm;
 
@@ -44,7 +43,7 @@ void VectorProcAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   do {
     MCInst TmpInst;
     MCInstLowering.Lower(MI, TmpInst);
-    OutStreamer.EmitInstruction(TmpInst);
+    EmitToStreamer(OutStreamer, TmpInst);
     if (MI->getOpcode() == VectorProc::JUMP_TABLE) {
       EmitInlineJumpTable(MI);
     }

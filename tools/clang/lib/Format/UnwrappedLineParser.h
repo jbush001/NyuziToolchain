@@ -16,9 +16,9 @@
 #ifndef LLVM_CLANG_FORMAT_UNWRAPPED_LINE_PARSER_H
 #define LLVM_CLANG_FORMAT_UNWRAPPED_LINE_PARSER_H
 
+#include "FormatToken.h"
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Format/Format.h"
-#include "FormatToken.h"
 #include <list>
 
 namespace clang {
@@ -82,8 +82,8 @@ private:
   void parseStructuralElement();
   bool tryToParseBracedList();
   bool parseBracedList(bool ContinueOnSemicolons = false);
-  void parseReturn();
   void parseParens();
+  void parseSquare();
   void parseIfThenElse();
   void parseForOrWhileLoop();
   void parseDoWhile();
@@ -98,7 +98,7 @@ private:
   void parseObjCUntilAtEnd();
   void parseObjCInterfaceOrImplementation();
   void parseObjCProtocol();
-  void tryToParseLambda();
+  bool tryToParseLambda();
   bool tryToParseLambdaIntroducer();
   void addUnwrappedLine();
   bool eof() const;

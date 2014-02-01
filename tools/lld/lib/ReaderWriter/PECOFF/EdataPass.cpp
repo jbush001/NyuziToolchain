@@ -32,6 +32,20 @@ static bool compare(const TableEntry &a, const TableEntry &b) {
   return a.exportName.compare(b.exportName) < 0;
 }
 
+static void assignOrdinals(PECOFFLinkingContext &ctx) {
+  std::set<PECOFFLinkingContext::ExportDesc> exports;
+  int maxOrdinal = -1;
+  for (const PECOFFLinkingContext::ExportDesc &desc : ctx.getDllExports())
+    maxOrdinal = std::max(maxOrdinal, desc.ordinal);
+  int nextOrdinal = (maxOrdinal == -1) ? 1 : (maxOrdinal + 1);
+  for (PECOFFLinkingContext::ExportDesc desc : ctx.getDllExports()) {
+    if (desc.ordinal == -1)
+      desc.ordinal = nextOrdinal++;
+    exports.insert(desc);
+  }
+  ctx.getDllExports().swap(exports);
+}
+
 static bool getExportedAtoms(const PECOFFLinkingContext &ctx, MutableFile *file,
                              std::vector<TableEntry> &ret) {
   std::map<StringRef, const DefinedAtom *> definedAtoms;
@@ -39,7 +53,7 @@ static bool getExportedAtoms(const PECOFFLinkingContext &ctx, MutableFile *file,
     definedAtoms[atom->name()] = atom;
 
   for (const PECOFFLinkingContext::ExportDesc &desc : ctx.getDllExports()) {
-    auto it = definedAtoms.find(ctx.decorateSymbol(desc.name));
+    auto it = definedAtoms.find(desc.name);
     if (it == definedAtoms.end()) {
       llvm::errs() << "Symbol <" << desc.name
                    << "> is exported but not defined.\n";
@@ -86,8 +100,8 @@ EdataPass::createNamePointerTable(const PECOFFLinkingContext &ctx,
 
   size_t offset = 0;
   for (const TableEntry &e : entries) {
-    auto *stringAtom = new (_alloc)
-        COFFStringAtom(_file, _stringOrdinal++, ".edata", e.exportName);
+    auto *stringAtom = new (_alloc) COFFStringAtom(
+        _file, _stringOrdinal++, ".edata", ctx.undecorateSymbol(e.exportName));
     file->addAtom(*stringAtom);
     addDir32NBReloc(table, stringAtom, offset);
     offset += sizeof(uint32_t);
@@ -121,6 +135,8 @@ EdataPass::createOrdinalTable(const std::vector<TableEntry> &entries,
 }
 
 void EdataPass::perform(std::unique_ptr<MutableFile> &file) {
+  assignOrdinals(_ctx);
+
   std::vector<TableEntry> entries;
   if (!getExportedAtoms(_ctx, file.get(), entries))
     return;

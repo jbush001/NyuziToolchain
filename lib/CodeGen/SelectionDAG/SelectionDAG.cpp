@@ -18,9 +18,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
-#include "llvm/Assembly/Writer.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -176,6 +174,22 @@ bool ISD::isBuildVectorAllZeros(const SDNode *N) {
     if (N->getOperand(i) != Zero &&
         N->getOperand(i).getOpcode() != ISD::UNDEF)
       return false;
+  return true;
+}
+
+/// \brief Return true if the specified node is a BUILD_VECTOR node of
+/// all ConstantSDNode or undef.
+bool ISD::isBuildVectorOfConstantSDNodes(const SDNode *N) {
+  if (N->getOpcode() != ISD::BUILD_VECTOR)
+    return false;
+
+  for (unsigned i = 0, e = N->getNumOperands(); i != e; ++i) {
+    SDValue Op = N->getOperand(i);
+    if (Op.getOpcode() == ISD::UNDEF)
+      continue;
+    if (!isa<ConstantSDNode>(Op))
+      return false;
+  }
   return true;
 }
 
@@ -369,9 +383,12 @@ static void AddNodeIDCustom(FoldingSetNodeID &ID, const SDNode *N) {
     llvm_unreachable("Should only be used on nodes with operands");
   default: break;  // Normal nodes don't need extra info.
   case ISD::TargetConstant:
-  case ISD::Constant:
-    ID.AddPointer(cast<ConstantSDNode>(N)->getConstantIntValue());
+  case ISD::Constant: {
+    const ConstantSDNode *C = cast<ConstantSDNode>(N);
+    ID.AddPointer(C->getConstantIntValue());
+    ID.AddBoolean(C->isOpaque());
     break;
+  }
   case ISD::TargetConstantFP:
   case ISD::ConstantFP: {
     ID.AddPointer(cast<ConstantFPSDNode>(N)->getConstantFPValue());
@@ -869,7 +886,7 @@ unsigned SelectionDAG::getEVTAlignment(EVT VT) const {
 
 // EntryNode could meaningfully have debug info if we can find it...
 SelectionDAG::SelectionDAG(const TargetMachine &tm, CodeGenOpt::Level OL)
-  : TM(tm), TSI(*tm.getSelectionDAGInfo()), TTI(0), TLI(0), OptLevel(OL),
+  : TM(tm), TSI(*tm.getSelectionDAGInfo()), TLI(0), OptLevel(OL),
     EntryNode(ISD::EntryToken, 0, DebugLoc(), getVTList(MVT::Other)),
     Root(getEntryNode()), NewNodesMustHaveLegalTypes(false),
     UpdateListeners(0) {
@@ -877,10 +894,8 @@ SelectionDAG::SelectionDAG(const TargetMachine &tm, CodeGenOpt::Level OL)
   DbgInfo = new SDDbgInfo();
 }
 
-void SelectionDAG::init(MachineFunction &mf, const TargetTransformInfo *tti,
-                        const TargetLowering *tli) {
+void SelectionDAG::init(MachineFunction &mf, const TargetLowering *tli) {
   MF = &mf;
-  TTI = tti;
   TLI = tli;
   Context = &mf.getFunction()->getContext();
 }
@@ -956,19 +971,21 @@ SDValue SelectionDAG::getNOT(SDLoc DL, SDValue Val, EVT VT) {
   return getNode(ISD::XOR, DL, VT, Val, NegOne);
 }
 
-SDValue SelectionDAG::getConstant(uint64_t Val, EVT VT, bool isT) {
+SDValue SelectionDAG::getConstant(uint64_t Val, EVT VT, bool isT, bool isO) {
   EVT EltVT = VT.getScalarType();
   assert((EltVT.getSizeInBits() >= 64 ||
          (uint64_t)((int64_t)Val >> EltVT.getSizeInBits()) + 1 < 2) &&
          "getConstant with a uint64_t value that doesn't fit in the type!");
-  return getConstant(APInt(EltVT.getSizeInBits(), Val), VT, isT);
+  return getConstant(APInt(EltVT.getSizeInBits(), Val), VT, isT, isO);
 }
 
-SDValue SelectionDAG::getConstant(const APInt &Val, EVT VT, bool isT) {
-  return getConstant(*ConstantInt::get(*Context, Val), VT, isT);
+SDValue SelectionDAG::getConstant(const APInt &Val, EVT VT, bool isT, bool isO)
+{
+  return getConstant(*ConstantInt::get(*Context, Val), VT, isT, isO);
 }
 
-SDValue SelectionDAG::getConstant(const ConstantInt &Val, EVT VT, bool isT) {
+SDValue SelectionDAG::getConstant(const ConstantInt &Val, EVT VT, bool isT,
+                                  bool isO) {
   assert(VT.isInteger() && "Cannot create FP integer constant!");
 
   EVT EltVT = VT.getScalarType();
@@ -1010,7 +1027,7 @@ SDValue SelectionDAG::getConstant(const ConstantInt &Val, EVT VT, bool isT) {
     for (unsigned i = 0; i < ViaVecNumElts / VT.getVectorNumElements(); ++i) {
       EltParts.push_back(getConstant(NewVal.lshr(i * ViaEltSizeInBits)
                                            .trunc(ViaEltSizeInBits),
-                                     ViaEltVT, isT));
+                                     ViaEltVT, isT, isO));
     }
 
     // EltParts is currently in little endian order. If we actually want
@@ -1041,6 +1058,7 @@ SDValue SelectionDAG::getConstant(const ConstantInt &Val, EVT VT, bool isT) {
   FoldingSetNodeID ID;
   AddNodeIDNode(ID, Opc, getVTList(EltVT), 0, 0);
   ID.AddPointer(Elt);
+  ID.AddBoolean(isO);
   void *IP = 0;
   SDNode *N = NULL;
   if ((N = CSEMap.FindNodeOrInsertPos(ID, IP)))
@@ -1048,7 +1066,7 @@ SDValue SelectionDAG::getConstant(const ConstantInt &Val, EVT VT, bool isT) {
       return SDValue(N, 0);
 
   if (!N) {
-    N = new (NodeAllocator) ConstantSDNode(isT, Elt, EltVT);
+    N = new (NodeAllocator) ConstantSDNode(isT, isO, Elt, EltVT);
     CSEMap.InsertNode(N, IP);
     AllNodes.push_back(N);
   }
@@ -2774,10 +2792,13 @@ SDValue SelectionDAG::FoldConstantArithmetic(unsigned Opcode, EVT VT,
 
   ConstantSDNode *Scalar1 = dyn_cast<ConstantSDNode>(Cst1);
   ConstantSDNode *Scalar2 = dyn_cast<ConstantSDNode>(Cst2);
-  if (Scalar1 && Scalar2) {
+  if (Scalar1 && Scalar2 && (Scalar1->isOpaque() || Scalar2->isOpaque()))
+    return SDValue();
+
+  if (Scalar1 && Scalar2)
     // Scalar instruction.
     Inputs.push_back(std::make_pair(Scalar1, Scalar2));
-  } else {
+  else {
     // For vectors extract each constant element into Inputs so we can constant
     // fold them individually.
     BuildVectorSDNode *BV1 = dyn_cast<BuildVectorSDNode>(Cst1);
@@ -2791,6 +2812,9 @@ SDValue SelectionDAG::FoldConstantArithmetic(unsigned Opcode, EVT VT,
       ConstantSDNode *V1 = dyn_cast<ConstantSDNode>(BV1->getOperand(I));
       ConstantSDNode *V2 = dyn_cast<ConstantSDNode>(BV2->getOperand(I));
       if (!V1 || !V2) // Not a constant, bail.
+        return SDValue();
+
+      if (V1->isOpaque() || V2->isOpaque())
         return SDValue();
 
       // Avoid BUILD_VECTOR nodes that perform implicit truncation.
@@ -3546,10 +3570,10 @@ static SDValue getMemsetStringVal(EVT VT, SDLoc dl, SelectionDAG &DAG,
       Val |= (uint64_t)(unsigned char)Str[i] << (NumVTBytes-i-1)*8;
   }
 
-  // If the "cost" of materializing the integer immediate is 1 or free, then
-  // it is cost effective to turn the load into the immediate.
-  const TargetTransformInfo *TTI = DAG.getTargetTransformInfo();
-  if (TTI->getIntImmCost(Val, VT.getTypeForEVT(*DAG.getContext())) < 2)
+  // If the "cost" of materializing the integer immediate is less than the cost
+  // of a load, then it is cost effective to turn the load into the immediate.
+  Type *Ty = VT.getTypeForEVT(*DAG.getContext());
+  if (TLI.shouldConvertConstantLoadToIntImm(Val, Ty))
     return DAG.getConstant(Val, VT);
   return SDValue(0, 0);
 }
@@ -6515,6 +6539,15 @@ bool BuildVectorSDNode::isConstantSplat(APInt &SplatValue,
   }
 
   SplatBitSize = sz;
+  return true;
+}
+
+bool BuildVectorSDNode::isConstant() const {
+  for (unsigned i = 0, e = getNumOperands(); i != e; ++i) {
+    unsigned Opc = getOperand(i).getOpcode();
+    if (Opc != ISD::UNDEF && Opc != ISD::Constant && Opc != ISD::ConstantFP)
+      return false;
+  }
   return true;
 }
 

@@ -16,11 +16,11 @@
 
 #define DEBUG_TYPE "stack-protector"
 #include "llvm/CodeGen/StackProtector.h"
-#include "llvm/CodeGen/Analysis.h"
-#include "llvm/CodeGen/Passes.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/CodeGen/Analysis.h"
+#include "llvm/CodeGen/Passes.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
@@ -57,10 +57,33 @@ StackProtector::getSSPLayout(const AllocaInst *AI) const {
   return AI ? Layout.lookup(AI) : SSPLK_None;
 }
 
+void StackProtector::adjustForColoring(const AllocaInst *From,
+                                       const AllocaInst *To) {
+  // When coloring replaces one alloca with another, transfer the SSPLayoutKind
+  // tag from the remapped to the target alloca. The remapped alloca should
+  // have a size smaller than or equal to the replacement alloca.
+  SSPLayoutMap::iterator I = Layout.find(From);
+  if (I != Layout.end()) {
+    SSPLayoutKind Kind = I->second;
+    Layout.erase(I);
+
+    // Transfer the tag, but make sure that SSPLK_AddrOf does not overwrite
+    // SSPLK_SmallArray or SSPLK_LargeArray, and make sure that
+    // SSPLK_SmallArray does not overwrite SSPLK_LargeArray.
+    I = Layout.find(To);
+    if (I == Layout.end())
+      Layout.insert(std::make_pair(To, Kind));
+    else if (I->second != SSPLK_LargeArray && Kind != SSPLK_AddrOf)
+      I->second = Kind;
+  }
+}
+
 bool StackProtector::runOnFunction(Function &Fn) {
   F = &Fn;
   M = F->getParent();
-  DT = getAnalysisIfAvailable<DominatorTree>();
+  DominatorTreeWrapperPass *DTWP =
+      getAnalysisIfAvailable<DominatorTreeWrapperPass>();
+  DT = DTWP ? &DTWP->getDomTree() : 0;
   TLI = TM->getTargetLowering();
 
   if (!RequiresStackProtector())
@@ -68,8 +91,9 @@ bool StackProtector::runOnFunction(Function &Fn) {
 
   Attribute Attr = Fn.getAttributes().getAttribute(
       AttributeSet::FunctionIndex, "stack-protector-buffer-size");
-  if (Attr.isStringAttribute())
-    Attr.getValueAsString().getAsInteger(10, SSPBufferSize);
+  if (Attr.isStringAttribute() &&
+      Attr.getValueAsString().getAsInteger(10, SSPBufferSize))
+      return false; // Invalid integer string
 
   ++NumFunProtected;
   return InsertStackProtectors();

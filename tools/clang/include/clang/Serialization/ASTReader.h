@@ -46,9 +46,9 @@
 #include <deque>
 #include <map>
 #include <string>
+#include <sys/stat.h>
 #include <utility>
 #include <vector>
-#include <sys/stat.h>
 
 namespace llvm {
   class MemoryBuffer;
@@ -610,10 +610,10 @@ private:
   /// \brief The IDs of all declarations that fulfill the criteria of
   /// "interesting" decls.
   ///
-  /// This contains the data loaded from all EXTERNAL_DEFINITIONS blocks in the
-  /// chain. The referenced declarations are deserialized and passed to the
-  /// consumer eagerly.
-  SmallVector<uint64_t, 16> ExternalDefinitions;
+  /// This contains the data loaded from all EAGERLY_DESERIALIZED_DECLS blocks
+  /// in the chain. The referenced declarations are deserialized and passed to
+  /// the consumer eagerly.
+  SmallVector<uint64_t, 16> EagerlyDeserializedDecls;
 
   /// \brief The IDs of all tentative definitions stored in the chain.
   ///

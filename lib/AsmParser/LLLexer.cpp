@@ -14,7 +14,7 @@
 #include "LLLexer.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Twine.h"
-#include "llvm/Assembly/Parser.h"
+#include "llvm/AsmParser/Parser.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/LLVMContext.h"
@@ -550,6 +550,7 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(x86_stdcallcc);
   KEYWORD(x86_fastcallcc);
   KEYWORD(x86_thiscallcc);
+  KEYWORD(x86_cdeclmethodcc);
   KEYWORD(arm_apcscc);
   KEYWORD(arm_aapcscc);
   KEYWORD(arm_aapcs_vfpcc);
@@ -563,6 +564,8 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(x86_64_win64cc);
   KEYWORD(webkit_jscc);
   KEYWORD(anyregcc);
+  KEYWORD(preserve_mostcc);
+  KEYWORD(preserve_allcc);
 
   KEYWORD(cc);
   KEYWORD(c);

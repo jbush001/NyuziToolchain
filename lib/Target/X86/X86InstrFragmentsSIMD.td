@@ -25,7 +25,8 @@ def bc_mmx  : PatFrag<(ops node:$in), (x86mmx  (bitconvert node:$in))>;
 def SDTX86FPShiftOp : SDTypeProfile<1, 2, [ SDTCisSameAs<0, 1>,
                                             SDTCisFP<0>, SDTCisInt<2> ]>;
 def SDTX86VFCMP : SDTypeProfile<1, 3, [SDTCisInt<0>, SDTCisSameAs<1, 2>,
-                                       SDTCisFP<1>, SDTCisVT<3, i8>]>;
+                                       SDTCisFP<1>, SDTCisVT<3, i8>,
+                                       SDTCisVec<1>]>;
 
 def X86umin    : SDNode<"X86ISD::UMIN",      SDTIntBinOp>;
 def X86umax    : SDNode<"X86ISD::UMAX",      SDTIntBinOp>;
@@ -88,39 +89,48 @@ def X86vzmovl  : SDNode<"X86ISD::VZEXT_MOVL",
 
 def X86vzmovly  : SDNode<"X86ISD::VZEXT_MOVL",
                  SDTypeProfile<1, 1, [SDTCisVec<0>, SDTCisVec<1>,
+                                      SDTCisInt<0>, SDTCisInt<1>,
                                       SDTCisOpSmallerThanOp<1, 0> ]>>;
 
 def X86vsmovl  : SDNode<"X86ISD::VSEXT_MOVL",
                  SDTypeProfile<1, 1,
-                 [SDTCisVec<0>, SDTCisInt<1>, SDTCisInt<0>]>>;
+                 [SDTCisVec<0>, SDTCisVec<1>, SDTCisInt<0>, SDTCisInt<1>,
+                  SDTCisOpSmallerThanOp<1, 0>]>>;
 
 def X86vzload  : SDNode<"X86ISD::VZEXT_LOAD", SDTLoad,
                         [SDNPHasChain, SDNPMayLoad, SDNPMemOperand]>;
 
 def X86vzext   : SDNode<"X86ISD::VZEXT",
                          SDTypeProfile<1, 1, [SDTCisVec<0>, SDTCisVec<1>,
-                                              SDTCisInt<0>, SDTCisInt<1>]>>;
+                                              SDTCisInt<0>, SDTCisInt<1>,
+                                              SDTCisOpSmallerThanOp<1, 0>]>>;
 
 def X86vsext   : SDNode<"X86ISD::VSEXT",
                          SDTypeProfile<1, 1, [SDTCisVec<0>, SDTCisVec<1>,
-                                              SDTCisInt<0>, SDTCisInt<1>]>>;
+                                              SDTCisInt<0>, SDTCisInt<1>,
+                                              SDTCisOpSmallerThanOp<1, 0>]>>;
 
 def X86vtrunc   : SDNode<"X86ISD::VTRUNC",
                          SDTypeProfile<1, 1, [SDTCisVec<0>, SDTCisVec<1>,
-                                              SDTCisInt<0>, SDTCisInt<1>]>>;
+                                              SDTCisInt<0>, SDTCisInt<1>,
+                                              SDTCisOpSmallerThanOp<0, 1>]>>;
 def X86trunc    : SDNode<"X86ISD::TRUNC",
-                         SDTypeProfile<1, 1, [SDTCisInt<0>, SDTCisInt<1>]>>;
-                                              
+                         SDTypeProfile<1, 1, [SDTCisInt<0>, SDTCisInt<1>,
+                                              SDTCisOpSmallerThanOp<0, 1>]>>;
+
 def X86vtruncm   : SDNode<"X86ISD::VTRUNCM",
                          SDTypeProfile<1, 2, [SDTCisVec<0>, SDTCisVec<1>,
                                               SDTCisInt<0>, SDTCisInt<1>,
-                                              SDTCisVec<2>, SDTCisInt<2>]>>;
+                                              SDTCisVec<2>, SDTCisInt<2>,
+                                              SDTCisOpSmallerThanOp<0, 2>]>>;
 def X86vfpext  : SDNode<"X86ISD::VFPEXT",
                         SDTypeProfile<1, 1, [SDTCisVec<0>, SDTCisVec<1>,
-                                             SDTCisFP<0>, SDTCisFP<1>]>>;
+                                             SDTCisFP<0>, SDTCisFP<1>,
+                                             SDTCisOpSmallerThanOp<1, 0>]>>;
 def X86vfpround: SDNode<"X86ISD::VFPROUND",
                         SDTypeProfile<1, 1, [SDTCisVec<0>, SDTCisVec<1>,
-                                             SDTCisFP<0>, SDTCisFP<1>]>>;
+                                             SDTCisFP<0>, SDTCisFP<1>,
+                                             SDTCisOpSmallerThanOp<0, 1>]>>;
 
 def X86vshldq  : SDNode<"X86ISD::VSHLDQ",    SDTIntShiftOp>;
 def X86vshrdq  : SDNode<"X86ISD::VSRLDQ",    SDTIntShiftOp>;
@@ -134,7 +144,8 @@ def X86pcmpeqm  : SDNode<"X86ISD::PCMPEQM", X86IntCmpMask, [SDNPCommutative]>;
 def X86pcmpgtm  : SDNode<"X86ISD::PCMPGTM", X86IntCmpMask>;
 
 def X86CmpMaskCC :
-      SDTypeProfile<1, 3, [SDTCisVec<0>, SDTCisSameAs<1, 2>, SDTCisVT<3, i8>]>;
+      SDTypeProfile<1, 3, [SDTCisVec<0>, SDTCisInt<0>, SDTCisVec<1>,
+                           SDTCisSameAs<1, 2>, SDTCisVT<3, i8>]>;
 def X86CmpMaskCCScalar :
       SDTypeProfile<1, 3, [SDTCisInt<0>, SDTCisSameAs<1, 2>, SDTCisVT<3, i8>]>;
 
@@ -224,6 +235,7 @@ def X86VPermilp  : SDNode<"X86ISD::VPERMILP", SDTShuff2OpI>;
 def X86VPermv    : SDNode<"X86ISD::VPERMV",   SDTShuff2Op>;
 def X86VPermi    : SDNode<"X86ISD::VPERMI",   SDTShuff2OpI>;
 def X86VPermv3   : SDNode<"X86ISD::VPERMV3",  SDTShuff3Op>;
+def X86VPermiv3   : SDNode<"X86ISD::VPERMIV3",  SDTShuff3Op>;
 
 def X86VPerm2x128 : SDNode<"X86ISD::VPERM2X128", SDTShuff3OpI>;
 
@@ -466,10 +478,13 @@ def bc_v32i8 : PatFrag<(ops node:$in), (v32i8 (bitconvert node:$in))>;
 def bc_v16i16 : PatFrag<(ops node:$in), (v16i16 (bitconvert node:$in))>;
 def bc_v8i32 : PatFrag<(ops node:$in), (v8i32 (bitconvert node:$in))>;
 def bc_v4i64 : PatFrag<(ops node:$in), (v4i64 (bitconvert node:$in))>;
+def bc_v8f32 : PatFrag<(ops node:$in), (v8f32 (bitconvert node:$in))>;
 
 // 512-bit bitconvert pattern fragments
 def bc_v16i32 : PatFrag<(ops node:$in), (v16i32 (bitconvert node:$in))>;
 def bc_v8i64 : PatFrag<(ops node:$in), (v8i64 (bitconvert node:$in))>;
+def bc_v8f64 : PatFrag<(ops node:$in), (v8f64 (bitconvert node:$in))>;
+def bc_v16f32 : PatFrag<(ops node:$in), (v16f32 (bitconvert node:$in))>;
 
 def vzmovl_v2i64 : PatFrag<(ops node:$src),
                            (bitconvert (v2i64 (X86vzmovl
@@ -485,6 +500,14 @@ def vzload_v2i64 : PatFrag<(ops node:$src),
 def fp32imm0 : PatLeaf<(f32 fpimm), [{
   return N->isExactlyValue(+0.0);
 }]>;
+
+def I8Imm : SDNodeXForm<imm, [{
+  // Transformation function: get the low 8 bits.
+  return getI8Imm((uint8_t)N->getZExtValue());
+}]>;
+
+def FROUND_NO_EXC : ImmLeaf<i32, [{ return Imm == 8; }]>;
+def FROUND_CURRENT : ImmLeaf<i32, [{ return Imm == 4; }]>;
 
 // BYTE_imm - Transform bit immediates into byte immediates.
 def BYTE_imm  : SDNodeXForm<imm, [{

@@ -150,24 +150,19 @@ private:
   typedef llvm::StringMap<const lld::Atom *> NameToAtom;
   typedef llvm::DenseMap<const lld::Atom *, std::string> AtomToRefName;
 
-  // Allocate a new copy of this string and keep track of allocations
-  // in _stringCopies, so they can be freed when RefNameBuilder is destroyed.
+  // Allocate a new copy of this string in _storage, so the strings
+  // can be freed when RefNameBuilder is destroyed.
   StringRef copyString(StringRef str) {
-    // We want _stringCopies to own the string memory so it is deallocated
-    // when the File object is destroyed.  But we need a StringRef that
-    // points into that memory.
-    std::unique_ptr<char[]> s(new char[str.size()]);
-    memcpy(s.get(), str.data(), str.size());
-    StringRef r = StringRef(s.get(), str.size());
-    _stringCopies.push_back(std::move(s));
-    return r;
+    char *s = _storage.Allocate<char>(str.size());
+    memcpy(s, str.data(), str.size());
+    return StringRef(s, str.size());
   }
 
   unsigned int                         _collisionCount;
   unsigned int                         _unnamedCounter;
   NameToAtom                           _nameMap;
   AtomToRefName                        _refNames;
-  std::vector<std::unique_ptr<char[]>> _stringCopies;
+  llvm::BumpPtrAllocator               _storage;
 };
 
 /// Used when reading yaml files to find the target of a reference
@@ -640,17 +635,12 @@ template <> struct MappingTraits<const lld::File *> {
       return _absoluteAtoms;
     }
 
-    // Allocate a new copy of this string and keep track of allocations
-    // in _stringCopies, so they can be freed when File is destroyed.
+    // Allocate a new copy of this string in _storage, so the strings
+    // can be freed when File is destroyed.
     StringRef copyString(StringRef str) {
-      // We want _stringCopies to own the string memory so it is deallocated
-      // when the File object is destroyed.  But we need a StringRef that
-      // points into that memory.
-      std::unique_ptr<char[]> s(new char[str.size()]);
-      memcpy(s.get(), str.data(), str.size());
-      StringRef r = StringRef(s.get(), str.size());
-      _stringCopies.push_back(std::move(s));
-      return r;
+      char *s = _storage.Allocate<char>(str.size());
+      memcpy(s, str.data(), str.size());
+      return StringRef(s, str.size());
     }
 
     IO                                  &_io;
@@ -660,28 +650,19 @@ template <> struct MappingTraits<const lld::File *> {
     AtomList<lld::UndefinedAtom>         _undefinedAtoms;
     AtomList<lld::SharedLibraryAtom>     _sharedLibraryAtoms;
     AtomList<lld::AbsoluteAtom>          _absoluteAtoms;
-    std::vector<std::unique_ptr<char[]>> _stringCopies;
+    llvm::BumpPtrAllocator               _storage;
   };
 
   static void mapping(IO &io, const lld::File *&file) {
-    // We only support writing atom based YAML
-    FileKinds kind = fileKindObjectAtoms;
-    // If reading, peek ahead to see what kind of file this is.
-    io.mapOptional("kind", kind, fileKindObjectAtoms);
-    switch (kind) {
-    case fileKindObjectAtoms:
+    YamlContext *info = reinterpret_cast<YamlContext *>(io.getContext());
+    assert(info != nullptr);
+    // Let any register tag handler process this.
+    if (info->_registry && info->_registry->handleTaggedDoc(io, file))
+      return;
+    // If no registered handler claims this tag and there is no tag,
+    // grandfather in as "!native".
+    if (io.mapTag("!native", true) || io.mapTag("tag:yaml.org,2002:map"))
       mappingAtoms(io, file);
-      break;
-    case fileKindArchive:
-      mappingArchive(io, file);
-      break;
-    case fileKindObjectELF:
-    case fileKindObjectMachO:
-      // Eventually we will have an external function to call, similar
-      // to mappingAtoms() and mappingArchive() but implememented
-      // with coresponding file format code.
-      llvm_unreachable("section based YAML not supported yet");
-    }
   }
 
   static void mappingAtoms(IO &io, const lld::File *&file) {
@@ -909,7 +890,7 @@ template <> struct MappingTraits<const lld::DefinedAtom *> {
     io.mapOptional("ref-name",         keys->_refName, StringRef());
     io.mapOptional("scope",            keys->_scope,
                                          DefinedAtom::scopeTranslationUnit);
-    io.mapOptional("type",             keys->_contentType, 
+    io.mapOptional("type",             keys->_contentType,
                                          DefinedAtom::typeCode);
     io.mapOptional("content",          keys->_content);
     io.mapOptional("size",             keys->_size, (uint64_t)keys->_content.size());
@@ -1236,6 +1217,31 @@ private:
 
 namespace {
 
+/// Handles !native tagged yaml documents.
+class NativeYamlIOTaggedDocumentHandler : public YamlIOTaggedDocumentHandler {
+  bool handledDocTag(llvm::yaml::IO &io, const lld::File *&file) const {
+    if (io.mapTag("!native")) {
+      MappingTraits<const lld::File *>::mappingAtoms(io, file);
+      return true;
+    }
+    return false;
+  }
+};
+
+
+/// Handles !archive tagged yaml documents.
+class ArchiveYamlIOTaggedDocumentHandler : public YamlIOTaggedDocumentHandler {
+  bool handledDocTag(llvm::yaml::IO &io, const lld::File *&file) const {
+    if (io.mapTag("!archive")) {
+      MappingTraits<const lld::File *>::mappingArchive(io, file);
+      return true;
+    }
+    return false;
+  }
+};
+
+
+
 class YAMLReader : public Reader {
 public:
   YAMLReader(const Registry &registry) : _registry(registry) {}
@@ -1257,6 +1263,7 @@ public:
     // Create YAML Input Reader.
     YamlContext yamlContext;
     yamlContext._registry = &_registry;
+    yamlContext._path = mb->getBufferIdentifier();
     llvm::yaml::Input yin(mb->getBuffer(), &yamlContext);
 
     // Fill vector with File objects created by parsing yaml.
@@ -1283,6 +1290,10 @@ private:
 
 void Registry::addSupportYamlFiles() {
   add(std::unique_ptr<Reader>(new YAMLReader(*this)));
+  add(std::unique_ptr<YamlIOTaggedDocumentHandler>(
+                                    new NativeYamlIOTaggedDocumentHandler()));
+  add(std::unique_ptr<YamlIOTaggedDocumentHandler>(
+                                    new ArchiveYamlIOTaggedDocumentHandler()));
 }
 
 std::unique_ptr<Writer> createWriterYAML(const LinkingContext &context) {

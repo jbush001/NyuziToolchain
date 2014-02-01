@@ -697,7 +697,7 @@ bool X86FastISel::X86SelectCallAddress(const Value *V, X86AddressMode &AM) {
       return false;
 
     // Can't handle DLLImport.
-    if (GV->hasDLLImportLinkage())
+    if (GV->hasDLLImportStorageClass())
       return false;
 
     // Can't handle TLS.
@@ -888,7 +888,7 @@ bool X86FastISel::X86SelectRet(const Instruction *I) {
 
   // Now emit the RET.
   MachineInstrBuilder MIB =
-    BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DL, TII.get(X86::RET));
+    BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DL, TII.get(Subtarget->is64Bit() ? X86::RETQ : X86::RETL));
   for (unsigned i = 0, e = RetRegs.size(); i != e; ++i)
     MIB.addReg(RetRegs[i], RegState::Implicit);
   return true;
@@ -1512,7 +1512,7 @@ bool X86FastISel::X86SelectSelect(const Instruction *I) {
   // garbage. Indeed, only the less significant bit is supposed to be accurate.
   // If we read more than the lsb, we may see non-zero values whereas lsb
   // is zero. Therefore, we have to truncate Op0Reg to i1 for the select.
-  // This is acheived by performing TEST against 1.
+  // This is achieved by performing TEST against 1.
   BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DL, TII.get(X86::TEST8ri))
     .addReg(Op0Reg).addImm(1);
   unsigned ResultReg = createResultReg(RC);
@@ -1910,6 +1910,10 @@ bool X86FastISel::DoSelectCall(const Instruction *I, const char *MemIntName) {
   if (isVarArg && isWin64)
     return false;
 
+  // Don't know about inalloca yet.
+  if (CS.hasInAllocaArgument())
+    return false;
+
   // Fast-isel doesn't know about callee-pop yet.
   if (X86::isCalleePop(CC, Subtarget->is64Bit(), isVarArg,
                        TM.Options.GuaranteedTailCallOpt))
@@ -2111,6 +2115,8 @@ bool X86FastISel::DoSelectCall(const Instruction *I, const char *MemIntName) {
       // FIXME: Indirect doesn't need extending, but fast-isel doesn't fully
       // support this.
       return false;
+    case CCValAssign::FPExt:
+      llvm_unreachable("Unexpected loc info!");
     }
 
     if (VA.isRegLoc()) {
@@ -2481,6 +2487,7 @@ unsigned X86FastISel::TargetMaterializeAlloca(const AllocaInst *C) {
   // X86SelectAddrss, and TargetMaterializeAlloca.
   if (!FuncInfo.StaticAllocaMap.count(C))
     return 0;
+  assert(C->isStaticAlloca() && "dynamic alloca in the static alloca map?");
 
   X86AddressMode AM;
   if (!X86SelectAddress(C, AM))

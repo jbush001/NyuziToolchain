@@ -769,7 +769,7 @@ bool CursorVisitor::VisitFunctionDecl(FunctionDecl *ND) {
     // If we have a function declared directly (without the use of a typedef),
     // visit just the return type. Otherwise, just visit the function's type
     // now.
-    if ((FTL && !isa<CXXConversionDecl>(ND) && Visit(FTL.getResultLoc())) ||
+    if ((FTL && !isa<CXXConversionDecl>(ND) && Visit(FTL.getReturnLoc())) ||
         (!FTL && Visit(TL)))
       return true;
     
@@ -895,7 +895,7 @@ bool CursorVisitor::VisitTemplateTemplateParmDecl(TemplateTemplateParmDecl *D) {
 }
 
 bool CursorVisitor::VisitObjCMethodDecl(ObjCMethodDecl *ND) {
-  if (TypeSourceInfo *TSInfo = ND->getResultTypeSourceInfo())
+  if (TypeSourceInfo *TSInfo = ND->getReturnTypeSourceInfo())
     if (Visit(TSInfo->getTypeLoc()))
       return true;
 
@@ -1517,11 +1517,11 @@ bool CursorVisitor::VisitAttributedTypeLoc(AttributedTypeLoc TL) {
 
 bool CursorVisitor::VisitFunctionTypeLoc(FunctionTypeLoc TL, 
                                          bool SkipResultType) {
-  if (!SkipResultType && Visit(TL.getResultLoc()))
+  if (!SkipResultType && Visit(TL.getReturnLoc()))
     return true;
 
-  for (unsigned I = 0, N = TL.getNumArgs(); I != N; ++I)
-    if (Decl *D = TL.getArg(I))
+  for (unsigned I = 0, N = TL.getNumParams(); I != N; ++I)
+    if (Decl *D = TL.getParam(I))
       if (Visit(MakeCXCursor(D, TU, RegionOfInterest)))
         return true;
 
@@ -1839,7 +1839,6 @@ public:
   void VisitStmt(const Stmt *S);
   void VisitSwitchStmt(const SwitchStmt *S);
   void VisitWhileStmt(const WhileStmt *W);
-  void VisitUnaryTypeTraitExpr(const UnaryTypeTraitExpr *E);
   void VisitTypeTraitExpr(const TypeTraitExpr *E);
   void VisitArrayTypeTraitExpr(const ArrayTypeTraitExpr *E);
   void VisitExpressionTraitExpr(const ExpressionTraitExpr *E);
@@ -2184,10 +2183,6 @@ void EnqueueVisitor::VisitWhileStmt(const WhileStmt *W) {
   AddDecl(W->getConditionVariable());
 }
 
-void EnqueueVisitor::VisitUnaryTypeTraitExpr(const UnaryTypeTraitExpr *E) {
-  AddTypeLoc(E->getQueriedTypeSourceInfo());
-}
-
 void EnqueueVisitor::VisitTypeTraitExpr(const TypeTraitExpr *E) {
   for (unsigned I = E->getNumArgs(); I > 0; --I)
     AddTypeLoc(E->getArg(I-1));
@@ -2442,12 +2437,12 @@ bool CursorVisitor::RunVisitorWorkList(VisitorWorkList &WL) {
                          TL.getAs<FunctionProtoTypeLoc>()) {
             if (E->hasExplicitParameters()) {
               // Visit parameters.
-              for (unsigned I = 0, N = Proto.getNumArgs(); I != N; ++I)
-                if (Visit(MakeCXCursor(Proto.getArg(I), TU)))
+              for (unsigned I = 0, N = Proto.getNumParams(); I != N; ++I)
+                if (Visit(MakeCXCursor(Proto.getParam(I), TU)))
                   return true;
             } else {
               // Visit result type.
-              if (Visit(Proto.getResultLoc()))
+              if (Visit(Proto.getReturnLoc()))
                 return true;
             }
           }
@@ -6272,13 +6267,9 @@ unsigned clang_CXXMethod_isPureVirtual(CXCursor C) {
   if (!clang_isDeclaration(C.kind))
     return 0;
 
-  const CXXMethodDecl *Method = 0;
   const Decl *D = cxcursor::getCursorDecl(C);
-  if (const FunctionTemplateDecl *FunTmpl =
-          dyn_cast_or_null<FunctionTemplateDecl>(D))
-    Method = dyn_cast<CXXMethodDecl>(FunTmpl->getTemplatedDecl());
-  else
-    Method = dyn_cast_or_null<CXXMethodDecl>(D);
+  const CXXMethodDecl *Method =
+      D ? dyn_cast_or_null<CXXMethodDecl>(D->getAsFunction()) : 0;
   return (Method && Method->isVirtual() && Method->isPure()) ? 1 : 0;
 }
 
@@ -6286,13 +6277,9 @@ unsigned clang_CXXMethod_isStatic(CXCursor C) {
   if (!clang_isDeclaration(C.kind))
     return 0;
   
-  const CXXMethodDecl *Method = 0;
   const Decl *D = cxcursor::getCursorDecl(C);
-  if (const FunctionTemplateDecl *FunTmpl =
-          dyn_cast_or_null<FunctionTemplateDecl>(D))
-    Method = dyn_cast<CXXMethodDecl>(FunTmpl->getTemplatedDecl());
-  else
-    Method = dyn_cast_or_null<CXXMethodDecl>(D);
+  const CXXMethodDecl *Method =
+      D ? dyn_cast_or_null<CXXMethodDecl>(D->getAsFunction()) : 0;
   return (Method && Method->isStatic()) ? 1 : 0;
 }
 
@@ -6300,13 +6287,9 @@ unsigned clang_CXXMethod_isVirtual(CXCursor C) {
   if (!clang_isDeclaration(C.kind))
     return 0;
   
-  const CXXMethodDecl *Method = 0;
   const Decl *D = cxcursor::getCursorDecl(C);
-  if (const FunctionTemplateDecl *FunTmpl =
-          dyn_cast_or_null<FunctionTemplateDecl>(D))
-    Method = dyn_cast<CXXMethodDecl>(FunTmpl->getTemplatedDecl());
-  else
-    Method = dyn_cast_or_null<CXXMethodDecl>(D);
+  const CXXMethodDecl *Method =
+      D ? dyn_cast_or_null<CXXMethodDecl>(D->getAsFunction()) : 0;
   return (Method && Method->isVirtual()) ? 1 : 0;
 }
 } // end: extern "C"

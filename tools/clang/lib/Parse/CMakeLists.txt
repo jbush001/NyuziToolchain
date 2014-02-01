@@ -23,11 +23,9 @@ add_clang_library(clangParse
 
 add_dependencies(clangParse
   ClangAttrClasses
-  ClangAttrIdentifierArg
-  ClangAttrLateParsed
+  ClangAttrParserStringSwitches
   ClangAttrList
   ClangAttrParsedAttrList
-  ClangAttrTypeArg
   ClangCommentNodes
   ClangDeclNodes
   ClangDiagnosticCommon

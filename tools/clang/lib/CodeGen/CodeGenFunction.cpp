@@ -16,12 +16,12 @@
 #include "CGCXXABI.h"
 #include "CGDebugInfo.h"
 #include "CodeGenModule.h"
+#include "CodeGenPGO.h"
 #include "TargetInfo.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/StmtCXX.h"
-#include "clang/Basic/OpenCL.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
 #include "clang/Frontend/CodeGenOptions.h"
@@ -44,7 +44,8 @@ CodeGenFunction::CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext)
       NextCleanupDestIndex(1), FirstBlockInfo(0), EHResumeBlock(0),
       ExceptionSlot(0), EHSelectorSlot(0), DebugInfo(CGM.getModuleDebugInfo()),
       DisableDebugInfo(false), DidCallStackSave(false), IndirectBranch(0),
-      SwitchInsn(0), CaseRangeBlock(0), UnreachableBlock(0), NumReturnExprs(0),
+      PGO(cgm), SwitchInsn(0), SwitchWeights(0),
+      CaseRangeBlock(0), UnreachableBlock(0), NumReturnExprs(0),
       NumSimpleReturnExprs(0), CXXABIThisDecl(0), CXXABIThisValue(0),
       CXXThisValue(0), CXXDefaultInitExprThis(0),
       CXXStructorImplicitParamDecl(0), CXXStructorImplicitParamValue(0),
@@ -275,6 +276,14 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
 
   if (CGM.getCodeGenOpts().EmitDeclMetadata)
     EmitDeclMetadata();
+
+  for (SmallVectorImpl<std::pair<llvm::Instruction *, llvm::Value *> >::iterator
+           I = DeferredReplacements.begin(),
+           E = DeferredReplacements.end();
+       I != E; ++I) {
+    I->first->replaceAllUsesWith(I->second);
+    I->first->eraseFromParent();
+  }
 }
 
 /// ShouldInstrumentFunction - Return true if the current function should be
@@ -381,7 +390,12 @@ static void GenOpenCLArgMetadata(const FunctionDecl *FD, llvm::Function *Fn,
       if (pointeeTy.isVolatileQualified())
         typeQuals += typeQuals.empty() ? "volatile" : " volatile";
     } else {
-      addressQuals.push_back(Builder.getInt32(0));
+      uint32_t AddrSpc = 0;
+      if (ty->isImageType())
+        AddrSpc =
+          CGM.getContext().getTargetAddressSpace(LangAS::opencl_global);
+      
+      addressQuals.push_back(Builder.getInt32(AddrSpc));
 
       // Get argument type name.
       std::string typeName = ty.getUnqualifiedType().getAsString();
@@ -405,10 +419,11 @@ static void GenOpenCLArgMetadata(const FunctionDecl *FD, llvm::Function *Fn,
     // Get image access qualifier:
     if (ty->isImageType()) {
       const OpenCLImageAccessAttr *A = parm->getAttr<OpenCLImageAccessAttr>();
-      if (A && A->getAccess() == CLIA_write_only)
+      if (A && A->isWriteOnly())
         accessQuals.push_back(llvm::MDString::get(Context, "write_only"));
       else
         accessQuals.push_back(llvm::MDString::get(Context, "read_only"));
+      // FIXME: what about read_write?
     } else
       accessQuals.push_back(llvm::MDString::get(Context, "none"));
 
@@ -502,15 +517,20 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   }
 
   // Pass inline keyword to optimizer if it appears explicitly on any
-  // declaration.
-  if (!CGM.getCodeGenOpts().NoInline)
-    if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D))
+  // declaration. Also, in the case of -fno-inline attach NoInline
+  // attribute to all function that are not marked AlwaysInline or ForceInline.
+  if (const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(D)) {
+    if (!CGM.getCodeGenOpts().NoInline) {
       for (FunctionDecl::redecl_iterator RI = FD->redecls_begin(),
              RE = FD->redecls_end(); RI != RE; ++RI)
         if (RI->isInlineSpecified()) {
           Fn->addFnAttr(llvm::Attribute::InlineHint);
           break;
         }
+    } else if (!FD->hasAttr<AlwaysInlineAttr>() &&
+               !FD->hasAttr<ForceInlineAttr>())
+      Fn->addFnAttr(llvm::Attribute::NoInline);
+  }
 
   if (getLangOpts().OpenCL) {
     // Add metadata for a kernel function.
@@ -570,6 +590,8 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
   if (CGM.getCodeGenOpts().InstrumentForProfiling)
     EmitMCountInstrumentation();
 
+  PGO.assignRegionCounters(GD);
+
   if (RetTy->isVoidType()) {
     // Void type; nothing to return.
     ReturnValue = 0;
@@ -578,6 +600,14 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
     // Indirect aggregate return; emit returned value directly into sret slot.
     // This reduces code size, and affects correctness in C++.
     ReturnValue = CurFn->arg_begin();
+  } else if (CurFnInfo->getReturnInfo().getKind() == ABIArgInfo::InAlloca &&
+             !hasScalarEvaluationKind(CurFnInfo->getReturnType())) {
+    // Load the sret pointer from the argument struct and return into that.
+    unsigned Idx = CurFnInfo->getReturnInfo().getInAllocaFieldIndex();
+    llvm::Function::arg_iterator EI = CurFn->arg_end();
+    --EI;
+    llvm::Value *Addr = Builder.CreateStructGEP(EI, Idx);
+    ReturnValue = Builder.CreateLoad(Addr, "agg.result");
   } else {
     ReturnValue = CreateIRTemp(RetTy, "retval");
 
@@ -642,6 +672,8 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
 
 void CodeGenFunction::EmitFunctionBody(FunctionArgList &Args,
                                        const Stmt *Body) {
+  RegionCounter Cnt = getPGORegionCounter(Body);
+  Cnt.beginRegion(Builder);
   if (const CompoundStmt *S = dyn_cast<CompoundStmt>(Body))
     EmitCompoundStmtWithoutScope(*S);
   else
@@ -688,7 +720,7 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     DebugInfo = NULL; // disable debug info indefinitely for this function
 
   FunctionArgList Args;
-  QualType ResTy = FD->getResultType();
+  QualType ResTy = FD->getReturnType();
 
   CurGD = GD;
   const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(FD);
@@ -753,7 +785,7 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   //   If the '}' that terminates a function is reached, and the value of the
   //   function call is used by the caller, the behavior is undefined.
   if (getLangOpts().CPlusPlus && !FD->hasImplicitReturnZero() &&
-      !FD->getResultType()->isVoidType() && Builder.GetInsertBlock()) {
+      !FD->getReturnType()->isVoidType() && Builder.GetInsertBlock()) {
     if (SanOpts->Return)
       EmitCheck(Builder.getFalse(), "missing_return",
                 EmitCheckSourceLocation(FD->getLocation()),
@@ -771,6 +803,9 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   // a quick pass now to see if we can.
   if (!CurFn->doesNotThrow())
     TryMarkNoThrow(CurFn);
+
+  PGO.emitWriteoutFunction(CurGD);
+  PGO.destroyRegionCounters();
 }
 
 /// ContainsLabel - Return true if the statement contains a label in it.  If
@@ -869,10 +904,13 @@ ConstantFoldsToSimpleInteger(const Expr *Cond, llvm::APSInt &ResultInt) {
 ///
 void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                            llvm::BasicBlock *TrueBlock,
-                                           llvm::BasicBlock *FalseBlock) {
+                                           llvm::BasicBlock *FalseBlock,
+                                           uint64_t TrueCount) {
   Cond = Cond->IgnoreParens();
 
   if (const BinaryOperator *CondBOp = dyn_cast<BinaryOperator>(Cond)) {
+    RegionCounter Cnt = getPGORegionCounter(CondBOp);
+
     // Handle X && Y in a condition.
     if (CondBOp->getOpcode() == BO_LAnd) {
       // If we have "1 && X", simplify the code.  "0 && X" would have constant
@@ -881,7 +919,9 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       if (ConstantFoldsToSimpleInteger(CondBOp->getLHS(), ConstantBool) &&
           ConstantBool) {
         // br(1 && X) -> br(X).
-        return EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock);
+        Cnt.beginRegion(Builder);
+        return EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock,
+                                    TrueCount);
       }
 
       // If we have "X && 1", simplify the code to use an uncond branch.
@@ -889,21 +929,28 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       if (ConstantFoldsToSimpleInteger(CondBOp->getRHS(), ConstantBool) &&
           ConstantBool) {
         // br(X && 1) -> br(X).
-        return EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, FalseBlock);
+        return EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, FalseBlock,
+                                    TrueCount);
       }
 
       // Emit the LHS as a conditional.  If the LHS conditional is false, we
       // want to jump to the FalseBlock.
       llvm::BasicBlock *LHSTrue = createBasicBlock("land.lhs.true");
+      // The counter tells us how often we evaluate RHS, and all of TrueCount
+      // can be propagated to that branch.
+      uint64_t RHSCount = Cnt.getCount();
 
       ConditionalEvaluation eval(*this);
-      EmitBranchOnBoolExpr(CondBOp->getLHS(), LHSTrue, FalseBlock);
+      EmitBranchOnBoolExpr(CondBOp->getLHS(), LHSTrue, FalseBlock, RHSCount);
       EmitBlock(LHSTrue);
 
       // Any temporaries created here are conditional.
+      Cnt.beginRegion(Builder);
       eval.begin(*this);
-      EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock);
+      EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock, TrueCount);
       eval.end(*this);
+      Cnt.adjustForControlFlow();
+      Cnt.applyAdjustmentsToRegion();
 
       return;
     }
@@ -915,7 +962,9 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       if (ConstantFoldsToSimpleInteger(CondBOp->getLHS(), ConstantBool) &&
           !ConstantBool) {
         // br(0 || X) -> br(X).
-        return EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock);
+        Cnt.beginRegion(Builder);
+        return EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock,
+                                    TrueCount);
       }
 
       // If we have "X || 0", simplify the code to use an uncond branch.
@@ -923,21 +972,31 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       if (ConstantFoldsToSimpleInteger(CondBOp->getRHS(), ConstantBool) &&
           !ConstantBool) {
         // br(X || 0) -> br(X).
-        return EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, FalseBlock);
+        return EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, FalseBlock,
+                                    TrueCount);
       }
 
       // Emit the LHS as a conditional.  If the LHS conditional is true, we
       // want to jump to the TrueBlock.
       llvm::BasicBlock *LHSFalse = createBasicBlock("lor.lhs.false");
+      // We have the count for entry to the RHS and for the whole expression
+      // being true, so we can divy up True count between the short circuit and
+      // the RHS.
+      uint64_t LHSCount = Cnt.getParentCount() - Cnt.getCount();
+      uint64_t RHSCount = TrueCount - LHSCount;
 
       ConditionalEvaluation eval(*this);
-      EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, LHSFalse);
+      EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, LHSFalse, LHSCount);
       EmitBlock(LHSFalse);
 
       // Any temporaries created here are conditional.
+      Cnt.beginRegion(Builder);
       eval.begin(*this);
-      EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock);
+      EmitBranchOnBoolExpr(CondBOp->getRHS(), TrueBlock, FalseBlock, RHSCount);
+
       eval.end(*this);
+      Cnt.adjustForControlFlow();
+      Cnt.applyAdjustmentsToRegion();
 
       return;
     }
@@ -945,8 +1004,13 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
 
   if (const UnaryOperator *CondUOp = dyn_cast<UnaryOperator>(Cond)) {
     // br(!x, t, f) -> br(x, f, t)
-    if (CondUOp->getOpcode() == UO_LNot)
-      return EmitBranchOnBoolExpr(CondUOp->getSubExpr(), FalseBlock, TrueBlock);
+    if (CondUOp->getOpcode() == UO_LNot) {
+      // Negate the count.
+      uint64_t FalseCount = PGO.getCurrentRegionCount() - TrueCount;
+      // Negate the condition and swap the destination blocks.
+      return EmitBranchOnBoolExpr(CondUOp->getSubExpr(), FalseBlock, TrueBlock,
+                                  FalseCount);
+    }
   }
 
   if (const ConditionalOperator *CondOp = dyn_cast<ConditionalOperator>(Cond)) {
@@ -954,17 +1018,33 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     llvm::BasicBlock *LHSBlock = createBasicBlock("cond.true");
     llvm::BasicBlock *RHSBlock = createBasicBlock("cond.false");
 
+    RegionCounter Cnt = getPGORegionCounter(CondOp);
     ConditionalEvaluation cond(*this);
-    EmitBranchOnBoolExpr(CondOp->getCond(), LHSBlock, RHSBlock);
+    EmitBranchOnBoolExpr(CondOp->getCond(), LHSBlock, RHSBlock, Cnt.getCount());
+
+    // When computing PGO branch weights, we only know the overall count for
+    // the true block. This code is essentially doing tail duplication of the
+    // naive code-gen, introducing new edges for which counts are not
+    // available. Divide the counts proportionally between the LHS and RHS of
+    // the conditional operator.
+    uint64_t LHSScaledTrueCount = 0;
+    if (TrueCount) {
+      double LHSRatio = Cnt.getCount() / (double) PGO.getCurrentRegionCount();
+      LHSScaledTrueCount = TrueCount * LHSRatio;
+    }
 
     cond.begin(*this);
     EmitBlock(LHSBlock);
-    EmitBranchOnBoolExpr(CondOp->getLHS(), TrueBlock, FalseBlock);
+    Cnt.beginRegion(Builder);
+    EmitBranchOnBoolExpr(CondOp->getLHS(), TrueBlock, FalseBlock,
+                         LHSScaledTrueCount);
     cond.end(*this);
 
     cond.begin(*this);
     EmitBlock(RHSBlock);
-    EmitBranchOnBoolExpr(CondOp->getRHS(), TrueBlock, FalseBlock);
+    Cnt.beginElseRegion();
+    EmitBranchOnBoolExpr(CondOp->getRHS(), TrueBlock, FalseBlock,
+                         TrueCount - LHSScaledTrueCount);
     cond.end(*this);
 
     return;
@@ -980,9 +1060,15 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     return;
   }
 
+  // Create branch weights based on the number of times we get here and the
+  // number of times the condition should be true.
+  uint64_t CurrentCount = PGO.getCurrentRegionCountWithMin(TrueCount);
+  llvm::MDNode *Weights = PGO.createBranchWeights(TrueCount,
+                                                  CurrentCount - TrueCount);
+
   // Emit the code with the fully general case.
   llvm::Value *CondV = EvaluateExprAsBool(Cond);
-  Builder.CreateCondBr(CondV, TrueBlock, FalseBlock);
+  Builder.CreateCondBr(CondV, TrueBlock, FalseBlock, Weights);
 }
 
 /// ErrorUnsupported - Print out an error that codegen doesn't support the
@@ -1379,7 +1465,7 @@ void CodeGenFunction::EmitVariablyModifiedType(QualType type) {
 
     case Type::FunctionProto:
     case Type::FunctionNoProto:
-      type = cast<FunctionType>(ty)->getResultType();
+      type = cast<FunctionType>(ty)->getReturnType();
       break;
 
     case Type::Paren:

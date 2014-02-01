@@ -49,10 +49,9 @@ namespace llvm {
 namespace sys {
 namespace fs {
 
-/// file_type - An "enum class" enumeration for the file system's view of the
-///             type.
+/// An "enum class" enumeration for the file system's view of the type.
 struct file_type {
-  enum _ {
+  enum Impl {
     status_error,
     file_not_found,
     regular_file,
@@ -65,12 +64,11 @@ struct file_type {
     type_unknown
   };
 
-  file_type(_ v) : v_(v) {}
-  explicit file_type(int v) : v_(_(v)) {}
-  operator int() const {return v_;}
+  file_type(Impl V) : V(V) {}
+  operator Impl() const { return V; }
 
 private:
-  int v_;
+  Impl V;
 };
 
 /// space_info - Self explanatory.
@@ -339,22 +337,6 @@ error_code remove(const Twine &path, bool &existed);
 inline error_code remove(const Twine &Path) {
   bool Existed;
   return remove(Path, Existed);
-}
-
-/// @brief Recursively remove all files below \a path, then \a path. Files are
-///        removed as if by POSIX remove().
-///
-/// @param path Input path.
-/// @param num_removed Number of files removed.
-/// @returns errc::success if path has been removed and num_removed has been
-///          successfully set, otherwise a platform specific error_code.
-error_code remove_all(const Twine &path, uint32_t &num_removed);
-
-/// @brief Convenience function for clients that don't need to know how many
-///        files were removed.
-inline error_code remove_all(const Twine &Path) {
-  uint32_t Removed;
-  return remove_all(Path, Removed);
 }
 
 /// @brief Rename \a from to \a to. Files are renamed as if by POSIX rename().

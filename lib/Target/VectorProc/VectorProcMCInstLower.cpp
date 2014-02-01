@@ -25,7 +25,6 @@
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCSymbol.h"
-#include "llvm/Target/Mangler.h"
 
 #define GET_REGINFO_ENUM
 #include "VectorProcGenRegisterInfo.inc"

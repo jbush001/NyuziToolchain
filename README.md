@@ -31,9 +31,6 @@ The toolchain will be installed into /usr/local/llvm-vectorproc
 
 ## Running unit tests
 
-* From the shell, switch to the directory build/test/.  Type 'make check'.  This will set up
-the configuration (it will try to run a bunch of tests, many of which will fail.  It's okay to Ctrl-C at this point).  
-* Do the same thing for clang.  From the top of the build directory, switch to tools/clang/test and type 'make check'. These two steps only need to be done once when setting up the project for the first time.
 * Change PATH environment variable to include the binary directory (build/bin) 
 * From the top of the source (not build) directory, the test can be run as follows:
 

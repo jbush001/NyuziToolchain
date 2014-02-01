@@ -376,18 +376,16 @@ static bool MightInstantiateTo(Sema &S,
   if (FriendTy.getQualifiers() != ContextTy.getQualifiers())
     return false;
 
-  if (FriendTy->getNumArgs() != ContextTy->getNumArgs())
+  if (FriendTy->getNumParams() != ContextTy->getNumParams())
     return false;
 
-  if (!MightInstantiateTo(S,
-                          ContextTy->getResultType(),
-                          FriendTy->getResultType()))
+  if (!MightInstantiateTo(S, ContextTy->getReturnType(),
+                          FriendTy->getReturnType()))
     return false;
 
-  for (unsigned I = 0, E = FriendTy->getNumArgs(); I != E; ++I)
-    if (!MightInstantiateTo(S,
-                            ContextTy->getArgType(I),
-                            FriendTy->getArgType(I)))
+  for (unsigned I = 0, E = FriendTy->getNumParams(); I != E; ++I)
+    if (!MightInstantiateTo(S, ContextTy->getParamType(I),
+                            FriendTy->getParamType(I)))
       return false;
 
   return true;
@@ -797,7 +795,7 @@ static AccessResult HasAccess(Sema &S,
         // Emulate a MSVC bug where the creation of pointer-to-member
         // to protected member of base class is allowed but only from
         // static member functions.
-        if (S.getLangOpts().MicrosoftMode && !EC.Functions.empty())
+        if (S.getLangOpts().MSVCCompat && !EC.Functions.empty())
           if (CXXMethodDecl* MD = dyn_cast<CXXMethodDecl>(EC.Functions.front()))
             if (MD->isStatic()) return AR_accessible;
 
@@ -1082,15 +1080,15 @@ static bool TryDiagnoseProtectedAccess(Sema &S, const EffectiveContext &EC,
         (isa<FunctionTemplateDecl>(D) &&
          isa<CXXConstructorDecl>(
                 cast<FunctionTemplateDecl>(D)->getTemplatedDecl()))) {
-      S.Diag(D->getLocation(), diag::note_access_protected_restricted_ctordtor)
-        << isa<CXXDestructorDecl>(D);
-      return true;
+      return S.Diag(D->getLocation(),
+                    diag::note_access_protected_restricted_ctordtor)
+             << isa<CXXDestructorDecl>(D->getAsFunction());
     }
 
     // Otherwise, use the generic diagnostic.
-    S.Diag(D->getLocation(), diag::note_access_protected_restricted_object)
-      << S.Context.getTypeDeclType(ECRecord);
-    return true;
+    return S.Diag(D->getLocation(),
+                  diag::note_access_protected_restricted_object)
+           << S.Context.getTypeDeclType(ECRecord);
   }
 
   return false;
@@ -1422,7 +1420,7 @@ static AccessResult CheckEffectiveAccess(Sema &S,
                                          AccessTarget &Entity) {
   assert(Entity.getAccess() != AS_public && "called for public access!");
 
-  if (S.getLangOpts().MicrosoftMode &&
+  if (S.getLangOpts().MSVCCompat &&
       IsMicrosoftUsingDeclarationAccessBug(S, Loc, Entity))
     return AR_accessible;
 
@@ -1749,10 +1747,7 @@ Sema::AccessResult Sema::CheckMemberOperatorAccess(SourceLocation OpLoc,
 
 /// Checks access to the target of a friend declaration.
 Sema::AccessResult Sema::CheckFriendAccess(NamedDecl *target) {
-  assert(isa<CXXMethodDecl>(target) ||
-         (isa<FunctionTemplateDecl>(target) &&
-          isa<CXXMethodDecl>(cast<FunctionTemplateDecl>(target)
-                               ->getTemplatedDecl())));
+  assert(isa<CXXMethodDecl>(target->getAsFunction()));
 
   // Friendship lookup is a redeclaration lookup, so there's never an
   // inheritance path modifying access.
@@ -1761,10 +1756,7 @@ Sema::AccessResult Sema::CheckFriendAccess(NamedDecl *target) {
   if (!getLangOpts().AccessControl || access == AS_public)
     return AR_accessible;
 
-  CXXMethodDecl *method = dyn_cast<CXXMethodDecl>(target);
-  if (!method)
-    method = cast<CXXMethodDecl>(
-                     cast<FunctionTemplateDecl>(target)->getTemplatedDecl());
+  CXXMethodDecl *method = cast<CXXMethodDecl>(target->getAsFunction());
   assert(method->getQualifier());
 
   AccessTarget entity(Context, AccessTarget::Member,

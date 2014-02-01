@@ -92,6 +92,13 @@ bool Argument::hasInAllocaAttr() const {
     hasAttribute(getArgNo()+1, Attribute::InAlloca);
 }
 
+bool Argument::hasByValOrInAllocaAttr() const {
+  if (!getType()->isPointerTy()) return false;
+  AttributeSet Attrs = getParent()->getAttributes();
+  return Attrs.hasAttribute(getArgNo() + 1, Attribute::ByVal) ||
+         Attrs.hasAttribute(getArgNo() + 1, Attribute::InAlloca);
+}
+
 unsigned Argument::getParamAlignment() const {
   assert(getType()->isPointerTy() && "Only pointers have alignments");
   return getParent()->getParamAlignment(getArgNo()+1);
@@ -736,10 +743,8 @@ bool Function::isDefTriviallyDead() const {
 bool Function::callsFunctionThatReturnsTwice() const {
   for (const_inst_iterator
          I = inst_begin(this), E = inst_end(this); I != E; ++I) {
-    const CallInst* callInst = dyn_cast<CallInst>(&*I);
-    if (!callInst)
-      continue;
-    if (callInst->canReturnTwice())
+    ImmutableCallSite CS(&*I);
+    if (CS && CS.hasFnAttr(Attribute::ReturnsTwice))
       return true;
   }
 

@@ -35,9 +35,9 @@ class Group;
 class PECOFFLinkingContext : public LinkingContext {
 public:
   PECOFFLinkingContext()
-      : _baseAddress(0x400000), _stackReserve(1024 * 1024), _stackCommit(4096),
-        _heapReserve(1024 * 1024), _heapCommit(4096), _noDefaultLibAll(false),
-        _sectionDefaultAlignment(4096),
+      : _baseAddress(invalidBaseAddress), _stackReserve(1024 * 1024),
+        _stackCommit(4096), _heapReserve(1024 * 1024), _heapCommit(4096),
+        _noDefaultLibAll(false), _sectionDefaultAlignment(4096),
         _subsystem(llvm::COFF::IMAGE_SUBSYSTEM_UNKNOWN),
         _machineType(llvm::COFF::IMAGE_FILE_MACHINE_I386), _imageVersion(0, 0),
         _minOSVersion(6, 0), _nxCompat(true), _largeAddressAware(false),
@@ -46,8 +46,7 @@ public:
         _terminalServerAware(true), _dynamicBaseEnabled(true),
         _createManifest(true), _embedManifest(false), _manifestId(1),
         _manifestLevel("'asInvoker'"), _manifestUiAccess("'false'"),
-        _imageType(ImageType::IMAGE_EXE),
-        _dosStub(llvm::makeArrayRef(DEFAULT_DOS_STUB)) {
+        _isDll(false), _dosStub(llvm::makeArrayRef(DEFAULT_DOS_STUB)) {
     setDeadStripping(true);
   }
 
@@ -59,6 +58,10 @@ public:
 
   struct ExportDesc {
     ExportDesc() : ordinal(-1), noname(false), isData(false) {}
+    bool operator<(const ExportDesc &other) const {
+      return name.compare(other.name) < 0;
+    }
+
     std::string name;
     int ordinal;
     bool noname;
@@ -68,11 +71,6 @@ public:
   /// \brief Casting support
   static inline bool classof(const LinkingContext *info) { return true; }
 
-  enum ImageType {
-    IMAGE_EXE,
-    IMAGE_DLL
-  };
-
   virtual Writer &writer() const;
   virtual bool validateImpl(raw_ostream &diagnostics);
 
@@ -80,6 +78,10 @@ public:
 
   virtual bool
   createImplicitFiles(std::vector<std::unique_ptr<File> > &result) const;
+
+  bool is64Bit() const {
+    return _machineType == llvm::COFF::IMAGE_FILE_MACHINE_AMD64;
+  }
 
   void appendInputSearchPath(StringRef dirPath) {
     _inputSearchPaths.push_back(dirPath);
@@ -98,6 +100,7 @@ public:
   StringRef searchLibraryFile(StringRef path) const;
 
   StringRef decorateSymbol(StringRef name) const;
+  StringRef undecorateSymbol(StringRef name) const;
 
   void setEntrySymbolName(StringRef name) {
     if (!name.empty())
@@ -105,7 +108,7 @@ public:
   }
 
   void setBaseAddress(uint64_t addr) { _baseAddress = addr; }
-  uint64_t getBaseAddress() const { return _baseAddress; }
+  uint64_t getBaseAddress() const;
 
   void setStackReserve(uint64_t size) { _stackReserve = size; }
   void setStackCommit(uint64_t size) { _stackCommit = size; }
@@ -188,8 +191,8 @@ public:
     return _manifestDependency;
   }
 
-  void setImageType(ImageType type) { _imageType = type; }
-  ImageType getImageType() const { return _imageType; }
+  void setIsDll(bool val) { _isDll = val; }
+  bool isDll() const { return _isDll; }
 
   StringRef getOutputSectionName(StringRef sectionName) const;
   bool addSectionRenaming(raw_ostream &diagnostics,
@@ -216,9 +219,9 @@ public:
   void setDosStub(ArrayRef<uint8_t> data) { _dosStub = data; }
   ArrayRef<uint8_t> getDosStub() const { return _dosStub; }
 
-  void addDllExport(ExportDesc &desc) { _dllExports.push_back(desc); }
-  std::vector<ExportDesc> &getDllExports() { return _dllExports; }
-  const std::vector<ExportDesc> &getDllExports() const { return _dllExports; }
+  void addDllExport(ExportDesc &desc);
+  std::set<ExportDesc> &getDllExports() { return _dllExports; }
+  const std::set<ExportDesc> &getDllExports() const { return _dllExports; }
 
   StringRef allocate(StringRef ref) const {
     char *x = _allocator.Allocate<char>(ref.size() + 1);
@@ -247,6 +250,12 @@ protected:
   virtual std::unique_ptr<File> createUndefinedSymbolFile() const;
 
 private:
+  enum : uint64_t {
+    invalidBaseAddress = UINT64_MAX,
+    pe32DefaultBaseAddress = 0x400000U,
+    pe32PlusDefaultBaseAddress = 0x140000000U
+ };
+
   // The start address for the program. The default value for the executable is
   // 0x400000, but can be altered using /base command line option.
   uint64_t _baseAddress;
@@ -277,7 +286,7 @@ private:
   std::string _manifestLevel;
   std::string _manifestUiAccess;
   std::string _manifestDependency;
-  ImageType _imageType;
+  bool _isDll;
 
   // The set to store /nodefaultlib arguments.
   std::set<std::string> _noDefaultLibs;
@@ -298,7 +307,7 @@ private:
   std::map<std::string, uint32_t> _sectionClearMask;
 
   // DLLExport'ed symbols.
-  std::vector<ExportDesc> _dllExports;
+  std::set<ExportDesc> _dllExports;
 
   // List of files that will be removed on destruction.
   std::vector<std::unique_ptr<llvm::FileRemover> > _tempFiles;

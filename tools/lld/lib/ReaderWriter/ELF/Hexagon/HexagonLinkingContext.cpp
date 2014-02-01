@@ -9,6 +9,7 @@
 
 #include "Atoms.h"
 #include "HexagonLinkingContext.h"
+#include "HexagonTargetHandler.h"
 
 #include "lld/Core/File.h"
 #include "lld/Core/Pass.h"
@@ -90,7 +91,7 @@ private:
 };
 }
 
-bool elf::HexagonLinkingContext::createInternalFiles(
+void elf::HexagonLinkingContext::createInternalFiles(
     std::vector<std::unique_ptr<File> > &result) const {
   ELFLinkingContext::createInternalFiles(result);
   std::unique_ptr<HexagonInitFiniFile> initFiniFile(
@@ -100,5 +101,8 @@ bool elf::HexagonLinkingContext::createInternalFiles(
   for (auto ai:finiFunctions())
     initFiniFile->addFiniFunction(ai);
   result.push_back(std::move(initFiniFile));
-  return true;
 }
+
+HexagonLinkingContext::HexagonLinkingContext(llvm::Triple triple)
+    : ELFLinkingContext(triple, std::unique_ptr<TargetHandlerBase>(
+                                    new HexagonTargetHandler(*this))) {}

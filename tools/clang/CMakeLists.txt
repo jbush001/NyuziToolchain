@@ -2,7 +2,7 @@
 # standalone project, using LLVM as an external library:
 if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
   project(Clang)
-  cmake_minimum_required(VERSION 2.8)
+  cmake_minimum_required(VERSION 2.8.8)
 
   # Rely on llvm-config.
   set(CONFIG_OUTPUT)
@@ -66,10 +66,15 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
     message(FATAL_ERROR "Not found: ${LLVMCONFIG_FILE}")
   endif()
 
-  set(LLVM_RUNTIME_OUTPUT_INTDIR ${LLVM_TOOLS_BINARY_DIR})
-  set(LLVM_LIBRARY_OUTPUT_INTDIR ${LLVM_LIBRARY_DIR})
+  # They are used as destination of target generators.
+  set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/bin)
+  set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/lib)
 
-  option(LLVM_INSTALL_TOOLCHAIN_ONLY "Only include toolchain files in the 'install' target." OFF)
+  option(LLVM_INSTALL_TOOLCHAIN_ONLY
+    "Only include toolchain files in the 'install' target." OFF)
+
+  option(LLVM_FORCE_USE_OLD_HOST_TOOLCHAIN
+    "Set to ON to force using an old, unsupported host toolchain." OFF)
 
   include(AddLLVM)
   include(TableGen)
@@ -81,7 +86,6 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
     set(LLVM_INCLUDE_TESTS ON)
   endif()
 
-  set(CMAKE_INCLUDE_CURRENT_DIR ON)
   include_directories("${LLVM_BINARY_DIR}/include" "${LLVM_MAIN_INCLUDE_DIR}")
   link_directories("${LLVM_LIBRARY_DIR}")
 
@@ -174,9 +178,6 @@ set(CLANG_VENDOR_UTI "org.llvm.clang" CACHE STRING
 set(CLANG_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(CLANG_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
-set(CLANG_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/bin/${CMAKE_CFG_INTDIR})
-set(CLANG_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/lib/${CMAKE_CFG_INTDIR})
-
 if( CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR AND NOT MSVC_IDE )
   message(FATAL_ERROR "In-source builds are not allowed. CMake would overwrite "
 "the makefiles distributed with LLVM. Please create a directory and run cmake "
@@ -242,7 +243,7 @@ configure_file(
   ${CLANG_SOURCE_DIR}/include/clang/Config/config.h.cmake
   ${CLANG_BINARY_DIR}/include/clang/Config/config.h)
 
-include(LLVMParseArguments)
+include(CMakeParseArguments)
 
 function(clang_tablegen)
   # Syntax:
@@ -257,59 +258,25 @@ function(clang_tablegen)
   # executing the custom command depending on output-file. It is
   # possible to list more files to depend after DEPENDS.
 
-  parse_arguments( CTG "SOURCE;TARGET;DEPENDS" "" ${ARGN} )
+  cmake_parse_arguments(CTG "" "SOURCE;TARGET" "DEPENDS" ${ARGN})
 
   if( NOT CTG_SOURCE )
     message(FATAL_ERROR "SOURCE source-file required by clang_tablegen")
   endif()
 
   set( LLVM_TARGET_DEFINITIONS ${CTG_SOURCE} )
-  tablegen( CLANG ${CTG_DEFAULT_ARGS} )
+  tablegen(CLANG ${CTG_UNPARSED_ARGUMENTS})
 
-  list( GET CTG_DEFAULT_ARGS 0 output_file )
+  list(GET CTG_UNPARSED_ARGUMENTS 0 output_file)
   if( CTG_TARGET )
     add_custom_target( ${CTG_TARGET} DEPENDS ${output_file} ${CTG_DEPENDS} )
     set_target_properties( ${CTG_TARGET} PROPERTIES FOLDER "Clang tablegenning")
   endif()
 endfunction(clang_tablegen)
 
-# FIXME: Generalize and move to llvm.
-function(add_clang_symbol_exports target_name export_file)
-  # Makefile.rules contains special cases for different platforms.
-  # We restrict ourselves to Darwin for the time being.
-  if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-    add_custom_command(OUTPUT symbol.exports
-      COMMAND sed -e "s/^/_/" < ${export_file} > symbol.exports
-      DEPENDS ${export_file}
-      VERBATIM
-      COMMENT "Creating export file for ${target_name}")
-    add_custom_target(${target_name}_exports DEPENDS symbol.exports)
-    set_property(DIRECTORY APPEND
-      PROPERTY ADDITIONAL_MAKE_CLEAN_FILES symbol.exports)
-
-    get_property(srcs TARGET ${target_name} PROPERTY SOURCES)
-    foreach(src ${srcs})
-      get_filename_component(extension ${src} EXT)
-      if(extension STREQUAL ".cpp")
-        set(first_source_file ${src})
-        break()
-      endif()
-    endforeach()
-  
-    # Force re-linking when the exports file changes. Actually, it
-    # forces recompilation of the source file. The LINK_DEPENDS target
-    # property only works for makefile-based generators.
-    set_property(SOURCE ${first_source_file} APPEND PROPERTY
-      OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/symbol.exports)
-  
-    set_property(TARGET ${target_name} APPEND_STRING PROPERTY
-                 LINK_FLAGS " -Wl,-exported_symbols_list,${CMAKE_CURRENT_BINARY_DIR}/symbol.exports")
-    add_dependencies(${target_name} ${target_name}_exports)
-  endif()
-endfunction(add_clang_symbol_exports)
-
 macro(add_clang_library name)
-  llvm_process_sources(srcs ${ARGN})
+  cmake_parse_arguments(ARG "MODULE;SHARED;STATIC" "" "" ${ARGN})
+  llvm_process_sources(srcs ${ARG_UNPARSED_ARGUMENTS})
   if(MSVC_IDE OR XCODE)
     # Add public headers
     file(RELATIVE_PATH lib_path
@@ -332,14 +299,17 @@ macro(add_clang_library name)
       set(srcs ${srcs} ${headers} ${tds})
     endif()
   endif(MSVC_IDE OR XCODE)
-  if (MODULE)
+  if (ARG_MODULE)
     set(libkind MODULE)
-  elseif (SHARED_LIBRARY)
+  elseif (ARG_SHARED)
     set(libkind SHARED)
   else()
     set(libkind)
   endif()
   add_library( ${name} ${libkind} ${srcs} )
+  llvm_update_compile_flags(${name} ${ALL_FILES})
+  add_dead_strip( ${name} )
+  set_output_directory(${name} ${LLVM_RUNTIME_OUTPUT_INTDIR} ${LLVM_LIBRARY_OUTPUT_INTDIR})
   if( LLVM_COMMON_DEPENDS )
     add_dependencies( ${name} ${LLVM_COMMON_DEPENDS} )
   endif( LLVM_COMMON_DEPENDS )
@@ -348,9 +318,13 @@ macro(add_clang_library name)
   target_link_libraries( ${name} ${LLVM_COMMON_LIBS} )
   link_system_libs( ${name} )
   
-  if (SHARED_LIBRARY AND EXPORTED_SYMBOL_FILE)
-    add_clang_symbol_exports( ${name} ${EXPORTED_SYMBOL_FILE} ) 
+  if ((ARG_SHARED OR ARG_MODULE) AND LLVM_EXPORTED_SYMBOL_FILE)
+    add_llvm_symbol_exports( ${name} ${LLVM_EXPORTED_SYMBOL_FILE} )
   endif()
+
+  if (MODULE)
+    set_property(TARGET ${name} PROPERTY SUFFIX ${LLVM_PLUGIN_EXT})
+  endif ()
 
   if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY OR ${name} STREQUAL "libclang")
     install(TARGETS ${name}
@@ -366,6 +340,8 @@ macro(add_clang_executable name)
   add_llvm_executable( ${name} ${ARGN} )
   set_target_properties(${name} PROPERTIES FOLDER "Clang executables")
 endmacro(add_clang_executable)
+
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 include_directories(BEFORE
   ${CMAKE_CURRENT_BINARY_DIR}/include
@@ -442,6 +418,11 @@ add_subdirectory(tools)
 add_subdirectory(runtime)
 
 option(CLANG_BUILD_EXAMPLES "Build CLANG example programs by default." OFF)
+if (CLANG_BUILD_EXAMPLES)
+  set(ENABLE_CLANG_EXAMPLES "1")
+else()
+  set(ENABLE_CLANG_EXAMPLES "0")
+endif()
 add_subdirectory(examples)
 
 option(CLANG_INCLUDE_TESTS
@@ -457,6 +438,22 @@ if( CLANG_INCLUDE_TESTS )
       )
   endif()
   add_subdirectory(test)
+
+  if(CLANG_BUILT_STANDALONE)
+    # Add a global check rule now that all subdirectories have been traversed
+    # and we know the total set of lit testsuites.
+    get_property(LLVM_LIT_TESTSUITES GLOBAL PROPERTY LLVM_LIT_TESTSUITES)
+    get_property(LLVM_LIT_PARAMS GLOBAL PROPERTY LLVM_LIT_PARAMS)
+    get_property(LLVM_LIT_DEPENDS GLOBAL PROPERTY LLVM_LIT_DEPENDS)
+    get_property(LLVM_LIT_EXTRA_ARGS GLOBAL PROPERTY LLVM_LIT_EXTRA_ARGS)
+    add_lit_target(check-all
+      "Running all regression tests"
+      ${LLVM_LIT_TESTSUITES}
+      PARAMS ${LLVM_LIT_PARAMS}
+      DEPENDS ${LLVM_LIT_DEPENDS}
+      ARGS ${LLVM_LIT_EXTRA_ARGS}
+      )
+  endif()
 endif()
 
 option(CLANG_INCLUDE_DOCS "Generate build targets for the Clang docs."

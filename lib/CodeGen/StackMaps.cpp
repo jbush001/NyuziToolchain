@@ -10,8 +10,9 @@
 #define DEBUG_TYPE "stackmaps"
 
 #include "llvm/CodeGen/StackMaps.h"
-
 #include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/MC/MCContext.h"
@@ -21,10 +22,9 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetOpcodes.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetOpcodes.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-
 #include <iterator>
 
 using namespace llvm;
@@ -43,7 +43,7 @@ PatchPointOpers::PatchPointOpers(const MachineInstr *MI)
     ++CheckStartIdx;
 
   assert(getMetaIdx() == CheckStartIdx &&
-         "Unexpected additonal definition in Patchpoint intrinsic.");
+         "Unexpected additional definition in Patchpoint intrinsic.");
 #endif
 }
 
@@ -209,18 +209,28 @@ void StackMaps::recordStackMapOpers(const MachineInstr &MI, uint64_t ID,
   // Move large constants into the constant pool.
   for (LocationVec::iterator I = Locations.begin(), E = Locations.end();
        I != E; ++I) {
-    if (I->LocType == Location::Constant && (I->Offset & ~0xFFFFFFFFULL)) {
+    // Constants are encoded as sign-extended integers.
+    // -1 is directly encoded as .long 0xFFFFFFFF with no constant pool.
+    if (I->LocType == Location::Constant &&
+        ((I->Offset + (int64_t(1)<<31)) >> 32) != 0) {
       I->LocType = Location::ConstantIndex;
       I->Offset = ConstPool.getConstantIndex(I->Offset);
     }
   }
 
+  // Create an expression to calculate the offset of the callsite from function
+  // entry.
   const MCExpr *CSOffsetExpr = MCBinaryExpr::CreateSub(
     MCSymbolRefExpr::Create(MILabel, OutContext),
     MCSymbolRefExpr::Create(AP.CurrentFnSym, OutContext),
     OutContext);
 
   CSInfos.push_back(CallsiteInfo(CSOffsetExpr, ID, Locations, LiveOuts));
+
+  // Record the stack size of the current function.
+  const MachineFrameInfo *MFI = AP.MF->getFrameInfo();
+  FnStackSize[AP.CurrentFnSym] =
+    MFI->hasVarSizedObjects() ? ~0U : MFI->getStackSize();
 }
 
 void StackMaps::recordStackMap(const MachineInstr &MI) {
@@ -257,6 +267,11 @@ void StackMaps::recordPatchPoint(const MachineInstr &MI) {
 /// serializeToStackMapSection conceptually populates the following fields:
 ///
 /// uint32 : Reserved (header)
+/// uint32 : NumFunctions
+/// StkSizeRecord[NumFunctions] {
+///   uint32 : Function Offset
+///   uint32 : Stack Size
+/// }
 /// uint32 : NumConstants
 /// int64  : Constants[NumConstants]
 /// uint32 : NumRecords
@@ -311,6 +326,16 @@ void StackMaps::serializeToStackMapSection() {
 
   // Header.
   AP.OutStreamer.EmitIntValue(0, 4);
+
+  // Num functions.
+  AP.OutStreamer.EmitIntValue(FnStackSize.size(), 4);
+
+  // Stack size entries.
+  for (FnStackSizeMap::iterator I = FnStackSize.begin(), E = FnStackSize.end();
+       I != E; ++I) {
+    AP.OutStreamer.EmitSymbolValue(I->first, 4);
+    AP.OutStreamer.EmitIntValue(I->second, 4);
+  }
 
   // Num constants.
   AP.OutStreamer.EmitIntValue(ConstPool.getNumConstants(), 4);

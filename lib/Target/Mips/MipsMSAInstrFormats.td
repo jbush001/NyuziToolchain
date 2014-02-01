@@ -15,6 +15,10 @@ class MSAInst : MipsInst<(outs), (ins), "", [], NoItinerary, FrmOther> {
   let Inst{31-26} = 0b011110;
 }
 
+class MSA64Inst : MSAInst {
+  let Predicates = [HasMSA, HasMips64];
+}
+
 class MSACBranch : MSAInst {
   let Inst{31-26} = 0b010001;
 }
@@ -82,6 +86,17 @@ class MSA_BIT_D_FMT<bits<3> major, bits<6> minor>: MSAInst {
 }
 
 class MSA_2R_FILL_FMT<bits<8> major, bits<2> df, bits<6> minor>: MSAInst {
+  bits<5> rs;
+  bits<5> wd;
+
+  let Inst{25-18} = major;
+  let Inst{17-16} = df;
+  let Inst{15-11} = rs;
+  let Inst{10-6} = wd;
+  let Inst{5-0} = minor;
+}
+
+class MSA_2R_FILL_D_FMT<bits<8> major, bits<2> df, bits<6> minor>: MSA64Inst {
   bits<5> rs;
   bits<5> wd;
 
@@ -274,6 +289,19 @@ class MSA_ELM_COPY_W_FMT<bits<4> major, bits<6> minor>: MSAInst {
   let Inst{5-0} = minor;
 }
 
+class MSA_ELM_COPY_D_FMT<bits<4> major, bits<6> minor>: MSA64Inst {
+  bits<4> n;
+  bits<5> ws;
+  bits<5> rd;
+
+  let Inst{25-22} = major;
+  let Inst{21-17} = 0b11100;
+  let Inst{16} = n{0};
+  let Inst{15-11} = ws;
+  let Inst{10-6} = rd;
+  let Inst{5-0} = minor;
+}
+
 class MSA_ELM_INSERT_B_FMT<bits<4> major, bits<6> minor>: MSAInst {
   bits<6> n;
   bits<5> rs;
@@ -308,6 +336,19 @@ class MSA_ELM_INSERT_W_FMT<bits<4> major, bits<6> minor>: MSAInst {
   let Inst{25-22} = major;
   let Inst{21-18} = 0b1100;
   let Inst{17-16} = n{1-0};
+  let Inst{15-11} = rs;
+  let Inst{10-6} = wd;
+  let Inst{5-0} = minor;
+}
+
+class MSA_ELM_INSERT_D_FMT<bits<4> major, bits<6> minor>: MSA64Inst {
+  bits<6> n;
+  bits<5> rs;
+  bits<5> wd;
+
+  let Inst{25-22} = major;
+  let Inst{21-17} = 0b11100;
+  let Inst{16} = n{0};
   let Inst{15-11} = rs;
   let Inst{10-6} = wd;
   let Inst{5-0} = minor;

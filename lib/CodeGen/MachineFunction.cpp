@@ -17,7 +17,6 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Analysis/ConstantFolding.h"
-#include "llvm/Assembly/Writer.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -447,12 +446,12 @@ unsigned MachineFunction::addLiveIn(unsigned PReg,
 /// normal 'L' label is returned.
 MCSymbol *MachineFunction::getJTISymbol(unsigned JTI, MCContext &Ctx, 
                                         bool isLinkerPrivate) const {
+  const DataLayout *DL = getTarget().getDataLayout();
   assert(JumpTableInfo && "No jump tables");
   assert(JTI < JumpTableInfo->getJumpTables().size() && "Invalid JTI!");
-  const MCAsmInfo &MAI = *getTarget().getMCAsmInfo();
 
-  const char *Prefix = isLinkerPrivate ? MAI.getLinkerPrivateGlobalPrefix() :
-                                         MAI.getPrivateGlobalPrefix();
+  const char *Prefix = isLinkerPrivate ? DL->getLinkerPrivateGlobalPrefix() :
+                                         DL->getPrivateGlobalPrefix();
   SmallString<60> Name;
   raw_svector_ostream(Name)
     << Prefix << "JTI" << getFunctionNumber() << '_' << JTI;
@@ -462,8 +461,8 @@ MCSymbol *MachineFunction::getJTISymbol(unsigned JTI, MCContext &Ctx,
 /// getPICBaseSymbol - Return a function-local symbol to represent the PIC
 /// base.
 MCSymbol *MachineFunction::getPICBaseSymbol() const {
-  const MCAsmInfo &MAI = *Target.getMCAsmInfo();
-  return Ctx.GetOrCreateSymbol(Twine(MAI.getPrivateGlobalPrefix())+
+  const DataLayout *DL = getTarget().getDataLayout();
+  return Ctx.GetOrCreateSymbol(Twine(DL->getPrivateGlobalPrefix())+
                                Twine(getFunctionNumber())+"$pb");
 }
 
@@ -918,7 +917,7 @@ void MachineConstantPool::print(raw_ostream &OS) const {
     if (Constants[i].isMachineConstantPoolEntry())
       Constants[i].Val.MachineCPVal->print(OS);
     else
-      WriteAsOperand(OS, Constants[i].Val.ConstVal, /*PrintType=*/false);
+      Constants[i].Val.ConstVal->printAsOperand(OS, /*PrintType=*/false);
     OS << ", align=" << Constants[i].getAlignment();
     OS << "\n";
   }

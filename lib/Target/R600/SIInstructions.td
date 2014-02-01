@@ -22,6 +22,10 @@ def InterpSlot : Operand<i32> {
   let PrintMethod = "printInterpSlot";
 }
 
+def SendMsgImm : Operand<i32> {
+  let PrintMethod = "printSendMsg";
+}
+
 def isSI : Predicate<"Subtarget.getGeneration() "
                       ">= AMDGPUSubtarget::SOUTHERN_ISLANDS">;
 
@@ -826,17 +830,25 @@ def S_BARRIER : SOPP <0x0000000a, (ins), "S_BARRIER",
 def S_WAITCNT : SOPP <0x0000000c, (ins WAIT_FLAG:$simm16), "S_WAITCNT $simm16",
   []
 >;
-} // End hasSideEffects
 //def S_SETHALT : SOPP_ <0x0000000d, "S_SETHALT", []>;
 //def S_SLEEP : SOPP_ <0x0000000e, "S_SLEEP", []>;
 //def S_SETPRIO : SOPP_ <0x0000000f, "S_SETPRIO", []>;
-//def S_SENDMSG : SOPP_ <0x00000010, "S_SENDMSG", []>;
+
+let Uses = [EXEC] in {
+  def S_SENDMSG : SOPP <0x00000010, (ins SendMsgImm:$simm16, M0Reg:$m0), "S_SENDMSG $simm16",
+      [(int_SI_sendmsg imm:$simm16, M0Reg:$m0)]
+  > {
+    let DisableEncoding = "$m0";
+  }
+} // End Uses = [EXEC]
+
 //def S_SENDMSGHALT : SOPP_ <0x00000011, "S_SENDMSGHALT", []>;
 //def S_TRAP : SOPP_ <0x00000012, "S_TRAP", []>;
 //def S_ICACHE_INV : SOPP_ <0x00000013, "S_ICACHE_INV", []>;
 //def S_INCPERFLEVEL : SOPP_ <0x00000014, "S_INCPERFLEVEL", []>;
 //def S_DECPERFLEVEL : SOPP_ <0x00000015, "S_DECPERFLEVEL", []>;
 //def S_TTRACEDATA : SOPP_ <0x00000016, "S_TTRACEDATA", []>;
+} // End hasSideEffects
 
 def V_CNDMASK_B32_e32 : VOP2 <0x00000000, (outs VReg_32:$dst),
   (ins VSrc_32:$src0, VReg_32:$src1, VCCReg:$vcc),
@@ -1416,7 +1428,7 @@ def : Pat <
 /* int_SI_vs_load_input */
 def : Pat<
   (SIload_input i128:$tlst, IMM12bit:$attr_offset, i32:$buf_idx_vgpr),
-  (BUFFER_LOAD_FORMAT_XYZW_IDXEN $tlst, $buf_idx_vgpr, imm:$attr_offset)
+  (BUFFER_LOAD_FORMAT_XYZW_IDXEN $tlst, $buf_idx_vgpr, imm:$attr_offset, 0, 0, 0, 0)
 >;
 
 /* int_SI_export */
@@ -1822,7 +1834,7 @@ def : Pat <
 // 3. Offset in an 32Bit VGPR
 def : Pat <
   (SIload_constant i128:$sbase, i32:$voff),
-  (BUFFER_LOAD_DWORD_OFFEN $sbase, $voff)
+  (BUFFER_LOAD_DWORD_OFFEN $sbase, $voff, 0, 0, 0, 0)
 >;
 
 // The multiplication scales from [0,1] to the unsigned integer range
@@ -1983,6 +1995,50 @@ defm : MUBUFStore_Pattern <BUFFER_STORE_DWORDX2, i64, global_store>;
 defm : MUBUFStore_Pattern <BUFFER_STORE_DWORDX2, v2i32, global_store>;
 defm : MUBUFStore_Pattern <BUFFER_STORE_DWORDX4, v4i32, global_store>;
 
+// BUFFER_LOAD_DWORD*, addr64=0
+multiclass MUBUF_Load_Dword <ValueType vt, MUBUF offset, MUBUF offen, MUBUF idxen,
+                             MUBUF bothen> {
+
+  def : Pat <
+    (vt (int_SI_buffer_load_dword i128:$rsrc, i32:$vaddr, i32:$soffset,
+                                  imm:$offset, 0, 0, imm:$glc, imm:$slc,
+                                  imm:$tfe)),
+    (offset $rsrc, $vaddr, (as_i16imm $offset), $soffset, (as_i1imm $glc),
+            (as_i1imm $slc), (as_i1imm $tfe))
+  >;
+
+  def : Pat <
+    (vt (int_SI_buffer_load_dword i128:$rsrc, i32:$vaddr, i32:$soffset,
+                                  imm, 1, 0, imm:$glc, imm:$slc,
+                                  imm:$tfe)),
+    (offen $rsrc, $vaddr, $soffset, (as_i1imm $glc), (as_i1imm $slc),
+           (as_i1imm $tfe))
+  >;
+
+  def : Pat <
+    (vt (int_SI_buffer_load_dword i128:$rsrc, i32:$vaddr, i32:$soffset,
+                                  imm:$offset, 0, 1, imm:$glc, imm:$slc,
+                                  imm:$tfe)),
+    (idxen $rsrc, $vaddr, (as_i16imm $offset), $soffset, (as_i1imm $glc),
+           (as_i1imm $slc), (as_i1imm $tfe))
+  >;
+
+  def : Pat <
+    (vt (int_SI_buffer_load_dword i128:$rsrc, v2i32:$vaddr, i32:$soffset,
+                                  imm, 1, 1, imm:$glc, imm:$slc,
+                                  imm:$tfe)),
+    (bothen $rsrc, $vaddr, $soffset, (as_i1imm $glc), (as_i1imm $slc),
+            (as_i1imm $tfe))
+  >;
+}
+
+defm : MUBUF_Load_Dword <i32, BUFFER_LOAD_DWORD_OFFSET, BUFFER_LOAD_DWORD_OFFEN,
+                         BUFFER_LOAD_DWORD_IDXEN, BUFFER_LOAD_DWORD_BOTHEN>;
+defm : MUBUF_Load_Dword <v2i32, BUFFER_LOAD_DWORDX2_OFFSET, BUFFER_LOAD_DWORDX2_OFFEN,
+                         BUFFER_LOAD_DWORDX2_IDXEN, BUFFER_LOAD_DWORDX2_BOTHEN>;
+defm : MUBUF_Load_Dword <v4i32, BUFFER_LOAD_DWORDX4_OFFSET, BUFFER_LOAD_DWORDX4_OFFEN,
+                         BUFFER_LOAD_DWORDX4_IDXEN, BUFFER_LOAD_DWORDX4_BOTHEN>;
+
 //===----------------------------------------------------------------------===//
 // MTBUF Patterns
 //===----------------------------------------------------------------------===//
@@ -2068,6 +2124,11 @@ def : Pat <
 def : Pat <
   (i32 (trunc i64:$a)),
   (EXTRACT_SUBREG $a, sub0)
+>;
+
+def : Pat <
+  (i1 (trunc i32:$a)),
+  (V_CMP_EQ_I32_e64 (V_AND_B32_e32 (i32 1), $a), 1)
 >;
 
 // V_ADD_I32_e32/S_ADD_I32 produces carry in VCC/SCC. For the vector

@@ -36,9 +36,7 @@ public:
   void ParseSubtargetFeatures(StringRef CPU, StringRef FS);
 
   std::string getDataLayout() const {
-    const char *p;
-    p = "e-p:32:32:32-i32:32:32-f32:32:32";
-    return std::string(p);
+    return std::string("e-m:e-p:32:32");
   }
 
   int64_t getStackPointerBias() const { return 0; }

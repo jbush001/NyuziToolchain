@@ -42,8 +42,8 @@ static void CompareReturnTypes(const ObjCMethodDecl *MethDerived,
                                BugReporter &BR, ASTContext &Ctx,
                                const ObjCImplementationDecl *ID) {
 
-  QualType ResDerived  = MethDerived->getResultType();
-  QualType ResAncestor = MethAncestor->getResultType();
+  QualType ResDerived = MethDerived->getReturnType();
+  QualType ResAncestor = MethAncestor->getReturnType();
 
   if (!AreTypesCompatible(ResDerived, ResAncestor, Ctx)) {
     std::string sbuf;
@@ -53,9 +53,9 @@ static void CompareReturnTypes(const ObjCMethodDecl *MethDerived,
        << *MethDerived->getClassInterface()
        << "', which is derived from class '"
        << *MethAncestor->getClassInterface()
-       << "', defines the instance method '"
-       << MethDerived->getSelector().getAsString()
-       << "' whose return type is '"
+       << "', defines the instance method '";
+    MethDerived->getSelector().print(os);
+    os << "' whose return type is '"
        << ResDerived.getAsString()
        << "'.  A method with the same name (same selector) is also defined in "
           "class '"

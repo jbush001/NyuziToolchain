@@ -21,24 +21,20 @@ class VectorProcLinkingContext;
 class VectorProcTargetRelocationHandler LLVM_FINAL
     : public TargetRelocationHandler<VectorProcELFType> {
 public:
-  VectorProcTargetRelocationHandler(const VectorProcLinkingContext &ti) : _targetInfo(ti) {}
-
+  VectorProcTargetRelocationHandler(const VectorProcLinkingContext &context) {}
   virtual error_code applyRelocation(ELFWriter &, llvm::FileOutputBuffer &,
                                         const lld::AtomLayout &,
                                         const Reference &)const;
-
-private:
-  const VectorProcLinkingContext &_targetInfo;
 };
 
 class VectorProcTargetHandler LLVM_FINAL
     : public DefaultTargetHandler<VectorProcELFType> {
 public:
-  VectorProcTargetHandler(VectorProcLinkingContext &targetInfo);
+  VectorProcTargetHandler(VectorProcLinkingContext &context);
 
   virtual void registerRelocationNames(Registry &registry);
 
-  virtual TargetLayout<VectorProcELFType> &targetLayout() {
+  virtual TargetLayout<VectorProcELFType> &getTargetLayout() {
     return _targetLayout;
   }
 
@@ -46,11 +42,14 @@ public:
     return _relocationHandler;
   }
 
+  virtual std::unique_ptr<Writer> getWriter();
+
 private:
   static const Registry::KindStrings kindStrings[];
 
   VectorProcTargetRelocationHandler _relocationHandler;
   TargetLayout<VectorProcELFType> _targetLayout;
+  VectorProcLinkingContext &_linkingContext;
 };
 } // end namespace elf
 } // end namespace lld

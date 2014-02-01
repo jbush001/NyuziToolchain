@@ -68,14 +68,24 @@ error_code VectorProcTargetRelocationHandler::applyRelocation(
   return error_code::success();
 }
 
-VectorProcTargetHandler::VectorProcTargetHandler(VectorProcLinkingContext &targetInfo)
-    : DefaultTargetHandler(targetInfo), _relocationHandler(targetInfo),
-      _targetLayout(targetInfo) {
+VectorProcTargetHandler::VectorProcTargetHandler(VectorProcLinkingContext &context)
+    : DefaultTargetHandler(context), _relocationHandler(context),
+      _targetLayout(context), _linkingContext(context) {
 }
 
 void VectorProcTargetHandler::registerRelocationNames(Registry &registry) {
   registry.addKindTable(Reference::KindNamespace::ELF,
                         Reference::KindArch::VectorProc, kindStrings);
+}
+
+std::unique_ptr<Writer> VectorProcTargetHandler::getWriter() {
+  switch (_linkingContext.getOutputELFType()) {
+  case llvm::ELF::ET_EXEC:
+    return std::unique_ptr<Writer>(new elf::ExecutableWriter<VectorProcELFType>(
+        _linkingContext, _targetLayout));
+  default:
+    llvm_unreachable("unsupported output type");
+  }
 }
 
 const Registry::KindStrings VectorProcTargetHandler::kindStrings[] = {

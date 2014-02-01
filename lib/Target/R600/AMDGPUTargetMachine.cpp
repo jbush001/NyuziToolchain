@@ -21,10 +21,10 @@
 #include "SIISelLowering.h"
 #include "SIInstrInfo.h"
 #include "llvm/Analysis/Passes.h"
-#include "llvm/Analysis/Verifier.h"
 #include "llvm/CodeGen/MachineFunctionAnalysis.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/Passes.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/PassManager.h"
 #include "llvm/Support/TargetRegistry.h"
@@ -42,7 +42,7 @@ extern "C" void LLVMInitializeR600Target() {
 }
 
 static ScheduleDAGInstrs *createR600MachineScheduler(MachineSchedContext *C) {
-  return new ScheduleDAGMI(C, new R600SchedStrategy());
+  return new ScheduleDAGMILive(C, new R600SchedStrategy());
 }
 
 static MachineSchedRegistry

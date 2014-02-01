@@ -15,15 +15,15 @@
 #define DEBUG_TYPE "asm-printer"
 #include "AArch64AsmPrinter.h"
 #include "InstPrinter/AArch64InstPrinter.h"
-#include "llvm/DebugInfo.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/CodeGen/MachineModuleInfoImpls.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
+#include "llvm/DebugInfo.h"
+#include "llvm/IR/Mangler.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/TargetRegistry.h"
-#include "llvm/Target/Mangler.h"
 
 using namespace llvm;
 
@@ -264,7 +264,7 @@ void AArch64AsmPrinter::EmitInstruction(const MachineInstr *MI) {
 
   MCInst TmpInst;
   LowerAArch64MachineInstrToMCInst(MI, TmpInst, *this);
-  OutStreamer.EmitInstruction(TmpInst);
+  EmitToStreamer(OutStreamer, TmpInst);
 }
 
 void AArch64AsmPrinter::EmitEndOfAsmFile(Module &M) {

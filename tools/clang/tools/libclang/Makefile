@@ -17,15 +17,18 @@ SHARED_LIBRARY = 1
 
 include $(CLANG_LEVEL)/../../Makefile.config
 LINK_COMPONENTS := $(TARGETS_TO_BUILD) asmparser bitreader support mc option
-USEDLIBS = clangIndex.a clangFrontend.a clangDriver.a \
+USEDLIBS = clangIndex.a clangARCMigrate.a \
+	   clangRewriteFrontend.a \
+	   clangFormat.a \
 	   clangTooling.a \
+	   clangFrontend.a clangDriver.a \
 	   clangSerialization.a \
 	   clangParse.a clangSema.a \
-	   clangARCMigrate.a clangRewriteFrontend.a clangRewriteCore.a \
 	   clangStaticAnalyzerCheckers.a clangStaticAnalyzerCore.a \
+	   clangRewriteCore.a \
 	   clangAnalysis.a clangEdit.a \
+	   clangASTMatchers.a \
 	   clangAST.a clangLex.a clangBasic.a \
-	   clangFormat.a
 
 include $(CLANG_LEVEL)/Makefile
 
@@ -46,9 +49,6 @@ ifeq ($(HOST_OS),Darwin)
         LLVMLibsOptions += -Wl,-current_version \
                            -Wl,$(LLVM_SUBMIT_VERSION).$(LLVM_SUBMIT_SUBVERSION)
     endif
-
-    # Extra options to override libtool defaults.
-    LLVMLibsOptions += -Wl,-dead_strip
 
     # Mac OS X 10.4 and earlier tools do not allow a second -install_name on command line
     DARWIN_VERS := $(shell echo $(TARGET_TRIPLE) | sed 's/.*darwin\([0-9]*\).*/\1/')

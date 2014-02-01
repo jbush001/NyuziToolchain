@@ -13,19 +13,22 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/LTO/LTOCodeGenerator.h"
-#include "llvm/LTO/LTOModule.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/Passes.h"
-#include "llvm/Analysis/Verifier.h"
 #include "llvm/Bitcode/ReaderWriter.h"
 #include "llvm/CodeGen/RuntimeLibcalls.h"
 #include "llvm/Config/config.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/DiagnosticInfo.h"
+#include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/Mangler.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/InitializePasses.h"
+#include "llvm/LTO/LTOModule.h"
 #include "llvm/Linker.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
@@ -36,6 +39,7 @@
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
@@ -45,7 +49,6 @@
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Target/Mangler.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/ObjCARC.h"
@@ -62,7 +65,9 @@ const char* LTOCodeGenerator::getVersionString() {
 LTOCodeGenerator::LTOCodeGenerator()
     : Context(getGlobalContext()), Linker(new Module("ld-temp.o", Context)),
       TargetMach(NULL), EmitDwarfDebugInfo(false), ScopeRestrictionsDone(false),
-      CodeModel(LTO_CODEGEN_PIC_MODEL_DYNAMIC), NativeObjectFile(NULL) {
+      CodeModel(LTO_CODEGEN_PIC_MODEL_DYNAMIC),
+      InternalizeStrategy(LTO_INTERNALIZE_FULL), NativeObjectFile(NULL),
+      DiagHandler(NULL), DiagContext(NULL) {
   initializeLTOPasses();
 }
 
@@ -82,8 +87,7 @@ LTOCodeGenerator::~LTOCodeGenerator() {
 
 // Initialize LTO passes. Please keep this funciton in sync with
 // PassManagerBuilder::populateLTOPassManager(), and make sure all LTO
-// passes are initialized. 
-//
+// passes are initialized.
 void LTOCodeGenerator::initializeLTOPasses() {
   PassRegistry &R = *PassRegistry::getPassRegistry();
 
@@ -165,6 +169,18 @@ void LTOCodeGenerator::setCodePICModel(lto_codegen_model model) {
   llvm_unreachable("Unknown PIC model!");
 }
 
+void
+LTOCodeGenerator::setInternalizeStrategy(lto_internalize_strategy Strategy) {
+  switch (Strategy) {
+  case LTO_INTERNALIZE_FULL:
+  case LTO_INTERNALIZE_NONE:
+  case LTO_INTERNALIZE_HIDDEN:
+    InternalizeStrategy = Strategy;
+    return;
+  }
+  llvm_unreachable("Unknown internalize strategy!");
+}
+
 bool LTOCodeGenerator::writeMergedModules(const char *path,
                                           std::string &errMsg) {
   if (!determineTarget(errMsg))
@@ -197,7 +213,7 @@ bool LTOCodeGenerator::writeMergedModules(const char *path,
   return true;
 }
 
-bool LTOCodeGenerator::compile_to_file(const char** name, 
+bool LTOCodeGenerator::compile_to_file(const char** name,
                                        bool disableOpt,
                                        bool disableInline,
                                        bool disableGVNLoadPRE,
@@ -378,7 +394,7 @@ static void accumulateAndSortLibcalls(std::vector<StringRef> &Libcalls,
 }
 
 void LTOCodeGenerator::applyScopeRestrictions() {
-  if (ScopeRestrictionsDone)
+  if (ScopeRestrictionsDone || !shouldInternalize())
     return;
   Module *mergedModule = Linker.getModule();
 
@@ -387,7 +403,7 @@ void LTOCodeGenerator::applyScopeRestrictions() {
   passes.add(createVerifierPass());
 
   // mark which symbols can not be internalized
-  Mangler Mangler(TargetMach);
+  Mangler Mangler(TargetMach->getDataLayout());
   std::vector<const char*> MustPreserveList;
   SmallPtrSet<GlobalValue*, 8> AsmUsed;
   std::vector<StringRef> Libcalls;
@@ -430,7 +446,8 @@ void LTOCodeGenerator::applyScopeRestrictions() {
     LLVMCompilerUsed->setSection("llvm.metadata");
   }
 
-  passes.add(createInternalizePass(MustPreserveList));
+  passes.add(
+      createInternalizePass(MustPreserveList, shouldOnlyInternalizeHidden()));
 
   // apply scope restrictions
   passes.run(*mergedModule);
@@ -461,7 +478,7 @@ bool LTOCodeGenerator::generateObjectFile(raw_ostream &out,
   // Add an appropriate DataLayout instance for this module...
   passes.add(new DataLayout(*TargetMach->getDataLayout()));
 
-  // Add appropriate TargetLibraryInfo for this module. 
+  // Add appropriate TargetLibraryInfo for this module.
   passes.add(new TargetLibraryInfo(Triple(TargetMach->getTargetTriple())));
 
   TargetMach->addAnalysisPasses(passes);
@@ -481,7 +498,6 @@ bool LTOCodeGenerator::generateObjectFile(raw_ostream &out,
   PassManager codeGenPasses;
 
   codeGenPasses.add(new DataLayout(*TargetMach->getDataLayout()));
-  TargetMach->addAnalysisPasses(codeGenPasses);
 
   formatted_raw_ostream Out(out);
 
@@ -522,4 +538,48 @@ void LTOCodeGenerator::parseCodeGenDebugOptions() {
   if (!CodegenOptions.empty())
     cl::ParseCommandLineOptions(CodegenOptions.size(),
                                 const_cast<char **>(&CodegenOptions[0]));
+}
+
+void LTOCodeGenerator::DiagnosticHandler(const DiagnosticInfo &DI,
+                                         void *Context) {
+  ((LTOCodeGenerator *)Context)->DiagnosticHandler2(DI);
+}
+
+void LTOCodeGenerator::DiagnosticHandler2(const DiagnosticInfo &DI) {
+  // Map the LLVM internal diagnostic severity to the LTO diagnostic severity.
+  lto_codegen_diagnostic_severity_t Severity;
+  switch (DI.getSeverity()) {
+  case DS_Error:
+    Severity = LTO_DS_ERROR;
+    break;
+  case DS_Warning:
+    Severity = LTO_DS_WARNING;
+    break;
+  case DS_Note:
+    Severity = LTO_DS_NOTE;
+    break;
+  }
+  // Create the string that will be reported to the external diagnostic handler.
+  std::string MsgStorage;
+  raw_string_ostream Stream(MsgStorage);
+  DiagnosticPrinterRawOStream DP(Stream);
+  DI.print(DP);
+  Stream.flush();
+
+  // If this method has been called it means someone has set up an external
+  // diagnostic handler. Assert on that.
+  assert(DiagHandler && "Invalid diagnostic handler");
+  (*DiagHandler)(Severity, MsgStorage.c_str(), DiagContext);
+}
+
+void
+LTOCodeGenerator::setDiagnosticHandler(lto_diagnostic_handler_t DiagHandler,
+                                       void *Ctxt) {
+  this->DiagHandler = DiagHandler;
+  this->DiagContext = Ctxt;
+  if (!DiagHandler)
+    return Context.setDiagnosticHandler(NULL, NULL);
+  // Register the LTOCodeGenerator stub in the LLVMContext to forward the
+  // diagnostic to the external DiagHandler.
+  Context.setDiagnosticHandler(LTOCodeGenerator::DiagnosticHandler, this);
 }

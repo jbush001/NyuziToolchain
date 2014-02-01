@@ -19,9 +19,9 @@
 #include "llvm/PassManager.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/FormattedStream.h"
+#include "llvm/Support/Host.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/Host.h"
 #include "llvm/Target/TargetMachine.h"
 #include <cassert>
 #include <cstdlib>
@@ -266,4 +266,8 @@ LLVMBool LLVMTargetMachineEmitToMemoryBuffer(LLVMTargetMachineRef T,
 
 char *LLVMGetDefaultTargetTriple(void) {
   return strdup(sys::getDefaultTargetTriple().c_str());
+}
+
+void LLVMAddAnalysisPasses(LLVMTargetMachineRef T, LLVMPassManagerRef PM) {
+  unwrap(T)->addAnalysisPasses(*unwrap(PM));
 }

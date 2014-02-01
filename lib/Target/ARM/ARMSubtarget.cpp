@@ -15,8 +15,8 @@
 #include "ARMBaseInstrInfo.h"
 #include "ARMBaseRegisterInfo.h"
 #include "llvm/IR/Attributes.h"
-#include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/GlobalValue.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetOptions.h"
@@ -83,7 +83,7 @@ ARMSubtarget::ARMSubtarget(const std::string &TT, const std::string &CPU,
   , CPUString(CPU)
   , TargetTriple(TT)
   , Options(Options)
-  , TargetABI(ARM_ABI_APCS) {
+  , TargetABI(ARM_ABI_UNKNOWN) {
   initializeEnvironment();
   resetSubtargetFeatures(CPU, FS);
 }
@@ -189,18 +189,23 @@ void ARMSubtarget::resetSubtargetFeatures(StringRef CPU, StringRef FS) {
   // Initialize scheduling itinerary for the specified CPU.
   InstrItins = getInstrItineraryForCPU(CPUString);
 
-  switch (TargetTriple.getEnvironment()) {
-  case Triple::Android:
-  case Triple::EABI:
-  case Triple::EABIHF:
-  case Triple::GNUEABI:
-  case Triple::GNUEABIHF:
-    TargetABI = ARM_ABI_AAPCS;
-    break;
-  default:
-    if (isTargetIOS() && isMClass())
+  if (TargetABI == ARM_ABI_UNKNOWN) {
+    switch (TargetTriple.getEnvironment()) {
+    case Triple::Android:
+    case Triple::EABI:
+    case Triple::EABIHF:
+    case Triple::GNUEABI:
+    case Triple::GNUEABIHF:
+    case Triple::MachO:
       TargetABI = ARM_ABI_AAPCS;
-    break;
+      break;
+    default:
+      if (isTargetIOS() && isMClass())
+        TargetABI = ARM_ABI_AAPCS;
+      else
+        TargetABI = ARM_ABI_APCS;
+      break;
+    }
   }
 
   if (isAAPCS_ABI())
@@ -208,12 +213,11 @@ void ARMSubtarget::resetSubtargetFeatures(StringRef CPU, StringRef FS) {
 
   UseMovt = hasV6T2Ops() && ArmUseMOVT;
 
-  if (!isTargetIOS()) {
-    IsR9Reserved = ReserveR9;
-  } else {
+  if (isTargetMachO()) {
     IsR9Reserved = ReserveR9 | !HasV6Ops;
-    SupportsTailCall = !getTargetTriple().isOSVersionLT(5, 0);
-  }
+    SupportsTailCall = !isTargetIOS() || !getTargetTriple().isOSVersionLT(5, 0);
+  } else
+    IsR9Reserved = ReserveR9;
 
   if (!isThumb() || hasThumb2())
     PostRAScheduler = true;
@@ -235,7 +239,7 @@ void ARMSubtarget::resetSubtargetFeatures(StringRef CPU, StringRef FS) {
       // The above behavior is consistent with GCC.
       AllowsUnalignedMem = (
           (hasV7Ops() && (isTargetLinux() || isTargetNaCl())) ||
-          (hasV6Ops() && isTargetDarwin()));
+          (hasV6Ops() && isTargetMachO()));
       break;
     case StrictAlign:
       AllowsUnalignedMem = false;
@@ -277,7 +281,7 @@ ARMSubtarget::GVIsIndirectSymbol(const GlobalValue *GV,
   if (GV->isDeclaration() && !GV->isMaterializable())
     isDecl = true;
 
-  if (!isTargetDarwin()) {
+  if (!isTargetMachO()) {
     // Extra load is needed for all externally visible.
     if (GV->hasLocalLinkage() || GV->hasHiddenVisibility())
       return false;

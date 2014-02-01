@@ -17,8 +17,9 @@
 #include "CGBuilder.h"
 #include "CGDebugInfo.h"
 #include "CGValue.h"
-#include "EHScopeStack.h"
 #include "CodeGenModule.h"
+#include "CodeGenPGO.h"
+#include "EHScopeStack.h"
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprObjC.h"
@@ -817,19 +818,36 @@ private:
   llvm::DenseMap<const LabelDecl*, JumpDest> LabelMap;
 
   // BreakContinueStack - This keeps track of where break and continue
-  // statements should jump to.
+  // statements should jump to and the associated base counter for
+  // instrumentation.
   struct BreakContinue {
-    BreakContinue(JumpDest Break, JumpDest Continue)
-      : BreakBlock(Break), ContinueBlock(Continue) {}
+    BreakContinue(JumpDest Break, JumpDest Continue, RegionCounter *LoopCnt,
+                  bool CountBreak = true)
+      : BreakBlock(Break), ContinueBlock(Continue), LoopCnt(LoopCnt),
+        CountBreak(CountBreak) {}
 
     JumpDest BreakBlock;
     JumpDest ContinueBlock;
+    RegionCounter *LoopCnt;
+    bool CountBreak;
   };
   SmallVector<BreakContinue, 8> BreakContinueStack;
+
+  CodeGenPGO PGO;
+
+public:
+  /// Get a counter for instrumentation of the region associated with the given
+  /// statement.
+  RegionCounter getPGORegionCounter(const Stmt *S) {
+    return RegionCounter(PGO, S);
+  }
+private:
 
   /// SwitchInsn - This is nearest current switch instruction. It is null if
   /// current context is not in a switch.
   llvm::SwitchInst *SwitchInsn;
+  /// The branch weights of SwitchInsn when doing instrumentation based PGO.
+  SmallVector<uint64_t, 16> *SwitchWeights;
 
   /// CaseRangeBlock - This block holds if condition check for last case
   /// statement range in current switch instruction.
@@ -1019,6 +1037,7 @@ public:
   void pushLifetimeExtendedDestroy(CleanupKind kind, llvm::Value *addr,
                                    QualType type, Destroyer *destroyer,
                                    bool useEHCleanupForArray);
+  void pushStackRestore(CleanupKind kind, llvm::Value *SPMem);
   void emitDestroy(llvm::Value *addr, QualType type, Destroyer *destroyer,
                    bool useEHCleanupForArray);
   llvm::Function *generateDestroyHelper(llvm::Constant *addr, QualType type,
@@ -1379,6 +1398,10 @@ public:
                                  AggValueSlot::DoesNotNeedGCBarriers,
                                  AggValueSlot::IsNotAliased);
   }
+
+  /// CreateInAllocaTmp - Create a temporary memory object for the given
+  /// aggregate type.
+  AggValueSlot CreateInAllocaTmp(QualType T, const Twine &Name = "inalloca");
 
   /// Emit a cast to void* in the appropriate address space.
   llvm::Value *EmitCastToVoidPtr(llvm::Value *value);
@@ -1767,7 +1790,8 @@ public:
                          llvm::GlobalValue::LinkageTypes Linkage);
 
   /// EmitParmDecl - Emit a ParmVarDecl or an ImplicitParamDecl.
-  void EmitParmDecl(const VarDecl &D, llvm::Value *Arg, unsigned ArgNo);
+  void EmitParmDecl(const VarDecl &D, llvm::Value *Arg, bool ArgIsPointer,
+                    unsigned ArgNo);
 
   /// protectFromPeepholes - Protect a value that we're intending to
   /// store to the side, but which will probably be used later, from
@@ -2159,6 +2183,9 @@ public:
   llvm::Value *EmitAArch64CompareBuiltinExpr(llvm::Value *Op, llvm::Type *Ty);
   llvm::Value *EmitAArch64BuiltinExpr(unsigned BuiltinID, const CallExpr *E);
   llvm::Value *EmitARMBuiltinExpr(unsigned BuiltinID, const CallExpr *E);
+  llvm::Value *EmitCommonNeonBuiltinExpr(unsigned BuiltinID, const CallExpr *E,
+                                         SmallVectorImpl<llvm::Value *> &Ops,
+                                         llvm::Value *Align = 0);
   llvm::Value *EmitNeonCall(llvm::Function *F,
                             SmallVectorImpl<llvm::Value*> &O,
                             const char *name,
@@ -2414,8 +2441,10 @@ public:
   /// EmitBranchOnBoolExpr - Emit a branch on a boolean condition (e.g. for an
   /// if statement) to the specified blocks.  Based on the condition, this might
   /// try to simplify the codegen of the conditional based on the branch.
+  /// TrueCount should be the number of times we expect the condition to
+  /// evaluate to true based on PGO data.
   void EmitBranchOnBoolExpr(const Expr *Cond, llvm::BasicBlock *TrueBlock,
-                            llvm::BasicBlock *FalseBlock);
+                            llvm::BasicBlock *FalseBlock, uint64_t TrueCount);
 
   /// \brief Emit a description of a type in a format suitable for passing to
   /// a runtime sanitizer handler.
@@ -2468,6 +2497,11 @@ private:
   llvm::MDNode *getRangeForLoadFromType(QualType Ty);
   void EmitReturnOfRValue(RValue RV, QualType Ty);
 
+  void deferPlaceholderReplacement(llvm::Instruction *Old, llvm::Value *New);
+
+  llvm::SmallVector<std::pair<llvm::Instruction *, llvm::Value *>, 4>
+  DeferredReplacements;
+
   /// ExpandTypeFromArgs - Reconstruct a structure of type \arg Ty
   /// from function arguments into \arg Dst. See ABIArgInfo::Expand.
   ///
@@ -2502,11 +2536,11 @@ public:
                     bool ForceColumnInfo = false) {
     if (CallArgTypeInfo) {
       EmitCallArgs(Args, CallArgTypeInfo->isVariadic(),
-                   CallArgTypeInfo->arg_type_begin(),
-                   CallArgTypeInfo->arg_type_end(), ArgBeg, ArgEnd,
+                   CallArgTypeInfo->param_type_begin(),
+                   CallArgTypeInfo->param_type_end(), ArgBeg, ArgEnd,
                    ForceColumnInfo);
     } else {
-      // T::arg_type_iterator might not have a default ctor.
+      // T::param_type_iterator might not have a default ctor.
       const QualType *NoIter = 0;
       EmitCallArgs(Args, /*AllowExtraArguments=*/true, NoIter, NoIter, ArgBeg,
                    ArgEnd, ForceColumnInfo);

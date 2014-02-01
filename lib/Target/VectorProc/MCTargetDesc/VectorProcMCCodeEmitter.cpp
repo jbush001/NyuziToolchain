@@ -49,24 +49,30 @@ public:
   // getBinaryCodeForInstr - TableGen'erated function for getting the
   // binary encoding for an instruction.
   uint64_t getBinaryCodeForInstr(const MCInst &MI,
-                                 SmallVectorImpl<MCFixup> &Fixups) const;
+                                 SmallVectorImpl<MCFixup> &Fixups,
+                                 const MCSubtargetInfo &STI) const;
 
   // getMachineOpValue - Return binary encoding of operand. If the machine
   // operand requires relocation, record the relocation and return zero.
   unsigned getMachineOpValue(const MCInst &MI, const MCOperand &MO,
-                             SmallVectorImpl<MCFixup> &Fixups) const;
+                             SmallVectorImpl<MCFixup> &Fixups,
+                             const MCSubtargetInfo &STI) const;
 
   unsigned encodeMemoryOpValue(const MCInst &MI, unsigned Op,
-                               SmallVectorImpl<MCFixup> &Fixups) const;
+                               SmallVectorImpl<MCFixup> &Fixups,
+                               const MCSubtargetInfo &STI) const;
 
   unsigned encodeLEAValue(const MCInst &MI, unsigned Op,
-                          SmallVectorImpl<MCFixup> &Fixups) const;
-  
+                          SmallVectorImpl<MCFixup> &Fixups,
+                          const MCSubtargetInfo &STI) const;
+
   unsigned encodeBranchTargetOpValue(const MCInst &MI, unsigned OpNo,
-                                   SmallVectorImpl<MCFixup> &Fixups) const;
+                                     SmallVectorImpl<MCFixup> &Fixups,
+                                     const MCSubtargetInfo &STI) const;
 
   unsigned encodeJumpTableAddr(const MCInst &MI, unsigned OpNo,
-                               SmallVectorImpl<MCFixup> &Fixups) const;
+                               SmallVectorImpl<MCFixup> &Fixups,
+                               const MCSubtargetInfo &STI) const;
 
   // Emit one byte through output stream (from MCBlazeMCCodeEmitter)
   void EmitByte(unsigned char C, unsigned &CurByte, raw_ostream &OS) const {
@@ -86,7 +92,8 @@ public:
   }
 
   void EncodeInstruction(const MCInst &MI, raw_ostream &OS,
-                         SmallVectorImpl<MCFixup> &Fixups) const;
+                         SmallVectorImpl<MCFixup> &Fixups,
+                         const MCSubtargetInfo &STI) const;
 };
 } // end anonymous namepsace
 
@@ -98,10 +105,10 @@ MCCodeEmitter *llvm::createVectorProcMCCodeEmitter(const MCInstrInfo &MCII,
   return new VectorProcMCCodeEmitter(MCII, STI, Ctx);
 }
 
-/// getMachineOpValue - Return binary encoding of operand. 
+/// getMachineOpValue - Return binary encoding of operand.
 unsigned VectorProcMCCodeEmitter::getMachineOpValue(
-    const MCInst &MI, const MCOperand &MO,
-    SmallVectorImpl<MCFixup> &Fixups) const {
+    const MCInst &MI, const MCOperand &MO, SmallVectorImpl<MCFixup> &Fixups,
+    const MCSubtargetInfo &STI) const {
 
   if (MO.isReg())
     return Ctx.getRegisterInfo()->getEncodingValue(MO.getReg());
@@ -116,7 +123,8 @@ unsigned VectorProcMCCodeEmitter::getMachineOpValue(
 /// target operand. If the machine operand requires relocation,
 /// record the relocation and return zero.
 unsigned VectorProcMCCodeEmitter::encodeBranchTargetOpValue(
-    const MCInst &MI, unsigned OpNo, SmallVectorImpl<MCFixup> &Fixups) const {
+    const MCInst &MI, unsigned OpNo, SmallVectorImpl<MCFixup> &Fixups,
+    const MCSubtargetInfo &STI) const {
 
   const MCOperand &MO = MI.getOperand(OpNo);
   if (MO.isImm())
@@ -131,19 +139,24 @@ unsigned VectorProcMCCodeEmitter::encodeBranchTargetOpValue(
   return 0;
 }
 
-void VectorProcMCCodeEmitter::EncodeInstruction(
-    const MCInst &MI, raw_ostream &OS, SmallVectorImpl<MCFixup> &Fixups) const {
+void
+VectorProcMCCodeEmitter::EncodeInstruction(const MCInst &MI, raw_ostream &OS,
+                                           SmallVectorImpl<MCFixup> &Fixups,
+                                           const MCSubtargetInfo &STI) const {
+
   // Keep track of the current byte being emitted
   unsigned CurByte = 0;
 
   // Get instruction encoding and emit it
   ++MCNumEmitted; // Keep track of the number of emitted insns.
-  unsigned Value = getBinaryCodeForInstr(MI, Fixups);
+  unsigned Value = getBinaryCodeForInstr(MI, Fixups, STI);
   EmitLEConstant(Value, 4, CurByte, OS);
 }
 
-unsigned VectorProcMCCodeEmitter::encodeJumpTableAddr(
-    const MCInst &MI, unsigned Op, SmallVectorImpl<MCFixup> &Fixups) const {
+unsigned
+VectorProcMCCodeEmitter::encodeJumpTableAddr(const MCInst &MI, unsigned Op,
+                                             SmallVectorImpl<MCFixup> &Fixups,
+                                             const MCSubtargetInfo &STI) const {
   MCOperand label = MI.getOperand(2);
   Fixups.push_back(MCFixup::Create(
       0, label.getExpr(),
@@ -151,15 +164,17 @@ unsigned VectorProcMCCodeEmitter::encodeJumpTableAddr(
   return 0;
 }
 
-unsigned VectorProcMCCodeEmitter::encodeLEAValue(
-    const MCInst &MI, unsigned Op, SmallVectorImpl<MCFixup> &Fixups) const {
+unsigned
+VectorProcMCCodeEmitter::encodeLEAValue(const MCInst &MI, unsigned Op,
+                                        SmallVectorImpl<MCFixup> &Fixups,
+                                        const MCSubtargetInfo &STI) const {
 
   MCOperand baseReg = MI.getOperand(1);
   MCOperand offsetOp = MI.getOperand(2);
 
   assert(baseReg.isReg() && "First operand of LEA op is not register.");
   unsigned encoding = Ctx.getRegisterInfo()->getEncodingValue(baseReg.getReg());
-  
+
   if (offsetOp.isExpr()) {
     // Load with a label. This is a PC relative load.  Add a fixup.
     Fixups.push_back(MCFixup::Create(
@@ -174,11 +189,13 @@ unsigned VectorProcMCCodeEmitter::encodeLEAValue(
 }
 
 // Encode VectorProc Memory Operand.  The result is a packed field with the
-// register in the low 5 bits and the offset in the remainder.  The instruction 
+// register in the low 5 bits and the offset in the remainder.  The instruction
 // patterns will put these into the proper part of the instruction
 // (VectorProcInstrFormats.td).
-unsigned VectorProcMCCodeEmitter::encodeMemoryOpValue(
-    const MCInst &MI, unsigned Op, SmallVectorImpl<MCFixup> &Fixups) const {
+unsigned
+VectorProcMCCodeEmitter::encodeMemoryOpValue(const MCInst &MI, unsigned Op,
+                                             SmallVectorImpl<MCFixup> &Fixups,
+                                             const MCSubtargetInfo &STI) const {
   unsigned encoding;
 
   MCOperand baseReg;

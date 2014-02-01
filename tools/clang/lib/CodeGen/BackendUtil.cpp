@@ -13,13 +13,14 @@
 #include "clang/Basic/TargetOptions.h"
 #include "clang/Frontend/CodeGenOptions.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
-#include "llvm/Analysis/Verifier.h"
-#include "llvm/Assembly/PrintModulePass.h"
-#include "llvm/Bitcode/ReaderWriter.h"
+#include "clang/Frontend/Utils.h"
+#include "llvm/Bitcode/BitcodeWriterPass.h"
 #include "llvm/CodeGen/RegAllocRegistry.h"
 #include "llvm/CodeGen/SchedulerRegistry.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/IRPrintingPasses.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/MC/SubtargetFeature.h"
 #include "llvm/PassManager.h"
 #include "llvm/Support/CommandLine.h"
@@ -117,7 +118,7 @@ public:
     delete PerModulePasses;
     delete PerFunctionPasses;
     if (CodeGenOpts.DisableFree)
-      TM.take();
+      BuryPointer(TM.take());
   }
 
   llvm::OwningPtr<TargetMachine> TM;
@@ -179,12 +180,10 @@ static void addAddressSanitizerPasses(const PassManagerBuilder &Builder,
       LangOpts.Sanitize.InitOrder,
       LangOpts.Sanitize.UseAfterReturn,
       LangOpts.Sanitize.UseAfterScope,
-      CGOpts.SanitizerBlacklistFile,
-      CGOpts.SanitizeAddressZeroBaseShadow));
+      CGOpts.SanitizerBlacklistFile));
   PM.add(createAddressSanitizerModulePass(
       LangOpts.Sanitize.InitOrder,
-      CGOpts.SanitizerBlacklistFile,
-      CGOpts.SanitizeAddressZeroBaseShadow));
+      CGOpts.SanitizerBlacklistFile));
 }
 
 static void addMemorySanitizerPass(const PassManagerBuilder &Builder,
@@ -569,7 +568,7 @@ void EmitAssemblyHelper::EmitAssembly(BackendAction Action, raw_ostream *OS) {
 
   case Backend_EmitLL:
     FormattedOS.setStream(*OS, formatted_raw_ostream::PRESERVE_STREAM);
-    getPerModulePasses()->add(createPrintModulePass(&FormattedOS));
+    getPerModulePasses()->add(createPrintModulePass(FormattedOS));
     break;
 
   default:
@@ -609,10 +608,23 @@ void EmitAssemblyHelper::EmitAssembly(BackendAction Action, raw_ostream *OS) {
 void clang::EmitBackendOutput(DiagnosticsEngine &Diags,
                               const CodeGenOptions &CGOpts,
                               const clang::TargetOptions &TOpts,
-                              const LangOptions &LOpts,
-                              Module *M,
-                              BackendAction Action, raw_ostream *OS) {
+                              const LangOptions &LOpts, StringRef TDesc,
+                              Module *M, BackendAction Action,
+                              raw_ostream *OS) {
   EmitAssemblyHelper AsmHelper(Diags, CGOpts, TOpts, LOpts, M);
 
   AsmHelper.EmitAssembly(Action, OS);
+
+  // If an optional clang TargetInfo description string was passed in, use it to
+  // verify the LLVM TargetMachine's DataLayout.
+  if (AsmHelper.TM && !TDesc.empty()) {
+    std::string DLDesc =
+        AsmHelper.TM->getDataLayout()->getStringRepresentation();
+    if (DLDesc != TDesc) {
+      unsigned DiagID = Diags.getCustomDiagID(
+          DiagnosticsEngine::Error, "backend data layout '%0' does not match "
+                                    "expected target description '%1'");
+      Diags.Report(DiagID) << DLDesc << TDesc;
+    }
+  }
 }

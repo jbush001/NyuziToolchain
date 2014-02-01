@@ -20,6 +20,7 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/Mangler.h"
 #include "llvm/IR/Module.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
@@ -30,17 +31,10 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Dwarf.h"
 #include "llvm/Support/FormattedStream.h"
-#include "llvm/Target/Mangler.h"
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 using namespace llvm;
-
-static cl::opt<bool>
-EnableARMEHABIDescriptors("arm-enable-ehabi-descriptors", cl::Hidden,
-  cl::desc("Generate ARM EHABI tables with unwinding descriptors"),
-  cl::init(false));
-
 
 ARMException::ARMException(AsmPrinter *A)
   : DwarfException(A) {}
@@ -48,7 +42,7 @@ ARMException::ARMException(AsmPrinter *A)
 ARMException::~ARMException() {}
 
 ARMTargetStreamer &ARMException::getTargetStreamer() {
-  MCTargetStreamer &TS = Asm->OutStreamer.getTargetStreamer();
+  MCTargetStreamer &TS = *Asm->OutStreamer.getTargetStreamer();
   return static_cast<ARMTargetStreamer &>(TS);
 }
 
@@ -74,25 +68,23 @@ void ARMException::endFunction(const MachineFunction *) {
     Asm->OutStreamer.EmitLabel(Asm->GetTempSymbol("eh_func_end",
                                                   Asm->getFunctionNumber()));
 
-    if (EnableARMEHABIDescriptors) {
-      // Map all labels and get rid of any dead landing pads.
-      MMI->TidyLandingPads();
+    // Map all labels and get rid of any dead landing pads.
+    MMI->TidyLandingPads();
 
-      if (!MMI->getLandingPads().empty()) {
-        // Emit references to personality.
-        if (const Function * Personality =
-            MMI->getPersonalities()[MMI->getPersonalityIndex()]) {
-          MCSymbol *PerSym = Asm->getSymbol(Personality);
-          Asm->OutStreamer.EmitSymbolAttribute(PerSym, MCSA_Global);
-          ATS.emitPersonality(PerSym);
-        }
-
-        // Emit .handlerdata directive.
-        ATS.emitHandlerData();
-
-        // Emit actual exception table
-        EmitExceptionTable();
+    if (!MMI->getLandingPads().empty()) {
+      // Emit references to personality.
+      if (const Function * Personality =
+          MMI->getPersonalities()[MMI->getPersonalityIndex()]) {
+        MCSymbol *PerSym = Asm->getSymbol(Personality);
+        Asm->OutStreamer.EmitSymbolAttribute(PerSym, MCSA_Global);
+        ATS.emitPersonality(PerSym);
       }
+
+      // Emit .handlerdata directive.
+      ATS.emitHandlerData();
+
+      // Emit actual exception table
+      EmitExceptionTable();
     }
   }
 

@@ -273,16 +273,12 @@ public:
   bool ParseTopLevelDecl(DeclGroupPtrTy &Result);
 
   /// ConsumeToken - Consume the current 'peek token' and lex the next one.
-  /// This does not work with all kinds of tokens: strings and specific other
-  /// tokens must be consumed with custom methods below.  This returns the
-  /// location of the consumed token.
+  /// This does not work with special tokens: string literals, code completion
+  /// and balanced tokens must be handled using the specific consume methods.
+  /// Returns the location of the consumed token.
   SourceLocation ConsumeToken() {
     assert(!isTokenSpecial() &&
            "Should consume special tokens with Consume*Token");
-
-    if (LLVM_UNLIKELY(Tok.is(tok::code_completion)))
-      return handleUnexpectedCodeCompletionToken();
-
     PrevTokLocation = Tok.getLocation();
     PP.Lex(Tok);
     return PrevTokLocation;
@@ -329,7 +325,7 @@ private:
   /// isTokenSpecial - True if this token requires special consumption methods.
   bool isTokenSpecial() const {
     return isTokenStringLiteral() || isTokenParen() || isTokenBracket() ||
-           isTokenBrace();
+           isTokenBrace() || Tok.is(tok::code_completion);
   }
 
   /// \brief Returns true if the current token is '=' or is a type of '='.
@@ -342,16 +338,16 @@ private:
   SourceLocation ConsumeAnyToken(bool ConsumeCodeCompletionTok = false) {
     if (isTokenParen())
       return ConsumeParen();
-    else if (isTokenBracket())
+    if (isTokenBracket())
       return ConsumeBracket();
-    else if (isTokenBrace())
+    if (isTokenBrace())
       return ConsumeBrace();
-    else if (isTokenStringLiteral())
+    if (isTokenStringLiteral())
       return ConsumeStringToken();
-    else if (ConsumeCodeCompletionTok && Tok.is(tok::code_completion))
-      return ConsumeCodeCompletionToken();
-    else
-      return ConsumeToken();
+    if (Tok.is(tok::code_completion))
+      return ConsumeCodeCompletionTok ? ConsumeCodeCompletionToken()
+                                      : handleUnexpectedCodeCompletionToken();
+    return ConsumeToken();
   }
 
   /// ConsumeParen - This consume method keeps the paren count up-to-date.
@@ -681,12 +677,14 @@ private:
   /// ExpectAndConsume - The parser expects that 'ExpectedTok' is next in the
   /// input.  If so, it is consumed and false is returned.
   ///
-  /// If the input is malformed, this emits the specified diagnostic.  Next, if
-  /// SkipToTok is specified, it calls SkipUntil(SkipToTok).  Finally, true is
+  /// If a trivial punctuator misspelling is encountered, a FixIt error
+  /// diagnostic is issued and false is returned after recovery.
+  ///
+  /// If the input is malformed, this emits the specified diagnostic and true is
   /// returned.
-  bool ExpectAndConsume(tok::TokenKind ExpectedTok, unsigned Diag,
-                        const char *DiagMsg = "",
-                        tok::TokenKind SkipToTok = tok::unknown);
+  bool ExpectAndConsume(tok::TokenKind ExpectedTok,
+                        unsigned Diag = diag::err_expected,
+                        const char *DiagMsg = "");
 
   /// \brief The parser expects a semicolon and, if present, will consume it.
   ///
@@ -1644,8 +1642,26 @@ private:
     DSC_class,  // class context, enables 'friend'
     DSC_type_specifier, // C++ type-specifier-seq or C specifier-qualifier-list
     DSC_trailing, // C++11 trailing-type-specifier in a trailing return type
+    DSC_alias_declaration, // C++11 type-specifier-seq in an alias-declaration
     DSC_top_level // top-level/namespace declaration context
   };
+
+  /// Is this a context in which we are parsing just a type-specifier (or
+  /// trailing-type-specifier)?
+  static bool isTypeSpecifier(DeclSpecContext DSC) {
+    switch (DSC) {
+    case DSC_normal:
+    case DSC_class:
+    case DSC_top_level:
+      return false;
+
+    case DSC_type_specifier:
+    case DSC_trailing:
+    case DSC_alias_declaration:
+      return true;
+    }
+    llvm_unreachable("Missing DeclSpecContext case");
+  }
 
   /// Information on a C++0x for-range-initializer found while parsing a
   /// declaration which turns out to be a for-range-declaration.
@@ -1772,6 +1788,7 @@ private:
   /// disambiguation will occur.
   enum TentativeCXXTypeIdContext {
     TypeIdInParens,
+    TypeIdUnambiguous,
     TypeIdAsTemplateArgument
   };
 
@@ -1788,6 +1805,16 @@ private:
   bool isTypeIdInParens() {
     bool isAmbiguous;
     return isTypeIdInParens(isAmbiguous);
+  }
+
+  /// \brief Checks if the current tokens form type-id or expression.
+  /// It is similar to isTypeIdInParens but does not suppose that type-id
+  /// is in parenthesis.
+  bool isTypeIdUnambiguously() {
+    bool IsAmbiguous;
+    if (getLangOpts().CPlusPlus)
+      return isCXXTypeId(TypeIdUnambiguous, IsAmbiguous);
+    return isTypeSpecifierQualifier();
   }
 
   /// isCXXDeclarationStatement - C++-specialized function that disambiguates
@@ -1952,7 +1979,7 @@ private:
     if (Tok.is(tok::kw___attribute)) {
       ParsedAttributes attrs(AttrFactory);
       SourceLocation endLoc;
-      ParseGNUAttributes(attrs, &endLoc, LateAttrs);
+      ParseGNUAttributes(attrs, &endLoc, LateAttrs, &D);
       D.takeAttributes(attrs, endLoc);
     }
   }
@@ -1964,14 +1991,16 @@ private:
   }
   void ParseGNUAttributes(ParsedAttributes &attrs,
                           SourceLocation *endLoc = 0,
-                          LateParsedAttrList *LateAttrs = 0);
+                          LateParsedAttrList *LateAttrs = 0,
+                          Declarator *D = 0);
   void ParseGNUAttributeArgs(IdentifierInfo *AttrName,
                              SourceLocation AttrNameLoc,
                              ParsedAttributes &Attrs,
                              SourceLocation *EndLoc,
                              IdentifierInfo *ScopeName,
                              SourceLocation ScopeLoc,
-                             AttributeList::Syntax Syntax);
+                             AttributeList::Syntax Syntax,
+                             Declarator *D);
   IdentifierLoc *ParseIdentifierLoc();
 
   void MaybeParseCXX11Attributes(Declarator &D) {
@@ -2024,7 +2053,7 @@ private:
   void ParseMicrosoftInheritanceClassAttributes(ParsedAttributes &attrs);
   void ParseBorlandTypeAttributes(ParsedAttributes &attrs);
   void ParseOpenCLAttributes(ParsedAttributes &attrs);
-  void ParseOpenCLQualifiers(DeclSpec &DS);
+  void ParseOpenCLQualifiers(ParsedAttributes &Attrs);
 
   VersionTuple ParseVersionTuple(SourceRange &Range);
   void ParseAvailabilityAttribute(IdentifierInfo &Availability,
@@ -2036,12 +2065,6 @@ private:
                                        SourceLocation ObjCBridgeRelatedLoc,
                                        ParsedAttributes &attrs,
                                        SourceLocation *endLoc);
-
-  bool IsThreadSafetyAttribute(StringRef AttrName);
-  void ParseThreadSafetyAttribute(IdentifierInfo &AttrName,
-                                  SourceLocation AttrNameLoc,
-                                  ParsedAttributes &Attrs,
-                                  SourceLocation *EndLoc);
 
   void ParseTypeTagForDatatypeAttribute(IdentifierInfo &AttrName,
                                         SourceLocation AttrNameLoc,
@@ -2199,6 +2222,10 @@ private:
                                    Decl *TagDecl);
   ExprResult ParseCXXMemberInitializer(Decl *D, bool IsFunction,
                                        SourceLocation &EqualLoc);
+  void ParseCXXMemberDeclaratorBeforeInitializer(Declarator &DeclaratorInfo,
+                                                 VirtSpecifiers &VS,
+                                                 ExprResult &BitfieldSize,
+                                                 LateParsedAttrList &LateAttrs);
   void ParseCXXClassMemberDeclaration(AccessSpecifier AS, AttributeList *Attr,
                 const ParsedTemplateInfo &TemplateInfo = ParsedTemplateInfo(),
                                  ParsingDeclRAIIObject *DiagsFromTParams = 0);

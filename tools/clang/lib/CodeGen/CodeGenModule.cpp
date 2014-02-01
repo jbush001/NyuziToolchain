@@ -19,6 +19,7 @@
 #include "CGObjCRuntime.h"
 #include "CGOpenCLRuntime.h"
 #include "CodeGenFunction.h"
+#include "CodeGenPGO.h"
 #include "CodeGenTBAA.h"
 #include "TargetInfo.h"
 #include "clang/AST/ASTContext.h"
@@ -48,22 +49,21 @@
 #include "llvm/Support/CallSite.h"
 #include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Target/Mangler.h"
 
 using namespace clang;
 using namespace CodeGen;
 
 static const char AnnotationSection[] = "llvm.metadata";
 
-static CGCXXABI &createCXXABI(CodeGenModule &CGM) {
+static CGCXXABI *createCXXABI(CodeGenModule &CGM) {
   switch (CGM.getTarget().getCXXABI().getKind()) {
   case TargetCXXABI::GenericAArch64:
   case TargetCXXABI::GenericARM:
   case TargetCXXABI::iOS:
   case TargetCXXABI::GenericItanium:
-    return *CreateItaniumCXXABI(CGM);
+    return CreateItaniumCXXABI(CGM);
   case TargetCXXABI::Microsoft:
-    return *CreateMicrosoftCXXABI(CGM);
+    return CreateMicrosoftCXXABI(CGM);
   }
 
   llvm_unreachable("invalid C++ ABI kind");
@@ -77,7 +77,8 @@ CodeGenModule::CodeGenModule(ASTContext &C, const CodeGenOptions &CGO,
       ABI(createCXXABI(*this)), VMContext(M.getContext()), TBAA(0),
       TheTargetCodeGenInfo(0), Types(*this), VTables(*this), ObjCRuntime(0),
       OpenCLRuntime(0), CUDARuntime(0), DebugInfo(0), ARCData(0),
-      NoObjCARCExceptionsMetadata(0), RRData(0), CFConstantStringClassRef(0),
+      NoObjCARCExceptionsMetadata(0), RRData(0), PGOData(0),
+      CFConstantStringClassRef(0),
       ConstantStringClassRef(0), NSConstantStringType(0),
       NSConcreteGlobalBlock(0), NSConcreteStackBlock(0), BlockObjectAssign(0),
       BlockObjectDispose(0), BlockDescriptorType(0), GenericBlockLiteralType(0),
@@ -117,7 +118,7 @@ CodeGenModule::CodeGenModule(ASTContext &C, const CodeGenOptions &CGO,
   if (SanOpts.Thread ||
       (!CodeGenOpts.RelaxedAliasing && CodeGenOpts.OptimizationLevel > 0))
     TBAA = new CodeGenTBAA(Context, VMContext, CodeGenOpts, getLangOpts(),
-                           ABI.getMangleContext());
+                           getCXXABI().getMangleContext());
 
   // If debug info or coverage generation is enabled, create the CGDebugInfo
   // object.
@@ -131,6 +132,9 @@ CodeGenModule::CodeGenModule(ASTContext &C, const CodeGenOptions &CGO,
   if (C.getLangOpts().ObjCAutoRefCount)
     ARCData = new ARCEntrypoints();
   RRData = new RREntrypoints();
+
+  if (!CodeGenOpts.InstrProfileInput.empty())
+    PGOData = new PGOProfileData(*this, CodeGenOpts.InstrProfileInput);
 }
 
 CodeGenModule::~CodeGenModule() {
@@ -138,7 +142,6 @@ CodeGenModule::~CodeGenModule() {
   delete OpenCLRuntime;
   delete CUDARuntime;
   delete TheTargetCodeGenInfo;
-  delete &ABI;
   delete TBAA;
   delete DebugInfo;
   delete ARCData;
@@ -336,9 +339,9 @@ void CodeGenModule::DecorateInstruction(llvm::Instruction *Inst,
     Inst->setMetadata(llvm::LLVMContext::MD_tbaa, TBAAInfo);
 }
 
-void CodeGenModule::Error(SourceLocation loc, StringRef error) {
-  unsigned diagID = getDiags().getCustomDiagID(DiagnosticsEngine::Error, error);
-  getDiags().Report(Context.getFullLoc(loc), diagID);
+void CodeGenModule::Error(SourceLocation loc, StringRef message) {
+  unsigned diagID = getDiags().getCustomDiagID(DiagnosticsEngine::Error, "%0");
+  getDiags().Report(Context.getFullLoc(loc), diagID) << message;
 }
 
 /// ErrorUnsupported - Print out an error that codegen doesn't support the
@@ -590,7 +593,7 @@ CodeGenModule::getFunctionLinkage(GlobalDecl GD) {
     return llvm::Function::InternalLinkage;
   
   if (D->hasAttr<DLLExportAttr>())
-    return llvm::Function::DLLExportLinkage;
+    return llvm::Function::ExternalLinkage;
   
   if (D->hasAttr<WeakAttr>())
     return llvm::Function::WeakAnyLinkage;
@@ -805,7 +808,8 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD,
   // overridden by a definition.
 
   if (FD->hasAttr<DLLImportAttr>()) {
-    F->setLinkage(llvm::Function::DLLImportLinkage);
+    F->setLinkage(llvm::Function::ExternalLinkage);
+    F->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
   } else if (FD->hasAttr<WeakAttr>() ||
              FD->isWeakImported()) {
     // "extern_weak" is overloaded in LLVM; we probably should have
@@ -813,6 +817,8 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD,
     F->setLinkage(llvm::Function::ExternalWeakLinkage);
   } else {
     F->setLinkage(llvm::Function::ExternalLinkage);
+    if (FD->hasAttr<DLLExportAttr>())
+      F->setDLLStorageClass(llvm::GlobalValue::DLLExportStorageClass);
 
     LinkageInfo LV = FD->getLinkageAndVisibility();
     if (LV.getLinkage() == ExternalLinkage && LV.isVisibilityExplicit()) {
@@ -1605,9 +1611,10 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName,
     if (LV.getLinkage() != ExternalLinkage) {
       // Don't set internal linkage on declarations.
     } else {
-      if (D->hasAttr<DLLImportAttr>())
-        GV->setLinkage(llvm::GlobalValue::DLLImportLinkage);
-      else if (D->hasAttr<WeakAttr>() || D->isWeakImported())
+      if (D->hasAttr<DLLImportAttr>()) {
+        GV->setLinkage(llvm::GlobalValue::ExternalLinkage);
+        GV->setDLLStorageClass(llvm::GlobalValue::DLLImportStorageClass);
+      } else if (D->hasAttr<WeakAttr>() || D->isWeakImported())
         GV->setLinkage(llvm::GlobalValue::ExternalWeakLinkage);
 
       // Set visibility on a declaration only if it's explicit.
@@ -1880,6 +1887,10 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D) {
   llvm::GlobalValue::LinkageTypes Linkage = 
     GetLLVMLinkageVarDefinition(D, GV->isConstant());
   GV->setLinkage(Linkage);
+  if (D->hasAttr<DLLImportAttr>())
+    GV->setDLLStorageClass(llvm::GlobalVariable::DLLImportStorageClass);
+  else if (D->hasAttr<DLLExportAttr>())
+    GV->setDLLStorageClass(llvm::GlobalVariable::DLLExportStorageClass);
 
   // If required by the ABI, give definitions of static data members with inline
   // initializers linkonce_odr linkage.
@@ -1922,9 +1933,9 @@ CodeGenModule::GetLLVMLinkageVarDefinition(const VarDecl *D, bool isConstant) {
   if (Linkage == GVA_Internal)
     return llvm::Function::InternalLinkage;
   else if (D->hasAttr<DLLImportAttr>())
-    return llvm::Function::DLLImportLinkage;
+    return llvm::Function::ExternalLinkage;
   else if (D->hasAttr<DLLExportAttr>())
-    return llvm::Function::DLLExportLinkage;
+    return llvm::Function::ExternalLinkage;
   else if (D->hasAttr<SelectAnyAttr>()) {
     // selectany symbols are externally visible, so use weak instead of
     // linkonce.  MSVC optimizes away references to const selectany globals, so
@@ -2182,6 +2193,10 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
     AddGlobalDtor(Fn, DA->getPriority());
   if (D->hasAttr<AnnotateAttr>())
     AddGlobalAnnotations(D, Fn);
+
+  llvm::Function *PGOInit = CodeGenPGO::emitInitialization(*this);
+  if (PGOInit)
+    AddGlobalCtor(PGOInit, 0);
 }
 
 void CodeGenModule::EmitAliasDefinition(GlobalDecl GD) {
@@ -2243,9 +2258,9 @@ void CodeGenModule::EmitAliasDefinition(GlobalDecl GD) {
     if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
       // The dllexport attribute is ignored for undefined symbols.
       if (FD->hasBody())
-        GA->setLinkage(llvm::Function::DLLExportLinkage);
+        GA->setDLLStorageClass(llvm::GlobalValue::DLLExportStorageClass);
     } else {
-      GA->setLinkage(llvm::Function::DLLExportLinkage);
+      GA->setDLLStorageClass(llvm::GlobalValue::DLLExportStorageClass);
     }
   } else if (D->hasAttr<WeakAttr>() ||
              D->hasAttr<WeakRefAttr>() ||
@@ -2363,30 +2378,25 @@ CodeGenModule::GetAddrOfConstantCFString(const StringLiteral *Literal) {
     C = llvm::ConstantDataArray::getString(VMContext, Entry.getKey());
   }
 
-  llvm::GlobalValue::LinkageTypes Linkage;
-  if (isUTF16)
-    // FIXME: why do utf strings get "_" labels instead of "L" labels?
-    Linkage = llvm::GlobalValue::InternalLinkage;
-  else
-    // FIXME: With OS X ld 123.2 (xcode 4) and LTO we would get a linker error
-    // when using private linkage. It is not clear if this is a bug in ld
-    // or a reasonable new restriction.
-    Linkage = llvm::GlobalValue::LinkerPrivateLinkage;
-  
   // Note: -fwritable-strings doesn't make the backing store strings of
   // CFStrings writable. (See <rdar://problem/10657500>)
   llvm::GlobalVariable *GV =
-    new llvm::GlobalVariable(getModule(), C->getType(), /*isConstant=*/true,
-                             Linkage, C, ".str");
+      new llvm::GlobalVariable(getModule(), C->getType(), /*isConstant=*/true,
+                               llvm::GlobalValue::PrivateLinkage, C, ".str");
   GV->setUnnamedAddr(true);
   // Don't enforce the target's minimum global alignment, since the only use
   // of the string is via this class initializer.
+  // FIXME: We set the section explicitly to avoid a bug in ld64 224.1. Without
+  // it LLVM can merge the string with a non unnamed_addr one during LTO. Doing
+  // that changes the section it ends in, which surprises ld64.
   if (isUTF16) {
     CharUnits Align = getContext().getTypeAlignInChars(getContext().ShortTy);
     GV->setAlignment(Align.getQuantity());
+    GV->setSection("__TEXT,__ustring");
   } else {
     CharUnits Align = getContext().getTypeAlignInChars(getContext().CharTy);
     GV->setAlignment(Align.getQuantity());
+    GV->setSection("__TEXT,__cstring,cstring_literals");
   }
 
   // String.
@@ -2405,8 +2415,7 @@ CodeGenModule::GetAddrOfConstantCFString(const StringLiteral *Literal) {
   GV = new llvm::GlobalVariable(getModule(), C->getType(), true,
                                 llvm::GlobalVariable::PrivateLinkage, C,
                                 "_unnamed_cfstring_");
-  if (const char *Sect = getTarget().getCFStringSection())
-    GV->setSection(Sect);
+  GV->setSection("__DATA,__cfstring");
   Entry.setValue(GV);
 
   return GV;
@@ -2517,12 +2526,13 @@ CodeGenModule::GetAddrOfConstantString(const StringLiteral *Literal) {
   GV = new llvm::GlobalVariable(getModule(), C->getType(), true,
                                 llvm::GlobalVariable::PrivateLinkage, C,
                                 "_unnamed_nsstring_");
+  const char *NSStringSection = "__OBJC,__cstring_object,regular,no_dead_strip";
+  const char *NSStringNonFragileABISection =
+      "__DATA,__objc_stringobj,regular,no_dead_strip";
   // FIXME. Fix section.
-  if (const char *Sect = 
-        LangOpts.ObjCRuntime.isNonFragile() 
-          ? getTarget().getNSStringNonFragileABISection() 
-          : getTarget().getNSStringSection())
-    GV->setSection(Sect);
+  GV->setSection(LangOpts.ObjCRuntime.isNonFragile()
+                     ? NSStringNonFragileABISection
+                     : NSStringSection);
   Entry.setValue(GV);
   
   return GV;

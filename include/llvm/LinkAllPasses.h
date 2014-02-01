@@ -26,9 +26,9 @@
 #include "llvm/Analysis/RegionPass.h"
 #include "llvm/Analysis/RegionPrinter.h"
 #include "llvm/Analysis/ScalarEvolution.h"
-#include "llvm/Assembly/PrintModulePass.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/IRPrintingPasses.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/ObjCARC.h"
@@ -129,6 +129,7 @@ namespace {
       (void) llvm::createJumpThreadingPass();
       (void) llvm::createUnifyFunctionExitNodesPass();
       (void) llvm::createInstCountPass();
+      (void) llvm::createConstantHoistingPass();
       (void) llvm::createCodeGenPreparePass();
       (void) llvm::createEarlyCSEPass();
       (void) llvm::createGVNPass();
@@ -139,9 +140,9 @@ namespace {
       (void) llvm::createMetaRenamerPass();
       (void) llvm::createFunctionAttrsPass();
       (void) llvm::createMergeFunctionsPass();
-      (void) llvm::createPrintModulePass(0);
-      (void) llvm::createPrintFunctionPass("", 0);
-      (void) llvm::createPrintBasicBlockPass(0);
+      (void) llvm::createPrintModulePass(*(llvm::raw_ostream*)0);
+      (void) llvm::createPrintFunctionPass(*(llvm::raw_ostream*)0);
+      (void) llvm::createPrintBasicBlockPass(*(llvm::raw_ostream*)0);
       (void) llvm::createModuleDebugInfoPrinterPass();
       (void) llvm::createPartialInliningPass();
       (void) llvm::createLintPass();

@@ -434,12 +434,12 @@ For example, consider this simple LLVM example:
 .. code-block:: llvm
 
   define i32 @test(i32 %X, i32 %Y) {
-    %Z = udiv i32 %X, %Y
+    %Z = sdiv i32 %X, %Y
     ret i32 %Z
   }
 
-The X86 instruction selector produces this machine code for the ``div`` and
-``ret`` (use "``llc X.bc -march=x86 -print-machineinstrs``" to get this):
+The X86 instruction selector might produce this machine code for the ``div`` and
+``ret``:
 
 .. code-block:: llvm
 
@@ -454,8 +454,8 @@ The X86 instruction selector produces this machine code for the ``div`` and
   %EAX = mov %reg1026           ;; 32-bit return value goes in EAX
   ret
 
-By the end of code generation, the register allocator has coalesced the
-registers and deleted the resultant identity moves producing the following
+By the end of code generation, the register allocator would coalesce the
+registers and delete the resultant identity moves producing the following
 code:
 
 .. code-block:: llvm
@@ -2144,6 +2144,10 @@ The following target-specific calling conventions are known to backend:
 * **x86_ThisCall** --- Similar to X86_StdCall. Passes first argument in ECX,
   others via stack. Callee is responsible for stack cleaning. This convention is
   used by MSVC by default for methods in its ABI (CC ID = 70).
+
+* **X86_CDeclMethod** --- Identical to the standard x86_32 C calling convention,
+  except that an sret paramter, if present, is placed on the stack after the
+  second parameter, which must an integer or pointer.  (CC ID = 80).
 
 .. _X86 addressing mode:
 

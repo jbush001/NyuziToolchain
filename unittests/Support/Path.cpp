@@ -210,6 +210,19 @@ TEST(Support, AbsolutePathIteratorWin32) {
 }
 #endif // LLVM_ON_WIN32
 
+TEST(Support, HomeDirectory) {
+#ifdef LLVM_ON_UNIX
+  // This test only makes sense on Unix if $HOME is set.
+  if (::getenv("HOME")) {
+#endif
+    SmallString<128> HomeDir;
+    EXPECT_TRUE(path::home_directory(HomeDir));
+    EXPECT_FALSE(HomeDir.empty());
+#ifdef LLVM_ON_UNIX
+  }
+#endif
+}
+
 class FileSystemTest : public testing::Test {
 protected:
   /// Unique temporary directory in which all created filesystem entities must
@@ -225,8 +238,7 @@ protected:
   }
 
   virtual void TearDown() {
-    uint32_t removed;
-    ASSERT_NO_ERROR(fs::remove_all(TestDirectory.str(), removed));
+    ASSERT_NO_ERROR(fs::remove(TestDirectory.str()));
   }
 };
 
@@ -414,6 +426,18 @@ TEST_F(FileSystemTest, DirectoryIteration) {
   ASSERT_LT(a0, aa1);
   ASSERT_LT(a0, ab1);
   ASSERT_LT(z0, za1);
+
+  ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/recursive/a0/aa1"));
+  ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/recursive/a0/ab1"));
+  ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/recursive/a0"));
+  ASSERT_NO_ERROR(
+      fs::remove(Twine(TestDirectory) + "/recursive/dontlookhere/da1"));
+  ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/recursive/dontlookhere"));
+  ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/recursive/pop/p1"));
+  ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/recursive/pop"));
+  ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/recursive/z0/za1"));
+  ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/recursive/z0"));
+  ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "/recursive"));
 }
 
 const char archive[] = "!<arch>\x0A";
@@ -479,6 +503,7 @@ TEST_F(FileSystemTest, Magic) {
     ASSERT_NO_ERROR(fs::has_magic(file_pathname.c_str(), magic, res));
     EXPECT_TRUE(res);
     EXPECT_EQ(i->magic, fs::identify_magic(magic));
+    ASSERT_NO_ERROR(fs::remove(Twine(file_pathname)));
   }
 }
 
@@ -509,6 +534,7 @@ TEST_F(FileSystemTest, CarriageReturn) {
     MemoryBuffer::getFile(FilePathname.c_str(), Buf);
     EXPECT_EQ(Buf->getBuffer(), "\n");
   }
+  ASSERT_NO_ERROR(fs::remove(Twine(FilePathname)));
 }
 #endif
 

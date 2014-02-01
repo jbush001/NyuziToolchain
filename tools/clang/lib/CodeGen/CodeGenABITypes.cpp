@@ -17,10 +17,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/CodeGen/CodeGenABITypes.h"
-
+#include "CodeGenModule.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
 #include "clang/Frontend/CodeGenOptions.h"
-#include "CodeGenModule.h"
 
 using namespace clang;
 using namespace CodeGen;
@@ -61,10 +60,10 @@ CodeGenABITypes::arrangeCXXMethodType(const CXXRecordDecl *RD,
 }
 
 const CGFunctionInfo &
-CodeGenABITypes::arrangeLLVMFunctionInfo(CanQualType returnType,
+CodeGenABITypes::arrangeFreeFunctionCall(CanQualType returnType,
                                          llvm::ArrayRef<CanQualType> argTypes,
                                          FunctionType::ExtInfo info,
                                          RequiredArgs args) {
-  return CGM->getTypes().arrangeLLVMFunctionInfo(returnType, argTypes,
-                                                info, args);
+  return CGM->getTypes().arrangeLLVMFunctionInfo(
+      returnType, /*IsInstanceMethod=*/false, argTypes, info, args);
 }

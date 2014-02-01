@@ -30,6 +30,7 @@
 #include "clang/Sema/TypoCorrection.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
+#include "clang/AST/ASTContext.h"
 using namespace clang;
 
 /// \brief Simple precedence-based parser for binary/ternary operators.
@@ -291,10 +292,10 @@ Parser::ParseRHSOfBinaryExpression(ExprResult LHS, prec::Level MinPrec) {
             }
           }
         }
-        
-        Diag(Tok, diag::err_expected_colon)
-          << FixItHint::CreateInsertion(FILoc, FIText);
-        Diag(OpToken, diag::note_matching) << "?";
+
+        Diag(Tok, diag::err_expected)
+            << tok::colon << FixItHint::CreateInsertion(FILoc, FIText);
+        Diag(OpToken, diag::note_matching) << tok::question;
         ColonLoc = Tok.getLocation();
       }
     }
@@ -790,7 +791,8 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
             DS.SetRangeEnd(ILoc);
             const char *PrevSpec = 0;
             unsigned DiagID;
-            DS.SetTypeSpecType(TST_typename, ILoc, PrevSpec, DiagID, Typ);
+            DS.SetTypeSpecType(TST_typename, ILoc, PrevSpec, DiagID, Typ,
+                               Actions.getASTContext().getPrintingPolicy());
             
             Declarator DeclaratorInfo(DS, Declarator::TypeNameContext);
             TypeResult Ty = Actions.ActOnTypeName(getCurScope(), 
@@ -915,7 +917,7 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
   case tok::ampamp: {      // unary-expression: '&&' identifier
     SourceLocation AmpAmpLoc = ConsumeToken();
     if (Tok.isNot(tok::identifier))
-      return ExprError(Diag(Tok, diag::err_expected_ident));
+      return ExprError(Diag(Tok, diag::err_expected) << tok::identifier);
 
     if (getCurScope()->getFnParent() == 0)
       return ExprError(Diag(Tok, diag::err_address_of_label_outside_fn));
@@ -955,7 +957,8 @@ ExprResult Parser::ParseCastExpression(bool isUnaryExpression,
       const char *PrevSpec = 0;
       unsigned DiagID;
       DS.SetTypeSpecType(TST_typename, Tok.getAnnotationEndLoc(),
-                         PrevSpec, DiagID, Type);
+                         PrevSpec, DiagID, Type,
+                         Actions.getASTContext().getPrintingPolicy());
 
       Declarator DeclaratorInfo(DS, Declarator::TypeNameContext);
       TypeResult Ty = Actions.ActOnTypeName(getCurScope(), DeclaratorInfo);
@@ -1289,14 +1292,14 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
           SkipUntil(tok::greatergreatergreater, StopAtSemi);
         } else {
           // There was an error closing the brackets
-          Diag(Tok, diag::err_expected_ggg);
-          Diag(OpenLoc, diag::note_matching) << "<<<";
+          Diag(Tok, diag::err_expected) << tok::greatergreatergreater;
+          Diag(OpenLoc, diag::note_matching) << tok::lesslessless;
           SkipUntil(tok::greatergreatergreater, StopAtSemi);
           LHS = ExprError();
         }
 
         if (!LHS.isInvalid()) {
-          if (ExpectAndConsume(tok::l_paren, diag::err_expected_lparen, ""))
+          if (ExpectAndConsume(tok::l_paren))
             LHS = ExprError();
           else
             Loc = PrevTokLocation;
@@ -1370,8 +1373,8 @@ Parser::ParsePostfixExpressionSuffix(ExprResult LHS) {
             (BaseType->isFunctionType() ||
              BaseType->isSpecificPlaceholderType(BuiltinType::BoundMember))) {
           Diag(OpLoc, diag::err_function_is_not_record)
-            << (OpKind == tok::arrow) << Base->getSourceRange()
-            << FixItHint::CreateRemoval(OpLoc);
+              << OpKind << Base->getSourceRange()
+              << FixItHint::CreateRemoval(OpLoc);
           return ParsePostfixExpressionSuffix(Base);
         }
 
@@ -1492,8 +1495,7 @@ Parser::ParseExprAfterUnaryExprOrTypeTrait(const Token &OpTok,
     // pathenthesis around type name.
     if (OpTok.is(tok::kw_sizeof)  || OpTok.is(tok::kw___alignof) ||
         OpTok.is(tok::kw_alignof) || OpTok.is(tok::kw__Alignof)) {
-      bool isAmbiguousTypeId;
-      if (isTypeIdInParens(isAmbiguousTypeId)) {
+      if (isTypeIdUnambiguously()) {
         DeclSpec DS(AttrFactory);
         ParseSpecifierQualifierList(DS);
         Declarator DeclaratorInfo(DS, Declarator::TypeNameContext);
@@ -1512,7 +1514,8 @@ Parser::ParseExprAfterUnaryExprOrTypeTrait(const Token &OpTok,
 
     isCastExpr = false;
     if (OpTok.is(tok::kw_typeof) && !getLangOpts().CPlusPlus) {
-      Diag(Tok,diag::err_expected_lparen_after_id) << OpTok.getIdentifierInfo();
+      Diag(Tok, diag::err_expected_after) << OpTok.getIdentifierInfo()
+                                          << tok::l_paren;
       return ExprError();
     }
 
@@ -1684,8 +1687,8 @@ ExprResult Parser::ParseBuiltinPrimaryExpression() {
 
   // All of these start with an open paren.
   if (Tok.isNot(tok::l_paren))
-    return ExprError(Diag(Tok, diag::err_expected_lparen_after_id)
-                       << BuiltinII);
+    return ExprError(Diag(Tok, diag::err_expected_after) << BuiltinII
+                                                         << tok::l_paren);
 
   BalancedDelimiterTracker PT(*this, tok::l_paren);
   PT.consumeOpen();
@@ -1697,13 +1700,15 @@ ExprResult Parser::ParseBuiltinPrimaryExpression() {
   case tok::kw___builtin_va_arg: {
     ExprResult Expr(ParseAssignmentExpression());
 
-    if (ExpectAndConsume(tok::comma, diag::err_expected_comma, "",tok::r_paren))
+    if (ExpectAndConsume(tok::comma)) {
+      SkipUntil(tok::r_paren, StopAtSemi);
       Expr = ExprError();
+    }
 
     TypeResult Ty = ParseTypeName();
 
     if (Tok.isNot(tok::r_paren)) {
-      Diag(Tok, diag::err_expected_rparen);
+      Diag(Tok, diag::err_expected) << tok::r_paren;
       Expr = ExprError();
     }
 
@@ -1721,12 +1726,14 @@ ExprResult Parser::ParseBuiltinPrimaryExpression() {
       return ExprError();
     }
 
-    if (ExpectAndConsume(tok::comma, diag::err_expected_comma, "",tok::r_paren))
+    if (ExpectAndConsume(tok::comma)) {
+      SkipUntil(tok::r_paren, StopAtSemi);
       return ExprError();
+    }
 
     // We must have at least one identifier here.
     if (Tok.isNot(tok::identifier)) {
-      Diag(Tok, diag::err_expected_ident);
+      Diag(Tok, diag::err_expected) << tok::identifier;
       SkipUntil(tok::r_paren, StopAtSemi);
       return ExprError();
     }
@@ -1748,7 +1755,7 @@ ExprResult Parser::ParseBuiltinPrimaryExpression() {
         Comps.back().LocStart = ConsumeToken();
 
         if (Tok.isNot(tok::identifier)) {
-          Diag(Tok, diag::err_expected_ident);
+          Diag(Tok, diag::err_expected) << tok::identifier;
           SkipUntil(tok::r_paren, StopAtSemi);
           return ExprError();
         }
@@ -1797,16 +1804,20 @@ ExprResult Parser::ParseBuiltinPrimaryExpression() {
       SkipUntil(tok::r_paren, StopAtSemi);
       return Cond;
     }
-    if (ExpectAndConsume(tok::comma, diag::err_expected_comma, "",tok::r_paren))
+    if (ExpectAndConsume(tok::comma)) {
+      SkipUntil(tok::r_paren, StopAtSemi);
       return ExprError();
+    }
 
     ExprResult Expr1(ParseAssignmentExpression());
     if (Expr1.isInvalid()) {
       SkipUntil(tok::r_paren, StopAtSemi);
       return Expr1;
     }
-    if (ExpectAndConsume(tok::comma, diag::err_expected_comma, "",tok::r_paren))
+    if (ExpectAndConsume(tok::comma)) {
+      SkipUntil(tok::r_paren, StopAtSemi);
       return ExprError();
+    }
 
     ExprResult Expr2(ParseAssignmentExpression());
     if (Expr2.isInvalid()) {
@@ -1814,7 +1825,7 @@ ExprResult Parser::ParseBuiltinPrimaryExpression() {
       return Expr2;
     }
     if (Tok.isNot(tok::r_paren)) {
-      Diag(Tok, diag::err_expected_rparen);
+      Diag(Tok, diag::err_expected) << tok::r_paren;
       return ExprError();
     }
     Res = Actions.ActOnChooseExpr(StartLoc, Cond.take(), Expr1.take(),
@@ -1828,11 +1839,12 @@ ExprResult Parser::ParseBuiltinPrimaryExpression() {
       SkipUntil(tok::r_paren, StopAtSemi);
       return ExprError();
     }
-    
-    if (ExpectAndConsume(tok::comma, diag::err_expected_comma, "", 
-                         tok::r_paren))
+
+    if (ExpectAndConsume(tok::comma)) {
+      SkipUntil(tok::r_paren, StopAtSemi);
       return ExprError();
-    
+    }
+
     // Second argument is the type to bitcast to.
     TypeResult DestTy = ParseTypeName();
     if (DestTy.isInvalid())
@@ -1840,7 +1852,7 @@ ExprResult Parser::ParseBuiltinPrimaryExpression() {
     
     // Attempt to consume the r-paren.
     if (Tok.isNot(tok::r_paren)) {
-      Diag(Tok, diag::err_expected_rparen);
+      Diag(Tok, diag::err_expected) << tok::r_paren;
       SkipUntil(tok::r_paren, StopAtSemi);
       return ExprError();
     }
@@ -1856,11 +1868,12 @@ ExprResult Parser::ParseBuiltinPrimaryExpression() {
       SkipUntil(tok::r_paren, StopAtSemi);
       return ExprError();
     }
-    
-    if (ExpectAndConsume(tok::comma, diag::err_expected_comma, "", 
-                         tok::r_paren))
+
+    if (ExpectAndConsume(tok::comma)) {
+      SkipUntil(tok::r_paren, StopAtSemi);
       return ExprError();
-    
+    }
+
     // Second argument is the type to bitcast to.
     TypeResult DestTy = ParseTypeName();
     if (DestTy.isInvalid())
@@ -1868,7 +1881,7 @@ ExprResult Parser::ParseBuiltinPrimaryExpression() {
     
     // Attempt to consume the r-paren.
     if (Tok.isNot(tok::r_paren)) {
-      Diag(Tok, diag::err_expected_rparen);
+      Diag(Tok, diag::err_expected) << tok::r_paren;
       SkipUntil(tok::r_paren, StopAtSemi);
       return ExprError();
     }
@@ -1937,7 +1950,7 @@ Parser::ParseParenExpression(ParenParseOption &ExprType, bool stopIfCastExpr,
                       Tok.is(tok::kw___bridge_retained) ||
                       Tok.is(tok::kw___bridge_retain)));
   if (BridgeCast && !getLangOpts().ObjCAutoRefCount) {
-    if (Tok.isNot(tok::kw___bridge)) {
+    if (!TryConsumeToken(tok::kw___bridge)) {
       StringRef BridgeCastName = Tok.getName();
       SourceLocation BridgeKeywordLoc = ConsumeToken();
       if (!PP.getSourceManager().isInSystemHeader(BridgeKeywordLoc))
@@ -1945,8 +1958,6 @@ Parser::ParseParenExpression(ParenParseOption &ExprType, bool stopIfCastExpr,
           << BridgeCastName
           << FixItHint::CreateReplacement(BridgeKeywordLoc, "");
     }
-    else
-      ConsumeToken(); // consume __bridge
     BridgeCast = false;
   }
   
@@ -2194,7 +2205,7 @@ ExprResult Parser::ParseGenericSelectionExpression() {
     Diag(KeyLoc, diag::ext_c11_generic_selection);
 
   BalancedDelimiterTracker T(*this, tok::l_paren);
-  if (T.expectAndConsume(diag::err_expected_lparen))
+  if (T.expectAndConsume())
     return ExprError();
 
   ExprResult ControllingExpr;
@@ -2209,7 +2220,7 @@ ExprResult Parser::ParseGenericSelectionExpression() {
     }
   }
 
-  if (ExpectAndConsume(tok::comma, diag::err_expected_comma, "")) {
+  if (ExpectAndConsume(tok::comma)) {
     SkipUntil(tok::r_paren, StopAtSemi);
     return ExprError();
   }
@@ -2241,7 +2252,7 @@ ExprResult Parser::ParseGenericSelectionExpression() {
     }
     Types.push_back(Ty);
 
-    if (ExpectAndConsume(tok::colon, diag::err_expected_colon, "")) {
+    if (ExpectAndConsume(tok::colon)) {
       SkipUntil(tok::r_paren, StopAtSemi);
       return ExprError();
     }

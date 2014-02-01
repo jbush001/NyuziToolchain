@@ -22,14 +22,15 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/Mangler.h"
+#include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCStreamer.h"
-#include "llvm/Target/Mangler.h"
-#include "llvm/Target/TargetFrameLowering.h"
-#include "llvm/Target/TargetMachine.h"
-#include "llvm/Target/TargetLoweringObjectFile.h"
-#include "llvm/Target/TargetRegisterInfo.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Target/TargetFrameLowering.h"
+#include "llvm/Target/TargetLoweringObjectFile.h"
+#include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetRegisterInfo.h"
 
 using namespace llvm;
 
@@ -41,8 +42,8 @@ GenerateDwarfTypeUnits("generate-type-units", cl::Hidden,
 /// Unit - Unit constructor.
 DwarfUnit::DwarfUnit(unsigned UID, DIE *D, DICompileUnit Node, AsmPrinter *A,
                      DwarfDebug *DW, DwarfFile *DWU)
-    : UniqueID(UID), Node(Node), UnitDie(D), DebugInfoOffset(0), Asm(A), DD(DW),
-      DU(DWU), IndexTyDie(0), Section(0) {
+    : UniqueID(UID), CUNode(Node), UnitDie(D), DebugInfoOffset(0), Asm(A),
+      DD(DW), DU(DWU), IndexTyDie(0), Section(0), Skeleton(0) {
   DIEIntegerOne = new (DIEValueAllocator) DIEInteger(1);
 }
 
@@ -53,9 +54,9 @@ DwarfCompileUnit::DwarfCompileUnit(unsigned UID, DIE *D, DICompileUnit Node,
   insertDIE(Node, D);
 }
 
-DwarfTypeUnit::DwarfTypeUnit(unsigned UID, DIE *D, uint16_t Language,
+DwarfTypeUnit::DwarfTypeUnit(unsigned UID, DIE *D, DICompileUnit CUNode,
                              AsmPrinter *A, DwarfDebug *DW, DwarfFile *DWU)
-    : DwarfUnit(UID, D, DICompileUnit(), A, DW, DWU), Language(Language) {}
+    : DwarfUnit(UID, D, CUNode, A, DW, DWU) {}
 
 /// ~Unit - Destructor for compile unit.
 DwarfUnit::~DwarfUnit() {
@@ -194,24 +195,14 @@ void DwarfUnit::addSInt(DIEBlock *Die, Optional<dwarf::Form> Form,
 /// table.
 void DwarfUnit::addString(DIE *Die, dwarf::Attribute Attribute,
                           StringRef String) {
-  DIEValue *Value;
-  dwarf::Form Form;
-  if (!DD->useSplitDwarf()) {
-    MCSymbol *Symb = DU->getStringPoolEntry(String);
-    if (Asm->needsRelocationsForDwarfStringPool())
-      Value = new (DIEValueAllocator) DIELabel(Symb);
-    else {
-      MCSymbol *StringPool = DU->getStringPoolSym();
-      Value = new (DIEValueAllocator) DIEDelta(Symb, StringPool);
-    }
-    Form = dwarf::DW_FORM_strp;
-  } else {
-    unsigned idx = DU->getStringPoolIndex(String);
-    Value = new (DIEValueAllocator) DIEInteger(idx);
-    Form = dwarf::DW_FORM_GNU_str_index;
-  }
+
+  if (!DD->useSplitDwarf())
+    return addLocalString(Die, Attribute, String);
+
+  unsigned idx = DU->getStringPoolIndex(String);
+  DIEValue *Value = new (DIEValueAllocator) DIEInteger(idx);
   DIEValue *Str = new (DIEValueAllocator) DIEString(Value, String);
-  Die->addValue(Attribute, Form, Str);
+  Die->addValue(Attribute, dwarf::DW_FORM_GNU_str_index, Str);
 }
 
 /// addLocalString - Add a string attribute data and value. This is guaranteed
@@ -220,13 +211,14 @@ void DwarfUnit::addLocalString(DIE *Die, dwarf::Attribute Attribute,
                                StringRef String) {
   MCSymbol *Symb = DU->getStringPoolEntry(String);
   DIEValue *Value;
-  if (Asm->needsRelocationsForDwarfStringPool())
+  if (Asm->MAI->doesDwarfUseRelocationsAcrossSections())
     Value = new (DIEValueAllocator) DIELabel(Symb);
   else {
     MCSymbol *StringPool = DU->getStringPoolSym();
     Value = new (DIEValueAllocator) DIEDelta(Symb, StringPool);
   }
-  Die->addValue(Attribute, dwarf::DW_FORM_strp, Value);
+  DIEValue *Str = new (DIEValueAllocator) DIEString(Value, String);
+  Die->addValue(Attribute, dwarf::DW_FORM_strp, Str);
 }
 
 /// addExpr - Add a Dwarf expression attribute data and value.
@@ -278,7 +270,7 @@ void DwarfCompileUnit::addLabelAddress(DIE *Die, dwarf::Attribute Attribute,
     DD->addArangeLabel(SymbolCU(this, Label));
 
   if (!DD->useSplitDwarf()) {
-    if (Label != NULL) {
+    if (Label) {
       DIEValue *Value = new (DIEValueAllocator) DIELabel(Label);
       Die->addValue(Attribute, dwarf::DW_FORM_addr, Value);
     } else {
@@ -936,41 +928,6 @@ DIE *DwarfUnit::createTypeDIE(DICompositeType Ty) {
   return TyDIE;
 }
 
-/// Return true if the type is appropriately scoped to be contained inside
-/// its own type unit.
-static bool isDwarfTypeUnitScoped(DIType Ty, const DwarfDebug *DD) {
-  DIScope Parent = DD->resolve(Ty.getContext());
-  while (Parent) {
-    // Don't generate a hash for anything scoped inside a function.
-    if (Parent.isSubprogram())
-      return false;
-    Parent = DD->resolve(Parent.getContext());
-  }
-  return true;
-}
-
-/// Return true if the type should be split out into a type unit.
-static bool shouldCreateDwarfTypeUnit(DICompositeType CTy,
-                                      const DwarfDebug *DD) {
-  if (!GenerateDwarfTypeUnits)
-    return false;
-
-  uint16_t Tag = CTy.getTag();
-
-  switch (Tag) {
-  case dwarf::DW_TAG_structure_type:
-  case dwarf::DW_TAG_union_type:
-  case dwarf::DW_TAG_enumeration_type:
-  case dwarf::DW_TAG_class_type:
-    // If this is a class, structure, union, or enumeration type
-    // that is a definition (not a declaration), and not scoped
-    // inside a function then separate this out as a type unit.
-    return !CTy.isForwardDecl() && isDwarfTypeUnitScoped(CTy, DD);
-  default:
-    return false;
-  }
-}
-
 /// getOrCreateTypeDIE - Find existing DIE or create new DIE for the
 /// given DIType.
 DIE *DwarfUnit::getOrCreateTypeDIE(const MDNode *TyNode) {
@@ -997,11 +954,12 @@ DIE *DwarfUnit::getOrCreateTypeDIE(const MDNode *TyNode) {
     constructTypeDIE(*TyDIE, DIBasicType(Ty));
   else if (Ty.isCompositeType()) {
     DICompositeType CTy(Ty);
-    if (shouldCreateDwarfTypeUnit(CTy, DD)) {
-      DD->addDwarfTypeUnitType(getLanguage(), TyDIE, CTy);
-      // Skip updating the accellerator tables since this is not the full type
-      return TyDIE;
-    }
+    if (GenerateDwarfTypeUnits && !Ty.isForwardDecl())
+      if (MDString *TypeId = CTy.getIdentifier()) {
+        DD->addDwarfTypeUnitType(getCUNode(), TypeId->getString(), TyDIE, CTy);
+        // Skip updating the accellerator tables since this is not the full type
+        return TyDIE;
+      }
     constructTypeDIE(*TyDIE, CTy);
   } else {
     assert(Ty.isDerivedType() && "Unknown kind of DIType");
@@ -1058,18 +1016,21 @@ void DwarfUnit::addType(DIE *Entity, DIType Ty, dwarf::Attribute Attribute) {
 // to reference is in the string table. We do this since the names we
 // add may not only be identical to the names in the DIE.
 void DwarfUnit::addAccelName(StringRef Name, const DIE *Die) {
+  if (!DD->useDwarfAccelTables()) return;
   DU->getStringPoolEntry(Name);
   std::vector<const DIE *> &DIEs = AccelNames[Name];
   DIEs.push_back(Die);
 }
 
 void DwarfUnit::addAccelObjC(StringRef Name, const DIE *Die) {
+  if (!DD->useDwarfAccelTables()) return;
   DU->getStringPoolEntry(Name);
   std::vector<const DIE *> &DIEs = AccelObjC[Name];
   DIEs.push_back(Die);
 }
 
 void DwarfUnit::addAccelNamespace(StringRef Name, const DIE *Die) {
+  if (!DD->useDwarfAccelTables()) return;
   DU->getStringPoolEntry(Name);
   std::vector<const DIE *> &DIEs = AccelNamespace[Name];
   DIEs.push_back(Die);
@@ -1077,6 +1038,7 @@ void DwarfUnit::addAccelNamespace(StringRef Name, const DIE *Die) {
 
 void DwarfUnit::addAccelType(StringRef Name,
                              std::pair<const DIE *, unsigned> Die) {
+  if (!DD->useDwarfAccelTables()) return;
   DU->getStringPoolEntry(Name);
   std::vector<std::pair<const DIE *, unsigned> > &DIEs = AccelTypes[Name];
   DIEs.push_back(Die);
@@ -1233,21 +1195,9 @@ void DwarfUnit::constructTypeDIE(DIE &Buffer, DICompositeType CTy) {
     for (unsigned i = 0, N = Elements.getNumElements(); i < N; ++i) {
       DIDescriptor Element = Elements.getElement(i);
       DIE *ElemDie = NULL;
-      if (Element.isSubprogram()) {
-        DISubprogram SP(Element);
-        ElemDie = getOrCreateSubprogramDIE(SP);
-        if (SP.isProtected())
-          addUInt(ElemDie, dwarf::DW_AT_accessibility, dwarf::DW_FORM_data1,
-                  dwarf::DW_ACCESS_protected);
-        else if (SP.isPrivate())
-          addUInt(ElemDie, dwarf::DW_AT_accessibility, dwarf::DW_FORM_data1,
-                  dwarf::DW_ACCESS_private);
-        else
-          addUInt(ElemDie, dwarf::DW_AT_accessibility, dwarf::DW_FORM_data1,
-                  dwarf::DW_ACCESS_public);
-        if (SP.isExplicit())
-          addFlag(ElemDie, dwarf::DW_AT_explicit);
-      } else if (Element.isDerivedType()) {
+      if (Element.isSubprogram())
+        ElemDie = getOrCreateSubprogramDIE(DISubprogram(Element));
+      else if (Element.isDerivedType()) {
         DIDerivedType DDTy(Element);
         if (DDTy.getTag() == dwarf::DW_TAG_friend) {
           ElemDie = createAndAddDIE(dwarf::DW_TAG_friend, Buffer);
@@ -1263,7 +1213,8 @@ void DwarfUnit::constructTypeDIE(DIE &Buffer, DICompositeType CTy) {
         ElemDie = createAndAddDIE(Property.getTag(), Buffer);
         StringRef PropertyName = Property.getObjCPropertyName();
         addString(ElemDie, dwarf::DW_AT_APPLE_property_name, PropertyName);
-        addType(ElemDie, Property.getType());
+        if (Property.getType())
+          addType(ElemDie, Property.getType());
         addSourceLine(ElemDie, Property);
         StringRef GetterName = Property.getObjCPropertyGetterName();
         if (!GetterName.empty())
@@ -1531,6 +1482,19 @@ DIE *DwarfUnit::getOrCreateSubprogramDIE(DISubprogram SP) {
 
   if (SP.isRValueReference())
     addFlag(SPDie, dwarf::DW_AT_rvalue_reference);
+
+  if (SP.isProtected())
+    addUInt(SPDie, dwarf::DW_AT_accessibility, dwarf::DW_FORM_data1,
+            dwarf::DW_ACCESS_protected);
+  else if (SP.isPrivate())
+    addUInt(SPDie, dwarf::DW_AT_accessibility, dwarf::DW_FORM_data1,
+            dwarf::DW_ACCESS_private);
+  else
+    addUInt(SPDie, dwarf::DW_AT_accessibility, dwarf::DW_FORM_data1,
+            dwarf::DW_ACCESS_public);
+
+  if (SP.isExplicit())
+    addFlag(SPDie, dwarf::DW_AT_explicit);
 
   return SPDie;
 }
@@ -1883,9 +1847,6 @@ void DwarfUnit::constructMemberDIE(DIE &Buffer, DIDerivedType DT) {
 
   addSourceLine(MemberDie, DT);
 
-  DIEBlock *MemLocationDie = new (DIEValueAllocator) DIEBlock();
-  addUInt(MemLocationDie, dwarf::DW_FORM_data1, dwarf::DW_OP_plus_uconst);
-
   if (DT.getTag() == dwarf::DW_TAG_inheritance && DT.isVirtual()) {
 
     // For C++, virtual base classes are not at fixed offset. Use following
@@ -1924,13 +1885,21 @@ void DwarfUnit::constructMemberDIE(DIE &Buffer, DIDerivedType DT) {
         Offset = FieldSize - (Offset + Size);
       addUInt(MemberDie, dwarf::DW_AT_bit_offset, None, Offset);
 
-      // Here WD_AT_data_member_location points to the anonymous
+      // Here DW_AT_data_member_location points to the anonymous
       // field that includes this bit field.
       OffsetInBytes = FieldOffset >> 3;
     } else
       // This is not a bitfield.
       OffsetInBytes = DT.getOffsetInBits() >> 3;
-    addUInt(MemberDie, dwarf::DW_AT_data_member_location, None, OffsetInBytes);
+
+    if (DD->getDwarfVersion() <= 2) {
+      DIEBlock *MemLocationDie = new (DIEValueAllocator) DIEBlock();
+      addUInt(MemLocationDie, dwarf::DW_FORM_data1, dwarf::DW_OP_plus_uconst);
+      addUInt(MemLocationDie, dwarf::DW_FORM_udata, OffsetInBytes);
+      addBlock(MemberDie, dwarf::DW_AT_data_member_location, MemLocationDie);
+    } else
+      addUInt(MemberDie, dwarf::DW_AT_data_member_location, None,
+              OffsetInBytes);
   }
 
   if (DT.isProtected())
@@ -2024,7 +1993,9 @@ void DwarfTypeUnit::emitHeader(const MCSection *ASection,
   Asm->OutStreamer.AddComment("Type Signature");
   Asm->OutStreamer.EmitIntValue(TypeSignature, sizeof(TypeSignature));
   Asm->OutStreamer.AddComment("Type DIE Offset");
-  Asm->OutStreamer.EmitIntValue(Ty->getOffset(), sizeof(Ty->getOffset()));
+  // In a skeleton type unit there is no type DIE so emit a zero offset.
+  Asm->OutStreamer.EmitIntValue(Ty ? Ty->getOffset() : 0,
+                                sizeof(Ty->getOffset()));
 }
 
 void DwarfTypeUnit::initSection(const MCSection *Section) {

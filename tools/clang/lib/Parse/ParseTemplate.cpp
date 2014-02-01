@@ -316,10 +316,8 @@ bool Parser::ParseTemplateParameters(unsigned Depth,
     Tok.setKind(tok::greater);
     RAngleLoc = Tok.getLocation();
     Tok.setLocation(Tok.getLocation().getLocWithOffset(1));
-  } else if (Tok.is(tok::greater))
-    RAngleLoc = ConsumeToken();
-  else if (Failed) {
-    Diag(Tok.getLocation(), diag::err_expected_greater);
+  } else if (!TryConsumeToken(tok::greater, RAngleLoc) && Failed) {
+    Diag(Tok.getLocation(), diag::err_expected) << tok::greater;
     return true;
   }
   return false;
@@ -496,7 +494,7 @@ Decl *Parser::ParseTypeParameter(unsigned Depth, unsigned Position) {
     // Unnamed template parameter. Don't have to do anything here, just
     // don't consume this token.
   } else {
-    Diag(Tok.getLocation(), diag::err_expected_ident);
+    Diag(Tok.getLocation(), diag::err_expected) << tok::identifier;
     return 0;
   }
 
@@ -577,7 +575,7 @@ Parser::ParseTemplateTemplateParameter(unsigned Depth, unsigned Position) {
     // Unnamed template parameter. Don't have to do anything here, just
     // don't consume this token.
   } else {
-    Diag(Tok.getLocation(), diag::err_expected_ident);
+    Diag(Tok.getLocation(), diag::err_expected) << tok::identifier;
     return 0;
   }
 
@@ -675,7 +673,7 @@ bool Parser::ParseGreaterThanInTemplateList(SourceLocation &RAngleLoc,
 
   switch (Tok.getKind()) {
   default:
-    Diag(Tok.getLocation(), diag::err_expected_greater);
+    Diag(Tok.getLocation(), diag::err_expected) << tok::greater;
     return true;
 
   case tok::greater:
@@ -1025,11 +1023,9 @@ ParsedTemplateArgument Parser::ParseTemplateTemplateArgument() {
       UnqualifiedId Name;
       Name.setIdentifier(Tok.getIdentifierInfo(), Tok.getLocation());
       ConsumeToken(); // the identifier
-      
-      // Parse the ellipsis.
-      if (Tok.is(tok::ellipsis))
-        EllipsisLoc = ConsumeToken();
-      
+
+      TryConsumeToken(tok::ellipsis, EllipsisLoc);
+
       // If the next token signals the end of a template argument,
       // then we have a dependent template name that could be a template
       // template argument.
@@ -1231,9 +1227,7 @@ void Parser::ParseLateTemplatedFuncDef(LateParsedTemplate &LPT) {
      return;
 
   // Get the FunctionDecl.
-  FunctionTemplateDecl *FunTmplD = dyn_cast<FunctionTemplateDecl>(LPT.D);
-  FunctionDecl *FunD =
-      FunTmplD ? FunTmplD->getTemplatedDecl() : cast<FunctionDecl>(LPT.D);
+  FunctionDecl *FunD = LPT.D->getAsFunction();
   // Track template parameter depth.
   TemplateParameterDepthRAII CurTemplateDepthTracker(TemplateParameterDepth);
 
@@ -1316,8 +1310,10 @@ void Parser::ParseLateTemplatedFuncDef(LateParsedTemplate &LPT) {
       Actions.ActOnDefaultCtorInitializers(LPT.D);
 
     if (Tok.is(tok::l_brace)) {
-      assert((!FunTmplD || FunTmplD->getTemplateParameters()->getDepth() <
-                               TemplateParameterDepth) &&
+      assert((!isa<FunctionTemplateDecl>(LPT.D) ||
+              cast<FunctionTemplateDecl>(LPT.D)
+                      ->getTemplateParameters()
+                      ->getDepth() < TemplateParameterDepth) &&
              "TemplateParameterDepth should be greater than the depth of "
              "current template being instantiated!");
       ParseFunctionStatementBody(LPT.D, FnScope);

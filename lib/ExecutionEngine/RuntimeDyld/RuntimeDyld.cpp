@@ -18,10 +18,10 @@
 #include "RuntimeDyldELF.h"
 #include "RuntimeDyldImpl.h"
 #include "RuntimeDyldMachO.h"
+#include "llvm/Object/ELF.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/MutexGuard.h"
-#include "llvm/Object/ELF.h"
 
 using namespace llvm;
 using namespace llvm::object;
@@ -82,12 +82,24 @@ ObjectImage *RuntimeDyldImpl::createObjectImage(ObjectBuffer *InputBuffer) {
   return new ObjectImageCommon(InputBuffer);
 }
 
+ObjectImage *RuntimeDyldImpl::createObjectImageFromFile(ObjectFile *InputObject) {
+  return new ObjectImageCommon(InputObject);
+}
+
+ObjectImage *RuntimeDyldImpl::loadObject(ObjectFile *InputObject) {
+  return loadObject(createObjectImageFromFile(InputObject));
+}
+
 ObjectImage *RuntimeDyldImpl::loadObject(ObjectBuffer *InputBuffer) {
+  return loadObject(createObjectImage(InputBuffer));
+} 
+
+ObjectImage *RuntimeDyldImpl::loadObject(ObjectImage *InputObject) {
   MutexGuard locked(lock);
 
-  OwningPtr<ObjectImage> obj(createObjectImage(InputBuffer));
+  OwningPtr<ObjectImage> obj(InputObject);
   if (!obj)
-    report_fatal_error("Unable to create object image from memory buffer!");
+    return NULL;
 
   // Save information about our target
   Arch = (Triple::ArchType)obj->getArch();
@@ -103,19 +115,16 @@ ObjectImage *RuntimeDyldImpl::loadObject(ObjectBuffer *InputBuffer) {
   // Maximum required total memory to allocate all common symbols
   uint64_t CommonSize = 0;
 
-  error_code err;
   // Parse symbols
   DEBUG(dbgs() << "Parse symbols:\n");
-  for (symbol_iterator i = obj->begin_symbols(), e = obj->end_symbols();
-       i != e; i.increment(err)) {
-    Check(err);
+  for (symbol_iterator i = obj->begin_symbols(), e = obj->end_symbols(); i != e;
+       ++i) {
     object::SymbolRef::Type SymType;
     StringRef Name;
     Check(i->getType(SymType));
     Check(i->getName(Name));
 
-    uint32_t flags;
-    Check(i->getFlags(flags));
+    uint32_t flags = i->getFlags();
 
     bool isCommon = flags & SymbolRef::SF_Common;
     if (isCommon) {
@@ -139,7 +148,7 @@ ObjectImage *RuntimeDyldImpl::loadObject(ObjectBuffer *InputBuffer) {
         if (si == obj->end_sections()) continue;
         Check(si->getContents(SectionData));
         Check(si->isText(IsCode));
-        const uint8_t* SymPtr = (const uint8_t*)InputBuffer->getBufferStart() +
+        const uint8_t* SymPtr = (const uint8_t*)InputObject->getData().data() +
                                 (uintptr_t)FileOffset;
         uintptr_t SectOffset = (uintptr_t)(SymPtr -
                                            (const uint8_t*)SectionData.begin());
@@ -161,18 +170,16 @@ ObjectImage *RuntimeDyldImpl::loadObject(ObjectBuffer *InputBuffer) {
 
   // Parse and process relocations
   DEBUG(dbgs() << "Parse relocations:\n");
-  for (section_iterator si = obj->begin_sections(),
-       se = obj->end_sections(); si != se; si.increment(err)) {
-    Check(err);
+  for (section_iterator si = obj->begin_sections(), se = obj->end_sections();
+       si != se; ++si) {
     bool isFirstRelocation = true;
     unsigned SectionID = 0;
     StubMap Stubs;
     section_iterator RelocatedSection = si->getRelocatedSection();
 
     for (relocation_iterator i = si->begin_relocations(),
-         e = si->end_relocations(); i != e; i.increment(err)) {
-      Check(err);
-
+                             e = si->end_relocations();
+         i != e; ++i) {
       // If it's the first relocation in this section, find its SectionID
       if (isFirstRelocation) {
         SectionID =
@@ -239,21 +246,21 @@ unsigned RuntimeDyldImpl::emitSection(ObjectImage &Obj,
 
   unsigned StubBufSize = 0,
            StubSize = getMaxStubSize();
-  error_code err;
   const ObjectFile *ObjFile = Obj.getObjectFile();
   // FIXME: this is an inefficient way to handle this. We should computed the
   // necessary section allocation size in loadObject by walking all the sections
   // once.
   if (StubSize > 0) {
     for (section_iterator SI = ObjFile->begin_sections(),
-           SE = ObjFile->end_sections();
-         SI != SE; SI.increment(err), Check(err)) {
+                          SE = ObjFile->end_sections();
+         SI != SE; ++SI) {
       section_iterator RelSecI = SI->getRelocatedSection();
       if (!(RelSecI == Section))
         continue;
 
       for (relocation_iterator I = SI->begin_relocations(),
-             E = SI->end_relocations(); I != E; I.increment(err), Check(err)) {
+                               E = SI->end_relocations();
+           I != E; ++I) {
         StubBufSize += StubSize;
       }
     }
@@ -561,6 +568,22 @@ RuntimeDyld::RuntimeDyld(RTDyldMemoryManager *mm) {
 
 RuntimeDyld::~RuntimeDyld() {
   delete Dyld;
+}
+
+ObjectImage *RuntimeDyld::loadObject(ObjectFile *InputObject) {
+  if (!Dyld) {
+    if (InputObject->isELF())
+      Dyld = new RuntimeDyldELF(MM);
+    else if (InputObject->isMachO())
+      Dyld = new RuntimeDyldMachO(MM);
+    else
+      report_fatal_error("Incompatible object format!");
+  } else {
+    if (!Dyld->isCompatibleFile(InputObject))
+      report_fatal_error("Incompatible object format!");
+  }
+
+  return Dyld->loadObject(InputObject);
 }
 
 ObjectImage *RuntimeDyld::loadObject(ObjectBuffer *InputBuffer) {

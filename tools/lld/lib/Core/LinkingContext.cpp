@@ -43,27 +43,35 @@ bool LinkingContext::createImplicitFiles(
 }
 
 std::unique_ptr<File> LinkingContext::createEntrySymbolFile() const {
+  return createEntrySymbolFile("command line option -u");
+}
+
+std::unique_ptr<File>
+LinkingContext::createEntrySymbolFile(StringRef filename) const {
   if (entrySymbolName().empty())
     return nullptr;
-  std::unique_ptr<SimpleFile> entryFile(
-      new SimpleFile("command line option -entry"));
+  std::unique_ptr<SimpleFile> entryFile(new SimpleFile(filename));
   entryFile->addAtom(
       *(new (_allocator) SimpleUndefinedAtom(*entryFile, entrySymbolName())));
   return std::move(entryFile);
 }
 
 std::unique_ptr<File> LinkingContext::createUndefinedSymbolFile() const {
+  return createUndefinedSymbolFile("command line option -u");
+}
+
+std::unique_ptr<File>
+LinkingContext::createUndefinedSymbolFile(StringRef filename) const {
   if (_initialUndefinedSymbols.empty())
     return nullptr;
-  std::unique_ptr<SimpleFile> undefinedSymFile(
-      new SimpleFile("command line option -u"));
+  std::unique_ptr<SimpleFile> undefinedSymFile(new SimpleFile(filename));
   for (auto undefSymStr : _initialUndefinedSymbols)
     undefinedSymFile->addAtom(*(new (_allocator) SimpleUndefinedAtom(
                                    *undefinedSymFile, undefSymStr)));
   return std::move(undefinedSymFile);
 }
 
-bool LinkingContext::createInternalFiles(
+void LinkingContext::createInternalFiles(
     std::vector<std::unique_ptr<File> > &result) const {
   std::unique_ptr<File> internalFile;
   internalFile = createEntrySymbolFile();
@@ -72,7 +80,6 @@ bool LinkingContext::createInternalFiles(
   internalFile = createUndefinedSymbolFile();
   if (internalFile)
     result.push_back(std::move(internalFile));
-  return true;
 }
 
 void LinkingContext::setResolverState(uint32_t state) {
@@ -84,7 +91,7 @@ ErrorOr<File &> LinkingContext::nextFile() {
   // initialized. Initialize it with the first element of the input graph.
   if (_currentInputElement == nullptr) {
     ErrorOr<InputElement *> elem = inputGraph().getNextInputElement();
-    if (error_code(elem) == InputGraphError::no_more_elements)
+    if (elem.getError() == InputGraphError::no_more_elements)
       return make_error_code(InputGraphError::no_more_files);
     _currentInputElement = *elem;
   }
@@ -95,11 +102,11 @@ ErrorOr<File &> LinkingContext::nextFile() {
   // graph.
   for (;;) {
     ErrorOr<File &> nextFile = _currentInputElement->getNextFile();
-    if (error_code(nextFile) != InputGraphError::no_more_files)
+    if (nextFile.getError() != InputGraphError::no_more_files)
       return std::move(nextFile);
 
     ErrorOr<InputElement *> elem = inputGraph().getNextInputElement();
-    if (error_code(elem) == InputGraphError::no_more_elements ||
+    if (elem.getError() == InputGraphError::no_more_elements ||
         *elem == nullptr)
       return make_error_code(InputGraphError::no_more_files);
     _currentInputElement = *elem;

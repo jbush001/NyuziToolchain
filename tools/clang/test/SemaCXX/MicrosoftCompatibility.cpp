@@ -21,6 +21,12 @@ void test()
 }
 
 
+namespace ms_predefined_types {
+  // ::type_info is a built-in forward class declaration.
+  void f(const type_info &a);
+  void f(size_t);
+}
+
 
 namespace ms_protected_scope {
   struct C { C(); };
@@ -112,6 +118,27 @@ private:
   using B::f; // expected-warning {{using declaration referring to inaccessible member 'ms_using_declaration_bug::B::f' (which refers to accessible member 'ms_using_declaration_bug::A::f') is a Microsoft compatibility extension}}
 };
 
+}
+
+namespace using_tag_redeclaration
+{
+  struct S;
+  namespace N {
+    using ::using_tag_redeclaration::S;
+    struct S {}; // expected-note {{previous definition is here}}
+  }
+  void f() {
+    N::S s1;
+    S s2;
+  }
+  void g() {
+    struct S; // expected-note {{forward declaration of 'S'}}
+    S s3; // expected-error {{variable has incomplete type 'S'}}
+  }
+  void h() {
+    using ::using_tag_redeclaration::S;
+    struct S {}; // expected-error {{redefinition of 'S'}}
+  }
 }
 
 

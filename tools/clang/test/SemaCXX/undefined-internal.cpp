@@ -1,7 +1,10 @@
 // RUN: %clang_cc1 -fsyntax-only -verify %s
 
 // Make sure we don't produce invalid IR.
-// RUN: %clang_cc1 -emit-llvm-only %s
+// RUN: %clang_cc1 -triple %itanium_abi_triple -emit-llvm-only %s
+
+// FIXME: Itanium shouldn't be necessary; the test should pass
+// in MS mode too.
 
 namespace test1 {
   static void foo(); // expected-warning {{function 'test1::foo' has internal linkage but is not defined}}
@@ -285,7 +288,7 @@ namespace test12 {
       virtual operator T3&() = 0;
       operator T4();  // expected-warning {{function 'test12::<anonymous namespace>::Cls::operator T4' has internal linkage but is not defined}}
       operator T5();  // expected-warning {{function 'test12::<anonymous namespace>::Cls::operator T5' has internal linkage but is not defined}}
-      operator T6&();  // expected-warning {{function 'test12::<anonymous namespace>::Cls::operator class test12::T6 &' has internal linkage but is not defined}}
+      operator T6&();  // expected-warning {{function 'test12::<anonymous namespace>::Cls::operator test12::T6 &' has internal linkage but is not defined}}
     };
 
     struct Cls2 {

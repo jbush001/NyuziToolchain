@@ -17,6 +17,7 @@
 #include "lld/Driver/GnuLdInputGraph.h"
 
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Triple.h"
@@ -118,9 +119,65 @@ bool GnuLdDriver::linkELF(int argc, const char *argv[],
   options->registry().addSupportNativeObjects();
   if (options->allowLinkWithDynamicLibraries())
     options->registry().addSupportELFDynamicSharedObjects(
-        options->useShlibUndefines());
+        options->useShlibUndefines(), options->targetHandler());
 
   return link(*options, diagnostics);
+}
+
+static llvm::Optional<llvm::Triple::ArchType>
+getArchType(const llvm::Triple &triple, StringRef value) {
+  if (triple.getOS() != llvm::Triple::NetBSD)
+    return llvm::None;
+  switch (triple.getArch()) {
+  case llvm::Triple::x86:
+  case llvm::Triple::x86_64:
+    if (value == "elf_i386")
+      return llvm::Triple::x86;
+    if (value == "elf_x86_64")
+      return llvm::Triple::x86_64;
+    return llvm::None;
+  default:
+    return llvm::None;
+  }
+}
+
+bool GnuLdDriver::applyEmulation(llvm::Triple &triple,
+                                 llvm::opt::InputArgList &args,
+                                 raw_ostream &diagnostics) {
+  llvm::opt::Arg *arg = args.getLastArg(OPT_m);
+  if (!arg)
+    return true;
+  llvm::Optional<llvm::Triple::ArchType> arch =
+      getArchType(triple, arg->getValue());
+  if (!arch) {
+    diagnostics << "error: unsupported emulation '" << arg->getValue()
+                << "'.\n";
+    return false;
+  }
+  triple.setArch(*arch);
+  return true;
+}
+
+void GnuLdDriver::addPlatformSearchDirs(ELFLinkingContext &ctx,
+                                       llvm::Triple &triple,
+                                       llvm::Triple &baseTriple) {
+  switch (triple.getOS()) {
+  case llvm::Triple::NetBSD:
+    switch (triple.getArch()) {
+    case llvm::Triple::x86:
+      if (baseTriple.getArch() == llvm::Triple::x86_64) {
+        ctx.addSearchPath("=/usr/lib/i386");
+        return;
+      }
+      break;
+    default:
+      break;
+    }
+    break;
+  default:
+    break;
+  }
+  ctx.addSearchPath("=/usr/lib");
 }
 
 bool GnuLdDriver::parse(int argc, const char *argv[],
@@ -148,11 +205,16 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
   }
 
   // Use -target or use default target triple to instantiate LinkingContext
-  llvm::Triple triple;
+  llvm::Triple baseTriple;
   if (llvm::opt::Arg *trip = parsedArgs->getLastArg(OPT_target))
-    triple = llvm::Triple(trip->getValue());
+    baseTriple = llvm::Triple(trip->getValue());
   else
-    triple = getDefaultTarget(argv[0]);
+    baseTriple = getDefaultTarget(argv[0]);
+  llvm::Triple triple(baseTriple);
+
+  if (!applyEmulation(triple, *parsedArgs, diagnostics))
+    return false;
+
   std::unique_ptr<ELFLinkingContext> ctx(ELFLinkingContext::create(triple));
 
   if (!ctx) {
@@ -186,6 +248,9 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
             ie = parsedArgs->filtered_end();
        it != ie; ++it)
     ctx->addSearchPath((*it)->getValue());
+
+  if (!parsedArgs->hasArg(OPT_nostdlib))
+    addPlatformSearchDirs(*ctx, triple, baseTriple);
 
   // Figure out output kind ( -r, -static, -shared)
   if ( llvm::opt::Arg *kind = parsedArgs->getLastArg(OPT_relocatable, OPT_static,

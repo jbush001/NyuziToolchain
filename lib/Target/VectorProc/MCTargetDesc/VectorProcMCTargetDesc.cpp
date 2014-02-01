@@ -71,17 +71,11 @@ static MCStreamer *createVectorProcMCStreamer(const Target &T, StringRef TT,
                                               MCContext &Ctx, MCAsmBackend &MAB,
                                               raw_ostream &_OS,
                                               MCCodeEmitter *_Emitter,
+                                              const MCSubtargetInfo &STI,
                                               bool RelaxAll, bool NoExecStack) {
   Triple TheTriple(TT);
-  if (TheTriple.isOSDarwin()) {
-    llvm_unreachable("VectorProc does not support Darwin MACH-O format");
-  }
-  if (TheTriple.isOSWindows()) {
-    llvm_unreachable("VectorProc does not support Windows COFF format");
-  }
-  MCTargetStreamer *streamer = new MCTargetStreamer;
-  return createELFStreamer(Ctx, streamer, MAB, _OS, _Emitter, RelaxAll,
-                           NoExecStack);
+
+  return createELFStreamer(Ctx, MAB, _OS, _Emitter, RelaxAll, NoExecStack);
 }
 
 static MCInstPrinter *

@@ -77,7 +77,8 @@ public:
   OwningPtr<FrontendActionFactory> Factory(newFrontendActionFactory(&Finder));
 
   if (!runToolOnCodeWithArgs(Factory->create(), Code, Args, FileName))
-    return testing::AssertionFailure() << "Parsing error in \"" << Code << "\"";
+    return testing::AssertionFailure()
+      << "Parsing error in \"" << Code.str() << "\"";
 
   if (Printer.getNumFoundDecls() == 0)
     return testing::AssertionFailure()
@@ -90,8 +91,8 @@ public:
 
   if (Printer.getPrinted() != ExpectedPrinted)
     return ::testing::AssertionFailure()
-      << "Expected \"" << ExpectedPrinted << "\", "
-         "got \"" << Printer.getPrinted() << "\"";
+      << "Expected \"" << ExpectedPrinted.str() << "\", "
+         "got \"" << Printer.getPrinted().str() << "\"";
 
   return ::testing::AssertionSuccess();
 }
@@ -370,11 +371,11 @@ TEST(DeclPrinter, TestFunctionDecl10) {
 
 TEST(DeclPrinter, TestFunctionDecl11) {
   ASSERT_TRUE(PrintedDeclCXX98Matches(
-    "typedef long size_t;"
+    "typedef long ssize_t;"
     "typedef int *pInt;"
-    "void A(int a, pInt b, size_t c);",
+    "void A(int a, pInt b, ssize_t c);",
     "A",
-    "void A(int a, pInt b, size_t c)"));
+    "void A(int a, pInt b, ssize_t c)"));
     // Should be: with semicolon
 }
 
@@ -558,7 +559,7 @@ TEST(DeclPrinter, TestCXXConversionDecl3) {
     "  operator Z();"
     "};",
     methodDecl(ofClass(hasName("A"))).bind("id"),
-    "Z operator struct Z()"));
+    "Z operator Z()"));
     // WRONG; Should be: "operator Z();"
 }
 

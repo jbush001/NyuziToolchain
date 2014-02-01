@@ -37,17 +37,19 @@ private:
   InstrUID UID;
   /// The record from the .td files corresponding to this instruction
   const Record* Rec;
-  /// The prefix field from the record
-  uint8_t Prefix;
+  /// The OpPrefix field from the record
+  uint8_t OpPrefix;
+  /// The OpMap field from the record
+  uint8_t OpMap;
   /// The opcode field from the record; this is the opcode used in the Intel
   /// encoding and therefore distinct from the UID
   uint8_t Opcode;
   /// The form field from the record
   uint8_t Form;
-  /// The segment override field from the record
-  uint8_t SegOvr;
   /// The hasOpSizePrefix field from the record
   bool HasOpSizePrefix;
+  /// The hasOpSize16Prefix field from the record
+  bool HasOpSize16Prefix;
   /// The hasAdSizePrefix field from the record
   bool HasAdSizePrefix;
   /// The hasREX_WPrefix field from the record
@@ -78,8 +80,12 @@ private:
   bool HasEVEX_B;
   /// The hasLockPrefix field from the record
   bool HasLockPrefix;
-  /// The isCodeGenOnly filed from the record
+  /// The hasREPPrefix field from the record
+  bool HasREPPrefix;
+  /// The isCodeGenOnly field from the record
   bool IsCodeGenOnly;
+  /// The ForceDisassemble field from the record
+  bool ForceDisassemble;
   // Whether the instruction has the predicate "In64BitMode"
   bool Is64Bit;
   // Whether the instruction has the predicate "In32BitMode"
@@ -89,12 +95,7 @@ private:
   std::string Name;
   /// The AT&T AsmString for the instruction
   std::string AsmString;
-  
-  /// Indicates whether the instruction is SSE
-  bool IsSSE;
-  /// Indicates whether the instruction has FR operands - MOVs with FR operands
-  /// are typically ignored
-  bool HasFROperands;
+
   /// Indicates whether the instruction should be emitted into the decode
   /// tables; regardless, it will be emitted into the instruction info table
   bool ShouldBeEmitted;
@@ -232,9 +233,7 @@ private:
   /// emitInstructionSpecifier - Loads the instruction specifier for the current
   ///   instruction into a DisassemblerTables.
   ///
-  /// \param tables The DisassemblerTables to populate with the specifier for
-  ///               the current instruction.
-  void emitInstructionSpecifier(DisassemblerTables &tables);
+  void emitInstructionSpecifier();
   
   /// emitDecodePath - Populates the proper fields in the decode tables
   ///   corresponding to the decode paths for this instruction.

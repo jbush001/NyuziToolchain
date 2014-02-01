@@ -25,6 +25,8 @@
 #include "llvm/Object/ELFObjectFile.h"
 #include "llvm/Object/ObjectFile.h"
 #include "llvm/Support/ELF.h"
+#include "llvm/Support/MemoryBuffer.h"
+
 using namespace llvm;
 using namespace llvm::object;
 
@@ -176,6 +178,39 @@ void RuntimeDyldELF::deregisterEHFrames() {
     MemMgr->deregisterEHFrames(EHFrameAddr, EHFrameLoadAddr, EHFrameSize);
   }
   RegisteredEHFrameSections.clear();
+}
+
+ObjectImage *RuntimeDyldELF::createObjectImageFromFile(object::ObjectFile *ObjFile) {
+  if (!ObjFile)
+    return NULL;
+
+  error_code ec;
+  MemoryBuffer* Buffer = MemoryBuffer::getMemBuffer(ObjFile->getData(), 
+                                                    "", 
+                                                    false);
+
+  if (ObjFile->getBytesInAddress() == 4 && ObjFile->isLittleEndian()) {
+    DyldELFObject<ELFType<support::little, 2, false> > *Obj =
+      new DyldELFObject<ELFType<support::little, 2, false> >(Buffer, ec);
+    return new ELFObjectImage<ELFType<support::little, 2, false> >(NULL, Obj);
+  }
+  else if (ObjFile->getBytesInAddress() == 4 && !ObjFile->isLittleEndian()) {
+    DyldELFObject<ELFType<support::big, 2, false> > *Obj =
+      new DyldELFObject<ELFType<support::big, 2, false> >(Buffer, ec);
+    return new ELFObjectImage<ELFType<support::big, 2, false> >(NULL, Obj);
+  }
+  else if (ObjFile->getBytesInAddress() == 8 && !ObjFile->isLittleEndian()) {
+    DyldELFObject<ELFType<support::big, 2, true> > *Obj =
+      new DyldELFObject<ELFType<support::big, 2, true> >(Buffer, ec);
+    return new ELFObjectImage<ELFType<support::big, 2, true> >(NULL, Obj);
+  }
+  else if (ObjFile->getBytesInAddress() == 8 && ObjFile->isLittleEndian()) {
+    DyldELFObject<ELFType<support::little, 2, true> > *Obj =
+      new DyldELFObject<ELFType<support::little, 2, true> >(Buffer, ec);
+    return new ELFObjectImage<ELFType<support::little, 2, true> >(NULL, Obj);
+  }
+  else
+    llvm_unreachable("Unexpected ELF format");
 }
 
 ObjectImage *RuntimeDyldELF::createObjectImage(ObjectBuffer *Buffer) {
@@ -446,8 +481,11 @@ void RuntimeDyldELF::resolveARMRelocation(const SectionEntry &Section,
   default:
     llvm_unreachable("Not implemented relocation type!");
 
+  case ELF::R_ARM_NONE:
+    break;
   // Write a 32bit value to relocation address, taking into account the
   // implicit addend encoded in the target.
+  case ELF::R_ARM_PREL31:
   case ELF::R_ARM_TARGET1:
   case ELF::R_ARM_ABS32:
     *TargetPtr = *Placeholder + Value;
@@ -583,10 +621,8 @@ void RuntimeDyldELF::findOPDEntrySection(ObjectImage &Obj,
                                          RelocationValueRef &Rel) {
   // Get the ELF symbol value (st_value) to compare with Relocation offset in
   // .opd entries
-
-  error_code err;
-  for (section_iterator si = Obj.begin_sections(),
-     se = Obj.end_sections(); si != se; si.increment(err)) {
+  for (section_iterator si = Obj.begin_sections(), se = Obj.end_sections();
+       si != se; ++si) {
     section_iterator RelSecI = si->getRelocatedSection();
     if (RelSecI == Obj.end_sections())
       continue;
@@ -598,14 +634,12 @@ void RuntimeDyldELF::findOPDEntrySection(ObjectImage &Obj,
 
     for (relocation_iterator i = si->begin_relocations(),
          e = si->end_relocations(); i != e;) {
-      check(err);
-
       // The R_PPC64_ADDR64 relocation indicates the first field
       // of a .opd entry
       uint64_t TypeFunc;
       check(i->getType(TypeFunc));
       if (TypeFunc != ELF::R_PPC64_ADDR64) {
-        i.increment(err);
+        ++i;
         continue;
       }
 
@@ -615,10 +649,9 @@ void RuntimeDyldELF::findOPDEntrySection(ObjectImage &Obj,
       int64_t Addend;
       check(getELFRelocationAddend(*i, Addend));
 
-      i = i.increment(err);
+      ++i;
       if (i == e)
         break;
-      check(err);
 
       // Just check if following relocation is a R_PPC64_TOC
       uint64_t TypeTOC;
@@ -1403,4 +1436,9 @@ bool RuntimeDyldELF::isCompatibleFormat(const ObjectBuffer *Buffer) const {
     return false;
   return (memcmp(Buffer->getBufferStart(), ELF::ElfMagic, strlen(ELF::ElfMagic))) == 0;
 }
+
+bool RuntimeDyldELF::isCompatibleFile(const object::ObjectFile *Obj) const {
+  return Obj->isELF();
+}
+
 } // namespace llvm

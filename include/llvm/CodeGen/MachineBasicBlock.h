@@ -363,6 +363,9 @@ public:
   ///
   void addSuccessor(MachineBasicBlock *succ, uint32_t weight = 0);
 
+  /// Set successor weight of a given iterator.
+  void setSuccWeight(succ_iterator I, uint32_t weight);
+
   /// removeSuccessor - Remove successor from the successors list of this
   /// MachineBasicBlock. The Predecessors list of succ is automatically updated.
   ///
@@ -608,6 +611,9 @@ public:
   void dump() const;
   void print(raw_ostream &OS, SlotIndexes* = 0) const;
 
+  // Printing method used by LoopInfo.
+  void printAsOperand(raw_ostream &OS, bool PrintType = true);
+
   /// getNumber - MachineBasicBlocks are uniquely numbered at the function
   /// level, unless they're not in a MachineFunction yet, in which case this
   /// will return -1.
@@ -654,8 +660,6 @@ private:
 };
 
 raw_ostream& operator<<(raw_ostream &OS, const MachineBasicBlock &MBB);
-
-void WriteAsOperand(raw_ostream &, const MachineBasicBlock*, bool t);
 
 // This is useful when building IndexedMaps keyed on basic block pointers.
 struct MBB2NumberFunctor :

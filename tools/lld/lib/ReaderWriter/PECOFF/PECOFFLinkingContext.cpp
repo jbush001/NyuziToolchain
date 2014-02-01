@@ -32,16 +32,6 @@
 
 namespace lld {
 
-static void assignOrdinals(PECOFFLinkingContext &ctx) {
-  int maxOrdinal = -1;
-  for (const PECOFFLinkingContext::ExportDesc &desc : ctx.getDllExports())
-    maxOrdinal = std::max(maxOrdinal, desc.ordinal);
-  int nextOrdinal = (maxOrdinal == -1) ? 1 : (maxOrdinal + 1);
-  for (PECOFFLinkingContext::ExportDesc &desc : ctx.getDllExports())
-    if (desc.ordinal == -1)
-      desc.ordinal = nextOrdinal++;
-}
-
 bool PECOFFLinkingContext::validateImpl(raw_ostream &diagnostics) {
   if (_stackReserve < _stackCommit) {
     diagnostics << "Invalid stack size: reserve size must be equal to or "
@@ -58,9 +48,9 @@ bool PECOFFLinkingContext::validateImpl(raw_ostream &diagnostics) {
   }
 
   // It's an error if the base address is not multiple of 64K.
-  if (_baseAddress & 0xffff) {
+  if (getBaseAddress() & 0xffff) {
     diagnostics << "Base address have to be multiple of 64K, but got "
-                << _baseAddress << "\n";
+                << getBaseAddress() << "\n";
     return false;
   }
 
@@ -83,38 +73,23 @@ bool PECOFFLinkingContext::validateImpl(raw_ostream &diagnostics) {
     return false;
   }
 
-  // Architectures other than i386 is not supported yet.
-  if (_machineType != llvm::COFF::IMAGE_FILE_MACHINE_I386) {
-    diagnostics << "Machine type other than x86 is not supported.\n";
+  // Architectures other than x86/x64 is not supported yet.
+  if (_machineType != llvm::COFF::IMAGE_FILE_MACHINE_I386 &&
+      _machineType != llvm::COFF::IMAGE_FILE_MACHINE_AMD64) {
+    diagnostics << "Machine type other than x86/x64 is not supported.\n";
     return false;
   }
-
-  // Assign default ordinals to export symbols.
-  assignOrdinals(*this);
 
   _writer = createWriterPECOFF(*this);
   return true;
 }
 
 std::unique_ptr<File> PECOFFLinkingContext::createEntrySymbolFile() const {
-  if (entrySymbolName().empty())
-    return nullptr;
-  std::unique_ptr<SimpleFile> entryFile(
-      new SimpleFile("command line option /entry"));
-  entryFile->addAtom(
-      *(new (_allocator) SimpleUndefinedAtom(*entryFile, entrySymbolName())));
-  return std::move(entryFile);
+  return LinkingContext::createEntrySymbolFile("command line option /entry");
 }
 
 std::unique_ptr<File> PECOFFLinkingContext::createUndefinedSymbolFile() const {
-  if (_initialUndefinedSymbols.empty())
-    return nullptr;
-  std::unique_ptr<SimpleFile> undefinedSymFile(
-      new SimpleFile("command line option /c (or) /include"));
-  for (auto undefSymStr : _initialUndefinedSymbols)
-    undefinedSymFile->addAtom(*(new (_allocator) SimpleUndefinedAtom(
-                                   *undefinedSymFile, undefSymStr)));
-  return std::move(undefinedSymFile);
+  return LinkingContext::createUndefinedSymbolFile("command line option /include");
 }
 
 bool PECOFFLinkingContext::createImplicitFiles(
@@ -219,8 +194,20 @@ StringRef PECOFFLinkingContext::decorateSymbol(StringRef name) const {
   return allocate(str);
 }
 
-Writer &PECOFFLinkingContext::writer() const { return *_writer; }
+StringRef PECOFFLinkingContext::undecorateSymbol(StringRef name) const {
+  if (_machineType != llvm::COFF::IMAGE_FILE_MACHINE_I386)
+    return name;
+  assert(name.startswith("_"));
+  return name.substr(1);
+}
 
+uint64_t PECOFFLinkingContext::getBaseAddress() const {
+  if (_baseAddress == invalidBaseAddress)
+    return is64Bit() ? pe32PlusDefaultBaseAddress : pe32DefaultBaseAddress;
+  return _baseAddress;
+}
+
+Writer &PECOFFLinkingContext::writer() const { return *_writer; }
 
 void PECOFFLinkingContext::setSectionSetMask(StringRef sectionName,
                                              uint32_t newFlags) {
@@ -248,6 +235,27 @@ uint32_t PECOFFLinkingContext::getSectionAttributes(StringRef sectionName,
   auto ci = _sectionClearMask.find(sectionName);
   uint32_t clearMask = (ci == _sectionClearMask.end()) ? 0 : ci->second;
   return (flags | setMask) & ~clearMask;
+}
+
+// Returns true if two export descriptors have conflicting contents,
+// e.g. different export ordinals.
+static bool exportConflicts(const PECOFFLinkingContext::ExportDesc &a,
+                            const PECOFFLinkingContext::ExportDesc &b) {
+  return (a.ordinal > 0 && b.ordinal > 0 && a.ordinal != b.ordinal) ||
+         a.noname != b.noname || a.isData != b.isData;
+}
+
+void PECOFFLinkingContext::addDllExport(ExportDesc &desc) {
+  auto existing = _dllExports.insert(desc);
+  if (existing.second)
+    return;
+  if (!exportConflicts(*existing.first, desc)) {
+    _dllExports.erase(existing.first);
+    _dllExports.insert(desc);
+    return;
+  }
+  llvm::errs() << "Export symbol '" << desc.name
+               << "' specified more than once.\n";
 }
 
 void PECOFFLinkingContext::addPasses(PassManager &pm) {

@@ -474,13 +474,30 @@ namespace {
 
       /// Evaluate in any way we know how. Don't worry about side-effects that
       /// can't be modeled.
-      EM_IgnoreSideEffects
+      EM_IgnoreSideEffects,
+
+      /// Evaluate as a constant expression. Stop if we find that the expression
+      /// is not a constant expression. Some expressions can be retried in the
+      /// optimizer if we don't constant fold them here, but in an unevaluated
+      /// context we try to fold them immediately since the optimizer never
+      /// gets a chance to look at it.
+      EM_ConstantExpressionUnevaluated,
+
+      /// Evaluate as a potential constant expression. Keep going if we hit a
+      /// construct that we can't evaluate yet (because we don't yet know the
+      /// value of something) but stop if we hit something that could never be
+      /// a constant expression. Some expressions can be retried in the
+      /// optimizer if we don't constant fold them here, but in an unevaluated
+      /// context we try to fold them immediately since the optimizer never
+      /// gets a chance to look at it.
+      EM_PotentialConstantExpressionUnevaluated
     } EvalMode;
 
     /// Are we checking whether the expression is a potential constant
     /// expression?
     bool checkingPotentialConstantExpression() const {
-      return EvalMode == EM_PotentialConstantExpression;
+      return EvalMode == EM_PotentialConstantExpression ||
+             EvalMode == EM_PotentialConstantExpressionUnevaluated;
     }
 
     /// Are we checking an expression for overflow?
@@ -573,6 +590,8 @@ namespace {
             // some later problem.
           case EM_ConstantExpression:
           case EM_PotentialConstantExpression:
+          case EM_ConstantExpressionUnevaluated:
+          case EM_PotentialConstantExpressionUnevaluated:
             HasActiveDiagnostic = false;
             return OptionalDiagnostic();
           }
@@ -644,11 +663,13 @@ namespace {
     bool keepEvaluatingAfterSideEffect() {
       switch (EvalMode) {
       case EM_PotentialConstantExpression:
+      case EM_PotentialConstantExpressionUnevaluated:
       case EM_EvaluateForOverflow:
       case EM_IgnoreSideEffects:
         return true;
 
       case EM_ConstantExpression:
+      case EM_ConstantExpressionUnevaluated:
       case EM_ConstantFold:
         return false;
       }
@@ -670,10 +691,12 @@ namespace {
 
       switch (EvalMode) {
       case EM_PotentialConstantExpression:
+      case EM_PotentialConstantExpressionUnevaluated:
       case EM_EvaluateForOverflow:
         return true;
 
       case EM_ConstantExpression:
+      case EM_ConstantExpressionUnevaluated:
       case EM_ConstantFold:
       case EM_IgnoreSideEffects:
         return false;
@@ -696,7 +719,9 @@ namespace {
                         Info.EvalStatus.Diag->empty() &&
                         !Info.EvalStatus.HasSideEffects),
         OldMode(Info.EvalMode) {
-      if (Enabled && Info.EvalMode == EvalInfo::EM_ConstantExpression)
+      if (Enabled &&
+          (Info.EvalMode == EvalInfo::EM_ConstantExpression ||
+           Info.EvalMode == EvalInfo::EM_ConstantExpressionUnevaluated))
         Info.EvalMode = EvalInfo::EM_ConstantFold;
     }
     void keepDiagnostics() { Enabled = false; }
@@ -1141,7 +1166,7 @@ static int64_t getExtValue(const APSInt &Value) {
 
 /// Should this call expression be treated as a string literal?
 static bool IsStringLiteralCall(const CallExpr *E) {
-  unsigned Builtin = E->isBuiltinCall();
+  unsigned Builtin = E->getBuiltinCallee();
   return (Builtin == Builtin::BI__builtin___CFStringMakeConstantString ||
           Builtin == Builtin::BI__builtin___NSStringMakeConstantString);
 }
@@ -3593,7 +3618,7 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
 
   EvalStmtResult ESR = EvaluateStmt(Result, Info, Body);
   if (ESR == ESR_Succeeded) {
-    if (Callee->getResultType()->isVoidType())
+    if (Callee->getReturnType()->isVoidType())
       return true;
     Info.Diag(Callee->getLocEnd(), diag::note_constexpr_no_return);
   }
@@ -3742,15 +3767,14 @@ static bool HandleConstructorCall(SourceLocation CallLoc, const LValue &This,
 //===----------------------------------------------------------------------===//
 namespace {
 
-// FIXME: RetTy is always bool. Remove it.
-template <class Derived, typename RetTy=bool>
+template <class Derived>
 class ExprEvaluatorBase
-  : public ConstStmtVisitor<Derived, RetTy> {
+  : public ConstStmtVisitor<Derived, bool> {
 private:
-  RetTy DerivedSuccess(const APValue &V, const Expr *E) {
+  bool DerivedSuccess(const APValue &V, const Expr *E) {
     return static_cast<Derived*>(this)->Success(V, E);
   }
-  RetTy DerivedZeroInitialization(const Expr *E) {
+  bool DerivedZeroInitialization(const Expr *E) {
     return static_cast<Derived*>(this)->ZeroInitialization(E);
   }
 
@@ -3795,14 +3819,14 @@ private:
 
 protected:
   EvalInfo &Info;
-  typedef ConstStmtVisitor<Derived, RetTy> StmtVisitorTy;
+  typedef ConstStmtVisitor<Derived, bool> StmtVisitorTy;
   typedef ExprEvaluatorBase ExprEvaluatorBaseTy;
 
   OptionalDiagnostic CCEDiag(const Expr *E, diag::kind D) {
     return Info.CCEDiag(E, D);
   }
 
-  RetTy ZeroInitialization(const Expr *E) { return Error(E); }
+  bool ZeroInitialization(const Expr *E) { return Error(E); }
 
 public:
   ExprEvaluatorBase(EvalInfo &Info) : Info(Info) {}
@@ -3819,28 +3843,28 @@ public:
     return Error(E, diag::note_invalid_subexpr_in_const_expr);
   }
 
-  RetTy VisitStmt(const Stmt *) {
+  bool VisitStmt(const Stmt *) {
     llvm_unreachable("Expression evaluator should not be called on stmts");
   }
-  RetTy VisitExpr(const Expr *E) {
+  bool VisitExpr(const Expr *E) {
     return Error(E);
   }
 
-  RetTy VisitParenExpr(const ParenExpr *E)
+  bool VisitParenExpr(const ParenExpr *E)
     { return StmtVisitorTy::Visit(E->getSubExpr()); }
-  RetTy VisitUnaryExtension(const UnaryOperator *E)
+  bool VisitUnaryExtension(const UnaryOperator *E)
     { return StmtVisitorTy::Visit(E->getSubExpr()); }
-  RetTy VisitUnaryPlus(const UnaryOperator *E)
+  bool VisitUnaryPlus(const UnaryOperator *E)
     { return StmtVisitorTy::Visit(E->getSubExpr()); }
-  RetTy VisitChooseExpr(const ChooseExpr *E)
+  bool VisitChooseExpr(const ChooseExpr *E)
     { return StmtVisitorTy::Visit(E->getChosenSubExpr()); }
-  RetTy VisitGenericSelectionExpr(const GenericSelectionExpr *E)
+  bool VisitGenericSelectionExpr(const GenericSelectionExpr *E)
     { return StmtVisitorTy::Visit(E->getResultExpr()); }
-  RetTy VisitSubstNonTypeTemplateParmExpr(const SubstNonTypeTemplateParmExpr *E)
+  bool VisitSubstNonTypeTemplateParmExpr(const SubstNonTypeTemplateParmExpr *E)
     { return StmtVisitorTy::Visit(E->getReplacement()); }
-  RetTy VisitCXXDefaultArgExpr(const CXXDefaultArgExpr *E)
+  bool VisitCXXDefaultArgExpr(const CXXDefaultArgExpr *E)
     { return StmtVisitorTy::Visit(E->getExpr()); }
-  RetTy VisitCXXDefaultInitExpr(const CXXDefaultInitExpr *E) {
+  bool VisitCXXDefaultInitExpr(const CXXDefaultInitExpr *E) {
     // The initializer may not have been parsed yet, or might be erroneous.
     if (!E->getExpr())
       return Error(E);
@@ -3848,19 +3872,19 @@ public:
   }
   // We cannot create any objects for which cleanups are required, so there is
   // nothing to do here; all cleanups must come from unevaluated subexpressions.
-  RetTy VisitExprWithCleanups(const ExprWithCleanups *E)
+  bool VisitExprWithCleanups(const ExprWithCleanups *E)
     { return StmtVisitorTy::Visit(E->getSubExpr()); }
 
-  RetTy VisitCXXReinterpretCastExpr(const CXXReinterpretCastExpr *E) {
+  bool VisitCXXReinterpretCastExpr(const CXXReinterpretCastExpr *E) {
     CCEDiag(E, diag::note_constexpr_invalid_cast) << 0;
     return static_cast<Derived*>(this)->VisitCastExpr(E);
   }
-  RetTy VisitCXXDynamicCastExpr(const CXXDynamicCastExpr *E) {
+  bool VisitCXXDynamicCastExpr(const CXXDynamicCastExpr *E) {
     CCEDiag(E, diag::note_constexpr_invalid_cast) << 1;
     return static_cast<Derived*>(this)->VisitCastExpr(E);
   }
 
-  RetTy VisitBinaryOperator(const BinaryOperator *E) {
+  bool VisitBinaryOperator(const BinaryOperator *E) {
     switch (E->getOpcode()) {
     default:
       return Error(E);
@@ -3882,7 +3906,7 @@ public:
     }
   }
 
-  RetTy VisitBinaryConditionalOperator(const BinaryConditionalOperator *E) {
+  bool VisitBinaryConditionalOperator(const BinaryConditionalOperator *E) {
     // Evaluate and cache the common expression. We treat it as a temporary,
     // even though it's not quite the same thing.
     if (!Evaluate(Info.CurrentCall->createTemporary(E->getOpaqueValue(), false),
@@ -3892,7 +3916,7 @@ public:
     return HandleConditionalOperator(E);
   }
 
-  RetTy VisitConditionalOperator(const ConditionalOperator *E) {
+  bool VisitConditionalOperator(const ConditionalOperator *E) {
     bool IsBcpCall = false;
     // If the condition (ignoring parens) is a __builtin_constant_p call,
     // the result is a constant expression if it can be folded without
@@ -3900,7 +3924,7 @@ public:
     // for discussion.
     if (const CallExpr *CallCE =
           dyn_cast<CallExpr>(E->getCond()->IgnoreParenCasts()))
-      if (CallCE->isBuiltinCall() == Builtin::BI__builtin_constant_p)
+      if (CallCE->getBuiltinCallee() == Builtin::BI__builtin_constant_p)
         IsBcpCall = true;
 
     // Always assume __builtin_constant_p(...) ? ... : ... is a potential
@@ -3917,7 +3941,7 @@ public:
     return true;
   }
 
-  RetTy VisitOpaqueValueExpr(const OpaqueValueExpr *E) {
+  bool VisitOpaqueValueExpr(const OpaqueValueExpr *E) {
     if (APValue *Value = Info.CurrentCall->getTemporary(E))
       return DerivedSuccess(*Value, E);
 
@@ -3931,7 +3955,7 @@ public:
     return StmtVisitorTy::Visit(Source);
   }
 
-  RetTy VisitCallExpr(const CallExpr *E) {
+  bool VisitCallExpr(const CallExpr *E) {
     const Expr *Callee = E->getCallee()->IgnoreParens();
     QualType CalleeType = Callee->getType();
 
@@ -4016,28 +4040,28 @@ public:
     return DerivedSuccess(Result, E);
   }
 
-  RetTy VisitCompoundLiteralExpr(const CompoundLiteralExpr *E) {
+  bool VisitCompoundLiteralExpr(const CompoundLiteralExpr *E) {
     return StmtVisitorTy::Visit(E->getInitializer());
   }
-  RetTy VisitInitListExpr(const InitListExpr *E) {
+  bool VisitInitListExpr(const InitListExpr *E) {
     if (E->getNumInits() == 0)
       return DerivedZeroInitialization(E);
     if (E->getNumInits() == 1)
       return StmtVisitorTy::Visit(E->getInit(0));
     return Error(E);
   }
-  RetTy VisitImplicitValueInitExpr(const ImplicitValueInitExpr *E) {
+  bool VisitImplicitValueInitExpr(const ImplicitValueInitExpr *E) {
     return DerivedZeroInitialization(E);
   }
-  RetTy VisitCXXScalarValueInitExpr(const CXXScalarValueInitExpr *E) {
+  bool VisitCXXScalarValueInitExpr(const CXXScalarValueInitExpr *E) {
     return DerivedZeroInitialization(E);
   }
-  RetTy VisitCXXNullPtrLiteralExpr(const CXXNullPtrLiteralExpr *E) {
+  bool VisitCXXNullPtrLiteralExpr(const CXXNullPtrLiteralExpr *E) {
     return DerivedZeroInitialization(E);
   }
 
   /// A member expression where the object is a prvalue is itself a prvalue.
-  RetTy VisitMemberExpr(const MemberExpr *E) {
+  bool VisitMemberExpr(const MemberExpr *E) {
     assert(!E->isArrow() && "missing call to bound member function?");
 
     APValue Val;
@@ -4061,7 +4085,7 @@ public:
            DerivedSuccess(Result, E);
   }
 
-  RetTy VisitCastExpr(const CastExpr *E) {
+  bool VisitCastExpr(const CastExpr *E) {
     switch (E->getCastKind()) {
     default:
       break;
@@ -4093,13 +4117,13 @@ public:
     return Error(E);
   }
 
-  RetTy VisitUnaryPostInc(const UnaryOperator *UO) {
+  bool VisitUnaryPostInc(const UnaryOperator *UO) {
     return VisitUnaryPostIncDec(UO);
   }
-  RetTy VisitUnaryPostDec(const UnaryOperator *UO) {
+  bool VisitUnaryPostDec(const UnaryOperator *UO) {
     return VisitUnaryPostIncDec(UO);
   }
-  RetTy VisitUnaryPostIncDec(const UnaryOperator *UO) {
+  bool VisitUnaryPostIncDec(const UnaryOperator *UO) {
     if (!Info.getLangOpts().CPlusPlus1y && !Info.keepEvaluatingAfterFailure())
       return Error(UO);
 
@@ -4113,7 +4137,7 @@ public:
     return DerivedSuccess(RVal, UO);
   }
 
-  RetTy VisitStmtExpr(const StmtExpr *E) {
+  bool VisitStmtExpr(const StmtExpr *E) {
     // We will have checked the full-expressions inside the statement expression
     // when they were completed, and don't need to check them again now.
     if (Info.checkingForOverflow())
@@ -4162,11 +4186,11 @@ public:
 namespace {
 template<class Derived>
 class LValueExprEvaluatorBase
-  : public ExprEvaluatorBase<Derived, bool> {
+  : public ExprEvaluatorBase<Derived> {
 protected:
   LValue &Result;
   typedef LValueExprEvaluatorBase LValueExprEvaluatorBaseTy;
-  typedef ExprEvaluatorBase<Derived, bool> ExprEvaluatorBaseTy;
+  typedef ExprEvaluatorBase<Derived> ExprEvaluatorBaseTy;
 
   bool Success(APValue::LValueBase B) {
     Result.set(B);
@@ -4584,7 +4608,7 @@ bool LValueExprEvaluator::VisitBinAssign(const BinaryOperator *E) {
 
 namespace {
 class PointerExprEvaluator
-  : public ExprEvaluatorBase<PointerExprEvaluator, bool> {
+  : public ExprEvaluatorBase<PointerExprEvaluator> {
   LValue &Result;
 
   bool Success(const Expr *E) {
@@ -4769,7 +4793,7 @@ bool PointerExprEvaluator::VisitCallExpr(const CallExpr *E) {
   if (IsStringLiteralCall(E))
     return Success(E);
 
-  switch (E->isBuiltinCall()) {
+  switch (E->getBuiltinCallee()) {
   case Builtin::BI__builtin_addressof:
     return EvaluateLValue(E->getArg(0), Result, Info);
 
@@ -4784,7 +4808,7 @@ bool PointerExprEvaluator::VisitCallExpr(const CallExpr *E) {
 
 namespace {
 class MemberPointerExprEvaluator
-  : public ExprEvaluatorBase<MemberPointerExprEvaluator, bool> {
+  : public ExprEvaluatorBase<MemberPointerExprEvaluator> {
   MemberPtr &Result;
 
   bool Success(const ValueDecl *D) {
@@ -4872,7 +4896,7 @@ bool MemberPointerExprEvaluator::VisitUnaryAddrOf(const UnaryOperator *E) {
 
 namespace {
   class RecordExprEvaluator
-  : public ExprEvaluatorBase<RecordExprEvaluator, bool> {
+  : public ExprEvaluatorBase<RecordExprEvaluator> {
     const LValue &This;
     APValue &Result;
   public:
@@ -5235,7 +5259,7 @@ static bool EvaluateTemporary(const Expr *E, LValue &Result, EvalInfo &Info) {
 
 namespace {
   class VectorExprEvaluator
-  : public ExprEvaluatorBase<VectorExprEvaluator, bool> {
+  : public ExprEvaluatorBase<VectorExprEvaluator> {
     APValue &Result;
   public:
 
@@ -5416,7 +5440,7 @@ bool VectorExprEvaluator::VisitUnaryImag(const UnaryOperator *E) {
 
 namespace {
   class ArrayExprEvaluator
-  : public ExprEvaluatorBase<ArrayExprEvaluator, bool> {
+  : public ExprEvaluatorBase<ArrayExprEvaluator> {
     const LValue &This;
     APValue &Result;
   public:
@@ -5621,7 +5645,7 @@ bool ArrayExprEvaluator::VisitCXXConstructExpr(const CXXConstructExpr *E,
 
 namespace {
 class IntExprEvaluator
-  : public ExprEvaluatorBase<IntExprEvaluator, bool> {
+  : public ExprEvaluatorBase<IntExprEvaluator> {
   APValue &Result;
 public:
   IntExprEvaluator(EvalInfo &info, APValue &result)
@@ -5725,10 +5749,6 @@ public:
   // Note, GNU defines __null as an integer, not a pointer.
   bool VisitGNUNullExpr(const GNUNullExpr *E) {
     return ZeroInitialization(E);
-  }
-
-  bool VisitUnaryTypeTraitExpr(const UnaryTypeTraitExpr *E) {
-    return Success(E->getValue(), E);
   }
 
   bool VisitTypeTraitExpr(const TypeTraitExpr *E) {
@@ -5971,7 +5991,7 @@ bool IntExprEvaluator::TryEvaluateBuiltinObjectSize(const CallExpr *E) {
 }
 
 bool IntExprEvaluator::VisitCallExpr(const CallExpr *E) {
-  switch (unsigned BuiltinOp = E->isBuiltinCall()) {
+  switch (unsigned BuiltinOp = E->getBuiltinCallee()) {
   default:
     return ExprEvaluatorBaseTy::VisitCallExpr(E);
 
@@ -5990,7 +6010,17 @@ bool IntExprEvaluator::VisitCallExpr(const CallExpr *E) {
 
     // Expression had no side effects, but we couldn't statically determine the
     // size of the referenced object.
-    return Error(E);
+    switch (Info.EvalMode) {
+    case EvalInfo::EM_ConstantExpression:
+    case EvalInfo::EM_PotentialConstantExpression:
+    case EvalInfo::EM_ConstantFold:
+    case EvalInfo::EM_EvaluateForOverflow:
+    case EvalInfo::EM_IgnoreSideEffects:
+      return Error(E);
+    case EvalInfo::EM_ConstantExpressionUnevaluated:
+    case EvalInfo::EM_PotentialConstantExpressionUnevaluated:
+      return Success(-1ULL, E);
+    }
   }
 
   case Builtin::BI__builtin_bswap16:
@@ -7255,7 +7285,7 @@ bool IntExprEvaluator::VisitCXXNoexceptExpr(const CXXNoexceptExpr *E) {
 
 namespace {
 class FloatExprEvaluator
-  : public ExprEvaluatorBase<FloatExprEvaluator, bool> {
+  : public ExprEvaluatorBase<FloatExprEvaluator> {
   APFloat &Result;
 public:
   FloatExprEvaluator(EvalInfo &info, APFloat &result)
@@ -7316,7 +7346,7 @@ static bool TryEvaluateBuiltinNaN(const ASTContext &Context,
 }
 
 bool FloatExprEvaluator::VisitCallExpr(const CallExpr *E) {
-  switch (E->isBuiltinCall()) {
+  switch (E->getBuiltinCallee()) {
   default:
     return ExprEvaluatorBaseTy::VisitCallExpr(E);
 
@@ -7471,7 +7501,7 @@ bool FloatExprEvaluator::VisitCastExpr(const CastExpr *E) {
 
 namespace {
 class ComplexExprEvaluator
-  : public ExprEvaluatorBase<ComplexExprEvaluator, bool> {
+  : public ExprEvaluatorBase<ComplexExprEvaluator> {
   ComplexValue &Result;
 
 public:
@@ -7856,7 +7886,7 @@ bool ComplexExprEvaluator::VisitInitListExpr(const InitListExpr *E) {
 
 namespace {
 class AtomicExprEvaluator :
-    public ExprEvaluatorBase<AtomicExprEvaluator, bool> {
+    public ExprEvaluatorBase<AtomicExprEvaluator> {
   APValue &Result;
 public:
   AtomicExprEvaluator(EvalInfo &Info, APValue &Result)
@@ -7896,7 +7926,7 @@ static bool EvaluateAtomic(const Expr *E, APValue &Result, EvalInfo &Info) {
 
 namespace {
 class VoidExprEvaluator
-  : public ExprEvaluatorBase<VoidExprEvaluator, bool> {
+  : public ExprEvaluatorBase<VoidExprEvaluator> {
 public:
   VoidExprEvaluator(EvalInfo &Info) : ExprEvaluatorBaseTy(Info) {}
 
@@ -8301,9 +8331,19 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
   case Expr::MaterializeTemporaryExprClass:
   case Expr::PseudoObjectExprClass:
   case Expr::AtomicExprClass:
-  case Expr::InitListExprClass:
   case Expr::LambdaExprClass:
     return ICEDiag(IK_NotICE, E->getLocStart());
+
+  case Expr::InitListExprClass: {
+    // C++03 [dcl.init]p13: If T is a scalar type, then a declaration of the
+    // form "T x = { a };" is equivalent to "T x = a;".
+    // Unless we're initializing a reference, T is a scalar as it is known to be
+    // of integral or enumeration type.
+    if (E->isRValue())
+      if (cast<InitListExpr>(E)->getNumInits() == 1)
+        return CheckICE(cast<InitListExpr>(E)->getInit(0), Ctx);
+    return ICEDiag(IK_NotICE, E->getLocStart());
+  }
 
   case Expr::SizeOfPackExprClass:
   case Expr::GNUNullExprClass:
@@ -8323,7 +8363,6 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
   case Expr::ObjCBoolLiteralExprClass:
   case Expr::CXXBoolLiteralExprClass:
   case Expr::CXXScalarValueInitExprClass:
-  case Expr::UnaryTypeTraitExprClass:
   case Expr::TypeTraitExprClass:
   case Expr::ArrayTypeTraitExprClass:
   case Expr::ExpressionTraitExprClass:
@@ -8335,7 +8374,7 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
     // constant expressions, but they can never be ICEs because an ICE cannot
     // contain an operand of (pointer to) function type.
     const CallExpr *CE = cast<CallExpr>(E);
-    if (CE->isBuiltinCall())
+    if (CE->getBuiltinCallee())
       return CheckEvalInICE(E, Ctx);
     return ICEDiag(IK_NotICE, E->getLocStart());
   }
@@ -8552,7 +8591,7 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
     // extension.  See GCC PR38377 for discussion.
     if (const CallExpr *CallCE
         = dyn_cast<CallExpr>(Exp->getCond()->IgnoreParenCasts()))
-      if (CallCE->isBuiltinCall() == Builtin::BI__builtin_constant_p)
+      if (CallCE->getBuiltinCallee() == Builtin::BI__builtin_constant_p)
         return CheckEvalInICE(E, Ctx);
     ICEDiag CondResult = CheckICE(Exp->getCond(), Ctx);
     if (CondResult.Kind == IK_NotICE)
@@ -8662,6 +8701,28 @@ bool Expr::isCXX11ConstantExpr(const ASTContext &Ctx, APValue *Result,
   return IsConstExpr;
 }
 
+bool Expr::EvaluateWithSubstitution(APValue &Value, ASTContext &Ctx,
+                                    const FunctionDecl *Callee,
+                                    llvm::ArrayRef<const Expr*> Args) const {
+  Expr::EvalStatus Status;
+  EvalInfo Info(Ctx, Status, EvalInfo::EM_ConstantExpressionUnevaluated);
+
+  ArgVector ArgValues(Args.size());
+  for (ArrayRef<const Expr*>::iterator I = Args.begin(), E = Args.end();
+       I != E; ++I) {
+    if (!Evaluate(ArgValues[I - Args.begin()], Info, *I))
+      // If evaluation fails, throw away the argument entirely.
+      ArgValues[I - Args.begin()] = APValue();
+    if (Info.EvalStatus.HasSideEffects)
+      return false;
+  }
+
+  // Build fake call to Callee.
+  CallStackFrame Frame(Info, Callee->getLocation(), Callee, /*This*/0,
+                       ArgValues.data());
+  return Evaluate(Value, Info, this) && !Info.EvalStatus.HasSideEffects;
+}
+
 bool Expr::isPotentialConstantExpr(const FunctionDecl *FD,
                                    SmallVectorImpl<
                                      PartialDiagnosticAt> &Diags) {
@@ -8700,5 +8761,29 @@ bool Expr::isPotentialConstantExpr(const FunctionDecl *FD,
     HandleFunctionCall(Loc, FD, (MD && MD->isInstance()) ? &This : 0,
                        Args, FD->getBody(), Info, Scratch);
 
+  return Diags.empty();
+}
+
+bool Expr::isPotentialConstantExprUnevaluated(Expr *E,
+                                              const FunctionDecl *FD,
+                                              SmallVectorImpl<
+                                                PartialDiagnosticAt> &Diags) {
+  Expr::EvalStatus Status;
+  Status.Diag = &Diags;
+
+  EvalInfo Info(FD->getASTContext(), Status,
+                EvalInfo::EM_PotentialConstantExpressionUnevaluated);
+
+  // Fabricate a call stack frame to give the arguments a plausible cover story.
+  ArrayRef<const Expr*> Args;
+  ArgVector ArgValues(0);
+  bool Success = EvaluateArgs(Args, ArgValues, Info);
+  (void)Success;
+  assert(Success &&
+         "Failed to set up arguments for potential constant evaluation");
+  CallStackFrame Frame(Info, SourceLocation(), FD, 0, ArgValues.data());
+
+  APValue ResultScratch;
+  Evaluate(ResultScratch, Info, E);
   return Diags.empty();
 }

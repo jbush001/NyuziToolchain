@@ -36,8 +36,8 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/ValueHandle.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Transforms/Utils/GlobalStatus.h"
 #include "llvm/Transforms/Utils/ModuleUtils.h"
@@ -297,8 +297,9 @@ static bool CleanupConstantGlobalUsers(Value *V, Constant *Init,
         if (Init)
           SubInit = ConstantFoldLoadThroughGEPConstantExpr(Init, CE);
         Changed |= CleanupConstantGlobalUsers(CE, SubInit, TD, TLI);
-      } else if (CE->getOpcode() == Instruction::BitCast &&
-                 CE->getType()->isPointerTy()) {
+      } else if ((CE->getOpcode() == Instruction::BitCast &&
+                  CE->getType()->isPointerTy()) ||
+                 CE->getOpcode() == Instruction::AddrSpaceCast) {
         // Pointer cast, delete any stores and memsets to the global.
         Changed |= CleanupConstantGlobalUsers(CE, 0, TD, TLI);
       }
@@ -2856,12 +2857,14 @@ static void setUsedInitializer(GlobalVariable &V,
     return;
   }
 
-  SmallVector<llvm::Constant *, 8> UsedArray;
-  PointerType *Int8PtrTy = Type::getInt8PtrTy(V.getContext());
+  // Type of pointer to the array of pointers.
+  PointerType *Int8PtrTy = Type::getInt8PtrTy(V.getContext(), 0);
 
+  SmallVector<llvm::Constant *, 8> UsedArray;
   for (SmallPtrSet<GlobalValue *, 8>::iterator I = Init.begin(), E = Init.end();
        I != E; ++I) {
-    Constant *Cast = llvm::ConstantExpr::getBitCast(*I, Int8PtrTy);
+    Constant *Cast
+      = ConstantExpr::getPointerBitCastOrAddrSpaceCast(*I, Int8PtrTy);
     UsedArray.push_back(Cast);
   }
   // Sort to get deterministic order.

@@ -1275,8 +1275,8 @@ bool DependenceAnalysis::weakCrossingSIVtest(const SCEV *Coeff,
 //
 // Program 2.1, page 29.
 // Computes the GCD of AM and BM.
-// Also finds a solution to the equation ax - by = gdc(a, b).
-// Returns true iff the gcd divides Delta.
+// Also finds a solution to the equation ax - by = gcd(a, b).
+// Returns true if dependence disproved; i.e., gcd does not divide Delta.
 static
 bool findGCD(unsigned Bits, APInt AM, APInt BM, APInt Delta,
              APInt &G, APInt &X, APInt &Y) {
@@ -3178,7 +3178,7 @@ void DependenceAnalysis::updateDirection(Dependence::DVEntry &Level,
 
 /// Check if we can delinearize the subscripts. If the SCEVs representing the
 /// source and destination array references are recurrences on a nested loop,
-/// this function flattens the nested recurrences into seperate recurrences
+/// this function flattens the nested recurrences into separate recurrences
 /// for each loop level.
 bool
 DependenceAnalysis::tryDelinearize(const SCEV *SrcSCEV, const SCEV *DstSCEV,

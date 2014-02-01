@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 %s -fno-rtti -cxx-abi microsoft -triple=i386-pc-win32 -emit-llvm -fdump-vtable-layouts -o %t.ll > %t
+// RUN: %clang_cc1 %s -fno-rtti -triple=i386-pc-win32 -emit-llvm -fdump-vtable-layouts -o %t.ll > %t
 // RUN: FileCheck --check-prefix=EMITS-VFTABLE %s < %t.ll
 // RUN: FileCheck --check-prefix=NO-VFTABLE %s < %t.ll
 // RUN: FileCheck --check-prefix=CHECK-A %s < %t
@@ -252,12 +252,11 @@ struct N {
 
 N n;
 
-typedef int int_type;
-struct O { virtual int f(); };
-struct P : O { virtual int_type f(); };
+struct O { virtual A *f(); };
+struct P : O { virtual B *f(); };
 P p;
 // CHECK-O: VFTable for 'O' in 'P' (1 entries)
-// CHECK-O-NEXT: 0 | int_type P::f()
+// CHECK-O-NEXT: 0 | B *P::f()
 
 // CHECK-O: VFTable for 'O' (1 entries)
-// CHECK-O-NEXT: 0 | int O::f()
+// CHECK-O-NEXT: 0 | A *O::f()
