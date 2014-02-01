@@ -35,7 +35,6 @@ public:
                                      MachineBasicBlock &MBB,
                                      MachineBasicBlock::iterator I) const;
   bool hasFP(const MachineFunction &MF) const;
-  virtual bool targetHandlesStackFrameRounding() const { return true; }
 
   void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
                                             RegScavenger *RS) const;
