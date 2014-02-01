@@ -1053,7 +1053,6 @@ VectorProcTargetLowering::EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *
   {
     // Perform an operation
     NewValue = MRI.createVirtualRegister(&VectorProc::GPR32RegClass);
-
     if (MI->getOperand(2).getType() == MachineOperand::MO_Register)
       BuildMI(BB, DL, TII->get(Opcode), NewValue).addReg(OldValue).addReg(MI->getOperand(2).getReg());
     else if (MI->getOperand(2).getType() == MachineOperand::MO_Immediate)

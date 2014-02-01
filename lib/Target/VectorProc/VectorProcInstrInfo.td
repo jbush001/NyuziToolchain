@@ -631,15 +631,22 @@ def RET : VPInstruction<
 	let isBarrier = 1;
 }
 
-let Defs = [SP_REG], Uses = [SP_REG], hasSideEffects = 1 in {
-	def ADJCALLSTACKDOWN : Pseudo<(outs), (ins i32imm:$amt),
-								   [(callseq_start timm:$amt)]>;
-	def ADJCALLSTACKUP : Pseudo<(outs), (ins i32imm:$amt1, i32imm:$amt2),
-								[(callseq_end timm:$amt1, timm:$amt2)]>;
+// These pseudo ops capture outgoing argument space on the stack and will be removed
+// by later passes.
+let Defs = [ SP_REG ], Uses = [ SP_REG ], hasSideEffects = 1 in {
+	def ADJCALLSTACKDOWN : Pseudo<
+		(outs), 
+		(ins i32imm:$amt),
+		[(callseq_start timm:$amt)]>;
+		
+	def ADJCALLSTACKUP : Pseudo<
+		(outs), 
+		(ins i32imm:$amt1, i32imm:$amt2),
+		[(callseq_end timm:$amt1, timm:$amt2)]>;
 }
 
 // Note: Unlike other branches, call is not a terminator: it does not end a 
-// basic block.
+// basic block (subtle and serious bugs occur if it is marked as such).
 let isCall = 1, Defs = [ LINK_REG ] in {
 	def CALLSYM : UnconditionalBranchInst<
 		(outs), 
