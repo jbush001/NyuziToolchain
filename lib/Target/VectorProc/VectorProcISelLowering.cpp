@@ -903,20 +903,35 @@ MachineBasicBlock *VectorProcTargetLowering::EmitInstrWithCustomInserter(
   case VectorProc::SELECTVF:
     return EmitSelectCC(MI, BB);
 
-  case VectorProc::ATOMIC_LOAD_ADD:
+  case VectorProc::ATOMIC_LOAD_ADDR:
     return EmitAtomicBinary(MI, BB, VectorProc::ADDISSS);
 
-  case VectorProc::ATOMIC_LOAD_SUB:
+  case VectorProc::ATOMIC_LOAD_ADDI:
+    return EmitAtomicBinary(MI, BB, VectorProc::ADDISSI);
+
+  case VectorProc::ATOMIC_LOAD_SUBR:
     return EmitAtomicBinary(MI, BB, VectorProc::SUBISSS);
 
-  case VectorProc::ATOMIC_LOAD_AND:
+  case VectorProc::ATOMIC_LOAD_SUBI:
+    return EmitAtomicBinary(MI, BB, VectorProc::SUBISSI);
+
+  case VectorProc::ATOMIC_LOAD_ANDR:
     return EmitAtomicBinary(MI, BB, VectorProc::ANDSSS);
 
-  case VectorProc::ATOMIC_LOAD_OR:
+  case VectorProc::ATOMIC_LOAD_ANDI:
+    return EmitAtomicBinary(MI, BB, VectorProc::ANDSSI);
+
+  case VectorProc::ATOMIC_LOAD_ORR:
     return EmitAtomicBinary(MI, BB, VectorProc::ORSSS);
 
-  case VectorProc::ATOMIC_LOAD_XOR:
+  case VectorProc::ATOMIC_LOAD_ORI:
+    return EmitAtomicBinary(MI, BB, VectorProc::ORSSI);
+
+  case VectorProc::ATOMIC_LOAD_XORR:
     return EmitAtomicBinary(MI, BB, VectorProc::XORSSS);
+
+  case VectorProc::ATOMIC_LOAD_XORI:
+    return EmitAtomicBinary(MI, BB, VectorProc::XORSSI);
 
   // XXX ATOMIC_LOAD_NAND is not supported
 
@@ -1005,7 +1020,6 @@ VectorProcTargetLowering::EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *
 
   unsigned Dest = MI->getOperand(0).getReg();
   unsigned Ptr = MI->getOperand(1).getReg();
-  unsigned Incr = MI->getOperand(2).getReg();
   DebugLoc DL = MI->getDebugLoc();
   MachineRegisterInfo &MRI = BB->getParent()->getRegInfo();
   unsigned OldValue = MRI.createVirtualRegister(&VectorProc::GPR32RegClass);
@@ -1039,7 +1053,13 @@ VectorProcTargetLowering::EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *
   {
     // Perform an operation
     NewValue = MRI.createVirtualRegister(&VectorProc::GPR32RegClass);
-    BuildMI(BB, DL, TII->get(Opcode), NewValue).addReg(OldValue).addReg(Incr);
+
+    if (MI->getOperand(2).getType() == MachineOperand::MO_Register)
+      BuildMI(BB, DL, TII->get(Opcode), NewValue).addReg(OldValue).addReg(MI->getOperand(2).getReg());
+    else if (MI->getOperand(2).getType() == MachineOperand::MO_Immediate)
+      BuildMI(BB, DL, TII->get(Opcode), NewValue).addReg(OldValue).addImm(MI->getOperand(2).getImm());
+    else
+      llvm_unreachable("Unknown operand type");
   }
   else
     NewValue = OldValue; // This is just swap: use old value

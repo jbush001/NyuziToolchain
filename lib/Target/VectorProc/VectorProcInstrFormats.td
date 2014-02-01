@@ -132,6 +132,18 @@ class Pseudo<dag outputs, dag inputs, list<dag> pattern>
 	let Inst{31-0} = 0;
 }
 
+multiclass AtomicBinary<SDNode OpNode>
+{
+	def R : Pseudo<
+		(outs GPR32:$dest),
+		(ins GPR32:$ptr, GPR32:$amt),
+		[(set i32:$dest, (OpNode GPR32:$ptr, GPR32:$amt))]>;
+
+	def I : Pseudo<
+		(outs GPR32:$dest),
+		(ins GPR32:$ptr, i32imm:$amt),
+		[(set i32:$dest, (OpNode GPR32:$ptr, simm13:$amt))]>;
+}
 
 //////////////////////////////////////////////////////////////////
 // Format A: Register arithmetic
@@ -821,4 +833,3 @@ class UnconditionalBranchInst<dag outputs, dag inputs, string asmString, list<da
 	: BranchInst<outputs, inputs, asmString, pattern, type>
 {
 }
-

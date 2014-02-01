@@ -477,30 +477,11 @@ def : Pat<(int_vp_block_storef_masked ADDRri:$addr, v16f32:$srcDest, i32:$mask),
 
 // Atomics	
 let usesCustomInserter = 1 in {
-	def ATOMIC_LOAD_ADD : Pseudo<
-		(outs GPR32:$dest),
-		(ins GPR32:$ptr, GPR32:$amt),
-		[(set i32:$dest, (atomic_load_add GPR32:$ptr, GPR32:$amt))]>;
-
-	def ATOMIC_LOAD_SUB : Pseudo<
-		(outs GPR32:$dest),
-		(ins GPR32:$ptr, GPR32:$amt),
-		[(set i32:$dest, (atomic_load_sub GPR32:$ptr, GPR32:$amt))]>;
-
-	def ATOMIC_LOAD_AND : Pseudo<
-		(outs GPR32:$dest),
-		(ins GPR32:$ptr, GPR32:$amt),
-		[(set i32:$dest, (atomic_load_and GPR32:$ptr, GPR32:$amt))]>;
-
-	def ATOMIC_LOAD_OR : Pseudo<
-		(outs GPR32:$dest),
-		(ins GPR32:$ptr, GPR32:$amt),
-		[(set i32:$dest, (atomic_load_or GPR32:$ptr, GPR32:$amt))]>;
-
-	def ATOMIC_LOAD_XOR : Pseudo<
-		(outs GPR32:$dest),
-		(ins GPR32:$ptr, GPR32:$amt),
-		[(set i32:$dest, (atomic_load_xor GPR32:$ptr, GPR32:$amt))]>;
+	defm ATOMIC_LOAD_ADD : AtomicBinary<atomic_load_add>;
+	defm ATOMIC_LOAD_SUB : AtomicBinary<atomic_load_sub>;
+	defm ATOMIC_LOAD_AND : AtomicBinary<atomic_load_and>;
+	defm ATOMIC_LOAD_OR  : AtomicBinary<atomic_load_or>;
+	defm ATOMIC_LOAD_XOR : AtomicBinary<atomic_load_xor>;
 
 	def ATOMIC_CMP_SWAP : Pseudo<
 		(outs GPR32:$dest),
