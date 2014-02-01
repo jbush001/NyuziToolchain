@@ -100,17 +100,16 @@ public:
   }
 
   void dump(raw_ostream &OS) const {
-    static const char *const Table[] = {
-      "Allocated",
-      "Released",
-      "Relinquished"
-    };
-    OS << Table[(unsigned) K];
+    switch (static_cast<Kind>(K)) {
+#define CASE(ID) case ID: OS << #ID; break;
+    CASE(Allocated)
+    CASE(Released)
+    CASE(Relinquished)
+    CASE(Escaped)
+    }
   }
 
-  LLVM_ATTRIBUTE_USED void dump() const {
-    dump(llvm::errs());
-  }
+  LLVM_DUMP_METHOD void dump() const { dump(llvm::errs()); }
 };
 
 enum ReallocPairKind {
@@ -157,6 +156,7 @@ class MallocChecker : public Checker<check::DeadSymbols,
                                      eval::Assume>
 {
   mutable OwningPtr<BugType> BT_DoubleFree;
+  mutable OwningPtr<BugType> BT_DoubleDelete;
   mutable OwningPtr<BugType> BT_Leak;
   mutable OwningPtr<BugType> BT_UseFree;
   mutable OwningPtr<BugType> BT_BadFree;
@@ -279,6 +279,8 @@ private:
 
   bool checkUseAfterFree(SymbolRef Sym, CheckerContext &C, const Stmt *S) const;
 
+  bool checkDoubleDelete(SymbolRef Sym, CheckerContext &C) const;
+
   /// Check if the function is known free memory, or if it is
   /// "interesting" and should be modeled explicitly.
   ///
@@ -321,6 +323,8 @@ private:
                           SymbolRef Sym) const;
   void ReportDoubleFree(CheckerContext &C, SourceRange Range, bool Released,
                         SymbolRef Sym, SymbolRef PrevSym) const;
+
+  void ReportDoubleDelete(CheckerContext &C, SymbolRef Sym) const;
 
   /// Find the location of the allocation for Sym on the path leading to the
   /// exploded node N.
@@ -909,7 +913,7 @@ bool MallocChecker::printAllocDeallocName(raw_ostream &os, CheckerContext &C,
       os << "-";
     else
       os << "+";
-    os << Msg->getSelector().getAsString();
+    Msg->getSelector().print(os);
     return true;
   }
 
@@ -1415,6 +1419,27 @@ void MallocChecker::ReportDoubleFree(CheckerContext &C, SourceRange Range,
   }
 }
 
+void MallocChecker::ReportDoubleDelete(CheckerContext &C, SymbolRef Sym) const {
+
+  if (!Filter.CNewDeleteChecker)
+    return;
+
+  if (!isTrackedByCurrentChecker(C, Sym))
+    return;
+
+  if (ExplodedNode *N = C.generateSink()) {
+    if (!BT_DoubleDelete)
+      BT_DoubleDelete.reset(new BugType("Double delete", "Memory Error"));
+
+    BugReport *R = new BugReport(*BT_DoubleDelete,
+                                 "Attempt to delete released memory", N);
+
+    R->markInteresting(Sym);
+    R->addVisitor(new MallocBugVisitor(Sym));
+    C.emitReport(R);
+  }
+}
+
 ProgramStateRef MallocChecker::ReallocMem(CheckerContext &C,
                                           const CallExpr *CE,
                                           bool FreesOnFail) const {
@@ -1695,6 +1720,12 @@ void MallocChecker::checkDeadSymbols(SymbolReaper &SymReaper,
 void MallocChecker::checkPreCall(const CallEvent &Call,
                                  CheckerContext &C) const {
 
+  if (const CXXDestructorCall *DC = dyn_cast<CXXDestructorCall>(&Call)) {
+    SymbolRef Sym = DC->getCXXThisVal().getAsSymbol();
+    if (!Sym || checkDoubleDelete(Sym, C))
+      return;
+  }
+
   // We will check for double free in the post visit.
   if (const AnyFunctionCall *FC = dyn_cast<AnyFunctionCall>(&Call)) {
     const FunctionDecl *FD = FC->getDecl();
@@ -1803,12 +1834,20 @@ bool MallocChecker::isReleased(SymbolRef Sym, CheckerContext &C) const {
 bool MallocChecker::checkUseAfterFree(SymbolRef Sym, CheckerContext &C,
                                       const Stmt *S) const {
 
-  // FIXME: Handle destructor called from delete more precisely.
-  if (isReleased(Sym, C) && S) {
+  if (isReleased(Sym, C)) {
     ReportUseAfterFree(C, S->getSourceRange(), Sym);
     return true;
   }
 
+  return false;
+}
+
+bool MallocChecker::checkDoubleDelete(SymbolRef Sym, CheckerContext &C) const {
+
+  if (isReleased(Sym, C)) {
+    ReportDoubleDelete(C, Sym);
+    return true;
+  }
   return false;
 }
 
@@ -1869,11 +1908,11 @@ bool MallocChecker::mayFreeAnyEscapedMemoryOrIsModeledExplicitly(
   assert(Call);
   EscapingSymbol = 0;
   
-  // For now, assume that any C++ call can free memory.
+  // For now, assume that any C++ or block call can free memory.
   // TODO: If we want to be more optimistic here, we'll need to make sure that
   // regions escape to C++ containers. They seem to do that even now, but for
   // mysterious reasons.
-  if (!(isa<FunctionCall>(Call) || isa<ObjCMethodCall>(Call)))
+  if (!(isa<SimpleFunctionCall>(Call) || isa<ObjCMethodCall>(Call)))
     return true;
 
   // Check Objective-C messages by selector name.
@@ -1909,7 +1948,8 @@ bool MallocChecker::mayFreeAnyEscapedMemoryOrIsModeledExplicitly(
     // that the pointers get freed by following the container itself.
     if (FirstSlot.startswith("addPointer") ||
         FirstSlot.startswith("insertPointer") ||
-        FirstSlot.startswith("replacePointer")) {
+        FirstSlot.startswith("replacePointer") ||
+        FirstSlot.equals("valueWithPointer")) {
       return true;
     }
 
@@ -1927,7 +1967,7 @@ bool MallocChecker::mayFreeAnyEscapedMemoryOrIsModeledExplicitly(
   }
 
   // At this point the only thing left to handle is straight function calls.
-  const FunctionDecl *FD = cast<FunctionCall>(Call)->getDecl();
+  const FunctionDecl *FD = cast<SimpleFunctionCall>(Call)->getDecl();
   if (!FD)
     return true;
 

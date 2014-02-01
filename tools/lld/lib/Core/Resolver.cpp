@@ -49,7 +49,7 @@ public:
   }
 
 private:
-  const llvm::DenseSet<const Atom *> _liveAtoms;
+  const llvm::DenseSet<const Atom *> &_liveAtoms;
 };
 
 /// This is used as a filter function to std::remove_if to coalesced atoms.
@@ -266,11 +266,12 @@ bool Resolver::resolveUndefines() {
   for (;;) {
     ErrorOr<File &> file = _context.nextFile();
     _context.setResolverState(Resolver::StateNoChange);
-    if (error_code(file) == InputGraphError::no_more_files)
+    error_code ec = file.getError();
+    if (ec == InputGraphError::no_more_files)
       return true;
     if (!file) {
       llvm::errs() << "Error occurred in nextFile: "
-                   << error_code(file).message() << "\n";
+                   << ec.message() << "\n";
       return false;
     }
 
@@ -308,23 +309,18 @@ void Resolver::updateReferences() {
   }
 }
 
-// for dead code stripping, recursively mark atoms "live"
+// For dead code stripping, recursively mark atoms "live"
 void Resolver::markLive(const Atom &atom) {
-  // if already marked live, then done (stop recursion)
-  if (_liveAtoms.count(&atom))
+  // Mark the atom is live. If it's already marked live, then stop recursion.
+  auto exists = _liveAtoms.insert(&atom);
+  if (!exists.second)
     return;
 
-  // mark this atom is live
-  _liveAtoms.insert(&atom);
-
-  // mark all atoms it references as live
-  if (const DefinedAtom *defAtom = dyn_cast<DefinedAtom>(&atom)) {
-    for (const Reference *ref : *defAtom) {
-      const Atom *target = ref->target();
-      if (target != nullptr)
+  // Mark all atoms it references as live
+  if (const DefinedAtom *defAtom = dyn_cast<DefinedAtom>(&atom))
+    for (const Reference *ref : *defAtom)
+      if (const Atom *target = ref->target())
         this->markLive(*target);
-    }
-  }
 }
 
 // remove all atoms not actually used
@@ -333,9 +329,7 @@ void Resolver::deadStripOptimize() {
   // only do this optimization with -dead_strip
   if (!_context.deadStrip())
     return;
-
-  // clear liveness on all atoms
-  _liveAtoms.clear();
+  assert(_liveAtoms.empty());
 
   // By default, shared libraries are built with all globals as dead strip roots
   if (_context.globalsAreDeadStripRoots()) {
@@ -348,14 +342,10 @@ void Resolver::deadStripOptimize() {
     }
   }
 
-  // Or, use list of names that are dead stip roots.
+  // Or, use list of names that are dead strip roots.
   for (const StringRef &name : _context.deadStripRoots()) {
     const Atom *symAtom = _symbolTable.findByName(name);
     assert(symAtom);
-    if (symAtom->definition() == Atom::definitionUndefined)
-      // Dead-strip root atoms can be undefined at this point only when
-      // allowUndefines flag is on. Skip such undefines.
-      continue;
     _deadStripRoots.insert(symAtom);
   }
 
@@ -370,9 +360,9 @@ void Resolver::deadStripOptimize() {
 }
 
 // error out if some undefines remain
-bool Resolver::checkUndefines(bool final) {
+bool Resolver::checkUndefines(bool isFinal) {
   // when using LTO, undefines are checked after bitcode is optimized
-  if (_haveLLVMObjs && !final)
+  if (_haveLLVMObjs && !isFinal)
     return false;
 
   // build vector of remaining undefined symbols
@@ -409,8 +399,8 @@ bool Resolver::checkUndefines(bool final) {
       // Seems like this symbol is undefined. Warn that.
       foundUndefines = true;
       if (_context.printRemainingUndefines()) {
-        llvm::errs() << "Undefined Symbol: " << undefAtom->file().path()
-                     << " : " << undefAtom->name() << "\n";
+        llvm::errs() << "Undefined symbol: " << undefAtom->file().path()
+                     << ": " << undefAtom->name() << "\n";
       }
     }
     if (foundUndefines) {
@@ -449,15 +439,14 @@ bool Resolver::resolve() {
 }
 
 void Resolver::MergedFile::addAtom(const Atom &atom) {
-  if (const DefinedAtom *defAtom = dyn_cast<DefinedAtom>(&atom)) {
-    _definedAtoms._atoms.push_back(defAtom);
-  } else if (const UndefinedAtom *undefAtom = dyn_cast<UndefinedAtom>(&atom)) {
-    _undefinedAtoms._atoms.push_back(undefAtom);
-  } else if (const SharedLibraryAtom *slAtom =
-                 dyn_cast<SharedLibraryAtom>(&atom)) {
-    _sharedLibraryAtoms._atoms.push_back(slAtom);
-  } else if (const AbsoluteAtom *abAtom = dyn_cast<AbsoluteAtom>(&atom)) {
-    _absoluteAtoms._atoms.push_back(abAtom);
+  if (auto *def = dyn_cast<DefinedAtom>(&atom)) {
+    _definedAtoms._atoms.push_back(def);
+  } else if (auto *undef = dyn_cast<UndefinedAtom>(&atom)) {
+    _undefinedAtoms._atoms.push_back(undef);
+  } else if (auto *shared = dyn_cast<SharedLibraryAtom>(&atom)) {
+    _sharedLibraryAtoms._atoms.push_back(shared);
+  } else if (auto *abs = dyn_cast<AbsoluteAtom>(&atom)) {
+    _absoluteAtoms._atoms.push_back(abs);
   } else {
     llvm_unreachable("atom has unknown definition kind");
   }

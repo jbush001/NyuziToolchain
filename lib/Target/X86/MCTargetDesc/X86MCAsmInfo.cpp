@@ -71,6 +71,11 @@ X86MCAsmInfoDarwin::X86MCAsmInfoDarwin(const Triple &T) {
   // rather than OS version
   if (T.isMacOSX() && T.isMacOSXVersionLT(10, 6))
     HasWeakDefCanBeHiddenDirective = false;
+
+  // FIXME: this should not depend on the target OS version, but on the ld64
+  // version in use.  From at least >= ld64-97.17 (Xcode 3.2.6) the abs-ified
+  // FDE relocs may be used.
+  DwarfFDESymbolsUseAbsDiff = T.isMacOSX() && !T.isMacOSXVersionLT(10, 6);
 }
 
 X86_64MCAsmInfoDarwin::X86_64MCAsmInfoDarwin(const Triple &Triple)
@@ -131,11 +136,8 @@ getNonexecutableStackSection(MCContext &Ctx) const {
 void X86MCAsmInfoMicrosoft::anchor() { }
 
 X86MCAsmInfoMicrosoft::X86MCAsmInfoMicrosoft(const Triple &Triple) {
-  if (Triple.getArch() == Triple::x86_64) {
-    GlobalPrefix = '\0';
+  if (Triple.getArch() == Triple::x86_64)
     PrivateGlobalPrefix = ".L";
-    HasMicrosoftFastStdCallMangling = false;
-  }
 
   AssemblerDialect = AsmWriterFlavor;
 
@@ -147,11 +149,8 @@ X86MCAsmInfoMicrosoft::X86MCAsmInfoMicrosoft(const Triple &Triple) {
 void X86MCAsmInfoGNUCOFF::anchor() { }
 
 X86MCAsmInfoGNUCOFF::X86MCAsmInfoGNUCOFF(const Triple &Triple) {
-  if (Triple.getArch() == Triple::x86_64) {
-    GlobalPrefix = '\0';
+  if (Triple.getArch() == Triple::x86_64)
     PrivateGlobalPrefix = ".L";
-    HasMicrosoftFastStdCallMangling = false;
-  }
 
   AssemblerDialect = AsmWriterFlavor;
 

@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "NVPTXAsmPrinter.h"
+#include "InstPrinter/NVPTXInstPrinter.h"
 #include "MCTargetDesc/NVPTXMCAsmInfo.h"
 #include "NVPTX.h"
 #include "NVPTXInstrInfo.h"
@@ -20,11 +21,9 @@
 #include "NVPTXRegisterInfo.h"
 #include "NVPTXTargetMachine.h"
 #include "NVPTXUtilities.h"
-#include "InstPrinter/NVPTXInstPrinter.h"
 #include "cl_common_defines.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/ConstantFolding.h"
-#include "llvm/Assembly/Writer.h"
 #include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
@@ -33,6 +32,7 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/Mangler.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/MC/MCStreamer.h"
@@ -43,7 +43,6 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TimeValue.h"
-#include "llvm/Target/Mangler.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include <sstream>
 using namespace llvm;
@@ -149,7 +148,7 @@ const MCExpr *nvptx::LowerConstant(const Constant *CV, AsmPrinter &AP) {
       std::string S;
       raw_string_ostream OS(S);
       OS << "Unsupported expression in static initializer: ";
-      WriteAsOperand(OS, CE, /*PrintType=*/ false,
+      CE->printAsOperand(OS, /*PrintType=*/ false,
                      !AP.MF ? 0 : AP.MF->getFunction()->getParent());
       report_fatal_error(OS.str());
     }
@@ -308,7 +307,7 @@ void NVPTXAsmPrinter::EmitInstruction(const MachineInstr *MI) {
 
   MCInst Inst;
   lowerToMCInst(MI, Inst);
-  OutStreamer.EmitInstruction(Inst);
+  EmitToStreamer(OutStreamer, Inst);
 }
 
 void NVPTXAsmPrinter::lowerToMCInst(const MachineInstr *MI, MCInst &OutMI) {
@@ -895,7 +894,7 @@ bool NVPTXAsmPrinter::doInitialization(Module &M) {
   const_cast<TargetLoweringObjectFile &>(getObjFileLowering())
       .Initialize(OutContext, TM);
 
-  Mang = new Mangler(&TM);
+  Mang = new Mangler(TM.getDataLayout());
 
   // Emit header before any dwarf directives are emitted below.
   emitHeader(M, OS1);
@@ -1523,8 +1522,8 @@ void NVPTXAsmPrinter::emitFunctionParamList(const Function *F, raw_ostream &O) {
     }
 
     if (PAL.hasAttribute(paramIndex + 1, Attribute::ByVal) == false) {
-      if (Ty->isVectorTy()) {
-        // Just print .param .b8 .align <a> .param[size];
+      if (Ty->isAggregateType() || Ty->isVectorTy()) {
+        // Just print .param .align <a> .b8 .param[size];
         // <a> = PAL.getparamalignment
         // size = typeallocsize of element type
         unsigned align = PAL.getParamAlignment(paramIndex + 1);
@@ -1604,7 +1603,7 @@ void NVPTXAsmPrinter::emitFunctionParamList(const Function *F, raw_ostream &O) {
     Type *ETy = PTy->getElementType();
 
     if (isABI || isKernelFunc) {
-      // Just print .param .b8 .align <a> .param[size];
+      // Just print .param .align <a> .b8 .param[size];
       // <a> = PAL.getparamalignment
       // size = typeallocsize of element type
       unsigned align = PAL.getParamAlignment(paramIndex + 1);

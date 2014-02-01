@@ -13,11 +13,11 @@
 
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/ADT/OwningPtr.h"
-#include "llvm/Assembly/PrintModulePass.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineFunctionAnalysis.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/Passes.h"
+#include "llvm/IR/IRPrintingPasses.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCInstrInfo.h"
@@ -92,6 +92,9 @@ static MCContext *addPassesToGenerateCode(LLVMTargetMachine *TM,
                                           bool DisableVerify,
                                           AnalysisID StartAfter,
                                           AnalysisID StopAfter) {
+  // Add internal analysis passes from the target machine.
+  TM->addAnalysisPasses(PM);
+
   // Targets may override createPassConfig to provide a target-specific sublass.
   TargetPassConfig *PassConfig = TM->createPassConfig(PM);
   PassConfig->setStartStopPasses(StartAfter, StopAfter);
@@ -154,7 +157,7 @@ bool LLVMTargetMachine::addPassesToEmitFile(PassManagerBase &PM,
     // machine-level pass), and whatever other information is needed to
     // deserialize the code and resume compilation.  For now, just write the
     // LLVM IR.
-    PM.add(createPrintModulePass(&Out));
+    PM.add(createPrintModulePass(Out));
     return false;
   }
 
@@ -201,11 +204,9 @@ bool LLVMTargetMachine::addPassesToEmitFile(PassManagerBase &PM,
     if (MCE == 0 || MAB == 0)
       return true;
 
-    AsmStreamer.reset(getTarget().createMCObjectStreamer(getTargetTriple(),
-                                                         *Context, *MAB, Out,
-                                                         MCE, hasMCRelaxAll(),
-                                                         hasMCNoExecStack()));
-    AsmStreamer.get()->setAutoInitSections(true);
+    AsmStreamer.reset(getTarget().createMCObjectStreamer(
+        getTargetTriple(), *Context, *MAB, Out, MCE, STI, hasMCRelaxAll(),
+        hasMCNoExecStack()));
     break;
   }
   case CGFT_Null:
@@ -276,11 +277,9 @@ bool LLVMTargetMachine::addPassesToEmitMC(PassManagerBase &PM,
     return true;
 
   OwningPtr<MCStreamer> AsmStreamer;
-  AsmStreamer.reset(getTarget().createMCObjectStreamer(getTargetTriple(), *Ctx,
-                                                       *MAB, Out, MCE,
-                                                       hasMCRelaxAll(),
-                                                       hasMCNoExecStack()));
-  AsmStreamer.get()->InitSections();
+  AsmStreamer.reset(getTarget().createMCObjectStreamer(
+      getTargetTriple(), *Ctx, *MAB, Out, MCE, STI, hasMCRelaxAll(),
+      hasMCNoExecStack()));
 
   // Create the AsmPrinter, which takes ownership of AsmStreamer if successful.
   FunctionPass *Printer = getTarget().createAsmPrinter(*this, *AsmStreamer);

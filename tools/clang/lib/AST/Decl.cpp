@@ -561,16 +561,10 @@ static LinkageInfo getLVForNamespaceScopeDecl(const NamedDecl *D,
       if (PrevVar->getStorageClass() == SC_Static)
         return LinkageInfo::internal();
     }
-  } else if (isa<FunctionDecl>(D) || isa<FunctionTemplateDecl>(D)) {
+  } else if (const FunctionDecl *Function = D->getAsFunction()) {
     // C++ [temp]p4:
     //   A non-member function template can have internal linkage; any
     //   other template name shall have external linkage.
-    const FunctionDecl *Function = 0;
-    if (const FunctionTemplateDecl *FunTmpl
-                                        = dyn_cast<FunctionTemplateDecl>(D))
-      Function = FunTmpl->getTemplatedDecl();
-    else
-      Function = cast<FunctionDecl>(D);
 
     // Explicitly declared static.
     if (Function->getCanonicalDecl()->getStorageClass() == SC_Static)
@@ -782,11 +776,18 @@ static LinkageInfo getLVForClassMember(const NamedDecl *D,
   // really have linkage, but it's convenient to say they do for the
   // purposes of calculating linkage of pointer-to-data-member
   // template arguments.
+  //
+  // Templates also don't officially have linkage, but since we ignore
+  // the C++ standard and look at template arguments when determining
+  // linkage and visibility of a template specialization, we might hit
+  // a template template argument that way. If we do, we need to
+  // consider its linkage.
   if (!(isa<CXXMethodDecl>(D) ||
         isa<VarDecl>(D) ||
         isa<FieldDecl>(D) ||
         isa<IndirectFieldDecl>(D) ||
-        isa<TagDecl>(D)))
+        isa<TagDecl>(D) ||
+        isa<TemplateDecl>(D)))
     return LinkageInfo::none();
 
   LinkageInfo LV;
@@ -1270,13 +1271,9 @@ static LinkageInfo getLVForDecl(const NamedDecl *D,
 }
 
 std::string NamedDecl::getQualifiedNameAsString() const {
-  return getQualifiedNameAsString(getASTContext().getPrintingPolicy());
-}
-
-std::string NamedDecl::getQualifiedNameAsString(const PrintingPolicy &P) const {
   std::string QualName;
   llvm::raw_string_ostream OS(QualName);
-  printQualifiedName(OS, P);
+  printQualifiedName(OS, getASTContext().getPrintingPolicy());
   return OS.str();
 }
 
@@ -1453,11 +1450,9 @@ bool NamedDecl::isCXXInstanceMember() const {
 
   if (isa<FieldDecl>(D) || isa<IndirectFieldDecl>(D) || isa<MSPropertyDecl>(D))
     return true;
-  if (isa<CXXMethodDecl>(D))
-    return cast<CXXMethodDecl>(D)->isInstance();
-  if (isa<FunctionTemplateDecl>(D))
-    return cast<CXXMethodDecl>(cast<FunctionTemplateDecl>(D)
-                                 ->getTemplatedDecl())->isInstance();
+  if (const CXXMethodDecl *MD =
+          dyn_cast_or_null<CXXMethodDecl>(D->getAsFunction()))
+    return MD->isInstance();
   return false;
 }
 
@@ -2301,11 +2296,12 @@ bool FunctionDecl::isReservedGlobalPlacementOperator() const {
          getDeclName().getCXXOverloadedOperator() == OO_Array_New ||
          getDeclName().getCXXOverloadedOperator() == OO_Array_Delete);
 
-  if (isa<CXXRecordDecl>(getDeclContext())) return false;
-  assert(getDeclContext()->getRedeclContext()->isTranslationUnit());
+  if (!getDeclContext()->getRedeclContext()->isTranslationUnit())
+    return false;
 
   const FunctionProtoType *proto = getType()->castAs<FunctionProtoType>();
-  if (proto->getNumArgs() != 2 || proto->isVariadic()) return false;
+  if (proto->getNumParams() != 2 || proto->isVariadic())
+    return false;
 
   ASTContext &Context =
     cast<TranslationUnitDecl>(getDeclContext()->getRedeclContext())
@@ -2313,7 +2309,7 @@ bool FunctionDecl::isReservedGlobalPlacementOperator() const {
 
   // The result type and first argument type are constant across all
   // these operators.  The second argument must be exactly void*.
-  return (proto->getArgType(1).getCanonicalType() == Context.VoidPtrTy);
+  return (proto->getParamType(1).getCanonicalType() == Context.VoidPtrTy);
 }
 
 static bool isNamespaceStd(const DeclContext *DC) {
@@ -2333,20 +2329,23 @@ bool FunctionDecl::isReplaceableGlobalAllocationFunction() const {
 
   if (isa<CXXRecordDecl>(getDeclContext()))
     return false;
-  assert(getDeclContext()->getRedeclContext()->isTranslationUnit());
+
+  // This can only fail for an invalid 'operator new' declaration.
+  if (!getDeclContext()->getRedeclContext()->isTranslationUnit())
+    return false;
 
   const FunctionProtoType *FPT = getType()->castAs<FunctionProtoType>();
-  if (FPT->getNumArgs() > 2 || FPT->isVariadic())
+  if (FPT->getNumParams() > 2 || FPT->isVariadic())
     return false;
 
   // If this is a single-parameter function, it must be a replaceable global
   // allocation or deallocation function.
-  if (FPT->getNumArgs() == 1)
+  if (FPT->getNumParams() == 1)
     return true;
 
   // Otherwise, we're looking for a second parameter whose type is
   // 'const std::nothrow_t &', or, in C++1y, 'std::size_t'.
-  QualType Ty = FPT->getArgType(1);
+  QualType Ty = FPT->getParamType(1);
   ASTContext &Ctx = getASTContext();
   if (Ctx.getLangOpts().SizedDeallocation &&
       Ctx.hasSameType(Ty, Ctx.getSizeType()))
@@ -2374,10 +2373,12 @@ FunctionDecl::getCorrespondingUnsizedGlobalDeallocationFunction() const {
     return 0;
   if (isa<CXXRecordDecl>(getDeclContext()))
     return 0;
-  assert(getDeclContext()->getRedeclContext()->isTranslationUnit());
+
+  if (!getDeclContext()->getRedeclContext()->isTranslationUnit())
+    return 0;
 
   if (getNumParams() != 2 || isVariadic() ||
-      !Ctx.hasSameType(getType()->castAs<FunctionProtoType>()->getArgType(1),
+      !Ctx.hasSameType(getType()->castAs<FunctionProtoType>()->getParamType(1),
                        Ctx.getSizeType()))
     return 0;
 
@@ -2509,7 +2510,7 @@ unsigned FunctionDecl::getBuiltinID() const {
 /// after it has been created.
 unsigned FunctionDecl::getNumParams() const {
   const FunctionProtoType *FPT = getType()->getAs<FunctionProtoType>();
-  return FPT ? FPT->getNumArgs() : 0;
+  return FPT ? FPT->getNumParams() : 0;
 }
 
 void FunctionDecl::setParams(ASTContext &C,
@@ -3282,6 +3283,12 @@ EnumDecl *EnumDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
                                         0, 0, false, false, false);
   Enum->MayHaveOutOfDateDef = C.getLangOpts().Modules;
   return Enum;
+}
+
+SourceRange EnumDecl::getIntegerTypeRange() const {
+  if (const TypeSourceInfo *TI = getIntegerTypeSourceInfo())
+    return TI->getTypeLoc().getSourceRange();
+  return SourceRange();
 }
 
 void EnumDecl::completeDefinition(QualType NewType,

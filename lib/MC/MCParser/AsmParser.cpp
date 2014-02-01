@@ -12,8 +12,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ADT/APFloat.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/MC/MCAsmInfo.h"
@@ -211,6 +211,7 @@ public:
     AssemblerDialect = i;
   }
 
+  virtual void Note(SMLoc L, const Twine &Msg, ArrayRef<SMRange> Ranges = None);
   virtual bool Warning(SMLoc L, const Twine &Msg,
                        ArrayRef<SMRange> Ranges = None);
   virtual bool Error(SMLoc L, const Twine &Msg,
@@ -286,11 +287,8 @@ private:
   /// \brief Handle exit from macro instantiation.
   void handleMacroExit();
 
-  /// \brief Extract AsmTokens for a macro argument. If the argument delimiter
-  /// is initially unknown, set it to AsmToken::Eof. It will be set to the
-  /// correct delimiter by the method.
-  bool parseMacroArgument(MCAsmMacroArgument &MA,
-                          AsmToken::TokenKind &ArgumentDelimiter);
+  /// \brief Extract AsmTokens for a macro argument.
+  bool parseMacroArgument(MCAsmMacroArgument &MA);
 
   /// \brief Parse all macro arguments for a given macro.
   bool parseMacroArguments(const MCAsmMacro *M, MCAsmMacroArguments &A);
@@ -453,7 +451,7 @@ private:
   MCAsmMacro *parseMacroLikeBody(SMLoc DirectiveLoc);
   void instantiateMacroLikeBody(MCAsmMacro *M, SMLoc DirectiveLoc,
                                 raw_svector_ostream &OS);
-  bool parseDirectiveRept(SMLoc DirectiveLoc); // ".rept"
+  bool parseDirectiveRept(SMLoc DirectiveLoc, StringRef Directive);
   bool parseDirectiveIrp(SMLoc DirectiveLoc);  // ".irp"
   bool parseDirectiveIrpc(SMLoc DirectiveLoc); // ".irpc"
   bool parseDirectiveEndr(SMLoc DirectiveLoc); // ".endr"
@@ -535,6 +533,11 @@ void AsmParser::printMacroInstantiations() {
        it != ie; ++it)
     printMessage((*it)->InstantiationLoc, SourceMgr::DK_Note,
                  "while in macro instantiation");
+}
+
+void AsmParser::Note(SMLoc L, const Twine &Msg, ArrayRef<SMRange> Ranges) {
+  printMessage(L, SourceMgr::DK_Note, Msg, Ranges);
+  printMacroInstantiations();
 }
 
 bool AsmParser::Warning(SMLoc L, const Twine &Msg, ArrayRef<SMRange> Ranges) {
@@ -692,7 +695,7 @@ bool AsmParser::Run(bool NoInitialTextSection, bool NoFinalize) {
 void AsmParser::checkForValidSection() {
   if (!ParsingInlineAsm && !getStreamer().getCurrentSection().first) {
     TokError("expected section directive before assembly directive");
-    Out.InitToTextSection();
+    Out.InitSections();
   }
 }
 
@@ -830,7 +833,8 @@ bool AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
         Variant = MCSymbolRefExpr::VK_None;
       } else {
         Variant = MCSymbolRefExpr::VK_None;
-        return TokError("invalid variant '" + Split.second + "'");
+        return Error(SMLoc::getFromPointer(Split.second.begin()),
+                     "invalid variant '" + Split.second + "'");
       }
     }
 
@@ -1335,7 +1339,7 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info) {
     if (!getTargetParser().ParseDirective(ID))
       return false;
 
-    // Next, check the extention directive map to see if any extension has
+    // Next, check the extension directive map to see if any extension has
     // registered itself to parse this directive.
     std::pair<MCAsmParserExtension *, DirectiveHandler> Handler =
         ExtensionDirectiveMap.lookup(IDVal);
@@ -1438,7 +1442,7 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info) {
     case DK_CODE16GCC:
       return TokError(Twine(IDVal) + " not supported yet");
     case DK_REPT:
-      return parseDirectiveRept(IDLoc);
+      return parseDirectiveRept(IDLoc, IDVal);
     case DK_IRP:
       return parseDirectiveIrp(IDLoc);
     case DK_IRPC:
@@ -1856,31 +1860,35 @@ static bool isOperator(AsmToken::TokenKind kind) {
   }
 }
 
-bool AsmParser::parseMacroArgument(MCAsmMacroArgument &MA,
-                                   AsmToken::TokenKind &ArgumentDelimiter) {
+namespace {
+class AsmLexerSkipSpaceRAII {
+public:
+  AsmLexerSkipSpaceRAII(AsmLexer &Lexer, bool SkipSpace) : Lexer(Lexer) {
+    Lexer.setSkipSpace(SkipSpace);
+  }
+
+  ~AsmLexerSkipSpaceRAII() {
+    Lexer.setSkipSpace(true);
+  }
+
+private:
+  AsmLexer &Lexer;
+};
+}
+
+bool AsmParser::parseMacroArgument(MCAsmMacroArgument &MA) {
   unsigned ParenLevel = 0;
   unsigned AddTokens = 0;
 
-  // gas accepts arguments separated by whitespace, except on Darwin
-  if (!IsDarwin)
-    Lexer.setSkipSpace(false);
+  // Darwin doesn't use spaces to delmit arguments.
+  AsmLexerSkipSpaceRAII ScopedSkipSpace(Lexer, IsDarwin);
 
   for (;;) {
-    if (Lexer.is(AsmToken::Eof) || Lexer.is(AsmToken::Equal)) {
-      Lexer.setSkipSpace(true);
+    if (Lexer.is(AsmToken::Eof) || Lexer.is(AsmToken::Equal))
       return TokError("unexpected token in macro instantiation");
-    }
 
-    if (ParenLevel == 0 && Lexer.is(AsmToken::Comma)) {
-      // Spaces and commas cannot be mixed to delimit parameters
-      if (ArgumentDelimiter == AsmToken::Eof)
-        ArgumentDelimiter = AsmToken::Comma;
-      else if (ArgumentDelimiter != AsmToken::Comma) {
-        Lexer.setSkipSpace(true);
-        return TokError("expected ' ' for macro argument separator");
-      }
+    if (ParenLevel == 0 && Lexer.is(AsmToken::Comma))
       break;
-    }
 
     if (Lexer.is(AsmToken::Space)) {
       Lex(); // Eat spaces
@@ -1888,8 +1896,7 @@ bool AsmParser::parseMacroArgument(MCAsmMacroArgument &MA,
       // Spaces can delimit parameters, but could also be part an expression.
       // If the token after a space is an operator, add the token and the next
       // one into this argument
-      if (ArgumentDelimiter == AsmToken::Space ||
-          ArgumentDelimiter == AsmToken::Eof) {
+      if (!IsDarwin) {
         if (isOperator(Lexer.getKind())) {
           // Check to see whether the token is used as an operator,
           // or part of an identifier
@@ -1899,9 +1906,6 @@ bool AsmParser::parseMacroArgument(MCAsmMacroArgument &MA,
         }
 
         if (!AddTokens && ParenLevel == 0) {
-          if (ArgumentDelimiter == AsmToken::Eof &&
-              !isOperator(Lexer.getKind()))
-            ArgumentDelimiter = AsmToken::Space;
           break;
         }
       }
@@ -1925,7 +1929,6 @@ bool AsmParser::parseMacroArgument(MCAsmMacroArgument &MA,
     Lex();
   }
 
-  Lexer.setSkipSpace(true);
   if (ParenLevel != 0)
     return TokError("unbalanced parentheses in macro argument");
   return false;
@@ -1935,9 +1938,6 @@ bool AsmParser::parseMacroArgument(MCAsmMacroArgument &MA,
 bool AsmParser::parseMacroArguments(const MCAsmMacro *M,
                                     MCAsmMacroArguments &A) {
   const unsigned NParameters = M ? M->Parameters.size() : 0;
-  // Argument delimiter is initially unknown. It will be set by
-  // parseMacroArgument()
-  AsmToken::TokenKind ArgumentDelimiter = AsmToken::Eof;
 
   // Parse two kinds of macro invocations:
   // - macros defined without any parameters accept an arbitrary number of them
@@ -1946,14 +1946,16 @@ bool AsmParser::parseMacroArguments(const MCAsmMacro *M,
        ++Parameter) {
     MCAsmMacroArgument MA;
 
-    if (parseMacroArgument(MA, ArgumentDelimiter))
+    if (parseMacroArgument(MA))
       return true;
 
-    if (!MA.empty() || !NParameters)
+    if (!MA.empty() || (!NParameters && !Lexer.is(AsmToken::EndOfStatement)))
       A.push_back(MA);
     else if (NParameters) {
       if (!M->Parameters[Parameter].second.empty())
         A.push_back(M->Parameters[Parameter].second);
+      else
+        A.push_back(MA);
     }
 
     // At the end of the statement, fill in remaining arguments that have
@@ -1961,12 +1963,7 @@ bool AsmParser::parseMacroArguments(const MCAsmMacro *M,
     // required but missing
     if (Lexer.is(AsmToken::EndOfStatement)) {
       if (NParameters && Parameter < NParameters - 1) {
-        if (M->Parameters[Parameter + 1].second.empty())
-          return TokError("macro argument '" +
-                          Twine(M->Parameters[Parameter + 1].first) +
-                          "' is missing");
-        else
-          continue;
+        continue;
       }
       return false;
     }
@@ -2003,12 +2000,6 @@ bool AsmParser::handleMacroEntry(const MCAsmMacro *M, SMLoc NameLoc) {
   MCAsmMacroArguments A;
   if (parseMacroArguments(M, A))
     return true;
-
-  // Remove any trailing empty arguments. Do this after-the-fact as we have
-  // to keep empty arguments in the middle of the list or positionality
-  // gets off. e.g.,  "foo 1, , 2" vs. "foo 1, 2,"
-  while (!A.empty() && A.back().empty())
-    A.pop_back();
 
   // Macro instantiation is lexical, unfortunately. We construct a new buffer
   // to hold the macro body with substitutions.
@@ -2406,18 +2397,27 @@ bool AsmParser::parseDirectiveZero() {
 bool AsmParser::parseDirectiveFill() {
   checkForValidSection();
 
+  SMLoc RepeatLoc = getLexer().getLoc();
   int64_t NumValues;
   if (parseAbsoluteExpression(NumValues))
     return true;
 
+  if (NumValues < 0) {
+    Warning(RepeatLoc,
+            "'.fill' directive with negative repeat count has no effect");
+    NumValues = 0;
+  }
+
   int64_t FillSize = 1;
   int64_t FillExpr = 0;
 
+  SMLoc SizeLoc, ExprLoc;
   if (getLexer().isNot(AsmToken::EndOfStatement)) {
     if (getLexer().isNot(AsmToken::Comma))
       return TokError("unexpected token in '.fill' directive");
     Lex();
 
+    SizeLoc = getLexer().getLoc();
     if (parseAbsoluteExpression(FillSize))
       return true;
 
@@ -2426,6 +2426,7 @@ bool AsmParser::parseDirectiveFill() {
         return TokError("unexpected token in '.fill' directive");
       Lex();
 
+      ExprLoc = getLexer().getLoc();
       if (parseAbsoluteExpression(FillExpr))
         return true;
 
@@ -2436,11 +2437,25 @@ bool AsmParser::parseDirectiveFill() {
     }
   }
 
-  if (FillSize != 1 && FillSize != 2 && FillSize != 4 && FillSize != 8)
-    return TokError("invalid '.fill' size, expected 1, 2, 4, or 8");
+  if (FillSize < 0) {
+    Warning(SizeLoc, "'.fill' directive with negative size has no effect");
+    NumValues = 0;
+  }
+  if (FillSize > 8) {
+    Warning(SizeLoc, "'.fill' directive with size greater than 8 has been truncated to 8");
+    FillSize = 8;
+  }
 
-  for (uint64_t i = 0, e = NumValues; i != e; ++i)
-    getStreamer().EmitIntValue(FillExpr, FillSize);
+  if (!isUInt<32>(FillExpr) && FillSize > 4)
+    Warning(ExprLoc, "'.fill' directive pattern has been truncated to 32-bits");
+
+  int64_t NonZeroFillSize = FillSize > 4 ? 4 : FillSize;
+  FillExpr &= ~0ULL >> (64 - NonZeroFillSize * 8);
+
+  for (uint64_t i = 0, e = NumValues; i != e; ++i) {
+    getStreamer().EmitIntValue(FillExpr, NonZeroFillSize);
+    getStreamer().EmitIntValue(0, FillSize - NonZeroFillSize);
+  }
 
   return false;
 }
@@ -2789,9 +2804,14 @@ bool AsmParser::parseDirectiveCFISections() {
 }
 
 /// parseDirectiveCFIStartProc
-/// ::= .cfi_startproc
+/// ::= .cfi_startproc [simple]
 bool AsmParser::parseDirectiveCFIStartProc() {
-  getStreamer().EmitCFIStartProc();
+  StringRef Simple;
+  if (getLexer().isNot(AsmToken::EndOfStatement))
+    if (parseIdentifier(Simple) || Simple != "simple")
+      return TokError("unexpected token in .cfi_startproc directive");
+
+  getStreamer().EmitCFIStartProc(!Simple.empty());
   return false;
 }
 
@@ -3091,28 +3111,21 @@ bool AsmParser::parseDirectiveMacro(SMLoc DirectiveLoc) {
     return TokError("expected identifier in '.macro' directive");
 
   MCAsmMacroParameters Parameters;
-  // Argument delimiter is initially unknown. It will be set by
-  // parseMacroArgument()
-  AsmToken::TokenKind ArgumentDelimiter = AsmToken::Eof;
-  if (getLexer().isNot(AsmToken::EndOfStatement)) {
-    for (;;) {
-      MCAsmMacroParameter Parameter;
-      if (parseIdentifier(Parameter.first))
-        return TokError("expected identifier in '.macro' directive");
+  while (getLexer().isNot(AsmToken::EndOfStatement)) {
+    MCAsmMacroParameter Parameter;
+    if (parseIdentifier(Parameter.first))
+      return TokError("expected identifier in '.macro' directive");
 
-      if (getLexer().is(AsmToken::Equal)) {
-        Lex();
-        if (parseMacroArgument(Parameter.second, ArgumentDelimiter))
-          return true;
-      }
-
-      Parameters.push_back(Parameter);
-
-      if (getLexer().is(AsmToken::Comma))
-        Lex();
-      else if (getLexer().is(AsmToken::EndOfStatement))
-        break;
+    if (getLexer().is(AsmToken::Equal)) {
+      Lex();
+      if (parseMacroArgument(Parameter.second))
+        return true;
     }
+
+    Parameters.push_back(Parameter);
+
+    if (getLexer().is(AsmToken::Comma))
+      Lex();
   }
 
   // Eat the end of statement.
@@ -3158,13 +3171,13 @@ bool AsmParser::parseDirectiveMacro(SMLoc DirectiveLoc) {
 ///
 /// With the support added for named parameters there may be code out there that
 /// is transitioning from positional parameters.  In versions of gas that did
-/// not support named parameters they would be ignored on the macro defintion.
+/// not support named parameters they would be ignored on the macro definition.
 /// But to support both styles of parameters this is not possible so if a macro
-/// defintion has named parameters but does not use them and has what appears
+/// definition has named parameters but does not use them and has what appears
 /// to be positional parameters, strings like $1, $2, ... and $n, then issue a
 /// warning that the positional parameter found in body which have no effect.
 /// Hoping the developer will either remove the named parameters from the macro
-/// definiton so the positional parameters get used if that was what was
+/// definition so the positional parameters get used if that was what was
 /// intended or change the macro to use the named parameters.  It is possible
 /// this warning will trigger when the none of the named parameters are used
 /// and the strings like $1 are infact to simply to be passed trough unchanged.
@@ -3836,6 +3849,7 @@ void AsmParser::initializeDirectiveKindMap() {
   DirectiveKindMap[".code16"] = DK_CODE16;
   DirectiveKindMap[".code16gcc"] = DK_CODE16GCC;
   DirectiveKindMap[".rept"] = DK_REPT;
+  DirectiveKindMap[".rep"] = DK_REPT;
   DirectiveKindMap[".irp"] = DK_IRP;
   DirectiveKindMap[".irpc"] = DK_IRPC;
   DirectiveKindMap[".endr"] = DK_ENDR;
@@ -3954,16 +3968,25 @@ void AsmParser::instantiateMacroLikeBody(MCAsmMacro *M, SMLoc DirectiveLoc,
   Lex();
 }
 
-bool AsmParser::parseDirectiveRept(SMLoc DirectiveLoc) {
+/// parseDirectiveRept
+///   ::= .rep | .rept count
+bool AsmParser::parseDirectiveRept(SMLoc DirectiveLoc, StringRef Dir) {
+  const MCExpr *CountExpr;
+  SMLoc CountLoc = getTok().getLoc();
+  if (parseExpression(CountExpr))
+    return true;
+
   int64_t Count;
-  if (parseAbsoluteExpression(Count))
-    return TokError("unexpected token in '.rept' directive");
+  if (!CountExpr->EvaluateAsAbsolute(Count)) {
+    eatToEndOfStatement();
+    return Error(CountLoc, "unexpected token in '" + Dir + "' directive");
+  }
 
   if (Count < 0)
-    return TokError("Count is negative");
+    return Error(CountLoc, "Count is negative");
 
   if (Lexer.isNot(AsmToken::EndOfStatement))
-    return TokError("unexpected token in '.rept' directive");
+    return TokError("unexpected token in '" + Dir + "' directive");
 
   // Eat the end of statement.
   Lex();

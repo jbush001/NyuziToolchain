@@ -382,6 +382,67 @@ define void @f12(<4 x i32> *%dest, <4 x i32> *%src, i32 %index) {
   ret void
 }
 
+; Test vector GEPs with more than one index.
+define void @f13(<4 x float *> *%dest, <4 x [4 x float] *> %ptr, <4 x i32> %i,
+                 float *%other) {
+; CHECK-LABEL: @f13(
+; CHECK: %dest.i0 = bitcast <4 x float*>* %dest to float**
+; CHECK: %dest.i1 = getelementptr float** %dest.i0, i32 1
+; CHECK: %dest.i2 = getelementptr float** %dest.i0, i32 2
+; CHECK: %dest.i3 = getelementptr float** %dest.i0, i32 3
+; CHECK: %i.i0 = extractelement <4 x i32> %i, i32 0
+; CHECK: %ptr.i0 = extractelement <4 x [4 x float]*> %ptr, i32 0
+; CHECK: %val.i0 = getelementptr inbounds [4 x float]* %ptr.i0, i32 0, i32 %i.i0
+; CHECK: %i.i1 = extractelement <4 x i32> %i, i32 1
+; CHECK: %ptr.i1 = extractelement <4 x [4 x float]*> %ptr, i32 1
+; CHECK: %val.i1 = getelementptr inbounds [4 x float]* %ptr.i1, i32 1, i32 %i.i1
+; CHECK: %i.i2 = extractelement <4 x i32> %i, i32 2
+; CHECK: %ptr.i2 = extractelement <4 x [4 x float]*> %ptr, i32 2
+; CHECK: %val.i2 = getelementptr inbounds [4 x float]* %ptr.i2, i32 2, i32 %i.i2
+; CHECK: %i.i3 = extractelement <4 x i32> %i, i32 3
+; CHECK: %ptr.i3 = extractelement <4 x [4 x float]*> %ptr, i32 3
+; CHECK: %val.i3 = getelementptr inbounds [4 x float]* %ptr.i3, i32 3, i32 %i.i3
+; CHECK: store float* %val.i0, float** %dest.i0, align 32
+; CHECK: store float* %val.i1, float** %dest.i1, align 8
+; CHECK: store float* %val.i2, float** %dest.i2, align 16
+; CHECK: store float* %val.i3, float** %dest.i3, align 8
+; CHECK: ret void
+  %val = getelementptr inbounds <4 x [4 x float] *> %ptr,
+                                <4 x i32> <i32 0, i32 1, i32 2, i32 3>,
+                                <4 x i32> %i
+  store <4 x float *> %val, <4 x float *> *%dest
+  ret void
+}
+
+; Test combinations of vector and non-vector PHIs.
+define <4 x float> @f14(<4 x float> %acc, i32 %count) {
+; CHECK-LABEL: @f14(
+; CHECK: %this_acc.i0 = phi float [ %acc.i0, %entry ], [ %next_acc.i0, %loop ]
+; CHECK: %this_acc.i1 = phi float [ %acc.i1, %entry ], [ %next_acc.i1, %loop ]
+; CHECK: %this_acc.i2 = phi float [ %acc.i2, %entry ], [ %next_acc.i2, %loop ]
+; CHECK: %this_acc.i3 = phi float [ %acc.i3, %entry ], [ %next_acc.i3, %loop ]
+; CHECK: %this_count = phi i32 [ %count, %entry ], [ %next_count, %loop ]
+; CHECK: %this_acc.upto0 = insertelement <4 x float> undef, float %this_acc.i0, i32 0
+; CHECK: %this_acc.upto1 = insertelement <4 x float> %this_acc.upto0, float %this_acc.i1, i32 1
+; CHECK: %this_acc.upto2 = insertelement <4 x float> %this_acc.upto1, float %this_acc.i2, i32 2
+; CHECK: %this_acc = insertelement <4 x float> %this_acc.upto2, float %this_acc.i3, i32 3
+; CHECK: ret <4 x float> %next_acc
+entry:
+  br label %loop
+
+loop:
+  %this_acc = phi <4 x float> [ %acc, %entry ], [ %next_acc, %loop ]
+  %this_count = phi i32 [ %count, %entry ], [ %next_count, %loop ]
+  %foo = call <4 x float> @ext(<4 x float> %this_acc)
+  %next_acc = fadd <4 x float> %this_acc, %foo
+  %next_count = sub i32 %this_count, 1
+  %cmp = icmp eq i32 %next_count, 0
+  br i1 %cmp, label %loop, label %exit
+
+exit:
+  ret <4 x float> %next_acc
+}
+
 !0 = metadata !{ metadata !"root" }
 !1 = metadata !{ metadata !"set1", metadata !0 }
 !2 = metadata !{ metadata !"set2", metadata !0 }

@@ -13,12 +13,15 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm-readobj.h"
+#include "ARMAttributeParser.h"
+#include "ARMEHABIPrinter.h"
 #include "Error.h"
 #include "ObjDumper.h"
 #include "StreamWriter.h"
-
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Object/ELFObjectFile.h"
+#include "llvm/Support/ARMBuildAttributes.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/MathExtras.h"
@@ -50,6 +53,8 @@ public:
   virtual void printNeededLibraries() LLVM_OVERRIDE;
   virtual void printProgramHeaders() LLVM_OVERRIDE;
 
+  virtual void printAttributes() LLVM_OVERRIDE;
+
 private:
   typedef ELFFile<ELFT> ELFO;
   typedef typename ELFO::Elf_Shdr Elf_Shdr;
@@ -65,7 +70,7 @@ private:
 
 template <class T> T errorOrDefault(ErrorOr<T> Val, T Default = T()) {
   if (!Val) {
-    error(Val);
+    error(Val.getError());
     return Default;
   }
 
@@ -631,7 +636,7 @@ void ELFDumper<ELFT>::printSymbol(typename ELFO::Elf_Sym_Iter Symbol) {
       FullSymbolName += (IsDefault ? "@@" : "@");
       FullSymbolName += *Version;
     } else
-      error(Version);
+      error(Version.getError());
   }
 
   DictScope D(W, "Symbol");
@@ -693,6 +698,8 @@ static const char *getTypeString(uint64_t Type) {
   LLVM_READOBJ_TYPE_CASE(MIPS_SYMTABNO);
   LLVM_READOBJ_TYPE_CASE(MIPS_UNREFEXTNO);
   LLVM_READOBJ_TYPE_CASE(MIPS_GOTSYM);
+  LLVM_READOBJ_TYPE_CASE(MIPS_RLD_MAP);
+  LLVM_READOBJ_TYPE_CASE(MIPS_PLTGOT);
   default: return "unknown";
   }
 }
@@ -731,6 +738,8 @@ static void printValue(const ELFFile<ELFT> *O, uint64_t Type, uint64_t Value,
   case DT_MIPS_FLAGS:
   case DT_MIPS_BASE_ADDRESS:
   case DT_MIPS_GOTSYM:
+  case DT_MIPS_RLD_MAP:
+  case DT_MIPS_PLTGOT:
     OS << format("0x%" PRIX64, Value);
     break;
   case DT_VERNEEDNUM:
@@ -768,6 +777,18 @@ static void printValue(const ELFFile<ELFT> *O, uint64_t Type, uint64_t Value,
 template<class ELFT>
 void ELFDumper<ELFT>::printUnwindInfo() {
   W.startLine() << "UnwindInfo not implemented.\n";
+}
+
+namespace {
+template <>
+void ELFDumper<ELFType<support::little, 2, false> >::printUnwindInfo() {
+  const unsigned Machine = Obj->getHeader()->e_machine;
+  if (Machine == EM_ARM) {
+    ARM::EHABI::PrinterContext<ELFType<support::little, 2, false> > Ctx(W, Obj);
+    return Ctx.PrintUnwindInformation();
+  }
+  W.startLine() << "UnwindInfo not implemented.\n";
+}
 }
 
 template<class ELFT>
@@ -839,3 +860,42 @@ void ELFDumper<ELFT>::printProgramHeaders() {
     W.printNumber("Alignment", PI->p_align);
   }
 }
+
+template <class ELFT>
+void ELFDumper<ELFT>::printAttributes() {
+  W.startLine() << "Attributes not implemented.\n";
+}
+
+namespace {
+template <>
+void ELFDumper<ELFType<support::little, 2, false> >::printAttributes() {
+  if (Obj->getHeader()->e_machine != EM_ARM) {
+    W.startLine() << "Attributes not implemented.\n";
+    return;
+  }
+
+  DictScope BA(W, "BuildAttributes");
+  for (ELFO::Elf_Shdr_Iter SI = Obj->begin_sections(), SE = Obj->end_sections();
+       SI != SE; ++SI) {
+    if (SI->sh_type != ELF::SHT_ARM_ATTRIBUTES)
+      continue;
+
+    ErrorOr<ArrayRef<uint8_t> > Contents = Obj->getSectionContents(&(*SI));
+    if (!Contents)
+      continue;
+
+    if ((*Contents)[0] != ARMBuildAttrs::Format_Version) {
+      errs() << "unrecognised FormatVersion: 0x" << utohexstr((*Contents)[0])
+             << '\n';
+      continue;
+    }
+
+    W.printHex("FormatVersion", (*Contents)[0]);
+    if (Contents->size() == 1)
+      continue;
+
+    ARMAttributeParser(W).Parse(*Contents);
+  }
+}
+}
+

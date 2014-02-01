@@ -72,7 +72,7 @@ public:
   /// \brief parse each member
   virtual error_code
   parseAllMembers(std::vector<std::unique_ptr<File>> &result) const {
-    for (auto mf = _archive->begin_children(), me = _archive->end_children();
+    for (auto mf = _archive->child_begin(), me = _archive->child_end();
          mf != me; ++mf) {
       if (error_code ec = instantiateMember(mf, result))
         return ec;
@@ -113,17 +113,18 @@ protected:
   }
 
   error_code isDataSymbol(MemoryBuffer *mb, StringRef symbol) const {
-    std::unique_ptr<ObjectFile> obj(ObjectFile::createObjectFile(mb));
-    error_code ec;
+    auto objOrErr(ObjectFile::createObjectFile(mb));
+    if (auto ec = objOrErr.getError())
+      return ec;
+    std::unique_ptr<ObjectFile> obj(objOrErr.get());
     SymbolRef::Type symtype;
     uint32_t symflags;
     symbol_iterator ibegin = obj->begin_symbols();
     symbol_iterator iend = obj->end_symbols();
     StringRef symbolname;
 
-    for (symbol_iterator i = ibegin; i != iend; i.increment(ec)) {
-      if (ec)
-        return ec;
+    for (symbol_iterator i = ibegin; i != iend; ++i) {
+      error_code ec;
 
       // Get symbol name
       if ((ec = (i->getName(symbolname))))
@@ -133,8 +134,7 @@ protected:
         continue;
 
       // Get symbol flags
-      if ((ec = (i->getFlags(symflags))))
-        return ec;
+      symflags = i->getFlags();
 
       if (symflags <= SymbolRef::SF_Undefined)
         continue;
@@ -177,7 +177,7 @@ public:
     DEBUG_WITH_TYPE("FileArchive", llvm::dbgs()
                                        << "Table of contents for archive '"
                                        << _archive->getFileName() << "':\n");
-    for (auto i = _archive->begin_symbols(), e = _archive->end_symbols();
+    for (auto i = _archive->symbol_begin(), e = _archive->symbol_end();
          i != e; ++i) {
       StringRef name;
       error_code ec;

@@ -17,8 +17,8 @@
 #include "llvm-c/Initialization.h"
 #include "llvm-c/Transforms/Scalar.h"
 #include "llvm/Analysis/Passes.h"
-#include "llvm/Analysis/Verifier.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/PassManager.h"
 
@@ -30,6 +30,7 @@ void llvm::initializeScalarOpts(PassRegistry &Registry) {
   initializeADCEPass(Registry);
   initializeSampleProfileLoaderPass(Registry);
   initializeCodeGenPreparePass(Registry);
+  initializeConstantHoistingPass(Registry);
   initializeConstantPropagationPass(Registry);
   initializeCorrelatedValuePropagationPass(Registry);
   initializeDCEPass(Registry);

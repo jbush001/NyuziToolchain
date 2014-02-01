@@ -14,6 +14,7 @@
 #include "lld/Core/PassManager.h"
 #include "lld/Core/Pass.h"
 #include "lld/Core/range.h"
+#include "lld/Core/STDExtras.h"
 
 #include "lld/ReaderWriter/Reader.h"
 #include "lld/ReaderWriter/Writer.h"
@@ -37,6 +38,12 @@ class TargetHandlerBase {
 public:
   virtual ~TargetHandlerBase() {}
   virtual void registerRelocationNames(Registry &) = 0;
+
+  virtual std::unique_ptr<Reader> getObjReader(bool) = 0;
+
+  virtual std::unique_ptr<Reader> getDSOReader(bool) = 0;
+
+  virtual std::unique_ptr<Writer> getWriter() = 0;
 };
 
 class ELFLinkingContext : public LinkingContext {
@@ -92,6 +99,9 @@ public:
   }
 
   static std::unique_ptr<ELFLinkingContext> create(llvm::Triple);
+
+  /// \brief Use Elf_Rela format to output relocation tables.
+  virtual bool isRelaOutputFormat() const { return true; }
 
   /// \brief Does this relocation belong in the dynamic plt relocation table?
   ///

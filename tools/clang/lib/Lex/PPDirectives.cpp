@@ -162,7 +162,7 @@ void Preprocessor::ReadMacroName(Token &MacroNameTok, char isDefineUndef) {
     const IdentifierInfo &Info = Identifiers.get(Spelling);
 
     // Allow #defining |and| and friends in microsoft mode.
-    if (Info.isCPlusPlusOperatorKeyword() && getLangOpts().MicrosoftMode) {
+    if (Info.isCPlusPlusOperatorKeyword() && getLangOpts().MSVCCompat) {
       MacroNameTok.setIdentifierInfo(getIdentifierInfo(Spelling));
       return;
     }
@@ -560,12 +560,12 @@ const FileEntry *Preprocessor::LookupFile(
     SmallVectorImpl<char> *RelativePath,
     ModuleMap::KnownHeader *SuggestedModule,
     bool SkipCache) {
-  // If the header lookup mechanism may be relative to the current file, pass in
-  // info about where the current file is.
-  const FileEntry *CurFileEnt = 0;
+  // If the header lookup mechanism may be relative to the current inclusion
+  // stack, record the parent #includes.
+  SmallVector<const FileEntry *, 16> Includers;
   if (!FromDir) {
     FileID FID = getCurrentFileLexer()->getFileID();
-    CurFileEnt = SourceMgr.getFileEntryForID(FID);
+    const FileEntry *FileEnt = SourceMgr.getFileEntryForID(FID);
 
     // If there is no file entry associated with this file, it must be the
     // predefines buffer.  Any other file is not lexed with a normal lexer, so
@@ -573,17 +573,31 @@ const FileEntry *Preprocessor::LookupFile(
     // predefines buffer, resolve #include references (which come from the
     // -include command line argument) as if they came from the main file, this
     // affects file lookup etc.
-    if (CurFileEnt == 0) {
-      FID = SourceMgr.getMainFileID();
-      CurFileEnt = SourceMgr.getFileEntryForID(FID);
+    if (!FileEnt)
+      FileEnt = SourceMgr.getFileEntryForID(SourceMgr.getMainFileID());
+
+    if (FileEnt)
+      Includers.push_back(FileEnt);
+
+    // MSVC searches the current include stack from top to bottom for
+    // headers included by quoted include directives.
+    // See: http://msdn.microsoft.com/en-us/library/36k2cdd4.aspx
+    if (LangOpts.MSVCCompat && !isAngled) {
+      for (unsigned i = 0, e = IncludeMacroStack.size(); i != e; ++i) {
+        IncludeStackInfo &ISEntry = IncludeMacroStack[e - i - 1];
+        if (IsFileLexer(ISEntry))
+          if ((FileEnt = SourceMgr.getFileEntryForID(
+                   ISEntry.ThePPLexer->getFileID())))
+            Includers.push_back(FileEnt);
+      }
     }
   }
 
   // Do a standard file entry lookup.
   CurDir = CurDirLookup;
   const FileEntry *FE = HeaderInfo.LookupFile(
-      Filename, isAngled, FromDir, CurDir, CurFileEnt,
-      SearchPath, RelativePath, SuggestedModule, SkipCache);
+      Filename, FilenameLoc, isAngled, FromDir, CurDir, Includers, SearchPath,
+      RelativePath, SuggestedModule, SkipCache);
   if (FE) {
     if (SuggestedModule)
       HeaderInfo.getModuleMap().diagnoseHeaderInclusion(
@@ -591,6 +605,7 @@ const FileEntry *Preprocessor::LookupFile(
     return FE;
   }
 
+  const FileEntry *CurFileEnt;
   // Otherwise, see if this is a subframework header.  If so, this is relative
   // to one of the headers on the #include stack.  Walk the list of the current
   // headers on the #include stack and pass them to HeaderInfo.
@@ -1645,14 +1660,18 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
   }
 
   // If all is good, enter the new file!
-  EnterSourceFile(FID, CurDir, FilenameTok.getLocation(),
-                  static_cast<bool>(BuildingModule));
+  if (EnterSourceFile(FID, CurDir, FilenameTok.getLocation()))
+    return;
 
   // If we're walking into another part of the same module, let the parser
   // know that any future declarations are within that other submodule.
-  if (BuildingModule)
+  if (BuildingModule) {
+    assert(!CurSubmodule && "should not have marked this as a module yet");
+    CurSubmodule = BuildingModule.getModule();
+
     EnterAnnotationToken(*this, HashLoc, End, tok::annot_module_begin,
-                         BuildingModule.getModule());
+                         CurSubmodule);
+  }
 }
 
 /// HandleIncludeNextDirective - Implements \#include_next.
@@ -1697,7 +1716,7 @@ void Preprocessor::HandleMicrosoftImportDirective(Token &Tok) {
 void Preprocessor::HandleImportDirective(SourceLocation HashLoc,
                                          Token &ImportTok) {
   if (!LangOpts.ObjC1) {  // #import is standard for ObjC.
-    if (LangOpts.MicrosoftMode)
+    if (LangOpts.MSVCCompat)
       return HandleMicrosoftImportDirective(ImportTok);
     Diag(ImportTok, diag::ext_pp_import_directive);
   }

@@ -766,11 +766,9 @@ llvm::BasicBlock *CodeGenFunction::EmitLandingPad() {
 
   // Save the current IR generation state.
   CGBuilderTy::InsertPoint savedIP = Builder.saveAndClearIP();
-  SourceLocation SavedLocation;
-  if (CGDebugInfo *DI = getDebugInfo()) {
-    SavedLocation = DI->getLocation();
+  SaveAndRestoreLocation AutoRestoreLocation(*this, Builder);
+  if (CGDebugInfo *DI = getDebugInfo())
     DI->EmitLocation(Builder, CurEHLocation);
-  }
 
   const EHPersonality &personality = EHPersonality::get(getLangOpts());
 
@@ -892,8 +890,6 @@ llvm::BasicBlock *CodeGenFunction::EmitLandingPad() {
 
   // Restore the old IR generation state.
   Builder.restoreIP(savedIP);
-  if (CGDebugInfo *DI = getDebugInfo())
-    DI->EmitLocation(Builder, SavedLocation);
 
   return lpad;
 }
@@ -1244,6 +1240,7 @@ void CodeGenFunction::ExitCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock) {
 
   // If the catch was not required, bail out now.
   if (!CatchScope.hasEHBranches()) {
+    CatchScope.clearHandlerBlocks();
     EHStack.popCatch();
     return;
   }
@@ -1294,6 +1291,10 @@ void CodeGenFunction::ExitCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock) {
     // Initialize the catch variable and set up the cleanups.
     BeginCatch(*this, C);
 
+    // Emit the PGO counter increment.
+    RegionCounter CatchCnt = getPGORegionCounter(C);
+    CatchCnt.beginRegion(Builder);
+
     // Perform the body of the catch.
     EmitStmt(C->getHandlerBlock());
 
@@ -1320,7 +1321,9 @@ void CodeGenFunction::ExitCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock) {
       Builder.CreateBr(ContBB);
   }
 
+  RegionCounter ContCnt = getPGORegionCounter(&S);
   EmitBlock(ContBB);
+  ContCnt.beginRegion(Builder);
 }
 
 namespace {

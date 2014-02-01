@@ -18,8 +18,8 @@
 #include "Utils/AArch64BaseInfo.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/SelectionDAG.h"
-#include "llvm/Target/TargetLowering.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/Target/TargetLowering.h"
 
 namespace llvm {
 namespace AArch64ISD {
@@ -221,6 +221,8 @@ public:
                       const SmallVectorImpl<SDValue> &OutVals,
                       SDLoc dl, SelectionDAG &DAG) const;
 
+  virtual unsigned getByValTypeAlignment(Type *Ty) const LLVM_OVERRIDE;
+
   SDValue LowerCall(CallLoweringInfo &CLI,
                     SmallVectorImpl<SDValue> &InVals) const;
 
@@ -230,7 +232,11 @@ public:
                           SDLoc dl, SelectionDAG &DAG,
                           SmallVectorImpl<SDValue> &InVals) const;
 
-  bool isKnownShuffleVector(SDValue Op, SelectionDAG &DAG, SDValue &Res) const;
+  bool isConcatVector(SDValue Op, SelectionDAG &DAG, SDValue V0, SDValue V1,
+                      const int *Mask, SDValue &Res) const;
+
+  bool isKnownShuffleVector(SDValue Op, SelectionDAG &DAG, SDValue &V0,
+                            SDValue &V1, int *Mask) const;
 
   SDValue LowerBUILD_VECTOR(SDValue Op, SelectionDAG &DAG,
                             const AArch64Subtarget *ST) const;

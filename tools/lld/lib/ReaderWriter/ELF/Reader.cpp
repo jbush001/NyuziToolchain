@@ -13,35 +13,7 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#include "lld/ReaderWriter/Reader.h"
-
-#include "Atoms.h"
-#include "CreateELF.h"
-#include "DynamicFile.h"
-#include "File.h"
-#include "X86/X86TargetHandler.h"
-#include "X86_64/X86_64TargetHandler.h"
-#include "Hexagon/HexagonTargetHandler.h"
-
-#include "lld/Core/Reference.h"
-#include "lld/ReaderWriter/ELFLinkingContext.h"
-#include "lld/ReaderWriter/Reader.h"
-
-#include "llvm/ADT/StringRef.h"
-#include "llvm/Object/ELF.h"
-#include "llvm/Object/ObjectFile.h"
-#include "llvm/Support/Allocator.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/Support/ELF.h"
-#include "llvm/Support/Endian.h"
-#include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/ErrorOr.h"
-#include "llvm/Support/MathExtras.h"
-#include "llvm/Support/Memory.h"
-#include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/Path.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/system_error.h"
+#include "ELFReader.h"
 
 #include <map>
 #include <vector>
@@ -63,21 +35,18 @@ struct DynamicFileCreateELFTraits {
 };
 
 struct ELFFileCreateELFTraits {
-  typedef std::unique_ptr<lld::File> result_type;
+  typedef llvm::ErrorOr<std::unique_ptr<lld::File>> result_type;
 
   template <class ELFT>
   static result_type create(std::unique_ptr<llvm::MemoryBuffer> mb,
-                            bool atomizeStrings, TargetHandlerBase *handler,
-                            lld::error_code &ec) {
-    return std::unique_ptr<lld::File>(new lld::elf::ELFFile<ELFT>(
-        std::move(mb), atomizeStrings, handler, ec));
+                            bool atomizeStrings) {
+    return lld::elf::ELFFile<ELFT>::create(std::move(mb), atomizeStrings);
   }
 };
 
 class ELFObjectReader : public Reader {
 public:
-  ELFObjectReader(bool atomizeStrings, TargetHandlerBase *handler)
-      : _atomizeStrings(atomizeStrings), _handler(handler) {}
+  ELFObjectReader(bool atomizeStrings) : _atomizeStrings(atomizeStrings) {}
 
   virtual bool canParse(file_magic magic, StringRef,
                         const MemoryBuffer &) const {
@@ -90,18 +59,16 @@ public:
     error_code ec;
     std::size_t maxAlignment =
         1ULL << llvm::countTrailingZeros(uintptr_t(mb->getBufferStart()));
-    std::unique_ptr<File> f(createELF<ELFFileCreateELFTraits>(
-        getElfArchType(&*mb), maxAlignment, std::move(mb), _atomizeStrings,
-        _handler, ec));
-    if (ec)
+    auto f = createELF<ELFFileCreateELFTraits>(
+        getElfArchType(&*mb), maxAlignment, std::move(mb), _atomizeStrings);
+    if (error_code ec = f.getError())
       return ec;
-    result.push_back(std::move(f));
+    result.push_back(std::move(*f));
     return error_code::success();
   }
 
 private:
   bool _atomizeStrings;
-  TargetHandlerBase *_handler;
 };
 
 class ELFDSOReader : public Reader {
@@ -120,8 +87,8 @@ public:
         1ULL << llvm::countTrailingZeros(uintptr_t(mb->getBufferStart()));
     auto f = createELF<DynamicFileCreateELFTraits>(
         getElfArchType(&*mb), maxAlignment, std::move(mb), _useUndefines);
-    if (!f)
-      return f;
+    if (error_code ec = f.getError())
+      return ec;
     result.push_back(std::move(*f));
     return error_code::success();
   }
@@ -140,14 +107,16 @@ void Registry::addSupportELFObjects(bool atomizeStrings,
                                     TargetHandlerBase *handler) {
 
   // Tell registry about the ELF object file parser.
-  add(std::unique_ptr<Reader>(new ELFObjectReader(atomizeStrings, handler)));
+  add(std::move(handler->getObjReader(atomizeStrings)));
 
   // Tell registry about the relocation name to number mapping for this arch.
   handler->registerRelocationNames(*this);
 }
 
-void Registry::addSupportELFDynamicSharedObjects(bool useShlibUndefines) {
-  add(std::unique_ptr<Reader>(new ELFDSOReader(useShlibUndefines)));
+void Registry::addSupportELFDynamicSharedObjects(bool useShlibUndefines,
+                                                 TargetHandlerBase *handler) {
+  // Tell registry about the ELF dynamic shared library file parser.
+  add(handler->getDSOReader(useShlibUndefines));
 }
 
 } // end namespace lld

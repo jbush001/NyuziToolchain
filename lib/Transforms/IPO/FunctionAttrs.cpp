@@ -414,6 +414,10 @@ determinePointerReadAttrs(Argument *A,
   SmallSet<Use*, 32> Visited;
   int Count = 0;
 
+  // inalloca arguments are always clobbered by the call.
+  if (A->hasInAllocaAttr())
+    return Attribute::None;
+
   bool IsRead = false;
   // We don't need to track IsWritten. If A is written to, return immediately.
 
@@ -437,6 +441,7 @@ determinePointerReadAttrs(Argument *A,
     case Instruction::GetElementPtr:
     case Instruction::PHI:
     case Instruction::Select:
+    case Instruction::AddrSpaceCast:
       // The original value is not read/written via this if the new value isn't.
       for (Instruction::use_iterator UI = I->use_begin(), UE = I->use_end();
            UI != UE; ++UI) {
@@ -723,6 +728,7 @@ bool FunctionAttrs::IsFunctionMallocLike(Function *F,
         // Extend the analysis by looking upwards.
         case Instruction::BitCast:
         case Instruction::GetElementPtr:
+        case Instruction::AddrSpaceCast:
           FlowsToReturn.insert(RVI->getOperand(0));
           continue;
         case Instruction::Select: {

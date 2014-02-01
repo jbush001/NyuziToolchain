@@ -22,6 +22,7 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/Mangler.h"
 #include "llvm/IR/Module.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
@@ -34,7 +35,6 @@
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/Mangler.h"
 #include "llvm/Target/TargetMachine.h"
 using namespace llvm;
 using namespace dwarf;
@@ -401,6 +401,16 @@ TargetLoweringObjectFileELF::InitializeELF(bool UseInitArray_) {
 //===----------------------------------------------------------------------===//
 //                                 MachO
 //===----------------------------------------------------------------------===//
+
+/// getDepLibFromLinkerOpt - Extract the dependent library name from a linker
+/// option string. Returns StringRef() if the option does not specify a library.
+StringRef TargetLoweringObjectFileMachO::
+getDepLibFromLinkerOpt(StringRef LinkerOption) const {
+  const char *LibCmd = "-l";
+  if (LinkerOption.startswith(LibCmd))
+    return LinkerOption.substr(strlen(LibCmd));
+  return StringRef();
+}
 
 /// emitModuleFlags - Perform code emission for module flags.
 void TargetLoweringObjectFileMachO::
@@ -772,6 +782,14 @@ SelectSectionForGlobal(const GlobalValue *GV, SectionKind Kind,
     return BSSSection;
 
   return DataSection;
+}
+
+StringRef TargetLoweringObjectFileCOFF::
+getDepLibFromLinkerOpt(StringRef LinkerOption) const {
+  const char *LibCmd = "/DEFAULTLIB:";
+  if (LinkerOption.startswith(LibCmd))
+    return LinkerOption.substr(strlen(LibCmd));
+  return StringRef();
 }
 
 void TargetLoweringObjectFileCOFF::

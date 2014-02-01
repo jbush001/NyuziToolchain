@@ -7,7 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 #include "clang/Driver/SanitizerArgs.h"
-
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/Options.h"
@@ -169,22 +168,9 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
       Args.hasFlag(options::OPT_fsanitize_memory_track_origins,
                    options::OPT_fno_sanitize_memory_track_origins,
                    /* Default */false);
-
-  // Parse -f(no-)sanitize-address-zero-base-shadow options.
-  if (NeedsAsan) {
-    bool IsAndroid = (TC.getTriple().getEnvironment() == llvm::Triple::Android);
-    bool ZeroBaseShadowDefault = IsAndroid;
+  if (NeedsAsan)
     AsanZeroBaseShadow =
-        Args.hasFlag(options::OPT_fsanitize_address_zero_base_shadow,
-                     options::OPT_fno_sanitize_address_zero_base_shadow,
-                     ZeroBaseShadowDefault);
-    // Zero-base shadow is a requirement on Android.
-    if (IsAndroid && !AsanZeroBaseShadow) {
-      D.Diag(diag::err_drv_argument_not_allowed_with)
-          << "-fno-sanitize-address-zero-base-shadow"
-          << lastArgumentForKind(D, Args, Address);
-    }
-  }
+        (TC.getTriple().getEnvironment() == llvm::Triple::Android);
 }
 
 void SanitizerArgs::addArgs(const llvm::opt::ArgList &Args,
@@ -206,10 +192,6 @@ void SanitizerArgs::addArgs(const llvm::opt::ArgList &Args,
 
   if (MsanTrackOrigins)
     CmdArgs.push_back(Args.MakeArgString("-fsanitize-memory-track-origins"));
-
-  if (AsanZeroBaseShadow)
-    CmdArgs.push_back(
-        Args.MakeArgString("-fsanitize-address-zero-base-shadow"));
 
   // Workaround for PR16386.
   if (needsMsanRt())

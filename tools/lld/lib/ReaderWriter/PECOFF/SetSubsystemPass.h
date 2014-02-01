@@ -41,6 +41,10 @@ public:
         return;
       }
     }
+    if (_ctx.isDll()) {
+      _ctx.setSubsystem(WindowsSubsystem::IMAGE_SUBSYSTEM_WINDOWS_GUI);
+      return;
+    }
     llvm_unreachable("Failed to infer the subsystem.");
   }
 

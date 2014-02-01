@@ -13,18 +13,18 @@
 
 #define DEBUG_TYPE "loop-reroll"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/STLExtras.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/AliasSetTracker.h"
-#include "llvm/Analysis/Dominators.h"
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpander.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -131,8 +131,8 @@ namespace {
       AU.addRequired<AliasAnalysis>();
       AU.addRequired<LoopInfo>();
       AU.addPreserved<LoopInfo>();
-      AU.addRequired<DominatorTree>();
-      AU.addPreserved<DominatorTree>();
+      AU.addRequired<DominatorTreeWrapperPass>();
+      AU.addPreserved<DominatorTreeWrapperPass>();
       AU.addRequired<ScalarEvolution>();
       AU.addRequired<TargetLibraryInfo>();
     }
@@ -341,7 +341,7 @@ char LoopReroll::ID = 0;
 INITIALIZE_PASS_BEGIN(LoopReroll, "loop-reroll", "Reroll loops", false, false)
 INITIALIZE_AG_DEPENDENCY(AliasAnalysis)
 INITIALIZE_PASS_DEPENDENCY(LoopInfo)
-INITIALIZE_PASS_DEPENDENCY(DominatorTree)
+INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(ScalarEvolution)
 INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfo)
 INITIALIZE_PASS_END(LoopReroll, "loop-reroll", "Reroll loops", false, false)
@@ -1089,9 +1089,8 @@ bool LoopReroll::reroll(Instruction *IV, Loop *L, BasicBlock *Header,
                            L, SCEV::FlagAnyWrap));
   { // Limit the lifetime of SCEVExpander.
     SCEVExpander Expander(*SE, "reroll");
-    PHINode *NewIV =
-      cast<PHINode>(Expander.expandCodeFor(H, IV->getType(),
-                                           Header->begin()));
+    Value *NewIV = Expander.expandCodeFor(H, IV->getType(), Header->begin());
+
     for (DenseSet<Instruction *>::iterator J = BaseUseSet.begin(),
          JE = BaseUseSet.end(); J != JE; ++J)
       (*J)->replaceUsesOfWith(IV, NewIV);
@@ -1102,20 +1101,23 @@ bool LoopReroll::reroll(Instruction *IV, Loop *L, BasicBlock *Header,
         if (Inc == 1)
           ICSCEV =
             SE->getMulExpr(ICSCEV, SE->getConstant(ICSCEV->getType(), Scale));
-        Value *IC;
-        if (isa<SCEVConstant>(ICSCEV)) {
-          IC = Expander.expandCodeFor(ICSCEV, NewIV->getType(), BI);
+        // Iteration count SCEV minus 1
+        const SCEV *ICMinus1SCEV =
+          SE->getMinusSCEV(ICSCEV, SE->getConstant(ICSCEV->getType(), 1));
+
+        Value *ICMinus1; // Iteration count minus 1
+        if (isa<SCEVConstant>(ICMinus1SCEV)) {
+          ICMinus1 = Expander.expandCodeFor(ICMinus1SCEV, NewIV->getType(), BI);
         } else {
           BasicBlock *Preheader = L->getLoopPreheader();
           if (!Preheader)
             Preheader = InsertPreheaderForLoop(L, this);
 
-          IC = Expander.expandCodeFor(ICSCEV, NewIV->getType(),
-                                      Preheader->getTerminator());
+          ICMinus1 = Expander.expandCodeFor(ICMinus1SCEV, NewIV->getType(),
+                                            Preheader->getTerminator());
         }
  
-        Value *NewIVNext = NewIV->getIncomingValueForBlock(Header); 
-        Value *Cond = new ICmpInst(BI, CmpInst::ICMP_EQ, NewIVNext, IC,
+        Value *Cond = new ICmpInst(BI, CmpInst::ICMP_EQ, NewIV, ICMinus1,
                                    "exitcond");
         BI->setCondition(Cond);
 
@@ -1137,7 +1139,7 @@ bool LoopReroll::runOnLoop(Loop *L, LPPassManager &LPM) {
   SE = &getAnalysis<ScalarEvolution>();
   TLI = &getAnalysis<TargetLibraryInfo>();
   DL = getAnalysisIfAvailable<DataLayout>();
-  DT = &getAnalysis<DominatorTree>();
+  DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
 
   BasicBlock *Header = L->getHeader();
   DEBUG(dbgs() << "LRR: F[" << Header->getParent()->getName() <<

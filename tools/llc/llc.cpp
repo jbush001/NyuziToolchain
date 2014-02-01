@@ -14,13 +14,13 @@
 //===----------------------------------------------------------------------===//
 
 
-#include "llvm/IR/LLVMContext.h"
 #include "llvm/ADT/Triple.h"
-#include "llvm/Assembly/PrintModulePass.h"
 #include "llvm/CodeGen/CommandFlags.h"
 #include "llvm/CodeGen/LinkAllAsmWriterComponents.h"
 #include "llvm/CodeGen/LinkAllCodegenComponents.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/IRPrintingPasses.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IRReader/IRReader.h"
 #include "llvm/MC/SubtargetFeature.h"
@@ -318,9 +318,6 @@ static int compileModule(char **argv, LLVMContext &Context) {
   if (DisableSimplifyLibCalls)
     TLI->disableAllFunctions();
   PM.add(TLI);
-
-  // Add intenal analysis passes from the target machine.
-  Target.addAnalysisPasses(PM);
 
   // Add the target data from the target machine, if it exists, or the module.
   if (const DataLayout *TD = Target.getDataLayout())

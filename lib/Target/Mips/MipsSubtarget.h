@@ -14,11 +14,9 @@
 #ifndef MIPSSUBTARGET_H
 #define MIPSSUBTARGET_H
 
-#include "MCTargetDesc/MipsReginfo.h"
 #include "llvm/MC/MCInstrItineraries.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
-
 #include <string>
 
 #define GET_SUBTARGETINFO_HEADER
@@ -118,9 +116,6 @@ protected:
 
   InstrItineraryData InstrItins;
 
-  // The instance to the register info section object
-  MipsReginfo MRI;
-
   // Relocation Model
   Reloc::Model RM;
 
@@ -218,9 +213,6 @@ public:
 static bool useConstantIslands();
 
   unsigned stackAlignment() const { return hasMips64() ? 16 : 8; }
-
-  // Grab MipsRegInfo object
-  const MipsReginfo &getMReginfo() const { return MRI; }
 
   // Grab relocation model
   Reloc::Model getRelocationModel() const {return RM;}

@@ -64,8 +64,10 @@ private:
 public:
   typedef const std::map<std::string, std::string> StringMap;
 
-  FileCOFF(std::unique_ptr<MemoryBuffer> mb, StringMap &altNames,
-           error_code &ec);
+  FileCOFF(std::unique_ptr<MemoryBuffer> mb, error_code &ec);
+
+  error_code parse(StringMap &altNames);
+  StringRef getLinkerDirectives() const { return _directives; }
 
   virtual const atom_collection<DefinedAtom> &defined() const {
     return _definedAtoms;
@@ -82,8 +84,6 @@ public:
   virtual const atom_collection<AbsoluteAtom> &absolute() const {
     return _absoluteAtoms;
   }
-
-  StringRef getLinkerDirectives() const { return _directives; }
 
 private:
   error_code readSymbolTable(vector<const coff_symbol *> &result);
@@ -119,10 +119,10 @@ private:
                                     const coff_section *section,
                                     const vector<COFFDefinedFileAtom *> &atoms);
 
+  error_code getReferenceArch(Reference::KindArch &result);
   error_code addRelocationReferenceToAtoms();
   error_code findSection(StringRef name, const coff_section *&result);
-  std::string ArrayRefToString(ArrayRef<uint8_t> array);
-  error_code maybeReadLinkerDirectives();
+  StringRef ArrayRefToString(ArrayRef<uint8_t> array);
 
   std::unique_ptr<const llvm::object::COFFObjectFile> _obj;
   atom_collection_vector<DefinedAtom> _definedAtoms;
@@ -130,8 +130,11 @@ private:
   atom_collection_vector<SharedLibraryAtom> _sharedLibraryAtoms;
   atom_collection_vector<AbsoluteAtom> _absoluteAtoms;
 
+  // The target type of the object.
+  Reference::KindArch _referenceArch;
+
   // The contents of .drectve section.
-  std::string _directives;
+  StringRef _directives;
 
   // A map from symbol to its name. All symbols should be in this map except
   // unnamed ones.
@@ -252,13 +255,12 @@ DefinedAtom::Merge getMerge(const coff_aux_section_definition *auxsym) {
   }
 }
 
-FileCOFF::FileCOFF(std::unique_ptr<MemoryBuffer> mb, StringMap &altNames,
-                   error_code &ec)
+FileCOFF::FileCOFF(std::unique_ptr<MemoryBuffer> mb, error_code &ec)
     : File(mb->getBufferIdentifier(), kindObject), _ordinal(0) {
-  OwningPtr<llvm::object::Binary> bin;
-  ec = llvm::object::createBinary(mb.release(), bin);
-  if (ec)
+  auto binaryOrErr = llvm::object::createBinary(mb.release());
+  if ((ec = binaryOrErr.getError()))
     return;
+  OwningPtr<llvm::object::Binary> bin(binaryOrErr.get());
 
   _obj.reset(dyn_cast<const llvm::object::COFFObjectFile>(bin.get()));
   if (!_obj) {
@@ -267,24 +269,37 @@ FileCOFF::FileCOFF(std::unique_ptr<MemoryBuffer> mb, StringMap &altNames,
   }
   bin.take();
 
+  // Read .drectve section if exists.
+  const coff_section *section = nullptr;
+  if ((ec = findSection(".drectve", section)))
+    return;
+  if (section != nullptr) {
+    ArrayRef<uint8_t> contents;
+    if ((ec = _obj->getSectionContents(section, contents)))
+      return;
+    _directives = ArrayRefToString(contents);
+  }
+}
+
+error_code FileCOFF::parse(StringMap &altNames) {
+  if (error_code ec = getReferenceArch(_referenceArch))
+    return ec;
+
   // Read the symbol table and atomize them if possible. Defined atoms
   // cannot be atomized in one pass, so they will be not be atomized but
   // added to symbolToAtom.
   SymbolVectorT symbols;
-  if ((ec = readSymbolTable(symbols)))
-    return;
+  if (error_code ec = readSymbolTable(symbols))
+    return ec;
 
   createAbsoluteAtoms(symbols, _absoluteAtoms._atoms);
-  if ((ec = createUndefinedAtoms(symbols, _undefinedAtoms._atoms)))
-    return;
-  if ((ec = createDefinedSymbols(symbols, altNames, _definedAtoms._atoms)))
-    return;
-
-  if ((ec = addRelocationReferenceToAtoms()))
-    return;
-
-  // Read .drectve section if exists.
-  ec = maybeReadLinkerDirectives();
+  if (error_code ec = createUndefinedAtoms(symbols, _undefinedAtoms._atoms))
+    return ec;
+  if (error_code ec = createDefinedSymbols(symbols, altNames, _definedAtoms._atoms))
+    return ec;
+  if (error_code ec = addRelocationReferenceToAtoms())
+    return ec;
+  return error_code::success();
 }
 
 /// Iterate over the symbol table to retrieve all symbols.
@@ -512,9 +527,8 @@ error_code FileCOFF::cacheSectionAttributes() {
 
   // The sections that does not have auxiliary symbol are regular sections, in
   // which symbols are not allowed to be merged.
-  error_code ec;
   for (auto si = _obj->begin_sections(), se = _obj->end_sections(); si != se;
-       si.increment(ec)) {
+       ++si) {
     const coff_section *sec = _obj->getCOFFSection(si);
     if (!_merge.count(sec))
       _merge[sec] = DefinedAtom::mergeNo;
@@ -704,16 +718,34 @@ FileCOFF::addRelocationReference(const coff_relocation *rel,
   if (error_code ec = findAtomAt(section, itemAddress, atom, offsetInAtom))
     return ec;
   atom->addReference(std::unique_ptr<COFFReference>(
-      new COFFReference(targetAtom, offsetInAtom, rel->Type)));
+      new COFFReference(targetAtom, offsetInAtom, rel->Type,
+                        Reference::KindNamespace::COFF,
+                        _referenceArch)));
   return error_code::success();
+}
+
+/// Returns the target machine type of the current object file.
+error_code FileCOFF::getReferenceArch(Reference::KindArch &result) {
+  const llvm::object::coff_file_header *header = nullptr;
+  if (error_code ec = _obj->getHeader(header))
+    return ec;
+  switch (header->Machine) {
+  case llvm::COFF::IMAGE_FILE_MACHINE_I386:
+    result = Reference::KindArch::x86;
+    return error_code::success();
+  case llvm::COFF::IMAGE_FILE_MACHINE_AMD64:
+    result = Reference::KindArch::x86_64;
+    return error_code::success();
+  }
+  llvm::errs() << "Unsupported machine type: " << header->Machine << "\n";
+  return llvm::object::object_error::parse_failed;
 }
 
 /// Add relocation information to atoms.
 error_code FileCOFF::addRelocationReferenceToAtoms() {
   // Relocation entries are defined for each section.
-  error_code ec;
   for (auto si = _obj->begin_sections(), se = _obj->end_sections(); si != se;
-       si.increment(ec)) {
+       ++si) {
     const coff_section *section = _obj->getCOFFSection(si);
 
     // Skip there's no atom for the section. Currently we do not create any
@@ -723,9 +755,10 @@ error_code FileCOFF::addRelocationReferenceToAtoms() {
       continue;
 
     for (auto ri = si->begin_relocations(), re = si->end_relocations();
-         ri != re; ri.increment(ec)) {
+         ri != re; ++ri) {
       const coff_relocation *rel = _obj->getCOFFRelocation(ri);
-      if ((ec = addRelocationReference(rel, section, _sectionAtoms[section])))
+      if (auto ec =
+              addRelocationReference(rel, section, _sectionAtoms[section]))
         return ec;
     }
   }
@@ -734,12 +767,11 @@ error_code FileCOFF::addRelocationReferenceToAtoms() {
 
 /// Find a section by name.
 error_code FileCOFF::findSection(StringRef name, const coff_section *&result) {
-  error_code ec;
   for (auto si = _obj->begin_sections(), se = _obj->end_sections(); si != se;
-       si.increment(ec)) {
+       ++si) {
     const coff_section *section = _obj->getCOFFSection(si);
     StringRef sectionName;
-    if ((ec = _obj->getSectionName(section, sectionName)))
+    if (auto ec = _obj->getSectionName(section, sectionName))
       return ec;
     if (sectionName == name) {
       result = section;
@@ -754,7 +786,7 @@ error_code FileCOFF::findSection(StringRef name, const coff_section *&result) {
 
 // Convert ArrayRef<uint8_t> to std::string. The array contains a string which
 // may not be terminated by NUL.
-std::string FileCOFF::ArrayRefToString(ArrayRef<uint8_t> array) {
+StringRef FileCOFF::ArrayRefToString(ArrayRef<uint8_t> array) {
   // Skip the UTF-8 byte marker if exists. The contents of .drectve section
   // is, according to the Microsoft PE/COFF spec, encoded as ANSI or UTF-8
   // with the BOM marker.
@@ -773,21 +805,9 @@ std::string FileCOFF::ArrayRefToString(ArrayRef<uint8_t> array) {
   size_t e = array.size();
   while (len < e && array[len] != '\0')
     ++len;
-  return std::string(reinterpret_cast<const char *>(&array[0]), len);
-}
-
-// Read .drectve section contents if exists, and store it to _directives.
-error_code FileCOFF::maybeReadLinkerDirectives() {
-  const coff_section *section = nullptr;
-  if (error_code ec = findSection(".drectve", section))
-    return ec;
-  if (section != nullptr) {
-    ArrayRef<uint8_t> contents;
-    if (error_code ec = _obj->getSectionContents(section, contents))
-      return ec;
-    _directives = std::move(ArrayRefToString(contents));
-  }
-  return error_code::success();
+  std::string *contents = new (_alloc)
+    std::string(reinterpret_cast<const char *>(&array[0]), len);
+  return StringRef(*contents).trim();
 }
 
 // Convert .res file to .coff file and then parse it. Resource file is a file
@@ -809,8 +829,8 @@ public:
             std::vector<std::unique_ptr<File>> &result) const {
     // Convert RC file to COFF
     ErrorOr<std::string> coffPath = convertResourceFileToCOFF(std::move(mb));
-    if (!coffPath)
-      return error_code(coffPath);
+    if (error_code ec = coffPath.getError())
+      return ec;
     llvm::FileRemover coffFileRemover(*coffPath);
 
     // Read and parse the COFF
@@ -819,10 +839,11 @@ public:
       return ec;
     std::unique_ptr<MemoryBuffer> newmb(opmb.take());
     error_code ec;
-    FileCOFF::StringMap emptyMap;
-    std::unique_ptr<FileCOFF> file(
-        new FileCOFF(std::move(newmb), emptyMap, ec));
+    std::unique_ptr<FileCOFF> file(new FileCOFF(std::move(newmb), ec));
     if (ec)
+      return ec;
+    FileCOFF::StringMap emptyMap;
+    if (error_code ec = file->parse(emptyMap))
       return ec;
     result.push_back(std::move(file));
     return error_code::success();
@@ -855,8 +876,8 @@ private:
   convertResourceFileToCOFF(std::unique_ptr<MemoryBuffer> mb) {
     // Write the resource file to a temporary file.
     ErrorOr<std::string> inFilePath = writeResToTemporaryFile(std::move(mb));
-    if (!inFilePath)
-      return error_code(inFilePath);
+    if (error_code ec = inFilePath.getError())
+      return ec;
     llvm::FileRemover inFileRemover(*inFilePath);
 
     // Create an output file path.
@@ -910,17 +931,18 @@ public:
             std::vector<std::unique_ptr<File>> &result) const {
     // Parse the memory buffer as PECOFF file.
     error_code ec;
-    std::unique_ptr<FileCOFF> file(
-        new FileCOFF(std::move(mb), _context.alternateNames(), ec));
+    std::unique_ptr<FileCOFF> file(new FileCOFF(std::move(mb), ec));
     if (ec)
       return ec;
 
     // Interpret .drectve section if the section has contents.
     StringRef directives = file->getLinkerDirectives();
     if (!directives.empty())
-      if (error_code ec2 = handleDirectiveSection(registry, directives))
-        return ec2;
+      if (error_code ec = handleDirectiveSection(registry, directives))
+        return ec;
 
+    if (error_code ec = file->parse(_context.alternateNames()))
+      return ec;
     result.push_back(std::move(file));
     return error_code::success();
   }

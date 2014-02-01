@@ -30,8 +30,8 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/RegisterScavenging.h"
-#include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/CodeGen/StackProtector.h"
+#include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/Support/CommandLine.h"
@@ -553,6 +553,9 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
   SmallSet<int, 16> ProtectedObjs;
   if (MFI->getStackProtectorIndex() >= 0) {
     StackObjSet LargeArrayObjs;
+    StackObjSet SmallArrayObjs;
+    StackObjSet AddrOfObjs;
+
     AdjustStackOffset(MFI, MFI->getStackProtectorIndex(), StackGrowsDown,
                       Offset, MaxAlign);
 
@@ -572,8 +575,12 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
 
       switch (SP->getSSPLayout(MFI->getObjectAllocation(i))) {
       case StackProtector::SSPLK_None:
+        continue;
       case StackProtector::SSPLK_SmallArray:
+        SmallArrayObjs.insert(i);
+        continue;
       case StackProtector::SSPLK_AddrOf:
+        AddrOfObjs.insert(i);
         continue;
       case StackProtector::SSPLK_LargeArray:
         LargeArrayObjs.insert(i);
@@ -583,6 +590,10 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
     }
 
     AssignProtectedObjSet(LargeArrayObjs, ProtectedObjs, MFI, StackGrowsDown,
+                          Offset, MaxAlign);
+    AssignProtectedObjSet(SmallArrayObjs, ProtectedObjs, MFI, StackGrowsDown,
+                          Offset, MaxAlign);
+    AssignProtectedObjSet(AddrOfObjs, ProtectedObjs, MFI, StackGrowsDown,
                           Offset, MaxAlign);
   }
 

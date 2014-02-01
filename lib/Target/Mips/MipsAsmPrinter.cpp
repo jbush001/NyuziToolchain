@@ -32,21 +32,23 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/Mangler.h"
 #include "llvm/MC/MCAsmInfo.h"
+#include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCELFStreamer.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/Mangler.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetOptions.h"
 
 using namespace llvm;
 
 MipsTargetStreamer &MipsAsmPrinter::getTargetStreamer() {
-  return static_cast<MipsTargetStreamer &>(OutStreamer.getTargetStreamer());
+  return static_cast<MipsTargetStreamer &>(*OutStreamer.getTargetStreamer());
 }
 
 bool MipsAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
@@ -129,7 +131,7 @@ void MipsAsmPrinter::EmitInstruction(const MachineInstr *MI) {
 
     MCInst TmpInst0;
     MCInstLowering.Lower(I, TmpInst0);
-    OutStreamer.EmitInstruction(TmpInst0);
+    EmitToStreamer(OutStreamer, TmpInst0);
   } while ((++I != E) && I->isInsideBundle()); // Delay slot check
 }
 
@@ -170,7 +172,7 @@ void MipsAsmPrinter::EmitInstruction(const MachineInstr *MI) {
 
 // Create a bitmask with all callee saved registers for CPU or Floating Point
 // registers. For CPU registers consider RA, GP and FP for saving if necessary.
-void MipsAsmPrinter::printSavedRegsBitmask(raw_ostream &O) {
+void MipsAsmPrinter::printSavedRegsBitmask() {
   // CPU and FPU Saved Registers Bitmasks
   unsigned CPUBitmask = 0, FPUBitmask = 0;
   int CPUTopSavedRegOff, FPUTopSavedRegOff;
@@ -218,20 +220,12 @@ void MipsAsmPrinter::printSavedRegsBitmask(raw_ostream &O) {
   // CPU Regs are saved below FP Regs.
   CPUTopSavedRegOff = CPUBitmask ? -CSFPRegsSize - CPURegSize : 0;
 
+  MipsTargetStreamer &TS = getTargetStreamer();
   // Print CPUBitmask
-  O << "\t.mask \t"; printHex32(CPUBitmask, O);
-  O << ',' << CPUTopSavedRegOff << '\n';
+  TS.emitMask(CPUBitmask, CPUTopSavedRegOff);
 
   // Print FPUBitmask
-  O << "\t.fmask\t"; printHex32(FPUBitmask, O);
-  O << "," << FPUTopSavedRegOff << '\n';
-}
-
-// Print a 32 bit hex number with all numbers.
-void MipsAsmPrinter::printHex32(unsigned Value, raw_ostream &O) {
-  O << "0x";
-  for (int i = 7; i >= 0; i--)
-    O.write_hex((Value & (0xF << (i*4))) >> (i*4));
+  TS.emitFMask(FPUBitmask, FPUTopSavedRegOff);
 }
 
 //===----------------------------------------------------------------------===//
@@ -246,11 +240,7 @@ void MipsAsmPrinter::emitFrameDirective() {
   unsigned returnReg = RI.getRARegister();
   unsigned stackSize = MF->getFrameInfo()->getStackSize();
 
-  if (OutStreamer.hasRawTextSupport())
-    OutStreamer.EmitRawText("\t.frame\t$" +
-           StringRef(MipsInstPrinter::getRegisterName(stackReg)).lower() +
-           "," + Twine(stackSize) + ",$" +
-           StringRef(MipsInstPrinter::getRegisterName(returnReg)).lower());
+  getTargetStreamer().emitFrame(stackReg, stackSize, returnReg);
 }
 
 /// Emit Set directives.
@@ -265,25 +255,27 @@ const char *MipsAsmPrinter::getCurrentABIString() const {
 }
 
 void MipsAsmPrinter::EmitFunctionEntryLabel() {
-  if (OutStreamer.hasRawTextSupport()) {
-    if (Subtarget->inMips16Mode())
-      OutStreamer.EmitRawText(StringRef("\t.set\tmips16"));
-    else
-      OutStreamer.EmitRawText(StringRef("\t.set\tnomips16"));
-    // leave out until FSF available gas has micromips changes
-    // OutStreamer.EmitRawText(StringRef("\t.set\tnomicromips"));
-    OutStreamer.EmitRawText("\t.ent\t" + Twine(CurrentFnSym->getName()));
-  }
-
+  MipsTargetStreamer &TS = getTargetStreamer();
   if (Subtarget->inMicroMipsMode())
-    getTargetStreamer().emitMipsHackSTOCG(CurrentFnSym,
-                                          (unsigned)ELF::STO_MIPS_MICROMIPS);
+    TS.emitDirectiveSetMicroMips();
+  // leave out until FSF available gas has micromips changes
+  //  else
+  //    TS.emitDirectiveSetNoMicroMips();
+
+  if (Subtarget->inMips16Mode())
+    TS.emitDirectiveSetMips16();
+  else
+    TS.emitDirectiveSetNoMips16();
+
+  TS.emitDirectiveEnt(*CurrentFnSym);
   OutStreamer.EmitLabel(CurrentFnSym);
 }
 
 /// EmitFunctionBodyStart - Targets can override this to emit stuff before
 /// the first basic block in the function.
 void MipsAsmPrinter::EmitFunctionBodyStart() {
+  MipsTargetStreamer &TS = getTargetStreamer();
+
   MCInstLowering.Initialize(&MF->getContext());
 
   bool IsNakedFunction =
@@ -293,34 +285,30 @@ void MipsAsmPrinter::EmitFunctionBodyStart() {
   if (!IsNakedFunction)
     emitFrameDirective();
 
-  if (OutStreamer.hasRawTextSupport()) {
-    SmallString<128> Str;
-    raw_svector_ostream OS(Str);
-    if (!IsNakedFunction)
-      printSavedRegsBitmask(OS);
-    OutStreamer.EmitRawText(OS.str());
-    if (!Subtarget->inMips16Mode()) {
-      OutStreamer.EmitRawText(StringRef("\t.set\tnoreorder"));
-      OutStreamer.EmitRawText(StringRef("\t.set\tnomacro"));
-      OutStreamer.EmitRawText(StringRef("\t.set\tnoat"));
-    }
+  if (!IsNakedFunction)
+    printSavedRegsBitmask();
+
+  if (!Subtarget->inMips16Mode()) {
+    TS.emitDirectiveSetNoReorder();
+    TS.emitDirectiveSetNoMacro();
+    TS.emitDirectiveSetNoAt();
   }
 }
 
 /// EmitFunctionBodyEnd - Targets can override this to emit stuff after
 /// the last basic block in the function.
 void MipsAsmPrinter::EmitFunctionBodyEnd() {
+  MipsTargetStreamer &TS = getTargetStreamer();
+
   // There are instruction for this macros, but they must
   // always be at the function end, and we can't emit and
   // break with BB logic.
-  if (OutStreamer.hasRawTextSupport()) {
-    if (!Subtarget->inMips16Mode()) {
-      OutStreamer.EmitRawText(StringRef("\t.set\tat"));
-      OutStreamer.EmitRawText(StringRef("\t.set\tmacro"));
-      OutStreamer.EmitRawText(StringRef("\t.set\treorder"));
-    }
-    OutStreamer.EmitRawText("\t.end\t" + Twine(CurrentFnSym->getName()));
+  if (!Subtarget->inMips16Mode()) {
+    TS.emitDirectiveSetAt();
+    TS.emitDirectiveSetMacro();
+    TS.emitDirectiveSetReorder();
   }
+  TS.emitDirectiveEnd(CurrentFnSym->getName());
   // Make sure to terminate any constant pools that were at the end
   // of the function.
   if (!InConstantPool)
@@ -495,6 +483,7 @@ bool MipsAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
 
 void MipsAsmPrinter::printOperand(const MachineInstr *MI, int opNum,
                                   raw_ostream &O) {
+  const DataLayout *DL = TM.getDataLayout();
   const MachineOperand &MO = MI->getOperand(opNum);
   bool closeP = false;
 
@@ -543,7 +532,7 @@ void MipsAsmPrinter::printOperand(const MachineInstr *MI, int opNum,
     }
 
     case MachineOperand::MO_ConstantPoolIndex:
-      O << MAI->getPrivateGlobalPrefix() << "CPI"
+      O << DL->getPrivateGlobalPrefix() << "CPI"
         << getFunctionNumber() << "_" << MO.getIndex();
       if (MO.getOffset())
         O << "+" << MO.getOffset();
@@ -603,86 +592,33 @@ printFCCOperand(const MachineInstr *MI, int opNum, raw_ostream &O,
 }
 
 void MipsAsmPrinter::EmitStartOfAsmFile(Module &M) {
-  // FIXME: Use SwitchSection.
-
   // TODO: Need to add -mabicalls and -mno-abicalls flags.
   // Currently we assume that -mabicalls is the default.
-  if (OutStreamer.hasRawTextSupport()) {
-    OutStreamer.EmitRawText(StringRef("\t.abicalls"));
-    Reloc::Model RM = Subtarget->getRelocationModel();
-    if (RM == Reloc::Static && !Subtarget->hasMips64())
-      OutStreamer.EmitRawText(StringRef("\t.option\tpic0"));
-  }
+  getTargetStreamer().emitDirectiveAbiCalls();
+  Reloc::Model RM = Subtarget->getRelocationModel();
+  if (RM == Reloc::Static && !Subtarget->hasMips64())
+    getTargetStreamer().emitDirectiveOptionPic0();
 
   // Tell the assembler which ABI we are using
-  if (OutStreamer.hasRawTextSupport())
-    OutStreamer.EmitRawText("\t.section .mdebug." +
-                            Twine(getCurrentABIString()));
+  std::string SectionName = std::string(".mdebug.") + getCurrentABIString();
+  OutStreamer.SwitchSection(OutContext.getELFSection(
+      SectionName, ELF::SHT_PROGBITS, 0, SectionKind::getDataRel()));
 
   // TODO: handle O64 ABI
-  if (OutStreamer.hasRawTextSupport()) {
-    if (Subtarget->isABI_EABI()) {
-      if (Subtarget->isGP32bit())
-        OutStreamer.EmitRawText(StringRef("\t.section .gcc_compiled_long32"));
-      else
-        OutStreamer.EmitRawText(StringRef("\t.section .gcc_compiled_long64"));
-    }
+
+  if (Subtarget->isABI_EABI()) {
+    if (Subtarget->isGP32bit())
+      OutStreamer.SwitchSection(
+          OutContext.getELFSection(".gcc_compiled_long32", ELF::SHT_PROGBITS, 0,
+                                   SectionKind::getDataRel()));
+    else
+      OutStreamer.SwitchSection(
+          OutContext.getELFSection(".gcc_compiled_long64", ELF::SHT_PROGBITS, 0,
+                                   SectionKind::getDataRel()));
   }
 
-  // return to previous section
-  if (OutStreamer.hasRawTextSupport())
-    OutStreamer.EmitRawText(StringRef("\t.previous"));
-
-}
-
-static void emitELFHeaderFlagsCG(MipsTargetStreamer &TargetStreamer,
-                                 const MipsSubtarget &Subtarget) {
-  // Update e_header flags
-  unsigned EFlags = 0;
-
-  // TODO: Need to add -mabicalls and -mno-abicalls flags.
-  // Currently we assume that -mabicalls is the default.
-  EFlags |= ELF::EF_MIPS_CPIC;
-
-  if (Subtarget.inMips16Mode())
-    EFlags |= ELF::EF_MIPS_ARCH_ASE_M16;
-  else
-    EFlags |= ELF::EF_MIPS_NOREORDER;
-
-  // Architecture
-  if (Subtarget.hasMips64r2())
-    EFlags |= ELF::EF_MIPS_ARCH_64R2;
-  else if (Subtarget.hasMips64())
-    EFlags |= ELF::EF_MIPS_ARCH_64;
-  else if (Subtarget.hasMips32r2())
-    EFlags |= ELF::EF_MIPS_ARCH_32R2;
-  else
-    EFlags |= ELF::EF_MIPS_ARCH_32;
-
-  if (Subtarget.inMicroMipsMode())
-    EFlags |= ELF::EF_MIPS_MICROMIPS;
-
-  // ABI
-  if (Subtarget.isABI_O32())
-    EFlags |= ELF::EF_MIPS_ABI_O32;
-
-  // Relocation Model
-  Reloc::Model RM = Subtarget.getRelocationModel();
-  if (RM == Reloc::PIC_ || RM == Reloc::Default)
-    EFlags |= ELF::EF_MIPS_PIC;
-  else if (RM == Reloc::Static)
-    ; // Do nothing for Reloc::Static
-  else
-    llvm_unreachable("Unsupported relocation model for e_flags");
-
-  TargetStreamer.emitMipsHackELFFlags(EFlags);
-}
-
-void MipsAsmPrinter::EmitEndOfAsmFile(Module &M) {
-  // Emit Mips ELF register info
-  Subtarget->getMReginfo().emitMipsReginfoSectionCG(
-             OutStreamer, getObjFileLowering(), *Subtarget);
-  emitELFHeaderFlagsCG(getTargetStreamer(), *Subtarget);
+  // return to the text section
+  OutStreamer.SwitchSection(OutContext.getObjectFileInfo()->getTextSection());
 }
 
 void MipsAsmPrinter::PrintDebugValueComment(const MachineInstr *MI,

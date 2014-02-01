@@ -260,9 +260,6 @@ namespace llvm {
       // VTRUNC - Vector integer truncate.
       VTRUNC,
 
-      // TRUNC - Integer truncate
-      TRUNC,
-
       // VTRUNC - Vector integer truncate with mask.
       VTRUNCM,
 
@@ -342,6 +339,7 @@ namespace llvm {
       VPERMILP,
       VPERMV,
       VPERMV3,
+      VPERMIV3,
       VPERMI,
       VPERM2X128,
       VBROADCAST,
@@ -766,6 +764,11 @@ namespace llvm {
       return isTargetFTOL() && VT == MVT::i64;
     }
 
+    /// \brief Returns true if it is beneficial to convert a load of a constant
+    /// to just the constant itself.
+    virtual bool shouldConvertConstantLoadToIntImm(const APInt &Imm,
+                                                   Type *Ty) const;
+
     /// createFastISel - This method returns a target specific FastISel object,
     /// or null if the target does not support "fast" ISel.
     virtual FastISel *createFastISel(FunctionLoweringInfo &funcInfo,
@@ -870,7 +873,6 @@ namespace llvm {
     SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerGlobalTLSAddress(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerExternalSymbol(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerShiftParts(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerSINT_TO_FP(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerUINT_TO_FP(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerUINT_TO_FP_i64(SDValue Op, SelectionDAG &DAG) const;
@@ -879,9 +881,6 @@ namespace llvm {
     SDValue LowerTRUNCATE(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerFP_TO_SINT(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerFP_TO_UINT(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerFABS(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerFNEG(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerFCOPYSIGN(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerToBT(SDValue And, ISD::CondCode CC,
                       SDLoc dl, SelectionDAG &DAG) const;
     SDValue LowerSETCC(SDValue Op, SelectionDAG &DAG) const;
@@ -977,6 +976,9 @@ namespace llvm {
 
     MachineBasicBlock *emitEHSjLjLongJmp(MachineInstr *MI,
                                          MachineBasicBlock *MBB) const;
+
+    MachineBasicBlock *emitFMA3Instr(MachineInstr *MI,
+                                     MachineBasicBlock *MBB) const;
 
     /// Emit nodes that will be selected as "test Op0,Op0", or something
     /// equivalent, for use with the given x86 condition code.

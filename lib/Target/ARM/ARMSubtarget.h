@@ -217,6 +217,7 @@ protected:
 
  public:
   enum {
+    ARM_ABI_UNKNOWN,
     ARM_ABI_APCS,
     ARM_ABI_AAPCS // ARM EABI
   } TargetABI;
@@ -310,15 +311,32 @@ public:
   bool isTargetDarwin() const { return TargetTriple.isOSDarwin(); }
   bool isTargetNaCl() const { return TargetTriple.isOSNaCl(); }
   bool isTargetLinux() const { return TargetTriple.isOSLinux(); }
+
   bool isTargetELF() const { return TargetTriple.isOSBinFormatELF(); }
+  bool isTargetMachO() const { return TargetTriple.isOSBinFormatMachO(); }
+
   // ARM EABI is the bare-metal EABI described in ARM ABI documents and
   // can be accessed via -target arm-none-eabi. This is NOT GNUEABI.
   // FIXME: Add a flag for bare-metal for that target and set Triple::EABI
   // even for GNUEABI, so we can make a distinction here and still conform to
   // the EABI on GNU (and Android) mode. This requires change in Clang, too.
+  // FIXME: The Darwin exception is temporary, while we move users to
+  // "*-*-*-macho" triples as quickly as possible.
   bool isTargetAEABI() const {
-    return TargetTriple.getEnvironment() == Triple::EABI ||
-      TargetTriple.getEnvironment() == Triple::EABIHF;
+    return (TargetTriple.getEnvironment() == Triple::EABI ||
+            TargetTriple.getEnvironment() == Triple::EABIHF) &&
+           !isTargetDarwin();
+  }
+
+  // ARM Targets that support EHABI exception handling standard
+  // Darwin uses SjLj. Other targets might need more checks.
+  bool isTargetEHABICompatible() const {
+    return (TargetTriple.getEnvironment() == Triple::EABI ||
+            TargetTriple.getEnvironment() == Triple::GNUEABI ||
+            TargetTriple.getEnvironment() == Triple::EABIHF ||
+            TargetTriple.getEnvironment() == Triple::GNUEABIHF ||
+            TargetTriple.getEnvironment() == Triple::Android) &&
+           !isTargetDarwin();
   }
 
   bool isTargetHardFloat() const {
@@ -326,8 +344,14 @@ public:
            TargetTriple.getEnvironment() == Triple::EABIHF;
   }
 
-  bool isAPCS_ABI() const { return TargetABI == ARM_ABI_APCS; }
-  bool isAAPCS_ABI() const { return TargetABI == ARM_ABI_AAPCS; }
+  bool isAPCS_ABI() const {
+    assert(TargetABI != ARM_ABI_UNKNOWN);
+    return TargetABI == ARM_ABI_APCS;
+  }
+  bool isAAPCS_ABI() const {
+    assert(TargetABI != ARM_ABI_UNKNOWN);
+    return TargetABI == ARM_ABI_AAPCS;
+  }
 
   bool isThumb() const { return InThumbMode; }
   bool isThumb1Only() const { return InThumbMode && !HasThumb2; }

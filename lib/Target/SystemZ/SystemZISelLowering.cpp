@@ -22,7 +22,6 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
-
 #include <cctype>
 
 using namespace llvm;
@@ -160,6 +159,10 @@ SystemZTargetLowering::SystemZTargetLowering(SystemZTargetMachine &tm)
       setOperationAction(ISD::ATOMIC_LOAD,  VT, Custom);
       setOperationAction(ISD::ATOMIC_STORE, VT, Custom);
 
+      // Lower ATOMIC_LOAD_SUB into ATOMIC_LOAD_ADD if LAA and LAAG are
+      // available, or if the operand is constant.
+      setOperationAction(ISD::ATOMIC_LOAD_SUB, VT, Custom);
+
       // No special instructions for these.
       setOperationAction(ISD::CTPOP,           VT, Expand);
       setOperationAction(ISD::CTTZ,            VT, Expand);
@@ -205,6 +208,9 @@ SystemZTargetLowering::SystemZTargetLowering(SystemZTargetMachine &tm)
 
   // Give LowerOperation the chance to replace 64-bit ORs with subregs.
   setOperationAction(ISD::OR, MVT::i64, Custom);
+
+  // Give LowerOperation the chance to optimize SIGN_EXTEND sequences.
+  setOperationAction(ISD::SIGN_EXTEND, MVT::i64, Custom);
 
   // FIXME: Can we support these natively?
   setOperationAction(ISD::SRL_PARTS, MVT::i64, Expand);
@@ -1070,7 +1076,7 @@ static IPMConversion getIPMConversion(unsigned CCValid, unsigned CCMask) {
   if (CCMask == (CCValid & (SystemZ::CCMASK_0 | SystemZ::CCMASK_3)))
     return IPMConversion(0, -(1 << SystemZ::IPM_CC), SystemZ::IPM_CC + 1);
 
-  // The remaing cases are 1, 2, 0/1/3 and 0/2/3.  All these are
+  // The remaining cases are 1, 2, 0/1/3 and 0/2/3.  All these are
   // can be done by inverting the low CC bit and applying one of the
   // sign-based extractions above.
   if (CCMask == (CCValid & SystemZ::CCMASK_1))
@@ -2171,6 +2177,36 @@ SDValue SystemZTargetLowering::lowerOR(SDValue Op, SelectionDAG &DAG) const {
                                    MVT::i64, HighOp, Low32);
 }
 
+SDValue SystemZTargetLowering::lowerSIGN_EXTEND(SDValue Op,
+                                                SelectionDAG &DAG) const {
+  // Convert (sext (ashr (shl X, C1), C2)) to
+  // (ashr (shl (anyext X), C1'), C2')), since wider shifts are as
+  // cheap as narrower ones.
+  SDValue N0 = Op.getOperand(0);
+  EVT VT = Op.getValueType();
+  if (N0.hasOneUse() && N0.getOpcode() == ISD::SRA) {
+    ConstantSDNode *SraAmt = dyn_cast<ConstantSDNode>(N0.getOperand(1));
+    SDValue Inner = N0.getOperand(0);
+    if (SraAmt && Inner.hasOneUse() && Inner.getOpcode() == ISD::SHL) {
+      ConstantSDNode *ShlAmt = dyn_cast<ConstantSDNode>(Inner.getOperand(1));
+      if (ShlAmt) {
+        unsigned Extra = (VT.getSizeInBits() -
+                          N0.getValueType().getSizeInBits());
+        unsigned NewShlAmt = ShlAmt->getZExtValue() + Extra;
+        unsigned NewSraAmt = SraAmt->getZExtValue() + Extra;
+        EVT ShiftVT = N0.getOperand(1).getValueType();
+        SDValue Ext = DAG.getNode(ISD::ANY_EXTEND, SDLoc(Inner), VT,
+                                  Inner.getOperand(0));
+        SDValue Shl = DAG.getNode(ISD::SHL, SDLoc(Inner), VT, Ext,
+                                  DAG.getConstant(NewShlAmt, ShiftVT));
+        return DAG.getNode(ISD::SRA, SDLoc(N0), VT, Shl,
+                           DAG.getConstant(NewSraAmt, ShiftVT));
+      }
+    }
+  }
+  return SDValue();
+}
+
 // Op is an atomic load.  Lower it into a normal volatile load.
 SDValue SystemZTargetLowering::lowerATOMIC_LOAD(SDValue Op,
                                                 SelectionDAG &DAG) const {
@@ -2264,6 +2300,44 @@ SDValue SystemZTargetLowering::lowerATOMIC_LOAD_OP(SDValue Op,
 
   SDValue RetOps[2] = { Result, AtomicOp.getValue(1) };
   return DAG.getMergeValues(RetOps, 2, DL);
+}
+
+// Op is an ATOMIC_LOAD_SUB operation.  Lower 8- and 16-bit operations
+// into ATOMIC_LOADW_SUBs and decide whether to convert 32- and 64-bit
+// operations into additions.
+SDValue SystemZTargetLowering::lowerATOMIC_LOAD_SUB(SDValue Op,
+                                                    SelectionDAG &DAG) const {
+  AtomicSDNode *Node = cast<AtomicSDNode>(Op.getNode());
+  EVT MemVT = Node->getMemoryVT();
+  if (MemVT == MVT::i32 || MemVT == MVT::i64) {
+    // A full-width operation.
+    assert(Op.getValueType() == MemVT && "Mismatched VTs");
+    SDValue Src2 = Node->getVal();
+    SDValue NegSrc2;
+    SDLoc DL(Src2);
+
+    if (ConstantSDNode *Op2 = dyn_cast<ConstantSDNode>(Src2)) {
+      // Use an addition if the operand is constant and either LAA(G) is
+      // available or the negative value is in the range of A(G)FHI.
+      int64_t Value = (-Op2->getAPIntValue()).getSExtValue();
+      if (isInt<32>(Value) || TM.getSubtargetImpl()->hasInterlockedAccess1())
+        NegSrc2 = DAG.getConstant(Value, MemVT);
+    } else if (TM.getSubtargetImpl()->hasInterlockedAccess1())
+      // Use LAA(G) if available.
+      NegSrc2 = DAG.getNode(ISD::SUB, DL, MemVT, DAG.getConstant(0, MemVT),
+                            Src2);
+
+    if (NegSrc2.getNode())
+      return DAG.getAtomic(ISD::ATOMIC_LOAD_ADD, DL, MemVT,
+                           Node->getChain(), Node->getBasePtr(), NegSrc2,
+                           Node->getMemOperand(), Node->getOrdering(),
+                           Node->getSynchScope());
+
+    // Use the node as-is.
+    return Op;
+  }
+
+  return lowerATOMIC_LOAD_OP(Op, DAG, SystemZISD::ATOMIC_LOADW_SUB);
 }
 
 // Node is an 8- or 16-bit ATOMIC_CMP_SWAP operation.  Lower the first two
@@ -2385,6 +2459,8 @@ SDValue SystemZTargetLowering::LowerOperation(SDValue Op,
     return lowerUDIVREM(Op, DAG);
   case ISD::OR:
     return lowerOR(Op, DAG);
+  case ISD::SIGN_EXTEND:
+    return lowerSIGN_EXTEND(Op, DAG);
   case ISD::ATOMIC_SWAP:
     return lowerATOMIC_LOAD_OP(Op, DAG, SystemZISD::ATOMIC_SWAPW);
   case ISD::ATOMIC_STORE:
@@ -2394,7 +2470,7 @@ SDValue SystemZTargetLowering::LowerOperation(SDValue Op,
   case ISD::ATOMIC_LOAD_ADD:
     return lowerATOMIC_LOAD_OP(Op, DAG, SystemZISD::ATOMIC_LOADW_ADD);
   case ISD::ATOMIC_LOAD_SUB:
-    return lowerATOMIC_LOAD_OP(Op, DAG, SystemZISD::ATOMIC_LOADW_SUB);
+    return lowerATOMIC_LOAD_SUB(Op, DAG);
   case ISD::ATOMIC_LOAD_AND:
     return lowerATOMIC_LOAD_OP(Op, DAG, SystemZISD::ATOMIC_LOADW_AND);
   case ISD::ATOMIC_LOAD_OR:

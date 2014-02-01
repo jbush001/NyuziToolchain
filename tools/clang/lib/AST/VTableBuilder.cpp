@@ -16,6 +16,7 @@
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/Basic/TargetInfo.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Support/Format.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
@@ -268,11 +269,11 @@ ComputeReturnAdjustmentBaseOffset(ASTContext &Context,
   const FunctionType *DerivedFT = DerivedMD->getType()->getAs<FunctionType>();
   
   // Canonicalize the return types.
-  CanQualType CanDerivedReturnType = 
-    Context.getCanonicalType(DerivedFT->getResultType());
-  CanQualType CanBaseReturnType = 
-    Context.getCanonicalType(BaseFT->getResultType());
-  
+  CanQualType CanDerivedReturnType =
+      Context.getCanonicalType(DerivedFT->getReturnType());
+  CanQualType CanBaseReturnType =
+      Context.getCanonicalType(BaseFT->getReturnType());
+
   assert(CanDerivedReturnType->getTypeClass() == 
          CanBaseReturnType->getTypeClass() && 
          "Types must have same type class!");
@@ -397,7 +398,9 @@ void FinalOverriders::dump(raw_ostream &Out, BaseSubobject Base,
     dump(Out, BaseSubobject(BaseDecl, BaseOffset), VisitedVirtualBases);
   }
 
-  Out << "Final overriders for (" << RD->getQualifiedNameAsString() << ", ";
+  Out << "Final overriders for (";
+  RD->printQualifiedName(Out);
+  Out << ", ";
   Out << Base.getBaseOffset().getQuantity() << ")\n";
 
   // Now dump the overriders for this base subobject.
@@ -410,8 +413,10 @@ void FinalOverriders::dump(raw_ostream &Out, BaseSubobject Base,
   
     OverriderInfo Overrider = getOverrider(MD, Base.getBaseOffset());
 
-    Out << "  " << MD->getQualifiedNameAsString() << " - (";
-    Out << Overrider.Method->getQualifiedNameAsString();
+    Out << "  ";
+    MD->printQualifiedName(Out);
+    Out << " - (";
+    Overrider.Method->printQualifiedName(Out);
     Out << ", " << Overrider.Offset.getQuantity() << ')';
 
     BaseOffset Offset;
@@ -420,8 +425,10 @@ void FinalOverriders::dump(raw_ostream &Out, BaseSubobject Base,
 
     if (!Offset.isEmpty()) {
       Out << " [ret-adj: ";
-      if (Offset.VirtualBase)
-        Out << Offset.VirtualBase->getQualifiedNameAsString() << " vbase, ";
+      if (Offset.VirtualBase) {
+        Offset.VirtualBase->printQualifiedName(Out);
+        Out << " vbase, ";
+      }
              
       Out << Offset.NonVirtualOffset.getQuantity() << " nv]";
     }
@@ -472,10 +479,10 @@ static bool HasSameVirtualSignature(const CXXMethodDecl *LHS,
   // list here because there isn't necessarily an inheritance
   // relationship between the two methods.
   if (LT->getTypeQuals() != RT->getTypeQuals() ||
-      LT->getNumArgs() != RT->getNumArgs())
+      LT->getNumParams() != RT->getNumParams())
     return false;
-  for (unsigned I = 0, E = LT->getNumArgs(); I != E; ++I)
-    if (LT->getArgType(I) != RT->getArgType(I))
+  for (unsigned I = 0, E = LT->getNumParams(); I != E; ++I)
+    if (LT->getParamType(I) != RT->getParamType(I))
       return false;
   return true;
 }
@@ -1922,12 +1929,13 @@ void ItaniumVTableBuilder::dumpLayout(raw_ostream &Out) {
 
   if (isBuildingConstructorVTable()) {
     Out << "Construction vtable for ('";
-    Out << MostDerivedClass->getQualifiedNameAsString() << "', ";
+    MostDerivedClass->printQualifiedName(Out);
+    Out << "', ";
     Out << MostDerivedClassOffset.getQuantity() << ") in '";
-    Out << LayoutClass->getQualifiedNameAsString();
+    LayoutClass->printQualifiedName(Out);
   } else {
     Out << "Vtable for '";
-    Out << MostDerivedClass->getQualifiedNameAsString();
+    MostDerivedClass->printQualifiedName(Out);
   }
   Out << "' (" << Components.size() << " entries).\n";
 
@@ -1973,7 +1981,8 @@ void ItaniumVTableBuilder::dumpLayout(raw_ostream &Out) {
       break;
     
     case VTableComponent::CK_RTTI:
-      Out << Component.getRTTIDecl()->getQualifiedNameAsString() << " RTTI";
+      Component.getRTTIDecl()->printQualifiedName(Out);
+      Out << " RTTI";
       break;
     
     case VTableComponent::CK_FunctionPointer: {
@@ -2028,7 +2037,7 @@ void ItaniumVTableBuilder::dumpLayout(raw_ostream &Out) {
       
       const CXXDestructorDecl *DD = Component.getDestructorDecl();
       
-      Out << DD->getQualifiedNameAsString();
+      DD->printQualifiedName(Out);
       if (IsComplete)
         Out << "() [complete]";
       else
@@ -2078,7 +2087,8 @@ void ItaniumVTableBuilder::dumpLayout(raw_ostream &Out) {
         const BaseSubobject &Base = 
           AddressPointsByIndex.find(NextIndex)->second;
         
-        Out << "       -- (" << Base.getBase()->getQualifiedNameAsString();
+        Out << "       -- (";
+        Base.getBase()->printQualifiedName(Out);
         Out << ", " << Base.getBaseOffset().getQuantity();
         Out << ") vtable address --\n";
       } else {
@@ -2124,7 +2134,8 @@ void ItaniumVTableBuilder::dumpLayout(raw_ostream &Out) {
     }
     
     Out << "Virtual base offset offsets for '";
-    Out << MostDerivedClass->getQualifiedNameAsString() << "' (";
+    MostDerivedClass->printQualifiedName(Out);
+    Out << "' (";
     Out << ClassNamesAndOffsets.size();
     Out << (ClassNamesAndOffsets.size() == 1 ? " entry" : " entries") << ").\n";
 
@@ -2230,7 +2241,7 @@ void ItaniumVTableBuilder::dumpLayout(raw_ostream &Out) {
   // Print the vtable indices for all the member functions.
   if (!IndicesMap.empty()) {
     Out << "VTable indices for '";
-    Out << MostDerivedClass->getQualifiedNameAsString();
+    MostDerivedClass->printQualifiedName(Out);
     Out << "' (" << IndicesMap.size() << " entries).\n";
 
     for (std::map<uint64_t, std::string>::const_iterator I = IndicesMap.begin(),
@@ -2541,6 +2552,8 @@ private:
     }
   }
 
+  bool NeedsReturnAdjustingThunk(const CXXMethodDecl *MD);
+
   /// AddMethods - Add the methods of this base subobject and the relevant
   /// subbases to the vftable we're currently laying out.
   void AddMethods(BaseSubobject Base, unsigned BaseDepth,
@@ -2630,6 +2643,8 @@ public:
 
   void dumpLayout(raw_ostream &);
 };
+
+} // end namespace
 
 /// InitialOverriddenDefinitionCollector - Finds the set of least derived bases
 /// that define the given method.
@@ -2800,6 +2815,24 @@ static void GroupNewVirtualOverloads(
     VirtualMethods.append(Groups[I].rbegin(), Groups[I].rend());
 }
 
+/// We need a return adjusting thunk for this method if its return type is
+/// not trivially convertible to the return type of any of its overridden
+/// methods.
+bool VFTableBuilder::NeedsReturnAdjustingThunk(const CXXMethodDecl *MD) {
+  OverriddenMethodsSetTy OverriddenMethods;
+  ComputeAllOverriddenMethods(MD, OverriddenMethods);
+  for (OverriddenMethodsSetTy::iterator I = OverriddenMethods.begin(),
+                                        E = OverriddenMethods.end();
+       I != E; ++I) {
+    const CXXMethodDecl *OverriddenMD = *I;
+    BaseOffset Adjustment =
+        ComputeReturnAdjustmentBaseOffset(Context, MD, OverriddenMD);
+    if (!Adjustment.isEmpty())
+      return true;
+  }
+  return false;
+}
+
 void VFTableBuilder::AddMethods(BaseSubobject Base, unsigned BaseDepth,
                                 const CXXRecordDecl *LastVBase,
                                 BasesSetVectorTy &VisitedBases) {
@@ -2885,8 +2918,7 @@ void VFTableBuilder::AddMethods(BaseSubobject Base, unsigned BaseDepth,
         AddThunk(MD, VTableThunks[OverriddenMethodInfo.VFTableIndex]);
       }
 
-      if (Context.hasSameType(MD->getResultType(),
-                              OverriddenMD->getResultType())) {
+      if (!NeedsReturnAdjustingThunk(MD)) {
         // No return adjustment needed - just replace the overridden method info
         // with the current info.
         MethodInfo MI(OverriddenMethodInfo.VBTableIndex,
@@ -2897,30 +2929,30 @@ void VFTableBuilder::AddMethods(BaseSubobject Base, unsigned BaseDepth,
                "Should not have method info for this method yet!");
         MethodInfoMap.insert(std::make_pair(MD, MI));
         continue;
-      } else {
-        // In case we need a return adjustment, we'll add a new slot for
-        // the overrider and put a return-adjusting thunk where the overridden
-        // method was in the vftable.
-        // For now, just mark the overriden method as shadowed by a new slot.
-        OverriddenMethodInfo.Shadowed = true;
-        ForceThunk = true;
+      }
 
-        // Also apply this adjustment to the shadowed slots.
-        if (!ThisAdjustmentOffset.isEmpty()) {
-          // FIXME: this is O(N^2), can be O(N).
-          const CXXMethodDecl *SubOverride = OverriddenMD;
-          while ((SubOverride =
-                      FindNearestOverriddenMethod(SubOverride, VisitedBases))) {
-            MethodInfoMapTy::iterator SubOverrideIterator =
-                MethodInfoMap.find(SubOverride);
-            if (SubOverrideIterator == MethodInfoMap.end())
-              break;
-            MethodInfo &SubOverrideMI = SubOverrideIterator->second;
-            assert(SubOverrideMI.Shadowed);
-            VTableThunks[SubOverrideMI.VFTableIndex].This =
-                ThisAdjustmentOffset;
-            AddThunk(MD, VTableThunks[SubOverrideMI.VFTableIndex]);
-          }
+      // In case we need a return adjustment, we'll add a new slot for
+      // the overrider and put a return-adjusting thunk where the overridden
+      // method was in the vftable.
+      // For now, just mark the overriden method as shadowed by a new slot.
+      OverriddenMethodInfo.Shadowed = true;
+      ForceThunk = true;
+
+      // Also apply this adjustment to the shadowed slots.
+      if (!ThisAdjustmentOffset.isEmpty()) {
+        // FIXME: this is O(N^2), can be O(N).
+        const CXXMethodDecl *SubOverride = OverriddenMD;
+        while ((SubOverride =
+                    FindNearestOverriddenMethod(SubOverride, VisitedBases))) {
+          MethodInfoMapTy::iterator SubOverrideIterator =
+              MethodInfoMap.find(SubOverride);
+          if (SubOverrideIterator == MethodInfoMap.end())
+            break;
+          MethodInfo &SubOverrideMI = SubOverrideIterator->second;
+          assert(SubOverrideMI.Shadowed);
+          VTableThunks[SubOverrideMI.VFTableIndex].This =
+              ThisAdjustmentOffset;
+          AddThunk(MD, VTableThunks[SubOverrideMI.VFTableIndex]);
         }
       }
     } else if (Base.getBaseOffset() != WhichVFPtr.VFPtrFullOffset ||
@@ -2971,13 +3003,16 @@ void VFTableBuilder::AddMethods(BaseSubobject Base, unsigned BaseDepth,
   }
 }
 
-void PrintBasePath(const VFPtrInfo::BasePath &Path, raw_ostream &Out) {
+static void PrintBasePath(const VFPtrInfo::BasePath &Path, raw_ostream &Out) {
   for (VFPtrInfo::BasePath::const_reverse_iterator I = Path.rbegin(),
        E = Path.rend(); I != E; ++I) {
-    Out << "'" << (*I)->getQualifiedNameAsString() << "' in ";
+    Out << "'";
+    (*I)->printQualifiedName(Out);
+    Out << "' in ";
   }
 }
 
+namespace {
 struct MicrosoftThunkInfoStableSortComparator {
   bool operator() (const ThunkInfo &LHS, const ThunkInfo &RHS) {
     if (LHS.This != RHS.This)
@@ -2991,6 +3026,7 @@ struct MicrosoftThunkInfoStableSortComparator {
     return false;
   }
 };
+}
 
 static void dumpMicrosoftThunkAdjustment(const ThunkInfo &TI, raw_ostream &Out,
                                          bool ContinueFirstLine) {
@@ -3032,7 +3068,8 @@ static void dumpMicrosoftThunkAdjustment(const ThunkInfo &TI, raw_ostream &Out,
 void VFTableBuilder::dumpLayout(raw_ostream &Out) {
   Out << "VFTable for ";
   PrintBasePath(WhichVFPtr.PathToBaseWithVFPtr, Out);
-  Out << "'" << MostDerivedClass->getQualifiedNameAsString();
+  Out << "'";
+  MostDerivedClass->printQualifiedName(Out);
   Out << "' (" << Components.size() << " entries).\n";
 
   for (unsigned I = 0, E = Components.size(); I != E; ++I) {
@@ -3043,12 +3080,15 @@ void VFTableBuilder::dumpLayout(raw_ostream &Out) {
     // Dump the component.
     switch (Component.getKind()) {
     case VTableComponent::CK_RTTI:
-      Out << Component.getRTTIDecl()->getQualifiedNameAsString() << " RTTI";
+      Component.getRTTIDecl()->printQualifiedName(Out);
+      Out << " RTTI";
       break;
 
     case VTableComponent::CK_FunctionPointer: {
       const CXXMethodDecl *MD = Component.getFunctionDecl();
 
+      // FIXME: Figure out how to print the real thunk type, since they can
+      // differ in the return type.
       std::string Str = PredefinedExpr::ComputeName(
           PredefinedExpr::PrettyFunctionNoVirtual, MD);
       Out << Str;
@@ -3070,7 +3110,7 @@ void VFTableBuilder::dumpLayout(raw_ostream &Out) {
     case VTableComponent::CK_DeletingDtorPointer: {
       const CXXDestructorDecl *DD = Component.getDestructorDecl();
 
-      Out << DD->getQualifiedNameAsString();
+      DD->printQualifiedName(Out);
       Out << "() [scalar deleting]";
 
       if (DD->isPure())
@@ -3139,6 +3179,153 @@ void VFTableBuilder::dumpLayout(raw_ostream &Out) {
     }
   }
 }
+
+static bool setsIntersect(const llvm::SmallPtrSet<const CXXRecordDecl *, 4> &A,
+                          const llvm::ArrayRef<const CXXRecordDecl *> &B) {
+  for (llvm::ArrayRef<const CXXRecordDecl *>::iterator I = B.begin(),
+                                                       E = B.end();
+       I != E; ++I) {
+    if (A.count(*I))
+      return true;
+  }
+  return false;
+}
+
+static bool rebucketPaths(VBTableVector &Paths);
+
+/// Produces MSVC-compatible vbtable data.  The symbols produced by this
+/// algorithm match those produced by MSVC 2012 and newer, which is different
+/// from MSVC 2010.
+///
+/// MSVC 2012 appears to minimize the vbtable names using the following
+/// algorithm.  First, walk the class hierarchy in the usual order, depth first,
+/// left to right, to find all of the subobjects which contain a vbptr field.
+/// Visiting each class node yields a list of inheritance paths to vbptrs.  Each
+/// record with a vbptr creates an initially empty path.
+///
+/// To combine paths from child nodes, the paths are compared to check for
+/// ambiguity.  Paths are "ambiguous" if multiple paths have the same set of
+/// components in the same order.  Each group of ambiguous paths is extended by
+/// appending the class of the base from which it came.  If the current class
+/// node produced an ambiguous path, its path is extended with the current class.
+/// After extending paths, MSVC again checks for ambiguity, and extends any
+/// ambiguous path which wasn't already extended.  Because each node yields an
+/// unambiguous set of paths, MSVC doesn't need to extend any path more than once
+/// to produce an unambiguous set of paths.
+///
+/// TODO: Presumably vftables use the same algorithm.
+void
+MicrosoftVTableContext::computeVBTablePaths(const CXXRecordDecl *RD,
+                                            VBTableVector &Paths) {
+  assert(Paths.empty());
+  const ASTRecordLayout &Layout = Context.getASTRecordLayout(RD);
+
+  // Base case: this subobject has its own vbptr.
+  if (Layout.hasOwnVBPtr())
+    Paths.push_back(new VBTableInfo(RD));
+
+  // Recursive case: get all the vbtables from our bases and remove anything
+  // that shares a virtual base.
+  llvm::SmallPtrSet<const CXXRecordDecl*, 4> VBasesSeen;
+  for (CXXRecordDecl::base_class_const_iterator I = RD->bases_begin(),
+                                                E = RD->bases_end();
+       I != E; ++I) {
+    const CXXRecordDecl *Base = I->getType()->getAsCXXRecordDecl();
+    if (I->isVirtual() && VBasesSeen.count(Base))
+      continue;
+
+    const VBTableVector &BasePaths = enumerateVBTables(Base);
+
+    for (VBTableVector::const_iterator II = BasePaths.begin(),
+                                       EE = BasePaths.end();
+         II != EE; ++II) {
+      VBTableInfo *BasePath = *II;
+
+      // Don't include the path if it goes through a virtual base that we've
+      // already included.
+      if (setsIntersect(VBasesSeen, BasePath->ContainingVBases))
+        continue;
+
+      // Copy the path and adjust it as necessary.
+      VBTableInfo *P = new VBTableInfo(*BasePath);
+
+      // We mangle Base into the path if the path would've been ambiguous and it
+      // wasn't already extended with Base.
+      if (P->MangledPath.empty() || P->MangledPath.back() != Base)
+        P->NextBaseToMangle = Base;
+
+      // Keep track of which derived class ultimately uses the vbtable, and what
+      // the full adjustment is from the MDC to this vbtable.  The adjustment is
+      // captured by an optional vbase and a non-virtual offset.
+      if (Base == Layout.getBaseSharingVBPtr())
+        P->ReusingBase = RD;
+      if (I->isVirtual())
+        P->ContainingVBases.push_back(Base);
+      else if (P->ContainingVBases.empty())
+        P->NonVirtualOffset += Layout.getBaseClassOffset(Base);
+
+      Paths.push_back(P);
+    }
+
+    // After visiting any direct base, we've transitively visited all of its
+    // morally virtual bases.
+    for (CXXRecordDecl::base_class_const_iterator II = Base->vbases_begin(),
+                                                  EE = Base->vbases_end();
+         II != EE; ++II)
+      VBasesSeen.insert(II->getType()->getAsCXXRecordDecl());
+  }
+
+  // Sort the paths into buckets, and if any of them are ambiguous, extend all
+  // paths in ambiguous buckets.
+  bool Changed = true;
+  while (Changed)
+    Changed = rebucketPaths(Paths);
+}
+
+static bool pathCompare(const VBTableInfo *LHS, const VBTableInfo *RHS) {
+  return LHS->MangledPath < RHS->MangledPath;
+}
+
+static bool extendPath(VBTableInfo *P) {
+  if (P->NextBaseToMangle) {
+    P->MangledPath.push_back(P->NextBaseToMangle);
+    P->NextBaseToMangle = 0;  // Prevent the path from being extended twice.
+    return true;
+  }
+  return false;
+}
+
+static bool rebucketPaths(VBTableVector &Paths) {
+  // What we're essentially doing here is bucketing together ambiguous paths.
+  // Any bucket with more than one path in it gets extended by NextBase, which
+  // is usually the direct base of the inherited the vbptr.  This code uses a
+  // sorted vector to implement a multiset to form the buckets.  Note that the
+  // ordering is based on pointers, but it doesn't change our output order.  The
+  // current algorithm is designed to match MSVC 2012's names.
+  VBTableVector PathsSorted(Paths);
+  std::sort(PathsSorted.begin(), PathsSorted.end(), pathCompare);
+  bool Changed = false;
+  for (size_t I = 0, E = PathsSorted.size(); I != E;) {
+    // Scan forward to find the end of the bucket.
+    size_t BucketStart = I;
+    do {
+      ++I;
+    } while (I != E && PathsSorted[BucketStart]->MangledPath ==
+                           PathsSorted[I]->MangledPath);
+
+    // If this bucket has multiple paths, extend them all.
+    if (I - BucketStart > 1) {
+      for (size_t II = BucketStart; II != I; ++II)
+        Changed |= extendPath(PathsSorted[II]);
+      assert(Changed && "no paths were extended to fix ambiguity");
+    }
+  }
+  return Changed;
+}
+
+MicrosoftVTableContext::~MicrosoftVTableContext() {
+  llvm::DeleteContainerSeconds(VFTableLayouts);
+  llvm::DeleteContainerSeconds(VBaseInfo);
 }
 
 void MicrosoftVTableContext::enumerateVFPtrs(
@@ -3322,7 +3509,8 @@ void MicrosoftVTableContext::dumpMethodLocations(
   // Print the vtable indices for all the member functions.
   if (!IndicesMap.empty()) {
     Out << "VFTable indices for ";
-    Out << "'" << RD->getQualifiedNameAsString();
+    Out << "'";
+    RD->printQualifiedName(Out);
     Out << "' (" << IndicesMap.size() << " entries).\n";
 
     CharUnits LastVFPtrOffset = CharUnits::fromQuantity(-1);
@@ -3352,39 +3540,56 @@ void MicrosoftVTableContext::dumpMethodLocations(
   }
 }
 
-void MicrosoftVTableContext::computeVBTableRelatedInformation(
+const VirtualBaseInfo *MicrosoftVTableContext::computeVBTableRelatedInformation(
     const CXXRecordDecl *RD) {
-  if (ComputedVBTableIndices.count(RD))
-    return;
-  ComputedVBTableIndices.insert(RD);
+  VirtualBaseInfo *VBI;
 
-  const ASTRecordLayout &Layout = Context.getASTRecordLayout(RD);
-  BasesSetVectorTy VisitedBases;
+  {
+    // Get or create a VBI for RD.  Don't hold a reference to the DenseMap cell,
+    // as it may be modified and rehashed under us.
+    VirtualBaseInfo *&Entry = VBaseInfo[RD];
+    if (Entry)
+      return Entry;
+    Entry = VBI = new VirtualBaseInfo();
+  }
+
+  computeVBTablePaths(RD, VBI->VBTables);
 
   // First, see if the Derived class shared the vbptr with a non-virtual base.
+  const ASTRecordLayout &Layout = Context.getASTRecordLayout(RD);
   if (const CXXRecordDecl *VBPtrBase = Layout.getBaseSharingVBPtr()) {
-    // If the Derived class shares the vbptr with a non-virtual base,
-    // it inherits its vbase indices.
-    computeVBTableRelatedInformation(VBPtrBase);
-    for (CXXRecordDecl::base_class_const_iterator I = VBPtrBase->vbases_begin(),
-         E = VBPtrBase->vbases_end(); I != E; ++I) {
-      const CXXRecordDecl *SubVBase = I->getType()->getAsCXXRecordDecl();
-      assert(VBTableIndices.count(ClassPairTy(VBPtrBase, SubVBase)));
-      VBTableIndices[ClassPairTy(RD, SubVBase)] =
-          VBTableIndices[ClassPairTy(VBPtrBase, SubVBase)];
-      VisitedBases.insert(SubVBase);
-    }
+    // If the Derived class shares the vbptr with a non-virtual base, the shared
+    // virtual bases come first so that the layout is the same.
+    const VirtualBaseInfo *BaseInfo =
+        computeVBTableRelatedInformation(VBPtrBase);
+    VBI->VBTableIndices.insert(BaseInfo->VBTableIndices.begin(),
+                               BaseInfo->VBTableIndices.end());
   }
 
   // New vbases are added to the end of the vbtable.
   // Skip the self entry and vbases visited in the non-virtual base, if any.
-  unsigned VBTableIndex = 1 + VisitedBases.size();
+  unsigned VBTableIndex = 1 + VBI->VBTableIndices.size();
   for (CXXRecordDecl::base_class_const_iterator I = RD->vbases_begin(),
-       E = RD->vbases_end(); I != E; ++I) {
+                                                E = RD->vbases_end();
+       I != E; ++I) {
     const CXXRecordDecl *CurVBase = I->getType()->getAsCXXRecordDecl();
-    if (VisitedBases.insert(CurVBase))
-      VBTableIndices[ClassPairTy(RD, CurVBase)] = VBTableIndex++;
+    if (!VBI->VBTableIndices.count(CurVBase))
+      VBI->VBTableIndices[CurVBase] = VBTableIndex++;
   }
+
+  return VBI;
+}
+
+unsigned MicrosoftVTableContext::getVBTableIndex(const CXXRecordDecl *Derived,
+                                                 const CXXRecordDecl *VBase) {
+  const VirtualBaseInfo *VBInfo = computeVBTableRelatedInformation(Derived);
+  assert(VBInfo->VBTableIndices.count(VBase));
+  return VBInfo->VBTableIndices.find(VBase)->second;
+}
+
+const VBTableVector &
+MicrosoftVTableContext::enumerateVBTables(const CXXRecordDecl *RD) {
+  return computeVBTableRelatedInformation(RD)->VBTables;
 }
 
 const MicrosoftVTableContext::VFPtrListTy &

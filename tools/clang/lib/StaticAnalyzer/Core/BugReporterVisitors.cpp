@@ -1087,7 +1087,9 @@ PathDiagnosticPiece *NilReceiverBRVisitor::VisitNode(const ExplodedNode *N,
   llvm::raw_svector_ostream OS(Buf);
 
   if (const ObjCMessageExpr *ME = dyn_cast<ObjCMessageExpr>(S)) {
-    OS << "'" << ME->getSelector().getAsString() << "' not called";
+    OS << "'";
+    ME->getSelector().print(OS);
+    OS << "' not called";
   }
   else {
     OS << "No method is called";
@@ -1611,8 +1613,10 @@ UndefOrNullArgVisitor::VisitNode(const ExplodedNode *N,
   CallEventManager &CEMgr = BRC.getStateManager().getCallEventManager();
   CallEventRef<> Call = CEMgr.getCaller(CEnter->getCalleeContext(), State);
   unsigned Idx = 0;
-  for (CallEvent::param_iterator I = Call->param_begin(),
-                                 E = Call->param_end(); I != E; ++I, ++Idx) {
+  ArrayRef<ParmVarDecl*> parms = Call->parameters();
+
+  for (ArrayRef<ParmVarDecl*>::iterator I = parms.begin(), E = parms.end();
+                              I != E; ++I, ++Idx) {
     const MemRegion *ArgReg = Call->getArgSVal(Idx).getAsRegion();
 
     // Are we tracking the argument or its subregion?

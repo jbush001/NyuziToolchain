@@ -95,9 +95,9 @@ CHECK-NEXT:   warn_missing_case_for_condition
 CHECK-NEXT:   warn_missing_dependent_template_keyword
 CHECK-NEXT:   warn_missing_exception_specification
 CHECK-NEXT:   warn_missing_whitespace_after_macro_name
+CHECK-NEXT:   warn_mt_message
 CHECK-NEXT:   warn_multiple_method_decl
 CHECK-NEXT:   warn_no_constructor_for_refconst
-CHECK-NEXT:   warn_nonnull_pointers_only
 CHECK-NEXT:   warn_not_compound_assign
 CHECK-NEXT:   warn_objc_property_copy_missing_on_block
 CHECK-NEXT:   warn_objc_protocol_qualifier_missing_id

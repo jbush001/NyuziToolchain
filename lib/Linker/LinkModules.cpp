@@ -543,8 +543,8 @@ bool ModuleLinker::getLinkageResult(GlobalValue *Dest, const GlobalValue *Src,
   if (SrcIsDeclaration) {
     // If Src is external or if both Src & Dest are external..  Just link the
     // external globals, we aren't adding anything.
-    if (Src->hasDLLImportLinkage()) {
-      // If one of GVs has DLLImport linkage, result should be dllimport'ed.
+    if (Src->hasDLLImportStorageClass()) {
+      // If one of GVs is marked as DLLImport, result should be dllimport'ed.
       if (DestIsDeclaration) {
         LinkFromSrc = true;
         LT = Src->getLinkage();
@@ -557,7 +557,7 @@ bool ModuleLinker::getLinkageResult(GlobalValue *Dest, const GlobalValue *Src,
       LinkFromSrc = false;
       LT = Dest->getLinkage();
     }
-  } else if (DestIsDeclaration && !Dest->hasDLLImportLinkage()) {
+  } else if (DestIsDeclaration && !Dest->hasDLLImportStorageClass()) {
     // If Dest is external but Src is not:
     LinkFromSrc = true;
     LT = Src->getLinkage();
@@ -584,10 +584,8 @@ bool ModuleLinker::getLinkageResult(GlobalValue *Dest, const GlobalValue *Src,
       LT = GlobalValue::ExternalLinkage;
     }
   } else {
-    assert((Dest->hasExternalLinkage()  || Dest->hasDLLImportLinkage() ||
-            Dest->hasDLLExportLinkage() || Dest->hasExternalWeakLinkage()) &&
-           (Src->hasExternalLinkage()   || Src->hasDLLImportLinkage() ||
-            Src->hasDLLExportLinkage()  || Src->hasExternalWeakLinkage()) &&
+    assert((Dest->hasExternalLinkage()  || Dest->hasExternalWeakLinkage()) &&
+           (Src->hasExternalLinkage()   || Src->hasExternalWeakLinkage()) &&
            "Unexpected linkage type!");
     return emitError("Linking globals named '" + Src->getName() +
                  "': symbol multiply defined!");
@@ -1251,10 +1249,6 @@ bool ModuleLinker::run() {
   for (unsigned i = 0, e = AppendingVars.size(); i != e; ++i)
     linkAppendingVarInit(AppendingVars[i]);
   
-  // Update the initializers in the DstM module now that all globals that may
-  // be referenced are in DstM.
-  linkGlobalInits();
-
   // Link in the function bodies that are defined in the source module into
   // DstM.
   for (Module::iterator SF = SrcM->begin(), E = SrcM->end(); SF != E; ++SF) {
@@ -1291,6 +1285,10 @@ bool ModuleLinker::run() {
   // Merge the module flags into the DstM module.
   if (linkModuleFlagsMetadata())
     return true;
+
+  // Update the initializers in the DstM module now that all globals that may
+  // be referenced are in DstM.
+  linkGlobalInits();
 
   // Process vector of lazily linked in functions.
   bool LinkedInAnyFunctions;

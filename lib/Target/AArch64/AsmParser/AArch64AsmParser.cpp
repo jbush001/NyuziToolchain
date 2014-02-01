@@ -18,21 +18,21 @@
 #include "Utils/AArch64BaseInfo.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
-#include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/MCContext.h"
-#include "llvm/MC/MCInst.h"
-#include "llvm/MC/MCSubtargetInfo.h"
-#include "llvm/MC/MCTargetAsmParser.h"
 #include "llvm/MC/MCExpr.h"
-#include "llvm/MC/MCRegisterInfo.h"
-#include "llvm/MC/MCStreamer.h"
+#include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCParser/MCAsmLexer.h"
 #include "llvm/MC/MCParser/MCAsmParser.h"
 #include "llvm/MC/MCParser/MCParsedAsmOperand.h"
+#include "llvm/MC/MCRegisterInfo.h"
+#include "llvm/MC/MCStreamer.h"
+#include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/MC/MCTargetAsmParser.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/TargetRegistry.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
@@ -108,6 +108,9 @@ public:
 
   OperandMatchResultTy
   ParseFPImmOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands);
+
+  OperandMatchResultTy
+  ParseFPImm0AndImm0Operand( SmallVectorImpl<MCParsedAsmOperand*> &Operands);
 
   template<typename SomeNamedImmMapper> OperandMatchResultTy
   ParseNamedImmOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
@@ -826,6 +829,10 @@ public:
     return CE->getValue() == N;
   }
 
+  bool isFPZeroIZero() const {
+    return isFPZero();
+  }
+
   static AArch64Operand *CreateImmWithLSL(const MCExpr *Val,
                                           unsigned ShiftAmount,
                                           bool ImplicitAmount,
@@ -963,6 +970,10 @@ public:
   void addFPZeroOperands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands");
     Inst.addOperand(MCOperand::CreateImm(0));
+  }
+
+  void addFPZeroIZeroOperands(MCInst &Inst, unsigned N) const {
+    addFPZeroOperands(Inst, N);
   }
 
   void addInvCondCodeOperands(MCInst &Inst, unsigned N) const {
@@ -1605,6 +1616,43 @@ AArch64AsmParser::ParseFPImmOperand(
   return MatchOperand_Success;
 }
 
+AArch64AsmParser::OperandMatchResultTy
+AArch64AsmParser::ParseFPImm0AndImm0Operand(
+                               SmallVectorImpl<MCParsedAsmOperand*> &Operands) {
+  // FIXME?: I want to live in a world where immediates must start with
+  // #. Please don't dash my hopes (well, do if you have a good reason).
+
+  //This function is only used in floating compare with zero instructions to get
+  //those instructions accept both #0.0 and #0.
+  if (Parser.getTok().isNot(AsmToken::Hash)) return MatchOperand_NoMatch;
+
+  SMLoc S = Parser.getTok().getLoc();
+  Parser.Lex(); // Eat '#'
+
+  APFloat RealVal(0.0);
+  if (Parser.getTok().is(AsmToken::Real)) {
+    if(Parser.getTok().getString() != "0.0") {
+      Error(S, "only #0.0 is acceptable as immediate");
+      return MatchOperand_ParseFail;
+    }
+  }
+  else if (Parser.getTok().is(AsmToken::Integer)) {
+    if(Parser.getTok().getIntVal() != 0) {
+      Error(S, "only #0.0 is acceptable as immediate");
+      return MatchOperand_ParseFail;
+    }
+  }
+  else {
+    Error(S, "only #0.0 is acceptable as immediate");
+    return MatchOperand_ParseFail;
+  }
+
+  Parser.Lex(); // Eat real number
+  SMLoc E = Parser.getTok().getLoc();
+
+  Operands.push_back(AArch64Operand::CreateFPImm(0.0, S, E));
+  return MatchOperand_Success;
+}
 
 // Automatically generated
 static unsigned MatchRegisterName(StringRef Name);
@@ -2291,7 +2339,7 @@ bool AArch64AsmParser::ParseDirectiveWord(unsigned Size, SMLoc L) {
     for (;;) {
       const MCExpr *Value;
       if (getParser().parseExpression(Value))
-        return true;
+        return false;
 
       getParser().getStreamer().EmitValue(Value, Size);
 
@@ -2299,8 +2347,10 @@ bool AArch64AsmParser::ParseDirectiveWord(unsigned Size, SMLoc L) {
         break;
 
       // FIXME: Improve diagnostic.
-      if (getLexer().isNot(AsmToken::Comma))
-        return Error(L, "unexpected token in directive");
+      if (getLexer().isNot(AsmToken::Comma)) {
+        Error(L, "unexpected token in directive");
+        return false;
+      }
       Parser.Lex();
     }
   }
@@ -2313,8 +2363,10 @@ bool AArch64AsmParser::ParseDirectiveWord(unsigned Size, SMLoc L) {
 //   ::= .tlsdesccall symbol
 bool AArch64AsmParser::ParseDirectiveTLSDescCall(SMLoc L) {
   StringRef Name;
-  if (getParser().parseIdentifier(Name))
-    return Error(L, "expected symbol after directive");
+  if (getParser().parseIdentifier(Name)) {
+    Error(L, "expected symbol after directive");
+    return false;
+  }
 
   MCSymbol *Sym = getContext().GetOrCreateSymbol(Name);
   const MCSymbolRefExpr *Expr = MCSymbolRefExpr::Create(Sym, getContext());
@@ -2323,7 +2375,7 @@ bool AArch64AsmParser::ParseDirectiveTLSDescCall(SMLoc L) {
   Inst.setOpcode(AArch64::TLSDESCCALL);
   Inst.addOperand(MCOperand::CreateExpr(Expr));
 
-  getParser().getStreamer().EmitInstruction(Inst);
+  getParser().getStreamer().EmitInstruction(Inst, STI);
   return false;
 }
 
@@ -2346,7 +2398,7 @@ bool AArch64AsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     if (validateInstruction(Inst, Operands))
       return true;
 
-    Out.EmitInstruction(Inst);
+    Out.EmitInstruction(Inst, STI);
     return false;
   case Match_MissingFeature:
     Error(IDLoc, "instruction requires a CPU feature not currently enabled");

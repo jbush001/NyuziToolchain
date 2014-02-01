@@ -149,18 +149,6 @@ def err_expected_expression : Error<"expected expression">;
 def err_expected_type : Error<"expected a type">;
 def err_expected_external_declaration : Error<"expected external declaration">;
 def err_extraneous_closing_brace : Error<"extraneous closing brace ('}')">;
-def err_expected_ident : Error<"expected identifier">;
-def err_expected_ident_lparen : Error<"expected identifier or '('">;
-def err_expected_ident_lbrace : Error<"expected identifier or '{'">;
-def err_expected_lbrace : Error<"expected '{'">;
-def err_expected_lparen : Error<"expected '('">;
-def err_expected_lparen_or_lbrace : Error<"expected '(' or '{'">;
-def err_expected_rparen : Error<"expected ')'">;
-def err_expected_lsquare : Error<"expected '['">;
-def err_expected_rsquare : Error<"expected ']'">;
-def err_expected_rbrace : Error<"expected '}'">;
-def err_expected_greater : Error<"expected '>'">;
-def err_expected_ggg : Error<"expected '>>>'">;
 def err_expected_semi_declaration : Error<
   "expected ';' at end of declaration">;
 def err_expected_semi_decl_list : Error<
@@ -186,18 +174,14 @@ def err_expected_method_body : Error<"expected method body">;
 def err_invalid_token_after_toplevel_declarator : Error<
   "expected ';' after top level declarator">;
 def err_invalid_token_after_declarator_suggest_equal : Error<
-  "invalid '%0' at end of declaration; did you mean '='?">;
+  "invalid %0 at end of declaration; did you mean '='?">;
 def err_expected_statement : Error<"expected statement">;
 def err_expected_lparen_after : Error<"expected '(' after '%0'">;
-def err_expected_lparen_after_id : Error<"expected '(' after %0">;
 def err_expected_less_after : Error<"expected '<' after '%0'">;
-def err_expected_equal_after : Error<"expected '=' after %0">;
-def err_expected_comma : Error<"expected ','">;
 def err_expected_lbrace_in_compound_literal : Error<
   "expected '{' in compound literal">;
 def err_expected_while : Error<"expected 'while' in do/while loop">;
 
-def err_expected_semi_after : Error<"expected ';' after %0">;
 def err_expected_semi_after_stmt : Error<"expected ';' after %0 statement">;
 def err_expected_semi_after_expr : Error<"expected ';' after expression">;
 def err_extraneous_token_before_semi : Error<"extraneous '%0' before ';'">;
@@ -218,7 +202,6 @@ def err_expected_semi_after_attribute_list : Error<
 def err_expected_semi_after_static_assert : Error<
   "expected ';' after static_assert">;
 def err_expected_semi_for : Error<"expected ';' in 'for' statement specifier">;
-def err_expected_colon_after : Error<"expected ':' after %0">;
 def warn_missing_selector_name : Warning<
   "%0 used as the name of the previous parameter rather than as part "
   "of the selector">,
@@ -365,6 +348,8 @@ def err_paren_after_colon_colon : Error<
   "unexpected parenthesis after '::'">;
 def err_function_definition_not_allowed : Error<
   "function definition is not allowed here">;
+def err_expected_end_of_enumerator : Error<
+  "expected '= constant-expression' or end of enumerator definition">;
 
 /// Objective-C parser diagnostics
 def err_expected_minus_or_plus : Error<
@@ -481,9 +466,6 @@ def warn_cxx98_compat_noexcept_decl : Warning<
   "noexcept specifications are incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
 def err_expected_catch : Error<"expected catch">;
-def err_expected_lbrace_or_comma : Error<"expected '{' or ','">;
-def err_expected_rbrace_or_comma : Error<"expected '}' or ','">;
-def err_expected_rsquare_or_comma : Error<"expected ']' or ','">;
 def err_using_namespace_in_class : Error<
   "'using namespace' is not allowed in classes">;
 def err_constructor_bad_name : Error<
@@ -505,8 +487,7 @@ def ext_abstract_pack_declarator_parens : ExtWarn<
   "ISO C++11 requires a parenthesized pack declaration to have a name">,
   InGroup<DiagGroup<"anonymous-pack-parens">>;
 def err_function_is_not_record : Error<
-  "unexpected '%select{.|->}0' in function call; perhaps remove the "
-  "'%select{.|->}0'?">;
+  "unexpected %0 in function call; perhaps remove the %0?">;
 
 // C++ derived classes
 def err_dup_virtual : Error<"duplicate 'virtual' in base specifier">;
@@ -536,7 +517,7 @@ def warn_cxx98_compat_nullptr : Warning<
 def warn_cxx98_compat_alignas : Warning<"'alignas' is incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
 def warn_cxx98_compat_attribute : Warning<
-  "attributes are incompatible with C++98">,
+  "C++11 attribute syntax is incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
 def err_cxx11_attribute_forbids_arguments : Error<
   "attribute '%0' cannot have an argument list">;
@@ -640,16 +621,13 @@ def err_expected_qualified_after_typename : Error<
   "expected a qualified name after 'typename'">;
 def warn_expected_qualified_after_typename : ExtWarn<
   "expected a qualified name after 'typename'">;
-def err_expected_semi_after_tagdecl : Error<
-  "expected ';' after %0">;
 
 def err_typename_refers_to_non_type_template : Error<
   "typename specifier refers to a non-type template">;
 def err_expected_type_name_after_typename : Error<
   "expected an identifier or template-id after '::'">;
 def err_explicit_spec_non_template : Error<
-  "explicit %select{specialization|instantiation}0 of non-template "
-  "%select{class|struct|union|interface}1 %2">;
+  "explicit %select{specialization|instantiation}0 of non-template %1 %2">;
   
 def err_default_template_template_parameter_not_template : Error<
   "default template argument for a template template parameter must be a class "

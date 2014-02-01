@@ -140,7 +140,6 @@ static bool checkTargetOptions(const TargetOptions &TargetOpts,
   CHECK_TARGET_OPT(Triple, "target");
   CHECK_TARGET_OPT(CPU, "target CPU");
   CHECK_TARGET_OPT(ABI, "target ABI");
-  CHECK_TARGET_OPT(CXXABI, "target C++ ABI");
   CHECK_TARGET_OPT(LinkerVersion, "target linker version");
 #undef CHECK_TARGET_OPT
 
@@ -1643,6 +1642,9 @@ InputFile ASTReader::getInputFile(ModuleFile &F, unsigned ID, bool Complain) {
   if (F.InputFilesLoaded[ID-1].getFile())
     return F.InputFilesLoaded[ID-1];
 
+  if (F.InputFilesLoaded[ID-1].isNotFound())
+    return InputFile();
+
   // Go find this input file.
   BitstreamCursor &Cursor = F.InputFilesCursor;
   SavedStreamPosition SavedPosition(Cursor);
@@ -1692,6 +1694,8 @@ InputFile ASTReader::getInputFile(ModuleFile &F, unsigned ID, bool Complain) {
         ErrorStr += "' referenced by AST file";
         Error(ErrorStr.c_str());
       }
+      // Record that we didn't find the file.
+      F.InputFilesLoaded[ID-1] = InputFile::getNotFound();
       return InputFile();
     }
 
@@ -1725,11 +1729,26 @@ InputFile ASTReader::getInputFile(ModuleFile &F, unsigned ID, bool Complain) {
 #endif
          )) {
       if (Complain) {
-        Error(diag::err_fe_pch_file_modified, Filename, F.FileName);
-        if (Context.getLangOpts().Modules && !Diags.isDiagnosticInFlight()) {
-          Diag(diag::note_module_cache_path)
-            << PP.getHeaderSearchInfo().getModuleCachePath();
+        // Build a list of the PCH imports that got us here (in reverse).
+        SmallVector<ModuleFile *, 4> ImportStack(1, &F);
+        while (ImportStack.back()->ImportedBy.size() > 0)
+          ImportStack.push_back(ImportStack.back()->ImportedBy[0]);
+
+        // The top-level PCH is stale.
+        StringRef TopLevelPCHName(ImportStack.back()->FileName);
+        Error(diag::err_fe_pch_file_modified, Filename, TopLevelPCHName);
+
+        // Print the import stack.
+        if (ImportStack.size() > 1 && !Diags.isDiagnosticInFlight()) {
+          Diag(diag::note_pch_required_by)
+            << Filename << ImportStack[0]->FileName;
+          for (unsigned I = 1; I < ImportStack.size(); ++I)
+            Diag(diag::note_pch_required_by)
+              << ImportStack[I-1]->FileName << ImportStack[I]->FileName;
         }
+
+        if (!Diags.isDiagnosticInFlight())
+          Diag(diag::note_pch_rebuild_required) << TopLevelPCHName;
       }
 
       IsOutOfDate = true;
@@ -2237,9 +2256,9 @@ bool ASTReader::ReadASTBlock(ModuleFile &F) {
       break;
     }
 
-    case EXTERNAL_DEFINITIONS:
+    case EAGERLY_DESERIALIZED_DECLS:
       for (unsigned I = 0, N = Record.size(); I != N; ++I)
-        ExternalDefinitions.push_back(getGlobalDeclID(F, Record[I]));
+        EagerlyDeserializedDecls.push_back(getGlobalDeclID(F, Record[I]));
       break;
 
     case SPECIAL_TYPES:
@@ -4004,7 +4023,6 @@ bool ASTReader::ParseTargetOptions(const RecordData &Record,
   TargetOpts.Triple = ReadString(Record, Idx);
   TargetOpts.CPU = ReadString(Record, Idx);
   TargetOpts.ABI = ReadString(Record, Idx);
-  TargetOpts.CXXABI = ReadString(Record, Idx);
   TargetOpts.LinkerVersion = ReadString(Record, Idx);
   for (unsigned N = Record[Idx++]; N; --N) {
     TargetOpts.FeaturesAsWritten.push_back(ReadString(Record, Idx));
@@ -5059,8 +5077,8 @@ void TypeLocReader::VisitFunctionTypeLoc(FunctionTypeLoc TL) {
   TL.setLParenLoc(ReadSourceLocation(Record, Idx));
   TL.setRParenLoc(ReadSourceLocation(Record, Idx));
   TL.setLocalRangeEnd(ReadSourceLocation(Record, Idx));
-  for (unsigned i = 0, e = TL.getNumArgs(); i != e; ++i) {
-    TL.setArg(i, ReadDeclAs<ParmVarDecl>(Record, Idx));
+  for (unsigned i = 0, e = TL.getNumParams(); i != e; ++i) {
+    TL.setParam(i, ReadDeclAs<ParmVarDecl>(Record, Idx));
   }
 }
 void TypeLocReader::VisitFunctionProtoTypeLoc(FunctionProtoTypeLoc TL) {
@@ -5967,12 +5985,12 @@ void ASTReader::StartTranslationUnit(ASTConsumer *Consumer) {
   if (!Consumer)
     return;
 
-  for (unsigned I = 0, N = ExternalDefinitions.size(); I != N; ++I) {
+  for (unsigned I = 0, N = EagerlyDeserializedDecls.size(); I != N; ++I) {
     // Force deserialization of this decl, which will cause it to be queued for
     // passing to the consumer.
-    GetDecl(ExternalDefinitions[I]);
+    GetDecl(EagerlyDeserializedDecls[I]);
   }
-  ExternalDefinitions.clear();
+  EagerlyDeserializedDecls.clear();
 
   PassInterestingDeclsToConsumer();
 }

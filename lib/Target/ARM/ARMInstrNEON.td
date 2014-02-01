@@ -730,6 +730,8 @@ defm VLD1d32Twb : VLD1D3WB<{1,0,0,?}, "32">;
 defm VLD1d64Twb : VLD1D3WB<{1,1,0,?}, "64">;
 
 def VLD1d64TPseudo : VLDQQPseudo<IIC_VLD1x3>;
+def VLD1d64TPseudoWB_fixed : VLDQQWBfixedPseudo<IIC_VLD1x3>;
+def VLD1d64TPseudoWB_register : VLDQQWBregisterPseudo<IIC_VLD1x3>;
 
 // ...with 4 registers
 class VLD1D4<bits<4> op7_4, string Dt>
@@ -769,6 +771,8 @@ defm VLD1d32Qwb  : VLD1D4WB<{1,0,?,?}, "32">;
 defm VLD1d64Qwb  : VLD1D4WB<{1,1,?,?}, "64">;
 
 def VLD1d64QPseudo : VLDQQPseudo<IIC_VLD1x4>;
+def VLD1d64QPseudoWB_fixed : VLDQQWBfixedPseudo<IIC_VLD1x4>;
+def VLD1d64QPseudoWB_register : VLDQQWBregisterPseudo<IIC_VLD1x4>;
 
 //   VLD2     : Vector Load (multiple 2-element structures)
 class VLD2<bits<4> op11_8, bits<4> op7_4, string Dt, RegisterOperand VdTy,
@@ -1671,7 +1675,7 @@ defm VST1d32Twb : VST1D3WB<{1,0,0,?}, "32">;
 defm VST1d64Twb : VST1D3WB<{1,1,0,?}, "64">;
 
 def VST1d64TPseudo            : VSTQQPseudo<IIC_VST1x3>;
-def VST1d64TPseudoWB_fixed    : VSTQQWBPseudo<IIC_VST1x3u>;
+def VST1d64TPseudoWB_fixed    : VSTQQWBfixedPseudo<IIC_VST1x3u>;
 def VST1d64TPseudoWB_register : VSTQQWBPseudo<IIC_VST1x3u>;
 
 // ...with 4 registers
@@ -1714,7 +1718,7 @@ defm VST1d32Qwb : VST1D4WB<{1,0,?,?}, "32">;
 defm VST1d64Qwb : VST1D4WB<{1,1,?,?}, "64">;
 
 def VST1d64QPseudo            : VSTQQPseudo<IIC_VST1x4>;
-def VST1d64QPseudoWB_fixed    : VSTQQWBPseudo<IIC_VST1x4u>;
+def VST1d64QPseudoWB_fixed    : VSTQQWBfixedPseudo<IIC_VST1x4u>;
 def VST1d64QPseudoWB_register : VSTQQWBPseudo<IIC_VST1x4u>;
 
 //   VST2     : Vector Store (multiple 2-element structures)
@@ -5486,10 +5490,12 @@ def : Pat<(v4f32 (NEONvduplane (v4f32 QPR:$src), imm:$lane)),
                                    (DSubReg_i32_reg imm:$lane))),
                            (SubReg_i32_lane imm:$lane)))>;
 
-def  VDUPfdf : PseudoNeonI<(outs DPR:$dst), (ins SPR:$src), IIC_VMOVD, "",
-                    [(set DPR:$dst, (v2f32 (NEONvdup (f32 SPR:$src))))]>;
-def  VDUPfqf : PseudoNeonI<(outs QPR:$dst), (ins SPR:$src), IIC_VMOVD, "",
-                    [(set QPR:$dst, (v4f32 (NEONvdup (f32 SPR:$src))))]>;
+def : Pat<(v2f32 (NEONvdup (f32 SPR:$src))),
+          (v2f32 (VDUPLN32d (INSERT_SUBREG (v2f32 (IMPLICIT_DEF)),
+                             SPR:$src, ssub_0), (i32 0)))>;
+def : Pat<(v4f32 (NEONvdup (f32 SPR:$src))),
+          (v4f32 (VDUPLN32q (INSERT_SUBREG (v2f32 (IMPLICIT_DEF)),
+                             SPR:$src, ssub_0), (i32 0)))>;
 
 //   VMOVN    : Vector Narrowing Move
 defm VMOVN    : N2VN_HSD<0b11,0b11,0b10,0b00100,0,0, IIC_VMOVN,

@@ -3616,8 +3616,14 @@ class Foo {
                        EXCLUSIVE_TRYLOCK_FUNCTION(true, mu2_);
   bool readertrylock() SHARED_TRYLOCK_FUNCTION(true, mu1_)
                        SHARED_TRYLOCK_FUNCTION(true, mu2_);
+  void assertBoth() ASSERT_EXCLUSIVE_LOCK(mu1_)
+                    ASSERT_EXCLUSIVE_LOCK(mu2_);
+  void assertShared() ASSERT_SHARED_LOCK(mu1_)
+                      ASSERT_SHARED_LOCK(mu2_);
 
   void test();
+  void testAssert();
+  void testAssertShared();
 };
 
 
@@ -3674,6 +3680,21 @@ void Foo::test() {
     int zz = a + b;
     unlock();
   }
+}
+
+// Force duplication of attributes
+void Foo::assertBoth() { }
+void Foo::assertShared() { }
+
+void Foo::testAssert() {
+  assertBoth();
+  a = 0;
+  b = 0;
+}
+
+void Foo::testAssertShared() {
+  assertShared();
+  int zz = a + b;
 }
 
 
@@ -4314,3 +4335,15 @@ class A {
 
 }  // end namespace NonMemberCalleeICETest
 
+namespace {
+  int i PT_GUARDED_BY(sls_mu);  // expected-warning {{'pt_guarded_by' only applies to pointer types; type here is 'int'}}
+  int j PT_GUARDED_VAR;  // expected-warning {{'pt_guarded_var' only applies to pointer types; type here is 'int'}}
+
+  void test() {
+    int i PT_GUARDED_BY(sls_mu);  // expected-warning {{'pt_guarded_by' attribute only applies to fields and global variables}}
+    int j PT_GUARDED_VAR;  // expected-warning {{'pt_guarded_var' attribute only applies to fields and global variables}}
+
+    typedef int PT_GUARDED_BY(sls_mu) bad1;  // expected-warning {{'pt_guarded_by' attribute only applies to fields and global variables}}
+    typedef int PT_GUARDED_VAR bad2;  // expected-warning {{'pt_guarded_var' attribute only applies to fields and global variables}}
+  }
+}

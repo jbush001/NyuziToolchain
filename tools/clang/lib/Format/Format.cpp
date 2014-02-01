@@ -26,8 +26,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/YAMLTraits.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/YAMLTraits.h"
 #include <queue>
 #include <string>
 
@@ -39,6 +39,7 @@ template <> struct ScalarEnumerationTraits<FormatStyle::LanguageKind> {
   static void enumeration(IO &IO, FormatStyle::LanguageKind &Value) {
     IO.enumCase(Value, "Cpp", FormatStyle::LK_Cpp);
     IO.enumCase(Value, "JavaScript", FormatStyle::LK_JavaScript);
+    IO.enumCase(Value, "Proto", FormatStyle::LK_Proto);
   }
 };
 
@@ -163,6 +164,7 @@ template <> struct MappingTraits<FormatStyle> {
     IO.mapOptional("IndentCaseLabels", Style.IndentCaseLabels);
     IO.mapOptional("MaxEmptyLinesToKeep", Style.MaxEmptyLinesToKeep);
     IO.mapOptional("NamespaceIndentation", Style.NamespaceIndentation);
+    IO.mapOptional("ObjCSpaceAfterProperty", Style.ObjCSpaceAfterProperty);
     IO.mapOptional("ObjCSpaceBeforeProtocolList",
                    Style.ObjCSpaceBeforeProtocolList);
     IO.mapOptional("PenaltyBreakBeforeFirstCallParameter",
@@ -190,9 +192,12 @@ template <> struct MappingTraits<FormatStyle> {
     IO.mapOptional("SpaceInEmptyParentheses", Style.SpaceInEmptyParentheses);
     IO.mapOptional("SpacesInCStyleCastParentheses",
                    Style.SpacesInCStyleCastParentheses);
+    IO.mapOptional("SpacesInContainerLiterals",
+                   Style.SpacesInContainerLiterals);
     IO.mapOptional("SpaceBeforeAssignmentOperators",
                    Style.SpaceBeforeAssignmentOperators);
     IO.mapOptional("ContinuationIndentWidth", Style.ContinuationIndentWidth);
+    IO.mapOptional("CommentPragmas", Style.CommentPragmas);
 
     // For backward compatibility.
     if (!IO.outputting()) {
@@ -263,6 +268,7 @@ FormatStyle getLLVMStyle() {
   LLVMStyle.TabWidth = 8;
   LLVMStyle.MaxEmptyLinesToKeep = 1;
   LLVMStyle.NamespaceIndentation = FormatStyle::NI_None;
+  LLVMStyle.ObjCSpaceAfterProperty = false;
   LLVMStyle.ObjCSpaceBeforeProtocolList = true;
   LLVMStyle.PointerBindsToType = false;
   LLVMStyle.SpacesBeforeTrailingComments = 1;
@@ -270,11 +276,13 @@ FormatStyle getLLVMStyle() {
   LLVMStyle.UseTab = FormatStyle::UT_Never;
   LLVMStyle.SpacesInParentheses = false;
   LLVMStyle.SpaceInEmptyParentheses = false;
+  LLVMStyle.SpacesInContainerLiterals = true;
   LLVMStyle.SpacesInCStyleCastParentheses = false;
   LLVMStyle.SpaceBeforeParens = FormatStyle::SBPO_ControlStatements;
   LLVMStyle.SpaceBeforeAssignmentOperators = true;
   LLVMStyle.ContinuationIndentWidth = 4;
   LLVMStyle.SpacesInAngles = false;
+  LLVMStyle.CommentPragmas = "^ IWYU pragma:";
 
   LLVMStyle.PenaltyBreakComment = 300;
   LLVMStyle.PenaltyBreakFirstLessLess = 120;
@@ -299,6 +307,7 @@ FormatStyle getGoogleStyle() {
   GoogleStyle.DerivePointerBinding = true;
   GoogleStyle.IndentCaseLabels = true;
   GoogleStyle.IndentFunctionDeclarationAfterType = true;
+  GoogleStyle.ObjCSpaceAfterProperty = false;
   GoogleStyle.ObjCSpaceBeforeProtocolList = false;
   GoogleStyle.PointerBindsToType = true;
   GoogleStyle.SpacesBeforeTrailingComments = 2;
@@ -314,10 +323,16 @@ FormatStyle getGoogleJSStyle() {
   FormatStyle GoogleJSStyle = getGoogleStyle();
   GoogleJSStyle.Language = FormatStyle::LK_JavaScript;
   GoogleJSStyle.BreakBeforeTernaryOperators = false;
-  // FIXME: Currently unimplemented:
-  // var arr = [1, 2, 3];  // No space after [ or before ].
-  // var obj = {a: 1, b: 2, c: 3};  // No space after ':'.
+  GoogleJSStyle.MaxEmptyLinesToKeep = 2;
+  GoogleJSStyle.SpacesInContainerLiterals = false;
   return GoogleJSStyle;
+}
+
+FormatStyle getGoogleProtoStyle() {
+  FormatStyle GoogleProtoStyle = getGoogleStyle();
+  GoogleProtoStyle.Language = FormatStyle::LK_Proto;
+  GoogleProtoStyle.AllowShortFunctionsOnASingleLine = false;
+  return GoogleProtoStyle;
 }
 
 FormatStyle getChromiumStyle() {
@@ -337,6 +352,7 @@ FormatStyle getMozillaStyle() {
   MozillaStyle.ConstructorInitializerAllOnOneLineOrOnePerLine = true;
   MozillaStyle.DerivePointerBinding = true;
   MozillaStyle.IndentCaseLabels = true;
+  MozillaStyle.ObjCSpaceAfterProperty = true;
   MozillaStyle.ObjCSpaceBeforeProtocolList = false;
   MozillaStyle.PenaltyReturnTypeOnItsOwnLine = 200;
   MozillaStyle.PointerBindsToType = true;
@@ -353,6 +369,7 @@ FormatStyle getWebKitStyle() {
   Style.ColumnLimit = 0;
   Style.IndentWidth = 4;
   Style.NamespaceIndentation = FormatStyle::NI_Inner;
+  Style.ObjCSpaceAfterProperty = true;
   Style.PointerBindsToType = true;
   return Style;
 }
@@ -376,8 +393,16 @@ bool getPredefinedStyle(StringRef Name, FormatStyle::LanguageKind Language,
   } else if (Name.equals_lower("mozilla")) {
     *Style = getMozillaStyle();
   } else if (Name.equals_lower("google")) {
-    *Style = Language == FormatStyle::LK_JavaScript ? getGoogleJSStyle()
-                                                    : getGoogleStyle();
+    switch (Language) {
+    case FormatStyle::LK_JavaScript:
+      *Style = getGoogleJSStyle();
+      break;
+    case FormatStyle::LK_Proto:
+      *Style = getGoogleProtoStyle();
+      break;
+    default:
+      *Style = getGoogleStyle();
+    }
   } else if (Name.equals_lower("webkit")) {
     *Style = getWebKitStyle();
   } else if (Name.equals_lower("gnu")) {
@@ -480,7 +505,7 @@ public:
                            SmallVectorImpl<AnnotatedLine *>::const_iterator I,
                            SmallVectorImpl<AnnotatedLine *>::const_iterator E) {
     // We can never merge stuff if there are trailing line comments.
-    AnnotatedLine *TheLine = *I;
+    const AnnotatedLine *TheLine = *I;
     if (TheLine->Last->Type == TT_LineComment)
       return 0;
 
@@ -498,7 +523,8 @@ public:
     if (I + 1 == E || I[1]->Type == LT_Invalid)
       return 0;
 
-    if (TheLine->Last->Type == TT_FunctionLBrace) {
+    if (TheLine->Last->Type == TT_FunctionLBrace &&
+        TheLine->First != TheLine->Last) {
       return Style.AllowShortFunctionsOnASingleLine
                  ? tryMergeSimpleBlock(I, E, Limit)
                  : 0;
@@ -510,9 +536,11 @@ public:
     }
     if (I[1]->First->Type == TT_FunctionLBrace &&
         Style.BreakBeforeBraces != FormatStyle::BS_Attach) {
-      // Reduce the column limit by the number of spaces we need to insert
-      // around braces.
-      Limit = Limit > 3 ? Limit - 3 : 0;
+      // Check for Limit <= 2 to account for the " {".
+      if (Limit <= 2 || (Style.ColumnLimit == 0 && containsMustBreak(TheLine)))
+        return 0;
+      Limit -= 2;
+
       unsigned MergedLines = 0;
       if (Style.AllowShortFunctionsOnASingleLine) {
         MergedLines = tryMergeSimpleBlock(I + 1, E, Limit);
@@ -639,6 +667,14 @@ private:
   bool nextTwoLinesFitInto(SmallVectorImpl<AnnotatedLine *>::const_iterator I,
                            unsigned Limit) {
     return 1 + I[1]->Last->TotalLength + 1 + I[2]->Last->TotalLength <= Limit;
+  }
+
+  bool containsMustBreak(const AnnotatedLine *Line) {
+    for (const FormatToken *Tok = Line->First; Tok; Tok = Tok->Next) {
+      if (Tok->MustBreakBefore)
+        return true;
+    }
+    return false;
   }
 
   const FormatStyle &Style;
@@ -1322,10 +1358,14 @@ private:
                               Tok.Tok.getLength());
     // For formatting, treat unterminated string literals like normal string
     // literals.
-    if (Tok.is(tok::unknown) && !Tok.TokenText.empty() &&
-        Tok.TokenText[0] == '"') {
-      Tok.Tok.setKind(tok::string_literal);
-      Tok.IsUnterminatedLiteral = true;
+    if (Tok.is(tok::unknown)) {
+      if (!Tok.TokenText.empty() && Tok.TokenText[0] == '"') {
+        Tok.Tok.setKind(tok::string_literal);
+        Tok.IsUnterminatedLiteral = true;
+      } else if (Style.Language == FormatStyle::LK_JavaScript &&
+                 Tok.TokenText == "''") {
+        Tok.Tok.setKind(tok::char_constant);
+      }
     }
   }
 };
@@ -1336,6 +1376,8 @@ static StringRef getLanguageName(FormatStyle::LanguageKind Language) {
     return "C++";
   case FormatStyle::LK_JavaScript:
     return "JavaScript";
+  case FormatStyle::LK_Proto:
+    return "Proto";
   default:
     return "Unknown";
   }
@@ -1684,6 +1726,9 @@ const char *StyleOptionHelpDescription =
 static FormatStyle::LanguageKind getLanguageByFileName(StringRef FileName) {
   if (FileName.endswith_lower(".js")) {
     return FormatStyle::LK_JavaScript;
+  } else if (FileName.endswith_lower(".proto") ||
+             FileName.endswith_lower(".protodevel")) {
+    return FormatStyle::LK_Proto;
   }
   return FormatStyle::LK_Cpp;
 }

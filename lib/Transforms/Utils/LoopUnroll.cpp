@@ -19,17 +19,18 @@
 #define DEBUG_TYPE "loop-unroll"
 #include "llvm/Transforms/Utils/UnrollLoop.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/Analysis/Dominators.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/LoopIterator.h"
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/Local.h"
+#include "llvm/Transforms/Utils/LoopUtils.h"
 #include "llvm/Transforms/Utils/SimplifyIndVar.h"
 using namespace llvm;
 
@@ -138,10 +139,10 @@ static BasicBlock *FoldBlockIntoPredecessor(BasicBlock *BB, LoopInfo* LI,
 /// removed from the LoopPassManager as well. LPM can also be NULL.
 ///
 /// This utility preserves LoopInfo. If DominatorTree or ScalarEvolution are
-/// available it must also preserve those analyses.
+/// available from the Pass it must also preserve those analyses.
 bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount,
                       bool AllowRuntime, unsigned TripMultiple,
-                      LoopInfo *LI, LPPassManager *LPM) {
+                      LoopInfo *LI, Pass *PP, LPPassManager *LPM) {
   BasicBlock *Preheader = L->getLoopPreheader();
   if (!Preheader) {
     DEBUG(dbgs() << "  Can't unroll; loop preheader-insertion failed.\n");
@@ -209,8 +210,8 @@ bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount,
 
   // Notify ScalarEvolution that the loop will be substantially changed,
   // if not outright eliminated.
-  if (LPM) {
-    ScalarEvolution *SE = LPM->getAnalysisIfAvailable<ScalarEvolution>();
+  if (PP) {
+    ScalarEvolution *SE = PP->getAnalysisIfAvailable<ScalarEvolution>();
     if (SE)
       SE->forgetLoop(L);
   }
@@ -410,14 +411,18 @@ bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount,
     }
   }
 
-  if (LPM) {
+  DominatorTree *DT = 0;
+  if (PP) {
     // FIXME: Reconstruct dom info, because it is not preserved properly.
     // Incrementally updating domtree after loop unrolling would be easy.
-    if (DominatorTree *DT = LPM->getAnalysisIfAvailable<DominatorTree>())
-      DT->runOnFunction(*L->getHeader()->getParent());
+    if (DominatorTreeWrapperPass *DTWP =
+            PP->getAnalysisIfAvailable<DominatorTreeWrapperPass>()) {
+      DT = &DTWP->getDomTree();
+      DT->recalculate(*L->getHeader()->getParent());
+    }
 
     // Simplify any new induction variables in the partially unrolled loop.
-    ScalarEvolution *SE = LPM->getAnalysisIfAvailable<ScalarEvolution>();
+    ScalarEvolution *SE = PP->getAnalysisIfAvailable<ScalarEvolution>();
     if (SE && !CompletelyUnroll) {
       SmallVector<WeakVH, 16> DeadInsts;
       simplifyLoopIVs(L, SE, LPM, DeadInsts);
@@ -450,9 +455,25 @@ bool llvm::UnrollLoop(Loop *L, unsigned Count, unsigned TripCount,
 
   NumCompletelyUnrolled += CompletelyUnroll;
   ++NumUnrolled;
+
+  Loop *OuterL = L->getParentLoop();
   // Remove the loop from the LoopPassManager if it's completely removed.
   if (CompletelyUnroll && LPM != NULL)
     LPM->deleteLoopFromQueue(L);
+
+  // If we have a pass and a DominatorTree we should re-simplify impacted loops
+  // to ensure subsequent analyses can rely on this form. We want to simplify
+  // at least one layer outside of the loop that was unrolled so that any
+  // changes to the parent loop exposed by the unrolling are considered.
+  if (PP && DT) {
+    if (!OuterL && !CompletelyUnroll)
+      OuterL = L;
+    if (OuterL) {
+      ScalarEvolution *SE = PP->getAnalysisIfAvailable<ScalarEvolution>();
+      simplifyLoop(OuterL, DT, LI, PP, /*AliasAnalysis*/ 0, SE);
+      formLCSSARecursively(*OuterL, *DT, SE);
+    }
+  }
 
   return true;
 }

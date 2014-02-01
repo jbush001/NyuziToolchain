@@ -1479,7 +1479,7 @@ TEST(HasAnyParameter, DoesNotMatchThisPointer) {
           recordDecl(hasName("X"))))))));
 }
 
-TEST(HasName, MatchesParameterVariableDeclartions) {
+TEST(HasName, MatchesParameterVariableDeclarations) {
   EXPECT_TRUE(matches("class Y {}; class X { void x(int x) {} };",
       methodDecl(hasAnyParameter(hasName("x")))));
   EXPECT_TRUE(notMatches("class Y {}; class X { void x(int) {} };",
@@ -2608,13 +2608,13 @@ TEST(ReinterpretCast, DoesNotMatchOtherCasts) {
 }
 
 TEST(FunctionalCast, MatchesSimpleCase) {
-  std::string foo_class = "class Foo { public: Foo(char*); };";
+  std::string foo_class = "class Foo { public: Foo(const char*); };";
   EXPECT_TRUE(matches(foo_class + "void r() { Foo f = Foo(\"hello world\"); }",
                       functionalCastExpr()));
 }
 
 TEST(FunctionalCast, DoesNotMatchOtherCasts) {
-  std::string FooClass = "class Foo { public: Foo(char*); };";
+  std::string FooClass = "class Foo { public: Foo(const char*); };";
   EXPECT_TRUE(
       notMatches(FooClass + "void r() { Foo f = (Foo) \"hello world\"; }",
                  functionalCastExpr()));

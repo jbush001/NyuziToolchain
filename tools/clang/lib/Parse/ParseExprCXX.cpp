@@ -10,12 +10,13 @@
 // This file implements the Expression parsing implementation for C++.
 //
 //===----------------------------------------------------------------------===//
+#include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclTemplate.h"
-#include "clang/Parse/Parser.h"
 #include "RAIIObjectsForParser.h"
 #include "clang/Basic/PrettyStackTrace.h"
 #include "clang/Lex/LiteralSupport.h"
 #include "clang/Parse/ParseDiagnostic.h"
+#include "clang/Parse/Parser.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Scope.h"
@@ -26,7 +27,9 @@ using namespace clang;
 
 static int SelectDigraphErrorMessage(tok::TokenKind Kind) {
   switch (Kind) {
-    case tok::kw_template:         return 0;
+    // template name
+    case tok::unknown:             return 0;
+    // casts
     case tok::kw_const_cast:       return 1;
     case tok::kw_dynamic_cast:     return 2;
     case tok::kw_reinterpret_cast: return 3;
@@ -93,7 +96,7 @@ void Parser::CheckForTemplateAndDigraph(Token &Next, ParsedType ObjectType,
                               Template, MemberOfUnknownSpecialization))
     return;
 
-  FixDigraph(*this, PP, Next, SecondToken, tok::kw_template,
+  FixDigraph(*this, PP, Next, SecondToken, tok::unknown,
              /*AtDigraph*/false);
 }
 
@@ -1008,10 +1011,8 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
 
     // Parse 'mutable'[opt].
     SourceLocation MutableLoc;
-    if (Tok.is(tok::kw_mutable)) {
-      MutableLoc = ConsumeToken();
+    if (TryConsumeToken(tok::kw_mutable, MutableLoc))
       DeclEndLoc = MutableLoc;
-    }
 
     // Parse exception-specification[opt].
     ExceptionSpecificationType ESpecType = EST_None;
@@ -1186,8 +1187,8 @@ ExprResult Parser::ParseCXXCasts() {
 
   SourceLocation RAngleBracketLoc = Tok.getLocation();
 
-  if (ExpectAndConsume(tok::greater, diag::err_expected_greater))
-    return ExprError(Diag(LAngleBracketLoc, diag::note_matching) << "<");
+  if (ExpectAndConsume(tok::greater))
+    return ExprError(Diag(LAngleBracketLoc, diag::note_matching) << tok::less);
 
   SourceLocation LParenLoc, RParenLoc;
   BalancedDelimiterTracker T(*this, tok::l_paren);
@@ -1671,6 +1672,8 @@ void Parser::ParseCXXSimpleTypeSpecifier(DeclSpec &DS) {
   const char *PrevSpec;
   unsigned DiagID;
   SourceLocation Loc = Tok.getLocation();
+  const clang::PrintingPolicy &Policy =
+      Actions.getASTContext().getPrintingPolicy();
 
   switch (Tok.getKind()) {
   case tok::identifier:   // foo::bar
@@ -1683,7 +1686,7 @@ void Parser::ParseCXXSimpleTypeSpecifier(DeclSpec &DS) {
   case tok::annot_typename: {
     if (getTypeAnnotation(Tok))
       DS.SetTypeSpecType(DeclSpec::TST_typename, Loc, PrevSpec, DiagID,
-                         getTypeAnnotation(Tok));
+                         getTypeAnnotation(Tok), Policy);
     else
       DS.SetTypeSpecError();
     
@@ -1697,19 +1700,19 @@ void Parser::ParseCXXSimpleTypeSpecifier(DeclSpec &DS) {
     if (Tok.is(tok::less) && getLangOpts().ObjC1)
       ParseObjCProtocolQualifiers(DS);
     
-    DS.Finish(Diags, PP);
+    DS.Finish(Diags, PP, Policy);
     return;
   }
 
   // builtin types
   case tok::kw_short:
-    DS.SetTypeSpecWidth(DeclSpec::TSW_short, Loc, PrevSpec, DiagID);
+    DS.SetTypeSpecWidth(DeclSpec::TSW_short, Loc, PrevSpec, DiagID, Policy);
     break;
   case tok::kw_long:
-    DS.SetTypeSpecWidth(DeclSpec::TSW_long, Loc, PrevSpec, DiagID);
+    DS.SetTypeSpecWidth(DeclSpec::TSW_long, Loc, PrevSpec, DiagID, Policy);
     break;
   case tok::kw___int64:
-    DS.SetTypeSpecWidth(DeclSpec::TSW_longlong, Loc, PrevSpec, DiagID);
+    DS.SetTypeSpecWidth(DeclSpec::TSW_longlong, Loc, PrevSpec, DiagID, Policy);
     break;
   case tok::kw_signed:
     DS.SetTypeSpecSign(DeclSpec::TSS_signed, Loc, PrevSpec, DiagID);
@@ -1718,47 +1721,47 @@ void Parser::ParseCXXSimpleTypeSpecifier(DeclSpec &DS) {
     DS.SetTypeSpecSign(DeclSpec::TSS_unsigned, Loc, PrevSpec, DiagID);
     break;
   case tok::kw_void:
-    DS.SetTypeSpecType(DeclSpec::TST_void, Loc, PrevSpec, DiagID);
+    DS.SetTypeSpecType(DeclSpec::TST_void, Loc, PrevSpec, DiagID, Policy);
     break;
   case tok::kw_char:
-    DS.SetTypeSpecType(DeclSpec::TST_char, Loc, PrevSpec, DiagID);
+    DS.SetTypeSpecType(DeclSpec::TST_char, Loc, PrevSpec, DiagID, Policy);
     break;
   case tok::kw_int:
-    DS.SetTypeSpecType(DeclSpec::TST_int, Loc, PrevSpec, DiagID);
+    DS.SetTypeSpecType(DeclSpec::TST_int, Loc, PrevSpec, DiagID, Policy);
     break;
   case tok::kw___int128:
-    DS.SetTypeSpecType(DeclSpec::TST_int128, Loc, PrevSpec, DiagID);
+    DS.SetTypeSpecType(DeclSpec::TST_int128, Loc, PrevSpec, DiagID, Policy);
     break;
   case tok::kw_half:
-    DS.SetTypeSpecType(DeclSpec::TST_half, Loc, PrevSpec, DiagID);
+    DS.SetTypeSpecType(DeclSpec::TST_half, Loc, PrevSpec, DiagID, Policy);
     break;
   case tok::kw_float:
-    DS.SetTypeSpecType(DeclSpec::TST_float, Loc, PrevSpec, DiagID);
+    DS.SetTypeSpecType(DeclSpec::TST_float, Loc, PrevSpec, DiagID, Policy);
     break;
   case tok::kw_double:
-    DS.SetTypeSpecType(DeclSpec::TST_double, Loc, PrevSpec, DiagID);
+    DS.SetTypeSpecType(DeclSpec::TST_double, Loc, PrevSpec, DiagID, Policy);
     break;
   case tok::kw_wchar_t:
-    DS.SetTypeSpecType(DeclSpec::TST_wchar, Loc, PrevSpec, DiagID);
+    DS.SetTypeSpecType(DeclSpec::TST_wchar, Loc, PrevSpec, DiagID, Policy);
     break;
   case tok::kw_char16_t:
-    DS.SetTypeSpecType(DeclSpec::TST_char16, Loc, PrevSpec, DiagID);
+    DS.SetTypeSpecType(DeclSpec::TST_char16, Loc, PrevSpec, DiagID, Policy);
     break;
   case tok::kw_char32_t:
-    DS.SetTypeSpecType(DeclSpec::TST_char32, Loc, PrevSpec, DiagID);
+    DS.SetTypeSpecType(DeclSpec::TST_char32, Loc, PrevSpec, DiagID, Policy);
     break;
   case tok::kw_bool:
-    DS.SetTypeSpecType(DeclSpec::TST_bool, Loc, PrevSpec, DiagID);
+    DS.SetTypeSpecType(DeclSpec::TST_bool, Loc, PrevSpec, DiagID, Policy);
     break;
   case tok::annot_decltype:
   case tok::kw_decltype:
     DS.SetRangeEnd(ParseDecltypeSpecifier(DS));
-    return DS.Finish(Diags, PP);
+    return DS.Finish(Diags, PP, Policy);
 
   // GNU typeof support.
   case tok::kw_typeof:
     ParseTypeofSpecifier(DS);
-    DS.Finish(Diags, PP);
+    DS.Finish(Diags, PP, Policy);
     return;
   }
   if (Tok.is(tok::annot_typename))
@@ -1766,7 +1769,7 @@ void Parser::ParseCXXSimpleTypeSpecifier(DeclSpec &DS) {
   else
     DS.SetRangeEnd(Tok.getLocation());
   ConsumeToken();
-  DS.Finish(Diags, PP);
+  DS.Finish(Diags, PP, Policy);
 }
 
 /// ParseCXXTypeSpecifierSeq - Parse a C++ type-specifier-seq (C++
@@ -1782,7 +1785,7 @@ void Parser::ParseCXXSimpleTypeSpecifier(DeclSpec &DS) {
 ///
 bool Parser::ParseCXXTypeSpecifierSeq(DeclSpec &DS) {
   ParseSpecifierQualifierList(DS, AS_none, DSC_type_specifier);
-  DS.Finish(Diags, PP);
+  DS.Finish(Diags, PP, Actions.getASTContext().getPrintingPolicy());
   return false;
 }
 
@@ -2163,7 +2166,7 @@ bool Parser::ParseUnqualifiedIdOperator(CXXScopeSpec &SS, bool EnteringContext,
       SuffixLoc = ConsumeToken();
       TokLocs.push_back(SuffixLoc);
     } else {
-      Diag(Tok.getLocation(), diag::err_expected_ident);
+      Diag(Tok.getLocation(), diag::err_expected) << tok::identifier;
       return true;
     }
 
@@ -2684,18 +2687,11 @@ Parser::ParseCXXDeleteExpression(bool UseGlobal, SourceLocation Start) {
   return Actions.ActOnCXXDelete(Start, UseGlobal, ArrayDelete, Operand.take());
 }
 
-static UnaryTypeTrait UnaryTypeTraitFromTokKind(tok::TokenKind kind) {
-  switch(kind) {
-  default: llvm_unreachable("Not a known unary type trait.");
-#define TYPE_TRAIT_1(Spelling, Name, Key) \
-  case tok::kw_ ## Spelling: return UTT_ ## Name;
-#include "clang/Basic/TokenKinds.def"
-  }
-}
-
 static TypeTrait TypeTraitFromTokKind(tok::TokenKind kind) {
   switch (kind) {
   default: llvm_unreachable("Not a known type trait");
+#define TYPE_TRAIT_1(Spelling, Name, Key) \
+case tok::kw_ ## Spelling: return UTT_ ## Name;
 #define TYPE_TRAIT_2(Spelling, Name, Key) \
 case tok::kw_ ## Spelling: return BTT_ ## Name;
 #include "clang/Basic/TokenKinds.def"
@@ -2747,7 +2743,7 @@ ExprResult Parser::ParseTypeTrait() {
   SourceLocation Loc = ConsumeToken();
   
   BalancedDelimiterTracker Parens(*this, tok::l_paren);
-  if (Parens.expectAndConsume(diag::err_expected_lparen))
+  if (Parens.expectAndConsume())
     return ExprError();
 
   SmallVector<ParsedType, 2> Args;
@@ -2789,10 +2785,6 @@ ExprResult Parser::ParseTypeTrait() {
     return ExprError();
   }
 
-  if (Arity == 1)
-    return Actions.ActOnUnaryTypeTrait(UnaryTypeTraitFromTokKind(Kind), Loc,
-                                       Args[0], EndLoc);
-
   return Actions.ActOnTypeTrait(TypeTraitFromTokKind(Kind), Loc, Args, EndLoc);
 }
 
@@ -2808,7 +2800,7 @@ ExprResult Parser::ParseArrayTypeTrait() {
   SourceLocation Loc = ConsumeToken();
 
   BalancedDelimiterTracker T(*this, tok::l_paren);
-  if (T.expectAndConsume(diag::err_expected_lparen))
+  if (T.expectAndConsume())
     return ExprError();
 
   TypeResult Ty = ParseTypeName();
@@ -2825,7 +2817,7 @@ ExprResult Parser::ParseArrayTypeTrait() {
                                        T.getCloseLocation());
   }
   case ATT_ArrayExtent: {
-    if (ExpectAndConsume(tok::comma, diag::err_expected_comma)) {
+    if (ExpectAndConsume(tok::comma)) {
       SkipUntil(tok::r_paren, StopAtSemi);
       return ExprError();
     }
@@ -2851,7 +2843,7 @@ ExprResult Parser::ParseExpressionTrait() {
   SourceLocation Loc = ConsumeToken();
 
   BalancedDelimiterTracker T(*this, tok::l_paren);
-  if (T.expectAndConsume(diag::err_expected_lparen))
+  if (T.expectAndConsume())
     return ExprError();
 
   ExprResult Expr = ParseExpression();

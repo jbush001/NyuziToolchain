@@ -19,6 +19,7 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/Triple.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Module.h"
@@ -152,6 +153,15 @@ DataLayout::InvalidPointerElem = { 0U, 0U, 0U, ~0U };
 //                       DataLayout Class Implementation
 //===----------------------------------------------------------------------===//
 
+const char *DataLayout::getManglingComponent(const Triple &T) {
+  if (T.isOSBinFormatMachO())
+    return "-m:o";
+  if (T.isOSBinFormatELF() || T.isArch64Bit())
+    return "-m:e";
+  assert(T.isOSBinFormatCOFF());
+  return "-m:w";
+}
+
 static const LayoutAlignElem DefaultAlignments[] = {
   { INTEGER_ALIGN, 1, 1, 1 },    // i1
   { INTEGER_ALIGN, 8, 1, 1 },    // i8
@@ -173,6 +183,7 @@ void DataLayout::init(StringRef Desc) {
   LayoutMap = 0;
   LittleEndian = false;
   StackNaturalAlign = 0;
+  ManglingMode = MM_None;
 
   // Default alignments
   for (int I = 0, N = array_lengthof(DefaultAlignments); I < N; ++I) {
@@ -194,11 +205,12 @@ static std::pair<StringRef, StringRef> split(StringRef Str, char Separator) {
   return Split;
 }
 
-/// Get an unsinged integer, including error checks.
+/// Get an unsigned integer, including error checks.
 static unsigned getInt(StringRef R) {
   unsigned Result;
   bool error = R.getAsInteger(10, Result); (void)error;
-  assert(!error && "not a number, or does not fit in an unsigned int");
+  if (error)
+    report_fatal_error("not a number, or does not fit in an unsigned int");
   return Result;
 }
 
@@ -225,6 +237,10 @@ void DataLayout::parseSpecifier(StringRef Desc) {
     Tok = Tok.substr(1);
 
     switch (Specifier) {
+    case 's':
+      // Ignored for backward compatibility.
+      // FIXME: remove this on LLVM 4.0.
+      break;
     case 'E':
       LittleEndian = false;
       break;
@@ -259,8 +275,7 @@ void DataLayout::parseSpecifier(StringRef Desc) {
     case 'i':
     case 'v':
     case 'f':
-    case 'a':
-    case 's': {
+    case 'a': {
       AlignTypeEnum AlignType;
       switch (Specifier) {
       default:
@@ -268,11 +283,13 @@ void DataLayout::parseSpecifier(StringRef Desc) {
       case 'v': AlignType = VECTOR_ALIGN; break;
       case 'f': AlignType = FLOAT_ALIGN; break;
       case 'a': AlignType = AGGREGATE_ALIGN; break;
-      case 's': AlignType = STACK_ALIGN; break;
       }
 
       // Bit size.
       unsigned Size = Tok.empty() ? 0 : getInt(Tok);
+
+      assert((AlignType != AGGREGATE_ALIGN || Size == 0) &&
+             "These specifications don't have a size");
 
       // ABI alignment.
       Split = split(Rest, ':');
@@ -303,6 +320,26 @@ void DataLayout::parseSpecifier(StringRef Desc) {
       StackNaturalAlign = inBytes(getInt(Tok));
       break;
     }
+    case 'm':
+      assert(Tok.empty());
+      assert(Rest.size() == 1);
+      switch(Rest[0]) {
+      default:
+        llvm_unreachable("Unknown mangling in datalayout string");
+      case 'e':
+        ManglingMode = MM_ELF;
+        break;
+      case 'o':
+        ManglingMode = MM_MachO;
+        break;
+      case 'm':
+        ManglingMode = MM_Mips;
+        break;
+      case 'w':
+        ManglingMode = MM_WINCOFF;
+        break;
+      }
+      break;
     default:
       llvm_unreachable("Unknown specifier in datalayout string");
       break;
@@ -479,6 +516,24 @@ std::string DataLayout::getStringRepresentation() const {
   raw_string_ostream OS(Result);
 
   OS << (LittleEndian ? "e" : "E");
+
+  switch (ManglingMode) {
+  case MM_None:
+    break;
+  case MM_ELF:
+    OS << "-m:e";
+    break;
+  case MM_MachO:
+    OS << "-m:o";
+    break;
+  case MM_WINCOFF:
+    OS << "-m:w";
+    break;
+  case MM_Mips:
+    OS << "-m:m";
+    break;
+  }
+
   SmallVector<unsigned, 8> addrSpaces;
   // Lets get all of the known address spaces and sort them
   // into increasing order so that we can emit the string
@@ -615,14 +670,6 @@ unsigned DataLayout::getABITypeAlignment(Type *Ty) const {
 /// an integer type of the specified bitwidth.
 unsigned DataLayout::getABIIntegerTypeAlignment(unsigned BitWidth) const {
   return getAlignmentInfo(INTEGER_ALIGN, BitWidth, true, 0);
-}
-
-unsigned DataLayout::getCallFrameTypeAlignment(Type *Ty) const {
-  for (unsigned i = 0, e = Alignments.size(); i != e; ++i)
-    if (Alignments[i].AlignType == STACK_ALIGN)
-      return Alignments[i].ABIAlign;
-
-  return getABITypeAlignment(Ty);
 }
 
 unsigned DataLayout::getPrefTypeAlignment(Type *Ty) const {

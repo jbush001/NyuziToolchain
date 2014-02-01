@@ -382,6 +382,8 @@ void RuntimeDyldMachO::processRelocationRef(unsigned SectionID,
     uint64_t Addr;
     Sec.getAddress(Addr);
     Value.Addend = Addend - Addr;
+    if (IsPCRel)
+      Value.Addend += Offset + NumBytes;
   }
 
   if (Arch == Triple::x86_64 && (RelType == MachO::X86_64_RELOC_GOT ||
@@ -453,6 +455,11 @@ bool RuntimeDyldMachO::isCompatibleFormat(
   if (Magic == "\xFE\xED\xFA\xCF") return true;
   if (Magic == "\xCF\xFA\xED\xFE") return true;
   return false;
+}
+
+bool RuntimeDyldMachO::isCompatibleFile(
+        const object::ObjectFile *Obj) const {
+  return Obj->isMachO();
 }
 
 } // end namespace llvm

@@ -23,20 +23,20 @@
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/Analysis/AliasAnalysis.h"
-#include "llvm/Analysis/Dominators.h"
+#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
-#include "llvm/Analysis/Verifier.h"
-#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/Dominators.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
-#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -1776,7 +1776,7 @@ struct SLPVectorizer : public FunctionPass {
     TTI = &getAnalysis<TargetTransformInfo>();
     AA = &getAnalysis<AliasAnalysis>();
     LI = &getAnalysis<LoopInfo>();
-    DT = &getAnalysis<DominatorTree>();
+    DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
 
     StoreRefs.clear();
     bool Changed = false;
@@ -1831,9 +1831,9 @@ struct SLPVectorizer : public FunctionPass {
     AU.addRequired<AliasAnalysis>();
     AU.addRequired<TargetTransformInfo>();
     AU.addRequired<LoopInfo>();
-    AU.addRequired<DominatorTree>();
+    AU.addRequired<DominatorTreeWrapperPass>();
     AU.addPreserved<LoopInfo>();
-    AU.addPreserved<DominatorTree>();
+    AU.addPreserved<DominatorTreeWrapperPass>();
     AU.setPreservesCFG();
   }
 
@@ -1871,7 +1871,7 @@ private:
   StoreListMap StoreRefs;
 };
 
-/// \brief Check that the Values in the slice in VL array are still existant in
+/// \brief Check that the Values in the slice in VL array are still existent in
 /// the WeakVH array.
 /// Vectorization of part of the VL array may cause later values in the VL array
 /// to become invalid. We track when this has happened in the WeakVH array.
@@ -2516,7 +2516,7 @@ bool SLPVectorizer::vectorizeChainsInBlock(BasicBlock *BB, BoUpSLP &R) {
         break;
       }
 
-      // Start over at the next instruction of a differnt type (or the end).
+      // Start over at the next instruction of a different type (or the end).
       IncIt = SameTypeIt;
     }
   }

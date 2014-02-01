@@ -20,6 +20,10 @@
 
 namespace llvm {
 
+namespace object {
+  class ObjectFile;
+}
+
 class ObjectImageCommon : public ObjectImage {
   ObjectImageCommon(); // = delete
   ObjectImageCommon(const ObjectImageCommon &other); // = delete
@@ -40,8 +44,11 @@ public:
   ObjectImageCommon(ObjectBuffer* Input)
   : ObjectImage(Input) // saves Input as Buffer and takes ownership
   {
-    ObjFile = object::ObjectFile::createObjectFile(Buffer->getMemBuffer());
+    ObjFile =
+        object::ObjectFile::createObjectFile(Buffer->getMemBuffer()).get();
   }
+  ObjectImageCommon(object::ObjectFile* Input)
+  : ObjectImage(NULL), ObjFile(Input)  {}
   virtual ~ObjectImageCommon() { delete ObjFile; }
 
   virtual object::symbol_iterator begin_symbols() const

@@ -18,6 +18,7 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/Mangler.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
@@ -26,7 +27,6 @@
 #include "llvm/Support/Dwarf.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/Mangler.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
 using namespace llvm;
@@ -41,6 +41,7 @@ using namespace llvm;
 void TargetLoweringObjectFile::Initialize(MCContext &ctx,
                                           const TargetMachine &TM) {
   Ctx = &ctx;
+  DL = TM.getDataLayout();
   InitMCObjectFileInfo(TM.getTargetTriple(),
                        TM.getRelocationModel(), TM.getCodeModel(), *Ctx);
 }
@@ -110,13 +111,9 @@ MCSymbol *TargetLoweringObjectFile::getSymbol(Mangler &M,
 MCSymbol *TargetLoweringObjectFile::getSymbolWithGlobalValueBase(
     Mangler &M, const GlobalValue *GV, StringRef Suffix) const {
   assert(!Suffix.empty());
-  assert(!GV->hasPrivateLinkage());
-  assert(!GV->hasLinkerPrivateLinkage());
-  assert(!GV->hasLinkerPrivateWeakLinkage());
 
-  const MCAsmInfo *MAI = Ctx->getAsmInfo();
   SmallString<60> NameStr;
-  NameStr += MAI->getPrivateGlobalPrefix();
+  NameStr += DL->getPrivateGlobalPrefix();
   M.getNameWithPrefix(NameStr, GV);
   NameStr.append(Suffix.begin(), Suffix.end());
   return Ctx->GetOrCreateSymbol(NameStr.str());

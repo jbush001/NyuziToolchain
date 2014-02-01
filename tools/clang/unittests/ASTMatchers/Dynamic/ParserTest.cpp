@@ -7,15 +7,14 @@
 //
 //===-------------------------------------------------------------------===//
 
-#include <string>
-#include <vector>
-
 #include "../ASTMatchersTest.h"
 #include "clang/ASTMatchers/Dynamic/Parser.h"
 #include "clang/ASTMatchers/Dynamic/Registry.h"
-#include "gtest/gtest.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringMap.h"
+#include "gtest/gtest.h"
+#include <string>
+#include <vector>
 
 namespace clang {
 namespace ast_matchers {
@@ -244,6 +243,20 @@ TEST(ParserTest, OverloadErrors) {
             "1:8: Candidate 2: Incorrect type for arg 1. "
             "(Expected = Matcher<Decl>) != (Actual = String)",
             ParseWithError("callee(\"A\")"));
+}
+
+TEST(ParserTest, Completion) {
+  std::vector<MatcherCompletion> Comps =
+      Parser::completeExpression("while", 5);
+  ASSERT_EQ(1u, Comps.size());
+  EXPECT_EQ("Stmt(", Comps[0].TypedText);
+  EXPECT_EQ("Matcher<Stmt> whileStmt(Matcher<WhileStmt>...)",
+            Comps[0].MatcherDecl);
+
+  Comps = Parser::completeExpression("whileStmt().", 12);
+  ASSERT_EQ(1u, Comps.size());
+  EXPECT_EQ("bind(\"", Comps[0].TypedText);
+  EXPECT_EQ("bind", Comps[0].MatcherDecl);
 }
 
 }  // end anonymous namespace

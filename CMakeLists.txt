@@ -1,7 +1,7 @@
 # See docs/CMake.html for instructions about how to build LLVM with CMake.
 
 project(LLVM)
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 2.8.8)
 
 # Add path for custom modules
 set(CMAKE_MODULE_PATH
@@ -36,6 +36,9 @@ endif()
 set(PACKAGE_NAME LLVM)
 set(PACKAGE_STRING "${PACKAGE_NAME} ${PACKAGE_VERSION}")
 set(PACKAGE_BUGREPORT "http://llvm.org/bugs/")
+
+set(BUG_REPORT_URL "${PACKAGE_BUGREPORT}" CACHE STRING
+  "Default URL where bug reports are to be submitted.")
 
 # Configure CPack.
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "LLVM")
@@ -89,16 +92,20 @@ endif()
 
 string(TOUPPER "${CMAKE_BUILD_TYPE}" uppercase_CMAKE_BUILD_TYPE)
 
-set(LLVM_MAIN_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR})
-set(LLVM_MAIN_INCLUDE_DIR ${LLVM_MAIN_SRC_DIR}/include)
-set(LLVM_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
-set(LLVM_TOOLS_BINARY_DIR ${LLVM_BINARY_DIR}/bin)
+# They are used as destination of target generators.
+set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/bin)
+set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/lib)
+
+# Each of them corresponds to llvm-config's.
+set(LLVM_TOOLS_BINARY_DIR ${LLVM_RUNTIME_OUTPUT_INTDIR}) # --bindir
+set(LLVM_LIBRARY_DIR      ${LLVM_LIBRARY_OUTPUT_INTDIR}) # --libdir
+set(LLVM_MAIN_SRC_DIR     ${CMAKE_CURRENT_SOURCE_DIR}  ) # --src-root
+set(LLVM_MAIN_INCLUDE_DIR ${LLVM_MAIN_SRC_DIR}/include ) # --includedir
+set(LLVM_BINARY_DIR       ${CMAKE_CURRENT_BINARY_DIR}  ) # --prefix
+
 set(LLVM_EXAMPLES_BINARY_DIR ${LLVM_BINARY_DIR}/examples)
 set(LLVM_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/include)
 set(LLVM_LIBDIR_SUFFIX "" CACHE STRING "Define suffix of library directory name (32/64)" )
-
-set(LLVM_RUNTIME_OUTPUT_INTDIR ${LLVM_BINARY_DIR}/bin/${CMAKE_CFG_INTDIR})
-set(LLVM_LIBRARY_OUTPUT_INTDIR ${LLVM_BINARY_DIR}/lib/${CMAKE_CFG_INTDIR})
 
 set(LLVM_ALL_TARGETS
   AArch64
@@ -182,6 +189,7 @@ else( MSVC )
 endif()
 
 option(LLVM_ENABLE_CXX11 "Compile with C++11 enabled." OFF)
+option(LLVM_ENABLE_LIBCXX "Use libc++ if available." OFF)
 option(LLVM_ENABLE_PEDANTIC "Compile with pedantic enabled." ON)
 option(LLVM_ENABLE_WERROR "Fail and stop if a warning is triggered." OFF)
 
@@ -190,6 +198,9 @@ if( NOT uppercase_CMAKE_BUILD_TYPE STREQUAL "DEBUG" )
 else()
   option(LLVM_ENABLE_ASSERTIONS "Enable assertions" ON)
 endif()
+
+option(LLVM_FORCE_USE_OLD_HOST_TOOLCHAIN
+       "Set to ON to force using an old, unsupported host toolchain." OFF)
 
 option(LLVM_USE_INTEL_JITEVENTS
   "Use Intel JIT API to inform Intel(R) VTune(TM) Amplifier XE 2011 about JIT code"
@@ -407,7 +418,8 @@ configure_file(
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Support/DataTypes.h.cmake
   ${LLVM_INCLUDE_DIR}/llvm/Support/DataTypes.h)
 
-set( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LLVM_TOOLS_BINARY_DIR} )
+# They are not referenced. See set_output_directory().
+set( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/bin )
 set( CMAKE_LIBRARY_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib )
 set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib )
 
@@ -460,6 +472,10 @@ add_subdirectory(utils/not)
 add_subdirectory(utils/llvm-lit)
 add_subdirectory(utils/yaml-bench)
 
+if(LLVM_INCLUDE_TESTS)
+  add_subdirectory(utils/unittest)
+endif()
+
 add_subdirectory(projects)
 
 if( LLVM_INCLUDE_TOOLS )
@@ -472,7 +488,6 @@ endif()
 
 if( LLVM_INCLUDE_TESTS )
   add_subdirectory(test)
-  add_subdirectory(utils/unittest)
   add_subdirectory(unittests)
   if (MSVC)
     # This utility is used to prevent crashing tests from calling Dr. Watson on

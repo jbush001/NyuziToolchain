@@ -16,8 +16,8 @@
 #include "AArch64.h"
 #include "AArch64TargetMachine.h"
 #include "MCTargetDesc/AArch64MCTargetDesc.h"
-#include "llvm/PassManager.h"
 #include "llvm/CodeGen/Passes.h"
+#include "llvm/PassManager.h"
 #include "llvm/Support/TargetRegistry.h"
 
 using namespace llvm;
@@ -34,7 +34,7 @@ AArch64TargetMachine::AArch64TargetMachine(const Target &T, StringRef TT,
   : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
     Subtarget(TT, CPU, FS),
     InstrInfo(Subtarget),
-    DL("e-i64:64-i128:128-s:32-n32:64-S128"),
+    DL("e-m:e-i64:64-i128:128-n32:64-S128"),
     TLInfo(*this),
     TSInfo(*this),
     FrameLowering(Subtarget) {

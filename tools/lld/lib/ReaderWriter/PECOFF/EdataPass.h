@@ -36,9 +36,8 @@ namespace pecoff {
 namespace edata {
 
 struct TableEntry {
-  TableEntry(StringRef exportName, int ordinal, const DefinedAtom *atom,
-             bool noname)
-      : exportName(exportName), ordinal(ordinal), atom(atom), noname(noname) {}
+  TableEntry(StringRef exp, int ord, const DefinedAtom *a, bool n)
+      : exportName(exp), ordinal(ord), atom(a), noname(n) {}
   StringRef exportName;
   int ordinal;
   const DefinedAtom *atom;
@@ -66,7 +65,7 @@ public:
 
 class EdataPass : public lld::Pass {
 public:
-  EdataPass(const PECOFFLinkingContext &ctx)
+  EdataPass(PECOFFLinkingContext &ctx)
       : _ctx(ctx), _file(ctx), _stringOrdinal(1024) {}
 
   virtual void perform(std::unique_ptr<MutableFile> &file);
@@ -89,7 +88,7 @@ private:
   createOrdinalTable(const std::vector<edata::TableEntry> &entries,
                      int ordinalBase);
 
-  const PECOFFLinkingContext &_ctx;
+  PECOFFLinkingContext &_ctx;
   VirtualFile _file;
   int _stringOrdinal;
   mutable llvm::BumpPtrAllocator _alloc;

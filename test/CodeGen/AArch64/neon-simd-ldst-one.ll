@@ -1,5 +1,8 @@
 ; RUN: llc < %s -verify-machineinstrs -mtriple=aarch64-none-linux-gnu -mattr=+neon | FileCheck %s
 
+%struct.uint8x16x2_t = type { [2 x <16 x i8>] }
+%struct.poly8x16x2_t = type { [2 x <16 x i8>] }
+%struct.uint8x16x3_t = type { [3 x <16 x i8>] }
 %struct.int8x16x2_t = type { [2 x <16 x i8>] }
 %struct.int16x8x2_t = type { [2 x <8 x i16>] }
 %struct.int32x4x2_t = type { [2 x <4 x i32>] }
@@ -234,6 +237,31 @@ entry:
   %0 = load double* %a, align 8
   %1 = insertelement <1 x double> undef, double %0, i32 0
   ret <1 x double> %1
+}
+
+define <1 x i64> @testDUP.v1i64(i64* %a, i64* %b) #0 {
+; As there is a store operation depending on %1, LD1R pattern can't be selected.
+; So LDR and FMOV should be emitted.
+; CHECK-LABEL: testDUP.v1i64
+; CHECK: ldr {{x[0-9]+}}, [{{x[0-9]+}}]
+; CHECK: fmov {{d[0-9]+}}, {{x[0-9]+}}
+; CHECK: str {{x[0-9]+}}, [{{x[0-9]+}}]
+  %1 = load i64* %a, align 8
+  store i64 %1, i64* %b, align 8
+  %vecinit.i = insertelement <1 x i64> undef, i64 %1, i32 0
+  ret <1 x i64> %vecinit.i
+}
+
+define <1 x double> @testDUP.v1f64(double* %a, double* %b) #0 {
+; As there is a store operation depending on %1, LD1R pattern can't be selected.
+; So LDR and FMOV should be emitted.
+; CHECK-LABEL: testDUP.v1f64
+; CHECK: ldr {{d[0-9]+}}, [{{x[0-9]+}}]
+; CHECK: str {{d[0-9]+}}, [{{x[0-9]+}}]
+  %1 = load double* %a, align 8
+  store double %1, double* %b, align 8
+  %vecinit.i = insertelement <1 x double> undef, double %1, i32 0
+  ret <1 x double> %vecinit.i
 }
 
 define %struct.int8x16x2_t @test_vld2q_dup_s8(i8* %a) {
@@ -2192,3 +2220,80 @@ declare void @llvm.arm.neon.vst4lane.v2i32(i8*, <2 x i32>, <2 x i32>, <2 x i32>,
 declare void @llvm.arm.neon.vst4lane.v1i64(i8*, <1 x i64>, <1 x i64>, <1 x i64>, <1 x i64>, i32, i32)
 declare void @llvm.arm.neon.vst4lane.v2f32(i8*, <2 x float>, <2 x float>, <2 x float>, <2 x float>, i32, i32)
 declare void @llvm.arm.neon.vst4lane.v1f64(i8*, <1 x double>, <1 x double>, <1 x double>, <1 x double>, i32, i32)
+
+define %struct.int8x16x2_t @test_vld2q_lane_s8(i8* readonly %ptr, [2 x <16 x i8>] %src.coerce) {
+; CHECK-LABEL: test_vld2q_lane_s8
+; CHECK: ld2 {{{v[0-9]+}}.b, {{v[0-9]+}}.b}[15], [x0]
+entry:
+  %src.coerce.fca.0.extract = extractvalue [2 x <16 x i8>] %src.coerce, 0
+  %src.coerce.fca.1.extract = extractvalue [2 x <16 x i8>] %src.coerce, 1
+  %vld2_lane = tail call { <16 x i8>, <16 x i8> } @llvm.arm.neon.vld2lane.v16i8(i8* %ptr, <16 x i8> %src.coerce.fca.0.extract, <16 x i8> %src.coerce.fca.1.extract, i32 15, i32 1)
+  %vld2_lane.fca.0.extract = extractvalue { <16 x i8>, <16 x i8> } %vld2_lane, 0
+  %vld2_lane.fca.1.extract = extractvalue { <16 x i8>, <16 x i8> } %vld2_lane, 1
+  %.fca.0.0.insert = insertvalue %struct.int8x16x2_t undef, <16 x i8> %vld2_lane.fca.0.extract, 0, 0
+  %.fca.0.1.insert = insertvalue %struct.int8x16x2_t %.fca.0.0.insert, <16 x i8> %vld2_lane.fca.1.extract, 0, 1
+  ret %struct.int8x16x2_t %.fca.0.1.insert
+}
+
+define %struct.uint8x16x2_t @test_vld2q_lane_u8(i8* readonly %ptr, [2 x <16 x i8>] %src.coerce) {
+; CHECK-LABEL: test_vld2q_lane_u8
+; CHECK: ld2 {{{v[0-9]+}}.b, {{v[0-9]+}}.b}[15], [x0]
+entry:
+  %src.coerce.fca.0.extract = extractvalue [2 x <16 x i8>] %src.coerce, 0
+  %src.coerce.fca.1.extract = extractvalue [2 x <16 x i8>] %src.coerce, 1
+  %vld2_lane = tail call { <16 x i8>, <16 x i8> } @llvm.arm.neon.vld2lane.v16i8(i8* %ptr, <16 x i8> %src.coerce.fca.0.extract, <16 x i8> %src.coerce.fca.1.extract, i32 15, i32 1)
+  %vld2_lane.fca.0.extract = extractvalue { <16 x i8>, <16 x i8> } %vld2_lane, 0
+  %vld2_lane.fca.1.extract = extractvalue { <16 x i8>, <16 x i8> } %vld2_lane, 1
+  %.fca.0.0.insert = insertvalue %struct.uint8x16x2_t undef, <16 x i8> %vld2_lane.fca.0.extract, 0, 0
+  %.fca.0.1.insert = insertvalue %struct.uint8x16x2_t %.fca.0.0.insert, <16 x i8> %vld2_lane.fca.1.extract, 0, 1
+  ret %struct.uint8x16x2_t %.fca.0.1.insert
+}
+
+define %struct.poly8x16x2_t @test_vld2q_lane_p8(i8* readonly %ptr, [2 x <16 x i8>] %src.coerce) {
+; CHECK-LABEL: test_vld2q_lane_p8
+; CHECK: ld2 {{{v[0-9]+}}.b, {{v[0-9]+}}.b}[15], [x0]
+entry:
+  %src.coerce.fca.0.extract = extractvalue [2 x <16 x i8>] %src.coerce, 0
+  %src.coerce.fca.1.extract = extractvalue [2 x <16 x i8>] %src.coerce, 1
+  %vld2_lane = tail call { <16 x i8>, <16 x i8> } @llvm.arm.neon.vld2lane.v16i8(i8* %ptr, <16 x i8> %src.coerce.fca.0.extract, <16 x i8> %src.coerce.fca.1.extract, i32 15, i32 1)
+  %vld2_lane.fca.0.extract = extractvalue { <16 x i8>, <16 x i8> } %vld2_lane, 0
+  %vld2_lane.fca.1.extract = extractvalue { <16 x i8>, <16 x i8> } %vld2_lane, 1
+  %.fca.0.0.insert = insertvalue %struct.poly8x16x2_t undef, <16 x i8> %vld2_lane.fca.0.extract, 0, 0
+  %.fca.0.1.insert = insertvalue %struct.poly8x16x2_t %.fca.0.0.insert, <16 x i8> %vld2_lane.fca.1.extract, 0, 1
+  ret %struct.poly8x16x2_t %.fca.0.1.insert
+}
+
+define %struct.int8x16x3_t @test_vld3q_lane_s8(i8* readonly %ptr, [3 x <16 x i8>] %src.coerce) {
+; CHECK-LABEL: test_vld3q_lane_s8
+; CHECK: ld3 {{{v[0-9]+}}.b, {{v[0-9]+}}.b, {{v[0-9]+}}.b}[15], [x0]
+entry:
+  %src.coerce.fca.0.extract = extractvalue [3 x <16 x i8>] %src.coerce, 0
+  %src.coerce.fca.1.extract = extractvalue [3 x <16 x i8>] %src.coerce, 1
+  %src.coerce.fca.2.extract = extractvalue [3 x <16 x i8>] %src.coerce, 2
+  %vld3_lane = tail call { <16 x i8>, <16 x i8>, <16 x i8> } @llvm.arm.neon.vld3lane.v16i8(i8* %ptr, <16 x i8> %src.coerce.fca.0.extract, <16 x i8> %src.coerce.fca.1.extract, <16 x i8> %src.coerce.fca.2.extract, i32 15, i32 1)
+  %vld3_lane.fca.0.extract = extractvalue { <16 x i8>, <16 x i8>, <16 x i8> } %vld3_lane, 0
+  %vld3_lane.fca.1.extract = extractvalue { <16 x i8>, <16 x i8>, <16 x i8> } %vld3_lane, 1
+  %vld3_lane.fca.2.extract = extractvalue { <16 x i8>, <16 x i8>, <16 x i8> } %vld3_lane, 2
+  %.fca.0.0.insert = insertvalue %struct.int8x16x3_t undef, <16 x i8> %vld3_lane.fca.0.extract, 0, 0
+  %.fca.0.1.insert = insertvalue %struct.int8x16x3_t %.fca.0.0.insert, <16 x i8> %vld3_lane.fca.1.extract, 0, 1
+  %.fca.0.2.insert = insertvalue %struct.int8x16x3_t %.fca.0.1.insert, <16 x i8> %vld3_lane.fca.2.extract, 0, 2
+  ret %struct.int8x16x3_t %.fca.0.2.insert
+}
+
+define %struct.uint8x16x3_t @test_vld3q_lane_u8(i8* readonly %ptr, [3 x <16 x i8>] %src.coerce) {
+; CHECK-LABEL: test_vld3q_lane_u8
+; CHECK: ld3 {{{v[0-9]+}}.b, {{v[0-9]+}}.b, {{v[0-9]+}}.b}[15], [x0]
+entry:
+  %src.coerce.fca.0.extract = extractvalue [3 x <16 x i8>] %src.coerce, 0
+  %src.coerce.fca.1.extract = extractvalue [3 x <16 x i8>] %src.coerce, 1
+  %src.coerce.fca.2.extract = extractvalue [3 x <16 x i8>] %src.coerce, 2
+  %vld3_lane = tail call { <16 x i8>, <16 x i8>, <16 x i8> } @llvm.arm.neon.vld3lane.v16i8(i8* %ptr, <16 x i8> %src.coerce.fca.0.extract, <16 x i8> %src.coerce.fca.1.extract, <16 x i8> %src.coerce.fca.2.extract, i32 15, i32 1)
+  %vld3_lane.fca.0.extract = extractvalue { <16 x i8>, <16 x i8>, <16 x i8> } %vld3_lane, 0
+  %vld3_lane.fca.1.extract = extractvalue { <16 x i8>, <16 x i8>, <16 x i8> } %vld3_lane, 1
+  %vld3_lane.fca.2.extract = extractvalue { <16 x i8>, <16 x i8>, <16 x i8> } %vld3_lane, 2
+  %.fca.0.0.insert = insertvalue %struct.uint8x16x3_t undef, <16 x i8> %vld3_lane.fca.0.extract, 0, 0
+  %.fca.0.1.insert = insertvalue %struct.uint8x16x3_t %.fca.0.0.insert, <16 x i8> %vld3_lane.fca.1.extract, 0, 1
+  %.fca.0.2.insert = insertvalue %struct.uint8x16x3_t %.fca.0.1.insert, <16 x i8> %vld3_lane.fca.2.extract, 0, 2
+  ret %struct.uint8x16x3_t %.fca.0.2.insert
+}
+

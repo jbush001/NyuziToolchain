@@ -2,10 +2,173 @@ include(LLVMParseArguments)
 include(LLVMProcessSources)
 include(LLVM-Config)
 
+function(llvm_update_compile_flags name)
+  get_property(sources TARGET ${name} PROPERTY SOURCES)
+  if("${sources}" MATCHES "\\.c(;|$)")
+    set(update_src_props ON)
+  endif()
+
+  if(LLVM_REQUIRES_EH)
+    set(LLVM_REQUIRES_RTTI ON)
+  else()
+    if(LLVM_COMPILER_IS_GCC_COMPATIBLE)
+      list(APPEND LLVM_COMPILE_FLAGS "-fno-exceptions")
+    elseif(MSVC)
+      list(APPEND LLVM_COMPILE_DEFINITIONS _HAS_EXCEPTIONS=0)
+      list(APPEND LLVM_COMPILE_FLAGS "/EHs-c-")
+    endif()
+  endif()
+
+  if(NOT LLVM_REQUIRES_RTTI)
+    list(APPEND LLVM_COMPILE_DEFINITIONS GTEST_HAS_RTTI=0)
+    if (LLVM_COMPILER_IS_GCC_COMPATIBLE)
+      list(APPEND LLVM_COMPILE_FLAGS "-fno-rtti")
+    elseif (MSVC)
+      list(APPEND LLVM_COMPILE_FLAGS "/GR-")
+    endif ()
+  endif()
+
+  # Assume that;
+  #   - LLVM_COMPILE_FLAGS is list.
+  #   - PROPERTY COMPILE_FLAGS is string.
+  string(REPLACE ";" " " target_compile_flags "${LLVM_COMPILE_FLAGS}")
+
+  if(update_src_props)
+    foreach(fn ${sources})
+      get_filename_component(suf ${fn} EXT)
+      if("${suf}" STREQUAL ".cpp")
+        set_property(SOURCE ${fn} APPEND_STRING PROPERTY
+          COMPILE_FLAGS "${target_compile_flags}")
+      endif()
+    endforeach()
+  else()
+    # Update target props, since all sources are C++.
+    set_property(TARGET ${name} APPEND_STRING PROPERTY
+      COMPILE_FLAGS "${target_compile_flags}")
+  endif()
+
+  set_property(TARGET ${name} APPEND PROPERTY COMPILE_DEFINITIONS ${LLVM_COMPILE_DEFINITIONS})
+endfunction()
+
+function(add_llvm_symbol_exports target_name export_file)
+  if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+    set(native_export_file "${target_name}.exports")
+    add_custom_command(OUTPUT ${native_export_file}
+      COMMAND sed -e "s/^/_/" < ${export_file} > ${native_export_file}
+      DEPENDS ${export_file}
+      VERBATIM
+      COMMENT "Creating export file for ${target_name}")
+    set_property(TARGET ${target_name} APPEND_STRING PROPERTY
+                 LINK_FLAGS " -Wl,-exported_symbols_list,${CMAKE_CURRENT_BINARY_DIR}/${native_export_file}")
+  elseif(LLVM_HAVE_LINK_VERSION_SCRIPT)
+    # Gold and BFD ld require a version script rather than a plain list.
+    set(native_export_file "${target_name}.exports")
+    # FIXME: Don't write the "local:" line on OpenBSD.
+    add_custom_command(OUTPUT ${native_export_file}
+      COMMAND echo "{" > ${native_export_file}
+      COMMAND grep -q "[[:alnum:]]" ${export_file} && echo "  global:" >> ${native_export_file} || :
+      COMMAND sed -e "s/$/;/" -e "s/^/    /" < ${export_file} >> ${native_export_file}
+      COMMAND echo "  local: *;" >> ${native_export_file}
+      COMMAND echo "};" >> ${native_export_file}
+      DEPENDS ${export_file}
+      VERBATIM
+      COMMENT "Creating export file for ${target_name}")
+    set_property(TARGET ${target_name} APPEND_STRING PROPERTY
+                 LINK_FLAGS "  -Wl,--version-script,${CMAKE_CURRENT_BINARY_DIR}/${native_export_file}")
+  else()
+    set(native_export_file "${target_name}.def")
+
+    set(CAT "type")
+    if(CYGWIN)
+      set(CAT "cat")
+    endif()
+
+    # Using ${export_file} in add_custom_command directly confuses cmd.exe.
+    file(TO_NATIVE_PATH ${export_file} export_file_backslashes)
+
+    add_custom_command(OUTPUT ${native_export_file}
+      COMMAND ${CMAKE_COMMAND} -E echo "EXPORTS" > ${native_export_file}
+      COMMAND ${CAT} ${export_file_backslashes} >> ${native_export_file}
+      DEPENDS ${export_file}
+      VERBATIM
+      COMMENT "Creating export file for ${target_name}")
+    if(CYGWIN OR MINGW)
+      set_property(TARGET ${target_name} APPEND_STRING PROPERTY
+                   LINK_FLAGS " ${CMAKE_CURRENT_BINARY_DIR}/${native_export_file}")
+    else()
+      set_property(TARGET ${target_name} APPEND_STRING PROPERTY
+                   LINK_FLAGS " /DEF:${CMAKE_CURRENT_BINARY_DIR}/${native_export_file}")
+    endif()
+  endif()
+
+  add_custom_target(${target_name}_exports DEPENDS ${native_export_file})
+  set_target_properties(${target_name}_exports PROPERTIES FOLDER "Misc")
+
+  get_property(srcs TARGET ${target_name} PROPERTY SOURCES)
+  foreach(src ${srcs})
+    get_filename_component(extension ${src} EXT)
+    if(extension STREQUAL ".cpp")
+      set(first_source_file ${src})
+      break()
+    endif()
+  endforeach()
+
+  # Force re-linking when the exports file changes. Actually, it
+  # forces recompilation of the source file. The LINK_DEPENDS target
+  # property only works for makefile-based generators.
+  # FIXME: This is not safe because this will create the same target
+  # ${native_export_file} in several different file:
+  # - One where we emitted ${target_name}_exports
+  # - One where we emitted the build command for the following object.
+  # set_property(SOURCE ${first_source_file} APPEND PROPERTY
+  #   OBJECT_DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${native_export_file})
+
+  set_property(DIRECTORY APPEND
+    PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${native_export_file})
+
+  add_dependencies(${target_name} ${target_name}_exports)
+endfunction(add_llvm_symbol_exports)
+
+function(add_dead_strip target_name)
+  if(NOT LLVM_NO_DEAD_STRIP)
+    if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+      set_property(TARGET ${target_name} APPEND_STRING PROPERTY
+                   LINK_FLAGS " -Wl,-dead_strip")
+    elseif(NOT WIN32)
+      # Object files are compiled with -ffunction-data-sections.
+      set_property(TARGET ${target_name} APPEND_STRING PROPERTY
+                   LINK_FLAGS " -Wl,--gc-sections")
+    endif()
+  endif()
+endfunction(add_dead_strip)
+
+# Set each output directory according to ${CMAKE_CONFIGURATION_TYPES}.
+# Note: Don't set variables CMAKE_*_OUTPUT_DIRECTORY any more,
+# or a certain builder, for eaxample, msbuild.exe, would be confused.
+function(set_output_directory target bindir libdir)
+  if(NOT "${CMAKE_CFG_INTDIR}" STREQUAL ".")
+    foreach(build_mode ${CMAKE_CONFIGURATION_TYPES})
+      string(TOUPPER "${build_mode}" CONFIG_SUFFIX)
+      string(REPLACE ${CMAKE_CFG_INTDIR} ${build_mode} bi ${bindir})
+      string(REPLACE ${CMAKE_CFG_INTDIR} ${build_mode} li ${libdir})
+      set_target_properties(${target} PROPERTIES "RUNTIME_OUTPUT_DIRECTORY_${CONFIG_SUFFIX}" ${bi})
+      set_target_properties(${target} PROPERTIES "ARCHIVE_OUTPUT_DIRECTORY_${CONFIG_SUFFIX}" ${li})
+      set_target_properties(${target} PROPERTIES "LIBRARY_OUTPUT_DIRECTORY_${CONFIG_SUFFIX}" ${li})
+    endforeach()
+  else()
+    set_target_properties(${target} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${bindir})
+    set_target_properties(${target} PROPERTIES ARCHIVE_OUTPUT_DIRECTORY ${libdir})
+    set_target_properties(${target} PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${libdir})
+  endif()
+endfunction()
+
 macro(add_llvm_library name)
   llvm_process_sources( ALL_FILES ${ARGN} )
   add_library( ${name} ${ALL_FILES} )
+  set_output_directory(${name} ${LLVM_RUNTIME_OUTPUT_INTDIR} ${LLVM_LIBRARY_OUTPUT_INTDIR})
   set_property( GLOBAL APPEND PROPERTY LLVM_LIBS ${name} )
+  llvm_update_compile_flags(${name})
+  add_dead_strip( ${name} )
   if( LLVM_COMMON_DEPENDS )
     add_dependencies( ${name} ${LLVM_COMMON_DEPENDS} )
   endif( LLVM_COMMON_DEPENDS )
@@ -17,6 +180,10 @@ macro(add_llvm_library name)
         PROPERTIES
         IMPORT_SUFFIX ".imp")
     endif ()
+
+    if (LLVM_EXPORTED_SYMBOL_FILE)
+      add_llvm_symbol_exports( ${name} ${LLVM_EXPORTED_SYMBOL_FILE} )
+    endif()
   endif()
 
   # Ensure that the system libraries always comes last on the
@@ -58,16 +225,27 @@ ${name} ignored.")
     endif()
 
     add_library( ${name} ${libkind} ${ALL_FILES} )
+    set_output_directory(${name} ${LLVM_RUNTIME_OUTPUT_INTDIR} ${LLVM_LIBRARY_OUTPUT_INTDIR})
     set_target_properties( ${name} PROPERTIES PREFIX "" )
+    llvm_update_compile_flags(${name})
+    add_dead_strip( ${name} )
+
+    if (LLVM_EXPORTED_SYMBOL_FILE)
+      add_llvm_symbol_exports( ${name} ${LLVM_EXPORTED_SYMBOL_FILE} )
+    endif(LLVM_EXPORTED_SYMBOL_FILE)
 
     llvm_config( ${name} ${LLVM_LINK_COMPONENTS} )
     link_system_libs( ${name} )
 
     if (APPLE)
       # Darwin-specific linker flags for loadable modules.
-      set_target_properties(${name} PROPERTIES
-        LINK_FLAGS "-Wl,-flat_namespace -Wl,-undefined -Wl,suppress")
+      set_property(TARGET ${name} APPEND_STRING PROPERTY
+        LINK_FLAGS " -Wl,-flat_namespace -Wl,-undefined -Wl,suppress")
     endif()
+
+    if (MODULE)
+      set_property(TARGET ${name} PROPERTY SUFFIX ${LLVM_PLUGIN_EXT})
+    endif ()
 
     if( EXCLUDE_FROM_ALL )
       set_target_properties( ${name} PROPERTIES EXCLUDE_FROM_ALL ON)
@@ -91,7 +269,15 @@ macro(add_llvm_executable name)
   else()
     add_executable(${name} ${ALL_FILES})
   endif()
+  llvm_update_compile_flags(${name})
+  add_dead_strip( ${name} )
+
+  if (LLVM_EXPORTED_SYMBOL_FILE)
+    add_llvm_symbol_exports( ${name} ${LLVM_EXPORTED_SYMBOL_FILE} )
+  endif(LLVM_EXPORTED_SYMBOL_FILE)
+
   set(EXCLUDE_FROM_ALL OFF)
+  set_output_directory(${name} ${LLVM_RUNTIME_OUTPUT_INTDIR} ${LLVM_LIBRARY_OUTPUT_INTDIR})
   llvm_config( ${name} ${LLVM_LINK_COMPONENTS} )
   if( LLVM_COMMON_DEPENDS )
     add_dependencies( ${name} ${LLVM_COMMON_DEPENDS} )
@@ -106,7 +292,6 @@ set (LLVM_TOOLCHAIN_TOOLS
   )
 
 macro(add_llvm_tool name)
-  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LLVM_TOOLS_BINARY_DIR})
   if( NOT LLVM_BUILD_TOOLS )
     set(EXCLUDE_FROM_ALL ON)
   endif()
@@ -123,7 +308,6 @@ endmacro(add_llvm_tool name)
 
 
 macro(add_llvm_example name)
-#  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LLVM_EXAMPLES_BINARY_DIR})
   if( NOT LLVM_BUILD_EXAMPLES )
     set(EXCLUDE_FROM_ALL ON)
   endif()
@@ -204,12 +388,30 @@ endfunction(add_llvm_implicit_external_projects)
 
 # Generic support for adding a unittest.
 function(add_unittest test_suite test_name)
-  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
   if( NOT LLVM_BUILD_TESTS )
     set(EXCLUDE_FROM_ALL ON)
   endif()
 
+  # Visual Studio 2012 only supports up to 8 template parameters in
+  # std::tr1::tuple by default, but gtest requires 10
+  if (MSVC AND MSVC_VERSION EQUAL 1700)
+    list(APPEND LLVM_COMPILE_DEFINITIONS _VARIADIC_MAX=10)
+  endif ()
+
+  include_directories(${LLVM_MAIN_SRC_DIR}/utils/unittest/googletest/include)
+  if (NOT LLVM_ENABLE_THREADS)
+    list(APPEND LLVM_COMPILE_DEFINITIONS GTEST_HAS_PTHREAD=0)
+  endif ()
+
+  if (SUPPORTS_NO_VARIADIC_MACROS_FLAG)
+    list(APPEND LLVM_COMPILE_FLAGS "-Wno-variadic-macros")
+  endif ()
+
+  set(LLVM_REQUIRES_RTTI OFF)
+
   add_llvm_executable(${test_name} ${ARGN})
+  set(outdir ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR})
+  set_output_directory(${test_name} ${outdir} ${outdir})
   target_link_libraries(${test_name}
     gtest
     gtest_main
@@ -221,30 +423,6 @@ function(add_unittest test_suite test_name)
   if (NOT ${test_suite_folder} STREQUAL "NOTFOUND")
     set_property(TARGET ${test_name} PROPERTY FOLDER "${test_suite_folder}")
   endif ()
-
-  # Visual Studio 2012 only supports up to 8 template parameters in
-  # std::tr1::tuple by default, but gtest requires 10
-  if (MSVC AND MSVC_VERSION EQUAL 1700)
-    set_property(TARGET ${test_name} APPEND PROPERTY COMPILE_DEFINITIONS _VARIADIC_MAX=10)
-  endif ()
-
-  include_directories(${LLVM_MAIN_SRC_DIR}/utils/unittest/googletest/include)
-  set_property(TARGET ${test_name} APPEND PROPERTY COMPILE_DEFINITIONS GTEST_HAS_RTTI=0)
-  if (NOT LLVM_ENABLE_THREADS)
-    set_property(TARGET ${test_name} APPEND PROPERTY COMPILE_DEFINITIONS GTEST_HAS_PTHREAD=0)
-  endif ()
-
-  get_property(target_compile_flags TARGET ${test_name} PROPERTY COMPILE_FLAGS)
-  if (LLVM_COMPILER_IS_GCC_COMPATIBLE)
-    set(target_compile_flags "${target_compile_flags} -fno-rtti")
-  elseif (MSVC)
-    llvm_replace_compiler_option(target_compile_flags "/GR" "/GR-")
-  endif ()
-
-  if (SUPPORTS_NO_VARIADIC_MACROS_FLAG)
-    set(target_compile_flags "${target_compile_flags} -Wno-variadic-macros")
-  endif ()
-  set_property(TARGET ${test_name} PROPERTY COMPILE_FLAGS "${target_compile_flags}")
 endfunction()
 
 # This function provides an automatic way to 'configure'-like generate a file
@@ -259,7 +437,6 @@ function(configure_lit_site_cfg input output)
   set(TARGETS_TO_BUILD ${TARGETS_BUILT})
 
   set(SHLIBEXT "${LTDL_SHLIB_EXT}")
-  set(SHLIBDIR "${LLVM_LIBRARY_OUTPUT_INTDIR}")
 
   if(BUILD_SHARED_LIBS)
     set(LLVM_SHARED_LIBS_ENABLED "1")
@@ -283,10 +460,15 @@ function(configure_lit_site_cfg input output)
     set(LLVM_BUILD_MODE "%(build_mode)s")
   endif ()
 
+  # They below might not be the build tree but provided binary tree.
   set(LLVM_SOURCE_DIR ${LLVM_MAIN_SRC_DIR})
   set(LLVM_BINARY_DIR ${LLVM_BINARY_DIR})
-  string(REPLACE ${CMAKE_CFG_INTDIR} ${LLVM_BUILD_MODE} LLVM_TOOLS_DIR ${LLVM_RUNTIME_OUTPUT_INTDIR})
-  string(REPLACE ${CMAKE_CFG_INTDIR} ${LLVM_BUILD_MODE} LLVM_LIBS_DIR  ${LLVM_LIBRARY_OUTPUT_INTDIR})
+  string(REPLACE ${CMAKE_CFG_INTDIR} ${LLVM_BUILD_MODE} LLVM_TOOLS_DIR ${LLVM_TOOLS_BINARY_DIR})
+  string(REPLACE ${CMAKE_CFG_INTDIR} ${LLVM_BUILD_MODE} LLVM_LIBS_DIR  ${LLVM_LIBRARY_DIR})
+
+  # SHLIBDIR points the build tree.
+  string(REPLACE ${CMAKE_CFG_INTDIR} ${LLVM_BUILD_MODE} SHLIBDIR ${LLVM_LIBRARY_OUTPUT_INTDIR})
+
   set(PYTHON_EXECUTABLE ${PYTHON_EXECUTABLE})
   set(ENABLE_SHARED ${LLVM_SHARED_LIBS_ENABLED})
   set(SHLIBPATH_VAR ${SHLIBPATH_VAR})
@@ -344,7 +526,7 @@ function(add_lit_target target comment)
     add_dependencies(${target} ${ARG_DEPENDS})
   else()
     add_custom_target(${target}
-      COMMAND cmake -E echo "${target} does nothing, no tools built.")
+      COMMAND ${CMAKE_COMMAND} -E echo "${target} does nothing, no tools built.")
     message(STATUS "${target} does nothing.")
   endif()
 

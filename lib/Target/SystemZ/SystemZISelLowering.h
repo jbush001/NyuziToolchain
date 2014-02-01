@@ -279,10 +279,12 @@ private:
   SDValue lowerUDIVREM(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerBITCAST(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerOR(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerSIGN_EXTEND(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerATOMIC_LOAD(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerATOMIC_STORE(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerATOMIC_LOAD_OP(SDValue Op, SelectionDAG &DAG,
                               unsigned Opcode) const;
+  SDValue lowerATOMIC_LOAD_SUB(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerATOMIC_CMP_SWAP(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerLOAD_SEQUENCE_POINT(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerSTACKSAVE(SDValue Op, SelectionDAG &DAG) const;

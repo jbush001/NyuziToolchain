@@ -12,9 +12,9 @@
 //===----------------------------------------------------------------------===//
 #define DEBUG_TYPE "mips-lower"
 #include "Mips16ISelLowering.h"
+#include "MCTargetDesc/MipsBaseInfo.h"
 #include "MipsRegisterInfo.h"
 #include "MipsTargetMachine.h"
-#include "MCTargetDesc/MipsBaseInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Target/TargetInstrInfo.h"
@@ -429,8 +429,7 @@ getOpndList(SmallVectorImpl<SDValue> &Ops,
   const char* Mips16HelperFunction = 0;
   bool NeedMips16Helper = false;
 
-  if (getTargetMachine().Options.UseSoftFloat &&
-      Subtarget->inMips16HardFloat()) {
+  if (Subtarget->inMips16HardFloat()) {
     //
     // currently we don't have symbols tagged with the mips16 or mips32
     // qualifier so we will assume that we don't know what kind it is.

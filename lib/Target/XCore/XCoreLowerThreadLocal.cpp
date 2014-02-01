@@ -17,8 +17,8 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/GlobalVariable.h"
-#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
@@ -154,8 +154,8 @@ static bool replaceConstantExprOp(ConstantExpr *CE, Pass *P) {
             return false;
         }
       }
-  } while (CE->hasNUsesOrMore(1)); // We need to check becasue a recursive
-  // sibbling may have used 'CE' when createReplacementInstr was called.
+  } while (CE->hasNUsesOrMore(1)); // We need to check because a recursive
+  // sibling may have used 'CE' when createReplacementInstr was called.
   CE->destroyConstant();
   return true;
 }

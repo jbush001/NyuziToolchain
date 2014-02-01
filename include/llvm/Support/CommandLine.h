@@ -21,8 +21,8 @@
 #define LLVM_SUPPORT_COMMANDLINE_H
 
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/Twine.h"
 #include "llvm/ADT/StringMap.h"
+#include "llvm/ADT/Twine.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/type_traits.h"
 #include <cassert>
@@ -248,6 +248,12 @@ public:
   // addArgument - Register this argument with the commandline system.
   //
   void addArgument();
+
+  /// Unregisters this option from the CommandLine system.
+  ///
+  /// This option must have been the last option registered.
+  /// For testing purposes only.
+  void removeArgument();
 
   Option *getNextRegisteredOption() const { return NextRegistered; }
 
@@ -1645,6 +1651,10 @@ class alias : public Option {
   // Aliases do not need to print their values.
   virtual void printOptionValue(size_t /*GlobalWidth*/,
                                 bool /*Force*/) const LLVM_OVERRIDE {}
+
+  virtual ValueExpected getValueExpectedFlagDefault() const LLVM_OVERRIDE {
+    return AliasFor->getValueExpectedFlag();
+  }
 
   void done() {
     if (!hasArgStr())

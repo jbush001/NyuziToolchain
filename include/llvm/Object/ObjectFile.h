@@ -18,6 +18,7 @@
 #include "llvm/Object/Binary.h"
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include <cstring>
 #include <vector>
@@ -62,12 +63,8 @@ public:
     return !(*this == other);
   }
 
-  content_iterator& increment(error_code &err) {
-    content_type next;
-    if (error_code ec = Current.getNext(next))
-      err = ec;
-    else
-      Current = next;
+  content_iterator &operator++() { // preincrement
+    Current.moveNext();
     return *this;
   }
 };
@@ -100,7 +97,7 @@ public:
 
   bool operator==(const RelocationRef &Other) const;
 
-  error_code getNext(RelocationRef &Result) const;
+  void moveNext();
 
   error_code getAddress(uint64_t &Result) const;
   error_code getOffset(uint64_t &Result) const;
@@ -145,7 +142,7 @@ public:
   bool operator==(const SectionRef &Other) const;
   bool operator<(const SectionRef &Other) const;
 
-  error_code getNext(SectionRef &Result) const;
+  void moveNext();
 
   error_code getName(StringRef &Result) const;
   error_code getAddress(uint64_t &Result) const;
@@ -209,7 +206,7 @@ public:
   bool operator==(const SymbolRef &Other) const;
   bool operator<(const SymbolRef &Other) const;
 
-  error_code getNext(SymbolRef &Result) const;
+  void moveNext();
 
   error_code getName(StringRef &Result) const;
   /// Returns the symbol virtual address (i.e. address at which it will be
@@ -222,7 +219,7 @@ public:
   error_code getType(SymbolRef::Type &Result) const;
 
   /// Get symbol flags (bitwise OR of SymbolRef::Flags)
-  error_code getFlags(uint32_t &Result) const;
+  uint32_t getFlags() const;
 
   /// @brief Get section this symbol is defined in reference to. Result is
   /// end_sections() if it is undefined or is an absolute symbol.
@@ -269,7 +266,7 @@ class ObjectFile : public Binary {
   ObjectFile(const ObjectFile &other) LLVM_DELETED_FUNCTION;
 
 protected:
-  ObjectFile(unsigned int Type, MemoryBuffer *source);
+  ObjectFile(unsigned int Type, MemoryBuffer *Source, bool BufferOwned = true);
 
   const uint8_t *base() const {
     return reinterpret_cast<const uint8_t *>(Data->getBufferStart());
@@ -284,7 +281,7 @@ protected:
   // Implementations assume that the DataRefImpl is valid and has not been
   // modified externally. It's UB otherwise.
   friend class SymbolRef;
-  virtual error_code getSymbolNext(DataRefImpl Symb, SymbolRef &Res) const = 0;
+  virtual void moveSymbolNext(DataRefImpl &Symb) const = 0;
   virtual error_code getSymbolName(DataRefImpl Symb, StringRef &Res) const = 0;
   virtual error_code getSymbolAddress(DataRefImpl Symb, uint64_t &Res) const = 0;
   virtual error_code getSymbolFileOffset(DataRefImpl Symb, uint64_t &Res)const=0;
@@ -292,15 +289,14 @@ protected:
   virtual error_code getSymbolSize(DataRefImpl Symb, uint64_t &Res) const = 0;
   virtual error_code getSymbolType(DataRefImpl Symb,
                                    SymbolRef::Type &Res) const = 0;
-  virtual error_code getSymbolFlags(DataRefImpl Symb,
-                                    uint32_t &Res) const = 0;
+  virtual uint32_t getSymbolFlags(DataRefImpl Symb) const = 0;
   virtual error_code getSymbolSection(DataRefImpl Symb,
                                       section_iterator &Res) const = 0;
   virtual error_code getSymbolValue(DataRefImpl Symb, uint64_t &Val) const = 0;
 
   // Same as above for SectionRef.
   friend class SectionRef;
-  virtual error_code getSectionNext(DataRefImpl Sec, SectionRef &Res) const = 0;
+  virtual void moveSectionNext(DataRefImpl &Sec) const = 0;
   virtual error_code getSectionName(DataRefImpl Sec, StringRef &Res) const = 0;
   virtual error_code getSectionAddress(DataRefImpl Sec, uint64_t &Res) const =0;
   virtual error_code getSectionSize(DataRefImpl Sec, uint64_t &Res) const = 0;
@@ -323,8 +319,7 @@ protected:
 
   // Same as above for RelocationRef.
   friend class RelocationRef;
-  virtual error_code getRelocationNext(DataRefImpl Rel,
-                                       RelocationRef &Res) const = 0;
+  virtual void moveRelocationNext(DataRefImpl &Rel) const = 0;
   virtual error_code getRelocationAddress(DataRefImpl Rel,
                                           uint64_t &Res) const =0;
   virtual error_code getRelocationOffset(DataRefImpl Rel,
@@ -351,9 +346,6 @@ public:
   virtual symbol_iterator begin_symbols() const = 0;
   virtual symbol_iterator end_symbols() const = 0;
 
-  virtual symbol_iterator begin_dynamic_symbols() const = 0;
-  virtual symbol_iterator end_dynamic_symbols() const = 0;
-
   virtual section_iterator begin_sections() const = 0;
   virtual section_iterator end_sections() const = 0;
 
@@ -376,17 +368,26 @@ public:
   /// @param ObjectPath The path to the object file. ObjectPath.isObject must
   ///        return true.
   /// @brief Create ObjectFile from path.
-  static ObjectFile *createObjectFile(StringRef ObjectPath);
-  static ObjectFile *createObjectFile(MemoryBuffer *Object);
+  static ErrorOr<ObjectFile *> createObjectFile(StringRef ObjectPath);
+  static ErrorOr<ObjectFile *> createObjectFile(MemoryBuffer *Object,
+                                                bool BufferOwned,
+                                                sys::fs::file_magic Type);
+  static ErrorOr<ObjectFile *> createObjectFile(MemoryBuffer *Object) {
+    return createObjectFile(Object, true, sys::fs::file_magic::unknown);
+  }
+
 
   static inline bool classof(const Binary *v) {
     return v->isObject();
   }
 
 public:
-  static ObjectFile *createCOFFObjectFile(MemoryBuffer *Object);
-  static ObjectFile *createELFObjectFile(MemoryBuffer *Object);
-  static ObjectFile *createMachOObjectFile(MemoryBuffer *Object);
+  static ErrorOr<ObjectFile *> createCOFFObjectFile(MemoryBuffer *Object,
+                                                    bool BufferOwned = true);
+  static ErrorOr<ObjectFile *> createELFObjectFile(MemoryBuffer *Object,
+                                                   bool BufferOwned = true);
+  static ErrorOr<ObjectFile *> createMachOObjectFile(MemoryBuffer *Object,
+                                                     bool BufferOwned = true);
 };
 
 // Inline function definitions.
@@ -402,8 +403,8 @@ inline bool SymbolRef::operator<(const SymbolRef &Other) const {
   return SymbolPimpl < Other.SymbolPimpl;
 }
 
-inline error_code SymbolRef::getNext(SymbolRef &Result) const {
-  return OwningObject->getSymbolNext(SymbolPimpl, Result);
+inline void SymbolRef::moveNext() {
+  return OwningObject->moveSymbolNext(SymbolPimpl);
 }
 
 inline error_code SymbolRef::getName(StringRef &Result) const {
@@ -426,8 +427,8 @@ inline error_code SymbolRef::getSize(uint64_t &Result) const {
   return OwningObject->getSymbolSize(SymbolPimpl, Result);
 }
 
-inline error_code SymbolRef::getFlags(uint32_t &Result) const {
-  return OwningObject->getSymbolFlags(SymbolPimpl, Result);
+inline uint32_t SymbolRef::getFlags() const {
+  return OwningObject->getSymbolFlags(SymbolPimpl);
 }
 
 inline error_code SymbolRef::getSection(section_iterator &Result) const {
@@ -461,8 +462,8 @@ inline bool SectionRef::operator<(const SectionRef &Other) const {
   return SectionPimpl < Other.SectionPimpl;
 }
 
-inline error_code SectionRef::getNext(SectionRef &Result) const {
-  return OwningObject->getSectionNext(SectionPimpl, Result);
+inline void SectionRef::moveNext() {
+  return OwningObject->moveSectionNext(SectionPimpl);
 }
 
 inline error_code SectionRef::getName(StringRef &Result) const {
@@ -544,8 +545,8 @@ inline bool RelocationRef::operator==(const RelocationRef &Other) const {
   return RelocationPimpl == Other.RelocationPimpl;
 }
 
-inline error_code RelocationRef::getNext(RelocationRef &Result) const {
-  return OwningObject->getRelocationNext(RelocationPimpl, Result);
+inline void RelocationRef::moveNext() {
+  return OwningObject->moveRelocationNext(RelocationPimpl);
 }
 
 inline error_code RelocationRef::getAddress(uint64_t &Result) const {

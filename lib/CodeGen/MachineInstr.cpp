@@ -15,7 +15,6 @@
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/Analysis/AliasAnalysis.h"
-#include "llvm/Assembly/Writer.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
@@ -352,7 +351,7 @@ void MachineOperand::print(raw_ostream &OS, const TargetMachine *TM) const {
     break;
   case MachineOperand::MO_GlobalAddress:
     OS << "<ga:";
-    WriteAsOperand(OS, getGlobal(), /*PrintType=*/false);
+    getGlobal()->printAsOperand(OS, /*PrintType=*/false);
     if (getOffset()) OS << "+" << getOffset();
     OS << '>';
     break;
@@ -363,7 +362,7 @@ void MachineOperand::print(raw_ostream &OS, const TargetMachine *TM) const {
     break;
   case MachineOperand::MO_BlockAddress:
     OS << '<';
-    WriteAsOperand(OS, getBlockAddress(), /*PrintType=*/false);
+    getBlockAddress()->printAsOperand(OS, /*PrintType=*/false);
     if (getOffset()) OS << "+" << getOffset();
     OS << '>';
     break;
@@ -375,7 +374,7 @@ void MachineOperand::print(raw_ostream &OS, const TargetMachine *TM) const {
     break;
   case MachineOperand::MO_Metadata:
     OS << '<';
-    WriteAsOperand(OS, getMetadata(), /*PrintType=*/false);
+    getMetadata()->printAsOperand(OS, /*PrintType=*/false);
     OS << '>';
     break;
   case MachineOperand::MO_MCSymbol:
@@ -484,7 +483,7 @@ raw_ostream &llvm::operator<<(raw_ostream &OS, const MachineMemOperand &MMO) {
   if (!MMO.getValue())
     OS << "<unknown>";
   else
-    WriteAsOperand(OS, MMO.getValue(), /*PrintType=*/false);
+    MMO.getValue()->printAsOperand(OS, /*PrintType=*/false);
 
   unsigned AS = MMO.getAddrSpace();
   if (AS != 0)
@@ -509,7 +508,7 @@ raw_ostream &llvm::operator<<(raw_ostream &OS, const MachineMemOperand &MMO) {
   if (const MDNode *TBAAInfo = MMO.getTBAAInfo()) {
     OS << "(tbaa=";
     if (TBAAInfo->getNumOperands() > 0)
-      WriteAsOperand(OS, TBAAInfo->getOperand(0), /*PrintType=*/false);
+      TBAAInfo->getOperand(0)->printAsOperand(OS, /*PrintType=*/false);
     else
       OS << "<unknown>";
     OS << ")";
@@ -991,6 +990,54 @@ MachineInstr::getRegClassConstraint(unsigned OpIdx,
     return TRI->getPointerRegClass(MF);
 
   return NULL;
+}
+
+const TargetRegisterClass *MachineInstr::getRegClassConstraintEffectForVReg(
+    unsigned Reg, const TargetRegisterClass *CurRC, const TargetInstrInfo *TII,
+    const TargetRegisterInfo *TRI, bool ExploreBundle) const {
+  // Check every operands inside the bundle if we have
+  // been asked to.
+  if (ExploreBundle)
+    for (ConstMIBundleOperands OpndIt(this); OpndIt.isValid() && CurRC;
+         ++OpndIt)
+      CurRC = OpndIt->getParent()->getRegClassConstraintEffectForVRegImpl(
+          OpndIt.getOperandNo(), Reg, CurRC, TII, TRI);
+  else
+    // Otherwise, just check the current operands.
+    for (ConstMIOperands OpndIt(this); OpndIt.isValid() && CurRC; ++OpndIt)
+      CurRC = getRegClassConstraintEffectForVRegImpl(OpndIt.getOperandNo(), Reg,
+                                                     CurRC, TII, TRI);
+  return CurRC;
+}
+
+const TargetRegisterClass *MachineInstr::getRegClassConstraintEffectForVRegImpl(
+    unsigned OpIdx, unsigned Reg, const TargetRegisterClass *CurRC,
+    const TargetInstrInfo *TII, const TargetRegisterInfo *TRI) const {
+  assert(CurRC && "Invalid initial register class");
+  // Check if Reg is constrained by some of its use/def from MI.
+  const MachineOperand &MO = getOperand(OpIdx);
+  if (!MO.isReg() || MO.getReg() != Reg)
+    return CurRC;
+  // If yes, accumulate the constraints through the operand.
+  return getRegClassConstraintEffect(OpIdx, CurRC, TII, TRI);
+}
+
+const TargetRegisterClass *MachineInstr::getRegClassConstraintEffect(
+    unsigned OpIdx, const TargetRegisterClass *CurRC,
+    const TargetInstrInfo *TII, const TargetRegisterInfo *TRI) const {
+  const TargetRegisterClass *OpRC = getRegClassConstraint(OpIdx, TII, TRI);
+  const MachineOperand &MO = getOperand(OpIdx);
+  assert(MO.isReg() &&
+         "Cannot get register constraints for non-register operand");
+  assert(CurRC && "Invalid initial register class");
+  if (unsigned SubIdx = MO.getSubReg()) {
+    if (OpRC)
+      CurRC = TRI->getMatchingSuperRegClass(CurRC, OpRC, SubIdx);
+    else
+      CurRC = TRI->getSubClassWithSubReg(CurRC, SubIdx);
+  } else if (OpRC)
+    CurRC = TRI->getCommonSubClass(CurRC, OpRC);
+  return CurRC;
 }
 
 /// Return the number of instructions inside the MI bundle, not counting the

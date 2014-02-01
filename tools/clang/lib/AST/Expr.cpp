@@ -588,13 +588,15 @@ std::string PredefinedExpr::ComputeName(IdentType IT, const Decl *CurrentDecl) {
     // not a constructor or destructor.
     if ((isa<CXXMethodDecl>(FD) &&
          cast<CXXMethodDecl>(FD)->getParent()->isLambda()) ||
-        (FT && FT->getResultType()->getAs<AutoType>()))
+        (FT && FT->getReturnType()->getAs<AutoType>()))
       Proto = "auto " + Proto;
-    else if (FT && FT->getResultType()->getAs<DecltypeType>())
-      FT->getResultType()->getAs<DecltypeType>()->getUnderlyingType()
+    else if (FT && FT->getReturnType()->getAs<DecltypeType>())
+      FT->getReturnType()
+          ->getAs<DecltypeType>()
+          ->getUnderlyingType()
           .getAsStringInternal(Proto, Policy);
     else if (!isa<CXXConstructorDecl>(FD) && !isa<CXXDestructorDecl>(FD))
-      AFT->getResultType().getAsStringInternal(Proto, Policy);
+      AFT->getReturnType().getAsStringInternal(Proto, Policy);
 
     Out << Proto;
 
@@ -627,7 +629,7 @@ std::string PredefinedExpr::ComputeName(IdentType IT, const Decl *CurrentDecl) {
       Out << '(' << *CID << ')';
 
     Out <<  ' ';
-    Out << MD->getSelector().getAsString();
+    MD->getSelector().print(Out);
     Out <<  ']';
 
     Out.flush();
@@ -1184,9 +1186,9 @@ void CallExpr::setNumArgs(const ASTContext& C, unsigned NumArgs) {
   this->NumArgs = NumArgs;
 }
 
-/// isBuiltinCall - If this is a call to a builtin, return the builtin ID.  If
+/// getBuiltinCallee - If this is a call to a builtin, return the builtin ID. If
 /// not, return 0.
-unsigned CallExpr::isBuiltinCall() const {
+unsigned CallExpr::getBuiltinCallee() const {
   // All simple function calls (e.g. func()) are implicitly cast to pointer to
   // function. As a result, we try and obtain the DeclRefExpr from the
   // ImplicitCastExpr.
@@ -1209,7 +1211,7 @@ unsigned CallExpr::isBuiltinCall() const {
 }
 
 bool CallExpr::isUnevaluatedBuiltinCall(ASTContext &Ctx) const {
-  if (unsigned BI = isBuiltinCall())
+  if (unsigned BI = getBuiltinCallee())
     return Ctx.BuiltinInfo.isUnevaluated(BI);
   return false;
 }
@@ -1225,7 +1227,7 @@ QualType CallExpr::getCallReturnType() const {
     CalleeType = Expr::findBoundMemberType(getCallee());
     
   const FunctionType *FnType = CalleeType->castAs<FunctionType>();
-  return FnType->getResultType();
+  return FnType->getReturnType();
 }
 
 SourceLocation CallExpr::getLocStart() const {
@@ -1869,7 +1871,11 @@ bool InitListExpr::isStringLiteralInit() const {
   const ArrayType *AT = getType()->getAsArrayTypeUnsafe();
   if (!AT || !AT->getElementType()->isIntegerType())
     return false;
-  const Expr *Init = getInit(0)->IgnoreParens();
+  // It is possible for getInit() to return null.
+  const Expr *Init = getInit(0);
+  if (!Init)
+    return false;
+  Init = Init->IgnoreParens();
   return isa<StringLiteral>(Init) || isa<ObjCEncodeExpr>(Init);
 }
 
@@ -2798,7 +2804,6 @@ bool Expr::HasSideEffects(const ASTContext &Ctx) const {
   case CXXThisExprClass:
   case CXXScalarValueInitExprClass:
   case TypeTraitExprClass:
-  case UnaryTypeTraitExprClass:
   case ArrayTypeTraitExprClass:
   case ExpressionTraitExprClass:
   case CXXNoexceptExprClass:
@@ -3031,7 +3036,7 @@ Expr::NullPointerConstantKind
 Expr::isNullPointerConstant(ASTContext &Ctx,
                             NullPointerConstantValueDependence NPC) const {
   if (isValueDependent() &&
-      (!Ctx.getLangOpts().CPlusPlus11 || Ctx.getLangOpts().MicrosoftMode)) {
+      (!Ctx.getLangOpts().CPlusPlus11 || Ctx.getLangOpts().MSVCCompat)) {
     switch (NPC) {
     case NPC_NeverValueDependent:
       llvm_unreachable("Unexpected value dependent expression!");
@@ -3117,8 +3122,7 @@ Expr::isNullPointerConstant(ASTContext &Ctx,
     const IntegerLiteral *Lit = dyn_cast<IntegerLiteral>(this);
     if (Lit && !Lit->getValue())
       return NPCK_ZeroLiteral;
-    else if (!Ctx.getLangOpts().MicrosoftMode ||
-             !isCXX98IntegralConstantExpr(Ctx))
+    else if (!Ctx.getLangOpts().MSVCCompat || !isCXX98IntegralConstantExpr(Ctx))
       return NPCK_NotNull;
   } else {
     // If we have an integer constant expression, we need to *evaluate* it and

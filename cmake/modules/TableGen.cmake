@@ -2,9 +2,17 @@
 # Extra parameters for `tblgen' may come after `ofn' parameter.
 # Adds the name of the generated file to TABLEGEN_OUTPUT.
 
-macro(tablegen project ofn)
-  file(GLOB local_tds "*.td")
-  file(GLOB_RECURSE global_tds "${LLVM_MAIN_INCLUDE_DIR}/llvm/*.td")
+function(tablegen project ofn)
+  # Use the list by include_directories().
+  get_property(include_dirs DIRECTORY PROPERTY INCLUDE_DIRECTORIES)
+
+  # Collect possible dependent *.td(s).
+  # FIXME: It is far from optimal.
+  file(GLOB dependent_tds "*.td")
+  foreach(inc ${include_dirs})
+    file(GLOB tds "${inc}/*.td")
+    list(APPEND dependent_tds ${tds})
+  endforeach()
 
   if (IS_ABSOLUTE ${LLVM_TARGET_DEFINITIONS})
     set(LLVM_TARGET_DEFINITIONS_ABSOLUTE ${LLVM_TARGET_DEFINITIONS})
@@ -12,16 +20,20 @@ macro(tablegen project ofn)
     set(LLVM_TARGET_DEFINITIONS_ABSOLUTE 
       ${CMAKE_CURRENT_SOURCE_DIR}/${LLVM_TARGET_DEFINITIONS})
   endif()
+  foreach(inc ${include_dirs})
+    list(APPEND TABLEGEN_INCLUDE_DIRECTORIES -I ${inc})
+  endforeach()
   add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${ofn}.tmp
     # Generate tablegen output in a temporary file.
-    COMMAND ${${project}_TABLEGEN_EXE} ${ARGN} -I ${CMAKE_CURRENT_SOURCE_DIR}
-    -I ${LLVM_MAIN_SRC_DIR}/lib/Target -I ${LLVM_MAIN_INCLUDE_DIR}
+    COMMAND ${${project}_TABLEGEN_EXE} ${ARGN}
+    -I ${CMAKE_CURRENT_SOURCE_DIR}
+    ${TABLEGEN_INCLUDE_DIRECTORIES}
     ${LLVM_TARGET_DEFINITIONS_ABSOLUTE} 
     -o ${CMAKE_CURRENT_BINARY_DIR}/${ofn}.tmp
     # The file in LLVM_TARGET_DEFINITIONS may be not in the current
     # directory and local_tds may not contain it, so we must
     # explicitly list it here:
-    DEPENDS ${${project}_TABLEGEN_EXE} ${local_tds} ${global_tds}
+    DEPENDS ${${project}_TABLEGEN_EXE} ${dependent_tds}
     ${LLVM_TARGET_DEFINITIONS_ABSOLUTE}
     COMMENT "Building ${ofn}..."
     )
@@ -33,17 +45,17 @@ macro(tablegen project ofn)
         ${CMAKE_CURRENT_BINARY_DIR}/${ofn}.tmp
         ${CMAKE_CURRENT_BINARY_DIR}/${ofn}
     DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${ofn}.tmp
-    COMMENT ""
+    COMMENT "Updating ${ofn}..."
     )
 
   # `make clean' must remove all those generated files:
   set_property(DIRECTORY APPEND
     PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${ofn}.tmp ${ofn})
 
-  set(TABLEGEN_OUTPUT ${TABLEGEN_OUTPUT} ${CMAKE_CURRENT_BINARY_DIR}/${ofn})
+  set(TABLEGEN_OUTPUT ${TABLEGEN_OUTPUT} ${CMAKE_CURRENT_BINARY_DIR}/${ofn} PARENT_SCOPE)
   set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/${ofn} 
     PROPERTIES GENERATED 1)
-endmacro(tablegen)
+endfunction(tablegen)
 
 macro(add_public_tablegen_target target)
   # Creates a target for publicly exporting tablegen dependencies.
@@ -83,16 +95,6 @@ macro(add_tablegen target project)
   set(LLVM_LINK_COMPONENTS ${LLVM_LINK_COMPONENTS} TableGen)
   add_llvm_utility(${target} ${ARGN})
   set(LLVM_LINK_COMPONENTS ${${target}_OLD_LLVM_LINK_COMPONENTS})
-
-  # For Xcode builds, symlink bin/<target> to bin/<Config>/<target> so that
-  # a separately-configured Clang project can still find llvm-tblgen.
-  if (XCODE)
-    add_custom_target(${target}-top ALL
-      ${CMAKE_COMMAND} -E create_symlink 
-        ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${CMAKE_CFG_INTDIR}/${target}${CMAKE_EXECUTABLE_SUFFIX}
-        ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${target}${CMAKE_EXECUTABLE_SUFFIX}
-      DEPENDS ${target})
-  endif ()
 
   set(${project}_TABLEGEN "${target}" CACHE
       STRING "Native TableGen executable. Saves building one when cross-compiling.")

@@ -19,8 +19,8 @@
 #include "PPCInstrInfo.h"
 #include "PPCRegisterInfo.h"
 #include "PPCSubtarget.h"
-#include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/CallingConvLower.h"
+#include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/Target/TargetLowering.h"
 
 namespace llvm {
@@ -177,6 +177,8 @@ namespace llvm {
       CR6SET,
       CR6UNSET,
 
+      /// GPRC = address of _GLOBAL_OFFSET_TABLE_. Used by initial-exec TLS
+      /// on PPC32.
       PPC32_GOT,
 
       /// G8RC = ADDIS_GOT_TPREL_HA %X2, Symbol - Used by the initial-exec

@@ -10,7 +10,7 @@
 #include "lld/ReaderWriter/ELFLinkingContext.h"
 
 #include "ArrayOrderPass.h"
-#include "File.h"
+#include "ELFFile.h"
 #include "TargetHandler.h"
 #include "Targets.h"
 
@@ -90,7 +90,7 @@ bool ELFLinkingContext::validateImpl(raw_ostream &diagnostics) {
     llvm_unreachable("Unimplemented");
     break;
   default:
-    _writer = createWriterELF(*this);
+    _writer = createWriterELF(this->targetHandler());
     break;
   }
   return true;

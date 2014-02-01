@@ -10,7 +10,6 @@
 #define DEBUG_TYPE "format-test"
 
 #include "FormatTestUtils.h"
-
 #include "clang/Format/Format.h"
 #include "llvm/Support/Debug.h"
 #include "gtest/gtest.h"
@@ -78,6 +77,15 @@ TEST_F(FormatTestJS, UnderstandsJavaScriptOperators) {
                "            bbbbbb :\n"
                "            ccc;",
                getGoogleJSStyleWithColumns(20));
+}
+
+TEST_F(FormatTestJS, SpacesInContainerLiterals) {
+  verifyFormat("var arr = [1, 2, 3];");
+  verifyFormat("var obj = {a: 1, b: 2, c: 3};");
+}
+
+TEST_F(FormatTestJS, SingleQuoteStrings) {
+  verifyFormat("this.function('', true);");
 }
 
 } // end namespace tooling

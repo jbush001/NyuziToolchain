@@ -70,6 +70,10 @@ namespace ISD {
   /// BUILD_VECTOR where all of the elements are 0 or undef.
   bool isBuildVectorAllZeros(const SDNode *N);
 
+  /// \brief Return true if the specified node is a BUILD_VECTOR node of
+  /// all ConstantSDNode or undef.
+  bool isBuildVectorOfConstantSDNodes(const SDNode *N);
+
   /// isScalarToVector - Return true if the specified node is a
   /// ISD::SCALAR_TO_VECTOR node or a BUILD_VECTOR node where only the low
   /// element is not an undef.
@@ -1246,9 +1250,10 @@ public:
 class ConstantSDNode : public SDNode {
   const ConstantInt *Value;
   friend class SelectionDAG;
-  ConstantSDNode(bool isTarget, const ConstantInt *val, EVT VT)
+  ConstantSDNode(bool isTarget, bool isOpaque, const ConstantInt *val, EVT VT)
     : SDNode(isTarget ? ISD::TargetConstant : ISD::Constant,
              0, DebugLoc(), getSDVTList(VT)), Value(val) {
+    SubclassData |= (uint16_t)isOpaque;
   }
 public:
 
@@ -1260,6 +1265,8 @@ public:
   bool isOne() const { return Value->isOne(); }
   bool isNullValue() const { return Value->isNullValue(); }
   bool isAllOnesValue() const { return Value->isAllOnesValue(); }
+
+  bool isOpaque() const { return SubclassData & 1; }
 
   static bool classof(const SDNode *N) {
     return N->getOpcode() == ISD::Constant ||
@@ -1487,6 +1494,8 @@ public:
   bool isConstantSplat(APInt &SplatValue, APInt &SplatUndef,
                        unsigned &SplatBitSize, bool &HasAnyUndefs,
                        unsigned MinSplatBits = 0, bool isBigEndian = false);
+
+  bool isConstant() const;
 
   static inline bool classof(const SDNode *N) {
     return N->getOpcode() == ISD::BUILD_VECTOR;

@@ -26,7 +26,6 @@
 #include "llvm/IR/Function.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetRegistry.h"
-
 #include <algorithm>
 
 #define GET_INSTRINFO_CTOR_DTOR
@@ -133,8 +132,19 @@ void AArch64InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
         .addImm(16);
       return;
     }
+  } else if (AArch64::FPR16RegClass.contains(DestReg, SrcReg)) {
+    // The copy of two FPR16 registers is implemented by the copy of two FPR32
+    const TargetRegisterInfo *TRI = &getRegisterInfo();
+    unsigned Dst = TRI->getMatchingSuperReg(DestReg, AArch64::sub_16,
+                                            &AArch64::FPR32RegClass);
+    unsigned Src = TRI->getMatchingSuperReg(SrcReg, AArch64::sub_16,
+                                            &AArch64::FPR32RegClass);
+    BuildMI(MBB, I, DL, get(AArch64::FMOVss), Dst)
+      .addReg(Src);
+    return;
   } else {
-    llvm_unreachable("Unknown register class in copyPhysReg");
+    CopyPhysRegTuple(MBB, I, DL, DestReg, SrcReg);
+    return;
   }
 
   // E.g. ORR xDst, xzr, xSrc, lsl #0
@@ -142,6 +152,55 @@ void AArch64InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     .addReg(ZeroReg)
     .addReg(SrcReg)
     .addImm(0);
+}
+
+void AArch64InstrInfo::CopyPhysRegTuple(MachineBasicBlock &MBB,
+                                        MachineBasicBlock::iterator I,
+                                        DebugLoc DL, unsigned DestReg,
+                                        unsigned SrcReg) const {
+  unsigned SubRegs;
+  bool IsQRegs;
+  if (AArch64::DPairRegClass.contains(DestReg, SrcReg)) {
+    SubRegs = 2;
+    IsQRegs = false;
+  } else if (AArch64::DTripleRegClass.contains(DestReg, SrcReg)) {
+    SubRegs = 3;
+    IsQRegs = false;
+  } else if (AArch64::DQuadRegClass.contains(DestReg, SrcReg)) {
+    SubRegs = 4;
+    IsQRegs = false;
+  } else if (AArch64::QPairRegClass.contains(DestReg, SrcReg)) {
+    SubRegs = 2;
+    IsQRegs = true;
+  } else if (AArch64::QTripleRegClass.contains(DestReg, SrcReg)) {
+    SubRegs = 3;
+    IsQRegs = true;
+  } else if (AArch64::QQuadRegClass.contains(DestReg, SrcReg)) {
+    SubRegs = 4;
+    IsQRegs = true;
+  } else
+    llvm_unreachable("Unknown register class");
+
+  unsigned BeginIdx = IsQRegs ? AArch64::qsub_0 : AArch64::dsub_0;
+  int Spacing = 1;
+  const TargetRegisterInfo *TRI = &getRegisterInfo();
+  // Copy register tuples backward when the first Dest reg overlaps
+  // with SrcReg.
+  if (TRI->regsOverlap(SrcReg, TRI->getSubReg(DestReg, BeginIdx))) {
+    BeginIdx = BeginIdx + (SubRegs - 1);
+    Spacing = -1;
+  }
+
+  unsigned Opc = IsQRegs ? AArch64::ORRvvv_16B : AArch64::ORRvvv_8B;
+  for (unsigned i = 0; i != SubRegs; ++i) {
+    unsigned Dst = TRI->getSubReg(DestReg, BeginIdx + i * Spacing);
+    unsigned Src = TRI->getSubReg(SrcReg, BeginIdx + i * Spacing);
+    assert(Dst && Src && "Bad sub-register");
+    BuildMI(MBB, I, I->getDebugLoc(), get(Opc), Dst)
+        .addReg(Src)
+        .addReg(Src);
+  }
+  return;
 }
 
 /// Does the Opcode represent a conditional branch that we can remove and re-add
@@ -418,10 +477,8 @@ AArch64InstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
     default:
       llvm_unreachable("Unknown size for regclass");
     }
-  } else {
-    assert((RC->hasType(MVT::f32) || RC->hasType(MVT::f64) ||
-            RC->hasType(MVT::f128))
-           && "Expected integer or floating type for store");
+  } else if (RC->hasType(MVT::f32) || RC->hasType(MVT::f64) ||
+             RC->hasType(MVT::f128)) {
     switch (RC->getSize()) {
     case 4: StoreOp = AArch64::LSFP32_STR; break;
     case 8: StoreOp = AArch64::LSFP64_STR; break;
@@ -429,6 +486,28 @@ AArch64InstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
     default:
       llvm_unreachable("Unknown size for regclass");
     }
+  } else { // For a super register class has more than one sub registers
+    if (AArch64::DPairRegClass.hasSubClassEq(RC))
+      StoreOp = AArch64::ST1x2_8B;
+    else if (AArch64::DTripleRegClass.hasSubClassEq(RC))
+      StoreOp = AArch64::ST1x3_8B;
+    else if (AArch64::DQuadRegClass.hasSubClassEq(RC))
+      StoreOp = AArch64::ST1x4_8B;
+    else if (AArch64::QPairRegClass.hasSubClassEq(RC))
+      StoreOp = AArch64::ST1x2_16B;
+    else if (AArch64::QTripleRegClass.hasSubClassEq(RC))
+      StoreOp = AArch64::ST1x3_16B;
+    else if (AArch64::QQuadRegClass.hasSubClassEq(RC))
+      StoreOp = AArch64::ST1x4_16B;
+    else
+      llvm_unreachable("Unknown reg class");
+
+    MachineInstrBuilder NewMI = BuildMI(MBB, MBBI, DL, get(StoreOp));
+    // Vector store has different operands from other store instructions.
+    NewMI.addFrameIndex(FrameIdx)
+         .addReg(SrcReg, getKillRegState(isKill))
+         .addMemOperand(MMO);
+    return;
   }
 
   MachineInstrBuilder NewMI = BuildMI(MBB, MBBI, DL, get(StoreOp));
@@ -464,10 +543,8 @@ AArch64InstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
     default:
       llvm_unreachable("Unknown size for regclass");
     }
-  } else {
-    assert((RC->hasType(MVT::f32) || RC->hasType(MVT::f64)
-            || RC->hasType(MVT::f128))
-           && "Expected integer or floating type for store");
+  } else if (RC->hasType(MVT::f32) || RC->hasType(MVT::f64) ||
+             RC->hasType(MVT::f128)) {
     switch (RC->getSize()) {
     case 4: LoadOp = AArch64::LSFP32_LDR; break;
     case 8: LoadOp = AArch64::LSFP64_LDR; break;
@@ -475,6 +552,27 @@ AArch64InstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
     default:
       llvm_unreachable("Unknown size for regclass");
     }
+  } else { // For a super register class has more than one sub registers
+    if (AArch64::DPairRegClass.hasSubClassEq(RC))
+      LoadOp = AArch64::LD1x2_8B;
+    else if (AArch64::DTripleRegClass.hasSubClassEq(RC))
+      LoadOp = AArch64::LD1x3_8B;
+    else if (AArch64::DQuadRegClass.hasSubClassEq(RC))
+      LoadOp = AArch64::LD1x4_8B;
+    else if (AArch64::QPairRegClass.hasSubClassEq(RC))
+      LoadOp = AArch64::LD1x2_16B;
+    else if (AArch64::QTripleRegClass.hasSubClassEq(RC))
+      LoadOp = AArch64::LD1x3_16B;
+    else if (AArch64::QQuadRegClass.hasSubClassEq(RC))
+      LoadOp = AArch64::LD1x4_16B;
+    else
+      llvm_unreachable("Unknown reg class");
+
+    MachineInstrBuilder NewMI = BuildMI(MBB, MBBI, DL, get(LoadOp), DestReg);
+    // Vector load has different operands from other load instructions.
+    NewMI.addFrameIndex(FrameIdx)
+         .addMemOperand(MMO);
+    return;
   }
 
   MachineInstrBuilder NewMI = BuildMI(MBB, MBBI, DL, get(LoadOp), DestReg);
@@ -513,7 +611,8 @@ void AArch64InstrInfo::getAddressConstraints(const MachineInstr &MI,
                                              int &AccessScale, int &MinOffset,
                                              int &MaxOffset) const {
   switch (MI.getOpcode()) {
-  default: llvm_unreachable("Unkown load/store kind");
+  default:
+    llvm_unreachable("Unknown load/store kind");
   case TargetOpcode::DBG_VALUE:
     AccessScale = 1;
     MinOffset = INT_MIN;
@@ -571,6 +670,32 @@ void AArch64InstrInfo::getAddressConstraints(const MachineInstr &MI,
     AccessScale = 16;
     MinOffset = -0x40 * AccessScale;
     MaxOffset = 0x3f * AccessScale;
+    return;
+  case AArch64::LD1x2_8B: case AArch64::ST1x2_8B:
+    AccessScale = 16;
+    MinOffset = 0;
+    MaxOffset = 0xfff * AccessScale;
+    return;
+  case AArch64::LD1x3_8B: case AArch64::ST1x3_8B:
+    AccessScale = 24;
+    MinOffset = 0;
+    MaxOffset = 0xfff * AccessScale;
+    return;
+  case AArch64::LD1x4_8B: case AArch64::ST1x4_8B:
+  case AArch64::LD1x2_16B: case AArch64::ST1x2_16B:
+    AccessScale = 32;
+    MinOffset = 0;
+    MaxOffset = 0xfff * AccessScale;
+    return;
+  case AArch64::LD1x3_16B: case AArch64::ST1x3_16B:
+    AccessScale = 48;
+    MinOffset = 0;
+    MaxOffset = 0xfff * AccessScale;
+    return;
+  case AArch64::LD1x4_16B: case AArch64::ST1x4_16B:
+    AccessScale = 64;
+    MinOffset = 0;
+    MaxOffset = 0xfff * AccessScale;
     return;
   }
 }

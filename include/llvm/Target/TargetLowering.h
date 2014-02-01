@@ -173,6 +173,11 @@ public:
     return true;
   }
 
+  /// Return true if multiple condition registers are available.
+  bool hasMultipleConditionRegisters() const {
+    return HasMultipleConditionRegisters;
+  }
+
   /// Return true if a vector of the given type should be split
   /// (TypeSplitVector) instead of promoted (TypePromoteInteger) during type
   /// legalization.
@@ -604,8 +609,9 @@ public:
     return getValueType(Ty, AllowUnknown).getSimpleVT();
   }
 
-  /// Return the desired alignment for ByVal aggregate function arguments in the
-  /// caller parameter area.  This is the actual alignment, not its logarithm.
+  /// Return the desired alignment for ByVal or InAlloca aggregate function
+  /// arguments in the caller parameter area.  This is the actual alignment, not
+  /// its logarithm.
   virtual unsigned getByValTypeAlignment(Type *Ty) const;
 
   /// Return the type of registers that this ValueType will eventually require.
@@ -924,6 +930,15 @@ protected:
   /// the select operations if possible.
   void setSelectIsExpensive(bool isExpensive = true) {
     SelectIsExpensive = isExpensive;
+  }
+
+  /// Tells the code generator that the target has multiple (allocatable)
+  /// condition registers that can be used to store the results of comparisons
+  /// for use by selects and conditional branches. With multiple condition
+  /// registers, the code generator will not aggressively sink comparisons into
+  /// the blocks of their users.
+  void setHasMultipleConditionRegisters(bool hasManyRegs = true) {
+    HasMultipleConditionRegisters = hasManyRegs;
   }
 
   /// Tells the code generator not to expand sequence of operations into a
@@ -1273,6 +1288,15 @@ public:
     return false;
   }
 
+  /// \brief Return true if it is beneficial to convert a load of a constant to
+  /// just the constant itself.
+  /// On some targets it might be more efficient to use a combination of
+  /// arithmetic instructions to materialize the constant instead of loading it
+  /// from a constant pool.
+  virtual bool shouldConvertConstantLoadToIntImm(const APInt &Imm,
+                                                 Type *Ty) const {
+    return false;
+  }
   //===--------------------------------------------------------------------===//
   // Runtime Library hooks
   //
@@ -1320,6 +1344,13 @@ private:
   /// Tells the code generator not to expand operations into sequences that use
   /// the select operations if possible.
   bool SelectIsExpensive;
+
+  /// Tells the code generator that the target has multiple (allocatable)
+  /// condition registers that can be used to store the results of comparisons
+  /// for use by selects and conditional branches. With multiple condition
+  /// registers, the code generator will not aggressively sink comparisons into
+  /// the blocks of their users.
+  bool HasMultipleConditionRegisters;
 
   /// Tells the code generator not to expand integer divides by constants into a
   /// sequence of muls, adds, and shifts.  This is a hack until a real cost
@@ -1935,12 +1966,13 @@ public:
     bool isSRet     : 1;
     bool isNest     : 1;
     bool isByVal    : 1;
+    bool isInAlloca : 1;
     bool isReturned : 1;
     uint16_t Alignment;
 
     ArgListEntry() : isSExt(false), isZExt(false), isInReg(false),
-      isSRet(false), isNest(false), isByVal(false), isReturned(false),
-      Alignment(0) { }
+      isSRet(false), isNest(false), isByVal(false), isInAlloca(false),
+      isReturned(false), Alignment(0) { }
 
     void setAttributes(ImmutableCallSite *CS, unsigned AttrIdx);
   };
@@ -2142,6 +2174,10 @@ public:
                                    const TargetLibraryInfo *) const {
     return 0;
   }
+
+
+  bool verifyReturnAddressArgumentIsConstant(SDValue Op,
+                                             SelectionDAG &DAG) const;
 
   //===--------------------------------------------------------------------===//
   // Inline Asm Support hooks

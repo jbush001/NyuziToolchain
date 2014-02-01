@@ -463,6 +463,18 @@ Sema::HandlePropertyInClassExtension(Scope *S,
     DeclContext *DC = cast<DeclContext>(CCPrimary);
     if (!ObjCPropertyDecl::findPropertyDecl(DC,
                                  PIDecl->getDeclName().getAsIdentifierInfo())) {
+      // In mrr mode, 'readwrite' property must have an explicit
+      // memory attribute. If none specified, select the default (assign).
+      if (!getLangOpts().ObjCAutoRefCount) {
+        if (!(PIkind & (ObjCDeclSpec::DQ_PR_assign |
+                        ObjCDeclSpec::DQ_PR_retain |
+                        ObjCDeclSpec::DQ_PR_strong |
+                        ObjCDeclSpec::DQ_PR_copy |
+                        ObjCDeclSpec::DQ_PR_unsafe_unretained |
+                        ObjCDeclSpec::DQ_PR_weak)))
+          PIkind |= ObjCPropertyDecl::OBJC_PR_assign;
+      }
+      
       // Protocol is not in the primary class. Must build one for it.
       ObjCDeclSpec ProtocolPropertyODS;
       // FIXME. Assuming that ObjCDeclSpec::ObjCPropertyAttributeKind
@@ -876,7 +888,7 @@ Decl *Sema::ActOnPropertyImplDecl(Scope *S,
       
       if (!ReadWriteProperty) {
         Diag(property->getLocation(), diag::warn_auto_readonly_iboutlet_property)
-            << property->getName();
+            << property;
         SourceLocation readonlyLoc;
         if (LocPropertyAttribute(Context, "readonly", 
                                  property->getLParenLoc(), readonlyLoc)) {
@@ -1148,19 +1160,20 @@ Decl *Sema::ActOnPropertyImplDecl(Scope *S,
       ImplicitParamDecl *SelfDecl = getterMethod->getSelfDecl();
       DeclRefExpr *SelfExpr = 
         new (Context) DeclRefExpr(SelfDecl, false, SelfDecl->getType(),
-                                  VK_RValue, PropertyDiagLoc);
+                                  VK_LValue, PropertyDiagLoc);
       MarkDeclRefReferenced(SelfExpr);
+      Expr *LoadSelfExpr =
+        ImplicitCastExpr::Create(Context, SelfDecl->getType(),
+                                 CK_LValueToRValue, SelfExpr, 0, VK_RValue);
       Expr *IvarRefExpr =
         new (Context) ObjCIvarRefExpr(Ivar, Ivar->getType(), PropertyDiagLoc,
                                       Ivar->getLocation(),
-                                      SelfExpr, true, true);
-      ExprResult Res = 
-        PerformCopyInitialization(InitializedEntity::InitializeResult(
-                                    PropertyDiagLoc,
-                                    getterMethod->getResultType(),
-                                    /*NRVO=*/false),
-                                  PropertyDiagLoc,
-                                  Owned(IvarRefExpr));
+                                      LoadSelfExpr, true, true);
+      ExprResult Res = PerformCopyInitialization(
+          InitializedEntity::InitializeResult(PropertyDiagLoc,
+                                              getterMethod->getReturnType(),
+                                              /*NRVO=*/false),
+          PropertyDiagLoc, Owned(IvarRefExpr));
       if (!Res.isInvalid()) {
         Expr *ResExpr = Res.takeAs<Expr>();
         if (ResExpr)
@@ -1196,12 +1209,15 @@ Decl *Sema::ActOnPropertyImplDecl(Scope *S,
       ImplicitParamDecl *SelfDecl = setterMethod->getSelfDecl();
       DeclRefExpr *SelfExpr = 
         new (Context) DeclRefExpr(SelfDecl, false, SelfDecl->getType(),
-                                  VK_RValue, PropertyDiagLoc);
+                                  VK_LValue, PropertyDiagLoc);
       MarkDeclRefReferenced(SelfExpr);
+      Expr *LoadSelfExpr =
+        ImplicitCastExpr::Create(Context, SelfDecl->getType(),
+                                 CK_LValueToRValue, SelfExpr, 0, VK_RValue);
       Expr *lhs =
         new (Context) ObjCIvarRefExpr(Ivar, Ivar->getType(), PropertyDiagLoc,
                                       Ivar->getLocation(),
-                                      SelfExpr, true, true);
+                                      LoadSelfExpr, true, true);
       ObjCMethodDecl::param_iterator P = setterMethod->param_begin();
       ParmVarDecl *Param = (*P);
       QualType T = Param->getType().getNonReferenceType();
@@ -1379,7 +1395,7 @@ bool Sema::DiagnosePropertyAccessorMismatch(ObjCPropertyDecl *property,
                                             SourceLocation Loc) {
   if (!GetterMethod)
     return false;
-  QualType GetterType = GetterMethod->getResultType().getNonReferenceType();
+  QualType GetterType = GetterMethod->getReturnType().getNonReferenceType();
   QualType PropertyIvarType = property->getType().getNonReferenceType();
   bool compat = Context.hasSameType(PropertyIvarType, GetterType);
   if (!compat) {
@@ -1544,7 +1560,7 @@ void Sema::DefaultSynthesizeProperties(Scope *S, ObjCImplDecl* IMPDecl,
           !IMPDecl->getInstanceMethod(Prop->getSetterName()) &&
           !IDecl->HasUserDeclaredSetterMethod(Prop)) {
             Diag(Prop->getLocation(), diag::warn_no_autosynthesis_property)
-              << Prop->getIdentifier()->getName();
+              << Prop->getIdentifier();
             Diag(PropInSuperClass->getLocation(), diag::note_property_declare);
       }
       continue;
@@ -1553,7 +1569,7 @@ void Sema::DefaultSynthesizeProperties(Scope *S, ObjCImplDecl* IMPDecl,
         IMPDecl->FindPropertyImplIvarDecl(Prop->getIdentifier())) {
       if (PID->getPropertyDecl() != Prop) {
         Diag(Prop->getLocation(), diag::warn_no_autosynthesis_shared_ivar_property)
-        << Prop->getIdentifier()->getName();
+          << Prop->getIdentifier();
         if (!PID->getLocation().isInvalid())
           Diag(PID->getLocation(), diag::note_property_synthesize);
       }
@@ -1795,9 +1811,6 @@ void Sema::DiagnoseOwningPropertyGetterSynthesis(const ObjCImplementationDecl *D
   for (ObjCImplementationDecl::propimpl_iterator
          i = D->propimpl_begin(), e = D->propimpl_end(); i != e; ++i) {
     ObjCPropertyImplDecl *PID = *i;
-    if (PID->getPropertyImplementation() != ObjCPropertyImplDecl::Synthesize)
-      continue;
-    
     const ObjCPropertyDecl *PD = PID->getPropertyDecl();
     if (PD && !PD->hasAttr<NSReturnsNotRetainedAttr>() &&
         !D->getInstanceMethod(PD->getGetterName())) {
@@ -1808,10 +1821,9 @@ void Sema::DiagnoseOwningPropertyGetterSynthesis(const ObjCImplementationDecl *D
       if (family == OMF_alloc || family == OMF_copy ||
           family == OMF_mutableCopy || family == OMF_new) {
         if (getLangOpts().ObjCAutoRefCount)
-          Diag(PID->getLocation(), diag::err_ownin_getter_rule);
+          Diag(PD->getLocation(), diag::err_cocoa_naming_owned_rule);
         else
-          Diag(PID->getLocation(), diag::warn_owning_getter_rule);
-        Diag(PD->getLocation(), diag::note_property_declare);
+          Diag(PD->getLocation(), diag::warn_cocoa_naming_owned_rule);
       }
     }
   }
@@ -1881,8 +1893,8 @@ void Sema::ProcessPropertyDecl(ObjCPropertyDecl *property,
     ObjCPropertyDecl::PropertyAttributeKind CAttr =
       property->getPropertyAttributes();
     if ((!(CAttr & ObjCPropertyDecl::OBJC_PR_readonly)) &&
-        Context.getCanonicalType(SetterMethod->getResultType()) !=
-          Context.VoidTy)
+        Context.getCanonicalType(SetterMethod->getReturnType()) !=
+            Context.VoidTy)
       Diag(SetterMethod->getLocation(), diag::err_setter_type_void);
     if (SetterMethod->param_size() != 1 ||
         !Context.hasSameUnqualifiedType(
@@ -1928,16 +1940,16 @@ void Sema::ProcessPropertyDecl(ObjCPropertyDecl *property,
     if (lexicalDC)
       GetterMethod->setLexicalDeclContext(lexicalDC);
     if (property->hasAttr<NSReturnsNotRetainedAttr>())
-      GetterMethod->addAttr(
-        ::new (Context) NSReturnsNotRetainedAttr(Loc, Context));
+      GetterMethod->addAttr(NSReturnsNotRetainedAttr::CreateImplicit(Context,
+                                                                     Loc));
     
     if (property->hasAttr<ObjCReturnsInnerPointerAttr>())
       GetterMethod->addAttr(
-        ::new (Context) ObjCReturnsInnerPointerAttr(Loc, Context));
+        ObjCReturnsInnerPointerAttr::CreateImplicit(Context, Loc));
     
     if (const SectionAttr *SA = property->getAttr<SectionAttr>())
-      GetterMethod->addAttr(::new (Context) SectionAttr(Loc,
-                                                        Context, SA->getName()));
+      GetterMethod->addAttr(SectionAttr::CreateImplicit(Context, SA->getName(),
+                                                        Loc));
 
     if (getLangOpts().ObjCAutoRefCount)
       CheckARCMethodDecl(GetterMethod);
@@ -1989,8 +2001,8 @@ void Sema::ProcessPropertyDecl(ObjCPropertyDecl *property,
       if (lexicalDC)
         SetterMethod->setLexicalDeclContext(lexicalDC);
       if (const SectionAttr *SA = property->getAttr<SectionAttr>())
-        SetterMethod->addAttr(::new (Context) SectionAttr(Loc,
-                                                          Context, SA->getName()));
+        SetterMethod->addAttr(SectionAttr::CreateImplicit(Context,
+                                                          SA->getName(), Loc));
       // It's possible for the user to have set a very odd custom
       // setter selector that causes it to have a method family.
       if (getLangOpts().ObjCAutoRefCount)

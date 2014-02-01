@@ -18,6 +18,7 @@
 #include "llvm/ADT/Optional.h"
 #include "llvm/Support/COFF.h"
 
+#include <set>
 #include <vector>
 
 using namespace llvm;
@@ -45,7 +46,7 @@ TEST_F(WinLinkParserTest, Basic) {
   EXPECT_TRUE(_context.getInputSearchPaths().empty());
 
   // Unspecified flags will have default values.
-  EXPECT_EQ(PECOFFLinkingContext::IMAGE_EXE, _context.getImageType());
+  EXPECT_FALSE(_context.isDll());
   EXPECT_EQ(6, _context.getMinOSVersion().majorVersion);
   EXPECT_EQ(0, _context.getMinOSVersion().minorVersion);
   EXPECT_EQ(0x400000U, _context.getBaseAddress());
@@ -158,32 +159,46 @@ TEST_F(WinLinkParserTest, AlternateName) {
 
 TEST_F(WinLinkParserTest, Export) {
   EXPECT_TRUE(parse("link.exe", "/export:foo", "a.out", nullptr));
-  const std::vector<PECOFFLinkingContext::ExportDesc> &exports =
+  const std::set<PECOFFLinkingContext::ExportDesc> &exports =
       _context.getDllExports();
-  EXPECT_TRUE(exports.size() == 1);
-  EXPECT_EQ("foo", exports[0].name);
-  EXPECT_EQ(1, exports[0].ordinal);
-  EXPECT_FALSE(exports[0].noname);
-  EXPECT_FALSE(exports[0].isData);
+  EXPECT_EQ(1U, exports.size());
+  auto it = exports.begin();
+  EXPECT_EQ("_foo", it->name);
+  EXPECT_EQ(-1, it->ordinal);
+  EXPECT_FALSE(it->noname);
+  EXPECT_FALSE(it->isData);
 }
 
 TEST_F(WinLinkParserTest, ExportWithOptions) {
   EXPECT_TRUE(parse("link.exe", "/export:foo,@8,noname,data",
                     "/export:bar,@10,data", "a.out", nullptr));
-  const std::vector<PECOFFLinkingContext::ExportDesc> &exports =
+  const std::set<PECOFFLinkingContext::ExportDesc> &exports =
       _context.getDllExports();
-  EXPECT_TRUE(exports.size() == 2);
-  EXPECT_EQ("foo", exports[0].name);
-  EXPECT_EQ(8, exports[0].ordinal);
-  EXPECT_TRUE(exports[0].noname);
-  EXPECT_TRUE(exports[0].isData);
-  EXPECT_EQ("bar", exports[1].name);
-  EXPECT_EQ(10, exports[1].ordinal);
-  EXPECT_FALSE(exports[1].noname);
-  EXPECT_TRUE(exports[1].isData);
+  EXPECT_EQ(2U, exports.size());
+  auto it = exports.begin();
+  EXPECT_EQ("_bar", it->name);
+  EXPECT_EQ(10, it->ordinal);
+  EXPECT_FALSE(it->noname);
+  EXPECT_TRUE(it->isData);
+  ++it;
+  EXPECT_EQ("_foo", it->name);
+  EXPECT_EQ(8, it->ordinal);
+  EXPECT_TRUE(it->noname);
+  EXPECT_TRUE(it->isData);
 }
 
-TEST_F(WinLinkParserTest, ExportDuplicates) {
+TEST_F(WinLinkParserTest, ExportDuplicateExports) {
+  EXPECT_TRUE(
+      parse("link.exe", "/export:foo,@1", "/export:foo,@2", "a.out", nullptr));
+  const std::set<PECOFFLinkingContext::ExportDesc> &exports =
+      _context.getDllExports();
+  EXPECT_EQ(1U, exports.size());
+  auto it = exports.begin();
+  EXPECT_EQ("_foo", it->name);
+  EXPECT_EQ(1, it->ordinal);
+}
+
+TEST_F(WinLinkParserTest, ExportDuplicateOrdinals) {
   EXPECT_FALSE(
       parse("link.exe", "/export:foo,@1", "/export:bar,@1", "a.out", nullptr));
 }
@@ -202,9 +217,14 @@ TEST_F(WinLinkParserTest, MachineX86) {
 }
 
 TEST_F(WinLinkParserTest, MachineX64) {
-  EXPECT_FALSE(parse("link.exe", "/machine:x64", "a.obj", nullptr));
-  EXPECT_TRUE(StringRef(errorMessage())
-                  .startswith("Machine type other than x86 is not supported"));
+  EXPECT_TRUE(parse("link.exe", "/machine:x64", "a.obj", nullptr));
+  EXPECT_EQ(llvm::COFF::IMAGE_FILE_MACHINE_AMD64, _context.getMachineType());
+}
+
+TEST_F(WinLinkParserTest, MachineArm) {
+  EXPECT_FALSE(parse("link.exe", "/machine:arm", "a.obj", nullptr));
+  EXPECT_TRUE(StringRef(errorMessage()).startswith(
+      "Machine type other than x86/x64 is not supported"));
 }
 
 TEST_F(WinLinkParserTest, MajorImageVersion) {
@@ -411,7 +431,7 @@ TEST_F(WinLinkParserTest, DisallowLib) {
 
 TEST_F(WinLinkParserTest, NoEntry) {
   EXPECT_TRUE(parse("link.exe", "/noentry", "/dll", "a.obj", nullptr));
-  EXPECT_EQ(PECOFFLinkingContext::IMAGE_DLL, _context.getImageType());
+  EXPECT_TRUE(_context.isDll());
   EXPECT_EQ(0x10000000U, _context.getBaseAddress());
   EXPECT_EQ("", _context.entrySymbolName());
 }

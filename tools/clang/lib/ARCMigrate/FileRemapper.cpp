@@ -36,8 +36,7 @@ void FileRemapper::clear(StringRef outputDir) {
   assert(ToFromMappings.empty());
   if (!outputDir.empty()) {
     std::string infoFile = getRemapInfoFile(outputDir);
-    bool existed;
-    llvm::sys::fs::remove(infoFile, existed);
+    llvm::sys::fs::remove(infoFile);
   }
 }
 
@@ -272,9 +271,7 @@ void FileRemapper::resetTarget(Target &targ) {
 }
 
 bool FileRemapper::report(const Twine &err, DiagnosticsEngine &Diag) {
-  SmallString<128> buf;
-  unsigned ID = Diag.getDiagnosticIDs()->getCustomDiagID(DiagnosticIDs::Error,
-                                                         err.toStringRef(buf));
-  Diag.Report(ID);
+  Diag.Report(Diag.getCustomDiagID(DiagnosticsEngine::Error, "%0"))
+      << err.str();
   return true;
 }

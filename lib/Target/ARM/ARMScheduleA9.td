@@ -1894,18 +1894,28 @@ def CortexA9Model : SchedMachineModel {
   let MispredictPenalty = 8; // Based on estimate of pipeline depth.
 
   let Itineraries = CortexA9Itineraries;
+
+  // FIXME: Many vector operations were never given an itinerary. We
+  // haven't mapped these to the new model either.
+  let CompleteModel = 0;
 }
 
 //===----------------------------------------------------------------------===//
 // Define each kind of processor resource and number available.
+//
+// The AGU unit has BufferSize=1 so that the latency between operations
+// that use it are considered to stall other operations.
+//
+// The FP unit has BufferSize=0 so that it is a hard dispatch
+// hazard. No instruction may be dispatched while the unit is reserved.
 
 let SchedModel = CortexA9Model in {
 
 def A9UnitALU : ProcResource<2>;
 def A9UnitMul : ProcResource<1> { let Super = A9UnitALU; }
-def A9UnitAGU : ProcResource<1>;
+def A9UnitAGU : ProcResource<1> { let BufferSize = 1; }
 def A9UnitLS  : ProcResource<1>;
-def A9UnitFP  : ProcResource<1> { let BufferSize = 1; }
+def A9UnitFP  : ProcResource<1> { let BufferSize = 0; }
 def A9UnitB   : ProcResource<1>;
 
 //===----------------------------------------------------------------------===//
@@ -2397,6 +2407,7 @@ def :ItinRW<[A9WriteV3, A9Read2], [IIC_VSUBiD, IIC_VSUBiQ, IIC_VCNTiD]>;
 // ...
 // VHADD/VRHADD/VQADD/VTST/VADH/VRADH
 def :ItinRW<[A9WriteV4, A9Read2, A9Read2], [IIC_VBINi4D, IIC_VBINi4Q]>;
+
 // VSBH/VRSBH/VHSUB/VQSUB/VABD/VCEQ/VCGE/VCGT/VMAX/VMIN/VPMAX/VPMIN/VABDL
 def :ItinRW<[A9WriteV4, A9Read2], [IIC_VSUBi4D, IIC_VSUBi4Q]>;
 // VQNEG/VQABS

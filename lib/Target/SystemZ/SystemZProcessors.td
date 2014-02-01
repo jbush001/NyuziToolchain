@@ -16,6 +16,9 @@ class SystemZFeature<string extname, string intname, string desc>
     AssemblerPredicate<"Feature"##intname, extname>,
     SubtargetFeature<extname, "Has"##intname, "true", desc>;
 
+class SystemZMissingFeature<string intname>
+  : Predicate<"!Subtarget.has"##intname##"()">;
+
 def FeatureDistinctOps : SystemZFeature<
   "distinct-ops", "DistinctOps",
   "Assume that the distinct-operands facility is installed"
@@ -41,11 +44,19 @@ def FeatureFastSerialization : SystemZFeature<
   "Assume that the fast-serialization facility is installed"
 >;
 
+def FeatureInterlockedAccess1 : SystemZFeature<
+  "interlocked-access1", "InterlockedAccess1",
+  "Assume that interlocked-access facility 1 is installed"
+>;
+def FeatureNoInterlockedAccess1 : SystemZMissingFeature<"InterlockedAccess1">;
+
 def : Processor<"generic", NoItineraries, []>;
 def : Processor<"z10", NoItineraries, []>;
 def : Processor<"z196", NoItineraries,
                 [FeatureDistinctOps, FeatureLoadStoreOnCond, FeatureHighWord,
-                 FeatureFPExtension, FeatureFastSerialization]>;
+                 FeatureFPExtension, FeatureFastSerialization,
+                 FeatureInterlockedAccess1]>;
 def : Processor<"zEC12", NoItineraries,
                 [FeatureDistinctOps, FeatureLoadStoreOnCond, FeatureHighWord,
-                 FeatureFPExtension, FeatureFastSerialization]>;
+                 FeatureFPExtension, FeatureFastSerialization,
+                 FeatureInterlockedAccess1]>;

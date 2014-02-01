@@ -20,7 +20,6 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/Support/Atomic.h"
-
 #include <string>
 
 using namespace llvm;
@@ -51,4 +50,9 @@ void DiagnosticInfoInlineAsm::print(DiagnosticPrinter &DP) const {
 void DiagnosticInfoStackSize::print(DiagnosticPrinter &DP) const {
   DP << "stack size limit exceeded (" << getStackSize() << ") in "
      << getFunction();
+}
+
+void DiagnosticInfoDebugMetadataVersion::print(DiagnosticPrinter &DP) const {
+  DP << "invalid debug metadata version (" << getMetadataVersion() << ") in "
+     << getModule();
 }

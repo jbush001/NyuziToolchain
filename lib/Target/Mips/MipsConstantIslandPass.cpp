@@ -36,13 +36,13 @@
 #include "llvm/IR/Function.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/Format.h"
 #include "llvm/Support/InstIterator.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
-#include "llvm/Support/Format.h"
 #include <algorithm>
 
 using namespace llvm;
@@ -790,11 +790,11 @@ initializeFunctionInfo(const std::vector<MachineInstr*> &CPEMIs) {
             Bits = 8;
             Scale = 4;
             LongFormOpcode = Mips::LwRxPcTcpX16;
-            LongFormBits = 16;
+            LongFormBits = 14;
             LongFormScale = 1;
             break;
           case Mips::LwRxPcTcpX16:
-            Bits = 16;
+            Bits = 14;
             Scale = 1;
             NegOk = true;
             break;
