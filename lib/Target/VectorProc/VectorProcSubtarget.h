@@ -38,8 +38,6 @@ public:
   std::string getDataLayout() const {
     return std::string("e-m:e-p:32:32");
   }
-
-  int64_t getStackPointerBias() const { return 0; }
 };
 
 } // end namespace llvm

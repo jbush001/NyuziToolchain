@@ -21,7 +21,6 @@ void VectorProcMCAsmInfo::anchor() {}
 
 VectorProcMCAsmInfo::VectorProcMCAsmInfo(StringRef TT) {
   IsLittleEndian = true;
-  Triple TheTriple(TT);
 
   CommentString = ";";
   SupportsDebugInformation = true;

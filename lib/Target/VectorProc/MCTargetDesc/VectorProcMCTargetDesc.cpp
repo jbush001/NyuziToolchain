@@ -73,8 +73,6 @@ static MCStreamer *createVectorProcMCStreamer(const Target &T, StringRef TT,
                                               MCCodeEmitter *_Emitter,
                                               const MCSubtargetInfo &STI,
                                               bool RelaxAll, bool NoExecStack) {
-  Triple TheTriple(TT);
-
   return createELFStreamer(Ctx, MAB, _OS, _Emitter, RelaxAll, NoExecStack);
 }
 
