@@ -191,6 +191,7 @@ for opcode, mnemonic in unaryOps:
 	make_test_case(mnemonic + '_invmask v' + str(rega) + ', s' + str(regm) + ', v'
 		+ str(regb), make_a_instruction(6, opcode, rega, 0, regb, regm))
 
+# XXX why is the source register set to 1 in this case?
 make_test_case('move s1, 72', make_bprime_instruction(0, 0xf, 1, 1, 72))
 
 make_test_case('shuffle v1, v2, v3', make_a_instruction(4, 0xd, 1, 2, 3, 0))
