@@ -67,9 +67,11 @@ The libxml2 libraries also need to be installed on Linux.  Mac builds seem to wo
 sudo apt-get install libxml2-dev
 </pre>
 
-### Upgrading toolchain on MacOS (I did this with Lion; newer versions may or may not be different)
+### Upgrading/installing toolchain on MacOS 
 
-- Download XCode from the App Store app, if not already installed.
+<i>I did this with Lion; newer versions may or may not be different.</i>
+
+- Download XCode from the App Store app, if not already installed (but you're not done yet...)
 - Launch the XCode GUI.  Select the XCode menu from the menu bar and click 'Preferences'.  Highlight the 'Downloads' icon.  Make sure the 'Components' tab is selected.  Click the 'Install' button next to Commnd Line Tools.
 
 ## Invoking compiler
