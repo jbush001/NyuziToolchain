@@ -289,7 +289,7 @@ private:
 
   // VectorProc ELF
   RelocToApply visitELF_VECTORPROC_ABS32(RelocationRef R, uint64_t Value) {
-    int64_t Addend = getAddend64LE(R);
+    int64_t Addend = getAddend32LE(R);
     int64_t Res =  Value + Addend;
     // Overflow check allows for both signed and unsigned interpretation.
     if (Res < INT32_MIN || Res > UINT32_MAX)
