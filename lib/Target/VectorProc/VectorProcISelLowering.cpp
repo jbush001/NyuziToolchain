@@ -432,6 +432,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
   setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
   setOperationAction(ISD::BSWAP, MVT::i32, Expand);
+  setOperationAction(ISD::FRAMEADDR, MVT::i32, Custom);
+  setOperationAction(ISD::RETURNADDR, MVT::i32, Custom);
 
   // Hardware does not have an integer divider, so convert these to
   // library calls
@@ -848,6 +850,36 @@ SDValue VectorProcTargetLowering::LowerUINT_TO_FP(SDValue Op,
                      Adjusted, SignedVal);
 }
 
+SDValue VectorProcTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const {
+  assert((cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue() == 0) &&
+         "Frame address can only be determined for current frame.");
+
+  SDLoc DL(Op);
+  MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
+  MFI->setFrameAddressIsTaken(true);
+  EVT VT = Op.getValueType();
+  return DAG.getCopyFromReg(DAG.getEntryNode(), DL, VectorProc::FP_REG, VT);
+}
+
+SDValue VectorProcTargetLowering::LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const {
+  if (verifyReturnAddressArgumentIsConstant(Op, DAG))
+    return SDValue();
+
+  // check the depth
+  assert((cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue() == 0) &&
+         "Return address can be determined only for current frame.");
+
+  SDLoc DL(Op);
+  MachineFunction &MF = DAG.getMachineFunction();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
+  MVT VT = Op.getSimpleValueType();
+  MFI->setReturnAddressIsTaken(true);
+
+  // Return RA, which contains the return address. Mark it an implicit live-in.
+  unsigned Reg = MF.addLiveIn(VectorProc::LINK_REG, getRegClassFor(VT));
+  return DAG.getCopyFromReg(DAG.getEntryNode(), DL, Reg, VT);
+}
+
 SDValue VectorProcTargetLowering::LowerOperation(SDValue Op,
                                                  SelectionDAG &DAG) const {
   switch (Op.getOpcode()) {
@@ -881,6 +913,10 @@ SDValue VectorProcTargetLowering::LowerOperation(SDValue Op,
     return LowerCTTZ_ZERO_UNDEF(Op, DAG);
   case ISD::UINT_TO_FP:
     return LowerUINT_TO_FP(Op, DAG);
+  case ISD::FRAMEADDR:
+    return LowerFRAMEADDR(Op, DAG);
+  case ISD::RETURNADDR:  
+    return LowerRETURNADDR(Op, DAG);
   default:
     llvm_unreachable("Should not custom lower this!");
   }

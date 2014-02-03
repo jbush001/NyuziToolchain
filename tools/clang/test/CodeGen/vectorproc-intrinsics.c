@@ -125,4 +125,19 @@ int test_masked_cmpf_ge(vecf16 a, vecf16 b)	// CHECK: test_masked_cmpf_ge:
 	// CHECK: setge_f s{{[0-9]+}}, v0, v1
 }
 
+unsigned int test_builtin_frame_address() // CHECK: test_builtin_frame_address:
+{
+	return __builtin_frame_address(0);
+	// CHECK: sub_i sp, sp, 
+	// CHECK: store_32 fp, 
+	// CHECK: move fp, sp
+	// CHECK: move s0, fp
+}
+
+unsigned int test_builtin_return_address() // CHECK: test_builtin_return_address:
+{
+	return __builtin_return_address(0);	
+	// CHECK: move s0, link
+}
+
 
