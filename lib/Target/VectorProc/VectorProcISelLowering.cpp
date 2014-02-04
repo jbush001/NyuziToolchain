@@ -521,6 +521,36 @@ SDValue VectorProcTargetLowering::LowerBUILD_VECTOR(SDValue Op,
   return SDValue(); // Expand
 }
 
+// SCALAR_TO_VECTOR loads the scalar register into lane 0 of the register.
+// The rest of the lanes are undefined.  For simplicity, we just load the same
+// value into all lanes.
+SDValue
+VectorProcTargetLowering::LowerSCALAR_TO_VECTOR(SDValue Op,
+                                                SelectionDAG &DAG) const {
+  MVT VT = Op.getValueType().getSimpleVT();
+  SDLoc DL(Op);
+  return DAG.getNode(VectorProcISD::SPLAT, DL, VT, Op.getOperand(0));
+}
+
+// (VECTOR, VAL, IDX)
+// Convert to a move with a mask (0x8000 >> IDX) and a splatted scalar operand.
+SDValue
+VectorProcTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op,
+                                                 SelectionDAG &DAG) const {
+  MVT VT = Op.getValueType().getSimpleVT();
+  SDLoc DL(Op);
+
+  // This could also be (1 << (15 - index)), which avoids the load of 0x8000
+  // but requires more operations.
+  SDValue Mask =
+      DAG.getNode(ISD::SRL, DL, MVT::i32, DAG.getConstant(0x8000, MVT::i32),
+                  Op.getOperand(2));
+  SDValue Splat = DAG.getNode(VectorProcISD::SPLAT, DL, VT, Op.getOperand(1));
+  return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, VT,
+                     DAG.getConstant(Intrinsic::vp_blendi, MVT::i32), Mask,
+                     Splat, Op.getOperand(0));
+}
+
 bool VectorProcTargetLowering::isShuffleMaskLegal(const SmallVectorImpl<int> &M,
                                                   EVT VT) const {
   if (M.size() != 16)
@@ -562,25 +592,6 @@ SDValue VectorProcTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
                        Op.getOperand(0).getOperand(0));
 
   return SDValue();
-}
-
-// (VECTOR, VAL, IDX)
-// Convert to a move with a mask (0x8000 >> IDX) and a splatted scalar operand.
-SDValue
-VectorProcTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op,
-                                                 SelectionDAG &DAG) const {
-  MVT VT = Op.getValueType().getSimpleVT();
-  SDLoc DL(Op);
-
-  // This could also be (1 << (15 - index)), which avoids the load of 0x8000
-  // but requires more operations.
-  SDValue Mask =
-      DAG.getNode(ISD::SRL, DL, MVT::i32, DAG.getConstant(0x8000, MVT::i32),
-                  Op.getOperand(2));
-  SDValue Splat = DAG.getNode(VectorProcISD::SPLAT, DL, VT, Op.getOperand(1));
-  return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, VT,
-                     DAG.getConstant(Intrinsic::vp_blendi, MVT::i32), Mask,
-                     Splat, Op.getOperand(0));
 }
 
 // This architecture does not support conditional moves for scalar registers.
@@ -700,17 +711,6 @@ SDValue VectorProcTargetLowering::LowerBR_JT(SDValue Op,
       DAG.getNode(ISD::MUL, DL, PTy, Index, DAG.getConstant(4, PTy));
   SDValue JTAddr = DAG.getNode(ISD::ADD, DL, PTy, TableWrapper, TableMul);
   return DAG.getNode(VectorProcISD::BR_JT, DL, MVT::Other, Chain, JTAddr, JTI);
-}
-
-// SCALAR_TO_VECTOR loads the scalar register into lane 0 of the register.
-// The rest of the lanes are undefined.  For simplicity, we just load the same
-// value into all lanes.
-SDValue
-VectorProcTargetLowering::LowerSCALAR_TO_VECTOR(SDValue Op,
-                                                SelectionDAG &DAG) const {
-  MVT VT = Op.getValueType().getSimpleVT();
-  SDLoc DL(Op);
-  return DAG.getNode(VectorProcISD::SPLAT, DL, VT, Op.getOperand(0));
 }
 
 // There is no native FNEG instruction, so we emulate it by XORing with
@@ -891,10 +891,12 @@ SDValue VectorProcTargetLowering::LowerOperation(SDValue Op,
     return LowerVECTOR_SHUFFLE(Op, DAG);
   case ISD::BUILD_VECTOR:
     return LowerBUILD_VECTOR(Op, DAG);
-  case ISD::GlobalAddress:
-    return LowerGlobalAddress(Op, DAG);
   case ISD::INSERT_VECTOR_ELT:
     return LowerINSERT_VECTOR_ELT(Op, DAG);
+  case ISD::SCALAR_TO_VECTOR:
+    return LowerSCALAR_TO_VECTOR(Op, DAG);
+  case ISD::GlobalAddress:
+    return LowerGlobalAddress(Op, DAG);
   case ISD::SELECT_CC:
     return LowerSELECT_CC(Op, DAG);
   case ISD::ConstantPool:
@@ -905,8 +907,6 @@ SDValue VectorProcTargetLowering::LowerOperation(SDValue Op,
     return LowerFDIV(Op, DAG);
   case ISD::BR_JT:
     return LowerBR_JT(Op, DAG);
-  case ISD::SCALAR_TO_VECTOR:
-    return LowerSCALAR_TO_VECTOR(Op, DAG);
   case ISD::FNEG:
     return LowerFNEG(Op, DAG);
   case ISD::SETCC:
