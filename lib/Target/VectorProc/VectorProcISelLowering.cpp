@@ -385,41 +385,45 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   addRegisterClass(MVT::v16i32, &VectorProc::VR512RegClass);
   addRegisterClass(MVT::v16f32, &VectorProc::VR512RegClass);
 
-  setOperationAction(ISD::BR_CC, MVT::i32, Expand);
-  setOperationAction(ISD::BR_CC, MVT::f32, Expand);
-  setOperationAction(ISD::BRCOND, MVT::i32, Expand);
-  setOperationAction(ISD::BRCOND, MVT::f32, Expand);
-  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
-  setOperationAction(ISD::CTPOP, MVT::i32, Expand);
   setOperationAction(ISD::BUILD_VECTOR, MVT::v16f32, Custom);
   setOperationAction(ISD::BUILD_VECTOR, MVT::v16i32, Custom);
   setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v16f32, Custom);
   setOperationAction(ISD::INSERT_VECTOR_ELT, MVT::v16i32, Custom);
   setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16i32, Custom);
   setOperationAction(ISD::VECTOR_SHUFFLE, MVT::v16f32, Custom);
+  setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16i32, Custom);
+  setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16f32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::f32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::v16i32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::v16f32, Custom);
-  setOperationAction(ISD::SELECT, MVT::i32, Expand);
   setOperationAction(ISD::ConstantPool, MVT::i32, Custom);
   setOperationAction(ISD::ConstantPool, MVT::f32, Custom);
   setOperationAction(ISD::Constant, MVT::i32, Custom);
   setOperationAction(ISD::FDIV, MVT::f32, Custom);
   setOperationAction(ISD::FDIV, MVT::v16f32, Custom);
   setOperationAction(ISD::BR_JT, MVT::Other, Custom);
-  setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16i32, Custom);
-  setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16f32, Custom);
-  setOperationAction(ISD::ROTL, MVT::i32, Expand);
-  setOperationAction(ISD::ROTR, MVT::i32, Expand);
   setOperationAction(ISD::FNEG, MVT::f32, Custom);
   setOperationAction(ISD::FNEG, MVT::v16f32, Custom);
   setOperationAction(ISD::SETCC, MVT::f32, Custom);
   setOperationAction(ISD::SETCC, MVT::v16f32, Custom);
   setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Custom);
   setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Custom);
+  setOperationAction(ISD::UINT_TO_FP, MVT::i32, Custom);
+  setOperationAction(ISD::FRAMEADDR, MVT::i32, Custom);
+  setOperationAction(ISD::RETURNADDR, MVT::i32, Custom);
+
+  setOperationAction(ISD::BR_CC, MVT::i32, Expand);
+  setOperationAction(ISD::BR_CC, MVT::f32, Expand);
+  setOperationAction(ISD::BRCOND, MVT::i32, Expand);
+  setOperationAction(ISD::BRCOND, MVT::f32, Expand);
+  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::i1, Expand);
+  setOperationAction(ISD::CTPOP, MVT::i32, Expand);
+  setOperationAction(ISD::SELECT, MVT::i32, Expand);
+  setOperationAction(ISD::ROTL, MVT::i32, Expand);
+  setOperationAction(ISD::ROTR, MVT::i32, Expand);
   setOperationAction(ISD::UDIVREM, MVT::i32, Expand);
   setOperationAction(ISD::SDIVREM, MVT::i32, Expand);
   setOperationAction(ISD::MULHU, MVT::i32, Expand);
@@ -427,17 +431,17 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::UMUL_LOHI, MVT::i32, Expand);
   setOperationAction(ISD::SMUL_LOHI, MVT::i32, Expand);
   setOperationAction(ISD::FP_TO_UINT, MVT::i32, Expand);
-  setOperationAction(ISD::UINT_TO_FP, MVT::i32, Custom);
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32, Expand);
   setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
   setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
   setOperationAction(ISD::BSWAP, MVT::i32, Expand);
-  setOperationAction(ISD::FRAMEADDR, MVT::i32, Custom);
-  setOperationAction(ISD::RETURNADDR, MVT::i32, Custom);
   setOperationAction(ISD::ADDC, MVT::i32, Expand);
   setOperationAction(ISD::ADDE, MVT::i32, Expand);
   setOperationAction(ISD::SUBC, MVT::i32, Expand);
   setOperationAction(ISD::SUBE, MVT::i32, Expand);
+  setOperationAction(ISD::SRA_PARTS, MVT::i32, Expand);
+  setOperationAction(ISD::SRL_PARTS, MVT::i32, Expand);
+  setOperationAction(ISD::SHL_PARTS, MVT::i32, Expand);
 
   // Hardware does not have an integer divider, so convert these to
   // library calls
@@ -532,14 +536,10 @@ bool VectorProcTargetLowering::isShuffleMaskLegal(const SmallVectorImpl<int> &M,
 
 //
 // Look for patterns that built splats.  isShuffleMaskLegal should ensure this
-// will only be
-// called with splat masks, but I don't know if there are edge cases where it
-// will
-// still be called.  Perhaps need to check explicitly (note that the shuffle
-// mask doesn't
-// appear to be an operand, but must be accessed by casting the SDNode and using
-// a separate
-// accessor).
+// will only be called with splat masks, but I don't know if there are edge cases 
+// where it will still be called.  Perhaps need to check explicitly (note that the 
+// shuffle mask doesn't appear to be an operand, but must be accessed by casting the 
+// SDNode and using a separate accessor).
 //
 SDValue VectorProcTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
                                                       SelectionDAG &DAG) const {
