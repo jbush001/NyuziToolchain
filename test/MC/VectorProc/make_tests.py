@@ -193,6 +193,8 @@ for opcode, mnemonic in unaryOps:
 
 # XXX why is the source register set to 1 in this case?
 make_test_case('move s1, 72', make_bprime_instruction(0, 0xf, 1, 1, 72))
+make_test_case('move v1, 72', make_bprime_instruction(4, 0xf, 1, 1, 72))
+make_test_case('move_mask v1, s3, 72', make_b_instruction(5, 0xf, 1, 1, 72, 3))
 
 make_test_case('shuffle v1, v2, v3', make_a_instruction(4, 0xd, 1, 2, 3, 0))
 make_test_case('shuffle_mask v1, s4, v2, v3', make_a_instruction(5, 0xd, 1, 2, 3, 4))

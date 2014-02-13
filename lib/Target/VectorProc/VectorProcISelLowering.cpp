@@ -414,6 +414,7 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::UINT_TO_FP, MVT::i32, Custom);
   setOperationAction(ISD::FRAMEADDR, MVT::i32, Custom);
   setOperationAction(ISD::RETURNADDR, MVT::i32, Custom);
+  setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::v16i1, Custom);
 
   setOperationAction(ISD::BR_CC, MVT::i32, Expand);
   setOperationAction(ISD::BR_CC, MVT::f32, Expand);
@@ -884,6 +885,121 @@ SDValue VectorProcTargetLowering::LowerRETURNADDR(SDValue Op, SelectionDAG &DAG)
   return DAG.getCopyFromReg(DAG.getEntryNode(), DL, Reg, VT);
 }
 
+static Intrinsic::ID intrinsicForVectorCompare(ISD::CondCode CC, bool isFloat) {
+  if (isFloat)
+  {
+    switch (CC)
+    {
+      case ISD::SETOEQ:
+      case ISD::SETUEQ:
+      case ISD::SETEQ:
+        return Intrinsic::vp_mask_cmpf_eq;
+
+      case ISD::SETONE:
+      case ISD::SETUNE:
+      case ISD::SETNE:
+        return Intrinsic::vp_mask_cmpf_ne;
+
+      case ISD::SETOGT:
+      case ISD::SETUGT:
+      case ISD::SETGT:
+        return Intrinsic::vp_mask_cmpf_gt;
+
+      case ISD::SETOGE:
+      case ISD::SETUGE:
+      case ISD::SETGE:
+        return Intrinsic::vp_mask_cmpf_ge;
+
+      case ISD::SETOLT:
+      case ISD::SETULT:
+      case ISD::SETLT:
+        return Intrinsic::vp_mask_cmpf_lt;
+
+      case ISD::SETOLE:
+      case ISD::SETULE:
+      case ISD::SETLE:
+        return Intrinsic::vp_mask_cmpf_le;
+
+      default:
+        ; // falls through
+    }    
+  }
+  else
+  {
+    switch (CC)
+    {
+      case ISD::SETUEQ:
+      case ISD::SETEQ:
+        return Intrinsic::vp_mask_cmpi_eq;
+
+      case ISD::SETUNE:
+      case ISD::SETNE:
+        return Intrinsic::vp_mask_cmpi_ne;
+
+      case ISD::SETUGT:
+        return Intrinsic::vp_mask_cmpi_ugt;
+
+      case ISD::SETGT:
+        return Intrinsic::vp_mask_cmpi_sgt;
+
+      case ISD::SETUGE:
+        return Intrinsic::vp_mask_cmpi_uge;
+
+      case ISD::SETGE:
+        return Intrinsic::vp_mask_cmpi_sge;
+
+      case ISD::SETULT:
+        return Intrinsic::vp_mask_cmpi_ult;
+
+      case ISD::SETLT:
+        return Intrinsic::vp_mask_cmpi_slt;
+
+      case ISD::SETULE:
+        return Intrinsic::vp_mask_cmpi_ule;
+
+      case ISD::SETLE:
+        return Intrinsic::vp_mask_cmpi_sle;
+        
+      default:
+        ; // falls through
+    }    
+  }
+
+  llvm_unreachable("intrinsicForVectorCompare: unhandled compare code");
+}
+
+//
+// This may be used to expand a vector comparison result into a vector.  Normally,
+// vector compare results are a bitmask, so we need to do a predicated transfer
+// to expand it.
+// Note that clang seems to assume a vector lane should have 0xffffffff when the 
+// result is true when folding constants, so we use that value here to be consistent,
+// even though that is not what a scalar compare would do.
+//
+SDValue VectorProcTargetLowering::LowerSIGN_EXTEND_INREG(SDValue Op, 
+                                                         SelectionDAG &DAG) const {
+  SDValue SetCcOp = Op.getOperand(0);
+  if (SetCcOp.getOpcode() != ISD::SETCC)
+    return SDValue();
+
+  SDLoc DL(Op);
+  Intrinsic::ID intrinsic = intrinsicForVectorCompare(cast<CondCodeSDNode>(
+                                                      SetCcOp.getOperand(2))->get(),
+                                                      SetCcOp.getOperand(0).getValueType()
+                                                      .getSimpleVT().isFloatingPoint());
+
+  SDValue FalseVal = DAG.getNode(VectorProcISD::SPLAT, DL, MVT::v16i32,
+                             DAG.getConstant(0, MVT::i32));
+  SDValue TrueVal = DAG.getNode(VectorProcISD::SPLAT, DL, MVT::v16i32, 
+                            DAG.getConstant(0xffffffff, MVT::i32));
+  SDValue Mask = DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::i32,
+                             DAG.getConstant(intrinsic, MVT::i32), 
+                             SetCcOp.getOperand(0), SetCcOp.getOperand(1));
+  return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32,
+                     DAG.getConstant(Intrinsic::vp_blendi, MVT::i32), Mask,
+                     TrueVal, FalseVal);
+}
+
 SDValue VectorProcTargetLowering::LowerOperation(SDValue Op,
                                                  SelectionDAG &DAG) const {
   switch (Op.getOpcode()) {
@@ -921,6 +1037,8 @@ SDValue VectorProcTargetLowering::LowerOperation(SDValue Op,
     return LowerFRAMEADDR(Op, DAG);
   case ISD::RETURNADDR:  
     return LowerRETURNADDR(Op, DAG);
+  case ISD::SIGN_EXTEND_INREG:
+    return LowerSIGN_EXTEND_INREG(Op, DAG);
   default:
     llvm_unreachable("Should not custom lower this!");
   }

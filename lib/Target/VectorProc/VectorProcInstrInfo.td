@@ -187,14 +187,14 @@ def MOVESS : FormatAUnmaskedOneOpInst<
 	(outs GPR32:$dest), 
 	(ins GPR32:$src2),
 	"move $dest, $src2",
-	[],
+	[],	// assembler only form for register-to-register moves
 	0xf,
 	FmtA_SSS>;
 
 // This should only be invoked for types that will fit in the immediate field 
 // of the instruction.  The lowering code will transform other types into
 // constant pool loads.
-def MOVESSimm : FormatBUnmaskedInst<
+def MOVESimm : FormatBUnmaskedInst<
 	(outs GPR32:$dest),
 	(ins i32imm:$imm),
 	"move $dest, $imm",
@@ -209,6 +209,14 @@ def MOVEVSI : FormatAUnmaskedOneOpInst<
 	[(set v16i32:$dest, (splat i32:$src2))],
 	0xf,
 	FmtA_VVS>;
+
+def MOVEVimm : FormatBUnmaskedInst<
+	(outs VR512:$dest), 
+	(ins i32imm:$imm),
+	"move $dest, $imm",
+	[(set v16i32:$dest, (splat imm:$imm))],
+	0xf,
+	FmtB_VS>;
 	
 def : Pat<(v16f32 (splat f32:$src2)), (MOVEVSI f32:$src2)>;
 
@@ -229,6 +237,14 @@ let Constraints = "$dest = $oldvalue" in {
 		[(set v16i32:$dest, (int_vp_blendi i32:$mask, v16i32:$src2, v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVVM>;
+
+	def MOVEVVMIimm : FormatBMaskedInst<
+		(outs VR512:$dest),
+		(ins GPR32:$mask, i32imm:$imm, VR512:$oldvalue),
+		"move_mask $dest, $mask, $imm",
+		[(set v16i32:$dest, (int_vp_blendi i32:$mask, (splat imm:$imm), v16i32:$oldvalue))],
+		0xf,
+		FmtB_VSM>;
 
 	def MOVEVVMIinv : FormatAMaskedOneOpInst<
 		(outs VR512:$dest),
