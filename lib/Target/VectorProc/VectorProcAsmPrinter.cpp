@@ -115,6 +115,10 @@ bool VectorProcAsmPrinter::PrintAsmOperand(const MachineInstr *MI,
                                            unsigned OpNo, unsigned AsmVariant,
                                            const char *ExtraCode,
                                            raw_ostream &O) {
+
+  if (ExtraCode && ExtraCode[0])
+    return AsmPrinter::PrintAsmOperand(MI, OpNo, AsmVariant, ExtraCode, O);
+    
   const MachineOperand &MO = MI->getOperand(OpNo);
   if (MO.getType() == MachineOperand::MO_Register) {
     O << VectorProcInstPrinter::getRegisterName(MO.getReg());
@@ -123,6 +127,19 @@ bool VectorProcAsmPrinter::PrintAsmOperand(const MachineInstr *MI,
 
   return true;
 }
+
+bool VectorProcAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
+                                           unsigned OpNum, unsigned AsmVariant,
+                                           const char *ExtraCode,
+                                           raw_ostream &O) {
+
+  const MachineOperand &MO = MI->getOperand(OpNum);
+  assert(MO.isReg() && "unexpected inline asm memory operand");
+  O << "(" << VectorProcInstPrinter::getRegisterName(MO.getReg()) << ")";
+
+  return false;
+}
+
 
 // Force static initialization.
 extern "C" void LLVMInitializeVectorProcAsmPrinter() {

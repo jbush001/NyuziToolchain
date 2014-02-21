@@ -1336,6 +1336,7 @@ VectorProcTargetLowering::getConstraintType(const std::string &Constraint)
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
     case 's':
+    case 'r':
     case 'v':
       return C_RegisterClass;
     default:
@@ -1352,6 +1353,7 @@ VectorProcTargetLowering::getRegForInlineAsmConstraint(
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
     case 's':
+    case 'r':
       return std::make_pair(0U, &VectorProc::GPR32RegClass);
 
     case 'v':
