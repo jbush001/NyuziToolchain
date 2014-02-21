@@ -395,13 +395,14 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::SCALAR_TO_VECTOR, MVT::v16f32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::i32, Custom);
   setOperationAction(ISD::GlobalAddress, MVT::f32, Custom);
+  setOperationAction(ISD::ConstantPool, MVT::i32, Custom);
+  setOperationAction(ISD::ConstantPool, MVT::f32, Custom);
+  setOperationAction(ISD::Constant, MVT::i32, Custom);
+  setOperationAction(ISD::BlockAddress, MVT::i32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::v16i32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::v16f32, Custom);
-  setOperationAction(ISD::ConstantPool, MVT::i32, Custom);
-  setOperationAction(ISD::ConstantPool, MVT::f32, Custom);
-  setOperationAction(ISD::Constant, MVT::i32, Custom);
   setOperationAction(ISD::FDIV, MVT::f32, Custom);
   setOperationAction(ISD::FDIV, MVT::v16f32, Custom);
   setOperationAction(ISD::BR_JT, MVT::Other, Custom);
@@ -450,12 +451,16 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::UREM, MVT::i32, Expand); // __umodsi3
   setOperationAction(ISD::SDIV, MVT::i32, Expand); // __divsi3
   setOperationAction(ISD::SREM, MVT::i32, Expand); // __modsi3
+  
+  setOperationAction(ISD::FSQRT, MVT::f32, Expand); // sqrtf
+  setOperationAction(ISD::FSIN, MVT::f32, Expand); // sinf
+  setOperationAction(ISD::FCOS, MVT::f32, Expand); // cosf
 
   setStackPointerRegisterToSaveRestore(VectorProc::SP_REG);
   setMinFunctionAlignment(2);
   setSelectIsExpensive(); // Because there is no CMOV
   setIntDivIsCheap(false);
-  setSchedulingPreference(Sched::RegPressure); // because we hide latency
+  setSchedulingPreference(Sched::RegPressure);
 
   computeRegisterProperties();
 }
@@ -487,6 +492,54 @@ SDValue VectorProcTargetLowering::LowerGlobalAddress(SDValue Op,
   SDLoc DL(Op);
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
   SDValue CPIdx = DAG.getTargetConstantPool(GV, MVT::i32);
+  return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
+                     MachinePointerInfo::getConstantPool(), false, false, false,
+                     4);
+}
+
+SDValue VectorProcTargetLowering::LowerConstantPool(SDValue Op,
+                                                    SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  EVT PtrVT = Op.getValueType();
+  ConstantPoolSDNode *CP = cast<ConstantPoolSDNode>(Op);
+  SDValue Res;
+  if (CP->isMachineConstantPoolEntry()) {
+    Res = DAG.getTargetConstantPool(CP->getMachineCPVal(), PtrVT,
+                                    CP->getAlignment());
+  } else {
+    Res =
+        DAG.getTargetConstantPool(CP->getConstVal(), PtrVT, CP->getAlignment());
+  }
+
+  return Res;
+}
+
+SDValue VectorProcTargetLowering::LowerConstant(SDValue Op,
+                                                SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  ConstantSDNode *C = cast<ConstantSDNode>(Op);
+
+  // The size of the immediate field is determined by the instruction format and
+  // whether a mask is present.  At this level of the tree, we cannot know that,
+  // so we use the smallest size.
+  const int kMaxImmediateSize = 13;
+
+  if (C->getAPIntValue().abs().ult((1 << (kMaxImmediateSize - 1)) - 1)) {
+    // Don't need to convert to constant pool reference.  This will fit in
+    // the immediate field of a single instruction, sign extended.
+    return SDValue();
+  }
+
+  SDValue CPIdx = DAG.getConstantPool(C->getConstantIntValue(), MVT::i32);
+  return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
+                     MachinePointerInfo::getConstantPool(), false, false, false,
+                     4);
+}
+
+SDValue VectorProcTargetLowering::LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  const BlockAddress *BA = cast<BlockAddressSDNode>(Op)->getBlockAddress();
+  SDValue CPIdx = DAG.getTargetConstantPool(BA, MVT::i32);
   return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
                      MachinePointerInfo::getConstantPool(), false, false, false,
                      4);
@@ -609,45 +662,6 @@ SDValue VectorProcTargetLowering::LowerSELECT_CC(SDValue Op,
 
   return DAG.getNode(VectorProcISD::SEL_COND_RESULT, DL, Op.getValueType(),
                      Pred, Op.getOperand(2), Op.getOperand(3));
-}
-
-SDValue VectorProcTargetLowering::LowerConstantPool(SDValue Op,
-                                                    SelectionDAG &DAG) const {
-  SDLoc DL(Op);
-  EVT PtrVT = Op.getValueType();
-  ConstantPoolSDNode *CP = cast<ConstantPoolSDNode>(Op);
-  SDValue Res;
-  if (CP->isMachineConstantPoolEntry()) {
-    Res = DAG.getTargetConstantPool(CP->getMachineCPVal(), PtrVT,
-                                    CP->getAlignment());
-  } else {
-    Res =
-        DAG.getTargetConstantPool(CP->getConstVal(), PtrVT, CP->getAlignment());
-  }
-
-  return Res;
-}
-
-SDValue VectorProcTargetLowering::LowerConstant(SDValue Op,
-                                                SelectionDAG &DAG) const {
-  SDLoc DL(Op);
-  ConstantSDNode *C = cast<ConstantSDNode>(Op);
-
-  // The size of the immediate field is determined by the instruction format and
-  // whether a mask is present.  At this level of the tree, we cannot know that,
-  // so we use the smallest size.
-  const int kMaxImmediateSize = 13;
-
-  if (C->getAPIntValue().abs().ult((1 << (kMaxImmediateSize - 1)) - 1)) {
-    // Don't need to convert to constant pool reference.  This will fit in
-    // the immediate field of a single instruction, sign extended.
-    return SDValue();
-  }
-
-  SDValue CPIdx = DAG.getConstantPool(C->getConstantIntValue(), MVT::i32);
-  return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-                     MachinePointerInfo::getConstantPool(), false, false, false,
-                     4);
 }
 
 // There is no native floating point division, but we can convert this to a
@@ -1013,12 +1027,14 @@ SDValue VectorProcTargetLowering::LowerOperation(SDValue Op,
     return LowerSCALAR_TO_VECTOR(Op, DAG);
   case ISD::GlobalAddress:
     return LowerGlobalAddress(Op, DAG);
-  case ISD::SELECT_CC:
-    return LowerSELECT_CC(Op, DAG);
+  case ISD::BlockAddress:
+    return LowerBlockAddress(Op, DAG);
   case ISD::ConstantPool:
     return LowerConstantPool(Op, DAG);
   case ISD::Constant:
     return LowerConstant(Op, DAG);
+  case ISD::SELECT_CC:
+    return LowerSELECT_CC(Op, DAG);
   case ISD::FDIV:
     return LowerFDIV(Op, DAG);
   case ISD::BR_JT:

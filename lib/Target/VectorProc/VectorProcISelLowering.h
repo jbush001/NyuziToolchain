@@ -76,6 +76,7 @@ public:
   SDValue LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSIGN_EXTEND_INREG(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const;
 
   EVT getSetCCResultType(LLVMContext &Context, EVT VT) const;
   virtual SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv,
