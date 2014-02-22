@@ -246,14 +246,14 @@ void VectorProcInstrInfo::storeRegToStack(MachineBasicBlock &MBB,
 }
 
 void VectorProcInstrInfo::loadRegFromStack(MachineBasicBlock &MBB,
-                                           MachineBasicBlock::iterator I,
+                                           MachineBasicBlock::iterator MBBI,
                                            unsigned DestReg, int FI,
                                            const TargetRegisterClass *RC,
                                            const TargetRegisterInfo *TRI,
                                            int64_t Offset) const {
   DebugLoc DL;
-  if (I != MBB.end())
-    DL = I->getDebugLoc();
+  if (MBBI != MBB.end())
+    DL = MBBI->getDebugLoc();
 
   MachineMemOperand *MMO = GetMemOperand(MBB, FI, MachineMemOperand::MOLoad);
   unsigned Opc = 0;
@@ -265,8 +265,28 @@ void VectorProcInstrInfo::loadRegFromStack(MachineBasicBlock &MBB,
   else
     llvm_unreachable("unknown register class in storeRegToStack");
 
-  BuildMI(MBB, I, DL, get(Opc), DestReg)
+  BuildMI(MBB, MBBI, DL, get(Opc), DestReg)
       .addFrameIndex(FI)
       .addImm(Offset)
       .addMemOperand(MMO);
+}
+
+
+void VectorProcInstrInfo::adjustStackPointer(MachineBasicBlock &MBB, 
+                                      MachineBasicBlock::iterator MBBI,
+                                      int Amount) const {
+  unsigned int Instr;
+  if (Amount < 0) {
+    Amount = -Amount;
+    Instr = VectorProc::SUBISSI;
+  }
+  else
+    Instr = VectorProc::ADDISSI;
+  
+  DebugLoc DL(MBBI->getDebugLoc());
+  assert(Amount < 0x2000 && "stack adjust out of range");
+  
+  BuildMI(MBB, MBBI, DL, get(Instr), VectorProc::SP_REG)
+    .addReg(VectorProc::SP_REG)
+    .addImm(Amount);
 }

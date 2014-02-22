@@ -43,15 +43,11 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
   // can do block vector load/stores
   int StackSize = RoundUpToAlignment(MFI->getStackSize(), 
     kVectorProcStackFrameAlign); 
-  assert(StackSize < 16384);          // XXX need to handle this.
 
   // Bail if there is no stack allocation
   if (StackSize == 0 && !MFI->adjustsStack()) return;
 
-  // Adjust stack
-  BuildMI(MBB, MBBI, DL, TII.get(VectorProc::SUBISSI), VectorProc::SP_REG)
-      .addReg(VectorProc::SP_REG)
-      .addImm(StackSize);
+  TII.adjustStackPointer(MBB, MBBI, -StackSize);
 
   // emit ".cfi_def_cfa_offset StackSize" (debug information)
   MCSymbol *AdjustSPLabel = MMI.getContext().CreateTempSymbol();
@@ -64,8 +60,7 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
   // register to the stack.  We need to set up FP after its old value has been
   // saved.
   const std::vector<CalleeSavedInfo> &CSI = MFI->getCalleeSavedInfo();
-  if (CSI.size())
-  {
+  if (CSI.size()) {
     for (unsigned i = 0; i < CSI.size(); ++i)
       ++MBBI;
 
@@ -84,8 +79,7 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
   }
 
   // fp = sp
-  if (hasFP(MF))
-  {
+  if (hasFP(MF)) {
     BuildMI(MBB, MBBI, DL, TII.get(VectorProc::MOVESS))
         .addReg(VectorProc::FP_REG)
         .addReg(VectorProc::SP_REG);
@@ -110,8 +104,7 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
          "Can only put epilog before 'retl' instruction!");
 
   // if framepointer enabled, restore the stack pointer.
-  if (hasFP(MF)) 
-  {
+  if (hasFP(MF)) {
     // Find the first instruction that restores a callee-saved register.
     MachineBasicBlock::iterator I = MBBI;
     for (unsigned i = 0; i < MFI->getCalleeSavedInfo().size(); ++i)
@@ -124,13 +117,10 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
 
   uint64_t StackSize = RoundUpToAlignment(MFI->getStackSize(), 
     kVectorProcStackFrameAlign);
-  assert(StackSize < 16384);          // XXX need to handle this.
   if (!StackSize)
     return;
 
-  BuildMI(MBB, MBBI, DL, TII.get(VectorProc::ADDISSI), VectorProc::SP_REG)
-      .addReg(VectorProc::SP_REG)
-      .addImm(StackSize);
+  TII.adjustStackPointer(MBB, MBBI, StackSize);
 }
 
 // Returns true if the prologue inserter should reserve space for outgoing arguments 
@@ -151,9 +141,8 @@ bool VectorProcFrameLowering::hasFP(const MachineFunction &MF) const {
 
 void VectorProcFrameLowering::eliminateCallFramePseudoInstr(
     MachineFunction &MF, MachineBasicBlock &MBB,
-    MachineBasicBlock::iterator I) const {
-  MachineInstr &MI = *I;
-  DebugLoc DL = MI.getDebugLoc();
+    MachineBasicBlock::iterator MBBI) const {
+  MachineInstr &MI = *MBBI;
 
   const VectorProcInstrInfo &TII =
       *static_cast<const VectorProcInstrInfo *>(MF.getTarget().getInstrInfo());
@@ -161,20 +150,17 @@ void VectorProcFrameLowering::eliminateCallFramePseudoInstr(
   // Note the check for hasReservedCallFrame.  If it returns true, 
   // PEI::calculateFrameObjectOffsets has already reserved stack locations for 
   // these variables and we don't need to adjust the stack here.
-  int Size = MI.getOperand(0).getImm();
-  if (Size != 0 && !hasReservedCallFrame(MF))
-  {
+  int Amount = MI.getOperand(0).getImm();
+  if (Amount != 0 && !hasReservedCallFrame(MF)) {
     assert(hasFP(MF) && "Cannot adjust stack mid-function without a frame pointer");
     
     if (MI.getOpcode() == VectorProc::ADJCALLSTACKDOWN)
-      Size = -Size;
+      Amount = -Amount;
 
-    BuildMI(MBB, I, DL, TII.get(VectorProc::ADDISSI), VectorProc::SP_REG)
-        .addReg(VectorProc::SP_REG)
-        .addImm(Size);
+    TII.adjustStackPointer(MBB, MBBI, Amount);
   }
 
-  MBB.erase(I);
+  MBB.erase(MBBI);
 }
 
 void VectorProcFrameLowering::processFunctionBeforeCalleeSavedScan(

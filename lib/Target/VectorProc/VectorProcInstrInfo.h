@@ -103,6 +103,9 @@ public:
 
   MachineMemOperand *GetMemOperand(MachineBasicBlock &MBB, int FI,
                                    unsigned Flag) const;
+  
+  void adjustStackPointer(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
+                   int Amount) const;
 };
 }
 
