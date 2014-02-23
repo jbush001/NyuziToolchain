@@ -120,8 +120,14 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(TargetMachine &TM) :
 
   setOperationAction(ISD::CONCAT_VECTORS, MVT::v4i32, Custom);
   setOperationAction(ISD::CONCAT_VECTORS, MVT::v4f32, Custom);
-  setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v2i32, Custom);
+  setOperationAction(ISD::CONCAT_VECTORS, MVT::v8i32, Custom);
+  setOperationAction(ISD::CONCAT_VECTORS, MVT::v8f32, Custom);
   setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v2f32, Custom);
+  setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v2i32, Custom);
+  setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v4f32, Custom);
+  setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v4i32, Custom);
+  setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v8f32, Custom);
+  setOperationAction(ISD::EXTRACT_SUBVECTOR, MVT::v8i32, Custom);
 
   setLoadExtAction(ISD::EXTLOAD, MVT::v2i8, Expand);
   setLoadExtAction(ISD::SEXTLOAD, MVT::v2i8, Expand);
@@ -135,6 +141,8 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(TargetMachine &TM) :
   setLoadExtAction(ISD::EXTLOAD, MVT::v4i16, Expand);
   setLoadExtAction(ISD::SEXTLOAD, MVT::v4i16, Expand);
   setLoadExtAction(ISD::ZEXTLOAD, MVT::v4i16, Expand);
+
+  setOperationAction(ISD::BR_CC, MVT::i1, Expand);
 
   setOperationAction(ISD::FNEG, MVT::v2f32, Expand);
   setOperationAction(ISD::FNEG, MVT::v4f32, Expand);
@@ -185,6 +193,7 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(TargetMachine &TM) :
     setOperationAction(ISD::FABS, VT, Expand);
     setOperationAction(ISD::FADD, VT, Expand);
     setOperationAction(ISD::FDIV, VT, Expand);
+    setOperationAction(ISD::FPOW, VT, Expand);
     setOperationAction(ISD::FFLOOR, VT, Expand);
     setOperationAction(ISD::FTRUNC, VT, Expand);
     setOperationAction(ISD::FMUL, VT, Expand);
@@ -227,6 +236,17 @@ bool AMDGPUTargetLowering::isFAbsFree(EVT VT) const {
 bool AMDGPUTargetLowering::isFNegFree(EVT VT) const {
   assert(VT.isFloatingPoint());
   return VT == MVT::f32;
+}
+
+bool AMDGPUTargetLowering::isTruncateFree(EVT Source, EVT Dest) const {
+  // Truncate is just accessing a subregister.
+  return Dest.bitsLT(Source) && (Dest.getSizeInBits() % 32 == 0);
+}
+
+bool AMDGPUTargetLowering::isTruncateFree(Type *Source, Type *Dest) const {
+  // Truncate is just accessing a subregister.
+  return Dest->getPrimitiveSizeInBits() < Source->getPrimitiveSizeInBits() &&
+         (Dest->getPrimitiveSizeInBits() % 32 == 0);
 }
 
 //===---------------------------------------------------------------------===//

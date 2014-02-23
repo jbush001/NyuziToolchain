@@ -317,6 +317,11 @@ Sema::CheckBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
         if (CheckMipsBuiltinFunctionCall(BuiltinID, TheCall))
           return ExprError();
         break;
+      case llvm::Triple::x86:
+      case llvm::Triple::x86_64:
+        if (CheckX86BuiltinFunctionCall(BuiltinID, TheCall))
+          return ExprError();
+        break;
       default:
         break;
     }
@@ -326,9 +331,9 @@ Sema::CheckBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
 }
 
 // Get the valid immediate range for the specified NEON type code.
-static unsigned RFT(unsigned t, bool shift = false) {
+static unsigned RFT(unsigned t, bool shift = false, bool ForceQuad = false) {
   NeonTypeFlags Type(t);
-  int IsQuad = Type.isQuad();
+  int IsQuad = ForceQuad ? true : Type.isQuad();
   switch (Type.getEltType()) {
   case NeonTypeFlags::Int8:
   case NeonTypeFlags::Poly8:
@@ -388,24 +393,21 @@ static QualType getNeonEltType(NeonTypeFlags Flags, ASTContext &Context,
   llvm_unreachable("Invalid NeonTypeFlag!");
 }
 
-bool Sema::CheckAArch64BuiltinFunctionCall(unsigned BuiltinID,
-                                           CallExpr *TheCall) {
-
+bool Sema::CheckNeonBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
   llvm::APSInt Result;
-
   uint64_t mask = 0;
   unsigned TV = 0;
   int PtrArgNum = -1;
   bool HasConstPtr = false;
   switch (BuiltinID) {
-#define GET_NEON_AARCH64_OVERLOAD_CHECK
+#define GET_NEON_OVERLOAD_CHECK
 #include "clang/Basic/arm_neon.inc"
-#undef GET_NEON_AARCH64_OVERLOAD_CHECK
+#undef GET_NEON_OVERLOAD_CHECK
   }
 
   // For NEON intrinsics which are overloaded on vector element type, validate
   // the immediate which specifies which variant to emit.
-  unsigned ImmArg = TheCall->getNumArgs() - 1;
+  unsigned ImmArg = TheCall->getNumArgs()-1;
   if (mask) {
     if (SemaBuiltinConstantArg(TheCall, ImmArg, Result))
       return true;
@@ -413,7 +415,7 @@ bool Sema::CheckAArch64BuiltinFunctionCall(unsigned BuiltinID,
     TV = Result.getLimitedValue(64);
     if ((TV > 63) || (mask & (1ULL << TV)) == 0)
       return Diag(TheCall->getLocStart(), diag::err_invalid_neon_type_code)
-             << TheCall->getArg(ImmArg)->getSourceRange();
+        << TheCall->getArg(ImmArg)->getSourceRange();
   }
 
   if (PtrArgNum >= 0) {
@@ -423,7 +425,10 @@ bool Sema::CheckAArch64BuiltinFunctionCall(unsigned BuiltinID,
       Arg = ICE->getSubExpr();
     ExprResult RHS = DefaultFunctionArrayLvalueConversion(Arg);
     QualType RHSTy = RHS.get()->getType();
-    QualType EltTy = getNeonEltType(NeonTypeFlags(TV), Context, true);
+
+    bool IsAArch64 =
+        Context.getTargetInfo().getTriple().getArch() == llvm::Triple::aarch64;
+    QualType EltTy = getNeonEltType(NeonTypeFlags(TV), Context, IsAArch64);
     if (HasConstPtr)
       EltTy = EltTy.withConst();
     QualType LHSTy = Context.getPointerType(EltTy);
@@ -442,9 +447,9 @@ bool Sema::CheckAArch64BuiltinFunctionCall(unsigned BuiltinID,
   switch (BuiltinID) {
   default:
     return false;
-#define GET_NEON_AARCH64_IMMEDIATE_CHECK
+#define GET_NEON_IMMEDIATE_CHECK
 #include "clang/Basic/arm_neon.inc"
-#undef GET_NEON_AARCH64_IMMEDIATE_CHECK
+#undef GET_NEON_IMMEDIATE_CHECK
   }
   ;
 
@@ -462,6 +467,14 @@ bool Sema::CheckAArch64BuiltinFunctionCall(unsigned BuiltinID,
   if (Val < l || Val > (u + l))
     return Diag(TheCall->getLocStart(), diag::err_argument_invalid_range)
            << l << u + l << TheCall->getArg(i)->getSourceRange();
+
+  return false;
+}
+
+bool Sema::CheckAArch64BuiltinFunctionCall(unsigned BuiltinID,
+                                           CallExpr *TheCall) {
+  if (CheckNeonBuiltinFunctionCall(BuiltinID, TheCall))
+    return true;
 
   return false;
 }
@@ -580,48 +593,8 @@ bool Sema::CheckARMBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
     return CheckARMBuiltinExclusiveCall(BuiltinID, TheCall);
   }
 
-  uint64_t mask = 0;
-  unsigned TV = 0;
-  int PtrArgNum = -1;
-  bool HasConstPtr = false;
-  switch (BuiltinID) {
-#define GET_NEON_OVERLOAD_CHECK
-#include "clang/Basic/arm_neon.inc"
-#undef GET_NEON_OVERLOAD_CHECK
-  }
-  
-  // For NEON intrinsics which are overloaded on vector element type, validate
-  // the immediate which specifies which variant to emit.
-  unsigned ImmArg = TheCall->getNumArgs()-1;
-  if (mask) {
-    if (SemaBuiltinConstantArg(TheCall, ImmArg, Result))
-      return true;
-    
-    TV = Result.getLimitedValue(64);
-    if ((TV > 63) || (mask & (1ULL << TV)) == 0)
-      return Diag(TheCall->getLocStart(), diag::err_invalid_neon_type_code)
-        << TheCall->getArg(ImmArg)->getSourceRange();
-  }
-
-  if (PtrArgNum >= 0) {
-    // Check that pointer arguments have the specified type.
-    Expr *Arg = TheCall->getArg(PtrArgNum);
-    if (ImplicitCastExpr *ICE = dyn_cast<ImplicitCastExpr>(Arg))
-      Arg = ICE->getSubExpr();
-    ExprResult RHS = DefaultFunctionArrayLvalueConversion(Arg);
-    QualType RHSTy = RHS.get()->getType();
-    QualType EltTy = getNeonEltType(NeonTypeFlags(TV), Context, false);
-    if (HasConstPtr)
-      EltTy = EltTy.withConst();
-    QualType LHSTy = Context.getPointerType(EltTy);
-    AssignConvertType ConvTy;
-    ConvTy = CheckSingleAssignmentConstraints(LHSTy, RHS);
-    if (RHS.isInvalid())
-      return true;
-    if (DiagnoseAssignmentResult(ConvTy, Arg->getLocStart(), LHSTy, RHSTy,
-                                 RHS.get(), AA_Assigning))
-      return true;
-  }
+  if (CheckNeonBuiltinFunctionCall(BuiltinID, TheCall))
+    return true;
 
   // For NEON intrinsics which take an immediate value as part of the 
   // instruction, range check them here.
@@ -634,9 +607,6 @@ bool Sema::CheckARMBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
   case ARM::BI__builtin_arm_vcvtr_d: i = 1; u = 1; break;
   case ARM::BI__builtin_arm_dmb:
   case ARM::BI__builtin_arm_dsb: l = 0; u = 15; break;
-#define GET_NEON_IMMEDIATE_CHECK
-#include "clang/Basic/arm_neon.inc"
-#undef GET_NEON_IMMEDIATE_CHECK
   };
 
   // We can't check the value of a dependent argument.
@@ -687,6 +657,15 @@ bool Sema::CheckMipsBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
     return Diag(TheCall->getLocStart(), diag::err_argument_invalid_range)
       << l << u << TheCall->getArg(i)->getSourceRange();
 
+  return false;
+}
+
+bool Sema::CheckX86BuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
+  switch (BuiltinID) {
+  case X86::BI_mm_prefetch:
+    return SemaBuiltinMMPrefetch(TheCall);
+    break;
+  }
   return false;
 }
 
@@ -1956,6 +1935,26 @@ bool Sema::SemaBuiltinPrefetch(CallExpr *TheCall) {
   return false;
 }
 
+/// SemaBuiltinMMPrefetch - Handle _mm_prefetch.
+// This is declared to take (const char*, int)
+bool Sema::SemaBuiltinMMPrefetch(CallExpr *TheCall) {
+  Expr *Arg = TheCall->getArg(1);
+
+  // We can't check the value of a dependent argument.
+  if (Arg->isTypeDependent() || Arg->isValueDependent())
+    return false;
+
+  llvm::APSInt Result;
+  if (SemaBuiltinConstantArg(TheCall, 1, Result))
+    return true;
+
+  if (Result.getLimitedValue() > 3)
+    return Diag(TheCall->getLocStart(), diag::err_argument_invalid_range)
+        << "0" << "3" << Arg->getSourceRange();
+
+  return false;
+}
+
 /// SemaBuiltinConstantArg - Handle a check if argument ArgNum of CallExpr
 /// TheCall is a constant expression.
 bool Sema::SemaBuiltinConstantArg(CallExpr *TheCall, int ArgNum,
@@ -2188,27 +2187,6 @@ checkFormatStringExpr(Sema &S, const Expr *E, ArrayRef<const Expr *> Args,
 
     return SLCT_NotALiteral;
   }
-      
-  case Stmt::ObjCMessageExprClass: {
-    const ObjCMessageExpr *ME = cast<ObjCMessageExpr>(E);
-    if (const ObjCMethodDecl *MDecl = ME->getMethodDecl()) {
-      if (const NamedDecl *ND = dyn_cast<NamedDecl>(MDecl)) {
-        if (const FormatArgAttr *FA = ND->getAttr<FormatArgAttr>()) {
-          unsigned ArgIndex = FA->getFormatIdx();
-          if (ArgIndex <= ME->getNumArgs()) {
-            const Expr *Arg = ME->getArg(ArgIndex-1);
-            return checkFormatStringExpr(S, Arg, Args,
-                                         HasVAListArg, format_idx,
-                                         firstDataArg, Type, CallType,
-                                         InFunctionCall, CheckedVarArgs);
-          }
-        }
-      }
-    }
-
-    return SLCT_NotALiteral;
-  }
-      
   case Stmt::ObjCStringLiteralClass:
   case Stmt::StringLiteralClass: {
     const StringLiteral *StrE = NULL;
@@ -3549,9 +3527,25 @@ void Sema::CheckFormatString(const StringLiteral *FExpr,
   // Str - The format string.  NOTE: this is NOT null-terminated!
   StringRef StrRef = FExpr->getString();
   const char *Str = StrRef.data();
-  unsigned StrLen = StrRef.size();
+  // Account for cases where the string literal is truncated in a declaration.
+  const ConstantArrayType *T = Context.getAsConstantArrayType(FExpr->getType());
+  assert(T && "String literal not of constant array type!");
+  size_t TypeSize = T->getSize().getZExtValue();
+  size_t StrLen = std::min(std::max(TypeSize, size_t(1)) - 1, StrRef.size());
   const unsigned numDataArgs = Args.size() - firstDataArg;
-  
+
+  // Emit a warning if the string literal is truncated and does not contain an
+  // embedded null character.
+  if (TypeSize <= StrRef.size() &&
+      StrRef.substr(0, TypeSize).find('\0') == StringRef::npos) {
+    CheckFormatHandler::EmitFormatDiagnostic(
+        *this, inFunctionCall, Args[format_idx],
+        PDiag(diag::warn_printf_format_string_not_null_terminated),
+        FExpr->getLocStart(),
+        /*IsStringLocation=*/true, OrigFormatExpr->getSourceRange());
+    return;
+  }
+
   // CHECK: empty format string?
   if (StrLen == 0 && numDataArgs > 0) {
     CheckFormatHandler::EmitFormatDiagnostic(
@@ -4406,16 +4400,10 @@ Sema::CheckReturnValExpr(Expr *RetValExp, QualType lhsType,
   CheckReturnStackAddr(*this, RetValExp, lhsType, ReturnLoc);
 
   // Check if the return value is null but should not be.
-  if (Attrs)
-    for (specific_attr_iterator<ReturnsNonNullAttr>
-          I = specific_attr_iterator<ReturnsNonNullAttr>(Attrs->begin()),
-          E = specific_attr_iterator<ReturnsNonNullAttr>(Attrs->end());
-          I != E; ++I) {
-      if (CheckNonNullExpr(*this, RetValExp))
-        Diag(ReturnLoc, diag::warn_null_ret)
-          << (isObjCMethod ? 1 : 0) << RetValExp->getSourceRange();
-      break;
-    }
+  if (Attrs && hasSpecificAttr<ReturnsNonNullAttr>(*Attrs) &&
+      CheckNonNullExpr(*this, RetValExp))
+    Diag(ReturnLoc, diag::warn_null_ret)
+      << (isObjCMethod ? 1 : 0) << RetValExp->getSourceRange();
 
   // C++11 [basic.stc.dynamic.allocation]p4:
   //   If an allocation function declared with a non-throwing
@@ -7387,10 +7375,7 @@ bool GetMatchingCType(
     return false;
 
   if (VD) {
-    for (specific_attr_iterator<TypeTagForDatatypeAttr>
-             I = VD->specific_attr_begin<TypeTagForDatatypeAttr>(),
-             E = VD->specific_attr_end<TypeTagForDatatypeAttr>();
-         I != E; ++I) {
+    if (TypeTagForDatatypeAttr *I = VD->getAttr<TypeTagForDatatypeAttr>()) {
       if (I->getArgumentKind() != ArgumentKind) {
         FoundWrongKind = true;
         return false;

@@ -43,6 +43,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/FormattedStream.h"
+#include "llvm/Support/LEB128.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 
@@ -103,9 +104,6 @@ static unsigned GetArchDefaultCPUArch(unsigned ID) {
   }
   return 0;
 }
-
-void ARMTargetStreamer::anchor() {}
-ARMTargetStreamer::ARMTargetStreamer(MCStreamer &S) : MCTargetStreamer(S) {}
 
 namespace {
 
@@ -308,17 +306,6 @@ private:
   SmallVector<AttributeItem, 64> Contents;
 
   const MCSection *AttributeSection;
-
-  // FIXME: this should be in a more generic place, but
-  // getULEBSize() is in MCAsmInfo and will be moved to MCDwarf
-  static size_t getULEBSize(int Value) {
-    size_t Size = 0;
-    do {
-      Value >>= 7;
-      Size += sizeof(int8_t); // Is this really necessary?
-    } while (Value);
-    return Size;
-  }
 
   AttributeItem *getAttributeItem(unsigned Attribute) {
     for (size_t i = 0; i < Contents.size(); ++i)
@@ -900,16 +887,16 @@ size_t ARMTargetELFStreamer::calculateContentSize() const {
     case AttributeItem::HiddenAttribute:
       break;
     case AttributeItem::NumericAttribute:
-      Result += getULEBSize(item.Tag);
-      Result += getULEBSize(item.IntValue);
+      Result += getULEB128Size(item.Tag);
+      Result += getULEB128Size(item.IntValue);
       break;
     case AttributeItem::TextAttribute:
-      Result += getULEBSize(item.Tag);
+      Result += getULEB128Size(item.Tag);
       Result += item.StringValue.size() + 1; // string + '\0'
       break;
     case AttributeItem::NumericAndTextAttributes:
-      Result += getULEBSize(item.Tag);
-      Result += getULEBSize(item.IntValue);
+      Result += getULEB128Size(item.Tag);
+      Result += getULEB128Size(item.IntValue);
       Result += item.StringValue.size() + 1; // string + '\0';
       break;
     }
@@ -1037,7 +1024,7 @@ inline void ARMELFStreamer::SwitchToEHSection(const char *Prefix,
 
   // Switch to .ARM.extab or .ARM.exidx section
   SwitchSection(EHSection);
-  EmitCodeAlignment(4, 0);
+  EmitCodeAlignment(4);
 }
 
 inline void ARMELFStreamer::SwitchToExTabSection(const MCSymbol &FnStart) {
@@ -1296,13 +1283,13 @@ void ARMELFStreamer::emitUnwindRaw(int64_t Offset,
 namespace llvm {
 
 MCStreamer *createMCAsmStreamer(MCContext &Ctx, formatted_raw_ostream &OS,
-                                bool isVerboseAsm, bool useLoc, bool useCFI,
+                                bool isVerboseAsm, bool useCFI,
                                 bool useDwarfDirectory,
                                 MCInstPrinter *InstPrint, MCCodeEmitter *CE,
                                 MCAsmBackend *TAB, bool ShowInst) {
   MCStreamer *S =
-      llvm::createAsmStreamer(Ctx, OS, isVerboseAsm, useLoc, useCFI,
-                              useDwarfDirectory, InstPrint, CE, TAB, ShowInst);
+      llvm::createAsmStreamer(Ctx, OS, isVerboseAsm, useCFI, useDwarfDirectory,
+                              InstPrint, CE, TAB, ShowInst);
   new ARMTargetAsmStreamer(*S, OS, *InstPrint, isVerboseAsm);
   return S;
 }

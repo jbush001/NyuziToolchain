@@ -19,12 +19,13 @@
 #include "llvm/ADT/STLExtras.h"
 #include <fcntl.h>
 #include <io.h>
-#include <shlobj.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
-// The Windows.h header must be the last one included.
-#include "Windows.h"
+// These two headers must be included last, and make sure shlobj is required
+// after Windows.h to make sure it picks up our definition of _WIN32_WINNT
+#include "WindowsSupport.h"
+#include <shlobj.h>
 
 #undef max
 
@@ -43,40 +44,29 @@ using namespace llvm;
 using llvm::sys::windows::UTF8ToUTF16;
 using llvm::sys::windows::UTF16ToUTF8;
 
-namespace {
-  typedef BOOLEAN (WINAPI *PtrCreateSymbolicLinkW)(
-    /*__in*/ LPCWSTR lpSymlinkFileName,
-    /*__in*/ LPCWSTR lpTargetFileName,
-    /*__in*/ DWORD dwFlags);
+static error_code TempDir(SmallVectorImpl<wchar_t> &result) {
+retry_temp_dir:
+  DWORD len = ::GetTempPathW(result.capacity(), result.begin());
 
-  PtrCreateSymbolicLinkW create_symbolic_link_api =
-      PtrCreateSymbolicLinkW(::GetProcAddress(
-          ::GetModuleHandleW(L"Kernel32.dll"), "CreateSymbolicLinkW"));
+  if (len == 0)
+    return windows_error(::GetLastError());
 
-  error_code TempDir(SmallVectorImpl<wchar_t> &result) {
-  retry_temp_dir:
-    DWORD len = ::GetTempPathW(result.capacity(), result.begin());
-
-    if (len == 0)
-      return windows_error(::GetLastError());
-
-    if (len > result.capacity()) {
-      result.reserve(len);
-      goto retry_temp_dir;
-    }
-
-    result.set_size(len);
-    return error_code::success();
+  if (len > result.capacity()) {
+    result.reserve(len);
+    goto retry_temp_dir;
   }
 
-  bool is_separator(const wchar_t value) {
-    switch (value) {
-    case L'\\':
-    case L'/':
-      return true;
-    default:
-      return false;
-    }
+  result.set_size(len);
+  return error_code::success();
+}
+
+static bool is_separator(const wchar_t value) {
+  switch (value) {
+  case L'\\':
+  case L'/':
+    return true;
+  default:
+    return false;
   }
 }
 
@@ -112,25 +102,13 @@ static error_code createUniqueEntity(const Twine &model, int &result_fd,
   // needed if the randomly chosen path already exists.
   SmallVector<wchar_t, 128> random_path_utf16;
 
-  // Get a Crypto Provider for CryptGenRandom.
-  HCRYPTPROV HCPC;
-  if (!::CryptAcquireContextW(&HCPC,
-                              NULL,
-                              NULL,
-                              PROV_RSA_FULL,
-                              CRYPT_VERIFYCONTEXT))
-    return windows_error(::GetLastError());
-  ScopedCryptContext CryptoProvider(HCPC);
-
 retry_random_path:
   random_path_utf16.set_size(0);
   for (SmallVectorImpl<wchar_t>::const_iterator i = model_utf16.begin(),
                                                 e = model_utf16.end();
                                                 i != e; ++i) {
     if (*i == L'%') {
-      BYTE val = 0;
-      if (!::CryptGenRandom(CryptoProvider, 1, &val))
-          return windows_error(::GetLastError());
+      unsigned val = sys::Process::GetRandomNumber();
       random_path_utf16.push_back(L"0123456789abcdef"[val & 15]);
     }
     else
@@ -284,7 +262,7 @@ error_code current_path(SmallVectorImpl<char> &result) {
   return UTF16ToUTF8(cur_path.begin(), cur_path.size(), result);
 }
 
-error_code create_directory(const Twine &path, bool &existed) {
+error_code create_directory(const Twine &path, bool IgnoreExisting) {
   SmallString<128> path_storage;
   SmallVector<wchar_t, 128> path_utf16;
 
@@ -294,12 +272,9 @@ error_code create_directory(const Twine &path, bool &existed) {
 
   if (!::CreateDirectoryW(path_utf16.begin(), NULL)) {
     error_code ec = windows_error(::GetLastError());
-    if (ec == windows_error::already_exists)
-      existed = true;
-    else
+    if (ec != windows_error::already_exists || !IgnoreExisting)
       return ec;
-  } else
-    existed = false;
+  }
 
   return error_code::success();
 }
@@ -323,66 +298,34 @@ error_code create_hard_link(const Twine &to, const Twine &from) {
   return error_code::success();
 }
 
-error_code create_symlink(const Twine &to, const Twine &from) {
-  // Only do it if the function is available at runtime.
-  if (!create_symbolic_link_api)
-    return make_error_code(errc::function_not_supported);
-
-  // Get arguments.
-  SmallString<128> from_storage;
-  SmallString<128> to_storage;
-  StringRef f = from.toStringRef(from_storage);
-  StringRef t = to.toStringRef(to_storage);
-
-  // Convert to utf-16.
-  SmallVector<wchar_t, 128> wide_from;
-  SmallVector<wchar_t, 128> wide_to;
-  if (error_code ec = UTF8ToUTF16(f, wide_from)) return ec;
-  if (error_code ec = UTF8ToUTF16(t, wide_to)) return ec;
-
-  if (!create_symbolic_link_api(wide_from.begin(), wide_to.begin(), 0))
-    return windows_error(::GetLastError());
-
-  return error_code::success();
-}
-
-error_code remove(const Twine &path, bool &existed) {
+error_code remove(const Twine &path, bool IgnoreNonExisting) {
   SmallString<128> path_storage;
   SmallVector<wchar_t, 128> path_utf16;
 
-  file_status st;
-  error_code EC = status(path, st);
-  if (EC) {
-    if (EC == windows_error::file_not_found ||
-        EC == windows_error::path_not_found) {
-      existed = false;
-      return error_code::success();
-    }
-    return EC;
+  file_status ST;
+  if (error_code EC = status(path, ST)) {
+    if (EC != errc::no_such_file_or_directory || !IgnoreNonExisting)
+      return EC;
+    return error_code::success();
   }
 
   if (error_code ec = UTF8ToUTF16(path.toStringRef(path_storage),
                                   path_utf16))
     return ec;
 
-  if (st.type() == file_type::directory_file) {
+  if (ST.type() == file_type::directory_file) {
     if (!::RemoveDirectoryW(c_str(path_utf16))) {
-      error_code ec = windows_error(::GetLastError());
-      if (ec != windows_error::file_not_found)
-        return ec;
-      existed = false;
-    } else
-      existed = true;
-  } else {
-    if (!::DeleteFileW(c_str(path_utf16))) {
-      error_code ec = windows_error(::GetLastError());
-      if (ec != windows_error::file_not_found)
-        return ec;
-      existed = false;
-    } else
-      existed = true;
+      error_code EC = windows_error(::GetLastError());
+      if (EC != errc::no_such_file_or_directory || !IgnoreNonExisting)
+        return EC;
+    }
+    return error_code::success();
   }
-
+  if (!::DeleteFileW(c_str(path_utf16))) {
+    error_code EC = windows_error(::GetLastError());
+    if (EC != errc::no_such_file_or_directory || !IgnoreNonExisting)
+      return EC;
+  }
   return error_code::success();
 }
 
@@ -1083,22 +1026,22 @@ bool home_directory(SmallVectorImpl<char> &result) {
 namespace windows {
 llvm::error_code UTF8ToUTF16(llvm::StringRef utf8,
                              llvm::SmallVectorImpl<wchar_t> &utf16) {
-  int len = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-                                  utf8.begin(), utf8.size(),
-                                  utf16.begin(), 0);
+  if (!utf8.empty()) {
+    int len = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.begin(),
+                                    utf8.size(), utf16.begin(), 0);
 
-  if (len == 0)
-    return llvm::windows_error(::GetLastError());
+    if (len == 0)
+      return llvm::windows_error(::GetLastError());
 
-  utf16.reserve(len + 1);
-  utf16.set_size(len);
+    utf16.reserve(len + 1);
+    utf16.set_size(len);
 
-  len = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
-                              utf8.begin(), utf8.size(),
-                              utf16.begin(), utf16.size());
+    len = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.begin(),
+                                utf8.size(), utf16.begin(), utf16.size());
 
-  if (len == 0)
-    return llvm::windows_error(::GetLastError());
+    if (len == 0)
+      return llvm::windows_error(::GetLastError());
+  }
 
   // Make utf16 null terminated.
   utf16.push_back(0);
@@ -1109,26 +1052,24 @@ llvm::error_code UTF8ToUTF16(llvm::StringRef utf8,
 
 llvm::error_code UTF16ToUTF8(const wchar_t *utf16, size_t utf16_len,
                              llvm::SmallVectorImpl<char> &utf8) {
-  // Get length.
-  int len = ::WideCharToMultiByte(CP_UTF8, 0,
-                                  utf16, utf16_len,
-                                  utf8.begin(), 0,
-                                  NULL, NULL);
+  if (utf16_len) {
+    // Get length.
+    int len = ::WideCharToMultiByte(CP_UTF8, 0, utf16, utf16_len, utf8.begin(),
+                                    0, NULL, NULL);
 
-  if (len == 0)
-    return llvm::windows_error(::GetLastError());
+    if (len == 0)
+      return llvm::windows_error(::GetLastError());
 
-  utf8.reserve(len);
-  utf8.set_size(len);
+    utf8.reserve(len);
+    utf8.set_size(len);
 
-  // Now do the actual conversion.
-  len = ::WideCharToMultiByte(CP_UTF8, 0,
-                              utf16, utf16_len,
-                              utf8.data(), utf8.size(),
-                              NULL, NULL);
+    // Now do the actual conversion.
+    len = ::WideCharToMultiByte(CP_UTF8, 0, utf16, utf16_len, utf8.data(),
+                                utf8.size(), NULL, NULL);
 
-  if (len == 0)
-    return llvm::windows_error(::GetLastError());
+    if (len == 0)
+      return llvm::windows_error(::GetLastError());
+  }
 
   // Make utf8 null terminated.
   utf8.push_back(0);

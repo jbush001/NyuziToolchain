@@ -225,6 +225,13 @@ unsigned X86TTI::getArithmeticInstrCost(unsigned Opcode, Type *Ty,
 
   // Look for AVX2 lowering tricks.
   if (ST->hasAVX2()) {
+    if (ISD == ISD::SHL && LT.second == MVT::v16i16 &&
+        (Op2Info == TargetTransformInfo::OK_UniformConstantValue ||
+         Op2Info == TargetTransformInfo::OK_NonUniformConstantValue))
+      // On AVX2, a packed v16i16 shift left by a constant build_vector
+      // is lowered into a vector multiply (vpmullw).
+      return LT.first;
+
     int Idx = CostTableLookup(AVX2CostTable, ISD, LT.second);
     if (Idx != -1)
       return LT.first * AVX2CostTable[Idx].Cost;
@@ -257,6 +264,20 @@ unsigned X86TTI::getArithmeticInstrCost(unsigned Opcode, Type *Ty,
       return LT.first * SSE2UniformConstCostTable[Idx].Cost;
   }
 
+  if (ISD == ISD::SHL &&
+      Op2Info == TargetTransformInfo::OK_NonUniformConstantValue) {
+    EVT VT = LT.second;
+    if ((VT == MVT::v8i16 && ST->hasSSE2()) ||
+        (VT == MVT::v4i32 && ST->hasSSE41()))
+      // Vector shift left by non uniform constant can be lowered
+      // into vector multiply (pmullw/pmulld).
+      return LT.first;
+    if (VT == MVT::v4i32 && ST->hasSSE2())
+      // A vector shift left by non uniform constant is converted
+      // into a vector multiply; the new multiply is eventually
+      // lowered into a sequence of shuffles and 2 x pmuludq.
+      ISD = ISD::MUL;
+  }
 
   static const CostTblEntry<MVT::SimpleValueType> SSE2CostTable[] = {
     // We don't correctly identify costs of casts because they are marked as
@@ -271,6 +292,7 @@ unsigned X86TTI::getArithmeticInstrCost(unsigned Opcode, Type *Ty,
     { ISD::SHL,  MVT::v8i16,  8*10 }, // Scalarized.
     { ISD::SHL,  MVT::v4i32,  2*5 }, // We optimized this using mul.
     { ISD::SHL,  MVT::v2i64,  2*10 }, // Scalarized.
+    { ISD::SHL,  MVT::v4i64,  4*10 }, // Scalarized. 
 
     { ISD::SRL,  MVT::v16i8,  16*10 }, // Scalarized.
     { ISD::SRL,  MVT::v8i16,  8*10 }, // Scalarized.
@@ -308,6 +330,7 @@ unsigned X86TTI::getArithmeticInstrCost(unsigned Opcode, Type *Ty,
     // We don't have to scalarize unsupported ops. We can issue two half-sized
     // operations and we only need to extract the upper YMM half.
     // Two ops + 1 extract + 1 insert = 4.
+    { ISD::MUL,     MVT::v16i16,   4 },
     { ISD::MUL,     MVT::v8i32,    4 },
     { ISD::SUB,     MVT::v8i32,    4 },
     { ISD::ADD,     MVT::v8i32,    4 },
@@ -323,7 +346,15 @@ unsigned X86TTI::getArithmeticInstrCost(unsigned Opcode, Type *Ty,
 
   // Look for AVX1 lowering tricks.
   if (ST->hasAVX() && !ST->hasAVX2()) {
-    int Idx = CostTableLookup(AVX1CostTable, ISD, LT.second);
+    EVT VT = LT.second;
+
+    // v16i16 and v8i32 shifts by non-uniform constants are lowered into a
+    // sequence of extract + two vector multiply + insert.
+    if (ISD == ISD::SHL && (VT == MVT::v8i32 || VT == MVT::v16i16) &&
+        Op2Info == TargetTransformInfo::OK_NonUniformConstantValue)
+      ISD = ISD::MUL;
+
+    int Idx = CostTableLookup(AVX1CostTable, ISD, VT);
     if (Idx != -1)
       return LT.first * AVX1CostTable[Idx].Cost;
   }
@@ -343,7 +374,7 @@ unsigned X86TTI::getArithmeticInstrCost(unsigned Opcode, Type *Ty,
   // 2x pmuludq, 2x shuffle.
   if (ISD == ISD::MUL && LT.second == MVT::v4i32 && ST->hasSSE2() &&
       !ST->hasSSE41())
-    return 6;
+    return LT.first * 6;
 
   // Fallback to the default implementation.
   return TargetTransformInfo::getArithmeticInstrCost(Opcode, Ty, Op1Info,
@@ -411,16 +442,58 @@ unsigned X86TTI::getCastInstrCost(unsigned Opcode, Type *Dst, Type *Src) const {
     return TargetTransformInfo::getCastInstrCost(Opcode, Dst, Src);
 
   static const TypeConversionCostTblEntry<MVT::SimpleValueType>
+  AVX2ConversionTbl[] = {
+    { ISD::SIGN_EXTEND, MVT::v16i16, MVT::v16i8,  1 },
+    { ISD::ZERO_EXTEND, MVT::v16i16, MVT::v16i8,  1 },
+    { ISD::SIGN_EXTEND, MVT::v8i32,  MVT::v8i1,   3 },
+    { ISD::ZERO_EXTEND, MVT::v8i32,  MVT::v8i1,   3 },
+    { ISD::SIGN_EXTEND, MVT::v8i32,  MVT::v8i8,   3 },
+    { ISD::ZERO_EXTEND, MVT::v8i32,  MVT::v8i8,   3 },
+    { ISD::SIGN_EXTEND, MVT::v8i32,  MVT::v8i16,  1 },
+    { ISD::ZERO_EXTEND, MVT::v8i32,  MVT::v8i16,  1 },
+    { ISD::SIGN_EXTEND, MVT::v4i64,  MVT::v4i1,   3 },
+    { ISD::ZERO_EXTEND, MVT::v4i64,  MVT::v4i1,   3 },
+    { ISD::SIGN_EXTEND, MVT::v4i64,  MVT::v4i8,   3 },
+    { ISD::ZERO_EXTEND, MVT::v4i64,  MVT::v4i8,   3 },
+    { ISD::SIGN_EXTEND, MVT::v4i64,  MVT::v4i16,  3 },
+    { ISD::ZERO_EXTEND, MVT::v4i64,  MVT::v4i16,  3 },
+    { ISD::SIGN_EXTEND, MVT::v4i64,  MVT::v4i32,  1 },
+    { ISD::ZERO_EXTEND, MVT::v4i64,  MVT::v4i32,  1 },
+
+    { ISD::TRUNCATE,    MVT::v4i8,   MVT::v4i64,  2 },
+    { ISD::TRUNCATE,    MVT::v4i16,  MVT::v4i64,  2 },
+    { ISD::TRUNCATE,    MVT::v4i32,  MVT::v4i64,  2 },
+    { ISD::TRUNCATE,    MVT::v8i8,   MVT::v8i32,  2 },
+    { ISD::TRUNCATE,    MVT::v8i16,  MVT::v8i32,  2 },
+    { ISD::TRUNCATE,    MVT::v8i32,  MVT::v8i64,  4 },
+  };
+
+  static const TypeConversionCostTblEntry<MVT::SimpleValueType>
   AVXConversionTbl[] = {
-    { ISD::SIGN_EXTEND, MVT::v16i16, MVT::v16i8, 1 },
-    { ISD::ZERO_EXTEND, MVT::v16i16, MVT::v16i8, 1 },
-    { ISD::SIGN_EXTEND, MVT::v8i32, MVT::v8i16, 1 },
-    { ISD::ZERO_EXTEND, MVT::v8i32, MVT::v8i16, 1 },
-    { ISD::SIGN_EXTEND, MVT::v4i64, MVT::v4i32, 1 },
-    { ISD::ZERO_EXTEND, MVT::v4i64, MVT::v4i32, 1 },
-    { ISD::TRUNCATE,    MVT::v4i32, MVT::v4i64, 1 },
-    { ISD::TRUNCATE,    MVT::v8i16, MVT::v8i32, 1 },
-    { ISD::TRUNCATE,    MVT::v16i8, MVT::v16i16, 2 },
+    { ISD::SIGN_EXTEND, MVT::v16i16, MVT::v16i8, 4 },
+    { ISD::ZERO_EXTEND, MVT::v16i16, MVT::v16i8, 4 },
+    { ISD::SIGN_EXTEND, MVT::v8i32,  MVT::v8i1,  7 },
+    { ISD::ZERO_EXTEND, MVT::v8i32,  MVT::v8i1,  4 },
+    { ISD::SIGN_EXTEND, MVT::v8i32,  MVT::v8i8,  7 },
+    { ISD::ZERO_EXTEND, MVT::v8i32,  MVT::v8i8,  4 },
+    { ISD::SIGN_EXTEND, MVT::v8i32,  MVT::v8i16, 4 },
+    { ISD::ZERO_EXTEND, MVT::v8i32,  MVT::v8i16, 4 },
+    { ISD::SIGN_EXTEND, MVT::v4i64,  MVT::v4i1,  6 },
+    { ISD::ZERO_EXTEND, MVT::v4i64,  MVT::v4i1,  4 },
+    { ISD::SIGN_EXTEND, MVT::v4i64,  MVT::v4i8,  6 },
+    { ISD::ZERO_EXTEND, MVT::v4i64,  MVT::v4i8,  4 },
+    { ISD::SIGN_EXTEND, MVT::v4i64,  MVT::v4i16, 6 },
+    { ISD::ZERO_EXTEND, MVT::v4i64,  MVT::v4i16, 3 },
+    { ISD::SIGN_EXTEND, MVT::v4i64,  MVT::v4i32, 4 },
+    { ISD::ZERO_EXTEND, MVT::v4i64,  MVT::v4i32, 4 },
+
+    { ISD::TRUNCATE,    MVT::v4i8,  MVT::v4i64,  4 },
+    { ISD::TRUNCATE,    MVT::v4i16, MVT::v4i64,  4 },
+    { ISD::TRUNCATE,    MVT::v4i32, MVT::v4i64,  4 },
+    { ISD::TRUNCATE,    MVT::v8i8,  MVT::v8i32,  4 },
+    { ISD::TRUNCATE,    MVT::v8i16, MVT::v8i32,  5 },
+    { ISD::TRUNCATE,    MVT::v16i8, MVT::v16i16, 4 },
+    { ISD::TRUNCATE,    MVT::v8i32, MVT::v8i64,  9 },
 
     { ISD::SINT_TO_FP,  MVT::v8f32, MVT::v8i1,  8 },
     { ISD::SINT_TO_FP,  MVT::v8f32, MVT::v8i8,  8 },
@@ -450,13 +523,14 @@ unsigned X86TTI::getCastInstrCost(unsigned Opcode, Type *Dst, Type *Src) const {
 
     { ISD::FP_TO_SINT,  MVT::v8i8,  MVT::v8f32, 1 },
     { ISD::FP_TO_SINT,  MVT::v4i8,  MVT::v4f32, 1 },
-    { ISD::ZERO_EXTEND, MVT::v8i32, MVT::v8i1,  6 },
-    { ISD::SIGN_EXTEND, MVT::v8i32, MVT::v8i1,  9 },
-    { ISD::SIGN_EXTEND, MVT::v4i64, MVT::v4i1,  8 },
-    { ISD::SIGN_EXTEND, MVT::v4i64, MVT::v4i8,  6 },
-    { ISD::SIGN_EXTEND, MVT::v4i64, MVT::v4i16, 6 },
-    { ISD::TRUNCATE,    MVT::v8i32, MVT::v8i64, 3 },
   };
+
+  if (ST->hasAVX2()) {
+    int Idx = ConvertCostTableLookup(AVX2ConversionTbl, ISD,
+                                     DstTy.getSimpleVT(), SrcTy.getSimpleVT());
+    if (Idx != -1)
+      return AVX2ConversionTbl[Idx].Cost;
+  }
 
   if (ST->hasAVX()) {
     int Idx = ConvertCostTableLookup(AVXConversionTbl, ISD, DstTy.getSimpleVT(),

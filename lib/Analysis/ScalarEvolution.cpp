@@ -135,7 +135,7 @@ void SCEV::dump() const {
 #endif
 
 void SCEV::print(raw_ostream &OS) const {
-  switch (getSCEVType()) {
+  switch (static_cast<SCEVTypes>(getSCEVType())) {
   case scConstant:
     cast<SCEVConstant>(this)->getValue()->printAsOperand(OS, false);
     return;
@@ -240,13 +240,12 @@ void SCEV::print(raw_ostream &OS) const {
   case scCouldNotCompute:
     OS << "***COULDNOTCOMPUTE***";
     return;
-  default: break;
   }
   llvm_unreachable("Unknown SCEV kind!");
 }
 
 Type *SCEV::getType() const {
-  switch (getSCEVType()) {
+  switch (static_cast<SCEVTypes>(getSCEVType())) {
   case scConstant:
     return cast<SCEVConstant>(this)->getType();
   case scTruncate:
@@ -266,9 +265,8 @@ Type *SCEV::getType() const {
     return cast<SCEVUnknown>(this)->getType();
   case scCouldNotCompute:
     llvm_unreachable("Attempt to use a SCEVCouldNotCompute object!");
-  default:
-    llvm_unreachable("Unknown SCEV kind!");
   }
+  llvm_unreachable("Unknown SCEV kind!");
 }
 
 bool SCEV::isZero() const {
@@ -481,7 +479,7 @@ namespace {
       // Aside from the getSCEVType() ordering, the particular ordering
       // isn't very important except that it's beneficial to be consistent,
       // so that (a + b) and (b + a) don't end up as different expressions.
-      switch (LType) {
+      switch (static_cast<SCEVTypes>(LType)) {
       case scUnknown: {
         const SCEVUnknown *LU = cast<SCEVUnknown>(LHS);
         const SCEVUnknown *RU = cast<SCEVUnknown>(RHS);
@@ -618,9 +616,10 @@ namespace {
         return compare(LC->getOperand(), RC->getOperand());
       }
 
-      default:
-        llvm_unreachable("Unknown SCEV kind!");
+      case scCouldNotCompute:
+        llvm_unreachable("Attempt to use a SCEVCouldNotCompute object!");
       }
+      llvm_unreachable("Unknown SCEV kind!");
     }
   };
 }
@@ -2664,12 +2663,12 @@ const SCEV *ScalarEvolution::getSizeOfExpr(Type *IntTy, Type *AllocTy) {
   // If we have DataLayout, we can bypass creating a target-independent
   // constant expression and then folding it back into a ConstantInt.
   // This is just a compile-time optimization.
-  if (TD)
-    return getConstant(IntTy, TD->getTypeAllocSize(AllocTy));
+  if (DL)
+    return getConstant(IntTy, DL->getTypeAllocSize(AllocTy));
 
   Constant *C = ConstantExpr::getSizeOf(AllocTy);
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(C))
-    if (Constant *Folded = ConstantFoldConstantExpression(CE, TD, TLI))
+    if (Constant *Folded = ConstantFoldConstantExpression(CE, DL, TLI))
       C = Folded;
   Type *Ty = getEffectiveSCEVType(PointerType::getUnqual(AllocTy));
   assert(Ty == IntTy && "Effective SCEV type doesn't match");
@@ -2682,14 +2681,14 @@ const SCEV *ScalarEvolution::getOffsetOfExpr(Type *IntTy,
   // If we have DataLayout, we can bypass creating a target-independent
   // constant expression and then folding it back into a ConstantInt.
   // This is just a compile-time optimization.
-  if (TD) {
+  if (DL) {
     return getConstant(IntTy,
-                       TD->getStructLayout(STy)->getElementOffset(FieldNo));
+                       DL->getStructLayout(STy)->getElementOffset(FieldNo));
   }
 
   Constant *C = ConstantExpr::getOffsetOf(STy, FieldNo);
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(C))
-    if (Constant *Folded = ConstantFoldConstantExpression(CE, TD, TLI))
+    if (Constant *Folded = ConstantFoldConstantExpression(CE, DL, TLI))
       C = Folded;
 
   Type *Ty = getEffectiveSCEVType(PointerType::getUnqual(STy));
@@ -2737,8 +2736,8 @@ uint64_t ScalarEvolution::getTypeSizeInBits(Type *Ty) const {
   assert(isSCEVable(Ty) && "Type is not SCEVable!");
 
   // If we have a DataLayout, use it!
-  if (TD)
-    return TD->getTypeSizeInBits(Ty);
+  if (DL)
+    return DL->getTypeSizeInBits(Ty);
 
   // Integer types have fixed sizes.
   if (Ty->isIntegerTy())
@@ -2764,8 +2763,8 @@ Type *ScalarEvolution::getEffectiveSCEVType(Type *Ty) const {
   // The only other support type is pointer.
   assert(Ty->isPointerTy() && "Unexpected non-pointer non-integer type!");
 
-  if (TD)
-    return TD->getIntPtrType(Ty);
+  if (DL)
+    return DL->getIntPtrType(Ty);
 
   // Without DataLayout, conservatively assume pointers are 64-bit.
   return Type::getInt64Ty(getContext());
@@ -2784,7 +2783,7 @@ namespace {
     bool FindOne;
     FindInvalidSCEVUnknown() { FindOne = false; }
     bool follow(const SCEV *S) {
-      switch (S->getSCEVType()) {
+      switch (static_cast<SCEVTypes>(S->getSCEVType())) {
       case scConstant:
         return false;
       case scUnknown:
@@ -3233,7 +3232,7 @@ const SCEV *ScalarEvolution::createNodeForPHI(PHINode *PN) {
   // PHI's incoming blocks are in a different loop, in which case doing so
   // risks breaking LCSSA form. Instcombine would normally zap these, but
   // it doesn't have DominatorTree information, so it may miss cases.
-  if (Value *V = SimplifyInstruction(PN, TD, TLI, DT))
+  if (Value *V = SimplifyInstruction(PN, DL, TLI, DT))
     if (LI->replacementPreservesLCSSAForm(PN, V))
       return getSCEV(V);
 
@@ -3504,7 +3503,7 @@ ScalarEvolution::getUnsignedRange(const SCEV *S) {
   if (const SCEVUnknown *U = dyn_cast<SCEVUnknown>(S)) {
     // For a SCEVUnknown, ask ValueTracking.
     APInt Zeros(BitWidth, 0), Ones(BitWidth, 0);
-    ComputeMaskedBits(U->getValue(), Zeros, Ones, TD);
+    ComputeMaskedBits(U->getValue(), Zeros, Ones, DL);
     if (Ones == ~Zeros + 1)
       return setUnsignedRange(U, ConservativeResult);
     return setUnsignedRange(U,
@@ -3654,9 +3653,9 @@ ScalarEvolution::getSignedRange(const SCEV *S) {
 
   if (const SCEVUnknown *U = dyn_cast<SCEVUnknown>(S)) {
     // For a SCEVUnknown, ask ValueTracking.
-    if (!U->getValue()->getType()->isIntegerTy() && !TD)
+    if (!U->getValue()->getType()->isIntegerTy() && !DL)
       return setSignedRange(U, ConservativeResult);
-    unsigned NS = ComputeNumSignBits(U->getValue(), TD);
+    unsigned NS = ComputeNumSignBits(U->getValue(), DL);
     if (NS <= 1)
       return setSignedRange(U, ConservativeResult);
     return setSignedRange(U, ConservativeResult.intersectWith(
@@ -3763,7 +3762,7 @@ const SCEV *ScalarEvolution::createSCEV(Value *V) {
       unsigned TZ = A.countTrailingZeros();
       unsigned BitWidth = A.getBitWidth();
       APInt KnownZero(BitWidth, 0), KnownOne(BitWidth, 0);
-      ComputeMaskedBits(U->getOperand(0), KnownZero, KnownOne, TD);
+      ComputeMaskedBits(U->getOperand(0), KnownZero, KnownOne, DL);
 
       APInt EffectiveMask =
           APInt::getLowBitsSet(BitWidth, BitWidth - LZ - TZ).shl(TZ);
@@ -4453,12 +4452,19 @@ ScalarEvolution::ExitLimit
 ScalarEvolution::ComputeExitLimit(const Loop *L, BasicBlock *ExitingBlock) {
 
   // Okay, we've chosen an exiting block.  See what condition causes us to
-  // exit at this block.
-  //
-  // FIXME: we should be able to handle switch instructions (with a single exit)
-  BranchInst *ExitBr = dyn_cast<BranchInst>(ExitingBlock->getTerminator());
-  if (ExitBr == 0) return getCouldNotCompute();
-  assert(ExitBr->isConditional() && "If unconditional, it can't be in loop!");
+  // exit at this block and remember the exit block and whether all other targets
+  // lead to the loop header.
+  bool MustExecuteLoopHeader = true;
+  BasicBlock *Exit = 0;
+  for (succ_iterator SI = succ_begin(ExitingBlock), SE = succ_end(ExitingBlock);
+       SI != SE; ++SI)
+    if (!L->contains(*SI)) {
+      if (Exit) // Multiple exit successors.
+        return getCouldNotCompute();
+      Exit = *SI;
+    } else if (*SI != L->getHeader()) {
+      MustExecuteLoopHeader = false;
+    }
 
   // At this point, we know we have a conditional branch that determines whether
   // the loop is exited.  However, we don't know if the branch is executed each
@@ -4477,13 +4483,11 @@ ScalarEvolution::ComputeExitLimit(const Loop *L, BasicBlock *ExitingBlock) {
   //
   //  More extensive analysis could be done to handle more cases here.
   //
-  if (ExitBr->getSuccessor(0) != L->getHeader() &&
-      ExitBr->getSuccessor(1) != L->getHeader() &&
-      ExitBr->getParent() != L->getHeader()) {
+  if (!MustExecuteLoopHeader && ExitingBlock != L->getHeader()) {
     // The simple checks failed, try climbing the unique predecessor chain
     // up to the header.
     bool Ok = false;
-    for (BasicBlock *BB = ExitBr->getParent(); BB; ) {
+    for (BasicBlock *BB = ExitingBlock; BB; ) {
       BasicBlock *Pred = BB->getUniquePredecessor();
       if (!Pred)
         return getCouldNotCompute();
@@ -4507,11 +4511,20 @@ ScalarEvolution::ComputeExitLimit(const Loop *L, BasicBlock *ExitingBlock) {
       return getCouldNotCompute();
   }
 
-  // Proceed to the next level to examine the exit condition expression.
-  return ComputeExitLimitFromCond(L, ExitBr->getCondition(),
-                                  ExitBr->getSuccessor(0),
-                                  ExitBr->getSuccessor(1),
-                                  /*IsSubExpr=*/false);
+  TerminatorInst *Term = ExitingBlock->getTerminator();
+  if (BranchInst *BI = dyn_cast<BranchInst>(Term)) {
+    assert(BI->isConditional() && "If unconditional, it can't be in loop!");
+    // Proceed to the next level to examine the exit condition expression.
+    return ComputeExitLimitFromCond(L, BI->getCondition(), BI->getSuccessor(0),
+                                    BI->getSuccessor(1),
+                                    /*IsSubExpr=*/false);
+  }
+
+  if (SwitchInst *SI = dyn_cast<SwitchInst>(Term))
+    return ComputeExitLimitFromSingleExitSwitch(L, SI, Exit,
+                                                /*IsSubExpr=*/false);
+
+  return getCouldNotCompute();
 }
 
 /// ComputeExitLimitFromCond - Compute the number of times the
@@ -4728,6 +4741,30 @@ ScalarEvolution::ComputeExitLimitFromICmp(const Loop *L,
   return ComputeExitCountExhaustively(L, ExitCond, !L->contains(TBB));
 }
 
+ScalarEvolution::ExitLimit
+ScalarEvolution::ComputeExitLimitFromSingleExitSwitch(const Loop *L,
+                                                      SwitchInst *Switch,
+                                                      BasicBlock *ExitingBlock,
+                                                      bool IsSubExpr) {
+  assert(!L->contains(ExitingBlock) && "Not an exiting block!");
+
+  // Give up if the exit is the default dest of a switch.
+  if (Switch->getDefaultDest() == ExitingBlock)
+    return getCouldNotCompute();
+
+  assert(L->contains(Switch->getDefaultDest()) &&
+         "Default case must not exit the loop!");
+  const SCEV *LHS = getSCEVAtScope(Switch->getCondition(), L);
+  const SCEV *RHS = getConstant(Switch->findCaseDest(ExitingBlock));
+
+  // while (X != Y) --> while (X-Y != 0)
+  ExitLimit EL = HowFarToZero(getMinusSCEV(LHS, RHS), L, IsSubExpr);
+  if (EL.hasAnyInfo())
+    return EL;
+
+  return getCouldNotCompute();
+}
+
 static ConstantInt *
 EvaluateConstantChrecAtConstant(const SCEVAddRecExpr *AddRec, ConstantInt *C,
                                 ScalarEvolution &SE) {
@@ -4919,7 +4956,7 @@ static PHINode *getConstantEvolvingPHI(Value *V, const Loop *L) {
 /// reason, return null.
 static Constant *EvaluateExpression(Value *V, const Loop *L,
                                     DenseMap<Instruction *, Constant *> &Vals,
-                                    const DataLayout *TD,
+                                    const DataLayout *DL,
                                     const TargetLibraryInfo *TLI) {
   // Convenient constant check, but redundant for recursive calls.
   if (Constant *C = dyn_cast<Constant>(V)) return C;
@@ -4946,7 +4983,7 @@ static Constant *EvaluateExpression(Value *V, const Loop *L,
       if (!Operands[i]) return 0;
       continue;
     }
-    Constant *C = EvaluateExpression(Operand, L, Vals, TD, TLI);
+    Constant *C = EvaluateExpression(Operand, L, Vals, DL, TLI);
     Vals[Operand] = C;
     if (!C) return 0;
     Operands[i] = C;
@@ -4954,12 +4991,12 @@ static Constant *EvaluateExpression(Value *V, const Loop *L,
 
   if (CmpInst *CI = dyn_cast<CmpInst>(I))
     return ConstantFoldCompareInstOperands(CI->getPredicate(), Operands[0],
-                                           Operands[1], TD, TLI);
+                                           Operands[1], DL, TLI);
   if (LoadInst *LI = dyn_cast<LoadInst>(I)) {
     if (!LI->isVolatile())
-      return ConstantFoldLoadFromConstPtr(Operands[0], TD);
+      return ConstantFoldLoadFromConstPtr(Operands[0], DL);
   }
-  return ConstantFoldInstOperands(I->getOpcode(), I->getType(), Operands, TD,
+  return ConstantFoldInstOperands(I->getOpcode(), I->getType(), Operands, DL,
                                   TLI);
 }
 
@@ -5015,7 +5052,7 @@ ScalarEvolution::getConstantEvolutionLoopExitValue(PHINode *PN,
     // Compute the value of the PHIs for the next iteration.
     // EvaluateExpression adds non-phi values to the CurrentIterVals map.
     DenseMap<Instruction *, Constant *> NextIterVals;
-    Constant *NextPHI = EvaluateExpression(BEValue, L, CurrentIterVals, TD,
+    Constant *NextPHI = EvaluateExpression(BEValue, L, CurrentIterVals, DL,
                                            TLI);
     if (NextPHI == 0)
       return 0;        // Couldn't evaluate!
@@ -5041,7 +5078,7 @@ ScalarEvolution::getConstantEvolutionLoopExitValue(PHINode *PN,
       Constant *&NextPHI = NextIterVals[PHI];
       if (!NextPHI) {   // Not already computed.
         Value *BEValue = PHI->getIncomingValue(SecondIsBackedge);
-        NextPHI = EvaluateExpression(BEValue, L, CurrentIterVals, TD, TLI);
+        NextPHI = EvaluateExpression(BEValue, L, CurrentIterVals, DL, TLI);
       }
       if (NextPHI != I->second)
         StoppedEvolving = false;
@@ -5097,7 +5134,7 @@ const SCEV *ScalarEvolution::ComputeExitCountExhaustively(const Loop *L,
   for (unsigned IterationNum = 0; IterationNum != MaxIterations;++IterationNum){
     ConstantInt *CondVal =
       dyn_cast_or_null<ConstantInt>(EvaluateExpression(Cond, L, CurrentIterVals,
-                                                       TD, TLI));
+                                                       DL, TLI));
 
     // Couldn't symbolically evaluate.
     if (!CondVal) return getCouldNotCompute();
@@ -5127,7 +5164,7 @@ const SCEV *ScalarEvolution::ComputeExitCountExhaustively(const Loop *L,
       if (NextPHI) continue;    // Already computed!
 
       Value *BEValue = PHI->getIncomingValue(SecondIsBackedge);
-      NextPHI = EvaluateExpression(BEValue, L, CurrentIterVals, TD, TLI);
+      NextPHI = EvaluateExpression(BEValue, L, CurrentIterVals, DL, TLI);
     }
     CurrentIterVals.swap(NextIterVals);
   }
@@ -5171,8 +5208,7 @@ const SCEV *ScalarEvolution::getSCEVAtScope(const SCEV *V, const Loop *L) {
 /// SCEVConstant, because SCEVConstant is restricted to ConstantInt.
 /// Returns NULL if the SCEV isn't representable as a Constant.
 static Constant *BuildConstantFromSCEV(const SCEV *V) {
-  switch (V->getSCEVType()) {
-    default:  // TODO: smax, umax.
+  switch (static_cast<SCEVTypes>(V->getSCEVType())) {
     case scCouldNotCompute:
     case scAddRecExpr:
       break;
@@ -5259,6 +5295,9 @@ static Constant *BuildConstantFromSCEV(const SCEV *V) {
             return ConstantExpr::getUDiv(LHS, RHS);
       break;
     }
+    case scSMaxExpr:
+    case scUMaxExpr:
+      break; // TODO: smax, umax.
   }
   return 0;
 }
@@ -5330,14 +5369,14 @@ const SCEV *ScalarEvolution::computeSCEVAtScope(const SCEV *V, const Loop *L) {
           Constant *C = 0;
           if (const CmpInst *CI = dyn_cast<CmpInst>(I))
             C = ConstantFoldCompareInstOperands(CI->getPredicate(),
-                                                Operands[0], Operands[1], TD,
+                                                Operands[0], Operands[1], DL,
                                                 TLI);
           else if (const LoadInst *LI = dyn_cast<LoadInst>(I)) {
             if (!LI->isVolatile())
-              C = ConstantFoldLoadFromConstPtr(Operands[0], TD);
+              C = ConstantFoldLoadFromConstPtr(Operands[0], DL);
           } else
             C = ConstantFoldInstOperands(I->getOpcode(), I->getType(),
-                                         Operands, TD, TLI);
+                                         Operands, DL, TLI);
           if (!C) return V;
           return getSCEV(C);
         }
@@ -7216,46 +7255,37 @@ SCEVAddRecExpr::delinearize(ScalarEvolution &SE,
 
   DEBUG(dbgs() << "(delinearize: " << *this << "\n");
 
-  // Currently we fail to delinearize when the stride of this SCEV is 1. We
-  // could decide to not fail in this case: we could just return 1 for the size
-  // of the subscript, and this same SCEV for the access function.
-  if (Step == One) {
-    DEBUG(dbgs() << "failed to delinearize " << *this << "\n)\n");
-    return this;
-  }
+  // When the stride of this SCEV is 1, do not compute the GCD: the size of this
+  // subscript is 1, and this same SCEV for the access function.
+  const SCEV *Remainder = Zero;
+  const SCEV *GCD = One;
 
   // Find the GCD and Remainder of the Start and Step coefficients of this SCEV.
-  const SCEV *Remainder = NULL;
-  const SCEV *GCD = SCEVGCD::findGCD(SE, Start, Step, &Remainder);
+  if (Step != One && !Step->isAllOnesValue())
+    GCD = SCEVGCD::findGCD(SE, Start, Step, &Remainder);
 
   DEBUG(dbgs() << "GCD: " << *GCD << "\n");
   DEBUG(dbgs() << "Remainder: " << *Remainder << "\n");
 
-  // Same remark as above: we currently fail the delinearization, although we
-  // can very well handle this special case.
-  if (GCD == One) {
-    DEBUG(dbgs() << "failed to delinearize " << *this << "\n)\n");
-    return this;
-  }
+  const SCEV *Quotient = Start;
+  if (GCD != One && !GCD->isAllOnesValue())
+    // As findGCD computed Remainder, GCD divides "Start - Remainder." The
+    // Quotient is then this SCEV without Remainder, scaled down by the GCD.  The
+    // Quotient is what will be used in the next subscript delinearization.
+    Quotient = SCEVDivision::divide(SE, SE.getMinusSCEV(Start, Remainder), GCD);
 
-  // As findGCD computed Remainder, GCD divides "Start - Remainder." The
-  // Quotient is then this SCEV without Remainder, scaled down by the GCD.  The
-  // Quotient is what will be used in the next subscript delinearization.
-  const SCEV *Quotient =
-      SCEVDivision::divide(SE, SE.getMinusSCEV(Start, Remainder), GCD);
   DEBUG(dbgs() << "Quotient: " << *Quotient << "\n");
 
-  const SCEV *Rem;
+  const SCEV *Rem = Quotient;
   if (const SCEVAddRecExpr *AR = dyn_cast<SCEVAddRecExpr>(Quotient))
     // Recursively call delinearize on the Quotient until there are no more
     // multiples that can be recognized.
     Rem = AR->delinearize(SE, Subscripts, Sizes);
-  else
-    Rem = Quotient;
 
   // Scale up the canonical induction variable IV by whatever remains from the
   // Step after division by the GCD: the GCD is the size of all the sub-array.
-  if (Step != GCD) {
+  if (Step != One && !Step->isAllOnesValue() && GCD != One &&
+      !GCD->isAllOnesValue() && Step != GCD) {
     Step = SCEVDivision::divide(SE, Step, GCD);
     IV = SE.getMulExpr(IV, Step);
   }
@@ -7346,7 +7376,7 @@ ScalarEvolution::ScalarEvolution()
 bool ScalarEvolution::runOnFunction(Function &F) {
   this->F = &F;
   LI = &getAnalysis<LoopInfo>();
-  TD = getAnalysisIfAvailable<DataLayout>();
+  DL = getAnalysisIfAvailable<DataLayout>();
   TLI = &getAnalysis<TargetLibraryInfo>();
   DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
   return false;
@@ -7496,7 +7526,7 @@ ScalarEvolution::getLoopDisposition(const SCEV *S, const Loop *L) {
 
 ScalarEvolution::LoopDisposition
 ScalarEvolution::computeLoopDisposition(const SCEV *S, const Loop *L) {
-  switch (S->getSCEVType()) {
+  switch (static_cast<SCEVTypes>(S->getSCEVType())) {
   case scConstant:
     return LoopInvariant;
   case scTruncate:
@@ -7569,8 +7599,8 @@ ScalarEvolution::computeLoopDisposition(const SCEV *S, const Loop *L) {
     return LoopInvariant;
   case scCouldNotCompute:
     llvm_unreachable("Attempt to use a SCEVCouldNotCompute object!");
-  default: llvm_unreachable("Unknown SCEV kind!");
   }
+  llvm_unreachable("Unknown SCEV kind!");
 }
 
 bool ScalarEvolution::isLoopInvariant(const SCEV *S, const Loop *L) {
@@ -7602,7 +7632,7 @@ ScalarEvolution::getBlockDisposition(const SCEV *S, const BasicBlock *BB) {
 
 ScalarEvolution::BlockDisposition
 ScalarEvolution::computeBlockDisposition(const SCEV *S, const BasicBlock *BB) {
-  switch (S->getSCEVType()) {
+  switch (static_cast<SCEVTypes>(S->getSCEVType())) {
   case scConstant:
     return ProperlyDominatesBlock;
   case scTruncate:
@@ -7659,9 +7689,8 @@ ScalarEvolution::computeBlockDisposition(const SCEV *S, const BasicBlock *BB) {
     return ProperlyDominatesBlock;
   case scCouldNotCompute:
     llvm_unreachable("Attempt to use a SCEVCouldNotCompute object!");
-  default:
-    llvm_unreachable("Unknown SCEV kind!");
   }
+  llvm_unreachable("Unknown SCEV kind!");
 }
 
 bool ScalarEvolution::dominates(const SCEV *S, const BasicBlock *BB) {

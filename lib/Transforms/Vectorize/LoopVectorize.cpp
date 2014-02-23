@@ -180,16 +180,16 @@ static cl::opt<bool> LoopVectorizeWithBlockFrequency(
 
 // Runtime unroll loops for load/store throughput.
 static cl::opt<bool> EnableLoadStoreRuntimeUnroll(
-    "enable-loadstore-runtime-unroll", cl::init(false), cl::Hidden,
+    "enable-loadstore-runtime-unroll", cl::init(true), cl::Hidden,
     cl::desc("Enable runtime unrolling until load/store ports are saturated"));
 
 /// The number of stores in a loop that are allowed to need predication.
 static cl::opt<unsigned> NumberOfStoresToPredicate(
-    "vectorize-num-stores-pred", cl::init(0), cl::Hidden,
+    "vectorize-num-stores-pred", cl::init(1), cl::Hidden,
     cl::desc("Max number of stores to be predicated behind an if."));
 
 static cl::opt<bool> EnableIndVarRegisterHeur(
-    "enable-ind-var-reg-heur", cl::init(false), cl::Hidden,
+    "enable-ind-var-reg-heur", cl::init(true), cl::Hidden,
     cl::desc("Count the induction variable only once when unrolling"));
 
 static cl::opt<bool> EnableCondStoresVectorization(
@@ -1640,6 +1640,7 @@ void InnerLoopVectorizer::scalarizeInstruction(Instruction *Instr, bool IfPredic
         Cmp = Builder.CreateExtractElement(Cond[Part], Builder.getInt32(Width));
         Cmp = Builder.CreateICmp(ICmpInst::ICMP_EQ, Cmp, ConstantInt::get(Cmp->getType(), 1));
         CondBlock = IfBlock->splitBasicBlock(InsertPt, "cond.store");
+        LoopVectorBody.push_back(CondBlock);
         VectorLp->addBasicBlockToLoop(CondBlock, LI->getBase());
         // Update Builder with newly created basic block.
         Builder.SetInsertPoint(InsertPt);
@@ -1668,6 +1669,7 @@ void InnerLoopVectorizer::scalarizeInstruction(Instruction *Instr, bool IfPredic
       // End if-block.
       if (IfPredicateStore) {
          BasicBlock *NewIfBlock = CondBlock->splitBasicBlock(InsertPt, "else");
+         LoopVectorBody.push_back(NewIfBlock);
          VectorLp->addBasicBlockToLoop(NewIfBlock, LI->getBase());
          Builder.SetInsertPoint(InsertPt);
          Instruction *OldBr = IfBlock->getTerminator();
@@ -5489,9 +5491,16 @@ LoopVectorizationCostModel::getInstructionCost(Instruction *I, unsigned VF) {
       TargetTransformInfo::OK_AnyValue;
     TargetTransformInfo::OperandValueKind Op2VK =
       TargetTransformInfo::OK_AnyValue;
+    Value *Op2 = I->getOperand(1);
 
-    if (isa<ConstantInt>(I->getOperand(1)))
+    // Check for a splat of a constant or for a non uniform vector of constants.
+    if (isa<ConstantInt>(Op2))
       Op2VK = TargetTransformInfo::OK_UniformConstantValue;
+    else if (isa<ConstantVector>(Op2) || isa<ConstantDataVector>(Op2)) {
+      Op2VK = TargetTransformInfo::OK_NonUniformConstantValue;
+      if (cast<Constant>(Op2)->getSplatValue() != NULL)
+        Op2VK = TargetTransformInfo::OK_UniformConstantValue;
+    }
 
     return TTI.getArithmeticInstrCost(I->getOpcode(), VectorTy, Op1VK, Op2VK);
   }
@@ -5736,6 +5745,7 @@ void InnerLoopUnroller::scalarizeInstruction(Instruction *Instr,
       Cmp = Builder.CreateICmp(ICmpInst::ICMP_EQ, Cond[Part],
                                ConstantInt::get(Cond[Part]->getType(), 1));
       CondBlock = IfBlock->splitBasicBlock(InsertPt, "cond.store");
+      LoopVectorBody.push_back(CondBlock);
       VectorLp->addBasicBlockToLoop(CondBlock, LI->getBase());
       // Update Builder with newly created basic block.
       Builder.SetInsertPoint(InsertPt);
@@ -5761,6 +5771,7 @@ void InnerLoopUnroller::scalarizeInstruction(Instruction *Instr,
     // End if-block.
       if (IfPredicateStore) {
         BasicBlock *NewIfBlock = CondBlock->splitBasicBlock(InsertPt, "else");
+        LoopVectorBody.push_back(NewIfBlock);
         VectorLp->addBasicBlockToLoop(NewIfBlock, LI->getBase());
         Builder.SetInsertPoint(InsertPt);
         Instruction *OldBr = IfBlock->getTerminator();

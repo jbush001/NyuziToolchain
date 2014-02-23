@@ -58,6 +58,10 @@ TimeCompilations("time-compilations", cl::Hidden, cl::init(1u),
                  cl::value_desc("N"),
                  cl::desc("Repeat compilation N times for timing"));
 
+static cl::opt<bool>
+NoIntegratedAssembler("no-integrated-as", cl::Hidden,
+                      cl::desc("Disable integrated assembler"));
+
 // Determine optimization level.
 static cl::opt<char>
 OptLevel("O",
@@ -259,26 +263,8 @@ static int compileModule(char **argv, LLVMContext &Context) {
   case '3': OLvl = CodeGenOpt::Aggressive; break;
   }
 
-  TargetOptions Options;
-  Options.LessPreciseFPMADOption = EnableFPMAD;
-  Options.NoFramePointerElim = DisableFPElim;
-  Options.AllowFPOpFusion = FuseFPOps;
-  Options.UnsafeFPMath = EnableUnsafeFPMath;
-  Options.NoInfsFPMath = EnableNoInfsFPMath;
-  Options.NoNaNsFPMath = EnableNoNaNsFPMath;
-  Options.HonorSignDependentRoundingFPMathOption =
-      EnableHonorSignDependentRoundingFPMath;
-  Options.UseSoftFloat = GenerateSoftFloatCalls;
-  if (FloatABIForCalls != FloatABI::Default)
-    Options.FloatABIType = FloatABIForCalls;
-  Options.NoZerosInBSS = DontPlaceZerosInBSS;
-  Options.GuaranteedTailCallOpt = EnableGuaranteedTailCallOpt;
-  Options.DisableTailCalls = DisableTailCalls;
-  Options.StackAlignmentOverride = OverrideStackAlignment;
-  Options.TrapFuncName = TrapFuncName;
-  Options.PositionIndependentExecutable = EnablePIE;
-  Options.EnableSegmentedStacks = SegmentedStacks;
-  Options.UseInitArray = UseInitArray;
+  TargetOptions Options = InitTargetOptionsFromCodeGenFlags();
+  Options.DisableIntegratedAS = NoIntegratedAssembler;
 
   OwningPtr<TargetMachine>
     target(TheTarget->createTargetMachine(TheTriple.getTriple(),
@@ -288,9 +274,6 @@ static int compileModule(char **argv, LLVMContext &Context) {
   assert(mod && "Should have exited after outputting help!");
   TargetMachine &Target = *target.get();
 
-  if (DisableDotLoc)
-    Target.setMCUseLoc(false);
-
   if (DisableCFI)
     Target.setMCUseCFI(false);
 
@@ -299,11 +282,6 @@ static int compileModule(char **argv, LLVMContext &Context) {
 
   if (GenerateSoftFloatCalls)
     FloatABIForCalls = FloatABI::Soft;
-
-  // Disable .loc support for older OS X versions.
-  if (TheTriple.isMacOSX() &&
-      TheTriple.isMacOSXVersionLT(10, 6))
-    Target.setMCUseLoc(false);
 
   // Figure out where we are going to send the output.
   OwningPtr<tool_output_file> Out
@@ -320,8 +298,8 @@ static int compileModule(char **argv, LLVMContext &Context) {
   PM.add(TLI);
 
   // Add the target data from the target machine, if it exists, or the module.
-  if (const DataLayout *TD = Target.getDataLayout())
-    PM.add(new DataLayout(*TD));
+  if (const DataLayout *DL = Target.getDataLayout())
+    PM.add(new DataLayout(*DL));
   else
     PM.add(new DataLayout(mod));
 

@@ -1,7 +1,7 @@
 # See docs/CMake.html for instructions about how to build LLVM with CMake.
 
-project(LLVM)
 cmake_minimum_required(VERSION 2.8.8)
+project(LLVM)
 
 # Add path for custom modules
 set(CMAKE_MODULE_PATH
@@ -423,9 +423,13 @@ set( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/bin )
 set( CMAKE_LIBRARY_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib )
 set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${LLVM_BINARY_DIR}/lib )
 
-if( NOT DEFINED CMAKE_INSTALL_RPATH )
-  set( CMAKE_INSTALL_RPATH "\$ORIGIN/../lib")
-endif( NOT DEFINED CMAKE_INSTALL_RPATH )
+set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
+if (APPLE)
+  set(CMAKE_INSTALL_NAME_DIR "@rpath")
+  set(CMAKE_INSTALL_RPATH "@executable_path/../lib")
+else(UNIX)
+  set(CMAKE_INSTALL_RPATH "\$ORIGIN/../lib")
+endif()
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
@@ -517,7 +521,7 @@ endif()
 add_subdirectory(cmake/modules)
 
 if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
-  install(DIRECTORY include/
+  install(DIRECTORY include/llvm include/llvm-c
     DESTINATION include
     FILES_MATCHING
     PATTERN "*.def"
@@ -528,7 +532,7 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
     PATTERN ".svn" EXCLUDE
     )
 
-  install(DIRECTORY ${LLVM_INCLUDE_DIR}/
+  install(DIRECTORY ${LLVM_INCLUDE_DIR}/llvm
     DESTINATION include
     FILES_MATCHING
     PATTERN "*.def"

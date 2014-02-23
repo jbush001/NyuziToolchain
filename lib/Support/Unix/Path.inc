@@ -17,7 +17,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "Unix.h"
-#include "llvm/Support/Process.h"
 #include <limits.h>
 #include <stdio.h>
 #if HAVE_SYS_STAT_H
@@ -86,24 +85,22 @@ namespace {
 
     operator int() const {return FileDescriptor;}
   };
+}
 
-  error_code TempDir(SmallVectorImpl<char> &result) {
-    // FIXME: Don't use TMPDIR if program is SUID or SGID enabled.
-    const char *dir = 0;
-    (dir = std::getenv("TMPDIR" )) ||
-    (dir = std::getenv("TMP"    )) ||
-    (dir = std::getenv("TEMP"   )) ||
-    (dir = std::getenv("TEMPDIR")) ||
+static error_code TempDir(SmallVectorImpl<char> &result) {
+  // FIXME: Don't use TMPDIR if program is SUID or SGID enabled.
+  const char *dir = 0;
+  (dir = std::getenv("TMPDIR")) || (dir = std::getenv("TMP")) ||
+      (dir = std::getenv("TEMP")) || (dir = std::getenv("TEMPDIR")) ||
 #ifdef P_tmpdir
-    (dir = P_tmpdir) ||
+      (dir = P_tmpdir) ||
 #endif
-    (dir = "/tmp");
+      (dir = "/tmp");
 
-    result.clear();
-    StringRef d(dir);
-    result.append(d.begin(), d.end());
-    return error_code::success();
-  }
+  result.clear();
+  StringRef d(dir);
+  result.append(d.begin(), d.end());
+  return error_code::success();
 }
 
 static error_code createUniqueEntity(const Twine &Model, int &ResultFD,
@@ -165,12 +162,11 @@ retry_random_path:
   }
 
   case FS_Dir: {
-    bool Existed;
-    error_code EC = sys::fs::create_directory(ResultPath.begin(), Existed);
-    if (EC)
+    if (error_code EC = sys::fs::create_directory(ResultPath.begin(), false)) {
+      if (EC == errc::file_exists)
+        goto retry_random_path;
       return EC;
-    if (Existed)
-      goto retry_random_path;
+    }
     return error_code::success();
   }
   }
@@ -334,16 +330,14 @@ error_code current_path(SmallVectorImpl<char> &result) {
   return error_code::success();
 }
 
-error_code create_directory(const Twine &path, bool &existed) {
+error_code create_directory(const Twine &path, bool IgnoreExisting) {
   SmallString<128> path_storage;
   StringRef p = path.toNullTerminatedStringRef(path_storage);
 
   if (::mkdir(p.begin(), S_IRWXU | S_IRWXG) == -1) {
-    if (errno != errc::file_exists)
+    if (errno != errc::file_exists || !IgnoreExisting)
       return error_code(errno, system_category());
-    existed = true;
-  } else
-    existed = false;
+  }
 
   return error_code::success();
 }
@@ -361,28 +355,14 @@ error_code create_hard_link(const Twine &to, const Twine &from) {
   return error_code::success();
 }
 
-error_code create_symlink(const Twine &to, const Twine &from) {
-  // Get arguments.
-  SmallString<128> from_storage;
-  SmallString<128> to_storage;
-  StringRef f = from.toNullTerminatedStringRef(from_storage);
-  StringRef t = to.toNullTerminatedStringRef(to_storage);
-
-  if (::symlink(t.begin(), f.begin()) == -1)
-    return error_code(errno, system_category());
-
-  return error_code::success();
-}
-
-error_code remove(const Twine &path, bool &existed) {
+error_code remove(const Twine &path, bool IgnoreNonExisting) {
   SmallString<128> path_storage;
   StringRef p = path.toNullTerminatedStringRef(path_storage);
 
   struct stat buf;
   if (stat(p.begin(), &buf) != 0) {
-    if (errno != errc::no_such_file_or_directory)
+    if (errno != errc::no_such_file_or_directory || !IgnoreNonExisting)
       return error_code(errno, system_category());
-    existed = false;
     return error_code::success();
   }
 
@@ -395,11 +375,9 @@ error_code remove(const Twine &path, bool &existed) {
     return make_error_code(errc::operation_not_permitted);
 
   if (::remove(p.begin()) == -1) {
-    if (errno != errc::no_such_file_or_directory)
+    if (errno != errc::no_such_file_or_directory || !IgnoreNonExisting)
       return error_code(errno, system_category());
-    existed = false;
-  } else
-    existed = true;
+  }
 
   return error_code::success();
 }
@@ -527,7 +505,7 @@ error_code status(int FD, file_status &Result) {
 error_code setLastModificationAndAccessTime(int FD, TimeValue Time) {
 #if defined(HAVE_FUTIMENS)
   timespec Times[2];
-  Times[0].tv_sec = Time.toPosixTime();
+  Times[0].tv_sec = Time.toEpochTime();
   Times[0].tv_nsec = 0;
   Times[1] = Times[0];
   if (::futimens(FD, Times))
@@ -535,7 +513,7 @@ error_code setLastModificationAndAccessTime(int FD, TimeValue Time) {
   return error_code::success();
 #elif defined(HAVE_FUTIMES)
   timeval Times[2];
-  Times[0].tv_sec = Time.toPosixTime();
+  Times[0].tv_sec = Time.toEpochTime();
   Times[0].tv_usec = 0;
   Times[1] = Times[0];
   if (::futimes(FD, Times))

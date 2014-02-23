@@ -3732,6 +3732,12 @@ SDValue DAGCombiner::visitXOR(SDNode *N) {
 /// visitShiftByConstant - Handle transforms common to the three shifts, when
 /// the shift amount is a constant.
 SDValue DAGCombiner::visitShiftByConstant(SDNode *N, unsigned Amt) {
+  assert(isa<ConstantSDNode>(N->getOperand(1)) &&
+         "Expected an ConstantSDNode operand.");
+  // We can't and shouldn't fold opaque constants.
+  if (cast<ConstantSDNode>(N->getOperand(1))->isOpaque())
+    return SDValue();
+
   SDNode *LHS = N->getOperand(0).getNode();
   if (!LHS->hasOneUse()) return SDValue();
 
@@ -3757,9 +3763,9 @@ SDValue DAGCombiner::visitShiftByConstant(SDNode *N, unsigned Amt) {
     break;
   }
 
-  // We require the RHS of the binop to be a constant as well.
+  // We require the RHS of the binop to be a constant and not opaque as well.
   ConstantSDNode *BinOpCst = dyn_cast<ConstantSDNode>(LHS->getOperand(1));
-  if (!BinOpCst) return SDValue();
+  if (!BinOpCst || BinOpCst->isOpaque()) return SDValue();
 
   // FIXME: disable this unless the input to the binop is a shift by a constant.
   // If it is not a shift, it pessimizes some common cases like:
@@ -3789,6 +3795,7 @@ SDValue DAGCombiner::visitShiftByConstant(SDNode *N, unsigned Amt) {
   SDValue NewRHS = DAG.getNode(N->getOpcode(), SDLoc(LHS->getOperand(1)),
                                N->getValueType(0),
                                LHS->getOperand(1), N->getOperand(1));
+  assert(isa<ConstantSDNode>(NewRHS) && "Folding was not successful!");
 
   // Create the new shift.
   SDValue NewShift = DAG.getNode(N->getOpcode(),
@@ -3811,6 +3818,24 @@ SDValue DAGCombiner::visitSHL(SDNode *N) {
   if (VT.isVector()) {
     SDValue FoldedVOp = SimplifyVBinOp(N);
     if (FoldedVOp.getNode()) return FoldedVOp;
+
+    BuildVectorSDNode *N1CV = dyn_cast<BuildVectorSDNode>(N1);
+    // If setcc produces all-one true value then:
+    // (shl (and (setcc) N01CV) N1CV) -> (and (setcc) N01CV<<N1CV)
+    if (N1CV && N1CV->isConstant() &&
+        TLI.getBooleanContents(true) ==
+          TargetLowering::ZeroOrNegativeOneBooleanContent &&
+        N0.getOpcode() == ISD::AND) {
+      SDValue N00 = N0->getOperand(0);
+      SDValue N01 = N0->getOperand(1);
+      BuildVectorSDNode *N01CV = dyn_cast<BuildVectorSDNode>(N01);
+
+      if (N01CV && N01CV->isConstant() && N00.getOpcode() == ISD::SETCC) {
+        SDValue C = DAG.FoldConstantArithmetic(ISD::SHL, VT, N01CV, N1CV);
+        if (C.getNode())
+          return DAG.getNode(ISD::AND, SDLoc(N), VT, N00, C);
+      }
+    }
   }
 
   // fold (shl c1, c2) -> c1<<c2
@@ -10127,6 +10152,26 @@ SDValue DAGCombiner::visitCONCAT_VECTORS(SDNode *N) {
       SDValue Res = DAG.getNode(ISD::SCALAR_TO_VECTOR, dl, NVT, Scalar);
       return DAG.getNode(ISD::BITCAST, dl, VT, Res);
     }
+  }
+
+  // fold (concat_vectors (BUILD_VECTOR A, B, ...), (BUILD_VECTOR C, D, ...))
+  // -> (BUILD_VECTOR A, B, ..., C, D, ...)
+  if (N->getNumOperands() == 2 &&
+      N->getOperand(0).getOpcode() == ISD::BUILD_VECTOR &&
+      N->getOperand(1).getOpcode() == ISD::BUILD_VECTOR) {
+    EVT VT = N->getValueType(0);
+    SDValue N0 = N->getOperand(0);
+    SDValue N1 = N->getOperand(1);
+    SmallVector<SDValue, 8> Opnds;
+    unsigned BuildVecNumElts =  N0.getNumOperands();
+
+    for (unsigned i = 0; i != BuildVecNumElts; ++i)
+      Opnds.push_back(N0.getOperand(i));
+    for (unsigned i = 0; i != BuildVecNumElts; ++i)
+      Opnds.push_back(N1.getOperand(i));
+
+    return DAG.getNode(ISD::BUILD_VECTOR, SDLoc(N), VT, &Opnds[0],
+                       Opnds.size());
   }
 
   // Type legalization of vectors and DAG canonicalization of SHUFFLE_VECTOR

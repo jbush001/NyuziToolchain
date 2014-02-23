@@ -2,17 +2,10 @@
 # options and executing the appropriate CMake commands to realize the users'
 # selections.
 
+include(HandleLLVMStdlib)
 include(AddLLVMDefinitions)
 include(CheckCCompilerFlag)
 include(CheckCXXCompilerFlag)
-
-if( CMAKE_COMPILER_IS_GNUCXX )
-  set(LLVM_COMPILER_IS_GCC_COMPATIBLE ON)
-elseif( MSVC )
-  set(LLVM_COMPILER_IS_GCC_COMPATIBLE OFF)
-elseif( "${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" )
-  set(LLVM_COMPILER_IS_GCC_COMPATIBLE ON)
-endif()
 
 if(NOT LLVM_FORCE_USE_OLD_TOOLCHAIN)
   if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -108,7 +101,14 @@ endif(WIN32)
 
 set(EXEEXT ${CMAKE_EXECUTABLE_SUFFIX})
 set(LTDL_SHLIB_EXT ${CMAKE_SHARED_LIBRARY_SUFFIX})
-set(LLVM_PLUGIN_EXT ${CMAKE_SHARED_MODULE_SUFFIX})
+
+# We use *.dylib rather than *.so on darwin.
+set(LLVM_PLUGIN_EXT ${CMAKE_SHARED_LIBRARY_SUFFIX})
+
+if(APPLE)
+  # Darwin-specific linker flags for loadable modules.
+  set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,-flat_namespace -Wl,-undefined -Wl,suppress")
+endif()
 
 function(add_flag_or_print_warning flag)
   check_c_compiler_flag(${flag} C_SUPPORTS_FLAG)
@@ -291,13 +291,6 @@ elseif( LLVM_COMPILER_IS_GCC_COMPATIBLE )
     check_cxx_compiler_flag("-std=c++11" CXX_SUPPORTS_CXX11)
     append_if(CXX_SUPPORTS_CXX11 "-std=c++11" CMAKE_CXX_FLAGS)
   endif (LLVM_ENABLE_CXX11)
-  if(LLVM_ENABLE_LIBCXX)
-    check_cxx_compiler_flag("-stdlib=libc++" CXX_SUPPORTS_STDLIB)
-    append_if(CXX_SUPPORTS_STDLIB "-stdlib=libc++" CMAKE_CXX_FLAGS)
-    append_if(CXX_SUPPORTS_STDLIB "-stdlib=libc++" CMAKE_EXE_LINKER_FLAGS)
-    append_if(CXX_SUPPORTS_STDLIB "-stdlib=libc++" CMAKE_SHARED_LINKER_FLAGS)
-    append_if(CXX_SUPPORTS_STDLIB "-stdlib=libc++" CMAKE_MODULE_LINKER_FLAGS)
-  endif ()
 endif( MSVC )
 
 macro(append_common_sanitizer_flags)
@@ -356,7 +349,19 @@ endif()
 # flags instead if LLVM_NO_DEAD_STRIP is set.
 if(NOT CYGWIN AND NOT WIN32)
   if(NOT ${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-    append("-ffunction-sections -fdata-sections" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
+    check_c_compiler_flag("-Werror -fno-function-sections" C_SUPPORTS_FNO_FUNCTION_SECTIONS)
+    if (C_SUPPORTS_FNO_FUNCTION_SECTIONS)
+      # Don't add -ffunction-section if it can be disabled with -fno-function-sections.
+      # Doing so will break sanitizers.
+      check_c_compiler_flag("-Werror -ffunction-sections" C_SUPPORTS_FFUNCTION_SECTIONS)
+      check_cxx_compiler_flag("-Werror -ffunction-sections" CXX_SUPPORTS_FFUNCTION_SECTIONS)
+      append_if(C_SUPPORTS_FFUNCTION_SECTIONS "-ffunction-sections" CMAKE_C_FLAGS)
+      append_if(CXX_SUPPORTS_FFUNCTION_SECTIONS "-ffunction-sections" CMAKE_CXX_FLAGS)
+    endif()
+    check_c_compiler_flag("-Werror -fdata-sections" C_SUPPORTS_FDATA_SECTIONS)
+    check_cxx_compiler_flag("-Werror -fdata-sections" CXX_SUPPORTS_FDATA_SECTIONS)
+    append_if(C_SUPPORTS_FDATA_SECTIONS "-fdata-sections" CMAKE_C_FLAGS)
+    append_if(CXX_SUPPORTS_FDATA_SECTIONS "-fdata-sections" CMAKE_CXX_FLAGS)
   endif()
 endif()
 

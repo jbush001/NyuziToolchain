@@ -17,6 +17,10 @@
 namespace clang {
 namespace format {
 
+FormatStyle getGoogleStyle() {
+  return getGoogleStyle(FormatStyle::LK_Cpp);
+}
+
 class FormatTest : public ::testing::Test {
 protected:
   std::string format(llvm::StringRef Code, unsigned Offset, unsigned Length,
@@ -412,6 +416,8 @@ TEST_F(FormatTest, RangeBasedForLoops) {
                "     aaaaaaaaaaaaaaaaa(aaaaaaaaaaaaaaaa, aaaaaaaaaaaaa)) {\n}");
   verifyFormat("for (const aaaaaaaaaaaaaaaaaaaaa &aaaaaaaaa :\n"
                "     aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) {\n}");
+  verifyFormat("for (aaaaaaaaa aaaaaaaaaaaaaaaaaaaaa :\n"
+               "     aaaaaaaaaaaa.aaaaaaaaaaaa().aaaaaaaaa().a()) {\n}");
 }
 
 TEST_F(FormatTest, FormatsWhileLoop) {
@@ -597,6 +603,9 @@ TEST_F(FormatTest, UnderstandsSingleLineComments) {
   verifyFormat("SomeObject\n"
                "    // Calling someFunction on SomeObject\n"
                "    .someFunction();");
+  verifyFormat("auto result = SomeObject\n"
+               "                  // Calling someFunction on SomeObject\n"
+               "                  .someFunction();");
   verifyFormat("void f(int i,  // some comment (probably for i)\n"
                "       int j,  // some comment (probably for j)\n"
                "       int k); // some comment (probably for k)");
@@ -1616,6 +1625,9 @@ TEST_F(FormatTest, FormatsClasses) {
   verifyFormat("struct aaaaaaaaaaaaaaaaaaaa\n"
                "    : public aaaaaaaaaaaaaaaaaaa<aaaaaaaaaaaaaaaaaaaaa,\n"
                "                                 aaaaaaaaaaaaaaaaaaaaaa> {};");
+  verifyFormat("template <class R, class C>\n"
+               "struct Aaaaaaaaaaaaaaaaa<R (C::*)(int) const>\n"
+               "    : Aaaaaaaaaaaaaaaaa<R (C::*)(int)> {};");
 }
 
 TEST_F(FormatTest, FormatsVariableDeclarationsAfterStructOrClass) {
@@ -3129,13 +3141,24 @@ TEST_F(FormatTest, BreaksFunctionDeclarationsWithTrailingTokens) {
       "virtual void aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa()\n"
       "    const override;");
 
-  // Unless this would lead to the first parameter being broken.
-  verifyFormat("void someLongFunction(int someLongParameter)\n"
-               "    const {}",
+  // Even if the first parameter has to be wrapped.
+  verifyFormat("void someLongFunction(\n"
+               "    int someLongParameter) const {}",
                getLLVMStyleWithColumns(46));
-  verifyFormat("void someLongFunction(int someLongParameter)\n"
-               "    const {}",
+  verifyFormat("void someLongFunction(\n"
+               "    int someLongParameter) const {}",
                Style);
+  verifyFormat("void someLongFunction(\n"
+               "    int someLongParameter) override {}",
+               Style);
+  verifyFormat("void someLongFunction(\n"
+               "    int someLongParameter) final {}",
+               Style);
+  verifyFormat("void someLongFunction(\n"
+               "    int parameter) const override {}",
+               Style);
+
+  // Unless these are unknown annotations.
   verifyFormat("void SomeFunction(aaaaaaaaaa aaaaaaaaaaaaaaa,\n"
                "                  aaaaaaaaaa aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)\n"
                "    LONG_AND_UGLY_ANNOTATION;");
@@ -4215,14 +4238,12 @@ TEST_F(FormatTest, UnderstandsUnaryOperators) {
   verifyFormat("int a = i /* confusing comment */++;");
 }
 
-TEST_F(FormatTest, IndentsRelativeToUnaryOperators) {
+TEST_F(FormatTest, DoesNotIndentRelativeToUnaryOperators) {
   verifyFormat("if (!aaaaaaaaaa( // break\n"
-               "         aaaaa)) {\n"
+               "        aaaaa)) {\n"
                "}");
   verifyFormat("aaaaaaaaaa(!aaaaaaaaaa( // break\n"
-               "                aaaaa));");
-
-  // Only indent relative to unary operators if the expression is nested.
+               "               aaaaa));");
   verifyFormat("*aaa = aaaaaaa( // break\n"
                "    bbbbbb);");
 }
@@ -5066,6 +5087,25 @@ TEST_F(FormatTest, PullTrivialFunctionDefinitionsIntoSingleLine) {
             "    : b(0) {\n"
             "}",
             format("A()\n:b(0)\n{\n}", DoNotMergeNoColumnLimit));
+
+  verifyFormat("#define A          \\\n"
+               "  void f() {       \\\n"
+               "    int i;         \\\n"
+               "  }",
+               getLLVMStyleWithColumns(20));
+  verifyFormat("#define A           \\\n"
+               "  void f() { int i; }",
+               getLLVMStyleWithColumns(21));
+  verifyFormat("#define A            \\\n"
+               "  void f() {         \\\n"
+               "    int i;           \\\n"
+               "  }                  \\\n"
+               "  int j;",
+               getLLVMStyleWithColumns(22));
+  verifyFormat("#define A             \\\n"
+               "  void f() { int i; } \\\n"
+               "  int j;",
+               getLLVMStyleWithColumns(23));
 }
 
 TEST_F(FormatTest, UnderstandContextOfRecordTypeKeywords) {
@@ -5178,6 +5218,17 @@ TEST_F(FormatTest, MergeHandlingInTheFaceOfPreprocessorDirectives) {
                "  // Comment\n"
                "  if (true) continue;\n"
                "}",
+               ShortMergedIf);
+  ShortMergedIf.ColumnLimit = 29;
+  verifyFormat("#define A                   \\\n"
+               "  if (aaaaaaaaaa) return 1; \\\n"
+               "  return 2;",
+               ShortMergedIf);
+  ShortMergedIf.ColumnLimit = 28;
+  verifyFormat("#define A         \\\n"
+               "  if (aaaaaaaaaa) \\\n"
+               "    return 1;     \\\n"
+               "  return 2;",
                ShortMergedIf);
 }
 
@@ -5783,7 +5834,7 @@ TEST_F(FormatTest, FormatObjCMethodExpr) {
                "                  backing:NSBackingStoreBuffered\n"
                "                    defer:NO]);\n"
                "}",
-               getChromiumStyle());
+               getChromiumStyle(FormatStyle::LK_Cpp));
   verifyFormat("[contentsContainer replaceSubview:[subviews objectAtIndex:0]\n"
                "                             with:contentsNativeView];");
 
@@ -7250,14 +7301,14 @@ TEST_F(FormatTest, GetsPredefinedStyleByName) {
   EXPECT_TRUE(getPredefinedStyle("gOOgle", FormatStyle::LK_Cpp, &Styles[2]));
   EXPECT_ALL_STYLES_EQUAL(Styles);
 
-  Styles[0] = getGoogleJSStyle();
+  Styles[0] = getGoogleStyle(FormatStyle::LK_JavaScript);
   EXPECT_TRUE(
       getPredefinedStyle("Google", FormatStyle::LK_JavaScript, &Styles[1]));
   EXPECT_TRUE(
       getPredefinedStyle("gOOgle", FormatStyle::LK_JavaScript, &Styles[2]));
   EXPECT_ALL_STYLES_EQUAL(Styles);
 
-  Styles[0] = getChromiumStyle();
+  Styles[0] = getChromiumStyle(FormatStyle::LK_Cpp);
   EXPECT_TRUE(getPredefinedStyle("Chromium", FormatStyle::LK_Cpp, &Styles[1]));
   EXPECT_TRUE(getPredefinedStyle("cHRoMiUM", FormatStyle::LK_Cpp, &Styles[2]));
   EXPECT_ALL_STYLES_EQUAL(Styles);
@@ -7290,7 +7341,7 @@ TEST_F(FormatTest, GetsCorrectBasedOnStyle) {
   EXPECT_ALL_STYLES_EQUAL(Styles);
 
   Styles.resize(5);
-  Styles[0] = getGoogleJSStyle();
+  Styles[0] = getGoogleStyle(FormatStyle::LK_JavaScript);
   Styles[1] = getLLVMStyle();
   Styles[1].Language = FormatStyle::LK_JavaScript;
   EXPECT_EQ(0, parseConfiguration("BasedOnStyle: Google", &Styles[1]).value());
@@ -7919,6 +7970,7 @@ TEST_F(FormatTest, FormatsLambdas) {
   // Lambdas with return types.
   verifyFormat("int c = []()->int { return 2; }();\n");
   verifyFormat("int c = []()->vector<int> { return { 2 }; }();\n");
+  verifyFormat("Foo([]()->std::vector<int> { return { 2 }; }());");
 
   // Not lambdas.
   verifyFormat("constexpr char hello[]{ \"hello\" };");

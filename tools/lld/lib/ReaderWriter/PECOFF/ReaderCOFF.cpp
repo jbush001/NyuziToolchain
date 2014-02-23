@@ -68,6 +68,7 @@ public:
 
   error_code parse(StringMap &altNames);
   StringRef getLinkerDirectives() const { return _directives; }
+  bool isCompatibleWithSEH() const { return _compatibleWithSEH; }
 
   virtual const atom_collection<DefinedAtom> &defined() const {
     return _definedAtoms;
@@ -135,6 +136,9 @@ private:
 
   // The contents of .drectve section.
   StringRef _directives;
+
+  // True if the object has "@feat.00" symbol.
+  bool _compatibleWithSEH;
 
   // A map from symbol to its name. All symbols should be in this map except
   // unnamed ones.
@@ -256,7 +260,8 @@ DefinedAtom::Merge getMerge(const coff_aux_section_definition *auxsym) {
 }
 
 FileCOFF::FileCOFF(std::unique_ptr<MemoryBuffer> mb, error_code &ec)
-    : File(mb->getBufferIdentifier(), kindObject), _ordinal(0) {
+    : File(mb->getBufferIdentifier(), kindObject), _compatibleWithSEH(false),
+      _ordinal(0) {
   auto binaryOrErr = llvm::object::createBinary(mb.release());
   if ((ec = binaryOrErr.getError()))
     return;
@@ -317,10 +322,18 @@ error_code FileCOFF::readSymbolTable(vector<const coff_symbol *> &result) {
            "Cannot atomize IMAGE_SYM_DEBUG!");
     result.push_back(sym);
 
-    // Cache the name.
     StringRef name;
     if (error_code ec = _obj->getSymbolName(sym, name))
       return ec;
+
+    // Existence of the symbol @feat.00 indicates that object file is compatible
+    // with Safe Exception Handling.
+    if (name == "@feat.00") {
+      _compatibleWithSEH = true;
+      continue;
+    }
+
+    // Cache the name.
     _symbolName[sym] = name;
 
     // Symbol may be followed by auxiliary symbol table records. The aux
@@ -527,7 +540,7 @@ error_code FileCOFF::cacheSectionAttributes() {
 
   // The sections that does not have auxiliary symbol are regular sections, in
   // which symbols are not allowed to be merged.
-  for (auto si = _obj->begin_sections(), se = _obj->end_sections(); si != se;
+  for (auto si = _obj->section_begin(), se = _obj->section_end(); si != se;
        ++si) {
     const coff_section *sec = _obj->getCOFFSection(si);
     if (!_merge.count(sec))
@@ -744,7 +757,7 @@ error_code FileCOFF::getReferenceArch(Reference::KindArch &result) {
 /// Add relocation information to atoms.
 error_code FileCOFF::addRelocationReferenceToAtoms() {
   // Relocation entries are defined for each section.
-  for (auto si = _obj->begin_sections(), se = _obj->end_sections(); si != se;
+  for (auto si = _obj->section_begin(), se = _obj->section_end(); si != se;
        ++si) {
     const coff_section *section = _obj->getCOFFSection(si);
 
@@ -754,7 +767,7 @@ error_code FileCOFF::addRelocationReferenceToAtoms() {
     if (_sectionAtoms.find(section) == _sectionAtoms.end())
       continue;
 
-    for (auto ri = si->begin_relocations(), re = si->end_relocations();
+    for (auto ri = si->relocation_begin(), re = si->relocation_end();
          ri != re; ++ri) {
       const coff_relocation *rel = _obj->getCOFFRelocation(ri);
       if (auto ec =
@@ -767,7 +780,7 @@ error_code FileCOFF::addRelocationReferenceToAtoms() {
 
 /// Find a section by name.
 error_code FileCOFF::findSection(StringRef name, const coff_section *&result) {
-  for (auto si = _obj->begin_sections(), se = _obj->end_sections(); si != se;
+  for (auto si = _obj->section_begin(), se = _obj->section_end(); si != se;
        ++si) {
     const coff_section *section = _obj->getCOFFSection(si);
     StringRef sectionName;
@@ -778,9 +791,8 @@ error_code FileCOFF::findSection(StringRef name, const coff_section *&result) {
       return error_code::success();
     }
   }
-  // Section was not found, but it's not an error. This method returns an
-  // error
-  // only when there's a read error.
+  // Section was not found, but it's not an error. This method returns
+  // an error only when there's a read error.
   return error_code::success();
 }
 
@@ -930,6 +942,7 @@ public:
   parseFile(std::unique_ptr<MemoryBuffer> &mb, const Registry &registry,
             std::vector<std::unique_ptr<File>> &result) const {
     // Parse the memory buffer as PECOFF file.
+    const char *mbName = mb->getBufferIdentifier();
     error_code ec;
     std::unique_ptr<FileCOFF> file(new FileCOFF(std::move(mb), ec));
     if (ec)
@@ -943,6 +956,14 @@ public:
 
     if (error_code ec = file->parse(_context.alternateNames()))
       return ec;
+
+    // Check for /SAFESEH.
+    if (_context.requireSEH() && !file->isCompatibleWithSEH()) {
+      llvm::errs() << "/SAFESEH is specified, but " << mbName
+                   << " is not compatible with SEH.\n";
+      return llvm::object::object_error::parse_failed;
+    }
+
     result.push_back(std::move(file));
     return error_code::success();
   }

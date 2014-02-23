@@ -128,8 +128,8 @@ LTOModule *LTOModule::makeLTOModule(int fd, const char *path,
 
 LTOModule *LTOModule::makeLTOModule(const void *mem, size_t length,
                                     TargetOptions options,
-                                    std::string &errMsg) {
-  OwningPtr<MemoryBuffer> buffer(makeBuffer(mem, length));
+                                    std::string &errMsg, StringRef path) {
+  OwningPtr<MemoryBuffer> buffer(makeBuffer(mem, length, path));
   if (!buffer)
     return NULL;
   return makeLTOModule(buffer.take(), options, errMsg);
@@ -176,6 +176,16 @@ LTOModule *LTOModule::makeLTOModule(MemoryBuffer *buffer,
   m->materializeAllPermanently();
 
   LTOModule *Ret = new LTOModule(m.take(), target);
+
+  // We need a MCContext set up in order to get mangled names of private
+  // symbols. It is a bit odd that we need to report uses and definitions
+  // of private symbols, but it does look like ld64 expects to be informed
+  // of at least the ones with an 'l' prefix.
+  MCContext &Context = Ret->_context;
+  const TargetLoweringObjectFile &TLOF =
+      target->getTargetLowering()->getObjFileLowering();
+  const_cast<TargetLoweringObjectFile &>(TLOF).Initialize(Context, *target);
+
   if (Ret->parseSymbols(errMsg)) {
     delete Ret;
     return NULL;
@@ -186,10 +196,11 @@ LTOModule *LTOModule::makeLTOModule(MemoryBuffer *buffer,
   return Ret;
 }
 
-/// makeBuffer - Create a MemoryBuffer from a memory range.
-MemoryBuffer *LTOModule::makeBuffer(const void *mem, size_t length) {
+/// Create a MemoryBuffer from a memory range with an optional name.
+MemoryBuffer *LTOModule::makeBuffer(const void *mem, size_t length,
+                                    StringRef name) {
   const char *startPtr = (const char*)mem;
-  return MemoryBuffer::getMemBuffer(StringRef(startPtr, length), "", false);
+  return MemoryBuffer::getMemBuffer(StringRef(startPtr, length), name, false);
 }
 
 /// objcClassNameFromExpression - Get string that the data pointer points to.
@@ -349,6 +360,7 @@ void LTOModule::addDefinedFunctionSymbol(const Function *f) {
 }
 
 static bool canBeHidden(const GlobalValue *GV) {
+  // FIXME: this is duplicated with another static function in AsmPrinter.cpp
   GlobalValue::LinkageTypes L = GV->getLinkage();
 
   if (L != GlobalValue::LinkOnceODRLinkage)
@@ -356,6 +368,13 @@ static bool canBeHidden(const GlobalValue *GV) {
 
   if (GV->hasUnnamedAddr())
     return true;
+
+  // If it is a non constant variable, it needs to be uniqued across shared
+  // objects.
+  if (const GlobalVariable *Var = dyn_cast<GlobalVariable>(GV)) {
+    if (!Var->isConstant())
+      return false;
+  }
 
   GlobalStatus GS;
   if (GlobalStatus::analyzeGlobal(GV, GS))
@@ -372,7 +391,7 @@ void LTOModule::addDefinedSymbol(const GlobalValue *def, bool isFunction) {
 
   // string is owned by _defines
   SmallString<64> Buffer;
-  _mangler.getNameWithPrefix(Buffer, def);
+  _target->getNameWithPrefix(Buffer, def, _mangler);
 
   // set alignment part log2() can have rounding errors
   uint32_t align = def->getAlignment();
@@ -508,7 +527,7 @@ LTOModule::addPotentialUndefinedSymbol(const GlobalValue *decl, bool isFunc) {
     return;
 
   SmallString<64> name;
-  _mangler.getNameWithPrefix(name, decl);
+  _target->getNameWithPrefix(name, decl, _mangler);
 
   StringMap<NameAndAttributes>::value_type &entry =
     _undefines.GetOrCreateValue(name);

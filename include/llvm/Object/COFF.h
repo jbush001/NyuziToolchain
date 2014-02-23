@@ -244,6 +244,29 @@ struct coff_aux_section_definition {
   char Unused[3];
 };
 
+struct coff_load_configuration32 {
+  support::ulittle32_t Characteristics;
+  support::ulittle32_t TimeDateStamp;
+  support::ulittle16_t MajorVersion;
+  support::ulittle16_t MinorVersion;
+  support::ulittle32_t GlobalFlagsClear;
+  support::ulittle32_t GlobalFlagsSet;
+  support::ulittle32_t CriticalSectionDefaultTimeout;
+  support::ulittle32_t DeCommitFreeBlockThreshold;
+  support::ulittle32_t DeCommitTotalFreeThreshold;
+  support::ulittle32_t LockPrefixTable;
+  support::ulittle32_t MaximumAllocationSize;
+  support::ulittle32_t VirtualMemoryThreshold;
+  support::ulittle32_t ProcessAffinityMask;
+  support::ulittle32_t ProcessHeapFlags;
+  support::ulittle16_t CSDVersion;
+  uint16_t Reserved;
+  support::ulittle32_t EditList;
+  support::ulittle32_t SecurityCookie;
+  support::ulittle32_t SEHandlerTable;
+  support::ulittle32_t SEHandlerCount;
+};
+
 class COFFObjectFile : public ObjectFile {
 private:
   friend class ImportDirectoryEntryRef;
@@ -332,12 +355,12 @@ protected:
 
 public:
   COFFObjectFile(MemoryBuffer *Object, error_code &EC, bool BufferOwned = true);
-  symbol_iterator begin_symbols() const LLVM_OVERRIDE;
-  symbol_iterator end_symbols() const LLVM_OVERRIDE;
-  library_iterator begin_libraries_needed() const LLVM_OVERRIDE;
-  library_iterator end_libraries_needed() const LLVM_OVERRIDE;
-  section_iterator begin_sections() const LLVM_OVERRIDE;
-  section_iterator end_sections() const LLVM_OVERRIDE;
+  basic_symbol_iterator symbol_begin_impl() const LLVM_OVERRIDE;
+  basic_symbol_iterator symbol_end_impl() const LLVM_OVERRIDE;
+  library_iterator needed_library_begin() const LLVM_OVERRIDE;
+  library_iterator needed_library_end() const LLVM_OVERRIDE;
+  section_iterator section_begin() const LLVM_OVERRIDE;
+  section_iterator section_end() const LLVM_OVERRIDE;
 
   const coff_section *getCOFFSection(section_iterator &It) const;
   const coff_symbol *getCOFFSymbol(symbol_iterator &It) const;
@@ -374,6 +397,7 @@ public:
   error_code getSectionContents(const coff_section *Sec,
                                 ArrayRef<uint8_t> &Res) const;
 
+  error_code getVaPtr(uint64_t VA, uintptr_t &Res) const;
   error_code getRvaPtr(uint32_t Rva, uintptr_t &Res) const;
   error_code getHintName(uint32_t Rva, uint16_t &Hint, StringRef &Name) const;
 

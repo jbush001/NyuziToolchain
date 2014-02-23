@@ -46,6 +46,13 @@ void MipsLinkingContext::addPasses(PassManager &pm) {
   ELFLinkingContext::addPasses(pm);
 }
 
+bool MipsLinkingContext::isDynamicRelocation(const DefinedAtom &,
+                                             const Reference &r) const {
+  if (r.kindNamespace() != Reference::KindNamespace::ELF)
+    return false;
+  return r.kindValue() == llvm::ELF::R_MIPS_COPY;
+}
+
 bool MipsLinkingContext::isPLTRelocation(const DefinedAtom &,
                                          const Reference &r) const {
   if (r.kindNamespace() != Reference::KindNamespace::ELF)

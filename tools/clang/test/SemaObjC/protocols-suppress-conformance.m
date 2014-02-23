@@ -5,7 +5,7 @@
 __attribute__((objc_protocol_requires_explicit_implementation))
 @protocol Protocol
 - (void) theBestOfTimes; // expected-note {{method 'theBestOfTimes' declared here}}
-@property (readonly) id theWorstOfTimes;
+@property (readonly) id theWorstOfTimes; // expected-note {{property declared here}}
 @end
 
 // In this example, ClassA adopts the protocol.  We won't
@@ -21,7 +21,28 @@ __attribute__((objc_protocol_requires_explicit_implementation))
 @interface ClassB : ClassA <Protocol>
 @end
 
-@implementation ClassB // expected-warning {{method 'theBestOfTimes' in protocol 'Protocol' not implemented}}
+@implementation ClassB // expected-warning {{method 'theBestOfTimes' in protocol 'Protocol' not implemented}} expected-warning {{property 'theWorstOfTimes' requires method 'theWorstOfTimes' to be defined - use @synthesize, @dynamic or provide a method implementation in this class implementation}}
+@end
+
+@interface ClassB_Good : ClassA <Protocol>
+@end
+
+@implementation ClassB_Good // no-warning
+- (void) theBestOfTimes {}
+@dynamic theWorstOfTimes;
+@end
+
+@interface ClassB_AlsoGood : ClassA <Protocol>
+@property (readonly) id theWorstOfTimes;
+@end
+
+// Default synthesis acts as if @dynamic
+// had been written for 'theWorstOfTimes' because
+// it is declared in ClassA.  This is okay, since
+// the author of ClassB_AlsoGood needs explicitly
+// write @property in the @interface.
+@implementation ClassB_AlsoGood // no-warning
+- (void) theBestOfTimes {}
 @end
 
 // Test that inherited protocols do not get the explicit conformance requirement.
@@ -132,4 +153,7 @@ __attribute__((objc_protocol_requires_explicit_implementation))
                                     // expected-warning {{method 'innsmouth' in protocol 'ProtocolA' not implemented}}
 - (void)dunwich {}
 @end
+
+__attribute__((objc_protocol_requires_explicit_implementation))  // expected-error{{attribute 'objc_protocol_requires_explicit_implementation' can only be applied to @protocol definitions, not forward declarations}}
+@protocol NotDefined;
 

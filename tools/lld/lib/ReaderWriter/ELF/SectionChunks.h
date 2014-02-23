@@ -913,13 +913,16 @@ public:
       : Section<ELFT>(context, str), _symbolTable(nullptr) {
     this->setOrder(order);
     this->_flags = SHF_ALLOC;
+    // Set the alignment properly depending on the target architecture
+    if (context.is64Bits())
+      this->_align2 = 8;
+    else
+      this->_align2 = 4;
     if (context.isRelaOutputFormat()) {
       this->_entSize = sizeof(Elf_Rela);
-      this->_align2 = llvm::alignOf<Elf_Rela>();
       this->_type = SHT_RELA;
     } else {
       this->_entSize = sizeof(Elf_Rel);
-      this->_align2 = llvm::alignOf<Elf_Rel>();
       this->_type = SHT_REL;
     }
   }
@@ -1080,7 +1083,7 @@ public:
     if (_layout.hasPLTRelocationTable()) {
       dyn.d_tag = DT_PLTRELSZ;
       _dt_pltrelsz = addEntry(dyn);
-      dyn.d_tag = DT_PLTGOT;
+      dyn.d_tag = getGotPltTag();
       _dt_pltgot = addEntry(dyn);
       dyn.d_tag = DT_PLTREL;
       dyn.d_un.d_val = isRela ? DT_RELA : DT_REL;
@@ -1090,6 +1093,10 @@ public:
       _dt_jmprel = addEntry(dyn);
     }
   }
+
+  /// \brief Dynamic table tag for .got.plt section referencing.
+  /// Usually but not always targets use DT_PLTGOT for that.
+  virtual int64_t getGotPltTag() { return DT_PLTGOT; }
 
   virtual void finalize() {
     StringTable<ELFT> *dynamicStringTable =
