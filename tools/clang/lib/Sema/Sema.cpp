@@ -75,7 +75,11 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
     Diags(PP.getDiagnostics()), SourceMgr(PP.getSourceManager()),
     CollectStats(false), CodeCompleter(CodeCompleter),
     CurContext(0), OriginalLexicalContext(0),
-    PackContext(0), MSStructPragmaOn(false), VisContext(0),
+    PackContext(0), MSStructPragmaOn(false),
+    MSPointerToMemberRepresentationMethod(
+        LangOpts.getMSPointerToMemberRepresentationMethod()),
+    VtorDispModeStack(1, MSVtorDispAttr::Mode(LangOpts.VtorDispMode)),
+    VisContext(0),
     IsBuildingRecoveryCallExpr(false),
     ExprNeedsCleanups(false), LateTemplateParser(0), OpaqueParser(0),
     IdResolver(pp), StdInitializerList(0), CXXTypeInfoDecl(0), MSVCGuidDecl(0),
@@ -204,13 +208,9 @@ void Sema::Initialize() {
 }
 
 Sema::~Sema() {
-  for (LateParsedTemplateMapT::iterator I = LateParsedTemplateMap.begin(),
-                                        E = LateParsedTemplateMap.end();
-       I != E; ++I)
-    delete I->second;
+  llvm::DeleteContainerSeconds(LateParsedTemplateMap);
   if (PackContext) FreePackedContext();
   if (VisContext) FreeVisContext();
-  MSStructPragmaOn = false;
   // Kill all the active scopes.
   for (unsigned I = 1, E = FunctionScopes.size(); I != E; ++I)
     delete FunctionScopes[I];

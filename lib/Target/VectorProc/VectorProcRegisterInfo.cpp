@@ -25,6 +25,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetFrameLowering.h"
+#include "llvm/Support/Debug.h"
 
 #define GET_REGINFO_TARGET_DESC
 #include "VectorProcGenRegisterInfo.inc"

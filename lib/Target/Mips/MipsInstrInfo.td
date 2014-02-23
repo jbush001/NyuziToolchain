@@ -168,8 +168,6 @@ def HasMips64r2  :    Predicate<"Subtarget.hasMips64r2()">,
                       AssemblerPredicate<"FeatureMips64r2">;
 def IsN64       :     Predicate<"Subtarget.isABI_N64()">,
                       AssemblerPredicate<"FeatureN64">;
-def NotN64      :     Predicate<"!Subtarget.isABI_N64()">,
-                      AssemblerPredicate<"!FeatureN64">;
 def InMips16Mode :    Predicate<"Subtarget.inMips16Mode()">,
                       AssemblerPredicate<"FeatureMips16">;
 def RelocStatic :     Predicate<"TM.getRelocationModel() == Reloc::Static">,
@@ -187,6 +185,7 @@ def NotInMicroMips :  Predicate<"!Subtarget.inMicroMipsMode()">,
                       AssemblerPredicate<"!FeatureMicroMips">;
 def IsLE           :  Predicate<"Subtarget.isLittle()">;
 def IsBE           :  Predicate<"!Subtarget.isLittle()">;
+def IsNotNaCl    :    Predicate<"!Subtarget.isTargetNaCl()">;
 
 class MipsPat<dag pattern, dag result> : Pat<pattern, result> {
   let Predicates = [HasStdEnc];

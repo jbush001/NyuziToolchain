@@ -76,7 +76,8 @@ struct FormatStyle {
   /// \brief Set whether & and * bind to the type as opposed to the variable.
   bool PointerBindsToType;
 
-  /// \brief If \c true, analyze the formatted file for the most common binding.
+  /// \brief If \c true, analyze the formatted file for the most common binding
+  /// and use \c PointerBindsToType only as fallback.
   bool DerivePointerBinding;
 
   /// \brief The extra indent or outdent of access modifiers, e.g. \c public:.
@@ -360,22 +361,15 @@ struct FormatStyle {
 /// http://llvm.org/docs/CodingStandards.html.
 FormatStyle getLLVMStyle();
 
-/// \brief Returns a format style complying with Google's C++ style guide:
+/// \brief Returns a format style complying with one of Google's style guides:
 /// http://google-styleguide.googlecode.com/svn/trunk/cppguide.xml.
-FormatStyle getGoogleStyle();
-
-/// \brief Returns a format style complying with Google's JavaScript style
-/// guide:
 /// http://google-styleguide.googlecode.com/svn/trunk/javascriptguide.xml.
-FormatStyle getGoogleJSStyle();
-
-/// \brief Returns a format style complying with Google's Protocol Buffer style:
 /// https://developers.google.com/protocol-buffers/docs/style.
-FormatStyle getGoogleProtoStyle();
+FormatStyle getGoogleStyle(FormatStyle::LanguageKind Language);
 
 /// \brief Returns a format style complying with Chromium's style guide:
 /// http://www.chromium.org/developers/coding-style.
-FormatStyle getChromiumStyle();
+FormatStyle getChromiumStyle(FormatStyle::LanguageKind Language);
 
 /// \brief Returns a format style complying with Mozilla's style guide:
 /// https://developer.mozilla.org/en-US/docs/Developer_Guide/Coding_Style.

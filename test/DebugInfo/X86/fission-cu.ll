@@ -1,4 +1,4 @@
-; RUN: llc -split-dwarf=Enable -O0 %s -mtriple=x86_64-unknown-linux-gnu -filetype=obj -o %t
+; RUN: llc -split-dwarf=Enable -generate-cu-hash -O0 %s -mtriple=x86_64-unknown-linux-gnu -filetype=obj -o %t
 ; RUN: llvm-dwarfdump -debug-dump=all %t | FileCheck %s
 ; RUN: llvm-readobj --relocations %t | FileCheck --check-prefix=OBJ %s
 
@@ -7,8 +7,8 @@
 !llvm.dbg.cu = !{!0}
 !llvm.module.flags = !{!9}
 
-!0 = metadata !{i32 786449, metadata !8, i32 12, metadata !"clang version 3.3 (trunk 169021) (llvm/trunk 169020)", i1 false, metadata !"", i32 0, metadata !1, metadata !1, metadata !1, metadata !3,  metadata !3, metadata !"baz.dwo"} ; [ DW_TAG_compile_unit ] [/usr/local/google/home/echristo/tmp/baz.c] [DW_LANG_C99]
-!1 = metadata !{i32 0}
+!0 = metadata !{i32 786449, metadata !8, i32 12, metadata !"clang version 3.3 (trunk 169021) (llvm/trunk 169020)", i1 false, metadata !"", i32 0, metadata !1, metadata !1, metadata !1, metadata !3,  metadata !1, metadata !"baz.dwo"} ; [ DW_TAG_compile_unit ] [/usr/local/google/home/echristo/tmp/baz.c] [DW_LANG_C99]
+!1 = metadata !{}
 !3 = metadata !{metadata !5}
 !5 = metadata !{i32 786484, i32 0, null, metadata !"a", metadata !"a", metadata !"", metadata !6, i32 1, metadata !7, i32 0, i32 1, i32* @a, null} ; [ DW_TAG_variable ] [a] [line 1] [def]
 !6 = metadata !{i32 786473, metadata !8} ; [ DW_TAG_file_type ]
@@ -48,7 +48,7 @@
 ; CHECK: DW_AT_external  DW_FORM_flag_present
 ; CHECK: DW_AT_decl_file DW_FORM_data1
 ; CHECK: DW_AT_decl_line DW_FORM_data1
-; CHECK: DW_AT_location  DW_FORM_block1
+; CHECK: DW_AT_location  DW_FORM_exprloc
 
 ; CHECK: [3] DW_TAG_base_type    DW_CHILDREN_no
 ; CHECK: DW_AT_name      DW_FORM_GNU_str_index
@@ -61,7 +61,7 @@
 ; CHECK: DW_AT_GNU_dwo_name [DW_FORM_strp] ( .debug_str[0x00000000] = "baz.dwo")
 ; CHECK: DW_AT_GNU_addr_base [DW_FORM_sec_offset]                   (0x00000000)
 ; CHECK: DW_AT_comp_dir [DW_FORM_strp]     ( .debug_str[0x00000008] = "/usr/local/google/home/echristo/tmp")
-; CHECK: DW_AT_GNU_dwo_id [DW_FORM_data8]  (0x0000000000000000)
+; CHECK: DW_AT_GNU_dwo_id [DW_FORM_data8]  (0x1f1f859683d49324)
 ; CHECK: DW_AT_low_pc [DW_FORM_addr]       (0x0000000000000000)
 
 ; Check that the rest of the compile units have information.
@@ -73,14 +73,14 @@
 ; CHECK-NOT: DW_AT_low_pc
 ; CHECK-NOT: DW_AT_stmt_list
 ; CHECK-NOT: DW_AT_comp_dir
-; CHECK: DW_AT_GNU_dwo_id [DW_FORM_data8]  (0x0000000000000000)
+; CHECK: DW_AT_GNU_dwo_id [DW_FORM_data8]  (0x1f1f859683d49324)
 ; CHECK: DW_TAG_variable
 ; CHECK: DW_AT_name [DW_FORM_GNU_str_index]     ( indexed (00000002) string = "a")
 ; CHECK: DW_AT_type [DW_FORM_ref4]       (cu + 0x{{[0-9a-f]*}} => {[[TYPE:0x[0-9a-f]*]]})
 ; CHECK: DW_AT_external [DW_FORM_flag_present]   (true)
 ; CHECK: DW_AT_decl_file [DW_FORM_data1] (0x01)
 ; CHECK: DW_AT_decl_line [DW_FORM_data1] (0x01)
-; CHECK: DW_AT_location [DW_FORM_block1] (<0x02> fb 00 )
+; CHECK: DW_AT_location [DW_FORM_exprloc] (<0x2> fb 00 )
 ; CHECK: [[TYPE]]: DW_TAG_base_type
 ; CHECK: DW_AT_name [DW_FORM_GNU_str_index]     ( indexed (00000003) string = "int")
 
@@ -110,7 +110,5 @@
 ; OBJ-NEXT: R_X86_64_32 .debug_addr
 ; OBJ-NEXT: R_X86_64_32 .debug_str
 ; OBJ-NEXT: }
-; OBJ: .debug_aranges
-; OBJ-NEXT: R_X86_64_32 .debug_info 0x0
 
 !9 = metadata !{i32 1, metadata !"Debug Info Version", i32 1}

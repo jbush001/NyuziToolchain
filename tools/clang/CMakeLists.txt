@@ -1,8 +1,9 @@
+cmake_minimum_required(VERSION 2.8.8)
+
 # If we are not building as a part of LLVM, build Clang as an
 # standalone project, using LLVM as an external library:
 if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
   project(Clang)
-  cmake_minimum_required(VERSION 2.8.8)
 
   # Rely on llvm-config.
   set(CONFIG_OUTPUT)
@@ -96,30 +97,30 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
   if(LLVM_INCLUDE_TESTS)
     # Check prebuilt llvm/utils.
     if(EXISTS ${LLVM_TOOLS_BINARY_DIR}/FileCheck${CMAKE_EXECUTABLE_SUFFIX}
-	AND EXISTS ${LLVM_TOOLS_BINARY_DIR}/count${CMAKE_EXECUTABLE_SUFFIX}
-	AND EXISTS ${LLVM_TOOLS_BINARY_DIR}/not${CMAKE_EXECUTABLE_SUFFIX})
+        AND EXISTS ${LLVM_TOOLS_BINARY_DIR}/count${CMAKE_EXECUTABLE_SUFFIX}
+        AND EXISTS ${LLVM_TOOLS_BINARY_DIR}/not${CMAKE_EXECUTABLE_SUFFIX})
       set(LLVM_UTILS_PROVIDED ON)
     endif()
 
     if(EXISTS ${LLVM_MAIN_SRC_DIR}/utils/lit/lit.py)
       set(LLVM_LIT ${LLVM_MAIN_SRC_DIR}/utils/lit/lit.py)
       if(NOT LLVM_UTILS_PROVIDED)
-	add_subdirectory(${LLVM_MAIN_SRC_DIR}/utils/FileCheck utils/FileCheck)
-	add_subdirectory(${LLVM_MAIN_SRC_DIR}/utils/count utils/count)
-	add_subdirectory(${LLVM_MAIN_SRC_DIR}/utils/not utils/not)
-	set(LLVM_UTILS_PROVIDED ON)
-	set(CLANG_TEST_DEPS FileCheck count not)
+        add_subdirectory(${LLVM_MAIN_SRC_DIR}/utils/FileCheck utils/FileCheck)
+        add_subdirectory(${LLVM_MAIN_SRC_DIR}/utils/count utils/count)
+        add_subdirectory(${LLVM_MAIN_SRC_DIR}/utils/not utils/not)
+        set(LLVM_UTILS_PROVIDED ON)
+        set(CLANG_TEST_DEPS FileCheck count not)
       endif()
       set(UNITTEST_DIR ${LLVM_MAIN_SRC_DIR}/utils/unittest)
       if(EXISTS ${UNITTEST_DIR}/googletest/include/gtest/gtest.h
           AND NOT EXISTS ${LLVM_LIBRARY_DIR}/${CMAKE_STATIC_LIBRARY_PREFIX}gtest${CMAKE_STATIC_LIBRARY_SUFFIX}
-	  AND EXISTS ${UNITTEST_DIR}/CMakeLists.txt)
-	add_subdirectory(${UNITTEST_DIR} utils/unittest)
+          AND EXISTS ${UNITTEST_DIR}/CMakeLists.txt)
+        add_subdirectory(${UNITTEST_DIR} utils/unittest)
       endif()
     else()
       # Seek installed Lit.
       find_program(LLVM_LIT "lit.py" ${LLVM_MAIN_SRC_DIR}/utils/lit
-	DOC "Path to lit.py")
+        DOC "Path to lit.py")
     endif()
 
     if(LLVM_LIT)
@@ -127,13 +128,13 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
       # to override.
       set(LIT_ARGS_DEFAULT "-sv")
       if (MSVC OR XCODE)
-	set(LIT_ARGS_DEFAULT "${LIT_ARGS_DEFAULT} --no-progress-bar")
+        set(LIT_ARGS_DEFAULT "${LIT_ARGS_DEFAULT} --no-progress-bar")
       endif()
       set(LLVM_LIT_ARGS "${LIT_ARGS_DEFAULT}" CACHE STRING "Default options for lit")
 
       # On Win32 hosts, provide an option to specify the path to the GnuWin32 tools.
       if( WIN32 AND NOT CYGWIN )
-	set(LLVM_LIT_TOOLS_DIR "" CACHE PATH "Path to GnuWin32 tools")
+        set(LLVM_LIT_TOOLS_DIR "" CACHE PATH "Path to GnuWin32 tools")
       endif()
     else()
       set(LLVM_INCLUDE_TESTS OFF)
@@ -235,10 +236,6 @@ if (LLVM_COMPILER_IS_GCC_COMPATIBLE)
   endif()
 endif ()
 
-if (APPLE)
-  set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,-flat_namespace -Wl,-undefined -Wl,suppress")
-endif ()
-
 configure_file(
   ${CLANG_SOURCE_DIR}/include/clang/Config/config.h.cmake
   ${CLANG_BINARY_DIR}/include/clang/Config/config.h)
@@ -258,7 +255,7 @@ function(clang_tablegen)
   # executing the custom command depending on output-file. It is
   # possible to list more files to depend after DEPENDS.
 
-  cmake_parse_arguments(CTG "" "SOURCE;TARGET" "DEPENDS" ${ARGN})
+  cmake_parse_arguments(CTG "" "SOURCE;TARGET" "" ${ARGN})
 
   if( NOT CTG_SOURCE )
     message(FATAL_ERROR "SOURCE source-file required by clang_tablegen")
@@ -267,16 +264,20 @@ function(clang_tablegen)
   set( LLVM_TARGET_DEFINITIONS ${CTG_SOURCE} )
   tablegen(CLANG ${CTG_UNPARSED_ARGUMENTS})
 
-  list(GET CTG_UNPARSED_ARGUMENTS 0 output_file)
-  if( CTG_TARGET )
-    add_custom_target( ${CTG_TARGET} DEPENDS ${output_file} ${CTG_DEPENDS} )
+  if(CTG_TARGET)
+    add_public_tablegen_target(${CTG_TARGET})
     set_target_properties( ${CTG_TARGET} PROPERTIES FOLDER "Clang tablegenning")
+    set_property(GLOBAL APPEND PROPERTY CLANG_TABLEGEN_TARGETS ${CTG_TARGET})
   endif()
 endfunction(clang_tablegen)
 
 macro(add_clang_library name)
-  cmake_parse_arguments(ARG "MODULE;SHARED;STATIC" "" "" ${ARGN})
-  llvm_process_sources(srcs ${ARG_UNPARSED_ARGUMENTS})
+  cmake_parse_arguments(ARG
+    ""
+    ""
+    "ADDITIONAL_HEADERS"
+    ${ARGN})
+  set(srcs)
   if(MSVC_IDE OR XCODE)
     # Add public headers
     file(RELATIVE_PATH lib_path
@@ -296,41 +297,32 @@ macro(add_clang_library name)
       source_group("TableGen descriptions" FILES ${tds})
       set_source_files_properties(${tds}} PROPERTIES HEADER_FILE_ONLY ON)
 
-      set(srcs ${srcs} ${headers} ${tds})
+      if(headers OR tds)
+	set(srcs ${headers} ${tds})
+      endif()
     endif()
   endif(MSVC_IDE OR XCODE)
-  if (ARG_MODULE)
-    set(libkind MODULE)
-  elseif (ARG_SHARED)
-    set(libkind SHARED)
+  if(srcs OR ARG_ADDITIONAL_HEADERS)
+    set(srcs
+      ADDITIONAL_HEADERS
+      ${srcs}
+      ${ARG_ADDITIONAL_HEADERS} # It may contain unparsed unknown args.
+      )
+  endif()
+  llvm_add_library(${name} ${ARG_UNPARSED_ARGUMENTS} ${srcs})
+
+  if(TARGET ${name})
+    target_link_libraries( ${name} ${LLVM_COMMON_LIBS} )
+
+    if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY OR ${name} STREQUAL "libclang")
+      install(TARGETS ${name}
+        LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
+        ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX}
+        RUNTIME DESTINATION bin)
+    endif()
   else()
-    set(libkind)
-  endif()
-  add_library( ${name} ${libkind} ${srcs} )
-  llvm_update_compile_flags(${name} ${ALL_FILES})
-  add_dead_strip( ${name} )
-  set_output_directory(${name} ${LLVM_RUNTIME_OUTPUT_INTDIR} ${LLVM_LIBRARY_OUTPUT_INTDIR})
-  if( LLVM_COMMON_DEPENDS )
-    add_dependencies( ${name} ${LLVM_COMMON_DEPENDS} )
-  endif( LLVM_COMMON_DEPENDS )
-
-  llvm_config( ${name} ${LLVM_LINK_COMPONENTS} )
-  target_link_libraries( ${name} ${LLVM_COMMON_LIBS} )
-  link_system_libs( ${name} )
-  
-  if ((ARG_SHARED OR ARG_MODULE) AND LLVM_EXPORTED_SYMBOL_FILE)
-    add_llvm_symbol_exports( ${name} ${LLVM_EXPORTED_SYMBOL_FILE} )
-  endif()
-
-  if (MODULE)
-    set_property(TARGET ${name} PROPERTY SUFFIX ${LLVM_PLUGIN_EXT})
-  endif ()
-
-  if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY OR ${name} STREQUAL "libclang")
-    install(TARGETS ${name}
-      LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
-      ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX}
-      RUNTIME DESTINATION bin)
+    # Add empty "phony" target
+    add_custom_target(${name})
   endif()
 
   set_target_properties(${name} PROPERTIES FOLDER "Clang libraries")
@@ -349,7 +341,7 @@ include_directories(BEFORE
   )
 
 if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
-  install(DIRECTORY include/
+  install(DIRECTORY include/clang include/clang-c
     DESTINATION include
     FILES_MATCHING
     PATTERN "*.def"
@@ -358,7 +350,7 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
     PATTERN ".svn" EXCLUDE
     )
 
-  install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/include/
+  install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/include/clang
     DESTINATION include
     FILES_MATCHING
     PATTERN "CMakeFiles" EXCLUDE
@@ -413,6 +405,11 @@ mark_as_advanced(CLANG_EXECUTABLE_VERSION LIBCLANG_LIBRARY_VERSION)
 add_subdirectory(utils/TableGen)
 
 add_subdirectory(include)
+
+# All targets below may depend on all tablegen'd files.
+get_property(CLANG_TABLEGEN_TARGETS GLOBAL PROPERTY CLANG_TABLEGEN_TARGETS)
+list(APPEND LLVM_COMMON_DEPENDS ${CLANG_TABLEGEN_TARGETS})
+
 add_subdirectory(lib)
 add_subdirectory(tools)
 add_subdirectory(runtime)

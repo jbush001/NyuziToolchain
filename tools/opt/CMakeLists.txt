@@ -2,6 +2,7 @@ set(LLVM_LINK_COMPONENTS
   ${LLVM_TARGETS_TO_BUILD}
   Analysis
   BitWriter
+  CodeGen
   Core
   IPA
   IPO
@@ -22,9 +23,11 @@ set(LLVM_NO_DEAD_STRIP 1)
 
 add_llvm_tool(opt
   AnalysisWrappers.cpp
+  BreakpointPrinter.cpp
   GraphPrinters.cpp
   NewPMDriver.cpp
   Passes.cpp
+  PassPrinters.cpp
   PrintSCC.cpp
   opt.cpp
   )

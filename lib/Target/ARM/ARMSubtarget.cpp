@@ -210,6 +210,8 @@ void ARMSubtarget::resetSubtargetFeatures(StringRef CPU, StringRef FS) {
 
   if (isAAPCS_ABI())
     stackAlignment = 8;
+  if (isTargetNaCl())
+    stackAlignment = 16;
 
   UseMovt = hasV6T2Ops() && ArmUseMOVT;
 
@@ -237,9 +239,10 @@ void ARMSubtarget::resetSubtargetFeatures(StringRef CPU, StringRef FS) {
       // Linux targets support unaligned accesses. The same goes for NaCl.
       //
       // The above behavior is consistent with GCC.
-      AllowsUnalignedMem = (
-          (hasV7Ops() && (isTargetLinux() || isTargetNaCl())) ||
-          (hasV6Ops() && isTargetMachO()));
+      AllowsUnalignedMem =
+          (hasV7Ops() && (isTargetLinux() || isTargetNaCl() ||
+                          isTargetNetBSD())) ||
+          (hasV6Ops() && (isTargetMachO() || isTargetNetBSD()));
       break;
     case StrictAlign:
       AllowsUnalignedMem = false;

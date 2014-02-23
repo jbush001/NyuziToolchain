@@ -97,6 +97,7 @@ SITargetLowering::SITargetLowering(TargetMachine &TM) :
   setOperationAction(ISD::LOAD, MVT::i64, Custom);
   setOperationAction(ISD::LOAD, MVT::v2i32, Custom);
   setOperationAction(ISD::LOAD, MVT::v4i32, Custom);
+  setOperationAction(ISD::LOAD, MVT::v8i32, Custom);
 
   setOperationAction(ISD::STORE, MVT::i32, Custom);
   setOperationAction(ISD::STORE, MVT::i64, Custom);
@@ -104,6 +105,7 @@ SITargetLowering::SITargetLowering(TargetMachine &TM) :
   setOperationAction(ISD::STORE, MVT::v2i32, Custom);
   setOperationAction(ISD::STORE, MVT::v4i32, Custom);
 
+  setOperationAction(ISD::SELECT, MVT::i64, Custom);
 
   setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
@@ -146,6 +148,33 @@ SITargetLowering::SITargetLowering(TargetMachine &TM) :
   setOperationAction(ISD::GlobalAddress, MVT::i64, Custom);
   setOperationAction(ISD::FrameIndex, MVT::i32, Custom);
 
+  // We only support LOAD/STORE and vector manipulation ops for vectors
+  // with > 4 elements.
+  MVT VecTypes[] = {
+    MVT::v8i32, MVT::v8f32
+  };
+
+  const size_t NumVecTypes = array_lengthof(VecTypes);
+  for (unsigned Type = 0; Type < NumVecTypes; ++Type) {
+    for (unsigned Op = 0; Op < ISD::BUILTIN_OP_END; ++Op) {
+      switch(Op) {
+      case ISD::LOAD:
+      case ISD::STORE:
+      case ISD::BUILD_VECTOR:
+      case ISD::BITCAST:
+      case ISD::EXTRACT_VECTOR_ELT:
+      case ISD::INSERT_VECTOR_ELT:
+      case ISD::CONCAT_VECTORS:
+      case ISD::INSERT_SUBVECTOR:
+      case ISD::EXTRACT_SUBVECTOR:
+        break;
+      default:
+        setOperationAction(Op, VecTypes[Type], Expand);
+        break;
+      }
+    }
+  }
+
   setTargetDAGCombine(ISD::SELECT_CC);
 
   setTargetDAGCombine(ISD::SETCC);
@@ -158,6 +187,7 @@ SITargetLowering::SITargetLowering(TargetMachine &TM) :
 //===----------------------------------------------------------------------===//
 
 bool SITargetLowering::allowsUnalignedMemoryAccesses(EVT  VT,
+                                                     unsigned AddrSpace,
                                                      bool *IsFast) const {
   // XXX: This depends on the address space and also we may want to revist
   // the alignment values we specify in the DataLayout.
@@ -450,9 +480,11 @@ SDValue SITargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
   case ISD::BRCOND: return LowerBRCOND(Op, DAG);
   case ISD::LOAD: {
     LoadSDNode *Load = dyn_cast<LoadSDNode>(Op);
-    if ((Load->getAddressSpace() == AMDGPUAS::LOCAL_ADDRESS ||
-         Load->getAddressSpace() == AMDGPUAS::PRIVATE_ADDRESS) &&
-        Op.getValueType().isVector()) {
+    if (Op.getValueType().isVector() &&
+        (Load->getAddressSpace() == AMDGPUAS::LOCAL_ADDRESS ||
+         Load->getAddressSpace() == AMDGPUAS::PRIVATE_ADDRESS ||
+         (Load->getAddressSpace() == AMDGPUAS::GLOBAL_ADDRESS &&
+          Op.getValueType().getVectorNumElements() > 4))) {
       SDValue MergedValues[2] = {
         SplitVectorLoad(Op, DAG),
         Load->getChain()
@@ -463,6 +495,7 @@ SDValue SITargetLowering::LowerOperation(SDValue Op, SelectionDAG &DAG) const {
     }
   }
 
+  case ISD::SELECT: return LowerSELECT(Op, DAG);
   case ISD::SELECT_CC: return LowerSELECT_CC(Op, DAG);
   case ISD::SIGN_EXTEND: return LowerSIGN_EXTEND(Op, DAG);
   case ISD::STORE: return LowerSTORE(Op, DAG);
@@ -752,6 +785,31 @@ SDValue SITargetLowering::LowerSampleIntrinsic(unsigned Opcode,
                      Op.getOperand(2),
                      ResourceDescriptorToi128(Op.getOperand(3), DAG),
                      Op.getOperand(4));
+}
+
+SDValue SITargetLowering::LowerSELECT(SDValue Op, SelectionDAG &DAG) const {
+  if (Op.getValueType() != MVT::i64)
+    return SDValue();
+
+  SDLoc DL(Op);
+  SDValue Cond = Op.getOperand(0);
+  SDValue LHS = Op.getOperand(1);
+  SDValue RHS = Op.getOperand(2);
+
+  SDValue Zero = DAG.getConstant(0, MVT::i32);
+  SDValue One = DAG.getConstant(1, MVT::i32);
+
+  SDValue Lo0 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, LHS, Zero);
+  SDValue Lo1 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, RHS, Zero);
+
+  SDValue Lo = DAG.getSelect(DL, MVT::i32, Cond, Lo0, Lo1);
+
+  SDValue Hi0 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, LHS, One);
+  SDValue Hi1 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, RHS, One);
+
+  SDValue Hi = DAG.getSelect(DL, MVT::i32, Cond, Hi0, Hi1);
+
+  return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i64, Lo, Hi);
 }
 
 SDValue SITargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const {

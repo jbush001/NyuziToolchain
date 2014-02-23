@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef LLD_READER_WRITER_ELF_MIPS_LINKING_CONTEXT_H
-#define LLD_READER_WRITER_ELF_MIPS_LINKING_CONTEXT_H
+#ifndef LLD_READER_WRITER_ELF_MIPS_MIPS_LINKING_CONTEXT_H
+#define LLD_READER_WRITER_ELF_MIPS_MIPS_LINKING_CONTEXT_H
 
 #include "lld/ReaderWriter/ELFLinkingContext.h"
 
@@ -46,6 +46,8 @@ public:
   virtual StringRef getDefaultInterpreter() const;
   virtual void addPasses(PassManager &pm);
   virtual bool isRelaOutputFormat() const { return false; }
+  virtual bool isDynamicRelocation(const DefinedAtom &,
+                                   const Reference &r) const;
   virtual bool isPLTRelocation(const DefinedAtom &, const Reference &r) const;
 };
 

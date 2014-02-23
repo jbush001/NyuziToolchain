@@ -76,7 +76,7 @@ void VectorProcAsmPrinter::EmitConstantPool() {
   // Emit constants for this function in the same section as the function so
   // they are close by and can be accessed with PC relative addresses.
   const Function *F = MF->getFunction();
-  OutStreamer.SwitchSection(getObjFileLowering().SectionForGlobal(F, Mang, TM));
+  OutStreamer.SwitchSection(getObjFileLowering().SectionForGlobal(F, *Mang, TM));
   for (unsigned i = 0, e = CP.size(); i != e; ++i) {
     const MachineConstantPoolEntry &CPE = CP[i];
     EmitAlignment(Log2_32(CPE.getAlignment()));

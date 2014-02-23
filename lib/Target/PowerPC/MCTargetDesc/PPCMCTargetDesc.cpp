@@ -75,7 +75,7 @@ static MCAsmInfo *createPPCMCAsmInfo(const MCRegisterInfo &MRI, StringRef TT) {
   if (TheTriple.isOSDarwin())
     MAI = new PPCMCAsmInfoDarwin(isPPC64, TheTriple);
   else
-    MAI = new PPCLinuxMCAsmInfo(isPPC64);
+    MAI = new PPCLinuxMCAsmInfo(isPPC64, TheTriple);
 
   // Initial state of the frame pointer is R1.
   unsigned Reg = isPPC64 ? PPC::X1 : PPC::R1;
@@ -175,13 +175,13 @@ static MCStreamer *createMCStreamer(const Target &T, StringRef TT,
 
 static MCStreamer *
 createMCAsmStreamer(MCContext &Ctx, formatted_raw_ostream &OS,
-                    bool isVerboseAsm, bool useLoc, bool useCFI,
-                    bool useDwarfDirectory, MCInstPrinter *InstPrint,
-                    MCCodeEmitter *CE, MCAsmBackend *TAB, bool ShowInst) {
+                    bool isVerboseAsm, bool useCFI, bool useDwarfDirectory,
+                    MCInstPrinter *InstPrint, MCCodeEmitter *CE,
+                    MCAsmBackend *TAB, bool ShowInst) {
 
   MCStreamer *S =
-      llvm::createAsmStreamer(Ctx, OS, isVerboseAsm, useLoc, useCFI,
-                              useDwarfDirectory, InstPrint, CE, TAB, ShowInst);
+      llvm::createAsmStreamer(Ctx, OS, isVerboseAsm, useCFI, useDwarfDirectory,
+                              InstPrint, CE, TAB, ShowInst);
   new PPCTargetAsmStreamer(*S, OS);
   return S;
 }

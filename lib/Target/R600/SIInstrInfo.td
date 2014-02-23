@@ -75,14 +75,13 @@ def HI32f : SDNodeXForm<fpimm, [{
   return CurDAG->getTargetConstantFP(APFloat(APFloat::IEEEsingle, V), MVT::f32);
 }]>;
 
-def IMM8bitDWORD : ImmLeaf <
-  i32, [{
-    return (Imm & ~0x3FC) == 0;
-  }], SDNodeXForm<imm, [{
-    return CurDAG->getTargetConstant(
-      N->getZExtValue() >> 2, MVT::i32);
-  }]>
+def IMM8bitDWORD : PatLeaf <(imm),
+  [{return (N->getZExtValue() & ~0x3FC) == 0;}]
 >;
+
+def as_dword_i32imm : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(N->getZExtValue() >> 2, MVT::i32);
+}]>;
 
 def as_i1imm : SDNodeXForm<imm, [{
   return CurDAG->getTargetConstant(N->getZExtValue(), MVT::i1);
@@ -96,8 +95,17 @@ def as_i16imm : SDNodeXForm<imm, [{
   return CurDAG->getTargetConstant(N->getSExtValue(), MVT::i16);
 }]>;
 
+def as_i32imm: SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(N->getSExtValue(), MVT::i32);
+}]>;
+
 def IMM12bit : PatLeaf <(imm),
   [{return isUInt<12>(N->getZExtValue());}]
+>;
+
+def mubuf_vaddr_offset : PatFrag<
+  (ops node:$ptr, node:$offset, node:$imm_offset),
+  (add (add node:$ptr, node:$offset), node:$imm_offset)
 >;
 
 class InlineImm <ValueType vt> : PatLeaf <(vt imm), [{
@@ -618,6 +626,14 @@ def getCommuteOrig : InstrMapping {
   let ColFields = ["IsOrig"];
   let KeyCol = ["0"];
   let ValueCols = [["1"]];
+}
+
+def isDS : InstrMapping {
+  let FilterClass = "DS";
+  let RowFields = ["Inst"];
+  let ColFields = ["Size"];
+  let KeyCol = ["8"];
+  let ValueCols = [["8"]];
 }
 
 include "SIInstructions.td"

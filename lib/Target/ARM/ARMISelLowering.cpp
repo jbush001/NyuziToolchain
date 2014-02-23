@@ -1078,10 +1078,6 @@ const char *ARMTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case ARMISD::VSHL:          return "ARMISD::VSHL";
   case ARMISD::VSHRs:         return "ARMISD::VSHRs";
   case ARMISD::VSHRu:         return "ARMISD::VSHRu";
-  case ARMISD::VSHLLs:        return "ARMISD::VSHLLs";
-  case ARMISD::VSHLLu:        return "ARMISD::VSHLLu";
-  case ARMISD::VSHLLi:        return "ARMISD::VSHLLi";
-  case ARMISD::VSHRN:         return "ARMISD::VSHRN";
   case ARMISD::VRSHRs:        return "ARMISD::VRSHRs";
   case ARMISD::VRSHRu:        return "ARMISD::VRSHRu";
   case ARMISD::VRSHRN:        return "ARMISD::VRSHRN";
@@ -2760,11 +2756,11 @@ ARMTargetLowering::computeRegArea(CCState &CCInfo, MachineFunction &MF,
   ArgRegsSize = NumGPRs * 4;
 
   // If parameter is split between stack and GPRs...
-  if (NumGPRs && Align == 8 &&
+  if (NumGPRs && Align > 4 &&
       (ArgRegsSize < ArgSize ||
         InRegsParamRecordIdx >= CCInfo.getInRegsParamsCount())) {
-    // Add padding for part of param recovered from GPRs, so
-    // its last byte must be at address K*8 - 1.
+    // Add padding for part of param recovered from GPRs.  For example,
+    // if Align == 8, its last byte must be at address K*8 - 1.
     // We need to do it, since remained (stack) part of parameter has
     // stack alignment, and we need to "attach" "GPRs head" without gaps
     // to it:
@@ -2774,8 +2770,7 @@ ARMTargetLowering::computeRegArea(CCState &CCInfo, MachineFunction &MF,
     //
     ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
     unsigned Padding =
-        ((ArgRegsSize + AFI->getArgRegsSaveSize() + Align - 1) & ~(Align-1)) -
-        (ArgRegsSize + AFI->getArgRegsSaveSize());
+        OffsetToAlignment(ArgRegsSize + AFI->getArgRegsSaveSize(), Align);
     ArgRegsSaveSize = ArgRegsSize + Padding;
   } else
     // We don't need to extend regs save size for byval parameters if they
@@ -9715,9 +9710,6 @@ static SDValue PerformIntrinsicCombine(SDNode *N, SelectionDAG &DAG) {
   // loads from a constant pool.
   case Intrinsic::arm_neon_vshifts:
   case Intrinsic::arm_neon_vshiftu:
-  case Intrinsic::arm_neon_vshiftls:
-  case Intrinsic::arm_neon_vshiftlu:
-  case Intrinsic::arm_neon_vshiftn:
   case Intrinsic::arm_neon_vrshifts:
   case Intrinsic::arm_neon_vrshiftu:
   case Intrinsic::arm_neon_vrshiftn:
@@ -9748,12 +9740,6 @@ static SDValue PerformIntrinsicCombine(SDNode *N, SelectionDAG &DAG) {
       }
       return SDValue();
 
-    case Intrinsic::arm_neon_vshiftls:
-    case Intrinsic::arm_neon_vshiftlu:
-      if (isVShiftLImm(N->getOperand(2), VT, true, Cnt))
-        break;
-      llvm_unreachable("invalid shift count for vshll intrinsic");
-
     case Intrinsic::arm_neon_vrshifts:
     case Intrinsic::arm_neon_vrshiftu:
       if (isVShiftRImm(N->getOperand(2), VT, false, true, Cnt))
@@ -9771,7 +9757,6 @@ static SDValue PerformIntrinsicCombine(SDNode *N, SelectionDAG &DAG) {
         break;
       llvm_unreachable("invalid shift count for vqshlu intrinsic");
 
-    case Intrinsic::arm_neon_vshiftn:
     case Intrinsic::arm_neon_vrshiftn:
     case Intrinsic::arm_neon_vqshiftns:
     case Intrinsic::arm_neon_vqshiftnu:
@@ -9794,16 +9779,6 @@ static SDValue PerformIntrinsicCombine(SDNode *N, SelectionDAG &DAG) {
     case Intrinsic::arm_neon_vshiftu:
       // Opcode already set above.
       break;
-    case Intrinsic::arm_neon_vshiftls:
-    case Intrinsic::arm_neon_vshiftlu:
-      if (Cnt == VT.getVectorElementType().getSizeInBits())
-        VShiftOpc = ARMISD::VSHLLi;
-      else
-        VShiftOpc = (IntNo == Intrinsic::arm_neon_vshiftls ?
-                     ARMISD::VSHLLs : ARMISD::VSHLLu);
-      break;
-    case Intrinsic::arm_neon_vshiftn:
-      VShiftOpc = ARMISD::VSHRN; break;
     case Intrinsic::arm_neon_vrshifts:
       VShiftOpc = ARMISD::VRSHRs; break;
     case Intrinsic::arm_neon_vrshiftu:
@@ -10167,7 +10142,8 @@ bool ARMTargetLowering::isDesirableToTransformToIntegerOp(unsigned Opc,
   return (VT == MVT::f32) && (Opc == ISD::LOAD || Opc == ISD::STORE);
 }
 
-bool ARMTargetLowering::allowsUnalignedMemoryAccesses(EVT VT, bool *Fast) const {
+bool ARMTargetLowering::allowsUnalignedMemoryAccesses(EVT VT, unsigned,
+                                                      bool *Fast) const {
   // The AllowsUnaliged flag models the SCTLR.A setting in ARM cpus
   bool AllowsUnaligned = Subtarget->allowsUnalignedMem();
 
@@ -10221,11 +10197,11 @@ EVT ARMTargetLowering::getOptimalMemOpType(uint64_t Size,
     bool Fast;
     if (Size >= 16 &&
         (memOpAlign(SrcAlign, DstAlign, 16) ||
-         (allowsUnalignedMemoryAccesses(MVT::v2f64, &Fast) && Fast))) {
+         (allowsUnalignedMemoryAccesses(MVT::v2f64, 0, &Fast) && Fast))) {
       return MVT::v2f64;
     } else if (Size >= 8 &&
                (memOpAlign(SrcAlign, DstAlign, 8) ||
-                (allowsUnalignedMemoryAccesses(MVT::f64, &Fast) && Fast))) {
+                (allowsUnalignedMemoryAccesses(MVT::f64, 0, &Fast) && Fast))) {
       return MVT::f64;
     }
   }

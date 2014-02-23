@@ -6,9 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-
-#ifndef MIPS_ELF_WRITERS_H
-#define MIPS_ELF_WRITERS_H
+#ifndef LLD_READER_WRITER_ELF_MIPS_MIPS_ELF_WRITERS_H
+#define LLD_READER_WRITER_ELF_MIPS_MIPS_ELF_WRITERS_H
 
 #include "MipsLinkingContext.h"
 #include "OutputELFWriter.h"
@@ -65,6 +64,10 @@ protected:
     }
   }
 
+  bool hasGlobalGOTEntry(const Atom *a) const {
+    return _mipsTargetLayout.getGOTSection().hasGlobalGOTEntry(a);
+  }
+
 private:
   MipsLinkingContext &_mipsLinkingContext LLVM_ATTRIBUTE_UNUSED;
   MipsTargetLayout<ELFT> &_mipsTargetLayout;
@@ -72,4 +75,5 @@ private:
 
 } // elf
 } // lld
-#endif // MIPS_ELF_WRITERS_H
+
+#endif

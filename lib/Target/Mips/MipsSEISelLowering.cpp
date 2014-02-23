@@ -244,7 +244,9 @@ addMSAFloatType(MVT::SimpleValueType Ty, const TargetRegisterClass *RC) {
 }
 
 bool
-MipsSETargetLowering::allowsUnalignedMemoryAccesses(EVT VT, bool *Fast) const {
+MipsSETargetLowering::allowsUnalignedMemoryAccesses(EVT VT,
+                                                    unsigned,
+                                                    bool *Fast) const {
   MVT::SimpleValueType SVT = VT.getSimpleVT().SimpleTy;
 
   switch (SVT) {
@@ -1805,7 +1807,8 @@ SDValue MipsSETargetLowering::lowerINTRINSIC_WO_CHAIN(SDValue Op,
   case Intrinsic::mips_ldi_w:
   case Intrinsic::mips_ldi_d:
     return lowerMSASplatImm(Op, 1, DAG);
-  case Intrinsic::mips_lsa: {
+  case Intrinsic::mips_lsa:
+  case Intrinsic::mips_dlsa: {
     EVT ResTy = Op->getValueType(0);
     return DAG.getNode(ISD::ADD, SDLoc(Op), ResTy, Op->getOperand(1),
                        DAG.getNode(ISD::SHL, SDLoc(Op), ResTy,

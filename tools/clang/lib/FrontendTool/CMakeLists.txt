@@ -5,11 +5,8 @@ set(LLVM_LINK_COMPONENTS
 
 add_clang_library(clangFrontendTool
   ExecuteCompilerInvocation.cpp
-  )
 
-add_dependencies(clangFrontendTool
-  ClangDiagnosticCommon
-  ClangDiagnosticFrontend
+  DEPENDS
   ClangDriverOptions
   )
 

@@ -228,9 +228,11 @@ RegistryMaps::RegistryMaps() {
   REGISTER_MATCHER(isConstQualified);
   REGISTER_MATCHER(isDefinition);
   REGISTER_MATCHER(isExplicitTemplateSpecialization);
+  REGISTER_MATCHER(isExpr);
   REGISTER_MATCHER(isExternC);
   REGISTER_MATCHER(isImplicit);
   REGISTER_MATCHER(isInteger);
+  REGISTER_MATCHER(isListInitialization);
   REGISTER_MATCHER(isOverride);
   REGISTER_MATCHER(isPrivate);
   REGISTER_MATCHER(isProtected);

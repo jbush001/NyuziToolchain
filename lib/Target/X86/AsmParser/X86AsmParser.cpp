@@ -37,12 +37,14 @@ struct X86Operand;
 static const char OpPrecedence[] = {
   0, // IC_OR
   1, // IC_AND
-  2, // IC_PLUS
-  2, // IC_MINUS
-  3, // IC_MULTIPLY
-  3, // IC_DIVIDE
-  4, // IC_RPAREN
-  5, // IC_LPAREN
+  2, // IC_LSHIFT
+  2, // IC_RSHIFT
+  3, // IC_PLUS
+  3, // IC_MINUS
+  4, // IC_MULTIPLY
+  4, // IC_DIVIDE
+  5, // IC_RPAREN
+  6, // IC_LPAREN
   0, // IC_IMM
   0  // IC_REGISTER
 };
@@ -61,6 +63,8 @@ private:
   enum InfixCalculatorTok {
     IC_OR = 0,
     IC_AND,
+    IC_LSHIFT,
+    IC_RSHIFT,
     IC_PLUS,
     IC_MINUS,
     IC_MULTIPLY,
@@ -198,6 +202,18 @@ private:
             Val = Op1.second & Op2.second;
             OperandStack.push_back(std::make_pair(IC_IMM, Val));
             break;
+          case IC_LSHIFT:
+            assert (Op1.first == IC_IMM && Op2.first == IC_IMM &&
+                    "Left shift operation with an immediate and a register!");
+            Val = Op1.second << Op2.second;
+            OperandStack.push_back(std::make_pair(IC_IMM, Val));
+            break;
+          case IC_RSHIFT:
+            assert (Op1.first == IC_IMM && Op2.first == IC_IMM &&
+                    "Right shift operation with an immediate and a register!");
+            Val = Op1.second >> Op2.second;
+            OperandStack.push_back(std::make_pair(IC_IMM, Val));
+            break;
           }
         }
       }
@@ -209,6 +225,8 @@ private:
   enum IntelExprState {
     IES_OR,
     IES_AND,
+    IES_LSHIFT,
+    IES_RSHIFT,
     IES_PLUS,
     IES_MINUS,
     IES_MULTIPLY,
@@ -281,6 +299,36 @@ private:
       case IES_REGISTER:
         State = IES_AND;
         IC.pushOperator(IC_AND);
+        break;
+      }
+      PrevState = CurrState;
+    }
+    void onLShift() {
+      IntelExprState CurrState = State;
+      switch (State) {
+      default:
+        State = IES_ERROR;
+        break;
+      case IES_INTEGER:
+      case IES_RPAREN:
+      case IES_REGISTER:
+        State = IES_LSHIFT;
+        IC.pushOperator(IC_LSHIFT);
+        break;
+      }
+      PrevState = CurrState;
+    }
+    void onRShift() {
+      IntelExprState CurrState = State;
+      switch (State) {
+      default:
+        State = IES_ERROR;
+        break;
+      case IES_INTEGER:
+      case IES_RPAREN:
+      case IES_REGISTER:
+        State = IES_RSHIFT;
+        IC.pushOperator(IC_RSHIFT);
         break;
       }
       PrevState = CurrState;
@@ -401,6 +449,8 @@ private:
       case IES_MINUS:
       case IES_OR:
       case IES_AND:
+      case IES_LSHIFT:
+      case IES_RSHIFT:
       case IES_DIVIDE:
       case IES_MULTIPLY:
       case IES_LPAREN:
@@ -418,6 +468,7 @@ private:
           IC.popOperator();
         } else if ((PrevState == IES_PLUS || PrevState == IES_MINUS ||
                     PrevState == IES_OR || PrevState == IES_AND ||
+                    PrevState == IES_LSHIFT || PrevState == IES_RSHIFT ||
                     PrevState == IES_MULTIPLY || PrevState == IES_DIVIDE ||
                     PrevState == IES_LPAREN || PrevState == IES_LBRAC) &&
                    CurrState == IES_MINUS) {
@@ -506,12 +557,15 @@ private:
       case IES_MINUS:
       case IES_OR:
       case IES_AND:
+      case IES_LSHIFT:
+      case IES_RSHIFT:
       case IES_MULTIPLY:
       case IES_DIVIDE:
       case IES_LPAREN:
         // FIXME: We don't handle this type of unary minus, yet.
         if ((PrevState == IES_PLUS || PrevState == IES_MINUS ||
             PrevState == IES_OR || PrevState == IES_AND ||
+            PrevState == IES_LSHIFT || PrevState == IES_RSHIFT ||
             PrevState == IES_MULTIPLY || PrevState == IES_DIVIDE ||
             PrevState == IES_LPAREN || PrevState == IES_LBRAC) &&
             CurrState == IES_MINUS) {
@@ -549,6 +603,13 @@ private:
              bool MatchingInlineAsm = false) {
     if (MatchingInlineAsm) return true;
     return Parser.Error(L, Msg, Ranges);
+  }
+
+  bool ErrorAndEatStatement(SMLoc L, const Twine &Msg,
+          ArrayRef<SMRange> Ranges = None,
+          bool MatchingInlineAsm = false) {
+      Parser.eatToEndOfStatement();
+      return Error(L, Msg, Ranges, MatchingInlineAsm);
   }
 
   X86Operand *ErrorOperand(SMLoc Loc, StringRef Msg) {
@@ -597,6 +658,12 @@ private:
   /// word size (%si and %di, %esi and %edi, etc.). Order depends on
   /// the parsing mode (Intel vs. AT&T).
   bool doSrcDstMatch(X86Operand &Op1, X86Operand &Op2);
+
+  /// Parses AVX512 specific operand primitives: masked registers ({%k<NUM>}, {z})
+  /// and memory broadcasting ({1to<NUM>}) primitives, updating Operands vector if required.
+  /// \return \c true if no parsing errors occurred, \c false otherwise.
+  bool HandleAVX512Operand(SmallVectorImpl<MCParsedAsmOperand*> &Operands,
+                            const MCParsedAsmOperand &Op);
 
   bool is64BitMode() const {
     // FIXME: Can tablegen auto-generate this?
@@ -1547,6 +1614,10 @@ bool X86AsmParser::ParseIntelExpression(IntelExprStateMachine &SM, SMLoc &End) {
     case AsmToken::Slash:   SM.onDivide(); break;
     case AsmToken::Pipe:    SM.onOr(); break;
     case AsmToken::Amp:     SM.onAnd(); break;
+    case AsmToken::LessLess:
+                            SM.onLShift(); break;
+    case AsmToken::GreaterGreater:
+                            SM.onRShift(); break;
     case AsmToken::LBrac:   SM.onLBrac(); break;
     case AsmToken::RBrac:   SM.onRBrac(); break;
     case AsmToken::LParen:  SM.onLParen(); break;
@@ -1969,6 +2040,73 @@ X86Operand *X86AsmParser::ParseATTOperand() {
   }
 }
 
+bool
+X86AsmParser::HandleAVX512Operand(SmallVectorImpl<MCParsedAsmOperand*> &Operands,
+                                  const MCParsedAsmOperand &Op) {
+  if(STI.getFeatureBits() & X86::FeatureAVX512) {
+    if (getLexer().is(AsmToken::LCurly)) {
+      // Eat "{" and mark the current place.
+      const SMLoc consumedToken = consumeToken();
+      // Distinguish {1to<NUM>} from {%k<NUM>}.
+      if(getLexer().is(AsmToken::Integer)) {
+        // Parse memory broadcasting ({1to<NUM>}).
+        if (getLexer().getTok().getIntVal() != 1)
+          return !ErrorAndEatStatement(getLexer().getLoc(),
+                                       "Expected 1to<NUM> at this point");
+        Parser.Lex();  // Eat "1" of 1to8
+        if (!getLexer().is(AsmToken::Identifier) ||
+            !getLexer().getTok().getIdentifier().startswith("to"))
+          return !ErrorAndEatStatement(getLexer().getLoc(),
+                                       "Expected 1to<NUM> at this point");
+        // Recognize only reasonable suffixes.
+        const char *BroadcastPrimitive =
+          StringSwitch<const char*>(getLexer().getTok().getIdentifier())
+            .Case("to8",  "{1to8}")
+            .Case("to16", "{1to16}")
+            .Default(0);
+        if (!BroadcastPrimitive)
+          return !ErrorAndEatStatement(getLexer().getLoc(),
+                                       "Invalid memory broadcast primitive.");
+        Parser.Lex();  // Eat "toN" of 1toN
+        if (!getLexer().is(AsmToken::RCurly))
+          return !ErrorAndEatStatement(getLexer().getLoc(),
+                                       "Expected } at this point");
+        Parser.Lex();  // Eat "}"
+        Operands.push_back(X86Operand::CreateToken(BroadcastPrimitive,
+                                                   consumedToken));
+        // No AVX512 specific primitives can pass
+        // after memory broadcasting, so return.
+        return true;
+      } else {
+        // Parse mask register {%k1}
+        Operands.push_back(X86Operand::CreateToken("{", consumedToken));
+        if (X86Operand *Op = ParseOperand()) {
+          Operands.push_back(Op);
+          if (!getLexer().is(AsmToken::RCurly))
+            return !ErrorAndEatStatement(getLexer().getLoc(),
+                                         "Expected } at this point");
+          Operands.push_back(X86Operand::CreateToken("}", consumeToken()));
+
+          // Parse "zeroing non-masked" semantic {z}
+          if (getLexer().is(AsmToken::LCurly)) {
+            Operands.push_back(X86Operand::CreateToken("{z}", consumeToken()));
+            if (!getLexer().is(AsmToken::Identifier) ||
+                getLexer().getTok().getIdentifier() != "z")
+              return !ErrorAndEatStatement(getLexer().getLoc(),
+                                           "Expected z at this point");
+            Parser.Lex();  // Eat the z
+            if (!getLexer().is(AsmToken::RCurly))
+              return !ErrorAndEatStatement(getLexer().getLoc(),
+                                           "Expected } at this point");
+            Parser.Lex();  // Eat the }
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+
 /// ParseMemOperand: segment: disp(basereg, indexreg, scale).  The '%ds:' prefix
 /// has already been parsed if present.
 X86Operand *X86AsmParser::ParseMemOperand(unsigned SegReg, SMLoc MemStart) {
@@ -2227,73 +2365,32 @@ ParseInstruction(ParseInstructionInfo &Info, StringRef Name, SMLoc NameLoc,
     if (getLexer().is(AsmToken::Star))
       Operands.push_back(X86Operand::CreateToken("*", consumeToken()));
 
-    // Read the first operand.
-    if (X86Operand *Op = ParseOperand())
-      Operands.push_back(Op);
-    else {
-      Parser.eatToEndOfStatement();
-      return true;
-    }
-
-    while (getLexer().is(AsmToken::Comma)) {
-      Parser.Lex();  // Eat the comma.
-
-      // Parse and remember the operand.
-      if (X86Operand *Op = ParseOperand())
-        Operands.push_back(Op);
-      else {
-        Parser.eatToEndOfStatement();
-        return true;
-      }
-    }
-
-    if (STI.getFeatureBits() & X86::FeatureAVX512) {
-      // Parse mask register {%k1}
-      if (getLexer().is(AsmToken::LCurly)) {
-        Operands.push_back(X86Operand::CreateToken("{", consumeToken()));
-        if (X86Operand *Op = ParseOperand()) {
-          Operands.push_back(Op);
-          if (!getLexer().is(AsmToken::RCurly)) {
-            SMLoc Loc = getLexer().getLoc();
-            Parser.eatToEndOfStatement();
-            return Error(Loc, "Expected } at this point");
-          }
-          Operands.push_back(X86Operand::CreateToken("}", consumeToken()));
-        } else {
-          Parser.eatToEndOfStatement();
+    // Read the operands.
+    while(1) {
+      if (X86Operand *Op = ParseOperand()) {
+         Operands.push_back(Op);
+        if (!HandleAVX512Operand(Operands, *Op))
           return true;
-        }
+      } else {
+         Parser.eatToEndOfStatement();
+         return true;
       }
-      // TODO: add parsing of broadcasts {1to8}, {1to16}
-      // Parse "zeroing non-masked" semantic {z}
-      if (getLexer().is(AsmToken::LCurly)) {
-        Operands.push_back(X86Operand::CreateToken("{z}", consumeToken()));
-        if (!getLexer().is(AsmToken::Identifier) || getLexer().getTok().getIdentifier() != "z") {
-          SMLoc Loc = getLexer().getLoc();
-          Parser.eatToEndOfStatement();
-          return Error(Loc, "Expected z at this point");
-        }
-        Parser.Lex();  // Eat the z
-        if (!getLexer().is(AsmToken::RCurly)) {
-            SMLoc Loc = getLexer().getLoc();
-            Parser.eatToEndOfStatement();
-            return Error(Loc, "Expected } at this point");
-        }
-        Parser.Lex();  // Eat the }
-      }
-    }
+      // check for comma and eat it
+      if (getLexer().is(AsmToken::Comma))
+        Parser.Lex();
+      else
+        break;
+     }
 
-    if (getLexer().isNot(AsmToken::EndOfStatement)) {
-      SMLoc Loc = getLexer().getLoc();
-      Parser.eatToEndOfStatement();
-      return Error(Loc, "unexpected token in argument list");
-    }
-  }
+    if (getLexer().isNot(AsmToken::EndOfStatement))
+      return ErrorAndEatStatement(getLexer().getLoc(),
+                                  "unexpected token in argument list");
+   }
 
-  if (getLexer().is(AsmToken::EndOfStatement))
-    Parser.Lex(); // Consume the EndOfStatement
-  else if (isPrefix && getLexer().is(AsmToken::Slash))
-    Parser.Lex(); // Consume the prefix separator Slash
+  // Consume the EndOfStatement or the prefix separator Slash
+  if (getLexer().is(AsmToken::EndOfStatement) ||
+      (isPrefix && getLexer().is(AsmToken::Slash)))
+    Parser.Lex();
 
   if (ExtraImmOp && isParsingIntelSyntax())
     Operands.push_back(X86Operand::CreateImm(ExtraImmOp, NameLoc, NameLoc));

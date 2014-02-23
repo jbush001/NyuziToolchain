@@ -161,6 +161,9 @@ namespace llvm {
     /// getCurrentSection() - Return the current section we are emitting to.
     const MCSection *getCurrentSection() const;
 
+    void getNameWithPrefix(SmallVectorImpl<char> &Name,
+                           const GlobalValue *GV) const;
+
     MCSymbol *getSymbol(const GlobalValue *GV) const;
 
     //===------------------------------------------------------------------===//
@@ -475,7 +478,7 @@ namespace llvm {
     /// \p EndInfo   - the final subtarget info after parsing the inline asm,
     ///                or NULL if the value is unknown.
     virtual void emitInlineAsmEnd(const MCSubtargetInfo &StartInfo,
-                                  MCSubtargetInfo *EndInfo) const;
+                                  const MCSubtargetInfo *EndInfo) const;
 
   private:
     /// Private state for PrintSpecial()

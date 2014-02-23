@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef LLD_READER_WRITER_ELF_MIPS_SECTION_CHUNKS_H
-#define LLD_READER_WRITER_ELF_MIPS_SECTION_CHUNKS_H
+#ifndef LLD_READER_WRITER_ELF_MIPS_MIPS_SECTION_CHUNKS_H
+#define LLD_READER_WRITER_ELF_MIPS_MIPS_SECTION_CHUNKS_H
 
 namespace lld {
 namespace elf {
@@ -34,6 +34,9 @@ public:
 
   /// \brief Number of global GOT entries.
   std::size_t getGlobalCount() const { return _globalCount; }
+
+  /// \brief Does the atom have a global GOT entry?
+  bool hasGlobalGOTEntry(const Atom *a) const { return _posMap.count(a); }
 
   /// \brief Compare two atoms accordingly theirs positions in the GOT.
   bool compare(const Atom *a, const Atom *b) const {

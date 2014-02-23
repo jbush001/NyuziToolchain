@@ -127,6 +127,10 @@ function(add_llvm_symbol_exports target_name export_file)
     PROPERTY ADDITIONAL_MAKE_CLEAN_FILES ${native_export_file})
 
   add_dependencies(${target_name} ${target_name}_exports)
+
+  # Add dependency to *_exports later -- CMake issue 14747
+  list(APPEND LLVM_COMMON_DEPENDS ${target_name}_exports)
+  set(LLVM_COMMON_DEPENDS ${LLVM_COMMON_DEPENDS} PARENT_SCOPE)
 endfunction(add_llvm_symbol_exports)
 
 function(add_dead_strip target_name)
@@ -162,42 +166,161 @@ function(set_output_directory target bindir libdir)
   endif()
 endfunction()
 
-macro(add_llvm_library name)
-  llvm_process_sources( ALL_FILES ${ARGN} )
-  add_library( ${name} ${ALL_FILES} )
+# llvm_add_library(name sources...
+#   SHARED;STATIC
+#     STATIC by default w/o BUILD_SHARED_LIBS.
+#     SHARED by default w/  BUILD_SHARED_LIBS.
+#   MODULE
+#     Target ${name} might not be created on unsupported platforms.
+#     Check with "if(TARGET ${name})".
+#   OUTPUT_NAME name
+#     Corresponds to OUTPUT_NAME in target properties.
+#   DEPENDS targets...
+#     Same semantics as add_dependencies().
+#   LINK_COMPONENTS components...
+#     Same as the variable LLVM_LINK_COMPONENTS.
+#   LINK_LIBS lib_targets...
+#     Same semantics as target_link_libraries().
+#   ADDITIONAL_HEADERS
+#     May specify header files for IDE generators.
+#   )
+function(llvm_add_library name)
+  cmake_parse_arguments(ARG
+    "MODULE;SHARED;STATIC"
+    "OUTPUT_NAME"
+    "ADDITIONAL_HEADERS;DEPENDS;LINK_COMPONENTS;LINK_LIBS;OBJLIBS"
+    ${ARGN})
+  list(APPEND LLVM_COMMON_DEPENDS ${ARG_DEPENDS})
+  if(ARG_ADDITIONAL_HEADERS)
+    # Pass through ADDITIONAL_HEADERS.
+    set(ARG_ADDITIONAL_HEADERS ADDITIONAL_HEADERS ${ARG_ADDITIONAL_HEADERS})
+  endif()
+  if(ARG_OBJLIBS)
+    set(ALL_FILES ${ARG_OBJLIBS})
+  else()
+    llvm_process_sources(ALL_FILES ${ARG_UNPARSED_ARGUMENTS} ${ARG_ADDITIONAL_HEADERS})
+  endif()
+
+  if(ARG_MODULE)
+    if(ARG_SHARED OR ARG_STATIC)
+      message(WARNING "MODULE with SHARED|STATIC doesn't make sense.")
+    endif()
+    if(NOT LLVM_ON_UNIX OR CYGWIN)
+      message(STATUS "${name} ignored -- Loadable modules not supported on this platform.")
+      return()
+    endif()
+  else()
+    if(BUILD_SHARED_LIBS AND NOT ARG_STATIC)
+      set(ARG_SHARED TRUE)
+    endif()
+    if(NOT ARG_SHARED)
+      set(ARG_STATIC TRUE)
+    endif()
+  endif()
+
+  # Generate objlib
+  if(ARG_SHARED AND ARG_STATIC)
+    # Generate an obj library for both targets.
+    set(obj_name "obj.${name}")
+    add_library(${obj_name} OBJECT EXCLUDE_FROM_ALL
+      ${ALL_FILES}
+      )
+    llvm_update_compile_flags(${obj_name})
+    set(ALL_FILES "$<TARGET_OBJECTS:${obj_name}>")
+
+    # Do add_dependencies(obj) later due to CMake issue 14747.
+    list(APPEND objlibs ${obj_name})
+
+    set_target_properties(${obj_name} PROPERTIES FOLDER "Object Libraries")
+  endif()
+
+  if(ARG_SHARED AND ARG_STATIC)
+    # static
+    set(name_static "${name}_static")
+    if(ARG_OUTPUT_NAME)
+      set(output_name OUTPUT_NAME "${ARG_OUTPUT_NAME}_static")
+    endif()
+    # DEPENDS has been appended to LLVM_COMMON_LIBS.
+    llvm_add_library(${name_static} STATIC
+      ${output_name}
+      OBJLIBS ${ALL_FILES} # objlib
+      LINK_LIBS ${ARG_LINK_LIBS}
+      LINK_COMPONENTS ${ARG_LINK_COMPONENTS}
+      )
+    # FIXME: Add name_static to anywhere in TARGET ${name}'s PROPERTY.
+    set(ARG_STATIC)
+  endif()
+
+  if(ARG_MODULE)
+    add_library(${name} MODULE ${ALL_FILES})
+  elseif(ARG_SHARED)
+    add_library(${name} SHARED ${ALL_FILES})
+  else()
+    add_library(${name} STATIC ${ALL_FILES})
+  endif()
   set_output_directory(${name} ${LLVM_RUNTIME_OUTPUT_INTDIR} ${LLVM_LIBRARY_OUTPUT_INTDIR})
-  set_property( GLOBAL APPEND PROPERTY LLVM_LIBS ${name} )
   llvm_update_compile_flags(${name})
   add_dead_strip( ${name} )
-  if( LLVM_COMMON_DEPENDS )
-    add_dependencies( ${name} ${LLVM_COMMON_DEPENDS} )
-  endif( LLVM_COMMON_DEPENDS )
+  if(ARG_OUTPUT_NAME)
+    set_target_properties(${name}
+      PROPERTIES
+      OUTPUT_NAME ${ARG_OUTPUT_NAME}
+      )
+  endif()
 
-  if( BUILD_SHARED_LIBS )
-    llvm_config( ${name} ${LLVM_LINK_COMPONENTS} )
+  if(ARG_MODULE)
+    set_target_properties(${name} PROPERTIES
+      PREFIX ""
+      SUFFIX ${LLVM_PLUGIN_EXT}
+      )
+  endif()
+
+  if(ARG_SHARED)
     if (MSVC)
       set_target_properties(${name}
         PROPERTIES
         IMPORT_SUFFIX ".imp")
     endif ()
+  endif()
 
+  if(ARG_MODULE OR ARG_SHARED)
     if (LLVM_EXPORTED_SYMBOL_FILE)
       add_llvm_symbol_exports( ${name} ${LLVM_EXPORTED_SYMBOL_FILE} )
     endif()
   endif()
 
-  # Ensure that the system libraries always comes last on the
-  # list. Without this, linking the unit tests on MinGW fails.
-  link_system_libs( ${name} )
+  target_link_libraries(${name} ${ARG_LINK_LIBS})
+
+  llvm_config(${name} ${ARG_LINK_COMPONENTS} ${LLVM_LINK_COMPONENTS})
+
+  if(LLVM_COMMON_DEPENDS)
+    add_dependencies(${name} ${LLVM_COMMON_DEPENDS})
+    # Add dependencies also to objlibs.
+    # CMake issue 14747 --  add_dependencies() might be ignored to objlib's user.
+    foreach(objlib ${objlibs})
+      add_dependencies(${objlib} ${LLVM_COMMON_DEPENDS})
+    endforeach()
+  endif()
+endfunction()
+
+macro(add_llvm_library name)
+  if( BUILD_SHARED_LIBS )
+    llvm_add_library(${name} SHARED ${ARGN})
+  else()
+    llvm_add_library(${name} ${ARGN})
+  endif()
+  set_property( GLOBAL APPEND PROPERTY LLVM_LIBS ${name} )
 
   if( EXCLUDE_FROM_ALL )
     set_target_properties( ${name} PROPERTIES EXCLUDE_FROM_ALL ON)
   else()
     if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY OR ${name} STREQUAL "LTO")
       install(TARGETS ${name}
+        EXPORT LLVMExports
         LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
         ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX})
     endif()
+    set_property(GLOBAL APPEND PROPERTY LLVM_EXPORTS ${name})
   endif()
   set_target_properties(${name} PROPERTIES FOLDER "Libraries")
 
@@ -211,50 +334,21 @@ macro(add_llvm_library name)
 endmacro(add_llvm_library name)
 
 macro(add_llvm_loadable_module name)
-  if( NOT LLVM_ON_UNIX OR CYGWIN )
-    message(STATUS "Loadable modules not supported on this platform.
-${name} ignored.")
+  llvm_add_library(${name} MODULE ${ARGN})
+  if(NOT TARGET ${name})
     # Add empty "phony" target
     add_custom_target(${name})
   else()
-    llvm_process_sources( ALL_FILES ${ARGN} )
-    if (MODULE)
-      set(libkind MODULE)
-    else()
-      set(libkind SHARED)
-    endif()
-
-    add_library( ${name} ${libkind} ${ALL_FILES} )
-    set_output_directory(${name} ${LLVM_RUNTIME_OUTPUT_INTDIR} ${LLVM_LIBRARY_OUTPUT_INTDIR})
-    set_target_properties( ${name} PROPERTIES PREFIX "" )
-    llvm_update_compile_flags(${name})
-    add_dead_strip( ${name} )
-
-    if (LLVM_EXPORTED_SYMBOL_FILE)
-      add_llvm_symbol_exports( ${name} ${LLVM_EXPORTED_SYMBOL_FILE} )
-    endif(LLVM_EXPORTED_SYMBOL_FILE)
-
-    llvm_config( ${name} ${LLVM_LINK_COMPONENTS} )
-    link_system_libs( ${name} )
-
-    if (APPLE)
-      # Darwin-specific linker flags for loadable modules.
-      set_property(TARGET ${name} APPEND_STRING PROPERTY
-        LINK_FLAGS " -Wl,-flat_namespace -Wl,-undefined -Wl,suppress")
-    endif()
-
-    if (MODULE)
-      set_property(TARGET ${name} PROPERTY SUFFIX ${LLVM_PLUGIN_EXT})
-    endif ()
-
     if( EXCLUDE_FROM_ALL )
       set_target_properties( ${name} PROPERTIES EXCLUDE_FROM_ALL ON)
     else()
       if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
         install(TARGETS ${name}
+          EXPORT LLVMExports
           LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
           ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX})
       endif()
+      set_property(GLOBAL APPEND PROPERTY LLVM_EXPORTS ${name})
     endif()
   endif()
 
@@ -282,7 +376,6 @@ macro(add_llvm_executable name)
   if( LLVM_COMMON_DEPENDS )
     add_dependencies( ${name} ${LLVM_COMMON_DEPENDS} )
   endif( LLVM_COMMON_DEPENDS )
-  link_system_libs( ${name} )
 endmacro(add_llvm_executable name)
 
 
@@ -301,8 +394,13 @@ macro(add_llvm_tool name)
   list(FIND LLVM_TOOLCHAIN_TOOLS ${name} LLVM_IS_${name}_TOOLCHAIN_TOOL)
   if (LLVM_IS_${name}_TOOLCHAIN_TOOL GREATER -1 OR NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
     if( LLVM_BUILD_TOOLS )
-      install(TARGETS ${name} RUNTIME DESTINATION bin)
+      install(TARGETS ${name}
+              EXPORT LLVMExports
+              RUNTIME DESTINATION bin)
     endif()
+  endif()
+  if( LLVM_BUILD_TOOLS )
+    set_property(GLOBAL APPEND PROPERTY LLVM_EXPORTS ${name})
   endif()
   set_target_properties(${name} PROPERTIES FOLDER "Tools")
 endmacro(add_llvm_tool name)

@@ -512,9 +512,9 @@ template <typename T> static bool isFirstInExternCContext(T *D) {
   return First->isInExternCContext();
 }
 
-static bool isSingleLineExternC(const Decl &D) {
+static bool isSingleLineLanguageLinkage(const Decl &D) {
   if (const LinkageSpecDecl *SD = dyn_cast<LinkageSpecDecl>(D.getDeclContext()))
-    if (SD->getLanguage() == LinkageSpecDecl::lang_c && !SD->hasBraces())
+    if (!SD->hasBraces())
       return true;
   return false;
 }
@@ -548,7 +548,7 @@ static LinkageInfo getLVForNamespaceScopeDecl(const NamedDecl *D,
 
       if (Var->getStorageClass() != SC_Extern &&
           Var->getStorageClass() != SC_PrivateExtern &&
-          !isSingleLineExternC(*Var))
+          !isSingleLineLanguageLinkage(*Var))
         return LinkageInfo::internal();
     }
 
@@ -1569,7 +1569,9 @@ bool typeIsPostfix(clang::QualType QT) {
 SourceRange DeclaratorDecl::getSourceRange() const {
   SourceLocation RangeEnd = getLocation();
   if (TypeSourceInfo *TInfo = getTypeSourceInfo()) {
-    if (typeIsPostfix(TInfo->getType()))
+    // If the declaration has no name or the type extends past the name take the
+    // end location of the type.
+    if (!getDeclName() || typeIsPostfix(TInfo->getType()))
       RangeEnd = TInfo->getTypeLoc().getSourceRange().getEnd();
   }
   return SourceRange(getOuterLocStart(), RangeEnd);
@@ -1769,7 +1771,7 @@ VarDecl::DefinitionKind VarDecl::isThisDeclarationADefinition(
   //   A declaration directly contained in a linkage-specification is treated
   //   as if it contains the extern specifier for the purpose of determining
   //   the linkage of the declared name and whether it is a definition.
-  if (isSingleLineExternC(*this))
+  if (isSingleLineLanguageLinkage(*this))
     return DeclarationOnly;
 
   // C99 6.9.2p2:

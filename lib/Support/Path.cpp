@@ -15,6 +15,7 @@
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Process.h"
 #include <cctype>
 #include <cstdio>
 #include <cstring>
@@ -507,8 +508,9 @@ bool is_separator(char value) {
 void system_temp_directory(bool erasedOnReboot, SmallVectorImpl<char> &result) {
   result.clear();
 
-#ifdef __APPLE__
+#if defined(_CS_DARWIN_USER_TEMP_DIR) && defined(_CS_DARWIN_USER_CACHE_DIR)
   // On Darwin, use DARWIN_USER_TEMP_DIR or DARWIN_USER_CACHE_DIR.
+  // macros defined in <unistd.h> on darwin >= 9
   int ConfName = erasedOnReboot? _CS_DARWIN_USER_TEMP_DIR
                                : _CS_DARWIN_USER_CACHE_DIR;
   size_t ConfLen = confstr(ConfName, 0, 0);
@@ -749,20 +751,27 @@ error_code make_absolute(SmallVectorImpl<char> &path) {
                    "occurred above!");
 }
 
-error_code create_directories(const Twine &path, bool &existed) {
-  SmallString<128> path_storage;
-  StringRef p = path.toStringRef(path_storage);
+error_code create_directories(const Twine &Path, bool IgnoreExisting) {
+  SmallString<128> PathStorage;
+  StringRef P = Path.toStringRef(PathStorage);
 
-  StringRef parent = path::parent_path(p);
-  if (!parent.empty()) {
-    bool parent_exists;
-    if (error_code ec = fs::exists(parent, parent_exists)) return ec;
+  // Be optimistic and try to create the directory
+  error_code EC = create_directory(P, IgnoreExisting);
+  // If we succeeded, or had any error other than the parent not existing, just
+  // return it.
+  if (EC != errc::no_such_file_or_directory)
+    return EC;
 
-    if (!parent_exists)
-      if (error_code ec = create_directories(parent, existed)) return ec;
-  }
+  // We failed because of a no_such_file_or_directory, try to create the
+  // parent.
+  StringRef Parent = path::parent_path(P);
+  if (Parent.empty())
+    return EC;
 
-  return create_directory(p, existed);
+  if ((EC = create_directories(Parent)))
+      return EC;
+
+  return create_directory(P, IgnoreExisting);
 }
 
 bool exists(file_status status) {

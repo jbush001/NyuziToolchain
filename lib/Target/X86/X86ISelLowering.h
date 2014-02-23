@@ -245,11 +245,8 @@ namespace llvm {
       /// the list of operands.
       TC_RETURN,
 
-      // VZEXT_MOVL - Vector move low and zero extend.
+      // VZEXT_MOVL - Vector move to low scalar and zero higher vector elements.
       VZEXT_MOVL,
-
-      // VSEXT_MOVL - Vector move low and sign extend.
-      VSEXT_MOVL,
 
       // VZEXT - Vector integer zero-extend.
       VZEXT,
@@ -295,9 +292,6 @@ namespace llvm {
       ADD, SUB, ADC, SBB, SMUL,
       INC, DEC, OR, XOR, AND,
 
-      BLSI,   // BLSI - Extract lowest set isolated bit
-      BLSMSK, // BLSMSK - Get mask up to lowest set bit
-      BLSR,   // BLSR - Reset lowest set bit
       BZHI,   // BZHI - Zero high bits
       BEXTR,  // BEXTR - Bit field extract
 
@@ -312,8 +306,9 @@ namespace llvm {
       // TESTP - Vector packed fp sign bitwise comparisons.
       TESTP,
 
-      // TESTM - Vector "test" in AVX-512, the result is in a mask vector.
+      // TESTM, TESTNM - Vector "test" in AVX-512, the result is in a mask vector.
       TESTM,
+      TESTNM,
 
       // OR/AND test for masks
       KORTEST,
@@ -345,7 +340,9 @@ namespace llvm {
       VBROADCAST,
       // masked broadcast
       VBROADCASTM,
+      // Insert/Extract vector element
       VINSERT,
+      VEXTRACT,
 
       // PMULUDQ - Vector multiply packed unsigned doubleword integers
       PMULUDQ,
@@ -579,7 +576,8 @@ namespace llvm {
     /// allowsUnalignedMemoryAccesses - Returns true if the target allows
     /// unaligned memory accesses. of the specified type. Returns whether it
     /// is "fast" by reference in the second argument.
-    virtual bool allowsUnalignedMemoryAccesses(EVT VT, bool *Fast) const;
+    virtual bool allowsUnalignedMemoryAccesses(EVT VT, unsigned AS,
+                                               bool *Fast) const;
 
     /// LowerOperation - Provide custom lowering hooks for some operations.
     ///
@@ -680,6 +678,9 @@ namespace llvm {
     /// add a register and the immediate without having to materialize
     /// the immediate into a register.
     virtual bool isLegalAddImmediate(int64_t Imm) const;
+
+
+    virtual bool isVectorShiftByScalarCheap(Type *Ty) const;
 
     /// isTruncateFree - Return true if it's free to truncate a value of
     /// type Ty1 to type Ty2. e.g. On x86 it's free to truncate a i32 value in
