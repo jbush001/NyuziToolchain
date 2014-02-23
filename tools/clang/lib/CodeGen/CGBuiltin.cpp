@@ -5076,12 +5076,12 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 			F = CGM.getIntrinsic(Intrinsic::vp_shufflef);
 			break;
 		
-		case VectorProc::BI__builtin_vp_blendi:
-			F = CGM.getIntrinsic(Intrinsic::vp_blendi);
+		case VectorProc::BI__builtin_vp_vector_mixi:
+			F = CGM.getIntrinsic(Intrinsic::vp_vector_mixi);
 			break;
 
-		case VectorProc::BI__builtin_vp_blendf:
-			F = CGM.getIntrinsic(Intrinsic::vp_blendf);
+		case VectorProc::BI__builtin_vp_vector_mixf:
+			F = CGM.getIntrinsic(Intrinsic::vp_vector_mixf);
 			break;
 
 		case VectorProc::BI__builtin_vp_gather_loadi:

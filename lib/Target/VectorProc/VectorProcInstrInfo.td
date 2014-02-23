@@ -158,7 +158,7 @@ let Constraints = "$dest = $oldvalue" in {
 		(outs VR512:$dest),
 		(ins GPR32:$mask, VR512:$src1, VR512:$src2, VR512:$oldvalue),
 		"shuffle_mask $dest, $mask, $src1, $src2",
-		[(set v16i32:$dest, (int_vp_blendi i32:$mask, (int_vp_shufflei v16i32:$src1, 
+		[(set v16i32:$dest, (int_vp_vector_mixi i32:$mask, (int_vp_shufflei v16i32:$src1, 
 			v16i32:$src2), v16i32:$oldvalue))],
 		0x0d,
 		FmtA_VVVM>;
@@ -167,7 +167,7 @@ let Constraints = "$dest = $oldvalue" in {
 		(outs VR512:$dest),
 		(ins GPR32:$mask, VR512:$src1, VR512:$src2, VR512:$oldvalue),
 		"shuffle_invmask $dest, $mask, $src1, $src2",
-		[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), (int_vp_shufflei v16i32:$src1, 
+		[(set v16i32:$dest, (int_vp_vector_mixi (not i32:$mask), (int_vp_shufflei v16i32:$src1, 
 			v16i32:$src2), v16i32:$oldvalue))],
 		0x0d,
 		FmtA_VVVMinv>;
@@ -176,10 +176,10 @@ let Constraints = "$dest = $oldvalue" in {
 // Floating point shuffle forms
 def : Pat<(int_vp_shufflef v16f32:$src1, v16i32:$src2), 
 	(SHUFFLEI v16f32:$src1, v16i32:$src2)>;
-def : Pat<(int_vp_blendf i32:$mask, (int_vp_shufflef v16f32:$src1, v16i32:$src2), 
+def : Pat<(int_vp_vector_mixf i32:$mask, (int_vp_shufflef v16f32:$src1, v16i32:$src2), 
 	v16f32:$oldvalue), 
 	(SHUFFLEI_MASK i32:$mask, v16f32:$src1, v16i32:$src2, v16f32:$oldvalue)>;
-def : Pat<(int_vp_blendf (not i32:$mask), (int_vp_shufflef v16f32:$src1, v16i32:$src2), 
+def : Pat<(int_vp_vector_mixf (not i32:$mask), (int_vp_shufflef v16f32:$src1, v16i32:$src2), 
 	v16f32:$oldvalue), 
 	(SHUFFLEI_MASKinv i32:$mask, v16f32:$src1, v16i32:$src2, v16f32:$oldvalue)>;
 
@@ -234,7 +234,7 @@ let Constraints = "$dest = $oldvalue" in {
 		(outs VR512:$dest),
 		(ins GPR32:$mask, VR512:$src2, VR512:$oldvalue),
 		"move_mask $dest, $mask, $src2",
-		[(set v16i32:$dest, (int_vp_blendi i32:$mask, v16i32:$src2, v16i32:$oldvalue))],
+		[(set v16i32:$dest, (int_vp_vector_mixi i32:$mask, v16i32:$src2, v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVVM>;
 
@@ -242,7 +242,7 @@ let Constraints = "$dest = $oldvalue" in {
 		(outs VR512:$dest),
 		(ins GPR32:$mask, i32imm:$imm, VR512:$oldvalue),
 		"move_mask $dest, $mask, $imm",
-		[(set v16i32:$dest, (int_vp_blendi i32:$mask, (splat imm:$imm), v16i32:$oldvalue))],
+		[(set v16i32:$dest, (int_vp_vector_mixi i32:$mask, (splat imm:$imm), v16i32:$oldvalue))],
 		0xf,
 		FmtB_VSM>;
 
@@ -250,7 +250,7 @@ let Constraints = "$dest = $oldvalue" in {
 		(outs VR512:$dest),
 		(ins GPR32:$mask, VR512:$src2, VR512:$oldvalue),
 		"move_invmask $dest, $mask, $src2",
-		[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), v16i32:$src2, v16i32:$oldvalue))],
+		[(set v16i32:$dest, (int_vp_vector_mixi (not i32:$mask), v16i32:$src2, v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVVMinv>;
 
@@ -258,7 +258,7 @@ let Constraints = "$dest = $oldvalue" in {
 		(outs VR512:$dest),
 		(ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
 		"move_mask $dest, $mask, $src2",
-		[(set v16i32:$dest, (int_vp_blendi i32:$mask, (splat i32:$src2), v16i32:$oldvalue))],
+		[(set v16i32:$dest, (int_vp_vector_mixi i32:$mask, (splat i32:$src2), v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVSM>;
 
@@ -266,18 +266,18 @@ let Constraints = "$dest = $oldvalue" in {
 		(outs VR512:$dest),
 		(ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
 		"move_invmask $dest, $mask, $src2",
-		[(set v16i32:$dest, (int_vp_blendi (not i32:$mask), (splat i32:$src2), v16i32:$oldvalue))],
+		[(set v16i32:$dest, (int_vp_vector_mixi (not i32:$mask), (splat i32:$src2), v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVSMinv>;
 }
 
-def : Pat<(int_vp_blendf i32:$mask, v16f32:$src2, v16f32:$oldvalue), 
+def : Pat<(int_vp_vector_mixf i32:$mask, v16f32:$src2, v16f32:$oldvalue), 
 	(MOVEVVMI i32:$mask, v16f32:$src2, v16f32:$oldvalue)>;
-def : Pat<(int_vp_blendf (not i32:$mask), v16f32:$src2, v16f32:$oldvalue), 
+def : Pat<(int_vp_vector_mixf (not i32:$mask), v16f32:$src2, v16f32:$oldvalue), 
 	(MOVEVVMIinv i32:$mask, v16f32:$src2, v16f32:$oldvalue)>;
-def : Pat<(int_vp_blendf i32:$mask, (splat f32:$src2), v16f32:$oldvalue),
+def : Pat<(int_vp_vector_mixf i32:$mask, (splat f32:$src2), v16f32:$oldvalue),
 	(MOVEVSMI i32:$mask, f32:$src2, v16f32:$oldvalue)>; 
-def : Pat<(int_vp_blendf (not i32:$mask), (splat f32:$src2), v16f32:$oldvalue),
+def : Pat<(int_vp_vector_mixf (not i32:$mask), (splat f32:$src2), v16f32:$oldvalue),
 	(MOVEVSMIinv i32:$mask, f32:$src2, v16f32:$oldvalue)>; 
 
 //////////////////////////////////////////////////////////////////

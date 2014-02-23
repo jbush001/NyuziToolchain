@@ -601,7 +601,7 @@ VectorProcTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op,
                   Op.getOperand(2));
   SDValue Splat = DAG.getNode(VectorProcISD::SPLAT, DL, VT, Op.getOperand(1));
   return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, VT,
-                     DAG.getConstant(Intrinsic::vp_blendi, MVT::i32), Mask,
+                     DAG.getConstant(Intrinsic::vp_vector_mixi, MVT::i32), Mask,
                      Splat, Op.getOperand(0));
 }
 
@@ -1010,7 +1010,7 @@ SDValue VectorProcTargetLowering::LowerSIGN_EXTEND_INREG(SDValue Op,
                              DAG.getConstant(intrinsic, MVT::i32), 
                              SetCcOp.getOperand(0), SetCcOp.getOperand(1));
   return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32,
-                     DAG.getConstant(Intrinsic::vp_blendi, MVT::i32), Mask,
+                     DAG.getConstant(Intrinsic::vp_vector_mixi, MVT::i32), Mask,
                      TrueVal, FalseVal);
 }
 

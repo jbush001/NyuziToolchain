@@ -58,11 +58,11 @@ def int_vp_block_storef_masked : Intrinsic<[], [v16i32_ptr_ty, llvm_v16f32_ty, l
 	[IntrReadWriteArgMem], "llvm.vectorproc.__builtin_vp_block_storef_masked">;
 
 // The blend pattern is a pseudo-instruction used to encode masked operations
-def int_vp_blendi : Intrinsic<[llvm_v16i32_ty], [llvm_i32_ty, llvm_v16i32_ty, 
-	llvm_v16i32_ty], [IntrNoMem], "llvm.vectorproc.__builtin_vp_blendi">;
+def int_vp_vector_mixi : Intrinsic<[llvm_v16i32_ty], [llvm_i32_ty, llvm_v16i32_ty, 
+	llvm_v16i32_ty], [IntrNoMem], "llvm.vectorproc.__builtin_vp_vector_mixi">;
 
-def int_vp_blendf : Intrinsic<[llvm_v16f32_ty], [llvm_i32_ty, llvm_v16f32_ty,
-	llvm_v16f32_ty], [IntrNoMem], "llvm.vectorproc.__builtin_vp_blendf">;
+def int_vp_vector_mixf : Intrinsic<[llvm_v16f32_ty], [llvm_i32_ty, llvm_v16f32_ty,
+	llvm_v16f32_ty], [IntrNoMem], "llvm.vectorproc.__builtin_vp_vector_mixf">;
 
 // Shuffle vector elements
 def int_vp_shufflei : Intrinsic<[llvm_v16i32_ty], [llvm_v16i32_ty, llvm_v16i32_ty],
