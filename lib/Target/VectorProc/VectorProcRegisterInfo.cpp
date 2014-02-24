@@ -107,7 +107,7 @@ void VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
   } else {
     // XXX for large indices, need to load indirectly. Look at ARM.
-    llvm_unreachable("frame index out of bounds, not implemented");
+    report_fatal_error("frame index out of bounds, large stack frames not supported");
   }
 }
 

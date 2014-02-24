@@ -175,7 +175,7 @@ SDValue VectorProcTargetLowering::LowerFormalArguments(
 
   // Here is where variable arguments would be handled.
   if (isVarArg) {
-    llvm_unreachable("variable arguments not implemented yet");
+    report_fatal_error("variable arguments not implemented yet");
   }
 
   return Chain;
@@ -979,7 +979,7 @@ static Intrinsic::ID intrinsicForVectorCompare(ISD::CondCode CC, bool isFloat) {
     }    
   }
 
-  llvm_unreachable("intrinsicForVectorCompare: unhandled compare code");
+  llvm_unreachable("unhandled compare code");
 }
 
 //
@@ -1116,7 +1116,7 @@ MachineBasicBlock *VectorProcTargetLowering::EmitInstrWithCustomInserter(
     return EmitAtomicCmpSwap(MI, BB);
 
   default:
-    llvm_unreachable("unimplemented atomic operation");
+    llvm_unreachable("unknown atomic operation");
   }
 }
 

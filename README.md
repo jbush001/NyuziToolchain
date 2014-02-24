@@ -88,10 +88,15 @@ Once built, the toolchain will be installed into /usr/local/llvm-vectorproc
 * the test can be run as follows (assuming you are at the top of the project directory)
 
 <pre>
-  llvm-lit test/CodeGen/VectorProc
-  llvm-lit test/MC/VectorProc
+  llvm-lit test
   llvm-lit tools/clang/test/CodeGen/vectorproc*
 </pre>
+
+Note that four tests will fail in the LLVM test suite because of known limitations: 
+* CodeGen/Generic/2002-04-16-StackFrameSizeAlignment.ll
+* CodeGen/Generic/2007-04-08-MultipleFrameIndices.ll
+* CodeGen/Generic/2010-11-04-BigByval.ll
+* CodeGen/Generic/APIntLoadStore.ll
 
 ## Running whole program tests
 

@@ -284,7 +284,8 @@ void VectorProcInstrInfo::adjustStackPointer(MachineBasicBlock &MBB,
     Instr = VectorProc::ADDISSI;
   
   DebugLoc DL(MBBI->getDebugLoc());
-  assert(Amount < 0x2000 && "stack adjust out of range");
+  if (Amount >= 0x2000)
+    report_fatal_error("Stack frame too large: not yet supported");
   
   BuildMI(MBB, MBBI, DL, get(Instr), VectorProc::SP_REG)
     .addReg(VectorProc::SP_REG)
