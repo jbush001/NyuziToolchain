@@ -42,15 +42,19 @@ struct VectorProcRegisterInfo : public VectorProcGenRegisterInfo {
   const TargetRegisterClass *getPointerRegClass(const MachineFunction &MF,
                                                 unsigned Kind) const;
 
-  void eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
+  virtual void eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
                            unsigned FIOperandNum,
                            RegScavenger *RS = NULL) const;
 
-  void processFunctionBeforeFrameFinalized(MachineFunction &MF,
-                                           RegScavenger *RS = NULL) const;
-
   // Debug information queries.
   unsigned getFrameRegister(const MachineFunction &MF) const;
+
+  virtual bool requiresRegisterScavenging(const MachineFunction &MF) const;
+
+  virtual bool trackLivenessAfterRegAlloc(const MachineFunction &MF) const;
+
+  virtual bool requiresFrameIndexScavenging(const MachineFunction &MF) const;
+
 };
 
 } // end namespace llvm

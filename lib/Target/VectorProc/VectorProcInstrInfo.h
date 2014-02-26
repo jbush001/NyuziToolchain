@@ -106,6 +106,9 @@ public:
   
   void adjustStackPointer(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                    int Amount) const;
+  unsigned int loadConstant(MachineBasicBlock &MBB, 
+                             MachineBasicBlock::iterator MBBI,
+                             int Amount) const;
 };
 }
 

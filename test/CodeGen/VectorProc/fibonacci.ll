@@ -4,7 +4,7 @@ target triple = "vectorproc"
 
 define i32 @fib(i32 %a) #0 {	; CHECK: fib:
 entry:
-	; CHECK: sub_i sp, sp, 
+	; CHECK: add_i sp, sp, -
 
   %cmp = icmp sge i32 %a, 2				
   br i1 %cmp, label %if.then, label %return

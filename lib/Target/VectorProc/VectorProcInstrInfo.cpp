@@ -275,19 +275,56 @@ void VectorProcInstrInfo::loadRegFromStack(MachineBasicBlock &MBB,
 void VectorProcInstrInfo::adjustStackPointer(MachineBasicBlock &MBB, 
                                       MachineBasicBlock::iterator MBBI,
                                       int Amount) const {
-  unsigned int Instr;
-  if (Amount < 0) {
-    Amount = -Amount;
-    Instr = VectorProc::SUBISSI;
+  DebugLoc DL(MBBI->getDebugLoc());
+  if (isInt<13>(Amount))
+  {
+    BuildMI(MBB, MBBI, DL, get(VectorProc::ADDISSI), VectorProc::SP_REG)
+      .addReg(VectorProc::SP_REG)
+      .addImm(Amount);
   }
   else
-    Instr = VectorProc::ADDISSI;
-  
-  DebugLoc DL(MBBI->getDebugLoc());
-  if (Amount >= 0x2000)
-    report_fatal_error("Stack frame too large: not yet supported");
-  
-  BuildMI(MBB, MBBI, DL, get(Instr), VectorProc::SP_REG)
-    .addReg(VectorProc::SP_REG)
-    .addImm(Amount);
+  {
+    unsigned int OffsetReg = loadConstant(MBB, MBBI, Amount);
+    BuildMI(MBB, MBBI, DL, get(VectorProc::ADDISSI))
+        .addReg(VectorProc::SP_REG)
+        .addReg(VectorProc::SP_REG)
+        .addReg(OffsetReg);
+  }
 }
+
+unsigned int VectorProcInstrInfo::loadConstant(MachineBasicBlock &MBB, 
+                                                MachineBasicBlock::iterator MBBI,
+                                                int Value) const {
+
+  MachineRegisterInfo &RegInfo = MBB.getParent()->getRegInfo();
+  DebugLoc DL = MBBI->getDebugLoc();
+  unsigned Reg = RegInfo.createVirtualRegister(&VectorProc::GPR32RegClass);
+
+  if (!isInt<24>(Value))
+    report_fatal_error("loadImmediate: unsupported offset");
+  
+  if (isInt<13>(Value)) {
+    // Can load directly into this register
+    BuildMI(MBB, MBBI, DL, get(VectorProc::MOVESimm))
+        .addReg(Reg)
+        .addImm(Value >> 12);
+  } else {
+    // Load bits 23-12 into register
+    BuildMI(MBB, MBBI, DL, get(VectorProc::MOVESimm), Reg)
+        .addImm(Value >> 12);
+    BuildMI(MBB, MBBI, DL, get(VectorProc::SLLSSS))
+        .addReg(Reg)
+        .addReg(Reg)
+        .addImm(12);
+
+    // Load bits 11-0 into register (note we only load 12 bits because we
+    // don't want sign extension)
+    BuildMI(MBB, MBBI, DL, get(VectorProc::ORSSI))
+        .addReg(Reg)
+        .addReg(Reg)
+        .addImm(Value & 0xfff);
+  }
+
+  return Reg;
+}
+

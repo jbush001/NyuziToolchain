@@ -21,6 +21,7 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/RegisterScavenging.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Function.h"
 #include "llvm/Support/CommandLine.h"
@@ -163,8 +164,55 @@ void VectorProcFrameLowering::eliminateCallFramePseudoInstr(
   MBB.erase(MBBI);
 }
 
+uint64_t VectorProcFrameLowering::estimateStackSize(const MachineFunction &MF) const {
+  const MachineFrameInfo *MFI = MF.getFrameInfo();
+  const TargetRegisterInfo &TRI = *MF.getTarget().getRegisterInfo();
+
+  int64_t Offset = 0;
+
+  // Iterate over fixed sized objects.
+  for (int I = MFI->getObjectIndexBegin(); I != 0; ++I)
+    Offset = std::max(Offset, -MFI->getObjectOffset(I));
+
+  // Conservatively assume all callee-saved registers will be saved.
+  for (const uint16_t *R = TRI.getCalleeSavedRegs(&MF); *R; ++R) {
+    unsigned Size = TRI.getMinimalPhysRegClass(*R)->getSize();
+    Offset = RoundUpToAlignment(Offset + Size, Size);
+  }
+
+  unsigned MaxAlign = MFI->getMaxAlignment();
+
+  // Check that MaxAlign is not zero if there is a stack object that is not a
+  // callee-saved spill.
+  assert(!MFI->getObjectIndexEnd() || MaxAlign);
+
+  // Iterate over other objects.
+  for (unsigned I = 0, E = MFI->getObjectIndexEnd(); I != E; ++I)
+    Offset = RoundUpToAlignment(Offset + MFI->getObjectSize(I), MaxAlign);
+
+  // Call frame.
+  if (MFI->adjustsStack() && hasReservedCallFrame(MF))
+    Offset = RoundUpToAlignment(Offset + MFI->getMaxCallFrameSize(),
+                                std::max(MaxAlign, getStackAlignment()));
+
+  return RoundUpToAlignment(Offset, getStackAlignment());
+}
+
 void VectorProcFrameLowering::processFunctionBeforeCalleeSavedScan(
     MachineFunction &MF, RegScavenger *RS) const {
   if (hasFP(MF))
     MF.getRegInfo().setPhysRegUsed(VectorProc::FP_REG);
+
+  // The register scavenger allows us to allocate virtual registers
+  // during epilogue/prologue insertion, after register allocation has
+  // run. We only need to do this if the frame is to large to be
+  // addressed by immediate offsets. If it isn't, don't bother creating
+  // a stack slot for it.
+  if (estimateStackSize(MF) < 0x2000)
+    return;
+
+  const TargetRegisterClass *RC = &VectorProc::GPR32RegClass;
+  int FI = MF.getFrameInfo()->CreateStackObject(RC->getSize(),
+                                                RC->getAlignment(), false);
+  RS->addScavengingFrameIndex(FI);
 }

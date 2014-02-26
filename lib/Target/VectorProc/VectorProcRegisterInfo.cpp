@@ -14,6 +14,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "VectorProcRegisterInfo.h"
+#include "VectorProcInstrInfo.h"
 #include "VectorProc.h"
 #include "VectorProcSubtarget.h"
 #include "llvm/ADT/BitVector.h"
@@ -21,6 +22,7 @@
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Target/TargetInstrInfo.h"
@@ -62,13 +64,14 @@ VectorProcRegisterInfo::getPointerRegClass(const MachineFunction &MF,
   return &VectorProc::GPR32RegClass;
 }
 
-void VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
+void VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBBI,
                                                  int SPAdj,
                                                  unsigned FIOperandNum,
                                                  RegScavenger *RS) const {
+
   assert(SPAdj == 0 && "Unexpected");
 
-  MachineInstr &MI = *II;
+  MachineInstr &MI = *MBBI;
   int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
   MachineFunction &MF = *MI.getParent()->getParent();
   MachineFrameInfo *MFI = MF.getFrameInfo();
@@ -100,15 +103,32 @@ void VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     FrameReg = getFrameRegister(MF);
 
   // Replace frame index with a frame pointer reference.
-  if (Offset >= -16384 && Offset <= 16384) {
+  if (isInt<13>(Offset)) {
     // If the offset is small enough to fit in the immediate field, directly
     // encode it.
     MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, false);
     MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
-  } else {
-    // XXX for large indices, need to load indirectly. Look at ARM.
-    report_fatal_error("frame index out of bounds, large stack frames not supported");
+  } else if (isInt<25>(Offset)){
+    DebugLoc DL = MBBI->getDebugLoc();
+    MachineBasicBlock &MBB = *MBBI->getParent();
+    const VectorProcInstrInfo &TII =
+        *static_cast<const VectorProcInstrInfo*>(MBB.getParent()->getTarget().getInstrInfo());
+
+    MachineRegisterInfo &RegInfo = MBB.getParent()->getRegInfo();
+    unsigned Reg = RegInfo.createVirtualRegister(&VectorProc::GPR32RegClass);
+    BuildMI(MBB, MBBI, DL, TII.get(VectorProc::MOVESimm), Reg)
+        .addImm(Offset >> 12);
+    BuildMI(MBB, MBBI, DL, TII.get(VectorProc::SLLSSS), Reg)
+        .addReg(Reg)
+        .addImm(12);
+    BuildMI(MBB, MBBI, DL, TII.get(VectorProc::ADDISSS), Reg)
+        .addReg(FrameReg)
+        .addReg(Reg);
+    MI.getOperand(FIOperandNum).ChangeToRegister(Reg, false);
+    MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset & 0xfff);
   }
+  else
+    report_fatal_error("frame index out of bounds: frame too large");
 }
 
 unsigned
@@ -116,3 +136,19 @@ VectorProcRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
   const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
   return TFI->hasFP(MF) ? VectorProc::FP_REG : VectorProc::SP_REG;
 }
+
+bool
+VectorProcRegisterInfo::requiresRegisterScavenging(const MachineFunction &MF) const {
+  return true;
+}
+
+bool
+VectorProcRegisterInfo::trackLivenessAfterRegAlloc(const MachineFunction &MF) const {
+  return true;
+}
+
+bool 
+VectorProcRegisterInfo::requiresFrameIndexScavenging(const MachineFunction &MF) const {
+  return true;
+}
+

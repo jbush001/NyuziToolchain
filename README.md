@@ -93,9 +93,7 @@ Once built, the toolchain will be installed into /usr/local/llvm-vectorproc
 </pre>
 
 Note that four tests will fail in the LLVM test suite because of known limitations: 
-* CodeGen/Generic/2002-04-16-StackFrameSizeAlignment.ll
 * CodeGen/Generic/2007-04-08-MultipleFrameIndices.ll
-* CodeGen/Generic/2010-11-04-BigByval.ll
 * CodeGen/Generic/APIntLoadStore.ll
 
 ## Running whole program tests
