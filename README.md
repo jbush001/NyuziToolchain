@@ -12,7 +12,7 @@ On Ubuntu, these can be installed by using: sudo apt-get install libxml2-dev cma
 
 On MacOS, you'll need to either use a package manager like MacPorts, or download cmake manually and (http://cmake.org/) build it.  The other dependencies should already be installed.
 
-_Upgrading/installing toolchain on MacOS_
+__Upgrading/installing toolchain on MacOS__
 
 <i>I did this with Lion; newer versions may or may not be different.</i>
 
