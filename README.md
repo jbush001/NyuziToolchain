@@ -53,9 +53,8 @@ Once built, the toolchain will be installed into /usr/local/llvm-vectorproc
     llvm-lit test
     llvm-lit tools/clang/test/CodeGen/vectorproc*
 
-Note that a few tests will fail in the LLVM test suite because of known limitations: 
+Note that one test will fail in the LLVM test suite because of known limitations:
 * CodeGen/Generic/2007-04-08-MultipleFrameIndices.ll
-* CodeGen/Generic/APIntLoadStore.ll
 
 ## Running whole program tests
 

@@ -294,6 +294,7 @@ def SB : ScalarStoreInst<"8", truncstorei8, FmtC_Byte_Signed>;
 def SS : ScalarStoreInst<"16", truncstorei16, FmtC_Short_Signed>;
 def SW : ScalarStoreInst<"32", store, FmtC_Word>;
 
+def : Pat<(i32 (zextloadi1 ADDRri:$addr)), (LBU ADDRri:$addr)>;
 def : Pat<(i32 (extloadi1 ADDRri:$addr)), (LBU ADDRri:$addr)>;
 def : Pat<(i32 (extloadi8 ADDRri:$addr)), (LBU ADDRri:$addr)>;
 def : Pat<(i32 (extloadi16 ADDRri:$addr)), (LSS ADDRri:$addr)>;
