@@ -10,8 +10,7 @@ This is a toolchain for an an experimental GPGPU architecture (https://github.co
 
 ### Building
 
-Assuming the proper packages are installed (they probably aren't), configure and build using the following commands.  If prerequisites are missing,
-instructions are below on how to get them.
+Assuming the proper packages are installed, configure and build using the following commands. 
 
 <pre>
 > mkdir build
