@@ -173,11 +173,6 @@ SDValue VectorProcTargetLowering::LowerFormalArguments(
     Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Copy, Chain);
   }
 
-  // Here is where variable arguments would be handled.
-  if (isVarArg) {
-    report_fatal_error("variable arguments not implemented yet");
-  }
-
   return Chain;
 }
 
