@@ -1,4 +1,4 @@
-; RUN: llc %s -o - | FileCheck %s
+; RUN: llc -mtriple vectorproc-elf %s -o - | FileCheck %s
 
 define i32 @atomic_add_reg(i32* %ptr, i32 %value) { ; CHECK: atomic_add_reg:
 	%tmp = atomicrmw volatile add i32* %ptr, i32 %value monotonic

@@ -1,5 +1,5 @@
 ; Floating point conversion 
-; RUN: llc %s -o - | FileCheck %s
+; RUN: llc -mtriple vectorproc-elf %s -o - | FileCheck %s
 
 target triple = "vectorproc"
 
