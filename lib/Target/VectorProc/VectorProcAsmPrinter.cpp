@@ -30,6 +30,7 @@
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCContext.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Debug.h"
@@ -122,6 +123,11 @@ bool VectorProcAsmPrinter::PrintAsmOperand(const MachineInstr *MI,
   const MachineOperand &MO = MI->getOperand(OpNo);
   if (MO.getType() == MachineOperand::MO_Register) {
     O << VectorProcInstPrinter::getRegisterName(MO.getReg());
+    return false;
+  }
+  else if (MO.getType() == MachineOperand::MO_Immediate)
+  {
+    O << MO.getImm();
     return false;
   }
 

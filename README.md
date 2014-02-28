@@ -45,9 +45,6 @@ Once built, the toolchain will be installed into /usr/local/llvm-vectorproc
     llvm-lit test
     llvm-lit tools/clang/test/CodeGen/vectorproc*
 
-Note that one test will fail in the LLVM test suite:
-* CodeGen/Generic/2007-04-08-MultipleFrameIndices.ll
-
 ## Running whole program tests
 
 There are a set of tests in https://github.com/jbush001/GPGPU/tree/master/tests/compiler
