@@ -42,9 +42,10 @@ Once built, the toolchain will be installed into /usr/local/llvm-vectorproc
 * Change PATH environment variable to include the binary directory (build/bin) 
 * the test can be run as follows (assuming you are at the top of the project directory)
 
-
+<pre>
     llvm-lit test
     llvm-lit tools/clang/test/CodeGen/vectorproc*
+</pre>
 
 ## Running whole program tests
 
