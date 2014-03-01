@@ -238,7 +238,7 @@ function(llvm_add_library name)
     # static
     set(name_static "${name}_static")
     if(ARG_OUTPUT_NAME)
-      set(output_name OUTPUT_NAME "${ARG_OUTPUT_NAME}_static")
+      set(output_name OUTPUT_NAME "${ARG_OUTPUT_NAME}")
     endif()
     # DEPENDS has been appended to LLVM_COMMON_LIBS.
     llvm_add_library(${name_static} STATIC
@@ -289,9 +289,46 @@ function(llvm_add_library name)
     endif()
   endif()
 
-  target_link_libraries(${name} ${ARG_LINK_LIBS})
+  # Add the explicit dependency information for this library.
+  #
+  # It would be nice to verify that we have the dependencies for this library
+  # name, but using get_property(... SET) doesn't suffice to determine if a
+  # property has been set to an empty value.
+  get_property(lib_deps GLOBAL PROPERTY LLVMBUILD_LIB_DEPS_${name})
 
-  llvm_config(${name} ${ARG_LINK_COMPONENTS} ${LLVM_LINK_COMPONENTS})
+  llvm_map_components_to_libnames(llvm_libs
+    ${ARG_LINK_COMPONENTS}
+    ${LLVM_LINK_COMPONENTS}
+    )
+
+  if(CMAKE_VERSION VERSION_LESS 2.8.12)
+    # Link libs w/o keywords, assuming PUBLIC.
+    target_link_libraries(${name}
+      ${ARG_LINK_LIBS}
+      ${lib_deps}
+      ${llvm_libs}
+      )
+  elseif(ARG_STATIC)
+    target_link_libraries(${name} INTERFACE
+      ${ARG_LINK_LIBS}
+      ${lib_deps}
+      ${llvm_libs}
+      )
+  elseif(ARG_SHARED AND BUILD_SHARED_LIBS)
+    # FIXME: It may be PRIVATE since SO knows its dependent libs.
+    target_link_libraries(${name} PUBLIC
+      ${ARG_LINK_LIBS}
+      ${lib_deps}
+      ${llvm_libs}
+      )
+  else()
+    # MODULE|SHARED
+    target_link_libraries(${name} PRIVATE
+      ${ARG_LINK_LIBS}
+      ${lib_deps}
+      ${llvm_libs}
+      )
+  endif()
 
   if(LLVM_COMMON_DEPENDS)
     add_dependencies(${name} ${LLVM_COMMON_DEPENDS})
@@ -323,14 +360,6 @@ macro(add_llvm_library name)
     set_property(GLOBAL APPEND PROPERTY LLVM_EXPORTS ${name})
   endif()
   set_target_properties(${name} PROPERTIES FOLDER "Libraries")
-
-  # Add the explicit dependency information for this library.
-  #
-  # It would be nice to verify that we have the dependencies for this library
-  # name, but using get_property(... SET) doesn't suffice to determine if a
-  # property has been set to an empty value.
-  get_property(lib_deps GLOBAL PROPERTY LLVMBUILD_LIB_DEPS_${name})
-  target_link_libraries(${name} ${lib_deps})
 endmacro(add_llvm_library name)
 
 macro(add_llvm_loadable_module name)
@@ -542,15 +571,6 @@ function(configure_lit_site_cfg input output)
     set(LLVM_SHARED_LIBS_ENABLED "0")
   endif(BUILD_SHARED_LIBS)
 
-  if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-    set(SHLIBPATH_VAR "DYLD_LIBRARY_PATH")
-  else() # Default for all other unix like systems.
-    # CMake hardcodes the library locaction using rpath.
-    # Therefore LD_LIBRARY_PATH is not required to run binaries in the
-    # build dir. We pass it anyways.
-    set(SHLIBPATH_VAR "LD_LIBRARY_PATH")
-  endif()
-
   # Configuration-time: See Unit/lit.site.cfg.in
   if (CMAKE_CFG_INTDIR STREQUAL ".")
     set(LLVM_BUILD_MODE ".")
@@ -569,7 +589,6 @@ function(configure_lit_site_cfg input output)
 
   set(PYTHON_EXECUTABLE ${PYTHON_EXECUTABLE})
   set(ENABLE_SHARED ${LLVM_SHARED_LIBS_ENABLED})
-  set(SHLIBPATH_VAR ${SHLIBPATH_VAR})
 
   if(LLVM_ENABLE_ASSERTIONS AND NOT MSVC_IDE)
     set(ENABLE_ASSERTIONS "1")

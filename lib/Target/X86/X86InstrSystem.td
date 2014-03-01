@@ -61,8 +61,8 @@ def SYSENTER : I<0x34, RawFrm, (outs), (ins), "sysenter", [],
 
 def SYSEXIT   : I<0x35, RawFrm, (outs), (ins), "sysexit{l}", [],
                  IIC_SYS_ENTER_EXIT>, TB;
-def SYSEXIT64 :RI<0x35, RawFrm, (outs), (ins), "sysexit{q}", []>, TB,
-                Requires<[In64BitMode]>;
+def SYSEXIT64 :RI<0x35, RawFrm, (outs), (ins), "sysexit{q}", [],
+                 IIC_SYS_ENTER_EXIT>, TB, Requires<[In64BitMode]>;
 
 def IRET16 : I<0xcf, RawFrm, (outs), (ins), "iret{w}", [], IIC_IRET>, OpSize16;
 def IRET32 : I<0xcf, RawFrm, (outs), (ins), "iret{l|d}", [], IIC_IRET>,
@@ -116,12 +116,6 @@ let Uses = [EAX] in
 def OUT32ir : Ii8<0xE7, RawFrm, (outs), (ins i8imm:$port),
                   "out{l}\t{%eax, $port|$port, eax}", [], IIC_OUT_IR>, OpSize32;
 
-def IN8  : I<0x6C, RawFrmDst, (outs dstidx8:$dst), (ins),
-             "insb\t{%dx, $dst|$dst, dx}", [], IIC_INS>;
-def IN16 : I<0x6D, RawFrmDst, (outs dstidx16:$dst), (ins),
-             "insw\t{%dx, $dst|$dst, dx}", [], IIC_INS>,  OpSize16;
-def IN32 : I<0x6D, RawFrmDst, (outs dstidx32:$dst), (ins),
-             "ins{l|d}\t{%dx, $dst|$dst, dx}", [], IIC_INS>, OpSize32;
 } // SchedRW
 
 //===----------------------------------------------------------------------===//

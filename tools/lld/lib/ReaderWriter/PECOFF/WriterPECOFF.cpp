@@ -385,7 +385,9 @@ PEHeaderChunk<PEHeader>::PEHeaderChunk(const PECOFFLinkingContext &ctx)
   // executables and DLLs. We are not very sure if the following bits must
   // be set, but regular binaries seem to have these bits, so we follow
   // them.
-  uint16_t dllCharacteristics = llvm::COFF::IMAGE_DLL_CHARACTERISTICS_NO_SEH;
+  uint16_t dllCharacteristics = 0;
+  if (ctx.noSEH())
+    dllCharacteristics |= llvm::COFF::IMAGE_DLL_CHARACTERISTICS_NO_SEH;
   if (ctx.isTerminalServerAware())
     dllCharacteristics |=
         llvm::COFF::IMAGE_DLL_CHARACTERISTICS_TERMINAL_SERVER_AWARE;
@@ -834,6 +836,8 @@ public:
 private:
   void applyAllRelocations(uint8_t *bufferStart);
   void printAllAtomAddresses() const;
+  void reorderSEHTableEntries(uint8_t *bufferStart);
+
   void addChunk(Chunk *chunk);
   void addSectionChunk(SectionChunk *chunk, SectionHeaderTableChunk *table);
   void setImageSizeOnDisk();
@@ -974,6 +978,9 @@ void PECOFFWriter::build(const File &linkedFile) {
     }
     if (section->getSectionName() == ".data")
       peHeader->setBaseOfData(section->getVirtualAddress());
+    if (section->getSectionName() == ".pdata")
+      dataDirectory->setField(DataDirectoryIndex::EXCEPTION_TABLE,
+                              section->getVirtualAddress(), section->size());
     if (section->getSectionName() == ".idata.a")
       dataDirectory->setField(DataDirectoryIndex::IAT,
                               section->getVirtualAddress(), section->size());
@@ -982,6 +989,9 @@ void PECOFFWriter::build(const File &linkedFile) {
                               section->getVirtualAddress(), section->size());
     if (section->getSectionName() == ".edata")
       dataDirectory->setField(DataDirectoryIndex::EXPORT_TABLE,
+                              section->getVirtualAddress(), section->size());
+    if (section->getSectionName() == ".loadcfg")
+      dataDirectory->setField(DataDirectoryIndex::LOAD_CONFIG_TABLE,
                               section->getVirtualAddress(), section->size());
   }
 
@@ -1012,6 +1022,7 @@ error_code PECOFFWriter::writeFile(const File &linkedFile, StringRef path) {
   for (std::unique_ptr<Chunk> &chunk : _chunks)
     chunk->write(buffer->getBufferStart() + chunk->fileOffset());
   applyAllRelocations(buffer->getBufferStart());
+  reorderSEHTableEntries(buffer->getBufferStart());
   DEBUG(printAllAtomAddresses());
 
   if (_ctx.isDll())
@@ -1056,6 +1067,24 @@ void PECOFFWriter::printAllAtomAddresses() const {
   for (auto &cp : _chunks)
     if (AtomChunk *chunk = dyn_cast<AtomChunk>(&*cp))
       chunk->printAtomAddresses(_ctx.getBaseAddress());
+}
+
+/// It seems that the entries in .sxdata must be sorted. This function is called
+/// after a COFF file image is created in memory and before it is written to
+/// disk. It is safe to reorder entries at this stage because the contents of
+/// the entries are RVAs and there's no reference to a .sxdata entry other than
+/// to the beginning of the section.
+void PECOFFWriter::reorderSEHTableEntries(uint8_t *bufferStart) {
+  for (std::unique_ptr<Chunk> &chunk : _chunks) {
+    if (SectionChunk *section = dyn_cast<SectionChunk>(chunk.get())) {
+      if (section->getSectionName() == ".sxdata") {
+        int numEntries = section->size() / sizeof(ulittle32_t);
+        ulittle32_t *begin = reinterpret_cast<ulittle32_t *>(bufferStart + section->fileOffset());
+        ulittle32_t *end = begin + numEntries;
+        std::sort(begin, end);
+      }
+    }
+  }
 }
 
 void PECOFFWriter::addChunk(Chunk *chunk) {

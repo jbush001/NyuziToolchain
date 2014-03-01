@@ -11,8 +11,10 @@
 #include "MCTargetDesc/SparcFixupKinds.h"
 #include "MCTargetDesc/SparcMCTargetDesc.h"
 #include "llvm/MC/MCELFObjectWriter.h"
+#include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCFixupKindInfo.h"
 #include "llvm/MC/MCObjectWriter.h"
+#include "llvm/MC/MCValue.h"
 #include "llvm/Support/TargetRegistry.h"
 
 using namespace llvm;
@@ -154,6 +156,8 @@ namespace {
       switch ((Sparc::Fixups)Fixup.getKind()) {
       default: break;
       case Sparc::fixup_sparc_wplt30:
+        if (Target.getSymA()->getSymbol().isTemporary())
+          return;
       case Sparc::fixup_sparc_tls_gd_hi22:
       case Sparc::fixup_sparc_tls_gd_lo10:
       case Sparc::fixup_sparc_tls_gd_add:
@@ -196,9 +200,14 @@ namespace {
     }
 
     bool writeNopData(uint64_t Count, MCObjectWriter *OW) const {
-      // FIXME: Zero fill for now.
-      for (uint64_t i = 0; i != Count; ++i)
-        OW->Write8(0);
+      // Cannot emit NOP with size not multiple of 32 bits.
+      if (Count % 4 != 0)
+        return false;
+
+      uint64_t NumNops = Count / 4;
+      for (uint64_t i = 0; i != NumNops; ++i)
+        OW->Write32(0x01000000);
+
       return true;
     }
 

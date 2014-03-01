@@ -75,3 +75,53 @@ entry:
   store <8 x i32> %0, <8 x i32> addrspace(1)* %out
   ret void
 }
+
+; FUNC-LABEL: @test16
+; EG-CHECK: ADD_INT
+; EG-CHECK: ADD_INT
+; EG-CHECK: ADD_INT
+; EG-CHECK: ADD_INT
+; EG-CHECK: ADD_INT
+; EG-CHECK: ADD_INT
+; EG-CHECK: ADD_INT
+; EG-CHECK: ADD_INT
+; EG-CHECK: ADD_INT
+; EG-CHECK: ADD_INT
+; EG-CHECK: ADD_INT
+; EG-CHECK: ADD_INT
+; EG-CHECK: ADD_INT
+; EG-CHECK: ADD_INT
+; EG-CHECK: ADD_INT
+; EG-CHECK: ADD_INT
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADD_I32
+define void @test16(<16 x i32> addrspace(1)* %out, <16 x i32> %a, <16 x i32> %b) {
+entry:
+  %0 = add <16 x i32> %a, %b
+  store <16 x i32> %0, <16 x i32> addrspace(1)* %out
+  ret void
+}
+
+; FUNC-LABEL: @add64
+; SI-CHECK: S_ADD_I32
+; SI-CHECK: S_ADDC_U32
+define void @add64(i64 addrspace(1)* %out, i64 %a, i64 %b) {
+entry:
+  %0 = add i64 %a, %b
+  store i64 %0, i64 addrspace(1)* %out
+  ret void
+}

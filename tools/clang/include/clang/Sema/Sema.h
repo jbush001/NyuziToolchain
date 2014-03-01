@@ -1328,11 +1328,6 @@ public:
   /// function to pin them on. ActOnFunctionDeclarator reads this list and patches
   /// them into the FunctionDecl.
   std::vector<NamedDecl*> DeclsInPrototypeScope;
-  /// Nonzero if we are currently parsing a function declarator. This is a counter
-  /// as opposed to a boolean so we can deal with nested function declarators
-  /// such as:
-  ///     void f(void (*g)(), ...)
-  unsigned InFunctionDeclarator;
 
   DeclGroupPtrTy ConvertDeclToDeclGroup(Decl *Ptr, Decl *OwnedType = 0);
 
@@ -7116,6 +7111,12 @@ public:
                                           Stmt *AStmt,
                                           SourceLocation StartLoc,
                                           SourceLocation EndLoc);
+  /// \brief Called on well-formed '\#pragma omp simd' after parsing
+  /// of the associated statement.
+  StmtResult ActOnOpenMPSimdDirective(ArrayRef<OMPClause *> Clauses,
+                                      Stmt *AStmt,
+                                      SourceLocation StartLoc,
+                                      SourceLocation EndLoc);
 
   OMPClause *ActOnOpenMPSingleExprClause(OpenMPClauseKind Kind,
                                          Expr *Expr,
@@ -7247,6 +7248,9 @@ public:
   /// Check to see if the given expression is a valid argument to a variadic
   /// function, issuing a diagnostic if not.
   void checkVariadicArgument(const Expr *E, VariadicCallType CT);
+
+  /// Check to see if a given expression could have '.c_str()' called on it.
+  bool hasCStrMethod(const Expr *E);
 
   /// GatherArgumentsForCall - Collector argument expressions for various
   /// form of call prototypes.
@@ -7474,6 +7478,10 @@ public:
 
   bool DiagnoseConditionalForNull(Expr *LHSExpr, Expr *RHSExpr,
                                   SourceLocation QuestionLoc);
+
+  void DiagnoseAlwaysNonNullPointer(Expr *E,
+                                    Expr::NullPointerConstantKind NullType,
+                                    bool IsEqual, SourceRange Range);
 
   /// type checking for vector binary operators.
   QualType CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
@@ -7945,6 +7953,10 @@ private:
                             VariadicCallType CallType,
                             SourceLocation Loc, SourceRange range,
                             llvm::SmallBitVector &CheckedVarArgs);
+
+  void CheckAbsoluteValueFunction(const CallExpr *Call,
+                                  const FunctionDecl *FDecl,
+                                  IdentifierInfo *FnInfo);
 
   void CheckMemaccessArguments(const CallExpr *Call,
                                unsigned BId,

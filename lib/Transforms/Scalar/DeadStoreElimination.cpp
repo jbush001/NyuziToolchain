@@ -193,6 +193,7 @@ static bool hasMemoryWrite(Instruction *I, const TargetLibraryInfo *TLI) {
 /// describe the memory operations for this instruction.
 static AliasAnalysis::Location
 getLocForWrite(Instruction *Inst, AliasAnalysis &AA) {
+  const DataLayout *DL = AA.getDataLayout();
   if (StoreInst *SI = dyn_cast<StoreInst>(Inst))
     return AA.getLocation(SI);
 
@@ -202,7 +203,7 @@ getLocForWrite(Instruction *Inst, AliasAnalysis &AA) {
     // If we don't have target data around, an unknown size in Location means
     // that we should use the size of the pointee type.  This isn't valid for
     // memset/memcpy, which writes more than an i8.
-    if (Loc.Size == AliasAnalysis::UnknownSize && AA.getDataLayout() == 0)
+    if (Loc.Size == AliasAnalysis::UnknownSize && DL == 0)
       return AliasAnalysis::Location();
     return Loc;
   }
@@ -216,7 +217,7 @@ getLocForWrite(Instruction *Inst, AliasAnalysis &AA) {
     // If we don't have target data around, an unknown size in Location means
     // that we should use the size of the pointee type.  This isn't valid for
     // init.trampoline, which writes more than an i8.
-    if (AA.getDataLayout() == 0) return AliasAnalysis::Location();
+    if (DL == 0) return AliasAnalysis::Location();
 
     // FIXME: We don't know the size of the trampoline, so we can't really
     // handle it here.
@@ -344,6 +345,7 @@ static OverwriteResult isOverwrite(const AliasAnalysis::Location &Later,
                                    AliasAnalysis &AA,
                                    int64_t &EarlierOff,
                                    int64_t &LaterOff) {
+  const DataLayout *DL = AA.getDataLayout();
   const Value *P1 = Earlier.Ptr->stripPointerCasts();
   const Value *P2 = Later.Ptr->stripPointerCasts();
 
@@ -357,8 +359,7 @@ static OverwriteResult isOverwrite(const AliasAnalysis::Location &Later,
       // If we have no DataLayout information around, then the size of the store
       // is inferrable from the pointee type.  If they are the same type, then
       // we know that the store is safe.
-      if (AA.getDataLayout() == 0 &&
-          Later.Ptr->getType() == Earlier.Ptr->getType())
+      if (DL == 0 && Later.Ptr->getType() == Earlier.Ptr->getType())
         return OverwriteComplete;
 
       return OverwriteUnknown;
@@ -372,15 +373,12 @@ static OverwriteResult isOverwrite(const AliasAnalysis::Location &Later,
   // Otherwise, we have to have size information, and the later store has to be
   // larger than the earlier one.
   if (Later.Size == AliasAnalysis::UnknownSize ||
-      Earlier.Size == AliasAnalysis::UnknownSize ||
-      AA.getDataLayout() == 0)
+      Earlier.Size == AliasAnalysis::UnknownSize || DL == 0)
     return OverwriteUnknown;
 
   // Check to see if the later store is to the entire object (either a global,
   // an alloca, or a byval/inalloca argument).  If so, then it clearly
   // overwrites any other store to the same object.
-  const DataLayout *DL = AA.getDataLayout();
-
   const Value *UO1 = GetUnderlyingObject(P1, DL),
               *UO2 = GetUnderlyingObject(P2, DL);
 
@@ -704,22 +702,6 @@ bool DSE::HandleFree(CallInst *F) {
   return MadeChange;
 }
 
-namespace {
-  struct CouldRef {
-    typedef Value *argument_type;
-    const CallSite CS;
-    AliasAnalysis *AA;
-
-    bool operator()(Value *I) {
-      // See if the call site touches the value.
-      AliasAnalysis::ModRefResult A =
-        AA->getModRefInfo(CS, I, getPointerSize(I, *AA));
-
-      return A == AliasAnalysis::ModRef || A == AliasAnalysis::Ref;
-    }
-  };
-}
-
 /// handleEndBlock - Remove dead stores to stack-allocated locations in the
 /// function end block.  Ex:
 /// %A = alloca i32
@@ -821,7 +803,13 @@ bool DSE::handleEndBlock(BasicBlock &BB) {
 
       // If the call might load from any of our allocas, then any store above
       // the call is live.
-      CouldRef Pred = { CS, AA };
+      std::function<bool(Value *)> Pred = [&](Value *I) {
+        // See if the call site touches the value.
+        AliasAnalysis::ModRefResult A =
+            AA->getModRefInfo(CS, I, getPointerSize(I, *AA));
+
+        return A == AliasAnalysis::ModRef || A == AliasAnalysis::Ref;
+      };
       DeadStackObjects.remove_if(Pred);
 
       // If all of the allocas were clobbered by the call then we're not going
@@ -865,20 +853,6 @@ bool DSE::handleEndBlock(BasicBlock &BB) {
   return MadeChange;
 }
 
-namespace {
-  struct CouldAlias {
-    typedef Value *argument_type;
-    const AliasAnalysis::Location &LoadedLoc;
-    AliasAnalysis *AA;
-
-    bool operator()(Value *I) {
-      // See if the loaded location could alias the stack location.
-      AliasAnalysis::Location StackLoc(I, getPointerSize(I, *AA));
-      return !AA->isNoAlias(StackLoc, LoadedLoc);
-    }
-  };
-}
-
 /// RemoveAccessedObjects - Check to see if the specified location may alias any
 /// of the stack objects in the DeadStackObjects set.  If so, they become live
 /// because the location is being loaded.
@@ -898,6 +872,10 @@ void DSE::RemoveAccessedObjects(const AliasAnalysis::Location &LoadedLoc,
   }
 
   // Remove objects that could alias LoadedLoc.
-  CouldAlias Pred = { LoadedLoc, AA };
+  std::function<bool(Value *)> Pred = [&](Value *I) {
+    // See if the loaded location could alias the stack location.
+    AliasAnalysis::Location StackLoc(I, getPointerSize(I, *AA));
+    return !AA->isNoAlias(StackLoc, LoadedLoc);
+  };
   DeadStackObjects.remove_if(Pred);
 }

@@ -244,8 +244,9 @@ RDYNAMIC := @RDYNAMIC@
 #ENABLE_LIBCPP = 0
 ENABLE_LIBCPP = @ENABLE_LIBCPP@
 
-# When ENABLE_CXX11 is enabled, LLVM uses c++11 mode by default to build.
-ENABLE_CXX11 = @ENABLE_CXX11@
+# When ENABLE_CXX1Y is enabled, LLVM uses c++1y mode by default to build.
+# Otherwise it uses the baseline c++11.
+ENABLE_CXX1Y = @ENABLE_CXX1Y@
 
 # When ENABLE_SPLIT_DWARF is enabled, LLVM uses -gfission to build in debug mode.
 ENABLE_SPLIT_DWARF = @ENABLE_SPLIT_DWARF@
@@ -344,9 +345,6 @@ ENABLE_TIMESTAMPS := @ENABLE_TIMESTAMPS@
 
 # Enable JIT for this platform
 TARGET_HAS_JIT = @TARGET_HAS_JIT@
-
-# Environment variable to set to change the runtime shared library search path.
-SHLIBPATH_VAR = @SHLIBPATH_VAR@
 
 # Shared library extension for host platform.
 SHLIBEXT = @SHLIBEXT@

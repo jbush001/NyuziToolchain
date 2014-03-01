@@ -35,8 +35,8 @@ Status::Status(const file_status &Status)
 Status::Status(StringRef Name, StringRef ExternalName, UniqueID UID,
                sys::TimeValue MTime, uint32_t User, uint32_t Group,
                uint64_t Size, file_type Type, perms Perms)
-    : Name(Name), ExternalName(ExternalName), UID(UID), MTime(MTime),
-      User(User), Group(Group), Size(Size), Type(Type), Perms(Perms) {}
+    : Name(Name), UID(UID), MTime(MTime), User(User), Group(Group), Size(Size),
+      Type(Type), Perms(Perms) {}
 
 bool Status::equivalent(const Status &Other) const {
   return getUniqueID() == Other.getUniqueID();
@@ -80,9 +80,11 @@ error_code FileSystem::getBufferForFile(const llvm::Twine &Name,
 // RealFileSystem implementation
 //===-----------------------------------------------------------------------===/
 
+namespace {
 /// \brief Wrapper around a raw file descriptor.
 class RealFile : public File {
   int FD;
+  Status S;
   friend class RealFileSystem;
   RealFile(int FD) : FD(FD) {
     assert(FD >= 0 && "Invalid or inactive file descriptor");
@@ -95,15 +97,22 @@ public:
                        int64_t FileSize = -1,
                        bool RequiresNullTerminator = true) LLVM_OVERRIDE;
   error_code close() LLVM_OVERRIDE;
+  void setName(StringRef Name) LLVM_OVERRIDE;
 };
+} // end anonymous namespace
 RealFile::~RealFile() { close(); }
 
 ErrorOr<Status> RealFile::status() {
   assert(FD != -1 && "cannot stat closed file");
-  file_status RealStatus;
-  if (error_code EC = sys::fs::status(FD, RealStatus))
-    return EC;
-  return Status(RealStatus);
+  if (!S.isStatusKnown()) {
+    file_status RealStatus;
+    if (error_code EC = sys::fs::status(FD, RealStatus))
+      return EC;
+    Status NewS(RealStatus);
+    NewS.setName(S.getName());
+    S = llvm_move(NewS);
+  }
+  return S;
 }
 
 error_code RealFile::getBuffer(const Twine &Name,
@@ -131,6 +140,11 @@ error_code RealFile::close() {
   return error_code::success();
 }
 
+void RealFile::setName(StringRef Name) {
+  S.setName(Name);
+}
+
+namespace {
 /// \brief The file system according to your operating system.
 class RealFileSystem : public FileSystem {
 public:
@@ -138,6 +152,7 @@ public:
   error_code openFileForRead(const Twine &Path,
                              OwningPtr<File> &Result) LLVM_OVERRIDE;
 };
+} // end anonymous namespace
 
 ErrorOr<Status> RealFileSystem::status(const Twine &Path) {
   sys::fs::file_status RealStatus;
@@ -145,7 +160,6 @@ ErrorOr<Status> RealFileSystem::status(const Twine &Path) {
     return EC;
   Status Result(RealStatus);
   Result.setName(Path.str());
-  Result.setExternalName(Path.str());
   return Result;
 }
 
@@ -155,6 +169,7 @@ error_code RealFileSystem::openFileForRead(const Twine &Name,
   if (error_code EC = sys::fs::openFileForRead(Name, FD))
     return EC;
   Result.reset(new RealFile(FD));
+  Result->setName(Name.str());
   return error_code::success();
 }
 
@@ -227,9 +242,6 @@ class Entry {
 
 public:
   virtual ~Entry();
-#if LLVM_HAS_RVALUE_REFERENCES
-  Entry(EntryKind K, std::string Name) : Kind(K), Name(std::move(Name)) {}
-#endif
   Entry(EntryKind K, StringRef Name) : Kind(K), Name(Name) {}
   StringRef getName() const { return Name; }
   EntryKind getKind() const { return Kind; }
@@ -242,8 +254,8 @@ class DirectoryEntry : public Entry {
 public:
   virtual ~DirectoryEntry();
 #if LLVM_HAS_RVALUE_REFERENCES
-  DirectoryEntry(std::string Name, std::vector<Entry *> Contents, Status S)
-      : Entry(EK_Directory, std::move(Name)), Contents(std::move(Contents)),
+  DirectoryEntry(StringRef Name, std::vector<Entry *> Contents, Status S)
+      : Entry(EK_Directory, Name), Contents(std::move(Contents)),
         S(std::move(S)) {}
 #endif
   DirectoryEntry(StringRef Name, ArrayRef<Entry *> Contents, const Status &S)
@@ -256,17 +268,25 @@ public:
 };
 
 class FileEntry : public Entry {
-  std::string ExternalContentsPath;
-
 public:
-#if LLVM_HAS_RVALUE_REFERENCES
-  FileEntry(std::string Name, std::string ExternalContentsPath)
-      : Entry(EK_File, std::move(Name)),
-        ExternalContentsPath(std::move(ExternalContentsPath)) {}
-#endif
-  FileEntry(StringRef Name, StringRef ExternalContentsPath)
-      : Entry(EK_File, Name), ExternalContentsPath(ExternalContentsPath) {}
+  enum NameKind {
+    NK_NotSet,
+    NK_External,
+    NK_Virtual
+  };
+private:
+  std::string ExternalContentsPath;
+  NameKind UseName;
+public:
+  FileEntry(StringRef Name, StringRef ExternalContentsPath, NameKind UseName)
+      : Entry(EK_File, Name), ExternalContentsPath(ExternalContentsPath),
+        UseName(UseName) {}
   StringRef getExternalContentsPath() const { return ExternalContentsPath; }
+  /// \brief whether to use the external path as the name for this file.
+  bool useExternalName(bool GlobalUseExternalName) const {
+    return UseName == NK_NotSet ? GlobalUseExternalName
+                                : (UseName == NK_External);
+  }
   static bool classof(const Entry *E) { return E->getKind() == EK_File; }
 };
 
@@ -288,6 +308,7 @@ public:
 ///
 /// All configuration options are optional.
 ///   'case-sensitive': <boolean, default=true>
+///   'use-external-names': <boolean, default=true>
 ///
 /// Virtual directories are represented as
 /// \verbatim
@@ -312,14 +333,16 @@ public:
 /// {
 ///   'type': 'file',
 ///   'name': <string>,
+///   'use-external-name': <boolean> # Optional
 ///   'external-contents': <path to external file>)
 /// }
 /// \endverbatim
 ///
 /// and inherit their attributes from the external contents.
 ///
-/// In both cases, the 'name' field must be a single path component (containing
-/// no separators).
+/// In both cases, the 'name' field may contain multiple path components (e.g.
+/// /path/to/file). However, any directory that contains more than one child
+/// must be uniquely represented by a directory entry.
 class VFSFromYAML : public vfs::FileSystem {
   std::vector<Entry *> Roots; ///< The root(s) of the virtual file system.
   /// \brief The file system to use for external references.
@@ -331,14 +354,18 @@ class VFSFromYAML : public vfs::FileSystem {
   /// \brief Whether to perform case-sensitive comparisons.
   ///
   /// Currently, case-insensitive matching only works correctly with ASCII.
-  bool CaseSensitive; ///< Whether to perform case-sensitive comparisons.
+  bool CaseSensitive;
+
+  /// \brief Whether to use to use the value of 'external-contents' for the
+  /// names of files.  This global value is overridable on a per-file basis.
+  bool UseExternalNames;
   /// @}
 
   friend class VFSFromYAMLParser;
 
 private:
   VFSFromYAML(IntrusiveRefCntPtr<FileSystem> ExternalFS)
-      : ExternalFS(ExternalFS), CaseSensitive(true) {}
+      : ExternalFS(ExternalFS), CaseSensitive(true), UseExternalNames(true) {}
 
   /// \brief Looks up \p Path in \c Roots.
   ErrorOr<Entry *> lookupPath(const Twine &Path);
@@ -357,6 +384,7 @@ public:
   /// Takes ownership of \p Buffer.
   static VFSFromYAML *create(MemoryBuffer *Buffer,
                              SourceMgr::DiagHandlerTy DiagHandler,
+                             void *DiagContext,
                              IntrusiveRefCntPtr<FileSystem> ExternalFS);
 
   ErrorOr<Status> status(const Twine &Path) LLVM_OVERRIDE;
@@ -452,7 +480,8 @@ class VFSFromYAMLParser {
       KeyStatusPair("name", true),
       KeyStatusPair("type", true),
       KeyStatusPair("contents", false),
-      KeyStatusPair("external-contents", false)
+      KeyStatusPair("external-contents", false),
+      KeyStatusPair("use-external-name", false),
     };
 
     DenseMap<StringRef, KeyStatus> Keys(
@@ -462,6 +491,7 @@ class VFSFromYAMLParser {
     std::vector<Entry *> EntryArrayContents;
     std::string ExternalContentsPath;
     std::string Name;
+    FileEntry::NameKind UseExternalName = FileEntry::NK_NotSet;
     EntryKind Kind;
 
     for (yaml::MappingNode::iterator I = M->begin(), E = M->end(); I != E;
@@ -481,10 +511,6 @@ class VFSFromYAMLParser {
         if (!parseScalarString(I->getValue(), Value, Buffer))
           return NULL;
         Name = Value;
-        if (sys::path::has_parent_path(Name)) {
-          error(I->getValue(), "unexpected path separator in name");
-          return NULL;
-        }
       } else if (Key == "type") {
         if (!parseScalarString(I->getValue(), Value, Buffer))
           return NULL;
@@ -529,6 +555,11 @@ class VFSFromYAMLParser {
         if (!parseScalarString(I->getValue(), Value, Buffer))
           return NULL;
         ExternalContentsPath = Value;
+      } else if (Key == "use-external-name") {
+        bool Val;
+        if (!parseScalarBool(I->getValue(), Val))
+          return NULL;
+        UseExternalName = Val ? FileEntry::NK_External : FileEntry::NK_Virtual;
       } else {
         llvm_unreachable("key missing from Keys");
       }
@@ -545,16 +576,45 @@ class VFSFromYAMLParser {
     if (!checkMissingKeys(N, Keys))
       return NULL;
 
+    // check invalid configuration
+    if (Kind == EK_Directory && UseExternalName != FileEntry::NK_NotSet) {
+      error(N, "'use-external-name' is not supported for directories");
+      return NULL;
+    }
+
+    // Remove trailing slash(es)
+    StringRef Trimmed(Name);
+    while (Trimmed.size() > 1 && sys::path::is_separator(Trimmed.back()))
+      Trimmed = Trimmed.slice(0, Trimmed.size()-1);
+    // Get the last component
+    StringRef LastComponent = sys::path::filename(Trimmed);
+
+    Entry *Result = 0;
     switch (Kind) {
     case EK_File:
-      return new FileEntry(llvm_move(Name), llvm_move(ExternalContentsPath));
+      Result = new FileEntry(LastComponent, llvm_move(ExternalContentsPath),
+                             UseExternalName);
+      break;
     case EK_Directory:
-      return new DirectoryEntry(
-          llvm_move(Name), llvm_move(EntryArrayContents),
+      Result = new DirectoryEntry(LastComponent, llvm_move(EntryArrayContents),
+          Status("", "", getNextVirtualUniqueID(), sys::TimeValue::now(), 0, 0,
+                 0, file_type::directory_file, sys::fs::all_all));
+      break;
+    }
+
+    StringRef Parent = sys::path::parent_path(Trimmed);
+    if (Parent.empty())
+      return Result;
+
+    // if 'name' contains multiple components, create implicit directory entries
+    for (sys::path::reverse_iterator I = sys::path::rbegin(Parent),
+                                     E = sys::path::rend(Parent);
+         I != E; ++I) {
+      Result = new DirectoryEntry(*I, Result,
           Status("", "", getNextVirtualUniqueID(), sys::TimeValue::now(), 0, 0,
                  0, file_type::directory_file, sys::fs::all_all));
     }
-    llvm_unreachable("unknown EntryKind in switch");
+    return Result;
   }
 
 public:
@@ -571,6 +631,7 @@ public:
     KeyStatusPair Fields[] = {
       KeyStatusPair("version", true),
       KeyStatusPair("case-sensitive", false),
+      KeyStatusPair("use-external-names", false),
       KeyStatusPair("roots", true),
     };
 
@@ -623,6 +684,9 @@ public:
       } else if (Key == "case-sensitive") {
         if (!parseScalarBool(I->getValue(), FS->CaseSensitive))
           return false;
+      } else if (Key == "use-external-names") {
+        if (!parseScalarBool(I->getValue(), FS->UseExternalNames))
+          return false;
       } else {
         llvm_unreachable("key missing from Keys");
       }
@@ -645,12 +709,13 @@ VFSFromYAML::~VFSFromYAML() { llvm::DeleteContainerPointers(Roots); }
 
 VFSFromYAML *VFSFromYAML::create(MemoryBuffer *Buffer,
                                  SourceMgr::DiagHandlerTy DiagHandler,
+                                 void *DiagContext,
                                  IntrusiveRefCntPtr<FileSystem> ExternalFS) {
 
   SourceMgr SM;
   yaml::Stream Stream(Buffer, SM);
 
-  SM.setDiagHandler(DiagHandler);
+  SM.setDiagHandler(DiagHandler, DiagContext);
   yaml::document_iterator DI = Stream.begin();
   yaml::Node *Root = DI->getRoot();
   if (DI == Stream.end() || !Root) {
@@ -723,17 +788,14 @@ ErrorOr<Status> VFSFromYAML::status(const Twine &Path) {
   std::string PathStr(Path.str());
   if (FileEntry *F = dyn_cast<FileEntry>(*Result)) {
     ErrorOr<Status> S = ExternalFS->status(F->getExternalContentsPath());
-    if (S) {
-      assert(S->getName() == S->getExternalName() &&
-             S->getName() == F->getExternalContentsPath());
+    assert(!S || S->getName() == F->getExternalContentsPath());
+    if (S && !F->useExternalName(UseExternalNames))
       S->setName(PathStr);
-    }
     return S;
   } else { // directory
     DirectoryEntry *DE = cast<DirectoryEntry>(*Result);
     Status S = DE->getStatus();
     S.setName(PathStr);
-    S.setExternalName(PathStr);
     return S;
   }
 }
@@ -748,13 +810,21 @@ error_code VFSFromYAML::openFileForRead(const Twine &Path,
   if (!F) // FIXME: errc::not_a_file?
     return error_code(errc::invalid_argument, system_category());
 
-  return ExternalFS->openFileForRead(Path, Result);
+  if (error_code EC = ExternalFS->openFileForRead(F->getExternalContentsPath(),
+                                                  Result))
+    return EC;
+
+  if (!F->useExternalName(UseExternalNames))
+    Result->setName(Path.str());
+
+  return error_code::success();
 }
 
 IntrusiveRefCntPtr<FileSystem>
 vfs::getVFSFromYAML(MemoryBuffer *Buffer, SourceMgr::DiagHandlerTy DiagHandler,
+                    void *DiagContext,
                     IntrusiveRefCntPtr<FileSystem> ExternalFS) {
-  return VFSFromYAML::create(Buffer, DiagHandler, ExternalFS);
+  return VFSFromYAML::create(Buffer, DiagHandler, DiagContext, ExternalFS);
 }
 
 UniqueID vfs::getNextVirtualUniqueID() {

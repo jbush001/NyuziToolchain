@@ -42,6 +42,7 @@ class OMPExecutableDirective : public Stmt {
   llvm::MutableArrayRef<OMPClause *> Clauses;
   /// \brief Associated statement (if any) and expressions.
   llvm::MutableArrayRef<Stmt *> StmtAndExpressions;
+
 protected:
   /// \brief Build instance of directive of class \a K.
   ///
@@ -54,11 +55,14 @@ protected:
   OMPExecutableDirective(const T *, StmtClass SC, OpenMPDirectiveKind K,
                          SourceLocation StartLoc, SourceLocation EndLoc,
                          unsigned NumClauses, unsigned NumberOfExpressions)
-    : Stmt(SC), Kind(K), StartLoc(StartLoc), EndLoc(EndLoc),
-      Clauses(reinterpret_cast<OMPClause **>(static_cast<T *>(this) + 1),
-              NumClauses),
-      StmtAndExpressions(reinterpret_cast<Stmt **>(Clauses.end()),
-                         NumberOfExpressions) { }
+      : Stmt(SC), Kind(K), StartLoc(StartLoc), EndLoc(EndLoc),
+        Clauses(reinterpret_cast<OMPClause **>(
+                    reinterpret_cast<char *>(this) +
+                    llvm::RoundUpToAlignment(sizeof(T),
+                                             llvm::alignOf<OMPClause *>())),
+                NumClauses),
+        StmtAndExpressions(reinterpret_cast<Stmt **>(Clauses.end()),
+                           NumberOfExpressions) {}
 
   /// \brief Sets the list of variables for this clause.
   ///
@@ -70,9 +74,7 @@ protected:
   ///
   /// /param S Associated statement.
   ///
-  void setAssociatedStmt(Stmt *S) {
-    StmtAndExpressions[0] = S;
-  }
+  void setAssociatedStmt(Stmt *S) { StmtAndExpressions[0] = S; }
 
 public:
   /// \brief Returns starting location of directive kind.
@@ -104,9 +106,7 @@ public:
   }
 
   /// \brief Returns statement associated with the directive.
-  Stmt *getAssociatedStmt() const {
-    return StmtAndExpressions[0];
-  }
+  Stmt *getAssociatedStmt() const { return StmtAndExpressions[0]; }
 
   OpenMPDirectiveKind getDirectiveKind() const { return Kind; }
 
@@ -140,17 +140,19 @@ class OMPParallelDirective : public OMPExecutableDirective {
   /// \param EndLoc Ending Location of the directive.
   ///
   OMPParallelDirective(SourceLocation StartLoc, SourceLocation EndLoc,
-                       unsigned N)
-    : OMPExecutableDirective(this, OMPParallelDirectiveClass, OMPD_parallel,
-                             StartLoc, EndLoc, N, 1) { }
+                       unsigned NumClauses)
+      : OMPExecutableDirective(this, OMPParallelDirectiveClass, OMPD_parallel,
+                               StartLoc, EndLoc, NumClauses, 1) {}
 
   /// \brief Build an empty directive.
   ///
-  /// \param N Number of clauses.
+  /// \param NumClauses Number of clauses.
   ///
-  explicit OMPParallelDirective(unsigned N)
-    : OMPExecutableDirective(this, OMPParallelDirectiveClass, OMPD_parallel,
-                             SourceLocation(), SourceLocation(), N, 1) { }
+  explicit OMPParallelDirective(unsigned NumClauses)
+      : OMPExecutableDirective(this, OMPParallelDirectiveClass, OMPD_parallel,
+                               SourceLocation(), SourceLocation(),
+                               NumClauses, 1) {}
+
 public:
   /// \brief Creates directive with a list of \a Clauses.
   ///
@@ -160,18 +162,17 @@ public:
   /// \param Clauses List of clauses.
   /// \param AssociatedStmt Statement associated with the directive.
   ///
-  static OMPParallelDirective *Create(const ASTContext &C,
-                                      SourceLocation StartLoc,
-                                      SourceLocation EndLoc,
-                                      ArrayRef<OMPClause *> Clauses,
-                                      Stmt *AssociatedStmt);
+  static OMPParallelDirective *
+  Create(const ASTContext &C, SourceLocation StartLoc, SourceLocation EndLoc,
+         ArrayRef<OMPClause *> Clauses, Stmt *AssociatedStmt);
 
   /// \brief Creates an empty directive with the place for \a N clauses.
   ///
   /// \param C AST context.
-  /// \param N The number of clauses.
+  /// \param NumClauses Number of clauses.
   ///
-  static OMPParallelDirective *CreateEmpty(const ASTContext &C, unsigned N,
+  static OMPParallelDirective *CreateEmpty(const ASTContext &C,
+                                           unsigned NumClauses,
                                            EmptyShell);
 
   static bool classof(const Stmt *T) {
@@ -179,6 +180,76 @@ public:
   }
 };
 
-}  // end namespace clang
+/// \brief This represents '#pragma omp simd' directive.
+///
+/// \code
+/// #pragma omp simd private(a,b) linear(i,j:s) reduction(+:c,d)
+/// \endcode
+/// In this example directive '#pragma omp simd' has clauses 'private'
+/// with the variables 'a' and 'b', 'linear' with variables 'i', 'j' and
+/// linear step 's', 'reduction' with operator '+' and variables 'c' and 'd'.
+///
+class OMPSimdDirective : public OMPExecutableDirective {
+  friend class ASTStmtReader;
+  /// \brief Number of collapsed loops as specified by 'collapse' clause.
+  unsigned CollapsedNum;
+  /// \brief Build directive with the given start and end location.
+  ///
+  /// \param StartLoc Starting location of the directive kind.
+  /// \param EndLoc Ending location of the directive.
+  /// \param CollapsedNum Number of collapsed nested loops.
+  /// \param NumClauses Number of clauses.
+  ///
+  OMPSimdDirective(SourceLocation StartLoc, SourceLocation EndLoc,
+                  unsigned CollapsedNum, unsigned NumClauses)
+    : OMPExecutableDirective(this, OMPSimdDirectiveClass, OMPD_simd,
+                             StartLoc, EndLoc, NumClauses, 1),
+      CollapsedNum(CollapsedNum) { }
+
+  /// \brief Build an empty directive.
+  ///
+  /// \param CollapsedNum Number of collapsed nested loops.
+  /// \param NumClauses Number of clauses.
+  ///
+  explicit OMPSimdDirective(unsigned CollapsedNum, unsigned NumClauses)
+    : OMPExecutableDirective(this, OMPSimdDirectiveClass, OMPD_simd,
+                             SourceLocation(), SourceLocation(),
+                             NumClauses, 1),
+                             CollapsedNum(CollapsedNum) { }
+public:
+  /// \brief Creates directive with a list of \a Clauses.
+  ///
+  /// \param C AST context.
+  /// \param StartLoc Starting location of the directive kind.
+  /// \param EndLoc Ending Location of the directive.
+  /// \param Clauses List of clauses.
+  /// \param AssociatedStmt Statement, associated with the directive.
+  ///
+  static OMPSimdDirective *Create(const ASTContext &C,
+                                  SourceLocation StartLoc,
+                                  SourceLocation EndLoc,
+                                  ArrayRef<OMPClause *> Clauses,
+                                  Stmt *AssociatedStmt);
+
+  /// \brief Creates an empty directive with the place
+  /// for \a NumClauses clauses.
+  ///
+  /// \param C AST context.
+  /// \param CollapsedNum Number of collapsed nested loops.
+  /// \param NumClauses Number of clauses.
+  ///
+  static OMPSimdDirective *CreateEmpty(const ASTContext &C,
+                                       unsigned NumClauses,
+                                       unsigned CollapsedNum,
+                                       EmptyShell);
+
+  unsigned getCollapsedNumber() const { return CollapsedNum; }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == OMPSimdDirectiveClass;
+  }
+};
+
+} // end namespace clang
 
 #endif
