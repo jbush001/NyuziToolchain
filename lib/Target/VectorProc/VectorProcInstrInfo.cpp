@@ -193,7 +193,7 @@ void VectorProcInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
       .addReg(SrcReg, getKillRegState(KillSrc));
 }
 
-MachineMemOperand *VectorProcInstrInfo::GetMemOperand(MachineBasicBlock &MBB,
+MachineMemOperand *VectorProcInstrInfo::getMemOperand(MachineBasicBlock &MBB,
                                                       int FI,
                                                       unsigned Flag) const {
   MachineFunction &MF = *MBB.getParent();
@@ -213,7 +213,7 @@ void VectorProcInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
   if (MBBI != MBB.end())
     DL = MBBI->getDebugLoc();
 
-  MachineMemOperand *MMO = GetMemOperand(MBB, FrameIndex, MachineMemOperand::MOStore);
+  MachineMemOperand *MMO = getMemOperand(MBB, FrameIndex, MachineMemOperand::MOStore);
   unsigned Opc = 0;
 
   if (VectorProc::GPR32RegClass.hasSubClassEq(RC))
@@ -239,7 +239,7 @@ void VectorProcInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
   if (MBBI != MBB.end())
     DL = MBBI->getDebugLoc();
 
-  MachineMemOperand *MMO = GetMemOperand(MBB, FrameIndex, MachineMemOperand::MOLoad);
+  MachineMemOperand *MMO = getMemOperand(MBB, FrameIndex, MachineMemOperand::MOLoad);
   unsigned Opc = 0;
 
   if (VectorProc::GPR32RegClass.hasSubClassEq(RC))

@@ -30,10 +30,6 @@ class VectorProcInstrInfo : public VectorProcGenInstrInfo {
 public:
   explicit VectorProcInstrInfo(VectorProcSubtarget &ST);
 
-  /// getRegisterInfo - TargetInstrInfo is a superset of MRegister info.  As
-  /// such, whenever a client has an instance of instruction info, it should
-  /// always be able to get register info as well (through this method).
-  ///
   const VectorProcRegisterInfo &getRegisterInfo() const { return RI; }
 
   /// isLoadFromStackSlot - If the specified machine instruction is a direct
@@ -81,14 +77,15 @@ public:
                                     const TargetRegisterClass *RC,
                                     const TargetRegisterInfo *TRI) const override;
 
-  MachineMemOperand *GetMemOperand(MachineBasicBlock &MBB, int FI,
-                                   unsigned Flag) const;
-  
   void adjustStackPointer(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                    int Amount) const;
   unsigned int loadConstant(MachineBasicBlock &MBB, 
                              MachineBasicBlock::iterator MBBI,
                              int Amount) const;
+
+private:
+  MachineMemOperand *getMemOperand(MachineBasicBlock &MBB, int FI,
+                                   unsigned Flag) const;
 };
 }
 

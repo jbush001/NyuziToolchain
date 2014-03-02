@@ -43,7 +43,7 @@ public:
   VectorProcTargetLowering(TargetMachine &TM);
   virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
   virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI, 
-  	MachineBasicBlock *MBB) const override;
+  	                                                     MachineBasicBlock *MBB) const override;
   virtual const char *getTargetNodeName(unsigned Opcode) const override;
   virtual ConstraintType getConstraintType(const std::string &Constraint) const override;
   virtual std::pair<unsigned, const TargetRegisterClass *>

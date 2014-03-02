@@ -32,26 +32,18 @@ struct VectorProcRegisterInfo : public VectorProcGenRegisterInfo {
   const TargetInstrInfo &TII;
 
   VectorProcRegisterInfo(VectorProcSubtarget &st, const TargetInstrInfo &tii);
-
-  /// Code Generation virtual methods...
-  const uint16_t *getCalleeSavedRegs(const MachineFunction *MF = 0) const override;
-  const uint32_t *getCallPreservedMask(CallingConv::ID) const override;
-
-  BitVector getReservedRegs(const MachineFunction &MF) const override;
-
-  const TargetRegisterClass *getPointerRegClass(const MachineFunction &MF,
-                                                unsigned Kind) const override;
-
+  virtual const uint16_t *getCalleeSavedRegs(const MachineFunction *MF = 0) const override;
+  virtual const uint32_t *getCallPreservedMask(CallingConv::ID) const override;
+  virtual BitVector getReservedRegs(const MachineFunction &MF) const override;
+  virtual const TargetRegisterClass *getPointerRegClass(const MachineFunction &MF,
+                                                        unsigned Kind) const override;
   virtual void eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
-                           unsigned FIOperandNum,
-                           RegScavenger*) const override;
-
-  // Debug information queries.
+                                   unsigned FIOperandNum,
+                                   RegScavenger*) const override;
   virtual unsigned getFrameRegister(const MachineFunction &MF) const override;
   virtual bool requiresRegisterScavenging(const MachineFunction &MF) const override;
   virtual bool trackLivenessAfterRegAlloc(const MachineFunction &MF) const override;
   virtual bool requiresFrameIndexScavenging(const MachineFunction &MF) const override;
-
 };
 
 } // end namespace llvm

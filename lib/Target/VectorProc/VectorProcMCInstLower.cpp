@@ -123,8 +123,7 @@ void VectorProcMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
 
   // XXX note that this chunk of code assumes a load instruction. It's also
   // possible for MO_ConstantPoolIndex to appear in arithmetic.  In this
-  // situation,
-  // the instruction would be clobbered.
+  // situation, the instruction would be clobbered.
   if (MI->getNumOperands() > 1 &&
       (MI->getOperand(1).getType() == MachineOperand::MO_ConstantPoolIndex ||
        MI->getOperand(1).getType() == MachineOperand::MO_JumpTableIndex)) {

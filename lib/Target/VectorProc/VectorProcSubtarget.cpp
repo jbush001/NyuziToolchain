@@ -8,7 +8,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file implements the VECTORPROC specific subclass of TargetSubtargetInfo.
+// This file implements the vectorproc specific subclass of TargetSubtargetInfo.
 //
 //===----------------------------------------------------------------------===//
 

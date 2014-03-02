@@ -21,7 +21,6 @@ void VectorProcMCAsmInfo::anchor() {}
 
 VectorProcMCAsmInfo::VectorProcMCAsmInfo(StringRef TT) {
   IsLittleEndian = true;
-
   CommentString = ";";
   SupportsDebugInformation = true;
   ExceptionsType = ExceptionHandling::None;

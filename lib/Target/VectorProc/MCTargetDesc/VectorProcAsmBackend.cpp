@@ -37,26 +37,13 @@ public:
   VectorProcAsmBackend(const Target &T, Triple::OSType _OSType)
       : MCAsmBackend(), OSType(_OSType) {}
 
-  MCObjectWriter *createObjectWriter(raw_ostream &OS) const {
+  virtual MCObjectWriter *createObjectWriter(raw_ostream &OS) const override {
     return createVectorProcELFObjectWriter(
         OS, MCELFObjectTargetWriter::getOSABI(OSType));
   }
 
-  static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
-    switch (Kind) {
-    case VectorProc::fixup_VectorProc_PCRel_MemAccExt:
-    case VectorProc::fixup_VectorProc_PCRel_MemAcc:
-    case VectorProc::fixup_VectorProc_PCRel_Branch:
-    case VectorProc::fixup_VectorProc_PCRel_ComputeLabelAddress:
-      Value -= 4; // source location is PC + 4
-      break;
-    }
-
-    return Value;
-  }
-
-  void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
-                  uint64_t Value) const {
+  virtual void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
+                  uint64_t Value) const override {
     MCFixupKind Kind = Fixup.getKind();
     Value = adjustFixupValue((unsigned)Kind, Value);
     unsigned Offset = Fixup.getOffset();
@@ -80,9 +67,7 @@ public:
     }
   }
 
-  unsigned getNumFixupKinds() const { return VectorProc::NumTargetFixupKinds; }
-
-  const MCFixupKindInfo &getFixupKindInfo(MCFixupKind Kind) const {
+  virtual const MCFixupKindInfo &getFixupKindInfo(MCFixupKind Kind) const override {
     const static MCFixupKindInfo Infos[VectorProc::NumTargetFixupKinds] = {
       // This table *must* be in same the order of fixup_* kinds in
       // VectorProcFixupKinds.h.
@@ -103,17 +88,17 @@ public:
     return Infos[Kind - FirstTargetFixupKind];
   }
 
-  bool mayNeedRelaxation(const MCInst &Inst) const { return false; }
+  virtual bool mayNeedRelaxation(const MCInst &Inst) const override { return false; }
 
   /// fixupNeedsRelaxation - Target specific predicate for whether a given
   /// fixup requires the associated instruction to be relaxed.
-  bool fixupNeedsRelaxation(const MCFixup &Fixup, uint64_t Value,
+  virtual bool fixupNeedsRelaxation(const MCFixup &Fixup, uint64_t Value,
                             const MCRelaxableFragment *DF,
-                            const MCAsmLayout &Layout) const {
+                            const MCAsmLayout &Layout) const override {
     return false;
   }
 
-  void relaxInstruction(const MCInst &Inst, MCInst &Res) const {
+  virtual void relaxInstruction(const MCInst &Inst, MCInst &Res) const override {
     assert(0 && "relaxInstruction() unimplemented");
   }
 
@@ -122,7 +107,7 @@ public:
   /// it should return an error.
   ///
   /// \return - True on success.
-  bool writeNopData(uint64_t Count, MCObjectWriter *OW) const {
+  virtual bool writeNopData(uint64_t Count, MCObjectWriter *OW) const override {
     // Check for a less than instruction size number of bytes
     if (Count % 4)
       return false;
@@ -132,6 +117,22 @@ public:
       OW->Write32(0);
     
     return true;
+  }
+  
+private:
+  unsigned getNumFixupKinds() const { return VectorProc::NumTargetFixupKinds; }
+  
+  static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
+    switch (Kind) {
+    case VectorProc::fixup_VectorProc_PCRel_MemAccExt:
+    case VectorProc::fixup_VectorProc_PCRel_MemAcc:
+    case VectorProc::fixup_VectorProc_PCRel_Branch:
+    case VectorProc::fixup_VectorProc_PCRel_ComputeLabelAddress:
+      Value -= 4; // source location is PC + 4
+      break;
+    }
+
+    return Value;
   }
 }; // class VectorProcAsmBackend
 
