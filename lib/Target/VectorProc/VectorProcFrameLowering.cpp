@@ -69,11 +69,9 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
     // directives (debug information)
     MCSymbol *CSLabel = MMI.getContext().CreateTempSymbol();
     BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::PROLOG_LABEL)).addSym(CSLabel);
-    for (std::vector<CalleeSavedInfo>::const_iterator I = CSI.begin(),
-                                                      E = CSI.end();
-         I != E; ++I) {
-      int64_t Offset = MFI->getObjectOffset(I->getFrameIdx());
-      unsigned Reg = I->getReg();
+    for (auto I : CSI) {
+      int64_t Offset = MFI->getObjectOffset(I.getFrameIdx());
+      unsigned Reg = I.getReg();
       MMI.addFrameInst(MCCFIInstruction::createOffset(
           CSLabel, MRI->getDwarfRegNum(Reg, 1), Offset));
     }
