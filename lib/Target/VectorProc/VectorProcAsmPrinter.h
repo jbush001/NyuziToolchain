@@ -44,16 +44,15 @@ public:
   }
 
   virtual void EmitInstruction(const MachineInstr *MI) override;
-
   virtual void EmitFunctionBodyStart() override;
   virtual void EmitFunctionBodyEnd() override;
   virtual void EmitConstantPool() override;
 
   // Print operand for inline assembly
-  bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+  virtual bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                        unsigned AsmVariant, const char *ExtraCode,
                        raw_ostream &O) override;
-  bool PrintAsmMemoryOperand(const MachineInstr *MI,
+  virtual bool PrintAsmMemoryOperand(const MachineInstr *MI,
                              unsigned OpNum, unsigned AsmVariant,
                              const char *ExtraCode,
                              raw_ostream &O) override;

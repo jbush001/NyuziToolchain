@@ -7,10 +7,6 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-//
-//
-//
-//===----------------------------------------------------------------------===//
 
 #ifndef VECTORPROC_FRAMEINFO_H
 #define VECTORPROC_FRAMEINFO_H
@@ -32,15 +28,14 @@ public:
   virtual void emitPrologue(MachineFunction &MF) const override;
   virtual void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
   virtual void eliminateCallFramePseudoInstr(MachineFunction &MF,
-                                     MachineBasicBlock &MBB,
-                                     MachineBasicBlock::iterator I) const override;
-
+                                     		 MachineBasicBlock &MBB,
+                                    		 MachineBasicBlock::iterator I) const override;
   virtual void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
-                                            RegScavenger *RS) const override;
+                                                    RegScavenger *RS) const override;
 private:
   bool hasFP(const MachineFunction &MF) const;
   bool hasReservedCallFrame(const MachineFunction &MF) const;
-  uint64_t estimateStackSize(const MachineFunction &MF) const;
+  uint64_t getWorstCaseStackSize(const MachineFunction &MF) const;
 };
 
 } // End llvm namespace

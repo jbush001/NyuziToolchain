@@ -192,7 +192,9 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // to indicate that to subsequent passes.
   CLI.IsTailCall = false;
 
-  MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
+  MachineFunction &MF = DAG.getMachineFunction();
+  MachineFrameInfo *MFI = MF.getFrameInfo();
+  const TargetFrameLowering *TFL = MF.getTarget().getFrameLowering();
 
   // Analyze operands of the call, assigning locations to each operand.
   // VectorProcCallingConv.td will auto-generate CC_VectorProc32, which
@@ -206,7 +208,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // We always keep the stack pointer 64 byte aligned so we can use block
   // loads/stores for vector arguments
   unsigned ArgsSize = RoundUpToAlignment(CCInfo.getNextStackOffset(), 
-    kVectorProcStackFrameAlign);
+    TFL->getStackAlignment());
 
   // Create local copies for all arguments that are passed by value
   SmallVector<SDValue, 8> ByValArgs;

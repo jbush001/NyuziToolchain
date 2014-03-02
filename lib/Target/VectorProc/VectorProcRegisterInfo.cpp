@@ -74,11 +74,12 @@ void VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBB
   MachineInstr &MI = *MBBI;
   int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
   MachineFunction &MF = *MI.getParent()->getParent();
+  const TargetFrameLowering &TFL = *MF.getTarget().getFrameLowering();
   MachineFrameInfo *MFI = MF.getFrameInfo();
 
   // Round stack size to multiple of 64, consistent with frame pointer info.
-  int stackSize = RoundUpToAlignment(MF.getFrameInfo()->getStackSize(), 
-    kVectorProcStackFrameAlign);
+  int stackSize = RoundUpToAlignment(MFI->getStackSize(), 
+    TFL.getStackAlignment());
 
   // Frame index is relative to where SP is before it is decremented on
   // entry to the function.  Need to add stackSize to adjust for this.

@@ -27,8 +27,6 @@ class formatted_raw_ostream;
 
 FunctionPass *createVectorProcISelDag(VectorProcTargetMachine &TM);
 
-const int kVectorProcStackFrameAlign = 64;
-
 } // end namespace llvm;
 
 #endif

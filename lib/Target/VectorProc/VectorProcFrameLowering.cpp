@@ -42,8 +42,7 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
 
   // Compute stack size. Allocate space, keeping SP 64 byte aligned so we
   // can do block vector load/stores
-  int StackSize = RoundUpToAlignment(MFI->getStackSize(), 
-    kVectorProcStackFrameAlign); 
+  int StackSize = RoundUpToAlignment(MFI->getStackSize(), getStackAlignment()); 
 
   // Bail if there is no stack allocation
   if (StackSize == 0 && !MFI->adjustsStack()) return;
@@ -114,8 +113,7 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
         .addReg(VectorProc::FP_REG);
   }
 
-  uint64_t StackSize = RoundUpToAlignment(MFI->getStackSize(), 
-    kVectorProcStackFrameAlign);
+  uint64_t StackSize = RoundUpToAlignment(MFI->getStackSize(), getStackAlignment());
   if (!StackSize)
     return;
 
@@ -162,7 +160,7 @@ void VectorProcFrameLowering::eliminateCallFramePseudoInstr(
   MBB.erase(MBBI);
 }
 
-uint64_t VectorProcFrameLowering::estimateStackSize(const MachineFunction &MF) const {
+uint64_t VectorProcFrameLowering::getWorstCaseStackSize(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
   const TargetRegisterInfo &TRI = *MF.getTarget().getRegisterInfo();
 
@@ -205,8 +203,9 @@ void VectorProcFrameLowering::processFunctionBeforeCalleeSavedScan(
   // during epilogue/prologue insertion, after register allocation has
   // run. We only need to do this if the frame is to large to be
   // addressed by immediate offsets. If it isn't, don't bother creating
-  // a stack slot for it.
-  if (estimateStackSize(MF) < 0x2000)
+  // a stack slot for it.  Note that we may in some cases create the scavenge
+  // slot when it isn't needed.
+  if (getWorstCaseStackSize(MF) < 0x2000)
     return;
 
   const TargetRegisterClass *RC = &VectorProc::GPR32RegClass;
