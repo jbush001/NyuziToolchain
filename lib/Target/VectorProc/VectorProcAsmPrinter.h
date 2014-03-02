@@ -39,29 +39,28 @@ public:
   explicit VectorProcAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
       : AsmPrinter(TM, Streamer), MCInstLowering(*this) {}
 
-  virtual const char *getPassName() const {
+  virtual const char *getPassName() const override {
     return "VectorProc Assembly Printer";
   }
 
-  virtual void EmitInstruction(const MachineInstr *MI);
+  virtual void EmitInstruction(const MachineInstr *MI) override;
 
-  virtual MachineLocation getDebugValueLocation(const MachineInstr *MI) const;
-  virtual void EmitFunctionBodyStart();
-  virtual void EmitFunctionBodyEnd();
-  virtual void EmitConstantPool();
-  virtual void EmitInlineJumpTable(const MachineInstr *MI);
+  virtual void EmitFunctionBodyStart() override;
+  virtual void EmitFunctionBodyEnd() override;
+  virtual void EmitConstantPool() override;
 
   // Print operand for inline assembly
   bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                        unsigned AsmVariant, const char *ExtraCode,
-                       raw_ostream &O);
+                       raw_ostream &O) override;
   bool PrintAsmMemoryOperand(const MachineInstr *MI,
                              unsigned OpNum, unsigned AsmVariant,
                              const char *ExtraCode,
-                             raw_ostream &O);
+                             raw_ostream &O) override;
 
 private:
   MCSymbol *GetJumpTableLabel(unsigned uid) const;
+  void EmitInlineJumpTable(const MachineInstr *MI);
 };
 }
 

@@ -40,26 +40,26 @@ public:
                           Reloc::Model RM, CodeModel::Model CM,
                           CodeGenOpt::Level OL);
 
-  virtual const VectorProcInstrInfo *getInstrInfo() const { return &InstrInfo; }
-  virtual const TargetFrameLowering *getFrameLowering() const {
+  virtual const VectorProcInstrInfo *getInstrInfo() const override { return &InstrInfo; }
+  virtual const TargetFrameLowering *getFrameLowering() const override {
     return &FrameLowering;
   }
-  virtual const VectorProcSubtarget *getSubtargetImpl() const {
+  virtual const VectorProcSubtarget *getSubtargetImpl() const override {
     return &Subtarget;
   }
-  virtual const VectorProcRegisterInfo *getRegisterInfo() const {
+  virtual const VectorProcRegisterInfo *getRegisterInfo() const override {
     return &InstrInfo.getRegisterInfo();
   }
-  virtual const VectorProcTargetLowering *getTargetLowering() const {
+  virtual const VectorProcTargetLowering *getTargetLowering() const override {
     return &TLInfo;
   }
-  virtual const VectorProcSelectionDAGInfo *getSelectionDAGInfo() const {
+  virtual const VectorProcSelectionDAGInfo *getSelectionDAGInfo() const override {
     return &TSInfo;
   }
-  virtual const DataLayout *getDataLayout() const { return &DL; }
+  virtual const DataLayout *getDataLayout() const override { return &DL; }
 
   // Pass Pipeline Configuration
-  virtual TargetPassConfig *createPassConfig(PassManagerBase &PM);
+  virtual TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
 };
 
 } // end namespace llvm

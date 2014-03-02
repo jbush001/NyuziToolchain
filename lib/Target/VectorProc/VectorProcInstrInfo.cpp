@@ -76,20 +76,6 @@ unsigned VectorProcInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
   return 0;
 }
 
-MachineInstr *VectorProcInstrInfo::emitFrameIndexDebugValue(MachineFunction &MF,
-                                                            int FrameIx,
-                                                            uint64_t Offset,
-                                                            const MDNode *MDPtr,
-                                                            DebugLoc DL) const {
-  MachineInstrBuilder MIB = BuildMI(MF, DL, get(VectorProc::DBG_VALUE))
-                                .addFrameIndex(FrameIx)
-                                .addImm(0)
-                                .addImm(Offset)
-                                .addMetadata(MDPtr);
-
-  return &*MIB;
-}
-
 bool VectorProcInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
                                         MachineBasicBlock *&TBB,
                                         MachineBasicBlock *&FBB,
@@ -123,9 +109,9 @@ bool VectorProcInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
       while (llvm::next(I) != MBB.end())
         llvm::next(I)->eraseFromParent();
 
-      FBB = 0;
+      FBB = nullptr;
       if (MBB.isLayoutSuccessor(I->getOperand(0).getMBB())) {
-        TBB = 0;
+        TBB = nullptr;
         I->eraseFromParent();
         I = MBB.end();
         UnCondBrIter = MBB.end();
@@ -218,17 +204,16 @@ MachineMemOperand *VectorProcInstrInfo::GetMemOperand(MachineBasicBlock &MBB,
                                  MFI.getObjectSize(FI), Align);
 }
 
-void VectorProcInstrInfo::storeRegToStack(MachineBasicBlock &MBB,
-                                          MachineBasicBlock::iterator I,
-                                          unsigned SrcReg, bool isKill, int FI,
-                                          const TargetRegisterClass *RC,
-                                          const TargetRegisterInfo *TRI,
-                                          int64_t Offset) const {
+void VectorProcInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
+                                 MachineBasicBlock::iterator MBBI,
+                                 unsigned SrcReg, bool isKill, int FrameIndex,
+                                 const TargetRegisterClass *RC,
+                                 const TargetRegisterInfo *TRI) const {
   DebugLoc DL;
-  if (I != MBB.end())
-    DL = I->getDebugLoc();
+  if (MBBI != MBB.end())
+    DL = MBBI->getDebugLoc();
 
-  MachineMemOperand *MMO = GetMemOperand(MBB, FI, MachineMemOperand::MOStore);
+  MachineMemOperand *MMO = GetMemOperand(MBB, FrameIndex, MachineMemOperand::MOStore);
   unsigned Opc = 0;
 
   if (VectorProc::GPR32RegClass.hasSubClassEq(RC))
@@ -238,24 +223,23 @@ void VectorProcInstrInfo::storeRegToStack(MachineBasicBlock &MBB,
   else
     llvm_unreachable("unknown register class in storeRegToStack");
 
-  BuildMI(MBB, I, DL, get(Opc))
+  BuildMI(MBB, MBBI, DL, get(Opc))
       .addReg(SrcReg, getKillRegState(isKill))
-      .addFrameIndex(FI)
-      .addImm(Offset)
+      .addFrameIndex(FrameIndex)
+      .addImm(0)
       .addMemOperand(MMO);
 }
 
-void VectorProcInstrInfo::loadRegFromStack(MachineBasicBlock &MBB,
+void VectorProcInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
                                            MachineBasicBlock::iterator MBBI,
-                                           unsigned DestReg, int FI,
+                                           unsigned DestReg, int FrameIndex,
                                            const TargetRegisterClass *RC,
-                                           const TargetRegisterInfo *TRI,
-                                           int64_t Offset) const {
+                                           const TargetRegisterInfo *TRI) const {
   DebugLoc DL;
   if (MBBI != MBB.end())
     DL = MBBI->getDebugLoc();
 
-  MachineMemOperand *MMO = GetMemOperand(MBB, FI, MachineMemOperand::MOLoad);
+  MachineMemOperand *MMO = GetMemOperand(MBB, FrameIndex, MachineMemOperand::MOLoad);
   unsigned Opc = 0;
 
   if (VectorProc::GPR32RegClass.hasSubClassEq(RC))
@@ -266,8 +250,8 @@ void VectorProcInstrInfo::loadRegFromStack(MachineBasicBlock &MBB,
     llvm_unreachable("unknown register class in storeRegToStack");
 
   BuildMI(MBB, MBBI, DL, get(Opc), DestReg)
-      .addFrameIndex(FI)
-      .addImm(Offset)
+      .addFrameIndex(FrameIndex)
+      .addImm(0)
       .addMemOperand(MMO);
 }
 

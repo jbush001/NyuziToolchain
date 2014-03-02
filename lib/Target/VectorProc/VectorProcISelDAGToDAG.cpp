@@ -95,7 +95,7 @@ bool VectorProcDAGToDAGISel::SelectADDRri(SDValue Addr, SDValue &Base,
 
 SDNode *VectorProcDAGToDAGISel::Select(SDNode *N) {
   if (N->isMachineOpcode())
-    return NULL; // Already selected.
+    return nullptr; // Already selected.
 
   return SelectCode(N);
 }

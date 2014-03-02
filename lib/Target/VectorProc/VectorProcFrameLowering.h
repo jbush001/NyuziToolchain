@@ -29,15 +29,16 @@ public:
 
   /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
   /// the function.
-  void emitPrologue(MachineFunction &MF) const;
-  void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const;
-  void eliminateCallFramePseudoInstr(MachineFunction &MF,
+  virtual void emitPrologue(MachineFunction &MF) const override;
+  virtual void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
+  virtual void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                      MachineBasicBlock &MBB,
-                                     MachineBasicBlock::iterator I) const;
-  bool hasFP(const MachineFunction &MF) const;
+                                     MachineBasicBlock::iterator I) const override;
 
-  void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
-                                            RegScavenger *RS) const;
+  virtual void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
+                                            RegScavenger *RS) const override;
+private:
+  bool hasFP(const MachineFunction &MF) const;
   bool hasReservedCallFrame(const MachineFunction &MF) const;
   uint64_t estimateStackSize(const MachineFunction &MF) const;
 };

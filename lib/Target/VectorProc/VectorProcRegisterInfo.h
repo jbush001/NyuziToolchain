@@ -34,26 +34,23 @@ struct VectorProcRegisterInfo : public VectorProcGenRegisterInfo {
   VectorProcRegisterInfo(VectorProcSubtarget &st, const TargetInstrInfo &tii);
 
   /// Code Generation virtual methods...
-  const uint16_t *getCalleeSavedRegs(const MachineFunction *MF = 0) const;
-  const uint32_t *getCallPreservedMask(CallingConv::ID) const;
+  const uint16_t *getCalleeSavedRegs(const MachineFunction *MF = 0) const override;
+  const uint32_t *getCallPreservedMask(CallingConv::ID) const override;
 
-  BitVector getReservedRegs(const MachineFunction &MF) const;
+  BitVector getReservedRegs(const MachineFunction &MF) const override;
 
   const TargetRegisterClass *getPointerRegClass(const MachineFunction &MF,
-                                                unsigned Kind) const;
+                                                unsigned Kind) const override;
 
   virtual void eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
                            unsigned FIOperandNum,
-                           RegScavenger *RS = NULL) const;
+                           RegScavenger*) const override;
 
   // Debug information queries.
-  unsigned getFrameRegister(const MachineFunction &MF) const;
-
-  virtual bool requiresRegisterScavenging(const MachineFunction &MF) const;
-
-  virtual bool trackLivenessAfterRegAlloc(const MachineFunction &MF) const;
-
-  virtual bool requiresFrameIndexScavenging(const MachineFunction &MF) const;
+  virtual unsigned getFrameRegister(const MachineFunction &MF) const override;
+  virtual bool requiresRegisterScavenging(const MachineFunction &MF) const override;
+  virtual bool trackLivenessAfterRegAlloc(const MachineFunction &MF) const override;
+  virtual bool requiresFrameIndexScavenging(const MachineFunction &MF) const override;
 
 };
 

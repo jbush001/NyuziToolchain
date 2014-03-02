@@ -325,9 +325,8 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   Ops.push_back(Chain);
   Ops.push_back(Callee);
 
-  for (auto &Reg : RegsToPass) {
+  for (auto &Reg : RegsToPass)
     Ops.push_back(DAG.getRegister(Reg.first, Reg.second.getValueType()));
-  }
 
   // Add a register mask operand representing the call-preserved registers.
   const TargetRegisterInfo *TRI = getTargetMachine().getRegisterInfo();
@@ -474,7 +473,7 @@ const char *VectorProcTargetLowering::getTargetNodeName(unsigned Opcode) const {
   case VectorProcISD::JT_WRAPPER:
     return "VectorProcISD::JT_WRAPPER";
   default:
-    return 0;
+    return nullptr;
   }
 }
 

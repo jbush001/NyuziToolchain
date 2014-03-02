@@ -51,15 +51,6 @@ void VectorProcAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   } while ((I != E) && I->isInsideBundle());
 }
 
-MachineLocation
-VectorProcAsmPrinter::getDebugValueLocation(const MachineInstr *MI) const {
-  assert(MI->getNumOperands() == 4 && "Invalid number of operands!");
-  assert(MI->getOperand(0).isReg() && MI->getOperand(1).isImm() &&
-         "Unexpected MachineOperand types");
-  return MachineLocation(MI->getOperand(0).getReg(),
-                         MI->getOperand(1).getImm());
-}
-
 void VectorProcAsmPrinter::EmitFunctionBodyStart() {
   MCInstLowering.Initialize(&MF->getContext());
 }
