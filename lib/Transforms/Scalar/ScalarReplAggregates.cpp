@@ -87,7 +87,7 @@ namespace {
 
   private:
     bool HasDomTree;
-    DataLayout *DL;
+    const DataLayout *DL;
 
     /// DeadInsts - Keep track of instructions we have made dead, so that
     /// we can remove them after we are done working.
@@ -1023,7 +1023,8 @@ bool SROA::runOnFunction(Function &F) {
   if (skipOptnoneFunction(F))
     return false;
 
-  DL = getAnalysisIfAvailable<DataLayout>();
+  DataLayoutPass *DLP = getAnalysisIfAvailable<DataLayoutPass>();
+  DL = DLP ? &DLP->getDataLayout() : 0;
 
   bool Changed = performPromotion(F);
 

@@ -76,7 +76,7 @@ namespace {
   /// revectored to the false side of the second if.
   ///
   class JumpThreading : public FunctionPass {
-    DataLayout *DL;
+    const DataLayout *DL;
     TargetLibraryInfo *TLI;
     LazyValueInfo *LVI;
 #ifdef NDEBUG
@@ -152,7 +152,8 @@ bool JumpThreading::runOnFunction(Function &F) {
     return false;
 
   DEBUG(dbgs() << "Jump threading on function '" << F.getName() << "'\n");
-  DL = getAnalysisIfAvailable<DataLayout>();
+  DataLayoutPass *DLP = getAnalysisIfAvailable<DataLayoutPass>();
+  DL = DLP ? &DLP->getDataLayout() : 0;
   TLI = &getAnalysis<TargetLibraryInfo>();
   LVI = &getAnalysis<LazyValueInfo>();
 

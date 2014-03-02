@@ -56,16 +56,6 @@
 #define LLVM_MSC_PREREQ(version) 0
 #endif
 
-/// \brief Does the compiler support r-value references?
-/// This implies that <utility> provides the one-argument std::move;  it
-/// does not imply the existence of any other C++ library features.
-#if __has_feature(cxx_rvalue_references) || \
-    defined(__GXX_EXPERIMENTAL_CXX0X__) || LLVM_MSC_PREREQ(1600)
-#define LLVM_HAS_RVALUE_REFERENCES 1
-#else
-#define LLVM_HAS_RVALUE_REFERENCES 0
-#endif
-
 /// \brief Does the compiler support r-value reference *this?
 ///
 /// Sadly, this is separate from just r-value reference support because GCC
@@ -78,31 +68,6 @@
 #define LLVM_HAS_RVALUE_REFERENCE_THIS 0
 #endif
 
-/// \macro LLVM_HAS_CXX11_TYPETRAITS
-/// \brief Does the compiler have the C++11 type traits.
-///
-/// #include <type_traits>
-///
-/// * enable_if
-/// * {true,false}_type
-/// * is_constructible
-/// * etc...
-#if defined(__GXX_EXPERIMENTAL_CXX0X__) || LLVM_MSC_PREREQ(1700)
-#define LLVM_HAS_CXX11_TYPETRAITS 1
-#else
-#define LLVM_HAS_CXX11_TYPETRAITS 0
-#endif
-
-/// \macro LLVM_HAS_CXX11_STDLIB
-/// \brief Does the compiler have the C++11 standard library.
-///
-/// Implies LLVM_HAS_RVALUE_REFERENCES, LLVM_HAS_CXX11_TYPETRAITS
-#if defined(__GXX_EXPERIMENTAL_CXX0X__) || LLVM_MSC_PREREQ(1700)
-#define LLVM_HAS_CXX11_STDLIB 1
-#else
-#define LLVM_HAS_CXX11_STDLIB 0
-#endif
-
 /// \macro LLVM_HAS_VARIADIC_TEMPLATES
 /// \brief Does this compiler support variadic templates.
 ///
@@ -113,13 +78,9 @@
 # define LLVM_HAS_VARIADIC_TEMPLATES 0
 #endif
 
-/// llvm_move - Expands to ::std::move if the compiler supports
-/// r-value references; otherwise, expands to the argument.
-#if LLVM_HAS_RVALUE_REFERENCES
+/// llvm_move - Expands to ::std::move. This is a hold-over from when we did
+/// not support R-value references.
 #define llvm_move(value) (::std::move(value))
-#else
-#define llvm_move(value) (value)
-#endif
 
 /// Expands to '&' if r-value references are supported.
 ///

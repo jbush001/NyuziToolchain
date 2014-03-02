@@ -771,6 +771,8 @@ def fshort_enums : Flag<["-"], "fshort-enums">, Group<f_Group>, Flags<[CC1Option
 def : Flag<["-"], "freorder-blocks">, Group<clang_ignored_f_Group>;
 def fshort_wchar : Flag<["-"], "fshort-wchar">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Force wchar_t to be a short unsigned int">;
+def fno_short_wchar : Flag<["-"], "fno-short-wchar">, Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"Force wchar_t to be an unsigned int">;
 def fshow_overloads_EQ : Joined<["-"], "fshow-overloads=">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Which overload candidates to show when overload resolution fails: "
            "best|all; defaults to all">;
@@ -964,6 +966,8 @@ def iwithsysroot : JoinedOrSeparate<["-"], "iwithsysroot">, Group<clang_i_Group>
   HelpText<"Add directory to SYSTEM include search path, "
            "absolute paths are relative to -isysroot">, MetaVarName<"<directory>">,
   Flags<[CC1Option]>;
+def ivfsoverlay : JoinedOrSeparate<["-"], "ivfsoverlay">, Group<clang_i_Group>, Flags<[CC1Option]>,
+  HelpText<"Overlay the virtual filesystem described by file over the real file system">;
 def i : Joined<["-"], "i">, Group<i_Group>;
 def keep__private__externs : Flag<["-"], "keep_private_externs">;
 def l : JoinedOrSeparate<["-"], "l">, Flags<[LinkerInput, RenderJoined]>;
@@ -1086,6 +1090,8 @@ def mpopcntd : Flag<["-"], "mpopcntd">, Group<m_ppc_Features_Group>;
 def mno_popcntd : Flag<["-"], "mno-popcntd">, Group<m_ppc_Features_Group>;
 def mqpx : Flag<["-"], "mqpx">, Group<m_ppc_Features_Group>;
 def mno_qpx : Flag<["-"], "mno-qpx">, Group<m_ppc_Features_Group>;
+def mcrbits : Flag<["-"], "mcrbits">, Group<m_ppc_Features_Group>;
+def mno_crbits : Flag<["-"], "mno-crbits">, Group<m_ppc_Features_Group>;
 
 def faltivec : Flag<["-"], "faltivec">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Enable AltiVec vector initializer syntax">;

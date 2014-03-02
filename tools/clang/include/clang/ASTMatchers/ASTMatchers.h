@@ -311,18 +311,6 @@ AST_MATCHER(Decl, isPrivate) {
   return Node.getAccess() == AS_private;
 }
 
-// FIXME: unify ClassTemplateSpecializationDecl and TemplateSpecializationType's
-// APIs for accessing the template argument list.
-inline llvm::ArrayRef<TemplateArgument>
-getTemplateSpecializationArgs(const ClassTemplateSpecializationDecl &D) {
-  return D.getTemplateArgs().asArray();
-}
-
-inline llvm::ArrayRef<TemplateArgument>
-getTemplateSpecializationArgs(const TemplateSpecializationType &T) {
-  return llvm::ArrayRef<TemplateArgument>(T.getArgs(), T.getNumArgs());
-}
-
 /// \brief Matches classTemplateSpecializations that have at least one
 /// TemplateArgument matching the given InnerMatcher.
 ///
@@ -340,7 +328,8 @@ AST_POLYMORPHIC_MATCHER_P(
     AST_POLYMORPHIC_SUPPORTED_TYPES_2(ClassTemplateSpecializationDecl,
                                       TemplateSpecializationType),
     internal::Matcher<TemplateArgument>, InnerMatcher) {
-  llvm::ArrayRef<TemplateArgument> List = getTemplateSpecializationArgs(Node);
+  llvm::ArrayRef<TemplateArgument> List =
+      internal::getTemplateSpecializationArgs(Node);
   return matchesFirstInRange(InnerMatcher, List.begin(), List.end(), Finder,
                              Builder);
 }
@@ -439,7 +428,8 @@ AST_POLYMORPHIC_MATCHER_P2(
     AST_POLYMORPHIC_SUPPORTED_TYPES_2(ClassTemplateSpecializationDecl,
                                       TemplateSpecializationType),
     unsigned, N, internal::Matcher<TemplateArgument>, InnerMatcher) {
-  llvm::ArrayRef<TemplateArgument> List = getTemplateSpecializationArgs(Node);
+  llvm::ArrayRef<TemplateArgument> List =
+      internal::getTemplateSpecializationArgs(Node);
   if (List.size() <= N)
     return false;
   return InnerMatcher.matches(List[N], Finder, Builder);
@@ -555,7 +545,7 @@ const internal::VariadicDynCastAllOfMatcher<
 ///
 /// Example matches y
 /// \code
-///   class X { void y() };
+///   class X { void y(); };
 /// \endcode
 const internal::VariadicDynCastAllOfMatcher<Decl, CXXMethodDecl> methodDecl;
 
@@ -2320,16 +2310,6 @@ AST_POLYMORPHIC_MATCHER_P(
           InnerMatcher.matches(*Condition, Finder, Builder));
 }
 
-namespace internal {
-struct NotEqualsBoundNodePredicate {
-  bool operator()(const internal::BoundNodesMap &Nodes) const {
-    return Nodes.getNode(ID) != Node;
-  }
-  std::string ID;
-  ast_type_traits::DynTypedNode Node;
-};
-} // namespace internal
-
 /// \brief Matches if a node equals a previously bound node.
 ///
 /// Matches a node if it equals the node previously bound to \p ID.
@@ -2654,6 +2634,20 @@ AST_MATCHER_P(CXXMethodDecl, ofClass,
 ///   matches A::x
 AST_MATCHER(CXXMethodDecl, isVirtual) {
   return Node.isVirtual();
+}
+
+/// \brief Matches if the given method declaration is pure.
+///
+/// Given
+/// \code
+///   class A {
+///    public:
+///     virtual void x() = 0;
+///   };
+/// \endcode
+///   matches A::x
+AST_MATCHER(CXXMethodDecl, isPure) {
+  return Node.isPure();
 }
 
 /// \brief Matches if the given method declaration is const.

@@ -381,7 +381,7 @@ int main(int argc, char **argv) {
 
     std::string ErrorInfo;
     Out.reset(new tool_output_file(OutputFilename.c_str(), ErrorInfo,
-                                   sys::fs::F_Binary));
+                                   sys::fs::F_None));
     if (!ErrorInfo.empty()) {
       errs() << ErrorInfo << '\n';
       return 1;
@@ -429,15 +429,14 @@ int main(int argc, char **argv) {
   Passes.add(TLI);
 
   // Add an appropriate DataLayout instance for this module.
-  DataLayout *DL = 0;
-  const std::string &ModuleDataLayout = M.get()->getDataLayout();
-  if (!ModuleDataLayout.empty())
-    DL = new DataLayout(ModuleDataLayout);
-  else if (!DefaultDataLayout.empty())
-    DL = new DataLayout(DefaultDataLayout);
+  const DataLayout *DL = M.get()->getDataLayout();
+  if (!DL && !DefaultDataLayout.empty()) {
+    M->setDataLayout(DefaultDataLayout);
+    DL = M.get()->getDataLayout();
+  }
 
   if (DL)
-    Passes.add(DL);
+    Passes.add(new DataLayoutPass(M.get()));
 
   Triple ModuleTriple(M->getTargetTriple());
   TargetMachine *Machine = 0;
@@ -453,7 +452,7 @@ int main(int argc, char **argv) {
   if (OptLevelO1 || OptLevelO2 || OptLevelOs || OptLevelOz || OptLevelO3) {
     FPasses.reset(new FunctionPassManager(M.get()));
     if (DL)
-      FPasses->add(new DataLayout(*DL));
+      FPasses->add(new DataLayoutPass(M.get()));
     if (TM.get())
       TM->addAnalysisPasses(*FPasses);
 
@@ -467,7 +466,7 @@ int main(int argc, char **argv) {
 
       std::string ErrorInfo;
       Out.reset(new tool_output_file(OutputFilename.c_str(), ErrorInfo,
-                                     sys::fs::F_Binary));
+                                     sys::fs::F_None));
       if (!ErrorInfo.empty()) {
         errs() << ErrorInfo << '\n';
         return 1;

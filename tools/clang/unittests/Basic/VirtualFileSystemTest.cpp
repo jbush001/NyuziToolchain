@@ -218,28 +218,36 @@ TEST(VirtualFileSystemTest, MergedDirPermissions) {
   EXPECT_EQ(0200, Status->getPermissions());
 }
 
-static int NumDiagnostics = 0;
-static void CountingDiagHandler(const SMDiagnostic &, void *) {
-  ++NumDiagnostics;
-}
+class VFSFromYAMLTest : public ::testing::Test {
+public:
+  int NumDiagnostics;
+  void SetUp() {
+    NumDiagnostics = 0;
+  }
 
-static IntrusiveRefCntPtr<vfs::FileSystem>
-getFromYAMLRawString(StringRef Content,
-                     IntrusiveRefCntPtr<vfs::FileSystem> ExternalFS) {
-  MemoryBuffer *Buffer = MemoryBuffer::getMemBuffer(Content);
-  return getVFSFromYAML(Buffer, CountingDiagHandler, ExternalFS);
-}
+  static void CountingDiagHandler(const SMDiagnostic &, void *Context) {
+    VFSFromYAMLTest *Test = static_cast<VFSFromYAMLTest *>(Context);
+    ++Test->NumDiagnostics;
+  }
 
-static IntrusiveRefCntPtr<vfs::FileSystem> getFromYAMLString(
-    StringRef Content,
-    IntrusiveRefCntPtr<vfs::FileSystem> ExternalFS = new DummyFileSystem()) {
-  std::string VersionPlusContent("{\n  'version':0,\n");
-  VersionPlusContent += Content.slice(Content.find('{') + 1, StringRef::npos);
-  return getFromYAMLRawString(VersionPlusContent, ExternalFS);
-}
+  IntrusiveRefCntPtr<vfs::FileSystem>
+  getFromYAMLRawString(StringRef Content,
+                       IntrusiveRefCntPtr<vfs::FileSystem> ExternalFS) {
+    MemoryBuffer *Buffer = MemoryBuffer::getMemBuffer(Content);
+    return getVFSFromYAML(Buffer, CountingDiagHandler, this, ExternalFS);
+  }
 
-TEST(VirtualFileSystemTest, BasicVFSFromYAML) {
-  NumDiagnostics = 0;
+  IntrusiveRefCntPtr<vfs::FileSystem> getFromYAMLString(
+      StringRef Content,
+      IntrusiveRefCntPtr<vfs::FileSystem> ExternalFS = new DummyFileSystem()) {
+    std::string VersionPlusContent("{\n  'version':0,\n");
+    VersionPlusContent += Content.slice(Content.find('{') + 1, StringRef::npos);
+    return getFromYAMLRawString(VersionPlusContent, ExternalFS);
+  }
+
+};
+
+TEST_F(VFSFromYAMLTest, BasicVFSFromYAML) {
   IntrusiveRefCntPtr<vfs::FileSystem> FS;
   FS = getFromYAMLString("");
   EXPECT_EQ(NULL, FS.getPtr());
@@ -250,8 +258,7 @@ TEST(VirtualFileSystemTest, BasicVFSFromYAML) {
   EXPECT_EQ(3, NumDiagnostics);
 }
 
-TEST(VirtualFileSystemTest, MappedFiles) {
-  NumDiagnostics = 0;
+TEST_F(VFSFromYAMLTest, MappedFiles) {
   IntrusiveRefCntPtr<DummyFileSystem> Lower(new DummyFileSystem());
   Lower->addRegularFile("/foo/bar/a");
   IntrusiveRefCntPtr<vfs::FileSystem> FS =
@@ -274,7 +281,7 @@ TEST(VirtualFileSystemTest, MappedFiles) {
                         "]\n"
                         "}",
                         Lower);
-  ASSERT_TRUE(FS.getPtr());
+  ASSERT_TRUE(FS.getPtr() != NULL);
 
   IntrusiveRefCntPtr<vfs::OverlayFileSystem> O(
       new vfs::OverlayFileSystem(Lower));
@@ -283,8 +290,7 @@ TEST(VirtualFileSystemTest, MappedFiles) {
   // file
   ErrorOr<vfs::Status> S = O->status("/file1");
   ASSERT_EQ(errc::success, S.getError());
-  EXPECT_EQ("/file1", S->getName());
-  EXPECT_EQ("/foo/bar/a", S->getExternalName());
+  EXPECT_EQ("/foo/bar/a", S->getName());
 
   ErrorOr<vfs::Status> SLower = O->status("/foo/bar/a");
   EXPECT_EQ("/foo/bar/a", SLower->getName());
@@ -301,8 +307,7 @@ TEST(VirtualFileSystemTest, MappedFiles) {
   EXPECT_EQ(0, NumDiagnostics);
 }
 
-TEST(VirtualFileSystemTest, CaseInsensitive) {
-  NumDiagnostics = 0;
+TEST_F(VFSFromYAMLTest, CaseInsensitive) {
   IntrusiveRefCntPtr<DummyFileSystem> Lower(new DummyFileSystem());
   Lower->addRegularFile("/foo/bar/a");
   IntrusiveRefCntPtr<vfs::FileSystem> FS =
@@ -319,7 +324,7 @@ TEST(VirtualFileSystemTest, CaseInsensitive) {
                         "              ]\n"
                         "}]}",
                         Lower);
-  ASSERT_TRUE(FS.getPtr());
+  ASSERT_TRUE(FS.getPtr() != NULL);
 
   IntrusiveRefCntPtr<vfs::OverlayFileSystem> O(
       new vfs::OverlayFileSystem(Lower));
@@ -338,8 +343,7 @@ TEST(VirtualFileSystemTest, CaseInsensitive) {
   EXPECT_EQ(0, NumDiagnostics);
 }
 
-TEST(VirtualFileSystemTest, CaseSensitive) {
-  NumDiagnostics = 0;
+TEST_F(VFSFromYAMLTest, CaseSensitive) {
   IntrusiveRefCntPtr<DummyFileSystem> Lower(new DummyFileSystem());
   Lower->addRegularFile("/foo/bar/a");
   IntrusiveRefCntPtr<vfs::FileSystem> FS =
@@ -356,7 +360,7 @@ TEST(VirtualFileSystemTest, CaseSensitive) {
                         "              ]\n"
                         "}]}",
                         Lower);
-  ASSERT_TRUE(FS.getPtr());
+  ASSERT_TRUE(FS.getPtr() != NULL);
 
   IntrusiveRefCntPtr<vfs::OverlayFileSystem> O(
       new vfs::OverlayFileSystem(Lower));
@@ -371,94 +375,205 @@ TEST(VirtualFileSystemTest, CaseSensitive) {
   EXPECT_EQ(0, NumDiagnostics);
 }
 
-TEST(VirtualFileSystemTest, IllegalVFSFile) {
-  NumDiagnostics = 0;
+TEST_F(VFSFromYAMLTest, IllegalVFSFile) {
   IntrusiveRefCntPtr<DummyFileSystem> Lower(new DummyFileSystem());
 
   // invalid YAML at top-level
   IntrusiveRefCntPtr<vfs::FileSystem> FS = getFromYAMLString("{]", Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   // invalid YAML in roots
   FS = getFromYAMLString("{ 'roots':[}", Lower);
   // invalid YAML in directory
   FS = getFromYAMLString(
       "{ 'roots':[ { 'name': 'foo', 'type': 'directory', 'contents': [}",
       Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
 
   // invalid configuration
   FS = getFromYAMLString("{ 'knobular': 'true', 'roots':[] }", Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   FS = getFromYAMLString("{ 'case-sensitive': 'maybe', 'roots':[] }", Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
 
   // invalid roots
   FS = getFromYAMLString("{ 'roots':'' }", Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   FS = getFromYAMLString("{ 'roots':{} }", Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
 
   // invalid entries
   FS = getFromYAMLString(
       "{ 'roots':[ { 'type': 'other', 'name': 'me', 'contents': '' }", Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   FS = getFromYAMLString("{ 'roots':[ { 'type': 'file', 'name': [], "
                          "'external-contents': 'other' }",
                          Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   FS = getFromYAMLString(
       "{ 'roots':[ { 'type': 'file', 'name': 'me', 'external-contents': [] }",
       Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   FS = getFromYAMLString(
       "{ 'roots':[ { 'type': 'file', 'name': 'me', 'external-contents': {} }",
       Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   FS = getFromYAMLString(
       "{ 'roots':[ { 'type': 'directory', 'name': 'me', 'contents': {} }",
       Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   FS = getFromYAMLString(
       "{ 'roots':[ { 'type': 'directory', 'name': 'me', 'contents': '' }",
       Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   FS = getFromYAMLString(
       "{ 'roots':[ { 'thingy': 'directory', 'name': 'me', 'contents': [] }",
       Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
 
   // missing mandatory fields
   FS = getFromYAMLString("{ 'roots':[ { 'type': 'file', 'name': 'me' }", Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   FS = getFromYAMLString(
       "{ 'roots':[ { 'type': 'file', 'external-contents': 'other' }", Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   FS = getFromYAMLString("{ 'roots':[ { 'name': 'me', 'contents': [] }", Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
 
   // duplicate keys
   FS = getFromYAMLString("{ 'roots':[], 'roots':[] }", Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   FS = getFromYAMLString(
       "{ 'case-sensitive':'true', 'case-sensitive':'true', 'roots':[] }",
       Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   FS =
       getFromYAMLString("{ 'roots':[{'name':'me', 'name':'you', 'type':'file', "
                         "'external-contents':'blah' } ] }",
                         Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
 
   // missing version
   FS = getFromYAMLRawString("{ 'roots':[] }", Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
 
   // bad version number
   FS = getFromYAMLRawString("{ 'version':'foo', 'roots':[] }", Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   FS = getFromYAMLRawString("{ 'version':-1, 'roots':[] }", Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   FS = getFromYAMLRawString("{ 'version':100000, 'roots':[] }", Lower);
-  EXPECT_FALSE(FS.getPtr());
+  EXPECT_EQ(NULL, FS.getPtr());
   EXPECT_EQ(24, NumDiagnostics);
+}
+
+TEST_F(VFSFromYAMLTest, UseExternalName) {
+  IntrusiveRefCntPtr<DummyFileSystem> Lower(new DummyFileSystem());
+  Lower->addRegularFile("/external/file");
+
+  IntrusiveRefCntPtr<vfs::FileSystem> FS = getFromYAMLString(
+      "{ 'roots': [\n"
+      "  { 'type': 'file', 'name': '/A',\n"
+      "    'external-contents': '/external/file'\n"
+      "  },\n"
+      "  { 'type': 'file', 'name': '/B',\n"
+      "    'use-external-name': true,\n"
+      "    'external-contents': '/external/file'\n"
+      "  },\n"
+      "  { 'type': 'file', 'name': '/C',\n"
+      "    'use-external-name': false,\n"
+      "    'external-contents': '/external/file'\n"
+      "  }\n"
+      "] }", Lower);
+  ASSERT_TRUE(NULL != FS.getPtr());
+
+  // default true
+  EXPECT_EQ("/external/file", FS->status("/A")->getName());
+  // explicit
+  EXPECT_EQ("/external/file", FS->status("/B")->getName());
+  EXPECT_EQ("/C", FS->status("/C")->getName());
+
+  // global configuration
+  FS = getFromYAMLString(
+      "{ 'use-external-names': false,\n"
+      "  'roots': [\n"
+      "  { 'type': 'file', 'name': '/A',\n"
+      "    'external-contents': '/external/file'\n"
+      "  },\n"
+      "  { 'type': 'file', 'name': '/B',\n"
+      "    'use-external-name': true,\n"
+      "    'external-contents': '/external/file'\n"
+      "  },\n"
+      "  { 'type': 'file', 'name': '/C',\n"
+      "    'use-external-name': false,\n"
+      "    'external-contents': '/external/file'\n"
+      "  }\n"
+      "] }", Lower);
+  ASSERT_TRUE(NULL != FS.getPtr());
+
+  // default
+  EXPECT_EQ("/A", FS->status("/A")->getName());
+  // explicit
+  EXPECT_EQ("/external/file", FS->status("/B")->getName());
+  EXPECT_EQ("/C", FS->status("/C")->getName());
+}
+
+TEST_F(VFSFromYAMLTest, MultiComponentPath) {
+  IntrusiveRefCntPtr<DummyFileSystem> Lower(new DummyFileSystem());
+  Lower->addRegularFile("/other");
+
+  // file in roots
+  IntrusiveRefCntPtr<vfs::FileSystem> FS = getFromYAMLString(
+      "{ 'roots': [\n"
+      "  { 'type': 'file', 'name': '/path/to/file',\n"
+      "    'external-contents': '/other' }]\n"
+      "}", Lower);
+  ASSERT_TRUE(NULL != FS.getPtr());
+  EXPECT_EQ(errc::success, FS->status("/path/to/file").getError());
+  EXPECT_EQ(errc::success, FS->status("/path/to").getError());
+  EXPECT_EQ(errc::success, FS->status("/path").getError());
+  EXPECT_EQ(errc::success, FS->status("/").getError());
+
+  // at the start
+  FS = getFromYAMLString(
+      "{ 'roots': [\n"
+      "  { 'type': 'directory', 'name': '/path/to',\n"
+      "    'contents': [ { 'type': 'file', 'name': 'file',\n"
+      "                    'external-contents': '/other' }]}]\n"
+      "}", Lower);
+  ASSERT_TRUE(NULL != FS.getPtr());
+  EXPECT_EQ(errc::success, FS->status("/path/to/file").getError());
+  EXPECT_EQ(errc::success, FS->status("/path/to").getError());
+  EXPECT_EQ(errc::success, FS->status("/path").getError());
+  EXPECT_EQ(errc::success, FS->status("/").getError());
+
+  // at the end
+  FS = getFromYAMLString(
+      "{ 'roots': [\n"
+      "  { 'type': 'directory', 'name': '/',\n"
+      "    'contents': [ { 'type': 'file', 'name': 'path/to/file',\n"
+      "                    'external-contents': '/other' }]}]\n"
+      "}", Lower);
+  ASSERT_TRUE(NULL != FS.getPtr());
+  EXPECT_EQ(errc::success, FS->status("/path/to/file").getError());
+  EXPECT_EQ(errc::success, FS->status("/path/to").getError());
+  EXPECT_EQ(errc::success, FS->status("/path").getError());
+  EXPECT_EQ(errc::success, FS->status("/").getError());
+}
+
+TEST_F(VFSFromYAMLTest, TrailingSlashes) {
+  IntrusiveRefCntPtr<DummyFileSystem> Lower(new DummyFileSystem());
+  Lower->addRegularFile("/other");
+
+  // file in roots
+  IntrusiveRefCntPtr<vfs::FileSystem> FS = getFromYAMLString(
+      "{ 'roots': [\n"
+      "  { 'type': 'directory', 'name': '/path/to////',\n"
+      "    'contents': [ { 'type': 'file', 'name': 'file',\n"
+      "                    'external-contents': '/other' }]}]\n"
+      "}", Lower);
+  ASSERT_TRUE(NULL != FS.getPtr());
+  EXPECT_EQ(errc::success, FS->status("/path/to/file").getError());
+  EXPECT_EQ(errc::success, FS->status("/path/to").getError());
+  EXPECT_EQ(errc::success, FS->status("/path").getError());
+  EXPECT_EQ(errc::success, FS->status("/").getError());
 }

@@ -220,10 +220,8 @@ void CGRecordLowering::setBitFieldInfo(
   // Here we calculate the actual storage alignment of the bits.  E.g if we've
   // got an alignment >= 2 and the bitfield starts at offset 6 we've got an
   // alignment of 2.
-  Info.StorageAlignment = (unsigned)(
-      StartOffset % Layout.getAlignment() ?
-      1ll << llvm::countTrailingZeros((uint64_t)StartOffset.getQuantity()) :
-      Layout.getAlignment().getQuantity());
+  Info.StorageAlignment =
+      Layout.getAlignment().alignmentAtOffset(StartOffset).getQuantity();
   if (Info.Size > Info.StorageSize)
     Info.Size = Info.StorageSize;
   // Reverse the bit offsets for big endian machines. Because we represent
@@ -279,6 +277,7 @@ void CGRecordLowering::lower(bool NVBaseType) {
 }
 
 void CGRecordLowering::lowerUnion() {
+  CharUnits LayoutSize = Layout.getSize();
   llvm::Type *StorageType = 0;
   // Compute zero-initializable status.
   if (!D->field_empty() && !isZeroInitializable(*D->field_begin()))
@@ -295,7 +294,10 @@ void CGRecordLowering::lowerUnion() {
       // Skip 0 sized bitfields.
       if (Field->getBitWidthValue(Context) == 0)
         continue;
-      setBitFieldInfo(*Field, CharUnits::Zero(), getStorageType(*Field));
+      llvm::Type *FieldType = getStorageType(*Field);
+      if (LayoutSize < getSize(FieldType))
+        FieldType = getByteArrayType(LayoutSize);
+      setBitFieldInfo(*Field, CharUnits::Zero(), FieldType);
     }
     Fields[*Field] = 0;
     llvm::Type *FieldType = getStorageType(*Field);
@@ -306,7 +308,6 @@ void CGRecordLowering::lowerUnion() {
         getSize(FieldType) > getSize(StorageType)))
       StorageType = FieldType;
   }
-  CharUnits LayoutSize = Layout.getSize();
   // If we have no storage type just pad to the appropriate size and return.
   if (!StorageType)
     return appendPaddingBytes(LayoutSize);
@@ -633,8 +634,6 @@ CGRecordLayout *CodeGenTypes::ComputeRecordLayout(const RecordDecl *D,
 
   Builder.lower(false);
 
-  Ty->setBody(Builder.FieldTypes, Builder.Packed);
-
   // If we're in C++, compute the base subobject type.
   llvm::StructType *BaseTy = 0;
   if (isa<CXXRecordDecl>(D) && !D->isUnion() && !D->hasAttr<FinalAttr>()) {
@@ -647,6 +646,11 @@ CGRecordLayout *CodeGenTypes::ComputeRecordLayout(const RecordDecl *D,
       addRecordTypeName(D, BaseTy, ".base");
     }
   }
+
+  // Fill in the struct *after* computing the base type.  Filling in the body
+  // signifies that the type is no longer opaque and record layout is complete,
+  // but we may need to recursively layout D while laying D out as a base type.
+  Ty->setBody(Builder.FieldTypes, Builder.Packed);
 
   CGRecordLayout *RL =
     new CGRecordLayout(Ty, BaseTy, Builder.IsZeroInitializable,

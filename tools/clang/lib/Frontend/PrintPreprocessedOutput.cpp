@@ -459,6 +459,9 @@ PragmaDiagnostic(SourceLocation Loc, StringRef Namespace,
   MoveToLine(Loc);
   OS << "#pragma " << Namespace << " diagnostic ";
   switch (Map) {
+  case diag::MAP_REMARK:
+    OS << "remark";
+    break;
   case diag::MAP_WARNING:
     OS << "warning";
     break;
@@ -520,6 +523,13 @@ bool PrintPPOutputPPCallbacks::HandleFirstTokOnLine(Token &Tok) {
   // Print out space characters so that the first token on a line is
   // indented for easy reading.
   unsigned ColNo = SM.getExpansionColumnNumber(Tok.getLocation());
+
+  // The first token on a line can have a column number of 1, yet still expect
+  // leading white space, if a macro expansion in column 1 starts with an empty
+  // macro argument, or an empty nested macro expansion. In this case, move the
+  // token to column 2.
+  if (ColNo == 1 && Tok.hasLeadingSpace())
+    ColNo = 2;
 
   // This hack prevents stuff like:
   // #define HASH #

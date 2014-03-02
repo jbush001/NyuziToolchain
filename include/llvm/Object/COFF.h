@@ -267,6 +267,12 @@ struct coff_load_configuration32 {
   support::ulittle32_t SEHandlerCount;
 };
 
+struct coff_runtime_function_x64 {
+  support::ulittle32_t BeginAddress;
+  support::ulittle32_t EndAddress;
+  support::ulittle32_t UnwindInformation;
+};
+
 class COFFObjectFile : public ObjectFile {
 private:
   friend class ImportDirectoryEntryRef;

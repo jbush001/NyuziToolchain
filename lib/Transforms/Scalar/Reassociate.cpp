@@ -1292,7 +1292,7 @@ Value *Reassociate::OptimizeXor(Instruction *I,
   //  the same symbolic value cluster together. For instance, the input operand
   //  sequence ("x | 123", "y & 456", "x & 789") will be sorted into:
   //  ("x | 123", "x & 789", "y & 456").
-  std::sort(OpndPtrs.begin(), OpndPtrs.end(), XorOpnd::PtrSortFunctor());
+  std::stable_sort(OpndPtrs.begin(), OpndPtrs.end(), XorOpnd::PtrSortFunctor());
 
   // Step 3: Combine adjacent operands
   XorOpnd *PrevOpnd = 0;
@@ -1547,19 +1547,6 @@ Value *Reassociate::OptimizeAdd(Instruction *I,
   return 0;
 }
 
-namespace {
-  /// \brief Predicate tests whether a ValueEntry's op is in a map.
-  struct IsValueInMap {
-    const DenseMap<Value *, unsigned> &Map;
-
-    IsValueInMap(const DenseMap<Value *, unsigned> &Map) : Map(Map) {}
-
-    bool operator()(const ValueEntry &Entry) {
-      return Map.find(Entry.Op) != Map.end();
-    }
-  };
-}
-
 /// \brief Build up a vector of value/power pairs factoring a product.
 ///
 /// Given a series of multiplication operands, build a vector of factors and
@@ -1618,7 +1605,7 @@ bool Reassociate::collectMultiplyFactors(SmallVectorImpl<ValueEntry> &Ops,
   // below our mininum of '4'.
   assert(FactorPowerSum >= 4);
 
-  std::sort(Factors.begin(), Factors.end(), Factor::PowerDescendingSorter());
+  std::stable_sort(Factors.begin(), Factors.end(), Factor::PowerDescendingSorter());
   return true;
 }
 

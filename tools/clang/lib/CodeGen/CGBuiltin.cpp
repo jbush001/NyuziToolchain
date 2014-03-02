@@ -1627,6 +1627,7 @@ Value *CodeGenFunction::EmitTargetBuiltinExpr(unsigned BuiltinID,
                                               const CallExpr *E) {
   switch (getTarget().getTriple().getArch()) {
   case llvm::Triple::aarch64:
+  case llvm::Triple::aarch64_be:
     return EmitAArch64BuiltinExpr(BuiltinID, E);
   case llvm::Triple::arm:
   case llvm::Triple::thumb:
@@ -3121,11 +3122,10 @@ static Value *packTBLDVectorList(CodeGenFunction &CGF, ArrayRef<Value *> Ops,
 
   TblTy = llvm::VectorType::get(TblTy->getElementType(),
                                 2*TblTy->getNumElements());
-  llvm::Type *Tys[2] = { ResTy, TblTy };
 
   Function *TblF;
   TblOps.push_back(IndexOp);
-  TblF = CGF.CGM.getIntrinsic(IntID, Tys);
+  TblF = CGF.CGM.getIntrinsic(IntID, ResTy);
   
   return CGF.EmitNeonCall(TblF, TblOps, Name);
 }
@@ -3191,9 +3191,6 @@ static Value *EmitAArch64TblBuiltinExpr(CodeGenFunction &CGF,
   }
 
   Arg = E->getArg(TblPos);
-  llvm::Type *TblTy = CGF.ConvertType(Arg->getType());
-  llvm::VectorType *VTblTy = cast<llvm::VectorType>(TblTy);
-  llvm::Type *Tys[2] = { Ty, VTblTy };
   unsigned nElts = VTy->getNumElements();  
 
   // AArch64 scalar builtins are not overloaded, they do not have an extra
@@ -3307,7 +3304,7 @@ static Value *EmitAArch64TblBuiltinExpr(CodeGenFunction &CGF,
   if (!Int)
     return 0;
 
-  Function *F = CGF.CGM.getIntrinsic(Int, Tys);
+  Function *F = CGF.CGM.getIntrinsic(Int, Ty);
   return CGF.EmitNeonCall(F, Ops, s);
 }
 
@@ -3842,8 +3839,8 @@ Value *CodeGenFunction::EmitAArch64BuiltinExpr(unsigned BuiltinID,
     Int = Intrinsic::aarch64_neon_rbit;
     return EmitNeonCall(CGM.getIntrinsic(Int, Ty), Ops, "vrbit");
   case NEON::BI__builtin_neon_vcvt_f32_f64: {
-    Ops[0] = Builder.CreateBitCast(Ops[0], Ty);
-    Ty = GetNeonType(this, NeonTypeFlags(NeonTypeFlags::Float32, false, false));
+    NeonTypeFlags SrcFlag = NeonTypeFlags(NeonTypeFlags::Float64, false, true);
+    Ops[0] = Builder.CreateBitCast(Ops[0], GetNeonType(this, SrcFlag));
     return Builder.CreateFPTrunc(Ops[0], Ty, "vcvt");
   }
   case NEON::BI__builtin_neon_vcvtx_f32_v: {

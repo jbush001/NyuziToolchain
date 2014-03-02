@@ -12,6 +12,7 @@
 #include "GroupedSectionsPass.h"
 #include "IdataPass.h"
 #include "LinkerGeneratedSymbolFile.h"
+#include "LoadConfigPass.h"
 #include "SetSubsystemPass.h"
 
 #include "lld/Core/PassManager.h"
@@ -66,10 +67,17 @@ bool PECOFFLinkingContext::validateImpl(raw_ostream &diagnostics) {
     exports.insert(desc.ordinal);
   }
 
+  // Check for /align.
   std::bitset<64> alignment(_sectionDefaultAlignment);
   if (alignment.count() != 1) {
     diagnostics << "Section alignment must be a power of 2, but got "
                 << _sectionDefaultAlignment << "\n";
+    return false;
+  }
+
+  // /safeseh is only valid for x86.
+  if (getMachineType() != llvm::COFF::IMAGE_FILE_MACHINE_I386 && noSEH()) {
+    diagnostics << "/SAFESEH:NO is only valid for x86.\n";
     return false;
   }
 
@@ -262,7 +270,8 @@ void PECOFFLinkingContext::addPasses(PassManager &pm) {
   pm.add(std::unique_ptr<Pass>(new pecoff::SetSubsystemPass(*this)));
   pm.add(std::unique_ptr<Pass>(new pecoff::EdataPass(*this)));
   pm.add(std::unique_ptr<Pass>(new pecoff::IdataPass(*this)));
-  pm.add(std::unique_ptr<Pass>(new LayoutPass()));
+  pm.add(std::unique_ptr<Pass>(new LayoutPass(registry())));
+  pm.add(std::unique_ptr<Pass>(new pecoff::LoadConfigPass(*this)));
   pm.add(std::unique_ptr<Pass>(new pecoff::GroupedSectionsPass()));
 }
 

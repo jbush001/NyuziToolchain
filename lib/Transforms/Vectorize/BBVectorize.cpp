@@ -201,7 +201,8 @@ namespace {
       AA = &P->getAnalysis<AliasAnalysis>();
       DT = &P->getAnalysis<DominatorTreeWrapperPass>().getDomTree();
       SE = &P->getAnalysis<ScalarEvolution>();
-      DL = P->getAnalysisIfAvailable<DataLayout>();
+      DataLayoutPass *DLP = P->getAnalysisIfAvailable<DataLayoutPass>();
+      DL = DLP ? &DLP->getDataLayout() : 0;
       TTI = IgnoreTargetInfo ? 0 : &P->getAnalysis<TargetTransformInfo>();
     }
 
@@ -214,7 +215,7 @@ namespace {
     AliasAnalysis *AA;
     DominatorTree *DT;
     ScalarEvolution *SE;
-    DataLayout *DL;
+    const DataLayout *DL;
     const TargetTransformInfo *TTI;
 
     // FIXME: const correct?
@@ -436,7 +437,8 @@ namespace {
       AA = &getAnalysis<AliasAnalysis>();
       DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
       SE = &getAnalysis<ScalarEvolution>();
-      DL = getAnalysisIfAvailable<DataLayout>();
+      DataLayoutPass *DLP = getAnalysisIfAvailable<DataLayoutPass>();
+      DL = DLP ? &DLP->getDataLayout() : 0;
       TTI = IgnoreTargetInfo ? 0 : &getAnalysis<TargetTransformInfo>();
 
       return vectorizeBB(BB);
