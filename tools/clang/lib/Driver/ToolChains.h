@@ -722,14 +722,14 @@ public:
 class LLVM_LIBRARY_VISIBILITY VectorProcToolChain : public ToolChain {
 public:
   VectorProcToolChain(const Driver &D, const llvm::Triple &Triple,
-               const llvm::opt::ArgList &Args);
+                      const llvm::opt::ArgList &Args);
   ~VectorProcToolChain();
-  virtual bool IsIntegratedAssemblerDefault() const;
-  virtual bool isPICDefault() const;
-  virtual bool isPIEDefault() const;
-  virtual bool isPICDefaultForced() const;
+  virtual bool IsIntegratedAssemblerDefault() const override;
+  virtual bool isPICDefault() const override;
+  virtual bool isPIEDefault() const override;
+  virtual bool isPICDefaultForced() const override;
   virtual void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
-     tools::ArgStringList &CC1Args) const;
+     tools::ArgStringList &CC1Args) const override;
 
 protected:
    virtual Tool *buildLinker() const;

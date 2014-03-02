@@ -5425,34 +5425,36 @@ namespace {
     }
 
     virtual void getTargetDefines(const LangOptions &Opts,
-                                  MacroBuilder &Builder) const {
+                                  MacroBuilder &Builder) const override {
       Builder.defineMacro("__VECTORPROC__");
     }
 
-	virtual void getTargetBuiltins(const Builtin::Info *&Records,
-		unsigned &NumRecords) const 
-	{
-		Records = BuiltinInfo;
-		NumRecords = clang::VectorProc::LastTSBuiltin - Builtin::FirstTSBuiltin;
-	}
+  	virtual void getTargetBuiltins(const Builtin::Info *&Records,
+  		                             unsigned &NumRecords) const override
+  	{
+  		Records = BuiltinInfo;
+  		NumRecords = clang::VectorProc::LastTSBuiltin - Builtin::FirstTSBuiltin;
+  	}
 
     virtual void getGCCRegNames(const char *const *&Names,
-                                unsigned &NumNames) const;
+                                unsigned &NumNames) const override;
+
     virtual void getGCCRegAliases(const GCCRegAlias *&Aliases,
-                                  unsigned &NumAliases) const {
+                                    unsigned &NumAliases) const override {
       // No aliases.
       Aliases = 0;
       NumAliases = 0;
     }
+
     virtual bool validateAsmConstraint(const char *&Name,
-                                       TargetInfo::ConstraintInfo &info) const;
-    virtual const char *getClobbers() const {
+                                       TargetInfo::ConstraintInfo &info) const override;
+    virtual const char *getClobbers() const override {
       return "";
     }
 
-	virtual BuiltinVaListKind getBuiltinVaListKind() const {
-		return TargetInfo::VoidPtrBuiltinVaList;
-	}
+  	virtual BuiltinVaListKind getBuiltinVaListKind() const override {
+  		return TargetInfo::VoidPtrBuiltinVaList;
+  	}
   };
 
   const char *const VectorProcTargetInfo::GCCRegNames[] = {
