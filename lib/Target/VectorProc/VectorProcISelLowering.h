@@ -41,29 +41,29 @@ class VectorProcTargetLowering : public TargetLowering {
 
 public:
   VectorProcTargetLowering(TargetMachine &TM);
-  virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
+  virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const LLVM_OVERRIDE;
   virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI, 
-  	                                                     MachineBasicBlock *MBB) const override;
-  virtual const char *getTargetNodeName(unsigned Opcode) const override;
-  virtual ConstraintType getConstraintType(const std::string &Constraint) const override;
+  	                                                     MachineBasicBlock *MBB) const LLVM_OVERRIDE;
+  virtual const char *getTargetNodeName(unsigned Opcode) const LLVM_OVERRIDE;
+  virtual ConstraintType getConstraintType(const std::string &Constraint) const LLVM_OVERRIDE;
   virtual std::pair<unsigned, const TargetRegisterClass *>
-	  getRegForInlineAsmConstraint(const std::string &Constraint, MVT VT) const override;
-  virtual bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
-  virtual EVT getSetCCResultType(LLVMContext &Context, EVT VT) const override;
+	  getRegForInlineAsmConstraint(const std::string &Constraint, MVT VT) const LLVM_OVERRIDE;
+  virtual bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const LLVM_OVERRIDE;
+  virtual EVT getSetCCResultType(LLVMContext &Context, EVT VT) const LLVM_OVERRIDE;
   virtual SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv,
                               bool isVarArg,
                               const SmallVectorImpl<ISD::OutputArg> &Outs,
                               const SmallVectorImpl<SDValue> &OutVals, SDLoc,
-                              SelectionDAG &DAG) const override;
+                              SelectionDAG &DAG) const LLVM_OVERRIDE;
   virtual SDValue LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, 
   									   bool isVarArg,
 				                       const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc,
 				                       SelectionDAG &DAG,
-				                       SmallVectorImpl<SDValue> &InVals) const override;
+				                       SmallVectorImpl<SDValue> &InVals) const LLVM_OVERRIDE;
   virtual SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
-                            SmallVectorImpl<SDValue> &InVals) const override;
-  virtual unsigned getJumpTableEncoding() const override;
-  virtual bool isShuffleMaskLegal(const SmallVectorImpl<int> &M, EVT VT) const override;
+                            SmallVectorImpl<SDValue> &InVals) const LLVM_OVERRIDE;
+  virtual unsigned getJumpTableEncoding() const LLVM_OVERRIDE;
+  virtual bool isShuffleMaskLegal(const SmallVectorImpl<int> &M, EVT VT) const LLVM_OVERRIDE;
 
 private:
   MachineBasicBlock *EmitSelectCC(MachineInstr *MI,

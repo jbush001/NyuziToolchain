@@ -26,7 +26,7 @@ public:
 protected:
   virtual unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
                                 bool IsPCRel, bool IsRelocWithSymbol,
-                                int64_t Addend) const override;
+                                int64_t Addend) const LLVM_OVERRIDE;
 };
 }
 

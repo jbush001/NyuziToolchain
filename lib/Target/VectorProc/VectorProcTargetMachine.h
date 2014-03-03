@@ -27,39 +27,40 @@
 namespace llvm {
 
 class VectorProcTargetMachine : public LLVMTargetMachine {
-  VectorProcSubtarget Subtarget;
-  const DataLayout DL; // Calculates type size & alignment
-  VectorProcInstrInfo InstrInfo;
-  VectorProcTargetLowering TLInfo;
-  VectorProcSelectionDAGInfo TSInfo;
-  VectorProcFrameLowering FrameLowering;
-
 public:
   VectorProcTargetMachine(const Target &T, StringRef TT, StringRef CPU,
                           StringRef FS, const TargetOptions &Options,
                           Reloc::Model RM, CodeModel::Model CM,
                           CodeGenOpt::Level OL);
 
-  virtual const VectorProcInstrInfo *getInstrInfo() const override { return &InstrInfo; }
-  virtual const TargetFrameLowering *getFrameLowering() const override {
+  virtual const VectorProcInstrInfo *getInstrInfo() const LLVM_OVERRIDE { return &InstrInfo; }
+  virtual const TargetFrameLowering *getFrameLowering() const LLVM_OVERRIDE {
     return &FrameLowering;
   }
-  virtual const VectorProcSubtarget *getSubtargetImpl() const override {
+  virtual const VectorProcSubtarget *getSubtargetImpl() const LLVM_OVERRIDE {
     return &Subtarget;
   }
-  virtual const VectorProcRegisterInfo *getRegisterInfo() const override {
+  virtual const VectorProcRegisterInfo *getRegisterInfo() const LLVM_OVERRIDE {
     return &InstrInfo.getRegisterInfo();
   }
-  virtual const VectorProcTargetLowering *getTargetLowering() const override {
+  virtual const VectorProcTargetLowering *getTargetLowering() const LLVM_OVERRIDE {
     return &TLInfo;
   }
-  virtual const VectorProcSelectionDAGInfo *getSelectionDAGInfo() const override {
+  virtual const VectorProcSelectionDAGInfo *getSelectionDAGInfo() const LLVM_OVERRIDE {
     return &TSInfo;
   }
-  virtual const DataLayout *getDataLayout() const override { return &DL; }
+  virtual const DataLayout *getDataLayout() const LLVM_OVERRIDE { return &DL; }
 
   // Pass Pipeline Configuration
-  virtual TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
+  virtual TargetPassConfig *createPassConfig(PassManagerBase &PM) LLVM_OVERRIDE;
+
+private:
+  VectorProcSubtarget Subtarget;
+  const DataLayout DL; // Calculates type size & alignment
+  VectorProcInstrInfo InstrInfo;
+  VectorProcTargetLowering TLInfo;
+  VectorProcSelectionDAGInfo TSInfo;
+  VectorProcFrameLowering FrameLowering;
 };
 
 } // end namespace llvm

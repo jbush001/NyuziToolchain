@@ -659,13 +659,13 @@ namespace VectorProc {
     Link(const ToolChain &TC) : Tool("VectorProc::Link",
       "VectorProc-ld", TC) {}
 
-    virtual bool hasIntegratedCPP() const override { return false; }
-    virtual bool isLinkJob() const override { return true; }
+    virtual bool hasIntegratedCPP() const LLVM_OVERRIDE { return false; }
+    virtual bool isLinkJob() const LLVM_OVERRIDE { return true; }
     virtual void ConstructJob(Compilation &C, const JobAction &JA,
                               const InputInfo &Output,
                               const InputInfoList &Inputs,
                               const llvm::opt::ArgList &TCArgs,
-                              const char *LinkingOutput) const override;
+                              const char *LinkingOutput) const LLVM_OVERRIDE;
   };
 } // end namespace VectorProc.
 

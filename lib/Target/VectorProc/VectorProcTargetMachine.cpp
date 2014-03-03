@@ -47,8 +47,8 @@ public:
     return getTM<VectorProcTargetMachine>();
   }
 
-  virtual bool addInstSelector() override;
-  virtual bool addPreEmitPass() override;
+  virtual bool addInstSelector() LLVM_OVERRIDE;
+  virtual bool addPreEmitPass() LLVM_OVERRIDE;
 };
 } // namespace
 

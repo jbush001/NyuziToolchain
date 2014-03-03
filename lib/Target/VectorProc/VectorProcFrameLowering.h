@@ -23,16 +23,17 @@ public:
   explicit VectorProcFrameLowering(const VectorProcSubtarget &ST)
       : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 64, 0, 64) {}
 
-  virtual void emitPrologue(MachineFunction &MF) const override;
-  virtual void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
+  virtual void emitPrologue(MachineFunction &MF) const LLVM_OVERRIDE;
+  virtual void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const LLVM_OVERRIDE;
   virtual void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                      		 MachineBasicBlock &MBB,
-                                    		 MachineBasicBlock::iterator I) const override;
+                                    		 MachineBasicBlock::iterator I) const LLVM_OVERRIDE;
   virtual void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
-                                                    RegScavenger *RS) const override;
+                                                    RegScavenger *RS) const LLVM_OVERRIDE;
+  virtual bool hasFP(const MachineFunction &MF) const LLVM_OVERRIDE;
+  virtual bool hasReservedCallFrame(const MachineFunction &MF) const LLVM_OVERRIDE;
+
 private:
-  bool hasFP(const MachineFunction &MF) const;
-  bool hasReservedCallFrame(const MachineFunction &MF) const;
   uint64_t getWorstCaseStackSize(const MachineFunction &MF) const;
 };
 

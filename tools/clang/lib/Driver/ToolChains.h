@@ -724,12 +724,12 @@ public:
   VectorProcToolChain(const Driver &D, const llvm::Triple &Triple,
                       const llvm::opt::ArgList &Args);
   ~VectorProcToolChain();
-  virtual bool IsIntegratedAssemblerDefault() const override;
-  virtual bool isPICDefault() const override;
-  virtual bool isPIEDefault() const override;
-  virtual bool isPICDefaultForced() const override;
+  virtual bool IsIntegratedAssemblerDefault() const LLVM_OVERRIDE;
+  virtual bool isPICDefault() const LLVM_OVERRIDE;
+  virtual bool isPIEDefault() const LLVM_OVERRIDE;
+  virtual bool isPICDefaultForced() const LLVM_OVERRIDE;
   virtual void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
-     tools::ArgStringList &CC1Args) const override;
+     tools::ArgStringList &CC1Args) const LLVM_OVERRIDE;
 
 protected:
    virtual Tool *buildLinker() const;
