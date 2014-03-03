@@ -19,13 +19,6 @@
 namespace llvm {
 
 class VectorProcMachineFunctionInfo : public MachineFunctionInfo {
-  virtual void anchor();
-
-private:
-  /// SRetReturnReg - Holds the virtual register into which the sret
-  /// argument is passed.
-  unsigned SRetReturnReg;
-
 public:
   VectorProcMachineFunctionInfo() : SRetReturnReg(0) {}
 
@@ -34,6 +27,16 @@ public:
 
   unsigned getSRetReturnReg() const { return SRetReturnReg; }
   void setSRetReturnReg(unsigned Reg) { SRetReturnReg = Reg; }
+  int getVarArgsFrameIndex() const { return VarArgsFrameIndex; }
+  void setVarArgsFrameIndex(int Index) { VarArgsFrameIndex = Index; }
+
+private:
+  virtual void anchor();
+
+  /// SRetReturnReg - Holds the virtual register into which the sret
+  /// argument is passed.
+  unsigned SRetReturnReg;
+  int VarArgsFrameIndex;
 };
 }
 

@@ -70,9 +70,8 @@ SDValue VectorProcTargetLowering::LowerReturn(
   }
 
   if (MF.getFunction()->hasStructRetAttr()) {
-    VectorProcMachineFunctionInfo *SFI =
-        MF.getInfo<VectorProcMachineFunctionInfo>();
-    unsigned Reg = SFI->getSRetReturnReg();
+    VectorProcMachineFunctionInfo *VFI = MF.getInfo<VectorProcMachineFunctionInfo>();
+    unsigned Reg = VFI->getSRetReturnReg();
     if (!Reg)
       llvm_unreachable("sret virtual register not created in the entry block");
 
@@ -108,6 +107,7 @@ SDValue VectorProcTargetLowering::LowerFormalArguments(
   CCInfo.AnalyzeFormalArguments(Ins, CC_VectorProc32);
 
   // Walk through each parameter and push into InVals
+  int ParamEndOffset = 0;
   for (auto &VA : ArgLocs) {
     if (VA.isRegLoc()) {
       // Argument is in register
@@ -130,9 +130,11 @@ SDValue VectorProcTargetLowering::LowerFormalArguments(
 
     // Otherwise this parameter is on the stack
     assert(VA.isMemLoc());
+    int ParamSize = VA.getValVT().getSizeInBits() / 8;
+    int ParamOffset = VA.getLocMemOffset();
+    int FI = MF.getFrameInfo()->CreateFixedObject(ParamSize, ParamOffset, true);
+    ParamEndOffset = ParamOffset + ParamSize;
 
-    int FI = MF.getFrameInfo()->CreateFixedObject(
-        VA.getValVT().getSizeInBits() / 8, VA.getLocMemOffset(), true);
     SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy());
     SDValue Load;
     if (VA.getValVT() == MVT::i32 || VA.getValVT() == MVT::f32 ||
@@ -146,25 +148,31 @@ SDValue VectorProcTargetLowering::LowerFormalArguments(
       unsigned Offset = 4 - std::max(1U, VA.getValVT().getSizeInBits() / 8);
       FIPtr = DAG.getNode(ISD::ADD, DL, MVT::i32, FIPtr,
                           DAG.getConstant(Offset, MVT::i32));
-      Load =
-          DAG.getExtLoad(LoadOp, DL, MVT::i32, Chain, FIPtr,
-                         MachinePointerInfo(), VA.getValVT(), false, false, 0);
+      Load = DAG.getExtLoad(LoadOp, DL, MVT::i32, Chain, FIPtr,
+                            MachinePointerInfo(), VA.getValVT(), false, false, 0);
       Load = DAG.getNode(ISD::TRUNCATE, DL, VA.getValVT(), Load);
     }
 
     InVals.push_back(Load);
   }
 
+  VectorProcMachineFunctionInfo *VFI = MF.getInfo<VectorProcMachineFunctionInfo>();
+
+  if (isVarArg) {
+    // Create a dummy object where the first parameter would start.  This will be used
+    // later to determine the start address of variable arguments.
+    int FirstVarArg = MF.getFrameInfo()->CreateFixedObject(4, ParamEndOffset, false);
+    VFI->setVarArgsFrameIndex(FirstVarArg);
+  }
+  
   if (MF.getFunction()->hasStructRetAttr()) {
     // When a function returns a structure, the address of the return value
     // is placed in the first physical register.
-    VectorProcMachineFunctionInfo *SFI =
-        MF.getInfo<VectorProcMachineFunctionInfo>();
-    unsigned Reg = SFI->getSRetReturnReg();
+    unsigned Reg = VFI->getSRetReturnReg();
     if (!Reg) {
       Reg =
           MF.getRegInfo().createVirtualRegister(&VectorProc::GPR32RegClass);
-      SFI->setSRetReturnReg(Reg);
+      VFI->setSRetReturnReg(Reg);
     }
 
     SDValue Copy = DAG.getCopyToReg(DAG.getEntryNode(), DL, Reg, InVals[0]);
@@ -409,6 +417,7 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::FRAMEADDR, MVT::i32, Custom);
   setOperationAction(ISD::RETURNADDR, MVT::i32, Custom);
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::v16i1, Custom);
+  setOperationAction(ISD::VASTART, MVT::Other, Custom);
 
   setOperationAction(ISD::BR_CC, MVT::i32, Expand);
   setOperationAction(ISD::BR_CC, MVT::f32, Expand);
@@ -437,6 +446,9 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
   setOperationAction(ISD::SRA_PARTS, MVT::i32, Expand);
   setOperationAction(ISD::SRL_PARTS, MVT::i32, Expand);
   setOperationAction(ISD::SHL_PARTS, MVT::i32, Expand);
+  setOperationAction(ISD::VAARG, MVT::Other, Expand);
+  setOperationAction(ISD::VACOPY, MVT::Other, Expand);
+  setOperationAction(ISD::VAEND, MVT::Other, Expand);
 
   // Hardware does not have an integer divider, so convert these to
   // library calls
@@ -536,6 +548,17 @@ SDValue VectorProcTargetLowering::LowerBlockAddress(SDValue Op, SelectionDAG &DA
   return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
                      MachinePointerInfo::getConstantPool(), false, false, false,
                      4);
+}
+
+SDValue VectorProcTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  MachineFunction &MF = DAG.getMachineFunction();
+  VectorProcMachineFunctionInfo *VFI = MF.getInfo<VectorProcMachineFunctionInfo>();
+  SDValue FI = DAG.getFrameIndex(VFI->getVarArgsFrameIndex(),
+                                 getPointerTy());
+  const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
+  return DAG.getStore(Op.getOperand(0), DL, FI, Op.getOperand(1),
+                      MachinePointerInfo(SV), false, false, 0);
 }
 
 /// isSplatVector - Returns true if N is a BUILD_VECTOR node whose elements are
@@ -1048,6 +1071,8 @@ SDValue VectorProcTargetLowering::LowerOperation(SDValue Op,
     return LowerRETURNADDR(Op, DAG);
   case ISD::SIGN_EXTEND_INREG:
     return LowerSIGN_EXTEND_INREG(Op, DAG);
+  case ISD::VASTART:
+    return LowerVASTART(Op, DAG);
   default:
     llvm_unreachable("Should not custom lower this!");
   }
