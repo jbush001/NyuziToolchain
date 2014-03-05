@@ -30,22 +30,23 @@ class VectorProcAsmParser : public MCTargetAsmParser {
   MCAsmLexer &getLexer() const { return Parser.getLexer(); }
   MCSubtargetInfo &STI;
 
-  bool MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
-                               SmallVectorImpl<MCParsedAsmOperand *> &Operands,
-                               MCStreamer &Out, unsigned &ErrorInfo,
-                               bool MatchingInlineAsm);
+  virtual bool MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
+                              	 	   SmallVectorImpl<MCParsedAsmOperand *> &Operands,
+                                       MCStreamer &Out, unsigned &ErrorInfo,
+                                       bool MatchingInlineAsm) LLVM_OVERRIDE;
 
-  bool ParseRegister(unsigned &RegNo, SMLoc &StartLoc, SMLoc &EndLoc);
+  virtual bool ParseRegister(unsigned &RegNo, SMLoc &StartLoc, 
+  						     SMLoc &EndLoc) LLVM_OVERRIDE;
 
   VectorProcOperand *ParseRegister(unsigned &RegNo);
 
   VectorProcOperand *ParseImmediate();
 
-  bool ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
-                        SMLoc NameLoc,
-                        SmallVectorImpl<MCParsedAsmOperand *> &Operands);
+  virtual bool ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
+                                SMLoc NameLoc,
+                                SmallVectorImpl<MCParsedAsmOperand *> &Operands) LLVM_OVERRIDE;
 
-  bool ParseDirective(AsmToken DirectiveID);
+  virtual bool ParseDirective(AsmToken DirectiveID) LLVM_OVERRIDE;
 
   bool ParseOperand(SmallVectorImpl<MCParsedAsmOperand *> &Operands,
                     StringRef Name);

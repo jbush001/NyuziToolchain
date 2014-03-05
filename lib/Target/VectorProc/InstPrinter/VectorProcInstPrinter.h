@@ -15,6 +15,7 @@
 #ifndef VPINSTPRINTER_H
 #define VPINSTPRINTER_H
 #include "llvm/MC/MCInstPrinter.h"
+#include "llvm/Support/Compiler.h"
 
 namespace llvm {
 
@@ -30,13 +31,12 @@ public:
   void printInstruction(const MCInst *MI, raw_ostream &O);
   static const char *getRegisterName(unsigned RegNo);
 
-  virtual void printRegName(raw_ostream &OS, unsigned RegNo) const;
-  virtual void printInst(const MCInst *MI, raw_ostream &O, StringRef Annot);
-  void printCPURegs(const MCInst *MI, unsigned OpNo, raw_ostream &O);
-
-  bool printAliasInstr(const MCInst *MI, raw_ostream &OS);
+  virtual void printRegName(raw_ostream &OS, unsigned RegNo) const LLVM_OVERRIDE;
+  virtual void printInst(const MCInst *MI, raw_ostream &O, StringRef Annot) LLVM_OVERRIDE;
 
 private:
+  void printCPURegs(const MCInst *MI, unsigned OpNo, raw_ostream &O);
+  bool printAliasInstr(const MCInst *MI, raw_ostream &OS);
   void printOperand(const MCInst *MI, unsigned OpNo, raw_ostream &O);
   void printUnsignedImm(const MCInst *MI, int opNum, raw_ostream &O);
   void printMemOperand(const MCInst *MI, int opNum, raw_ostream &O);
