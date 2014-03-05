@@ -53,8 +53,8 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
   MCSymbol *AdjustSPLabel = MMI.getContext().CreateTempSymbol();
   BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::PROLOG_LABEL))
       .addSym(AdjustSPLabel);
-  MMI.addFrameInst(
-      MCCFIInstruction::createDefCfaOffset(AdjustSPLabel, -StackSize));
+  MMI.addFrameInst(MCCFIInstruction::createDefCfaOffset(AdjustSPLabel, 
+  	-StackSize));
 
   // Find the instruction past the last instruction that saves a callee-saved
   // register to the stack.  We need to set up FP after its old value has been

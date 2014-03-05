@@ -7,11 +7,6 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-//
-// This file contains a printer that converts from our internal representation
-// of machine-dependent LLVM code to GAS-format VECTORPROC assembly language.
-//
-//===----------------------------------------------------------------------===//
 
 #define DEBUG_TYPE "asm-printer"
 #include "InstPrinter/VectorProcInstPrinter.h"

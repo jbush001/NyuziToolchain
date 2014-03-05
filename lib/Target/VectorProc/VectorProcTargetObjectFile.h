@@ -21,8 +21,6 @@
 
 namespace llvm {
 
-/// VectorProcLinuxTargetObjectFile - This implementation is used for linux
-/// VectorProc.
 class VectorProcTargetObjectFile : public TargetLoweringObjectFileELF {
   virtual void Initialize(MCContext &Ctx, const TargetMachine &TM) LLVM_OVERRIDE;
 };

@@ -7,12 +7,6 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-//
-// This file contains code to lower VectorProc MachineInstrs to their
-// corresponding
-// MCInst records.
-//
-//===----------------------------------------------------------------------===//
 
 #include "VectorProcMCInstLower.h"
 #include "VectorProcAsmPrinter.h"
@@ -32,9 +26,12 @@
 using namespace llvm;
 
 VectorProcMCInstLower::VectorProcMCInstLower(VectorProcAsmPrinter &asmprinter)
-    : AsmPrinter(asmprinter) {}
+    : AsmPrinter(asmprinter) 
+{}
 
-void VectorProcMCInstLower::Initialize(MCContext *C) { Ctx = C; }
+void VectorProcMCInstLower::Initialize(MCContext *C) { 
+	Ctx = C; 
+}
 
 MCOperand VectorProcMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
                                                     MachineOperandType MOTy,

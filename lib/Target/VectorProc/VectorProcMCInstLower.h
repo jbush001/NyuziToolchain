@@ -27,19 +27,20 @@ class VectorProcAsmPrinter;
 // VectorProcMCInstLower - Helper class used by VectorProcAsmPrinter to convert
 // MachineInstrs into MCInsts
 class LLVM_LIBRARY_VISIBILITY VectorProcMCInstLower {
-  typedef MachineOperand::MachineOperandType MachineOperandType;
-  MCContext *Ctx;
-  VectorProcAsmPrinter &AsmPrinter;
-
 public:
   VectorProcMCInstLower(VectorProcAsmPrinter &asmprinter);
   void Initialize(MCContext *C);
   void Lower(const MachineInstr *MI, MCInst &OutMI) const;
 
 private:
+  typedef MachineOperand::MachineOperandType MachineOperandType;
+
   MCOperand LowerOperand(const MachineOperand &MO, unsigned offset = 0) const;
   MCOperand LowerSymbolOperand(const MachineOperand &MO,
                                MachineOperandType MOTy, unsigned Offset) const;
+
+  MCContext *Ctx;
+  VectorProcAsmPrinter &AsmPrinter;
 };
 }
 

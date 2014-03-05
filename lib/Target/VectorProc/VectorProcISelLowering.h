@@ -9,8 +9,7 @@
 //===----------------------------------------------------------------------===//
 //
 // This file defines the interfaces that VectorProc uses to lower LLVM code into
-// a
-// selection DAG.
+// a selection DAG.
 //
 //===----------------------------------------------------------------------===//
 
@@ -37,8 +36,6 @@ enum {
 }
 
 class VectorProcTargetLowering : public TargetLowering {
-  const VectorProcSubtarget *Subtarget;
-
 public:
   VectorProcTargetLowering(TargetMachine &TM);
   virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const LLVM_OVERRIDE;
@@ -96,6 +93,9 @@ private:
   SDValue LowerSIGN_EXTEND_INREG(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
+
+private:
+  const VectorProcSubtarget *Subtarget;
 };
 } // end namespace llvm
 

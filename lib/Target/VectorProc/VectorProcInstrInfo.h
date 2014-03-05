@@ -25,8 +25,6 @@
 namespace llvm {
 
 class VectorProcInstrInfo : public VectorProcGenInstrInfo {
-  const VectorProcRegisterInfo RI;
-
 public:
   explicit VectorProcInstrInfo(VectorProcSubtarget &ST);
 
@@ -86,6 +84,7 @@ public:
 private:
   MachineMemOperand *getMemOperand(MachineBasicBlock &MBB, int FI,
                                    unsigned Flag) const;
+  const VectorProcRegisterInfo RI;
 };
 }
 
