@@ -68,7 +68,7 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
     // directives (debug information)
     MCSymbol *CSLabel = MMI.getContext().CreateTempSymbol();
     BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::PROLOG_LABEL)).addSym(CSLabel);
-    for (auto &I : CSI) {
+    for (const auto &I : CSI) {
       int64_t Offset = MFI->getObjectOffset(I.getFrameIdx());
       unsigned Reg = I.getReg();
       MMI.addFrameInst(MCCFIInstruction::createOffset(

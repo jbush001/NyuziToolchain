@@ -108,7 +108,7 @@ SDValue VectorProcTargetLowering::LowerFormalArguments(
 
   // Walk through each parameter and push into InVals
   int ParamEndOffset = 0;
-  for (auto &VA : ArgLocs) {
+  for (const auto &VA : ArgLocs) {
     if (VA.isRegLoc()) {
       // Argument is in register
       EVT RegVT = VA.getLocVT();
@@ -314,7 +314,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // The InFlag in necessary since all emitted instructions must be
   // stuck together.
   SDValue InFlag;
-  for (auto &Reg : RegsToPass) {
+  for (const auto &Reg : RegsToPass) {
     Chain = DAG.getCopyToReg(Chain, DL, Reg.first,
                              Reg.second, InFlag);
     InFlag = Chain.getValue(1);
@@ -335,7 +335,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   Ops.push_back(Chain);
   Ops.push_back(Callee);
 
-  for (auto &Reg : RegsToPass)
+  for (const auto &Reg : RegsToPass)
     Ops.push_back(DAG.getRegister(Reg.first, Reg.second.getValueType()));
 
   // Add a register mask operand representing the call-preserved registers.
@@ -362,7 +362,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   RVInfo.AnalyzeCallResult(Ins, RetCC_VectorProc32);
 
   // Copy all of the result registers out of their specified physreg.
-  for (auto &Loc : RVLocs) {
+  for (const auto &Loc : RVLocs) {
     Chain = DAG.getCopyFromReg(Chain, DL, Loc.getLocReg(),
                                Loc.getValVT(), InFlag).getValue(1);
     InFlag = Chain.getValue(2);

@@ -83,7 +83,7 @@ void VectorProcAsmPrinter::EmitInlineJumpTable(const MachineInstr *MI) {
   const MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
   const std::vector<MachineJumpTableEntry> &JT = MJTI->getJumpTables();
   const std::vector<MachineBasicBlock *> &JTBBs = JT[JTI].MBBs;
-  for (auto &MBB : JTBBs) {
+  for (const auto &MBB : JTBBs) {
     const MCExpr *Expr = MCSymbolRefExpr::Create(MBB->getSymbol(), OutContext);
     OutStreamer.EmitValue(Expr, 4);
   }

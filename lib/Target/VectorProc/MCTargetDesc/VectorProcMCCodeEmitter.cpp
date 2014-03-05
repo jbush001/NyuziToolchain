@@ -33,16 +33,11 @@ STATISTIC(MCNumEmitted, "Number of MC instructions emitted");
 
 namespace {
 class VectorProcMCCodeEmitter : public MCCodeEmitter {
-  VectorProcMCCodeEmitter(const VectorProcMCCodeEmitter &); // DO NOT IMPLEMENT
-  void operator=(const VectorProcMCCodeEmitter &);          // DO NOT IMPLEMENT
-  const MCInstrInfo &MCII;
-  const MCSubtargetInfo &STI;
-  MCContext &Ctx;
-
 public:
   VectorProcMCCodeEmitter(const MCInstrInfo &mcii, const MCSubtargetInfo &sti,
                           MCContext &ctx)
       : MCII(mcii), STI(sti), Ctx(ctx) {}
+
 
   ~VectorProcMCCodeEmitter() {}
 
@@ -80,7 +75,6 @@ public:
     ++CurByte;
   }
 
-  // Emit a series of bytes (little endian) (from MCBlazeMCCodeEmitter)
   void EmitLEConstant(uint64_t Val, unsigned Size, unsigned &CurByte,
                       raw_ostream &OS) const {
     assert(Size <= 8 && "size too big in emit constant");
@@ -91,9 +85,16 @@ public:
     }
   }
 
-  void EncodeInstruction(const MCInst &MI, raw_ostream &OS,
-                         SmallVectorImpl<MCFixup> &Fixups,
-                         const MCSubtargetInfo &STI) const;
+  virtual void EncodeInstruction(const MCInst &MI, raw_ostream &OS,
+                                 SmallVectorImpl<MCFixup> &Fixups,
+                                 const MCSubtargetInfo &STI) const LLVM_OVERRIDE;
+
+private:
+  VectorProcMCCodeEmitter(const VectorProcMCCodeEmitter &) LLVM_DELETED_FUNCTION; 
+  void operator=(const VectorProcMCCodeEmitter &) LLVM_DELETED_FUNCTION; 
+  const MCInstrInfo &MCII;
+  const MCSubtargetInfo &STI;
+  MCContext &Ctx;
 };
 } // end anonymous namepsace
 
