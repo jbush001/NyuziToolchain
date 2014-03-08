@@ -1,5 +1,4 @@
-//===-- VectorProcSubtarget.h - Define Subtarget for the VECTORPROC -------*-
-//C++ -*-===//
+//===-- VectorProcSubtarget.h - Define Subtarget for the VectorProc -----*-//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -8,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file declares the VECTORPROC specific subclass of TargetSubtargetInfo.
+// This file declares the VectorProc specific subclass of TargetSubtargetInfo.
 //
 //===----------------------------------------------------------------------===//
 

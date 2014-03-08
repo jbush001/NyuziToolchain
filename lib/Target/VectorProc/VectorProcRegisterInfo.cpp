@@ -1,5 +1,4 @@
-//===-- VectorProcRegisterInfo.cpp - VECTORPROC Register Information
-//----------------===//
+//===-- VectorProcRegisterInfo.cpp - VectorProc Register Information ------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -8,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file contains the VECTORPROC implementation of the TargetRegisterInfo
+// This file contains the VectorProc implementation of the TargetRegisterInfo
 // class.
 //
 //===----------------------------------------------------------------------===//

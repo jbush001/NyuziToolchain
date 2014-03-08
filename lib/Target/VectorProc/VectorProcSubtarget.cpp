@@ -1,5 +1,4 @@
-//===-- VectorProcSubtarget.cpp - VECTORPROC Subtarget Information
-//------------------===//
+//===-- VectorProcSubtarget.cpp - VectorProc Subtarget Information  ------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

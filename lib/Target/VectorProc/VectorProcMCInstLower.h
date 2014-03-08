@@ -7,6 +7,11 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
+//
+// VectorProcMCInstLower - Helper class used by VectorProcAsmPrinter to convert
+// MachineInstrs into MCInsts
+//
+//===----------------------------------------------------------------------===//
 
 #ifndef VECTORPROCMCINSTLOWER_H
 #define VECTORPROCMCINSTLOWER_H
@@ -24,8 +29,6 @@ class MachineFunction;
 class Mangler;
 class VectorProcAsmPrinter;
 
-// VectorProcMCInstLower - Helper class used by VectorProcAsmPrinter to convert
-// MachineInstrs into MCInsts
 class LLVM_LIBRARY_VISIBILITY VectorProcMCInstLower {
 public:
   VectorProcMCInstLower(VectorProcAsmPrinter &asmprinter);

@@ -8,8 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef VECTORPROC_FRAMEINFO_H
-#define VECTORPROC_FRAMEINFO_H
+#ifndef VECTORPROCFRAMELOWERING_H
+#define VECTORPROCFRAMELOWERING_H
 
 #include "VectorProc.h"
 #include "VectorProcSubtarget.h"
