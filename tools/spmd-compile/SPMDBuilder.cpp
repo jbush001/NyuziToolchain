@@ -7,24 +7,29 @@ using namespace llvm;
 
 SPMDBuilder::SPMDBuilder(Module *Mod)
   : Builder(getGlobalContext()),
-    MainModule(Mod) {
+    MainModule(Mod),
+    CurrentFunction(nullptr) {
 }
 
 SPMDBuilder::~SPMDBuilder() {
 }
 
 void SPMDBuilder::startFunction(const char *name) {
-  Function *NewF = cast<Function>(MainModule->getOrInsertFunction(name, 
+  CurrentFunction = cast<Function>(MainModule->getOrInsertFunction(name, 
                                   Type::getInt32Ty(getGlobalContext()),
                                   Type::getInt32Ty(getGlobalContext()),
                                   (Type *)0));
-  BasicBlock *BB = BasicBlock::Create(getGlobalContext(), "Entry", NewF);
+  BasicBlock *BB = BasicBlock::Create(getGlobalContext(), "Entry", CurrentFunction);
   Builder.SetInsertPoint(BB);
 }
 
-void SPMDBuilder::endFunction(llvm::Value *ReturnValue) {
+void SPMDBuilder::endFunction() {
+}
+
+void SPMDBuilder::createReturn(llvm::Value *ReturnValue) {
   Builder.CreateRet(ReturnValue);
 }
+
 
 llvm::Value *SPMDBuilder::createLocalVariable(const char *Name) {
   return Builder.CreateAlloca(VectorType::get(Type::getFloatTy(getGlobalContext()), 
@@ -198,7 +203,15 @@ Value *SPMDBuilder::createCompare(CmpInst::Predicate Type, Value *lhs, Value *rh
   return Builder.CreateCall(CompareFunc, Ops, "");
 }
 
-Value *SPMDBuilder::createAdd(Value *Lhs, Value *Rhs)
-{
+Value *SPMDBuilder::createAdd(Value *Lhs, Value *Rhs) {
     return Builder.CreateFAdd(Lhs, Rhs);
 }
+
+BasicBlock *SPMDBuilder::createBasicBlock(const char *name) {
+	return BasicBlock::Create(getGlobalContext(), name, CurrentFunction);
+}
+
+void SPMDBuilder::setInsertPoint(BasicBlock *BB) {
+  Builder.SetInsertPoint(BB);
+}
+

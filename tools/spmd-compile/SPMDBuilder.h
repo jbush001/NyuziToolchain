@@ -10,7 +10,9 @@ public:
   ~SPMDBuilder();
 	void startFunction(const char *name);
   
-  void endFunction(llvm::Value *ReturnValue);
+  void endFunction();
+  
+  void createReturn(llvm::Value *ReturnValue);
   
   llvm::Value *createLocalVariable(const char *Name);
 
@@ -38,6 +40,10 @@ public:
 
   llvm::Value *createAdd(llvm::Value *lhs, llvm::Value *rhs);
 
+  llvm::BasicBlock *createBasicBlock(const char *Name);
+  
+  void setInsertPoint(llvm::BasicBlock *Block);
+
 private:
   struct MaskStackEntry {
     // These entries point to the allocas that store the values.
@@ -51,6 +57,7 @@ private:
   llvm::IRBuilder<> Builder;
   llvm::Module *MainModule;
   llvm::SmallVector<MaskStackEntry, 10> MaskStack;
+  llvm::Function *CurrentFunction;
 };
 
 #endif

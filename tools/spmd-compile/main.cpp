@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 #include "SPMDBuilder.h"
+#include "AstNode.h"
 using namespace llvm;
 
 static Module *TheModule;
@@ -31,20 +32,21 @@ static Module *TheModule;
 void MakeFunction(Module *M)
 {
   SPMDBuilder Builder(M);
-  
   Builder.startFunction("test");
   Value *Var1 = Builder.createLocalVariable("foo");
   Value *Var2 = Builder.createLocalVariable("bar");
-  
-  Value *Cmp = Builder.createCompare(CmpInst::FCMP_ULE, Builder.readLocalVariable(Var1),
-     Builder.readLocalVariable(Var2));
-  Builder.pushMask(Cmp);
-  Builder.assignLocalVariable(Var1, Builder.readLocalVariable(Var2));
-  Builder.invertLastPushedMask();
-  Builder.assignLocalVariable(Var2, Builder.readLocalVariable(Var1));
-  Builder.popMask();
-  Value *Res = Builder.createAdd(Builder.readLocalVariable(Var1), Builder.readLocalVariable(Var2));
-  Builder.endFunction(Res);
+
+  AstNode *Cmp = new CompareAst(CmpInst::FCMP_ULE, new VariableAst(Var1), new VariableAst(Var2));
+  AstNode *Then = new AssignAst(new VariableAst(Var1), new VariableAst(Var2));
+  AstNode *Else = new AssignAst(new VariableAst(Var2), new VariableAst(Var1));
+  AstNode *If = new IfAst(Cmp, Then, Else);
+  SequenceAst *Seq = new SequenceAst;
+  Seq->addNode(If);
+  AstNode *Res = new BinaryAst(new VariableAst(Var1), new VariableAst(Var2)); 
+  Seq->addNode(new ReturnAst(Res));
+  Seq->generate(Builder);
+
+  Builder.endFunction();
 }
 
 bool generateCode(Module *TheModule)

@@ -13,4 +13,5 @@ set(LLVM_LINK_COMPONENTS
 add_llvm_tool(spmd-compile
   main.cpp
   SPMDBuilder.cpp
+  AstNode.cpp
 )
