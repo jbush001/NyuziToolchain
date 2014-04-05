@@ -626,8 +626,8 @@ bool VectorProcTargetLowering::isShuffleMaskLegal(const SmallVectorImpl<int> &M,
   if (M.size() != 16)
     return false;
 
-  for (int i = 0; i < 16; i++) {
-    if (M[i] != 0)
+  for (int val : M) {
+    if (val != 0)
       return false;
   }
 
