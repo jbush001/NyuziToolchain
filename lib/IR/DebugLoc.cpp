@@ -7,10 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/Support/DebugLoc.h"
+#include "llvm/IR/DebugLoc.h"
 #include "LLVMContextImpl.h"
 #include "llvm/ADT/DenseMapInfo.h"
-#include "llvm/DebugInfo.h"
+#include "llvm/IR/DebugInfo.h"
 using namespace llvm;
 
 //===----------------------------------------------------------------------===//

@@ -21,12 +21,12 @@
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Transforms/Utils/Local.h"
@@ -75,6 +75,13 @@ static bool IsPointerOffset(Value *Ptr1, Value *Ptr2, int64_t &Offset,
                             const DataLayout &TD) {
   Ptr1 = Ptr1->stripPointerCasts();
   Ptr2 = Ptr2->stripPointerCasts();
+
+  // Handle the trivial case first.
+  if (Ptr1 == Ptr2) {
+    Offset = 0;
+    return true;
+  }
+
   GEPOperator *GEP1 = dyn_cast<GEPOperator>(Ptr1);
   GEPOperator *GEP2 = dyn_cast<GEPOperator>(Ptr2);
 
@@ -315,11 +322,11 @@ namespace {
       DL = 0;
     }
 
-    bool runOnFunction(Function &F);
+    bool runOnFunction(Function &F) override;
 
   private:
     // This transformation requires dominator postdominator info
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.setPreservesCFG();
       AU.addRequired<DominatorTreeWrapperPass>();
       AU.addRequired<MemoryDependenceAnalysis>();
@@ -657,23 +664,21 @@ bool MemCpyOpt::performCallSlotOptzn(Instruction *cpy,
   // guarantees that it holds only undefined values when passed in (so the final
   // memcpy can be dropped), that it is not read or written between the call and
   // the memcpy, and that writing beyond the end of it is undefined.
-  SmallVector<User*, 8> srcUseList(srcAlloca->use_begin(),
-                                   srcAlloca->use_end());
+  SmallVector<User*, 8> srcUseList(srcAlloca->user_begin(),
+                                   srcAlloca->user_end());
   while (!srcUseList.empty()) {
-    User *UI = srcUseList.pop_back_val();
+    User *U = srcUseList.pop_back_val();
 
-    if (isa<BitCastInst>(UI) || isa<AddrSpaceCastInst>(UI)) {
-      for (User::use_iterator I = UI->use_begin(), E = UI->use_end();
-           I != E; ++I)
-        srcUseList.push_back(*I);
-    } else if (GetElementPtrInst *G = dyn_cast<GetElementPtrInst>(UI)) {
+    if (isa<BitCastInst>(U) || isa<AddrSpaceCastInst>(U)) {
+      for (User *UU : U->users())
+        srcUseList.push_back(UU);
+    } else if (GetElementPtrInst *G = dyn_cast<GetElementPtrInst>(U)) {
       if (G->hasAllZeroIndices())
-        for (User::use_iterator I = UI->use_begin(), E = UI->use_end();
-             I != E; ++I)
-          srcUseList.push_back(*I);
+        for (User *UU : U->users())
+          srcUseList.push_back(UU);
       else
         return false;
-    } else if (UI != C && UI != cpy) {
+    } else if (U != C && U != cpy) {
       return false;
     }
   }
@@ -846,9 +851,9 @@ bool MemCpyOpt::processMemCpy(MemCpyInst *M) {
   // The are three possible optimizations we can do for memcpy:
   //   a) memcpy-memcpy xform which exposes redundance for DSE.
   //   b) call-memcpy xform for return slot optimization.
-  //   c) memcpy from freshly alloca'd space copies undefined data, and we can
-  //      therefore eliminate the memcpy in favor of the data that was already
-  //      at the destination.
+  //   c) memcpy from freshly alloca'd space or space that has just started its
+  //      lifetime copies undefined data, and we can therefore eliminate the
+  //      memcpy in favor of the data that was already at the destination.
   MemDepResult DepInfo = MD->getDependency(M);
   if (DepInfo.isClobber()) {
     if (CallInst *C = dyn_cast<CallInst>(DepInfo.getInst())) {
@@ -869,7 +874,19 @@ bool MemCpyOpt::processMemCpy(MemCpyInst *M) {
     if (MemCpyInst *MDep = dyn_cast<MemCpyInst>(SrcDepInfo.getInst()))
       return processMemCpyMemCpyDependence(M, MDep, CopySize->getZExtValue());
   } else if (SrcDepInfo.isDef()) {
-    if (isa<AllocaInst>(SrcDepInfo.getInst())) {
+    Instruction *I = SrcDepInfo.getInst();
+    bool hasUndefContents = false;
+
+    if (isa<AllocaInst>(I)) {
+      hasUndefContents = true;
+    } else if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(I)) {
+      if (II->getIntrinsicID() == Intrinsic::lifetime_start)
+        if (ConstantInt *LTSize = dyn_cast<ConstantInt>(II->getArgOperand(0)))
+          if (LTSize->getZExtValue() >= CopySize->getZExtValue())
+            hasUndefContents = true;
+    }
+
+    if (hasUndefContents) {
       MD->removeInstruction(M);
       M->eraseFromParent();
       ++NumMemCpyInstr;

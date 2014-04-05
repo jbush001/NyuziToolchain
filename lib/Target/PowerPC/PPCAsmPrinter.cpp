@@ -33,8 +33,8 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineModuleInfoImpls.h"
 #include "llvm/CodeGen/TargetLoweringObjectFileImpl.h"
-#include "llvm/DebugInfo.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Mangler.h"
 #include "llvm/IR/Module.h"
@@ -129,7 +129,10 @@ static const char *stripRegisterPrefix(const char *RegName) {
   switch (RegName[0]) {
     case 'r':
     case 'f':
-    case 'v': return RegName + 1;
+    case 'v':
+      if (RegName[1] == 's')
+        return RegName + 2;
+      return RegName + 1;
     case 'c': if (RegName[1] == 'r') return RegName + 2;
   }
   
@@ -378,8 +381,8 @@ void PPCAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     if (MO.isGlobal()) {
       const GlobalValue *GValue = MO.getGlobal();
       const GlobalAlias *GAlias = dyn_cast<GlobalAlias>(GValue);
-      const GlobalValue *RealGValue = GAlias ?
-        GAlias->resolveAliasedGlobal(false) : GValue;
+      const GlobalValue *RealGValue =
+          GAlias ? GAlias->getAliasedGlobal() : GValue;
       MOSymbol = getSymbol(RealGValue);
       const GlobalVariable *GVar = dyn_cast<GlobalVariable>(RealGValue);
       IsExternal = GVar && !GVar->hasInitializer();
@@ -425,8 +428,8 @@ void PPCAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     else if (MO.isGlobal()) {
       const GlobalValue *GValue = MO.getGlobal();
       const GlobalAlias *GAlias = dyn_cast<GlobalAlias>(GValue);
-      const GlobalValue *RealGValue = GAlias ?
-        GAlias->resolveAliasedGlobal(false) : GValue;
+      const GlobalValue *RealGValue =
+          GAlias ? GAlias->getAliasedGlobal() : GValue;
       MOSymbol = getSymbol(RealGValue);
       const GlobalVariable *GVar = dyn_cast<GlobalVariable>(RealGValue);
     
@@ -460,8 +463,8 @@ void PPCAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     if (MO.isGlobal()) {
       const GlobalValue *GValue = MO.getGlobal();
       const GlobalAlias *GAlias = dyn_cast<GlobalAlias>(GValue);
-      const GlobalValue *RealGValue = GAlias ?
-        GAlias->resolveAliasedGlobal(false) : GValue;
+      const GlobalValue *RealGValue =
+          GAlias ? GAlias->getAliasedGlobal() : GValue;
       MOSymbol = getSymbol(RealGValue);
       const GlobalVariable *GVar = dyn_cast<GlobalVariable>(RealGValue);
       IsExternal = GVar && !GVar->hasInitializer();
@@ -865,14 +868,14 @@ void PPCDarwinAsmPrinter::EmitStartOfAsmFile(Module &M) {
   if (TM.getRelocationModel() == Reloc::PIC_) {
     OutStreamer.SwitchSection(
            OutContext.getMachOSection("__TEXT", "__picsymbolstub1",
-                                      MCSectionMachO::S_SYMBOL_STUBS |
-                                      MCSectionMachO::S_ATTR_PURE_INSTRUCTIONS,
+                                      MachO::S_SYMBOL_STUBS |
+                                      MachO::S_ATTR_PURE_INSTRUCTIONS,
                                       32, SectionKind::getText()));
   } else if (TM.getRelocationModel() == Reloc::DynamicNoPIC) {
     OutStreamer.SwitchSection(
            OutContext.getMachOSection("__TEXT","__symbol_stub1",
-                                      MCSectionMachO::S_SYMBOL_STUBS |
-                                      MCSectionMachO::S_ATTR_PURE_INSTRUCTIONS,
+                                      MachO::S_SYMBOL_STUBS |
+                                      MachO::S_ATTR_PURE_INSTRUCTIONS,
                                       16, SectionKind::getText()));
   }
   OutStreamer.SwitchSection(getObjFileLowering().getTextSection());
@@ -904,8 +907,8 @@ EmitFunctionStubs(const MachineModuleInfoMachO::SymbolListTy &Stubs) {
   if (TM.getRelocationModel() == Reloc::PIC_) {
     const MCSection *StubSection = 
     OutContext.getMachOSection("__TEXT", "__picsymbolstub1",
-                               MCSectionMachO::S_SYMBOL_STUBS |
-                               MCSectionMachO::S_ATTR_PURE_INSTRUCTIONS,
+                               MachO::S_SYMBOL_STUBS |
+                               MachO::S_ATTR_PURE_INSTRUCTIONS,
                                32, SectionKind::getText());
     for (unsigned i = 0, e = Stubs.size(); i != e; ++i) {
       OutStreamer.SwitchSection(StubSection);
@@ -972,8 +975,8 @@ EmitFunctionStubs(const MachineModuleInfoMachO::SymbolListTy &Stubs) {
   
   const MCSection *StubSection =
     OutContext.getMachOSection("__TEXT","__symbol_stub1",
-                               MCSectionMachO::S_SYMBOL_STUBS |
-                               MCSectionMachO::S_ATTR_PURE_INSTRUCTIONS,
+                               MachO::S_SYMBOL_STUBS |
+                               MachO::S_ATTR_PURE_INSTRUCTIONS,
                                16, SectionKind::getText());
   for (unsigned i = 0, e = Stubs.size(); i != e; ++i) {
     MCSymbol *Stub = Stubs[i].first;
@@ -1135,4 +1138,5 @@ static AsmPrinter *createPPCAsmPrinterPass(TargetMachine &tm,
 extern "C" void LLVMInitializePowerPCAsmPrinter() { 
   TargetRegistry::RegisterAsmPrinter(ThePPC32Target, createPPCAsmPrinterPass);
   TargetRegistry::RegisterAsmPrinter(ThePPC64Target, createPPCAsmPrinterPass);
+  TargetRegistry::RegisterAsmPrinter(ThePPC64LETarget, createPPCAsmPrinterPass);
 }

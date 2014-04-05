@@ -19,6 +19,7 @@
 #include "clang/Basic/Linkage.h"
 #include "clang/Basic/Specifiers.h"
 #include "llvm/ADT/PointerUnion.h"
+#include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/PrettyStackTrace.h"
 
@@ -51,20 +52,6 @@ class Stmt;
 class StoredDeclsMap;
 class TranslationUnitDecl;
 class UsingDirectiveDecl;
-}
-
-namespace llvm {
-// DeclContext* is only 4-byte aligned on 32-bit systems.
-template<>
-  class PointerLikeTypeTraits<clang::DeclContext*> {
-  typedef clang::DeclContext* PT;
-public:
-  static inline void *getAsVoidPointer(PT P) { return P; }
-  static inline PT getFromVoidPointer(void *P) {
-    return static_cast<PT>(P);
-  }
-  enum { NumLowBitsAvailable = 2 };
-};
 }
 
 namespace clang {
@@ -446,9 +433,12 @@ public:
   }
 
   typedef AttrVec::const_iterator attr_iterator;
+  typedef llvm::iterator_range<attr_iterator> attr_range;
 
-  // FIXME: Do not rely on iterators having comparable singular values.
-  //        Note that this should error out if they do not.
+  attr_range attrs() const {
+    return attr_range(attr_begin(), attr_end());
+  }
+
   attr_iterator attr_begin() const {
     return hasAttrs() ? getAttrs().begin() : 0;
   }
@@ -465,6 +455,12 @@ public:
 
     if (Vec.empty())
       HasAttrs = false;
+  }
+
+  template <typename T>
+  llvm::iterator_range<specific_attr_iterator<T>> specific_attrs() const {
+    return llvm::iterator_range<specific_attr_iterator<T>>(
+        specific_attr_begin<T>(), specific_attr_end<T>());
   }
 
   template <typename T>
@@ -770,10 +766,16 @@ public:
     }
   };
 
-  /// \brief Returns iterator for all the redeclarations of the same decl.
-  /// It will iterate at least once (when this decl is the only one).
+  typedef llvm::iterator_range<redecl_iterator> redecl_range;
+
+  /// \brief Returns an iterator range for all the redeclarations of the same
+  /// decl. It will iterate at least once (when this decl is the only one).
+  redecl_range redecls() const {
+    return redecl_range(redecls_begin(), redecls_end());
+  }
+
   redecl_iterator redecls_begin() const {
-    return redecl_iterator(const_cast<Decl*>(this));
+    return redecl_iterator(const_cast<Decl *>(this));
   }
   redecl_iterator redecls_end() const { return redecl_iterator(); }
 
@@ -993,7 +995,7 @@ public:
                        SourceManager &sm, const char *Msg)
   : TheDecl(theDecl), Loc(L), SM(sm), Message(Msg) {}
 
-  virtual void print(raw_ostream &OS) const;
+  void print(raw_ostream &OS) const override;
 };
 
 typedef llvm::MutableArrayRef<NamedDecl*> DeclContextLookupResult;
@@ -1300,8 +1302,11 @@ public:
     }
   };
 
+  typedef llvm::iterator_range<decl_iterator> decl_range;
+
   /// decls_begin/decls_end - Iterate over the declarations stored in
   /// this context.
+  decl_range decls() const { return decl_range(decls_begin(), decls_end()); }
   decl_iterator decls_begin() const;
   decl_iterator decls_end() const { return decl_iterator(); }
   bool decls_empty() const;
@@ -1309,7 +1314,10 @@ public:
   /// noload_decls_begin/end - Iterate over the declarations stored in this
   /// context that are currently loaded; don't attempt to retrieve anything
   /// from an external source.
-  decl_iterator noload_decls_begin() const;
+  decl_range noload_decls() const {
+    return decl_range(noload_decls_begin(), noload_decls_end());
+  }
+  decl_iterator noload_decls_begin() const { return decl_iterator(FirstDecl); }
   decl_iterator noload_decls_end() const { return decl_iterator(); }
 
   /// specific_decl_iterator - Iterates over a subrange of
@@ -1555,6 +1563,11 @@ public:
   /// of looking up every possible name.
   class all_lookups_iterator;
 
+  typedef llvm::iterator_range<all_lookups_iterator> lookups_range;
+
+  lookups_range lookups() const;
+  lookups_range noload_lookups() const;
+
   /// \brief Iterators over all possible lookups within this context.
   all_lookups_iterator lookups_begin() const;
   all_lookups_iterator lookups_end() const;
@@ -1565,26 +1578,15 @@ public:
   all_lookups_iterator noload_lookups_begin() const;
   all_lookups_iterator noload_lookups_end() const;
 
-  /// udir_iterator - Iterates through the using-directives stored
-  /// within this context.
-  typedef UsingDirectiveDecl * const * udir_iterator;
+  typedef llvm::iterator_range<UsingDirectiveDecl * const *> udir_range;
 
-  typedef std::pair<udir_iterator, udir_iterator> udir_iterator_range;
-
-  udir_iterator_range getUsingDirectives() const;
-
-  udir_iterator using_directives_begin() const {
-    return getUsingDirectives().first;
-  }
-
-  udir_iterator using_directives_end() const {
-    return getUsingDirectives().second;
-  }
+  udir_range using_directives() const;
 
   // These are all defined in DependentDiagnostic.h.
   class ddiag_iterator;
-  inline ddiag_iterator ddiag_begin() const;
-  inline ddiag_iterator ddiag_end() const;
+  typedef llvm::iterator_range<DeclContext::ddiag_iterator> ddiag_range;
+
+  inline ddiag_range ddiags() const;
 
   // Low-level accessors
     
@@ -1639,7 +1641,7 @@ public:
   void dumpLookups(llvm::raw_ostream &OS) const;
 
 private:
-  void reconcileExternalVisibleStorage();
+  void reconcileExternalVisibleStorage() const;
   void LoadLexicalDeclsFromExternalStorage() const;
 
   /// @brief Makes a declaration visible within this context, but
@@ -1668,7 +1670,7 @@ inline bool Decl::isTemplateParameter() const {
 
 // Specialization selected when ToTy is not a known subclass of DeclContext.
 template <class ToTy,
-          bool IsKnownSubtype = ::llvm::is_base_of< DeclContext, ToTy>::value>
+          bool IsKnownSubtype = ::std::is_base_of<DeclContext, ToTy>::value>
 struct cast_convert_decl_context {
   static const ToTy *doit(const DeclContext *Val) {
     return static_cast<const ToTy*>(Decl::castFromDeclContext(Val));

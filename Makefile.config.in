@@ -17,6 +17,8 @@ LLVMPackageName   := @PACKAGE_TARNAME@
 LLVMVersion       := @PACKAGE_VERSION@
 LLVM_VERSION_MAJOR := @LLVM_VERSION_MAJOR@
 LLVM_VERSION_MINOR := @LLVM_VERSION_MINOR@
+LLVM_VERSION_PATCH := @LLVM_VERSION_PATCH@
+LLVM_VERSION_SUFFIX := @LLVM_VERSION_SUFFIX@
 LLVM_CONFIGTIME   := @LLVM_CONFIGTIME@
 
 ###########################################################################
@@ -250,6 +252,9 @@ ENABLE_CXX1Y = @ENABLE_CXX1Y@
 
 # When ENABLE_SPLIT_DWARF is enabled, LLVM uses -gfission to build in debug mode.
 ENABLE_SPLIT_DWARF = @ENABLE_SPLIT_DWARF@
+
+# When enabled, clang will have plugin support.
+CLANG_PLUGIN_SUPPORT = @CLANG_PLUGIN_SUPPORT@
 
 # When ENABLE_CLANG_ARCMT is enabled, clang will have ARCMigrationTool.
 ENABLE_CLANG_ARCMT = @ENABLE_CLANG_ARCMT@

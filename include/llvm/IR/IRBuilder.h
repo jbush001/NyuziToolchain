@@ -19,13 +19,13 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/ConstantFolder.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/IR/ValueHandle.h"
 #include "llvm/Support/CBindingWrapping.h"
-#include "llvm/Support/ConstantFolder.h"
-#include "llvm/Support/ValueHandle.h"
 
 namespace llvm {
   class MDNode;
@@ -934,10 +934,13 @@ public:
                          const Twine &Name = "") {
     return Insert(new FenceInst(Context, Ordering, SynchScope), Name);
   }
-  AtomicCmpXchgInst *CreateAtomicCmpXchg(Value *Ptr, Value *Cmp, Value *New,
-                                         AtomicOrdering Ordering,
-                               SynchronizationScope SynchScope = CrossThread) {
-    return Insert(new AtomicCmpXchgInst(Ptr, Cmp, New, Ordering, SynchScope));
+  AtomicCmpXchgInst *
+  CreateAtomicCmpXchg(Value *Ptr, Value *Cmp, Value *New,
+                      AtomicOrdering SuccessOrdering,
+                      AtomicOrdering FailureOrdering,
+                      SynchronizationScope SynchScope = CrossThread) {
+    return Insert(new AtomicCmpXchgInst(Ptr, Cmp, New, SuccessOrdering,
+                                        FailureOrdering, SynchScope));
   }
   AtomicRMWInst *CreateAtomicRMW(AtomicRMWInst::BinOp Op, Value *Ptr, Value *Val,
                                  AtomicOrdering Ordering,

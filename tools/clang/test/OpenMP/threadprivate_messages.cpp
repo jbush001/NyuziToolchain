@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -triple x86_64-apple-macos10.7.0 -verify -fopenmp -ferror-limit 100 %s
+// RUN: %clang_cc1 -triple x86_64-apple-macos10.7.0 -verify -fopenmp=libiomp5 -ferror-limit 100 %s
 
 #pragma omp threadprivate // expected-error {{expected '(' after 'threadprivate'}}
 #pragma omp threadprivate( // expected-error {{expected identifier}} expected-error {{expected ')'}} expected-note {{to match this '('}}
@@ -99,9 +99,9 @@ static __thread int t; // expected-note {{'t' defined here}}
 int o; // expected-note {{candidate found by name lookup is 'o'}}
 #pragma omp threadprivate (o)
 namespace {
-int o; // expected-note {{candidate found by name lookup is '<anonymous namespace>::o'}}
+int o; // expected-note {{candidate found by name lookup is '(anonymous namespace)::o'}}
 #pragma omp threadprivate (o)
-#pragma omp threadprivate (o) // expected-error {{'#pragma omp threadprivate' must precede all references to variable '<anonymous namespace>::o'}}
+#pragma omp threadprivate (o) // expected-error {{'#pragma omp threadprivate' must precede all references to variable '(anonymous namespace)::o'}}
 }
 #pragma omp threadprivate (o) // expected-error {{reference to 'o' is ambiguous}}
 #pragma omp threadprivate (::o) // expected-error {{'#pragma omp threadprivate' must precede all references to variable 'o'}}

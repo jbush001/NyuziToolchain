@@ -12,6 +12,7 @@
 ; (6) thumb without -disable-fp-elim
 ; (7) thumbv7 with -disable-fp-elim
 ; (8) thumbv7 without -disable-fp-elim
+; (9) thumbv7 with -no-integrated-as
 
 ; RUN: llc -mtriple arm-unknown-linux-gnueabi \
 ; RUN:     -disable-fp-elim -filetype=asm -o - %s \
@@ -44,6 +45,10 @@
 ; RUN: llc -mtriple thumbv7-unknown-linux-gnueabi \
 ; RUN:     -filetype=asm -o - %s \
 ; RUN:   | FileCheck %s --check-prefix=CHECK-THUMB-V7-FP-ELIM
+
+; RUN: llc -mtriple thumbv7-unknown-linux-gnueabi \
+; RUN:     -disable-fp-elim -no-integrated-as -filetype=asm -o - %s \
+; RUN:   | FileCheck %s --check-prefix=CHECK-THUMB-V7-FP-NOIAS
 
 ;-------------------------------------------------------------------------------
 ; Test 1
@@ -292,6 +297,24 @@ declare void @_ZSt9terminatev()
 ; CHECK-THUMB-V7-FP-ELIM:   .cfi_def_cfa_offset 72
 ; CHECK-THUMB-V7-FP-ELIM:   .cfi_endproc
 
+; CHECK-THUMB-V7-FP-NOIAS-LABEL: _Z4testiiiiiddddd:
+; CHECK-THUMB-V7-FP-NOIAS:   .cfi_startproc
+; CHECK-THUMB-V7-FP-NOIAS:   push.w   {r4, r7, r11, lr}
+; CHECK-THUMB-V7-FP-NOIAS:   .cfi_def_cfa_offset 16
+; CHECK-THUMB-V7-FP-NOIAS:   .cfi_offset 14, -4
+; CHECK-THUMB-V7-FP-NOIAS:   .cfi_offset 11, -8
+; CHECK-THUMB-V7-FP-NOIAS:   .cfi_offset 7, -12
+; CHECK-THUMB-V7-FP-NOIAS:   .cfi_offset 4, -16
+; CHECK-THUMB-V7-FP-NOIAS:   add    r7, sp, #4
+; CHECK-THUMB-V7-FP-NOIAS:   .cfi_def_cfa 7, 12
+; CHECK-THUMB-V7-FP-NOIAS:   vpush  {d8, d9, d10, d11, d12}
+; CHECK-THUMB-V7-FP-NOIAS:   .cfi_offset 268, -24
+; CHECK-THUMB-V7-FP-NOIAS:   .cfi_offset 267, -32
+; CHECK-THUMB-V7-FP-NOIAS:   .cfi_offset 266, -40
+; CHECK-THUMB-V7-FP-NOIAS:   .cfi_offset 265, -48
+; CHECK-THUMB-V7-FP-NOIAS:   .cfi_offset 264, -56
+; CHECK-THUMB-V7-FP-NOIAS:   sub    sp, #24
+; CHECK-THUMB-V7-FP-NOIAS:   .cfi_endproc
 
 ;-------------------------------------------------------------------------------
 ; Test 2
@@ -301,7 +324,7 @@ declare void @throw_exception_2()
 
 define void @test2() {
 entry:
-  tail call void @throw_exception_2()
+  call void @throw_exception_2()
   ret void
 }
 

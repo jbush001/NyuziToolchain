@@ -700,17 +700,18 @@ the pragma onwards within the same file.
 
   char b = 'ab'; // no warning
 
-The :option:`-isystem-prefix` and :option:`-ino-system-prefix` command-line
-arguments can be used to override whether subsets of an include path are
-treated as system headers. When the name in a ``#include`` directive is
-found within a header search path and starts with a system prefix, the
+The :option:`--system-header-prefix=` and :option:`--no-system-header-prefix=`
+command-line arguments can be used to override whether subsets of an include
+path are treated as system headers. When the name in a ``#include`` directive
+is found within a header search path and starts with a system prefix, the
 header is treated as a system header. The last prefix on the
 command-line which matches the specified header name takes precedence.
 For instance:
 
 .. code-block:: console
 
-  $ clang -Ifoo -isystem bar -isystem-prefix x/ -ino-system-prefix x/y/
+  $ clang -Ifoo -isystem bar --system-header-prefix=x/ \
+      --no-system-header-prefix=x/y/
 
 Here, ``#include "x/a.h"`` is treated as including a system header, even
 if the header is found in ``foo``, and ``#include "x/y/b.h"`` is treated
@@ -762,7 +763,7 @@ on-disk cache that contains the vital information necessary to reduce
 some of the work needed to process a corresponding header file. While
 details of precompiled headers vary between compilers, precompiled
 headers have been shown to be highly effective at speeding up program
-compilation on systems with very large system headers (e.g., Mac OS/X).
+compilation on systems with very large system headers (e.g., Mac OS X).
 
 Generating a PCH File
 ^^^^^^^^^^^^^^^^^^^^^
@@ -968,11 +969,16 @@ are listed below.
    Extra features of MemorySanitizer (require explicit
    ``-fsanitize=memory``):
 
-   -  ``-fsanitize-memory-track-origins``: Enables origin tracking in
+   -  ``-fsanitize-memory-track-origins[=level]``: Enables origin tracking in
       MemorySanitizer. Adds a second section to MemorySanitizer
       reports pointing to the heap or stack allocation the
       uninitialized bits came from. Slows down execution by additional
       1.5x-2x.
+
+      Possible values for level are 0 (off), 1 (default), 2. Level 2 adds more
+      sections to MemorySanitizer reports describing the order of memory stores
+      the uninitialized value went through. Beware, this mode may use a lot of
+      extra memory.
 
    Extra features of UndefinedBehaviorSanitizer:
 
@@ -998,18 +1004,6 @@ are listed below.
    ``-fsanitize=thread``, and ``-fsanitize=memory`` checkers in the same
    program. The ``-fsanitize=undefined`` checks can be combined with other
    sanitizers.
-
-**-f[no-]address-sanitizer**
-   Deprecated synonym for :ref:`-f[no-]sanitize=address
-   <opt_fsanitize_address>`.
-**-f[no-]thread-sanitizer**
-   Deprecated synonym for :ref:`-f[no-]sanitize=thread
-   <opt_fsanitize_thread>`.
-
-.. option:: -fcatch-undefined-behavior
-
-   Deprecated synonym for :ref:`-fsanitize=undefined
-   <opt_fsanitize_undefined>`.
 
 .. option:: -fno-assume-sane-operator-new
 
@@ -1095,17 +1089,42 @@ below. If multiple flags are present, the last one is used.
   Generate complete debug info.
 
 Comment Parsing Options
---------------------------
+-----------------------
 
 Clang parses Doxygen and non-Doxygen style documentation comments and attaches
 them to the appropriate declaration nodes.  By default, it only parses
 Doxygen-style comments and ignores ordinary comments starting with ``//`` and
 ``/*``.
 
+.. option:: -Wdocumentation
+
+  Emit warnings about use of documentation comments.  This warning group is off
+  by default.
+
+  This includes checking that ``\param`` commands name parameters that actually
+  present in the function signature, checking that ``\returns`` is used only on
+  functions that actually return a value etc.
+
+.. option:: -Wno-documentation-unknown-command
+
+  Don't warn when encountering an unknown Doxygen command.
+
 .. option:: -fparse-all-comments
 
   Parse all comments as documentation comments (including ordinary comments
   starting with ``//`` and ``/*``).
+
+.. option:: -fcomment-block-commands=[commands]
+
+  Define custom documentation commands as block commands.  This allows Clang to
+  construct the correct AST for these custom commands, and silences warnings
+  about unknown commands.  Several commands must be separated by a comma
+  *without trailing space*; e.g. ``-fcomment-block-commands=foo,bar`` defines
+  custom commands ``\foo`` and ``\bar``.
+
+  It is also possible to use ``-fcomment-block-commands`` several times; e.g.
+  ``-fcomment-block-commands=foo -fcomment-block-commands=bar`` does the same
+  as above.
 
 .. _c:
 
@@ -1333,7 +1352,7 @@ X86
 ^^^
 
 The support for X86 (both 32-bit and 64-bit) is considered stable on
-Darwin (Mac OS/X), Linux, FreeBSD, and Dragonfly BSD: it has been tested
+Darwin (Mac OS X), Linux, FreeBSD, and Dragonfly BSD: it has been tested
 to correctly compile many large C, C++, Objective-C, and Objective-C++
 codebases.
 
@@ -1388,10 +1407,10 @@ backend.
 Operating System Features and Limitations
 -----------------------------------------
 
-Darwin (Mac OS/X)
+Darwin (Mac OS X)
 ^^^^^^^^^^^^^^^^^
 
-None
+Thread Sanitizer is not supported.
 
 Windows
 ^^^^^^^

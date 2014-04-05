@@ -314,7 +314,7 @@ bool CursorVisitor::visitDeclsFromFileRegion(FileID File,
     if (Outer.isInvalid())
       return false;
 
-    llvm::tie(File, Offset) = SM.getDecomposedExpansionLoc(Outer);
+    std::tie(File, Offset) = SM.getDecomposedExpansionLoc(Outer);
     Length = 0;
     Unit->findFileRegionDecls(File, Offset, Length, Decls);
   }
@@ -812,13 +812,11 @@ bool CursorVisitor::VisitFunctionDecl(FunctionDecl *ND) {
     if (CXXConstructorDecl *Constructor = dyn_cast<CXXConstructorDecl>(ND)) {
       // Find the initializers that were written in the source.
       SmallVector<CXXCtorInitializer *, 4> WrittenInits;
-      for (CXXConstructorDecl::init_iterator I = Constructor->init_begin(),
-                                          IEnd = Constructor->init_end();
-           I != IEnd; ++I) {
-        if (!(*I)->isWritten())
+      for (auto *I : Constructor->inits()) {
+        if (!I->isWritten())
           continue;
       
-        WrittenInits.push_back(*I);
+        WrittenInits.push_back(I);
       }
       
       // Sort the initializers in source order
@@ -916,10 +914,8 @@ bool CursorVisitor::VisitObjCMethodDecl(ObjCMethodDecl *ND) {
     if (Visit(TSInfo->getTypeLoc()))
       return true;
 
-  for (ObjCMethodDecl::param_iterator P = ND->param_begin(),
-       PEnd = ND->param_end();
-       P != PEnd; ++P) {
-    if (Visit(MakeCXCursor(*P, TU, RegionOfInterest)))
+  for (const auto *P : ND->params()) {
+    if (Visit(MakeCXCursor(P, TU, RegionOfInterest)))
       return true;
   }
 
@@ -982,13 +978,11 @@ bool CursorVisitor::VisitObjCContainerDecl(ObjCContainerDecl *D) {
 
   // Get all the Decls in the DeclContext, and sort them with the
   // additional ones we've collected.  Then visit them.
-  for (DeclContext::decl_iterator I = D->decls_begin(), E = D->decls_end();
-       I!=E; ++I) {
-    Decl *subDecl = *I;
-    if (!subDecl || subDecl->getLexicalDeclContext() != D ||
-        subDecl->getLocStart().isInvalid())
+  for (auto *SubDecl : D->decls()) {
+    if (!SubDecl || SubDecl->getLexicalDeclContext() != D ||
+        SubDecl->getLocStart().isInvalid())
       continue;
-    DeclsInContainer.push_back(subDecl);
+    DeclsInContainer.push_back(SubDecl);
   }
 
   // Now sort the Decls so that they appear in lexical order.
@@ -1664,9 +1658,8 @@ bool CursorVisitor::VisitCXXRecordDecl(CXXRecordDecl *D) {
       return true;
 
   if (D->isCompleteDefinition()) {
-    for (CXXRecordDecl::base_class_iterator I = D->bases_begin(),
-         E = D->bases_end(); I != E; ++I) {
-      if (Visit(cxcursor::MakeCursorCXXBaseSpecifier(I, TU)))
+    for (const auto &I : D->bases()) {
+      if (Visit(cxcursor::MakeCursorCXXBaseSpecifier(&I, TU)))
         return true;
     }
   }
@@ -1675,9 +1668,8 @@ bool CursorVisitor::VisitCXXRecordDecl(CXXRecordDecl *D) {
 }
 
 bool CursorVisitor::VisitAttributes(Decl *D) {
-  for (AttrVec::const_iterator i = D->attr_begin(), e = D->attr_end();
-       i != e; ++i)
-    if (Visit(MakeCXCursor(*i, D, TU)))
+  for (const auto *I : D->attrs())
+    if (Visit(MakeCXCursor(I, D, TU)))
         return true;
 
   return false;
@@ -1936,14 +1928,20 @@ void OMPClauseEnqueue::VisitOMPIfClause(const OMPIfClause *C) {
   Visitor->AddStmt(C->getCondition());
 }
 
+void OMPClauseEnqueue::VisitOMPNumThreadsClause(const OMPNumThreadsClause *C) {
+  Visitor->AddStmt(C->getNumThreads());
+}
+
+void OMPClauseEnqueue::VisitOMPSafelenClause(const OMPSafelenClause *C) {
+  Visitor->AddStmt(C->getSafelen());
+}
+
 void OMPClauseEnqueue::VisitOMPDefaultClause(const OMPDefaultClause *C) { }
 
 template<typename T>
 void OMPClauseEnqueue::VisitOMPClauseList(T *Node) {
-  for (typename T::varlist_const_iterator I = Node->varlist_begin(),
-                                          E = Node->varlist_end();
-         I != E; ++I)
-    Visitor->AddStmt(*I);
+  for (const auto *I : Node->varlists())
+    Visitor->AddStmt(I);
 }
 
 void OMPClauseEnqueue::VisitOMPPrivateClause(const OMPPrivateClause *C) {
@@ -1954,6 +1952,9 @@ void OMPClauseEnqueue::VisitOMPFirstprivateClause(
   VisitOMPClauseList(C);
 }
 void OMPClauseEnqueue::VisitOMPSharedClause(const OMPSharedClause *C) {
+  VisitOMPClauseList(C);
+}
+void OMPClauseEnqueue::VisitOMPCopyinClause(const OMPCopyinClause *C) {
   VisitOMPClauseList(C);
 }
 }
@@ -2078,9 +2079,8 @@ void EnqueueVisitor::VisitDependentScopeDeclRefExpr(
 void EnqueueVisitor::VisitDeclStmt(const DeclStmt *S) {
   unsigned size = WL.size();
   bool isFirst = true;
-  for (DeclStmt::const_decl_iterator D = S->decl_begin(), DEnd = S->decl_end();
-       D != DEnd; ++D) {
-    AddDecl(*D, isFirst);
+  for (const auto *D : S->decls()) {
+    AddDecl(D, isFirst);
     isFirst = false;
   }
   if (size == WL.size())
@@ -2723,8 +2723,8 @@ static void clang_parseTranslationUnit_Impl(void *UserData) {
     llvm::CrashRecoveryContextReleaseRefCleanup<DiagnosticsEngine> >
     DiagCleanup(Diags.getPtr());
 
-  OwningPtr<std::vector<ASTUnit::RemappedFile> >
-    RemappedFiles(new std::vector<ASTUnit::RemappedFile>());
+  std::unique_ptr<std::vector<ASTUnit::RemappedFile>> RemappedFiles(
+      new std::vector<ASTUnit::RemappedFile>());
 
   // Recover resources if we crash before exiting this function.
   llvm::CrashRecoveryContextCleanupRegistrar<
@@ -2738,8 +2738,8 @@ static void clang_parseTranslationUnit_Impl(void *UserData) {
                                             Buffer));
   }
 
-  OwningPtr<std::vector<const char *> >
-    Args(new std::vector<const char*>());
+  std::unique_ptr<std::vector<const char *>> Args(
+      new std::vector<const char *>());
 
   // Recover resources if we crash before exiting this method.
   llvm::CrashRecoveryContextCleanupRegistrar<std::vector<const char*> >
@@ -2779,26 +2779,15 @@ static void clang_parseTranslationUnit_Impl(void *UserData) {
   }
   
   unsigned NumErrors = Diags->getClient()->getNumErrors();
-  OwningPtr<ASTUnit> ErrUnit;
-  OwningPtr<ASTUnit> Unit(
-    ASTUnit::LoadFromCommandLine(Args->size() ? &(*Args)[0] : 0 
-                                 /* vector::data() not portable */,
-                                 Args->size() ? (&(*Args)[0] + Args->size()) :0,
-                                 Diags,
-                                 CXXIdx->getClangResourcesPath(),
-                                 CXXIdx->getOnlyLocalDecls(),
-                                 /*CaptureDiagnostics=*/true,
-                                 *RemappedFiles.get(),
-                                 /*RemappedFilesKeepOriginalName=*/true,
-                                 PrecompilePreamble,
-                                 TUKind,
-                                 CacheCodeCompletionResults,
-                                 IncludeBriefCommentsInCodeCompletion,
-                                 /*AllowPCHWithCompilerErrors=*/true,
-                                 SkipFunctionBodies,
-                                 /*UserFilesAreVolatile=*/true,
-                                 ForSerialization,
-                                 &ErrUnit));
+  std::unique_ptr<ASTUnit> ErrUnit;
+  std::unique_ptr<ASTUnit> Unit(ASTUnit::LoadFromCommandLine(
+      Args->data(), Args->data() + Args->size(), Diags,
+      CXXIdx->getClangResourcesPath(), CXXIdx->getOnlyLocalDecls(),
+      /*CaptureDiagnostics=*/true, *RemappedFiles.get(),
+      /*RemappedFilesKeepOriginalName=*/true, PrecompilePreamble, TUKind,
+      CacheCodeCompletionResults, IncludeBriefCommentsInCodeCompletion,
+      /*AllowPCHWithCompilerErrors=*/true, SkipFunctionBodies,
+      /*UserFilesAreVolatile=*/true, ForSerialization, &ErrUnit));
 
   if (NumErrors != Diags->getClient()->getNumErrors()) {
     // Make sure to check that 'Unit' is non-NULL.
@@ -2809,7 +2798,7 @@ static void clang_parseTranslationUnit_Impl(void *UserData) {
   if (isASTReadError(Unit ? Unit.get() : ErrUnit.get())) {
     PTUI->result = CXError_ASTReadError;
   } else {
-    *PTUI->out_TU = MakeCXTranslationUnit(CXXIdx, Unit.take());
+    *PTUI->out_TU = MakeCXTranslationUnit(CXXIdx, Unit.release());
     PTUI->result = *PTUI->out_TU ? CXError_Success : CXError_Failure;
   }
 }
@@ -3019,10 +3008,10 @@ static void clang_reparseTranslationUnit_Impl(void *UserData) {
 
   ASTUnit *CXXUnit = cxtu::getASTUnit(TU);
   ASTUnit::ConcurrencyCheck Check(*CXXUnit);
-  
-  OwningPtr<std::vector<ASTUnit::RemappedFile> >
-    RemappedFiles(new std::vector<ASTUnit::RemappedFile>());
-  
+
+  std::unique_ptr<std::vector<ASTUnit::RemappedFile>> RemappedFiles(
+      new std::vector<ASTUnit::RemappedFile>());
+
   // Recover resources if we crash before exiting this function.
   llvm::CrashRecoveryContextCleanupRegistrar<
     std::vector<ASTUnit::RemappedFile> > RemappedCleanup(RemappedFiles.get());
@@ -3398,6 +3387,22 @@ CXString clang_getCursorSpelling(CXCursor C) {
   }
 
   if (clang_isExpression(C.kind)) {
+    const Expr *E = getCursorExpr(C);
+
+    if (C.kind == CXCursor_ObjCStringLiteral ||
+        C.kind == CXCursor_StringLiteral) {
+      const StringLiteral *SLit;
+      if (const ObjCStringLiteral *OSL = dyn_cast<ObjCStringLiteral>(E)) {
+        SLit = OSL->getString();
+      } else {
+        SLit = cast<StringLiteral>(E);
+      }
+      SmallString<256> Buf;
+      llvm::raw_svector_ostream OS(Buf);
+      SLit->outputString(OS);
+      return cxstring::createDup(OS.str());
+    }
+
     const Decl *D = getDeclFromExpr(getCursorExpr(C));
     if (D)
       return getDeclSpelling(D);
@@ -5341,10 +5346,8 @@ AnnotateTokensWorker::Visit(CXCursor cursor, CXCursor parent) {
         if (Method->getObjCDeclQualifier())
           HasContextSensitiveKeywords = true;
         else {
-          for (ObjCMethodDecl::param_const_iterator P = Method->param_begin(),
-                                                 PEnd = Method->param_end();
-               P != PEnd; ++P) {
-            if ((*P)->getObjCDeclQualifier()) {
+          for (const auto *P : Method->params()) {
+            if (P->getObjCDeclQualifier()) {
               HasContextSensitiveKeywords = true;
               break;
             }
@@ -6021,9 +6024,8 @@ static int getCursorPlatformAvailabilityForDecl(const Decl *D,
                                                 int availability_size) {
   bool HadAvailAttr = false;
   int N = 0;
-  for (Decl::attr_iterator A = D->attr_begin(), AEnd = D->attr_end(); A != AEnd;
-       ++A) {
-    if (DeprecatedAttr *Deprecated = dyn_cast<DeprecatedAttr>(*A)) {
+  for (auto A : D->attrs()) {
+    if (DeprecatedAttr *Deprecated = dyn_cast<DeprecatedAttr>(A)) {
       HadAvailAttr = true;
       if (always_deprecated)
         *always_deprecated = 1;
@@ -6032,7 +6034,7 @@ static int getCursorPlatformAvailabilityForDecl(const Decl *D,
       continue;
     }
     
-    if (UnavailableAttr *Unavailable = dyn_cast<UnavailableAttr>(*A)) {
+    if (UnavailableAttr *Unavailable = dyn_cast<UnavailableAttr>(A)) {
       HadAvailAttr = true;
       if (always_unavailable)
         *always_unavailable = 1;
@@ -6042,7 +6044,7 @@ static int getCursorPlatformAvailabilityForDecl(const Decl *D,
       continue;
     }
     
-    if (AvailabilityAttr *Avail = dyn_cast<AvailabilityAttr>(*A)) {
+    if (AvailabilityAttr *Avail = dyn_cast<AvailabilityAttr>(A)) {
       HadAvailAttr = true;
       if (N < availability_size) {
         availability[N].Platform
@@ -6510,7 +6512,7 @@ CXTUResourceUsage clang_getCXTUResourceUsage(CXTranslationUnit TU) {
   }
   
   ASTUnit *astUnit = cxtu::getASTUnit(TU);
-  OwningPtr<MemUsageEntries> entries(new MemUsageEntries());
+  std::unique_ptr<MemUsageEntries> entries(new MemUsageEntries());
   ASTContext &astContext = astUnit->getASTContext();
   
   // How much memory is used by AST nodes and types?
@@ -6591,7 +6593,7 @@ CXTUResourceUsage clang_getCXTUResourceUsage(CXTranslationUnit TU) {
   CXTUResourceUsage usage = { (void*) entries.get(),
                             (unsigned) entries->size(),
                             entries->size() ? &(*entries)[0] : 0 };
-  entries.take();
+  entries.release();
   return usage;
 }
 

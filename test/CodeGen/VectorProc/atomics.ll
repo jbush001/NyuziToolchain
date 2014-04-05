@@ -157,7 +157,7 @@ define i32 @atomic_xchg(i32* %ptr, i32 %value) { ; CHECK: atomic_xchg:
 }
 
 define i32 @atomic_cmpxchg(i32* %ptr, i32 %cmp, i32 %newvalue) { ; CHECK: atomic_cmpxchg:
-	%tmp = cmpxchg volatile i32* %ptr, i32 %cmp, i32 %newvalue monotonic
+	%tmp = cmpxchg volatile i32* %ptr, i32 %cmp, i32 %newvalue monotonic monotonic
 
 ; CHECK: [[LOOP1:\.[A-Za-z_0-9]+]]:
 ; CHECK: load_sync [[DEST:s[0-9]+]], (s0)

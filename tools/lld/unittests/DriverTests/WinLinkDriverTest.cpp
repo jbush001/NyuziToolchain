@@ -25,12 +25,12 @@ using namespace llvm;
 using namespace lld;
 
 namespace {
-
 class WinLinkParserTest
     : public ParserTest<WinLinkDriver, PECOFFLinkingContext> {
 protected:
-  virtual const LinkingContext *linkingContext() { return &_context; }
+  const LinkingContext *linkingContext() override { return &_context; }
 };
+}
 
 TEST_F(WinLinkParserTest, Basic) {
   EXPECT_TRUE(parse("link.exe", "/subsystem:console", "/out:a.exe",
@@ -137,14 +137,13 @@ TEST_F(WinLinkParserTest, Libpath) {
 //
 
 TEST_F(WinLinkParserTest, InputOrder) {
-  EXPECT_TRUE(parse("link.exe", "b.lib", "b.obj", "c.obj", "a.lib", "a.obj",
+  EXPECT_TRUE(parse("link.exe", "a.lib", "b.obj", "c.obj", "a.lib", "d.obj",
                     nullptr));
-  EXPECT_EQ(6, inputFileCount());
+  EXPECT_EQ(4, inputFileCount());
   EXPECT_EQ("b.obj", inputFile(0));
   EXPECT_EQ("c.obj", inputFile(1));
-  EXPECT_EQ("a.obj", inputFile(2));
-  EXPECT_EQ("b.lib", inputFile(3));
-  EXPECT_EQ("a.lib", inputFile(4));
+  EXPECT_EQ("d.obj", inputFile(2));
+  EXPECT_EQ("a.lib", inputFile(3, 0));
 }
 
 //
@@ -348,13 +347,13 @@ const uint32_t write = llvm::COFF::IMAGE_SCN_MEM_WRITE;
     EXPECT_EQ(expect, _context.getSectionAttributes(".text", execute | read)); \
   }
 
-TEST_SECTION(SectionD, "d", execute | read | discardable);
-TEST_SECTION(SectionE, "e", execute);
-TEST_SECTION(SectionK, "k", execute | read | not_cached);
-TEST_SECTION(SectionP, "p", execute | read | not_paged);
-TEST_SECTION(SectionR, "r", read);
-TEST_SECTION(SectionS, "s", execute | read | shared);
-TEST_SECTION(SectionW, "w", write);
+TEST_SECTION(SectionD, "d", execute | read | discardable)
+TEST_SECTION(SectionE, "e", execute)
+TEST_SECTION(SectionK, "k", execute | read | not_cached)
+TEST_SECTION(SectionP, "p", execute | read | not_paged)
+TEST_SECTION(SectionR, "r", read)
+TEST_SECTION(SectionS, "s", execute | read | shared)
+TEST_SECTION(SectionW, "w", write)
 
 #undef TEST_SECTION
 
@@ -683,5 +682,3 @@ TEST_F(WinLinkParserTest, DefEntryNameWindows) {
   EXPECT_TRUE(parse("link.exe", "/subsystem:windows", "a.obj", nullptr));
   EXPECT_EQ("_WinMainCRTStartup", _context.entrySymbolName());
 }
-
-} // end anonymous namespace

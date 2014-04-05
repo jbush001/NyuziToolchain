@@ -49,9 +49,9 @@ ARMBaseRegisterInfo::ARMBaseRegisterInfo(const ARMSubtarget &sti)
     BasePtr(ARM::R6) {
 }
 
-const uint16_t*
+const MCPhysReg*
 ARMBaseRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
-  const uint16_t *RegList = (STI.isTargetIOS() && !STI.isAAPCS_ABI())
+  const MCPhysReg *RegList = (STI.isTargetIOS() && !STI.isAAPCS_ABI())
                                 ? CSR_iOS_SaveList
                                 : CSR_AAPCS_SaveList;
 
@@ -595,10 +595,8 @@ materializeFrameBaseRegister(MachineBasicBlock *MBB,
     AddDefaultCC(MIB);
 }
 
-void
-ARMBaseRegisterInfo::resolveFrameIndex(MachineBasicBlock::iterator I,
-                                       unsigned BaseReg, int64_t Offset) const {
-  MachineInstr &MI = *I;
+void ARMBaseRegisterInfo::resolveFrameIndex(MachineInstr &MI, unsigned BaseReg,
+                                            int64_t Offset) const {
   MachineBasicBlock &MBB = *MI.getParent();
   MachineFunction &MF = *MBB.getParent();
   const ARMBaseInstrInfo &TII =

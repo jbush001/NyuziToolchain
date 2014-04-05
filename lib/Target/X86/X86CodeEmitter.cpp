@@ -56,9 +56,9 @@ namespace {
         MCE(mce), PICBaseOffset(0), Is64BitMode(false),
         IsPIC(TM.getRelocationModel() == Reloc::PIC_) {}
 
-    bool runOnMachineFunction(MachineFunction &MF);
+    bool runOnMachineFunction(MachineFunction &MF) override;
 
-    virtual const char *getPassName() const {
+    const char *getPassName() const override {
       return "X86 Machine Code Emitter";
     }
 
@@ -76,7 +76,7 @@ namespace {
 
     void emitInstruction(MachineInstr &MI, const MCInstrDesc *Desc);
 
-    void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.setPreservesAll();
       AU.addRequired<MachineModuleInfo>();
       MachineFunctionPass::getAnalysisUsage(AU);
@@ -1115,7 +1115,8 @@ void Emitter<CodeEmitter>::emitInstruction(MachineInstr &MI,
       if (MI.getOperand(0).getSymbolName()[0])
         report_fatal_error("JIT does not support inline asm!");
       break;
-    case TargetOpcode::PROLOG_LABEL:
+    case TargetOpcode::CFI_INSTRUCTION:
+      break;
     case TargetOpcode::GC_LABEL:
     case TargetOpcode::EH_LABEL:
       MCE.emitLabel(MI.getOperand(0).getMCSymbol());

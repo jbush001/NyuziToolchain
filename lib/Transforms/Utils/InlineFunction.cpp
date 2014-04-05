@@ -17,17 +17,17 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/InstructionSimplify.h"
-#include "llvm/DebugInfo.h"
 #include "llvm/IR/Attributes.h"
+#include "llvm/IR/CallSite.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
-#include "llvm/Support/CallSite.h"
 #include "llvm/Transforms/Utils/Local.h"
 using namespace llvm;
 
@@ -401,9 +401,8 @@ static Value *HandleByValArgument(Value *Arg, Instruction *TheCall,
 // isUsedByLifetimeMarker - Check whether this Value is used by a lifetime
 // intrinsic.
 static bool isUsedByLifetimeMarker(Value *V) {
-  for (Value::use_iterator UI = V->use_begin(), UE = V->use_end(); UI != UE;
-       ++UI) {
-    if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(*UI)) {
+  for (User *U : V->users()) {
+    if (IntrinsicInst *II = dyn_cast<IntrinsicInst>(U)) {
       switch (II->getIntrinsicID()) {
       default: break;
       case Intrinsic::lifetime_start:
@@ -423,11 +422,10 @@ static bool hasLifetimeMarkers(AllocaInst *AI) {
     return isUsedByLifetimeMarker(AI);
 
   // Do a scan to find all the casts to i8*.
-  for (Value::use_iterator I = AI->use_begin(), E = AI->use_end(); I != E;
-       ++I) {
-    if (I->getType() != Int8PtrTy) continue;
-    if (I->stripPointerCasts() != AI) continue;
-    if (isUsedByLifetimeMarker(*I))
+  for (User *U : AI->users()) {
+    if (U->getType() != Int8PtrTy) continue;
+    if (U->stripPointerCasts() != AI) continue;
+    if (isUsedByLifetimeMarker(U))
       return true;
   }
   return false;

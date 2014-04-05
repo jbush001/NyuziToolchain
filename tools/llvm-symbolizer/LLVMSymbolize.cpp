@@ -53,9 +53,8 @@ static void patchFunctionNameInDILineInfo(const std::string &NewFunctionName,
 
 ModuleInfo::ModuleInfo(ObjectFile *Obj, DIContext *DICtx)
     : Module(Obj), DebugInfoContext(DICtx) {
-  for (symbol_iterator si = Module->symbol_begin(), se = Module->symbol_end();
-       si != se; ++si) {
-    addSymbol(si);
+  for (const SymbolRef &Symbol : Module->symbols()) {
+    addSymbol(Symbol);
   }
   bool NoSymbolTable = (Module->symbol_begin() == Module->symbol_end());
   if (NoSymbolTable && Module->isELF()) {
@@ -63,20 +62,19 @@ ModuleInfo::ModuleInfo(ObjectFile *Obj, DIContext *DICtx)
     std::pair<symbol_iterator, symbol_iterator> IDyn =
         getELFDynamicSymbolIterators(Module);
     for (symbol_iterator si = IDyn.first, se = IDyn.second; si != se; ++si) {
-      addSymbol(si);
+      addSymbol(*si);
     }
   }
 }
 
-void ModuleInfo::addSymbol(const symbol_iterator &Sym) {
+void ModuleInfo::addSymbol(const SymbolRef &Symbol) {
   SymbolRef::Type SymbolType;
-  if (error(Sym->getType(SymbolType)))
+  if (error(Symbol.getType(SymbolType)))
     return;
-  if (SymbolType != SymbolRef::ST_Function &&
-      SymbolType != SymbolRef::ST_Data)
+  if (SymbolType != SymbolRef::ST_Function && SymbolType != SymbolRef::ST_Data)
     return;
   uint64_t SymbolAddress;
-  if (error(Sym->getAddress(SymbolAddress)) ||
+  if (error(Symbol.getAddress(SymbolAddress)) ||
       SymbolAddress == UnknownAddressOrSize)
     return;
   uint64_t SymbolSize;
@@ -84,11 +82,11 @@ void ModuleInfo::addSymbol(const symbol_iterator &Sym) {
   // occupies the memory range up to the following symbol.
   if (isa<MachOObjectFile>(Module))
     SymbolSize = 0;
-  else if (error(Sym->getSize(SymbolSize)) ||
+  else if (error(Symbol.getSize(SymbolSize)) ||
            SymbolSize == UnknownAddressOrSize)
     return;
   StringRef SymbolName;
-  if (error(Sym->getName(SymbolName)))
+  if (error(Symbol.getName(SymbolName)))
     return;
   // Mach-O symbol table names have leading underscore, skip it.
   if (Module->isMachO() && SymbolName.size() > 0 && SymbolName[0] == '_')
@@ -231,7 +229,7 @@ static std::string getDarwinDWARFResourceForPath(const std::string &Path) {
 }
 
 static bool checkFileCRC(StringRef Path, uint32_t CRCHash) {
-  OwningPtr<MemoryBuffer> MB;
+  std::unique_ptr<MemoryBuffer> MB;
   if (MemoryBuffer::getFileOrSTDIN(Path, MB))
     return false;
   return !zlib::isAvailable() || CRCHash == zlib::crc32(MB->getBuffer());
@@ -279,14 +277,13 @@ static bool getGNUDebuglinkContents(const Binary *Bin, std::string &DebugName,
   const ObjectFile *Obj = dyn_cast<ObjectFile>(Bin);
   if (!Obj)
     return false;
-  for (section_iterator I = Obj->section_begin(), E = Obj->section_end();
-       I != E; ++I) {
+  for (const SectionRef &Section : Obj->sections()) {
     StringRef Name;
-    I->getName(Name);
+    Section.getName(Name);
     Name = Name.substr(Name.find_first_not_of("._"));
     if (Name == "gnu_debuglink") {
       StringRef Data;
-      I->getContents(Data);
+      Section.getContents(Data);
       DataExtractor DE(Data, Obj->isLittleEndian(), 0);
       uint32_t Offset = 0;
       if (const char *DebugNameStr = DE.getCStr(&Offset)) {
@@ -313,9 +310,9 @@ LLVMSymbolizer::getOrCreateBinary(const std::string &Path) {
   Binary *DbgBin = 0;
   ErrorOr<Binary *> BinaryOrErr = createBinary(Path);
   if (!error(BinaryOrErr.getError())) {
-    OwningPtr<Binary> ParsedBinary(BinaryOrErr.get());
+    std::unique_ptr<Binary> ParsedBinary(BinaryOrErr.get());
     // Check if it's a universal binary.
-    Bin = ParsedBinary.take();
+    Bin = ParsedBinary.release();
     ParsedBinariesAndObjects.push_back(Bin);
     if (Bin->isMachO() || Bin->isMachOUniversalBinary()) {
       // On Darwin we may find DWARF in separate object file in
@@ -361,9 +358,9 @@ LLVMSymbolizer::getObjectFileFromBinary(Binary *Bin, const std::string &ArchName
         std::make_pair(UB, ArchName));
     if (I != ObjectFileForArch.end())
       return I->second;
-    OwningPtr<ObjectFile> ParsedObj;
+    std::unique_ptr<ObjectFile> ParsedObj;
     if (!UB->getObjectForArch(Triple(ArchName).getArch(), ParsedObj)) {
-      Res = ParsedObj.take();
+      Res = ParsedObj.release();
       ParsedBinariesAndObjects.push_back(Res);
     }
     ObjectFileForArch[std::make_pair(UB, ArchName)] = Res;

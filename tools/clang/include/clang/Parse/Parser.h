@@ -21,11 +21,11 @@
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Sema.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/SaveAndRestore.h"
+#include <memory>
 #include <stack>
 
 namespace clang {
@@ -139,23 +139,24 @@ class Parser : public CodeCompletionHandler {
   llvm::SmallDenseMap<const IdentifierInfo *, tok::TokenKind>
   ContextualKeywords;
 
-  OwningPtr<PragmaHandler> AlignHandler;
-  OwningPtr<PragmaHandler> GCCVisibilityHandler;
-  OwningPtr<PragmaHandler> OptionsHandler;
-  OwningPtr<PragmaHandler> PackHandler;
-  OwningPtr<PragmaHandler> MSStructHandler;
-  OwningPtr<PragmaHandler> UnusedHandler;
-  OwningPtr<PragmaHandler> WeakHandler;
-  OwningPtr<PragmaHandler> RedefineExtnameHandler;
-  OwningPtr<PragmaHandler> FPContractHandler;
-  OwningPtr<PragmaHandler> OpenCLExtensionHandler;
-  OwningPtr<PragmaHandler> OpenMPHandler;
-  OwningPtr<PragmaHandler> MSCommentHandler;
-  OwningPtr<PragmaHandler> MSDetectMismatchHandler;
-  OwningPtr<PragmaHandler> MSPointersToMembers;
-  OwningPtr<PragmaHandler> MSVtorDisp;
+  std::unique_ptr<PragmaHandler> AlignHandler;
+  std::unique_ptr<PragmaHandler> GCCVisibilityHandler;
+  std::unique_ptr<PragmaHandler> OptionsHandler;
+  std::unique_ptr<PragmaHandler> PackHandler;
+  std::unique_ptr<PragmaHandler> MSStructHandler;
+  std::unique_ptr<PragmaHandler> UnusedHandler;
+  std::unique_ptr<PragmaHandler> WeakHandler;
+  std::unique_ptr<PragmaHandler> RedefineExtnameHandler;
+  std::unique_ptr<PragmaHandler> FPContractHandler;
+  std::unique_ptr<PragmaHandler> OpenCLExtensionHandler;
+  std::unique_ptr<PragmaHandler> OpenMPHandler;
+  std::unique_ptr<PragmaHandler> MSCommentHandler;
+  std::unique_ptr<PragmaHandler> MSDetectMismatchHandler;
+  std::unique_ptr<PragmaHandler> MSPointersToMembers;
+  std::unique_ptr<PragmaHandler> MSVtorDisp;
+  std::unique_ptr<PragmaHandler> MSInitSeg;
 
-  OwningPtr<CommentHandler> CommentSemaHandler;
+  std::unique_ptr<CommentHandler> CommentSemaHandler;
 
   /// Whether the '>' token acts as an operator or not. This will be
   /// true except when we are parsing an expression within a C++
@@ -235,6 +236,9 @@ public:
 
   const Token &getCurToken() const { return Tok; }
   Scope *getCurScope() const { return Actions.getCurScope(); }
+  void incrementMSLocalManglingNumber() const {
+    return Actions.incrementMSLocalManglingNumber();
+  }
 
   Decl  *getObjCDeclContext() const { return Actions.getObjCDeclContext(); }
 
@@ -272,6 +276,10 @@ public:
   /// ParseTopLevelDecl - Parse one top-level declaration. Returns true if
   /// the EOF was encountered.
   bool ParseTopLevelDecl(DeclGroupPtrTy &Result);
+  bool ParseTopLevelDecl() {
+    DeclGroupPtrTy Result;
+    return ParseTopLevelDecl(Result);
+  }
 
   /// ConsumeToken - Consume the current 'peek token' and lex the next one.
   /// This does not work with special tokens: string literals, code completion
@@ -733,14 +741,18 @@ public:
   public:
     // ParseScope - Construct a new object to manage a scope in the
     // parser Self where the new Scope is created with the flags
-    // ScopeFlags, but only when ManageScope is true (the default). If
-    // ManageScope is false, this object does nothing.
-    ParseScope(Parser *Self, unsigned ScopeFlags, bool ManageScope = true)
+    // ScopeFlags, but only when we aren't about to enter a compound statement.
+    ParseScope(Parser *Self, unsigned ScopeFlags, bool EnteredScope = true,
+               bool BeforeCompoundStmt = false)
       : Self(Self) {
-      if (ManageScope)
+      if (EnteredScope && !BeforeCompoundStmt)
         Self->EnterScope(ScopeFlags);
-      else
+      else {
+        if (BeforeCompoundStmt)
+          Self->incrementMSLocalManglingNumber();
+
         this->Self = 0;
+      }
     }
 
     // Exit - Exit the scope associated with this object now, rather
@@ -867,10 +879,10 @@ private:
     LateParsedClass(Parser *P, ParsingClass *C);
     virtual ~LateParsedClass();
 
-    virtual void ParseLexedMethodDeclarations();
-    virtual void ParseLexedMemberInitializers();
-    virtual void ParseLexedMethodDefs();
-    virtual void ParseLexedAttributes();
+    void ParseLexedMethodDeclarations() override;
+    void ParseLexedMemberInitializers() override;
+    void ParseLexedMethodDefs() override;
+    void ParseLexedAttributes() override;
 
   private:
     Parser *Self;
@@ -894,7 +906,7 @@ private:
                                  SourceLocation Loc)
       : Self(P), AttrName(Name), AttrNameLoc(Loc) {}
 
-    virtual void ParseLexedAttributes();
+    void ParseLexedAttributes() override;
 
     void addDecl(Decl *D) { Decls.push_back(D); }
   };
@@ -926,7 +938,7 @@ private:
     explicit LexedMethod(Parser* P, Decl *MD)
       : Self(P), D(MD), TemplateScope(false) {}
 
-    virtual void ParseLexedMethodDefs();
+    void ParseLexedMethodDefs() override;
   };
 
   /// LateParsedDefaultArgument - Keeps track of a parameter that may
@@ -956,7 +968,7 @@ private:
     explicit LateParsedMethodDeclaration(Parser *P, Decl *M)
       : Self(P), Method(M), TemplateScope(false), ExceptionSpecTokens(0) { }
 
-    virtual void ParseLexedMethodDeclarations();
+    void ParseLexedMethodDeclarations() override;
 
     Parser* Self;
 
@@ -987,7 +999,7 @@ private:
     LateParsedMemberInitializer(Parser *P, Decl *FD)
       : Self(P), Field(FD) { }
 
-    virtual void ParseLexedMemberInitializers();
+    void ParseLexedMemberInitializers() override;
 
     Parser *Self;
 
@@ -1793,7 +1805,7 @@ private:
   /// \brief Starting with a scope specifier, identifier, or
   /// template-id that refers to the current class, determine whether
   /// this is a constructor declarator.
-  bool isConstructorDeclarator();
+  bool isConstructorDeclarator(bool Unqualified);
 
   /// \brief Specifies the context in which type-id/expression
   /// disambiguation will occur.
@@ -1985,6 +1997,16 @@ private:
   /// locations where attributes are not allowed.
   void DiagnoseAndSkipCXX11Attributes();
 
+  /// \brief Parses syntax-generic attribute arguments for attributes which are
+  /// known to the implementation, and adds them to the given ParsedAttributes
+  /// list with the given attribute syntax.
+  void ParseAttributeArgsCommon(IdentifierInfo *AttrName,
+                                SourceLocation AttrNameLoc,
+                                ParsedAttributes &Attrs, SourceLocation *EndLoc,
+                                IdentifierInfo *ScopeName,
+                                SourceLocation ScopeLoc,
+                                AttributeList::Syntax Syntax);
+
   void MaybeParseGNUAttributes(Declarator &D,
                                LateParsedAttrList *LateAttrs = 0) {
     if (Tok.is(tok::kw___attribute)) {
@@ -2042,6 +2064,13 @@ private:
                                     SourceLocation *EndLoc = 0);
   void ParseCXX11Attributes(ParsedAttributesWithRange &attrs,
                             SourceLocation *EndLoc = 0);
+  /// \brief Parses a C++-style attribute argument list. Returns true if this
+  /// results in adding an attribute to the ParsedAttributes list.
+  bool ParseCXX11AttributeArgs(IdentifierInfo *AttrName,
+                               SourceLocation AttrNameLoc,
+                               ParsedAttributes &Attrs, SourceLocation *EndLoc,
+                               IdentifierInfo *ScopeName,
+                               SourceLocation ScopeLoc);
 
   IdentifierInfo *TryParseCXX11AttributeIdentifier(SourceLocation &Loc);
 
@@ -2053,13 +2082,9 @@ private:
   void ParseMicrosoftAttributes(ParsedAttributes &attrs,
                                 SourceLocation *endLoc = 0);
   void ParseMicrosoftDeclSpec(ParsedAttributes &Attrs);
-  bool IsSimpleMicrosoftDeclSpec(IdentifierInfo *Ident);
-  void ParseComplexMicrosoftDeclSpec(IdentifierInfo *Ident, 
-                                     SourceLocation Loc,
-                                     ParsedAttributes &Attrs);
-  void ParseMicrosoftDeclSpecWithSingleArg(IdentifierInfo *AttrName, 
-                                           SourceLocation AttrNameLoc, 
-                                           ParsedAttributes &Attrs);
+  bool ParseMicrosoftDeclSpecArgs(IdentifierInfo *AttrName,
+                                  SourceLocation AttrNameLoc,
+                                  ParsedAttributes &Attrs);
   void ParseMicrosoftTypeAttributes(ParsedAttributes &attrs);
   void ParseMicrosoftInheritanceClassAttributes(ParsedAttributes &attrs);
   void ParseBorlandTypeAttributes(ParsedAttributes &attrs);
@@ -2388,14 +2413,13 @@ private:
 
   //===--------------------------------------------------------------------===//
   // Preprocessor code-completion pass-through
-  virtual void CodeCompleteDirective(bool InConditional);
-  virtual void CodeCompleteInConditionalExclusion();
-  virtual void CodeCompleteMacroName(bool IsDefinition);
-  virtual void CodeCompletePreprocessorExpression();
-  virtual void CodeCompleteMacroArgument(IdentifierInfo *Macro,
-                                         MacroInfo *MacroInfo,
-                                         unsigned ArgumentIndex);
-  virtual void CodeCompleteNaturalLanguage();
+  void CodeCompleteDirective(bool InConditional) override;
+  void CodeCompleteInConditionalExclusion() override;
+  void CodeCompleteMacroName(bool IsDefinition) override;
+  void CodeCompletePreprocessorExpression() override;
+  void CodeCompleteMacroArgument(IdentifierInfo *Macro, MacroInfo *MacroInfo,
+                                 unsigned ArgumentIndex) override;
+  void CodeCompleteNaturalLanguage() override;
 };
 
 }  // end namespace clang

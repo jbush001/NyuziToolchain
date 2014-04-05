@@ -689,6 +689,11 @@ public:
   /// debugging downstream codegen failures exposed by regalloc.
   virtual bool mayOverrideLocalAssignment() const { return true; }
 
+  /// Allow the target to override the cost of using a callee-saved register for
+  /// the first time. Default value of 0 means we will use a callee-saved
+  /// register if it is available.
+  virtual unsigned getCSRFirstUseCost() const { return 0; }
+
   /// requiresRegisterScavenging - returns true if the target requires (and can
   /// make use of) the register scavenger.
   virtual bool requiresRegisterScavenging(const MachineFunction &MF) const {
@@ -765,8 +770,8 @@ public:
 
   /// resolveFrameIndex - Resolve a frame index operand of an instruction
   /// to reference the indicated base register plus offset instead.
-  virtual void resolveFrameIndex(MachineBasicBlock::iterator I,
-                                 unsigned BaseReg, int64_t Offset) const {
+  virtual void resolveFrameIndex(MachineInstr &MI, unsigned BaseReg,
+                                 int64_t Offset) const {
     llvm_unreachable("resolveFrameIndex does not exist on this target");
   }
 

@@ -14,9 +14,9 @@
 #include "InstCombine.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
+#include "llvm/IR/CallSite.h"
 #include "llvm/IR/DataLayout.h"
-#include "llvm/Support/CallSite.h"
-#include "llvm/Support/PatternMatch.h"
+#include "llvm/IR/PatternMatch.h"
 #include "llvm/Transforms/Utils/BuildLibCalls.h"
 #include "llvm/Transforms/Utils/Local.h"
 using namespace llvm;
@@ -654,7 +654,9 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
   }
 
   case Intrinsic::arm_neon_vmulls:
-  case Intrinsic::arm_neon_vmullu: {
+  case Intrinsic::arm_neon_vmullu:
+  case Intrinsic::arm64_neon_smull:
+  case Intrinsic::arm64_neon_umull: {
     Value *Arg0 = II->getArgOperand(0);
     Value *Arg1 = II->getArgOperand(1);
 
@@ -664,7 +666,8 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
     }
 
     // Check for constant LHS & RHS - in this case we just simplify.
-    bool Zext = (II->getIntrinsicID() == Intrinsic::arm_neon_vmullu);
+    bool Zext = (II->getIntrinsicID() == Intrinsic::arm_neon_vmullu ||
+                 II->getIntrinsicID() == Intrinsic::arm64_neon_umull);
     VectorType *NewVT = cast<VectorType>(II->getType());
     if (Constant *CV0 = dyn_cast<Constant>(Arg0)) {
       if (Constant *CV1 = dyn_cast<Constant>(Arg1)) {
@@ -788,15 +791,14 @@ static IntrinsicInst *FindInitTrampolineFromAlloca(Value *TrampMem) {
   // is good enough in practice and simpler than handling any number of casts.
   Value *Underlying = TrampMem->stripPointerCasts();
   if (Underlying != TrampMem &&
-      (!Underlying->hasOneUse() || *Underlying->use_begin() != TrampMem))
+      (!Underlying->hasOneUse() || Underlying->user_back() != TrampMem))
     return 0;
   if (!isa<AllocaInst>(Underlying))
     return 0;
 
   IntrinsicInst *InitTrampoline = 0;
-  for (Value::use_iterator I = TrampMem->use_begin(), E = TrampMem->use_end();
-       I != E; I++) {
-    IntrinsicInst *II = dyn_cast<IntrinsicInst>(*I);
+  for (User *U : TrampMem->users()) {
+    IntrinsicInst *II = dyn_cast<IntrinsicInst>(U);
     if (!II)
       return 0;
     if (II->getIntrinsicID() == Intrinsic::init_trampoline) {
@@ -1010,9 +1012,8 @@ bool InstCombiner::transformConstExprCastCall(CallSite CS) {
     // the critical edge).  Bail out in this case.
     if (!Caller->use_empty())
       if (InvokeInst *II = dyn_cast<InvokeInst>(Caller))
-        for (Value::use_iterator UI = II->use_begin(), E = II->use_end();
-             UI != E; ++UI)
-          if (PHINode *PN = dyn_cast<PHINode>(*UI))
+        for (User *U : II->users())
+          if (PHINode *PN = dyn_cast<PHINode>(U))
             if (PN->getParent() == II->getNormalDest() ||
                 PN->getParent() == II->getUnwindDest())
               return false;

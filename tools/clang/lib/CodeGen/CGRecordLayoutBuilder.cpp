@@ -287,20 +287,18 @@ void CGRecordLowering::lowerUnion() {
   // storage type isn't necessary, the first (non-0-length-bitfield) field's
   // type would work fine and be simpler but would be differen than what we've
   // been doing and cause lit tests to change.
-  for (RecordDecl::field_iterator Field = D->field_begin(),
-                                  FieldEnd = D->field_end();
-       Field != FieldEnd; ++Field) {
+  for (const auto *Field : D->fields()) {
     if (Field->isBitField()) {
       // Skip 0 sized bitfields.
       if (Field->getBitWidthValue(Context) == 0)
         continue;
-      llvm::Type *FieldType = getStorageType(*Field);
+      llvm::Type *FieldType = getStorageType(Field);
       if (LayoutSize < getSize(FieldType))
         FieldType = getByteArrayType(LayoutSize);
-      setBitFieldInfo(*Field, CharUnits::Zero(), FieldType);
+      setBitFieldInfo(Field, CharUnits::Zero(), FieldType);
     }
-    Fields[*Field] = 0;
-    llvm::Type *FieldType = getStorageType(*Field);
+    Fields[Field] = 0;
+    llvm::Type *FieldType = getStorageType(Field);
     // Conditionally update our storage type if we've got a new "better" one.
     if (!StorageType ||
         getAlignment(FieldType) >  getAlignment(StorageType) ||
@@ -421,12 +419,10 @@ void CGRecordLowering::accumulateBases() {
       CharUnits::Zero(),
       getStorageType(Layout.getPrimaryBase())));
   // Accumulate the non-virtual bases.
-  for (CXXRecordDecl::base_class_const_iterator Base = RD->bases_begin(),
-                                                BaseEnd = RD->bases_end();
-        Base != BaseEnd; ++Base) {
-    if (Base->isVirtual())
+  for (const auto &Base : RD->bases()) {
+    if (Base.isVirtual())
       continue;
-    const CXXRecordDecl *BaseDecl = Base->getType()->getAsCXXRecordDecl();
+    const CXXRecordDecl *BaseDecl = Base.getType()->getAsCXXRecordDecl();
     if (!BaseDecl->isEmpty())
       Members.push_back(MemberInfo(Layout.getBaseClassOffset(BaseDecl),
           MemberInfo::Base, getStorageType(BaseDecl), BaseDecl));
@@ -446,10 +442,8 @@ void CGRecordLowering::accumulateVPtrs() {
 void CGRecordLowering::accumulateVBases() {
   Members.push_back(MemberInfo(Layout.getNonVirtualSize(),
                                MemberInfo::Scissor, 0, RD));
-  for (CXXRecordDecl::base_class_const_iterator Base = RD->vbases_begin(),
-                                                BaseEnd = RD->vbases_end();
-       Base != BaseEnd; ++Base) {
-    const CXXRecordDecl *BaseDecl = Base->getType()->getAsCXXRecordDecl();
+  for (const auto &Base : RD->vbases()) {
+    const CXXRecordDecl *BaseDecl = Base.getType()->getAsCXXRecordDecl();
     if (BaseDecl->isEmpty())
       continue;
     CharUnits Offset = Layout.getVBaseClassOffset(BaseDecl);
@@ -474,10 +468,8 @@ bool CGRecordLowering::hasOwnStorage(const CXXRecordDecl *Decl,
   const ASTRecordLayout &DeclLayout = Context.getASTRecordLayout(Decl);
   if (DeclLayout.isPrimaryBaseVirtual() && DeclLayout.getPrimaryBase() == Query)
     return false;
-  for (CXXRecordDecl::base_class_const_iterator Base = Decl->bases_begin(),
-                                                BaseEnd = Decl->bases_end();
-       Base != BaseEnd; ++Base)
-    if (!hasOwnStorage(Base->getType()->getAsCXXRecordDecl(), Query))
+  for (const auto &Base : Decl->bases())
+    if (!hasOwnStorage(Base.getType()->getAsCXXRecordDecl(), Query))
       return false;
   return true;
 }

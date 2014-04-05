@@ -37,13 +37,13 @@ public:
   VectorProcAsmBackend(const Target &T, Triple::OSType _OSType)
       : MCAsmBackend(), OSType(_OSType) {}
 
-  virtual MCObjectWriter *createObjectWriter(raw_ostream &OS) const LLVM_OVERRIDE {
+  virtual MCObjectWriter *createObjectWriter(raw_ostream &OS) const override {
     return createVectorProcELFObjectWriter(
         OS, MCELFObjectTargetWriter::getOSABI(OSType));
   }
 
   virtual void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
-                  uint64_t Value) const LLVM_OVERRIDE {
+                  uint64_t Value, bool IsPCRel) const override {
     MCFixupKind Kind = Fixup.getKind();
     Value = adjustFixupValue((unsigned)Kind, Value);
     unsigned Offset = Fixup.getOffset();
@@ -67,7 +67,7 @@ public:
     }
   }
 
-  virtual const MCFixupKindInfo &getFixupKindInfo(MCFixupKind Kind) const LLVM_OVERRIDE {
+  virtual const MCFixupKindInfo &getFixupKindInfo(MCFixupKind Kind) const override {
     const static MCFixupKindInfo Infos[VectorProc::NumTargetFixupKinds] = {
       // This table *must* be in same the order of fixup_* kinds in
       // VectorProcFixupKinds.h.
@@ -88,17 +88,17 @@ public:
     return Infos[Kind - FirstTargetFixupKind];
   }
 
-  virtual bool mayNeedRelaxation(const MCInst &Inst) const LLVM_OVERRIDE { return false; }
+  virtual bool mayNeedRelaxation(const MCInst &Inst) const override { return false; }
 
   /// fixupNeedsRelaxation - Target specific predicate for whether a given
   /// fixup requires the associated instruction to be relaxed.
   virtual bool fixupNeedsRelaxation(const MCFixup &Fixup, uint64_t Value,
                             const MCRelaxableFragment *DF,
-                            const MCAsmLayout &Layout) const LLVM_OVERRIDE {
+                            const MCAsmLayout &Layout) const override {
     return false;
   }
 
-  virtual void relaxInstruction(const MCInst &Inst, MCInst &Res) const LLVM_OVERRIDE {
+  virtual void relaxInstruction(const MCInst &Inst, MCInst &Res) const override {
     assert(0 && "relaxInstruction() unimplemented");
   }
 
@@ -107,7 +107,7 @@ public:
   /// it should return an error.
   ///
   /// \return - True on success.
-  virtual bool writeNopData(uint64_t Count, MCObjectWriter *OW) const LLVM_OVERRIDE {
+  virtual bool writeNopData(uint64_t Count, MCObjectWriter *OW) const override {
     // Check for a less than instruction size number of bytes
     if (Count % 4)
       return false;

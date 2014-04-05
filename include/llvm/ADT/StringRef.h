@@ -10,7 +10,6 @@
 #ifndef LLVM_ADT_STRINGREF_H
 #define LLVM_ADT_STRINGREF_H
 
-#include "llvm/Support/type_traits.h"
 #include "llvm/Support/Allocator.h"
 #include <algorithm>
 #include <cassert>
@@ -341,7 +340,7 @@ namespace llvm {
     /// this returns true to signify the error.  The string is considered
     /// erroneous if empty or if it overflows T.
     template <typename T>
-    typename enable_if_c<std::numeric_limits<T>::is_signed, bool>::type
+    typename std::enable_if<std::numeric_limits<T>::is_signed, bool>::type
     getAsInteger(unsigned Radix, T &Result) const {
       long long LLVal;
       if (getAsSignedInteger(*this, Radix, LLVal) ||
@@ -352,7 +351,7 @@ namespace llvm {
     }
 
     template <typename T>
-    typename enable_if_c<!std::numeric_limits<T>::is_signed, bool>::type
+    typename std::enable_if<!std::numeric_limits<T>::is_signed, bool>::type
     getAsInteger(unsigned Radix, T &Result) const {
       unsigned long long ULLVal;
       if (getAsUnsignedInteger(*this, Radix, ULLVal) ||

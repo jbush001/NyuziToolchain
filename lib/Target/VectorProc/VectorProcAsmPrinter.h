@@ -39,23 +39,23 @@ public:
   explicit VectorProcAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
       : AsmPrinter(TM, Streamer), MCInstLowering(*this) {}
 
-  virtual const char *getPassName() const LLVM_OVERRIDE {
+  virtual const char *getPassName() const override {
     return "VectorProc Assembly Printer";
   }
 
-  virtual void EmitInstruction(const MachineInstr *MI) LLVM_OVERRIDE;
-  virtual void EmitFunctionBodyStart() LLVM_OVERRIDE;
-  virtual void EmitFunctionBodyEnd() LLVM_OVERRIDE;
-  virtual void EmitConstantPool() LLVM_OVERRIDE;
+  virtual void EmitInstruction(const MachineInstr *MI) override;
+  virtual void EmitFunctionBodyStart() override;
+  virtual void EmitFunctionBodyEnd() override;
+  virtual void EmitConstantPool() override;
 
   // Print operand for inline assembly
   virtual bool PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
                        unsigned AsmVariant, const char *ExtraCode,
-                       raw_ostream &O) LLVM_OVERRIDE;
+                       raw_ostream &O) override;
   virtual bool PrintAsmMemoryOperand(const MachineInstr *MI,
                              unsigned OpNum, unsigned AsmVariant,
                              const char *ExtraCode,
-                             raw_ostream &O) LLVM_OVERRIDE;
+                             raw_ostream &O) override;
 
 private:
   MCSymbol *GetJumpTableLabel(unsigned uid) const;

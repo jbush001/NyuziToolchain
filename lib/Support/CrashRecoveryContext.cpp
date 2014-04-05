@@ -334,8 +334,8 @@ const std::string &CrashRecoveryContext::getBacktrace() const {
 
 namespace {
 struct RunSafelyOnThreadInfo {
-  void (*UserFn)(void*);
-  void *UserData;
+  void (*Fn)(void*);
+  void *Data;
   CrashRecoveryContext *CRC;
   bool Result;
 };
@@ -344,7 +344,7 @@ struct RunSafelyOnThreadInfo {
 static void RunSafelyOnThread_Dispatch(void *UserData) {
   RunSafelyOnThreadInfo *Info =
     reinterpret_cast<RunSafelyOnThreadInfo*>(UserData);
-  Info->Result = Info->CRC->RunSafely(Info->UserFn, Info->UserData);
+  Info->Result = Info->CRC->RunSafely(Info->Fn, Info->Data);
 }
 bool CrashRecoveryContext::RunSafelyOnThread(void (*Fn)(void*), void *UserData,
                                              unsigned RequestedStackSize) {

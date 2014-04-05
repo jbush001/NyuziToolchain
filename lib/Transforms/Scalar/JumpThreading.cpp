@@ -27,10 +27,10 @@
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/ValueHandle.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/ValueHandle.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
@@ -105,9 +105,9 @@ namespace {
       initializeJumpThreadingPass(*PassRegistry::getPassRegistry());
     }
 
-    bool runOnFunction(Function &F);
+    bool runOnFunction(Function &F) override;
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.addRequired<LazyValueInfo>();
       AU.addPreserved<LazyValueInfo>();
       AU.addRequired<TargetLibraryInfo>();
@@ -255,7 +255,7 @@ static unsigned getJumpThreadDuplicationCost(const BasicBlock *BB,
     // as having cost of 2 total, and if they are a vector intrinsic, we model
     // them as having cost 1.
     if (const CallInst *CI = dyn_cast<CallInst>(I)) {
-      if (CI->hasFnAttr(Attribute::NoDuplicate))
+      if (CI->cannotDuplicate())
         // Blocks with NoDuplicate are modelled as having infinite cost, so they
         // are never duplicated.
         return ~0U;
@@ -1435,16 +1435,15 @@ bool JumpThreading::ThreadEdge(BasicBlock *BB,
   for (BasicBlock::iterator I = BB->begin(); I != BB->end(); ++I) {
     // Scan all uses of this instruction to see if it is used outside of its
     // block, and if so, record them in UsesToRename.
-    for (Value::use_iterator UI = I->use_begin(), E = I->use_end(); UI != E;
-         ++UI) {
-      Instruction *User = cast<Instruction>(*UI);
+    for (Use &U : I->uses()) {
+      Instruction *User = cast<Instruction>(U.getUser());
       if (PHINode *UserPN = dyn_cast<PHINode>(User)) {
-        if (UserPN->getIncomingBlock(UI) == BB)
+        if (UserPN->getIncomingBlock(U) == BB)
           continue;
       } else if (User->getParent() == BB)
         continue;
 
-      UsesToRename.push_back(&UI.getUse());
+      UsesToRename.push_back(&U);
     }
 
     // If there are no uses outside the block, we're done with this instruction.
@@ -1589,16 +1588,15 @@ bool JumpThreading::DuplicateCondBranchOnPHIIntoPred(BasicBlock *BB,
   for (BasicBlock::iterator I = BB->begin(); I != BB->end(); ++I) {
     // Scan all uses of this instruction to see if it is used outside of its
     // block, and if so, record them in UsesToRename.
-    for (Value::use_iterator UI = I->use_begin(), E = I->use_end(); UI != E;
-         ++UI) {
-      Instruction *User = cast<Instruction>(*UI);
+    for (Use &U : I->uses()) {
+      Instruction *User = cast<Instruction>(U.getUser());
       if (PHINode *UserPN = dyn_cast<PHINode>(User)) {
-        if (UserPN->getIncomingBlock(UI) == BB)
+        if (UserPN->getIncomingBlock(U) == BB)
           continue;
       } else if (User->getParent() == BB)
         continue;
 
-      UsesToRename.push_back(&UI.getUse());
+      UsesToRename.push_back(&U);
     }
 
     // If there are no uses outside the block, we're done with this instruction.

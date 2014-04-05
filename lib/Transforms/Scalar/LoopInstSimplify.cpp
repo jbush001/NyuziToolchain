@@ -36,9 +36,9 @@ namespace {
       initializeLoopInstSimplifyPass(*PassRegistry::getPassRegistry());
     }
 
-    bool runOnLoop(Loop*, LPPassManager&);
+    bool runOnLoop(Loop*, LPPassManager&) override;
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.setPreservesCFG();
       AU.addRequired<LoopInfo>();
       AU.addRequiredID(LoopSimplifyID);
@@ -118,9 +118,8 @@ bool LoopInstSimplify::runOnLoop(Loop *L, LPPassManager &LPM) {
           Value *V = SimplifyInstruction(I, DL, TLI, DT);
           if (V && LI->replacementPreservesLCSSAForm(I, V)) {
             // Mark all uses for resimplification next time round the loop.
-            for (Value::use_iterator UI = I->use_begin(), UE = I->use_end();
-                 UI != UE; ++UI)
-              Next->insert(cast<Instruction>(*UI));
+            for (User *U : I->users())
+              Next->insert(cast<Instruction>(U));
 
             I->replaceAllUsesWith(V);
             LocalChanged = true;

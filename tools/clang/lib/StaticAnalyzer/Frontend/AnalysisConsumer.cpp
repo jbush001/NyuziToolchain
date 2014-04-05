@@ -36,7 +36,6 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/ExprEngine.h"
 #include "clang/StaticAnalyzer/Frontend/CheckerRegistration.h"
 #include "llvm/ADT/DepthFirstIterator.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/Statistic.h"
@@ -45,6 +44,7 @@
 #include "llvm/Support/Program.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
+#include <memory>
 #include <queue>
 
 using namespace clang;
@@ -90,12 +90,12 @@ public:
   ClangDiagPathDiagConsumer(DiagnosticsEngine &Diag)
     : Diag(Diag), IncludePath(false) {}
   virtual ~ClangDiagPathDiagConsumer() {}
-  virtual StringRef getName() const { return "ClangDiags"; }
+  StringRef getName() const override { return "ClangDiags"; }
 
-  virtual bool supportsLogicalOpControlFlow() const { return true; }
-  virtual bool supportsCrossFileDiagnostics() const { return true; }
+  bool supportsLogicalOpControlFlow() const override { return true; }
+  bool supportsCrossFileDiagnostics() const override { return true; }
 
-  virtual PathGenerationScheme getGenerationScheme() const {
+  PathGenerationScheme getGenerationScheme() const override {
     return IncludePath ? Minimal : None;
   }
 
@@ -103,16 +103,8 @@ public:
     IncludePath = true;
   }
 
-  const DiagnosticBuilder &addRanges(const DiagnosticBuilder &DB,
-                                     ArrayRef<SourceRange> Ranges) {
-    for (ArrayRef<SourceRange>::iterator I = Ranges.begin(), E = Ranges.end();
-         I != E; ++I)
-      DB << *I;
-    return DB;
-  }
-
   void FlushDiagnosticsImpl(std::vector<const PathDiagnostic *> &Diags,
-                            FilesMade *filesMade) {
+                            FilesMade *filesMade) override {
     unsigned WarnID = Diag.getCustomDiagID(DiagnosticsEngine::Warning, "%0");
     unsigned NoteID = Diag.getCustomDiagID(DiagnosticsEngine::Note, "%0");
 
@@ -120,8 +112,8 @@ public:
          E = Diags.end(); I != E; ++I) {
       const PathDiagnostic *PD = *I;
       SourceLocation WarnLoc = PD->getLocation().asLocation();
-      addRanges(Diag.Report(WarnLoc, WarnID) << PD->getShortDescription(),
-                PD->path.back()->getRanges());
+      Diag.Report(WarnLoc, WarnID) << PD->getShortDescription()
+                                   << PD->path.back()->getRanges();
 
       if (!IncludePath)
         continue;
@@ -131,8 +123,8 @@ public:
                                       PE = FlatPath.end();
            PI != PE; ++PI) {
         SourceLocation NoteLoc = (*PI)->getLocation().asLocation();
-        addRanges(Diag.Report(NoteLoc, NoteID) << (*PI)->getString(),
-                  (*PI)->getRanges());
+        Diag.Report(NoteLoc, NoteID) << (*PI)->getString()
+                                     << (*PI)->getRanges();
       }
     }
   }
@@ -179,8 +171,8 @@ public:
   StoreManagerCreator CreateStoreMgr;
   ConstraintManagerCreator CreateConstraintMgr;
 
-  OwningPtr<CheckerManager> checkerMgr;
-  OwningPtr<AnalysisManager> Mgr;
+  std::unique_ptr<CheckerManager> checkerMgr;
+  std::unique_ptr<AnalysisManager> Mgr;
 
   /// Time the analyzes time of each translation unit.
   static llvm::Timer* TUTotalTimer;
@@ -290,7 +282,7 @@ public:
     }
   }
 
-  virtual void Initialize(ASTContext &Context) {
+  void Initialize(ASTContext &Context) override {
     Ctx = &Context;
     checkerMgr.reset(createCheckerManager(*Opts, PP.getLangOpts(), Plugins,
                                           PP.getDiagnostics()));
@@ -306,10 +298,10 @@ public:
 
   /// \brief Store the top level decls in the set to be processed later on.
   /// (Doing this pre-processing avoids deserialization of data from PCH.)
-  virtual bool HandleTopLevelDecl(DeclGroupRef D);
-  virtual void HandleTopLevelDeclInObjCContainer(DeclGroupRef D);
+  bool HandleTopLevelDecl(DeclGroupRef D) override;
+  void HandleTopLevelDeclInObjCContainer(DeclGroupRef D) override;
 
-  virtual void HandleTranslationUnit(ASTContext &C);
+  void HandleTranslationUnit(ASTContext &C) override;
 
   /// \brief Determine which inlining mode should be used when this function is
   /// analyzed. This allows to redefine the default inlining policies when
@@ -381,7 +373,7 @@ public:
   }
 
   virtual void
-  AddDiagnosticConsumer(PathDiagnosticConsumer *Consumer) LLVM_OVERRIDE {
+  AddDiagnosticConsumer(PathDiagnosticConsumer *Consumer) override {
     PathConsumers.push_back(Consumer);
   }
 
@@ -649,7 +641,7 @@ void AnalysisConsumer::ActionExprEngine(Decl *D, bool ObjCGCEnabled,
   ExprEngine Eng(*Mgr, ObjCGCEnabled, VisitedCallees, &FunctionSummaries,IMode);
 
   // Set the graph auditor.
-  OwningPtr<ExplodedNode::Auditor> Auditor;
+  std::unique_ptr<ExplodedNode::Auditor> Auditor;
   if (Mgr->options.visualizeExplodedGraphWithUbiGraph) {
     Auditor.reset(CreateUbiViz());
     ExplodedNode::SetAuditor(Auditor.get());
@@ -712,7 +704,7 @@ ento::CreateAnalysisConsumer(const Preprocessor &pp, const std::string &outDir,
 namespace {
 
 class UbigraphViz : public ExplodedNode::Auditor {
-  OwningPtr<raw_ostream> Out;
+  std::unique_ptr<raw_ostream> Out;
   std::string Filename;
   unsigned Cntr;
 
@@ -724,7 +716,7 @@ public:
 
   ~UbigraphViz();
 
-  virtual void AddEdge(ExplodedNode *Src, ExplodedNode *Dst);
+  void AddEdge(ExplodedNode *Src, ExplodedNode *Dst) override;
 };
 
 } // end anonymous namespace
@@ -735,10 +727,10 @@ static ExplodedNode::Auditor* CreateUbiViz() {
   llvm::sys::fs::createTemporaryFile("llvm_ubi", "", FD, P);
   llvm::errs() << "Writing '" << P.str() << "'.\n";
 
-  OwningPtr<llvm::raw_fd_ostream> Stream;
+  std::unique_ptr<llvm::raw_fd_ostream> Stream;
   Stream.reset(new llvm::raw_fd_ostream(FD, true));
 
-  return new UbigraphViz(Stream.take(), P);
+  return new UbigraphViz(Stream.release(), P);
 }
 
 void UbigraphViz::AddEdge(ExplodedNode *Src, ExplodedNode *Dst) {

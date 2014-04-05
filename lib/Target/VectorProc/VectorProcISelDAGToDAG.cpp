@@ -29,11 +29,11 @@ public:
       : SelectionDAGISel(tm),
         Subtarget(tm.getSubtarget<VectorProcSubtarget>()) {}
 
-  virtual SDNode *Select(SDNode *N) LLVM_OVERRIDE;
+  virtual SDNode *Select(SDNode *N) override;
 
   virtual bool SelectInlineAsmMemoryOperand(const SDValue &Op,
                                             char ConstraintCode,
-                                            std::vector<SDValue> &OutOps) LLVM_OVERRIDE;
+                                            std::vector<SDValue> &OutOps) override;
 
   // Complex Pattern Selectors (referenced from TableGen'd instruction matching code)
   bool SelectADDRri(SDValue N, SDValue &Base, SDValue &Offset);

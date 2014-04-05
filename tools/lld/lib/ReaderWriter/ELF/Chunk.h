@@ -12,7 +12,6 @@
 
 #include "lld/Core/LLVM.h"
 
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Object/ELF.h"
 #include "llvm/Support/Allocator.h"
@@ -20,6 +19,8 @@
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileOutputBuffer.h"
+
+#include <memory>
 
 namespace lld {
 class ELFLinkingContext;
@@ -72,7 +73,7 @@ public:
   // Memory size of the chunk
   uint64_t memSize() const { return _msize; }
   void setMemSize(uint64_t msize) { _msize = msize; }
-  // Whats the contentType of the chunk ?
+  // Whats the contentType of the chunk?
   virtual int getContentType() const = 0;
   // Writer the chunk
   virtual void write(ELFWriter *writer, TargetLayout<ELFT> &layout,

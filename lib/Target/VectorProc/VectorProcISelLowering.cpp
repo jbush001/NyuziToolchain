@@ -1170,7 +1170,7 @@ VectorProcTargetLowering::EmitSelectCC(MachineInstr *MI,
 
   // Transfer the remainder of BB and its successor edges to SinkMBB.
   SinkMBB->splice(SinkMBB->begin(), BB,
-                  llvm::next(MachineBasicBlock::iterator(MI)), BB->end());
+                  std::next(MachineBasicBlock::iterator(MI)), BB->end());
   SinkMBB->transferSuccessorsAndUpdatePHIs(BB);
 
   // Next, add the true and fallthrough blocks as its successors.
@@ -1229,7 +1229,7 @@ VectorProcTargetLowering::EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *
 
   // Transfer the remainder of BB and its successor edges to ExitMBB.
   ExitMBB->splice(ExitMBB->begin(), BB,
-                  llvm::next(MachineBasicBlock::iterator(MI)), BB->end());
+                  std::next(MachineBasicBlock::iterator(MI)), BB->end());
   ExitMBB->transferSuccessorsAndUpdatePHIs(BB);
 
   //  ThisMBB:
@@ -1301,7 +1301,7 @@ VectorProcTargetLowering::EmitAtomicCmpSwap(MachineInstr *MI,
 
   // Transfer the remainder of BB and its successor edges to ExitMBB.
   ExitMBB->splice(ExitMBB->begin(), BB,
-                  llvm::next(MachineBasicBlock::iterator(MI)), BB->end());
+                  std::next(MachineBasicBlock::iterator(MI)), BB->end());
   ExitMBB->transferSuccessorsAndUpdatePHIs(BB);
 
   //  ThisMBB:

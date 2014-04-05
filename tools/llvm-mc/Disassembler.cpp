@@ -13,7 +13,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "Disassembler.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/MC/MCDisassembler.h"
 #include "llvm/MC/MCInst.h"
@@ -36,10 +35,10 @@ private:
 public:
   VectorMemoryObject(const ByteArrayTy &bytes) : Bytes(bytes) {}
 
-  uint64_t getBase() const { return 0; }
-  uint64_t getExtent() const { return Bytes.size(); }
+  uint64_t getBase() const override { return 0; }
+  uint64_t getExtent() const override { return Bytes.size(); }
 
-  int readByte(uint64_t Addr, uint8_t *Byte) const {
+  int readByte(uint64_t Addr, uint8_t *Byte) const override {
     if (Addr >= getExtent())
       return -1;
     *Byte = Bytes[Addr].first;
@@ -159,7 +158,7 @@ int Disassembler::disassemble(const Target &T,
                               MemoryBuffer &Buffer,
                               SourceMgr &SM,
                               raw_ostream &Out) {
-  OwningPtr<const MCDisassembler> DisAsm(T.createMCDisassembler(STI));
+  std::unique_ptr<const MCDisassembler> DisAsm(T.createMCDisassembler(STI));
   if (!DisAsm) {
     errs() << "error: no disassembler for target " << Triple << "\n";
     return -1;

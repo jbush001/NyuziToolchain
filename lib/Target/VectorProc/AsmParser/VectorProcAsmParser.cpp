@@ -33,10 +33,10 @@ class VectorProcAsmParser : public MCTargetAsmParser {
   virtual bool MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
                               	 	   SmallVectorImpl<MCParsedAsmOperand *> &Operands,
                                        MCStreamer &Out, unsigned &ErrorInfo,
-                                       bool MatchingInlineAsm) LLVM_OVERRIDE;
+                                       bool MatchingInlineAsm) override;
 
   virtual bool ParseRegister(unsigned &RegNo, SMLoc &StartLoc, 
-  						     SMLoc &EndLoc) LLVM_OVERRIDE;
+  						     SMLoc &EndLoc) override;
 
   VectorProcOperand *ParseRegister(unsigned &RegNo);
 
@@ -44,9 +44,9 @@ class VectorProcAsmParser : public MCTargetAsmParser {
 
   virtual bool ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
                                 SMLoc NameLoc,
-                                SmallVectorImpl<MCParsedAsmOperand *> &Operands) LLVM_OVERRIDE;
+                                SmallVectorImpl<MCParsedAsmOperand *> &Operands) override;
 
-  virtual bool ParseDirective(AsmToken DirectiveID) LLVM_OVERRIDE;
+  virtual bool ParseDirective(AsmToken DirectiveID) override;
 
   bool ParseOperand(SmallVectorImpl<MCParsedAsmOperand *> &Operands,
                     StringRef Name);

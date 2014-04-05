@@ -32,35 +32,26 @@ void initializeAArch64TTIPass(PassRegistry &);
 
 namespace {
 
-class AArch64TTI LLVM_FINAL : public ImmutablePass, public TargetTransformInfo {
-  const AArch64TargetMachine *TM;
+class AArch64TTI final : public ImmutablePass, public TargetTransformInfo {
   const AArch64Subtarget *ST;
   const AArch64TargetLowering *TLI;
 
-  /// Estimate the overhead of scalarizing an instruction. Insert and Extract
-  /// are set if the result needs to be inserted and/or extracted from vectors.
-  unsigned getScalarizationOverhead(Type *Ty, bool Insert, bool Extract) const;
-
 public:
-  AArch64TTI() : ImmutablePass(ID), TM(0), ST(0), TLI(0) {
+  AArch64TTI() : ImmutablePass(ID), ST(0), TLI(0) {
     llvm_unreachable("This pass cannot be directly constructed");
   }
 
   AArch64TTI(const AArch64TargetMachine *TM)
-      : ImmutablePass(ID), TM(TM), ST(TM->getSubtargetImpl()),
+      : ImmutablePass(ID), ST(TM->getSubtargetImpl()),
         TLI(TM->getTargetLowering()) {
     initializeAArch64TTIPass(*PassRegistry::getPassRegistry());
   }
 
-  virtual void initializePass() LLVM_OVERRIDE {
+  virtual void initializePass() override {
     pushTTIStack(this);
   }
 
-  virtual void finalizePass() {
-    popTTIStack();
-  }
-
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const LLVM_OVERRIDE {
+  virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
     TargetTransformInfo::getAnalysisUsage(AU);
   }
 
@@ -68,7 +59,7 @@ public:
   static char ID;
 
   /// Provide necessary pointer adjustments for the two base classes.
-  virtual void *getAdjustedAnalysisPointer(const void *ID) LLVM_OVERRIDE {
+  virtual void *getAdjustedAnalysisPointer(const void *ID) override {
     if (ID == &TargetTransformInfo::ID)
       return (TargetTransformInfo*)this;
     return this;

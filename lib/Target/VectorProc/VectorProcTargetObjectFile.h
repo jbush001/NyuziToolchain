@@ -22,7 +22,7 @@
 namespace llvm {
 
 class VectorProcTargetObjectFile : public TargetLoweringObjectFileELF {
-  virtual void Initialize(MCContext &Ctx, const TargetMachine &TM) LLVM_OVERRIDE;
+  virtual void Initialize(MCContext &Ctx, const TargetMachine &TM) override;
 };
 
 } // end namespace llvm

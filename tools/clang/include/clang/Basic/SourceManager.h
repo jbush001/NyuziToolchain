@@ -42,7 +42,6 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/Support/Allocator.h"
@@ -50,6 +49,7 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include <cassert>
 #include <map>
+#include <memory>
 #include <vector>
 
 namespace clang {
@@ -569,7 +569,7 @@ class SourceManager : public RefCountedBase<SourceManager> {
 
   /// \brief Lazily create the object keeping overridden files info, since
   /// it is uncommonly used.
-  OwningPtr<OverriddenFilesInfoTy> OverriddenFilesInfo;
+  std::unique_ptr<OverriddenFilesInfoTy> OverriddenFilesInfo;
 
   OverriddenFilesInfoTy &getOverriddenFilesInfo() {
     if (!OverriddenFilesInfo)

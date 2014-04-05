@@ -257,7 +257,8 @@ bool Parser::ParseOpenMPSimpleVarList(OpenMPDirectiveKind Kind,
 /// \brief Parsing of OpenMP clauses.
 ///
 ///    clause:
-///       default-clause|private-clause|firstprivate-clause|shared-clause
+///       if-clause | num_threads-clause | safelen-clause | default-clause |
+///       private-clause | firstprivate-clause | shared-clause
 ///
 OMPClause *Parser::ParseOpenMPClause(OpenMPDirectiveKind DKind,
                                      OpenMPClauseKind CKind, bool FirstClause) {
@@ -272,8 +273,13 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPDirectiveKind DKind,
 
   switch (CKind) {
   case OMPC_if:
+  case OMPC_num_threads:
+  case OMPC_safelen:
     // OpenMP [2.5, Restrictions]
     //  At most one if clause can appear on the directive.
+    //  At most one num_threads clause can appear on the directive.
+    // OpenMP [2.8.1, simd construct, Restrictions]
+    //  Only one safelen clause can appear on a simd directive.
     if (!FirstClause) {
       Diag(Tok, diag::err_omp_more_one_clause)
            << getOpenMPDirectiveName(DKind) << getOpenMPClauseName(CKind);
@@ -295,6 +301,7 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPDirectiveKind DKind,
   case OMPC_private:
   case OMPC_firstprivate:
   case OMPC_shared:
+  case OMPC_copyin:
     Clause = ParseOpenMPVarListClause(CKind);
     break;
   case OMPC_unknown:
@@ -319,6 +326,12 @@ OMPClause *Parser::ParseOpenMPClause(OpenMPDirectiveKind DKind,
 ///    if-clause:
 ///      'if' '(' expression ')'
 ///
+///    num_threads-clause:
+///      'num_threads' '(' expression ')'
+///
+///    safelen-clause:
+///      'safelen' '(' expression ')'
+///
 OMPClause *Parser::ParseOpenMPSingleExprClause(OpenMPClauseKind Kind) {
   SourceLocation Loc = ConsumeToken();
 
@@ -329,10 +342,6 @@ OMPClause *Parser::ParseOpenMPSingleExprClause(OpenMPClauseKind Kind) {
 
   ExprResult LHS(ParseCastExpression(false, false, NotTypeCast));
   ExprResult Val(ParseRHSOfBinaryExpression(LHS, prec::Conditional));
-
-  if (Tok.isNot(tok::r_paren) && Tok.isNot(tok::comma) &&
-      Tok.isNot(tok::annot_pragma_openmp_end))
-    ConsumeAnyToken();
 
   // Parse ')'.
   T.consumeClose();

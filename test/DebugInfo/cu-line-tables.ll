@@ -1,8 +1,8 @@
 ; REQUIRES: object-emission
-; RUN: %llc_dwarf -O0 -filetype=obj -generate-dwarf-cu-ranges %s -o %t
+; RUN: %llc_dwarf -O0 -filetype=obj %s -o %t
 ; RUN: llvm-dwarfdump %t | FileCheck %s
 
-; Check that we don't emit ranges even if the option is passed if we're emitting line tables only.
+; Check that we don't emit ranges if we're emitting line tables only.
 
 ; CHECK: DW_TAG_compile_unit
 ; CHECK-NOT: DW_AT_ranges
@@ -11,6 +11,12 @@
 ; FIXME: We probably want to avoid printing out anything if the section isn't there.
 ; CHECK: .debug_ranges contents:
 ; CHECK-NOT: 00000000 <End of list>
+
+; CHECK: .debug_pubnames contents:
+; CHECK-NOT: Offset
+
+; CHECK: .debug_pubtypes contents:
+; CHECK-NOT: Offset
 
 ; Function Attrs: nounwind uwtable
 define i32 @f(i32 %a) #0 {

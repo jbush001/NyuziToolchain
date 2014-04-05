@@ -75,15 +75,15 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/PatternMatch.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
+#include "llvm/IR/ValueHandle.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/BranchProbability.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/PatternMatch.h"
-#include "llvm/Support/ValueHandle.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Transforms/Scalar.h"
@@ -433,11 +433,12 @@ public:
     InnerLoopVectorizer(OrigLoop, SE, LI, DT, DL, TLI, 1, UnrollFactor) { }
 
 private:
-  virtual void scalarizeInstruction(Instruction *Instr, bool IfPredicateStore = false);
-  virtual void vectorizeMemoryInstruction(Instruction *Instr);
-  virtual Value *getBroadcastInstrs(Value *V);
-  virtual Value *getConsecutiveVector(Value* Val, int StartIdx, bool Negate);
-  virtual Value *reverseVector(Value *Vec);
+  void scalarizeInstruction(Instruction *Instr,
+                            bool IfPredicateStore = false) override;
+  void vectorizeMemoryInstruction(Instruction *Instr) override;
+  Value *getBroadcastInstrs(Value *V) override;
+  Value *getConsecutiveVector(Value* Val, int StartIdx, bool Negate) override;
+  Value *reverseVector(Value *Vec) override;
 };
 
 /// \brief Look for a meaningful debug location on the instruction or it's
@@ -988,12 +989,12 @@ private:
   }
 };
 
-static void addInnerLoop(Loop *L, SmallVectorImpl<Loop *> &V) {
-  if (L->empty())
-    return V.push_back(L);
+static void addInnerLoop(Loop &L, SmallVectorImpl<Loop *> &V) {
+  if (L.empty())
+    return V.push_back(&L);
 
-  for (Loop::iterator I = L->begin(), E = L->end(); I != E; ++I)
-    addInnerLoop(*I, V);
+  for (Loop *InnerL : L)
+    addInnerLoop(*InnerL, V);
 }
 
 /// The LoopVectorize Pass.
@@ -1020,7 +1021,7 @@ struct LoopVectorize : public FunctionPass {
 
   BlockFrequency ColdEntryFreq;
 
-  virtual bool runOnFunction(Function &F) {
+  bool runOnFunction(Function &F) override {
     SE = &getAnalysis<ScalarEvolution>();
     DataLayoutPass *DLP = getAnalysisIfAvailable<DataLayoutPass>();
     DL = DLP ? &DLP->getDataLayout() : 0;
@@ -1050,8 +1051,8 @@ struct LoopVectorize : public FunctionPass {
     // and can invalidate iterators across the loops.
     SmallVector<Loop *, 8> Worklist;
 
-    for (LoopInfo::iterator I = LI->begin(), E = LI->end(); I != E; ++I)
-      addInnerLoop(*I, Worklist);
+    for (Loop *L : *LI)
+      addInnerLoop(*L, Worklist);
 
     // Now walk the identified inner loops.
     bool Changed = false;
@@ -1063,14 +1064,7 @@ struct LoopVectorize : public FunctionPass {
   }
 
   bool processLoop(Loop *L) {
-    // We only handle inner loops, so if there are children just recurse.
-    if (!L->empty()) {
-      bool Changed = false;
-      for (Loop::iterator I = L->begin(), E = L->begin(); I != E; ++I)
-        Changed |= processLoop(*I);
-      return Changed;
-    }
-
+    assert(L->empty() && "Only process inner loops.");
     DEBUG(dbgs() << "LV: Checking a loop in \"" <<
           L->getHeader()->getParent()->getName() << "\"\n");
 
@@ -1160,7 +1154,7 @@ struct LoopVectorize : public FunctionPass {
     return true;
   }
 
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequiredID(LoopSimplifyID);
     AU.addRequiredID(LCSSAID);
     AU.addRequired<BlockFrequencyInfo>();
@@ -1977,7 +1971,7 @@ void InnerLoopVectorizer::createEmptyLoop() {
   // sequence of instructions that form a check.
   Instruction *StrideCheck;
   Instruction *FirstCheckInst;
-  tie(FirstCheckInst, StrideCheck) =
+  std::tie(FirstCheckInst, StrideCheck) =
       addStrideCheck(BypassBlock->getTerminator());
   if (StrideCheck) {
     // Create a new block containing the stride check.
@@ -2001,7 +1995,7 @@ void InnerLoopVectorizer::createEmptyLoop() {
   // checks into a separate block to make the more common case of few elements
   // faster.
   Instruction *MemRuntimeCheck;
-  tie(FirstCheckInst, MemRuntimeCheck) =
+  std::tie(FirstCheckInst, MemRuntimeCheck) =
       addRuntimeCheck(LastBypassBlock->getTerminator());
   if (MemRuntimeCheck) {
     // Create a new block containing the memory check.
@@ -2488,6 +2482,16 @@ static void cse(SmallVector<BasicBlock *, 4> &BBs) {
   }
 }
 
+/// \brief Adds a 'fast' flag to floating point operations.
+static Value *addFastMathFlag(Value *V) {
+  if (isa<FPMathOperator>(V)){
+    FastMathFlags Flags;
+    Flags.setUnsafeAlgebra();
+    cast<Instruction>(V)->setFastMathFlags(Flags);
+  }
+  return V;
+}
+
 void InnerLoopVectorizer::vectorizeLoop() {
   //===------------------------------------------------===//
   //
@@ -2631,9 +2635,10 @@ void InnerLoopVectorizer::vectorizeLoop() {
     setDebugLocFromInst(Builder, ReducedPartRdx);
     for (unsigned part = 1; part < UF; ++part) {
       if (Op != Instruction::ICmp && Op != Instruction::FCmp)
-        ReducedPartRdx = Builder.CreateBinOp((Instruction::BinaryOps)Op,
-                                             RdxParts[part], ReducedPartRdx,
-                                             "bin.rdx");
+        // Floating point operations had to be 'fast' to enable the reduction.
+        ReducedPartRdx = addFastMathFlag(
+            Builder.CreateBinOp((Instruction::BinaryOps)Op, RdxParts[part],
+                                ReducedPartRdx, "bin.rdx"));
       else
         ReducedPartRdx = createMinMaxOp(Builder, RdxDesc.MinMaxKind,
                                         ReducedPartRdx, RdxParts[part]);
@@ -2663,8 +2668,9 @@ void InnerLoopVectorizer::vectorizeLoop() {
                                     "rdx.shuf");
 
         if (Op != Instruction::ICmp && Op != Instruction::FCmp)
-          TmpVec = Builder.CreateBinOp((Instruction::BinaryOps)Op, TmpVec, Shuf,
-                                       "bin.rdx");
+          // Floating point operations had to be 'fast' to enable the reduction.
+          TmpVec = addFastMathFlag(Builder.CreateBinOp(
+              (Instruction::BinaryOps)Op, TmpVec, Shuf, "bin.rdx"));
         else
           TmpVec = createMinMaxOp(Builder, RdxDesc.MinMaxKind, TmpVec, Shuf);
       }
@@ -2998,6 +3004,10 @@ void InnerLoopVectorizer::vectorizeBlockInLoop(BasicBlock *BB, PhiVector *PV) {
         if (VecOp && isa<PossiblyExactOperator>(VecOp))
           VecOp->setIsExact(BinOp->isExact());
 
+        // Copy the fast-math flags.
+        if (VecOp && isa<FPMathOperator>(V))
+          VecOp->setFastMathFlags(it->getFastMathFlags());
+
         Entry[Part] = V;
       }
       break;
@@ -3327,12 +3337,11 @@ static bool hasOutsideLoopUser(const Loop *TheLoop, Instruction *Inst,
   // instructions must not have external users.
   if (!Reductions.count(Inst))
     //Check that all of the users of the loop are inside the BB.
-    for (Value::use_iterator I = Inst->use_begin(), E = Inst->use_end();
-         I != E; ++I) {
-      Instruction *U = cast<Instruction>(*I);
+    for (User *U : Inst->users()) {
+      Instruction *UI = cast<Instruction>(U);
       // This user may be a reduction exit value.
-      if (!TheLoop->contains(U)) {
-        DEBUG(dbgs() << "LV: Found an outside user for : " << *U << '\n');
+      if (!TheLoop->contains(UI)) {
+        DEBUG(dbgs() << "LV: Found an outside user for : " << *UI << '\n');
         return true;
       }
     }
@@ -3528,9 +3537,8 @@ static Value *stripGetElementPtr(Value *Ptr, ScalarEvolution *SE,
 ///\brief Look for a cast use of the passed value.
 static Value *getUniqueCastUse(Value *Ptr, Loop *Lp, Type *Ty) {
   Value *UniqueCast = 0;
-  for (Value::use_iterator UI = Ptr->use_begin(), UE = Ptr->use_end(); UI != UE;
-       ++UI) {
-    CastInst *CI = dyn_cast<CastInst>(*UI);
+  for (User *U : Ptr->users()) {
+    CastInst *CI = dyn_cast<CastInst>(U);
     if (CI && CI->getType() == Ty) {
       if (!UniqueCast)
         UniqueCast = CI;
@@ -3647,6 +3655,16 @@ void LoopVectorizationLegality::collectLoopUniforms() {
 
   // Start with the conditional branch and walk up the block.
   Worklist.push_back(Latch->getTerminator()->getOperand(0));
+
+  // Also add all consecutive pointer values; these values will be uniform
+  // after vectorization (and subsequent cleanup) and, until revectorization is
+  // supported, all dependencies must also be uniform.
+  for (Loop::block_iterator B = TheLoop->block_begin(),
+       BE = TheLoop->block_end(); B != BE; ++B)
+    for (BasicBlock::iterator I = (*B)->begin(), IE = (*B)->end();
+         I != IE; ++I)
+      if (I->getType()->isPointerTy() && isConsecutivePtr(I))
+        Worklist.insert(Worklist.end(), I->op_begin(), I->op_end());
 
   while (Worklist.size()) {
     Instruction *I = dyn_cast<Instruction>(Worklist.back());
@@ -4339,7 +4357,7 @@ bool MemoryDepChecker::areDepsSafe(AccessAnalysis::DepCandidates &AccessSets,
     // Check every access pair.
     while (AI != AE) {
       CheckDeps.erase(*AI);
-      EquivalenceClasses<MemAccessInfo>::member_iterator OI = llvm::next(AI);
+      EquivalenceClasses<MemAccessInfo>::member_iterator OI = std::next(AI);
       while (OI != AE) {
         // Check every accessing instruction pair in program order.
         for (std::vector<unsigned>::iterator I1 = Accesses[*AI].begin(),
@@ -4697,12 +4715,11 @@ bool LoopVectorizationLegality::AddReductionVar(PHINode *Phi,
     // nodes once we get to them.
     SmallVector<Instruction *, 8> NonPHIs;
     SmallVector<Instruction *, 8> PHIs;
-    for (Value::use_iterator UI = Cur->use_begin(), E = Cur->use_end(); UI != E;
-         ++UI) {
-      Instruction *Usr = cast<Instruction>(*UI);
+    for (User *U : Cur->users()) {
+      Instruction *UI = cast<Instruction>(U);
 
       // Check if we found the exit user.
-      BasicBlock *Parent = Usr->getParent();
+      BasicBlock *Parent = UI->getParent();
       if (!TheLoop->contains(Parent)) {
         // Exit if you find multiple outside users or if the header phi node is
         // being used. In this case the user uses the value of the previous
@@ -4725,20 +4742,20 @@ bool LoopVectorizationLegality::AddReductionVar(PHINode *Phi,
       // value must only be used once, except by phi nodes and min/max
       // reductions which are represented as a cmp followed by a select.
       ReductionInstDesc IgnoredVal(false, 0);
-      if (VisitedInsts.insert(Usr)) {
-        if (isa<PHINode>(Usr))
-          PHIs.push_back(Usr);
+      if (VisitedInsts.insert(UI)) {
+        if (isa<PHINode>(UI))
+          PHIs.push_back(UI);
         else
-          NonPHIs.push_back(Usr);
-      } else if (!isa<PHINode>(Usr) &&
-                 ((!isa<FCmpInst>(Usr) &&
-                   !isa<ICmpInst>(Usr) &&
-                   !isa<SelectInst>(Usr)) ||
-                  !isMinMaxSelectCmpPattern(Usr, IgnoredVal).IsReduction))
+          NonPHIs.push_back(UI);
+      } else if (!isa<PHINode>(UI) &&
+                 ((!isa<FCmpInst>(UI) &&
+                   !isa<ICmpInst>(UI) &&
+                   !isa<SelectInst>(UI)) ||
+                  !isMinMaxSelectCmpPattern(UI, IgnoredVal).IsReduction))
         return false;
 
       // Remember that we completed the cycle.
-      if (Usr == Phi)
+      if (UI == Phi)
         FoundStartPHI = true;
     }
     Worklist.append(PHIs.begin(), PHIs.end());
@@ -4784,7 +4801,7 @@ LoopVectorizationLegality::isMinMaxSelectCmpPattern(Instruction *I,
   // We must handle the select(cmp()) as a single instruction. Advance to the
   // select.
   if ((Cmp = dyn_cast<ICmpInst>(I)) || (Cmp = dyn_cast<FCmpInst>(I))) {
-    if (!Cmp->hasOneUse() || !(Select = dyn_cast<SelectInst>(*I->use_begin())))
+    if (!Cmp->hasOneUse() || !(Select = dyn_cast<SelectInst>(*I->user_begin())))
       return ReductionInstDesc(false, I);
     return ReductionInstDesc(Select, Prev.MinMaxKind);
   }

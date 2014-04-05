@@ -87,7 +87,7 @@ public:
 
   virtual void EncodeInstruction(const MCInst &MI, raw_ostream &OS,
                                  SmallVectorImpl<MCFixup> &Fixups,
-                                 const MCSubtargetInfo &STI) const LLVM_OVERRIDE;
+                                 const MCSubtargetInfo &STI) const override;
 
 private:
   VectorProcMCCodeEmitter(const VectorProcMCCodeEmitter &) LLVM_DELETED_FUNCTION; 

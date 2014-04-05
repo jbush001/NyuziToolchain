@@ -446,6 +446,9 @@ ParseRegister(unsigned &RegNo, SMLoc &StartLoc, SMLoc &EndLoc)
   return Error(StartLoc, "invalid register name");
 }
 
+static void applyMnemonicAliases(StringRef &Mnemonic, unsigned Features,
+                                 unsigned VariantID);
+
 bool SparcAsmParser::
 ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
                  SMLoc NameLoc,
@@ -454,6 +457,9 @@ ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
 
   // First operand in MCInst is instruction mnemonic.
   Operands.push_back(SparcOperand::CreateToken(Name, NameLoc));
+
+  // apply mnemonic aliases, if any, so that we can parse operands correctly.
+  applyMnemonicAliases(Name, getAvailableFeatures(), 0);
 
   if (getLexer().isNot(AsmToken::EndOfStatement)) {
     // Read the first operand.
@@ -631,6 +637,7 @@ parseOperand(SmallVectorImpl<MCParsedAsmOperand*> &Operands,
   }
 
   SparcOperand *Op = 0;
+
   ResTy = parseSparcAsmOperand(Op, (Mnemonic == "call"));
   if (ResTy != MatchOperand_Success || !Op)
     return MatchOperand_ParseFail;
@@ -674,11 +681,6 @@ SparcAsmParser::parseSparcAsmOperand(SparcOperand *&Op, bool isCall)
           Op = SparcOperand::CreateToken("%xcc", S);
         else
           Op = SparcOperand::CreateToken("%icc", S);
-        break;
-
-      case Sparc::FCC:
-        assert(name == "fcc0" && "Cannot handle %fcc other than %fcc0 yet");
-        Op = SparcOperand::CreateToken("%fcc0", S);
         break;
       }
       break;
@@ -783,7 +785,7 @@ bool SparcAsmParser::matchRegisterName(const AsmToken &Tok,
         && !name.substr(3).getAsInteger(10, intVal)
         && intVal < 4) {
       // FIXME: check 64bit and  handle %fcc1 - %fcc3
-      RegNo = Sparc::FCC;
+      RegNo = Sparc::FCC0 + intVal;
       RegKind = SparcOperand::rk_CCReg;
       return true;
     }

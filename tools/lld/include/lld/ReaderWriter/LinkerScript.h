@@ -18,14 +18,14 @@
 #include "lld/Core/LLVM.h"
 #include "lld/Core/range.h"
 
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/system_error.h"
 
+#include <memory>
 #include <vector>
 
 namespace lld {
@@ -105,7 +105,7 @@ public:
     return c->getKind() == Kind::OutputFormat;
   }
 
-  virtual void dump(raw_ostream &os) const {
+  void dump(raw_ostream &os) const override {
     os << "OUTPUT_FORMAT(";
     for (auto fb = _formats.begin(), fe = _formats.end(); fb != fe; ++fb) {
       if (fb != _formats.begin())
@@ -132,7 +132,7 @@ public:
     return c->getKind() == Kind::OutputArch;
   }
 
-  virtual void dump(raw_ostream &os) const {
+  void dump(raw_ostream &os) const override {
     os << "OUTPUT_arch(" << getArch() << ")\n";
   }
 
@@ -162,10 +162,10 @@ public:
 
   static bool classof(const Command *c) { return c->getKind() == Kind::Group; }
 
-  virtual void dump(raw_ostream &os) const {
+  void dump(raw_ostream &os) const override {
     os << "GROUP(";
     bool first = true;
-    for (const auto &path : getPaths()) {
+    for (const Path &path : getPaths()) {
       if (!first)
         os << " ";
       else
@@ -194,7 +194,7 @@ public:
     return c->getKind() == Kind::Entry;
   }
 
-  virtual void dump(raw_ostream &os) const {
+  void dump(raw_ostream &os) const override {
     os << "ENTRY(" << _entryName << ")\n";
   }
 
@@ -209,7 +209,7 @@ private:
 class LinkerScript {
 public:
   void dump(raw_ostream &os) const {
-    for (const auto &c : _commands)
+    for (const Command *c : _commands)
       c->dump(os);
   }
 

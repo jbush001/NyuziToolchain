@@ -16,8 +16,10 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
+#include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Instructions.h"
@@ -25,10 +27,8 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Operator.h"
-#include "llvm/Support/ConstantRange.h"
-#include "llvm/Support/GetElementPtrTypeIterator.h"
+#include "llvm/IR/PatternMatch.h"
 #include "llvm/Support/MathExtras.h"
-#include "llvm/Support/PatternMatch.h"
 #include <cstring>
 using namespace llvm;
 using namespace llvm::PatternMatch;
@@ -1960,9 +1960,8 @@ llvm::GetUnderlyingObjects(Value *V,
 /// are lifetime markers.
 ///
 bool llvm::onlyUsedByLifetimeMarkers(const Value *V) {
-  for (Value::const_use_iterator UI = V->use_begin(), UE = V->use_end();
-       UI != UE; ++UI) {
-    const IntrinsicInst *II = dyn_cast<IntrinsicInst>(*UI);
+  for (const User *U : V->users()) {
+    const IntrinsicInst *II = dyn_cast<IntrinsicInst>(U);
     if (!II) return false;
 
     if (II->getIntrinsicID() != Intrinsic::lifetime_start &&

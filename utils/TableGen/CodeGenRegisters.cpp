@@ -550,7 +550,7 @@ unsigned CodeGenRegister::getWeight(const CodeGenRegBank &RegBank) const {
 // registers.
 namespace {
 struct TupleExpander : SetTheory::Expander {
-  void expand(SetTheory &ST, Record *Def, SetTheory::RecSet &Elts) {
+  void expand(SetTheory &ST, Record *Def, SetTheory::RecSet &Elts) override {
     std::vector<Record*> Indices = Def->getValueAsListOfDefs("SubRegIndices");
     unsigned Dim = Indices.size();
     ListInit *SubRegs = Def->getValueAsListInit("SubRegs");
@@ -782,11 +782,8 @@ namespace llvm {
 bool CodeGenRegisterClass::Key::
 operator<(const CodeGenRegisterClass::Key &B) const {
   assert(Members && B.Members);
-  if (*Members != *B.Members)
-    return *Members < *B.Members;
-  if (SpillSize != B.SpillSize)
-    return SpillSize < B.SpillSize;
-  return SpillAlignment < B.SpillAlignment;
+  return std::tie(*Members, SpillSize, SpillAlignment) <
+         std::tie(*B.Members, B.SpillSize, B.SpillAlignment);
 }
 
 // Returns true if RC is a strict subclass.
@@ -996,7 +993,7 @@ CodeGenRegBank::CodeGenRegBank(RecordKeeper &Records) {
   // Read in register class definitions.
   std::vector<Record*> RCs = Records.getAllDerivedDefinitions("RegisterClass");
   if (RCs.empty())
-    PrintFatalError(std::string("No 'RegisterClass' subclasses defined!"));
+    PrintFatalError("No 'RegisterClass' subclasses defined!");
 
   // Allocate user-defined register classes.
   RegClasses.reserve(RCs.size());
@@ -1271,7 +1268,7 @@ static void computeUberSets(std::vector<UberRegSet> &UberSets,
     assert(USetID && "register number 0 is invalid");
 
     AllocatableRegs.insert((*Regs.begin())->EnumValue);
-    for (CodeGenRegister::Set::const_iterator I = llvm::next(Regs.begin()),
+    for (CodeGenRegister::Set::const_iterator I = std::next(Regs.begin()),
            E = Regs.end(); I != E; ++I) {
       AllocatableRegs.insert((*I)->EnumValue);
       UberSetIDs.join(USetID, (*I)->EnumValue);
@@ -1311,7 +1308,7 @@ static void computeUberSets(std::vector<UberRegSet> &UberSets,
 static void computeUberWeights(std::vector<UberRegSet> &UberSets,
                                CodeGenRegBank &RegBank) {
   // Skip the first unallocatable set.
-  for (std::vector<UberRegSet>::iterator I = llvm::next(UberSets.begin()),
+  for (std::vector<UberRegSet>::iterator I = std::next(UberSets.begin()),
          E = UberSets.end(); I != E; ++I) {
 
     // Initialize all unit weights in this set, and remember the max units/reg.
@@ -1552,7 +1549,7 @@ void CodeGenRegBank::computeRegUnitSets() {
     // Find an existing RegUnitSet.
     std::vector<RegUnitSet>::const_iterator SetI =
       findRegUnitSet(RegUnitSets, RegUnitSets.back());
-    if (SetI != llvm::prior(RegUnitSets.end()))
+    if (SetI != std::prev(RegUnitSets.end()))
       RegUnitSets.pop_back();
   }
 
@@ -1617,7 +1614,7 @@ void CodeGenRegBank::computeRegUnitSets() {
       // Find an existing RegUnitSet, or add the union to the unique sets.
       std::vector<RegUnitSet>::const_iterator SetI =
         findRegUnitSet(RegUnitSets, RegUnitSets.back());
-      if (SetI != llvm::prior(RegUnitSets.end()))
+      if (SetI != std::prev(RegUnitSets.end()))
         RegUnitSets.pop_back();
       else {
         DEBUG(dbgs() << "UnitSet " << RegUnitSets.size()-1

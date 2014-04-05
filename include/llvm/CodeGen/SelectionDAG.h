@@ -692,12 +692,14 @@ public:
   SDValue getAtomic(unsigned Opcode, SDLoc dl, EVT MemVT, SDValue Chain,
                     SDValue Ptr, SDValue Cmp, SDValue Swp,
                     MachinePointerInfo PtrInfo, unsigned Alignment,
-                    AtomicOrdering Ordering,
+                    AtomicOrdering SuccessOrdering,
+                    AtomicOrdering FailureOrdering,
                     SynchronizationScope SynchScope);
   SDValue getAtomic(unsigned Opcode, SDLoc dl, EVT MemVT, SDValue Chain,
                     SDValue Ptr, SDValue Cmp, SDValue Swp,
                     MachineMemOperand *MMO,
-                    AtomicOrdering Ordering,
+                    AtomicOrdering SuccessOrdering,
+                    AtomicOrdering FailureOrdering,
                     SynchronizationScope SynchScope);
 
   /// getAtomic - Gets a node for an atomic op, produces result (if relevant)
@@ -726,9 +728,13 @@ public:
   /// getAtomic - Gets a node for an atomic op, produces result and chain and
   /// takes N operands.
   SDValue getAtomic(unsigned Opcode, SDLoc dl, EVT MemVT, SDVTList VTList,
-                    SDValue* Ops, unsigned NumOps, MachineMemOperand *MMO,
-                    AtomicOrdering Ordering,
+                    SDValue *Ops, unsigned NumOps, MachineMemOperand *MMO,
+                    AtomicOrdering SuccessOrdering,
+                    AtomicOrdering FailureOrdering,
                     SynchronizationScope SynchScope);
+  SDValue getAtomic(unsigned Opcode, SDLoc dl, EVT MemVT, SDVTList VTList,
+                    SDValue *Ops, unsigned NumOps, MachineMemOperand *MMO,
+                    AtomicOrdering Ordering, SynchronizationScope SynchScope);
 
   /// getMemIntrinsicNode - Creates a MemIntrinsicNode that may produce a
   /// result and takes a list of operands. Opcode may be INTRINSIC_VOID,
@@ -1143,7 +1149,7 @@ public:
   /// low/high part.
   std::pair<SDValue, SDValue> SplitVector(const SDValue &N, const SDLoc &DL) {
     EVT LoVT, HiVT;
-    llvm::tie(LoVT, HiVT) = GetSplitDestVTs(N.getValueType());
+    std::tie(LoVT, HiVT) = GetSplitDestVTs(N.getValueType());
     return SplitVector(N, DL, LoVT, HiVT);
   }
 

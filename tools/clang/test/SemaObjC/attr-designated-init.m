@@ -1,34 +1,34 @@
-// RUN: %clang_cc1 -fsyntax-only -verify -fblocks %s
+// RUN: %clang_cc1 -fsyntax-only -Wno-incomplete-implementation -verify -fblocks %s
 
 #define NS_DESIGNATED_INITIALIZER __attribute__((objc_designated_initializer))
 
-void fnfoo(void) NS_DESIGNATED_INITIALIZER; // expected-error {{only applies to init methods of interface declarations}}
+void fnfoo(void) NS_DESIGNATED_INITIALIZER; // expected-error {{only applies to init methods of interface or class extension declarations}}
 
 @protocol P1
--(id)init NS_DESIGNATED_INITIALIZER; // expected-error {{only applies to init methods of interface declarations}}
+-(id)init NS_DESIGNATED_INITIALIZER; // expected-error {{only applies to init methods of interface or class extension declarations}}
 @end
 
 __attribute__((objc_root_class))
 @interface I1
--(void)meth NS_DESIGNATED_INITIALIZER; // expected-error {{only applies to init methods of interface declarations}}
+-(void)meth NS_DESIGNATED_INITIALIZER; // expected-error {{only applies to init methods of interface or class extension declarations}}
 -(id)init NS_DESIGNATED_INITIALIZER;
-+(id)init NS_DESIGNATED_INITIALIZER; // expected-error {{only applies to init methods of interface declarations}}
++(id)init NS_DESIGNATED_INITIALIZER; // expected-error {{only applies to init methods of interface or class extension declarations}}
 @end
 
 @interface I1(cat)
--(id)init2 NS_DESIGNATED_INITIALIZER; // expected-error {{only applies to init methods of interface declarations}}
+-(id)init2 NS_DESIGNATED_INITIALIZER; // expected-error {{only applies to init methods of interface or class extension declarations}}
 @end
 
 @interface I1()
--(id)init3 NS_DESIGNATED_INITIALIZER; // expected-error {{only applies to init methods of interface declarations}}
+-(id)init3 NS_DESIGNATED_INITIALIZER;
 @end
 
 @implementation I1
 -(void)meth {}
--(id)init NS_DESIGNATED_INITIALIZER { return 0; } // expected-error {{only applies to init methods of interface declarations}}
+-(id)init NS_DESIGNATED_INITIALIZER { return 0; } // expected-error {{only applies to init methods of interface or class extension declarations}}
 +(id)init { return 0; }
--(id)init3 { return 0; } // expected-warning {{secondary initializer missing a 'self' call to another initializer}}
--(id)init4 NS_DESIGNATED_INITIALIZER { return 0; } // expected-error {{only applies to init methods of interface declarations}} \
+-(id)init3 { return 0; }
+-(id)init4 NS_DESIGNATED_INITIALIZER { return 0; } // expected-error {{only applies to init methods of interface or class extension declarations}} \
 									 			   // expected-warning {{secondary initializer missing a 'self' call to another initializer}}
 @end
 
@@ -36,8 +36,11 @@ __attribute__((objc_root_class))
 @interface B1
 -(id)initB1 NS_DESIGNATED_INITIALIZER; // expected-note 6 {{method marked as designated initializer of the class here}}
 -(id)initB2;
--(id)initB3 NS_DESIGNATED_INITIALIZER; // expected-note 3 {{method marked as designated initializer of the class here}}
 @end
+
+@interface B1()
+-(id)initB3 NS_DESIGNATED_INITIALIZER; // expected-note 4 {{method marked as designated initializer of the class here}}
+@end;
 
 @implementation B1
 -(id)initB1 { return 0; }
@@ -49,8 +52,11 @@ __attribute__((objc_root_class))
 -(id)initS1 NS_DESIGNATED_INITIALIZER; // expected-note {{method marked as designated initializer of the class here}}
 -(id)initS2 NS_DESIGNATED_INITIALIZER;
 -(id)initS3 NS_DESIGNATED_INITIALIZER; // expected-note 2 {{method marked as designated initializer of the class here}}
--(id)initS4 NS_DESIGNATED_INITIALIZER; // expected-note 2 {{method marked as designated initializer of the class here}}
 -(id)initB1;
+@end
+
+@interface S1()
+-(id)initS4 NS_DESIGNATED_INITIALIZER; // expected-note 2 {{method marked as designated initializer of the class here}}
 @end
 
 @implementation S1
@@ -131,7 +137,7 @@ __attribute__((objc_root_class))
   [s initB1];
   [self meth];
   void (^blk)(void) = ^{
-    [self initB1];
+    [self initB1]; // expected-warning {{designated initializer should only invoke a designated initializer on 'super'}}
   };
   return [super initB3];
 }
@@ -168,7 +174,7 @@ __attribute__((objc_root_class))
 -(id)initS5 {
   [super initB1]; // expected-warning {{secondary initializer should not invoke an initializer on 'super'}}
   void (^blk)(void) = ^{
-    [super initB1];
+    [super initB1]; // expected-warning {{secondary initializer should not invoke an initializer on 'super'}}
   };
   return [self initS1];
 }
@@ -236,5 +242,52 @@ __attribute__((objc_root_class))
 @implementation SS9
 -(id)initB1 { // expected-warning {{designated initializer missing a 'super' call to a designated initializer of the super class}}
   return 0;
+}
+@end
+
+// rdar://16261494
+@class GEOPDAnalyticMetadata; // expected-note {{forward declaration of class here}}
+
+@implementation GEOPDAnalyticMetadata (PlaceCardExtras) // expected-error {{cannot find interface declaration for 'GEOPDAnalyticMetadata'}}
+- (instancetype)initInProcess
+{
+    return ((void*)0);
+}
+@end
+
+// rdar://16305460
+__attribute__((objc_root_class))
+@interface MyObject
+- (instancetype)initWithStuff:(id)stuff __attribute__((objc_designated_initializer));
+- (instancetype)init __attribute__((unavailable));
+@end
+
+@implementation MyObject
+- (instancetype)init
+{
+   return ((void*)0);
+}
+@end
+
+// rdar://16323233
+__attribute__((objc_root_class))
+@interface B4 
+-(id)initB4 NS_DESIGNATED_INITIALIZER; 
+@end
+
+@interface rdar16323233 : B4
+-(id)initS4 NS_DESIGNATED_INITIALIZER;
+@end
+
+@implementation rdar16323233
+-(id)initS4 {
+    static id sSharedObject = (void*)0;
+    (void)^(void) {
+        sSharedObject = [super initB4];
+    };
+    return 0;
+}
+-(id)initB4 {
+   return [self initS4];
 }
 @end

@@ -24,14 +24,14 @@
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/Operator.h"
-#include "llvm/Support/ConstantRange.h"
-#include "llvm/Support/GetElementPtrTypeIterator.h"
-#include "llvm/Support/PatternMatch.h"
-#include "llvm/Support/ValueHandle.h"
+#include "llvm/IR/PatternMatch.h"
+#include "llvm/IR/ValueHandle.h"
 using namespace llvm;
 using namespace llvm::PatternMatch;
 
@@ -3200,10 +3200,9 @@ static bool replaceAndRecursivelySimplifyImpl(Instruction *I, Value *SimpleV,
   // If we have an explicit value to collapse to, do that round of the
   // simplification loop by hand initially.
   if (SimpleV) {
-    for (Value::use_iterator UI = I->use_begin(), UE = I->use_end(); UI != UE;
-         ++UI)
-      if (*UI != I)
-        Worklist.insert(cast<Instruction>(*UI));
+    for (User *U : I->users())
+      if (U != I)
+        Worklist.insert(cast<Instruction>(U));
 
     // Replace the instruction with its simplified value.
     I->replaceAllUsesWith(SimpleV);
@@ -3230,9 +3229,8 @@ static bool replaceAndRecursivelySimplifyImpl(Instruction *I, Value *SimpleV,
     // Stash away all the uses of the old instruction so we can check them for
     // recursive simplifications after a RAUW. This is cheaper than checking all
     // uses of To on the recursive step in most cases.
-    for (Value::use_iterator UI = I->use_begin(), UE = I->use_end(); UI != UE;
-         ++UI)
-      Worklist.insert(cast<Instruction>(*UI));
+    for (User *U : I->users())
+      Worklist.insert(cast<Instruction>(U));
 
     // Replace the instruction with its simplified value.
     I->replaceAllUsesWith(SimpleV);

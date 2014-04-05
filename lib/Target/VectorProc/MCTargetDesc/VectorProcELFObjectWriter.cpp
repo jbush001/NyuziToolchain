@@ -25,8 +25,7 @@ public:
 
 protected:
   virtual unsigned GetRelocType(const MCValue &Target, const MCFixup &Fixup,
-                                bool IsPCRel, bool IsRelocWithSymbol,
-                                int64_t Addend) const LLVM_OVERRIDE;
+                                bool IsPCRel) const override;
 };
 }
 
@@ -38,9 +37,7 @@ VectorProcELFObjectWriter::~VectorProcELFObjectWriter() {}
 
 unsigned VectorProcELFObjectWriter::GetRelocType(const MCValue &Target,
                                                  const MCFixup &Fixup,
-                                                 bool IsPCRel,
-                                                 bool IsRelocWithSymbol,
-                                                 int64_t Addend) const {
+                                                 bool IsPCRel) const {
   unsigned Type;
   unsigned Kind = (unsigned)Fixup.getKind();
   switch (Kind) {

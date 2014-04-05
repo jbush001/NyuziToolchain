@@ -24,20 +24,21 @@
 
 using namespace clang;
 
-Module::Module(StringRef Name, SourceLocation DefinitionLoc, Module *Parent, 
+Module::Module(StringRef Name, SourceLocation DefinitionLoc, Module *Parent,
                bool IsFramework, bool IsExplicit)
   : Name(Name), DefinitionLoc(DefinitionLoc), Parent(Parent),
     Umbrella(), ASTFile(0), IsAvailable(true), IsFromModuleFile(false),
     IsFramework(IsFramework), IsExplicit(IsExplicit), IsSystem(false),
-    InferSubmodules(false), InferExplicitSubmodules(false), 
+    IsExternC(false), InferSubmodules(false), InferExplicitSubmodules(false),
     InferExportWildcard(false), ConfigMacrosExhaustive(false),
-    NameVisibility(Hidden)
-{ 
+    NameVisibility(Hidden) {
   if (Parent) {
     if (!Parent->isAvailable())
       IsAvailable = false;
     if (Parent->IsSystem)
       IsSystem = true;
+    if (Parent->IsExternC)
+      IsExternC = true;
     
     Parent->SubModuleIndex[Name] = Parent->SubModules.size();
     Parent->SubModules.push_back(this);

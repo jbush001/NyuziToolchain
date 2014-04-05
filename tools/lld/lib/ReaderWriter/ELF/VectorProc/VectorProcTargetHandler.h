@@ -18,7 +18,7 @@ namespace elf {
 typedef llvm::object::ELFType<llvm::support::little, 4, false> VectorProcELFType;
 class VectorProcLinkingContext;
 
-class VectorProcTargetRelocationHandler LLVM_FINAL
+class VectorProcTargetRelocationHandler final
     : public TargetRelocationHandler<VectorProcELFType> {
 public:
   VectorProcTargetRelocationHandler(const VectorProcLinkingContext &context) {}
@@ -27,7 +27,7 @@ public:
                                         const Reference &)const;
 };
 
-class VectorProcTargetHandler LLVM_FINAL
+class VectorProcTargetHandler final
     : public DefaultTargetHandler<VectorProcELFType> {
 public:
   VectorProcTargetHandler(VectorProcLinkingContext &context);

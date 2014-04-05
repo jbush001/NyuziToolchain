@@ -141,19 +141,19 @@ public:
   /// \brief Create individual atoms
   virtual error_code createAtoms();
 
-  virtual const atom_collection<DefinedAtom> &defined() const {
+  const atom_collection<DefinedAtom> &defined() const override {
     return _definedAtoms;
   }
 
-  virtual const atom_collection<UndefinedAtom> &undefined() const {
+  const atom_collection<UndefinedAtom> &undefined() const override {
     return _undefinedAtoms;
   }
 
-  virtual const atom_collection<SharedLibraryAtom> &sharedLibrary() const {
+  const atom_collection<SharedLibraryAtom> &sharedLibrary() const override {
     return _sharedLibraryAtoms;
   }
 
-  virtual const atom_collection<AbsoluteAtom> &absolute() const {
+  const atom_collection<AbsoluteAtom> &absolute() const override {
     return _absoluteAtoms;
   }
 
@@ -165,6 +165,16 @@ protected:
   ELFDefinedAtom<ELFT> *createDefinedAtomAndAssignRelocations(
       StringRef symbolName, StringRef sectionName, const Elf_Sym *symbol,
       const Elf_Shdr *section, ArrayRef<uint8_t> content);
+
+  /// \brief Create a reference for the Elf_Sym symbol
+  /// and Elf_Rela relocation entry.
+  virtual ELFReference<ELFT> *createRelocationReference(const Elf_Sym &symbol,
+                                                        const Elf_Rela &rai);
+  /// \brief Create a reference for the Elf_Sym symbol
+  /// and Elf_Rel relocation entry.
+  virtual ELFReference<ELFT> *
+  createRelocationReference(const Elf_Sym &symbol, const Elf_Rel &ri,
+                            ArrayRef<uint8_t> content);
 
   /// \brief After all the Atoms and References are created, update each
   /// Reference's target with the Atom pointer it refers to.
@@ -597,7 +607,7 @@ template <class ELFT> error_code ELFFile<ELFT>::createAtoms() {
   for (auto &i : _sectionSymbols) {
     const Elf_Shdr *section = i.first;
 
-    // Check if need to create atoms for this section ?
+    // Check if need to create atoms for this section?
     if ((ignoreCreateAtomsForSection(section)))
       continue;
 
@@ -749,15 +759,9 @@ ELFDefinedAtom<ELFT> *ELFFile<ELFT>::createDefinedAtomAndAssignRelocations(
   auto rari = _relocationAddendReferences.find(sectionName);
   if (rari != _relocationAddendReferences.end()) {
     for (const Elf_Rela &rai : rari->second) {
-      if (rai.r_offset < symbol->st_value ||
-          symbol->st_value + content.size() <= rai.r_offset)
-        continue;
-      bool isMips64EL = _objFile->isMips64EL();
-      uint32_t symbolIndex = rai.getSymbol(isMips64EL);
-      auto *ERef = new (_readerStorage)
-          ELFReference<ELFT>(&rai, rai.r_offset - symbol->st_value, kindArch(),
-                             rai.getType(isMips64EL), symbolIndex);
-      _references.push_back(ERef);
+      if (symbol->st_value <= rai.r_offset &&
+          rai.r_offset < symbol->st_value + content.size())
+        _references.push_back(createRelocationReference(*symbol, rai));
     }
   }
 
@@ -765,26 +769,37 @@ ELFDefinedAtom<ELFT> *ELFFile<ELFT>::createDefinedAtomAndAssignRelocations(
   auto rri = _relocationReferences.find(sectionName);
   if (rri != _relocationReferences.end()) {
     for (const Elf_Rel &ri : rri->second) {
-      if (ri.r_offset < symbol->st_value ||
-          symbol->st_value + content.size() <= ri.r_offset)
-        continue;
-      bool isMips64EL = _objFile->isMips64EL();
-      uint32_t symbolIndex = ri.getSymbol(isMips64EL);
-      auto *ERef = new (_readerStorage)
-          ELFReference<ELFT>(&ri, ri.r_offset - symbol->st_value, kindArch(),
-                             ri.getType(isMips64EL), symbolIndex);
-      // Read the addend from the section contents
-      // TODO : We should move the way lld reads relocations totally from
-      // ELFFile
-      int32_t addend = *(content.data() + ri.r_offset - symbol->st_value);
-      ERef->setAddend(addend);
-      _references.push_back(ERef);
+      if (symbol->st_value <= ri.r_offset &&
+          ri.r_offset < symbol->st_value + content.size())
+        _references.push_back(createRelocationReference(*symbol, ri, content));
     }
   }
 
   // Create the DefinedAtom and add it to the list of DefinedAtoms.
   return *handleDefinedSymbol(symbolName, sectionName, symbol, section, content,
                               referenceStart, _references.size(), _references);
+}
+
+template <class ELFT>
+ELFReference<ELFT> *
+ELFFile<ELFT>::createRelocationReference(const Elf_Sym &symbol,
+                                         const Elf_Rela &rai) {
+  bool isMips64EL = _objFile->isMips64EL();
+  return new (_readerStorage)
+      ELFReference<ELFT>(&rai, rai.r_offset - symbol.st_value, kindArch(),
+                         rai.getType(isMips64EL), rai.getSymbol(isMips64EL));
+}
+
+template <class ELFT>
+ELFReference<ELFT> *ELFFile<ELFT>::createRelocationReference(
+    const Elf_Sym &symbol, const Elf_Rel &ri, ArrayRef<uint8_t> content) {
+  bool isMips64EL = _objFile->isMips64EL();
+  auto *ref = new (_readerStorage)
+      ELFReference<ELFT>(&ri, ri.r_offset - symbol.st_value, kindArch(),
+                         ri.getType(isMips64EL), ri.getSymbol(isMips64EL));
+  int32_t addend = *(content.data() + ri.r_offset - symbol.st_value);
+  ref->setAddend(addend);
+  return ref;
 }
 
 template <class ELFT>

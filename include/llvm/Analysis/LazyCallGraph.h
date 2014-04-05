@@ -37,12 +37,12 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/PointerUnion.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/IR/Module.h"
-#include "llvm/IR/Function.h"
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Function.h"
+#include "llvm/IR/Module.h"
 #include "llvm/Support/Allocator.h"
 #include <iterator>
 
@@ -101,7 +101,7 @@ class LazyCallGraph {
 public:
   class Node;
   typedef SmallVector<PointerUnion<Function *, Node *>, 4> NodeVectorT;
-  typedef SmallVectorImpl<PointerUnion<Function *, Node *> > NodeVectorImplT;
+  typedef SmallVectorImpl<PointerUnion<Function *, Node *>> NodeVectorImplT;
 
   /// \brief A lazy iterator used for both the entry nodes and child nodes.
   ///
@@ -132,7 +132,7 @@ public:
 
   public:
     iterator(const iterator &Arg) : G(Arg.G), NI(Arg.NI) {}
-
+    iterator(iterator &&Arg) : G(Arg.G), NI(std::move(Arg.NI)) {}
     iterator &operator=(iterator Arg) {
       std::swap(Arg, *this);
       return *this;
@@ -191,6 +191,12 @@ public:
   /// This is a deep move. It leaves G in an undefined but destroyable state.
   /// Any other operation on G is likely to fail.
   LazyCallGraph(LazyCallGraph &&G);
+
+  /// \brief Copy and move assignment.
+  LazyCallGraph &operator=(LazyCallGraph RHS) {
+    std::swap(*this, RHS);
+    return *this;
+  }
 
   iterator begin() { return iterator(*this, EntryNodes); }
   iterator end() { return iterator(*this, EntryNodes, iterator::IsAtEndT()); }

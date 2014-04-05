@@ -72,19 +72,19 @@ public:
   StringRef getLinkerDirectives() const { return _directives; }
   bool isCompatibleWithSEH() const { return _compatibleWithSEH; }
 
-  virtual const atom_collection<DefinedAtom> &defined() const {
+  const atom_collection<DefinedAtom> &defined() const override {
     return _definedAtoms;
   }
 
-  virtual const atom_collection<UndefinedAtom> &undefined() const {
+  const atom_collection<UndefinedAtom> &undefined() const override {
     return _undefinedAtoms;
   }
 
-  virtual const atom_collection<SharedLibraryAtom> &sharedLibrary() const {
+  const atom_collection<SharedLibraryAtom> &sharedLibrary() const override {
     return _sharedLibraryAtoms;
   }
 
-  virtual const atom_collection<AbsoluteAtom> &absolute() const {
+  const atom_collection<AbsoluteAtom> &absolute() const override {
     return _absoluteAtoms;
   }
 
@@ -176,7 +176,7 @@ private:
 
 class BumpPtrStringSaver : public llvm::cl::StringSaver {
 public:
-  virtual const char *SaveString(const char *str) {
+  const char *SaveString(const char *str) override {
     size_t len = strlen(str);
     char *copy = _alloc.Allocate<char>(len + 1);
     memcpy(copy, str, len + 1);
@@ -249,10 +249,14 @@ DefinedAtom::Merge getMerge(const coff_aux_section_definition *auxsym) {
     return DefinedAtom::mergeNo;
   case llvm::COFF::IMAGE_COMDAT_SELECT_ANY:
     return DefinedAtom::mergeAsWeakAndAddressUsed;
-  case llvm::COFF::IMAGE_COMDAT_SELECT_SAME_SIZE:
   case llvm::COFF::IMAGE_COMDAT_SELECT_EXACT_MATCH:
-  case llvm::COFF::IMAGE_COMDAT_SELECT_ASSOCIATIVE:
+    // TODO: This mapping is wrong. Fix it.
+    return DefinedAtom::mergeByContent;
+  case llvm::COFF::IMAGE_COMDAT_SELECT_SAME_SIZE:
+    return DefinedAtom::mergeSameNameAndSize;
   case llvm::COFF::IMAGE_COMDAT_SELECT_LARGEST:
+    return DefinedAtom::mergeByLargestSection;
+  case llvm::COFF::IMAGE_COMDAT_SELECT_ASSOCIATIVE:
   case llvm::COFF::IMAGE_COMDAT_SELECT_NEWEST:
     // FIXME: These attributes has more complicated semantics than the regular
     // weak symbol. These are mapped to mergeAsWeakAndAddressUsed for now
@@ -270,14 +274,14 @@ FileCOFF::FileCOFF(std::unique_ptr<MemoryBuffer> mb, error_code &ec)
   auto binaryOrErr = llvm::object::createBinary(mb.release());
   if ((ec = binaryOrErr.getError()))
     return;
-  OwningPtr<llvm::object::Binary> bin(binaryOrErr.get());
+  std::unique_ptr<llvm::object::Binary> bin(binaryOrErr.get());
 
   _obj.reset(dyn_cast<const llvm::object::COFFObjectFile>(bin.get()));
   if (!_obj) {
     ec = make_error_code(llvm::object::object_error::invalid_file_type);
     return;
   }
-  bin.take();
+  bin.release();
 
   // Read .drectve section if exists.
   ArrayRef<uint8_t> directives;
@@ -543,9 +547,8 @@ error_code FileCOFF::cacheSectionAttributes() {
 
   // The sections that does not have auxiliary symbol are regular sections, in
   // which symbols are not allowed to be merged.
-  for (auto si = _obj->section_begin(), se = _obj->section_end(); si != se;
-       ++si) {
-    const coff_section *sec = _obj->getCOFFSection(si);
+  for (const auto &section : _obj->sections()) {
+    const coff_section *sec = _obj->getCOFFSection(section);
     if (!_merge.count(sec))
       _merge[sec] = DefinedAtom::mergeNo;
   }
@@ -765,6 +768,9 @@ error_code FileCOFF::getReferenceArch(Reference::KindArch &result) {
   case llvm::COFF::IMAGE_FILE_MACHINE_AMD64:
     result = Reference::KindArch::x86_64;
     return error_code::success();
+  case llvm::COFF::IMAGE_FILE_MACHINE_UNKNOWN:
+    result = Reference::KindArch::all;
+    return error_code::success();
   }
   llvm::errs() << "Unsupported machine type: " << header->Machine << "\n";
   return llvm::object::object_error::parse_failed;
@@ -773,9 +779,8 @@ error_code FileCOFF::getReferenceArch(Reference::KindArch &result) {
 /// Add relocation information to atoms.
 error_code FileCOFF::addRelocationReferenceToAtoms() {
   // Relocation entries are defined for each section.
-  for (auto si = _obj->section_begin(), se = _obj->section_end(); si != se;
-       ++si) {
-    const coff_section *section = _obj->getCOFFSection(si);
+  for (const auto &sec : _obj->sections()) {
+    const coff_section *section = _obj->getCOFFSection(sec);
 
     // Skip there's no atom for the section. Currently we do not create any
     // atoms for some sections, such as "debug$S", and such sections need to
@@ -783,9 +788,8 @@ error_code FileCOFF::addRelocationReferenceToAtoms() {
     if (_sectionAtoms.find(section) == _sectionAtoms.end())
       continue;
 
-    for (auto ri = si->relocation_begin(), re = si->relocation_end();
-         ri != re; ++ri) {
-      const coff_relocation *rel = _obj->getCOFFRelocation(ri);
+    for (const auto &reloc : sec.relocations()) {
+      const coff_relocation *rel = _obj->getCOFFRelocation(reloc);
       if (auto ec =
               addRelocationReference(rel, section, _sectionAtoms[section]))
         return ec;
@@ -841,9 +845,8 @@ error_code FileCOFF::maybeCreateSXDataAtoms() {
 
 /// Find a section by name.
 error_code FileCOFF::findSection(StringRef name, const coff_section *&result) {
-  for (auto si = _obj->section_begin(), se = _obj->section_end(); si != se;
-       ++si) {
-    const coff_section *section = _obj->getCOFFSection(si);
+  for (const auto &sec : _obj->sections()) {
+    const coff_section *section = _obj->getCOFFSection(sec);
     StringRef sectionName;
     if (auto ec = _obj->getSectionName(section, sectionName))
       return ec;
@@ -892,14 +895,14 @@ StringRef FileCOFF::ArrayRefToString(ArrayRef<uint8_t> array) {
 // cvtres.exe on RC files and then then link its outputs.
 class ResourceFileReader : public Reader {
 public:
-  virtual bool canParse(file_magic magic, StringRef ext,
-                        const MemoryBuffer &) const {
+  bool canParse(file_magic magic, StringRef ext,
+                const MemoryBuffer &) const override {
     return (magic == llvm::sys::fs::file_magic::windows_resource);
   }
 
-  virtual error_code
+  error_code
   parseFile(std::unique_ptr<MemoryBuffer> &mb, const class Registry &,
-            std::vector<std::unique_ptr<File>> &result) const {
+            std::vector<std::unique_ptr<File> > &result) const override {
     // Convert RC file to COFF
     ErrorOr<std::string> coffPath = convertResourceFileToCOFF(std::move(mb));
     if (error_code ec = coffPath.getError())
@@ -907,10 +910,9 @@ public:
     llvm::FileRemover coffFileRemover(*coffPath);
 
     // Read and parse the COFF
-    OwningPtr<MemoryBuffer> opmb;
-    if (error_code ec = MemoryBuffer::getFile(*coffPath, opmb))
+    std::unique_ptr<MemoryBuffer> newmb;
+    if (error_code ec = MemoryBuffer::getFile(*coffPath, newmb))
       return ec;
-    std::unique_ptr<MemoryBuffer> newmb(opmb.take());
     error_code ec;
     std::unique_ptr<FileCOFF> file(new FileCOFF(std::move(newmb), ec));
     if (ec)
@@ -933,7 +935,7 @@ private:
 
     // Write the memory buffer contents to .res file, so that we can run
     // cvtres.exe on it.
-    OwningPtr<llvm::FileOutputBuffer> buffer;
+    std::unique_ptr<llvm::FileOutputBuffer> buffer;
     if (error_code ec = llvm::FileOutputBuffer::create(
             tempFilePath.str(), mb->getBufferSize(), buffer))
       return ec;
@@ -994,14 +996,14 @@ class COFFObjectReader : public Reader {
 public:
   COFFObjectReader(PECOFFLinkingContext &ctx) : _context(ctx) {}
 
-  virtual bool canParse(file_magic magic, StringRef ext,
-                        const MemoryBuffer &) const {
+  bool canParse(file_magic magic, StringRef ext,
+                const MemoryBuffer &) const override {
     return (magic == llvm::sys::fs::file_magic::coff_object);
   }
 
-  virtual error_code
+  error_code
   parseFile(std::unique_ptr<MemoryBuffer> &mb, const Registry &registry,
-            std::vector<std::unique_ptr<File>> &result) const {
+            std::vector<std::unique_ptr<File> > &result) const override {
     // Parse the memory buffer as PECOFF file.
     const char *mbName = mb->getBufferIdentifier();
     error_code ec;

@@ -13,11 +13,6 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#include <algorithm>
-#include <cctype>
-#include <sstream>
-#include <map>
-
 #include "lld/Driver/Driver.h"
 #include "lld/Driver/WinLinkInputGraph.h"
 #include "lld/Driver/WinLinkModuleDef.h"
@@ -29,11 +24,19 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Option/Arg.h"
 #include "llvm/Option/Option.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/raw_ostream.h"
+
+#include <algorithm>
+#include <cctype>
+#include <map>
+#include <memory>
+#include <sstream>
+#include <tuple>
 
 namespace lld {
 
@@ -97,7 +100,7 @@ static std::vector<StringRef> splitPathList(StringRef str) {
   std::vector<StringRef> ret;
   while (!str.empty()) {
     StringRef path;
-    llvm::tie(path, str) = str.split(';');
+    std::tie(path, str) = str.split(';');
     ret.push_back(path);
   }
   return ret;
@@ -106,10 +109,10 @@ static std::vector<StringRef> splitPathList(StringRef str) {
 // Parse an argument for /alternatename. The expected string is
 // "<string>=<string>".
 static bool parseAlternateName(StringRef arg, StringRef &weak, StringRef &def,
-                               raw_ostream &diagnostics) {
-  llvm::tie(weak, def) = arg.split('=');
+                               raw_ostream &diag) {
+  std::tie(weak, def) = arg.split('=');
   if (weak.empty() || def.empty()) {
-    diagnostics << "Error: malformed /alternatename option: " << arg << "\n";
+    diag << "Error: malformed /alternatename option: " << arg << "\n";
     return false;
   }
   return true;
@@ -120,7 +123,7 @@ static bool parseAlternateName(StringRef arg, StringRef &weak, StringRef &def,
 static bool parseMemoryOption(StringRef arg, uint64_t &reserve,
                               uint64_t &commit) {
   StringRef reserveStr, commitStr;
-  llvm::tie(reserveStr, commitStr) = arg.split(',');
+  std::tie(reserveStr, commitStr) = arg.split(',');
   if (reserveStr.getAsInteger(0, reserve))
     return false;
   if (!commitStr.empty() && commitStr.getAsInteger(0, commit))
@@ -132,7 +135,7 @@ static bool parseMemoryOption(StringRef arg, uint64_t &reserve,
 // "<integer>[.<integer>]".
 static bool parseVersion(StringRef arg, uint32_t &major, uint32_t &minor) {
   StringRef majorVersion, minorVersion;
-  llvm::tie(majorVersion, minorVersion) = arg.split('.');
+  std::tie(majorVersion, minorVersion) = arg.split('.');
   if (minorVersion.empty())
     minorVersion = "0";
   if (majorVersion.getAsInteger(0, major))
@@ -165,10 +168,9 @@ static llvm::COFF::WindowsSubsystem stringToWinSubsystem(StringRef str) {
 static bool parseSubsystem(StringRef arg,
                            llvm::COFF::WindowsSubsystem &subsystem,
                            llvm::Optional<uint32_t> &major,
-                           llvm::Optional<uint32_t> &minor,
-                           raw_ostream &diagnostics) {
+                           llvm::Optional<uint32_t> &minor, raw_ostream &diag) {
   StringRef subsystemStr, osVersion;
-  llvm::tie(subsystemStr, osVersion) = arg.split(',');
+  std::tie(subsystemStr, osVersion) = arg.split(',');
   if (!osVersion.empty()) {
     uint32_t v1, v2;
     if (!parseVersion(osVersion, v1, v2))
@@ -178,7 +180,7 @@ static bool parseSubsystem(StringRef arg,
   }
   subsystem = stringToWinSubsystem(subsystemStr);
   if (subsystem == llvm::COFF::IMAGE_SUBSYSTEM_UNKNOWN) {
-    diagnostics << "error: unknown subsystem name: " << subsystemStr << "\n";
+    diag << "error: unknown subsystem name: " << subsystemStr << "\n";
     return false;
   }
   return true;
@@ -208,7 +210,7 @@ static bool parseSection(StringRef option, std::string &section,
                          llvm::Optional<uint32_t> &flags,
                          llvm::Optional<uint32_t> &mask) {
   StringRef flagString;
-  llvm::tie(section, flagString) = option.split(",");
+  std::tie(section, flagString) = option.split(",");
 
   bool negative = false;
   if (flagString.startswith("!")) {
@@ -248,7 +250,7 @@ static bool parseSection(StringRef option, std::string &section,
 
 static bool readFile(PECOFFLinkingContext &ctx, StringRef path,
                      ArrayRef<uint8_t> &result) {
-  OwningPtr<MemoryBuffer> buf;
+  std::unique_ptr<MemoryBuffer> buf;
   if (MemoryBuffer::getFile(path, buf))
     return false;
   result = ctx.allocate(ArrayRef<uint8_t>(
@@ -294,14 +296,14 @@ static bool parseManifestUac(StringRef option,
     if (option.startswith_lower("level=")) {
       option = option.substr(strlen("level="));
       StringRef value;
-      llvm::tie(value, option) = option.split(" ");
+      std::tie(value, option) = option.split(" ");
       level = value.str();
       continue;
     }
     if (option.startswith_lower("uiaccess=")) {
       option = option.substr(strlen("uiaccess="));
       StringRef value;
-      llvm::tie(value, option) = option.split(" ");
+      std::tie(value, option) = option.split(" ");
       uiAccess = value.str();
       continue;
     }
@@ -314,7 +316,7 @@ static bool parseExport(StringRef option,
                         PECOFFLinkingContext::ExportDesc &ret) {
   StringRef name;
   StringRef rest;
-  llvm::tie(name, rest) = option.split(",");
+  std::tie(name, rest) = option.split(",");
   if (name.empty())
     return false;
   ret.name = name;
@@ -323,7 +325,7 @@ static bool parseExport(StringRef option,
     if (rest.empty())
       return true;
     StringRef arg;
-    llvm::tie(arg, rest) = rest.split(",");
+    std::tie(arg, rest) = rest.split(",");
     if (arg.equals_lower("noname")) {
       if (ret.ordinal < 0)
         return false;
@@ -350,10 +352,10 @@ static bool parseExport(StringRef option,
 // Read module-definition file.
 static llvm::Optional<moduledef::Directive *>
 parseDef(StringRef option, llvm::BumpPtrAllocator &alloc) {
-  OwningPtr<MemoryBuffer> buf;
+  std::unique_ptr<MemoryBuffer> buf;
   if (MemoryBuffer::getFile(option, buf))
     return llvm::None;
-  moduledef::Lexer lexer(std::unique_ptr<MemoryBuffer>(buf.take()));
+  moduledef::Lexer lexer(std::move(buf));
   moduledef::Parser parser(lexer, alloc);
   return parser.parse();
 }
@@ -404,7 +406,7 @@ static void quoteAndPrintXml(raw_ostream &out, StringRef str) {
     if (str.empty())
       return;
     StringRef line;
-    llvm::tie(line, str) = str.split("\n");
+    std::tie(line, str) = str.split("\n");
     if (line.empty())
       continue;
     out << '\"';
@@ -432,12 +434,12 @@ static void quoteAndPrintXml(raw_ostream &out, StringRef str) {
 // function. The file created in step 2 will have the same lifetime as the
 // PECOFFLinkingContext.
 static bool createManifestResourceFile(PECOFFLinkingContext &ctx,
-                                       raw_ostream &diagnostics,
+                                       raw_ostream &diag,
                                        std::string &resFile) {
   // Create a temporary file for the resource script file.
   SmallString<128> rcFileSmallString;
   if (llvm::sys::fs::createTemporaryFile("tmp", "rc", rcFileSmallString)) {
-    diagnostics << "Cannot create a temporary file\n";
+    diag << "Cannot create a temporary file\n";
     return false;
   }
   StringRef rcFile(rcFileSmallString.str());
@@ -448,8 +450,8 @@ static bool createManifestResourceFile(PECOFFLinkingContext &ctx,
   llvm::raw_fd_ostream out(rcFileSmallString.c_str(), errorInfo,
                            llvm::sys::fs::F_Text);
   if (!errorInfo.empty()) {
-    diagnostics << "Failed to open " << ctx.getManifestOutputPath() << ": "
-                << errorInfo << "\n";
+    diag << "Failed to open " << ctx.getManifestOutputPath() << ": "
+         << errorInfo << "\n";
     return false;
   }
 
@@ -467,7 +469,7 @@ static bool createManifestResourceFile(PECOFFLinkingContext &ctx,
   // Create output resource file.
   SmallString<128> resFileSmallString;
   if (llvm::sys::fs::createTemporaryFile("tmp", "res", resFileSmallString)) {
-    diagnostics << "Cannot create a temporary file";
+    diag << "Cannot create a temporary file";
     return false;
   }
   resFile = resFileSmallString.str();
@@ -480,7 +482,7 @@ static bool createManifestResourceFile(PECOFFLinkingContext &ctx,
   std::string program = "rc.exe";
   std::string programPath = llvm::sys::FindProgramByName(program);
   if (programPath.empty()) {
-    diagnostics << "Unable to find " << program << " in PATH\n";
+    diag << "Unable to find " << program << " in PATH\n";
     return false;
   }
   std::vector<const char *> args;
@@ -492,7 +494,7 @@ static bool createManifestResourceFile(PECOFFLinkingContext &ctx,
   args.push_back(nullptr);
 
   if (llvm::sys::ExecuteAndWait(programPath.c_str(), &args[0]) != 0) {
-    diagnostics << program << " failed\n";
+    diag << program << " failed\n";
     return false;
   }
   return true;
@@ -502,13 +504,13 @@ static bool createManifestResourceFile(PECOFFLinkingContext &ctx,
 // separate XML file having ".manifest" extension. It will be created in the
 // same directory as the resulting executable.
 static bool createSideBySideManifestFile(PECOFFLinkingContext &ctx,
-                                         raw_ostream &diagnostics) {
+                                         raw_ostream &diag) {
   std::string errorInfo;
   llvm::raw_fd_ostream out(ctx.getManifestOutputPath().data(), errorInfo,
                            llvm::sys::fs::F_Text);
   if (!errorInfo.empty()) {
-    diagnostics << "Failed to open " << ctx.getManifestOutputPath() << ": "
-                << errorInfo << "\n";
+    diag << "Failed to open " << ctx.getManifestOutputPath() << ": "
+         << errorInfo << "\n";
     return false;
   }
   out << createManifestXml(ctx);
@@ -522,35 +524,34 @@ static bool createSideBySideManifestFile(PECOFFLinkingContext &ctx,
 // the binary needs to run as Administrator or not. Instead of being placed in
 // the PE/COFF header, it's in XML format for some reason -- I guess it's
 // probably because it's invented in the early dot-com era.
-static bool createManifest(PECOFFLinkingContext &ctx,
-                           raw_ostream &diagnostics) {
+static bool createManifest(PECOFFLinkingContext &ctx, raw_ostream &diag) {
   if (ctx.getEmbedManifest()) {
     std::string resourceFilePath;
-    if (!createManifestResourceFile(ctx, diagnostics, resourceFilePath))
+    if (!createManifestResourceFile(ctx, diag, resourceFilePath))
       return false;
     std::unique_ptr<InputElement> inputElement(
         new PECOFFFileNode(ctx, ctx.allocate(resourceFilePath)));
-    ctx.inputGraph().addInputElement(std::move(inputElement));
+    ctx.getInputGraph().addInputElement(std::move(inputElement));
     return true;
   }
-  return createSideBySideManifestFile(ctx, diagnostics);
+  return createSideBySideManifestFile(ctx, diag);
 }
 
 // Handle /failifmismatch option.
 static bool
 handleFailIfMismatchOption(StringRef option,
                            std::map<StringRef, StringRef> &mustMatch,
-                           raw_ostream &diagnostics) {
+                           raw_ostream &diag) {
   StringRef key, value;
-  llvm::tie(key, value) = option.split('=');
+  std::tie(key, value) = option.split('=');
   if (key.empty() || value.empty()) {
-    diagnostics << "error: malformed /failifmismatch option: " << option << "\n";
+    diag << "error: malformed /failifmismatch option: " << option << "\n";
     return true;
   }
   auto it = mustMatch.find(key);
   if (it != mustMatch.end() && it->second != value) {
-    diagnostics << "error: mismatch detected: '" << it->second << "' and '"
-                << value << "' for key '" << key << "'\n";
+    diag << "error: mismatch detected: '" << it->second << "' and '" << value
+         << "' for key '" << key << "'\n";
     return true;
   }
   mustMatch[key] = value;
@@ -606,11 +607,72 @@ static StringRef getDefaultEntrySymbolName(PECOFFLinkingContext &context) {
   return "";
 }
 
+namespace {
+class DriverStringSaver : public llvm::cl::StringSaver {
+public:
+  DriverStringSaver(PECOFFLinkingContext &ctx) : _ctx(ctx) {}
+
+  const char *SaveString(const char *s) override {
+    return _ctx.allocate(StringRef(s)).data();
+  }
+
+private:
+  PECOFFLinkingContext &_ctx;
+};
+}
+
+// Tokenize command line options in a given file and add them to result.
+static bool readResponseFile(StringRef path, PECOFFLinkingContext &ctx,
+                             std::vector<const char *> &result) {
+  ArrayRef<uint8_t> contents;
+  if (!readFile(ctx, path, contents))
+    return false;
+  StringRef contentsStr(reinterpret_cast<const char *>(contents.data()),
+                        contents.size());
+  DriverStringSaver saver(ctx);
+  SmallVector<const char *, 0> args;
+  llvm::cl::TokenizeWindowsCommandLine(contentsStr, saver, args);
+  for (const char *s : args)
+    result.push_back(s);
+  return true;
+}
+
+// Expand arguments starting with "@". It's an error if a specified file does
+// not exist. Returns true on success.
+static bool expandResponseFiles(int &argc, const char **&argv,
+                                PECOFFLinkingContext &ctx, raw_ostream &diag,
+                                bool &expanded) {
+  std::vector<const char *> newArgv;
+  for (int i = 0; i < argc; ++i) {
+    if (argv[i][0] != '@') {
+      newArgv.push_back(argv[i]);
+      continue;
+    }
+    StringRef filename = StringRef(argv[i] + 1);
+    if (!readResponseFile(filename, ctx, newArgv)) {
+      diag << "error: cannot read response file: " << filename << "\n";
+      return false;
+    }
+    expanded = true;
+  }
+  if (!expanded)
+    return true;
+  argc = newArgv.size();
+  newArgv.push_back(nullptr);
+  argv = &ctx.allocateCopy(newArgv)[0];
+  return true;
+}
+
 // Parses the given command line options and returns the result. Returns NULL if
 // there's an error in the options.
 static std::unique_ptr<llvm::opt::InputArgList>
-parseArgs(int argc, const char *argv[], raw_ostream &diagnostics,
-          bool isReadingDirectiveSection) {
+parseArgs(int argc, const char **argv, PECOFFLinkingContext &ctx,
+          raw_ostream &diag, bool isReadingDirectiveSection) {
+  // Expand arguments starting with "@".
+  bool expanded = false;
+  if (!expandResponseFiles(argc, argv, ctx, diag, expanded))
+    return nullptr;
+
   // Parse command line options using WinLinkOptions.td
   std::unique_ptr<llvm::opt::InputArgList> parsedArgs;
   WinLinkOptTable table;
@@ -619,9 +681,9 @@ parseArgs(int argc, const char *argv[], raw_ostream &diagnostics,
   parsedArgs.reset(table.ParseArgs(&argv[1], &argv[argc],
                                    missingIndex, missingCount));
   if (missingCount) {
-    diagnostics << "error: missing arg value for '"
-                << parsedArgs->getArgString(missingIndex) << "' expected "
-                << missingCount << " argument(s).\n";
+    diag << "error: missing arg value for '"
+         << parsedArgs->getArgString(missingIndex) << "' expected "
+         << missingCount << " argument(s).\n";
     return nullptr;
   }
 
@@ -633,8 +695,19 @@ parseArgs(int argc, const char *argv[], raw_ostream &diagnostics,
     StringRef arg = (*it)->getSpelling();
     if (isReadingDirectiveSection && arg.startswith("-?"))
       continue;
-    diagnostics << "warning: ignoring unknown argument: " << arg << "\n";
+    diag << "warning: ignoring unknown argument: " << arg << "\n";
   }
+
+  // If we have expaneded response files and /verbose is given, print out the
+  // final command line.
+  if (!isReadingDirectiveSection && expanded &&
+      parsedArgs->getLastArg(OPT_verbose)) {
+    diag << "Command line:";
+    for (int i = 0; i < argc; ++i)
+      diag << " " << argv[i];
+    diag << "\n\n";
+  }
+
   return parsedArgs;
 }
 
@@ -651,21 +724,49 @@ static bool hasLibrary(const PECOFFLinkingContext &ctx, FileNode *fileNode) {
   return false;
 }
 
+// If the first command line argument is "/lib", link.exe acts as if it's
+// "lib.exe" command. This feature is not documented and looks weird, or at
+// least seems redundant, but is needed for MSVC compatibility.
+static bool maybeRunLibCommand(int argc, const char **argv, raw_ostream &diag) {
+  if (argc <= 1)
+    return false;
+  if (!StringRef(argv[1]).equals_lower("/lib"))
+    return false;
+  std::string path = llvm::sys::FindProgramByName("lib.exe");
+  if (path.empty()) {
+    diag << "Unable to find lib.exe in PATH\n";
+    return true;
+  }
+
+  // Run lib.exe
+  std::vector<const char *> vec;
+  vec.push_back(path.c_str());
+  for (int i = 2; i < argc; ++i)
+    vec.push_back(argv[i]);
+  vec.push_back(nullptr);
+
+  if (llvm::sys::ExecuteAndWait(path.c_str(), &vec[0]) != 0)
+    diag << "lib.exe failed\n";
+  return true;
+}
+
 //
 // Main driver
 //
 
-bool WinLinkDriver::linkPECOFF(int argc, const char *argv[],
-                               raw_ostream &diagnostics) {
+bool WinLinkDriver::linkPECOFF(int argc, const char **argv, raw_ostream &diag) {
+  if (maybeRunLibCommand(argc, argv, diag))
+    return true;
+
   PECOFFLinkingContext context;
   std::vector<const char *> newargv = processLinkEnv(context, argc, argv);
   processLibEnv(context);
-  if (!parse(newargv.size() - 1, &newargv[0], context, diagnostics))
+  if (!parse(newargv.size() - 1, &newargv[0], context, diag))
     return false;
 
   // Create the file if needed.
   if (context.getCreateManifest())
-    if (!createManifest(context, diagnostics))
+    if (!createManifest(context, diag))
       return false;
 
   // Register possible input file parsers.
@@ -676,16 +777,21 @@ bool WinLinkDriver::linkPECOFF(int argc, const char *argv[],
   context.registry().addSupportNativeObjects();
   context.registry().addSupportYamlFiles();
 
-  return link(context, diagnostics);
+  return link(context, diag);
 }
 
-bool
-WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
-                     raw_ostream &diagnostics, bool isReadingDirectiveSection) {
+bool WinLinkDriver::parse(int argc, const char *argv[],
+                          PECOFFLinkingContext &ctx, raw_ostream &diag,
+                          bool isReadingDirectiveSection) {
+  // Parse may be called from multiple threads simultaneously to parse .drectve
+  // sections. This function is not thread-safe because it mutates the context
+  // object. So acquire the lock.
+  std::lock_guard<std::recursive_mutex> lock(ctx.getMutex());
+
   std::map<StringRef, StringRef> failIfMismatchMap;
   // Parse the options.
-  std::unique_ptr<llvm::opt::InputArgList> parsedArgs = parseArgs(
-      argc, argv, diagnostics, isReadingDirectiveSection);
+  std::unique_ptr<llvm::opt::InputArgList> parsedArgs =
+      parseArgs(argc, argv, ctx, diag, isReadingDirectiveSection);
   if (!parsedArgs)
     return false;
 
@@ -710,7 +816,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
     StringRef arg = inputArg->getValue();
     llvm::COFF::MachineTypes type = stringToMachineType(arg);
     if (type == llvm::COFF::IMAGE_FILE_MACHINE_UNKNOWN) {
-      diagnostics << "error: unknown machine type: " << arg << "\n";
+      diag << "error: unknown machine type: " << arg << "\n";
       return false;
     }
     ctx.setMachineType(type);
@@ -744,7 +850,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
 
     case OPT_alternatename: {
       StringRef weak, def;
-      if (!parseAlternateName(inputArg->getValue(), weak, def, diagnostics))
+      if (!parseAlternateName(inputArg->getValue(), weak, def, diag))
         return false;
       ctx.setAlternateName(weak, def);
       break;
@@ -797,7 +903,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       uint32_t align;
       StringRef arg = inputArg->getValue();
       if (arg.getAsInteger(10, align)) {
-        diagnostics << "error: invalid value for /align: " << arg << "\n";
+        diag << "error: invalid value for /align: " << arg << "\n";
         return false;
       }
       ctx.setSectionDefaultAlignment(align);
@@ -815,13 +921,13 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
     case OPT_merge: {
       // Parse /merge:<from>=<to>.
       StringRef from, to;
-      llvm::tie(from, to) = StringRef(inputArg->getValue()).split('=');
+      std::tie(from, to) = StringRef(inputArg->getValue()).split('=');
       if (from.empty() || to.empty()) {
-        diagnostics << "error: malformed /merge option: "
-                    << inputArg->getValue() << "\n";
+        diag << "error: malformed /merge option: " << inputArg->getValue()
+             << "\n";
         return false;
       }
-      if (!ctx.addSectionRenaming(diagnostics, from, to))
+      if (!ctx.addSectionRenaming(diag, from, to))
         return false;
       break;
     }
@@ -830,8 +936,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       // Parse /subsystem:<subsystem>[,<majorOSVersion>[.<minorOSVersion>]].
       llvm::COFF::WindowsSubsystem subsystem;
       llvm::Optional<uint32_t> major, minor;
-      if (!parseSubsystem(inputArg->getValue(), subsystem, major, minor,
-                          diagnostics))
+      if (!parseSubsystem(inputArg->getValue(), subsystem, major, minor, diag))
         return false;
       ctx.setSubsystem(subsystem);
       if (major.hasValue())
@@ -844,8 +949,8 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       std::string section;
       llvm::Optional<uint32_t> flags, mask;
       if (!parseSection(inputArg->getValue(), section, flags, mask)) {
-        diagnostics << "Unknown argument for /section: "
-                    << inputArg->getValue() << "\n";
+        diag << "Unknown argument for /section: " << inputArg->getValue()
+             << "\n";
         return false;
       }
       if (flags.hasValue())
@@ -865,8 +970,8 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       bool embed = false;
       int id = 1;
       if (!parseManifest(inputArg->getValue(), enable, embed, id)) {
-        diagnostics << "Unknown argument for /manifest: "
-                    << inputArg->getValue() << "\n";
+        diag << "Unknown argument for /manifest: " << inputArg->getValue()
+             << "\n";
         return false;
       }
       ctx.setCreateManifest(enable);
@@ -880,8 +985,8 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       llvm::Optional<std::string> privilegeLevel;
       llvm::Optional<std::string> uiAccess;
       if (!parseManifestUac(inputArg->getValue(), privilegeLevel, uiAccess)) {
-        diagnostics << "Unknown argument for /manifestuac: "
-                    << inputArg->getValue() << "\n";
+        diag << "Unknown argument for /manifestuac: " << inputArg->getValue()
+             << "\n";
         return false;
       }
       if (privilegeLevel.hasValue())
@@ -905,7 +1010,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
 
     case OPT_failifmismatch:
       if (handleFailIfMismatchOption(inputArg->getValue(), failIfMismatchMap,
-                                     diagnostics))
+                                     diag))
         return false;
       break;
 
@@ -916,8 +1021,8 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
     case OPT_export: {
       PECOFFLinkingContext::ExportDesc desc;
       if (!parseExport(inputArg->getValue(), desc)) {
-        diagnostics << "Error: malformed /export option: "
-                    << inputArg->getValue() << "\n";
+        diag << "Error: malformed /export option: " << inputArg->getValue()
+             << "\n";
         return false;
       }
 
@@ -938,7 +1043,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
       llvm::Optional<moduledef::Directive *> dir =
           parseDef(inputArg->getValue(), alloc);
       if (!dir.hasValue()) {
-        diagnostics << "Error: invalid module-definition file\n";
+        diag << "Error: invalid module-definition file\n";
         return false;
       }
 
@@ -988,7 +1093,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
     case OPT_fixed:
       // /fixed is not compatible with /dynamicbase. Check for it.
       if (parsedArgs->getLastArg(OPT_dynamicbase)) {
-        diagnostics << "/dynamicbase must not be specified with /fixed\n";
+        diag << "/dynamicbase must not be specified with /fixed\n";
         return false;
       }
       ctx.setBaseRelocationEnabled(false);
@@ -1010,8 +1115,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
     case OPT_stub: {
       ArrayRef<uint8_t> contents;
       if (!readFile(ctx, inputArg->getValue(), contents)) {
-        diagnostics << "Failed to read DOS stub file "
-                    << inputArg->getValue() << "\n";
+        diag << "Failed to read DOS stub file " << inputArg->getValue() << "\n";
         return false;
       }
       ctx.setDosStub(contents);
@@ -1058,15 +1162,22 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
     }
   }
 
-  // Move files with ".lib" extension at the end of the input file list. Say
-  // foo.obj depends on bar.lib. The linker needs to accept both "bar.lib
-  // foo.obj" and "foo.obj bar.lib".
-  auto compfn = [](StringRef a, StringRef b) {
-    return !a.endswith_lower(".lib") && b.endswith_lower(".lib");
-  };
-  std::stable_sort(inputFiles.begin(), inputFiles.end(), compfn);
-  for (StringRef path : inputFiles)
-    files.push_back(std::unique_ptr<FileNode>(new PECOFFFileNode(ctx, path)));
+  // Arguments after "--" are interpreted as filenames even if they
+  // start with a hypen or a slash. This is not compatible with link.exe
+  // but useful for us to test lld on Unix.
+  if (llvm::opt::Arg *dashdash = parsedArgs->getLastArg(OPT_DASH_DASH))
+    for (const StringRef value : dashdash->getValues())
+      inputFiles.push_back(value);
+
+  // Prepare objects to add them to input graph.
+  for (StringRef path : inputFiles) {
+    path = ctx.allocate(path);
+    if (isCOFFLibraryFileExtension(path)) {
+      libraries.push_back(std::unique_ptr<FileNode>(new PECOFFLibraryNode(ctx, path)));
+    } else {
+      files.push_back(std::unique_ptr<FileNode>(new PECOFFFileNode(ctx, path)));
+    }
+  }
 
   // Use the default entry name if /entry option is not given.
   if (ctx.entrySymbolName().empty() && !parsedArgs->getLastArg(OPT_noentry))
@@ -1077,13 +1188,13 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
 
   // Specify /noentry without /dll is an error.
   if (parsedArgs->getLastArg(OPT_noentry) && !parsedArgs->getLastArg(OPT_dll)) {
-    diagnostics << "/noentry must be specified with /dll\n";
+    diag << "/noentry must be specified with /dll\n";
     return false;
   }
 
   // Specifying both /opt:ref and /opt:noref is an error.
   if (parsedArgs->getLastArg(OPT_ref) && parsedArgs->getLastArg(OPT_ref_no)) {
-    diagnostics << "/opt:ref must not be specified with /opt:noref\n";
+    diag << "/opt:ref must not be specified with /opt:noref\n";
     return false;
   }
 
@@ -1094,17 +1205,6 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
     for (const StringRef symbolName : ctx.initialUndefinedSymbols())
       ctx.addDeadStripRoot(symbolName);
 
-  // Arguments after "--" are interpreted as filenames even if they
-  // start with a hypen or a slash. This is not compatible with link.exe
-  // but useful for us to test lld on Unix.
-  if (llvm::opt::Arg *dashdash = parsedArgs->getLastArg(OPT_DASH_DASH)) {
-    for (const StringRef value : dashdash->getValues()) {
-      std::unique_ptr<FileNode> elem(
-          new PECOFFFileNode(ctx, ctx.allocate(value)));
-      files.push_back(std::move(elem));
-    }
-  }
-
   // Add the libraries specified by /defaultlib unless they are already added
   // nor blacklisted by /nodefaultlib.
   if (!ctx.getNoDefaultLibAll())
@@ -1114,7 +1214,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
                               new PECOFFLibraryNode(ctx, ctx.allocate(path.lower()))));
 
   if (files.empty() && !isReadingDirectiveSection) {
-    diagnostics << "No input files\n";
+    diag << "No input files\n";
     return false;
   }
 
@@ -1122,7 +1222,7 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
   // constructed by replacing an extension of the first input file
   // with ".exe".
   if (ctx.outputPath().empty()) {
-    StringRef path = *dyn_cast<FileNode>(&*files[0])->getPath(ctx);
+    StringRef path = *cast<FileNode>(&*files[0])->getPath(ctx);
     ctx.setOutputPath(replaceExtension(ctx, path, ".exe"));
   }
 
@@ -1137,32 +1237,32 @@ WinLinkDriver::parse(int argc, const char *argv[], PECOFFLinkingContext &ctx,
   // Add the input files to the input graph.
   if (!ctx.hasInputGraph())
     ctx.setInputGraph(std::unique_ptr<InputGraph>(new InputGraph()));
-  for (auto &file : files) {
+  for (std::unique_ptr<FileNode> &file : files) {
     if (isReadingDirectiveSection)
-      if (file->parse(ctx, diagnostics))
+      if (file->parse(ctx, diag))
         return false;
-    ctx.inputGraph().addInputElement(std::move(file));
+    ctx.getInputGraph().addInputElement(std::move(file));
   }
 
   // Add the library group to the input graph.
   if (!isReadingDirectiveSection) {
-    auto group = std::unique_ptr<Group>(new PECOFFGroup());
+    auto group = std::unique_ptr<Group>(new PECOFFGroup(ctx));
     ctx.setLibraryGroup(group.get());
-    ctx.inputGraph().addInputElement(std::move(group));
+    ctx.getInputGraph().addInputElement(std::move(group));
   }
 
   // Add the library files to the library group.
   for (std::unique_ptr<FileNode> &lib : libraries) {
     if (!hasLibrary(ctx, lib.get())) {
       if (isReadingDirectiveSection)
-        if (lib->parse(ctx, diagnostics))
+        if (lib->parse(ctx, diag))
           return false;
-      ctx.getLibraryGroup()->processInputElement(std::move(lib));
+      ctx.getLibraryGroup()->addFile(std::move(lib));
     }
   }
 
   // Validate the combination of options used.
-  return ctx.validate(diagnostics);
+  return ctx.validate(diag);
 }
 
 } // namespace lld

@@ -16,6 +16,7 @@
 #ifndef LLVM_CODEGEN_ASMPRINTER_H
 #define LLVM_CODEGEN_ASMPRINTER_H
 
+#include "llvm/ADT/Twine.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/Support/DataTypes.h"
@@ -24,6 +25,7 @@
 namespace llvm {
   class AsmPrinterHandler;
   class BlockAddress;
+  class ByteStreamer;
   class GCStrategy;
   class Constant;
   class ConstantArray;
@@ -134,7 +136,7 @@ namespace llvm {
   public:
     virtual ~AsmPrinter();
 
-    const DwarfDebug *getDwarfDebug() const { return DD; }
+    DwarfDebug *getDwarfDebug() { return DD; }
 
     /// isVerbose - Return true if assembly output should contain comments.
     ///
@@ -172,20 +174,20 @@ namespace llvm {
 
     /// getAnalysisUsage - Record analysis usage.
     ///
-    void getAnalysisUsage(AnalysisUsage &AU) const;
+    void getAnalysisUsage(AnalysisUsage &AU) const override;
 
     /// doInitialization - Set up the AsmPrinter when we are working on a new
     /// module.  If your pass overrides this, it must make sure to explicitly
     /// call this implementation.
-    bool doInitialization(Module &M);
+    bool doInitialization(Module &M) override;
 
     /// doFinalization - Shut down the asmprinter.  If you override this in your
     /// pass, you must make sure to call it explicitly.
-    bool doFinalization(Module &M);
+    bool doFinalization(Module &M) override;
 
     /// runOnMachineFunction - Emit the specified function out to the
     /// OutStreamer.
-    virtual bool runOnMachineFunction(MachineFunction &MF) {
+    bool runOnMachineFunction(MachineFunction &MF) override {
       SetupMachineFunction(MF);
       EmitFunctionHeader();
       EmitFunctionBody();
@@ -208,7 +210,7 @@ namespace llvm {
     /// function.
     void EmitFunctionBody();
 
-    void emitPrologLabel(const MachineInstr &MI);
+    void emitCFIInstruction(const MachineInstr &MI);
 
     enum CFIMoveType {
       CFI_M_None,
@@ -284,6 +286,9 @@ namespace llvm {
       llvm_unreachable("EmitInstruction not implemented");
     }
 
+    /// GetCPISymbol - Return the symbol for the specified constant pool entry.
+    virtual MCSymbol *GetCPISymbol(unsigned CPID) const;
+
     virtual void EmitFunctionEntryLabel();
 
     virtual void EmitMachineConstantPoolValue(MachineConstantPoolValue *MCPV);
@@ -312,11 +317,11 @@ namespace llvm {
 
     /// GetTempSymbol - Return the MCSymbol corresponding to the assembler
     /// temporary label with the specified stem and unique ID.
-    MCSymbol *GetTempSymbol(StringRef Name, unsigned ID) const;
+    MCSymbol *GetTempSymbol(Twine Name, unsigned ID) const;
 
     /// GetTempSymbol - Return an assembler temporary label with the specified
     /// stem.
-    MCSymbol *GetTempSymbol(StringRef Name) const;
+    MCSymbol *GetTempSymbol(Twine Name) const;
 
     /// Return the MCSymbol for a private symbol with global value name as its
     /// base, with the specified suffix.
@@ -326,9 +331,6 @@ namespace llvm {
     /// GetExternalSymbolSymbol - Return the MCSymbol for the specified
     /// ExternalSymbol.
     MCSymbol *GetExternalSymbolSymbol(StringRef Sym) const;
-
-    /// GetCPISymbol - Return the symbol for the specified constant pool entry.
-    MCSymbol *GetCPISymbol(unsigned CPID) const;
 
     /// GetJTISymbol - Return the symbol for the specified jump table entry.
     MCSymbol *GetJTISymbol(unsigned JTID, bool isLinkerPrivate = false) const;
@@ -429,7 +431,7 @@ namespace llvm {
     virtual unsigned getISAEncoding() { return 0; }
 
     /// EmitDwarfRegOp - Emit dwarf register operation.
-    virtual void EmitDwarfRegOp(const MachineLocation &MLoc,
+    virtual void EmitDwarfRegOp(ByteStreamer &BS, const MachineLocation &MLoc,
                                 bool Indirect) const;
 
     //===------------------------------------------------------------------===//

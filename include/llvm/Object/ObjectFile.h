@@ -87,6 +87,7 @@ public:
   SectionRef(DataRefImpl SectionP, const ObjectFile *Owner);
 
   bool operator==(const SectionRef &Other) const;
+  bool operator!=(const SectionRef &Other) const;
   bool operator<(const SectionRef &Other) const;
 
   void moveNext();
@@ -112,6 +113,10 @@ public:
 
   relocation_iterator relocation_begin() const;
   relocation_iterator relocation_end() const;
+  typedef iterator_range<relocation_iterator> relocation_iterator_range;
+  relocation_iterator_range relocations() const {
+    return relocation_iterator_range(relocation_begin(), relocation_end());
+  }
   section_iterator getRelocatedSection() const;
 
   DataRefImpl getRawDataRefImpl() const;
@@ -149,9 +154,6 @@ public:
   /// @brief Get section this symbol is defined in reference to. Result is
   /// end_sections() if it is undefined or is an absolute symbol.
   error_code getSection(section_iterator &Result) const;
-
-  /// @brief Get value of the symbol in the symbol table.
-  error_code getValue(uint64_t &Val) const;
 
   const ObjectFile *getObject() const;
 };
@@ -223,16 +225,14 @@ protected:
   // modified externally. It's UB otherwise.
   friend class SymbolRef;
   virtual error_code getSymbolName(DataRefImpl Symb, StringRef &Res) const = 0;
-  virtual error_code printSymbolName(raw_ostream &OS, DataRefImpl Symb) const;
+  error_code printSymbolName(raw_ostream &OS, DataRefImpl Symb) const override;
   virtual error_code getSymbolAddress(DataRefImpl Symb, uint64_t &Res) const = 0;
-  virtual error_code getSymbolFileOffset(DataRefImpl Symb, uint64_t &Res)const=0;
   virtual error_code getSymbolAlignment(DataRefImpl Symb, uint32_t &Res) const;
   virtual error_code getSymbolSize(DataRefImpl Symb, uint64_t &Res) const = 0;
   virtual error_code getSymbolType(DataRefImpl Symb,
                                    SymbolRef::Type &Res) const = 0;
   virtual error_code getSymbolSection(DataRefImpl Symb,
                                       section_iterator &Res) const = 0;
-  virtual error_code getSymbolValue(DataRefImpl Symb, uint64_t &Val) const = 0;
 
   // Same as above for SectionRef.
   friend class SectionRef;
@@ -282,12 +282,18 @@ protected:
   virtual error_code getLibraryPath(DataRefImpl Lib, StringRef &Res) const = 0;
 
 public:
-
-  symbol_iterator begin_symbols() const;
-  symbol_iterator end_symbols() const;
+  typedef iterator_range<symbol_iterator> symbol_iterator_range;
+  symbol_iterator_range symbols() const {
+    return symbol_iterator_range(symbol_begin(), symbol_end());
+  }
 
   virtual section_iterator section_begin() const = 0;
   virtual section_iterator section_end() const = 0;
+
+  typedef iterator_range<section_iterator> section_iterator_range;
+  section_iterator_range sections() const {
+    return section_iterator_range(section_begin(), section_end());
+  }
 
   virtual library_iterator needed_library_begin() const = 0;
   virtual library_iterator needed_library_end() const = 0;
@@ -334,20 +340,6 @@ public:
 inline SymbolRef::SymbolRef(DataRefImpl SymbolP, const ObjectFile *Owner)
     : BasicSymbolRef(SymbolP, Owner) {}
 
-inline symbol_iterator ObjectFile::begin_symbols() const {
-  basic_symbol_iterator I = symbol_begin_impl();
-  const BasicSymbolRef &Ref = *I;
-  const SymbolRef &Cast = static_cast<const SymbolRef&>(Ref);
-  return symbol_iterator(Cast);
-}
-
-inline symbol_iterator ObjectFile::end_symbols() const {
-  basic_symbol_iterator I = symbol_end_impl();
-  const BasicSymbolRef &Ref = *I;
-  const SymbolRef &Cast = static_cast<const SymbolRef&>(Ref);
-  return symbol_iterator(Cast);
-}
-
 inline error_code SymbolRef::getName(StringRef &Result) const {
   return getObject()->getSymbolName(getRawDataRefImpl(), Result);
 }
@@ -357,7 +349,39 @@ inline error_code SymbolRef::getAddress(uint64_t &Result) const {
 }
 
 inline error_code SymbolRef::getFileOffset(uint64_t &Result) const {
-  return getObject()->getSymbolFileOffset(getRawDataRefImpl(), Result);
+  uint64_t Address;
+  if (error_code EC = getAddress(Address))
+    return EC;
+  if (Address == UnknownAddressOrSize) {
+    Result = UnknownAddressOrSize;
+    return object_error::success;
+  }
+
+  const ObjectFile *Obj = getObject();
+  section_iterator SecI(Obj->section_begin());
+  if (error_code EC = getSection(SecI))
+    return EC;
+
+  if (SecI == Obj->section_end()) {
+    Result = UnknownAddressOrSize;
+    return object_error::success;
+  }
+
+  uint64_t SectionAddress;
+  if (error_code EC = SecI->getAddress(SectionAddress))
+    return EC;
+
+  uint64_t OffsetInSection = Address - SectionAddress;
+
+  StringRef SecContents;
+  if (error_code EC = SecI->getContents(SecContents))
+    return EC;
+
+  // FIXME: this is a hack.
+  uint64_t SectionOffset = (uint64_t)SecContents.data() - (uint64_t)Obj->base();
+
+  Result = SectionOffset + OffsetInSection;
+  return object_error::success;
 }
 
 inline error_code SymbolRef::getAlignment(uint32_t &Result) const {
@@ -376,10 +400,6 @@ inline error_code SymbolRef::getType(SymbolRef::Type &Result) const {
   return getObject()->getSymbolType(getRawDataRefImpl(), Result);
 }
 
-inline error_code SymbolRef::getValue(uint64_t &Val) const {
-  return getObject()->getSymbolValue(getRawDataRefImpl(), Val);
-}
-
 inline const ObjectFile *SymbolRef::getObject() const {
   const SymbolicFile *O = BasicSymbolRef::getObject();
   return cast<ObjectFile>(O);
@@ -394,6 +414,10 @@ inline SectionRef::SectionRef(DataRefImpl SectionP,
 
 inline bool SectionRef::operator==(const SectionRef &Other) const {
   return SectionPimpl == Other.SectionPimpl;
+}
+
+inline bool SectionRef::operator!=(const SectionRef &Other) const {
+  return SectionPimpl != Other.SectionPimpl;
 }
 
 inline bool SectionRef::operator<(const SectionRef &Other) const {

@@ -37,10 +37,7 @@ public:
   };
 
 protected:
-
-  enum MipsArchEnum {
-    Mips32, Mips32r2, Mips64, Mips64r2
-  };
+  enum MipsArchEnum { Mips32, Mips32r2, Mips4, Mips64, Mips64r2 };
 
   // Mips architecture version
   MipsArchEnum MipsArchVersion;
@@ -64,6 +61,9 @@ protected:
 
   // HasVFPU - Processor has a vector floating point unit.
   bool HasVFPU;
+
+  // CPU supports cnMIPS (Cavium Networks Octeon CPU).
+  bool HasCnMips;
 
   // isLinux - Target system is Linux. Is false we consider ELFOS for now.
   bool IsLinux;
@@ -153,6 +153,8 @@ public:
                                    MipsArchVersion == Mips64r2; }
   bool hasMips64() const { return MipsArchVersion >= Mips64; }
   bool hasMips64r2() const { return MipsArchVersion == Mips64r2; }
+
+  bool hasCnMips() const { return HasCnMips; }
 
   bool isLittle() const { return IsLittle; }
   bool isFP64bit() const { return IsFP64bit; }

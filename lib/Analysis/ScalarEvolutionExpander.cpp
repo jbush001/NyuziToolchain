@@ -47,9 +47,7 @@ Value *SCEVExpander::ReuseOrCreateCast(Value *V, Type *Ty,
   Instruction *Ret = NULL;
 
   // Check to see if there is already a cast!
-  for (Value::use_iterator UI = V->use_begin(), E = V->use_end();
-       UI != E; ++UI) {
-    User *U = *UI;
+  for (User *U : V->users())
     if (U->getType() == Ty)
       if (CastInst *CI = dyn_cast<CastInst>(U))
         if (CI->getOpcode() == Op) {
@@ -69,7 +67,6 @@ Value *SCEVExpander::ReuseOrCreateCast(Value *V, Type *Ty,
           Ret = CI;
           break;
         }
-  }
 
   // Create a new cast.
   if (!Ret)
@@ -1391,7 +1388,7 @@ Value *SCEVExpander::visitAddRecExpr(const SCEVAddRecExpr *S) {
     Value *V = expand(SE.getAddRecExpr(NewOps, S->getLoop(),
                                        S->getNoWrapFlags(SCEV::FlagNW)));
     BasicBlock::iterator NewInsertPt =
-      llvm::next(BasicBlock::iterator(cast<Instruction>(V)));
+      std::next(BasicBlock::iterator(cast<Instruction>(V)));
     BuilderType::InsertPointGuard Guard(Builder);
     while (isa<PHINode>(NewInsertPt) || isa<DbgInfoIntrinsic>(NewInsertPt) ||
            isa<LandingPadInst>(NewInsertPt))
@@ -1619,7 +1616,7 @@ Value *SCEVExpander::expand(const SCEV *S) {
       while (InsertPt != Builder.GetInsertPoint()
              && (isInsertedInstruction(InsertPt)
                  || isa<DbgInfoIntrinsic>(InsertPt))) {
-        InsertPt = llvm::next(BasicBlock::iterator(InsertPt));
+        InsertPt = std::next(BasicBlock::iterator(InsertPt));
       }
       break;
     }
@@ -1674,15 +1671,6 @@ SCEVExpander::getOrInsertCanonicalInductionVariable(const Loop *L,
   return V;
 }
 
-/// Sort values by integer width for replaceCongruentIVs.
-static bool width_descending(Value *lhs, Value *rhs) {
-  // Put pointers at the back and make sure pointer < pointer = false.
-  if (!lhs->getType()->isIntegerTy() || !rhs->getType()->isIntegerTy())
-    return rhs->getType()->isIntegerTy() && !lhs->getType()->isIntegerTy();
-  return rhs->getType()->getPrimitiveSizeInBits()
-    < lhs->getType()->getPrimitiveSizeInBits();
-}
-
 /// replaceCongruentIVs - Check for congruent phis in this loop header and
 /// replace them with their most canonical representative. Return the number of
 /// phis eliminated.
@@ -1699,7 +1687,13 @@ unsigned SCEVExpander::replaceCongruentIVs(Loop *L, const DominatorTree *DT,
     Phis.push_back(Phi);
   }
   if (TTI)
-    std::sort(Phis.begin(), Phis.end(), width_descending);
+    std::sort(Phis.begin(), Phis.end(), [](Value *LHS, Value *RHS) {
+      // Put pointers at the back and make sure pointer < pointer = false.
+      if (!LHS->getType()->isIntegerTy() || !RHS->getType()->isIntegerTy())
+        return RHS->getType()->isIntegerTy() && !LHS->getType()->isIntegerTy();
+      return RHS->getType()->getPrimitiveSizeInBits() <
+             LHS->getType()->getPrimitiveSizeInBits();
+    });
 
   unsigned NumElim = 0;
   DenseMap<const SCEV *, PHINode *> ExprToIVMap;

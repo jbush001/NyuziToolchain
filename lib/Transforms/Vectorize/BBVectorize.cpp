@@ -41,10 +41,10 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Type.h"
+#include "llvm/IR/ValueHandle.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/ValueHandle.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include <algorithm>
@@ -431,7 +431,7 @@ namespace {
       return changed;
     }
 
-    virtual bool runOnBasicBlock(BasicBlock &BB) {
+    bool runOnBasicBlock(BasicBlock &BB) override {
       // OptimizeNone check deferred to vectorizeBB().
 
       AA = &getAnalysis<AliasAnalysis>();
@@ -444,7 +444,7 @@ namespace {
       return vectorizeBB(BB);
     }
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       BasicBlockPass::getAnalysisUsage(AU);
       AU.addRequired<AliasAnalysis>();
       AU.addRequired<DominatorTreeWrapperPass>();
@@ -1231,7 +1231,7 @@ namespace {
       if (I->mayWriteToMemory()) WriteSet.add(I);
 
       bool JAfterStart = IAfterStart;
-      BasicBlock::iterator J = llvm::next(I);
+      BasicBlock::iterator J = std::next(I);
       for (unsigned ss = 0; J != E && ss <= Config.SearchLimit; ++J, ++ss) {
         if (J == Start) JAfterStart = true;
 
@@ -1276,7 +1276,7 @@ namespace {
         // The next call to this function must start after the last instruction
         // selected during this invocation.
         if (JAfterStart) {
-          Start = llvm::next(J);
+          Start = std::next(J);
           IAfterStart = JAfterStart = false;
         }
 
@@ -1318,13 +1318,15 @@ namespace {
 
     // For each possible pairing for this variable, look at the uses of
     // the first value...
-    for (Value::use_iterator I = P.first->use_begin(),
-         E = P.first->use_end(); I != E; ++I) {
-      if (isa<LoadInst>(*I)) {
+    for (Value::user_iterator I = P.first->user_begin(),
+                              E = P.first->user_end();
+         I != E; ++I) {
+      User *UI = *I;
+      if (isa<LoadInst>(UI)) {
         // A pair cannot be connected to a load because the load only takes one
         // operand (the address) and it is a scalar even after vectorization.
         continue;
-      } else if ((SI = dyn_cast<StoreInst>(*I)) &&
+      } else if ((SI = dyn_cast<StoreInst>(UI)) &&
                  P.first == SI->getPointerOperand()) {
         // Similarly, a pair cannot be connected to a store through its
         // pointer operand.
@@ -1333,22 +1335,21 @@ namespace {
 
       // For each use of the first variable, look for uses of the second
       // variable...
-      for (Value::use_iterator J = P.second->use_begin(),
-           E2 = P.second->use_end(); J != E2; ++J) {
-        if ((SJ = dyn_cast<StoreInst>(*J)) &&
+      for (User *UJ : P.second->users()) {
+        if ((SJ = dyn_cast<StoreInst>(UJ)) &&
             P.second == SJ->getPointerOperand())
           continue;
 
         // Look for <I, J>:
-        if (CandidatePairsSet.count(ValuePair(*I, *J))) {
-          VPPair VP(P, ValuePair(*I, *J));
+        if (CandidatePairsSet.count(ValuePair(UI, UJ))) {
+          VPPair VP(P, ValuePair(UI, UJ));
           ConnectedPairs[VP.first].push_back(VP.second);
           PairConnectionTypes.insert(VPPairWithType(VP, PairConnectionDirect));
         }
 
         // Look for <J, I>:
-        if (CandidatePairsSet.count(ValuePair(*J, *I))) {
-          VPPair VP(P, ValuePair(*J, *I));
+        if (CandidatePairsSet.count(ValuePair(UJ, UI))) {
+          VPPair VP(P, ValuePair(UJ, UI));
           ConnectedPairs[VP.first].push_back(VP.second);
           PairConnectionTypes.insert(VPPairWithType(VP, PairConnectionSwap));
         }
@@ -1357,13 +1358,14 @@ namespace {
       if (Config.SplatBreaksChain) continue;
       // Look for cases where just the first value in the pair is used by
       // both members of another pair (splatting).
-      for (Value::use_iterator J = P.first->use_begin(); J != E; ++J) {
-        if ((SJ = dyn_cast<StoreInst>(*J)) &&
+      for (Value::user_iterator J = P.first->user_begin(); J != E; ++J) {
+        User *UJ = *J;
+        if ((SJ = dyn_cast<StoreInst>(UJ)) &&
             P.first == SJ->getPointerOperand())
           continue;
 
-        if (CandidatePairsSet.count(ValuePair(*I, *J))) {
-          VPPair VP(P, ValuePair(*I, *J));
+        if (CandidatePairsSet.count(ValuePair(UI, UJ))) {
+          VPPair VP(P, ValuePair(UI, UJ));
           ConnectedPairs[VP.first].push_back(VP.second);
           PairConnectionTypes.insert(VPPairWithType(VP, PairConnectionSplat));
         }
@@ -1373,21 +1375,24 @@ namespace {
     if (Config.SplatBreaksChain) return;
     // Look for cases where just the second value in the pair is used by
     // both members of another pair (splatting).
-    for (Value::use_iterator I = P.second->use_begin(),
-         E = P.second->use_end(); I != E; ++I) {
-      if (isa<LoadInst>(*I))
+    for (Value::user_iterator I = P.second->user_begin(),
+                              E = P.second->user_end();
+         I != E; ++I) {
+      User *UI = *I;
+      if (isa<LoadInst>(UI))
         continue;
-      else if ((SI = dyn_cast<StoreInst>(*I)) &&
+      else if ((SI = dyn_cast<StoreInst>(UI)) &&
                P.second == SI->getPointerOperand())
         continue;
 
-      for (Value::use_iterator J = P.second->use_begin(); J != E; ++J) {
-        if ((SJ = dyn_cast<StoreInst>(*J)) &&
+      for (Value::user_iterator J = P.second->user_begin(); J != E; ++J) {
+        User *UJ = *J;
+        if ((SJ = dyn_cast<StoreInst>(UJ)) &&
             P.second == SJ->getPointerOperand())
           continue;
 
-        if (CandidatePairsSet.count(ValuePair(*I, *J))) {
-          VPPair VP(P, ValuePair(*I, *J));
+        if (CandidatePairsSet.count(ValuePair(UI, UJ))) {
+          VPPair VP(P, ValuePair(UI, UJ));
           ConnectedPairs[VP.first].push_back(VP.second);
           PairConnectionTypes.insert(VPPairWithType(VP, PairConnectionSplat));
         }
@@ -1453,7 +1458,7 @@ namespace {
       AliasSetTracker WriteSet(*AA);
       if (I->mayWriteToMemory()) WriteSet.add(I);
 
-      for (BasicBlock::iterator J = llvm::next(I); J != E; ++J) {
+      for (BasicBlock::iterator J = std::next(I); J != E; ++J) {
         (void) trackUsesOfI(Users, WriteSet, I, J);
 
         if (J == EL)
@@ -1947,16 +1952,15 @@ namespace {
             Type *VTy = getVecTypeForPair(Ty1, Ty2);
 
             bool NeedsExtraction = false;
-            for (Value::use_iterator I = S->first->use_begin(),
-                 IE = S->first->use_end(); I != IE; ++I) {
-              if (ShuffleVectorInst *SI = dyn_cast<ShuffleVectorInst>(*I)) {
+            for (User *U : S->first->users()) {
+              if (ShuffleVectorInst *SI = dyn_cast<ShuffleVectorInst>(U)) {
                 // Shuffle can be folded if it has no other input
                 if (isa<UndefValue>(SI->getOperand(1)))
                   continue;
               }
-              if (isa<ExtractElementInst>(*I))
+              if (isa<ExtractElementInst>(U))
                 continue;
-              if (PrunedDAGInstrs.count(*I))
+              if (PrunedDAGInstrs.count(U))
                 continue;
               NeedsExtraction = true;
               break;
@@ -1979,16 +1983,15 @@ namespace {
             }
 
             NeedsExtraction = false;
-            for (Value::use_iterator I = S->second->use_begin(),
-                 IE = S->second->use_end(); I != IE; ++I) {
-              if (ShuffleVectorInst *SI = dyn_cast<ShuffleVectorInst>(*I)) {
+            for (User *U : S->second->users()) {
+              if (ShuffleVectorInst *SI = dyn_cast<ShuffleVectorInst>(U)) {
                 // Shuffle can be folded if it has no other input
                 if (isa<UndefValue>(SI->getOperand(1)))
                   continue;
               }
-              if (isa<ExtractElementInst>(*I))
+              if (isa<ExtractElementInst>(U))
                 continue;
-              if (PrunedDAGInstrs.count(*I))
+              if (PrunedDAGInstrs.count(U))
                 continue;
               NeedsExtraction = true;
               break;
@@ -2841,7 +2844,7 @@ namespace {
                      DenseSet<ValuePair> &LoadMoveSetPairs,
                      Instruction *I, Instruction *J) {
     // Skip to the first instruction past I.
-    BasicBlock::iterator L = llvm::next(BasicBlock::iterator(I));
+    BasicBlock::iterator L = std::next(BasicBlock::iterator(I));
 
     DenseSet<Value *> Users;
     AliasSetTracker WriteSet(*AA);
@@ -2863,7 +2866,7 @@ namespace {
                      Instruction *&InsertionPt,
                      Instruction *I, Instruction *J) {
     // Skip to the first instruction past I.
-    BasicBlock::iterator L = llvm::next(BasicBlock::iterator(I));
+    BasicBlock::iterator L = std::next(BasicBlock::iterator(I));
 
     DenseSet<Value *> Users;
     AliasSetTracker WriteSet(*AA);
@@ -2894,7 +2897,7 @@ namespace {
                      DenseSet<ValuePair> &LoadMoveSetPairs,
                      Instruction *I) {
     // Skip to the first instruction past I.
-    BasicBlock::iterator L = llvm::next(BasicBlock::iterator(I));
+    BasicBlock::iterator L = std::next(BasicBlock::iterator(I));
 
     DenseSet<Value *> Users;
     AliasSetTracker WriteSet(*AA);
@@ -3165,7 +3168,7 @@ namespace {
       }
 
       // Before removing I, set the iterator to the next instruction.
-      PI = llvm::next(BasicBlock::iterator(I));
+      PI = std::next(BasicBlock::iterator(I));
       if (cast<Instruction>(PI) == J)
         ++PI;
 

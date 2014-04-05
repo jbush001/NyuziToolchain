@@ -25,8 +25,6 @@
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/IR/Function.h"
 
-const uint64_t RSRC_DATA_FORMAT = 0xf00000000000LL;
-
 using namespace llvm;
 
 SITargetLowering::SITargetLowering(TargetMachine &TM) :
@@ -98,6 +96,7 @@ SITargetLowering::SITargetLowering(TargetMachine &TM) :
   setOperationAction(ISD::LOAD, MVT::v4i32, Custom);
   setOperationAction(ISD::LOAD, MVT::v8i32, Custom);
 
+  setOperationAction(ISD::STORE, MVT::i1, Custom);
   setOperationAction(ISD::STORE, MVT::i32, Custom);
   setOperationAction(ISD::STORE, MVT::i64, Custom);
   setOperationAction(ISD::STORE, MVT::i128, Custom);
@@ -105,6 +104,8 @@ SITargetLowering::SITargetLowering(TargetMachine &TM) :
   setOperationAction(ISD::STORE, MVT::v4i32, Custom);
 
   setOperationAction(ISD::SELECT, MVT::i64, Custom);
+  setOperationAction(ISD::SELECT, MVT::f64, Promote);
+  AddPromotedToType(ISD::SELECT, MVT::f64, MVT::i64);
 
   setOperationAction(ISD::SELECT_CC, MVT::f32, Custom);
   setOperationAction(ISD::SELECT_CC, MVT::i32, Custom);
@@ -128,6 +129,9 @@ SITargetLowering::SITargetLowering(TargetMachine &TM) :
   setLoadExtAction(ISD::SEXTLOAD, MVT::i32, Expand);
   setLoadExtAction(ISD::SEXTLOAD, MVT::i8, Custom);
   setLoadExtAction(ISD::SEXTLOAD, MVT::i16, Custom);
+  setLoadExtAction(ISD::ZEXTLOAD, MVT::i32, Expand);
+  setLoadExtAction(ISD::ZEXTLOAD, MVT::i8, Custom);
+  setLoadExtAction(ISD::ZEXTLOAD, MVT::i16, Custom);
   setLoadExtAction(ISD::SEXTLOAD, MVT::v8i16, Expand);
   setLoadExtAction(ISD::SEXTLOAD, MVT::v16i16, Expand);
 
@@ -207,8 +211,15 @@ bool SITargetLowering::allowsUnalignedMemoryAccesses(EVT  VT,
   return VT.bitsGT(MVT::i32);
 }
 
-bool SITargetLowering::shouldSplitVectorElementType(EVT VT) const {
-  return VT.bitsLE(MVT::i16);
+bool SITargetLowering::shouldSplitVectorType(EVT VT) const {
+  return VT.getScalarType().bitsLE(MVT::i16);
+}
+
+bool SITargetLowering::shouldConvertConstantLoadToIntImm(const APInt &Imm,
+                                                         Type *Ty) const {
+  const SIInstrInfo *TII =
+    static_cast<const SIInstrInfo*>(getTargetMachine().getInstrInfo());
+  return TII->isInlineConstant(Imm);
 }
 
 SDValue SITargetLowering::LowerParameter(SelectionDAG &DAG, EVT VT, EVT MemVT,
@@ -394,16 +405,16 @@ MachineBasicBlock * SITargetLowering::EmitInstrWithCustomInserter(
       static_cast<const SIInstrInfo*>(getTargetMachine().getInstrInfo());
     MachineRegisterInfo &MRI = BB->getParent()->getRegInfo();
     unsigned SuperReg = MI->getOperand(0).getReg();
-    unsigned SubRegLo = MRI.createVirtualRegister(&AMDGPU::SReg_64RegClass);
-    unsigned SubRegHi = MRI.createVirtualRegister(&AMDGPU::SReg_64RegClass);
-    unsigned SubRegHiHi = MRI.createVirtualRegister(&AMDGPU::SReg_32RegClass);
-    unsigned SubRegHiLo = MRI.createVirtualRegister(&AMDGPU::SReg_32RegClass);
+    unsigned SubRegLo = MRI.createVirtualRegister(&AMDGPU::SGPR_64RegClass);
+    unsigned SubRegHi = MRI.createVirtualRegister(&AMDGPU::SGPR_64RegClass);
+    unsigned SubRegHiHi = MRI.createVirtualRegister(&AMDGPU::SGPR_32RegClass);
+    unsigned SubRegHiLo = MRI.createVirtualRegister(&AMDGPU::SGPR_32RegClass);
     BuildMI(*BB, I, MI->getDebugLoc(), TII->get(AMDGPU::S_MOV_B64), SubRegLo)
             .addOperand(MI->getOperand(1));
     BuildMI(*BB, I, MI->getDebugLoc(), TII->get(AMDGPU::S_MOV_B32), SubRegHiLo)
             .addImm(0);
     BuildMI(*BB, I, MI->getDebugLoc(), TII->get(AMDGPU::S_MOV_B32), SubRegHiHi)
-            .addImm(RSRC_DATA_FORMAT >> 32);
+            .addImm(AMDGPU::RSRC_DATA_FORMAT >> 32);
     BuildMI(*BB, I, MI->getDebugLoc(), TII->get(AMDGPU::REG_SEQUENCE), SubRegHi)
             .addReg(SubRegHiLo)
             .addImm(AMDGPU::sub0)
@@ -735,12 +746,28 @@ SDValue SITargetLowering::LowerLOAD(SDValue Op, SelectionDAG &DAG) const {
     return SDValue();
   }
 
+  EVT MemVT = Load->getMemoryVT();
+
+  assert(!MemVT.isVector() && "Private loads should be scalarized");
+  assert(!MemVT.isFloatingPoint() && "FP loads should be promoted to int");
+
   SDValue Ptr = DAG.getNode(ISD::SRL, DL, MVT::i32, Load->getBasePtr(),
                             DAG.getConstant(2, MVT::i32));
-  Ret = DAG.getNode(AMDGPUISD::REGISTER_LOAD, DL, Op.getValueType(),
+  Ret = DAG.getNode(AMDGPUISD::REGISTER_LOAD, DL, MVT::i32,
                     Load->getChain(), Ptr,
                     DAG.getTargetConstant(0, MVT::i32),
                     Op.getOperand(2));
+  if (MemVT.getSizeInBits() == 64) {
+    SDValue IncPtr = DAG.getNode(ISD::ADD, DL, MVT::i32, Ptr,
+                                 DAG.getConstant(1, MVT::i32));
+
+    SDValue LoadUpper = DAG.getNode(AMDGPUISD::REGISTER_LOAD, DL, MVT::i32,
+                                    Load->getChain(), IncPtr,
+                                    DAG.getTargetConstant(0, MVT::i32),
+                                    Op.getOperand(2));
+
+    Ret = DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i64, Ret, LoadUpper);
+  }
 
   MergedValues[0] = Ret;
   return DAG.getMergeValues(MergedValues, 2, DL);
@@ -776,23 +803,25 @@ SDValue SITargetLowering::LowerSELECT(SDValue Op, SelectionDAG &DAG) const {
 
   SDLoc DL(Op);
   SDValue Cond = Op.getOperand(0);
-  SDValue LHS = Op.getOperand(1);
-  SDValue RHS = Op.getOperand(2);
 
   SDValue Zero = DAG.getConstant(0, MVT::i32);
   SDValue One = DAG.getConstant(1, MVT::i32);
 
-  SDValue Lo0 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, LHS, Zero);
-  SDValue Lo1 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, RHS, Zero);
+  SDValue LHS = DAG.getNode(ISD::BITCAST, DL, MVT::v2i32, Op.getOperand(1));
+  SDValue RHS = DAG.getNode(ISD::BITCAST, DL, MVT::v2i32, Op.getOperand(2));
+
+  SDValue Lo0 = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, DL, MVT::i32, LHS, Zero);
+  SDValue Lo1 = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, DL, MVT::i32, RHS, Zero);
 
   SDValue Lo = DAG.getSelect(DL, MVT::i32, Cond, Lo0, Lo1);
 
-  SDValue Hi0 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, LHS, One);
-  SDValue Hi1 = DAG.getNode(ISD::EXTRACT_ELEMENT, DL, MVT::i32, RHS, One);
+  SDValue Hi0 = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, DL, MVT::i32, LHS, One);
+  SDValue Hi1 = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, DL, MVT::i32, RHS, One);
 
   SDValue Hi = DAG.getSelect(DL, MVT::i32, Cond, Hi0, Hi1);
 
-  return DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i64, Lo, Hi);
+  SDValue Res = DAG.getNode(ISD::BUILD_VECTOR, DL, MVT::v2i32, Lo, Hi);
+  return DAG.getNode(ISD::BITCAST, DL, MVT::i64, Res);
 }
 
 SDValue SITargetLowering::LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const {
@@ -840,6 +869,11 @@ SDValue SITargetLowering::LowerSTORE(SDValue Op, SelectionDAG &DAG) const {
 
   if (VT.isVector() && VT.getVectorNumElements() >= 8)
       return SplitVectorStore(Op, DAG);
+
+  if (VT == MVT::i1)
+    return DAG.getTruncStore(Store->getChain(), DL,
+                        DAG.getSExtOrTrunc(Store->getValue(), DL, MVT::i32),
+                        Store->getBasePtr(), MVT::i1, Store->getMemOperand());
 
   if (Store->getAddressSpace() != AMDGPUAS::PRIVATE_ADDRESS)
     return SDValue();
@@ -995,9 +1029,11 @@ int32_t SITargetLowering::analyzeImmediate(const SDNode *N) const {
         return -1;
     }
     Imm.I = Node->getSExtValue();
-  } else if (const ConstantFPSDNode *Node = dyn_cast<ConstantFPSDNode>(N))
+  } else if (const ConstantFPSDNode *Node = dyn_cast<ConstantFPSDNode>(N)) {
+    if (N->getValueType(0) != MVT::f32)
+      return -1;
     Imm.F = Node->getValueAPF().convertToFloat();
-  else
+  } else
     return -1; // It isn't an immediate
 
   if ((Imm.I >= -16 && Imm.I <= 64) ||

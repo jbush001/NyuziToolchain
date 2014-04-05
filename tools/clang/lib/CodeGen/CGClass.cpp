@@ -342,7 +342,7 @@ namespace {
     CallBaseDtor(const CXXRecordDecl *Base, bool BaseIsVirtual)
       : BaseClass(Base), BaseIsVirtual(BaseIsVirtual) {}
 
-    void Emit(CodeGenFunction &CGF, Flags flags) {
+    void Emit(CodeGenFunction &CGF, Flags flags) override {
       const CXXRecordDecl *DerivedClass =
         cast<CXXMethodDecl>(CGF.CurCodeDecl)->getParent();
 
@@ -549,10 +549,8 @@ static void EmitMemberInitializer(CodeGenFunction &CGF,
     // If we are initializing an anonymous union field, drill down to
     // the field.
     IndirectFieldDecl *IndirectField = MemberInit->getIndirectMember();
-    IndirectFieldDecl::chain_iterator I = IndirectField->chain_begin(),
-      IEnd = IndirectField->chain_end();
-    for ( ; I != IEnd; ++I)
-      LHS = CGF.EmitLValueForFieldInitialization(LHS, cast<FieldDecl>(*I));
+    for (const auto *I : IndirectField->chain())
+      LHS = CGF.EmitLValueForFieldInitialization(LHS, cast<FieldDecl>(I));
     FieldType = MemberInit->getIndirectMember()->getAnonField()->getType();
   } else {
     LHS = CGF.EmitLValueForFieldInitialization(LHS, Field);
@@ -1197,23 +1195,17 @@ HasTrivialDestructorBody(ASTContext &Context,
     return false;
 
   // Check fields.
-  for (CXXRecordDecl::field_iterator I = BaseClassDecl->field_begin(),
-       E = BaseClassDecl->field_end(); I != E; ++I) {
-    const FieldDecl *Field = *I;
-    
+  for (const auto *Field : BaseClassDecl->fields())
     if (!FieldHasTrivialDestructorBody(Context, Field))
       return false;
-  }
 
   // Check non-virtual bases.
-  for (CXXRecordDecl::base_class_const_iterator I = 
-       BaseClassDecl->bases_begin(), E = BaseClassDecl->bases_end();
-       I != E; ++I) {
-    if (I->isVirtual())
+  for (const auto &I : BaseClassDecl->bases()) {
+    if (I.isVirtual())
       continue;
 
     const CXXRecordDecl *NonVirtualBase =
-      cast<CXXRecordDecl>(I->getType()->castAs<RecordType>()->getDecl());
+      cast<CXXRecordDecl>(I.getType()->castAs<RecordType>()->getDecl());
     if (!HasTrivialDestructorBody(Context, NonVirtualBase,
                                   MostDerivedClassDecl))
       return false;
@@ -1221,11 +1213,9 @@ HasTrivialDestructorBody(ASTContext &Context,
 
   if (BaseClassDecl == MostDerivedClassDecl) {
     // Check virtual bases.
-    for (CXXRecordDecl::base_class_const_iterator I = 
-         BaseClassDecl->vbases_begin(), E = BaseClassDecl->vbases_end();
-         I != E; ++I) {
+    for (const auto &I : BaseClassDecl->vbases()) {
       const CXXRecordDecl *VirtualBase =
-        cast<CXXRecordDecl>(I->getType()->castAs<RecordType>()->getDecl());
+        cast<CXXRecordDecl>(I.getType()->castAs<RecordType>()->getDecl());
       if (!HasTrivialDestructorBody(Context, VirtualBase,
                                     MostDerivedClassDecl))
         return false;      
@@ -1258,13 +1248,9 @@ static bool CanSkipVTablePointerInitialization(ASTContext &Context,
 
   // Check the fields.
   const CXXRecordDecl *ClassDecl = Dtor->getParent();
-  for (CXXRecordDecl::field_iterator I = ClassDecl->field_begin(),
-       E = ClassDecl->field_end(); I != E; ++I) {
-    const FieldDecl *Field = *I;
-
+  for (const auto *Field : ClassDecl->fields())
     if (!FieldHasTrivialDestructorBody(Context, Field))
       return false;
-  }
 
   return true;
 }
@@ -1365,11 +1351,8 @@ void CodeGenFunction::emitImplicitAssignmentOperatorBody(FunctionArgList &Args) 
   LexicalScope Scope(*this, RootCS->getSourceRange());
 
   AssignmentMemcpyizer AM(*this, AssignOp, Args);
-  for (CompoundStmt::const_body_iterator I = RootCS->body_begin(),
-                                         E = RootCS->body_end();
-       I != E; ++I) {
-    AM.emitAssignment(*I);  
-  }
+  for (auto *I : RootCS->body())
+    AM.emitAssignment(I);  
   AM.finish();
 }
 
@@ -1378,7 +1361,7 @@ namespace {
   struct CallDtorDelete : EHScopeStack::Cleanup {
     CallDtorDelete() {}
 
-    void Emit(CodeGenFunction &CGF, Flags flags) {
+    void Emit(CodeGenFunction &CGF, Flags flags) override {
       const CXXDestructorDecl *Dtor = cast<CXXDestructorDecl>(CGF.CurCodeDecl);
       const CXXRecordDecl *ClassDecl = Dtor->getParent();
       CGF.EmitDeleteCall(Dtor->getOperatorDelete(), CGF.LoadCXXThis(),
@@ -1394,7 +1377,7 @@ namespace {
       assert(ShouldDeleteCondition != NULL);
     }
 
-    void Emit(CodeGenFunction &CGF, Flags flags) {
+    void Emit(CodeGenFunction &CGF, Flags flags) override {
       llvm::BasicBlock *callDeleteBB = CGF.createBasicBlock("dtor.call_delete");
       llvm::BasicBlock *continueBB = CGF.createBasicBlock("dtor.continue");
       llvm::Value *ShouldCallDelete
@@ -1423,7 +1406,7 @@ namespace {
       : field(field), destroyer(destroyer),
         useEHCleanupForArray(useEHCleanupForArray) {}
 
-    void Emit(CodeGenFunction &CGF, Flags flags) {
+    void Emit(CodeGenFunction &CGF, Flags flags) override {
       // Find the address of the field.
       llvm::Value *thisValue = CGF.LoadCXXThis();
       QualType RecordTy = CGF.getContext().getTagDeclType(field->getParent());
@@ -1472,10 +1455,7 @@ void CodeGenFunction::EnterDtorCleanups(const CXXDestructorDecl *DD,
 
     // We push them in the forward order so that they'll be popped in
     // the reverse order.
-    for (CXXRecordDecl::base_class_const_iterator I = 
-           ClassDecl->vbases_begin(), E = ClassDecl->vbases_end();
-              I != E; ++I) {
-      const CXXBaseSpecifier &Base = *I;
+    for (const auto &Base : ClassDecl->vbases()) {
       CXXRecordDecl *BaseClassDecl
         = cast<CXXRecordDecl>(Base.getType()->getAs<RecordType>()->getDecl());
     
@@ -1494,10 +1474,7 @@ void CodeGenFunction::EnterDtorCleanups(const CXXDestructorDecl *DD,
   assert(DtorType == Dtor_Base);
   
   // Destroy non-virtual bases.
-  for (CXXRecordDecl::base_class_const_iterator I = 
-        ClassDecl->bases_begin(), E = ClassDecl->bases_end(); I != E; ++I) {
-    const CXXBaseSpecifier &Base = *I;
-    
+  for (const auto &Base : ClassDecl->bases()) {
     // Ignore virtual bases.
     if (Base.isVirtual())
       continue;
@@ -1514,10 +1491,8 @@ void CodeGenFunction::EnterDtorCleanups(const CXXDestructorDecl *DD,
   }
 
   // Destroy direct fields.
-  for (CXXRecordDecl::field_iterator I = ClassDecl->field_begin(),
-       E = ClassDecl->field_end(); I != E; ++I) {
-    const FieldDecl *field = *I;
-    QualType type = field->getType();
+  for (const auto *Field : ClassDecl->fields()) {
+    QualType type = Field->getType();
     QualType::DestructionKind dtorKind = type.isDestructedType();
     if (!dtorKind) continue;
 
@@ -1526,7 +1501,7 @@ void CodeGenFunction::EnterDtorCleanups(const CXXDestructorDecl *DD,
     if (RT && RT->getDecl()->isAnonymousStructOrUnion()) continue;
 
     CleanupKind cleanupKind = getCleanupKind(dtorKind);
-    EHStack.pushCleanup<DestroyField>(cleanupKind, field,
+    EHStack.pushCleanup<DestroyField>(cleanupKind, Field,
                                       getDestroyer(dtorKind),
                                       cleanupKind & EHCleanup);
   }
@@ -1806,7 +1781,7 @@ namespace {
                            CXXDtorType Type)
       : Dtor(D), Addr(Addr), Type(Type) {}
 
-    void Emit(CodeGenFunction &CGF, Flags flags) {
+    void Emit(CodeGenFunction &CGF, Flags flags) override {
       CGF.EmitCXXDestructorCall(Dtor, Type, /*ForVirtualBase=*/false,
                                 /*Delegating=*/true, Addr);
     }
@@ -1858,7 +1833,7 @@ namespace {
     CallLocalDtor(const CXXDestructorDecl *D, llvm::Value *Addr)
       : Dtor(D), Addr(Addr) {}
 
-    void Emit(CodeGenFunction &CGF, Flags flags) {
+    void Emit(CodeGenFunction &CGF, Flags flags) override {
       CGF.EmitCXXDestructorCall(Dtor, Dtor_Complete,
                                 /*ForVirtualBase=*/false,
                                 /*Delegating=*/false, Addr);
@@ -1945,10 +1920,9 @@ CodeGenFunction::InitializeVTablePointers(BaseSubobject Base,
   const CXXRecordDecl *RD = Base.getBase();
 
   // Traverse bases.
-  for (CXXRecordDecl::base_class_const_iterator I = RD->bases_begin(), 
-       E = RD->bases_end(); I != E; ++I) {
+  for (const auto &I : RD->bases()) {
     CXXRecordDecl *BaseDecl
-      = cast<CXXRecordDecl>(I->getType()->getAs<RecordType>()->getDecl());
+      = cast<CXXRecordDecl>(I.getType()->getAs<RecordType>()->getDecl());
 
     // Ignore classes without a vtable.
     if (!BaseDecl->isDynamicClass())
@@ -1958,7 +1932,7 @@ CodeGenFunction::InitializeVTablePointers(BaseSubobject Base,
     CharUnits BaseOffsetFromNearestVBase;
     bool BaseDeclIsNonVirtualPrimaryBase;
 
-    if (I->isVirtual()) {
+    if (I.isVirtual()) {
       // Check if we've visited this virtual base before.
       if (!VBases.insert(BaseDecl))
         continue;
@@ -1979,7 +1953,7 @@ CodeGenFunction::InitializeVTablePointers(BaseSubobject Base,
     }
     
     InitializeVTablePointers(BaseSubobject(BaseDecl, BaseOffset), 
-                             I->isVirtual() ? BaseDecl : NearestVBase,
+                             I.isVirtual() ? BaseDecl : NearestVBase,
                              BaseOffsetFromNearestVBase,
                              BaseDeclIsNonVirtualPrimaryBase, 
                              VTableClass, VBases);
@@ -2163,11 +2137,9 @@ void CodeGenFunction::EmitLambdaBlockInvokeBody() {
   CallArgs.add(RValue::get(ThisPtr), ThisType);
 
   // Add the rest of the parameters.
-  for (BlockDecl::param_const_iterator I = BD->param_begin(),
-       E = BD->param_end(); I != E; ++I) {
-    ParmVarDecl *param = *I;
+  for (auto param : BD->params())
     EmitDelegateCallArg(CallArgs, param, param->getLocStart());
-  }
+
   assert(!Lambda->isGenericLambda() && 
             "generic lambda interconversion to block not implemented");
   EmitForwardingCallToLambda(Lambda->getLambdaCallOperator(), CallArgs);
@@ -2195,11 +2167,9 @@ void CodeGenFunction::EmitLambdaDelegatingInvokeBody(const CXXMethodDecl *MD) {
   CallArgs.add(RValue::get(ThisPtr), ThisType);
 
   // Add the rest of the parameters.
-  for (FunctionDecl::param_const_iterator I = MD->param_begin(),
-       E = MD->param_end(); I != E; ++I) {
-    ParmVarDecl *param = *I;
-    EmitDelegateCallArg(CallArgs, param, param->getLocStart());
-  }
+  for (auto Param : MD->params())
+    EmitDelegateCallArg(CallArgs, Param, Param->getLocStart());
+
   const CXXMethodDecl *CallOp = Lambda->getLambdaCallOperator();
   // For a generic lambda, find the corresponding call operator specialization
   // to which the call to the static-invoker shall be forwarded.

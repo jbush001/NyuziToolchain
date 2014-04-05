@@ -113,6 +113,9 @@ static const unsigned QFPRegDecoderTable[] = {
   SP::Q6,  SP::Q14,  ~0U,  ~0U,
   SP::Q7,  SP::Q15,  ~0U,  ~0U } ;
 
+static const unsigned FCCRegDecoderTable[] = {
+  SP::FCC0, SP::FCC1, SP::FCC2, SP::FCC3 };
+
 static DecodeStatus DecodeIntRegsRegisterClass(MCInst &Inst,
                                                unsigned RegNo,
                                                uint64_t Address,
@@ -174,6 +177,16 @@ static DecodeStatus DecodeQFPRegsRegisterClass(MCInst &Inst,
   return MCDisassembler::Success;
 }
 
+static DecodeStatus DecodeFCCRegsRegisterClass(MCInst &Inst, unsigned RegNo,
+                                               uint64_t Address,
+                                               const void *Decoder) {
+  if (RegNo > 3)
+    return MCDisassembler::Fail;
+  Inst.addOperand(MCOperand::CreateReg(FCCRegDecoderTable[RegNo]));
+  return MCDisassembler::Success;
+}
+
+
 static DecodeStatus DecodeLoadInt(MCInst &Inst, unsigned insn, uint64_t Address,
                                   const void *Decoder);
 static DecodeStatus DecodeLoadFP(MCInst &Inst, unsigned insn, uint64_t Address,
@@ -194,6 +207,12 @@ static DecodeStatus DecodeCall(MCInst &Inst, unsigned insn,
                                uint64_t Address, const void *Decoder);
 static DecodeStatus DecodeSIMM13(MCInst &Inst, unsigned insn,
                                  uint64_t Address, const void *Decoder);
+static DecodeStatus DecodeJMPL(MCInst &Inst, unsigned insn, uint64_t Address,
+                               const void *Decoder);
+static DecodeStatus DecodeReturn(MCInst &MI, unsigned insn, uint64_t Address,
+                                 const void *Decoder);
+static DecodeStatus DecodeSWAP(MCInst &Inst, unsigned insn, uint64_t Address,
+                               const void *Decoder);
 
 #include "SparcGenDisassemblerTables.inc"
 
@@ -364,5 +383,101 @@ static DecodeStatus DecodeSIMM13(MCInst &MI, unsigned insn,
                                  uint64_t Address, const void *Decoder) {
   unsigned tgt = SignExtend32<13>(fieldFromInstruction(insn, 0, 13));
   MI.addOperand(MCOperand::CreateImm(tgt));
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus DecodeJMPL(MCInst &MI, unsigned insn, uint64_t Address,
+                               const void *Decoder) {
+
+  unsigned rd = fieldFromInstruction(insn, 25, 5);
+  unsigned rs1 = fieldFromInstruction(insn, 14, 5);
+  unsigned isImm = fieldFromInstruction(insn, 13, 1);
+  unsigned rs2 = 0;
+  unsigned simm13 = 0;
+  if (isImm)
+    simm13 = SignExtend32<13>(fieldFromInstruction(insn, 0, 13));
+  else
+    rs2 = fieldFromInstruction(insn, 0, 5);
+
+  // Decode RD.
+  DecodeStatus status = DecodeIntRegsRegisterClass(MI, rd, Address, Decoder);
+  if (status != MCDisassembler::Success)
+    return status;
+
+  // Decode RS1.
+  status = DecodeIntRegsRegisterClass(MI, rs1, Address, Decoder);
+  if (status != MCDisassembler::Success)
+    return status;
+
+  // Decode RS1 | SIMM13.
+  if (isImm)
+    MI.addOperand(MCOperand::CreateImm(simm13));
+  else {
+    status = DecodeIntRegsRegisterClass(MI, rs2, Address, Decoder);
+    if (status != MCDisassembler::Success)
+      return status;
+  }
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus DecodeReturn(MCInst &MI, unsigned insn, uint64_t Address,
+                                 const void *Decoder) {
+
+  unsigned rs1 = fieldFromInstruction(insn, 14, 5);
+  unsigned isImm = fieldFromInstruction(insn, 13, 1);
+  unsigned rs2 = 0;
+  unsigned simm13 = 0;
+  if (isImm)
+    simm13 = SignExtend32<13>(fieldFromInstruction(insn, 0, 13));
+  else
+    rs2 = fieldFromInstruction(insn, 0, 5);
+
+  // Decode RS1.
+  DecodeStatus status = DecodeIntRegsRegisterClass(MI, rs1, Address, Decoder);
+  if (status != MCDisassembler::Success)
+    return status;
+
+  // Decode RS2 | SIMM13.
+  if (isImm)
+    MI.addOperand(MCOperand::CreateImm(simm13));
+  else {
+    status = DecodeIntRegsRegisterClass(MI, rs2, Address, Decoder);
+    if (status != MCDisassembler::Success)
+      return status;
+  }
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus DecodeSWAP(MCInst &MI, unsigned insn, uint64_t Address,
+                               const void *Decoder) {
+
+  unsigned rd = fieldFromInstruction(insn, 25, 5);
+  unsigned rs1 = fieldFromInstruction(insn, 14, 5);
+  unsigned isImm = fieldFromInstruction(insn, 13, 1);
+  unsigned rs2 = 0;
+  unsigned simm13 = 0;
+  if (isImm)
+    simm13 = SignExtend32<13>(fieldFromInstruction(insn, 0, 13));
+  else
+    rs2 = fieldFromInstruction(insn, 0, 5);
+
+  // Decode RD.
+  DecodeStatus status = DecodeIntRegsRegisterClass(MI, rd, Address, Decoder);
+  if (status != MCDisassembler::Success)
+    return status;
+
+  // Decode RS1.
+  status = DecodeIntRegsRegisterClass(MI, rs1, Address, Decoder);
+  if (status != MCDisassembler::Success)
+    return status;
+
+  // Decode RS1 | SIMM13.
+  if (isImm)
+    MI.addOperand(MCOperand::CreateImm(simm13));
+  else {
+    status = DecodeIntRegsRegisterClass(MI, rs2, Address, Decoder);
+    if (status != MCDisassembler::Success)
+      return status;
+  }
   return MCDisassembler::Success;
 }

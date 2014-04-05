@@ -30,7 +30,7 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Module.h"
-#include "llvm/Support/ValueHandle.h"
+#include "llvm/IR/ValueHandle.h"
 #include "llvm/Transforms/Utils/SpecialCaseList.h"
 
 namespace llvm {
@@ -99,10 +99,8 @@ namespace CodeGen {
     }
     
     bool operator<(const OrderGlobalInits &RHS) const {
-      if (priority < RHS.priority)
-        return true;
-      
-      return priority == RHS.priority && lex_order < RHS.lex_order;
+      return std::tie(priority, lex_order) <
+             std::tie(RHS.priority, RHS.lex_order);
     }
   };
 
@@ -237,7 +235,7 @@ class CodeGenModule : public CodeGenTypeCache {
   DiagnosticsEngine &Diags;
   const llvm::DataLayout &TheDataLayout;
   const TargetInfo &Target;
-  llvm::OwningPtr<CGCXXABI> ABI;
+  std::unique_ptr<CGCXXABI> ABI;
   llvm::LLVMContext &VMContext;
 
   CodeGenTBAA *TBAA;
@@ -300,6 +298,7 @@ class CodeGenModule : public CodeGenTypeCache {
   /// forcing visibility of symbols which may otherwise be optimized
   /// out.
   std::vector<llvm::WeakVH> LLVMUsed;
+  std::vector<llvm::WeakVH> LLVMCompilerUsed;
 
   /// GlobalCtors - Store the list of global constructors and their respective
   /// priorities to be emitted when the translation unit is complete.
@@ -320,7 +319,10 @@ class CodeGenModule : public CodeGenTypeCache {
   llvm::StringMap<llvm::Constant*> AnnotationStrings;
 
   llvm::StringMap<llvm::Constant*> CFConstantStringMap;
-  llvm::StringMap<llvm::GlobalVariable*> ConstantStringMap;
+
+  llvm::StringMap<llvm::GlobalVariable *> Constant1ByteStringMap;
+  llvm::StringMap<llvm::GlobalVariable *> Constant2ByteStringMap;
+  llvm::StringMap<llvm::GlobalVariable *> Constant4ByteStringMap;
   llvm::DenseMap<const Decl*, llvm::Constant *> StaticLocalDeclMap;
   llvm::DenseMap<const Decl*, llvm::GlobalVariable*> StaticLocalDeclGuardMap;
   llvm::DenseMap<const Expr*, llvm::Constant *> MaterializedGlobalTemporaryMap;
@@ -431,7 +433,7 @@ class CodeGenModule : public CodeGenTypeCache {
 
   GlobalDecl initializedGlobalDecl;
 
-  llvm::OwningPtr<llvm::SpecialCaseList> SanitizerBlacklist;
+  std::unique_ptr<llvm::SpecialCaseList> SanitizerBlacklist;
 
   const SanitizerOptions &SanOpts;
 
@@ -801,10 +803,11 @@ public:
   template<typename SomeDecl>
   void MaybeHandleStaticInExternC(const SomeDecl *D, llvm::GlobalValue *GV);
 
-  /// AddUsedGlobal - Add a global which should be forced to be
-  /// present in the object file; these are emitted to the llvm.used
-  /// metadata global.
-  void AddUsedGlobal(llvm::GlobalValue *GV);
+  /// Add a global to a list to be added to the llvm.used metadata.
+  void addUsedGlobal(llvm::GlobalValue *GV);
+
+  /// Add a global to a list to be added to the llvm.compiler.used metadata.
+  void addCompilerUsedGlobal(llvm::GlobalValue *GV);
 
   /// AddCXXDtorEntry - Add a destructor and object to add to the C++ global
   /// destructor function.
@@ -904,6 +907,10 @@ public:
   /// ReturnTypeUsesSRet - Return true iff the given type uses 'sret' when used
   /// as a return type.
   bool ReturnTypeUsesSRet(const CGFunctionInfo &FI);
+
+  /// ReturnSlotInterferesWithArgs - Return true iff the given type uses an
+  /// argument slot when 'sret' is used as a return type.
+  bool ReturnSlotInterferesWithArgs(const CGFunctionInfo &FI);
 
   /// ReturnTypeUsesFPRet - Return true iff the given type uses 'fpret' when
   /// used as a return type.
@@ -1106,9 +1113,8 @@ private:
   /// still have a use for.
   void EmitDeferredVTables();
 
-  /// EmitLLVMUsed - Emit the llvm.used metadata used to force
-  /// references to global which may otherwise be optimized out.
-  void EmitLLVMUsed();
+  /// Emit the llvm.used and llvm.compiler.used metadata.
+  void emitLLVMUsed();
 
   /// \brief Emit the link options introduced by imported modules.
   void EmitModuleLinkOptions();

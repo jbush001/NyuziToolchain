@@ -11,13 +11,13 @@
 
 #include "clang/Basic/VirtualFileSystem.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/Support/Atomic.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/YAMLParser.h"
+#include <atomic>
+#include <memory>
 
 using namespace clang;
 using namespace clang::vfs;
@@ -65,10 +65,10 @@ File::~File() {}
 FileSystem::~FileSystem() {}
 
 error_code FileSystem::getBufferForFile(const llvm::Twine &Name,
-                                        OwningPtr<MemoryBuffer> &Result,
+                                        std::unique_ptr<MemoryBuffer> &Result,
                                         int64_t FileSize,
                                         bool RequiresNullTerminator) {
-  llvm::OwningPtr<File> F;
+  std::unique_ptr<File> F;
   if (error_code EC = openFileForRead(Name, F))
     return EC;
 
@@ -92,12 +92,12 @@ class RealFile : public File {
 
 public:
   ~RealFile();
-  ErrorOr<Status> status() LLVM_OVERRIDE;
-  error_code getBuffer(const Twine &Name, OwningPtr<MemoryBuffer> &Result,
+  ErrorOr<Status> status() override;
+  error_code getBuffer(const Twine &Name, std::unique_ptr<MemoryBuffer> &Result,
                        int64_t FileSize = -1,
-                       bool RequiresNullTerminator = true) LLVM_OVERRIDE;
-  error_code close() LLVM_OVERRIDE;
-  void setName(StringRef Name) LLVM_OVERRIDE;
+                       bool RequiresNullTerminator = true) override;
+  error_code close() override;
+  void setName(StringRef Name) override;
 };
 } // end anonymous namespace
 RealFile::~RealFile() { close(); }
@@ -110,13 +110,13 @@ ErrorOr<Status> RealFile::status() {
       return EC;
     Status NewS(RealStatus);
     NewS.setName(S.getName());
-    S = llvm_move(NewS);
+    S = std::move(NewS);
   }
   return S;
 }
 
 error_code RealFile::getBuffer(const Twine &Name,
-                               OwningPtr<MemoryBuffer> &Result,
+                               std::unique_ptr<MemoryBuffer> &Result,
                                int64_t FileSize, bool RequiresNullTerminator) {
   assert(FD != -1 && "cannot get buffer for closed file");
   return MemoryBuffer::getOpenFile(FD, Name.str().c_str(), Result, FileSize,
@@ -148,9 +148,9 @@ namespace {
 /// \brief The file system according to your operating system.
 class RealFileSystem : public FileSystem {
 public:
-  ErrorOr<Status> status(const Twine &Path) LLVM_OVERRIDE;
+  ErrorOr<Status> status(const Twine &Path) override;
   error_code openFileForRead(const Twine &Path,
-                             OwningPtr<File> &Result) LLVM_OVERRIDE;
+                             std::unique_ptr<File> &Result) override;
 };
 } // end anonymous namespace
 
@@ -164,7 +164,7 @@ ErrorOr<Status> RealFileSystem::status(const Twine &Path) {
 }
 
 error_code RealFileSystem::openFileForRead(const Twine &Name,
-                                           OwningPtr<File> &Result) {
+                                           std::unique_ptr<File> &Result) {
   int FD;
   if (error_code EC = sys::fs::openFileForRead(Name, FD))
     return EC;
@@ -200,7 +200,7 @@ ErrorOr<Status> OverlayFileSystem::status(const Twine &Path) {
 }
 
 error_code OverlayFileSystem::openFileForRead(const llvm::Twine &Path,
-                                              OwningPtr<File> &Result) {
+                                              std::unique_ptr<File> &Result) {
   // FIXME: handle symlinks that cross file systems
   for (iterator I = overlays_begin(), E = overlays_end(); I != E; ++I) {
     error_code EC = (*I)->openFileForRead(Path, Result);
@@ -253,13 +253,9 @@ class DirectoryEntry : public Entry {
 
 public:
   virtual ~DirectoryEntry();
-#if LLVM_HAS_RVALUE_REFERENCES
   DirectoryEntry(StringRef Name, std::vector<Entry *> Contents, Status S)
       : Entry(EK_Directory, Name), Contents(std::move(Contents)),
         S(std::move(S)) {}
-#endif
-  DirectoryEntry(StringRef Name, ArrayRef<Entry *> Contents, const Status &S)
-      : Entry(EK_Directory, Name), Contents(Contents), S(S) {}
   Status getStatus() { return S; }
   typedef std::vector<Entry *>::iterator iterator;
   iterator contents_begin() { return Contents.begin(); }
@@ -387,9 +383,9 @@ public:
                              void *DiagContext,
                              IntrusiveRefCntPtr<FileSystem> ExternalFS);
 
-  ErrorOr<Status> status(const Twine &Path) LLVM_OVERRIDE;
+  ErrorOr<Status> status(const Twine &Path) override;
   error_code openFileForRead(const Twine &Path,
-                             OwningPtr<File> &Result) LLVM_OVERRIDE;
+                             std::unique_ptr<File> &Result) override;
 };
 
 /// \brief A helper class to hold the common YAML parsing state.
@@ -582,9 +578,11 @@ class VFSFromYAMLParser {
       return NULL;
     }
 
-    // Remove trailing slash(es)
+    // Remove trailing slash(es), being careful not to remove the root path
     StringRef Trimmed(Name);
-    while (Trimmed.size() > 1 && sys::path::is_separator(Trimmed.back()))
+    size_t RootPathLen = sys::path::root_path(Trimmed).size();
+    while (Trimmed.size() > RootPathLen &&
+           sys::path::is_separator(Trimmed.back()))
       Trimmed = Trimmed.slice(0, Trimmed.size()-1);
     // Get the last component
     StringRef LastComponent = sys::path::filename(Trimmed);
@@ -592,11 +590,11 @@ class VFSFromYAMLParser {
     Entry *Result = 0;
     switch (Kind) {
     case EK_File:
-      Result = new FileEntry(LastComponent, llvm_move(ExternalContentsPath),
+      Result = new FileEntry(LastComponent, std::move(ExternalContentsPath),
                              UseExternalName);
       break;
     case EK_Directory:
-      Result = new DirectoryEntry(LastComponent, llvm_move(EntryArrayContents),
+      Result = new DirectoryEntry(LastComponent, std::move(EntryArrayContents),
           Status("", "", getNextVirtualUniqueID(), sys::TimeValue::now(), 0, 0,
                  0, file_type::directory_file, sys::fs::all_all));
       break;
@@ -610,7 +608,7 @@ class VFSFromYAMLParser {
     for (sys::path::reverse_iterator I = sys::path::rbegin(Parent),
                                      E = sys::path::rend(Parent);
          I != E; ++I) {
-      Result = new DirectoryEntry(*I, Result,
+      Result = new DirectoryEntry(*I, llvm::makeArrayRef(Result),
           Status("", "", getNextVirtualUniqueID(), sys::TimeValue::now(), 0, 0,
                  0, file_type::directory_file, sys::fs::all_all));
     }
@@ -725,16 +723,20 @@ VFSFromYAML *VFSFromYAML::create(MemoryBuffer *Buffer,
 
   VFSFromYAMLParser P(Stream);
 
-  OwningPtr<VFSFromYAML> FS(new VFSFromYAML(ExternalFS));
+  std::unique_ptr<VFSFromYAML> FS(new VFSFromYAML(ExternalFS));
   if (!P.parse(Root, FS.get()))
     return NULL;
 
-  return FS.take();
+  return FS.release();
 }
 
 ErrorOr<Entry *> VFSFromYAML::lookupPath(const Twine &Path_) {
-  SmallVector<char, 256> Storage;
-  StringRef Path = Path_.toNullTerminatedStringRef(Storage);
+  SmallString<256> Path;
+  Path_.toVector(Path);
+
+  // Handle relative paths
+  if (error_code EC = sys::fs::make_absolute(Path))
+    return EC;
 
   if (Path.empty())
     return error_code(errc::invalid_argument, system_category());
@@ -753,7 +755,10 @@ ErrorOr<Entry *> VFSFromYAML::lookupPath(const Twine &Path_) {
 ErrorOr<Entry *> VFSFromYAML::lookupPath(sys::path::const_iterator Start,
                                          sys::path::const_iterator End,
                                          Entry *From) {
-  // FIXME: handle . and ..
+  if (Start->equals("."))
+    ++Start;
+
+  // FIXME: handle ..
   if (CaseSensitive ? !Start->equals(From->getName())
                     : !Start->equals_lower(From->getName()))
     // failure to match
@@ -801,7 +806,7 @@ ErrorOr<Status> VFSFromYAML::status(const Twine &Path) {
 }
 
 error_code VFSFromYAML::openFileForRead(const Twine &Path,
-                                        OwningPtr<vfs::File> &Result) {
+                                        std::unique_ptr<vfs::File> &Result) {
   ErrorOr<Entry *> E = lookupPath(Path);
   if (!E)
     return E.getError();
@@ -828,8 +833,8 @@ vfs::getVFSFromYAML(MemoryBuffer *Buffer, SourceMgr::DiagHandlerTy DiagHandler,
 }
 
 UniqueID vfs::getNextVirtualUniqueID() {
-  static volatile sys::cas_flag UID = 0;
-  sys::cas_flag ID = llvm::sys::AtomicIncrement(&UID);
+  static std::atomic<unsigned> UID;
+  unsigned ID = ++UID;
   // The following assumes that uint64_t max will never collide with a real
   // dev_t value from the OS.
   return UniqueID(std::numeric_limits<uint64_t>::max(), ID);

@@ -11,13 +11,13 @@
 #define INSTCOMBINE_INSTCOMBINE_H
 
 #include "InstCombineWorklist.h"
+#include "llvm/Analysis/TargetFolder.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/InstVisitor.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Operator.h"
-#include "llvm/InstVisitor.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/TargetFolder.h"
 #include "llvm/Transforms/Utils/SimplifyLibCalls.h"
 
 namespace llvm {
@@ -102,11 +102,11 @@ public:
   }
 
 public:
-  virtual bool runOnFunction(Function &F);
+  bool runOnFunction(Function &F) override;
 
   bool DoOneIteration(Function &F, unsigned ItNum);
 
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const;
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
 
   const DataLayout *getDataLayout() const { return DL; }
 

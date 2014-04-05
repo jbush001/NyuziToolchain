@@ -51,10 +51,12 @@ struct TestVFO {
   ~TestVFO() {
     if (!Contents)
       return;
-    CXString Buf;
-    clang_VirtualFileOverlay_writeToBuffer(VFO, 0, &Buf);
-    EXPECT_STREQ(Contents, clang_getCString(Buf));
-    clang_disposeString(Buf);
+    char *BufPtr;
+    unsigned BufSize;
+    clang_VirtualFileOverlay_writeToBuffer(VFO, 0, &BufPtr, &BufSize);
+    std::string BufStr(BufPtr, BufSize);
+    EXPECT_STREQ(Contents, BufStr.c_str());
+    free(BufPtr);
     clang_VirtualFileOverlay_dispose(VFO);
   }
 };
@@ -138,4 +140,50 @@ TEST(libclang, VirtualFileOverlay) {
     T.map("/path/virtual/dir/foo3.h", "/real/foo3.h");
     T.map("/path/virtual/dir/in/subdir/foo4.h", "/real/foo4.h");
   }
+  {
+    const char *contents =
+    "{\n"
+    "  'version': 0,\n"
+    "  'case-sensitive': 'false',\n"
+    "  'roots': [\n"
+    "    {\n"
+    "      'type': 'directory',\n"
+    "      'name': \"/path/virtual\",\n"
+    "      'contents': [\n"
+    "        {\n"
+    "          'type': 'file',\n"
+    "          'name': \"foo.h\",\n"
+    "          'external-contents': \"/real/foo.h\"\n"
+    "        }\n"
+    "      ]\n"
+    "    }\n"
+    "  ]\n"
+    "}\n";
+    TestVFO T(contents);
+    T.map("/path/virtual/foo.h", "/real/foo.h");
+    clang_VirtualFileOverlay_setCaseSensitivity(T.VFO, false);
+  }
+}
+
+TEST(libclang, ModuleMapDescriptor) {
+  const char *Contents =
+    "framework module TestFrame {\n"
+    "  umbrella header \"TestFrame.h\"\n"
+    "\n"
+    "  export *\n"
+    "  module * { export * }\n"
+    "}\n";
+
+  CXModuleMapDescriptor MMD = clang_ModuleMapDescriptor_create(0);
+
+  clang_ModuleMapDescriptor_setFrameworkModuleName(MMD, "TestFrame");
+  clang_ModuleMapDescriptor_setUmbrellaHeader(MMD, "TestFrame.h");
+
+  char *BufPtr;
+  unsigned BufSize;
+  clang_ModuleMapDescriptor_writeToBuffer(MMD, 0, &BufPtr, &BufSize);
+  std::string BufStr(BufPtr, BufSize);
+  EXPECT_STREQ(Contents, BufStr.c_str());
+  free(BufPtr);
+  clang_ModuleMapDescriptor_dispose(MMD);
 }

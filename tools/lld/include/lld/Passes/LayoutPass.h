@@ -42,7 +42,7 @@ public:
   LayoutPass(const Registry &registry);
 
   /// Sorts atoms in mergedFile by content type then by command line order.
-  virtual void perform(std::unique_ptr<MutableFile> &mergedFile);
+  void perform(std::unique_ptr<MutableFile> &mergedFile) override;
 
   virtual ~LayoutPass() {}
 
@@ -54,10 +54,6 @@ private:
   // Build the followOn atoms chain as specified by the kindInGroup
   // reference type
   void buildInGroupTable(MutableFile::DefinedAtomRange &range);
-
-  // Build the PrecededBy Table as specified by the kindLayoutBefore
-  // reference type
-  void buildPrecededByTable(MutableFile::DefinedAtomRange &range);
 
   // Build a map of Atoms to ordinals for sorting the atoms
   void buildOrdinalOverrideMap(MutableFile::DefinedAtomRange &range);

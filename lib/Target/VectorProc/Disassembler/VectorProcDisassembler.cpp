@@ -43,7 +43,7 @@ public:
   virtual DecodeStatus getInstruction(MCInst &instr, uint64_t &size,
                                       const MemoryObject &region,
                                       uint64_t address, raw_ostream &vStream,
-                                      raw_ostream &cStream) const LLVM_OVERRIDE;
+                                      raw_ostream &cStream) const override;
 
 private:
   const MCRegisterInfo *RegInfo;

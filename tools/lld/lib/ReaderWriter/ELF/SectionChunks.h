@@ -20,9 +20,8 @@
 #include "lld/Core/range.h"
 
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/OwningPtr.h"
-#include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Object/ELF.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Debug.h"
@@ -30,6 +29,8 @@
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileOutputBuffer.h"
+
+#include <memory>
 
 namespace lld {
 namespace elf {
@@ -428,7 +429,7 @@ public:
     _virtualAddr = addr;
   }
 
-  // Is the section loadable ?
+  // Is the section loadable?
   inline bool isLoadableSection() const { return _isLoadableSection; }
 
   // Set section Loadable
@@ -1345,17 +1346,17 @@ public:
     this->_msize = this->_fsize;
   }
 
-  virtual void doPreFlight() LLVM_OVERRIDE {
+  void doPreFlight() override {
     // TODO: Generate a proper binary search table.
   }
 
-  virtual void finalize() LLVM_OVERRIDE {
+  void finalize() override {
     MergedSections<ELFT> *s = _layout.findOutputSection(".eh_frame");
     _ehFrameAddr = s ? s->virtualAddr() : 0;
   }
 
   virtual void write(ELFWriter *writer, TargetLayout<ELFT> &layout,
-                     llvm::FileOutputBuffer &buffer) LLVM_OVERRIDE {
+                     llvm::FileOutputBuffer &buffer) override {
     uint8_t *chunkBuffer = buffer.getBufferStart();
     uint8_t *dest = chunkBuffer + this->fileOffset();
     int pos = 0;

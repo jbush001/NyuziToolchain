@@ -16,9 +16,9 @@
 #include "llvm/Pass.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRPrintingPasses.h"
+#include "llvm/IR/LegacyPassNameParser.h"
 #include "llvm/PassRegistry.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/PassNameParser.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace llvm;
 
@@ -252,7 +252,7 @@ namespace {
     VectorType &CFGOnlyList;
     GetCFGOnlyPasses(VectorType &L) : CFGOnlyList(L) {}
 
-    void passEnumerate(const PassInfo *P) {
+    void passEnumerate(const PassInfo *P) override {
       if (P->isCFGOnlyPass())
         CFGOnlyList.push_back(P->getTypeInfo());
     }

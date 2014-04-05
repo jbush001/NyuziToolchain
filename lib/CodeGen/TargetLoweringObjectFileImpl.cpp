@@ -35,8 +35,8 @@
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetLowering.h"
+#include "llvm/Target/TargetMachine.h"
 using namespace llvm;
 using namespace dwarf;
 
@@ -548,15 +548,15 @@ bool TargetLoweringObjectFileMachO::isSectionAtomizableBySymbols(
 
       // These sections are atomized at the element boundaries without using
       // symbols.
-    case MCSectionMachO::S_4BYTE_LITERALS:
-    case MCSectionMachO::S_8BYTE_LITERALS:
-    case MCSectionMachO::S_16BYTE_LITERALS:
-    case MCSectionMachO::S_LITERAL_POINTERS:
-    case MCSectionMachO::S_NON_LAZY_SYMBOL_POINTERS:
-    case MCSectionMachO::S_LAZY_SYMBOL_POINTERS:
-    case MCSectionMachO::S_MOD_INIT_FUNC_POINTERS:
-    case MCSectionMachO::S_MOD_TERM_FUNC_POINTERS:
-    case MCSectionMachO::S_INTERPOSING:
+    case MachO::S_4BYTE_LITERALS:
+    case MachO::S_8BYTE_LITERALS:
+    case MachO::S_16BYTE_LITERALS:
+    case MachO::S_LITERAL_POINTERS:
+    case MachO::S_NON_LAZY_SYMBOL_POINTERS:
+    case MachO::S_LAZY_SYMBOL_POINTERS:
+    case MachO::S_MOD_INIT_FUNC_POINTERS:
+    case MachO::S_MOD_TERM_FUNC_POINTERS:
+    case MachO::S_INTERPOSING:
       return false;
     }
 }
@@ -639,24 +639,6 @@ TargetLoweringObjectFileMachO::getSectionForConstant(SectionKind Kind) const {
   if (Kind.isMergeableConst16())
     return SixteenByteConstantSection;
   return ReadOnlySection;  // .const
-}
-
-/// This hook allows targets to selectively decide not to emit the UsedDirective
-/// for some symbols in llvm.used.
-// FIXME: REMOVE this (rdar://7071300)
-bool TargetLoweringObjectFileMachO::shouldEmitUsedDirectiveFor(
-    const GlobalValue *GV, Mangler &Mang, TargetMachine &TM) const {
-  // Check whether the mangled name has the "Private" or "LinkerPrivate" prefix.
-  if (GV->hasLocalLinkage() && !isa<Function>(GV)) {
-    // FIXME: ObjC metadata is currently emitted as internal symbols that have
-    // \1L and \0l prefixes on them.  Fix them to be Private/LinkerPrivate and
-    // this horrible hack can go away.
-    MCSymbol *Sym = TM.getSymbol(GV, Mang);
-    if (Sym->getName()[0] == 'L' || Sym->getName()[0] == 'l')
-      return false;
-  }
-
-  return true;
 }
 
 const MCExpr *TargetLoweringObjectFileMachO::getTTypeGlobalReference(
@@ -786,18 +768,29 @@ static const char *getCOFFSectionNameForUniqueGlobal(SectionKind Kind) {
 const MCSection *TargetLoweringObjectFileCOFF::
 SelectSectionForGlobal(const GlobalValue *GV, SectionKind Kind,
                        Mangler &Mang, const TargetMachine &TM) const {
+  // If we have -ffunction-sections then we should emit the global value to a
+  // uniqued section specifically for it.
+  bool EmitUniquedSection;
+  if (Kind.isText())
+    EmitUniquedSection = TM.getFunctionSections();
+  else
+    EmitUniquedSection = TM.getDataSections();
 
   // If this global is linkonce/weak and the target handles this by emitting it
   // into a 'uniqued' section name, create and return the section now.
-  if (GV->isWeakForLinker()) {
+  // Section names depend on the name of the symbol which is not feasible if the
+  // symbol has private linkage.
+  if ((GV->isWeakForLinker() || EmitUniquedSection) &&
+      !GV->hasPrivateLinkage()) {
     const char *Name = getCOFFSectionNameForUniqueGlobal(Kind);
     unsigned Characteristics = getCOFFSectionFlags(Kind);
 
     Characteristics |= COFF::IMAGE_SCN_LNK_COMDAT;
     MCSymbol *Sym = TM.getSymbol(GV, Mang);
-    return getContext().getCOFFSection(Name, Characteristics,
-                                       Kind, Sym->getName(),
-                                       COFF::IMAGE_COMDAT_SELECT_ANY);
+    return getContext().getCOFFSection(
+        Name, Characteristics, Kind, Sym->getName(),
+        GV->isWeakForLinker() ? COFF::IMAGE_COMDAT_SELECT_ANY
+                              : COFF::IMAGE_COMDAT_SELECT_NODUPLICATES);
   }
 
   if (Kind.isText())

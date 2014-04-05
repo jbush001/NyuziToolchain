@@ -19,7 +19,6 @@
 #include "clang/Driver/Tool.h"
 #include "clang/Driver/ToolChain.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -36,6 +35,7 @@
 #include "llvm/Support/Program.h"
 #include "llvm/Support/raw_ostream.h"
 #include <map>
+#include <memory>
 
 // FIXME: It would prevent us from including llvm-config.h
 // if config.h were included before system_error.h.
@@ -109,7 +109,7 @@ InputArgList *Driver::ParseArgStrings(ArrayRef<const char *> ArgList) {
 
   unsigned IncludedFlagsBitmask;
   unsigned ExcludedFlagsBitmask;
-  llvm::tie(IncludedFlagsBitmask, ExcludedFlagsBitmask) =
+  std::tie(IncludedFlagsBitmask, ExcludedFlagsBitmask) =
     getIncludeExcludeOptionFlagMasks();
 
   unsigned MissingArgIndex, MissingArgCount;
@@ -335,9 +335,10 @@ Compilation *Driver::BuildCompilation(ArrayRef<const char *> ArgList) {
   // FIXME: DefaultTargetTriple is used by the target-prefixed calls to as/ld
   // and getToolChain is const.
   if (IsCLMode()) {
-    // clang-cl targets Win32.
+    // clang-cl targets MSVC-style Win32.
     llvm::Triple T(DefaultTargetTriple);
-    T.setOSName(llvm::Triple::getOSTypeName(llvm::Triple::Win32));
+    T.setOS(llvm::Triple::Win32);
+    T.setEnvironment(llvm::Triple::MSVC);
     DefaultTargetTriple = T.str();
   }
   if (const Arg *A = Args->getLastArg(options::OPT_target))
@@ -619,7 +620,7 @@ int Driver::ExecuteCompilation(const Compilation &C,
 void Driver::PrintHelp(bool ShowHidden) const {
   unsigned IncludedFlagsBitmask;
   unsigned ExcludedFlagsBitmask;
-  llvm::tie(IncludedFlagsBitmask, ExcludedFlagsBitmask) =
+  std::tie(IncludedFlagsBitmask, ExcludedFlagsBitmask) =
     getIncludeExcludeOptionFlagMasks();
 
   ExcludedFlagsBitmask |= options::NoDriverOption;
@@ -1192,18 +1193,18 @@ void Driver::BuildActions(const ToolChain &TC, DerivedArgList &Args,
         Diag(clang::diag::warn_drv_preprocessed_input_file_unused)
           << InputArg->getAsString(Args)
           << !!FinalPhaseArg
-          << FinalPhaseArg ? FinalPhaseArg->getOption().getName() : "";
+          << (FinalPhaseArg ? FinalPhaseArg->getOption().getName() : "");
       else
         Diag(clang::diag::warn_drv_input_file_unused)
           << InputArg->getAsString(Args)
           << getPhaseName(InitialPhase)
           << !!FinalPhaseArg
-          << FinalPhaseArg ? FinalPhaseArg->getOption().getName() : "";
+          << (FinalPhaseArg ? FinalPhaseArg->getOption().getName() : "");
       continue;
     }
 
     // Build the pipeline for this file.
-    OwningPtr<Action> Current(new InputAction(*InputArg, InputType));
+    std::unique_ptr<Action> Current(new InputAction(*InputArg, InputType));
     for (SmallVectorImpl<phases::ID>::iterator
            i = PL.begin(), e = PL.end(); i != e; ++i) {
       phases::ID Phase = *i;
@@ -1215,7 +1216,7 @@ void Driver::BuildActions(const ToolChain &TC, DerivedArgList &Args,
       // Queue linker inputs.
       if (Phase == phases::Link) {
         assert((i + 1) == e && "linking must be final compilation step.");
-        LinkerInputs.push_back(Current.take());
+        LinkerInputs.push_back(Current.release());
         break;
       }
 
@@ -1226,14 +1227,14 @@ void Driver::BuildActions(const ToolChain &TC, DerivedArgList &Args,
         continue;
 
       // Otherwise construct the appropriate action.
-      Current.reset(ConstructPhaseAction(Args, Phase, Current.take()));
+      Current.reset(ConstructPhaseAction(Args, Phase, Current.release()));
       if (Current->getType() == types::TY_Nothing)
         break;
     }
 
     // If we ended with something, add to the output list.
     if (Current)
-      Actions.push_back(Current.take());
+      Actions.push_back(Current.release());
   }
 
   // Add a link action if necessary.
@@ -1948,10 +1949,29 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
       TC = new toolchains::Solaris(*this, Target, Args);
       break;
     case llvm::Triple::Win32:
-      TC = new toolchains::Windows(*this, Target, Args);
+      switch (Target.getEnvironment()) {
+      default:
+        if (Target.isOSBinFormatELF())
+          TC = new toolchains::Generic_ELF(*this, Target, Args);
+        else if (Target.isOSBinFormatMachO())
+          TC = new toolchains::MachO(*this, Target, Args);
+        else
+          TC = new toolchains::Generic_GCC(*this, Target, Args);
+        break;
+      case llvm::Triple::GNU:
+        // FIXME: We need a MinGW toolchain.  Use the default Generic_GCC
+        // toolchain for now as the default case would below otherwise.
+        if (Target.isOSBinFormatELF())
+          TC = new toolchains::Generic_ELF(*this, Target, Args);
+        else
+          TC = new toolchains::Generic_GCC(*this, Target, Args);
+        break;
+      case llvm::Triple::MSVC:
+      case llvm::Triple::UnknownEnvironment:
+        TC = new toolchains::Windows(*this, Target, Args);
+        break;
+      }
       break;
-    case llvm::Triple::MinGW32:
-      // FIXME: We need a MinGW toolchain. Fallthrough for now.
     default:
       // TCE is an OSless target
       if (Target.getArchName() == "tce") {
@@ -1975,7 +1995,7 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
         TC = new toolchains::Generic_ELF(*this, Target, Args);
         break;
       }
-      if (Target.getEnvironment() == llvm::Triple::MachO) {
+      if (Target.getObjectFormat() == llvm::Triple::MachO) {
         TC = new toolchains::MachO(*this, Target, Args);
         break;
       }
@@ -2052,4 +2072,8 @@ std::pair<unsigned, unsigned> Driver::getIncludeExcludeOptionFlagMasks() const {
   }
 
   return std::make_pair(IncludedFlagsBitmask, ExcludedFlagsBitmask);
+}
+
+bool clang::driver::isOptimizationLevelFast(const llvm::opt::ArgList &Args) {
+  return Args.hasFlag(options::OPT_Ofast, options::OPT_O_Group, false);
 }

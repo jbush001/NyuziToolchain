@@ -50,11 +50,10 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
   TII.adjustStackPointer(MBB, MBBI, -StackSize);
 
   // emit ".cfi_def_cfa_offset StackSize" (debug information)
-  MCSymbol *AdjustSPLabel = MMI.getContext().CreateTempSymbol();
-  BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::PROLOG_LABEL))
-      .addSym(AdjustSPLabel);
-  MMI.addFrameInst(MCCFIInstruction::createDefCfaOffset(AdjustSPLabel, 
-  	-StackSize));
+  unsigned CFIIndex = MMI.addFrameInst(
+      MCCFIInstruction::createDefCfaOffset(nullptr, -StackSize));
+  BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))
+      .addCFIIndex(CFIIndex);
 
   // Find the instruction past the last instruction that saves a callee-saved
   // register to the stack.  We need to set up FP after its old value has been
@@ -66,13 +65,13 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
 
     // Iterate over list of callee-saved registers and emit .cfi_offset
     // directives (debug information)
-    MCSymbol *CSLabel = MMI.getContext().CreateTempSymbol();
-    BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::PROLOG_LABEL)).addSym(CSLabel);
     for (const auto &I : CSI) {
       int64_t Offset = MFI->getObjectOffset(I.getFrameIdx());
       unsigned Reg = I.getReg();
-      MMI.addFrameInst(MCCFIInstruction::createOffset(
-          CSLabel, MRI->getDwarfRegNum(Reg, 1), Offset));
+      unsigned CFIIndex = MMI.addFrameInst(MCCFIInstruction::createOffset(
+          nullptr, MRI->getDwarfRegNum(Reg, 1), Offset));
+      BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))
+          .addCFIIndex(CFIIndex);
     }
   }
 
@@ -83,11 +82,10 @@ void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
         .addReg(VectorProc::SP_REG);
 
     // emit ".cfi_def_cfa_register $fp" (debug information)
-    MCSymbol *SetFPLabel = MMI.getContext().CreateTempSymbol();
-    BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::PROLOG_LABEL))
-        .addSym(SetFPLabel);
-    MMI.addFrameInst(MCCFIInstruction::createDefCfaRegister(
-        SetFPLabel, MRI->getDwarfRegNum(VectorProc::FP_REG, true)));
+    unsigned CFIIndex = MMI.addFrameInst(MCCFIInstruction::createDefCfaRegister(
+        nullptr, MRI->getDwarfRegNum(VectorProc::FP_REG, true)));
+    BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))
+        .addCFIIndex(CFIIndex);
   }
 }
 

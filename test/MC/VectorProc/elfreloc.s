@@ -7,8 +7,8 @@ foo: goto foo	; The fixup for this will be resolved internally and will not crea
 
 	; CHECK: RELOCATION RECORDS
 call memcpy	
-	; CHECK: 4 R_VECTORPROC_BRANCH memcpy
+	; CHECK: 00000004 R_VECTORPROC_BRANCH memcpy
 call exit
-	; CHECK: 8 R_VECTORPROC_BRANCH exit
+	; CHECK: 00000008 R_VECTORPROC_BRANCH exit
 .long ioctl
-	; CHECK: 12 R_VECTORPROC_ABS32 ioctl
+	; CHECK: 0000000c R_VECTORPROC_ABS32 ioctl

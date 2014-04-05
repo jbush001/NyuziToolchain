@@ -95,7 +95,7 @@ namespace {
   class NilArgChecker : public Checker<check::PreObjCMessage,
                                        check::PostStmt<ObjCDictionaryLiteral>,
                                        check::PostStmt<ObjCArrayLiteral> > {
-    mutable OwningPtr<APIMisuse> BT;
+    mutable std::unique_ptr<APIMisuse> BT;
 
     void warnIfNilExpr(const Expr *E,
                        const char *Msg,
@@ -313,7 +313,7 @@ void NilArgChecker::checkPostStmt(const ObjCDictionaryLiteral *DL,
 
 namespace {
 class CFNumberCreateChecker : public Checker< check::PreStmt<CallExpr> > {
-  mutable OwningPtr<APIMisuse> BT;
+  mutable std::unique_ptr<APIMisuse> BT;
   mutable IdentifierInfo* II;
 public:
   CFNumberCreateChecker() : II(0) {}
@@ -498,7 +498,7 @@ void CFNumberCreateChecker::checkPreStmt(const CallExpr *CE,
 
 namespace {
 class CFRetainReleaseChecker : public Checker< check::PreStmt<CallExpr> > {
-  mutable OwningPtr<APIMisuse> BT;
+  mutable std::unique_ptr<APIMisuse> BT;
   mutable IdentifierInfo *Retain, *Release, *MakeCollectable;
 public:
   CFRetainReleaseChecker(): Retain(0), Release(0), MakeCollectable(0) {}
@@ -552,7 +552,7 @@ void CFRetainReleaseChecker::checkPreStmt(const CallExpr *CE,
 
   // Are they equal?
   ProgramStateRef stateTrue, stateFalse;
-  llvm::tie(stateTrue, stateFalse) = state->assume(ArgIsNull);
+  std::tie(stateTrue, stateFalse) = state->assume(ArgIsNull);
 
   if (stateTrue && !stateFalse) {
     ExplodedNode *N = C.generateSink(stateTrue);
@@ -590,7 +590,7 @@ class ClassReleaseChecker : public Checker<check::PreObjCMessage> {
   mutable Selector retainS;
   mutable Selector autoreleaseS;
   mutable Selector drainS;
-  mutable OwningPtr<BugType> BT;
+  mutable std::unique_ptr<BugType> BT;
 
 public:
   void checkPreObjCMessage(const ObjCMethodCall &msg, CheckerContext &C) const;
@@ -649,7 +649,7 @@ class VariadicMethodTypeChecker : public Checker<check::PreObjCMessage> {
   mutable Selector orderedSetWithObjectsS;
   mutable Selector initWithObjectsS;
   mutable Selector initWithObjectsAndKeysS;
-  mutable OwningPtr<BugType> BT;
+  mutable std::unique_ptr<BugType> BT;
 
   bool isVariadicMessage(const ObjCMethodCall &msg) const;
 
@@ -858,7 +858,7 @@ static ProgramStateRef checkCollectionNonNil(CheckerContext &C,
     return State;
 
   ProgramStateRef StNonNil, StNil;
-  llvm::tie(StNonNil, StNil) = State->assume(*KnownCollection);
+  std::tie(StNonNil, StNil) = State->assume(*KnownCollection);
   if (StNil && !StNonNil) {
     // The collection is nil. This path is infeasible.
     return NULL;

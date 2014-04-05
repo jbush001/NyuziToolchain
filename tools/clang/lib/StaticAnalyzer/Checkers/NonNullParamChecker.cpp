@@ -29,8 +29,9 @@ using namespace ento;
 namespace {
 class NonNullParamChecker
   : public Checker< check::PreCall > {
-  mutable OwningPtr<BugType> BTAttrNonNull;
-  mutable OwningPtr<BugType> BTNullRefArg;
+  mutable std::unique_ptr<BugType> BTAttrNonNull;
+  mutable std::unique_ptr<BugType> BTNullRefArg;
+
 public:
 
   void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
@@ -122,7 +123,7 @@ void NonNullParamChecker::checkPreCall(const CallEvent &Call,
 
     ConstraintManager &CM = C.getConstraintManager();
     ProgramStateRef stateNotNull, stateNull;
-    llvm::tie(stateNotNull, stateNull) = CM.assumeDual(state, *DV);
+    std::tie(stateNotNull, stateNull) = CM.assumeDual(state, *DV);
 
     if (stateNull && !stateNotNull) {
       // Generate an error node.  Check for a null node in case

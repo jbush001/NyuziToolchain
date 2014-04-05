@@ -66,7 +66,7 @@ bool generateCode(Module *TheModule)
   }
 
   TargetOptions Options;
-  OwningPtr<TargetMachine>
+  std::unique_ptr<TargetMachine>
     target(TheTarget->createTargetMachine(TheTriple.getTriple(),
                                           "", "", Options,
                                           Reloc::Default, CodeModel::Default, 

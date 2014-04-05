@@ -345,12 +345,13 @@ void SILowerControlFlowPass::LoadM0(MachineInstr &MI, MachineInstr *MovRel) {
           .addReg(AMDGPU::EXEC);
 
   // Read the next variant into VCC (lower 32 bits) <- also loop target
-  BuildMI(MBB, &MI, DL, TII->get(AMDGPU::V_READFIRSTLANE_B32_e32), AMDGPU::VCC)
+  BuildMI(MBB, &MI, DL, TII->get(AMDGPU::V_READFIRSTLANE_B32),
+          AMDGPU::VCC_LO)
           .addReg(Idx);
 
   // Move index from VCC into M0
   BuildMI(MBB, &MI, DL, TII->get(AMDGPU::S_MOV_B32), AMDGPU::M0)
-          .addReg(AMDGPU::VCC);
+          .addReg(AMDGPU::VCC_LO);
 
   // Compare the just read M0 value to all possible Idx values
   BuildMI(MBB, &MI, DL, TII->get(AMDGPU::V_CMP_EQ_U32_e32), AMDGPU::VCC)
@@ -438,10 +439,10 @@ bool SILowerControlFlowPass::runOnMachineFunction(MachineFunction &MF) {
        BI != BE; ++BI) {
 
     MachineBasicBlock &MBB = *BI;
-    for (MachineBasicBlock::iterator I = MBB.begin(), Next = llvm::next(I);
-         I != MBB.end(); I = Next) {
+    MachineBasicBlock::iterator I, Next;
+    for (I = MBB.begin(); I != MBB.end(); I = Next) {
+      Next = std::next(I);
 
-      Next = llvm::next(I);
       MachineInstr &MI = *I;
       if (TII->isDS(MI.getOpcode())) {
         NeedM0 = true;

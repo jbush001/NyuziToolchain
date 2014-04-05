@@ -79,9 +79,6 @@ namespace {
       return dyn_cast<BranchInst>(BB->getTerminator());
     }
 
-    /// Return the condition of the branch terminating the given basic block.
-    static Value *getBrCondtion(BasicBlock *);
-
     /// Derive the precondition block (i.e the block that guards the loop
     /// preheader) from the given preheader.
     static BasicBlock *getPrecondBb(BasicBlock *PreHead);
@@ -144,7 +141,7 @@ namespace {
       DL = 0; DT = 0; SE = 0; TLI = 0; TTI = 0;
     }
 
-    bool runOnLoop(Loop *L, LPPassManager &LPM);
+    bool runOnLoop(Loop *L, LPPassManager &LPM) override;
     bool runOnLoopBlock(BasicBlock *BB, const SCEV *BECount,
                         SmallVectorImpl<BasicBlock*> &ExitBlocks);
 
@@ -164,7 +161,7 @@ namespace {
     /// This transformation requires natural loop information & requires that
     /// loop preheaders be inserted into the CFG.
     ///
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.addRequired<LoopInfo>();
       AU.addPreserved<LoopInfo>();
       AU.addRequiredID(LoopSimplifyID);
@@ -290,11 +287,6 @@ bool LIRUtil::isAlmostEmpty(BasicBlock *BB) {
     return Br->isUnconditional() && BB->size() == 1;
   }
   return false;
-}
-
-Value *LIRUtil::getBrCondtion(BasicBlock *BB) {
-  BranchInst *Br = getBranch(BB);
-  return Br ? Br->getCondition() : 0;
 }
 
 BasicBlock *LIRUtil::getPrecondBb(BasicBlock *PreHead) {
@@ -464,9 +456,8 @@ bool NclPopcountRecognize::detectIdiom(Instruction *&CntInst,
 
       // Check if the result of the instruction is live of the loop.
       bool LiveOutLoop = false;
-      for (Value::use_iterator I = Inst->use_begin(), E = Inst->use_end();
-             I != E;  I++) {
-        if ((cast<Instruction>(*I))->getParent() != LoopEntry) {
+      for (User *U : Inst->users()) {
+        if ((cast<Instruction>(U))->getParent() != LoopEntry) {
           LiveOutLoop = true; break;
         }
       }
@@ -602,11 +593,9 @@ void NclPopcountRecognize::transform(Instruction *CntInst,
   //  __builtin_ctpop().
   {
     SmallVector<Value *, 4> CntUses;
-    for (Value::use_iterator I = CntInst->use_begin(), E = CntInst->use_end();
-         I != E; I++) {
-      if (cast<Instruction>(*I)->getParent() != Body)
-        CntUses.push_back(*I);
-    }
+    for (User *U : CntInst->users())
+      if (cast<Instruction>(U)->getParent() != Body)
+        CntUses.push_back(U);
     for (unsigned Idx = 0; Idx < CntUses.size(); Idx++) {
       (cast<Instruction>(CntUses[Idx]))->replaceUsesOfWith(CntInst, NewCount);
     }

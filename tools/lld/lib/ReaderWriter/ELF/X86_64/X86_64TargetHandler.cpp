@@ -19,8 +19,8 @@ using namespace elf;
 X86_64TargetHandler::X86_64TargetHandler(X86_64LinkingContext &context)
     : DefaultTargetHandler(context), _context(context),
       _x86_64TargetLayout(new X86_64TargetLayout<X86_64ELFType>(context)),
-      _x86_64RelocationHandler(new X86_64TargetRelocationHandler(
-          context, *_x86_64TargetLayout.get())) {}
+      _x86_64RelocationHandler(
+          new X86_64TargetRelocationHandler(*_x86_64TargetLayout.get())) {}
 
 void X86_64TargetHandler::registerRelocationNames(Registry &registry) {
   registry.addKindTable(Reference::KindNamespace::ELF,
@@ -66,11 +66,11 @@ const Registry::KindStrings X86_64TargetHandler::kindStrings[] = {
   LLD_KIND_STRING_ENTRY(R_X86_64_TLSGD),
   LLD_KIND_STRING_ENTRY(R_X86_64_TLSLD),
   LLD_KIND_STRING_ENTRY(R_X86_64_DTPOFF32),
+  LLD_KIND_STRING_ENTRY(R_X86_64_GOTTPOFF),
   LLD_KIND_STRING_ENTRY(R_X86_64_TPOFF32),
   LLD_KIND_STRING_ENTRY(R_X86_64_PC64),
   LLD_KIND_STRING_ENTRY(R_X86_64_GOTOFF64),
   LLD_KIND_STRING_ENTRY(R_X86_64_GOTPC32),
-  LLD_KIND_STRING_ENTRY(R_X86_64_GOT64),
   LLD_KIND_STRING_ENTRY(R_X86_64_GOT64),
   LLD_KIND_STRING_ENTRY(R_X86_64_GOTPCREL64),
   LLD_KIND_STRING_ENTRY(R_X86_64_GOTPC64),

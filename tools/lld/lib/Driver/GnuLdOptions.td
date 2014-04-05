@@ -149,9 +149,11 @@ def rpath_link : Separate<["-"], "rpath-link">,
 //===----------------------------------------------------------------------===//
 def grp_dynlib : OptionGroup<"opts">,
      HelpText<"DYNAMIC LIBRARY OPTIONS">;
-def soname : Separate<["-"], "soname">,
+def soname : Joined<["-", "--"], "soname=">,
      HelpText<"Set the internal DT_SONAME field to the specified name">,
      Group<grp_dynlib>;
+def soname_separate : Separate<["-", "--"], "soname">, Alias<soname>;
+def soname_h : Separate<["-"], "h">, Alias<soname>;
 
 //===----------------------------------------------------------------------===//
 /// Resolver Options
@@ -191,6 +193,12 @@ def allow_shlib_undefs : Flag<["--"], "allow-shlib-undefined">,
 def use_shlib_undefs: Flag<["--"], "use-shlib-undefines">,
     HelpText<"Resolve undefined symbols from dynamic libraries">,
     Group<grp_resolveropt>;
+def allow_multiple_definition: Flag<["--"], "allow-multiple-definition">,
+    HelpText<"Allow multiple definitions">,
+    Group<grp_resolveropt>;
+def defsym : Joined<["--"], "defsym=">,
+     HelpText<"Create a defined symbol">,
+     Group<grp_resolveropt>;
 
 //===----------------------------------------------------------------------===//
 /// Custom Options
@@ -244,4 +252,3 @@ def alias_output_filetype: Joined<["--"], "output-filetype=">,
 //===----------------------------------------------------------------------===//
 def help : Flag<["--"], "help">,
      HelpText<"Display this help message">;
-

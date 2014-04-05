@@ -27,16 +27,16 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/ValueHandle.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/CFG.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/ValueHandle.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include <algorithm>
@@ -167,9 +167,9 @@ namespace {
       initializeReassociatePass(*PassRegistry::getPassRegistry());
     }
 
-    bool runOnFunction(Function &F);
+    bool runOnFunction(Function &F) override;
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.setPreservesCFG();
     }
   private:
@@ -820,7 +820,7 @@ void Reassociate::RewriteExprTree(BinaryOperator *I,
       if (ExpressionChanged == I)
         break;
       ExpressionChanged->moveBefore(I);
-      ExpressionChanged = cast<BinaryOperator>(*ExpressionChanged->use_begin());
+      ExpressionChanged = cast<BinaryOperator>(*ExpressionChanged->user_begin());
     } while (1);
 
   // Throw away any left over nodes from the original expression.
@@ -862,8 +862,7 @@ static Value *NegateValue(Value *V, Instruction *BI) {
 
   // Okay, we need to materialize a negated version of V with an instruction.
   // Scan the use lists of V to see if we have one already.
-  for (Value::use_iterator UI = V->use_begin(), E = V->use_end(); UI != E;++UI){
-    User *U = *UI;
+  for (User *U : V->users()) {
     if (!BinaryOperator::isNeg(U)) continue;
 
     // We found one!  Now we have to make sure that the definition dominates
@@ -913,8 +912,8 @@ static bool ShouldBreakUpSubtract(Instruction *Sub) {
       isReassociableOp(Sub->getOperand(1), Instruction::Sub))
     return true;
   if (Sub->hasOneUse() &&
-      (isReassociableOp(Sub->use_back(), Instruction::Add) ||
-       isReassociableOp(Sub->use_back(), Instruction::Sub)))
+      (isReassociableOp(Sub->user_back(), Instruction::Add) ||
+       isReassociableOp(Sub->user_back(), Instruction::Sub)))
     return true;
 
   return false;
@@ -1781,9 +1780,9 @@ void Reassociate::EraseInst(Instruction *I) {
       // If this is a node in an expression tree, climb to the expression root
       // and add that since that's where optimization actually happens.
       unsigned Opcode = Op->getOpcode();
-      while (Op->hasOneUse() && Op->use_back()->getOpcode() == Opcode &&
+      while (Op->hasOneUse() && Op->user_back()->getOpcode() == Opcode &&
              Visited.insert(Op))
-        Op = Op->use_back();
+        Op = Op->user_back();
       RedoInsts.insert(Op);
     }
 }
@@ -1801,8 +1800,8 @@ void Reassociate::OptimizeInst(Instruction *I) {
     // is used by a reassociable multiply or add, turn into a multiply.
     if (isReassociableOp(I->getOperand(0), Instruction::Mul) ||
         (I->hasOneUse() &&
-         (isReassociableOp(I->use_back(), Instruction::Mul) ||
-          isReassociableOp(I->use_back(), Instruction::Add)))) {
+         (isReassociableOp(I->user_back(), Instruction::Mul) ||
+          isReassociableOp(I->user_back(), Instruction::Add)))) {
       Instruction *NI = ConvertShiftToMul(I);
       RedoInsts.insert(I);
       MadeChange = true;
@@ -1855,7 +1854,7 @@ void Reassociate::OptimizeInst(Instruction *I) {
       // and if this is not an inner node of a multiply tree.
       if (isReassociableOp(I->getOperand(1), Instruction::Mul) &&
           (!I->hasOneUse() ||
-           !isReassociableOp(I->use_back(), Instruction::Mul))) {
+           !isReassociableOp(I->user_back(), Instruction::Mul))) {
         Instruction *NI = LowerNegateToMultiply(I);
         RedoInsts.insert(I);
         MadeChange = true;
@@ -1871,13 +1870,13 @@ void Reassociate::OptimizeInst(Instruction *I) {
   // If this is an interior node of a reassociable tree, ignore it until we
   // get to the root of the tree, to avoid N^2 analysis.
   unsigned Opcode = BO->getOpcode();
-  if (BO->hasOneUse() && BO->use_back()->getOpcode() == Opcode)
+  if (BO->hasOneUse() && BO->user_back()->getOpcode() == Opcode)
     return;
 
   // If this is an add tree that is used by a sub instruction, ignore it
   // until we process the subtract.
   if (BO->hasOneUse() && BO->getOpcode() == Instruction::Add &&
-      cast<Instruction>(BO->use_back())->getOpcode() == Instruction::Sub)
+      cast<Instruction>(BO->user_back())->getOpcode() == Instruction::Sub)
     return;
 
   ReassociateExpression(BO);
@@ -1929,7 +1928,7 @@ void Reassociate::ReassociateExpression(BinaryOperator *I) {
   // In this case we reassociate to put the negation on the outside so that we
   // can fold the negation into the add: (-X)*Y + Z -> Z-X*Y
   if (I->getOpcode() == Instruction::Mul && I->hasOneUse() &&
-      cast<Instruction>(I->use_back())->getOpcode() == Instruction::Add &&
+      cast<Instruction>(I->user_back())->getOpcode() == Instruction::Add &&
       isa<ConstantInt>(Ops.back().Op) &&
       cast<ConstantInt>(Ops.back().Op)->isAllOnesValue()) {
     ValueEntry Tmp = Ops.pop_back_val();

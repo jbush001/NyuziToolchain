@@ -18,7 +18,7 @@ using namespace ento;
 
 namespace {
 class ExprInspectionChecker : public Checker< eval::Call > {
-  mutable OwningPtr<BugType> BT;
+  mutable std::unique_ptr<BugType> BT;
 
   void analyzerEval(const CallExpr *CE, CheckerContext &C) const;
   void analyzerCheckInlined(const CallExpr *CE, CheckerContext &C) const;
@@ -68,7 +68,7 @@ static const char *getArgumentValueString(const CallExpr *CE,
     return "UNDEFINED";
 
   ProgramStateRef StTrue, StFalse;
-  llvm::tie(StTrue, StFalse) =
+  std::tie(StTrue, StFalse) =
     State->assume(AssertionVal.castAs<DefinedOrUnknownSVal>());
 
   if (StTrue) {

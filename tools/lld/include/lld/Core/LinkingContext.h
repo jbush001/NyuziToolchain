@@ -158,11 +158,6 @@ public:
   /// to be an error.
   bool allowShlibUndefines() const { return _allowShlibUndefines; }
 
-  /// Add undefined symbols from shared libraries ?
-  virtual bool addUndefinedAtomsFromSharedLibrary(const SharedLibraryFile *) {
-    return true;
-  }
-
   /// If true, core linking will write the path to each input file to stdout
   /// (i.e. llvm::outs()) as it is used.  This is used to implement the -t
   /// linker option.
@@ -190,6 +185,7 @@ public:
   }
 
   void setDeadStripping(bool enable) { _deadStrip = enable; }
+  void setAllowDuplicates(bool enable) { _allowDuplicates = enable; }
   void setGlobalsAreDeadStripRoots(bool v) { _globalsAreDeadStripRoots = v; }
   void setSearchArchivesToOverrideTentativeDefinitions(bool search) {
     _searchArchivesToOverrideTentativeDefinitions = search;
@@ -212,11 +208,16 @@ public:
   void setAllowShlibUndefines(bool allow) { _allowShlibUndefines = allow; }
   void setLogInputFiles(bool log) { _logInputFiles = log; }
 
+  // Returns true if multiple definitions should not be treated as a
+  // fatal error.
+  bool getAllowDuplicates() const { return _allowDuplicates; }
+
   void appendLLVMOption(const char *opt) { _llvmOptions.push_back(opt); }
-  virtual void setInputGraph(std::unique_ptr<InputGraph> inputGraph) {
+
+  void setInputGraph(std::unique_ptr<InputGraph> inputGraph) {
     _inputGraph = std::move(inputGraph);
   }
-  virtual InputGraph &inputGraph() const { return *_inputGraph; }
+  InputGraph &getInputGraph() const { return *_inputGraph; }
 
   /// This method adds undefined symbols specified by the -u option to the to
   /// the list of undefined symbols known to the linker. This option essentially
@@ -295,21 +296,6 @@ public:
   /// \param linkedFile This is the merged/linked graph of all input file Atoms.
   virtual error_code writeFile(const File &linkedFile) const;
 
-  /// nextFile returns the next file that needs to be processed by the resolver.
-  /// The LinkingContext's can override the default behavior to change the way
-  /// the resolver operates. This uses the currentInputElement. When there are
-  /// no more files to be processed an appropriate InputGraphError is
-  /// returned. Ordinals are assigned to files returned by nextFile, which means
-  /// ordinals would be assigned in the way files are resolved.
-  virtual ErrorOr<File &> nextFile();
-
-  /// Set the resolver state for the current Input element This is used by the
-  /// InputGraph to decide the next file that needs to be processed for various
-  /// types of nodes in the InputGraph. The resolver state is nothing but a
-  /// bitmask of various types of states that the resolver handles when adding
-  /// atoms.
-  virtual void setResolverState(uint32_t resolverState);
-
   /// Return the next ordinal and Increment it.
   virtual uint64_t getNextOrdinalAndIncrement() const { return _nextOrdinal++; }
 
@@ -332,6 +318,7 @@ protected:
   StringRef _outputPath;
   StringRef _entrySymbolName;
   bool _deadStrip;
+  bool _allowDuplicates;
   bool _globalsAreDeadStripRoots;
   bool _searchArchivesToOverrideTentativeDefinitions;
   bool _searchSharedLibrariesToOverrideTentativeDefinitions;
@@ -347,7 +334,6 @@ protected:
   StringRefVector _initialUndefinedSymbols;
   std::unique_ptr<InputGraph> _inputGraph;
   mutable llvm::BumpPtrAllocator _allocator;
-  InputElement *_currentInputElement;
   mutable uint64_t _nextOrdinal;
   Registry _registry;
 

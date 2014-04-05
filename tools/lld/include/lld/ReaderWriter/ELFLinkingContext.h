@@ -87,9 +87,9 @@ public:
                                    const Reference &) const {
     return false;
   }
-  virtual bool validateImpl(raw_ostream &diagnostics);
+  bool validateImpl(raw_ostream &diagnostics) override;
 
-  /// \brief Does the linker allow dynamic libraries to be linked with ?
+  /// \brief Does the linker allow dynamic libraries to be linked with?
   /// This is true when the output mode of the executable is set to be
   /// having NMAGIC/OMAGIC
   virtual bool allowLinkWithDynamicLibraries() const {
@@ -130,7 +130,7 @@ public:
   /// \brief Does the output have dynamic sections.
   virtual bool isDynamic() const;
 
-  /// \brief Are we creating a shared library ?
+  /// \brief Are we creating a shared library?
   virtual bool isDynamicLibrary() const {
     return _outputELFType == llvm::ELF::ET_DYN;
   }
@@ -145,15 +145,16 @@ public:
   }
 
   TargetHandlerBase *targetHandler() const { return _targetHandler.get(); }
-  virtual void addPasses(PassManager &pm);
+  void addPasses(PassManager &pm) override;
 
   void setTriple(llvm::Triple trip) { _triple = trip; }
   void setNoInhibitExec(bool v) { _noInhibitExec = v; }
   void setIsStaticExecutable(bool v) { _isStaticExecutable = v; }
   void setMergeCommonStrings(bool v) { _mergeCommonStrings = v; }
   void setUseShlibUndefines(bool use) { _useShlibUndefines = use; }
-
   void setOutputELFType(uint32_t type) { _outputELFType = type; }
+
+  void createInternalFiles(std::vector<std::unique_ptr<File>> &) const override;
 
   /// \brief Set the dynamic linker path
   void setInterpreter(StringRef dynamicLinker) {
@@ -174,13 +175,18 @@ public:
   ErrorOr<StringRef> searchLibrary(StringRef libName) const;
 
   /// Get the entry symbol name
-  virtual StringRef entrySymbolName() const;
+  StringRef entrySymbolName() const override;
 
   /// add to the list of initializer functions
   void addInitFunction(StringRef name) { _initFunctions.push_back(name); }
 
   /// add to the list of finalizer functions
   void addFiniFunction(StringRef name) { _finiFunctions.push_back(name); }
+
+  /// Add an absolute symbol. Used for --defsym.
+  void addInitialAbsoluteSymbol(StringRef name, uint64_t addr) {
+    _absoluteSymbols[name] = addr;
+  }
 
   /// Return the list of initializer symbols that are specified in the
   /// linker command line, using the -init option.
@@ -219,11 +225,8 @@ public:
     return _rpathLinkList;
   }
 
-  virtual bool addUndefinedAtomsFromSharedLibrary(const SharedLibraryFile *s) {
-    if (_undefinedAtomsFromFile.find(s) != _undefinedAtomsFromFile.end())
-      return false;
-    _undefinedAtomsFromFile[s] = true;
-    return true;
+  const std::map<std::string, uint64_t> &getAbsoluteSymbols() const {
+    return _absoluteSymbols;
   }
 
   /// \brief Helper function to allocate strings.
@@ -246,10 +249,10 @@ private:
 protected:
   ELFLinkingContext(llvm::Triple, std::unique_ptr<TargetHandlerBase>);
 
-  virtual Writer &writer() const;
+  Writer &writer() const override;
 
   /// Method to create a internal file for an undefined symbol
-  virtual std::unique_ptr<File> createUndefinedSymbolFile() const;
+  std::unique_ptr<File> createUndefinedSymbolFile() const override;
 
   uint16_t _outputELFType; // e.g ET_EXEC
   llvm::Triple _triple;
@@ -272,7 +275,7 @@ protected:
   StringRef _soname;
   StringRefVector _rpathList;
   StringRefVector _rpathLinkList;
-  std::map<const SharedLibraryFile *, bool> _undefinedAtomsFromFile;
+  std::map<std::string, uint64_t> _absoluteSymbols;
 };
 } // end namespace lld
 

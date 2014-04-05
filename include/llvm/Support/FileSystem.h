@@ -28,7 +28,6 @@
 #define LLVM_SUPPORT_FILESYSTEM_H
 
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/DataTypes.h"
@@ -39,6 +38,7 @@
 #include <iterator>
 #include <stack>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #ifdef HAVE_SYS_STAT_H
@@ -135,8 +135,7 @@ public:
   }
   bool operator!=(const UniqueID &Other) const { return !(*this == Other); }
   bool operator<(const UniqueID &Other) const {
-    return Device < Other.Device ||
-           (Device == Other.Device && File < Other.File);
+    return std::tie(Device, File) < std::tie(Other.Device, Other.File);
   }
   uint64_t getDevice() const { return Device; }
   uint64_t getFile() const { return File; }
@@ -270,6 +269,14 @@ private:
 ///          platform specific error_code.
 error_code make_absolute(SmallVectorImpl<char> &path);
 
+/// @brief Normalize path separators in \a Path
+///
+/// If the path contains any '\' separators, they are transformed into '/'.
+/// This is particularly useful when cross-compiling Windows on Linux, but is
+/// safe to invoke on Windows, which accepts both characters as a path
+/// separator.
+error_code normalize_separators(SmallVectorImpl<char> &Path);
+
 /// @brief Create all the non-existent directories in path.
 ///
 /// @param path Directories to create.
@@ -286,13 +293,18 @@ error_code create_directories(const Twine &path, bool IgnoreExisting = true);
 ///          error if the directory already existed.
 error_code create_directory(const Twine &path, bool IgnoreExisting = true);
 
-/// @brief Create a hard link from \a from to \a to.
+/// @brief Create a link from \a from to \a to.
+///
+/// The link may be a soft or a hard link, depending on the platform. The caller
+/// may not assume which one. Currently on windows it creates a hard link since
+/// soft links require extra privileges. On unix, it creates a soft link since
+/// hard links don't work on SMB file systems.
 ///
 /// @param to The path to hard link to.
 /// @param from The path to hard link from. This is created.
-/// @returns errc::success if exists(to) && exists(from) && equivalent(to, from)
-///          , otherwise a platform specific error_code.
-error_code create_hard_link(const Twine &to, const Twine &from);
+/// @returns errc::success if the link was created, otherwise a platform
+/// specific error_code.
+error_code create_link(const Twine &to, const Twine &from);
 
 /// @brief Get the current path.
 ///
@@ -442,8 +454,7 @@ inline bool is_regular_file(const Twine &Path) {
 ///        directory, regular file, or symlink?
 ///
 /// @param status A file_status previously returned from status.
-/// @returns exists(s) && !is_regular_file(s) && !is_directory(s) &&
-///          !is_symlink(s)
+/// @returns exists(s) && !is_regular_file(s) && !is_directory(s)
 bool is_other(file_status status);
 
 /// @brief Is path something that exists but is not a directory,
@@ -455,21 +466,6 @@ bool is_other(file_status status);
 /// @returns errc::success if result has been successfully set, otherwise a
 ///          platform specific error_code.
 error_code is_other(const Twine &path, bool &result);
-
-/// @brief Does status represent a symlink?
-///
-/// @param status A file_status previously returned from stat.
-/// @returns status.type() == symlink_file.
-bool is_symlink(file_status status);
-
-/// @brief Is path a symlink?
-///
-/// @param path Input path.
-/// @param result Set to true if \a path is a symlink, false if it is not.
-///               Undefined otherwise.
-/// @returns errc::success if result has been successfully set, otherwise a
-///          platform specific error_code.
-error_code is_symlink(const Twine &path, bool &result);
 
 /// @brief Get file status as if by POSIX stat().
 ///

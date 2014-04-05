@@ -20,8 +20,8 @@
 
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Twine.h"
-#include "llvm/ADT/ValueMap.h"
-#include "llvm/Support/ValueHandle.h"
+#include "llvm/IR/ValueHandle.h"
+#include "llvm/IR/ValueMap.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
 
 namespace llvm {
@@ -109,7 +109,7 @@ BasicBlock *CloneBasicBlock(const BasicBlock *BB,
 /// information about the cloned code if non-null.
 ///
 /// If ModuleLevelChanges is false, VMap contains no non-identity GlobalValue
-/// mappings.
+/// mappings, and debug info metadata will not be cloned.
 ///
 Function *CloneFunction(const Function *F,
                         ValueToValueMapTy &VMap,

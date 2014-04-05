@@ -19,7 +19,7 @@
 
 namespace lld {
 namespace elf {
-class VectorProcLinkingContext LLVM_FINAL : public ELFLinkingContext {
+class VectorProcLinkingContext final : public ELFLinkingContext {
 public:
   VectorProcLinkingContext(llvm::Triple triple)
     : ELFLinkingContext(triple, std::unique_ptr<TargetHandlerBase>(new VectorProcTargetHandler(*this))) {}

@@ -9,12 +9,13 @@
 
 #include "lld/ReaderWriter/Reader.h"
 
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/system_error.h"
+
+#include <memory>
 
 namespace lld {
 
@@ -53,11 +54,12 @@ Registry::parseFile(std::unique_ptr<MemoryBuffer> &mb,
 }
 
 static const Registry::KindStrings kindStrings[] = {
-  { Reference::kindInGroup,      "in-group" },
-  { Reference::kindLayoutAfter,  "layout-after" },
-  { Reference::kindLayoutBefore, "layout-before" },
-  LLD_KIND_STRING_END
-};
+    {Reference::kindInGroup, "in-group"},
+    {Reference::kindLayoutAfter, "layout-after"},
+    {Reference::kindLayoutBefore, "layout-before"},
+    {Reference::kindGroupChild, "group-child"},
+    {Reference::kindGroupParent, "group-parent"},
+    LLD_KIND_STRING_END};
 
 Registry::Registry() {
   addKindTable(Reference::KindNamespace::all, Reference::KindArch::all,

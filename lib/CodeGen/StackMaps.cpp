@@ -11,8 +11,8 @@
 
 #include "llvm/CodeGen/StackMaps.h"
 #include "llvm/CodeGen/AsmPrinter.h"
-#include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/MC/MCContext.h"
@@ -161,7 +161,7 @@ StackMaps::parseRegisterLiveOutMask(const uint32_t *Mask) const {
   std::sort(LiveOuts.begin(), LiveOuts.end());
   for (LiveOutVec::iterator I = LiveOuts.begin(), E = LiveOuts.end();
        I != E; ++I) {
-    for (LiveOutVec::iterator II = next(I); II != E; ++II) {
+    for (LiveOutVec::iterator II = std::next(I); II != E; ++II) {
       if (I->RegNo != II->RegNo) {
         // Skip all the now invalid entries.
         I = --II;
@@ -192,7 +192,7 @@ void StackMaps::recordStackMapOpers(const MachineInstr &MI, uint64_t ID,
 
   if (recordResult) {
     assert(PatchPointOpers(&MI).hasDef() && "Stackmap has no return value.");
-    parseOperand(MI.operands_begin(), llvm::next(MI.operands_begin()),
+    parseOperand(MI.operands_begin(), std::next(MI.operands_begin()),
                  Locations, LiveOuts);
   }
 
@@ -225,14 +225,14 @@ void StackMaps::recordStackMapOpers(const MachineInstr &MI, uint64_t ID,
   // Record the stack size of the current function.
   const MachineFrameInfo *MFI = AP.MF->getFrameInfo();
   FnStackSize[AP.CurrentFnSym] =
-    MFI->hasVarSizedObjects() ? ~0U : MFI->getStackSize();
+    MFI->hasVarSizedObjects() ? UINT64_MAX : MFI->getStackSize();
 }
 
 void StackMaps::recordStackMap(const MachineInstr &MI) {
   assert(MI.getOpcode() == TargetOpcode::STACKMAP && "expected stackmap");
 
   int64_t ID = MI.getOperand(0).getImm();
-  recordStackMapOpers(MI, ID, llvm::next(MI.operands_begin(), 2),
+  recordStackMapOpers(MI, ID, std::next(MI.operands_begin(), 2),
                       MI.operands_end());
 }
 
@@ -243,7 +243,7 @@ void StackMaps::recordPatchPoint(const MachineInstr &MI) {
   int64_t ID = opers.getMetaOper(PatchPointOpers::IDPos).getImm();
 
   MachineInstr::const_mop_iterator MOI =
-    llvm::next(MI.operands_begin(), opers.getStackMapStartIdx());
+    std::next(MI.operands_begin(), opers.getStackMapStartIdx());
   recordStackMapOpers(MI, ID, MOI, MI.operands_end(),
                       opers.isAnyReg() && opers.hasDef());
 
@@ -261,15 +261,19 @@ void StackMaps::recordPatchPoint(const MachineInstr &MI) {
 
 /// serializeToStackMapSection conceptually populates the following fields:
 ///
-/// uint32 : Reserved (header)
-/// uint32 : NumFunctions
-/// StkSizeRecord[NumFunctions] {
-///   uint32 : Function Offset
-///   uint32 : Stack Size
+/// Header {
+///   uint8  : Stack Map Version (currently 1)
+///   uint8  : Reserved (expected to be 0)
+///   uint16 : Reserved (expected to be 0)
 /// }
+/// uint32 : NumFunctions
 /// uint32 : NumConstants
-/// int64  : Constants[NumConstants]
 /// uint32 : NumRecords
+/// StkSizeRecord[NumFunctions] {
+///   uint64 : Function Address
+///   uint64 : Stack Size
+/// }
+/// int64  : Constants[NumConstants]
 /// StkMapRecord[NumRecords] {
 ///   uint64 : PatchPoint ID
 ///   uint32 : Instruction Offset
@@ -281,11 +285,14 @@ void StackMaps::recordPatchPoint(const MachineInstr &MI) {
 ///     uint16 : Dwarf RegNum
 ///     int32  : Offset
 ///   }
+///   uint16 : Padding
 ///   uint16 : NumLiveOuts
-///   LiveOuts[NumLiveOuts]
+///   LiveOuts[NumLiveOuts] {
 ///     uint16 : Dwarf RegNum
 ///     uint8  : Reserved
 ///     uint8  : Size in Bytes
+///   }
+///   uint32 : Padding (only if required to align to 8 byte)
 /// }
 ///
 /// Location Encoding, Type, Value:
@@ -319,32 +326,35 @@ void StackMaps::serializeToStackMapSection() {
   DEBUG(dbgs() << "********** Stack Map Output **********\n");
 
   // Header.
-  AP.OutStreamer.EmitIntValue(0, 4);
+  AP.OutStreamer.EmitIntValue(1, 1); // Version.
+  AP.OutStreamer.EmitIntValue(0, 1); // Reserved.
+  AP.OutStreamer.EmitIntValue(0, 2); // Reserved.
 
   // Num functions.
+  DEBUG(dbgs() << WSMP << "#functions = " << FnStackSize.size() << '\n');
   AP.OutStreamer.EmitIntValue(FnStackSize.size(), 4);
+  // Num constants.
+  DEBUG(dbgs() << WSMP << "#constants = " << ConstPool.getNumConstants()
+               << '\n');
+  AP.OutStreamer.EmitIntValue(ConstPool.getNumConstants(), 4);
+  // Num callsites.
+  DEBUG(dbgs() << WSMP << "#callsites = " << CSInfos.size() << '\n');
+  AP.OutStreamer.EmitIntValue(CSInfos.size(), 4);
 
-  // Stack size entries.
+  // Function stack size entries.
   for (FnStackSizeMap::iterator I = FnStackSize.begin(), E = FnStackSize.end();
        I != E; ++I) {
-    AP.OutStreamer.EmitSymbolValue(I->first, 4);
-    AP.OutStreamer.EmitIntValue(I->second, 4);
+    AP.OutStreamer.EmitSymbolValue(I->first, 8);
+    AP.OutStreamer.EmitIntValue(I->second, 8);
   }
-
-  // Num constants.
-  AP.OutStreamer.EmitIntValue(ConstPool.getNumConstants(), 4);
 
   // Constant pool entries.
   for (unsigned i = 0; i < ConstPool.getNumConstants(); ++i)
     AP.OutStreamer.EmitIntValue(ConstPool.getConstant(i), 8);
 
-  DEBUG(dbgs() << WSMP << "#callsites = " << CSInfos.size() << "\n");
-  AP.OutStreamer.EmitIntValue(CSInfos.size(), 4);
-
+  // Callsite entries.
   for (CallsiteInfoList::const_iterator CSII = CSInfos.begin(),
-                                        CSIE = CSInfos.end();
-       CSII != CSIE; ++CSII) {
-
+       CSIE = CSInfos.end(); CSII != CSIE; ++CSII) {
     uint64_t CallsiteID = CSII->ID;
     const LocationVec &CSLocs = CSII->Locations;
     const LiveOutVec &LiveOuts = CSII->LiveOuts;
@@ -360,7 +370,9 @@ void StackMaps::serializeToStackMapSection() {
       AP.OutStreamer.EmitValue(CSII->CSOffsetExpr, 4);
       AP.OutStreamer.EmitIntValue(0, 2); // Reserved.
       AP.OutStreamer.EmitIntValue(0, 2); // 0 locations.
+      AP.OutStreamer.EmitIntValue(0, 2); // padding.
       AP.OutStreamer.EmitIntValue(0, 2); // 0 live-out registers.
+      AP.OutStreamer.EmitIntValue(0, 4); // padding.
       continue;
     }
 
@@ -438,6 +450,8 @@ void StackMaps::serializeToStackMapSection() {
     DEBUG(dbgs() << WSMP << "  has " << LiveOuts.size()
                  << " live-out registers\n");
 
+    // Num live-out registers and padding to align to 4 byte.
+    AP.OutStreamer.EmitIntValue(0, 2);
     AP.OutStreamer.EmitIntValue(LiveOuts.size(), 2);
 
     operIdx = 0;
@@ -452,6 +466,8 @@ void StackMaps::serializeToStackMapSection() {
       AP.OutStreamer.EmitIntValue(0, 1);
       AP.OutStreamer.EmitIntValue(LI->Size, 1);
     }
+    // Emit alignment to 8 byte.
+    AP.OutStreamer.EmitValueToAlignment(8);
   }
 
   AP.OutStreamer.AddBlankLine();
