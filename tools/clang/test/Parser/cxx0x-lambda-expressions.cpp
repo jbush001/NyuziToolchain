@@ -34,7 +34,7 @@ class C {
     typedef int T; 
     const int b = 0; 
     const int c = 1;
-    int a1[1] = {[b] (T()) {}}; // expected-error{{no viable conversion from '<lambda}}
+    int a1[1] = {[b] (T()) {}}; // expected-error{{no viable conversion from '(lambda}}
     int a2[1] = {[b] = 1 };
     int a3[1] = {[b,c] = 1 }; // expected-error{{expected body of lambda expression}}
     int a4[1] = {[&b] = 1 }; // expected-error{{integral constant expression must have integral or unscoped enumeration type, not 'const int *'}}
@@ -63,5 +63,23 @@ class C {
       r += 2;
       return x + 2;
     } ();
+  }
+
+  void attributes() {
+    [] [[]] {}; // expected-error {{lambda requires '()' before attribute specifier}}
+    [] __attribute__((noreturn)) {}; // expected-error {{lambda requires '()' before attribute specifier}}
+    []() [[]]
+      mutable {}; // expected-error {{expected body of lambda expression}}
+
+    []() [[]] {};
+    []() [[]] -> void {};
+    []() mutable [[]] -> void {};
+    []() mutable noexcept [[]] -> void {};
+
+    // Testing GNU-style attributes on lambdas -- the attribute is specified
+    // before the mutable specifier instead of after (unlike C++11).
+    []() __attribute__((noreturn)) mutable { while(1); };
+    []() mutable
+      __attribute__((noreturn)) { while(1); }; // expected-error {{expected body of lambda expression}}
   }
 };

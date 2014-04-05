@@ -59,11 +59,13 @@ Preprocessor::Preprocessor(IntrusiveRefCntPtr<PreprocessorOptions> PPOpts,
                            const TargetInfo *target, SourceManager &SM,
                            HeaderSearch &Headers, ModuleLoader &TheModuleLoader,
                            IdentifierInfoLookup *IILookup, bool OwnsHeaders,
-                           bool DelayInitialization, bool IncrProcessing)
+                           bool DelayInitialization, bool IncrProcessing,
+                           TranslationUnitKind TUKind)
     : PPOpts(PPOpts), Diags(&diags), LangOpts(opts), Target(target),
       FileMgr(Headers.getFileMgr()), SourceMgr(SM), HeaderInfo(Headers),
       TheModuleLoader(TheModuleLoader), ExternalSource(0),
       Identifiers(opts, IILookup), IncrementalProcessing(IncrProcessing),
+      TUKind(TUKind),
       CodeComplete(0), CodeCompletionFile(0), CodeCompletionOffset(0),
       LastTokenWasAt(false), ModuleImportExpectsIdentifier(false),
       CodeCompletionReached(0), SkipMainFilePreamble(0, true), CurPPLexer(0),
@@ -141,11 +143,7 @@ Preprocessor::Preprocessor(IntrusiveRefCntPtr<PreprocessorOptions> PPOpts,
 Preprocessor::~Preprocessor() {
   assert(BacktrackPositions.empty() && "EnableBacktrack/Backtrack imbalance!");
 
-  while (!IncludeMacroStack.empty()) {
-    delete IncludeMacroStack.back().TheLexer;
-    delete IncludeMacroStack.back().TheTokenLexer;
-    IncludeMacroStack.pop_back();
-  }
+  IncludeMacroStack.clear();
 
   // Free any macro definitions.
   for (MacroInfoChain *I = MIChainHead ; I ; I = I->Next)

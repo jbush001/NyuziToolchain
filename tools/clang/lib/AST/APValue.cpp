@@ -499,8 +499,7 @@ void APValue::printPretty(raw_ostream &Out, ASTContext &Ctx, QualType Ty) const{
         First = false;
       }
     }
-    for (RecordDecl::field_iterator FI = RD->field_begin();
-         FI != RD->field_end(); ++FI) {
+    for (const auto *FI : RD->fields()) {
       if (!First)
         Out << ", ";
       if (FI->isUnnamedBitfield()) continue;
@@ -623,7 +622,7 @@ ArrayRef<const CXXRecordDecl*> APValue::getMemberPointerPath() const {
 
 void APValue::MakeLValue() {
   assert(isUninit() && "Bad state change");
-  assert(sizeof(LV) <= DataSize && "LV too big");
+  static_assert(sizeof(LV) <= DataSize, "LV too big");
   new ((void*)(char*)Data.buffer) LV();
   Kind = LValue;
 }

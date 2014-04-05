@@ -76,9 +76,14 @@ public:
 
   /// KindValues used with KindNamespace::all and KindArch::all.
   enum {
-    kindInGroup      = 1,
-    kindLayoutAfter  = 2,
-    kindLayoutBefore = 3
+    kindInGroup = 1,
+    kindLayoutAfter = 2,
+    // kindLayoutBefore is currently used only by dead-stripping pass in
+    // the Resolver. Will be removed soon. To enforce layout, use
+    // kindLayoutAfter instead.
+    kindLayoutBefore = 3,
+    kindGroupChild = 4,
+    kindGroupParent = 5
   };
 
   // A value to be added to the value of a target

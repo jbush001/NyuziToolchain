@@ -26,13 +26,13 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/ConstantFolding.h"
+#include "llvm/IR/CallSite.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/InstVisitor.h"
 #include "llvm/IR/Instructions.h"
-#include "llvm/InstVisitor.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/CallSite.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
@@ -491,7 +491,6 @@ private:
   }
   void visitCallSite      (CallSite CS);
   void visitResumeInst    (TerminatorInst &I) { /*returns void*/ }
-  void visitUnwindInst    (TerminatorInst &I) { /*returns void*/ }
   void visitUnreachableInst(TerminatorInst &I) { /*returns void*/ }
   void visitFenceInst     (FenceInst &I) { /*returns void*/ }
   void visitAtomicCmpXchgInst (AtomicCmpXchgInst &I) { markOverdefined(&I); }
@@ -1181,10 +1180,9 @@ void SCCPSolver::Solve() {
       // since all of its users will have already been marked as overdefined
       // Update all of the users of this instruction's value.
       //
-      for (Value::use_iterator UI = I->use_begin(), E = I->use_end();
-           UI != E; ++UI)
-        if (Instruction *I = dyn_cast<Instruction>(*UI))
-          OperandChangedState(I);
+      for (User *U : I->users())
+        if (Instruction *UI = dyn_cast<Instruction>(U))
+          OperandChangedState(UI);
     }
 
     // Process the instruction work list.
@@ -1201,10 +1199,9 @@ void SCCPSolver::Solve() {
       // Update all of the users of this instruction's value.
       //
       if (I->getType()->isStructTy() || !getValueState(I).isOverdefined())
-        for (Value::use_iterator UI = I->use_begin(), E = I->use_end();
-             UI != E; ++UI)
-          if (Instruction *I = dyn_cast<Instruction>(*UI))
-            OperandChangedState(I);
+        for (User *U : I->users())
+          if (Instruction *UI = dyn_cast<Instruction>(U))
+            OperandChangedState(UI);
     }
 
     // Process the basic block work list.
@@ -1499,7 +1496,7 @@ namespace {
   /// Sparse Conditional Constant Propagator.
   ///
   struct SCCP : public FunctionPass {
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.addRequired<TargetLibraryInfo>();
     }
     static char ID; // Pass identification, replacement for typeid
@@ -1510,7 +1507,7 @@ namespace {
     // runOnFunction - Run the Sparse Conditional Constant Propagation
     // algorithm, and return true if the function was modified.
     //
-    bool runOnFunction(Function &F);
+    bool runOnFunction(Function &F) override;
   };
 } // end anonymous namespace
 
@@ -1632,14 +1629,14 @@ namespace {
   /// Constant Propagation.
   ///
   struct IPSCCP : public ModulePass {
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.addRequired<TargetLibraryInfo>();
     }
     static char ID;
     IPSCCP() : ModulePass(ID) {
       initializeIPSCCPPass(*PassRegistry::getPassRegistry());
     }
-    bool runOnModule(Module &M);
+    bool runOnModule(Module &M) override;
   };
 } // end anonymous namespace
 
@@ -1662,21 +1659,20 @@ static bool AddressIsTaken(const GlobalValue *GV) {
   // Delete any dead constantexpr klingons.
   GV->removeDeadConstantUsers();
 
-  for (Value::const_use_iterator UI = GV->use_begin(), E = GV->use_end();
-       UI != E; ++UI) {
-    const User *U = *UI;
-    if (const StoreInst *SI = dyn_cast<StoreInst>(U)) {
+  for (const Use &U : GV->uses()) {
+    const User *UR = U.getUser();
+    if (const StoreInst *SI = dyn_cast<StoreInst>(UR)) {
       if (SI->getOperand(0) == GV || SI->isVolatile())
         return true;  // Storing addr of GV.
-    } else if (isa<InvokeInst>(U) || isa<CallInst>(U)) {
+    } else if (isa<InvokeInst>(UR) || isa<CallInst>(UR)) {
       // Make sure we are calling the function, not passing the address.
-      ImmutableCallSite CS(cast<Instruction>(U));
-      if (!CS.isCallee(UI))
+      ImmutableCallSite CS(cast<Instruction>(UR));
+      if (!CS.isCallee(&U))
         return true;
-    } else if (const LoadInst *LI = dyn_cast<LoadInst>(U)) {
+    } else if (const LoadInst *LI = dyn_cast<LoadInst>(UR)) {
       if (LI->isVolatile())
         return true;
-    } else if (isa<BlockAddress>(U)) {
+    } else if (isa<BlockAddress>(UR)) {
       // blockaddress doesn't take the address of the function, it takes addr
       // of label.
     } else {
@@ -1839,8 +1835,9 @@ bool IPSCCP::runOnModule(Module &M) {
     for (unsigned i = 0, e = BlocksToErase.size(); i != e; ++i) {
       // If there are any PHI nodes in this successor, drop entries for BB now.
       BasicBlock *DeadBB = BlocksToErase[i];
-      for (Value::use_iterator UI = DeadBB->use_begin(), UE = DeadBB->use_end();
-           UI != UE; ) {
+      for (Value::user_iterator UI = DeadBB->user_begin(),
+                                UE = DeadBB->user_end();
+           UI != UE;) {
         // Grab the user and then increment the iterator early, as the user
         // will be deleted. Step past all adjacent uses from the same user.
         Instruction *I = dyn_cast<Instruction>(*UI);
@@ -1930,7 +1927,7 @@ bool IPSCCP::runOnModule(Module &M) {
            "Overdefined values should have been taken out of the map!");
     DEBUG(dbgs() << "Found that GV '" << GV->getName() << "' is constant!\n");
     while (!GV->use_empty()) {
-      StoreInst *SI = cast<StoreInst>(GV->use_back());
+      StoreInst *SI = cast<StoreInst>(GV->user_back());
       SI->eraseFromParent();
     }
     M.getGlobalList().erase(GV);

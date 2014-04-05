@@ -24,7 +24,7 @@ class HexagonLinkingContext;
 
 /// \brief TargetLayout for Hexagon
 template <class HexagonELFType>
-class HexagonTargetLayout LLVM_FINAL : public TargetLayout<HexagonELFType> {
+class HexagonTargetLayout final : public TargetLayout<HexagonELFType> {
 public:
   enum HexagonSectionOrder {
     ORDER_SDATA = 205
@@ -103,30 +103,30 @@ private:
 };
 
 /// \brief TargetHandler for Hexagon
-class HexagonTargetHandler LLVM_FINAL :
+class HexagonTargetHandler final :
     public DefaultTargetHandler<HexagonELFType> {
 public:
   HexagonTargetHandler(HexagonLinkingContext &targetInfo);
 
-  virtual void registerRelocationNames(Registry &registry);
+  void registerRelocationNames(Registry &registry) override;
 
-  virtual const HexagonTargetRelocationHandler &getRelocationHandler() const {
+  const HexagonTargetRelocationHandler &getRelocationHandler() const override {
     return *(_hexagonRelocationHandler.get());
   }
 
-  virtual HexagonTargetLayout<HexagonELFType> &getTargetLayout() {
+  HexagonTargetLayout<HexagonELFType> &getTargetLayout() override {
     return *(_hexagonTargetLayout.get());
   }
 
-  virtual std::unique_ptr<Reader> getObjReader(bool atomizeStrings) {
+  std::unique_ptr<Reader> getObjReader(bool atomizeStrings) override {
     return std::unique_ptr<Reader>(new HexagonELFObjectReader(atomizeStrings));
   }
 
-  virtual std::unique_ptr<Reader> getDSOReader(bool useShlibUndefines) {
+  std::unique_ptr<Reader> getDSOReader(bool useShlibUndefines) override {
     return std::unique_ptr<Reader>(new HexagonELFDSOReader(useShlibUndefines));
   }
 
-  virtual std::unique_ptr<Writer> getWriter();
+  std::unique_ptr<Writer> getWriter() override;
 
 private:
   llvm::BumpPtrAllocator _alloc;

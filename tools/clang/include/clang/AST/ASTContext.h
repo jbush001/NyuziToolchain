@@ -33,10 +33,10 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/Support/Allocator.h"
+#include <memory>
 #include <vector>
 
 namespace llvm {
@@ -365,6 +365,7 @@ private:
   /// \brief Side-table of mangling numbers for declarations which rarely
   /// need them (like static local vars).
   llvm::DenseMap<const NamedDecl *, unsigned> MangleNumbers;
+  llvm::DenseMap<const VarDecl *, unsigned> StaticLocalNumbers;
 
   /// \brief Mapping that stores parameterIndex values for ParmVarDecls when
   /// that value exceeds the bitfield size of ParmVarDeclBits.ParameterIndex.
@@ -393,7 +394,7 @@ private:
   PartialDiagnostic::StorageAllocator DiagAllocator;
 
   /// \brief The current C++ ABI.
-  OwningPtr<CXXABI> ABI;
+  std::unique_ptr<CXXABI> ABI;
   CXXABI *createCXXABI(const TargetInfo &T);
 
   /// \brief The logical -> physical address space map.
@@ -625,6 +626,43 @@ public:
 private:
   mutable comments::CommandTraits CommentCommandTraits;
 
+  /// \brief Iterator that visits import declarations.
+  class import_iterator {
+    ImportDecl *Import;
+
+  public:
+    typedef ImportDecl               *value_type;
+    typedef ImportDecl               *reference;
+    typedef ImportDecl               *pointer;
+    typedef int                       difference_type;
+    typedef std::forward_iterator_tag iterator_category;
+
+    import_iterator() : Import() {}
+    explicit import_iterator(ImportDecl *Import) : Import(Import) {}
+
+    reference operator*() const { return Import; }
+    pointer operator->() const { return Import; }
+
+    import_iterator &operator++() {
+      Import = ASTContext::getNextLocalImport(Import);
+      return *this;
+    }
+
+    import_iterator operator++(int) {
+      import_iterator Other(*this);
+      ++(*this);
+      return Other;
+    }
+
+    friend bool operator==(import_iterator X, import_iterator Y) {
+      return X.Import == Y.Import;
+    }
+
+    friend bool operator!=(import_iterator X, import_iterator Y) {
+      return X.Import != Y.Import;
+    }
+  };
+
 public:
   comments::CommandTraits &getCommentCommandTraits() const {
     return CommentCommandTraits;
@@ -711,47 +749,10 @@ public:
     return Import->NextLocalImport;
   }
   
-  /// \brief Iterator that visits import declarations.
-  class import_iterator {
-    ImportDecl *Import;
-    
-  public:
-    typedef ImportDecl               *value_type;
-    typedef ImportDecl               *reference;
-    typedef ImportDecl               *pointer;
-    typedef int                       difference_type;
-    typedef std::forward_iterator_tag iterator_category;
-    
-    import_iterator() : Import() { }
-    explicit import_iterator(ImportDecl *Import) : Import(Import) { }
-    
-    reference operator*() const { return Import; }
-    pointer operator->() const { return Import; }
-    
-    import_iterator &operator++() {
-      Import = ASTContext::getNextLocalImport(Import);
-      return *this;
-    }
-
-    import_iterator operator++(int) {
-      import_iterator Other(*this);
-      ++(*this);
-      return Other;
-    }
-    
-    friend bool operator==(import_iterator X, import_iterator Y) {
-      return X.Import == Y.Import;
-    }
-
-    friend bool operator!=(import_iterator X, import_iterator Y) {
-      return X.Import != Y.Import;
-    }
-  };
-  
-  import_iterator local_import_begin() const { 
-    return import_iterator(FirstLocalImport); 
+  typedef llvm::iterator_range<import_iterator> import_range;
+  import_range local_imports() const {
+    return import_range(import_iterator(FirstLocalImport), import_iterator());
   }
-  import_iterator local_import_end() const { return import_iterator(); }
 
   Decl *getPrimaryMergedDecl(Decl *D) {
     Decl *Result = MergedDecls.lookup(D);
@@ -2059,14 +2060,12 @@ public:
   //===--------------------------------------------------------------------===//
   //                    Type Iterators.
   //===--------------------------------------------------------------------===//
+  typedef llvm::iterator_range<SmallVectorImpl<Type *>::const_iterator>
+    type_const_range;
 
-  typedef SmallVectorImpl<Type *>::iterator       type_iterator;
-  typedef SmallVectorImpl<Type *>::const_iterator const_type_iterator;
-
-  type_iterator types_begin() { return Types.begin(); }
-  type_iterator types_end() { return Types.end(); }
-  const_type_iterator types_begin() const { return Types.begin(); }
-  const_type_iterator types_end() const { return Types.end(); }
+  type_const_range types() const {
+    return type_const_range(Types.begin(), Types.end());
+  }
 
   //===--------------------------------------------------------------------===//
   //                    Integer Values
@@ -2157,7 +2156,7 @@ public:
   /// when it is called.
   void AddDeallocation(void (*Callback)(void*), void *Data);
 
-  GVALinkage GetGVALinkageForFunction(const FunctionDecl *FD);
+  GVALinkage GetGVALinkageForFunction(const FunctionDecl *FD) const;
   GVALinkage GetGVALinkageForVariable(const VarDecl *VD);
 
   /// \brief Determines if the decl can be CodeGen'ed or deserialized from PCH
@@ -2170,6 +2169,9 @@ public:
 
   void setManglingNumber(const NamedDecl *ND, unsigned Number);
   unsigned getManglingNumber(const NamedDecl *ND) const;
+
+  void setStaticLocalNumber(const VarDecl *VD, unsigned Number);
+  unsigned getStaticLocalNumber(const VarDecl *VD) const;
 
   /// \brief Retrieve the context for computing mangling numbers in the given
   /// DeclContext.
@@ -2270,17 +2272,17 @@ private:
   void getObjCEncodingForStructureImpl(RecordDecl *RD, std::string &S,
                                        const FieldDecl *Field,
                                        bool includeVBases = true) const;
-
+public:
   // Adds the encoding of a method parameter or return type.
   void getObjCEncodingForMethodParameter(Decl::ObjCDeclQualifier QT,
                                          QualType T, std::string& S,
                                          bool Extended) const;
-
+  
+private:
   const ASTRecordLayout &
   getObjCLayout(const ObjCInterfaceDecl *D,
                 const ObjCImplementationDecl *Impl) const;
 
-private:
   /// \brief A set of deallocations that should be performed when the
   /// ASTContext is destroyed.
   typedef llvm::SmallDenseMap<void(*)(void*), llvm::SmallVector<void*, 16> >
@@ -2296,9 +2298,9 @@ private:
   friend class DeclarationNameTable;
   void ReleaseDeclContextMaps();
 
-  llvm::OwningPtr<ParentMap> AllParents;
+  std::unique_ptr<ParentMap> AllParents;
 
-  llvm::OwningPtr<VTableContextBase> VTContext;
+  std::unique_ptr<VTableContextBase> VTContext;
 };
 
 /// \brief Utility function for constructing a nullary selector.

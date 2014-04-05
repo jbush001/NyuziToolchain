@@ -19,6 +19,7 @@
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCDirectives.h"
 #include "llvm/MC/MCDwarf.h"
+#include "llvm/MC/MCLinkerOptimizationHint.h"
 #include "llvm/MC/MCWin64EH.h"
 #include "llvm/Support/DataTypes.h"
 #include <string>
@@ -79,6 +80,8 @@ public:
 
   // Allow a target to add behavior to the EmitLabel of MCStreamer.
   virtual void emitLabel(MCSymbol *Symbol);
+  // Allow a target to add behavior to the emitAssignment of MCStreamer.
+  virtual void emitAssignment(MCSymbol *Symbol, const MCExpr *Value);
 
   virtual void finish();
 };
@@ -118,7 +121,7 @@ public:
 
   virtual void AnnotateTLSDescriptorSequence(const MCSymbolRefExpr *SRE);
 
-  virtual void finish();
+  void finish() override;
 
   /// Callback used to implement the ldr= pseudo.
   /// Add a new entry to the constant pool for the current section and return an
@@ -130,7 +133,7 @@ public:
   void emitCurrentConstantPool();
 
 private:
-  OwningPtr<AssemblerConstantPools> ConstantPools;
+  std::unique_ptr<AssemblerConstantPools> ConstantPools;
 };
 
 /// MCStreamer - Streaming machine code generation interface.  This interface
@@ -144,7 +147,7 @@ private:
 ///
 class MCStreamer {
   MCContext &Context;
-  OwningPtr<MCTargetStreamer> TargetStreamer;
+  std::unique_ptr<MCTargetStreamer> TargetStreamer;
 
   MCStreamer(const MCStreamer &) LLVM_DELETED_FUNCTION;
   MCStreamer &operator=(const MCStreamer &) LLVM_DELETED_FUNCTION;
@@ -352,10 +355,7 @@ public:
   }
 
   /// Create the default sections and set the initial one.
-  ///
-  /// @param Force - If false, a text streamer implementation can be a nop.
-  /// Used by CodeGen to avoid starting every file with '.text'.
-  virtual void InitSections(bool Force = true);
+  virtual void InitSections();
 
   /// AssignSection - Sets the symbol's section.
   ///
@@ -389,12 +389,16 @@ public:
   /// EmitDataRegion - Note in the output the specified region @p Kind.
   virtual void EmitDataRegion(MCDataRegionType Kind) {}
 
+  /// EmitVersionMin - Specify the MachO minimum deployment target version.
+  virtual void EmitVersionMin(MCVersionMinType, unsigned Major, unsigned Minor,
+                              unsigned Update) {}
+
   /// EmitThumbFunc - Note in the output that the specified @p Func is
   /// a Thumb mode function (ARM target only).
   virtual void EmitThumbFunc(MCSymbol *Func) = 0;
 
   /// getOrCreateSymbolData - Get symbol data for given symbol.
-  virtual MCSymbolData &getOrCreateSymbolData(MCSymbol *Symbol);
+  virtual MCSymbolData &getOrCreateSymbolData(const MCSymbol *Symbol);
 
   /// EmitAssignment - Emit an assignment of @p Value to @p Symbol.
   ///
@@ -407,7 +411,7 @@ public:
   ///
   /// @param Symbol - The symbol being assigned to.
   /// @param Value - The value for the symbol.
-  virtual void EmitAssignment(MCSymbol *Symbol, const MCExpr *Value) = 0;
+  virtual void EmitAssignment(MCSymbol *Symbol, const MCExpr *Value);
 
   /// EmitWeakReference - Emit an weak reference from @p Alias to @p Symbol.
   ///
@@ -462,6 +466,10 @@ public:
   ///  .size symbol, expression
   ///
   virtual void EmitELFSize(MCSymbol *Symbol, const MCExpr *Value) = 0;
+
+  /// \brief Emit a Linker Optimization Hint (LOH) directive.
+  /// \param Args - Arguments of the LOH.
+  virtual void EmitLOHDirective(MCLOHType Kind, const MCLOHArgs &Args) {}
 
   /// EmitCommonSymbol - Emit a common symbol.
   ///
@@ -631,8 +639,9 @@ public:
   /// EmitDwarfFileDirective - Associate a filename with a specified logical
   /// file number.  This implements the DWARF2 '.file 4 "foo.c"' assembler
   /// directive.
-  virtual bool EmitDwarfFileDirective(unsigned FileNo, StringRef Directory,
-                                      StringRef Filename, unsigned CUID = 0);
+  virtual unsigned EmitDwarfFileDirective(unsigned FileNo, StringRef Directory,
+                                          StringRef Filename,
+                                          unsigned CUID = 0);
 
   /// EmitDwarfLocDirective - This implements the DWARF2
   // '.loc fileno lineno ...' assembler directive.
@@ -648,6 +657,8 @@ public:
 
   virtual void EmitDwarfAdvanceFrameAddr(const MCSymbol *LastLabel,
                                          const MCSymbol *Label) {}
+
+  virtual MCSymbol *getDwarfLineTableSymbol(unsigned CUID);
 
   void EmitDwarfSetLineAddr(int64_t LineDelta, const MCSymbol *Label,
                             int PointerSize);
@@ -754,7 +765,8 @@ MCStreamer *createAsmStreamer(MCContext &Ctx, formatted_raw_ostream &OS,
 /// Takes ownership of \p TAB and \p CE.
 MCStreamer *createMachOStreamer(MCContext &Ctx, MCAsmBackend &TAB,
                                 raw_ostream &OS, MCCodeEmitter *CE,
-                                bool RelaxAll = false);
+                                bool RelaxAll = false,
+                                bool LabelSections = false);
 
 /// createWinCOFFStreamer - Create a machine code streamer which will
 /// generate Microsoft COFF format object files.

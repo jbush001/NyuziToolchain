@@ -18,24 +18,24 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/ADT/ValueMap.h"
 #include "llvm/Analysis/InstructionSimplify.h"
+#include "llvm/IR/CallSite.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/PatternMatch.h"
+#include "llvm/IR/ValueHandle.h"
+#include "llvm/IR/ValueMap.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/CallSite.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/GetElementPtrTypeIterator.h"
-#include "llvm/Support/PatternMatch.h"
-#include "llvm/Support/ValueHandle.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Target/TargetLowering.h"
@@ -60,6 +60,7 @@ STATISTIC(NumExtUses,    "Number of uses of [s|z]ext instructions optimized");
 STATISTIC(NumRetsDup,    "Number of return instructions duplicated");
 STATISTIC(NumDbgValueMoved, "Number of debug value instructions moved");
 STATISTIC(NumSelectsExpanded, "Number of selects turned into branches");
+STATISTIC(NumAndCmpsMoved, "Number of and/cmp's pushed into branches");
 
 static cl::opt<bool> DisableBranchOpts(
   "disable-cgp-branch-opts", cl::Hidden, cl::init(false),
@@ -68,6 +69,10 @@ static cl::opt<bool> DisableBranchOpts(
 static cl::opt<bool> DisableSelectToBranch(
   "disable-cgp-select2branch", cl::Hidden, cl::init(false),
   cl::desc("Disable select to branch conversion."));
+
+static cl::opt<bool> EnableAndCmpSinking(
+   "enable-andcmp-sinking", cl::Hidden, cl::init(true),
+   cl::desc("Enable sinkinig and/cmp into branches."));
 
 namespace {
 typedef SmallPtrSet<Instruction *, 16> SetOfInstrs;
@@ -110,11 +115,11 @@ typedef DenseMap<Instruction *, Type *> InstrToOrigTy;
       : FunctionPass(ID), TM(TM), TLI(0) {
         initializeCodeGenPreparePass(*PassRegistry::getPassRegistry());
       }
-    bool runOnFunction(Function &F);
+    bool runOnFunction(Function &F) override;
 
-    const char *getPassName() const { return "CodeGen Prepare"; }
+    const char *getPassName() const override { return "CodeGen Prepare"; }
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.addPreserved<DominatorTreeWrapperPass>();
       AU.addRequired<TargetLibraryInfo>();
     }
@@ -135,6 +140,7 @@ typedef DenseMap<Instruction *, Type *> InstrToOrigTy;
     bool OptimizeShuffleVectorInst(ShuffleVectorInst *SI);
     bool DupRetToEnableTailCallOpts(BasicBlock *BB);
     bool PlaceDbgValues(Function &F);
+    bool sinkAndCmp(Function &F);
   };
 }
 
@@ -158,6 +164,9 @@ FunctionPass *llvm::createCodeGenPreparePass(const TargetMachine *TM) {
 }
 
 bool CodeGenPrepare::runOnFunction(Function &F) {
+  if (skipOptnoneFunction(F))
+    return false;
+
   bool EverMadeChange = false;
   // Clear per function information.
   InsertedTruncsSet.clear();
@@ -189,6 +198,13 @@ bool CodeGenPrepare::runOnFunction(Function &F) {
   // handle it properly. iSel will drop llvm.dbg.value if it can not
   // find a node corresponding to the value.
   EverMadeChange |= PlaceDbgValues(F);
+
+  // If there is a mask, compare against zero, and branch that can be combined
+  // into a single target instruction, push the mask and compare into branch
+  // users. Do this before OptimizeBlock -> OptimizeInst ->
+  // OptimizeCmpExpression, which perturbs the pattern being searched for.
+  if (!DisableBranchOpts)
+    EverMadeChange |= sinkAndCmp(F);
 
   bool MadeChange = true;
   while (MadeChange) {
@@ -253,7 +269,7 @@ bool CodeGenPrepare::runOnFunction(Function &F) {
 bool CodeGenPrepare::EliminateFallThrough(Function &F) {
   bool Changed = false;
   // Scan all of the blocks in the function, except for the entry block.
-  for (Function::iterator I = llvm::next(F.begin()), E = F.end(); I != E; ) {
+  for (Function::iterator I = std::next(F.begin()), E = F.end(); I != E;) {
     BasicBlock *BB = I++;
     // If the destination block has a single pred, then this is a trivial
     // edge, just collapse it.
@@ -289,7 +305,7 @@ bool CodeGenPrepare::EliminateFallThrough(Function &F) {
 bool CodeGenPrepare::EliminateMostlyEmptyBlocks(Function &F) {
   bool MadeChange = false;
   // Note that this intentionally skips the entry block.
-  for (Function::iterator I = llvm::next(F.begin()), E = F.end(); I != E; ) {
+  for (Function::iterator I = std::next(F.begin()), E = F.end(); I != E;) {
     BasicBlock *BB = I++;
 
     // If this block doesn't end with an uncond branch, ignore it.
@@ -335,16 +351,15 @@ bool CodeGenPrepare::CanMergeBlocks(const BasicBlock *BB,
   // don't mess around with them.
   BasicBlock::const_iterator BBI = BB->begin();
   while (const PHINode *PN = dyn_cast<PHINode>(BBI++)) {
-    for (Value::const_use_iterator UI = PN->use_begin(), E = PN->use_end();
-         UI != E; ++UI) {
-      const Instruction *User = cast<Instruction>(*UI);
-      if (User->getParent() != DestBB || !isa<PHINode>(User))
+    for (const User *U : PN->users()) {
+      const Instruction *UI = cast<Instruction>(U);
+      if (UI->getParent() != DestBB || !isa<PHINode>(UI))
         return false;
       // If User is inside DestBB block and it is a PHINode then check
       // incoming value. If incoming value is not from BB then this is
       // a complex condition (e.g. preheaders) we want to avoid here.
-      if (User->getParent() == DestBB) {
-        if (const PHINode *UPN = dyn_cast<PHINode>(User))
+      if (UI->getParent() == DestBB) {
+        if (const PHINode *UPN = dyn_cast<PHINode>(UI))
           for (unsigned I = 0, E = UPN->getNumIncomingValues(); I != E; ++I) {
             Instruction *Insn = dyn_cast<Instruction>(UPN->getIncomingValue(I));
             if (Insn && Insn->getParent() == BB &&
@@ -465,6 +480,57 @@ void CodeGenPrepare::EliminateMostlyEmptyBlock(BasicBlock *BB) {
   DEBUG(dbgs() << "AFTER:\n" << *DestBB << "\n\n\n");
 }
 
+/// SinkCast - Sink the specified cast instruction into its user blocks
+static bool SinkCast(CastInst *CI) {
+  BasicBlock *DefBB = CI->getParent();
+
+  /// InsertedCasts - Only insert a cast in each block once.
+  DenseMap<BasicBlock*, CastInst*> InsertedCasts;
+
+  bool MadeChange = false;
+  for (Value::user_iterator UI = CI->user_begin(), E = CI->user_end();
+       UI != E; ) {
+    Use &TheUse = UI.getUse();
+    Instruction *User = cast<Instruction>(*UI);
+
+    // Figure out which BB this cast is used in.  For PHI's this is the
+    // appropriate predecessor block.
+    BasicBlock *UserBB = User->getParent();
+    if (PHINode *PN = dyn_cast<PHINode>(User)) {
+      UserBB = PN->getIncomingBlock(TheUse);
+    }
+
+    // Preincrement use iterator so we don't invalidate it.
+    ++UI;
+
+    // If this user is in the same block as the cast, don't change the cast.
+    if (UserBB == DefBB) continue;
+
+    // If we have already inserted a cast into this block, use it.
+    CastInst *&InsertedCast = InsertedCasts[UserBB];
+
+    if (!InsertedCast) {
+      BasicBlock::iterator InsertPt = UserBB->getFirstInsertionPt();
+      InsertedCast =
+        CastInst::Create(CI->getOpcode(), CI->getOperand(0), CI->getType(), "",
+                         InsertPt);
+      MadeChange = true;
+    }
+
+    // Replace a use of the cast with a use of the new cast.
+    TheUse = InsertedCast;
+    ++NumCastUses;
+  }
+
+  // If we removed all uses, nuke the cast.
+  if (CI->use_empty()) {
+    CI->eraseFromParent();
+    MadeChange = true;
+  }
+
+  return MadeChange;
+}
+
 /// OptimizeNoopCopyExpression - If the specified cast instruction is a noop
 /// copy (e.g. it's casting from one pointer type to another, i32->i8 on PPC),
 /// sink it into user blocks to reduce the number of virtual
@@ -499,53 +565,7 @@ static bool OptimizeNoopCopyExpression(CastInst *CI, const TargetLowering &TLI){
   if (SrcVT != DstVT)
     return false;
 
-  BasicBlock *DefBB = CI->getParent();
-
-  /// InsertedCasts - Only insert a cast in each block once.
-  DenseMap<BasicBlock*, CastInst*> InsertedCasts;
-
-  bool MadeChange = false;
-  for (Value::use_iterator UI = CI->use_begin(), E = CI->use_end();
-       UI != E; ) {
-    Use &TheUse = UI.getUse();
-    Instruction *User = cast<Instruction>(*UI);
-
-    // Figure out which BB this cast is used in.  For PHI's this is the
-    // appropriate predecessor block.
-    BasicBlock *UserBB = User->getParent();
-    if (PHINode *PN = dyn_cast<PHINode>(User)) {
-      UserBB = PN->getIncomingBlock(UI);
-    }
-
-    // Preincrement use iterator so we don't invalidate it.
-    ++UI;
-
-    // If this user is in the same block as the cast, don't change the cast.
-    if (UserBB == DefBB) continue;
-
-    // If we have already inserted a cast into this block, use it.
-    CastInst *&InsertedCast = InsertedCasts[UserBB];
-
-    if (!InsertedCast) {
-      BasicBlock::iterator InsertPt = UserBB->getFirstInsertionPt();
-      InsertedCast =
-        CastInst::Create(CI->getOpcode(), CI->getOperand(0), CI->getType(), "",
-                         InsertPt);
-      MadeChange = true;
-    }
-
-    // Replace a use of the cast with a use of the new cast.
-    TheUse = InsertedCast;
-    ++NumCastUses;
-  }
-
-  // If we removed all uses, nuke the cast.
-  if (CI->use_empty()) {
-    CI->eraseFromParent();
-    MadeChange = true;
-  }
-
-  return MadeChange;
+  return SinkCast(CI);
 }
 
 /// OptimizeCmpExpression - sink the given CmpInst into user blocks to reduce
@@ -561,7 +581,7 @@ static bool OptimizeCmpExpression(CmpInst *CI) {
   DenseMap<BasicBlock*, CmpInst*> InsertedCmps;
 
   bool MadeChange = false;
-  for (Value::use_iterator UI = CI->use_begin(), E = CI->use_end();
+  for (Value::user_iterator UI = CI->user_begin(), E = CI->user_end();
        UI != E; ) {
     Use &TheUse = UI.getUse();
     Instruction *User = cast<Instruction>(*UI);
@@ -606,11 +626,11 @@ static bool OptimizeCmpExpression(CmpInst *CI) {
 namespace {
 class CodeGenPrepareFortifiedLibCalls : public SimplifyFortifiedLibCalls {
 protected:
-  void replaceCall(Value *With) {
+  void replaceCall(Value *With) override {
     CI->replaceAllUsesWith(With);
     CI->eraseFromParent();
   }
-  bool isFoldable(unsigned SizeCIOp, unsigned, bool) const {
+  bool isFoldable(unsigned SizeCIOp, unsigned, bool) const override {
       if (ConstantInt *SizeCI =
                              dyn_cast<ConstantInt>(CI->getArgOperand(SizeCIOp)))
         return SizeCI->isAllOnesValue();
@@ -984,7 +1004,7 @@ class TypePromotionTransaction {
     }
 
     /// \brief Move the instruction back to its original position.
-    void undo() {
+    void undo() override {
       DEBUG(dbgs() << "Undo: moveBefore: " << *Inst << "\n");
       Position.insert(Inst);
     }
@@ -1009,7 +1029,7 @@ class TypePromotionTransaction {
     }
 
     /// \brief Restore the original value of the instruction.
-    void undo() {
+    void undo() override {
       DEBUG(dbgs() << "Undo: setOperand:" << Idx << "\n"
                    << "for: " << *Inst << "\n"
                    << "with: " << *Origin << "\n");
@@ -1041,7 +1061,7 @@ class TypePromotionTransaction {
     }
 
     /// \brief Restore the original list of uses.
-    void undo() {
+    void undo() override {
       DEBUG(dbgs() << "Undo: OperandsHider: " << *Inst << "\n");
       for (unsigned It = 0, EndIt = OriginalValues.size(); It != EndIt; ++It)
         Inst->setOperand(It, OriginalValues[It]);
@@ -1064,7 +1084,7 @@ class TypePromotionTransaction {
     Instruction *getBuiltInstruction() { return Inst; }
 
     /// \brief Remove the built instruction.
-    void undo() {
+    void undo() override {
       DEBUG(dbgs() << "Undo: TruncBuilder: " << *Inst << "\n");
       Inst->eraseFromParent();
     }
@@ -1087,7 +1107,7 @@ class TypePromotionTransaction {
     Instruction *getBuiltInstruction() { return Inst; }
 
     /// \brief Remove the built instruction.
-    void undo() {
+    void undo() override {
       DEBUG(dbgs() << "Undo: SExtBuilder: " << *Inst << "\n");
       Inst->eraseFromParent();
     }
@@ -1108,7 +1128,7 @@ class TypePromotionTransaction {
     }
 
     /// \brief Mutate the instruction back to its original type.
-    void undo() {
+    void undo() override {
       DEBUG(dbgs() << "Undo: MutateType: " << *Inst << " with " << *OrigTy
                    << "\n");
       Inst->mutateType(OrigTy);
@@ -1137,18 +1157,16 @@ class TypePromotionTransaction {
       DEBUG(dbgs() << "Do: UsersReplacer: " << *Inst << " with " << *New
                    << "\n");
       // Record the original uses.
-      for (Value::use_iterator UseIt = Inst->use_begin(),
-                               EndIt = Inst->use_end();
-           UseIt != EndIt; ++UseIt) {
-        Instruction *Use = cast<Instruction>(*UseIt);
-        OriginalUses.push_back(InstructionAndIdx(Use, UseIt.getOperandNo()));
+      for (Use &U : Inst->uses()) {
+        Instruction *UserI = cast<Instruction>(U.getUser());
+        OriginalUses.push_back(InstructionAndIdx(UserI, U.getOperandNo()));
       }
       // Now, we can replace the uses.
       Inst->replaceAllUsesWith(New);
     }
 
     /// \brief Reassign the original uses of Inst to Inst.
-    void undo() {
+    void undo() override {
       DEBUG(dbgs() << "Undo: UsersReplacer: " << *Inst << "\n");
       for (use_iterator UseIt = OriginalUses.begin(),
                         EndIt = OriginalUses.end();
@@ -1184,11 +1202,11 @@ class TypePromotionTransaction {
     ~InstructionRemover() { delete Replacer; }
 
     /// \brief Really remove the instruction.
-    void commit() { delete Inst; }
+    void commit() override { delete Inst; }
 
     /// \brief Resurrect the instruction and reassign it to the proper uses if
     /// new value was provided when build this action.
-    void undo() {
+    void undo() override {
       DEBUG(dbgs() << "Undo: InstructionRemover: " << *Inst << "\n");
       Inserter.insert(Inst);
       if (Replacer)
@@ -2109,23 +2127,22 @@ static bool FindAllMemoryUses(Instruction *I,
     return true;
 
   // Loop over all the uses, recursively processing them.
-  for (Value::use_iterator UI = I->use_begin(), E = I->use_end();
-       UI != E; ++UI) {
-    User *U = *UI;
+  for (Use &U : I->uses()) {
+    Instruction *UserI = cast<Instruction>(U.getUser());
 
-    if (LoadInst *LI = dyn_cast<LoadInst>(U)) {
-      MemoryUses.push_back(std::make_pair(LI, UI.getOperandNo()));
+    if (LoadInst *LI = dyn_cast<LoadInst>(UserI)) {
+      MemoryUses.push_back(std::make_pair(LI, U.getOperandNo()));
       continue;
     }
 
-    if (StoreInst *SI = dyn_cast<StoreInst>(U)) {
-      unsigned opNo = UI.getOperandNo();
+    if (StoreInst *SI = dyn_cast<StoreInst>(UserI)) {
+      unsigned opNo = U.getOperandNo();
       if (opNo == 0) return true; // Storing addr, not into addr.
       MemoryUses.push_back(std::make_pair(SI, opNo));
       continue;
     }
 
-    if (CallInst *CI = dyn_cast<CallInst>(U)) {
+    if (CallInst *CI = dyn_cast<CallInst>(UserI)) {
       InlineAsm *IA = dyn_cast<InlineAsm>(CI->getCalledValue());
       if (!IA) return true;
 
@@ -2135,8 +2152,7 @@ static bool FindAllMemoryUses(Instruction *I,
       continue;
     }
 
-    if (FindAllMemoryUses(cast<Instruction>(U), MemoryUses, ConsideredInsts,
-                          TLI))
+    if (FindAllMemoryUses(UserI, MemoryUses, ConsideredInsts, TLI))
       return true;
   }
 
@@ -2438,7 +2454,14 @@ bool CodeGenPrepare::OptimizeMemoryInst(Instruction *MemoryInst, Value *Addr,
                  cast<IntegerType>(V->getType())->getBitWidth()) {
         V = Builder.CreateTrunc(V, IntPtrTy, "sunkaddr");
       } else {
-        V = Builder.CreateSExt(V, IntPtrTy, "sunkaddr");
+        // It is only safe to sign extend the BaseReg if we know that the math
+        // required to create it did not overflow before we extend it. Since
+        // the original IR value was tossed in favor of a constant back when
+        // the AddrMode was created we need to bail out gracefully if widths
+        // do not match instead of extending it.
+        if (Result != AddrMode.BaseReg)
+            cast<Instruction>(Result)->eraseFromParent();
+        return false;
       }
       if (AddrMode.Scale != 1)
         V = Builder.CreateMul(V, ConstantInt::get(IntPtrTy, AddrMode.Scale),
@@ -2581,12 +2604,11 @@ bool CodeGenPrepare::OptimizeExtUses(Instruction *I) {
     return false;
 
   bool DefIsLiveOut = false;
-  for (Value::use_iterator UI = I->use_begin(), E = I->use_end();
-       UI != E; ++UI) {
-    Instruction *User = cast<Instruction>(*UI);
+  for (User *U : I->users()) {
+    Instruction *UI = cast<Instruction>(U);
 
     // Figure out which BB this ext is used in.
-    BasicBlock *UserBB = User->getParent();
+    BasicBlock *UserBB = UI->getParent();
     if (UserBB == DefBB) continue;
     DefIsLiveOut = true;
     break;
@@ -2595,14 +2617,13 @@ bool CodeGenPrepare::OptimizeExtUses(Instruction *I) {
     return false;
 
   // Make sure none of the uses are PHI nodes.
-  for (Value::use_iterator UI = Src->use_begin(), E = Src->use_end();
-       UI != E; ++UI) {
-    Instruction *User = cast<Instruction>(*UI);
-    BasicBlock *UserBB = User->getParent();
+  for (User *U : Src->users()) {
+    Instruction *UI = cast<Instruction>(U);
+    BasicBlock *UserBB = UI->getParent();
     if (UserBB == DefBB) continue;
     // Be conservative. We don't want this xform to end up introducing
     // reloads just before load / store instructions.
-    if (isa<PHINode>(User) || isa<LoadInst>(User) || isa<StoreInst>(User))
+    if (isa<PHINode>(UI) || isa<LoadInst>(UI) || isa<StoreInst>(UI))
       return false;
   }
 
@@ -2610,10 +2631,8 @@ bool CodeGenPrepare::OptimizeExtUses(Instruction *I) {
   DenseMap<BasicBlock*, Instruction*> InsertedTruncs;
 
   bool MadeChange = false;
-  for (Value::use_iterator UI = Src->use_begin(), E = Src->use_end();
-       UI != E; ++UI) {
-    Use &TheUse = UI.getUse();
-    Instruction *User = cast<Instruction>(*UI);
+  for (Use &U : Src->uses()) {
+    Instruction *User = cast<Instruction>(U.getUser());
 
     // Figure out which BB this ext is used in.
     BasicBlock *UserBB = User->getParent();
@@ -2629,7 +2648,7 @@ bool CodeGenPrepare::OptimizeExtUses(Instruction *I) {
     }
 
     // Replace a use of the {s|z}ext source with a use of the result.
-    TheUse = InsertedTrunc;
+    U = InsertedTrunc;
     ++NumExtUses;
     MadeChange = true;
   }
@@ -2757,16 +2776,15 @@ bool CodeGenPrepare::OptimizeShuffleVectorInst(ShuffleVectorInst *SVI) {
   DenseMap<BasicBlock*, Instruction*> InsertedShuffles;
 
   bool MadeChange = false;
-  for (Value::use_iterator UI = SVI->use_begin(), E = SVI->use_end();
-       UI != E; ++UI) {
-    Instruction *User = cast<Instruction>(*UI);
+  for (User *U : SVI->users()) {
+    Instruction *UI = cast<Instruction>(U);
 
     // Figure out which BB this ext is used in.
-    BasicBlock *UserBB = User->getParent();
+    BasicBlock *UserBB = UI->getParent();
     if (UserBB == DefBB) continue;
 
     // For now only apply this when the splat is used by a shift instruction.
-    if (!User->isShift()) continue;
+    if (!UI->isShift()) continue;
 
     // Everything checks out, sink the shuffle if the user's block doesn't
     // already have a copy.
@@ -2779,7 +2797,7 @@ bool CodeGenPrepare::OptimizeShuffleVectorInst(ShuffleVectorInst *SVI) {
                                               SVI->getOperand(2), "", InsertPt);
     }
 
-    User->replaceUsesOfWith(SVI, InsertedShuffle);
+    UI->replaceUsesOfWith(SVI, InsertedShuffle);
     MadeChange = true;
   }
 
@@ -2821,8 +2839,16 @@ bool CodeGenPrepare::OptimizeInst(Instruction *I) {
       return true;
 
     if (isa<ZExtInst>(I) || isa<SExtInst>(I)) {
-      bool MadeChange = MoveExtToFormExtLoad(I);
-      return MadeChange | OptimizeExtUses(I);
+      /// Sink a zext or sext into its user blocks if the target type doesn't
+      /// fit in one register
+      if (TLI && TLI->getTypeAction(CI->getContext(),
+                                    TLI->getValueType(CI->getType())) ==
+                     TargetLowering::TypeExpandInteger) {
+        return SinkCast(CI);
+      } else {
+        bool MadeChange = MoveExtToFormExtLoad(I);
+        return MadeChange | OptimizeExtUses(I);
+      }
     }
     return false;
   }
@@ -2912,6 +2938,73 @@ bool CodeGenPrepare::PlaceDbgValues(Function &F) {
         MadeChange = true;
         ++NumDbgValueMoved;
       }
+    }
+  }
+  return MadeChange;
+}
+
+// If there is a sequence that branches based on comparing a single bit
+// against zero that can be combined into a single instruction, and the
+// target supports folding these into a single instruction, sink the
+// mask and compare into the branch uses. Do this before OptimizeBlock ->
+// OptimizeInst -> OptimizeCmpExpression, which perturbs the pattern being
+// searched for.
+bool CodeGenPrepare::sinkAndCmp(Function &F) {
+  if (!EnableAndCmpSinking)
+    return false;
+  if (!TLI || !TLI->isMaskAndBranchFoldingLegal())
+    return false;
+  bool MadeChange = false;
+  for (Function::iterator I = F.begin(), E = F.end(); I != E; ) {
+    BasicBlock *BB = I++;
+
+    // Does this BB end with the following?
+    //   %andVal = and %val, #single-bit-set
+    //   %icmpVal = icmp %andResult, 0
+    //   br i1 %cmpVal label %dest1, label %dest2"
+    BranchInst *Brcc = dyn_cast<BranchInst>(BB->getTerminator());
+    if (!Brcc || !Brcc->isConditional())
+      continue;
+    ICmpInst *Cmp = dyn_cast<ICmpInst>(Brcc->getOperand(0));
+    if (!Cmp || Cmp->getParent() != BB)
+      continue;
+    ConstantInt *Zero = dyn_cast<ConstantInt>(Cmp->getOperand(1));
+    if (!Zero || !Zero->isZero())
+      continue;
+    Instruction *And = dyn_cast<Instruction>(Cmp->getOperand(0));
+    if (!And || And->getOpcode() != Instruction::And || And->getParent() != BB)
+      continue;
+    ConstantInt* Mask = dyn_cast<ConstantInt>(And->getOperand(1));
+    if (!Mask || !Mask->getUniqueInteger().isPowerOf2())
+      continue;
+    DEBUG(dbgs() << "found and; icmp ?,0; brcc\n"); DEBUG(BB->dump());
+
+    // Push the "and; icmp" for any users that are conditional branches.
+    // Since there can only be one branch use per BB, we don't need to keep
+    // track of which BBs we insert into.
+    for (Value::use_iterator UI = Cmp->use_begin(), E = Cmp->use_end();
+         UI != E; ) {
+      Use &TheUse = *UI;
+      // Find brcc use.
+      BranchInst *BrccUser = dyn_cast<BranchInst>(*UI);
+      ++UI;
+      if (!BrccUser || !BrccUser->isConditional())
+        continue;
+      BasicBlock *UserBB = BrccUser->getParent();
+      if (UserBB == BB) continue;
+      DEBUG(dbgs() << "found Brcc use\n");
+
+      // Sink the "and; icmp" to use.
+      MadeChange = true;
+      BinaryOperator *NewAnd =
+        BinaryOperator::CreateAnd(And->getOperand(0), And->getOperand(1), "",
+                                  BrccUser);
+      CmpInst *NewCmp =
+        CmpInst::Create(Cmp->getOpcode(), Cmp->getPredicate(), NewAnd, Zero,
+                        "", BrccUser);
+      TheUse = NewCmp;
+      ++NumAndCmpsMoved;
+      DEBUG(BrccUser->getParent()->dump());
     }
   }
   return MadeChange;

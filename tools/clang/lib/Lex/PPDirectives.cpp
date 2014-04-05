@@ -25,6 +25,7 @@
 #include "clang/Lex/Pragma.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FileSystem.h"
 #include "llvm/Support/SaveAndRestore.h"
 using namespace clang;
 
@@ -60,8 +61,8 @@ MacroInfo *Preprocessor::AllocateMacroInfo(SourceLocation L) {
 
 MacroInfo *Preprocessor::AllocateDeserializedMacroInfo(SourceLocation L,
                                                        unsigned SubModuleID) {
-  LLVM_STATIC_ASSERT(llvm::AlignOf<MacroInfo>::Alignment >= sizeof(SubModuleID),
-                     "alignment for MacroInfo is less than the ID");
+  static_assert(llvm::AlignOf<MacroInfo>::Alignment >= sizeof(SubModuleID),
+                "alignment for MacroInfo is less than the ID");
   DeserializedMacroInfoChain *MIChain =
       BP.Allocate<DeserializedMacroInfoChain>();
   MIChain->Next = DeserialMIChainHead;
@@ -539,7 +540,7 @@ Module *Preprocessor::getModuleForLocation(SourceLocation FilenameLoc) {
   }
   // Try to determine the module of the include directive.
   // FIXME: Look into directly passing the FileEntry from LookupFile instead.
-  FileID IDOfIncl = SourceMgr.getFileID(SourceMgr.getSpellingLoc(FilenameLoc));
+  FileID IDOfIncl = SourceMgr.getFileID(SourceMgr.getExpansionLoc(FilenameLoc));
   if (const FileEntry *EntryOfIncl = SourceMgr.getFileEntryForID(IDOfIncl)) {
     // The include comes from a file.
     return ModMap.findModuleForHeader(EntryOfIncl).getModule();
@@ -599,7 +600,7 @@ const FileEntry *Preprocessor::LookupFile(
       Filename, FilenameLoc, isAngled, FromDir, CurDir, Includers, SearchPath,
       RelativePath, SuggestedModule, SkipCache);
   if (FE) {
-    if (SuggestedModule)
+    if (SuggestedModule && !LangOpts.AsmPreprocessor)
       HeaderInfo.getModuleMap().diagnoseHeaderInclusion(
           getModuleForLocation(FilenameLoc), FilenameLoc, Filename, FE);
     return FE;
@@ -1449,9 +1450,15 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
   // the path.
   ModuleMap::KnownHeader SuggestedModule;
   SourceLocation FilenameLoc = FilenameTok.getLocation();
+  SmallString<128> NormalizedPath;
+  if (LangOpts.MSVCCompat) {
+    NormalizedPath = Filename.str();
+    llvm::sys::fs::normalize_separators(NormalizedPath);
+  }
   const FileEntry *File = LookupFile(
-      FilenameLoc, Filename, isAngled, LookupFrom, CurDir,
-      Callbacks ? &SearchPath : NULL, Callbacks ? &RelativePath : NULL,
+      FilenameLoc, LangOpts.MSVCCompat ? NormalizedPath.c_str() : Filename,
+      isAngled, LookupFrom, CurDir, Callbacks ? &SearchPath : NULL,
+      Callbacks ? &RelativePath : NULL,
       HeaderInfo.getHeaderSearchOpts().ModuleMaps ? &SuggestedModule : 0);
 
   if (Callbacks) {
@@ -1465,8 +1472,11 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
           HeaderInfo.AddSearchPath(DL, isAngled);
           
           // Try the lookup again, skipping the cache.
-          File = LookupFile(FilenameLoc, Filename, isAngled, LookupFrom, CurDir,
-                            0, 0, HeaderInfo.getHeaderSearchOpts().ModuleMaps
+          File = LookupFile(FilenameLoc,
+                            LangOpts.MSVCCompat ? NormalizedPath.c_str()
+                                                : Filename,
+                            isAngled, LookupFrom, CurDir, 0, 0,
+                            HeaderInfo.getHeaderSearchOpts().ModuleMaps
                                       ? &SuggestedModule
                                       : 0,
                             /*SkipCache*/ true);
@@ -1476,10 +1486,11 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
     
     if (!SuggestedModule || !getLangOpts().Modules) {
       // Notify the callback object that we've seen an inclusion directive.
-      Callbacks->InclusionDirective(HashLoc, IncludeTok, Filename, isAngled,
-                                    FilenameRange, File,
-                                    SearchPath, RelativePath,
-                                    /*ImportedModule=*/0);
+      Callbacks->InclusionDirective(HashLoc, IncludeTok,
+                                    LangOpts.MSVCCompat ? NormalizedPath.c_str()
+                                                        : Filename,
+                                    isAngled, FilenameRange, File, SearchPath,
+                                    RelativePath, /*ImportedModule=*/0);
     }
   }
   
@@ -1490,8 +1501,9 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
       // provide the user with a possible fixit.
       if (isAngled) {
         File = LookupFile(
-            FilenameLoc, Filename, false, LookupFrom, CurDir,
-            Callbacks ? &SearchPath : 0, Callbacks ? &RelativePath : 0,
+            FilenameLoc, LangOpts.MSVCCompat ? NormalizedPath.c_str() : Filename,
+            false, LookupFrom, CurDir, Callbacks ? &SearchPath : 0,
+            Callbacks ? &RelativePath : 0,
             HeaderInfo.getHeaderSearchOpts().ModuleMaps ? &SuggestedModule : 0);
         if (File) {
           SourceRange Range(FilenameTok.getLocation(), CharEnd);

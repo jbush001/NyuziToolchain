@@ -38,8 +38,8 @@
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/PredIteratorCache.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/PredIteratorCache.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include "llvm/Transforms/Utils/SSAUpdater.h"
 using namespace llvm;
@@ -65,15 +65,14 @@ static bool processInstruction(Loop &L, Instruction &Inst, DominatorTree &DT,
 
   BasicBlock *InstBB = Inst.getParent();
 
-  for (Value::use_iterator UI = Inst.use_begin(), E = Inst.use_end(); UI != E;
-       ++UI) {
-    User *U = *UI;
-    BasicBlock *UserBB = cast<Instruction>(U)->getParent();
-    if (PHINode *PN = dyn_cast<PHINode>(U))
-      UserBB = PN->getIncomingBlock(UI);
+  for (Use &U : Inst.uses()) {
+    Instruction *User = cast<Instruction>(U.getUser());
+    BasicBlock *UserBB = User->getParent();
+    if (PHINode *PN = dyn_cast<PHINode>(User))
+      UserBB = PN->getIncomingBlock(U);
 
     if (InstBB != UserBB && !L.contains(UserBB))
-      UsesToRewrite.push_back(&UI.getUse());
+      UsesToRewrite.push_back(&U);
   }
 
   // If there are no uses outside the loop, exit with no change.
@@ -208,8 +207,8 @@ bool llvm::formLCSSA(Loop &L, DominatorTree &DT, ScalarEvolution *SE) {
       // Reject two common cases fast: instructions with no uses (like stores)
       // and instructions with one use that is in the same block as this.
       if (I->use_empty() ||
-          (I->hasOneUse() && I->use_back()->getParent() == BB &&
-           !isa<PHINode>(I->use_back())))
+          (I->hasOneUse() && I->user_back()->getParent() == BB &&
+           !isa<PHINode>(I->user_back())))
         continue;
 
       Changed |= processInstruction(L, *I, DT, ExitBlocks, PredCache);
@@ -252,12 +251,12 @@ struct LCSSA : public FunctionPass {
   LoopInfo *LI;
   ScalarEvolution *SE;
 
-  virtual bool runOnFunction(Function &F);
+  bool runOnFunction(Function &F) override;
 
   /// This transformation requires natural loop information & requires that
   /// loop preheaders be inserted into the CFG.  It maintains both of these,
   /// as well as the CFG.  It also requires dominator information.
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.setPreservesCFG();
 
     AU.addRequired<DominatorTreeWrapperPass>();
@@ -270,7 +269,7 @@ struct LCSSA : public FunctionPass {
 private:
   bool processLoop(Loop &L);
 
-  virtual void verifyAnalysis() const;
+  void verifyAnalysis() const override;
 };
 }
 

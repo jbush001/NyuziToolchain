@@ -190,10 +190,10 @@ public:
             const MCAsmInfo &MAI);
   virtual ~AsmParser();
 
-  virtual bool Run(bool NoInitialTextSection, bool NoFinalize = false);
+  bool Run(bool NoInitialTextSection, bool NoFinalize = false) override;
 
-  virtual void addDirectiveHandler(StringRef Directive,
-                                   ExtensionDirectiveHandler Handler) {
+  void addDirectiveHandler(StringRef Directive,
+                           ExtensionDirectiveHandler Handler) override {
     ExtensionDirectiveMap[Directive] = Handler;
   }
 
@@ -201,52 +201,52 @@ public:
   /// @name MCAsmParser Interface
   /// {
 
-  virtual SourceMgr &getSourceManager() { return SrcMgr; }
-  virtual MCAsmLexer &getLexer() { return Lexer; }
-  virtual MCContext &getContext() { return Ctx; }
-  virtual MCStreamer &getStreamer() { return Out; }
-  virtual unsigned getAssemblerDialect() {
+  SourceMgr &getSourceManager() override { return SrcMgr; }
+  MCAsmLexer &getLexer() override { return Lexer; }
+  MCContext &getContext() override { return Ctx; }
+  MCStreamer &getStreamer() override { return Out; }
+  unsigned getAssemblerDialect() override {
     if (AssemblerDialect == ~0U)
       return MAI.getAssemblerDialect();
     else
       return AssemblerDialect;
   }
-  virtual void setAssemblerDialect(unsigned i) {
+  void setAssemblerDialect(unsigned i) override {
     AssemblerDialect = i;
   }
 
-  virtual void Note(SMLoc L, const Twine &Msg, ArrayRef<SMRange> Ranges = None);
-  virtual bool Warning(SMLoc L, const Twine &Msg,
-                       ArrayRef<SMRange> Ranges = None);
-  virtual bool Error(SMLoc L, const Twine &Msg,
-                     ArrayRef<SMRange> Ranges = None);
+  void Note(SMLoc L, const Twine &Msg,
+            ArrayRef<SMRange> Ranges = None) override;
+  bool Warning(SMLoc L, const Twine &Msg,
+               ArrayRef<SMRange> Ranges = None) override;
+  bool Error(SMLoc L, const Twine &Msg,
+             ArrayRef<SMRange> Ranges = None) override;
 
-  virtual const AsmToken &Lex();
+  const AsmToken &Lex() override;
 
-  void setParsingInlineAsm(bool V) { ParsingInlineAsm = V; }
-  bool isParsingInlineAsm() { return ParsingInlineAsm; }
+  void setParsingInlineAsm(bool V) override { ParsingInlineAsm = V; }
+  bool isParsingInlineAsm() override { return ParsingInlineAsm; }
 
   bool parseMSInlineAsm(void *AsmLoc, std::string &AsmString,
                         unsigned &NumOutputs, unsigned &NumInputs,
                         SmallVectorImpl<std::pair<void *,bool> > &OpDecls,
                         SmallVectorImpl<std::string> &Constraints,
                         SmallVectorImpl<std::string> &Clobbers,
-                        const MCInstrInfo *MII,
-                        const MCInstPrinter *IP,
-                        MCAsmParserSemaCallback &SI);
+                        const MCInstrInfo *MII, const MCInstPrinter *IP,
+                        MCAsmParserSemaCallback &SI) override;
 
   bool parseExpression(const MCExpr *&Res);
-  virtual bool parseExpression(const MCExpr *&Res, SMLoc &EndLoc);
-  virtual bool parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc);
-  virtual bool parseParenExpression(const MCExpr *&Res, SMLoc &EndLoc);
-  virtual bool parseAbsoluteExpression(int64_t &Res);
+  bool parseExpression(const MCExpr *&Res, SMLoc &EndLoc) override;
+  bool parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) override;
+  bool parseParenExpression(const MCExpr *&Res, SMLoc &EndLoc) override;
+  bool parseAbsoluteExpression(int64_t &Res) override;
 
   /// \brief Parse an identifier or string (as a quoted identifier)
   /// and set \p Res to the identifier contents.
-  virtual bool parseIdentifier(StringRef &Res);
-  virtual void eatToEndOfStatement();
+  bool parseIdentifier(StringRef &Res) override;
+  void eatToEndOfStatement() override;
 
-  virtual void checkForValidSection();
+  void checkForValidSection() override;
   /// }
 
 private:
@@ -322,7 +322,7 @@ private:
   /// \brief Parse up to the end of statement and a return the contents from the
   /// current token until the end of the statement; the current token on exit
   /// will be either the EndOfStatement or EOF.
-  virtual StringRef parseStringToEndOfStatement();
+  StringRef parseStringToEndOfStatement() override;
 
   /// \brief Parse until the end of a statement or a comma is encountered,
   /// return the contents from the current token up to the end or comma.
@@ -451,7 +451,7 @@ private:
   bool parseDirectiveElseIf(SMLoc DirectiveLoc); // ".elseif"
   bool parseDirectiveElse(SMLoc DirectiveLoc); // ".else"
   bool parseDirectiveEndIf(SMLoc DirectiveLoc); // .endif
-  virtual bool parseEscapedString(std::string &Data);
+  bool parseEscapedString(std::string &Data) override;
 
   const MCExpr *applyModifierToExpr(const MCExpr *E,
                                     MCSymbolRefExpr::VariantKind Variant);
@@ -640,9 +640,8 @@ bool AsmParser::Run(bool NoInitialTextSection, bool NoFinalize) {
     MCSymbol *SectionStartSym = getContext().CreateTempSymbol();
     getStreamer().EmitLabel(SectionStartSym);
     getContext().setGenDwarfSectionStartSym(SectionStartSym);
-    getStreamer().EmitDwarfFileDirective(getContext().nextGenDwarfFileNumber(),
-                                         StringRef(),
-                                         getContext().getMainFileName());
+    getContext().setGenDwarfFileNumber(getStreamer().EmitDwarfFileDirective(
+        0, StringRef(), getContext().getMainFileName()));
   }
 
   // While we have input, parse each statement.
@@ -662,11 +661,15 @@ bool AsmParser::Run(bool NoInitialTextSection, bool NoFinalize) {
     return TokError("unmatched .ifs or .elses");
 
   // Check to see there are no empty DwarfFile slots.
-  const SmallVectorImpl<MCDwarfFile *> &MCDwarfFiles =
-      getContext().getMCDwarfFiles();
-  for (unsigned i = 1; i < MCDwarfFiles.size(); i++) {
-    if (!MCDwarfFiles[i])
-      TokError("unassigned file number: " + Twine(i) + " for .file directives");
+  const auto &LineTables = getContext().getMCDwarfLineTables();
+  if (!LineTables.empty()) {
+    unsigned Index = 0;
+    for (const auto &File : LineTables.begin()->second.getMCDwarfFiles()) {
+      if (File.Name.empty() && Index != 0)
+        TokError("unassigned file number: " + Twine(Index) +
+                 " for .file directives");
+      ++Index;
+    }
   }
 
   // Check to see that all assembler local symbols were actually defined.
@@ -805,9 +808,8 @@ bool AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
                                         getContext());
           EndLoc = FirstTokenLoc;
           return false;
-        } else
-          return Error(FirstTokenLoc, "invalid token in expression");
-        return true;
+        }
+        return Error(FirstTokenLoc, "invalid token in expression");
       }
     }
     // Parse symbol variant
@@ -877,15 +879,13 @@ bool AsmParser::parsePrimaryExpr(const MCExpr *&Res, SMLoc &EndLoc) {
       MCSymbolRefExpr::VariantKind Variant = MCSymbolRefExpr::VK_None;
       if (Split.first.size() != IDVal.size()) {
         Variant = MCSymbolRefExpr::getVariantKindForName(Split.second);
-        if (Variant == MCSymbolRefExpr::VK_Invalid) {
-          Variant = MCSymbolRefExpr::VK_None;
+        if (Variant == MCSymbolRefExpr::VK_Invalid)
           return TokError("invalid variant '" + Split.second + "'");
-        }
         IDVal = Split.first;
       }
       if (IDVal == "f" || IDVal == "b") {
         MCSymbol *Sym =
-            Ctx.GetDirectionalLocalSymbol(IntVal, IDVal == "f" ? 1 : 0);
+            Ctx.GetDirectionalLocalSymbol(IntVal, IDVal == "b");
         Res = MCSymbolRefExpr::Create(Sym, Variant, getContext());
         if (IDVal == "b" && Sym->isUndefined())
           return Error(Loc, "invalid reference to undefined symbol");
@@ -1590,14 +1590,10 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info) {
     // If we previously parsed a cpp hash file line comment then make sure the
     // current Dwarf File is for the CppHashFilename if not then emit the
     // Dwarf File table for it and adjust the line number for the .loc.
-    const SmallVectorImpl<MCDwarfFile *> &MCDwarfFiles =
-        getContext().getMCDwarfFiles();
     if (CppHashFilename.size() != 0) {
-      if (MCDwarfFiles[getContext().getGenDwarfFileNumber()]->getName() !=
-          CppHashFilename)
-        getStreamer().EmitDwarfFileDirective(
-            getContext().nextGenDwarfFileNumber(), StringRef(),
-            CppHashFilename);
+      unsigned FileNumber = getStreamer().EmitDwarfFileDirective(
+          0, StringRef(), CppHashFilename);
+      getContext().setGenDwarfFileNumber(FileNumber);
 
       // Since SrcMgr.FindLineNumber() is slow and messes up the SourceMgr's
       // cache with the different Loc from the call above we save the last
@@ -1623,9 +1619,9 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info) {
   // If parsing succeeded, match the instruction.
   if (!HadError) {
     unsigned ErrorInfo;
-    HadError = getTargetParser().MatchAndEmitInstruction(
-        IDLoc, Info.Opcode, Info.ParsedOperands, Out, ErrorInfo,
-        ParsingInlineAsm);
+    getTargetParser().MatchAndEmitInstruction(IDLoc, Info.Opcode,
+                                              Info.ParsedOperands, Out,
+                                              ErrorInfo, ParsingInlineAsm);
   }
 
   // Don't skip the rest of the line, the instruction parser is responsible for
@@ -2004,6 +2000,7 @@ bool AsmParser::parseMacroArguments(const MCAsmMacro *M,
           break;
 
       if (FAI >= NParameters) {
+	assert(M && "expected macro to be defined");
         Error(IDLoc,
               "parameter named '" + FA.Name + "' does not exist for macro '" +
               M->Name + "'");
@@ -2699,7 +2696,9 @@ bool AsmParser::parseDirectiveAlign(bool IsPow2, unsigned ValueSize) {
 
   // Check whether we should use optimal code alignment for this .align
   // directive.
-  bool UseCodeAlign = getStreamer().getCurrentSection().first->UseCodeAlign();
+  const MCSection *Section = getStreamer().getCurrentSection().first;
+  assert(Section && "must have section to emit alignment");
+  bool UseCodeAlign = Section->UseCodeAlign();
   if ((!HasFillExpr || Lexer.getMAI().getTextAlignFillValue() == FillExpr) &&
       ValueSize == 1 && UseCodeAlign) {
     getStreamer().EmitCodeAlignment(Alignment, MaxBytesToFill);
@@ -2763,7 +2762,8 @@ bool AsmParser::parseDirectiveFile(SMLoc DirectiveLoc) {
             "input can't have .file dwarf directives when -g is "
             "used to generate dwarf debug info for assembly code");
 
-    if (getStreamer().EmitDwarfFileDirective(FileNumber, Directory, Filename))
+    if (getStreamer().EmitDwarfFileDirective(FileNumber, Directory, Filename) ==
+        0)
       Error(FileNumberLoc, "file number already allocated");
   }
 
@@ -4583,6 +4583,10 @@ bool AsmParser::parseMSInlineAsm(
       break;
     }
     case AOK_DotOperator:
+      // Insert the dot if the user omitted it.
+      OS.flush();
+      if (AsmStringIR.back() != '.')
+        OS << '.';
       OS << (*I).Val;
       break;
     }

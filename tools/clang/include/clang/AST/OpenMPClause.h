@@ -95,7 +95,7 @@ protected:
             llvm::RoundUpToAlignment(sizeof(T), llvm::alignOf<Expr *>())));
   }
 
-  /// \brief Build clause with number of variables \a N.
+  /// \brief Build a clause with \a N variables
   ///
   /// \param K Kind of the clause.
   /// \param StartLoc Starting location of the clause (the clause keyword).
@@ -110,9 +110,19 @@ protected:
 public:
   typedef llvm::MutableArrayRef<Expr *>::iterator varlist_iterator;
   typedef ArrayRef<const Expr *>::iterator varlist_const_iterator;
+  typedef llvm::iterator_range<varlist_iterator> varlist_range;
+  typedef llvm::iterator_range<varlist_const_iterator> varlist_const_range;
 
   unsigned varlist_size() const { return NumVars; }
   bool varlist_empty() const { return NumVars == 0; }
+
+  varlist_range varlists() {
+    return varlist_range(varlist_begin(), varlist_end());
+  }
+  varlist_const_range varlists() const {
+    return varlist_const_range(varlist_begin(), varlist_end());
+  }
+
   varlist_iterator varlist_begin() { return getVarRefs().begin(); }
   varlist_iterator varlist_end() { return getVarRefs().end(); }
   varlist_const_iterator varlist_begin() const { return getVarRefs().begin(); }
@@ -184,6 +194,116 @@ public:
   }
 
   StmtRange children() { return StmtRange(&Condition, &Condition + 1); }
+};
+
+/// \brief This represents 'num_threads' clause in the '#pragma omp ...'
+/// directive.
+///
+/// \code
+/// #pragma omp parallel num_threads(6)
+/// \endcode
+/// In this example directive '#pragma omp parallel' has simple 'num_threads'
+/// clause with number of threads '6'.
+///
+class OMPNumThreadsClause : public OMPClause {
+  friend class OMPClauseReader;
+  /// \brief Location of '('.
+  SourceLocation LParenLoc;
+  /// \brief Condition of the 'num_threads' clause.
+  Stmt *NumThreads;
+
+  /// \brief Set condition.
+  ///
+  void setNumThreads(Expr *NThreads) { NumThreads = NThreads; }
+
+public:
+  /// \brief Build 'num_threads' clause with condition \a NumThreads.
+  ///
+  /// \param NumThreads Number of threads for the construct.
+  /// \param StartLoc Starting location of the clause.
+  /// \param LParenLoc Location of '('.
+  /// \param EndLoc Ending location of the clause.
+  ///
+  OMPNumThreadsClause(Expr *NumThreads, SourceLocation StartLoc,
+                      SourceLocation LParenLoc, SourceLocation EndLoc)
+      : OMPClause(OMPC_num_threads, StartLoc, EndLoc), LParenLoc(LParenLoc),
+        NumThreads(NumThreads) {}
+
+  /// \brief Build an empty clause.
+  ///
+  OMPNumThreadsClause()
+      : OMPClause(OMPC_num_threads, SourceLocation(), SourceLocation()),
+        LParenLoc(SourceLocation()), NumThreads(0) {}
+
+  /// \brief Sets the location of '('.
+  void setLParenLoc(SourceLocation Loc) { LParenLoc = Loc; }
+  /// \brief Returns the location of '('.
+  SourceLocation getLParenLoc() const { return LParenLoc; }
+
+  /// \brief Returns number of threads.
+  Expr *getNumThreads() const { return cast_or_null<Expr>(NumThreads); }
+
+  static bool classof(const OMPClause *T) {
+    return T->getClauseKind() == OMPC_num_threads;
+  }
+
+  StmtRange children() { return StmtRange(&NumThreads, &NumThreads + 1); }
+};
+
+/// \brief This represents 'safelen' clause in the '#pragma omp ...'
+/// directive.
+///
+/// \code
+/// #pragma omp simd safelen(4)
+/// \endcode
+/// In this example directive '#pragma omp simd' has clause 'safelen'
+/// with single expression '4'.
+/// If the safelen clause is used then no two iterations executed
+/// concurrently with SIMD instructions can have a greater distance
+/// in the logical iteration space than its value. The parameter of
+/// the safelen clause must be a constant positive integer expression.
+///
+class OMPSafelenClause : public OMPClause {
+  friend class OMPClauseReader;
+  /// \brief Location of '('.
+  SourceLocation LParenLoc;
+  /// \brief Safe iteration space distance.
+  Stmt *Safelen;
+
+  /// \brief Set safelen.
+  void setSafelen(Expr *Len) { Safelen = Len; }
+
+public:
+  /// \brief Build 'safelen' clause.
+  ///
+  /// \param Len Expression associated with this clause.
+  /// \param StartLoc Starting location of the clause.
+  /// \param EndLoc Ending location of the clause.
+  ///
+  OMPSafelenClause(Expr *Len, SourceLocation StartLoc, SourceLocation LParenLoc,
+                   SourceLocation EndLoc)
+      : OMPClause(OMPC_safelen, StartLoc, EndLoc), LParenLoc(LParenLoc),
+        Safelen(Len) {}
+
+  /// \brief Build an empty clause.
+  ///
+  explicit OMPSafelenClause()
+      : OMPClause(OMPC_safelen, SourceLocation(), SourceLocation()),
+        LParenLoc(SourceLocation()), Safelen(0) {}
+
+  /// \brief Sets the location of '('.
+  void setLParenLoc(SourceLocation Loc) { LParenLoc = Loc; }
+  /// \brief Returns the location of '('.
+  SourceLocation getLParenLoc() const { return LParenLoc; }
+
+  /// \brief Return safe iteration space distance.
+  Expr *getSafelen() const { return cast_or_null<Expr>(Safelen); }
+
+  static bool classof(const OMPClause *T) {
+    return T->getClauseKind() == OMPC_safelen;
+  }
+
+  StmtRange children() { return StmtRange(&Safelen, &Safelen + 1); }
 };
 
 /// \brief This represents 'default' clause in the '#pragma omp ...' directive.
@@ -430,6 +550,65 @@ public:
 
   static bool classof(const OMPClause *T) {
     return T->getClauseKind() == OMPC_shared;
+  }
+};
+
+/// \brief This represents clause 'copyin' in the '#pragma omp ...' directives.
+///
+/// \code
+/// #pragma omp parallel copyin(a,b)
+/// \endcode
+/// In this example directive '#pragma omp parallel' has clause 'copyin'
+/// with the variables 'a' and 'b'.
+///
+class OMPCopyinClause : public OMPVarListClause<OMPCopyinClause> {
+  /// \brief Build clause with number of variables \a N.
+  ///
+  /// \param StartLoc Starting location of the clause.
+  /// \param LParenLoc Location of '('.
+  /// \param EndLoc Ending location of the clause.
+  /// \param N Number of the variables in the clause.
+  ///
+  OMPCopyinClause(SourceLocation StartLoc, SourceLocation LParenLoc,
+                  SourceLocation EndLoc, unsigned N)
+      : OMPVarListClause<OMPCopyinClause>(OMPC_copyin, StartLoc, LParenLoc,
+                                          EndLoc, N) {}
+
+  /// \brief Build an empty clause.
+  ///
+  /// \param N Number of variables.
+  ///
+  explicit OMPCopyinClause(unsigned N)
+      : OMPVarListClause<OMPCopyinClause>(OMPC_copyin, SourceLocation(),
+                                          SourceLocation(), SourceLocation(),
+                                          N) {}
+
+public:
+  /// \brief Creates clause with a list of variables \a VL.
+  ///
+  /// \param C AST context.
+  /// \param StartLoc Starting location of the clause.
+  /// \param LParenLoc Location of '('.
+  /// \param EndLoc Ending location of the clause.
+  /// \param VL List of references to the variables.
+  ///
+  static OMPCopyinClause *Create(const ASTContext &C, SourceLocation StartLoc,
+                                 SourceLocation LParenLoc,
+                                 SourceLocation EndLoc, ArrayRef<Expr *> VL);
+  /// \brief Creates an empty clause with \a N variables.
+  ///
+  /// \param C AST context.
+  /// \param N The number of variables.
+  ///
+  static OMPCopyinClause *CreateEmpty(const ASTContext &C, unsigned N);
+
+  StmtRange children() {
+    return StmtRange(reinterpret_cast<Stmt **>(varlist_begin()),
+                     reinterpret_cast<Stmt **>(varlist_end()));
+  }
+
+  static bool classof(const OMPClause *T) {
+    return T->getClauseKind() == OMPC_copyin;
   }
 };
 

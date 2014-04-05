@@ -27,10 +27,10 @@
 #include "clang/Basic/OperatorKinds.h"
 #include "clang/Basic/SourceLocation.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/raw_ostream.h"
+#include <memory>
 
 // TODO: Adjust states of args to constructors in the same way that arguments to
 //       function calls are handled.
@@ -471,11 +471,21 @@ class ConsumedStmtVisitor : public ConstStmtVisitor<ConsumedStmtVisitor> {
   ConsumedStateMap *StateMap;
   MapType PropagationMap;
 
-  void forwardInfo(const Stmt *From, const Stmt *To);
-  void copyInfo(const Stmt *From, const Stmt *To, ConsumedState CS);
-  ConsumedState getInfo(const Stmt *From);
-  void setInfo(const Stmt *To, ConsumedState NS);
-  void propagateReturnType(const Stmt *Call, const FunctionDecl *Fun);
+  InfoEntry findInfo(const Expr *E) {
+    return PropagationMap.find(E->IgnoreParens());
+  }
+  ConstInfoEntry findInfo(const Expr *E) const {
+    return PropagationMap.find(E->IgnoreParens());
+  }
+  void insertInfo(const Expr *E, const PropagationInfo &PI) {
+    PropagationMap.insert(PairType(E->IgnoreParens(), PI));
+  }
+
+  void forwardInfo(const Expr *From, const Expr *To);
+  void copyInfo(const Expr *From, const Expr *To, ConsumedState CS);
+  ConsumedState getInfo(const Expr *From);
+  void setInfo(const Expr *To, ConsumedState NS);
+  void propagateReturnType(const Expr *Call, const FunctionDecl *Fun);
 
 public:
   void checkCallability(const PropagationInfo &PInfo,
@@ -504,8 +514,8 @@ public:
                       ConsumedStateMap *StateMap)
       : AC(AC), Analyzer(Analyzer), StateMap(StateMap) {}
   
-  PropagationInfo getInfo(const Stmt *StmtNode) const {
-    ConstInfoEntry Entry = PropagationMap.find(StmtNode);
+  PropagationInfo getInfo(const Expr *StmtNode) const {
+    ConstInfoEntry Entry = findInfo(StmtNode);
     
     if (Entry != PropagationMap.end())
       return Entry->second;
@@ -519,23 +529,23 @@ public:
 };
 
 
-void ConsumedStmtVisitor::forwardInfo(const Stmt *From, const Stmt *To) {
-  InfoEntry Entry = PropagationMap.find(From);
+void ConsumedStmtVisitor::forwardInfo(const Expr *From, const Expr *To) {
+  InfoEntry Entry = findInfo(From);
   if (Entry != PropagationMap.end())
-    PropagationMap.insert(PairType(To, Entry->second));
+    insertInfo(To, Entry->second);
 }
 
 
 // Create a new state for To, which is initialized to the state of From.
 // If NS is not CS_None, sets the state of From to NS.
-void ConsumedStmtVisitor::copyInfo(const Stmt *From, const Stmt *To,
+void ConsumedStmtVisitor::copyInfo(const Expr *From, const Expr *To,
                                    ConsumedState NS) {
-  InfoEntry Entry = PropagationMap.find(From);
+  InfoEntry Entry = findInfo(From);
   if (Entry != PropagationMap.end()) {
     PropagationInfo& PInfo = Entry->second;
     ConsumedState CS = PInfo.getAsState(StateMap);
     if (CS != CS_None)
-      PropagationMap.insert(PairType(To, CS));
+      insertInfo(To, PropagationInfo(CS));
     if (NS != CS_None && PInfo.isPointerToValue())
       setStateForVarOrTmp(StateMap, PInfo, NS);
   }
@@ -543,8 +553,8 @@ void ConsumedStmtVisitor::copyInfo(const Stmt *From, const Stmt *To,
 
 
 // Get the ConsumedState for From
-ConsumedState ConsumedStmtVisitor::getInfo(const Stmt *From) {
-  InfoEntry Entry = PropagationMap.find(From);
+ConsumedState ConsumedStmtVisitor::getInfo(const Expr *From) {
+  InfoEntry Entry = findInfo(From);
   if (Entry != PropagationMap.end()) {
     PropagationInfo& PInfo = Entry->second;
     return PInfo.getAsState(StateMap);
@@ -554,14 +564,14 @@ ConsumedState ConsumedStmtVisitor::getInfo(const Stmt *From) {
 
 
 // If we already have info for To then update it, otherwise create a new entry.
-void ConsumedStmtVisitor::setInfo(const Stmt *To, ConsumedState NS) {
-  InfoEntry Entry = PropagationMap.find(To);
+void ConsumedStmtVisitor::setInfo(const Expr *To, ConsumedState NS) {
+  InfoEntry Entry = findInfo(To);
   if (Entry != PropagationMap.end()) {
     PropagationInfo& PInfo = Entry->second;
     if (PInfo.isPointerToValue())
       setStateForVarOrTmp(StateMap, PInfo, NS);
   } else if (NS != CS_None) {
-     PropagationMap.insert(PairType(To, PropagationInfo(NS)));
+     insertInfo(To, PropagationInfo(NS));
   }
 }
 
@@ -616,7 +626,7 @@ bool ConsumedStmtVisitor::handleCall(const CallExpr *Call, const Expr *ObjArg,
     const ParmVarDecl *Param = FunD->getParamDecl(Index - Offset);
     QualType ParamType = Param->getType();
 
-    InfoEntry Entry = PropagationMap.find(Call->getArg(Index));
+    InfoEntry Entry = findInfo(Call->getArg(Index));
 
     if (Entry == PropagationMap.end() || Entry->second.isTest())
       continue;
@@ -651,7 +661,7 @@ bool ConsumedStmtVisitor::handleCall(const CallExpr *Call, const Expr *ObjArg,
     return false;
 
   // check implicit 'self' parameter, if present
-  InfoEntry Entry = PropagationMap.find(ObjArg);
+  InfoEntry Entry = findInfo(ObjArg);
   if (Entry != PropagationMap.end()) {
     PropagationInfo PInfo = Entry->second;
     checkCallability(PInfo, FunD, Call->getExprLoc());
@@ -675,7 +685,7 @@ bool ConsumedStmtVisitor::handleCall(const CallExpr *Call, const Expr *ObjArg,
 }
 
 
-void ConsumedStmtVisitor::propagateReturnType(const Stmt *Call,
+void ConsumedStmtVisitor::propagateReturnType(const Expr *Call,
                                               const FunctionDecl *Fun) {
   QualType RetType = Fun->getCallResultType();
   if (RetType->isReferenceType())
@@ -697,8 +707,8 @@ void ConsumedStmtVisitor::VisitBinaryOperator(const BinaryOperator *BinOp) {
   switch (BinOp->getOpcode()) {
   case BO_LAnd:
   case BO_LOr : {
-    InfoEntry LEntry = PropagationMap.find(BinOp->getLHS()),
-              REntry = PropagationMap.find(BinOp->getRHS());
+    InfoEntry LEntry = findInfo(BinOp->getLHS()),
+              REntry = findInfo(BinOp->getRHS());
     
     VarTestResult LTest, RTest;
     
@@ -770,7 +780,7 @@ void ConsumedStmtVisitor::VisitCastExpr(const CastExpr *Cast) {
 void ConsumedStmtVisitor::VisitCXXBindTemporaryExpr(
   const CXXBindTemporaryExpr *Temp) {
   
-  InfoEntry Entry = PropagationMap.find(Temp->getSubExpr());
+  InfoEntry Entry = findInfo(Temp->getSubExpr());
   
   if (Entry != PropagationMap.end() && !Entry->second.isTest()) {
     StateMap->setState(Temp, Entry->second.getAsState(StateMap));
@@ -851,11 +861,9 @@ void ConsumedStmtVisitor::VisitDeclRefExpr(const DeclRefExpr *DeclRef) {
 }
 
 void ConsumedStmtVisitor::VisitDeclStmt(const DeclStmt *DeclS) {
-  for (DeclStmt::const_decl_iterator DI = DeclS->decl_begin(),
-       DE = DeclS->decl_end(); DI != DE; ++DI) {
-    
-    if (isa<VarDecl>(*DI)) VisitVarDecl(cast<VarDecl>(*DI));
-  }
+  for (const auto *DI : DeclS->decls())    
+    if (isa<VarDecl>(DI))
+      VisitVarDecl(cast<VarDecl>(DI));
   
   if (DeclS->isSingleDecl())
     if (const VarDecl *Var = dyn_cast_or_null<VarDecl>(DeclS->getSingleDecl()))
@@ -896,7 +904,7 @@ void ConsumedStmtVisitor::VisitReturnStmt(const ReturnStmt *Ret) {
   ConsumedState ExpectedState = Analyzer.getExpectedReturnState();
   
   if (ExpectedState != CS_None) {
-    InfoEntry Entry = PropagationMap.find(Ret->getRetValue());
+    InfoEntry Entry = findInfo(Ret->getRetValue());
     
     if (Entry != PropagationMap.end()) {
       ConsumedState RetState = Entry->second.getAsState(StateMap);
@@ -913,7 +921,7 @@ void ConsumedStmtVisitor::VisitReturnStmt(const ReturnStmt *Ret) {
 }
 
 void ConsumedStmtVisitor::VisitUnaryOperator(const UnaryOperator *UOp) {
-  InfoEntry Entry = PropagationMap.find(UOp->getSubExpr()->IgnoreParens());
+  InfoEntry Entry = findInfo(UOp->getSubExpr());
   if (Entry == PropagationMap.end()) return;
   
   switch (UOp->getOpcode()) {
@@ -935,8 +943,7 @@ void ConsumedStmtVisitor::VisitUnaryOperator(const UnaryOperator *UOp) {
 void ConsumedStmtVisitor::VisitVarDecl(const VarDecl *Var) {
   if (isConsumableType(Var->getType())) {
     if (Var->hasInit()) {
-      MapType::iterator VIT = PropagationMap.find(
-        Var->getInit()->IgnoreImplicit());
+      MapType::iterator VIT = findInfo(Var->getInit()->IgnoreImplicit());
       if (VIT != PropagationMap.end()) {
         PropagationInfo PInfo = VIT->second;
         ConsumedState St = PInfo.getAsState(StateMap);
@@ -1286,14 +1293,15 @@ void ConsumedAnalyzer::determineExpectedReturnState(AnalysisDeclContext &AC,
 
 bool ConsumedAnalyzer::splitState(const CFGBlock *CurrBlock,
                                   const ConsumedStmtVisitor &Visitor) {
-  
-  OwningPtr<ConsumedStateMap> FalseStates(new ConsumedStateMap(*CurrStates));
+
+  std::unique_ptr<ConsumedStateMap> FalseStates(
+      new ConsumedStateMap(*CurrStates));
   PropagationInfo PInfo;
   
   if (const IfStmt *IfNode =
     dyn_cast_or_null<IfStmt>(CurrBlock->getTerminator().getStmt())) {
     
-    const Stmt *Cond = IfNode->getCond();
+    const Expr *Cond = IfNode->getCond();
     
     PInfo = Visitor.getInfo(Cond);
     if (!PInfo.isValid() && isa<BinaryOperator>(Cond))
@@ -1362,8 +1370,8 @@ bool ConsumedAnalyzer::splitState(const CFGBlock *CurrBlock,
     delete CurrStates;
     
   if (*++SI)
-    BlockInfo.addInfo(*SI, FalseStates.take());
-  
+    BlockInfo.addInfo(*SI, FalseStates.release());
+
   CurrStates = NULL;
   return true;
 }
@@ -1388,9 +1396,8 @@ void ConsumedAnalyzer::run(AnalysisDeclContext &AC) {
   ConsumedStmtVisitor Visitor(AC, *this, CurrStates);
   
   // Add all trackable parameters to the state map.
-  for (FunctionDecl::param_const_iterator PI = D->param_begin(),
-       PE = D->param_end(); PI != PE; ++PI) {
-    Visitor.VisitParmVarDecl(*PI);
+  for (auto PI : D->params()) {
+    Visitor.VisitParmVarDecl(PI);
   }
   
   // Visit all of the function's basic blocks.

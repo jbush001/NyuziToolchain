@@ -13,6 +13,7 @@
 
 #define DEBUG_TYPE "delay-slot-filler"
 
+#include "MCTargetDesc/MipsMCNaCl.h"
 #include "Mips.h"
 #include "MipsInstrInfo.h"
 #include "MipsTargetMachine.h"
@@ -500,8 +501,8 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
     // Bundle the NOP to the instruction with the delay slot.
     const MipsInstrInfo *TII =
       static_cast<const MipsInstrInfo*>(TM.getInstrInfo());
-    BuildMI(MBB, llvm::next(I), I->getDebugLoc(), TII->get(Mips::NOP));
-    MIBundleBuilder(MBB, I, llvm::next(llvm::next(I)));
+    BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(Mips::NOP));
+    MIBundleBuilder(MBB, I, std::next(I, 2));
   }
 
   return Changed;
@@ -531,6 +532,18 @@ bool Filler::searchRange(MachineBasicBlock &MBB, IterTy Begin, IterTy End,
     if (delayHasHazard(*I, RegDU, IM))
       continue;
 
+    if (TM.getSubtarget<MipsSubtarget>().isTargetNaCl()) {
+      // In NaCl, instructions that must be masked are forbidden in delay slots.
+      // We only check for loads, stores and SP changes.  Calls, returns and
+      // branches are not checked because non-NaCl targets never put them in
+      // delay slots.
+      unsigned AddrIdx;
+      if ((isBasePlusOffsetMemoryAccess(I->getOpcode(), &AddrIdx)
+           && baseRegNeedsLoadStoreMask(I->getOperand(AddrIdx).getReg()))
+          || I->modifiesRegister(Mips::SP, TM.getRegisterInfo()))
+        continue;
+    }
+
     Filler = I;
     return true;
   }
@@ -551,8 +564,8 @@ bool Filler::searchBackward(MachineBasicBlock &MBB, Iter Slot) const {
   if (!searchRange(MBB, ReverseIter(Slot), MBB.rend(), RegDU, MemDU, Filler))
     return false;
 
-  MBB.splice(llvm::next(Slot), &MBB, llvm::next(Filler).base());
-  MIBundleBuilder(MBB, Slot, llvm::next(llvm::next(Slot)));
+  MBB.splice(std::next(Slot), &MBB, std::next(Filler).base());
+  MIBundleBuilder(MBB, Slot, std::next(Slot, 2));
   ++UsefulSlots;
   return true;
 }
@@ -568,11 +581,11 @@ bool Filler::searchForward(MachineBasicBlock &MBB, Iter Slot) const {
 
   RegDU.setCallerSaved(*Slot);
 
-  if (!searchRange(MBB, llvm::next(Slot), MBB.end(), RegDU, NM, Filler))
+  if (!searchRange(MBB, std::next(Slot), MBB.end(), RegDU, NM, Filler))
     return false;
 
-  MBB.splice(llvm::next(Slot), &MBB, Filler);
-  MIBundleBuilder(MBB, Slot, llvm::next(llvm::next(Slot)));
+  MBB.splice(std::next(Slot), &MBB, Filler);
+  MIBundleBuilder(MBB, Slot, std::next(Slot, 2));
   ++UsefulSlots;
   return true;
 }
@@ -704,6 +717,6 @@ bool Filler::delayHasHazard(const MachineInstr &Candidate, RegDefsUses &RegDU,
 
 bool Filler::terminateSearch(const MachineInstr &Candidate) const {
   return (Candidate.isTerminator() || Candidate.isCall() ||
-          Candidate.isLabel() || Candidate.isInlineAsm() ||
+          Candidate.isPosition() || Candidate.isInlineAsm() ||
           Candidate.hasUnmodeledSideEffects());
 }

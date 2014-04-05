@@ -21,12 +21,6 @@
 
 #define DEBUG_TYPE "WriterPECOFF"
 
-#include <algorithm>
-#include <cstdlib>
-#include <map>
-#include <time.h>
-#include <vector>
-
 #include "Atoms.h"
 #include "WriterImportLibrary.h"
 
@@ -46,10 +40,17 @@
 #include "llvm/Support/FileOutputBuffer.h"
 #include "llvm/Support/Format.h"
 
+#include <algorithm>
+#include <cstdlib>
+#include <map>
+#include <time.h>
+#include <vector>
+
+using llvm::COFF::DataDirectoryIndex;
+using llvm::object::coff_runtime_function_x64;
 using llvm::support::ulittle16_t;
 using llvm::support::ulittle32_t;
 using llvm::support::ulittle64_t;
-using llvm::COFF::DataDirectoryIndex;
 
 namespace lld {
 namespace pecoff {
@@ -113,7 +114,7 @@ public:
     _size = llvm::RoundUpToAlignment(size, 8);
   }
 
-  virtual void write(uint8_t *buffer) {
+  void write(uint8_t *buffer) override {
     ArrayRef<uint8_t> array = _context.getDosStub();
     std::memcpy(buffer, array.data(), array.size());
     auto *header = reinterpret_cast<llvm::object::dos_header *>(buffer);
@@ -130,7 +131,7 @@ class PEHeaderChunk : public HeaderChunk {
 public:
   explicit PEHeaderChunk(const PECOFFLinkingContext &ctx);
 
-  virtual void write(uint8_t *buffer);
+  void write(uint8_t *buffer) override;
 
   void setSizeOfHeaders(uint64_t size) {
     // Must be multiple of FileAlignment.
@@ -167,8 +168,8 @@ class SectionHeaderTableChunk : public HeaderChunk {
 public:
   SectionHeaderTableChunk() : HeaderChunk() {}
   void addSection(SectionChunk *chunk);
-  virtual uint64_t size() const;
-  virtual void write(uint8_t *buffer);
+  uint64_t size() const override;
+  void write(uint8_t *buffer) override;
 
 private:
   static llvm::object::coff_section createSectionHeader(SectionChunk *chunk);
@@ -178,7 +179,7 @@ private:
 
 class SectionChunk : public Chunk {
 public:
-  virtual uint64_t align() const { return SECTOR_SIZE; }
+  uint64_t align() const override { return SECTOR_SIZE; }
   uint32_t getCharacteristics() const { return _characteristics; }
   StringRef getSectionName() const { return _sectionName; }
 
@@ -207,7 +208,7 @@ public:
   AtomChunk(const PECOFFLinkingContext &ctx, StringRef name,
             const std::vector<const DefinedAtom *> &atoms);
 
-  virtual void write(uint8_t *buffer);
+  void write(uint8_t *buffer) override;
 
   void appendAtom(const DefinedAtom *atom);
   void buildAtomRvaMap(std::map<const Atom *, uint64_t> &atomRva) const;
@@ -224,7 +225,7 @@ public:
   void printAtomAddresses(uint64_t baseAddr) const;
   void addBaseRelocations(std::vector<uint64_t> &relocSites) const;
 
-  virtual void setVirtualAddress(uint32_t rva);
+  void setVirtualAddress(uint32_t rva) override;
   uint64_t getAtomVirtualAddress(StringRef name) const;
 
   static bool classof(const Chunk *c) { return c->getKind() == kindAtomChunk; }
@@ -256,12 +257,12 @@ public:
   DataDirectoryChunk()
       : HeaderChunk(), _data(std::vector<llvm::object::data_directory>(16)) {}
 
-  virtual uint64_t size() const {
+  uint64_t size() const override {
     return sizeof(llvm::object::data_directory) * _data.size();
   }
 
   void setField(DataDirectoryIndex index, uint32_t addr, uint32_t size);
-  virtual void write(uint8_t *buffer);
+  void write(uint8_t *buffer) override;
 
 private:
   std::vector<llvm::object::data_directory> _data;
@@ -289,11 +290,11 @@ public:
       : SectionChunk(kindSection, ".reloc", characteristics),
         _contents(createContents(chunks)) {}
 
-  virtual void write(uint8_t *buffer) {
+  void write(uint8_t *buffer) override {
     std::memcpy(buffer, &_contents[0], _contents.size());
   }
 
-  virtual uint64_t size() const { return _contents.size(); }
+  uint64_t size() const override { return _contents.size(); }
 
 private:
   // When loaded into memory, reloc section should be readable and writable.
@@ -566,10 +567,10 @@ void AtomChunk::applyRelocations64(uint8_t *buffer,
         *relocSite64 = targetAddr;
         break;
       case llvm::COFF::IMAGE_REL_AMD64_ADDR32:
-        *relocSite32 = targetAddr;
+        *relocSite32 = targetAddr + imageBase;
         break;
       case llvm::COFF::IMAGE_REL_AMD64_ADDR32NB:
-        *relocSite32 = targetAddr - imageBase;
+        *relocSite32 = targetAddr;
         break;
       case llvm::COFF::IMAGE_REL_AMD64_REL32:
         *relocSite32 = targetAddr - atomRva[atom] + ref->offsetInAtom() + 4;
@@ -831,12 +832,14 @@ public:
         _imageSizeOnDisk(0) {}
 
   template <class PEHeader> void build(const File &linkedFile);
-  virtual error_code writeFile(const File &linkedFile, StringRef path);
+  error_code writeFile(const File &linkedFile, StringRef path) override;
 
 private:
   void applyAllRelocations(uint8_t *bufferStart);
   void printAllAtomAddresses() const;
   void reorderSEHTableEntries(uint8_t *bufferStart);
+  void reorderSEHTableEntriesX86(uint8_t *bufferStart);
+  void reorderSEHTableEntriesX64(uint8_t *bufferStart);
 
   void addChunk(Chunk *chunk);
   void addSectionChunk(SectionChunk *chunk, SectionHeaderTableChunk *table);
@@ -1013,7 +1016,7 @@ error_code PECOFFWriter::writeFile(const File &linkedFile, StringRef path) {
   }
 
   uint64_t totalSize = _chunks.back()->fileOffset() + _chunks.back()->size();
-  OwningPtr<llvm::FileOutputBuffer> buffer;
+  std::unique_ptr<llvm::FileOutputBuffer> buffer;
   error_code ec = llvm::FileOutputBuffer::create(
       path, totalSize, buffer, llvm::FileOutputBuffer::F_executable);
   if (ec)
@@ -1069,12 +1072,20 @@ void PECOFFWriter::printAllAtomAddresses() const {
       chunk->printAtomAddresses(_ctx.getBaseAddress());
 }
 
+void PECOFFWriter::reorderSEHTableEntries(uint8_t *bufferStart) {
+  auto machineType = _ctx.getMachineType();
+  if (machineType == llvm::COFF::IMAGE_FILE_MACHINE_I386)
+    reorderSEHTableEntriesX86(bufferStart);
+  if (machineType == llvm::COFF::IMAGE_FILE_MACHINE_AMD64)
+    reorderSEHTableEntriesX64(bufferStart);
+}
+
 /// It seems that the entries in .sxdata must be sorted. This function is called
 /// after a COFF file image is created in memory and before it is written to
 /// disk. It is safe to reorder entries at this stage because the contents of
 /// the entries are RVAs and there's no reference to a .sxdata entry other than
 /// to the beginning of the section.
-void PECOFFWriter::reorderSEHTableEntries(uint8_t *bufferStart) {
+void PECOFFWriter::reorderSEHTableEntriesX86(uint8_t *bufferStart) {
   for (std::unique_ptr<Chunk> &chunk : _chunks) {
     if (SectionChunk *section = dyn_cast<SectionChunk>(chunk.get())) {
       if (section->getSectionName() == ".sxdata") {
@@ -1083,6 +1094,25 @@ void PECOFFWriter::reorderSEHTableEntries(uint8_t *bufferStart) {
         ulittle32_t *end = begin + numEntries;
         std::sort(begin, end);
       }
+    }
+  }
+}
+
+/// The entries in .pdata must be sorted according to its BeginAddress field
+/// value. It's safe to do it because of the same reason as .sxdata.
+void PECOFFWriter::reorderSEHTableEntriesX64(uint8_t *bufferStart) {
+  for (std::unique_ptr<Chunk> &chunk : _chunks) {
+    if (SectionChunk *section = dyn_cast<SectionChunk>(chunk.get())) {
+      if (section->getSectionName() != ".pdata")
+        continue;
+      int numEntries = section->size() / sizeof(coff_runtime_function_x64);
+      coff_runtime_function_x64 *begin =
+          (coff_runtime_function_x64 *)(bufferStart + section->fileOffset());
+      coff_runtime_function_x64 *end = begin + numEntries;
+      std::sort(begin, end, [](const coff_runtime_function_x64 &lhs,
+                               const coff_runtime_function_x64 &rhs) {
+        return lhs.BeginAddress < rhs.BeginAddress;
+      });
     }
   }
 }

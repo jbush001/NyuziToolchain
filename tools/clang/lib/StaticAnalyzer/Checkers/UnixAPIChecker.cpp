@@ -30,7 +30,7 @@ using namespace ento;
 
 namespace {
 class UnixAPIChecker : public Checker< check::PreStmt<CallExpr> > {
-  mutable OwningPtr<BugType> BT_open, BT_pthreadOnce, BT_mallocZero;
+  mutable std::unique_ptr<BugType> BT_open, BT_pthreadOnce, BT_mallocZero;
   mutable Optional<uint64_t> Val_O_CREAT;
 
 public:
@@ -57,7 +57,7 @@ private:
                             const unsigned numArgs,
                             const unsigned sizeArg,
                             const char *fn) const;
-  void LazyInitialize(OwningPtr<BugType> &BT, const char *name) const {
+  void LazyInitialize(std::unique_ptr<BugType> &BT, const char *name) const {
     if (BT)
       return;
     BT.reset(new BugType(this, name, categories::UnixAPI));
@@ -80,6 +80,7 @@ void UnixAPIChecker::CheckOpen(CheckerContext &C, const CallExpr *CE) const {
       // FIXME: We need a more general way of getting the O_CREAT value.
       // We could possibly grovel through the preprocessor state, but
       // that would require passing the Preprocessor object to the ExprEngine.
+      // See also: MallocChecker.cpp / M_ZERO.
       return;
     }
   }
@@ -113,7 +114,7 @@ void UnixAPIChecker::CheckOpen(CheckerContext &C, const CallExpr *CE) const {
 
   // Check if maskedFlags is non-zero.
   ProgramStateRef trueState, falseState;
-  llvm::tie(trueState, falseState) = state->assume(maskedFlags);
+  std::tie(trueState, falseState) = state->assume(maskedFlags);
 
   // Only emit an error if the value of 'maskedFlags' is properly
   // constrained;
@@ -193,7 +194,7 @@ static bool IsZeroByteAllocation(ProgramStateRef state,
                                 const SVal argVal,
                                 ProgramStateRef *trueState,
                                 ProgramStateRef *falseState) {
-  llvm::tie(*trueState, *falseState) =
+  std::tie(*trueState, *falseState) =
     state->assume(argVal.castAs<DefinedSVal>());
   
   return (*falseState && !*trueState);

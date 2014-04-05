@@ -76,6 +76,10 @@ private:
                                 unsigned) const;
   unsigned getBranchTargetOpValue(const MachineInstr &MI,
                                   unsigned) const;
+  unsigned getBranchPredTargetOpValue(const MachineInstr &MI,
+                                      unsigned) const;
+  unsigned getBranchOnRegTargetOpValue(const MachineInstr &MI,
+                                       unsigned) const;
 
   void emitWord(unsigned Word);
 
@@ -141,7 +145,8 @@ void SparcCodeEmitter::emitInstruction(MachineBasicBlock::instr_iterator MI,
     }
     break;
   }
-  case TargetOpcode::PROLOG_LABEL:
+  case TargetOpcode::CFI_INSTRUCTION:
+    break;
   case TargetOpcode::EH_LABEL: {
     MCE.emitLabel(MI->getOperand(0).getMCSymbol());
     break;
@@ -194,6 +199,18 @@ unsigned SparcCodeEmitter::getCallTargetOpValue(const MachineInstr &MI,
 
 unsigned SparcCodeEmitter::getBranchTargetOpValue(const MachineInstr &MI,
                                                   unsigned opIdx) const {
+  const MachineOperand MO = MI.getOperand(opIdx);
+  return getMachineOpValue(MI, MO);
+}
+
+unsigned SparcCodeEmitter::getBranchPredTargetOpValue(const MachineInstr &MI,
+                                                      unsigned opIdx) const {
+  const MachineOperand MO = MI.getOperand(opIdx);
+  return getMachineOpValue(MI, MO);
+}
+
+unsigned SparcCodeEmitter::getBranchOnRegTargetOpValue(const MachineInstr &MI,
+                                                       unsigned opIdx) const {
   const MachineOperand MO = MI.getOperand(opIdx);
   return getMachineOpValue(MI, MO);
 }

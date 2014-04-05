@@ -15,11 +15,11 @@
 #include "clang/Driver/Phases.h"
 #include "clang/Driver/Types.h"
 #include "clang/Driver/Util.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Support/Path.h" // FIXME: Kill when CompilationInfo
+#include <memory>
                               // lands.
 #include <list>
 #include <set>
@@ -414,6 +414,10 @@ public:
                                 unsigned &Minor, unsigned &Micro,
                                 bool &HadExtra);
 };
+
+/// \return True if the last defined optimization level is -Ofast.
+/// And False otherwise.
+bool isOptimizationLevelFast(const llvm::opt::ArgList &Args);
 
 } // end namespace driver
 } // end namespace clang

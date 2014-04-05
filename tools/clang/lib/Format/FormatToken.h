@@ -19,7 +19,7 @@
 #include "clang/Basic/OperatorPrecedence.h"
 #include "clang/Format/Format.h"
 #include "clang/Lex/Lexer.h"
-#include "llvm/ADT/OwningPtr.h"
+#include <memory>
 
 namespace clang {
 namespace format {
@@ -45,6 +45,7 @@ enum TokenType {
   TT_LambdaLSquare,
   TT_LineComment,
   TT_ObjCBlockLParen,
+  TT_ObjCBlockLBrace,
   TT_ObjCDecl,
   TT_ObjCForIn,
   TT_ObjCMethodExpr,
@@ -103,7 +104,7 @@ struct FormatToken {
         SplitPenalty(0), LongestObjCSelectorName(0), FakeRParens(0),
         StartsBinaryExpression(false), EndsBinaryExpression(false),
         LastInChainOfCalls(false), PartOfMultiVariableDeclStmt(false),
-        MatchingParen(NULL), Previous(NULL), Next(NULL),
+        IsForEachMacro(false), MatchingParen(NULL), Previous(NULL), Next(NULL),
         Decision(FD_Unformatted), Finalized(false) {}
 
   /// \brief The \c Token.
@@ -187,7 +188,7 @@ struct FormatToken {
 
   /// \brief A token can have a special role that can carry extra information
   /// about the token's formatting.
-  llvm::OwningPtr<TokenRole> Role;
+  std::unique_ptr<TokenRole> Role;
 
   /// \brief If this is an opening parenthesis, how are the parameters packed?
   ParameterPackingKind PackingKind;
@@ -245,6 +246,9 @@ struct FormatToken {
   ///
   /// Only set if \c Type == \c TT_StartOfName.
   bool PartOfMultiVariableDeclStmt;
+
+  /// \brief Is this a foreach macro?
+  bool IsForEachMacro;
 
   bool is(tok::TokenKind Kind) const { return Tok.is(Kind); }
 
@@ -432,17 +436,16 @@ public:
   CommaSeparatedList(const FormatStyle &Style)
       : TokenRole(Style), HasNestedBracedList(false) {}
 
-  virtual void precomputeFormattingInfos(const FormatToken *Token);
+  void precomputeFormattingInfos(const FormatToken *Token) override;
 
-  virtual unsigned formatAfterToken(LineState &State,
-                                    ContinuationIndenter *Indenter,
-                                    bool DryRun);
+  unsigned formatAfterToken(LineState &State, ContinuationIndenter *Indenter,
+                            bool DryRun) override;
 
-  virtual unsigned formatFromToken(LineState &State,
-                                   ContinuationIndenter *Indenter, bool DryRun);
+  unsigned formatFromToken(LineState &State, ContinuationIndenter *Indenter,
+                           bool DryRun) override;
 
   /// \brief Adds \p Token as the next comma to the \c CommaSeparated list.
-  virtual void CommaFound(const FormatToken *Token) { Commas.push_back(Token); }
+  void CommaFound(const FormatToken *Token) override { Commas.push_back(Token);}
 
 private:
   /// \brief A struct that holds information on how to format a given list with

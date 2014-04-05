@@ -15,9 +15,10 @@
 #include "CXString.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/Support/Path.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/TimeValue.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
 using namespace llvm::sys;
@@ -28,6 +29,7 @@ unsigned long long clang_getBuildSessionTimestamp(void) {
 
 struct CXVirtualFileOverlayImpl {
   std::vector<std::pair<std::string, std::string> > Mappings;
+  Optional<bool> IsCaseSensitive;
 };
 
 CXVirtualFileOverlay clang_VirtualFileOverlay_create(unsigned) {
@@ -57,6 +59,16 @@ clang_VirtualFileOverlay_addFileMapping(CXVirtualFileOverlay VFO,
   return CXError_Success;
 }
 
+enum CXErrorCode
+clang_VirtualFileOverlay_setCaseSensitivity(CXVirtualFileOverlay VFO,
+                                            int caseSensitive) {
+  if (!VFO)
+    return CXError_InvalidArguments;
+
+  VFO->IsCaseSensitive = caseSensitive;
+  return CXError_Success;
+}
+
 namespace {
 struct EntryTy {
   std::string VPath;
@@ -69,15 +81,25 @@ struct EntryTy {
 
 class JSONVFSPrinter {
   llvm::raw_ostream &OS;
+  CXVirtualFileOverlay VFO;
 
 public:
-  JSONVFSPrinter(llvm::raw_ostream &OS) : OS(OS) {}
+  JSONVFSPrinter(llvm::raw_ostream &OS, CXVirtualFileOverlay VFO)
+    : OS(OS), VFO(VFO) {}
 
   /// Entries must be sorted.
   void print(ArrayRef<EntryTy> Entries) {
     OS << "{\n"
-          "  'version': 0,\n"
-          "  'roots': [\n";
+          "  'version': 0,\n";
+    if (VFO->IsCaseSensitive.hasValue()) {
+      OS << "  'case-sensitive': '";
+      if (VFO->IsCaseSensitive.getValue())
+        OS << "true";
+      else
+        OS << "false";
+      OS << "',\n";
+    }
+    OS << "  'roots': [\n";
     printDirNodes(Entries, "", 4);
     OS << "  ]\n"
           "}\n";
@@ -162,9 +184,10 @@ private:
 }
 
 enum CXErrorCode
-clang_VirtualFileOverlay_writeToBuffer(CXVirtualFileOverlay VFO,
-                                       unsigned, CXString *out_buffer) {
-  if (!VFO || !out_buffer)
+clang_VirtualFileOverlay_writeToBuffer(CXVirtualFileOverlay VFO, unsigned,
+                                       char **out_buffer_ptr,
+                                       unsigned *out_buffer_size) {
+  if (!VFO || !out_buffer_ptr || !out_buffer_size)
     return CXError_InvalidArguments;
 
   llvm::SmallVector<EntryTy, 16> Entries;
@@ -183,13 +206,74 @@ clang_VirtualFileOverlay_writeToBuffer(CXVirtualFileOverlay VFO,
 
   llvm::SmallString<256> Buf;
   llvm::raw_svector_ostream OS(Buf);
-  JSONVFSPrinter Printer(OS);
+  JSONVFSPrinter Printer(OS, VFO);
   Printer.print(Entries);
 
-  *out_buffer = cxstring::createDup(OS.str());
+  StringRef Data = OS.str();
+  *out_buffer_ptr = (char*)malloc(Data.size());
+  *out_buffer_size = Data.size();
+  memcpy(*out_buffer_ptr, Data.data(), Data.size());
   return CXError_Success;
 }
 
 void clang_VirtualFileOverlay_dispose(CXVirtualFileOverlay VFO) {
   delete VFO;
+}
+
+
+struct CXModuleMapDescriptorImpl {
+  std::string ModuleName;
+  std::string UmbrellaHeader;
+};
+
+CXModuleMapDescriptor clang_ModuleMapDescriptor_create(unsigned) {
+  return new CXModuleMapDescriptorImpl();
+}
+
+enum CXErrorCode
+clang_ModuleMapDescriptor_setFrameworkModuleName(CXModuleMapDescriptor MMD,
+                                                 const char *name) {
+  if (!MMD || !name)
+    return CXError_InvalidArguments;
+
+  MMD->ModuleName = name;
+  return CXError_Success;
+}
+
+enum CXErrorCode
+clang_ModuleMapDescriptor_setUmbrellaHeader(CXModuleMapDescriptor MMD,
+                                            const char *name) {
+  if (!MMD || !name)
+    return CXError_InvalidArguments;
+
+  MMD->UmbrellaHeader = name;
+  return CXError_Success;
+}
+
+enum CXErrorCode
+clang_ModuleMapDescriptor_writeToBuffer(CXModuleMapDescriptor MMD, unsigned,
+                                       char **out_buffer_ptr,
+                                       unsigned *out_buffer_size) {
+  if (!MMD || !out_buffer_ptr || !out_buffer_size)
+    return CXError_InvalidArguments;
+
+  llvm::SmallString<256> Buf;
+  llvm::raw_svector_ostream OS(Buf);
+  OS << "framework module " << MMD->ModuleName << " {\n";
+  OS << "  umbrella header \"";
+  OS.write_escaped(MMD->UmbrellaHeader) << "\"\n";
+  OS << '\n';
+  OS << "  export *\n";
+  OS << "  module * { export * }\n";
+  OS << "}\n";
+
+  StringRef Data = OS.str();
+  *out_buffer_ptr = (char*)malloc(Data.size());
+  *out_buffer_size = Data.size();
+  memcpy(*out_buffer_ptr, Data.data(), Data.size());
+  return CXError_Success;
+}
+
+void clang_ModuleMapDescriptor_dispose(CXModuleMapDescriptor MMD) {
+  delete MMD;
 }

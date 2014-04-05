@@ -25,8 +25,8 @@ using namespace ento;
 
 namespace {
 class ReturnUndefChecker : public Checker< check::PreStmt<ReturnStmt> > {
-  mutable OwningPtr<BuiltinBug> BT_Undef;
-  mutable OwningPtr<BuiltinBug> BT_NullReference;
+  mutable std::unique_ptr<BuiltinBug> BT_Undef;
+  mutable std::unique_ptr<BuiltinBug> BT_NullReference;
 
   void emitUndef(CheckerContext &C, const Expr *RetE) const;
   void checkReference(CheckerContext &C, const Expr *RetE,
@@ -103,7 +103,7 @@ void ReturnUndefChecker::emitUndef(CheckerContext &C, const Expr *RetE) const {
 void ReturnUndefChecker::checkReference(CheckerContext &C, const Expr *RetE,
                                         DefinedOrUnknownSVal RetVal) const {
   ProgramStateRef StNonNull, StNull;
-  llvm::tie(StNonNull, StNull) = C.getState()->assume(RetVal);
+  std::tie(StNonNull, StNull) = C.getState()->assume(RetVal);
 
   if (StNonNull) {
     // Going forward, assume the location is non-null.

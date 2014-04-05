@@ -34,10 +34,10 @@
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/StackMaps.h"
-#include "llvm/DebugInfo.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
@@ -214,6 +214,20 @@ static SDValue getCopyFromParts(SelectionDAG &DAG, SDLoc DL,
   llvm_unreachable("Unknown mismatch!");
 }
 
+static void diagnosePossiblyInvalidConstraint(LLVMContext &Ctx, const Value *V,
+                                              const Twine &ErrMsg) {
+  const Instruction *I = dyn_cast_or_null<Instruction>(V);
+  if (!V)
+    return Ctx.emitError(ErrMsg);
+
+  const char *AsmError = ", possible invalid constraint for vector type";
+  if (const CallInst *CI = dyn_cast<CallInst>(I))
+    if (isa<InlineAsm>(CI->getCalledValue()))
+      return Ctx.emitError(I, ErrMsg + AsmError);
+
+  return Ctx.emitError(I, ErrMsg);
+}
+
 /// getCopyFromPartsVector - Create a value that contains the specified legal
 /// parts combined into the value they represent.  If the parts combine to a
 /// type larger then ValueVT then AssertOp can be used to specify whether the
@@ -306,16 +320,8 @@ static SDValue getCopyFromPartsVector(SelectionDAG &DAG, SDLoc DL,
 
   // Handle cases such as i8 -> <1 x i1>
   if (ValueVT.getVectorNumElements() != 1) {
-    LLVMContext &Ctx = *DAG.getContext();
-    Twine ErrMsg("non-trivial scalar-to-vector conversion");
-    if (const Instruction *I = dyn_cast_or_null<Instruction>(V)) {
-      if (const CallInst *CI = dyn_cast<CallInst>(I))
-        if (isa<InlineAsm>(CI->getCalledValue()))
-          ErrMsg = ErrMsg + ", possible invalid constraint for vector type";
-      Ctx.emitError(I, ErrMsg);
-    } else {
-      Ctx.emitError(ErrMsg);
-    }
+    diagnosePossiblyInvalidConstraint(*DAG.getContext(), V,
+                                      "non-trivial scalar-to-vector conversion");
     return DAG.getUNDEF(ValueVT);
   }
 
@@ -397,18 +403,9 @@ static void getCopyToParts(SelectionDAG &DAG, SDLoc DL,
          "Failed to tile the value with PartVT!");
 
   if (NumParts == 1) {
-    if (PartEVT != ValueVT) {
-      LLVMContext &Ctx = *DAG.getContext();
-      Twine ErrMsg("scalar-to-vector conversion failed");
-      if (const Instruction *I = dyn_cast_or_null<Instruction>(V)) {
-        if (const CallInst *CI = dyn_cast<CallInst>(I))
-          if (isa<InlineAsm>(CI->getCalledValue()))
-            ErrMsg = ErrMsg + ", possible invalid constraint for vector type";
-        Ctx.emitError(I, ErrMsg);
-      } else {
-        Ctx.emitError(ErrMsg);
-      }
-    }
+    if (PartEVT != ValueVT)
+      diagnosePossiblyInvalidConstraint(*DAG.getContext(), V,
+                                        "scalar-to-vector conversion failed");
 
     Parts[0] = Val;
     return;
@@ -625,16 +622,6 @@ namespace {
         RegVTs.push_back(RegisterVT);
         Reg += NumRegs;
       }
-    }
-
-    /// areValueTypesLegal - Return true if types of all the values are legal.
-    bool areValueTypesLegal(const TargetLowering &TLI) {
-      for (unsigned Value = 0, e = ValueVTs.size(); Value != e; ++Value) {
-        MVT RegisterVT = RegVTs[Value];
-        if (!TLI.isTypeLegal(RegisterVT))
-          return false;
-      }
-      return true;
     }
 
     /// append - Add the specified values to this one.
@@ -860,10 +847,10 @@ void RegsForValue::AddInlineAsmOperands(unsigned Code, bool HasMatching,
       unsigned TheReg = Regs[Reg++];
       Ops.push_back(DAG.getRegister(TheReg, RegisterVT));
 
-      // Notice if we clobbered the stack pointer.  Yes, inline asm can do this.
       if (TheReg == SP && Code == InlineAsm::Kind_Clobber) {
-        MachineFrameInfo *MFI = DAG.getMachineFunction().getFrameInfo();
-        MFI->setHasInlineAsmWithSPAdjust(true);
+        // If we clobbered the stack pointer, MFI should know about it.
+        assert(DAG.getMachineFunction().getFrameInfo()->
+            hasInlineAsmWithSPAdjust());
       }
     }
   }
@@ -1584,8 +1571,9 @@ void SelectionDAGBuilder::visitBr(const BranchInst &I) {
     // Update machine-CFG edges.
     BrMBB->addSuccessor(Succ0MBB);
 
-    // If this is not a fall-through branch, emit the branch.
-    if (Succ0MBB != NextBlock)
+    // If this is not a fall-through branch or optimizations are switched off,
+    // emit the branch.
+    if (Succ0MBB != NextBlock || TM.getOptLevel() == CodeGenOpt::None)
       DAG.setRoot(DAG.getNode(ISD::BR, getCurSDLoc(),
                               MVT::Other, getControlRoot(),
                               DAG.getBasicBlock(Succ0MBB)));
@@ -2650,7 +2638,7 @@ size_t SelectionDAGBuilder::Clusterify(CaseVector& Cases,
   if (Cases.size() >= 2)
     // Must recompute end() each iteration because it may be
     // invalidated by erase if we hold on to it
-    for (CaseItr I = Cases.begin(), J = llvm::next(Cases.begin());
+    for (CaseItr I = Cases.begin(), J = std::next(Cases.begin());
          J != Cases.end(); ) {
       const APInt& nextValue = cast<ConstantInt>(J->Low)->getValue();
       const APInt& currentValue = cast<ConstantInt>(I->High)->getValue();
@@ -3437,9 +3425,7 @@ void SelectionDAGBuilder::visitAlloca(const AllocaInst &I) {
   setValue(&I, DSA);
   DAG.setRoot(DSA.getValue(1));
 
-  // Inform the Frame Information that we have just allocated a variable-sized
-  // object.
-  FuncInfo.MF->getFrameInfo()->CreateVariableSizedObject(Align ? Align : 1, &I);
+  assert(FuncInfo.MF->getFrameInfo()->hasVarSizedObjects());
 }
 
 void SelectionDAGBuilder::visitLoad(const LoadInst &I) {
@@ -3607,14 +3593,15 @@ static SDValue InsertFenceForAtomic(SDValue Chain, AtomicOrdering Order,
 
 void SelectionDAGBuilder::visitAtomicCmpXchg(const AtomicCmpXchgInst &I) {
   SDLoc dl = getCurSDLoc();
-  AtomicOrdering Order = I.getOrdering();
+  AtomicOrdering SuccessOrder = I.getSuccessOrdering();
+  AtomicOrdering FailureOrder = I.getFailureOrdering();
   SynchronizationScope Scope = I.getSynchScope();
 
   SDValue InChain = getRoot();
 
   const TargetLowering *TLI = TM.getTargetLowering();
   if (TLI->getInsertFencesForAtomic())
-    InChain = InsertFenceForAtomic(InChain, Order, Scope, true, dl,
+    InChain = InsertFenceForAtomic(InChain, SuccessOrder, Scope, true, dl,
                                    DAG, *TLI);
 
   SDValue L =
@@ -3625,13 +3612,14 @@ void SelectionDAGBuilder::visitAtomicCmpXchg(const AtomicCmpXchgInst &I) {
                   getValue(I.getCompareOperand()),
                   getValue(I.getNewValOperand()),
                   MachinePointerInfo(I.getPointerOperand()), 0 /* Alignment */,
-                  TLI->getInsertFencesForAtomic() ? Monotonic : Order,
+                  TLI->getInsertFencesForAtomic() ? Monotonic : SuccessOrder,
+                  TLI->getInsertFencesForAtomic() ? Monotonic : FailureOrder,
                   Scope);
 
   SDValue OutChain = L.getValue(1);
 
   if (TLI->getInsertFencesForAtomic())
-    OutChain = InsertFenceForAtomic(OutChain, Order, Scope, false, dl,
+    OutChain = InsertFenceForAtomic(OutChain, SuccessOrder, Scope, false, dl,
                                     DAG, *TLI);
 
   setValue(&I, L);
@@ -5396,6 +5384,8 @@ SelectionDAGBuilder::visitIntrinsicCall(const CallInst &I, unsigned Intrinsic) {
     (void)getControlRoot();
     return 0;
   }
+  case Intrinsic::clear_cache:
+    return TLI->getClearCacheBuiltinName();
   case Intrinsic::donothing:
     // ignore
     return 0;
@@ -5582,9 +5572,8 @@ void SelectionDAGBuilder::LowerCallTo(ImmutableCallSite CS, SDValue Callee,
 /// IsOnlyUsedInZeroEqualityComparison - Return true if it only matters that the
 /// value is equal or not-equal to zero.
 static bool IsOnlyUsedInZeroEqualityComparison(const Value *V) {
-  for (Value::const_use_iterator UI = V->use_begin(), E = V->use_end();
-       UI != E; ++UI) {
-    if (const ICmpInst *IC = dyn_cast<ICmpInst>(*UI))
+  for (const User *U : V->users()) {
+    if (const ICmpInst *IC = dyn_cast<ICmpInst>(U))
       if (IC->isEquality())
         if (const Constant *C = dyn_cast<Constant>(IC->getOperand(1)))
           if (C->isNullValue())
@@ -6186,7 +6175,7 @@ static void GetRegistersForValue(SelectionDAG &DAG,
       // types are identical size, use a bitcast to convert (e.g. two differing
       // vector types).
       MVT RegVT = *PhysReg.second->vt_begin();
-      if (RegVT.getSizeInBits() == OpInfo.ConstraintVT.getSizeInBits()) {
+      if (RegVT.getSizeInBits() == OpInfo.CallOperand.getValueSizeInBits()) {
         OpInfo.CallOperand = DAG.getNode(ISD::BITCAST, DL,
                                          RegVT, OpInfo.CallOperand);
         OpInfo.ConstraintVT = RegVT;
@@ -7328,12 +7317,10 @@ static bool isOnlyUsedInEntryBlock(const Argument *A, bool FastISel) {
     return A->use_empty();
 
   const BasicBlock *Entry = A->getParent()->begin();
-  for (Value::const_use_iterator UI = A->use_begin(), E = A->use_end();
-       UI != E; ++UI) {
-    const User *U = *UI;
+  for (const User *U : A->users())
     if (cast<Instruction>(U)->getParent() != Entry || isa<SwitchInst>(U))
       return false;  // Use not in entry block.
-  }
+
   return true;
 }
 

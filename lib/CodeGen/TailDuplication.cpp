@@ -15,7 +15,6 @@
 #define DEBUG_TYPE "tailduplication"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/Statistic.h"
@@ -65,7 +64,7 @@ namespace {
     const MachineBranchProbabilityInfo *MBPI;
     MachineModuleInfo *MMI;
     MachineRegisterInfo *MRI;
-    OwningPtr<RegScavenger> RS;
+    std::unique_ptr<RegScavenger> RS;
     bool PreRegAlloc;
 
     // SSAUpdateVRs - A list of virtual registers for which to update SSA form.
@@ -80,9 +79,9 @@ namespace {
     explicit TailDuplicatePass() :
       MachineFunctionPass(ID), PreRegAlloc(false) {}
 
-    virtual bool runOnMachineFunction(MachineFunction &MF);
+    bool runOnMachineFunction(MachineFunction &MF) override;
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const;
+    void getAnalysisUsage(AnalysisUsage &AU) const override;
 
   private:
     void AddSSAUpdateEntry(unsigned OrigReg, unsigned NewReg,
@@ -132,6 +131,9 @@ INITIALIZE_PASS(TailDuplicatePass, "tailduplication", "Tail Duplication",
                 false, false)
 
 bool TailDuplicatePass::runOnMachineFunction(MachineFunction &MF) {
+  if (skipOptnoneFunction(*MF.getFunction()))
+    return false;
+
   TII = MF.getTarget().getInstrInfo();
   TRI = MF.getTarget().getRegisterInfo();
   MRI = &MF.getRegInfo();
@@ -263,8 +265,8 @@ TailDuplicatePass::TailDuplicateAndUpdate(MachineBasicBlock *MBB,
       // Rewrite uses that are outside of the original def's block.
       MachineRegisterInfo::use_iterator UI = MRI->use_begin(VReg);
       while (UI != MRI->use_end()) {
-        MachineOperand &UseMO = UI.getOperand();
-        MachineInstr *UseMI = &*UI;
+        MachineOperand &UseMO = *UI;
+        MachineInstr *UseMI = UseMO.getParent();
         ++UI;
         if (UseMI->isDebugValue()) {
           // SSAUpdate can replace the use with an undef. That creates
@@ -339,12 +341,10 @@ bool TailDuplicatePass::TailDuplicateBlocks(MachineFunction &MF) {
 
 static bool isDefLiveOut(unsigned Reg, MachineBasicBlock *BB,
                          const MachineRegisterInfo *MRI) {
-  for (MachineRegisterInfo::use_iterator UI = MRI->use_begin(Reg),
-         UE = MRI->use_end(); UI != UE; ++UI) {
-    MachineInstr *UseMI = &*UI;
-    if (UseMI->isDebugValue())
+  for (MachineInstr &UseMI : MRI->use_instructions(Reg)) {
+    if (UseMI.isDebugValue())
       continue;
-    if (UseMI->getParent() != BB)
+    if (UseMI.getParent() != BB)
       return true;
   }
   return false;
@@ -697,7 +697,7 @@ TailDuplicatePass::duplicateSimpleBB(MachineBasicBlock *TailBB,
                  << "From simple Succ: " << *TailBB);
 
     MachineBasicBlock *NewTarget = *TailBB->succ_begin();
-    MachineBasicBlock *NextBB = llvm::next(MachineFunction::iterator(PredBB));
+    MachineBasicBlock *NextBB = std::next(MachineFunction::iterator(PredBB));
 
     // Make PredFBB explicit.
     if (PredCond.empty())
@@ -798,7 +798,7 @@ TailDuplicatePass::TailDuplicate(MachineBasicBlock *TailBB,
       // Update PredBB livein.
       RS->enterBasicBlock(PredBB);
       if (!PredBB->empty())
-        RS->forward(prior(PredBB->end()));
+        RS->forward(std::prev(PredBB->end()));
       BitVector RegsLiveAtExit(TRI->getNumRegs());
       RS->getRegsUsed(RegsLiveAtExit, false);
       for (MachineBasicBlock::livein_iterator I = TailBB->livein_begin(),
@@ -857,7 +857,7 @@ TailDuplicatePass::TailDuplicate(MachineBasicBlock *TailBB,
   // If TailBB was duplicated into all its predecessors except for the prior
   // block, which falls through unconditionally, move the contents of this
   // block into the prior block.
-  MachineBasicBlock *PrevBB = prior(MachineFunction::iterator(TailBB));
+  MachineBasicBlock *PrevBB = std::prev(MachineFunction::iterator(TailBB));
   MachineBasicBlock *PriorTBB = 0, *PriorFBB = 0;
   SmallVector<MachineOperand, 4> PriorCond;
   // This has to check PrevBB->succ_size() because EH edges are ignored by

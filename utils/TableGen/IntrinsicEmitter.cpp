@@ -246,11 +246,12 @@ enum IIT_Info {
   IIT_STRUCT3 = 20,
   IIT_STRUCT4 = 21,
   IIT_STRUCT5 = 22,
-  IIT_EXTEND_VEC_ARG = 23,
-  IIT_TRUNC_VEC_ARG = 24,
+  IIT_EXTEND_ARG = 23,
+  IIT_TRUNC_ARG = 24,
   IIT_ANYPTR = 25,
   IIT_V1   = 26,
-  IIT_VARARG = 27
+  IIT_VARARG = 27,
+  IIT_HALF_VEC_ARG = 28
 };
 
 
@@ -292,10 +293,12 @@ static void EncodeFixedType(Record *R, std::vector<unsigned char> &ArgCodes,
   if (R->isSubClassOf("LLVMMatchType")) {
     unsigned Number = R->getValueAsInt("Number");
     assert(Number < ArgCodes.size() && "Invalid matching number!");
-    if (R->isSubClassOf("LLVMExtendedElementVectorType"))
-      Sig.push_back(IIT_EXTEND_VEC_ARG);
-    else if (R->isSubClassOf("LLVMTruncatedElementVectorType"))
-      Sig.push_back(IIT_TRUNC_VEC_ARG);
+    if (R->isSubClassOf("LLVMExtendedType"))
+      Sig.push_back(IIT_EXTEND_ARG);
+    else if (R->isSubClassOf("LLVMTruncatedType"))
+      Sig.push_back(IIT_TRUNC_ARG);
+    else if (R->isSubClassOf("LLVMHalfElementsVectorType"))
+      Sig.push_back(IIT_HALF_VEC_ARG);
     else
       Sig.push_back(IIT_ARG);
     return Sig.push_back((Number << 2) | ArgCodes[Number]);
@@ -502,6 +505,9 @@ struct AttributeComparator {
     if (L->canThrow != R->canThrow)
       return R->canThrow;
 
+    if (L->isNoDuplicate != R->isNoDuplicate)
+      return R->isNoDuplicate;
+
     if (L->isNoReturn != R->isNoReturn)
       return R->isNoReturn;
 
@@ -616,7 +622,8 @@ EmitAttributes(const std::vector<CodeGenIntrinsic> &Ints, raw_ostream &OS) {
 
     ModRefKind modRef = getModRefKind(intrinsic);
 
-    if (!intrinsic.canThrow || modRef || intrinsic.isNoReturn) {
+    if (!intrinsic.canThrow || modRef || intrinsic.isNoReturn ||
+        intrinsic.isNoDuplicate) {
       OS << "      const Attribute::AttrKind Atts[] = {";
       bool addComma = false;
       if (!intrinsic.canThrow) {
@@ -627,6 +634,12 @@ EmitAttributes(const std::vector<CodeGenIntrinsic> &Ints, raw_ostream &OS) {
         if (addComma)
           OS << ",";
         OS << "Attribute::NoReturn";
+        addComma = true;
+      }
+      if (intrinsic.isNoDuplicate) {
+        if (addComma)
+          OS << ",";
+        OS << "Attribute::NoDuplicate";
         addComma = true;
       }
 

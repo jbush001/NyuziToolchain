@@ -18,8 +18,9 @@
 #include "llvm/Support/Format.h"
 #include "llvm/Support/MemoryBuffer.h"
 
-#include <unordered_map>
+#include <memory>
 #include <set>
+#include <unordered_map>
 
 using llvm::object::Archive;
 using llvm::object::ObjectFile;
@@ -38,7 +39,7 @@ public:
 
   /// \brief Check if any member of the archive contains an Atom with the
   /// specified name and return the File object for that member, or nullptr.
-  virtual const File *find(StringRef name, bool dataSymbolOnly) const {
+  const File *find(StringRef name, bool dataSymbolOnly) const override {
     auto member = _symbolMemberMap.find(name);
     if (member == _symbolMemberMap.end())
       return nullptr;
@@ -50,10 +51,10 @@ public:
       return nullptr;
 
     if (dataSymbolOnly) {
-      OwningPtr<MemoryBuffer> buff;
+      std::unique_ptr<MemoryBuffer> buff;
       if (ci->getMemoryBuffer(buff, true))
         return nullptr;
-      if (isDataSymbol(buff.take(), name))
+      if (isDataSymbol(std::move(buff), name))
         return nullptr;
     }
 
@@ -66,12 +67,12 @@ public:
     return result[0].release();
   }
 
-  /// \brief Load all members of the archive ?
+  /// \brief Load all members of the archive?
   virtual bool isWholeArchive() const { return _isWholeArchive; }
 
   /// \brief parse each member
   virtual error_code
-  parseAllMembers(std::vector<std::unique_ptr<File>> &result) const {
+  parseAllMembers(std::vector<std::unique_ptr<File>> &result) const override {
     for (auto mf = _archive->child_begin(), me = _archive->child_end();
          mf != me; ++mf) {
       if (error_code ec = instantiateMember(mf, result))
@@ -80,19 +81,19 @@ public:
     return error_code::success();
   }
 
-  virtual const atom_collection<DefinedAtom> &defined() const {
+  const atom_collection<DefinedAtom> &defined() const override {
     return _definedAtoms;
   }
 
-  virtual const atom_collection<UndefinedAtom> &undefined() const {
+  const atom_collection<UndefinedAtom> &undefined() const override {
     return _undefinedAtoms;
   }
 
-  virtual const atom_collection<SharedLibraryAtom> &sharedLibrary() const {
+  const atom_collection<SharedLibraryAtom> &sharedLibrary() const override {
     return _sharedLibraryAtoms;
   }
 
-  virtual const atom_collection<AbsoluteAtom> &absolute() const {
+  const atom_collection<AbsoluteAtom> &absolute() const override {
     return _absoluteAtoms;
   }
 
@@ -100,20 +101,19 @@ protected:
   error_code
   instantiateMember(Archive::child_iterator member,
                     std::vector<std::unique_ptr<File>> &result) const {
-    OwningPtr<MemoryBuffer> buff;
-    if (error_code ec = member->getMemoryBuffer(buff, true))
+    std::unique_ptr<MemoryBuffer> mb;
+    if (error_code ec = member->getMemoryBuffer(mb, true))
       return ec;
     if (_logLoading)
-      llvm::outs() << buff->getBufferIdentifier() << "\n";
-    std::unique_ptr<MemoryBuffer> mb(buff.take());
+      llvm::outs() << mb->getBufferIdentifier() << "\n";
     _registry.parseFile(mb, result);
     const char *memberStart = member->getBuffer().data();
     _membersInstantiated.insert(memberStart);
     return error_code::success();
   }
 
-  error_code isDataSymbol(MemoryBuffer *mb, StringRef symbol) const {
-    auto objOrErr(ObjectFile::createObjectFile(mb));
+  error_code isDataSymbol(std::unique_ptr<MemoryBuffer> mb, StringRef symbol) const {
+    auto objOrErr(ObjectFile::createObjectFile(mb.release()));
     if (auto ec = objOrErr.getError())
       return ec;
     std::unique_ptr<ObjectFile> obj(objOrErr.get());
@@ -202,13 +202,13 @@ public:
   ArchiveReader(bool logLoading) : _logLoading(logLoading) {}
 
   virtual bool canParse(file_magic magic, StringRef,
-                        const MemoryBuffer &) const {
+                        const MemoryBuffer &) const override {
     return (magic == llvm::sys::fs::file_magic::archive);
   }
 
   virtual error_code
   parseFile(std::unique_ptr<MemoryBuffer> &mb, const Registry &reg,
-            std::vector<std::unique_ptr<File>> &result) const {
+            std::vector<std::unique_ptr<File>> &result) const override {
     // Make Archive object which will be owned by FileArchive object.
     error_code ec;
     Archive *archive = new Archive(mb.get(), ec);

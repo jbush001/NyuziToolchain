@@ -29,9 +29,9 @@
 #include "llvm/Analysis/CallGraphSCCPass.h"
 #include "llvm/Analysis/CaptureTracking.h"
 #include "llvm/IR/GlobalVariable.h"
+#include "llvm/IR/InstIterator.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/LLVMContext.h"
-#include "llvm/Support/InstIterator.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 using namespace llvm;
 
@@ -51,7 +51,7 @@ namespace {
     }
 
     // runOnSCC - Analyze the SCC, performing the transformation if possible.
-    bool runOnSCC(CallGraphSCC &SCC);
+    bool runOnSCC(CallGraphSCC &SCC) override;
 
     // AddReadAttrs - Deduce readonly/readnone attributes for the SCC.
     bool AddReadAttrs(const CallGraphSCC &SCC);
@@ -120,7 +120,7 @@ namespace {
     // call declarations.
     bool annotateLibraryCalls(const CallGraphSCC &SCC);
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.setPreservesCFG();
       AU.addRequired<AliasAnalysis>();
       AU.addRequired<TargetLibraryInfo>();
@@ -342,9 +342,9 @@ namespace {
     ArgumentUsesTracker(const SmallPtrSet<Function*, 8> &SCCNodes)
       : Captured(false), SCCNodes(SCCNodes) {}
 
-    void tooManyUses() { Captured = true; }
+    void tooManyUses() override { Captured = true; }
 
-    bool captured(Use *U) {
+    bool captured(const Use *U) override {
       CallSite CS(U->getUser());
       if (!CS.getInstruction()) { Captured = true; return true; }
 
@@ -421,14 +421,12 @@ determinePointerReadAttrs(Argument *A,
   bool IsRead = false;
   // We don't need to track IsWritten. If A is written to, return immediately.
 
-  for (Value::use_iterator UI = A->use_begin(), UE = A->use_end();
-       UI != UE; ++UI) {
+  for (Use &U : A->uses()) {
     if (Count++ >= 20)
       return Attribute::None;
 
-    Use *U = &UI.getUse();
-    Visited.insert(U);
-    Worklist.push_back(U);
+    Visited.insert(&U);
+    Worklist.push_back(&U);
   }
 
   while (!Worklist.empty()) {
@@ -443,12 +441,9 @@ determinePointerReadAttrs(Argument *A,
     case Instruction::Select:
     case Instruction::AddrSpaceCast:
       // The original value is not read/written via this if the new value isn't.
-      for (Instruction::use_iterator UI = I->use_begin(), UE = I->use_end();
-           UI != UE; ++UI) {
-        Use *U = &UI.getUse();
-        if (Visited.insert(U))
-          Worklist.push_back(U);
-      }
+      for (Use &UU : I->uses())
+        if (Visited.insert(&UU))
+          Worklist.push_back(&UU);
       break;
 
     case Instruction::Call:
@@ -1654,6 +1649,7 @@ bool FunctionAttrs::inferPrototypeAttributes(Function &F) {
     setDoesNotThrow(F);
     setDoesNotCapture(F, 1);
     setDoesNotCapture(F, 2);
+    break;
   default:
     // Didn't mark any attributes.
     return false;

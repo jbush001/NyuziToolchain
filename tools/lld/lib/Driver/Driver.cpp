@@ -25,6 +25,7 @@
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
+#include "llvm/Support/Process.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <mutex>
@@ -43,7 +44,7 @@ bool Driver::link(LinkingContext &context, raw_ostream &diagnostics) {
     args[numArgs + 1] = 0;
     llvm::cl::ParseCommandLineOptions(numArgs + 1, args);
   }
-  InputGraph &inputGraph = context.inputGraph();
+  InputGraph &inputGraph = context.getInputGraph();
   if (!inputGraph.size())
     return false;
 
@@ -53,10 +54,7 @@ bool Driver::link(LinkingContext &context, raw_ostream &diagnostics) {
   ScopedTask readTask(getDefaultDomain(), "Read Args");
   TaskGroup tg;
   std::mutex diagnosticsMutex;
-  for (auto &ie : inputGraph.inputElements()) {
-    // Skip Hidden elements.
-    if (ie->isHidden())
-      continue;
+  for (std::unique_ptr<InputElement> &ie : inputGraph.inputElements()) {
     tg.spawn([&] {
       // Writes to the same output stream is not guaranteed to be thread-safe.
       // We buffer the diagnostics output to a separate string-backed output
@@ -97,13 +95,8 @@ bool Driver::link(LinkingContext &context, raw_ostream &diagnostics) {
   context.createImplicitFiles(implicitFiles);
   if (implicitFiles.size())
     fileNode->addFiles(std::move(implicitFiles));
-
-  context.inputGraph().insertOneElementAt(std::move(fileNode),
+  context.getInputGraph().insertElementAt(std::move(fileNode),
                                           InputGraph::Position::BEGIN);
-
-  context.inputGraph().assignOrdinals();
-
-  context.inputGraph().doPostProcess();
 
   // Do core linking.
   ScopedTask resolveTask(getDefaultDomain(), "Resolve");
@@ -119,8 +112,11 @@ bool Driver::link(LinkingContext &context, raw_ostream &diagnostics) {
   context.addPasses(pm);
 
 #ifndef NDEBUG
-  pm.add(std::unique_ptr<Pass>(new RoundTripYAMLPass(context)));
-  pm.add(std::unique_ptr<Pass>(new RoundTripNativePass(context)));
+  llvm::Optional<std::string> env = llvm::sys::Process::GetEnv("LLD_RUN_ROUNDTRIP_TEST");
+  if (env.hasValue() && !env.getValue().empty()) {
+    pm.add(std::unique_ptr<Pass>(new RoundTripYAMLPass(context)));
+    pm.add(std::unique_ptr<Pass>(new RoundTripNativePass(context)));
+  }
 #endif
 
   pm.runOnFile(merged);

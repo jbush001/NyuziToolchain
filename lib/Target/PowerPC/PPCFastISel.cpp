@@ -28,12 +28,12 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/IR/CallingConv.h"
+#include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/Target/TargetLowering.h"
 #include "llvm/Target/TargetMachine.h"
 
@@ -80,7 +80,7 @@ typedef struct Address {
    }
 } Address;
 
-class PPCFastISel : public FastISel {
+class PPCFastISel final : public FastISel {
 
   const TargetMachine &TM;
   const TargetInstrInfo &TII;
@@ -127,7 +127,6 @@ class PPCFastISel : public FastISel {
     bool SelectStore(const Instruction *I);
     bool SelectBranch(const Instruction *I);
     bool SelectIndirectBr(const Instruction *I);
-    bool SelectCmp(const Instruction *I);
     bool SelectFPExt(const Instruction *I);
     bool SelectFPTrunc(const Instruction *I);
     bool SelectIToFP(const Instruction *I, bool IsSigned);
@@ -898,11 +897,13 @@ unsigned PPCFastISel::PPCMoveToFPReg(MVT SrcVT, unsigned SrcReg,
   unsigned LoadOpc = PPC::LFD;
 
   if (SrcVT == MVT::i32) {
-    Addr.Offset = 4;
-    if (!IsSigned)
+    if (!IsSigned) {
       LoadOpc = PPC::LFIWZX;
-    else if (PPCSubTarget.hasLFIWAX())
+      Addr.Offset = 4;
+    } else if (PPCSubTarget.hasLFIWAX()) {
       LoadOpc = PPC::LFIWAX;
+      Addr.Offset = 4;
+    }
   }
 
   const TargetRegisterClass *RC = &PPC::F8RCRegClass;
@@ -1862,7 +1863,7 @@ unsigned PPCFastISel::PPCMaterializeGV(const GlobalValue *GV, MVT VT) {
   if (!GVar) {
     // If GV is an alias, use the aliasee for determining thread-locality.
     if (const GlobalAlias *GA = dyn_cast<GlobalAlias>(GV))
-      GVar = dyn_cast_or_null<GlobalVariable>(GA->resolveAliasedGlobal(false));
+      GVar = dyn_cast_or_null<GlobalVariable>(GA->getAliasedGlobal());
   }
 
   // FIXME: We don't yet handle the complexity of TLS.

@@ -24,13 +24,13 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
+#include "llvm/IR/ValueHandle.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/DynamicLibrary.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/MutexGuard.h"
 #include "llvm/Support/TargetRegistry.h"
-#include "llvm/Support/ValueHandle.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include <cmath>
@@ -97,7 +97,7 @@ public:
     return static_cast<char*>(RawMemory) + sizeof(GVMemoryBlock);
   }
 
-  virtual void deleted() {
+  void deleted() override {
     // We allocated with operator new and with some extra memory hanging off the
     // end, so don't just delete this.  I'm not sure if this is actually
     // required.
@@ -443,7 +443,7 @@ ExecutionEngine *ExecutionEngine::createJIT(Module *M,
 }
 
 ExecutionEngine *EngineBuilder::create(TargetMachine *TM) {
-  OwningPtr<TargetMachine> TheTM(TM); // Take ownership.
+  std::unique_ptr<TargetMachine> TheTM(TM); // Take ownership.
 
   // Make sure we can resolve symbols in the program as well. The zero arg
   // to the function tells DynamicLibrary to load the program, not a library.
@@ -486,12 +486,12 @@ ExecutionEngine *EngineBuilder::create(TargetMachine *TM) {
     if (UseMCJIT && ExecutionEngine::MCJITCtor) {
       ExecutionEngine *EE =
         ExecutionEngine::MCJITCtor(M, ErrorStr, MCJMM ? MCJMM : JMM,
-                                   AllocateGVsWithCode, TheTM.take());
+                                   AllocateGVsWithCode, TheTM.release());
       if (EE) return EE;
     } else if (ExecutionEngine::JITCtor) {
       ExecutionEngine *EE =
         ExecutionEngine::JITCtor(M, ErrorStr, JMM,
-                                 AllocateGVsWithCode, TheTM.take());
+                                 AllocateGVsWithCode, TheTM.release());
       if (EE) return EE;
     }
   }

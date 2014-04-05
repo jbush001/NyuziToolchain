@@ -22,11 +22,12 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/Object/Archive.h"
 #include "llvm/Object/COFF.h"
-#include "llvm/Object/IRObjectFile.h"
 #include "llvm/Object/ELFObjectFile.h"
+#include "llvm/Object/IRObjectFile.h"
 #include "llvm/Object/MachO.h"
 #include "llvm/Object/MachOUniversal.h"
 #include "llvm/Object/ObjectFile.h"
+#include "llvm/Support/COFF.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Format.h"
@@ -300,7 +301,7 @@ static char getSymbolNMTypeChar(ELFObjectFile<ELFT> &Obj,
 }
 
 static char getSymbolNMTypeChar(COFFObjectFile &Obj, symbol_iterator I) {
-  const coff_symbol *Symb = Obj.getCOFFSymbol(I);
+  const coff_symbol *Symb = Obj.getCOFFSymbol(*I);
   // OK, this is COFF.
   symbol_iterator SymI(I);
 
@@ -317,11 +318,11 @@ static char getSymbolNMTypeChar(COFFObjectFile &Obj, symbol_iterator I) {
     return Ret;
 
   uint32_t Characteristics = 0;
-  if (Symb->SectionNumber > 0) {
+  if (!COFF::isReservedSectionNumber(Symb->SectionNumber)) {
     section_iterator SecI = Obj.section_end();
     if (error(SymI->getSection(SecI)))
       return '?';
-    const coff_section *Section = Obj.getCOFFSection(SecI);
+    const coff_section *Section = Obj.getCOFFSection(*SecI);
     Characteristics = Section->Characteristics;
   }
 
@@ -343,8 +344,7 @@ static char getSymbolNMTypeChar(COFFObjectFile &Obj, symbol_iterator I) {
       return 'i';
 
     // Check for section symbol.
-    else if (Symb->StorageClass == COFF::IMAGE_SYM_CLASS_STATIC &&
-             Symb->Value == 0)
+    else if (Symb->isSectionDefinition())
       return 's';
   }
 
@@ -518,15 +518,15 @@ static void dumpSymbolNamesFromObject(SymbolicFile *Obj) {
 }
 
 static void dumpSymbolNamesFromFile(std::string &Filename) {
-  OwningPtr<MemoryBuffer> Buffer;
+  std::unique_ptr<MemoryBuffer> Buffer;
   if (error(MemoryBuffer::getFileOrSTDIN(Filename, Buffer), Filename))
     return;
 
   LLVMContext &Context = getGlobalContext();
-  ErrorOr<Binary *> BinaryOrErr = createBinary(Buffer.take(), &Context);
+  ErrorOr<Binary *> BinaryOrErr = createBinary(Buffer.release(), &Context);
   if (error(BinaryOrErr.getError(), Filename))
     return;
-  OwningPtr<Binary> Bin(BinaryOrErr.get());
+  std::unique_ptr<Binary> Bin(BinaryOrErr.get());
 
   if (Archive *A = dyn_cast<Archive>(Bin.get())) {
     if (ArchiveMap) {
@@ -552,7 +552,7 @@ static void dumpSymbolNamesFromFile(std::string &Filename) {
 
     for (Archive::child_iterator I = A->child_begin(), E = A->child_end();
          I != E; ++I) {
-      OwningPtr<Binary> Child;
+      std::unique_ptr<Binary> Child;
       if (I->getAsBinary(Child, &Context))
         continue;
       if (SymbolicFile *O = dyn_cast<SymbolicFile>(Child.get())) {
@@ -566,7 +566,7 @@ static void dumpSymbolNamesFromFile(std::string &Filename) {
     for (MachOUniversalBinary::object_iterator I = UB->begin_objects(),
                                                E = UB->end_objects();
          I != E; ++I) {
-      OwningPtr<ObjectFile> Obj;
+      std::unique_ptr<ObjectFile> Obj;
       if (!I->getAsObjectFile(Obj)) {
         outs() << Obj->getFileName() << ":\n";
         dumpSymbolNamesFromObject(Obj.get());

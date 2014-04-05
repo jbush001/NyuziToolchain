@@ -174,12 +174,12 @@ namespace {
       initializeIfConverterPass(*PassRegistry::getPassRegistry());
     }
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.addRequired<MachineBranchProbabilityInfo>();
       MachineFunctionPass::getAnalysisUsage(AU);
     }
 
-    virtual bool runOnMachineFunction(MachineFunction &MF);
+    bool runOnMachineFunction(MachineFunction &MF) override;
 
   private:
     bool ReverseBranchCondition(BBInfo &BBI);
@@ -921,7 +921,7 @@ void IfConverter::AnalyzeBlocks(MachineFunction &MF,
 /// next block).
 static bool canFallThroughTo(MachineBasicBlock *BB, MachineBasicBlock *ToBB) {
   MachineFunction::iterator PI = BB;
-  MachineFunction::iterator I = llvm::next(PI);
+  MachineFunction::iterator I = std::next(PI);
   MachineFunction::iterator TI = ToBB;
   MachineFunction::iterator E = BB->getParent()->end();
   while (I != TI) {

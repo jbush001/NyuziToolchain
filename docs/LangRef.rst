@@ -197,16 +197,6 @@ linkage:
     private to be renamed as necessary to avoid collisions. Because the
     symbol is private to the module, all references can be updated. This
     doesn't show up in any symbol table in the object file.
-``linker_private``
-    Similar to ``private``, but the symbol is passed through the
-    assembler and evaluated by the linker. Unlike normal strong symbols,
-    they are removed by the linker from the final linked image
-    (executable or dynamic library).
-``linker_private_weak``
-    Similar to "``linker_private``", but the symbol is weak. Note that
-    ``linker_private_weak`` symbols are subject to coalescing by the
-    linker. The symbols are removed by the linker from the final linked
-    image (executable or dynamic library).
 ``internal``
     Similar to private, but the value shows as a local symbol
     (``STB_LOCAL`` in the case of ELF) in the object file. This
@@ -471,31 +461,22 @@ DLL storage class:
     exists for defining a dll interface, the compiler, assembler and linker know
     it is externally referenced and must refrain from deleting the symbol.
 
-Named Types
------------
+Structure Types
+---------------
 
-LLVM IR allows you to specify name aliases for certain types. This can
-make it easier to read the IR and make the IR more condensed
-(particularly when recursive types are involved). An example of a name
-specification is:
+LLVM IR allows you to specify both "identified" and "literal" :ref:`structure
+types <t_struct>`.  Literal types are uniqued structurally, but identified types
+are never uniqued.  An :ref:`opaque structural type <t_opaque>` can also be used
+to forward declare a type which is not yet available.
+
+An example of a identified structure specification is:
 
 .. code-block:: llvm
 
     %mytype = type { %mytype*, i32 }
 
-You may give a name to any :ref:`type <typesystem>` except
-":ref:`void <t_void>`". Type name aliases may be used anywhere a type is
-expected with the syntax "%mytype".
-
-Note that type names are aliases for the structural type that they
-indicate, and that you can therefore specify multiple names for the same
-type. This often leads to confusing behavior when dumping out a .ll
-file. Since LLVM IR uses structural typing, the name is not part of the
-type. When printing out LLVM IR, the printer will pick *one name* to
-render all types of a particular shape. This means that if you have code
-where two different source types end up having the same LLVM type, that
-the dumper will sometimes print the "wrong" or unexpected type. This is
-an important design point and isn't going to change.
+Prior to the LLVM 3.0 release, identified types were structurally uniqued.  Only
+literal types are uniqued in recent versions of LLVM.
 
 .. _globalvars:
 
@@ -672,7 +653,7 @@ Syntax::
     define [linkage] [visibility] [DLLStorageClass]
            [cconv] [ret attrs]
            <ResultType> @<FunctionName> ([argument list])
-           [fn Attrs] [section "name"] [align N]
+           [unnamed_addr] [fn Attrs] [section "name"] [align N]
            [gc] [prefix Constant] { ... }
 
 .. _langref_aliases:
@@ -690,11 +671,19 @@ Syntax::
 
     @<Name> = [Visibility] [DLLStorageClass] alias [Linkage] <AliaseeTy> @<Aliasee>
 
-The linkage must be one of ``private``, ``linker_private``,
-``linker_private_weak``, ``internal``, ``linkonce``, ``weak``,
+The linkage must be one of ``private``, ``internal``, ``linkonce``, ``weak``,
 ``linkonce_odr``, ``weak_odr``, ``external``. Note that some system linkers
 might not correctly handle dropping a weak symbol that is aliased by a non-weak
 alias.
+
+Alias that are not ``unnamed_addr`` are guaranteed to have the same address as
+the aliasee.
+
+The aliasee must be a definition.
+
+Aliases are not allowed to point to aliases with linkages that can be
+overridden. Since they are only a second name, the possibility of the
+intermediate alias being overridden cannot be represented in an object file.
 
 .. _namedmetadatastructure:
 
@@ -779,8 +768,6 @@ Currently, only the following parameter attributes are defined:
 .. _attr_inalloca:
 
 ``inalloca``
-
-.. Warning:: This feature is unstable and not fully implemented.
 
     The ``inalloca`` argument attribute allows the caller to take the
     address of outgoing stack arguments.  An ``inalloca`` argument must
@@ -1505,7 +1492,7 @@ Atomic Memory Ordering Constraints
 Atomic instructions (:ref:`cmpxchg <i_cmpxchg>`,
 :ref:`atomicrmw <i_atomicrmw>`, :ref:`fence <i_fence>`,
 :ref:`atomic load <i_load>`, and :ref:`atomic store <i_store>`) take
-an ordering parameter that determines which other atomic instructions on
+ordering parameters that determine which other atomic instructions on
 the same address they *synchronize with*. These semantics are borrowed
 from Java and C++0x, but are somewhat more colloquial. If these
 descriptions aren't precise enough, check those specs (see spec
@@ -1752,14 +1739,12 @@ Floating Point Types
    * - ``ppc_fp128``
      - 128-bit floating point value (two 64-bits)
 
-.. _t_x86mmx:
-
-X86mmx Type
-"""""""""""
+X86_mmx Type
+""""""""""""
 
 :Overview:
 
-The x86mmx type represents a value held in an MMX register on an x86
+The x86_mmx type represents a value held in an MMX register on an x86
 machine. The operations allowed on it are quite limited: parameters and
 return values, load and store, and bitcast. User-specified MMX
 instructions are represented as intrinsic or asm calls with arguments
@@ -1770,7 +1755,7 @@ of this type.
 
 ::
 
-      x86mmx
+      x86_mmx
 
 
 .. _t_pointer:
@@ -2055,7 +2040,7 @@ The IEEE 16-bit format (half precision) is represented by ``0xH``
 followed by 4 hexadecimal digits. All hexadecimal formats are big-endian
 (sign bit at the left).
 
-There are no constants of type x86mmx.
+There are no constants of type x86_mmx.
 
 .. _complexconstants:
 
@@ -2803,9 +2788,9 @@ metadata types that refer to the same loop identifier metadata.
 
    for.body:
      ...
-     %0 = load i32* %arrayidx, align 4, !llvm.mem.parallel_loop_access !0
+     %val0 = load i32* %arrayidx, !llvm.mem.parallel_loop_access !0
      ...
-     store i32 %0, i32* %arrayidx4, align 4, !llvm.mem.parallel_loop_access !0
+     store i32 %val0, i32* %arrayidx1, !llvm.mem.parallel_loop_access !0
      ...
      br i1 %exitcond, label %for.end, label %for.body, !llvm.loop !0
 
@@ -2820,21 +2805,22 @@ the loop identifier metadata node directly:
 .. code-block:: llvm
 
    outer.for.body:
-   ...
+     ...
+     %val1 = load i32* %arrayidx3, !llvm.mem.parallel_loop_access !2
+     ...
+     br label %inner.for.body
 
    inner.for.body:
      ...
-     %0 = load i32* %arrayidx, align 4, !llvm.mem.parallel_loop_access !0
+     %val0 = load i32* %arrayidx1, !llvm.mem.parallel_loop_access !0
      ...
-     store i32 %0, i32* %arrayidx4, align 4, !llvm.mem.parallel_loop_access !0
+     store i32 %val0, i32* %arrayidx2, !llvm.mem.parallel_loop_access !0
      ...
      br i1 %exitcond, label %inner.for.end, label %inner.for.body, !llvm.loop !1
 
    inner.for.end:
      ...
-     %0 = load i32* %arrayidx, align 4, !llvm.mem.parallel_loop_access !0
-     ...
-     store i32 %0, i32* %arrayidx4, align 4, !llvm.mem.parallel_loop_access !0
+     store i32 %val1, i32* %arrayidx4, !llvm.mem.parallel_loop_access !2
      ...
      br i1 %exitcond, label %outer.for.end, label %outer.for.body, !llvm.loop !2
 
@@ -4723,7 +4709,7 @@ Syntax:
 
 ::
 
-      <result> = alloca <type>[, inalloca][, <ty> <NumElements>][, align <alignment>]     ; yields {type*}:result
+      <result> = alloca [inalloca] <type> [, <ty> <NumElements>] [, align <alignment>]     ; yields {type*}:result
 
 Overview:
 """""""""
@@ -5000,7 +4986,7 @@ Syntax:
 
 ::
 
-      cmpxchg [volatile] <ty>* <pointer>, <ty> <cmp>, <ty> <new> [singlethread] <ordering>  ; yields {ty}
+      cmpxchg [volatile] <ty>* <pointer>, <ty> <cmp>, <ty> <new> [singlethread] <success ordering> <failure ordering> ; yields {ty}
 
 Overview:
 """""""""
@@ -5023,8 +5009,11 @@ type, and the type of '<pointer>' must be a pointer to that type. If the
 to modify the number or order of execution of this ``cmpxchg`` with
 other :ref:`volatile operations <volatile>`.
 
-The :ref:`ordering <ordering>` argument specifies how this ``cmpxchg``
-synchronizes with other atomic operations.
+The success and failure :ref:`ordering <ordering>` arguments specify how this
+``cmpxchg`` synchronizes with other atomic operations. The both ordering
+parameters must be at least ``monotonic``, the ordering constraint on failure
+must be no stronger than that on success, and the failure ordering cannot be
+either ``release`` or ``acq_rel``.
 
 The optional "``singlethread``" argument declares that the ``cmpxchg``
 is only atomic with respect to code (usually signal handlers) running in
@@ -5042,10 +5031,9 @@ operand is read and compared to '``<cmp>``'; if the read value is the
 equal, '``<new>``' is written. The original value at the location is
 returned.
 
-A successful ``cmpxchg`` is a read-modify-write instruction for the purpose
-of identifying release sequences. A failed ``cmpxchg`` is equivalent to an
-atomic load with an ordering parameter determined by dropping any
-``release`` part of the ``cmpxchg``'s ordering.
+A successful ``cmpxchg`` is a read-modify-write instruction for the purpose of
+identifying release sequences. A failed ``cmpxchg`` is equivalent to an atomic
+load with an ordering parameter determined the second ordering parameter.
 
 Example:
 """"""""
@@ -5059,7 +5047,7 @@ Example:
     loop:
       %cmp = phi i32 [ %orig, %entry ], [%old, %loop]
       %squared = mul i32 %cmp, %cmp
-      %old = cmpxchg i32* %ptr, i32 %cmp, i32 %squared          ; yields {i32}
+      %old = cmpxchg i32* %ptr, i32 %cmp, i32 %squared acq_rel monotonic ; yields {i32}
       %success = icmp eq i32 %cmp, %old
       br i1 %success, label %done, label %loop
 
@@ -6130,7 +6118,7 @@ Overview:
 """""""""
 
 The '``select``' instruction is used to choose one value based on a
-condition, without branching.
+condition, without IR-level branching.
 
 Arguments:
 """"""""""
@@ -6952,6 +6940,39 @@ is lowered to a constant 0.
 
 Note that runtime support may be conditional on the privilege-level code is
 running at and the host platform.
+
+'``llvm.clear_cache``' Intrinsic
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare void @llvm.clear_cache(i8*, i8*)
+
+Overview:
+"""""""""
+
+The '``llvm.clear_cache``' intrinsic ensures visibility of modifications
+in the specified range to the execution unit of the processor. On
+targets with non-unified instruction and data cache, the implementation
+flushes the instruction cache.
+
+Semantics:
+""""""""""
+
+On platforms with coherent instruction and data caches (e.g. x86), this
+intrinsic is a nop. On platforms with non-coherent instruction and data
+cache (e.g. ARM, MIPS), the intrinsic is lowered either to appropiate
+instructions or a system call, if cache flushing requires special
+privileges.
+
+The default behavior is to emit a call to ``__clear_cache'' from the run
+time library.
+
+This instrinsic does *not* empty the instruction pipeline. Modifications
+of the current function are outside the scope of the intrinsic.
 
 Standard C Library Intrinsics
 -----------------------------

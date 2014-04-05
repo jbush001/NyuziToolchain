@@ -20,10 +20,10 @@
 #include "llvm/Option/Option.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/Regex.h"
 #include "llvm/Support/YAMLParser.h"
 #include "llvm/Support/YAMLTraits.h"
+#include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 
 using namespace clang::driver;
@@ -251,7 +251,7 @@ MultilibSet &MultilibSet::FilterOut(std::string Regex) {
 
   public:
     REFilter(std::string Regex) : R(Regex) {}
-    bool operator()(const Multilib &M) const LLVM_OVERRIDE {
+    bool operator()(const Multilib &M) const override {
       std::string Error;
       if (!R.isValid(Error)) {
         llvm::errs() << Error;
@@ -288,7 +288,7 @@ bool MultilibSet::select(const Multilib::flags_list &Flags, Multilib &M) const {
         FlagSet[StringRef(*I).substr(1)] = isFlagEnabled(*I);
       }
     }
-    bool operator()(const Multilib &M) const LLVM_OVERRIDE {
+    bool operator()(const Multilib &M) const override {
       for (Multilib::flags_list::const_iterator I = M.flags().begin(),
                                                 E = M.flags().end();
            I != E; ++I) {

@@ -13,7 +13,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Support/GCOV.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FileSystem.h"
@@ -309,6 +308,11 @@ void GCOVFunction::dump() const {
 /// collectLineCounts - Collect line counts. This must be used after
 /// reading .gcno and .gcda files.
 void GCOVFunction::collectLineCounts(FileInfo &FI) {
+  // If the line number is zero, this is a function that doesn't actually appear
+  // in the source file, so there isn't anything we can do with it.
+  if (LineNumber == 0)
+    return;
+
   for (SmallVectorImpl<GCOVBlock *>::iterator I = Blocks.begin(),
          E = Blocks.end(); I != E; ++I)
     (*I)->collectLineCounts(FI);
@@ -472,7 +476,7 @@ void FileInfo::print(StringRef GCNOFile, StringRef GCDAFile) {
   for (StringMap<LineData>::const_iterator I = LineInfo.begin(),
          E = LineInfo.end(); I != E; ++I) {
     StringRef Filename = I->first();
-    OwningPtr<MemoryBuffer> Buff;
+    std::unique_ptr<MemoryBuffer> Buff;
     if (error_code ec = MemoryBuffer::getFileOrSTDIN(Filename, Buff)) {
       errs() << Filename << ": " << ec.message() << "\n";
       return;

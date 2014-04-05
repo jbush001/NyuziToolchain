@@ -307,21 +307,18 @@ const_iterator &const_iterator::operator++() {
 }
 
 const_iterator &const_iterator::operator--() {
-  // If we're at the end and the previous char was a '/', return '.'.
+  // If we're at the end and the previous char was a '/', return '.' unless
+  // we are the root path.
+  size_t root_dir_pos = root_dir_start(Path);
   if (Position == Path.size() &&
-      Path.size() > 1 &&
-      is_separator(Path[Position - 1])
-#ifdef LLVM_ON_WIN32
-      && Path[Position - 2] != ':'
-#endif
-      ) {
+      Path.size() > root_dir_pos + 1 &&
+      is_separator(Path[Position - 1])) {
     --Position;
     Component = ".";
     return *this;
   }
 
   // Skip separators unless it's the root directory.
-  size_t root_dir_pos = root_dir_start(Path);
   size_t end_pos = Position;
 
   while(end_pos > 0 &&
@@ -873,23 +870,10 @@ error_code is_regular_file(const Twine &path, bool &result) {
   return error_code::success();
 }
 
-bool is_symlink(file_status status) {
-  return status.type() == file_type::symlink_file;
-}
-
-error_code is_symlink(const Twine &path, bool &result) {
-  file_status st;
-  if (error_code ec = status(path, st))
-    return ec;
-  result = is_symlink(st);
-  return error_code::success();
-}
-
 bool is_other(file_status status) {
   return exists(status) &&
          !is_regular_file(status) &&
-         !is_directory(status) &&
-         !is_symlink(status);
+         !is_directory(status);
 }
 
 void directory_entry::replace_filename(const Twine &filename, file_status st) {
@@ -1019,6 +1003,7 @@ error_code has_magic(const Twine &path, const Twine &magic, bool &result) {
     case 0x66: // MPS R4000 Windows
     case 0x50: // mc68K
     case 0x4c: // 80386 Windows
+    case 0xc4: // ARMNT Windows
       if (Magic[1] == 0x01)
         return file_magic::coff_object;
 

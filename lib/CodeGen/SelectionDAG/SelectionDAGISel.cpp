@@ -32,8 +32,8 @@
 #include "llvm/CodeGen/ScheduleHazardRecognizer.h"
 #include "llvm/CodeGen/SchedulerRegistry.h"
 #include "llvm/CodeGen/SelectionDAG.h"
-#include "llvm/DebugInfo.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Instructions.h"
@@ -417,7 +417,7 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
   SplitCriticalSideEffectEdges(const_cast<Function&>(Fn), this);
 
   CurDAG->init(*MF, TLI);
-  FuncInfo->set(Fn, *MF);
+  FuncInfo->set(Fn, *MF, CurDAG);
 
   if (UseMBPI && OptLevel != CodeGenOpt::None)
     FuncInfo->BPI = &getAnalysis<BranchProbabilityInfo>();
@@ -427,7 +427,6 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
   SDB->init(GFI, *AA, LibInfo);
 
   MF->setHasInlineAsm(false);
-  MF->getFrameInfo()->setHasInlineAsmWithSPAdjust(false);
 
   SelectAllBasicBlocks(Fn);
 
@@ -457,7 +456,7 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
       if (Def) {
         MachineBasicBlock::iterator InsertPos = Def;
         // FIXME: VR def may not be in entry block.
-        Def->getParent()->insert(llvm::next(InsertPos), MI);
+        Def->getParent()->insert(std::next(InsertPos), MI);
       } else
         DEBUG(dbgs() << "Dropping debug info for dead vreg"
               << TargetRegisterInfo::virtReg2Index(Reg) << "\n");
@@ -484,9 +483,10 @@ bool SelectionDAGISel::runOnMachineFunction(MachineFunction &mf) {
       // that COPY instructions also need DBG_VALUE, if it is the only
       // user of LDI->second.
       MachineInstr *CopyUseMI = NULL;
-      for (MachineRegisterInfo::use_iterator
-             UI = RegInfo->use_begin(LDI->second);
-           MachineInstr *UseMI = UI.skipInstruction();) {
+      for (MachineRegisterInfo::use_instr_iterator
+           UI = RegInfo->use_instr_begin(LDI->second),
+           E = RegInfo->use_instr_end(); UI != E; ) {
+        MachineInstr *UseMI = &*(UI++);
         if (UseMI->isDebugValue()) continue;
         if (UseMI->isCopy() && !CopyUseMI && UseMI->getParent() == EntryMBB) {
           CopyUseMI = UseMI; continue;
@@ -804,7 +804,7 @@ public:
   /// NodeDeleted - Handle nodes deleted from the graph. If the node being
   /// deleted is the current ISelPosition node, update ISelPosition.
   ///
-  virtual void NodeDeleted(SDNode *N, SDNode *E) {
+  void NodeDeleted(SDNode *N, SDNode *E) override {
     if (ISelPosition == SelectionDAG::allnodes_iterator(N))
       ++ISelPosition;
   }
@@ -1067,7 +1067,7 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
         // where they are, so we can be sure to emit subsequent instructions
         // after them.
         if (FuncInfo->InsertPt != FuncInfo->MBB->begin())
-          FastIS->setLastLocalValue(llvm::prior(FuncInfo->InsertPt));
+          FastIS->setLastLocalValue(std::prev(FuncInfo->InsertPt));
         else
           FastIS->setLastLocalValue(0);
       }
@@ -1075,7 +1075,7 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
       unsigned NumFastIselRemaining = std::distance(Begin, End);
       // Do FastISel on as many instructions as possible.
       for (; BI != Begin; --BI) {
-        const Instruction *Inst = llvm::prior(BI);
+        const Instruction *Inst = std::prev(BI);
 
         // If we no longer require this instruction, skip it.
         if (isFoldedOrDeadInstruction(Inst, FuncInfo)) {
@@ -1096,7 +1096,7 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
           // Try to fold the load if so.
           const Instruction *BeforeInst = Inst;
           while (BeforeInst != Begin) {
-            BeforeInst = llvm::prior(BasicBlock::const_iterator(BeforeInst));
+            BeforeInst = std::prev(BasicBlock::const_iterator(BeforeInst));
             if (!isFoldedOrDeadInstruction(BeforeInst, FuncInfo))
               break;
           }
@@ -1104,7 +1104,7 @@ void SelectionDAGISel::SelectAllBasicBlocks(const Function &Fn) {
               BeforeInst->hasOneUse() &&
               FastIS->tryToFoldLoad(cast<LoadInst>(BeforeInst), Inst)) {
             // If we succeeded, don't re-select the load.
-            BI = llvm::next(BasicBlock::const_iterator(BeforeInst));
+            BI = std::next(BasicBlock::const_iterator(BeforeInst));
             --NumFastIselRemaining;
             ++NumFastIselSuccess;
           }

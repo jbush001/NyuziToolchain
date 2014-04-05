@@ -168,9 +168,7 @@ void Sema::NoteDeletedFunction(FunctionDecl *Decl) {
 /// \brief Determine whether a FunctionDecl was ever declared with an
 /// explicit storage class.
 static bool hasAnyExplicitStorageClass(const FunctionDecl *D) {
-  for (FunctionDecl::redecl_iterator I = D->redecls_begin(),
-                                     E = D->redecls_end();
-       I != E; ++I) {
+  for (auto I : D->redecls()) {
     if (I->getStorageClass() != SC_None)
       return true;
   }
@@ -2046,17 +2044,17 @@ ExprResult Sema::ActOnIdExpression(Scope *S,
     if (R.empty()) {
       // In Microsoft mode, if we are inside a template class member function
       // whose parent class has dependent base classes, and we can't resolve
-      // an identifier, then assume the identifier is a member of a dependent
-      // base class.  The goal is to postpone name lookup to instantiation time
-      // to be able to search into the type dependent base classes.
+      // an unqualified identifier, then assume the identifier is a member of a
+      // dependent base class.  The goal is to postpone name lookup to
+      // instantiation time to be able to search into the type dependent base
+      // classes.
       // FIXME: If we want 100% compatibility with MSVC, we will have delay all
       // unqualified name lookup.  Any name lookup during template parsing means
       // clang might find something that MSVC doesn't.  For now, we only handle
       // the common case of members of a dependent base class.
-      if (getLangOpts().MSVCCompat) {
+      if (SS.isEmpty() && getLangOpts().MSVCCompat) {
         CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(CurContext);
         if (MD && MD->isInstance() && MD->getParent()->hasAnyDependentBases()) {
-          assert(SS.isEmpty() && "qualifiers should be already handled");
           QualType ThisType = MD->getThisType(Context);
           // Since the 'this' expression is synthesized, we don't need to
           // perform the double-lookup check.
@@ -3212,7 +3210,7 @@ ExprResult Sema::ActOnNumericConstant(const Token &Tok, Scope *UDLScope) {
       // If we still couldn't decide a type, we probably have something that
       // does not fit in a signed long long, but has no U suffix.
       if (Ty.isNull()) {
-        Diag(Tok.getLocation(), diag::warn_integer_too_large_for_signed);
+        Diag(Tok.getLocation(), diag::ext_integer_too_large_for_signed);
         Ty = Context.UnsignedLongLongTy;
         Width = Context.getTargetInfo().getLongLongWidth();
       }
@@ -3976,11 +3974,11 @@ namespace {
 class FunctionCallCCC : public FunctionCallFilterCCC {
 public:
   FunctionCallCCC(Sema &SemaRef, const IdentifierInfo *FuncName,
-                  unsigned NumArgs, bool HasExplicitTemplateArgs)
-      : FunctionCallFilterCCC(SemaRef, NumArgs, HasExplicitTemplateArgs),
+                  unsigned NumArgs, MemberExpr *ME)
+      : FunctionCallFilterCCC(SemaRef, NumArgs, false, ME),
         FunctionName(FuncName) {}
 
-  virtual bool ValidateCandidate(const TypoCorrection &candidate) {
+  bool ValidateCandidate(const TypoCorrection &candidate) override {
     if (!candidate.getCorrectionSpecifier() ||
         candidate.getCorrectionAsIdentifierInfo() != FunctionName) {
       return false;
@@ -3994,17 +3992,20 @@ private:
 };
 }
 
-static TypoCorrection TryTypoCorrectionForCall(Sema &S,
-                                               DeclarationNameInfo FuncName,
+static TypoCorrection TryTypoCorrectionForCall(Sema &S, Expr *Fn,
+                                               FunctionDecl *FDecl,
                                                ArrayRef<Expr *> Args) {
-  FunctionCallCCC CCC(S, FuncName.getName().getAsIdentifierInfo(),
-                      Args.size(), false);
-  if (TypoCorrection Corrected =
-          S.CorrectTypo(FuncName, Sema::LookupOrdinaryName,
-                        S.getScopeForContext(S.CurContext), NULL, CCC)) {
+  MemberExpr *ME = dyn_cast<MemberExpr>(Fn);
+  DeclarationName FuncName = FDecl->getDeclName();
+  SourceLocation NameLoc = ME ? ME->getMemberLoc() : Fn->getLocStart();
+  FunctionCallCCC CCC(S, FuncName.getAsIdentifierInfo(), Args.size(), ME);
+
+  if (TypoCorrection Corrected = S.CorrectTypo(
+          DeclarationNameInfo(FuncName, NameLoc), Sema::LookupOrdinaryName,
+          S.getScopeForContext(S.CurContext), NULL, CCC)) {
     if (NamedDecl *ND = Corrected.getCorrectionDecl()) {
       if (Corrected.isOverloaded()) {
-        OverloadCandidateSet OCS(FuncName.getLoc());
+        OverloadCandidateSet OCS(NameLoc);
         OverloadCandidateSet::iterator Best;
         for (TypoCorrection::decl_iterator CD = Corrected.begin(),
                                            CDEnd = Corrected.end();
@@ -4013,7 +4014,7 @@ static TypoCorrection TryTypoCorrectionForCall(Sema &S,
             S.AddOverloadCandidate(FD, DeclAccessPair::make(FD, AS_none), Args,
                                    OCS);
         }
-        switch (OCS.BestViableFunction(S, FuncName.getLoc(), Best)) {
+        switch (OCS.BestViableFunction(S, NameLoc, Best)) {
         case OR_Success:
           ND = Best->Function;
           Corrected.setCorrectionDecl(ND);
@@ -4064,13 +4065,8 @@ Sema::ConvertArgumentsForCall(CallExpr *Call, Expr *Fn,
   // arguments for the remaining parameters), don't make the call.
   if (Args.size() < NumParams) {
     if (Args.size() < MinArgs) {
-      MemberExpr *ME = dyn_cast<MemberExpr>(Fn);
       TypoCorrection TC;
-      if (FDecl && (TC = TryTypoCorrectionForCall(
-                        *this, DeclarationNameInfo(FDecl->getDeclName(),
-                                                   (ME ? ME->getMemberLoc()
-                                                       : Fn->getLocStart())),
-                        Args))) {
+      if (FDecl && (TC = TryTypoCorrectionForCall(*this, Fn, FDecl, Args))) {
         unsigned diag_id =
             MinArgs == NumParams && !Proto->isVariadic()
                 ? diag::err_typecheck_call_too_few_args_suggest
@@ -4105,13 +4101,8 @@ Sema::ConvertArgumentsForCall(CallExpr *Call, Expr *Fn,
   // them.
   if (Args.size() > NumParams) {
     if (!Proto->isVariadic()) {
-      MemberExpr *ME = dyn_cast<MemberExpr>(Fn);
       TypoCorrection TC;
-      if (FDecl && (TC = TryTypoCorrectionForCall(
-                        *this, DeclarationNameInfo(FDecl->getDeclName(),
-                                                   (ME ? ME->getMemberLoc()
-                                                       : Fn->getLocStart())),
-                        Args))) {
+      if (FDecl && (TC = TryTypoCorrectionForCall(*this, Fn, FDecl, Args))) {
         unsigned diag_id =
             MinArgs == NumParams && !Proto->isVariadic()
                 ? diag::err_typecheck_call_too_many_args_suggest
@@ -5049,12 +5040,55 @@ CastKind Sema::PrepareScalarCast(ExprResult &Src, QualType DestTy) {
   llvm_unreachable("Unhandled scalar cast");
 }
 
+static bool breakDownVectorType(QualType type, uint64_t &len,
+                                QualType &eltType) {
+  // Vectors are simple.
+  if (const VectorType *vecType = type->getAs<VectorType>()) {
+    len = vecType->getNumElements();
+    eltType = vecType->getElementType();
+    assert(eltType->isScalarType());
+    return true;
+  }
+  
+  // We allow lax conversion to and from non-vector types, but only if
+  // they're real types (i.e. non-complex, non-pointer scalar types).
+  if (!type->isRealType()) return false;
+  
+  len = 1;
+  eltType = type;
+  return true;
+}
+
+static bool VectorTypesMatch(Sema &S, QualType srcTy, QualType destTy) {
+  uint64_t srcLen, destLen;
+  QualType srcElt, destElt;
+  if (!breakDownVectorType(srcTy, srcLen, srcElt)) return false;
+  if (!breakDownVectorType(destTy, destLen, destElt)) return false;
+  
+  // ASTContext::getTypeSize will return the size rounded up to a
+  // power of 2, so instead of using that, we need to use the raw
+  // element size multiplied by the element count.
+  uint64_t srcEltSize = S.Context.getTypeSize(srcElt);
+  uint64_t destEltSize = S.Context.getTypeSize(destElt);
+  
+  return (srcLen * srcEltSize == destLen * destEltSize);
+}
+
+/// Is this a legal conversion between two known vector types?
+bool Sema::isLaxVectorConversion(QualType srcTy, QualType destTy) {
+  assert(destTy->isVectorType() || srcTy->isVectorType());
+  
+  if (!Context.getLangOpts().LaxVectorConversions)
+    return false;
+  return VectorTypesMatch(*this, srcTy, destTy);
+}
+
 bool Sema::CheckVectorCast(SourceRange R, QualType VectorTy, QualType Ty,
                            CastKind &Kind) {
   assert(VectorTy->isVectorType() && "Not a vector type!");
 
   if (Ty->isVectorType() || Ty->isIntegerType()) {
-    if (Context.getTypeSize(VectorTy) != Context.getTypeSize(Ty))
+    if (!VectorTypesMatch(*this, Ty, VectorTy))
       return Diag(R.getBegin(),
                   Ty->isVectorType() ?
                   diag::err_invalid_conversion_between_vectors :
@@ -5080,7 +5114,7 @@ ExprResult Sema::CheckExtVectorCast(SourceRange R, QualType DestTy,
   // In OpenCL, casts between vectors of different types are not allowed.
   // (See OpenCL 6.2).
   if (SrcTy->isVectorType()) {
-    if (Context.getTypeSize(DestTy) != Context.getTypeSize(SrcTy)
+    if (!VectorTypesMatch(*this, SrcTy, DestTy)
         || (getLangOpts().OpenCL &&
             (DestTy.getCanonicalType() != SrcTy.getCanonicalType()))) {
       Diag(R.getBegin(),diag::err_invalid_conversion_between_ext_vectors)
@@ -6004,8 +6038,10 @@ checkPointerTypesForAssignment(Sema &S, QualType LHSType, QualType RHSType) {
   // get the "pointed to" type (ignoring qualifiers at the top level)
   const Type *lhptee, *rhptee;
   Qualifiers lhq, rhq;
-  llvm::tie(lhptee, lhq) = cast<PointerType>(LHSType)->getPointeeType().split();
-  llvm::tie(rhptee, rhq) = cast<PointerType>(RHSType)->getPointeeType().split();
+  std::tie(lhptee, lhq) =
+      cast<PointerType>(LHSType)->getPointeeType().split().asPair();
+  std::tie(rhptee, rhq) =
+      cast<PointerType>(RHSType)->getPointeeType().split().asPair();
 
   Sema::AssignConvertType ConvTy = Sema::Compatible;
 
@@ -6511,9 +6547,7 @@ Sema::CheckTransparentUnionArgumentConstraints(QualType ArgType,
   RecordDecl *UD = UT->getDecl();
   FieldDecl *InitField = 0;
   // It's compatible if the expression matches any of the fields.
-  for (RecordDecl::field_iterator it = UD->field_begin(),
-         itend = UD->field_end();
-       it != itend; ++it) {
+  for (auto *it : UD->fields()) {
     if (it->getType()->isPointerType()) {
       // If the transparent union contains a pointer type, we allow:
       // 1) void pointer
@@ -6521,7 +6555,7 @@ Sema::CheckTransparentUnionArgumentConstraints(QualType ArgType,
       if (RHSType->isPointerType())
         if (RHSType->castAs<PointerType>()->getPointeeType()->isVoidType()) {
           RHS = ImpCastExprToType(RHS.take(), it->getType(), CK_BitCast);
-          InitField = *it;
+          InitField = it;
           break;
         }
 
@@ -6529,7 +6563,7 @@ Sema::CheckTransparentUnionArgumentConstraints(QualType ArgType,
                                            Expr::NPC_ValueDependentIsNull)) {
         RHS = ImpCastExprToType(RHS.take(), it->getType(),
                                 CK_NullToPointer);
-        InitField = *it;
+        InitField = it;
         break;
       }
     }
@@ -6538,7 +6572,7 @@ Sema::CheckTransparentUnionArgumentConstraints(QualType ArgType,
     if (CheckAssignmentConstraints(it->getType(), RHS, Kind)
           == Compatible) {
       RHS = ImpCastExprToType(RHS.take(), it->getType(), Kind);
-      InitField = *it;
+      InitField = it;
       break;
     }
   }
@@ -6655,75 +6689,40 @@ QualType Sema::InvalidOperands(SourceLocation Loc, ExprResult &LHS,
   return QualType();
 }
 
-static bool breakDownVectorType(QualType type, uint64_t &len,
-                                QualType &eltType) {
-  // Vectors are simple.
-  if (const VectorType *vecType = type->getAs<VectorType>()) {
-    len = vecType->getNumElements();
-    eltType = vecType->getElementType();
-    assert(eltType->isScalarType());
-    return true;
-  }
-
-  // We allow lax conversion to and from non-vector types, but only if
-  // they're real types (i.e. non-complex, non-pointer scalar types).
-  if (!type->isRealType()) return false;
-
-  len = 1;
-  eltType = type;
-  return true;
-}
-
-/// Is this a legal conversion between two known vector types?
-bool Sema::isLaxVectorConversion(QualType srcTy, QualType destTy) {
-  assert(destTy->isVectorType() || srcTy->isVectorType());
-
-  if (!Context.getLangOpts().LaxVectorConversions)
-    return false;
-
-  uint64_t srcLen, destLen;
-  QualType srcElt, destElt;
-  if (!breakDownVectorType(srcTy, srcLen, srcElt)) return false;
-  if (!breakDownVectorType(destTy, destLen, destElt)) return false;
-
-  // ASTContext::getTypeSize will return the size rounded up to a
-  // power of 2, so instead of using that, we need to use the raw
-  // element size multiplied by the element count.
-  uint64_t srcEltSize = Context.getTypeSize(srcElt);
-  uint64_t destEltSize = Context.getTypeSize(destElt);
-
-  return (srcLen * srcEltSize == destLen * destEltSize);
-}
-
-/// Try to convert a value of non-vector type to a vector type by
-/// promoting (and only promoting) the type to the element type of the
-/// vector and then performing a vector splat.
+/// Try to convert a value of non-vector type to a vector type by converting
+/// the type to the element type of the vector and then performing a splat.
+/// If the language is OpenCL, we only use conversions that promote scalar
+/// rank; for C, Obj-C, and C++ we allow any real scalar conversion except
+/// for float->int.
 ///
 /// \param scalar - if non-null, actually perform the conversions
 /// \return true if the operation fails (but without diagnosing the failure)
-static bool tryVectorPromoteAndSplat(Sema &S, ExprResult *scalar,
+static bool tryVectorConvertAndSplat(Sema &S, ExprResult *scalar,
                                      QualType scalarTy,
                                      QualType vectorEltTy,
                                      QualType vectorTy) {
   // The conversion to apply to the scalar before splatting it,
   // if necessary.
   CastKind scalarCast = CK_Invalid;
-
+  
   if (vectorEltTy->isIntegralType(S.Context)) {
-    if (!scalarTy->isIntegralType(S.Context)) return true;
-    int order = S.Context.getIntegerTypeOrder(vectorEltTy, scalarTy);
-    if (order < 0) return true;
-    if (order > 0) scalarCast = CK_IntegralCast;
+    if (!scalarTy->isIntegralType(S.Context))
+      return true;
+    if (S.getLangOpts().OpenCL &&
+        S.Context.getIntegerTypeOrder(vectorEltTy, scalarTy) < 0)
+      return true;
+    scalarCast = CK_IntegralCast;
   } else if (vectorEltTy->isRealFloatingType()) {
     if (scalarTy->isRealFloatingType()) {
-      int order = S.Context.getFloatingTypeOrder(vectorEltTy, scalarTy);
-      if (order < 0) return true;
-      if (order > 0) scalarCast = CK_FloatingCast;
-    } else if (scalarTy->isIntegralType(S.Context)) {
-      scalarCast = CK_IntegralToFloating;
-    } else {
-      return true;
+      if (S.getLangOpts().OpenCL &&
+          S.Context.getFloatingTypeOrder(vectorEltTy, scalarTy) < 0)
+        return true;
+      scalarCast = CK_FloatingCast;
     }
+    else if (scalarTy->isIntegralType(S.Context))
+      scalarCast = CK_IntegralToFloating;
+    else
+      return true;
   } else {
     return true;
   }
@@ -6731,7 +6730,7 @@ static bool tryVectorPromoteAndSplat(Sema &S, ExprResult *scalar,
   // Adjust scalar if desired.
   if (scalar) {
     if (scalarCast != CK_Invalid)
-       *scalar = S.ImpCastExprToType(scalar->take(), vectorEltTy, scalarCast);
+      *scalar = S.ImpCastExprToType(scalar->take(), vectorEltTy, scalarCast);
     *scalar = S.ImpCastExprToType(scalar->take(), vectorTy, CK_VectorSplat);
   }
   return false;
@@ -6774,6 +6773,19 @@ QualType Sema::CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
     return RHSType;
   }
 
+  // If there's an ext-vector type and a scalar, try to convert the scalar to
+  // the vector element type and splat.
+  if (!RHSVecType && isa<ExtVectorType>(LHSVecType)) {
+    if (!tryVectorConvertAndSplat(*this, &RHS, RHSType,
+                                  LHSVecType->getElementType(), LHSType))
+      return LHSType;
+  }
+  if (!LHSVecType && isa<ExtVectorType>(RHSVecType)) {
+    if (!tryVectorConvertAndSplat(*this, (IsCompAssign ? 0 : &LHS), LHSType,
+                                  RHSVecType->getElementType(), RHSType))
+      return RHSType;
+  }
+
   // If we're allowing lax vector conversions, only the total (data) size
   // needs to be the same.
   // FIXME: Should we really be allowing this?
@@ -6782,19 +6794,6 @@ QualType Sema::CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
     QualType resultType = LHSType;
     RHS = ImpCastExprToType(RHS.take(), resultType, CK_BitCast);
     return resultType;
-  }
-
-  // If there's an ext-vector type and a scalar, try to promote (and
-  // only promote) and splat the scalar to the vector type.
-  if (!RHSVecType && isa<ExtVectorType>(LHSVecType)) {
-    if (!tryVectorPromoteAndSplat(*this, &RHS, RHSType,
-                                  LHSVecType->getElementType(), LHSType))
-      return LHSType;
-  }
-  if (!LHSVecType && isa<ExtVectorType>(RHSVecType)) {
-    if (!tryVectorPromoteAndSplat(*this, (IsCompAssign ? 0 : &LHS), LHSType,
-                                  RHSVecType->getElementType(), RHSType))
-      return RHSType;
   }
 
   // Okay, the expression is invalid.
@@ -10226,12 +10225,10 @@ ExprResult Sema::BuildBuiltinOffsetOf(SourceLocation BuiltinLoc,
     }
 
     if (IndirectMemberDecl) {
-      for (IndirectFieldDecl::chain_iterator FI =
-           IndirectMemberDecl->chain_begin(),
-           FEnd = IndirectMemberDecl->chain_end(); FI != FEnd; FI++) {
-        assert(isa<FieldDecl>(*FI));
+      for (auto *FI : IndirectMemberDecl->chain()) {
+        assert(isa<FieldDecl>(FI));
         Comps.push_back(OffsetOfNode(OC.LocStart,
-                                     cast<FieldDecl>(*FI), OC.LocEnd));
+                                     cast<FieldDecl>(FI), OC.LocEnd));
       }
     } else
       Comps.push_back(OffsetOfNode(OC.LocStart, MemberDecl, OC.LocEnd));
@@ -10420,13 +10417,9 @@ void Sema::ActOnBlockArguments(SourceLocation CaretLoc, Declarator &ParamInfo,
   // Fake up parameter variables if we have a typedef, like
   //   ^ fntype { ... }
   } else if (const FunctionProtoType *Fn = T->getAs<FunctionProtoType>()) {
-    for (FunctionProtoType::param_type_iterator I = Fn->param_type_begin(),
-                                                E = Fn->param_type_end();
-         I != E; ++I) {
-      ParmVarDecl *Param =
-        BuildParmVarDeclForTypedef(CurBlock->TheDecl,
-                                   ParamInfo.getLocStart(),
-                                   *I);
+    for (const auto &I : Fn->param_types()) {
+      ParmVarDecl *Param = BuildParmVarDeclForTypedef(
+          CurBlock->TheDecl, ParamInfo.getLocStart(), I);
       Params.push_back(Param);
     }
   }
@@ -10443,15 +10436,14 @@ void Sema::ActOnBlockArguments(SourceLocation CaretLoc, Declarator &ParamInfo,
   ProcessDeclAttributes(CurScope, CurBlock->TheDecl, ParamInfo);
 
   // Put the parameter variables in scope.
-  for (BlockDecl::param_iterator AI = CurBlock->TheDecl->param_begin(),
-         E = CurBlock->TheDecl->param_end(); AI != E; ++AI) {
-    (*AI)->setOwningFunction(CurBlock->TheDecl);
+  for (auto AI : CurBlock->TheDecl->params()) {
+    AI->setOwningFunction(CurBlock->TheDecl);
 
     // If this has an identifier, add it to the scope stack.
-    if ((*AI)->getIdentifier()) {
-      CheckShadow(CurBlock->TheScope, *AI);
+    if (AI->getIdentifier()) {
+      CheckShadow(CurBlock->TheScope, AI);
 
-      PushOnScopeChains(*AI, CurBlock->TheScope);
+      PushOnScopeChains(AI, CurBlock->TheScope);
     }
   }
 }
@@ -10577,10 +10569,8 @@ ExprResult Sema::ActOnBlockStmtExpr(SourceLocation CaretLoc,
 
     // It also gets a branch-protected scope if any of the captured
     // variables needs destruction.
-    for (BlockDecl::capture_const_iterator
-           ci = Result->getBlockDecl()->capture_begin(),
-           ce = Result->getBlockDecl()->capture_end(); ci != ce; ++ci) {
-      const VarDecl *var = ci->getVariable();
+    for (const auto &CI : Result->getBlockDecl()->captures()) {
+      const VarDecl *var = CI.getVariable();
       if (var->getType().isDestructedType() != QualType::DK_none) {
         getCurFunction()->setHasBranchProtectedScope();
         break;
@@ -10914,7 +10904,7 @@ ExprResult Sema::VerifyIntegerConstantExpression(Expr *E,
                                                  llvm::APSInt *Result) {
   class SimpleICEDiagnoser : public VerifyICEDiagnoser {
   public:
-    virtual void diagnoseNotICE(Sema &S, SourceLocation Loc, SourceRange SR) {
+    void diagnoseNotICE(Sema &S, SourceLocation Loc, SourceRange SR) override {
       S.Diag(Loc, diag::err_expr_not_ice) << S.LangOpts.CPlusPlus << SR;
     }
   } Diagnoser;
@@ -10933,7 +10923,7 @@ ExprResult Sema::VerifyIntegerConstantExpression(Expr *E,
     IDDiagnoser(unsigned DiagID)
       : VerifyICEDiagnoser(DiagID == 0), DiagID(DiagID) { }
     
-    virtual void diagnoseNotICE(Sema &S, SourceLocation Loc, SourceRange SR) {
+    void diagnoseNotICE(Sema &S, SourceLocation Loc, SourceRange SR) override {
       S.Diag(Loc, DiagID) << SR;
     }
   } Diagnoser(DiagID);
@@ -10965,40 +10955,40 @@ Sema::VerifyIntegerConstantExpression(Expr *E, llvm::APSInt *Result,
           : ICEConvertDiagnoser(/*AllowScopedEnumerations*/false,
                                 Silent, true) {}
 
-      virtual SemaDiagnosticBuilder diagnoseNotInt(Sema &S, SourceLocation Loc,
-                                                   QualType T) {
+      SemaDiagnosticBuilder diagnoseNotInt(Sema &S, SourceLocation Loc,
+                                           QualType T) override {
         return S.Diag(Loc, diag::err_ice_not_integral) << T;
       }
 
-      virtual SemaDiagnosticBuilder diagnoseIncomplete(
-          Sema &S, SourceLocation Loc, QualType T) {
+      SemaDiagnosticBuilder diagnoseIncomplete(
+          Sema &S, SourceLocation Loc, QualType T) override {
         return S.Diag(Loc, diag::err_ice_incomplete_type) << T;
       }
 
-      virtual SemaDiagnosticBuilder diagnoseExplicitConv(
-          Sema &S, SourceLocation Loc, QualType T, QualType ConvTy) {
+      SemaDiagnosticBuilder diagnoseExplicitConv(
+          Sema &S, SourceLocation Loc, QualType T, QualType ConvTy) override {
         return S.Diag(Loc, diag::err_ice_explicit_conversion) << T << ConvTy;
       }
 
-      virtual SemaDiagnosticBuilder noteExplicitConv(
-          Sema &S, CXXConversionDecl *Conv, QualType ConvTy) {
+      SemaDiagnosticBuilder noteExplicitConv(
+          Sema &S, CXXConversionDecl *Conv, QualType ConvTy) override {
         return S.Diag(Conv->getLocation(), diag::note_ice_conversion_here)
                  << ConvTy->isEnumeralType() << ConvTy;
       }
 
-      virtual SemaDiagnosticBuilder diagnoseAmbiguous(
-          Sema &S, SourceLocation Loc, QualType T) {
+      SemaDiagnosticBuilder diagnoseAmbiguous(
+          Sema &S, SourceLocation Loc, QualType T) override {
         return S.Diag(Loc, diag::err_ice_ambiguous_conversion) << T;
       }
 
-      virtual SemaDiagnosticBuilder noteAmbiguous(
-          Sema &S, CXXConversionDecl *Conv, QualType ConvTy) {
+      SemaDiagnosticBuilder noteAmbiguous(
+          Sema &S, CXXConversionDecl *Conv, QualType ConvTy) override {
         return S.Diag(Conv->getLocation(), diag::note_ice_conversion_here)
                  << ConvTy->isEnumeralType() << ConvTy;
       }
 
-      virtual SemaDiagnosticBuilder diagnoseConversion(
-          Sema &S, SourceLocation Loc, QualType T, QualType ConvTy) {
+      SemaDiagnosticBuilder diagnoseConversion(
+          Sema &S, SourceLocation Loc, QualType T, QualType ConvTy) override {
         llvm_unreachable("conversion functions are permitted");
       }
     } ConvertDiagnoser(Diagnoser.Suppress);
@@ -11404,10 +11394,9 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func) {
     }
   } else {
     // Walk redefinitions, as some of them may be instantiable.
-    for (FunctionDecl::redecl_iterator i(Func->redecls_begin()),
-         e(Func->redecls_end()); i != e; ++i) {
+    for (auto i : Func->redecls()) {
       if (!i->isUsed(false) && i->isImplicitlyInstantiable())
-        MarkFunctionReferenced(Loc, *i);
+        MarkFunctionReferenced(Loc, i);
     }
   }
 
@@ -12579,8 +12568,8 @@ bool Sema::CheckCallReturnType(QualType ReturnType, SourceLocation Loc,
   public:
     CallReturnIncompleteDiagnoser(FunctionDecl *FD, CallExpr *CE)
       : FD(FD), CE(CE) { }
-    
-    virtual void diagnose(Sema &S, SourceLocation Loc, QualType T) {
+
+    void diagnose(Sema &S, SourceLocation Loc, QualType T) override {
       if (!FD) {
         S.Diag(Loc, diag::err_call_incomplete_return)
           << T << CE->getSourceRange();

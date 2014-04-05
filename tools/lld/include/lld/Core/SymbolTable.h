@@ -58,10 +58,10 @@ public:
   const Atom *findByName(StringRef sym);
 
   /// @brief returns vector of remaining UndefinedAtoms
-  void undefines(std::vector<const UndefinedAtom *>&);
+  std::vector<const UndefinedAtom *> undefines();
 
   /// returns vector of tentative definitions
-  void tentativeDefinitions(std::vector<StringRef> &);
+  std::vector<StringRef> tentativeDefinitions();
 
   /// @brief count of by-name entries in symbol table
   unsigned int size();
@@ -71,6 +71,13 @@ public:
 
   /// @brief if atom has been coalesced away, return replacement, else return atom
   const Atom *replacement(const Atom *);
+
+  /// @brief Find a group atom.
+  const Atom *findGroup(StringRef name);
+
+  /// @brief Add a group atom and returns true/false depending on whether the
+  /// previously existed.
+  bool addGroup(const DefinedAtom &da);
 
 private:
   typedef llvm::DenseMap<const Atom *, const Atom *> AtomToAtom;
@@ -101,6 +108,7 @@ private:
   const LinkingContext &_context;
   AtomToAtom _replacedAtoms;
   NameToAtom _nameTable;
+  NameToAtom _groupTable;
   AtomContentSet _contentTable;
 };
 

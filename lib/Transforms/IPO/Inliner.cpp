@@ -19,11 +19,11 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/InlineCost.h"
+#include "llvm/IR/CallSite.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Module.h"
-#include "llvm/Support/CallSite.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
@@ -344,9 +344,8 @@ bool Inliner::shouldInline(CallSite CS) {
     bool callerWillBeRemoved = Caller->hasLocalLinkage();
     // This bool tracks what happens if we DO inline C into B.
     bool inliningPreventsSomeOuterInline = false;
-    for (Value::use_iterator I = Caller->use_begin(), E =Caller->use_end(); 
-         I != E; ++I) {
-      CallSite CS2(*I);
+    for (User *U : Caller->users()) {
+      CallSite CS2(U);
 
       // If this isn't a call to Caller (it could be some other sort
       // of reference) skip it.  Such references will prevent the caller
@@ -377,7 +376,7 @@ bool Inliner::shouldInline(CallSite CS) {
     // one is set very low by getInlineCost, in anticipation that Caller will
     // be removed entirely.  We did not account for this above unless there
     // is only one caller of Caller.
-    if (callerWillBeRemoved && Caller->use_begin() != Caller->use_end())
+    if (callerWillBeRemoved && !Caller->use_empty())
       TotalSecondaryCost += InlineConstants::LastCallToStaticBonus;
 
     if (inliningPreventsSomeOuterInline && TotalSecondaryCost < IC.getCost()) {

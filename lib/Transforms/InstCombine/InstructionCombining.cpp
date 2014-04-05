@@ -43,14 +43,14 @@
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/InstructionSimplify.h"
 #include "llvm/Analysis/MemoryBuiltins.h"
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/IntrinsicInst.h"
-#include "llvm/Support/CFG.h"
+#include "llvm/IR/PatternMatch.h"
+#include "llvm/IR/ValueHandle.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/GetElementPtrTypeIterator.h"
-#include "llvm/Support/PatternMatch.h"
-#include "llvm/Support/ValueHandle.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include <algorithm>
@@ -641,10 +641,9 @@ Instruction *InstCombiner::FoldOpIntoPhi(Instruction &I) {
   // uses into the PHI.
   if (!PN->hasOneUse()) {
     // Walk the use list for the instruction, comparing them to I.
-    for (Value::use_iterator UI = PN->use_begin(), E = PN->use_end();
-         UI != E; ++UI) {
-      Instruction *User = cast<Instruction>(*UI);
-      if (User != &I && !I.isIdenticalTo(User))
+    for (User *U : PN->users()) {
+      Instruction *UI = cast<Instruction>(U);
+      if (UI != &I && !I.isIdenticalTo(UI))
         return 0;
     }
     // Otherwise, we can replace *all* users with the new PHI we form.
@@ -759,8 +758,7 @@ Instruction *InstCombiner::FoldOpIntoPhi(Instruction &I) {
     }
   }
 
-  for (Value::use_iterator UI = PN->use_begin(), E = PN->use_end();
-       UI != E; ) {
+  for (auto UI = PN->user_begin(), E = PN->user_end(); UI != E;) {
     Instruction *User = cast<Instruction>(*UI++);
     if (User == &I) continue;
     ReplaceInstUsesWith(*User, NewPN);
@@ -1080,7 +1078,7 @@ Value *InstCombiner::Descale(Value *Val, APInt Scale, bool &NoSignedWrap) {
 
     // Move up one level in the expression.
     assert(Ancestor->hasOneUse() && "Drilled down when more than one use!");
-    Ancestor = Ancestor->use_back();
+    Ancestor = Ancestor->user_back();
   } while (1);
 }
 
@@ -1243,7 +1241,15 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
           GetElementPtrInst *Res =
             GetElementPtrInst::Create(StrippedPtr, Idx, GEP.getName());
           Res->setIsInBounds(GEP.isInBounds());
-          return Res;
+          if (StrippedPtrTy->getAddressSpace() == GEP.getAddressSpace())
+            return Res;
+          // Insert Res, and create an addrspacecast.
+          // e.g.,
+          // GEP (addrspacecast i8 addrspace(1)* X to [0 x i8]*), i32 0, ...
+          // ->
+          // %0 = GEP i8 addrspace(1)* X, ...
+          // addrspacecast i8 addrspace(1)* %0 to i8*
+          return new AddrSpaceCastInst(Builder->Insert(Res), GEP.getType());
         }
 
         if (ArrayType *XATy =
@@ -1255,8 +1261,24 @@ Instruction *InstCombiner::visitGetElementPtrInst(GetElementPtrInst &GEP) {
             // to an array of the same type as the destination pointer
             // array.  Because the array type is never stepped over (there
             // is a leading zero) we can fold the cast into this GEP.
-            GEP.setOperand(0, StrippedPtr);
-            return &GEP;
+            if (StrippedPtrTy->getAddressSpace() == GEP.getAddressSpace()) {
+              GEP.setOperand(0, StrippedPtr);
+              return &GEP;
+            }
+            // Cannot replace the base pointer directly because StrippedPtr's
+            // address space is different. Instead, create a new GEP followed by
+            // an addrspacecast.
+            // e.g.,
+            // GEP (addrspacecast [10 x i8] addrspace(1)* X to [0 x i8]*),
+            //   i32 0, ...
+            // ->
+            // %0 = GEP [10 x i8] addrspace(1)* X, ...
+            // addrspacecast i8 addrspace(1)* %0 to i8*
+            SmallVector<Value*, 8> Idx(GEP.idx_begin(), GEP.idx_end());
+            Value *NewGEP = GEP.isInBounds() ?
+              Builder->CreateInBoundsGEP(StrippedPtr, Idx, GEP.getName()) :
+              Builder->CreateGEP(StrippedPtr, Idx, GEP.getName());
+            return new AddrSpaceCastInst(NewGEP, GEP.getType());
           }
         }
       }
@@ -1425,9 +1447,8 @@ isAllocSiteRemovable(Instruction *AI, SmallVectorImpl<WeakVH> &Users,
 
   do {
     Instruction *PI = Worklist.pop_back_val();
-    for (Value::use_iterator UI = PI->use_begin(), UE = PI->use_end(); UI != UE;
-         ++UI) {
-      Instruction *I = cast<Instruction>(*UI);
+    for (User *U : PI->users()) {
+      Instruction *I = cast<Instruction>(U);
       switch (I->getOpcode()) {
       default:
         // Give up the moment we see something we can't handle.
@@ -2404,12 +2425,12 @@ bool InstCombiner::DoOneIteration(Function &F, unsigned Iteration) {
     // See if we can trivially sink this instruction to a successor basic block.
     if (I->hasOneUse()) {
       BasicBlock *BB = I->getParent();
-      Instruction *UserInst = cast<Instruction>(I->use_back());
+      Instruction *UserInst = cast<Instruction>(*I->user_begin());
       BasicBlock *UserParent;
 
       // Get the block the use occurs in.
       if (PHINode *PN = dyn_cast<PHINode>(UserInst))
-        UserParent = PN->getIncomingBlock(I->use_begin().getUse());
+        UserParent = PN->getIncomingBlock(*I->use_begin());
       else
         UserParent = UserInst->getParent();
 
@@ -2508,7 +2529,7 @@ public:
 
   /// replaceAllUsesWith - override so that instruction replacement
   /// can be defined in terms of the instruction combiner framework.
-  virtual void replaceAllUsesWith(Instruction *I, Value *With) const {
+  void replaceAllUsesWith(Instruction *I, Value *With) const override {
     IC->ReplaceInstUsesWith(*I, With);
   }
 };

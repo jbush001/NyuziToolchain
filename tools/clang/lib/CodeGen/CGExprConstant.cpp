@@ -1268,15 +1268,14 @@ FillInNullDataMemberPointers(CodeGenModule &CGM, QualType T,
     const ASTRecordLayout &Layout = CGM.getContext().getASTRecordLayout(RD);
 
     // Go through all bases and fill in any null pointer to data members.
-    for (CXXRecordDecl::base_class_const_iterator I = RD->bases_begin(),
-         E = RD->bases_end(); I != E; ++I) {
-      if (I->isVirtual()) {
+    for (const auto &I : RD->bases()) {
+      if (I.isVirtual()) {
         // Ignore virtual bases.
         continue;
       }
       
       const CXXRecordDecl *BaseDecl = 
-      cast<CXXRecordDecl>(I->getType()->getAs<RecordType>()->getDecl());
+      cast<CXXRecordDecl>(I.getType()->getAs<RecordType>()->getDecl());
       
       // Ignore empty bases.
       if (BaseDecl->isEmpty())
@@ -1288,7 +1287,7 @@ FillInNullDataMemberPointers(CodeGenModule &CGM, QualType T,
 
       uint64_t BaseOffset =
         CGM.getContext().toBits(Layout.getBaseClassOffset(BaseDecl));
-      FillInNullDataMemberPointers(CGM, I->getType(),
+      FillInNullDataMemberPointers(CGM, I.getType(),
                                    Elements, StartOffset + BaseOffset);
     }
     
@@ -1338,16 +1337,15 @@ static llvm::Constant *EmitNullConstant(CodeGenModule &CGM,
   std::vector<llvm::Constant *> elements(numElements);
 
   // Fill in all the bases.
-  for (CXXRecordDecl::base_class_const_iterator
-         I = record->bases_begin(), E = record->bases_end(); I != E; ++I) {
-    if (I->isVirtual()) {
+  for (const auto &I : record->bases()) {
+    if (I.isVirtual()) {
       // Ignore virtual bases; if we're laying out for a complete
       // object, we'll lay these out later.
       continue;
     }
 
     const CXXRecordDecl *base = 
-      cast<CXXRecordDecl>(I->getType()->castAs<RecordType>()->getDecl());
+      cast<CXXRecordDecl>(I.getType()->castAs<RecordType>()->getDecl());
 
     // Ignore empty bases.
     if (base->isEmpty())
@@ -1359,28 +1357,24 @@ static llvm::Constant *EmitNullConstant(CodeGenModule &CGM,
   }
 
   // Fill in all the fields.
-  for (RecordDecl::field_iterator I = record->field_begin(),
-         E = record->field_end(); I != E; ++I) {
-    const FieldDecl *field = *I;
-
+  for (const auto *Field : record->fields()) {
     // Fill in non-bitfields. (Bitfields always use a zero pattern, which we
     // will fill in later.)
-    if (!field->isBitField()) {
-      unsigned fieldIndex = layout.getLLVMFieldNo(field);
-      elements[fieldIndex] = CGM.EmitNullConstant(field->getType());
+    if (!Field->isBitField()) {
+      unsigned fieldIndex = layout.getLLVMFieldNo(Field);
+      elements[fieldIndex] = CGM.EmitNullConstant(Field->getType());
     }
 
     // For unions, stop after the first named field.
-    if (record->isUnion() && field->getDeclName())
+    if (record->isUnion() && Field->getDeclName())
       break;
   }
 
   // Fill in the virtual bases, if we're working with the complete object.
   if (asCompleteObject) {
-    for (CXXRecordDecl::base_class_const_iterator
-           I = record->vbases_begin(), E = record->vbases_end(); I != E; ++I) {
+    for (const auto &I : record->vbases()) {
       const CXXRecordDecl *base = 
-        cast<CXXRecordDecl>(I->getType()->castAs<RecordType>()->getDecl());
+        cast<CXXRecordDecl>(I.getType()->castAs<RecordType>()->getDecl());
 
       // Ignore empty bases.
       if (base->isEmpty())

@@ -730,18 +730,15 @@ unsigned AArch64InstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
   if (MI.getOpcode() == AArch64::INLINEASM)
     return getInlineAsmLength(MI.getOperand(0).getSymbolName(), MAI);
 
-  if (MI.isLabel())
-    return 0;
-
   switch (MI.getOpcode()) {
   case TargetOpcode::BUNDLE:
     return getInstBundleLength(MI);
   case TargetOpcode::IMPLICIT_DEF:
   case TargetOpcode::KILL:
-  case TargetOpcode::PROLOG_LABEL:
+  case TargetOpcode::CFI_INSTRUCTION:
   case TargetOpcode::EH_LABEL:
+  case TargetOpcode::GC_LABEL:
   case TargetOpcode::DBG_VALUE:
-    return 0;
   case AArch64::TLSDESCCALL:
     return 0;
   default:

@@ -142,7 +142,7 @@ public:
     WantCXXNamedCasts = false;
   }
 
-  virtual bool ValidateCandidate(const TypoCorrection &candidate) {
+  bool ValidateCandidate(const TypoCorrection &candidate) override {
     if (FieldDecl *FD = candidate.getCorrectionDeclAs<FieldDecl>())
       return !candidate.getCorrectionSpecifier() || isa<ObjCIvarDecl>(FD);
     if (NextToken.is(tok::equal))
@@ -1078,8 +1078,7 @@ StmtResult Parser::ParseIfStatement(SourceLocation *TrailingElseLoc) {
   //    would have to notify ParseStatement not to create a new scope. It's
   //    simpler to let it create a new scope.
   //
-  ParseScope InnerScope(this, Scope::DeclScope,
-                        C99orCXX && Tok.isNot(tok::l_brace));
+  ParseScope InnerScope(this, Scope::DeclScope, C99orCXX, Tok.is(tok::l_brace));
 
   // Read the 'then' stmt.
   SourceLocation ThenStmtLoc = Tok.getLocation();
@@ -1111,8 +1110,7 @@ StmtResult Parser::ParseIfStatement(SourceLocation *TrailingElseLoc) {
     // The substatement in a selection-statement (each substatement, in the else
     // form of the if statement) implicitly defines a local scope.
     //
-    ParseScope InnerScope(this, Scope::DeclScope,
-                          C99orCXX && Tok.isNot(tok::l_brace));
+    ParseScope InnerScope(this, Scope::DeclScope, C99orCXX, Tok.is(tok::l_brace));
 
     ElseStmt = ParseStatement();
 
@@ -1215,8 +1213,7 @@ StmtResult Parser::ParseSwitchStatement(SourceLocation *TrailingElseLoc) {
   // condition and a new scope for substatement in C++.
   //
   getCurScope()->AddFlags(Scope::BreakScope);
-  ParseScope InnerScope(this, Scope::DeclScope,
-                        C99orCXX && Tok.isNot(tok::l_brace));
+  ParseScope InnerScope(this, Scope::DeclScope, C99orCXX, Tok.is(tok::l_brace));
 
   // Read the body statement.
   StmtResult Body(ParseStatement(TrailingElseLoc));
@@ -1293,8 +1290,7 @@ StmtResult Parser::ParseWhileStatement(SourceLocation *TrailingElseLoc) {
   // See comments in ParseIfStatement for why we create a scope for the
   // condition and a new scope for substatement in C++.
   //
-  ParseScope InnerScope(this, Scope::DeclScope,
-                        C99orCXX && Tok.isNot(tok::l_brace));
+  ParseScope InnerScope(this, Scope::DeclScope, C99orCXX, Tok.is(tok::l_brace));
 
   // Read the body statement.
   StmtResult Body(ParseStatement(TrailingElseLoc));
@@ -1335,9 +1331,8 @@ StmtResult Parser::ParseDoStatement() {
   // The substatement in an iteration-statement implicitly defines a local scope
   // which is entered and exited each time through the loop.
   //
-  ParseScope InnerScope(this, Scope::DeclScope,
-                        (getLangOpts().C99 || getLangOpts().CPlusPlus) &&
-                        Tok.isNot(tok::l_brace));
+  bool C99orCXX = getLangOpts().C99 || getLangOpts().CPlusPlus;
+  ParseScope InnerScope(this, Scope::DeclScope, C99orCXX, Tok.is(tok::l_brace));
 
   // Read the body statement.
   StmtResult Body(ParseStatement());
@@ -1624,8 +1619,15 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc) {
   // See comments in ParseIfStatement for why we create a scope for
   // for-init-statement/condition and a new scope for substatement in C++.
   //
-  ParseScope InnerScope(this, Scope::DeclScope,
-                        C99orCXXorObjC && Tok.isNot(tok::l_brace));
+  ParseScope InnerScope(this, Scope::DeclScope, C99orCXXorObjC,
+                        Tok.is(tok::l_brace));
+
+  // The body of the for loop has the same local mangling number as the
+  // for-init-statement.
+  // It will only be incremented if the body contains other things that would
+  // normally increment the mangling number (like a compound statement).
+  if (C99orCXXorObjC)
+    getCurScope()->decrementMSLocalManglingNumber();
 
   // Read the body statement.
   StmtResult Body(ParseStatement(TrailingElseLoc));
@@ -1764,7 +1766,7 @@ namespace {
 
     void *LookupInlineAsmIdentifier(StringRef &LineBuf,
                                     InlineAsmIdentifierInfo &Info,
-                                    bool IsUnevaluatedContext) {
+                                    bool IsUnevaluatedContext) override {
       // Collect the desired tokens.
       SmallVector<Token, 16> LineToks;
       const Token *FirstOrigToken = 0;
@@ -1804,7 +1806,7 @@ namespace {
     }
 
     bool LookupInlineAsmField(StringRef Base, StringRef Member,
-                              unsigned &Offset) {
+                              unsigned &Offset) override {
       return TheParser.getActions().LookupInlineAsmField(Base, Member,
                                                          Offset, AsmLoc);
     }
@@ -2132,7 +2134,7 @@ StmtResult Parser::ParseMicrosoftAsmStatement(SourceLocation AsmLoc) {
   SmallVector<StringRef, 4> ClobberRefs;
 
   // We need an actual supported target.
-  llvm::Triple TheTriple = Actions.Context.getTargetInfo().getTriple();
+  const llvm::Triple &TheTriple = Actions.Context.getTargetInfo().getTriple();
   llvm::Triple::ArchType ArchTy = TheTriple.getArch();
   const std::string &TT = TheTriple.getTriple();
   const llvm::Target *TheTarget = 0;
@@ -2161,13 +2163,13 @@ StmtResult Parser::ParseMicrosoftAsmStatement(SourceLocation AsmLoc) {
   if (buildMSAsmString(PP, AsmLoc, AsmToks, TokOffsets, AsmString))
     return StmtError();
 
-  OwningPtr<llvm::MCRegisterInfo> MRI(TheTarget->createMCRegInfo(TT));
-  OwningPtr<llvm::MCAsmInfo> MAI(TheTarget->createMCAsmInfo(*MRI, TT));
+  std::unique_ptr<llvm::MCRegisterInfo> MRI(TheTarget->createMCRegInfo(TT));
+  std::unique_ptr<llvm::MCAsmInfo> MAI(TheTarget->createMCAsmInfo(*MRI, TT));
   // Get the instruction descriptor.
-  const llvm::MCInstrInfo *MII = TheTarget->createMCInstrInfo(); 
-  OwningPtr<llvm::MCObjectFileInfo> MOFI(new llvm::MCObjectFileInfo());
-  OwningPtr<llvm::MCSubtargetInfo>
-    STI(TheTarget->createMCSubtargetInfo(TT, "", ""));
+  const llvm::MCInstrInfo *MII = TheTarget->createMCInstrInfo();
+  std::unique_ptr<llvm::MCObjectFileInfo> MOFI(new llvm::MCObjectFileInfo());
+  std::unique_ptr<llvm::MCSubtargetInfo> STI(
+      TheTarget->createMCSubtargetInfo(TT, "", ""));
 
   llvm::SourceMgr TempSrcMgr;
   llvm::MCContext Ctx(MAI.get(), MRI.get(), MOFI.get(), &TempSrcMgr);
@@ -2177,11 +2179,11 @@ StmtResult Parser::ParseMicrosoftAsmStatement(SourceLocation AsmLoc) {
   // Tell SrcMgr about this buffer, which is what the parser will pick up.
   TempSrcMgr.AddNewSourceBuffer(Buffer, llvm::SMLoc());
 
-  OwningPtr<llvm::MCStreamer> Str(createNullStreamer(Ctx));
-  OwningPtr<llvm::MCAsmParser>
-    Parser(createMCAsmParser(TempSrcMgr, Ctx, *Str.get(), *MAI));
-  OwningPtr<llvm::MCTargetAsmParser>
-    TargetParser(TheTarget->createMCAsmParser(*STI, *Parser, *MII));
+  std::unique_ptr<llvm::MCStreamer> Str(createNullStreamer(Ctx));
+  std::unique_ptr<llvm::MCAsmParser> Parser(
+      createMCAsmParser(TempSrcMgr, Ctx, *Str.get(), *MAI));
+  std::unique_ptr<llvm::MCTargetAsmParser> TargetParser(
+      TheTarget->createMCAsmParser(*STI, *Parser, *MII));
 
   llvm::MCInstPrinter *IP =
     TheTarget->createMCInstPrinter(1, *MAI, *MII, *MRI, *STI);
@@ -2208,6 +2210,11 @@ StmtResult Parser::ParseMicrosoftAsmStatement(SourceLocation AsmLoc) {
                                NumOutputs, NumInputs, OpExprs, Constraints,
                                Clobbers, MII, IP, Callback))
     return StmtError();
+
+  // Filter out "fpsw".  Clang doesn't accept it, and it always lists flags and
+  // fpsr as clobbers.
+  auto End = std::remove(Clobbers.begin(), Clobbers.end(), "fpsw");
+  Clobbers.erase(End, Clobbers.end());
 
   // Build the vector of clobber StringRefs.
   unsigned NumClobbers = Clobbers.size();

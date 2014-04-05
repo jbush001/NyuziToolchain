@@ -1715,9 +1715,7 @@ IsTransparentUnionStandardConversion(Sema &S, Expr* From,
   // The field to initialize within the transparent union.
   RecordDecl *UD = UT->getDecl();
   // It's compatible if the expression matches any of the fields.
-  for (RecordDecl::field_iterator it = UD->field_begin(),
-       itend = UD->field_end();
-       it != itend; ++it) {
+  for (const auto *it : UD->fields()) {
     if (IsStandardConversion(S, From, it->getType(), InOverloadResolution, SCS,
                              CStyle, /*ObjCWritebackConversion=*/false)) {
       ToType = it->getType();
@@ -3280,7 +3278,7 @@ compareConversionFunctions(Sema &S, FunctionDecl *Function1,
   //   respectively, always prefer the conversion to a function pointer,
   //   because the function pointer is more lightweight and is more likely
   //   to keep code working.
-  CXXConversionDecl *Conv1 = dyn_cast<CXXConversionDecl>(Function1);
+  CXXConversionDecl *Conv1 = dyn_cast_or_null<CXXConversionDecl>(Function1);
   if (!Conv1)
     return ImplicitConversionSequence::Indistinguishable;
 
@@ -5331,7 +5329,7 @@ ExprResult Sema::PerformContextualImplicitConversion(
     TypeDiagnoserPartialDiag(ContextualImplicitConverter &Converter, Expr *From)
         : TypeDiagnoser(Converter.Suppress), Converter(Converter), From(From) {}
 
-    virtual void diagnose(Sema &S, SourceLocation Loc, QualType T) {
+    void diagnose(Sema &S, SourceLocation Loc, QualType T) override {
       Converter.diagnoseIncomplete(S, Loc, T) << From->getSourceRange();
     }
   } IncompleteDiagnoser(Converter, From);
@@ -10385,7 +10383,8 @@ BuildRecoveryCallExpr(Sema &SemaRef, Scope *S, Expr *Fn,
   LookupResult R(SemaRef, ULE->getName(), ULE->getNameLoc(),
                  Sema::LookupOrdinaryName);
   FunctionCallFilterCCC Validator(SemaRef, Args.size(),
-                                  ExplicitTemplateArgs != 0, false);
+                                  ExplicitTemplateArgs != 0,
+                                  dyn_cast<MemberExpr>(Fn));
   NoTypoCorrectionCCC RejectAll;
   CorrectionCandidateCallback *CCC = AllowTypoCorrection ?
       (CorrectionCandidateCallback*)&Validator :
@@ -11687,7 +11686,7 @@ Sema::BuildCallToObjectOfClassType(Scope *S, Expr *Obj,
 
   // Build the full argument list for the method call (the implicit object
   // parameter is placed at the beginning of the list).
-  llvm::OwningArrayPtr<Expr *> MethodArgs(new Expr*[Args.size() + 1]);
+  std::unique_ptr<Expr * []> MethodArgs(new Expr *[Args.size() + 1]);
   MethodArgs[0] = Object.get();
   std::copy(Args.begin(), Args.end(), &MethodArgs[1]);
 

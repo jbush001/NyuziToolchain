@@ -20,8 +20,8 @@
 #include "llvm/CodeGen/VirtRegMap.h"
 #include "LiveDebugVariables.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/SparseSet.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/LiveIntervalAnalysis.h"
 #include "llvm/CodeGen/LiveStackAnalysis.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -169,9 +169,9 @@ public:
   static char ID;
   VirtRegRewriter() : MachineFunctionPass(ID) {}
 
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const;
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
 
-  virtual bool runOnMachineFunction(MachineFunction&);
+  bool runOnMachineFunction(MachineFunction&) override;
 };
 } // end anonymous namespace
 
@@ -418,10 +418,8 @@ void VirtRegRewriter::rewrite() {
       // Check if this register has a use that will impact the rest of the
       // code. Uses in debug and noreturn instructions do not impact the
       // generated code.
-      for (MachineRegisterInfo::reg_nodbg_iterator It =
-             MRI->reg_nodbg_begin(Reg),
-             EndIt = MRI->reg_nodbg_end(); It != EndIt; ++It) {
-        if (!NoReturnInsts.count(&(*It))) {
+      for (MachineInstr &It : MRI->reg_nodbg_instructions(Reg)) {
+        if (!NoReturnInsts.count(&It)) {
           MRI->setPhysRegUsed(Reg);
           break;
         }

@@ -272,14 +272,29 @@ error_code create_directory(const Twine &path, bool IgnoreExisting) {
   return error_code::success();
 }
 
-error_code create_hard_link(const Twine &to, const Twine &from) {
+error_code normalize_separators(SmallVectorImpl<char> &Path) {
+  for (auto PI = Path.begin(), PE = Path.end(); PI < PE; ++PI) {
+    if (*PI == '\\') {
+      auto PN = PI + 1;
+      if (PN < PE && *PN == '\\')
+        ++PI; // increment once, the for loop will move over the escaped slash
+      else
+        *PI = '/';
+    }
+  }
+  return error_code::success();
+}
+
+// Note that we are using symbolic link because hard links are not supported by
+// all filesystems (SMB doesn't).
+error_code create_link(const Twine &to, const Twine &from) {
   // Get arguments.
   SmallString<128> from_storage;
   SmallString<128> to_storage;
   StringRef f = from.toNullTerminatedStringRef(from_storage);
   StringRef t = to.toNullTerminatedStringRef(to_storage);
 
-  if (::link(t.begin(), f.begin()) == -1)
+  if (::symlink(t.begin(), f.begin()) == -1)
     return error_code(errno, system_category());
 
   return error_code::success();
@@ -290,7 +305,7 @@ error_code remove(const Twine &path, bool IgnoreNonExisting) {
   StringRef p = path.toNullTerminatedStringRef(path_storage);
 
   struct stat buf;
-  if (stat(p.begin(), &buf) != 0) {
+  if (lstat(p.begin(), &buf) != 0) {
     if (errno != errc::no_such_file_or_directory || !IgnoreNonExisting)
       return error_code(errno, system_category());
     return error_code::success();
@@ -301,7 +316,7 @@ error_code remove(const Twine &path, bool IgnoreNonExisting) {
   // check ensures that what we're trying to erase is a regular file. It
   // effectively prevents LLVM from erasing things like /dev/null, any block
   // special file, or other things that aren't "regular" files.
-  if (!S_ISREG(buf.st_mode) && !S_ISDIR(buf.st_mode))
+  if (!S_ISREG(buf.st_mode) && !S_ISDIR(buf.st_mode) && !S_ISLNK(buf.st_mode))
     return make_error_code(errc::operation_not_permitted);
 
   if (::remove(p.begin()) == -1) {

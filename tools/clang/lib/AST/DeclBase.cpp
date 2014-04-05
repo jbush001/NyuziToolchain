@@ -313,7 +313,7 @@ bool Decl::isReferenced() const {
     return true;
 
   // Check redeclarations.
-  for (redecl_iterator I = redecls_begin(), E = redecls_end(); I != E; ++I)
+  for (auto I : redecls())
     if (I->Referenced)
       return true;
 
@@ -408,8 +408,8 @@ AvailabilityResult Decl::getAvailability(std::string *Message) const {
   AvailabilityResult Result = AR_Available;
   std::string ResultMessage;
 
-  for (attr_iterator A = attr_begin(), AEnd = attr_end(); A != AEnd; ++A) {
-    if (DeprecatedAttr *Deprecated = dyn_cast<DeprecatedAttr>(*A)) {
+  for (const auto *A : attrs()) {
+    if (const auto *Deprecated = dyn_cast<DeprecatedAttr>(A)) {
       if (Result >= AR_Deprecated)
         continue;
 
@@ -420,13 +420,13 @@ AvailabilityResult Decl::getAvailability(std::string *Message) const {
       continue;
     }
 
-    if (UnavailableAttr *Unavailable = dyn_cast<UnavailableAttr>(*A)) {
+    if (const auto *Unavailable = dyn_cast<UnavailableAttr>(A)) {
       if (Message)
         *Message = Unavailable->getMessage();
       return AR_Unavailable;
     }
 
-    if (AvailabilityAttr *Availability = dyn_cast<AvailabilityAttr>(*A)) {
+    if (const auto *Availability = dyn_cast<AvailabilityAttr>(A)) {
       AvailabilityResult AR = CheckAvailability(getASTContext(), Availability,
                                                 Message);
 
@@ -482,11 +482,11 @@ bool Decl::isWeakImported() const {
   if (!canBeWeakImported(IsDefinition))
     return false;
 
-  for (attr_iterator A = attr_begin(), AEnd = attr_end(); A != AEnd; ++A) {
-    if (isa<WeakImportAttr>(*A))
+  for (const auto *A : attrs()) {
+    if (isa<WeakImportAttr>(A))
       return true;
 
-    if (AvailabilityAttr *Availability = dyn_cast<AvailabilityAttr>(*A)) {
+    if (const auto *Availability = dyn_cast<AvailabilityAttr>(A)) {
       if (CheckAvailability(getASTContext(), Availability, 0) 
                                                          == AR_NotYetIntroduced)
         return true;
@@ -965,13 +965,12 @@ DeclContext::BuildDeclChain(ArrayRef<Decl*> Decls,
 /// \brief We have just acquired external visible storage, and we already have
 /// built a lookup map. For every name in the map, pull in the new names from
 /// the external storage.
-void DeclContext::reconcileExternalVisibleStorage() {
+void DeclContext::reconcileExternalVisibleStorage() const {
   assert(NeedToReconcileExternalVisibleStorage && LookupPtr.getPointer());
   NeedToReconcileExternalVisibleStorage = false;
 
-  StoredDeclsMap &Map = *LookupPtr.getPointer();
-  for (StoredDeclsMap::iterator I = Map.begin(); I != Map.end(); ++I)
-    I->second.setHasExternalDecls();
+  for (auto &Lookup : *LookupPtr.getPointer())
+    Lookup.second.setHasExternalDecls();
 }
 
 /// \brief Load the declarations within this lexical storage from an
@@ -1008,8 +1007,8 @@ DeclContext::LoadLexicalDeclsFromExternalStorage() const {
   // Splice the newly-read declarations into the beginning of the list
   // of declarations.
   Decl *ExternalFirst, *ExternalLast;
-  llvm::tie(ExternalFirst, ExternalLast) = BuildDeclChain(Decls,
-                                                          FieldsAlreadyLoaded);
+  std::tie(ExternalFirst, ExternalLast) =
+      BuildDeclChain(Decls, FieldsAlreadyLoaded);
   ExternalLast->NextInContextAndBits.setPointer(FirstDecl);
   FirstDecl = ExternalFirst;
   if (!LastDecl)
@@ -1023,6 +1022,8 @@ ExternalASTSource::SetNoExternalVisibleDeclsForName(const DeclContext *DC,
   StoredDeclsMap *Map;
   if (!(Map = DC->LookupPtr.getPointer()))
     Map = DC->CreateStoredDeclsMap(Context);
+  if (DC->NeedToReconcileExternalVisibleStorage)
+    DC->reconcileExternalVisibleStorage();
 
   (*Map)[Name].removeExternalDecls();
 
@@ -1037,6 +1038,8 @@ ExternalASTSource::SetExternalVisibleDeclsForName(const DeclContext *DC,
   StoredDeclsMap *Map;
   if (!(Map = DC->LookupPtr.getPointer()))
     Map = DC->CreateStoredDeclsMap(Context);
+  if (DC->NeedToReconcileExternalVisibleStorage)
+    DC->reconcileExternalVisibleStorage();
 
   StoredDeclsList &List = (*Map)[Name];
 
@@ -1076,14 +1079,9 @@ ExternalASTSource::SetExternalVisibleDeclsForName(const DeclContext *DC,
   return List.getLookupResult();
 }
 
-DeclContext::decl_iterator DeclContext::noload_decls_begin() const {
-  return decl_iterator(FirstDecl);
-}
-
 DeclContext::decl_iterator DeclContext::decls_begin() const {
   if (hasExternalLexicalStorage())
     LoadLexicalDeclsFromExternalStorage();
-
   return decl_iterator(FirstDecl);
 }
 
@@ -1213,6 +1211,10 @@ static bool shouldBeHidden(NamedDecl *D) {
 /// buildLookup - Build the lookup data structure with all of the
 /// declarations in this DeclContext (and any other contexts linked
 /// to it or transparent contexts nested within it) and return it.
+///
+/// Note that the produced map may miss out declarations from an
+/// external source. If it does, those entries will be marked with
+/// the 'hasExternalDecls' flag.
 StoredDeclsMap *DeclContext::buildLookup() {
   assert(this == getPrimaryContext() && "buildLookup called on non-primary DC");
 
@@ -1228,7 +1230,6 @@ StoredDeclsMap *DeclContext::buildLookup() {
 
   // We no longer have any lazy decls.
   LookupPtr.setInt(false);
-  NeedToReconcileExternalVisibleStorage = false;
   return LookupPtr.getPointer();
 }
 
@@ -1277,11 +1278,13 @@ DeclContext::lookup(DeclarationName Name) {
     return PrimaryContext->lookup(Name);
 
   if (hasExternalVisibleStorage()) {
+    if (NeedToReconcileExternalVisibleStorage)
+      reconcileExternalVisibleStorage();
+
     StoredDeclsMap *Map = LookupPtr.getPointer();
+
     if (LookupPtr.getInt())
       Map = buildLookup();
-    else if (NeedToReconcileExternalVisibleStorage)
-      reconcileExternalVisibleStorage();
 
     if (!Map)
       Map = CreateStoredDeclsMap(getParentASTContext());
@@ -1293,7 +1296,7 @@ DeclContext::lookup(DeclarationName Name) {
       return R.first->second.getLookupResult();
 
     ExternalASTSource *Source = getParentASTContext().getExternalSource();
-    if (Source->FindExternalVisibleDeclsByName(this, Name) || R.second) {
+    if (Source->FindExternalVisibleDeclsByName(this, Name) || !R.second) {
       if (StoredDeclsMap *Map = LookupPtr.getPointer()) {
         StoredDeclsMap::iterator I = Map->find(Name);
         if (I != Map->end())
@@ -1528,13 +1531,13 @@ void DeclContext::makeDeclVisibleInContextImpl(NamedDecl *D, bool Internal) {
 
 /// Returns iterator range [First, Last) of UsingDirectiveDecls stored within
 /// this context.
-DeclContext::udir_iterator_range
-DeclContext::getUsingDirectives() const {
+DeclContext::udir_range DeclContext::using_directives() const {
   // FIXME: Use something more efficient than normal lookup for using
   // directives. In C++, using directives are looked up more than anything else.
   lookup_const_result Result = lookup(UsingDirectiveDecl::getName());
-  return udir_iterator_range(reinterpret_cast<udir_iterator>(Result.begin()),
-                             reinterpret_cast<udir_iterator>(Result.end()));
+  return udir_range(
+      reinterpret_cast<UsingDirectiveDecl *const *>(Result.begin()),
+      reinterpret_cast<UsingDirectiveDecl *const *>(Result.end()));
 }
 
 //===----------------------------------------------------------------------===//

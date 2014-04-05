@@ -78,9 +78,9 @@ namespace {
     explicit LocalStackSlotPass() : MachineFunctionPass(ID) { 
       initializeLocalStackSlotPassPass(*PassRegistry::getPassRegistry());
     }
-    bool runOnMachineFunction(MachineFunction &MF);
+    bool runOnMachineFunction(MachineFunction &MF) override;
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.setPreservesCFG();
       AU.addRequired<StackProtector>();
       MachineFunctionPass::getAnalysisUsage(AU);
@@ -411,7 +411,7 @@ bool LocalStackSlotPass::insertFrameReferenceRegisters(MachineFunction &Fn) {
 
     // Modify the instruction to use the new base register rather
     // than the frame index operand.
-    TRI->resolveFrameIndex(I, BaseReg, Offset);
+    TRI->resolveFrameIndex(*I, BaseReg, Offset);
     DEBUG(dbgs() << "Resolved: " << *MI);
 
     ++NumReplacements;

@@ -21,7 +21,7 @@
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/Builtins.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/OwningPtr.h"
+#include <memory>
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/Format.h"
@@ -291,7 +291,7 @@ class CFGBuilder {
   typedef BlockScopePosPair JumpSource;
 
   ASTContext *Context;
-  OwningPtr<CFG> cfg;
+  std::unique_ptr<CFG> cfg;
 
   CFGBlock *Block;
   CFGBlock *Succ;
@@ -495,6 +495,215 @@ private:
                     cfg->getBumpVectorContext());
   }
 
+  /// \brief Find a relational comparison with an expression evaluating to a
+  /// boolean and a constant other than 0 and 1.
+  /// e.g. if ((x < y) == 10)
+  TryResult checkIncorrectRelationalOperator(const BinaryOperator *B) {
+    const Expr *LHSExpr = B->getLHS()->IgnoreParens();
+    const Expr *RHSExpr = B->getRHS()->IgnoreParens();
+
+    const IntegerLiteral *IntLiteral = dyn_cast<IntegerLiteral>(LHSExpr);
+    const Expr *BoolExpr = RHSExpr;
+    bool IntFirst = true;
+    if (!IntLiteral) {
+      IntLiteral = dyn_cast<IntegerLiteral>(RHSExpr);
+      BoolExpr = LHSExpr;
+      IntFirst = false;
+    }
+
+    if (!IntLiteral || !BoolExpr->isKnownToHaveBooleanValue())
+      return TryResult();
+
+    llvm::APInt IntValue = IntLiteral->getValue();
+    if ((IntValue == 1) || (IntValue == 0))
+      return TryResult();
+
+    bool IntLarger = IntLiteral->getType()->isUnsignedIntegerType() ||
+                     !IntValue.isNegative();
+
+    BinaryOperatorKind Bok = B->getOpcode();
+    if (Bok == BO_GT || Bok == BO_GE) {
+      // Always true for 10 > bool and bool > -1
+      // Always false for -1 > bool and bool > 10
+      return TryResult(IntFirst == IntLarger);
+    } else {
+      // Always true for -1 < bool and bool < 10
+      // Always false for 10 < bool and bool < -1
+      return TryResult(IntFirst != IntLarger);
+    }
+  }
+
+  /// Find a equality comparison with an expression evaluating to a boolean and
+  /// a constant other than 0 and 1.
+  /// e.g. if (!x == 10)
+  TryResult checkIncorrectEqualityOperator(const BinaryOperator *B) {
+    const Expr *LHSExpr = B->getLHS()->IgnoreParens();
+    const Expr *RHSExpr = B->getRHS()->IgnoreParens();
+
+    const IntegerLiteral *IntLiteral = dyn_cast<IntegerLiteral>(LHSExpr);
+    const Expr *BoolExpr = RHSExpr;
+
+    if (!IntLiteral) {
+      IntLiteral = dyn_cast<IntegerLiteral>(RHSExpr);
+      BoolExpr = LHSExpr;
+    }
+
+    if (!IntLiteral || !BoolExpr->isKnownToHaveBooleanValue())
+      return TryResult();
+
+    llvm::APInt IntValue = IntLiteral->getValue();
+    if ((IntValue == 1) || (IntValue == 0)) {
+      return TryResult();
+    }
+
+    return TryResult(B->getOpcode() != BO_EQ);
+  }
+
+  TryResult analyzeLogicOperatorCondition(BinaryOperatorKind Relation,
+                                          const llvm::APSInt &Value1,
+                                          const llvm::APSInt &Value2) {
+    assert(Value1.isSigned() == Value2.isSigned());
+    switch (Relation) {
+      default:
+        return TryResult();
+      case BO_EQ:
+        return TryResult(Value1 == Value2);
+      case BO_NE:
+        return TryResult(Value1 != Value2);
+      case BO_LT:
+        return TryResult(Value1 <  Value2);
+      case BO_LE:
+        return TryResult(Value1 <= Value2);
+      case BO_GT:
+        return TryResult(Value1 >  Value2);
+      case BO_GE:
+        return TryResult(Value1 >= Value2);
+    }
+  }
+
+  /// \brief Find a pair of comparison expressions with or without parentheses
+  /// with a shared variable and constants and a logical operator between them
+  /// that always evaluates to either true or false.
+  /// e.g. if (x != 3 || x != 4)
+  TryResult checkIncorrectLogicOperator(const BinaryOperator *B) {
+    assert(B->isLogicalOp());
+    const BinaryOperator *LHS =
+        dyn_cast<BinaryOperator>(B->getLHS()->IgnoreParens());
+    const BinaryOperator *RHS =
+        dyn_cast<BinaryOperator>(B->getRHS()->IgnoreParens());
+    if (!LHS || !RHS)
+      return TryResult();
+
+    if (!LHS->isComparisonOp() || !RHS->isComparisonOp())
+      return TryResult();
+
+    BinaryOperatorKind BO1 = LHS->getOpcode();
+    const DeclRefExpr *Decl1 =
+        dyn_cast<DeclRefExpr>(LHS->getLHS()->IgnoreParenImpCasts());
+    const IntegerLiteral *Literal1 =
+        dyn_cast<IntegerLiteral>(LHS->getRHS()->IgnoreParens());
+    if (!Decl1 && !Literal1) {
+      if (BO1 == BO_GT)
+        BO1 = BO_LT;
+      else if (BO1 == BO_GE)
+        BO1 = BO_LE;
+      else if (BO1 == BO_LT)
+        BO1 = BO_GT;
+      else if (BO1 == BO_LE)
+        BO1 = BO_GE;
+      Decl1 = dyn_cast<DeclRefExpr>(LHS->getRHS()->IgnoreParenImpCasts());
+      Literal1 = dyn_cast<IntegerLiteral>(LHS->getLHS()->IgnoreParens());
+    }
+
+    if (!Decl1 || !Literal1)
+      return TryResult();
+
+    BinaryOperatorKind BO2 = RHS->getOpcode();
+    const DeclRefExpr *Decl2 =
+        dyn_cast<DeclRefExpr>(RHS->getLHS()->IgnoreParenImpCasts());
+    const IntegerLiteral *Literal2 =
+        dyn_cast<IntegerLiteral>(RHS->getRHS()->IgnoreParens());
+    if (!Decl2 && !Literal2) {
+      if (BO2 == BO_GT)
+        BO2 = BO_LT;
+      else if (BO2 == BO_GE)
+        BO2 = BO_LE;
+      else if (BO2 == BO_LT)
+        BO2 = BO_GT;
+      else if (BO2 == BO_LE)
+        BO2 = BO_GE;
+      Decl2 = dyn_cast<DeclRefExpr>(RHS->getRHS()->IgnoreParenImpCasts());
+      Literal2 = dyn_cast<IntegerLiteral>(RHS->getLHS()->IgnoreParens());
+    }
+
+    if (!Decl2 || !Literal2)
+      return TryResult();
+
+    // Check that it is the same variable on both sides.
+    if (Decl1->getDecl() != Decl2->getDecl())
+      return TryResult();
+
+    llvm::APSInt L1, L2;
+
+    if (!Literal1->EvaluateAsInt(L1, *Context) ||
+        !Literal2->EvaluateAsInt(L2, *Context))
+      return TryResult();
+
+    // Can't compare signed with unsigned or with different bit width.
+    if (L1.isSigned() != L2.isSigned() || L1.getBitWidth() != L2.getBitWidth())
+      return TryResult();
+
+    // Values that will be used to determine if result of logical
+    // operator is always true/false
+    const llvm::APSInt Values[] = {
+      // Value less than both Value1 and Value2
+      llvm::APSInt::getMinValue(L1.getBitWidth(), L1.isUnsigned()),
+      // L1
+      L1,
+      // Value between Value1 and Value2
+      ((L1 < L2) ? L1 : L2) + llvm::APSInt(llvm::APInt(L1.getBitWidth(), 1),
+                              L1.isUnsigned()),
+      // L2
+      L2,
+      // Value greater than both Value1 and Value2
+      llvm::APSInt::getMaxValue(L1.getBitWidth(), L1.isUnsigned()),
+    };
+
+    // Check whether expression is always true/false by evaluating the following
+    // * variable x is less than the smallest literal.
+    // * variable x is equal to the smallest literal.
+    // * Variable x is between smallest and largest literal.
+    // * Variable x is equal to the largest literal.
+    // * Variable x is greater than largest literal.
+    bool AlwaysTrue = true, AlwaysFalse = true;
+    for (unsigned int ValueIndex = 0;
+         ValueIndex < sizeof(Values) / sizeof(Values[0]);
+         ++ValueIndex) {
+      llvm::APSInt Value = Values[ValueIndex];
+      TryResult Res1, Res2;
+      Res1 = analyzeLogicOperatorCondition(BO1, Value, L1);
+      Res2 = analyzeLogicOperatorCondition(BO2, Value, L2);
+
+      if (!Res1.isKnown() || !Res2.isKnown())
+        return TryResult();
+
+      if (B->getOpcode() == BO_LAnd) {
+        AlwaysTrue &= (Res1.isTrue() && Res2.isTrue());
+        AlwaysFalse &= !(Res1.isTrue() && Res2.isTrue());
+      } else {
+        AlwaysTrue &= (Res1.isTrue() || Res2.isTrue());
+        AlwaysFalse &= !(Res1.isTrue() || Res2.isTrue());
+      }
+    }
+
+    if (AlwaysTrue || AlwaysFalse) {
+      if (BuildOpts.Observer)
+        BuildOpts.Observer->compareAlwaysTrue(B, AlwaysTrue);
+      return TryResult(AlwaysTrue);
+    }
+    return TryResult();
+  }
+
   /// Try and evaluate an expression to an integer constant.
   bool tryEvaluate(Expr *S, Expr::EvalResult &outResult) {
     if (!BuildOpts.PruneTriviallyFalseEdges)
@@ -577,10 +786,22 @@ private:
             // is determined by the RHS: X && 0 -> 0, X || 1 -> 1.
             if (RHS.isTrue() == (Bop->getOpcode() == BO_LOr))
               return RHS.isTrue();
+          } else {
+            TryResult BopRes = checkIncorrectLogicOperator(Bop);
+            if (BopRes.isKnown())
+              return BopRes.isTrue();
           }
         }
 
         return TryResult();
+      } else if (Bop->isEqualityOp()) {
+          TryResult BopRes = checkIncorrectEqualityOperator(Bop);
+          if (BopRes.isKnown())
+            return BopRes.isTrue();
+      } else if (Bop->isRelationalOp()) {
+        TryResult BopRes = checkIncorrectRelationalOperator(Bop);
+        if (BopRes.isKnown())
+          return BopRes.isTrue();
       }
     }
 
@@ -724,7 +945,7 @@ CFG* CFGBuilder::buildCFG(const Decl *D, Stmt *Statement) {
   // Create an empty entry block that has no predecessors.
   cfg->setEntry(createBlock());
 
-  return cfg.take();
+  return cfg.release();
 }
 
 /// createBlock - Used to lazily create blocks that are connected
@@ -880,30 +1101,27 @@ void CFGBuilder::addImplicitDtorsForDestructor(const CXXDestructorDecl *DD) {
   const CXXRecordDecl *RD = DD->getParent();
 
   // At the end destroy virtual base objects.
-  for (CXXRecordDecl::base_class_const_iterator VI = RD->vbases_begin(),
-      VE = RD->vbases_end(); VI != VE; ++VI) {
-    const CXXRecordDecl *CD = VI->getType()->getAsCXXRecordDecl();
+  for (const auto &VI : RD->vbases()) {
+    const CXXRecordDecl *CD = VI.getType()->getAsCXXRecordDecl();
     if (!CD->hasTrivialDestructor()) {
       autoCreateBlock();
-      appendBaseDtor(Block, VI);
+      appendBaseDtor(Block, &VI);
     }
   }
 
   // Before virtual bases destroy direct base objects.
-  for (CXXRecordDecl::base_class_const_iterator BI = RD->bases_begin(),
-      BE = RD->bases_end(); BI != BE; ++BI) {
-    if (!BI->isVirtual()) {
-      const CXXRecordDecl *CD = BI->getType()->getAsCXXRecordDecl();
+  for (const auto &BI : RD->bases()) {
+    if (!BI.isVirtual()) {
+      const CXXRecordDecl *CD = BI.getType()->getAsCXXRecordDecl();
       if (!CD->hasTrivialDestructor()) {
         autoCreateBlock();
-        appendBaseDtor(Block, BI);
+        appendBaseDtor(Block, &BI);
       }
     }
   }
 
   // First destroy member objects.
-  for (CXXRecordDecl::field_iterator FI = RD->field_begin(),
-      FE = RD->field_end(); FI != FE; ++FI) {
+  for (auto *FI : RD->fields()) {
     // Check for constant size array. Set type to array element type.
     QualType QT = FI->getType();
     if (const ConstantArrayType *AT = Context->getAsConstantArrayType(QT)) {
@@ -915,7 +1133,7 @@ void CFGBuilder::addImplicitDtorsForDestructor(const CXXDestructorDecl *DD) {
     if (const CXXRecordDecl *CD = QT->getAsCXXRecordDecl())
       if (!CD->hasTrivialDestructor()) {
         autoCreateBlock();
-        appendMemberDtor(Block, *FI);
+        appendMemberDtor(Block, FI);
       }
   }
 }
@@ -942,9 +1160,8 @@ void CFGBuilder::addLocalScopeForStmt(Stmt *S) {
 
   // For compound statement we will be creating explicit scope.
   if (CompoundStmt *CS = dyn_cast<CompoundStmt>(S)) {
-    for (CompoundStmt::body_iterator BI = CS->body_begin(), BE = CS->body_end()
-        ; BI != BE; ++BI) {
-      Stmt *SI = (*BI)->stripLabelLikeStatements();
+    for (auto *BI : CS->body()) {
+      Stmt *SI = BI->stripLabelLikeStatements();
       if (DeclStmt *DS = dyn_cast<DeclStmt>(SI))
         Scope = addLocalScopeForDeclStmt(DS, Scope);
     }
@@ -964,11 +1181,9 @@ LocalScope* CFGBuilder::addLocalScopeForDeclStmt(DeclStmt *DS,
   if (!BuildOpts.AddImplicitDtors)
     return Scope;
 
-  for (DeclStmt::decl_iterator DI = DS->decl_begin(), DE = DS->decl_end()
-      ; DI != DE; ++DI) {
-    if (VarDecl *VD = dyn_cast<VarDecl>(*DI))
+  for (auto *DI : DS->decls())
+    if (VarDecl *VD = dyn_cast<VarDecl>(DI))
       Scope = addLocalScopeForVarDecl(VD, Scope);
-  }
   return Scope;
 }
 
@@ -1308,7 +1523,7 @@ CFGBuilder::VisitLogicalOperator(BinaryOperator *B,
   do {
     if (BinaryOperator *B_RHS = dyn_cast<BinaryOperator>(RHS))
       if (B_RHS->isLogicalOp()) {
-        llvm::tie(RHSBlock, ExitBlock) =
+        std::tie(RHSBlock, ExitBlock) =
           VisitLogicalOperator(B_RHS, Term, TrueBlock, FalseBlock);
         break;
       }
@@ -1326,8 +1541,10 @@ CFGBuilder::VisitLogicalOperator(BinaryOperator *B,
     else {
       RHSBlock->setTerminator(Term);
       TryResult KnownVal = tryEvaluateBool(RHS);
-      addSuccessor(RHSBlock, KnownVal.isFalse() ? NULL : TrueBlock);
-      addSuccessor(RHSBlock, KnownVal.isTrue() ? NULL : FalseBlock);
+      if (!KnownVal.isKnown())
+        KnownVal = tryEvaluateBool(B);
+      addSuccessor(RHSBlock, TrueBlock, !KnownVal.isFalse());
+      addSuccessor(RHSBlock, FalseBlock, !KnownVal.isTrue());
     }
 
     Block = RHSBlock;
@@ -1370,12 +1587,12 @@ CFGBuilder::VisitLogicalOperator(BinaryOperator *B,
 
   // Now link the LHSBlock with RHSBlock.
   if (B->getOpcode() == BO_LOr) {
-    addSuccessor(LHSBlock, KnownVal.isFalse() ? NULL : TrueBlock);
-    addSuccessor(LHSBlock, KnownVal.isTrue() ? NULL : RHSBlock);
+    addSuccessor(LHSBlock, TrueBlock, !KnownVal.isFalse());
+    addSuccessor(LHSBlock, RHSBlock, !KnownVal.isTrue());
   } else {
     assert(B->getOpcode() == BO_LAnd);
-    addSuccessor(LHSBlock, KnownVal.isFalse() ? NULL : RHSBlock);
-    addSuccessor(LHSBlock, KnownVal.isTrue() ? NULL : FalseBlock);
+    addSuccessor(LHSBlock, RHSBlock, !KnownVal.isFalse());
+    addSuccessor(LHSBlock, FalseBlock, !KnownVal.isTrue());
   }
 
   return std::make_pair(EntryLHSBlock, ExitBlock);
@@ -1634,8 +1851,8 @@ CFGBlock *CFGBuilder::VisitConditionalOperator(AbstractConditionalOperator *C,
 
   // See if this is a known constant.
   const TryResult& KnownVal = tryEvaluateBool(C->getCond());
-  addSuccessor(Block, KnownVal.isFalse() ? NULL : LHSBlock);
-  addSuccessor(Block, KnownVal.isTrue() ? NULL : RHSBlock);
+  addSuccessor(Block, LHSBlock, !KnownVal.isFalse());
+  addSuccessor(Block, RHSBlock, !KnownVal.isTrue());
   Block->setTerminator(C);
   Expr *condExpr = C->getCond();
 
@@ -2094,7 +2311,7 @@ CFGBlock *CFGBuilder::VisitForStmt(ForStmt *F) {
     if (BinaryOperator *Cond =
             dyn_cast_or_null<BinaryOperator>(C ? C->IgnoreParens() : 0))
       if (Cond->isLogicalOp()) {
-        llvm::tie(EntryConditionBlock, ExitConditionBlock) =
+        std::tie(EntryConditionBlock, ExitConditionBlock) =
           VisitLogicalOperator(Cond, F, BodyBlock, LoopSuccessor);
         break;
       }
@@ -2410,9 +2627,8 @@ CFGBlock *CFGBuilder::VisitWhileStmt(WhileStmt *W) {
     // more optimal CFG representation.
     if (BinaryOperator *Cond = dyn_cast<BinaryOperator>(C->IgnoreParens()))
       if (Cond->isLogicalOp()) {
-        llvm::tie(EntryConditionBlock, ExitConditionBlock) =
-          VisitLogicalOperator(Cond, W, BodyBlock,
-                               LoopSuccessor);
+        std::tie(EntryConditionBlock, ExitConditionBlock) =
+            VisitLogicalOperator(Cond, W, BodyBlock, LoopSuccessor);
         break;
       }
 
@@ -3352,10 +3568,12 @@ CFGBlock *CFGBuilder::VisitCXXBindTemporaryExprForTemporaryDtors(
     // a new block for the destructor which does not have as a successor
     // anything built thus far. Control won't flow out of this block.
     const CXXDestructorDecl *Dtor = E->getTemporary()->getDestructor();
-    if (Dtor->isNoReturn())
+    if (Dtor->isNoReturn()) {
+      Succ = B;
       Block = createNoReturnBlock();
-    else
+    } else {
       autoCreateBlock();
+    }
 
     appendTemporaryDtor(Block, E);
     B = Block;
@@ -3404,12 +3622,13 @@ CFGBlock *CFGBuilder::VisitConditionalOperatorForTemporaryDtors(
 
   Block = createBlock(false);
   Block->setTerminator(CFGTerminator(E, true));
+  assert(Block->getTerminator().isTemporaryDtorsBranch());
 
   // See if this is a known constant.
   const TryResult &KnownVal = tryEvaluateBool(E->getCond());
 
   if (LHSBlock) {
-    addSuccessor(Block, KnownVal.isFalse() ? NULL : LHSBlock);
+    addSuccessor(Block, LHSBlock, !KnownVal.isFalse());
   } else if (KnownVal.isFalse()) {
     addSuccessor(Block, NULL);
   } else {
@@ -3419,7 +3638,8 @@ CFGBlock *CFGBuilder::VisitConditionalOperatorForTemporaryDtors(
 
   if (!RHSBlock)
     RHSBlock = ConfluenceBlock;
-  addSuccessor(Block, KnownVal.isTrue() ? NULL : RHSBlock);
+
+  addSuccessor(Block, RHSBlock, !KnownVal.isTrue());
 
   return Block;
 }
@@ -3519,10 +3739,10 @@ CFGBlock::AdjacentBlock::AdjacentBlock(CFGBlock *B, CFGBlock *AlternateBlock)
 void CFGBlock::addSuccessor(AdjacentBlock Succ,
                             BumpVectorContext &C) {
   if (CFGBlock *B = Succ.getReachableBlock())
-    B->Preds.push_back(CFGBlock::AdjacentBlock(this, Succ.isReachable()), C);
+    B->Preds.push_back(AdjacentBlock(this, Succ.isReachable()), C);
 
   if (CFGBlock *UnreachableB = Succ.getPossiblyUnreachableBlock())
-    UnreachableB->Preds.push_back(CFGBlock::AdjacentBlock(this, false), C);
+    UnreachableB->Preds.push_back(AdjacentBlock(this, false), C);
 
   Succs.push_back(Succ, C);
 }
@@ -3629,7 +3849,7 @@ public:
   void setBlockID(signed i) { currentBlock = i; }
   void setStmtID(unsigned i) { currStmt = i; }
 
-  virtual bool handledStmt(Stmt *S, raw_ostream &OS) {
+  bool handledStmt(Stmt *S, raw_ostream &OS) override {
     StmtMapTy::iterator I = StmtMap.find(S);
 
     if (I == StmtMap.end())
@@ -3763,6 +3983,13 @@ public:
 
   void VisitExpr(Expr *E) {
     E->printPretty(OS, Helper, Policy);
+  }
+
+public:
+  void print(CFGTerminator T) {
+    if (T.isTemporaryDtorsBranch())
+      OS << "(Temp Dtor) ";
+    Visit(T.getStmt());
   }
 };
 } // end anonymous namespace
@@ -3899,6 +4126,8 @@ static void print_block(raw_ostream &OS, const CFG* cfg,
     OS << " (EXIT)]\n";
   else if (&B == cfg->getIndirectGotoBlock())
     OS << " (INDIRECT GOTO DISPATCH)]\n";
+  else if (B.hasNoReturnElement())
+    OS << " (NORETURN)]\n";
   else
     OS << "]\n";
   
@@ -3967,7 +4196,7 @@ static void print_block(raw_ostream &OS, const CFG* cfg,
 
     PrintingPolicy PP(Helper.getLangOpts());
     CFGBlockTerminatorPrint TPrinter(OS, &Helper, PP);
-    TPrinter.Visit(const_cast<Stmt*>(B.getTerminator().getStmt()));
+    TPrinter.print(B.getTerminator());
     OS << '\n';
     
     if (ShowColors)
@@ -4105,10 +4334,10 @@ void CFGBlock::print(raw_ostream &OS, const CFG* cfg,
 void CFGBlock::printTerminator(raw_ostream &OS,
                                const LangOptions &LO) const {
   CFGBlockTerminatorPrint TPrinter(OS, NULL, PrintingPolicy(LO));
-  TPrinter.Visit(const_cast<Stmt*>(getTerminator().getStmt()));
+  TPrinter.print(getTerminator());
 }
 
-Stmt *CFGBlock::getTerminatorCondition() {
+Stmt *CFGBlock::getTerminatorCondition(bool StripParens) {
   Stmt *Terminator = this->Terminator;
   if (!Terminator)
     return NULL;
@@ -4166,6 +4395,9 @@ Stmt *CFGBlock::getTerminatorCondition() {
     case Stmt::ObjCForCollectionStmtClass:
       return Terminator;
   }
+
+  if (!StripParens)
+    return E;
 
   return E ? E->IgnoreParens() : NULL;
 }

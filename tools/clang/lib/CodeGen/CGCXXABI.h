@@ -41,7 +41,7 @@ namespace CodeGen {
 class CGCXXABI {
 protected:
   CodeGenModule &CGM;
-  OwningPtr<MangleContext> MangleCtx;
+  std::unique_ptr<MangleContext> MangleCtx;
 
   CGCXXABI(CodeGenModule &CGM)
     : CGM(CGM), MangleCtx(CGM.getContext().createMangleContext()) {}
@@ -258,10 +258,12 @@ public:
   }
 
   /// Perform ABI-specific "this" argument adjustment required prior to
-  /// a virtual function call.
-  virtual llvm::Value *adjustThisArgumentForVirtualCall(CodeGenFunction &CGF,
-                                                        GlobalDecl GD,
-                                                        llvm::Value *This) {
+  /// a call of a virtual function.
+  /// The "VirtualCall" argument is true iff the call itself is virtual.
+  virtual llvm::Value *
+  adjustThisArgumentForVirtualFunctionCall(CodeGenFunction &CGF, GlobalDecl GD,
+                                           llvm::Value *This,
+                                           bool VirtualCall) {
     return This;
   }
 
@@ -479,8 +481,39 @@ public:
   /// Emit a reference to a non-local thread_local variable (including
   /// triggering the initialization of all thread_local variables in its
   /// translation unit).
-  virtual LValue EmitThreadLocalDeclRefExpr(CodeGenFunction &CGF,
-                                            const DeclRefExpr *DRE);
+  virtual LValue EmitThreadLocalVarDeclLValue(CodeGenFunction &CGF,
+                                              const VarDecl *VD,
+                                              QualType LValType);
+
+  /**************************** RTTI Uniqueness ******************************/
+
+protected:
+  /// Returns true if the ABI requires RTTI type_info objects to be unique
+  /// across a program.
+  virtual bool shouldRTTIBeUnique() { return true; }
+
+public:
+  /// What sort of unique-RTTI behavior should we use?
+  enum RTTIUniquenessKind {
+    /// We are guaranteeing, or need to guarantee, that the RTTI string
+    /// is unique.
+    RUK_Unique,
+
+    /// We are not guaranteeing uniqueness for the RTTI string, so we
+    /// can demote to hidden visibility but must use string comparisons.
+    RUK_NonUniqueHidden,
+
+    /// We are not guaranteeing uniqueness for the RTTI string, so we
+    /// have to use string comparisons, but we also have to emit it with
+    /// non-hidden visibility.
+    RUK_NonUniqueVisible
+  };
+
+  /// Return the required visibility status for the given type and linkage in
+  /// the current ABI.
+  RTTIUniquenessKind
+  classifyRTTIUniqueness(QualType CanTy,
+                         llvm::GlobalValue::LinkageTypes Linkage);
 };
 
 // Create an instance of a C++ ABI class:

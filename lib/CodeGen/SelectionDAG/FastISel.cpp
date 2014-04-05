@@ -49,8 +49,8 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/DebugInfo.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Instructions.h"
@@ -133,7 +133,7 @@ bool FastISel::hasTrivialKill(const Value *V) const {
          !(I->getOpcode() == Instruction::BitCast ||
            I->getOpcode() == Instruction::PtrToInt ||
            I->getOpcode() == Instruction::IntToPtr) &&
-         cast<Instruction>(*I->use_begin())->getParent() == I->getParent();
+         cast<Instruction>(*I->user_begin())->getParent() == I->getParent();
 }
 
 unsigned FastISel::getRegForValue(const Value *V) {
@@ -344,7 +344,7 @@ FastISel::SavePoint FastISel::enterLocalValueArea() {
 
 void FastISel::leaveLocalValueArea(SavePoint OldInsertPt) {
   if (FuncInfo.InsertPt != FuncInfo.MBB->begin())
-    LastLocalValue = llvm::prior(FuncInfo.InsertPt);
+    LastLocalValue = std::prev(FuncInfo.InsertPt);
 
   // Restore the previous insert position.
   FuncInfo.InsertPt = OldInsertPt.InsertPt;
@@ -1523,7 +1523,7 @@ bool FastISel::tryToFoldLoad(const LoadInst *LI, const Instruction *FoldInst) {
   // this by scanning the single-use users of the load until we get to FoldInst.
   unsigned MaxUsers = 6;  // Don't scan down huge single-use chains of instrs.
 
-  const Instruction *TheUser = LI->use_back();
+  const Instruction *TheUser = LI->user_back();
   while (TheUser != FoldInst &&   // Scan up until we find FoldInst.
          // Stay in the right block.
          TheUser->getParent() == FoldInst->getParent() &&
@@ -1532,7 +1532,7 @@ bool FastISel::tryToFoldLoad(const LoadInst *LI, const Instruction *FoldInst) {
     if (!TheUser->hasOneUse())
       return false;
 
-    TheUser = TheUser->use_back();
+    TheUser = TheUser->user_back();
   }
 
   // If we didn't find the fold instruction, then we failed to collapse the
@@ -1559,7 +1559,7 @@ bool FastISel::tryToFoldLoad(const LoadInst *LI, const Instruction *FoldInst) {
     return false;
 
   MachineRegisterInfo::reg_iterator RI = MRI.reg_begin(LoadReg);
-  MachineInstr *User = &*RI;
+  MachineInstr *User = RI->getParent();
 
   // Set the insertion point properly.  Folding the load can cause generation of
   // other random instructions (like sign extends) for addressing modes; make

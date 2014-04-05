@@ -18,8 +18,8 @@ namespace elf {
 enum {
   /// \brief Do nothing but mark GOT entry as a global one.
   LLD_R_MIPS_GLOBAL_GOT = 1024,
-  /// \brief The same as R_MIPS_GOT16 but for global symbols.
-  LLD_R_MIPS_GLOBAL_GOT16 = 1025,
+  /// \brief Apply high 16 bits of symbol + addend.
+  LLD_R_MIPS_32_HI16 = 1025,
   /// \brief The same as R_MIPS_26 but for global symbols.
   LLD_R_MIPS_GLOBAL_26 = 1026,
   /// \brief Setup hi 16 bits using the symbol this reference refers to.
@@ -32,7 +32,7 @@ typedef llvm::object::ELFType<llvm::support::little, 2, false> Mips32ElELFType;
 
 template <class ELFType> class MipsTargetLayout;
 
-class MipsLinkingContext LLVM_FINAL : public ELFLinkingContext {
+class MipsLinkingContext final : public ELFLinkingContext {
 public:
   MipsLinkingContext(llvm::Triple triple);
 
@@ -40,15 +40,15 @@ public:
   const MipsTargetLayout<Mips32ElELFType> &getTargetLayout() const;
 
   // ELFLinkingContext
-  virtual bool isLittleEndian() const;
-  virtual uint64_t getBaseAddress() const;
-  virtual StringRef entrySymbolName() const;
-  virtual StringRef getDefaultInterpreter() const;
-  virtual void addPasses(PassManager &pm);
-  virtual bool isRelaOutputFormat() const { return false; }
-  virtual bool isDynamicRelocation(const DefinedAtom &,
-                                   const Reference &r) const;
-  virtual bool isPLTRelocation(const DefinedAtom &, const Reference &r) const;
+  bool isLittleEndian() const override;
+  uint64_t getBaseAddress() const override;
+  StringRef entrySymbolName() const override;
+  StringRef getDefaultInterpreter() const override;
+  void addPasses(PassManager &pm) override;
+  bool isRelaOutputFormat() const override { return false; }
+  bool isDynamicRelocation(const DefinedAtom &,
+                           const Reference &r) const override;
+  bool isPLTRelocation(const DefinedAtom &, const Reference &r) const override;
 };
 
 } // elf

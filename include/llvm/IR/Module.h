@@ -15,7 +15,7 @@
 #ifndef LLVM_IR_MODULE_H
 #define LLVM_IR_MODULE_H
 
-#include "llvm/ADT/OwningPtr.h"
+#include "llvm/ADT/iterator_range.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalAlias.h"
@@ -197,7 +197,8 @@ private:
   NamedMDListType NamedMDList;    ///< The named metadata in the module
   std::string GlobalScopeAsm;     ///< Inline Asm at global scope.
   ValueSymbolTable *ValSymTab;    ///< Symbol table for values
-  OwningPtr<GVMaterializer> Materializer;  ///< Used to materialize GlobalValues
+  std::unique_ptr<GVMaterializer>
+  Materializer;                   ///< Used to materialize GlobalValues
   std::string ModuleID;           ///< Human readable identifier for the module
   std::string TargetTriple;       ///< Platform target triple Module compiled on
   void *NamedMDSymTab;            ///< NamedMDNode names.
@@ -517,6 +518,13 @@ public:
   const_global_iterator global_end  () const { return GlobalList.end(); }
   bool                  global_empty() const { return GlobalList.empty(); }
 
+  iterator_range<global_iterator> globals() {
+    return iterator_range<global_iterator>(global_begin(), global_end());
+  }
+  iterator_range<const_global_iterator> globals() const {
+    return iterator_range<const_global_iterator>(global_begin(), global_end());
+  }
+
 /// @}
 /// @name Function Iteration
 /// @{
@@ -539,6 +547,12 @@ public:
   size_t               alias_size () const      { return AliasList.size();  }
   bool                 alias_empty() const      { return AliasList.empty(); }
 
+  iterator_range<alias_iterator> aliases() {
+    return iterator_range<alias_iterator>(alias_begin(), alias_end());
+  }
+  iterator_range<const_alias_iterator> aliases() const {
+    return iterator_range<const_alias_iterator>(alias_begin(), alias_end());
+  }
 
 /// @}
 /// @name Named Metadata Iteration
@@ -557,6 +571,14 @@ public:
   size_t named_metadata_size() const { return NamedMDList.size();  }
   bool named_metadata_empty() const { return NamedMDList.empty(); }
 
+  iterator_range<named_metadata_iterator> named_metadata() {
+    return iterator_range<named_metadata_iterator>(named_metadata_begin(),
+                                                   named_metadata_end());
+  }
+  iterator_range<const_named_metadata_iterator> named_metadata() const {
+    return iterator_range<const_named_metadata_iterator>(named_metadata_begin(),
+                                                         named_metadata_end());
+  }
 
 /// @}
 /// @name Utility functions for printing and dumping Module objects

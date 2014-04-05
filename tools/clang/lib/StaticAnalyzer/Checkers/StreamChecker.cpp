@@ -62,8 +62,8 @@ class StreamChecker : public Checker<eval::Call,
                  *II_fwrite, 
                  *II_fseek, *II_ftell, *II_rewind, *II_fgetpos, *II_fsetpos,  
                  *II_clearerr, *II_feof, *II_ferror, *II_fileno;
-  mutable OwningPtr<BuiltinBug> BT_nullfp, BT_illegalwhence,
-                                      BT_doubleclose, BT_ResourceLeak;
+  mutable std::unique_ptr<BuiltinBug> BT_nullfp, BT_illegalwhence,
+      BT_doubleclose, BT_ResourceLeak;
 
 public:
   StreamChecker() 
@@ -218,7 +218,7 @@ void StreamChecker::OpenFileAux(CheckerContext &C, const CallExpr *CE) const {
   // Bifurcate the state into two: one with a valid FILE* pointer, the other
   // with a NULL.
   ProgramStateRef stateNotNull, stateNull;
-  llvm::tie(stateNotNull, stateNull) = CM.assumeDual(state, RetVal);
+  std::tie(stateNotNull, stateNull) = CM.assumeDual(state, RetVal);
   
   if (SymbolRef Sym = RetVal.getAsSymbol()) {
     // if RetVal is not NULL, set the symbol's state to Opened.
@@ -344,7 +344,7 @@ ProgramStateRef StreamChecker::CheckNullStream(SVal SV, ProgramStateRef state,
 
   ConstraintManager &CM = C.getConstraintManager();
   ProgramStateRef stateNotNull, stateNull;
-  llvm::tie(stateNotNull, stateNull) = CM.assumeDual(state, *DV);
+  std::tie(stateNotNull, stateNull) = CM.assumeDual(state, *DV);
 
   if (!stateNotNull && stateNull) {
     if (ExplodedNode *N = C.generateSink(stateNull)) {

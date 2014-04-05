@@ -1,6 +1,7 @@
 // RUN: rm -rf %t
 // RUN: not %clang_cc1 -x objective-c++ -fmodules -fmodules-cache-path=%t -I %S/Inputs %s -std=c++11 -ast-dump -ast-dump-lookups | FileCheck %s --check-prefix=CHECK-GLOBAL
 // RUN: not %clang_cc1 -x objective-c++ -fmodules -fmodules-cache-path=%t -I %S/Inputs %s -std=c++11 -ast-dump -ast-dump-lookups -ast-dump-filter N | FileCheck %s --check-prefix=CHECK-NAMESPACE-N
+// RUN: not %clang_cc1 -x objective-c++ -fmodules -fmodules-cache-path=%t -I %S/Inputs %s -std=c++11 -ast-dump | FileCheck %s --check-prefix=CHECK-DUMP
 // RUN: %clang_cc1 -x objective-c++ -fmodules -fmodules-cache-path=%t -I %S/Inputs %s -verify -std=c++11
 
 @import cxx_templates_a;
@@ -116,10 +117,37 @@ void testImplicitSpecialMembers(SomeTemplate<char[1]> &a,
   c = d;
 }
 
+bool testFriendInClassTemplate(Std::WithFriend<int> wfi) {
+  return wfi != wfi;
+}
+
+namespace Std {
+  void g(); // expected-error {{functions that differ only in their return type cannot be overloaded}}
+  // expected-note@cxx-templates-common.h:21 {{previous}}
+}
+
+// FIXME: We should only have two entries for each of these names (one for each
+// function template), but we don't attempt to deduplicate lookup results from
+// sibling modules yet.
+
 // CHECK-GLOBAL:      DeclarationName 'f'
+// CHECK-GLOBAL-NEXT: |-FunctionTemplate {{.*}} 'f'
+// CHECK-GLOBAL-NEXT: |-FunctionTemplate {{.*}} 'f'
 // CHECK-GLOBAL-NEXT: |-FunctionTemplate {{.*}} 'f'
 // CHECK-GLOBAL-NEXT: `-FunctionTemplate {{.*}} 'f'
 
 // CHECK-NAMESPACE-N:      DeclarationName 'f'
 // CHECK-NAMESPACE-N-NEXT: |-FunctionTemplate {{.*}} 'f'
+// CHECK-NAMESPACE-N-NEXT: |-FunctionTemplate {{.*}} 'f'
+// CHECK-NAMESPACE-N-NEXT: |-FunctionTemplate {{.*}} 'f'
 // CHECK-NAMESPACE-N-NEXT: `-FunctionTemplate {{.*}} 'f'
+
+// CHECK-DUMP:      ClassTemplateDecl {{.*}} <{{.*[/\\]}}cxx-templates-common.h:1:1, {{.*}}>  col:{{.*}} in cxx_templates_common SomeTemplate
+// CHECK-DUMP:        ClassTemplateSpecializationDecl {{.*}} prev [[CHAR2:[^ ]*]] {{.*}} SomeTemplate
+// CHECK-DUMP-NEXT:     TemplateArgument type 'char [2]'
+// CHECK-DUMP:        ClassTemplateSpecializationDecl [[CHAR2]] {{.*}} SomeTemplate definition
+// CHECK-DUMP-NEXT:     TemplateArgument type 'char [2]'
+// CHECK-DUMP:        ClassTemplateSpecializationDecl {{.*}} prev [[CHAR1:[^ ]*]] {{.*}} SomeTemplate
+// CHECK-DUMP-NEXT:     TemplateArgument type 'char [1]'
+// CHECK-DUMP:        ClassTemplateSpecializationDecl [[CHAR1]] {{.*}} SomeTemplate definition
+// CHECK-DUMP-NEXT:     TemplateArgument type 'char [1]'

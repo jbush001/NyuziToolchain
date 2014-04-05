@@ -3,7 +3,14 @@
 ; RUN: llc < %s -mtriple=i386-apple-darwin10 -relocation-model=static | FileCheck %s -check-prefix=DARWIN-STATIC
 ; RUN: llc < %s -mtriple=x86_64-apple-darwin10 | FileCheck %s -check-prefix=DARWIN64
 ; RUN: llc < %s -mtriple=i386-unknown-linux-gnu -fdata-sections | FileCheck %s -check-prefix=LINUX-SECTIONS
+; RUN: llc < %s -mtriple=i686-pc-win32 -fdata-sections -ffunction-sections | FileCheck %s -check-prefix=WIN32-SECTIONS
 
+define void @F1() {
+  ret void
+}
+
+; WIN32-SECTIONS: .section        .text,"xr",one_only,_F1
+; WIN32-SECTIONS: .globl _F1
 
 ; int G1;
 @G1 = common global i32 0
@@ -40,6 +47,9 @@
 
 ; LINUX-SECTIONS: .section        .rodata.G3,"a",@progbits
 ; LINUX-SECTIONS: .globl  G3
+
+; WIN32-SECTIONS: .section        .rdata,"r",one_only,_G3
+; WIN32-SECTIONS: .globl  _G3
 
 
 ; _Complex long long const G4 = 34;
@@ -117,6 +127,9 @@
 ; LINUX-SECTIONS: .section        .rodata.G7,"aMS",@progbits,1
 ; LINUX-SECTIONS:	.globl G7
 
+; WIN32-SECTIONS: .section        .rdata,"r",one_only,_G7
+; WIN32-SECTIONS:	.globl _G7
+
 
 @G8 = unnamed_addr constant [4 x i16] [ i16 1, i16 2, i16 3, i16 0 ]
 
@@ -176,3 +189,8 @@
 ; LINUX-SECTIONS: .LG14:
 ; LINUX-SECTIONS:        .asciz  "foo"
 ; LINUX-SECTIONS:        .size   .LG14, 4
+
+; WIN32-SECTIONS:        .section        .rdata,"r"
+; WIN32-SECTIONS: L_G14:
+; WIN32-SECTIONS:        .asciz  "foo"
+

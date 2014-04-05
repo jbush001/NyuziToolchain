@@ -294,7 +294,7 @@ public:
 template <class C>
 class DeclFilterCCC : public CorrectionCandidateCallback {
 public:
-  virtual bool ValidateCandidate(const TypoCorrection &candidate) {
+  bool ValidateCandidate(const TypoCorrection &candidate) override {
     return candidate.getCorrectionDeclAs<C>();
   }
 };
@@ -306,15 +306,15 @@ class FunctionCallFilterCCC : public CorrectionCandidateCallback {
 public:
   FunctionCallFilterCCC(Sema &SemaRef, unsigned NumArgs,
                         bool HasExplicitTemplateArgs,
-                        bool AllowNonStaticMethods = true);
+                        MemberExpr *ME = 0);
 
-  virtual bool ValidateCandidate(const TypoCorrection &candidate);
+  bool ValidateCandidate(const TypoCorrection &candidate) override;
 
  private:
   unsigned NumArgs;
   bool HasExplicitTemplateArgs;
-  bool AllowNonStaticMethods;
   DeclContext *CurContext;
+  MemberExpr *MemberFn;
 };
 
 // @brief Callback class that effectively disabled typo correction
@@ -327,7 +327,7 @@ public:
     WantRemainingKeywords = false;
   }
 
-  virtual bool ValidateCandidate(const TypoCorrection &candidate) {
+  bool ValidateCandidate(const TypoCorrection &candidate) override {
     return false;
   }
 };

@@ -336,7 +336,7 @@ ARMBaseInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,MachineBasicBlock *&TBB,
       // If we can modify the function, delete everything below this
       // unconditional branch.
       if (AllowModify) {
-        MachineBasicBlock::iterator DI = llvm::next(I);
+        MachineBasicBlock::iterator DI = std::next(I);
         while (DI != MBB.end()) {
           MachineInstr *InstToDelete = DI;
           ++DI;
@@ -573,15 +573,10 @@ unsigned ARMBaseInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
   // If this machine instr is an inline asm, measure it.
   if (MI->getOpcode() == ARM::INLINEASM)
     return getInlineAsmLength(MI->getOperand(0).getSymbolName(), *MAI);
-  if (MI->isLabel())
-    return 0;
   unsigned Opc = MI->getOpcode();
   switch (Opc) {
-  case TargetOpcode::IMPLICIT_DEF:
-  case TargetOpcode::KILL:
-  case TargetOpcode::PROLOG_LABEL:
-  case TargetOpcode::EH_LABEL:
-  case TargetOpcode::DBG_VALUE:
+  default:
+    // pseudo-instruction sizes are zero.
     return 0;
   case TargetOpcode::BUNDLE:
     return getInstBundleLength(MI);
@@ -644,9 +639,6 @@ unsigned ARMBaseInstrInfo::GetInstSizeInBytes(const MachineInstr *MI) const {
       ++NumEntries;
     return NumEntries * EntrySize + InstSize;
   }
-  default:
-    // Otherwise, pseudo-instruction sizes are zero.
-    return 0;
   }
 }
 
@@ -1551,7 +1543,7 @@ bool ARMBaseInstrInfo::isSchedulingBoundary(const MachineInstr *MI,
     return false;
 
   // Terminators and labels can't be scheduled around.
-  if (MI->isTerminator() || MI->isLabel())
+  if (MI->isTerminator() || MI->isPosition())
     return true;
 
   // Treat the start of the IT block as a scheduling boundary, but schedule
@@ -1874,6 +1866,15 @@ void llvm::emitARMRegPlusImmediate(MachineBasicBlock &MBB,
   }
 }
 
+static bool isAnySubRegLive(unsigned Reg, const TargetRegisterInfo *TRI,
+                      MachineInstr *MI) {
+  for (MCSubRegIterator Subreg(Reg, TRI, /* IncludeSelf */ true);
+       Subreg.isValid(); ++Subreg)
+    if (MI->getParent()->computeRegisterLiveness(TRI, *Subreg, MI) !=
+        MachineBasicBlock::LQR_Dead)
+      return true;
+  return false;
+}
 bool llvm::tryFoldSPUpdateIntoPushPop(const ARMSubtarget &Subtarget,
                                       MachineFunction &MF, MachineInstr *MI,
                                       unsigned NumBytes) {
@@ -1928,7 +1929,6 @@ bool llvm::tryFoldSPUpdateIntoPushPop(const ARMSubtarget &Subtarget,
   for (int i = MI->getNumOperands() - 1; i >= RegListIdx; --i)
     RegList.push_back(MI->getOperand(i));
 
-  MachineBasicBlock *MBB = MI->getParent();
   const TargetRegisterInfo *TRI = MF.getRegInfo().getTargetRegisterInfo();
   const MCPhysReg *CSRegs = TRI->getCalleeSavedRegs(&MF);
 
@@ -1949,9 +1949,11 @@ bool llvm::tryFoldSPUpdateIntoPushPop(const ARMSubtarget &Subtarget,
     // registers live within the function we might clobber a return value
     // register; the other way a register can be live here is if it's
     // callee-saved.
+    // TODO: Currently, computeRegisterLiveness() does not report "live" if a
+    // sub reg is live. When computeRegisterLiveness() works for sub reg, it
+    // can replace isAnySubRegLive().
     if (isCalleeSavedRegister(CurReg, CSRegs) ||
-        MBB->computeRegisterLiveness(TRI, CurReg, MI) !=
-            MachineBasicBlock::LQR_Dead) {
+        isAnySubRegLive(CurReg, TRI, MI)) {
       // VFP pops don't allow holes in the register list, so any skip is fatal
       // for our transformation. GPR pops do, so we should just keep looking.
       if (IsVFPPushPop)
@@ -2176,7 +2178,7 @@ static bool isSuitableForMask(MachineInstr *&MI, unsigned SrcReg,
       // Walk down one instruction which is potentially an 'and'.
       const MachineInstr &Copy = *MI;
       MachineBasicBlock::iterator AND(
-        llvm::next(MachineBasicBlock::iterator(MI)));
+        std::next(MachineBasicBlock::iterator(MI)));
       if (AND == MI->getParent()->end()) return false;
       MI = AND;
       return isSuitableForMask(MI, Copy.getOperand(0).getReg(),
@@ -2253,8 +2255,9 @@ optimizeCompareInstr(MachineInstr *CmpInstr, unsigned SrcReg, unsigned SrcReg2,
   if (CmpMask != ~0) {
     if (!isSuitableForMask(MI, SrcReg, CmpMask, false) || isPredicated(MI)) {
       MI = 0;
-      for (MachineRegisterInfo::use_iterator UI = MRI->use_begin(SrcReg),
-           UE = MRI->use_end(); UI != UE; ++UI) {
+      for (MachineRegisterInfo::use_instr_iterator
+           UI = MRI->use_instr_begin(SrcReg), UE = MRI->use_instr_end();
+           UI != UE; ++UI) {
         if (UI->getParent() != CmpInstr->getParent()) continue;
         MachineInstr *PotentialAND = &*UI;
         if (!isSuitableForMask(PotentialAND, SrcReg, CmpMask, true) ||
@@ -2964,7 +2967,7 @@ ARMBaseInstrInfo::getNumMicroOps(const InstrItineraryData *ItinData,
         break;
       }
       return UOps;
-    } else if (Subtarget.isCortexA8()) {
+    } else if (Subtarget.isCortexA8() || Subtarget.isCortexA7()) {
       if (NumRegs < 4)
         return 2;
       // 4 registers would be issued: 2, 2.
@@ -3001,7 +3004,7 @@ ARMBaseInstrInfo::getVLDMDefCycle(const InstrItineraryData *ItinData,
     return ItinData->getOperandCycle(DefClass, DefIdx);
 
   int DefCycle;
-  if (Subtarget.isCortexA8()) {
+  if (Subtarget.isCortexA8() || Subtarget.isCortexA7()) {
     // (regno / 2) + (regno % 2) + 1
     DefCycle = RegNo / 2 + 1;
     if (RegNo % 2)
@@ -3042,7 +3045,7 @@ ARMBaseInstrInfo::getLDMDefCycle(const InstrItineraryData *ItinData,
     return ItinData->getOperandCycle(DefClass, DefIdx);
 
   int DefCycle;
-  if (Subtarget.isCortexA8()) {
+  if (Subtarget.isCortexA8() || Subtarget.isCortexA7()) {
     // 4 registers would be issued: 1, 2, 1.
     // 5 registers would be issued: 1, 2, 2.
     DefCycle = RegNo / 2;
@@ -3076,7 +3079,7 @@ ARMBaseInstrInfo::getVSTMUseCycle(const InstrItineraryData *ItinData,
     return ItinData->getOperandCycle(UseClass, UseIdx);
 
   int UseCycle;
-  if (Subtarget.isCortexA8()) {
+  if (Subtarget.isCortexA8() || Subtarget.isCortexA7()) {
     // (regno / 2) + (regno % 2) + 1
     UseCycle = RegNo / 2 + 1;
     if (RegNo % 2)
@@ -3116,7 +3119,7 @@ ARMBaseInstrInfo::getSTMUseCycle(const InstrItineraryData *ItinData,
     return ItinData->getOperandCycle(UseClass, UseIdx);
 
   int UseCycle;
-  if (Subtarget.isCortexA8()) {
+  if (Subtarget.isCortexA8() || Subtarget.isCortexA7()) {
     UseCycle = RegNo / 2;
     if (UseCycle < 2)
       UseCycle = 2;
@@ -3253,8 +3256,7 @@ static const MachineInstr *getBundledDefMI(const TargetRegisterInfo *TRI,
   Dist = 0;
 
   MachineBasicBlock::const_iterator I = MI; ++I;
-  MachineBasicBlock::const_instr_iterator II =
-    llvm::prior(I.getInstrIterator());
+  MachineBasicBlock::const_instr_iterator II = std::prev(I.getInstrIterator());
   assert(II->isInsideBundle() && "Empty bundle?");
 
   int Idx = -1;
@@ -3307,7 +3309,7 @@ static int adjustDefLatency(const ARMSubtarget &Subtarget,
                             const MachineInstr *DefMI,
                             const MCInstrDesc *DefMCID, unsigned DefAlign) {
   int Adjust = 0;
-  if (Subtarget.isCortexA8() || Subtarget.isLikeA9()) {
+  if (Subtarget.isCortexA8() || Subtarget.isLikeA9() || Subtarget.isCortexA7()) {
     // FIXME: Shifter op hack: no shift (i.e. [r +/- r]) or [r + r << 2]
     // variants are one cycle cheaper.
     switch (DefMCID->getOpcode()) {
@@ -3608,7 +3610,8 @@ ARMBaseInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
                                   UseMCID, UseIdx, UseAlign);
 
   if (Latency > 1 &&
-      (Subtarget.isCortexA8() || Subtarget.isLikeA9())) {
+      (Subtarget.isCortexA8() || Subtarget.isLikeA9() ||
+       Subtarget.isCortexA7())) {
     // FIXME: Shifter op hack: no shift (i.e. [r +/- r]) or [r + r << 2]
     // variants are one cycle cheaper.
     switch (DefMCID.getOpcode()) {

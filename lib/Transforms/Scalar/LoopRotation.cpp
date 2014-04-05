@@ -20,10 +20,10 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IntrinsicInst.h"
-#include "llvm/Support/CFG.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Local.h"
@@ -44,7 +44,7 @@ namespace {
     }
 
     // LCSSA form makes instruction renaming easier.
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.addPreserved<DominatorTreeWrapperPass>();
       AU.addRequired<LoopInfo>();
       AU.addPreserved<LoopInfo>();
@@ -56,7 +56,7 @@ namespace {
       AU.addRequired<TargetTransformInfo>();
     }
 
-    bool runOnLoop(Loop *L, LPPassManager &LPM);
+    bool runOnLoop(Loop *L, LPPassManager &LPM) override;
     bool simplifyLoopLatch(Loop *L);
     bool rotateLoop(Loop *L, bool SimplifiedLatch);
 
@@ -134,7 +134,7 @@ static void RewriteUsesOfClonedInstructions(BasicBlock *OrigHeader,
     for (Value::use_iterator UI = OrigHeaderVal->use_begin(),
          UE = OrigHeaderVal->use_end(); UI != UE; ) {
       // Grab the use before incrementing the iterator.
-      Use &U = UI.getUse();
+      Use &U = *UI;
 
       // Increment the iterator before removing the use from the list.
       ++UI;

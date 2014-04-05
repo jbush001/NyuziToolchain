@@ -99,8 +99,16 @@ def as_i32imm: SDNodeXForm<imm, [{
   return CurDAG->getTargetConstant(N->getSExtValue(), MVT::i32);
 }]>;
 
+def IMM8bit : PatLeaf <(imm),
+  [{return isUInt<8>(N->getZExtValue());}]
+>;
+
 def IMM12bit : PatLeaf <(imm),
   [{return isUInt<12>(N->getZExtValue());}]
+>;
+
+def IMM16bit : PatLeaf <(imm),
+  [{return isUInt<16>(N->getZExtValue());}]
 >;
 
 def mubuf_vaddr_offset : PatFrag<
@@ -109,8 +117,7 @@ def mubuf_vaddr_offset : PatFrag<
 >;
 
 class InlineImm <ValueType vt> : PatLeaf <(vt imm), [{
-  return
-    (*(const SITargetLowering *)getTargetLowering()).analyzeImmediate(N) == 0;
+  return isInlineImmediate(N);
 }]>;
 
 class SGPRImm <dag frag> : PatLeaf<frag, [{
@@ -298,10 +305,10 @@ multiclass VOP2_64 <bits<6> op, string opName, list<dag> pattern,
   : VOP2_Helper <op, VReg_64, VSrc_64, opName, pattern, revOp>;
 
 multiclass VOP2b_32 <bits<6> op, string opName, list<dag> pattern,
-                     string revOp = opName> {
+                     RegisterClass src0_rc, string revOp = opName> {
 
   def _e32 : VOP2 <
-    op, (outs VReg_32:$dst), (ins VSrc_32:$src0, VReg_32:$src1),
+    op, (outs VReg_32:$dst), (ins src0_rc:$src0, VReg_32:$src1),
     opName#"_e32 $dst, $src0, $src1", pattern
   >, VOP <opName>, VOP2_REV<revOp#"_e32", !eq(revOp, opName)>;
 
@@ -383,39 +390,72 @@ class VOP3_64 <bits<9> op, string opName, list<dag> pattern> : VOP3 <
 // Vector I/O classes
 //===----------------------------------------------------------------------===//
 
-class DS_Load_Helper <bits<8> op, string asm, RegisterClass regClass> : DS <
+class DS_1A <bits<8> op, dag outs, dag ins, string asm, list<dag> pat> :
+    DS <op, outs, ins, asm, pat> {
+  bits<16> offset;
+
+  // Single load interpret the 2 i8imm operands as a single i16 offset.
+  let offset0 = offset{7-0};
+  let offset1 = offset{15-8};
+}
+
+class DS_Load_Helper <bits<8> op, string asm, RegisterClass regClass> : DS_1A <
   op,
   (outs regClass:$vdst),
-  (ins i1imm:$gds, VReg_32:$addr, VReg_32:$data0, VReg_32:$data1,
-       i8imm:$offset0, i8imm:$offset1),
-  asm#" $vdst, $gds, $addr, $data0, $data1, $offset0, $offset1, [M0]",
+  (ins i1imm:$gds, VReg_32:$addr, i16imm:$offset),
+  asm#" $vdst, $addr, $offset, [M0]",
   []> {
+  let data0 = 0;
+  let data1 = 0;
   let mayLoad = 1;
   let mayStore = 0;
 }
 
-class DS_Store_Helper <bits<8> op, string asm, RegisterClass regClass> : DS <
+class DS_Load2_Helper <bits<8> op, string asm, RegisterClass regClass> : DS <
+  op,
+  (outs regClass:$vdst),
+  (ins i1imm:$gds, VReg_32:$addr, i8imm:$offset0, i8imm:$offset1),
+  asm#" $gds, $vdst, $addr, $offset0, $offset1, [M0]",
+  []> {
+  let data0 = 0;
+  let data1 = 0;
+  let mayLoad = 1;
+  let mayStore = 0;
+}
+
+class DS_Store_Helper <bits<8> op, string asm, RegisterClass regClass> : DS_1A <
   op,
   (outs),
-  (ins i1imm:$gds, VReg_32:$addr, VReg_32:$data0, VReg_32:$data1,
-       i8imm:$offset0, i8imm:$offset1),
-  asm#" $gds, $addr, $data0, $data1, $offset0, $offset1, [M0]",
+  (ins i1imm:$gds, VReg_32:$addr, regClass:$data0, i16imm:$offset),
+  asm#" $addr, $data0, $offset [M0]",
+  []> {
+  let data1 = 0;
+  let mayStore = 1;
+  let mayLoad = 0;
+  let vdst = 0;
+}
+
+class DS_Store2_Helper <bits<8> op, string asm, RegisterClass regClass> : DS_1A <
+  op,
+  (outs),
+  (ins i1imm:$gds, VReg_32:$addr, regClass:$data0, i8imm:$offset0, i8imm:$offset1),
+  asm#" $addr, $data0, $data1, $offset0, $offset1 [M0]",
   []> {
   let mayStore = 1;
   let mayLoad = 0;
   let vdst = 0;
 }
 
-class DS_1A1D_RET <bits<8> op, string asm, RegisterClass rc> : DS <
+class DS_1A1D_RET <bits<8> op, string asm, RegisterClass rc> : DS_1A <
   op,
   (outs rc:$vdst),
-  (ins i1imm:$gds, VReg_32:$addr, VReg_32:$data0, i8imm:$offset0,
-       i8imm:$offset1),
-  asm#" $gds, $vdst, $addr, $data0, $offset0, $offset1, [M0]",
+  (ins i1imm:$gds, VReg_32:$addr, VReg_32:$data0, i16imm:$offset),
+  asm#" $vdst, $addr, $data0, $offset, [M0]",
   []> {
+
+  let data1 = 0;
   let mayStore = 1;
   let mayLoad = 1;
-  let data1 = 0;
 }
 
 class MTBUF_Store_Helper <bits<3> op, string asm, RegisterClass regClass> : MTBUF <

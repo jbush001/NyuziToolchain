@@ -33,6 +33,8 @@
 
 using clang::format::FormatStyle;
 
+LLVM_YAML_IS_FLOW_SEQUENCE_VECTOR(std::string)
+
 namespace llvm {
 namespace yaml {
 template <> struct ScalarEnumerationTraits<FormatStyle::LanguageKind> {
@@ -163,6 +165,8 @@ template <> struct MappingTraits<FormatStyle> {
                    Style.ExperimentalAutoDetectBinPacking);
     IO.mapOptional("IndentCaseLabels", Style.IndentCaseLabels);
     IO.mapOptional("MaxEmptyLinesToKeep", Style.MaxEmptyLinesToKeep);
+    IO.mapOptional("KeepEmptyLinesAtTheStartOfBlocks",
+                   Style.KeepEmptyLinesAtTheStartOfBlocks);
     IO.mapOptional("NamespaceIndentation", Style.NamespaceIndentation);
     IO.mapOptional("ObjCSpaceAfterProperty", Style.ObjCSpaceAfterProperty);
     IO.mapOptional("ObjCSpaceBeforeProtocolList",
@@ -198,6 +202,7 @@ template <> struct MappingTraits<FormatStyle> {
                    Style.SpaceBeforeAssignmentOperators);
     IO.mapOptional("ContinuationIndentWidth", Style.ContinuationIndentWidth);
     IO.mapOptional("CommentPragmas", Style.CommentPragmas);
+    IO.mapOptional("ForEachMacros", Style.ForEachMacros); 
 
     // For backward compatibility.
     if (!IO.outputting()) {
@@ -257,22 +262,28 @@ FormatStyle getLLVMStyle() {
   LLVMStyle.BreakBeforeBraces = FormatStyle::BS_Attach;
   LLVMStyle.BreakConstructorInitializersBeforeComma = false;
   LLVMStyle.ColumnLimit = 80;
+  LLVMStyle.CommentPragmas = "^ IWYU pragma:";
   LLVMStyle.ConstructorInitializerAllOnOneLineOrOnePerLine = false;
   LLVMStyle.ConstructorInitializerIndentWidth = 4;
-  LLVMStyle.Cpp11BracedListStyle = false;
+  LLVMStyle.ContinuationIndentWidth = 4;
+  LLVMStyle.Cpp11BracedListStyle = true;
   LLVMStyle.DerivePointerBinding = false;
   LLVMStyle.ExperimentalAutoDetectBinPacking = false;
+  LLVMStyle.ForEachMacros.push_back("foreach");
+  LLVMStyle.ForEachMacros.push_back("Q_FOREACH");
+  LLVMStyle.ForEachMacros.push_back("BOOST_FOREACH");
   LLVMStyle.IndentCaseLabels = false;
   LLVMStyle.IndentFunctionDeclarationAfterType = false;
   LLVMStyle.IndentWidth = 2;
   LLVMStyle.TabWidth = 8;
   LLVMStyle.MaxEmptyLinesToKeep = 1;
+  LLVMStyle.KeepEmptyLinesAtTheStartOfBlocks = true;
   LLVMStyle.NamespaceIndentation = FormatStyle::NI_None;
   LLVMStyle.ObjCSpaceAfterProperty = false;
   LLVMStyle.ObjCSpaceBeforeProtocolList = true;
   LLVMStyle.PointerBindsToType = false;
   LLVMStyle.SpacesBeforeTrailingComments = 1;
-  LLVMStyle.Standard = FormatStyle::LS_Cpp03;
+  LLVMStyle.Standard = FormatStyle::LS_Cpp11;
   LLVMStyle.UseTab = FormatStyle::UT_Never;
   LLVMStyle.SpacesInParentheses = false;
   LLVMStyle.SpaceInEmptyParentheses = false;
@@ -280,9 +291,7 @@ FormatStyle getLLVMStyle() {
   LLVMStyle.SpacesInCStyleCastParentheses = false;
   LLVMStyle.SpaceBeforeParens = FormatStyle::SBPO_ControlStatements;
   LLVMStyle.SpaceBeforeAssignmentOperators = true;
-  LLVMStyle.ContinuationIndentWidth = 4;
   LLVMStyle.SpacesInAngles = false;
-  LLVMStyle.CommentPragmas = "^ IWYU pragma:";
 
   LLVMStyle.PenaltyBreakComment = 300;
   LLVMStyle.PenaltyBreakFirstLessLess = 120;
@@ -305,10 +314,10 @@ FormatStyle getGoogleStyle(FormatStyle::LanguageKind Language) {
   GoogleStyle.AlwaysBreakBeforeMultilineStrings = true;
   GoogleStyle.AlwaysBreakTemplateDeclarations = true;
   GoogleStyle.ConstructorInitializerAllOnOneLineOrOnePerLine = true;
-  GoogleStyle.Cpp11BracedListStyle = true;
   GoogleStyle.DerivePointerBinding = true;
   GoogleStyle.IndentCaseLabels = true;
   GoogleStyle.IndentFunctionDeclarationAfterType = true;
+  GoogleStyle.KeepEmptyLinesAtTheStartOfBlocks = false;
   GoogleStyle.ObjCSpaceAfterProperty = false;
   GoogleStyle.ObjCSpaceBeforeProtocolList = false;
   GoogleStyle.PointerBindsToType = true;
@@ -343,6 +352,7 @@ FormatStyle getChromiumStyle(FormatStyle::LanguageKind Language) {
 FormatStyle getMozillaStyle() {
   FormatStyle MozillaStyle = getLLVMStyle();
   MozillaStyle.AllowAllParametersOfDeclarationOnNextLine = false;
+  MozillaStyle.Cpp11BracedListStyle = false;
   MozillaStyle.ConstructorInitializerAllOnOneLineOrOnePerLine = true;
   MozillaStyle.DerivePointerBinding = true;
   MozillaStyle.IndentCaseLabels = true;
@@ -350,6 +360,7 @@ FormatStyle getMozillaStyle() {
   MozillaStyle.ObjCSpaceBeforeProtocolList = false;
   MozillaStyle.PenaltyReturnTypeOnItsOwnLine = 200;
   MozillaStyle.PointerBindsToType = true;
+  MozillaStyle.Standard = FormatStyle::LS_Cpp03;
   return MozillaStyle;
 }
 
@@ -360,11 +371,13 @@ FormatStyle getWebKitStyle() {
   Style.BreakBeforeBinaryOperators = true;
   Style.BreakBeforeBraces = FormatStyle::BS_Stroustrup;
   Style.BreakConstructorInitializersBeforeComma = true;
+  Style.Cpp11BracedListStyle = false;
   Style.ColumnLimit = 0;
   Style.IndentWidth = 4;
   Style.NamespaceIndentation = FormatStyle::NI_Inner;
   Style.ObjCSpaceAfterProperty = true;
   Style.PointerBindsToType = true;
+  Style.Standard = FormatStyle::LS_Cpp03;
   return Style;
 }
 
@@ -373,8 +386,10 @@ FormatStyle getGNUStyle() {
   Style.BreakBeforeBinaryOperators = true;
   Style.BreakBeforeBraces = FormatStyle::BS_GNU;
   Style.BreakBeforeTernaryOperators = true;
+  Style.Cpp11BracedListStyle = false;
   Style.ColumnLimit = 79;
   Style.SpaceBeforeParens = FormatStyle::SBPO_Always;
+  Style.Standard = FormatStyle::LS_Cpp03;
   return Style;
 }
 
@@ -608,7 +623,7 @@ private:
     AnnotatedLine &Line = **I;
     if (Line.First->isOneOf(tok::kw_if, tok::kw_while, tok::kw_do, tok::r_brace,
                             tok::kw_else, tok::kw_try, tok::kw_catch,
-                            tok::kw_for,
+                            tok::kw_for, tok::kw_case,
                             // This gets rid of all ObjC @ keywords and methods.
                             tok::at, tok::minus, tok::plus))
       return 0;
@@ -883,6 +898,12 @@ private:
     if (Newlines == 0 && !RootToken.IsFirst)
       Newlines = 1;
 
+    // Remove empty lines after "{".
+    if (!Style.KeepEmptyLinesAtTheStartOfBlocks && PreviousLine &&
+        PreviousLine->Last->is(tok::l_brace) &&
+        PreviousLine->First->isNot(tok::kw_namespace))
+      Newlines = 1;
+
     // Insert extra new line before access specifiers.
     if (PreviousLine && PreviousLine->Last->isOneOf(tok::semi, tok::r_brace) &&
         RootToken.isAccessSpecifier() && RootToken.NewlinesBefore == 1)
@@ -1116,6 +1137,10 @@ public:
         TrailingWhitespace(0), Lex(Lex), SourceMgr(SourceMgr), Style(Style),
         IdentTable(getFormattingLangOpts()), Encoding(Encoding) {
     Lex.SetKeepWhitespaceMode(true);
+
+    for (const std::string& ForEachMacro : Style.ForEachMacros)
+      ForEachMacros.push_back(&IdentTable.get(ForEachMacro));
+    std::sort(ForEachMacros.begin(), ForEachMacros.end());
   }
 
   ArrayRef<FormatToken *> lex() {
@@ -1336,6 +1361,10 @@ private:
       Column = FormatTok->LastLineColumnWidth;
     }
 
+    FormatTok->IsForEachMacro =
+        std::binary_search(ForEachMacros.begin(), ForEachMacros.end(),
+                           FormatTok->Tok.getIdentifierInfo());
+
     return FormatTok;
   }
 
@@ -1351,6 +1380,7 @@ private:
   encoding::Encoding Encoding;
   llvm::SpecificBumpPtrAllocator<FormatToken> Allocator;
   SmallVector<FormatToken *, 16> Tokens;
+  SmallVector<IdentifierInfo*, 8> ForEachMacros;
 
   void readRawToken(FormatToken &Tok) {
     Lex.LexFromRawLexer(Tok.Tok);
@@ -1646,12 +1676,12 @@ private:
         HasBinPackedFunction || !HasOnePerLineFunction;
   }
 
-  virtual void consumeUnwrappedLine(const UnwrappedLine &TheLine) {
+  void consumeUnwrappedLine(const UnwrappedLine &TheLine) override {
     assert(!UnwrappedLines.empty());
     UnwrappedLines.back().push_back(TheLine);
   }
 
-  virtual void finishRun() {
+  void finishRun() override {
     UnwrappedLines.push_back(SmallVector<UnwrappedLine, 16>());
   }
 
@@ -1785,7 +1815,7 @@ FormatStyle getStyle(StringRef StyleName, StringRef FileName,
     }
 
     if (IsFile) {
-      OwningPtr<llvm::MemoryBuffer> Text;
+      std::unique_ptr<llvm::MemoryBuffer> Text;
       if (llvm::error_code ec =
               llvm::MemoryBuffer::getFile(ConfigFile.c_str(), Text)) {
         llvm::errs() << ec.message() << "\n";

@@ -130,6 +130,14 @@ namespace clang {
     void VisitObjCPropertyDecl(ObjCPropertyDecl *D);
     void VisitObjCPropertyImplDecl(ObjCPropertyImplDecl *D);
     void VisitOMPThreadPrivateDecl(OMPThreadPrivateDecl *D);
+
+    void AddFunctionDefinition(const FunctionDecl *FD) {
+      assert(FD->doesThisDeclarationHaveABody());
+      if (auto *CD = dyn_cast<CXXConstructorDecl>(FD))
+        Writer.AddCXXCtorInitializers(CD->CtorInitializers,
+                                      CD->NumCtorInitializers, Record);
+      Writer.AddStmt(FD->getBody());
+    }
   };
 }
 
@@ -168,6 +176,24 @@ void ASTDeclWriter::VisitDecl(Decl *D) {
   Record.push_back(D->getAccess());
   Record.push_back(D->isModulePrivate());
   Record.push_back(Writer.inferSubmoduleIDFromLocation(D->getLocation()));
+
+  // If this declaration injected a name into a context different from its
+  // lexical context, and that context is an imported namespace, we need to
+  // update its visible declarations to include this name.
+  //
+  // This happens when we instantiate a class with a friend declaration or a
+  // function with a local extern declaration, for instance.
+  if (D->isOutOfLine()) {
+    auto *DC = D->getDeclContext();
+    while (auto *NS = dyn_cast<NamespaceDecl>(DC->getRedeclContext())) {
+      if (!NS->isFromASTFile())
+        break;
+      Writer.AddUpdatedDeclContext(NS->getPrimaryContext());
+      if (!NS->isInlineNamespace())
+        break;
+      DC = NS->getParent();
+    }
+  }
 }
 
 void ASTDeclWriter::VisitTranslationUnitDecl(TranslationUnitDecl *D) {
@@ -414,9 +440,8 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   }
 
   Record.push_back(D->param_size());
-  for (FunctionDecl::param_iterator P = D->param_begin(), PEnd = D->param_end();
-       P != PEnd; ++P)
-    Writer.AddDeclRef(*P, Record);
+  for (auto P : D->params())
+    Writer.AddDeclRef(P, Record);
   Code = serialization::DECL_FUNCTION;
 }
 
@@ -455,9 +480,8 @@ void ASTDeclWriter::VisitObjCMethodDecl(ObjCMethodDecl *D) {
   Writer.AddTypeSourceInfo(D->getReturnTypeSourceInfo(), Record);
   Writer.AddSourceLocation(D->getLocEnd(), Record);
   Record.push_back(D->param_size());
-  for (ObjCMethodDecl::param_iterator P = D->param_begin(),
-                                   PEnd = D->param_end(); P != PEnd; ++P)
-    Writer.AddDeclRef(*P, Record);
+  for (const auto *P : D->params())
+    Writer.AddDeclRef(P, Record);
 
   Record.push_back(D->SelLocsKind);
   unsigned NumStoredSelLocs = D->getNumStoredSelLocs();
@@ -493,14 +517,10 @@ void ASTDeclWriter::VisitObjCInterfaceDecl(ObjCInterfaceDecl *D) {
 
     // Write out the protocols that are directly referenced by the @interface.
     Record.push_back(Data.ReferencedProtocols.size());
-    for (ObjCInterfaceDecl::protocol_iterator P = D->protocol_begin(),
-                                           PEnd = D->protocol_end();
-         P != PEnd; ++P)
-      Writer.AddDeclRef(*P, Record);
-    for (ObjCInterfaceDecl::protocol_loc_iterator PL = D->protocol_loc_begin(),
-         PLEnd = D->protocol_loc_end();
-         PL != PLEnd; ++PL)
-      Writer.AddSourceLocation(*PL, Record);
+    for (const auto *P : D->protocols())
+      Writer.AddDeclRef(P, Record);
+    for (const auto &PL : D->protocol_locs())
+      Writer.AddSourceLocation(PL, Record);
     
     // Write out the protocols that are transitively referenced.
     Record.push_back(Data.AllReferencedProtocols.size());
@@ -551,13 +571,10 @@ void ASTDeclWriter::VisitObjCProtocolDecl(ObjCProtocolDecl *D) {
   Record.push_back(D->isThisDeclarationADefinition());
   if (D->isThisDeclarationADefinition()) {
     Record.push_back(D->protocol_size());
-    for (ObjCProtocolDecl::protocol_iterator
-         I = D->protocol_begin(), IEnd = D->protocol_end(); I != IEnd; ++I)
-      Writer.AddDeclRef(*I, Record);
-    for (ObjCProtocolDecl::protocol_loc_iterator PL = D->protocol_loc_begin(),
-           PLEnd = D->protocol_loc_end();
-         PL != PLEnd; ++PL)
-      Writer.AddSourceLocation(*PL, Record);
+    for (const auto *I : D->protocols())
+      Writer.AddDeclRef(I, Record);
+    for (const auto &PL : D->protocol_locs())
+      Writer.AddSourceLocation(PL, Record);
   }
   
   Code = serialization::DECL_OBJC_PROTOCOL;
@@ -575,13 +592,10 @@ void ASTDeclWriter::VisitObjCCategoryDecl(ObjCCategoryDecl *D) {
   Writer.AddSourceLocation(D->getIvarRBraceLoc(), Record);
   Writer.AddDeclRef(D->getClassInterface(), Record);
   Record.push_back(D->protocol_size());
-  for (ObjCCategoryDecl::protocol_iterator
-       I = D->protocol_begin(), IEnd = D->protocol_end(); I != IEnd; ++I)
-    Writer.AddDeclRef(*I, Record);
-  for (ObjCCategoryDecl::protocol_loc_iterator 
-         PL = D->protocol_loc_begin(), PLEnd = D->protocol_loc_end();
-       PL != PLEnd; ++PL)
-    Writer.AddSourceLocation(*PL, Record);
+  for (const auto *I : D->protocols())
+    Writer.AddDeclRef(I, Record);
+  for (const auto &PL : D->protocol_locs())
+    Writer.AddSourceLocation(PL, Record);
   Code = serialization::DECL_OBJC_CATEGORY;
 }
 
@@ -688,10 +702,8 @@ void ASTDeclWriter::VisitIndirectFieldDecl(IndirectFieldDecl *D) {
   VisitValueDecl(D);
   Record.push_back(D->getChainingSize());
 
-  for (IndirectFieldDecl::chain_iterator
-       P = D->chain_begin(),
-       PEnd = D->chain_end(); P != PEnd; ++P)
-    Writer.AddDeclRef(*P, Record);
+  for (const auto *P : D->chain())
+    Writer.AddDeclRef(P, Record);
   Code = serialization::DECL_INDIRECTFIELD;
 }
 
@@ -833,9 +845,7 @@ void ASTDeclWriter::VisitBlockDecl(BlockDecl *D) {
   Record.push_back(D->isConversionFromLambda());
   Record.push_back(D->capturesCXXThis());
   Record.push_back(D->getNumCaptures());
-  for (BlockDecl::capture_iterator
-         i = D->capture_begin(), e = D->capture_end(); i != e; ++i) {
-    const BlockDecl::Capture &capture = *i;
+  for (const auto &capture : D->captures()) {
     Writer.AddDeclRef(capture.getVariable(), Record);
 
     unsigned flags = 0;
@@ -911,9 +921,8 @@ void ASTDeclWriter::VisitNamespaceDecl(NamespaceDecl *D) {
     Decl *Parent = cast<Decl>(
         D->getParent()->getRedeclContext()->getPrimaryContext());
     if (Parent->isFromASTFile() || isa<TranslationUnitDecl>(Parent)) {
-      ASTWriter::UpdateRecord &Record = Writer.DeclUpdates[Parent];
-      Record.push_back(UPD_CXX_ADDED_ANONYMOUS_NAMESPACE);
-      Writer.AddDeclRef(D, Record);
+      Writer.DeclUpdates[Parent].push_back(
+          ASTWriter::DeclUpdate(UPD_CXX_ADDED_ANONYMOUS_NAMESPACE, D));
     }
   }
 }
@@ -1021,6 +1030,7 @@ void ASTDeclWriter::VisitCXXMethodDecl(CXXMethodDecl *D) {
 void ASTDeclWriter::VisitCXXConstructorDecl(CXXConstructorDecl *D) {
   VisitCXXMethodDecl(D);
 
+  Writer.AddDeclRef(D->getInheritedConstructor(), Record);
   Record.push_back(D->IsExplicitSpecified);
   Writer.AddCXXCtorInitializers(D->CtorInitializers, D->NumCtorInitializers,
                                 Record);
@@ -1429,10 +1439,8 @@ void ASTDeclWriter::VisitRedeclarable(Redeclarable<T> *D) {
 void ASTDeclWriter::VisitOMPThreadPrivateDecl(OMPThreadPrivateDecl *D) {
   Record.push_back(D->varlist_size());
   VisitDecl(D);
-  for (OMPThreadPrivateDecl::varlist_iterator I = D->varlist_begin(),
-                                              E = D->varlist_end();
-       I != E; ++I)
-    Writer.AddStmt(*I);
+  for (auto *I : D->varlists())
+    Writer.AddStmt(I);
   Code = serialization::DECL_OMP_THREADPRIVATE;
 }
 
@@ -1912,4 +1920,12 @@ void ASTWriter::WriteDecl(ASTContext &Context, Decl *D) {
   // them to a record in the AST file later.
   if (isRequiredDecl(D, Context))
     EagerlyDeserializedDecls.push_back(ID);
+}
+
+void ASTWriter::AddFunctionDefinition(const FunctionDecl *FD,
+                                      RecordData &Record) {
+  ClearSwitchCaseIDs();
+
+  ASTDeclWriter W(*this, FD->getASTContext(), Record);
+  W.AddFunctionDefinition(FD);
 }

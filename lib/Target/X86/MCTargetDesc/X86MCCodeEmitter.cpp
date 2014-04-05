@@ -150,7 +150,7 @@ public:
 
   void EncodeInstruction(const MCInst &MI, raw_ostream &OS,
                          SmallVectorImpl<MCFixup> &Fixups,
-                         const MCSubtargetInfo &STI) const;
+                         const MCSubtargetInfo &STI) const override;
 
   void EmitVEXOpcodePrefix(uint64_t TSFlags, unsigned &CurByte, int MemOperand,
                            const MCInst &MI, const MCInstrDesc &Desc,
@@ -219,7 +219,7 @@ static bool isCDisp8(uint64_t TSFlags, int Value, int& CValue) {
 
   if (Value & MemObjMask) // Unaligned offset
     return false;
-  Value /= MemObjSize;
+  Value /= (int)MemObjSize;
   bool Ret = (Value == (signed char)Value);
 
   if (Ret)

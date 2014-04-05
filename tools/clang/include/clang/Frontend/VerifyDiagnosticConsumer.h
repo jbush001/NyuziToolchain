@@ -13,10 +13,10 @@
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Lex/Preprocessor.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/STLExtras.h"
 #include <climits>
+#include <memory>
 
 namespace clang {
 
@@ -204,7 +204,7 @@ private:
   DiagnosticsEngine &Diags;
   DiagnosticConsumer *PrimaryClient;
   bool OwnsPrimaryClient;
-  OwningPtr<TextDiagnosticBuffer> Buffer;
+  std::unique_ptr<TextDiagnosticBuffer> Buffer;
   const Preprocessor *CurrentPreprocessor;
   const LangOptions *LangOpts;
   SourceManager *SrcManager;
@@ -239,10 +239,10 @@ public:
   VerifyDiagnosticConsumer(DiagnosticsEngine &Diags);
   ~VerifyDiagnosticConsumer();
 
-  virtual void BeginSourceFile(const LangOptions &LangOpts,
-                               const Preprocessor *PP);
+  void BeginSourceFile(const LangOptions &LangOpts,
+                       const Preprocessor *PP) override;
 
-  virtual void EndSourceFile();
+  void EndSourceFile() override;
 
   enum ParsedStatus {
     /// File has been processed via HandleComment.
@@ -258,10 +258,10 @@ public:
   /// \brief Update lists of parsed and unparsed files.
   void UpdateParsedFileStatus(SourceManager &SM, FileID FID, ParsedStatus PS);
 
-  virtual bool HandleComment(Preprocessor &PP, SourceRange Comment);
+  bool HandleComment(Preprocessor &PP, SourceRange Comment) override;
 
-  virtual void HandleDiagnostic(DiagnosticsEngine::Level DiagLevel,
-                                const Diagnostic &Info);
+  void HandleDiagnostic(DiagnosticsEngine::Level DiagLevel,
+                        const Diagnostic &Info) override;
 };
 
 } // end namspace clang

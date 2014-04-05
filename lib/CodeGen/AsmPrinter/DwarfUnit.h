@@ -18,12 +18,13 @@
 #include "DwarfDebug.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/StringMap.h"
-#include "llvm/DebugInfo.h"
-#include "llvm/DIBuilder.h"
+#include "llvm/CodeGen/AsmPrinter.h"
+#include "llvm/IR/DIBuilder.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCSection.h"
+#include "llvm/MC/MCDwarf.h"
 
 namespace llvm {
 
@@ -40,6 +41,7 @@ public:
   RangeSpan(MCSymbol *S, MCSymbol *E) : Start(S), End(E) {}
   const MCSymbol *getStart() const { return Start; }
   const MCSymbol *getEnd() const { return End; }
+  void setEnd(const MCSymbol *E) { End = E; }
 
 private:
   const MCSymbol *Start, *End;
@@ -71,7 +73,7 @@ protected:
   DICompileUnit CUNode;
 
   /// Unit debug information entry.
-  const OwningPtr<DIE> UnitDie;
+  const std::unique_ptr<DIE> UnitDie;
 
   /// Offset of the UnitDie from beginning of debug info section.
   unsigned DebugInfoOffset;
@@ -250,11 +252,7 @@ public:
   bool hasContent() const { return !UnitDie->getChildren().empty(); }
 
   /// addRange - Add an address range to the list of ranges for this unit.
-  void addRange(RangeSpan Range) {
-    // Only add a range for this unit if we're emitting full debug.
-    if (getCUNode().getEmissionKind() == DIBuilder::FullDebug)
-      CURanges.push_back(Range);
-  }
+  void addRange(RangeSpan Range);
 
   /// getRanges - Get the list of ranges for this unit.
   const SmallVectorImpl<RangeSpan> &getRanges() const { return CURanges; }
@@ -340,6 +338,9 @@ public:
 
   void addLabel(DIELoc *Die, dwarf::Form Form, const MCSymbol *Label);
 
+  /// addLocationList - Add a Dwarf loclistptr attribute data and value.
+  void addLocationList(DIE *Die, dwarf::Attribute Attribute, unsigned Index);
+
   /// addSectionLabel - Add a Dwarf section label attribute data and value.
   ///
   void addSectionLabel(DIE *Die, dwarf::Attribute Attribute,
@@ -356,6 +357,10 @@ public:
   /// addSectionDelta - Add a label delta attribute data and value.
   void addSectionDelta(DIE *Die, dwarf::Attribute Attribute, const MCSymbol *Hi,
                        const MCSymbol *Lo);
+
+  /// addLabelDelta - Add a label delta attribute data and value.
+  void addLabelDelta(DIE *Die, dwarf::Attribute Attribute, const MCSymbol *Hi,
+                     const MCSymbol *Lo);
 
   /// addDIEEntry - Add a DIE attribute data and value.
   void addDIEEntry(DIE *Die, dwarf::Attribute Attribute, DIE *Entry);
@@ -474,14 +479,17 @@ public:
   }
 
   /// Emit the header for this unit, not including the initial length field.
-  virtual void emitHeader(const MCSection *ASection,
-                          const MCSymbol *ASectionSym) const;
+  virtual void emitHeader(const MCSymbol *ASectionSym) const;
 
   virtual DwarfCompileUnit &getCU() = 0;
 
 protected:
   /// getOrCreateStaticMemberDIE - Create new static data member DIE.
   DIE *getOrCreateStaticMemberDIE(DIDerivedType DT);
+
+  /// Look up the source ID with the given directory and source file names. If
+  /// none currently exists, create a new ID and insert it in the line table.
+  virtual unsigned getOrCreateSourceID(StringRef File, StringRef Directory) = 0;
 
 private:
   /// constructTypeDIE - Construct basic type die from DIBasicType.
@@ -571,9 +579,17 @@ public:
 
   /// addLabelAddress - Add a dwarf label attribute data and value using
   /// either DW_FORM_addr or DW_FORM_GNU_addr_index.
-  void addLabelAddress(DIE *Die, dwarf::Attribute Attribute, MCSymbol *Label);
+  void addLabelAddress(DIE *Die, dwarf::Attribute Attribute,
+                       const MCSymbol *Label);
 
-  DwarfCompileUnit &getCU() LLVM_OVERRIDE { return *this; }
+  /// addLocalLabelAddress - Add a dwarf label attribute data and value using
+  /// DW_FORM_addr only.
+  void addLocalLabelAddress(DIE *Die, dwarf::Attribute Attribute,
+                            const MCSymbol *Label);
+
+  DwarfCompileUnit &getCU() override { return *this; }
+
+  unsigned getOrCreateSourceID(StringRef FileName, StringRef DirName) override;
 };
 
 class DwarfTypeUnit : public DwarfUnit {
@@ -581,24 +597,28 @@ private:
   uint64_t TypeSignature;
   const DIE *Ty;
   DwarfCompileUnit &CU;
+  MCDwarfDwoLineTable *SplitLineTable;
 
 public:
   DwarfTypeUnit(unsigned UID, DIE *D, DwarfCompileUnit &CU, AsmPrinter *A,
-                DwarfDebug *DW, DwarfFile *DWU);
+                DwarfDebug *DW, DwarfFile *DWU,
+                MCDwarfDwoLineTable *SplitLineTable = nullptr);
 
   void setTypeSignature(uint64_t Signature) { TypeSignature = Signature; }
   uint64_t getTypeSignature() const { return TypeSignature; }
   void setType(const DIE *Ty) { this->Ty = Ty; }
 
   /// Emit the header for this unit, not including the initial length field.
-  void emitHeader(const MCSection *ASection, const MCSymbol *ASectionSym) const
-      LLVM_OVERRIDE;
-  unsigned getHeaderSize() const LLVM_OVERRIDE {
+  void emitHeader(const MCSymbol *ASectionSym) const override;
+  unsigned getHeaderSize() const override {
     return DwarfUnit::getHeaderSize() + sizeof(uint64_t) + // Type Signature
            sizeof(uint32_t);                               // Type DIE Offset
   }
   void initSection(const MCSection *Section);
-  DwarfCompileUnit &getCU() LLVM_OVERRIDE { return CU; }
+  DwarfCompileUnit &getCU() override { return CU; }
+
+protected:
+  unsigned getOrCreateSourceID(StringRef File, StringRef Directory) override;
 };
 } // end llvm namespace
 #endif

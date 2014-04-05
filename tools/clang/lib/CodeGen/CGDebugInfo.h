@@ -20,10 +20,10 @@
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Frontend/CodeGenOptions.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/DIBuilder.h"
-#include "llvm/DebugInfo.h"
+#include "llvm/IR/DIBuilder.h"
+#include "llvm/IR/DebugInfo.h"
+#include "llvm/IR/ValueHandle.h"
 #include "llvm/Support/Allocator.h"
-#include "llvm/Support/ValueHandle.h"
 
 namespace llvm {
   class MDNode;
@@ -288,6 +288,8 @@ public:
   void completeRequiredType(const RecordDecl *RD);
   void completeClassData(const RecordDecl *RD);
 
+  void completeTemplateDefinition(const ClassTemplateSpecializationDecl &SD);
+
 private:
   /// EmitDeclare - Emit call to llvm.dbg.declare for a variable declaration.
   void EmitDeclare(const VarDecl *decl, unsigned Tag, llvm::Value *AI,
@@ -342,9 +344,9 @@ private:
   llvm::DIType CreateMemberType(llvm::DIFile Unit, QualType FType,
                                 StringRef Name, uint64_t *Offset);
 
-  /// \brief Retrieve the DIDescriptor, if any, for the canonical form of this
+  /// \brief Retrieve the DIScope, if any, for the canonical form of this
   /// declaration.
-  llvm::DIDescriptor getDeclarationOrDefinition(const Decl *D);
+  llvm::DIScope getDeclarationOrDefinition(const Decl *D);
 
   /// getFunctionDeclaration - Return debug info descriptor to describe method
   /// declaration for the given method definition.

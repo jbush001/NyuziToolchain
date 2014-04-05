@@ -13,8 +13,6 @@
 #include "MCTargetDesc/ARMArchName.h"
 #include "MCTargetDesc/ARMBaseInfo.h"
 #include "MCTargetDesc/ARMMCExpr.h"
-#include "llvm/ADT/BitVector.h"
-#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -25,11 +23,14 @@
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCDisassembler.h"
+#include "llvm/MC/MCELF.h"
 #include "llvm/MC/MCELFStreamer.h"
+#include "llvm/MC/MCELFSymbolFlags.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCInstrDesc.h"
 #include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/MCParser/MCAsmLexer.h"
 #include "llvm/MC/MCParser/MCAsmParser.h"
 #include "llvm/MC/MCParser/MCParsedAsmOperand.h"
@@ -41,6 +42,7 @@
 #include "llvm/MC/MCTargetAsmParser.h"
 #include "llvm/Support/ARMBuildAttributes.h"
 #include "llvm/Support/ARMEHABI.h"
+#include "llvm/Support/COFF.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/MathExtras.h"
@@ -229,6 +231,7 @@ class ARMAsmParser : public MCTargetAsmParser {
   bool parseDirectiveObjectArch(SMLoc L);
   bool parseDirectiveArchExtension(SMLoc L);
   bool parseDirectiveAlign(SMLoc L);
+  bool parseDirectiveThumbSet(SMLoc L);
 
   StringRef splitMnemonic(StringRef Mnemonic, unsigned &PredicationCode,
                           bool &CarrySetting, unsigned &ProcessorIMod,
@@ -359,20 +362,22 @@ public:
   }
 
   // Implementation of the MCTargetAsmParser interface:
-  bool ParseRegister(unsigned &RegNo, SMLoc &StartLoc, SMLoc &EndLoc);
-  bool ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
-                        SMLoc NameLoc,
-                        SmallVectorImpl<MCParsedAsmOperand*> &Operands);
-  bool ParseDirective(AsmToken DirectiveID);
+  bool ParseRegister(unsigned &RegNo, SMLoc &StartLoc, SMLoc &EndLoc) override;
+  bool
+  ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
+                   SMLoc NameLoc,
+                   SmallVectorImpl<MCParsedAsmOperand*> &Operands) override;
+  bool ParseDirective(AsmToken DirectiveID) override;
 
-  unsigned validateTargetOperandClass(MCParsedAsmOperand *Op, unsigned Kind);
-  unsigned checkTargetMatchPredicate(MCInst &Inst);
+  unsigned validateTargetOperandClass(MCParsedAsmOperand *Op,
+                                      unsigned Kind) override;
+  unsigned checkTargetMatchPredicate(MCInst &Inst) override;
 
   bool MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
                                SmallVectorImpl<MCParsedAsmOperand*> &Operands,
                                MCStreamer &Out, unsigned &ErrorInfo,
-                               bool MatchingInlineAsm);
-  void onLabelParsed(MCSymbol *Symbol);
+                               bool MatchingInlineAsm) override;
+  void onLabelParsed(MCSymbol *Symbol) override;
 };
 } // end anonymous namespace
 
@@ -621,9 +626,9 @@ public:
   }
 
   /// getStartLoc - Get the location of the first token of this operand.
-  SMLoc getStartLoc() const { return StartLoc; }
+  SMLoc getStartLoc() const override { return StartLoc; }
   /// getEndLoc - Get the location of the last token of this operand.
-  SMLoc getEndLoc() const { return EndLoc; }
+  SMLoc getEndLoc() const override { return EndLoc; }
   /// getLocRange - Get the range between the first and last token of this
   /// operand.
   SMRange getLocRange() const { return SMRange(StartLoc, EndLoc); }
@@ -643,7 +648,7 @@ public:
     return StringRef(Tok.Data, Tok.Length);
   }
 
-  unsigned getReg() const {
+  unsigned getReg() const override {
     assert((Kind == k_Register || Kind == k_CCOut) && "Invalid access!");
     return Reg.RegNum;
   }
@@ -691,7 +696,7 @@ public:
   bool isCCOut() const { return Kind == k_CCOut; }
   bool isITMask() const { return Kind == k_ITCondMask; }
   bool isITCondCode() const { return Kind == k_CondCode; }
-  bool isImm() const { return Kind == k_Immediate; }
+  bool isImm() const override { return Kind == k_Immediate; }
   // checks whether this operand is an unsigned offset which fits is a field
   // of specified width and scaled by a specific number of bits
   template<unsigned width, unsigned scale>
@@ -1067,14 +1072,14 @@ public:
     int64_t Value = CE->getValue();
     return Value == 1 || Value == 0;
   }
-  bool isReg() const { return Kind == k_Register; }
+  bool isReg() const override { return Kind == k_Register; }
   bool isRegList() const { return Kind == k_RegisterList; }
   bool isDPRRegList() const { return Kind == k_DPRRegisterList; }
   bool isSPRRegList() const { return Kind == k_SPRRegisterList; }
-  bool isToken() const { return Kind == k_Token; }
+  bool isToken() const override { return Kind == k_Token; }
   bool isMemBarrierOpt() const { return Kind == k_MemBarrierOpt; }
   bool isInstSyncBarrierOpt() const { return Kind == k_InstSyncBarrierOpt; }
-  bool isMem() const { return Kind == k_Memory; }
+  bool isMem() const override { return Kind == k_Memory; }
   bool isShifterImm() const { return Kind == k_ShifterImmediate; }
   bool isRegShiftedReg() const { return Kind == k_ShiftedRegister; }
   bool isRegShiftedImm() const { return Kind == k_ShiftedImmediate; }
@@ -1361,6 +1366,7 @@ public:
   }
 
   bool isVecListDPairSpaced() const {
+    if (Kind != k_VectorList) return false;
     if (isSingleSpacedVectorList()) return false;
     return (ARMMCRegisterClasses[ARM::DPairSpcRegClassID]
               .contains(VectorList.RegNum));
@@ -2309,7 +2315,7 @@ public:
     Inst.addOperand(MCOperand::CreateImm(Imm | 0x1e00));
   }
 
-  virtual void print(raw_ostream &OS) const;
+  void print(raw_ostream &OS) const override;
 
   static ARMOperand *CreateITMask(unsigned Mask, SMLoc S) {
     ARMOperand *Op = new ARMOperand(k_ITCondMask);
@@ -5398,16 +5404,24 @@ bool ARMAsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
   }
 
   // GNU Assembler extension (compatibility)
-  if ((Mnemonic == "ldrd" || Mnemonic == "strd") && !isThumb() &&
-      Operands.size() == 4) {
-    ARMOperand *Op = static_cast<ARMOperand *>(Operands[2]);
-    assert(Op->isReg() && "expected register argument");
-    assert(MRI->getMatchingSuperReg(Op->getReg(), ARM::gsub_0,
-                                    &MRI->getRegClass(ARM::GPRPairRegClassID))
-           && "expected register pair");
-    Operands.insert(Operands.begin() + 3,
-                    ARMOperand::CreateReg(Op->getReg() + 1, Op->getStartLoc(),
-                                          Op->getEndLoc()));
+  if ((Mnemonic == "ldrd" || Mnemonic == "strd")) {
+    ARMOperand *Op2 = static_cast<ARMOperand *>(Operands[2]);
+    ARMOperand *Op3 = static_cast<ARMOperand *>(Operands[3]);
+    if (Op3->isMem()) {
+      assert(Op2->isReg() && "expected register argument");
+
+      unsigned SuperReg = MRI->getMatchingSuperReg(
+          Op2->getReg(), ARM::gsub_0, &MRI->getRegClass(ARM::GPRPairRegClassID));
+
+      assert(SuperReg && "expected register pair");
+
+      unsigned PairedReg = MRI->getSubReg(SuperReg, ARM::gsub_1);
+
+      Operands.insert(Operands.begin() + 3,
+                      ARMOperand::CreateReg(PairedReg,
+                                            Op2->getStartLoc(),
+                                            Op2->getEndLoc()));
+    }
   }
 
   // FIXME: As said above, this is all a pretty gross hack.  This instruction
@@ -5651,7 +5665,6 @@ validateInstruction(MCInst &Inst,
   case ARM::sysSTMIB_UPD:
     return Error(Operands[2]->getStartLoc(),
                  "system STM cannot have writeback register");
-    break;
   case ARM::tMUL: {
     // The second source operand must be the same register as the destination
     // operand.
@@ -5944,7 +5957,7 @@ static unsigned getRealVLDOpcode(unsigned Opc, unsigned &Spacing) {
   case ARM::VLD4LNdWB_fixed_Asm_8:  Spacing = 1; return ARM::VLD4LNd8_UPD;
   case ARM::VLD4LNdWB_fixed_Asm_16: Spacing = 1; return ARM::VLD4LNd16_UPD;
   case ARM::VLD4LNdWB_fixed_Asm_32: Spacing = 1; return ARM::VLD4LNd32_UPD;
-  case ARM::VLD4LNqWB_fixed_Asm_16: Spacing = 1; return ARM::VLD4LNq16_UPD;
+  case ARM::VLD4LNqWB_fixed_Asm_16: Spacing = 2; return ARM::VLD4LNq16_UPD;
   case ARM::VLD4LNqWB_fixed_Asm_32: Spacing = 2; return ARM::VLD4LNq32_UPD;
   case ARM::VLD4LNdWB_register_Asm_8:  Spacing = 1; return ARM::VLD4LNd8_UPD;
   case ARM::VLD4LNdWB_register_Asm_16: Spacing = 1; return ARM::VLD4LNd16_UPD;
@@ -8029,6 +8042,8 @@ bool ARMAsmParser::ParseDirective(AsmToken DirectiveID) {
     return parseDirectiveArchExtension(DirectiveID.getLoc());
   else if (IDVal == ".align")
     return parseDirectiveAlign(DirectiveID.getLoc());
+  else if (IDVal == ".thumb_set")
+    return parseDirectiveThumbSet(DirectiveID.getLoc());
   return true;
 }
 
@@ -8079,6 +8094,7 @@ bool ARMAsmParser::parseDirectiveThumb(SMLoc L) {
 
   if (!isThumb())
     SwitchMode();
+
   getParser().getStreamer().EmitAssemblerFlag(MCAF_Code16);
   return false;
 }
@@ -8099,6 +8115,7 @@ bool ARMAsmParser::parseDirectiveARM(SMLoc L) {
 
   if (isThumb())
     SwitchMode();
+
   getParser().getStreamer().EmitAssemblerFlag(MCAF_Code32);
   return false;
 }
@@ -8107,6 +8124,32 @@ void ARMAsmParser::onLabelParsed(MCSymbol *Symbol) {
   if (NextSymbolIsThumb) {
     getParser().getStreamer().EmitThumbFunc(Symbol);
     NextSymbolIsThumb = false;
+    return;
+  }
+
+  if (!isThumb())
+    return;
+
+  const MCObjectFileInfo::Environment Format =
+    getContext().getObjectFileInfo()->getObjectFileType();
+  switch (Format) {
+  case MCObjectFileInfo::IsCOFF: {
+    const MCSymbolData &SD =
+      getParser().getStreamer().getOrCreateSymbolData(Symbol);
+    char Type = COFF::IMAGE_SYM_DTYPE_FUNCTION << COFF::SCT_COMPLEX_TYPE_SHIFT;
+    if (SD.getFlags() & (Type << COFF::SF_TypeShift))
+      getParser().getStreamer().EmitThumbFunc(Symbol);
+    break;
+  }
+  case MCObjectFileInfo::IsELF: {
+    const MCSymbolData &SD =
+      getParser().getStreamer().getOrCreateSymbolData(Symbol);
+    if (MCELF::GetType(SD) & (ELF::STT_FUNC << ELF_STT_Shift))
+      getParser().getStreamer().EmitThumbFunc(Symbol);
+    break;
+  }
+  case MCObjectFileInfo::IsMachO:
+    break;
   }
 }
 
@@ -8255,7 +8298,7 @@ bool ARMAsmParser::parseDirectiveUnreq(SMLoc L) {
     Error(L, "unexpected input in .unreq directive.");
     return false;
   }
-  RegisterReqs.erase(Parser.getTok().getIdentifier());
+  RegisterReqs.erase(Parser.getTok().getIdentifier().lower());
   Parser.Lex(); // Eat the identifier.
   return false;
 }
@@ -8263,6 +8306,14 @@ bool ARMAsmParser::parseDirectiveUnreq(SMLoc L) {
 /// parseDirectiveArch
 ///  ::= .arch token
 bool ARMAsmParser::parseDirectiveArch(SMLoc L) {
+  const MCAsmInfo *MAI = getParser().getStreamer().getContext().getAsmInfo();
+  bool isMachO = MAI->hasSubsectionsViaSymbols();
+  if (isMachO) {
+    Error(L, ".arch directive not valid for Mach-O");
+    Parser.eatToEndOfStatement();
+    return false;
+  }
+
   StringRef Arch = getParser().parseStringToEndOfStatement().trim();
 
   unsigned ID = StringSwitch<unsigned>(Arch)
@@ -8286,9 +8337,16 @@ bool ARMAsmParser::parseDirectiveArch(SMLoc L) {
 ///  ::= .eabi_attribute int, int [, "str"]
 ///  ::= .eabi_attribute Tag_name, int [, "str"]
 bool ARMAsmParser::parseDirectiveEabiAttr(SMLoc L) {
+  const MCAsmInfo *MAI = getParser().getStreamer().getContext().getAsmInfo();
+  bool isMachO = MAI->hasSubsectionsViaSymbols();
+  if (isMachO) {
+    Error(L, ".eabi_attribute directive not valid for Mach-O");
+    Parser.eatToEndOfStatement();
+    return false;
+  }
+
   int64_t Tag;
   SMLoc TagLoc;
-
   TagLoc = Parser.getTok().getLoc();
   if (Parser.getTok().is(AsmToken::Identifier)) {
     StringRef Name = Parser.getTok().getIdentifier();
@@ -8392,6 +8450,14 @@ bool ARMAsmParser::parseDirectiveEabiAttr(SMLoc L) {
 /// parseDirectiveCPU
 ///  ::= .cpu str
 bool ARMAsmParser::parseDirectiveCPU(SMLoc L) {
+  const MCAsmInfo *MAI = getParser().getStreamer().getContext().getAsmInfo();
+  bool isMachO = MAI->hasSubsectionsViaSymbols();
+  if (isMachO) {
+    Error(L, ".cpu directive not valid for Mach-O");
+    Parser.eatToEndOfStatement();
+    return false;
+  }
+
   StringRef CPU = getParser().parseStringToEndOfStatement().trim();
   getTargetStreamer().emitTextAttribute(ARMBuildAttrs::CPU_name, CPU);
   return false;
@@ -8400,6 +8466,14 @@ bool ARMAsmParser::parseDirectiveCPU(SMLoc L) {
 /// parseDirectiveFPU
 ///  ::= .fpu str
 bool ARMAsmParser::parseDirectiveFPU(SMLoc L) {
+  const MCAsmInfo *MAI = getParser().getStreamer().getContext().getAsmInfo();
+  bool isMachO = MAI->hasSubsectionsViaSymbols();
+  if (isMachO) {
+    Error(L, ".fpu directive not valid for Mach-O");
+    Parser.eatToEndOfStatement();
+    return false;
+  }
+
   StringRef FPU = getParser().parseStringToEndOfStatement().trim();
 
   unsigned ID = StringSwitch<unsigned>(FPU)
@@ -8419,6 +8493,14 @@ bool ARMAsmParser::parseDirectiveFPU(SMLoc L) {
 /// parseDirectiveFnStart
 ///  ::= .fnstart
 bool ARMAsmParser::parseDirectiveFnStart(SMLoc L) {
+  const MCAsmInfo *MAI = getParser().getStreamer().getContext().getAsmInfo();
+  bool isMachO = MAI->hasSubsectionsViaSymbols();
+  if (isMachO) {
+    Error(L, ".fnstart directive not valid for Mach-O");
+    Parser.eatToEndOfStatement();
+    return false;
+  }
+
   if (UC.hasFnStart()) {
     Error(L, ".fnstart starts before the end of previous one");
     UC.emitFnStartLocNotes();
@@ -8698,6 +8780,14 @@ bool ARMAsmParser::parseDirectiveRegSave(SMLoc L, bool IsVector) {
 ///  ::= .inst.n opcode [, ...]
 ///  ::= .inst.w opcode [, ...]
 bool ARMAsmParser::parseDirectiveInst(SMLoc Loc, char Suffix) {
+  const MCAsmInfo *MAI = getParser().getStreamer().getContext().getAsmInfo();
+  bool isMachO = MAI->hasSubsectionsViaSymbols();
+  if (isMachO) {
+    Error(Loc, ".inst directive not valid for Mach-O");
+    Parser.eatToEndOfStatement();
+    return false;
+  }
+
   int Width;
 
   if (isThumb()) {
@@ -8798,6 +8888,7 @@ bool ARMAsmParser::parseDirectiveEven(SMLoc L) {
     Section = getStreamer().getCurrentSection().first;
   }
 
+  assert(Section && "must have section to emit alignment");
   if (Section->UseCodeAlign())
     getStreamer().EmitCodeAlignment(2);
   else
@@ -8945,6 +9036,14 @@ bool ARMAsmParser::parseDirectiveUnwindRaw(SMLoc L) {
 /// parseDirectiveTLSDescSeq
 ///   ::= .tlsdescseq tls-variable
 bool ARMAsmParser::parseDirectiveTLSDescSeq(SMLoc L) {
+  const MCAsmInfo *MAI = getParser().getStreamer().getContext().getAsmInfo();
+  bool isMachO = MAI->hasSubsectionsViaSymbols();
+  if (isMachO) {
+    Error(L, ".tlsdescseq directive not valid for Mach-O");
+    Parser.eatToEndOfStatement();
+    return false;
+  }
+
   if (getLexer().isNot(AsmToken::Identifier)) {
     TokError("expected variable after '.tlsdescseq' directive");
     Parser.eatToEndOfStatement();
@@ -9032,6 +9131,14 @@ bool ARMAsmParser::parseDirectiveMovSP(SMLoc L) {
 /// parseDirectiveObjectArch
 ///   ::= .object_arch name
 bool ARMAsmParser::parseDirectiveObjectArch(SMLoc L) {
+  const MCAsmInfo *MAI = getParser().getStreamer().getContext().getAsmInfo();
+  bool isMachO = MAI->hasSubsectionsViaSymbols();
+  if (isMachO) {
+    Error(L, ".object_arch directive not valid for Mach-O");
+    Parser.eatToEndOfStatement();
+    return false;
+  }
+
   if (getLexer().isNot(AsmToken::Identifier)) {
     Error(getLexer().getLoc(), "unexpected token");
     Parser.eatToEndOfStatement();
@@ -9085,10 +9192,77 @@ bool ARMAsmParser::parseDirectiveAlign(SMLoc L) {
   return false;
 }
 
+/// parseDirectiveThumbSet
+///  ::= .thumb_set name, value
+bool ARMAsmParser::parseDirectiveThumbSet(SMLoc L) {
+  StringRef Name;
+  if (Parser.parseIdentifier(Name)) {
+    TokError("expected identifier after '.thumb_set'");
+    Parser.eatToEndOfStatement();
+    return false;
+  }
+
+  if (getLexer().isNot(AsmToken::Comma)) {
+    TokError("expected comma after name '" + Name + "'");
+    Parser.eatToEndOfStatement();
+    return false;
+  }
+  Lex();
+
+  const MCExpr *Value;
+  if (Parser.parseExpression(Value)) {
+    TokError("missing expression");
+    Parser.eatToEndOfStatement();
+    return false;
+  }
+
+  if (getLexer().isNot(AsmToken::EndOfStatement)) {
+    TokError("unexpected token");
+    Parser.eatToEndOfStatement();
+    return false;
+  }
+  Lex();
+
+  MCSymbol *Alias = getContext().GetOrCreateSymbol(Name);
+  if (const MCSymbolRefExpr *SRE = dyn_cast<MCSymbolRefExpr>(Value)) {
+    MCSymbol *Sym = getContext().LookupSymbol(SRE->getSymbol().getName());
+    if (!Sym->isDefined()) {
+      getStreamer().EmitSymbolAttribute(Sym, MCSA_Global);
+      getStreamer().EmitAssignment(Alias, Value);
+      return false;
+    }
+
+    const MCObjectFileInfo::Environment Format =
+      getContext().getObjectFileInfo()->getObjectFileType();
+    switch (Format) {
+    case MCObjectFileInfo::IsCOFF: {
+      char Type = COFF::IMAGE_SYM_DTYPE_FUNCTION << COFF::SCT_COMPLEX_TYPE_SHIFT;
+      getStreamer().EmitCOFFSymbolType(Type);
+      // .set values are always local in COFF
+      getStreamer().EmitSymbolAttribute(Alias, MCSA_Local);
+      break;
+    }
+    case MCObjectFileInfo::IsELF:
+      getStreamer().EmitSymbolAttribute(Alias, MCSA_ELF_TypeFunction);
+      break;
+    case MCObjectFileInfo::IsMachO:
+      break;
+    }
+  }
+
+  // FIXME: set the function as being a thumb function via the assembler
+  getStreamer().EmitThumbFunc(Alias);
+  getStreamer().EmitAssignment(Alias, Value);
+
+  return false;
+}
+
 /// Force static initialization.
 extern "C" void LLVMInitializeARMAsmParser() {
-  RegisterMCAsmParser<ARMAsmParser> X(TheARMTarget);
-  RegisterMCAsmParser<ARMAsmParser> Y(TheThumbTarget);
+  RegisterMCAsmParser<ARMAsmParser> X(TheARMLETarget);
+  RegisterMCAsmParser<ARMAsmParser> Y(TheARMBETarget);
+  RegisterMCAsmParser<ARMAsmParser> A(TheThumbLETarget);
+  RegisterMCAsmParser<ARMAsmParser> B(TheThumbBETarget);
 }
 
 #define GET_REGISTER_MATCHER

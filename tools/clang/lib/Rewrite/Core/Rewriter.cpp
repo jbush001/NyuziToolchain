@@ -21,6 +21,7 @@
 #include "clang/Basic/SourceManager.h"
 #include "clang/Lex/Lexer.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/Config/config.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace clang;
@@ -449,7 +450,7 @@ public:
     if (!ok()) return;
 
     FileStream->flush();
-#ifdef _WIN32
+#ifdef LLVM_ON_WIN32
     // Win32 does not allow rename/removing opened files.
     FileStream.reset();
 #endif
@@ -464,14 +465,14 @@ public:
     }
   }
 
-  bool ok() { return FileStream.isValid(); }
+  bool ok() { return (bool)FileStream; }
   raw_ostream &getStream() { return *FileStream; }
 
 private:
   DiagnosticsEngine &Diagnostics;
   StringRef Filename;
   SmallString<128> TempFilename;
-  OwningPtr<llvm::raw_fd_ostream> FileStream;
+  std::unique_ptr<llvm::raw_fd_ostream> FileStream;
   bool &AllWritten;
 };
 } // end anonymous namespace

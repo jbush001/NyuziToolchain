@@ -34,27 +34,27 @@ public:
   StubBinderAtom(const File &f) : _file(f) {
   }
 
-  virtual const File& file() const {
+  const File& file() const override {
     return _file;
   }
 
-  virtual StringRef name() const {
+  StringRef name() const override {
     return StringRef("dyld_stub_binder");
   }
 
-  virtual StringRef loadName() const {
+  StringRef loadName() const override {
     return StringRef("/usr/lib/libSystem.B.dylib");
   }
 
-  virtual bool canBeNullAtRuntime() const {
+  bool canBeNullAtRuntime() const override {
     return false;
   }
 
-  virtual Type type() const {
+  Type type() const override {
     return Type::Unknown;
   }
 
-  virtual uint64_t size() const LLVM_OVERRIDE {
+  uint64_t size() const override {
     return 0;
   }
 

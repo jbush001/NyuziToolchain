@@ -112,15 +112,15 @@ namespace {
       initializeGlobalMergePass(*PassRegistry::getPassRegistry());
     }
 
-    virtual bool doInitialization(Module &M);
-    virtual bool runOnFunction(Function &F);
-    virtual bool doFinalization(Module &M);
+    bool doInitialization(Module &M) override;
+    bool runOnFunction(Function &F) override;
+    bool doFinalization(Module &M) override;
 
-    const char *getPassName() const {
+    const char *getPassName() const override {
       return "Merge internal globals";
     }
 
-    virtual void getAnalysisUsage(AnalysisUsage &AU) const {
+    void getAnalysisUsage(AnalysisUsage &AU) const override {
       AU.setPreservesCFG();
       FunctionPass::getAnalysisUsage(AU);
     }
@@ -212,7 +212,7 @@ void GlobalMerge::setMustKeepGlobalVariables(Module &M) {
        ++IFn) {
     for (Function::iterator IBB = IFn->begin(), IEndBB = IFn->end();
          IBB != IEndBB; ++IBB) {
-      // Follow the inwoke link to find the landing pad instruction
+      // Follow the invoke link to find the landing pad instruction
       const InvokeInst *II = dyn_cast<InvokeInst>(IBB->getTerminator());
       if (!II) continue;
 

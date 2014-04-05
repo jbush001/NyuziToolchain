@@ -15,8 +15,8 @@
 
 #include "X86.h"
 #include "X86CallingConv.h"
-#include "X86ISelLowering.h"
 #include "X86InstrBuilder.h"
+#include "X86MachineFunctionInfo.h"
 #include "X86RegisterInfo.h"
 #include "X86Subtarget.h"
 #include "X86TargetMachine.h"
@@ -26,22 +26,22 @@
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/IR/CallSite.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/GetElementPtrTypeIterator.h"
 #include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Operator.h"
-#include "llvm/Support/CallSite.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/GetElementPtrTypeIterator.h"
 #include "llvm/Target/TargetOptions.h"
 using namespace llvm;
 
 namespace {
 
-class X86FastISel : public FastISel {
+class X86FastISel final : public FastISel {
   /// Subtarget - Keep a pointer to the X86Subtarget around so that we can
   /// make the right decision when generating code for different targets.
   const X86Subtarget *Subtarget;
@@ -62,16 +62,16 @@ public:
     X86ScalarSSEf32 = Subtarget->hasSSE1();
   }
 
-  virtual bool TargetSelectInstruction(const Instruction *I);
+  bool TargetSelectInstruction(const Instruction *I) override;
 
   /// \brief The specified machine instr operand is a vreg, and that
   /// vreg is being provided by the specified load instruction.  If possible,
   /// try to fold the load as an operand to the instruction, returning true if
   /// possible.
-  virtual bool tryToFoldLoadIntoMI(MachineInstr *MI, unsigned OpNo,
-                                   const LoadInst *LI);
+  bool tryToFoldLoadIntoMI(MachineInstr *MI, unsigned OpNo,
+                           const LoadInst *LI) override;
 
-  virtual bool FastLowerArguments();
+  bool FastLowerArguments() override;
 
 #include "X86GenFastISel.inc"
 
@@ -128,11 +128,11 @@ private:
 
   bool handleConstantAddresses(const Value *V, X86AddressMode &AM);
 
-  unsigned TargetMaterializeConstant(const Constant *C);
+  unsigned TargetMaterializeConstant(const Constant *C) override;
 
-  unsigned TargetMaterializeAlloca(const AllocaInst *C);
+  unsigned TargetMaterializeAlloca(const AllocaInst *C) override;
 
-  unsigned TargetMaterializeFloatZero(const ConstantFP *CF);
+  unsigned TargetMaterializeFloatZero(const ConstantFP *CF) override;
 
   /// isScalarFPTypeInSSEReg - Return true if the specified scalar FP type is
   /// computed in an SSE register, not on the X87 floating point stack.
@@ -363,7 +363,7 @@ bool X86FastISel::handleConstantAddresses(const Value *V, X86AddressMode &AM) {
     // it works...).
     if (const GlobalAlias *GA = dyn_cast<GlobalAlias>(GV))
       if (const GlobalVariable *GVar =
-            dyn_cast_or_null<GlobalVariable>(GA->resolveAliasedGlobal(false)))
+              dyn_cast_or_null<GlobalVariable>(GA->getAliasedGlobal()))
         if (GVar->isThreadLocal())
           return false;
 
@@ -876,7 +876,7 @@ bool X86FastISel::X86SelectRet(const Instruction *I) {
   // a virtual register in the entry block, so now we copy the value out
   // and into %rax. We also do the same with %eax for Win32.
   if (F.hasStructRetAttr() &&
-      (Subtarget->is64Bit() || Subtarget->isTargetWindows())) {
+      (Subtarget->is64Bit() || Subtarget->isTargetKnownWindowsMSVC())) {
     unsigned Reg = X86MFInfo->getSRetReturnReg();
     assert(Reg &&
            "SRetReturnReg should have been set in LowerFormalArguments()!");
@@ -1821,10 +1821,10 @@ bool X86FastISel::FastLowerArguments() {
     }
   }
 
-  static const uint16_t GPR32ArgRegs[] = {
+  static const MCPhysReg GPR32ArgRegs[] = {
     X86::EDI, X86::ESI, X86::EDX, X86::ECX, X86::R8D, X86::R9D
   };
-  static const uint16_t GPR64ArgRegs[] = {
+  static const MCPhysReg GPR64ArgRegs[] = {
     X86::RDI, X86::RSI, X86::RDX, X86::RCX, X86::R8 , X86::R9
   };
 
@@ -2163,7 +2163,7 @@ bool X86FastISel::DoSelectCall(const Instruction *I, const char *MemIntName) {
 
   if (Subtarget->is64Bit() && isVarArg && !isWin64) {
     // Count the number of XMM registers allocated.
-    static const uint16_t XMMArgRegs[] = {
+    static const MCPhysReg XMMArgRegs[] = {
       X86::XMM0, X86::XMM1, X86::XMM2, X86::XMM3,
       X86::XMM4, X86::XMM5, X86::XMM6, X86::XMM7
     };

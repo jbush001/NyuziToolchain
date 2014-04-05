@@ -14,7 +14,7 @@
 #include "InstCombine.h"
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/IR/DataLayout.h"
-#include "llvm/Support/PatternMatch.h"
+#include "llvm/IR/PatternMatch.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 using namespace llvm;
 using namespace PatternMatch;
@@ -757,7 +757,7 @@ static bool CanEvaluateZExtd(Value *V, Type *Ty, unsigned &BitsToClear) {
 Instruction *InstCombiner::visitZExt(ZExtInst &CI) {
   // If this zero extend is only used by a truncate, let the truncate be
   // eliminated before we try to optimize this zext.
-  if (CI.hasOneUse() && isa<TruncInst>(CI.use_back()))
+  if (CI.hasOneUse() && isa<TruncInst>(CI.user_back()))
     return 0;
 
   // If one of the common conversion will work, do it.
@@ -1038,7 +1038,7 @@ static bool CanEvaluateSExtd(Value *V, Type *Ty) {
 Instruction *InstCombiner::visitSExt(SExtInst &CI) {
   // If this sign extend is only used by a truncate, let the truncate be
   // eliminated before we try to optimize this sext.
-  if (CI.hasOneUse() && isa<TruncInst>(CI.use_back()))
+  if (CI.hasOneUse() && isa<TruncInst>(CI.user_back()))
     return 0;
 
   if (Instruction *I = commonCastTransforms(CI))

@@ -105,8 +105,9 @@ TEST(NameableDeclaration, REMatchesVariousDecls) {
 
 TEST(DeclarationMatcher, MatchClass) {
   DeclarationMatcher ClassMatcher(recordDecl());
-  if (llvm::Triple(llvm::sys::getDefaultTargetTriple()).getOS() !=
-      llvm::Triple::Win32)
+  llvm::Triple Triple(llvm::sys::getDefaultTargetTriple());
+  if (Triple.getOS() != llvm::Triple::Win32 ||
+      Triple.getEnvironment() != llvm::Triple::MSVC)
     EXPECT_FALSE(matches("", ClassMatcher));
   else
     // Matches class type_info.
@@ -665,7 +666,7 @@ public:
       : Id(Id), ExpectedCount(ExpectedCount), Count(0),
         ExpectedName(ExpectedName) {}
 
-  void onEndOfTranslationUnit() LLVM_OVERRIDE {
+  void onEndOfTranslationUnit() override {
     if (ExpectedCount != -1)
       EXPECT_EQ(ExpectedCount, Count);
     if (!ExpectedName.empty())
@@ -1040,7 +1041,7 @@ TEST(HasType, MatchesAsString) {
   EXPECT_TRUE(matches("namespace ns { struct A {}; }  struct B { ns::A a; };",
       fieldDecl(hasType(asString("ns::A")))));
   EXPECT_TRUE(matches("namespace { struct A {}; }  struct B { A a; };",
-      fieldDecl(hasType(asString("struct <anonymous namespace>::A")))));
+      fieldDecl(hasType(asString("struct (anonymous namespace)::A")))));
 }
 
 TEST(Matcher, OverloadedOperatorCall) {
@@ -2942,6 +2943,15 @@ TEST(DeclarationStatement, MatchesVariableDeclarationStatements) {
   EXPECT_TRUE(matches("void x() { int a; }", declStmt()));
 }
 
+TEST(ExprWithCleanups, MatchesExprWithCleanups) {
+  EXPECT_TRUE(matches("struct Foo { ~Foo(); };"
+                      "const Foo f = Foo();",
+                      varDecl(hasInitializer(exprWithCleanups()))));
+  EXPECT_FALSE(matches("struct Foo { };"
+                      "const Foo f = Foo();",
+                      varDecl(hasInitializer(exprWithCleanups()))));
+}
+
 TEST(InitListExpression, MatchesInitListExpression) {
   EXPECT_TRUE(matches("int a[] = { 1, 2 };",
                       initListExpr(hasType(asString("int [2]")))));
@@ -3667,12 +3677,16 @@ TEST(TypeMatching, MatchesVariableArrayType) {
 }
 
 TEST(TypeMatching, MatchesAtomicTypes) {
-  EXPECT_TRUE(matches("_Atomic(int) i;", atomicType()));
+  if (llvm::Triple(llvm::sys::getDefaultTargetTriple()).getOS() !=
+      llvm::Triple::Win32) {
+    // FIXME: Make this work for MSVC.
+    EXPECT_TRUE(matches("_Atomic(int) i;", atomicType()));
 
-  EXPECT_TRUE(matches("_Atomic(int) i;",
-                      atomicType(hasValueType(isInteger()))));
-  EXPECT_TRUE(notMatches("_Atomic(float) f;",
-                         atomicType(hasValueType(isInteger()))));
+    EXPECT_TRUE(matches("_Atomic(int) i;",
+                        atomicType(hasValueType(isInteger()))));
+    EXPECT_TRUE(notMatches("_Atomic(float) f;",
+                           atomicType(hasValueType(isInteger()))));
+  }
 }
 
 TEST(TypeMatching, MatchesAutoTypes) {
@@ -4161,12 +4175,13 @@ TEST(MatchFinder, InterceptsStartOfTranslationUnit) {
   MatchFinder Finder;
   VerifyStartOfTranslationUnit VerifyCallback;
   Finder.addMatcher(decl(), &VerifyCallback);
-  OwningPtr<FrontendActionFactory> Factory(newFrontendActionFactory(&Finder));
+  std::unique_ptr<FrontendActionFactory> Factory(
+      newFrontendActionFactory(&Finder));
   ASSERT_TRUE(tooling::runToolOnCode(Factory->create(), "int x;"));
   EXPECT_TRUE(VerifyCallback.Called);
 
   VerifyCallback.Called = false;
-  OwningPtr<ASTUnit> AST(tooling::buildASTFromCode("int x;"));
+  std::unique_ptr<ASTUnit> AST(tooling::buildASTFromCode("int x;"));
   ASSERT_TRUE(AST.get());
   Finder.matchAST(AST->getASTContext());
   EXPECT_TRUE(VerifyCallback.Called);
@@ -4188,12 +4203,13 @@ TEST(MatchFinder, InterceptsEndOfTranslationUnit) {
   MatchFinder Finder;
   VerifyEndOfTranslationUnit VerifyCallback;
   Finder.addMatcher(decl(), &VerifyCallback);
-  OwningPtr<FrontendActionFactory> Factory(newFrontendActionFactory(&Finder));
+  std::unique_ptr<FrontendActionFactory> Factory(
+      newFrontendActionFactory(&Finder));
   ASSERT_TRUE(tooling::runToolOnCode(Factory->create(), "int x;"));
   EXPECT_TRUE(VerifyCallback.Called);
 
   VerifyCallback.Called = false;
-  OwningPtr<ASTUnit> AST(tooling::buildASTFromCode("int x;"));
+  std::unique_ptr<ASTUnit> AST(tooling::buildASTFromCode("int x;"));
   ASSERT_TRUE(AST.get());
   Finder.matchAST(AST->getASTContext());
   EXPECT_TRUE(VerifyCallback.Called);
@@ -4254,7 +4270,6 @@ TEST(EqualsBoundNodeMatcher, Type) {
 }
 
 TEST(EqualsBoundNodeMatcher, UsingForEachDescendant) {
-
   EXPECT_TRUE(matchAndVerifyResultTrue(
       "int f() {"
       "  if (1) {"
@@ -4286,6 +4301,38 @@ TEST(EqualsBoundNodeMatcher, FiltersMatchedCombinations) {
           hasName("f"), forEachDescendant(varDecl().bind("d")),
           forEachDescendant(declRefExpr(to(decl(equalsBoundNode("d")))))),
       new VerifyIdIsBoundTo<VarDecl>("d", 5)));
+}
+
+TEST(EqualsBoundNodeMatcher, UnlessDescendantsOfAncestorsMatch) {
+  EXPECT_TRUE(matchAndVerifyResultTrue(
+      "struct StringRef { int size() const; const char* data() const; };"
+      "void f(StringRef v) {"
+      "  v.data();"
+      "}",
+      memberCallExpr(
+          callee(methodDecl(hasName("data"))),
+          on(declRefExpr(to(varDecl(hasType(recordDecl(hasName("StringRef"))))
+                                .bind("var")))),
+          unless(hasAncestor(stmt(hasDescendant(memberCallExpr(
+              callee(methodDecl(anyOf(hasName("size"), hasName("length")))),
+              on(declRefExpr(to(varDecl(equalsBoundNode("var")))))))))))
+          .bind("data"),
+      new VerifyIdIsBoundTo<Expr>("data", 1)));
+
+  EXPECT_FALSE(matches(
+      "struct StringRef { int size() const; const char* data() const; };"
+      "void f(StringRef v) {"
+      "  v.data();"
+      "  v.size();"
+      "}",
+      memberCallExpr(
+          callee(methodDecl(hasName("data"))),
+          on(declRefExpr(to(varDecl(hasType(recordDecl(hasName("StringRef"))))
+                                .bind("var")))),
+          unless(hasAncestor(stmt(hasDescendant(memberCallExpr(
+              callee(methodDecl(anyOf(hasName("size"), hasName("length")))),
+              on(declRefExpr(to(varDecl(equalsBoundNode("var")))))))))))
+          .bind("data")));
 }
 
 } // end namespace ast_matchers

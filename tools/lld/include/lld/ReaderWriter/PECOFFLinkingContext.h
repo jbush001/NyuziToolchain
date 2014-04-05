@@ -21,6 +21,7 @@
 #include "llvm/Support/FileUtilities.h"
 
 #include <map>
+#include <mutex>
 #include <set>
 #include <vector>
 
@@ -35,9 +36,10 @@ class Group;
 class PECOFFLinkingContext : public LinkingContext {
 public:
   PECOFFLinkingContext()
-      : _baseAddress(invalidBaseAddress), _stackReserve(1024 * 1024),
-        _stackCommit(4096), _heapReserve(1024 * 1024), _heapCommit(4096),
-        _noDefaultLibAll(false), _sectionDefaultAlignment(4096),
+      : _mutex(), _allocMutex(), _baseAddress(invalidBaseAddress),
+        _stackReserve(1024 * 1024), _stackCommit(4096),
+        _heapReserve(1024 * 1024), _heapCommit(4096), _noDefaultLibAll(false),
+        _sectionDefaultAlignment(4096),
         _subsystem(llvm::COFF::IMAGE_SUBSYSTEM_UNKNOWN),
         _machineType(llvm::COFF::IMAGE_FILE_MACHINE_I386), _imageVersion(0, 0),
         _minOSVersion(6, 0), _nxCompat(true), _largeAddressAware(false),
@@ -72,13 +74,13 @@ public:
   /// \brief Casting support
   static inline bool classof(const LinkingContext *info) { return true; }
 
-  virtual Writer &writer() const;
-  virtual bool validateImpl(raw_ostream &diagnostics);
+  Writer &writer() const override;
+  bool validateImpl(raw_ostream &diagnostics) override;
 
-  virtual void addPasses(PassManager &pm);
+  void addPasses(PassManager &pm) override;
 
-  virtual bool
-  createImplicitFiles(std::vector<std::unique_ptr<File> > &result) const;
+  bool createImplicitFiles(
+      std::vector<std::unique_ptr<File> > &result) const override;
 
   bool is64Bit() const {
     return _machineType == llvm::COFF::IMAGE_FILE_MACHINE_AMD64;
@@ -234,7 +236,9 @@ public:
   const std::set<ExportDesc> &getDllExports() const { return _dllExports; }
 
   StringRef allocate(StringRef ref) const {
+    _allocMutex.lock();
     char *x = _allocator.Allocate<char>(ref.size() + 1);
+    _allocMutex.unlock();
     memcpy(x, ref.data(), ref.size());
     x[ref.size()] = '\0';
     return x;
@@ -242,9 +246,18 @@ public:
 
   ArrayRef<uint8_t> allocate(ArrayRef<uint8_t> array) const {
     size_t size = array.size();
+    _allocMutex.lock();
     uint8_t *p = _allocator.Allocate<uint8_t>(size);
+    _allocMutex.unlock();
     memcpy(p, array.data(), size);
     return ArrayRef<uint8_t>(p, p + array.size());
+  }
+
+  template <typename T> T &allocateCopy(const T &x) const {
+    _allocMutex.lock();
+    T *r = new (_allocator) T(x);
+    _allocMutex.unlock();
+    return *r;
   }
 
   virtual bool hasInputGraph() { return !!_inputGraph; }
@@ -252,19 +265,24 @@ public:
   void setLibraryGroup(Group *group) { _libraryGroup = group; }
   Group *getLibraryGroup() const { return _libraryGroup; }
 
+  std::recursive_mutex &getMutex() { return _mutex; }
+
 protected:
   /// Method to create a internal file for the entry symbol
-  virtual std::unique_ptr<File> createEntrySymbolFile() const;
+  std::unique_ptr<File> createEntrySymbolFile() const override;
 
   /// Method to create a internal file for an undefined symbol
-  virtual std::unique_ptr<File> createUndefinedSymbolFile() const;
+  std::unique_ptr<File> createUndefinedSymbolFile() const override;
 
 private:
   enum : uint64_t {
     invalidBaseAddress = UINT64_MAX,
     pe32DefaultBaseAddress = 0x400000U,
     pe32PlusDefaultBaseAddress = 0x140000000U
- };
+  };
+
+  std::recursive_mutex _mutex;
+  mutable std::mutex _allocMutex;
 
   // The start address for the program. The default value for the executable is
   // 0x400000, but can be altered using /base command line option.

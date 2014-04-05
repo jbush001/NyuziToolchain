@@ -399,13 +399,11 @@ void ASTStmtReader::VisitCapturedStmt(CapturedStmt *S) {
   S->getCapturedDecl()->setBody(S->getCapturedStmt());
 
   // Captures
-  for (CapturedStmt::capture_iterator I = S->capture_begin(),
-                                      E = S->capture_end();
-       I != E; ++I) {
-    I->VarAndKind.setPointer(ReadDeclAs<VarDecl>(Record, Idx));
-    I->VarAndKind
+  for (auto &I : S->captures()) {
+    I.VarAndKind.setPointer(ReadDeclAs<VarDecl>(Record, Idx));
+    I.VarAndKind
         .setInt(static_cast<CapturedStmt::VariableCaptureKind>(Record[Idx++]));
-    I->Loc = ReadSourceLocation(Record, Idx);
+    I.Loc = ReadSourceLocation(Record, Idx);
   }
 }
 
@@ -1676,6 +1674,12 @@ OMPClause *OMPClauseReader::readClause() {
   case OMPC_if:
     C = new (Context) OMPIfClause();
     break;
+  case OMPC_num_threads:
+    C = new (Context) OMPNumThreadsClause();
+    break;
+  case OMPC_safelen:
+    C = new (Context) OMPSafelenClause();
+    break;
   case OMPC_default:
     C = new (Context) OMPDefaultClause();
     break;
@@ -1688,6 +1692,9 @@ OMPClause *OMPClauseReader::readClause() {
   case OMPC_shared:
     C = OMPSharedClause::CreateEmpty(Context, Record[Idx++]);
     break;
+  case OMPC_copyin:
+    C = OMPCopyinClause::CreateEmpty(Context, Record[Idx++]);
+    break;
   }
   Visit(C);
   C->setLocStart(Reader->ReadSourceLocation(Record, Idx));
@@ -1698,6 +1705,16 @@ OMPClause *OMPClauseReader::readClause() {
 
 void OMPClauseReader::VisitOMPIfClause(OMPIfClause *C) {
   C->setCondition(Reader->Reader.ReadSubExpr());
+  C->setLParenLoc(Reader->ReadSourceLocation(Record, Idx));
+}
+
+void OMPClauseReader::VisitOMPNumThreadsClause(OMPNumThreadsClause *C) {
+  C->setNumThreads(Reader->Reader.ReadSubExpr());
+  C->setLParenLoc(Reader->ReadSourceLocation(Record, Idx));
+}
+
+void OMPClauseReader::VisitOMPSafelenClause(OMPSafelenClause *C) {
+  C->setSafelen(Reader->Reader.ReadSubExpr());
   C->setLParenLoc(Reader->ReadSourceLocation(Record, Idx));
 }
 
@@ -1729,6 +1746,16 @@ void OMPClauseReader::VisitOMPFirstprivateClause(OMPFirstprivateClause *C) {
 }
 
 void OMPClauseReader::VisitOMPSharedClause(OMPSharedClause *C) {
+  C->setLParenLoc(Reader->ReadSourceLocation(Record, Idx));
+  unsigned NumVars = C->varlist_size();
+  SmallVector<Expr *, 16> Vars;
+  Vars.reserve(NumVars);
+  for (unsigned i = 0; i != NumVars; ++i)
+    Vars.push_back(Reader->Reader.ReadSubExpr());
+  C->setVarRefs(Vars);
+}
+
+void OMPClauseReader::VisitOMPCopyinClause(OMPCopyinClause *C) {
   C->setLParenLoc(Reader->ReadSourceLocation(Record, Idx));
   unsigned NumVars = C->varlist_size();
   SmallVector<Expr *, 16> Vars;

@@ -16,9 +16,9 @@
 
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/ScalarEvolutionNormalization.h"
+#include "llvm/Analysis/TargetFolder.h"
 #include "llvm/IR/IRBuilder.h"
-#include "llvm/Support/TargetFolder.h"
-#include "llvm/Support/ValueHandle.h"
+#include "llvm/IR/ValueHandle.h"
 #include <set>
 
 namespace llvm {

@@ -297,6 +297,8 @@ ModuleMap::findModuleForHeader(const FileEntry *File,
       Result = *I;
       // If 'File' is a public header of this module, this is as good as we
       // are going to get.
+      // FIXME: If we have a RequestingModule, we should prefer the header from
+      // that module.
       if (I->getRole() == ModuleMap::NormalHeader)
         break;
     }
@@ -592,9 +594,9 @@ ModuleMap::inferFrameworkModule(StringRef ModuleName,
         if (inferred == InferredDirectories.end()) {
           // We haven't looked here before. Load a module map, if there is
           // one.
-          SmallString<128> ModMapPath = Parent;
-          llvm::sys::path::append(ModMapPath, "module.map");
-          if (const FileEntry *ModMapFile = FileMgr.getFile(ModMapPath)) {
+          bool IsFrameworkDir = Parent.endswith(".framework");
+          if (const FileEntry *ModMapFile =
+                HeaderInfo.lookupModuleMapFile(ParentDir, IsFrameworkDir)) {
             parseModuleMapFile(ModMapFile, IsSystem);
             inferred = InferredDirectories.find(ParentDir);
           }
@@ -906,10 +908,13 @@ namespace clang {
 
   /// \brief The set of attributes that can be attached to a module.
   struct Attributes {
-    Attributes() : IsSystem(), IsExhaustive() { }
+    Attributes() : IsSystem(), IsExternC(), IsExhaustive() { }
 
     /// \brief Whether this is a system module.
     unsigned IsSystem : 1;
+
+    /// \brief Whether this is an extern "C" module.
+    unsigned IsExternC : 1;
 
     /// \brief Whether this is an exhaustive set of configuration macros.
     unsigned IsExhaustive : 1;
@@ -1178,6 +1183,8 @@ namespace {
     AT_unknown,
     /// \brief The 'system' attribute.
     AT_system,
+    /// \brief The 'extern_c' attribute.
+    AT_extern_c,
     /// \brief The 'exhaustive' attribute.
     AT_exhaustive
   };
@@ -1275,7 +1282,8 @@ void ModuleMapParser::parseModuleDecl() {
       
       if (ActiveModule) {
         Diags.Report(Id[I].second, diag::err_mmap_missing_module_qualified)
-          << Id[I].first << ActiveModule->getTopLevelModule();
+          << Id[I].first
+          << ActiveModule->getTopLevelModule()->getFullModuleName();
       } else {
         Diags.Report(Id[I].second, diag::err_mmap_expected_module_name);
       }
@@ -1334,7 +1342,9 @@ void ModuleMapParser::parseModuleDecl() {
   ActiveModule->DefinitionLoc = ModuleNameLoc;
   if (Attrs.IsSystem || IsSystem)
     ActiveModule->IsSystem = true;
-  
+  if (Attrs.IsExternC)
+    ActiveModule->IsExternC = true;
+
   bool Done = false;
   do {
     switch (Tok.Kind) {
@@ -1987,6 +1997,7 @@ void ModuleMapParser::parseInferredModuleDecl(bool Framework, bool Explicit) {
     // We'll be inferring framework modules for this directory.
     Map.InferredDirectories[Directory].InferModules = true;
     Map.InferredDirectories[Directory].InferSystemModules = Attrs.IsSystem;
+    // FIXME: Handle the 'framework' keyword.
   }
 
   // Parse the opening brace.
@@ -2097,6 +2108,7 @@ bool ModuleMapParser::parseOptionalAttributes(Attributes &Attrs) {
     AttributeKind Attribute
       = llvm::StringSwitch<AttributeKind>(Tok.getString())
           .Case("exhaustive", AT_exhaustive)
+          .Case("extern_c", AT_extern_c)
           .Case("system", AT_system)
           .Default(AT_unknown);
     switch (Attribute) {
@@ -2107,6 +2119,10 @@ bool ModuleMapParser::parseOptionalAttributes(Attributes &Attrs) {
 
     case AT_system:
       Attrs.IsSystem = true;
+      break;
+
+    case AT_extern_c:
+      Attrs.IsExternC = true;
       break;
 
     case AT_exhaustive:
@@ -2198,14 +2214,26 @@ bool ModuleMap::parseModuleMapFile(const FileEntry *File, bool IsSystem) {
     return Known->second;
 
   assert(Target != 0 && "Missing target information");
-  FileID ID = SourceMgr.createFileID(File, SourceLocation(), SrcMgr::C_User);
+  auto FileCharacter = IsSystem ? SrcMgr::C_System : SrcMgr::C_User;
+  FileID ID = SourceMgr.createFileID(File, SourceLocation(), FileCharacter);
   const llvm::MemoryBuffer *Buffer = SourceMgr.getBuffer(ID);
   if (!Buffer)
     return ParsedModuleMap[File] = true;
+
+  // Find the directory for the module. For frameworks, that may require going
+  // up from the 'Modules' directory.
+  const DirectoryEntry *Dir = File->getDir();
+  StringRef DirName(Dir->getName());
+  if (llvm::sys::path::filename(DirName) == "Modules") {
+    DirName = llvm::sys::path::parent_path(DirName);
+    if (DirName.endswith(".framework"))
+      Dir = SourceMgr.getFileManager().getDirectory(DirName);
+    assert(Dir && "parent must exist");
+  }
   
   // Parse this module map file.
   Lexer L(ID, SourceMgr.getBuffer(ID), SourceMgr, MMapLangOpts);
-  ModuleMapParser Parser(L, SourceMgr, Target, Diags, *this, File->getDir(),
+  ModuleMapParser Parser(L, SourceMgr, Target, Diags, *this, Dir,
                          BuiltinIncludeDir, IsSystem);
   bool Result = Parser.parseModuleMapFile();
   ParsedModuleMap[File] = Result;

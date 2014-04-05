@@ -32,19 +32,19 @@
 #include "llvm/Analysis/Loads.h"
 #include "llvm/Analysis/PtrUseVisitor.h"
 #include "llvm/Analysis/ValueTracking.h"
-#include "llvm/DIBuilder.h"
-#include "llvm/DebugInfo.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DIBuilder.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/InstVisitor.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Operator.h"
-#include "llvm/InstVisitor.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Compiler.h"
@@ -556,7 +556,7 @@ private:
     // they both point to the same alloca.
     bool Inserted;
     SmallDenseMap<Instruction *, unsigned>::iterator MTPI;
-    llvm::tie(MTPI, Inserted) =
+    std::tie(MTPI, Inserted) =
         MemTransferSliceMap.insert(std::make_pair(&II, S.Slices.size()));
     unsigned PrevIdx = MTPI->second;
     if (!Inserted) {
@@ -615,7 +615,7 @@ private:
     Size = 0;
     do {
       Instruction *I, *UsedI;
-      llvm::tie(UsedI, I) = Uses.pop_back_val();
+      std::tie(UsedI, I) = Uses.pop_back_val();
 
       if (LoadInst *LI = dyn_cast<LoadInst>(I)) {
         Size = std::max(Size, DL.getTypeStoreSize(LI->getType()));
@@ -637,10 +637,9 @@ private:
         return I;
       }
 
-      for (Value::use_iterator UI = I->use_begin(), UE = I->use_end(); UI != UE;
-           ++UI)
-        if (Visited.insert(cast<Instruction>(*UI)))
-          Uses.push_back(std::make_pair(I, cast<Instruction>(*UI)));
+      for (User *U : I->users())
+        if (Visited.insert(cast<Instruction>(U)))
+          Uses.push_back(std::make_pair(I, cast<Instruction>(U)));
     } while (!Uses.empty());
 
     return 0;
@@ -817,12 +816,10 @@ public:
     // Retain the debug information attached to the alloca for use when
     // rewriting loads and stores.
     if (MDNode *DebugNode = MDNode::getIfExists(AI.getContext(), &AI)) {
-      for (Value::use_iterator UI = DebugNode->use_begin(),
-                               UE = DebugNode->use_end();
-           UI != UE; ++UI)
-        if (DbgDeclareInst *DDI = dyn_cast<DbgDeclareInst>(*UI))
+      for (User *U : DebugNode->users())
+        if (DbgDeclareInst *DDI = dyn_cast<DbgDeclareInst>(U))
           DDIs.push_back(DDI);
-        else if (DbgValueInst *DVI = dyn_cast<DbgValueInst>(*UI))
+        else if (DbgValueInst *DVI = dyn_cast<DbgValueInst>(U))
           DVIs.push_back(DVI);
     }
 
@@ -836,8 +833,8 @@ public:
       DVIs.pop_back_val()->eraseFromParent();
   }
 
-  virtual bool isInstInList(Instruction *I,
-                            const SmallVectorImpl<Instruction*> &Insts) const {
+  bool isInstInList(Instruction *I,
+                    const SmallVectorImpl<Instruction*> &Insts) const override {
     Value *Ptr;
     if (LoadInst *LI = dyn_cast<LoadInst>(I))
       Ptr = LI->getOperand(0);
@@ -864,7 +861,7 @@ public:
     return false;
   }
 
-  virtual void updateDebugInfo(Instruction *Inst) const {
+  void updateDebugInfo(Instruction *Inst) const override {
     for (SmallVectorImpl<DbgDeclareInst *>::const_iterator I = DDIs.begin(),
            E = DDIs.end(); I != E; ++I) {
       DbgDeclareInst *DDI = *I;
@@ -975,10 +972,10 @@ public:
         C(0), DL(0), DT(0) {
     initializeSROAPass(*PassRegistry::getPassRegistry());
   }
-  bool runOnFunction(Function &F);
-  void getAnalysisUsage(AnalysisUsage &AU) const;
+  bool runOnFunction(Function &F) override;
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
 
-  const char *getPassName() const { return "SROA"; }
+  const char *getPassName() const override { return "SROA"; }
   static char ID;
 
 private:
@@ -1085,9 +1082,8 @@ static bool isSafePHIToSpeculate(PHINode &PN,
   BasicBlock *BB = PN.getParent();
   unsigned MaxAlign = 0;
   bool HaveLoad = false;
-  for (Value::use_iterator UI = PN.use_begin(), UE = PN.use_end(); UI != UE;
-       ++UI) {
-    LoadInst *LI = dyn_cast<LoadInst>(*UI);
+  for (User *U : PN.users()) {
+    LoadInst *LI = dyn_cast<LoadInst>(U);
     if (LI == 0 || !LI->isSimple())
       return false;
 
@@ -1151,13 +1147,13 @@ static void speculatePHINodeLoads(PHINode &PN) {
 
   // Get the TBAA tag and alignment to use from one of the loads.  It doesn't
   // matter which one we get and if any differ.
-  LoadInst *SomeLoad = cast<LoadInst>(*PN.use_begin());
+  LoadInst *SomeLoad = cast<LoadInst>(PN.user_back());
   MDNode *TBAATag = SomeLoad->getMetadata(LLVMContext::MD_tbaa);
   unsigned Align = SomeLoad->getAlignment();
 
   // Rewrite all loads of the PN to use the new PHI.
   while (!PN.use_empty()) {
-    LoadInst *LI = cast<LoadInst>(*PN.use_begin());
+    LoadInst *LI = cast<LoadInst>(PN.user_back());
     LI->replaceAllUsesWith(NewPN);
     LI->eraseFromParent();
   }
@@ -1201,9 +1197,8 @@ static bool isSafeSelectToSpeculate(SelectInst &SI, const DataLayout *DL = 0) {
   bool TDerefable = TValue->isDereferenceablePointer();
   bool FDerefable = FValue->isDereferenceablePointer();
 
-  for (Value::use_iterator UI = SI.use_begin(), UE = SI.use_end(); UI != UE;
-       ++UI) {
-    LoadInst *LI = dyn_cast<LoadInst>(*UI);
+  for (User *U : SI.users()) {
+    LoadInst *LI = dyn_cast<LoadInst>(U);
     if (LI == 0 || !LI->isSimple())
       return false;
 
@@ -1229,7 +1224,7 @@ static void speculateSelectInstLoads(SelectInst &SI) {
   Value *FV = SI.getFalseValue();
   // Replace the loads of the select with a select of two loads.
   while (!SI.use_empty()) {
-    LoadInst *LI = cast<LoadInst>(*SI.use_begin());
+    LoadInst *LI = cast<LoadInst>(SI.user_back());
     assert(LI->isSimple() && "We only speculate simple loads");
 
     IRB.SetInsertPoint(LI);
@@ -2232,7 +2227,7 @@ private:
              DL.getTypeStoreSizeInBits(LI.getType()) &&
              "Non-byte-multiple bit width");
       // Move the insertion point just past the load so that we can refer to it.
-      IRB.SetInsertPoint(llvm::next(BasicBlock::iterator(&LI)));
+      IRB.SetInsertPoint(std::next(BasicBlock::iterator(&LI)));
       // Create a placeholder value with the same type as LI to use as the
       // basis for the new value. This allows us to replace the uses of LI with
       // the computed value, and then replace the placeholder with LI, leaving
@@ -2782,10 +2777,9 @@ private:
   /// Enqueue all the users of the given instruction for further processing.
   /// This uses a set to de-duplicate users.
   void enqueueUsers(Instruction &I) {
-    for (Value::use_iterator UI = I.use_begin(), UE = I.use_end(); UI != UE;
-         ++UI)
-      if (Visited.insert(*UI))
-        Queue.push_back(&UI.getUse());
+    for (Use &U : I.uses())
+      if (Visited.insert(U.getUser()))
+        Queue.push_back(&U);
   }
 
   // Conservative default is to not rewrite anything.
@@ -3295,7 +3289,7 @@ bool SROA::splitAlloca(AllocaInst &AI, AllocaSlices &S) {
 
   uint64_t BeginOffset = S.begin()->beginOffset();
 
-  for (AllocaSlices::iterator SI = S.begin(), SJ = llvm::next(SI), SE = S.end();
+  for (AllocaSlices::iterator SI = S.begin(), SJ = std::next(SI), SE = S.end();
        SI != SE; SI = SJ) {
     uint64_t MaxEndOffset = SI->endOffset();
 
@@ -3447,9 +3441,8 @@ bool SROA::runOnAlloca(AllocaInst &AI) {
                                         DE = S.dead_user_end();
        DI != DE; ++DI) {
     // Free up everything used by this instruction.
-    for (User::op_iterator DOI = (*DI)->op_begin(), DOE = (*DI)->op_end();
-         DOI != DOE; ++DOI)
-      clobberUse(*DOI);
+    for (Use &DeadOp : (*DI)->operands())
+      clobberUse(DeadOp);
 
     // Now replace the uses of this instruction.
     (*DI)->replaceAllUsesWith(UndefValue::get((*DI)->getType()));
@@ -3498,10 +3491,10 @@ void SROA::deleteDeadInstructions(SmallPtrSet<AllocaInst*, 4> &DeletedAllocas) {
 
     I->replaceAllUsesWith(UndefValue::get(I->getType()));
 
-    for (User::op_iterator OI = I->op_begin(), E = I->op_end(); OI != E; ++OI)
-      if (Instruction *U = dyn_cast<Instruction>(*OI)) {
+    for (Use &Operand : I->operands())
+      if (Instruction *U = dyn_cast<Instruction>(Operand)) {
         // Zero out the operand and see if it becomes trivially dead.
-        *OI = 0;
+        Operand = 0;
         if (isInstructionTriviallyDead(U))
           DeadInsts.insert(U);
       }
@@ -3517,10 +3510,9 @@ void SROA::deleteDeadInstructions(SmallPtrSet<AllocaInst*, 4> &DeletedAllocas) {
 static void enqueueUsersInWorklist(Instruction &I,
                                    SmallVectorImpl<Instruction *> &Worklist,
                                    SmallPtrSet<Instruction *, 8> &Visited) {
-  for (Value::use_iterator UI = I.use_begin(), UE = I.use_end(); UI != UE;
-       ++UI)
-    if (Visited.insert(cast<Instruction>(*UI)))
-      Worklist.push_back(cast<Instruction>(*UI));
+  for (User *U : I.users())
+    if (Visited.insert(cast<Instruction>(U)))
+      Worklist.push_back(cast<Instruction>(U));
 }
 
 /// \brief Promote the allocas, using the best available technique.
@@ -3623,7 +3615,7 @@ bool SROA::runOnFunction(Function &F) {
   DT = DTWP ? &DTWP->getDomTree() : 0;
 
   BasicBlock &EntryBB = F.getEntryBlock();
-  for (BasicBlock::iterator I = EntryBB.begin(), E = llvm::prior(EntryBB.end());
+  for (BasicBlock::iterator I = EntryBB.begin(), E = std::prev(EntryBB.end());
        I != E; ++I)
     if (AllocaInst *AI = dyn_cast<AllocaInst>(I))
       Worklist.insert(AI);
@@ -3641,7 +3633,7 @@ bool SROA::runOnFunction(Function &F) {
       // Remove the deleted allocas from various lists so that we don't try to
       // continue processing them.
       if (!DeletedAllocas.empty()) {
-        std::function<bool(AllocaInst *)> IsInSet = [&](AllocaInst *AI) {
+        auto IsInSet = [&](AllocaInst *AI) {
           return DeletedAllocas.count(AI);
         };
         Worklist.remove_if(IsInSet);

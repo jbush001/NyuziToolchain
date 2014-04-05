@@ -973,6 +973,58 @@ ExprResult Sema::ParseObjCEncodeExpression(SourceLocation AtLoc,
   return BuildObjCEncodeExpression(AtLoc, TInfo, RParenLoc);
 }
 
+static bool HelperToDiagnoseMismatchedMethodsInGlobalPool(Sema &S,
+                                               SourceLocation AtLoc,
+                                               ObjCMethodDecl *Method,
+                                               ObjCMethodList &MethList) {
+  ObjCMethodList *M = &MethList;
+  bool Warned = false;
+  for (M = M->getNext(); M; M=M->getNext()) {
+    ObjCMethodDecl *MatchingMethodDecl = M->Method;
+    if (MatchingMethodDecl == Method ||
+        isa<ObjCImplDecl>(MatchingMethodDecl->getDeclContext()) ||
+        MatchingMethodDecl->getSelector() != Method->getSelector())
+      continue;
+    if (!S.MatchTwoMethodDeclarations(Method,
+                                      MatchingMethodDecl, Sema::MMS_loose)) {
+      if (!Warned) {
+        Warned = true;
+        S.Diag(AtLoc, diag::warning_multiple_selectors)
+          << Method->getSelector();
+        S.Diag(Method->getLocation(), diag::note_method_declared_at)
+          << Method->getDeclName();
+      }
+      S.Diag(MatchingMethodDecl->getLocation(), diag::note_method_declared_at)
+        << MatchingMethodDecl->getDeclName();
+    }
+  }
+  return Warned;
+}
+
+static void DiagnoseMismatchedSelectors(Sema &S, SourceLocation AtLoc,
+                                        ObjCMethodDecl *Method) {
+  if (S.Diags.getDiagnosticLevel(diag::warning_multiple_selectors,
+                                 SourceLocation())
+        == DiagnosticsEngine::Ignored)
+    return;
+  bool Warned = false;
+  for (Sema::GlobalMethodPool::iterator b = S.MethodPool.begin(),
+       e = S.MethodPool.end(); b != e; b++) {
+    // first, instance methods
+    ObjCMethodList &InstMethList = b->second.first;
+    if (HelperToDiagnoseMismatchedMethodsInGlobalPool(S, AtLoc,
+                                                      Method, InstMethList))
+      Warned = true;
+        
+    // second, class methods
+    ObjCMethodList &ClsMethList = b->second.second;
+    if (HelperToDiagnoseMismatchedMethodsInGlobalPool(S, AtLoc,
+                                                      Method, ClsMethList) ||
+        Warned)
+      return;
+  }
+}
+
 ExprResult Sema::ParseObjCSelectorExpression(Selector Sel,
                                              SourceLocation AtLoc,
                                              SourceLocation SelLoc,
@@ -994,7 +1046,8 @@ ExprResult Sema::ParseObjCSelectorExpression(Selector Sel,
       
     } else
         Diag(SelLoc, diag::warn_undeclared_selector) << Sel;
-  }
+  } else
+    DiagnoseMismatchedSelectors(*this, AtLoc, Method);
   
   if (!Method ||
       Method->getImplementationControl() != ObjCMethodDecl::Optional) {
@@ -1411,9 +1464,8 @@ ObjCMethodDecl *Sema::LookupMethodInObjectType(Selector sel, QualType type,
   }
 
   // Check qualifiers.
-  for (ObjCObjectType::qual_iterator
-         i = objType->qual_begin(), e = objType->qual_end(); i != e; ++i)
-    if (ObjCMethodDecl *method = (*i)->lookupMethod(sel, isInstance))
+  for (const auto *I : objType->quals())
+    if (ObjCMethodDecl *method = I->lookupMethod(sel, isInstance))
       return method;
 
   return 0;
@@ -1426,9 +1478,7 @@ ObjCMethodDecl *Sema::LookupMethodInQualifiedType(Selector Sel,
                                               bool Instance)
 {
   ObjCMethodDecl *MD = 0;
-  for (ObjCObjectPointerType::qual_iterator I = OPT->qual_begin(),
-       E = OPT->qual_end(); I != E; ++I) {
-    ObjCProtocolDecl *PROTO = (*I);
+  for (const auto *PROTO : OPT->quals()) {
     if ((MD = PROTO->lookupMethod(Sel, Instance))) {
       return MD;
     }
@@ -1537,9 +1587,8 @@ HandleExprPropertyRefExpr(const ObjCObjectPointerType *OPT,
                                                      MemberLoc, BaseExpr));
   }
   // Check protocols on qualified interfaces.
-  for (ObjCObjectPointerType::qual_iterator I = OPT->qual_begin(),
-       E = OPT->qual_end(); I != E; ++I)
-    if (ObjCPropertyDecl *PD = (*I)->FindPropertyDeclaration(Member)) {
+  for (const auto *I : OPT->quals())
+    if (ObjCPropertyDecl *PD = I->FindPropertyDeclaration(Member)) {
       // Check whether we can reference this property.
       if (DiagnoseUseOfDecl(PD, MemberLoc))
         return ExprError();
@@ -1776,7 +1825,7 @@ class ObjCInterfaceOrSuperCCC : public CorrectionCandidateCallback {
       WantObjCSuper = Method->getClassInterface()->getSuperClass();
   }
 
-  virtual bool ValidateCandidate(const TypoCorrection &candidate) {
+  bool ValidateCandidate(const TypoCorrection &candidate) override {
     return candidate.getCorrectionDeclAs<ObjCInterfaceDecl>() ||
         candidate.isKeyword("super");
   }
@@ -2450,8 +2499,12 @@ ExprResult Sema::BuildInstanceMessage(Expr *Receiver,
     }
   }
 
-  if (Method && Method->getMethodFamily() == OMF_init &&
-      getCurFunction()->ObjCIsDesignatedInit &&
+  FunctionScopeInfo *DIFunctionScopeInfo =
+    (Method && Method->getMethodFamily() == OMF_init)
+      ? getEnclosingFunction() : 0;
+  
+  if (DIFunctionScopeInfo &&
+      DIFunctionScopeInfo->ObjCIsDesignatedInit &&
       (SuperLoc.isValid() || isSelfExpr(Receiver))) {
     bool isDesignatedInitChain = false;
     if (SuperLoc.isValid()) {
@@ -2463,7 +2516,7 @@ ExprResult Sema::BuildInstanceMessage(Expr *Receiver,
           if (!ID->declaresOrInheritsDesignatedInitializers() ||
               ID->isDesignatedInitializer(Sel)) {
             isDesignatedInitChain = true;
-            getCurFunction()->ObjCWarnForNoDesignatedInitChain = false;
+            DIFunctionScopeInfo->ObjCWarnForNoDesignatedInitChain = false;
           }
         }
       }
@@ -2482,13 +2535,13 @@ ExprResult Sema::BuildInstanceMessage(Expr *Receiver,
     }
   }
 
-  if (Method && Method->getMethodFamily() == OMF_init &&
-      getCurFunction()->ObjCIsSecondaryInit &&
+  if (DIFunctionScopeInfo &&
+      DIFunctionScopeInfo->ObjCIsSecondaryInit &&
       (SuperLoc.isValid() || isSelfExpr(Receiver))) {
     if (SuperLoc.isValid()) {
       Diag(SelLoc, diag::warn_objc_secondary_init_super_init_call);
     } else {
-      getCurFunction()->ObjCWarnForNoInitDelegation = false;
+      DIFunctionScopeInfo->ObjCWarnForNoInitDelegation = false;
     }
   }
 
