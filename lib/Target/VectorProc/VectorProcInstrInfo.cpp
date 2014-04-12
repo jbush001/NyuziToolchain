@@ -269,7 +269,7 @@ void VectorProcInstrInfo::adjustStackPointer(MachineBasicBlock &MBB,
   else
   {
     unsigned int OffsetReg = loadConstant(MBB, MBBI, Amount);
-    BuildMI(MBB, MBBI, DL, get(VectorProc::ADDISSI))
+    BuildMI(MBB, MBBI, DL, get(VectorProc::ADDISSS))
         .addReg(VectorProc::SP_REG)
         .addReg(VectorProc::SP_REG)
         .addReg(OffsetReg);
@@ -296,7 +296,7 @@ unsigned int VectorProcInstrInfo::loadConstant(MachineBasicBlock &MBB,
     // Load bits 23-12 into register
     BuildMI(MBB, MBBI, DL, get(VectorProc::MOVESimm), Reg)
         .addImm(Value >> 12);
-    BuildMI(MBB, MBBI, DL, get(VectorProc::SLLSSS))
+    BuildMI(MBB, MBBI, DL, get(VectorProc::SLLSSI))
         .addReg(Reg)
         .addReg(Reg)
         .addImm(12);
