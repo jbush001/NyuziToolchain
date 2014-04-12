@@ -301,12 +301,14 @@ unsigned int VectorProcInstrInfo::loadConstant(MachineBasicBlock &MBB,
         .addReg(Reg)
         .addImm(12);
 
-    // Load bits 11-0 into register (note we only load 12 bits because we
-    // don't want sign extension)
-    BuildMI(MBB, MBBI, DL, get(VectorProc::ORSSI))
-        .addReg(Reg)
-        .addReg(Reg)
-        .addImm(Value & 0xfff);
+    if ((Value & 0xfff) != 0) {
+      // Load bits 11-0 into register (note we only load 12 bits because we
+      // don't want sign extension)
+      BuildMI(MBB, MBBI, DL, get(VectorProc::ORSSI))
+          .addReg(Reg)
+          .addReg(Reg)
+          .addImm(Value & 0xfff);
+    }
   }
 
   return Reg;
