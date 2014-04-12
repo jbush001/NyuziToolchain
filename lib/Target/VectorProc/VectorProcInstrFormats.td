@@ -91,6 +91,14 @@ def calltarget : Operand<iPTR>
 	let DecoderMethod = "decodeBranchTargetOpValue";
 }
 
+def SIMM13OP : Operand<i32> {
+  let DecoderMethod = "decodeSimm13Value";
+}
+
+def SIMM8OP : Operand<i32> {
+  let DecoderMethod = "decodeSimm8Value";
+}
+
 def SDT_SPCallSeqStart : SDCallSeqStart<[ SDTCisVT<0, i32> ]>;
 def SDT_SPCallSeqEnd   : SDCallSeqEnd<[ SDTCisVT<0, i32>, SDTCisVT<1, i32> ]>;
 def callseq_start : SDNode<"ISD::CALLSEQ_START", SDT_SPCallSeqStart,
@@ -141,7 +149,7 @@ multiclass AtomicBinary<SDNode OpNode>
 
 	def I : Pseudo<
 		(outs GPR32:$dest),
-		(ins GPR32:$ptr, i32imm:$amt),
+		(ins GPR32:$ptr, SIMM13OP:$amt),
 		[(set i32:$dest, (OpNode GPR32:$ptr, simm13:$amt))]>;
 }
 
@@ -334,7 +342,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 	// Scalar = Scalar Op Immediate
 	def SSI : FormatBUnmaskedInst<
 		(outs GPR32:$dest), 
-		(ins GPR32:$src1, i32imm:$imm),
+		(ins GPR32:$src1, SIMM13OP:$imm),
 		operator # " $dest, $src1, $imm",
 		[(set i32:$dest, (OpNode i32:$src1, (i32 simm13:$imm)))],
 		opcode{4-0},
@@ -343,7 +351,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 	// Vector = Vector Op Immediate
 	def VVI : FormatBUnmaskedInst<
 		(outs VR512:$dest), 
-		(ins VR512:$src1, i32imm:$imm),
+		(ins VR512:$src1, SIMM13OP:$imm),
 		operator # " $dest, $src1, $imm",
 		[(set v16i32:$dest, (OpNode v16i32:$src1, (splat simm13:$imm)))],
 		opcode{4-0},
@@ -352,7 +360,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 	// Vector = Scalar Op Immediate
 	def VSI : FormatBUnmaskedInst<
 		(outs VR512:$dest), 
-		(ins GPR32:$src1, i32imm:$imm),
+		(ins GPR32:$src1, SIMM13OP:$imm),
 		operator # " $dest, $src1, $imm",
 		[(set v16i32:$dest, (OpNode (splat i32:$src1), (splat simm13:$imm)))],
 		opcode{4-0},
@@ -362,7 +370,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		// Vector = Vector Op Immediate, masked
 		def VVIM : FormatBMaskedInst<
 			(outs VR512:$dest),
-			(ins GPR32:$mask, VR512:$src1, i32imm:$imm, VR512:$oldvalue),
+			(ins GPR32:$mask, VR512:$src1, SIMM8OP:$imm, VR512:$oldvalue),
 			operator # "_mask $dest, $mask, $src1, $imm",
 			[(set v16i32:$dest, (int_vp_vector_mixi i32:$mask, (OpNode v16i32:$src1, (splat simm8:$imm)), v16i32:$oldvalue))],
 			opcode{4-0},
@@ -371,7 +379,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		// Vector = Vector Op Immediate, inverted mask
 		def VVIMinv : FormatBMaskedInst<
 			(outs VR512:$dest),
-			(ins GPR32:$mask, VR512:$src1, i32imm:$imm, VR512:$oldvalue),
+			(ins GPR32:$mask, VR512:$src1, SIMM8OP:$imm, VR512:$oldvalue),
 			operator # "_invmask $dest, $mask, $src1, $imm",
 			[(set v16i32:$dest, (int_vp_vector_mixi (not i32:$mask), (OpNode v16i32:$src1, (splat simm8:$imm)), v16i32:$oldvalue))],
 			opcode{4-0},
@@ -380,7 +388,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		// Vector = Scalar Op Immediate, masked
 		def VSIM : FormatBMaskedInst<
 			(outs VR512:$dest),
-			(ins GPR32:$mask, GPR32:$src1, i32imm:$imm, VR512:$oldvalue),
+			(ins GPR32:$mask, GPR32:$src1, SIMM8OP:$imm, VR512:$oldvalue),
 			operator # "_mask $dest, $mask, $src1, $imm",
 			[(set v16i32:$dest, (int_vp_vector_mixi i32:$mask, (OpNode (splat i32:$src1), (splat simm8:$imm)), v16i32:$oldvalue))],
 			opcode{4-0},
@@ -389,7 +397,7 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		// Vector = Scalar Op Immediate, inverted mask
 		def VSIMinv : FormatBMaskedInst<
 			(outs VR512:$dest),
-			(ins GPR32:$mask, GPR32:$src1, i32imm:$imm, VR512:$oldvalue),
+			(ins GPR32:$mask, GPR32:$src1, SIMM8OP:$imm, VR512:$oldvalue),
 			operator # "_invmask $dest, $mask, $src1, $imm",
 			[(set v16i32:$dest, (int_vp_vector_mixi (not i32:$mask), (OpNode (splat i32:$src1), (splat simm8:$imm)), v16i32:$oldvalue))],
 			opcode{4-0},
@@ -630,7 +638,7 @@ multiclass IntCompareInst<string operator, CondCode condition,
 	// Instruction format B
 	def SI : FormatBUnmaskedInst<
 		(outs GPR32:$dest), 
-		(ins GPR32:$src1, i32imm:$imm),
+		(ins GPR32:$src1, SIMM13OP:$imm),
 		operator # " $dest, $src1, $imm",
 		[(set i32:$dest, (setcc i32:$src1, simm13:$imm, condition))],
 		opcode{4-0},
@@ -638,7 +646,7 @@ multiclass IntCompareInst<string operator, CondCode condition,
 
 	def VI : FormatBUnmaskedInst<
 		(outs GPR32:$dest), 
-		(ins VR512:$src1, i32imm:$imm),
+		(ins VR512:$src1, SIMM13OP:$imm),
 		operator # " $dest, $src1, $imm",
 		[(set i32:$dest, (vectorIntr v16i32:$src1, (splat simm13:$imm)))],
 		opcode{4-0},

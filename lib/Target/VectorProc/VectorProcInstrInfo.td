@@ -134,7 +134,7 @@ def GET_LANEI : FormatAUnmaskedTwoOpInst<
 
 def GET_LANEIimm : FormatBUnmaskedInst<
 	(outs GPR32:$dest),
-	(ins VR512:$src1, i32imm:$imm),
+	(ins VR512:$src1, SIMM13OP:$imm),
 	"getlane $dest, $src1, $imm",
 	[(set i32:$dest, (extractelt v16i32:$src1, simm13:$imm))],
 	0x1a,
@@ -196,9 +196,9 @@ def MOVESS : FormatAUnmaskedOneOpInst<
 // constant pool loads.
 def MOVESimm : FormatBUnmaskedInst<
 	(outs GPR32:$dest),
-	(ins i32imm:$imm),
+	(ins SIMM13OP:$imm),
 	"move $dest, $imm",
-	[(set i32:$dest, imm:$imm)],
+	[(set i32:$dest, imm:$imm)],	// XXX should this be simm13?
 	0x0f,
 	FmtB_SS>;
 
@@ -212,9 +212,9 @@ def MOVEVSI : FormatAUnmaskedOneOpInst<
 
 def MOVEVimm : FormatBUnmaskedInst<
 	(outs VR512:$dest), 
-	(ins i32imm:$imm),
+	(ins SIMM13OP:$imm),
 	"move $dest, $imm",
-	[(set v16i32:$dest, (splat imm:$imm))],
+	[(set v16i32:$dest, (splat imm:$imm))],	// Should this be simm13
 	0xf,
 	FmtB_VS>;
 	
@@ -240,9 +240,9 @@ let Constraints = "$dest = $oldvalue" in {
 
 	def MOVEVVMIimm : FormatBMaskedInst<
 		(outs VR512:$dest),
-		(ins GPR32:$mask, i32imm:$imm, VR512:$oldvalue),
+		(ins GPR32:$mask, SIMM8OP:$imm, VR512:$oldvalue),
 		"move_mask $dest, $mask, $imm",
-		[(set v16i32:$dest, (int_vp_vector_mixi i32:$mask, (splat imm:$imm), v16i32:$oldvalue))],
+		[(set v16i32:$dest, (int_vp_vector_mixi i32:$mask, (splat imm:$imm), v16i32:$oldvalue))],	// simm8?
 		0xf,
 		FmtB_VSM>;
 

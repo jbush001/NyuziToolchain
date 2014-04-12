@@ -51,6 +51,14 @@ private:
 
 } // end anonymous namespace
 
+static DecodeStatus decodeSimm8Value(MCInst &Inst, unsigned Insn,
+                                              uint64_t Address,
+                                              const void *Decoder);
+
+static DecodeStatus decodeSimm13Value(MCInst &Inst, unsigned Insn,
+                                              uint64_t Address,
+                                              const void *Decoder);
+												  
 static DecodeStatus decodeScalarMemoryOpValue(MCInst &Inst, unsigned Insn,
                                               uint64_t Address,
                                               const void *Decoder);
@@ -152,6 +160,21 @@ static DecodeStatus decodeScalarMemoryOpValue(MCInst &Inst, unsigned Insn,
                                               const void *Decoder) {
   return decodeMemoryOpValue(Inst, Insn, Address, Decoder,
                              VectorProc::GPR32RegClassID);
+}
+
+static DecodeStatus decodeSimm13Value(MCInst &Inst, unsigned Insn,
+                                              uint64_t Address,
+                                              const void *Decoder) {
+  Inst.addOperand(MCOperand::CreateImm(SignExtend32<13>(Insn)));
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus decodeSimm8Value(MCInst &Inst, unsigned Insn,
+                                              uint64_t Address,
+                                              const void *Decoder) {
+
+  Inst.addOperand(MCOperand::CreateImm(SignExtend32<8>(Insn)));
+  return MCDisassembler::Success;
 }
 
 static DecodeStatus decodeVectorMemoryOpValue(MCInst &Inst, unsigned Insn,

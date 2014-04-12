@@ -5,11 +5,11 @@ def make_a_instruction(fmt, opcode, dest, src1, src2, mask):
 		| (mask << 10) | (dest << 5) | src1)
 
 def make_b_instruction(fmt, opcode, dest, src1, imm, mask):
-	return ((fmt << 28) | (opcode << 23) | (imm << 15) 
+	return ((fmt << 28) | (opcode << 23) | ((imm & 0xff) << 15) 
 		| (mask << 10) | (dest << 5) | src1)
 
 def make_bprime_instruction(fmt, opcode, dest, src1, imm):
-	return ((fmt << 28) | (opcode << 23) | (imm << 10) 
+	return ((fmt << 28) | (opcode << 23) | ((imm & 0x1fff) << 10) 
 		| (dest << 5) | src1)
 
 def make_c_instruction(isLoad, op, srcDest, ptr, offs, mask):
@@ -114,7 +114,7 @@ for opcode, mnemonic in binaryOps:
 	if mnemonic[-2:] == '_f':
 		continue	# Can't do immediate for FP instructions
 
-	imm = random.randint(0, 255)
+	imm = random.randint(-128, 127)
 
 	# scalar/scalar
 	make_test_case(mnemonic + ' s' + str(rega) + ', s' + str(regb) 
