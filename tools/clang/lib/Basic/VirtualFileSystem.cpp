@@ -11,6 +11,7 @@
 
 #include "clang/Basic/VirtualFileSystem.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/iterator_range.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -30,13 +31,13 @@ using llvm::sys::fs::UniqueID;
 Status::Status(const file_status &Status)
     : UID(Status.getUniqueID()), MTime(Status.getLastModificationTime()),
       User(Status.getUser()), Group(Status.getGroup()), Size(Status.getSize()),
-      Type(Status.type()), Perms(Status.permissions()) {}
+      Type(Status.type()), Perms(Status.permissions()), IsVFSMapped(false)  {}
 
 Status::Status(StringRef Name, StringRef ExternalName, UniqueID UID,
                sys::TimeValue MTime, uint32_t User, uint32_t Group,
                uint64_t Size, file_type Type, perms Perms)
     : Name(Name), UID(UID), MTime(MTime), User(User), Group(Group), Size(Size),
-      Type(Type), Perms(Perms) {}
+      Type(Type), Perms(Perms), IsVFSMapped(false) {}
 
 bool Status::equivalent(const Status &Other) const {
   return getUniqueID() == Other.getUniqueID();
@@ -67,12 +68,14 @@ FileSystem::~FileSystem() {}
 error_code FileSystem::getBufferForFile(const llvm::Twine &Name,
                                         std::unique_ptr<MemoryBuffer> &Result,
                                         int64_t FileSize,
-                                        bool RequiresNullTerminator) {
+                                        bool RequiresNullTerminator,
+                                        bool IsVolatile) {
   std::unique_ptr<File> F;
   if (error_code EC = openFileForRead(Name, F))
     return EC;
 
-  error_code EC = F->getBuffer(Name, Result, FileSize, RequiresNullTerminator);
+  error_code EC = F->getBuffer(Name, Result, FileSize, RequiresNullTerminator,
+                               IsVolatile);
   return EC;
 }
 
@@ -95,7 +98,8 @@ public:
   ErrorOr<Status> status() override;
   error_code getBuffer(const Twine &Name, std::unique_ptr<MemoryBuffer> &Result,
                        int64_t FileSize = -1,
-                       bool RequiresNullTerminator = true) override;
+                       bool RequiresNullTerminator = true,
+                       bool IsVolatile = false) override;
   error_code close() override;
   void setName(StringRef Name) override;
 };
@@ -117,10 +121,11 @@ ErrorOr<Status> RealFile::status() {
 
 error_code RealFile::getBuffer(const Twine &Name,
                                std::unique_ptr<MemoryBuffer> &Result,
-                               int64_t FileSize, bool RequiresNullTerminator) {
+                               int64_t FileSize, bool RequiresNullTerminator,
+                               bool IsVolatile) {
   assert(FD != -1 && "cannot get buffer for closed file");
   return MemoryBuffer::getOpenFile(FD, Name.str().c_str(), Result, FileSize,
-                                   RequiresNullTerminator);
+                                   RequiresNullTerminator, IsVolatile);
 }
 
 // FIXME: This is terrible, we need this for ::close.
@@ -137,7 +142,7 @@ error_code RealFile::close() {
   if (::close(FD))
     return error_code(errno, system_category());
   FD = -1;
-  return error_code::success();
+  return error_code();
 }
 
 void RealFile::setName(StringRef Name) {
@@ -170,7 +175,7 @@ error_code RealFileSystem::openFileForRead(const Twine &Name,
     return EC;
   Result.reset(new RealFile(FD));
   Result->setName(Name.str());
-  return error_code::success();
+  return error_code();
 }
 
 IntrusiveRefCntPtr<FileSystem> vfs::getRealFileSystem() {
@@ -196,7 +201,7 @@ ErrorOr<Status> OverlayFileSystem::status(const Twine &Path) {
     if (Status || Status.getError() != errc::no_such_file_or_directory)
       return Status;
   }
-  return error_code(errc::no_such_file_or_directory, system_category());
+  return make_error_code(errc::no_such_file_or_directory);
 }
 
 error_code OverlayFileSystem::openFileForRead(const llvm::Twine &Path,
@@ -207,7 +212,7 @@ error_code OverlayFileSystem::openFileForRead(const llvm::Twine &Path,
     if (!EC || EC != errc::no_such_file_or_directory)
       return EC;
   }
-  return error_code(errc::no_such_file_or_directory, system_category());
+  return make_error_code(errc::no_such_file_or_directory);
 }
 
 //===-----------------------------------------------------------------------===/
@@ -469,7 +474,7 @@ class VFSFromYAMLParser {
     yaml::MappingNode *M = dyn_cast<yaml::MappingNode>(N);
     if (!M) {
       error(N, "expected mapping node for file or directory entry");
-      return NULL;
+      return nullptr;
     }
 
     KeyStatusPair Fields[] = {
@@ -497,32 +502,32 @@ class VFSFromYAMLParser {
       // parsing value.
       SmallString<256> Buffer;
       if (!parseScalarString(I->getKey(), Key, Buffer))
-        return NULL;
+        return nullptr;
 
       if (!checkDuplicateOrUnknownKey(I->getKey(), Key, Keys))
-        return NULL;
+        return nullptr;
 
       StringRef Value;
       if (Key == "name") {
         if (!parseScalarString(I->getValue(), Value, Buffer))
-          return NULL;
+          return nullptr;
         Name = Value;
       } else if (Key == "type") {
         if (!parseScalarString(I->getValue(), Value, Buffer))
-          return NULL;
+          return nullptr;
         if (Value == "file")
           Kind = EK_File;
         else if (Value == "directory")
           Kind = EK_Directory;
         else {
           error(I->getValue(), "unknown value for 'type'");
-          return NULL;
+          return nullptr;
         }
       } else if (Key == "contents") {
         if (HasContents) {
           error(I->getKey(),
                 "entry already has 'contents' or 'external-contents'");
-          return NULL;
+          return nullptr;
         }
         HasContents = true;
         yaml::SequenceNode *Contents =
@@ -530,7 +535,7 @@ class VFSFromYAMLParser {
         if (!Contents) {
           // FIXME: this is only for directories, what about files?
           error(I->getValue(), "expected array");
-          return NULL;
+          return nullptr;
         }
 
         for (yaml::SequenceNode::iterator I = Contents->begin(),
@@ -539,22 +544,22 @@ class VFSFromYAMLParser {
           if (Entry *E = parseEntry(&*I))
             EntryArrayContents.push_back(E);
           else
-            return NULL;
+            return nullptr;
         }
       } else if (Key == "external-contents") {
         if (HasContents) {
           error(I->getKey(),
                 "entry already has 'contents' or 'external-contents'");
-          return NULL;
+          return nullptr;
         }
         HasContents = true;
         if (!parseScalarString(I->getValue(), Value, Buffer))
-          return NULL;
+          return nullptr;
         ExternalContentsPath = Value;
       } else if (Key == "use-external-name") {
         bool Val;
         if (!parseScalarBool(I->getValue(), Val))
-          return NULL;
+          return nullptr;
         UseExternalName = Val ? FileEntry::NK_External : FileEntry::NK_Virtual;
       } else {
         llvm_unreachable("key missing from Keys");
@@ -562,20 +567,20 @@ class VFSFromYAMLParser {
     }
 
     if (Stream.failed())
-      return NULL;
+      return nullptr;
 
     // check for missing keys
     if (!HasContents) {
       error(N, "missing key 'contents' or 'external-contents'");
-      return NULL;
+      return nullptr;
     }
     if (!checkMissingKeys(N, Keys))
-      return NULL;
+      return nullptr;
 
     // check invalid configuration
     if (Kind == EK_Directory && UseExternalName != FileEntry::NK_NotSet) {
       error(N, "'use-external-name' is not supported for directories");
-      return NULL;
+      return nullptr;
     }
 
     // Remove trailing slash(es), being careful not to remove the root path
@@ -587,7 +592,7 @@ class VFSFromYAMLParser {
     // Get the last component
     StringRef LastComponent = sys::path::filename(Trimmed);
 
-    Entry *Result = 0;
+    Entry *Result = nullptr;
     switch (Kind) {
     case EK_File:
       Result = new FileEntry(LastComponent, std::move(ExternalContentsPath),
@@ -718,14 +723,14 @@ VFSFromYAML *VFSFromYAML::create(MemoryBuffer *Buffer,
   yaml::Node *Root = DI->getRoot();
   if (DI == Stream.end() || !Root) {
     SM.PrintMessage(SMLoc(), SourceMgr::DK_Error, "expected root node");
-    return NULL;
+    return nullptr;
   }
 
   VFSFromYAMLParser P(Stream);
 
   std::unique_ptr<VFSFromYAML> FS(new VFSFromYAML(ExternalFS));
   if (!P.parse(Root, FS.get()))
-    return NULL;
+    return nullptr;
 
   return FS.release();
 }
@@ -739,7 +744,7 @@ ErrorOr<Entry *> VFSFromYAML::lookupPath(const Twine &Path_) {
     return EC;
 
   if (Path.empty())
-    return error_code(errc::invalid_argument, system_category());
+    return make_error_code(errc::invalid_argument);
 
   sys::path::const_iterator Start = sys::path::begin(Path);
   sys::path::const_iterator End = sys::path::end(Path);
@@ -749,7 +754,7 @@ ErrorOr<Entry *> VFSFromYAML::lookupPath(const Twine &Path_) {
     if (Result || Result.getError() != errc::no_such_file_or_directory)
       return Result;
   }
-  return error_code(errc::no_such_file_or_directory, system_category());
+  return make_error_code(errc::no_such_file_or_directory);
 }
 
 ErrorOr<Entry *> VFSFromYAML::lookupPath(sys::path::const_iterator Start,
@@ -762,7 +767,7 @@ ErrorOr<Entry *> VFSFromYAML::lookupPath(sys::path::const_iterator Start,
   if (CaseSensitive ? !Start->equals(From->getName())
                     : !Start->equals_lower(From->getName()))
     // failure to match
-    return error_code(errc::no_such_file_or_directory, system_category());
+    return make_error_code(errc::no_such_file_or_directory);
 
   ++Start;
 
@@ -773,7 +778,7 @@ ErrorOr<Entry *> VFSFromYAML::lookupPath(sys::path::const_iterator Start,
 
   DirectoryEntry *DE = dyn_cast<DirectoryEntry>(From);
   if (!DE)
-    return error_code(errc::not_a_directory, system_category());
+    return make_error_code(errc::not_a_directory);
 
   for (DirectoryEntry::iterator I = DE->contents_begin(),
                                 E = DE->contents_end();
@@ -782,7 +787,7 @@ ErrorOr<Entry *> VFSFromYAML::lookupPath(sys::path::const_iterator Start,
     if (Result || Result.getError() != errc::no_such_file_or_directory)
       return Result;
   }
-  return error_code(errc::no_such_file_or_directory, system_category());
+  return make_error_code(errc::no_such_file_or_directory);
 }
 
 ErrorOr<Status> VFSFromYAML::status(const Twine &Path) {
@@ -796,6 +801,8 @@ ErrorOr<Status> VFSFromYAML::status(const Twine &Path) {
     assert(!S || S->getName() == F->getExternalContentsPath());
     if (S && !F->useExternalName(UseExternalNames))
       S->setName(PathStr);
+    if (S)
+      S->IsVFSMapped = true;
     return S;
   } else { // directory
     DirectoryEntry *DE = cast<DirectoryEntry>(*Result);
@@ -813,7 +820,7 @@ error_code VFSFromYAML::openFileForRead(const Twine &Path,
 
   FileEntry *F = dyn_cast<FileEntry>(*E);
   if (!F) // FIXME: errc::not_a_file?
-    return error_code(errc::invalid_argument, system_category());
+    return make_error_code(errc::invalid_argument);
 
   if (error_code EC = ExternalFS->openFileForRead(F->getExternalContentsPath(),
                                                   Result))
@@ -822,7 +829,7 @@ error_code VFSFromYAML::openFileForRead(const Twine &Path,
   if (!F->useExternalName(UseExternalNames))
     Result->setName(Path.str());
 
-  return error_code::success();
+  return error_code();
 }
 
 IntrusiveRefCntPtr<FileSystem>
@@ -838,4 +845,139 @@ UniqueID vfs::getNextVirtualUniqueID() {
   // The following assumes that uint64_t max will never collide with a real
   // dev_t value from the OS.
   return UniqueID(std::numeric_limits<uint64_t>::max(), ID);
+}
+
+#ifndef NDEBUG
+static bool pathHasTraversal(StringRef Path) {
+  using namespace llvm::sys;
+  for (StringRef Comp : llvm::make_range(path::begin(Path), path::end(Path)))
+    if (Comp == "." || Comp == "..")
+      return true;
+  return false;
+}
+#endif
+
+void YAMLVFSWriter::addFileMapping(StringRef VirtualPath, StringRef RealPath) {
+  assert(sys::path::is_absolute(VirtualPath) && "virtual path not absolute");
+  assert(sys::path::is_absolute(RealPath) && "real path not absolute");
+  assert(!pathHasTraversal(VirtualPath) && "path traversal is not supported");
+  Mappings.emplace_back(VirtualPath, RealPath);
+}
+
+namespace {
+class JSONWriter {
+  llvm::raw_ostream &OS;
+  SmallVector<StringRef, 16> DirStack;
+  inline unsigned getDirIndent() { return 4 * DirStack.size(); }
+  inline unsigned getFileIndent() { return 4 * (DirStack.size() + 1); }
+  bool containedIn(StringRef Parent, StringRef Path);
+  StringRef containedPart(StringRef Parent, StringRef Path);
+  void startDirectory(StringRef Path);
+  void endDirectory();
+  void writeEntry(StringRef VPath, StringRef RPath);
+
+public:
+  JSONWriter(llvm::raw_ostream &OS) : OS(OS) {}
+  void write(ArrayRef<YAMLVFSEntry> Entries, Optional<bool> IsCaseSensitive);
+};
+}
+
+bool JSONWriter::containedIn(StringRef Parent, StringRef Path) {
+  using namespace llvm::sys;
+  // Compare each path component.
+  auto IParent = path::begin(Parent), EParent = path::end(Parent);
+  for (auto IChild = path::begin(Path), EChild = path::end(Path);
+       IParent != EParent && IChild != EChild; ++IParent, ++IChild) {
+    if (*IParent != *IChild)
+      return false;
+  }
+  // Have we exhausted the parent path?
+  return IParent == EParent;
+}
+
+StringRef JSONWriter::containedPart(StringRef Parent, StringRef Path) {
+  assert(!Parent.empty());
+  assert(containedIn(Parent, Path));
+  return Path.slice(Parent.size() + 1, StringRef::npos);
+}
+
+void JSONWriter::startDirectory(StringRef Path) {
+  StringRef Name =
+      DirStack.empty() ? Path : containedPart(DirStack.back(), Path);
+  DirStack.push_back(Path);
+  unsigned Indent = getDirIndent();
+  OS.indent(Indent) << "{\n";
+  OS.indent(Indent + 2) << "'type': 'directory',\n";
+  OS.indent(Indent + 2) << "'name': \"" << llvm::yaml::escape(Name) << "\",\n";
+  OS.indent(Indent + 2) << "'contents': [\n";
+}
+
+void JSONWriter::endDirectory() {
+  unsigned Indent = getDirIndent();
+  OS.indent(Indent + 2) << "]\n";
+  OS.indent(Indent) << "}";
+
+  DirStack.pop_back();
+}
+
+void JSONWriter::writeEntry(StringRef VPath, StringRef RPath) {
+  unsigned Indent = getFileIndent();
+  OS.indent(Indent) << "{\n";
+  OS.indent(Indent + 2) << "'type': 'file',\n";
+  OS.indent(Indent + 2) << "'name': \"" << llvm::yaml::escape(VPath) << "\",\n";
+  OS.indent(Indent + 2) << "'external-contents': \""
+                        << llvm::yaml::escape(RPath) << "\"\n";
+  OS.indent(Indent) << "}";
+}
+
+void JSONWriter::write(ArrayRef<YAMLVFSEntry> Entries,
+                       Optional<bool> IsCaseSensitive) {
+  using namespace llvm::sys;
+
+  OS << "{\n"
+        "  'version': 0,\n";
+  if (IsCaseSensitive.hasValue())
+    OS << "  'case-sensitive': '"
+       << (IsCaseSensitive.getValue() ? "true" : "false") << "',\n";
+  OS << "  'roots': [\n";
+
+  if (Entries.empty())
+    return;
+
+  const YAMLVFSEntry &Entry = Entries.front();
+  startDirectory(path::parent_path(Entry.VPath));
+  writeEntry(path::filename(Entry.VPath), Entry.RPath);
+
+  for (const auto &Entry : Entries.slice(1)) {
+    StringRef Dir = path::parent_path(Entry.VPath);
+    if (Dir == DirStack.back())
+      OS << ",\n";
+    else {
+      while (!DirStack.empty() && !containedIn(DirStack.back(), Dir)) {
+        OS << "\n";
+        endDirectory();
+      }
+      OS << ",\n";
+      startDirectory(Dir);
+    }
+    writeEntry(path::filename(Entry.VPath), Entry.RPath);
+  }
+
+  while (!DirStack.empty()) {
+    OS << "\n";
+    endDirectory();
+  }
+
+  OS << "\n"
+     << "  ]\n"
+     << "}\n";
+}
+
+void YAMLVFSWriter::write(llvm::raw_ostream &OS) {
+  std::sort(Mappings.begin(), Mappings.end(),
+            [](const YAMLVFSEntry &LHS, const YAMLVFSEntry &RHS) {
+    return LHS.VPath < RHS.VPath;
+  });
+
+  JSONWriter(OS).write(Mappings, IsCaseSensitive);
 }

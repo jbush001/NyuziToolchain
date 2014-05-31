@@ -98,10 +98,6 @@ public:
      return (DefinedAtom::ContentPermissions)(attributes().permissions);
   }
 
-  bool isAlias() const override {
-     return (attributes().alias != 0);
-  }
-
   ArrayRef<uint8_t> rawContent() const override;
 
   reference_iterator begin() const override;
@@ -1013,7 +1009,7 @@ public:
   parseFile(std::unique_ptr<MemoryBuffer> &mb, const class Registry &,
             std::vector<std::unique_ptr<File>> &result) const override {
     return lld::native::File::make(std::move(mb), result);
-    return error_code::success();
+    return error_code();
   }
 };
 }

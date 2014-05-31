@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "pre-RA-sched"
 #include "llvm/CodeGen/ScheduleDAG.h"
 #include "llvm/CodeGen/ScheduleHazardRecognizer.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
@@ -24,6 +23,8 @@
 #include "llvm/Target/TargetRegisterInfo.h"
 #include <climits>
 using namespace llvm;
+
+#define DEBUG_TYPE "pre-RA-sched"
 
 #ifndef NDEBUG
 static cl::opt<bool> StressSchedOpt(
@@ -55,7 +56,7 @@ void ScheduleDAG::clearDAG() {
 
 /// getInstrDesc helper to handle SDNodes.
 const MCInstrDesc *ScheduleDAG::getNodeDesc(const SDNode *Node) const {
-  if (!Node || !Node->isMachineOpcode()) return NULL;
+  if (!Node || !Node->isMachineOpcode()) return nullptr;
   return &TII->get(Node->getMachineOpcode());
 }
 

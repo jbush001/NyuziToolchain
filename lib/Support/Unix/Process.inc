@@ -195,7 +195,7 @@ error_code Process::GetArgumentVector(SmallVectorImpl<const char *> &ArgsOut,
                                       SpecificBumpPtrAllocator<char> &) {
   ArgsOut.append(ArgsIn.begin(), ArgsIn.end());
 
-  return error_code::success();
+  return error_code();
 }
 
 bool Process::StandardInIsUserInput() {
@@ -270,7 +270,7 @@ static bool terminalHasColors(int fd) {
   MutexGuard G(M);
 
   int errret = 0;
-  if (setupterm((char *)0, fd, &errret) != 0)
+  if (setupterm((char *)nullptr, fd, &errret) != 0)
     // Regardless of why, if we can't get terminfo, we shouldn't try to print
     // colors.
     return false;
@@ -292,7 +292,7 @@ static bool terminalHasColors(int fd) {
 
   // Now extract the structure allocated by setupterm and free its memory
   // through a really silly dance.
-  struct term *termp = set_curterm((struct term *)0);
+  struct term *termp = set_curterm((struct term *)nullptr);
   (void)del_curterm(termp); // Drop any errors here.
 
   // Return true if we found a color capabilities for the current terminal.

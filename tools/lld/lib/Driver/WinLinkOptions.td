@@ -36,6 +36,8 @@ def merge   : P<"merge", "Combine sections">;
 def section : P<"section", "Specify section attributes">;
 def subsystem : P<"subsystem", "Specify subsystem">;
 def stub    : P<"stub", "Specify DOS stub file">;
+def opt     : P<"opt", "Control optimizations">;
+def implib  : P<"implib", "Import library name">;
 
 def manifest : F<"manifest">;
 def manifest_colon : P<"manifest", "Create manifest file">;
@@ -66,10 +68,6 @@ def force : F<"force">,
     HelpText<"Allow undefined symbols when creating executables">;
 def force_unresolved : F<"force:unresolved">;
 
-def ref : F<"opt:ref">;
-def ref_no : F<"opt:noref">,
-    HelpText<"Keep unreferenced symbols to be included to the output">;
-
 defm nxcompat : B<"nxcompat", "Disable data execution provention">;
 defm largeaddressaware : B<"largeaddressaware", "Disable large addresses">;
 defm allowbind: B<"allowbind", "Disable DLL binding">;
@@ -84,6 +82,9 @@ def help : F<"help">;
 def help_q : Flag<["/?", "-?"], "">, Alias<help>;
 
 def DASH_DASH : Option<["--"], "", KIND_REMAINING_ARGS>;
+
+// Flag for debug
+def lldmoduledeffile : Joined<["/", "-"], "lldmoduledeffile:">;
 
 //==============================================================================
 // The flags below do nothing. They are defined only for link.exe compatibility.
@@ -106,7 +107,7 @@ def delay : QF<"delay">;
 def delayload : QF<"delayload">;
 def errorreport : QF<"errorreport">;
 def idlout : QF<"idlout">;
-def implib : QF<"implib">;
+def ignore : QF<"ignore">;
 def pdb : QF<"pdb">;
 def pdbaltpath : QF<"pdbaltpath">;
 def tlbid : QF<"tlbid">;

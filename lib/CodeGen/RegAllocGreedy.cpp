@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "regalloc"
 #include "llvm/CodeGen/Passes.h"
 #include "AllocationOrder.h"
 #include "InterferenceCache.h"
@@ -39,6 +38,7 @@
 #include "llvm/CodeGen/VirtRegMap.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/PassAnalysisSupport.h"
+#include "llvm/Support/BranchProbability.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -47,6 +47,8 @@
 #include <queue>
 
 using namespace llvm;
+
+#define DEBUG_TYPE "regalloc"
 
 STATISTIC(NumGlobalSplits, "Number of split global live ranges");
 STATISTIC(NumLocalSplits,  "Number of split local live ranges");
@@ -71,6 +73,11 @@ static cl::opt<unsigned> LastChanceRecoloringMaxInterference(
     cl::desc("Last chance recoloring maximum number of considered"
              " interference at a time"),
     cl::init(8));
+
+static cl::opt<bool>
+ExhaustiveSearch("exhaustive-register-search", cl::NotHidden,
+                 cl::desc("Exhaustive Search for registers bypassing the depth "
+                          "and interference cutoffs of last chance recoloring"));
 
 // FIXME: Find a good default for this flag and remove the flag.
 static cl::opt<unsigned>
@@ -275,6 +282,9 @@ class RAGreedy : public MachineFunctionPass,
   /// NoCand which indicates the stack interval.
   SmallVector<unsigned, 32> BundleCand;
 
+  /// Callee-save register cost, calculated once per machine function.
+  BlockFrequency CSRCost;
+
 public:
   RAGreedy();
 
@@ -343,6 +353,7 @@ private:
   unsigned tryAssignCSRFirstTime(LiveInterval &VirtReg, AllocationOrder &Order,
                                  unsigned PhysReg, unsigned &CostPerUseLimit,
                                  SmallVectorImpl<unsigned> &NewVRegs);
+  void initializeCSRCost();
   unsigned tryBlockSplit(LiveInterval&, AllocationOrder&,
                          SmallVectorImpl<unsigned>&);
   unsigned tryInstructionSplit(LiveInterval&, AllocationOrder&,
@@ -464,7 +475,7 @@ void RAGreedy::LRE_DidCloneVirtReg(unsigned New, unsigned Old) {
 }
 
 void RAGreedy::releaseMemory() {
-  SpillerInstance.reset(0);
+  SpillerInstance.reset(nullptr);
   ExtraRegInfo.clear();
   GlobalCand.clear();
 }
@@ -531,7 +542,7 @@ LiveInterval *RAGreedy::dequeue() { return dequeue(Queue); }
 
 LiveInterval *RAGreedy::dequeue(PQueue &CurQueue) {
   if (CurQueue.empty())
-    return 0;
+    return nullptr;
   LiveInterval *LI = &LIS->getInterval(~CurQueue.top().second);
   CurQueue.pop();
   return LI;
@@ -1927,7 +1938,7 @@ RAGreedy::mayRecolorAllInterferences(unsigned PhysReg, LiveInterval &VirtReg,
     // If there is LastChanceRecoloringMaxInterference or more interferences,
     // chances are one would not be recolorable.
     if (Q.collectInterferingVRegs(LastChanceRecoloringMaxInterference) >=
-        LastChanceRecoloringMaxInterference) {
+        LastChanceRecoloringMaxInterference && !ExhaustiveSearch) {
       DEBUG(dbgs() << "Early abort: too many interferences.\n");
       CutOffInfo |= CO_Interf;
       return false;
@@ -2000,7 +2011,7 @@ unsigned RAGreedy::tryLastChanceRecoloring(LiveInterval &VirtReg,
   // We may want to reconsider that if we end up with a too large search space
   // for target with hundreds of registers.
   // Indeed, in that case we may want to cut the search space earlier.
-  if (Depth >= LastChanceRecoloringMaxDepth) {
+  if (Depth >= LastChanceRecoloringMaxDepth && !ExhaustiveSearch) {
     DEBUG(dbgs() << "Abort because max depth has been reached.\n");
     CutOffInfo |= CO_Depth;
     return ~0u;
@@ -2134,14 +2145,17 @@ unsigned RAGreedy::selectOrSplit(LiveInterval &VirtReg,
   if (Reg == ~0U && (CutOffInfo != CO_None)) {
     uint8_t CutOffEncountered = CutOffInfo & (CO_Depth | CO_Interf);
     if (CutOffEncountered == CO_Depth)
-      Ctx.emitError(
-          "register allocation failed: maximum depth for recoloring reached");
+      Ctx.emitError("register allocation failed: maximum depth for recoloring "
+                    "reached. Use -fexhaustive-register-search to skip "
+                    "cutoffs");
     else if (CutOffEncountered == CO_Interf)
       Ctx.emitError("register allocation failed: maximum interference for "
-                    "recoloring reached");
+                    "recoloring reached. Use -fexhaustive-register-search "
+                    "to skip cutoffs");
     else if (CutOffEncountered == (CO_Depth | CO_Interf))
       Ctx.emitError("register allocation failed: maximum interference and "
-                    "depth for recoloring reached");
+                    "depth for recoloring reached. Use "
+                    "-fexhaustive-register-search to skip cutoffs");
   }
   return Reg;
 }
@@ -2157,10 +2171,6 @@ unsigned RAGreedy::tryAssignCSRFirstTime(LiveInterval &VirtReg,
                                          unsigned PhysReg,
                                          unsigned &CostPerUseLimit,
                                          SmallVectorImpl<unsigned> &NewVRegs) {
-  // We use the larger one out of the command-line option and the value report
-  // by TRI.
-  BlockFrequency CSRCost(std::max((unsigned)CSRFirstTimeCost,
-                                  TRI->getCSRFirstUseCost()));
   if (getStage(VirtReg) == RS_Spill && VirtReg.isSpillable()) {
     // We choose spill over using the CSR for the first time if the spill cost
     // is lower than CSRCost.
@@ -2178,9 +2188,9 @@ unsigned RAGreedy::tryAssignCSRFirstTime(LiveInterval &VirtReg,
     // the cost of splitting is lower than CSRCost.
     SA->analyze(&VirtReg);
     unsigned NumCands = 0;
-    unsigned BestCand =
-      calculateRegionSplitCost(VirtReg, Order, CSRCost, NumCands,
-                               true/*IgnoreCSR*/);
+    BlockFrequency BestCost = CSRCost; // Don't modify CSRCost.
+    unsigned BestCand = calculateRegionSplitCost(VirtReg, Order, BestCost,
+                                                 NumCands, true /*IgnoreCSR*/);
     if (BestCand == NoCand)
       // Use the CSR if we can't find a region split below CSRCost.
       return PhysReg;
@@ -2190,6 +2200,31 @@ unsigned RAGreedy::tryAssignCSRFirstTime(LiveInterval &VirtReg,
     return 0;
   }
   return PhysReg;
+}
+
+void RAGreedy::initializeCSRCost() {
+  // We use the larger one out of the command-line option and the value report
+  // by TRI.
+  CSRCost = BlockFrequency(
+      std::max((unsigned)CSRFirstTimeCost, TRI->getCSRFirstUseCost()));
+  if (!CSRCost.getFrequency())
+    return;
+
+  // Raw cost is relative to Entry == 2^14; scale it appropriately.
+  uint64_t ActualEntry = MBFI->getEntryFreq();
+  if (!ActualEntry) {
+    CSRCost = 0;
+    return;
+  }
+  uint64_t FixedEntry = 1 << 14;
+  if (ActualEntry < FixedEntry)
+    CSRCost *= BranchProbability(ActualEntry, FixedEntry);
+  else if (ActualEntry <= UINT32_MAX)
+    // Invert the fraction and divide.
+    CSRCost /= BranchProbability(FixedEntry, ActualEntry);
+  else
+    // Can't use BranchProbability in general, since it takes 32-bit numbers.
+    CSRCost = CSRCost.getFrequency() * (ActualEntry / FixedEntry);
 }
 
 unsigned RAGreedy::selectOrSplitImpl(LiveInterval &VirtReg,
@@ -2209,8 +2244,7 @@ unsigned RAGreedy::selectOrSplitImpl(LiveInterval &VirtReg,
     // When NewVRegs is not empty, we may have made decisions such as evicting
     // a virtual register, go with the earlier decisions and use the physical
     // register.
-    if ((CSRFirstTimeCost || TRI->getCSRFirstUseCost()) &&
-        CSRFirstUse && NewVRegs.empty()) {
+    if (CSRCost.getFrequency() && CSRFirstUse && NewVRegs.empty()) {
       unsigned CSRReg = tryAssignCSRFirstTime(VirtReg, Order, PhysReg,
                                               CostPerUseLimit, NewVRegs);
       if (CSRReg || !NewVRegs.empty())
@@ -2291,6 +2325,8 @@ bool RAGreedy::runOnMachineFunction(MachineFunction &mf) {
   Bundles = &getAnalysis<EdgeBundles>();
   SpillPlacer = &getAnalysis<SpillPlacement>();
   DebugVars = &getAnalysis<LiveDebugVariables>();
+
+  initializeCSRCost();
 
   calculateSpillWeightsAndHints(*LIS, mf, *Loops, *MBFI);
 

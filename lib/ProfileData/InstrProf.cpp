@@ -33,6 +33,8 @@ class InstrProfErrorCategoryType : public error_category {
       return "Invalid header";
     case instrprof_error::unsupported_version:
       return "Unsupported format version";
+    case instrprof_error::unsupported_hash_type:
+      return "Unsupported hash function";
     case instrprof_error::too_large:
       return "Too much profile data";
     case instrprof_error::truncated:
@@ -50,9 +52,9 @@ class InstrProfErrorCategoryType : public error_category {
     }
     llvm_unreachable("A value of instrprof_error has no message.");
   }
-  error_condition default_error_condition(int EV) const {
+  error_condition default_error_condition(int EV) const override {
     if (EV == instrprof_error::success)
-      return errc::success;
+      return error_condition();
     return errc::invalid_argument;
   }
 };

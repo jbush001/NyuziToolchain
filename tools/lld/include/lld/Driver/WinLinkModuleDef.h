@@ -20,6 +20,8 @@
 #include "llvm/ADT/Optional.h"
 #include "llvm/Support/Allocator.h"
 
+#include <vector>
+
 namespace lld {
 namespace moduledef {
 
@@ -33,6 +35,7 @@ enum class Kind {
   kw_data,
   kw_exports,
   kw_heapsize,
+  kw_library,
   kw_name,
   kw_noname,
   kw_stacksize,
@@ -64,7 +67,7 @@ private:
 
 class Directive {
 public:
-  enum class Kind { exports, heapsize, name, stacksize, version };
+  enum class Kind { exports, heapsize, library, name, stacksize, version };
 
   Kind getKind() const { return _kind; }
   virtual ~Directive() {}
@@ -96,7 +99,7 @@ private:
 template <Directive::Kind kind>
 class MemorySize : public Directive {
 public:
-  explicit MemorySize(uint64_t reserve, uint64_t commit)
+  MemorySize(uint64_t reserve, uint64_t commit)
       : Directive(kind), _reserve(reserve), _commit(commit) {}
 
   static bool classof(const Directive *dir) {
@@ -116,7 +119,7 @@ typedef MemorySize<Directive::Kind::stacksize> Stacksize;
 
 class Name : public Directive {
 public:
-  explicit Name(StringRef outputPath, uint64_t baseaddr)
+  Name(StringRef outputPath, uint64_t baseaddr)
       : Directive(Kind::name), _outputPath(outputPath), _baseaddr(baseaddr) {}
 
   static bool classof(const Directive *dir) {
@@ -131,9 +134,26 @@ private:
   const uint64_t _baseaddr;
 };
 
+class Library : public Directive {
+public:
+  Library(StringRef name, uint64_t baseaddr)
+      : Directive(Kind::library), _name(name), _baseaddr(baseaddr) {}
+
+  static bool classof(const Directive *dir) {
+    return dir->getKind() == Kind::library;
+  }
+
+  StringRef getName() const { return _name; }
+  uint64_t getBaseAddress() const { return _baseaddr; }
+
+private:
+  const std::string _name;
+  const uint64_t _baseaddr;
+};
+
 class Version : public Directive {
 public:
-  explicit Version(int major, int minor)
+  Version(int major, int minor)
       : Directive(Kind::version), _major(major), _minor(minor) {}
 
   static bool classof(const Directive *dir) {
@@ -150,10 +170,10 @@ private:
 
 class Parser {
 public:
-  explicit Parser(Lexer &lex, llvm::BumpPtrAllocator &alloc)
+  Parser(Lexer &lex, llvm::BumpPtrAllocator &alloc)
       : _lex(lex), _alloc(alloc) {}
 
-  llvm::Optional<Directive *> parse();
+  bool parse(std::vector<Directive *> &ret);
 
 private:
   void consumeToken();
@@ -163,6 +183,7 @@ private:
   void ungetToken();
   void error(const Token &tok, Twine msg);
 
+  bool parseOne(Directive *&dir);
   bool parseExport(PECOFFLinkingContext::ExportDesc &result);
   bool parseMemorySize(uint64_t &reserve, uint64_t &commit);
   bool parseName(std::string &outfile, uint64_t &baseaddr);

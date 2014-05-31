@@ -82,16 +82,16 @@ static void InitLibcallNames(const char **Names, const TargetMachine &TM) {
   Names[RTLIB::UREM_I128] = "__umodti3";
 
   // These are generally not available.
-  Names[RTLIB::SDIVREM_I8] = 0;
-  Names[RTLIB::SDIVREM_I16] = 0;
-  Names[RTLIB::SDIVREM_I32] = 0;
-  Names[RTLIB::SDIVREM_I64] = 0;
-  Names[RTLIB::SDIVREM_I128] = 0;
-  Names[RTLIB::UDIVREM_I8] = 0;
-  Names[RTLIB::UDIVREM_I16] = 0;
-  Names[RTLIB::UDIVREM_I32] = 0;
-  Names[RTLIB::UDIVREM_I64] = 0;
-  Names[RTLIB::UDIVREM_I128] = 0;
+  Names[RTLIB::SDIVREM_I8] = nullptr;
+  Names[RTLIB::SDIVREM_I16] = nullptr;
+  Names[RTLIB::SDIVREM_I32] = nullptr;
+  Names[RTLIB::SDIVREM_I64] = nullptr;
+  Names[RTLIB::SDIVREM_I128] = nullptr;
+  Names[RTLIB::UDIVREM_I8] = nullptr;
+  Names[RTLIB::UDIVREM_I16] = nullptr;
+  Names[RTLIB::UDIVREM_I32] = nullptr;
+  Names[RTLIB::UDIVREM_I64] = nullptr;
+  Names[RTLIB::UDIVREM_I128] = nullptr;
 
   Names[RTLIB::NEG_I32] = "__negsi2";
   Names[RTLIB::NEG_I64] = "__negdi2";
@@ -392,18 +392,18 @@ static void InitLibcallNames(const char **Names, const TargetMachine &TM) {
     Names[RTLIB::SINCOS_PPCF128] = "sincosl";
   } else {
     // These are generally not available.
-    Names[RTLIB::SINCOS_F32] = 0;
-    Names[RTLIB::SINCOS_F64] = 0;
-    Names[RTLIB::SINCOS_F80] = 0;
-    Names[RTLIB::SINCOS_F128] = 0;
-    Names[RTLIB::SINCOS_PPCF128] = 0;
+    Names[RTLIB::SINCOS_F32] = nullptr;
+    Names[RTLIB::SINCOS_F64] = nullptr;
+    Names[RTLIB::SINCOS_F80] = nullptr;
+    Names[RTLIB::SINCOS_F128] = nullptr;
+    Names[RTLIB::SINCOS_PPCF128] = nullptr;
   }
 
   if (Triple(TM.getTargetTriple()).getOS() != Triple::OpenBSD) {
     Names[RTLIB::STACKPROTECTOR_CHECK_FAIL] = "__stack_chk_fail";
   } else {
     // These are generally not available.
-    Names[RTLIB::STACKPROTECTOR_CHECK_FAIL] = 0;
+    Names[RTLIB::STACKPROTECTOR_CHECK_FAIL] = nullptr;
   }
 }
 
@@ -680,6 +680,7 @@ TargetLoweringBase::TargetLoweringBase(const TargetMachine &tm,
   UseUnderscoreLongJmp = false;
   SelectIsExpensive = false;
   HasMultipleConditionRegisters = false;
+  HasExtractBitsInsn = false;
   IntDivIsCheap = false;
   Pow2DivIsCheap = false;
   JumpIsExpensive = false;
@@ -914,7 +915,6 @@ bool TargetLoweringBase::isLegalRC(const TargetRegisterClass *RC) const {
 MachineBasicBlock*
 TargetLoweringBase::emitPatchPoint(MachineInstr *MI,
                                    MachineBasicBlock *MBB) const {
-  const TargetMachine &TM = getTargetMachine();
   MachineFunction &MF = *MI->getParent()->getParent();
 
   // MI changes inside this loop as we grow operands.
@@ -1006,7 +1006,7 @@ void TargetLoweringBase::computeRegisterProperties() {
 
   // Find the largest integer register class.
   unsigned LargestIntReg = MVT::LAST_INTEGER_VALUETYPE;
-  for (; RegClassForVT[LargestIntReg] == 0; --LargestIntReg)
+  for (; RegClassForVT[LargestIntReg] == nullptr; --LargestIntReg)
     assert(LargestIntReg != MVT::i1 && "No integer registers defined!");
 
   // Every integer value type larger than this largest register takes twice as
@@ -1326,7 +1326,7 @@ int TargetLoweringBase::InstructionOpcodeToISD(unsigned Opcode) const {
   case Mul:            return ISD::MUL;
   case FMul:           return ISD::FMUL;
   case UDiv:           return ISD::UDIV;
-  case SDiv:           return ISD::UDIV;
+  case SDiv:           return ISD::SDIV;
   case FDiv:           return ISD::FDIV;
   case URem:           return ISD::UREM;
   case SRem:           return ISD::SREM;

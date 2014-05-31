@@ -44,7 +44,7 @@ class TargetLoweringObjectFile : public MCObjectFileInfo {
 public:
   MCContext &getContext() const { return *Ctx; }
 
-  TargetLoweringObjectFile() : MCObjectFileInfo(), Ctx(0), DL(0) {}
+  TargetLoweringObjectFile() : MCObjectFileInfo(), Ctx(nullptr), DL(nullptr) {}
 
   virtual ~TargetLoweringObjectFile();
 
@@ -104,7 +104,7 @@ public:
   virtual const MCSection *getSpecialCasedSectionGlobals(const GlobalValue *GV,
                                                          SectionKind Kind,
                                                          Mangler &Mang) const {
-    return 0;
+    return nullptr;
   }
 
   /// Return an MCExpr to use for a reference to the specified global variable
@@ -130,14 +130,15 @@ public:
   getTTypeReference(const MCSymbolRefExpr *Sym, unsigned Encoding,
                     MCStreamer &Streamer) const;
 
-  virtual const MCSection *
-  getStaticCtorSection(unsigned Priority = 65535) const {
-    (void)Priority;
+  virtual const MCSection *getStaticCtorSection(unsigned Priority,
+                                                const MCSymbol *KeySym,
+                                                const MCSection *KeySec) const {
     return StaticCtorSection;
   }
-  virtual const MCSection *
-  getStaticDtorSection(unsigned Priority = 65535) const {
-    (void)Priority;
+
+  virtual const MCSection *getStaticDtorSection(unsigned Priority,
+                                                const MCSymbol *KeySym,
+                                                const MCSection *KeySec) const {
     return StaticDtorSection;
   }
 
@@ -148,7 +149,7 @@ public:
   virtual const MCExpr *
   getExecutableRelativeSymbol(const ConstantExpr *CE, Mangler &Mang,
                               const TargetMachine &TM) const {
-    return 0;
+    return nullptr;
   }
 
   /// \brief True if the section is atomized using the symbols in it.

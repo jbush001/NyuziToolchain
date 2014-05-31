@@ -185,7 +185,7 @@ public:
 /// Visitor that tries to report interesting diagnostics from conditions.
 class ConditionBRVisitor : public BugReporterVisitorImpl<ConditionBRVisitor> {
 public:
-  void Profile(llvm::FoldingSetNodeID &ID) const  override{
+  void Profile(llvm::FoldingSetNodeID &ID) const override {
     static int x = 0;
     ID.AddPointer(&x);
   }
@@ -265,7 +265,7 @@ public:
                                  const ExplodedNode *Prev,
                                  BugReporterContext &BRC,
                                  BugReport &BR) override {
-    return 0;
+    return nullptr;
   }
 
   PathDiagnosticPiece *getEndPath(BugReporterContext &BRC,

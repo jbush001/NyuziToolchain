@@ -353,7 +353,7 @@ def err_pp_error_opening_file : Error<
 def err_pp_empty_filename : Error<"empty filename">;
 def err_pp_include_too_deep : Error<"#include nested too deeply">;
 def err_pp_expects_filename : Error<"expected \"FILENAME\" or <FILENAME>">;
-def err_pp_macro_not_identifier : Error<"macro names must be identifiers">;
+def err_pp_macro_not_identifier : Error<"macro name must be an identifier">;
 def err_pp_missing_macro_name : Error<"macro name missing">;
 def err_pp_missing_rparen_in_macro_def : Error<
   "missing ')' in macro parameter list">;
@@ -379,8 +379,6 @@ def err_pp_expected_value_in_expr : Error<"expected value in expression">;
 def err_pp_expected_rparen : Error<"expected ')' in preprocessor expression">;
 def err_pp_expected_eol : Error<
   "expected end of line in preprocessor expression">;
-def err_pp_defined_requires_identifier : Error<
-  "operator 'defined' requires an identifier">;
 def err_pp_expected_after : Error<"missing %1 after %0">;
 def err_pp_colon_without_question : Error<"':' without preceding '?'">;
 def err_pp_division_by_zero : Error<
@@ -502,7 +500,7 @@ def ext_pp_bad_paste_ms : ExtWarn<
   "pasting formed '%0', an invalid preprocessing token">, DefaultError,
   InGroup<DiagGroup<"invalid-token-paste">>;
 def err_pp_operator_used_as_macro_name : Error<
-  "C++ operator '%0' cannot be used as a macro name">;
+  "C++ operator %0 (aka %1) used as a macro name">;
 def err_pp_illegal_floating_literal : Error<
   "floating point literal in preprocessor expression">;
 def err_pp_line_requires_integer : Error<
@@ -620,6 +618,13 @@ def error_use_of_private_header_outside_module : Error<
   "use of private header from outside its module: '%0'">;
 def error_undeclared_use_of_module : Error<
   "module %0 does not depend on a module exporting '%1'">;
+def warn_non_modular_include_in_framework_module : Warning<
+  "include of non-modular header inside framework module '%0'">,
+  InGroup<NonModularIncludeInFrameworkModule>, DefaultIgnore;
+def warn_non_modular_include_in_module : Warning<
+  "include of non-modular header inside module '%0'">,
+  InGroup<NonModularIncludeInModule>, DefaultIgnore;
+
 
 def warn_header_guard : Warning<
   "%0 is used as a header guard here, followed by #define of a different macro">,

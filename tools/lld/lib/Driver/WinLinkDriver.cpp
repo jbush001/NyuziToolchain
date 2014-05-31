@@ -20,6 +20,7 @@
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Option/Arg.h"
@@ -286,7 +287,7 @@ static bool parseManifest(StringRef option, bool &enable, bool &embed,
 // The arguments will be embedded to the manifest XML file with no error check,
 // so the values given via the command line must be valid as XML attributes.
 // This may sound a bit odd, but that's how link.exe works, so we will follow.
-static bool parseManifestUac(StringRef option,
+static bool parseManifestUAC(StringRef option,
                              llvm::Optional<std::string> &level,
                              llvm::Optional<std::string> &uiAccess) {
   for (;;) {
@@ -350,14 +351,14 @@ static bool parseExport(StringRef option,
 }
 
 // Read module-definition file.
-static llvm::Optional<moduledef::Directive *>
-parseDef(StringRef option, llvm::BumpPtrAllocator &alloc) {
+static bool parseDef(StringRef option, llvm::BumpPtrAllocator &alloc,
+                     std::vector<moduledef::Directive *> &result) {
   std::unique_ptr<MemoryBuffer> buf;
   if (MemoryBuffer::getFile(option, buf))
     return llvm::None;
   moduledef::Lexer lexer(std::move(buf));
   moduledef::Parser parser(lexer, alloc);
-  return parser.parse();
+  return parser.parse(result);
 }
 
 static StringRef replaceExtension(PECOFFLinkingContext &ctx, StringRef path,
@@ -375,24 +376,26 @@ static std::string createManifestXml(PECOFFLinkingContext &ctx) {
   // syntactically correct. This is intentional for link.exe compatibility.
   out << "<?xml version=\"1.0\" standalone=\"yes\"?>\n"
          "<assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\"\n"
-         "          manifestVersion=\"1.0\">\n"
-         "  <trustInfo>\n"
-         "    <security>\n"
-         "      <requestedPrivileges>\n"
-         "         <requestedExecutionLevel level=" << ctx.getManifestLevel()
-      << " uiAccess=" << ctx.getManifestUiAccess()
-      << "/>\n"
-         "      </requestedPrivileges>\n"
-         "    </security>\n"
-         "  </trustInfo>\n";
-  const std::string &dependency = ctx.getManifestDependency();
-  if (!dependency.empty()) {
-    out << "  <dependency>\n"
-           "    <dependentAssembly>\n"
-           "      <assemblyIdentity " << dependency
-        << " />\n"
-           "    </dependentAssembly>\n"
-           "  </dependency>\n";
+         "          manifestVersion=\"1.0\">\n";
+  if (ctx.getManifestUAC()) {
+    out << "  <trustInfo>\n"
+           "    <security>\n"
+           "      <requestedPrivileges>\n"
+           "         <requestedExecutionLevel level=" << ctx.getManifestLevel()
+        << " uiAccess=" << ctx.getManifestUiAccess()
+        << "/>\n"
+           "      </requestedPrivileges>\n"
+           "    </security>\n"
+           "  </trustInfo>\n";
+    const std::string &dependency = ctx.getManifestDependency();
+    if (!dependency.empty()) {
+      out << "  <dependency>\n"
+             "    <dependentAssembly>\n"
+             "      <assemblyIdentity " << dependency
+          << " />\n"
+             "    </dependentAssembly>\n"
+             "  </dependency>\n";
+    }
   }
   out << "</assembly>\n";
   out.flush();
@@ -596,10 +599,13 @@ static void processLibEnv(PECOFFLinkingContext &context) {
 
 // Returns a default entry point symbol name depending on context image type and
 // subsystem. These default names are MS CRT compliant.
-static StringRef getDefaultEntrySymbolName(PECOFFLinkingContext &context) {
-  if (context.isDll())
-    return "_DllMainCRTStartup@12";
-  llvm::COFF::WindowsSubsystem subsystem = context.getSubsystem();
+static StringRef getDefaultEntrySymbolName(PECOFFLinkingContext &ctx) {
+  if (ctx.isDll()) {
+    if (ctx.getMachineType() == llvm::COFF::IMAGE_FILE_MACHINE_I386)
+      return "_DllMainCRTStartup@12";
+    return "_DllMainCRTStartup";
+  }
+  llvm::COFF::WindowsSubsystem subsystem = ctx.getSubsystem();
   if (subsystem == llvm::COFF::WindowsSubsystem::IMAGE_SUBSYSTEM_WINDOWS_GUI)
     return "WinMainCRTStartup";
   if (subsystem == llvm::COFF::WindowsSubsystem::IMAGE_SUBSYSTEM_WINDOWS_CUI)
@@ -982,9 +988,13 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
 
     case OPT_manifestuac: {
       // Parse /manifestuac.
+      if (StringRef(inputArg->getValue()).equals_lower("no")) {
+        ctx.setManifestUAC(false);
+        break;
+      }
       llvm::Optional<std::string> privilegeLevel;
       llvm::Optional<std::string> uiAccess;
-      if (!parseManifestUac(inputArg->getValue(), privilegeLevel, uiAccess)) {
+      if (!parseManifestUAC(inputArg->getValue(), privilegeLevel, uiAccess)) {
         diag << "Unknown argument for /manifestuac: " << inputArg->getValue()
              << "\n";
         return false;
@@ -1040,38 +1050,59 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
 
     case OPT_deffile: {
       llvm::BumpPtrAllocator alloc;
-      llvm::Optional<moduledef::Directive *> dir =
-          parseDef(inputArg->getValue(), alloc);
-      if (!dir.hasValue()) {
+      std::vector<moduledef::Directive *> dirs;
+      if (!parseDef(inputArg->getValue(), alloc, dirs)) {
         diag << "Error: invalid module-definition file\n";
         return false;
       }
-
-      if (auto *exp = dyn_cast<moduledef::Exports>(dir.getValue())) {
-        for (PECOFFLinkingContext::ExportDesc desc : exp->getExports()) {
-          desc.name = ctx.decorateSymbol(desc.name);
-          ctx.addDllExport(desc);
+      for (moduledef::Directive *dir : dirs) {
+        if (auto *exp = dyn_cast<moduledef::Exports>(dir)) {
+          for (PECOFFLinkingContext::ExportDesc desc : exp->getExports()) {
+            desc.name = ctx.decorateSymbol(desc.name);
+            ctx.addDllExport(desc);
+          }
+        } else if (auto *hs = dyn_cast<moduledef::Heapsize>(dir)) {
+          ctx.setHeapReserve(hs->getReserve());
+          ctx.setHeapCommit(hs->getCommit());
+        } else if (auto *lib = dyn_cast<moduledef::Library>(dir)) {
+          ctx.setIsDll(true);
+          ctx.setOutputPath(ctx.allocate(lib->getName()));
+          if (lib->getBaseAddress() && !ctx.getBaseAddress())
+            ctx.setBaseAddress(lib->getBaseAddress());
+        } else if (auto *name = dyn_cast<moduledef::Name>(dir)) {
+          if (!name->getOutputPath().empty() && ctx.outputPath().empty())
+            ctx.setOutputPath(ctx.allocate(name->getOutputPath()));
+          if (name->getBaseAddress() && ctx.getBaseAddress())
+            ctx.setBaseAddress(name->getBaseAddress());
+        } else if (auto *ver = dyn_cast<moduledef::Version>(dir)) {
+          ctx.setImageVersion(PECOFFLinkingContext::Version(
+              ver->getMajorVersion(), ver->getMinorVersion()));
+        } else {
+          llvm::dbgs() << static_cast<int>(dir->getKind()) << "\n";
+          llvm_unreachable("Unknown module-definition directive.\n");
         }
-      } else if (auto *hs = dyn_cast<moduledef::Heapsize>(dir.getValue())) {
-        ctx.setHeapReserve(hs->getReserve());
-        ctx.setHeapCommit(hs->getCommit());
-      } else if (auto *name = dyn_cast<moduledef::Name>(dir.getValue())) {
-        if (!name->getOutputPath().empty() && ctx.outputPath().empty())
-          ctx.setOutputPath(ctx.allocate(name->getOutputPath()));
-        if (name->getBaseAddress() && ctx.getBaseAddress())
-          ctx.setBaseAddress(name->getBaseAddress());
-      } else if (auto *ver = dyn_cast<moduledef::Version>(dir.getValue())) {
-        ctx.setImageVersion(PECOFFLinkingContext::Version(
-            ver->getMajorVersion(), ver->getMinorVersion()));
-      } else {
-        llvm::dbgs() << static_cast<int>(dir.getValue()->getKind()) << "\n";
-        llvm_unreachable("Unknown module-definition directive.\n");
       }
     }
 
     case OPT_libpath:
       ctx.appendInputSearchPath(ctx.allocate(inputArg->getValue()));
       break;
+
+    case OPT_opt: {
+      StringRef arg = inputArg->getValue();
+      if (arg.equals_lower("noref")) {
+        ctx.setDeadStripping(false);
+        break;
+      }
+      if (arg.equals_lower("ref") || arg.equals_lower("icf") ||
+          arg.equals_lower("noicf") || arg.startswith_lower("icf=") ||
+          arg.equals_lower("lbr") || arg.equals_lower("nolbr")) {
+        // Ignore known but unsupported options.
+        break;
+      }
+      diag << "unknown option for /opt: " << arg << "\n";
+      return false;
+    }
 
     case OPT_debug:
       // LLD is not yet capable of creating a PDB file, so /debug does not have
@@ -1112,6 +1143,10 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
       ctx.setSwapRunFromNet(true);
       break;
 
+    case OPT_implib:
+      ctx.setOutputImportLibraryPath(inputArg->getValue());
+      break;
+
     case OPT_stub: {
       ArrayRef<uint8_t> contents;
       if (!readFile(ctx, inputArg->getValue(), contents)) {
@@ -1138,6 +1173,10 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
       inputFiles.push_back(ctx.allocate(inputArg->getValue()));
       break;
 
+    case OPT_lldmoduledeffile:
+      ctx.setModuleDefinitionFile(inputArg->getValue());
+      break;
+
 #define DEFINE_BOOLEAN_FLAG(name, setter)       \
     case OPT_##name:                            \
       ctx.setter(true);                         \
@@ -1146,7 +1185,6 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
       ctx.setter(false);                        \
       break
 
-    DEFINE_BOOLEAN_FLAG(ref, setDeadStripping);
     DEFINE_BOOLEAN_FLAG(nxcompat, setNxCompat);
     DEFINE_BOOLEAN_FLAG(largeaddressaware, setLargeAddressAware);
     DEFINE_BOOLEAN_FLAG(allowbind, setAllowBind);
@@ -1189,12 +1227,6 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
   // Specify /noentry without /dll is an error.
   if (parsedArgs->getLastArg(OPT_noentry) && !parsedArgs->getLastArg(OPT_dll)) {
     diag << "/noentry must be specified with /dll\n";
-    return false;
-  }
-
-  // Specifying both /opt:ref and /opt:noref is an error.
-  if (parsedArgs->getLastArg(OPT_ref) && parsedArgs->getLastArg(OPT_ref_no)) {
-    diag << "/opt:ref must not be specified with /opt:noref\n";
     return false;
   }
 

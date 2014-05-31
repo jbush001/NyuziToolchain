@@ -1,4 +1,4 @@
-//===- lld/Core/Simple.h - Simple implementations of Atom and File --------===//
+//===- lld/ReaderWriter/Simple.h - Simple implementations of Atom and File ===//
 //
 //                             The LLVM Linker
 //
@@ -139,8 +139,6 @@ public:
   DeadStripKind deadStrip() const override {
     return DefinedAtom::deadStripNormal;
   }
-
-  bool isAlias() const override { return false; }
 
   DefinedAtom::reference_iterator begin() const override {
     uintptr_t index = 0;

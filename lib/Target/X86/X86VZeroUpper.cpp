@@ -14,7 +14,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "x86-vzeroupper"
 #include "X86.h"
 #include "X86InstrInfo.h"
 #include "X86Subtarget.h"
@@ -27,6 +26,8 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetInstrInfo.h"
 using namespace llvm;
+
+#define DEBUG_TYPE "x86-vzeroupper"
 
 STATISTIC(NumVZU, "Number of vzeroupper instructions inserted");
 
@@ -246,7 +247,8 @@ void VZeroUpperInserter::processBasicBlock(MachineBasicBlock &MBB) {
 /// runOnMachineFunction - Loop over all of the basic blocks, inserting
 /// vzero upper instructions before function calls.
 bool VZeroUpperInserter::runOnMachineFunction(MachineFunction &MF) {
-  if (MF.getTarget().getSubtarget<X86Subtarget>().hasAVX512())
+  const X86Subtarget &ST = MF.getTarget().getSubtarget<X86Subtarget>();
+  if (!ST.hasAVX() || ST.hasAVX512())
     return false;
   TII = MF.getTarget().getInstrInfo();
   MachineRegisterInfo &MRI = MF.getRegInfo();

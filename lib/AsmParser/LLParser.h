@@ -176,7 +176,8 @@ namespace llvm {
       return FMF;
     }
 
-    bool ParseOptionalToken(lltok::Kind T, bool &Present, LocTy *Loc = 0) {
+    bool ParseOptionalToken(lltok::Kind T, bool &Present,
+                            LocTy *Loc = nullptr) {
       if (Lex.getKind() != T) {
         Present = false;
       } else {
@@ -238,9 +239,11 @@ namespace llvm {
     bool ParseNamedGlobal();
     bool ParseGlobal(const std::string &Name, LocTy Loc, unsigned Linkage,
                      bool HasLinkage, unsigned Visibility,
-                     unsigned DLLStorageClass);
+                     unsigned DLLStorageClass,
+                     GlobalVariable::ThreadLocalMode TLM);
     bool ParseAlias(const std::string &Name, LocTy Loc, unsigned Visibility,
-                    unsigned DLLStorageClass);
+                    unsigned DLLStorageClass,
+                    GlobalVariable::ThreadLocalMode TLM);
     bool ParseStandaloneMetadata();
     bool ParseNamedMetadata();
     bool ParseMDString(MDString *&Result);
@@ -348,7 +351,7 @@ namespace llvm {
                             PerFunctionState &PFS);
 
     // Constant Parsing.
-    bool ParseValID(ValID &ID, PerFunctionState *PFS = NULL);
+    bool ParseValID(ValID &ID, PerFunctionState *PFS = nullptr);
     bool ParseGlobalValue(Type *Ty, Constant *&V);
     bool ParseGlobalTypeAndValue(Constant *&V);
     bool ParseGlobalValueVector(SmallVectorImpl<Constant*> &Elts);
@@ -370,6 +373,8 @@ namespace llvm {
     bool ParseFunctionHeader(Function *&Fn, bool isDefine);
     bool ParseFunctionBody(Function &Fn);
     bool ParseBasicBlock(PerFunctionState &PFS);
+
+    enum TailCallType { TCT_None, TCT_Tail, TCT_MustTail };
 
     // Instruction Parsing.  Each instruction parsing routine can return with a
     // normal result, an error result, or return having eaten an extra comma.
@@ -397,7 +402,8 @@ namespace llvm {
     bool ParseShuffleVector(Instruction *&I, PerFunctionState &PFS);
     int ParsePHI(Instruction *&I, PerFunctionState &PFS);
     bool ParseLandingPad(Instruction *&I, PerFunctionState &PFS);
-    bool ParseCall(Instruction *&I, PerFunctionState &PFS, bool isTail);
+    bool ParseCall(Instruction *&I, PerFunctionState &PFS,
+                   CallInst::TailCallKind IsTail);
     int ParseAlloc(Instruction *&I, PerFunctionState &PFS);
     int ParseLoad(Instruction *&I, PerFunctionState &PFS);
     int ParseStore(Instruction *&I, PerFunctionState &PFS);

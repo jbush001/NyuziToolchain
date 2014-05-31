@@ -23,6 +23,7 @@
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/LeakDetector.h"
+#include "llvm/Support/Dwarf.h"
 #include <algorithm>
 #include <cstdarg>
 #include <cstdlib>
@@ -95,7 +96,7 @@ Constant *Module::getOrInsertFunction(StringRef Name,
                                       AttributeSet AttributeList) {
   // See if we have a definition for the specified function already.
   GlobalValue *F = getNamedValue(Name);
-  if (F == 0) {
+  if (!F) {
     // Nope, add it
     Function *New = Function::Create(Ty, GlobalVariable::ExternalLinkage, Name);
     if (!New->isIntrinsic())       // Intrinsics get attrs set on construction
@@ -183,7 +184,7 @@ GlobalVariable *Module::getGlobalVariable(StringRef Name, bool AllowLocal) {
       dyn_cast_or_null<GlobalVariable>(getNamedValue(Name)))
     if (AllowLocal || !Result->hasLocalLinkage())
       return Result;
-  return 0;
+  return nullptr;
 }
 
 /// getOrInsertGlobal - Look up the specified global in the module symbol table.
@@ -195,11 +196,11 @@ GlobalVariable *Module::getGlobalVariable(StringRef Name, bool AllowLocal) {
 Constant *Module::getOrInsertGlobal(StringRef Name, Type *Ty) {
   // See if we have a definition for the specified global already.
   GlobalVariable *GV = dyn_cast_or_null<GlobalVariable>(getNamedValue(Name));
-  if (GV == 0) {
+  if (!GV) {
     // Nope, add it
     GlobalVariable *New =
       new GlobalVariable(*this, Ty, false, GlobalVariable::ExternalLinkage,
-                         0, Name);
+                         nullptr, Name);
      return New;                    // Return the new declaration.
   }
 
@@ -284,7 +285,7 @@ Value *Module::getModuleFlag(StringRef Key) const {
     if (Key == MFE.Key->getString())
       return MFE.Val;
   }
-  return 0;
+  return nullptr;
 }
 
 /// getModuleFlagsMetadata - Returns the NamedMDNode in the module that
@@ -350,7 +351,7 @@ void Module::setDataLayout(const DataLayout *Other) {
 
 const DataLayout *Module::getDataLayout() const {
   if (DataLayoutStr.empty())
-    return 0;
+    return nullptr;
   return &DL;
 }
 
@@ -395,7 +396,7 @@ void Module::Dematerialize(GlobalValue *GV) {
 
 error_code Module::materializeAll() {
   if (!Materializer)
-    return error_code::success();
+    return error_code();
   return Materializer->MaterializeModule(this);
 }
 
@@ -404,7 +405,7 @@ error_code Module::materializeAllPermanently() {
     return EC;
 
   Materializer.reset();
-  return error_code::success();
+  return error_code();
 }
 
 //===----------------------------------------------------------------------===//
@@ -428,4 +429,11 @@ void Module::dropAllReferences() {
 
   for(Module::alias_iterator I = alias_begin(), E = alias_end(); I != E; ++I)
     I->dropAllReferences();
+}
+
+unsigned Module::getDwarfVersion() const {
+  Value *Val = getModuleFlag("Dwarf Version");
+  if (!Val)
+    return dwarf::DWARF_VERSION;
+  return cast<ConstantInt>(Val)->getZExtValue();
 }

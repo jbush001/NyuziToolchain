@@ -10,7 +10,6 @@
 #ifndef LLVM_ADT_STRINGREF_H
 #define LLVM_ADT_STRINGREF_H
 
-#include "llvm/Support/Allocator.h"
 #include <algorithm>
 #include <cassert>
 #include <cstring>
@@ -70,7 +69,7 @@ namespace llvm {
     /// @{
 
     /// Construct an empty string ref.
-    /*implicit*/ StringRef() : Data(0), Length(0) {}
+    /*implicit*/ StringRef() : Data(nullptr), Length(0) {}
 
     /// Construct a string ref from a cstring.
     /*implicit*/ StringRef(const char *Str)
@@ -124,9 +123,9 @@ namespace llvm {
       return Data[Length-1];
     }
 
-    // copy - Allocate copy in BumpPtrAllocator and return StringRef to it.
-    StringRef copy(BumpPtrAllocator &Allocator) {
-      char *S = Allocator.Allocate<char>(Length);
+    // copy - Allocate copy in Allocator and return StringRef to it.
+    template <typename Allocator> StringRef copy(Allocator &A) {
+      char *S = A.template Allocate<char>(Length);
       std::copy(begin(), end(), S);
       return StringRef(S, Length);
     }
@@ -186,7 +185,7 @@ namespace llvm {
 
     /// str - Get the contents as an std::string.
     std::string str() const {
-      if (Data == 0) return std::string();
+      if (!Data) return std::string();
       return std::string(Data, Length);
     }
 

@@ -302,15 +302,6 @@ standard error in a human-readable form.
 This pass, only available in ``opt``, printsthe SCCs of each function CFG to
 standard error in a human-readable fom.
 
-``-print-dbginfo``: Print debug info in human readable form
------------------------------------------------------------
-
-Pass that prints instructions, and associated debug info:
-
-#. source/line/col information
-#. original variable name
-#. original type name
-
 ``-print-dom-info``: Dominator Info Printer
 -------------------------------------------
 
@@ -549,6 +540,8 @@ instructions that are obviously dead.
 A trivial dead store elimination that only considers basic-block local
 redundant stores.
 
+.. _passes-functionattrs:
+
 ``-functionattrs``: Deduce function attributes
 ----------------------------------------------
 
@@ -657,7 +650,7 @@ program, and is used for a wide variety of program transformations.
 ------------------------------------------------
 
 Combine instructions to form fewer, simple instructions.  This pass does not
-modify the CFG This pass is where algebraic simplification happens.
+modify the CFG. This pass is where algebraic simplification happens.
 
 This pass combines things like:
 
@@ -689,6 +682,13 @@ program:
 #. Multiplies with a constant power-of-two argument are transformed into
    shifts.
 #. … etc.
+
+This pass can also simplify calls to specific well-known function calls (e.g.
+runtime library functions).  For example, a call ``exit(3)`` that occurs within
+the ``main()`` function can be transformed into simply ``return 3``. Whether or
+not library calls are simplified is controlled by the
+:ref:`-functionattrs <passes-functionattrs>` pass and LLVM's knowledge of
+library calls on different targets.
 
 ``-internalize``: Internalize Global Symbols
 --------------------------------------------
@@ -1019,14 +1019,6 @@ as:
 
 Note that this pass has a habit of making definitions be dead.  It is a good
 idea to run a :ref:`DCE <passes-dce>` pass sometime after running this pass.
-
-``-simplify-libcalls``: Simplify well-known library calls
----------------------------------------------------------
-
-Applies a variety of small optimizations for calls to specific well-known
-function calls (e.g. runtime library functions).  For example, a call
-``exit(3)`` that occurs within the ``main()`` function can be transformed into
-simply ``return 3``.
 
 .. _passes-simplifycfg:
 

@@ -166,8 +166,6 @@ class ARMFastISel final : public FastISel {
 
     // Utility routines.
   private:
-    unsigned constrainOperandRegClass(const MCInstrDesc &II, unsigned OpNum,
-                                      unsigned Op);
     bool isTypeLegal(Type *Ty, MVT &VT);
     bool isLoadTypeLegal(Type *Ty, MVT &VT);
     bool ARMEmitCmp(const Value *Src1Value, const Value *Src2Value,
@@ -190,6 +188,8 @@ class ARMFastISel final : public FastISel {
     unsigned ARMMoveToIntReg(MVT VT, unsigned SrcReg);
     unsigned ARMSelectCallOp(bool UseReg);
     unsigned ARMLowerPICELF(const GlobalValue *GV, unsigned Align, MVT VT);
+
+    const TargetLowering *getTargetLowering() { return TM.getTargetLowering(); }
 
     // Call handling routines.
   private:
@@ -281,23 +281,6 @@ ARMFastISel::AddOptionalDefs(const MachineInstrBuilder &MIB) {
       AddDefaultCC(MIB);
   }
   return MIB;
-}
-
-unsigned ARMFastISel::constrainOperandRegClass(const MCInstrDesc &II,
-                                               unsigned Op, unsigned OpNum) {
-  if (TargetRegisterInfo::isVirtualRegister(Op)) {
-    const TargetRegisterClass *RegClass =
-        TII.getRegClass(II, OpNum, &TRI, *FuncInfo.MF);
-    if (!MRI.constrainRegClass(Op, RegClass)) {
-      // If it's not legal to COPY between the register classes, something
-      // has gone very wrong before we got here.
-      unsigned NewOp = createResultReg(RegClass);
-      AddOptionalDefs(BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
-                              TII.get(TargetOpcode::COPY), NewOp).addReg(Op));
-      return NewOp;
-    }
-  }
-  return Op;
 }
 
 unsigned ARMFastISel::FastEmitInst_r(unsigned MachineInstOpcode,
@@ -769,7 +752,7 @@ bool ARMFastISel::isLoadTypeLegal(Type *Ty, MVT &VT) {
 // Computes the address to get to an object.
 bool ARMFastISel::ARMComputeAddress(const Value *Obj, Address &Addr) {
   // Some boilerplate from the X86 FastISel.
-  const User *U = NULL;
+  const User *U = nullptr;
   unsigned Opcode = Instruction::UserOp1;
   if (const Instruction *I = dyn_cast<Instruction>(Obj)) {
     // Don't walk into other basic blocks unless the object is an alloca from
@@ -2182,7 +2165,8 @@ unsigned ARMFastISel::getLibcallReg(const Twine &Name) {
   if (!LCREVT.isSimple()) return 0;
 
   GlobalValue *GV = new GlobalVariable(M, Type::getInt32Ty(*Context), false,
-                                       GlobalValue::ExternalLinkage, 0, Name);
+                                       GlobalValue::ExternalLinkage, nullptr,
+                                       Name);
   assert(GV->getType() == GVTy && "We miscomputed the type for the global!");
   return ARMMaterializeGV(GV, LCREVT.getSimpleVT());
 }
@@ -2286,7 +2270,7 @@ bool ARMFastISel::ARMEmitLibcall(const Instruction *I, RTLIB::Libcall Call) {
 }
 
 bool ARMFastISel::SelectCall(const Instruction *I,
-                             const char *IntrMemName = 0) {
+                             const char *IntrMemName = nullptr) {
   const CallInst *CI = cast<CallInst>(I);
   const Value *Callee = CI->getCalledValue();
 
@@ -3092,6 +3076,6 @@ namespace llvm {
       TM.Options.NoFramePointerElim = true;
       return new ARMFastISel(funcInfo, libInfo);
     }
-    return 0;
+    return nullptr;
   }
 }

@@ -35,20 +35,11 @@ static bool error(error_code ec) {
   return true;
 }
 
-static uint32_t
-getDILineInfoSpecifierFlags(const LLVMSymbolizer::Options &Opts) {
-  uint32_t Flags = llvm::DILineInfoSpecifier::FileLineInfo |
-                   llvm::DILineInfoSpecifier::AbsoluteFilePath;
-  if (Opts.PrintFunctions)
-    Flags |= llvm::DILineInfoSpecifier::FunctionName;
-  return Flags;
-}
-
-static void patchFunctionNameInDILineInfo(const std::string &NewFunctionName,
-                                          DILineInfo &LineInfo) {
-  std::string FileName = LineInfo.getFileName();
-  LineInfo = DILineInfo(StringRef(FileName), StringRef(NewFunctionName),
-                        LineInfo.getLine(), LineInfo.getColumn());
+static DILineInfoSpecifier
+getDILineInfoSpecifier(const LLVMSymbolizer::Options &Opts) {
+  return DILineInfoSpecifier(
+      DILineInfoSpecifier::FileLineInfoKind::AbsoluteFilePath,
+      Opts.PrintFunctions);
 }
 
 ModuleInfo::ModuleInfo(ObjectFile *Obj, DIContext *DICtx)
@@ -122,15 +113,15 @@ DILineInfo ModuleInfo::symbolizeCode(
   DILineInfo LineInfo;
   if (DebugInfoContext) {
     LineInfo = DebugInfoContext->getLineInfoForAddress(
-        ModuleOffset, getDILineInfoSpecifierFlags(Opts));
+        ModuleOffset, getDILineInfoSpecifier(Opts));
   }
   // Override function name from symbol table if necessary.
-  if (Opts.PrintFunctions && Opts.UseSymbolTable) {
+  if (Opts.PrintFunctions != FunctionNameKind::None && Opts.UseSymbolTable) {
     std::string FunctionName;
     uint64_t Start, Size;
     if (getNameFromSymbolTable(SymbolRef::ST_Function, ModuleOffset,
                                FunctionName, Start, Size)) {
-      patchFunctionNameInDILineInfo(FunctionName, LineInfo);
+      LineInfo.FunctionName = FunctionName;
     }
   }
   return LineInfo;
@@ -141,14 +132,14 @@ DIInliningInfo ModuleInfo::symbolizeInlinedCode(
   DIInliningInfo InlinedContext;
   if (DebugInfoContext) {
     InlinedContext = DebugInfoContext->getInliningInfoForAddress(
-        ModuleOffset, getDILineInfoSpecifierFlags(Opts));
+        ModuleOffset, getDILineInfoSpecifier(Opts));
   }
   // Make sure there is at least one frame in context.
   if (InlinedContext.getNumberOfFrames() == 0) {
     InlinedContext.addFrame(DILineInfo());
   }
   // Override the function name in lower frame with name from symbol table.
-  if (Opts.PrintFunctions && Opts.UseSymbolTable) {
+  if (Opts.PrintFunctions != FunctionNameKind::None && Opts.UseSymbolTable) {
     DIInliningInfo PatchedInlinedContext;
     for (uint32_t i = 0, n = InlinedContext.getNumberOfFrames(); i < n; i++) {
       DILineInfo LineInfo = InlinedContext.getFrame(i);
@@ -157,7 +148,7 @@ DIInliningInfo ModuleInfo::symbolizeInlinedCode(
         uint64_t Start, Size;
         if (getNameFromSymbolTable(SymbolRef::ST_Function, ModuleOffset,
                                    FunctionName, Start, Size)) {
-          patchFunctionNameInDILineInfo(FunctionName, LineInfo);
+          LineInfo.FunctionName = FunctionName;
         }
       }
       PatchedInlinedContext.addFrame(LineInfo);
@@ -178,7 +169,7 @@ const char LLVMSymbolizer::kBadString[] = "??";
 std::string LLVMSymbolizer::symbolizeCode(const std::string &ModuleName,
                                           uint64_t ModuleOffset) {
   ModuleInfo *Info = getOrCreateModuleInfo(ModuleName);
-  if (Info == 0)
+  if (!Info)
     return printDILineInfo(DILineInfo());
   if (Opts.PrintInlining) {
     DIInliningInfo InlinedContext =
@@ -214,7 +205,6 @@ std::string LLVMSymbolizer::symbolizeData(const std::string &ModuleName,
 
 void LLVMSymbolizer::flush() {
   DeleteContainerSeconds(Modules);
-  DeleteContainerPointers(ParsedBinariesAndObjects);
   BinaryForPath.clear();
   ObjectFileForArch.clear();
 }
@@ -240,7 +230,7 @@ static bool findDebugBinary(const std::string &OrigPath,
                             std::string &Result) {
   std::string OrigRealPath = OrigPath;
 #if defined(HAVE_REALPATH)
-  if (char *RP = realpath(OrigPath.c_str(), NULL)) {
+  if (char *RP = realpath(OrigPath.c_str(), nullptr)) {
     OrigRealPath = RP;
     free(RP);
   }
@@ -306,14 +296,14 @@ LLVMSymbolizer::getOrCreateBinary(const std::string &Path) {
   BinaryMapTy::iterator I = BinaryForPath.find(Path);
   if (I != BinaryForPath.end())
     return I->second;
-  Binary *Bin = 0;
-  Binary *DbgBin = 0;
+  Binary *Bin = nullptr;
+  Binary *DbgBin = nullptr;
   ErrorOr<Binary *> BinaryOrErr = createBinary(Path);
   if (!error(BinaryOrErr.getError())) {
     std::unique_ptr<Binary> ParsedBinary(BinaryOrErr.get());
     // Check if it's a universal binary.
-    Bin = ParsedBinary.release();
-    ParsedBinariesAndObjects.push_back(Bin);
+    Bin = ParsedBinary.get();
+    ParsedBinariesAndObjects.push_back(std::move(ParsedBinary));
     if (Bin->isMachO() || Bin->isMachOUniversalBinary()) {
       // On Darwin we may find DWARF in separate object file in
       // resource directory.
@@ -323,11 +313,11 @@ LLVMSymbolizer::getOrCreateBinary(const std::string &Path) {
       error_code EC = BinaryOrErr.getError();
       if (EC != errc::no_such_file_or_directory && !error(EC)) {
         DbgBin = BinaryOrErr.get();
-        ParsedBinariesAndObjects.push_back(DbgBin);
+        ParsedBinariesAndObjects.push_back(std::unique_ptr<Binary>(DbgBin));
       }
     }
     // Try to locate the debug binary using .gnu_debuglink section.
-    if (DbgBin == 0) {
+    if (!DbgBin) {
       std::string DebuglinkName;
       uint32_t CRCHash;
       std::string DebugBinaryPath;
@@ -336,12 +326,12 @@ LLVMSymbolizer::getOrCreateBinary(const std::string &Path) {
         BinaryOrErr = createBinary(DebugBinaryPath);
         if (!error(BinaryOrErr.getError())) {
           DbgBin = BinaryOrErr.get();
-          ParsedBinariesAndObjects.push_back(DbgBin);
+          ParsedBinariesAndObjects.push_back(std::unique_ptr<Binary>(DbgBin));
         }
       }
     }
   }
-  if (DbgBin == 0)
+  if (!DbgBin)
     DbgBin = Bin;
   BinaryPair Res = std::make_pair(Bin, DbgBin);
   BinaryForPath[Path] = Res;
@@ -350,9 +340,9 @@ LLVMSymbolizer::getOrCreateBinary(const std::string &Path) {
 
 ObjectFile *
 LLVMSymbolizer::getObjectFileFromBinary(Binary *Bin, const std::string &ArchName) {
-  if (Bin == 0)
-    return 0;
-  ObjectFile *Res = 0;
+  if (!Bin)
+    return nullptr;
+  ObjectFile *Res = nullptr;
   if (MachOUniversalBinary *UB = dyn_cast<MachOUniversalBinary>(Bin)) {
     ObjectFileForArchMapTy::iterator I = ObjectFileForArch.find(
         std::make_pair(UB, ArchName));
@@ -360,8 +350,8 @@ LLVMSymbolizer::getObjectFileFromBinary(Binary *Bin, const std::string &ArchName
       return I->second;
     std::unique_ptr<ObjectFile> ParsedObj;
     if (!UB->getObjectForArch(Triple(ArchName).getArch(), ParsedObj)) {
-      Res = ParsedObj.release();
-      ParsedBinariesAndObjects.push_back(Res);
+      Res = ParsedObj.get();
+      ParsedBinariesAndObjects.push_back(std::move(ParsedObj));
     }
     ObjectFileForArch[std::make_pair(UB, ArchName)] = Res;
   } else if (Bin->isObject()) {
@@ -390,10 +380,10 @@ LLVMSymbolizer::getOrCreateModuleInfo(const std::string &ModuleName) {
   ObjectFile *Obj = getObjectFileFromBinary(Binaries.first, ArchName);
   ObjectFile *DbgObj = getObjectFileFromBinary(Binaries.second, ArchName);
 
-  if (Obj == 0) {
+  if (!Obj) {
     // Failed to find valid object file.
-    Modules.insert(make_pair(ModuleName, (ModuleInfo *)0));
-    return 0;
+    Modules.insert(make_pair(ModuleName, (ModuleInfo *)nullptr));
+    return nullptr;
   }
   DIContext *Context = DIContext::getDWARFContext(DbgObj);
   assert(Context);
@@ -407,19 +397,18 @@ std::string LLVMSymbolizer::printDILineInfo(DILineInfo LineInfo) const {
   // cannot fetch. We replace it to "??" to make our output closer to addr2line.
   static const std::string kDILineInfoBadString = "<invalid>";
   std::stringstream Result;
-  if (Opts.PrintFunctions) {
-    std::string FunctionName = LineInfo.getFunctionName();
+  if (Opts.PrintFunctions != FunctionNameKind::None) {
+    std::string FunctionName = LineInfo.FunctionName;
     if (FunctionName == kDILineInfoBadString)
       FunctionName = kBadString;
     else if (Opts.Demangle)
       FunctionName = DemangleName(FunctionName);
     Result << FunctionName << "\n";
   }
-  std::string Filename = LineInfo.getFileName();
+  std::string Filename = LineInfo.FileName;
   if (Filename == kDILineInfoBadString)
     Filename = kBadString;
-  Result << Filename << ":" << LineInfo.getLine() << ":" << LineInfo.getColumn()
-         << "\n";
+  Result << Filename << ":" << LineInfo.Line << ":" << LineInfo.Column << "\n";
   return Result.str();
 }
 
@@ -436,7 +425,7 @@ std::string LLVMSymbolizer::DemangleName(const std::string &Name) {
   if (Name.substr(0, 2) != "_Z")
     return Name;
   int status = 0;
-  char *DemangledName = __cxa_demangle(Name.c_str(), 0, 0, &status);
+  char *DemangledName = __cxa_demangle(Name.c_str(), nullptr, nullptr, &status);
   if (status != 0)
     return Name;
   std::string Result = DemangledName;

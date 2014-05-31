@@ -420,7 +420,8 @@ MachOObjectFile::MachOObjectFile(MemoryBuffer *Object, bool IsLittleEndian,
                                  bool Is64bits, error_code &EC,
                                  bool BufferOwned)
     : ObjectFile(getMachOType(IsLittleEndian, Is64bits), Object, BufferOwned),
-      SymtabLoadCmd(NULL), DysymtabLoadCmd(NULL), DataInCodeLoadCmd(NULL) {
+      SymtabLoadCmd(nullptr), DysymtabLoadCmd(nullptr),
+      DataInCodeLoadCmd(nullptr) {
   uint32_t LoadCommandCount = this->getHeader().ncmds;
   MachO::LoadCommandType SegmentLoadType = is64Bit() ?
     MachO::LC_SEGMENT_64 : MachO::LC_SEGMENT;
@@ -471,10 +472,18 @@ error_code MachOObjectFile::getSymbolAddress(DataRefImpl Symb,
                                              uint64_t &Res) const {
   if (is64Bit()) {
     MachO::nlist_64 Entry = getSymbol64TableEntry(Symb);
-    Res = Entry.n_value;
+    if ((Entry.n_type & MachO::N_TYPE) == MachO::N_UNDF &&
+        Entry.n_value == 0)
+      Res = UnknownAddressOrSize;
+    else
+      Res = Entry.n_value;
   } else {
     MachO::nlist Entry = getSymbolTableEntry(Symb);
-    Res = Entry.n_value;
+    if ((Entry.n_type & MachO::N_TYPE) == MachO::N_UNDF &&
+        Entry.n_value == 0)
+      Res = UnknownAddressOrSize;
+    else
+      Res = Entry.n_value;
   }
   return object_error::success;
 }
@@ -500,6 +509,10 @@ error_code MachOObjectFile::getSymbolSize(DataRefImpl DRI,
   nlist_base Entry = getSymbolTableEntryBase(this, DRI);
   uint64_t Value;
   getSymbolAddress(DRI, Value);
+  if (Value == UnknownAddressOrSize) {
+    Result = UnknownAddressOrSize;
+    return object_error::success;
+  }
 
   BeginOffset = Value;
 
@@ -518,6 +531,8 @@ error_code MachOObjectFile::getSymbolSize(DataRefImpl DRI,
     DataRefImpl DRI = Symbol.getRawDataRefImpl();
     Entry = getSymbolTableEntryBase(this, DRI);
     getSymbolAddress(DRI, Value);
+    if (Value == UnknownAddressOrSize)
+      continue;
     if (Entry.n_sect == SectionIndex && Value > BeginOffset)
       if (!EndOffset || Value < EndOffset)
         EndOffset = Value;
@@ -569,6 +584,9 @@ uint32_t MachOObjectFile::getSymbolFlags(DataRefImpl DRI) const {
   if ((MachOType & MachO::N_TYPE) == MachO::N_UNDF)
     Result |= SymbolRef::SF_Undefined;
 
+  if ((MachOType & MachO::N_TYPE) == MachO::N_INDR)
+    Result |= SymbolRef::SF_Indirect;
+
   if (MachOType & MachO::N_STAB)
     Result |= SymbolRef::SF_FormatSpecific;
 
@@ -577,7 +595,7 @@ uint32_t MachOObjectFile::getSymbolFlags(DataRefImpl DRI) const {
     if ((MachOType & MachO::N_TYPE) == MachO::N_UNDF) {
       uint64_t Value;
       getSymbolAddress(DRI, Value);
-      if (Value)
+      if (Value && Value != UnknownAddressOrSize)
         Result |= SymbolRef::SF_Common;
     }
   }
@@ -685,15 +703,21 @@ MachOObjectFile::isSectionText(DataRefImpl Sec, bool &Res) const {
   return object_error::success;
 }
 
-error_code MachOObjectFile::isSectionData(DataRefImpl DRI, bool &Result) const {
-  // FIXME: Unimplemented.
-  Result = false;
+error_code MachOObjectFile::isSectionData(DataRefImpl Sec, bool &Result) const {
+  uint32_t Flags = getSectionFlags(this, Sec);
+  unsigned SectionType = Flags & MachO::SECTION_TYPE;
+  Result = !(Flags & MachO::S_ATTR_PURE_INSTRUCTIONS) &&
+           !(SectionType == MachO::S_ZEROFILL ||
+             SectionType == MachO::S_GB_ZEROFILL);
   return object_error::success;
 }
 
-error_code MachOObjectFile::isSectionBSS(DataRefImpl DRI, bool &Result) const {
-  // FIXME: Unimplemented.
-  Result = false;
+error_code MachOObjectFile::isSectionBSS(DataRefImpl Sec, bool &Result) const {
+  uint32_t Flags = getSectionFlags(this, Sec);
+  unsigned SectionType = Flags & MachO::SECTION_TYPE;
+  Result = !(Flags & MachO::S_ATTR_PURE_INSTRUCTIONS) &&
+           (SectionType == MachO::S_ZEROFILL ||
+            SectionType == MachO::S_GB_ZEROFILL);
   return object_error::success;
 }
 
@@ -1157,13 +1181,7 @@ error_code MachOObjectFile::getLibraryPath(DataRefImpl LibData,
 }
 
 basic_symbol_iterator MachOObjectFile::symbol_begin_impl() const {
-  DataRefImpl DRI;
-  if (!SymtabLoadCmd)
-    return basic_symbol_iterator(SymbolRef(DRI, this));
-
-  MachO::symtab_command Symtab = getSymtabLoadCommand();
-  DRI.p = reinterpret_cast<uintptr_t>(getPtr(this, Symtab.symoff));
-  return basic_symbol_iterator(SymbolRef(DRI, this));
+  return getSymbolByIndex(0);
 }
 
 basic_symbol_iterator MachOObjectFile::symbol_end_impl() const {
@@ -1178,6 +1196,20 @@ basic_symbol_iterator MachOObjectFile::symbol_end_impl() const {
   unsigned Offset = Symtab.symoff +
     Symtab.nsyms * SymbolTableEntrySize;
   DRI.p = reinterpret_cast<uintptr_t>(getPtr(this, Offset));
+  return basic_symbol_iterator(SymbolRef(DRI, this));
+}
+
+basic_symbol_iterator MachOObjectFile::getSymbolByIndex(unsigned Index) const {
+  DataRefImpl DRI;
+  if (!SymtabLoadCmd)
+    return basic_symbol_iterator(SymbolRef(DRI, this));
+
+  MachO::symtab_command Symtab = getSymtabLoadCommand();
+  assert(Index < Symtab.nsyms && "Requested symbol index is out of range.");
+  unsigned SymbolTableEntrySize =
+    is64Bit() ? sizeof(MachO::nlist_64) : sizeof(MachO::nlist);
+  DRI.p = reinterpret_cast<uintptr_t>(getPtr(this, Symtab.symoff));
+  DRI.p += Index * SymbolTableEntrySize;
   return basic_symbol_iterator(SymbolRef(DRI, this));
 }
 

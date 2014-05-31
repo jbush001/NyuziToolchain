@@ -49,26 +49,36 @@ public:
     auto got = gotSection ? gotSection->virtualAddr() : 0;
     auto gp = gotSection ? got + _targetLayout.getGPOffset() : 0;
 
-    auto gotAtomIter = _targetLayout.findAbsoluteAtom("_GLOBAL_OFFSET_TABLE_");
-    assert(gotAtomIter != _targetLayout.absoluteAtoms().end());
-    (*gotAtomIter)->_virtualAddr = got;
-
-    auto gpAtomIter = _targetLayout.findAbsoluteAtom("_gp");
-    assert(gpAtomIter != _targetLayout.absoluteAtoms().end());
-    (*gpAtomIter)->_virtualAddr = gp;
-
-    AtomLayout *gpAtom = _targetLayout.getGP();
-    assert(gpAtom != nullptr);
-    gpAtom->_virtualAddr = gp;
+    setAtomValue("_GLOBAL_OFFSET_TABLE_", got);
+    setAtomValue("_gp", gp);
+    setAtomValue("_gp_disp", gp);
+    setAtomValue("__gnu_local_gp", gp);
   }
 
   bool hasGlobalGOTEntry(const Atom *a) const {
     return _targetLayout.getGOTSection().hasGlobalGOTEntry(a);
   }
 
+  std::unique_ptr<MipsRuntimeFile<ELFT>> createRuntimeFile() {
+    auto file = llvm::make_unique<MipsRuntimeFile<ELFT>>(_context);
+    if (_context.isDynamic()) {
+      file->addAbsoluteAtom("_GLOBAL_OFFSET_TABLE_");
+      file->addAbsoluteAtom("_gp");
+      file->addAbsoluteAtom("_gp_disp");
+      file->addAbsoluteAtom("__gnu_local_gp");
+    }
+    return file;
+  }
+
 private:
   MipsLinkingContext &_context;
   MipsTargetLayout<ELFT> &_targetLayout;
+
+  void setAtomValue(StringRef name, uint64_t value) {
+    auto atom = _targetLayout.findAbsoluteAtom(name);
+    assert(atom != _targetLayout.absoluteAtoms().end());
+    (*atom)->_virtualAddr = value;
+  }
 };
 
 } // elf

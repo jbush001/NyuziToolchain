@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "codegen-dce"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -22,6 +21,8 @@
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 using namespace llvm;
+
+#define DEBUG_TYPE "codegen-dce"
 
 STATISTIC(NumDeletes,          "Number of dead instructions deleted");
 
@@ -59,7 +60,7 @@ bool DeadMachineInstructionElim::isDead(const MachineInstr *MI) const {
 
   // Don't delete instructions with side effects.
   bool SawStore = false;
-  if (!MI->isSafeToMove(TII, 0, SawStore) && !MI->isPHI())
+  if (!MI->isSafeToMove(TII, nullptr, SawStore) && !MI->isPHI())
     return false;
 
   // Examine each operand.

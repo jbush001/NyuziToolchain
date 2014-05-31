@@ -97,11 +97,11 @@ void __attribute__((dllimport)) decl2A();
 void __declspec(dllimport)      decl2B();
 
 // Not allowed on function definitions.
-__declspec(dllimport) void def() {} // expected-error{{'dllimport' attribute can be applied only to symbol declaration}}
+__declspec(dllimport) void def() {} // expected-error{{dllimport cannot be applied to non-inline function definition}}
 
 // Import inline function.
-__declspec(dllimport) inline void inlineFunc1() {} // expected-warning{{'dllimport' attribute ignored}}
-inline void __attribute__((dllimport)) inlineFunc2() {} // expected-warning{{'dllimport' attribute ignored}}
+__declspec(dllimport) inline void inlineFunc1() {}
+inline void __attribute__((dllimport)) inlineFunc2() {}
 
 // Redeclarations
 __declspec(dllimport) void redecl1();
@@ -117,6 +117,13 @@ __declspec(dllimport) void redecl3(); // expected-note{{previous declaration is 
 
                       void redecl4(); // expected-note{{previous declaration is here}}
 __declspec(dllimport) void redecl4(); // expected-error{{redeclaration of 'redecl4' cannot add 'dllimport' attribute}}
+
+// Inline redeclarations are fine.
+__declspec(dllimport) void redecl5();
+                      inline void redecl5() {}
+
+                      void redecl6(); // expected-note{{previous declaration is here}}
+__declspec(dllimport) inline void redecl6() {} // expected-error{{redeclaration of 'redecl6' cannot add 'dllimport' attribute}}
 
 // External linkage is required.
 __declspec(dllimport) static int staticFunc(); // expected-error{{'staticFunc' must have external linkage when declared 'dllimport'}}

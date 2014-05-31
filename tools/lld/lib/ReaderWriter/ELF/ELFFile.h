@@ -50,6 +50,8 @@ template <class ELFT> class ELFFile : public File {
   typedef llvm::object::Elf_Rel_Impl<ELFT, false> Elf_Rel;
   typedef llvm::object::Elf_Rel_Impl<ELFT, true> Elf_Rela;
   typedef typename llvm::object::ELFFile<ELFT>::Elf_Sym_Iter Elf_Sym_Iter;
+  typedef typename llvm::object::ELFFile<ELFT>::Elf_Rela_Iter Elf_Rela_Iter;
+  typedef typename llvm::object::ELFFile<ELFT>::Elf_Rel_Iter Elf_Rel_Iter;
 
   // A Map is used to hold the atoms that have been divided up
   // after reading the section that contains Merge String attributes
@@ -164,17 +166,19 @@ public:
 protected:
   ELFDefinedAtom<ELFT> *createDefinedAtomAndAssignRelocations(
       StringRef symbolName, StringRef sectionName, const Elf_Sym *symbol,
-      const Elf_Shdr *section, ArrayRef<uint8_t> content);
+      const Elf_Shdr *section, ArrayRef<uint8_t> symContent,
+      ArrayRef<uint8_t> secContent);
 
-  /// \brief Create a reference for the Elf_Sym symbol
-  /// and Elf_Rela relocation entry.
-  virtual ELFReference<ELFT> *createRelocationReference(const Elf_Sym &symbol,
-                                                        const Elf_Rela &rai);
-  /// \brief Create a reference for the Elf_Sym symbol
-  /// and Elf_Rel relocation entry.
-  virtual ELFReference<ELFT> *
-  createRelocationReference(const Elf_Sym &symbol, const Elf_Rel &ri,
-                            ArrayRef<uint8_t> content);
+  /// \brief Iterate over Elf_Rela relocations list and create references.
+  virtual void createRelocationReferences(const Elf_Sym &symbol,
+                                          ArrayRef<uint8_t> content,
+                                          range<Elf_Rela_Iter> rels);
+
+  /// \brief Iterate over Elf_Rel relocations list and create references.
+  virtual void createRelocationReferences(const Elf_Sym &symbol,
+                                          ArrayRef<uint8_t> symContent,
+                                          ArrayRef<uint8_t> secContent,
+                                          range<Elf_Rel_Iter> rels);
 
   /// \brief After all the Atoms and References are created, update each
   /// Reference's target with the Atom pointer it refers to.
@@ -199,7 +203,7 @@ protected:
   /// section that have no symbols.
   virtual ELFDefinedAtom<ELFT> *createSectionAtom(const Elf_Shdr *section,
                                                   StringRef sectionName,
-                                                  StringRef sectionContents);
+                                                  ArrayRef<uint8_t> contents);
 
   /// Return the default reloc addend for references.
   virtual int64_t defaultRelocAddend(const Reference &) const;
@@ -333,15 +337,10 @@ protected:
   /// list of relocations references.  In ELF, if a section named, ".text" has
   /// relocations will also have a section named ".rel.text" or ".rela.text"
   /// which will hold the entries.
-  std::unordered_map<
-      StringRef,
-      range<typename llvm::object::ELFFile<ELFT>::Elf_Rela_Iter> >
+  std::unordered_map<StringRef, range<Elf_Rela_Iter>>
   _relocationAddendReferences;
   MergedSectionMapT _mergedSectionMap;
-  std::unordered_map<
-      StringRef,
-      range<typename llvm::object::ELFFile<ELFT>::Elf_Rel_Iter> >
-  _relocationReferences;
+  std::unordered_map<StringRef, range<Elf_Rel_Iter>> _relocationReferences;
   std::vector<ELFReference<ELFT> *> _references;
   llvm::DenseMap<const Elf_Sym *, Atom *> _symbolToAtomMapping;
 
@@ -466,54 +465,51 @@ template <class ELFT> error_code ELFFile<ELFT>::createAtomizableSections() {
   // the contents to the RelocationReferences map.
   // Record the number of relocs to guess at preallocating the buffer.
   uint64_t totalRelocs = 0;
-  for (auto sit = _objFile->begin_sections(), sie = _objFile->end_sections();
-       sit != sie; ++sit) {
-    const Elf_Shdr *section = &*sit;
-
-    if (isIgnoredSection(section))
+  for (const Elf_Shdr &section : _objFile->sections()) {
+    if (isIgnoredSection(&section))
       continue;
 
-    if (isMergeableStringSection(section)) {
-      _mergeStringSections.push_back(section);
+    if (isMergeableStringSection(&section)) {
+      _mergeStringSections.push_back(&section);
       continue;
     }
 
     // Create a sectionSymbols entry for every progbits section.
-    if ((section->sh_type == llvm::ELF::SHT_PROGBITS) ||
-        (section->sh_type == llvm::ELF::SHT_INIT_ARRAY) ||
-        (section->sh_type == llvm::ELF::SHT_FINI_ARRAY))
-      _sectionSymbols[section];
+    if ((section.sh_type == llvm::ELF::SHT_PROGBITS) ||
+        (section.sh_type == llvm::ELF::SHT_INIT_ARRAY) ||
+        (section.sh_type == llvm::ELF::SHT_FINI_ARRAY))
+      _sectionSymbols[&section];
 
-    if (section->sh_type == llvm::ELF::SHT_RELA) {
-      auto sHdr = _objFile->getSection(section->sh_info);
+    if (section.sh_type == llvm::ELF::SHT_RELA) {
+      auto sHdr = _objFile->getSection(section.sh_info);
 
       auto sectionName = _objFile->getSectionName(sHdr);
       if (error_code ec = sectionName.getError())
         return ec;
 
-      auto rai(_objFile->begin_rela(section));
-      auto rae(_objFile->end_rela(section));
+      auto rai(_objFile->begin_rela(&section));
+      auto rae(_objFile->end_rela(&section));
 
       _relocationAddendReferences[*sectionName] = make_range(rai, rae);
       totalRelocs += std::distance(rai, rae);
     }
 
-    if (section->sh_type == llvm::ELF::SHT_REL) {
-      auto sHdr = _objFile->getSection(section->sh_info);
+    if (section.sh_type == llvm::ELF::SHT_REL) {
+      auto sHdr = _objFile->getSection(section.sh_info);
 
       auto sectionName = _objFile->getSectionName(sHdr);
       if (error_code ec = sectionName.getError())
         return ec;
 
-      auto ri(_objFile->begin_rel(section));
-      auto re(_objFile->end_rel(section));
+      auto ri(_objFile->begin_rel(&section));
+      auto re(_objFile->end_rel(&section));
 
       _relocationReferences[*sectionName] = make_range(ri, re);
       totalRelocs += std::distance(ri, re);
     }
   }
   _references.reserve(totalRelocs);
-  return error_code::success();
+  return error_code();
 }
 
 template <class ELFT> error_code ELFFile<ELFT>::createMergeableAtoms() {
@@ -554,7 +550,7 @@ template <class ELFT> error_code ELFFile<ELFT>::createMergeableAtoms() {
     _definedAtoms._atoms.push_back(*mergeAtom);
     _mergeAtoms.push_back(*mergeAtom);
   }
-  return error_code::success();
+  return error_code();
 }
 
 template <class ELFT>
@@ -598,7 +594,7 @@ error_code ELFFile<ELFT>::createSymbolsFromAtomizableSections() {
     }
   }
 
-  return error_code::success();
+  return error_code();
 }
 
 template <class ELFT> error_code ELFFile<ELFT>::createAtoms() {
@@ -624,12 +620,9 @@ template <class ELFT> error_code ELFFile<ELFT>::createAtoms() {
     if (error_code ec = sectionContents.getError())
       return ec;
 
-    StringRef secCont(reinterpret_cast<const char *>(sectionContents->begin()),
-                      sectionContents->size());
-
     if (handleSectionWithNoSymbols(section, symbols)) {
       ELFDefinedAtom<ELFT> *newAtom =
-          createSectionAtom(section, *sectionName, secCont);
+          createSectionAtom(section, *sectionName, *sectionContents);
       _definedAtoms._atoms.push_back(newAtom);
       newAtom->setOrdinal(++_ordinal);
       continue;
@@ -694,8 +687,8 @@ template <class ELFT> error_code ELFFile<ELFT>::createAtoms() {
         // data.
         auto sym = new (_readerStorage) Elf_Sym(*symbol);
         sym->setBinding(llvm::ELF::STB_GLOBAL);
-        anonAtom = createDefinedAtomAndAssignRelocations("", *sectionName, sym,
-                                                         section, symbolData);
+        anonAtom = createDefinedAtomAndAssignRelocations(
+            "", *sectionName, sym, section, symbolData, *sectionContents);
         anonAtom->setOrdinal(++_ordinal);
         symbolData = ArrayRef<uint8_t>();
 
@@ -708,7 +701,8 @@ template <class ELFT> error_code ELFFile<ELFT>::createAtoms() {
       }
 
       ELFDefinedAtom<ELFT> *newAtom = createDefinedAtomAndAssignRelocations(
-          symbolName, *sectionName, &*symbol, section, symbolData);
+          symbolName, *sectionName, &*symbol, section, symbolData,
+          *sectionContents);
       newAtom->setOrdinal(++_ordinal);
 
       // If the atom was a weak symbol, let's create a followon reference to
@@ -742,62 +736,63 @@ template <class ELFT> error_code ELFFile<ELFT>::createAtoms() {
   }
 
   updateReferences();
-  return error_code::success();
+  return error_code();
 }
 
 template <class ELFT>
 ELFDefinedAtom<ELFT> *ELFFile<ELFT>::createDefinedAtomAndAssignRelocations(
     StringRef symbolName, StringRef sectionName, const Elf_Sym *symbol,
-    const Elf_Shdr *section, ArrayRef<uint8_t> content) {
+    const Elf_Shdr *section, ArrayRef<uint8_t> symContent,
+    ArrayRef<uint8_t> secContent) {
   unsigned int referenceStart = _references.size();
-
-  // Only relocations that are inside the domain of the atom are added.
 
   // Add Rela (those with r_addend) references:
   auto rari = _relocationAddendReferences.find(sectionName);
-  if (rari != _relocationAddendReferences.end()) {
-    for (const Elf_Rela &rai : rari->second) {
-      if (symbol->st_value <= rai.r_offset &&
-          rai.r_offset < symbol->st_value + content.size())
-        _references.push_back(createRelocationReference(*symbol, rai));
-    }
-  }
+  if (rari != _relocationAddendReferences.end())
+    createRelocationReferences(*symbol, symContent, rari->second);
 
   // Add Rel references.
   auto rri = _relocationReferences.find(sectionName);
-  if (rri != _relocationReferences.end()) {
-    for (const Elf_Rel &ri : rri->second) {
-      if (symbol->st_value <= ri.r_offset &&
-          ri.r_offset < symbol->st_value + content.size())
-        _references.push_back(createRelocationReference(*symbol, ri, content));
-    }
-  }
+  if (rri != _relocationReferences.end())
+    createRelocationReferences(*symbol, symContent, secContent, rri->second);
 
   // Create the DefinedAtom and add it to the list of DefinedAtoms.
-  return *handleDefinedSymbol(symbolName, sectionName, symbol, section, content,
-                              referenceStart, _references.size(), _references);
+  return *handleDefinedSymbol(symbolName, sectionName, symbol, section,
+                              symContent, referenceStart, _references.size(),
+                              _references);
 }
 
 template <class ELFT>
-ELFReference<ELFT> *
-ELFFile<ELFT>::createRelocationReference(const Elf_Sym &symbol,
-                                         const Elf_Rela &rai) {
+void ELFFile<ELFT>::createRelocationReferences(const Elf_Sym &symbol,
+                                               ArrayRef<uint8_t> content,
+                                               range<Elf_Rela_Iter> rels) {
   bool isMips64EL = _objFile->isMips64EL();
-  return new (_readerStorage)
-      ELFReference<ELFT>(&rai, rai.r_offset - symbol.st_value, kindArch(),
-                         rai.getType(isMips64EL), rai.getSymbol(isMips64EL));
+  for (const auto &rel : rels) {
+    if (rel.r_offset < symbol.st_value ||
+        symbol.st_value + content.size() <= rel.r_offset)
+      continue;
+    _references.push_back(new (_readerStorage) ELFReference<ELFT>(
+        &rel, rel.r_offset - symbol.st_value, kindArch(),
+        rel.getType(isMips64EL), rel.getSymbol(isMips64EL)));
+  }
 }
 
 template <class ELFT>
-ELFReference<ELFT> *ELFFile<ELFT>::createRelocationReference(
-    const Elf_Sym &symbol, const Elf_Rel &ri, ArrayRef<uint8_t> content) {
+void ELFFile<ELFT>::createRelocationReferences(const Elf_Sym &symbol,
+                                               ArrayRef<uint8_t> symContent,
+                                               ArrayRef<uint8_t> secContent,
+                                               range<Elf_Rel_Iter> rels) {
   bool isMips64EL = _objFile->isMips64EL();
-  auto *ref = new (_readerStorage)
-      ELFReference<ELFT>(&ri, ri.r_offset - symbol.st_value, kindArch(),
-                         ri.getType(isMips64EL), ri.getSymbol(isMips64EL));
-  int32_t addend = *(content.data() + ri.r_offset - symbol.st_value);
-  ref->setAddend(addend);
-  return ref;
+  for (const auto &rel : rels) {
+    if (rel.r_offset < symbol.st_value ||
+        symbol.st_value + symContent.size() <= rel.r_offset)
+      continue;
+    _references.push_back(new (_readerStorage) ELFReference<ELFT>(
+        &rel, rel.r_offset - symbol.st_value, kindArch(),
+        rel.getType(isMips64EL), rel.getSymbol(isMips64EL)));
+    int32_t addend = *(symContent.data() + rel.r_offset - symbol.st_value);
+    _references.back()->setAddend(addend);
+  }
 }
 
 template <class ELFT>
@@ -882,7 +877,7 @@ bool ELFFile<ELFT>::isMergeableStringSection(const Elf_Shdr *section) {
 template <class ELFT>
 ELFDefinedAtom<ELFT> *
 ELFFile<ELFT>::createSectionAtom(const Elf_Shdr *section, StringRef sectionName,
-                                 StringRef sectionContents) {
+                                 ArrayRef<uint8_t> content) {
   Elf_Sym *sym = new (_readerStorage) Elf_Sym;
   sym->st_name = 0;
   sym->setBindingAndType(llvm::ELF::STB_LOCAL, llvm::ELF::STT_SECTION);
@@ -890,8 +885,6 @@ ELFFile<ELFT>::createSectionAtom(const Elf_Shdr *section, StringRef sectionName,
   sym->st_shndx = 0;
   sym->st_value = 0;
   sym->st_size = 0;
-  ArrayRef<uint8_t> content((const uint8_t *)sectionContents.data(),
-                            sectionContents.size());
   auto *newAtom = new (_readerStorage) ELFDefinedAtom<ELFT>(
       *this, "", sectionName, sym, section, content, 0, 0, _references);
   newAtom->setOrdinal(++_ordinal);

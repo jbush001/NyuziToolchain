@@ -249,11 +249,14 @@ namespace {
 /// AllocatedCXCodeCompleteResults outlives the CXTranslationUnit, so we can
 /// not rely on the StringPool in the TU.
 struct AllocatedCXCodeCompleteResults : public CXCodeCompleteResults {
-  AllocatedCXCodeCompleteResults(const FileSystemOptions& FileSystemOpts);
+  AllocatedCXCodeCompleteResults(IntrusiveRefCntPtr<FileManager> FileMgr);
   ~AllocatedCXCodeCompleteResults();
   
   /// \brief Diagnostics produced while performing code completion.
   SmallVector<StoredDiagnostic, 8> Diagnostics;
+
+  /// \brief Allocated API-exposed wrappters for Diagnostics.
+  SmallVector<CXStoredDiagnostic *, 8> DiagnosticsWrappers;
 
   IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts;
   
@@ -262,8 +265,6 @@ struct AllocatedCXCodeCompleteResults : public CXCodeCompleteResults {
   
   /// \brief Language options used to adjust source locations.
   LangOptions LangOpts;
-
-  FileSystemOptions FileSystemOpts;
 
   /// \brief File manager, used for diagnostics.
   IntrusiveRefCntPtr<FileManager> FileMgr;
@@ -318,26 +319,22 @@ struct AllocatedCXCodeCompleteResults : public CXCodeCompleteResults {
 static std::atomic<unsigned> CodeCompletionResultObjects;
   
 AllocatedCXCodeCompleteResults::AllocatedCXCodeCompleteResults(
-                                      const FileSystemOptions& FileSystemOpts)
-  : CXCodeCompleteResults(),
-    DiagOpts(new DiagnosticOptions),
-    Diag(new DiagnosticsEngine(
-                   IntrusiveRefCntPtr<DiagnosticIDs>(new DiagnosticIDs),
-                   &*DiagOpts)),
-    FileSystemOpts(FileSystemOpts),
-    FileMgr(new FileManager(FileSystemOpts)),
-    SourceMgr(new SourceManager(*Diag, *FileMgr)),
-    CodeCompletionAllocator(new clang::GlobalCodeCompletionAllocator),
-    Contexts(CXCompletionContext_Unknown),
-    ContainerKind(CXCursor_InvalidCode),
-    ContainerIsIncomplete(1)
-{ 
+    IntrusiveRefCntPtr<FileManager> FileMgr)
+    : CXCodeCompleteResults(),
+      DiagOpts(new DiagnosticOptions),
+      Diag(new DiagnosticsEngine(
+          IntrusiveRefCntPtr<DiagnosticIDs>(new DiagnosticIDs), &*DiagOpts)),
+      FileMgr(FileMgr), SourceMgr(new SourceManager(*Diag, *FileMgr)),
+      CodeCompletionAllocator(new clang::GlobalCodeCompletionAllocator),
+      Contexts(CXCompletionContext_Unknown),
+      ContainerKind(CXCursor_InvalidCode), ContainerIsIncomplete(1) {
   if (getenv("LIBCLANG_OBJTRACKING"))
     fprintf(stderr, "+++ %u completion results\n",
             ++CodeCompletionResultObjects);
 }
   
 AllocatedCXCodeCompleteResults::~AllocatedCXCodeCompleteResults() {
+  llvm::DeleteContainerPointers(DiagnosticsWrappers);
   delete [] Results;
 
   for (unsigned I = 0, N = TemporaryFiles.size(); I != N; ++I)
@@ -709,8 +706,8 @@ void clang_codeCompleteAt_Impl(void *UserData) {
   }
 
   // Parse the resulting source file to find code-completion results.
-  AllocatedCXCodeCompleteResults *Results = 
-        new AllocatedCXCodeCompleteResults(AST->getFileSystemOpts());
+  AllocatedCXCodeCompleteResults *Results = new AllocatedCXCodeCompleteResults(
+      &AST->getFileManager());
   Results->Results = 0;
   Results->NumResults = 0;
   
@@ -729,7 +726,9 @@ void clang_codeCompleteAt_Impl(void *UserData) {
                     *Results->Diag, Results->LangOpts, *Results->SourceMgr,
                     *Results->FileMgr, Results->Diagnostics,
                     Results->TemporaryBuffers);
-  
+
+  Results->DiagnosticsWrappers.resize(Results->Diagnostics.size());
+
   // Keep a reference to the allocator used for cached global completions, so
   // that we can be sure that the memory used by our code completion strings
   // doesn't get freed due to subsequent reparses (while the code completion
@@ -876,7 +875,11 @@ clang_codeCompleteGetDiagnostic(CXCodeCompleteResults *ResultsIn,
   if (!Results || Index >= Results->Diagnostics.size())
     return 0;
 
-  return new CXStoredDiagnostic(Results->Diagnostics[Index], Results->LangOpts);
+  CXStoredDiagnostic *Diag = Results->DiagnosticsWrappers[Index];
+  if (!Diag)
+    Results->DiagnosticsWrappers[Index] = Diag =
+        new CXStoredDiagnostic(Results->Diagnostics[Index], Results->LangOpts);
+  return Diag;
 }
 
 unsigned long long

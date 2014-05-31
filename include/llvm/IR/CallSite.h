@@ -47,7 +47,7 @@ class CallSiteBase {
 protected:
   PointerIntPair<InstrTy*, 1, bool> I;
 public:
-  CallSiteBase() : I(0, false) {}
+  CallSiteBase() : I(nullptr, false) {}
   CallSiteBase(CallTy *CI) : I(CI, true) { assert(CI); }
   CallSiteBase(InvokeTy *II) : I(II, false) { assert(II); }
   CallSiteBase(ValTy *II) { *this = get(II); }
@@ -159,6 +159,17 @@ public:
   /// getCaller - Return the caller function for this call site
   ///
   FunTy *getCaller() const { return (*this)->getParent()->getParent(); }
+
+  /// \brief Tests if this call site must be tail call optimized.  Only a
+  /// CallInst can be tail call optimized.
+  bool isMustTailCall() const {
+    return isCall() && cast<CallInst>(getInstruction())->isMustTailCall();
+  }
+
+  /// \brief Tests if this call site is marked as a tail call.
+  bool isTailCall() const {
+    return isCall() && cast<CallInst>(getInstruction())->isTailCall();
+  }
 
 #define CALLSITE_DELEGATE_GETTER(METHOD) \
   InstrTy *II = getInstruction();    \

@@ -38,8 +38,13 @@ def main():
   text = '\n'.join(buf)
 
   # Determine range to format.
-  cursor = int(vim.eval('line2byte(line("."))+col(".")')) - 2
   lines = '%s:%s' % (vim.current.range.start + 1, vim.current.range.end + 1)
+
+  # Determine the cursor position.
+  cursor = int(vim.eval('line2byte(line("."))+col(".")')) - 2
+  if cursor < 0:
+    print 'Couldn\'t determine cursor position. Is your file empty?'
+    return
 
   # Avoid flashing an ugly, ugly cmd prompt on Windows when invoking clang-format.
   startupinfo = None
@@ -59,12 +64,7 @@ def main():
 
   # If successful, replace buffer contents.
   if stderr:
-    message = stderr.splitlines()[0]
-    parts = message.split(' ', 2)
-    if len(parts) > 2:
-      message = parts[2]
-    print 'Formatting failed: %s (total %d warnings, %d errors)' % (
-        message, stderr.count('warning:'), stderr.count('error:'))
+    print stderr
 
   if not stdout:
     print ('No output from clang-format (crashed?).\n' +

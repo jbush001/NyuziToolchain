@@ -17,12 +17,17 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/DataTypes.h"
-#include "llvm/Support/FileSystem.h"
 
 namespace llvm {
   class format_object_base;
   template <typename T>
   class SmallVectorImpl;
+
+  namespace sys {
+    namespace fs {
+      enum OpenFlags : unsigned;
+    }
+  }
 
 /// raw_ostream - This class implements an extremely fast bulk output stream
 /// that can *only* output to a stream.  It does not support seeking, reopening,
@@ -76,7 +81,7 @@ public:
   explicit raw_ostream(bool unbuffered=false)
     : BufferMode(unbuffered ? Unbuffered : InternalBuffer) {
     // Start out ready to flush.
-    OutBufStart = OutBufEnd = OutBufCur = 0;
+    OutBufStart = OutBufEnd = OutBufCur = nullptr;
   }
 
   virtual ~raw_ostream();
@@ -102,7 +107,7 @@ public:
   size_t GetBufferSize() const {
     // If we're supposed to be buffered but haven't actually gotten around
     // to allocating the buffer yet, return the value that would be used.
-    if (BufferMode != Unbuffered && OutBufStart == 0)
+    if (BufferMode != Unbuffered && OutBufStart == nullptr)
       return preferred_buffer_size();
 
     // Otherwise just return the size of the allocated buffer.
@@ -115,7 +120,7 @@ public:
   /// set to unbuffered.
   void SetUnbuffered() {
     flush();
-    SetBufferAndMode(0, 0, Unbuffered);
+    SetBufferAndMode(nullptr, 0, Unbuffered);
   }
 
   size_t GetNumBytesInBuffer() const {
@@ -157,7 +162,7 @@ public:
     size_t Size = Str.size();
 
     // Make sure we can use the fast path.
-    if (OutBufCur+Size > OutBufEnd)
+    if (Size > (size_t)(OutBufEnd - OutBufCur))
       return write(Str.data(), Size);
 
     memcpy(OutBufCur, Str.data(), Size);

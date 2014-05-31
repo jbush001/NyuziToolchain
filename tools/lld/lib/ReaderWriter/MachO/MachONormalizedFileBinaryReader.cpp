@@ -68,12 +68,12 @@ forEachLoadCommand(StringRef lcRange, unsigned lcCount, bool swap, bool is64,
       return llvm::make_error_code(llvm::errc::executable_format_error);
 
     if (func(slc->cmd, slc->cmdsize, p))
-      return error_code::success();
+      return error_code();
 
     p += slc->cmdsize;
   }
 
-  return error_code::success();
+  return error_code();
 }
 
 
@@ -88,8 +88,26 @@ appendRelocations(Relocations &relocs, StringRef buffer, bool swap,
   for(uint32_t i=0; i < nreloc; ++i) {
     relocs.push_back(unpackRelocation(relocsArray[i], swap, bigEndian));
   }
-  return error_code::success();
+  return error_code();
 }
+
+static error_code
+appendIndirectSymbols(IndirectSymbols &isyms, StringRef buffer, bool swap,
+                      bool bigEndian, uint32_t istOffset, uint32_t istCount,
+                      uint32_t startIndex, uint32_t count) {
+  if ((istOffset + istCount*4) > buffer.size())
+    return llvm::make_error_code(llvm::errc::executable_format_error);
+  if (startIndex+count  > istCount)
+    return llvm::make_error_code(llvm::errc::executable_format_error);
+  const uint32_t *indirectSymbolArray =
+            reinterpret_cast<const uint32_t*>(buffer.begin()+istOffset);
+
+  for(uint32_t i=0; i < count; ++i) {
+    isyms.push_back(read32(swap, indirectSymbolArray[startIndex+i]));
+  }
+  return error_code();
+}
+
 
 template <typename T> static T readBigEndian(T t) {
   if (llvm::sys::IsLittleEndianHost)
@@ -185,8 +203,24 @@ readBinary(std::unique_ptr<MemoryBuffer> &mb,
   f->flags = smh->flags;
 
 
-  // Walk load commands looking for segments/sections and the symbol table.
+  // Pre-scan load commands looking for indirect symbol table.
+  uint32_t indirectSymbolTableOffset = 0;
+  uint32_t indirectSymbolTableCount = 0;
   error_code ec = forEachLoadCommand(lcRange, lcCount, swap, is64,
+                    [&] (uint32_t cmd, uint32_t size, const char* lc) -> bool {
+    if (cmd == LC_DYSYMTAB) {
+      const dysymtab_command *d = reinterpret_cast<const dysymtab_command*>(lc);
+      indirectSymbolTableOffset = read32(swap, d->indirectsymoff);
+      indirectSymbolTableCount = read32(swap, d->nindirectsyms);
+      return true;
+    }
+    return false;
+  });
+  if (ec)
+    return ec;
+
+  // Walk load commands looking for segments/sections and the symbol table.
+  ec = forEachLoadCommand(lcRange, lcCount, swap, is64,
                     [&] (uint32_t cmd, uint32_t size, const char* lc) -> bool {
     if (is64) {
       if (cmd == LC_SEGMENT_64) {
@@ -220,6 +254,13 @@ readBinary(std::unique_ptr<MemoryBuffer> &mb,
           appendRelocations(section.relocations, mb->getBuffer(),
                             swap, isBigEndianArch, read32(swap, sect->reloff),
                                                    read32(swap, sect->nreloc));
+          if (section.type == S_NON_LAZY_SYMBOL_POINTERS) {
+            appendIndirectSymbols(section.indirectSymbols, mb->getBuffer(),
+                                  swap, isBigEndianArch,
+                                  indirectSymbolTableOffset,
+                                  indirectSymbolTableCount,
+                                  read32(swap, sect->reserved1), contentSize/4);
+          }
           f->sections.push_back(section);
         }
       }
@@ -255,6 +296,13 @@ readBinary(std::unique_ptr<MemoryBuffer> &mb,
           appendRelocations(section.relocations, mb->getBuffer(),
                             swap, isBigEndianArch, read32(swap, sect->reloff),
                                                    read32(swap, sect->nreloc));
+          if (section.type == S_NON_LAZY_SYMBOL_POINTERS) {
+            appendIndirectSymbols(section.indirectSymbols, mb->getBuffer(),
+                                  swap, isBigEndianArch,
+                                  indirectSymbolTableOffset,
+                                  indirectSymbolTableCount,
+                                  read32(swap, sect->reserved1), contentSize/4);
+          }
           f->sections.push_back(section);
         }
       }
@@ -328,10 +376,7 @@ readBinary(std::unique_ptr<MemoryBuffer> &mb,
             f->localSymbols.push_back(sout);
         }
       }
-    } else if (cmd == LC_DYSYMTAB) {
-      // TODO: indirect symbols
     }
-
     return false;
   });
   if (ec)
@@ -341,11 +386,59 @@ readBinary(std::unique_ptr<MemoryBuffer> &mb,
 }
 
 
+
+class MachOReader : public Reader {
+public:
+  MachOReader(MachOLinkingContext::Arch arch) : _arch(arch) {}
+
+  bool canParse(file_magic magic, StringRef ext,
+                const MemoryBuffer &mb) const override {
+    if (magic != llvm::sys::fs::file_magic::macho_object)
+      return false;
+    if (mb.getBufferSize() < 32)
+      return false;
+    const char *start = mb.getBufferStart();
+    const mach_header *mh = reinterpret_cast<const mach_header *>(start);
+    const bool swap = (mh->magic == llvm::MachO::MH_CIGAM) ||
+                      (mh->magic == llvm::MachO::MH_CIGAM_64);
+    const uint32_t filesCpuType = read32(swap, mh->cputype);
+    const uint32_t filesCpuSubtype = read32(swap, mh->cpusubtype);
+    if (filesCpuType != MachOLinkingContext::cpuTypeFromArch(_arch))
+      return false;
+    if (filesCpuSubtype != MachOLinkingContext::cpuSubtypeFromArch(_arch))
+      return false;
+
+    // Is mach-o file with correct cpu type/subtype.
+    return true;
+  }
+
+  error_code
+  parseFile(std::unique_ptr<MemoryBuffer> &mb, const Registry &registry,
+            std::vector<std::unique_ptr<File> > &result) const override {
+    // Convert binary file to normalized mach-o.
+    auto normFile = readBinary(mb, _arch);
+    if (error_code ec = normFile.getError())
+      return ec;
+    // Convert normalized mach-o to atoms.
+    auto file = normalizedToAtoms(**normFile, mb->getBufferIdentifier(), false);
+    if (error_code ec = file.getError())
+      return ec;
+
+    result.push_back(std::move(*file));
+
+    return error_code();
+  }
+private:
+  MachOLinkingContext::Arch _arch;
+};
+
+
 } // namespace normalized
 } // namespace mach_o
 
 void Registry::addSupportMachOObjects(StringRef archName) {
   MachOLinkingContext::Arch arch = MachOLinkingContext::archFromName(archName);
+  add(std::unique_ptr<Reader>(new mach_o::normalized::MachOReader(arch)));
   switch (arch) {
   case MachOLinkingContext::arch_x86_64:
     addKindTable(Reference::KindNamespace::mach_o, Reference::KindArch::x86_64,

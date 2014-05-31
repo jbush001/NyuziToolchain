@@ -15,7 +15,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "regalloc"
 #include "llvm/CodeGen/LiveIntervalAnalysis.h"
 #include "LiveRangeCalc.h"
 #include "llvm/ADT/DenseSet.h"
@@ -41,6 +40,8 @@
 #include <cmath>
 #include <limits>
 using namespace llvm;
+
+#define DEBUG_TYPE "regalloc"
 
 char LiveIntervals::ID = 0;
 char &llvm::LiveIntervalsID = LiveIntervals::ID;
@@ -79,7 +80,7 @@ void LiveIntervals::getAnalysisUsage(AnalysisUsage &AU) const {
 }
 
 LiveIntervals::LiveIntervals() : MachineFunctionPass(ID),
-  DomTree(0), LRCalc(0) {
+  DomTree(nullptr), LRCalc(nullptr) {
   initializeLiveIntervalsPass(*PassRegistry::getPassRegistry());
 }
 
@@ -572,9 +573,9 @@ void LiveIntervals::addKillFlags(const VirtRegMap *VRM) {
         break;
       }
       if (CancelKill)
-        MI->clearRegisterKills(Reg, NULL);
+        MI->clearRegisterKills(Reg, nullptr);
       else
-        MI->addRegisterKilled(Reg, NULL);
+        MI->addRegisterKilled(Reg, nullptr);
     }
   }
 }
@@ -590,17 +591,17 @@ LiveIntervals::intervalIsInOneMBB(const LiveInterval &LI) const {
 
   SlotIndex Start = LI.beginIndex();
   if (Start.isBlock())
-    return NULL;
+    return nullptr;
 
   SlotIndex Stop = LI.endIndex();
   if (Stop.isBlock())
-    return NULL;
+    return nullptr;
 
   // getMBBFromIndex doesn't need to search the MBB table when both indexes
   // belong to proper instructions.
   MachineBasicBlock *MBB1 = Indexes->getMBBFromIndex(Start);
   MachineBasicBlock *MBB2 = Indexes->getMBBFromIndex(Stop);
-  return MBB1 == MBB2 ? MBB1 : NULL;
+  return MBB1 == MBB2 ? MBB1 : nullptr;
 }
 
 bool

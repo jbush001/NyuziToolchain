@@ -2,6 +2,7 @@ clang_CXCursorSet_contains
 clang_CXCursorSet_insert
 clang_CXIndex_getGlobalOptions
 clang_CXIndex_setGlobalOptions
+clang_CXXMethod_isConst
 clang_CXXMethod_isPureVirtual
 clang_CXXMethod_isStatic
 clang_CXXMethod_isVirtual
@@ -29,6 +30,7 @@ clang_Module_getName
 clang_Module_getFullName
 clang_Module_getNumTopLevelHeaders
 clang_Module_getTopLevelHeader
+clang_Module_isSystem
 clang_IndexAction_create
 clang_IndexAction_dispose
 clang_Range_isNull
@@ -193,6 +195,7 @@ clang_getInclusions
 clang_getInstantiationLocation
 clang_getLocation
 clang_getLocationForOffset
+clang_getModuleForFile
 clang_getNullCursor
 clang_getNullLocation
 clang_getNullRange

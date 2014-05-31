@@ -160,7 +160,7 @@ public:
     template<class OtherTy, class OtherIterTy>
     bundle_iterator(const bundle_iterator<OtherTy, OtherIterTy> &I)
       : MII(I.getInstrIterator()) {}
-    bundle_iterator() : MII(0) {}
+    bundle_iterator() : MII(nullptr) {}
 
     Ty &operator*() const { return *MII; }
     Ty *operator->() const { return &operator*(); }
@@ -219,10 +219,15 @@ public:
   unsigned size() const { return (unsigned)Insts.size(); }
   bool empty() const { return Insts.empty(); }
 
-  MachineInstr& front() { return Insts.front(); }
-  MachineInstr& back()  { return Insts.back(); }
-  const MachineInstr& front() const { return Insts.front(); }
-  const MachineInstr& back()  const { return Insts.back(); }
+  MachineInstr       &instr_front()       { return Insts.front(); }
+  MachineInstr       &instr_back()        { return Insts.back();  }
+  const MachineInstr &instr_front() const { return Insts.front(); }
+  const MachineInstr &instr_back()  const { return Insts.back();  }
+
+  MachineInstr       &front()             { return Insts.front(); }
+  MachineInstr       &back()              { return *--end();      }
+  const MachineInstr &front()       const { return Insts.front(); }
+  const MachineInstr &back()        const { return *--end();      }
 
   instr_iterator                instr_begin()       { return Insts.begin();  }
   const_instr_iterator          instr_begin() const { return Insts.begin();  }
@@ -242,6 +247,12 @@ public:
   reverse_iterator       rend  ()       { return instr_rend();   }
   const_reverse_iterator rend  () const { return instr_rend();   }
 
+  inline iterator_range<iterator> terminators() {
+    return iterator_range<iterator>(getFirstTerminator(), end());
+  }
+  inline iterator_range<const_iterator> terminators() const {
+    return iterator_range<const_iterator>(getFirstTerminator(), end());
+  }
 
   // Machine-CFG iterators
   typedef std::vector<MachineBasicBlock *>::iterator       pred_iterator;
@@ -621,7 +632,7 @@ public:
 
   // Debugging methods.
   void dump() const;
-  void print(raw_ostream &OS, SlotIndexes* = 0) const;
+  void print(raw_ostream &OS, SlotIndexes* = nullptr) const;
 
   // Printing method used by LoopInfo.
   void printAsOperand(raw_ostream &OS, bool PrintType = true);

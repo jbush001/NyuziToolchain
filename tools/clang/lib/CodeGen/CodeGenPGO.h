@@ -26,28 +26,6 @@ namespace clang {
 namespace CodeGen {
 class RegionCounter;
 
-/// The raw counter data from an instrumented PGO binary
-class PGOProfileData {
-private:
-  /// The PGO data
-  std::unique_ptr<llvm::MemoryBuffer> DataBuffer;
-  /// Offsets into DataBuffer for each function's counters
-  llvm::StringMap<unsigned> DataOffsets;
-  /// Execution counts for each function.
-  llvm::StringMap<uint64_t> FunctionCounts;
-  /// The maximal execution count among all functions.
-  uint64_t MaxFunctionCount;
-  CodeGenModule &CGM;
-public:
-  PGOProfileData(CodeGenModule &CGM, std::string Path);
-  /// Fill Counts with the profile data for the given function name. Returns
-  /// false on success.
-  bool getFunctionCounts(StringRef FuncName, uint64_t &FuncHash,
-                         std::vector<uint64_t> &Counts);
-  /// Return the maximum of all known function counts.
-  uint64_t getMaximumFunctionCount() { return MaxFunctionCount; }
-};
-
 /// Per-function PGO state. This class should generally not be used directly,
 /// but instead through the CodeGenFunction and RegionCounter types.
 class CodeGenPGO {
@@ -67,13 +45,13 @@ private:
 
 public:
   CodeGenPGO(CodeGenModule &CGM)
-      : CGM(CGM), NumRegionCounters(0), FunctionHash(0), RegionCounters(0),
-        CurrentRegionCount(0) {}
+      : CGM(CGM), NumRegionCounters(0), FunctionHash(0),
+        RegionCounters(nullptr), CurrentRegionCount(0) {}
 
   /// Whether or not we have PGO region data for the current function. This is
   /// false both when we have no data at all and when our data has been
   /// discarded.
-  bool haveRegionCounts() const { return RegionCounts != 0; }
+  bool haveRegionCounts() const { return RegionCounts != nullptr; }
 
   /// Get the string used to identify this function in the profile data.
   /// For functions with local linkage, this includes the main file name.
@@ -138,8 +116,9 @@ private:
   void setFuncName(llvm::Function *Fn);
   void mapRegionCounters(const Decl *D);
   void computeRegionCounts(const Decl *D);
-  void applyFunctionAttributes(PGOProfileData *PGOData, llvm::Function *Fn);
-  void loadRegionCounts(PGOProfileData *PGOData);
+  void applyFunctionAttributes(llvm::IndexedInstrProfReader *PGOReader,
+                               llvm::Function *Fn);
+  void loadRegionCounts(llvm::IndexedInstrProfReader *PGOReader);
   void emitCounterVariables();
   llvm::GlobalVariable *buildDataVar();
 
@@ -149,7 +128,7 @@ private:
   /// Return the region counter for the given statement. This should only be
   /// called on statements that have a dedicated counter.
   unsigned getRegionCounter(const Stmt *S) {
-    if (RegionCounterMap == 0)
+    if (!RegionCounterMap)
       return 0;
     return (*RegionCounterMap)[S];
   }

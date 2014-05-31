@@ -25,12 +25,16 @@
 // GR_: -fno-rtti
 
 // RUN: %clang_cl /Gy -### -- %s 2>&1 | FileCheck -check-prefix=Gy %s
-// Gy: -fdata-sections
 // Gy: -ffunction-sections
 
 // RUN: %clang_cl /Gy /Gy- -### -- %s 2>&1 | FileCheck -check-prefix=Gy_ %s
-// Gy_-NOT: -fdata-sections
 // Gy_-NOT: -ffunction-sections
+
+// RUN: %clang_cl /Gw -### -- %s 2>&1 | FileCheck -check-prefix=Gw %s
+// Gw: -fdata-sections
+
+// RUN: %clang_cl /Gw /Gw- -### -- %s 2>&1 | FileCheck -check-prefix=Gw_ %s
+// Gw_-NOT: -fdata-sections
 
 // RUN: %clang_cl /Imyincludedir -### -- %s 2>&1 | FileCheck -check-prefix=SLASH_I %s
 // RUN: %clang_cl /I myincludedir -### -- %s 2>&1 | FileCheck -check-prefix=SLASH_I %s
@@ -128,6 +132,14 @@
 // RUN: %clang_cl -Wunused-pragmas -### -- %s 2>&1 | FileCheck -check-prefix=WJoined %s
 // WJoined: "-cc1"
 // WJoined: "-Wunused-pragmas"
+
+// We recognize -f[no-]strict-aliasing.
+// RUN: %clang_cl -c -### -- %s 2>&1 | FileCheck -check-prefix=DEFAULTSTRICT %s
+// DEFAULTSTRICT: "-relaxed-aliasing"
+// RUN: %clang_cl -c -fstrict-aliasing -### -- %s 2>&1 | FileCheck -check-prefix=STRICT %s
+// STRICT-NOT: "-relaxed-aliasing"
+// RUN: %clang_cl -c -fno-strict-aliasing -### -- %s 2>&1 | FileCheck -check-prefix=NOSTRICT %s
+// NOSTRICT: "-relaxed-aliasing"
 
 // For some warning ids, we can map from MSVC warning to Clang warning.
 // RUN: %clang_cl -wd4005 -### -- %s 2>&1 | FileCheck -check-prefix=wd4005 %s

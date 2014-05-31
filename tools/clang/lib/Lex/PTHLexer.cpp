@@ -15,7 +15,6 @@
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/FileSystemStatCache.h"
 #include "clang/Basic/IdentifierTable.h"
-#include "clang/Basic/OnDiskHashTable.h"
 #include "clang/Basic/TokenKinds.h"
 #include "clang/Lex/LexDiagnostic.h"
 #include "clang/Lex/PTHManager.h"
@@ -25,10 +24,10 @@
 #include "llvm/ADT/StringMap.h"
 #include "llvm/Support/EndianStream.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/OnDiskHashTable.h"
 #include "llvm/Support/system_error.h"
 #include <memory>
 using namespace clang;
-using namespace clang::io;
 
 #define DISK_TOKEN_SIZE (1+1+2+4+4)
 
@@ -38,7 +37,7 @@ using namespace clang::io;
 
 PTHLexer::PTHLexer(Preprocessor &PP, FileID FID, const unsigned char *D,
                    const unsigned char *ppcond, PTHManager &PM)
-  : PreprocessorLexer(&PP, FID), TokBuf(D), CurPtr(D), LastHashTokPtr(0),
+  : PreprocessorLexer(&PP, FID), TokBuf(D), CurPtr(D), LastHashTokPtr(nullptr),
     PPCond(ppcond), CurPPCondPtr(ppcond), PTHMgr(PM) {
 
   FileStartLoc = PP.getSourceManager().getLocForStartOfFile(FID);
@@ -192,7 +191,7 @@ bool PTHLexer::SkipBlock() {
   assert(CurPPCondPtr && "No cached PP conditional information.");
   assert(LastHashTokPtr && "No known '#' token.");
 
-  const unsigned char* HashEntryI = 0;
+  const unsigned char *HashEntryI = nullptr;
   uint32_t TableIdx;
 
   do {
@@ -319,8 +318,10 @@ public:
 class PTHFileLookupCommonTrait {
 public:
   typedef std::pair<unsigned char, const char*> internal_key_type;
+  typedef unsigned hash_value_type;
+  typedef unsigned offset_type;
 
-  static unsigned ComputeHash(internal_key_type x) {
+  static hash_value_type ComputeHash(internal_key_type x) {
     return llvm::HashString(x.second);
   }
 
@@ -364,13 +365,11 @@ public:
 
 class PTHStringLookupTrait {
 public:
-  typedef uint32_t
-          data_type;
-
-  typedef const std::pair<const char*, unsigned>
-          external_key_type;
-
+  typedef uint32_t data_type;
+  typedef const std::pair<const char*, unsigned> external_key_type;
   typedef external_key_type internal_key_type;
+  typedef uint32_t hash_value_type;
+  typedef unsigned offset_type;
 
   static bool EqualKey(const internal_key_type& a,
                        const internal_key_type& b) {
@@ -378,7 +377,7 @@ public:
                                   : false;
   }
 
-  static unsigned ComputeHash(const internal_key_type& a) {
+  static hash_value_type ComputeHash(const internal_key_type& a) {
     return llvm::HashString(StringRef(a.first, a.second));
   }
 
@@ -409,8 +408,8 @@ public:
 
 } // end anonymous namespace
 
-typedef OnDiskChainedHashTable<PTHFileLookupTrait>   PTHFileLookup;
-typedef OnDiskChainedHashTable<PTHStringLookupTrait> PTHStringIdLookup;
+typedef llvm::OnDiskChainedHashTable<PTHFileLookupTrait>   PTHFileLookup;
+typedef llvm::OnDiskChainedHashTable<PTHStringLookupTrait> PTHStringIdLookup;
 
 //===----------------------------------------------------------------------===//
 // PTHManager methods.
@@ -424,7 +423,7 @@ PTHManager::PTHManager(const llvm::MemoryBuffer* buf, void* fileLookup,
                        const char* originalSourceFile)
 : Buf(buf), PerIDCache(perIDCache), FileLookup(fileLookup),
   IdDataTable(idDataTable), StringIdLookup(stringIdLookup),
-  NumIds(numIds), PP(0), SpellingBase(spellingBase),
+  NumIds(numIds), PP(nullptr), SpellingBase(spellingBase),
   OriginalSourceFile(originalSourceFile) {}
 
 PTHManager::~PTHManager() {
@@ -446,7 +445,7 @@ PTHManager *PTHManager::Create(const std::string &file,
   if (llvm::MemoryBuffer::getFile(file, File)) {
     // FIXME: Add ec.message() to this diag.
     Diags.Report(diag::err_invalid_pth_file) << file;
-    return 0;
+    return nullptr;
   }
 
   using namespace llvm::support;
@@ -460,7 +459,7 @@ PTHManager *PTHManager::Create(const std::string &file,
   if ((BufEnd - BufBeg) < (signed)(sizeof("cfe-pth") + 4 + 4) ||
       memcmp(BufBeg, "cfe-pth", sizeof("cfe-pth")) != 0) {
     Diags.Report(diag::err_invalid_pth_file) << file;
-    return 0;
+    return nullptr;
   }
 
   // Read the PTH version.
@@ -472,7 +471,7 @@ PTHManager *PTHManager::Create(const std::string &file,
         Version < PTHManager::Version
         ? "PTH file uses an older PTH format that is no longer supported"
         : "PTH file uses a newer PTH format that cannot be read");
-    return 0;
+    return nullptr;
   }
 
   // Compute the address of the index table at the end of the PTH file.
@@ -480,7 +479,7 @@ PTHManager *PTHManager::Create(const std::string &file,
 
   if (PrologueOffset >= BufEnd) {
     Diags.Report(diag::err_invalid_pth_file) << file;
-    return 0;
+    return nullptr;
   }
 
   // Construct the file lookup table.  This will be used for mapping from
@@ -491,7 +490,7 @@ PTHManager *PTHManager::Create(const std::string &file,
 
   if (!(FileTable > BufBeg && FileTable < BufEnd)) {
     Diags.Report(diag::err_invalid_pth_file) << file;
-    return 0; // FIXME: Proper error diagnostic?
+    return nullptr; // FIXME: Proper error diagnostic?
   }
 
   std::unique_ptr<PTHFileLookup> FL(PTHFileLookup::Create(FileTable, BufBeg));
@@ -509,7 +508,7 @@ PTHManager *PTHManager::Create(const std::string &file,
 
   if (!(IData >= BufBeg && IData < BufEnd)) {
     Diags.Report(diag::err_invalid_pth_file) << file;
-    return 0;
+    return nullptr;
   }
 
   // Get the location of the hashtable mapping between strings and
@@ -519,7 +518,7 @@ PTHManager *PTHManager::Create(const std::string &file,
       BufBeg + endian::readNext<uint32_t, little, aligned>(StringIdTableOffset);
   if (!(StringIdTable >= BufBeg && StringIdTable < BufEnd)) {
     Diags.Report(diag::err_invalid_pth_file) << file;
-    return 0;
+    return nullptr;
   }
 
   std::unique_ptr<PTHStringIdLookup> SL(
@@ -531,7 +530,7 @@ PTHManager *PTHManager::Create(const std::string &file,
       BufBeg + endian::readNext<uint32_t, little, aligned>(spellingBaseOffset);
   if (!(spellingBase >= BufBeg && spellingBase < BufEnd)) {
     Diags.Report(diag::err_invalid_pth_file) << file;
-    return 0;
+    return nullptr;
   }
 
   // Get the number of IdentifierInfos and pre-allocate the identifier cache.
@@ -540,13 +539,13 @@ PTHManager *PTHManager::Create(const std::string &file,
   // Pre-allocate the persistent ID -> IdentifierInfo* cache.  We use calloc()
   // so that we in the best case only zero out memory once when the OS returns
   // us new pages.
-  IdentifierInfo** PerIDCache = 0;
+  IdentifierInfo **PerIDCache = nullptr;
 
   if (NumIds) {
     PerIDCache = (IdentifierInfo**)calloc(NumIds, sizeof(*PerIDCache));
     if (!PerIDCache) {
       InvalidPTH(Diags, "Could not allocate memory for processing PTH file");
-      return 0;
+      return nullptr;
     }
   }
 
@@ -554,7 +553,7 @@ PTHManager *PTHManager::Create(const std::string &file,
   const unsigned char* originalSourceBase = PrologueOffset + sizeof(uint32_t)*4;
   unsigned len =
       endian::readNext<uint16_t, little, unaligned>(originalSourceBase);
-  if (!len) originalSourceBase = 0;
+  if (!len) originalSourceBase = nullptr;
 
   // Create the new PTHManager.
   return new PTHManager(File.release(), FL.release(), IData, PerIDCache,
@@ -592,7 +591,7 @@ IdentifierInfo* PTHManager::get(StringRef Name) {
   PTHStringIdLookup::iterator I = SL.find(std::make_pair(Name.data(),
                                                          Name.size()));
   if (I == SL.end()) // No identifier found?
-    return 0;
+    return nullptr;
 
   // Match found.  Return the identifier!
   assert(*I > 0);
@@ -602,7 +601,7 @@ IdentifierInfo* PTHManager::get(StringRef Name) {
 PTHLexer *PTHManager::CreateLexer(FileID FID) {
   const FileEntry *FE = PP->getSourceManager().getFileEntryForID(FID);
   if (!FE)
-    return 0;
+    return nullptr;
 
   using namespace llvm::support;
 
@@ -613,7 +612,7 @@ PTHLexer *PTHManager::CreateLexer(FileID FID) {
   PTHFileLookup::iterator I = PFL.find(FE);
 
   if (I == PFL.end()) // No tokens available?
-    return 0;
+    return nullptr;
 
   const PTHFileData& FileData = *I;
 
@@ -624,7 +623,7 @@ PTHLexer *PTHManager::CreateLexer(FileID FID) {
   // Get the location of pp-conditional table.
   const unsigned char* ppcond = BufStart + FileData.getPPCondOffset();
   uint32_t Len = endian::readNext<uint32_t, little, aligned>(ppcond);
-  if (Len == 0) ppcond = 0;
+  if (Len == 0) ppcond = nullptr;
 
   assert(PP && "No preprocessor set yet!");
   return new PTHLexer(*PP, FID, data, ppcond, *this);
@@ -693,7 +692,7 @@ public:
 };
 
 class PTHStatCache : public FileSystemStatCache {
-  typedef OnDiskChainedHashTable<PTHStatLookupTrait> CacheTy;
+  typedef llvm::OnDiskChainedHashTable<PTHStatLookupTrait> CacheTy;
   CacheTy Cache;
 
 public:

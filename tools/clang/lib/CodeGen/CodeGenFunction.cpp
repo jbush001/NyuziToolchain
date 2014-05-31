@@ -15,6 +15,7 @@
 #include "CGCUDARuntime.h"
 #include "CGCXXABI.h"
 #include "CGDebugInfo.h"
+#include "CGOpenMPRuntime.h"
 #include "CodeGenModule.h"
 #include "CodeGenPGO.h"
 #include "TargetInfo.h"
@@ -34,23 +35,26 @@ using namespace CodeGen;
 
 CodeGenFunction::CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext)
     : CodeGenTypeCache(cgm), CGM(cgm), Target(cgm.getTarget()),
-      Builder(cgm.getModule().getContext()), CapturedStmtInfo(0),
+      Builder(cgm.getModule().getContext(), llvm::ConstantFolder(),
+              CGBuilderInserterTy(this)), CapturedStmtInfo(nullptr),
       SanitizePerformTypeCheck(CGM.getSanOpts().Null |
                                CGM.getSanOpts().Alignment |
                                CGM.getSanOpts().ObjectSize |
                                CGM.getSanOpts().Vptr),
-      SanOpts(&CGM.getSanOpts()), AutoreleaseResult(false), BlockInfo(0),
-      BlockPointer(0), LambdaThisCaptureField(0), NormalCleanupDest(0),
-      NextCleanupDestIndex(1), FirstBlockInfo(0), EHResumeBlock(0),
-      ExceptionSlot(0), EHSelectorSlot(0), DebugInfo(CGM.getModuleDebugInfo()),
-      DisableDebugInfo(false), DidCallStackSave(false), IndirectBranch(0),
-      PGO(cgm), SwitchInsn(0), SwitchWeights(0),
-      CaseRangeBlock(0), UnreachableBlock(0), NumReturnExprs(0),
-      NumSimpleReturnExprs(0), CXXABIThisDecl(0), CXXABIThisValue(0),
-      CXXThisValue(0), CXXDefaultInitExprThis(0),
-      CXXStructorImplicitParamDecl(0), CXXStructorImplicitParamValue(0),
-      OutermostConditional(0), CurLexicalScope(0), TerminateLandingPad(0),
-      TerminateHandler(0), TrapBB(0) {
+      SanOpts(&CGM.getSanOpts()), AutoreleaseResult(false), BlockInfo(nullptr),
+      BlockPointer(nullptr), LambdaThisCaptureField(nullptr),
+      NormalCleanupDest(nullptr), NextCleanupDestIndex(1),
+      FirstBlockInfo(nullptr), EHResumeBlock(nullptr), ExceptionSlot(nullptr),
+      EHSelectorSlot(nullptr), DebugInfo(CGM.getModuleDebugInfo()),
+      DisableDebugInfo(false), DidCallStackSave(false), IndirectBranch(nullptr),
+      PGO(cgm), SwitchInsn(nullptr), SwitchWeights(nullptr),
+      CaseRangeBlock(nullptr), UnreachableBlock(nullptr), NumReturnExprs(0),
+      NumSimpleReturnExprs(0), CXXABIThisDecl(nullptr),
+      CXXABIThisValue(nullptr), CXXThisValue(nullptr),
+      CXXDefaultInitExprThis(nullptr), CXXStructorImplicitParamDecl(nullptr),
+      CXXStructorImplicitParamValue(nullptr), OutermostConditional(nullptr),
+      CurLexicalScope(nullptr), TerminateLandingPad(nullptr),
+      TerminateHandler(nullptr), TrapBB(nullptr) {
   if (!suppressNewContext)
     CGM.getCXXABI().getMangleContext().startNewFunction();
 
@@ -72,6 +76,10 @@ CodeGenFunction::~CodeGenFunction() {
   // something.
   if (FirstBlockInfo)
     destroyBlockInfos(FirstBlockInfo);
+
+  if (getLangOpts().OpenMP) {
+    CGM.getOpenMPRuntime().FunctionFinished(*this);
+  }
 }
 
 
@@ -256,7 +264,7 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
 
   // Remove the AllocaInsertPt instruction, which is just a convenience for us.
   llvm::Instruction *Ptr = AllocaInsertPt;
-  AllocaInsertPt = 0;
+  AllocaInsertPt = nullptr;
   Ptr->eraseFromParent();
 
   // If someone took the address of a label but never did an indirect goto, we
@@ -498,17 +506,34 @@ void CodeGenFunction::EmitOpenCLKernelMetadata(const FunctionDecl *FD,
   OpenCLKernelMetadata->addOperand(kernelMDNode);
 }
 
+/// Determine whether the function F ends with a return stmt.
+static bool endsWithReturn(const Decl* F) {
+  const Stmt *Body = nullptr;
+  if (auto *FD = dyn_cast_or_null<FunctionDecl>(F))
+    Body = FD->getBody();
+  else if (auto *OMD = dyn_cast_or_null<ObjCMethodDecl>(F))
+    Body = OMD->getBody();
+
+  if (auto *CS = dyn_cast_or_null<CompoundStmt>(Body)) {
+    auto LastStmt = CS->body_rbegin();
+    if (LastStmt != CS->body_rend())
+      return isa<ReturnStmt>(*LastStmt);
+  }
+  return false;
+}
+
 void CodeGenFunction::StartFunction(GlobalDecl GD,
                                     QualType RetTy,
                                     llvm::Function *Fn,
                                     const CGFunctionInfo &FnInfo,
                                     const FunctionArgList &Args,
+                                    SourceLocation Loc,
                                     SourceLocation StartLoc) {
   const Decl *D = GD.getDecl();
 
   DidCallStackSave = false;
   CurCodeDecl = D;
-  CurFuncDecl = (D ? D->getNonClosureContext() : 0);
+  CurFuncDecl = (D ? D->getNonClosureContext() : nullptr);
   FnRetTy = RetTy;
   CurFn = Fn;
   CurFnInfo = &FnInfo;
@@ -580,9 +605,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
     QualType FnType =
       getContext().getFunctionType(RetTy, ArgTypes,
                                    FunctionProtoType::ExtProtoInfo());
-
-    DI->setLocation(StartLoc);
-    DI->EmitFunctionStart(GD, FnType, CurFn, Builder);
+    DI->EmitFunctionStart(GD, Loc, StartLoc, FnType, CurFn, Builder);
   }
 
   if (ShouldInstrumentFunction())
@@ -593,12 +616,19 @@ void CodeGenFunction::StartFunction(GlobalDecl GD,
 
   if (RetTy->isVoidType()) {
     // Void type; nothing to return.
-    ReturnValue = 0;
+    ReturnValue = nullptr;
+
+    // Count the implicit return.
+    if (!endsWithReturn(D))
+      ++NumReturnExprs;
   } else if (CurFnInfo->getReturnInfo().getKind() == ABIArgInfo::Indirect &&
              !hasScalarEvaluationKind(CurFnInfo->getReturnType())) {
     // Indirect aggregate return; emit returned value directly into sret slot.
     // This reduces code size, and affects correctness in C++.
-    ReturnValue = CurFn->arg_begin();
+    auto AI = CurFn->arg_begin();
+    if (CurFnInfo->getReturnInfo().isSRetAfterThis())
+      ++AI;
+    ReturnValue = AI;
   } else if (CurFnInfo->getReturnInfo().getKind() == ABIArgInfo::InAlloca &&
              !hasScalarEvaluationKind(CurFnInfo->getReturnType())) {
     // Load the sret pointer from the argument struct and return into that.
@@ -685,7 +715,7 @@ void CodeGenFunction::EmitFunctionBody(FunctionArgList &Args,
 /// this just calls EmitBlock().
 void CodeGenFunction::EmitBlockWithFallThrough(llvm::BasicBlock *BB,
                                                RegionCounter &Cnt) {
-  llvm::BasicBlock *SkipCountBB = 0;
+  llvm::BasicBlock *SkipCountBB = nullptr;
   if (HaveInsertPoint() && CGM.getCodeGenOpts().ProfileInstrGenerate) {
     // When instrumenting for profiling, the fallthrough to certain
     // statements needs to skip over the instrumentation code so that we
@@ -736,7 +766,7 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
 
   // Check if we should generate debug info for this function.
   if (FD->hasAttr<NoDebugAttr>())
-    DebugInfo = NULL; // disable debug info indefinitely for this function
+    DebugInfo = nullptr; // disable debug info indefinitely for this function
 
   FunctionArgList Args;
   QualType ResTy = FD->getReturnType();
@@ -759,8 +789,24 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   if (Stmt *Body = FD->getBody()) BodyRange = Body->getSourceRange();
   CurEHLocation = BodyRange.getEnd();
 
+  // Use the location of the start of the function to determine where
+  // the function definition is located. By default use the location
+  // of the declaration as the location for the subprogram. A function
+  // may lack a declaration in the source code if it is created by code
+  // gen. (examples: _GLOBAL__I_a, __cxx_global_array_dtor, thunk).
+  SourceLocation Loc;
+  if (FD) {
+    Loc = FD->getLocation();
+
+    // If this is a function specialization then use the pattern body
+    // as the location for the function.
+    if (const FunctionDecl *SpecDecl = FD->getTemplateInstantiationPattern())
+      if (SpecDecl->hasBody(SpecDecl))
+        Loc = SpecDecl->getLocation();
+  }
+
   // Emit the standard function prologue.
-  StartFunction(GD, ResTy, Fn, FnInfo, Args, BodyRange.getBegin());
+  StartFunction(GD, ResTy, Fn, FnInfo, Args, Loc, BodyRange.getBegin());
 
   // Generate the body of the function.
   PGO.assignRegionCounters(GD.getDecl(), CurFn);
@@ -833,7 +879,7 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
 /// that we can just remove the code.
 bool CodeGenFunction::ContainsLabel(const Stmt *S, bool IgnoreCaseStmts) {
   // Null statement, not a label!
-  if (S == 0) return false;
+  if (!S) return false;
 
   // If this is a label, we have to emit the code, consider something like:
   // if (0) {  ...  foo:  bar(); }  goto foo;
@@ -865,7 +911,7 @@ bool CodeGenFunction::ContainsLabel(const Stmt *S, bool IgnoreCaseStmts) {
 /// inside of it, this is fine.
 bool CodeGenFunction::containsBreak(const Stmt *S) {
   // Null statement, not a label!
-  if (S == 0) return false;
+  if (!S) return false;
 
   // If this is a switch or loop that defines its own break scope, then we can
   // include it and anything inside of it.
@@ -1191,7 +1237,7 @@ CodeGenFunction::EmitNullInitialization(llvm::Value *DestPtr, QualType Ty) {
     }
   } else {
     SizeVal = CGM.getSize(Size);
-    vla = 0;
+    vla = nullptr;
   }
 
   // If the type contains a pointer to data member we can't memset it to zero.
@@ -1228,7 +1274,7 @@ CodeGenFunction::EmitNullInitialization(llvm::Value *DestPtr, QualType Ty) {
 
 llvm::BlockAddress *CodeGenFunction::GetAddrOfLabel(const LabelDecl *L) {
   // Make sure that there is a block for the indirect goto.
-  if (IndirectBranch == 0)
+  if (!IndirectBranch)
     GetIndirectGotoBlock();
 
   llvm::BasicBlock *BB = getJumpDestForLabel(L).getBlock();
@@ -1262,7 +1308,7 @@ llvm::Value *CodeGenFunction::emitArrayLength(const ArrayType *origArrayType,
 
   // If it's a VLA, we have to load the stored size.  Note that
   // this is the size of the VLA in bytes, not its size in elements.
-  llvm::Value *numVLAElements = 0;
+  llvm::Value *numVLAElements = nullptr;
   if (isa<VariableArrayType>(arrayType)) {
     numVLAElements = getVLASize(cast<VariableArrayType>(arrayType)).first;
 
@@ -1355,7 +1401,7 @@ CodeGenFunction::getVLASize(QualType type) {
 std::pair<llvm::Value*, QualType>
 CodeGenFunction::getVLASize(const VariableArrayType *type) {
   // The number of elements so far; always size_t.
-  llvm::Value *numElements = 0;
+  llvm::Value *numElements = nullptr;
 
   QualType elementType;
   do {
@@ -1599,3 +1645,30 @@ llvm::Value *CodeGenFunction::EmitFieldAnnotations(const FieldDecl *D,
 }
 
 CodeGenFunction::CGCapturedStmtInfo::~CGCapturedStmtInfo() { }
+
+void CodeGenFunction::InsertHelper(llvm::Instruction *I,
+                                   const llvm::Twine &Name,
+                                   llvm::BasicBlock *BB,
+                                   llvm::BasicBlock::iterator InsertPt) const {
+  LoopStack.InsertHelper(I);
+}
+
+template <bool PreserveNames>
+void CGBuilderInserter<PreserveNames>::InsertHelper(
+    llvm::Instruction *I, const llvm::Twine &Name, llvm::BasicBlock *BB,
+    llvm::BasicBlock::iterator InsertPt) const {
+  llvm::IRBuilderDefaultInserter<PreserveNames>::InsertHelper(I, Name, BB,
+                                                              InsertPt);
+  if (CGF)
+    CGF->InsertHelper(I, Name, BB, InsertPt);
+}
+
+#ifdef NDEBUG
+#define PreserveNames false
+#else
+#define PreserveNames true
+#endif
+template void CGBuilderInserter<PreserveNames>::InsertHelper(
+    llvm::Instruction *I, const llvm::Twine &Name, llvm::BasicBlock *BB,
+    llvm::BasicBlock::iterator InsertPt) const;
+#undef PreserveNames

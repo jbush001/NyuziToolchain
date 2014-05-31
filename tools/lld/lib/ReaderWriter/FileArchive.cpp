@@ -71,14 +71,14 @@ public:
   virtual bool isWholeArchive() const { return _isWholeArchive; }
 
   /// \brief parse each member
-  virtual error_code
+  error_code
   parseAllMembers(std::vector<std::unique_ptr<File>> &result) const override {
     for (auto mf = _archive->child_begin(), me = _archive->child_end();
          mf != me; ++mf) {
       if (error_code ec = instantiateMember(mf, result))
         return ec;
     }
-    return error_code::success();
+    return error_code();
   }
 
   const atom_collection<DefinedAtom> &defined() const override {
@@ -97,6 +97,14 @@ public:
     return _absoluteAtoms;
   }
 
+  /// Returns a set of all defined symbols in the archive.
+  std::set<StringRef> getDefinedSymbols() const override {
+    std::set<StringRef> ret;
+    for (const auto &e : _symbolMemberMap)
+      ret.insert(e.first);
+    return ret;
+  }
+
 protected:
   error_code
   instantiateMember(Archive::child_iterator member,
@@ -109,7 +117,7 @@ protected:
     _registry.parseFile(mb, result);
     const char *memberStart = member->getBuffer().data();
     _membersInstantiated.insert(memberStart);
-    return error_code::success();
+    return error_code();
   }
 
   error_code isDataSymbol(std::unique_ptr<MemoryBuffer> mb, StringRef symbol) const {
@@ -144,7 +152,7 @@ protected:
         return ec;
 
       if (symtype == SymbolRef::ST_Data) {
-        return error_code::success();
+        return error_code();
       }
     }
     return object_error::parse_failed;
@@ -180,11 +188,10 @@ public:
     for (auto i = _archive->symbol_begin(), e = _archive->symbol_end();
          i != e; ++i) {
       StringRef name;
-      error_code ec;
       Archive::child_iterator member;
-      if ((ec = i->getName(name)))
+      if (error_code ec = i->getName(name))
         return ec;
-      if ((ec = i->getMember(member)))
+      if (error_code ec = i->getMember(member))
         return ec;
       DEBUG_WITH_TYPE(
           "FileArchive",
@@ -192,7 +199,7 @@ public:
                        << "'" << name << "'\n");
       _symbolMemberMap[name] = member;
     }
-    return error_code::success();
+    return error_code();
   }
 
 }; // class FileArchive
@@ -201,12 +208,12 @@ class ArchiveReader : public Reader {
 public:
   ArchiveReader(bool logLoading) : _logLoading(logLoading) {}
 
-  virtual bool canParse(file_magic magic, StringRef,
-                        const MemoryBuffer &) const override {
+  bool canParse(file_magic magic, StringRef,
+                const MemoryBuffer &) const override {
     return (magic == llvm::sys::fs::file_magic::archive);
   }
 
-  virtual error_code
+  error_code
   parseFile(std::unique_ptr<MemoryBuffer> &mb, const Registry &reg,
             std::vector<std::unique_ptr<File>> &result) const override {
     // Make Archive object which will be owned by FileArchive object.
@@ -226,7 +233,7 @@ public:
     mb.release();
 
     result.push_back(std::move(file));
-    return error_code::success();
+    return error_code();
   }
 
 private:
@@ -240,5 +247,3 @@ void Registry::addSupportArchives(bool logLoading) {
 }
 
 } // end namespace lld
-
-

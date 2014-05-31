@@ -159,6 +159,14 @@ public:
   unsigned MicroOpBufferSize;
   static const unsigned DefaultMicroOpBufferSize = 0;
 
+  // LoopMicroOpBufferSize is the number of micro-ops that the processor may
+  // buffer for optimized loop execution. More generally, this represents the
+  // optimal number of micro-ops in a loop body. A loop may be partially
+  // unrolled to bring the count of micro-ops in the loop body closer to this
+  // number.
+  unsigned LoopMicroOpBufferSize;
+  static const unsigned DefaultLoopMicroOpBufferSize = 0;
+
   // LoadLatency is the expected latency of load instructions.
   //
   // If MinLatency >= 0, this may be overriden for individual load opcodes by
@@ -198,23 +206,24 @@ public:
   // MCSchedModel instead of using a generated itinerary.
   MCSchedModel(): IssueWidth(DefaultIssueWidth),
                   MicroOpBufferSize(DefaultMicroOpBufferSize),
+                  LoopMicroOpBufferSize(DefaultLoopMicroOpBufferSize),
                   LoadLatency(DefaultLoadLatency),
                   HighLatency(DefaultHighLatency),
                   MispredictPenalty(DefaultMispredictPenalty),
-                  CompleteModel(true),
-                  ProcID(0), ProcResourceTable(0), SchedClassTable(0),
-                  NumProcResourceKinds(0), NumSchedClasses(0),
-                  InstrItineraries(0) {
+                  CompleteModel(true), ProcID(0), ProcResourceTable(nullptr),
+                  SchedClassTable(nullptr), NumProcResourceKinds(0),
+                  NumSchedClasses(0), InstrItineraries(nullptr) {
     (void)NumProcResourceKinds;
     (void)NumSchedClasses;
   }
 
   // Table-gen driven ctor.
-  MCSchedModel(unsigned iw, int mbs, unsigned ll, unsigned hl,
+  MCSchedModel(unsigned iw, int mbs, int lmbs, unsigned ll, unsigned hl,
                unsigned mp, bool cm, unsigned pi, const MCProcResourceDesc *pr,
                const MCSchedClassDesc *sc, unsigned npr, unsigned nsc,
                const InstrItinerary *ii):
-    IssueWidth(iw), MicroOpBufferSize(mbs), LoadLatency(ll), HighLatency(hl),
+    IssueWidth(iw), MicroOpBufferSize(mbs), LoopMicroOpBufferSize(lmbs),
+    LoadLatency(ll), HighLatency(hl),
     MispredictPenalty(mp), CompleteModel(cm), ProcID(pi),
     ProcResourceTable(pr), SchedClassTable(sc), NumProcResourceKinds(npr),
     NumSchedClasses(nsc), InstrItineraries(ii) {}

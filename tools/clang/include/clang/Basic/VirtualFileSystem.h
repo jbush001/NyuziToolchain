@@ -15,8 +15,10 @@
 
 #include "clang/Basic/LLVM.h"
 #include "llvm/ADT/IntrusiveRefCntPtr.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/SourceMgr.h"
 
 namespace llvm {
@@ -36,6 +38,9 @@ class Status {
   uint64_t Size;
   llvm::sys::fs::file_type Type;
   llvm::sys::fs::perms Perms;
+
+public:
+  bool IsVFSMapped; // FIXME: remove when files support multiple names
 
 public:
   Status() : Type(llvm::sys::fs::file_type::status_error) {}
@@ -86,7 +91,8 @@ public:
   /// \brief Get the contents of the file as a \p MemoryBuffer.
   virtual llvm::error_code
   getBuffer(const Twine &Name, std::unique_ptr<llvm::MemoryBuffer> &Result,
-            int64_t FileSize = -1, bool RequiresNullTerminator = true) = 0;
+            int64_t FileSize = -1, bool RequiresNullTerminator = true,
+            bool IsVolatile = false) = 0;
   /// \brief Closes the file.
   virtual llvm::error_code close() = 0;
   /// \brief Sets the name to use for this file.
@@ -109,7 +115,8 @@ public:
   llvm::error_code getBufferForFile(const Twine &Name,
                                     std::unique_ptr<llvm::MemoryBuffer> &Result,
                                     int64_t FileSize = -1,
-                                    bool RequiresNullTerminator = true);
+                                    bool RequiresNullTerminator = true,
+                                    bool IsVolatile = false);
 };
 
 /// \brief Gets an \p vfs::FileSystem for the 'real' file system, as seen by
@@ -161,8 +168,28 @@ llvm::sys::fs::UniqueID getNextVirtualUniqueID();
 IntrusiveRefCntPtr<FileSystem>
 getVFSFromYAML(llvm::MemoryBuffer *Buffer,
                llvm::SourceMgr::DiagHandlerTy DiagHandler,
-               void *DiagContext = 0,
+               void *DiagContext = nullptr,
                IntrusiveRefCntPtr<FileSystem> ExternalFS = getRealFileSystem());
+
+struct YAMLVFSEntry {
+  template <typename T1, typename T2> YAMLVFSEntry(T1 &&VPath, T2 &&RPath)
+      : VPath(std::forward<T1>(VPath)), RPath(std::forward<T2>(RPath)) {}
+  std::string VPath;
+  std::string RPath;
+};
+
+class YAMLVFSWriter {
+  std::vector<YAMLVFSEntry> Mappings;
+  Optional<bool> IsCaseSensitive;
+
+public:
+  YAMLVFSWriter() {}
+  void addFileMapping(StringRef VirtualPath, StringRef RealPath);
+  void setCaseSensitivity(bool CaseSensitive) {
+    IsCaseSensitive = CaseSensitive;
+  }
+  void write(llvm::raw_ostream &OS);
+};
 
 } // end namespace vfs
 } // end namespace clang

@@ -1,9 +1,9 @@
-; RUN: llc -march=r600 -mcpu=SI < %s | FileCheck %s
+; RUN: llc -march=r600 -mcpu=SI -verify-machineinstrs< %s | FileCheck %s
 
 define void @use_gep_address_space([1024 x i32] addrspace(3)* %array) nounwind {
 ; CHECK-LABEL: @use_gep_address_space:
 ; CHECK: V_MOV_B32_e32 [[PTR:v[0-9]+]], s{{[0-9]+}}
-; CHECK: DS_WRITE_B32 [[PTR]], v{{[0-9]+}}, 64
+; CHECK: DS_WRITE_B32 [[PTR]], v{{[0-9]+}}, 0x40
   %p = getelementptr [1024 x i32] addrspace(3)* %array, i16 0, i16 16
   store i32 99, i32 addrspace(3)* %p
   ret void

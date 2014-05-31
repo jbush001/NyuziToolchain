@@ -48,7 +48,8 @@ public:
 
     arm,        // ARM (little endian): arm, armv.*, xscale
     armeb,      // ARM (big endian): armeb
-    arm64,      // ARM: arm64
+    arm64,      // ARM64 (little endian): arm64
+    arm64_be,   // ARM64 (big endian): arm64_be
     aarch64,    // AArch64 (little endian): aarch64
     aarch64_be, // AArch64 (big endian): aarch64_be
     hexagon,    // Hexagon: hexagon
@@ -335,6 +336,10 @@ public:
     return isMacOSX() || isiOS();
   }
 
+  bool isOSFreeBSD() const {
+    return getOS() == Triple::FreeBSD;
+  }
+
   bool isWindowsMSVCEnvironment() const {
     return getOS() == Triple::Win32 &&
            (getEnvironment() == Triple::UnknownEnvironment ||
@@ -362,7 +367,7 @@ public:
 
   /// \brief Is this a "Windows" OS targeting a "MSVCRT.dll" environment.
   bool isOSMSVCRT() const {
-    return getOS() == Triple::Win32 || getOS() == Triple::MinGW32;
+    return isWindowsMSVCEnvironment() || isWindowsGNUEnvironment();
   }
 
   /// \brief Tests whether the OS is Windows.

@@ -74,14 +74,14 @@ static FrontendAction *CreateFrontendBaseAction(CompilerInstance &CI) {
       if (it->getName() == CI.getFrontendOpts().ActionName) {
         std::unique_ptr<PluginASTAction> P(it->instantiate());
         if (!P->ParseArgs(CI, CI.getFrontendOpts().PluginArgs))
-          return 0;
+          return nullptr;
         return P.release();
       }
     }
 
     CI.getDiagnostics().Report(diag::err_fe_invalid_plugin_name)
       << CI.getFrontendOpts().ActionName;
-    return 0;
+    return nullptr;
   }
 
   case PrintDeclContext:       return new DeclContextPrintAction();
@@ -133,7 +133,7 @@ static FrontendAction *CreateFrontendAction(CompilerInstance &CI) {
   // Create the underlying action.
   FrontendAction *Act = CreateFrontendBaseAction(CI);
   if (!Act)
-    return 0;
+    return nullptr;
 
   const FrontendOptions &FEOpts = CI.getFrontendOpts();
 
@@ -144,7 +144,8 @@ static FrontendAction *CreateFrontendAction(CompilerInstance &CI) {
 #endif
   
 #ifdef CLANG_ENABLE_ARCMT
-  if (CI.getFrontendOpts().ProgramAction != frontend::MigrateSource) {
+  if (CI.getFrontendOpts().ProgramAction != frontend::MigrateSource &&
+      CI.getFrontendOpts().ProgramAction != frontend::GeneratePCH) {
     // Potentially wrap the base FE action in an ARC Migrate Tool action.
     switch (FEOpts.ARCMTAction) {
     case FrontendOptions::ARCMT_None:
@@ -212,12 +213,12 @@ bool clang::ExecuteCompilerInvocation(CompilerInstance *Clang) {
   // This should happen AFTER plugins have been loaded!
   if (!Clang->getFrontendOpts().LLVMArgs.empty()) {
     unsigned NumArgs = Clang->getFrontendOpts().LLVMArgs.size();
-    const char **Args = new const char*[NumArgs + 2];
+    auto Args = llvm::make_unique<const char*[]>(NumArgs + 2);
     Args[0] = "clang (LLVM option parsing)";
     for (unsigned i = 0; i != NumArgs; ++i)
       Args[i + 1] = Clang->getFrontendOpts().LLVMArgs[i].c_str();
-    Args[NumArgs + 1] = 0;
-    llvm::cl::ParseCommandLineOptions(NumArgs + 1, Args);
+    Args[NumArgs + 1] = nullptr;
+    llvm::cl::ParseCommandLineOptions(NumArgs + 1, Args.get());
   }
 
 #ifdef CLANG_ENABLE_STATIC_ANALYZER

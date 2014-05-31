@@ -20,7 +20,6 @@
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/MC/MCSectionELF.h"
 using namespace llvm;
 
 MCObjectStreamer::MCObjectStreamer(MCContext &Context, MCAsmBackend &TAB,
@@ -28,12 +27,13 @@ MCObjectStreamer::MCObjectStreamer(MCContext &Context, MCAsmBackend &TAB,
     : MCStreamer(Context),
       Assembler(new MCAssembler(Context, TAB, *Emitter_,
                                 *TAB.createObjectWriter(OS), OS)),
-      CurSectionData(0) {}
+      CurSectionData(nullptr), EmitEHFrame(true), EmitDebugFrame(false) {}
 
 MCObjectStreamer::MCObjectStreamer(MCContext &Context, MCAsmBackend &TAB,
                                    raw_ostream &OS, MCCodeEmitter *Emitter_,
                                    MCAssembler *_Assembler)
-    : MCStreamer(Context), Assembler(_Assembler), CurSectionData(0) {}
+    : MCStreamer(Context), Assembler(_Assembler), CurSectionData(nullptr),
+      EmitEHFrame(true), EmitDebugFrame(false) {}
 
 MCObjectStreamer::~MCObjectStreamer() {
   delete &Assembler->getBackend();
@@ -45,9 +45,22 @@ MCObjectStreamer::~MCObjectStreamer() {
 void MCObjectStreamer::reset() {
   if (Assembler)
     Assembler->reset();
-  CurSectionData = 0;
+  CurSectionData = nullptr;
   CurInsertionPoint = MCSectionData::iterator();
+  EmitEHFrame = true;
+  EmitDebugFrame = false;
   MCStreamer::reset();
+}
+
+void MCObjectStreamer::EmitFrames(MCAsmBackend *MAB) {
+  if (!getNumFrameInfos())
+    return;
+
+  if (EmitEHFrame)
+    MCDwarfFrameEmitter::Emit(*this, MAB, true);
+
+  if (EmitDebugFrame)
+    MCDwarfFrameEmitter::Emit(*this, MAB, false);
 }
 
 MCFragment *MCObjectStreamer::getCurrentFragment() const {
@@ -56,7 +69,7 @@ MCFragment *MCObjectStreamer::getCurrentFragment() const {
   if (CurInsertionPoint != getCurrentSectionData()->getFragmentList().begin())
     return std::prev(CurInsertionPoint);
 
-  return 0;
+  return nullptr;
 }
 
 MCDataFragment *MCObjectStreamer::getOrCreateDataFragment() const {
@@ -64,11 +77,7 @@ MCDataFragment *MCObjectStreamer::getOrCreateDataFragment() const {
   // When bundling is enabled, we don't want to add data to a fragment that
   // already has instructions (see MCELFStreamer::EmitInstToData for details)
   if (!F || (Assembler->isBundlingEnabled() && F->hasInstructions())) {
-    const auto *Sec = dyn_cast<MCSectionELF>(&getCurrentSectionData()->getSection());
-    if (Sec && Sec->getSectionName().startswith(".zdebug_"))
-      F = new MCCompressedFragment();
-    else
-      F = new MCDataFragment();
+    F = new MCDataFragment();
     insert(F);
   }
   return F;
@@ -102,7 +111,14 @@ const MCExpr *MCObjectStreamer::AddValueSymbols(const MCExpr *Value) {
   return Value;
 }
 
-void MCObjectStreamer::EmitValueImpl(const MCExpr *Value, unsigned Size) {
+void MCObjectStreamer::EmitCFISections(bool EH, bool Debug) {
+  MCStreamer::EmitCFISections(EH, Debug);
+  EmitEHFrame = EH;
+  EmitDebugFrame = Debug;
+}
+
+void MCObjectStreamer::EmitValueImpl(const MCExpr *Value, unsigned Size,
+                                     const SMLoc &Loc) {
   MCDataFragment *DF = getOrCreateDataFragment();
 
   MCLineEntry::Make(this, getCurrentSection().first);
@@ -115,7 +131,7 @@ void MCObjectStreamer::EmitValueImpl(const MCExpr *Value, unsigned Size) {
   }
   DF->getFixups().push_back(
       MCFixup::Create(DF->getContents().size(), Value,
-                      MCFixup::getKindForSize(Size, false)));
+                      MCFixup::getKindForSize(Size, false), Loc));
   DF->getContents().resize(DF->getContents().size() + Size, 0);
 }
 

@@ -118,8 +118,6 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "ReaderImportHeader"
-
 #include "Atoms.h"
 
 #include "lld/Core/File.h"
@@ -146,6 +144,8 @@
 using namespace lld;
 using namespace lld::pecoff;
 using namespace llvm;
+
+#define DEBUG_TYPE "ReaderImportHeader"
 
 namespace lld {
 
@@ -211,7 +211,7 @@ public:
     if (type == llvm::COFF::IMPORT_CODE)
       addDefinedAtom(symbolName, dllName, dataAtom);
 
-    ec = error_code::success();
+    ec = error_code();
   }
 
   const atom_collection<DefinedAtom> &defined() const override {
@@ -307,7 +307,7 @@ public:
     if (ec)
       return ec;
     result.push_back(std::move(file));
-    return error_code::success();
+    return error_code();
   }
 };
 
@@ -331,7 +331,7 @@ error_code parseCOFFImportLibrary(const LinkingContext &targetInfo,
   if (ec)
     return ec;
   result.push_back(std::move(file));
-  return error_code::success();
+  return error_code();
 }
 
 } // end namespace pecoff

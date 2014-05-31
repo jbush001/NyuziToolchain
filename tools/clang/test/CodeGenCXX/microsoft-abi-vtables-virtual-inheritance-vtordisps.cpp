@@ -157,6 +157,67 @@ struct C : virtual V4 {
 
 C c;
 void use(C *obj) { obj->f(); }
+
+class D : B {
+  // CHECK-LABEL: VFTable for 'V2' in 'V3' in 'simple::B' in 'simple::D' (2 entries).
+  // CHECK-NEXT: 0 | void simple::B::f()
+  // CHECK-NEXT:     [this adjustment: vtordisp at -12, -4 non-virtual]
+  // CHECK-NEXT: 1 | simple::D::~D() [scalar deleting]
+  // CHECK-NEXT:     [this adjustment: vtordisp at -12, -8 non-virtual]
+  D();
+  int z;
+
+  // MANGLING-DAG: @"\01?f@B@simple@@$4PPPPPPPE@3AEXXZ"
+};
+
+D::D() {}
+
+struct E : V3 {
+  virtual void f();
+};
+
+struct F : virtual E {
+  // CHECK-LABEL: VFTable for 'Z' in 'V3' in 'simple::E' in 'simple::F' (2 entries).
+  // CHECK-NEXT:   0 | void simple::F::g()
+  // CHECK-NEXT:       [this adjustment: vtordisp at -4, 0 non-virtual]
+  // CHECK-NEXT:   1 | simple::F::~F() [scalar deleting]
+  // CHECK-NEXT:       [this adjustment: vtordisp at -4, 0 non-virtual]
+
+  // CHECK-LABEL: VFTable for 'V2' in 'V3' in 'simple::E' in 'simple::F' (2 entries).
+  // CHECK-NEXT:   0 | void simple::E::f()
+  // CHECK-NEXT:   1 | simple::F::~F() [scalar deleting]
+  // CHECK-NEXT:       [this adjustment: vtordisp at -12, -8 non-virtual]
+
+  F();
+  virtual void g();  // Force a vtordisp.
+  int f;
+
+  // MANGLING-DAG: @"\01?g@F@simple@@$4PPPPPPPM@A@AEXXZ"{{.*}}??_EF@simple@@$4PPPPPPPM@A@AEPAXI@Z
+  // MANGLING-DAG: ?f@E@simple@@UAEXXZ{{.*}}??_EF@simple@@$4PPPPPPPE@7AEPAXI@Z
+};
+
+F::F() {}
+
+struct G : F {
+  // CHECK-LABEL: VFTable for 'Z' in 'V3' in 'simple::E' in 'simple::F' in 'simple::G' (2 entries).
+  // CHECK-NEXT:   0 | void simple::F::g()
+  // CHECK-NEXT:       [this adjustment: vtordisp at -4, -4 non-virtual]
+  // CHECK-NEXT:   1 | simple::G::~G() [scalar deleting]
+  // CHECK-NEXT:       [this adjustment: vtordisp at -4, 0 non-virtual]
+
+  // CHECK-LABEL: VFTable for 'V2' in 'V3' in 'simple::E' in 'simple::F' in 'simple::G' (2 entries).
+  // CHECK-NEXT:   0 | void simple::E::f()
+  // CHECK-NEXT:   1 | simple::G::~G() [scalar deleting]
+  // CHECK-NEXT:       [this adjustment: vtordisp at -12, -8 non-virtual]
+
+  G();
+  int g;
+
+  // MANGLING-DAG: @"\01?g@F@simple@@$4PPPPPPPM@3AEXXZ"{{.*}}@"\01??_EG@simple@@$4PPPPPPPM@A@AEPAXI@Z"
+  // MANGLING-DAG: @"\01?f@E@simple@@UAEXXZ"{{.*}}@"\01??_EG@simple@@$4PPPPPPPE@7AEPAXI@Z"
+};
+
+G::G() {}
 }
 
 namespace extended {
@@ -355,6 +416,40 @@ A a;
 void use(A *obj) { delete obj; }
 }
 
+namespace pr19408 {
+// In this test, the vptr used to vcall D::f() is located in the A vbase.
+// The offset of A in different in C and D, so the D vtordisp thunk should
+// adjust "this" so C::f gets the right value.
+struct A {
+  A();
+  virtual void f();
+  int a;
+};
+
+struct B : virtual A {
+  B();
+  int b;
+};
+
+struct C : B {
+  C();
+  virtual void f();
+  int c;
+};
+
+struct D : C {
+  // CHECK-LABEL: VFTable for 'pr19408::A' in 'pr19408::B' in 'pr19408::C' in 'pr19408::D' (1 entry).
+  // CHECK-NEXT:   0 | void pr19408::C::f()
+  // CHECK-NEXT:       [this adjustment: vtordisp at -4, -4 non-virtual]
+
+  // MANGLING-DAG: @"\01?f@C@pr19408@@$4PPPPPPPM@3AEXXZ"
+  D();
+  int d;
+};
+
+D::D() {}
+}
+
 namespace access {
 struct A {
   virtual ~A();
@@ -384,4 +479,91 @@ struct C : virtual B {
 };
 
 C c;
+}
+
+namespace pr19505 {
+struct A {
+  virtual void f();
+  virtual void z();
+};
+
+struct B : A {
+  virtual void f();
+};
+
+struct C : A, B {
+  virtual void g();
+};
+
+struct X : B, virtual C {
+  X() {}
+  virtual void g();
+
+  // CHECK-LABEL: VFTable for 'pr19505::A' in 'pr19505::B' in 'pr19505::C' in 'pr19505::X' (2 entries).
+  // CHECK-NEXT:   0 | void pr19505::B::f()
+  // CHECK-NEXT:   1 | void pr19505::A::z()
+
+  // MANGLING-DAG: @"\01??_7X@pr19505@@6BB@1@@" = {{.*}}@"\01?f@B@pr19505@@UAEXXZ"
+} x;
+
+void build_vftable(X *obj) { obj->g(); }
+}
+
+namespace pr19506 {
+struct A {
+  virtual void f();
+  virtual void g();
+};
+
+struct B : A {
+  virtual void f();
+};
+
+struct C : B {};
+
+struct X : C, virtual B {
+  virtual void g();
+  X() {}
+
+  // CHECK-LABEL: VFTable for 'pr19506::A' in 'pr19506::B' in 'pr19506::X' (2 entries).
+  // CHECK-NEXT:   0 | void pr19506::B::f()
+  // CHECK-NEXT:   1 | void pr19506::X::g()
+  // CHECK-NEXT:       [this adjustment: vtordisp at -4, -12 non-virtual]
+
+  // MANGLING-DAG: @"\01??_7X@pr19506@@6BB@1@@" = {{.*}}@"\01?f@B@pr19506@@UAEXXZ"
+} x;
+
+void build_vftable(X *obj) { obj->g(); }
+}
+
+namespace pr19519 {
+// VS2013 CL miscompiles this, just make sure we don't regress.
+
+struct A {
+  virtual void f();
+  virtual void g();
+};
+
+struct B : virtual A {
+  virtual void f();
+  B();
+};
+
+struct C : virtual A {
+  virtual void g();
+};
+
+struct X : B, C {
+  X();
+
+  // CHECK-LABEL: VFTable for 'pr19519::A' in 'pr19519::B' in 'pr19519::X' (2 entries).
+  // CHECK-NEXT:   0 | void pr19519::B::f()
+  // CHECK-NEXT:       [this adjustment: vtordisp at -4, -4 non-virtual]
+  // CHECK-NEXT:   1 | void pr19519::C::g()
+  // CHECK-NEXT:       [this adjustment: vtordisp at -4, -4 non-virtual]
+
+  // MANGLING-DAG: @"\01??_7X@pr19519@@6B@" = {{.*}}@"\01?g@C@pr19519@@$4PPPPPPPM@3AEXXZ"
+};
+
+X::X() {}
 }

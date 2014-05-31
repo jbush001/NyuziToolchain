@@ -19,7 +19,6 @@
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/SourceManager.h"
-#include "clang/Lex/Preprocessor.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallString.h"
 
@@ -284,7 +283,7 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
 
   case EST_ComputedNoexcept:
     OS << "noexcept(";
-    OldProto->getNoexceptExpr()->printPretty(OS, 0, getPrintingPolicy());
+    OldProto->getNoexceptExpr()->printPretty(OS, nullptr, getPrintingPolicy());
     OS << ")";
     break;
 
@@ -297,7 +296,7 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
   if (TypeSourceInfo *TSInfo = New->getTypeSourceInfo()) {
     TypeLoc TL = TSInfo->getTypeLoc().IgnoreParens();
     if (FunctionTypeLoc FTLoc = TL.getAs<FunctionTypeLoc>())
-      FixItLoc = PP.getLocForEndOfToken(FTLoc.getLocalRangeEnd());
+      FixItLoc = getLocForEndOfToken(FTLoc.getLocalRangeEnd());
   }
 
   if (FixItLoc.isInvalid())
@@ -456,7 +455,7 @@ bool Sema::CheckEquivalentExceptionSpec(const PartialDiagnostic &DiagID,
   // throw(std::bad_alloc) as equivalent for operator new and operator new[].
   // This is because the implicit declaration changed, but old code would break.
   if (getLangOpts().CPlusPlus11 && IsOperatorNew) {
-    const FunctionProtoType *WithExceptions = 0;
+    const FunctionProtoType *WithExceptions = nullptr;
     if (OldEST == EST_None && NewEST == EST_Dynamic)
       WithExceptions = New;
     else if (OldEST == EST_Dynamic && NewEST == EST_None)
@@ -469,15 +468,8 @@ bool Sema::CheckEquivalentExceptionSpec(const PartialDiagnostic &DiagID,
         IdentifierInfo* Name = ExRecord->getIdentifier();
         if (Name && Name->getName() == "bad_alloc") {
           // It's called bad_alloc, but is it in std?
-          DeclContext* DC = ExRecord->getDeclContext();
-          DC = DC->getEnclosingNamespaceContext();
-          if (NamespaceDecl* NS = dyn_cast<NamespaceDecl>(DC)) {
-            IdentifierInfo* NSName = NS->getIdentifier();
-            DC = DC->getParent();
-            if (NSName && NSName->getName() == "std" &&
-                DC->getEnclosingNamespaceContext()->isTranslationUnit()) {
-              return false;
-            }
+          if (ExRecord->isInStdNamespace()) {
+            return false;
           }
         }
       }

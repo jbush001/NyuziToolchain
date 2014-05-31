@@ -14,7 +14,6 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "xcoretti"
 #include "XCore.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Support/Debug.h"
@@ -22,8 +21,10 @@
 #include "llvm/Target/TargetLowering.h"
 using namespace llvm;
 
+#define DEBUG_TYPE "xcoretti"
+
 // Declare the pass initialization routine locally as target-specific passes
-// don't havve a target-wide initialization entry point, and so we rely on the
+// don't have a target-wide initialization entry point, and so we rely on the
 // pass constructor initialization.
 namespace llvm {
 void initializeXCoreTTIPass(PassRegistry &);

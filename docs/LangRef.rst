@@ -440,7 +440,10 @@ styles:
     defining module will bind to the local symbol. That is, the symbol
     cannot be overridden by another module.
 
-.. _namedtypes:
+A symbol with ``internal`` or ``private`` linkage must have ``default``
+visibility.
+
+.. _dllstorageclass:
 
 DLL Storage Classes
 -------------------
@@ -460,6 +463,36 @@ DLL storage class:
     ``__imp_`` and the function or variable name. Since this storage class
     exists for defining a dll interface, the compiler, assembler and linker know
     it is externally referenced and must refrain from deleting the symbol.
+
+.. _tls_model:
+
+Thread Local Storage Models
+---------------------------
+
+A variable may be defined as ``thread_local``, which means that it will
+not be shared by threads (each thread will have a separated copy of the
+variable). Not all targets support thread-local variables. Optionally, a
+TLS model may be specified:
+
+``localdynamic``
+    For variables that are only used within the current shared library.
+``initialexec``
+    For variables in modules that will not be loaded dynamically.
+``localexec``
+    For variables defined in the executable and only used within it.
+
+If no explicit model is given, the "general dynamic" model is used.
+
+The models correspond to the ELF TLS models; see `ELF Handling For
+Thread-Local Storage <http://people.redhat.com/drepper/tls.pdf>`_ for
+more information on under which circumstances the different models may
+be used. The target may choose a different TLS model if the specified
+model is not supported, or if a better choice of model can be made.
+
+A model can also be specified in a alias, but then it only governs how
+the alias is accessed. It will not have any effect in the aliasee.
+
+.. _namedtypes:
 
 Structure Types
 ---------------
@@ -491,24 +524,6 @@ to be placed in, and may have an optional explicit alignment specified.
 
 Global variables in other translation units can also be declared, in which
 case they don't have an initializer.
-
-A variable may be defined as ``thread_local``, which means that it will
-not be shared by threads (each thread will have a separated copy of the
-variable). Not all targets support thread-local variables. Optionally, a
-TLS model may be specified:
-
-``localdynamic``
-    For variables that are only used within the current shared library.
-``initialexec``
-    For variables in modules that will not be loaded dynamically.
-``localexec``
-    For variables defined in the executable and only used within it.
-
-The models correspond to the ELF TLS models; see `ELF Handling For
-Thread-Local Storage <http://people.redhat.com/drepper/tls.pdf>`_ for
-more information on under which circumstances the different models may
-be used. The target may choose a different TLS model if the specified
-model is not supported, or if a better choice of model can be made.
 
 A variable may be defined as a global ``constant``, which indicates that
 the contents of the variable will **never** be modified (enabling better
@@ -566,6 +581,9 @@ iterate over them as an array, alignment padding would break this
 iteration.
 
 Globals can also have a :ref:`DLL storage class <dllstorageclass>`.
+
+Variables and aliasaes can have a
+:ref:`Thread Local Storage Model <tls_model>`.
 
 Syntax::
 
@@ -669,7 +687,7 @@ Aliases may have an optional :ref:`linkage type <linkage>`, an optional
 
 Syntax::
 
-    @<Name> = [Visibility] [DLLStorageClass] alias [Linkage] <AliaseeTy> @<Aliasee>
+    @<Name> = [Visibility] [DLLStorageClass] [ThreadLocal] alias [Linkage] <AliaseeTy> @<Aliasee>
 
 The linkage must be one of ``private``, ``internal``, ``linkonce``, ``weak``,
 ``linkonce_odr``, ``weak_odr``, ``external``. Note that some system linkers
@@ -802,6 +820,9 @@ Currently, only the following parameter attributes are defined:
     not to trap and to be properly aligned. This may only be applied to
     the first parameter. This is not a valid attribute for return
     values.
+
+.. _noalias:
+
 ``noalias``
     This indicates that pointer values :ref:`based <pointeraliasing>` on
     the argument or return value do not alias pointer values which are
@@ -811,8 +832,8 @@ Currently, only the following parameter attributes are defined:
     "irrelevant" to the ``noalias`` keyword for the arguments and return
     value used in that call. The caller shares the responsibility with
     the callee for ensuring that these requirements are met. For further
-    details, please see the discussion of the NoAlias response in `alias
-    analysis <AliasAnalysis.html#MustMayNo>`_.
+    details, please see the discussion of the NoAlias response in :ref:`alias
+    analysis <Must, May, or No>`.
 
     Note that this definition of ``noalias`` is intentionally similar
     to the definition of ``restrict`` in C99 for function arguments,
@@ -840,6 +861,13 @@ Currently, only the following parameter attributes are defined:
     the callee. The parameter and the function return type must be valid
     operands for the :ref:`bitcast instruction <i_bitcast>`. This is not a
     valid attribute for return values and can only be applied to one parameter.
+
+``nonnull``
+    This indicates that the parameter or return pointer is not null. This
+    attribute may only be applied to pointer typed parameters. This is not
+    checked or enforced by LLVM, the caller must ensure that the pointer
+    passed in is non-null, or the callee must ensure that the returned pointer 
+    is non-null.
 
 .. _gc:
 
@@ -1986,6 +2014,8 @@ notion of a forward declared structure.
 | ``opaque``   | An opaque type.   |
 +--------------+-------------------+
 
+.. _constants:
+
 Constants
 =========
 
@@ -2770,15 +2800,29 @@ for optimizations are prefixed with ``llvm.mem``.
 '``llvm.mem.parallel_loop_access``' Metadata
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-For a loop to be parallel, in addition to using
-the ``llvm.loop`` metadata to mark the loop latch branch instruction,
-also all of the memory accessing instructions in the loop body need to be
-marked with the ``llvm.mem.parallel_loop_access`` metadata. If there
-is at least one memory accessing instruction not marked with the metadata,
-the loop must be considered a sequential loop. This causes parallel loops to be
-converted to sequential loops due to optimization passes that are unaware of
-the parallel semantics and that insert new memory instructions to the loop
-body.
+The ``llvm.mem.parallel_loop_access`` metadata refers to a loop identifier, 
+or metadata containing a list of loop identifiers for nested loops. 
+The metadata is attached to memory accessing instructions and denotes that 
+no loop carried memory dependence exist between it and other instructions denoted 
+with the same loop identifier.
+
+Precisely, given two instructions ``m1`` and ``m2`` that both have the 
+``llvm.mem.parallel_loop_access`` metadata, with ``L1`` and ``L2`` being the 
+set of loops associated with that metadata, respectively, then there is no loop 
+carried dependence between ``m1`` and ``m2`` for loops ``L1`` or 
+``L2``.
+
+As a special case, if all memory accessing instructions in a loop have 
+``llvm.mem.parallel_loop_access`` metadata that refers to that loop, then the 
+loop has no loop carried memory dependences and is considered to be a parallel 
+loop.  
+
+Note that if not all memory access instructions have such metadata referring to 
+the loop, then the loop is considered not being trivially parallel. Additional 
+memory dependence analysis is required to make that determination.  As a fail 
+safe mechanism, this causes loops that were originally parallel to be considered 
+sequential (if optimization passes that are unaware of the parallel semantics 
+insert new memory instructions into the loop body).
 
 Example of a loop that is considered parallel due to its correct use of
 both ``llvm.loop`` and ``llvm.mem.parallel_loop_access``
@@ -3144,14 +3188,18 @@ The '``llvm.global_ctors``' Global Variable
 
 .. code-block:: llvm
 
-    %0 = type { i32, void ()* }
-    @llvm.global_ctors = appending global [1 x %0] [%0 { i32 65535, void ()* @ctor }]
+    %0 = type { i32, void ()*, i8* }
+    @llvm.global_ctors = appending global [1 x %0] [%0 { i32 65535, void ()* @ctor, i8* @data }]
 
 The ``@llvm.global_ctors`` array contains a list of constructor
-functions and associated priorities. The functions referenced by this
-array will be called in ascending order of priority (i.e. lowest first)
-when the module is loaded. The order of functions with the same priority
-is not defined.
+functions, priorities, and an optional associated global or function.
+The functions referenced by this array will be called in ascending order
+of priority (i.e. lowest first) when the module is loaded. The order of
+functions with the same priority is not defined.
+
+If the third field is present, non-null, and points to a global variable
+or function, the initializer function will only run if the associated
+data from the current module is not discarded.
 
 .. _llvmglobaldtors:
 
@@ -3160,14 +3208,18 @@ The '``llvm.global_dtors``' Global Variable
 
 .. code-block:: llvm
 
-    %0 = type { i32, void ()* }
-    @llvm.global_dtors = appending global [1 x %0] [%0 { i32 65535, void ()* @dtor }]
+    %0 = type { i32, void ()*, i8* }
+    @llvm.global_dtors = appending global [1 x %0] [%0 { i32 65535, void ()* @dtor, i8* @data }]
 
-The ``@llvm.global_dtors`` array contains a list of destructor functions
-and associated priorities. The functions referenced by this array will
-be called in descending order of priority (i.e. highest first) when the
-module is loaded. The order of functions with the same priority is not
-defined.
+The ``@llvm.global_dtors`` array contains a list of destructor
+functions, priorities, and an optional associated global or function.
+The functions referenced by this array will be called in descending
+order of priority (i.e. highest first) when the module is unloaded. The
+order of functions with the same priority is not defined.
+
+If the third field is present, non-null, and points to a global variable
+or function, the destructor function will only run if the associated
+data from the current module is not discarded.
 
 Instruction Reference
 =====================
@@ -4465,7 +4517,7 @@ Syntax:
 
 ::
 
-      <result> = extractelement <n x <ty>> <val>, i32 <idx>    ; yields <ty>
+      <result> = extractelement <n x <ty>> <val>, <ty2> <idx>  ; yields <ty>
 
 Overview:
 """""""""
@@ -4479,7 +4531,7 @@ Arguments:
 The first operand of an '``extractelement``' instruction is a value of
 :ref:`vector <t_vector>` type. The second operand is an index indicating
 the position from which to extract the element. The index may be a
-variable.
+variable of any integer type.
 
 Semantics:
 """"""""""
@@ -4505,7 +4557,7 @@ Syntax:
 
 ::
 
-      <result> = insertelement <n x <ty>> <val>, <ty> <elt>, i32 <idx>    ; yields <n x <ty>>
+      <result> = insertelement <n x <ty>> <val>, <ty> <elt>, <ty2> <idx>    ; yields <n x <ty>>
 
 Overview:
 """""""""
@@ -4520,7 +4572,7 @@ The first operand of an '``insertelement``' instruction is a value of
 :ref:`vector <t_vector>` type. The second operand is a scalar value whose
 type must equal the element type of the first operand. The third operand
 is an index indicating the position at which to insert the value. The
-index may be a variable.
+index may be a variable of any integer type.
 
 Semantics:
 """"""""""
@@ -6156,7 +6208,7 @@ Syntax:
 
 ::
 
-      <result> = [tail] call [cconv] [ret attrs] <ty> [<fnty>*] <fnptrval>(<function args>) [fn attrs]
+      <result> = [tail | musttail] call [cconv] [ret attrs] <ty> [<fnty>*] <fnptrval>(<function args>) [fn attrs]
 
 Overview:
 """""""""
@@ -6168,17 +6220,34 @@ Arguments:
 
 This instruction requires several arguments:
 
-#. The optional "tail" marker indicates that the callee function does
-   not access any allocas or varargs in the caller. Note that calls may
-   be marked "tail" even if they do not occur before a
-   :ref:`ret <i_ret>` instruction. If the "tail" marker is present, the
-   function call is eligible for tail call optimization, but `might not
-   in fact be optimized into a jump <CodeGenerator.html#tailcallopt>`_.
-   The code generator may optimize calls marked "tail" with either 1)
-   automatic `sibling call
-   optimization <CodeGenerator.html#sibcallopt>`_ when the caller and
-   callee have matching signatures, or 2) forced tail call optimization
-   when the following extra requirements are met:
+#. The optional ``tail`` and ``musttail`` markers indicate that the optimizers
+   should perform tail call optimization.  The ``tail`` marker is a hint that
+   `can be ignored <CodeGenerator.html#sibcallopt>`_.  The ``musttail`` marker
+   means that the call must be tail call optimized in order for the program to
+   be correct.  The ``musttail`` marker provides these guarantees:
+
+   #. The call will not cause unbounded stack growth if it is part of a
+      recursive cycle in the call graph.
+   #. Arguments with the :ref:`inalloca <attr_inalloca>` attribute are
+      forwarded in place.
+
+   Both markers imply that the callee does not access allocas or varargs from
+   the caller.  Calls marked ``musttail`` must obey the following additional
+   rules:
+
+   - The call must immediately precede a :ref:`ret <i_ret>` instruction,
+     or a pointer bitcast followed by a ret instruction.
+   - The ret instruction must return the (possibly bitcasted) value
+     produced by the call or void.
+   - The caller and callee prototypes must match.  Pointer types of
+     parameters or return types may differ in pointee type, but not
+     in address space.
+   - The calling conventions of the caller and callee must match.
+   - All ABI-impacting function attributes, such as sret, byval, inreg,
+     returned, and inalloca, must match.
+
+   Tail call optimization for calls marked ``tail`` is guaranteed to occur if
+   the following conditions are met:
 
    -  Caller and callee both have the calling convention ``fastcc``.
    -  The call is in tail position (ret immediately follows call and ret
@@ -6782,6 +6851,51 @@ Note that calling this intrinsic does not prevent function inlining or
 other aggressive transformations, so the value returned may not be that
 of the obvious source-language caller.
 
+.. _int_read_register:
+.. _int_write_register:
+
+'``llvm.read_register``' and '``llvm.write_register``' Intrinsics
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Syntax:
+"""""""
+
+::
+
+      declare i32 @llvm.read_register.i32(metadata)
+      declare i64 @llvm.read_register.i64(metadata)
+      declare void @llvm.write_register.i32(metadata, i32 @value)
+      declare void @llvm.write_register.i64(metadata, i64 @value)
+      !0 = metadata !{metadata !"sp\00"}
+
+Overview:
+"""""""""
+
+The '``llvm.read_register``' and '``llvm.write_register``' intrinsics
+provides access to the named register. The register must be valid on
+the architecture being compiled to. The type needs to be compatible
+with the register being read.
+
+Semantics:
+""""""""""
+
+The '``llvm.read_register``' intrinsic returns the current value of the
+register, where possible. The '``llvm.write_register``' intrinsic sets
+the current value of the register, where possible.
+
+This is useful to implement named register global variables that need
+to always be mapped to a specific register, as is common practice on
+bare-metal programs including OS kernels.
+
+The compiler doesn't check for register availability or use of the used
+register in surrounding code, including inline assembly. Because of that,
+allocatable registers are not supported.
+
+Warning: So far it only works with the stack pointer on selected
+architectures (ARM, AArch64, PowerPC and x86_64). Significant amount of
+work is needed to support other registers and even more so, allocatable
+registers.
+
 .. _int_stacksave:
 
 '``llvm.stacksave``' Intrinsic
@@ -6964,11 +7078,11 @@ Semantics:
 
 On platforms with coherent instruction and data caches (e.g. x86), this
 intrinsic is a nop. On platforms with non-coherent instruction and data
-cache (e.g. ARM, MIPS), the intrinsic is lowered either to appropiate
+cache (e.g. ARM, MIPS), the intrinsic is lowered either to appropriate
 instructions or a system call, if cache flushing requires special
 privileges.
 
-The default behavior is to emit a call to ``__clear_cache'' from the run
+The default behavior is to emit a call to ``__clear_cache`` from the run
 time library.
 
 This instrinsic does *not* empty the instruction pipeline. Modifications

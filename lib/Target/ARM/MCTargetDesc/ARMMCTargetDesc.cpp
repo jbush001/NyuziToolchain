@@ -21,6 +21,7 @@
 #include "llvm/MC/MCInstrAnalysis.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
+#include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetRegistry.h"
@@ -106,9 +107,11 @@ std::string ARM_MC::ParseARMTriple(StringRef TT, StringRef CPU) {
     unsigned SubVer = TT[Idx];
     if (SubVer == '8') {
       if (NoCPU)
-        // v8a: FeatureDB, FeatureFPARMv8, FeatureNEON, FeatureDSPThumb2, FeatureMP,
-        //      FeatureHWDiv, FeatureHWDivARM, FeatureTrustZone, FeatureT2XtPk, FeatureCrypto, FeatureCRC
-        ARMArchFeature = "+v8,+db,+fp-armv8,+neon,+t2dsp,+mp,+hwdiv,+hwdiv-arm,+trustzone,+t2xtpk,+crypto,+crc";
+        // v8a: FeatureDB, FeatureFPARMv8, FeatureNEON, FeatureDSPThumb2,
+        //      FeatureMP, FeatureHWDiv, FeatureHWDivARM, FeatureTrustZone,
+        //      FeatureT2XtPk, FeatureCrypto, FeatureCRC
+        ARMArchFeature = "+v8,+db,+fp-armv8,+neon,+t2dsp,+mp,+hwdiv,+hwdiv-arm,"
+                         "+trustzone,+t2xtpk,+crypto,+crc";
       else
         // Use CPU to figure out the exact features
         ARMArchFeature = "+v8";
@@ -245,7 +248,7 @@ static MCAsmInfo *createARMMCAsmInfo(const MCRegisterInfo &MRI, StringRef TT) {
   }
 
   unsigned Reg = MRI.getDwarfRegNum(ARM::SP, true);
-  MAI->addInitialFrameState(MCCFIInstruction::createDefCfa(0, Reg, 0));
+  MAI->addInitialFrameState(MCCFIInstruction::createDefCfa(nullptr, Reg, 0));
 
   return MAI;
 }
@@ -273,18 +276,20 @@ static MCStreamer *createMCStreamer(const Target &T, StringRef TT,
                                     bool NoExecStack) {
   Triple TheTriple(TT);
 
-  if (TheTriple.isOSBinFormatMachO()) {
+  switch (TheTriple.getObjectFormat()) {
+  default: llvm_unreachable("unsupported object format");
+  case Triple::MachO: {
     MCStreamer *S = createMachOStreamer(Ctx, MAB, OS, Emitter, false);
     new ARMTargetStreamer(*S);
     return S;
   }
-
-  if (TheTriple.isOSWindows()) {
-    llvm_unreachable("ARM does not support Windows COFF format");
+  case Triple::COFF:
+    assert(TheTriple.isOSWindows() && "non-Windows ARM COFF is not supported");
+    return createARMWinCOFFStreamer(Ctx, MAB, *Emitter, OS);
+  case Triple::ELF:
+    return createARMELFStreamer(Ctx, MAB, OS, Emitter, false, NoExecStack,
+                                TheTriple.getArch() == Triple::thumb);
   }
-
-  return createARMELFStreamer(Ctx, MAB, OS, Emitter, false, NoExecStack,
-                              TheTriple.getArch() == Triple::thumb);
 }
 
 static MCInstPrinter *createARMMCInstPrinter(const Target &T,
@@ -295,7 +300,7 @@ static MCInstPrinter *createARMMCInstPrinter(const Target &T,
                                              const MCSubtargetInfo &STI) {
   if (SyntaxVariant == 0)
     return new ARMInstPrinter(MAI, MII, MRI, STI);
-  return 0;
+  return nullptr;
 }
 
 static MCRelocationInfo *createARMMCRelocationInfo(StringRef TT,

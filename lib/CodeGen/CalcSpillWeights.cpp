@@ -7,8 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "calcspillweights"
-
 #include "llvm/CodeGen/CalcSpillWeights.h"
 #include "llvm/CodeGen/LiveIntervalAnalysis.h"
 #include "llvm/CodeGen/MachineBlockFrequencyInfo.h"
@@ -21,6 +19,8 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 using namespace llvm;
+
+#define DEBUG_TYPE "calcspillweights"
 
 void llvm::calculateSpillWeightsAndHints(LiveIntervals &LIS,
                            MachineFunction &MF,
@@ -96,8 +96,8 @@ void
 VirtRegAuxInfo::calculateSpillWeightAndHint(LiveInterval &li) {
   MachineRegisterInfo &mri = MF.getRegInfo();
   const TargetRegisterInfo &tri = *MF.getTarget().getRegisterInfo();
-  MachineBasicBlock *mbb = 0;
-  MachineLoop *loop = 0;
+  MachineBasicBlock *mbb = nullptr;
+  MachineLoop *loop = nullptr;
   bool isExiting = false;
   float totalWeight = 0;
   SmallPtrSet<MachineInstr*, 8> visited;
@@ -149,7 +149,11 @@ VirtRegAuxInfo::calculateSpillWeightAndHint(LiveInterval &li) {
     unsigned hint = copyHint(mi, li.reg, tri, mri);
     if (!hint)
       continue;
-    float hweight = Hint[hint] += weight;
+    // Force hweight onto the stack so that x86 doesn't add hidden precision,
+    // making the comparison incorrectly pass (i.e., 1 > 1 == true??).
+    //
+    // FIXME: we probably shouldn't use floats at all.
+    volatile float hweight = Hint[hint] += weight;
     if (TargetRegisterInfo::isPhysicalRegister(hint)) {
       if (hweight > bestPhys && mri.isAllocatable(hint))
         bestPhys = hweight, hintPhys = hint;

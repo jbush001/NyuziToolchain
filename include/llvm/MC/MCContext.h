@@ -137,7 +137,7 @@ namespace llvm {
 
     /// The information gathered from labels that will have dwarf label
     /// entries when generating dwarf assembly source files.
-    std::vector<const MCGenDwarfLabelEntry *> MCGenDwarfLabelEntries;
+    std::vector<MCGenDwarfLabelEntry> MCGenDwarfLabelEntries;
 
     /// The string to embed in the debug information for the compile unit, if
     /// non-empty.
@@ -147,6 +147,9 @@ namespace llvm {
     /// non-empty.
     StringRef DwarfDebugProducer;
 
+    /// The maximum version of dwarf that we should emit.
+    uint16_t DwarfVersion;
+
     /// Honor temporary labels, this is useful for debugging semantic
     /// differences between temporary and non-temporary labels (primarily on
     /// Darwin).
@@ -155,7 +158,11 @@ namespace llvm {
     /// The Compile Unit ID that we are currently processing.
     unsigned DwarfCompileUnitID;
 
-    void *MachOUniquingMap, *ELFUniquingMap, *COFFUniquingMap;
+    typedef std::pair<std::string, std::string> SectionGroupPair;
+
+    StringMap<const MCSectionMachO*> MachOUniquingMap;
+    std::map<SectionGroupPair, const MCSectionELF *> ELFUniquingMap;
+    std::map<SectionGroupPair, const MCSectionCOFF *> COFFUniquingMap;
 
     /// Do automatic reset in destructor
     bool AutoReset;
@@ -167,8 +174,8 @@ namespace llvm {
 
   public:
     explicit MCContext(const MCAsmInfo *MAI, const MCRegisterInfo *MRI,
-                       const MCObjectFileInfo *MOFI, const SourceMgr *Mgr = 0,
-                       bool DoAutoReset = true);
+                       const MCObjectFileInfo *MOFI,
+                       const SourceMgr *Mgr = nullptr, bool DoAutoReset = true);
     ~MCContext();
 
     const SourceMgr *getSourceManager() const { return SrcMgr; }
@@ -259,6 +266,8 @@ namespace llvm {
                                       unsigned Flags, SectionKind Kind,
                                       unsigned EntrySize, StringRef Group);
 
+    void renameELFSection(const MCSectionELF *Section, StringRef Name);
+
     const MCSectionELF *CreateELFGroupSection();
 
     const MCSectionCOFF *getCOFFSection(StringRef Section,
@@ -266,7 +275,7 @@ namespace llvm {
                                         SectionKind Kind,
                                         StringRef COMDATSymName,
                                         int Selection,
-                                        const MCSectionCOFF *Assoc = 0);
+                                        const MCSectionCOFF *Assoc = nullptr);
 
     const MCSectionCOFF *getCOFFSection(StringRef Section,
                                         unsigned Characteristics,
@@ -303,14 +312,6 @@ namespace llvm {
                           unsigned FileNumber, unsigned CUID);
 
     bool isValidDwarfFileNumber(unsigned FileNumber, unsigned CUID = 0);
-
-    bool hasDwarfFiles() const {
-      // Traverse MCDwarfFilesCUMap and check whether each entry is empty.
-      for (const auto &FileTable : MCDwarfLineTablesCUMap)
-        if (!FileTable.second.getMCDwarfFiles().empty())
-           return true;
-      return false;
-    }
 
     const std::map<unsigned, MCDwarfLineTable> &getMCDwarfLineTables() const {
       return MCDwarfLineTablesCUMap;
@@ -385,11 +386,10 @@ namespace llvm {
     void setGenDwarfSectionEndSym(MCSymbol *Sym) {
       GenDwarfSectionEndSym = Sym;
     }
-    const std::vector<const MCGenDwarfLabelEntry *>
-      &getMCGenDwarfLabelEntries() const {
+    const std::vector<MCGenDwarfLabelEntry> &getMCGenDwarfLabelEntries() const {
       return MCGenDwarfLabelEntries;
     }
-    void addMCGenDwarfLabelEntry(const MCGenDwarfLabelEntry *E) {
+    void addMCGenDwarfLabelEntry(const MCGenDwarfLabelEntry &E) {
       MCGenDwarfLabelEntries.push_back(E);
     }
 
@@ -398,6 +398,9 @@ namespace llvm {
 
     void setDwarfDebugProducer(StringRef S) { DwarfDebugProducer = S; }
     StringRef getDwarfDebugProducer() { return DwarfDebugProducer; }
+
+    void setDwarfVersion(uint16_t v) { DwarfVersion = v; }
+    uint16_t getDwarfVersion() const { return DwarfVersion; }
 
     /// @}
 
@@ -420,7 +423,7 @@ namespace llvm {
     // Unrecoverable error has occurred. Display the best diagnostic we can
     // and bail via exit(1). For now, most MC backend errors are unrecoverable.
     // FIXME: We should really do something about that.
-    LLVM_ATTRIBUTE_NORETURN void FatalError(SMLoc L, const Twine &Msg);
+    LLVM_ATTRIBUTE_NORETURN void FatalError(SMLoc L, const Twine &Msg) const;
   };
 
 } // end namespace llvm

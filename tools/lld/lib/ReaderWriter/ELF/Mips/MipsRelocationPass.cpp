@@ -7,21 +7,26 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "MipsELFFile.h"
 #include "MipsLinkingContext.h"
 #include "MipsRelocationPass.h"
+#include "MipsTargetHandler.h"
 
-#include "Atoms.h"
-#include "MipsELFFile.h"
+#include "llvm/ADT/DenseSet.h"
 
 using namespace lld;
 using namespace lld::elf;
 using namespace llvm::ELF;
 
 // Lazy resolver
-static const uint8_t mipsGot0AtomContent[] = { 0x00, 0x00, 0x00, 0x00 };
+static const uint8_t mipsGot0AtomContent[] = {
+  0x00, 0x00, 0x00, 0x00
+};
 
 // Module pointer
-static const uint8_t mipsGotModulePointerAtomContent[] = { 0x00, 0x00, 0x00, 0x80 };
+static const uint8_t mipsGotModulePointerAtomContent[] = {
+  0x00, 0x00, 0x00, 0x80
+};
 
 // PLT0 entry
 static const uint8_t mipsPlt0AtomContent[] = {
@@ -166,6 +171,16 @@ private:
   /// \brief Map Atoms to their LA25 entries.
   llvm::DenseMap<const Atom *, LA25Atom *> _la25Map;
 
+  /// \brief Atoms referenced by static relocations.
+  llvm::DenseSet<const Atom *> _hasStaticRelocations;
+
+  /// \brief Atoms require pointers equality.
+  llvm::DenseSet<const Atom *> _requiresPtrEquality;
+
+  /// \brief References which are candidates for cconverting
+  /// to the R_MIPS_REL32 relocation.
+  std::vector<Reference *> _rel32Candidates;
+
   /// \brief the list of PLT atoms.
   std::vector<PLTAtom *> _pltVector;
 
@@ -179,25 +194,38 @@ private:
   std::vector<LA25Atom *> _la25Vector;
 
   /// \brief Handle a specific reference.
-  void handleReference(Reference &ref);
+  void handleReference(const MipsELFDefinedAtom<ELFT> &atom, Reference &ref);
 
-  /// \brief Calculate AHL addendums for the atom's references.
-  void calculateAHLs(const DefinedAtom &atom);
+  /// \brief Collect information about the reference to use it
+  /// later in the handleReference() routine.
+  void collectReferenceInfo(const MipsELFDefinedAtom<ELFT> &atom,
+                            Reference &ref);
 
   void handlePlain(Reference &ref);
-  void handlePLT(Reference &ref);
+  void handle26(Reference &ref);
   void handleGOT(Reference &ref);
+  void handleGPRel(const MipsELFDefinedAtom<ELFT> &atom, Reference &ref);
+  void handleTLS(const MipsELFDefinedAtom<ELFT> &atom, Reference &ref);
 
   const GOTAtom *getLocalGOTEntry(const Reference &ref);
   const GOTAtom *getGlobalGOTEntry(const Atom *a);
-  const PLTAtom *getPLTEntry(const Atom *a);
+  PLTAtom *getPLTEntry(const Atom *a);
   const LA25Atom *getLA25Entry(const Atom *a);
   const ObjectAtom *getObjectEntry(const SharedLibraryAtom *a);
 
   bool isLocal(const Atom *a) const;
-  bool requireLocalGOT(const Atom *a);
-  bool requireLA25Stub(const Atom *a);
+  bool isLocalCall(const Atom *a) const;
+  bool isDynamic(const Atom *atom) const;
+  bool requireLA25Stub(const Atom *a) const;
+  bool requirePLTEntry(Reference &ref);
+  bool requireCopy(Reference &ref);
+  void configurePLTReference(Reference &ref);
   void createPLTHeader();
+  bool mightBeDynamic(const MipsELFDefinedAtom<ELFT> &atom,
+                      const Reference &ref) const;
+
+  static void addSingleReference(SimpleELFDefinedAtom *src, const Atom *tgt,
+                                 uint16_t relocType);
 };
 
 template <typename ELFT>
@@ -209,11 +237,26 @@ RelocationPass<ELFT>::RelocationPass(MipsLinkingContext &context)
 
 template <typename ELFT>
 void RelocationPass<ELFT>::perform(std::unique_ptr<MutableFile> &mf) {
-  // Process all references.
-  for (const auto &atom : mf->defined()) {
-    calculateAHLs(*atom);
+  for (const auto &atom : mf->defined())
     for (const auto &ref : *atom)
-      handleReference(const_cast<Reference &>(*ref));
+      collectReferenceInfo(*cast<MipsELFDefinedAtom<ELFT>>(atom),
+                           const_cast<Reference &>(*ref));
+
+  // Process all references.
+  for (const auto &atom : mf->defined())
+    for (const auto &ref : *atom)
+      handleReference(*cast<MipsELFDefinedAtom<ELFT>>(atom),
+                      const_cast<Reference &>(*ref));
+
+  // Create R_MIPS_REL32 relocations.
+  for (auto *ref : _rel32Candidates) {
+    if (!isDynamic(ref->target()))
+      continue;
+    if (_pltMap.count(ref->target()))
+      continue;
+    ref->setKindValue(R_MIPS_REL32);
+    if (!isLocalCall(ref->target()))
+      getGlobalGOTEntry(ref->target());
   }
 
   uint64_t ordinal = 0;
@@ -257,78 +300,71 @@ void RelocationPass<ELFT>::perform(std::unique_ptr<MutableFile> &mf) {
   }
 }
 
-/// \brief Calculate AHL value combines addends from 'hi' and 'lo' relocations.
-inline int64_t calcAHL(int64_t AHI, int64_t ALO) {
-  AHI &= 0xffff;
-  ALO &= 0xffff;
-  return (AHI << 16) + (int16_t)ALO;
-}
-
 template <typename ELFT>
-void RelocationPass<ELFT>::calculateAHLs(const DefinedAtom &atom) {
-  std::vector<const Reference *> lo16Refs;
-  std::vector<Reference *> hi16Refs;
-  for (const auto &ref : atom) {
-    if (ref->kindNamespace() != lld::Reference::KindNamespace::ELF)
-      continue;
-    assert(ref->kindArch() == Reference::KindArch::Mips);
-    switch (ref->kindValue()) {
-    case R_MIPS_HI16:
-      hi16Refs.push_back(const_cast<Reference *>(ref));
-    case R_MIPS_LO16:
-      lo16Refs.push_back(ref);
-      break;
-    case R_MIPS_GOT16:
-      if (isLocal(ref->target()))
-        hi16Refs.push_back(const_cast<Reference *>(ref));
-      break;
-    }
-  }
-
-  std::sort(lo16Refs.begin(), lo16Refs.end(),
-            [](const Reference *a, const Reference *b) {
-    return a->offsetInAtom() < b->offsetInAtom();
-  });
-  std::sort(hi16Refs.begin(), hi16Refs.end(),
-            [](const Reference *a, const Reference *b) {
-    return a->offsetInAtom() < b->offsetInAtom();
-  });
-
-  // Iterate over R_MIPS_LO16 relocations sorted by theirs offsets in the atom.
-  // Calculate AHL addend for each R_MIPS_HI16 amd R_MIPS_GOT16 relocation
-  // precedes the current R_MIPS_LO16 one.
-
-  auto hic = hi16Refs.begin();
-  for (const auto &lo : lo16Refs) {
-    for (; hic != hi16Refs.end(); ++hic) {
-      if ((*hic)->offsetInAtom() > lo->offsetInAtom())
-        break;
-      (*hic)->setAddend(calcAHL((*hic)->addend(), lo->addend()));
-    }
-  }
-  assert(hic == hi16Refs.end());
-}
-
-template <typename ELFT>
-void RelocationPass<ELFT>::handleReference(Reference &ref) {
+void RelocationPass<ELFT>::handleReference(const MipsELFDefinedAtom<ELFT> &atom,
+                                           Reference &ref) {
+  if (!ref.target())
+    return;
   if (ref.kindNamespace() != lld::Reference::KindNamespace::ELF)
     return;
   assert(ref.kindArch() == Reference::KindArch::Mips);
   switch (ref.kindValue()) {
   case R_MIPS_32:
+  case R_MIPS_PC32:
   case R_MIPS_HI16:
   case R_MIPS_LO16:
     // FIXME (simon): Handle dynamic/static linking differently.
     handlePlain(ref);
     break;
   case R_MIPS_26:
-    handlePLT(ref);
+    handle26(ref);
     break;
   case R_MIPS_GOT16:
   case R_MIPS_CALL16:
     handleGOT(ref);
     break;
+  case R_MIPS_GPREL32:
+    handleGPRel(atom, ref);
+    break;
+  case R_MIPS_TLS_TPREL_HI16:
+  case R_MIPS_TLS_TPREL_LO16:
+    handleTLS(atom, ref);
+    break;
   }
+}
+
+template <typename ELFT>
+static bool isConstrainSym(const MipsELFDefinedAtom<ELFT> &atom, Reference &ref) {
+  if ((atom.section()->sh_flags & SHF_ALLOC) == 0)
+    return false;
+  switch (ref.kindValue()) {
+  case R_MIPS_NONE:
+  case R_MIPS_JALR:
+  case R_MIPS_GPREL32:
+    return false;
+  default:
+    return true;
+  }
+}
+
+template <typename ELFT>
+void
+RelocationPass<ELFT>::collectReferenceInfo(const MipsELFDefinedAtom<ELFT> &atom,
+                                           Reference &ref) {
+  if (!ref.target())
+    return;
+  if (ref.kindNamespace() != lld::Reference::KindNamespace::ELF)
+    return;
+  if (!isConstrainSym(atom, ref))
+    return;
+
+  if (mightBeDynamic(atom, ref))
+    _rel32Candidates.push_back(&ref);
+  else
+    _hasStaticRelocations.insert(ref.target());
+
+  if (ref.kindValue() != R_MIPS_CALL16 && ref.kindValue() != R_MIPS_26)
+    _requiresPtrEquality.insert(ref.target());
 }
 
 template <typename ELFT>
@@ -339,15 +375,117 @@ bool RelocationPass<ELFT>::isLocal(const Atom *a) const {
 }
 
 template <typename ELFT>
-void RelocationPass<ELFT>::handlePlain(Reference &ref) {
-  if (!ref.target())
-    return;
-  auto sla = dyn_cast<SharedLibraryAtom>(ref.target());
-  if (sla && sla->type() == SharedLibraryAtom::Type::Data)
-    ref.setTarget(getObjectEntry(sla));
+static bool isMipsReadonly(const MipsELFDefinedAtom<ELFT> &atom) {
+  auto secFlags = atom.section()->sh_flags;
+  auto secType = atom.section()->sh_type;
+
+  if ((secFlags & SHF_ALLOC) == 0)
+    return false;
+  if (secType == SHT_NOBITS)
+    return false;
+  if ((secFlags & SHF_WRITE) != 0)
+    return false;
+  return true;
 }
 
-template <typename ELFT> void RelocationPass<ELFT>::handlePLT(Reference &ref) {
+template <typename ELFT>
+bool RelocationPass<ELFT>::mightBeDynamic(const MipsELFDefinedAtom<ELFT> &atom,
+                                          const Reference &ref) const {
+  auto refKind = ref.kindValue();
+
+  if (refKind == R_MIPS_CALL16 || refKind == R_MIPS_GOT16)
+    return true;
+
+  if (refKind != R_MIPS_32)
+    return false;
+  if ((atom.section()->sh_flags & SHF_ALLOC) == 0)
+    return false;
+
+  if (_context.getOutputELFType() == llvm::ELF::ET_DYN)
+    return true;
+  if (!isMipsReadonly(atom))
+    return true;
+  if (atom.file().isPIC())
+    return true;
+
+  return false;
+}
+
+template <typename ELFT>
+bool RelocationPass<ELFT>::requirePLTEntry(Reference &ref) {
+  if (!_hasStaticRelocations.count(ref.target()))
+    return false;
+  const auto *sa = dyn_cast<ELFDynamicAtom<ELFT>>(ref.target());
+  if (sa && sa->type() != SharedLibraryAtom::Type::Code)
+    return false;
+  const auto *da = dyn_cast<ELFDefinedAtom<ELFT>>(ref.target());
+  if (da && da->contentType() != DefinedAtom::typeCode)
+    return false;
+  if (isLocalCall(ref.target()))
+    return false;
+  return true;
+}
+
+template <typename ELFT>
+bool RelocationPass<ELFT>::requireCopy(Reference &ref) {
+  if (!_hasStaticRelocations.count(ref.target()))
+    return false;
+  const auto *sa = dyn_cast<ELFDynamicAtom<ELFT>>(ref.target());
+  if (sa && sa->type() != SharedLibraryAtom::Type::Data)
+    return false;
+  const auto *da = dyn_cast<ELFDefinedAtom<ELFT>>(ref.target());
+  if (da && da->contentType() != DefinedAtom::typeData)
+    return false;
+  if (isLocalCall(ref.target()))
+    return false;
+  return true;
+}
+
+template <typename ELFT>
+void RelocationPass<ELFT>::configurePLTReference(Reference &ref) {
+  const Atom *atom = ref.target();
+
+  auto *plt = getPLTEntry(atom);
+  ref.setTarget(plt);
+
+  if (_hasStaticRelocations.count(atom) && _requiresPtrEquality.count(atom))
+    addSingleReference(plt, atom, LLD_R_MIPS_STO_PLT);
+}
+
+template <typename ELFT>
+bool RelocationPass<ELFT>::isDynamic(const Atom *atom) const {
+  const auto *da = dyn_cast<const DefinedAtom>(atom);
+  if (da && da->dynamicExport() == DefinedAtom::dynamicExportAlways)
+    return true;
+
+  const auto *sa = dyn_cast<SharedLibraryAtom>(atom);
+  if (sa)
+    return true;
+
+  if (_context.getOutputELFType() == llvm::ELF::ET_DYN) {
+    if (da && da->scope() != DefinedAtom::scopeTranslationUnit)
+      return true;
+
+    const auto *ua = dyn_cast<UndefinedAtom>(atom);
+    if (ua)
+      return true;
+  }
+
+  return false;
+}
+
+template <typename ELFT>
+void RelocationPass<ELFT>::handlePlain(Reference &ref) {
+  if (!isDynamic(ref.target()))
+      return;
+
+  if (requirePLTEntry(ref))
+    configurePLTReference(ref);
+  else if (requireCopy(ref))
+    ref.setTarget(getObjectEntry(cast<SharedLibraryAtom>(ref.target())));
+}
+
+template <typename ELFT> void RelocationPass<ELFT>::handle26(Reference &ref) {
   if (ref.kindValue() == R_MIPS_26 && !isLocal(ref.target())) {
     ref.setKindValue(LLD_R_MIPS_GLOBAL_26);
 
@@ -355,19 +493,36 @@ template <typename ELFT> void RelocationPass<ELFT>::handlePLT(Reference &ref) {
       const_cast<Reference &>(ref).setTarget(getLA25Entry(ref.target()));
   }
 
-  if (isa<SharedLibraryAtom>(ref.target()))
-    ref.setTarget(getPLTEntry(ref.target()));
+  const auto *sla = dyn_cast<SharedLibraryAtom>(ref.target());
+  if (sla && sla->type() == SharedLibraryAtom::Type::Code)
+    configurePLTReference(ref);
 }
 
 template <typename ELFT> void RelocationPass<ELFT>::handleGOT(Reference &ref) {
-  if (requireLocalGOT(ref.target()))
+  if (isLocalCall(ref.target()))
     ref.setTarget(getLocalGOTEntry(ref));
   else
     ref.setTarget(getGlobalGOTEntry(ref.target()));
 }
 
 template <typename ELFT>
-bool RelocationPass<ELFT>::requireLocalGOT(const Atom *a) {
+void RelocationPass<ELFT>::handleGPRel(const MipsELFDefinedAtom<ELFT> &atom,
+                                       Reference &ref) {
+  assert(ref.kindValue() == R_MIPS_GPREL32);
+  ref.setAddend(ref.addend() + atom.file().getGP0());
+}
+
+template <typename ELFT>
+void RelocationPass<ELFT>::handleTLS(const MipsELFDefinedAtom<ELFT> &atom,
+                                     Reference &ref) {
+  assert((ref.kindValue() == R_MIPS_TLS_TPREL_HI16 ||
+          ref.kindValue() == R_MIPS_TLS_TPREL_LO16) &&
+         "Unexpected kind of relocation");
+  ref.setAddend(ref.addend() - atom.file().getTPOffset());
+}
+
+template <typename ELFT>
+bool RelocationPass<ELFT>::isLocalCall(const Atom *a) const {
   Atom::Scope scope;
   if (auto *da = dyn_cast<DefinedAtom>(a))
     scope = da->scope();
@@ -380,7 +535,7 @@ bool RelocationPass<ELFT>::requireLocalGOT(const Atom *a) {
   if (scope == Atom::scopeTranslationUnit || scope == Atom::scopeLinkageUnit)
     return true;
 
-  // External symbol defined in an executable file requires a local GOT entry.
+  // Calls to external symbols defined in an executable file resolved locally.
   if (_context.getOutputELFType() == llvm::ELF::ET_EXEC)
     return true;
 
@@ -388,7 +543,7 @@ bool RelocationPass<ELFT>::requireLocalGOT(const Atom *a) {
 }
 
 template <typename ELFT>
-bool RelocationPass<ELFT>::requireLA25Stub(const Atom *a) {
+bool RelocationPass<ELFT>::requireLA25Stub(const Atom *a) const {
   if (auto *da = dyn_cast<DefinedAtom>(a))
     return static_cast<const MipsELFDefinedAtom<ELFT> *>(da)->file().isPIC();
   return false;
@@ -473,7 +628,18 @@ template <typename ELFT> void RelocationPass<ELFT>::createPLTHeader() {
 }
 
 template <typename ELFT>
-const PLTAtom *RelocationPass<ELFT>::getPLTEntry(const Atom *a) {
+void RelocationPass<ELFT>::addSingleReference(SimpleELFDefinedAtom *src,
+                                              const Atom *tgt,
+                                              uint16_t relocType) {
+  for (const auto &r : *src)
+    if (r->kindNamespace() == lld::Reference::KindNamespace::ELF &&
+        r->kindValue() == relocType && r->target() == tgt)
+      break;
+  src->addReferenceELF_Mips(relocType, 0, tgt, 0);
+}
+
+template <typename ELFT>
+PLTAtom *RelocationPass<ELFT>::getPLTEntry(const Atom *a) {
   auto plt = _pltMap.find(a);
   if (plt != _pltMap.end())
     return plt->second;

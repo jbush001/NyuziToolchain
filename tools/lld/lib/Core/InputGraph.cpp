@@ -16,37 +16,34 @@
 using namespace lld;
 
 ErrorOr<File &> InputGraph::getNextFile() {
-  // When getNextFile() is called for the first time, _currentInputElement is
-  // not initialized. Initialize it with the first element of the input graph.
-  if (_currentInputElement == nullptr) {
-    ErrorOr<InputElement *> elem = getNextInputElement();
-    if (elem.getError() == InputGraphError::no_more_elements)
-      return make_error_code(InputGraphError::no_more_files);
-    _currentInputElement = *elem;
-  }
-
-  // Otherwise, try to get the next file of _currentInputElement. If the current
-  // input element points to an archive file, and there's a file left in the
-  // archive, it will succeed. If not, try to get the next file in the input
-  // graph.
+  // Try to get the next file of _currentInputElement. If the current input
+  // element points to an archive file, and there's a file left in the archive,
+  // it will succeed. If not, try to get the next file in the input graph.
   for (;;) {
-    ErrorOr<File &> nextFile = _currentInputElement->getNextFile();
-    if (nextFile.getError() != InputGraphError::no_more_files)
-      return std::move(nextFile);
+    if (_currentInputElement) {
+      ErrorOr<File &> next = _currentInputElement->getNextFile();
+      if (next.getError() != InputGraphError::no_more_files) {
+        for (llvm::function_ref<void(File *)> observer : _observers)
+          observer(&next.get());
+        return std::move(next);
+      }
+    }
 
-    ErrorOr<InputElement *> elem = getNextInputElement();
-    if (elem.getError() == InputGraphError::no_more_elements ||
-        *elem == nullptr)
+    ErrorOr<InputElement *> elt = getNextInputElement();
+    if (elt.getError() == InputGraphError::no_more_elements || *elt == nullptr)
       return make_error_code(InputGraphError::no_more_files);
-    _currentInputElement = *elem;
+    _currentInputElement = *elt;
   }
 }
 
 void InputGraph::notifyProgress() { _currentInputElement->notifyProgress(); }
 
-bool InputGraph::addInputElement(std::unique_ptr<InputElement> ie) {
+void InputGraph::registerObserver(llvm::function_ref<void(File *)> fn) {
+  _observers.push_back(fn);
+}
+
+void InputGraph::addInputElement(std::unique_ptr<InputElement> ie) {
   _inputArgs.push_back(std::move(ie));
-  return true;
 }
 
 bool InputGraph::dump(raw_ostream &diagnostics) {
@@ -75,15 +72,13 @@ ErrorOr<InputElement *> InputGraph::getNextInputElement() {
 }
 
 void InputGraph::normalize() {
+  for (std::unique_ptr<InputElement> &elt : _inputArgs)
+    elt->expand();
   std::vector<std::unique_ptr<InputElement>> vec;
-  for (std::unique_ptr<InputElement> &ie : _inputArgs) {
-    if (!ie->shouldExpand()) {
-      vec.push_back(std::move(ie));
+  for (std::unique_ptr<InputElement> &elt : _inputArgs) {
+    if (elt->getReplacements(vec))
       continue;
-    }
-    range<InputElementIterT> expanded = ie->expandElements();
-    vec.insert(vec.end(), std::make_move_iterator(expanded.begin()),
-               std::make_move_iterator(expanded.end()));
+    vec.push_back(std::move(elt));
   }
   _inputArgs = std::move(vec);
 }
@@ -95,7 +90,7 @@ error_code FileNode::getBuffer(StringRef filePath) {
   if (error_code ec = MemoryBuffer::getFileOrSTDIN(filePath, mb))
     return ec;
   _buffer = std::move(mb);
-  return error_code::success();
+  return error_code();
 }
 
 /// \brief Return the next file that need to be processed by the resolver.

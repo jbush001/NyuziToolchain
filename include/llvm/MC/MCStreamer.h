@@ -121,6 +121,8 @@ public:
 
   virtual void AnnotateTLSDescriptorSequence(const MCSymbolRefExpr *SRE);
 
+  virtual void emitThumbSet(MCSymbol *Symbol, const MCExpr *Value);
+
   void finish() override;
 
   /// Callback used to implement the ldr= pseudo.
@@ -151,9 +153,6 @@ class MCStreamer {
 
   MCStreamer(const MCStreamer &) LLVM_DELETED_FUNCTION;
   MCStreamer &operator=(const MCStreamer &) LLVM_DELETED_FUNCTION;
-
-  bool EmitEHFrame;
-  bool EmitDebugFrame;
 
   std::vector<MCDwarfFrameInfo> FrameInfos;
   MCDwarfFrameInfo *getCurrentFrameInfo();
@@ -187,7 +186,6 @@ protected:
   virtual void EmitCFIStartProcImpl(MCDwarfFrameInfo &Frame);
   void RecordProcEnd(MCDwarfFrameInfo &Frame);
   virtual void EmitCFIEndProcImpl(MCDwarfFrameInfo &CurFrame);
-  void EmitFrames(MCAsmBackend *MAB, bool usingCFI);
 
   MCWin64EHUnwindInfo *getCurrentW64UnwindInfo() {
     return CurrentW64UnwindInfo;
@@ -332,7 +330,8 @@ public:
   /// @p Section.  This is required to update CurSection.
   ///
   /// This corresponds to assembler directives like .section, .text, etc.
-  void SwitchSection(const MCSection *Section, const MCExpr *Subsection = 0) {
+  void SwitchSection(const MCSection *Section,
+                     const MCExpr *Subsection = nullptr) {
     assert(Section && "Cannot switch to a null section!");
     MCSectionSubPair curSection = SectionStack.back().first;
     SectionStack.back().second = curSection;
@@ -346,7 +345,7 @@ public:
   /// emitted to @p Section.  This is required to update CurSection. This
   /// version does not call ChangeSection.
   void SwitchSectionNoChange(const MCSection *Section,
-                             const MCExpr *Subsection = 0) {
+                             const MCExpr *Subsection = nullptr) {
     assert(Section && "Cannot switch to a null section!");
     MCSectionSubPair curSection = SectionStack.back().first;
     SectionStack.back().second = curSection;
@@ -396,9 +395,6 @@ public:
   /// EmitThumbFunc - Note in the output that the specified @p Func is
   /// a Thumb mode function (ARM target only).
   virtual void EmitThumbFunc(MCSymbol *Func) = 0;
-
-  /// getOrCreateSymbolData - Get symbol data for given symbol.
-  virtual MCSymbolData &getOrCreateSymbolData(const MCSymbol *Symbol);
 
   /// EmitAssignment - Emit an assignment of @p Value to @p Symbol.
   ///
@@ -495,8 +491,9 @@ public:
   /// @param Size - The size of the zerofill symbol.
   /// @param ByteAlignment - The alignment of the zerofill symbol if
   /// non-zero. This must be a power of 2 on some targets.
-  virtual void EmitZerofill(const MCSection *Section, MCSymbol *Symbol = 0,
-                            uint64_t Size = 0, unsigned ByteAlignment = 0) = 0;
+  virtual void EmitZerofill(const MCSection *Section,
+                            MCSymbol *Symbol = nullptr, uint64_t Size = 0,
+                            unsigned ByteAlignment = 0) = 0;
 
   /// EmitTBSSSymbol - Emit a thread local bss (.tbss) symbol.
   ///
@@ -527,9 +524,12 @@ public:
   /// @param Value - The value to emit.
   /// @param Size - The size of the integer (in bytes) to emit. This must
   /// match a native machine width.
-  virtual void EmitValueImpl(const MCExpr *Value, unsigned Size) = 0;
+  /// @param Loc - The location of the expression for error reporting.
+  virtual void EmitValueImpl(const MCExpr *Value, unsigned Size,
+                             const SMLoc &Loc = SMLoc()) = 0;
 
-  void EmitValue(const MCExpr *Value, unsigned Size);
+  void EmitValue(const MCExpr *Value, unsigned Size,
+                 const SMLoc &Loc = SMLoc());
 
   /// EmitIntValue - Special case of EmitValue that avoids the client having
   /// to pass in a MCExpr for constant integers.
@@ -650,14 +650,6 @@ public:
                                      unsigned Isa, unsigned Discriminator,
                                      StringRef FileName);
 
-  virtual void EmitDwarfAdvanceLineAddr(int64_t LineDelta,
-                                        const MCSymbol *LastLabel,
-                                        const MCSymbol *Label,
-                                        unsigned PointerSize) = 0;
-
-  virtual void EmitDwarfAdvanceFrameAddr(const MCSymbol *LastLabel,
-                                         const MCSymbol *Label) {}
-
   virtual MCSymbol *getDwarfLineTableSymbol(unsigned CUID);
 
   void EmitDwarfSetLineAddr(int64_t LineDelta, const MCSymbol *Label,
@@ -754,10 +746,9 @@ MCStreamer *createNullStreamer(MCContext &Ctx);
 /// \param ShowInst - Whether to show the MCInst representation inline with
 /// the assembly.
 MCStreamer *createAsmStreamer(MCContext &Ctx, formatted_raw_ostream &OS,
-                              bool isVerboseAsm, bool useCFI,
-                              bool useDwarfDirectory, MCInstPrinter *InstPrint,
-                              MCCodeEmitter *CE, MCAsmBackend *TAB,
-                              bool ShowInst);
+                              bool isVerboseAsm, bool useDwarfDirectory,
+                              MCInstPrinter *InstPrint, MCCodeEmitter *CE,
+                              MCAsmBackend *TAB, bool ShowInst);
 
 /// createMachOStreamer - Create a machine code streamer which will generate
 /// Mach-O format object files.
@@ -767,14 +758,6 @@ MCStreamer *createMachOStreamer(MCContext &Ctx, MCAsmBackend &TAB,
                                 raw_ostream &OS, MCCodeEmitter *CE,
                                 bool RelaxAll = false,
                                 bool LabelSections = false);
-
-/// createWinCOFFStreamer - Create a machine code streamer which will
-/// generate Microsoft COFF format object files.
-///
-/// Takes ownership of \p TAB and \p CE.
-MCStreamer *createWinCOFFStreamer(MCContext &Ctx, MCAsmBackend &TAB,
-                                  MCCodeEmitter &CE, raw_ostream &OS,
-                                  bool RelaxAll = false);
 
 /// createELFStreamer - Create a machine code streamer which will generate
 /// ELF format object files.

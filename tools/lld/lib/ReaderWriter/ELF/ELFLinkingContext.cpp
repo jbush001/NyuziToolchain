@@ -151,48 +151,59 @@ ELFLinkingContext::create(llvm::Triple triple) {
   }
 }
 
+static void buildSearchPath(SmallString<128> &path, StringRef dir,
+                            StringRef sysRoot) {
+  if (!dir.startswith("=/"))
+    path.assign(dir);
+  else {
+    path.assign(sysRoot);
+    path.append(dir.substr(1));
+  }
+}
+
 ErrorOr<StringRef> ELFLinkingContext::searchLibrary(StringRef libName) const {
-  bool foundFile = false;
-  StringRef pathref;
   SmallString<128> path;
   for (StringRef dir : _inputSearchPaths) {
     // Search for dynamic library
     if (!_isStaticExecutable) {
-      path.clear();
-      if (dir.startswith("=/")) {
-        path.assign(_sysrootPath);
-        path.append(dir.substr(1));
-      } else {
-        path.assign(dir);
-      }
+      buildSearchPath(path, dir, _sysrootPath);
       llvm::sys::path::append(path, Twine("lib") + libName + ".so");
-      pathref = path.str();
-      if (llvm::sys::fs::exists(pathref)) {
-        foundFile = true;
-      }
+      if (llvm::sys::fs::exists(path.str()))
+        return StringRef(*new (_allocator) std::string(path.str()));
     }
     // Search for static libraries too
-    if (!foundFile) {
-      path.clear();
-      if (dir.startswith("=/")) {
-        path.assign(_sysrootPath);
-        path.append(dir.substr(1));
-      } else {
-        path.assign(dir);
-      }
-      llvm::sys::path::append(path, Twine("lib") + libName + ".a");
-      pathref = path.str();
-      if (llvm::sys::fs::exists(pathref)) {
-        foundFile = true;
-      }
-    }
-    if (foundFile)
-      return StringRef(*new (_allocator) std::string(pathref));
+    buildSearchPath(path, dir, _sysrootPath);
+    llvm::sys::path::append(path, Twine("lib") + libName + ".a");
+    if (llvm::sys::fs::exists(path.str()))
+      return StringRef(*new (_allocator) std::string(path.str()));
   }
   if (!llvm::sys::fs::exists(libName))
     return llvm::make_error_code(llvm::errc::no_such_file_or_directory);
 
   return libName;
+}
+
+ErrorOr<StringRef> ELFLinkingContext::searchFile(StringRef fileName,
+                                                 bool isSysRooted) const {
+  SmallString<128> path;
+  if (llvm::sys::path::is_absolute(fileName) && isSysRooted) {
+    path.assign(_sysrootPath);
+    path.append(fileName);
+    if (llvm::sys::fs::exists(path.str()))
+      return StringRef(*new (_allocator) std::string(path.str()));
+  } else if (llvm::sys::fs::exists(fileName))
+    return fileName;
+
+  if (llvm::sys::path::is_absolute(fileName))
+    return llvm::make_error_code(llvm::errc::no_such_file_or_directory);
+
+  for (StringRef dir : _inputSearchPaths) {
+    buildSearchPath(path, dir, _sysrootPath);
+    llvm::sys::path::append(path, fileName);
+    if (llvm::sys::fs::exists(path.str()))
+      return StringRef(*new (_allocator) std::string(path.str()));
+  }
+  return llvm::make_error_code(llvm::errc::no_such_file_or_directory);
 }
 
 void ELFLinkingContext::createInternalFiles(

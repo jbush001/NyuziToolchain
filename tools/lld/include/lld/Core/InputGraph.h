@@ -19,6 +19,7 @@
 #include "lld/Core/File.h"
 #include "llvm/Option/ArgList.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
@@ -67,11 +68,16 @@ public:
   /// whether it should iterate over again or terminate or not.
   void notifyProgress();
 
-  /// \brief Adds a node into the InputGraph
-  bool addInputElement(std::unique_ptr<InputElement>);
+  /// Adds an observer of getNextFile(). Each time a new file is about to be
+  /// returned from getNextFile(), registered observers are called with the file
+  /// being returned.
+  void registerObserver(llvm::function_ref<void(File *)> fn);
 
-  /// Normalize the InputGraph. It visits all nodes in the tree to replace a
-  /// node with its children if it's shouldExpand() returnst true.
+  /// \brief Adds a node into the InputGraph
+  void addInputElement(std::unique_ptr<InputElement>);
+
+  /// Normalize the InputGraph. It calls expand() on each node and then replace
+  /// it with getReplacements() results.
   void normalize();
 
   range<InputElementIterT> inputElements() {
@@ -84,15 +90,8 @@ public:
   /// \brief Dump the input Graph
   bool dump(raw_ostream &diagnostics = llvm::errs());
 
-  InputElement &operator[](size_t index) const {
-    return *_inputArgs[index];
-  }
-
   /// \brief Insert an element into the input graph at position.
   void insertElementAt(std::unique_ptr<InputElement>, Position position);
-
-  /// \brief Helper functions for the resolver. Exposed for unit tests.
-  ErrorOr<InputElement *> getNextInputElement();
 
 protected:
   // Input arguments
@@ -100,6 +99,10 @@ protected:
   // Index of the next element to be processed
   uint32_t _nextElementIndex;
   InputElement *_currentInputElement;
+  std::vector<llvm::function_ref<void(File *)>> _observers;
+
+private:
+  ErrorOr<InputElement *> getNextInputElement();
 };
 
 /// \brief This describes each element in the InputGraph. The Kind
@@ -137,11 +140,11 @@ public:
   virtual void resetNextIndex() = 0;
 
   /// Returns true if we want to replace this node with children.
-  virtual bool shouldExpand() const { return false; }
+  virtual void expand() {}
 
-  /// \brief Get the elements that we want to expand with.
-  virtual range<InputGraph::InputElementIterT> expandElements() {
-    llvm_unreachable("no element to expand");
+  /// Get the elements that we want to expand with.
+  virtual bool getReplacements(InputGraph::InputElementVectorT &) {
+    return false;
   }
 
 protected:
@@ -185,7 +188,7 @@ public:
     for (std::unique_ptr<InputElement> &ei : _elements)
       if (error_code ec = ei->parse(ctx, diag))
         return ec;
-    return error_code::success();
+    return error_code();
   }
 
   /// If Resolver made a progress using the current file, it's ok to revisit
@@ -197,6 +200,18 @@ public:
   }
 
   ErrorOr<File &> getNextFile() override;
+
+  void expand() override {
+    for (std::unique_ptr<InputElement> &elt : _elements)
+      elt->expand();
+    std::vector<std::unique_ptr<InputElement>> result;
+    for (std::unique_ptr<InputElement> &elt : _elements) {
+      if (elt->getReplacements(result))
+        continue;
+      result.push_back(std::move(elt));
+    }
+    _elements.swap(result);
+  }
 
 protected:
   InputGraph::InputElementVectorT _elements;
@@ -219,10 +234,6 @@ public:
   virtual ErrorOr<StringRef> getPath(const LinkingContext &) const {
     return _path;
   }
-
-  // The saved input path thats used when a file is not found while
-  // trying to parse a file
-  StringRef getUserPath() const { return _path; }
 
   virtual ~FileNode() {}
 
@@ -260,7 +271,6 @@ protected:
   StringRef _path;                       // The path of the Input file
   InputGraph::FileVectorT _files;        // A vector of lld File objects
   std::unique_ptr<MemoryBuffer> _buffer; // Memory buffer to actual contents
-  uint32_t _resolveState;                // The resolve state of the file
 
   // The next file that would be processed by the resolver
   uint32_t _nextFileIndex;
@@ -280,7 +290,7 @@ public:
 
   /// \brief parse the input element
   error_code parse(const LinkingContext &, raw_ostream &) override {
-    return error_code::success();
+    return error_code();
   }
 
   /// \brief Return the next File thats part of this node to the

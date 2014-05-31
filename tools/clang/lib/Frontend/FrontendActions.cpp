@@ -49,7 +49,7 @@ ASTConsumer *ASTPrintAction::CreateASTConsumer(CompilerInstance &CI,
                                                StringRef InFile) {
   if (raw_ostream *OS = CI.createDefaultOutputFile(false, InFile))
     return CreateASTPrinter(OS, CI.getFrontendOpts().ASTDumpFilter);
-  return 0;
+  return nullptr;
 }
 
 ASTConsumer *ASTDumpAction::CreateASTConsumer(CompilerInstance &CI,
@@ -77,13 +77,14 @@ ASTConsumer *GeneratePCHAction::CreateASTConsumer(CompilerInstance &CI,
                                                   StringRef InFile) {
   std::string Sysroot;
   std::string OutputFile;
-  raw_ostream *OS = 0;
+  raw_ostream *OS = nullptr;
   if (ComputeASTConsumerArguments(CI, InFile, Sysroot, OutputFile, OS))
-    return 0;
+    return nullptr;
 
   if (!CI.getFrontendOpts().RelocatablePCH)
     Sysroot.clear();
-  return new PCHGenerator(CI.getPreprocessor(), OutputFile, 0, Sysroot, OS);
+  return new PCHGenerator(CI.getPreprocessor(), OutputFile, nullptr, Sysroot,
+                          OS);
 }
 
 bool GeneratePCHAction::ComputeASTConsumerArguments(CompilerInstance &CI,
@@ -114,10 +115,10 @@ ASTConsumer *GenerateModuleAction::CreateASTConsumer(CompilerInstance &CI,
                                                      StringRef InFile) {
   std::string Sysroot;
   std::string OutputFile;
-  raw_ostream *OS = 0;
+  raw_ostream *OS = nullptr;
   if (ComputeASTConsumerArguments(CI, InFile, Sysroot, OutputFile, OS))
-    return 0;
-  
+    return nullptr;
+
   return new PCHGenerator(CI.getPreprocessor(), OutputFile, Module, 
                           Sysroot, OS);
 }
@@ -152,7 +153,7 @@ static llvm::error_code addHeaderInclude(StringRef HeaderName,
   Includes += "\"\n";
   if (IsExternC && LangOpts.CPlusPlus)
     Includes += "}\n";
-  return llvm::error_code::success();
+  return llvm::error_code();
 }
 
 static llvm::error_code addHeaderInclude(const FileEntry *Header,
@@ -175,7 +176,7 @@ collectModuleHeaderIncludes(const LangOptions &LangOpts, FileManager &FileMgr,
                             SmallVectorImpl<char> &Includes) {
   // Don't collect any headers for unavailable modules.
   if (!Module->isAvailable())
-    return llvm::error_code::success();
+    return llvm::error_code();
 
   // Add includes for each of these headers.
   for (unsigned I = 0, N = Module->NormalHeaders.size(); I != N; ++I) {
@@ -213,7 +214,7 @@ collectModuleHeaderIncludes(const LangOptions &LangOpts, FileManager &FileMgr,
       // If this header is marked 'unavailable' in this module, don't include 
       // it.
       if (const FileEntry *Header = FileMgr.getFile(Dir->path())) {
-        if (ModMap.isHeaderInUnavailableModule(Header))
+        if (ModMap.isHeaderUnavailableInModule(Header, Module))
           continue;
         Module->addTopHeader(Header);
       }
@@ -236,7 +237,7 @@ collectModuleHeaderIncludes(const LangOptions &LangOpts, FileManager &FileMgr,
             LangOpts, FileMgr, ModMap, *Sub, Includes))
       return Err;
 
-  return llvm::error_code::success();
+  return llvm::error_code();
 }
 
 bool GenerateModuleAction::BeginSourceFileAction(CompilerInstance &CI, 
@@ -288,7 +289,8 @@ bool GenerateModuleAction::BeginSourceFileAction(CompilerInstance &CI,
   if (!Module->isAvailable(CI.getLangOpts(), CI.getTarget(), Requirement,
                            MissingHeader)) {
     if (MissingHeader.FileNameLoc.isValid()) {
-      CI.getDiagnostics().Report(diag::err_module_header_missing)
+      CI.getDiagnostics().Report(MissingHeader.FileNameLoc,
+                                 diag::err_module_header_missing)
         << MissingHeader.IsUmbrella << MissingHeader.FileName;
     } else {
       CI.getDiagnostics().Report(diag::err_module_unavailable)
@@ -299,11 +301,16 @@ bool GenerateModuleAction::BeginSourceFileAction(CompilerInstance &CI,
     return false;
   }
 
+  if (!ModuleMapForUniquing)
+    ModuleMapForUniquing = ModuleMap;
+  Module->ModuleMap = ModuleMapForUniquing;
+  assert(Module->ModuleMap && "missing module map file");
+
   FileManager &FileMgr = CI.getFileManager();
 
   // Collect the set of #includes we need to build the module.
   SmallString<256> HeaderContents;
-  llvm::error_code Err = llvm::error_code::success();
+  llvm::error_code Err = llvm::error_code();
   if (const FileEntry *UmbrellaHeader = Module->getUmbrellaHeader())
     Err = addHeaderInclude(UmbrellaHeader, HeaderContents, CI.getLangOpts(),
                            Module->IsExternC);
@@ -337,10 +344,9 @@ bool GenerateModuleAction::ComputeASTConsumerArguments(CompilerInstance &CI,
   // in the module cache.
   if (CI.getFrontendOpts().OutputFile.empty()) {
     HeaderSearch &HS = CI.getPreprocessor().getHeaderSearchInfo();
-    SmallString<256> ModuleFileName(HS.getModuleCachePath());
-    llvm::sys::path::append(ModuleFileName, 
-                            CI.getLangOpts().CurrentModule + ".pcm");
-    CI.getFrontendOpts().OutputFile = ModuleFileName.str();
+    CI.getFrontendOpts().OutputFile =
+        HS.getModuleFileName(CI.getLangOpts().CurrentModule,
+                             ModuleMapForUniquing->getName());
   }
   
   // We use createOutputFile here because this is exposed via libclang, and we
@@ -412,6 +418,13 @@ namespace {
       return ASTReaderListener::ReadFullVersionInformation(FullVersion);
     }
 
+    void ReadModuleName(StringRef ModuleName) override {
+      Out.indent(2) << "Module name: " << ModuleName << "\n";
+    }
+    void ReadModuleMapFile(StringRef ModuleMapPath) override {
+      Out.indent(2) << "Module map file: " << ModuleMapPath << "\n";
+    }
+
     bool ReadLanguageOptions(const LangOptions &LangOpts,
                              bool Complain) override {
       Out.indent(2) << "Language options:\n";
@@ -434,7 +447,6 @@ namespace {
       Out.indent(4) << "  Triple: " << TargetOpts.Triple << "\n";
       Out.indent(4) << "  CPU: " << TargetOpts.CPU << "\n";
       Out.indent(4) << "  ABI: " << TargetOpts.ABI << "\n";
-      Out.indent(4) << "  Linker version: " << TargetOpts.LinkerVersion << "\n";
 
       if (!TargetOpts.FeaturesAsWritten.empty()) {
         Out.indent(4) << "Target features:\n";
@@ -442,6 +454,25 @@ namespace {
              I != N; ++I) {
           Out.indent(6) << TargetOpts.FeaturesAsWritten[I] << "\n";
         }
+      }
+
+      return false;
+    }
+
+    virtual bool
+    ReadDiagnosticOptions(IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts,
+                          bool Complain) override {
+      Out.indent(2) << "Diagnostic options:\n";
+#define DIAGOPT(Name, Bits, Default) DUMP_BOOLEAN(DiagOpts->Name, #Name);
+#define ENUM_DIAGOPT(Name, Type, Bits, Default) \
+      Out.indent(4) << #Name << ": " << DiagOpts->get##Name() << "\n";
+#define VALUE_DIAGOPT(Name, Bits, Default) \
+      Out.indent(4) << #Name << ": " << DiagOpts->Name << "\n";
+#include "clang/Basic/DiagnosticOptions.def"
+
+      Out.indent(4) << "Warning options:\n";
+      for (const std::string &Warning : DiagOpts->Warnings) {
+        Out.indent(6) << "-W" << Warning << "\n";
       }
 
       return false;
@@ -562,7 +593,7 @@ void PreprocessOnlyAction::ExecuteAction() {
   Preprocessor &PP = getCompilerInstance().getPreprocessor();
 
   // Ignore unknown pragmas.
-  PP.AddPragmaHandler(new EmptyPragmaHandler());
+  PP.IgnorePragmas();
 
   Token Tok;
   // Start parsing the specified input file.

@@ -93,6 +93,8 @@ std::string SDNode::getOperationName(const SelectionDAG *G) const {
   case ISD::GLOBAL_OFFSET_TABLE:        return "GLOBAL_OFFSET_TABLE";
   case ISD::RETURNADDR:                 return "RETURNADDR";
   case ISD::FRAMEADDR:                  return "FRAMEADDR";
+  case ISD::READ_REGISTER:              return "READ_REGISTER";
+  case ISD::WRITE_REGISTER:             return "WRITE_REGISTER";
   case ISD::FRAME_TO_ARGS_OFFSET:       return "FRAME_TO_ARGS_OFFSET";
   case ISD::EH_RETURN:                  return "EH_RETURN";
   case ISD::EH_SJLJ_SETJMP:             return "EH_SJLJ_SETJMP";
@@ -330,7 +332,7 @@ const char *SDNode::getIndexedModeName(ISD::MemIndexedMode AM) {
   }
 }
 
-void SDNode::dump() const { dump(0); }
+void SDNode::dump() const { dump(nullptr); }
 void SDNode::dump(const SelectionDAG *G) const {
   print(dbgs(), G);
   dbgs() << '\n';
@@ -427,7 +429,7 @@ void SDNode::print_details(raw_ostream &OS, const SelectionDAG *G) const {
       OS << LBB->getName() << " ";
     OS << (const void*)BBDN->getBasicBlock() << ">";
   } else if (const RegisterSDNode *R = dyn_cast<RegisterSDNode>(this)) {
-    OS << ' ' << PrintReg(R->getReg(), G ? G->getTarget().getRegisterInfo() :0);
+    OS << ' ' << PrintReg(R->getReg(), G ? G->getTarget().getRegisterInfo() :nullptr);
   } else if (const ExternalSymbolSDNode *ES =
              dyn_cast<ExternalSymbolSDNode>(this)) {
     OS << "'" << ES->getSymbol() << "'";
@@ -595,7 +597,7 @@ static void DumpNodesr(raw_ostream &OS, const SDNode *N, unsigned indent,
 
 void SDNode::dumpr() const {
   VisitedSDNodeSet once;
-  DumpNodesr(dbgs(), this, 0, 0, once);
+  DumpNodesr(dbgs(), this, 0, nullptr, once);
 }
 
 void SDNode::dumpr(const SelectionDAG *G) const {

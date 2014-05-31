@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -32,6 +33,8 @@ PreservedAnalyses ModulePassManager::run(Module *M, ModuleAnalysisManager *AM) {
     if (AM)
       AM->invalidate(M, PassPA);
     PA.intersect(std::move(PassPA));
+
+    M->getContext().yield();
   }
 
   if (DebugPM)
@@ -59,7 +62,7 @@ ModuleAnalysisManager::ResultConceptT *
 ModuleAnalysisManager::getCachedResultImpl(void *PassID, Module *M) const {
   ModuleAnalysisResultMapT::const_iterator RI =
       ModuleAnalysisResults.find(PassID);
-  return RI == ModuleAnalysisResults.end() ? 0 : &*RI->second;
+  return RI == ModuleAnalysisResults.end() ? nullptr : &*RI->second;
 }
 
 void ModuleAnalysisManager::invalidateImpl(void *PassID, Module *M) {
@@ -92,6 +95,8 @@ PreservedAnalyses FunctionPassManager::run(Function *F,
     if (AM)
       AM->invalidate(F, PassPA);
     PA.intersect(std::move(PassPA));
+
+    F->getContext().yield();
   }
 
   if (DebugPM)
@@ -135,7 +140,7 @@ FunctionAnalysisManager::ResultConceptT *
 FunctionAnalysisManager::getCachedResultImpl(void *PassID, Function *F) const {
   FunctionAnalysisResultMapT::const_iterator RI =
       FunctionAnalysisResults.find(std::make_pair(PassID, F));
-  return RI == FunctionAnalysisResults.end() ? 0 : &*RI->second->second;
+  return RI == FunctionAnalysisResults.end() ? nullptr : &*RI->second->second;
 }
 
 void FunctionAnalysisManager::invalidateImpl(void *PassID, Function *F) {
@@ -165,6 +170,8 @@ void FunctionAnalysisManager::invalidateImpl(Function *F,
   while (!InvalidatedPassIDs.empty())
     FunctionAnalysisResults.erase(
         std::make_pair(InvalidatedPassIDs.pop_back_val(), F));
+  if (ResultsList.empty())
+    FunctionAnalysisResultLists.erase(F);
 }
 
 char FunctionAnalysisManagerModuleProxy::PassID;
