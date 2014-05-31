@@ -47,6 +47,7 @@ bool Driver::link(LinkingContext &context, raw_ostream &diagnostics) {
   InputGraph &inputGraph = context.getInputGraph();
   if (!inputGraph.size())
     return false;
+  inputGraph.normalize();
 
   bool fail = false;
 
@@ -63,8 +64,13 @@ bool Driver::link(LinkingContext &context, raw_ostream &diagnostics) {
       llvm::raw_string_ostream stream(buf);
 
       if (error_code ec = ie->parse(context, stream)) {
-        FileNode *fileNode = dyn_cast<FileNode>(ie.get());
-        stream << fileNode->errStr(ec) << "\n";
+        if (FileNode *fileNode = dyn_cast<FileNode>(ie.get()))
+          stream << fileNode->errStr(ec) << "\n";
+        else if (dyn_cast<Group>(ie.get()))
+          // FIXME: We need a better diagnostics here
+          stream << "Cannot parse group input element\n";
+        else
+          llvm_unreachable("Unknown type of input element");
         fail = true;
       }
 

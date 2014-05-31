@@ -340,6 +340,8 @@ template <> struct ScalarTraits<RefKind> {
       return StringRef();
     return StringRef("unknown reference kind");
   }
+
+  static bool mustQuote(StringRef) { return false; }
 };
 
 template <> struct ScalarEnumerationTraits<lld::File::Kind> {
@@ -548,6 +550,8 @@ template <> struct ScalarTraits<lld::DefinedAtom::Alignment> {
     }
     return StringRef(); // returning empty string means success
   }
+
+  static bool mustQuote(StringRef) { return false; }
 };
 
 template <> struct ScalarEnumerationTraits<FileKinds> {
@@ -594,6 +598,8 @@ template <> struct ScalarTraits<ImplicitHex8> {
     val = n;
     return StringRef(); // returning empty string means success
   }
+
+  static bool mustQuote(StringRef) { return false; }
 };
 
 // YAML conversion for std::vector<const lld::File*>
@@ -657,7 +663,7 @@ template <> struct MappingTraits<const lld::File *> {
 
     virtual error_code
     parseAllMembers(std::vector<std::unique_ptr<File>> &result) const override {
-      return error_code::success();
+      return error_code();
     }
 
     StringRef               _path;
@@ -886,7 +892,6 @@ template <> struct MappingTraits<const lld::DefinedAtom *> {
     DeadStripKind deadStrip() const override { return _deadStrip; }
     DynamicExport dynamicExport() const override { return _dynamicExport; }
     ContentPermissions permissions() const override { return _permissions; }
-    bool isAlias() const override { return false; }
     bool isGroupChild() const { return _isGroupChild; }
     ArrayRef<uint8_t> rawContent() const override {
       if (!occupiesDiskSpace())
@@ -1303,7 +1308,7 @@ public:
     const lld::File *fileRef = &file;
     yout << fileRef;
 
-    return error_code::success();
+    return error_code();
   }
 
 private:

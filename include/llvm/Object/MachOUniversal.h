@@ -17,6 +17,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/Object/Binary.h"
+#include "llvm/Object/Archive.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/MachO.h"
 
@@ -41,7 +42,7 @@ public:
     ObjectForArch(const MachOUniversalBinary *Parent, uint32_t Index);
 
     void clear() {
-      Parent = 0;
+      Parent = nullptr;
       Index = 0;
     }
 
@@ -53,6 +54,8 @@ public:
     uint32_t getCPUType() const { return Header.cputype; }
 
     error_code getAsObjectFile(std::unique_ptr<ObjectFile> &Result) const;
+
+    error_code getAsArchive(std::unique_ptr<Archive> &Result) const;
   };
 
   class object_iterator {
@@ -83,7 +86,7 @@ public:
     return ObjectForArch(this, 0);
   }
   object_iterator end_objects() const {
-    return ObjectForArch(0, 0);
+    return ObjectForArch(nullptr, 0);
   }
 
   uint32_t getNumberOfObjects() const { return NumberOfObjects; }

@@ -34,8 +34,8 @@ class VectorProcDisassembler : public MCDisassembler {
 public:
   /// Constructor     - Initializes the disassembler.
   ///
-  VectorProcDisassembler(const MCSubtargetInfo &STI, const MCRegisterInfo *Info)
-      : MCDisassembler(STI), RegInfo(Info) {}
+  VectorProcDisassembler(const MCSubtargetInfo &STI, MCContext &Ctx, const MCRegisterInfo *Info)
+      : MCDisassembler(STI, Ctx), RegInfo(Info) {}
 
   const MCRegisterInfo *getRegInfo() const { return RegInfo; }
 
@@ -85,8 +85,8 @@ extern Target TheVectorProcelTarget, TheVectorProcTarget, TheVectorProc64Target,
 }
 
 static MCDisassembler *
-createVectorProcDisassembler(const Target &T, const MCSubtargetInfo &STI) {
-  return new VectorProcDisassembler(STI, T.createMCRegInfo(""));
+createVectorProcDisassembler(const Target &T, const MCSubtargetInfo &STI, MCContext &Ctx) {
+  return new VectorProcDisassembler(STI, Ctx, T.createMCRegInfo(""));
 }
 
 extern "C" void LLVMInitializeVectorProcDisassembler() {

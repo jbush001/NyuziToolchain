@@ -278,9 +278,19 @@ struct MappingTraits<Section> {
     io.mapOptional("attributes",      sect.attributes);
     io.mapOptional("alignment",       sect.alignment, 0U);
     io.mapRequired("address",         sect.address);
-    MappingNormalization<NormalizedContent, ArrayRef<uint8_t>> content(
+    if (sect.type == llvm::MachO::S_ZEROFILL) {
+      // S_ZEROFILL sections use "size:" instead of "content:"
+      uint64_t size = sect.content.size();
+      io.mapOptional("size",          size);
+      if (!io.outputting()) {
+        uint8_t *bytes = nullptr;
+        sect.content = makeArrayRef(bytes, size);
+      }
+    } else {
+      MappingNormalization<NormalizedContent, ArrayRef<uint8_t>> content(
         io, sect.content);
-    io.mapOptional("content",         content->_normalizedContent);
+      io.mapOptional("content",         content->_normalizedContent);
+    }
     io.mapOptional("relocations",     sect.relocations);
     io.mapOptional("indirect-syms",   sect.indirectSymbols);
   }
@@ -406,8 +416,18 @@ struct MappingTraits<Symbol> {
     io.mapRequired("type",    sym.type);
     io.mapOptional("scope",   sym.scope, SymbolScope(0));
     io.mapOptional("sect",    sym.sect, (uint8_t)0);
-    io.mapOptional("desc",    sym.desc, SymbolDesc(0));
-    io.mapRequired("value",   sym.value);
+    if (sym.type == llvm::MachO::N_UNDF) {
+      // In undef symbols, desc field contains alignment/ordinal info
+      // which is better represented as a hex vaule.
+      uint16_t t1 = sym.desc;
+      Hex16 t2 = t1;
+      io.mapOptional("desc",  t2, Hex16(0));
+      sym.desc = t2;
+    } else {
+      // In defined symbols, desc fit is a set of option bits.
+      io.mapOptional("desc",    sym.desc, SymbolDesc(0));
+    }
+    io.mapRequired("value",  sym.value);
   }
 };
 
@@ -453,6 +473,7 @@ struct ScalarTraits<VMProtect> {
     // Return the empty string on success,
     return StringRef();
   }
+  static bool mustQuote(StringRef) { return false; }
 };
 
 
@@ -638,8 +659,10 @@ bool MachOYamlIOTaggedDocumentHandler::handledDocTag(llvm::yaml::IO &io,
     std::unique_ptr<lld::File> f = std::move(foe.get());
     file = f.release();
     return true;
+  } else {
+    io.setError(foe.getError().message());
+    return false;
   }
-  return false;
 }
 
 
@@ -683,7 +706,7 @@ writeYaml(const NormalizedFile &file, raw_ostream &out) {
   // Stream out yaml.
   yout << *f;
 
-  return error_code::success();
+  return error_code();
 }
 
 } // namespace normalized

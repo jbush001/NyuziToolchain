@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -O1 -triple arm64-apple-ios7 -ffreestanding -S -o - -emit-llvm %s | FileCheck %s
+// RUN: %clang_cc1 -O1 -triple arm64-apple-ios7 -target-feature +neon -ffreestanding -S -o - -emit-llvm %s | FileCheck %s
 // Test ARM64 SIMD set lane intrinsics INCOMPLETE
 
 #include <arm_neon.h>
@@ -20,7 +20,7 @@ float16x8_t test_vsetq_lane_f16(float16_t *a1, float16x8_t a2) {
 float64x1_t test_vset_lane_f64(float64_t a1, float64x1_t a2) {
   // CHECK-LABEL@ test_vset_lane_f64
   return vset_lane_f64(a1, a2, 0);
-  // CHECK@ @llvm.arm64.neon.smaxv.i32.v8i8
+  // CHECK@ @llvm.aarch64.neon.smaxv.i32.v8i8
 }
 #endif
 

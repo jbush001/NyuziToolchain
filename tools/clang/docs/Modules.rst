@@ -198,6 +198,9 @@ Command-line parameters
 ``-fmodule-map-file=<file>``
   Load the given module map file if a header from its directory or one of its subdirectories is loaded.
 
+``-fmodules-search-all``
+  If a symbol is not found, search modules referenced in the current module maps but not imported for symbols, so the error message can reference the module by name.  Note that if the global module index has not been built before, this might take some time as it needs to build all the modules.  Note that this option doesn't apply in module builds, to avoid the recursion.
+
 Module Semantics
 ================
 
@@ -761,7 +764,7 @@ express this with a single module map file in the library:
 
 because the header ``Foo_Private.h`` won't always be available. The
 module map file could be customized based on whether
-``Foo_Private.h``is available or not, but doing so requires custom
+``Foo_Private.h`` is available or not, but doing so requires custom
 build machinery.
 
 Private module map files, which are named ``module.private.modulemap``
@@ -770,7 +773,7 @@ augment the primary module map file with an additional submodule. For
 example, we would split the module map file above into two module map
 files:
 
-.. parsed-literal::
+.. code-block:: c
 
   /* module.modulemap */
   module Foo {
@@ -839,7 +842,7 @@ Where To Learn More About Modules
 =================================
 The Clang source code provides additional information about modules:
 
-``clang/lib/Headers/module.map``
+``clang/lib/Headers/module.modulemap``
   Module map for Clang's compiler-specific header files.
 
 ``clang/test/Modules/``

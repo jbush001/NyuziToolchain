@@ -45,7 +45,7 @@ error_code VectorProcTargetRelocationHandler::applyRelocation(
   uint64_t relocVAddress = atom._virtualAddr + ref.offsetInAtom();
 
   if (ref.kindNamespace() != Reference::KindNamespace::ELF)
-    return error_code::success();
+    return error_code();
 
   switch (ref.kindValue()) {
   case R_VECTORPROC_BRANCH:
@@ -65,7 +65,7 @@ error_code VectorProcTargetRelocationHandler::applyRelocation(
   }
   }
 
-  return error_code::success();
+  return error_code();
 }
 
 VectorProcTargetHandler::VectorProcTargetHandler(VectorProcLinkingContext &context)

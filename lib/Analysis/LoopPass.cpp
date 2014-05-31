@@ -15,9 +15,12 @@
 
 #include "llvm/Analysis/LoopPass.h"
 #include "llvm/IR/IRPrintingPasses.h"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Timer.h"
 using namespace llvm;
+
+#define DEBUG_TYPE "loop-pass-manager"
 
 namespace {
 
@@ -61,8 +64,8 @@ LPPassManager::LPPassManager()
   : FunctionPass(ID), PMDataManager() {
   skipThisLoop = false;
   redoThisLoop = false;
-  LI = NULL;
-  CurrentLoop = NULL;
+  LI = nullptr;
+  CurrentLoop = nullptr;
 }
 
 /// Delete loop from the loop queue and loop hierarchy (LoopInfo).
@@ -251,6 +254,8 @@ bool LPPassManager::runOnFunction(Function &F) {
 
         // Then call the regular verifyAnalysis functions.
         verifyPreservedAnalysis(P);
+
+        F.getContext().yield();
       }
 
       removeNotPreservedAnalysis(P);

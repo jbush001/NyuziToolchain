@@ -122,7 +122,13 @@ def int_arm_crc32cw : Intrinsic<[llvm_i32_ty], [llvm_i32_ty, llvm_i32_ty],
 
 //===----------------------------------------------------------------------===//
 // HINT
-def int_arm_sevl : Intrinsic<[], []>;
+
+def int_arm_hint : Intrinsic<[], [llvm_i32_ty]>;
+
+//===----------------------------------------------------------------------===//
+// UND (reserved undefined sequence)
+
+def int_arm_undefined : Intrinsic<[], [llvm_i32_ty]>;
 
 //===----------------------------------------------------------------------===//
 // Advanced SIMD (NEON)

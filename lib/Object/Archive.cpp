@@ -13,7 +13,6 @@
 
 #include "llvm/Object/Archive.h"
 #include "llvm/ADT/APInt.h"
-#include "llvm/ADT/OwningPtr.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Endian.h"
@@ -111,7 +110,7 @@ Archive::Child Archive::Child::getNext() const {
 
   // Check to see if this is past the end of the archive.
   if (NextLoc >= Parent->Data->getBufferEnd())
-    return Child(Parent, NULL);
+    return Child(Parent, nullptr);
 
   return Child(Parent, NextLoc);
 }
@@ -180,15 +179,7 @@ error_code Archive::Child::getMemoryBuffer(std::unique_ptr<MemoryBuffer> &Result
                                   .toStringRef(Path)
                             : Name,
       false));
-  return error_code::success();
-}
-
-error_code Archive::Child::getMemoryBuffer(OwningPtr<MemoryBuffer> &Result,
-                                           bool FullPath) const {
-  std::unique_ptr<MemoryBuffer> MB;
-  error_code ec = getMemoryBuffer(MB, FullPath);
-  Result = std::move(MB);
-  return ec;
+  return error_code();
 }
 
 error_code Archive::Child::getAsBinary(std::unique_ptr<Binary> &Result,
@@ -202,14 +193,6 @@ error_code Archive::Child::getAsBinary(std::unique_ptr<Binary> &Result,
     return EC;
   Result.reset(BinaryOrErr.get());
   return object_error::success;
-}
-
-error_code Archive::Child::getAsBinary(OwningPtr<Binary> &Result,
-                                       LLVMContext *Context) const {
-  std::unique_ptr<Binary> B;
-  error_code ec = getAsBinary(B, Context);
-  Result = std::move(B);
-  return ec;
 }
 
 ErrorOr<Archive*> Archive::create(MemoryBuffer *Source) {
@@ -349,7 +332,7 @@ Archive::child_iterator Archive::child_begin(bool SkipInternal) const {
 }
 
 Archive::child_iterator Archive::child_end() const {
-  return Child(this, NULL);
+  return Child(this, nullptr);
 }
 
 error_code Archive::Symbol::getName(StringRef &Result) const {

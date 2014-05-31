@@ -86,7 +86,7 @@ static void AddImplicitIncludePTH(MacroBuilder &Builder, Preprocessor &PP,
                                   StringRef ImplicitIncludePTH) {
   PTHManager *P = PP.getPTHManager();
   // Null check 'P' in the corner case where it couldn't be created.
-  const char *OriginalFile = P ? P->getOriginalSourceFile() : 0;
+  const char *OriginalFile = P ? P->getOriginalSourceFile() : nullptr;
 
   if (!OriginalFile) {
     PP.getDiagnostics().Report(diag::err_fe_pth_file_has_no_source_header)
@@ -508,10 +508,6 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
   }
 
   if (LangOpts.MicrosoftExt) {
-    // Both __PRETTY_FUNCTION__ and __FUNCTION__ are GCC extensions, however
-    // VC++ appears to only like __FUNCTION__.
-    Builder.defineMacro("__PRETTY_FUNCTION__", "__FUNCTION__");
-    // Work around some issues with Visual C++ headers.
     if (LangOpts.WChar) {
       // wchar_t supported as a keyword.
       Builder.defineMacro("_WCHAR_T_DEFINED");

@@ -101,8 +101,23 @@ std::unique_ptr<File> PECOFFLinkingContext::createUndefinedSymbolFile() const {
       "<command line option /include>");
 }
 
+namespace {
+// As per policy, we cannot use std::function.
+class ObserverCallback {
+public:
+  explicit ObserverCallback(pecoff::ExportedSymbolRenameFile *f)
+      : _renameFile(f) {}
+
+  void operator()(File *file) { _renameFile->addResolvableSymbols(file); }
+
+private:
+  pecoff::ExportedSymbolRenameFile *_renameFile;
+};
+} // end anonymous namespace
+
 bool PECOFFLinkingContext::createImplicitFiles(
-    std::vector<std::unique_ptr<File> > &) const {
+    std::vector<std::unique_ptr<File>> &) const {
+  // Create a file for __ImageBase.
   std::unique_ptr<SimpleFileNode> fileNode(
       new SimpleFileNode("Implicit Files"));
   std::unique_ptr<File> linkerGeneratedSymFile(
@@ -110,6 +125,22 @@ bool PECOFFLinkingContext::createImplicitFiles(
   fileNode->appendInputFile(std::move(linkerGeneratedSymFile));
   getInputGraph().insertElementAt(std::move(fileNode),
                                   InputGraph::Position::END);
+
+  // Create a file for _imp_ symbols.
+  std::unique_ptr<SimpleFileNode> impFileNode(new SimpleFileNode("imp"));
+  impFileNode->appendInputFile(
+      std::unique_ptr<File>(new pecoff::LocallyImportedSymbolFile(*this)));
+  getInputGraph().insertElementAt(std::move(impFileNode),
+                                  InputGraph::Position::END);
+
+  // Create a file for dllexported symbols.
+  std::unique_ptr<SimpleFileNode> exportNode(new SimpleFileNode("<export>"));
+  pecoff::ExportedSymbolRenameFile *renameFile =
+      new pecoff::ExportedSymbolRenameFile(*this);
+  exportNode->appendInputFile(std::unique_ptr<File>(renameFile));
+  getLibraryGroup()->addFile(std::move(exportNode));
+  getInputGraph().registerObserver(
+      *(new (_allocator) ObserverCallback(renameFile)));
   return true;
 }
 
@@ -206,7 +237,8 @@ StringRef PECOFFLinkingContext::decorateSymbol(StringRef name) const {
 StringRef PECOFFLinkingContext::undecorateSymbol(StringRef name) const {
   if (_machineType != llvm::COFF::IMAGE_FILE_MACHINE_I386)
     return name;
-  assert(name.startswith("_"));
+  if (!name.startswith("_"))
+    return name;
   return name.substr(1);
 }
 
@@ -255,6 +287,7 @@ static bool exportConflicts(const PECOFFLinkingContext::ExportDesc &a,
 }
 
 void PECOFFLinkingContext::addDllExport(ExportDesc &desc) {
+  addInitialUndefinedSymbol(allocate(desc.name));
   auto existing = _dllExports.insert(desc);
   if (existing.second)
     return;
@@ -265,6 +298,14 @@ void PECOFFLinkingContext::addDllExport(ExportDesc &desc) {
   }
   llvm::errs() << "Export symbol '" << desc.name
                << "' specified more than once.\n";
+}
+
+std::string PECOFFLinkingContext::getOutputImportLibraryPath() const {
+  if (!_implib.empty())
+    return _implib;
+  SmallString<128> path = outputPath();
+  llvm::sys::path::replace_extension(path, ".lib");
+  return path.str();
 }
 
 void PECOFFLinkingContext::addPasses(PassManager &pm) {

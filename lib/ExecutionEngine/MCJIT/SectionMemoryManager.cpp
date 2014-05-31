@@ -79,7 +79,7 @@ uint8_t *SectionMemoryManager::allocateSection(MemoryGroup &MemGroup,
                                                           ec);
   if (ec) {
     // FIXME: Add error propagation to the interface.
-    return NULL;
+    return nullptr;
   }
 
   // Save this address as the basis for our next request
@@ -155,7 +155,7 @@ error_code SectionMemoryManager::applyMemoryGroupPermissions(MemoryGroup &MemGro
       }
   }
 
-  return error_code::success();
+  return error_code();
 }
 
 void SectionMemoryManager::invalidateInstructionCache() {

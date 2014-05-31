@@ -41,11 +41,11 @@ AnalysisDeclContext::AnalysisDeclContext(AnalysisDeclContextManager *Mgr,
   : Manager(Mgr),
     D(d),
     cfgBuildOptions(buildOptions),
-    forcedBlkExprs(0),
+    forcedBlkExprs(nullptr),
     builtCFG(false),
     builtCompleteCFG(false),
-    ReferencedBlockVars(0),
-    ManagedAnalyses(0)
+    ReferencedBlockVars(nullptr),
+    ManagedAnalyses(nullptr)
 {  
   cfgBuildOptions.forcedBlkExprs = &forcedBlkExprs;
 }
@@ -54,11 +54,11 @@ AnalysisDeclContext::AnalysisDeclContext(AnalysisDeclContextManager *Mgr,
                                          const Decl *d)
 : Manager(Mgr),
   D(d),
-  forcedBlkExprs(0),
+  forcedBlkExprs(nullptr),
   builtCFG(false),
   builtCompleteCFG(false),
-  ReferencedBlockVars(0),
-  ManagedAnalyses(0)
+  ReferencedBlockVars(nullptr),
+  ManagedAnalyses(nullptr)
 {  
   cfgBuildOptions.forcedBlkExprs = &forcedBlkExprs;
 }
@@ -140,7 +140,7 @@ const ImplicitParamDecl *AnalysisDeclContext::getSelfDecl() const {
     }    
   }
 
-  return NULL;
+  return nullptr;
 }
 
 void AnalysisDeclContext::registerForcedBlockExpression(const Stmt *stmt) {
@@ -189,6 +189,9 @@ CFG *AnalysisDeclContext::getCFG() {
 
     if (PM)
       addParentsForSyntheticStmts(cfg.get(), *PM);
+
+    // The Observer should only observe one build of the CFG.
+    getCFGBuildOptions().Observer = nullptr;
   }
   return cfg.get();
 }
@@ -205,6 +208,9 @@ CFG *AnalysisDeclContext::getUnoptimizedCFG() {
 
     if (PM)
       addParentsForSyntheticStmts(completeCFG.get(), *PM);
+
+    // The Observer should only observe one build of the CFG.
+    getCFGBuildOptions().Observer = nullptr;
   }
   return completeCFG.get();
 }
@@ -217,8 +223,8 @@ CFGStmtMap *AnalysisDeclContext::getCFGStmtMap() {
     cfgStmtMap.reset(CFGStmtMap::Build(c, &getParentMap()));
     return cfgStmtMap.get();
   }
-    
-  return 0;
+
+  return nullptr;
 }
 
 CFGReverseBlockReachabilityAnalysis *AnalysisDeclContext::getCFGReachablityAnalysis() {
@@ -229,8 +235,8 @@ CFGReverseBlockReachabilityAnalysis *AnalysisDeclContext::getCFGReachablityAnaly
     CFA.reset(new CFGReverseBlockReachabilityAnalysis(*c));
     return CFA.get();
   }
-  
-  return 0;
+
+  return nullptr;
 }
 
 void AnalysisDeclContext::dumpCFG(bool ShowColors) {
@@ -395,7 +401,7 @@ const StackFrameContext *LocationContext::getCurrentStackFrame() const {
       return SFC;
     LC = LC->getParent();
   }
-  return NULL;
+  return nullptr;
 }
 
 bool LocationContext::inTopFrame() const {

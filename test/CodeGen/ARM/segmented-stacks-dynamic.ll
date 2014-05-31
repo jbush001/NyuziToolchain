@@ -1,12 +1,12 @@
-; RUN: llc < %s -mtriple=arm-linux-androideabi -segmented-stacks -verify-machineinstrs | FileCheck %s -check-prefix=ARM-android
-; RUN: llc < %s -mtriple=arm-linux-unknown-gnueabi -segmented-stacks -verify-machineinstrs | FileCheck %s -check-prefix=ARM-linux
-; RUN: llc < %s -mtriple=arm-linux-androideabi -segmented-stacks -filetype=obj
-; RUN: llc < %s -mtriple=arm-linux-unknown-gnueabi -segmented-stacks -filetype=obj
+; RUN: llc < %s -mtriple=arm-linux-androideabi -verify-machineinstrs | FileCheck %s -check-prefix=ARM-android
+; RUN: llc < %s -mtriple=arm-linux-unknown-gnueabi -verify-machineinstrs | FileCheck %s -check-prefix=ARM-linux
+; RUN: llc < %s -mtriple=arm-linux-androideabi -filetype=obj
+; RUN: llc < %s -mtriple=arm-linux-unknown-gnueabi -filetype=obj
 
 ; Just to prevent the alloca from being optimized away
 declare void @dummy_use(i32*, i32)
 
-define i32 @test_basic(i32 %l) {
+define i32 @test_basic(i32 %l) #0 {
         %mem = alloca i32, i32 %l
         call void @dummy_use (i32* %mem, i32 %l)
         %terminate = icmp eq i32 %l, 0
@@ -29,7 +29,7 @@ false:
 ; ARM-linux-NEXT: cmp     r4, r5
 ; ARM-linux-NEXT: blo     .LBB0_2
 
-; ARM-linux:      mov     r4, #24
+; ARM-linux:      mov     r4, #16
 ; ARM-linux-NEXT: mov     r5, #0
 ; ARM-linux-NEXT: stmdb   sp!, {lr}
 ; ARM-linux-NEXT: bl      __morestack
@@ -49,7 +49,7 @@ false:
 ; ARM-android-NEXT: cmp     r4, r5
 ; ARM-android-NEXT: blo     .LBB0_2
 
-; ARM-android:      mov     r4, #24
+; ARM-android:      mov     r4, #16
 ; ARM-android-NEXT: mov     r5, #0
 ; ARM-android-NEXT: stmdb   sp!, {lr}
 ; ARM-android-NEXT: bl      __morestack
@@ -60,3 +60,5 @@ false:
 ; ARM-android:      pop     {r4, r5}
 
 }
+
+attributes #0 = { "split-stack" }

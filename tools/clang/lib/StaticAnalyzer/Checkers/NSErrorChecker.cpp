@@ -42,7 +42,7 @@ class NSErrorMethodChecker
   mutable IdentifierInfo *II;
 
 public:
-  NSErrorMethodChecker() : II(0) { }
+  NSErrorMethodChecker() : II(nullptr) {}
 
   void checkASTDecl(const ObjCMethodDecl *D,
                     AnalysisManager &mgr, BugReporter &BR) const;
@@ -89,7 +89,7 @@ class CFErrorFunctionChecker
   mutable IdentifierInfo *II;
 
 public:
-  CFErrorFunctionChecker() : II(0) { }
+  CFErrorFunctionChecker() : II(nullptr) {}
 
   void checkASTDecl(const FunctionDecl *D,
                     AnalysisManager &mgr, BugReporter &BR) const;
@@ -153,9 +153,11 @@ class NSOrCFErrorDerefChecker
     : public Checker< check::Location,
                         check::Event<ImplicitNullDerefEvent> > {
   mutable IdentifierInfo *NSErrorII, *CFErrorII;
+  mutable std::unique_ptr<NSErrorDerefBug> NSBT;
+  mutable std::unique_ptr<CFErrorDerefBug> CFBT;
 public:
   bool ShouldCheckNSError, ShouldCheckCFError;
-  NSOrCFErrorDerefChecker() : NSErrorII(0), CFErrorII(0),
+  NSOrCFErrorDerefChecker() : NSErrorII(nullptr), CFErrorII(nullptr),
                               ShouldCheckNSError(0), ShouldCheckCFError(0) { }
 
   void checkLocation(SVal loc, bool isLoad, const Stmt *S,
@@ -262,11 +264,17 @@ void NSOrCFErrorDerefChecker::checkEvent(ImplicitNullDerefEvent event) const {
 
   os  << " may be null";
 
-  BugType *bug = 0;
-  if (isNSError)
-    bug = new NSErrorDerefBug(this);
-  else
-    bug = new CFErrorDerefBug(this);
+  BugType *bug = nullptr;
+  if (isNSError) {
+    if (!NSBT)
+      NSBT.reset(new NSErrorDerefBug(this));
+    bug = NSBT.get();
+  }
+  else {
+    if (!CFBT)
+      CFBT.reset(new CFErrorDerefBug(this));
+    bug = CFBT.get();
+  }
   BugReport *report = new BugReport(*bug, os.str(), event.SinkNode);
   BR.emitReport(report);
 }

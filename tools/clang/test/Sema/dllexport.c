@@ -69,10 +69,10 @@ void __declspec(dllexport)      decl2B();
 __declspec(dllexport) void def() {}
 
 // Export inline function.
-__declspec(dllexport) inline void inlineFunc1() {} // expected-warning{{'dllexport' attribute ignored}}
+__declspec(dllexport) inline void inlineFunc1() {}
 extern void inlineFunc1();
 
-inline void __attribute__((dllexport)) inlineFunc2() {} // expected-warning{{'dllexport' attribute ignored}}
+inline void __attribute__((dllexport)) inlineFunc2() {}
 extern void inlineFunc2();
 
 // Redeclarations
@@ -87,6 +87,9 @@ __declspec(dllexport) void redecl3();
 
                       void redecl4(); // expected-note{{previous declaration is here}}
 __declspec(dllexport) void redecl4(); // expected-error{{redeclaration of 'redecl4' cannot add 'dllexport' attribute}}
+
+                      void redecl5(); // expected-note{{previous declaration is here}}
+__declspec(dllexport) inline void redecl5() {} // expected-error{{redeclaration of 'redecl5' cannot add 'dllexport' attribute}}
 
 // External linkage is required.
 __declspec(dllexport) static int staticFunc(); // expected-error{{'staticFunc' must have external linkage when declared 'dllexport'}}

@@ -7,7 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "tti"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/DataLayout.h"
@@ -18,6 +17,8 @@
 #include "llvm/Support/ErrorHandling.h"
 
 using namespace llvm;
+
+#define DEBUG_TYPE "tti"
 
 // Setup the analysis group to manage the TargetTransformInfo passes.
 INITIALIZE_ANALYSIS_GROUP(TargetTransformInfo, "Target Information", NoTTI)
@@ -234,7 +235,7 @@ namespace {
 struct NoTTI final : ImmutablePass, TargetTransformInfo {
   const DataLayout *DL;
 
-  NoTTI() : ImmutablePass(ID), DL(0) {
+  NoTTI() : ImmutablePass(ID), DL(nullptr) {
     initializeNoTTIPass(*PassRegistry::getPassRegistry());
   }
 
@@ -242,9 +243,9 @@ struct NoTTI final : ImmutablePass, TargetTransformInfo {
     // Note that this subclass is special, and must *not* call initializeTTI as
     // it does not chain.
     TopTTI = this;
-    PrevTTI = 0;
+    PrevTTI = nullptr;
     DataLayoutPass *DLP = getAnalysisIfAvailable<DataLayoutPass>();
-    DL = DLP ? &DLP->getDataLayout() : 0;
+    DL = DLP ? &DLP->getDataLayout() : nullptr;
   }
 
   virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
@@ -443,7 +444,7 @@ struct NoTTI final : ImmutablePass, TargetTransformInfo {
     // Otherwise delegate to the fully generic implementations.
     return getOperationCost(Operator::getOpcode(U), U->getType(),
                             U->getNumOperands() == 1 ?
-                                U->getOperand(0)->getType() : 0);
+                                U->getOperand(0)->getType() : nullptr);
   }
 
   bool hasBranchDivergence() const override { return false; }
@@ -567,7 +568,7 @@ struct NoTTI final : ImmutablePass, TargetTransformInfo {
   }
 
   unsigned getShuffleCost(ShuffleKind Kind, Type *Ty,
-                          int Index = 0, Type *SubTp = 0) const override {
+                          int Index = 0, Type *SubTp = nullptr) const override {
     return 1;
   }
 
@@ -581,7 +582,7 @@ struct NoTTI final : ImmutablePass, TargetTransformInfo {
   }
 
   unsigned getCmpSelInstrCost(unsigned Opcode, Type *ValTy,
-                              Type *CondTy = 0) const override {
+                              Type *CondTy = nullptr) const override {
     return 1;
   }
 

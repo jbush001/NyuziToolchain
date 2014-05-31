@@ -1,7 +1,9 @@
 // Test instrumentation of general constructs in objective C.
 
 // RUN: %clang_cc1 -triple x86_64-apple-macosx10.9 -main-file-name objc-general.m %s -o - -emit-llvm -fblocks -fprofile-instr-generate | FileCheck -check-prefix=PGOGEN %s
-// RUN: %clang_cc1 -triple x86_64-apple-macosx10.9 -main-file-name objc-general.m %s -o - -emit-llvm -fblocks -fprofile-instr-use=%S/Inputs/objc-general.profdata | FileCheck -check-prefix=PGOUSE %s
+
+// RUN: llvm-profdata merge %S/Inputs/objc-general.proftext -o %t.profdata
+// RUN: %clang_cc1 -triple x86_64-apple-macosx10.9 -main-file-name objc-general.m %s -o - -emit-llvm -fblocks -fprofile-instr-use=%t.profdata | FileCheck -check-prefix=PGOUSE %s
 
 #ifdef HAVE_FOUNDATION
 
@@ -31,7 +33,7 @@ struct NSFastEnumerationState;
 
 // PGOGEN: @[[FRC:"__llvm_profile_counters_\+\[A foreach:\]"]] = internal global [2 x i64] zeroinitializer
 // PGOGEN: @[[BLC:"__llvm_profile_counters___13\+\[A foreach:\]_block_invoke"]] = internal global [2 x i64] zeroinitializer
-// PGOGEN: @[[MAC:__llvm_profile_counters_main]] = global [1 x i64] zeroinitializer
+// PGOGEN: @[[MAC:__llvm_profile_counters_main]] = hidden global [1 x i64] zeroinitializer
 
 @interface A : NSObject
 + (void)foreach: (NSArray *)array;

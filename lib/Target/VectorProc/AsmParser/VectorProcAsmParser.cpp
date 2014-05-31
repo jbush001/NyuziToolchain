@@ -60,7 +60,8 @@ class VectorProcAsmParser : public MCTargetAsmParser {
 
 public:
   VectorProcAsmParser(MCSubtargetInfo &sti, MCAsmParser &_Parser,
-                      const MCInstrInfo &MII)
+                      const MCInstrInfo &MII,
+                      const MCTargetOptions &Options)
       : MCTargetAsmParser(), Parser(_Parser), STI(sti) {
     setAvailableFeatures(ComputeAvailableFeatures(STI.getFeatureBits()));
   }

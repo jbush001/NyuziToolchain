@@ -18,6 +18,7 @@
 #include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/Support/FileSystem.h"
 #include <cctype>
 #include <cstdio>
 #include <map>
@@ -76,7 +77,7 @@ bool generateCode(Module *TheModule)
   // Override default to generate verbose assembly.
   Target.setAsmVerbosityDefault(true);
 
-  raw_fd_ostream Raw("-", Error, sys::fs::OpenFlags::F_Text);
+  raw_fd_ostream Raw("-", Error, llvm::sys::fs::F_Text);
   formatted_raw_ostream FOS(Raw);
   
   PM.add(createPromoteMemoryToRegisterPass());

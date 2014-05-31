@@ -84,7 +84,7 @@ struct CGRecordLowering {
       const CXXRecordDecl *RD;
     };
     MemberInfo(CharUnits Offset, InfoKind Kind, llvm::Type *Data,
-               const FieldDecl *FD = 0)
+               const FieldDecl *FD = nullptr)
       : Offset(Offset), Kind(Kind), Data(Data), FD(FD) {}
     MemberInfo(CharUnits Offset, InfoKind Kind, llvm::Type *Data,
                const CXXRecordDecl *RD)
@@ -212,7 +212,7 @@ CGRecordLowering::CGRecordLowering(CodeGenTypes &Types, const RecordDecl *D)
 
 void CGRecordLowering::setBitFieldInfo(
     const FieldDecl *FD, CharUnits StartOffset, llvm::Type *StorageType) {
-  CGBitFieldInfo &Info = BitFields[FD];
+  CGBitFieldInfo &Info = BitFields[FD->getCanonicalDecl()];
   Info.IsSigned = FD->getType()->isSignedIntegerOrEnumerationType();
   Info.Offset = (unsigned)(getFieldBitOffset(FD) - Context.toBits(StartOffset));
   Info.Size = FD->getBitWidthValue(Context);
@@ -278,7 +278,7 @@ void CGRecordLowering::lower(bool NVBaseType) {
 
 void CGRecordLowering::lowerUnion() {
   CharUnits LayoutSize = Layout.getSize();
-  llvm::Type *StorageType = 0;
+  llvm::Type *StorageType = nullptr;
   // Compute zero-initializable status.
   if (!D->field_empty() && !isZeroInitializable(*D->field_begin()))
     IsZeroInitializable = IsZeroInitializableAsBase = false;
@@ -297,7 +297,7 @@ void CGRecordLowering::lowerUnion() {
         FieldType = getByteArrayType(LayoutSize);
       setBitFieldInfo(Field, CharUnits::Zero(), FieldType);
     }
-    Fields[Field] = 0;
+    Fields[Field->getCanonicalDecl()] = 0;
     llvm::Type *FieldType = getStorageType(Field);
     // Conditionally update our storage type if we've got a new "better" one.
     if (!StorageType ||
@@ -373,7 +373,7 @@ CGRecordLowering::accumulateBitFields(RecordDecl::field_iterator Field,
       // Bitfields get the offset of their storage but come afterward and remain
       // there after a stable sort.
       Members.push_back(MemberInfo(bitsToCharUnits(StartBitOffset),
-                                   MemberInfo::Field, 0, *Field));
+                                   MemberInfo::Field, nullptr, *Field));
     }
     return;
   }
@@ -407,17 +407,18 @@ CGRecordLowering::accumulateBitFields(RecordDecl::field_iterator Field,
     Members.push_back(StorageInfo(bitsToCharUnits(StartBitOffset), Type));
     for (; Run != Field; ++Run)
       Members.push_back(MemberInfo(bitsToCharUnits(StartBitOffset),
-                                   MemberInfo::Field, 0, *Run));
+                                   MemberInfo::Field, nullptr, *Run));
     Run = FieldEnd;
   }
 }
 
 void CGRecordLowering::accumulateBases() {
   // If we've got a primary virtual base, we need to add it with the bases.
-  if (Layout.isPrimaryBaseVirtual())
-    Members.push_back(StorageInfo(
-      CharUnits::Zero(),
-      getStorageType(Layout.getPrimaryBase())));
+  if (Layout.isPrimaryBaseVirtual()) {
+    const CXXRecordDecl *BaseDecl = Layout.getPrimaryBase();
+    Members.push_back(MemberInfo(CharUnits::Zero(), MemberInfo::Base,
+                                 getStorageType(BaseDecl), BaseDecl));
+  }
   // Accumulate the non-virtual bases.
   for (const auto &Base : RD->bases()) {
     if (Base.isVirtual())
@@ -440,8 +441,25 @@ void CGRecordLowering::accumulateVPtrs() {
 }
 
 void CGRecordLowering::accumulateVBases() {
-  Members.push_back(MemberInfo(Layout.getNonVirtualSize(),
-                               MemberInfo::Scissor, 0, RD));
+  CharUnits ScissorOffset = Layout.getNonVirtualSize();
+  // In the itanium ABI, it's possible to place a vbase at a dsize that is
+  // smaller than the nvsize.  Here we check to see if such a base is placed
+  // before the nvsize and set the scissor offset to that, instead of the
+  // nvsize.
+  if (!useMSABI())
+    for (const auto &Base : RD->vbases()) {
+      const CXXRecordDecl *BaseDecl = Base.getType()->getAsCXXRecordDecl();
+      if (BaseDecl->isEmpty())
+        continue;
+      // If the vbase is a primary virtual base of some base, then it doesn't
+      // get its own storage location but instead lives inside of that base.
+      if (Context.isNearlyEmpty(BaseDecl) && !hasOwnStorage(RD, BaseDecl))
+        continue;
+      ScissorOffset = std::min(ScissorOffset,
+                               Layout.getVBaseClassOffset(BaseDecl));
+    }
+  Members.push_back(MemberInfo(ScissorOffset, MemberInfo::Scissor, nullptr,
+                               RD));
   for (const auto &Base : RD->vbases()) {
     const CXXRecordDecl *BaseDecl = Base.getType()->getAsCXXRecordDecl();
     if (BaseDecl->isEmpty())
@@ -451,7 +469,8 @@ void CGRecordLowering::accumulateVBases() {
     // get its own storage location but instead lives inside of that base.
     if (!useMSABI() && Context.isNearlyEmpty(BaseDecl) &&
         !hasOwnStorage(RD, BaseDecl)) {
-      Members.push_back(MemberInfo(Offset, MemberInfo::VBase, 0, BaseDecl));
+      Members.push_back(MemberInfo(Offset, MemberInfo::VBase, nullptr,
+                                   BaseDecl));
       continue;
     }
     // If we've got a vtordisp, add it as a storage type.
@@ -570,7 +589,7 @@ void CGRecordLowering::fillOutputFields() {
       FieldTypes.push_back(Member->Data);
     if (Member->Kind == MemberInfo::Field) {
       if (Member->FD)
-        Fields[Member->FD] = FieldTypes.size() - 1;
+        Fields[Member->FD->getCanonicalDecl()] = FieldTypes.size() - 1;
       // A field without storage must be a bitfield.
       if (!Member->Data)
         setBitFieldInfo(Member->FD, Member->Offset, FieldTypes.back());
@@ -627,7 +646,7 @@ CGRecordLayout *CodeGenTypes::ComputeRecordLayout(const RecordDecl *D,
   Builder.lower(false);
 
   // If we're in C++, compute the base subobject type.
-  llvm::StructType *BaseTy = 0;
+  llvm::StructType *BaseTy = nullptr;
   if (isa<CXXRecordDecl>(D) && !D->isUnion() && !D->hasAttr<FinalAttr>()) {
     BaseTy = Ty;
     if (Builder.Layout.getNonVirtualSize() != Builder.Layout.getSize()) {

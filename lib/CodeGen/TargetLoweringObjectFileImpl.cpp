@@ -48,16 +48,12 @@ MCSymbol *TargetLoweringObjectFileELF::getCFIPersonalitySymbol(
     const GlobalValue *GV, Mangler &Mang, const TargetMachine &TM,
     MachineModuleInfo *MMI) const {
   unsigned Encoding = getPersonalityEncoding();
-  switch (Encoding & 0x70) {
-  default:
-    report_fatal_error("We do not support this DWARF encoding yet!");
-  case dwarf::DW_EH_PE_absptr:
-    return TM.getSymbol(GV, Mang);
-  case dwarf::DW_EH_PE_pcrel: {
+  if ((Encoding & 0x80) == dwarf::DW_EH_PE_indirect)
     return getContext().GetOrCreateSymbol(StringRef("DW.ref.") +
                                           TM.getSymbol(GV, Mang)->getName());
-  }
-  }
+  if ((Encoding & 0x70) == dwarf::DW_EH_PE_absptr)
+    return TM.getSymbol(GV, Mang);
+  report_fatal_error("We do not support this DWARF encoding yet!");
 }
 
 void TargetLoweringObjectFileELF::emitPersonalityValue(MCStreamer &Streamer,
@@ -100,7 +96,7 @@ const MCExpr *TargetLoweringObjectFileELF::getTTypeGlobalReference(
     // Add information about the stub reference to ELFMMI so that the stub
     // gets emitted by the asmprinter.
     MachineModuleInfoImpl::StubValueTy &StubSym = ELFMMI.getGVStubEntry(SSym);
-    if (StubSym.getPointer() == 0) {
+    if (!StubSym.getPointer()) {
       MCSymbol *Sym = TM.getSymbol(GV, Mang);
       StubSym = MachineModuleInfoImpl::StubValueTy(Sym, !GV->hasLocalLinkage());
     }
@@ -339,8 +335,8 @@ getSectionForConstant(SectionKind Kind) const {
   return DataRelROSection;
 }
 
-const MCSection *
-TargetLoweringObjectFileELF::getStaticCtorSection(unsigned Priority) const {
+const MCSection *TargetLoweringObjectFileELF::getStaticCtorSection(
+    unsigned Priority, const MCSymbol *KeySym, const MCSection *KeySec) const {
   // The default scheme is .ctor / .dtor, so we have to invert the priority
   // numbering.
   if (Priority == 65535)
@@ -359,8 +355,8 @@ TargetLoweringObjectFileELF::getStaticCtorSection(unsigned Priority) const {
   }
 }
 
-const MCSection *
-TargetLoweringObjectFileELF::getStaticDtorSection(unsigned Priority) const {
+const MCSection *TargetLoweringObjectFileELF::getStaticDtorSection(
+    unsigned Priority, const MCSymbol *KeySym, const MCSection *KeySec) const {
   // The default scheme is .ctor / .dtor, so we have to invert the priority
   // numbering.
   if (Priority == 65535)
@@ -418,7 +414,7 @@ emitModuleFlags(MCStreamer &Streamer,
                 Mangler &Mang, const TargetMachine &TM) const {
   unsigned VersionVal = 0;
   unsigned ImageInfoFlags = 0;
-  MDNode *LinkerOptions = 0;
+  MDNode *LinkerOptions = nullptr;
   StringRef SectionVal;
 
   for (ArrayRef<Module::ModuleFlagEntry>::iterator
@@ -659,7 +655,7 @@ const MCExpr *TargetLoweringObjectFileMachO::getTTypeGlobalReference(
     MachineModuleInfoImpl::StubValueTy &StubSym =
       GV->hasHiddenVisibility() ? MachOMMI.getHiddenGVStubEntry(SSym) :
                                   MachOMMI.getGVStubEntry(SSym);
-    if (StubSym.getPointer() == 0) {
+    if (!StubSym.getPointer()) {
       MCSymbol *Sym = TM.getSymbol(GV, Mang);
       StubSym = MachineModuleInfoImpl::StubValueTy(Sym, !GV->hasLocalLinkage());
     }
@@ -685,7 +681,7 @@ MCSymbol *TargetLoweringObjectFileMachO::getCFIPersonalitySymbol(
   // Add information about the stub reference to MachOMMI so that the stub
   // gets emitted by the asmprinter.
   MachineModuleInfoImpl::StubValueTy &StubSym = MachOMMI.getGVStubEntry(SSym);
-  if (StubSym.getPointer() == 0) {
+  if (!StubSym.getPointer()) {
     MCSymbol *Sym = TM.getSymbol(GV, Mang);
     StubSym = MachineModuleInfoImpl::StubValueTy(Sym, !GV->hasLocalLinkage());
   }
@@ -755,7 +751,7 @@ const MCSection *TargetLoweringObjectFileCOFF::getExplicitSectionGlobal(
 static const char *getCOFFSectionNameForUniqueGlobal(SectionKind Kind) {
   if (Kind.isText())
     return ".text";
-  if (Kind.isBSS ())
+  if (Kind.isBSS())
     return ".bss";
   if (Kind.isThreadLocal())
     return ".tls$";
@@ -781,7 +777,7 @@ SelectSectionForGlobal(const GlobalValue *GV, SectionKind Kind,
   // Section names depend on the name of the symbol which is not feasible if the
   // symbol has private linkage.
   if ((GV->isWeakForLinker() || EmitUniquedSection) &&
-      !GV->hasPrivateLinkage()) {
+      !GV->hasPrivateLinkage() && !Kind.isCommon()) {
     const char *Name = getCOFFSectionNameForUniqueGlobal(Kind);
     unsigned Characteristics = getCOFFSectionFlags(Kind);
 
@@ -802,7 +798,10 @@ SelectSectionForGlobal(const GlobalValue *GV, SectionKind Kind,
   if (Kind.isReadOnly())
     return ReadOnlySection;
 
-  if (Kind.isBSS())
+  // Note: we claim that common symbols are put in BSSSection, but they are
+  // really emitted with the magic .comm directive, which creates a symbol table
+  // entry but not a section.
+  if (Kind.isBSS() || Kind.isCommon())
     return BSSSection;
 
   return DataSection;
@@ -820,7 +819,7 @@ void TargetLoweringObjectFileCOFF::
 emitModuleFlags(MCStreamer &Streamer,
                 ArrayRef<Module::ModuleFlagEntry> ModuleFlags,
                 Mangler &Mang, const TargetMachine &TM) const {
-  MDNode *LinkerOptions = 0;
+  MDNode *LinkerOptions = nullptr;
 
   // Look for the "Linker Options" flag, since it's the only one we support.
   for (ArrayRef<Module::ModuleFlagEntry>::iterator
@@ -861,4 +860,33 @@ emitModuleFlags(MCStreamer &Streamer,
       Streamer.EmitBytes(Escaped);
     }
   }
+}
+
+static const MCSection *getAssociativeCOFFSection(MCContext &Ctx,
+                                                  const MCSection *Sec,
+                                                  const MCSymbol *KeySym,
+                                                  const MCSection *KeySec) {
+  // Return the normal section if we don't have to be associative.
+  if (!KeySym)
+    return Sec;
+
+  // Make an associative section with the same name and kind as the normal
+  // section.
+  const MCSectionCOFF *SecCOFF = cast<MCSectionCOFF>(Sec);
+  const MCSectionCOFF *KeySecCOFF = cast<MCSectionCOFF>(KeySec);
+  unsigned Characteristics =
+      SecCOFF->getCharacteristics() | COFF::IMAGE_SCN_LNK_COMDAT;
+  return Ctx.getCOFFSection(SecCOFF->getSectionName(), Characteristics,
+                            SecCOFF->getKind(), KeySym->getName(),
+                            COFF::IMAGE_COMDAT_SELECT_ASSOCIATIVE, KeySecCOFF);
+}
+
+const MCSection *TargetLoweringObjectFileCOFF::getStaticCtorSection(
+    unsigned Priority, const MCSymbol *KeySym, const MCSection *KeySec) const {
+  return getAssociativeCOFFSection(getContext(), StaticCtorSection, KeySym, KeySec);
+}
+
+const MCSection *TargetLoweringObjectFileCOFF::getStaticDtorSection(
+    unsigned Priority, const MCSymbol *KeySym, const MCSection *KeySec) const {
+  return getAssociativeCOFFSection(getContext(), StaticDtorSection, KeySym, KeySec);
 }

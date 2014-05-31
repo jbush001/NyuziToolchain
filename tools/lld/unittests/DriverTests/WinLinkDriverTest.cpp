@@ -68,6 +68,7 @@ TEST_F(WinLinkParserTest, Basic) {
   EXPECT_EQ("", _context.getManifestDependency());
   EXPECT_FALSE(_context.getEmbedManifest());
   EXPECT_EQ(1, _context.getManifestId());
+  EXPECT_TRUE(_context.getManifestUAC());
   EXPECT_EQ("'asInvoker'", _context.getManifestLevel());
   EXPECT_EQ("'false'", _context.getManifestUiAccess());
   EXPECT_TRUE(_context.deadStrip());
@@ -326,6 +327,16 @@ TEST_F(WinLinkParserTest, Merge) {
 TEST_F(WinLinkParserTest, Merge_Circular) {
   EXPECT_FALSE(parse("link.exe", "/merge:.foo=.bar", "/merge:.bar=.foo",
                      "a.out", nullptr));
+}
+
+TEST_F(WinLinkParserTest, Implib) {
+  EXPECT_TRUE(parse("link.exe", "/implib:foo.dll.lib", "a.out", nullptr));
+  EXPECT_EQ("foo.dll.lib", _context.getOutputImportLibraryPath());
+}
+
+TEST_F(WinLinkParserTest, ImplibDefault) {
+  EXPECT_TRUE(parse("link.exe", "/out:foobar.dll", "a.out", nullptr));
+  EXPECT_EQ("foobar.lib", _context.getOutputImportLibraryPath());
 }
 
 //
@@ -602,6 +613,11 @@ TEST_F(WinLinkParserTest, Manifest_Embed_ID42) {
   EXPECT_EQ("'false'", _context.getManifestUiAccess());
 }
 
+TEST_F(WinLinkParserTest, Manifestuac_no) {
+  EXPECT_TRUE(parse("link.exe", "/manifestuac:NO", "a.out", nullptr));
+  EXPECT_FALSE(_context.getManifestUAC());
+}
+
 TEST_F(WinLinkParserTest, Manifestuac_Level) {
   EXPECT_TRUE(parse("link.exe", "/manifestuac:level='requireAdministrator'",
                     "a.out", nullptr));
@@ -636,6 +652,25 @@ TEST_F(WinLinkParserTest, Manifestdependency) {
 }
 
 //
+// Test for /OPT
+//
+
+TEST_F(WinLinkParserTest, OptNoRef) {
+  EXPECT_TRUE(parse("link.exe", "/opt:noref", "a.obj", nullptr));
+  EXPECT_FALSE(_context.deadStrip());
+}
+
+TEST_F(WinLinkParserTest, OptIgnore) {
+  EXPECT_TRUE(parse("link.exe", "/opt:ref", "/opt:icf", "/opt:noicf",
+                    "/opt:icf=foo", "/opt:lbr", "/opt:nolbr", "a.obj",
+                    nullptr));
+}
+
+TEST_F(WinLinkParserTest, OptUnknown) {
+  EXPECT_FALSE(parse("link.exe", "/opt:foo", "a.obj", nullptr));
+}
+
+//
 // Test for command line flags that are ignored.
 //
 
@@ -647,8 +682,8 @@ TEST_F(WinLinkParserTest, Ignore) {
                     "/disallowlib:foo", "/delayload:user32", "/pdb:foo",
                     "/pdbaltpath:bar", "/verbose", "/verbose:icf", "/wx",
                     "/wx:no", "/tlbid:1", "/tlbout:foo", "/idlout:foo",
-                    "/ignoreidl", "/implib:foo", "/safeseh", "/safeseh:no",
-                    "/functionpadmin", "a.obj", nullptr));
+                    "/ignore:4000", "/ignoreidl", "/implib:foo", "/safeseh",
+                    "/safeseh:no", "/functionpadmin", "a.obj", nullptr));
   EXPECT_EQ("", errorMessage());
   EXPECT_EQ(2, inputFileCount());
   EXPECT_EQ("a.obj", inputFile(0));
@@ -681,4 +716,14 @@ TEST_F(WinLinkParserTest, DefEntryNameConsole) {
 TEST_F(WinLinkParserTest, DefEntryNameWindows) {
   EXPECT_TRUE(parse("link.exe", "/subsystem:windows", "a.obj", nullptr));
   EXPECT_EQ("_WinMainCRTStartup", _context.entrySymbolName());
+}
+
+TEST_F(WinLinkParserTest, DefEntryNameDll32) {
+  EXPECT_TRUE(parse("link.exe", "/dll", "/machine:x86", "a.obj", nullptr));
+  EXPECT_EQ("__DllMainCRTStartup@12", _context.entrySymbolName());
+}
+
+TEST_F(WinLinkParserTest, DefEntryNameDll64) {
+  EXPECT_TRUE(parse("link.exe", "/dll", "/machine:x64", "a.obj", nullptr));
+  EXPECT_EQ("_DllMainCRTStartup", _context.entrySymbolName());
 }

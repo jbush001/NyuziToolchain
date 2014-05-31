@@ -1,5 +1,5 @@
 // REQUIRES: arm64-registered-target
-// RUN: %clang_cc1 -triple arm64-apple-ios7.0  \
+// RUN: %clang_cc1 -triple arm64-apple-ios7.0 -target-feature +neon  \
 // RUN:   -S -O1 -o - -ffreestanding %s | FileCheck %s
 
 // We're explicitly using arm_neon.h here: some types probably don't match
@@ -114,6 +114,12 @@ int64_t test_vqshld_s64(int64_t a, int64_t b) {
 // CHECK: sqshl {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
 }
 
+// CHECK: test_vqshld_s64_i
+int64_t test_vqshld_s64_i(int64_t a) {
+  return vqshld_s64(a, 36);
+// CHECK: sqshl {{d[0-9]+}}, {{d[0-9]+}}, #36
+}
+
 // CHECK: test_vqshlb_u8
 uint8_t test_vqshlb_u8(uint8_t a, uint8_t b) {
   return vqshlb_u8(a, b);
@@ -136,6 +142,12 @@ uint32_t test_vqshls_u32(uint32_t a, uint32_t b) {
 uint64_t test_vqshld_u64(uint64_t a, uint64_t b) {
   return vqshld_u64(a, b);
 // CHECK: uqshl {{d[0-9]+}}, {{d[0-9]+}}, {{d[0-9]+}}
+}
+
+// CHECK: test_vqshld_u64_i
+uint64_t test_vqshld_u64_i(uint64_t a) {
+  return vqshld_u64(a, 36);
+// CHECK: uqshl {{d[0-9]+}}, {{d[0-9]+}}, #36
 }
 
 // CHECK: test_vshld_u64

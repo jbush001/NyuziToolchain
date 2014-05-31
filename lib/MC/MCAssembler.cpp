@@ -7,7 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "assembler"
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringExtras.h"
@@ -28,11 +27,10 @@
 #include "llvm/Support/LEB128.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/Compression.h"
-#include "llvm/Support/Host.h"
-
+#include <tuple>
 using namespace llvm;
+
+#define DEBUG_TYPE "assembler"
 
 namespace {
 namespace stats {
@@ -119,36 +117,89 @@ uint64_t MCAsmLayout::getFragmentOffset(const MCFragment *F) const {
   return F->Offset;
 }
 
-uint64_t MCAsmLayout::getSymbolOffset(const MCSymbolData *SD) const {
+// Simple getSymbolOffset helper for the non-varibale case.
+static bool getLabelOffset(const MCAsmLayout &Layout, const MCSymbolData &SD,
+                           bool ReportError, uint64_t &Val) {
+  if (!SD.getFragment()) {
+    if (ReportError)
+      report_fatal_error("unable to evaluate offset to undefined symbol '" +
+                         SD.getSymbol().getName() + "'");
+    return false;
+  }
+  Val = Layout.getFragmentOffset(SD.getFragment()) + SD.getOffset();
+  return true;
+}
+
+static bool getSymbolOffsetImpl(const MCAsmLayout &Layout,
+                                const MCSymbolData *SD, bool ReportError,
+                                uint64_t &Val) {
   const MCSymbol &S = SD->getSymbol();
 
-  // If this is a variable, then recursively evaluate now.
-  if (S.isVariable()) {
-    MCValue Target;
-    if (!S.getVariableValue()->EvaluateAsRelocatable(Target, this))
-      report_fatal_error("unable to evaluate offset for variable '" +
-                         S.getName() + "'");
+  if (!S.isVariable())
+    return getLabelOffset(Layout, *SD, ReportError, Val);
 
-    // Verify that any used symbols are defined.
-    if (Target.getSymA() && Target.getSymA()->getSymbol().isUndefined())
-      report_fatal_error("unable to evaluate offset to undefined symbol '" +
-                         Target.getSymA()->getSymbol().getName() + "'");
-    if (Target.getSymB() && Target.getSymB()->getSymbol().isUndefined())
-      report_fatal_error("unable to evaluate offset to undefined symbol '" +
-                         Target.getSymB()->getSymbol().getName() + "'");
+  // If SD is a variable, evaluate it.
+  MCValue Target;
+  if (!S.getVariableValue()->EvaluateAsValue(Target, &Layout))
+    report_fatal_error("unable to evaluate offset for variable '" +
+                       S.getName() + "'");
 
-    uint64_t Offset = Target.getConstant();
-    if (Target.getSymA())
-      Offset += getSymbolOffset(&Assembler.getSymbolData(
-                                  Target.getSymA()->getSymbol()));
-    if (Target.getSymB())
-      Offset -= getSymbolOffset(&Assembler.getSymbolData(
-                                  Target.getSymB()->getSymbol()));
-    return Offset;
+  uint64_t Offset = Target.getConstant();
+
+  const MCAssembler &Asm = Layout.getAssembler();
+
+  const MCSymbolRefExpr *A = Target.getSymA();
+  if (A) {
+    uint64_t ValA;
+    if (!getLabelOffset(Layout, Asm.getSymbolData(A->getSymbol()), ReportError,
+                        ValA))
+      return false;
+    Offset += ValA;
   }
 
-  assert(SD->getFragment() && "Invalid getOffset() on undefined symbol!");
-  return getFragmentOffset(SD->getFragment()) + SD->getOffset();
+  const MCSymbolRefExpr *B = Target.getSymB();
+  if (B) {
+    uint64_t ValB;
+    if (!getLabelOffset(Layout, Asm.getSymbolData(B->getSymbol()), ReportError,
+                        ValB))
+      return false;
+    Offset -= ValB;
+  }
+
+  Val = Offset;
+  return true;
+}
+
+bool MCAsmLayout::getSymbolOffset(const MCSymbolData *SD, uint64_t &Val) const {
+  return getSymbolOffsetImpl(*this, SD, false, Val);
+}
+
+uint64_t MCAsmLayout::getSymbolOffset(const MCSymbolData *SD) const {
+  uint64_t Val;
+  getSymbolOffsetImpl(*this, SD, true, Val);
+  return Val;
+}
+
+const MCSymbol *MCAsmLayout::getBaseSymbol(const MCSymbol &Symbol) const {
+  if (!Symbol.isVariable())
+    return &Symbol;
+
+  const MCExpr *Expr = Symbol.getVariableValue();
+  MCValue Value;
+  if (!Expr->EvaluateAsValue(Value, this))
+    llvm_unreachable("Invalid Expression");
+
+  const MCSymbolRefExpr *RefB = Value.getSymB();
+  if (RefB)
+    Assembler.getContext().FatalError(
+        SMLoc(), Twine("symbol '") + RefB->getSymbol().getName() +
+                     "' could not be evaluated in a subtraction expression");
+
+  const MCSymbolRefExpr *A = Value.getSymA();
+  if (!A)
+    return nullptr;
+
+  return &A->getSymbol();
 }
 
 uint64_t MCAsmLayout::getSectionAddressSize(const MCSectionData *SD) const {
@@ -215,7 +266,7 @@ MCFragment::~MCFragment() {
 }
 
 MCFragment::MCFragment(FragmentType _Kind, MCSectionData *_Parent)
-  : Kind(_Kind), Parent(_Parent), Atom(0), Offset(~UINT64_C(0))
+  : Kind(_Kind), Parent(_Parent), Atom(nullptr), Offset(~UINT64_C(0))
 {
   if (Parent)
     Parent->getFragmentList().push_back(this);
@@ -233,40 +284,7 @@ MCEncodedFragmentWithFixups::~MCEncodedFragmentWithFixups() {
 
 /* *** */
 
-const SmallVectorImpl<char> &MCCompressedFragment::getCompressedContents() const {
-  assert(getParent()->size() == 1 &&
-         "Only compress sections containing a single fragment");
-  if (CompressedContents.empty()) {
-    std::unique_ptr<MemoryBuffer> CompressedSection;
-    zlib::Status Success =
-        zlib::compress(StringRef(getContents().data(), getContents().size()),
-                       CompressedSection);
-    (void)Success;
-    assert(Success == zlib::StatusOK);
-    CompressedContents.push_back('Z');
-    CompressedContents.push_back('L');
-    CompressedContents.push_back('I');
-    CompressedContents.push_back('B');
-    uint64_t Size = getContents().size();
-    if (sys::IsLittleEndianHost)
-      Size = sys::SwapByteOrder(Size);
-    CompressedContents.append(reinterpret_cast<char *>(&Size),
-                              reinterpret_cast<char *>(&Size + 1));
-    CompressedContents.append(CompressedSection->getBuffer().begin(),
-                              CompressedSection->getBuffer().end());
-  }
-  return CompressedContents;
-}
-
-SmallVectorImpl<char> &MCCompressedFragment::getContents() {
-  assert(CompressedContents.empty() &&
-         "Fragment contents should not be altered after compression");
-  return MCDataFragment::getContents();
-}
-
-/* *** */
-
-MCSectionData::MCSectionData() : Section(0) {}
+MCSectionData::MCSectionData() : Section(nullptr) {}
 
 MCSectionData::MCSectionData(const MCSection &_Section, MCAssembler *A)
   : Section(&_Section),
@@ -286,7 +304,7 @@ MCSectionData::getSubsectionInsertionPoint(unsigned Subsection) {
 
   SmallVectorImpl<std::pair<unsigned, MCFragment *> >::iterator MI =
     std::lower_bound(SubsectionFragmentMap.begin(), SubsectionFragmentMap.end(),
-                     std::make_pair(Subsection, (MCFragment *)0));
+                     std::make_pair(Subsection, (MCFragment *)nullptr));
   bool ExactMatch = false;
   if (MI != SubsectionFragmentMap.end()) {
     ExactMatch = MI->first == Subsection;
@@ -311,13 +329,13 @@ MCSectionData::getSubsectionInsertionPoint(unsigned Subsection) {
 
 /* *** */
 
-MCSymbolData::MCSymbolData() : Symbol(0) {}
+MCSymbolData::MCSymbolData() : Symbol(nullptr) {}
 
 MCSymbolData::MCSymbolData(const MCSymbol &_Symbol, MCFragment *_Fragment,
                            uint64_t _Offset, MCAssembler *A)
   : Symbol(&_Symbol), Fragment(_Fragment), Offset(_Offset),
     IsExternal(false), IsPrivateExtern(false),
-    CommonSize(0), SymbolSize(0), CommonAlign(0),
+    CommonSize(0), SymbolSize(nullptr), CommonAlign(0),
     Flags(0), Index(0)
 {
   if (A)
@@ -358,6 +376,31 @@ void MCAssembler::reset() {
   getLOHContainer().reset();
 }
 
+bool MCAssembler::isThumbFunc(const MCSymbol *Symbol) const {
+  if (ThumbFuncs.count(Symbol))
+    return true;
+
+  if (!Symbol->isVariable())
+    return false;
+
+  // FIXME: It looks like gas supports some cases of the form "foo + 2". It
+  // is not clear if that is a bug or a feature.
+  const MCExpr *Expr = Symbol->getVariableValue();
+  const MCSymbolRefExpr *Ref = dyn_cast<MCSymbolRefExpr>(Expr);
+  if (!Ref)
+    return false;
+
+  if (Ref->getKind() != MCSymbolRefExpr::VK_None)
+    return false;
+
+  const MCSymbol &Sym = Ref->getSymbol();
+  if (!isThumbFunc(&Sym))
+    return false;
+
+  ThumbFuncs.insert(Symbol); // Cache it.
+  return true;
+}
+
 bool MCAssembler::isSymbolLinkerVisible(const MCSymbol &Symbol) const {
   // Non-temporary labels should always be visible to the linker.
   if (!Symbol.isTemporary())
@@ -378,13 +421,13 @@ const MCSymbolData *MCAssembler::getAtom(const MCSymbolData *SD) const {
 
   // Absolute and undefined symbols have no defining atom.
   if (!SD->getFragment())
-    return 0;
+    return nullptr;
 
   // Non-linker visible symbols in sections which can't be atomized have no
   // defining atom.
   if (!getBackend().isSectionAtomizable(
         SD->getFragment()->getParent()->getSection()))
-    return 0;
+    return nullptr;
 
   // Otherwise, return the atom for the containing fragment.
   return SD->getFragment()->getAtom();
@@ -467,8 +510,6 @@ uint64_t MCAssembler::computeFragmentSize(const MCAsmLayout &Layout,
   case MCFragment::FT_Relaxable:
   case MCFragment::FT_CompactEncodedInst:
     return cast<MCEncodedFragment>(F).getContents().size();
-  case MCFragment::FT_Compressed:
-    return cast<MCCompressedFragment>(F).getCompressedContents().size();
   case MCFragment::FT_Fill:
     return cast<MCFillFragment>(F).getSize();
 
@@ -657,11 +698,6 @@ static void writeFragment(const MCAssembler &Asm, const MCAsmLayout &Layout,
     break;
   }
 
-  case MCFragment::FT_Compressed:
-    ++stats::EmittedDataFragments;
-    OW->WriteBytes(cast<MCCompressedFragment>(F).getCompressedContents());
-    break;
-
   case MCFragment::FT_Data: 
     ++stats::EmittedDataFragments;
     writeFragmentContents(F, OW);
@@ -738,7 +774,6 @@ void MCAssembler::writeSectionData(const MCSectionData *SD,
            ie = SD->end(); it != ie; ++it) {
       switch (it->getKind()) {
       default: llvm_unreachable("Invalid fragment in virtual section!");
-      case MCFragment::FT_Compressed:
       case MCFragment::FT_Data: {
         // Check that we aren't trying to write a non-zero contents (or fixups)
         // into a virtual section. This is to support clients which use standard
@@ -992,7 +1027,7 @@ bool MCAssembler::layoutSectionOnce(MCAsmLayout &Layout, MCSectionData &SD) {
   // remain NULL if none were relaxed.
   // When a fragment is relaxed, all the fragments following it should get
   // invalidated because their offset is going to change.
-  MCFragment *FirstRelaxedFragment = NULL;
+  MCFragment *FirstRelaxedFragment = nullptr;
 
   // Attempt to relax all the fragments in the section.
   for (MCSectionData::iterator I = SD.begin(), IE = SD.end(); I != IE; ++I) {
@@ -1070,8 +1105,6 @@ void MCFragment::dump() {
   switch (getKind()) {
   case MCFragment::FT_Align: OS << "MCAlignFragment"; break;
   case MCFragment::FT_Data:  OS << "MCDataFragment"; break;
-  case MCFragment::FT_Compressed:
-    OS << "MCCompressedFragment"; break;
   case MCFragment::FT_CompactEncodedInst:
     OS << "MCCompactEncodedInstFragment"; break;
   case MCFragment::FT_Fill:  OS << "MCFillFragment"; break;
@@ -1098,7 +1131,6 @@ void MCFragment::dump() {
        << " MaxBytesToEmit:" << AF->getMaxBytesToEmit() << ">";
     break;
   }
-  case MCFragment::FT_Compressed:
   case MCFragment::FT_Data:  {
     const MCDataFragment *DF = cast<MCDataFragment>(this);
     OS << "\n       ";

@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -triple arm64-apple-ios7 -target-abi darwinpcs -ffreestanding -emit-llvm -w -o - %s | FileCheck %s
+// RUN: %clang_cc1 -triple arm64-apple-ios7 -target-feature +neon -target-abi darwinpcs -ffreestanding -emit-llvm -w -o - %s | FileCheck %s
 
 // CHECK: define signext i8 @f0()
 char f0(void) {
@@ -638,6 +638,12 @@ float test_hfa(int n, ...) {
   __builtin_va_start(thelist, n);
   struct HFA h = __builtin_va_arg(thelist, struct HFA);
   return h.d;
+}
+
+float test_hfa_call(struct HFA *a) {
+// CHECK-LABEL: define float @test_hfa_call(%struct.HFA* %a)
+// CHECK: call float (i32, ...)* @test_hfa(i32 1, [2 x double] {{.*}})
+  test_hfa(1, *a);
 }
 
 struct TooBigHFA {

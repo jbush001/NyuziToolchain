@@ -18,7 +18,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "functionattrs"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/SetVector.h"
@@ -35,6 +34,8 @@
 #include "llvm/Target/TargetLibraryInfo.h"
 using namespace llvm;
 
+#define DEBUG_TYPE "functionattrs"
+
 STATISTIC(NumReadNone, "Number of functions marked readnone");
 STATISTIC(NumReadOnly, "Number of functions marked readonly");
 STATISTIC(NumNoCapture, "Number of arguments marked nocapture");
@@ -46,7 +47,7 @@ STATISTIC(NumAnnotated, "Number of attributes added to library functions");
 namespace {
   struct FunctionAttrs : public CallGraphSCCPass {
     static char ID; // Pass identification, replacement for typeid
-    FunctionAttrs() : CallGraphSCCPass(ID), AA(0) {
+    FunctionAttrs() : CallGraphSCCPass(ID), AA(nullptr) {
       initializeFunctionAttrsPass(*PassRegistry::getPassRegistry());
     }
 
@@ -160,7 +161,7 @@ bool FunctionAttrs::AddReadAttrs(const CallGraphSCC &SCC) {
   for (CallGraphSCC::iterator I = SCC.begin(), E = SCC.end(); I != E; ++I) {
     Function *F = (*I)->getFunction();
 
-    if (F == 0)
+    if (!F)
       // External node - may write memory.  Just give up.
       return false;
 
@@ -319,7 +320,7 @@ namespace {
     ArgumentGraphNode SyntheticRoot;
 
   public:
-    ArgumentGraph() { SyntheticRoot.Definition = 0; }
+    ArgumentGraph() { SyntheticRoot.Definition = nullptr; }
 
     typedef SmallVectorImpl<ArgumentGraphNode*>::iterator iterator;
 
@@ -448,14 +449,29 @@ determinePointerReadAttrs(Argument *A,
 
     case Instruction::Call:
     case Instruction::Invoke: {
+      bool Captures = true;
+
+      if (I->getType()->isVoidTy())
+        Captures = false;
+
+      auto AddUsersToWorklistIfCapturing = [&] {
+        if (Captures)
+          for (Use &UU : I->uses())
+            if (Visited.insert(&UU))
+              Worklist.push_back(&UU);
+      };
+
       CallSite CS(I);
-      if (CS.doesNotAccessMemory())
+      if (CS.doesNotAccessMemory()) {
+        AddUsersToWorklistIfCapturing();
         continue;
+      }
 
       Function *F = CS.getCalledFunction();
       if (!F) {
         if (CS.onlyReadsMemory()) {
           IsRead = true;
+          AddUsersToWorklistIfCapturing();
           continue;
         }
         return Attribute::None;
@@ -470,6 +486,7 @@ determinePointerReadAttrs(Argument *A,
                    "More params than args in non-varargs call.");
             return Attribute::None;
           }
+          Captures &= !CS.doesNotCapture(A - B);
           if (SCCNodes.count(AI))
             continue;
           if (!CS.onlyReadsMemory() && !CS.onlyReadsMemory(A - B))
@@ -478,6 +495,7 @@ determinePointerReadAttrs(Argument *A,
             IsRead = true;
         }
       }
+      AddUsersToWorklistIfCapturing();
       break;
     }
 
@@ -521,7 +539,7 @@ bool FunctionAttrs::AddArgumentAttrs(const CallGraphSCC &SCC) {
   for (CallGraphSCC::iterator I = SCC.begin(), E = SCC.end(); I != E; ++I) {
     Function *F = (*I)->getFunction();
 
-    if (F == 0)
+    if (!F)
       // External node - only a problem for arguments that we pass to it.
       continue;
 
@@ -600,7 +618,7 @@ bool FunctionAttrs::AddArgumentAttrs(const CallGraphSCC &SCC) {
   // captures.
 
   for (scc_iterator<ArgumentGraph*> I = scc_begin(&AG); !I.isAtEnd(); ++I) {
-    std::vector<ArgumentGraphNode*> &ArgumentSCC = *I;
+    const std::vector<ArgumentGraphNode *> &ArgumentSCC = *I;
     if (ArgumentSCC.size() == 1) {
       if (!ArgumentSCC[0]->Definition) continue;  // synthetic root node
 
@@ -616,8 +634,8 @@ bool FunctionAttrs::AddArgumentAttrs(const CallGraphSCC &SCC) {
     }
 
     bool SCCCaptured = false;
-    for (std::vector<ArgumentGraphNode*>::iterator I = ArgumentSCC.begin(),
-           E = ArgumentSCC.end(); I != E && !SCCCaptured; ++I) {
+    for (auto I = ArgumentSCC.begin(), E = ArgumentSCC.end();
+         I != E && !SCCCaptured; ++I) {
       ArgumentGraphNode *Node = *I;
       if (Node->Uses.empty()) {
         if (!Node->Definition->hasNoCaptureAttr())
@@ -629,13 +647,12 @@ bool FunctionAttrs::AddArgumentAttrs(const CallGraphSCC &SCC) {
     SmallPtrSet<Argument*, 8> ArgumentSCCNodes;
     // Fill ArgumentSCCNodes with the elements of the ArgumentSCC.  Used for
     // quickly looking up whether a given Argument is in this ArgumentSCC.
-    for (std::vector<ArgumentGraphNode*>::iterator I = ArgumentSCC.begin(),
-           E = ArgumentSCC.end(); I != E; ++I) {
+    for (auto I = ArgumentSCC.begin(), E = ArgumentSCC.end(); I != E; ++I) {
       ArgumentSCCNodes.insert((*I)->Definition);
     }
 
-    for (std::vector<ArgumentGraphNode*>::iterator I = ArgumentSCC.begin(),
-           E = ArgumentSCC.end(); I != E && !SCCCaptured; ++I) {
+    for (auto I = ArgumentSCC.begin(), E = ArgumentSCC.end();
+         I != E && !SCCCaptured; ++I) {
       ArgumentGraphNode *N = *I;
       for (SmallVectorImpl<ArgumentGraphNode*>::iterator UI = N->Uses.begin(),
              UE = N->Uses.end(); UI != UE; ++UI) {
@@ -775,7 +792,7 @@ bool FunctionAttrs::AddNoAliasAttrs(const CallGraphSCC &SCC) {
   for (CallGraphSCC::iterator I = SCC.begin(), E = SCC.end(); I != E; ++I) {
     Function *F = (*I)->getFunction();
 
-    if (F == 0)
+    if (!F)
       // External node - skip it;
       return false;
 
@@ -1668,7 +1685,7 @@ bool FunctionAttrs::annotateLibraryCalls(const CallGraphSCC &SCC) {
   for (CallGraphSCC::iterator I = SCC.begin(), E = SCC.end(); I != E; ++I) {
     Function *F = (*I)->getFunction();
 
-    if (F != 0 && F->isDeclaration())
+    if (F && F->isDeclaration())
       MadeChange |= inferPrototypeAttributes(*F);
   }
 

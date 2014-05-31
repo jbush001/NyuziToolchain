@@ -7,7 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file declares the Value class. 
+// This file declares the Value class.
 //
 //===----------------------------------------------------------------------===//
 
@@ -31,6 +31,7 @@ class Constant;
 class DataLayout;
 class Function;
 class GlobalAlias;
+class GlobalObject;
 class GlobalValue;
 class GlobalVariable;
 class InlineAsm;
@@ -52,7 +53,7 @@ typedef StringMapEntry<Value*> ValueName;
 //                                 Value Class
 //===----------------------------------------------------------------------===//
 
-/// This is a very important LLVM class. It is the base class of all values 
+/// This is a very important LLVM class. It is the base class of all values
 /// computed by a program that may be used as operands to other values. Value is
 /// the super class of other important classes such as Instruction and Function.
 /// All Values have a Type. Type is not a subclass of Value. Some values can
@@ -182,10 +183,6 @@ private:
   Value(const Value &) LLVM_DELETED_FUNCTION;
 
 protected:
-  /// printCustom - Value subclasses can override this to implement custom
-  /// printing behavior.
-  virtual void printCustom(raw_ostream &O) const;
-
   Value(Type *Ty, unsigned scid);
 public:
   virtual ~Value();
@@ -196,14 +193,15 @@ public:
 
   /// print - Implement operator<< on Value.
   ///
-  void print(raw_ostream &O, AssemblyAnnotationWriter *AAW = 0) const;
+  void print(raw_ostream &O) const;
 
   /// \brief Print the name of this Value out to the specified raw_ostream.
   /// This is useful when you just want to print 'int %reg126', not the
   /// instruction that generated it. If you specify a Module for context, then
   /// even constanst get pretty-printed; for example, the type of a null
   /// pointer is printed symbolically.
-  void printAsOperand(raw_ostream &O, bool PrintType = true, const Module *M = 0) const;
+  void printAsOperand(raw_ostream &O, bool PrintType = true,
+                      const Module *M = nullptr) const;
 
   /// All values are typed, get the type of this value.
   ///
@@ -213,10 +211,10 @@ public:
   LLVMContext &getContext() const;
 
   // All values can potentially be named.
-  bool hasName() const { return Name != 0 && SubclassID != MDStringVal; }
+  bool hasName() const { return Name != nullptr && SubclassID != MDStringVal; }
   ValueName *getValueName() const { return Name; }
   void setValueName(ValueName *VN) { Name = VN; }
-  
+
   /// getName() - Return a constant reference to the value's name. This is cheap
   /// and guaranteed to return the same reference as long as the value is not
   /// modified.
@@ -228,9 +226,9 @@ public:
   /// \param Name The new name; or "" if the value's name should be removed.
   void setName(const Twine &Name);
 
-  
+
   /// takeName - transfer the name from V to this value, setting V's name to
-  /// empty.  It is an error to call V->takeName(V). 
+  /// empty.  It is an error to call V->takeName(V).
   void takeName(Value *V);
 
   /// replaceAllUsesWith - Go through the uses list for this definition and make
@@ -242,7 +240,7 @@ public:
   //----------------------------------------------------------------------
   // Methods for handling the chain of uses of this Value.
   //
-  bool               use_empty() const { return UseList == 0; }
+  bool               use_empty() const { return UseList == nullptr; }
 
   typedef use_iterator_impl<Use>       use_iterator;
   typedef use_iterator_impl<const Use> const_use_iterator;
@@ -303,7 +301,7 @@ public:
   void addUse(Use &U) { U.addToList(&UseList); }
 
   /// An enumeration for keeping track of the concrete subclass of Value that
-  /// is actually instantiated. Values of this enumeration are kept in the 
+  /// is actually instantiated. Values of this enumeration are kept in the
   /// Value classes SubclassID field. They are used for concrete type
   /// identification.
   enum ValueTy {
@@ -327,9 +325,6 @@ public:
     MDNodeVal,                // This is an instance of MDNode
     MDStringVal,              // This is an instance of MDString
     InlineAsmVal,             // This is an instance of InlineAsm
-    PseudoSourceValueVal,     // This is an instance of PseudoSourceValue
-    FixedStackPseudoSourceValueVal, // This is an instance of 
-                                    // FixedStackPseudoSourceValue
     InstructionVal,           // This is an instance of Instruction
     // Enum values starting at InstructionVal are used for Instructions;
     // don't add new values here!
@@ -436,7 +431,7 @@ public:
   /// isDereferenceablePointer - Test if this value is always a pointer to
   /// allocated and suitably aligned memory for a simple load or store.
   bool isDereferenceablePointer() const;
-  
+
   /// DoPHITranslation - If this value is a PHI node with CurBB as its parent,
   /// return the value in the PHI node corresponding to PredBB.  If not, return
   /// ourself.  This is useful if you want to know the value something has in a
@@ -447,11 +442,11 @@ public:
                                 const BasicBlock *PredBB) const{
     return const_cast<Value*>(this)->DoPHITranslation(CurBB, PredBB);
   }
-  
+
   /// MaximumAlignment - This is the greatest alignment value supported by
   /// load, store, and alloca instructions, and global values.
   static const unsigned MaximumAlignment = 1u << 29;
-  
+
   /// mutateType - Mutate the type of this Value to be of the specified type.
   /// Note that this is an extremely dangerous operation which can create
   /// completely invalid IR very easily.  It is strongly recommended that you
@@ -460,7 +455,7 @@ public:
   void mutateType(Type *Ty) {
     VTy = Ty;
   }
-  
+
 protected:
   unsigned short getSubclassDataFromValue() const { return SubclassData; }
   void setValueSubclassData(unsigned short D) { SubclassData = D; }
@@ -470,7 +465,7 @@ inline raw_ostream &operator<<(raw_ostream &OS, const Value &V) {
   V.print(OS);
   return OS;
 }
-  
+
 void Use::set(Value *V) {
   if (Val) removeFromList();
   Val = V;
@@ -494,55 +489,60 @@ template <> struct isa_impl<Argument, Value> {
   }
 };
 
-template <> struct isa_impl<InlineAsm, Value> { 
+template <> struct isa_impl<InlineAsm, Value> {
   static inline bool doit(const Value &Val) {
     return Val.getValueID() == Value::InlineAsmVal;
   }
 };
 
-template <> struct isa_impl<Instruction, Value> { 
+template <> struct isa_impl<Instruction, Value> {
   static inline bool doit(const Value &Val) {
     return Val.getValueID() >= Value::InstructionVal;
   }
 };
 
-template <> struct isa_impl<BasicBlock, Value> { 
+template <> struct isa_impl<BasicBlock, Value> {
   static inline bool doit(const Value &Val) {
     return Val.getValueID() == Value::BasicBlockVal;
   }
 };
 
-template <> struct isa_impl<Function, Value> { 
+template <> struct isa_impl<Function, Value> {
   static inline bool doit(const Value &Val) {
     return Val.getValueID() == Value::FunctionVal;
   }
 };
 
-template <> struct isa_impl<GlobalVariable, Value> { 
+template <> struct isa_impl<GlobalVariable, Value> {
   static inline bool doit(const Value &Val) {
     return Val.getValueID() == Value::GlobalVariableVal;
   }
 };
 
-template <> struct isa_impl<GlobalAlias, Value> { 
+template <> struct isa_impl<GlobalAlias, Value> {
   static inline bool doit(const Value &Val) {
     return Val.getValueID() == Value::GlobalAliasVal;
   }
 };
 
-template <> struct isa_impl<GlobalValue, Value> { 
+template <> struct isa_impl<GlobalValue, Value> {
   static inline bool doit(const Value &Val) {
-    return isa<GlobalVariable>(Val) || isa<Function>(Val) ||
-      isa<GlobalAlias>(Val);
+    return isa<GlobalObject>(Val) || isa<GlobalAlias>(Val);
   }
 };
 
-template <> struct isa_impl<MDNode, Value> { 
+template <> struct isa_impl<GlobalObject, Value> {
+  static inline bool doit(const Value &Val) {
+    return isa<GlobalVariable>(Val) || isa<Function>(Val);
+  }
+};
+
+template <> struct isa_impl<MDNode, Value> {
   static inline bool doit(const Value &Val) {
     return Val.getValueID() == Value::MDNodeVal;
   }
 };
-  
+
 // Value* is only 4-byte aligned.
 template<>
 class PointerLikeTypeTraits<Value*> {
@@ -559,7 +559,7 @@ public:
 DEFINE_ISA_CONVERSION_FUNCTIONS(Value, LLVMValueRef)
 
 /* Specialized opaque value conversions.
- */ 
+ */
 inline Value **unwrap(LLVMValueRef *Vals) {
   return reinterpret_cast<Value**>(Vals);
 }

@@ -86,7 +86,7 @@ namespace PBQP {
                      ConservativelyAllocatable,
                      NotProvablyAllocatable } ReductionState;
 
-      NodeMetadata() : RS(Unprocessed), DeniedOpts(0), OptUnsafeEdges(0) {}
+      NodeMetadata() : RS(Unprocessed), DeniedOpts(0), OptUnsafeEdges(nullptr){}
       ~NodeMetadata() { delete[] OptUnsafeEdges; }
 
       void setup(const Vector& Costs) {
@@ -346,7 +346,7 @@ namespace PBQP {
 
     typedef Graph<RegAllocSolverImpl> Graph;
 
-    Solution solve(Graph& G) {
+    inline Solution solve(Graph& G) {
       if (G.empty())
         return Solution();
       RegAllocSolverImpl RegAllocSolver(G);

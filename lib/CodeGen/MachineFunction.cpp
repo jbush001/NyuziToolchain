@@ -38,6 +38,8 @@
 #include "llvm/Target/TargetMachine.h"
 using namespace llvm;
 
+#define DEBUG_TYPE "codegen"
+
 //===----------------------------------------------------------------------===//
 // MachineFunction implementation
 //===----------------------------------------------------------------------===//
@@ -56,9 +58,9 @@ MachineFunction::MachineFunction(const Function *F, const TargetMachine &TM,
   if (TM.getRegisterInfo())
     RegInfo = new (Allocator) MachineRegisterInfo(TM);
   else
-    RegInfo = 0;
+    RegInfo = nullptr;
 
-  MFInfo = 0;
+  MFInfo = nullptr;
   FrameInfo =
     new (Allocator) MachineFrameInfo(TM,!F->hasFnAttribute("no-realign-stack"));
 
@@ -77,7 +79,7 @@ MachineFunction::MachineFunction(const Function *F, const TargetMachine &TM,
                          TM.getTargetLowering()->getPrefFunctionAlignment());
 
   FunctionNumber = FunctionNum;
-  JumpTableInfo = 0;
+  JumpTableInfo = nullptr;
 }
 
 MachineFunction::~MachineFunction() {
@@ -123,6 +125,11 @@ getOrCreateJumpTableInfo(unsigned EntryKind) {
   return JumpTableInfo;
 }
 
+/// Should we be emitting segmented stack stuff for the function
+bool MachineFunction::shouldSplitStack() {
+  return getFunction()->hasFnAttribute("split-stack");
+}
+
 /// RenumberBlocks - This discards all of the MachineBasicBlock numbers and
 /// recomputes them.  This guarantees that the MBB numbers are sequential,
 /// dense, and match the ordering of the blocks within the function.  If a
@@ -131,7 +138,7 @@ getOrCreateJumpTableInfo(unsigned EntryKind) {
 void MachineFunction::RenumberBlocks(MachineBasicBlock *MBB) {
   if (empty()) { MBBNumbering.clear(); return; }
   MachineFunction::iterator MBBI, E = end();
-  if (MBB == 0)
+  if (MBB == nullptr)
     MBBI = begin();
   else
     MBBI = MBB;
@@ -147,7 +154,7 @@ void MachineFunction::RenumberBlocks(MachineBasicBlock *MBB) {
       if (MBBI->getNumber() != -1) {
         assert(MBBNumbering[MBBI->getNumber()] == &*MBBI &&
                "MBB number mismatch!");
-        MBBNumbering[MBBI->getNumber()] = 0;
+        MBBNumbering[MBBI->getNumber()] = nullptr;
       }
 
       // If BlockNo is already taken, set that block's number to -1.
@@ -231,11 +238,17 @@ MachineFunction::getMachineMemOperand(MachinePointerInfo PtrInfo, unsigned f,
 MachineMemOperand *
 MachineFunction::getMachineMemOperand(const MachineMemOperand *MMO,
                                       int64_t Offset, uint64_t Size) {
+  if (MMO->getValue())
+    return new (Allocator)
+               MachineMemOperand(MachinePointerInfo(MMO->getValue(),
+                                                    MMO->getOffset()+Offset),
+                                 MMO->getFlags(), Size,
+                                 MMO->getBaseAlignment(), nullptr);
   return new (Allocator)
-             MachineMemOperand(MachinePointerInfo(MMO->getValue(),
+             MachineMemOperand(MachinePointerInfo(MMO->getPseudoValue(),
                                                   MMO->getOffset()+Offset),
                                MMO->getFlags(), Size,
-                               MMO->getBaseAlignment(), 0);
+                               MMO->getBaseAlignment(), nullptr);
 }
 
 MachineInstr::mmo_iterator
@@ -352,9 +365,9 @@ void MachineFunction::print(raw_ostream &OS, SlotIndexes *Indexes) const {
     OS << '\n';
   }
 
-  for (const_iterator BB = begin(), E = end(); BB != E; ++BB) {
+  for (const auto &BB : *this) {
     OS << '\n';
-    BB->print(OS, Indexes);
+    BB.print(OS, Indexes);
   }
 
   OS << "\n# End machine code for function " << getName() << ".\n\n";
@@ -564,7 +577,7 @@ int MachineFrameInfo::CreateFixedObject(uint64_t Size, int64_t SPOffset,
                         Align, getFrameLowering()->getStackAlignment()); 
   Objects.insert(Objects.begin(), StackObject(Size, Align, SPOffset, Immutable,
                                               /*isSS*/   false,
-                                              /*Alloca*/ 0));
+                                              /*Alloca*/ nullptr));
   return -++NumFixedObjects;
 }
 

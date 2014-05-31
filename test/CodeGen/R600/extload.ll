@@ -1,5 +1,5 @@
 ; RUN: llc -march=r600 -mcpu=cypress < %s | FileCheck -check-prefix=EG -check-prefix=FUNC %s
-; RUN: llc -march=r600 -mcpu=SI < %s | FileCheck -check-prefix=SI -check-prefix=FUNC %s
+; RUN: llc -march=r600 -mcpu=SI -verify-machineinstrs< %s | FileCheck -check-prefix=SI -check-prefix=FUNC %s
 
 ; FUNC-LABEL: @anyext_load_i8:
 ; EG: AND_INT
@@ -87,8 +87,9 @@ define void @sextload_global_i32_to_i64(i64 addrspace(1)* %out, i32 addrspace(1)
 }
 
 ; FUNC-LABEL: @zextload_global_i8_to_i64
+; SI: S_MOV_B32 [[ZERO:s[0-9]+]], 0
 ; SI: BUFFER_LOAD_UBYTE [[LOAD:v[0-9]+]],
-; SI: V_MOV_B32_e32 {{v[0-9]+}}, 0
+; SI: V_MOV_B32_e32 {{v[0-9]+}}, [[ZERO]]
 ; SI: BUFFER_STORE_DWORDX2
 define void @zextload_global_i8_to_i64(i64 addrspace(1)* %out, i8 addrspace(1)* %in) nounwind {
   %a = load i8 addrspace(1)* %in, align 8
@@ -98,8 +99,9 @@ define void @zextload_global_i8_to_i64(i64 addrspace(1)* %out, i8 addrspace(1)* 
 }
 
 ; FUNC-LABEL: @zextload_global_i16_to_i64
+; SI: S_MOV_B32 [[ZERO:s[0-9]+]], 0
 ; SI: BUFFER_LOAD_USHORT [[LOAD:v[0-9]+]],
-; SI: V_MOV_B32_e32 {{v[0-9]+}}, 0
+; SI: V_MOV_B32_e32 {{v[0-9]+}}, [[ZERO]]
 ; SI: BUFFER_STORE_DWORDX2
 define void @zextload_global_i16_to_i64(i64 addrspace(1)* %out, i16 addrspace(1)* %in) nounwind {
   %a = load i16 addrspace(1)* %in, align 8
@@ -109,8 +111,9 @@ define void @zextload_global_i16_to_i64(i64 addrspace(1)* %out, i16 addrspace(1)
 }
 
 ; FUNC-LABEL: @zextload_global_i32_to_i64
+; SI: S_MOV_B32 [[ZERO:s[0-9]+]], 0
 ; SI: BUFFER_LOAD_DWORD [[LOAD:v[0-9]+]],
-; SI: V_MOV_B32_e32 {{v[0-9]+}}, 0
+; SI: V_MOV_B32_e32 {{v[0-9]+}}, [[ZERO]]
 ; SI: BUFFER_STORE_DWORDX2
 define void @zextload_global_i32_to_i64(i64 addrspace(1)* %out, i32 addrspace(1)* %in) nounwind {
   %a = load i32 addrspace(1)* %in, align 8

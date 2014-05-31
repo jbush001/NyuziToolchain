@@ -52,16 +52,14 @@ public:
     CGCXXABI(CGM), UseARMMethodPtrABI(UseARMMethodPtrABI),
     UseARMGuardVarABI(UseARMGuardVarABI) { }
 
-  bool isReturnTypeIndirect(const CXXRecordDecl *RD) const override {
-    // Structures with either a non-trivial destructor or a non-trivial
-    // copy constructor are always indirect.
-    return !RD->hasTrivialDestructor() || RD->hasNonTrivialCopyConstructor();
-  }
+  bool classifyReturnType(CGFunctionInfo &FI) const override;
 
   RecordArgABI getRecordArgABI(const CXXRecordDecl *RD) const override {
     // Structures with either a non-trivial destructor or a non-trivial
     // copy constructor are always indirect.
-    if (!RD->hasTrivialDestructor() || RD->hasNonTrivialCopyConstructor())
+    // FIXME: Use canCopyArgument() when it is fixed to handle lazily declared
+    // special members.
+    if (RD->hasNonTrivialDestructor() || RD->hasNonTrivialCopyConstructor())
       return RAA_Indirect;
     return RAA_Default;
   }
@@ -761,6 +759,21 @@ ItaniumCXXABI::EmitMemberPointerIsNotNull(CodeGenFunction &CGF,
   return Result;
 }
 
+bool ItaniumCXXABI::classifyReturnType(CGFunctionInfo &FI) const {
+  const CXXRecordDecl *RD = FI.getReturnType()->getAsCXXRecordDecl();
+  if (!RD)
+    return false;
+
+  // Return indirectly if we have a non-trivial copy ctor or non-trivial dtor.
+  // FIXME: Use canCopyArgument() when it is fixed to handle lazily declared
+  // special members.
+  if (RD->hasNonTrivialDestructor() || RD->hasNonTrivialCopyConstructor()) {
+    FI.getReturnInfo() = ABIArgInfo::getIndirect(0, /*ByVal=*/false);
+    return true;
+  }
+  return false;
+}
+
 /// The Itanium ABI requires non-zero initialization only for data
 /// member pointers, for which '0' is a valid offset.
 bool ItaniumCXXABI::isZeroInitializable(const MemberPointerType *MPT) {
@@ -886,7 +899,7 @@ void ItaniumCXXABI::addImplicitStructorParams(CodeGenFunction &CGF,
     // FIXME: avoid the fake decl
     QualType T = Context.getPointerType(Context.VoidPtrTy);
     ImplicitParamDecl *VTTDecl
-      = ImplicitParamDecl::Create(Context, 0, MD->getLocation(),
+      = ImplicitParamDecl::Create(Context, nullptr, MD->getLocation(),
                                   &Context.Idents.get("vtt"), T);
     Params.insert(Params.begin() + 1, VTTDecl);
     getStructorImplicitParamDecl(CGF) = VTTDecl;
@@ -938,7 +951,7 @@ void ItaniumCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
   llvm::Value *VTT = CGF.GetVTTParameter(GD, ForVirtualBase, Delegating);
   QualType VTTTy = getContext().getPointerType(getContext().VoidPtrTy);
 
-  llvm::Value *Callee = 0;
+  llvm::Value *Callee = nullptr;
   if (getContext().getLangOpts().AppleKext)
     Callee = CGF.BuildAppleKextVirtualDestructorCall(DD, Type, DD->getParent());
 
@@ -947,7 +960,7 @@ void ItaniumCXXABI::EmitDestructorCall(CodeGenFunction &CGF,
 
   // FIXME: Provide a source location here.
   CGF.EmitCXXMemberCall(DD, SourceLocation(), Callee, ReturnValueSlot(), This,
-                        VTT, VTTTy, 0, 0);
+                        VTT, VTTTy, nullptr, nullptr);
 }
 
 void ItaniumCXXABI::emitVTableDefinitions(CodeGenVTables &CGVT,
@@ -1087,7 +1100,8 @@ void ItaniumCXXABI::EmitVirtualDestructorCall(CodeGenFunction &CGF,
       getVirtualFunctionPointer(CGF, GlobalDecl(Dtor, DtorType), This, Ty);
 
   CGF.EmitCXXMemberCall(Dtor, CallLoc, Callee, ReturnValueSlot(), This,
-                        /*ImplicitParam=*/0, QualType(), 0, 0);
+                        /*ImplicitParam=*/nullptr, QualType(), nullptr,
+                        nullptr);
 }
 
 void ItaniumCXXABI::emitVirtualInheritanceTables(const CXXRecordDecl *RD) {
@@ -1393,25 +1407,7 @@ void ItaniumCXXABI::EmitGuardedInit(CodeGenFunction &CGF,
   }
 
   // Test whether the variable has completed initialization.
-  llvm::Value *isInitialized;
-
-  // ARM C++ ABI 3.2.3.1:
-  //   To support the potential use of initialization guard variables
-  //   as semaphores that are the target of ARM SWP and LDREX/STREX
-  //   synchronizing instructions we define a static initialization
-  //   guard variable to be a 4-byte aligned, 4- byte word with the
-  //   following inline access protocol.
-  //     #define INITIALIZED 1
-  //     if ((obj_guard & INITIALIZED) != INITIALIZED) {
-  //       if (__cxa_guard_acquire(&obj_guard))
-  //         ...
-  //     }
-  if (UseARMGuardVarABI && !useInt8GuardVariable) {
-    llvm::Value *V = Builder.CreateLoad(guard);
-    llvm::Value *Test1 = llvm::ConstantInt::get(guardTy, 1);
-    V = Builder.CreateAnd(V, Test1);
-    isInitialized = Builder.CreateIsNull(V, "guard.uninitialized");
-
+  //
   // Itanium C++ ABI 3.3.2:
   //   The following is pseudo-code showing how these functions can be used:
   //     if (obj_guard.first_byte == 0) {
@@ -1427,29 +1423,45 @@ void ItaniumCXXABI::EmitGuardedInit(CodeGenFunction &CGF,
   //       }
   //     }
 
-    // ARM64 C++ ABI 3.2.2:
-    // This ABI instead only specifies the value bit 0 of the static guard
-    // variable; all other bits are platform defined. Bit 0 shall be 0 when the
-    // variable is not initialized and 1 when it is.
-    // FIXME: Reading one bit is no more efficient than reading one byte so
-    // the codegen is same as generic Itanium ABI.
-  } else {
-    // Load the first byte of the guard variable.
-    llvm::LoadInst *LI = 
+  // Load the first byte of the guard variable.
+  llvm::LoadInst *LI =
       Builder.CreateLoad(Builder.CreateBitCast(guard, CGM.Int8PtrTy));
-    LI->setAlignment(1);
+  LI->setAlignment(1);
 
-    // Itanium ABI:
-    //   An implementation supporting thread-safety on multiprocessor
-    //   systems must also guarantee that references to the initialized
-    //   object do not occur before the load of the initialization flag.
-    //
-    // In LLVM, we do this by marking the load Acquire.
-    if (threadsafe)
-      LI->setAtomic(llvm::Acquire);
+  // Itanium ABI:
+  //   An implementation supporting thread-safety on multiprocessor
+  //   systems must also guarantee that references to the initialized
+  //   object do not occur before the load of the initialization flag.
+  //
+  // In LLVM, we do this by marking the load Acquire.
+  if (threadsafe)
+    LI->setAtomic(llvm::Acquire);
 
-    isInitialized = Builder.CreateIsNull(LI, "guard.uninitialized");
-  }
+  // For ARM, we should only check the first bit, rather than the entire byte:
+  //
+  // ARM C++ ABI 3.2.3.1:
+  //   To support the potential use of initialization guard variables
+  //   as semaphores that are the target of ARM SWP and LDREX/STREX
+  //   synchronizing instructions we define a static initialization
+  //   guard variable to be a 4-byte aligned, 4-byte word with the
+  //   following inline access protocol.
+  //     #define INITIALIZED 1
+  //     if ((obj_guard & INITIALIZED) != INITIALIZED) {
+  //       if (__cxa_guard_acquire(&obj_guard))
+  //         ...
+  //     }
+  //
+  // and similarly for ARM64:
+  //
+  // ARM64 C++ ABI 3.2.2:
+  //   This ABI instead only specifies the value bit 0 of the static guard
+  //   variable; all other bits are platform defined. Bit 0 shall be 0 when the
+  //   variable is not initialized and 1 when it is.
+  llvm::Value *V =
+      (UseARMGuardVarABI && !useInt8GuardVariable)
+          ? Builder.CreateAnd(LI, llvm::ConstantInt::get(CGM.Int8Ty, 1))
+          : LI;
+  llvm::Value *isInitialized = Builder.CreateIsNull(V, "guard.uninitialized");
 
   llvm::BasicBlock *InitCheckBlock = CGF.createBasicBlock("init.check");
   llvm::BasicBlock *EndBlock = CGF.createBasicBlock("init.end");
@@ -1584,10 +1596,12 @@ ItaniumCXXABI::getOrCreateThreadLocalWrapper(const VarDecl *VD,
 
   llvm::FunctionType *FnTy = llvm::FunctionType::get(RetTy, false);
   llvm::Function *Wrapper = llvm::Function::Create(
-      FnTy, getThreadLocalWrapperLinkage(Var->getLinkage()), WrapperName.str(),
-      &CGM.getModule());
+      FnTy, getThreadLocalWrapperLinkage(
+                CGM.getLLVMLinkageVarDefinition(VD, /*isConstant=*/false)),
+      WrapperName.str(), &CGM.getModule());
   // Always resolve references to the wrapper at link time.
-  Wrapper->setVisibility(llvm::GlobalValue::HiddenVisibility);
+  if (!Wrapper->hasLocalLinkage())
+    Wrapper->setVisibility(llvm::GlobalValue::HiddenVisibility);
   return Wrapper;
 }
 
@@ -1609,14 +1623,13 @@ void ItaniumCXXABI::EmitThreadLocalInitFuncs(
     // If we have a definition for the variable, emit the initialization
     // function as an alias to the global Init function (if any). Otherwise,
     // produce a declaration of the initialization function.
-    llvm::GlobalValue *Init = 0;
+    llvm::GlobalValue *Init = nullptr;
     bool InitIsInitFunc = false;
     if (VD->hasDefinition()) {
       InitIsInitFunc = true;
       if (InitFunc)
-        Init =
-            new llvm::GlobalAlias(InitFunc->getType(), Var->getLinkage(),
-                                  InitFnName.str(), InitFunc, &CGM.getModule());
+        Init = llvm::GlobalAlias::create(Var->getLinkage(), InitFnName.str(),
+                                         InitFunc);
     } else {
       // Emit a weak global function referring to the initialization function.
       // This function will not exist if the TU defining the thread_local

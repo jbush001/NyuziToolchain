@@ -53,8 +53,8 @@ bool DIDescriptor::Verify() const {
 }
 
 static Value *getField(const MDNode *DbgNode, unsigned Elt) {
-  if (DbgNode == 0 || Elt >= DbgNode->getNumOperands())
-    return 0;
+  if (!DbgNode || Elt >= DbgNode->getNumOperands())
+    return nullptr;
   return DbgNode->getOperand(Elt);
 }
 
@@ -73,7 +73,7 @@ StringRef DIDescriptor::getStringField(unsigned Elt) const {
 }
 
 uint64_t DIDescriptor::getUInt64Field(unsigned Elt) const {
-  if (DbgNode == 0)
+  if (!DbgNode)
     return 0;
 
   if (Elt < DbgNode->getNumOperands())
@@ -85,7 +85,7 @@ uint64_t DIDescriptor::getUInt64Field(unsigned Elt) const {
 }
 
 int64_t DIDescriptor::getInt64Field(unsigned Elt) const {
-  if (DbgNode == 0)
+  if (!DbgNode)
     return 0;
 
   if (Elt < DbgNode->getNumOperands())
@@ -102,34 +102,34 @@ DIDescriptor DIDescriptor::getDescriptorField(unsigned Elt) const {
 }
 
 GlobalVariable *DIDescriptor::getGlobalVariableField(unsigned Elt) const {
-  if (DbgNode == 0)
-    return 0;
+  if (!DbgNode)
+    return nullptr;
 
   if (Elt < DbgNode->getNumOperands())
     return dyn_cast_or_null<GlobalVariable>(DbgNode->getOperand(Elt));
-  return 0;
+  return nullptr;
 }
 
 Constant *DIDescriptor::getConstantField(unsigned Elt) const {
-  if (DbgNode == 0)
-    return 0;
+  if (!DbgNode)
+    return nullptr;
 
   if (Elt < DbgNode->getNumOperands())
     return dyn_cast_or_null<Constant>(DbgNode->getOperand(Elt));
-  return 0;
+  return nullptr;
 }
 
 Function *DIDescriptor::getFunctionField(unsigned Elt) const {
-  if (DbgNode == 0)
-    return 0;
+  if (!DbgNode)
+    return nullptr;
 
   if (Elt < DbgNode->getNumOperands())
     return dyn_cast_or_null<Function>(DbgNode->getOperand(Elt));
-  return 0;
+  return nullptr;
 }
 
 void DIDescriptor::replaceFunctionField(unsigned Elt, Function *F) {
-  if (DbgNode == 0)
+  if (!DbgNode)
     return;
 
   if (Elt < DbgNode->getNumOperands()) {
@@ -335,7 +335,7 @@ unsigned DIArray::getNumElements() const {
 
 /// replaceAllUsesWith - Replace all uses of the MDNode used by this
 /// type with the one in the passed descriptor.
-void DIType::replaceAllUsesWith(DIDescriptor &D) {
+void DIType::replaceAllUsesWith(LLVMContext &VMContext, DIDescriptor D) {
 
   assert(DbgNode && "Trying to replace an unverified type!");
 
@@ -344,13 +344,19 @@ void DIType::replaceAllUsesWith(DIDescriptor &D) {
   // which, due to uniquing, has merged with the source. We shield clients from
   // this detail by allowing a value to be replaced with replaceAllUsesWith()
   // itself.
-  if (DbgNode != D) {
-    MDNode *Node = const_cast<MDNode *>(DbgNode);
-    const MDNode *DN = D;
-    const Value *V = cast_or_null<Value>(DN);
-    Node->replaceAllUsesWith(const_cast<Value *>(V));
-    MDNode::deleteTemporary(Node);
+  const MDNode *DN = D;
+  if (DbgNode == DN) {
+    SmallVector<Value*, 10> Ops(DbgNode->getNumOperands());
+    for (size_t i = 0; i != Ops.size(); ++i)
+      Ops[i] = DbgNode->getOperand(i);
+    DN = MDNode::get(VMContext, Ops);
   }
+
+  MDNode *Node = const_cast<MDNode *>(DbgNode);
+  const Value *V = cast_or_null<Value>(DN);
+  Node->replaceAllUsesWith(const_cast<Value *>(V));
+  MDNode::deleteTemporary(Node);
+  DbgNode = D;
 }
 
 /// replaceAllUsesWith - Replace all uses of the MDNode used by this
@@ -358,19 +364,12 @@ void DIType::replaceAllUsesWith(DIDescriptor &D) {
 void DIType::replaceAllUsesWith(MDNode *D) {
 
   assert(DbgNode && "Trying to replace an unverified type!");
-
-  // Since we use a TrackingVH for the node, its easy for clients to manufacture
-  // legitimate situations where they want to replaceAllUsesWith() on something
-  // which, due to uniquing, has merged with the source. We shield clients from
-  // this detail by allowing a value to be replaced with replaceAllUsesWith()
-  // itself.
-  if (DbgNode != D) {
-    MDNode *Node = const_cast<MDNode *>(DbgNode);
-    const MDNode *DN = D;
-    const Value *V = cast_or_null<Value>(DN);
-    Node->replaceAllUsesWith(const_cast<Value *>(V));
-    MDNode::deleteTemporary(Node);
-  }
+  assert(DbgNode != D && "This replacement should always happen");
+  MDNode *Node = const_cast<MDNode *>(DbgNode);
+  const MDNode *DN = D;
+  const Value *V = cast_or_null<Value>(DN);
+  Node->replaceAllUsesWith(const_cast<Value *>(V));
+  MDNode::deleteTemporary(Node);
 }
 
 /// Verify - Verify that a compile unit is well formed.
@@ -759,7 +758,7 @@ DIScopeRef DIScope::getContext() const {
     return DIScopeRef(DINameSpace(DbgNode).getContext());
 
   assert((isFile() || isCompileUnit()) && "Unhandled type of scope.");
-  return DIScopeRef(NULL);
+  return DIScopeRef(nullptr);
 }
 
 // If the scope node has a name, return that, else return an empty string.

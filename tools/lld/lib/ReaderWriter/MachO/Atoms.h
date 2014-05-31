@@ -16,26 +16,102 @@ namespace lld {
 namespace mach_o {
 class MachODefinedAtom : public SimpleDefinedAtom {
 public:
-  // FIXME: This constructor should also take the ContentType.
-  MachODefinedAtom(const File &f, const StringRef name,
-                   const ArrayRef<uint8_t> content, Scope scope)
-      : SimpleDefinedAtom(f), _name(name), _content(content), _scope(scope) {}
+  MachODefinedAtom(const File &f, const StringRef name, Scope scope,
+                   ContentType type, Merge merge,
+                   const ArrayRef<uint8_t> content)
+      : SimpleDefinedAtom(f), _name(name), _content(content),
+        _contentType(type), _scope(scope), _merge(merge) {}
 
-  uint64_t size() const override { return rawContent().size(); }
+  // Constructor for zero-fill content
+  MachODefinedAtom(const File &f, const StringRef name, Scope scope,
+                   uint64_t size)
+      : SimpleDefinedAtom(f), _name(name),
+        _content(ArrayRef<uint8_t>(nullptr, size)),
+        _contentType(DefinedAtom::typeZeroFill),
+        _scope(scope), _merge(mergeNo) {}
 
-  ContentType contentType() const override { return DefinedAtom::typeCode; }
+  uint64_t size() const override { return _content.size(); }
+
+  ContentType contentType() const override { return _contentType; }
 
   StringRef name() const override { return _name; }
 
   Scope scope() const override { return _scope; }
 
-  ArrayRef<uint8_t> rawContent() const override { return _content; }
+  Merge merge() const override { return _merge; }
+
+  DeadStripKind deadStrip() const override {
+    if (_contentType == DefinedAtom::typeInitializerPtr)
+      return deadStripNever;
+    if (_contentType == DefinedAtom::typeTerminatorPtr)
+      return deadStripNever;
+    return deadStripNormal;
+  }
+
+  ArrayRef<uint8_t> rawContent() const override {
+    // Zerofill atoms have a content pointer which is null.
+    assert(_content.data() != nullptr);
+    return _content;
+  }
 
 private:
   const StringRef _name;
   const ArrayRef<uint8_t> _content;
+  const ContentType _contentType;
   const Scope _scope;
+  const Merge _merge;
 };
+
+class MachODefinedCustomSectionAtom : public MachODefinedAtom {
+public:
+  MachODefinedCustomSectionAtom(const File &f, const StringRef name, 
+                                Scope scope, ContentType type, Merge merge,
+                                const ArrayRef<uint8_t> content,
+                                StringRef sectionName)
+      : MachODefinedAtom(f, name, scope, type, merge, content), 
+        _sectionName(sectionName) {}
+
+  SectionChoice sectionChoice() const override {
+    return DefinedAtom::sectionCustomRequired;
+  }
+  
+  StringRef customSectionName() const override {
+    return _sectionName;
+  }
+private:  
+  StringRef _sectionName;
+};
+
+
+class MachOTentativeDefAtom : public SimpleDefinedAtom {
+public:
+  MachOTentativeDefAtom(const File &f, const StringRef name, Scope scope,
+                        uint64_t size, DefinedAtom::Alignment align)
+      : SimpleDefinedAtom(f), _name(name), _scope(scope), _size(size),
+        _align(align) {}
+
+  uint64_t size() const override { return _size; }
+
+  Merge merge() const override { return DefinedAtom::mergeAsTentative; }
+
+  ContentType contentType() const override { return DefinedAtom::typeZeroFill; }
+
+  Alignment alignment() const override { return _align; }
+
+  StringRef name() const override { return _name; }
+
+  Scope scope() const override { return _scope; }
+
+  ArrayRef<uint8_t> rawContent() const override { return ArrayRef<uint8_t>(); }
+
+private:
+  const StringRef _name;
+  const Scope _scope;
+  const uint64_t _size;
+  const DefinedAtom::Alignment _align;
+};
+
+
 } // mach_o
 } // lld
 

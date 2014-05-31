@@ -29,7 +29,7 @@ __attribute__((objc_root_class))
 +(id)init { return 0; }
 -(id)init3 { return 0; }
 -(id)init4 NS_DESIGNATED_INITIALIZER { return 0; } // expected-error {{only applies to init methods of interface or class extension declarations}} \
-									 			   // expected-warning {{secondary initializer missing a 'self' call to another initializer}}
+									 			   // expected-warning {{convenience initializer missing a 'self' call to another initializer}}
 @end
 
 __attribute__((objc_root_class))
@@ -44,7 +44,7 @@ __attribute__((objc_root_class))
 
 @implementation B1
 -(id)initB1 { return 0; }
--(id)initB2 { return 0; } // expected-warning {{secondary initializer missing a 'self' call to another initializer}}
+-(id)initB2 { return 0; } // expected-warning {{convenience initializer missing a 'self' call to another initializer}}
 -(id)initB3 { return 0; }
 @end
 
@@ -142,12 +142,6 @@ __attribute__((objc_root_class))
   return [super initB3];
 }
 -(void)meth {}
--(id)initS1 {
-  return 0;
-}
--(id)initS2 {
-  return [super initB1];
-}
 @end
 
 @interface S6 : B1
@@ -162,8 +156,8 @@ __attribute__((objc_root_class))
 -(id)initS1 {
   return [super initB1];
 }
--(id)initS2 { // expected-warning {{secondary initializer missing a 'self' call to another initializer}}
-  return [super initB1]; // expected-warning {{secondary initializer should not invoke an initializer on 'super'}}
+-(id)initS2 { // expected-warning {{convenience initializer missing a 'self' call to another initializer}}
+  return [super initB1]; // expected-warning {{convenience initializer should not invoke an initializer on 'super'}}
 }
 -(id)initS3 {
   return [self initB1];
@@ -172,13 +166,13 @@ __attribute__((objc_root_class))
   return [self initS1];
 }
 -(id)initS5 {
-  [super initB1]; // expected-warning {{secondary initializer should not invoke an initializer on 'super'}}
+  [super initB1]; // expected-warning {{convenience initializer should not invoke an initializer on 'super'}}
   void (^blk)(void) = ^{
-    [super initB1]; // expected-warning {{secondary initializer should not invoke an initializer on 'super'}}
+    [super initB1]; // expected-warning {{convenience initializer should not invoke an initializer on 'super'}}
   };
   return [self initS1];
 }
--(id)initS6 { // expected-warning {{secondary initializer missing a 'self' call to another initializer}}
+-(id)initS6 { // expected-warning {{convenience initializer missing a 'self' call to another initializer}}
   S6 *s;
   return [s initS1];
 }
@@ -272,7 +266,8 @@ __attribute__((objc_root_class))
 // rdar://16323233
 __attribute__((objc_root_class))
 @interface B4 
--(id)initB4 NS_DESIGNATED_INITIALIZER; 
+-(id)initB4 NS_DESIGNATED_INITIALIZER; // expected-note 4 {{method marked as designated initializer of the class here}}
+-(id)initNonDI;
 @end
 
 @interface rdar16323233 : B4
@@ -289,5 +284,129 @@ __attribute__((objc_root_class))
 }
 -(id)initB4 {
    return [self initS4];
+}
+@end
+
+@interface S1B4 : B4
+@end
+@implementation S1B4
+-(id)initB4 { // expected-warning {{designated initializer missing a 'super' call to a designated initializer of the super class}}
+   return [super initNonDI]; // expected-warning {{designated initializer invoked a non-designated initializer}}
+}
+@end
+
+@interface S2B4 : B4
+-(id)initB4;
+@end
+@implementation S2B4
+-(id)initB4 { // expected-warning {{designated initializer missing a 'super' call to a designated initializer of the super class}}
+   return [super initNonDI]; // expected-warning {{designated initializer invoked a non-designated initializer}}
+}
+@end
+
+@interface S3B4 : B4
+@end
+@implementation S3B4
+-(id)initNew {
+  return [super initB4];
+}
+-(id)initB4 {
+   return [self initNew];
+}
+@end
+
+@interface S4B4 : B4
+-(id)initNew;
+@end
+@implementation S4B4
+-(id)initNew {
+  return [super initB4];
+}
+-(id)initB4 {
+   return [self initNew];
+}
+@end
+
+@interface S5B4 : B4
+-(id)initB4;
+@end
+@implementation S5B4
+-(id)initNew {
+  return [super initB4];
+}
+-(id)initB4 {
+   return [self initNew];
+}
+@end
+
+@interface S6B4 : B4
+-(id)initNew;
+-(id)initB4;
+@end
+@implementation S6B4
+-(id)initNew {
+  return [super initB4];
+}
+-(id)initB4 {
+   return [self initNew];
+}
+@end
+
+__attribute__((objc_root_class))
+@interface NSObject
+-(instancetype) init NS_DESIGNATED_INITIALIZER; // expected-note {{method marked as designated initializer of the class here}}
+@end
+
+@interface Test3 : NSObject
+@end
+
+@implementation Test3
+-(instancetype) initWithBasePath:(id)path {
+  return [super init];
+}
+-(instancetype) init {
+  return [self initWithBasePath:0];
+}
+@end
+
+@interface Test1 : NSObject
+-(instancetype) init NS_DESIGNATED_INITIALIZER;
+@end
+@implementation Test1
+-(instancetype) init {
+  return self;
+}
+@end
+
+
+@interface Test2 : NSObject
+@end
+@interface SubTest2 : Test2
+@end
+@implementation SubTest2
+-(instancetype) init { // expected-warning {{designated initializer missing a 'super' call to a designated initializer of the super class}}
+  return self;
+}
+@end
+
+__attribute__((objc_root_class))
+@interface RootNoDI
+-(id)init;
+@end
+
+@interface Base : RootNoDI
+@end
+
+@implementation Base
+@end
+
+@interface Derived : Base
+- (instancetype)initWithInt:(int)n NS_DESIGNATED_INITIALIZER;
+@end
+
+@implementation Derived
+- (instancetype)initWithInt:(int)n
+{
+  return [super init];
 }
 @end

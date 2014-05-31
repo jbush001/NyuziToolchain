@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "function-lowering-info"
 #include "llvm/CodeGen/FunctionLoweringInfo.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/CodeGen/Analysis.h"
@@ -39,6 +38,8 @@
 #include "llvm/Target/TargetRegisterInfo.h"
 #include <algorithm>
 using namespace llvm;
+
+#define DEBUG_TYPE "function-lowering-info"
 
 /// isUsedOutsideOfDefiningBlock - Return true if this instruction is used by
 /// PHI nodes or outside of the basic block that defines it, or used by a
@@ -283,11 +284,11 @@ unsigned FunctionLoweringInfo::CreateRegs(Type *Ty) {
 const FunctionLoweringInfo::LiveOutInfo *
 FunctionLoweringInfo::GetLiveOutRegInfo(unsigned Reg, unsigned BitWidth) {
   if (!LiveOutRegInfo.inBounds(Reg))
-    return NULL;
+    return nullptr;
 
   LiveOutInfo *LOI = &LiveOutRegInfo[Reg];
   if (!LOI->IsValid)
-    return NULL;
+    return nullptr;
 
   if (BitWidth > LOI->KnownZero.getBitWidth()) {
     LOI->NumSignBits = 1;

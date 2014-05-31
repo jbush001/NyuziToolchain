@@ -524,7 +524,7 @@ error_code MachOFileLayout::writeSingleSegmentLoadCommand(uint8_t *&lc) {
     ++sout;
   }
   lc = next;
-  return error_code::success();
+  return error_code();
 }
 
 
@@ -587,7 +587,7 @@ error_code MachOFileLayout::writeSegmentLoadCommands(uint8_t *&lc) {
   if (_swap)
     swapStruct(*cmd);
   lc = next;
-  return error_code::success();
+  return error_code();
 }
 
 
@@ -726,6 +726,8 @@ error_code MachOFileLayout::writeLoadCommands() {
 void MachOFileLayout::writeSectionContent() {
   for (const Section &s : _file.sections) {
     // Copy all section content to output buffer.
+    if (s.type == llvm::MachO::S_ZEROFILL)
+      continue;
     uint32_t offset = _sectInfo[&s].fileOffset;
     uint8_t *p = &_buffer[offset];
     memcpy(p, &s.content[0], s.content.size());
@@ -952,7 +954,7 @@ error_code MachOFileLayout::writeBinary(StringRef path) {
   writeLinkEditContent();
   fob->commit();
 
-  return error_code::success();
+  return error_code();
 }
 
 

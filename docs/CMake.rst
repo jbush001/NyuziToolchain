@@ -87,7 +87,7 @@ names are case-sensitive. Example:
 
 .. code-block:: console
 
-  $ cmake -G "Visual Studio 10" path/to/llvm/source/root
+  $ cmake -G "Visual Studio 11" path/to/llvm/source/root
 
 For a given development platform there can be more than one adequate
 generator. If you use Visual Studio "NMake Makefiles" is a generator you can use
@@ -132,7 +132,7 @@ write the variable and the type on the CMake command line:
 Frequently-used CMake variables
 -------------------------------
 
-Here are listed some of the CMake variables that are used often, along with a
+Here are some of the CMake variables that are used often, along with a
 brief explanation and LLVM-specific notes. For full documentation, check the
 CMake docs or execute ``cmake --help-variable VARIABLE_NAME``.
 
@@ -157,8 +157,8 @@ CMake docs or execute ``cmake --help-variable VARIABLE_NAME``.
   Extra flags to use when compiling C++ source files.
 
 **BUILD_SHARED_LIBS**:BOOL
-  Flag indicating is shared libraries will be built. Its default value is
-  OFF. Shared libraries are not supported on Windows and not recommended in the
+  Flag indicating if shared libraries will be built. Its default value is
+  OFF. Shared libraries are not supported on Windows and not recommended on the
   other OSes.
 
 .. _LLVM-specific variables:
@@ -211,8 +211,8 @@ LLVM-specific variables
 **LLVM_ENABLE_THREADS**:BOOL
   Build with threads support, if available. Defaults to ON.
 
-**LLVM_ENABLE_CXX11**:BOOL
-  Build in C++11 mode, if available. Defaults to OFF.
+**LLVM_ENABLE_CXX1Y**:BOOL
+  Build in C++1y mode, if available. Defaults to OFF.
 
 **LLVM_ENABLE_ASSERTIONS**:BOOL
   Enables code assertions. Defaults to OFF if and only if ``CMAKE_BUILD_TYPE``
@@ -283,6 +283,12 @@ LLVM-specific variables
   are ``Address``, ``Memory`` and ``MemoryWithOrigins``. Defaults to empty
   string.
 
+**LLVM_BUILD_DOCS**:BOOL
+  Enables all enabled documentation targets (i.e. Doxgyen and Sphinx targets) to
+  be built as part of the normal build. If the ``install`` target is run then
+  this also enables all built documentation targets to be installed. Defaults to
+  OFF.
+
 **LLVM_ENABLE_DOXYGEN**:BOOL
   Enables the generation of browsable HTML documentation using doxygen.
   Defaults to OFF.
@@ -306,14 +312,13 @@ LLVM-specific variables
 
 **LLVM_DOXYGEN_QHP_NAMESPACE**:STRING
   Namespace under which the intermediate Qt Help Project file lives. See `Qt
-  Help Project <http://qt-project.org/doc/qt-4.8/qthelpproject.html#namespace>`_
+  Help Project`_
   for more information. Defaults to "org.llvm". This option is only useful in
   combination with ``-DLLVM_ENABLE_DOXYGEN_QT_HELP=ON``; otherwise
   this has no effect.
     
 **LLVM_DOXYGEN_QHP_CUST_FILTER_NAME**:STRING
-  See `Qt Help Project
-  <http://qt-project.org/doc/qt-4.8/qthelpproject.html#custom-filters>`_ for
+  See `Qt Help Project`_ for
   more information. Defaults to the CMake variable ``${PACKAGE_STRING}`` which
   is a combination of the package name and version string. This filter can then
   be used in Qt Creator to select only documentation from LLVM when browsing
@@ -321,11 +326,34 @@ LLVM-specific variables
   useful in combination with ``-DLLVM_ENABLE_DOXYGEN_QT_HELP=ON``;
   otherwise this has no effect.
 
+.. _Qt Help Project: http://qt-project.org/doc/qt-4.8/qthelpproject.html#custom-filters
+
 **LLVM_DOXYGEN_QHELPGENERATOR_PATH**:STRING
   The path to the ``qhelpgenerator`` executable. Defaults to whatever CMake's
   ``find_program()`` can find. This option is only useful in combination with
   ``-DLLVM_ENABLE_DOXYGEN_QT_HELP=ON``; otherwise this has no
   effect.
+
+**LLVM_ENABLE_SPHINX**:BOOL
+  If enabled CMake will search for the ``sphinx-build`` executable and will make
+  the ``SPHINX_OUTPUT_HTML`` and ``SPHINX_OUTPUT_MAN`` CMake options available.
+  Defaults to OFF.
+
+**SPHINX_EXECUTABLE**:STRING
+  The path to the ``sphinx-build`` executable detected by CMake.
+
+**SPHINX_OUTPUT_HTML**:BOOL
+  If enabled (and ``LLVM_ENABLE_SPHINX`` is enabled) then the targets for
+  building the documentation as html are added (but not built by default unless
+  ``LLVM_BUILD_DOCS`` is enabled). There is a target for each project in the
+  source tree that uses sphinx (e.g.  ``docs-llvm-html``, ``docs-clang-html``
+  and ``docs-lld-html``). Defaults to ON.
+
+**SPHINX_OUTPUT_MAN**:BOOL
+  If enabled (and ``LLVM_ENABLE_SPHINX`` is enabled) the targets for building
+  the man pages are added (but not built by default unless ``LLVM_BUILD_DOCS``
+  is enabled). Currently the only target added is ``docs-llvm-man``. Defaults
+  to ON.
 
 Executing the test suite
 ========================

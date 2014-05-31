@@ -210,7 +210,7 @@ namespace llvm {
       void deleted() override;
       void allUsesReplacedWith(Value *New) override;
     public:
-      SCEVCallbackVH(Value *V, ScalarEvolution *SE = 0);
+      SCEVCallbackVH(Value *V, ScalarEvolution *SE = nullptr);
     };
 
     friend class SCEVCallbackVH;
@@ -291,7 +291,7 @@ namespace llvm {
       const SCEV *ExactNotTaken;
       PointerIntPair<ExitNotTakenInfo*, 1> NextExit;
 
-      ExitNotTakenInfo() : ExitingBlock(0), ExactNotTaken(0) {}
+      ExitNotTakenInfo() : ExitingBlock(nullptr), ExactNotTaken(nullptr) {}
 
       /// isCompleteList - Return true if all loop exits are computable.
       bool isCompleteList() const {
@@ -321,7 +321,7 @@ namespace llvm {
       const SCEV *Max;
 
     public:
-      BackedgeTakenInfo() : Max(0) {}
+      BackedgeTakenInfo() : Max(nullptr) {}
 
       /// Initialize BackedgeTakenInfo from a list of exact exit counts.
       BackedgeTakenInfo(
@@ -894,10 +894,19 @@ namespace llvm {
     /// indirect operand.
     bool hasOperand(const SCEV *S, const SCEV *Op) const;
 
+    /// Return the size of an element read or written by Inst.
+    const SCEV *getElementSize(Instruction *Inst);
+
+    /// Compute the array dimensions Sizes from the set of Terms extracted from
+    /// the memory access function of this SCEVAddRecExpr.
+    void findArrayDimensions(SmallVectorImpl<const SCEV *> &Terms,
+                             SmallVectorImpl<const SCEV *> &Sizes,
+                             const SCEV *ElementSize) const;
+
     bool runOnFunction(Function &F) override;
     void releaseMemory() override;
     void getAnalysisUsage(AnalysisUsage &AU) const override;
-    void print(raw_ostream &OS, const Module* = 0) const override;
+    void print(raw_ostream &OS, const Module* = nullptr) const override;
     void verifyAnalysis() const override;
 
   private:

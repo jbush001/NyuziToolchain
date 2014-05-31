@@ -122,17 +122,16 @@ static error_code getFileMagic(ELFLinkingContext &ctx, StringRef path,
   case llvm::sys::fs::file_magic::elf_relocatable:
   case llvm::sys::fs::file_magic::elf_shared_object:
   case llvm::sys::fs::file_magic::unknown:
-    return error_code::success();
+    return error_code();
   default:
     break;
   }
   return make_error_code(ReaderError::unknown_file_format);
 }
 
-// Parses an argument of --defsym. A given string must be in the form
-// of <symbol>=<number>. Note that we don't support symbol-relative
-// aliases yet.
-static bool parseDefsymOption(StringRef opt, StringRef &sym, uint64_t &addr) {
+// Parses an argument of --defsym=<sym>=<number>
+static bool parseDefsymAsAbsolute(StringRef opt, StringRef &sym,
+                                  uint64_t &addr) {
   size_t equalPos = opt.find('=');
   if (equalPos == 0 || equalPos == StringRef::npos)
     return false;
@@ -142,10 +141,21 @@ static bool parseDefsymOption(StringRef opt, StringRef &sym, uint64_t &addr) {
   return true;
 }
 
+// Parses an argument of --defsym=<sym>=<sym>
+static bool parseDefsymAsAlias(StringRef opt, StringRef &sym,
+                               StringRef &target) {
+  size_t equalPos = opt.find('=');
+  if (equalPos == 0 || equalPos == StringRef::npos)
+    return false;
+  sym = opt.substr(0, equalPos);
+  target = opt.substr(equalPos + 1);
+  return !target.empty();
+}
+
 llvm::ErrorOr<StringRef> ELFFileNode::getPath(const LinkingContext &) const {
-  if (!_attributes._isDashlPrefix)
-    return _path;
-  return _elfLinkingContext.searchLibrary(_path);
+  if (_attributes._isDashlPrefix)
+    return _elfLinkingContext.searchLibrary(_path);
+  return _elfLinkingContext.searchFile(_path, _attributes._isSysRooted);
 }
 
 std::string ELFFileNode::errStr(error_code errc) {
@@ -188,6 +198,10 @@ getArchType(const llvm::Triple &triple, StringRef value) {
       return llvm::Triple::x86;
     if (value == "elf_x86_64")
       return llvm::Triple::x86_64;
+    return llvm::None;
+  case llvm::Triple::mipsel:
+    if (value == "elf32ltsmip")
+      return llvm::Triple::mipsel;
     return llvm::None;
   default:
     return llvm::None;
@@ -425,13 +439,16 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
       break;
 
     case OPT_defsym: {
-      StringRef sym;
+      StringRef sym, target;
       uint64_t addr;
-      if (!parseDefsymOption(inputArg->getValue(), sym, addr)) {
+      if (parseDefsymAsAbsolute(inputArg->getValue(), sym, addr)) {
+        ctx->addInitialAbsoluteSymbol(sym, addr);
+      } else if (parseDefsymAsAlias(inputArg->getValue(), sym, target)) {
+        ctx->addAlias(sym, target);
+      } else {
         diagnostics << "invalid --defsym: " << inputArg->getValue() << "\n";
         return false;
       }
-      ctx->addInitialAbsoluteSymbol(sym, addr);
       break;
     }
 
@@ -559,13 +576,8 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
   if (!ctx->validate(diagnostics))
     return false;
 
-  // Normalize the InputGraph.
-  inputGraph->normalize();
-
   ctx->setInputGraph(std::move(inputGraph));
-
   context.swap(ctx);
-
   return true;
 }
 

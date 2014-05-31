@@ -100,7 +100,7 @@ LTOModule *LTOModule::makeLTOModule(const char *path, TargetOptions options,
   std::unique_ptr<MemoryBuffer> buffer;
   if (error_code ec = MemoryBuffer::getFile(path, buffer)) {
     errMsg = ec.message();
-    return NULL;
+    return nullptr;
   }
   return makeLTOModule(buffer.release(), options, errMsg);
 }
@@ -120,7 +120,7 @@ LTOModule *LTOModule::makeLTOModule(int fd, const char *path,
   if (error_code ec =
           MemoryBuffer::getOpenFileSlice(fd, path, buffer, map_size, offset)) {
     errMsg = ec.message();
-    return NULL;
+    return nullptr;
   }
   return makeLTOModule(buffer.release(), options, errMsg);
 }
@@ -130,7 +130,7 @@ LTOModule *LTOModule::makeLTOModule(const void *mem, size_t length,
                                     std::string &errMsg, StringRef path) {
   std::unique_ptr<MemoryBuffer> buffer(makeBuffer(mem, length, path));
   if (!buffer)
-    return NULL;
+    return nullptr;
   return makeLTOModule(buffer.release(), options, errMsg);
 }
 
@@ -143,7 +143,7 @@ LTOModule *LTOModule::makeLTOModule(MemoryBuffer *buffer,
   if (error_code EC = ModuleOrErr.getError()) {
     errMsg = EC.message();
     delete buffer;
-    return NULL;
+    return nullptr;
   }
   std::unique_ptr<Module> m(ModuleOrErr.get());
 
@@ -155,7 +155,7 @@ LTOModule *LTOModule::makeLTOModule(MemoryBuffer *buffer,
   // find machine architecture for this module
   const Target *march = TargetRegistry::lookupTarget(TripleStr, errMsg);
   if (!march)
-    return NULL;
+    return nullptr;
 
   // construct LTOModule, hand over ownership of module and target
   SubtargetFeatures Features;
@@ -168,7 +168,8 @@ LTOModule *LTOModule::makeLTOModule(MemoryBuffer *buffer,
       CPU = "core2";
     else if (Triple.getArch() == llvm::Triple::x86)
       CPU = "yonah";
-    else if (Triple.getArch() == llvm::Triple::arm64)
+    else if (Triple.getArch() == llvm::Triple::arm64 ||
+             Triple.getArch() == llvm::Triple::aarch64)
       CPU = "cyclone";
   }
 
@@ -189,7 +190,7 @@ LTOModule *LTOModule::makeLTOModule(MemoryBuffer *buffer,
 
   if (Ret->parseSymbols(errMsg)) {
     delete Ret;
-    return NULL;
+    return nullptr;
   }
 
   Ret->parseMetadata();
@@ -396,7 +397,7 @@ void LTOModule::addDefinedSymbol(const GlobalValue *def, bool isFunction) {
 
   // set alignment part log2() can have rounding errors
   uint32_t align = def->getAlignment();
-  uint32_t attr = align ? countTrailingZeros(def->getAlignment()) : 0;
+  uint32_t attr = align ? countTrailingZeros(align) : 0;
 
   // set permissions part
   if (isFunction) {
@@ -418,17 +419,17 @@ void LTOModule::addDefinedSymbol(const GlobalValue *def, bool isFunction) {
     attr |= LTO_SYMBOL_DEFINITION_REGULAR;
 
   // set scope part
-  if (def->hasHiddenVisibility())
+  if (def->hasLocalLinkage())
+    // Ignore visibility if linkage is local.
+    attr |= LTO_SYMBOL_SCOPE_INTERNAL;
+  else if (def->hasHiddenVisibility())
     attr |= LTO_SYMBOL_SCOPE_HIDDEN;
   else if (def->hasProtectedVisibility())
     attr |= LTO_SYMBOL_SCOPE_PROTECTED;
   else if (canBeHidden(def))
     attr |= LTO_SYMBOL_SCOPE_DEFAULT_CAN_BE_HIDDEN;
-  else if (def->hasExternalLinkage() || def->hasWeakLinkage() ||
-           def->hasLinkOnceLinkage() || def->hasCommonLinkage())
-    attr |= LTO_SYMBOL_SCOPE_DEFAULT;
   else
-    attr |= LTO_SYMBOL_SCOPE_INTERNAL;
+    attr |= LTO_SYMBOL_SCOPE_DEFAULT;
 
   StringSet::value_type &entry = _defines.GetOrCreateValue(Buffer);
   entry.setValue(1);
@@ -460,7 +461,7 @@ void LTOModule::addAsmGlobalSymbol(const char *name,
 
   NameAndAttributes &info = _undefines[entry.getKey().data()];
 
-  if (info.symbol == 0) {
+  if (info.symbol == nullptr) {
     // FIXME: This is trying to take care of module ASM like this:
     //
     //   module asm ".zerofill __FOO, __foo, _bar_baz_qux, 0"
@@ -474,7 +475,7 @@ void LTOModule::addAsmGlobalSymbol(const char *name,
     info.attributes =
       LTO_SYMBOL_PERMISSIONS_DATA | LTO_SYMBOL_DEFINITION_REGULAR | scope;
     info.isFunction = false;
-    info.symbol = 0;
+    info.symbol = nullptr;
 
     // add to table of symbols
     _symbols.push_back(info);
@@ -502,13 +503,13 @@ void LTOModule::addAsmGlobalSymbolUndef(const char *name) {
   if (entry.getValue().name)
     return;
 
-  uint32_t attr = LTO_SYMBOL_DEFINITION_UNDEFINED;;
+  uint32_t attr = LTO_SYMBOL_DEFINITION_UNDEFINED;
   attr |= LTO_SYMBOL_SCOPE_DEFAULT;
   NameAndAttributes info;
   info.name = entry.getKey().data();
   info.attributes = attr;
   info.isFunction = false;
-  info.symbol = 0;
+  info.symbol = nullptr;
 
   entry.setValue(info);
 }
@@ -698,7 +699,8 @@ namespace {
     void EmitTBSSSymbol(const MCSection *Section, MCSymbol *Symbol,
                         uint64_t Size, unsigned ByteAlignment) override {}
     void EmitBytes(StringRef Data) override {}
-    void EmitValueImpl(const MCExpr *Value, unsigned Size) override {}
+    void EmitValueImpl(const MCExpr *Value, unsigned Size,
+                       const SMLoc &Loc) override {}
     void EmitULEB128Value(const MCExpr *Value) override {}
     void EmitSLEB128Value(const MCExpr *Value) override {}
     void EmitValueToAlignment(unsigned ByteAlignment, int64_t Value,
@@ -709,9 +711,6 @@ namespace {
     bool EmitValueToOffset(const MCExpr *Offset,
                            unsigned char Value) override { return false; }
     void EmitFileDirective(StringRef Filename) override {}
-    void EmitDwarfAdvanceLineAddr(int64_t LineDelta, const MCSymbol *LastLabel,
-                                  const MCSymbol *Label,
-                                  unsigned PointerSize) override {}
     void FinishImpl() override {}
     void EmitCFIEndProcImpl(MCDwarfFrameInfo &Frame) override {
       RecordProcEnd(Frame);
@@ -738,7 +737,8 @@ bool LTOModule::addAsmGlobalSymbols(std::string &errMsg) {
       _target->getTargetTriple(), _target->getTargetCPU(),
       _target->getTargetFeatureString()));
   std::unique_ptr<MCTargetAsmParser> TAP(
-      T.createMCAsmParser(*STI, *Parser.get(), *MCII));
+      T.createMCAsmParser(*STI, *Parser.get(), *MCII,
+                          _target->Options.MCOptions));
   if (!TAP) {
     errMsg = "target " + std::string(T.getName()) +
       " does not define AsmParser.";
@@ -801,14 +801,8 @@ bool LTOModule::parseSymbols(std::string &errMsg) {
     return true;
 
   // add aliases
-  for (Module::alias_iterator a = _module->alias_begin(),
-         e = _module->alias_end(); a != e; ++a) {
-    if (isDeclaration(*a->getAliasedGlobal()))
-      // Is an alias to a declaration.
-      addPotentialUndefinedSymbol(a, false);
-    else
-      addDefinedDataSymbol(a);
-  }
+  for (const auto &Alias : _module->aliases())
+    addDefinedDataSymbol(&Alias);
 
   // make symbols for all undefines
   for (StringMap<NameAndAttributes>::iterator u =_undefines.begin(),

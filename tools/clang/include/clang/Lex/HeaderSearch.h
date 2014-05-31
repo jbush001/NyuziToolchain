@@ -106,7 +106,7 @@ struct HeaderFileInfo {
       External(false), isModuleHeader(false), isCompilingModuleHeader(false),
       HeaderRole(ModuleMap::NormalHeader),
       Resolved(false), IndexHeaderMapHeader(false), IsValid(0),
-      NumIncludes(0), ControllingMacroID(0), ControllingMacro(0)  {}
+      NumIncludes(0), ControllingMacroID(0), ControllingMacro(nullptr)  {}
 
   /// \brief Retrieve the controlling macro for this header file, if
   /// any.
@@ -493,9 +493,12 @@ public:
   ///
   /// \param ModuleName The module whose module file name will be returned.
   ///
+  /// \param ModuleMapPath A path that when combined with \c ModuleName
+  /// uniquely identifies this module. See Module::ModuleMap.
+  ///
   /// \returns The name of the module file that corresponds to this module,
   /// or an empty string if this module does not correspond to any module file.
-  std::string getModuleFileName(StringRef ModuleName);
+  std::string getModuleFileName(StringRef ModuleName, StringRef ModuleMapPath);
 
   /// \brief Lookup a module Search for a module with the given name.
   ///
@@ -507,7 +510,6 @@ public:
   ///
   /// \returns The module with the given name.
   Module *lookupModule(StringRef ModuleName, bool AllowSearch = true);
-
 
   /// \brief Try to find a module map file in the given directory, returning
   /// \c nullptr if none is found.

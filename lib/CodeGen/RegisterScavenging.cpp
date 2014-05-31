@@ -14,7 +14,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "reg-scavenging"
 #include "llvm/CodeGen/RegisterScavenging.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -28,6 +27,8 @@
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
 using namespace llvm;
+
+#define DEBUG_TYPE "reg-scavenging"
 
 /// setUsed - Set the register and its sub-registers as being used.
 void RegScavenger::setUsed(unsigned Reg) {
@@ -47,7 +48,7 @@ void RegScavenger::initRegState() {
   for (SmallVectorImpl<ScavengedInfo>::iterator I = Scavenged.begin(),
          IE = Scavenged.end(); I != IE; ++I) {
     I->Reg = 0;
-    I->Restore = NULL;
+    I->Restore = nullptr;
   }
 
   // All registers started out unused.
@@ -92,7 +93,7 @@ void RegScavenger::enterBasicBlock(MachineBasicBlock *mbb) {
     // Create callee-saved registers bitvector.
     CalleeSavedRegs.resize(NumPhysRegs);
     const MCPhysReg *CSRegs = TRI->getCalleeSavedRegs(&MF);
-    if (CSRegs != NULL)
+    if (CSRegs != nullptr)
       for (unsigned i = 0; CSRegs[i]; ++i)
         CalleeSavedRegs.set(CSRegs[i]);
   }
@@ -162,7 +163,7 @@ void RegScavenger::unprocess() {
   }
 
   if (MBBI == MBB->begin()) {
-    MBBI = MachineBasicBlock::iterator(NULL);
+    MBBI = MachineBasicBlock::iterator(nullptr);
     Tracking = false;
   } else
     --MBBI;
@@ -187,7 +188,7 @@ void RegScavenger::forward() {
       continue;
 
     I->Reg = 0;
-    I->Restore = NULL;
+    I->Restore = nullptr;
   }
 
   if (MI->isDebugValue())
@@ -223,7 +224,7 @@ void RegScavenger::forward() {
             break;
           }
         if (!SubUsed) {
-          MBB->getParent()->verify(NULL, "In Register Scavenger");
+          MBB->getParent()->verify(nullptr, "In Register Scavenger");
           llvm_unreachable("Using an undefined register!");
         }
         (void)SubUsed;

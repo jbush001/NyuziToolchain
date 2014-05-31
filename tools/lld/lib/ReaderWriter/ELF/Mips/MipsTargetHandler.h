@@ -26,9 +26,10 @@ public:
   MipsTargetLayout(const MipsLinkingContext &ctx)
       : TargetLayout<ELFType>(ctx),
         _gotSection(new (_alloc) MipsGOTSection<ELFType>(ctx)),
-        _cachedGP(false) {}
+        _pltSection(new (_alloc) MipsPLTSection<ELFType>(ctx)) {}
 
   const MipsGOTSection<ELFType> &getGOTSection() const { return *_gotSection; }
+  const MipsPLTSection<ELFType> &getPLTSection() const { return *_pltSection; }
 
   AtomSection<ELFType> *
   createSection(StringRef name, int32_t type,
@@ -36,6 +37,8 @@ public:
                 Layout::SectionOrder order) override {
     if (type == DefinedAtom::typeGOT && name == ".got")
       return _gotSection;
+    if (type == DefinedAtom::typeStub && name == ".plt")
+      return _pltSection;
     return DefaultLayout<ELFType>::createSection(name, type, permissions,
                                                  order);
   }
@@ -43,21 +46,30 @@ public:
   /// \brief GP offset relative to .got section.
   uint64_t getGPOffset() const { return 0x7FF0; }
 
-  /// \brief Get the cached value of the GP atom.
+  /// \brief Get '_gp' symbol atom layout.
   AtomLayout *getGP() {
-    if (!_cachedGP) {
-      auto gpAtomIter = this->findAbsoluteAtom("_gp_disp");
-      _gp = *(gpAtomIter);
-      _cachedGP = true;
+    if (!_gpAtom.hasValue()) {
+      auto atom = this->findAbsoluteAtom("_gp");
+      _gpAtom = atom != this->absoluteAtoms().end() ? *atom : nullptr;
     }
-    return _gp;
+    return *_gpAtom;
+  }
+
+  /// \brief Get '_gp_disp' symbol atom layout.
+  AtomLayout *getGPDisp() {
+    if (!_gpDispAtom.hasValue()) {
+      auto atom = this->findAbsoluteAtom("_gp_disp");
+      _gpDispAtom = atom != this->absoluteAtoms().end() ? *atom : nullptr;
+    }
+    return *_gpDispAtom;
   }
 
 private:
   llvm::BumpPtrAllocator _alloc;
   MipsGOTSection<ELFType> *_gotSection;
-  AtomLayout *_gp;
-  bool _cachedGP;
+  MipsPLTSection<ELFType> *_pltSection;
+  llvm::Optional<AtomLayout *> _gpAtom;
+  llvm::Optional<AtomLayout *> _gpDispAtom;
 };
 
 /// \brief Mips Runtime file.
@@ -97,17 +109,19 @@ private:
   std::unique_ptr<MipsTargetRelocationHandler> _relocationHandler;
 };
 
-class MipsDynamicSymbolTable : public DynamicSymbolTable<Mips32ElELFType> {
+template <class ELFT>
+class MipsDynamicSymbolTable : public DynamicSymbolTable<ELFT> {
 public:
   MipsDynamicSymbolTable(const MipsLinkingContext &context,
-                         MipsTargetLayout<Mips32ElELFType> &layout)
-      : DynamicSymbolTable<Mips32ElELFType>(
+                         MipsTargetLayout<ELFT> &layout)
+      : DynamicSymbolTable<ELFT>(
             context, layout, ".dynsym",
-            DefaultLayout<Mips32ElELFType>::ORDER_DYNAMIC_SYMBOLS),
+            DefaultLayout<ELFT>::ORDER_DYNAMIC_SYMBOLS),
         _targetLayout(layout) {}
 
   void sortSymbols() override {
-    std::stable_sort(_symbolTable.begin(), _symbolTable.end(),
+    typedef typename DynamicSymbolTable<ELFT>::SymbolEntry SymbolEntry;
+    std::stable_sort(this->_symbolTable.begin(), this->_symbolTable.end(),
                      [this](const SymbolEntry &A, const SymbolEntry &B) {
       if (A._symbol.getBinding() != STB_GLOBAL &&
           B._symbol.getBinding() != STB_GLOBAL)
@@ -117,8 +131,28 @@ public:
     });
   }
 
+  void finalize() override {
+    const auto &pltSection = _targetLayout.getPLTSection();
+
+    // Under some conditions a dynamic symbol table record should hold a symbol
+    // value of the corresponding PLT entry. For details look at the PLT entry
+    // creation code in the class MipsRelocationPass. Let's update atomLayout
+    // fields for such symbols.
+    for (auto &ste : this->_symbolTable) {
+      if (!ste._atom || ste._atomLayout)
+        continue;
+      auto *layout = pltSection.findPLTLayout(ste._atom);
+      if (layout) {
+        ste._symbol.st_value = layout->_virtualAddr;
+        ste._symbol.st_other |= ELF::STO_MIPS_PLT;
+      }
+    }
+
+    DynamicSymbolTable<Mips32ElELFType>::finalize();
+  }
+
 private:
-  MipsTargetLayout<Mips32ElELFType> &_targetLayout;
+  MipsTargetLayout<ELFT> &_targetLayout;
 };
 
 } // end namespace elf

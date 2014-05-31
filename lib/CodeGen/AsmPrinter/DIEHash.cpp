@@ -11,8 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "dwarfdebug"
-
 #include "ByteStreamer.h"
 #include "DIEHash.h"
 #include "DIE.h"
@@ -27,6 +25,8 @@
 #include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
+
+#define DEBUG_TYPE "dwarfdebug"
 
 /// \brief Grabs the string in whichever attribute is passed in and returns
 /// a reference to it.
@@ -309,7 +309,7 @@ void DIEHash::hashAttribute(AttrEntry Attr, dwarf::Tag Tag) {
     // ... An attribute that refers to another type entry T is processed as
     // follows:
   case DIEValue::isEntry:
-    hashDIEEntry(Attribute, Tag, *cast<DIEEntry>(Value)->getEntry());
+    hashDIEEntry(Attribute, Tag, cast<DIEEntry>(Value)->getEntry());
     break;
   case DIEValue::isInteger: {
     addULEB128('A');
@@ -463,20 +463,18 @@ void DIEHash::computeHash(const DIE &Die) {
   addAttributes(Die);
 
   // Then hash each of the children of the DIE.
-  for (std::vector<DIE *>::const_iterator I = Die.getChildren().begin(),
-                                          E = Die.getChildren().end();
-       I != E; ++I) {
+  for (auto &C : Die.getChildren()) {
     // 7.27 Step 7
     // If C is a nested type entry or a member function entry, ...
-    if (isType((*I)->getTag()) || (*I)->getTag() == dwarf::DW_TAG_subprogram) {
-      StringRef Name = getDIEStringAttr(**I, dwarf::DW_AT_name);
+    if (isType(C->getTag()) || C->getTag() == dwarf::DW_TAG_subprogram) {
+      StringRef Name = getDIEStringAttr(*C, dwarf::DW_AT_name);
       // ... and has a DW_AT_name attribute
       if (!Name.empty()) {
-        hashNestedType(**I, Name);
+        hashNestedType(*C, Name);
         continue;
       }
     }
-    computeHash(**I);
+    computeHash(*C);
   }
 
   // Following the last (or if there are no children), append a zero byte.

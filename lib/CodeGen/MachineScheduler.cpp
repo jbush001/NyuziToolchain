@@ -12,8 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define DEBUG_TYPE "misched"
-
 #include "llvm/CodeGen/MachineScheduler.h"
 #include "llvm/ADT/PriorityQueue.h"
 #include "llvm/Analysis/AliasAnalysis.h"
@@ -34,6 +32,8 @@
 #include <queue>
 
 using namespace llvm;
+
+#define DEBUG_TYPE "misched"
 
 namespace llvm {
 cl::opt<bool> ForceTopDown("misched-topdown", cl::Hidden,
@@ -85,7 +85,7 @@ void ScheduleDAGMutation::anchor() {}
 //===----------------------------------------------------------------------===//
 
 MachineSchedContext::MachineSchedContext():
-    MF(0), MLI(0), MDT(0), PassConfig(0), AA(0), LIS(0) {
+    MF(nullptr), MLI(nullptr), MDT(nullptr), PassConfig(nullptr), AA(nullptr), LIS(nullptr) {
   RegClassInfo = new RegisterClassInfo();
 }
 
@@ -100,7 +100,7 @@ class MachineSchedulerBase : public MachineSchedContext,
 public:
   MachineSchedulerBase(char &ID): MachineFunctionPass(ID) {}
 
-  void print(raw_ostream &O, const Module* = 0) const override;
+  void print(raw_ostream &O, const Module* = nullptr) const override;
 
 protected:
   void scheduleRegions(ScheduleDAGInstrs &Scheduler);
@@ -192,7 +192,7 @@ MachinePassRegistry MachineSchedRegistry::Registry;
 /// A dummy default scheduler factory indicates whether the scheduler
 /// is overridden on the command line.
 static ScheduleDAGInstrs *useDefaultMachineSched(MachineSchedContext *C) {
-  return 0;
+  return nullptr;
 }
 
 /// MachineSchedOpt allows command line selection of the scheduler.
@@ -487,9 +487,8 @@ void ReadyQueue::dump() {
 // virtual registers.
 // ===----------------------------------------------------------------------===/
 
+// Provide a vtable anchor.
 ScheduleDAGMI::~ScheduleDAGMI() {
-  DeleteContainerPointers(Mutations);
-  delete SchedImpl;
 }
 
 bool ScheduleDAGMI::canAddEdge(SUnit *SuccSU, SUnit *PredSU) {
@@ -527,7 +526,7 @@ void ScheduleDAGMI::releaseSucc(SUnit *SU, SDep *SuccEdge) {
     dbgs() << "*** Scheduling failed! ***\n";
     SuccSU->dump(this);
     dbgs() << " has been released too many times!\n";
-    llvm_unreachable(0);
+    llvm_unreachable(nullptr);
   }
 #endif
   --SuccSU->NumPredsLeft;
@@ -561,7 +560,7 @@ void ScheduleDAGMI::releasePred(SUnit *SU, SDep *PredEdge) {
     dbgs() << "*** Scheduling failed! ***\n";
     PredSU->dump(this);
     dbgs() << " has been released too many times!\n";
-    llvm_unreachable(0);
+    llvm_unreachable(nullptr);
   }
 #endif
   --PredSU->NumSuccsLeft;
@@ -723,8 +722,8 @@ findRootsAndBiasEdges(SmallVectorImpl<SUnit*> &TopRoots,
 /// Identify DAG roots and setup scheduler queues.
 void ScheduleDAGMI::initQueues(ArrayRef<SUnit*> TopRoots,
                                ArrayRef<SUnit*> BotRoots) {
-  NextClusterSucc = NULL;
-  NextClusterPred = NULL;
+  NextClusterSucc = nullptr;
+  NextClusterPred = nullptr;
 
   // Release all DAG roots for scheduling, not including EntrySU/ExitSU.
   //
@@ -782,7 +781,7 @@ void ScheduleDAGMI::placeDebugValues() {
       RegionEnd = DbgValue;
   }
   DbgValues.clear();
-  FirstDbgValue = NULL;
+  FirstDbgValue = nullptr;
 }
 
 #if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
@@ -1549,7 +1548,7 @@ void SchedBoundary::reset() {
   // invalid, placeholder HazardRecs.
   if (HazardRec && HazardRec->isEnabled()) {
     delete HazardRec;
-    HazardRec = 0;
+    HazardRec = nullptr;
   }
   Available.clear();
   Pending.clear();
@@ -1679,7 +1678,7 @@ bool SchedBoundary::checkHazard(SUnit *SU) {
 // Find the unscheduled node in ReadySUs with the highest latency.
 unsigned SchedBoundary::
 findMaxLatency(ArrayRef<SUnit*> ReadySUs) {
-  SUnit *LateSU = 0;
+  SUnit *LateSU = nullptr;
   unsigned RemLatency = 0;
   for (ArrayRef<SUnit*>::iterator I = ReadySUs.begin(), E = ReadySUs.end();
        I != E; ++I) {
@@ -2057,7 +2056,7 @@ SUnit *SchedBoundary::pickOnlyChoice() {
   }
   if (Available.size() == 1)
     return *Available.begin();
-  return NULL;
+  return nullptr;
 }
 
 #ifndef NDEBUG
@@ -2157,7 +2156,7 @@ public:
     SchedResourceDelta ResDelta;
 
     SchedCandidate(const CandPolicy &policy)
-      : Policy(policy), SU(NULL), Reason(NoCand), RepeatReasonSet(0) {}
+      : Policy(policy), SU(nullptr), Reason(NoCand), RepeatReasonSet(0) {}
 
     bool isValid() const { return SU; }
 
@@ -2185,7 +2184,7 @@ protected:
   SchedRemainder Rem;
 protected:
   GenericSchedulerBase(const MachineSchedContext *C):
-    Context(C), SchedModel(0), TRI(0) {}
+    Context(C), SchedModel(nullptr), TRI(nullptr) {}
 
   void setPolicy(CandPolicy &Policy, bool IsPostRA, SchedBoundary &CurrZone,
                  SchedBoundary *OtherZone);
@@ -2444,7 +2443,7 @@ class GenericScheduler : public GenericSchedulerBase {
   MachineSchedPolicy RegionPolicy;
 public:
   GenericScheduler(const MachineSchedContext *C):
-    GenericSchedulerBase(C), DAG(0), Top(SchedBoundary::TopQID, "TopQ"),
+    GenericSchedulerBase(C), DAG(nullptr), Top(SchedBoundary::TopQID, "TopQ"),
     Bot(SchedBoundary::BotQID, "BotQ") {}
 
   void initPolicy(MachineBasicBlock::iterator Begin,
@@ -2910,7 +2909,7 @@ SUnit *GenericScheduler::pickNode(bool &IsTopNode) {
   if (DAG->top() == DAG->bottom()) {
     assert(Top.Available.empty() && Top.Pending.empty() &&
            Bot.Available.empty() && Bot.Pending.empty() && "ReadyQ garbage");
-    return NULL;
+    return nullptr;
   }
   SUnit *SU;
   do {
@@ -3002,17 +3001,17 @@ void GenericScheduler::schedNode(SUnit *SU, bool IsTopNode) {
 /// Create the standard converging machine scheduler. This will be used as the
 /// default scheduler if the target does not set a default.
 static ScheduleDAGInstrs *createGenericSchedLive(MachineSchedContext *C) {
-  ScheduleDAGMILive *DAG = new ScheduleDAGMILive(C, new GenericScheduler(C));
+  ScheduleDAGMILive *DAG = new ScheduleDAGMILive(C, make_unique<GenericScheduler>(C));
   // Register DAG post-processors.
   //
   // FIXME: extend the mutation API to allow earlier mutations to instantiate
   // data and pass it to later mutations. Have a single mutation that gathers
   // the interesting nodes in one pass.
-  DAG->addMutation(new CopyConstrain(DAG->TII, DAG->TRI));
+  DAG->addMutation(make_unique<CopyConstrain>(DAG->TII, DAG->TRI));
   if (EnableLoadCluster && DAG->TII->enableClusterLoads())
-    DAG->addMutation(new LoadClusterMutation(DAG->TII, DAG->TRI));
+    DAG->addMutation(make_unique<LoadClusterMutation>(DAG->TII, DAG->TRI));
   if (EnableMacroFusion)
-    DAG->addMutation(new MacroFusion(DAG->TII));
+    DAG->addMutation(make_unique<MacroFusion>(DAG->TII));
   return DAG;
 }
 
@@ -3164,7 +3163,7 @@ void PostGenericScheduler::pickNodeFromQueue(SchedCandidate &Cand) {
 SUnit *PostGenericScheduler::pickNode(bool &IsTopNode) {
   if (DAG->top() == DAG->bottom()) {
     assert(Top.Available.empty() && Top.Pending.empty() && "ReadyQ garbage");
-    return NULL;
+    return nullptr;
   }
   SUnit *SU;
   do {
@@ -3174,7 +3173,7 @@ SUnit *PostGenericScheduler::pickNode(bool &IsTopNode) {
       SchedCandidate TopCand(NoPolicy);
       // Set the top-down policy based on the state of the current top zone and
       // the instructions outside the zone, including the bottom zone.
-      setPolicy(TopCand.Policy, /*IsPostRA=*/true, Top, NULL);
+      setPolicy(TopCand.Policy, /*IsPostRA=*/true, Top, nullptr);
       pickNodeFromQueue(TopCand);
       assert(TopCand.Reason != NoCand && "failed to find a candidate");
       tracePick(TopCand, true);
@@ -3198,7 +3197,7 @@ void PostGenericScheduler::schedNode(SUnit *SU, bool IsTopNode) {
 
 /// Create a generic scheduler with no vreg liveness or DAG mutation passes.
 static ScheduleDAGInstrs *createGenericSchedPostRA(MachineSchedContext *C) {
-  return new ScheduleDAGMI(C, new PostGenericScheduler(C), /*IsPostRA=*/true);
+  return new ScheduleDAGMI(C, make_unique<PostGenericScheduler>(C), /*IsPostRA=*/true);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3212,7 +3211,8 @@ struct ILPOrder {
   const BitVector *ScheduledTrees;
   bool MaximizeILP;
 
-  ILPOrder(bool MaxILP): DFSResult(0), ScheduledTrees(0), MaximizeILP(MaxILP) {}
+  ILPOrder(bool MaxILP)
+    : DFSResult(nullptr), ScheduledTrees(nullptr), MaximizeILP(MaxILP) {}
 
   /// \brief Apply a less-than relation on node priority.
   ///
@@ -3246,7 +3246,7 @@ class ILPScheduler : public MachineSchedStrategy {
 
   std::vector<SUnit*> ReadyQ;
 public:
-  ILPScheduler(bool MaximizeILP): DAG(0), Cmp(MaximizeILP) {}
+  ILPScheduler(bool MaximizeILP): DAG(nullptr), Cmp(MaximizeILP) {}
 
   void initialize(ScheduleDAGMI *dag) override {
     assert(dag->hasVRegLiveness() && "ILPScheduler needs vreg liveness");
@@ -3267,7 +3267,7 @@ public:
 
   /// Callback to select the highest priority node from the ready Q.
   SUnit *pickNode(bool &IsTopNode) override {
-    if (ReadyQ.empty()) return NULL;
+    if (ReadyQ.empty()) return nullptr;
     std::pop_heap(ReadyQ.begin(), ReadyQ.end(), Cmp);
     SUnit *SU = ReadyQ.back();
     ReadyQ.pop_back();
@@ -3302,10 +3302,10 @@ public:
 } // namespace
 
 static ScheduleDAGInstrs *createILPMaxScheduler(MachineSchedContext *C) {
-  return new ScheduleDAGMILive(C, new ILPScheduler(true));
+  return new ScheduleDAGMILive(C, make_unique<ILPScheduler>(true));
 }
 static ScheduleDAGInstrs *createILPMinScheduler(MachineSchedContext *C) {
-  return new ScheduleDAGMILive(C, new ILPScheduler(false));
+  return new ScheduleDAGMILive(C, make_unique<ILPScheduler>(false));
 }
 static MachineSchedRegistry ILPMaxRegistry(
   "ilpmax", "Schedule bottom-up for max ILP", createILPMaxScheduler);
@@ -3347,7 +3347,7 @@ public:
   InstructionShuffler(bool alternate, bool topdown)
     : IsAlternating(alternate), IsTopDown(topdown) {}
 
-  virtual void initialize(ScheduleDAGMI*) {
+  void initialize(ScheduleDAGMI*) override {
     TopQ.clear();
     BottomQ.clear();
   }
@@ -3355,11 +3355,11 @@ public:
   /// Implement MachineSchedStrategy interface.
   /// -----------------------------------------
 
-  virtual SUnit *pickNode(bool &IsTopNode) {
+  SUnit *pickNode(bool &IsTopNode) override {
     SUnit *SU;
     if (IsTopDown) {
       do {
-        if (TopQ.empty()) return NULL;
+        if (TopQ.empty()) return nullptr;
         SU = TopQ.top();
         TopQ.pop();
       } while (SU->isScheduled);
@@ -3367,7 +3367,7 @@ public:
     }
     else {
       do {
-        if (BottomQ.empty()) return NULL;
+        if (BottomQ.empty()) return nullptr;
         SU = BottomQ.top();
         BottomQ.pop();
       } while (SU->isScheduled);
@@ -3378,12 +3378,12 @@ public:
     return SU;
   }
 
-  virtual void schedNode(SUnit *SU, bool IsTopNode) {}
+  void schedNode(SUnit *SU, bool IsTopNode) override {}
 
-  virtual void releaseTopNode(SUnit *SU) {
+  void releaseTopNode(SUnit *SU) override {
     TopQ.push(SU);
   }
-  virtual void releaseBottomNode(SUnit *SU) {
+  void releaseBottomNode(SUnit *SU) override {
     BottomQ.push(SU);
   }
 };
@@ -3394,7 +3394,7 @@ static ScheduleDAGInstrs *createInstructionShuffler(MachineSchedContext *C) {
   bool TopDown = !ForceBottomUp;
   assert((TopDown || !ForceTopDown) &&
          "-misched-topdown incompatible with -misched-bottomup");
-  return new ScheduleDAGMILive(C, new InstructionShuffler(Alternate, TopDown));
+  return new ScheduleDAGMILive(C, make_unique<InstructionShuffler>(Alternate, TopDown));
 }
 static MachineSchedRegistry ShufflerRegistry(
   "shuffle", "Shuffle machine instructions alternating directions",
@@ -3450,7 +3450,7 @@ struct DOTGraphTraits<ScheduleDAGMI*> : public DefaultDOTGraphTraits {
     raw_string_ostream SS(Str);
     const ScheduleDAGMI *DAG = static_cast<const ScheduleDAGMI*>(G);
     const SchedDFSResult *DFS = DAG->hasVRegLiveness() ?
-      static_cast<const ScheduleDAGMILive*>(G)->getDFSResult() : 0;
+      static_cast<const ScheduleDAGMILive*>(G)->getDFSResult() : nullptr;
     SS << "SU:" << SU->NodeNum;
     if (DFS)
       SS << " I:" << DFS->getNumInstrs(SU);
@@ -3464,7 +3464,7 @@ struct DOTGraphTraits<ScheduleDAGMI*> : public DefaultDOTGraphTraits {
     std::string Str("shape=Mrecord");
     const ScheduleDAGMI *DAG = static_cast<const ScheduleDAGMI*>(G);
     const SchedDFSResult *DFS = DAG->hasVRegLiveness() ?
-      static_cast<const ScheduleDAGMILive*>(G)->getDFSResult() : 0;
+      static_cast<const ScheduleDAGMILive*>(G)->getDFSResult() : nullptr;
     if (DFS) {
       Str += ",style=filled,fillcolor=\"#";
       Str += DOT::getColorString(DFS->getSubtreeID(N));

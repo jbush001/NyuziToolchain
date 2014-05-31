@@ -8,12 +8,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Frontend/CompilerInvocation.h"
-#include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/Version.h"
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/Options.h"
 #include "clang/Driver/Util.h"
+#include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/LangStandard.h"
 #include "clang/Frontend/Utils.h"
 #include "clang/Lex/HeaderSearchOptions.h"
@@ -27,6 +27,7 @@
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/OptTable.h"
 #include "llvm/Option/Option.h"
+#include "llvm/Support/CodeGen.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Host.h"
@@ -55,6 +56,8 @@ CompilerInvocationBase::CompilerInvocationBase(const CompilerInvocationBase &X)
     DiagnosticOpts(new DiagnosticOptions(X.getDiagnosticOpts())),
     HeaderSearchOpts(new HeaderSearchOptions(X.getHeaderSearchOpts())),
     PreprocessorOpts(new PreprocessorOptions(X.getPreprocessorOpts())) {}
+
+CompilerInvocationBase::~CompilerInvocationBase() {}
 
 //===----------------------------------------------------------------------===//
 // Deserialization (from args)
@@ -295,6 +298,33 @@ static void ParseCommentArgs(CommentOptions &Opts, ArgList &Args) {
   Opts.ParseAllComments = Args.hasArg(OPT_fparse_all_comments);
 }
 
+static StringRef getCodeModel(ArgList &Args, DiagnosticsEngine &Diags) {
+  if (Arg *A = Args.getLastArg(OPT_mcode_model)) {
+    StringRef Value = A->getValue();
+    if (Value == "small" || Value == "kernel" || Value == "medium" ||
+        Value == "large")
+      return Value;
+    Diags.Report(diag::err_drv_invalid_value) << A->getAsString(Args) << Value;
+  }
+  return "default";
+}
+
+/// \brief Create a new Regex instance out of the string value in \p RpassArg.
+/// It returns a pointer to the newly generated Regex instance.
+static std::shared_ptr<llvm::Regex>
+GenerateOptimizationRemarkRegex(DiagnosticsEngine &Diags, ArgList &Args,
+                                Arg *RpassArg) {
+  StringRef Val = RpassArg->getValue();
+  std::string RegexError;
+  std::shared_ptr<llvm::Regex> Pattern = std::make_shared<llvm::Regex>(Val);
+  if (!Pattern->isValid(RegexError)) {
+    Diags.Report(diag::err_drv_optimization_remark_pattern)
+        << RegexError << RpassArg->getAsString(Args);
+    Pattern.reset();
+  }
+  return Pattern;
+}
+
 static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
                              DiagnosticsEngine &Diags,
                              const TargetOptions &TargetOpts) {
@@ -325,9 +355,10 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   } else if (Args.hasArg(OPT_g_Flag) || Args.hasArg(OPT_gdwarf_2) ||
              Args.hasArg(OPT_gdwarf_3) || Args.hasArg(OPT_gdwarf_4)) {
     bool Default = false;
-    // Until dtrace (via CTF) can deal with distributed debug info,
-    // Darwin defaults to standalone/full debug info.
-    if (llvm::Triple(TargetOpts.Triple).isOSDarwin())
+    // Until dtrace (via CTF) and LLDB can deal with distributed debug info,
+    // Darwin and FreeBSD default to standalone/full debug info.
+    if (llvm::Triple(TargetOpts.Triple).isOSDarwin() ||
+        llvm::Triple(TargetOpts.Triple).isOSFreeBSD())
       Default = true;
 
     if (Args.hasFlag(OPT_fstandalone_debug, OPT_fno_standalone_debug, Default))
@@ -376,7 +407,7 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.CUDAIsDevice = Args.hasArg(OPT_fcuda_is_device);
   Opts.CXAAtExit = !Args.hasArg(OPT_fno_use_cxa_atexit);
   Opts.CXXCtorDtorAliases = Args.hasArg(OPT_mconstructor_aliases);
-  Opts.CodeModel = Args.getLastArgValue(OPT_mcode_model);
+  Opts.CodeModel = getCodeModel(Args, Diags);
   Opts.DebugPass = Args.getLastArgValue(OPT_mdebug_pass);
   Opts.DisableFPElim = Args.hasArg(OPT_mdisable_fp_elim);
   Opts.DisableFree = Args.hasArg(OPT_disable_free);
@@ -399,7 +430,6 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   Opts.RelaxAll = Args.hasArg(OPT_mrelax_all);
   Opts.OmitLeafFramePointer = Args.hasArg(OPT_momit_leaf_frame_pointer);
   Opts.SaveTempLabels = Args.hasArg(OPT_msave_temp_labels);
-  Opts.NoDwarf2CFIAsm = Args.hasArg(OPT_fno_dwarf2_cfi_asm);
   Opts.NoDwarfDirectoryAsm = Args.hasArg(OPT_fno_dwarf_directory_asm);
   Opts.SoftFloat = Args.hasArg(OPT_msoft_float);
   Opts.StrictEnums = Args.hasArg(OPT_fstrict_enums);
@@ -519,6 +549,29 @@ static bool ParseCodeGenArgs(CodeGenOptions &Opts, ArgList &Args, InputKind IK,
   }
 
   Opts.DependentLibraries = Args.getAllArgValues(OPT_dependent_lib);
+
+  if (Arg *A = Args.getLastArg(OPT_Rpass_EQ)) {
+    StringRef Val = A->getValue();
+    std::string RegexError;
+    Opts.OptimizationRemarkPattern = std::make_shared<llvm::Regex>(Val);
+    if (!Opts.OptimizationRemarkPattern->isValid(RegexError)) {
+      Diags.Report(diag::err_drv_optimization_remark_pattern)
+          << RegexError << A->getAsString(Args);
+      Opts.OptimizationRemarkPattern.reset();
+    }
+  }
+
+  if (Arg *A = Args.getLastArg(OPT_Rpass_EQ))
+    Opts.OptimizationRemarkPattern =
+        GenerateOptimizationRemarkRegex(Diags, Args, A);
+
+  if (Arg *A = Args.getLastArg(OPT_Rpass_missed_EQ))
+    Opts.OptimizationRemarkMissedPattern =
+        GenerateOptimizationRemarkRegex(Diags, Args, A);
+
+  if (Arg *A = Args.getLastArg(OPT_Rpass_analysis_EQ))
+    Opts.OptimizationRemarkAnalysisPattern =
+        GenerateOptimizationRemarkRegex(Diags, Args, A);
 
   return Success;
 }
@@ -1089,18 +1142,13 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
   Opts.ImplicitInt = Std.hasImplicitInt();
 
   // Set OpenCL Version.
-  if (LangStd == LangStandard::lang_opencl) {
-    Opts.OpenCL = 1;
+  Opts.OpenCL = LangStd == LangStandard::lang_opencl || IK == IK_OpenCL;
+  if (LangStd == LangStandard::lang_opencl)
     Opts.OpenCLVersion = 100;
-  }
-  else if (LangStd == LangStandard::lang_opencl11) {
-      Opts.OpenCL = 1;
+  else if (LangStd == LangStandard::lang_opencl11)
       Opts.OpenCLVersion = 110;
-  }
-  else if (LangStd == LangStandard::lang_opencl12) {
-    Opts.OpenCL = 1;
+  else if (LangStd == LangStandard::lang_opencl12)
     Opts.OpenCLVersion = 120;
-  }
   
   // OpenCL has some additional defaults.
   if (Opts.OpenCL) {
@@ -1111,8 +1159,7 @@ void CompilerInvocation::setLangDefaults(LangOptions &Opts, InputKind IK,
     Opts.NativeHalfType = 1;
   }
 
-  if (LangStd == LangStandard::lang_cuda)
-    Opts.CUDA = 1;
+  Opts.CUDA = LangStd == LangStandard::lang_cuda || IK == IK_CUDA;
 
   // OpenCL and C++ both have bool, true, false keywords.
   Opts.Bool = Opts.OpenCL || Opts.CPlusPlus;
@@ -1343,7 +1390,13 @@ static void ParseLangArgs(LangOptions &Opts, ArgList &Args, InputKind IK,
   Opts.Blocks = Args.hasArg(OPT_fblocks);
   Opts.BlocksRuntimeOptional = Args.hasArg(OPT_fblocks_runtime_optional);
   Opts.Modules = Args.hasArg(OPT_fmodules);
-  Opts.ModulesDeclUse = Args.hasArg(OPT_fmodules_decluse);
+  Opts.ModulesStrictDeclUse = Args.hasArg(OPT_fmodules_strict_decluse);
+  Opts.ModulesDeclUse =
+      Args.hasArg(OPT_fmodules_decluse) || Opts.ModulesStrictDeclUse;
+  Opts.ModulesSearchAll = Opts.Modules &&
+    !Args.hasArg(OPT_fno_modules_search_all) &&
+    Args.hasArg(OPT_fmodules_search_all);
+  Opts.ModulesErrorRecovery = !Args.hasArg(OPT_fno_modules_error_recovery);
   Opts.CharIsSigned = Opts.OpenCL || !Args.hasArg(OPT_fno_signed_char);
   Opts.WChar = Opts.CPlusPlus && !Args.hasArg(OPT_fno_wchar);
   Opts.ShortWChar = Args.hasFlag(OPT_fshort_wchar, OPT_fno_short_wchar, false);
@@ -1803,7 +1856,7 @@ std::string CompilerInvocation::getModuleHash() const {
   
   // Extend the signature with the target options.
   code = hash_combine(code, TargetOpts->Triple, TargetOpts->CPU,
-                      TargetOpts->ABI, TargetOpts->LinkerVersion);
+                      TargetOpts->ABI);
   for (unsigned i = 0, n = TargetOpts->FeaturesAsWritten.size(); i != n; ++i)
     code = hash_combine(code, TargetOpts->FeaturesAsWritten[i]);
 
@@ -1833,6 +1886,7 @@ std::string CompilerInvocation::getModuleHash() const {
                       hsOpts.UseStandardSystemIncludes,
                       hsOpts.UseStandardCXXIncludes,
                       hsOpts.UseLibcxx);
+  code = hash_combine(code, hsOpts.ResourceDir);
 
   // Extend the signature with the user build path.
   code = hash_combine(code, hsOpts.ModuleUserBuildPath);
@@ -1905,4 +1959,31 @@ void BuryPointer(const void *Ptr) {
     return;
   GraveYard[Idx] = Ptr;
 }
+
+IntrusiveRefCntPtr<vfs::FileSystem>
+createVFSFromCompilerInvocation(const CompilerInvocation &CI,
+                                DiagnosticsEngine &Diags) {
+  if (CI.getHeaderSearchOpts().VFSOverlayFiles.empty())
+    return vfs::getRealFileSystem();
+
+  IntrusiveRefCntPtr<vfs::OverlayFileSystem>
+    Overlay(new vfs::OverlayFileSystem(vfs::getRealFileSystem()));
+  // earlier vfs files are on the bottom
+  for (const std::string &File : CI.getHeaderSearchOpts().VFSOverlayFiles) {
+    std::unique_ptr<llvm::MemoryBuffer> Buffer;
+    if (llvm::MemoryBuffer::getFile(File, Buffer)) {
+      Diags.Report(diag::err_missing_vfs_overlay_file) << File;
+      return IntrusiveRefCntPtr<vfs::FileSystem>();
+    }
+
+    IntrusiveRefCntPtr<vfs::FileSystem> FS =
+        vfs::getVFSFromYAML(Buffer.release(), /*DiagHandler*/nullptr);
+    if (!FS.getPtr()) {
+      Diags.Report(diag::err_invalid_vfs_overlay) << File;
+      return IntrusiveRefCntPtr<vfs::FileSystem>();
+    }
+    Overlay->pushOverlay(FS);
+  }
+  return Overlay;
 }
+} // end namespace clang

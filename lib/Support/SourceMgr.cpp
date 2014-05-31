@@ -18,6 +18,7 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Locale.h"
 #include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/system_error.h"
 using namespace llvm;
@@ -60,7 +61,7 @@ size_t SourceMgr::AddIncludeFile(const std::string &Filename,
 
   // If the file didn't exist directly, see if it's in an include path.
   for (unsigned i = 0, e = IncludeDirectories.size(); i != e && !NewBuf; ++i) {
-    IncludedFile = IncludeDirectories[i] + "/" + Filename;
+    IncludedFile = IncludeDirectories[i] + sys::path::get_separator().data() + Filename;
     MemoryBuffer::getFile(IncludedFile.c_str(), NewBuf);
   }
 
@@ -114,7 +115,7 @@ SourceMgr::getLineAndColumn(SMLoc Loc, int BufferID) const {
     if (*Ptr == '\n') ++LineNo;
 
   // Allocate the line number cache if it doesn't exist.
-  if (LineNoCache == 0)
+  if (!LineNoCache)
     LineNoCache = new LineNoCacheTy();
 
   // Update the line # cache.
@@ -228,7 +229,7 @@ void SourceMgr::PrintMessage(raw_ostream &OS, SMLoc Loc,
     PrintIncludeStack(getBufferInfo(CurBuf).IncludeLoc, OS);
   }
 
-  Diagnostic.print(0, OS, ShowColors);
+  Diagnostic.print(nullptr, OS, ShowColors);
 }
 
 void SourceMgr::PrintMessage(SMLoc Loc, SourceMgr::DiagKind Kind,

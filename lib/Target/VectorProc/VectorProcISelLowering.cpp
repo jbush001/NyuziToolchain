@@ -87,8 +87,7 @@ SDValue VectorProcTargetLowering::LowerReturn(
   if (Flag.getNode())
     RetOps.push_back(Flag);
 
-  return DAG.getNode(VectorProcISD::RET_FLAG, DL, MVT::Other, &RetOps[0],
-                     RetOps.size());
+  return DAG.getNode(VectorProcISD::RET_FLAG, DL, MVT::Other, RetOps);
 }
 
 SDValue VectorProcTargetLowering::LowerFormalArguments(
@@ -305,8 +304,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   // Emit all stores, make sure the occur before any copies into physregs.
   if (!MemOpChains.empty()) {
-    Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, &MemOpChains[0],
-                        MemOpChains.size());
+    Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, MemOpChains);
   }
 
   // Build a sequence of copy-to-reg nodes chained together with token
@@ -347,7 +345,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   if (InFlag.getNode())
     Ops.push_back(InFlag);
 
-  Chain = DAG.getNode(VectorProcISD::CALL, DL, NodeTys, &Ops[0], Ops.size());
+  Chain = DAG.getNode(VectorProcISD::CALL, DL, NodeTys, Ops);
   InFlag = Chain.getValue(1);
 
   Chain = DAG.getCALLSEQ_END(Chain, DAG.getIntPtrConstant(ArgsSize, true),
