@@ -70,80 +70,48 @@ binaryOps = [
 	(0x22, 'mul_f'),
 ]
 
+a_instruction_types = [
+	('s', 's', 's', 0, False),
+	('v', 'v', 's', 1, False),
+	('v', 'v', 's', 2, True),
+	('v', 'v', 'v', 4, False),
+	('v', 'v', 'v', 4, True)
+]
+
+b_instruction_types = [
+	('s', 's', 0, False),
+	('v', 'v', 1, False),
+	('v', 'v', 2, True),
+	('v', 's', 4, False),
+	('v', 's', 5, True)
+]
+
 for opcode, mnemonic in binaryOps:
-	rega = random.randint(0, 27)
-	regb = random.randint(0, 27)
-	regc = random.randint(0, 27)
-	regm = random.randint(0, 27)
-	
-	# scalar/scalar/scalar
-	make_test_case(mnemonic + ' s' + str(rega) + ', s' + str(regb) 
-		+ ', s' + str(regc),
-		make_a_instruction(0, opcode, rega, regb, regc, 0))
+	for reg1t, reg2t, reg3t, fmt, isMasked in a_instruction_types:
+		rega = random.randint(0, 27)
+		regb = random.randint(0, 27)
+		regc = random.randint(0, 27)
+		regm = random.randint(0, 27)
 
-	# vector/vector/scalar
-	make_test_case(mnemonic + ' v' + str(rega) + ', v' + str(regb) 
-		+ ', s' + str(regc),
-		make_a_instruction(1, opcode, rega, regb, regc, 0))
-
-	# vector/vector/scalar masked
-	make_test_case(mnemonic + '_mask v' + str(rega) + ', s' + str(regm) 
-		+ ', v' + str(regb) + ', s' + str(regc),
-		make_a_instruction(2, opcode, rega, regb, regc, regm))
-
-	# vector/vector/scalar invert mask
-	make_test_case(mnemonic + '_invmask v' + str(rega) + ', s' + str(regm) 
-		+ ', v' + str(regb) + ', s' + str(regc),
-		make_a_instruction(3, opcode, rega, regb, regc, regm))
-
-	# vector/vector/vector		
-	make_test_case(mnemonic + ' v' + str(rega) + ', v' + str(regb) 
-		+ ', v' + str(regc),
-		make_a_instruction(4, opcode, rega, regb, regc, 0))
-
-	# vector/vector/vector masked
-	make_test_case(mnemonic + '_mask v' + str(rega) + ', s' + str(regm) 
-		+ ', v' + str(regb) + ', v' + str(regc),
-		make_a_instruction(5, opcode, rega, regb, regc, regm))
-
-	# vector/vector/vector invert mask
-	make_test_case(mnemonic + '_invmask v' + str(rega) + ', s' + str(regm) 
-		+ ', v' + str(regb) + ', v' + str(regc),
-		make_a_instruction(6, opcode, rega, regb, regc, regm))
+		make_test_case(mnemonic + ('_mask ' if isMasked else ' ' ) + reg1t + str(rega) + ', ' + reg2t + str(regb) 
+			+ ', ' + reg3t + str(regc),
+			make_a_instruction(fmt, opcode, rega, regb, regc, regm if isMasked else 0))
 
 	if mnemonic[-2:] == '_f':
 		continue	# Can't do immediate for FP instructions
 
-	imm = random.randint(-128, 127)
-
-	# scalar/scalar
-	make_test_case(mnemonic + ' s' + str(rega) + ', s' + str(regb) 
-		+ ', ' + str(imm),
-		make_bprime_instruction(0, opcode, rega, regb, imm))
-
-	# vector/vector
-	make_test_case(mnemonic + ' v' + str(rega) + ', v' + str(regb) + ', ' + str(imm),
-		make_bprime_instruction(1, opcode, rega, regb, imm))
-
-	# vector/vector masked
-	make_test_case(mnemonic + '_mask v' + str(rega) + ', s' + str(regm) + ', v' + str(regb) + ', ' + str(imm),
-		make_b_instruction(2, opcode, rega, regb, imm, regm))
-
-	# vector/vector invert mask
-	make_test_case(mnemonic + '_invmask v' + str(rega) + ', s' + str(regm) + ', v' + str(regb) + ', ' + str(imm),
-		make_b_instruction(3, opcode, rega, regb, imm, regm))
-
-	# vector/scalar
-	make_test_case(mnemonic + ' v' + str(rega) + ', s' + str(regb) + ', ' + str(imm),
-		make_bprime_instruction(4, opcode, rega, regb, imm))
-
-	# vector/scalar masked
-	make_test_case(mnemonic + '_mask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb) + ', ' + str(imm),
-		make_b_instruction(5, opcode, rega, regb, imm, regm))
-
-	# vector/scalar invert mask
-	make_test_case(mnemonic + '_invmask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb) + ', ' + str(imm),
-		make_b_instruction(6, opcode, rega, regb, imm, regm))
+	for reg1t, reg2t, fmt, isMasked in b_instruction_types:
+		rega = random.randint(0, 27)
+		regb = random.randint(0, 27)
+		regc = random.randint(0, 27)
+		regm = random.randint(0, 27)
+		imm = random.randint(-128, 127)
+		if isMasked:
+			encoded = make_b_instruction(fmt, opcode, rega, regb, imm, regm)
+		else:
+			encoded = make_bprime_instruction(fmt, opcode, rega, regb, imm)
+		make_test_case(mnemonic + ('_mask ' if isMasked else ' ') + reg1t + str(rega) + ', ' + reg2t + str(regb) 
+			+ ', ' + str(imm), encoded)
 
 unaryOps = [
 	(12, 'clz'),
@@ -175,10 +143,6 @@ for opcode, mnemonic in unaryOps:
 	make_test_case(mnemonic + '_mask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb),
 		make_a_instruction(2, opcode, rega, 0, regb, regm))
 
-	# Vector/Scalar Invert Mask
-	make_test_case(mnemonic + '_invmask v' + str(rega) + ', s' + str(regm) + ', s' + str(regb),
-		make_a_instruction(3, opcode, rega, 0, regb, regm))
-
 	# Vector/Vector
 	make_test_case(mnemonic + ' v' + str(rega) + ', v' + str(regb),
 		make_a_instruction(4, opcode, rega, 0, regb, 0))
@@ -187,10 +151,6 @@ for opcode, mnemonic in unaryOps:
 	make_test_case(mnemonic + '_mask v' + str(rega) + ', s' + str(regm) + ', v'
 		+ str(regb), make_a_instruction(5, opcode, rega, 0, regb, regm))
 
-	# Vector/Vector invert mask	
-	make_test_case(mnemonic + '_invmask v' + str(rega) + ', s' + str(regm) + ', v'
-		+ str(regb), make_a_instruction(6, opcode, rega, 0, regb, regm))
-
 # XXX why is the source register set to 1 in this case?
 make_test_case('move s1, 72', make_bprime_instruction(0, 0xf, 1, 1, 72))
 make_test_case('move v1, 72', make_bprime_instruction(4, 0xf, 1, 1, 72))
@@ -198,7 +158,6 @@ make_test_case('move_mask v1, s3, 72', make_b_instruction(5, 0xf, 1, 1, 72, 3))
 
 make_test_case('shuffle v1, v2, v3', make_a_instruction(4, 0xd, 1, 2, 3, 0))
 make_test_case('shuffle_mask v1, s4, v2, v3', make_a_instruction(5, 0xd, 1, 2, 3, 4))
-make_test_case('shuffle_invmask v1, s4, v2, v3', make_a_instruction(6, 0xd, 1, 2, 3, 4))
 
 make_test_case('getlane s4, v5, s6', make_a_instruction(1, 0x1a, 4, 5, 6, 0))
 make_test_case('getlane s4, v5, 7', make_bprime_instruction(1, 0x1a, 4, 5, 7))
@@ -310,16 +269,12 @@ for loadSuffix, storeSuffix, ptrType, op in vectorMemFormats:
 		make_cprime_instruction(1, op, rega, regb, offs))
 	make_test_case(loadStem + '_mask v' + str(rega) + ', s' + str(mask) + ', ' + str(offs) + '(' + ptrType + str(regb) + ')', 
 		make_c_instruction(1, op + 1, rega, regb, offs, mask))
-	make_test_case(loadStem + '_invmask v' + str(rega) + ', s' + str(mask) + ', ' + str(offs) + '(' + ptrType + str(regb) + ')', 
-		make_c_instruction(1, op + 2, rega, regb, offs, mask))
 
 	# No offset
 	make_test_case(loadStem + ' v' + str(rega) + ', (' + ptrType + str(regb) + ')', 
 		make_cprime_instruction(1, op, rega, regb, 0))
 	make_test_case(loadStem + '_mask v' + str(rega) + ', s' + str(mask) + ', (' + ptrType + str(regb) + ')', 
 		make_c_instruction(1, op + 1, rega, regb, 0, mask))
-	make_test_case(loadStem + '_invmask v' + str(rega) + ', s' + str(mask)  + ', (' + ptrType + str(regb) + ')', 
-		make_c_instruction(1, op + 2, rega, regb, 0, mask))
 
 	storeStem = 'store_' + storeSuffix
 
@@ -328,16 +283,12 @@ for loadSuffix, storeSuffix, ptrType, op in vectorMemFormats:
 		make_cprime_instruction(0, op, rega, regb, offs))
 	make_test_case(storeStem + '_mask v' + str(rega) + ', s' + str(mask) + ', ' + str(offs) + '(' + ptrType + str(regb) + ')', 
 		make_c_instruction(0, op + 1, rega, regb, offs, mask))
-	make_test_case(storeStem + '_invmask v' + str(rega) + ', s' + str(mask) + ', ' + str(offs) + '(' + ptrType + str(regb) + ')', 
-		make_c_instruction(0, op + 2, rega, regb, offs, mask))
 
 	# No offset
 	make_test_case(storeStem + ' v' + str(rega) + ', (' + ptrType + str(regb) + ')', 
 		make_cprime_instruction(0, op, rega, regb, 0))
 	make_test_case(storeStem + '_mask v' + str(rega) + ', s' + str(mask) + ', (' + ptrType + str(regb) + ')', 
 		make_c_instruction(0, op + 1, rega, regb, 0, mask))
-	make_test_case(storeStem + '_invmask v' + str(rega) + ', s' + str(mask) + ', (' + ptrType + str(regb) + ')', 
-		make_c_instruction(0, op + 2, rega, regb, 0, mask))
 
 # Control register
 make_test_case('getcr s7, 9', make_cprime_instruction(1, 6, 7, 9, 0))

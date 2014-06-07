@@ -164,10 +164,8 @@ class AFmt<bits<3> val> {
 def FmtA_SSS : AFmt<0>;
 def FmtA_VVS : AFmt<1>;
 def FmtA_VVSM : AFmt<2>;
-def FmtA_VVSMinv : AFmt<3>;
 def FmtA_VVV : AFmt<4>;
 def FmtA_VVVM : AFmt<5>;
-def FmtA_VVVMinv : AFmt<6>;
 
 class FormatAInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	bits<6> opcode, AFmt fmt> 
@@ -234,10 +232,8 @@ class BFmt<bits<3> val> {
 def FmtB_SS : BFmt<0>;
 def FmtB_VV : BFmt<1>;
 def FmtB_VVM : BFmt<2>;
-def FmtB_VVMinv : BFmt<3>;
 def FmtB_VS : BFmt<4>;
 def FmtB_VSM : BFmt<5>;
-def FmtB_VSMinv : BFmt<6>;
 
 class FormatBInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	bits<5> opcode, BFmt fmt>  
@@ -310,15 +306,6 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			opcode,
 			FmtA_VVVM>;
 
-		// Vector = Vector op Vector, inverted mask
-		def VVVMinv : FormatAMaskedTwoOpInst<
-			(outs VR512:$dest),
-			(ins GPR32:$mask, VR512:$src1, VR512:$src2, VR512:$oldvalue),
-			operator # "_invmask $dest, $mask, $src1, $src2",
-			[(set v16i32:$dest, (int_vp_vector_mixi (not i32:$mask), (OpNode v16i32:$src1, v16i32:$src2), v16i32:$oldvalue))],
-			opcode,
-			FmtA_VVVMinv>;
-
 		// Vector = Vector Op Scalar, masked
 		def VVSM : FormatAMaskedTwoOpInst<
 			(outs VR512:$dest),
@@ -327,15 +314,6 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			[(set v16i32:$dest, (int_vp_vector_mixi i32:$mask, (OpNode v16i32:$src1, (splat i32:$src2)), v16i32:$oldvalue))],
 			opcode,
 			FmtA_VVSM>;
-
-		// Vector = Vector Op Scalar, inverted mask
-		def VVSMinv : FormatAMaskedTwoOpInst<
-			(outs VR512:$dest),
-			(ins GPR32:$mask, VR512:$src1, GPR32:$src2, VR512:$oldvalue),
-			operator # "_invmask $dest, $mask, $src1, $src2",
-			[(set v16i32:$dest, (int_vp_vector_mixi (not i32:$mask), (OpNode v16i32:$src1, (splat i32:$src2)), v16i32:$oldvalue))],
-			opcode,
-			FmtA_VVSMinv>;
 	}
 
 	// Format B
@@ -376,15 +354,6 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			opcode{4-0},
 			FmtB_VVM>;
 
-		// Vector = Vector Op Immediate, inverted mask
-		def VVIMinv : FormatBMaskedInst<
-			(outs VR512:$dest),
-			(ins GPR32:$mask, VR512:$src1, SIMM8OP:$imm, VR512:$oldvalue),
-			operator # "_invmask $dest, $mask, $src1, $imm",
-			[(set v16i32:$dest, (int_vp_vector_mixi (not i32:$mask), (OpNode v16i32:$src1, (splat simm8:$imm)), v16i32:$oldvalue))],
-			opcode{4-0},
-			FmtB_VVMinv>;
-
 		// Vector = Scalar Op Immediate, masked
 		def VSIM : FormatBMaskedInst<
 			(outs VR512:$dest),
@@ -393,15 +362,6 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			[(set v16i32:$dest, (int_vp_vector_mixi i32:$mask, (OpNode (splat i32:$src1), (splat simm8:$imm)), v16i32:$oldvalue))],
 			opcode{4-0},
 			FmtB_VSM>;
-
-		// Vector = Scalar Op Immediate, inverted mask
-		def VSIMinv : FormatBMaskedInst<
-			(outs VR512:$dest),
-			(ins GPR32:$mask, GPR32:$src1, SIMM8OP:$imm, VR512:$oldvalue),
-			operator # "_invmask $dest, $mask, $src1, $imm",
-			[(set v16i32:$dest, (int_vp_vector_mixi (not i32:$mask), (OpNode (splat i32:$src1), (splat simm8:$imm)), v16i32:$oldvalue))],
-			opcode{4-0},
-			FmtB_VSMinv>;
 	}
 }
 
@@ -445,16 +405,6 @@ multiclass TwoOpFloatArith<string operator, SDNode OpNode, bits<6> opcode>
 				v16f32:$src2), v16f32:$oldvalue))],
 			opcode,
 			FmtA_VVVM>;
-
-		// Vector = Vector Op Vector, inverted mask
-		def VVVMinv : FormatAMaskedTwoOpInst<
-			(outs VR512:$dest),
-			(ins GPR32:$mask, VR512:$src1, VR512:$src2, VR512:$oldvalue),
-			operator # "_invmask $dest, $mask, $src1, $src2",
-			[(set VR512:$dest, (int_vp_vector_mixf (not i32:$mask), (OpNode v16f32:$src1, 
-				v16f32:$src2), v16f32:$oldvalue))],
-			opcode,
-			FmtA_VVVMinv>;
 		
 		// Vector = Vector Op Scalar, masked
 		def VVSM : FormatAMaskedTwoOpInst<
@@ -465,16 +415,6 @@ multiclass TwoOpFloatArith<string operator, SDNode OpNode, bits<6> opcode>
 				(splat f32:$src2)), v16f32:$oldvalue))],
 			opcode,
 			FmtA_VVSM>;
-
-		// Vector = Vector Op Scalar, inverted mask
-		def VVSMinv : FormatAMaskedTwoOpInst<
-			(outs VR512:$dest),
-			(ins GPR32:$mask, VR512:$src1, GPR32:$src2, VR512:$oldvalue),
-			operator # "_invmask $dest, $mask, $src1, $src2",
-			[(set v16f32:$dest, (int_vp_vector_mixf (not i32:$mask), (OpNode v16f32:$src1, 
-				(splat f32:$src2)), v16f32:$oldvalue))],
-			opcode,
-			FmtA_VVSMinv>;
 	}
 }
 
@@ -514,15 +454,6 @@ multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			opcode,
 			FmtA_VVVM>;
 
-		def VVMinv : FormatAMaskedOneOpInst<
-			(outs VR512:$dest),
-			(ins GPR32:$mask, VR512:$src2, VR512:$oldvalue),
-			operator # "_invmask $dest, $mask, $src2",
-			[(set v16i32:$dest, (int_vp_vector_mixi (not i32:$mask), (OpNode v16i32:$src2), 
-				v16i32:$oldvalue))],
-			opcode,
-			FmtA_VVVMinv>;
-
 		def VSM : FormatAMaskedOneOpInst<
 			(outs VR512:$dest),
 			(ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
@@ -531,15 +462,6 @@ multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 				v16i32:$oldvalue))],
 			opcode,
 			FmtA_VVSM>;
-
-		def VSMinv : FormatAMaskedOneOpInst<
-			(outs VR512:$dest),
-			(ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
-			operator # "_invmask $dest, $mask, $src2",
-			[(set v16i32:$dest, (int_vp_vector_mixi (not i32:$mask), (OpNode (splat i32:$src2)), 
-				v16i32:$oldvalue))],
-			opcode,
-			FmtA_VVSMinv>;
 	}
 }
 
@@ -587,24 +509,6 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
 				v16f32:$oldvalue))],
 			opcode,
 			FmtA_VVSM>;
-
-		def VVMinv : FormatAMaskedOneOpInst<
-			(outs VR512:$dest),
-			(ins GPR32:$mask, VR512:$src2, VR512:$oldvalue),
-			operator # "_invmask $dest, $mask, $src2",
-			[(set v16f32:$dest, (int_vp_vector_mixf (not i32:$mask), (OpNode v16f32:$src2), 
-				v16f32:$oldvalue))],
-			opcode,
-			FmtA_VVVMinv>;
-
-		def VSMinv : FormatAMaskedOneOpInst<
-			(outs VR512:$dest),
-			(ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
-			operator # "_invmask $dest, $mask, $src2",
-			[(set v16f32:$dest, (int_vp_vector_mixf (not i32:$mask), (OpNode (splat f32:$src2)), 
-				v16f32:$oldvalue))],
-			opcode,
-			FmtA_VVSMinv>;
 	}
 }
 
@@ -697,13 +601,8 @@ def FmtC_Sync : CFmt<5>;
 def FmtC_ControlReg : CFmt<6>;
 def FmtC_Block : CFmt<7>;
 def FmtC_BlockMasked : CFmt<8>;
-def FmtC_BlockInvMasked : CFmt<9>;
-def FmtC_Strided : CFmt<10>;
-def FmtC_StridedMasked : CFmt<11>;
-def FmtC_StridedInvMasked : CFmt<12>;
 def FmtC_ScGath : CFmt<13>;
 def FmtC_ScGathMasked : CFmt<14>;
-def FmtC_ScGathInvMasked : CFmt<15>;
 
 class FormatCInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	CFmt fmt, bits <1> isLoad>  

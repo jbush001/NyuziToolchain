@@ -162,15 +162,6 @@ let Constraints = "$dest = $oldvalue" in {
 			v16i32:$src2), v16i32:$oldvalue))],
 		0x0d,
 		FmtA_VVVM>;
-
-	def SHUFFLEI_MASKinv : FormatAMaskedTwoOpInst<
-		(outs VR512:$dest),
-		(ins GPR32:$mask, VR512:$src1, VR512:$src2, VR512:$oldvalue),
-		"shuffle_invmask $dest, $mask, $src1, $src2",
-		[(set v16i32:$dest, (int_vp_vector_mixi (not i32:$mask), (int_vp_shufflei v16i32:$src1, 
-			v16i32:$src2), v16i32:$oldvalue))],
-		0x0d,
-		FmtA_VVVMinv>;
 }
 
 // Floating point shuffle forms
@@ -179,9 +170,6 @@ def : Pat<(int_vp_shufflef v16f32:$src1, v16i32:$src2),
 def : Pat<(int_vp_vector_mixf i32:$mask, (int_vp_shufflef v16f32:$src1, v16i32:$src2), 
 	v16f32:$oldvalue), 
 	(SHUFFLEI_MASK i32:$mask, v16f32:$src1, v16i32:$src2, v16f32:$oldvalue)>;
-def : Pat<(int_vp_vector_mixf (not i32:$mask), (int_vp_shufflef v16f32:$src1, v16i32:$src2), 
-	v16f32:$oldvalue), 
-	(SHUFFLEI_MASKinv i32:$mask, v16f32:$src1, v16i32:$src2, v16f32:$oldvalue)>;
 
 def MOVESS : FormatAUnmaskedOneOpInst<
 	(outs GPR32:$dest), 
@@ -246,14 +234,6 @@ let Constraints = "$dest = $oldvalue" in {
 		0xf,
 		FmtB_VSM>;
 
-	def MOVEVVMIinv : FormatAMaskedOneOpInst<
-		(outs VR512:$dest),
-		(ins GPR32:$mask, VR512:$src2, VR512:$oldvalue),
-		"move_invmask $dest, $mask, $src2",
-		[(set v16i32:$dest, (int_vp_vector_mixi (not i32:$mask), v16i32:$src2, v16i32:$oldvalue))],
-		0xf,
-		FmtA_VVVMinv>;
-
 	def MOVEVSMI : FormatAMaskedOneOpInst<
 		(outs VR512:$dest),
 		(ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
@@ -261,24 +241,12 @@ let Constraints = "$dest = $oldvalue" in {
 		[(set v16i32:$dest, (int_vp_vector_mixi i32:$mask, (splat i32:$src2), v16i32:$oldvalue))],
 		0xf,
 		FmtA_VVSM>;
-
-	def MOVEVSMIinv : FormatAMaskedOneOpInst<
-		(outs VR512:$dest),
-		(ins GPR32:$mask, GPR32:$src2, VR512:$oldvalue),
-		"move_invmask $dest, $mask, $src2",
-		[(set v16i32:$dest, (int_vp_vector_mixi (not i32:$mask), (splat i32:$src2), v16i32:$oldvalue))],
-		0xf,
-		FmtA_VVSMinv>;
 }
 
 def : Pat<(int_vp_vector_mixf i32:$mask, v16f32:$src2, v16f32:$oldvalue), 
 	(MOVEVVMI i32:$mask, v16f32:$src2, v16f32:$oldvalue)>;
-def : Pat<(int_vp_vector_mixf (not i32:$mask), v16f32:$src2, v16f32:$oldvalue), 
-	(MOVEVVMIinv i32:$mask, v16f32:$src2, v16f32:$oldvalue)>;
 def : Pat<(int_vp_vector_mixf i32:$mask, (splat f32:$src2), v16f32:$oldvalue),
 	(MOVEVSMI i32:$mask, f32:$src2, v16f32:$oldvalue)>; 
-def : Pat<(int_vp_vector_mixf (not i32:$mask), (splat f32:$src2), v16f32:$oldvalue),
-	(MOVEVSMIinv i32:$mask, f32:$src2, v16f32:$oldvalue)>; 
 
 //////////////////////////////////////////////////////////////////
 // Memory Access (Format C)
@@ -352,18 +320,8 @@ def INT_BLOCK_LOADI_MASKED : FormatCMaskedInst<
 	FmtC_BlockMasked,
 	1>;
 
-def INT_BLOCK_LOADI_INVMASKED : FormatCMaskedInst<
-	(outs VR512:$srcDest),
-	(ins MEMri:$addr, GPR32:$mask),
-	"load_v_invmask $srcDest, $mask, $addr",
-	[(set v16i32:$srcDest, (int_vp_block_loadi_masked ADDRri:$addr, (not i32:$mask)))],
-	FmtC_BlockInvMasked,
-	1>;
-
 def : Pat<(int_vp_block_loadf_masked ADDRri:$addr, i32:$mask),
 	(INT_BLOCK_LOADI_MASKED ADDRri:$addr, i32:$mask)>;
-def : Pat<(int_vp_block_loadf_masked ADDRri:$addr, (not i32:$mask)),
-	(INT_BLOCK_LOADI_INVMASKED ADDRri:$addr, i32:$mask)>;
 
 def INT_GATHER_LOADI : FormatCUnmaskedInst<
 	(outs VR512:$srcDest),
@@ -381,43 +339,9 @@ def INT_GATHER_LOADI_MASKED : FormatCMaskedInst<
 	FmtC_ScGathMasked,
 	1>;
 
-def INT_GATHER_LOADI_INVMASKED : FormatCMaskedInst<
-	(outs VR512:$srcDest),
-	(ins VMEMri:$addr, GPR32:$mask),
-	"load_gath_invmask $srcDest, $mask, $addr",
-	[(set v16i32:$srcDest, (int_vp_gather_loadi_masked VADDRri:$addr, (not i32:$mask)))],
-	FmtC_ScGathInvMasked,
-	1>;
-
 def : Pat<(int_vp_gather_loadf VADDRri:$addr), (INT_GATHER_LOADI VADDRri:$addr)>;
 def : Pat<(int_vp_gather_loadf_masked VADDRri:$addr, i32:$mask),
 	(INT_GATHER_LOADI_MASKED VADDRri:$addr, i32:$mask)>;
-def : Pat<(int_vp_gather_loadf_masked VADDRri:$addr, (not i32:$mask)),
-	(INT_GATHER_LOADI_INVMASKED VADDRri:$addr, i32:$mask)>;
-
-def INT_STRIDED_LOADI : FormatCUnmaskedInst<
-	(outs VR512:$srcDest),
-	(ins MEMri:$addr),
-	"load_strd $srcDest, $addr",
-	[],	// Assembler only...
-	FmtC_Strided,
-	1>;
-
-def INT_STRIDED_LOADI_MASKED : FormatCMaskedInst<
-	(outs VR512:$srcDest),
-	(ins MEMri:$addr, GPR32:$mask),
-	"load_strd_mask $srcDest, $mask, $addr",
-	[],	// Assembler only...
-	FmtC_StridedMasked,
-	1>;
-
-def INT_STRIDED_LOADI_INVMASKED : FormatCMaskedInst<
-	(outs VR512:$srcDest),
-	(ins MEMri:$addr, GPR32:$mask),
-	"load_strd_invmask $srcDest, $mask, $addr",
-	[],	// Assembler only...
-	FmtC_StridedInvMasked,
-	1>;
 
 let hasSideEffects = 1, mayStore = 1 in {
 	def INT_SCATTER_STOREI : FormatCUnmaskedInst<
@@ -436,52 +360,12 @@ let hasSideEffects = 1, mayStore = 1 in {
 		FmtC_ScGathMasked,
 		0>;
 
-	def INT_SCATTER_STOREI_INVMASKED : FormatCMaskedInst<
-		(outs),
-		(ins VR512:$srcDest, VMEMri:$addr, GPR32:$mask),
-		"store_scat_invmask $srcDest, $mask, $addr",
-		[(int_vp_scatter_storei_masked VADDRri:$addr, v16i32:$srcDest, (not i32:$mask))],
-		FmtC_ScGathInvMasked,
-		0>;
-
-	def INT_STRIDED_STOREI : FormatCUnmaskedInst<
-		(outs),
-		(ins VR512:$srcDest, MEMri:$addr),
-		"store_strd $srcDest, $addr",
-		[],	// Assembly only
-		FmtC_Strided,
-		0>;
-
-	def INT_STRIDED_STOREI_MASKED : FormatCMaskedInst<
-		(outs),
-		(ins VR512:$srcDest, MEMri:$addr, GPR32:$mask),
-		"store_strd_mask $srcDest, $mask, $addr",
-		[],	// Assembly only
-		FmtC_StridedMasked,
-		0>;
-
-	def INT_STRIDED_STOREI_INVMASKED : FormatCMaskedInst<
-		(outs),
-		(ins VR512:$srcDest, MEMri:$addr, GPR32:$mask),
-		"store_strd_invmask $srcDest, $mask, $addr",
-		[],	// Assembly only
-		FmtC_StridedInvMasked,
-		0>;
-
 	def INT_BLOCK_STOREI_MASKED : FormatCMaskedInst<
 		(outs),
 		(ins VR512:$srcDest, MEMri:$addr, GPR32:$mask),
 		"store_v_mask $srcDest, $mask, $addr",
 		[(int_vp_block_storei_masked ADDRri:$addr, v16i32:$srcDest, i32:$mask)],
 		FmtC_BlockMasked,
-		0>;
-
-	def INT_BLOCK_STOREI_INVMASKED : FormatCMaskedInst<
-		(outs),
-		(ins VR512:$srcDest, MEMri:$addr, GPR32:$mask),
-		"store_v_invmask $srcDest, $mask, $addr",
-		[(int_vp_block_storei_masked ADDRri:$addr, v16i32:$srcDest, (not i32:$mask))],
-		FmtC_BlockInvMasked,
 		0>;
 }
 
