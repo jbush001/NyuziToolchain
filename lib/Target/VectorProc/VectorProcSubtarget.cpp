@@ -17,6 +17,7 @@
 
 #define GET_SUBTARGETINFO_TARGET_DESC
 #define GET_SUBTARGETINFO_CTOR
+#define DEBUG_TYPE "vectorproc-subtarget"
 #include "VectorProcGenSubtargetInfo.inc"
 
 using namespace llvm;

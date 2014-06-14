@@ -23,6 +23,8 @@
 #include "llvm/Support/MemoryObject.h"
 #include "llvm/Support/TargetRegistry.h"
 
+#define DEBUG_TYPE "vectorproc-disassembler"
+
 using namespace llvm;
 
 typedef MCDisassembler::DecodeStatus DecodeStatus;
