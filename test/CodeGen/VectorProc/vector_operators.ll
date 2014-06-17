@@ -57,7 +57,22 @@ define <16 x float> @fmul(<16 x float> %a, <16 x float> %b) { 	; CHECK: fmul:
 	ret <16 x float> %1
 }
 
+
+
 ; Not implemented: udiv, sdiv, urem, srem, frem
+
+declare <16 x float> @llvm.fabs.v16f32(<16 x float>) nounwind readnone
+define <16 x float> @fabs_v16f32(<16 x float> %a) { 	; CHECK: fabs_v16f32:
+	%1 = call <16 x float> @llvm.fabs.v16f32( <16 x float> %a) nounwind readnone	; CHECK: abs_f v{{[0-9]+}}, v0
+	ret <16 x float> %1
+}
+
+declare <16 x float> @llvm.floor.v16f32(<16 x float>) nounwind readnone
+define <16 x float> @floor_v16f32(<16 x float> %a) { 	; CHECK: floor_v16f32:
+	%1 = call <16 x float> @llvm.floor.v16f32( <16 x float> %a) nounwind readnone	; CHECK: floor v{{[0-9]+}}, v0
+	ret <16 x float> %1
+}
+
 
 declare <16 x i32> @llvm.vectorproc.__builtin_vp_shufflei(<16 x i32> %a, <16 x i32> %b)
 declare <16 x float> @llvm.vectorproc.__builtin_vp_shufflef(<16 x float> %a, <16 x i32> %b)

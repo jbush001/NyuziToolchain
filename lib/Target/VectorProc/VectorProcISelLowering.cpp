@@ -455,6 +455,15 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 
   setInsertFencesForAtomic(true);
 
+  setOperationAction(ISD::FABS,  MVT::f32, Legal);
+  setOperationAction(ISD::FABS,  MVT::v16f32, Legal);
+
+  setOperationAction(ISD::FFLOOR,  MVT::f32, Legal);
+  setOperationAction(ISD::FFLOOR,  MVT::v16f32, Legal);
+
+  //   Doesn't exist in LLVM
+  // setOperationAction(ISD::FFRAC,  MVT::f32, Legal);
+  // setOperationAction(ISD::FFRAC,  MVT::v16f32, Legal);
 
   // Hardware does not have an integer divider, so convert these to
   // library calls

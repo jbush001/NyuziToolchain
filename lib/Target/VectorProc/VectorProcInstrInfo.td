@@ -25,12 +25,16 @@ defm SMULI  : TwoOpIntArith  <"mul_i", mul, 0x07>;
 defm SRA    : TwoOpIntArith<"ashr", sra, 0x09>;	
 defm SRL    : TwoOpIntArith<"shr", srl, 0x0a>;
 defm SLL    : TwoOpIntArith<"shl", shl, 0x0b>;
-defm CLZ 	: OneOpIntArith<"clz", ctlz, 0x0c>;
-defm CTZ 	: OneOpIntArith<"ctz", cttz, 0x0e>;
+defm CLZ    : OneOpIntArith<"clz", ctlz, 0x0c>;
+defm CTZ    : OneOpIntArith<"ctz", cttz, 0x0e>;
 defm ADDF   : TwoOpFloatArith<"add_f", fadd, 0x20>;
 defm SUBF   : TwoOpFloatArith<"sub_f", fsub, 0x21>;
 defm MULF   : TwoOpFloatArith<"mul_f", fmul, 0x22>;
+defm FLOOR  : OneOpFloatArith<"floor", ffloor, 0x27>;
+defm FABS   : OneOpFloatArith<"abs_f", fabs, 0x29>;
 defm RECIP  : OneOpFloatArith<"reciprocal", reciprocal, 0x1c>;
+// No such LLVM op
+//defm FFRAC  : OneOpFloatArith<"frac", int_vp_ffrac, 0x28>;
 
 def SEXT16 : FormatAUnmaskedOneOpInst<
 	(outs GPR32:$dest), 

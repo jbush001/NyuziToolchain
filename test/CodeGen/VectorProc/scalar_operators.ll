@@ -102,3 +102,15 @@ define float @fmul(float %a, float %b) { 	; CHECK: fmul:
 ; Not implemented: udiv, sdiv, urem, srem, frem
 
 
+declare float @llvm.fabs.f32(float) nounwind readnone
+define float @fabs_f32(float %a, float %b) { 	; CHECK: fabs_f32:
+	%1 = call float @llvm.fabs.f32(float %a) nounwind readnone	; CHECK: abs_f s{{[0-9]+}}, s0
+	ret float %1
+}
+
+declare float @llvm.floor.f32(float) nounwind readnone
+define float @floor_f32(float %a, float %b) { 	; CHECK: floor_f32:
+	%1 = call float @llvm.floor.f32(float %a) nounwind readnone	; CHECK: floor s{{[0-9]+}}, s0
+	ret float %1
+}
+
