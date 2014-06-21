@@ -2,7 +2,8 @@
 
 target triple = "vectorproc"
 
-declare i32 @llvm.vectorproc.__builtin_vp_get_control_reg(i32 %reg)
+declare i32 @llvm.vectorproc.__builtin_vp_read_control_reg(i32 %reg)
+declare void @llvm.vectorproc.__builtin_vp_write_control_reg(i32 %reg, i32 %value)
 declare <16 x i32> @llvm.vectorproc.__builtin_vp_gather_loadi(<16 x i32> %a)
 declare <16 x float> @llvm.vectorproc.__builtin_vp_gather_loadf(<16 x i32> %a)
 declare <16 x i32> @llvm.vectorproc.__builtin_vp_gather_loadi_masked(<16 x i32> %a, i32 %mask)
@@ -27,10 +28,17 @@ declare i32 @llvm.ctlz.i32(i32 %val)
 declare i32 @llvm.cttz.i32(i32 %val)
 
 define i32 @get_control_reg() {	; CHECK: get_control_reg:
-	%1 = call i32 @llvm.vectorproc.__builtin_vp_get_control_reg(i32 7)
+	%1 = call i32 @llvm.vectorproc.__builtin_vp_read_control_reg(i32 7)
 	; CHECK: getcr s0, 7
 
 	ret i32 %1
+}
+
+define void @set_control_reg(i32 %value) {	; CHECK: set_control_reg:
+	call void @llvm.vectorproc.__builtin_vp_write_control_reg(i32 7, i32 %value)
+	; CHECK: setcr s0, 7
+
+	ret void
 }
 
 define <16 x i32> @gather_loadi(<16 x i32> %ptr) {	; CHECK: gather_loadi:

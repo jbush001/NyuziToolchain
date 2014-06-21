@@ -605,11 +605,11 @@ let usesCustomInserter = 1 in {
 // Misc 
 //////////////////////////////////////////////////////////////////
 
-def GET_CONTROL_REG : FormatCInst<
+def READ_CONTROL_REG : FormatCInst<
 	(outs GPR32:$dest),
 	(ins i32imm:$cr),
 	"getcr $dest, $cr",
-	[(set i32:$dest, (int_vp_get_control_reg imm:$cr))],
+	[(set i32:$dest, (int_vp_read_control_reg imm:$cr))],
 	FmtC_ControlReg,
 	1>
 {
@@ -620,11 +620,11 @@ def GET_CONTROL_REG : FormatCInst<
 	let Inst{9-5} = dest;
 }
 
-def SET_CONTROL_REG : FormatCInst<
+def WRITE_CONTROL_REG : FormatCInst<
 	(outs),
-	(ins GPR32:$src, i32imm:$cr),
+	(ins i32imm:$cr, GPR32:$src),
 	"setcr $src, $cr",
-	[],
+	[(int_vp_write_control_reg imm:$cr, i32:$src)],
 	FmtC_ControlReg,
 	0>
 {

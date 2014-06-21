@@ -5811,17 +5811,8 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
 
 Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
                                            const CallExpr *E) {
-
-    SmallVector<Value*, 2> Ops;
-	if (BuiltinID == VectorProc::BI__builtin_vp_get_current_strand)
-	{
-		// Turn this into get_control_reg(0)
-		Ops.push_back(llvm::ConstantInt::get(Int32Ty, 0));
-		return Builder.CreateCall(CGM.getIntrinsic(Intrinsic::vp_get_control_reg), 
-			Ops, "");
-	}
-
 	// Push parameters into array.
+    SmallVector<Value*, 2> Ops;
     for (unsigned i = 0; i < E->getNumArgs(); i++)
       Ops.push_back(EmitScalarExpr(E->getArg(i)));
 
@@ -5845,6 +5836,14 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 	// instruction in the backend).
 	llvm::Function *F;
 	switch (BuiltinID) {
+		case VectorProc::BI__builtin_vp_read_control_reg:
+			F = CGM.getIntrinsic(Intrinsic::vp_read_control_reg);
+			break;
+			
+		case VectorProc::BI__builtin_vp_write_control_reg:
+			F = CGM.getIntrinsic(Intrinsic::vp_write_control_reg);
+			break;
+			
 		case VectorProc::BI__builtin_vp_shufflei:
 			F = CGM.getIntrinsic(Intrinsic::vp_shufflei);
 			break;

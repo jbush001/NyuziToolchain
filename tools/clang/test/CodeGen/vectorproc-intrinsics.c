@@ -3,11 +3,18 @@
 typedef int veci16 __attribute__((__vector_size__(16 * sizeof(int))));
 typedef float vecf16 __attribute__((__vector_size__(16 * sizeof(float))));
 
-int test_strand()	// CHECK: test_strand:
+int test_write_control_reg(int value)	// CHECK: test_write_control_reg:
 {
-	return __builtin_vp_get_current_strand();
-	// CHECK: getcr s{{[0-9]+}}, 0
+	__builtin_vp_write_control_reg(5, value);
+	// CHECK: setcr s{{[0-9]+}}, 5
 }
+
+int test_read_control_reg(int value)	// CHECK: test_read_control_reg:
+{
+	return __builtin_vp_read_control_reg(7);
+	// CHECK: getcr s{{[0-9]+}}, 7
+}
+
 
 veci16 test_gatherloadi(veci16 ptr) 	// CHECK: test_gatherloadi
 {

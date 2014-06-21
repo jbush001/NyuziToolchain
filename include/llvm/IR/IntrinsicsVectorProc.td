@@ -17,8 +17,10 @@ def v16i32_ptr_ty : LLVMPointerType<LLVMType<v16i32>>;
 
 let TargetPrefix = "vectorproc" in {  // All intrinsics start with "llvm.vectorproc.".
 
-def int_vp_get_control_reg : Intrinsic<[llvm_i32_ty], [llvm_i32_ty], [IntrNoMem],
-	"llvm.vectorproc.__builtin_vp_get_control_reg">;
+def int_vp_read_control_reg : Intrinsic<[llvm_i32_ty], [llvm_i32_ty], [],
+	"llvm.vectorproc.__builtin_vp_read_control_reg">;
+def int_vp_write_control_reg : Intrinsic<[], [llvm_i32_ty, llvm_i32_ty], [],
+	"llvm.vectorproc.__builtin_vp_write_control_reg">;
 
 // Memory operations
 def int_vp_gather_loadi : Intrinsic<[llvm_v16i32_ty], [llvm_v16i32_ty], 
@@ -117,6 +119,6 @@ def int_vp_mask_cmpf_eq : Intrinsic<[llvm_i32_ty], [llvm_v16f32_ty, llvm_v16f32_
 	[IntrNoMem], "llvm.vectorproc.__builtin_vp_mask_cmpf_eq">;
 
 def int_vp_mask_cmpf_ne : Intrinsic<[llvm_i32_ty], [llvm_v16f32_ty, llvm_v16f32_ty], 
-	[IntrNoMem], "llvm.vectorproc.__builtin_vp_mask_cmpf_ne`">;
+	[IntrNoMem], "llvm.vectorproc.__builtin_vp_mask_cmpf_ne">;
 }
 
