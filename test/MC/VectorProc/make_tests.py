@@ -124,7 +124,9 @@ unaryOps = [
 	(12, 'clz'),
 	(14, 'ctz'),
 	(0xf, 'move'),
-	(0x1c, 'reciprocal')
+	(0x1c, 'reciprocal'),
+	(0x27, 'floor'),
+	(0x29, 'abs_f')
 ]
 
 # These unary ops do not support all forms
