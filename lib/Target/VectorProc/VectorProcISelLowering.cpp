@@ -455,6 +455,8 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
 
   setInsertFencesForAtomic(true);
 
+  setOperationAction(ISD::FCOPYSIGN,  MVT::f32, Expand);
+
   setOperationAction(ISD::FABS,  MVT::f32, Legal);
   setOperationAction(ISD::FABS,  MVT::v16f32, Legal);
 
