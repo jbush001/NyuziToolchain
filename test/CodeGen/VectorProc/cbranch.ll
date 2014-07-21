@@ -6,7 +6,7 @@ target triple = "vectorproc"
 define i32 @max(i32 %a, i32 %b) #0 {
 entry:
   %cmp = icmp sgt i32 %a, %b
-  ; CHECK: setgt_i s[[CHECKVAL:[0-9]+]], s{{[0-9]+}}, s{{[0-9]+}}
+  ; CHECK: cmpgt_i s[[CHECKVAL:[0-9]+]], s{{[0-9]+}}, s{{[0-9]+}}
 
   br i1 %cmp, label %if.then, label %if.else
   ; CHECK: btrue s[[CHECKVAL]], [[FALSELABEL:[\.A-Z0-9_]+]]

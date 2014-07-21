@@ -161,7 +161,7 @@ define i32 @atomic_cmpxchg(i32* %ptr, i32 %cmp, i32 %newvalue) { ; CHECK: atomic
 
 ; CHECK: [[LOOP1:\.[A-Za-z_0-9]+]]:
 ; CHECK: load_sync [[DEST:s[0-9]+]], (s0)
-; CHECK: setne_i [[CMPRES:s[0-9]+]], [[DEST]], s1
+; CHECK: cmpne_i [[CMPRES:s[0-9]+]], [[DEST]], s1
 ; CHECK: btrue [[CMPRES]], [[EXIT:\.[A-Za-z_0-9]+]]
 ; CHECK: move [[SUCCESS:s[0-9]+]], s2
 ; CHECK: store_sync [[SUCCESS]], (s0)	

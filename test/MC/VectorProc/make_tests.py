@@ -41,6 +41,17 @@ def make_test_case(string, encoding):
 	asm_fp.write(string + ' # CHECK: ' + make_text_encoding(encoding, ',') + '\n')
 	disasm_fp.write(make_text_encoding(encoding, ' ') + ' # CHECK: ' + string + '\n')
 
+nextreg = 0
+
+def getnextreg():
+	global nextreg
+	
+	nextreg += 1
+	if nextreg > 27:
+		nextreg = 0
+		
+	return nextreg
+
 # Setup
 disasm_fp = open('disassembler-tests.s', 'w')
 asm_fp = open('assembler-tests.s', 'w')
@@ -88,10 +99,10 @@ b_instruction_types = [
 
 for opcode, mnemonic in binaryOps:
 	for dregt, s1regt, s2regt, fmt, isMasked in a_instruction_types:
-		dreg = random.randint(0, 27)
-		s1reg = random.randint(0, 27)
-		s2reg = random.randint(0, 27)
-		mreg = random.randint(0, 27)
+		dreg = getnextreg()
+		s1reg = getnextreg()
+		s2reg = getnextreg()
+		mreg = getnextreg()
 		encoded = make_a_instruction(fmt, opcode, dreg, s1reg, s2reg, mreg if isMasked else 0)
 		asmStr = mnemonic + ('_mask ' if isMasked else ' ' ) + dregt + str(dreg) + ', '
 		if isMasked:
@@ -104,9 +115,9 @@ for opcode, mnemonic in binaryOps:
 		continue	# Can't do immediate for FP instructions
 
 	for dregt, sregt, fmt, isMasked in b_instruction_types:
-		dreg = random.randint(0, 27)
-		sreg = random.randint(0, 27)
-		mreg = random.randint(0, 27)
+		dreg = getnextreg()
+		sreg = getnextreg()
+		mreg = getnextreg()
 		imm = random.randint(-128, 127)
 		if isMasked:
 			encoded = make_b_instruction(fmt, opcode, dreg, sreg, imm, mreg)
@@ -135,10 +146,11 @@ unaryOps = [
 #	(0x1e, 'sext_16'),
 #	(0x2a, 'itof')
 
+nextreg = 0
 for opcode, mnemonic in unaryOps:
-	rega = random.randint(0, 27)
-	regb = random.randint(0, 27)
-	regm = random.randint(0, 27)
+	rega = getnextreg()
+	regb = getnextreg()
+	regm = getnextreg()
 
 	# Scalar/Scalar
 	make_test_case(mnemonic + ' s' + str(rega) + ', s' + str(regb),
@@ -159,6 +171,8 @@ for opcode, mnemonic in unaryOps:
 	# Vector/Vector masked	
 	make_test_case(mnemonic + '_mask v' + str(rega) + ', s' + str(regm) + ', v'
 		+ str(regb), make_a_instruction(5, opcode, rega, 0, regb, regm))
+
+nextreg = 0
 
 # XXX why is the source register set to 1 in this case?
 make_test_case('move s1, 72', make_bprime_instruction(0, 0xf, 1, 1, 72))
@@ -204,28 +218,29 @@ cmpOps = [
 	(0x2f, 'le_f')
 ]
 
+nextreg = 0
 for opcode, mnemonic in cmpOps:
-	rega = random.randint(0, 27)
-	regb = random.randint(0, 27)
-	regc = random.randint(0, 27)
+	rega = getnextreg()
+	regb = getnextreg()
+	regc = getnextreg()
 
-	make_test_case('set' + mnemonic +  ' s' + str(rega) + ', s' + str(regb) + ', s' + str(regc),
+	make_test_case('cmp' + mnemonic +  ' s' + str(rega) + ', s' + str(regb) + ', s' + str(regc),
 		make_a_instruction(0, opcode, rega, regb, regc, 0))
 
-	make_test_case('set' + mnemonic + ' s' + str(rega) + ', v' + str(regb) + ', s' + str(regc),
+	make_test_case('cmp' + mnemonic + ' s' + str(rega) + ', v' + str(regb) + ', s' + str(regc),
 		make_a_instruction(1, opcode, rega, regb, regc, 0))
 
-	make_test_case('set' + mnemonic + ' s' + str(rega) + ', v' + str(regb) + ', v' + str(regc),
+	make_test_case('cmp' + mnemonic + ' s' + str(rega) + ', v' + str(regb) + ', v' + str(regc),
 		make_a_instruction(4, opcode, rega, regb, regc, 0))
 
 	if mnemonic[-2:] == '_f':
 		continue	# Can't do immediate for FP instructions
 			
 	imm = random.randint(0, 255)
-	make_test_case('set' + mnemonic +  ' s' + str(rega) + ', s' + str(regb) + ', ' + str(imm),
+	make_test_case('cmp' + mnemonic +  ' s' + str(rega) + ', s' + str(regb) + ', ' + str(imm),
 		make_bprime_instruction(0, opcode, rega, regb, imm))
 
-	make_test_case('set' + mnemonic + ' s' + str(rega) + ', v' + str(regb) + ', ' + str(imm),
+	make_test_case('cmp' + mnemonic + ' s' + str(rega) + ', v' + str(regb) + ', ' + str(imm),
 		make_bprime_instruction(1, opcode, rega, regb, imm))
 	
 
@@ -246,10 +261,11 @@ scalarMemFormats = [
 	( 'store_sync', 5, 0)
 ]
 
+nextreg = 0
 for stem, fmt, isLoad in scalarMemFormats:
-	rega = random.randint(0, 27)
-	regb = random.randint(0, 27)
-	offs = random.randint(0, 255)
+	rega = getnextreg()
+	regb = getnextreg()
+	offs = getnextreg()
 	make_test_case(stem + ' s' + str(rega) + ', (s' + str(regb) + ')',
 		 make_cprime_instruction(isLoad, fmt, rega, regb, 0))	# No offset
 	make_test_case(stem + ' s' + str(rega) + ', ' + str(offs) + '(s' + str(regb) + ')', 
@@ -264,10 +280,11 @@ vectorMemFormats = [
 	( 'gath', 'scat', 'v', 0xd)
 ]
 
+nextreg = 0
 for loadSuffix, storeSuffix, ptrType, op in vectorMemFormats:
-	rega = random.randint(0, 27)
-	regb = random.randint(0, 27)
-	mask = random.randint(0, 27)
+	rega = getnextreg()
+	regb = getnextreg()
+	mask = getnextreg()
 	offs = random.randint(0, 128) * 4
 
 	loadStem = 'load_' + loadSuffix
@@ -299,6 +316,7 @@ for loadSuffix, storeSuffix, ptrType, op in vectorMemFormats:
 		make_c_instruction(0, op + 1, rega, regb, 0, mask))
 
 # Control register
+nextreg = 0
 make_test_case('getcr s7, 9', make_cprime_instruction(1, 6, 7, 9, 0))
 make_test_case('setcr s11, 13', make_cprime_instruction(0, 6, 11, 13, 0))
 

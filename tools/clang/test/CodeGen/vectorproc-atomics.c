@@ -32,7 +32,7 @@ void atomic_cmp_swap(volatile int *lockvar)
 
 	// CHECK: [[LOOP1MBB:\.L[0-9A-Za-z_]+]]
 	// CHECK:   load_sync
-	// CHECK:   setne_i [[CMPRES:s[0-9]+]]
+	// CHECK:   cmpne_i [[CMPRES:s[0-9]+]]
 	// CHECK:   btrue [[CMPRES]], [[EXITMBB:\.L[0-9A-Za-z_]+]]
 
 	// CHECK:   move [[SUCCESS:s[0-9]+]]

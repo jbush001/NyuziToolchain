@@ -101,21 +101,21 @@ def FTOSIVS : FormatAUnmaskedOneOpInst<
 	0x1b,
 	FmtA_VVS>;
 
-defm SGTSI : IntCompareInst<"setgt_i", SETGT, 0x12, int_vp_mask_cmpi_sgt>;	
-defm SGESI : IntCompareInst<"setge_i", SETGE, 0x13, int_vp_mask_cmpi_sge>;
-defm SLTSI : IntCompareInst<"setlt_i", SETLT, 0x14, int_vp_mask_cmpi_slt>;
-defm SLESI : IntCompareInst<"setle_i", SETLE, 0x15, int_vp_mask_cmpi_sle>;
-defm SEQSI : IntCompareInst<"seteq_i", SETEQ, 0x10, int_vp_mask_cmpi_eq>;
-defm SNESI : IntCompareInst<"setne_i", SETNE, 0x11, int_vp_mask_cmpi_ne>;
-defm SGTUI : IntCompareInst<"setgt_u", SETUGT, 0x16, int_vp_mask_cmpi_ugt>;	
-defm SGEUI : IntCompareInst<"setge_u", SETUGE, 0x17, int_vp_mask_cmpi_uge>;
-defm SLTUI : IntCompareInst<"setlt_u", SETULT, 0x18, int_vp_mask_cmpi_ult>;
-defm SLEUI : IntCompareInst<"setle_u", SETULE, 0x19, int_vp_mask_cmpi_ule>;
+defm SGTSI : IntCompareInst<"cmpgt_i", SETGT, 0x12, int_vp_mask_cmpi_sgt>;	
+defm SGESI : IntCompareInst<"cmpge_i", SETGE, 0x13, int_vp_mask_cmpi_sge>;
+defm SLTSI : IntCompareInst<"cmplt_i", SETLT, 0x14, int_vp_mask_cmpi_slt>;
+defm SLESI : IntCompareInst<"cmple_i", SETLE, 0x15, int_vp_mask_cmpi_sle>;
+defm SEQSI : IntCompareInst<"cmpeq_i", SETEQ, 0x10, int_vp_mask_cmpi_eq>;
+defm SNESI : IntCompareInst<"cmpne_i", SETNE, 0x11, int_vp_mask_cmpi_ne>;
+defm SGTUI : IntCompareInst<"cmpgt_u", SETUGT, 0x16, int_vp_mask_cmpi_ugt>;	
+defm SGEUI : IntCompareInst<"cmpge_u", SETUGE, 0x17, int_vp_mask_cmpi_uge>;
+defm SLTUI : IntCompareInst<"cmplt_u", SETULT, 0x18, int_vp_mask_cmpi_ult>;
+defm SLEUI : IntCompareInst<"cmple_u", SETULE, 0x19, int_vp_mask_cmpi_ule>;
 
-defm SGTFO : FloatCompareInst<"setgt", SETOGT, 0x2c, int_vp_mask_cmpf_gt>;	
-defm SGEFO : FloatCompareInst<"setge", SETOGE, 0x2d, int_vp_mask_cmpf_ge>;
-defm SLTFO : FloatCompareInst<"setlt", SETOLT, 0x2e, int_vp_mask_cmpf_lt>;
-defm SLEFO : FloatCompareInst<"setle", SETOLE, 0x2f, int_vp_mask_cmpf_le>;
+defm SGTFO : FloatCompareInst<"cmpgt", SETOGT, 0x2c, int_vp_mask_cmpf_gt>;	
+defm SGEFO : FloatCompareInst<"cmpge", SETOGE, 0x2d, int_vp_mask_cmpf_ge>;
+defm SLTFO : FloatCompareInst<"cmplt", SETOLT, 0x2e, int_vp_mask_cmpf_lt>;
+defm SLEFO : FloatCompareInst<"cmple", SETOLE, 0x2f, int_vp_mask_cmpf_le>;
 	
 // Note: there is no floating point eq/ne.  Just use integer
 // forms

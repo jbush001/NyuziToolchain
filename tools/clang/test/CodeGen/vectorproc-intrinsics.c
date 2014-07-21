@@ -117,19 +117,19 @@ int test_ctz(int value)	// CHECK: test_ctz
 int test_masked_cmpi_uge(veci16 a, veci16 b)	// CHECK: test_masked_cmpi_uge:
 {
 	return __builtin_vp_mask_cmpi_uge(a, b);
-	// CHECK: setge_u s{{[0-9]+}}, v0, v1
+	// CHECK: cmpge_u s{{[0-9]+}}, v0, v1
 }
 
 int test_masked_cmpi_sge(veci16 a, veci16 b)	// CHECK: test_masked_cmpi_sge:
 {
 	return __builtin_vp_mask_cmpi_sge(a, b);
-	// CHECK: setge_i s{{[0-9]+}}, v0, v1
+	// CHECK: cmpge_i s{{[0-9]+}}, v0, v1
 }
 
 int test_masked_cmpf_ge(vecf16 a, vecf16 b)	// CHECK: test_masked_cmpf_ge:
 {
 	return __builtin_vp_mask_cmpf_ge(a, b);
-	// CHECK: setge_f s{{[0-9]+}}, v0, v1
+	// CHECK: cmpge_f s{{[0-9]+}}, v0, v1
 }
 
 unsigned int test_builtin_frame_address() // CHECK: test_builtin_frame_address:
