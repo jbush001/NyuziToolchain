@@ -19,6 +19,7 @@
 #include "lld/Passes/RoundTripYAMLPass.h"
 
 #include "llvm/ADT/Triple.h"
+#include "llvm/Support/Errc.h"
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
@@ -86,6 +87,8 @@ uint16_t ELFLinkingContext::getOutputMachine() const {
     return llvm::ELF::EM_MIPS;
   case llvm::Triple::ppc:
     return llvm::ELF::EM_PPC;
+  case llvm::Triple::aarch64:
+    return llvm::ELF::EM_AARCH64;
   default:
     llvm_unreachable("Unhandled arch");
   }
@@ -146,6 +149,9 @@ ELFLinkingContext::create(llvm::Triple triple) {
   case llvm::Triple::ppc:
     return std::unique_ptr<ELFLinkingContext>(
         new lld::elf::PPCLinkingContext(triple));
+  case llvm::Triple::aarch64:
+    return std::unique_ptr<ELFLinkingContext>(
+        new lld::elf::AArch64LinkingContext(triple));
   default:
     return nullptr;
   }
@@ -162,23 +168,28 @@ static void buildSearchPath(SmallString<128> &path, StringRef dir,
 }
 
 ErrorOr<StringRef> ELFLinkingContext::searchLibrary(StringRef libName) const {
+  bool hasColonPrefix = libName[0] == ':';
+  Twine soName =
+      hasColonPrefix ? libName.drop_front() : Twine("lib", libName) + ".so";
+  Twine archiveName =
+      hasColonPrefix ? libName.drop_front() : Twine("lib", libName) + ".a";
   SmallString<128> path;
   for (StringRef dir : _inputSearchPaths) {
     // Search for dynamic library
     if (!_isStaticExecutable) {
       buildSearchPath(path, dir, _sysrootPath);
-      llvm::sys::path::append(path, Twine("lib") + libName + ".so");
+      llvm::sys::path::append(path, soName);
       if (llvm::sys::fs::exists(path.str()))
         return StringRef(*new (_allocator) std::string(path.str()));
     }
     // Search for static libraries too
     buildSearchPath(path, dir, _sysrootPath);
-    llvm::sys::path::append(path, Twine("lib") + libName + ".a");
+    llvm::sys::path::append(path, archiveName);
     if (llvm::sys::fs::exists(path.str()))
       return StringRef(*new (_allocator) std::string(path.str()));
   }
   if (!llvm::sys::fs::exists(libName))
-    return llvm::make_error_code(llvm::errc::no_such_file_or_directory);
+    return make_error_code(llvm::errc::no_such_file_or_directory);
 
   return libName;
 }
@@ -195,7 +206,7 @@ ErrorOr<StringRef> ELFLinkingContext::searchFile(StringRef fileName,
     return fileName;
 
   if (llvm::sys::path::is_absolute(fileName))
-    return llvm::make_error_code(llvm::errc::no_such_file_or_directory);
+    return make_error_code(llvm::errc::no_such_file_or_directory);
 
   for (StringRef dir : _inputSearchPaths) {
     buildSearchPath(path, dir, _sysrootPath);
@@ -203,7 +214,7 @@ ErrorOr<StringRef> ELFLinkingContext::searchFile(StringRef fileName,
     if (llvm::sys::fs::exists(path.str()))
       return StringRef(*new (_allocator) std::string(path.str()));
   }
-  return llvm::make_error_code(llvm::errc::no_such_file_or_directory);
+  return make_error_code(llvm::errc::no_such_file_or_directory);
 }
 
 void ELFLinkingContext::createInternalFiles(

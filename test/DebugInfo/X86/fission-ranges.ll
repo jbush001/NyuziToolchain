@@ -25,7 +25,7 @@
 ; if they've changed due to a bugfix, change in register allocation, etc.
 
 ; CHECK: [[A]]: Beginning address index: 2
-; CHECK-NEXT:                    Length: 199
+; CHECK-NEXT:                    Length: 190
 ; CHECK-NEXT:      Location description: 11 00
 ; CHECK-NEXT: {{^$}}
 ; CHECK-NEXT:   Beginning address index: 3
@@ -42,6 +42,13 @@
 ; CHECK-NEXT:      Location description: 50 93 04
 
 ; Make sure we don't produce any relocations in any .dwo section (though in particular, debug_info.dwo)
+; HDR-NOT: .rela.{{.*}}.dwo
+
+; Make sure we have enough stuff in the debug_addr to cover the address indexes
+; (6 is the last index in debug_loc.dwo, making 7 entries of 8 bytes each, 7 * 8
+; == 56 base 10 == 38 base 16)
+
+; HDR: .debug_addr 00000038
 ; HDR-NOT: .rela.{{.*}}.dwo
 
 ; From the code:

@@ -13,10 +13,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef AMDGPUINSTRUCTIONINFO_H
-#define AMDGPUINSTRUCTIONINFO_H
+#ifndef LLVM_LIB_TARGET_R600_AMDGPUINSTRINFO_H
+#define LLVM_LIB_TARGET_R600_AMDGPUINSTRINFO_H
 
-#include "AMDGPUInstrInfo.h"
 #include "AMDGPURegisterInfo.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include <map>
@@ -33,7 +32,7 @@
 
 namespace llvm {
 
-class AMDGPUTargetMachine;
+class AMDGPUSubtarget;
 class MachineFunction;
 class MachineInstr;
 class MachineInstrBuilder;
@@ -45,9 +44,9 @@ private:
                           MachineBasicBlock &MBB) const;
   virtual void anchor();
 protected:
-  TargetMachine &TM;
+  const AMDGPUSubtarget &ST;
 public:
-  explicit AMDGPUInstrInfo(TargetMachine &tm);
+  explicit AMDGPUInstrInfo(const AMDGPUSubtarget &st);
 
   virtual const AMDGPURegisterInfo &getRegisterInfo() const = 0;
 
@@ -120,6 +119,9 @@ public:
   unsigned getOpcodeAfterMemoryUnfold(unsigned Opc,
                                bool UnfoldLoad, bool UnfoldStore,
                                unsigned *LoadRegIndex = nullptr) const override;
+
+  bool enableClusterLoads() const override;
+
   bool shouldScheduleLoadsNear(SDNode *Load1, SDNode *Load2,
                                int64_t Offset1, int64_t Offset2,
                                unsigned NumLoads) const override;
@@ -137,14 +139,6 @@ public:
   bool isSafeToMoveRegClassDefs(const TargetRegisterClass *RC) const override;
 
   // Helper functions that check the opcode for status information
-  bool isLoadInst(llvm::MachineInstr *MI) const;
-  bool isExtLoadInst(llvm::MachineInstr *MI) const;
-  bool isSWSExtLoadInst(llvm::MachineInstr *MI) const;
-  bool isSExtLoadInst(llvm::MachineInstr *MI) const;
-  bool isZExtLoadInst(llvm::MachineInstr *MI) const;
-  bool isAExtLoadInst(llvm::MachineInstr *MI) const;
-  bool isStoreInst(llvm::MachineInstr *MI) const;
-  bool isTruncStoreInst(llvm::MachineInstr *MI) const;
   bool isRegisterStore(const MachineInstr &MI) const;
   bool isRegisterLoad(const MachineInstr &MI) const;
 
@@ -152,7 +146,6 @@ public:
 // Pure virtual funtions to be implemented by sub-classes.
 //===---------------------------------------------------------------------===//
 
-  virtual unsigned getIEQOpcode() const = 0;
   virtual bool isMov(unsigned opcode) const = 0;
 
   /// \brief Calculate the "Indirect Address" for the given \p RegIndex and
@@ -185,11 +178,6 @@ public:
                                     unsigned ValueReg, unsigned Address,
                                     unsigned OffsetReg) const = 0;
 
-
-  /// \brief Convert the AMDIL MachineInstr to a supported ISA
-  /// MachineInstr
-  void convertToISA(MachineInstr & MI, MachineFunction &MF, DebugLoc DL) const;
-
   /// \brief Build a MOV instruction.
   virtual MachineInstr *buildMovInstr(MachineBasicBlock *MBB,
                                       MachineBasicBlock::iterator I,
@@ -210,4 +198,4 @@ namespace AMDGPU {
 #define AMDGPU_FLAG_REGISTER_LOAD  (UINT64_C(1) << 63)
 #define AMDGPU_FLAG_REGISTER_STORE (UINT64_C(1) << 62)
 
-#endif // AMDGPUINSTRINFO_H
+#endif

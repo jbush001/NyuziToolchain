@@ -18,7 +18,7 @@
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ExecutionEngine/ExecutionEngine.h"
-#include "llvm/ExecutionEngine/JIT.h"
+#include "llvm/ExecutionEngine/MCJIT.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Host.h"
@@ -42,18 +42,29 @@ std::string GetExecutablePath(const char *Argv0) {
   return llvm::sys::fs::getMainExecutable(Argv0, MainAddr);
 }
 
-static int Execute(llvm::Module *Mod, char * const *envp) {
-  llvm::InitializeNativeTarget();
+static llvm::ExecutionEngine *
+createExecutionEngine(std::unique_ptr<llvm::Module> M, std::string *ErrorStr) {
+  return llvm::EngineBuilder(std::move(M))
+      .setUseMCJIT(true)
+      .setEngineKind(llvm::EngineKind::Either)
+      .setErrorStr(ErrorStr)
+      .create();
+}
 
+static int Execute(std::unique_ptr<llvm::Module> Mod, char *const *envp) {
+  llvm::InitializeNativeTarget();
+  llvm::InitializeNativeTargetAsmPrinter();
+
+  llvm::Module &M = *Mod;
   std::string Error;
   std::unique_ptr<llvm::ExecutionEngine> EE(
-      llvm::ExecutionEngine::createJIT(Mod, &Error));
+      createExecutionEngine(std::move(Mod), &Error));
   if (!EE) {
     llvm::errs() << "unable to make execution engine: " << Error << "\n";
     return 255;
   }
 
-  llvm::Function *EntryFn = Mod->getFunction("main");
+  llvm::Function *EntryFn = M.getFunction("main");
   if (!EntryFn) {
     llvm::errs() << "'main' function not found in module.\n";
     return 255;
@@ -61,8 +72,9 @@ static int Execute(llvm::Module *Mod, char * const *envp) {
 
   // FIXME: Support passing arguments.
   std::vector<std::string> Args;
-  Args.push_back(Mod->getModuleIdentifier());
+  Args.push_back(M.getModuleIdentifier());
 
+  EE->finalizeObject();
   return EE->runFunctionAsMain(EntryFn, Args, envp);
 }
 
@@ -75,8 +87,16 @@ int main(int argc, const char **argv, char * const *envp) {
 
   IntrusiveRefCntPtr<DiagnosticIDs> DiagID(new DiagnosticIDs());
   DiagnosticsEngine Diags(DiagID, &*DiagOpts, DiagClient);
-  Driver TheDriver(Path, llvm::sys::getProcessTriple(), Diags);
+
+  // Use ELF on windows for now.
+  std::string TripleStr = llvm::sys::getProcessTriple();
+  llvm::Triple T(TripleStr);
+  if (T.isOSBinFormatCOFF())
+    T.setObjectFormat(llvm::Triple::ELF);
+
+  Driver TheDriver(Path, T.str(), Diags);
   TheDriver.setTitle("clang interpreter");
+  TheDriver.setCheckInputsExist(false);
 
   // FIXME: This is a hack to try to force the driver to do something we can
   // recognize. We need to extend the driver library to support this use model
@@ -145,8 +165,8 @@ int main(int argc, const char **argv, char * const *envp) {
     return 1;
 
   int Res = 255;
-  if (llvm::Module *Module = Act->takeModule())
-    Res = Execute(Module, envp);
+  if (std::unique_ptr<llvm::Module> Module = Act->takeModule())
+    Res = Execute(std::move(Module), envp);
 
   // Shutdown.
 

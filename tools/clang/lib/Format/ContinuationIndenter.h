@@ -13,8 +13,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_FORMAT_CONTINUATION_INDENTER_H
-#define LLVM_CLANG_FORMAT_CONTINUATION_INDENTER_H
+#ifndef LLVM_CLANG_LIB_FORMAT_CONTINUATIONINDENTER_H
+#define LLVM_CLANG_LIB_FORMAT_CONTINUATIONINDENTER_H
 
 #include "Encoding.h"
 #include "clang/Format/Format.h"
@@ -151,8 +151,8 @@ struct ParenState {
         StartOfFunctionCall(0), StartOfArraySubscripts(0),
         NestedNameSpecifierContinuation(0), CallContinuation(0), VariablePos(0),
         ContainsLineBreak(false), ContainsUnwrappedBuilder(0),
-        AlignColons(true), ObjCSelectorNameFound(false), LambdasFound(0),
-        JSFunctionInlined(false) {}
+        AlignColons(true), ObjCSelectorNameFound(false),
+        HasMultipleNestedBlocks(false), JSFunctionInlined(false) {}
 
   /// \brief The position to which a specific parenthesis level needs to be
   /// indented.
@@ -247,11 +247,11 @@ struct ParenState {
   /// the same token.
   bool ObjCSelectorNameFound;
 
-  /// \brief Counts the number of lambda introducers found on this level.
+  /// \brief \c true if there are multiple nested blocks inside these parens.
   ///
   /// Not considered for memoization as it will always have the same value at
   /// the same token.
-  unsigned LambdasFound;
+  bool HasMultipleNestedBlocks;
 
   // \brief The previous JavaScript 'function' keyword is not wrapped to a new
   // line.
@@ -370,4 +370,4 @@ struct LineState {
 } // end namespace format
 } // end namespace clang
 
-#endif // LLVM_CLANG_FORMAT_CONTINUATION_INDENTER_H
+#endif

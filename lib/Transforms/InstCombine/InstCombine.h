@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef INSTCOMBINE_INSTCOMBINE_H
-#define INSTCOMBINE_INSTCOMBINE_H
+#ifndef LLVM_LIB_TRANSFORMS_INSTCOMBINE_INSTCOMBINE_H
+#define LLVM_LIB_TRANSFORMS_INSTCOMBINE_INSTCOMBINE_H
 
 #include "InstCombineWorklist.h"
 #include "llvm/Analysis/TargetFolder.h"
@@ -37,8 +37,9 @@ enum SelectPatternFlavor {
   SPF_SMIN,
   SPF_UMIN,
   SPF_SMAX,
-  SPF_UMAX
-  // SPF_ABS - TODO.
+  SPF_UMAX,
+  SPF_ABS,
+  SPF_NABS
 };
 
 /// getComplexity:  Assign a complexity or rank value to LLVM Values...
@@ -171,6 +172,8 @@ public:
                               ConstantInt *DivRHS);
   Instruction *FoldICmpShrCst(ICmpInst &ICI, BinaryOperator *DivI,
                               ConstantInt *DivRHS);
+  Instruction *FoldICmpCstShrCst(ICmpInst &I, Value *Op, Value *A,
+                                 ConstantInt *CI1, ConstantInt *CI2);
   Instruction *FoldICmpAddOpCst(Instruction &ICI, Value *X, ConstantInt *CI,
                                 ICmpInst::Predicate Pred);
   Instruction *FoldGEPICmp(GEPOperator *GEPLHS, Value *RHS,
@@ -246,6 +249,8 @@ private:
                                  bool DoXform = true);
   Instruction *transformSExtICmp(ICmpInst *ICI, Instruction &CI);
   bool WillNotOverflowSignedAdd(Value *LHS, Value *RHS);
+  bool WillNotOverflowUnsignedAdd(Value *LHS, Value *RHS);
+  bool WillNotOverflowSignedSub(Value *LHS, Value *RHS);
   Value *EmitGEPOffset(User *GEP);
   Instruction *scalarizePHI(ExtractElementInst &EI, PHINode *PN);
   Value *EvaluateInDifferentElementOrder(Value *V, ArrayRef<int> Mask);

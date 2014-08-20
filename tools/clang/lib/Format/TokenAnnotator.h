@@ -13,8 +13,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_FORMAT_TOKEN_ANNOTATOR_H
-#define LLVM_CLANG_FORMAT_TOKEN_ANNOTATOR_H
+#ifndef LLVM_CLANG_LIB_FORMAT_TOKENANNOTATOR_H
+#define LLVM_CLANG_LIB_FORMAT_TOKENANNOTATOR_H
 
 #include "UnwrappedLineParser.h"
 #include "clang/Format/Format.h"
@@ -41,8 +41,8 @@ public:
       : First(Line.Tokens.front().Tok), Level(Line.Level),
         InPPDirective(Line.InPPDirective),
         MustBeDeclaration(Line.MustBeDeclaration), MightBeFunctionDecl(false),
-        StartsDefinition(false), Affected(false),
-        LeadingEmptyLinesAffected(false), ChildrenAffected(false) {
+        Affected(false), LeadingEmptyLinesAffected(false),
+        ChildrenAffected(false) {
     assert(!Line.Tokens.empty());
 
     // Calculate Next and Previous for all tokens. Note that we must overwrite
@@ -86,7 +86,6 @@ public:
   bool InPPDirective;
   bool MustBeDeclaration;
   bool MightBeFunctionDecl;
-  bool StartsDefinition;
 
   /// \c True if this line should be formatted, i.e. intersects directly or
   /// indirectly with one of the input ranges.
@@ -147,4 +146,4 @@ private:
 } // end namespace format
 } // end namespace clang
 
-#endif // LLVM_CLANG_FORMAT_TOKEN_ANNOTATOR_H
+#endif

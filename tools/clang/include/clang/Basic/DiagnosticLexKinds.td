@@ -161,8 +161,8 @@ def err_invalid_suffix_integer_constant : Error<
 def err_invalid_suffix_float_constant : Error<
   "invalid suffix '%0' on floating constant">;
 def warn_cxx11_compat_digit_separator : Warning<
-  "digit separators are incompatible with C++ standards before C++1y">,
-  InGroup<CXXPre1yCompat>, DefaultIgnore;
+  "digit separators are incompatible with C++ standards before C++14">,
+  InGroup<CXXPre14Compat>, DefaultIgnore;
 def err_digit_separator_not_between_digits : Error<
   "digit separator cannot appear at %select{start|end}0 of digit sequence">;
 def warn_extraneous_char_constant : Warning<
@@ -182,11 +182,11 @@ def ext_hexconstant_invalid : Extension<
   "hexadecimal floating constants are a C99 feature">, InGroup<C99>;
 def ext_binary_literal : Extension<
   "binary integer literals are a GNU extension">, InGroup<GNUBinaryLiteral>;
-def ext_binary_literal_cxx1y : Extension<
-  "binary integer literals are a C++1y extension">, InGroup<CXX1y>;
+def ext_binary_literal_cxx14 : Extension<
+  "binary integer literals are a C++14 extension">, InGroup<CXX14>;
 def warn_cxx11_compat_binary_literal : Warning<
-  "binary integer literals are incompatible with C++ standards before C++1y">,
-  InGroup<CXXPre1yCompatPedantic>, DefaultIgnore;
+  "binary integer literals are incompatible with C++ standards before C++14">,
+  InGroup<CXXPre14CompatPedantic>, DefaultIgnore;
 def err_pascal_string_too_long : Error<"Pascal string is too long">;
 def err_octal_escape_too_large : Error<"octal escape sequence out of range">;
 def err_hex_escape_too_large : Error<"hex escape sequence out of range">;
@@ -245,9 +245,9 @@ def err_invalid_pth_file : Error<
 // Preprocessor Diagnostics
 //===----------------------------------------------------------------------===//
 
-let CategoryName = "User Defined Issues" in {
+let CategoryName = "User-Defined Issue" in {
 def pp_hash_warning : Warning<"%0">,
-  InGroup<PoundWarning>, DefaultWarnShowInSystemHeader;
+  InGroup<PoundWarning>, ShowInSystemHeader;
 def err_pp_hash_error : Error<"%0">;
 }
 
@@ -501,6 +501,8 @@ def ext_pp_bad_paste_ms : ExtWarn<
   InGroup<DiagGroup<"invalid-token-paste">>;
 def err_pp_operator_used_as_macro_name : Error<
   "C++ operator %0 (aka %1) used as a macro name">;
+def ext_pp_operator_used_as_macro_name : Extension<
+  "C++ operator %0 (aka %1) used as a macro name">, InGroup<Microsoft>;
 def err_pp_illegal_floating_literal : Error<
   "floating point literal in preprocessor expression">;
 def err_pp_line_requires_integer : Error<
@@ -539,6 +541,10 @@ def err_pp_include_in_arc_cf_code_audited : Error<
   "cannot #include files inside '#pragma clang arc_cf_code_audited'">;
 def err_pp_eof_in_arc_cf_code_audited : Error<
   "'#pragma clang arc_cf_code_audited' was not ended within this file">;
+
+def warn_pp_date_time : Warning<
+  "expansion of date or time macro is not reproducible">,
+  ShowInSystemHeader, DefaultIgnore, InGroup<DiagGroup<"date-time">>;
 
 // Module map parsing
 def err_mmap_unknown_token : Error<"skipping stray token">;

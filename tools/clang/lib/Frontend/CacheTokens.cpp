@@ -540,7 +540,8 @@ public:
   ~StatListener() {}
 
   LookupResult getStat(const char *Path, FileData &Data, bool isFile,
-                       vfs::File **F, vfs::FileSystem &FS) override {
+                       std::unique_ptr<vfs::File> *F,
+                       vfs::FileSystem &FS) override {
     LookupResult Result = statChained(Path, Data, isFile, F, FS);
 
     if (Result == CacheMissing) // Failed 'stat'.
@@ -571,8 +572,10 @@ void clang::CacheTokens(Preprocessor &PP, llvm::raw_fd_ostream* OS) {
   PTHWriter PW(*OS, PP);
 
   // Install the 'stat' system call listener in the FileManager.
-  StatListener *StatCache = new StatListener(PW.getPM());
-  PP.getFileManager().addStatCache(StatCache, /*AtBeginning=*/true);
+  auto StatCacheOwner = llvm::make_unique<StatListener>(PW.getPM());
+  StatListener *StatCache = StatCacheOwner.get();
+  PP.getFileManager().addStatCache(std::move(StatCacheOwner),
+                                   /*AtBeginning=*/true);
 
   // Lex through the entire file.  This will populate SourceManager with
   // all of the header information.

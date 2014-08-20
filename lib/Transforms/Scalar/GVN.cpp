@@ -45,6 +45,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Utils/SSAUpdater.h"
 #include <vector>
 using namespace llvm;
@@ -1464,6 +1465,13 @@ void GVN::AnalyzeLoadAvailability(LoadInst *LI, LoadDepVect &Deps,
       continue;
     }
 
+    // Loading from calloc (which zero initializes memory) -> zero
+    if (isCallocLikeFn(DepInst, TLI)) {
+      ValuesPerBlock.push_back(AvailableValueInBlock::get(
+          DepBB, Constant::getNullValue(LI->getType())));
+      continue;
+    }
+
     if (StoreInst *S = dyn_cast<StoreInst>(DepInst)) {
       // Reject loads and stores that are to the same address but are of
       // different types if we have to.
@@ -1662,9 +1670,11 @@ bool GVN::PerformLoadPRE(LoadInst *LI, AvailValInBlkVect &ValuesPerBlock,
                                         LI->getAlignment(),
                                         UnavailablePred->getTerminator());
 
-    // Transfer the old load's TBAA tag to the new load.
-    if (MDNode *Tag = LI->getMetadata(LLVMContext::MD_tbaa))
-      NewLoad->setMetadata(LLVMContext::MD_tbaa, Tag);
+    // Transfer the old load's AA tags to the new load.
+    AAMDNodes Tags;
+    LI->getAAMetadata(Tags);
+    if (Tags)
+      NewLoad->setAAMetadata(Tags);
 
     // Transfer DebugLoc.
     NewLoad->setDebugLoc(LI->getDebugLoc());
@@ -1767,32 +1777,24 @@ static void patchReplacementInstruction(Instruction *I, Value *Repl) {
       ReplOp->setHasNoUnsignedWrap(false);
   }
   if (Instruction *ReplInst = dyn_cast<Instruction>(Repl)) {
-    SmallVector<std::pair<unsigned, MDNode*>, 4> Metadata;
-    ReplInst->getAllMetadataOtherThanDebugLoc(Metadata);
-    for (int i = 0, n = Metadata.size(); i < n; ++i) {
-      unsigned Kind = Metadata[i].first;
-      MDNode *IMD = I->getMetadata(Kind);
-      MDNode *ReplMD = Metadata[i].second;
-      switch(Kind) {
-      default:
-        ReplInst->setMetadata(Kind, nullptr); // Remove unknown metadata
-        break;
-      case LLVMContext::MD_dbg:
-        llvm_unreachable("getAllMetadataOtherThanDebugLoc returned a MD_dbg");
-      case LLVMContext::MD_tbaa:
-        ReplInst->setMetadata(Kind, MDNode::getMostGenericTBAA(IMD, ReplMD));
-        break;
-      case LLVMContext::MD_range:
-        ReplInst->setMetadata(Kind, MDNode::getMostGenericRange(IMD, ReplMD));
-        break;
-      case LLVMContext::MD_prof:
-        llvm_unreachable("MD_prof in a non-terminator instruction");
-        break;
-      case LLVMContext::MD_fpmath:
-        ReplInst->setMetadata(Kind, MDNode::getMostGenericFPMath(IMD, ReplMD));
-        break;
-      }
-    }
+    // FIXME: If both the original and replacement value are part of the
+    // same control-flow region (meaning that the execution of one
+    // guarentees the executation of the other), then we can combine the
+    // noalias scopes here and do better than the general conservative
+    // answer used in combineMetadata().
+
+    // In general, GVN unifies expressions over different control-flow
+    // regions, and so we need a conservative combination of the noalias
+    // scopes.
+    unsigned KnownIDs[] = {
+      LLVMContext::MD_tbaa,
+      LLVMContext::MD_alias_scope,
+      LLVMContext::MD_noalias,
+      LLVMContext::MD_range,
+      LLVMContext::MD_fpmath,
+      LLVMContext::MD_invariant_load,
+    };
+    combineMetadata(ReplInst, I, KnownIDs);
   }
 }
 
@@ -1986,6 +1988,15 @@ bool GVN::processLoad(LoadInst *L) {
       ++NumGVNLoad;
       return true;
     }
+  }
+
+  // If this load follows a calloc (which zero initializes memory),
+  // then the loaded value is zero
+  if (isCallocLikeFn(DepInst, TLI)) {
+    L->replaceAllUsesWith(Constant::getNullValue(L->getType()));
+    markInstructionForDeletion(L);
+    ++NumGVNLoad;
+    return true;
   }
 
   return false;
@@ -2782,7 +2793,7 @@ bool GVN::processFoldableCondBr(BranchInst *BI) {
   return true;
 }
 
-// performPRE() will trigger assert if it come across an instruciton without
+// performPRE() will trigger assert if it comes across an instruction without
 // associated val-num. As it normally has far more live instructions than dead
 // instructions, it makes more sense just to "fabricate" a val-number for the
 // dead code than checking if instruction involved is dead or not.

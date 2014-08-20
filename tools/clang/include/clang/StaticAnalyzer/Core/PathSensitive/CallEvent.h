@@ -13,8 +13,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_STATICANALYZER_PATHSENSITIVE_CALL
-#define LLVM_CLANG_STATICANALYZER_PATHSENSITIVE_CALL
+#ifndef LLVM_CLANG_STATICANALYZER_CORE_PATHSENSITIVE_CALLEVENT_H
+#define LLVM_CLANG_STATICANALYZER_CORE_PATHSENSITIVE_CALLEVENT_H
 
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/ExprCXX.h"
@@ -56,14 +56,14 @@ public:
   CallEventRef(const CallEventRef &Orig) : IntrusiveRefCntPtr<const T>(Orig) {}
 
   CallEventRef<T> cloneWithState(ProgramStateRef State) const {
-    return this->getPtr()->template cloneWithState<T>(State);
+    return this->get()->template cloneWithState<T>(State);
   }
 
   // Allow implicit conversions to a superclass type, since CallEventRef
   // behaves like a pointer-to-const.
   template <typename SuperT>
   operator CallEventRef<SuperT> () const {
-    return this->getPtr();
+    return this->get();
   }
 };
 
@@ -1024,7 +1024,7 @@ namespace llvm {
 
     static SimpleType
     getSimplifiedValue(clang::ento::CallEventRef<T> Val) {
-      return Val.getPtr();
+      return Val.get();
     }
   };
 }

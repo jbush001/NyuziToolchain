@@ -1,10 +1,10 @@
 /* c-index-test.c */
 
+#include "clang/Config/config.h"
 #include "clang-c/Index.h"
 #include "clang-c/CXCompilationDatabase.h"
 #include "clang-c/BuildSystem.h"
 #include "clang-c/Documentation.h"
-#include "llvm/Config/config.h"
 #include <ctype.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -1363,6 +1363,20 @@ static enum CXChildVisitResult PrintTypeSize(CXCursor cursor, CXCursor p,
 }
 
 /******************************************************************************/
+/* Mangling testing.                                                          */
+/******************************************************************************/
+
+static enum CXChildVisitResult PrintMangledName(CXCursor cursor, CXCursor p,
+                                                CXClientData d) {
+  CXString MangledName;
+  PrintCursor(cursor, NULL);
+  MangledName = clang_Cursor_getMangling(cursor);
+  printf(" [mangled=%s]\n", clang_getCString(MangledName));
+  clang_disposeString(MangledName);
+  return CXChildVisit_Continue;
+}
+
+/******************************************************************************/
 /* Bitwidth testing.                                                          */
 /******************************************************************************/
 
@@ -1629,6 +1643,7 @@ static int perform_file_scan(const char *ast_file, const char *source_file,
 
   if ((fp = fopen(source_file, "r")) == NULL) {
     fprintf(stderr, "Could not open '%s'\n", source_file);
+    clang_disposeTranslationUnit(TU);
     return 1;
   }
 
@@ -4081,6 +4096,8 @@ int cindextest_main(int argc, const char **argv) {
   else if (argc > 2 && strcmp(argv[1], "-test-print-bitwidth") == 0)
     return perform_test_load_source(argc - 2, argv + 2, "all",
                                     PrintBitWidth, 0);
+  else if (argc > 2 && strcmp(argv[1], "-test-print-mangle") == 0)
+    return perform_test_load_tu(argv[2], "all", NULL, PrintMangledName, NULL);
   else if (argc > 1 && strcmp(argv[1], "-print-usr") == 0) {
     if (argc > 2)
       return print_usrs(argv + 2, argv + argc);
@@ -4116,13 +4133,19 @@ typedef struct thread_info {
 void thread_runner(void *client_data_v) {
   thread_info *client_data = client_data_v;
   client_data->result = cindextest_main(client_data->argc, client_data->argv);
-#ifdef __CYGWIN__
-  fflush(stdout);  /* stdout is not flushed on Cygwin. */
-#endif
+}
+
+static void flush_atexit(void) {
+  /* stdout, and surprisingly even stderr, are not always flushed on process
+   * and thread exit, particularly when the system is under heavy load. */
+  fflush(stdout);
+  fflush(stderr);
 }
 
 int main(int argc, const char **argv) {
   thread_info client_data;
+
+  atexit(flush_atexit);
 
 #ifdef CLANG_HAVE_LIBXML
   LIBXML_TEST_VERSION

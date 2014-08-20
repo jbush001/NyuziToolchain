@@ -515,8 +515,12 @@ public:
   /// indicating the declaration is used.
   void markUsed(ASTContext &C);
 
-  /// \brief Whether this declaration was referenced.
+  /// \brief Whether any declaration of this entity was referenced.
   bool isReferenced() const;
+
+  /// \brief Whether this declaration was referenced. This should not be relied
+  /// upon for anything other than debugging.
+  bool isThisDeclarationReferenced() const { return Referenced; }
 
   void setReferenced(bool R = true) { Referenced = R; }
 
@@ -1000,7 +1004,7 @@ public:
   void print(raw_ostream &OS) const override;
 };
 
-typedef llvm::MutableArrayRef<NamedDecl*> DeclContextLookupResult;
+typedef MutableArrayRef<NamedDecl *> DeclContextLookupResult;
 
 typedef ArrayRef<NamedDecl *> DeclContextLookupConstResult;
 
@@ -1642,7 +1646,7 @@ public:
 
   void dumpDeclContext() const;
   void dumpLookups() const;
-  void dumpLookups(llvm::raw_ostream &OS) const;
+  void dumpLookups(llvm::raw_ostream &OS, bool DumpDecls = false) const;
 
 private:
   void reconcileExternalVisibleStorage() const;

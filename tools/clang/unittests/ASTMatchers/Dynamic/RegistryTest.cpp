@@ -40,7 +40,7 @@ public:
   }
 
   VariantMatcher constructMatcher(StringRef MatcherName,
-                                  Diagnostics *Error = NULL) {
+                                  Diagnostics *Error = nullptr) {
     Diagnostics DummyError;
     if (!Error) Error = &DummyError;
     llvm::Optional<MatcherCtor> Ctor = lookupMatcherCtor(MatcherName);
@@ -53,7 +53,7 @@ public:
 
   VariantMatcher constructMatcher(StringRef MatcherName,
                                   const VariantValue &Arg1,
-                                  Diagnostics *Error = NULL) {
+                                  Diagnostics *Error = nullptr) {
     Diagnostics DummyError;
     if (!Error) Error = &DummyError;
     llvm::Optional<MatcherCtor> Ctor = lookupMatcherCtor(MatcherName);
@@ -67,7 +67,7 @@ public:
   VariantMatcher constructMatcher(StringRef MatcherName,
                                   const VariantValue &Arg1,
                                   const VariantValue &Arg2,
-                                  Diagnostics *Error = NULL) {
+                                  Diagnostics *Error = nullptr) {
     Diagnostics DummyError;
     if (!Error) Error = &DummyError;
     llvm::Optional<MatcherCtor> Ctor = lookupMatcherCtor(MatcherName);
@@ -82,8 +82,9 @@ public:
   typedef std::vector<MatcherCompletion> CompVector;
 
   CompVector getCompletions() {
-    return Registry::getCompletions(
-        llvm::ArrayRef<std::pair<MatcherCtor, unsigned> >());
+    std::vector<std::pair<MatcherCtor, unsigned> > Context;
+    return Registry::getMatcherCompletions(
+        Registry::getAcceptedCompletionTypes(Context));
   }
 
   CompVector getCompletions(StringRef MatcherName1, unsigned ArgNo1) {
@@ -92,7 +93,8 @@ public:
     if (!Ctor)
       return CompVector();
     Context.push_back(std::make_pair(*Ctor, ArgNo1));
-    return Registry::getCompletions(Context);
+    return Registry::getMatcherCompletions(
+        Registry::getAcceptedCompletionTypes(Context));
   }
 
   CompVector getCompletions(StringRef MatcherName1, unsigned ArgNo1,
@@ -106,17 +108,16 @@ public:
     if (!Ctor)
       return CompVector();
     Context.push_back(std::make_pair(*Ctor, ArgNo2));
-    return Registry::getCompletions(Context);
+    return Registry::getMatcherCompletions(
+        Registry::getAcceptedCompletionTypes(Context));
   }
 
   bool hasCompletion(const CompVector &Comps, StringRef TypedText,
-                     StringRef MatcherDecl = StringRef(), unsigned *Index = 0) {
+                     StringRef MatcherDecl = StringRef()) {
     for (CompVector::const_iterator I = Comps.begin(), E = Comps.end(); I != E;
          ++I) {
       if (I->TypedText == TypedText &&
           (MatcherDecl.empty() || I->MatcherDecl == MatcherDecl)) {
-        if (Index)
-          *Index = I - Comps.begin();
         return true;
       }
     }
@@ -444,17 +445,12 @@ TEST_F(RegistryTest, Completion) {
 
   CompVector WhileComps = getCompletions("whileStmt", 0);
 
-  unsigned HasBodyIndex, HasParentIndex, AllOfIndex;
   EXPECT_TRUE(hasCompletion(WhileComps, "hasBody(",
-                            "Matcher<WhileStmt> hasBody(Matcher<Stmt>)",
-                            &HasBodyIndex));
+                            "Matcher<WhileStmt> hasBody(Matcher<Stmt>)"));
   EXPECT_TRUE(hasCompletion(WhileComps, "hasParent(",
-                            "Matcher<Stmt> hasParent(Matcher<Decl|Stmt>)",
-                            &HasParentIndex));
-  EXPECT_TRUE(hasCompletion(WhileComps, "allOf(",
-                            "Matcher<T> allOf(Matcher<T>...)", &AllOfIndex));
-  EXPECT_GT(HasParentIndex, HasBodyIndex);
-  EXPECT_GT(AllOfIndex, HasParentIndex);
+                            "Matcher<Stmt> hasParent(Matcher<Decl|Stmt>)"));
+  EXPECT_TRUE(
+      hasCompletion(WhileComps, "allOf(", "Matcher<T> allOf(Matcher<T>...)"));
 
   EXPECT_FALSE(hasCompletion(WhileComps, "whileStmt("));
   EXPECT_FALSE(hasCompletion(WhileComps, "ifStmt("));

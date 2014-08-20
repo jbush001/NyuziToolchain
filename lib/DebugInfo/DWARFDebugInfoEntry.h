@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_DEBUGINFO_DWARFDEBUGINFOENTRY_H
-#define LLVM_DEBUGINFO_DWARFDEBUGINFOENTRY_H
+#ifndef LLVM_LIB_DEBUGINFO_DWARFDEBUGINFOENTRY_H
+#define LLVM_LIB_DEBUGINFO_DWARFDEBUGINFOENTRY_H
 
 #include "DWARFAbbreviationDeclaration.h"
 #include "DWARFDebugRangeList.h"
@@ -105,6 +105,8 @@ public:
   uint64_t getAttributeValueAsSectionOffset(const DWARFUnit *U,
                                             const uint16_t Attr,
                                             uint64_t FailValue) const;
+
+  uint64_t getRangesBaseAttribute(const DWARFUnit *U, uint64_t FailValue) const;
 
   /// Retrieves DW_AT_low_pc and DW_AT_high_pc from CU.
   /// Returns true if both attributes are present.

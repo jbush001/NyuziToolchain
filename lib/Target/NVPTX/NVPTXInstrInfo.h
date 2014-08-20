@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef NVPTXINSTRUCTIONINFO_H
-#define NVPTXINSTRUCTIONINFO_H
+#ifndef LLVM_LIB_TARGET_NVPTX_NVPTXINSTRINFO_H
+#define LLVM_LIB_TARGET_NVPTX_NVPTXINSTRINFO_H
 
 #include "NVPTX.h"
 #include "NVPTXRegisterInfo.h"
@@ -24,11 +24,10 @@
 namespace llvm {
 
 class NVPTXInstrInfo : public NVPTXGenInstrInfo {
-  NVPTXTargetMachine &TM;
   const NVPTXRegisterInfo RegInfo;
   virtual void anchor();
 public:
-  explicit NVPTXInstrInfo(NVPTXTargetMachine &TM);
+  explicit NVPTXInstrInfo(NVPTXSubtarget &STI);
 
   const NVPTXRegisterInfo &getRegisterInfo() const { return RegInfo; }
 

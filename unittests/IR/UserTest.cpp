@@ -65,7 +65,7 @@ TEST(UserTest, ValueOpIteration) {
                              "  ret void\n"
                              "}\n";
   SMDiagnostic Err;
-  Module *M = ParseAssemblyString(ModuleString, NULL, Err, C);
+  std::unique_ptr<Module> M = parseAssemblyString(ModuleString, Err, C);
 
   Function *F = M->getFunction("f");
   BasicBlock &ExitBB = F->back();

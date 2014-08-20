@@ -10,16 +10,16 @@
 // source file, implement it.
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_TOOLS_OBJ2YAML_H
-#define LLVM_TOOLS_OBJ2YAML_H
+#ifndef LLVM_TOOLS_OBJ2YAML_OBJ2YAML_H
+#define LLVM_TOOLS_OBJ2YAML_OBJ2YAML_H
 
 #include "llvm/Object/COFF.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/system_error.h"
+#include <system_error>
 
-llvm::error_code coff2yaml(llvm::raw_ostream &Out,
-                           const llvm::object::COFFObjectFile &Obj);
-llvm::error_code elf2yaml(llvm::raw_ostream &Out,
-                          const llvm::object::ObjectFile &Obj);
+std::error_code coff2yaml(llvm::raw_ostream &Out,
+                          const llvm::object::COFFObjectFile &Obj);
+std::error_code elf2yaml(llvm::raw_ostream &Out,
+                         const llvm::object::ObjectFile &Obj);
 
 #endif

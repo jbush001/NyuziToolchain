@@ -8,18 +8,15 @@
 //===----------------------------------------------------------------------===//
 
 #include "lld/ReaderWriter/Writer.h"
+#include "NativeFileFormat.h"
 #include "lld/Core/File.h"
-
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/system_error.h"
-
-#include "NativeFileFormat.h"
-
 #include <cstdint>
 #include <set>
+#include <system_error>
 #include <vector>
 
 namespace lld {
@@ -32,7 +29,7 @@ class Writer : public lld::Writer {
 public:
   Writer(const LinkingContext &context) {}
 
-  error_code writeFile(const lld::File &file, StringRef outPath) override {
+  std::error_code writeFile(const lld::File &file, StringRef outPath) override {
     // reserve first byte for unnamed atoms
     _stringPool.push_back('\0');
     // visit all atoms
@@ -73,11 +70,11 @@ public:
     llvm::raw_fd_ostream out(outPath.data(), errorInfo,
                              llvm::sys::fs::F_None);
     if (!errorInfo.empty())
-      return error_code(); // FIXME
+      return std::error_code(); // FIXME
 
     this->write(out);
 
-    return error_code();
+    return std::error_code();
   }
 
   virtual ~Writer() {

@@ -16,6 +16,8 @@
 #include "MipsSectionChunks.h"
 #include "TargetLayout.h"
 
+#include "llvm/ADT/DenseSet.h"
+
 namespace lld {
 namespace elf {
 
@@ -41,6 +43,50 @@ public:
       return _pltSection;
     return DefaultLayout<ELFType>::createSection(name, type, permissions,
                                                  order);
+  }
+
+  StringRef getSectionName(const DefinedAtom *da) const override {
+    return llvm::StringSwitch<StringRef>(da->customSectionName())
+        .StartsWith(".ctors", ".ctors")
+        .StartsWith(".dtors", ".dtors")
+        .Default(TargetLayout<ELFType>::getSectionName(da));
+  }
+
+  Layout::SegmentType getSegmentType(Section<ELFType> *section) const override {
+    switch (section->order()) {
+    case DefaultLayout<ELFType>::ORDER_CTORS:
+    case DefaultLayout<ELFType>::ORDER_DTORS:
+      return llvm::ELF::PT_LOAD;
+    default:
+      return TargetLayout<ELFType>::getSegmentType(section);
+    }
+  }
+
+  ErrorOr<const lld::AtomLayout &> addAtom(const Atom *atom) override {
+    // Maintain:
+    // 1. Set of shared library atoms referenced by regular defined atoms.
+    // 2. Set of shared library atoms have corresponding R_MIPS_COPY copies.
+    if (const auto *da = dyn_cast<DefinedAtom>(atom))
+      for (const Reference *ref : *da) {
+        if (const auto *sla = dyn_cast<SharedLibraryAtom>(ref->target()))
+          _referencedDynAtoms.insert(sla);
+
+        if (ref->kindNamespace() == lld::Reference::KindNamespace::ELF) {
+          assert(ref->kindArch() == Reference::KindArch::Mips);
+          if (ref->kindValue() == llvm::ELF::R_MIPS_COPY)
+            _copiedDynSymNames.insert(atom->name());
+        }
+      }
+
+    return TargetLayout<ELFType>::addAtom(atom);
+  }
+
+  bool isReferencedByDefinedAtom(const SharedLibraryAtom *sla) const {
+    return _referencedDynAtoms.count(sla);
+  }
+
+  bool isCopied(const SharedLibraryAtom *sla) const {
+    return _copiedDynSymNames.count(sla->name());
   }
 
   /// \brief GP offset relative to .got section.
@@ -70,20 +116,22 @@ private:
   MipsPLTSection<ELFType> *_pltSection;
   llvm::Optional<AtomLayout *> _gpAtom;
   llvm::Optional<AtomLayout *> _gpDispAtom;
+  llvm::DenseSet<const SharedLibraryAtom *> _referencedDynAtoms;
+  llvm::StringSet<> _copiedDynSymNames;
 };
 
 /// \brief Mips Runtime file.
 template <class ELFType>
 class MipsRuntimeFile final : public CRuntimeFile<ELFType> {
 public:
-  MipsRuntimeFile(const MipsLinkingContext &context)
-      : CRuntimeFile<ELFType>(context, "Mips runtime file") {}
+  MipsRuntimeFile(const MipsLinkingContext &ctx)
+      : CRuntimeFile<ELFType>(ctx, "Mips runtime file") {}
 };
 
 /// \brief TargetHandler for Mips
 class MipsTargetHandler final : public DefaultTargetHandler<Mips32ElELFType> {
 public:
-  MipsTargetHandler(MipsLinkingContext &context);
+  MipsTargetHandler(MipsLinkingContext &ctx);
 
   MipsTargetLayout<Mips32ElELFType> &getTargetLayout() override {
     return *_targetLayout;
@@ -103,7 +151,7 @@ public:
 
 private:
   static const Registry::KindStrings kindStrings[];
-  MipsLinkingContext &_context;
+  MipsLinkingContext &_ctx;
   std::unique_ptr<MipsRuntimeFile<Mips32ElELFType>> _runtimeFile;
   std::unique_ptr<MipsTargetLayout<Mips32ElELFType>> _targetLayout;
   std::unique_ptr<MipsTargetRelocationHandler> _relocationHandler;
@@ -112,11 +160,10 @@ private:
 template <class ELFT>
 class MipsDynamicSymbolTable : public DynamicSymbolTable<ELFT> {
 public:
-  MipsDynamicSymbolTable(const MipsLinkingContext &context,
+  MipsDynamicSymbolTable(const MipsLinkingContext &ctx,
                          MipsTargetLayout<ELFT> &layout)
-      : DynamicSymbolTable<ELFT>(
-            context, layout, ".dynsym",
-            DefaultLayout<ELFT>::ORDER_DYNAMIC_SYMBOLS),
+      : DynamicSymbolTable<ELFT>(ctx, layout, ".dynsym",
+                                 DefaultLayout<ELFT>::ORDER_DYNAMIC_SYMBOLS),
         _targetLayout(layout) {}
 
   void sortSymbols() override {

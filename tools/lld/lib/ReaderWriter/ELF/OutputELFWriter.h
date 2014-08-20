@@ -52,16 +52,16 @@ protected:
   void buildChunks(const File &file) override;
 
   // Build the output file
-  virtual error_code buildOutput(const File &file);
+  virtual std::error_code buildOutput(const File &file);
 
   // Setup the ELF header.
-  virtual error_code setELFHeader();
+  virtual std::error_code setELFHeader();
 
   // Write the file to the path specified
-  error_code writeFile(const File &File, StringRef path) override;
+  std::error_code writeFile(const File &File, StringRef path) override;
 
   // Write to the output file.
-  virtual error_code writeOutput(const File &file, StringRef path);
+  virtual std::error_code writeOutput(const File &file, StringRef path);
 
   // Get the size of the output file that the linker would emit.
   virtual uint64_t outputFileSize() const;
@@ -107,6 +107,16 @@ protected:
   /// \brief create dynamic symbol table.
   virtual LLD_UNIQUE_BUMP_PTR(DynamicSymbolTable<ELFT>)
       createDynamicSymbolTable();
+
+  /// \brief Create entry in the dynamic symbols table for this atom.
+  virtual bool isDynSymEntryRequired(const SharedLibraryAtom *sla) const {
+    return true;
+  }
+
+  /// \brief Create DT_NEEDED dynamic tage for the shared library.
+  virtual bool isNeededTagRequired(const SharedLibraryAtom *sla) const {
+    return true;
+  }
 
   llvm::BumpPtrAllocator _alloc;
 
@@ -176,9 +186,11 @@ void OutputELFWriter<ELFT>::buildDynamicSymbolTable(const File &file) {
           _dynamicSymbolTable->addSymbol(atom->_atom, section->ordinal(),
                                          atom->_virtualAddr, atom);
       }
-  for (const auto sla : file.sharedLibrary()) {
-    _dynamicSymbolTable->addSymbol(sla, ELF::SHN_UNDEF);
-    _soNeeded.insert(sla->loadName());
+  for (const auto &sla : file.sharedLibrary()) {
+    if (isDynSymEntryRequired(sla))
+      _dynamicSymbolTable->addSymbol(sla, ELF::SHN_UNDEF);
+    if (isNeededTagRequired(sla))
+      _soNeeded.insert(sla->loadName());
   }
   for (const auto &loadName : _soNeeded) {
     Elf_Dyn dyn;
@@ -348,7 +360,7 @@ LLD_UNIQUE_BUMP_PTR(DynamicSymbolTable<ELFT>)
 }
 
 template <class ELFT>
-error_code OutputELFWriter<ELFT>::buildOutput(const File &file) {
+std::error_code OutputELFWriter<ELFT>::buildOutput(const File &file) {
   ScopedTask buildTask(getDefaultDomain(), "ELF Writer buildOutput");
   buildChunks(file);
 
@@ -394,10 +406,10 @@ error_code OutputELFWriter<ELFT>::buildOutput(const File &file) {
   if (_context.isDynamic())
     _dynamicTable->updateDynamicTable();
 
-  return error_code();
+  return std::error_code();
 }
 
-template <class ELFT> error_code OutputELFWriter<ELFT>::setELFHeader() {
+template <class ELFT> std::error_code OutputELFWriter<ELFT>::setELFHeader() {
   _elfHeader->e_ident(ELF::EI_CLASS,
                       _context.is64Bits() ? ELF::ELFCLASS64 : ELF::ELFCLASS32);
   _elfHeader->e_ident(ELF::EI_DATA, _context.isLittleEndian()
@@ -419,7 +431,7 @@ template <class ELFT> error_code OutputELFWriter<ELFT>::setELFHeader() {
   _layout.findAtomAddrByName(_context.entrySymbolName(), virtualAddr);
   _elfHeader->e_entry(virtualAddr);
 
-  return error_code();
+  return std::error_code();
 }
 
 template <class ELFT> uint64_t OutputELFWriter<ELFT>::outputFileSize() const {
@@ -427,12 +439,12 @@ template <class ELFT> uint64_t OutputELFWriter<ELFT>::outputFileSize() const {
 }
 
 template <class ELFT>
-error_code OutputELFWriter<ELFT>::writeOutput(const File &file,
-                                              StringRef path) {
+std::error_code OutputELFWriter<ELFT>::writeOutput(const File &file,
+                                                   StringRef path) {
   std::unique_ptr<FileOutputBuffer> buffer;
   ScopedTask createOutputTask(getDefaultDomain(), "ELF Writer Create Output");
-  error_code ec = FileOutputBuffer::create(path, outputFileSize(), buffer,
-                                           FileOutputBuffer::F_executable);
+  std::error_code ec = FileOutputBuffer::create(path, outputFileSize(), buffer,
+                                                FileOutputBuffer::F_executable);
   createOutputTask.end();
 
   if (ec)
@@ -455,8 +467,9 @@ error_code OutputELFWriter<ELFT>::writeOutput(const File &file,
 }
 
 template <class ELFT>
-error_code OutputELFWriter<ELFT>::writeFile(const File &file, StringRef path) {
-  error_code ec = buildOutput(file);
+std::error_code OutputELFWriter<ELFT>::writeFile(const File &file,
+                                                 StringRef path) {
+  std::error_code ec = buildOutput(file);
   if (ec)
     return ec;
 

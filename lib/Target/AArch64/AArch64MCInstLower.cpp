@@ -25,8 +25,7 @@
 #include "llvm/Target/TargetMachine.h"
 using namespace llvm;
 
-AArch64MCInstLower::AArch64MCInstLower(MCContext &ctx, Mangler &mang,
-                                       AsmPrinter &printer)
+AArch64MCInstLower::AArch64MCInstLower(MCContext &ctx, AsmPrinter &printer)
     : Ctx(ctx), Printer(printer), TargetTriple(printer.getTargetTriple()) {}
 
 MCSymbol *
@@ -51,7 +50,7 @@ MCOperand AArch64MCInstLower::lowerSymbolOperandDarwin(const MachineOperand &MO,
              AArch64II::MO_PAGEOFF)
       RefKind = MCSymbolRefExpr::VK_GOTPAGEOFF;
     else
-      assert(0 && "Unexpected target flags with MO_GOT on GV operand");
+      llvm_unreachable("Unexpected target flags with MO_GOT on GV operand");
   } else if ((MO.getTargetFlags() & AArch64II::MO_TLS) != 0) {
     if ((MO.getTargetFlags() & AArch64II::MO_FRAGMENT) == AArch64II::MO_PAGE)
       RefKind = MCSymbolRefExpr::VK_TLVPPAGE;
@@ -154,7 +153,7 @@ bool AArch64MCInstLower::lowerOperand(const MachineOperand &MO,
                                       MCOperand &MCOp) const {
   switch (MO.getType()) {
   default:
-    assert(0 && "unknown operand type");
+    llvm_unreachable("unknown operand type");
   case MachineOperand::MO_Register:
     // Ignore all implicit register operands.
     if (MO.isImplicit())

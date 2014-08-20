@@ -161,14 +161,10 @@ static const char *isLabelTail(const char *CurPtr) {
 // Lexer definition.
 //===----------------------------------------------------------------------===//
 
-LLLexer::LLLexer(MemoryBuffer *StartBuf, SourceMgr &sm, SMDiagnostic &Err,
+LLLexer::LLLexer(StringRef StartBuf, SourceMgr &sm, SMDiagnostic &Err,
                  LLVMContext &C)
   : CurBuf(StartBuf), ErrorInfo(Err), SM(sm), Context(C), APFloatVal(0.0) {
-  CurPtr = CurBuf->getBufferStart();
-}
-
-std::string LLLexer::getFilename() const {
-  return CurBuf->getBufferIdentifier();
+  CurPtr = CurBuf.begin();
 }
 
 int LLLexer::getNextChar() {
@@ -178,7 +174,7 @@ int LLLexer::getNextChar() {
   case 0:
     // A nul character in the stream is either the end of the current buffer or
     // a random nul in the file.  Disambiguate that here.
-    if (CurPtr-1 != CurBuf->getBufferEnd())
+    if (CurPtr-1 != CurBuf.end())
       return 0;  // Just whitespace.
 
     // Otherwise, return end of file.
@@ -209,6 +205,7 @@ lltok::Kind LLLexer::LexToken() {
     return LexToken();
   case '+': return LexPositive();
   case '@': return LexAt();
+  case '$': return LexDollar();
   case '%': return LexPercent();
   case '"': return LexQuote();
   case '.':
@@ -220,13 +217,6 @@ lltok::Kind LLLexer::LexToken() {
     if (CurPtr[0] == '.' && CurPtr[1] == '.') {
       CurPtr += 2;
       return lltok::dotdotdot;
-    }
-    return lltok::Error;
-  case '$':
-    if (const char *Ptr = isLabelTail(CurPtr)) {
-      CurPtr = Ptr;
-      StrVal.assign(TokStart, CurPtr-1);
-      return lltok::LabelStr;
     }
     return lltok::Error;
   case ';':
@@ -303,6 +293,43 @@ lltok::Kind LLLexer::LexAt() {
     UIntVal = unsigned(Val);
     return lltok::GlobalID;
   }
+
+  return lltok::Error;
+}
+
+lltok::Kind LLLexer::LexDollar() {
+  if (const char *Ptr = isLabelTail(TokStart)) {
+    CurPtr = Ptr;
+    StrVal.assign(TokStart, CurPtr - 1);
+    return lltok::LabelStr;
+  }
+
+  // Handle DollarStringConstant: $\"[^\"]*\"
+  if (CurPtr[0] == '"') {
+    ++CurPtr;
+
+    while (1) {
+      int CurChar = getNextChar();
+
+      if (CurChar == EOF) {
+        Error("end of file in COMDAT variable name");
+        return lltok::Error;
+      }
+      if (CurChar == '"') {
+        StrVal.assign(TokStart + 2, CurPtr - 1);
+        UnEscapeLexed(StrVal);
+        if (StringRef(StrVal).find_first_of(0) != StringRef::npos) {
+          Error("Null bytes are not allowed in names");
+          return lltok::Error;
+        }
+        return lltok::ComdatVar;
+      }
+    }
+  }
+
+  // Handle ComdatVarName: $[-a-zA-Z$._][-a-zA-Z$._0-9]*
+  if (ReadVarName())
+    return lltok::ComdatVar;
 
   return lltok::Error;
 }
@@ -485,12 +512,10 @@ lltok::Kind LLLexer::LexIdentifier() {
 
   KEYWORD(private);
   KEYWORD(internal);
-  KEYWORD(linker_private);        // NOTE: deprecated, for parser compatibility
-  KEYWORD(linker_private_weak);   // NOTE: deprecated, for parser compatibility
   KEYWORD(available_externally);
   KEYWORD(linkonce);
   KEYWORD(linkonce_odr);
-  KEYWORD(weak);
+  KEYWORD(weak); // Use as a linkage, and a modifier for "cmpxchg".
   KEYWORD(weak_odr);
   KEYWORD(appending);
   KEYWORD(dllimport);
@@ -581,8 +606,10 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(byval);
   KEYWORD(inalloca);
   KEYWORD(cold);
+  KEYWORD(dereferenceable);
   KEYWORD(inlinehint);
   KEYWORD(inreg);
+  KEYWORD(jumptable);
   KEYWORD(minsize);
   KEYWORD(naked);
   KEYWORD(nest);
@@ -617,6 +644,15 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(type);
   KEYWORD(opaque);
 
+  KEYWORD(comdat);
+
+  // Comdat types
+  KEYWORD(any);
+  KEYWORD(exactmatch);
+  KEYWORD(largest);
+  KEYWORD(noduplicates);
+  KEYWORD(samesize);
+
   KEYWORD(eq); KEYWORD(ne); KEYWORD(slt); KEYWORD(sgt); KEYWORD(sle);
   KEYWORD(sge); KEYWORD(ult); KEYWORD(ugt); KEYWORD(ule); KEYWORD(uge);
   KEYWORD(oeq); KEYWORD(one); KEYWORD(olt); KEYWORD(ogt); KEYWORD(ole);
@@ -627,6 +663,10 @@ lltok::Kind LLLexer::LexIdentifier() {
 
   KEYWORD(x);
   KEYWORD(blockaddress);
+
+  // Use-list order directives.
+  KEYWORD(uselistorder);
+  KEYWORD(uselistorder_bb);
 
   KEYWORD(personality);
   KEYWORD(cleanup);

@@ -85,8 +85,9 @@ DynamicFile<ELFT>::create(std::unique_ptr<llvm::MemoryBuffer> mb,
                           bool useShlibUndefines) {
   std::unique_ptr<DynamicFile> file(new DynamicFile(mb->getBufferIdentifier()));
 
-  error_code ec;
-  file->_objFile.reset(new llvm::object::ELFFile<ELFT>(mb.release(), ec));
+  std::error_code ec;
+  file->_objFile.reset(
+      new llvm::object::ELFFile<ELFT>(mb.release()->getBuffer(), ec));
 
   if (ec)
     return ec;

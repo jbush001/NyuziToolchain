@@ -23,7 +23,7 @@ ErrorOr<File &> InputGraph::getNextFile() {
     if (_currentInputElement) {
       ErrorOr<File &> next = _currentInputElement->getNextFile();
       if (next.getError() != InputGraphError::no_more_files) {
-        for (llvm::function_ref<void(File *)> observer : _observers)
+        for (const std::function<void(File *)> &observer : _observers)
           observer(&next.get());
         return std::move(next);
       }
@@ -38,7 +38,7 @@ ErrorOr<File &> InputGraph::getNextFile() {
 
 void InputGraph::notifyProgress() { _currentInputElement->notifyProgress(); }
 
-void InputGraph::registerObserver(llvm::function_ref<void(File *)> fn) {
+void InputGraph::registerObserver(std::function<void(File *)> fn) {
   _observers.push_back(fn);
 }
 
@@ -46,22 +46,15 @@ void InputGraph::addInputElement(std::unique_ptr<InputElement> ie) {
   _inputArgs.push_back(std::move(ie));
 }
 
+void InputGraph::addInputElementFront(std::unique_ptr<InputElement> ie) {
+  _inputArgs.insert(_inputArgs.begin(), std::move(ie));
+}
+
 bool InputGraph::dump(raw_ostream &diagnostics) {
   for (std::unique_ptr<InputElement> &ie : _inputArgs)
     if (!ie->dump(diagnostics))
       return false;
   return true;
-}
-
-/// \brief Insert element at position
-void InputGraph::insertElementAt(std::unique_ptr<InputElement> element,
-                                 Position position) {
-  if (position == InputGraph::Position::BEGIN) {
-    _inputArgs.insert(_inputArgs.begin(), std::move(element));
-    return;
-  }
-  assert(position == InputGraph::Position::END);
-  _inputArgs.push_back(std::move(element));
 }
 
 /// \brief Helper functions for the resolver
@@ -84,13 +77,14 @@ void InputGraph::normalize() {
 }
 
 /// \brief Read the file into _buffer.
-error_code FileNode::getBuffer(StringRef filePath) {
+std::error_code FileNode::getBuffer(StringRef filePath) {
   // Create a memory buffer
-  std::unique_ptr<MemoryBuffer> mb;
-  if (error_code ec = MemoryBuffer::getFileOrSTDIN(filePath, mb))
+  ErrorOr<std::unique_ptr<MemoryBuffer>> mb =
+      MemoryBuffer::getFileOrSTDIN(filePath);
+  if (std::error_code ec = mb.getError())
     return ec;
-  _buffer = std::move(mb);
-  return error_code();
+  _buffer = std::move(mb.get());
+  return std::error_code();
 }
 
 /// \brief Return the next file that need to be processed by the resolver.

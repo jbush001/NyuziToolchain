@@ -378,6 +378,9 @@ class Instruction {
   bit isAsCheapAsAMove = 0; // As cheap (or cheaper) than a move instruction.
   bit hasExtraSrcRegAllocReq = 0; // Sources have special regalloc requirement?
   bit hasExtraDefRegAllocReq = 0; // Defs have special regalloc requirement?
+  bit isRegSequence = 0;    // Is this instruction a kind of reg sequence?
+                            // If so, make sure to override
+                            // TargetInstrInfo::getRegSequenceLikeInputs.
   bit isPseudo     = 0;     // Is this instruction a pseudo-instruction?
                             // If so, won't have encoding information for
                             // the [MC]CodeEmitter stuff.
@@ -586,6 +589,11 @@ class Operand<ValueType ty> : DAGOperand {
   string AsmOperandLowerMethod = ?;
   string OperandType = "OPERAND_UNKNOWN";
   dag MIOperandInfo = (ops);
+
+  // MCOperandPredicate - Optionally, a code fragment operating on
+  // const MCOperand &MCOp, and returning a bool, to indicate if
+  // the value of MCOp is valid for the specific subclass of Operand
+  code MCOperandPredicate;
 
   // ParserMatchClass - The "match class" that operands of this type fit
   // in. Match classes are used to define the order in which instructions are
@@ -835,6 +843,14 @@ def PATCHPOINT : Instruction {
   let isCall = 1;
   let mayLoad = 1;
   let usesCustomInserter = 1;
+}
+def LOAD_STACK_GUARD : Instruction {
+  let OutOperandList = (outs ptr_rc:$dst);
+  let InOperandList = (ins);
+  let mayLoad = 1;
+  bit isReMaterializable = 1;
+  let hasSideEffects = 0;
+  bit isPseudo = 1;
 }
 }
 

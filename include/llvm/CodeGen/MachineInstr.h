@@ -510,6 +510,20 @@ public:
     return hasProperty(MCID::FoldableAsLoad, Type);
   }
 
+  /// \brief Return true if this instruction behaves
+  /// the same way as the generic REG_SEQUENCE instructions.
+  /// E.g., on ARM,
+  /// dX VMOVDRR rY, rZ
+  /// is equivalent to
+  /// dX = REG_SEQUENCE rY, ssub_0, rZ, ssub_1.
+  ///
+  /// Note that for the optimizers to be able to take advantage of
+  /// this property, TargetInstrInfo::getRegSequenceLikeInputs has to be
+  /// override accordingly.
+  bool isRegSequenceLike(QueryType Type = IgnoreBundle) const {
+    return hasProperty(MCID::RegSequence, Type);
+  }
+
   //===--------------------------------------------------------------------===//
   // Side Effect Analysis
   //===--------------------------------------------------------------------===//
@@ -614,7 +628,6 @@ public:
   /// are not marking copies from and to the same register class with this flag.
   bool isAsCheapAsAMove(QueryType Type = AllInBundle) const {
     // Only returns true for a bundle if all bundled instructions are cheap.
-    // FIXME: This probably requires a target hook.
     return hasProperty(MCID::CheapAsAMove, Type);
   }
 
@@ -672,6 +685,12 @@ public:
   /// eraseFromBundle() to erase individual bundled instructions.
   void eraseFromParent();
 
+  /// Unlink 'this' from the containing basic block and delete it.
+  ///
+  /// For all definitions mark their uses in DBG_VALUE nodes
+  /// as undefined. Otherwise like eraseFromParent().
+  void eraseFromParentAndMarkDBGValuesForRemoval();
+
   /// Unlink 'this' form its basic block and delete it.
   ///
   /// If the instruction is part of a bundle, the other instructions in the
@@ -726,6 +745,9 @@ public:
   }
   bool isFullCopy() const {
     return isCopy() && !getOperand(0).getSubReg() && !getOperand(1).getSubReg();
+  }
+  bool isExtractSubreg() const {
+    return getOpcode() == TargetOpcode::EXTRACT_SUBREG;
   }
 
   /// isCopyLike - Return true if the instruction behaves like a copy.
@@ -947,7 +969,7 @@ public:
   }
 
   /// isRegTiedToDefOperand - Return true if the use operand of the specified
-  /// index is tied to an def operand. It also returns the def operand index by
+  /// index is tied to a def operand. It also returns the def operand index by
   /// reference if DefOpIdx is not null.
   bool isRegTiedToDefOperand(unsigned UseOpIdx,
                              unsigned *DefOpIdx = nullptr) const {

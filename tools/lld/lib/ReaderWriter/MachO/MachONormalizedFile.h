@@ -56,6 +56,7 @@
 using llvm::BumpPtrAllocator;
 using llvm::yaml::Hex64;
 using llvm::yaml::Hex32;
+using llvm::yaml::Hex16;
 using llvm::yaml::Hex8;
 using llvm::yaml::SequenceTraits;
 using llvm::MachO::HeaderFileType;
@@ -66,6 +67,7 @@ using llvm::MachO::RelocationInfoType;
 using llvm::MachO::SectionType;
 using llvm::MachO::LoadCommandType;
 using llvm::MachO::ExportSymbolKind;
+using llvm::MachO::DataRegionType;
 
 namespace lld {
 namespace mach_o {
@@ -191,9 +193,17 @@ struct Export {
   StringRef         otherName;
 };
 
+/// A normalized data-in-code entry.
+struct DataInCode {
+  Hex32           offset;
+  Hex16           length;
+  DataRegionType  kind;
+};
+
 
 /// A typedef so that YAML I/O can encode/decode mach_header.flags.
 LLVM_YAML_STRONG_TYPEDEF(uint32_t, FileFlags)
+
 
 ///
 struct NormalizedFile {
@@ -231,12 +241,12 @@ struct NormalizedFile {
   std::vector<BindLocation>   weakBindingInfo;
   std::vector<BindLocation>   lazyBindingInfo;
   std::vector<Export>         exportInfo;
+  std::vector<DataInCode>     dataInCode;
 
   // TODO:
   // code-signature
   // split-seg-info
   // function-starts
-  // data-in-code
 
   // For any allocations in this struct which need to be owned by this struct.
   BumpPtrAllocator            ownedAllocations;
@@ -249,8 +259,7 @@ readBinary(std::unique_ptr<MemoryBuffer> &mb,
            const MachOLinkingContext::Arch arch);
 
 /// Takes in-memory normalized view and writes a mach-o object file.
-error_code
-writeBinary(const NormalizedFile &file, StringRef path);
+std::error_code writeBinary(const NormalizedFile &file, StringRef path);
 
 size_t headerAndLoadCommandsSize(const NormalizedFile &file);
 
@@ -260,9 +269,7 @@ ErrorOr<std::unique_ptr<NormalizedFile>>
 readYaml(std::unique_ptr<MemoryBuffer> &mb);
 
 /// Writes a yaml encoded mach-o files given an in-memory normalized view.
-error_code
-writeYaml(const NormalizedFile &file, raw_ostream &out);
-
+std::error_code writeYaml(const NormalizedFile &file, raw_ostream &out);
 
 /// Takes in-memory normalized dylib or object and parses it into lld::File
 ErrorOr<std::unique_ptr<lld::File>>
@@ -278,7 +285,12 @@ normalizedFromAtoms(const lld::File &atomFile, const MachOLinkingContext &ctxt);
 
 /// Class for interfacing mach-o yaml files into generic yaml parsing
 class MachOYamlIOTaggedDocumentHandler : public YamlIOTaggedDocumentHandler {
+public:
+  MachOYamlIOTaggedDocumentHandler(MachOLinkingContext::Arch arch)
+    : _arch(arch) { }
   bool handledDocTag(llvm::yaml::IO &io, const lld::File *&file) const override;
+private:
+  const MachOLinkingContext::Arch _arch;
 };
 
 } // namespace mach_o

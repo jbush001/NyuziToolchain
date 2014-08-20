@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CLANG_LIB_DRIVER_TOOLS_H_
-#define CLANG_LIB_DRIVER_TOOLS_H_
+#ifndef LLVM_CLANG_LIB_DRIVER_TOOLS_H
+#define LLVM_CLANG_LIB_DRIVER_TOOLS_H
 
 #include "clang/Driver/Tool.h"
 #include "clang/Driver/Types.h"
@@ -29,6 +29,11 @@ namespace toolchains {
 }
 
 namespace tools {
+
+namespace visualstudio {
+  class Compile;
+}
+
 using llvm::opt::ArgStringList;
 
   /// \brief Clang compiler tool.
@@ -58,6 +63,8 @@ using llvm::opt::ArgStringList;
                             llvm::opt::ArgStringList &CmdArgs) const;
     void AddMIPSTargetArgs(const llvm::opt::ArgList &Args,
                            llvm::opt::ArgStringList &CmdArgs) const;
+    void AddPPCTargetArgs(const llvm::opt::ArgList &Args,
+                          llvm::opt::ArgStringList &CmdArgs) const;
     void AddR600TargetArgs(const llvm::opt::ArgList &Args,
                            llvm::opt::ArgStringList &CmdArgs) const;
     void AddSparcTargetArgs(const llvm::opt::ArgList &Args,
@@ -77,6 +84,10 @@ using llvm::opt::ArgStringList;
 
     void AddClangCLArgs(const llvm::opt::ArgList &Args,
                         llvm::opt::ArgStringList &CmdArgs) const;
+
+    visualstudio::Compile *getCLFallback() const;
+
+    mutable std::unique_ptr<visualstudio::Compile> CLFallback;
 
   public:
     Clang(const ToolChain &TC) : Tool("clang", "clang frontend", TC) {}
@@ -208,7 +219,18 @@ namespace arm {
 }
 
 namespace mips {
+  void getMipsCPUAndABI(const llvm::opt::ArgList &Args,
+                        const llvm::Triple &Triple, StringRef &CPUName,
+                        StringRef &ABIName);
   bool hasMipsAbiArg(const llvm::opt::ArgList &Args, const char *Value);
+  bool isUCLibc(const llvm::opt::ArgList &Args);
+  bool isNaN2008(const llvm::opt::ArgList &Args, const llvm::Triple &Triple);
+  bool isFPXXDefault(const llvm::Triple &Triple, StringRef CPUName,
+                     StringRef ABIName);
+}
+
+namespace ppc {
+  bool hasPPCAbiArg(const llvm::opt::ArgList &Args, const char *Value);
 }
 
 namespace darwin {
@@ -505,34 +527,6 @@ namespace solaris {
   };
 } // end namespace solaris
 
-  /// auroraux -- Directly call GNU Binutils assembler and linker
-namespace auroraux {
-  class LLVM_LIBRARY_VISIBILITY Assemble : public Tool  {
-  public:
-    Assemble(const ToolChain &TC) : Tool("auroraux::Assemble", "assembler",
-                                         TC) {}
-
-    bool hasIntegratedCPP() const override { return false; }
-
-    void ConstructJob(Compilation &C, const JobAction &JA,
-                      const InputInfo &Output, const InputInfoList &Inputs,
-                      const llvm::opt::ArgList &TCArgs,
-                      const char *LinkingOutput) const override;
-  };
-  class LLVM_LIBRARY_VISIBILITY Link : public Tool  {
-  public:
-    Link(const ToolChain &TC) : Tool("auroraux::Link", "linker", TC) {}
-
-    bool hasIntegratedCPP() const override { return false; }
-    bool isLinkJob() const override { return true; }
-
-    void ConstructJob(Compilation &C, const JobAction &JA,
-                      const InputInfo &Output, const InputInfoList &Inputs,
-                      const llvm::opt::ArgList &TCArgs,
-                      const char *LinkingOutput) const override;
-  };
-} // end namespace auroraux
-
   /// dragonfly -- Directly call GNU Binutils assembler and linker
 namespace dragonfly {
   class LLVM_LIBRARY_VISIBILITY Assemble : public Tool  {
@@ -562,7 +556,7 @@ namespace dragonfly {
   };
 } // end namespace dragonfly
 
-  /// Visual studio tools.
+/// Visual studio tools.
 namespace visualstudio {
   class LLVM_LIBRARY_VISIBILITY Link : public Tool {
   public:
@@ -636,4 +630,4 @@ namespace XCore {
 } // end namespace driver
 } // end namespace clang
 
-#endif // CLANG_LIB_DRIVER_TOOLS_H_
+#endif

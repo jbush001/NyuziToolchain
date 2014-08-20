@@ -18,22 +18,20 @@ using namespace elf;
 
 typedef llvm::object::ELFType<llvm::support::little, 2, false> Mips32ElELFType;
 
-MipsTargetHandler::MipsTargetHandler(MipsLinkingContext &context)
-    : DefaultTargetHandler(context), _context(context),
-      _runtimeFile(new MipsRuntimeFile<Mips32ElELFType>(context)),
-      _targetLayout(new MipsTargetLayout<Mips32ElELFType>(context)),
+MipsTargetHandler::MipsTargetHandler(MipsLinkingContext &ctx)
+    : DefaultTargetHandler(ctx), _ctx(ctx),
+      _runtimeFile(new MipsRuntimeFile<Mips32ElELFType>(ctx)),
+      _targetLayout(new MipsTargetLayout<Mips32ElELFType>(ctx)),
       _relocationHandler(new MipsTargetRelocationHandler(*_targetLayout)) {}
 
 std::unique_ptr<Writer> MipsTargetHandler::getWriter() {
-  switch (_context.getOutputELFType()) {
+  switch (_ctx.getOutputELFType()) {
   case llvm::ELF::ET_EXEC:
     return std::unique_ptr<Writer>(
-        new elf::MipsExecutableWriter<Mips32ElELFType>(_context,
-                                                       *_targetLayout));
+        new MipsExecutableWriter<Mips32ElELFType>(_ctx, *_targetLayout));
   case llvm::ELF::ET_DYN:
     return std::unique_ptr<Writer>(
-        new elf::MipsDynamicLibraryWriter<Mips32ElELFType>(_context,
-                                                           *_targetLayout));
+        new MipsDynamicLibraryWriter<Mips32ElELFType>(_ctx, *_targetLayout));
   case llvm::ELF::ET_REL:
     llvm_unreachable("TODO: support -r mode");
   default:
@@ -57,6 +55,14 @@ const Registry::KindStrings MipsTargetHandler::kindStrings[] = {
   LLD_KIND_STRING_ENTRY(R_MIPS_CALL16),
   LLD_KIND_STRING_ENTRY(R_MIPS_GPREL32),
   LLD_KIND_STRING_ENTRY(R_MIPS_JALR),
+  LLD_KIND_STRING_ENTRY(R_MIPS_TLS_DTPMOD32),
+  LLD_KIND_STRING_ENTRY(R_MIPS_TLS_DTPREL32),
+  LLD_KIND_STRING_ENTRY(R_MIPS_TLS_GD),
+  LLD_KIND_STRING_ENTRY(R_MIPS_TLS_LDM),
+  LLD_KIND_STRING_ENTRY(R_MIPS_TLS_GOTTPREL),
+  LLD_KIND_STRING_ENTRY(R_MIPS_TLS_TPREL32),
+  LLD_KIND_STRING_ENTRY(R_MIPS_TLS_DTPREL_HI16),
+  LLD_KIND_STRING_ENTRY(R_MIPS_TLS_DTPREL_LO16),
   LLD_KIND_STRING_ENTRY(R_MIPS_TLS_TPREL_HI16),
   LLD_KIND_STRING_ENTRY(R_MIPS_TLS_TPREL_LO16),
   LLD_KIND_STRING_ENTRY(R_MIPS_COPY),

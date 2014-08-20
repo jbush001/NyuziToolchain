@@ -36,7 +36,7 @@ class Group;
 class PECOFFLinkingContext : public LinkingContext {
 public:
   PECOFFLinkingContext()
-      : _mutex(), _allocMutex(), _baseAddress(invalidBaseAddress),
+      : _mutex(), _allocMutex(), _hasEntry(true), _baseAddress(invalidBaseAddress),
         _stackReserve(1024 * 1024), _stackCommit(4096),
         _heapReserve(1024 * 1024), _heapCommit(4096), _noDefaultLibAll(false),
         _sectionDefaultAlignment(4096),
@@ -88,6 +88,12 @@ public:
     return _machineType == llvm::COFF::IMAGE_FILE_MACHINE_AMD64;
   }
 
+  /// Page size of x86 processor. Some data needs to be aligned at page boundary
+  /// when loaded into memory.
+  uint64_t getPageSize() const {
+    return 0x1000;
+  }
+
   void appendInputSearchPath(StringRef dirPath) {
     _inputSearchPaths.push_back(dirPath);
   }
@@ -107,10 +113,11 @@ public:
   StringRef decorateSymbol(StringRef name) const;
   StringRef undecorateSymbol(StringRef name) const;
 
-  void setEntrySymbolName(StringRef name) {
-    if (!name.empty())
-      LinkingContext::setEntrySymbolName(decorateSymbol(name));
-  }
+  void setEntrySymbolName(StringRef name) { _entry = name; }
+  StringRef getEntrySymbolName() const { return _entry; }
+
+  void setHasEntry(bool val) { _hasEntry = val; }
+  bool hasEntry() const { return _hasEntry; }
 
   void setBaseAddress(uint64_t addr) { _baseAddress = addr; }
   uint64_t getBaseAddress() const;
@@ -270,6 +277,9 @@ public:
 
   virtual bool hasInputGraph() { return !!_inputGraph; }
 
+  void setEntryNode(SimpleFileNode *node) { _entryNode = node; }
+  SimpleFileNode *getEntryNode() const { return _entryNode; }
+
   void setLibraryGroup(Group *group) { _libraryGroup = group; }
   Group *getLibraryGroup() const { return _libraryGroup; }
 
@@ -298,6 +308,11 @@ private:
 
   std::recursive_mutex _mutex;
   mutable std::mutex _allocMutex;
+
+  std::string _entry;
+
+  // False if /noentry option is given.
+  bool _hasEntry;
 
   // The start address for the program. The default value for the executable is
   // 0x400000, but can be altered using /base command line option.
@@ -374,6 +389,9 @@ private:
   // a small DOS program that prints out a message "This program requires
   // Microsoft Windows." This feature was somewhat useful before Windows 95.
   ArrayRef<uint8_t> _dosStub;
+
+  // The node containing the entry point file.
+  SimpleFileNode *_entryNode;
 
   // The PECOFFGroup that contains all the .lib files.
   Group *_libraryGroup;

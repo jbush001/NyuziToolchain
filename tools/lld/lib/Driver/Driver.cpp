@@ -63,7 +63,7 @@ bool Driver::link(LinkingContext &context, raw_ostream &diagnostics) {
       std::string buf;
       llvm::raw_string_ostream stream(buf);
 
-      if (error_code ec = ie->parse(context, stream)) {
+      if (std::error_code ec = ie->parse(context, stream)) {
         if (FileNode *fileNode = dyn_cast<FileNode>(ie.get()))
           stream << fileNode->errStr(ec) << "\n";
         else if (dyn_cast<Group>(ie.get()))
@@ -101,8 +101,7 @@ bool Driver::link(LinkingContext &context, raw_ostream &diagnostics) {
   context.createImplicitFiles(implicitFiles);
   if (implicitFiles.size())
     fileNode->addFiles(std::move(implicitFiles));
-  context.getInputGraph().insertElementAt(std::move(fileNode),
-                                          InputGraph::Position::BEGIN);
+  context.getInputGraph().addInputElementFront(std::move(fileNode));
 
   // Do core linking.
   ScopedTask resolveTask(getDefaultDomain(), "Resolve");
@@ -130,7 +129,7 @@ bool Driver::link(LinkingContext &context, raw_ostream &diagnostics) {
 
   // Give linked atoms to Writer to generate output file.
   ScopedTask writeTask(getDefaultDomain(), "Write");
-  if (error_code ec = context.writeFile(*merged)) {
+  if (std::error_code ec = context.writeFile(*merged)) {
     diagnostics << "Failed to write file '" << context.outputPath()
                 << "': " << ec.message() << "\n";
     return false;

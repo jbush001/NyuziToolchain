@@ -42,8 +42,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_AST_MATCHERS_AST_MATCHERS_H
-#define LLVM_CLANG_AST_MATCHERS_AST_MATCHERS_H
+#ifndef LLVM_CLANG_ASTMATCHERS_ASTMATCHERS_H
+#define LLVM_CLANG_ASTMATCHERS_ASTMATCHERS_H
 
 #include "clang/AST/DeclFriend.h"
 #include "clang/AST/DeclTemplate.h"
@@ -334,7 +334,7 @@ AST_POLYMORPHIC_MATCHER_P(
     AST_POLYMORPHIC_SUPPORTED_TYPES_2(ClassTemplateSpecializationDecl,
                                       TemplateSpecializationType),
     internal::Matcher<TemplateArgument>, InnerMatcher) {
-  llvm::ArrayRef<TemplateArgument> List =
+  ArrayRef<TemplateArgument> List =
       internal::getTemplateSpecializationArgs(Node);
   return matchesFirstInRange(InnerMatcher, List.begin(), List.end(), Finder,
                              Builder);
@@ -434,7 +434,7 @@ AST_POLYMORPHIC_MATCHER_P2(
     AST_POLYMORPHIC_SUPPORTED_TYPES_2(ClassTemplateSpecializationDecl,
                                       TemplateSpecializationType),
     unsigned, N, internal::Matcher<TemplateArgument>, InnerMatcher) {
-  llvm::ArrayRef<TemplateArgument> List =
+  ArrayRef<TemplateArgument> List =
       internal::getTemplateSpecializationArgs(Node);
   if (List.size() <= N)
     return false;
@@ -686,9 +686,22 @@ exprWithCleanups;
 ///   struct B { int x, y; };
 ///   B b = { 5, 6 };
 /// \endcode
-/// initList()
+/// initListExpr()
 ///   matches "{ 1, 2 }" and "{ 5, 6 }"
 const internal::VariadicDynCastAllOfMatcher<Stmt, InitListExpr> initListExpr;
+
+/// \brief Matches substitutions of non-type template parameters.
+///
+/// Given
+/// \code
+///   template <int N>
+///   struct A { static const int n = N; };
+///   struct B : public A<42> {};
+/// \endcode
+/// substNonTypeTemplateParmExpr()
+///   matches "N" in the right-hand side of "static const int n = N;"
+const internal::VariadicDynCastAllOfMatcher<Stmt, SubstNonTypeTemplateParmExpr>
+substNonTypeTemplateParmExpr;
 
 /// \brief Matches using declarations.
 ///
@@ -700,6 +713,18 @@ const internal::VariadicDynCastAllOfMatcher<Stmt, InitListExpr> initListExpr;
 /// usingDecl()
 ///   matches \code using X::x \endcode
 const internal::VariadicDynCastAllOfMatcher<Decl, UsingDecl> usingDecl;
+
+/// \brief Matches using namespace declarations.
+///
+/// Given
+/// \code
+///   namespace X { int x; }
+///   using namespace X;
+/// \endcode
+/// usingDirectiveDecl()
+///   matches \code using namespace X \endcode
+const internal::VariadicDynCastAllOfMatcher<Decl, UsingDirectiveDecl>
+    usingDirectiveDecl;
 
 /// \brief Matches unresolved using value declarations.
 ///
@@ -1529,14 +1554,14 @@ AST_MATCHER_P(NamedDecl, matchesName, std::string, RegExp) {
 /// line and \c recordDecl(hasMethod(hasOverloadedOperatorName("*"))) matches
 /// the declaration of \c A.
 ///
-/// Usable as: Matcher<CXXOperatorCallExpr>, Matcher<CXXMethodDecl>
+/// Usable as: Matcher<CXXOperatorCallExpr>, Matcher<FunctionDecl>
 inline internal::PolymorphicMatcherWithParam1<
     internal::HasOverloadedOperatorNameMatcher, StringRef,
-    AST_POLYMORPHIC_SUPPORTED_TYPES_2(CXXOperatorCallExpr, CXXMethodDecl)>
+    AST_POLYMORPHIC_SUPPORTED_TYPES_2(CXXOperatorCallExpr, FunctionDecl)>
 hasOverloadedOperatorName(const StringRef Name) {
   return internal::PolymorphicMatcherWithParam1<
       internal::HasOverloadedOperatorNameMatcher, StringRef,
-      AST_POLYMORPHIC_SUPPORTED_TYPES_2(CXXOperatorCallExpr, CXXMethodDecl)>(
+      AST_POLYMORPHIC_SUPPORTED_TYPES_2(CXXOperatorCallExpr, FunctionDecl)>(
       Name);
 }
 
@@ -1819,7 +1844,7 @@ AST_MATCHER_P(CallExpr, callee, internal::Matcher<Stmt>,
 /// Example matches y.x() (matcher = callExpr(callee(methodDecl(hasName("x")))))
 /// \code
 ///   class Y { public: void x(); };
-///   void z() { Y y; y.x();
+///   void z() { Y y; y.x(); }
 /// \endcode
 AST_MATCHER_P_OVERLOAD(CallExpr, callee, internal::Matcher<Decl>, InnerMatcher,
                        1) {
@@ -1927,6 +1952,7 @@ AST_MATCHER_P_OVERLOAD(QualType, pointsTo, internal::Matcher<Decl>,
 ///     void a(X b) {
 ///       X &x = b;
 ///       const X &y = b;
+///     }
 ///   };
 /// \endcode
 AST_MATCHER_P(QualType, references, internal::Matcher<QualType>,
@@ -2056,6 +2082,35 @@ AST_MATCHER_P(
   const Expr *Initializer = Node.getAnyInitializer();
   return (Initializer != nullptr &&
           InnerMatcher.matches(*Initializer, Finder, Builder));
+}
+
+/// \brief Matches a variable declaration that has function scope and is a
+/// non-static local variable.
+///
+/// Example matches x (matcher = varDecl(hasLocalStorage())
+/// \code
+/// void f() {
+///   int x;
+///   static int y;
+/// }
+/// int z;
+/// \endcode
+AST_MATCHER(VarDecl, hasLocalStorage) {
+  return Node.hasLocalStorage();
+}
+
+/// \brief Matches a variable declaration that does not have local storage.
+///
+/// Example matches y and z (matcher = varDecl(hasGlobalStorage())
+/// \code
+/// void f() {
+///   int x;
+///   static int y;
+/// }
+/// int z;
+/// \endcode
+AST_MATCHER(VarDecl, hasGlobalStorage) {
+  return Node.hasGlobalStorage();
 }
 
 /// \brief Checks that a call expression or a constructor call expression has
@@ -2316,6 +2371,19 @@ AST_MATCHER_P(FunctionDecl, returns,
 ///   matches the declaration of f and g, but not the declaration h
 AST_MATCHER(FunctionDecl, isExternC) {
   return Node.isExternC();
+}
+
+/// \brief Matches deleted function declarations.
+///
+/// Given:
+/// \code
+///   void Func();
+///   void DeletedFunc() = delete;
+/// \endcode
+/// functionDecl(isDeleted())
+///   matches the declaration of DeletedFunc, but not Func.
+AST_MATCHER(FunctionDecl, isDeleted) {
+  return Node.isDeleted();
 }
 
 /// \brief Matches the condition expression of an if statement, for loop,
@@ -3040,6 +3108,7 @@ AST_TYPE_MATCHER(IncompleteArrayType, incompleteArrayType);
 ///     int a[] = { 2, 3 }
 ///     int b[42];
 ///     int c[a[0]];
+///   }
 /// \endcode
 /// variableArrayType()
 ///   matches "int c[a[0]]"
@@ -3504,15 +3573,15 @@ AST_MATCHER_P(NestedNameSpecifier, specifiesNamespace,
 /// \brief Matches if a node equals another node.
 ///
 /// \c Decl has pointer identity in the AST.
-inline internal::Matcher<Decl> equalsNode(const Decl *Node) {
-  return internal::makeMatcher(new internal::EqualsNodeMatcher<Decl>(Node));
+AST_MATCHER_P_OVERLOAD(Decl, equalsNode, const Decl*, Other, 0) {
+  return &Node == Other;
 }
 /// \brief Matches if a node equals another node.
 ///
 /// \c Stmt has pointer identity in the AST.
 ///
-inline internal::Matcher<Stmt> equalsNode(const Stmt *Node) {
-  return internal::makeMatcher(new internal::EqualsNodeMatcher<Stmt>(Node));
+AST_MATCHER_P_OVERLOAD(Stmt, equalsNode, const Stmt*, Other, 1) {
+  return &Node == Other;
 }
 
 /// @}
@@ -3589,7 +3658,49 @@ AST_MATCHER_P(CaseStmt, hasCaseConstant, internal::Matcher<Expr>,
   return InnerMatcher.matches(*Node.getLHS(), Finder, Builder);
 }
 
+/// \brief Matches CUDA kernel call expression.
+///
+/// Example matches,
+/// \code
+///   kernel<<<i,j>>>();
+/// \endcode
+const internal::VariadicDynCastAllOfMatcher<Stmt, CUDAKernelCallExpr>
+    CUDAKernelCallExpr;
+
+/// \brief Matches declaration that has CUDA device attribute.
+///
+/// Given
+/// \code
+///   __attribute__((device)) void f() { ... }
+/// \endcode
+/// matches the function declaration of f.
+AST_MATCHER(Decl, hasCudaDeviceAttr) {
+  return Node.hasAttr<clang::CUDADeviceAttr>();
+}
+
+/// \brief Matches declaration that has CUDA host attribute.
+///
+/// Given
+/// \code
+///   __attribute__((host)) void f() { ... }
+/// \endcode
+/// matches the function declaration of f.
+AST_MATCHER(Decl, hasCudaHostAttr) {
+  return Node.hasAttr<clang::CUDAHostAttr>();
+}
+
+/// \brief  Matches declaration that has CUDA global attribute.
+///
+/// Given
+/// \code
+///   __attribute__((global)) void f() { ... }
+/// \endcode
+/// matches the function declaration of f.
+AST_MATCHER(Decl, hasCudaGlobalAttr) {
+  return Node.hasAttr<clang::CUDAGlobalAttr>();
+}
+
 } // end namespace ast_matchers
 } // end namespace clang
 
-#endif // LLVM_CLANG_AST_MATCHERS_AST_MATCHERS_H
+#endif

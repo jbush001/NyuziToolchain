@@ -11,16 +11,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MIPS16_FRAMEINFO_H
-#define MIPS16_FRAMEINFO_H
+#ifndef LLVM_LIB_TARGET_MIPS_MIPS16FRAMELOWERING_H
+#define LLVM_LIB_TARGET_MIPS_MIPS16FRAMELOWERING_H
 
 #include "MipsFrameLowering.h"
 
 namespace llvm {
 class Mips16FrameLowering : public MipsFrameLowering {
 public:
-  explicit Mips16FrameLowering(const MipsSubtarget &STI)
-    : MipsFrameLowering(STI, STI.stackAlignment()) {}
+  explicit Mips16FrameLowering(const MipsSubtarget &STI);
 
   /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
   /// the function.

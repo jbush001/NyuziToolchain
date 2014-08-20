@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TGPARSER_H
-#define TGPARSER_H
+#ifndef LLVM_LIB_TABLEGEN_TGPARSER_H
+#define LLVM_LIB_TABLEGEN_TGPARSER_H
 
 #include "TGLexer.h"
 #include "llvm/ADT/Twine.h"
@@ -181,7 +181,7 @@ private:  // Parser methods.
   std::vector<unsigned> ParseRangeList();
   bool ParseRangePiece(std::vector<unsigned> &Ranges);
   RecTy *ParseType();
-  Init *ParseOperation(Record *CurRec);
+  Init *ParseOperation(Record *CurRec, RecTy *ItemType);
   RecTy *ParseOperatorType();
   Init *ParseObjectName(MultiClass *CurMultiClass);
   Record *ParseClassID();

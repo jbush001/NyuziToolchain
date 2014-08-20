@@ -50,6 +50,22 @@ enum SynchronizationScope {
   CrossThread = 1
 };
 
+/// Returns true if the ordering is at least as strong as acquire
+/// (i.e. acquire, acq_rel or seq_cst)
+inline bool isAtLeastAcquire(AtomicOrdering Ord) {
+   return (Ord == Acquire ||
+    Ord == AcquireRelease ||
+    Ord == SequentiallyConsistent);
+}
+
+/// Returns true if the ordering is at least as strong as release
+/// (i.e. release, acq_rel or seq_cst)
+inline bool isAtLeastRelease(AtomicOrdering Ord) {
+return (Ord == Release ||
+    Ord == AcquireRelease ||
+    Ord == SequentiallyConsistent);
+}
+
 //===----------------------------------------------------------------------===//
 //                                AllocaInst Class
 //===----------------------------------------------------------------------===//
@@ -498,6 +514,16 @@ public:
   void setVolatile(bool V) {
      setInstructionSubclassData((getSubclassDataFromInstruction() & ~1) |
                                 (unsigned)V);
+  }
+
+  /// Return true if this cmpxchg may spuriously fail.
+  bool isWeak() const {
+    return getSubclassDataFromInstruction() & 0x100;
+  }
+
+  void setWeak(bool IsWeak) {
+    setInstructionSubclassData((getSubclassDataFromInstruction() & ~0x100) |
+                               (IsWeak << 8));
   }
 
   /// Transparently provide more efficient getOperand methods.
@@ -1364,6 +1390,12 @@ public:
   /// \brief Extract the alignment for a call or parameter (0=unknown).
   unsigned getParamAlignment(unsigned i) const {
     return AttributeList.getParamAlignment(i);
+  }
+
+  /// \brief Extract the number of dereferenceable bytes for a call or
+  /// parameter (0=unknown).
+  uint64_t getDereferenceableBytes(unsigned i) const {
+    return AttributeList.getDereferenceableBytes(i);
   }
 
   /// \brief Return true if the call should not be treated as a call to a
@@ -2311,12 +2343,14 @@ public:
                                (V ? 1 : 0));
   }
 
-  /// addClause - Add a catch or filter clause to the landing pad.
-  void addClause(Value *ClauseVal);
+  /// Add a catch or filter clause to the landing pad.
+  void addClause(Constant *ClauseVal);
 
-  /// getClause - Get the value of the clause at index Idx. Use isCatch/isFilter
-  /// to determine what type of clause this is.
-  Value *getClause(unsigned Idx) const { return OperandList[Idx + 1]; }
+  /// Get the value of the clause at index Idx. Use isCatch/isFilter to
+  /// determine what type of clause this is.
+  Constant *getClause(unsigned Idx) const {
+    return cast<Constant>(OperandList[Idx + 1]);
+  }
 
   /// isCatch - Return 'true' if the clause and index Idx is a catch clause.
   bool isCatch(unsigned Idx) const {
@@ -2649,6 +2683,9 @@ public:
       assert(RHS.SI == SI && "Incompatible operators.");
       return RHS.Index != Index;
     }
+    Self &operator*() {
+      return *this;
+    }
   };
 
   typedef CaseIteratorT<const SwitchInst, const ConstantInt, const BasicBlock>
@@ -2729,6 +2766,17 @@ public:
   ConstCaseIt case_end() const {
     return ConstCaseIt(this, getNumCases());
   }
+
+  /// cases - iteration adapter for range-for loops.
+  iterator_range<CaseIt> cases() {
+    return iterator_range<CaseIt>(case_begin(), case_end());
+  }
+
+  /// cases - iteration adapter for range-for loops.
+  iterator_range<ConstCaseIt> cases() const {
+    return iterator_range<ConstCaseIt>(case_begin(), case_end());
+  }
+
   /// Returns an iterator that points to the default case.
   /// Note: this iterator allows to resolve successor only. Attempt
   /// to resolve case value causes an assertion.
@@ -3023,6 +3071,12 @@ public:
   /// \brief Extract the alignment for a call or parameter (0=unknown).
   unsigned getParamAlignment(unsigned i) const {
     return AttributeList.getParamAlignment(i);
+  }
+
+  /// \brief Extract the number of dereferenceable bytes for a call or
+  /// parameter (0=unknown).
+  uint64_t getDereferenceableBytes(unsigned i) const {
+    return AttributeList.getDereferenceableBytes(i);
   }
 
   /// \brief Return true if the call should not be treated as a call to a

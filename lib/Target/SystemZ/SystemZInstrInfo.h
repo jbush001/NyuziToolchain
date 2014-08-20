@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_TARGET_SYSTEMZINSTRINFO_H
-#define LLVM_TARGET_SYSTEMZINSTRINFO_H
+#ifndef LLVM_LIB_TARGET_SYSTEMZ_SYSTEMZINSTRINFO_H
+#define LLVM_LIB_TARGET_SYSTEMZ_SYSTEMZINSTRINFO_H
 
 #include "SystemZ.h"
 #include "SystemZRegisterInfo.h"
@@ -110,9 +110,10 @@ struct Branch {
 };
 } // end namespace SystemZII
 
+class SystemZSubtarget;
 class SystemZInstrInfo : public SystemZGenInstrInfo {
   const SystemZRegisterInfo RI;
-  SystemZTargetMachine &TM;
+  SystemZSubtarget &STI;
 
   void splitMove(MachineBasicBlock::iterator MI, unsigned NewOpcode) const;
   void splitAdjDynAlloc(MachineBasicBlock::iterator MI) const;
@@ -130,7 +131,7 @@ class SystemZInstrInfo : public SystemZGenInstrInfo {
   virtual void anchor();
   
 public:
-  explicit SystemZInstrInfo(SystemZTargetMachine &TM);
+  explicit SystemZInstrInfo(SystemZSubtarget &STI);
 
   // Override TargetInstrInfo.
   unsigned isLoadFromStackSlot(const MachineInstr *MI,

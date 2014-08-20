@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_SUPPORT_MANAGED_STATIC_H
-#define LLVM_SUPPORT_MANAGED_STATIC_H
+#ifndef LLVM_SUPPORT_MANAGEDSTATIC_H
+#define LLVM_SUPPORT_MANAGEDSTATIC_H
 
 #include "llvm/Support/Atomic.h"
 #include "llvm/Support/Threading.h"
@@ -103,9 +103,6 @@ void llvm_shutdown();
 /// llvm_shutdown() when it is destroyed.
 struct llvm_shutdown_obj {
   llvm_shutdown_obj() { }
-  explicit llvm_shutdown_obj(bool multithreaded) {
-    if (multithreaded) llvm_start_multithreaded();
-  }
   ~llvm_shutdown_obj() { llvm_shutdown(); }
 };
 

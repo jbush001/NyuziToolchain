@@ -8,6 +8,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "Atoms.h"
+#include "MipsCtorsOrderPass.h"
 #include "MipsLinkingContext.h"
 #include "MipsRelocationPass.h"
 #include "MipsTargetHandler.h"
@@ -44,6 +45,7 @@ void MipsLinkingContext::addPasses(PassManager &pm) {
   if (pass)
     pm.add(std::move(pass));
   ELFLinkingContext::addPasses(pm);
+  pm.add(std::unique_ptr<Pass>(new elf::MipsCtorsOrderPass()));
 }
 
 bool MipsLinkingContext::isDynamicRelocation(const DefinedAtom &,
@@ -54,6 +56,9 @@ bool MipsLinkingContext::isDynamicRelocation(const DefinedAtom &,
   switch (r.kindValue()) {
   case llvm::ELF::R_MIPS_COPY:
   case llvm::ELF::R_MIPS_REL32:
+  case llvm::ELF::R_MIPS_TLS_DTPMOD32:
+  case llvm::ELF::R_MIPS_TLS_DTPREL32:
+  case llvm::ELF::R_MIPS_TLS_TPREL32:
     return true;
   default:
     return false;

@@ -56,6 +56,32 @@ define void @vector_or_i32(i32 addrspace(1)* %out, i32 addrspace(1)* %a, i32 %b)
   ret void
 }
 
+; SI-LABEL: @scalar_or_literal_i32
+; SI: S_OR_B32 s0, s0, 0x1869f
+define void @scalar_or_literal_i32(i32 addrspace(1)* %out, i32 %a) {
+  %or = or i32 %a, 99999
+  store i32 %or, i32 addrspace(1)* %out, align 4
+  ret void
+}
+
+; SI-LABEL: @vector_or_literal_i32
+; SI: V_OR_B32_e32 v{{[0-9]+}}, 0xffff, v{{[0-9]+}}
+define void @vector_or_literal_i32(i32 addrspace(1)* %out, i32 addrspace(1)* %a, i32 addrspace(1)* %b) {
+  %loada = load i32 addrspace(1)* %a, align 4
+  %or = or i32 %loada, 65535
+  store i32 %or, i32 addrspace(1)* %out, align 4
+  ret void
+}
+
+; SI-LABEL: @vector_or_inline_immediate_i32
+; SI: V_OR_B32_e32 v{{[0-9]+}}, 4, v{{[0-9]+}}
+define void @vector_or_inline_immediate_i32(i32 addrspace(1)* %out, i32 addrspace(1)* %a, i32 addrspace(1)* %b) {
+  %loada = load i32 addrspace(1)* %a, align 4
+  %or = or i32 %loada, 4
+  store i32 %or, i32 addrspace(1)* %out, align 4
+  ret void
+}
+
 ; EG-LABEL: @scalar_or_i64
 ; EG-DAG: OR_INT * T{{[0-9]\.[XYZW]}}, KC0[2].W, KC0[3].Y
 ; EG-DAG: OR_INT * T{{[0-9]\.[XYZW]}}, KC0[3].X, KC0[3].Z
@@ -116,14 +142,30 @@ define void @vector_or_i64_imm(i64 addrspace(1)* %out, i64 addrspace(1)* %a, i64
 }
 
 ; SI-LABEL: @trunc_i64_or_to_i32
-; SI: S_LOAD_DWORD [[SREG0:s[0-9]+]],
-; SI: S_LOAD_DWORD [[SREG1:s[0-9]+]],
-; SI: S_OR_B32 [[SRESULT:s[0-9]+]], [[SREG1]], [[SREG0]]
-; SI: V_MOV_B32_e32 [[VRESULT:v[0-9]+]], [[SRESULT]]
+; SI: S_LOAD_DWORD s[[SREG0:[0-9]+]]
+; SI: S_LOAD_DWORD s[[SREG1:[0-9]+]]
+; SI: S_OR_B32 s[[SRESULT:[0-9]+]], s[[SREG1]], s[[SREG0]]
+; SI: V_MOV_B32_e32 [[VRESULT:v[0-9]+]], s[[SRESULT]]
 ; SI: BUFFER_STORE_DWORD [[VRESULT]],
 define void @trunc_i64_or_to_i32(i32 addrspace(1)* %out, i64 %a, i64 %b) {
   %add = or i64 %b, %a
   %trunc = trunc i64 %add to i32
   store i32 %trunc, i32 addrspace(1)* %out, align 8
+  ret void
+}
+
+; EG-CHECK: @or_i1
+; EG-CHECK: OR_INT {{\** *}}T{{[0-9]+\.[XYZW], PV\.[XYZW], PS}}
+
+; SI-CHECK: @or_i1
+; SI-CHECK: S_OR_B64 s[{{[0-9]+:[0-9]+}}], s[{{[0-9]+:[0-9]+}}], s[{{[0-9]+:[0-9]+}}]
+define void @or_i1(float addrspace(1)* %out, float addrspace(1)* %in0, float addrspace(1)* %in1) {
+  %a = load float addrspace(1) * %in0
+  %b = load float addrspace(1) * %in1
+  %acmp = fcmp oge float %a, 0.000000e+00
+  %bcmp = fcmp oge float %b, 0.000000e+00
+  %or = or i1 %acmp, %bcmp
+  %result = select i1 %or, float %a, float %b
+  store float %result, float addrspace(1)* %out
   ret void
 }

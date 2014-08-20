@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TARGET_X86_H
-#define TARGET_X86_H
+#ifndef LLVM_LIB_TARGET_X86_X86_H
+#define LLVM_LIB_TARGET_X86_X86_H
 
 #include "llvm/Support/CodeGen.h"
 
@@ -23,6 +23,10 @@ class FunctionPass;
 class ImmutablePass;
 class JITCodeEmitter;
 class X86TargetMachine;
+
+/// createX86AtomicExpandPass - This pass expands atomic operations that cannot
+/// be handled natively in terms of a loop using cmpxchg.
+FunctionPass *createX86AtomicExpandPass(const X86TargetMachine *TM);
 
 /// createX86ISelDag - This pass converts a legalized DAG into a
 /// X86-specific DAG, ready for instruction scheduling.

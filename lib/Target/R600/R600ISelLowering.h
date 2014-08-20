@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef R600ISELLOWERING_H
-#define R600ISELLOWERING_H
+#ifndef LLVM_LIB_TARGET_R600_R600ISELLOWERING_H
+#define LLVM_LIB_TARGET_R600_R600ISELLOWERING_H
 
 #include "AMDGPUISelLowering.h"
 
@@ -51,15 +51,18 @@ private:
   void lowerImplicitParameter(MachineInstr *MI, MachineBasicBlock &BB,
       MachineRegisterInfo & MRI, unsigned dword_offset) const;
   SDValue OptimizeSwizzle(SDValue BuildVector, SDValue Swz[], SelectionDAG &DAG) const;
+  SDValue vectorToVerticalVector(SelectionDAG &DAG, SDValue Vector) const;
 
-  /// \brief Lower ROTL opcode to BITALIGN
-  SDValue LowerROTL(SDValue Op, SelectionDAG &DAG) const;
-
+  SDValue LowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSELECT_CC(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerSTORE(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFPTOUINT(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerLOAD(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerBRCOND(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerTrig(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerSHLParts(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerSRXParts(SDValue Op, SelectionDAG &DAG) const;
 
   SDValue stackPtrToRegIndex(SDValue Ptr, unsigned StackWidth,
                                           SelectionDAG &DAG) const;
@@ -71,4 +74,4 @@ private:
 
 } // End namespace llvm;
 
-#endif // R600ISELLOWERING_H
+#endif

@@ -354,6 +354,24 @@ define i32* @test41(i32* %tmp1) {
 ; CHECK: ret i32* %tmp1
 }
 
+define i32 addrspace(1)* @test41_addrspacecast_smaller(i32* %tmp1) {
+  %tmp64 = addrspacecast i32* %tmp1 to { i32 } addrspace(1)*
+  %tmp65 = getelementptr { i32 } addrspace(1)* %tmp64, i32 0, i32 0
+  ret i32 addrspace(1)* %tmp65
+; CHECK-LABEL: @test41_addrspacecast_smaller(
+; CHECK: addrspacecast i32* %tmp1 to i32 addrspace(1)*
+; CHECK-NEXT: ret i32 addrspace(1)*
+}
+
+define i32* @test41_addrspacecast_larger(i32 addrspace(1)* %tmp1) {
+  %tmp64 = addrspacecast i32 addrspace(1)* %tmp1 to { i32 }*
+  %tmp65 = getelementptr { i32 }* %tmp64, i32 0, i32 0
+  ret i32* %tmp65
+; CHECK-LABEL: @test41_addrspacecast_larger(
+; CHECK: addrspacecast i32 addrspace(1)* %tmp1 to i32*
+; CHECK-NEXT: ret i32*
+}
+
 define i32 @test42(i32 %X) {
         %Y = trunc i32 %X to i8         ; <i8> [#uses=1]
         %Z = zext i8 %Y to i32          ; <i32> [#uses=1]
@@ -370,7 +388,7 @@ define zeroext i64 @test43(i8 zeroext %on_off) nounwind readonly {
 	ret i64 %C  ;; Should be (add (zext i8 -> i64), -1)
 ; CHECK-LABEL: @test43(
 ; CHECK-NEXT: %A = zext i8 %on_off to i64
-; CHECK-NEXT: %B = add i64 %A, -1
+; CHECK-NEXT: %B = add nsw i64 %A, -1
 ; CHECK-NEXT: ret i64 %B
 }
 

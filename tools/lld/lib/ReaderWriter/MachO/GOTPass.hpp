@@ -16,32 +16,12 @@
 #include "lld/Core/Reference.h"
 #include "lld/Core/Pass.h"
 
+#include "MachOPasses.h"
 #include "ReferenceKinds.h"
 #include "StubAtoms.hpp"
 
 namespace lld {
 namespace mach_o {
-
-
-class GOTPass : public lld::GOTPass {
-public:
-  bool noTextRelocs() override {
-    return true;
-  }
-
-  bool isGOTAccess(const Reference &, bool &canBypassGOT) override {
-    return false;
-  }
-
-  void updateReferenceToGOT(const Reference*, bool targetIsNowGOT) override {
-
-  }
-
-  const DefinedAtom* makeGOTEntry(const Atom&) override {
-    return nullptr;
-  }
-
-};
 
 
 } // namespace mach_o

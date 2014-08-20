@@ -28,6 +28,12 @@ static const uint8_t mipsGotModulePointerAtomContent[] = {
   0x00, 0x00, 0x00, 0x80
 };
 
+// TLS GD Entry
+static const uint8_t mipsGotTlsGdAtomContent[] = {
+  0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00
+};
+
 // PLT0 entry
 static const uint8_t mipsPlt0AtomContent[] = {
   0x00, 0x00, 0x1c, 0x3c, // lui   $28, %hi(&GOTPLT[0])
@@ -86,6 +92,16 @@ public:
   }
 };
 
+/// \brief MIPS GOT TLS GD entry.
+class GOTTLSGdAtom : public MipsGOTAtom {
+public:
+  GOTTLSGdAtom(const File &f) : MipsGOTAtom(f) {}
+
+  ArrayRef<uint8_t> rawContent() const override {
+    return llvm::makeArrayRef(mipsGotTlsGdAtomContent);
+  }
+};
+
 class PLT0Atom : public PLTAtom {
 public:
   PLT0Atom(const File &f) : PLTAtom(f, ".plt") {}
@@ -138,13 +154,13 @@ public:
 
 template <typename ELFT> class RelocationPass : public Pass {
 public:
-  RelocationPass(MipsLinkingContext &context);
+  RelocationPass(MipsLinkingContext &ctx);
 
   void perform(std::unique_ptr<MutableFile> &mf) override;
 
 private:
   /// \brief Reference to the linking context.
-  const MipsLinkingContext &_context;
+  const MipsLinkingContext &_ctx;
 
   /// \brief Owner of all the Atoms created by this pass.
   RelocationPassFile _file;
@@ -156,11 +172,23 @@ private:
   /// \brief Map Atoms to global GOT entries.
   llvm::DenseMap<const Atom *, GOTAtom *> _gotGlobalMap;
 
+  /// \brief Map Atoms to TLS GOT entries.
+  llvm::DenseMap<const Atom *, GOTAtom *> _gotTLSMap;
+
+  /// \brief Map Atoms to TLS GD GOT entries.
+  llvm::DenseMap<const Atom *, GOTAtom *> _gotTLSGdMap;
+
+  /// \brief GOT entry for the R_MIPS_TLS_LDM relocation.
+  GOTTLSGdAtom *_gotLDMEntry;
+
   /// \brief the list of local GOT atoms.
   std::vector<GOTAtom *> _localGotVector;
 
   /// \brief the list of global GOT atoms.
   std::vector<GOTAtom *> _globalGotVector;
+
+  /// \brief the list of TLS GOT atoms.
+  std::vector<GOTAtom *> _tlsGotVector;
 
   /// \brief Map Atoms to their PLT entries.
   llvm::DenseMap<const Atom *, PLTAtom *> _pltMap;
@@ -177,7 +205,7 @@ private:
   /// \brief Atoms require pointers equality.
   llvm::DenseSet<const Atom *> _requiresPtrEquality;
 
-  /// \brief References which are candidates for cconverting
+  /// \brief References which are candidates for converting
   /// to the R_MIPS_REL32 relocation.
   std::vector<Reference *> _rel32Candidates;
 
@@ -205,10 +233,12 @@ private:
   void handle26(Reference &ref);
   void handleGOT(Reference &ref);
   void handleGPRel(const MipsELFDefinedAtom<ELFT> &atom, Reference &ref);
-  void handleTLS(const MipsELFDefinedAtom<ELFT> &atom, Reference &ref);
 
   const GOTAtom *getLocalGOTEntry(const Reference &ref);
   const GOTAtom *getGlobalGOTEntry(const Atom *a);
+  const GOTAtom *getTLSGOTEntry(const Atom *a);
+  const GOTAtom *getTLSGdGOTEntry(const Atom *a);
+  const GOTAtom *getTLSLdmGOTEntry(const Atom *a);
   PLTAtom *getPLTEntry(const Atom *a);
   const LA25Atom *getLA25Entry(const Atom *a);
   const ObjectAtom *getObjectEntry(const SharedLibraryAtom *a);
@@ -229,8 +259,8 @@ private:
 };
 
 template <typename ELFT>
-RelocationPass<ELFT>::RelocationPass(MipsLinkingContext &context)
-    : _context(context), _file(context) {
+RelocationPass<ELFT>::RelocationPass(MipsLinkingContext &ctx)
+    : _ctx(ctx), _file(ctx), _gotLDMEntry(nullptr) {
   _localGotVector.push_back(new (_file._alloc) GOT0Atom(_file));
   _localGotVector.push_back(new (_file._alloc) GOTModulePointerAtom(_file));
 }
@@ -271,6 +301,11 @@ void RelocationPass<ELFT>::perform(std::unique_ptr<MutableFile> &mf) {
   for (auto &got : _globalGotVector) {
     DEBUG_WITH_TYPE("MipsGOT", llvm::dbgs() << "[ GOT ] Adding G "
                                             << got->name() << "\n");
+    got->setOrdinal(ordinal++);
+    mf->addAtom(*got);
+  }
+
+  for (auto &got : _tlsGotVector) {
     got->setOrdinal(ordinal++);
     mf->addAtom(*got);
   }
@@ -326,9 +361,22 @@ void RelocationPass<ELFT>::handleReference(const MipsELFDefinedAtom<ELFT> &atom,
   case R_MIPS_GPREL32:
     handleGPRel(atom, ref);
     break;
+  case R_MIPS_TLS_DTPREL_HI16:
+  case R_MIPS_TLS_DTPREL_LO16:
+    ref.setAddend(ref.addend() - atom.file().getDTPOffset());
+    break;
   case R_MIPS_TLS_TPREL_HI16:
   case R_MIPS_TLS_TPREL_LO16:
-    handleTLS(atom, ref);
+    ref.setAddend(ref.addend() - atom.file().getTPOffset());
+    break;
+  case R_MIPS_TLS_GD:
+    ref.setTarget(getTLSGdGOTEntry(ref.target()));
+    break;
+  case R_MIPS_TLS_LDM:
+    ref.setTarget(getTLSLdmGOTEntry(ref.target()));
+    break;
+  case R_MIPS_TLS_GOTTPREL:
+    ref.setTarget(getTLSGOTEntry(ref.target()));
     break;
   }
 }
@@ -401,7 +449,7 @@ bool RelocationPass<ELFT>::mightBeDynamic(const MipsELFDefinedAtom<ELFT> &atom,
   if ((atom.section()->sh_flags & SHF_ALLOC) == 0)
     return false;
 
-  if (_context.getOutputELFType() == llvm::ELF::ET_DYN)
+  if (_ctx.getOutputELFType() == llvm::ELF::ET_DYN)
     return true;
   if (!isMipsReadonly(atom))
     return true;
@@ -431,14 +479,7 @@ bool RelocationPass<ELFT>::requireCopy(Reference &ref) {
   if (!_hasStaticRelocations.count(ref.target()))
     return false;
   const auto *sa = dyn_cast<ELFDynamicAtom<ELFT>>(ref.target());
-  if (sa && sa->type() != SharedLibraryAtom::Type::Data)
-    return false;
-  const auto *da = dyn_cast<ELFDefinedAtom<ELFT>>(ref.target());
-  if (da && da->contentType() != DefinedAtom::typeData)
-    return false;
-  if (isLocalCall(ref.target()))
-    return false;
-  return true;
+  return sa && sa->type() == SharedLibraryAtom::Type::Data;
 }
 
 template <typename ELFT>
@@ -462,7 +503,7 @@ bool RelocationPass<ELFT>::isDynamic(const Atom *atom) const {
   if (sa)
     return true;
 
-  if (_context.getOutputELFType() == llvm::ELF::ET_DYN) {
+  if (_ctx.getOutputELFType() == llvm::ELF::ET_DYN) {
     if (da && da->scope() != DefinedAtom::scopeTranslationUnit)
       return true;
 
@@ -513,15 +554,6 @@ void RelocationPass<ELFT>::handleGPRel(const MipsELFDefinedAtom<ELFT> &atom,
 }
 
 template <typename ELFT>
-void RelocationPass<ELFT>::handleTLS(const MipsELFDefinedAtom<ELFT> &atom,
-                                     Reference &ref) {
-  assert((ref.kindValue() == R_MIPS_TLS_TPREL_HI16 ||
-          ref.kindValue() == R_MIPS_TLS_TPREL_LO16) &&
-         "Unexpected kind of relocation");
-  ref.setAddend(ref.addend() - atom.file().getTPOffset());
-}
-
-template <typename ELFT>
 bool RelocationPass<ELFT>::isLocalCall(const Atom *a) const {
   Atom::Scope scope;
   if (auto *da = dyn_cast<DefinedAtom>(a))
@@ -536,7 +568,7 @@ bool RelocationPass<ELFT>::isLocalCall(const Atom *a) const {
     return true;
 
   // Calls to external symbols defined in an executable file resolved locally.
-  if (_context.getOutputELFType() == llvm::ELF::ET_EXEC)
+  if (_ctx.getOutputELFType() == llvm::ELF::ET_EXEC)
     return true;
 
   return false;
@@ -599,6 +631,49 @@ const GOTAtom *RelocationPass<ELFT>::getGlobalGOTEntry(const Atom *a) {
   });
 
   return ga;
+}
+
+template <typename ELFT>
+const GOTAtom *RelocationPass<ELFT>::getTLSGOTEntry(const Atom *a) {
+  auto got = _gotTLSMap.find(a);
+  if (got != _gotTLSMap.end())
+    return got->second;
+
+  auto ga = new (_file._alloc) GOT0Atom(_file);
+  _gotTLSMap[a] = ga;
+
+  _tlsGotVector.push_back(ga);
+  ga->addReferenceELF_Mips(R_MIPS_TLS_TPREL32, 0, a, 0);
+
+  return ga;
+}
+
+template <typename ELFT>
+const GOTAtom *RelocationPass<ELFT>::getTLSGdGOTEntry(const Atom *a) {
+  auto got = _gotTLSGdMap.find(a);
+  if (got != _gotTLSGdMap.end())
+    return got->second;
+
+  auto ga = new (_file._alloc) GOTTLSGdAtom(_file);
+  _gotTLSGdMap[a] = ga;
+
+  _tlsGotVector.push_back(ga);
+  ga->addReferenceELF_Mips(R_MIPS_TLS_DTPMOD32, 0, a, 0);
+  ga->addReferenceELF_Mips(R_MIPS_TLS_DTPREL32, 4, a, 0);
+
+  return ga;
+}
+
+template <typename ELFT>
+const GOTAtom *RelocationPass<ELFT>::getTLSLdmGOTEntry(const Atom *a) {
+  if (_gotLDMEntry)
+    return _gotLDMEntry;
+
+  _gotLDMEntry = new (_file._alloc) GOTTLSGdAtom(_file);
+  _tlsGotVector.push_back(_gotLDMEntry);
+  _gotLDMEntry->addReferenceELF_Mips(R_MIPS_TLS_DTPMOD32, 0, _gotLDMEntry, 0);
+
+  return _gotLDMEntry;
 }
 
 template <typename ELFT> void RelocationPass<ELFT>::createPLTHeader() {

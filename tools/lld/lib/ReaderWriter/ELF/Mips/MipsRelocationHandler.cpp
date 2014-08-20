@@ -92,14 +92,14 @@ static void relocGOT(uint8_t *location, uint64_t P, uint64_t S, int64_t A,
   applyReloc(location, G, 0xffff);
 }
 
-/// \brief R_MIPS_TLS_TPREL_HI16, LLD_R_MIPS_HI16
+/// \brief R_MIPS_TLS_DTPREL_HI16, R_MIPS_TLS_TPREL_HI16, LLD_R_MIPS_HI16
 /// (S + A) >> 16
 static void relocGeneralHi16(uint8_t *location, uint64_t S, int64_t A) {
   int32_t result = S + A + 0x8000;
   applyReloc(location, result >> 16, 0xffff);
 }
 
-/// \brief R_MIPS_TLS_TPREL_LO16, LLD_R_MIPS_LO16
+/// \brief R_MIPS_TLS_DTPREL_LO16, R_MIPS_TLS_TPREL_LO16, LLD_R_MIPS_LO16
 /// S + A
 static void relocGeneralLo16(uint8_t *location, uint64_t S, int64_t A) {
   int32_t result = S + A;
@@ -119,11 +119,11 @@ static void reloc32hi16(uint8_t *location, uint64_t S, int64_t A) {
   applyReloc(location, (S + A + 0x8000) & 0xffff0000, 0xffffffff);
 }
 
-error_code MipsTargetRelocationHandler::applyRelocation(
+std::error_code MipsTargetRelocationHandler::applyRelocation(
     ELFWriter &writer, llvm::FileOutputBuffer &buf, const lld::AtomLayout &atom,
     const Reference &ref) const {
   if (ref.kindNamespace() != lld::Reference::KindNamespace::ELF)
-    return error_code();
+    return std::error_code();
   assert(ref.kindArch() == Reference::KindArch::Mips);
 
   AtomLayout *gpAtom = _mipsTargetLayout.getGP();
@@ -158,9 +158,18 @@ error_code MipsTargetRelocationHandler::applyRelocation(
   case R_MIPS_CALL16:
     relocGOT(location, relocVAddress, targetVAddress, ref.addend(), gpAddr);
     break;
+  case R_MIPS_TLS_GD:
+    relocGOT(location, relocVAddress, targetVAddress, ref.addend(), gpAddr);
+    break;
+  case R_MIPS_TLS_LDM:
+  case R_MIPS_TLS_GOTTPREL:
+    relocGOT(location, relocVAddress, targetVAddress, ref.addend(), gpAddr);
+    break;
+  case R_MIPS_TLS_DTPREL_HI16:
   case R_MIPS_TLS_TPREL_HI16:
     relocGeneralHi16(location, targetVAddress, ref.addend());
     break;
+  case R_MIPS_TLS_DTPREL_LO16:
   case R_MIPS_TLS_TPREL_LO16:
     relocGeneralLo16(location, targetVAddress, ref.addend());
     break;
@@ -173,6 +182,9 @@ error_code MipsTargetRelocationHandler::applyRelocation(
   case R_MIPS_REL32:
   case R_MIPS_JUMP_SLOT:
   case R_MIPS_COPY:
+  case R_MIPS_TLS_DTPMOD32:
+  case R_MIPS_TLS_DTPREL32:
+  case R_MIPS_TLS_TPREL32:
     // Ignore runtime relocations.
     break;
   case R_MIPS_PC32:
@@ -204,5 +216,5 @@ error_code MipsTargetRelocationHandler::applyRelocation(
   }
   }
 
-  return error_code();
+  return std::error_code();
 }

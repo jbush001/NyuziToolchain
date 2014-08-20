@@ -12,8 +12,8 @@
 //===----------------------------------------------------------------------===//
 //
 
-#ifndef MIPSASMBACKEND_H
-#define MIPSASMBACKEND_H
+#ifndef LLVM_LIB_TARGET_MIPS_MCTARGETDESC_MIPSASMBACKEND_H
+#define LLVM_LIB_TARGET_MIPS_MCTARGETDESC_MIPSASMBACKEND_H
 
 #include "MCTargetDesc/MipsFixupKinds.h"
 #include "llvm/MC/MCAsmBackend.h"
@@ -65,7 +65,7 @@ public:
                              const MCRelaxableFragment *DF,
                              const MCAsmLayout &Layout) const override {
     // FIXME.
-    assert(0 && "RelaxInstruction() unimplemented");
+    llvm_unreachable("RelaxInstruction() unimplemented");
     return false;
   }
 

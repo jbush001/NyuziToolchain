@@ -10,14 +10,13 @@
 //  This file provides internal definitions used in the AST reader.
 //
 //===----------------------------------------------------------------------===//
-#ifndef LLVM_CLANG_SERIALIZATION_ASTREADER_INTERNALS_H
-#define LLVM_CLANG_SERIALIZATION_ASTREADER_INTERNALS_H
+#ifndef LLVM_CLANG_LIB_SERIALIZATION_ASTREADERINTERNALS_H
+#define LLVM_CLANG_LIB_SERIALIZATION_ASTREADERINTERNALS_H
 
 #include "clang/AST/DeclarationName.h"
 #include "clang/Serialization/ASTBitCodes.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/OnDiskHashTable.h"
-#include <sys/stat.h>
 #include <utility>
 
 namespace clang {

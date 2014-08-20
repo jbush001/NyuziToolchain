@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_MC_MCSUBTARGET_H
-#define LLVM_MC_MCSUBTARGET_H
+#ifndef LLVM_MC_MCSUBTARGETINFO_H
+#define LLVM_MC_MCSUBTARGETINFO_H
 
 #include "llvm/MC/MCInstrItineraries.h"
 #include "llvm/MC/SubtargetFeature.h"
@@ -64,6 +64,10 @@ public:
   uint64_t getFeatureBits() const {
     return FeatureBits;
   }
+
+  /// setFeatureBits - Set the feature bits.
+  ///
+  void setFeatureBits(uint64_t FeatureBits_) { FeatureBits = FeatureBits_; }
 
   /// InitMCProcessorInfo - Set or change the CPU (optionally supplemented with
   /// feature string). Recompute feature bits and scheduling model.

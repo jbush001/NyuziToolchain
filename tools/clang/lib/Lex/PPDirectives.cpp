@@ -25,7 +25,7 @@
 #include "clang/Lex/Pragma.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/SaveAndRestore.h"
 using namespace clang;
 
@@ -34,23 +34,10 @@ using namespace clang;
 //===----------------------------------------------------------------------===//
 
 MacroInfo *Preprocessor::AllocateMacroInfo() {
-  MacroInfoChain *MIChain;
-
-  if (MICache) {
-    MIChain = MICache;
-    MICache = MICache->Next;
-  }
-  else {
-    MIChain = BP.Allocate<MacroInfoChain>();
-  }
-
+  MacroInfoChain *MIChain = BP.Allocate<MacroInfoChain>();
   MIChain->Next = MIChainHead;
-  MIChain->Prev = nullptr;
-  if (MIChainHead)
-    MIChainHead->Prev = MIChain;
   MIChainHead = MIChain;
-
-  return &(MIChain->MI);
+  return &MIChain->MI;
 }
 
 MacroInfo *Preprocessor::AllocateMacroInfo(SourceLocation L) {
@@ -77,46 +64,30 @@ MacroInfo *Preprocessor::AllocateDeserializedMacroInfo(SourceLocation L,
 
 DefMacroDirective *
 Preprocessor::AllocateDefMacroDirective(MacroInfo *MI, SourceLocation Loc,
-                                        bool isImported) {
-  DefMacroDirective *MD = BP.Allocate<DefMacroDirective>();
-  new (MD) DefMacroDirective(MI, Loc, isImported);
-  return MD;
+                                        unsigned ImportedFromModuleID,
+                                        ArrayRef<unsigned> Overrides) {
+  unsigned NumExtra = (ImportedFromModuleID ? 1 : 0) + Overrides.size();
+  return new (BP.Allocate(sizeof(DefMacroDirective) +
+                              sizeof(unsigned) * NumExtra,
+                          llvm::alignOf<DefMacroDirective>()))
+      DefMacroDirective(MI, Loc, ImportedFromModuleID, Overrides);
 }
 
 UndefMacroDirective *
-Preprocessor::AllocateUndefMacroDirective(SourceLocation UndefLoc) {
-  UndefMacroDirective *MD = BP.Allocate<UndefMacroDirective>();
-  new (MD) UndefMacroDirective(UndefLoc);
-  return MD;
+Preprocessor::AllocateUndefMacroDirective(SourceLocation UndefLoc,
+                                          unsigned ImportedFromModuleID,
+                                          ArrayRef<unsigned> Overrides) {
+  unsigned NumExtra = (ImportedFromModuleID ? 1 : 0) + Overrides.size();
+  return new (BP.Allocate(sizeof(UndefMacroDirective) +
+                              sizeof(unsigned) * NumExtra,
+                          llvm::alignOf<UndefMacroDirective>()))
+      UndefMacroDirective(UndefLoc, ImportedFromModuleID, Overrides);
 }
 
 VisibilityMacroDirective *
 Preprocessor::AllocateVisibilityMacroDirective(SourceLocation Loc,
                                                bool isPublic) {
-  VisibilityMacroDirective *MD = BP.Allocate<VisibilityMacroDirective>();
-  new (MD) VisibilityMacroDirective(Loc, isPublic);
-  return MD;
-}
-
-/// \brief Release the specified MacroInfo to be reused for allocating
-/// new MacroInfo objects.
-void Preprocessor::ReleaseMacroInfo(MacroInfo *MI) {
-  MacroInfoChain *MIChain = (MacroInfoChain*) MI;
-  if (MacroInfoChain *Prev = MIChain->Prev) {
-    MacroInfoChain *Next = MIChain->Next;
-    Prev->Next = Next;
-    if (Next)
-      Next->Prev = Prev;
-  }
-  else {
-    assert(MIChainHead == MIChain);
-    MIChainHead = MIChain->Next;
-    MIChainHead->Prev = nullptr;
-  }
-  MIChain->Next = MICache;
-  MICache = MIChain;
-
-  MI->Destroy();
+  return new (BP) VisibilityMacroDirective(Loc, isPublic);
 }
 
 /// \brief Read and discard all tokens remaining on the current line until
@@ -145,11 +116,12 @@ bool Preprocessor::CheckMacroName(Token &MacroNameTok, char isDefineUndef) {
     if (!II->isCPlusPlusOperatorKeyword())
       return Diag(MacroNameTok, diag::err_pp_macro_not_identifier);
 
-    if (!getLangOpts().MSVCCompat)
-      // C++ 2.5p2: Alternative tokens behave the same as its primary token
-      // except for their spellings.
-      Diag(MacroNameTok, diag::err_pp_operator_used_as_macro_name)
-          << II << MacroNameTok.getKind();
+    // C++ 2.5p2: Alternative tokens behave the same as its primary token
+    // except for their spellings.
+    Diag(MacroNameTok, getLangOpts().MicrosoftExt
+                           ? diag::ext_pp_operator_used_as_macro_name
+                           : diag::err_pp_operator_used_as_macro_name)
+        << II << MacroNameTok.getKind();
 
     // Allow #defining |and| and friends for Microsoft compatibility or
     // recovery when legacy C headers are included in C++.
@@ -569,7 +541,8 @@ const FileEntry *Preprocessor::LookupFile(
     bool SkipCache) {
   // If the header lookup mechanism may be relative to the current inclusion
   // stack, record the parent #includes.
-  SmallVector<const FileEntry *, 16> Includers;
+  SmallVector<std::pair<const FileEntry *, const DirectoryEntry *>, 16>
+      Includers;
   if (!FromDir) {
     FileID FID = getCurrentFileLexer()->getFileID();
     const FileEntry *FileEnt = SourceMgr.getFileEntryForID(FID);
@@ -578,13 +551,15 @@ const FileEntry *Preprocessor::LookupFile(
     // predefines buffer.  Any other file is not lexed with a normal lexer, so
     // it won't be scanned for preprocessor directives.   If we have the
     // predefines buffer, resolve #include references (which come from the
-    // -include command line argument) as if they came from the main file, this
-    // affects file lookup etc.
-    if (!FileEnt)
+    // -include command line argument) from the current working directory
+    // instead of relative to the main file.
+    if (!FileEnt) {
       FileEnt = SourceMgr.getFileEntryForID(SourceMgr.getMainFileID());
-
-    if (FileEnt)
-      Includers.push_back(FileEnt);
+      if (FileEnt)
+        Includers.push_back(std::make_pair(FileEnt, FileMgr.getDirectory(".")));
+    } else {
+      Includers.push_back(std::make_pair(FileEnt, FileEnt->getDir()));
+    }
 
     // MSVC searches the current include stack from top to bottom for
     // headers included by quoted include directives.
@@ -595,7 +570,7 @@ const FileEntry *Preprocessor::LookupFile(
         if (IsFileLexer(ISEntry))
           if ((FileEnt = SourceMgr.getFileEntryForID(
                    ISEntry.ThePPLexer->getFileID())))
-            Includers.push_back(FileEnt);
+            Includers.push_back(std::make_pair(FileEnt, FileEnt->getDir()));
       }
     }
   }
@@ -955,7 +930,7 @@ void Preprocessor::HandleLineDirective(Token &Tok) {
     return DiscardUntilEndOfDirective();
   } else {
     // Parse and validate the string, converting it into a unique ID.
-    StringLiteralParser Literal(&StrTok, 1, *this);
+    StringLiteralParser Literal(StrTok, *this);
     assert(Literal.isAscii() && "Didn't allow wide strings in");
     if (Literal.hadError)
       return DiscardUntilEndOfDirective();
@@ -1091,7 +1066,7 @@ void Preprocessor::HandleDigitDirective(Token &DigitTok) {
     return DiscardUntilEndOfDirective();
   } else {
     // Parse and validate the string, converting it into a unique ID.
-    StringLiteralParser Literal(&StrTok, 1, *this);
+    StringLiteralParser Literal(StrTok, *this);
     assert(Literal.isAscii() && "Didn't allow wide strings in");
     if (Literal.hadError)
       return DiscardUntilEndOfDirective();
@@ -1469,7 +1444,9 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
   SmallString<128> NormalizedPath;
   if (LangOpts.MSVCCompat) {
     NormalizedPath = Filename.str();
-    llvm::sys::fs::normalize_separators(NormalizedPath);
+#ifndef LLVM_ON_WIN32
+    llvm::sys::path::native(NormalizedPath);
+#endif
   }
   const FileEntry *File = LookupFile(
       FilenameLoc, LangOpts.MSVCCompat ? NormalizedPath.c_str() : Filename,
@@ -1539,7 +1516,9 @@ void Preprocessor::HandleIncludeDirective(SourceLocation HashLoc,
 
   // If we are supposed to import a module rather than including the header,
   // do so now.
-  if (SuggestedModule && getLangOpts().Modules) {
+  if (SuggestedModule && getLangOpts().Modules &&
+      SuggestedModule.getModule()->getTopLevelModuleName() !=
+      getLangOpts().ImplementationOfModule) {
     // Compute the module access path corresponding to this module.
     // FIXME: Should we have a second loadModule() overload to avoid this
     // extra lookup step?
@@ -1921,8 +1900,6 @@ void Preprocessor::HandleDefineDirective(Token &DefineTok,
     // This is a function-like macro definition.  Read the argument list.
     MI->setIsFunctionLike();
     if (ReadMacroDefinitionArgList(MI, LastTok)) {
-      // Forget about MI.
-      ReleaseMacroInfo(MI);
       // Throw away the rest of the line.
       if (CurPPLexer->ParsingPreprocessorDirective)
         DiscardUntilEndOfDirective();
@@ -2047,7 +2024,6 @@ void Preprocessor::HandleDefineDirective(Token &DefineTok,
           continue;
         } else {
           Diag(Tok, diag::err_pp_stringize_not_parameter);
-          ReleaseMacroInfo(MI);
 
           // Disable __VA_ARGS__ again.
           Ident__VA_ARGS__->setIsPoisoned(true);
@@ -2075,12 +2051,10 @@ void Preprocessor::HandleDefineDirective(Token &DefineTok,
   if (NumTokens != 0) {
     if (MI->getReplacementToken(0).is(tok::hashhash)) {
       Diag(MI->getReplacementToken(0), diag::err_paste_at_start);
-      ReleaseMacroInfo(MI);
       return;
     }
     if (MI->getReplacementToken(NumTokens-1).is(tok::hashhash)) {
       Diag(MI->getReplacementToken(NumTokens-1), diag::err_paste_at_end);
-      ReleaseMacroInfo(MI);
       return;
     }
   }
@@ -2122,8 +2096,7 @@ void Preprocessor::HandleDefineDirective(Token &DefineTok,
   // If we need warning for not using the macro, add its location in the
   // warn-because-unused-macro set. If it gets used it will be removed from set.
   if (getSourceManager().isInMainFile(MI->getDefinitionLoc()) &&
-      Diags->getDiagnosticLevel(diag::pp_macro_not_used,
-          MI->getDefinitionLoc()) != DiagnosticsEngine::Ignored) {
+      !Diags->isIgnored(diag::pp_macro_not_used, MI->getDefinitionLoc())) {
     MI->setIsWarnIfUnused(true);
     WarnUnusedMacroLocs.insert(MI->getDefinitionLoc());
   }

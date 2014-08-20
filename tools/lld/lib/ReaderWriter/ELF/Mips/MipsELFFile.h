@@ -68,16 +68,17 @@ public:
       : ELFFile<ELFT>(name, atomizeStrings) {}
 
   MipsELFFile(std::unique_ptr<MemoryBuffer> mb, bool atomizeStrings,
-              error_code &ec)
+              std::error_code &ec)
       : ELFFile<ELFT>(std::move(mb), atomizeStrings, ec) {}
 
   static ErrorOr<std::unique_ptr<MipsELFFile>>
   create(std::unique_ptr<MemoryBuffer> mb, bool atomizeStrings) {
-    error_code ec;
+    std::error_code ec;
     std::unique_ptr<MipsELFFile<ELFT>> file(
         new MipsELFFile<ELFT>(mb->getBufferIdentifier(), atomizeStrings));
 
-    file->_objFile.reset(new llvm::object::ELFFile<ELFT>(mb.release(), ec));
+    file->_objFile.reset(
+        new llvm::object::ELFFile<ELFT>(mb.release()->getBuffer(), ec));
 
     if (ec)
       return ec;
@@ -118,6 +119,7 @@ public:
 
   /// \brief .tdata section address plus fixed offset.
   uint64_t getTPOffset() const { return *_tpOff; }
+  uint64_t getDTPOffset() const { return *_dtpOff; }
 
 private:
   typedef llvm::object::Elf_Sym_Impl<ELFT> Elf_Sym;
@@ -125,10 +127,11 @@ private:
   typedef llvm::object::Elf_Rel_Impl<ELFT, false> Elf_Rel;
   typedef typename llvm::object::ELFFile<ELFT>::Elf_Rel_Iter Elf_Rel_Iter;
 
-  enum { TP_OFFSET = 0x7000 };
+  enum { TP_OFFSET = 0x7000, DTP_OFFSET = 0x8000 };
 
   llvm::Optional<int64_t> _gp0;
   llvm::Optional<uint64_t> _tpOff;
+  llvm::Optional<uint64_t> _dtpOff;
 
   ErrorOr<ELFDefinedAtom<ELFT> *> handleDefinedSymbol(
       StringRef symName, StringRef sectionName, const Elf_Sym *sym,
@@ -140,13 +143,13 @@ private:
         referenceStart, referenceEnd, referenceList);
   }
 
-  error_code readAuxData() {
+  std::error_code readAuxData() {
     typedef llvm::object::Elf_RegInfo<ELFT> Elf_RegInfo;
 
     for (const Elf_Shdr &section : this->_objFile->sections()) {
       if (!_gp0.hasValue() && section.sh_type == llvm::ELF::SHT_MIPS_REGINFO) {
         auto contents = this->getSectionContents(&section);
-        if (error_code ec = contents.getError())
+        if (std::error_code ec = contents.getError())
           return ec;
 
         ArrayRef<uint8_t> raw = contents.get();
@@ -155,10 +158,12 @@ private:
         assert(raw.size() == sizeof(Elf_RegInfo) &&
                "Invalid size of RegInfo section");
         _gp0 = reinterpret_cast<const Elf_RegInfo *>(raw.data())->ri_gp_value;
-      } else if (!_tpOff.hasValue() && section.sh_flags & llvm::ELF::SHF_TLS)
+      } else if (!_tpOff.hasValue() && section.sh_flags & llvm::ELF::SHF_TLS) {
         _tpOff = section.sh_addr + TP_OFFSET;
+        _dtpOff = section.sh_addr + DTP_OFFSET;
+      }
     }
-    return error_code();
+    return std::error_code();
   }
 
   void createRelocationReferences(const Elf_Sym &symbol,
@@ -201,6 +206,11 @@ private:
     case llvm::ELF::R_MIPS_HI16:
     case llvm::ELF::R_MIPS_LO16:
     case llvm::ELF::R_MIPS_GOT16:
+    case llvm::ELF::R_MIPS_TLS_GD:
+    case llvm::ELF::R_MIPS_TLS_LDM:
+    case llvm::ELF::R_MIPS_TLS_GOTTPREL:
+    case llvm::ELF::R_MIPS_TLS_DTPREL_HI16:
+    case llvm::ELF::R_MIPS_TLS_DTPREL_LO16:
     case llvm::ELF::R_MIPS_TLS_TPREL_HI16:
     case llvm::ELF::R_MIPS_TLS_TPREL_LO16:
       return *(int16_t *)ap;

@@ -251,12 +251,12 @@ static bool parseSection(StringRef option, std::string &section,
 
 static bool readFile(PECOFFLinkingContext &ctx, StringRef path,
                      ArrayRef<uint8_t> &result) {
-  std::unique_ptr<MemoryBuffer> buf;
-  if (MemoryBuffer::getFile(path, buf))
+  ErrorOr<std::unique_ptr<MemoryBuffer>> buf = MemoryBuffer::getFile(path);
+  if (!buf)
     return false;
+  StringRef Data = buf.get()->getBuffer();
   result = ctx.allocate(ArrayRef<uint8_t>(
-      reinterpret_cast<const uint8_t *>(buf->getBufferStart()),
-      buf->getBufferSize()));
+      reinterpret_cast<const uint8_t *>(Data.begin()), Data.size()));
   return true;
 }
 
@@ -279,6 +279,53 @@ static bool parseManifest(StringRef option, bool &enable, bool &embed,
   option = option.substr(strlen(",id="));
   if (option.getAsInteger(0, id))
     return false;
+  return true;
+}
+
+// Returns true if the given file is a Windows resource file.
+static bool isResoruceFile(StringRef path) {
+  llvm::sys::fs::file_magic fileType;
+  if (llvm::sys::fs::identify_magic(path, fileType)) {
+    // If we cannot read the file, assume it's not a resource file.
+    // The further stage will raise an error on this unreadable file.
+    return false;
+  }
+  return fileType == llvm::sys::fs::file_magic::windows_resource;
+}
+
+// Merge Windows resource files and convert them to a single COFF file.
+// The temporary file path is set to result.
+static bool convertResourceFiles(std::vector<std::string> inFiles,
+                                 std::string &result) {
+  // Create an output file path.
+  SmallString<128> outFile;
+  if (llvm::sys::fs::createTemporaryFile("resource", "obj", outFile))
+    return false;
+  std::string outFileArg = ("/out:" + outFile).str();
+
+  // Construct CVTRES.EXE command line and execute it.
+  std::string program = "cvtres.exe";
+  std::string programPath = llvm::sys::FindProgramByName(program);
+  if (programPath.empty()) {
+    llvm::errs() << "Unable to find " << program << " in PATH\n";
+    return false;
+  }
+
+  std::vector<const char *> args;
+  args.push_back(programPath.c_str());
+  args.push_back("/machine:x86");
+  args.push_back("/readonly");
+  args.push_back("/nologo");
+  args.push_back(outFileArg.c_str());
+  for (const std::string &path : inFiles)
+    args.push_back(path.c_str());
+  args.push_back(nullptr);
+
+  if (llvm::sys::ExecuteAndWait(programPath.c_str(), &args[0]) != 0) {
+    llvm::errs() << program << " failed\n";
+    return false;
+  }
+  result = outFile.str();
   return true;
 }
 
@@ -353,10 +400,10 @@ static bool parseExport(StringRef option,
 // Read module-definition file.
 static bool parseDef(StringRef option, llvm::BumpPtrAllocator &alloc,
                      std::vector<moduledef::Directive *> &result) {
-  std::unique_ptr<MemoryBuffer> buf;
-  if (MemoryBuffer::getFile(option, buf))
+  ErrorOr<std::unique_ptr<MemoryBuffer>> buf = MemoryBuffer::getFile(option);
+  if (!buf)
     return llvm::None;
-  moduledef::Lexer lexer(std::move(buf));
+  moduledef::Lexer lexer(std::move(buf.get()));
   moduledef::Parser parser(lexer, alloc);
   return parser.parse(result);
 }
@@ -503,41 +550,35 @@ static bool createManifestResourceFile(PECOFFLinkingContext &ctx,
   return true;
 }
 
-// Create a side-by-side manifest file. The side-by-side manifest file is a
-// separate XML file having ".manifest" extension. It will be created in the
-// same directory as the resulting executable.
-static bool createSideBySideManifestFile(PECOFFLinkingContext &ctx,
-                                         raw_ostream &diag) {
-  std::string errorInfo;
-  llvm::raw_fd_ostream out(ctx.getManifestOutputPath().data(), errorInfo,
-                           llvm::sys::fs::F_Text);
-  if (!errorInfo.empty()) {
-    diag << "Failed to open " << ctx.getManifestOutputPath() << ": "
-         << errorInfo << "\n";
-    return false;
-  }
-  out << createManifestXml(ctx);
-  return true;
-}
 
-// Create the a side-by-side manifest file, or create a resource file for the
-// manifest file and add it to the input graph.
+// Create the a side-by-side manifest file.
 //
 // The manifest file will convey some information to the linker, such as whether
 // the binary needs to run as Administrator or not. Instead of being placed in
 // the PE/COFF header, it's in XML format for some reason -- I guess it's
 // probably because it's invented in the early dot-com era.
-static bool createManifest(PECOFFLinkingContext &ctx, raw_ostream &diag) {
-  if (ctx.getEmbedManifest()) {
-    std::string resourceFilePath;
-    if (!createManifestResourceFile(ctx, diag, resourceFilePath))
-      return false;
-    std::unique_ptr<InputElement> inputElement(
-        new PECOFFFileNode(ctx, ctx.allocate(resourceFilePath)));
-    ctx.getInputGraph().addInputElement(std::move(inputElement));
-    return true;
+//
+// The side-by-side manifest file is a separate XML file having ".manifest"
+// extension. It will be created in the same directory as the resulting
+// executable.
+static bool createSideBySideManifestFile(PECOFFLinkingContext &ctx,
+                                         raw_ostream &diag) {
+  std::string path = ctx.getManifestOutputPath();
+  if (path.empty()) {
+    // Default name of the manifest file is "foo.exe.manifest" where "foo.exe" is
+    // the output path.
+    path = ctx.outputPath();
+    path.append(".manifest");
   }
-  return createSideBySideManifestFile(ctx, diag);
+
+  std::string errorInfo;
+  llvm::raw_fd_ostream out(path.c_str(), errorInfo, llvm::sys::fs::F_Text);
+  if (!errorInfo.empty()) {
+    diag << errorInfo << "\n";
+    return false;
+  }
+  out << createManifestXml(ctx);
+  return true;
 }
 
 // Handle /failifmismatch option.
@@ -567,7 +608,7 @@ handleFailIfMismatchOption(StringRef option,
 
 // Process "LINK" environment variable. If defined, the value of the variable
 // should be processed as command line arguments.
-static std::vector<const char *> processLinkEnv(PECOFFLinkingContext &context,
+static std::vector<const char *> processLinkEnv(PECOFFLinkingContext &ctx,
                                                 int argc, const char **argv) {
   std::vector<const char *> ret;
   // The first argument is the name of the command. This should stay at the head
@@ -579,7 +620,7 @@ static std::vector<const char *> processLinkEnv(PECOFFLinkingContext &context,
   llvm::Optional<std::string> env = llvm::sys::Process::GetEnv("LINK");
   if (env.hasValue())
     for (std::string &arg : splitArgList(*env))
-      ret.push_back(context.allocate(arg).data());
+      ret.push_back(ctx.allocate(arg).data());
 
   // Add the rest of arguments passed via the command line.
   for (int i = 1; i < argc; ++i)
@@ -590,27 +631,11 @@ static std::vector<const char *> processLinkEnv(PECOFFLinkingContext &context,
 
 // Process "LIB" environment variable. The variable contains a list of search
 // paths separated by semicolons.
-static void processLibEnv(PECOFFLinkingContext &context) {
+static void processLibEnv(PECOFFLinkingContext &ctx) {
   llvm::Optional<std::string> env = llvm::sys::Process::GetEnv("LIB");
   if (env.hasValue())
     for (StringRef path : splitPathList(*env))
-      context.appendInputSearchPath(context.allocate(path));
-}
-
-// Returns a default entry point symbol name depending on context image type and
-// subsystem. These default names are MS CRT compliant.
-static StringRef getDefaultEntrySymbolName(PECOFFLinkingContext &ctx) {
-  if (ctx.isDll()) {
-    if (ctx.getMachineType() == llvm::COFF::IMAGE_FILE_MACHINE_I386)
-      return "_DllMainCRTStartup@12";
-    return "_DllMainCRTStartup";
-  }
-  llvm::COFF::WindowsSubsystem subsystem = ctx.getSubsystem();
-  if (subsystem == llvm::COFF::WindowsSubsystem::IMAGE_SUBSYSTEM_WINDOWS_GUI)
-    return "WinMainCRTStartup";
-  if (subsystem == llvm::COFF::WindowsSubsystem::IMAGE_SUBSYSTEM_WINDOWS_CUI)
-    return "mainCRTStartup";
-  return "";
+      ctx.appendInputSearchPath(ctx.allocate(path));
 }
 
 namespace {
@@ -696,9 +721,8 @@ parseArgs(int argc, const char **argv, PECOFFLinkingContext &ctx,
   // Show warning for unknown arguments. In .drectve section, unknown options
   // starting with "-?" are silently ignored. This is a COFF's feature to embed a
   // new linker option to an object file while keeping backward compatibility.
-  for (auto it = parsedArgs->filtered_begin(OPT_UNKNOWN),
-            ie = parsedArgs->filtered_end(); it != ie; ++it) {
-    StringRef arg = (*it)->getSpelling();
+  for (auto unknownArg : parsedArgs->filtered(OPT_UNKNOWN)) {
+    StringRef arg = unknownArg->getSpelling();
     if (isReadingDirectiveSection && arg.startswith("-?"))
       continue;
     diag << "warning: ignoring unknown argument: " << arg << "\n";
@@ -764,31 +788,31 @@ bool WinLinkDriver::linkPECOFF(int argc, const char **argv, raw_ostream &diag) {
   if (maybeRunLibCommand(argc, argv, diag))
     return true;
 
-  PECOFFLinkingContext context;
-  std::vector<const char *> newargv = processLinkEnv(context, argc, argv);
-  processLibEnv(context);
-  if (!parse(newargv.size() - 1, &newargv[0], context, diag))
+  PECOFFLinkingContext ctx;
+  std::vector<const char *> newargv = processLinkEnv(ctx, argc, argv);
+  processLibEnv(ctx);
+  if (!parse(newargv.size() - 1, &newargv[0], ctx, diag))
     return false;
 
   // Create the file if needed.
-  if (context.getCreateManifest())
-    if (!createManifest(context, diag))
+  if (ctx.getCreateManifest() && !ctx.getEmbedManifest())
+    if (!createSideBySideManifestFile(ctx, diag))
       return false;
 
   // Register possible input file parsers.
-  context.registry().addSupportCOFFObjects(context);
-  context.registry().addSupportCOFFImportLibraries();
-  context.registry().addSupportWindowsResourceFiles();
-  context.registry().addSupportArchives(context.logInputFiles());
-  context.registry().addSupportNativeObjects();
-  context.registry().addSupportYamlFiles();
+  ctx.registry().addSupportCOFFObjects(ctx);
+  ctx.registry().addSupportCOFFImportLibraries();
+  ctx.registry().addSupportArchives(ctx.logInputFiles());
+  ctx.registry().addSupportNativeObjects();
+  ctx.registry().addSupportYamlFiles();
 
-  return link(context, diag);
+  return link(ctx, diag);
 }
 
 bool WinLinkDriver::parse(int argc, const char *argv[],
                           PECOFFLinkingContext &ctx, raw_ostream &diag,
-                          bool isReadingDirectiveSection) {
+                          bool isReadingDirectiveSection,
+                          std::set<StringRef> *undefinedSymbols) {
   // Parse may be called from multiple threads simultaneously to parse .drectve
   // sections. This function is not thread-safe because it mutates the context
   // object. So acquire the lock.
@@ -830,19 +854,15 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
 
   // Handle /nodefaultlib:<lib>. The same option without argument is handled in
   // the following for loop.
-  for (llvm::opt::arg_iterator it = parsedArgs->filtered_begin(OPT_nodefaultlib),
-                               ie = parsedArgs->filtered_end();
-       it != ie; ++it) {
-    ctx.addNoDefaultLib((*it)->getValue());
+  for (auto nodeDefaultLib : parsedArgs->filtered(OPT_nodefaultlib)) {
+    ctx.addNoDefaultLib(nodeDefaultLib->getValue());
   }
 
   // Handle /defaultlib. Argument of the option is added to the input file list
   // unless it's blacklisted by /nodefaultlib.
   std::vector<StringRef> defaultLibs;
-  for (llvm::opt::arg_iterator it = parsedArgs->filtered_begin(OPT_defaultlib),
-                               ie = parsedArgs->filtered_end();
-       it != ie; ++it) {
-    defaultLibs.push_back((*it)->getValue());
+  for (auto defaultLib : parsedArgs->filtered(OPT_defaultlib)) {
+    defaultLibs.push_back(defaultLib->getValue());
   }
 
   std::vector<StringRef> inputFiles;
@@ -1143,6 +1163,13 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
       ctx.setSwapRunFromNet(true);
       break;
 
+    case OPT_profile:
+      // /profile implies /opt:ref, /opt:noicf, /incremental:no and /fixed:no.
+      ctx.setDeadStripping(true);
+      ctx.setBaseRelocationEnabled(true);
+      ctx.setDynamicBaseEnabled(true);
+      break;
+
     case OPT_implib:
       ctx.setOutputImportLibraryPath(inputArg->getValue());
       break;
@@ -1157,8 +1184,18 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
       break;
     }
 
-    case OPT_incl:
-      ctx.addInitialUndefinedSymbol(ctx.allocate(inputArg->getValue()));
+    case OPT_incl: {
+      StringRef sym = ctx.allocate(inputArg->getValue());
+      if (isReadingDirectiveSection) {
+        undefinedSymbols->insert(sym);
+      } else {
+        ctx.addInitialUndefinedSymbol(sym);
+      }
+      break;
+    }
+
+    case OPT_noentry:
+      ctx.setHasEntry(false);
       break;
 
     case OPT_nodefaultlib_all:
@@ -1207,6 +1244,35 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
     for (const StringRef value : dashdash->getValues())
       inputFiles.push_back(value);
 
+  // Compile Windows resource files to compiled resource file.
+  if (ctx.getCreateManifest() && ctx.getEmbedManifest() &&
+      !isReadingDirectiveSection) {
+    std::string resFile;
+    if (!createManifestResourceFile(ctx, diag, resFile))
+      return false;
+    inputFiles.push_back(ctx.allocate(resFile));
+  }
+
+  // A Windows Resource file is not an object file. It contains data,
+  // such as an icon image, and is not in COFF file format. If resource
+  // files are given, the linker merge them into one COFF file using
+  // CVTRES.EXE and then link the resulting file.
+  {
+    auto it = std::partition(inputFiles.begin(), inputFiles.end(),
+                             isResoruceFile);
+    if (it != inputFiles.begin()) {
+      std::vector<std::string> resFiles(inputFiles.begin(), it);
+      std::string resObj;
+      if (!convertResourceFiles(resFiles, resObj)) {
+        diag << "Failed to convert resource files\n";
+        return false;
+      }
+      inputFiles = std::vector<StringRef>(it, inputFiles.end());
+      inputFiles.push_back(ctx.allocate(resObj));
+      ctx.registerTemporaryFile(resObj);
+    }
+  }
+
   // Prepare objects to add them to input graph.
   for (StringRef path : inputFiles) {
     path = ctx.allocate(path);
@@ -1217,15 +1283,8 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
     }
   }
 
-  // Use the default entry name if /entry option is not given.
-  if (ctx.entrySymbolName().empty() && !parsedArgs->getLastArg(OPT_noentry))
-    ctx.setEntrySymbolName(getDefaultEntrySymbolName(ctx));
-  StringRef entry = ctx.entrySymbolName();
-  if (!entry.empty())
-    ctx.addInitialUndefinedSymbol(entry);
-
   // Specify /noentry without /dll is an error.
-  if (parsedArgs->getLastArg(OPT_noentry) && !parsedArgs->getLastArg(OPT_dll)) {
+  if (!ctx.hasEntry() && !parsedArgs->getLastArg(OPT_dll)) {
     diag << "/noentry must be specified with /dll\n";
     return false;
   }
@@ -1258,14 +1317,6 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
     ctx.setOutputPath(replaceExtension(ctx, path, ".exe"));
   }
 
-  // Default name of the manifest file is "foo.exe.manifest" where "foo.exe" is
-  // the output path.
-  if (ctx.getManifestOutputPath().empty()) {
-    std::string path = ctx.outputPath();
-    path.append(".manifest");
-    ctx.setManifestOutputPath(ctx.allocate(path));
-  }
-
   // Add the input files to the input graph.
   if (!ctx.hasInputGraph())
     ctx.setInputGraph(std::unique_ptr<InputGraph>(new InputGraph()));
@@ -1278,7 +1329,13 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
 
   // Add the library group to the input graph.
   if (!isReadingDirectiveSection) {
-    auto group = std::unique_ptr<Group>(new PECOFFGroup(ctx));
+    // The container for the entry point file.
+    std::unique_ptr<SimpleFileNode> entry(new SimpleFileNode("<entry>"));
+    ctx.setEntryNode(entry.get());
+    ctx.getInputGraph().addInputElement(std::move(entry));
+
+    // The container for all library files.
+    std::unique_ptr<Group> group(new PECOFFGroup(ctx));
     ctx.setLibraryGroup(group.get());
     ctx.getInputGraph().addInputElement(std::move(group));
   }

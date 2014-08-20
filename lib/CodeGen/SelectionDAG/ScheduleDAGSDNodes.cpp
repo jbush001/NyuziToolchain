@@ -47,8 +47,8 @@ static cl::opt<int> HighLatencyCycles(
            "instructions take for targets with no itinerary"));
 
 ScheduleDAGSDNodes::ScheduleDAGSDNodes(MachineFunction &mf)
-  : ScheduleDAG(mf), BB(nullptr), DAG(nullptr),
-    InstrItins(mf.getTarget().getInstrItineraryData()) {}
+    : ScheduleDAG(mf), BB(nullptr), DAG(nullptr),
+      InstrItins(mf.getSubtarget().getInstrItineraryData()) {}
 
 /// Run - perform scheduling.
 ///
@@ -136,7 +136,7 @@ static void CheckForPhysRegDependency(SDNode *Def, SDNode *User, unsigned Op,
 static void CloneNodeWithValues(SDNode *N, SelectionDAG *DAG,
                                 SmallVectorImpl<EVT> &VTs,
                                 SDValue ExtraOper = SDValue()) {
-  SmallVector<SDValue, 4> Ops;
+  SmallVector<SDValue, 8> Ops;
   for (unsigned I = 0, E = N->getNumOperands(); I != E; ++I)
     Ops.push_back(N->getOperand(I));
 
