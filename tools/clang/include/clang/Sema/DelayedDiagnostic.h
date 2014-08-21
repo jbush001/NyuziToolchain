@@ -19,8 +19,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_SEMA_DELAYED_DIAGNOSTIC_H
-#define LLVM_CLANG_SEMA_DELAYED_DIAGNOSTIC_H
+#ifndef LLVM_CLANG_SEMA_DELAYEDDIAGNOSTIC_H
+#define LLVM_CLANG_SEMA_DELAYEDDIAGNOSTIC_H
 
 #include "clang/Sema/Sema.h"
 
@@ -127,7 +127,8 @@ public:
                                             const NamedDecl *D,
                                             const ObjCInterfaceDecl *UnknownObjCClass,
                                             const ObjCPropertyDecl  *ObjCProperty,
-                                            StringRef Msg);
+                                            StringRef Msg,
+                                            bool ObjCPropertyAccess);
 
 
   static DelayedDiagnostic makeAccess(SourceLocation Loc,
@@ -202,6 +203,10 @@ public:
   const ObjCPropertyDecl *getObjCProperty() const {
     return DeprecationData.ObjCProperty;
   }
+    
+  bool getObjCPropertyAccess() const {
+    return DeprecationData.ObjCPropertyAccess;
+  }
   
 private:
 
@@ -211,6 +216,7 @@ private:
     const ObjCPropertyDecl  *ObjCProperty;
     const char *Message;
     size_t MessageLen;
+    bool ObjCPropertyAccess;
   };
 
   struct FTD {

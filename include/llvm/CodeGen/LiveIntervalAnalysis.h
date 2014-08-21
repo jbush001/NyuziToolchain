@@ -17,8 +17,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CODEGEN_LIVEINTERVAL_ANALYSIS_H
-#define LLVM_CODEGEN_LIVEINTERVAL_ANALYSIS_H
+#ifndef LLVM_CODEGEN_LIVEINTERVALANALYSIS_H
+#define LLVM_CODEGEN_LIVEINTERVALANALYSIS_H
 
 #include "llvm/ADT/IndexedMap.h"
 #include "llvm/ADT/SmallVector.h"
@@ -154,6 +154,17 @@ namespace llvm {
     /// connected components.
     bool shrinkToUses(LiveInterval *li,
                       SmallVectorImpl<MachineInstr*> *dead = nullptr);
+
+    /// \brief Walk the values in the given interval and compute which ones
+    /// are dead.  Dead values are not deleted, however:
+    /// - Dead PHIDef values are marked as unused.
+    /// - New dead machine instructions are added to the dead vector.
+    /// - CanSeparate is set to true if the interval may have been separated
+    ///   into multiple connected components.
+    void computeDeadValues(LiveInterval *li,
+                           LiveRange &LR,
+                           bool *CanSeparate,
+                           SmallVectorImpl<MachineInstr*> *dead);
 
     /// extendToIndices - Extend the live range of LI to reach all points in
     /// Indices. The points in the Indices array must be jointly dominated by

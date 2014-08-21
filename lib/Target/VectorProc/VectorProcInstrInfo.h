@@ -28,6 +28,8 @@ class VectorProcInstrInfo : public VectorProcGenInstrInfo {
 public:
   explicit VectorProcInstrInfo(VectorProcSubtarget &ST);
 
+  static const VectorProcInstrInfo *create(VectorProcSubtarget &ST);
+
   const VectorProcRegisterInfo &getRegisterInfo() const { return RI; }
 
   /// isLoadFromStackSlot - If the specified machine instruction is a direct

@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_TARGET_MSP430_ISELLOWERING_H
-#define LLVM_TARGET_MSP430_ISELLOWERING_H
+#ifndef LLVM_LIB_TARGET_MSP430_MSP430ISELLOWERING_H
+#define LLVM_LIB_TARGET_MSP430_MSP430ISELLOWERING_H
 
 #include "MSP430.h"
 #include "llvm/CodeGen/SelectionDAG.h"
@@ -66,12 +66,9 @@ namespace llvm {
     };
   }
 
-  class MSP430Subtarget;
-  class MSP430TargetMachine;
-
   class MSP430TargetLowering : public TargetLowering {
   public:
-    explicit MSP430TargetLowering(MSP430TargetMachine &TM);
+    explicit MSP430TargetLowering(const TargetMachine &TM);
 
     MVT getScalarShiftAmountTy(EVT LHSTy) const override { return MVT::i8; }
 
@@ -170,10 +167,7 @@ namespace llvm {
                                     SDValue &Offset,
                                     ISD::MemIndexedMode &AM,
                                     SelectionDAG &DAG) const override;
-
-    const MSP430Subtarget &Subtarget;
-    const DataLayout *TD;
   };
 } // namespace llvm
 
-#endif // LLVM_TARGET_MSP430_ISELLOWERING_H
+#endif

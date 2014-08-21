@@ -14,7 +14,6 @@
 
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/DiagnosticOptions.h"
-#include "clang/Driver/CC1AsOptions.h"
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/Options.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
@@ -53,10 +52,11 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/system_error.h"
 #include <memory>
+#include <system_error>
 using namespace clang;
 using namespace clang::driver;
+using namespace clang::driver::options;
 using namespace llvm;
 using namespace llvm::opt;
 
@@ -141,36 +141,39 @@ public:
     DwarfVersion = 3;
   }
 
-  static bool CreateFromArgs(AssemblerInvocation &Res, const char **ArgBegin,
-                             const char **ArgEnd, DiagnosticsEngine &Diags);
+  static bool CreateFromArgs(AssemblerInvocation &Res,
+                             ArrayRef<const char *> Argv,
+                             DiagnosticsEngine &Diags);
 };
 
 }
 
 bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
-                                         const char **ArgBegin,
-                                         const char **ArgEnd,
+                                         ArrayRef<const char *> Argv,
                                          DiagnosticsEngine &Diags) {
-  using namespace clang::driver::cc1asoptions;
   bool Success = true;
 
   // Parse the arguments.
-  std::unique_ptr<OptTable> OptTbl(createCC1AsOptTable());
+  std::unique_ptr<OptTable> OptTbl(createDriverOptTable());
+
+  const unsigned IncludedFlagsBitmask = options::CC1AsOption;
   unsigned MissingArgIndex, MissingArgCount;
   std::unique_ptr<InputArgList> Args(
-      OptTbl->ParseArgs(ArgBegin, ArgEnd, MissingArgIndex, MissingArgCount));
+      OptTbl->ParseArgs(Argv.begin(), Argv.end(), MissingArgIndex, MissingArgCount,
+                        IncludedFlagsBitmask));
 
   // Check for missing argument error.
   if (MissingArgCount) {
     Diags.Report(diag::err_drv_missing_argument)
-      << Args->getArgString(MissingArgIndex) << MissingArgCount;
+        << Args->getArgString(MissingArgIndex) << MissingArgCount;
     Success = false;
   }
 
   // Issue errors on unknown arguments.
-  for (arg_iterator it = Args->filtered_begin(cc1asoptions::OPT_UNKNOWN),
-         ie = Args->filtered_end(); it != ie; ++it) {
-    Diags.Report(diag::err_drv_unknown_argument) << (*it) ->getAsString(*Args);
+  for (arg_iterator it = Args->filtered_begin(OPT_UNKNOWN),
+                    ie = Args->filtered_end();
+       it != ie; ++it) {
+    Diags.Report(diag::err_drv_unknown_argument) << (*it)->getAsString(*Args);
     Success = false;
   }
 
@@ -189,7 +192,7 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
   Opts.IncludePaths = Args->getAllArgValues(OPT_I);
   Opts.NoInitialTextSection = Args->hasArg(OPT_n);
   Opts.SaveTemporaryLabels = Args->hasArg(OPT_msave_temp_labels);
-  Opts.GenDwarfForAssembly = Args->hasArg(OPT_g);
+  Opts.GenDwarfForAssembly = Args->hasArg(OPT_g_Flag);
   Opts.CompressDebugSections = Args->hasArg(OPT_compress_debug_sections);
   if (Args->hasArg(OPT_gdwarf_2))
     Opts.DwarfVersion = 2;
@@ -267,7 +270,7 @@ static formatted_raw_ostream *GetOutputStream(AssemblerInvocation &Opts,
     Diags.Report(diag::err_fe_unable_to_open_output)
       << Opts.OutputPath << Error;
     delete Out;
-    return 0;
+    return nullptr;
   }
 
   return new formatted_raw_ostream(*Out, formatted_raw_ostream::DELETE_STREAM);
@@ -281,16 +284,18 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
   if (!TheTarget)
     return Diags.Report(diag::err_target_unknown_triple) << Opts.Triple;
 
-  std::unique_ptr<MemoryBuffer> Buffer;
-  if (error_code ec = MemoryBuffer::getFileOrSTDIN(Opts.InputFile, Buffer)) {
-    Error = ec.message();
+  ErrorOr<std::unique_ptr<MemoryBuffer>> Buffer =
+      MemoryBuffer::getFileOrSTDIN(Opts.InputFile);
+
+  if (std::error_code EC = Buffer.getError()) {
+    Error = EC.message();
     return Diags.Report(diag::err_fe_error_reading) << Opts.InputFile;
   }
 
   SourceMgr SrcMgr;
 
   // Tell SrcMgr about this buffer, which is what the parser will pick up.
-  SrcMgr.AddNewSourceBuffer(Buffer.release(), SMLoc());
+  SrcMgr.AddNewSourceBuffer(Buffer->release(), SMLoc());
 
   // Record the location of the include directories so that the lexer can find
   // it later.
@@ -354,8 +359,8 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
     MCInstPrinter *IP =
       TheTarget->createMCInstPrinter(Opts.OutputAsmVariant, *MAI, *MCII, *MRI,
                                      *STI);
-    MCCodeEmitter *CE = 0;
-    MCAsmBackend *MAB = 0;
+    MCCodeEmitter *CE = nullptr;
+    MCAsmBackend *MAB = nullptr;
     if (Opts.ShowEncoding) {
       CE = TheTarget->createMCCodeEmitter(*MCII, *MRI, *STI, Ctx);
       MAB = TheTarget->createMCAsmBackend(*MRI, Opts.Triple, Opts.CPU);
@@ -415,11 +420,10 @@ static void LLVMErrorHandler(void *UserData, const std::string &Message,
   exit(1);
 }
 
-int cc1as_main(const char **ArgBegin, const char **ArgEnd,
-               const char *Argv0, void *MainAddr) {
+int cc1as_main(ArrayRef<const char *> Argv, const char *Argv0, void *MainAddr) {
   // Print a stack trace if we signal out.
   sys::PrintStackTraceOnErrorSignal();
-  PrettyStackTraceProgram X(ArgEnd - ArgBegin, ArgBegin);
+  PrettyStackTraceProgram X(Argv.size(), Argv.data());
   llvm_shutdown_obj Y;  // Call llvm_shutdown() on exit.
 
   // Initialize targets and assembly printers/parsers.
@@ -442,13 +446,13 @@ int cc1as_main(const char **ArgBegin, const char **ArgEnd,
 
   // Parse the arguments.
   AssemblerInvocation Asm;
-  if (!AssemblerInvocation::CreateFromArgs(Asm, ArgBegin, ArgEnd, Diags))
+  if (!AssemblerInvocation::CreateFromArgs(Asm, Argv, Diags))
     return 1;
 
-  // Honor -help.
   if (Asm.ShowHelp) {
-    std::unique_ptr<OptTable> Opts(driver::createCC1AsOptTable());
-    Opts->PrintHelp(llvm::outs(), "clang -cc1as", "Clang Integrated Assembler");
+    std::unique_ptr<OptTable> Opts(driver::createDriverOptTable());
+    Opts->PrintHelp(llvm::outs(), "clang -cc1as", "Clang Integrated Assembler",
+                    /*Include=*/driver::options::CC1AsOption, /*Exclude=*/0);
     return 0;
   }
 
@@ -469,7 +473,7 @@ int cc1as_main(const char **ArgBegin, const char **ArgEnd,
     Args[0] = "clang (LLVM option parsing)";
     for (unsigned i = 0; i != NumArgs; ++i)
       Args[i + 1] = Asm.LLVMArgs[i].c_str();
-    Args[NumArgs + 1] = 0;
+    Args[NumArgs + 1] = nullptr;
     llvm::cl::ParseCommandLineOptions(NumArgs + 1, Args);
   }
 
@@ -482,3 +486,4 @@ int cc1as_main(const char **ArgBegin, const char **ArgEnd,
 
   return !!Failed;
 }
+

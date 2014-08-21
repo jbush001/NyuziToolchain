@@ -12,29 +12,21 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef R600REGISTERINFO_H_
-#define R600REGISTERINFO_H_
+#ifndef LLVM_LIB_TARGET_R600_R600REGISTERINFO_H
+#define LLVM_LIB_TARGET_R600_R600REGISTERINFO_H
 
 #include "AMDGPURegisterInfo.h"
-#include "AMDGPUTargetMachine.h"
 
 namespace llvm {
 
-class R600TargetMachine;
+class AMDGPUSubtarget;
 
 struct R600RegisterInfo : public AMDGPURegisterInfo {
-  AMDGPUTargetMachine &TM;
   RegClassWeight RCW;
 
-  R600RegisterInfo(AMDGPUTargetMachine &tm);
+  R600RegisterInfo(const AMDGPUSubtarget &st);
 
   BitVector getReservedRegs(const MachineFunction &MF) const override;
-
-  /// \param RC is an AMDIL reg class.
-  ///
-  /// \returns the R600 reg class that is equivalent to \p RC.
-  const TargetRegisterClass *getISARegClass(
-    const TargetRegisterClass *RC) const override;
 
   /// \brief get the HW encoding for a register's channel.
   unsigned getHWRegChan(unsigned reg) const;
@@ -54,4 +46,4 @@ struct R600RegisterInfo : public AMDGPURegisterInfo {
 
 } // End namespace llvm
 
-#endif // AMDIDSAREGISTERINFO_H_
+#endif

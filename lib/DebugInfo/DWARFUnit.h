@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_DEBUGINFO_DWARFUNIT_H
-#define LLVM_DEBUGINFO_DWARFUNIT_H
+#ifndef LLVM_LIB_DEBUGINFO_DWARFUNIT_H
+#define LLVM_LIB_DEBUGINFO_DWARFUNIT_H
 
 #include "DWARFDebugAbbrev.h"
 #include "DWARFDebugInfoEntry.h"
@@ -52,7 +52,7 @@ class DWARFUnit {
     std::unique_ptr<DWARFContext> DWOContext;
     DWARFUnit *DWOU;
   public:
-    DWOHolder(object::ObjectFile *DWOFile);
+    DWOHolder(std::unique_ptr<object::ObjectFile> DWOFile);
     DWARFUnit *getUnit() const { return DWOU; }
   };
   std::unique_ptr<DWOHolder> DWO;

@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_SA_CORE_PATHSENSITIVE_CHECKERCONTEXT
-#define LLVM_CLANG_SA_CORE_PATHSENSITIVE_CHECKERCONTEXT
+#ifndef LLVM_CLANG_STATICANALYZER_CORE_PATHSENSITIVE_CHECKERCONTEXT_H
+#define LLVM_CLANG_STATICANALYZER_CORE_PATHSENSITIVE_CHECKERCONTEXT_H
 
 #include "clang/StaticAnalyzer/Core/PathSensitive/ExprEngine.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/ProgramStateTrait.h"
@@ -174,8 +174,13 @@ public:
     return Pred->getLocationContext()->getAnalysisDeclContext();
   }
 
-  /// \brief If the given node corresponds to a PostStore program point, retrieve
-  /// the location region as it was uttered in the code.
+  /// \brief Get the blockID.
+  unsigned getBlockID() const {
+    return NB.getContext().getBlock()->getBlockID();
+  }
+
+  /// \brief If the given node corresponds to a PostStore program point,
+  /// retrieve the location region as it was uttered in the code.
   ///
   /// This utility can be useful for generating extensive diagnostics, for
   /// example, for finding variables that the given symbol was assigned to.

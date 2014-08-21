@@ -1,6 +1,6 @@
 // RUN: rm -rf %t
-// RUN: not %clang_cc1 -x objective-c++ -fmodules -fno-modules-error-recovery -fmodules-cache-path=%t -I %S/Inputs %s -std=c++11 -ast-dump -ast-dump-lookups | FileCheck %s --check-prefix=CHECK-GLOBAL
-// RUN: not %clang_cc1 -x objective-c++ -fmodules -fno-modules-error-recovery -fmodules-cache-path=%t -I %S/Inputs %s -std=c++11 -ast-dump -ast-dump-lookups -ast-dump-filter N | FileCheck %s --check-prefix=CHECK-NAMESPACE-N
+// RUN: not %clang_cc1 -x objective-c++ -fmodules -fno-modules-error-recovery -fmodules-cache-path=%t -I %S/Inputs %s -std=c++11 -ast-dump-lookups | FileCheck %s --check-prefix=CHECK-GLOBAL
+// RUN: not %clang_cc1 -x objective-c++ -fmodules -fno-modules-error-recovery -fmodules-cache-path=%t -I %S/Inputs %s -std=c++11 -ast-dump-lookups -ast-dump-filter N | FileCheck %s --check-prefix=CHECK-NAMESPACE-N
 // RUN: not %clang_cc1 -x objective-c++ -fmodules -fno-modules-error-recovery -fmodules-cache-path=%t -I %S/Inputs %s -std=c++11 -ast-dump | FileCheck %s --check-prefix=CHECK-DUMP
 // RUN: %clang_cc1 -x objective-c++ -fmodules -fno-modules-error-recovery -fmodules-cache-path=%t -I %S/Inputs %s -verify -std=c++11
 
@@ -29,8 +29,8 @@ void g() {
   N::f<double>(1.0);
   N::f<int>();
   N::f(); // expected-error {{no matching function}}
-  // expected-note@Inputs/cxx-templates-a.h:6 {{couldn't infer template argument}}
-  // expected-note@Inputs/cxx-templates-a.h:7 {{requires 1 argument}}
+  // expected-note@Inputs/cxx-templates-b.h:6 {{couldn't infer template argument}}
+  // expected-note@Inputs/cxx-templates-b.h:7 {{requires single argument}}
 
   template_param_kinds_1<0>(); // ok, from cxx-templates-a.h
   template_param_kinds_1<int>(); // ok, from cxx-templates-b.h
@@ -105,7 +105,16 @@ void g() {
 
   int &p = WithPartialSpecializationUse().f();
   int &q = WithExplicitSpecializationUse().inner_template<int>();
+  int *r = PartiallyInstantiatePartialSpec<int*>::bar();
+
+  (void)&WithImplicitSpecialMembers<int>::n;
 }
+
+static_assert(Outer<int>::Inner<int>::f() == 1, "");
+static_assert(Outer<int>::Inner<int>::g() == 2, "");
+
+static_assert(MergeTemplateDefinitions<int>::f() == 1, "");
+static_assert(MergeTemplateDefinitions<int>::g() == 2, "");
 
 RedeclaredAsFriend<int> raf1;
 RedeclareTemplateAsFriend<double> rtaf;

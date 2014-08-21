@@ -30,11 +30,15 @@
 
 using namespace llvm;
 
+const VectorProcFrameLowering *VectorProcFrameLowering::create(const VectorProcSubtarget &ST) {
+  return new VectorProcFrameLowering(ST);
+}
+
 void VectorProcFrameLowering::emitPrologue(MachineFunction &MF) const {
   MachineBasicBlock &MBB = MF.front();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   const VectorProcInstrInfo &TII =
-      *static_cast<const VectorProcInstrInfo *>(MF.getTarget().getInstrInfo());
+      *static_cast<const VectorProcInstrInfo *>(MF.getSubtarget().getInstrInfo());
   MachineModuleInfo &MMI = MF.getMMI();
   const MCRegisterInfo *MRI = MMI.getContext().getRegisterInfo();
   MachineBasicBlock::iterator MBBI = MBB.begin();
@@ -94,7 +98,7 @@ void VectorProcFrameLowering::emitEpilogue(MachineFunction &MF,
   MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   const VectorProcInstrInfo &TII =
-      *static_cast<const VectorProcInstrInfo *>(MF.getTarget().getInstrInfo());
+      *static_cast<const VectorProcInstrInfo *>(MF.getSubtarget().getInstrInfo());
   DebugLoc DL = MBBI->getDebugLoc();
   assert(MBBI->getOpcode() == VectorProc::RET &&
          "Can only put epilog before 'retl' instruction!");
@@ -140,7 +144,7 @@ void VectorProcFrameLowering::eliminateCallFramePseudoInstr(
   MachineInstr &MI = *MBBI;
 
   const VectorProcInstrInfo &TII =
-      *static_cast<const VectorProcInstrInfo *>(MF.getTarget().getInstrInfo());
+      *static_cast<const VectorProcInstrInfo *>(MF.getSubtarget().getInstrInfo());
 
   // Note the check for hasReservedCallFrame.  If it returns true, 
   // PEI::calculateFrameObjectOffsets has already reserved stack locations for 
@@ -160,7 +164,7 @@ void VectorProcFrameLowering::eliminateCallFramePseudoInstr(
 
 uint64_t VectorProcFrameLowering::getWorstCaseStackSize(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
-  const TargetRegisterInfo &TRI = *MF.getTarget().getRegisterInfo();
+  const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
 
   int64_t Offset = 0;
 

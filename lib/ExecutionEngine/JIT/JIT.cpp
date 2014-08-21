@@ -34,6 +34,7 @@
 #include "llvm/Support/MutexGuard.h"
 #include "llvm/Target/TargetJITInfo.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/Target/TargetSubtargetInfo.h"
 
 using namespace llvm;
 
@@ -68,10 +69,9 @@ static struct RegisterJIT {
 extern "C" void LLVMLinkInJIT() {
 }
 
-/// createJIT - This is the factory method for creating a JIT for the current
-/// machine, it does not fall back to the interpreter.  This takes ownership
-/// of the module.
-ExecutionEngine *JIT::createJIT(Module *M,
+/// This is the factory method for creating a JIT for the current machine, it
+/// does not fall back to the interpreter.
+ExecutionEngine *JIT::createJIT(std::unique_ptr<Module> M,
                                 std::string *ErrorStr,
                                 JITMemoryManager *JMM,
                                 bool GVsWithCode,
@@ -82,8 +82,8 @@ ExecutionEngine *JIT::createJIT(Module *M,
   sys::DynamicLibrary::LoadLibraryPermanently(nullptr, nullptr);
 
   // If the target supports JIT code generation, create the JIT.
-  if (TargetJITInfo *TJ = TM->getJITInfo()) {
-    return new JIT(M, *TM, *TJ, JMM, GVsWithCode);
+  if (TargetJITInfo *TJ = TM->getSubtargetImpl()->getJITInfo()) {
+    return new JIT(std::move(M), *TM, *TJ, JMM, GVsWithCode);
   } else {
     if (ErrorStr)
       *ErrorStr = "target does not support JIT code generation";
@@ -134,14 +134,15 @@ extern "C" {
   }
 }
 
-JIT::JIT(Module *M, TargetMachine &tm, TargetJITInfo &tji,
+JIT::JIT(std::unique_ptr<Module> M, TargetMachine &tm, TargetJITInfo &tji,
          JITMemoryManager *jmm, bool GVsWithCode)
-  : ExecutionEngine(M), TM(tm), TJI(tji),
+  : ExecutionEngine(std::move(M)), TM(tm), TJI(tji),
     JMM(jmm ? jmm : JITMemoryManager::CreateDefaultMemManager()),
     AllocateGVsWithCode(GVsWithCode), isAlreadyCodeGenerating(false) {
-  setDataLayout(TM.getDataLayout());
+  setDataLayout(TM.getSubtargetImpl()->getDataLayout());
 
-  jitstate = new JITState(M);
+  Module *Mod = Modules.back().get();
+  jitstate = new JITState(Mod);
 
   // Initialize JCE
   JCE = createEmitter(*this, JMM, TM);
@@ -151,9 +152,9 @@ JIT::JIT(Module *M, TargetMachine &tm, TargetJITInfo &tji,
 
   // Add target data
   MutexGuard locked(lock);
-  FunctionPassManager &PM = jitstate->getPM(locked);
-  M->setDataLayout(TM.getDataLayout());
-  PM.add(new DataLayoutPass(M));
+  FunctionPassManager &PM = jitstate->getPM();
+  Mod->setDataLayout(TM.getSubtargetImpl()->getDataLayout());
+  PM.add(new DataLayoutPass(Mod));
 
   // Turn the machine code intermediate representation into bytes in memory that
   // may be executed.
@@ -174,19 +175,19 @@ JIT::~JIT() {
   delete &TM;
 }
 
-/// addModule - Add a new Module to the JIT.  If we previously removed the last
-/// Module, we need re-initialize jitstate with a valid Module.
-void JIT::addModule(Module *M) {
+/// Add a new Module to the JIT. If we previously removed the last Module, we
+/// need re-initialize jitstate with a valid Module.
+void JIT::addModule(std::unique_ptr<Module> M) {
   MutexGuard locked(lock);
 
   if (Modules.empty()) {
     assert(!jitstate && "jitstate should be NULL if Modules vector is empty!");
 
-    jitstate = new JITState(M);
+    jitstate = new JITState(M.get());
 
-    FunctionPassManager &PM = jitstate->getPM(locked);
-    M->setDataLayout(TM.getDataLayout());
-    PM.add(new DataLayoutPass(M));
+    FunctionPassManager &PM = jitstate->getPM();
+    M->setDataLayout(TM.getSubtargetImpl()->getDataLayout());
+    PM.add(new DataLayoutPass(M.get()));
 
     // Turn the machine code intermediate representation into bytes in memory
     // that may be executed.
@@ -198,11 +199,11 @@ void JIT::addModule(Module *M) {
     PM.doInitialization();
   }
 
-  ExecutionEngine::addModule(M);
+  ExecutionEngine::addModule(std::move(M));
 }
 
-/// removeModule - If we are removing the last Module, invalidate the jitstate
-/// since the PassManager it contains references a released Module.
+///  If we are removing the last Module, invalidate the jitstate since the
+///  PassManager it contains references a released Module.
 bool JIT::removeModule(Module *M) {
   bool result = ExecutionEngine::removeModule(M);
 
@@ -214,10 +215,10 @@ bool JIT::removeModule(Module *M) {
   }
 
   if (!jitstate && !Modules.empty()) {
-    jitstate = new JITState(Modules[0]);
+    jitstate = new JITState(Modules[0].get());
 
-    FunctionPassManager &PM = jitstate->getPM(locked);
-    M->setDataLayout(TM.getDataLayout());
+    FunctionPassManager &PM = jitstate->getPM();
+    M->setDataLayout(TM.getSubtargetImpl()->getDataLayout());
     PM.add(new DataLayoutPass(M));
 
     // Turn the machine code intermediate representation into bytes in memory
@@ -460,41 +461,41 @@ void JIT::runJITOnFunction(Function *F, MachineCodeInfo *MCI) {
   if (MCI)
     RegisterJITEventListener(&MCIL);
 
-  runJITOnFunctionUnlocked(F, locked);
+  runJITOnFunctionUnlocked(F);
 
   if (MCI)
     UnregisterJITEventListener(&MCIL);
 }
 
-void JIT::runJITOnFunctionUnlocked(Function *F, const MutexGuard &locked) {
+void JIT::runJITOnFunctionUnlocked(Function *F) {
   assert(!isAlreadyCodeGenerating && "Error: Recursive compilation detected!");
 
-  jitTheFunction(F, locked);
+  jitTheFunctionUnlocked(F);
 
   // If the function referred to another function that had not yet been
   // read from bitcode, and we are jitting non-lazily, emit it now.
-  while (!jitstate->getPendingFunctions(locked).empty()) {
-    Function *PF = jitstate->getPendingFunctions(locked).back();
-    jitstate->getPendingFunctions(locked).pop_back();
+  while (!jitstate->getPendingFunctions().empty()) {
+    Function *PF = jitstate->getPendingFunctions().back();
+    jitstate->getPendingFunctions().pop_back();
 
     assert(!PF->hasAvailableExternallyLinkage() &&
            "Externally-defined function should not be in pending list.");
 
-    jitTheFunction(PF, locked);
+    jitTheFunctionUnlocked(PF);
 
     // Now that the function has been jitted, ask the JITEmitter to rewrite
     // the stub with real address of the function.
-    updateFunctionStub(PF);
+    updateFunctionStubUnlocked(PF);
   }
 }
 
-void JIT::jitTheFunction(Function *F, const MutexGuard &locked) {
+void JIT::jitTheFunctionUnlocked(Function *F) {
   isAlreadyCodeGenerating = true;
-  jitstate->getPM(locked).run(*F);
+  jitstate->getPM().run(*F);
   isAlreadyCodeGenerating = false;
 
   // clear basic block addresses after this function is done
-  getBasicBlockAddressMap(locked).clear();
+  getBasicBlockAddressMap().clear();
 }
 
 /// getPointerToFunction - This method is used to get the address of the
@@ -526,7 +527,7 @@ void *JIT::getPointerToFunction(Function *F) {
     return Addr;
   }
 
-  runJITOnFunctionUnlocked(F, locked);
+  runJITOnFunctionUnlocked(F);
 
   void *Addr = getPointerToGlobalIfAvailable(F);
   assert(Addr && "Code generation didn't add function to GlobalAddress table!");
@@ -537,9 +538,9 @@ void JIT::addPointerToBasicBlock(const BasicBlock *BB, void *Addr) {
   MutexGuard locked(lock);
 
   BasicBlockAddressMapTy::iterator I =
-    getBasicBlockAddressMap(locked).find(BB);
-  if (I == getBasicBlockAddressMap(locked).end()) {
-    getBasicBlockAddressMap(locked)[BB] = Addr;
+    getBasicBlockAddressMap().find(BB);
+  if (I == getBasicBlockAddressMap().end()) {
+    getBasicBlockAddressMap()[BB] = Addr;
   } else {
     // ignore repeats: some BBs can be split into few MBBs?
   }
@@ -547,7 +548,7 @@ void JIT::addPointerToBasicBlock(const BasicBlock *BB, void *Addr) {
 
 void JIT::clearPointerToBasicBlock(const BasicBlock *BB) {
   MutexGuard locked(lock);
-  getBasicBlockAddressMap(locked).erase(BB);
+  getBasicBlockAddressMap().erase(BB);
 }
 
 void *JIT::getPointerToBasicBlock(BasicBlock *BB) {
@@ -558,8 +559,8 @@ void *JIT::getPointerToBasicBlock(BasicBlock *BB) {
   MutexGuard locked(lock);
 
   BasicBlockAddressMapTy::iterator I =
-    getBasicBlockAddressMap(locked).find(BB);
-  if (I != getBasicBlockAddressMap(locked).end()) {
+    getBasicBlockAddressMap().find(BB);
+  if (I != getBasicBlockAddressMap().end()) {
     return I->second;
   } else {
     llvm_unreachable("JIT does not have BB address for address-of-label, was"
@@ -688,7 +689,7 @@ char* JIT::getMemoryForGV(const GlobalVariable* GV) {
 
 void JIT::addPendingFunction(Function *F) {
   MutexGuard locked(lock);
-  jitstate->getPendingFunctions(locked).push_back(F);
+  jitstate->getPendingFunctions().push_back(F);
 }
 
 

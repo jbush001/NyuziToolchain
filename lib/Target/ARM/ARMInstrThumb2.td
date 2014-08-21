@@ -1973,6 +1973,16 @@ def t2SXTAH : T2I_exta_rrot<0b000, "sxtah",
                         BinOpFrag<(add node:$LHS, (sext_inreg node:$RHS,i16))>>;
 def t2SXTAB16 : T2I_exta_rrot_np<0b010, "sxtab16">;
 
+// A simple right-shift can also be used in most cases (the exception is the
+// SXTH operations with a rotate of 24: there the non-contiguous bits are
+// relevant).
+def : Pat<(add rGPR:$Rn, (sext_inreg (srl rGPR:$Rm, rot_imm:$rot), i8)),
+          (t2SXTAB rGPR:$Rn, rGPR:$Rm, rot_imm:$rot)>,
+      Requires<[HasT2ExtractPack, IsThumb2]>;
+def : Pat<(add rGPR:$Rn, (sext_inreg (srl rGPR:$Rm, imm8_or_16:$rot), i16)),
+          (t2SXTAH rGPR:$Rn, rGPR:$Rm, rot_imm:$rot)>,
+      Requires<[HasT2ExtractPack, IsThumb2]>;
+
 // Zero extenders
 
 let AddedComplexity = 16 in {
@@ -1999,7 +2009,15 @@ def t2UXTAB : T2I_exta_rrot<0b101, "uxtab",
 def t2UXTAH : T2I_exta_rrot<0b001, "uxtah",
                            BinOpFrag<(add node:$LHS, (and node:$RHS, 0xFFFF))>>;
 def t2UXTAB16 : T2I_exta_rrot_np<0b011, "uxtab16">;
+
+def : Pat<(add rGPR:$Rn, (and (srl rGPR:$Rm, rot_imm:$rot), 0xFF)),
+          (t2UXTAB rGPR:$Rn, rGPR:$Rm, rot_imm:$rot)>,
+      Requires<[HasT2ExtractPack, IsThumb2]>;
+def : Pat<(add rGPR:$Rn, (and (srl rGPR:$Rm, imm8_or_16:$rot), 0xFFFF)),
+          (t2UXTAH rGPR:$Rn, rGPR:$Rm, rot_imm:$rot)>,
+      Requires<[HasT2ExtractPack, IsThumb2]>;
 }
+
 
 //===----------------------------------------------------------------------===//
 //  Arithmetic Instructions.
@@ -3209,26 +3227,27 @@ def t2MOVCCi32imm
 let hasSideEffects = 1 in {
 def t2DMB : T2I<(outs), (ins memb_opt:$opt), NoItinerary,
                 "dmb", "\t$opt", [(int_arm_dmb (i32 imm0_15:$opt))]>,
-                Requires<[HasDB]> {
+                Requires<[IsThumb, HasDB]> {
   bits<4> opt;
   let Inst{31-4} = 0xf3bf8f5;
   let Inst{3-0} = opt;
 }
-}
 
 def t2DSB : T2I<(outs), (ins memb_opt:$opt), NoItinerary,
                 "dsb", "\t$opt", [(int_arm_dsb (i32 imm0_15:$opt))]>,
-                Requires<[HasDB]> {
+                Requires<[IsThumb, HasDB]> {
   bits<4> opt;
   let Inst{31-4} = 0xf3bf8f4;
   let Inst{3-0} = opt;
 }
 
 def t2ISB : T2I<(outs), (ins instsyncb_opt:$opt), NoItinerary,
-                "isb", "\t$opt", []>, Requires<[HasDB]> {
+                "isb", "\t$opt", [(int_arm_isb (i32 imm0_15:$opt))]>,
+                Requires<[IsThumb, HasDB]> {
   bits<4> opt;
   let Inst{31-4} = 0xf3bf8f6;
   let Inst{3-0} = opt;
+}
 }
 
 class T2I_ldrex<bits<4> opcod, dag oops, dag iops, AddrMode am, int sz,
@@ -3940,10 +3959,10 @@ defm t2LDC   : t2LdStCop<0b1110, 1, 0, "ldc">;
 defm t2LDCL  : t2LdStCop<0b1110, 1, 1, "ldcl">;
 defm t2STC   : t2LdStCop<0b1110, 0, 0, "stc">;
 defm t2STCL  : t2LdStCop<0b1110, 0, 1, "stcl">;
-defm t2LDC2  : t2LdStCop<0b1111, 1, 0, "ldc2">, Requires<[PreV8]>;
-defm t2LDC2L : t2LdStCop<0b1111, 1, 1, "ldc2l">, Requires<[PreV8]>;
-defm t2STC2  : t2LdStCop<0b1111, 0, 0, "stc2">, Requires<[PreV8]>;
-defm t2STC2L : t2LdStCop<0b1111, 0, 1, "stc2l">, Requires<[PreV8]>;
+defm t2LDC2  : t2LdStCop<0b1111, 1, 0, "ldc2">, Requires<[PreV8,IsThumb2]>;
+defm t2LDC2L : t2LdStCop<0b1111, 1, 1, "ldc2l">, Requires<[PreV8,IsThumb2]>;
+defm t2STC2  : t2LdStCop<0b1111, 0, 0, "stc2">, Requires<[PreV8,IsThumb2]>;
+defm t2STC2L : t2LdStCop<0b1111, 0, 1, "stc2l">, Requires<[PreV8,IsThumb2]>;
 
 
 //===----------------------------------------------------------------------===//
@@ -3959,7 +3978,7 @@ def t2MRS_AR : T2I<(outs GPR:$Rd), (ins), NoItinerary, "mrs", "\t$Rd, apsr",
   bits<4> Rd;
   let Inst{31-12} = 0b11110011111011111000;
   let Inst{11-8} = Rd;
-  let Inst{7-0} = 0b0000;
+  let Inst{7-0} = 0b00000000;
 }
 
 def : t2InstAlias<"mrs${p} $Rd, cpsr", (t2MRS_AR GPR:$Rd, pred:$p)>;
@@ -3969,8 +3988,25 @@ def t2MRSsys_AR: T2I<(outs GPR:$Rd), (ins), NoItinerary, "mrs", "\t$Rd, spsr",
   bits<4> Rd;
   let Inst{31-12} = 0b11110011111111111000;
   let Inst{11-8} = Rd;
-  let Inst{7-0} = 0b0000;
+  let Inst{7-0} = 0b00000000;
 }
+
+def t2MRSbanked : T2I<(outs rGPR:$Rd), (ins banked_reg:$banked),
+                      NoItinerary, "mrs", "\t$Rd, $banked", []>,
+                  Requires<[IsThumb, HasVirtualization]> {
+  bits<6> banked;
+  bits<4> Rd;
+
+  let Inst{31-21} = 0b11110011111;
+  let Inst{20} = banked{5}; // R bit
+  let Inst{19-16} = banked{3-0};
+  let Inst{15-12} = 0b1000;
+  let Inst{11-8} = Rd;
+  let Inst{7-5} = 0b001;
+  let Inst{4} = banked{4};
+  let Inst{3-0} = 0b0000;
+}
+
 
 // M class MRS.
 //
@@ -4008,6 +4044,25 @@ def t2MSR_AR : T2I<(outs), (ins msr_mask:$mask, rGPR:$Rn),
   let Inst{11-8}  = mask{3-0};
   let Inst{7-0}   = 0;
 }
+
+// However, the MSR (banked register) system instruction (ARMv7VE) *does* have a
+// separate encoding (distinguished by bit 5.
+def t2MSRbanked : T2I<(outs), (ins banked_reg:$banked, rGPR:$Rn),
+                      NoItinerary, "msr", "\t$banked, $Rn", []>,
+                  Requires<[IsThumb, HasVirtualization]> {
+  bits<6> banked;
+  bits<4> Rn;
+
+  let Inst{31-21} = 0b11110011100;
+  let Inst{20} = banked{5}; // R bit
+  let Inst{19-16} = Rn;
+  let Inst{15-12} = 0b1000;
+  let Inst{11-8} = banked{3-0};
+  let Inst{7-5} = 0b001;
+  let Inst{4} = banked{4};
+  let Inst{3-0} = 0b0000;
+}
+
 
 // M class MSR.
 //

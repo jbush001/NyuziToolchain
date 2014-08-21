@@ -16,15 +16,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_THREADSAFETY_H
-#define LLVM_CLANG_THREADSAFETY_H
+#ifndef LLVM_CLANG_ANALYSIS_ANALYSES_THREADSAFETY_H
+#define LLVM_CLANG_ANALYSIS_ANALYSES_THREADSAFETY_H
 
 #include "clang/Analysis/AnalysisContext.h"
 #include "clang/Basic/SourceLocation.h"
 #include "llvm/ADT/StringRef.h"
 
 namespace clang {
-namespace thread_safety {
+namespace threadSafety {
 
 /// This enum distinguishes between different kinds of operations that may
 /// need to be protected by locks. We use this enum in error handling.
@@ -38,9 +38,9 @@ enum ProtectedOperationKind {
 /// example, it is an error to write a variable protected by shared version of a
 /// mutex.
 enum LockKind {
-  LK_Shared, ///< Shared/reader lock of a mutex.
+  LK_Shared,    ///< Shared/reader lock of a mutex.
   LK_Exclusive, ///< Exclusive/writer lock of a mutex.
-  LK_Generic  ///<  Can be either Shared or Exclusive
+  LK_Generic    ///< Can be either Shared or Exclusive
 };
 
 /// This enum distinguishes between different ways to access (read or write) a
@@ -161,6 +161,16 @@ public:
                                   LockKind LK, SourceLocation Loc,
                                   Name *PossibleMatch = nullptr) {}
 
+  /// Warn when acquiring a lock that the negative capability is not held.
+  /// \param Kind -- the capability's name parameter (role, mutex, etc).
+  /// \param LockName -- The name for the lock expression, to be printed in the
+  /// diagnostic.
+  /// \param Neg -- The name of the negative capability to be printed in the
+  /// diagnostic.
+  /// \param Loc -- The location of the protected operation.
+  virtual void handleNegativeNotHeld(StringRef Kind, Name LockName, Name Neg,
+                                     SourceLocation Loc) {}
+
   /// Warn when a function is called while an excluded mutex is locked. For
   /// example, the mutex may be locked inside the function.
   /// \param Kind -- the capability's name parameter (role, mutex, etc).
@@ -170,6 +180,13 @@ public:
   /// \param Loc -- The location of the function call.
   virtual void handleFunExcludesLock(StringRef Kind, Name FunName,
                                      Name LockName, SourceLocation Loc) {}
+
+  /// Called by the analysis when starting analysis of a function.
+  /// Used to issue suggestions for changes to annotations.
+  virtual void enterFunction(const FunctionDecl *FD) {}
+
+  /// Called by the analysis when finishing analysis of a function.
+  virtual void leaveFunction(const FunctionDecl *FD) {}
 
   bool issueBetaWarnings() { return IssueBetaWarnings; }
   void setIssueBetaWarnings(bool b) { IssueBetaWarnings = b; }
@@ -190,5 +207,5 @@ void runThreadSafetyAnalysis(AnalysisDeclContext &AC,
 /// of access.
 LockKind getLockKindFromAccessKind(AccessKind AK);
 
-}} // end namespace clang::thread_safety
+}} // end namespace clang::threadSafety
 #endif

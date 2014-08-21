@@ -33,6 +33,11 @@
 
 using namespace llvm;
 
+const VectorProcInstrInfo *VectorProcInstrInfo::create(VectorProcSubtarget &ST) {
+	return new VectorProcInstrInfo(ST);
+}
+
+
 VectorProcInstrInfo::VectorProcInstrInfo(VectorProcSubtarget &ST)
     : VectorProcGenInstrInfo(VectorProc::ADJCALLSTACKDOWN,
                              VectorProc::ADJCALLSTACKUP),

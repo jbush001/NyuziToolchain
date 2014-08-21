@@ -17,7 +17,7 @@
 #include "clang/Tooling/CompilationDatabase.h"
 #include "clang/Tooling/Tooling.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/Config/config.h"
+#include "llvm/Config/llvm-config.h"
 #include "gtest/gtest.h"
 #include <string>
 
@@ -28,20 +28,20 @@ namespace {
 /// Takes an ast consumer and returns it from CreateASTConsumer. This only
 /// works with single translation unit compilations.
 class TestAction : public clang::ASTFrontendAction {
- public:
+public:
   /// Takes ownership of TestConsumer.
-  explicit TestAction(clang::ASTConsumer *TestConsumer)
-      : TestConsumer(TestConsumer) {}
+  explicit TestAction(std::unique_ptr<clang::ASTConsumer> TestConsumer)
+      : TestConsumer(std::move(TestConsumer)) {}
 
- protected:
-  virtual clang::ASTConsumer* CreateASTConsumer(
-      clang::CompilerInstance& compiler, StringRef dummy) {
+protected:
+  virtual std::unique_ptr<clang::ASTConsumer>
+  CreateASTConsumer(clang::CompilerInstance &compiler, StringRef dummy) {
     /// TestConsumer will be deleted by the framework calling us.
-    return TestConsumer;
+    return std::move(TestConsumer);
   }
 
- private:
-  clang::ASTConsumer * const TestConsumer;
+private:
+  std::unique_ptr<clang::ASTConsumer> TestConsumer;
 };
 
 class FindTopLevelDeclConsumer : public clang::ASTConsumer {
@@ -59,8 +59,10 @@ class FindTopLevelDeclConsumer : public clang::ASTConsumer {
 
 TEST(runToolOnCode, FindsNoTopLevelDeclOnEmptyCode) {
   bool FoundTopLevelDecl = false;
-  EXPECT_TRUE(runToolOnCode(
-      new TestAction(new FindTopLevelDeclConsumer(&FoundTopLevelDecl)), ""));
+  EXPECT_TRUE(
+      runToolOnCode(new TestAction(llvm::make_unique<FindTopLevelDeclConsumer>(
+                        &FoundTopLevelDecl)),
+                    ""));
   EXPECT_FALSE(FoundTopLevelDecl);
 }
 
@@ -97,13 +99,17 @@ bool FindClassDeclX(ASTUnit *AST) {
 
 TEST(runToolOnCode, FindsClassDecl) {
   bool FoundClassDeclX = false;
-  EXPECT_TRUE(runToolOnCode(new TestAction(
-      new FindClassDeclXConsumer(&FoundClassDeclX)), "class X;"));
+  EXPECT_TRUE(
+      runToolOnCode(new TestAction(llvm::make_unique<FindClassDeclXConsumer>(
+                        &FoundClassDeclX)),
+                    "class X;"));
   EXPECT_TRUE(FoundClassDeclX);
 
   FoundClassDeclX = false;
-  EXPECT_TRUE(runToolOnCode(new TestAction(
-      new FindClassDeclXConsumer(&FoundClassDeclX)), "class Y;"));
+  EXPECT_TRUE(
+      runToolOnCode(new TestAction(llvm::make_unique<FindClassDeclXConsumer>(
+                        &FoundClassDeclX)),
+                    "class Y;"));
   EXPECT_FALSE(FoundClassDeclX);
 }
 
@@ -121,12 +127,12 @@ TEST(newFrontendActionFactory, CreatesFrontendActionFactoryFromType) {
   std::unique_ptr<FrontendActionFactory> Factory(
       newFrontendActionFactory<SyntaxOnlyAction>());
   std::unique_ptr<FrontendAction> Action(Factory->create());
-  EXPECT_TRUE(Action.get() != NULL);
+  EXPECT_TRUE(Action.get() != nullptr);
 }
 
 struct IndependentFrontendActionCreator {
-  ASTConsumer *newASTConsumer() {
-    return new FindTopLevelDeclConsumer(NULL);
+  std::unique_ptr<ASTConsumer> newASTConsumer() {
+    return llvm::make_unique<FindTopLevelDeclConsumer>(nullptr);
   }
 };
 
@@ -135,7 +141,7 @@ TEST(newFrontendActionFactory, CreatesFrontendActionFactoryFromFactoryType) {
   std::unique_ptr<FrontendActionFactory> Factory(
       newFrontendActionFactory(&Creator));
   std::unique_ptr<FrontendAction> Action(Factory->create());
-  EXPECT_TRUE(Action.get() != NULL);
+  EXPECT_TRUE(Action.get() != nullptr);
 }
 
 TEST(ToolInvocation, TestMapVirtualFile) {
@@ -147,7 +153,7 @@ TEST(ToolInvocation, TestMapVirtualFile) {
   Args.push_back("-fsyntax-only");
   Args.push_back("test.cpp");
   clang::tooling::ToolInvocation Invocation(Args, new SyntaxOnlyAction,
-                                            Files.getPtr());
+                                            Files.get());
   Invocation.mapVirtualFile("test.cpp", "#include <abc>\n");
   Invocation.mapVirtualFile("def/abc", "\n");
   EXPECT_TRUE(Invocation.run());
@@ -166,7 +172,7 @@ TEST(ToolInvocation, TestVirtualModulesCompilation) {
   Args.push_back("-fsyntax-only");
   Args.push_back("test.cpp");
   clang::tooling::ToolInvocation Invocation(Args, new SyntaxOnlyAction,
-                                            Files.getPtr());
+                                            Files.get());
   Invocation.mapVirtualFile("test.cpp", "#include <abc>\n");
   Invocation.mapVirtualFile("def/abc", "\n");
   // Add a module.map file in the include directory of our header, so we trigger
@@ -185,8 +191,8 @@ struct VerifyEndCallback : public SourceFileCallbacks {
   virtual void handleEndSource() {
     ++EndCalled;
   }
-  ASTConsumer *newASTConsumer() {
-    return new FindTopLevelDeclConsumer(&Matched);
+  std::unique_ptr<ASTConsumer> newASTConsumer() {
+    return llvm::make_unique<FindTopLevelDeclConsumer>(&Matched);
   }
   unsigned BeginCalled;
   unsigned EndCalled;
@@ -225,10 +231,10 @@ struct SkipBodyConsumer : public clang::ASTConsumer {
 };
 
 struct SkipBodyAction : public clang::ASTFrontendAction {
-  virtual ASTConsumer *CreateASTConsumer(CompilerInstance &Compiler,
-                                         StringRef) {
+  virtual std::unique_ptr<ASTConsumer>
+  CreateASTConsumer(CompilerInstance &Compiler, StringRef) {
     Compiler.getFrontendOpts().SkipFunctionBodies = true;
-    return new SkipBodyConsumer;
+    return llvm::make_unique<SkipBodyConsumer>();
   }
 };
 

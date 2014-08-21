@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_CXTRANSLATIONUNIT_H
-#define LLVM_CLANG_CXTRANSLATIONUNIT_H
+#ifndef LLVM_CLANG_TOOLS_LIBCLANG_CXTRANSLATIONUNIT_H
+#define LLVM_CLANG_TOOLS_LIBCLANG_CXTRANSLATIONUNIT_H
 
 #include "CLog.h"
 #include "CXString.h"
@@ -42,7 +42,7 @@ CXTranslationUnitImpl *MakeCXTranslationUnit(CIndexer *CIdx, ASTUnit *AU);
 
 static inline ASTUnit *getASTUnit(CXTranslationUnit TU) {
   if (!TU)
-    return 0;
+    return nullptr;
   return TU->TheASTUnit;
 }
 
@@ -72,7 +72,7 @@ public:
 
   CXTranslationUnitImpl *takeTU() {
     CXTranslationUnitImpl *retTU = TU;
-    TU = 0;
+    TU = nullptr;
     return retTU;
   }
 };

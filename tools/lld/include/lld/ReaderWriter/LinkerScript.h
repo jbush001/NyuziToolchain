@@ -17,15 +17,13 @@
 
 #include "lld/Core/LLVM.h"
 #include "lld/Core/range.h"
-
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/system_error.h"
-
 #include <memory>
+#include <system_error>
 #include <vector>
 
 namespace lld {
@@ -36,6 +34,7 @@ public:
     unknown,
     eof,
     identifier,
+    libname,
     comma,
     l_paren,
     r_paren,
@@ -107,10 +106,12 @@ public:
 
   void dump(raw_ostream &os) const override {
     os << "OUTPUT_FORMAT(";
-    for (auto fb = _formats.begin(), fe = _formats.end(); fb != fe; ++fb) {
-      if (fb != _formats.begin())
+    bool first = true;
+    for (StringRef format : _formats) {
+      if (!first)
         os << ",";
-      os << *fb;
+      first = false;
+      os << format;
     }
     os << ")\n";
   }
@@ -145,19 +146,18 @@ private:
 struct Path {
   StringRef _path;
   bool _asNeeded;
+  bool _isDashlPrefix;
 
-  Path() : _asNeeded(false) {}
-  explicit Path(StringRef path, bool asNeeded = false)
-      : _path(path), _asNeeded(asNeeded) {}
+  Path() : _asNeeded(false), _isDashlPrefix(false) {}
+  explicit Path(StringRef path, bool asNeeded = false, bool isLib = false)
+      : _path(path), _asNeeded(asNeeded), _isDashlPrefix(isLib) {}
 };
 
 class Group : public Command {
 public:
   template <class RangeT>
   explicit Group(RangeT range) : Command(Kind::Group) {
-    using std::begin;
-    using std::end;
-    std::copy(begin(range), end(range), std::back_inserter(_paths));
+    std::copy(std::begin(range), std::end(range), std::back_inserter(_paths));
   }
 
   static bool classof(const Command *c) { return c->getKind() == Kind::Group; }
@@ -168,10 +168,11 @@ public:
     for (const Path &path : getPaths()) {
       if (!first)
         os << " ";
-      else
-        first = false;
+      first = false;
       if (path._asNeeded)
         os << "AS_NEEDED(";
+      if (path._isDashlPrefix)
+        os << "-l";
       os << path._path;
       if (path._asNeeded)
         os << ")";

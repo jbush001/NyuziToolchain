@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_TOOLS_READOBJ_WIN64EHPRINTER_H
-#define LLVM_TOOLS_READOBJ_WIN64EHPRINTER_H
+#ifndef LLVM_TOOLS_LLVM_READOBJ_WIN64EHDUMPER_H
+#define LLVM_TOOLS_LLVM_READOBJ_WIN64EHDUMPER_H
 
 #include "StreamWriter.h"
 #include "llvm/Support/Win64EH.h"
@@ -26,8 +26,9 @@ class Dumper {
   raw_ostream &OS;
 
 public:
-  typedef error_code (*SymbolResolver)(const object::coff_section *, uint64_t,
-                                       object::SymbolRef &, void *);
+  typedef std::error_code (*SymbolResolver)(const object::coff_section *,
+                                            uint64_t, object::SymbolRef &,
+                                            void *);
 
   struct Context {
     const object::COFFObjectFile &COFF;

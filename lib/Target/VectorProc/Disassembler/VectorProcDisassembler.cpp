@@ -38,6 +38,7 @@ public:
   ///
   VectorProcDisassembler(const MCSubtargetInfo &STI, MCContext &Ctx, const MCRegisterInfo *Info)
       : MCDisassembler(STI, Ctx), RegInfo(Info) {}
+  ~VectorProcDisassembler() {}
 
   const MCRegisterInfo *getRegInfo() const { return RegInfo; }
 

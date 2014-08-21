@@ -19,5 +19,5 @@
 type = Library
 name = VectorProcDisassembler
 parent = VectorProc
-required_libraries = MC Support VectorProcInfo
+required_libraries = MCDisassembler VectorProcInfo Support 
 add_to_library_groups = VectorProc

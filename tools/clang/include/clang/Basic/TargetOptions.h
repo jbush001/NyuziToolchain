@@ -12,18 +12,16 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_FRONTEND_TARGETOPTIONS_H
-#define LLVM_CLANG_FRONTEND_TARGETOPTIONS_H
+#ifndef LLVM_CLANG_BASIC_TARGETOPTIONS_H
+#define LLVM_CLANG_BASIC_TARGETOPTIONS_H
 
-#include "clang/Basic/LLVM.h"
-#include "llvm/ADT/IntrusiveRefCntPtr.h"
 #include <string>
 #include <vector>
 
 namespace clang {
 
 /// \brief Options for controlling the target.
-class TargetOptions : public RefCountedBase<TargetOptions> {
+class TargetOptions {
 public:
   /// If given, the name of the target triple to compile for. If not given the
   /// target will be selected to match the host.

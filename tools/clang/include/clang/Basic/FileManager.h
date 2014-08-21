@@ -12,8 +12,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_FILEMANAGER_H
-#define LLVM_CLANG_FILEMANAGER_H
+#ifndef LLVM_CLANG_BASIC_FILEMANAGER_H
+#define LLVM_CLANG_BASIC_FILEMANAGER_H
 
 #include "clang/Basic/FileSystemOptions.h"
 #include "clang/Basic/LLVM.h"
@@ -74,7 +74,7 @@ class FileEntry {
   friend class FileManager;
 
   void closeFile() const {
-    File.reset(nullptr); // rely on destructor to close File
+    File.reset(); // rely on destructor to close File
   }
 
   void operator=(const FileEntry &) LLVM_DELETED_FUNCTION;
@@ -172,7 +172,7 @@ class FileManager : public RefCountedBase<FileManager> {
   std::unique_ptr<FileSystemStatCache> StatCache;
 
   bool getStatValue(const char *Path, FileData &Data, bool isFile,
-                    vfs::File **F);
+                    std::unique_ptr<vfs::File> *F);
 
   /// Add all ancestors of the given path (pointing to either a file
   /// or a directory) as virtual directories.
@@ -194,7 +194,8 @@ public:
   /// \param AtBeginning whether this new stat cache must be installed at the
   /// beginning of the chain of stat caches. Otherwise, it will be added to
   /// the end of the chain.
-  void addStatCache(FileSystemStatCache *statCache, bool AtBeginning = false);
+  void addStatCache(std::unique_ptr<FileSystemStatCache> statCache,
+                    bool AtBeginning = false);
 
   /// \brief Removes the specified FileSystemStatCache object from the manager.
   void removeStatCache(FileSystemStatCache *statCache);
@@ -242,7 +243,8 @@ public:
   /// MemoryBuffer if successful, otherwise returning null.
   llvm::MemoryBuffer *getBufferForFile(const FileEntry *Entry,
                                        std::string *ErrorStr = nullptr,
-                                       bool isVolatile = false);
+                                       bool isVolatile = false,
+                                       bool ShouldCloseOpenFile = true);
   llvm::MemoryBuffer *getBufferForFile(StringRef Filename,
                                        std::string *ErrorStr = nullptr);
 

@@ -13,15 +13,14 @@
 #include "IdataPass.h"
 #include "LinkerGeneratedSymbolFile.h"
 #include "LoadConfigPass.h"
-#include "SetSubsystemPass.h"
 
 #include "lld/Core/PassManager.h"
+#include "lld/Core/Simple.h"
 #include "lld/Passes/LayoutPass.h"
 #include "lld/Passes/RoundTripNativePass.h"
 #include "lld/Passes/RoundTripYAMLPass.h"
 #include "lld/ReaderWriter/PECOFFLinkingContext.h"
 #include "lld/ReaderWriter/Reader.h"
-#include "lld/ReaderWriter/Simple.h"
 #include "lld/ReaderWriter/Writer.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/Allocator.h"
@@ -101,20 +100,6 @@ std::unique_ptr<File> PECOFFLinkingContext::createUndefinedSymbolFile() const {
       "<command line option /include>");
 }
 
-namespace {
-// As per policy, we cannot use std::function.
-class ObserverCallback {
-public:
-  explicit ObserverCallback(pecoff::ExportedSymbolRenameFile *f)
-      : _renameFile(f) {}
-
-  void operator()(File *file) { _renameFile->addResolvableSymbols(file); }
-
-private:
-  pecoff::ExportedSymbolRenameFile *_renameFile;
-};
-} // end anonymous namespace
-
 bool PECOFFLinkingContext::createImplicitFiles(
     std::vector<std::unique_ptr<File>> &) const {
   // Create a file for __ImageBase.
@@ -123,24 +108,27 @@ bool PECOFFLinkingContext::createImplicitFiles(
   std::unique_ptr<File> linkerGeneratedSymFile(
       new pecoff::LinkerGeneratedSymbolFile(*this));
   fileNode->appendInputFile(std::move(linkerGeneratedSymFile));
-  getInputGraph().insertElementAt(std::move(fileNode),
-                                  InputGraph::Position::END);
+  getInputGraph().addInputElement(std::move(fileNode));
 
   // Create a file for _imp_ symbols.
   std::unique_ptr<SimpleFileNode> impFileNode(new SimpleFileNode("imp"));
   impFileNode->appendInputFile(
       std::unique_ptr<File>(new pecoff::LocallyImportedSymbolFile(*this)));
-  getInputGraph().insertElementAt(std::move(impFileNode),
-                                  InputGraph::Position::END);
+  getInputGraph().addInputElement(std::move(impFileNode));
+
+  std::shared_ptr<pecoff::ResolvableSymbols> syms(
+      new pecoff::ResolvableSymbols());
+  getInputGraph().registerObserver([=](File *file) { syms->add(file); });
 
   // Create a file for dllexported symbols.
   std::unique_ptr<SimpleFileNode> exportNode(new SimpleFileNode("<export>"));
-  pecoff::ExportedSymbolRenameFile *renameFile =
-      new pecoff::ExportedSymbolRenameFile(*this);
+  auto *renameFile = new pecoff::ExportedSymbolRenameFile(*this, syms);
   exportNode->appendInputFile(std::unique_ptr<File>(renameFile));
   getLibraryGroup()->addFile(std::move(exportNode));
-  getInputGraph().registerObserver(
-      *(new (_allocator) ObserverCallback(renameFile)));
+
+  // Create a file for the entry point function.
+  getEntryNode()->appendInputFile(
+      std::unique_ptr<File>(new pecoff::EntryPointFile(*this, syms)));
   return true;
 }
 
@@ -309,7 +297,6 @@ std::string PECOFFLinkingContext::getOutputImportLibraryPath() const {
 }
 
 void PECOFFLinkingContext::addPasses(PassManager &pm) {
-  pm.add(std::unique_ptr<Pass>(new pecoff::SetSubsystemPass(*this)));
   pm.add(std::unique_ptr<Pass>(new pecoff::EdataPass(*this)));
   pm.add(std::unique_ptr<Pass>(new pecoff::IdataPass(*this)));
   pm.add(std::unique_ptr<Pass>(new LayoutPass(registry())));

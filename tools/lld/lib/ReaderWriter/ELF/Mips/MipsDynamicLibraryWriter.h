@@ -22,7 +22,7 @@ template <typename ELFT> class MipsTargetLayout;
 template <class ELFT>
 class MipsDynamicLibraryWriter : public DynamicLibraryWriter<ELFT> {
 public:
-  MipsDynamicLibraryWriter(MipsLinkingContext &context,
+  MipsDynamicLibraryWriter(MipsLinkingContext &ctx,
                            MipsTargetLayout<ELFT> &layout);
 
 protected:
@@ -31,10 +31,18 @@ protected:
 
   void finalizeDefaultAtomValues() override;
 
-  error_code setELFHeader() override {
+  std::error_code setELFHeader() override {
     DynamicLibraryWriter<ELFT>::setELFHeader();
     _writeHelper.setELFHeader(*this->_elfHeader);
-    return error_code();
+    return std::error_code();
+  }
+
+  bool isDynSymEntryRequired(const SharedLibraryAtom *sla) const override {
+    return _writeHelper.isDynSymEntryRequired(sla);
+  }
+
+  bool isNeededTagRequired(const SharedLibraryAtom *sla) const override {
+    return _writeHelper.isNeededTagRequired(sla);
   }
 
   LLD_UNIQUE_BUMP_PTR(DynamicTable<ELFT>) createDynamicTable();
@@ -49,10 +57,9 @@ private:
 
 template <class ELFT>
 MipsDynamicLibraryWriter<ELFT>::MipsDynamicLibraryWriter(
-    MipsLinkingContext &context, MipsTargetLayout<ELFT> &layout)
-    : DynamicLibraryWriter<ELFT>(context, layout),
-      _writeHelper(context, layout),
-      _mipsContext(context), _mipsTargetLayout(layout) {}
+    MipsLinkingContext &ctx, MipsTargetLayout<ELFT> &layout)
+    : DynamicLibraryWriter<ELFT>(ctx, layout), _writeHelper(ctx, layout),
+      _mipsContext(ctx), _mipsTargetLayout(layout) {}
 
 template <class ELFT>
 bool MipsDynamicLibraryWriter<ELFT>::createImplicitFiles(

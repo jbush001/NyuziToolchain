@@ -619,7 +619,7 @@ public:
   /// constant.
   bool EvaluateWithSubstitution(APValue &Value, ASTContext &Ctx,
                                 const FunctionDecl *Callee,
-                                llvm::ArrayRef<const Expr*> Args) const;
+                                ArrayRef<const Expr*> Args) const;
 
   /// \brief Enumeration used to describe the kind of Null pointer constant
   /// returned from \c isNullPointerConstant().
@@ -2212,11 +2212,11 @@ public:
   /// getArg - Return the specified argument.
   Expr *getArg(unsigned Arg) {
     assert(Arg < NumArgs && "Arg access out of range!");
-    return cast<Expr>(SubExprs[Arg+getNumPreArgs()+PREARGS_START]);
+    return cast_or_null<Expr>(SubExprs[Arg + getNumPreArgs() + PREARGS_START]);
   }
   const Expr *getArg(unsigned Arg) const {
     assert(Arg < NumArgs && "Arg access out of range!");
-    return cast<Expr>(SubExprs[Arg+getNumPreArgs()+PREARGS_START]);
+    return cast_or_null<Expr>(SubExprs[Arg + getNumPreArgs() + PREARGS_START]);
   }
 
   /// setArg - Set the specified argument.
@@ -3909,6 +3909,7 @@ public:
 
   // Iterators
   child_range children() {
+    // FIXME: This does not include the array filler expression.
     if (InitExprs.empty()) return child_range();
     return child_range(&InitExprs[0], &InitExprs[0] + InitExprs.size());
   }
@@ -4164,6 +4165,17 @@ public:
   const_designators_iterator designators_begin() const { return Designators; }
   const_designators_iterator designators_end() const {
     return Designators + NumDesignators;
+  }
+
+  typedef llvm::iterator_range<designators_iterator> designators_range;
+  designators_range designators() {
+    return designators_range(designators_begin(), designators_end());
+  }
+
+  typedef llvm::iterator_range<const_designators_iterator>
+          designators_const_range;
+  designators_const_range designators() const {
+    return designators_const_range(designators_begin(), designators_end());
   }
 
   typedef std::reverse_iterator<designators_iterator>

@@ -14,6 +14,7 @@ target_link_libraries(lldELF
   lldX86ELFTarget
   lldVectorProcELFTarget
   lldX86_64ELFTarget
+  lldAArch64ELFTarget
   )
 
 include_directories(.)

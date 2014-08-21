@@ -13,7 +13,7 @@
 #include "TargetHandler.h"
 
 #include "lld/Core/LLVM.h"
-#include "lld/ReaderWriter/Simple.h"
+#include "lld/Core/Simple.h"
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -678,6 +678,11 @@ public:
   void addReferenceELF_Mips(uint16_t relocType, uint64_t off, const Atom *t,
                             Reference::Addend a) {
     this->addReferenceELF(Reference::KindArch::Mips, relocType, off, t, a);
+  }
+
+  void addReferenceELF_AArch64(uint16_t relocType, uint64_t off, const Atom *t,
+                               Reference::Addend a) {
+    this->addReferenceELF(Reference::KindArch::AArch64, relocType, off, t, a);
   }
 };
 

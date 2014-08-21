@@ -25,15 +25,12 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/system_error.h"
 #include <map>
 #include <set>
 #include <string>
+#include <system_error>
 
 using namespace clang;
-
-// FIXME: Enhance libsystem to support inode and other fields.
-#include <sys/stat.h>
 
 /// NON_EXISTENT_DIR - A special value distinct from null that is used to
 /// represent a dir name that doesn't exist on the disk.
@@ -67,20 +64,20 @@ FileManager::~FileManager() {
     delete VirtualDirectoryEntries[i];
 }
 
-void FileManager::addStatCache(FileSystemStatCache *statCache,
+void FileManager::addStatCache(std::unique_ptr<FileSystemStatCache> statCache,
                                bool AtBeginning) {
   assert(statCache && "No stat cache provided?");
   if (AtBeginning || !StatCache.get()) {
-    statCache->setNextStatCache(StatCache.release());
-    StatCache.reset(statCache);
+    statCache->setNextStatCache(std::move(StatCache));
+    StatCache = std::move(statCache);
     return;
   }
   
   FileSystemStatCache *LastCache = StatCache.get();
   while (LastCache->getNextStatCache())
     LastCache = LastCache->getNextStatCache();
-  
-  LastCache->setNextStatCache(statCache);
+
+  LastCache->setNextStatCache(std::move(statCache));
 }
 
 void FileManager::removeStatCache(FileSystemStatCache *statCache) {
@@ -89,7 +86,7 @@ void FileManager::removeStatCache(FileSystemStatCache *statCache) {
   
   if (StatCache.get() == statCache) {
     // This is the first stat cache.
-    StatCache.reset(StatCache->takeNextStatCache());
+    StatCache = StatCache->takeNextStatCache();
     return;
   }
   
@@ -99,11 +96,11 @@ void FileManager::removeStatCache(FileSystemStatCache *statCache) {
     PrevCache = PrevCache->getNextStatCache();
   
   assert(PrevCache && "Stat cache not found for removal");
-  PrevCache->setNextStatCache(statCache->getNextStatCache());
+  PrevCache->setNextStatCache(statCache->takeNextStatCache());
 }
 
 void FileManager::clearStatCaches() {
-  StatCache.reset(nullptr);
+  StatCache.reset();
 }
 
 /// \brief Retrieve the directory that the given file name resides in.
@@ -256,7 +253,7 @@ const FileEntry *FileManager::getFile(StringRef Filename, bool openFile,
   // FIXME: This will reduce the # syscalls.
 
   // Nope, there isn't.  Check to see if the file exists.
-  vfs::File *F = nullptr;
+  std::unique_ptr<vfs::File> F;
   FileData Data;
   if (getStatValue(InterndFileName, Data, true, openFile ? &F : nullptr)) {
     // There's no real file at the given path.
@@ -284,9 +281,12 @@ const FileEntry *FileManager::getFile(StringRef Filename, bool openFile,
     if (DirInfo != UFE.Dir && Data.IsVFSMapped)
       UFE.Dir = DirInfo;
 
-    // If the stat process opened the file, close it to avoid a FD leak.
-    if (F)
-      delete F;
+    // Always update the name to use the last name by which a file was accessed.
+    // FIXME: Neither this nor always using the first name is correct; we want
+    // to switch towards a design where we return a FileName object that
+    // encapsulates both the name by which the file was accessed and the
+    // corresponding FileEntry.
+    UFE.Name = Data.Name;
 
     return &UFE;
   }
@@ -300,7 +300,7 @@ const FileEntry *FileManager::getFile(StringRef Filename, bool openFile,
   UFE.UniqueID = Data.UniqueID;
   UFE.IsNamedPipe = Data.IsNamedPipe;
   UFE.InPCH = Data.InPCH;
-  UFE.File.reset(F);
+  UFE.File = std::move(F);
   UFE.IsValid = true;
   return &UFE;
 }
@@ -388,9 +388,9 @@ void FileManager::FixupRelativePath(SmallVectorImpl<char> &path) const {
 
 llvm::MemoryBuffer *FileManager::
 getBufferForFile(const FileEntry *Entry, std::string *ErrorStr,
-                 bool isVolatile) {
+                 bool isVolatile, bool ShouldCloseOpenFile) {
   std::unique_ptr<llvm::MemoryBuffer> Result;
-  llvm::error_code ec;
+  std::error_code ec;
 
   uint64_t FileSize = Entry->getSize();
   // If there's a high enough chance that the file have changed since we
@@ -405,7 +405,10 @@ getBufferForFile(const FileEntry *Entry, std::string *ErrorStr,
                                 /*RequiresNullTerminator=*/true, isVolatile);
     if (ErrorStr)
       *ErrorStr = ec.message();
-    Entry->closeFile();
+    // FIXME: we need a set of APIs that can make guarantees about whether a
+    // FileEntry is open or not.
+    if (ShouldCloseOpenFile)
+      Entry->closeFile();
     return Result.release();
   }
 
@@ -431,7 +434,7 @@ getBufferForFile(const FileEntry *Entry, std::string *ErrorStr,
 llvm::MemoryBuffer *FileManager::
 getBufferForFile(StringRef Filename, std::string *ErrorStr) {
   std::unique_ptr<llvm::MemoryBuffer> Result;
-  llvm::error_code ec;
+  std::error_code ec;
   if (FileSystemOpts.WorkingDir.empty()) {
     ec = FS->getBufferForFile(Filename, Result);
     if (ec && ErrorStr)
@@ -453,7 +456,7 @@ getBufferForFile(StringRef Filename, std::string *ErrorStr) {
 /// false if it's an existent real file.  If FileDescriptor is NULL,
 /// do directory look-up instead of file look-up.
 bool FileManager::getStatValue(const char *Path, FileData &Data, bool isFile,
-                               vfs::File **F) {
+                               std::unique_ptr<vfs::File> *F) {
   // FIXME: FileSystemOpts shouldn't be passed in here, all paths should be
   // absolute!
   if (FileSystemOpts.WorkingDir.empty())

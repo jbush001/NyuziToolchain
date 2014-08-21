@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MIPSMCEXPR_H
-#define MIPSMCEXPR_H
+#ifndef LLVM_LIB_TARGET_MIPS_MCTARGETDESC_MIPSMCEXPR_H
+#define LLVM_LIB_TARGET_MIPS_MCTARGETDESC_MIPSMCEXPR_H
 
 #include "llvm/MC/MCAsmLayout.h"
 #include "llvm/MC/MCExpr.h"
@@ -48,8 +48,9 @@ public:
 
   void PrintImpl(raw_ostream &OS) const override;
   bool EvaluateAsRelocatableImpl(MCValue &Res,
-                                 const MCAsmLayout *Layout) const override;
-  void AddValueSymbols(MCAssembler *) const override;
+                                 const MCAsmLayout *Layout,
+                                 const MCFixup *Fixup) const override;
+  void visitUsedExpr(MCStreamer &Streamer) const override;
   const MCSection *FindAssociatedSection() const override {
     return getSubExpr()->FindAssociatedSection();
   }

@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_FRONTEND_AST_READER_H
-#define LLVM_CLANG_FRONTEND_AST_READER_H
+#ifndef LLVM_CLANG_SERIALIZATION_ASTREADER_H
+#define LLVM_CLANG_SERIALIZATION_ASTREADER_H
 
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclarationName.h"
@@ -46,7 +46,6 @@
 #include <map>
 #include <memory>
 #include <string>
-#include <sys/stat.h>
 #include <utility>
 #include <vector>
 
@@ -203,8 +202,9 @@ class ChainedASTReaderListener : public ASTReaderListener {
 
 public:
   /// Takes ownership of \p First and \p Second.
-  ChainedASTReaderListener(ASTReaderListener *First, ASTReaderListener *Second)
-      : First(First), Second(Second) { }
+  ChainedASTReaderListener(std::unique_ptr<ASTReaderListener> First,
+                           std::unique_ptr<ASTReaderListener> Second)
+      : First(std::move(First)), Second(std::move(Second)) {}
 
   bool ReadFullVersionInformation(StringRef FullVersion) override;
   void ReadModuleName(StringRef ModuleName) override;
@@ -1117,6 +1117,9 @@ private:
   bool ReadSourceManagerBlock(ModuleFile &F);
   llvm::BitstreamCursor &SLocCursorForID(int ID);
   SourceLocation getImportLocation(ModuleFile *F);
+  ASTReadResult ReadModuleMapFileBlock(RecordData &Record, ModuleFile &F,
+                                       const ModuleFile *ImportedBy,
+                                       unsigned ClientLoadCapabilities);
   ASTReadResult ReadSubmoduleBlock(ModuleFile &F,
                                    unsigned ClientLoadCapabilities);
   static bool ParseLanguageOptions(const RecordData &Record, bool Complain,
@@ -1143,7 +1146,7 @@ private:
   QualType readTypeRecord(unsigned Index);
   void readExceptionSpec(ModuleFile &ModuleFile,
                          SmallVectorImpl<QualType> &ExceptionStorage,
-                         FunctionProtoType::ExtProtoInfo &EPI,
+                         FunctionProtoType::ExceptionSpecInfo &ESI,
                          const RecordData &Record, unsigned &Index);
   RecordLocation TypeCursorForIndex(unsigned Index);
   void LoadedDecl(unsigned Index, Decl *D);
@@ -1246,6 +1249,7 @@ private:
   void PassInterestingDeclToConsumer(Decl *D);
 
   void finishPendingActions();
+  void diagnoseOdrViolations();
 
   void pushExternalDeclIntoScope(NamedDecl *D, DeclarationName Name);
 
@@ -1367,20 +1371,22 @@ public:
                          bool Complain);
 
   /// \brief Make the names within this set of hidden names visible.
-  void makeNamesVisible(const HiddenNames &Names, Module *Owner);
+  void makeNamesVisible(const HiddenNames &Names, Module *Owner,
+                        bool FromFinalization);
 
   /// \brief Set the AST callbacks listener.
-  void setListener(ASTReaderListener *listener) {
-    Listener.reset(listener);
+  void setListener(std::unique_ptr<ASTReaderListener> Listener) {
+    this->Listener = std::move(Listener);
   }
 
   /// \brief Add an AST callbak listener.
   ///
   /// Takes ownership of \p L.
-  void addListener(ASTReaderListener *L) {
+  void addListener(std::unique_ptr<ASTReaderListener> L) {
     if (Listener)
-      L = new ChainedASTReaderListener(L, Listener.release());
-    Listener.reset(L);
+      L = llvm::make_unique<ChainedASTReaderListener>(std::move(L),
+                                                      std::move(Listener));
+    Listener = std::move(L);
   }
 
   /// \brief Set the AST deserialization listener.
@@ -1412,8 +1418,9 @@ public:
   void UpdateSema();
 
   /// \brief Add in-memory (virtual file) buffer.
-  void addInMemoryBuffer(StringRef &FileName, llvm::MemoryBuffer *Buffer) {
-    ModuleMgr.addInMemoryBuffer(FileName, Buffer);
+  void addInMemoryBuffer(StringRef &FileName,
+                         std::unique_ptr<llvm::MemoryBuffer> Buffer) {
+    ModuleMgr.addInMemoryBuffer(FileName, std::move(Buffer));
   }
 
   /// \brief Finalizes the AST reader's state before writing an AST file to
@@ -1838,12 +1845,13 @@ public:
   llvm::DenseMap<IdentifierInfo*, AmbiguousMacros> AmbiguousMacroDefs;
 
   void
-  removeOverriddenMacros(IdentifierInfo *II, AmbiguousMacros &Ambig,
-                         llvm::ArrayRef<serialization::SubmoduleID> Overrides);
+  removeOverriddenMacros(IdentifierInfo *II, SourceLocation Loc,
+                         AmbiguousMacros &Ambig,
+                         ArrayRef<serialization::SubmoduleID> Overrides);
 
   AmbiguousMacros *
-  removeOverriddenMacros(IdentifierInfo *II,
-                         llvm::ArrayRef<serialization::SubmoduleID> Overrides);
+  removeOverriddenMacros(IdentifierInfo *II, SourceLocation Loc,
+                         ArrayRef<serialization::SubmoduleID> Overrides);
 
   /// \brief Retrieve the macro with the given ID.
   MacroInfo *getMacro(serialization::MacroID ID);
@@ -2024,7 +2032,7 @@ public:
   void addPendingMacroFromModule(IdentifierInfo *II,
                                  ModuleFile *M,
                                  serialization::GlobalMacroID GMacID,
-                                 llvm::ArrayRef<serialization::SubmoduleID>);
+                                 ArrayRef<serialization::SubmoduleID>);
 
   /// \brief Add a macro to deserialize its macro directive history from a PCH.
   ///

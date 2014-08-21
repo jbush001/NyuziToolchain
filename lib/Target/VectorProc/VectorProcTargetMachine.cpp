@@ -30,9 +30,7 @@ VectorProcTargetMachine::VectorProcTargetMachine(const Target &T, StringRef TT,
                                                  CodeModel::Model CM,
                                                  CodeGenOpt::Level OL)
     : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
-      Subtarget(TT, CPU, FS), DL(Subtarget.getDataLayout()),
-      InstrInfo(Subtarget), TLInfo(*this), TSInfo(*this),
-      FrameLowering(Subtarget) {
+      Subtarget(TT, CPU, FS, this) {
   initAsmInfo();
 }
 

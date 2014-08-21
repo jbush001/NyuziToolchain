@@ -11,11 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MIPS_MACHINE_FUNCTION_INFO_H
-#define MIPS_MACHINE_FUNCTION_INFO_H
+#ifndef LLVM_LIB_TARGET_MIPS_MIPSMACHINEFUNCTION_H
+#define LLVM_LIB_TARGET_MIPS_MIPSMACHINEFUNCTION_H
 
 #include "Mips16HardFloatInfo.h"
-#include "MipsSubtarget.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -55,7 +54,8 @@ class MipsFunctionInfo : public MachineFunctionInfo {
 public:
   MipsFunctionInfo(MachineFunction &MF)
       : MF(MF), SRetReturnReg(0), GlobalBaseReg(0), Mips16SPAliasReg(0),
-        VarArgsFrameIndex(0), CallsEhReturn(false), SaveS2(false) {}
+        VarArgsFrameIndex(0), CallsEhReturn(false), SaveS2(false),
+        MoveF64ViaSpillFI(-1) {}
 
   ~MipsFunctionInfo();
 
@@ -97,6 +97,8 @@ public:
   void setSaveS2() { SaveS2 = true; }
   bool hasSaveS2() const { return SaveS2; }
 
+  int getMoveF64ViaSpillFI(const TargetRegisterClass *RC);
+
   std::map<const char *, const llvm::Mips16HardFloatInfo::FuncSignature *>
   StubsNeeded;
 
@@ -137,6 +139,10 @@ private:
   // saveS2
   bool SaveS2;
 
+  /// FrameIndex for expanding BuildPairF64 nodes to spill and reload when the
+  /// O32 FPXX ABI is enabled. -1 is used to denote invalid index.
+  int MoveF64ViaSpillFI;
+
   /// MipsCallEntry maps.
   StringMap<const MipsCallEntry *> ExternalCallEntries;
   ValueMap<const GlobalValue *, const MipsCallEntry *> GlobalCallEntries;
@@ -144,4 +150,4 @@ private:
 
 } // end of namespace llvm
 
-#endif // MIPS_MACHINE_FUNCTION_INFO_H
+#endif

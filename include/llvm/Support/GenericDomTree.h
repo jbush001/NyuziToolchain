@@ -15,8 +15,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_SUPPORT_GENERIC_DOM_TREE_H
-#define LLVM_SUPPORT_GENERIC_DOM_TREE_H
+#ifndef LLVM_SUPPORT_GENERICDOMTREE_H
+#define LLVM_SUPPORT_GENERICDOMTREE_H
 
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DepthFirstIterator.h"
@@ -328,6 +328,10 @@ public:
   ///
   inline DomTreeNodeBase<NodeT> *getNode(NodeT *BB) const {
     return DomTreeNodes.lookup(BB);
+  }
+
+  inline DomTreeNodeBase<NodeT> *operator[](NodeT *BB) const {
+    return getNode(BB);
   }
 
   /// getRootNode - This returns the entry node for the CFG of the function.  If

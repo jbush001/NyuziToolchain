@@ -22,7 +22,7 @@ class VectorProcTargetRelocationHandler final
     : public TargetRelocationHandler<VectorProcELFType> {
 public:
   VectorProcTargetRelocationHandler(const VectorProcLinkingContext &context) {}
-  virtual error_code applyRelocation(ELFWriter &, llvm::FileOutputBuffer &,
+  virtual std::error_code applyRelocation(ELFWriter &, llvm::FileOutputBuffer &,
                                         const lld::AtomLayout &,
                                         const Reference &)const;
 };

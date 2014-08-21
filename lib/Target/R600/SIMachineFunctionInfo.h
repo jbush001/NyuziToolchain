@@ -12,8 +12,8 @@
 //===----------------------------------------------------------------------===//
 
 
-#ifndef SIMACHINEFUNCTIONINFO_H_
-#define SIMACHINEFUNCTIONINFO_H_
+#ifndef LLVM_LIB_TARGET_R600_SIMACHINEFUNCTIONINFO_H
+#define LLVM_LIB_TARGET_R600_SIMACHINEFUNCTIONINFO_H
 
 #include "AMDGPUMachineFunction.h"
 #include <map>
@@ -59,9 +59,10 @@ public:
   SIMachineFunctionInfo(const MachineFunction &MF);
   unsigned PSInputAddr;
   struct RegSpillTracker SpillTracker;
+  unsigned NumUserSGPRs;
 };
 
 } // End namespace llvm
 
 
-#endif //_SIMACHINEFUNCTIONINFO_H_
+#endif

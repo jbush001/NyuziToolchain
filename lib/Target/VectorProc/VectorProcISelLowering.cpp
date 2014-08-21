@@ -38,6 +38,12 @@ using namespace llvm;
 
 #include "VectorProcGenCallingConv.inc"
 
+const VectorProcTargetLowering *VectorProcTargetLowering::create(VectorProcTargetMachine &TM,
+                                                const VectorProcSubtarget &STI) {
+ return new VectorProcTargetLowering(TM, STI);
+}
+
+
 SDValue VectorProcTargetLowering::LowerReturn(
     SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
     const SmallVectorImpl<ISD::OutputArg> &Outs,
@@ -49,8 +55,8 @@ SDValue VectorProcTargetLowering::LowerReturn(
   SmallVector<CCValAssign, 16> RVLocs;
 
   // CCState - Info about the registers and stack slot.
-  CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), DAG.getTarget(),
-                 RVLocs, *DAG.getContext());
+  CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), RVLocs, 
+                 *DAG.getContext());
 
   // Analyze return values.
   CCInfo.AnalyzeReturn(Outs, RetCC_VectorProc32);
@@ -102,7 +108,7 @@ SDValue VectorProcTargetLowering::LowerFormalArguments(
   // knows how to handle operands (what go in registers vs. stack, etc).
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
-                 getTargetMachine(), ArgLocs, *DAG.getContext());
+                 ArgLocs, *DAG.getContext());
   CCInfo.AnalyzeFormalArguments(Ins, CC_VectorProc32);
 
   // Walk through each parameter and push into InVals
@@ -148,7 +154,7 @@ SDValue VectorProcTargetLowering::LowerFormalArguments(
       FIPtr = DAG.getNode(ISD::ADD, DL, MVT::i32, FIPtr,
                           DAG.getConstant(Offset, MVT::i32));
       Load = DAG.getExtLoad(LoadOp, DL, MVT::i32, Chain, FIPtr,
-                            MachinePointerInfo(), VA.getValVT(), false, false, 0);
+                            MachinePointerInfo(), VA.getValVT(), false, false, false, 0);
       Load = DAG.getNode(ISD::TRUNCATE, DL, VA.getValVT(), Load);
     }
 
@@ -201,13 +207,13 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   MachineFunction &MF = DAG.getMachineFunction();
   MachineFrameInfo *MFI = MF.getFrameInfo();
-  const TargetFrameLowering *TFL = MF.getTarget().getFrameLowering();
+  const TargetFrameLowering *TFL = MF.getSubtarget().getFrameLowering();
 
   // Analyze operands of the call, assigning locations to each operand.
   // VectorProcCallingConv.td will auto-generate CC_VectorProc32, which
   // knows how to handle operands (what go in registers vs. stack, etc).
   SmallVector<CCValAssign, 16> ArgLocs;
-  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), DAG.getTarget(),
+  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
                  ArgLocs, *DAG.getContext());
   CCInfo.AnalyzeCallOperands(Outs, CC_VectorProc32);
 
@@ -337,7 +343,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     Ops.push_back(DAG.getRegister(Reg.first, Reg.second.getValueType()));
 
   // Add a register mask operand representing the call-preserved registers.
-  const TargetRegisterInfo *TRI = getTargetMachine().getRegisterInfo();
+  const TargetRegisterInfo *TRI = getTargetMachine().getSubtargetImpl()->getRegisterInfo();
   const uint32_t *Mask = TRI->getCallPreservedMask(CLI.CallConv);
   assert(Mask && "Missing call preserved mask for calling convention");
   Ops.push_back(CLI.DAG.getRegisterMask(Mask));
@@ -354,7 +360,7 @@ VectorProcTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   // The call has returned, handle return values
   SmallVector<CCValAssign, 16> RVLocs;
-  CCState RVInfo(CallConv, isVarArg, DAG.getMachineFunction(), DAG.getTarget(),
+  CCState RVInfo(CallConv, isVarArg, DAG.getMachineFunction(),
                  RVLocs, *DAG.getContext());
 
   RVInfo.AnalyzeCallResult(Ins, RetCC_VectorProc32);
@@ -374,9 +380,10 @@ unsigned VectorProcTargetLowering::getJumpTableEncoding() const {
   return MachineJumpTableInfo::EK_Inline;
 }
 
-VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM)
-    : TargetLowering(TM, new VectorProcTargetObjectFile()) {
-  Subtarget = &TM.getSubtarget<VectorProcSubtarget>();
+VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM,
+                                                   const VectorProcSubtarget &STI)
+    : TargetLowering(TM, new VectorProcTargetObjectFile()),
+	  Subtarget(STI) {
 
   // Set up the register classes.
   addRegisterClass(MVT::i32, &VectorProc::GPR32RegClass);
@@ -1158,7 +1165,7 @@ MachineBasicBlock *VectorProcTargetLowering::EmitInstrWithCustomInserter(
 MachineBasicBlock *
 VectorProcTargetLowering::EmitSelectCC(MachineInstr *MI,
                                        MachineBasicBlock *BB) const {
-  const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
+  const TargetInstrInfo *TII = getTargetMachine().getSubtargetImpl()->getInstrInfo();
   DebugLoc DL = MI->getDebugLoc();
 
   // The instruction we are replacing is SELECTI (Dest, predicate, trueval,
@@ -1225,7 +1232,7 @@ VectorProcTargetLowering::EmitSelectCC(MachineInstr *MI,
 MachineBasicBlock *
 VectorProcTargetLowering::EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *BB,
                                         unsigned Opcode) const {
-  const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
+  const TargetInstrInfo *TII = getTargetMachine().getSubtargetImpl()->getInstrInfo();
 
   unsigned Dest = MI->getOperand(0).getReg();
   unsigned Ptr = MI->getOperand(1).getReg();
@@ -1294,7 +1301,7 @@ VectorProcTargetLowering::EmitAtomicCmpSwap(MachineInstr *MI,
   MachineFunction *MF = BB->getParent();
   MachineRegisterInfo &RegInfo = MF->getRegInfo();
   const TargetRegisterClass *RC = getRegClassFor(MVT::i32);
-  const TargetInstrInfo *TII = getTargetMachine().getInstrInfo();
+  const TargetInstrInfo *TII = getTargetMachine().getSubtargetImpl()->getInstrInfo();
   DebugLoc DL = MI->getDebugLoc();
 
   unsigned Dest = MI->getOperand(0).getReg();

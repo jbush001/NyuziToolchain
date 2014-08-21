@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_CFG_H
-#define LLVM_CLANG_CFG_H
+#ifndef LLVM_CLANG_ANALYSIS_CFG_H
+#define LLVM_CLANG_ANALYSIS_CFG_H
 
 #include "clang/AST/Stmt.h"
 #include "clang/Analysis/Support/BumpVector.h"
@@ -640,6 +640,8 @@ public:
   unsigned getBlockID() const { return BlockID; }
 
   CFG *getParent() const { return Parent; }
+
+  void dump() const;
 
   void dump(const CFG *cfg, const LangOptions &LO, bool ShowColors = false) const;
   void print(raw_ostream &OS, const CFG* cfg, const LangOptions &LO,

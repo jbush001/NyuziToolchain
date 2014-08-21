@@ -73,7 +73,7 @@ void VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBB
   MachineInstr &MI = *MBBI;
   int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
   MachineFunction &MF = *MI.getParent()->getParent();
-  const TargetFrameLowering &TFL = *MF.getTarget().getFrameLowering();
+  const TargetFrameLowering &TFL = *MF.getSubtarget().getFrameLowering();
   MachineFrameInfo *MFI = MF.getFrameInfo();
 
   // Round stack size to multiple of 64, consistent with frame pointer info.
@@ -112,7 +112,7 @@ void VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBB
     DebugLoc DL = MBBI->getDebugLoc();
     MachineBasicBlock &MBB = *MBBI->getParent();
     const VectorProcInstrInfo &TII =
-        *static_cast<const VectorProcInstrInfo*>(MBB.getParent()->getTarget().getInstrInfo());
+        *static_cast<const VectorProcInstrInfo*>(MBB.getParent()->getTarget().getSubtargetImpl()->getInstrInfo());
 
     MachineRegisterInfo &RegInfo = MBB.getParent()->getRegInfo();
     unsigned Reg = RegInfo.createVirtualRegister(&VectorProc::GPR32RegClass);
@@ -133,7 +133,7 @@ void VectorProcRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBB
 
 unsigned
 VectorProcRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
-  const TargetFrameLowering *TFI = MF.getTarget().getFrameLowering();
+  const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
   return TFI->hasFP(MF) ? VectorProc::FP_REG : VectorProc::SP_REG;
 }
 

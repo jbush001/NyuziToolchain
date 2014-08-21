@@ -23,14 +23,13 @@
 
 #include "MachONormalizedFile.h"
 #include "MachONormalizedFileBinaryUtils.h"
-
 #include "lld/Core/Error.h"
 #include "lld/Core/LLVM.h"
-
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/Errc.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileOutputBuffer.h"
@@ -39,10 +38,9 @@
 #include "llvm/Support/MachO.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/system_error.h"
-
 #include <functional>
 #include <map>
+#include <system_error>
 
 using namespace llvm::MachO;
 
@@ -60,27 +58,32 @@ public:
   /// Returns the final file size as computed in the constructor.
   size_t      size() const;
 
+  // Returns size of the mach_header and load commands.
+  size_t      headerAndLoadCommandsSize() const;
+
   /// Writes the normalized file as a binary mach-o file to the specified
   /// path.  This does not have a stream interface because the generated
   /// file may need the 'x' bit set.
-  error_code  writeBinary(StringRef path);
+  std::error_code writeBinary(StringRef path);
 
 private:
   uint32_t    loadCommandsSize(uint32_t &count);
   void        buildFileOffsets();
   void        writeMachHeader();
-  error_code  writeLoadCommands();
+  std::error_code writeLoadCommands();
   void        writeSectionContent();
   void        writeRelocations();
   void        writeSymbolTable();
   void        writeRebaseInfo();
   void        writeBindingInfo();
   void        writeLazyBindingInfo();
+  void        writeDataInCodeInfo();
   void        writeLinkEditContent();
   void        buildLinkEditInfo();
   void        buildRebaseInfo();
   void        buildBindInfo();
   void        buildLazyBindInfo();
+  void        computeDataInCodeSize();
   void        computeSymbolTableSizes();
   void        buildSectionRelocations();
   void        appendSymbols(const std::vector<Symbol> &symbols,
@@ -103,9 +106,8 @@ private:
   };
 
   template <typename T>
-  error_code writeSingleSegmentLoadCommand(uint8_t *&lc);
-  template <typename T>
-  error_code writeSegmentLoadCommands(uint8_t *&lc);
+  std::error_code writeSingleSegmentLoadCommand(uint8_t *&lc);
+  template <typename T> std::error_code writeSegmentLoadCommands(uint8_t *&lc);
 
   uint32_t pointerAlign(uint32_t value);
   static StringRef dyldPath();
@@ -145,6 +147,7 @@ private:
 
   struct SegExtraInfo {
     uint32_t                    fileOffset;
+    uint32_t                    fileSize;
     std::vector<const Section*> sections;
   };
   typedef std::map<const Segment*, SegExtraInfo> SegMap;
@@ -154,7 +157,7 @@ private:
   typedef std::map<const Section*, SectionExtraInfo> SectionMap;
 
   const NormalizedFile &_file;
-  error_code            _ec;
+  std::error_code _ec;
   uint8_t              *_buffer;
   const bool            _is64;
   const bool            _swap;
@@ -164,6 +167,7 @@ private:
   uint32_t              _countOfLoadCommands;
   uint32_t              _endOfLoadCommands;
   uint32_t              _startOfRelocations;
+  uint32_t              _startOfDataInCode;
   uint32_t              _startOfSymbols;
   uint32_t              _startOfIndirectSymbols;
   uint32_t              _startOfSymbolStrings;
@@ -173,6 +177,7 @@ private:
   uint32_t              _symbolTableUndefinesStartIndex;
   uint32_t              _symbolStringPoolSize;
   uint32_t              _symbolTableSize;
+  uint32_t              _dataInCodeSize;
   uint32_t              _indirectSymbolTableCount;
   // Used in object file creation only
   uint32_t              _startOfSectionsContent;
@@ -198,7 +203,7 @@ private:
 
 size_t headerAndLoadCommandsSize(const NormalizedFile &file) {
   MachOFileLayout layout(file);
-  return layout.size();
+  return layout.headerAndLoadCommandsSize();
 }
 
 StringRef MachOFileLayout::dyldPath() {
@@ -210,6 +215,9 @@ uint32_t MachOFileLayout::pointerAlign(uint32_t value) {
 }
 
 
+size_t MachOFileLayout::headerAndLoadCommandsSize() const {
+  return _endOfLoadCommands;
+}
 
 
 MachOFileLayout::MachOFileLayout(const NormalizedFile &file)
@@ -229,7 +237,10 @@ MachOFileLayout::MachOFileLayout(const NormalizedFile &file)
                                + file.sections.size() * sectsSize
                                + sizeof(symtab_command);
     _countOfLoadCommands = 2;
-
+    if (!_file.dataInCode.empty()) {
+      _endOfLoadCommands += sizeof(linkedit_data_command);
+      _countOfLoadCommands++;
+    }
     // Accumulate size of each section.
     _startOfSectionsContent = _endOfLoadCommands;
     _endOfSectionsContent = _startOfSectionsContent;
@@ -241,10 +252,12 @@ MachOFileLayout::MachOFileLayout(const NormalizedFile &file)
     }
 
     computeSymbolTableSizes();
+    computeDataInCodeSize();
 
     // Align start of relocations.
     _startOfRelocations = pointerAlign(_endOfSectionsContent);
-    _startOfSymbols = _startOfRelocations + relocCount * 8;
+    _startOfDataInCode = _startOfRelocations + relocCount * 8;
+    _startOfSymbols = _startOfDataInCode + _dataInCodeSize;
     // Add Indirect symbol table.
     _startOfIndirectSymbols = _startOfSymbols + _symbolTableSize;
     // Align start of symbol table and symbol strings.
@@ -275,15 +288,15 @@ MachOFileLayout::MachOFileLayout(const NormalizedFile &file)
 
     // LINKEDIT of final linked images has in order:
     // rebase info, binding info, lazy binding info, weak binding info,
-    // indirect symbol table, symbol table, symbol table strings.
+    // data-in-code, symbol table, indirect symbol table, symbol table strings.
     _startOfRebaseInfo = _startOfLinkEdit;
     _endOfRebaseInfo = _startOfRebaseInfo + _rebaseInfo.size();
     _startOfBindingInfo = _endOfRebaseInfo;
     _endOfBindingInfo = _startOfBindingInfo + _bindingInfo.size();
     _startOfLazyBindingInfo = _endOfBindingInfo;
     _endOfLazyBindingInfo = _startOfLazyBindingInfo + _lazyBindingInfo.size();
-
-    _startOfSymbols = _endOfLazyBindingInfo;
+    _startOfDataInCode = _endOfLazyBindingInfo;
+    _startOfSymbols = _startOfDataInCode + _dataInCodeSize;
     _startOfIndirectSymbols = _startOfSymbols + _symbolTableSize;
     _startOfSymbolStrings = _startOfIndirectSymbols
                   + pointerAlign(_indirectSymbolTableCount * sizeof(uint32_t));
@@ -302,6 +315,7 @@ MachOFileLayout::MachOFileLayout(const NormalizedFile &file)
       << "  endOfBindingInfo=" << _endOfBindingInfo << "\n"
       << "  startOfLazyBindingInfo=" << _startOfLazyBindingInfo << "\n"
       << "  endOfLazyBindingInfo=" << _endOfLazyBindingInfo << "\n"
+      << "  startOfDataInCode=" << _startOfDataInCode << "\n"
       << "  startOfSymbols=" << _startOfSymbols << "\n"
       << "  startOfSymbolStrings=" << _startOfSymbolStrings << "\n"
       << "  endOfSymbolStrings=" << _endOfSymbolStrings << "\n"
@@ -325,6 +339,12 @@ uint32_t MachOFileLayout::loadCommandsSize(uint32_t &count) {
   // Add one LC_SEGMENT for implicit  __LINKEDIT segment
   size += segCommandSize;
   ++count;
+
+  // If creating a dylib, add LC_ID_DYLIB.
+  if (_file.fileType == llvm::MachO::MH_DYLIB) {
+    size += sizeof(dylib_command) + pointerAlign(_file.installName.size() + 1);
+    ++count;
+  }
 
   // Add LC_DYLD_INFO
   size += sizeof(dyld_info_command);
@@ -380,7 +400,7 @@ void MachOFileLayout::buildFileOffsets() {
       if (&sg1 == &sg2)
         continue;
       if (overlaps(sg1,sg2)) {
-        _ec = llvm::make_error_code(llvm::errc::executable_format_error);
+        _ec = make_error_code(llvm::errc::executable_format_error);
         return;
       }
     }
@@ -392,7 +412,7 @@ void MachOFileLayout::buildFileOffsets() {
       if (&s1 == &s2)
         continue;
       if (overlaps(s1,s2)) {
-        _ec = llvm::make_error_code(llvm::errc::executable_format_error);
+        _ec = make_error_code(llvm::errc::executable_format_error);
         return;
       }
     }
@@ -413,7 +433,7 @@ void MachOFileLayout::buildFileOffsets() {
       if ((s.address >= sg.address)
                         && (s.address+s.content.size() <= sg.address+sg.size)) {
         if (!sg.name.equals(s.segmentName)) {
-          _ec = llvm::make_error_code(llvm::errc::executable_format_error);
+          _ec = make_error_code(llvm::errc::executable_format_error);
           return;
         }
         _segInfo[&sg].sections.push_back(&s);
@@ -426,23 +446,32 @@ void MachOFileLayout::buildFileOffsets() {
   DEBUG_WITH_TYPE("MachOFileLayout",
                   llvm::dbgs() << "buildFileOffsets()\n");
   for (const Segment &sg : _file.segments) {
-    // FIXME: 4096 should be inferred from segments in normalized file.
-    _segInfo[&sg].fileOffset = llvm::RoundUpToAlignment(fileOffset, 4096);
+    _segInfo[&sg].fileOffset = fileOffset;
     if ((_seg1addr == INT64_MAX) && sg.access)
       _seg1addr = sg.address;
     DEBUG_WITH_TYPE("MachOFileLayout",
                   llvm::dbgs() << "  segment=" << sg.name
                   << ", fileOffset=" << _segInfo[&sg].fileOffset << "\n");
+
+    uint32_t segFileSize = 0;
     for (const Section *s : _segInfo[&sg].sections) {
-      fileOffset = s->address - sg.address + _segInfo[&sg].fileOffset;
-      _sectInfo[s].fileOffset = fileOffset;
+      uint32_t sectOffset = s->address - sg.address;
+      uint32_t sectFileSize =
+          s->type == llvm::MachO::S_ZEROFILL ? 0 : s->content.size();
+      segFileSize = std::max(segFileSize, sectOffset + sectFileSize);
+
+      _sectInfo[s].fileOffset = _segInfo[&sg].fileOffset + sectOffset;
       DEBUG_WITH_TYPE("MachOFileLayout",
                   llvm::dbgs() << "    section=" << s->sectionName
                   << ", fileOffset=" << fileOffset << "\n");
     }
+
+    // FIXME: 4096 should be inferred from segments in normalized file.
+    _segInfo[&sg].fileSize = llvm::RoundUpToAlignment(segFileSize, 4096);
+    fileOffset = llvm::RoundUpToAlignment(fileOffset + segFileSize, 4096);
     _addressOfLinkEdit = sg.address + sg.size;
   }
-  _startOfLinkEdit = llvm::RoundUpToAlignment(fileOffset, 4096);
+  _startOfLinkEdit = fileOffset;
 }
 
 
@@ -480,10 +509,8 @@ uint32_t MachOFileLayout::indirectSymbolElementSize(const Section &sect) {
   return sect.content.size() / sect.indirectSymbols.size();
 }
 
-
-
 template <typename T>
-error_code MachOFileLayout::writeSingleSegmentLoadCommand(uint8_t *&lc) {
+std::error_code MachOFileLayout::writeSingleSegmentLoadCommand(uint8_t *&lc) {
   typename T::command* seg = reinterpret_cast<typename T::command*>(lc);
   seg->cmd = T::LC;
   seg->cmdsize = sizeof(typename T::command)
@@ -524,12 +551,11 @@ error_code MachOFileLayout::writeSingleSegmentLoadCommand(uint8_t *&lc) {
     ++sout;
   }
   lc = next;
-  return error_code();
+  return std::error_code();
 }
 
-
 template <typename T>
-error_code MachOFileLayout::writeSegmentLoadCommands(uint8_t *&lc) {
+std::error_code MachOFileLayout::writeSegmentLoadCommands(uint8_t *&lc) {
   uint32_t indirectSymRunningIndex = 0;
   for (const Segment &seg : _file.segments) {
     // Write segment command with trailing sections.
@@ -543,7 +569,7 @@ error_code MachOFileLayout::writeSegmentLoadCommands(uint8_t *&lc) {
     cmd->vmaddr   = seg.address;
     cmd->vmsize   = seg.size;
     cmd->fileoff  = segInfo.fileOffset;
-    cmd->filesize = seg.access ? seg.size : Hex64(0);
+    cmd->filesize = segInfo.fileSize;
     cmd->maxprot  = seg.access;
     cmd->initprot = seg.access;
     cmd->nsects   = segInfo.sections.size();
@@ -587,12 +613,11 @@ error_code MachOFileLayout::writeSegmentLoadCommands(uint8_t *&lc) {
   if (_swap)
     swapStruct(*cmd);
   lc = next;
-  return error_code();
+  return std::error_code();
 }
 
-
-error_code MachOFileLayout::writeLoadCommands() {
-  error_code ec;
+std::error_code MachOFileLayout::writeLoadCommands() {
+  std::error_code ec;
   uint8_t *lc = &_buffer[_startOfLoadCommands];
   if (_file.fileType == llvm::MachO::MH_OBJECT) {
     // Object files have one unnamed segment which holds all sections.
@@ -611,12 +636,42 @@ error_code MachOFileLayout::writeLoadCommands() {
     st->strsize = _endOfSymbolStrings - _startOfSymbolStrings;
     if (_swap)
       swapStruct(*st);
+    lc += sizeof(symtab_command);
+    // Add LC_DATA_IN_CODE if needed.
+    if (_dataInCodeSize != 0) {
+      linkedit_data_command* dl = reinterpret_cast<linkedit_data_command*>(lc);
+      dl->cmd      = LC_DATA_IN_CODE;
+      dl->cmdsize  = sizeof(linkedit_data_command);
+      dl->dataoff  = _startOfDataInCode;
+      dl->datasize = _dataInCodeSize;
+      if (_swap)
+        swapStruct(*dl);
+      lc += sizeof(linkedit_data_command);
+    }
   } else {
     // Final linked images have sections under segments.
     if (_is64)
       ec = writeSegmentLoadCommands<MachO64Trait>(lc);
     else
       ec = writeSegmentLoadCommands<MachO32Trait>(lc);
+
+    // Add LC_ID_DYLIB command for dynamic libraries.
+    if (_file.fileType == llvm::MachO::MH_DYLIB) {
+      dylib_command *dc = reinterpret_cast<dylib_command*>(lc);
+      StringRef path = _file.installName;
+      uint32_t size = sizeof(dylib_command) + pointerAlign(path.size() + 1);
+      dc->cmd                         = LC_ID_DYLIB;
+      dc->cmdsize                     = size;
+      dc->dylib.name                  = sizeof(dylib_command); // offset
+      dc->dylib.timestamp             = 0; // FIXME
+      dc->dylib.current_version       = 0; // FIXME
+      dc->dylib.compatibility_version = 0; // FIXME
+      if (_swap)
+        swapStruct(*dc);
+      memcpy(lc + sizeof(dylib_command), path.begin(), path.size());
+      lc[sizeof(dylib_command) + path.size()] = '\0';
+      lc += size;
+    }
 
     // Add LC_DYLD_INFO_ONLY.
     dyld_info_command* di = reinterpret_cast<dyld_info_command*>(lc);
@@ -717,7 +772,6 @@ error_code MachOFileLayout::writeLoadCommands() {
       lc[sizeof(dylib_command)+dep.path.size()] = '\0';
       lc += size;
     }
-
   }
   return ec;
 }
@@ -778,6 +832,20 @@ void MachOFileLayout::appendSymbols(const std::vector<Symbol> &symbols,
   }
 }
 
+void MachOFileLayout::writeDataInCodeInfo() {
+  uint32_t offset = _startOfDataInCode;
+  for (const DataInCode &entry : _file.dataInCode) {
+    data_in_code_entry *dst = reinterpret_cast<data_in_code_entry*>(
+                                                             &_buffer[offset]);
+    dst->offset = entry.offset;
+    dst->length = entry.length;
+    dst->kind   = entry.kind;
+    if (_swap)
+      swapStruct(*dst);
+    offset += sizeof(data_in_code_entry);
+  }
+}
+
 void MachOFileLayout::writeSymbolTable() {
   // Write symbol table and symbol strings in parallel.
   uint32_t symOffset = _startOfSymbols;
@@ -794,7 +862,7 @@ void MachOFileLayout::writeSymbolTable() {
     for (const Section &section : _file.sections) {
       for (uint32_t index : section.indirectSymbols) {
         if (_swap)
-          *indirects++ = SwapByteOrder(index);
+          *indirects++ = llvm::sys::getSwappedBytes(index);
         else
           *indirects++ = index;
       }
@@ -806,7 +874,7 @@ void MachOFileLayout::writeSymbolTable() {
       for (const Section *section : segInfo.sections) {
         for (uint32_t index : section->indirectSymbols) {
           if (_swap)
-            *indirects++ = SwapByteOrder(index);
+            *indirects++ = llvm::sys::getSwappedBytes(index);
           else
             *indirects++ = index;
         }
@@ -834,6 +902,7 @@ void MachOFileLayout::buildLinkEditInfo() {
   buildBindInfo();
   buildLazyBindInfo();
   computeSymbolTableSizes();
+  computeDataInCodeSize();
 }
 
 void MachOFileLayout::buildSectionRelocations() {
@@ -915,10 +984,14 @@ void MachOFileLayout::computeSymbolTableSizes() {
   }
 }
 
+void MachOFileLayout::computeDataInCodeSize() {
+  _dataInCodeSize = _file.dataInCode.size() * sizeof(data_in_code_entry);
+}
 
 void MachOFileLayout::writeLinkEditContent() {
   if (_file.fileType == llvm::MachO::MH_OBJECT) {
     writeRelocations();
+    writeDataInCodeInfo();
     writeSymbolTable();
   } else {
     writeRebaseInfo();
@@ -929,8 +1002,7 @@ void MachOFileLayout::writeLinkEditContent() {
   }
 }
 
-
-error_code MachOFileLayout::writeBinary(StringRef path) {
+std::error_code MachOFileLayout::writeBinary(StringRef path) {
   // Check for pending error from constructor.
   if (_ec)
     return _ec;
@@ -939,7 +1011,7 @@ error_code MachOFileLayout::writeBinary(StringRef path) {
   unsigned flags = 0;
   if (_file.fileType != llvm::MachO::MH_OBJECT)
     flags = llvm::FileOutputBuffer::F_executable;
-  error_code ec;
+  std::error_code ec;
   ec = llvm::FileOutputBuffer::create(path, size(), fob, flags);
   if (ec)
     return ec;
@@ -954,14 +1026,13 @@ error_code MachOFileLayout::writeBinary(StringRef path) {
   writeLinkEditContent();
   fob->commit();
 
-  return error_code();
+  return std::error_code();
 }
 
 
 
 /// Takes in-memory normalized view and writes a mach-o object file.
-error_code
-writeBinary(const NormalizedFile &file, StringRef path) {
+std::error_code writeBinary(const NormalizedFile &file, StringRef path) {
   MachOFileLayout layout(file);
   return layout.writeBinary(path);
 }

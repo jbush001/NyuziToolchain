@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MIPSSEINSTRUCTIONINFO_H
-#define MIPSSEINSTRUCTIONINFO_H
+#ifndef LLVM_LIB_TARGET_MIPS_MIPSSEINSTRINFO_H
+#define LLVM_LIB_TARGET_MIPS_MIPSSEINSTRINFO_H
 
 #include "MipsInstrInfo.h"
 #include "MipsSERegisterInfo.h"
@@ -24,7 +24,7 @@ class MipsSEInstrInfo : public MipsInstrInfo {
   bool IsN64;
 
 public:
-  explicit MipsSEInstrInfo(MipsTargetMachine &TM);
+  explicit MipsSEInstrInfo(const MipsSubtarget &STI);
 
   const MipsRegisterInfo &getRegisterInfo() const override;
 
@@ -81,8 +81,7 @@ public:
 private:
   unsigned getAnalyzableBrOpc(unsigned Opc) const override;
 
-  void expandRetRA(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
-                   unsigned Opc) const;
+  void expandRetRA(MachineBasicBlock &MBB, MachineBasicBlock::iterator I) const;
 
   std::pair<bool, bool> compareOpndSize(unsigned Opc,
                                         const MachineFunction &MF) const;

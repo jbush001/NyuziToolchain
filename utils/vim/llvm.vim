@@ -1,7 +1,7 @@
 " Vim syntax file
 " Language:   llvm
 " Maintainer: The LLVM team, http://llvm.org/
-" Version:      $Revision: 203866 $
+" Version:      $Revision: 216025 $
 
 if version < 600
   syntax clear
@@ -57,6 +57,7 @@ syn keyword llvmKeyword tail target thread_local to triple unnamed_addr
 syn keyword llvmKeyword unordered uwtable volatile weak weak_odr
 syn keyword llvmKeyword x86_fastcallcc x86_stdcallcc x86_thiscallcc x86_64_sysvcc
 syn keyword llvmKeyword x86_64_win64cc zeroext
+syn keyword llvmKeyword uselistorder uselistorder_bb
 
 " Obsolete keywords.
 syn keyword llvmError  getresult begin end

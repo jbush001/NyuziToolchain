@@ -29,6 +29,8 @@ void use_some_template_a() {
   SomeTemplate<char[2]> a;
   SomeTemplate<char[1]> b, c;
   b = c;
+
+  (void)&WithImplicitSpecialMembers<int>::n;
 }
 
 template<int> struct MergeTemplates;
@@ -56,6 +58,7 @@ template<typename T> struct WithPartialSpecialization<T*> {
   T &f() { static T t; return t; }
 };
 typedef WithPartialSpecializationUse::type WithPartialSpecializationInstantiate;
+typedef WithPartialSpecialization<void(int)>::type WithPartialSpecializationInstantiate2;
 
 template<> struct WithExplicitSpecialization<int> {
   int n;
@@ -63,3 +66,22 @@ template<> struct WithExplicitSpecialization<int> {
     return n;
   }
 };
+
+template<typename T> template<typename U>
+constexpr int Outer<T>::Inner<U>::f() { return 1; }
+static_assert(Outer<int>::Inner<int>::f() == 1, "");
+
+template<typename T> struct MergeTemplateDefinitions {
+  static constexpr int f();
+  static constexpr int g();
+};
+template<typename T> constexpr int MergeTemplateDefinitions<T>::f() { return 1; }
+
+template<typename T> using AliasTemplate = T;
+
+template<typename T> struct PartiallyInstantiatePartialSpec {};
+template<typename T> struct PartiallyInstantiatePartialSpec<T*> {
+  static T *foo() { return reinterpret_cast<T*>(0); }
+  static T *bar() { return reinterpret_cast<T*>(0); }
+};
+typedef PartiallyInstantiatePartialSpec<int*> PartiallyInstantiatePartialSpecHelper;

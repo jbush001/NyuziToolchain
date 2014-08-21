@@ -24,6 +24,7 @@
 #include "llvm/Option/Arg.h"
 #include "llvm/Option/Option.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Errc.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/ManagedStatic.h"
@@ -112,9 +113,9 @@ maybeExpandResponseFiles(int argc, const char **argv, BumpPtrAllocator &alloc) {
 }
 
 // Get the Input file magic for creating appropriate InputGraph nodes.
-static error_code getFileMagic(ELFLinkingContext &ctx, StringRef path,
-                               llvm::sys::fs::file_magic &magic) {
-  error_code ec = llvm::sys::fs::identify_magic(path, magic);
+static std::error_code getFileMagic(ELFLinkingContext &ctx, StringRef path,
+                                    llvm::sys::fs::file_magic &magic) {
+  std::error_code ec = llvm::sys::fs::identify_magic(path, magic);
   if (ec)
     return ec;
   switch (magic) {
@@ -122,7 +123,7 @@ static error_code getFileMagic(ELFLinkingContext &ctx, StringRef path,
   case llvm::sys::fs::file_magic::elf_relocatable:
   case llvm::sys::fs::file_magic::elf_shared_object:
   case llvm::sys::fs::file_magic::unknown:
-    return error_code();
+    return std::error_code();
   default:
     break;
   }
@@ -158,7 +159,7 @@ llvm::ErrorOr<StringRef> ELFFileNode::getPath(const LinkingContext &) const {
   return _elfLinkingContext.searchFile(_path, _attributes._isSysRooted);
 }
 
-std::string ELFFileNode::errStr(error_code errc) {
+std::string ELFFileNode::errStr(std::error_code errc) {
   if (errc == llvm::errc::no_such_file_or_directory) {
     if (_attributes._isDashlPrefix)
       return (Twine("Unable to find library -l") + _path).str();
@@ -202,6 +203,10 @@ getArchType(const llvm::Triple &triple, StringRef value) {
   case llvm::Triple::mipsel:
     if (value == "elf32ltsmip")
       return llvm::Triple::mipsel;
+    return llvm::None;
+  case llvm::Triple::aarch64:
+    if (value == "aarch64linux")
+      return llvm::Triple::aarch64;
     return llvm::None;
   default:
     return llvm::None;
@@ -287,21 +292,17 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
   bool _outputOptionSet = false;
 
   // Ignore unknown arguments.
-  for (auto it = parsedArgs->filtered_begin(OPT_UNKNOWN),
-            ie = parsedArgs->filtered_end();
-       it != ie; ++it)
-    diagnostics << "warning: ignoring unknown argument: " << (*it)->getValue()
-                << "\n";
+  for (auto unknownArg : parsedArgs->filtered(OPT_UNKNOWN))
+    diagnostics << "warning: ignoring unknown argument: "
+                << unknownArg->getValue() << "\n";
 
   // Set sys root path.
   if (llvm::opt::Arg *sysRootPath = parsedArgs->getLastArg(OPT_sysroot))
     ctx->setSysroot(sysRootPath->getValue());
 
   // Add all search paths.
-  for (auto it = parsedArgs->filtered_begin(OPT_L),
-            ie = parsedArgs->filtered_end();
-       it != ie; ++it)
-    ctx->addSearchPath((*it)->getValue());
+  for (auto libDir : parsedArgs->filtered(OPT_L))
+    ctx->addSearchPath(libDir->getValue());
 
   if (!parsedArgs->hasArg(OPT_nostdlib))
     addPlatformSearchDirs(*ctx, triple, baseTriple);
@@ -494,7 +495,7 @@ bool GnuLdDriver::parse(int argc, const char *argv[],
       // FIXME: Calling getFileMagic() is expensive.  It would be better to
       // wire up the LdScript parser into the registry.
       llvm::sys::fs::file_magic magic = llvm::sys::fs::file_magic::unknown;
-      error_code ec = getFileMagic(*ctx, resolvedInputPath, magic);
+      std::error_code ec = getFileMagic(*ctx, resolvedInputPath, magic);
       if (ec) {
         diagnostics << "lld: unknown input file format for file " << userPath
                     << "\n";

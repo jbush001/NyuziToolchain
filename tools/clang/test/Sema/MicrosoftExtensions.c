@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 %s -fsyntax-only -Wno-unused-value -Wmicrosoft -verify -fms-extensions
+// RUN: %clang_cc1 -triple i686-windows %s -fsyntax-only -Wno-unused-value -Wmicrosoft -verify -fms-extensions
 
 
 struct A
@@ -39,9 +39,26 @@ struct nested2 {
   NESTED1;  // expected-warning {{anonymous structs are a Microsoft extension}}
 };
 
+struct nested2 PR20573 = { .a = 3 };
+
+struct nested3 {
+  long d;
+  struct nested4 { // expected-warning {{anonymous structs are a Microsoft extension}}
+    long e;
+  };
+  union nested5 { // expected-warning {{anonymous unions are a Microsoft extension}}
+    long f;
+  };
+};
+
+typedef union nested6 {
+  long f;
+} NESTED6;
+
 struct test {
   int c;
   struct nested2;   // expected-warning {{anonymous structs are a Microsoft extension}}
+  NESTED6;   // expected-warning {{anonymous unions are a Microsoft extension}}
 };
 
 void foo()

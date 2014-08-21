@@ -7,10 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "lld/Core/Alias.h"
 #include "lld/Core/LinkingContext.h"
 #include "lld/Core/Resolver.h"
-#include "lld/ReaderWriter/Alias.h"
-#include "lld/ReaderWriter/Simple.h"
+#include "lld/Core/Simple.h"
 #include "lld/ReaderWriter/Writer.h"
 #include "llvm/ADT/Triple.h"
 
@@ -33,7 +33,7 @@ bool LinkingContext::validate(raw_ostream &diagnostics) {
   return validateImpl(diagnostics);
 }
 
-error_code LinkingContext::writeFile(const File &linkedFile) const {
+std::error_code LinkingContext::writeFile(const File &linkedFile) const {
   return this->writer().writeFile(linkedFile, _outputPath);
 }
 

@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_CLANG_THREAD_SAFETY_UTIL_H
-#define LLVM_CLANG_THREAD_SAFETY_UTIL_H
+#ifndef LLVM_CLANG_ANALYSIS_ANALYSES_THREADSAFETYUTIL_H
+#define LLVM_CLANG_ANALYSIS_ANALYSES_THREADSAFETYUTIL_H
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/AlignOf.h"
@@ -144,7 +144,9 @@ public:
   }
 
   iterator begin() { return Data; }
+  const_iterator begin() const { return Data; }
   iterator end() { return Data + Size; }
+  const_iterator end() const { return Data + Size; }
 
   const_iterator cbegin() const { return Data; }
   const_iterator cend() const { return Data + Size; }

@@ -24,6 +24,7 @@
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <functional>
 #include <memory>
 #include <stack>
 #include <vector>
@@ -48,10 +49,6 @@ public:
   typedef std::vector<std::unique_ptr<File> > FileVectorT;
   typedef FileVectorT::iterator FileIterT;
 
-  /// Where do we want to insert the input element when calling the
-  /// insertElementAt.
-  enum Position : uint8_t { BEGIN, END };
-
   /// \brief Initialize the inputgraph
   InputGraph() : _nextElementIndex(0), _currentInputElement(nullptr) {}
 
@@ -71,10 +68,13 @@ public:
   /// Adds an observer of getNextFile(). Each time a new file is about to be
   /// returned from getNextFile(), registered observers are called with the file
   /// being returned.
-  void registerObserver(llvm::function_ref<void(File *)> fn);
+  void registerObserver(std::function<void(File *)>);
 
   /// \brief Adds a node into the InputGraph
   void addInputElement(std::unique_ptr<InputElement>);
+
+  /// \brief Adds a node at the beginning of the InputGraph
+  void addInputElementFront(std::unique_ptr<InputElement>);
 
   /// Normalize the InputGraph. It calls expand() on each node and then replace
   /// it with getReplacements() results.
@@ -90,16 +90,13 @@ public:
   /// \brief Dump the input Graph
   bool dump(raw_ostream &diagnostics = llvm::errs());
 
-  /// \brief Insert an element into the input graph at position.
-  void insertElementAt(std::unique_ptr<InputElement>, Position position);
-
 protected:
   // Input arguments
   InputElementVectorT _inputArgs;
   // Index of the next element to be processed
   uint32_t _nextElementIndex;
   InputElement *_currentInputElement;
-  std::vector<llvm::function_ref<void(File *)>> _observers;
+  std::vector<std::function<void(File *)>> _observers;
 
 private:
   ErrorOr<InputElement *> getNextInputElement();
@@ -125,7 +122,7 @@ public:
   virtual bool dump(raw_ostream &diagnostics) { return true; }
 
   /// \brief parse the input element
-  virtual error_code parse(const LinkingContext &, raw_ostream &) = 0;
+  virtual std::error_code parse(const LinkingContext &, raw_ostream &) = 0;
 
   /// \brief functions for the resolver to use
 
@@ -184,11 +181,11 @@ public:
   }
 
   /// \brief Parse the group members.
-  error_code parse(const LinkingContext &ctx, raw_ostream &diag) override {
+  std::error_code parse(const LinkingContext &ctx, raw_ostream &diag) override {
     for (std::unique_ptr<InputElement> &ei : _elements)
-      if (error_code ec = ei->parse(ctx, diag))
+      if (std::error_code ec = ei->parse(ctx, diag))
         return ec;
-    return error_code();
+    return std::error_code();
   }
 
   /// If Resolver made a progress using the current file, it's ok to revisit
@@ -243,7 +240,7 @@ public:
   }
 
   /// \brief create an error string for printing purposes
-  virtual std::string errStr(error_code errc) {
+  virtual std::string errStr(std::error_code errc) {
     std::string msg = errc.message();
     Twine twine = Twine("Cannot open ") + _path + ": " + msg;
     return twine.str();
@@ -266,7 +263,7 @@ public:
 
 protected:
   /// \brief Read the file into _buffer.
-  error_code getBuffer(StringRef filePath);
+  std::error_code getBuffer(StringRef filePath);
 
   StringRef _path;                       // The path of the Input file
   InputGraph::FileVectorT _files;        // A vector of lld File objects
@@ -289,8 +286,8 @@ public:
   }
 
   /// \brief parse the input element
-  error_code parse(const LinkingContext &, raw_ostream &) override {
-    return error_code();
+  std::error_code parse(const LinkingContext &, raw_ostream &) override {
+    return std::error_code();
   }
 
   /// \brief Return the next File thats part of this node to the

@@ -201,6 +201,7 @@ namespace {
 
     /// Determine whether this is a one-past-the-end pointer.
     bool isOnePastTheEnd() const {
+      assert(!Invalid);
       if (IsOnePastTheEnd)
         return true;
       if (MostDerivedArraySize &&
@@ -1269,10 +1270,28 @@ static bool CheckLValueConstantExpression(EvalInfo &Info, SourceLocation Loc,
           LVal.getLValueCallIndex() == 0) &&
          "have call index for global lvalue");
 
-  // Check if this is a thread-local variable.
   if (const ValueDecl *VD = Base.dyn_cast<const ValueDecl*>()) {
     if (const VarDecl *Var = dyn_cast<const VarDecl>(VD)) {
+      // Check if this is a thread-local variable.
       if (Var->getTLSKind())
+        return false;
+
+      // A dllimport variable never acts like a constant.
+      if (Var->hasAttr<DLLImportAttr>())
+        return false;
+    }
+    if (const auto *FD = dyn_cast<const FunctionDecl>(VD)) {
+      // __declspec(dllimport) must be handled very carefully:
+      // We must never initialize an expression with the thunk in C++.
+      // Doing otherwise would allow the same id-expression to yield
+      // different addresses for the same function in different translation
+      // units.  However, this means that we must dynamically initialize the
+      // expression with the contents of the import address table at runtime.
+      //
+      // The C language has no notion of ODR; furthermore, it has no notion of
+      // dynamic initialization.  This means that we are permitted to
+      // perform initialization with the address of the thunk.
+      if (Info.getLangOpts().CPlusPlus && FD->hasAttr<DLLImportAttr>())
         return false;
     }
   }
@@ -1290,7 +1309,7 @@ static bool CheckLValueConstantExpression(EvalInfo &Info, SourceLocation Loc,
   }
 
   // Does this refer one past the end of some object?
-  if (Designator.isOnePastTheEnd()) {
+  if (!Designator.Invalid && Designator.isOnePastTheEnd()) {
     const ValueDecl *VD = Base.dyn_cast<const ValueDecl*>();
     Info.Diag(Loc, diag::note_constexpr_past_end, 1)
       << !Designator.Entries.empty() << !!VD << VD;
@@ -1310,7 +1329,7 @@ static bool CheckLiteralType(EvalInfo &Info, const Expr *E,
   // C++1y: A constant initializer for an object o [...] may also invoke
   // constexpr constructors for o and its subobjects even if those objects
   // are of non-literal class types.
-  if (Info.getLangOpts().CPlusPlus1y && This &&
+  if (Info.getLangOpts().CPlusPlus14 && This &&
       Info.EvaluatingDecl == This->getLValueBase())
     return true;
 
@@ -1333,6 +1352,11 @@ static bool CheckConstantExpression(EvalInfo &Info, SourceLocation DiagLoc,
       << true << Type;
     return false;
   }
+
+  // We allow _Atomic(T) to be initialized from anything that T can be
+  // initialized from.
+  if (const AtomicType *AT = Type->getAs<AtomicType>())
+    Type = AT->getValueType();
 
   // Core issue 1454: For a literal constant expression of array or class type,
   // each subobject of its value shall have been initialized by a constant
@@ -2467,7 +2491,7 @@ CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E, AccessKinds AK,
     // Unless we're looking at a local variable or argument in a constexpr call,
     // the variable we're reading must be const.
     if (!Frame) {
-      if (Info.getLangOpts().CPlusPlus1y &&
+      if (Info.getLangOpts().CPlusPlus14 &&
           VD == Info.EvaluatingDecl.dyn_cast<const ValueDecl *>()) {
         // OK, we can read and modify an object if we're in the process of
         // evaluating its initializer, because its lifetime began in this
@@ -2583,7 +2607,7 @@ CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E, AccessKinds AK,
   //
   // FIXME: Not all local state is mutable. Allow local constant subobjects
   // to be read here (but take care with 'mutable' fields).
-  if (Frame && Info.getLangOpts().CPlusPlus1y &&
+  if (Frame && Info.getLangOpts().CPlusPlus14 &&
       (Info.EvalStatus.HasSideEffects || Info.keepEvaluatingAfterFailure()))
     return CompleteObject();
 
@@ -2645,7 +2669,7 @@ static bool handleAssignment(EvalInfo &Info, const Expr *E, const LValue &LVal,
   if (LVal.Designator.Invalid)
     return false;
 
-  if (!Info.getLangOpts().CPlusPlus1y) {
+  if (!Info.getLangOpts().CPlusPlus14) {
     Info.Diag(E);
     return false;
   }
@@ -2766,7 +2790,7 @@ static bool handleCompoundAssignment(
   if (LVal.Designator.Invalid)
     return false;
 
-  if (!Info.getLangOpts().CPlusPlus1y) {
+  if (!Info.getLangOpts().CPlusPlus14) {
     Info.Diag(E);
     return false;
   }
@@ -2915,7 +2939,7 @@ static bool handleIncDec(EvalInfo &Info, const Expr *E, const LValue &LVal,
   if (LVal.Designator.Invalid)
     return false;
 
-  if (!Info.getLangOpts().CPlusPlus1y) {
+  if (!Info.getLangOpts().CPlusPlus14) {
     Info.Diag(E);
     return false;
   }
@@ -2938,6 +2962,7 @@ static bool EvaluateObjectArgument(EvalInfo &Info, const Expr *Object,
   if (Object->getType()->isLiteralType(Info.Ctx))
     return EvaluateTemporary(Object, This, Info);
 
+  Info.Diag(Object, diag::note_constexpr_nonliteral) << Object->getType();
   return false;
 }
 
@@ -4124,7 +4149,7 @@ public:
     return VisitUnaryPostIncDec(UO);
   }
   bool VisitUnaryPostIncDec(const UnaryOperator *UO) {
-    if (!Info.getLangOpts().CPlusPlus1y && !Info.keepEvaluatingAfterFailure())
+    if (!Info.getLangOpts().CPlusPlus14 && !Info.keepEvaluatingAfterFailure())
       return Error(UO);
 
     LValue LVal;
@@ -4549,7 +4574,7 @@ bool LValueExprEvaluator::VisitUnaryImag(const UnaryOperator *E) {
 }
 
 bool LValueExprEvaluator::VisitUnaryPreIncDec(const UnaryOperator *UO) {
-  if (!Info.getLangOpts().CPlusPlus1y && !Info.keepEvaluatingAfterFailure())
+  if (!Info.getLangOpts().CPlusPlus14 && !Info.keepEvaluatingAfterFailure())
     return Error(UO);
 
   if (!this->Visit(UO->getSubExpr()))
@@ -4562,7 +4587,7 @@ bool LValueExprEvaluator::VisitUnaryPreIncDec(const UnaryOperator *UO) {
 
 bool LValueExprEvaluator::VisitCompoundAssignOperator(
     const CompoundAssignOperator *CAO) {
-  if (!Info.getLangOpts().CPlusPlus1y && !Info.keepEvaluatingAfterFailure())
+  if (!Info.getLangOpts().CPlusPlus14 && !Info.keepEvaluatingAfterFailure())
     return Error(CAO);
 
   APValue RHS;
@@ -4584,7 +4609,7 @@ bool LValueExprEvaluator::VisitCompoundAssignOperator(
 }
 
 bool LValueExprEvaluator::VisitBinAssign(const BinaryOperator *E) {
-  if (!Info.getLangOpts().CPlusPlus1y && !Info.keepEvaluatingAfterFailure())
+  if (!Info.getLangOpts().CPlusPlus14 && !Info.keepEvaluatingAfterFailure())
     return Error(E);
 
   APValue NewVal;
@@ -4647,8 +4672,13 @@ public:
     // Can't look at 'this' when checking a potential constant expression.
     if (Info.checkingPotentialConstantExpression())
       return false;
-    if (!Info.CurrentCall->This)
-      return Error(E);
+    if (!Info.CurrentCall->This) {
+      if (Info.getLangOpts().CPlusPlus11)
+        Info.Diag(E, diag::note_constexpr_this) << E->isImplicit();
+      else
+        Info.Diag(E);
+      return false;
+    }
     Result = *Info.CurrentCall->This;
     return true;
   }
@@ -6029,7 +6059,8 @@ bool IntExprEvaluator::VisitCallExpr(const CallExpr *E) {
 
   case Builtin::BI__builtin_clz:
   case Builtin::BI__builtin_clzl:
-  case Builtin::BI__builtin_clzll: {
+  case Builtin::BI__builtin_clzll:
+  case Builtin::BI__builtin_clzs: {
     APSInt Val;
     if (!EvaluateInteger(E->getArg(0), Val, Info))
       return false;
@@ -6044,7 +6075,8 @@ bool IntExprEvaluator::VisitCallExpr(const CallExpr *E) {
 
   case Builtin::BI__builtin_ctz:
   case Builtin::BI__builtin_ctzl:
-  case Builtin::BI__builtin_ctzll: {
+  case Builtin::BI__builtin_ctzll:
+  case Builtin::BI__builtin_ctzs: {
     APSInt Val;
     if (!EvaluateInteger(E->getArg(0), Val, Info))
       return false;
@@ -6910,8 +6942,9 @@ bool IntExprEvaluator::VisitBinaryOperator(const BinaryOperator *E) {
 }
 
 CharUnits IntExprEvaluator::GetAlignOfType(QualType T) {
-  // C++ [expr.alignof]p3: "When alignof is applied to a reference type, the
-  //   result shall be the alignment of the referenced type."
+  // C++ [expr.alignof]p3:
+  //     When alignof is applied to a reference type, the result is the
+  //     alignment of the referenced type.
   if (const ReferenceType *Ref = T->getAs<ReferenceType>())
     T = Ref->getPointeeType();
 
@@ -6930,7 +6963,7 @@ CharUnits IntExprEvaluator::GetAlignOfExpr(const Expr *E) {
   // alignof decl is always accepted, even if it doesn't make sense: we default
   // to 1 in those cases.
   if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E))
-    return Info.Ctx.getDeclAlign(DRE->getDecl(), 
+    return Info.Ctx.getDeclAlign(DRE->getDecl(),
                                  /*RefAsPointee*/true);
 
   if (const MemberExpr *ME = dyn_cast<MemberExpr>(E))
@@ -7928,6 +7961,16 @@ public:
       return true;
     }
   }
+
+  bool VisitCallExpr(const CallExpr *E) {
+    switch (E->getBuiltinCallee()) {
+    default:
+      return ExprEvaluatorBaseTy::VisitCallExpr(E);
+    case Builtin::BI__assume:
+      // The argument is not evaluated!
+      return true;
+    }
+  }
 };
 } // end anonymous namespace
 
@@ -8702,7 +8745,7 @@ bool Expr::isCXX11ConstantExpr(const ASTContext &Ctx, APValue *Result,
 
 bool Expr::EvaluateWithSubstitution(APValue &Value, ASTContext &Ctx,
                                     const FunctionDecl *Callee,
-                                    llvm::ArrayRef<const Expr*> Args) const {
+                                    ArrayRef<const Expr*> Args) const {
   Expr::EvalStatus Status;
   EvalInfo Info(Ctx, Status, EvalInfo::EM_ConstantExpressionUnevaluated);
 

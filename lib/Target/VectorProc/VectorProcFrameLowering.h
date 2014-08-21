@@ -12,7 +12,6 @@
 #define VECTORPROCFRAMELOWERING_H
 
 #include "VectorProc.h"
-#include "VectorProcSubtarget.h"
 #include "llvm/Target/TargetFrameLowering.h"
 
 namespace llvm {
@@ -20,6 +19,8 @@ class VectorProcSubtarget;
 
 class VectorProcFrameLowering : public TargetFrameLowering {
 public:
+  static const VectorProcFrameLowering *create(const VectorProcSubtarget &ST);
+
   explicit VectorProcFrameLowering(const VectorProcSubtarget &ST)
       : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 64, 0, 64) {}
 

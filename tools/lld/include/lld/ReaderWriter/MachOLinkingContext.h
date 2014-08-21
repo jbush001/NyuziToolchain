@@ -14,15 +14,19 @@
 #include "lld/ReaderWriter/Reader.h"
 #include "lld/ReaderWriter/Writer.h"
 
+#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MachO.h"
+
+#include <set>
 
 using llvm::MachO::HeaderFileType;
 
 namespace lld {
 
 namespace mach_o {
-class KindHandler; // defined in lib. this header is in include.
+class ArchHandler; 
+class MachODylibFile;
 }
 
 class MachOLinkingContext : public LinkingContext {
@@ -54,6 +58,7 @@ public:
 
   void addPasses(PassManager &pm) override;
   bool validateImpl(raw_ostream &diagnostics) override;
+  bool createImplicitFiles(std::vector<std::unique_ptr<File>> &) const override;
 
   uint32_t getCPUType() const;
   uint32_t getCPUSubType() const;
@@ -66,9 +71,9 @@ public:
   virtual uint64_t pageZeroSize() const { return _pageZeroSize; }
   virtual uint64_t pageSize() const { return _pageSize; }
 
-  mach_o::KindHandler &kindHandler() const;
+  mach_o::ArchHandler &archHandler() const;
 
-  HeaderFileType outputFileType() const { return _outputFileType; }
+  HeaderFileType outputMachOType() const { return _outputMachOType; }
 
   Arch arch() const { return _arch; }
   StringRef archName() const { return nameFromArch(_arch); }
@@ -78,6 +83,47 @@ public:
   void setDoNothing(bool value) { _doNothing = value; }
   bool doNothing() const { return _doNothing; }
   bool printAtoms() const { return _printAtoms; }
+  bool testingFileUsage() const { return _testingFileUsage; }
+  const StringRefVector &searchDirs() const { return _searchDirs; }
+  const StringRefVector &frameworkDirs() const { return _frameworkDirs; }
+  void setSysLibRoots(const StringRefVector &paths);
+  const StringRefVector &sysLibRoots() const { return _syslibRoots; }
+
+  /// \brief Checks whether a given path on the filesystem exists.
+  ///
+  /// When running in -test_file_usage mode, this method consults an
+  /// internally maintained list of files that exist (provided by -path_exists)
+  /// instead of the actual filesystem.
+  bool pathExists(StringRef path) const;
+
+  /// \brief Adds any library search paths derived from the given base, possibly
+  /// modified by -syslibroots.
+  ///
+  /// The set of paths added consists of approximately all syslibroot-prepended
+  /// versions of libPath that exist, or the original libPath if there are none
+  /// for whatever reason. With various edge-cases for compatibility.
+  void addModifiedSearchDir(StringRef libPath, bool isSystemPath = false);
+
+  /// \brief Determine whether -lFoo can be resolve within the given path, and
+  /// return the filename if so.
+  ///
+  /// The -lFoo option is documented to search for libFoo.dylib and libFoo.a in
+  /// that order, unless Foo ends in ".o", in which case only the exact file
+  /// matches (e.g. -lfoo.o would only find foo.o).
+  ErrorOr<StringRef> searchDirForLibrary(StringRef path,
+                                         StringRef libName) const;
+
+  /// \brief Iterates through all search path entries looking for libName (as
+  /// specified by -lFoo).
+  ErrorOr<StringRef> searchLibrary(StringRef libName) const;
+
+  /// Add a framework search path.  Internally, this method may be prepended
+  /// the path with syslibroot.
+  void addFrameworkSearchDir(StringRef fwPath, bool isSystemPath = false);
+
+  /// \brief Iterates through all framework directories looking for
+  /// Foo.framework/Foo (when fwName = "Foo").
+  ErrorOr<StringRef> findPathForFramework(StringRef fwName) const;
 
   /// \brief The dylib's binary compatibility version, in the raw uint32 format.
   ///
@@ -125,7 +171,40 @@ public:
   }
   void setBundleLoader(StringRef loader) { _bundleLoader = loader; }
   void setPrintAtoms(bool value=true) { _printAtoms = value; }
+  void setTestingFileUsage(bool value = true) {
+    _testingFileUsage = value;
+  }
+  void addExistingPathForDebug(StringRef path) {
+    _existingPaths.insert(path);
+  }
+
+  /// Add section alignment constraint on final layout.
+  void addSectionAlignment(StringRef seg, StringRef sect, uint8_t align2);
+
+  /// Returns true if specified section had alignment constraints.
+  bool sectionAligned(StringRef seg, StringRef sect, uint8_t &align2) const;
+
   StringRef dyldPath() const { return "/usr/lib/dyld"; }
+
+  /// Stub creation Pass should be run.
+  bool needsStubsPass() const;
+
+  // GOT creation Pass should be run.
+  bool needsGOTPass() const;
+
+  /// Magic symbol name stubs will need to help lazy bind.
+  StringRef binderSymbolName() const;
+
+  /// Used to keep track of direct and indirect dylibs.
+  void registerDylib(mach_o::MachODylibFile *dylib);
+
+  /// Used to find indirect dylibs. Instantiates a MachODylibFile if one
+  /// has not already been made for the requested dylib.  Uses -L and -F
+  /// search paths to allow indirect dylibs to be overridden.
+  mach_o::MachODylibFile* findIndirectDylib(StringRef path) const;
+
+  /// Creates a copy (owned by this MachOLinkingContext) of a string.
+  StringRef copy(StringRef str) { return str.copy(_allocator); }
 
   static Arch archFromCpuType(uint32_t cputype, uint32_t cpusubtype);
   static Arch archFromName(StringRef archName);
@@ -142,6 +221,8 @@ public:
 
 private:
   Writer &writer() const override;
+  mach_o::MachODylibFile* loadIndirectDylib(StringRef path) const;
+
 
   struct ArchInfo {
     StringRef                 archName;
@@ -151,10 +232,20 @@ private:
     uint32_t                  cpusubtype;
   };
 
+  struct SectionAlign {
+    StringRef segmentName;
+    StringRef sectionName;
+    uint8_t   align2;
+  };
+
   static ArchInfo _s_archInfos[];
 
-  HeaderFileType _outputFileType;   // e.g MH_EXECUTE
-  bool _outputFileTypeStatic; // Disambiguate static vs dynamic prog
+  std::set<StringRef> _existingPaths; // For testing only.
+  StringRefVector _searchDirs;
+  StringRefVector _syslibRoots;
+  StringRefVector _frameworkDirs;
+  HeaderFileType _outputMachOType;   // e.g MH_EXECUTE
+  bool _outputMachOTypeStatic; // Disambiguate static vs dynamic prog
   bool _doNothing;            // for -help and -v which just print info
   Arch _arch;
   OS _os;
@@ -166,9 +257,14 @@ private:
   StringRef _installName;
   bool _deadStrippableDylib;
   bool _printAtoms;
+  bool _testingFileUsage;
   StringRef _bundleLoader;
-  mutable std::unique_ptr<mach_o::KindHandler> _kindHandler;
+  mutable std::unique_ptr<mach_o::ArchHandler> _archHandler;
   mutable std::unique_ptr<Writer> _writer;
+  std::vector<SectionAlign> _sectAligns;
+  llvm::StringMap<mach_o::MachODylibFile*> _pathToDylibMap;
+  std::set<mach_o::MachODylibFile*> _allDylibs;
+  mutable std::vector<std::unique_ptr<class MachOFileNode>> _indirectDylibs;
 };
 
 } // end namespace lld

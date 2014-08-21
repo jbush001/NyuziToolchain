@@ -29,24 +29,6 @@
 
 namespace lld {
 
-namespace {
-
-/// This is used as a filter function to std::remove_if to coalesced atoms.
-class AtomCoalescedAway {
-public:
-  explicit AtomCoalescedAway(SymbolTable &sym) : _symbolTable(sym) {}
-
-  bool operator()(const Atom *atom) const {
-    const Atom *rep = _symbolTable.replacement(atom);
-    return rep != atom;
-  }
-
-private:
-  SymbolTable &_symbolTable;
-};
-
-} // namespace
-
 void Resolver::handleFile(const File &file) {
   bool undefAdded = false;
   for (const DefinedAtom *atom : file.defined())
@@ -148,26 +130,30 @@ bool Resolver::doUndefinedAtom(const UndefinedAtom &atom) {
 }
 
 /// \brief Add the section group and the group-child reference members.
-bool Resolver::maybeAddSectionGroupOrGnuLinkOnce(const DefinedAtom &atom) {
+void Resolver::maybeAddSectionGroupOrGnuLinkOnce(const DefinedAtom &atom) {
   // First time adding a group?
   bool isFirstTime = _symbolTable.addGroup(atom);
 
   if (!isFirstTime) {
     // If duplicate symbols are allowed, select the first group.
     if (_context.getAllowDuplicates())
-      return true;
-    const DefinedAtom *prevGroup =
-        dyn_cast<DefinedAtom>(_symbolTable.findGroup(atom.name()));
+      return;
+    auto *prevGroup = dyn_cast<DefinedAtom>(_symbolTable.findGroup(atom.name()));
     assert(prevGroup &&
            "Internal Error: The group atom could only be a defined atom");
     // The atoms should be of the same content type, reject invalid group
     // resolution behaviors.
-    return atom.contentType() == prevGroup->contentType();
+    if (atom.contentType() == prevGroup->contentType())
+      return;
+    llvm::errs() << "SymbolTable: error while merging " << atom.name()
+                 << "\n";
+    llvm::report_fatal_error("duplicate symbol error");
+    return;
   }
 
   for (const Reference *r : atom) {
-    if ((r->kindNamespace() == lld::Reference::KindNamespace::all) &&
-        (r->kindValue() == lld::Reference::kindGroupChild)) {
+    if (r->kindNamespace() == lld::Reference::KindNamespace::all &&
+        r->kindValue() == lld::Reference::kindGroupChild) {
       const DefinedAtom *target = dyn_cast<DefinedAtom>(r->target());
       assert(target && "Internal Error: kindGroupChild references need to "
                        "be associated with Defined Atoms only");
@@ -175,7 +161,6 @@ bool Resolver::maybeAddSectionGroupOrGnuLinkOnce(const DefinedAtom &atom) {
       _symbolTable.add(*target);
     }
   }
-  return true;
 }
 
 // Called on each atom when a file is added. Returns true if a given
@@ -202,12 +187,7 @@ void Resolver::doDefinedAtom(const DefinedAtom &atom) {
   _atoms.push_back(&atom);
 
   if (atom.isGroupParent()) {
-    // Raise error if there exists a similar gnu linkonce section.
-    if (!maybeAddSectionGroupOrGnuLinkOnce(atom)) {
-      llvm::errs() << "SymbolTable: error while merging " << atom.name()
-                   << "\n";
-      llvm::report_fatal_error("duplicate symbol error");
-    }
+    maybeAddSectionGroupOrGnuLinkOnce(atom);
   } else {
     _symbolTable.add(atom);
   }
@@ -262,7 +242,7 @@ bool Resolver::resolveUndefines() {
 
   for (;;) {
     ErrorOr<File &> file = _context.getInputGraph().getNextFile();
-    error_code ec = file.getError();
+    std::error_code ec = file.getError();
     if (ec == InputGraphError::no_more_files)
       return true;
     if (!file) {
@@ -297,6 +277,16 @@ void Resolver::updateReferences() {
   for (const Atom *atom : _atoms) {
     if (const DefinedAtom *defAtom = dyn_cast<DefinedAtom>(atom)) {
       for (const Reference *ref : *defAtom) {
+        // A reference of type kindAssociate should't be updated.
+        // Instead, an atom having such reference will be removed
+        // if the target atom is coalesced away, so that they will
+        // go away as a group.
+        if (ref->kindNamespace() == lld::Reference::KindNamespace::all &&
+            ref->kindValue() == lld::Reference::kindAssociate) {
+          if (_symbolTable.isCoalescedAway(atom))
+            _deadAtoms.insert(ref->target());
+          continue;
+        }
         const Atom *newTarget = _symbolTable.replacement(ref->target());
         const_cast<Reference *>(ref)->setTarget(newTarget);
       }
@@ -305,17 +295,26 @@ void Resolver::updateReferences() {
 }
 
 // For dead code stripping, recursively mark atoms "live"
-void Resolver::markLive(const Atom &atom) {
+void Resolver::markLive(const Atom *atom) {
   // Mark the atom is live. If it's already marked live, then stop recursion.
-  auto exists = _liveAtoms.insert(&atom);
+  auto exists = _liveAtoms.insert(atom);
   if (!exists.second)
     return;
 
   // Mark all atoms it references as live
-  if (const DefinedAtom *defAtom = dyn_cast<DefinedAtom>(&atom))
+  if (const DefinedAtom *defAtom = dyn_cast<DefinedAtom>(atom)) {
     for (const Reference *ref : *defAtom)
-      if (const Atom *target = ref->target())
-        markLive(*target);
+      markLive(ref->target());
+    for (const Atom *target : _reverseRef[defAtom])
+      markLive(target);
+  }
+}
+
+static bool isBackref(const Reference *ref) {
+  if (ref->kindNamespace() != lld::Reference::KindNamespace::all)
+    return false;
+  return (ref->kindValue() == lld::Reference::kindLayoutBefore ||
+          ref->kindValue() == lld::Reference::kindGroupChild);
 }
 
 // remove all atoms not actually used
@@ -324,7 +323,14 @@ void Resolver::deadStripOptimize() {
   // only do this optimization with -dead_strip
   if (!_context.deadStrip())
     return;
-  assert(_liveAtoms.empty());
+
+  // Some type of references prevent referring atoms to be dead-striped.
+  // Make a reverse map of such references before traversing the graph.
+  for (const Atom *atom : _atoms)
+    if (const DefinedAtom *defAtom = dyn_cast<DefinedAtom>(atom))
+      for (const Reference *ref : *defAtom)
+        if (isBackref(ref))
+          _reverseRef[ref->target()].insert(atom);
 
   // By default, shared libraries are built with all globals as dead strip roots
   if (_context.globalsAreDeadStripRoots())
@@ -342,7 +348,7 @@ void Resolver::deadStripOptimize() {
 
   // mark all roots as live, and recursively all atoms they reference
   for (const Atom *dsrAtom : _deadStripRoots)
-    markLive(*dsrAtom);
+    markLive(dsrAtom);
 
   // now remove all non-live atoms from _atoms
   _atoms.erase(std::remove_if(_atoms.begin(), _atoms.end(), [&](const Atom *a) {
@@ -380,7 +386,7 @@ bool Resolver::checkUndefines() {
         continue;
 
       // If the undefine is coalesced away, skip over it.
-      if (_symbolTable.replacement(undefAtom) != undefAtom)
+      if (_symbolTable.isCoalescedAway(undefAtom))
         continue;
 
       // Seems like this symbol is undefined. Warn that.
@@ -402,8 +408,9 @@ bool Resolver::checkUndefines() {
 // remove from _atoms all coaleseced away atoms
 void Resolver::removeCoalescedAwayAtoms() {
   ScopedTask task(getDefaultDomain(), "removeCoalescedAwayAtoms");
-  _atoms.erase(std::remove_if(_atoms.begin(), _atoms.end(),
-                              AtomCoalescedAway(_symbolTable)),
+  _atoms.erase(std::remove_if(_atoms.begin(), _atoms.end(), [&](const Atom *a) {
+                 return _symbolTable.isCoalescedAway(a) || _deadAtoms.count(a);
+               }),
                _atoms.end());
 }
 

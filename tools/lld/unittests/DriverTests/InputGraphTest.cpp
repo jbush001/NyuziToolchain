@@ -16,7 +16,7 @@
 
 #include "lld/Core/InputGraph.h"
 #include "lld/Core/Resolver.h"
-#include "lld/ReaderWriter/Simple.h"
+#include "lld/Core/Simple.h"
 
 using namespace lld;
 
@@ -68,7 +68,7 @@ public:
 
   void expectEnd() {
     ErrorOr<File &> file = _graph->getNextFile();
-    EXPECT_EQ(InputGraphError::no_more_files, file.getError());
+    EXPECT_EQ(file.getError(), InputGraphError::no_more_files);
   }
 
 protected:

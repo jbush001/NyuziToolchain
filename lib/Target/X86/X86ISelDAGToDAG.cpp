@@ -192,7 +192,6 @@ namespace {
   private:
     SDNode *Select(SDNode *N) override;
     SDNode *SelectGather(SDNode *N, unsigned Opc);
-    SDNode *SelectAtomic64(SDNode *Node, unsigned Opc);
     SDNode *SelectAtomicLoadArith(SDNode *Node, MVT NVT);
 
     bool FoldOffsetIntoAddress(uint64_t Offset, X86ISelAddressMode &AM);
@@ -297,7 +296,7 @@ namespace {
     /// getInstrInfo - Return a reference to the TargetInstrInfo, casted
     /// to the target-specific type.
     const X86InstrInfo *getInstrInfo() const {
-      return getTargetMachine().getInstrInfo();
+      return getTargetMachine().getSubtargetImpl()->getInstrInfo();
     }
   };
 }
@@ -544,7 +543,7 @@ void X86DAGToDAGISel::PreprocessISelDAG() {
                                           false, false, 0);
     SDValue Result = CurDAG->getExtLoad(ISD::EXTLOAD, dl, DstVT, Store, MemTmp,
                                         MachinePointerInfo(),
-                                        MemVT, false, false, 0);
+                                        MemVT, false, false, false, 0);
 
     // We're about to replace all uses of the FP_ROUND/FP_EXTEND with the
     // extload we created.  This will cause general havok on the dag because
@@ -565,7 +564,7 @@ void X86DAGToDAGISel::PreprocessISelDAG() {
 /// the main function.
 void X86DAGToDAGISel::EmitSpecialCodeForMain(MachineBasicBlock *BB,
                                              MachineFrameInfo *MFI) {
-  const TargetInstrInfo *TII = TM.getInstrInfo();
+  const TargetInstrInfo *TII = TM.getSubtargetImpl()->getInstrInfo();
   if (Subtarget->isTargetCygMing()) {
     unsigned CallOp =
       Subtarget->is64Bit() ? X86::CALL64pcrel32 : X86::CALLpcrel32;
@@ -1567,24 +1566,6 @@ SDNode *X86DAGToDAGISel::getGlobalBaseReg() {
                              getTargetLowering()->getPointerTy()).getNode();
 }
 
-SDNode *X86DAGToDAGISel::SelectAtomic64(SDNode *Node, unsigned Opc) {
-  SDValue Chain = Node->getOperand(0);
-  SDValue In1 = Node->getOperand(1);
-  SDValue In2L = Node->getOperand(2);
-  SDValue In2H = Node->getOperand(3);
-
-  SDValue Tmp0, Tmp1, Tmp2, Tmp3, Tmp4;
-  if (!SelectAddr(Node, In1, Tmp0, Tmp1, Tmp2, Tmp3, Tmp4))
-    return nullptr;
-  MachineSDNode::mmo_iterator MemOp = MF->allocateMemRefsArray(1);
-  MemOp[0] = cast<MemSDNode>(Node)->getMemOperand();
-  const SDValue Ops[] = { Tmp0, Tmp1, Tmp2, Tmp3, Tmp4, In2L, In2H, Chain};
-  SDNode *ResNode = CurDAG->getMachineNode(Opc, SDLoc(Node),
-                                           MVT::i32, MVT::i32, MVT::Other, Ops);
-  cast<MachineSDNode>(ResNode)->setMemRefs(MemOp, MemOp + 1);
-  return ResNode;
-}
-
 /// Atomic opcode table
 ///
 enum AtomicOpc {
@@ -2126,38 +2107,6 @@ SDNode *X86DAGToDAGISel::Select(SDNode *Node) {
     return getGlobalBaseReg();
 
 
-  case X86ISD::ATOMOR64_DAG:
-  case X86ISD::ATOMXOR64_DAG:
-  case X86ISD::ATOMADD64_DAG:
-  case X86ISD::ATOMSUB64_DAG:
-  case X86ISD::ATOMNAND64_DAG:
-  case X86ISD::ATOMAND64_DAG:
-  case X86ISD::ATOMMAX64_DAG:
-  case X86ISD::ATOMMIN64_DAG:
-  case X86ISD::ATOMUMAX64_DAG:
-  case X86ISD::ATOMUMIN64_DAG:
-  case X86ISD::ATOMSWAP64_DAG: {
-    unsigned Opc;
-    switch (Opcode) {
-    default: llvm_unreachable("Impossible opcode");
-    case X86ISD::ATOMOR64_DAG:   Opc = X86::ATOMOR6432;   break;
-    case X86ISD::ATOMXOR64_DAG:  Opc = X86::ATOMXOR6432;  break;
-    case X86ISD::ATOMADD64_DAG:  Opc = X86::ATOMADD6432;  break;
-    case X86ISD::ATOMSUB64_DAG:  Opc = X86::ATOMSUB6432;  break;
-    case X86ISD::ATOMNAND64_DAG: Opc = X86::ATOMNAND6432; break;
-    case X86ISD::ATOMAND64_DAG:  Opc = X86::ATOMAND6432;  break;
-    case X86ISD::ATOMMAX64_DAG:  Opc = X86::ATOMMAX6432;  break;
-    case X86ISD::ATOMMIN64_DAG:  Opc = X86::ATOMMIN6432;  break;
-    case X86ISD::ATOMUMAX64_DAG: Opc = X86::ATOMUMAX6432; break;
-    case X86ISD::ATOMUMIN64_DAG: Opc = X86::ATOMUMIN6432; break;
-    case X86ISD::ATOMSWAP64_DAG: Opc = X86::ATOMSWAP6432; break;
-    }
-    SDNode *RetVal = SelectAtomic64(Node, Opc);
-    if (RetVal)
-      return RetVal;
-    break;
-  }
-
   case ISD::ATOMIC_LOAD_XOR:
   case ISD::ATOMIC_LOAD_AND:
   case ISD::ATOMIC_LOAD_OR:
@@ -2595,12 +2544,30 @@ SDNode *X86DAGToDAGISel::Select(SDNode *Node) {
     SDValue N0 = Node->getOperand(0);
     SDValue N1 = Node->getOperand(1);
 
+    if (N0.getOpcode() == ISD::TRUNCATE && N0.hasOneUse() &&
+        HasNoSignedComparisonUses(Node)) {
+      // Look for (X86cmp (truncate $op, i1), 0) and try to convert to a
+      // smaller encoding
+      if (Opcode == X86ISD::CMP && N0.getValueType() == MVT::i1 &&
+          X86::isZeroNode(N1)) {
+        SDValue Reg = N0.getOperand(0);
+        SDValue Imm = CurDAG->getTargetConstant(1, MVT::i8);
+
+        // Emit testb
+        if (Reg.getScalarValueSizeInBits() > 8)
+          Reg = CurDAG->getTargetExtractSubreg(X86::sub_8bit, dl, MVT::i8, Reg);
+        // Emit a testb.
+        SDNode *NewNode = CurDAG->getMachineNode(X86::TEST8ri, dl, MVT::i32,
+                                                Reg, Imm);
+        ReplaceUses(SDValue(Node, 0), SDValue(NewNode, 0));
+        return nullptr;
+      }
+
+      N0 = N0.getOperand(0);
+    }
     // Look for (X86cmp (and $op, $imm), 0) and see if we can convert it to
     // use a smaller encoding.
-    if (N0.getOpcode() == ISD::TRUNCATE && N0.hasOneUse() &&
-        HasNoSignedComparisonUses(Node))
-      // Look past the truncate if CMP is the only use of it.
-      N0 = N0.getOperand(0);
+    // Look past the truncate if CMP is the only use of it.
     if ((N0.getNode()->getOpcode() == ISD::AND ||
          (N0.getResNo() == 0 && N0.getNode()->getOpcode() == X86ISD::AND)) &&
         N0.getNode()->hasOneUse() &&

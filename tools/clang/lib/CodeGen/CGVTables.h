@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef CLANG_CODEGEN_CGVTABLE_H
-#define CLANG_CODEGEN_CGVTABLE_H
+#ifndef LLVM_CLANG_LIB_CODEGEN_CGVTABLES_H
+#define LLVM_CLANG_LIB_CODEGEN_CGVTABLES_H
 
 #include "clang/AST/BaseSubobject.h"
 #include "clang/AST/CharUnits.h"
@@ -61,11 +61,10 @@ public:
   /// decl.
   /// \param Components - The vtable components; this is really an array of
   /// VTableComponents.
-  llvm::Constant *CreateVTableInitializer(const CXXRecordDecl *RD,
-                                          const VTableComponent *Components, 
-                                          unsigned NumComponents,
-                                const VTableLayout::VTableThunkTy *VTableThunks,
-                                          unsigned NumVTableThunks);
+  llvm::Constant *CreateVTableInitializer(
+      const CXXRecordDecl *RD, const VTableComponent *Components,
+      unsigned NumComponents, const VTableLayout::VTableThunkTy *VTableThunks,
+      unsigned NumVTableThunks, llvm::Constant *RTTI);
 
   CodeGenVTables(CodeGenModule &CGM);
 
@@ -99,7 +98,7 @@ public:
                              VTableAddressPointsMapTy& AddressPoints);
 
     
-  /// GetAddrOfVTable - Get the address of the VTT for the given record decl.
+  /// GetAddrOfVTT - Get the address of the VTT for the given record decl.
   llvm::GlobalVariable *GetAddrOfVTT(const CXXRecordDecl *RD);
 
   /// EmitVTTDefinition - Emit the definition of the given vtable.

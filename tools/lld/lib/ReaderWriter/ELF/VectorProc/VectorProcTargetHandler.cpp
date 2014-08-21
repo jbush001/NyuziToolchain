@@ -36,7 +36,7 @@ int relocABS32(uint8_t *location, uint64_t relocAddr, uint64_t target, uint64_t 
 
 } // end anon namespace
 
-error_code VectorProcTargetRelocationHandler::applyRelocation(
+std::error_code VectorProcTargetRelocationHandler::applyRelocation(
     ELFWriter &writer, llvm::FileOutputBuffer &buf, const lld::AtomLayout &atom,
     const Reference &ref) const {
   uint8_t *atomContent = buf.getBufferStart() + atom._fileOffset;
@@ -45,7 +45,7 @@ error_code VectorProcTargetRelocationHandler::applyRelocation(
   uint64_t relocVAddress = atom._virtualAddr + ref.offsetInAtom();
 
   if (ref.kindNamespace() != Reference::KindNamespace::ELF)
-    return error_code();
+    return std::error_code();
 
   switch (ref.kindValue()) {
   case R_VECTORPROC_BRANCH:
@@ -65,7 +65,7 @@ error_code VectorProcTargetRelocationHandler::applyRelocation(
   }
   }
 
-  return error_code();
+  return std::error_code();
 }
 
 VectorProcTargetHandler::VectorProcTargetHandler(VectorProcLinkingContext &context)

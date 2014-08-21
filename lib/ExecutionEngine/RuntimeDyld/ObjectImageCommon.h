@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_RUNTIMEDYLD_OBJECTIMAGECOMMON_H
-#define LLVM_RUNTIMEDYLD_OBJECTIMAGECOMMON_H
+#ifndef LLVM_LIB_EXECUTIONENGINE_RUNTIMEDYLD_OBJECTIMAGECOMMON_H
+#define LLVM_LIB_EXECUTIONENGINE_RUNTIMEDYLD_OBJECTIMAGECOMMON_H
 
 #include "llvm/ExecutionEngine/ObjectBuffer.h"
 #include "llvm/ExecutionEngine/ObjectImage.h"
@@ -48,7 +48,8 @@ public:
   {
     // FIXME: error checking? createObjectFile returns an ErrorOr<ObjectFile*>
     // and should probably be checked for failure.
-    ObjFile.reset(object::ObjectFile::createObjectFile(Buffer->getMemBuffer()).get());
+    MemoryBufferRef Buf = Buffer->getMemBuffer();
+    ObjFile = std::move(object::ObjectFile::createObjectFile(Buf).get());
   }
   ObjectImageCommon(std::unique_ptr<object::ObjectFile> Input)
   : ObjectImage(nullptr), ObjFile(std::move(Input))  {}
@@ -85,4 +86,4 @@ public:
 
 } // end namespace llvm
 
-#endif // LLVM_RUNTIMEDYLD_OBJECT_IMAGE_H
+#endif

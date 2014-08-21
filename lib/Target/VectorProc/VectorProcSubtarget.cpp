@@ -26,8 +26,14 @@ void VectorProcSubtarget::anchor() {}
 
 VectorProcSubtarget::VectorProcSubtarget(const std::string &TT,
                                          const std::string &CPU,
-                                         const std::string &FS)
-    : VectorProcGenSubtargetInfo(TT, CPU, FS) {
+                                         const std::string &FS,
+										 VectorProcTargetMachine *_TM)
+    : VectorProcGenSubtargetInfo(TT, CPU, FS),
+      DL("e-m:e-p:32:32"),
+      InstrInfo(VectorProcInstrInfo::create(*this)), 
+	  TLInfo(VectorProcTargetLowering::create(*_TM, *this)), 
+	  TSInfo(DL),
+      FrameLowering(VectorProcFrameLowering::create(*this)) {
 
   // Determine default and user specified characteristics
   std::string CPUName = CPU;

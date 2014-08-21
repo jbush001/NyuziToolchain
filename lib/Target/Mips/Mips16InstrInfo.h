@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MIPS16INSTRUCTIONINFO_H
-#define MIPS16INSTRUCTIONINFO_H
+#ifndef LLVM_LIB_TARGET_MIPS_MIPS16INSTRINFO_H
+#define LLVM_LIB_TARGET_MIPS_MIPS16INSTRINFO_H
 
 #include "Mips16RegisterInfo.h"
 #include "MipsInstrInfo.h"
@@ -23,7 +23,7 @@ class Mips16InstrInfo : public MipsInstrInfo {
   const Mips16RegisterInfo RI;
 
 public:
-  explicit Mips16InstrInfo(MipsTargetMachine &TM);
+  explicit Mips16InstrInfo(const MipsSubtarget &STI);
 
   const MipsRegisterInfo &getRegisterInfo() const override;
 

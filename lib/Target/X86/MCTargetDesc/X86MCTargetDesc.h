@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef X86MCTARGETDESC_H
-#define X86MCTARGETDESC_H
+#ifndef LLVM_LIB_TARGET_X86_MCTARGETDESC_X86MCTARGETDESC_H
+#define LLVM_LIB_TARGET_X86_MCTARGETDESC_X86MCTARGETDESC_H
 
 #include "llvm/Support/DataTypes.h"
 #include <string>
@@ -28,6 +28,7 @@ class MCSubtargetInfo;
 class MCRelocationInfo;
 class MCStreamer;
 class Target;
+class Triple;
 class StringRef;
 class raw_ostream;
 
@@ -64,7 +65,7 @@ namespace X86_MC {
 
   void DetectFamilyModel(unsigned EAX, unsigned &Family, unsigned &Model);
 
-  unsigned getDwarfRegFlavour(StringRef TT, bool isEH);
+  unsigned getDwarfRegFlavour(Triple TT, bool isEH);
 
   void InitLLVM2SEHRegisterMapping(MCRegisterInfo *MRI);
 

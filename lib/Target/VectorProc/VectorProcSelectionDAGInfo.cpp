@@ -17,7 +17,7 @@
 using namespace llvm;
 
 VectorProcSelectionDAGInfo::VectorProcSelectionDAGInfo(
-    const VectorProcTargetMachine &TM)
-    : TargetSelectionDAGInfo(TM) {}
+    const DataLayout &DL)
+    : TargetSelectionDAGInfo(&DL) {}
 
 VectorProcSelectionDAGInfo::~VectorProcSelectionDAGInfo() {}

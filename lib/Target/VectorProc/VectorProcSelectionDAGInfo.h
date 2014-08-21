@@ -23,7 +23,7 @@ class VectorProcTargetMachine;
 
 class VectorProcSelectionDAGInfo : public TargetSelectionDAGInfo {
 public:
-  explicit VectorProcSelectionDAGInfo(const VectorProcTargetMachine &TM);
+  explicit VectorProcSelectionDAGInfo(const DataLayout &DL);
   ~VectorProcSelectionDAGInfo();
 };
 }

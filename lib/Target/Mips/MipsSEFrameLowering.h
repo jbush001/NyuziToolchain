@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MIPSSE_FRAMEINFO_H
-#define MIPSSE_FRAMEINFO_H
+#ifndef LLVM_LIB_TARGET_MIPS_MIPSSEFRAMELOWERING_H
+#define LLVM_LIB_TARGET_MIPS_MIPSSEFRAMELOWERING_H
 
 #include "MipsFrameLowering.h"
 
@@ -20,8 +20,7 @@ namespace llvm {
 
 class MipsSEFrameLowering : public MipsFrameLowering {
 public:
-  explicit MipsSEFrameLowering(const MipsSubtarget &STI)
-    : MipsFrameLowering(STI, STI.stackAlignment()) {}
+  explicit MipsSEFrameLowering(const MipsSubtarget &STI);
 
   /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
   /// the function.

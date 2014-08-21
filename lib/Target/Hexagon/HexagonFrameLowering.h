@@ -7,24 +7,20 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef HEXAGON_FRAMEINFO_H
-#define HEXAGON_FRAMEINFO_H
+#ifndef LLVM_LIB_TARGET_HEXAGON_HEXAGONFRAMELOWERING_H
+#define LLVM_LIB_TARGET_HEXAGON_HEXAGONFRAMELOWERING_H
 
 #include "Hexagon.h"
-#include "HexagonSubtarget.h"
 #include "llvm/Target/TargetFrameLowering.h"
 
 namespace llvm {
 
 class HexagonFrameLowering : public TargetFrameLowering {
 private:
-  const HexagonSubtarget &STI;
   void determineFrameLayout(MachineFunction &MF) const;
 
 public:
-  explicit HexagonFrameLowering(const HexagonSubtarget &sti)
-    : TargetFrameLowering(StackGrowsDown, 8, 0), STI(sti) {
-  }
+  explicit HexagonFrameLowering() : TargetFrameLowering(StackGrowsDown, 8, 0) {}
 
   /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
   /// the function.

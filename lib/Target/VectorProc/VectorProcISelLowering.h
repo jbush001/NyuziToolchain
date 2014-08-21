@@ -37,7 +37,10 @@ enum {
 
 class VectorProcTargetLowering : public TargetLowering {
 public:
-  VectorProcTargetLowering(TargetMachine &TM);
+  static const VectorProcTargetLowering *create(VectorProcTargetMachine &TM,
+                                                const VectorProcSubtarget &STI);
+
+  explicit VectorProcTargetLowering(TargetMachine &TM, const VectorProcSubtarget &STI);
   virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
   virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI, 
   	                                                     MachineBasicBlock *MBB) const override;
@@ -95,7 +98,7 @@ private:
   SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
 
 private:
-  const VectorProcSubtarget *Subtarget;
+  const VectorProcSubtarget &Subtarget;
 };
 } // end namespace llvm
 
