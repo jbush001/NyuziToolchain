@@ -149,6 +149,9 @@ public:
     return "lld.dynamic_error";
   }
 
+  virtual ~dynamic_error_category() LLVM_NOEXCEPT {
+  }
+
   std::string message(int ev) const override {
     assert(ev >= 0);
     assert(ev < (int)_messages.size());
