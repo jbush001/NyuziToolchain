@@ -455,24 +455,18 @@ VectorProcTargetLowering::VectorProcTargetLowering(TargetMachine &TM,
   setOperationAction(ISD::VACOPY, MVT::Other, Expand);
   setOperationAction(ISD::VAEND, MVT::Other, Expand);
 
-  setOperationAction(ISD::ATOMIC_LOAD,       MVT::i32,    Expand);
-  setOperationAction(ISD::ATOMIC_LOAD,       MVT::i64,    Expand);
-  setOperationAction(ISD::ATOMIC_STORE,      MVT::i32,    Expand);
-  setOperationAction(ISD::ATOMIC_STORE,      MVT::i64,    Expand);
+  setOperationAction(ISD::ATOMIC_LOAD, MVT::i32, Expand);
+  setOperationAction(ISD::ATOMIC_LOAD, MVT::i64, Expand);
+  setOperationAction(ISD::ATOMIC_STORE, MVT::i32, Expand);
+  setOperationAction(ISD::ATOMIC_STORE, MVT::i64, Expand);
 
   setInsertFencesForAtomic(true);
 
   setOperationAction(ISD::FCOPYSIGN,  MVT::f32, Expand);
-
-  setOperationAction(ISD::FABS,  MVT::f32, Legal);
-  setOperationAction(ISD::FABS,  MVT::v16f32, Legal);
-
-  setOperationAction(ISD::FFLOOR,  MVT::f32, Legal);
-  setOperationAction(ISD::FFLOOR,  MVT::v16f32, Legal);
-
-  //   Doesn't exist in LLVM
-  // setOperationAction(ISD::FFRAC,  MVT::f32, Legal);
-  // setOperationAction(ISD::FFRAC,  MVT::v16f32, Legal);
+  setOperationAction(ISD::FABS,  MVT::f32, Expand);
+  setOperationAction(ISD::FABS,  MVT::v16f32, Expand);
+  setOperationAction(ISD::FFLOOR,  MVT::f32, Expand);
+  setOperationAction(ISD::FFLOOR,  MVT::v16f32, Expand);
 
   // Hardware does not have an integer divider, so convert these to
   // library calls
