@@ -712,6 +712,7 @@ def BT_Uncond : BranchType<3>;
 def BT_Call : BranchType<4>;
 def BT_NAll : BranchType<5>;
 def BT_CallReg : BranchType<6>;
+def BT_Eret : BranchType<7>;
 
 class BranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	BranchType type>

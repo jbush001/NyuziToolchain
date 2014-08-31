@@ -21,6 +21,8 @@ foo:	goto target0		; CHECK: encoding: [0bAAA00000,A,A,0b1111011A]
 		goto s2	; CHECK: encoding: [0xe2,0x03,0xf0,0xc0]
 		
 		call s3 ; CHECK: encoding: [0x63,0x00,0x00,0xfc]
+
+		eret	; CHECK: encoding: [0x00,0x00,0x00,0xfe]
 		
 target0: nop
 target1: nop

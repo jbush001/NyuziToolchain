@@ -532,6 +532,22 @@ def RET : VPInstruction<
 	let isBarrier = 1;
 }
 
+// Return from exception
+def ERET : VPInstruction<
+	(outs),
+	(ins),
+	"eret",
+	[]>
+{
+	let Inst{31-28} = 0xf;
+	let Inst{27-25} = 7;	// Eret branch type
+	
+	let isReturn = 1;
+	let isTerminator = 1;
+	let isBarrier = 1;
+}
+
+
 // These pseudo ops capture outgoing argument space on the stack and will be removed
 // by later passes.
 let Defs = [ SP_REG ], Uses = [ SP_REG ], hasSideEffects = 1 in {
