@@ -1,0 +1,151 @@
+#!/bin/bash
+#                     The MCLinker project
+#
+# This file is distributed under the University of Illinois Open Source
+# License. See LICENSE.TXT for details.
+
+############################
+# Design Pattern - Builder, using BASH
+# 0. watch configuration
+# 1. ask name
+# 2. ask email
+#  i. write back to configuration
+# 3. ask file type
+#  i. ask deployment
+# 4. ask file name
+# 5. copy templates
+# 6. replace the keywords
+
+############################
+# Variable Dictionary
+MCLINKER_CONFIG_DIR=$HOME/.bold
+AUTHOR=
+EMAIL=
+CLASS_NAME=
+BRIEF=
+FILE_TYPE=
+DEPLOYMENT=
+
+# 0. watch configuration
+if [ -d "${MCLINKER_CONFIG_DIR}" ]; then
+	if [ -f "${MCLINKER_CONFIG_DIR}/config" ]; then
+		source ${MCLINKER_CONFIG_DIR}/config
+	fi
+else
+	mkdir ${MCLINKER_CONFIG_DIR}
+fi
+
+# 1. ask name
+#  i. write back to configuration
+if [ -z "${AUTHOR}" ]; then
+	echo -n "name? ";
+	read AUTHOR
+	echo "AUTHOR=\"${AUTHOR}\"" >> ${MCLINKER_CONFIG_DIR}/config
+fi
+
+# 2. ask email
+#  i. write back to configuration
+if [ -z "${EMAIL}" ]; then
+	echo -n "e-mail? ";
+	read EMAIL
+	echo "EMAIL=\"${EMAIL}\"" >> ${MCLINKER_CONFIG_DIR}/config
+fi
+
+# 3. ask file type
+echo "What type of files you want to create?";
+echo " 1) normal source code"
+echo " 2) test case"
+
+while [ -z "${FILE_TYPE}" ]; do
+	echo -n "your choice? ";
+	read FILE_TYPE
+
+	case "$FILE_TYPE" in
+	1 ) source ${MCLINKERTOP}/scripts/normal_files.sh;
+		FILE_TYPE="normal";
+		;;
+	2 ) source ${MCLINKERTOP}/scripts/test_files.sh;
+		FILE_TYPE="testcase";
+		;;
+	* ) FILE_TYPE="" ;;
+	esac
+done
+
+# 3.i ask deployment
+if [ "${FILE_TYPE}" = "normal" ]; then
+	echo "Where you what to deploy?";
+	echo " 1) ADT"
+	echo " 2) MC"
+	echo " 3) Target"
+	echo " 4) CodeGen"
+	echo " 5) Support"
+	echo " 6) LD"
+
+	while [ -z "${DEPLOYMENT}" ]; do
+		echo -n "your choice? ";
+		read DEPLOYMENT
+
+		case "${DEPLOYMENT}" in
+		1 ) DEPLOYMENT="ADT";;
+		2 ) DEPLOYMENT="MC";;
+		3 ) DEPLOYMENT="Target";;
+		4 ) DEPLOYMENT="CodeGen";;
+		5 ) DEPLOYMENT="Support";;
+		6 ) DEPLOYMENT="LD";;
+		* ) DEPLOYMENT="";;
+		esac
+	done
+fi
+
+# 3.ii ask Target
+if [ "${DEPLOYMENT}" = "Target" ]; then
+	echo "What is your Target?";
+	echo " 1) Target"
+	echo " 2) Target/ARM"
+	echo " 3) Target/X86"
+	echo " 4) Target/Mips"
+
+	while [ -z "${TARGET}" ]; do
+		echo -n "your choice? ";
+		read TARGET
+		case "${TARGET}" in
+		1 ) TARGET=".";;
+		2 ) TARGET="ARM"
+		    source ${MCLINKERTOP}/scripts/target_files.sh;
+			;;
+		3 ) TARGET="X86"
+		    source ${MCLINKERTOP}/scripts/target_files.sh;
+			;;
+		4 ) TARGET="Mips"
+		    source ${MCLINKERTOP}/scripts/target_files.sh;
+			;;
+		* ) TARGET="";;
+		esac
+	done
+	DEPLOYMENT="${DEPLOYMENT}/${TARGET}"
+fi
+
+# 4. ask file name
+ask_filename
+read CLASS_NAME
+
+ask_brief ${CLASS_NAME}
+read BRIEF
+
+# 5. copy the templates of header
+TARGET_FILE=$(copy_template_header ${CLASS_NAME} ${DEPLOYMENT})
+
+# 6. replace the keywords of header
+replace_author  ${TARGET_FILE} ${AUTHOR}
+repalce_email ${TARGET_FILE} ${EMAIL} 
+replace_class ${TARGET_FILE} ${CLASS_NAME} ${DEPLOYMENT}
+replace_brief ${TARGET_FILE} ${BRIEF}
+
+# 5. copy the templates of implementation
+TARGET_FILE=$(copy_template_impl ${CLASS_NAME} ${DEPLOYMENT})
+
+# 6. replace the keywords of implementation
+replace_author  ${TARGET_FILE} ${AUTHOR}
+repalce_email ${TARGET_FILE} ${EMAIL} 
+replace_class ${TARGET_FILE} ${CLASS_NAME}  ${DEPLOYMENT}
+replace_brief ${TARGET_FILE} ${BRIEF}

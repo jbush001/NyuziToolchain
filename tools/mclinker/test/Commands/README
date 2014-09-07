@@ -1,0 +1,42 @@
+
+==============
+  Test Cases
+==============
+1) opt_shared_w_output.ll
+  -shared, -o out_name.so
+2) opt_shared_wo_output.ll
+  -shared, should generate a.out
+3) opt_wo_output.ll
+  no any options, should generate executable a.out
+4) opt_Bshareable_w_output.ll
+  -Bshareable, -o out_name.so
+5) opt_Bshareable_wo_output.ll
+  -Bshareable, should generate a.out
+6) opt_shared_w_z_defs.ll
+  generate shared object with -z defs.
+7) opt_shared_w_z_now.ll
+  generate shared object with -z now
+8) opt_shared_w_z_flags.ll
+  generate shared object with some -z options:
+  origin, nodefaultlib, nodelete, nodlopen, nodump,
+  loadfltr, interpose, initfirst
+9) opt_shared_w_z_relro.ll
+  generate shared object with -z relro.
+10) opt_shared_w_execstack.ll
+  generate shared object with -z execstack/noexecstack.
+11) opt_nooption.ll
+  empty options.
+12) opt_shared_w_as_needed
+  generate shared object with --as-needed/--no-as-needed
+13) opt_shared_w_Ttext_Tdata_Tbss.ll
+  generate shared object w/ -Ttext, -Tdata, and -Tbss
+14) opt_shared_w_section_start.ll
+  generate shared object w/ --section-start
+15) opt_static_w_output.ll
+  generate a simple statically linked output
+16) opt_defsym.ll
+  define symbols on command line
+17) opt_build_id.ll
+  --build-id option can have not a following value.
+18) opt_no_object.ll
+  there are no relocatable objects on the command line.
