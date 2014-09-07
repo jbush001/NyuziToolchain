@@ -357,23 +357,27 @@ The table below shows the support for each operation by vector extension.  A
 dash indicates that an operation is not accepted according to a corresponding
 specification.
 
-============================== ====== ======= === ====
-         Opeator               OpenCL AltiVec GCC NEON
-============================== ====== ======= === ====
-[]                              yes     yes   yes  --
-unary operators +, --           yes     yes   yes  --
-++, -- --                       yes     yes   yes  --
-+,--,*,/,%                      yes     yes   yes  --
-bitwise operators &,|,^,~       yes     yes   yes  --
->>,<<                           yes     yes   yes  --
-!, &&, ||                       no      --    --   --
-==, !=, >, <, >=, <=            yes     yes   --   --
-=                               yes     yes   yes yes
-:?                              yes     --    --   --
-sizeof                          yes     yes   yes yes
-============================== ====== ======= === ====
+============================== ======= ======= ======= =======
+         Opeator               OpenCL  AltiVec   GCC    NEON
+============================== ======= ======= ======= =======
+[]                               yes     yes     yes     --
+unary operators +, --            yes     yes     yes     --
+++, -- --                        yes     yes     yes     --
++,--,*,/,%                       yes     yes     yes     --
+bitwise operators &,|,^,~        yes     yes     yes     --
+>>,<<                            yes     yes     yes     --
+!, &&, ||                        yes     --      --      --
+==, !=, >, <, >=, <=             yes     yes     --      --
+=                                yes     yes     yes     yes
+:?                               yes     --      --      --
+sizeof                           yes     yes     yes     yes
+C-style cast                     yes     yes     yes     no
+reinterpret_cast                 yes     no      yes     no
+static_cast                      yes     no      yes     no
+const_cast                       no      no      no      no
+============================== ======= ======= ======= =======
 
-See also :ref:`langext-__builtin_shufflevector`.
+See also :ref:`langext-__builtin_shufflevector`, :ref:`langext-__builtin_convertvector`.
 
 Messages on ``deprecated`` and ``unavailable`` Attributes
 =========================================================
@@ -1324,6 +1328,8 @@ indices specified.
 
 Query for this feature with ``__has_builtin(__builtin_shufflevector)``.
 
+.. _langext-__builtin_convertvector:
+
 ``__builtin_convertvector``
 ---------------------------
 
@@ -1354,7 +1360,7 @@ type must have the same number of elements.
   // convert from a vector of 4 shorts to a vector of 4 floats.
   __builtin_convertvector(vs, vector4float)
   // equivalent to:
-  (vector4float) { (float) vf[0], (float) vf[1], (float) vf[2], (float) vf[3] }
+  (vector4float) { (float) vs[0], (float) vs[1], (float) vs[2], (float) vs[3] }
 
 **Description**:
 

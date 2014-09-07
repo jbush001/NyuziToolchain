@@ -430,8 +430,7 @@ struct EmptyCoverageMappingBuilder : public CoverageMappingBuilder {
     SmallVector<unsigned, 16> FileIDMapping;
     createFileIDMapping(FileIDMapping);
 
-    CoverageMappingWriter Writer(
-        FileIDMapping, ArrayRef<CounterExpression>(), MappingRegions);
+    CoverageMappingWriter Writer(FileIDMapping, None, MappingRegions);
     Writer.write(OS);
   }
 };
@@ -836,6 +835,7 @@ struct CounterCoverageMappingBuilder
     // Counter tracks the body of the loop.
     RegionMapper Cnt(this, S);
     BreakContinueStack.push_back(BreakContinue());
+    Cnt.beginRegion();
     VisitSubStmtRBraceState(S->getBody());
     BreakContinue BC = BreakContinueStack.pop_back_val();
     Cnt.adjustForControlFlow();
@@ -1042,6 +1042,16 @@ struct CounterCoverageMappingBuilder
   void VisitImaginaryLiteral(const ImaginaryLiteral *E) {
     mapToken(E->getLocStart());
   }
+
+  void VisitObjCMessageExpr(const ObjCMessageExpr *E) {
+    mapToken(E->getLeftLoc());
+    for (Stmt::const_child_range I = static_cast<const Stmt*>(E)->children(); I;
+         ++I) {
+      if (*I)
+        this->Visit(*I);
+    }
+    mapToken(E->getRightLoc());
+  }
 };
 }
 
@@ -1083,12 +1093,13 @@ static void dump(llvm::raw_ostream &OS, const CoverageMappingRecord &Function) {
 
 void CoverageMappingModuleGen::addFunctionMappingRecord(
     llvm::GlobalVariable *FunctionName, StringRef FunctionNameValue,
-    const std::string &CoverageMapping) {
+    uint64_t FunctionHash, const std::string &CoverageMapping) {
   llvm::LLVMContext &Ctx = CGM.getLLVMContext();
   auto *Int32Ty = llvm::Type::getInt32Ty(Ctx);
+  auto *Int64Ty = llvm::Type::getInt64Ty(Ctx);
   auto *Int8PtrTy = llvm::Type::getInt8PtrTy(Ctx);
   if (!FunctionRecordTy) {
-    llvm::Type *FunctionRecordTypes[] = {Int8PtrTy, Int32Ty, Int32Ty};
+    llvm::Type *FunctionRecordTypes[] = {Int8PtrTy, Int32Ty, Int32Ty, Int64Ty};
     FunctionRecordTy =
         llvm::StructType::get(Ctx, makeArrayRef(FunctionRecordTypes));
   }
@@ -1096,7 +1107,8 @@ void CoverageMappingModuleGen::addFunctionMappingRecord(
   llvm::Constant *FunctionRecordVals[] = {
       llvm::ConstantExpr::getBitCast(FunctionName, Int8PtrTy),
       llvm::ConstantInt::get(Int32Ty, FunctionNameValue.size()),
-      llvm::ConstantInt::get(Int32Ty, CoverageMapping.size())};
+      llvm::ConstantInt::get(Int32Ty, CoverageMapping.size()),
+      llvm::ConstantInt::get(Int64Ty, FunctionHash)};
   FunctionRecords.push_back(llvm::ConstantStruct::get(
       FunctionRecordTy, makeArrayRef(FunctionRecordVals)));
   CoverageMappings += CoverageMapping;

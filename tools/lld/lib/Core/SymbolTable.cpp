@@ -171,6 +171,7 @@ bool SymbolTable::addByName(const Atom &newAtom) {
   const Atom *existing = findByName(name);
   if (existing == nullptr) {
     // Name is not in symbol table yet, add it associate with this atom.
+    _context.notifySymbolTableAdd(&newAtom);
     _nameTable[name] = &newAtom;
     return true;
   }
@@ -299,6 +300,9 @@ bool SymbolTable::addByName(const Atom &newAtom) {
     break;
   }
 
+  // Give context a chance to change which is kept.
+  _context.notifySymbolTableCoalesce(existing, &newAtom, useNew);
+
   if (useNew) {
     // Update name table to use new atom.
     _nameTable[name] = &newAtom;
@@ -394,12 +398,9 @@ std::vector<const UndefinedAtom *> SymbolTable::undefines() {
   for (auto it : _nameTable) {
     const Atom *atom = it.second;
     assert(atom != nullptr);
-    if (const auto undef = dyn_cast<const UndefinedAtom>(atom)) {
-      AtomToAtom::iterator pos = _replacedAtoms.find(undef);
-      if (pos != _replacedAtoms.end())
-        continue;
-      ret.push_back(undef);
-    }
+    if (const auto *undef = dyn_cast<const UndefinedAtom>(atom))
+      if (_replacedAtoms.count(undef) == 0)
+        ret.push_back(undef);
   }
   return ret;
 }

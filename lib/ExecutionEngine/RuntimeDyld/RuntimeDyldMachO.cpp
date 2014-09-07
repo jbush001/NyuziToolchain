@@ -28,12 +28,10 @@ using namespace llvm::object;
 namespace llvm {
 
 int64_t RuntimeDyldMachO::memcpyAddend(const RelocationEntry &RE) const {
-  const SectionEntry &Section = Sections[RE.SectionID];
-  uint8_t *LocalAddress = Section.Address + RE.Offset;
   unsigned NumBytes = 1 << RE.Size;
-  int64_t Addend = 0;
-  memcpy(&Addend, LocalAddress, NumBytes);
-  return Addend;
+  uint8_t *Src = Sections[RE.SectionID].Address + RE.Offset;
+
+  return static_cast<int64_t>(readBytesUnaligned(Src, NumBytes));
 }
 
 RelocationValueRef RuntimeDyldMachO::getRelocationValueRef(
@@ -55,15 +53,15 @@ RelocationValueRef RuntimeDyldMachO::getRelocationValueRef(
     SymbolTableMap::const_iterator SI = Symbols.find(TargetName.data());
     if (SI != Symbols.end()) {
       Value.SectionID = SI->second.first;
-      Value.Addend = SI->second.second + RE.Addend;
+      Value.Offset = SI->second.second + RE.Addend;
     } else {
       SI = GlobalSymbolTable.find(TargetName.data());
       if (SI != GlobalSymbolTable.end()) {
         Value.SectionID = SI->second.first;
-        Value.Addend = SI->second.second + RE.Addend;
+        Value.Offset = SI->second.second + RE.Addend;
       } else {
         Value.SymbolName = TargetName.data();
-        Value.Addend = RE.Addend;
+        Value.Offset = RE.Addend;
       }
     }
   } else {
@@ -73,7 +71,7 @@ RelocationValueRef RuntimeDyldMachO::getRelocationValueRef(
     Value.SectionID = findOrEmitSection(ObjImg, Sec, IsCode, ObjSectionToID);
     uint64_t Addr;
     Sec.getAddress(Addr);
-    Value.Addend = RE.Addend - Addr;
+    Value.Offset = RE.Addend - Addr;
   }
 
   return Value;
@@ -92,7 +90,7 @@ void RuntimeDyldMachO::makeValueAddendPCRel(RelocationValueRef &Value,
   if (IsPCRel) {
     uint64_t RelocAddr = 0;
     RI->getAddress(RelocAddr);
-    Value.Addend += RelocAddr + OffsetToNextPC;
+    Value.Offset += RelocAddr + OffsetToNextPC;
   }
 }
 
@@ -104,27 +102,10 @@ void RuntimeDyldMachO::dumpRelocationToResolve(const RelocationEntry &RE,
 
   dbgs() << "resolveRelocation Section: " << RE.SectionID
          << " LocalAddress: " << format("%p", LocalAddress)
-         << " FinalAddress: " << format("%p", FinalAddress)
-         << " Value: " << format("%p", Value) << " Addend: " << RE.Addend
+         << " FinalAddress: " << format("0x%016" PRIx64, FinalAddress)
+         << " Value: " << format("0x%016" PRIx64, Value) << " Addend: " << RE.Addend
          << " isPCRel: " << RE.IsPCRel << " MachoType: " << RE.RelType
          << " Size: " << (1 << RE.Size) << "\n";
-}
-
-bool RuntimeDyldMachO::writeBytesUnaligned(uint8_t *Dst, uint64_t Value,
-                                           unsigned Size) {
-
-
-  // If host and target endianness match use memcpy, otherwise copy in reverse
-  // order.
-  if (IsTargetLittleEndian == sys::IsLittleEndianHost)
-    memcpy(Dst, &Value, Size);
-  else {
-    uint8_t *Src = reinterpret_cast<uint8_t*>(&Value) + Size - 1;
-    for (unsigned i = 0; i < Size; ++i)
-      *Dst++ = *Src--;
-  }
-
-  return false;
 }
 
 bool
@@ -147,8 +128,37 @@ bool RuntimeDyldMachO::isCompatibleFile(const object::ObjectFile *Obj) const {
   return Obj->isMachO();
 }
 
-static unsigned char *processFDE(unsigned char *P, intptr_t DeltaForText,
-                                 intptr_t DeltaForEH) {
+template <typename Impl>
+void RuntimeDyldMachOCRTPBase<Impl>::finalizeLoad(ObjectImage &ObjImg,
+                                                  ObjSectionToIDMap &SectionMap) {
+  unsigned EHFrameSID = RTDYLD_INVALID_SECTION_ID;
+  unsigned TextSID = RTDYLD_INVALID_SECTION_ID;
+  unsigned ExceptTabSID = RTDYLD_INVALID_SECTION_ID;
+  ObjSectionToIDMap::iterator i, e;
+
+  for (i = SectionMap.begin(), e = SectionMap.end(); i != e; ++i) {
+    const SectionRef &Section = i->first;
+    StringRef Name;
+    Section.getName(Name);
+    if (Name == "__eh_frame")
+      EHFrameSID = i->second;
+    else if (Name == "__text")
+      TextSID = i->second;
+    else if (Name == "__gcc_except_tab")
+      ExceptTabSID = i->second;
+    else
+      impl().finalizeSection(ObjImg, i->second, Section);
+  }
+  UnregisteredEHFrameSections.push_back(
+    EHFrameRelatedSections(EHFrameSID, TextSID, ExceptTabSID));
+}
+
+template <typename Impl>
+unsigned char *RuntimeDyldMachOCRTPBase<Impl>::processFDE(unsigned char *P,
+                                                          int64_t DeltaForText,
+                                                          int64_t DeltaForEH) {
+  typedef typename Impl::TargetPtrT TargetPtrT;
+
   DEBUG(dbgs() << "Processing FDE: Delta for text: " << DeltaForText
                << ", Delta for EH: " << DeltaForEH << "\n");
   uint32_t Length = *((uint32_t *)P);
@@ -159,32 +169,33 @@ static unsigned char *processFDE(unsigned char *P, intptr_t DeltaForText,
     return Ret;
 
   P += 4;
-  intptr_t FDELocation = *((intptr_t *)P);
-  intptr_t NewLocation = FDELocation - DeltaForText;
-  *((intptr_t *)P) = NewLocation;
-  P += sizeof(intptr_t);
+  TargetPtrT FDELocation = *((TargetPtrT*)P);
+  TargetPtrT NewLocation = FDELocation - DeltaForText;
+  *((TargetPtrT*)P) = NewLocation;
+  P += sizeof(TargetPtrT);
 
   // Skip the FDE address range
-  P += sizeof(intptr_t);
+  P += sizeof(TargetPtrT);
 
   uint8_t Augmentationsize = *P;
   P += 1;
   if (Augmentationsize != 0) {
-    intptr_t LSDA = *((intptr_t *)P);
-    intptr_t NewLSDA = LSDA - DeltaForEH;
-    *((intptr_t *)P) = NewLSDA;
+    TargetPtrT LSDA = *((TargetPtrT *)P);
+    TargetPtrT NewLSDA = LSDA - DeltaForEH;
+    *((TargetPtrT *)P) = NewLSDA;
   }
 
   return Ret;
 }
 
-static intptr_t computeDelta(SectionEntry *A, SectionEntry *B) {
-  intptr_t ObjDistance = A->ObjAddress - B->ObjAddress;
-  intptr_t MemDistance = A->LoadAddress - B->LoadAddress;
+static int64_t computeDelta(SectionEntry *A, SectionEntry *B) {
+  int64_t ObjDistance = A->ObjAddress - B->ObjAddress;
+  int64_t MemDistance = A->LoadAddress - B->LoadAddress;
   return ObjDistance - MemDistance;
 }
 
-void RuntimeDyldMachO::registerEHFrames() {
+template <typename Impl>
+void RuntimeDyldMachOCRTPBase<Impl>::registerEHFrames() {
 
   if (!MemMgr)
     return;
@@ -199,8 +210,8 @@ void RuntimeDyldMachO::registerEHFrames() {
     if (SectionInfo.ExceptTabSID != RTDYLD_INVALID_SECTION_ID)
       ExceptTab = &Sections[SectionInfo.ExceptTabSID];
 
-    intptr_t DeltaForText = computeDelta(Text, EHFrame);
-    intptr_t DeltaForEH = 0;
+    int64_t DeltaForText = computeDelta(Text, EHFrame);
+    int64_t DeltaForEH = 0;
     if (ExceptTab)
       DeltaForEH = computeDelta(ExceptTab, EHFrame);
 

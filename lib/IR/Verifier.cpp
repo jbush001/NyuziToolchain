@@ -257,7 +257,7 @@ private:
   void visitGlobalVariable(const GlobalVariable &GV);
   void visitGlobalAlias(const GlobalAlias &GA);
   void visitAliaseeSubExpr(const GlobalAlias &A, const Constant &C);
-  void visitAliaseeSubExpr(SmallPtrSet<const GlobalAlias *, 4> &Visited,
+  void visitAliaseeSubExpr(SmallPtrSetImpl<const GlobalAlias *> &Visited,
                            const GlobalAlias &A, const Constant &C);
   void visitNamedMDNode(const NamedMDNode &NMD);
   void visitMDNode(MDNode &MD, Function *F);
@@ -502,7 +502,7 @@ void Verifier::visitAliaseeSubExpr(const GlobalAlias &GA, const Constant &C) {
   visitAliaseeSubExpr(Visited, GA, C);
 }
 
-void Verifier::visitAliaseeSubExpr(SmallPtrSet<const GlobalAlias *, 4> &Visited,
+void Verifier::visitAliaseeSubExpr(SmallPtrSetImpl<const GlobalAlias*> &Visited,
                                    const GlobalAlias &GA, const Constant &C) {
   if (const auto *GV = dyn_cast<GlobalValue>(&C)) {
     Assert1(!GV->isDeclaration(), "Alias must point to a definition", &GA);
@@ -1055,20 +1055,19 @@ void Verifier::visitFunction(const Function &F) {
           "Attribute 'builtin' can only be applied to a callsite.", &F);
 
   // Check that this function meets the restrictions on this calling convention.
+  // Sometimes varargs is used for perfectly forwarding thunks, so some of these
+  // restrictions can be lifted.
   switch (F.getCallingConv()) {
   default:
-    break;
   case CallingConv::C:
     break;
   case CallingConv::Fast:
   case CallingConv::Cold:
-  case CallingConv::X86_FastCall:
-  case CallingConv::X86_ThisCall:
   case CallingConv::Intel_OCL_BI:
   case CallingConv::PTX_Kernel:
   case CallingConv::PTX_Device:
-    Assert1(!F.isVarArg(),
-            "Varargs functions must have C calling conventions!", &F);
+    Assert1(!F.isVarArg(), "Calling convention does not support varargs or "
+                           "perfect forwarding!", &F);
     break;
   }
 

@@ -171,11 +171,12 @@ unsigned TargetTransformInfo::getMaximumUnrollFactor() const {
   return PrevTTI->getMaximumUnrollFactor();
 }
 
-unsigned TargetTransformInfo::getArithmeticInstrCost(unsigned Opcode,
-                                                Type *Ty,
-                                                OperandValueKind Op1Info,
-                                                OperandValueKind Op2Info) const {
-  return PrevTTI->getArithmeticInstrCost(Opcode, Ty, Op1Info, Op2Info);
+unsigned TargetTransformInfo::getArithmeticInstrCost(
+    unsigned Opcode, Type *Ty, OperandValueKind Op1Info,
+    OperandValueKind Op2Info, OperandValueProperties Opd1PropInfo,
+    OperandValueProperties Opd2PropInfo) const {
+  return PrevTTI->getArithmeticInstrCost(Opcode, Ty, Op1Info, Op2Info,
+                                         Opd1PropInfo, Opd2PropInfo);
 }
 
 unsigned TargetTransformInfo::getShuffleCost(ShuffleKind Kind, Type *Tp,
@@ -244,7 +245,7 @@ struct NoTTI final : ImmutablePass, TargetTransformInfo {
     initializeNoTTIPass(*PassRegistry::getPassRegistry());
   }
 
-  virtual void initializePass() override {
+  void initializePass() override {
     // Note that this subclass is special, and must *not* call initializeTTI as
     // it does not chain.
     TopTTI = this;
@@ -253,7 +254,7 @@ struct NoTTI final : ImmutablePass, TargetTransformInfo {
     DL = DLP ? &DLP->getDataLayout() : nullptr;
   }
 
-  virtual void getAnalysisUsage(AnalysisUsage &AU) const override {
+  void getAnalysisUsage(AnalysisUsage &AU) const override {
     // Note that this subclass is special, and must *not* call
     // TTI::getAnalysisUsage as it breaks the recursion.
   }
@@ -262,7 +263,7 @@ struct NoTTI final : ImmutablePass, TargetTransformInfo {
   static char ID;
 
   /// Provide necessary pointer adjustments for the two base classes.
-  virtual void *getAdjustedAnalysisPointer(const void *ID) override {
+  void *getAdjustedAnalysisPointer(const void *ID) override {
     if (ID == &TargetTransformInfo::ID)
       return (TargetTransformInfo*)this;
     return this;
@@ -569,7 +570,8 @@ struct NoTTI final : ImmutablePass, TargetTransformInfo {
   }
 
   unsigned getArithmeticInstrCost(unsigned Opcode, Type *Ty, OperandValueKind,
-                                  OperandValueKind) const override {
+                                  OperandValueKind, OperandValueProperties,
+                                  OperandValueProperties) const override {
     return 1;
   }
 

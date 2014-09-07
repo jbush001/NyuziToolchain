@@ -249,6 +249,7 @@ private:
       StringRef name, const std::vector<const DefinedAtom *> &atoms) const;
 
   mutable llvm::BumpPtrAllocator _alloc;
+  bool is64;
 };
 
 /// A DataDirectoryChunk represents data directory entries that follows the PE
@@ -406,6 +407,8 @@ PEHeaderChunk<PEHeader>::PEHeaderChunk(const PECOFFLinkingContext &ctx)
     dllCharacteristics |= llvm::COFF::IMAGE_DLL_CHARACTERISTICS_NO_BIND;
   if (!ctx.getAllowIsolation())
     dllCharacteristics |= llvm::COFF::IMAGE_DLL_CHARACTERISTICS_NO_ISOLATION;
+  if (ctx.getHighEntropyVA() && ctx.is64Bit())
+    dllCharacteristics |= llvm::COFF::IMAGE_DLL_CHARACTERISTICS_HIGH_ENTROPY_VA;
   _peHeader.DLLCharacteristics = dllCharacteristics;
 
   _peHeader.SizeOfStackReserve = ctx.getStackReserve();
@@ -444,7 +447,7 @@ AtomChunk::AtomChunk(const PECOFFLinkingContext &ctx, StringRef sectionName,
                      const std::vector<const DefinedAtom *> &atoms)
     : SectionChunk(kindAtomChunk, sectionName,
                    computeCharacteristics(ctx, sectionName, atoms)),
-      _virtualAddress(0) {
+      _virtualAddress(0), is64(ctx.is64Bit()) {
   for (auto *a : atoms)
     appendAtom(a);
 }
@@ -570,37 +573,45 @@ void AtomChunk::applyRelocations64(uint8_t *buffer,
 
       switch (ref->kindValue()) {
       case llvm::COFF::IMAGE_REL_AMD64_ADDR64:
-        *relocSite64 = targetAddr;
+        *relocSite64 = *relocSite64 + targetAddr + imageBase;
         break;
       case llvm::COFF::IMAGE_REL_AMD64_ADDR32:
-        *relocSite32 = targetAddr + imageBase;
+        *relocSite32 = *relocSite32 + targetAddr + imageBase;
         break;
       case llvm::COFF::IMAGE_REL_AMD64_ADDR32NB:
-        *relocSite32 = targetAddr;
+        *relocSite32 = *relocSite32 + targetAddr;
         break;
       case llvm::COFF::IMAGE_REL_AMD64_REL32:
-        *relocSite32 = targetAddr - atomRva[atom] + ref->offsetInAtom() + 4;
+        *relocSite32 =
+            *relocSite32 + targetAddr - atomRva[atom] - ref->offsetInAtom() - 4;
         break;
-
-#define REL32(x)                                                             \
-      case llvm::COFF::IMAGE_REL_AMD64_REL32_ ## x: {                        \
-        uint32_t off = targetAddr - atomRva[atom] + ref->offsetInAtom() + 4; \
-        *relocSite32 = off + x;                                              \
-      }
-      REL32(1);
-      REL32(2);
-      REL32(3);
-      REL32(4);
-      REL32(5);
-#undef CASE
-
+      case llvm::COFF::IMAGE_REL_AMD64_REL32_1:
+        *relocSite32 =
+            *relocSite32 + targetAddr - atomRva[atom] - ref->offsetInAtom() - 5;
+        break;
+      case llvm::COFF::IMAGE_REL_AMD64_REL32_2:
+        *relocSite32 =
+            *relocSite32 + targetAddr - atomRva[atom] - ref->offsetInAtom() - 6;
+        break;
+      case llvm::COFF::IMAGE_REL_AMD64_REL32_3:
+        *relocSite32 =
+            *relocSite32 + targetAddr - atomRva[atom] - ref->offsetInAtom() - 7;
+        break;
+      case llvm::COFF::IMAGE_REL_AMD64_REL32_4:
+        *relocSite32 =
+            *relocSite32 + targetAddr - atomRva[atom] - ref->offsetInAtom() - 8;
+        break;
+      case llvm::COFF::IMAGE_REL_AMD64_REL32_5:
+        *relocSite32 =
+            *relocSite32 + targetAddr - atomRva[atom] - ref->offsetInAtom() - 9;
+        break;
       case llvm::COFF::IMAGE_REL_AMD64_SECTION:
-        *relocSite16 = getSectionIndex(targetAddr, sectionRva);
+        *relocSite16 = *relocSite16 + getSectionIndex(targetAddr, sectionRva) - 1;
         break;
       case llvm::COFF::IMAGE_REL_AMD64_SECREL:
-        *relocSite32 = targetAddr - getSectionStartAddr(targetAddr, sectionRva);
+        *relocSite32 = *relocSite32 + targetAddr -
+                       getSectionStartAddr(targetAddr, sectionRva);
         break;
-
       default:
         llvm::errs() << "Kind: " << (int)ref->kindValue() << "\n";
         llvm_unreachable("Unsupported relocation kind");
@@ -630,11 +641,13 @@ void AtomChunk::addBaseRelocations(std::vector<uint64_t> &relocSites) const {
   // should output debug messages with atom names and addresses so that we
   // can inspect relocations, and fix the tests (base-reloc.test, maybe
   // others) to use those messages.
+  int relType = is64 ? llvm::COFF::IMAGE_REL_AMD64_ADDR64
+                     : llvm::COFF::IMAGE_REL_I386_DIR32;
   for (const auto *layout : _atomLayouts) {
     const DefinedAtom *atom = cast<DefinedAtom>(layout->_atom);
     for (const Reference *ref : *atom)
       if ((ref->kindNamespace() == Reference::KindNamespace::COFF) &&
-          (ref->kindValue() == llvm::COFF::IMAGE_REL_I386_DIR32))
+          (ref->kindValue() == relType))
         relocSites.push_back(layout->_virtualAddr + ref->offsetInAtom());
   }
 }
@@ -819,10 +832,11 @@ std::vector<uint8_t> BaseRelocChunk::createBaseRelocBlock(
   ptr += sizeof(ulittle32_t);
 
   // The rest of the block consists of offsets in the page.
+  uint16_t type = _ctx.is64Bit() ? llvm::COFF::IMAGE_REL_BASED_DIR64
+                                 : llvm::COFF::IMAGE_REL_BASED_HIGHLOW;
   for (uint16_t offset : offsets) {
     assert(offset < _ctx.getPageSize());
-    uint16_t val = (llvm::COFF::IMAGE_REL_BASED_HIGHLOW << 12) | offset;
-    *reinterpret_cast<ulittle16_t *>(ptr) = val;
+    *reinterpret_cast<ulittle16_t *>(ptr) = (type << 12) | offset;
     ptr += sizeof(ulittle16_t);
   }
   return contents;

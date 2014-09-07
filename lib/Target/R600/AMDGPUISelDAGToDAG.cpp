@@ -88,6 +88,11 @@ private:
                                        SDValue& Offset);
   bool SelectADDRVTX_READ(SDValue Addr, SDValue &Base, SDValue &Offset);
   bool SelectADDRIndirect(SDValue Addr, SDValue &Base, SDValue &Offset);
+  bool isDSOffsetLegal(const SDValue &Base, unsigned Offset,
+                       unsigned OffsetBits) const;
+  bool SelectDS1Addr1Offset(SDValue Ptr, SDValue &Base, SDValue &Offset) const;
+  bool SelectDS64Bit4ByteAligned(SDValue Ptr, SDValue &Base, SDValue &Offset0,
+                                 SDValue &Offset1) const;
   void SelectMUBUF(SDValue Addr, SDValue &SRsrc, SDValue &VAddr,
                    SDValue &SOffset, SDValue &Offset, SDValue &Offen,
                    SDValue &Idxen, SDValue &Addr64, SDValue &GLC, SDValue &SLC,
@@ -696,7 +701,7 @@ SDNode *AMDGPUDAGToDAGISel::SelectADD_SUB_I64(SDNode *N) {
   SDValue AddLoArgs[] = { SDValue(Lo0, 0), SDValue(Lo1, 0) };
 
 
-  unsigned Opc = IsAdd ? AMDGPU::S_ADD_I32 : AMDGPU::S_SUB_I32;
+  unsigned Opc = IsAdd ? AMDGPU::S_ADD_U32 : AMDGPU::S_SUB_U32;
   unsigned CarryOpc = IsAdd ? AMDGPU::S_ADDC_U32 : AMDGPU::S_SUBB_U32;
 
   if (!isCFDepth0()) {
@@ -742,6 +747,66 @@ SDNode *AMDGPUDAGToDAGISel::SelectDIV_SCALE(SDNode *N) {
   };
 
   return CurDAG->SelectNodeTo(N, Opc, VT, MVT::i1, Ops);
+}
+
+bool AMDGPUDAGToDAGISel::isDSOffsetLegal(const SDValue &Base, unsigned Offset,
+                                         unsigned OffsetBits) const {
+  const AMDGPUSubtarget &ST = TM.getSubtarget<AMDGPUSubtarget>();
+  if ((OffsetBits == 16 && !isUInt<16>(Offset)) ||
+      (OffsetBits == 8 && !isUInt<8>(Offset)))
+    return false;
+
+  if (ST.getGeneration() >= AMDGPUSubtarget::SEA_ISLANDS)
+    return true;
+
+  // On Southern Islands instruction with a negative base value and an offset
+  // don't seem to work.
+  return CurDAG->SignBitIsZero(Base);
+}
+
+bool AMDGPUDAGToDAGISel::SelectDS1Addr1Offset(SDValue Addr, SDValue &Base,
+                                              SDValue &Offset) const {
+  if (CurDAG->isBaseWithConstantOffset(Addr)) {
+    SDValue N0 = Addr.getOperand(0);
+    SDValue N1 = Addr.getOperand(1);
+    ConstantSDNode *C1 = cast<ConstantSDNode>(N1);
+    if (isDSOffsetLegal(N0, C1->getSExtValue(), 16)) {
+      // (add n0, c0)
+      Base = N0;
+      Offset = N1;
+      return true;
+    }
+  }
+
+  // default case
+  Base = Addr;
+  Offset = CurDAG->getTargetConstant(0, MVT::i16);
+  return true;
+}
+
+bool AMDGPUDAGToDAGISel::SelectDS64Bit4ByteAligned(SDValue Addr, SDValue &Base,
+                                                   SDValue &Offset0,
+                                                   SDValue &Offset1) const {
+  if (CurDAG->isBaseWithConstantOffset(Addr)) {
+    SDValue N0 = Addr.getOperand(0);
+    SDValue N1 = Addr.getOperand(1);
+    ConstantSDNode *C1 = cast<ConstantSDNode>(N1);
+    unsigned DWordOffset0 = C1->getZExtValue() / 4;
+    unsigned DWordOffset1 = DWordOffset0 + 1;
+    // (add n0, c0)
+    if (isDSOffsetLegal(N0, DWordOffset1, 8)) {
+      Base = N0;
+      Offset0 = CurDAG->getTargetConstant(DWordOffset0, MVT::i8);
+      Offset1 = CurDAG->getTargetConstant(DWordOffset1, MVT::i8);
+      return true;
+    }
+  }
+
+  // default case
+  Base = Addr;
+  Offset0 = CurDAG->getTargetConstant(0, MVT::i8);
+  Offset1 = CurDAG->getTargetConstant(1, MVT::i8);
+  return true;
 }
 
 static SDValue wrapAddr64Rsrc(SelectionDAG *DAG, SDLoc DL, SDValue Ptr) {
@@ -869,14 +934,19 @@ bool AMDGPUDAGToDAGISel::SelectMUBUFScratch(SDValue Addr, SDValue &Rsrc,
   const SIRegisterInfo *TRI =
       static_cast<const SIRegisterInfo *>(MF.getSubtarget().getRegisterInfo());
   MachineRegisterInfo &MRI = MF.getRegInfo();
-
+  const SITargetLowering& Lowering =
+    *static_cast<const SITargetLowering*>(getTargetLowering());
 
   unsigned ScratchPtrReg =
       TRI->getPreloadedValue(MF, SIRegisterInfo::SCRATCH_PTR);
   unsigned ScratchOffsetReg =
       TRI->getPreloadedValue(MF, SIRegisterInfo::SCRATCH_WAVE_OFFSET);
+  Lowering.CreateLiveInRegister(*CurDAG, &AMDGPU::SReg_32RegClass,
+                                ScratchOffsetReg, MVT::i32);
 
-  Rsrc = buildScratchRSRC(CurDAG, DL, CurDAG->getCopyFromReg(CurDAG->getEntryNode(), DL, MRI.getLiveInVirtReg(ScratchPtrReg), MVT::i64));
+  Rsrc = buildScratchRSRC(CurDAG, DL,
+      CurDAG->getCopyFromReg(CurDAG->getEntryNode(), DL,
+                             MRI.getLiveInVirtReg(ScratchPtrReg), MVT::i64));
   SOffset = CurDAG->getCopyFromReg(CurDAG->getEntryNode(), DL,
       MRI.getLiveInVirtReg(ScratchOffsetReg), MVT::i32);
 

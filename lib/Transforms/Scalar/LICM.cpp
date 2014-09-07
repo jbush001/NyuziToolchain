@@ -597,8 +597,13 @@ void LICM::sink(Instruction &I) {
   // PHI nodes in exit blocks due to LCSSA form. Just RAUW them with clones of
   // the instruction.
   while (!I.use_empty()) {
+    Instruction *User = I.user_back();
+    if (!DT->isReachableFromEntry(User->getParent())) {
+      User->replaceUsesOfWith(&I, UndefValue::get(I.getType()));
+      continue;
+    }
     // The user must be a PHI node.
-    PHINode *PN = cast<PHINode>(I.user_back());
+    PHINode *PN = cast<PHINode>(User);
 
     BasicBlock *ExitBlock = PN->getParent();
     assert(ExitBlockSet.count(ExitBlock) &&
@@ -685,7 +690,7 @@ bool LICM::isGuaranteedToExecute(Instruction &Inst) {
 namespace {
   class LoopPromoter : public LoadAndStorePromoter {
     Value *SomePtr;  // Designated pointer to store to.
-    SmallPtrSet<Value*, 4> &PointerMustAliases;
+    SmallPtrSetImpl<Value*> &PointerMustAliases;
     SmallVectorImpl<BasicBlock*> &LoopExitBlocks;
     SmallVectorImpl<Instruction*> &LoopInsertPts;
     PredIteratorCache &PredCache;
@@ -713,7 +718,7 @@ namespace {
 
   public:
     LoopPromoter(Value *SP, const SmallVectorImpl<Instruction *> &Insts,
-                 SSAUpdater &S, SmallPtrSet<Value *, 4> &PMA,
+                 SSAUpdater &S, SmallPtrSetImpl<Value *> &PMA,
                  SmallVectorImpl<BasicBlock *> &LEB,
                  SmallVectorImpl<Instruction *> &LIP, PredIteratorCache &PIC,
                  AliasSetTracker &ast, LoopInfo &li, DebugLoc dl, int alignment,

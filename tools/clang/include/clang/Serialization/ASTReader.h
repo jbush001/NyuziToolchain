@@ -438,6 +438,16 @@ private:
   /// \brief Declarations that have been replaced in a later file in the chain.
   DeclReplacementMap ReplacedDecls;
 
+  /// \brief Declarations that have been imported and have typedef names for
+  /// linkage purposes.
+  llvm::DenseMap<std::pair<DeclContext*, IdentifierInfo*>, NamedDecl*>
+      ImportedTypedefNamesForLinkage;
+
+  /// \brief Mergeable declaration contexts that have anonymous declarations
+  /// within them, and those anonymous declarations.
+  llvm::DenseMap<DeclContext*, llvm::SmallVector<NamedDecl*, 2>>
+    AnonymousDeclarationsForMerging;
+
   struct FileDeclsInfo {
     ModuleFile *Mod;
     ArrayRef<serialization::LocalDeclID> Decls;
@@ -748,6 +758,11 @@ private:
   /// Sema tracks these because it checks for the key functions being defined
   /// at the end of the TU, in which case it directs CodeGen to emit the VTable.
   SmallVector<uint64_t, 16> DynamicClasses;
+
+  /// \brief The IDs of all potentially unused typedef names in the chain.
+  ///
+  /// Sema tracks these to emit warnings.
+  SmallVector<uint64_t, 16> UnusedLocalTypedefNameCandidates;
 
   /// \brief The IDs of the declarations Sema stores directly.
   ///
@@ -1778,6 +1793,9 @@ public:
   void ReadExtVectorDecls(SmallVectorImpl<TypedefNameDecl *> &Decls) override;
 
   void ReadDynamicClasses(SmallVectorImpl<CXXRecordDecl *> &Decls) override;
+
+  void ReadUnusedLocalTypedefNameCandidates(
+      llvm::SmallSetVector<const TypedefNameDecl *, 4> &Decls) override;
 
   void ReadLocallyScopedExternCDecls(
                                   SmallVectorImpl<NamedDecl *> &Decls) override;

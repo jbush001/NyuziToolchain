@@ -139,11 +139,11 @@ class DFSanABIList {
   std::unique_ptr<SpecialCaseList> SCL;
 
  public:
-  DFSanABIList(SpecialCaseList *SCL) : SCL(SCL) {}
+  DFSanABIList(std::unique_ptr<SpecialCaseList> SCL) : SCL(std::move(SCL)) {}
 
   /// Returns whether either this function or its source file are listed in the
   /// given category.
-  bool isIn(const Function &F, const StringRef Category) const {
+  bool isIn(const Function &F, StringRef Category) const {
     return isIn(*F.getParent(), Category) ||
            SCL->inSection("fun", F.getName(), Category);
   }
@@ -152,7 +152,7 @@ class DFSanABIList {
   ///
   /// If GA aliases a function, the alias's name is matched as a function name
   /// would be.  Similarly, aliases of globals are matched like globals.
-  bool isIn(const GlobalAlias &GA, const StringRef Category) const {
+  bool isIn(const GlobalAlias &GA, StringRef Category) const {
     if (isIn(*GA.getParent(), Category))
       return true;
 
@@ -164,7 +164,7 @@ class DFSanABIList {
   }
 
   /// Returns whether this module is listed in the given category.
-  bool isIn(const Module &M, const StringRef Category) const {
+  bool isIn(const Module &M, StringRef Category) const {
     return SCL->inSection("src", M.getModuleIdentifier(), Category);
   }
 };
@@ -280,7 +280,7 @@ struct DFSanFunction {
   DenseMap<AllocaInst *, AllocaInst *> AllocaShadowMap;
   std::vector<std::pair<PHINode *, PHINode *> > PHIFixups;
   DenseSet<Instruction *> SkipInsts;
-  DenseSet<Value *> NonZeroChecks;
+  std::vector<Value *> NonZeroChecks;
   bool AvoidNewBlocks;
 
   struct CachedCombinedShadow {
@@ -435,7 +435,7 @@ bool DataFlowSanitizer::doInitialization(Module &M) {
   DFSanSetLabelFnTy = FunctionType::get(Type::getVoidTy(*Ctx),
                                         DFSanSetLabelArgs, /*isVarArg=*/false);
   DFSanNonzeroLabelFnTy = FunctionType::get(
-      Type::getVoidTy(*Ctx), ArrayRef<Type *>(), /*isVarArg=*/false);
+      Type::getVoidTy(*Ctx), None, /*isVarArg=*/false);
 
   if (GetArgTLSPtr) {
     Type *ArgTLSTy = ArrayType::get(ShadowTy, 64);
@@ -802,18 +802,16 @@ bool DataFlowSanitizer::runOnModule(Module &M) {
     // yet).  To make our life easier, do this work in a pass after the main
     // instrumentation.
     if (ClDebugNonzeroLabels) {
-      for (DenseSet<Value *>::iterator i = DFSF.NonZeroChecks.begin(),
-                                       e = DFSF.NonZeroChecks.end();
-           i != e; ++i) {
+      for (Value *V : DFSF.NonZeroChecks) {
         Instruction *Pos;
-        if (Instruction *I = dyn_cast<Instruction>(*i))
+        if (Instruction *I = dyn_cast<Instruction>(V))
           Pos = I->getNextNode();
         else
           Pos = DFSF.F->getEntryBlock().begin();
         while (isa<PHINode>(Pos) || isa<AllocaInst>(Pos))
           Pos = Pos->getNextNode();
         IRBuilder<> IRB(Pos);
-        Value *Ne = IRB.CreateICmpNE(*i, DFSF.DFS.ZeroShadow);
+        Value *Ne = IRB.CreateICmpNE(V, DFSF.DFS.ZeroShadow);
         BranchInst *BI = cast<BranchInst>(SplitBlockAndInsertIfThen(
             Ne, Pos, /*Unreachable=*/false, ColdCallWeights));
         IRBuilder<> ThenIRB(BI);
@@ -878,7 +876,7 @@ Value *DFSanFunction::getShadow(Value *V) {
         break;
       }
       }
-      NonZeroChecks.insert(Shadow);
+      NonZeroChecks.push_back(Shadow);
     } else {
       Shadow = DFS.ZeroShadow;
     }
@@ -1138,7 +1136,7 @@ void DFSanVisitor::visitLoadInst(LoadInst &LI) {
     Shadow = DFSF.combineShadows(Shadow, PtrShadow, &LI);
   }
   if (Shadow != DFSF.DFS.ZeroShadow)
-    DFSF.NonZeroChecks.insert(Shadow);
+    DFSF.NonZeroChecks.push_back(Shadow);
 
   DFSF.setShadow(&LI, Shadow);
 }
@@ -1480,7 +1478,7 @@ void DFSanVisitor::visitCallSite(CallSite CS) {
       LoadInst *LI = NextIRB.CreateLoad(DFSF.getRetvalTLS());
       DFSF.SkipInsts.insert(LI);
       DFSF.setShadow(CS.getInstruction(), LI);
-      DFSF.NonZeroChecks.insert(LI);
+      DFSF.NonZeroChecks.push_back(LI);
     }
   }
 
@@ -1534,7 +1532,7 @@ void DFSanVisitor::visitCallSite(CallSite CS) {
           ExtractValueInst::Create(NewCS.getInstruction(), 1, "", Next);
       DFSF.SkipInsts.insert(ExShadow);
       DFSF.setShadow(ExVal, ExShadow);
-      DFSF.NonZeroChecks.insert(ExShadow);
+      DFSF.NonZeroChecks.push_back(ExShadow);
 
       CS.getInstruction()->replaceAllUsesWith(ExVal);
     }

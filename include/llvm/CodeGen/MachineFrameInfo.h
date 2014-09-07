@@ -236,6 +236,12 @@ class MachineFrameInfo {
   /// pointer.
   bool HasInlineAsmWithSPAdjust;
 
+  /// True if the function contains a call to the llvm.vastart intrinsic.
+  bool HasVAStart;
+
+  /// True if this is a varargs function that contains a musttail call.
+  bool HasMustTailInVarArgFunc;
+
   const TargetFrameLowering *getFrameLowering() const;
 public:
     explicit MachineFrameInfo(const TargetMachine &TM, bool RealignOpt)
@@ -256,6 +262,8 @@ public:
     LocalFrameMaxAlign = 0;
     UseLocalStackAllocationBlock = false;
     HasInlineAsmWithSPAdjust = false;
+    HasVAStart = false;
+    HasMustTailInVarArgFunc = false;
   }
 
   /// hasStackObjects - Return true if there are any stack objects in this
@@ -474,6 +482,14 @@ public:
   /// Returns true if the function contains any stack-adjusting inline assembly.
   bool hasInlineAsmWithSPAdjust() const { return HasInlineAsmWithSPAdjust; }
   void setHasInlineAsmWithSPAdjust(bool B) { HasInlineAsmWithSPAdjust = B; }
+
+  /// Returns true if the function calls the llvm.va_start intrinsic.
+  bool hasVAStart() const { return HasVAStart; }
+  void setHasVAStart(bool B) { HasVAStart = B; }
+
+  /// Returns true if the function is variadic and contains a musttail call.
+  bool hasMustTailInVarArgFunc() const { return HasMustTailInVarArgFunc; }
+  void setHasMustTailInVarArgFunc(bool B) { HasMustTailInVarArgFunc = B; }
 
   /// getMaxCallFrameSize - Return the maximum size of a call frame that must be
   /// allocated for an outgoing function call.  This is only available if

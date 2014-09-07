@@ -326,7 +326,7 @@ bool DIDescriptor::isNameSpace() const {
 /// lexical block with an extra file.
 bool DIDescriptor::isLexicalBlockFile() const {
   return DbgNode && getTag() == dwarf::DW_TAG_lexical_block &&
-         (DbgNode->getNumOperands() == 3);
+         (DbgNode->getNumOperands() == 4);
 }
 
 /// isLexicalBlock - Return true if the specified tag is DW_TAG_lexical_block.
@@ -489,6 +489,7 @@ bool DIType::Verify() const {
       Tag != dwarf::DW_TAG_inheritance && Tag != dwarf::DW_TAG_friend &&
       getFilename().empty())
     return false;
+
   // DIType is abstract, it should be a BasicType, a DerivedType or
   // a CompositeType.
   if (isBasicType())
@@ -638,12 +639,12 @@ bool DISubrange::Verify() const {
 
 /// \brief Verify that the lexical block descriptor is well formed.
 bool DILexicalBlock::Verify() const {
-  return isLexicalBlock() && DbgNode->getNumOperands() == 7;
+  return isLexicalBlock() && DbgNode->getNumOperands() == 6;
 }
 
 /// \brief Verify that the file-scoped lexical block descriptor is well formed.
 bool DILexicalBlockFile::Verify() const {
-  return isLexicalBlockFile() && DbgNode->getNumOperands() == 3;
+  return isLexicalBlockFile() && DbgNode->getNumOperands() == 4;
 }
 
 /// \brief Verify that the template type parameter descriptor is well formed.
@@ -851,7 +852,7 @@ DIArray DICompileUnit::getImportedEntities() const {
 /// copyWithNewScope - Return a copy of this location, replacing the
 /// current scope with the given one.
 DILocation DILocation::copyWithNewScope(LLVMContext &Ctx,
-                                        DILexicalBlock NewScope) {
+                                        DILexicalBlockFile NewScope) {
   SmallVector<Value *, 10> Elts;
   assert(Verify());
   for (unsigned I = 0; I < DbgNode->getNumOperands(); ++I) {
@@ -1344,6 +1345,8 @@ void DIType::printInternal(raw_ostream &OS) const {
     OS << " [private]";
   else if (isProtected())
     OS << " [protected]";
+  else if (isPublic())
+    OS << " [public]";
 
   if (isArtificial())
     OS << " [artificial]";
@@ -1403,6 +1406,8 @@ void DISubprogram::printInternal(raw_ostream &OS) const {
     OS << " [private]";
   else if (isProtected())
     OS << " [protected]";
+  else if (isPublic())
+    OS << " [public]";
 
   if (isLValueReference())
     OS << " [reference]";

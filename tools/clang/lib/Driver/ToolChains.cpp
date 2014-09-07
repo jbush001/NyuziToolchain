@@ -156,7 +156,7 @@ static bool isSoftFloatABI(const ArgList &Args) {
 StringRef MachO::getMachOArchName(const ArgList &Args) const {
   switch (getTriple().getArch()) {
   default:
-    return getArchName();
+    return getDefaultUniversalArchName();
 
   case llvm::Triple::aarch64:
     return "arm64";
@@ -3080,7 +3080,7 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
     // installation that is *not* within the system root to ensure two things:
     //
     //  1) Any DSOs that are linked in from this tree or from the install path
-    //     above must be preasant on the system root and found via an
+    //     above must be present on the system root and found via an
     //     appropriate rpath.
     //  2) There must not be libraries installed into
     //     <prefix>/<triple>/<libdir> unless they should be preferred over
@@ -3345,32 +3345,39 @@ void Linux::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
   addExternCSystemInclude(DriverArgs, CC1Args, SysRoot + "/usr/include");
 }
 
-/// \brief Helper to add the three variant paths for a libstdc++ installation.
-/*static*/ bool Linux::addLibStdCXXIncludePaths(Twine Base, Twine TargetArchDir,
-                                                const ArgList &DriverArgs,
-                                                ArgStringList &CC1Args) {
-  if (!llvm::sys::fs::exists(Base))
-    return false;
-  addSystemInclude(DriverArgs, CC1Args, Base);
-  addSystemInclude(DriverArgs, CC1Args, Base + "/" + TargetArchDir);
-  addSystemInclude(DriverArgs, CC1Args, Base + "/backward");
-  return true;
-}
-
-/// \brief Helper to add an extra variant path for an (Ubuntu) multilib
-/// libstdc++ installation.
+/// \brief Helper to add the variant paths of a libstdc++ installation.
 /*static*/ bool Linux::addLibStdCXXIncludePaths(Twine Base, Twine Suffix,
-                                                Twine TargetArchDir,
+                                                StringRef GCCTriple,
+                                                StringRef GCCMultiarchTriple,
+                                                StringRef TargetMultiarchTriple,
                                                 Twine IncludeSuffix,
                                                 const ArgList &DriverArgs,
                                                 ArgStringList &CC1Args) {
-  if (!addLibStdCXXIncludePaths(Base + Suffix,
-                                TargetArchDir + IncludeSuffix,
-                                DriverArgs, CC1Args))
+  if (!llvm::sys::fs::exists(Base + Suffix))
     return false;
 
-  addSystemInclude(DriverArgs, CC1Args, Base + "/" + TargetArchDir + Suffix
-                   + IncludeSuffix);
+  addSystemInclude(DriverArgs, CC1Args, Base + Suffix);
+
+  // The vanilla GCC layout of libstdc++ headers uses a triple subdirectory. If
+  // that path exists or we have neither a GCC nor target multiarch triple, use
+  // this vanilla search path.
+  if ((GCCMultiarchTriple.empty() && TargetMultiarchTriple.empty()) ||
+      llvm::sys::fs::exists(Base + Suffix + "/" + GCCTriple + IncludeSuffix)) {
+    addSystemInclude(DriverArgs, CC1Args,
+                     Base + Suffix + "/" + GCCTriple + IncludeSuffix);
+  } else {
+    // Otherwise try to use multiarch naming schemes which have normalized the
+    // triples and put the triple before the suffix.
+    //
+    // GCC surprisingly uses *both* the GCC triple with a multilib suffix and
+    // the target triple, so we support that here.
+    addSystemInclude(DriverArgs, CC1Args,
+                     Base + "/" + GCCMultiarchTriple + Suffix + IncludeSuffix);
+    addSystemInclude(DriverArgs, CC1Args,
+                     Base + "/" + TargetMultiarchTriple + Suffix);
+  }
+
+  addSystemInclude(DriverArgs, CC1Args, Base + Suffix + "/backward");
   return true;
 }
 
@@ -3414,13 +3421,21 @@ void Linux::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
   StringRef InstallDir = GCCInstallation.getInstallPath();
   StringRef TripleStr = GCCInstallation.getTriple().str();
   const Multilib &Multilib = GCCInstallation.getMultilib();
+  const std::string GCCMultiarchTriple =
+      getMultiarchTriple(GCCInstallation.getTriple(), getDriver().SysRoot);
+  const std::string TargetMultiarchTriple =
+      getMultiarchTriple(getTriple(), getDriver().SysRoot);
   const GCCVersion &Version = GCCInstallation.getVersion();
 
+  // The primary search for libstdc++ supports multiarch variants.
   if (addLibStdCXXIncludePaths(LibDir.str() + "/../include",
-                               "/c++/" + Version.Text, TripleStr,
+                               "/c++/" + Version.Text, TripleStr, GCCMultiarchTriple,
+                               TargetMultiarchTriple,
                                Multilib.includeSuffix(), DriverArgs, CC1Args))
     return;
 
+  // Otherwise, fall back on a bunch of options which don't use multiarch
+  // layouts for simplicity.
   const std::string LibStdCXXIncludePathCandidates[] = {
     // Gentoo is weird and places its headers inside the GCC install, so if the
     // first attempt to find the headers fails, try these patterns.
@@ -3435,9 +3450,10 @@ void Linux::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
   };
 
   for (const auto &IncludePath : LibStdCXXIncludePathCandidates) {
-    if (addLibStdCXXIncludePaths(IncludePath,
-                                 TripleStr + Multilib.includeSuffix(),
-                                 DriverArgs, CC1Args))
+    if (addLibStdCXXIncludePaths(IncludePath, /*Suffix*/ "", TripleStr,
+                                 /*GCCMultiarchTriple*/ "",
+                                 /*TargetMultiarchTriple*/ "",
+                                 Multilib.includeSuffix(), DriverArgs, CC1Args))
       break;
   }
 }

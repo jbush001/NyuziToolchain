@@ -139,6 +139,20 @@ namespace CtorErrors {
   };
 }
 
+namespace DtorErrors {
+  struct A { ~A(); } a;
+  ~A::A() {} // expected-error {{'~' in destructor name should be after nested name specifier}} expected-note {{previous}}
+  A::~A() {} // expected-error {{redefinition}}
+
+  struct B { ~B(); } *b;
+  DtorErrors::~B::B() {} // expected-error {{'~' in destructor name should be after nested name specifier}}
+
+  void f() {
+    a.~A::A(); // expected-error {{'~' in destructor name should be after nested name specifier}}
+    b->~DtorErrors::~B::B(); // expected-error {{'~' in destructor name should be after nested name specifier}}
+  }
+}
+
 namespace BadFriend {
   struct A {
     friend int : 3; // expected-error {{friends can only be classes or functions}}
@@ -148,6 +162,17 @@ namespace BadFriend {
     friend void f() override; // expected-error {{'override' is invalid in friend declarations}}
   };
 }
+
+class PR20760_a {
+  int a = ); // expected-warning {{extension}} expected-error {{expected expression}}
+  int b = }; // expected-warning {{extension}} expected-error {{expected expression}}
+  int c = ]; // expected-warning {{extension}} expected-error {{expected expression}}
+};
+class PR20760_b {
+  int d = d); // expected-warning {{extension}} expected-error {{expected ';'}}
+  int e = d]; // expected-warning {{extension}} expected-error {{expected ';'}}
+  int f = d // expected-warning {{extension}} expected-error {{expected ';'}}
+};
 
 // PR11109 must appear at the end of the source file
 class pr11109r3 { // expected-note{{to match this '{'}}

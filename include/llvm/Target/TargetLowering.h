@@ -31,6 +31,7 @@
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/InlineAsm.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/Target/TargetCallingConv.h"
@@ -223,8 +224,8 @@ public:
     return BypassSlowDivWidths;
   }
 
-  /// Return true if pow2 div is cheaper than a chain of srl/add/sra.
-  bool isPow2DivCheap() const { return Pow2DivIsCheap; }
+  /// Return true if pow2 sdiv is cheaper than a chain of sra/srl/add/sra.
+  bool isPow2SDivCheap() const { return Pow2SDivIsCheap; }
 
   /// Return true if Flow Control is an expensive operation that should be
   /// avoided.
@@ -838,11 +839,6 @@ public:
     return UseUnderscoreLongJmp;
   }
 
-  /// Return whether the target can generate code for jump tables.
-  bool supportJumpTables() const {
-    return SupportJumpTables;
-  }
-
   /// Return integer threshold on number of blocks to use jump tables rather
   /// than if sequence.
   int getMinimumJumpTableEntries() const {
@@ -937,7 +933,7 @@ public:
   /// @}
 
   //===--------------------------------------------------------------------===//
-  /// \name Helpers for load-linked/store-conditional atomic expansion.
+  /// \name Helpers for atomic expansion.
   /// @{
 
   /// Perform a load-linked operation on Addr, returning a "Value *" with the
@@ -956,14 +952,42 @@ public:
     llvm_unreachable("Store conditional unimplemented on this target");
   }
 
-  /// Return true if the given (atomic) instruction should be expanded by the
-  /// IR-level AtomicExpandLoadLinked pass into a loop involving
-  /// load-linked/store-conditional pairs. Atomic stores will be expanded in the
-  /// same way as "atomic xchg" operations which ignore their output if needed.
-  virtual bool shouldExpandAtomicInIR(Instruction *Inst) const {
+  /// Inserts in the IR a target-specific intrinsic specifying a fence.
+  /// It is called by AtomicExpandPass before expanding an
+  ///   AtomicRMW/AtomicCmpXchg/AtomicStore/AtomicLoad.
+  /// RMW and CmpXchg set both IsStore and IsLoad to true.
+  /// Backends with !getInsertFencesForAtomic() should keep a no-op here.
+  virtual void emitLeadingFence(IRBuilder<> &Builder, AtomicOrdering Ord,
+          bool IsStore, bool IsLoad) const {
+    assert(!getInsertFencesForAtomic());
+  }
+
+  /// Inserts in the IR a target-specific intrinsic specifying a fence.
+  /// It is called by AtomicExpandPass after expanding an
+  ///   AtomicRMW/AtomicCmpXchg/AtomicStore/AtomicLoad.
+  /// RMW and CmpXchg set both IsStore and IsLoad to true.
+  /// Backends with !getInsertFencesForAtomic() should keep a no-op here.
+  virtual void emitTrailingFence(IRBuilder<> &Builder, AtomicOrdering Ord,
+          bool IsStore, bool IsLoad) const {
+    assert(!getInsertFencesForAtomic());
+  }
+
+  /// Returns true if the given (atomic) store should be expanded by the
+  /// IR-level AtomicExpand pass into an "atomic xchg" which ignores its input.
+  virtual bool shouldExpandAtomicStoreInIR(StoreInst *SI) const {
     return false;
   }
 
+  /// Returns true if the given (atomic) load should be expanded by the
+  /// IR-level AtomicExpand pass into a load-linked instruction
+  /// (through emitLoadLinked()).
+  virtual bool shouldExpandAtomicLoadInIR(LoadInst *LI) const { return false; }
+
+  /// Returns true if the given AtomicRMW should be expanded by the
+  /// IR-level AtomicExpand pass into a loop using LoadLinked/StoreConditional.
+  virtual bool shouldExpandAtomicRMWInIR(AtomicRMWInst *RMWI) const {
+    return false;
+  }
 
   //===--------------------------------------------------------------------===//
   // TargetLowering Configuration Methods - These methods should be invoked by
@@ -1009,11 +1033,6 @@ protected:
   /// llvm.longjmp or the version without _.  Defaults to false.
   void setUseUnderscoreLongJmp(bool Val) {
     UseUnderscoreLongJmp = Val;
-  }
-
-  /// Indicate whether the target can generate code for jump tables.
-  void setSupportJumpTables(bool Val) {
-    SupportJumpTables = Val;
   }
 
   /// Indicate the number of blocks to generate jump tables rather than if
@@ -1085,9 +1104,9 @@ protected:
     BypassSlowDivWidths[SlowBitWidth] = FastBitWidth;
   }
 
-  /// Tells the code generator that it shouldn't generate srl/add/sra for a
-  /// signed divide by power of two, and let the target handle it.
-  void setPow2DivIsCheap(bool isCheap = true) { Pow2DivIsCheap = isCheap; }
+  /// Tells the code generator that it shouldn't generate sra/srl/add/sra for a
+  /// signed divide by power of two; let the target handle it.
+  void setPow2SDivIsCheap(bool isCheap = true) { Pow2SDivIsCheap = isCheap; }
 
   /// Add the specified register class as an available regclass for the
   /// specified value type. This indicates the selector can handle values of
@@ -1506,9 +1525,9 @@ private:
   /// div/rem when the operands are positive and less than 256.
   DenseMap <unsigned int, unsigned int> BypassSlowDivWidths;
 
-  /// Tells the code generator that it shouldn't generate srl/add/sra for a
-  /// signed divide by power of two, and let the target handle it.
-  bool Pow2DivIsCheap;
+  /// Tells the code generator that it shouldn't generate sra/srl/add/sra for a
+  /// signed divide by power of two; let the target handle it.
+  bool Pow2SDivIsCheap;
 
   /// Tells the code generator that it shouldn't generate extra flow control
   /// instructions and should attempt to combine flow control instructions via
@@ -1528,10 +1547,6 @@ private:
   ///
   /// Defaults to false.
   bool UseUnderscoreLongJmp;
-
-  /// Whether the target can generate code for jumptables.  If it's not true,
-  /// then each jumptable must be lowered into if-then-else's.
-  bool SupportJumpTables;
 
   /// Number of blocks threshold to use jump tables.
   int MinimumJumpTableEntries;

@@ -260,9 +260,7 @@ CXDiagnosticSet DiagLoader::load(const char *file) {
   FileSystemOptions FO;
   FileManager FileMgr(FO);
 
-  std::unique_ptr<llvm::MemoryBuffer> Buffer;
-  Buffer.reset(FileMgr.getBufferForFile(file));
-
+  std::unique_ptr<llvm::MemoryBuffer> Buffer = FileMgr.getBufferForFile(file);
   if (!Buffer) {
     reportBad(CXLoadDiag_CannotLoad, ErrStr);
     return nullptr;
@@ -569,7 +567,7 @@ LoadResult DiagLoader::readDiagnosticBlock(llvm::BitstreamCursor &Stream,
         continue;
       }
       case Read_BlockEnd:
-        Diags.appendDiagnostic(D.release());
+        Diags.appendDiagnostic(std::move(D));
         return Success;
       case Read_Record:
         break;

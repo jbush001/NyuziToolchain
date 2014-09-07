@@ -160,8 +160,8 @@ protected:
   // the InclusionDirective callback.
   CharSourceRange InclusionDirectiveFilenameRange(const char* SourceText, 
       const char* HeaderPath, bool SystemHeader) {
-    MemoryBuffer *Buf = MemoryBuffer::getMemBuffer(SourceText);
-    SourceMgr.setMainFileID(SourceMgr.createFileID(Buf));
+    std::unique_ptr<MemoryBuffer> Buf = MemoryBuffer::getMemBuffer(SourceText);
+    SourceMgr.setMainFileID(SourceMgr.createFileID(std::move(Buf)));
 
     VoidModuleLoader ModLoader;
 
@@ -197,8 +197,9 @@ protected:
     LangOptions OpenCLLangOpts;
     OpenCLLangOpts.OpenCL = 1;
 
-    MemoryBuffer* sourceBuf = MemoryBuffer::getMemBuffer(SourceText, "test.cl");
-    SourceMgr.setMainFileID(SourceMgr.createFileID(sourceBuf));
+    std::unique_ptr<MemoryBuffer> SourceBuf =
+        MemoryBuffer::getMemBuffer(SourceText, "test.cl");
+    SourceMgr.setMainFileID(SourceMgr.createFileID(std::move(SourceBuf)));
 
     VoidModuleLoader ModLoader;
     HeaderSearch HeaderInfo(new HeaderSearchOptions, SourceMgr, Diags, 

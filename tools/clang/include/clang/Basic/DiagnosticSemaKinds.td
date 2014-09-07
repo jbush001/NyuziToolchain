@@ -175,6 +175,9 @@ def warn_unused_parameter : Warning<"unused parameter %0">,
   InGroup<UnusedParameter>, DefaultIgnore;
 def warn_unused_variable : Warning<"unused variable %0">,
   InGroup<UnusedVariable>, DefaultIgnore;
+def warn_unused_local_typedef : Warning<
+  "unused %select{typedef|type alias}0 %1">,
+  InGroup<UnusedLocalTypedef>, DefaultIgnore;
 def warn_unused_property_backing_ivar : 
   Warning<"ivar %0 which backs the property is not "
   "referenced in this property's accessor">,
@@ -787,7 +790,8 @@ def warn_no_autosynthesis_property : Warning<
   InGroup<ObjCNoPropertyAutoSynthesis>;
 def warn_autosynthesis_property_in_superclass : Warning<
   "auto property synthesis will not synthesize property "
-  "%0 because it will be implemented by its superclass">,
+  "%0; it will be implemented by its superclass, use @dynamic to "
+  "acknowledge intention">,
   InGroup<ObjCNoPropertyAutoSynthesis>;
 def warn_autosynthesis_property_ivar_match :Warning<
   "autosynthesized property %0 will use %select{|synthesized}1 instance variable "
@@ -1516,6 +1520,9 @@ def note_block_var_fixit_add_initialization : Note<
 def note_in_omitted_aggregate_initializer : Note<
   "in implicit initialization of %select{array element %1|field %1}0 "
   "with omitted initializer">;
+def note_in_reference_temporary_list_initializer : Note<
+  "in initialization of temporary of type %0 created to "
+  "list-initialize this reference">;
 def note_var_fixit_add_initialization : Note<
   "initialize the variable %0 to silence this warning">;
 def note_uninit_fixit_remove_cond : Note<
@@ -2133,6 +2140,9 @@ def warn_attribute_invalid_on_definition : Warning<
   InGroup<IgnoredAttributes>;
 def err_attribute_dll_redeclaration : Error<
   "redeclaration of %q0 cannot add %q1 attribute">;
+def warn_attribute_dll_redeclaration : Warning<
+  "redeclaration of %q0 should not add %q1 attribute">,
+  InGroup<DiagGroup<"dll-attribute-on-redeclaration">>;
 def err_attribute_dllimport_function_definition : Error<
   "dllimport cannot be applied to non-inline function definition">;
 def err_attribute_dll_deleted : Error<
@@ -2154,7 +2164,7 @@ def warn_attribute_dll_instantiated_base_class : Warning<
   "propagating dll attribute to %select{already instantiated|explicitly specialized}0 "
   "base class template "
   "%select{without dll attribute|with different dll attribute}1 is not supported">,
-  InGroup<DiagGroup<"unsupported-dll-base-class-template">>;
+  InGroup<DiagGroup<"unsupported-dll-base-class-template">>, DefaultIgnore;
 def err_attribute_weakref_not_static : Error<
   "weakref declaration must have internal linkage">;
 def err_attribute_weakref_not_global_context : Error<
@@ -2195,6 +2205,9 @@ def warn_type_attribute_wrong_type : Warning<
   "'%0' only applies to %select{function|pointer|"
   "Objective-C object or block pointer}1 types; type here is %2">,
   InGroup<IgnoredAttributes>;
+def warn_incomplete_encoded_type : Warning<
+  "encoding of %0 type is incomplete because %1 component has unknown encoding">,
+  InGroup<DiagGroup<"encode-type">>;
 def warn_attribute_requires_functions_or_static_globals : Warning<
   "%0 only applies to variables with static storage duration and functions">,
   InGroup<IgnoredAttributes>;
@@ -2782,7 +2795,7 @@ def note_ovl_candidate_instantiation_depth : Note<
     "candidate template ignored: substitution exceeded maximum template "
     "instantiation depth">;
 def note_ovl_candidate_underqualified : Note<
-    "candidate template ignored: can't deduce a type for %0 which would "
+    "candidate template ignored: can't deduce a type for %0 that would "
     "make %2 equal %1">;
 def note_ovl_candidate_substitution_failure : Note<
     "candidate template ignored: substitution failure%0%1">;
@@ -3880,6 +3893,10 @@ def err_redefinition_different_type : Error<
   "redefinition of %0 with a different type%diff{: $ vs $|}1,2">;
 def err_redefinition_different_kind : Error<
   "redefinition of %0 as different kind of symbol">;
+def err_redefinition_different_namespace_alias : Error<
+  "redefinition of %0 as an alias for a different namespace">;
+def note_previous_namespace_alias : Note<
+  "previously defined as an alias for %0">;
 def warn_forward_class_redefinition : Warning<
   "redefinition of forward class %0 of a typedef name of an object type is ignored">,
   InGroup<DiagGroup<"objc-forward-class-redefinition">>;
@@ -4096,25 +4113,28 @@ def err_undeclared_label_use : Error<"use of undeclared label %0">;
 def warn_unused_label : Warning<"unused label %0">,
   InGroup<UnusedLabel>, DefaultIgnore;
 
-def err_goto_into_protected_scope : Error<"goto into protected scope">;
-def ext_goto_into_protected_scope : ExtWarn<"goto into protected scope">,
+def err_goto_into_protected_scope : Error<
+  "cannot jump from this goto statement to its label">;
+def ext_goto_into_protected_scope : ExtWarn<
+  "jump from this goto statement to its label is a Microsoft extension">,
   InGroup<Microsoft>;
 def warn_cxx98_compat_goto_into_protected_scope : Warning<
-  "goto would jump into protected scope in C++98">,
+  "jump from this goto statement to its label is incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
 def err_switch_into_protected_scope : Error<
-  "switch case is in protected scope">;
+  "cannot jump from switch statement to this case label">;
 def warn_cxx98_compat_switch_into_protected_scope : Warning<
-  "switch case would be in a protected scope in C++98">,
+  "jump from switch statement to this case label is incompatible with C++98">,
   InGroup<CXX98Compat>, DefaultIgnore;
 def err_indirect_goto_without_addrlabel : Error<
   "indirect goto in function with no address-of-label expressions">;
 def err_indirect_goto_in_protected_scope : Error<
-  "indirect goto might cross protected scopes">;
+  "cannot jump from this indirect goto statement to one of its possible targets">;
 def warn_cxx98_compat_indirect_goto_in_protected_scope : Warning<
-  "indirect goto might cross protected scopes in C++98">,
-  InGroup<CXX98Compat>, DefaultIgnore;
-def note_indirect_goto_target : Note<"possible target of indirect goto">;
+  "jump from this indirect goto statement to one of its possible targets "
+  "is incompatible with C++98">, InGroup<CXX98Compat>, DefaultIgnore;
+def note_indirect_goto_target : Note<
+  "possible target of indirect goto statement">;
 def note_protected_by_variable_init : Note<
   "jump bypasses variable initialization">;
 def note_protected_by_variable_nontriv_destructor : Note<
@@ -5351,9 +5371,6 @@ let CategoryName = "Lambda Issue" in {
     "'this' cannot be %select{implicitly |}0captured in this context">;
   def err_lambda_capture_anonymous_var : Error<
     "unnamed variable cannot be implicitly captured in a lambda expression">;
-  def err_lambda_capture_vm_type : Error<
-    "variable %0 with variably modified type cannot be captured in "
-    "a lambda expression">;
   def err_lambda_capture_flexarray_type : Error<
     "variable %0 with flexible array member cannot be captured in "
     "a lambda expression">;
@@ -6038,6 +6055,9 @@ let CategoryName = "Inline Assembly Issue" in {
     "value size does not match register size specified by the constraint "
     "and modifier">,
     InGroup<ASMOperandWidths>;
+
+  def note_asm_missing_constraint_modifier : Note<
+    "use constraint modifier \"%0\"">;
 }
 
 let CategoryName = "Semantic Issue" in {
@@ -6464,7 +6484,7 @@ def note_format_fix_specifier : Note<"did you mean to use '%0'?">;
 def note_printf_c_str: Note<"did you mean to call the %0 method?">;
 
 def warn_null_arg : Warning<
-  "null passed to a callee which requires a non-null argument">,
+  "null passed to a callee that requires a non-null argument">,
   InGroup<NonNull>;
 def warn_null_ret : Warning<
   "null returned from %select{function|method}0 that requires a non-null return value">,
@@ -6871,6 +6891,13 @@ def err_invalid_protocol_qualifiers : Error<
 def warn_ivar_use_hidden : Warning<
   "local declaration of %0 hides instance variable">,
    InGroup<DiagGroup<"shadow-ivar">>;
+def warn_direct_initialize_call : Warning<
+  "explicit call to +initialize results in duplicate call to +initialize">,
+   InGroup<ExplicitInitializeCall>;
+def warn_direct_super_initialize_call : Warning<
+  "explicit call to [super initialize] should only be in implementation "
+  "of +initialize">,
+   InGroup<ExplicitInitializeCall>;
 def error_ivar_use_in_class_method : Error<
   "instance variable %0 accessed in class method">;
 def error_implicit_ivar_access : Error<
@@ -6969,6 +6996,11 @@ def err_unknown_any_function : Error<
 
 def err_filter_expression_integral : Error<
   "filter expression type should be an integral value not %0">;
+
+def err_non_asm_stmt_in_naked_function : Error<
+  "non-ASM statement in naked function is not supported">;
+def err_asm_naked_parm_ref : Error<
+  "parameter references not allowed in naked functions">;
 
 // OpenCL warnings and errors.
 def err_invalid_astype_of_different_size : Error<

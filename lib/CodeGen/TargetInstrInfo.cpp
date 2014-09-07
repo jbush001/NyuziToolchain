@@ -746,14 +746,14 @@ TargetInstrInfo::getNumMicroOps(const InstrItineraryData *ItinData,
 }
 
 /// Return the default expected latency for a def based on it's opcode.
-unsigned TargetInstrInfo::defaultDefLatency(const MCSchedModel *SchedModel,
+unsigned TargetInstrInfo::defaultDefLatency(const MCSchedModel &SchedModel,
                                             const MachineInstr *DefMI) const {
   if (DefMI->isTransient())
     return 0;
   if (DefMI->mayLoad())
-    return SchedModel->LoadLatency;
+    return SchedModel.LoadLatency;
   if (isHighLatencyDef(DefMI->getOpcode()))
-    return SchedModel->HighLatency;
+    return SchedModel.HighLatency;
   return 1;
 }
 
@@ -875,5 +875,54 @@ bool TargetInstrInfo::getRegSequenceInputs(
     InputRegs.push_back(RegSubRegPairAndIdx(MOReg.getReg(), MOReg.getSubReg(),
                                             (unsigned)MOSubIdx.getImm()));
   }
+  return true;
+}
+
+bool TargetInstrInfo::getExtractSubregInputs(
+    const MachineInstr &MI, unsigned DefIdx,
+    RegSubRegPairAndIdx &InputReg) const {
+  assert((MI.isExtractSubreg() ||
+      MI.isExtractSubregLike()) && "Instruction do not have the proper type");
+
+  if (!MI.isExtractSubreg())
+    return getExtractSubregLikeInputs(MI, DefIdx, InputReg);
+
+  // We are looking at:
+  // Def = EXTRACT_SUBREG v0.sub1, sub0.
+  assert(DefIdx == 0 && "EXTRACT_SUBREG only has one def");
+  const MachineOperand &MOReg = MI.getOperand(1);
+  const MachineOperand &MOSubIdx = MI.getOperand(2);
+  assert(MOSubIdx.isImm() &&
+         "The subindex of the extract_subreg is not an immediate");
+
+  InputReg.Reg = MOReg.getReg();
+  InputReg.SubReg = MOReg.getSubReg();
+  InputReg.SubIdx = (unsigned)MOSubIdx.getImm();
+  return true;
+}
+
+bool TargetInstrInfo::getInsertSubregInputs(
+    const MachineInstr &MI, unsigned DefIdx,
+    RegSubRegPair &BaseReg, RegSubRegPairAndIdx &InsertedReg) const {
+  assert((MI.isInsertSubreg() ||
+      MI.isInsertSubregLike()) && "Instruction do not have the proper type");
+
+  if (!MI.isInsertSubreg())
+    return getInsertSubregLikeInputs(MI, DefIdx, BaseReg, InsertedReg);
+
+  // We are looking at:
+  // Def = INSERT_SEQUENCE v0, v1, sub0.
+  assert(DefIdx == 0 && "INSERT_SUBREG only has one def");
+  const MachineOperand &MOBaseReg = MI.getOperand(1);
+  const MachineOperand &MOInsertedReg = MI.getOperand(2);
+  const MachineOperand &MOSubIdx = MI.getOperand(3);
+  assert(MOSubIdx.isImm() &&
+         "One of the subindex of the reg_sequence is not an immediate");
+  BaseReg.Reg = MOBaseReg.getReg();
+  BaseReg.SubReg = MOBaseReg.getSubReg();
+
+  InsertedReg.Reg = MOInsertedReg.getReg();
+  InsertedReg.SubReg = MOInsertedReg.getSubReg();
+  InsertedReg.SubIdx = (unsigned)MOSubIdx.getImm();
   return true;
 }

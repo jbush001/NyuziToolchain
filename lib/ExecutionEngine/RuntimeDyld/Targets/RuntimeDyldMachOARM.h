@@ -22,6 +22,9 @@ private:
   typedef RuntimeDyldMachOCRTPBase<RuntimeDyldMachOARM> ParentT;
 
 public:
+
+  typedef uint32_t TargetPtrT;
+
   RuntimeDyldMachOARM(RTDyldMemoryManager *MM) : RuntimeDyldMachOCRTPBase(MM) {}
 
   unsigned getMaxStubSize() override { return 8; }
@@ -68,7 +71,7 @@ public:
     if ((RE.RelType & 0xf) == MachO::ARM_RELOC_BR24)
       processBranchRelocation(RE, Value, Stubs);
     else {
-      RE.Addend = Value.Addend;
+      RE.Addend = Value.Offset;
       if (Value.SymbolName)
         addRelocationForSymbol(RE, Value.SymbolName);
       else
@@ -78,7 +81,7 @@ public:
     return ++RelI;
   }
 
-  void resolveRelocation(const RelocationEntry &RE, uint64_t Value) {
+  void resolveRelocation(const RelocationEntry &RE, uint64_t Value) override {
     DEBUG(dumpRelocationToResolve(RE, Value));
     const SectionEntry &Section = Sections[RE.SectionID];
     uint8_t *LocalAddress = Section.Address + RE.Offset;
@@ -98,7 +101,7 @@ public:
     default:
       llvm_unreachable("Invalid relocation type!");
     case MachO::ARM_RELOC_VANILLA:
-      writeBytesUnaligned(LocalAddress, Value, 1 << RE.Size);
+      writeBytesUnaligned(Value, LocalAddress, 1 << RE.Size);
       break;
     case MachO::ARM_RELOC_BR24: {
       // Mask the value into the target address. We know instructions are
@@ -149,7 +152,7 @@ private:
       uint8_t *StubTargetAddr =
           createStubFunction(Section.Address + Section.StubOffset);
       RelocationEntry StubRE(RE.SectionID, StubTargetAddr - Section.Address,
-                             MachO::GENERIC_RELOC_VANILLA, Value.Addend, false,
+                             MachO::GENERIC_RELOC_VANILLA, Value.Offset, false,
                              2);
       if (Value.SymbolName)
         addRelocationForSymbol(StubRE, Value.SymbolName);

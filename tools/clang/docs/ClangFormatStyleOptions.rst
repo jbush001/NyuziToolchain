@@ -411,12 +411,19 @@ the configuration (without a prefix: ``Auto``).
 **SpacesInCStyleCastParentheses** (``bool``)
   If ``true``, spaces may be inserted into C style casts.
 
+**SpaceAfterCStyleCast** (``bool``)
+  If ``true``, a space may be inserted after C style casts.
+
 **SpacesInContainerLiterals** (``bool``)
   If ``true``, spaces are inserted inside container literals (e.g.
   ObjC and Javascript array and dict literals).
 
 **SpacesInParentheses** (``bool``)
   If ``true``, spaces will be inserted after '(' and before ')'.
+
+**SpacesInSquareBrackets** (``bool``)
+  If ``true``, spaces will be inserted after '[' and before ']' in array
+  declarations and element access expressions, but not in lambdas.
 
 **Standard** (``LanguageStandard``)
   Format compatible with this standard, e.g. use

@@ -191,6 +191,9 @@ def tfe : Operand <i1> {
 // Complex patterns
 //===----------------------------------------------------------------------===//
 
+def DS1Addr1Offset : ComplexPattern<i32, 2, "SelectDS1Addr1Offset">;
+def DS64Bit4ByteAligned : ComplexPattern<i32, 3, "SelectDS64Bit4ByteAligned">;
+
 def MUBUFAddr32 : ComplexPattern<i64, 9, "SelectMUBUFAddr32">;
 def MUBUFAddr64 : ComplexPattern<i64, 3, "SelectMUBUFAddr64">;
 def MUBUFScratch : ComplexPattern<i64, 4, "SelectMUBUFScratch">;
@@ -793,6 +796,17 @@ multiclass VOP3b_64 <bits<9> op, string opName, list<dag> pattern> :
 multiclass VOP3b_32 <bits<9> op, string opName, list<dag> pattern> :
   VOP3b_Helper <op, VReg_32, VSrc_32, opName, pattern>;
 
+
+class Vop3ModPat<Instruction Inst, VOPProfile P, SDPatternOperator node> : Pat<
+  (node (P.Src0VT (VOP3Mods0 P.Src0VT:$src0, i32:$src0_modifiers, i32:$clamp, i32:$omod)),
+        (P.Src1VT (VOP3Mods P.Src1VT:$src1, i32:$src1_modifiers)),
+        (P.Src2VT (VOP3Mods P.Src2VT:$src2, i32:$src2_modifiers))),
+  (Inst i32:$src0_modifiers, P.Src0VT:$src0,
+        i32:$src1_modifiers, P.Src1VT:$src1,
+        i32:$src2_modifiers, P.Src2VT:$src2,
+        i32:$clamp,
+        i32:$omod)>;
+
 //===----------------------------------------------------------------------===//
 // Vector I/O classes
 //===----------------------------------------------------------------------===//
@@ -842,7 +856,7 @@ class DS_Store_Helper <bits<8> op, string asm, RegisterClass regClass> : DS_1A <
   let vdst = 0;
 }
 
-class DS_Store2_Helper <bits<8> op, string asm, RegisterClass regClass> : DS_1A <
+class DS_Store2_Helper <bits<8> op, string asm, RegisterClass regClass> : DS <
   op,
   (outs),
   (ins i1imm:$gds, VReg_32:$addr, regClass:$data0, regClass:$data1,

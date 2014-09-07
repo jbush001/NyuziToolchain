@@ -204,6 +204,11 @@ static cl::opt<bool> EnableCondStoresVectorization(
     "enable-cond-stores-vec", cl::init(false), cl::Hidden,
     cl::desc("Enable if predication of stores during vectorization."));
 
+static cl::opt<unsigned> MaxNestedScalarReductionUF(
+    "max-nested-scalar-reduction-unroll", cl::init(2), cl::Hidden,
+    cl::desc("The maximum unroll factor to use when unrolling a scalar "
+             "reduction in a nested loop."));
+
 namespace {
 
 // Forward declarations.
@@ -783,7 +788,7 @@ private:
   /// Return true if all of the instructions in the block can be speculatively
   /// executed. \p SafePtrs is a list of addresses that are known to be legal
   /// and we know that we can read from them without segfault.
-  bool blockCanBePredicated(BasicBlock *BB, SmallPtrSet<Value *, 8>& SafePtrs);
+  bool blockCanBePredicated(BasicBlock *BB, SmallPtrSetImpl<Value *> &SafePtrs);
 
   /// Returns True, if 'Phi' is the kind of reduction variable for type
   /// 'Kind'. If this is a reduction variable, it adds it to ReductionList.
@@ -970,7 +975,54 @@ private:
 
 /// Utility class for getting and setting loop vectorizer hints in the form
 /// of loop metadata.
+/// This class keeps a number of loop annotations locally (as member variables)
+/// and can, upon request, write them back as metadata on the loop. It will
+/// initially scan the loop for existing metadata, and will update the local
+/// values based on information in the loop.
+/// We cannot write all values to metadata, as the mere presence of some info,
+/// for example 'force', means a decision has been made. So, we need to be
+/// careful NOT to add them if the user hasn't specifically asked so.
 class LoopVectorizeHints {
+  enum HintKind {
+    HK_WIDTH,
+    HK_UNROLL,
+    HK_FORCE
+  };
+
+  /// Hint - associates name and validation with the hint value.
+  struct Hint {
+    const char * Name;
+    unsigned Value; // This may have to change for non-numeric values.
+    HintKind Kind;
+
+    Hint(const char * Name, unsigned Value, HintKind Kind)
+      : Name(Name), Value(Value), Kind(Kind) { }
+
+    bool validate(unsigned Val) {
+      switch (Kind) {
+      case HK_WIDTH:
+        return isPowerOf2_32(Val) && Val <= MaxVectorWidth;
+      case HK_UNROLL:
+        return isPowerOf2_32(Val) && Val <= MaxUnrollFactor;
+      case HK_FORCE:
+        return (Val <= 1);
+      }
+      return false;
+    }
+  };
+
+  /// Vectorization width.
+  Hint Width;
+  /// Vectorization unroll factor.
+  Hint Unroll;
+  /// Vectorization forced
+  Hint Force;
+  /// Array to help iterating through all hints.
+  Hint *Hints[3]; // avoiding initialisation due to MSVC2012
+
+  /// Return the loop metadata prefix.
+  static StringRef Prefix() { return "llvm.loop."; }
+
 public:
   enum ForceKind {
     FK_Undefined = -1, ///< Not selected.
@@ -979,70 +1031,51 @@ public:
   };
 
   LoopVectorizeHints(const Loop *L, bool DisableUnrolling)
-      : Width(VectorizationFactor),
-        Unroll(DisableUnrolling),
-        Force(FK_Undefined),
-        LoopID(L->getLoopID()) {
-    getHints(L);
+      : Width("vectorize.width", VectorizationFactor, HK_WIDTH),
+        Unroll("interleave.count", DisableUnrolling, HK_UNROLL),
+        Force("vectorize.enable", FK_Undefined, HK_FORCE),
+        TheLoop(L) {
+    // FIXME: Move this up initialisation when MSVC requirement is 2013+
+    Hints[0] = &Width;
+    Hints[1] = &Unroll;
+    Hints[2] = &Force;
+
+    // Populate values with existing loop metadata.
+    getHintsFromMetadata();
+
     // force-vector-unroll overrides DisableUnrolling.
     if (VectorizationUnroll.getNumOccurrences() > 0)
-      Unroll = VectorizationUnroll;
+      Unroll.Value = VectorizationUnroll;
 
-    DEBUG(if (DisableUnrolling && Unroll == 1) dbgs()
+    DEBUG(if (DisableUnrolling && Unroll.Value == 1) dbgs()
           << "LV: Unrolling disabled by the pass manager\n");
   }
 
-  /// Return the loop metadata prefix.
-  static StringRef Prefix() { return "llvm.loop."; }
-
-  MDNode *createHint(LLVMContext &Context, StringRef Name, unsigned V) const {
-    SmallVector<Value*, 2> Vals;
-    Vals.push_back(MDString::get(Context, Name));
-    Vals.push_back(ConstantInt::get(Type::getInt32Ty(Context), V));
-    return MDNode::get(Context, Vals);
-  }
-
   /// Mark the loop L as already vectorized by setting the width to 1.
-  void setAlreadyVectorized(Loop *L) {
-    LLVMContext &Context = L->getHeader()->getContext();
-
-    Width = 1;
-
-    // Create a new loop id with one more operand for the already_vectorized
-    // hint. If the loop already has a loop id then copy the existing operands.
-    SmallVector<Value*, 4> Vals(1);
-    if (LoopID)
-      for (unsigned i = 1, ie = LoopID->getNumOperands(); i < ie; ++i)
-        Vals.push_back(LoopID->getOperand(i));
-
-    Vals.push_back(
-        createHint(Context, Twine(Prefix(), "vectorize.width").str(), Width));
-    Vals.push_back(
-        createHint(Context, Twine(Prefix(), "interleave.count").str(), 1));
-
-    MDNode *NewLoopID = MDNode::get(Context, Vals);
-    // Set operand 0 to refer to the loop id itself.
-    NewLoopID->replaceOperandWith(0, NewLoopID);
-
-    L->setLoopID(NewLoopID);
-    if (LoopID)
-      LoopID->replaceAllUsesWith(NewLoopID);
-
-    LoopID = NewLoopID;
+  void setAlreadyVectorized() {
+    Width.Value = Unroll.Value = 1;
+    // FIXME: Change all lines below for this when we can use MSVC 2013+
+    //writeHintsToMetadata({ Width, Unroll });
+    std::vector<Hint> hints;
+    hints.reserve(2);
+    hints.emplace_back(Width);
+    hints.emplace_back(Unroll);
+    writeHintsToMetadata(std::move(hints));
   }
 
+  /// Dumps all the hint information.
   std::string emitRemark() const {
     Report R;
-    if (Force == LoopVectorizeHints::FK_Disabled)
+    if (Force.Value == LoopVectorizeHints::FK_Disabled)
       R << "vectorization is explicitly disabled";
     else {
       R << "use -Rpass-analysis=loop-vectorize for more info";
-      if (Force == LoopVectorizeHints::FK_Enabled) {
+      if (Force.Value == LoopVectorizeHints::FK_Enabled) {
         R << " (Force=true";
-        if (Width != 0)
-          R << ", Vector Width=" << Width;
-        if (Unroll != 0)
-          R << ", Interleave Count=" << Unroll;
+        if (Width.Value != 0)
+          R << ", Vector Width=" << Width.Value;
+        if (Unroll.Value != 0)
+          R << ", Interleave Count=" << Unroll.Value;
         R << ")";
       }
     }
@@ -1050,14 +1083,14 @@ public:
     return R.str();
   }
 
-  unsigned getWidth() const { return Width; }
-  unsigned getUnroll() const { return Unroll; }
-  enum ForceKind getForce() const { return Force; }
-  MDNode *getLoopID() const { return LoopID; }
+  unsigned getWidth() const { return Width.Value; }
+  unsigned getUnroll() const { return Unroll.Value; }
+  enum ForceKind getForce() const { return (ForceKind)Force.Value; }
 
 private:
-  /// Find hints specified in the loop metadata.
-  void getHints(const Loop *L) {
+  /// Find hints specified in the loop metadata and update local values.
+  void getHintsFromMetadata() {
+    MDNode *LoopID = TheLoop->getLoopID();
     if (!LoopID)
       return;
 
@@ -1086,52 +1119,91 @@ private:
         continue;
 
       // Check if the hint starts with the loop metadata prefix.
-      StringRef Hint = S->getString();
-      if (!Hint.startswith(Prefix()))
-        continue;
-      // Remove the prefix.
-      Hint = Hint.substr(Prefix().size(), StringRef::npos);
-
+      StringRef Name = S->getString();
       if (Args.size() == 1)
-        getHint(Hint, Args[0]);
+        setHint(Name, Args[0]);
     }
   }
 
-  // Check string hint with one operand.
-  void getHint(StringRef Hint, Value *Arg) {
+  /// Checks string hint with one operand and set value if valid.
+  void setHint(StringRef Name, Value *Arg) {
+    if (!Name.startswith(Prefix()))
+      return;
+    Name = Name.substr(Prefix().size(), StringRef::npos);
+
     const ConstantInt *C = dyn_cast<ConstantInt>(Arg);
     if (!C) return;
     unsigned Val = C->getZExtValue();
 
-    if (Hint == "vectorize.width") {
-      if (isPowerOf2_32(Val) && Val <= MaxVectorWidth)
-        Width = Val;
-      else
-        DEBUG(dbgs() << "LV: ignoring invalid width hint metadata\n");
-    } else if (Hint == "vectorize.enable") {
-      if (C->getBitWidth() == 1)
-        Force = Val == 1 ? LoopVectorizeHints::FK_Enabled
-                         : LoopVectorizeHints::FK_Disabled;
-      else
-        DEBUG(dbgs() << "LV: ignoring invalid enable hint metadata\n");
-    } else if (Hint == "interleave.count") {
-      if (isPowerOf2_32(Val) && Val <= MaxUnrollFactor)
-        Unroll = Val;
-      else
-        DEBUG(dbgs() << "LV: ignoring invalid unroll hint metadata\n");
-    } else {
-      DEBUG(dbgs() << "LV: ignoring unknown hint " << Hint << '\n');
+    for (auto H : Hints) {
+      if (Name == H->Name) {
+        if (H->validate(Val))
+          H->Value = Val;
+        else
+          DEBUG(dbgs() << "LV: ignoring invalid hint '" << Name << "'\n");
+        break;
+      }
     }
   }
 
-  /// Vectorization width.
-  unsigned Width;
-  /// Vectorization unroll factor.
-  unsigned Unroll;
-  /// Vectorization forced
-  enum ForceKind Force;
+  /// Create a new hint from name / value pair.
+  MDNode *createHintMetadata(StringRef Name, unsigned V) const {
+    LLVMContext &Context = TheLoop->getHeader()->getContext();
+    SmallVector<Value*, 2> Vals;
+    Vals.push_back(MDString::get(Context, Name));
+    Vals.push_back(ConstantInt::get(Type::getInt32Ty(Context), V));
+    return MDNode::get(Context, Vals);
+  }
 
-  MDNode *LoopID;
+  /// Matches metadata with hint name.
+  bool matchesHintMetadataName(MDNode *Node, std::vector<Hint> &HintTypes) {
+    MDString* Name = dyn_cast<MDString>(Node->getOperand(0));
+    if (!Name)
+      return false;
+
+    for (auto H : HintTypes)
+      if (Name->getName().endswith(H.Name))
+        return true;
+    return false;
+  }
+
+  /// Sets current hints into loop metadata, keeping other values intact.
+  void writeHintsToMetadata(std::vector<Hint> HintTypes) {
+    if (HintTypes.size() == 0)
+      return;
+
+    // Reserve the first element to LoopID (see below).
+    SmallVector<Value*, 4> Vals(1);
+    // If the loop already has metadata, then ignore the existing operands.
+    MDNode *LoopID = TheLoop->getLoopID();
+    if (LoopID) {
+      for (unsigned i = 1, ie = LoopID->getNumOperands(); i < ie; ++i) {
+        MDNode *Node = cast<MDNode>(LoopID->getOperand(i));
+        // If node in update list, ignore old value.
+        if (!matchesHintMetadataName(Node, HintTypes))
+          Vals.push_back(Node);
+      }
+    }
+
+    // Now, add the missing hints.
+    for (auto H : HintTypes)
+      Vals.push_back(
+          createHintMetadata(Twine(Prefix(), H.Name).str(), H.Value));
+
+    // Replace current metadata node with new one.
+    LLVMContext &Context = TheLoop->getHeader()->getContext();
+    MDNode *NewLoopID = MDNode::get(Context, Vals);
+    // Set operand 0 to refer to the loop id itself.
+    NewLoopID->replaceOperandWith(0, NewLoopID);
+
+    TheLoop->setLoopID(NewLoopID);
+    if (LoopID)
+      LoopID->replaceAllUsesWith(NewLoopID);
+    LoopID = NewLoopID;
+  }
+
+  /// The loop these hints belong to.
+  const Loop *TheLoop;
 };
 
 static void emitMissedWarning(Function *F, Loop *L,
@@ -1393,7 +1465,7 @@ struct LoopVectorize : public FunctionPass {
     }
 
     // Mark the loop as already vectorized to avoid vectorizing again.
-    Hints.setAlreadyVectorized(L);
+    Hints.setAlreadyVectorized();
 
     DEBUG(verifyFunction(*L->getHeader()->getParent()));
     return true;
@@ -2495,7 +2567,7 @@ void InnerLoopVectorizer::createEmptyLoop() {
   LoopScalarBody = OldBasicBlock;
 
   LoopVectorizeHints Hints(Lp, true);
-  Hints.setAlreadyVectorized(Lp);
+  Hints.setAlreadyVectorized();
 }
 
 /// This function returns the identity element (or neutral element) for
@@ -3176,19 +3248,9 @@ void InnerLoopVectorizer::vectorizeBlockInLoop(BasicBlock *BB, PhiVector *PV) {
       for (unsigned Part = 0; Part < UF; ++Part) {
         Value *V = Builder.CreateBinOp(BinOp->getOpcode(), A[Part], B[Part]);
 
-        // Update the NSW, NUW and Exact flags. Notice: V can be an Undef.
-        BinaryOperator *VecOp = dyn_cast<BinaryOperator>(V);
-        if (VecOp && isa<OverflowingBinaryOperator>(BinOp)) {
-          VecOp->setHasNoSignedWrap(BinOp->hasNoSignedWrap());
-          VecOp->setHasNoUnsignedWrap(BinOp->hasNoUnsignedWrap());
-        }
-        if (VecOp && isa<PossiblyExactOperator>(VecOp))
-          VecOp->setIsExact(BinOp->isExact());
-
-        // Copy the fast-math flags.
-        if (VecOp && isa<FPMathOperator>(V))
-          VecOp->setFastMathFlags(it->getFastMathFlags());
-
+        if (BinaryOperator *VecOp = dyn_cast<BinaryOperator>(V))
+          VecOp->copyIRFlags(BinOp);
+        
         Entry[Part] = V;
       }
 
@@ -3541,7 +3603,7 @@ static Type* getWiderType(const DataLayout &DL, Type *Ty0, Type *Ty1) {
 /// \brief Check that the instruction has outside loop users and is not an
 /// identified reduction variable.
 static bool hasOutsideLoopUser(const Loop *TheLoop, Instruction *Inst,
-                               SmallPtrSet<Value *, 4> &Reductions) {
+                               SmallPtrSetImpl<Value *> &Reductions) {
   // Reduction instructions are allowed to have exit users. All other
   // instructions must not have external users.
   if (!Reductions.count(Inst))
@@ -4884,7 +4946,7 @@ bool LoopVectorizationLegality::canVectorizeMemory() {
 }
 
 static bool hasMultipleUsesOf(Instruction *I,
-                              SmallPtrSet<Instruction *, 8> &Insts) {
+                              SmallPtrSetImpl<Instruction *> &Insts) {
   unsigned NumUses = 0;
   for(User::op_iterator Use = I->op_begin(), E = I->op_end(); Use != E; ++Use) {
     if (Insts.count(dyn_cast<Instruction>(*Use)))
@@ -4896,7 +4958,7 @@ static bool hasMultipleUsesOf(Instruction *I,
   return false;
 }
 
-static bool areAllUsesIn(Instruction *I, SmallPtrSet<Instruction *, 8> &Set) {
+static bool areAllUsesIn(Instruction *I, SmallPtrSetImpl<Instruction *> &Set) {
   for(User::op_iterator Use = I->op_begin(), E = I->op_end(); Use != E; ++Use)
     if (!Set.count(dyn_cast<Instruction>(*Use)))
       return false;
@@ -5229,7 +5291,7 @@ bool LoopVectorizationLegality::blockNeedsPredication(BasicBlock *BB)  {
 }
 
 bool LoopVectorizationLegality::blockCanBePredicated(BasicBlock *BB,
-                                            SmallPtrSet<Value *, 8>& SafePtrs) {
+                                           SmallPtrSetImpl<Value *> &SafePtrs) {
   for (BasicBlock::iterator it = BB->begin(), e = BB->end(); it != e; ++it) {
     // We might be able to hoist the load.
     if (it->mayReadFromMemory()) {
@@ -5431,13 +5493,13 @@ LoopVectorizationCostModel::selectUnrollFactor(bool OptForSize,
   // -- The unroll heuristics --
   // We unroll the loop in order to expose ILP and reduce the loop overhead.
   // There are many micro-architectural considerations that we can't predict
-  // at this level. For example frontend pressure (on decode or fetch) due to
+  // at this level. For example, frontend pressure (on decode or fetch) due to
   // code size, or the number and capabilities of the execution ports.
   //
   // We use the following heuristics to select the unroll factor:
-  // 1. If the code has reductions the we unroll in order to break the cross
+  // 1. If the code has reductions, then we unroll in order to break the cross
   // iteration dependency.
-  // 2. If the loop is really small then we unroll in order to reduce the loop
+  // 2. If the loop is really small, then we unroll in order to reduce the loop
   // overhead.
   // 3. We don't unroll if we think that we will spill registers to memory due
   // to the increased register pressure.
@@ -5447,7 +5509,7 @@ LoopVectorizationCostModel::selectUnrollFactor(bool OptForSize,
   if (UserUF != 0)
     return UserUF;
 
-  // When we optimize for size we don't unroll.
+  // When we optimize for size, we don't unroll.
   if (OptForSize)
     return 1;
 
@@ -5545,6 +5607,18 @@ LoopVectorizationCostModel::selectUnrollFactor(bool OptForSize,
     // saturated.
     unsigned StoresUF = UF / (Legal->NumStores ? Legal->NumStores : 1);
     unsigned LoadsUF = UF /  (Legal->NumLoads ? Legal->NumLoads : 1);
+
+    // If we have a scalar reduction (vector reductions are already dealt with
+    // by this point), we can increase the critical path length if the loop
+    // we're unrolling is inside another loop. Limit, by default to 2, so the
+    // critical path only gets increased by one reduction operation.
+    if (Legal->getReductionVars()->size() &&
+        TheLoop->getLoopDepth() > 1) {
+      unsigned F = static_cast<unsigned>(MaxNestedScalarReductionUF);
+      SmallUF = std::min(SmallUF, F);
+      StoresUF = std::min(StoresUF, F);
+      LoadsUF = std::min(LoadsUF, F);
+    }
 
     if (EnableLoadStoreRuntimeUnroll && std::max(StoresUF, LoadsUF) > SmallUF) {
       DEBUG(dbgs() << "LV: Unrolling to saturate store or load ports.\n");
@@ -5820,18 +5894,31 @@ LoopVectorizationCostModel::getInstructionCost(Instruction *I, unsigned VF) {
       TargetTransformInfo::OK_AnyValue;
     TargetTransformInfo::OperandValueKind Op2VK =
       TargetTransformInfo::OK_AnyValue;
+    TargetTransformInfo::OperandValueProperties Op1VP =
+        TargetTransformInfo::OP_None;
+    TargetTransformInfo::OperandValueProperties Op2VP =
+        TargetTransformInfo::OP_None;
     Value *Op2 = I->getOperand(1);
 
     // Check for a splat of a constant or for a non uniform vector of constants.
-    if (isa<ConstantInt>(Op2))
+    if (isa<ConstantInt>(Op2)) {
+      ConstantInt *CInt = cast<ConstantInt>(Op2);
+      if (CInt && CInt->getValue().isPowerOf2())
+        Op2VP = TargetTransformInfo::OP_PowerOf2;
       Op2VK = TargetTransformInfo::OK_UniformConstantValue;
-    else if (isa<ConstantVector>(Op2) || isa<ConstantDataVector>(Op2)) {
+    } else if (isa<ConstantVector>(Op2) || isa<ConstantDataVector>(Op2)) {
       Op2VK = TargetTransformInfo::OK_NonUniformConstantValue;
-      if (cast<Constant>(Op2)->getSplatValue() != nullptr)
+      Constant *SplatValue = cast<Constant>(Op2)->getSplatValue();
+      if (SplatValue) {
+        ConstantInt *CInt = dyn_cast<ConstantInt>(SplatValue);
+        if (CInt && CInt->getValue().isPowerOf2())
+          Op2VP = TargetTransformInfo::OP_PowerOf2;
         Op2VK = TargetTransformInfo::OK_UniformConstantValue;
+      }
     }
 
-    return TTI.getArithmeticInstrCost(I->getOpcode(), VectorTy, Op1VK, Op2VK);
+    return TTI.getArithmeticInstrCost(I->getOpcode(), VectorTy, Op1VK, Op2VK,
+                                      Op1VP, Op2VP);
   }
   case Instruction::Select: {
     SelectInst *SI = cast<SelectInst>(I);

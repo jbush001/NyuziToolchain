@@ -87,7 +87,7 @@ public:
                             const TargetRegisterClass *RC,
                             const TargetRegisterInfo *TRI) const override;
 
-  virtual bool expandPostRAPseudo(MachineBasicBlock::iterator MI) const;
+  bool expandPostRAPseudo(MachineBasicBlock::iterator MI) const override;
 
   unsigned commuteOpcode(unsigned Opcode) const;
 
@@ -169,6 +169,12 @@ public:
   /// \brief Legalize all operands in this instruction.  This function may
   /// create new instruction and insert them before \p MI.
   void legalizeOperands(MachineInstr *MI) const;
+
+  /// \brief Split an SMRD instruction into two smaller loads of half the
+  //  size storing the results in \p Lo and \p Hi.
+  void splitSMRD(MachineInstr *MI, const TargetRegisterClass *HalfRC,
+                 unsigned HalfImmOp, unsigned HalfSGPROp,
+                 MachineInstr *&Lo, MachineInstr *&Hi) const;
 
   void moveSMRDToVALU(MachineInstr *MI, MachineRegisterInfo &MRI) const;
 

@@ -22,11 +22,14 @@ namespace object {
 class ObjectFile;
 }
 
+class DWARFContext;
 class DWARFDebugAbbrev;
 class StringRef;
 class raw_ostream;
 
 class DWARFUnit {
+  DWARFContext &Context;
+
   const DWARFDebugAbbrev *Abbrev;
   StringRef InfoSection;
   StringRef RangeSection;
@@ -48,11 +51,11 @@ class DWARFUnit {
   std::vector<DWARFDebugInfoEntryMinimal> DieArray;
 
   class DWOHolder {
-    std::unique_ptr<object::ObjectFile> DWOFile;
+    object::OwningBinary<object::ObjectFile> DWOFile;
     std::unique_ptr<DWARFContext> DWOContext;
     DWARFUnit *DWOU;
   public:
-    DWOHolder(std::unique_ptr<object::ObjectFile> DWOFile);
+    DWOHolder(StringRef DWOPath);
     DWARFUnit *getUnit() const { return DWOU; }
   };
   std::unique_ptr<DWOHolder> DWO;
@@ -63,11 +66,13 @@ protected:
   virtual uint32_t getHeaderSize() const { return 11; }
 
 public:
-  DWARFUnit(const DWARFDebugAbbrev *DA, StringRef IS, StringRef RS,
-            StringRef SS, StringRef SOS, StringRef AOS, const RelocAddrMap *M,
-            bool LE);
+  DWARFUnit(DWARFContext& Context, const DWARFDebugAbbrev *DA, StringRef IS,
+            StringRef RS, StringRef SS, StringRef SOS, StringRef AOS,
+            const RelocAddrMap *M, bool LE);
 
   virtual ~DWARFUnit();
+
+  DWARFContext& getContext() const { return Context; }
 
   StringRef getStringSection() const { return StringSection; }
   StringRef getStringOffsetSection() const { return StringOffsetSection; }
