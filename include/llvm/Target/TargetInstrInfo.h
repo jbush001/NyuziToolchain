@@ -31,7 +31,7 @@ class MachineMemOperand;
 class MachineRegisterInfo;
 class MDNode;
 class MCInst;
-class MCSchedModel;
+struct MCSchedModel;
 class MCSymbolRefExpr;
 class SDNode;
 class ScheduleHazardRecognizer;
@@ -302,6 +302,46 @@ public:
   bool
   getRegSequenceInputs(const MachineInstr &MI, unsigned DefIdx,
                        SmallVectorImpl<RegSubRegPairAndIdx> &InputRegs) const;
+
+  /// Build the equivalent inputs of a EXTRACT_SUBREG for the given \p MI
+  /// and \p DefIdx.
+  /// \p [out] InputReg of the equivalent EXTRACT_SUBREG.
+  /// E.g., EXTRACT_SUBREG vreg1:sub1, sub0, sub1 would produce:
+  /// - vreg1:sub1, sub0
+  ///
+  /// \returns true if it is possible to build such an input sequence
+  /// with the pair \p MI, \p DefIdx. False otherwise.
+  ///
+  /// \pre MI.isExtractSubreg() or MI.isExtractSubregLike().
+  ///
+  /// \note The generic implementation does not provide any support for
+  /// MI.isExtractSubregLike(). In other words, one has to override
+  /// getExtractSubregLikeInputs for target specific instructions.
+  bool
+  getExtractSubregInputs(const MachineInstr &MI, unsigned DefIdx,
+                         RegSubRegPairAndIdx &InputReg) const;
+
+  /// Build the equivalent inputs of a INSERT_SUBREG for the given \p MI
+  /// and \p DefIdx.
+  /// \p [out] BaseReg and \p [out] InsertedReg contain
+  /// the equivalent inputs of INSERT_SUBREG.
+  /// E.g., INSERT_SUBREG vreg0:sub0, vreg1:sub1, sub3 would produce:
+  /// - BaseReg: vreg0:sub0
+  /// - InsertedReg: vreg1:sub1, sub3
+  ///
+  /// \returns true if it is possible to build such an input sequence
+  /// with the pair \p MI, \p DefIdx. False otherwise.
+  ///
+  /// \pre MI.isInsertSubreg() or MI.isInsertSubregLike().
+  ///
+  /// \note The generic implementation does not provide any support for
+  /// MI.isInsertSubregLike(). In other words, one has to override
+  /// getInsertSubregLikeInputs for target specific instructions.
+  bool
+  getInsertSubregInputs(const MachineInstr &MI, unsigned DefIdx,
+                        RegSubRegPair &BaseReg,
+                        RegSubRegPairAndIdx &InsertedReg) const;
+
 
   /// produceSameValue - Return true if two machine instructions would produce
   /// identical values. By default, this is only true when the two instructions
@@ -648,7 +688,7 @@ public:
   }
 
   /// useMachineCombiner - return true when a target supports MachineCombiner
-  virtual bool useMachineCombiner(void) const { return false; }
+  virtual bool useMachineCombiner() const { return false; }
 
 protected:
   /// foldMemoryOperandImpl - Target-dependent implementation for
@@ -682,6 +722,35 @@ protected:
   virtual bool getRegSequenceLikeInputs(
       const MachineInstr &MI, unsigned DefIdx,
       SmallVectorImpl<RegSubRegPairAndIdx> &InputRegs) const {
+    return false;
+  }
+
+  /// \brief Target-dependent implementation of getExtractSubregInputs.
+  ///
+  /// \returns true if it is possible to build the equivalent
+  /// EXTRACT_SUBREG inputs with the pair \p MI, \p DefIdx. False otherwise.
+  ///
+  /// \pre MI.isExtractSubregLike().
+  ///
+  /// \see TargetInstrInfo::getExtractSubregInputs.
+  virtual bool getExtractSubregLikeInputs(
+      const MachineInstr &MI, unsigned DefIdx,
+      RegSubRegPairAndIdx &InputReg) const {
+    return false;
+  }
+
+  /// \brief Target-dependent implementation of getInsertSubregInputs.
+  ///
+  /// \returns true if it is possible to build the equivalent
+  /// INSERT_SUBREG inputs with the pair \p MI, \p DefIdx. False otherwise.
+  ///
+  /// \pre MI.isInsertSubregLike().
+  ///
+  /// \see TargetInstrInfo::getInsertSubregInputs.
+  virtual bool
+  getInsertSubregLikeInputs(const MachineInstr &MI, unsigned DefIdx,
+                            RegSubRegPair &BaseReg,
+                            RegSubRegPairAndIdx &InsertedReg) const {
     return false;
   }
 
@@ -963,7 +1032,7 @@ public:
                               SDNode *Node) const;
 
   /// Return the default expected latency for a def based on it's opcode.
-  unsigned defaultDefLatency(const MCSchedModel *SchedModel,
+  unsigned defaultDefLatency(const MCSchedModel &SchedModel,
                              const MachineInstr *DefMI) const;
 
   int computeDefOperandLatency(const InstrItineraryData *ItinData,

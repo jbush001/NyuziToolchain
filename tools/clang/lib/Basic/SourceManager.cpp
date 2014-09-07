@@ -96,9 +96,9 @@ llvm::MemoryBuffer *ContentCache::getBuffer(DiagnosticsEngine &Diag,
 
   std::string ErrorStr;
   bool isVolatile = SM.userFilesAreVolatile() && !IsSystemFile;
-  Buffer.setPointer(SM.getFileManager().getBufferForFile(ContentsEntry,
-                                                         &ErrorStr,
-                                                         isVolatile));
+  Buffer.setPointer(SM.getFileManager()
+                        .getBufferForFile(ContentsEntry, &ErrorStr, isVolatile)
+                        .release());
 
   // If we were unable to open the file, then we are in an inconsistent
   // situation where the content cache referenced a file which no longer
@@ -111,9 +111,9 @@ llvm::MemoryBuffer *ContentCache::getBuffer(DiagnosticsEngine &Diag,
   // that we are in an inconsistent situation and error out as quickly as
   // possible.
   if (!Buffer.getPointer()) {
-    const StringRef FillStr("<<<MISSING SOURCE FILE>>>\n");
-    Buffer.setPointer(MemoryBuffer::getNewMemBuffer(ContentsEntry->getSize(), 
-                                                    "<invalid>"));
+    StringRef FillStr("<<<MISSING SOURCE FILE>>>\n");
+    Buffer.setPointer(MemoryBuffer::getNewMemBuffer(ContentsEntry->getSize(),
+                                                    "<invalid>").release());
     char *Ptr = const_cast<char*>(Buffer.getPointer()->getBufferStart());
     for (unsigned i = 0, e = ContentsEntry->getSize(); i != e; ++i)
       Ptr[i] = FillStr[i % FillStr.size()];
@@ -456,13 +456,13 @@ SourceManager::getOrCreateContentCache(const FileEntry *FileEnt,
 
 /// createMemBufferContentCache - Create a new ContentCache for the specified
 ///  memory buffer.  This does no caching.
-const ContentCache *
-SourceManager::createMemBufferContentCache(llvm::MemoryBuffer *Buffer) {
+const ContentCache *SourceManager::createMemBufferContentCache(
+    std::unique_ptr<llvm::MemoryBuffer> Buffer) {
   // Add a new ContentCache to the MemBufferInfos list and return it.
   ContentCache *Entry = ContentCacheAlloc.Allocate<ContentCache>();
   new (Entry) ContentCache();
   MemBufferInfos.push_back(Entry);
-  Entry->setBuffer(Buffer);
+  Entry->setBuffer(std::move(Buffer));
   return Entry;
 }
 
@@ -501,8 +501,8 @@ SourceManager::AllocateLoadedSLocEntries(unsigned NumSLocEntries,
 /// fake, non-empty buffer.
 llvm::MemoryBuffer *SourceManager::getFakeBufferForRecovery() const {
   if (!FakeBufferForRecovery)
-    FakeBufferForRecovery.reset(
-        llvm::MemoryBuffer::getMemBuffer("<<<INVALID BUFFER>>"));
+    FakeBufferForRecovery =
+        llvm::MemoryBuffer::getMemBuffer("<<<INVALID BUFFER>>");
 
   return FakeBufferForRecovery.get();
 }

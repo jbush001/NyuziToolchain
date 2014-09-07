@@ -4588,23 +4588,6 @@ Sema::ActOnCallExpr(Scope *S, Expr *Fn, SourceLocation LParenLoc,
                                ExecConfig, IsExecConfig);
 }
 
-ExprResult
-Sema::ActOnCUDAExecConfigExpr(Scope *S, SourceLocation LLLLoc,
-                              MultiExprArg ExecConfig, SourceLocation GGGLoc) {
-  FunctionDecl *ConfigDecl = Context.getcudaConfigureCallDecl();
-  if (!ConfigDecl)
-    return ExprError(Diag(LLLLoc, diag::err_undeclared_var_use)
-                          << "cudaConfigureCall");
-  QualType ConfigQTy = ConfigDecl->getType();
-
-  DeclRefExpr *ConfigDR = new (Context) DeclRefExpr(
-      ConfigDecl, false, ConfigQTy, VK_LValue, LLLLoc);
-  MarkFunctionReferenced(LLLLoc, ConfigDecl);
-
-  return ActOnCallExpr(S, ConfigDR, LLLLoc, ExecConfig, GGGLoc, nullptr,
-                       /*IsExecConfig=*/true);
-}
-
 /// ActOnAsTypeExpr - create a new asType (bitcast) from the arguments.
 ///
 /// __builtin_astype( value, dst type )
@@ -9515,7 +9498,7 @@ static void DiagnoseBitwisePrecedence(Sema &Self, BinaryOperatorKind Opc,
   StringRef OpStr = isLeftComp ? LHSBO->getOpcodeStr() : RHSBO->getOpcodeStr();
   SourceRange ParensRange = isLeftComp ?
       SourceRange(LHSBO->getRHS()->getLocStart(), RHSExpr->getLocEnd())
-    : SourceRange(LHSExpr->getLocStart(), RHSBO->getLHS()->getLocStart());
+    : SourceRange(LHSExpr->getLocStart(), RHSBO->getLHS()->getLocEnd());
 
   Self.Diag(OpLoc, diag::warn_precedence_bitwise_rel)
     << DiagRange << BinaryOperator::getOpcodeStr(Opc) << OpStr;
@@ -11398,7 +11381,8 @@ static bool IsPotentiallyEvaluatedContext(Sema &SemaRef) {
 
 /// \brief Mark a function referenced, and check whether it is odr-used
 /// (C++ [basic.def.odr]p2, C99 6.9p3)
-void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func) {
+void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func,
+                                  bool OdrUse) {
   assert(Func && "No function?");
 
   Func->setReferenced();
@@ -11496,6 +11480,8 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func) {
   const FunctionProtoType *FPT = Func->getType()->getAs<FunctionProtoType>();
   if (FPT && isUnresolvedExceptionSpec(FPT->getExceptionSpecType()))
     ResolveExceptionSpec(Loc, FPT);
+
+  if (!OdrUse) return;
 
   // Implicit instantiation of function templates and member functions of
   // class templates.
@@ -11678,13 +11664,10 @@ static bool isVariableCapturable(CapturingScopeInfo *CSI, VarDecl *Var,
     return false;
   }
 
-  // Prohibit variably-modified types; they're difficult to deal with.
-  if (Var->getType()->isVariablyModifiedType() && (IsBlock || IsLambda)) {
+  // Prohibit variably-modified types in blocks; they're difficult to deal with.
+  if (Var->getType()->isVariablyModifiedType() && IsBlock) {
     if (Diagnose) {
-      if (IsBlock)
-        S.Diag(Loc, diag::err_ref_vm_type);
-      else
-        S.Diag(Loc, diag::err_lambda_capture_vm_type) << Var->getDeclName();
+      S.Diag(Loc, diag::err_ref_vm_type);
       S.Diag(Var->getLocation(), diag::note_previous_decl) 
         << Var->getDeclName();
     }
@@ -12088,7 +12071,6 @@ static bool captureInLambda(LambdaScopeInfo *LSI,
   return true;
 }
 
-
 bool Sema::tryCaptureVariable(VarDecl *Var, SourceLocation ExprLoc, 
                               TryCaptureKind Kind, SourceLocation EllipsisLoc,
                               bool BuildAndDiagnose, 
@@ -12225,14 +12207,37 @@ bool Sema::tryCaptureVariable(VarDecl *Var, SourceLocation ExprLoc,
           break;
         case Type::VariableArray: {
           // Losing element qualification here is fine.
-          const VariableArrayType *Vat = cast<VariableArrayType>(Ty);
+          const VariableArrayType *VAT = cast<VariableArrayType>(Ty);
 
           // Unknown size indication requires no size computation.
           // Otherwise, evaluate and record it.
-          if (Expr *Size = Vat->getSizeExpr()) {
-            MarkDeclarationsReferencedInExpr(Size);
+          if (auto Size = VAT->getSizeExpr()) {
+            if (auto LSI = dyn_cast<LambdaScopeInfo>(CSI)) {
+              if (!LSI->isVLATypeCaptured(VAT)) {
+                auto ExprLoc = Size->getExprLoc();
+                auto SizeType = Context.getSizeType();
+                auto Lambda = LSI->Lambda;
+
+                // Build the non-static data member.
+                auto Field = FieldDecl::Create(
+                    Context, Lambda, ExprLoc, ExprLoc,
+                    /*Id*/ nullptr, SizeType, /*TInfo*/ nullptr,
+                    /*BW*/ nullptr, /*Mutable*/ false,
+                    /*InitStyle*/ ICIS_NoInit);
+                Field->setImplicit(true);
+                Field->setAccess(AS_private);
+                Field->setCapturedVLAType(VAT);
+                Lambda->addDecl(Field);
+
+                LSI->addVLATypeCapture(ExprLoc, SizeType);
+              }
+            } else {
+              // Immediately mark all referenced vars for CapturedStatements,
+              // they all are captured by reference.
+              MarkDeclarationsReferencedInExpr(Size);
+            }
           }
-          QTy = Vat->getElementType();
+          QTy = VAT->getElementType();
           break;
         }
         case Type::FunctionProto:
@@ -12623,14 +12628,14 @@ void Sema::MarkMemberReferenced(MemberExpr *E) {
 /// normal expression which refers to a variable.
 void Sema::MarkAnyDeclReferenced(SourceLocation Loc, Decl *D, bool OdrUse) {
   if (OdrUse) {
-    if (VarDecl *VD = dyn_cast<VarDecl>(D)) {
+    if (auto *VD = dyn_cast<VarDecl>(D)) {
       MarkVariableReferenced(Loc, VD);
       return;
     }
-    if (FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
-      MarkFunctionReferenced(Loc, FD);
-      return;
-    }
+  }
+  if (auto *FD = dyn_cast<FunctionDecl>(D)) {
+    MarkFunctionReferenced(Loc, FD, OdrUse);
+    return;
   }
   D->setReferenced();
 }

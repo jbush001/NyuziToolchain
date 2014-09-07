@@ -33,6 +33,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Object/MachO.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Errc.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -45,6 +46,8 @@
 #include <system_error>
 
 using namespace llvm::MachO;
+using llvm::object::ExportEntry;
+using llvm::object::MachOObjectFile;
 
 namespace lld {
 namespace mach_o {
@@ -114,6 +117,59 @@ template <typename T> static T readBigEndian(T t) {
   return t;
 }
 
+
+static bool isMachOHeader(const mach_header *mh, bool &is64, bool &swap) {
+  switch (mh->magic) {
+  case llvm::MachO::MH_MAGIC:
+    is64 = false;
+    swap = false;
+    return true;
+  case llvm::MachO::MH_MAGIC_64:
+    is64 = true;
+    swap = false;
+    return true;
+  case llvm::MachO::MH_CIGAM:
+    is64 = false;
+    swap = true;
+    return true;
+  case llvm::MachO::MH_CIGAM_64:
+    is64 = true;
+    swap = true;
+    return true;
+  default:
+    return false;
+  }
+}
+
+
+bool isThinObjectFile(StringRef path, MachOLinkingContext::Arch &arch) {
+  // Try opening and mapping file at path.
+  ErrorOr<std::unique_ptr<MemoryBuffer>> b = MemoryBuffer::getFileOrSTDIN(path);
+  if (b.getError())
+    return false;
+
+  // If file length < 32 it is too small to be mach-o object file.
+  StringRef fileBuffer = b->get()->getBuffer();
+  if (fileBuffer.size() < 32)
+    return false;
+
+  // If file buffer does not start with MH_MAGIC (and variants), not obj file.
+  const mach_header *mh = reinterpret_cast<const mach_header *>(
+                                                            fileBuffer.begin());
+  bool is64, swap;
+  if (!isMachOHeader(mh, is64, swap))
+    return false;
+
+  // If not MH_OBJECT, not object file.
+  if (read32(swap, mh->filetype) != MH_OBJECT)
+    return false;
+
+  // Lookup up arch from cpu/subtype pair.
+  arch = MachOLinkingContext::archFromCpuType(read32(swap, mh->cputype),
+                                              read32(swap, mh->cpusubtype));
+  return true;
+}
+
 /// Reads a mach-o file and produces an in-memory normalized view.
 ErrorOr<std::unique_ptr<NormalizedFile>>
 readBinary(std::unique_ptr<MemoryBuffer> &mb,
@@ -159,26 +215,8 @@ readBinary(std::unique_ptr<MemoryBuffer> &mb,
   }
 
   bool is64, swap;
-  switch (mh->magic) {
-  case llvm::MachO::MH_MAGIC:
-    is64 = false;
-    swap = false;
-    break;
-  case llvm::MachO::MH_MAGIC_64:
-    is64 = true;
-    swap = false;
-    break;
-  case llvm::MachO::MH_CIGAM:
-    is64 = false;
-    swap = true;
-    break;
-  case llvm::MachO::MH_CIGAM_64:
-    is64 = true;
-    swap = true;
-    break;
-  default:
+  if (!isMachOHeader(mh, is64, swap))
     return make_error_code(llvm::errc::executable_format_error);
-  }
 
   // Endian swap header, if needed.
   mach_header headerCopy;
@@ -231,6 +269,7 @@ readBinary(std::unique_ptr<MemoryBuffer> &mb,
 
   // Walk load commands looking for segments/sections and the symbol table.
   const data_in_code_entry *dataInCode = nullptr;
+  const dyld_info_command *dyldInfo = nullptr;
   uint32_t dataInCodeSize = 0;
   ec = forEachLoadCommand(lcRange, lcCount, swap, is64,
                     [&] (uint32_t cmd, uint32_t size, const char* lc) -> bool {
@@ -406,6 +445,7 @@ readBinary(std::unique_ptr<MemoryBuffer> &mb,
                                             start + read32(swap, ldc->dataoff));
       dataInCodeSize = read32(swap, ldc->datasize);
       }
+      break;
     case LC_LOAD_DYLIB:
     case LC_LOAD_WEAK_DYLIB:
     case LC_REEXPORT_DYLIB:
@@ -416,6 +456,10 @@ readBinary(std::unique_ptr<MemoryBuffer> &mb,
       entry.kind = LoadCommandType(cmd);
       f->dependentDylibs.push_back(entry);
       }
+      break;
+    case LC_DYLD_INFO:
+    case LC_DYLD_INFO_ONLY:
+      dyldInfo = reinterpret_cast<const dyld_info_command*>(lc);
       break;
     }
     return false;
@@ -434,9 +478,28 @@ readBinary(std::unique_ptr<MemoryBuffer> &mb,
     }
   }
 
+  if (dyldInfo) {
+    // If any exports, extract and add to normalized exportInfo vector.
+    if (dyldInfo->export_size) {
+      const uint8_t *trieStart = reinterpret_cast<const uint8_t*>(start +
+                                                          dyldInfo->export_off);
+      ArrayRef<uint8_t> trie(trieStart, dyldInfo->export_size);
+      for (const ExportEntry &trieExport : MachOObjectFile::exports(trie)) {
+        Export normExport;
+        normExport.name = trieExport.name().copy(f->ownedAllocations);
+        normExport.offset = trieExport.address();
+        normExport.kind = ExportSymbolKind(trieExport.flags() & EXPORT_SYMBOL_FLAGS_KIND_MASK);
+        normExport.flags = trieExport.flags() & ~EXPORT_SYMBOL_FLAGS_KIND_MASK;
+        normExport.otherOffset = trieExport.other();
+        if (!trieExport.otherName().empty())
+          normExport.otherName = trieExport.otherName().copy(f->ownedAllocations);
+        f->exportInfo.push_back(normExport);
+      }
+    }
+  }
+
   return std::move(f);
 }
-
 
 
 class MachOReader : public Reader {

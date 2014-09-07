@@ -3,9 +3,9 @@
 
 define void @trunc_i64_to_i32_store(i32 addrspace(1)* %out, i64 %in) {
 ; SI-LABEL: @trunc_i64_to_i32_store
-; SI: S_LOAD_DWORD s0, s[0:1], 0xb
-; SI: V_MOV_B32_e32 v0, s0
-; SI: BUFFER_STORE_DWORD v0
+; SI: S_LOAD_DWORD [[SLOAD:s[0-9]+]], s[0:1], 0xb
+; SI: V_MOV_B32_e32 [[VLOAD:v[0-9]+]], [[SLOAD]]
+; SI: BUFFER_STORE_DWORD [[VLOAD]]
 
 ; EG-LABEL: @trunc_i64_to_i32_store
 ; EG: MEM_RAT_CACHELESS STORE_RAW T0.X, T1.X, 1
@@ -31,7 +31,7 @@ define void @trunc_load_shl_i64(i32 addrspace(1)* %out, i64 %a) {
 
 ; SI-LABEL: @trunc_shl_i64:
 ; SI: S_LOAD_DWORDX2 s{{\[}}[[LO_SREG:[0-9]+]]:{{[0-9]+\]}}, s{{\[[0-9]+:[0-9]+\]}}, 0xd
-; SI: S_ADD_I32 s[[LO_SREG2:[0-9]+]], s[[LO_SREG]],
+; SI: S_ADD_U32 s[[LO_SREG2:[0-9]+]], s[[LO_SREG]],
 ; SI: S_ADDC_U32
 ; SI: S_LSHL_B64 s{{\[}}[[LO_SHL:[0-9]+]]:{{[0-9]+\]}}, s{{\[}}[[LO_SREG2]]:{{[0-9]+\]}}, 2
 ; SI: V_MOV_B32_e32 v[[LO_VREG:[0-9]+]], s[[LO_SHL]]

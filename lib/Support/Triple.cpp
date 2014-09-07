@@ -250,7 +250,7 @@ static Triple::ArchType parseArch(StringRef ArchName) {
     .Case("spir", Triple::spir)
     .Case("spir64", Triple::spir64)
     .Case("vectorproc", Triple::vectorproc)
-    .Case("kalimba", Triple::kalimba)
+    .StartsWith("kalimba", Triple::kalimba)
     .Default(Triple::UnknownArch);
 }
 
@@ -340,6 +340,9 @@ static Triple::SubArchType parseSubArch(StringRef SubArchName) {
     .EndsWith("v5t", Triple::ARMSubArch_v5)
     .EndsWith("v5te", Triple::ARMSubArch_v5te)
     .EndsWith("v4t", Triple::ARMSubArch_v4t)
+    .EndsWith("kalimba3", Triple::KalimbaSubArch_v3)
+    .EndsWith("kalimba4", Triple::KalimbaSubArch_v4)
+    .EndsWith("kalimba5", Triple::KalimbaSubArch_v5)
     .Default(Triple::NoSubArch);
 }
 

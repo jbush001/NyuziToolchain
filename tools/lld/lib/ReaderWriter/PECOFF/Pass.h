@@ -15,11 +15,11 @@
 namespace lld {
 namespace pecoff {
 
-void addDir32Reloc(COFFBaseDefinedAtom *atom, const Atom *target,
-                   size_t offsetInAtom = 0);
+void addDir32Reloc(COFFBaseDefinedAtom *atom, const Atom *target, bool is64,
+                   size_t offsetInAtom);
 
-void addDir32NBReloc(COFFBaseDefinedAtom *atom, const Atom *target,
-                     size_t offsetInAtom = 0);
+void addDir32NBReloc(COFFBaseDefinedAtom *atom, const Atom *target, bool is64,
+                     size_t offsetInAtom);
 
 } // namespace pecoff
 } // namespace lld

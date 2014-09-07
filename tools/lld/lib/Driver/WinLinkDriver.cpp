@@ -295,7 +295,8 @@ static bool isResoruceFile(StringRef path) {
 
 // Merge Windows resource files and convert them to a single COFF file.
 // The temporary file path is set to result.
-static bool convertResourceFiles(std::vector<std::string> inFiles,
+static bool convertResourceFiles(PECOFFLinkingContext &ctx,
+                                 std::vector<std::string> inFiles,
                                  std::string &result) {
   // Create an output file path.
   SmallString<128> outFile;
@@ -313,7 +314,7 @@ static bool convertResourceFiles(std::vector<std::string> inFiles,
 
   std::vector<const char *> args;
   args.push_back(programPath.c_str());
-  args.push_back("/machine:x86");
+  args.push_back(ctx.is64Bit() ? "/machine:x64" : "/machine:x86");
   args.push_back("/readonly");
   args.push_back("/nologo");
   args.push_back(outFileArg.c_str());
@@ -496,12 +497,11 @@ static bool createManifestResourceFile(PECOFFLinkingContext &ctx,
   llvm::FileRemover rcFileRemover((Twine(rcFile)));
 
   // Open the temporary file for writing.
-  std::string errorInfo;
-  llvm::raw_fd_ostream out(rcFileSmallString.c_str(), errorInfo,
-                           llvm::sys::fs::F_Text);
-  if (!errorInfo.empty()) {
+  std::error_code ec;
+  llvm::raw_fd_ostream out(rcFileSmallString, ec, llvm::sys::fs::F_Text);
+  if (ec) {
     diag << "Failed to open " << ctx.getManifestOutputPath() << ": "
-         << errorInfo << "\n";
+         << ec.message() << "\n";
     return false;
   }
 
@@ -571,10 +571,10 @@ static bool createSideBySideManifestFile(PECOFFLinkingContext &ctx,
     path.append(".manifest");
   }
 
-  std::string errorInfo;
-  llvm::raw_fd_ostream out(path.c_str(), errorInfo, llvm::sys::fs::F_Text);
-  if (!errorInfo.empty()) {
-    diag << errorInfo << "\n";
+  std::error_code ec;
+  llvm::raw_fd_ostream out(path, ec, llvm::sys::fs::F_Text);
+  if (ec) {
+    diag << ec.message() << "\n";
     return false;
   }
   out << createManifestXml(ctx);
@@ -801,7 +801,7 @@ bool WinLinkDriver::linkPECOFF(int argc, const char **argv, raw_ostream &diag) {
 
   // Register possible input file parsers.
   ctx.registry().addSupportCOFFObjects(ctx);
-  ctx.registry().addSupportCOFFImportLibraries();
+  ctx.registry().addSupportCOFFImportLibraries(ctx);
   ctx.registry().addSupportArchives(ctx.logInputFiles());
   ctx.registry().addSupportNativeObjects();
   ctx.registry().addSupportYamlFiles();
@@ -1228,6 +1228,7 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
     DEFINE_BOOLEAN_FLAG(allowisolation, setAllowIsolation);
     DEFINE_BOOLEAN_FLAG(dynamicbase, setDynamicBaseEnabled);
     DEFINE_BOOLEAN_FLAG(tsaware, setTerminalServerAware);
+    DEFINE_BOOLEAN_FLAG(highentropyva, setHighEntropyVA);
     DEFINE_BOOLEAN_FLAG(safeseh, setSafeSEH);
 
 #undef DEFINE_BOOLEAN_FLAG
@@ -1263,7 +1264,7 @@ bool WinLinkDriver::parse(int argc, const char *argv[],
     if (it != inputFiles.begin()) {
       std::vector<std::string> resFiles(inputFiles.begin(), it);
       std::string resObj;
-      if (!convertResourceFiles(resFiles, resObj)) {
+      if (!convertResourceFiles(ctx, resFiles, resObj)) {
         diag << "Failed to convert resource files\n";
         return false;
       }

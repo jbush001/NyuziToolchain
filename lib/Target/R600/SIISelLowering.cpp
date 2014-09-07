@@ -25,6 +25,7 @@
 #include "SIInstrInfo.h"
 #include "SIMachineFunctionInfo.h"
 #include "SIRegisterInfo.h"
+#include "llvm/ADT/BitVector.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -225,6 +226,7 @@ SITargetLowering::SITargetLowering(TargetMachine &TM) :
 
   setOperationAction(ISD::FDIV, MVT::f32, Custom);
 
+  setTargetDAGCombine(ISD::FSUB);
   setTargetDAGCombine(ISD::SELECT_CC);
   setTargetDAGCombine(ISD::SETCC);
 
@@ -411,7 +413,7 @@ SDValue SITargetLowering::LowerFormalArguments(
   assert(CallConv == CallingConv::C);
 
   SmallVector<ISD::InputArg, 16> Splits;
-  uint32_t Skipped = 0;
+  BitVector Skipped(Ins.size());
 
   for (unsigned i = 0, e = Ins.size(), PSInputNum = 0; i != e; ++i) {
     const ISD::InputArg &Arg = Ins[i];
@@ -424,7 +426,7 @@ SDValue SITargetLowering::LowerFormalArguments(
 
       if (!Arg.Used) {
         // We can savely skip PS inputs
-        Skipped |= 1 << i;
+        Skipped.set(i);
         ++PSInputNum;
         continue;
       }
@@ -488,7 +490,7 @@ SDValue SITargetLowering::LowerFormalArguments(
   for (unsigned i = 0, e = Ins.size(), ArgIdx = 0; i != e; ++i) {
 
     const ISD::InputArg &Arg = Ins[i];
-    if (Skipped & (1 << i)) {
+    if (Skipped[i]) {
       InVals.push_back(DAG.getUNDEF(Arg.VT));
       continue;
     }
@@ -504,6 +506,18 @@ SDValue SITargetLowering::LowerFormalArguments(
       SDValue Arg = LowerParameter(DAG, VT, MemVT,  DL, DAG.getRoot(),
                                    36 + VA.getLocMemOffset(),
                                    Ins[i].Flags.isSExt());
+
+      const PointerType *ParamTy =
+          dyn_cast<PointerType>(FType->getParamType(Ins[i].OrigArgIndex));
+      if (Subtarget->getGeneration() == AMDGPUSubtarget::SOUTHERN_ISLANDS &&
+          ParamTy && ParamTy->getAddressSpace() == AMDGPUAS::LOCAL_ADDRESS) {
+        // On SI local pointers are just offsets into LDS, so they are always
+        // less than 16-bits.  On CI and newer they could potentially be
+        // real pointers, so we can't guarantee their size.
+        Arg = DAG.getNode(ISD::AssertZext, DL, Arg.getValueType(), Arg,
+                          DAG.getValueType(MVT::i16));
+      }
+
       InVals.push_back(Arg);
       continue;
     }
@@ -743,15 +757,8 @@ static SDNode *findUser(SDValue Value, unsigned Opcode) {
 
 SDValue SITargetLowering::LowerFrameIndex(SDValue Op, SelectionDAG &DAG) const {
 
-  MachineFunction &MF = DAG.getMachineFunction();
-  const SIInstrInfo *TII = static_cast<const SIInstrInfo *>(
-      getTargetMachine().getSubtargetImpl()->getInstrInfo());
-  const SIRegisterInfo &TRI = TII->getRegisterInfo();
   FrameIndexSDNode *FINode = cast<FrameIndexSDNode>(Op);
   unsigned FrameIndex = FINode->getIndex();
-
-  CreateLiveInRegister(DAG, &AMDGPU::SReg_32RegClass,
-    TRI.getPreloadedValue(MF, SIRegisterInfo::SCRATCH_WAVE_OFFSET), MVT::i32);
 
   return DAG.getTargetFrameIndex(FrameIndex, MVT::i32);
 }
@@ -1380,6 +1387,42 @@ SDValue SITargetLowering::PerformDAGCombine(SDNode *N,
 
   case ISD::UINT_TO_FP: {
     return performUCharToFloatCombine(N, DCI);
+
+  case ISD::FSUB: {
+    if (DCI.getDAGCombineLevel() < AfterLegalizeDAG)
+      break;
+
+    EVT VT = N->getValueType(0);
+
+    // Try to get the fneg to fold into the source modifier. This undoes generic
+    // DAG combines and folds them into the mad.
+    if (VT == MVT::f32) {
+      SDValue LHS = N->getOperand(0);
+      SDValue RHS = N->getOperand(1);
+
+      if (LHS.getOpcode() == ISD::FMUL) {
+        // (fsub (fmul a, b), c) -> mad a, b, (fneg c)
+
+        SDValue A = LHS.getOperand(0);
+        SDValue B = LHS.getOperand(1);
+        SDValue C = DAG.getNode(ISD::FNEG, DL, VT, RHS);
+
+        return DAG.getNode(AMDGPUISD::MAD, DL, VT, A, B, C);
+      }
+
+      if (RHS.getOpcode() == ISD::FMUL) {
+        // (fsub c, (fmul a, b)) -> mad (fneg a), b, c
+
+        SDValue A = DAG.getNode(ISD::FNEG, DL, VT, RHS.getOperand(0));
+        SDValue B = RHS.getOperand(1);
+        SDValue C = LHS;
+
+        return DAG.getNode(AMDGPUISD::MAD, DL, VT, A, B, C);
+      }
+    }
+
+    break;
+  }
   }
   case ISD::LOAD:
   case ISD::STORE:

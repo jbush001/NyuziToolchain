@@ -183,6 +183,14 @@ void Sema::InstantiateAttrs(const MultiLevelTemplateArgumentList &TemplateArgs,
       continue;
     }
 
+    // Existing DLL attribute on the instantiation takes precedence.
+    if (TmplAttr->getKind() == attr::DLLExport ||
+        TmplAttr->getKind() == attr::DLLImport) {
+      if (New->hasAttr<DLLExportAttr>() || New->hasAttr<DLLImportAttr>()) {
+        continue;
+      }
+    }
+
     assert(!TmplAttr->isPackExpansion());
     if (TmplAttr->isLateParsed() && LateAttrs) {
       // Late parsed attributes must be instantiated and attached after the
@@ -355,6 +363,7 @@ TemplateDeclInstantiator::VisitTypeAliasTemplateDecl(TypeAliasTemplateDecl *D) {
   TypeAliasTemplateDecl *Inst
     = TypeAliasTemplateDecl::Create(SemaRef.Context, Owner, D->getLocation(),
                                     D->getDeclName(), InstParams, AliasInst);
+  AliasInst->setDescribedAliasTemplate(Inst);
   if (PrevAliasTemplate)
     Inst->setPreviousDecl(PrevAliasTemplate);
 
@@ -1191,6 +1200,9 @@ Decl *TemplateDeclInstantiator::VisitCXXRecordDecl(CXXRecordDecl *D) {
     SemaRef.InstantiateClassMembers(D->getLocation(), Record, TemplateArgs,
                                     TSK_ImplicitInstantiation);
   }
+
+  SemaRef.DiagnoseUnusedNestedTypedefs(Record);
+
   return Record;
 }
 
@@ -3644,7 +3656,7 @@ void Sema::BuildVariableInstantiation(
   // Diagnose unused local variables with dependent types, where the diagnostic
   // will have been deferred.
   if (!NewVar->isInvalidDecl() &&
-      NewVar->getDeclContext()->isFunctionOrMethod() && !NewVar->isUsed() &&
+      NewVar->getDeclContext()->isFunctionOrMethod() &&
       OldVar->getType()->isDependentType())
     DiagnoseUnusedDecl(NewVar);
 }
@@ -4391,17 +4403,17 @@ NamedDecl *Sema::FindInstantiatedDecl(SourceLocation Loc, NamedDecl *D,
       (isa<CXXRecordDecl>(D) && cast<CXXRecordDecl>(D)->isLambda())) {
     // D is a local of some kind. Look into the map of local
     // declarations to their instantiations.
-    typedef LocalInstantiationScope::DeclArgumentPack DeclArgumentPack;
-    llvm::PointerUnion<Decl *, DeclArgumentPack *> *Found
-      = CurrentInstantiationScope->findInstantiationOf(D);
+    if (CurrentInstantiationScope) {
+      if (auto Found = CurrentInstantiationScope->findInstantiationOf(D)) {
+        if (Decl *FD = Found->dyn_cast<Decl *>())
+          return cast<NamedDecl>(FD);
 
-    if (Found) {
-      if (Decl *FD = Found->dyn_cast<Decl *>())
-        return cast<NamedDecl>(FD);
-
-      int PackIdx = ArgumentPackSubstitutionIndex;
-      assert(PackIdx != -1 && "found declaration pack but not pack expanding");
-      return cast<NamedDecl>((*Found->get<DeclArgumentPack *>())[PackIdx]);
+        int PackIdx = ArgumentPackSubstitutionIndex;
+        assert(PackIdx != -1 &&
+               "found declaration pack but not pack expanding");
+        typedef LocalInstantiationScope::DeclArgumentPack DeclArgumentPack;
+        return cast<NamedDecl>((*Found->get<DeclArgumentPack *>())[PackIdx]);
+      }
     }
 
     // If we're performing a partial substitution during template argument

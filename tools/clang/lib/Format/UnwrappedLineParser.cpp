@@ -658,6 +658,20 @@ void UnwrappedLineParser::parseStructuralElement() {
       break;
     }
     break;
+  case tok::kw_asm:
+    FormatTok->Finalized = true;
+    nextToken();
+    if (FormatTok->is(tok::l_brace)) {
+      while (FormatTok && FormatTok->isNot(tok::eof)) {
+        FormatTok->Finalized = true;
+        if (FormatTok->is(tok::r_brace)) {
+          nextToken();
+          break;
+        }
+        nextToken();
+      }
+    }
+    break;
   case tok::kw_namespace:
     parseNamespace();
     return;
@@ -1026,6 +1040,13 @@ void UnwrappedLineParser::parseParens() {
       nextToken();
       if (FormatTok->Tok.is(tok::l_brace))
         parseBracedList();
+      break;
+    case tok::identifier:
+      if (Style.Language == FormatStyle::LK_JavaScript &&
+          FormatTok->TokenText == "function")
+        tryToParseJSFunction();
+      else
+        nextToken();
       break;
     default:
       nextToken();

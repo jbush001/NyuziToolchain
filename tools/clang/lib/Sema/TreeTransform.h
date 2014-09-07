@@ -5821,7 +5821,8 @@ TreeTransform<Derived>::TransformBreakStmt(BreakStmt *S) {
 template<typename Derived>
 StmtResult
 TreeTransform<Derived>::TransformReturnStmt(ReturnStmt *S) {
-  ExprResult Result = getDerived().TransformExpr(S->getRetValue());
+  ExprResult Result = getDerived().TransformInitializer(S->getRetValue(),
+                                                        /*NotCopyInit*/false);
   if (Result.isInvalid())
     return StmtError();
 
@@ -9001,6 +9002,10 @@ TreeTransform<Derived>::TransformLambdaScope(LambdaExpr *E,
       getSema().CheckCXXThisCapture(C->getLocation(), C->isExplicit());
       continue;
     }
+    // Captured expression will be recaptured during captured variables
+    // rebuilding.
+    if (C->capturesVLAType())
+      continue;
 
     // Rebuild init-captures, including the implied field declaration.
     if (C->isInitCapture()) {
@@ -9080,7 +9085,7 @@ TreeTransform<Derived>::TransformLambdaScope(LambdaExpr *E,
     VarDecl *CapturedVar
       = cast_or_null<VarDecl>(getDerived().TransformDecl(C->getLocation(),
                                                          C->getCapturedVar()));
-    if (!CapturedVar) {
+    if (!CapturedVar || CapturedVar->isInvalidDecl()) {
       Invalid = true;
       continue;
     }

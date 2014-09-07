@@ -1,4 +1,4 @@
-; RUN: llc -O0 -fast-isel-abort -mtriple=arm64-apple-darwin < %s | FileCheck %s
+; RUN: llc -O0 -fast-isel-abort -verify-machineinstrs -mtriple=arm64-apple-darwin < %s | FileCheck %s
 
 define i32 @icmp_eq_imm(i32 %a) nounwind ssp {
 entry:
@@ -172,6 +172,17 @@ entry:
   ret i32 %conv2
 }
 
+define i32 @icmp_i1_signed(i1 %a, i1 %b) nounwind {
+entry:
+; CHECK-LABEL: icmp_i1_signed
+; CHECK:       sbfx [[REG1:w[0-9]+]], w0, #0, #1
+; CHECK-NEXT:  sbfx [[REG2:w[0-9]+]], w1, #0, #1
+; CHECK-NEXT:  cmp  [[REG1]], [[REG2]]
+; CHECK-NEXT:  cset w0, gt
+  %cmp = icmp sgt i1 %a, %b
+  %conv2 = zext i1 %cmp to i32
+  ret i32 %conv2
+}
 
 define i32 @icmp_i16_signed_const(i16 %a) nounwind {
 entry:

@@ -88,6 +88,31 @@ void addFile(StringRef path, std::unique_ptr<InputGraph> &inputGraph,
                                           new MachOFileNode(path, forceLoad)));
 }
 
+// Export lists are one symbol per line.  Blank lines are ignored.
+// Trailing comments start with #.
+std::error_code parseExportsList(StringRef exportFilePath,
+                                 MachOLinkingContext &ctx,
+                                 raw_ostream &diagnostics) {
+  // Map in export list file.
+  ErrorOr<std::unique_ptr<MemoryBuffer>> mb =
+                                   MemoryBuffer::getFileOrSTDIN(exportFilePath);
+  if (std::error_code ec = mb.getError())
+    return ec;
+  StringRef buffer = mb->get()->getBuffer();
+  while (!buffer.empty()) {
+    // Split off each line in the file.
+    std::pair<StringRef, StringRef> lineAndRest = buffer.split('\n');
+    StringRef line = lineAndRest.first;
+    // Ignore trailing # comments.
+    std::pair<StringRef, StringRef> symAndComment = line.split('#');
+    StringRef sym = symAndComment.first.trim();
+    if (!sym.empty())
+      ctx.addExportSymbol(sym);
+    buffer = lineAndRest.second;
+  }
+  return std::error_code();
+}
+
 //
 // There are two variants of the  -filelist option:
 //
@@ -215,6 +240,20 @@ bool DarwinLdDriver::parse(int argc, const char *argv[],
     if (arch == MachOLinkingContext::arch_unknown) {
       diagnostics << "error: unknown arch named '" << archStr->getValue()
                   << "'\n";
+      return false;
+    }
+  }
+  // If no -arch specified, scan input files to find first non-fat .o file.
+  if ((arch == MachOLinkingContext::arch_unknown)
+      && !parsedArgs->getLastArg(OPT_test_file_usage)) {
+    for (auto &inFile: parsedArgs->filtered(OPT_INPUT)) {
+      // This is expensive because it opens and maps the file.  But that is
+      // ok because no -arch is rare.
+      if (MachOLinkingContext::isThinObjectFile(inFile->getValue(), arch))
+        break;
+    }
+    if (arch == MachOLinkingContext::arch_unknown) {
+      diagnostics << "error: -arch not specified and could not be inferred\n";
       return false;
     }
   }
@@ -349,13 +388,20 @@ bool DarwinLdDriver::parse(int argc, const char *argv[],
     ctx.appendLLVMOption(llvmArg->getValue());
   }
 
-  // Handle -print_atoms a
+  // Handle -print_atoms
   if (parsedArgs->getLastArg(OPT_print_atoms))
     ctx.setPrintAtoms();
 
   // Handle -t (trace) option.
   if (parsedArgs->getLastArg(OPT_t))
     ctx.setLogInputFiles(true);
+
+  // Handle -keep_private_externs
+  if (parsedArgs->getLastArg(OPT_keep_private_externs)) {
+    ctx.setKeepPrivateExterns(true);
+    if (ctx.outputMachOType() != llvm::MachO::MH_OBJECT)
+      diagnostics << "warning: -keep_private_externs only used in -r mode\n";
+  }
 
   // In -test_file_usage mode, we'll be given an explicit list of paths that
   // exist. We'll also be expected to print out information about how we located
@@ -427,6 +473,77 @@ bool DarwinLdDriver::parse(int argc, const char *argv[],
     }
   }
 
+  // Handle -exported_symbols_list <file>
+  for (auto expFile : parsedArgs->filtered(OPT_exported_symbols_list)) {
+    if (ctx.exportMode() == MachOLinkingContext::ExportMode::blackList) {
+      diagnostics << "error: -exported_symbols_list cannot be combined "
+                  << "with -unexported_symbol[s_list]\n";
+       return false;
+    }
+    ctx.setExportMode(MachOLinkingContext::ExportMode::whiteList);
+    if (std::error_code ec = parseExportsList(expFile->getValue(), ctx,
+                                              diagnostics)) {
+      diagnostics << "error: " << ec.message()
+                  << ", processing '-exported_symbols_list "
+                  << expFile->getValue()
+                  << "'\n";
+      return false;
+    }
+  }
+
+  // Handle -exported_symbol <symbol>
+  for (auto symbol : parsedArgs->filtered(OPT_exported_symbol)) {
+    if (ctx.exportMode() == MachOLinkingContext::ExportMode::blackList) {
+      diagnostics << "error: -exported_symbol cannot be combined "
+                  << "with -unexported_symbol[s_list]\n";
+       return false;
+    }
+    ctx.setExportMode(MachOLinkingContext::ExportMode::whiteList);
+    ctx.addExportSymbol(symbol->getValue());
+  }
+
+  // Handle -unexported_symbols_list <file>
+  for (auto expFile : parsedArgs->filtered(OPT_unexported_symbols_list)) {
+    if (ctx.exportMode() == MachOLinkingContext::ExportMode::whiteList) {
+      diagnostics << "error: -unexported_symbols_list cannot be combined "
+                  << "with -exported_symbol[s_list]\n";
+       return false;
+    }
+    ctx.setExportMode(MachOLinkingContext::ExportMode::blackList);
+    if (std::error_code ec = parseExportsList(expFile->getValue(), ctx,
+                                              diagnostics)) {
+      diagnostics << "error: " << ec.message()
+                  << ", processing '-unexported_symbols_list "
+                  << expFile->getValue()
+                  << "'\n";
+      return false;
+    }
+  }
+
+  // Handle -unexported_symbol <symbol>
+  for (auto symbol : parsedArgs->filtered(OPT_unexported_symbol)) {
+    if (ctx.exportMode() == MachOLinkingContext::ExportMode::whiteList) {
+      diagnostics << "error: -unexported_symbol cannot be combined "
+                  << "with -exported_symbol[s_list]\n";
+       return false;
+    }
+    ctx.setExportMode(MachOLinkingContext::ExportMode::blackList);
+    ctx.addExportSymbol(symbol->getValue());
+  }
+
+  // Handle obosolete -multi_module and -single_module
+  if (llvm::opt::Arg *mod = parsedArgs->getLastArg(OPT_multi_module,
+                                                   OPT_single_module)) {
+    if (mod->getOption().getID() == OPT_multi_module) {
+      diagnostics << "warning: -multi_module is obsolete and being ignored\n";
+    }
+    else {
+      if (ctx.outputMachOType() != llvm::MachO::MH_DYLIB)
+        diagnostics << "-single_module only used when creating a dylib\n";
+        return false;
+    }
+  }
+
   // Handle input files
   for (auto &arg : *parsedArgs) {
     ErrorOr<StringRef> resolvedPath = StringRef();
@@ -442,7 +559,8 @@ bool DarwinLdDriver::parse(int argc, const char *argv[],
         diagnostics << "Unable to find library -l" << arg->getValue() << "\n";
         return false;
       } else if (ctx.testingFileUsage()) {
-       diagnostics << "Found library " << canonicalizePath(resolvedPath.get()) << '\n';
+       diagnostics << "Found library "
+                   << canonicalizePath(resolvedPath.get()) << '\n';
       }
       addFile(resolvedPath.get(), inputGraph, globalWholeArchive);
       break;
@@ -452,7 +570,8 @@ bool DarwinLdDriver::parse(int argc, const char *argv[],
         diagnostics << "Unable to find -framework " << arg->getValue() << "\n";
         return false;
       } else if (ctx.testingFileUsage()) {
-        diagnostics << "Found framework " << canonicalizePath(resolvedPath.get()) << '\n';
+        diagnostics << "Found framework "
+                    << canonicalizePath(resolvedPath.get()) << '\n';
       }
       addFile(resolvedPath.get(), inputGraph, globalWholeArchive);
       break;

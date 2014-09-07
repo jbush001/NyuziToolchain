@@ -28,10 +28,6 @@ using llvm::object::export_directory_table_entry;
 namespace lld {
 namespace pecoff {
 
-static bool compare(const TableEntry &a, const TableEntry &b) {
-  return a.exportName.compare(b.exportName) < 0;
-}
-
 static void assignOrdinals(PECOFFLinkingContext &ctx) {
   std::set<PECOFFLinkingContext::ExportDesc> exports;
   int maxOrdinal = -1;
@@ -89,7 +85,10 @@ static bool getExportedAtoms(PECOFFLinkingContext &ctx, MutableFile *file,
     exports.insert(desc);
   }
   ctx.getDllExports().swap(exports);
-  std::sort(ret.begin(), ret.end(), compare);
+  std::sort(ret.begin(), ret.end(),
+            [](const TableEntry &a, const TableEntry &b) {
+    return a.exportName.compare(b.exportName) < 0;
+  });
   return true;
 }
 
@@ -113,7 +112,7 @@ EdataPass::createAddressTable(const std::vector<TableEntry> &entries,
   for (const TableEntry &e : entries) {
     int index = e.ordinal - ordinalBase;
     size_t offset = index * sizeof(export_address_table_entry);
-    addDir32NBReloc(addressTable, e.atom, offset);
+    addDir32NBReloc(addressTable, e.atom, _is64, offset);
   }
   return addressTable;
 }
@@ -130,7 +129,7 @@ EdataPass::createNamePointerTable(const PECOFFLinkingContext &ctx,
     auto *stringAtom = new (_alloc) COFFStringAtom(
         _file, _stringOrdinal++, ".edata", ctx.undecorateSymbol(e.exportName));
     file->addAtom(*stringAtom);
-    addDir32NBReloc(table, stringAtom, offset);
+    addDir32NBReloc(table, stringAtom, _is64, offset);
     offset += sizeof(uint32_t);
   }
   return table;
@@ -186,24 +185,25 @@ void EdataPass::perform(std::unique_ptr<MutableFile> &file) {
       new (_alloc) COFFStringAtom(_file, _stringOrdinal++, ".edata",
                                   llvm::sys::path::filename(_ctx.outputPath()));
   file->addAtom(*dllName);
-  addDir32NBReloc(table, dllName,
+  addDir32NBReloc(table, dllName, _is64,
                   offsetof(export_directory_table_entry, NameRVA));
 
   EdataAtom *addressTable =
       createAddressTable(entries, ordinalBase, maxOrdinal);
   file->addAtom(*addressTable);
-  addDir32NBReloc(table, addressTable, offsetof(export_directory_table_entry,
-                                                ExportAddressTableRVA));
+  addDir32NBReloc(
+      table, addressTable, _is64,
+      offsetof(export_directory_table_entry, ExportAddressTableRVA));
 
   EdataAtom *namePointerTable =
       createNamePointerTable(_ctx, namedEntries, file.get());
   file->addAtom(*namePointerTable);
-  addDir32NBReloc(table, namePointerTable,
+  addDir32NBReloc(table, namePointerTable, _is64,
                   offsetof(export_directory_table_entry, NamePointerRVA));
 
   EdataAtom *ordinalTable = createOrdinalTable(namedEntries, ordinalBase);
   file->addAtom(*ordinalTable);
-  addDir32NBReloc(table, ordinalTable,
+  addDir32NBReloc(table, ordinalTable, _is64,
                   offsetof(export_directory_table_entry, OrdinalTableRVA));
 }
 

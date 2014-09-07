@@ -183,7 +183,7 @@ public:
   /// should probably move to simpler cost metrics using the above.
   /// Alternatively, we could split the cost interface into distinct code-size
   /// and execution-speed costs. This would allow modelling the core of this
-  /// query more accurately as the a call is a single small instruction, but
+  /// query more accurately as a call is a single small instruction, but
   /// incurs significant execution cost.
   virtual bool isLoweredToCall(const Function *F) const;
 
@@ -335,6 +335,9 @@ public:
     OK_NonUniformConstantValue   // Operand is a non uniform constant value.
   };
 
+  /// \brief Additional properties of an operand's values.
+  enum OperandValueProperties { OP_None = 0, OP_PowerOf2 = 1 };
+
   /// \return The number of scalar or vector registers that the target has.
   /// If 'Vectors' is true, it returns the number of vector registers. If it is
   /// set to false, it returns the number of scalar registers.
@@ -349,9 +352,12 @@ public:
   virtual unsigned getMaximumUnrollFactor() const;
 
   /// \return The expected cost of arithmetic ops, such as mul, xor, fsub, etc.
-  virtual unsigned getArithmeticInstrCost(unsigned Opcode, Type *Ty,
-                                  OperandValueKind Opd1Info = OK_AnyValue,
-                                  OperandValueKind Opd2Info = OK_AnyValue) const;
+  virtual unsigned
+  getArithmeticInstrCost(unsigned Opcode, Type *Ty,
+                         OperandValueKind Opd1Info = OK_AnyValue,
+                         OperandValueKind Opd2Info = OK_AnyValue,
+                         OperandValueProperties Opd1PropInfo = OP_None,
+                         OperandValueProperties Opd2PropInfo = OP_None) const;
 
   /// \return The cost of a shuffle instruction of kind Kind and of type Tp.
   /// The index and subtype parameters are used by the subvector insertion and

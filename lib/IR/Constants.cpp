@@ -151,6 +151,29 @@ bool Constant::isMinSignedValue() const {
   return false;
 }
 
+bool Constant::isNotMinSignedValue() const {
+  // Check for INT_MIN integers
+  if (const ConstantInt *CI = dyn_cast<ConstantInt>(this))
+    return !CI->isMinValue(/*isSigned=*/true);
+
+  // Check for FP which are bitcasted from INT_MIN integers
+  if (const ConstantFP *CFP = dyn_cast<ConstantFP>(this))
+    return !CFP->getValueAPF().bitcastToAPInt().isMinSignedValue();
+
+  // Check for constant vectors which are splats of INT_MIN values.
+  if (const ConstantVector *CV = dyn_cast<ConstantVector>(this))
+    if (Constant *Splat = CV->getSplatValue())
+      return Splat->isNotMinSignedValue();
+
+  // Check for constant vectors which are splats of INT_MIN values.
+  if (const ConstantDataVector *CV = dyn_cast<ConstantDataVector>(this))
+    if (Constant *Splat = CV->getSplatValue())
+      return Splat->isNotMinSignedValue();
+
+  // It *may* contain INT_MIN, we can't tell.
+  return false;
+}
+
 // Constructor to create a '0' constant of arbitrary type...
 Constant *Constant::getNullValue(Type *Ty) {
   switch (Ty->getTypeID()) {
@@ -283,7 +306,7 @@ void Constant::destroyConstantImpl() {
 }
 
 static bool canTrapImpl(const Constant *C,
-                        SmallPtrSet<const ConstantExpr *, 4> &NonTrappingOps) {
+                        SmallPtrSetImpl<const ConstantExpr *> &NonTrappingOps) {
   assert(C->getType()->isFirstClassType() && "Cannot evaluate aggregate vals!");
   // The only thing that could possibly trap are constant exprs.
   const ConstantExpr *CE = dyn_cast<ConstantExpr>(C);
@@ -2518,7 +2541,7 @@ Constant *ConstantDataArray::getString(LLVMContext &Context,
                                        StringRef Str, bool AddNull) {
   if (!AddNull) {
     const uint8_t *Data = reinterpret_cast<const uint8_t *>(Str.data());
-    return get(Context, ArrayRef<uint8_t>(const_cast<uint8_t *>(Data),
+    return get(Context, makeArrayRef(const_cast<uint8_t *>(Data),
                Str.size()));
   }
 

@@ -15,6 +15,8 @@
 #include "Unix.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Mutex.h"
+#include "llvm/Support/UniqueLock.h"
+#include "llvm/Support/ManagedStatic.h"
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -41,13 +43,14 @@ using namespace llvm;
 
 static RETSIGTYPE SignalHandler(int Sig);  // defined below.
 
-static SmartMutex<true> SignalsMutex;
+static ManagedStatic<SmartMutex<true> > SignalsMutex;
 
 /// InterruptFunction - The function to call if ctrl-c is pressed.
 static void (*InterruptFunction)() = nullptr;
 
-static std::vector<std::string> FilesToRemove;
-static std::vector<std::pair<void(*)(void*), void*> > CallBacksToRun;
+static ManagedStatic<std::vector<std::string>> FilesToRemove;
+static ManagedStatic<std::vector<std::pair<void (*)(void *), void *>>>
+    CallBacksToRun;
 
 // IntSigs - Signals that represent requested termination. There's no bug
 // or failure, or if there is, it's not our direct responsibility. For whatever
@@ -55,7 +58,6 @@ static std::vector<std::pair<void(*)(void*), void*> > CallBacksToRun;
 static const int IntSigs[] = {
   SIGHUP, SIGINT, SIGPIPE, SIGTERM, SIGUSR1, SIGUSR2
 };
-static const int *const IntSigsEnd = std::end(IntSigs);
 
 // KillSigs - Signals that represent that we have a bug, and our prompt
 // termination has been ordered.
@@ -74,7 +76,6 @@ static const int KillSigs[] = {
   , SIGEMT
 #endif
 };
-static const int *const KillSigsEnd = std::end(KillSigs);
 
 static unsigned NumRegisteredSignals = 0;
 static struct {
@@ -105,8 +106,8 @@ static void RegisterHandlers() {
   // If the handlers are already registered, we're done.
   if (NumRegisteredSignals != 0) return;
 
-  std::for_each(IntSigs, IntSigsEnd, RegisterHandler);
-  std::for_each(KillSigs, KillSigsEnd, RegisterHandler);
+  for (auto S : IntSigs) RegisterHandler(S);
+  for (auto S : KillSigs) RegisterHandler(S);
 }
 
 static void UnregisterHandlers() {
@@ -125,11 +126,12 @@ static void UnregisterHandlers() {
 static void RemoveFilesToRemove() {
   // We avoid iterators in case of debug iterators that allocate or release
   // memory.
-  for (unsigned i = 0, e = FilesToRemove.size(); i != e; ++i) {
+  std::vector<std::string>& FilesToRemoveRef = *FilesToRemove;
+  for (unsigned i = 0, e = FilesToRemoveRef.size(); i != e; ++i) {
     // We rely on a std::string implementation for which repeated calls to
     // 'c_str()' don't allocate memory. We pre-call 'c_str()' on all of these
     // strings to try to ensure this is safe.
-    const char *path = FilesToRemove[i].c_str();
+    const char *path = FilesToRemoveRef[i].c_str();
 
     // Get the status so we can determine if it's a file or directory. If we
     // can't stat the file, ignore it.
@@ -162,28 +164,31 @@ static RETSIGTYPE SignalHandler(int Sig) {
   sigfillset(&SigMask);
   sigprocmask(SIG_UNBLOCK, &SigMask, nullptr);
 
-  SignalsMutex.acquire();
-  RemoveFilesToRemove();
+  {
+    unique_lock<SmartMutex<true>> Guard(*SignalsMutex);
+    RemoveFilesToRemove();
 
-  if (std::find(IntSigs, IntSigsEnd, Sig) != IntSigsEnd) {
-    if (InterruptFunction) {
-      void (*IF)() = InterruptFunction;
-      SignalsMutex.release();
-      InterruptFunction = nullptr;
-      IF();        // run the interrupt function.
+    if (std::find(std::begin(IntSigs), std::end(IntSigs), Sig)
+        != std::end(IntSigs)) {
+      if (InterruptFunction) {
+        void (*IF)() = InterruptFunction;
+        Guard.unlock();
+        InterruptFunction = nullptr;
+        IF();        // run the interrupt function.
+        return;
+      }
+
+      Guard.unlock();
+      raise(Sig);   // Execute the default handler.
       return;
-    }
-
-    SignalsMutex.release();
-    raise(Sig);   // Execute the default handler.
-    return;
+   }
   }
 
-  SignalsMutex.release();
-
   // Otherwise if it is a fault (like SEGV) run any handler.
-  for (unsigned i = 0, e = CallBacksToRun.size(); i != e; ++i)
-    CallBacksToRun[i].first(CallBacksToRun[i].second);
+  std::vector<std::pair<void (*)(void *), void *>>& CallBacksToRunRef =
+      *CallBacksToRun;
+  for (unsigned i = 0, e = CallBacksToRun->size(); i != e; ++i)
+    CallBacksToRunRef[i].first(CallBacksToRunRef[i].second);
 
 #ifdef __s390__
   // On S/390, certain signals are delivered with PSW Address pointing to
@@ -196,37 +201,39 @@ static RETSIGTYPE SignalHandler(int Sig) {
 }
 
 void llvm::sys::RunInterruptHandlers() {
-  SignalsMutex.acquire();
+  sys::SmartScopedLock<true> Guard(*SignalsMutex);
   RemoveFilesToRemove();
-  SignalsMutex.release();
 }
 
 void llvm::sys::SetInterruptFunction(void (*IF)()) {
-  SignalsMutex.acquire();
-  InterruptFunction = IF;
-  SignalsMutex.release();
+  {
+    sys::SmartScopedLock<true> Guard(*SignalsMutex);
+    InterruptFunction = IF;
+  }
   RegisterHandlers();
 }
 
 // RemoveFileOnSignal - The public API
 bool llvm::sys::RemoveFileOnSignal(StringRef Filename,
                                    std::string* ErrMsg) {
-  SignalsMutex.acquire();
-  std::string *OldPtr = FilesToRemove.empty() ? nullptr : &FilesToRemove[0];
-  FilesToRemove.push_back(Filename);
+  {
+    sys::SmartScopedLock<true> Guard(*SignalsMutex);
+    std::vector<std::string>& FilesToRemoveRef = *FilesToRemove;
+    std::string *OldPtr =
+        FilesToRemoveRef.empty() ? nullptr : &FilesToRemoveRef[0];
+    FilesToRemoveRef.push_back(Filename);
 
-  // We want to call 'c_str()' on every std::string in this vector so that if
-  // the underlying implementation requires a re-allocation, it happens here
-  // rather than inside of the signal handler. If we see the vector grow, we
-  // have to call it on every entry. If it remains in place, we only need to
-  // call it on the latest one.
-  if (OldPtr == &FilesToRemove[0])
-    FilesToRemove.back().c_str();
-  else
-    for (unsigned i = 0, e = FilesToRemove.size(); i != e; ++i)
-      FilesToRemove[i].c_str();
-
-  SignalsMutex.release();
+    // We want to call 'c_str()' on every std::string in this vector so that if
+    // the underlying implementation requires a re-allocation, it happens here
+    // rather than inside of the signal handler. If we see the vector grow, we
+    // have to call it on every entry. If it remains in place, we only need to
+    // call it on the latest one.
+    if (OldPtr == &FilesToRemoveRef[0])
+      FilesToRemoveRef.back().c_str();
+    else
+      for (unsigned i = 0, e = FilesToRemoveRef.size(); i != e; ++i)
+        FilesToRemoveRef[i].c_str();
+  }
 
   RegisterHandlers();
   return false;
@@ -234,28 +241,26 @@ bool llvm::sys::RemoveFileOnSignal(StringRef Filename,
 
 // DontRemoveFileOnSignal - The public API
 void llvm::sys::DontRemoveFileOnSignal(StringRef Filename) {
-  SignalsMutex.acquire();
+  sys::SmartScopedLock<true> Guard(*SignalsMutex);
   std::vector<std::string>::reverse_iterator RI =
-    std::find(FilesToRemove.rbegin(), FilesToRemove.rend(), Filename);
-  std::vector<std::string>::iterator I = FilesToRemove.end();
-  if (RI != FilesToRemove.rend())
-    I = FilesToRemove.erase(RI.base()-1);
+    std::find(FilesToRemove->rbegin(), FilesToRemove->rend(), Filename);
+  std::vector<std::string>::iterator I = FilesToRemove->end();
+  if (RI != FilesToRemove->rend())
+    I = FilesToRemove->erase(RI.base()-1);
 
   // We need to call c_str() on every element which would have been moved by
   // the erase. These elements, in a C++98 implementation where c_str()
   // requires a reallocation on the first call may have had the call to c_str()
   // made on insertion become invalid by being copied down an element.
-  for (std::vector<std::string>::iterator E = FilesToRemove.end(); I != E; ++I)
+  for (std::vector<std::string>::iterator E = FilesToRemove->end(); I != E; ++I)
     I->c_str();
-
-  SignalsMutex.release();
 }
 
 /// AddSignalHandler - Add a function to be called when a signal is delivered
 /// to the process.  The handler can have a cookie passed to it to identify
 /// what instance of the handler it is.
 void llvm::sys::AddSignalHandler(void (*FnPtr)(void *), void *Cookie) {
-  CallBacksToRun.push_back(std::make_pair(FnPtr, Cookie));
+  CallBacksToRun->push_back(std::make_pair(FnPtr, Cookie));
   RegisterHandlers();
 }
 

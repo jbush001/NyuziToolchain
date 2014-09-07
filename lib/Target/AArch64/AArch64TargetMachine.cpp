@@ -68,6 +68,11 @@ EnableEarlyIfConversion("aarch64-enable-early-ifcvt", cl::Hidden,
                         cl::desc("Run early if-conversion"),
                         cl::init(true));
 
+static cl::opt<bool>
+EnableCondOpt("aarch64-condopt",
+              cl::desc("Enable the condition optimizer pass"),
+              cl::init(true), cl::Hidden);
+
 
 extern "C" void LLVMInitializeAArch64Target() {
   // Register the target.
@@ -144,7 +149,7 @@ TargetPassConfig *AArch64TargetMachine::createPassConfig(PassManagerBase &PM) {
 void AArch64PassConfig::addIRPasses() {
   // Always expand atomic operations, we don't deal with atomicrmw or cmpxchg
   // ourselves.
-  addPass(createAtomicExpandLoadLinkedPass(TM));
+  addPass(createAtomicExpandPass(TM));
 
   // Cmpxchg instructions are often used with a subsequent comparison to
   // determine whether it succeeded. We can exploit existing control-flow in
@@ -182,6 +187,8 @@ bool AArch64PassConfig::addInstSelector() {
 }
 
 bool AArch64PassConfig::addILPOpts() {
+  if (EnableCondOpt)
+    addPass(createAArch64ConditionOptimizerPass());
   if (EnableCCMP)
     addPass(createAArch64ConditionalCompares());
   if (EnableMCR)
@@ -195,8 +202,12 @@ bool AArch64PassConfig::addILPOpts() {
 
 bool AArch64PassConfig::addPreRegAlloc() {
   // Use AdvSIMD scalar instructions whenever profitable.
-  if (TM->getOptLevel() != CodeGenOpt::None && EnableAdvSIMDScalar)
+  if (TM->getOptLevel() != CodeGenOpt::None && EnableAdvSIMDScalar) {
     addPass(createAArch64AdvSIMDScalar());
+    // The AdvSIMD pass may produce copies that can be rewritten to
+    // be register coaleascer friendly.
+    addPass(&PeepholeOptimizerID);
+  }
   return true;
 }
 

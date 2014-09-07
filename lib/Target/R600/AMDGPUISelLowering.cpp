@@ -386,7 +386,7 @@ AMDGPUTargetLowering::AMDGPUTargetLowering(TargetMachine &TM) :
   // There are no integer divide instructions, and these expand to a pretty
   // large sequence of instructions.
   setIntDivIsCheap(false);
-  setPow2DivIsCheap(false);
+  setPow2SDivIsCheap(false);
 
   // TODO: Investigate this when 64-bit divides are implemented.
   addBypassSlowDiv(64, 32);
@@ -2157,6 +2157,7 @@ const char* AMDGPUTargetLowering::getTargetNodeName(unsigned Opcode) const {
   NODE_NAME_CASE(DWORDADDR)
   NODE_NAME_CASE(FRACT)
   NODE_NAME_CASE(CLAMP)
+  NODE_NAME_CASE(MAD)
   NODE_NAME_CASE(FMAX)
   NODE_NAME_CASE(SMAX)
   NODE_NAME_CASE(UMAX)

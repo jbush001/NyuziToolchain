@@ -2876,9 +2876,9 @@ static void clang_parseTranslationUnit_Impl(void *UserData) {
     std::vector<ASTUnit::RemappedFile> > RemappedCleanup(RemappedFiles.get());
 
   for (auto &UF : PTUI->unsaved_files) {
-    llvm::MemoryBuffer *MB =
+    std::unique_ptr<llvm::MemoryBuffer> MB =
         llvm::MemoryBuffer::getMemBufferCopy(getContents(UF), UF.Filename);
-    RemappedFiles->push_back(std::make_pair(UF.Filename, MB));
+    RemappedFiles->push_back(std::make_pair(UF.Filename, MB.release()));
   }
 
   std::unique_ptr<std::vector<const char *>> Args(
@@ -3160,9 +3160,9 @@ static void clang_reparseTranslationUnit_Impl(void *UserData) {
     std::vector<ASTUnit::RemappedFile> > RemappedCleanup(RemappedFiles.get());
 
   for (auto &UF : RTUI->unsaved_files) {
-    llvm::MemoryBuffer *MB =
+    std::unique_ptr<llvm::MemoryBuffer> MB =
         llvm::MemoryBuffer::getMemBufferCopy(getContents(UF), UF.Filename);
-    RemappedFiles->push_back(std::make_pair(UF.Filename, MB));
+    RemappedFiles->push_back(std::make_pair(UF.Filename, MB.release()));
   }
 
   if (!CXXUnit->Reparse(*RemappedFiles.get()))
@@ -3665,6 +3665,18 @@ CXSourceRange clang_Cursor_getSpellingNameRange(CXCursor C,
       if (!Locs.empty())
         return cxloc::translateSourceRange(Ctx,
                                          SourceRange(Locs.front(), Locs.back()));
+    }
+    return clang_getNullRange();
+  }
+
+  if (C.kind == CXCursor_CXXMethod || C.kind == CXCursor_Destructor ||
+      C.kind == CXCursor_ConversionFunction) {
+    if (pieceIndex > 0)
+      return clang_getNullRange();
+    if (const FunctionDecl *FD =
+            dyn_cast_or_null<FunctionDecl>(getCursorDecl(C))) {
+      DeclarationNameInfo FunctionName = FD->getNameInfo();
+      return cxloc::translateSourceRange(Ctx, FunctionName.getSourceRange());
     }
     return clang_getNullRange();
   }

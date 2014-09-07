@@ -69,6 +69,14 @@ template<> struct MergeSpecializations<double> {
 
 template<typename U> using AliasTemplate = U;
 
+void InstantiateWithAliasTemplate(WithAliasTemplate<int>::X<char>);
+inline int InstantiateWithAnonymousDeclsB(WithAnonymousDecls<int> x) {
+  return (x.k ? x.a : x.b) + (x.k ? x.s.c : x.s.d) + x.e;
+}
+inline int InstantiateWithAnonymousDeclsB2(WithAnonymousDecls<char> x) {
+  return (x.k ? x.a : x.b) + (x.k ? x.s.c : x.s.d) + x.e;
+}
+
 @import cxx_templates_a;
 template<typename T> void UseDefinedInBImplIndirectly(T &v) {
   PerformDelayedLookup(v);

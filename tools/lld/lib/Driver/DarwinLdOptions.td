@@ -34,6 +34,21 @@ def ios_simulator_version_min : Separate<["-"], "ios_simulator_version_min">,
 def mllvm : Separate<["-"], "mllvm">,
      MetaVarName<"<option>">,
      HelpText<"Options to pass to LLVM during LTO">, Group<grp_opts>;
+def exported_symbols_list : Separate<["-"], "exported_symbols_list">,
+     MetaVarName<"<file-path>">,
+     HelpText<"Restricts which symbols will be exported">, Group<grp_opts>;
+def exported_symbol : Separate<["-"], "exported_symbol">,
+     MetaVarName<"<symbol>">,
+     HelpText<"Restricts which symbols will be exported">, Group<grp_opts>;
+def unexported_symbols_list : Separate<["-"], "unexported_symbols_list">,
+     MetaVarName<"<file-path>">,
+     HelpText<"Lists symbols that should not be exported">, Group<grp_opts>;
+def unexported_symbol : Separate<["-"], "unexported_symbol">,
+     MetaVarName<"<symbol>">,
+     HelpText<"A symbol which should not be exported">, Group<grp_opts>;
+def keep_private_externs : Flag<["-"], "keep_private_externs">,
+     HelpText<"Private extern (hidden) symbols should not be transformed "
+              "into local symbols">, Group<grp_opts>;
 
 // main executable options
 def grp_main : OptionGroup<"opts">, HelpText<"MAIN EXECUTABLE OPTIONS">;
@@ -125,3 +140,10 @@ def t : Flag<["-"], "t">,
      HelpText<"Print the names of the input files as ld processes them">;
 def v : Flag<["-"], "v">,
      HelpText<"Print linker information">;
+
+// Obsolete options
+def grp_obsolete : OptionGroup<"obsolete">, HelpText<"OBSOLETE OPTIONS">;
+def single_module : Flag<["-"], "single_module">,
+     HelpText<"Default for dylibs">, Group<grp_obsolete>;
+def multi_module : Flag<["-"], "multi_module">,
+     HelpText<"Unsupported way to build dylibs">, Group<grp_obsolete>;

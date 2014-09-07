@@ -158,7 +158,10 @@ TargetPassConfig *ARMBaseTargetMachine::createPassConfig(PassManagerBase &PM) {
 }
 
 void ARMPassConfig::addIRPasses() {
-  addPass(createAtomicExpandLoadLinkedPass(TM));
+  if (TM->Options.ThreadModel == ThreadModel::Single)
+    addPass(createLowerAtomicPass());
+  else
+    addPass(createAtomicExpandPass(TM));
 
   // Cmpxchg instructions are often used with a subsequent comparison to
   // determine whether it succeeded. We can exploit existing control-flow in
@@ -243,11 +246,4 @@ bool ARMPassConfig::addPreEmitPass() {
   addPass(createARMConstantIslandPass());
 
   return true;
-}
-
-bool ARMBaseTargetMachine::addCodeEmitter(PassManagerBase &PM,
-                                          JITCodeEmitter &JCE) {
-  // Machine code emitter pass for ARM.
-  PM.add(createARMJITCodeEmitterPass(*this, JCE));
-  return false;
 }

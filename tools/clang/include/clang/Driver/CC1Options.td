@@ -108,6 +108,9 @@ def analyzer_disable_checker : Separate<["-"], "analyzer-disable-checker">,
 def analyzer_disable_checker_EQ : Joined<["-"], "analyzer-disable-checker=">,
   Alias<analyzer_disable_checker>;
 
+def analyzer_disable_all_checks : Flag<["-"], "analyzer-disable-all-checks">,
+  HelpText<"Disable all static analyzer checks">;
+
 def analyzer_checker_help : Flag<["-"], "analyzer-checker-help">,
   HelpText<"Display the list of analyzer checkers that are available">;
 
@@ -135,6 +138,8 @@ def dwarf_debug_flags : Separate<["-"], "dwarf-debug-flags">,
   HelpText<"The string to embed in the Dwarf debug flags record.">;
 def mno_exec_stack : Flag<["-"], "mnoexecstack">,
   HelpText<"Mark the file as not needing an executable stack">;
+def massembler_fatal_warnings : Flag<["-"], "massembler-fatal-warnings">,
+  HelpText<"Make assembler warnings fatal">;
 def compress_debug_sections : Flag<["-"], "compress-debug-sections">,
     HelpText<"Compress DWARF debug sections using zlib">;
 def msave_temp_labels : Flag<["-"], "msave-temp-labels">,
@@ -509,6 +514,8 @@ def vtordisp_mode_EQ : Joined<["-"], "vtordisp-mode=">,
   HelpText<"Control vtordisp placement on win32 targets">;
 def fno_rtti_data : Flag<["-"], "fno-rtti-data">,
   HelpText<"Control emission of RTTI data">;
+def fallow_half_arguments_and_returns : Flag<["-"], "fallow-half-arguments-and-returns">,
+  HelpText<"Allow function arguments and returns of type half">;
 
 //===----------------------------------------------------------------------===//
 // Header Search Options
@@ -574,6 +581,8 @@ def cl_mad_enable : Flag<["-"], "cl-mad-enable">,
   HelpText<"OpenCL only. Enable less precise MAD instructions to be generated.">;
 def cl_std_EQ : Joined<["-"], "cl-std=">,
   HelpText<"OpenCL language standard to compile for">;
+def cl_denorms_are_zero : Flag<["-"], "cl-denorms-are-zero">,
+  HelpText<"OpenCL only. Allow denormals to be flushed to zero">;
 
 //===----------------------------------------------------------------------===//
 // CUDA Options

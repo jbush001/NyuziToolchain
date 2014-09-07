@@ -38,6 +38,11 @@ Decl *clang::getPrimaryMergedDecl(Decl *D) {
   return D->getASTContext().getPrimaryMergedDecl(D);
 }
 
+// Defined here so that it can be inlined into its direct callers.
+bool Decl::isOutOfLine() const {
+  return !getLexicalDeclContext()->Equals(getDeclContext());
+}
+
 //===----------------------------------------------------------------------===//
 // NamedDecl Implementation
 //===----------------------------------------------------------------------===//
@@ -2609,7 +2614,7 @@ void FunctionDecl::setDeclsInPrototypeScope(ArrayRef<NamedDecl *> NewDecls) {
   if (!NewDecls.empty()) {
     NamedDecl **A = new (getASTContext()) NamedDecl*[NewDecls.size()];
     std::copy(NewDecls.begin(), NewDecls.end(), A);
-    DeclsInPrototypeScope = ArrayRef<NamedDecl *>(A, NewDecls.size());
+    DeclsInPrototypeScope = llvm::makeArrayRef(A, NewDecls.size());
     // Move declarations introduced in prototype to the function context.
     for (auto I : NewDecls) {
       DeclContext *DC = I->getDeclContext();
@@ -3261,9 +3266,18 @@ bool FieldDecl::isAnonymousStructOrUnion() const {
   return false;
 }
 
+bool FieldDecl::isBitField() const {
+  if (getInClassInitStyle() == ICIS_NoInit &&
+      InitializerOrBitWidth.getPointer()) {
+    assert(getDeclContext() && "No parent context for FieldDecl");
+    return !getDeclContext()->isRecord() || !getParent()->isLambda();
+  }
+  return false;
+}
+
 unsigned FieldDecl::getBitWidthValue(const ASTContext &Ctx) const {
   assert(isBitField() && "not a bitfield");
-  Expr *BitWidth = InitializerOrBitWidth.getPointer();
+  Expr *BitWidth = static_cast<Expr *>(InitializerOrBitWidth.getPointer());
   return BitWidth->EvaluateKnownConstInt(Ctx).getZExtValue();
 }
 
@@ -3277,30 +3291,44 @@ unsigned FieldDecl::getFieldIndex() const {
   unsigned Index = 0;
   const RecordDecl *RD = getParent();
 
-  for (RecordDecl::field_iterator I = RD->field_begin(), E = RD->field_end();
-       I != E; ++I, ++Index)
-    I->getCanonicalDecl()->CachedFieldIndex = Index + 1;
+  for (auto *Field : RD->fields()) {
+    Field->getCanonicalDecl()->CachedFieldIndex = Index + 1;
+    ++Index;
+  }
 
   assert(CachedFieldIndex && "failed to find field in parent");
   return CachedFieldIndex - 1;
 }
 
 SourceRange FieldDecl::getSourceRange() const {
-  if (const Expr *E = InitializerOrBitWidth.getPointer())
+  if (const Expr *E =
+          static_cast<const Expr *>(InitializerOrBitWidth.getPointer()))
     return SourceRange(getInnerLocStart(), E->getLocEnd());
   return DeclaratorDecl::getSourceRange();
 }
 
 void FieldDecl::setBitWidth(Expr *Width) {
   assert(!InitializerOrBitWidth.getPointer() && !hasInClassInitializer() &&
-         "bit width or initializer already set");
+         "bit width, initializer or captured type already set");
   InitializerOrBitWidth.setPointer(Width);
 }
 
 void FieldDecl::setInClassInitializer(Expr *Init) {
   assert(!InitializerOrBitWidth.getPointer() && hasInClassInitializer() &&
-         "bit width or initializer already set");
+         "bit width, initializer or captured expr already set");
   InitializerOrBitWidth.setPointer(Init);
+}
+
+bool FieldDecl::hasCapturedVLAType() const {
+  return getDeclContext()->isRecord() && getParent()->isLambda() &&
+         InitializerOrBitWidth.getPointer();
+}
+
+void FieldDecl::setCapturedVLAType(const VariableArrayType *VLAType) {
+  assert(getParent()->isLambda() && "capturing type in non-lambda.");
+  assert(!InitializerOrBitWidth.getPointer() && !hasInClassInitializer() &&
+         "bit width, initializer or captured type already set");
+  InitializerOrBitWidth.setPointer(const_cast<VariableArrayType *>(VLAType));
 }
 
 //===----------------------------------------------------------------------===//
@@ -3521,6 +3549,12 @@ RecordDecl *RecordDecl::CreateDeserialized(const ASTContext &C, unsigned ID) {
 bool RecordDecl::isInjectedClassName() const {
   return isImplicit() && getDeclName() && getDeclContext()->isRecord() &&
     cast<RecordDecl>(getDeclContext())->getDeclName() == getDeclName();
+}
+
+bool RecordDecl::isLambda() const {
+  if (auto RD = dyn_cast<CXXRecordDecl>(this))
+    return RD->isLambda();
+  return false;
 }
 
 RecordDecl::field_iterator RecordDecl::field_begin() const {
@@ -3894,8 +3928,8 @@ ArrayRef<SourceLocation> ImportDecl::getIdentifierLocs() const {
 
   const SourceLocation *StoredLocs
     = reinterpret_cast<const SourceLocation *>(this + 1);
-  return ArrayRef<SourceLocation>(StoredLocs, 
-                                  getNumModuleIdentifiers(getImportedModule()));
+  return llvm::makeArrayRef(StoredLocs,
+                            getNumModuleIdentifiers(getImportedModule()));
 }
 
 SourceRange ImportDecl::getSourceRange() const {

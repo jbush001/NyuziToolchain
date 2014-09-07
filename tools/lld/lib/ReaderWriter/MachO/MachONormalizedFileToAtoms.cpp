@@ -225,29 +225,30 @@ void atomFromSymbol(DefinedAtom::ContentType atomType, const Section &section,
   // difference between this and the next symbol.
   uint64_t size = nextSymbolAddr - symbolAddr;
   uint64_t offset = symbolAddr - section.address;
+  bool noDeadStrip = (symbolDescFlags & N_NO_DEAD_STRIP);
   if (section.type == llvm::MachO::S_ZEROFILL) {
-    file.addZeroFillDefinedAtom(symbolName, symbolScope, offset, size, copyRefs, 
-                                &section);
+    file.addZeroFillDefinedAtom(symbolName, symbolScope, offset, size,
+                                noDeadStrip, copyRefs, &section);
   } else {
     DefinedAtom::Merge merge = (symbolDescFlags & N_WEAK_DEF)
                               ? DefinedAtom::mergeAsWeak : DefinedAtom::mergeNo;
     bool thumb = (symbolDescFlags & N_ARM_THUMB_DEF);
     if (atomType == DefinedAtom::typeUnknown) {
       // Mach-O needs a segment and section name.  Concatentate those two
-      // with a / seperator (e.g. "seg/sect") to fit into the lld model
+      // with a / separator (e.g. "seg/sect") to fit into the lld model
       // of just a section name.
       std::string segSectName = section.segmentName.str()
                                 + "/" + section.sectionName.str();
       file.addDefinedAtomInCustomSection(symbolName, symbolScope, atomType,
-                                         merge, thumb,offset, size, segSectName, 
-                                         true, &section);
+                                         merge, thumb, noDeadStrip, offset,
+                                         size, segSectName, true, &section);
     } else {
       if ((atomType == lld::DefinedAtom::typeCode) &&
           (symbolDescFlags & N_SYMBOL_RESOLVER)) {
         atomType = lld::DefinedAtom::typeResolver;
       }
       file.addDefinedAtom(symbolName, symbolScope, atomType, merge,
-                          offset, size, thumb, copyRefs, &section);
+                          offset, size, thumb, noDeadStrip, copyRefs, &section);
     }
   }
 }
@@ -419,7 +420,7 @@ std::error_code processSection(DefinedAtom::ContentType atomType,
                                      "not zero terminated.");
       }
       file.addDefinedAtom(StringRef(), scope, atomType, merge, offset, size,
-                          false, copyRefs, &section);
+                          false, false, copyRefs, &section);
       offset += size;
     }
   }
@@ -675,10 +676,19 @@ normalizedDylibToAtoms(const NormalizedFile &normalizedFile, StringRef path,
   std::unique_ptr<MachODylibFile> file(
                           new MachODylibFile(path, normalizedFile.installName));
   // Tell MachODylibFile object about all symbols it exports.
-  for (auto &sym : normalizedFile.globalSymbols) {
-    assert((sym.scope & N_EXT) && "only expect external symbols here");
-    bool weakDef = (sym.desc & N_WEAK_DEF);
-    file->addExportedSymbol(sym.name, weakDef, copyRefs);
+  if (!normalizedFile.exportInfo.empty()) {
+    // If exports trie exists, use it instead of traditional symbol table.
+    for (const Export &exp : normalizedFile.exportInfo) {
+      bool weakDef = (exp.flags & EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION);
+      // StringRefs from export iterator are ephemeral, so force copy.
+      file->addExportedSymbol(exp.name, weakDef, true);
+    }
+  } else {
+    for (auto &sym : normalizedFile.globalSymbols) {
+      assert((sym.scope & N_EXT) && "only expect external symbols here");
+      bool weakDef = (sym.desc & N_WEAK_DEF);
+      file->addExportedSymbol(sym.name, weakDef, copyRefs);
+    }
   }
   // Tell MachODylibFile object about all dylibs it re-exports.
   for (const DependentDylib &dep : normalizedFile.dependentDylibs) {

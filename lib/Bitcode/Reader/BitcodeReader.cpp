@@ -3519,11 +3519,11 @@ const std::error_category &llvm::BitcodeErrorCategory() {
 ///
 /// \param[in] WillMaterializeAll Set to \c true if the caller promises to
 /// materialize everything -- in particular, if this isn't truly lazy.
-static ErrorOr<Module *> getLazyBitcodeModuleImpl(MemoryBuffer *Buffer,
-                                                  LLVMContext &Context,
-                                                  bool WillMaterializeAll) {
+static ErrorOr<Module *>
+getLazyBitcodeModuleImpl(std::unique_ptr<MemoryBuffer> &&Buffer,
+                         LLVMContext &Context, bool WillMaterializeAll) {
   Module *M = new Module(Buffer->getBufferIdentifier(), Context);
-  BitcodeReader *R = new BitcodeReader(Buffer, Context);
+  BitcodeReader *R = new BitcodeReader(Buffer.get(), Context);
   M->setMaterializer(R);
 
   auto cleanupOnError = [&](std::error_code EC) {
@@ -3540,12 +3540,14 @@ static ErrorOr<Module *> getLazyBitcodeModuleImpl(MemoryBuffer *Buffer,
     if (std::error_code EC = R->materializeForwardReferencedFunctions())
       return cleanupOnError(EC);
 
+  Buffer.release(); // The BitcodeReader owns it now.
   return M;
 }
 
-ErrorOr<Module *> llvm::getLazyBitcodeModule(MemoryBuffer *Buffer,
-                                             LLVMContext &Context) {
-  return getLazyBitcodeModuleImpl(Buffer, Context, false);
+ErrorOr<Module *>
+llvm::getLazyBitcodeModule(std::unique_ptr<MemoryBuffer> &&Buffer,
+                           LLVMContext &Context) {
+  return getLazyBitcodeModuleImpl(std::move(Buffer), Context, false);
 }
 
 Module *llvm::getStreamedBitcodeModule(const std::string &name,
@@ -3564,15 +3566,16 @@ Module *llvm::getStreamedBitcodeModule(const std::string &name,
   return M;
 }
 
-ErrorOr<Module *> llvm::parseBitcodeFile(MemoryBuffer *Buffer,
+ErrorOr<Module *> llvm::parseBitcodeFile(MemoryBufferRef Buffer,
                                          LLVMContext &Context) {
+  std::unique_ptr<MemoryBuffer> Buf = MemoryBuffer::getMemBuffer(Buffer, false);
   ErrorOr<Module *> ModuleOrErr =
-      getLazyBitcodeModuleImpl(Buffer, Context, true);
+      getLazyBitcodeModuleImpl(std::move(Buf), Context, true);
   if (!ModuleOrErr)
     return ModuleOrErr;
   Module *M = ModuleOrErr.get();
   // Read in the entire module, and destroy the BitcodeReader.
-  if (std::error_code EC = M->materializeAllPermanently(true)) {
+  if (std::error_code EC = M->materializeAllPermanently()) {
     delete M;
     return EC;
   }
@@ -3583,12 +3586,11 @@ ErrorOr<Module *> llvm::parseBitcodeFile(MemoryBuffer *Buffer,
   return M;
 }
 
-std::string llvm::getBitcodeTargetTriple(MemoryBuffer *Buffer,
+std::string llvm::getBitcodeTargetTriple(MemoryBufferRef Buffer,
                                          LLVMContext &Context) {
-  BitcodeReader *R = new BitcodeReader(Buffer, Context);
+  std::unique_ptr<MemoryBuffer> Buf = MemoryBuffer::getMemBuffer(Buffer, false);
+  auto R = llvm::make_unique<BitcodeReader>(Buf.release(), Context);
   ErrorOr<std::string> Triple = R->parseTriple();
-  R->releaseBuffer();
-  delete R;
   if (Triple.getError())
     return "";
   return Triple.get();

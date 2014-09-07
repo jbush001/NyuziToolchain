@@ -1224,9 +1224,9 @@ bool ASTReader::ReadSLocEntry(int ID) {
         return true;
       }
       
-      llvm::MemoryBuffer *Buffer
+      std::unique_ptr<llvm::MemoryBuffer> Buffer
         = llvm::MemoryBuffer::getMemBuffer(Blob.drop_back(1), File->getName());
-      SourceMgr.overrideFileContents(File, Buffer);
+      SourceMgr.overrideFileContents(File, std::move(Buffer));
     }
 
     break;
@@ -1251,10 +1251,10 @@ bool ASTReader::ReadSLocEntry(int ID) {
       return true;
     }
 
-    llvm::MemoryBuffer *Buffer
-      = llvm::MemoryBuffer::getMemBuffer(Blob.drop_back(1), Name);
-    SourceMgr.createFileID(Buffer, FileCharacter, ID, BaseOffset + Offset,
-                           IncludeLoc);
+    std::unique_ptr<llvm::MemoryBuffer> Buffer =
+        llvm::MemoryBuffer::getMemBuffer(Blob.drop_back(1), Name);
+    SourceMgr.createFileID(std::move(Buffer), FileCharacter, ID,
+                           BaseOffset + Offset, IncludeLoc);
     break;
   }
 
@@ -3285,6 +3285,12 @@ ASTReader::ReadASTBlock(ModuleFile &F, unsigned ClientLoadCapabilities) {
       }
       OptimizeOffPragmaLocation = ReadSourceLocation(F, Record[0]);
       break;
+
+    case UNUSED_LOCAL_TYPEDEF_NAME_CANDIDATES:
+      for (unsigned I = 0, N = Record.size(); I != N; ++I)
+        UnusedLocalTypedefNameCandidates.push_back(
+            getGlobalDeclID(F, Record[I]));
+      break;
     }
   }
 }
@@ -3521,10 +3527,9 @@ bool ASTReader::isGlobalIndexUnavailable() const {
 static void updateModuleTimestamp(ModuleFile &MF) {
   // Overwrite the timestamp file contents so that file's mtime changes.
   std::string TimestampFilename = MF.getTimestampFilename();
-  std::string ErrorInfo;
-  llvm::raw_fd_ostream OS(TimestampFilename.c_str(), ErrorInfo,
-                          llvm::sys::fs::F_Text);
-  if (!ErrorInfo.empty())
+  std::error_code EC;
+  llvm::raw_fd_ostream OS(TimestampFilename, EC, llvm::sys::fs::F_Text);
+  if (EC)
     return;
   OS << "Timestamp file\n";
 }
@@ -4031,8 +4036,8 @@ std::string ASTReader::getOriginalSourceFile(const std::string &ASTFileName,
                                              DiagnosticsEngine &Diags) {
   // Open the AST file.
   std::string ErrStr;
-  std::unique_ptr<llvm::MemoryBuffer> Buffer;
-  Buffer.reset(FileMgr.getBufferForFile(ASTFileName, &ErrStr));
+  std::unique_ptr<llvm::MemoryBuffer> Buffer =
+      FileMgr.getBufferForFile(ASTFileName, &ErrStr);
   if (!Buffer) {
     Diags.Report(diag::err_fe_unable_to_read_pch_file) << ASTFileName << ErrStr;
     return std::string();
@@ -4120,8 +4125,8 @@ bool ASTReader::readASTFileControlBlock(StringRef Filename,
                                         ASTReaderListener &Listener) {
   // Open the AST file.
   std::string ErrStr;
-  std::unique_ptr<llvm::MemoryBuffer> Buffer;
-  Buffer.reset(FileMgr.getBufferForFile(Filename, &ErrStr));
+  std::unique_ptr<llvm::MemoryBuffer> Buffer =
+      FileMgr.getBufferForFile(Filename, &ErrStr);
   if (!Buffer) {
     return true;
   }
@@ -6066,9 +6071,7 @@ void ASTReader::CompleteRedeclChain(const Decl *D) {
   // If this is a named declaration, complete it by looking it up
   // within its context.
   //
-  // FIXME: We don't currently handle the cases where we can't do this;
-  // merging a class definition that contains unnamed entities should merge
-  // those entities. Likewise, merging a function definition should merge
+  // FIXME: Merging a function definition should merge
   // all mergeable entities within it.
   if (isa<TranslationUnitDecl>(DC) || isa<NamespaceDecl>(DC) ||
       isa<CXXRecordDecl>(DC) || isa<EnumDecl>(DC)) {
@@ -6081,6 +6084,9 @@ void ASTReader::CompleteRedeclChain(const Decl *D) {
           updateOutOfDateIdentifier(*II);
       } else
         DC->lookup(Name);
+    } else if (needsAnonymousDeclarationNumber(cast<NamedDecl>(D))) {
+      // FIXME: It'd be nice to do something a bit more targeted here.
+      D->getDeclContext()->decls_begin();
     }
   }
 }
@@ -7196,6 +7202,18 @@ void ASTReader::ReadDynamicClasses(SmallVectorImpl<CXXRecordDecl *> &Decls) {
   DynamicClasses.clear();
 }
 
+void ASTReader::ReadUnusedLocalTypedefNameCandidates(
+    llvm::SmallSetVector<const TypedefNameDecl *, 4> &Decls) {
+  for (unsigned I = 0, N = UnusedLocalTypedefNameCandidates.size(); I != N;
+       ++I) {
+    TypedefNameDecl *D = dyn_cast_or_null<TypedefNameDecl>(
+        GetDecl(UnusedLocalTypedefNameCandidates[I]));
+    if (D)
+      Decls.insert(D);
+  }
+  UnusedLocalTypedefNameCandidates.clear();
+}
+
 void 
 ASTReader::ReadLocallyScopedExternCDecls(SmallVectorImpl<NamedDecl *> &Decls) {
   for (unsigned I = 0, N = LocallyScopedExternCDecls.size(); I != N; ++I) {
@@ -8209,24 +8227,25 @@ void ASTReader::finishPendingActions() {
   // Objective-C protocol definitions, or any redeclarable templates, make sure
   // that all redeclarations point to the definitions. Note that this can only 
   // happen now, after the redeclaration chains have been fully wired.
-  for (llvm::SmallPtrSet<Decl *, 4>::iterator D = PendingDefinitions.begin(),
-                                           DEnd = PendingDefinitions.end();
-       D != DEnd; ++D) {
-    if (TagDecl *TD = dyn_cast<TagDecl>(*D)) {
+  for (Decl *D : PendingDefinitions) {
+    if (TagDecl *TD = dyn_cast<TagDecl>(D)) {
       if (const TagType *TagT = dyn_cast<TagType>(TD->getTypeForDecl())) {
         // Make sure that the TagType points at the definition.
         const_cast<TagType*>(TagT)->decl = TD;
       }
       
-      if (auto RD = dyn_cast<CXXRecordDecl>(*D)) {
-        for (auto R : RD->redecls())
+      if (auto RD = dyn_cast<CXXRecordDecl>(D)) {
+        for (auto R : RD->redecls()) {
+          assert((R == D) == R->isThisDeclarationADefinition() &&
+                 "declaration thinks it's the definition but it isn't");
           cast<CXXRecordDecl>(R)->DefinitionData = RD->DefinitionData;
+        }
       }
 
       continue;
     }
     
-    if (auto ID = dyn_cast<ObjCInterfaceDecl>(*D)) {
+    if (auto ID = dyn_cast<ObjCInterfaceDecl>(D)) {
       // Make sure that the ObjCInterfaceType points at the definition.
       const_cast<ObjCInterfaceType *>(cast<ObjCInterfaceType>(ID->TypeForDecl))
         ->Decl = ID;
@@ -8237,14 +8256,14 @@ void ASTReader::finishPendingActions() {
       continue;
     }
     
-    if (auto PD = dyn_cast<ObjCProtocolDecl>(*D)) {
+    if (auto PD = dyn_cast<ObjCProtocolDecl>(D)) {
       for (auto R : PD->redecls())
         R->Data = PD->Data;
       
       continue;
     }
     
-    auto RTD = cast<RedeclarableTemplateDecl>(*D)->getCanonicalDecl();
+    auto RTD = cast<RedeclarableTemplateDecl>(D)->getCanonicalDecl();
     for (auto R : RTD->redecls())
       R->Common = RTD->Common;
   }
@@ -8310,12 +8329,21 @@ void ASTReader::diagnoseOdrViolations() {
       continue;
 
     DeclContext *CanonDef = D->getDeclContext();
-    DeclContext::lookup_result R = CanonDef->lookup(D->getDeclName());
 
     bool Found = false;
     const Decl *DCanon = D->getCanonicalDecl();
 
+    for (auto RI : D->redecls()) {
+      if (RI->getLexicalDeclContext() == CanonDef) {
+        Found = true;
+        break;
+      }
+    }
+    if (Found)
+      continue;
+
     llvm::SmallVector<const NamedDecl*, 4> Candidates;
+    DeclContext::lookup_result R = CanonDef->lookup(D->getDeclName());
     for (DeclContext::lookup_iterator I = R.begin(), E = R.end();
          !Found && I != E; ++I) {
       for (auto RI : (*I)->redecls()) {
@@ -8332,7 +8360,10 @@ void ASTReader::diagnoseOdrViolations() {
     }
 
     if (!Found) {
-      D->setInvalidDecl();
+      // The AST doesn't like TagDecls becoming invalid after they've been
+      // completed. We only really need to mark FieldDecls as invalid here.
+      if (!isa<TagDecl>(D))
+        D->setInvalidDecl();
 
       std::string CanonDefModule =
           getOwningModuleNameForDiagnostic(cast<Decl>(CanonDef));

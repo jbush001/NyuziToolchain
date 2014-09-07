@@ -309,10 +309,10 @@ void RAFast::spillVirtReg(MachineBasicBlock::iterator MI,
         DL = (--EI)->getDebugLoc();
       } else
         DL = MI->getDebugLoc();
-      MachineBasicBlock *MBB = DBG->getParent();
       MachineInstr *NewDV =
           BuildMI(*MBB, MI, DL, TII->get(TargetOpcode::DBG_VALUE))
               .addFrameIndex(FI).addImm(Offset).addMetadata(MDPtr);
+      assert(NewDV->getParent() == MBB && "dangling parent pointer");
       (void)NewDV;
       DEBUG(dbgs() << "Inserting debug info due to spill:" << "\n" << *NewDV);
     }
@@ -1094,9 +1094,8 @@ bool RAFast::runOnMachineFunction(MachineFunction &Fn) {
   }
 
   // Add the clobber lists for all the instructions we skipped earlier.
-  for (SmallPtrSet<const MCInstrDesc*, 4>::const_iterator
-       I = SkippedInstrs.begin(), E = SkippedInstrs.end(); I != E; ++I)
-    if (const uint16_t *Defs = (*I)->getImplicitDefs())
+  for (const MCInstrDesc *Desc : SkippedInstrs)
+    if (const uint16_t *Defs = Desc->getImplicitDefs())
       while (*Defs)
         MRI->setPhysRegUsed(*Defs++);
 

@@ -126,7 +126,9 @@ namespace MCID {
     CheapAsAMove,
     ExtraSrcRegAllocReq,
     ExtraDefRegAllocReq,
-    RegSequence
+    RegSequence,
+    ExtractSubreg,
+    InsertSubreg
   };
 }
 
@@ -369,6 +371,35 @@ public:
   /// this property, TargetInstrInfo::getRegSequenceLikeInputs has to be
   /// override accordingly.
   bool isRegSequenceLike() const { return Flags & (1 << MCID::RegSequence); }
+
+  /// \brief Return true if this instruction behaves
+  /// the same way as the generic EXTRACT_SUBREG instructions.
+  /// E.g., on ARM,
+  /// rX, rY VMOVRRD dZ
+  /// is equivalent to two EXTRACT_SUBREG:
+  /// rX = EXTRACT_SUBREG dZ, ssub_0
+  /// rY = EXTRACT_SUBREG dZ, ssub_1
+  ///
+  /// Note that for the optimizers to be able to take advantage of
+  /// this property, TargetInstrInfo::getExtractSubregLikeInputs has to be
+  /// override accordingly.
+  bool isExtractSubregLike() const {
+    return Flags & (1 << MCID::ExtractSubreg);
+  }
+
+  /// \brief Return true if this instruction behaves
+  /// the same way as the generic INSERT_SUBREG instructions.
+  /// E.g., on ARM,
+  /// dX = VSETLNi32 dY, rZ, Imm
+  /// is equivalent to a INSERT_SUBREG:
+  /// dX = INSERT_SUBREG dY, rZ, translateImmToSubIdx(Imm)
+  ///
+  /// Note that for the optimizers to be able to take advantage of
+  /// this property, TargetInstrInfo::getInsertSubregLikeInputs has to be
+  /// override accordingly.
+  bool isInsertSubregLike() const {
+    return Flags & (1 << MCID::InsertSubreg);
+  }
 
   //===--------------------------------------------------------------------===//
   // Side Effect Analysis

@@ -377,6 +377,11 @@ TEST(DeclarationMatcher, hasDeclContext) {
                           hasName("M"), hasDeclContext(namespaceDecl()))))));
 }
 
+TEST(DeclarationMatcher, LinkageSpecification) {
+  EXPECT_TRUE(matches("extern \"C\" { void foo() {}; }", linkageSpecDecl()));
+  EXPECT_TRUE(notMatches("void foo() {};", linkageSpecDecl()));
+}
+
 TEST(ClassTemplate, DoesNotMatchClass) {
   DeclarationMatcher ClassX = classTemplateDecl(hasName("X"));
   EXPECT_TRUE(notMatches("class X;", ClassX));
@@ -649,22 +654,23 @@ TEST(DeclarationMatcher, HasDescendantMemoization) {
   EXPECT_TRUE(matches("void f() { int i; }", CannotMemoize));
 }
 
+TEST(DeclarationMatcher, HasAttr) {
+  EXPECT_TRUE(matches("struct __attribute__((warn_unused)) X {};",
+                      decl(hasAttr(clang::attr::WarnUnused))));
+  EXPECT_FALSE(matches("struct X {};",
+                       decl(hasAttr(clang::attr::WarnUnused))));
+}
+
 TEST(DeclarationMatcher, MatchCudaDecl) {
   EXPECT_TRUE(matchesWithCuda("__global__ void f() { }"
                               "void g() { f<<<1, 2>>>(); }",
                               CUDAKernelCallExpr()));
   EXPECT_TRUE(matchesWithCuda("__attribute__((device)) void f() {}",
-                              hasCudaDeviceAttr()));
-  EXPECT_TRUE(matchesWithCuda("__attribute__((host)) void f() {}",
-                              hasCudaHostAttr()));
-  EXPECT_TRUE(matchesWithCuda("__attribute__((global)) void f() {}",
-                              hasCudaGlobalAttr()));
-  EXPECT_FALSE(matchesWithCuda("void f() {}",
-                               hasCudaGlobalAttr()));
+                              hasAttr(clang::attr::CUDADevice)));
   EXPECT_TRUE(notMatchesWithCuda("void f() {}",
-                                 hasCudaGlobalAttr()));
+                                 CUDAKernelCallExpr()));
   EXPECT_FALSE(notMatchesWithCuda("__attribute__((global)) void f() {}",
-                                  hasCudaGlobalAttr()));
+                                  hasAttr(clang::attr::CUDAGlobal)));
 }
 
 // Implements a run method that returns whether BoundNodes contains a
@@ -3501,6 +3507,62 @@ TEST(IsTemplateInstantiation, DoesNotMatchNonTemplate) {
   EXPECT_TRUE(notMatches(
       "class A {}; class Y { A a; };",
       recordDecl(isTemplateInstantiation())));
+}
+
+TEST(IsInstantiated, MatchesInstantiation) {
+  EXPECT_TRUE(
+      matches("template<typename T> class A { T i; }; class Y { A<int> a; };",
+              recordDecl(isInstantiated())));
+}
+
+TEST(IsInstantiated, NotMatchesDefinition) {
+  EXPECT_TRUE(notMatches("template<typename T> class A { T i; };",
+                         recordDecl(isInstantiated())));
+}
+
+TEST(IsInTemplateInstantiation, MatchesInstantiationStmt) {
+  EXPECT_TRUE(matches("template<typename T> struct A { A() { T i; } };"
+                      "class Y { A<int> a; }; Y y;",
+                      declStmt(isInTemplateInstantiation())));
+}
+
+TEST(IsInTemplateInstantiation, NotMatchesDefinitionStmt) {
+  EXPECT_TRUE(notMatches("template<typename T> struct A { void x() { T i; } };",
+                         declStmt(isInTemplateInstantiation())));
+}
+
+TEST(IsInstantiated, MatchesFunctionInstantiation) {
+  EXPECT_TRUE(
+      matches("template<typename T> void A(T t) { T i; } void x() { A(0); }",
+              functionDecl(isInstantiated())));
+}
+
+TEST(IsInstantiated, NotMatchesFunctionDefinition) {
+  EXPECT_TRUE(notMatches("template<typename T> void A(T t) { T i; }",
+                         varDecl(isInstantiated())));
+}
+
+TEST(IsInTemplateInstantiation, MatchesFunctionInstantiationStmt) {
+  EXPECT_TRUE(
+      matches("template<typename T> void A(T t) { T i; } void x() { A(0); }",
+              declStmt(isInTemplateInstantiation())));
+}
+
+TEST(IsInTemplateInstantiation, NotMatchesFunctionDefinitionStmt) {
+  EXPECT_TRUE(notMatches("template<typename T> void A(T t) { T i; }",
+                         declStmt(isInTemplateInstantiation())));
+}
+
+TEST(IsInTemplateInstantiation, Sharing) {
+  auto Matcher = binaryOperator(unless(isInTemplateInstantiation()));
+  // FIXME: Node sharing is an implementation detail, exposing it is ugly
+  // and makes the matcher behave in non-obvious ways.
+  EXPECT_TRUE(notMatches(
+      "int j; template<typename T> void A(T t) { j += 42; } void x() { A(0); }",
+      Matcher));
+  EXPECT_TRUE(matches(
+      "int j; template<typename T> void A(T t) { j += t; } void x() { A(0); }",
+      Matcher));
 }
 
 TEST(IsExplicitTemplateSpecialization,

@@ -6481,7 +6481,7 @@ llvm::Value *CGObjCNonFragileABIMac::EmitIvarOffset(
   if (IsIvarOffsetKnownIdempotent(CGF, Ivar))
     cast<llvm::LoadInst>(IvarOffsetValue)
         ->setMetadata(CGM.getModule().getMDKindID("invariant.load"),
-                      llvm::MDNode::get(VMContext, ArrayRef<llvm::Value *>()));
+                      llvm::MDNode::get(VMContext, None));
 
   // This could be 32bit int or 64bit integer depending on the architecture.
   // Cast it to 64bit integer value, if it is a 32bit integer ivar offset value
@@ -6794,8 +6794,7 @@ CGObjCNonFragileABIMac::GenerateMessageSendSuper(CodeGen::CodeGenFunction &CGF,
   // If this is a class message the metaclass is passed as the target.
   llvm::Value *Target;
   if (IsClassMessage)
-      Target = EmitMetaClassRef(CGF, Class,
-                                (isCategoryImpl && Class->isWeakImported()));
+      Target = EmitMetaClassRef(CGF, Class, Class->isWeakImported());
   else
     Target = EmitSuperClassRef(CGF, Class);
 
@@ -6840,8 +6839,7 @@ llvm::Value *CGObjCNonFragileABIMac::EmitSelector(CodeGenFunction &CGF,
   llvm::LoadInst* LI = CGF.Builder.CreateLoad(Entry);
   
   LI->setMetadata(CGM.getModule().getMDKindID("invariant.load"), 
-                  llvm::MDNode::get(VMContext,
-                                    ArrayRef<llvm::Value*>()));
+                  llvm::MDNode::get(VMContext, None));
   return LI;
 }
 /// EmitObjCIvarAssign - Code gen for assigning to a __strong object.

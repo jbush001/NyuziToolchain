@@ -134,17 +134,17 @@ void CompilerInstance::setModuleDepCollector(
 static void SetUpDiagnosticLog(DiagnosticOptions *DiagOpts,
                                const CodeGenOptions *CodeGenOpts,
                                DiagnosticsEngine &Diags) {
-  std::string ErrorInfo;
+  std::error_code EC;
   bool OwnsStream = false;
   raw_ostream *OS = &llvm::errs();
   if (DiagOpts->DiagnosticLogFile != "-") {
     // Create the output stream.
     llvm::raw_fd_ostream *FileOS(new llvm::raw_fd_ostream(
-        DiagOpts->DiagnosticLogFile.c_str(), ErrorInfo,
+        DiagOpts->DiagnosticLogFile, EC,
         llvm::sys::fs::F_Append | llvm::sys::fs::F_Text));
-    if (!ErrorInfo.empty()) {
+    if (EC) {
       Diags.Report(diag::warn_fe_cc_log_diagnostics_failure)
-        << DiagOpts->DiagnosticLogFile << ErrorInfo;
+          << DiagOpts->DiagnosticLogFile << EC.message();
     } else {
       FileOS->SetUnbuffered();
       FileOS->SetUseAtomicWrites(true);
@@ -164,19 +164,18 @@ static void SetUpDiagnosticLog(DiagnosticOptions *DiagOpts,
 static void SetupSerializedDiagnostics(DiagnosticOptions *DiagOpts,
                                        DiagnosticsEngine &Diags,
                                        StringRef OutputFile) {
-  std::string ErrorInfo;
-  std::unique_ptr<llvm::raw_fd_ostream> OS;
-  OS.reset(new llvm::raw_fd_ostream(OutputFile.str().c_str(), ErrorInfo,
-                                    llvm::sys::fs::F_None));
+  std::error_code EC;
+  auto OS = llvm::make_unique<llvm::raw_fd_ostream>(OutputFile.str(), EC,
+                                                    llvm::sys::fs::F_None);
 
-  if (!ErrorInfo.empty()) {
-    Diags.Report(diag::warn_fe_serialized_diag_failure)
-      << OutputFile << ErrorInfo;
+  if (EC) {
+    Diags.Report(diag::warn_fe_serialized_diag_failure) << OutputFile
+                                                        << EC.message();
     return;
   }
 
   DiagnosticConsumer *SerializedConsumer =
-      clang::serialized_diags::create(OS.release(), DiagOpts);
+      clang::serialized_diags::create(std::move(OS), DiagOpts);
 
   Diags.setClient(new ChainedDiagnosticConsumer(Diags.takeClient(),
                                                 SerializedConsumer));
@@ -573,17 +572,14 @@ CompilerInstance::createOutputFile(StringRef OutputPath,
                                    StringRef Extension,
                                    bool UseTemporary,
                                    bool CreateMissingDirectories) {
-  std::string Error, OutputPathName, TempPathName;
-  llvm::raw_fd_ostream *OS = createOutputFile(OutputPath, Error, Binary,
-                                              RemoveFileOnSignal,
-                                              InFile, Extension,
-                                              UseTemporary,
-                                              CreateMissingDirectories,
-                                              &OutputPathName,
-                                              &TempPathName);
+  std::string OutputPathName, TempPathName;
+  std::error_code EC;
+  llvm::raw_fd_ostream *OS = createOutputFile(
+      OutputPath, EC, Binary, RemoveFileOnSignal, InFile, Extension,
+      UseTemporary, CreateMissingDirectories, &OutputPathName, &TempPathName);
   if (!OS) {
-    getDiagnostics().Report(diag::err_fe_unable_to_open_output)
-      << OutputPath << Error;
+    getDiagnostics().Report(diag::err_fe_unable_to_open_output) << OutputPath
+                                                                << EC.message();
     return nullptr;
   }
 
@@ -595,17 +591,11 @@ CompilerInstance::createOutputFile(StringRef OutputPath,
   return OS;
 }
 
-llvm::raw_fd_ostream *
-CompilerInstance::createOutputFile(StringRef OutputPath,
-                                   std::string &Error,
-                                   bool Binary,
-                                   bool RemoveFileOnSignal,
-                                   StringRef InFile,
-                                   StringRef Extension,
-                                   bool UseTemporary,
-                                   bool CreateMissingDirectories,
-                                   std::string *ResultPathName,
-                                   std::string *TempPathName) {
+llvm::raw_fd_ostream *CompilerInstance::createOutputFile(
+    StringRef OutputPath, std::error_code &Error, bool Binary,
+    bool RemoveFileOnSignal, StringRef InFile, StringRef Extension,
+    bool UseTemporary, bool CreateMissingDirectories,
+    std::string *ResultPathName, std::string *TempPathName) {
   assert((!CreateMissingDirectories || UseTemporary) &&
          "CreateMissingDirectories is only allowed when using temporary files");
 
@@ -674,9 +664,9 @@ CompilerInstance::createOutputFile(StringRef OutputPath,
   if (!OS) {
     OSFile = OutFile;
     OS.reset(new llvm::raw_fd_ostream(
-        OSFile.c_str(), Error,
+        OSFile, Error,
         (Binary ? llvm::sys::fs::F_None : llvm::sys::fs::F_Text)));
-    if (!Error.empty())
+    if (Error)
       return nullptr;
   }
 
@@ -709,7 +699,8 @@ bool CompilerInstance::InitializeSourceManager(const FrontendInputFile &Input,
     Kind = Input.isSystem() ? SrcMgr::C_System : SrcMgr::C_User;
 
   if (Input.isBuffer()) {
-    SourceMgr.setMainFileID(SourceMgr.createFileID(Input.getBuffer(), Kind));
+    SourceMgr.setMainFileID(SourceMgr.createFileID(
+        std::unique_ptr<llvm::MemoryBuffer>(Input.getBuffer()), Kind));
     assert(!SourceMgr.getMainFileID().isInvalid() &&
            "Couldn't establish MainFileID!");
     return true;
@@ -732,11 +723,11 @@ bool CompilerInstance::InitializeSourceManager(const FrontendInputFile &Input,
     // STDIN.
     if (File->isNamedPipe()) {
       std::string ErrorStr;
-      if (llvm::MemoryBuffer *MB =
+      if (std::unique_ptr<llvm::MemoryBuffer> MB =
               FileMgr.getBufferForFile(File, &ErrorStr, /*isVolatile=*/true)) {
         // Create a new virtual file that will have the correct size.
         File = FileMgr.getVirtualFile(InputFile, MB->getBufferSize(), 0);
-        SourceMgr.overrideFileContents(File, MB);
+        SourceMgr.overrideFileContents(File, std::move(MB));
       } else {
         Diags.Report(diag::err_cannot_open_file) << InputFile << ErrorStr;
         return false;
@@ -758,7 +749,7 @@ bool CompilerInstance::InitializeSourceManager(const FrontendInputFile &Input,
                                                    SB->getBufferSize(), 0);
     SourceMgr.setMainFileID(
         SourceMgr.createFileID(File, SourceLocation(), Kind));
-    SourceMgr.overrideFileContents(File, SB.release());
+    SourceMgr.overrideFileContents(File, std::move(SB));
   }
 
   assert(!SourceMgr.getMainFileID().isInvalid() &&
@@ -806,8 +797,9 @@ bool CompilerInstance::ExecuteAction(FrontendAction &Act) {
     llvm::EnableStatistics();
 
   for (unsigned i = 0, e = getFrontendOpts().Inputs.size(); i != e; ++i) {
-    // Reset the ID tables if we are reusing the SourceManager.
-    if (hasSourceManager())
+    // Reset the ID tables if we are reusing the SourceManager and parsing
+    // regular files.
+    if (hasSourceManager() && !Act.isModelParsingAction())
       getSourceManager().clearIDTables();
 
     if (Act.BeginSourceFile(*this, getFrontendOpts().Inputs[i])) {
@@ -955,11 +947,11 @@ static bool compileModuleImpl(CompilerInstance &ImportingInstance,
     FrontendOpts.Inputs.push_back(
         FrontendInputFile("__inferred_module.map", IK));
 
-    llvm::MemoryBuffer *ModuleMapBuffer =
+    std::unique_ptr<llvm::MemoryBuffer> ModuleMapBuffer =
         llvm::MemoryBuffer::getMemBuffer(InferredModuleMapContent);
     ModuleMapFile = Instance.getFileManager().getVirtualFile(
         "__inferred_module.map", InferredModuleMapContent.size(), 0);
-    SourceMgr.overrideFileContents(ModuleMapFile, ModuleMapBuffer);
+    SourceMgr.overrideFileContents(ModuleMapFile, std::move(ModuleMapBuffer));
   }
 
   // Construct a module-generating action. Passing through the module map is
@@ -1136,9 +1128,8 @@ static void checkConfigMacro(Preprocessor &PP, StringRef ConfigMacro,
 
 /// \brief Write a new timestamp file with the given path.
 static void writeTimestampFile(StringRef TimestampFile) {
-  std::string ErrorInfo;
-  llvm::raw_fd_ostream Out(TimestampFile.str().c_str(), ErrorInfo,
-                           llvm::sys::fs::F_None);
+  std::error_code EC;
+  llvm::raw_fd_ostream Out(TimestampFile.str(), EC, llvm::sys::fs::F_None);
 }
 
 /// \brief Prune the module cache of modules that haven't been accessed in
@@ -1613,3 +1604,4 @@ CompilerInstance::lookupMissingImports(StringRef Name,
 
   return false;
 }
+void CompilerInstance::resetAndLeakSema() { BuryPointer(takeSema()); }

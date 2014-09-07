@@ -19,6 +19,9 @@ namespace llvm {
 class RuntimeDyldMachOI386
     : public RuntimeDyldMachOCRTPBase<RuntimeDyldMachOI386> {
 public:
+
+  typedef uint32_t TargetPtrT;
+
   RuntimeDyldMachOI386(RTDyldMemoryManager *MM)
       : RuntimeDyldMachOCRTPBase(MM) {}
 
@@ -65,7 +68,7 @@ public:
     if (RE.IsPCRel)
       makeValueAddendPCRel(Value, ObjImg, RelI, 1 << RE.Size);
 
-    RE.Addend = Value.Addend;
+    RE.Addend = Value.Offset;
 
     if (Value.SymbolName)
       addRelocationForSymbol(RE, Value.SymbolName);
@@ -75,7 +78,7 @@ public:
     return ++RelI;
   }
 
-  void resolveRelocation(const RelocationEntry &RE, uint64_t Value) {
+  void resolveRelocation(const RelocationEntry &RE, uint64_t Value) override {
     DEBUG(dumpRelocationToResolve(RE, Value));
 
     const SectionEntry &Section = Sections[RE.SectionID];
@@ -90,7 +93,7 @@ public:
     default:
       llvm_unreachable("Invalid relocation type!");
     case MachO::GENERIC_RELOC_VANILLA:
-      writeBytesUnaligned(LocalAddress, Value + RE.Addend, 1 << RE.Size);
+      writeBytesUnaligned(Value + RE.Addend, LocalAddress, 1 << RE.Size);
       break;
     case MachO::GENERIC_RELOC_SECTDIFF:
     case MachO::GENERIC_RELOC_LOCAL_SECTDIFF: {
@@ -99,7 +102,7 @@ public:
       assert((Value == SectionABase || Value == SectionBBase) &&
              "Unexpected SECTDIFF relocation value.");
       Value = SectionABase - SectionBBase + RE.Addend;
-      writeBytesUnaligned(LocalAddress, Value, 1 << RE.Size);
+      writeBytesUnaligned(Value, LocalAddress, 1 << RE.Size);
       break;
     }
     case MachO::GENERIC_RELOC_PB_LA_PTR:

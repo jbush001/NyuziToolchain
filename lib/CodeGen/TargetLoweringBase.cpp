@@ -701,7 +701,7 @@ TargetLoweringBase::TargetLoweringBase(const TargetMachine &tm,
   HasMultipleConditionRegisters = false;
   HasExtractBitsInsn = false;
   IntDivIsCheap = false;
-  Pow2DivIsCheap = false;
+  Pow2SDivIsCheap = false;
   JumpIsExpensive = false;
   PredictableSelectIsExpensive = false;
   MaskAndBranchFoldingIsLegal = false;
@@ -720,7 +720,6 @@ TargetLoweringBase::TargetLoweringBase(const TargetMachine &tm,
   PrefLoopAlignment = 0;
   MinStackArgumentAlignment = 1;
   InsertFencesForAtomic = false;
-  SupportJumpTables = true;
   MinimumJumpTableEntries = 4;
 
   InitLibcallNames(LibcallRoutineNames, Triple(TM.getTargetTriple()));

@@ -45,10 +45,6 @@
 #include <vector>
 using namespace llvm;
 
-static cl::opt<bool>
-FatalAssemblerWarnings("fatal-assembler-warnings",
-                       cl::desc("Consider warnings as error"));
-
 MCAsmParserSemaCallback::~MCAsmParserSemaCallback() {}
 
 namespace {
@@ -93,8 +89,7 @@ struct MacroInstantiation {
   size_t CondStackDepth;
 
 public:
-  MacroInstantiation(SMLoc IL, int EB, SMLoc EL, StringRef I,
-                     size_t CondStackDepth);
+  MacroInstantiation(SMLoc IL, int EB, SMLoc EL, size_t CondStackDepth);
 };
 
 struct ParseStatementInfo {
@@ -552,7 +547,7 @@ void AsmParser::Note(SMLoc L, const Twine &Msg, ArrayRef<SMRange> Ranges) {
 }
 
 bool AsmParser::Warning(SMLoc L, const Twine &Msg, ArrayRef<SMRange> Ranges) {
-  if (FatalAssemblerWarnings)
+  if (getTargetParser().getTargetOptions().MCFatalWarnings)
     return Error(L, Msg, Ranges);
   printMessage(L, SourceMgr::DK_Warning, Msg, Ranges);
   printMacroInstantiations();
@@ -1863,7 +1858,7 @@ bool AsmParser::expandMacro(raw_svector_ostream &OS, StringRef Body,
 }
 
 MacroInstantiation::MacroInstantiation(SMLoc IL, int EB, SMLoc EL,
-                                       StringRef I, size_t CondStackDepth)
+                                       size_t CondStackDepth)
     : InstantiationLoc(IL), ExitBuffer(EB), ExitLoc(EL),
       CondStackDepth(CondStackDepth) {}
 
@@ -2123,18 +2118,17 @@ bool AsmParser::handleMacroEntry(const MCAsmMacro *M, SMLoc NameLoc) {
   // instantiation.
   OS << ".endmacro\n";
 
-  MemoryBuffer *Instantiation =
+  std::unique_ptr<MemoryBuffer> Instantiation =
       MemoryBuffer::getMemBufferCopy(OS.str(), "<instantiation>");
 
   // Create the macro instantiation object and add to the current macro
   // instantiation stack.
-  MacroInstantiation *MI =
-      new MacroInstantiation(NameLoc, CurBuffer, getTok().getLoc(),
-                             Instantiation->getBuffer(), TheCondStack.size());
+  MacroInstantiation *MI = new MacroInstantiation(
+      NameLoc, CurBuffer, getTok().getLoc(), TheCondStack.size());
   ActiveMacros.push_back(MI);
 
   // Jump to the macro instantiation and prime the lexer.
-  CurBuffer = SrcMgr.AddNewSourceBuffer(Instantiation, SMLoc());
+  CurBuffer = SrcMgr.AddNewSourceBuffer(std::move(Instantiation), SMLoc());
   Lexer.setBuffer(SrcMgr.getMemoryBuffer(CurBuffer)->getBuffer());
   Lex();
 
@@ -2607,12 +2601,14 @@ bool AsmParser::parseDirectiveFill() {
   if (!isUInt<32>(FillExpr) && FillSize > 4)
     Warning(ExprLoc, "'.fill' directive pattern has been truncated to 32-bits");
 
-  int64_t NonZeroFillSize = FillSize > 4 ? 4 : FillSize;
-  FillExpr &= ~0ULL >> (64 - NonZeroFillSize * 8);
-
-  for (uint64_t i = 0, e = NumValues; i != e; ++i) {
-    getStreamer().EmitIntValue(FillExpr, NonZeroFillSize);
-    getStreamer().EmitIntValue(0, FillSize - NonZeroFillSize);
+  if (NumValues > 0) {
+    int64_t NonZeroFillSize = FillSize > 4 ? 4 : FillSize;
+    FillExpr &= ~0ULL >> (64 - NonZeroFillSize * 8);
+    for (uint64_t i = 0, e = NumValues; i != e; ++i) {
+      getStreamer().EmitIntValue(FillExpr, NonZeroFillSize);
+      if (NonZeroFillSize < FillSize)
+        getStreamer().EmitIntValue(0, FillSize - NonZeroFillSize);
+    }
   }
 
   return false;
@@ -4309,18 +4305,17 @@ void AsmParser::instantiateMacroLikeBody(MCAsmMacro *M, SMLoc DirectiveLoc,
                                          raw_svector_ostream &OS) {
   OS << ".endr\n";
 
-  MemoryBuffer *Instantiation =
+  std::unique_ptr<MemoryBuffer> Instantiation =
       MemoryBuffer::getMemBufferCopy(OS.str(), "<instantiation>");
 
   // Create the macro instantiation object and add to the current macro
   // instantiation stack.
-  MacroInstantiation *MI =
-      new MacroInstantiation(DirectiveLoc, CurBuffer, getTok().getLoc(),
-                             Instantiation->getBuffer(), TheCondStack.size());
+  MacroInstantiation *MI = new MacroInstantiation(
+      DirectiveLoc, CurBuffer, getTok().getLoc(), TheCondStack.size());
   ActiveMacros.push_back(MI);
 
   // Jump to the macro instantiation and prime the lexer.
-  CurBuffer = SrcMgr.AddNewSourceBuffer(Instantiation, SMLoc());
+  CurBuffer = SrcMgr.AddNewSourceBuffer(std::move(Instantiation), SMLoc());
   Lexer.setBuffer(SrcMgr.getMemoryBuffer(CurBuffer)->getBuffer());
   Lex();
 }

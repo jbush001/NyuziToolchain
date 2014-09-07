@@ -643,7 +643,8 @@ unsigned ContinuationIndenter::moveStateToNextToken(LineState &State,
       State.Stack[State.Stack.size() - 2].JSFunctionInlined = false;
     }
     if (Current.TokenText == "function")
-      State.Stack.back().JSFunctionInlined = !Newline;
+      State.Stack.back().JSFunctionInlined =
+          !Newline && Previous && Previous->Type != TT_DictLiteral;
   }
 
   moveStatePastFakeLParens(State, Newline);
@@ -854,9 +855,10 @@ void ContinuationIndenter::moveStatePastScopeOpener(LineState &State,
             getColumnLimit(State))
       BreakBeforeParameter = true;
   }
-  bool NoLineBreak = State.Stack.back().NoLineBreak ||
-                     (Current.Type == TT_TemplateOpener &&
-                      State.Stack.back().ContainsUnwrappedBuilder);
+  bool NoLineBreak =
+      State.Stack.back().NoLineBreak ||
+      ((Current.NestingLevel != 0 || Current.Type == TT_TemplateOpener) &&
+       State.Stack.back().ContainsUnwrappedBuilder);
   State.Stack.push_back(ParenState(NewIndent, NewIndentLevel,
                                    State.Stack.back().LastSpace,
                                    AvoidBinPacking, NoLineBreak));

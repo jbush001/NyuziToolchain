@@ -907,7 +907,7 @@ unsigned SelectionDAG::getEVTAlignment(EVT VT) const {
 
 // EntryNode could meaningfully have debug info if we can find it...
 SelectionDAG::SelectionDAG(const TargetMachine &tm, CodeGenOpt::Level OL)
-    : TM(tm), TSI(*tm.getSubtargetImpl()->getSelectionDAGInfo()), TLI(nullptr),
+    : TM(tm), TSI(tm.getSubtargetImpl()->getSelectionDAGInfo()), TLI(nullptr),
       OptLevel(OL),
       EntryNode(ISD::EntryToken, 0, DebugLoc(), getVTList(MVT::Other)),
       Root(getEntryNode()), NewNodesMustHaveLegalTypes(false),
@@ -4228,9 +4228,8 @@ SDValue SelectionDAG::getMemcpy(SDValue Chain, SDLoc dl, SDValue Dst,
   // Then check to see if we should lower the memcpy with target-specific
   // code. If the target chooses to do this, this is the next best.
   SDValue Result =
-    TSI.EmitTargetCodeForMemcpy(*this, dl, Chain, Dst, Src, Size, Align,
-                                isVol, AlwaysInline,
-                                DstPtrInfo, SrcPtrInfo);
+      TSI->EmitTargetCodeForMemcpy(*this, dl, Chain, Dst, Src, Size, Align,
+                                   isVol, AlwaysInline, DstPtrInfo, SrcPtrInfo);
   if (Result.getNode())
     return Result;
 
@@ -4296,9 +4295,8 @@ SDValue SelectionDAG::getMemmove(SDValue Chain, SDLoc dl, SDValue Dst,
 
   // Then check to see if we should lower the memmove with target-specific
   // code. If the target chooses to do this, this is the next best.
-  SDValue Result =
-    TSI.EmitTargetCodeForMemmove(*this, dl, Chain, Dst, Src, Size, Align, isVol,
-                                 DstPtrInfo, SrcPtrInfo);
+  SDValue Result = TSI->EmitTargetCodeForMemmove(
+      *this, dl, Chain, Dst, Src, Size, Align, isVol, DstPtrInfo, SrcPtrInfo);
   if (Result.getNode())
     return Result;
 
@@ -4351,9 +4349,8 @@ SDValue SelectionDAG::getMemset(SDValue Chain, SDLoc dl, SDValue Dst,
 
   // Then check to see if we should lower the memset with target-specific
   // code. If the target chooses to do this, this is the next best.
-  SDValue Result =
-    TSI.EmitTargetCodeForMemset(*this, dl, Chain, Dst, Src, Size, Align, isVol,
-                                DstPtrInfo);
+  SDValue Result = TSI->EmitTargetCodeForMemset(*this, dl, Chain, Dst, Src,
+                                                Size, Align, isVol, DstPtrInfo);
   if (Result.getNode())
     return Result;
 
@@ -4364,18 +4361,11 @@ SDValue SelectionDAG::getMemset(SDValue Chain, SDLoc dl, SDValue Dst,
   TargetLowering::ArgListEntry Entry;
   Entry.Node = Dst; Entry.Ty = IntPtrTy;
   Args.push_back(Entry);
-  // Extend or truncate the argument to be an i32 value for the call.
-  if (Src.getValueType().bitsGT(MVT::i32))
-    Src = getNode(ISD::TRUNCATE, dl, MVT::i32, Src);
-  else
-    Src = getNode(ISD::ZERO_EXTEND, dl, MVT::i32, Src);
   Entry.Node = Src;
-  Entry.Ty = Type::getInt32Ty(*getContext());
-  Entry.isSExt = true;
+  Entry.Ty = Src.getValueType().getTypeForEVT(*getContext());
   Args.push_back(Entry);
   Entry.Node = Size;
   Entry.Ty = IntPtrTy;
-  Entry.isSExt = false;
   Args.push_back(Entry);
 
   // FIXME: pass in SDLoc
@@ -5105,7 +5095,7 @@ SDValue SelectionDAG::getNode(unsigned Opcode, SDLoc DL, SDVTList VTList,
 }
 
 SDValue SelectionDAG::getNode(unsigned Opcode, SDLoc DL, SDVTList VTList) {
-  return getNode(Opcode, DL, VTList, ArrayRef<SDValue>());
+  return getNode(Opcode, DL, VTList, None);
 }
 
 SDValue SelectionDAG::getNode(unsigned Opcode, SDLoc DL, SDVTList VTList,
@@ -5557,10 +5547,9 @@ SDNode *SelectionDAG::MorphNodeTo(SDNode *N, unsigned Opc,
   // new operands.
   if (!DeadNodeSet.empty()) {
     SmallVector<SDNode *, 16> DeadNodes;
-    for (SmallPtrSet<SDNode *, 16>::iterator I = DeadNodeSet.begin(),
-         E = DeadNodeSet.end(); I != E; ++I)
-      if ((*I)->use_empty())
-        DeadNodes.push_back(*I);
+    for (SDNode *N : DeadNodeSet)
+      if (N->use_empty())
+        DeadNodes.push_back(N);
     RemoveDeadNodes(DeadNodes);
   }
 
@@ -6398,7 +6387,7 @@ bool SDNode::hasPredecessor(const SDNode *N) const {
 
 bool
 SDNode::hasPredecessorHelper(const SDNode *N,
-                             SmallPtrSet<const SDNode *, 32> &Visited,
+                             SmallPtrSetImpl<const SDNode *> &Visited,
                              SmallVectorImpl<const SDNode *> &Worklist) const {
   if (Visited.empty()) {
     Worklist.push_back(this);
@@ -6776,8 +6765,8 @@ bool ShuffleVectorSDNode::isSplatMask(const int *Mask, EVT VT) {
 
 #ifndef NDEBUG
 static void checkForCyclesHelper(const SDNode *N,
-                                 SmallPtrSet<const SDNode*, 32> &Visited,
-                                 SmallPtrSet<const SDNode*, 32> &Checked,
+                                 SmallPtrSetImpl<const SDNode*> &Visited,
+                                 SmallPtrSetImpl<const SDNode*> &Checked,
                                  const llvm::SelectionDAG *DAG) {
   // If this node has already been checked, don't check it again.
   if (Checked.count(N))

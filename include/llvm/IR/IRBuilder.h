@@ -446,7 +446,7 @@ private:
 /// The first template argument handles whether or not to preserve names in the
 /// final instruction output. This defaults to on.  The second template argument
 /// specifies a class to use for creating constants.  This defaults to creating
-/// minimally folded constants.  The fourth template argument allows clients to
+/// minimally folded constants.  The third template argument allows clients to
 /// specify custom insertion hooks that are called on every newly created
 /// insertion.
 template<bool preserveNames = true, typename T = ConstantFolder,
@@ -587,8 +587,7 @@ public:
 
   InvokeInst *CreateInvoke(Value *Callee, BasicBlock *NormalDest,
                            BasicBlock *UnwindDest, const Twine &Name = "") {
-    return Insert(InvokeInst::Create(Callee, NormalDest, UnwindDest,
-                                     ArrayRef<Value *>()),
+    return Insert(InvokeInst::Create(Callee, NormalDest, UnwindDest, None),
                   Name);
   }
   InvokeInst *CreateInvoke(Value *Callee, BasicBlock *NormalDest,

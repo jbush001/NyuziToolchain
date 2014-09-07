@@ -72,7 +72,7 @@ namespace clang {
       llvm::TimePassesIsEnabled = TimePasses;
     }
 
-    llvm::Module *takeModule() { return TheModule.release(); }
+    std::unique_ptr<llvm::Module> takeModule() { return std::move(TheModule); }
     llvm::Module *takeLinkModule() { return LinkModule.release(); }
 
     void HandleCXXStaticMemberVarInstantiation(VarDecl *VD) override {
@@ -273,11 +273,11 @@ static FullSourceLoc ConvertBackendLocation(const llvm::SMDiagnostic &D,
 
   // Create the copy and transfer ownership to clang::SourceManager.
   // TODO: Avoid copying files into memory.
-  llvm::MemoryBuffer *CBuf =
-  llvm::MemoryBuffer::getMemBufferCopy(LBuf->getBuffer(),
-                                       LBuf->getBufferIdentifier());
+  std::unique_ptr<llvm::MemoryBuffer> CBuf =
+      llvm::MemoryBuffer::getMemBufferCopy(LBuf->getBuffer(),
+                                           LBuf->getBufferIdentifier());
   // FIXME: Keep a file ID map instead of creating new IDs for each location.
-  FileID FID = CSM.createFileID(CBuf);
+  FileID FID = CSM.createFileID(std::move(CBuf));
 
   // Translate the offset into the file.
   unsigned Offset = D.getLoc().getPointer() - LBuf->getBufferStart();
@@ -576,7 +576,7 @@ void CodeGenAction::EndSourceFileAction() {
     BEConsumer->takeLinkModule();
 
   // Steal the module from the consumer.
-  TheModule.reset(BEConsumer->takeModule());
+  TheModule = BEConsumer->takeModule();
 }
 
 std::unique_ptr<llvm::Module> CodeGenAction::takeModule() {
@@ -624,7 +624,7 @@ CodeGenAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
   if (!LinkModuleToUse && !LinkBCFile.empty()) {
     std::string ErrorStr;
 
-    llvm::MemoryBuffer *BCBuf =
+    std::unique_ptr<llvm::MemoryBuffer> BCBuf =
       CI.getFileManager().getBufferForFile(LinkBCFile, &ErrorStr);
     if (!BCBuf) {
       CI.getDiagnostics().Report(diag::err_cannot_open_file)
@@ -633,7 +633,7 @@ CodeGenAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
     }
 
     ErrorOr<llvm::Module *> ModuleOrErr =
-        getLazyBitcodeModule(BCBuf, *VMContext);
+        getLazyBitcodeModule(std::move(BCBuf), *VMContext);
     if (std::error_code EC = ModuleOrErr.getError()) {
       CI.getDiagnostics().Report(diag::err_cannot_open_file)
         << LinkBCFile << EC.message();
@@ -673,7 +673,7 @@ void CodeGenAction::ExecuteAction() {
       return;
 
     llvm::SMDiagnostic Err;
-    TheModule.reset(ParseIR(MainFile, Err, *VMContext));
+    TheModule = parseIR(MainFile->getMemBufferRef(), Err, *VMContext);
     if (!TheModule) {
       // Translate from the diagnostic info to the SourceManager location if
       // available.

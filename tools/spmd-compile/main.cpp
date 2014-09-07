@@ -58,11 +58,12 @@ bool generateCode(Module *TheModule)
   Triple TheTriple;
   TheTriple.setTriple(sys::getDefaultTargetTriple());
 
-  std::string Error;
+  std::error_code Error;
+  std::string ErrString;
   const Target *TheTarget = TargetRegistry::lookupTarget(std::string(""), TheTriple,
-                                                         Error);
+                                                         ErrString);
   if (!TheTarget) {
-    errs() << Error;
+    errs() << ErrString;
     return false;
   }
 
