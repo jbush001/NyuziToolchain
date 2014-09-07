@@ -7,10 +7,11 @@ This is a toolchain for an an experimental GPGPU architecture (https://github.co
 - libxml
 - python 2.7
 - gcc 4.7+ or Apple clang 4.2+
+- bison 2.7+
+- flex 2.5+
 
-On Ubuntu, these can be installed by using: sudo apt-get install libxml2-dev cmake gcc g++ python.  You must be on at least release 12.10.
-
-On MacOS, you'll need to either use a package manager like MacPorts, or download cmake manually and (http://cmake.org/) build it.  The other dependencies should already be installed.
+On Ubuntu, these can be installed by using: sudo apt-get install libxml2-dev cmake gcc g++ python bison flex.  
+On MacOS, I'd recommend installing a package manager like MacPorts to get install/upgrade these. Apple likes their command line utilities... well aged.
 
 ### Compiling
 

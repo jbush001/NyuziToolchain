@@ -13,6 +13,7 @@ target_link_libraries(ld.mcld
   MCLDHexagonLDBackend
   MCLDMipsLDBackend
   MCLDX86LDBackend
+  MCLDVectorProcLDBackend
 )
 
 install(TARGETS ld.mcld

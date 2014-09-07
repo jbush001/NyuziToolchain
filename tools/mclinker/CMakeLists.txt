@@ -60,7 +60,7 @@ endif()
 set(MCLD_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(MCLD_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
-set(MCLD_DEFAULT_TARGET_TRIPLE "${LLVM_HOST_TRIPLE}" CACHE STRING
+set(MCLD_DEFAULT_TARGET_TRIPLE ${LLVM_DEFAULT_TARGET_TRIPLE} CACHE STRING
   "Default target for which LLVM will generate code." )
 
 ################################################################################
@@ -80,9 +80,10 @@ set(MCLD_ALL_TARGETS
   Hexagon
   Mips
   X86
+  VectorProc
   )
 
-set(TARGET_BUILD all
+set(TARGET_BUILD VectorProc
     CACHE STRING "MCLD Target(Targets) to build")
 if( TARGET_BUILD STREQUAL "all" )
   set( TARGET_BUILD ${MCLD_ALL_TARGETS} )
