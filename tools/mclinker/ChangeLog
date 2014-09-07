@@ -1,0 +1,680 @@
+2014-07-18 Chinyen Chou <petechou@gmail.com>
+	* Executive Summary:
+	1. Migrate to LLVM 3.5svn (r212505 or later).
+	2. Phase out the old `ld.mcld'.
+	3. Support identical code folding (ICF).
+	4. Improve relaxation design.
+
+	* Command Line Options and Building System:
+	1. Support `make unittests'.
+	2. Support --icf=[none|all|safe] and --print-icf-sections.
+	3. Support --print-gc-sections.
+	4. Support --exclude-libs.
+	5. Support -u/-undefined.
+
+	* Target Backends:
+	1. ARM: Support R_ARM_THM_JUMP8 relocation.
+	2. ARM: Add functions to check if linking Thumb only or Thumb2 objects,
+	   and support getting max branch offset from attribute data.
+
+	* Identical code folding:
+	1. Add class IdenticalCodeFolding to support --icf=[none|all|safe]
+	2. Support safe icf on ARM, X86, and X86_64 targets.
+	3. Separate LDFileFormat::TEXT from LDFileFormat::Regular for folding
+	   candidate collection.
+	4. Add LDFileFormat::Folded to represent the folded sections.
+	5. Add TargetLDBackend::isSymbolPreemptible for icf.
+	6. Add TargetLDBackend::mayHaveUnsafeFunctionPointerAccess and
+	   Relocator::mayHaveFunctionPointerAccess for safe icf.
+	7. Import cxa_demangle.cpp from libcxxabi for C++ ctors and dtors folding.
+
+	* Relaxation:
+	1. Support searching stub in a backward direction.
+
+2014-04-07 Chinyen Chou <petechou@gmail.com>
+	* Executive Summary:
+	1. Add AArch64 backend support.
+	2. Support FreeBSD buildworld and buildkernel linking for i386 target.
+
+	* Target Backends:
+	1. AArch64: Follow the behavior of bfd linker to emit .got/.got.plt sections.
+	2. AArch64: Support relocations including R_AARCH64_ABS64, R_AARCH64_ABS32,
+	   R_AARCH64_ABS16, R_AARCH64_PREL64, R_AARCH64_PREL32, R_AARCH64_PREL16,
+	   R_AARCH64_ADR_PREL_PG_HI21, R_AARCH64_ADR_PREL_PG_HI21_NC,
+	   R_AARCH64_ADD_ABS_LO12_NC, R_AARCH64_LDST8_ABS_LO12_NC, R_AARCH64_CONDBR19,
+	   R_AARCH64_JUMP26, R_AARCH64_CALL26, R_AARCH64_LDST16_ABS_LO12_NC,
+	   R_AARCH64_LDST32_ABS_LO12_NC, R_AARCH64_LDST64_ABS_LO12_NC,
+	   R_AARCH64_LDST128_ABS_LO12_NC, R_AARCH64_ADR_GOT_PAGE,
+	   R_AARCH64_LD64_GOT_LO12_NC
+	3. X86: Fix TLS IE to LE optimization issue.
+
+2013-12-30 Chinyen Chou <petechou@gmail.com>
+	* Executive Summary:
+	1. Support ARM ELF Attribute
+	2. Refine I/O memory management to improve linking speed
+	3. Enhance EH Frame to reduce eh_frame section size
+	4. Support garbage collection
+	5. Enhance linker script
+	6. Migrate to LLVM r195092
+
+	* Command Line Options and Building System:
+	1. Support -x and -X
+	2. Support -gc-sections
+	3. Support --no-warn-mismatch
+	4. Support --(no-)ld-generated-unwind-info
+
+	* Linker Script:
+	1. Support --no-warn-mismatch
+	2. SectionMap: Add "Input Section Keep" attribute
+
+	* Garbage Collection:
+	1. Add class GarbageCollection to support --gc-sections
+	2. TargetLDBackend: Add API setUpReachedSectionsForGC
+	3. ARM: GC .ARM.exidx
+	4. Add ResolveInfo::InDyn
+
+	* EH Frame Enhancement:
+	1. EhFrame: In EhFrame::merge identical eh_frame CIE and discard the FDE for
+	   Ignore sections
+	2. X86LDBackend: Add eh_frame entry for x86/x86_64 PLT
+
+	* Target Backends:
+	1. Target: add ELF attribute support
+	2. ARM: add ARM ELF attribute support
+	3. ARM: support more relocation types: R_ARM_V4BX and R_ARM_THM_JUMP19
+	4. GOT/PLT/OutputRelocSection: remove the concept "reserve" and "consume". In
+	   ARM, X86 and Hexagon backends, reserve and consume entries at the same time
+	5. TargetLDBackend: add getEntry to get the entry point of an executable
+
+	* Architectural Changes:
+	1. Deprecate bcc
+	2. Add ObjectLinker::dataStrippingOpt for the data stripping optimizations
+	3. Change the include guard naming to <PROJECT>_<PATH>_<FILE>_H
+	4. Refine I/O memory management to improve linking speed
+	5. Add ObjectLinker::addSymbolsToOutput to add symbols to output symbol table
+	   at once after all input symbols have been resolved
+
+2013-09-18 Chinyen Chou <petechou@gmail.com>
+	* Executive Summary:
+	1. Support more linker script commands for linking FreeBSD and Linux kernel.
+	2. Add a smaller new linker tool: ld.lite.
+	3. Initiate MIPS64 ABI support.
+	4. Migrate to LLVM r187732.
+
+	* Command Line Options and Building System:
+	1. Support -T option.
+	2. Support -z combreloc/nocombreloc.
+	3. Initiate CMake support.
+
+	* SectionMap:
+	1. Support construct SectionMap from SECTIONS command in a linker script file.
+
+	* Target Backends:
+	1. GNULDBackend: use SectionMap to do layout.
+	2. GNULDBackend: add readRelocation() and emitRelocation functions.
+	3. MIPS: add 32/64 GNULDBackend, GOT, and Relocator classes.
+	4. MIPS: support more relocations. (R_MIPS_GPREL16, R_MIPS_64, R_MIPS_GOT_DISP,
+	   R_MIPS_GOT_PAGE, R_MIPS_GOT_OFST, and R_MIPS_SUB)
+	5. Target: refine target registry, lookup, and creation.
+
+	* Linker Script:
+	1. Support SECTIONS, SEARCH_DIR, ASSERT commands.
+	2. Support orphan sections placement.
+	3. Support location counter processing.
+	4. Support operators and many builtin functions in an expression.
+	5. Change to use Bison GLR skeleton.
+
+	* Architectural Changes:
+	1. Deprecate FragmentLinker: move the functions into ObjectLinker instead.
+
+2013-06-03 Chinyen Chou <petechou@gmail.com>
+	* Executive Summary:
+	1. Add linker script framework and some script commands support.
+	2. Add MIPS executable linking support.
+
+	* Command Line Options and Building System:
+	1. Require flex 2.5.35 and bison 2.4.3, or later.
+
+	* New Features:
+	1. Support processing simple linker script files like libc.so in linux.
+
+	* Target Backends:
+	1. MIPS: Add PLT and GOTPLT support.
+	2. MIPS: Add LA25 stub for a non-PIC interface to a PIC function.
+	3. MIPS: Support more relocations. (R_MIPS_26, R_MIPS_JALR,
+	   R_MIPS_LA25_LUI, R_MIPS_LA25_J, R_MIPS_LA25_ADD, and R_MIPS_PC32)
+
+	* Linker Script:
+	1. Support ENTRY command.
+	2. Support file commands like GROUP, AS_NEEDED and SEARCH_DIR.
+	3. Support basic assignments.
+
+	* Architectural Changes:
+	1. Parse an unformatted input as a linker script file in
+	   ObjectLinker::normalize().
+	2. Deprecate DefSymParser: separate parsing and evaluation to different
+	   classes, then we can handle --defsym option and ldscript assignments
+	   in the same way.
+
+2013-04-29 Luba Tang <lubatang@gmail.com>
+	* Executive Summary:
+	1. Add three new backends - x86_64, x32 and Hexagon.
+	2. Support MinGW platform
+	3. Support Mips multiple global offset tables.
+	4. Support variant-length relocation entry. (Mips/x32/x86_64)
+	5. Export libmcld library
+	6. Migrate to LLVM r176038
+
+	* Command Line Options and Building System:
+	1. Support -m <emulation> option.
+	2. Support --defsym option.
+	3. ./configure script supports --target options. (Conform to binutils)
+
+	* New Features:
+	1. Support weak alias symbols in shared libraries.
+	2. Support 64-bit architecture.
+	3. Support GNU linkonce sections.
+	4. Support GNU excluded sections.
+	5. Able to link ELF objects with GNU LTO sections.
+	6. Support empty eh_frame section.
+
+	* Target Backends:
+	1. ARM backend supports more relocations. (R_ARM_PC24, R_ARM_THM_*)
+	2. ARM backend defines __exidx_start/_end symbols for .ARM.exidx section.
+	3. Mature x86_64 backend. Support variant-length relocation entries.
+	4. Mature x32 backend.
+	5. x86 backend supports more relocations.
+	6. Mips backend supports multiple GOT.
+	7. Mips backend supports variant-length relocation entries.
+	8. Hexagon backend supports partial linking.
+	9. Hexagon backend can emit dynamic linked libraries.
+
+	* Architectural Change:
+	1. Move LinkerScript from LinkerConfig to Module.
+	2. Add Relocator::initializeScan() and finalizeScan(). Backends can know the
+	   the timing of input file change during relocation scanning.
+	3. Add 64-bit reader and writer.
+	4. class Path is stick on UTF-8 locale.
+	5. rename Linker::config() -> Linker::emulate().
+	6. extract Linker::normalize() form Linker::resolve().
+
+2013-01-31 Diana Chen <mysekki@gmail.com>
+	* Executive Summary:
+	1. IRBuilder supports define Symbols
+	2. Remove memory leakage
+	3. Enhance GNU ld compatibility for FreeBSD and NetBSD
+	4. Support part of X86 TLS optimization
+	5. Migrate to LLVM r171906
+
+	* Command Line Options and Building System:
+	1. Support -x, -X and -s options
+	2. Support -rpath option
+	3. Set default search path
+	4. Support -enable-new-dtags option
+	5. Support --hash-style option and GNU style hash table
+	6. Support --nmagic and --omagic options
+	7. Support -nostdlib option
+
+	* New Features:
+	1. Add IRBuilder::AddSymbol. Replace functions in FragmentLinker to
+	   IRBuilder
+	2. Introduce to CodePosition concept
+
+	* Target Backends:
+	1. Move backend flag and page size to GNUInfo
+	2. Mips backend: Handle XGOT types of relocation
+	3. Support part of X86 TLS optimizations
+	4. Add the prototype of Hexagon backend support
+
+	* Readers and writers:
+	1. Merge writers for Binary/Executable/Object/Dynamic Object to
+	   ELFObjectWriter
+	2. Remove ARMELFArchiveReader
+
+	* Linking process:
+	1. Separate the linking program process into two steps - resolve and layout
+	2. Initial relaxation stuff after normalization
+	3. Do allocateCommonSymbols immediately after mergeSection
+
+2012-12-18 Luba Tang <lubatang@gmail.com>
+	* Executive Summary:
+	1. IRBuilder supports adding symbols and relocations.
+	2. Reduce memory usage of relocation.
+	3. Enhance GNU ld compatibility for FreeBSD and NetBSD.
+	4. Migrate to LLVM r168413
+
+	* Command Line Options and Building System:
+	1. Support --oformat, --format options
+	2. Support --fatal-warnings
+	3. Add --enable-werror in `./configure' script
+
+	* Readers, writers and IRBuilder:
+	1. Add IRBuilder::AddSymbol() and IRBuilder::AddRelocation() APIs.
+	2. ELFObjectReader, ELFDynObjReader and ELFReader use IRBuilder instead of
+	   FragmentLinker.
+
+	* Relocations:
+	1. Provide Relocation factory method.
+	2. Derive Relocation directly from ilist_node<> for saving memory usage.
+	3. Isolate relocation applying functions. Collect them in Relocator.
+
+	* LinkerConfig and GNULDBackend's Configuration:
+	1. Move bitclass and endian configuration out of GNULDBackend. Collect them
+	   in TargetOptions. This can break the dependency between GNULDBackend and
+	   Relocation.
+	2. Move triple from LinkerConfig to TargetOptions.
+	3. Merge Layout into GNULDBackend.
+	4. Refactor GOT and PLT.
+	5. Move GNU related options into GNUInfo.
+
+2012-11-20 Luba Tang <lubatang@gmail.com>
+	* Executive Summary:
+	1. Improve linking speed about x30 via new algorithm and architecture.
+	2. Enhance GNU ld compatibility. MCLinker is able to link all libraries
+	   and programs of Android. (Few libraries have to revise their linking options)
+	3. Enhance GNU ld compatibility. MCLinker is able to link all libraries
+	   and programs of BSD base system 4.3. (Some options that needed by 4.4
+	   are unsupported yet).
+	4. Support ARM EH ABI.
+	5. Provide IRBuilder. Users can customize the content of input file and
+	   make their customized linker by IRBuilder.
+	6. Add basic elements for support partial linking in the future.
+
+	* Command Line Options:
+	1. Support --strip-debug/-S
+	2. Add --relocatable/-r option. MCLinker does not fully support -r yet.
+	3. Add some fake options to compatible with GNU ld.
+
+	* Target/TargetMachine, LD/ELFObjectFileFormat, LD/ELFObjectWriter,
+	Target/GNULDBackend, CodeGen/MCLDTargetMachine:
+	1. Add CGFT_PARTIAL code generation type.
+	2. Add ELFObjectFileFormat to initialize the output format of -r.
+	3. Add ELFObjectWriter to write the output of partial linking.
+	4. Add GNULDBackend::createObjectWriter().
+	5. rename CodeGen/LLVMTargetMachine as CodeGen/MCLDTargetMachine.
+	6. Support R_386_TLS_GOTIE relocation
+	7. Define __exidx_start and __exidx_end ARM standard symbols
+	8. Define __DYNAMIC symbol
+	9. For GNU ld compatibility, check if a symbol is a C identifier in GNULDBackend.
+
+	* New Architecture:
+	1.  Add FragmentRef::Create/Destroy. Use factory method instead of simple factory.
+	2.  Add LDSymbol::Create/Destroy and ResolveInfo::Create/Destroy
+	3.  Add LDSection::Create/Restroy
+	4.  Reduce the functionalities of Layout. Let layout to focus on section order.
+	5.  Calculate Fragments' offset when appending them into section data.
+	6.  Remove SectionMerger.
+	7.  Move SectionMap to LinkerConfig
+	8.  Rewrite EhFrame. Separate origin EhFrame into EhFrameReader and EhFrame data.
+	9.  Let ObjectReader controls EhFrame::treatAsRegularSection() flag.
+	10. Add Null objects for ResolveInfo, FragmentRef, and LDSymbol.
+	11. Add RelocData to store relocation entries.
+	12. LDSection can point to either a SectionData, a RelocData or a EhFrame.
+	13. Add ObjectLinker and ObjectBuilder. ObjectBuilder is used to build target and
+	    format independent data structure. ObjectLinker is used to link object with
+	    target and format dependent behaviors.
+	14. Remove section-related methods in FragmentLinker. Move them into builders.
+	15. Separate the `read relocation' stage into `read' and `scan' stages.
+	16. Add Environment.h. Provide Initialize() and Finalize() to simplify the
+	    initiliazation of MCLinker.
+	17. Add Linker.h. A modular linker. The core of MCLinker.
+
+2012-10-04 Chinyen Chou <petechou@gmail.com>
+	* Executive Summary:
+	1. Add TLS support and X86 implementation.
+	2. Enhance GNU ld compatibility.
+	3. Add instruction relaxation pass and ARM implementation.
+
+	* MC/SymbolCategory, Target/GNULDBackend, Target/ARMLDBackend,
+	Target/X86LDBackend, Target/MipsLDBackend, Target/TargetLDBackend,
+	Target/ELFDynamic:
+	1. Handle tdata and tbss sections and symbols.
+	2. Setup dynamic flags such as DF_TEXTREL and DF_STATIC_TLS.
+
+	* Target/X86/X86LDBackend, Target/X86/X86RelocationFactory:
+	1. Add X86 relocation support for R_386_TLS_GD, R_386_TLS_LE, and
+	R_386_TLS_IE.
+
+	* LD/GroupReader, Object/ObjectLinker, LD/GNUArchiveReader:
+	1. Support archives group. (i.e., --start-group ARCHIVES --end-group)
+
+	* Target/GNULDBackend, Target/GNULDBackend, Fragment/Fragment,
+	Fragment/Stub, Fragment/FragmentRef, LD/StubFactory, LD/BranchIsland,
+	LD/BranchIslandFactory,	LD/ELFWriter, Object/ObjectLinker:
+	1. Add relaxation interface.
+
+	* Target/ARMLDBackend, Target/ARMToARMStub, Target/ARMToTHMStub,
+	Target/THMToTHMStub, Target/THMToTHMStub, Target/ARMRelocationFactory:
+	1. Add ARM relaxation implementation and ARM stubs.
+
+	* Fragment/Fragment, Fragment/NullFragment, LD/Layout, LD/ELFWriter,
+	Target/ARMLDBackend:
+	1. Add NullFragment for some special symbols (e.g., dvmCompilerTemplateEnd)
+	that refer to an "end" fragment.
+
+	* mcld/GeneralOptions, mcld/ScriptOptions, tools/llvm-mcld, Target/GNULDBackend:
+	1. Support -Ttext, -Tdata, and -Tbss options.
+	2. Support --section-start SECTION=ADDRESS option.
+
+2012-09-10 Luba Tang <luba.tang@mediatek.com>
+	* Executive Summary:
+	1. Migrate on LLVM r162314
+	2. Large scale architecture refactoring.
+	3. No new features; No functional changes.
+	4. Remove two architecture weaknesses in alone::Linker.
+
+	* Separate MCLinker into three layers:
+	1. MCLinker - handle with input files. The adapter to LLVM.
+	2. ObjectLinker - handle with object file format.
+	3. FragmentLinker - handle with piece of code or data.
+
+	* Provide mcld::Module as the intermediate representation:
+	1. Remove mcld::Output. Move all fields of mcld::Output into mcld::Module.
+	2. Move NamePool from FragmentLinker to Module.
+	3. Move Relocation Table from FragmentLinker to Module.
+	4. Move SymbolCategory from FragmentLinker to Module.
+	5. Move InputTree from MCLinker to Module.
+
+	* Separate MCLDInfo into LinkerConfig and InputBuilder:
+	1. All fields in MCLDInfo that can be constant are moved into LinkerConfig.
+	2. MemoryAreaFactory, ContextFactory and InputFactory are moved into LinkerConfig.
+
+	* Action-based linkers:
+	1. MCLinker uses FileActions and CommandActions to build up the input tree.
+	2. Remove SectLinkerOption, PositionDependentOption and DerivedPositionDependentOption.
+	3. Remove ugly type castings.
+
+	* Add new file stream and file utilies:
+	1. raw_mem_ostream - an MemoryArea adapter to llvm::raw_ostream.
+	2. ToolOutputFile - an raw_mem_ostream adapter to llvm::tool_output_file.
+
+	* Hide less-frequently-used classes:
+	1. Hide RegionFactory. MemoryArea becomes a wrapper of RegionFactory.
+	2. Hide ContextFactory and MemoryAreaFactory. Move them into InputBuilder.
+
+2012-08-01 Chinyen Chou <petechou@gmail.com>
+	* Executive Summary:
+	1. Get rid of LLVM MC layer and reduce the dependency to LLVM.
+	2. Support GNU variant archive file format.
+
+	* llvm-mcld/llvm-mcld, CodeGen/LLVMTargetMachine:
+	Sync up LLVM api changes with LLVM upstream @160668.
+
+	* Support/Path:
+	Add parent_path() api.
+
+	* LD/EFLReader, LD/ELFObjectReader, LD/ELFDynObjReader, LD/EhFrame,
+	MC/MCLDInput, MC/MCLinker, Targer/ARMLDBackend:
+	Read Inputs from the specific file offset.
+
+	* LD/ArchiveReader, LD/BSDArchiveReader, LD/GNUArchiveReader,
+	LD/Archive, MC/MCLDDriver:
+	Support GNU variant archive file format.
+
+	* CodeGen/SectLinker, LD/AlignFragment, LD/CIE, LD/ELFReader,
+	LD/ELFWriter, LD/EhFrame, LD/FDE, LD/FillFragment, LD/Fragment,
+	LD/FragmentRef, LD/LDSection, LD/LDSectionFactory, LD/LDSymbol,
+	LD/Layout, LD/NamePool, LD/RegionFragment, LD/Relocation,
+	LD/RelocationFactory, LD/SectionData, LD/SectionMerger,
+	LD/TargetFragment, MC/MCLinker, Target/GOT, Target/PLT,
+	Target/OutputRelocSection:
+	Get rid of LLVM MC layer.
+
+	* alone/Support/LinkerConfig, alone/Core/Linker, tools/mcld/main:
+	Add --shared, --Bsymbolic, --portable support in alone linker.
+
+	* test/Archive, test/Android:
+	1. Add regression test for ArchiveReader.
+	2. Add regression test of Android examples for alone linker.
+	3. Add regression test for no option.
+
+	* unittests/Linker:
+	1. Add unittest to test different linking stages.
+
+2012-07-04 Luba Tang <lubatang@gmail.com>
+	* Executive Summary:
+	1. Support itanium exception handling
+	2. New MemoryArea sub-system. Speed up linking.
+	3. Add experimental facade (standard alone linker) to eliminate
+	the dependency to LLVM
+
+	* MC/MCLinker, LD/Layout, LD/EhFrame, LD/LDFileFormat:
+	1. Support command line option --eh-frame-hdr
+	2. Arrange the order of eh_frame and eh_frame_hdr section. Add
+	SHO_EXCEPTION in Layout.
+	3. Add LDFileFormat::Exception section kind.
+	4. Add PT_GNU_EH_FRAME segment.
+	5. Separate .gotplt from .got in x86.
+
+	* Target/ARMLDBackend, Target/X86LDBackend, Target/MipsLDBackend,
+	Target/TargetLDBackend, Target/GNULDBackend, LD/ELFFileFormat:
+	1. Factor getOutputFormat() from concrete backend to abstract one.
+	2. Support copy relocation.
+	3. Support GNU indirect function. (STT_GNU_IFUNC)
+	4. Support .stack section.
+
+	* test/Exception, test/lib/X86/Linux, test/Symbols:
+	1. Add regression tests for exception handling.
+	2. Add regression tests for .init_array section.
+
+	* Support/MemoryArea, Support/FileHandle, Support/Space, ADT/Flags,
+	Support/SystemUtils, Support/FileSystem:
+	1. Enhance performance. Eliminate the need of msync.
+	2. Separate utility functions from FileSystem.h. Move them to
+	SystemUtils.h
+
+	* alone/Linker, alone/Core/LinkerConfig, alone/Core/TargetLinkerConfig,
+	alone/Initialize:
+	1. Add stand alone linker facade. Eliminate the dependency to LLVM.
+
+2012-05-23 Diana Chen <mysekki@gmail.com>
+	* Executive Summary:
+	1. Support static link of Itanium exception handling (examined on X86
+	Android).
+	2. Enhance GNU ld compatibility.
+	3. Support special option --portable.
+	4. Successfully examine executable files emission for X86 machine.
+
+	* LD/ELFDynObjWriter, ELFExecWriter, MC/MCLinker:
+	Support static link of Itanium exception handling.
+
+	* MC/MCLDOptions, MC/MCLDInfo, MC/MCLinker.tcc, llvm-mcld.cpp:
+	1. Support command line option --wrap
+	2. Support command line option --portable
+	3. Support command line options --allow-multiple-definition and
+	--no-undefined
+
+	* Target/X86LDBackend, Target/X86RelocationFactory, Target/X86PLT:
+	Executable files generagtion for X86
+	1. Enhance the relocation function for R_386_PC32.
+	2. Add function to apply PLT for emitting executable files.
+
+	* test/Symbols, test/Commands, test/Exceptions:
+	1. Add regression tests for new supported command line options.
+	2. Add regression tests for exception handling support.
+
+	* LD/TextDiagnosticPrinter, Support/FileSystem, Support/MsgHandling,
+	mcld/LD/MsgHandler, llvm-mcld.cpp, Support/raw_ostream:
+	Implement the expressive Diagnostic System.
+	1. Implement beginInput/endInput of TextDiagnosticPrinter
+	2. Add new expressive diagnostic output: unreachable
+	3. Use llvm approach instead of mcld::isatty()
+	4. Add mcld::raw_fd_ostream for better color-control.
+
+	* LD/Layout, Target/ARMRelocationFactory, Target/X86RelocationFactory,
+	Target/MipsRelocationFactory, Target/ARMGOT, Target/X86GOT, Target/MipsGOT,
+	Target/ARMPLT, Target/X86PLT, Target/X86GOTPLT, LD/ELFObjectReader
+	LD/ELFReader, LD/GNUArchiveReader, MC/MCLDAttribute, MC/MCLDDriver:
+	Use the expressive Diagnostic System to report the error message.
+
+2012-05-11 Chinyen Chou <petechou@gmail.com>
+	* Executive Summary:
+	In this version: flames, we add the following new features in MCLinker:
+	1. -z options support (except for -z combreloc)
+	2. Thumb/Thumb2 mode support.
+	3. DWARF debugging support.
+	4. Introduce an expressive Diagnostic system to print out linking error message.
+	5. Executable files generation (examined on ARM/MIPS Android).
+
+	* patch/LLVM.Patch:
+	Complement llvm/Support/ELF.h for ELF segments and .dynamic sections.
+
+	* Target/ARMLDBackend, Target/ARM/Relocation:
+	Add thumb/thumb2 mode support.
+
+	* MC/MCLDOptions, MC/ZOption, Support/CommandLine, llvm-mcld.cpp:
+	1. Add -z options, -Bgroup, --dynamic-linker= and -shared
+	2. Add --verbose[=0,1,2], --error-limit[=N], --warning-limit[=N],
+	   --color[=never, always, auto] and --no-undefined
+
+	* Target/ELFDynamic:
+	Set DT_FLAGS and DT_FLAGS_1 based on the given -z option.
+
+	* LD/Layout, Target/GNULDBackend, Target/TargetLDBackend,
+	  Target/ARMLDBackend, Target/X86LDBackend, Target/MipsLDBackend,
+	  MC/MCLinker:
+	Support -z relro for PT_GNU_RELRO segment.
+
+	* docs/llvm-mcld.pod:
+	Add perldoc for man page.
+
+	* Target/GNULDBackend:
+	Support -z execstack/noexecstack for PT_GNU_STACK segment.
+
+	* Target/ARMLDBackend:
+	Support -z copyreloc in ARMLDBackend.
+
+	* LD/ELFExecWriter, LD/ExecWriter, LD/ELFExecFileFormat, LD/Layout,
+	Target/GNULDBackend, Target/TargetLDBackend, MC/MCLDDriver, llvm-mcld.cpp:
+	Support executable generation.
+	1. "Hello World" is examined successfully on ARM/MIPS Android.
+	2. Some SPECCPU examples are also examined on ARM Android.
+
+	* Target/MipsLDBackend:
+	Android Quake2 JNI example is examined successfully.
+
+	* LD/ELFReader, MC/MCLinker, Target/TargetLDBackend, LD/ELFDynObjWriter,
+	  LD/ELFExecWriter, LD/Layout, Target/ARMLDBackend, Target/X86LDBackend,
+	  Target/MipsLDBackend:
+	Support DWARF debug sections linking.
+	1. GDB can debug the MCLinker output object. e.g., ndk-gdb in Android.
+
+	* LD/DiagnosticInfos, LD/Diagnostic, LD/MsgHandler, LD/DiagnosticPrinter,
+	  LD/TextDiagnosticPrinter, LD/DiagnosticEngine, Support/MsgHandling:
+	Introduce an expressive Diagnostic system.
+
+	* LD/Resolver, LD/StaticResolver, LD/NamePool:
+	Changed to use new Diagnostic System.
+
+2012-03-14 Luba Tang <lubatang@gmail.com>
+	* Migrate on LLVM@r152063
+	* Migrate on clang@r152062
+
+	* LD/LDSection, LD/ELFFileFormat, LD/ELFDynObjFileFormat,
+	  LD/ELFExecFileFormat:
+	Support setting alignment constraint in section header.
+	* LD/Layout:
+	Update sections' alignment constraints during section merging.
+
+	* Support/MemoryArea, Support/MemoryRegion:
+	Enhance memory utilities.
+
+	* Target/ARMLDBackend:
+	1. work around ARM.exidx and ARM.extab.
+	2. add relocation supports - R_ARM_TARGET1, R_ARM_TARGET2, R_ARM_ABS32,
+	R_ARM_BASE_PREL, and R_ARM_GOT_PREL
+
+	* Target/MipsLDBackend:
+	1. Android bitmap, native Plasma and Quake1 is examined successfully.
+
+	* Target/GNULDBackend, LD/ELFSegmentFactory:
+	Move segment-related implemenation out of GNULDBackend.
+
+	* Support/ScopedWriter:
+	Obsolete, removed.
+
+	* MC/SymbolCategory:
+	add random accessing functions
+
+2012-03-01 Luba Tang <lubatang@gmail.com>
+	* add test/ARM/Relocation:
+	* add test/ARM/GOTPLT:
+	Simple regression testcases. Each case is used for testing a single
+	relocation or GOTPLT entry.
+
+	* add test/Android/Plasma/ARM, X86, MIPS:
+	* add test/Android/Quake/ARM, X86:
+	* add test/Android/Quake2/ARM, X86:
+	Basic regression testcases for Android platform. The system libraries
+	for each platform are under test/libs/ARM, X86, MIPS.
+
+	* Target/TargetLDBackend:
+	separate readSections() into readRegularSection() and
+	readTargetSection().
+
+	* Target/GNULDBackend:
+	Move hash_bucket_count() and isDynamicSymbol() on successors.
+
+	* Target/MipsLDBackend: Eable to link trivial cases and Android Plasma.
+	* Target/X86LDBackend: Eable to link all Android JNI cases with CRT.
+
+	* CodeGen/SectLinkerOption, llvm-mcld.cpp:
+	get rid of -dB option. MCLinker does not need to ask users for -dB
+	option.
+
+	* MC/MCLinker, LD/ELFObjectReader, LD/ELFObjectWriter:
+	Support symbol visibility.
+
+	* LD/LDSection: Separate LinkInfo into Link and Info.
+
+	* LD/Relocation:
+	In order to enhance memory footprints:
+	1. Remove Relocation::m_Parent.
+	2. Let target data be a copy, not a pointer.
+
+	* LD/ELFReader, LD/ObjectReader, LD/ELFObjectReader, LD/Layout:
+	Support GROUPT section.
+
+	* LD/LDFileFormat:
+	Support all special sections listed in Linux Standard Base
+	(ISO/IEC 23360).
+
+	* Support/GCFactoryListTraits:
+	Provides GCFactory's trait for llvm::iplist.
+
+	* Support/LEB128: Add LEB128 utilities.
+
+	* Support/HashTable:
+	Identify ambiguous constructors by adding an anonyous parameter.
+
+	* Suppot/MemoryRegion, Support/MemoryArea:
+	1. remove pIsWrite parameter in MemoryArea::request(). MemoryArea knows
+	the file is readable or writable when map() the file.
+	2. MemoryArea allows to request a zero size MemoryRegion.
+
+	* patch/LLVM.patch: complement llvm/Support/ELF.h.
+	Add SHT_GNU_ATTRIBUTES, SHT_GNU_HASH, SHT_GNU_verdef, SHT_GNU_verneed,
+	and SHT_GNU_versym.
+
+	* LD/Layout:
+	1. Work around LDFileFormat::Exception and LDFileFormat::Version.
+	2. appendFragment(): Support merging sections with different alignment
+	constraints.
+
+2012-02-03 Luba Tang <lubatang@gmail.com>
+	* allocate common symbols in BSS section
+	* add ThreadLocal type in ResolveInfo::Type
+	* Quake2 can be linked on ARM Android.
+
+2012-02-02 Luba Tang <lubatang@gmail.com>
+	* Quake can be linked on x86 Android.
+
+2012-01-17 Luba Tang <lubatang@gmail.com>
+	* Quake can be linked on ARM Android.
+	* All APIs for backends is ready.
+
+2012-01-12 Jush Lu <Jush.Lu@mediatek.com>
+	* Trivial cases have worked on ARM.
+
+2011-05-23 Luba Tang <lubatang@gmail.com>
+	* create all basic files and directories.

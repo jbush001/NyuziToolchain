@@ -1,0 +1,59 @@
+------------------------------------------------------------------------------
+                            MCLinker Project
+------------------------------------------------------------------------------
+============
+Introduction
+============
+  MCLinker is a UIUC license linkage editor.
+
+========================
+Compilation Instructions
+========================
+  The simplest way to compile this package is:
+
+----------------------
+Prepare LLVM
+----------------------
+  0.a Checkout LLVM
+      `svn co http://llvm.org/svn/llvm-project/llvm/trunk llvm-src'
+
+  0.b Type `cd llvm-src' to enter the directory containing LLVM source code
+
+  0.c Build and install LLVM
+      cd ..
+      mkdir llvm-build && cd ./llvm-build
+      ../llvm/configure --prefix=${LLVM_INSTALL}
+      make all install
+
+--------------
+Build MCLinker
+--------------
+  1.  Download MCLinker tarball from the website
+      http://code.google.com/p/mclinker
+
+  2.  Type `cd ${MCLinker}' to the directory containing the source code.
+
+  3.  If there are no `configure' shell script in the directory, type
+      `./autogen.sh' to generate `configure' script.
+
+  4.  Type `./configure` to configure the package for your system. See INSTALL
+      for more details.
+      ./configure --prefix=${MCLINKER_INSTALL} \
+                  --with-llvm-config=${LLVM_INSTALL}/bin/llvm-config
+
+  5.  Type `make` to compile the package
+
+  6.  Type `make install` to install the package into your system.
+
+  7.  ${MCLINKER_INSTALL}/bin/ld.mcld is the linker binary.
+
+===================
+Directory Structure
+===================
+README               - this document
+Makefile.am          - input of automake
+configure.ac         - input of autoconf
+src/                 - source code of verification tool
+include/             - include file, exported interface
+lib/                 - source code of exported interface
+test/                - placeholder of testcases

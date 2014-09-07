@@ -1,0 +1,18 @@
+@MCLD_VERSION@
+==================
+Versioning Format:
+  [MAJOR].[MINOR].[MICRO]-[PKG BUILD]
+
+[MAJOR]
+  It is changed for marketing purposes.
+
+[MINOR]
+  For feature release.
+
+[MICRO]
+  ALPHA - 0 for alpha
+  BETA  - 1 for beta
+  RC    - 2 for release candidate
+  FR    - 3 for final release
+  MA    - 4 for market acceptance
+  GM    - 5 for golden model
