@@ -68,10 +68,22 @@ int main(int argc, const char *argv[]) {
     return 1;
   }
 
-  int totalSize = pheader[eheader.e_phnum - 1].p_vaddr +
-                  pheader[eheader.e_phnum - 1].p_memsz -
-                  BaseAddress;
-  unsigned char *memoryImage = (unsigned char *)calloc(totalSize, 1);
+  // Walk throught the segments and find the highest address
+  int maxLoadAddress = 0;
+  for (int segment = 0; segment < eheader.e_phnum; segment++) {
+    int highLoadAddr = pheader[segment].p_vaddr + pheader[segment].p_filesz;
+    if (pheader[segment].p_type == PT_LOAD) {
+      if (highLoadAddr > maxLoadAddress)
+        maxLoadAddress = highLoadAddr;
+      
+      if (pheader[segment].p_vaddr < BaseAddress) {
+        errs() << "Program segment comes before base address\n";
+        return 1;
+      }
+    }
+  }
+
+  unsigned char *memoryImage = (unsigned char *)calloc(maxLoadAddress - BaseAddress, 1);
   if (!memoryImage) {
     errs() << "not enough memory for program image\n";
     return 1;
@@ -94,14 +106,13 @@ int main(int argc, const char *argv[]) {
   // Convert the first word into a jump instruction to the appropriate location
   *((unsigned int *)memoryImage) = 0xf6000000 | ((eheader.e_entry - 4 - BaseAddress) << 5);
 
-
   FILE *outputFile = fopen(OutputFilename.c_str(), "wb");
   if (!outputFile) {
     errs() << "error opening output file";
     return 1;
   }
 
-  for (int i = 0; i < totalSize; i++) {
+  for (int i = 0; i < maxLoadAddress - BaseAddress; i++) {
     fprintf(outputFile, "%02x", memoryImage[i]);
     if ((i & 3) == 3)
       fprintf(outputFile, "\n");
