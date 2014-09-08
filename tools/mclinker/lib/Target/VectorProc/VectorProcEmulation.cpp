@@ -31,7 +31,6 @@ static bool MCLDEmulateVectorProcELF(LinkerScript& pScript, LinkerConfig& pConfi
   // set up the predefined attributes
   pConfig.attribute().predefined().unsetWholeArchive();
   pConfig.attribute().predefined().unsetAsNeeded();
-  pConfig.attribute().predefined().setDynamic();
 
   // set up section map
   if (pConfig.options().getScriptList().empty() &&

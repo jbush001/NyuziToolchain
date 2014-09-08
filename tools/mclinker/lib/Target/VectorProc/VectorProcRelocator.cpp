@@ -18,6 +18,7 @@
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/ELF.h>
 #include <llvm/Support/Host.h>
+#include <mcld/Support/raw_ostream.h>
 
 #include "VectorProcRelocator.h"
 #include "VectorProcRelocationFunctions.h"
@@ -112,26 +113,31 @@ void VectorProcRelocator::scanRelocation(Relocation& pReloc,
 // Each relocation function implementation
 //===----------------------------------------------------------------------===//
 
-Relocator::Result unsupport(Relocation& pReloc, VectorProcRelocator& pParent)
+Relocator::Result none(Relocation& pReloc, VectorProcRelocator& pParent)
 {
-  return Relocator::Unsupport;
+  return Relocator::OK;
 }
+
 
 Relocator::Result abs(Relocation& pReloc, VectorProcRelocator& pParent)
 {
-  Relocator::DWord A = pReloc.target() + pReloc.addend();
+  Relocator::DWord A = pReloc.addend();
   Relocator::DWord S = pReloc.symValue();
-
   pReloc.target() = S + A;
+
   return Relocator::OK;
 }
 
 Relocator::Result branch(Relocation& pReloc, VectorProcRelocator& pParent)
 {
   Relocator::Address S = pReloc.symValue();
-  Relocator::DWord   A = pReloc.addend();
+  Relocator::Address P = pReloc.place();
+  int offset = S - (P + 4);
 
-  pReloc.target() = helper_replace_field(pReloc.target(), S + A, 5, 20);
+  if (helper_check_signed_overflow(offset, 20))
+    return Relocator::Overflow;
+
+  pReloc.target() = helper_replace_field(pReloc.target(), offset, 5, 20);
 
   return Relocator::OK;
 }
@@ -139,9 +145,13 @@ Relocator::Result branch(Relocation& pReloc, VectorProcRelocator& pParent)
 Relocator::Result mem(Relocation& pReloc, VectorProcRelocator& pParent)
 {
   Relocator::Address S = pReloc.symValue();
-  Relocator::DWord   A = pReloc.addend();
+  Relocator::Address P = pReloc.place();
+  int offset = S - (P + 4);
 
-  pReloc.target() = helper_replace_field(pReloc.target(), S + A, 15, 10);
+  if (helper_check_signed_overflow(offset, 10))
+    return Relocator::Overflow;
+
+  pReloc.target() = helper_replace_field(pReloc.target(), offset, 15, 10);
 
   return Relocator::OK;
 }
@@ -149,9 +159,13 @@ Relocator::Result mem(Relocation& pReloc, VectorProcRelocator& pParent)
 Relocator::Result memext(Relocation& pReloc, VectorProcRelocator& pParent)
 {
   Relocator::Address S = pReloc.symValue();
-  Relocator::DWord   A = pReloc.addend();
+  Relocator::Address P = pReloc.place();
+  int offset = S - (P + 4);
 
-  pReloc.target() = helper_replace_field(pReloc.target(), S + A, 10, 15);
+  if (helper_check_signed_overflow(offset, 15))
+    return Relocator::Overflow;
+
+  pReloc.target() = helper_replace_field(pReloc.target(), offset, 10, 15);
 
   return Relocator::OK;
 }

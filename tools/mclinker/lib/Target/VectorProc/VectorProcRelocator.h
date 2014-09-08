@@ -45,12 +45,6 @@ public:
   const RelRelMap& getRelRelMap() const { return m_RelRelMap; }
   RelRelMap&       getRelRelMap()       { return m_RelRelMap; }
 
-  /// scanRelocation - determine the empty entries are needed or not and create
-  /// the empty entries if needed.
-  /// For VectorProc, following entries are check to create:
-  /// - GOT entry (for .got section)
-  /// - PLT entry (for .plt section)
-  /// - dynamin relocation entries (for .rel.plt and .rel.dyn sections)
   void scanRelocation(Relocation& pReloc,
                       IRBuilder& pBuilder,
                       Module& pModule,

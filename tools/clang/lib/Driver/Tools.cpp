@@ -8044,9 +8044,6 @@ void VectorProc::Link::ConstructJob(Compilation &C, const JobAction &JA,
                                    const char *LinkingOutput) const {
   ArgStringList CmdArgs;
 
-  CmdArgs.push_back("-flavor");
-  CmdArgs.push_back("gnu");
-  CmdArgs.push_back("-static");
   if (Output.isFilename()) {
     CmdArgs.push_back("-o");
     CmdArgs.push_back(Output.getFilename());
@@ -8056,6 +8053,6 @@ void VectorProc::Link::ConstructJob(Compilation &C, const JobAction &JA,
 
   AddLinkerInputs(getToolChain(), Inputs, Args, CmdArgs);
 
-  std::string Linker = std::string(LLVM_PREFIX) + "/bin/lld";
+  std::string Linker = std::string(LLVM_PREFIX) + "/bin/ld.mcld";
   C.addCommand(llvm::make_unique<Command>(JA, *this, Args.MakeArgString(Linker), CmdArgs));
 }
