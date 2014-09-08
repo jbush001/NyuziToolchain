@@ -60,7 +60,7 @@ endif()
 set(MCLD_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(MCLD_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
-set(MCLD_DEFAULT_TARGET_TRIPLE ${LLVM_DEFAULT_TARGET_TRIPLE} CACHE STRING
+set(MCLD_DEFAULT_TARGET_TRIPLE vectorproc CACHE STRING
   "Default target for which LLVM will generate code." )
 
 ################################################################################
