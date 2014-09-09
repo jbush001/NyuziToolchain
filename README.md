@@ -13,9 +13,9 @@ This is a toolchain for an an experimental GPGPU architecture (https://github.co
 
 On Ubuntu, these can be installed by using: 
 
-    sudo apt-get install libxml2-dev cmake gcc g++ python bison flex zlib1g-dev.  
+    sudo apt-get install libxml2-dev cmake gcc g++ python bison flex zlib1g-dev  
 
-On MacOS, I'd recommend installing a package manager like MacPorts to install/upgrade these. Apple likes their command line utilities... finely aged.
+On MacOS, I'd recommend installing a package manager like MacPorts (https://www.macports.org/) to install/upgrade these. Most of the libraries should already be installed by default, but Apple likes their command line utilities... finely aged.
 
 ### Compiling
 
