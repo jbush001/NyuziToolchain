@@ -27,7 +27,7 @@ InputFilename(cl::Positional, cl::desc("<input ELF file>"), cl::init("a.out"));
 
 static cl::opt<std::string> OutputFilename("o", cl::desc("Output hex file"),
                                            cl::value_desc("filename"));
-static cl::opt<uint64_t> BaseAddress("b", cl::desc("Base Address"),
+static cl::opt<unsigned int> BaseAddress("b", cl::desc("Base Address"),
                                            cl::init(0));
 
 int main(int argc, const char *argv[]) {
