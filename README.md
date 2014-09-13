@@ -33,10 +33,9 @@ A few other things to note:
 
 * The name of the target is 'vectorproc'.
 * There are also bits of an autoconf based build system in this project.  It doesn't work.
+* The toolchain will be installed to /usr/local/llvm-vectorproc
 * Using sudo on make install as described can leave files with root ownership in your build directory, which can then cause cryptic build errors later when building as non-root.  Doing a 'sudo chown -R &#x60;whoami&#x60; .' in the build directory will fix this.
 * If you want to make changes to the compiler, add '-DCMAKE_BUILD_TYPE=Debug' as a parameter to the cmake command enable a debug build.  This enables the -debug flag for command line tools, which is important to see various transormations and output of intermediate passes.
-
-
 
 
 ## Invoking compiler
