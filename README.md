@@ -1,4 +1,5 @@
-This is a toolchain for an an experimental GPGPU architecture (https://github.com/jbush001/GPGPU). It includes a C/C++ compiler, assembler, and linker based on the LLVM compiler infrastructure, clang compiler, and mclinker projects. 
+This is a toolchain for an an experimental GPGPU architecture (https://github.com/jbush001/GPGPU). 
+It includes a C/C++ compiler, assembler, and linker based on the LLVM, clang, and mclinker projects. 
 
 ## Building
 
@@ -15,7 +16,7 @@ On Ubuntu, these can be installed by using:
 
     sudo apt-get install libxml2-dev cmake gcc g++ python bison flex zlib1g-dev  
 
-On MacOS, I'd recommend installing a package manager like MacPorts (https://www.macports.org/) to install/upgrade these. Most of the libraries should already be installed by default, but Apple likes their command line utilities... finely aged.
+On MacOS, I'd recommend installing a package manager like MacPorts (https://www.macports.org/) to install/upgrade these. Most of the libraries should already be installed by default, but Apple likes their command line utilities... finely aged, so many will be out of date and won't work.
 
 ### Compiling
 
