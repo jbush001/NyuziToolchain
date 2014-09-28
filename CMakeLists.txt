@@ -21,7 +21,7 @@ project(LLVM)
 # Set install path
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 	set(CMAKE_INSTALL_PREFIX
-		"/usr/local/llvm-nyuzi/" CACHE PATH "LLVM-GPGPU install prefix" FORCE
+		"/usr/local/llvm-nyuzi/" CACHE PATH "NyuziToolchain install prefix" FORCE
 	)
 endif()
 
@@ -66,7 +66,7 @@ endif()
 
 set(PACKAGE_NAME LLVM)
 set(PACKAGE_STRING "${PACKAGE_NAME} ${PACKAGE_VERSION}")
-set(PACKAGE_BUGREPORT "https://github.com/jbush001/LLVM-GPGPU/issues")
+set(PACKAGE_BUGREPORT "https://github.com/jbush001/NyuziToolchain/issues")
 
 set(BUG_REPORT_URL "${PACKAGE_BUGREPORT}" CACHE STRING
   "Default URL where bug reports are to be submitted.")

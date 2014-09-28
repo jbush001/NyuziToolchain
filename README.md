@@ -1,5 +1,5 @@
 This is a toolchain for a parallel processor architecture called Nyuzi 
-(https://github.com/jbush001/GPGPU). It includes a C/C++ compiler, assembler, 
+(https://github.com/jbush001/NyuziProcessor). It includes a C/C++ compiler, assembler, 
 and linker based on the LLVM, clang, and mclinker projects. 
 
 ## Building
@@ -58,7 +58,7 @@ Once built, the toolchain will be installed into /usr/local/llvm-nyuzi
 
 ## Running whole program tests
 
-There are a set of tests in https://github.com/jbush001/GPGPU/tree/master/tests/compiler
+There are a set of tests in https://github.com/jbush001/NyuziProcessor/tree/master/tests/compiler
 Each test case is compiled and then run in the instruction set simulator.
 The output is checked for validity. This is similar to the test-suite project
 in LLVM. Instructions are found in that directory.ls
