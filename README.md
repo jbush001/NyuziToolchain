@@ -1,6 +1,8 @@
 This is a toolchain for a parallel processor architecture called Nyuzi 
 (https://github.com/jbush001/NyuziProcessor). It includes a C/C++ compiler, assembler, 
-and linker based on the LLVM, clang, and mclinker projects. 
+and linker based on the LLVM, clang, and mclinker projects. Questions/comments can
+be directed to the mailing list here:
+https://groups.google.com/forum/#!forum/nyuzi-processor-dev
 
 ## Building
 
