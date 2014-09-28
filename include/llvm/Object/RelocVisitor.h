@@ -122,12 +122,12 @@ public:
         HasError = true;
         return RelocToApply();
       }
-    } else if (FileFormat == "ELF32-vectorproc") {
+    } else if (FileFormat == "ELF32-nyuzi") {
       switch (RelocType) {
-      case llvm::ELF::R_VECTORPROC_ABS32:
-        return visitELF_VECTORPROC_ABS32(R, Value);
-      case llvm::ELF::R_VECTORPROC_BRANCH:
-        return visitELF_VECTORPROC_BRANCH(R, Value);
+      case llvm::ELF::R_NYUZI_ABS32:
+        return visitELF_NYUZI_ABS32(R, Value);
+      case llvm::ELF::R_NYUZI_BRANCH:
+        return visitELF_NYUZI_BRANCH(R, Value);
       default:
         HasError = true;
         return RelocToApply();
@@ -313,8 +313,8 @@ private:
     return RelocToApply(Value + Addend, 8);
   }
 
-  // VectorProc ELF
-  RelocToApply visitELF_VECTORPROC_ABS32(RelocationRef R, uint64_t Value) {
+  // Nyuzi ELF
+  RelocToApply visitELF_NYUZI_ABS32(RelocationRef R, uint64_t Value) {
     int64_t Addend = getAddend32LE(R);
     int64_t Res =  Value + Addend;
     // Overflow check allows for both signed and unsigned interpretation.
@@ -337,7 +337,7 @@ private:
   }
 
 
-  RelocToApply visitELF_VECTORPROC_BRANCH(RelocationRef R, uint64_t Value) {
+  RelocToApply visitELF_NYUZI_BRANCH(RelocationRef R, uint64_t Value) {
     int64_t Addend = getAddend64LE(R);
     uint64_t Address;
     R.getAddress(Address);

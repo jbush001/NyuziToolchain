@@ -60,7 +60,7 @@ endif()
 set(MCLD_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(MCLD_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
-set(MCLD_DEFAULT_TARGET_TRIPLE vectorproc CACHE STRING
+set(MCLD_DEFAULT_TARGET_TRIPLE nyuzi CACHE STRING
   "Default target for which LLVM will generate code." )
 
 ################################################################################
@@ -80,10 +80,10 @@ set(MCLD_ALL_TARGETS
   Hexagon
   Mips
   X86
-  VectorProc
+  Nyuzi
   )
 
-set(TARGET_BUILD VectorProc
+set(TARGET_BUILD Nyuzi
     CACHE STRING "MCLD Target(Targets) to build")
 if( TARGET_BUILD STREQUAL "all" )
   set( TARGET_BUILD ${MCLD_ALL_TARGETS} )

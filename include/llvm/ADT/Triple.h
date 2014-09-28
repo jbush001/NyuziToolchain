@@ -76,7 +76,7 @@ public:
     spir,       // SPIR: standard portable IR for OpenCL 32-bit version
     spir64,     // SPIR: standard portable IR for OpenCL 64-bit version
     kalimba,    // Kalimba: generic kalimba
-    vectorproc
+    nyuzi
   };
   enum SubArchType {
     NoSubArch,

@@ -1,5 +1,6 @@
-This is a toolchain for an an experimental GPGPU architecture (https://github.com/jbush001/GPGPU). 
-It includes a C/C++ compiler, assembler, and linker based on the LLVM, clang, and mclinker projects. 
+This is a toolchain for a parallel processor architecture called Nyuzi 
+(https://github.com/jbush001/GPGPU). It includes a C/C++ compiler, assembler, 
+and linker based on the LLVM, clang, and mclinker projects. 
 
 ## Building
 
@@ -32,18 +33,18 @@ Assuming the proper packages are installed, configure and build using the follow
 
 A few other things to note:
 
-* The name of the target is 'vectorproc'.
+* The name of the target is 'nyuzi'.
 * There are also bits of an autoconf based build system in this project.  It doesn't work.
-* The toolchain will be installed to /usr/local/llvm-vectorproc
+* The toolchain will be installed to /usr/local/llvm-nyuzi
 * Using sudo on make install as described can leave files with root ownership in your build directory, which can then cause cryptic build errors later when building as non-root.  Doing a 'sudo chown -R &#x60;whoami&#x60; .' in the build directory will fix this.
 * If you want to make changes to the compiler, add '-DCMAKE_BUILD_TYPE=Debug' as a parameter to the cmake command enable a debug build.  This enables the -debug flag for command line tools, which is important to see various transormations and output of intermediate passes.
 
 
 ## Invoking compiler
 
-Once built, the toolchain will be installed into /usr/local/llvm-vectorproc
+Once built, the toolchain will be installed into /usr/local/llvm-nyuzi
 
-    /usr/local/llvm-vectorproc/bin/clang -o program.elf test_program.c 
+    /usr/local/llvm-nyuzi/bin/clang -o program.elf test_program.c 
 
 ## Running tests
 
@@ -52,7 +53,7 @@ Once built, the toolchain will be installed into /usr/local/llvm-vectorproc
 
 <pre>
     llvm-lit test
-    llvm-lit tools/clang/test/CodeGen/vectorproc*
+    llvm-lit tools/clang/test/CodeGen/nyuzi*
 </pre>
 
 ## Running whole program tests

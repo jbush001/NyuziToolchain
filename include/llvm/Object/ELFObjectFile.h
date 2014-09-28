@@ -767,7 +767,7 @@ std::error_code ELFObjectFile<ELFT>::getRelocationValueString(
   }
   case ELF::EM_ARM:
   case ELF::EM_HEXAGON:
-  case ELF::EM_VECTORPROC:
+  case ELF::EM_NYUZI:
   case ELF::EM_MIPS:
     res = *SymName;
     break;
@@ -869,8 +869,8 @@ StringRef ELFObjectFile<ELFT>::getFileFormatName() const {
       return "ELF32-hexagon";
     case ELF::EM_MIPS:
       return "ELF32-mips";
-    case ELF::EM_VECTORPROC:
-      return "ELF32-vectorproc";
+    case ELF::EM_NYUZI:
+      return "ELF32-nyuzi";
     case ELF::EM_PPC:
       return "ELF32-ppc";
     case ELF::EM_SPARC:
@@ -929,8 +929,8 @@ unsigned ELFObjectFile<ELFT>::getArch() const {
     }
   case ELF::EM_PPC64:
     return IsLittleEndian ? Triple::ppc64le : Triple::ppc64;
-  case ELF::EM_VECTORPROC:
-  	return Triple::vectorproc;
+  case ELF::EM_NYUZI:
+  	return Triple::nyuzi;
   case ELF::EM_S390:
     return Triple::systemz;
 

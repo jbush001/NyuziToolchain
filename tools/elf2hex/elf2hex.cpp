@@ -50,7 +50,7 @@ int main(int argc, const char *argv[]) {
     return 1;
   }
   
-  if (eheader.e_machine != EM_VECTORPROC) {
+  if (eheader.e_machine != EM_NYUZI) {
     errs() << "Incorrect architecture\n";
     return 1;
   }

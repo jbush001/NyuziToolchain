@@ -21,7 +21,7 @@ project(LLVM)
 # Set install path
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 	set(CMAKE_INSTALL_PREFIX
-		"/usr/local/llvm-vectorproc/" CACHE PATH "LLVM-GPGPU install prefix" FORCE
+		"/usr/local/llvm-nyuzi/" CACHE PATH "LLVM-GPGPU install prefix" FORCE
 	)
 endif()
 
@@ -161,13 +161,13 @@ set(LLVM_ALL_TARGETS
   SystemZ
   X86
   XCore
-  VectorProc
+  Nyuzi
   )
 
 # List of targets with JIT support:
 set(LLVM_TARGETS_WITH_JIT X86 PowerPC AArch64 ARM Mips SystemZ)
 
-set(LLVM_TARGETS_TO_BUILD "VectorProc"
+set(LLVM_TARGETS_TO_BUILD "Nyuzi"
     CACHE STRING "Semicolon-separated list of targets to build, or \"all\".")
 
 set(LLVM_EXPERIMENTAL_TARGETS_TO_BUILD ""
@@ -322,8 +322,8 @@ option (LLVM_BUILD_EXTERNAL_COMPILER_RT
 # first cmake run
 include(config-ix)
 
-# Default to building vectorproc
-set(LLVM_DEFAULT_TARGET_TRIPLE "vectorproc" CACHE STRING
+# Default to building nyuzi
+set(LLVM_DEFAULT_TARGET_TRIPLE "nyuzi" CACHE STRING
   "Default target for which LLVM will generate code." )
 set(TARGET_TRIPLE "${LLVM_DEFAULT_TARGET_TRIPLE}")
 

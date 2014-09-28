@@ -155,12 +155,12 @@ namespace clang {
     };
   }
 
-  /// \brief VectorProc builtins
-  namespace VectorProc {
+  /// \brief Nyuzi builtins
+  namespace Nyuzi {
     enum {
         LastTIBuiltin = clang::Builtin::FirstTSBuiltin-1,
 #define BUILTIN(ID, TYPE, ATTRS) BI##ID,
-#include "clang/Basic/BuiltinsVectorProc.def"
+#include "clang/Basic/BuiltinsNyuzi.def"
         LastTSBuiltin
     };
   }

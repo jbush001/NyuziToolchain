@@ -48,7 +48,7 @@ void SPMDBuilder::assignLocalVariable(Value *Variable, Value *NewValue)
     // Need to predicate this instruction
     Value *CurrentMaskVal = Builder.CreateLoad(getCurrentMask());
     llvm::Function *BlendFunc = llvm::Intrinsic::getDeclaration(MainModule, 
-                                (llvm::Intrinsic::ID) Intrinsic::vp_vector_mixf,
+                                (llvm::Intrinsic::ID) Intrinsic::nyuzi_vector_mixf,
                                 None);
 
     Value *OldValue = Builder.CreateLoad(Variable);
@@ -119,73 +119,73 @@ Value *SPMDBuilder::createCompare(CmpInst::Predicate Type, Value *lhs, Value *rh
     case CmpInst::FCMP_OEQ: 
     case CmpInst::FCMP_UEQ: 
       // XXX need to cast parameters
-      IntrinsicId = Intrinsic::vp_mask_cmpi_eq;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpi_eq;
       break;
 
     case CmpInst::FCMP_ONE: 
     case CmpInst::FCMP_UNE: 
       // XXX need to cast parameters
-      IntrinsicId = Intrinsic::vp_mask_cmpi_ne;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpi_ne;
       break;
 
     case CmpInst::FCMP_OGT: 
     case CmpInst::FCMP_UGT: 
-      IntrinsicId = Intrinsic::vp_mask_cmpf_gt;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpf_gt;
       break;
 
     case CmpInst::FCMP_OGE: 
     case CmpInst::FCMP_UGE: 
-      IntrinsicId = Intrinsic::vp_mask_cmpf_ge;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpf_ge;
       break;
       
     case CmpInst::FCMP_OLT: 
     case CmpInst::FCMP_ULT: 
-      IntrinsicId = Intrinsic::vp_mask_cmpf_lt;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpf_lt;
       break;
 
     case CmpInst::FCMP_OLE: 
     case CmpInst::FCMP_ULE: 
-      IntrinsicId = Intrinsic::vp_mask_cmpf_le;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpf_le;
       break;
 
     case CmpInst::ICMP_EQ:
-      IntrinsicId = Intrinsic::vp_mask_cmpi_eq;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpi_eq;
       break;
 
     case CmpInst::ICMP_NE:
-      IntrinsicId = Intrinsic::vp_mask_cmpi_ne;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpi_ne;
       break;
 
     case CmpInst::ICMP_UGT: 
-      IntrinsicId = Intrinsic::vp_mask_cmpi_ugt;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpi_ugt;
       break;
 
     case CmpInst::ICMP_UGE: 
-      IntrinsicId = Intrinsic::vp_mask_cmpi_ugt;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpi_ugt;
       break;
 
     case CmpInst::ICMP_ULT: 
-      IntrinsicId = Intrinsic::vp_mask_cmpi_ult;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpi_ult;
       break;
 
     case CmpInst::ICMP_ULE: 
-      IntrinsicId = Intrinsic::vp_mask_cmpi_ule;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpi_ule;
       break;
 
     case CmpInst::ICMP_SGT: 
-      IntrinsicId = Intrinsic::vp_mask_cmpi_sgt;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpi_sgt;
       break;
 
     case CmpInst::ICMP_SGE: 
-      IntrinsicId = Intrinsic::vp_mask_cmpi_sge;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpi_sge;
       break;
 
     case CmpInst::ICMP_SLT: 
-      IntrinsicId = Intrinsic::vp_mask_cmpi_slt;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpi_slt;
       break;
 
     case CmpInst::ICMP_SLE: 
-      IntrinsicId = Intrinsic::vp_mask_cmpi_sle;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpi_sle;
       break;
       
     default:

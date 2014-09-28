@@ -625,11 +625,11 @@ namespace XCore {
   };
 } // end namespace XCore.
 
-namespace VectorProc {
+namespace Nyuzi {
   class LLVM_LIBRARY_VISIBILITY Link : public Tool {
   public:
-    Link(const ToolChain &TC) : Tool("VectorProc::Link",
-      "VectorProc-ld", TC) {}
+    Link(const ToolChain &TC) : Tool("Nyuzi::Link",
+      "Nyuzi-ld", TC) {}
 
     virtual bool hasIntegratedCPP() const override { return false; }
     virtual bool isLinkJob() const override { return true; }
@@ -639,7 +639,7 @@ namespace VectorProc {
                               const llvm::opt::ArgList &TCArgs,
                               const char *LinkingOutput) const override;
   };
-} // end namespace VectorProc.
+} // end namespace Nyuzi.
 
 
 } // end namespace toolchains

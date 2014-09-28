@@ -309,7 +309,7 @@ enum {
   EM_COOL          = 217, // iCelero CoolEngine
   EM_NORC          = 218, // Nanoradio Optimized RISC
   EM_CSR_KALIMBA   = 219, // CSR Kalimba architecture family
-  EM_VECTORPROC    = 9999 // VectorProc GPGPU
+  EM_NYUZI    = 9999 // Nyuzi GPGPU
 };
 
 // Object file classes.
@@ -1109,14 +1109,14 @@ enum {
   R_HEX_TPREL_11_X        =  85
 };
 
-// ELF relocation types for VectorProc
+// ELF relocation types for Nyuzi
 enum
 {
-  R_VECTORPROC_NONE = 0,
-  R_VECTORPROC_ABS32 = 1,	
-  R_VECTORPROC_BRANCH = 2,
-  R_VECTORPROC_PCREL_MEM = 3,
-  R_VECTORPROC_PCREL_MEM_EXT = 4
+  R_NYUZI_NONE = 0,
+  R_NYUZI_ABS32 = 1,	
+  R_NYUZI_BRANCH = 2,
+  R_NYUZI_PCREL_MEM = 3,
+  R_NYUZI_PCREL_MEM_EXT = 4
 };
 
 // ELF Relocation types for S390/zSeries

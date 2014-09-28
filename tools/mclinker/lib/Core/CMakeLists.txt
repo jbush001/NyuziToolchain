@@ -20,5 +20,5 @@ target_link_libraries(MCLDCore ${cmake_2_8_12_PRIVATE}
   MCLDHexagonLDBackend
   MCLDMipsLDBackend
   MCLDX86LDBackend
-  MCLDVectorProcLDBackend
+  MCLDNyuziLDBackend
   )

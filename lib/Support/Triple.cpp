@@ -47,7 +47,7 @@ const char *Triple::getArchTypeName(ArchType Kind) {
   case amdil:       return "amdil";
   case spir:        return "spir";
   case spir64:      return "spir64";
-  case vectorproc:  return "vectorproc";
+  case nyuzi:  return "nyuzi";
   case kalimba:     return "kalimba";
   }
 
@@ -97,7 +97,7 @@ const char *Triple::getArchTypePrefix(ArchType Kind) {
   case amdil:       return "amdil";
   case spir:        return "spir";
   case spir64:      return "spir";
-  case vectorproc:  return "vectorproc";
+  case nyuzi:  return "nyuzi";
   case kalimba:     return "kalimba";
   }
 }
@@ -204,7 +204,7 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
     .Case("amdil", amdil)
     .Case("spir", spir)
     .Case("spir64", spir64)
-    .Case("vectorproc", vectorproc)
+    .Case("nyuzi", nyuzi)
     .Case("kalimba", kalimba)
     .Default(UnknownArch);
 }
@@ -249,7 +249,7 @@ static Triple::ArchType parseArch(StringRef ArchName) {
     .Case("amdil", Triple::amdil)
     .Case("spir", Triple::spir)
     .Case("spir64", Triple::spir64)
-    .Case("vectorproc", Triple::vectorproc)
+    .Case("nyuzi", Triple::nyuzi)
     .StartsWith("kalimba", Triple::kalimba)
     .Default(Triple::UnknownArch);
 }
@@ -805,7 +805,7 @@ static unsigned getArchPointerBitWidth(llvm::Triple::ArchType Arch) {
   case llvm::Triple::x86:
   case llvm::Triple::xcore:
   case llvm::Triple::spir:
-  case llvm::Triple::vectorproc:
+  case llvm::Triple::nyuzi:
   case llvm::Triple::kalimba:
     return 32;
 
@@ -867,7 +867,7 @@ Triple Triple::get32BitArchVariant() const {
   case Triple::thumbeb:
   case Triple::x86:
   case Triple::xcore:
-  case Triple::vectorproc:
+  case Triple::nyuzi:
     // Already 32-bit.
     break;
 
@@ -922,7 +922,7 @@ Triple Triple::get64BitArchVariant() const {
   case Triple::sparc:   T.setArch(Triple::sparcv9);   break;
   case Triple::x86:     T.setArch(Triple::x86_64);    break;
   case Triple::spir:    T.setArch(Triple::spir64);    break;
-  case Triple::vectorproc: T.setArch(Triple::vectorproc);  break;
+  case Triple::nyuzi: T.setArch(Triple::nyuzi);  break;
   }
   return T;
 }

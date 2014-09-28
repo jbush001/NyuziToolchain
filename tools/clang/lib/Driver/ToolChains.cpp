@@ -2380,37 +2380,37 @@ StringRef Hexagon_TC::GetTargetCPU(const ArgList &Args)
 }
 // End Hexagon
 
-VectorProcToolChain::VectorProcToolChain(const Driver &D, const llvm::Triple &Triple,
+NyuziToolChain::NyuziToolChain(const Driver &D, const llvm::Triple &Triple,
                const llvm::opt::ArgList &Args)
 	:	ToolChain(D, Triple, Args)
 {
 }
 
-VectorProcToolChain::~VectorProcToolChain()
+NyuziToolChain::~NyuziToolChain()
 {
 }
 
-bool VectorProcToolChain::IsIntegratedAssemblerDefault() const
+bool NyuziToolChain::IsIntegratedAssemblerDefault() const
 {
 	return true;
 }
 
-bool VectorProcToolChain::isPICDefault() const
+bool NyuziToolChain::isPICDefault() const
 {
 	return false;
 }
 
-bool VectorProcToolChain::isPIEDefault() const
+bool NyuziToolChain::isPIEDefault() const
 {
 	return false;
 }
 
-bool VectorProcToolChain::isPICDefaultForced() const
+bool NyuziToolChain::isPICDefaultForced() const
 {
 	return false;
 }
 
-void VectorProcToolChain::addClangTargetOptions(const ArgList &DriverArgs,
+void NyuziToolChain::addClangTargetOptions(const ArgList &DriverArgs,
                                   ArgStringList &CC1Args) const {
   CC1Args.push_back("-nostdsysteminc");
   if (DriverArgs.hasFlag(options::OPT_fuse_init_array,
@@ -2421,8 +2421,8 @@ void VectorProcToolChain::addClangTargetOptions(const ArgList &DriverArgs,
   }
 }
 
-Tool *VectorProcToolChain::buildLinker() const {
-  return new tools::VectorProc::Link(*this);
+Tool *NyuziToolChain::buildLinker() const {
+  return new tools::Nyuzi::Link(*this);
 }
 
 /// TCEToolChain - A tool chain using the llvm bitcode tools to perform

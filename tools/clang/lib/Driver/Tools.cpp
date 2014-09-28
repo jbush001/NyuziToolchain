@@ -2321,7 +2321,7 @@ static bool shouldUseFramePointerForTarget(const ArgList &Args,
           return false;
     return true;
   case llvm::Triple::xcore:
-  case llvm::Triple::vectorproc:
+  case llvm::Triple::nyuzi:
     return false;
   default:
     return true;
@@ -8036,8 +8036,8 @@ void XCore::Link::ConstructJob(Compilation &C, const JobAction &JA,
   C.addCommand(llvm::make_unique<Command>(JA, *this, Exec, CmdArgs));
 }
 
-// VectorProc tools
-void VectorProc::Link::ConstructJob(Compilation &C, const JobAction &JA,
+// Nyuzi tools
+void Nyuzi::Link::ConstructJob(Compilation &C, const JobAction &JA,
                                    const InputInfo &Output,
                                    const InputInfoList &Inputs,
                                    const ArgList &Args,

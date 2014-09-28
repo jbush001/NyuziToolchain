@@ -2029,8 +2029,8 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
         TC = new toolchains::Hexagon_TC(*this, Target, Args);
         break;
       }
-      if (Target.getArch() == llvm::Triple::vectorproc) {
-        TC = new toolchains::VectorProcToolChain(*this, Target, Args);
+      if (Target.getArch() == llvm::Triple::nyuzi) {
+        TC = new toolchains::NyuziToolChain(*this, Target, Args);
         break;
       }
       if (Target.getArch() == llvm::Triple::xcore) {

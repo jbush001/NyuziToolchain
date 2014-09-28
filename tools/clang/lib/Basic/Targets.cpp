@@ -5896,11 +5896,11 @@ public:
 
 
 namespace {
-  class VectorProcTargetInfo : public TargetInfo {
+  class NyuziTargetInfo : public TargetInfo {
     static const char *const GCCRegNames[];
 	static const Builtin::Info BuiltinInfo[];
   public:
-    VectorProcTargetInfo(const llvm::Triple &Triple) : TargetInfo(Triple) {
+    NyuziTargetInfo(const llvm::Triple &Triple) : TargetInfo(Triple) {
       TLSSupported = false;
       IntWidth = IntAlign = 32;
       PointerWidth = PointerAlign = 32;
@@ -5918,14 +5918,14 @@ namespace {
 
     virtual void getTargetDefines(const LangOptions &Opts,
                                   MacroBuilder &Builder) const override {
-      Builder.defineMacro("__VECTORPROC__");
+      Builder.defineMacro("__NYUZI__");
     }
 
   	virtual void getTargetBuiltins(const Builtin::Info *&Records,
   		                             unsigned &NumRecords) const override
   	{
   		Records = BuiltinInfo;
-  		NumRecords = clang::VectorProc::LastTSBuiltin - Builtin::FirstTSBuiltin;
+  		NumRecords = clang::Nyuzi::LastTSBuiltin - Builtin::FirstTSBuiltin;
   	}
 
     virtual void getGCCRegNames(const char *const *&Names,
@@ -5949,7 +5949,7 @@ namespace {
   	}
   };
 
-  const char *const VectorProcTargetInfo::GCCRegNames[] = {
+  const char *const NyuziTargetInfo::GCCRegNames[] = {
     "s0",  "s1",  "s2",  "s3",  "s4",  "s5",  "s6",  "s7",
     "s8",  "s9",  "s10", "s11", "s12", "s13", "s14", "s15",
     "s16",  "s17",  "s18",  "s19",  "s20",  "s21",  "s22",  "s23",
@@ -5960,13 +5960,13 @@ namespace {
     "v24",  "v25",  "v26", "v27", "v28", "v29", "v30", "v31",
   };
 
-  void VectorProcTargetInfo::getGCCRegNames(const char *const *&Names,
+  void NyuziTargetInfo::getGCCRegNames(const char *const *&Names,
                                          unsigned &NumNames) const {
     Names = GCCRegNames;
     NumNames = llvm::array_lengthof(GCCRegNames);
   }
 
-  bool VectorProcTargetInfo::
+  bool NyuziTargetInfo::
   validateAsmConstraint(const char *&Name,
                         TargetInfo::ConstraintInfo &Info) const {
     switch (*Name) {
@@ -5994,11 +5994,11 @@ namespace {
     }
   }
 
-const Builtin::Info VectorProcTargetInfo::BuiltinInfo[] = {
+const Builtin::Info NyuziTargetInfo::BuiltinInfo[] = {
 #define BUILTIN(ID, TYPE, ATTRS) { #ID, TYPE, ATTRS, 0, ALL_LANGUAGES },
 #define LIBBUILTIN(ID, TYPE, ATTRS, HEADER) { #ID, TYPE, ATTRS, HEADER,\
                                               ALL_LANGUAGES },
-#include "clang/Basic/BuiltinsVectorProc.def"
+#include "clang/Basic/BuiltinsNyuzi.def"
 };
 
 }
@@ -6336,8 +6336,8 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple) {
       return new Mips32EBTargetInfo(Triple);
     }
 
-  case llvm::Triple::vectorproc:
-      return new VectorProcTargetInfo(Triple);
+  case llvm::Triple::nyuzi:
+      return new NyuziTargetInfo(Triple);
 
   case llvm::Triple::mipsel:
     switch (os) {

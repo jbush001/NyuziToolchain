@@ -1690,8 +1690,8 @@ Value *CodeGenFunction::EmitTargetBuiltinExpr(unsigned BuiltinID,
   case llvm::Triple::ppc64:
   case llvm::Triple::ppc64le:
     return EmitPPCBuiltinExpr(BuiltinID, E);
-  case llvm::Triple::vectorproc:
-  	return EmitVectorProcBuiltinExpr(BuiltinID, E);
+  case llvm::Triple::nyuzi:
+  	return EmitNyuziBuiltinExpr(BuiltinID, E);
   case llvm::Triple::r600:
     return EmitR600BuiltinExpr(BuiltinID, E);
   default:
@@ -5955,7 +5955,7 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
   }
 }
 
-Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
+Value *CodeGenFunction::EmitNyuziBuiltinExpr(unsigned BuiltinID,
                                            const CallExpr *E) {
 	// Push parameters into array.
     SmallVector<Value*, 2> Ops;
@@ -5964,15 +5964,15 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 
 	switch (BuiltinID)
 	{
-		case VectorProc::BI__builtin_vp_makevectori:
-		case VectorProc::BI__builtin_vp_makevectorf:
+		case Nyuzi::BI__builtin_nyuzi_makevectori:
+		case Nyuzi::BI__builtin_nyuzi_makevectorf:
 			return Builder.CreateVectorSplat(16, Ops[0]);
 
-		case VectorProc::BI__builtin_vp_vitof:
+		case Nyuzi::BI__builtin_nyuzi_vitof:
 			return Builder.CreateSIToFP(Ops[0], llvm::VectorType::get(Builder.getFloatTy(),
 				16));
 
-		case VectorProc::BI__builtin_vp_vftoi:
+		case Nyuzi::BI__builtin_nyuzi_vftoi:
 			return Builder.CreateFPToSI(Ops[0], llvm::VectorType::get(Builder.getInt32Ty(),
 				16));
 	}
@@ -5982,141 +5982,141 @@ Value *CodeGenFunction::EmitVectorProcBuiltinExpr(unsigned BuiltinID,
 	// instruction in the backend).
 	llvm::Function *F;
 	switch (BuiltinID) {
-		case VectorProc::BI__builtin_vp_read_control_reg:
-			F = CGM.getIntrinsic(Intrinsic::vp_read_control_reg);
+		case Nyuzi::BI__builtin_nyuzi_read_control_reg:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_read_control_reg);
 			break;
 			
-		case VectorProc::BI__builtin_vp_write_control_reg:
-			F = CGM.getIntrinsic(Intrinsic::vp_write_control_reg);
+		case Nyuzi::BI__builtin_nyuzi_write_control_reg:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_write_control_reg);
 			break;
 			
-		case VectorProc::BI__builtin_vp_shufflei:
-			F = CGM.getIntrinsic(Intrinsic::vp_shufflei);
+		case Nyuzi::BI__builtin_nyuzi_shufflei:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_shufflei);
 			break;
 
-		case VectorProc::BI__builtin_vp_shufflef:
-			F = CGM.getIntrinsic(Intrinsic::vp_shufflef);
+		case Nyuzi::BI__builtin_nyuzi_shufflef:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_shufflef);
 			break;
 		
-		case VectorProc::BI__builtin_vp_vector_mixi:
-			F = CGM.getIntrinsic(Intrinsic::vp_vector_mixi);
+		case Nyuzi::BI__builtin_nyuzi_vector_mixi:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_vector_mixi);
 			break;
 
-		case VectorProc::BI__builtin_vp_vector_mixf:
-			F = CGM.getIntrinsic(Intrinsic::vp_vector_mixf);
+		case Nyuzi::BI__builtin_nyuzi_vector_mixf:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_vector_mixf);
 			break;
 
-		case VectorProc::BI__builtin_vp_gather_loadi:
-			F = CGM.getIntrinsic(Intrinsic::vp_gather_loadi);
+		case Nyuzi::BI__builtin_nyuzi_gather_loadi:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadi);
 			break;
 
-		case VectorProc::BI__builtin_vp_gather_loadf:
-			F = CGM.getIntrinsic(Intrinsic::vp_gather_loadf);
+		case Nyuzi::BI__builtin_nyuzi_gather_loadf:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadf);
 			break;
 
-		case VectorProc::BI__builtin_vp_gather_loadi_masked:
-			F = CGM.getIntrinsic(Intrinsic::vp_gather_loadi_masked);
+		case Nyuzi::BI__builtin_nyuzi_gather_loadi_masked:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadi_masked);
 			break;
 
-		case VectorProc::BI__builtin_vp_gather_loadf_masked:
-			F = CGM.getIntrinsic(Intrinsic::vp_gather_loadf_masked);
+		case Nyuzi::BI__builtin_nyuzi_gather_loadf_masked:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadf_masked);
 			break;
 
-		case VectorProc::BI__builtin_vp_scatter_storei:
-			F = CGM.getIntrinsic(Intrinsic::vp_scatter_storei);
+		case Nyuzi::BI__builtin_nyuzi_scatter_storei:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storei);
 			break;
 
-		case VectorProc::BI__builtin_vp_scatter_storef:
-			F = CGM.getIntrinsic(Intrinsic::vp_scatter_storef);
+		case Nyuzi::BI__builtin_nyuzi_scatter_storef:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storef);
 			break;
 
-		case VectorProc::BI__builtin_vp_scatter_storei_masked:
-			F = CGM.getIntrinsic(Intrinsic::vp_scatter_storei_masked);
+		case Nyuzi::BI__builtin_nyuzi_scatter_storei_masked:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storei_masked);
 			break;
 
-		case VectorProc::BI__builtin_vp_scatter_storef_masked:
-			F = CGM.getIntrinsic(Intrinsic::vp_scatter_storef_masked);
+		case Nyuzi::BI__builtin_nyuzi_scatter_storef_masked:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storef_masked);
 			break;
 
-		case VectorProc::BI__builtin_vp_block_loadi_masked:
-			F = CGM.getIntrinsic(Intrinsic::vp_block_loadi_masked);
+		case Nyuzi::BI__builtin_nyuzi_block_loadi_masked:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_block_loadi_masked);
 			break;
 
-		case VectorProc::BI__builtin_vp_block_loadf_masked:
-			F = CGM.getIntrinsic(Intrinsic::vp_block_loadf_masked);
+		case Nyuzi::BI__builtin_nyuzi_block_loadf_masked:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_block_loadf_masked);
 			break;
 
-		case VectorProc::BI__builtin_vp_block_storei_masked:
-			F = CGM.getIntrinsic(Intrinsic::vp_block_storei_masked);
+		case Nyuzi::BI__builtin_nyuzi_block_storei_masked:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_block_storei_masked);
 			break;
 		
-		case VectorProc::BI__builtin_vp_block_storef_masked:
-			F = CGM.getIntrinsic(Intrinsic::vp_block_storef_masked);
+		case Nyuzi::BI__builtin_nyuzi_block_storef_masked:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_block_storef_masked);
 			break;
 
 		// Vector comparisions
-		case VectorProc::BI__builtin_vp_mask_cmpi_ugt: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_ugt);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ugt: 
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ugt);
 			break;
 			
-		case VectorProc::BI__builtin_vp_mask_cmpi_uge: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_uge);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_uge: 
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_uge);
 			break;
 			
-		case VectorProc::BI__builtin_vp_mask_cmpi_ult: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_ult);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ult: 
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ult);
 			break;
 		
-		case VectorProc::BI__builtin_vp_mask_cmpi_ule: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_ule);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ule: 
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ule);
 			break;
 
-		case VectorProc::BI__builtin_vp_mask_cmpi_sgt: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_sgt);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sgt: 
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_sgt);
 			break;
 
-		case VectorProc::BI__builtin_vp_mask_cmpi_sge: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_sge);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sge: 
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_sge);
 			break;
 
-		case VectorProc::BI__builtin_vp_mask_cmpi_slt: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_slt);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_slt: 
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_slt);
 			break;
 
-		case VectorProc::BI__builtin_vp_mask_cmpi_sle: 
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_sle);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sle: 
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_sle);
 			break;
 
-		case VectorProc::BI__builtin_vp_mask_cmpi_eq:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_eq);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_eq:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_eq);
 			break;
 
-		case VectorProc::BI__builtin_vp_mask_cmpi_ne:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpi_ne);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ne:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ne);
 			break;
 
-		case VectorProc::BI__builtin_vp_mask_cmpf_gt:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpf_gt);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpf_gt:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_gt);
 			break;
 
-		case VectorProc::BI__builtin_vp_mask_cmpf_ge:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpf_ge);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpf_ge:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_ge);
 			break;
 
-		case VectorProc::BI__builtin_vp_mask_cmpf_lt:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpf_lt);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpf_lt:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_lt);
 			break;
 
-		case VectorProc::BI__builtin_vp_mask_cmpf_le:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpf_le);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpf_le:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_le);
 			break;
 
-		case VectorProc::BI__builtin_vp_mask_cmpf_eq:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpf_eq);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpf_eq:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_eq);
 			break;
 
-		case VectorProc::BI__builtin_vp_mask_cmpf_ne:
-			F = CGM.getIntrinsic(Intrinsic::vp_mask_cmpf_ne);
+		case Nyuzi::BI__builtin_nyuzi_mask_cmpf_ne:
+			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_ne);
 			break;
 		
 		default:

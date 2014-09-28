@@ -729,11 +729,11 @@ public:
   bool isPICDefaultForced() const override;
 };
 
-class LLVM_LIBRARY_VISIBILITY VectorProcToolChain : public ToolChain {
+class LLVM_LIBRARY_VISIBILITY NyuziToolChain : public ToolChain {
 public:
-  VectorProcToolChain(const Driver &D, const llvm::Triple &Triple,
+  NyuziToolChain(const Driver &D, const llvm::Triple &Triple,
                       const llvm::opt::ArgList &Args);
-  ~VectorProcToolChain();
+  ~NyuziToolChain();
   virtual bool IsIntegratedAssemblerDefault() const override;
   virtual bool isPICDefault() const override;
   virtual bool isPIEDefault() const override;
