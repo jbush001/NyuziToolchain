@@ -6,13 +6,13 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef TARGET_X86_X86_H
-#define TARGET_X86_X86_H
+#ifndef TARGET_X86_X86_H_
+#define TARGET_X86_X86_H_
 #include <string>
 
 namespace llvm {
 class Target;
-} // namespace of llvm
+}  // namespace llvm
 
 namespace mcld {
 
@@ -22,9 +22,8 @@ class TargetLDBackend;
 extern mcld::Target TheX86_32Target;
 extern mcld::Target TheX86_64Target;
 
-TargetLDBackend *createX86LDBackend(const llvm::Target&, const std::string&);
+TargetLDBackend* createX86LDBackend(const llvm::Target&, const std::string&);
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // TARGET_X86_X86_H_

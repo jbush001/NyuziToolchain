@@ -6,35 +6,37 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_FRAGMENT_FILLFRAGMENT_H
-#define MCLD_FRAGMENT_FILLFRAGMENT_H
-
-#include <llvm/Support/DataTypes.h>
+#ifndef MCLD_FRAGMENT_FILLFRAGMENT_H_
+#define MCLD_FRAGMENT_FILLFRAGMENT_H_
 
 #include <mcld/Fragment/Fragment.h>
+
+#include <llvm/Support/DataTypes.h>
 
 namespace mcld {
 
 class SectionData;
 
-class FillFragment : public Fragment
-{
-public:
-  FillFragment(int64_t pValue, unsigned int pValueSize, uint64_t pSize,
+class FillFragment : public Fragment {
+ public:
+  FillFragment(int64_t pValue,
+               unsigned int pValueSize,
+               uint64_t pSize,
                SectionData* pSD = NULL);
 
   int64_t getValue() const { return m_Value; }
 
   unsigned getValueSize() const { return m_ValueSize; }
 
-  static bool classof(const Fragment *F)
-  { return F->getKind() == Fragment::Fillment; }
+  static bool classof(const Fragment* F) {
+    return F->getKind() == Fragment::Fillment;
+  }
 
-  static bool classof(const FillFragment *) { return true; }
+  static bool classof(const FillFragment*) { return true; }
 
   size_t size() const { return m_Size; }
 
-private:
+ private:
   /// m_Value - Value used for filling bytes
   int64_t m_Value;
 
@@ -46,7 +48,6 @@ private:
   uint64_t m_Size;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_FRAGMENT_FILLFRAGMENT_H_

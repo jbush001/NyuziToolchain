@@ -6,18 +6,17 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef TARGET_ARM_ARMGNUINFO_H
-#define TARGET_ARM_ARMGNUINFO_H
+#ifndef TARGET_ARM_ARMGNUINFO_H_
+#define TARGET_ARM_ARMGNUINFO_H_
 #include <mcld/Target/GNUInfo.h>
 
 #include <llvm/Support/ELF.h>
 
 namespace mcld {
 
-class ARMGNUInfo : public GNUInfo
-{
-public:
-  ARMGNUInfo(const llvm::Triple& pTriple) : GNUInfo(pTriple) { }
+class ARMGNUInfo : public GNUInfo {
+ public:
+  explicit ARMGNUInfo(const llvm::Triple& pTriple) : GNUInfo(pTriple) {}
 
   uint32_t machine() const { return llvm::ELF::EM_ARM; }
 
@@ -26,7 +25,6 @@ public:
   uint64_t flags() const { return llvm::ELF::EF_ARM_EABI_VER5; }
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // TARGET_ARM_ARMGNUINFO_H_

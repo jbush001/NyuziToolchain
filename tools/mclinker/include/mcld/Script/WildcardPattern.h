@@ -6,24 +6,23 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SCRIPT_WILDCARDPATTERN_H
-#define MCLD_SCRIPT_WILDCARDPATTERN_H
+#ifndef MCLD_SCRIPT_WILDCARDPATTERN_H_
+#define MCLD_SCRIPT_WILDCARDPATTERN_H_
 
+#include <mcld/Config/Config.h>
 #include <mcld/Script/StrToken.h>
 #include <mcld/Support/Allocators.h>
-#include <mcld/Config/Config.h>
+
 #include <llvm/ADT/StringRef.h>
 
-namespace mcld
-{
+namespace mcld {
 
 /** \class WildcardPattern
  *  \brief This class defines the interfaces to Input Section Wildcard Patterns
  */
 
-class WildcardPattern : public StrToken
-{
-public:
+class WildcardPattern : public StrToken {
+ public:
   enum SortPolicy {
     SORT_NONE,
     SORT_BY_NAME,
@@ -33,12 +32,12 @@ public:
     SORT_BY_INIT_PRIORITY
   };
 
-private:
+ private:
   friend class Chunk<WildcardPattern, MCLD_SYMBOLS_PER_INPUT>;
   WildcardPattern();
   WildcardPattern(const std::string& pPattern, SortPolicy pPolicy);
 
-public:
+ public:
   ~WildcardPattern();
 
   SortPolicy sortPolicy() const { return m_SortPolicy; }
@@ -47,8 +46,7 @@ public:
 
   llvm::StringRef prefix() const;
 
-  static bool classof(const StrToken* pToken)
-  {
+  static bool classof(const StrToken* pToken) {
     return pToken->kind() == StrToken::Wildcard;
   }
 
@@ -58,11 +56,11 @@ public:
   static void destroy(WildcardPattern*& pToken);
   static void clear();
 
-private:
+ private:
   SortPolicy m_SortPolicy;
   bool m_bIsPrefix;
 };
 
-} // namepsace of mcld
+}  // namespace mcld
 
-#endif
+#endif  // MCLD_SCRIPT_WILDCARDPATTERN_H_

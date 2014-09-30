@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Support/TargetRegistry.h>
 #include <mcld/LD/DWARFLineInfo.h>
+#include <mcld/Support/TargetRegistry.h>
 #include "AArch64.h"
 
 using namespace mcld;
@@ -18,12 +18,11 @@ namespace mcld {
 // AArch64Diagnostic
 //===----------------------------------------------------------------------===//
 DiagnosticLineInfo* createAArch64DiagLineInfo(const mcld::Target& pTarget,
-                                              const std::string &pTriple)
-{
+                                              const std::string& pTriple) {
   return new DWARFLineInfo();
 }
 
-} // namespace of mcld
+}  // namespace mcld
 
 //===----------------------------------------------------------------------===//
 // InitializeAArch64Diagnostic
@@ -33,4 +32,3 @@ extern "C" void MCLDInitializeAArch64DiagnosticLineInfo() {
   mcld::TargetRegistry::RegisterDiagnosticLineInfo(TheAArch64Target,
                                                    createAArch64DiagLineInfo);
 }
-

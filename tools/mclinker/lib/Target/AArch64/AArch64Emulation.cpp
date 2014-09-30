@@ -9,13 +9,13 @@
 #include "AArch64.h"
 #include <mcld/LinkerConfig.h>
 #include <mcld/LinkerScript.h>
-#include <mcld/Target/ELFEmulation.h>
 #include <mcld/Support/TargetRegistry.h>
+#include <mcld/Target/ELFEmulation.h>
 
 namespace mcld {
 
-static bool MCLDEmulateAArch64ELF(LinkerScript& pScript, LinkerConfig& pConfig)
-{
+static bool MCLDEmulateAArch64ELF(LinkerScript& pScript,
+                                  LinkerConfig& pConfig) {
   if (!MCLDEmulateELF(pScript, pConfig))
     return false;
 
@@ -44,8 +44,7 @@ static bool MCLDEmulateAArch64ELF(LinkerScript& pScript, LinkerConfig& pConfig)
 //===----------------------------------------------------------------------===//
 // emulateAArch64LD - the help function to emulate AArch64 ld
 //===----------------------------------------------------------------------===//
-bool emulateAArch64LD(LinkerScript& pScript, LinkerConfig& pConfig)
-{
+bool emulateAArch64LD(LinkerScript& pScript, LinkerConfig& pConfig) {
   if (pConfig.targets().triple().isOSDarwin()) {
     assert(0 && "MachO linker has not supported yet");
     return false;
@@ -58,7 +57,7 @@ bool emulateAArch64LD(LinkerScript& pScript, LinkerConfig& pConfig)
   return MCLDEmulateAArch64ELF(pScript, pConfig);
 }
 
-} // namespace of mcld
+}  // namespace mcld
 
 //===----------------------------------------------------------------------===//
 // AArch64Emulation
@@ -68,4 +67,3 @@ extern "C" void MCLDInitializeAArch64Emulation() {
   mcld::TargetRegistry::RegisterEmulation(mcld::TheAArch64Target,
                                           mcld::emulateAArch64LD);
 }
-

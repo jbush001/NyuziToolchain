@@ -7,12 +7,13 @@
 //
 //===----------------------------------------------------------------------===//
 #include <mcld/MC/CommandAction.h>
+
+#include <mcld/LinkerConfig.h>
+#include <mcld/MC/Attribute.h>
 #include <mcld/MC/InputBuilder.h>
 #include <mcld/MC/SearchDirs.h>
-#include <mcld/MC/Attribute.h>
 #include <mcld/Support/MsgHandling.h>
 #include <mcld/Support/FileSystem.h>
-#include <mcld/LinkerConfig.h>
 
 using namespace mcld;
 
@@ -22,12 +23,16 @@ using namespace mcld;
 // InputFileAction
 //===----------------------------------------------------------------------===//
 InputFileAction::InputFileAction(unsigned int pPosition,
-                                 const sys::fs::Path &pPath)
-  : InputAction(pPosition), m_Path(pPath) {
+                                 const sys::fs::Path& pPath)
+    : InputAction(pPosition), m_Path(pPath) {
 }
 
-bool InputFileAction::activate(InputBuilder& pBuilder) const
-{
+InputFileAction::InputFileAction(unsigned int pPosition,
+                                 const char* pPath)
+    : InputAction(pPosition), m_Path(pPath) {
+}
+
+bool InputFileAction::activate(InputBuilder& pBuilder) const {
   pBuilder.createNode<InputTree::Positional>(path().stem().native(), path());
   return true;
 }
@@ -36,13 +41,12 @@ bool InputFileAction::activate(InputBuilder& pBuilder) const
 // NamespecAction
 //===----------------------------------------------------------------------===//
 NamespecAction::NamespecAction(unsigned int pPosition,
-                               const std::string &pNamespec,
+                               const std::string& pNamespec,
                                const SearchDirs& pSearchDirs)
-  : InputAction(pPosition), m_Namespec(pNamespec), m_SearchDirs(pSearchDirs) {
+    : InputAction(pPosition), m_Namespec(pNamespec), m_SearchDirs(pSearchDirs) {
 }
 
-bool NamespecAction::activate(InputBuilder& pBuilder) const
-{
+bool NamespecAction::activate(InputBuilder& pBuilder) const {
   const sys::fs::Path* path = NULL;
   // find out the real path of the namespec.
   if (pBuilder.getConstraint().isSharedSystem()) {
@@ -52,19 +56,17 @@ bool NamespecAction::activate(InputBuilder& pBuilder) const
     if (pBuilder.getAttributes().isStatic()) {
       // with --static, we must search an archive.
       path = m_SearchDirs.find(namespec(), Input::Archive);
-    }
-    else {
+    } else {
       // otherwise, with --Bdynamic, we can find either an archive or a
       // shared object.
       path = m_SearchDirs.find(namespec(), Input::DynObj);
     }
-  }
-  else {
+  } else {
     // In the system without shared object support, we only look for an archive
     path = m_SearchDirs.find(namespec(), Input::Archive);
   }
 
-  if (NULL == path) {
+  if (path == NULL) {
     fatal(diag::err_cannot_find_namespec) << namespec();
     return false;
   }
@@ -76,13 +78,13 @@ bool NamespecAction::activate(InputBuilder& pBuilder) const
 //===----------------------------------------------------------------------===//
 // BitcodeAction
 //===----------------------------------------------------------------------===//
-BitcodeAction::BitcodeAction(unsigned int pPosition, const sys::fs::Path &pPath)
-  : InputAction(pPosition), m_Path(pPath) {
+BitcodeAction::BitcodeAction(unsigned int pPosition, const sys::fs::Path& pPath)
+    : InputAction(pPosition), m_Path(pPath) {
 }
 
-bool BitcodeAction::activate(InputBuilder& pBuilder) const
-{
-  pBuilder.createNode<InputTree::Positional>("bitcode", path(), Input::External);
+bool BitcodeAction::activate(InputBuilder& pBuilder) const {
+  pBuilder.createNode<InputTree::Positional>(
+      "bitcode", path(), Input::External);
   return true;
 }
 
@@ -90,11 +92,10 @@ bool BitcodeAction::activate(InputBuilder& pBuilder) const
 // StartGroupAction
 //===----------------------------------------------------------------------===//
 StartGroupAction::StartGroupAction(unsigned int pPosition)
-  : InputAction(pPosition) {
+    : InputAction(pPosition) {
 }
 
-bool StartGroupAction::activate(InputBuilder& pBuilder) const
-{
+bool StartGroupAction::activate(InputBuilder& pBuilder) const {
   if (pBuilder.isInGroup()) {
     fatal(diag::fatal_forbid_nest_group);
     return false;
@@ -107,11 +108,10 @@ bool StartGroupAction::activate(InputBuilder& pBuilder) const
 // EndGroupAction
 //===----------------------------------------------------------------------===//
 EndGroupAction::EndGroupAction(unsigned int pPosition)
-  : InputAction(pPosition) {
+    : InputAction(pPosition) {
 }
 
-bool EndGroupAction::activate(InputBuilder& pBuilder) const
-{
+bool EndGroupAction::activate(InputBuilder& pBuilder) const {
   pBuilder.exitGroup();
   return true;
 }
@@ -120,11 +120,10 @@ bool EndGroupAction::activate(InputBuilder& pBuilder) const
 // WholeArchiveAction
 //===----------------------------------------------------------------------===//
 WholeArchiveAction::WholeArchiveAction(unsigned int pPosition)
-  : InputAction(pPosition) {
+    : InputAction(pPosition) {
 }
 
-bool WholeArchiveAction::activate(InputBuilder& pBuilder) const
-{
+bool WholeArchiveAction::activate(InputBuilder& pBuilder) const {
   pBuilder.getAttributes().setWholeArchive();
   return true;
 }
@@ -133,11 +132,10 @@ bool WholeArchiveAction::activate(InputBuilder& pBuilder) const
 // NoWholeArchiveAction
 //===----------------------------------------------------------------------===//
 NoWholeArchiveAction::NoWholeArchiveAction(unsigned int pPosition)
-  : InputAction(pPosition) {
+    : InputAction(pPosition) {
 }
 
-bool NoWholeArchiveAction::activate(InputBuilder& pBuilder) const
-{
+bool NoWholeArchiveAction::activate(InputBuilder& pBuilder) const {
   pBuilder.getAttributes().unsetWholeArchive();
   return true;
 }
@@ -146,11 +144,10 @@ bool NoWholeArchiveAction::activate(InputBuilder& pBuilder) const
 // AsNeededAction
 //===----------------------------------------------------------------------===//
 AsNeededAction::AsNeededAction(unsigned int pPosition)
-  : InputAction(pPosition) {
+    : InputAction(pPosition) {
 }
 
-bool AsNeededAction::activate(InputBuilder& pBuilder) const
-{
+bool AsNeededAction::activate(InputBuilder& pBuilder) const {
   pBuilder.getAttributes().setAsNeeded();
   return true;
 }
@@ -159,11 +156,10 @@ bool AsNeededAction::activate(InputBuilder& pBuilder) const
 // NoAsNeededAction
 //===----------------------------------------------------------------------===//
 NoAsNeededAction::NoAsNeededAction(unsigned int pPosition)
-  : InputAction(pPosition) {
+    : InputAction(pPosition) {
 }
 
-bool NoAsNeededAction::activate(InputBuilder& pBuilder) const
-{
+bool NoAsNeededAction::activate(InputBuilder& pBuilder) const {
   pBuilder.getAttributes().unsetAsNeeded();
   return true;
 }
@@ -172,11 +168,10 @@ bool NoAsNeededAction::activate(InputBuilder& pBuilder) const
 // AddNeededAction
 //===----------------------------------------------------------------------===//
 AddNeededAction::AddNeededAction(unsigned int pPosition)
-  : InputAction(pPosition) {
+    : InputAction(pPosition) {
 }
 
-bool AddNeededAction::activate(InputBuilder& pBuilder) const
-{
+bool AddNeededAction::activate(InputBuilder& pBuilder) const {
   pBuilder.getAttributes().setAddNeeded();
   return true;
 }
@@ -185,11 +180,10 @@ bool AddNeededAction::activate(InputBuilder& pBuilder) const
 // NoAddNeededAction
 //===----------------------------------------------------------------------===//
 NoAddNeededAction::NoAddNeededAction(unsigned int pPosition)
-  : InputAction(pPosition) {
+    : InputAction(pPosition) {
 }
 
-bool NoAddNeededAction::activate(InputBuilder& pBuilder) const
-{
+bool NoAddNeededAction::activate(InputBuilder& pBuilder) const {
   pBuilder.getAttributes().unsetAddNeeded();
   return true;
 }
@@ -198,11 +192,10 @@ bool NoAddNeededAction::activate(InputBuilder& pBuilder) const
 // BDynamicAction
 //===----------------------------------------------------------------------===//
 BDynamicAction::BDynamicAction(unsigned int pPosition)
-  : InputAction(pPosition) {
+    : InputAction(pPosition) {
 }
 
-bool BDynamicAction::activate(InputBuilder& pBuilder) const
-{
+bool BDynamicAction::activate(InputBuilder& pBuilder) const {
   pBuilder.getAttributes().setDynamic();
   return true;
 }
@@ -210,12 +203,10 @@ bool BDynamicAction::activate(InputBuilder& pBuilder) const
 //===----------------------------------------------------------------------===//
 // BStaticAction
 //===----------------------------------------------------------------------===//
-BStaticAction::BStaticAction(unsigned int pPosition)
-  : InputAction(pPosition) {
+BStaticAction::BStaticAction(unsigned int pPosition) : InputAction(pPosition) {
 }
 
-bool BStaticAction::activate(InputBuilder& pBuilder) const
-{
+bool BStaticAction::activate(InputBuilder& pBuilder) const {
   pBuilder.getAttributes().setStatic();
   return true;
 }
@@ -224,12 +215,11 @@ bool BStaticAction::activate(InputBuilder& pBuilder) const
 // DefSymAction
 //===----------------------------------------------------------------------===//
 DefSymAction::DefSymAction(unsigned int pPosition, std::string& pAssignment)
-  : InputAction(pPosition), m_Assignment(pAssignment) {
+    : InputAction(pPosition), m_Assignment(pAssignment) {
 }
 
-bool DefSymAction::activate(InputBuilder& pBuilder) const
-{
-  pBuilder.createNode<InputTree::Positional>("defsym", "NAN");
+bool DefSymAction::activate(InputBuilder& pBuilder) const {
+  pBuilder.createNode<InputTree::Positional>("defsym", sys::fs::Path("NAN"));
   Input* input = *pBuilder.getCurrentNode();
   pBuilder.setContext(*input, false);
 
@@ -245,31 +235,33 @@ ScriptAction::ScriptAction(unsigned int pPosition,
                            const std::string& pFileName,
                            ScriptFile::Kind pKind,
                            const SearchDirs& pSearchDirs)
-  : InputAction(pPosition),
-    m_FileName(pFileName),
-    m_Kind(pKind),
-    m_SearchDirs(pSearchDirs) {
+    : InputAction(pPosition),
+      m_FileName(pFileName),
+      m_Kind(pKind),
+      m_SearchDirs(pSearchDirs) {
 }
 
-bool ScriptAction::activate(InputBuilder& pBuilder) const
-{
+bool ScriptAction::activate(InputBuilder& pBuilder) const {
   sys::fs::Path path(m_FileName);
 
   if (!exists(path)) {
     const sys::fs::Path* res = m_SearchDirs.find(m_FileName, Input::Script);
     if (res == NULL) {
       switch (m_Kind) {
-      case ScriptFile::LDScript:
-        fatal(diag::err_cannot_find_scriptfile) << "linker script" << m_FileName;
-        break;
-      case ScriptFile::VersionScript:
-        fatal(diag::err_cannot_find_scriptfile) << "version script" << m_FileName;
-        break;
-      case ScriptFile::DynamicList:
-        fatal(diag::err_cannot_find_scriptfile) << "dynamic list" << m_FileName;
-        break;
-      default:
-        break;
+        case ScriptFile::LDScript:
+          fatal(diag::err_cannot_find_scriptfile) << "linker script"
+                                                  << m_FileName;
+          break;
+        case ScriptFile::VersionScript:
+          fatal(diag::err_cannot_find_scriptfile) << "version script"
+                                                  << m_FileName;
+          break;
+        case ScriptFile::DynamicList:
+          fatal(diag::err_cannot_find_scriptfile) << "dynamic list"
+                                                  << m_FileName;
+          break;
+        default:
+          break;
       }
       return false;
     }

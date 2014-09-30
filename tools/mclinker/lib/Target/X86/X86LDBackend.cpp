@@ -12,18 +12,18 @@
 #include "X86Relocator.h"
 #include "X86GNUInfo.h"
 
+#include <mcld/IRBuilder.h>
+#include <mcld/LinkerConfig.h>
+#include <mcld/Fragment/FillFragment.h>
+#include <mcld/Fragment/RegionFragment.h>
+#include <mcld/LD/ELFFileFormat.h>
+#include <mcld/Object/ObjectBuilder.h>
+#include <mcld/Support/MsgHandling.h>
+#include <mcld/Support/TargetRegistry.h>
+
 #include <llvm/ADT/StringRef.h>
 #include <llvm/ADT/Triple.h>
 #include <llvm/Support/Casting.h>
-
-#include <mcld/LinkerConfig.h>
-#include <mcld/IRBuilder.h>
-#include <mcld/LD/ELFFileFormat.h>
-#include <mcld/Fragment/FillFragment.h>
-#include <mcld/Fragment/RegionFragment.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/Support/TargetRegistry.h>
-#include <mcld/Object/ObjectBuilder.h>
 #include <llvm/Support/Dwarf.h>
 
 #include <cstring>
@@ -36,17 +36,16 @@ using namespace mcld;
 X86GNULDBackend::X86GNULDBackend(const LinkerConfig& pConfig,
                                  GNUInfo* pInfo,
                                  Relocation::Type pCopyRel)
-  : GNULDBackend(pConfig, pInfo),
-    m_pRelocator(NULL),
-    m_pPLT(NULL),
-    m_pRelDyn(NULL),
-    m_pRelPLT(NULL),
-    m_pDynamic(NULL),
-    m_pGOTSymbol(NULL),
-    m_CopyRel(pCopyRel)
-{
+    : GNULDBackend(pConfig, pInfo),
+      m_pRelocator(NULL),
+      m_pPLT(NULL),
+      m_pRelDyn(NULL),
+      m_pRelPLT(NULL),
+      m_pDynamic(NULL),
+      m_pGOTSymbol(NULL),
+      m_CopyRel(pCopyRel) {
   llvm::Triple::ArchType arch = pConfig.targets().triple().getArch();
-  assert (arch == llvm::Triple::x86 || arch == llvm::Triple::x86_64);
+  assert(arch == llvm::Triple::x86 || arch == llvm::Triple::x86_64);
   if (arch == llvm::Triple::x86 ||
       pConfig.targets().triple().getEnvironment() == llvm::Triple::GNUX32) {
     m_RelEntrySize = 8;
@@ -55,16 +54,14 @@ X86GNULDBackend::X86GNULDBackend(const LinkerConfig& pConfig,
       m_PointerRel = llvm::ELF::R_386_32;
     else
       m_PointerRel = llvm::ELF::R_X86_64_32;
-  }
-  else {
+  } else {
     m_RelEntrySize = 16;
     m_RelaEntrySize = 24;
     m_PointerRel = llvm::ELF::R_X86_64_64;
   }
 }
 
-X86GNULDBackend::~X86GNULDBackend()
-{
+X86GNULDBackend::~X86GNULDBackend() {
   delete m_pRelocator;
   delete m_pPLT;
   delete m_pRelDyn;
@@ -72,22 +69,19 @@ X86GNULDBackend::~X86GNULDBackend()
   delete m_pDynamic;
 }
 
-const Relocator* X86GNULDBackend::getRelocator() const
-{
-  assert(NULL != m_pRelocator);
+const Relocator* X86GNULDBackend::getRelocator() const {
+  assert(m_pRelocator != NULL);
   return m_pRelocator;
 }
 
-Relocator* X86GNULDBackend::getRelocator()
-{
-  assert(NULL != m_pRelocator);
+Relocator* X86GNULDBackend::getRelocator() {
+  assert(m_pRelocator != NULL);
   return m_pRelocator;
 }
 
-void X86GNULDBackend::doPreLayout(IRBuilder& pBuilder)
-{
+void X86GNULDBackend::doPreLayout(IRBuilder& pBuilder) {
   // initialize .dynamic data
-  if (!config().isCodeStatic() && NULL == m_pDynamic)
+  if (!config().isCodeStatic() && m_pDynamic == NULL)
     m_pDynamic = new X86ELFDynamic(*this, config());
 
   // set .got.plt and .got sizes
@@ -101,14 +95,16 @@ void X86GNULDBackend::doPreLayout(IRBuilder& pBuilder)
 
     // set .rel.dyn/.rela.dyn size
     if (!m_pRelDyn->empty()) {
-      assert(!config().isCodeStatic() &&
-            "static linkage should not result in a dynamic relocation section");
+      assert(
+          !config().isCodeStatic() &&
+          "static linkage should not result in a dynamic relocation section");
       setRelDynSize();
     }
     // set .rel.plt/.rela.plt size
     if (!m_pRelPLT->empty()) {
-      assert(!config().isCodeStatic() &&
-            "static linkage should not result in a dynamic relocation section");
+      assert(
+          !config().isCodeStatic() &&
+          "static linkage should not result in a dynamic relocation section");
       setRelPLTSize();
     }
   }
@@ -117,57 +113,50 @@ void X86GNULDBackend::doPreLayout(IRBuilder& pBuilder)
     addEhFrameForPLT(pBuilder.getModule());
 }
 
-void X86GNULDBackend::doPostLayout(Module& pModule,
-                                   IRBuilder& pBuilder)
-{
+void X86GNULDBackend::doPostLayout(Module& pModule, IRBuilder& pBuilder) {
 }
 
 /// dynamic - the dynamic section of the target machine.
 /// Use co-variant return type to return its own dynamic section.
-X86ELFDynamic& X86GNULDBackend::dynamic()
-{
-  assert(NULL != m_pDynamic);
+X86ELFDynamic& X86GNULDBackend::dynamic() {
+  assert(m_pDynamic != NULL);
   return *m_pDynamic;
 }
 
 /// dynamic - the dynamic section of the target machine.
 /// Use co-variant return type to return its own dynamic section.
-const X86ELFDynamic& X86GNULDBackend::dynamic() const
-{
-  assert(NULL != m_pDynamic);
+const X86ELFDynamic& X86GNULDBackend::dynamic() const {
+  assert(m_pDynamic != NULL);
   return *m_pDynamic;
 }
 
-void X86GNULDBackend::defineGOTSymbol(IRBuilder& pBuilder, Fragment& pFrag)
-{
+void X86GNULDBackend::defineGOTSymbol(IRBuilder& pBuilder, Fragment& pFrag) {
   // define symbol _GLOBAL_OFFSET_TABLE_
   if (m_pGOTSymbol != NULL) {
     pBuilder.AddSymbol<IRBuilder::Force, IRBuilder::Unresolve>(
-                     "_GLOBAL_OFFSET_TABLE_",
-                     ResolveInfo::Object,
-                     ResolveInfo::Define,
-                     ResolveInfo::Local,
-                     0x0, // size
-                     0x0, // value
-                     FragmentRef::Create(pFrag, 0x0),
-                     ResolveInfo::Hidden);
-  }
-  else {
+        "_GLOBAL_OFFSET_TABLE_",
+        ResolveInfo::Object,
+        ResolveInfo::Define,
+        ResolveInfo::Local,
+        0x0,  // size
+        0x0,  // value
+        FragmentRef::Create(pFrag, 0x0),
+        ResolveInfo::Hidden);
+  } else {
     m_pGOTSymbol = pBuilder.AddSymbol<IRBuilder::Force, IRBuilder::Resolve>(
-                     "_GLOBAL_OFFSET_TABLE_",
-                     ResolveInfo::Object,
-                     ResolveInfo::Define,
-                     ResolveInfo::Local,
-                     0x0, // size
-                     0x0, // value
-                     FragmentRef::Create(pFrag, 0x0),
-                     ResolveInfo::Hidden);
+        "_GLOBAL_OFFSET_TABLE_",
+        ResolveInfo::Object,
+        ResolveInfo::Define,
+        ResolveInfo::Local,
+        0x0,  // size
+        0x0,  // value
+        FragmentRef::Create(pFrag, 0x0),
+        ResolveInfo::Hidden);
   }
 }
 
 uint64_t X86GNULDBackend::emitSectionData(const LDSection& pSection,
-                                          MemoryRegion& pRegion) const
-{
+                                          MemoryRegion& pRegion) const {
   assert(pRegion.size() && "Size of MemoryRegion is zero!");
 
   const ELFFileFormat* FileFormat = getOutputFormat();
@@ -198,61 +187,50 @@ uint64_t X86GNULDBackend::emitSectionData(const LDSection& pSection,
       RegionSize += EntrySize;
       ++it;
     }
-  }
-  else if (FileFormat->hasGOT() && (&pSection == &(FileFormat->getGOT()))) {
+  } else if (FileFormat->hasGOT() && (&pSection == &(FileFormat->getGOT()))) {
     RegionSize += emitGOTSectionData(pRegion);
-  }
-  else if (FileFormat->hasGOTPLT() &&
-           (&pSection == &(FileFormat->getGOTPLT()))) {
+  } else if (FileFormat->hasGOTPLT() &&
+             (&pSection == &(FileFormat->getGOTPLT()))) {
     RegionSize += emitGOTPLTSectionData(pRegion, FileFormat);
-  }
-  else {
-    fatal(diag::unrecognized_output_sectoin)
-            << pSection.name()
-            << "mclinker@googlegroups.com";
+  } else {
+    fatal(diag::unrecognized_output_sectoin) << pSection.name()
+                                             << "mclinker@googlegroups.com";
   }
   return RegionSize;
 }
 
-X86PLT& X86GNULDBackend::getPLT()
-{
-  assert(NULL != m_pPLT && "PLT section not exist");
+X86PLT& X86GNULDBackend::getPLT() {
+  assert(m_pPLT != NULL && "PLT section not exist");
   return *m_pPLT;
 }
 
-const X86PLT& X86GNULDBackend::getPLT() const
-{
-  assert(NULL != m_pPLT && "PLT section not exist");
+const X86PLT& X86GNULDBackend::getPLT() const {
+  assert(m_pPLT != NULL && "PLT section not exist");
   return *m_pPLT;
 }
 
-OutputRelocSection& X86GNULDBackend::getRelDyn()
-{
-  assert(NULL != m_pRelDyn && ".rel.dyn/.rela.dyn section not exist");
+OutputRelocSection& X86GNULDBackend::getRelDyn() {
+  assert(m_pRelDyn != NULL && ".rel.dyn/.rela.dyn section not exist");
   return *m_pRelDyn;
 }
 
-const OutputRelocSection& X86GNULDBackend::getRelDyn() const
-{
-  assert(NULL != m_pRelDyn && ".rel.dyn/.rela.dyn section not exist");
+const OutputRelocSection& X86GNULDBackend::getRelDyn() const {
+  assert(m_pRelDyn != NULL && ".rel.dyn/.rela.dyn section not exist");
   return *m_pRelDyn;
 }
 
-OutputRelocSection& X86GNULDBackend::getRelPLT()
-{
-  assert(NULL != m_pRelPLT && ".rel.plt/.rela.plt section not exist");
+OutputRelocSection& X86GNULDBackend::getRelPLT() {
+  assert(m_pRelPLT != NULL && ".rel.plt/.rela.plt section not exist");
   return *m_pRelPLT;
 }
 
-const OutputRelocSection& X86GNULDBackend::getRelPLT() const
-{
-  assert(NULL != m_pRelPLT && ".rel.plt/.rela.plt section not exist");
+const OutputRelocSection& X86GNULDBackend::getRelPLT() const {
+  assert(m_pRelPLT != NULL && ".rel.plt/.rela.plt section not exist");
   return *m_pRelPLT;
 }
 
-unsigned int
-X86GNULDBackend::getTargetSectionOrder(const LDSection& pSectHdr) const
-{
+unsigned int X86GNULDBackend::getTargetSectionOrder(
+    const LDSection& pSectHdr) const {
   const ELFFileFormat* file_format = getOutputFormat();
 
   if (file_format->hasGOT() && (&pSectHdr == &file_format->getGOT())) {
@@ -273,26 +251,24 @@ X86GNULDBackend::getTargetSectionOrder(const LDSection& pSectHdr) const
   return SHO_UNDEFINED;
 }
 
-void X86GNULDBackend::initTargetSymbols(IRBuilder& pBuilder, Module& pModule)
-{
+void X86GNULDBackend::initTargetSymbols(IRBuilder& pBuilder, Module& pModule) {
   if (LinkerConfig::Object != config().codeGenType()) {
     // Define the symbol _GLOBAL_OFFSET_TABLE_ if there is a symbol with the
     // same name in input
     m_pGOTSymbol =
-      pBuilder.AddSymbol<IRBuilder::AsReferred, IRBuilder::Resolve>(
-                                                "_GLOBAL_OFFSET_TABLE_",
-                                                ResolveInfo::Object,
-                                                ResolveInfo::Define,
-                                                ResolveInfo::Local,
-                                                0x0,  // size
-                                                0x0,  // value
-                                                FragmentRef::Null(), // FragRef
-                                                ResolveInfo::Hidden);
+        pBuilder.AddSymbol<IRBuilder::AsReferred, IRBuilder::Resolve>(
+            "_GLOBAL_OFFSET_TABLE_",
+            ResolveInfo::Object,
+            ResolveInfo::Define,
+            ResolveInfo::Local,
+            0x0,                  // size
+            0x0,                  // value
+            FragmentRef::Null(),  // FragRef
+            ResolveInfo::Hidden);
   }
 }
 
-void X86GNULDBackend::addEhFrameForPLT(Module& pModule)
-{
+void X86GNULDBackend::addEhFrameForPLT(Module& pModule) {
   LDSection* plt_sect = pModule.getSection(".plt");
   if (!plt_sect || plt_sect->size() == 0u)
     return;
@@ -309,8 +285,8 @@ void X86GNULDBackend::addEhFrameForPLT(Module& pModule)
   EhFrame::CIE* cie = new EhFrame::GeneratedCIE(cie_region);
   EhFrame::FDE* fde = new EhFrame::GeneratedFDE(fde_region, *cie);
   // Augmentation data only contains FDE encoding.
-  uint8_t aug_data = (uint8_t)(llvm::dwarf::DW_EH_PE_pcrel |
-                               llvm::dwarf::DW_EH_PE_sdata4);
+  uint8_t aug_data =
+      (uint8_t)(llvm::dwarf::DW_EH_PE_pcrel | llvm::dwarf::DW_EH_PE_sdata4);
   cie->setFDEEncode(aug_data);
   cie->setAugmentationData(std::string(1, aug_data));
 
@@ -337,42 +313,37 @@ void X86GNULDBackend::addEhFrameForPLT(Module& pModule)
 }
 
 /// finalizeSymbol - finalize the symbol value
-bool X86GNULDBackend::finalizeTargetSymbols()
-{
+bool X86GNULDBackend::finalizeTargetSymbols() {
   return true;
 }
 
 /// doCreateProgramHdrs - backend can implement this function to create the
 /// target-dependent segments
-void X86GNULDBackend::doCreateProgramHdrs(Module& pModule)
-{
+void X86GNULDBackend::doCreateProgramHdrs(Module& pModule) {
   // TODO
 }
 
 X86_32GNULDBackend::X86_32GNULDBackend(const LinkerConfig& pConfig,
                                        GNUInfo* pInfo)
-  : X86GNULDBackend(pConfig, pInfo, llvm::ELF::R_386_COPY),
-    m_pGOT (NULL),
-    m_pGOTPLT (NULL) {
+    : X86GNULDBackend(pConfig, pInfo, llvm::ELF::R_386_COPY),
+      m_pGOT(NULL),
+      m_pGOTPLT(NULL) {
 }
 
-X86_32GNULDBackend::~X86_32GNULDBackend()
-{
+X86_32GNULDBackend::~X86_32GNULDBackend() {
   delete m_pGOT;
   delete m_pGOTPLT;
 }
 
-bool X86_32GNULDBackend::initRelocator()
-{
-  if (NULL == m_pRelocator) {
+bool X86_32GNULDBackend::initRelocator() {
+  if (m_pRelocator == NULL) {
     m_pRelocator = new X86_32Relocator(*this, config());
   }
   return true;
 }
 
 void X86_32GNULDBackend::initTargetSections(Module& pModule,
-                                            ObjectBuilder& pBuilder)
-{
+                                            ObjectBuilder& pBuilder) {
   if (LinkerConfig::Object != config().codeGenType()) {
     ELFFileFormat* file_format = getOutputFormat();
     // initialize .got
@@ -396,107 +367,95 @@ void X86_32GNULDBackend::initTargetSections(Module& pModule,
     // initialize .rel.dyn
     LDSection& reldyn = file_format->getRelDyn();
     m_pRelDyn = new OutputRelocSection(pModule, reldyn);
-
   }
 }
 
-X86_32GOT& X86_32GNULDBackend::getGOT()
-{
-  assert(NULL != m_pGOT);
+X86_32GOT& X86_32GNULDBackend::getGOT() {
+  assert(m_pGOT != NULL);
   return *m_pGOT;
 }
 
-const X86_32GOT& X86_32GNULDBackend::getGOT() const
-{
-  assert(NULL != m_pGOT);
+const X86_32GOT& X86_32GNULDBackend::getGOT() const {
+  assert(m_pGOT != NULL);
   return *m_pGOT;
 }
 
-X86_32GOTPLT& X86_32GNULDBackend::getGOTPLT()
-{
-  assert(NULL != m_pGOTPLT);
+X86_32GOTPLT& X86_32GNULDBackend::getGOTPLT() {
+  assert(m_pGOTPLT != NULL);
   return *m_pGOTPLT;
 }
 
-const X86_32GOTPLT& X86_32GNULDBackend::getGOTPLT() const
-{
-  assert(NULL != m_pGOTPLT);
+const X86_32GOTPLT& X86_32GNULDBackend::getGOTPLT() const {
+  assert(m_pGOTPLT != NULL);
   return *m_pGOTPLT;
 }
 
-llvm::StringRef X86_32GNULDBackend::createCIERegionForPLT()
-{
-  using namespace llvm::dwarf;
-  static const uint8_t data[4+4+16] = {
-    0x14, 0, 0, 0, // length
-    0, 0, 0, 0, // ID
-    1,  // version
-    'z', 'R', '\0', // augmentation string
-    1,  // code alignment factor
-    0x7c, // data alignment factor
-    8,  // return address column
-    1,  // augmentation data size
-    DW_EH_PE_pcrel | DW_EH_PE_sdata4, // FDE encoding
-    DW_CFA_def_cfa, 4, 4,
-    DW_CFA_offset + 8, 1,
-    DW_CFA_nop,
-    DW_CFA_nop
+llvm::StringRef X86_32GNULDBackend::createCIERegionForPLT() {
+  static const uint8_t data[4 + 4 + 16] = {
+      0x14, 0, 0, 0,  // length
+      0, 0, 0, 0,  // ID
+      1,  // version
+      'z', 'R', '\0',  // augmentation string
+      1,  // code alignment factor
+      0x7c,  // data alignment factor
+      8,  // return address column
+      1,  // augmentation data size
+      llvm::dwarf::DW_EH_PE_pcrel
+          | llvm::dwarf::DW_EH_PE_sdata4,  // FDE encoding
+      llvm::dwarf::DW_CFA_def_cfa, 4, 4,
+      llvm::dwarf::DW_CFA_offset + 8, 1,
+      llvm::dwarf::DW_CFA_nop,
+      llvm::dwarf::DW_CFA_nop
   };
-  return llvm::StringRef((const char*)data, 4+4+16);
+  return llvm::StringRef((const char*)data, 4 + 4 + 16);
 }
 
-llvm::StringRef X86_32GNULDBackend::createFDERegionForPLT()
-{
-  using namespace llvm::dwarf;
-  static const uint8_t data[4+4+32] = {
-    0x24, 0, 0, 0,  // length
-    0, 0, 0, 0,   // offset to CIE
-    0, 0, 0, 0,   // offset to PLT
-    0, 0, 0, 0,   // size of PLT
-    0,            // augmentation data size
-    DW_CFA_def_cfa_offset, 8,
-    DW_CFA_advance_loc + 6,
-    DW_CFA_def_cfa_offset, 12,
-    DW_CFA_advance_loc + 10,
-    DW_CFA_def_cfa_expression,
-    11,
-    DW_OP_breg4, 4,
-    DW_OP_breg8, 0,
-    DW_OP_lit15,
-    DW_OP_and,
-    DW_OP_lit11,
-    DW_OP_ge,
-    DW_OP_lit2,
-    DW_OP_shl,
-    DW_OP_plus,
-    DW_CFA_nop,
-    DW_CFA_nop,
-    DW_CFA_nop,
-    DW_CFA_nop
+llvm::StringRef X86_32GNULDBackend::createFDERegionForPLT() {
+  static const uint8_t data[4 + 4 + 32] = {
+      0x24, 0, 0, 0,  // length
+      0, 0, 0, 0,  // offset to CIE
+      0, 0, 0, 0,  // offset to PLT
+      0, 0, 0, 0,  // size of PLT
+      0,  // augmentation data size
+      llvm::dwarf::DW_CFA_def_cfa_offset, 8,
+      llvm::dwarf::DW_CFA_advance_loc + 6,
+      llvm::dwarf::DW_CFA_def_cfa_offset, 12,
+      llvm::dwarf::DW_CFA_advance_loc + 10,
+      llvm::dwarf::DW_CFA_def_cfa_expression,
+      11,
+      llvm::dwarf::DW_OP_breg4, 4,
+      llvm::dwarf::DW_OP_breg8, 0,
+      llvm::dwarf::DW_OP_lit15,
+      llvm::dwarf::DW_OP_and,
+      llvm::dwarf::DW_OP_lit11,
+      llvm::dwarf::DW_OP_ge,
+      llvm::dwarf::DW_OP_lit2,
+      llvm::dwarf::DW_OP_shl,
+      llvm::dwarf::DW_OP_plus,
+      llvm::dwarf::DW_CFA_nop,
+      llvm::dwarf::DW_CFA_nop,
+      llvm::dwarf::DW_CFA_nop,
+      llvm::dwarf::DW_CFA_nop
   };
-  return llvm::StringRef((const char*)data, 4+4+32);
+  return llvm::StringRef((const char*)data, 4 + 4 + 32);
 }
 
-void X86_32GNULDBackend::setRelDynSize()
-{
+void X86_32GNULDBackend::setRelDynSize() {
   ELFFileFormat* file_format = getOutputFormat();
-  file_format->getRelDyn().setSize
-    (m_pRelDyn->numOfRelocs() * getRelEntrySize());
+  file_format->getRelDyn().setSize(m_pRelDyn->numOfRelocs() *
+                                   getRelEntrySize());
 }
 
-void X86_32GNULDBackend::setRelPLTSize()
-{
+void X86_32GNULDBackend::setRelPLTSize() {
   ELFFileFormat* file_format = getOutputFormat();
-  file_format->getRelPlt().setSize
-    (m_pRelPLT->numOfRelocs() * getRelEntrySize());
+  file_format->getRelPlt().setSize(m_pRelPLT->numOfRelocs() *
+                                   getRelEntrySize());
 }
 
-void X86_32GNULDBackend::setGOTSectionSize(IRBuilder& pBuilder)
-{
+void X86_32GNULDBackend::setGOTSectionSize(IRBuilder& pBuilder) {
   // set .got.plt size
-  if (LinkerConfig::DynObj == config().codeGenType() ||
-      m_pGOTPLT->hasGOT1() ||
-      NULL != m_pGOTSymbol) {
+  if (LinkerConfig::DynObj == config().codeGenType() || m_pGOTPLT->hasGOT1() ||
+      m_pGOTSymbol != NULL) {
     m_pGOTPLT->finalizeSectionSize();
     defineGOTSymbol(pBuilder, *(m_pGOTPLT->begin()));
   }
@@ -506,8 +465,7 @@ void X86_32GNULDBackend::setGOTSectionSize(IRBuilder& pBuilder)
     m_pGOT->finalizeSectionSize();
 }
 
-uint64_t X86_32GNULDBackend::emitGOTSectionData(MemoryRegion& pRegion) const
-{
+uint64_t X86_32GNULDBackend::emitGOTSectionData(MemoryRegion& pRegion) const {
   assert(m_pGOT && "emitGOTSectionData failed, m_pGOT is NULL!");
 
   uint32_t* buffer = reinterpret_cast<uint32_t*>(pRegion.begin());
@@ -516,8 +474,8 @@ uint64_t X86_32GNULDBackend::emitGOTSectionData(MemoryRegion& pRegion) const
   unsigned int EntrySize = X86_32GOTEntry::EntrySize;
   uint64_t RegionSize = 0;
 
-  for (X86_32GOT::iterator it = m_pGOT->begin(),
-       ie = m_pGOT->end(); it != ie; ++it, ++buffer) {
+  for (X86_32GOT::iterator it = m_pGOT->begin(), ie = m_pGOT->end(); it != ie;
+       ++it, ++buffer) {
     got = &(llvm::cast<X86_32GOTEntry>((*it)));
     *buffer = static_cast<uint32_t>(got->getValue());
     RegionSize += EntrySize;
@@ -526,9 +484,9 @@ uint64_t X86_32GNULDBackend::emitGOTSectionData(MemoryRegion& pRegion) const
   return RegionSize;
 }
 
-uint64_t X86_32GNULDBackend::emitGOTPLTSectionData(MemoryRegion& pRegion,
-                                                   const ELFFileFormat* FileFormat) const
-{
+uint64_t X86_32GNULDBackend::emitGOTPLTSectionData(
+    MemoryRegion& pRegion,
+    const ELFFileFormat* FileFormat) const {
   assert(m_pGOTPLT && "emitGOTPLTSectionData failed, m_pGOTPLT is NULL!");
   m_pGOTPLT->applyGOT0(FileFormat->getDynamic().addr());
   m_pGOTPLT->applyAllGOTPLT(*m_pPLT);
@@ -539,8 +497,9 @@ uint64_t X86_32GNULDBackend::emitGOTPLTSectionData(MemoryRegion& pRegion,
   unsigned int EntrySize = X86_32GOTEntry::EntrySize;
   uint64_t RegionSize = 0;
 
-  for (X86_32GOTPLT::iterator it = m_pGOTPLT->begin(),
-       ie = m_pGOTPLT->end(); it != ie; ++it, ++buffer) {
+  for (X86_32GOTPLT::iterator it = m_pGOTPLT->begin(), ie = m_pGOTPLT->end();
+       it != ie;
+       ++it, ++buffer) {
     got = &(llvm::cast<X86_32GOTEntry>((*it)));
     *buffer = static_cast<uint32_t>(got->getValue());
     RegionSize += EntrySize;
@@ -551,119 +510,107 @@ uint64_t X86_32GNULDBackend::emitGOTPLTSectionData(MemoryRegion& pRegion,
 
 X86_64GNULDBackend::X86_64GNULDBackend(const LinkerConfig& pConfig,
                                        GNUInfo* pInfo)
-  : X86GNULDBackend(pConfig, pInfo, llvm::ELF::R_X86_64_COPY),
-    m_pGOT (NULL),
-    m_pGOTPLT (NULL) {
+    : X86GNULDBackend(pConfig, pInfo, llvm::ELF::R_X86_64_COPY),
+      m_pGOT(NULL),
+      m_pGOTPLT(NULL) {
 }
 
-X86_64GNULDBackend::~X86_64GNULDBackend()
-{
+X86_64GNULDBackend::~X86_64GNULDBackend() {
   delete m_pGOT;
   delete m_pGOTPLT;
 }
 
-bool X86_64GNULDBackend::initRelocator()
-{
-  if (NULL == m_pRelocator) {
+bool X86_64GNULDBackend::initRelocator() {
+  if (m_pRelocator == NULL) {
     m_pRelocator = new X86_64Relocator(*this, config());
   }
   return true;
 }
 
-X86_64GOT& X86_64GNULDBackend::getGOT()
-{
-  assert(NULL != m_pGOT);
+X86_64GOT& X86_64GNULDBackend::getGOT() {
+  assert(m_pGOT != NULL);
   return *m_pGOT;
 }
 
-const X86_64GOT& X86_64GNULDBackend::getGOT() const
-{
-  assert(NULL != m_pGOT);
+const X86_64GOT& X86_64GNULDBackend::getGOT() const {
+  assert(m_pGOT != NULL);
   return *m_pGOT;
 }
 
-X86_64GOTPLT& X86_64GNULDBackend::getGOTPLT()
-{
-  assert(NULL != m_pGOTPLT);
+X86_64GOTPLT& X86_64GNULDBackend::getGOTPLT() {
+  assert(m_pGOTPLT != NULL);
   return *m_pGOTPLT;
 }
 
-const X86_64GOTPLT& X86_64GNULDBackend::getGOTPLT() const
-{
-  assert(NULL != m_pGOTPLT);
+const X86_64GOTPLT& X86_64GNULDBackend::getGOTPLT() const {
+  assert(m_pGOTPLT != NULL);
   return *m_pGOTPLT;
 }
 
-llvm::StringRef X86_64GNULDBackend::createCIERegionForPLT()
-{
-  using namespace llvm::dwarf;
-  static const uint8_t data[4+4+16] = {
-    0x14, 0, 0, 0,  // length
-    0, 0, 0, 0,   // ID
-    1,          // CIE version
-    'z', 'R', '\0', // augmentation string
-    1,          // code alignment factor
-    0x78,       // data alignment factor
-    16,         // return address column
-    1,          // augmentation data size
-    DW_EH_PE_pcrel | DW_EH_PE_sdata4, // FDE encoding
-    DW_CFA_def_cfa, 7, 8,
-    DW_CFA_offset + 16, 1,
-    DW_CFA_nop,
-    DW_CFA_nop
+llvm::StringRef X86_64GNULDBackend::createCIERegionForPLT() {
+  static const uint8_t data[4 + 4 + 16] = {
+      0x14, 0, 0, 0,  // length
+      0, 0, 0, 0,  // ID
+      1,  // CIE version
+      'z', 'R', '\0',  // augmentation string
+      1,  // code alignment factor
+      0x78,  // data alignment factor
+      16,  // return address column
+      1,  // augmentation data size
+      llvm::dwarf::DW_EH_PE_pcrel
+          | llvm::dwarf::DW_EH_PE_sdata4,  // FDE encoding
+      llvm::dwarf::DW_CFA_def_cfa, 7, 8,
+      llvm::dwarf::DW_CFA_offset + 16, 1,
+      llvm::dwarf::DW_CFA_nop,
+      llvm::dwarf::DW_CFA_nop
   };
-  return llvm::StringRef((const char*)data, 4+4+16);
+  return llvm::StringRef((const char*)data, 4 + 4 + 16);
 }
 
-llvm::StringRef X86_64GNULDBackend::createFDERegionForPLT()
-{
-  using namespace llvm::dwarf;
-  static const uint8_t data[4+4+32] = {
-    0x24, 0, 0, 0,  // length
-    0, 0, 0, 0,   // ID
-    0, 0, 0, 0,   // offset to PLT
-    0, 0, 0, 0,   // size of PLT
-    0,            // augmentation data size
-    DW_CFA_def_cfa_offset, 16,
-    DW_CFA_advance_loc + 6,
-    DW_CFA_def_cfa_offset, 24,
-    DW_CFA_advance_loc + 10,
-    DW_CFA_def_cfa_expression,
-    11,
-    DW_OP_breg7, 8,
-    DW_OP_breg16, 0,
-    DW_OP_lit15,
-    DW_OP_and,
-    DW_OP_lit11,
-    DW_OP_ge,
-    DW_OP_lit3,
-    DW_OP_shl,
-    DW_OP_plus,
-    DW_CFA_nop,
-    DW_CFA_nop,
-    DW_CFA_nop,
-    DW_CFA_nop
+llvm::StringRef X86_64GNULDBackend::createFDERegionForPLT() {
+  static const uint8_t data[4 + 4 + 32] = {
+      0x24, 0, 0, 0,  // length
+      0, 0, 0, 0,  // ID
+      0, 0, 0, 0,  // offset to PLT
+      0, 0, 0, 0,  // size of PLT
+      0,  // augmentation data size
+      llvm::dwarf::DW_CFA_def_cfa_offset, 16,
+      llvm::dwarf::DW_CFA_advance_loc + 6,
+      llvm::dwarf::DW_CFA_def_cfa_offset, 24,
+      llvm::dwarf::DW_CFA_advance_loc + 10,
+      llvm::dwarf::DW_CFA_def_cfa_expression,
+      11,
+      llvm::dwarf::DW_OP_breg7, 8,
+      llvm::dwarf::DW_OP_breg16, 0,
+      llvm::dwarf::DW_OP_lit15,
+      llvm::dwarf::DW_OP_and,
+      llvm::dwarf::DW_OP_lit11,
+      llvm::dwarf::DW_OP_ge,
+      llvm::dwarf::DW_OP_lit3,
+      llvm::dwarf::DW_OP_shl,
+      llvm::dwarf::DW_OP_plus,
+      llvm::dwarf::DW_CFA_nop,
+      llvm::dwarf::DW_CFA_nop,
+      llvm::dwarf::DW_CFA_nop,
+      llvm::dwarf::DW_CFA_nop
   };
-  return llvm::StringRef((const char*)data, 4+4+32);
+  return llvm::StringRef((const char*)data, 4 + 4 + 32);
 }
 
-void X86_64GNULDBackend::setRelDynSize()
-{
+void X86_64GNULDBackend::setRelDynSize() {
   ELFFileFormat* file_format = getOutputFormat();
-  file_format->getRelaDyn().setSize
-    (m_pRelDyn->numOfRelocs() * getRelaEntrySize());
+  file_format->getRelaDyn().setSize(m_pRelDyn->numOfRelocs() *
+                                    getRelaEntrySize());
 }
 
-void X86_64GNULDBackend::setRelPLTSize()
-{
+void X86_64GNULDBackend::setRelPLTSize() {
   ELFFileFormat* file_format = getOutputFormat();
-  file_format->getRelaPlt().setSize
-    (m_pRelPLT->numOfRelocs() * getRelaEntrySize());
+  file_format->getRelaPlt().setSize(m_pRelPLT->numOfRelocs() *
+                                    getRelaEntrySize());
 }
 
 void X86_64GNULDBackend::initTargetSections(Module& pModule,
-                                            ObjectBuilder& pBuilder)
-{
+                                            ObjectBuilder& pBuilder) {
   if (LinkerConfig::Object != config().codeGenType()) {
     ELFFileFormat* file_format = getOutputFormat();
     // initialize .got
@@ -687,16 +634,13 @@ void X86_64GNULDBackend::initTargetSections(Module& pModule,
     // initialize .rela.dyn
     LDSection& reldyn = file_format->getRelaDyn();
     m_pRelDyn = new OutputRelocSection(pModule, reldyn);
-
   }
 }
 
-void X86_64GNULDBackend::setGOTSectionSize(IRBuilder& pBuilder)
-{
+void X86_64GNULDBackend::setGOTSectionSize(IRBuilder& pBuilder) {
   // set .got.plt size
-  if (LinkerConfig::DynObj == config().codeGenType() ||
-      m_pGOTPLT->hasGOT1() ||
-      NULL != m_pGOTSymbol) {
+  if (LinkerConfig::DynObj == config().codeGenType() || m_pGOTPLT->hasGOT1() ||
+      m_pGOTSymbol != NULL) {
     m_pGOTPLT->finalizeSectionSize();
     defineGOTSymbol(pBuilder, *(m_pGOTPLT->begin()));
   }
@@ -706,8 +650,7 @@ void X86_64GNULDBackend::setGOTSectionSize(IRBuilder& pBuilder)
     m_pGOT->finalizeSectionSize();
 }
 
-uint64_t X86_64GNULDBackend::emitGOTSectionData(MemoryRegion& pRegion) const
-{
+uint64_t X86_64GNULDBackend::emitGOTSectionData(MemoryRegion& pRegion) const {
   assert(m_pGOT && "emitGOTSectionData failed, m_pGOT is NULL!");
 
   uint64_t* buffer = reinterpret_cast<uint64_t*>(pRegion.begin());
@@ -716,8 +659,8 @@ uint64_t X86_64GNULDBackend::emitGOTSectionData(MemoryRegion& pRegion) const
   unsigned int EntrySize = X86_64GOTEntry::EntrySize;
   uint64_t RegionSize = 0;
 
-  for (X86_64GOT::iterator it = m_pGOT->begin(),
-       ie = m_pGOT->end(); it != ie; ++it, ++buffer) {
+  for (X86_64GOT::iterator it = m_pGOT->begin(), ie = m_pGOT->end(); it != ie;
+       ++it, ++buffer) {
     got = &(llvm::cast<X86_64GOTEntry>((*it)));
     *buffer = static_cast<uint64_t>(got->getValue());
     RegionSize += EntrySize;
@@ -726,10 +669,9 @@ uint64_t X86_64GNULDBackend::emitGOTSectionData(MemoryRegion& pRegion) const
   return RegionSize;
 }
 
-uint64_t
-X86_64GNULDBackend::emitGOTPLTSectionData(MemoryRegion& pRegion,
-                                          const ELFFileFormat* FileFormat) const
-{
+uint64_t X86_64GNULDBackend::emitGOTPLTSectionData(
+    MemoryRegion& pRegion,
+    const ELFFileFormat* FileFormat) const {
   assert(m_pGOTPLT && "emitGOTPLTSectionData failed, m_pGOTPLT is NULL!");
   m_pGOTPLT->applyGOT0(FileFormat->getDynamic().addr());
   m_pGOTPLT->applyAllGOTPLT(*m_pPLT);
@@ -740,8 +682,9 @@ X86_64GNULDBackend::emitGOTPLTSectionData(MemoryRegion& pRegion,
   unsigned int EntrySize = X86_64GOTEntry::EntrySize;
   uint64_t RegionSize = 0;
 
-  for (X86_64GOTPLT::iterator it = m_pGOTPLT->begin(),
-       ie = m_pGOTPLT->end(); it != ie; ++it, ++buffer) {
+  for (X86_64GOTPLT::iterator it = m_pGOTPLT->begin(), ie = m_pGOTPLT->end();
+       it != ie;
+       ++it, ++buffer) {
     got = &(llvm::cast<X86_64GOTEntry>((*it)));
     *buffer = static_cast<uint64_t>(got->getValue());
     RegionSize += EntrySize;
@@ -755,8 +698,7 @@ namespace mcld {
 //===----------------------------------------------------------------------===//
 /// createX86LDBackend - the help funtion to create corresponding X86LDBackend
 ///
-TargetLDBackend* createX86LDBackend(const LinkerConfig& pConfig)
-{
+TargetLDBackend* createX86LDBackend(const LinkerConfig& pConfig) {
   if (pConfig.targets().triple().isOSDarwin()) {
     assert(0 && "MachO linker is not supported yet");
     /**
@@ -775,20 +717,22 @@ TargetLDBackend* createX86LDBackend(const LinkerConfig& pConfig)
   }
   llvm::Triple::ArchType arch = pConfig.targets().triple().getArch();
   if (arch == llvm::Triple::x86)
-    return new X86_32GNULDBackend(pConfig,
-                                  new X86_32GNUInfo(pConfig.targets().triple()));
-  assert (arch == llvm::Triple::x86_64);
+    return new X86_32GNULDBackend(
+        pConfig, new X86_32GNUInfo(pConfig.targets().triple()));
+  assert(arch == llvm::Triple::x86_64);
   return new X86_64GNULDBackend(pConfig,
                                 new X86_64GNUInfo(pConfig.targets().triple()));
 }
 
-} // namespace of mcld
+}  // namespace mcld
 
 //===----------------------------------------------------------------------===//
 // Force static initialization.
 //===----------------------------------------------------------------------===//
 extern "C" void MCLDInitializeX86LDBackend() {
   // Register the linker backend
-  mcld::TargetRegistry::RegisterTargetLDBackend(TheX86_32Target, createX86LDBackend);
-  mcld::TargetRegistry::RegisterTargetLDBackend(TheX86_64Target, createX86LDBackend);
+  mcld::TargetRegistry::RegisterTargetLDBackend(TheX86_32Target,
+                                                createX86LDBackend);
+  mcld::TargetRegistry::RegisterTargetLDBackend(TheX86_64Target,
+                                                createX86LDBackend);
 }

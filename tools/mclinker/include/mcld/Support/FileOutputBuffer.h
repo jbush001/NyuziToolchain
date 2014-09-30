@@ -6,13 +6,15 @@
 // license. see license.txt for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SUPPORT_FILEOUTPUTBUFFER_H
-#define MCLD_SUPPORT_FILEOUTPUTBUFFER_H
+#ifndef MCLD_SUPPORT_FILEOUTPUTBUFFER_H_
+#define MCLD_SUPPORT_FILEOUTPUTBUFFER_H_
 
 #include <mcld/Support/MemoryRegion.h>
+
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/FileSystem.h>
+
 #include <system_error>
 
 namespace mcld {
@@ -22,7 +24,7 @@ class FileHandle;
 /// FileOutputBuffer - This interface is borrowed from llvm bassically, and we
 /// may use ostream to emit output later.
 class FileOutputBuffer {
-public:
+ public:
   /// Factory method to create an OutputBuffer object which manages a read/write
   /// buffer of the specified size. When committed, the buffer will be written
   /// to the file at the specified path.
@@ -32,18 +34,16 @@ public:
 
   /// Returns a pointer to the start of the buffer.
   uint8_t* getBufferStart() {
-    return (uint8_t*)m_pRegion->data();
+    return reinterpret_cast<uint8_t*>(m_pRegion->data());
   }
 
   /// Returns a pointer to the end of the buffer.
   uint8_t* getBufferEnd() {
-    return (uint8_t*)m_pRegion->data() + m_pRegion->size();
+    return reinterpret_cast<uint8_t*>(m_pRegion->data()) + m_pRegion->size();
   }
 
   /// Returns size of the buffer.
-  size_t getBufferSize() const {
-    return m_pRegion->size();
-  }
+  size_t getBufferSize() const { return m_pRegion->size(); }
 
   MemoryRegion request(size_t pOffset, size_t pLength);
 
@@ -52,9 +52,9 @@ public:
 
   ~FileOutputBuffer();
 
-private:
-  FileOutputBuffer(const FileOutputBuffer &);
-  FileOutputBuffer &operator=(const FileOutputBuffer &);
+ private:
+  FileOutputBuffer(const FileOutputBuffer&);
+  FileOutputBuffer& operator=(const FileOutputBuffer&);
 
   FileOutputBuffer(llvm::sys::fs::mapped_file_region* pRegion,
                    FileHandle& pFileHandle);
@@ -63,6 +63,6 @@ private:
   FileHandle& m_FileHandle;
 };
 
-} // namespace mcld
+}  // namespace mcld
 
-#endif
+#endif  // MCLD_SUPPORT_FILEOUTPUTBUFFER_H_

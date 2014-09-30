@@ -12,11 +12,8 @@ using namespace mcld;
 
 //==========================
 // ObjectWriter
-ObjectWriter::ObjectWriter()
-{
+ObjectWriter::ObjectWriter() {
 }
 
-ObjectWriter::~ObjectWriter()
-{
+ObjectWriter::~ObjectWriter() {
 }
-

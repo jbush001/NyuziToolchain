@@ -6,32 +6,31 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_MC_INPUTBUILDER_H
-#define MCLD_MC_INPUTBUILDER_H
-
-#include <string>
-#include <stack>
+#ifndef MCLD_MC_INPUTBUILDER_H_
+#define MCLD_MC_INPUTBUILDER_H_
 
 #include <mcld/InputTree.h>
 #include <mcld/MC/Input.h>
 #include <mcld/Support/FileHandle.h>
 
+#include <stack>
+#include <string>
+
 namespace mcld {
 
-class LinkerConfig;
-class InputFactory;
-class ContextFactory;
-class MemoryAreaFactory;
 class AttrConstraint;
+class ContextFactory;
+class InputFactory;
+class LinkerConfig;
+class MemoryAreaFactory;
 
 /** \class InputBuilder
  *  \brief InputBuilder recieves InputActions and build the InputTree.
  *
  *  InputBuilder build input tree and inputs.
  */
-class InputBuilder
-{
-public:
+class InputBuilder {
+ public:
   explicit InputBuilder(const LinkerConfig& pConfig);
 
   InputBuilder(const LinkerConfig& pConfig,
@@ -44,15 +43,15 @@ public:
 
   // -----  input tree operations  ----- //
   const InputTree& getCurrentTree() const;
-  InputTree&       getCurrentTree();
+  InputTree& getCurrentTree();
 
   void setCurrentTree(InputTree& pInputTree);
 
   // -----  root of input tree  ----- //
   const InputTree::iterator& getCurrentNode() const { return m_Root; }
-  InputTree::iterator&       getCurrentNode()       { return m_Root; }
+  InputTree::iterator& getCurrentNode() { return m_Root; }
 
-  template<InputTree::Direction DIRECTION>
+  template <InputTree::Direction DIRECTION>
   InputTree& createNode(const std::string& pName,
                         const sys::fs::Path& pPath,
                         unsigned int pType = Input::Unknown);
@@ -67,7 +66,7 @@ public:
 
   bool setMemory(Input& pInput,
                  FileHandle::OpenMode pMode,
-		 FileHandle::Permission pPerm = FileHandle::System);
+                 FileHandle::Permission pPerm);
 
   bool setMemory(Input& pInput, void* pMemBuffer, size_t pSize);
 
@@ -80,9 +79,9 @@ public:
   const AttrConstraint& getConstraint() const;
 
   const AttributeProxy& getAttributes() const;
-  AttributeProxy&       getAttributes();
+  AttributeProxy& getAttributes();
 
-private:
+ private:
   const LinkerConfig& m_Config;
 
   InputFactory* m_pInputFactory;
@@ -95,18 +94,17 @@ private:
   std::stack<InputTree::iterator> m_ReturnStack;
 
   bool m_bOwnFactory;
-
 };
 
 //===----------------------------------------------------------------------===//
 // Template implement
 //===----------------------------------------------------------------------===//
-template<> inline InputTree&
-InputBuilder::createNode<InputTree::Inclusive>(const std::string& pName,
-                                               const sys::fs::Path& pPath,
-                                               unsigned int pType)
-{
-  assert(NULL != m_pCurrentTree && NULL != m_pMove);
+template <>
+inline InputTree& InputBuilder::createNode<InputTree::Inclusive>(
+    const std::string& pName,
+    const sys::fs::Path& pPath,
+    unsigned int pType) {
+  assert(m_pCurrentTree != NULL && m_pMove != NULL);
 
   Input* input = createInput(pName, pPath, pType);
   m_pCurrentTree->insert(m_Root, *m_pMove, *input);
@@ -116,12 +114,12 @@ InputBuilder::createNode<InputTree::Inclusive>(const std::string& pName,
   return *m_pCurrentTree;
 }
 
-template<> inline InputTree&
-InputBuilder::createNode<InputTree::Positional>(const std::string& pName,
-                                               const sys::fs::Path& pPath,
-                                               unsigned int pType)
-{
-  assert(NULL != m_pCurrentTree && NULL != m_pMove);
+template <>
+inline InputTree& InputBuilder::createNode<InputTree::Positional>(
+    const std::string& pName,
+    const sys::fs::Path& pPath,
+    unsigned int pType) {
+  assert(m_pCurrentTree != NULL && m_pMove != NULL);
 
   Input* input = createInput(pName, pPath, pType);
   m_pCurrentTree->insert(m_Root, *m_pMove, *input);
@@ -131,7 +129,6 @@ InputBuilder::createNode<InputTree::Positional>(const std::string& pName,
   return *m_pCurrentTree;
 }
 
-} // end of namespace mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_MC_INPUTBUILDER_H_

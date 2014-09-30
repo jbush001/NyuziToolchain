@@ -6,24 +6,23 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef TARGET_X86_X86ELFDYNAMIC_H
-#define TARGET_X86_X86ELFDYNAMIC_H
+#ifndef TARGET_X86_X86ELFDYNAMIC_H_
+#define TARGET_X86_X86ELFDYNAMIC_H_
 
 #include <mcld/Target/ELFDynamic.h>
 
 namespace mcld {
 
-class X86ELFDynamic : public ELFDynamic
-{
-public:
+class X86ELFDynamic : public ELFDynamic {
+ public:
   X86ELFDynamic(const GNULDBackend& pParent, const LinkerConfig& pConfig);
   ~X86ELFDynamic();
 
-private:
+ private:
   void reserveTargetEntries(const ELFFileFormat& pFormat);
   void applyTargetEntries(const ELFFileFormat& pFormat);
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
+#endif  // TARGET_X86_X86ELFDYNAMIC_H_

@@ -241,6 +241,14 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
 
     return RValue::get(Result);
   }
+  case Builtin::BI__builtin_fmod:
+  case Builtin::BI__builtin_fmodf:
+  case Builtin::BI__builtin_fmodl: {
+    Value *Arg1 = EmitScalarExpr(E->getArg(0));
+    Value *Arg2 = EmitScalarExpr(E->getArg(1));
+    Value *Result = Builder.CreateFRem(Arg1, Arg2, "fmod");
+    return RValue::get(Result);
+  }
 
   case Builtin::BI__builtin_conj:
   case Builtin::BI__builtin_conjf:
@@ -373,6 +381,27 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
     Value *Result = Builder.CreateCall2(FnExpect, ArgValue, ExpectedValue,
                                         "expval");
     return RValue::get(Result);
+  }
+  case Builtin::BI__builtin_assume_aligned: {
+    Value *PtrValue = EmitScalarExpr(E->getArg(0));
+    Value *OffsetValue =
+      (E->getNumArgs() > 2) ? EmitScalarExpr(E->getArg(2)) : nullptr;
+
+    Value *AlignmentValue = EmitScalarExpr(E->getArg(1));
+    ConstantInt *AlignmentCI = cast<ConstantInt>(AlignmentValue);
+    unsigned Alignment = (unsigned) AlignmentCI->getZExtValue();
+
+    EmitAlignmentAssumption(PtrValue, Alignment, OffsetValue);
+    return RValue::get(PtrValue);
+  }
+  case Builtin::BI__assume:
+  case Builtin::BI__builtin_assume: {
+    if (E->getArg(0)->HasSideEffects(getContext()))
+      return RValue::get(nullptr);
+
+    Value *ArgValue = EmitScalarExpr(E->getArg(0));
+    Value *FnAssume = CGM.getIntrinsic(Intrinsic::assume);
+    return RValue::get(Builder.CreateCall(FnAssume, ArgValue));
   }
   case Builtin::BI__builtin_bswap16:
   case Builtin::BI__builtin_bswap32:
@@ -1510,9 +1539,6 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
   case Builtin::BI__noop:
     // __noop always evaluates to an integer literal zero.
     return RValue::get(ConstantInt::get(IntTy, 0));
-  case Builtin::BI__assume:
-    // Until LLVM supports assumptions at the IR level, this becomes nothing.
-    return RValue::get(nullptr);
   case Builtin::BI_InterlockedExchange:
   case Builtin::BI_InterlockedExchangePointer:
     return EmitBinaryAtomic(*this, llvm::AtomicRMWInst::Xchg, E);

@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_GARBAGECOLLECTION_H
-#define MCLD_LD_GARBAGECOLLECTION_H
+#ifndef MCLD_LD_GARBAGECOLLECTION_H_
+#define MCLD_LD_GARBAGECOLLECTION_H_
 
 #include <map>
 #include <set>
@@ -22,20 +22,17 @@ class TargetLDBackend;
 
 /** \class GarbageCollection
  *  \brief Implementation of garbage collection for --gc-section.
- *  @ref GNU gold, gc.
  */
-class GarbageCollection
-{
-public:
+class GarbageCollection {
+ public:
   typedef std::set<const LDSection*> SectionListTy;
   typedef std::vector<const LDSection*> SectionVecTy;
 
   /** \class SectionReachedListMap
    *  \brief Map the section to the list of sections which it can reach directly
    */
-  class SectionReachedListMap
-  {
-  public:
+  class SectionReachedListMap {
+   public:
     SectionReachedListMap() {}
 
     /// addReference - add a reference from pFrom to pTo
@@ -49,15 +46,15 @@ public:
     /// pSection, return NULL if the list not exists
     SectionListTy* findReachedList(const LDSection& pSection);
 
-  private:
+   private:
     typedef std::map<const LDSection*, SectionListTy> ReachedSectionsTy;
 
-  private:
+   private:
     /// m_ReachedSections - map a section to the reachable sections list
     ReachedSectionsTy m_ReachedSections;
   };
 
-public:
+ public:
   GarbageCollection(const LinkerConfig& pConfig,
                     const TargetLDBackend& pBackend,
                     Module& pModule);
@@ -66,13 +63,13 @@ public:
   /// run - do garbage collection
   bool run();
 
-private:
+ private:
   void setUpReachedSections();
   void findReferencedSections(SectionVecTy& pEntry);
   void getEntrySections(SectionVecTy& pEntry);
   void stripSections();
 
-private:
+ private:
   /// m_SectionReachedListMap - map the section to the list of sections which it
   /// can reach directly
   SectionReachedListMap m_SectionReachedListMap;
@@ -85,7 +82,6 @@ private:
   Module& m_Module;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_GARBAGECOLLECTION_H_

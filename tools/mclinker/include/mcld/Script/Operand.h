@@ -6,52 +6,46 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SCRIPT_OPERAND_H
-#define MCLD_SCRIPT_OPERAND_H
+#ifndef MCLD_SCRIPT_OPERAND_H_
+#define MCLD_SCRIPT_OPERAND_H_
 
-#include <mcld/Script/ExprToken.h>
-#include <mcld/Object/SectionMap.h>
-#include <mcld/Support/Allocators.h>
 #include <mcld/Config/Config.h>
+#include <mcld/Object/SectionMap.h>
+#include <mcld/Script/ExprToken.h>
+#include <mcld/Support/Allocators.h>
+
 #include <llvm/Support/DataTypes.h>
+
 #include <string>
+
 #include <cassert>
 
-namespace mcld
-{
+namespace mcld {
 
 /** \class Operand
  *  \brief This class defines the interfaces to an operand token.
  */
 
-class Operand : public ExprToken
-{
-public:
-  enum Type {
-    SYMBOL,
-    INTEGER,
-    SECTION,
-    SECTION_DESC,
-    FRAGMENT
-  };
+class Operand : public ExprToken {
+ public:
+  enum Type { SYMBOL, INTEGER, SECTION, SECTION_DESC, FRAGMENT };
 
-protected:
-  Operand(Type pType);
+ protected:
+  explicit Operand(Type pType);
   virtual ~Operand();
 
-public:
+ public:
   Type type() const { return m_Type; }
 
   virtual bool isDot() const { return false; }
 
   virtual uint64_t value() const = 0;
 
-  static bool classof(const ExprToken* pToken)
-  {
+  static bool classof(const ExprToken* pToken) {
     return pToken->kind() == ExprToken::OPERAND;
   }
 
-private:
+ private:
   Type m_Type;
 };
 
@@ -59,14 +53,13 @@ private:
  *  \brief This class defines the interfaces to a symbol operand.
  */
 
-class SymOperand : public Operand
-{
-private:
+class SymOperand : public Operand {
+ private:
   friend class Chunk<SymOperand, MCLD_SYMBOLS_PER_INPUT>;
   SymOperand();
-  SymOperand(const std::string& pName);
+  explicit SymOperand(const std::string& pName);
 
-public:
+ public:
   void dump() const;
 
   const std::string& name() const { return m_Name; }
@@ -77,8 +70,7 @@ public:
 
   void setValue(uint64_t pValue) { m_Value = pValue; }
 
-  static bool classof(const Operand* pOperand)
-  {
+  static bool classof(const Operand* pOperand) {
     return pOperand->type() == Operand::SYMBOL;
   }
 
@@ -87,7 +79,7 @@ public:
   static void destroy(SymOperand*& pOperand);
   static void clear();
 
-private:
+ private:
   std::string m_Name;
   uint64_t m_Value;
 };
@@ -96,22 +88,20 @@ private:
  *  \brief This class defines the interfaces to an integer operand.
  */
 
-class IntOperand : public Operand
-{
-private:
+class IntOperand : public Operand {
+ private:
   friend class Chunk<IntOperand, MCLD_SYMBOLS_PER_INPUT>;
   IntOperand();
-  IntOperand(uint64_t pValue);
+  explicit IntOperand(uint64_t pValue);
 
-public:
+ public:
   void dump() const;
 
   uint64_t value() const { return m_Value; }
 
   void setValue(uint64_t pValue) { m_Value = pValue; }
 
-  static bool classof(const Operand* pOperand)
-  {
+  static bool classof(const Operand* pOperand) {
     return pOperand->type() == Operand::INTEGER;
   }
 
@@ -120,7 +110,7 @@ public:
   static void destroy(IntOperand*& pOperand);
   static void clear();
 
-private:
+ private:
   uint64_t m_Value;
 };
 
@@ -129,26 +119,23 @@ private:
  */
 class LDSection;
 
-class SectOperand : public Operand
-{
-private:
+class SectOperand : public Operand {
+ private:
   friend class Chunk<SectOperand, MCLD_SECTIONS_PER_INPUT>;
   SectOperand();
-  SectOperand(const std::string& pName);
+  explicit SectOperand(const std::string& pName);
 
-public:
+ public:
   void dump() const;
 
   const std::string& name() const { return m_Name; }
 
-  uint64_t value() const
-  {
+  uint64_t value() const {
     assert(0);
     return 0;
   }
 
-  static bool classof(const Operand* pOperand)
-  {
+  static bool classof(const Operand* pOperand) {
     return pOperand->type() == Operand::SECTION;
   }
 
@@ -157,7 +144,7 @@ public:
   static void destroy(SectOperand*& pOperand);
   static void clear();
 
-private:
+ private:
   std::string m_Name;
 };
 
@@ -165,26 +152,23 @@ private:
  *  \brief This class defines the interfaces to an section name operand.
  */
 
-class SectDescOperand : public Operand
-{
-private:
+class SectDescOperand : public Operand {
+ private:
   friend class Chunk<SectDescOperand, MCLD_SECTIONS_PER_INPUT>;
   SectDescOperand();
-  SectDescOperand(const SectionMap::Output* pOutputDesc);
+  explicit SectDescOperand(const SectionMap::Output* pOutputDesc);
 
-public:
+ public:
   void dump() const;
 
   const SectionMap::Output* outputDesc() const { return m_pOutputDesc; }
 
-  uint64_t value() const
-  {
+  uint64_t value() const {
     assert(0);
     return 0;
   }
 
-  static bool classof(const Operand* pOperand)
-  {
+  static bool classof(const Operand* pOperand) {
     return pOperand->type() == Operand::SECTION_DESC;
   }
 
@@ -193,7 +177,7 @@ public:
   static void destroy(SectDescOperand*& pOperand);
   static void clear();
 
-private:
+ private:
   const SectionMap::Output* m_pOutputDesc;
 };
 
@@ -203,23 +187,21 @@ private:
 
 class Fragment;
 
-class FragOperand : public Operand
-{
-private:
+class FragOperand : public Operand {
+ private:
   friend class Chunk<FragOperand, MCLD_SYMBOLS_PER_INPUT>;
   FragOperand();
-  FragOperand(Fragment& pFragment);
+  explicit FragOperand(Fragment& pFragment);
 
-public:
+ public:
   void dump() const;
 
   const Fragment* frag() const { return m_pFragment; }
-  Fragment*       frag()       { return m_pFragment; }
+  Fragment* frag() { return m_pFragment; }
 
   uint64_t value() const;
 
-  static bool classof(const Operand* pOperand)
-  {
+  static bool classof(const Operand* pOperand) {
     return pOperand->type() == Operand::FRAGMENT;
   }
 
@@ -228,11 +210,10 @@ public:
   static void destroy(FragOperand*& pOperand);
   static void clear();
 
-private:
+ private:
   Fragment* m_pFragment;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_SCRIPT_OPERAND_H_

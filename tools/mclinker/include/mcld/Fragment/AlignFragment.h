@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_FRAGMENT_ALIGNFRAGMENT_H
-#define MCLD_FRAGMENT_ALIGNFRAGMENT_H
+#ifndef MCLD_FRAGMENT_ALIGNFRAGMENT_H_
+#define MCLD_FRAGMENT_ALIGNFRAGMENT_H_
 
 #include <mcld/Fragment/Fragment.h>
 
@@ -15,11 +15,13 @@ namespace mcld {
 
 class SectionData;
 
-class AlignFragment : public Fragment
-{
-public:
-  AlignFragment(unsigned int pAlignment, int64_t pValue, unsigned int pValueSize,
-                unsigned int pMaxBytesToEmit, SectionData *pSD = NULL);
+class AlignFragment : public Fragment {
+ public:
+  AlignFragment(unsigned int pAlignment,
+                int64_t pValue,
+                unsigned int pValueSize,
+                unsigned int pMaxBytesToEmit,
+                SectionData* pSD = NULL);
 
   unsigned int getAlignment() const { return m_Alignment; }
 
@@ -33,13 +35,15 @@ public:
 
   void setEmitNops(bool pValue) { m_bEmitNops = pValue; }
 
-  static bool classof(const Fragment *F)
-  { return F->getKind() == Fragment::Alignment; }
-  static bool classof(const AlignFragment *) { return true; }
+  static bool classof(const Fragment* F) {
+    return F->getKind() == Fragment::Alignment;
+  }
+
+  static bool classof(const AlignFragment*) { return true; }
 
   size_t size() const;
 
-private:
+ private:
   /// Alignment - The alignment to ensure, in bytes.
   unsigned int m_Alignment;
 
@@ -57,10 +61,8 @@ private:
   /// of using the provided value. The exact interpretation of this flag is
   /// target dependent.
   bool m_bEmitNops : 1;
-
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_FRAGMENT_ALIGNFRAGMENT_H_

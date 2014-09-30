@@ -6,37 +6,35 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_DIAGNOSTIC_H
-#define MCLD_LD_DIAGNOSTIC_H
+#ifndef MCLD_LD_DIAGNOSTIC_H_
+#define MCLD_LD_DIAGNOSTIC_H_
 
-#include <string>
-#include <cassert>
 #include <mcld/LD/DiagnosticEngine.h>
+
+#include <cassert>
+#include <string>
 
 namespace mcld {
 
 /** \class Diagnostic
  *  \brief Diagnostic provides current status to DiagnosticPrinters.
  */
-class Diagnostic
-{
-public:
-  Diagnostic(DiagnosticEngine& pEngine);
+class Diagnostic {
+ public:
+  explicit Diagnostic(DiagnosticEngine& pEngine);
 
   ~Diagnostic();
 
-  unsigned int getID() const
-  { return m_Engine.state().ID; }
+  unsigned int getID() const { return m_Engine.state().ID; }
 
-  unsigned int getNumArgs() const
-  { return m_Engine.state().numArgs; }
+  unsigned int getNumArgs() const { return m_Engine.state().numArgs; }
 
   DiagnosticEngine::ArgumentKind getArgKind(unsigned int pIdx) const {
     assert(pIdx < getNumArgs() && "Argument index is out of range!");
     return (DiagnosticEngine::ArgumentKind)m_Engine.state().ArgumentKinds[pIdx];
   }
 
-  const std::string &getArgStdStr(unsigned int pIdx) const {
+  const std::string& getArgStdStr(unsigned int pIdx) const {
     assert(getArgKind(pIdx) == DiagnosticEngine::ak_std_string &&
            "Invalid argument accessor!");
     return m_Engine.state().ArgumentStrs[pIdx];
@@ -51,7 +49,7 @@ public:
   int getArgSInt(unsigned int pIdx) const {
     assert(getArgKind(pIdx) == DiagnosticEngine::ak_sint &&
            "Invalid argument accessor!");
-    return (int)m_Engine.state().ArgumentVals[pIdx];
+    return static_cast<int>(m_Engine.state().ArgumentVals[pIdx]);
   }
 
   unsigned int getArgUInt(unsigned int pIdx) const {
@@ -69,7 +67,7 @@ public:
   bool getArgBool(unsigned int pIdx) const {
     assert(getArgKind(pIdx) == DiagnosticEngine::ak_bool &&
            "Invalid argument accessor!");
-    return (bool)m_Engine.state().ArgumentVals[pIdx];
+    return static_cast<bool>(m_Engine.state().ArgumentVals[pIdx]);
   }
 
   intptr_t getRawVals(unsigned int pIdx) const {
@@ -86,14 +84,13 @@ public:
   // arguments. The result is appended at on the pOutStr.
   void format(const char* pBegin, const char* pEnd, std::string& pOutStr) const;
 
-private:
-  const char* findMatch(char pVal, const char* pBegin, const char* pEnd ) const;
+ private:
+  const char* findMatch(char pVal, const char* pBegin, const char* pEnd) const;
 
-private:
+ private:
   DiagnosticEngine& m_Engine;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_DIAGNOSTIC_H_

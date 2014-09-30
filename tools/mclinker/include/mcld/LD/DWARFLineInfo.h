@@ -6,23 +6,18 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_DWARFLINEINFO_H
-#define MCLD_LD_DWARFLINEINFO_H
+#ifndef MCLD_LD_DWARFLINEINFO_H_
+#define MCLD_LD_DWARFLINEINFO_H_
 #include <mcld/LD/DiagnosticLineInfo.h>
 
-namespace mcld
-{
+namespace mcld {
 
 /** \class DWARFLineInfo
  *  \brief DWARFLineInfo provides the conversion from address to line of code
  *  by DWARF format.
  */
-class DWARFLineInfo : public DiagnosticLineInfo
-{
+class DWARFLineInfo : public DiagnosticLineInfo {};
 
-};
+}  // namespace mcld
 
-} // namespace of mcld
-
-#endif
-
+#endif  // MCLD_LD_DWARFLINEINFO_H_

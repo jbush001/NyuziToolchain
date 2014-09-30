@@ -25,28 +25,27 @@ namespace ELF {
 // FIXME: Consider upstream these relocation types to LLVM.
 enum {
   R_MIPS_LA25_LUI = 200,
-  R_MIPS_LA25_J   = 201,
+  R_MIPS_LA25_J = 201,
   R_MIPS_LA25_ADD = 202,
 };
 
-} // end namespace ELF
-} // end namespace llvm
+}  // namespace ELF
+}  // namespace llvm
 
 using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // MipsRelocationInfo
 //===----------------------------------------------------------------------===//
-class mcld::MipsRelocationInfo
-{
-public:
-  static bool HasSubType(const Relocation& pParent, Relocation::Type pType)
-  {
+class mcld::MipsRelocationInfo {
+ public:
+  static bool HasSubType(const Relocation& pParent, Relocation::Type pType) {
     if (llvm::ELF::R_MIPS_NONE == pType)
       return true;
 
     for (Relocation::Type type = pParent.type();
-         llvm::ELF::R_MIPS_NONE != (type & 0xff); type >>= 8) {
+         llvm::ELF::R_MIPS_NONE != (type & 0xff);
+         type >>= 8) {
       if ((type & 0xff) == pType)
         return true;
     }
@@ -55,12 +54,11 @@ public:
   }
 
   MipsRelocationInfo(Relocation& pParent, bool pIsRel)
-    : m_Parent(&pParent),
-      m_Type(pParent.type()),
-      m_Addend(0),
-      m_Symbol(pParent.symValue()),
-      m_Result(pParent.target())
-  {
+      : m_Parent(&pParent),
+        m_Type(pParent.type()),
+        m_Addend(0),
+        m_Symbol(pParent.symValue()),
+        m_Result(pParent.target()) {
     if (pIsRel && (type() < llvm::ELF::R_MIPS_LA25_LUI ||
                    type() > llvm::ELF::R_MIPS_LA25_ADD))
       m_Addend = pParent.target();
@@ -68,81 +66,49 @@ public:
       m_Addend = pParent.addend();
   }
 
-  bool isNone() const
-  {
-    return llvm::ELF::R_MIPS_NONE == type();
-  }
+  bool isNone() const { return llvm::ELF::R_MIPS_NONE == type(); }
 
-  bool isLast() const
-  {
-    return llvm::ELF::R_MIPS_NONE == (m_Type >> 8);
-  }
+  bool isLast() const { return llvm::ELF::R_MIPS_NONE == (m_Type >> 8); }
 
-  MipsRelocationInfo next() const
-  {
+  MipsRelocationInfo next() const {
     return MipsRelocationInfo(*m_Parent, m_Type >> 8, result(), result(), 0);
   }
 
-  const Relocation& parent() const
-  {
-    return *m_Parent;
-  }
+  const Relocation& parent() const { return *m_Parent; }
 
-  Relocation& parent()
-  {
-    return *m_Parent;
-  }
+  Relocation& parent() { return *m_Parent; }
 
-  Relocation::Type type() const
-  {
-    return m_Type & 0xff;
-  }
+  Relocation::Type type() const { return m_Type & 0xff; }
 
-  Relocation::DWord A() const
-  {
-    return m_Addend;
-  }
+  Relocation::DWord A() const { return m_Addend; }
 
-  Relocation::DWord S() const
-  {
-    return m_Symbol;
-  }
+  Relocation::DWord S() const { return m_Symbol; }
 
-  Relocation::DWord P() const
-  {
-    return parent().place();
-  }
+  Relocation::DWord P() const { return parent().place(); }
 
-  Relocation::DWord result() const
-  {
-    return m_Result;
-  }
+  Relocation::DWord result() const { return m_Result; }
 
-  Relocation::DWord& result()
-  {
-    return m_Result;
-  }
+  Relocation::DWord& result() { return m_Result; }
 
-private:
+ private:
   Relocation* m_Parent;
   Relocation::Type m_Type;
   Relocation::DWord m_Addend;
   Relocation::DWord m_Symbol;
   Relocation::DWord m_Result;
 
-  MipsRelocationInfo(Relocation& pParent, Relocation::Type pType,
+  MipsRelocationInfo(Relocation& pParent,
+                     Relocation::Type pType,
                      Relocation::DWord pResult,
-                     Relocation::DWord pAddend, Relocation::DWord pSymbol)
-    : m_Parent(&pParent),
-      m_Type(pType),
-      m_Addend(pAddend),
-      m_Symbol(pSymbol),
-      m_Result(pResult)
-  {}
+                     Relocation::DWord pAddend,
+                     Relocation::DWord pSymbol)
+      : m_Parent(&pParent),
+        m_Type(pType),
+        m_Addend(pAddend),
+        m_Symbol(pSymbol),
+        m_Result(pResult) {}
 
-  bool isFirst() const {
-    return m_Type == parent().type();
-  }
+  bool isFirst() const { return m_Type == parent().type(); }
 };
 
 //===----------------------------------------------------------------------===//
@@ -154,10 +120,8 @@ DECL_MIPS_APPLY_RELOC_FUNCS
 typedef Relocator::Result (*ApplyFunctionType)(MipsRelocationInfo&,
                                                MipsRelocator& pParent);
 
-
 // the table entry of applying functions
-struct ApplyFunctionTriple
-{
+struct ApplyFunctionTriple {
   ApplyFunctionType func;
   unsigned int type;
   const char* name;
@@ -166,38 +130,34 @@ struct ApplyFunctionTriple
 
 // declare the table of applying functions
 static const ApplyFunctionTriple ApplyFunctions[] = {
-  DECL_MIPS_APPLY_RELOC_FUNC_PTRS
-};
+    DECL_MIPS_APPLY_RELOC_FUNC_PTRS};
 
 //===----------------------------------------------------------------------===//
 // MipsRelocator
 //===----------------------------------------------------------------------===//
 MipsRelocator::MipsRelocator(MipsGNULDBackend& pParent,
                              const LinkerConfig& pConfig)
-  : Relocator(pConfig),
-    m_Target(pParent),
-    m_pApplyingInput(NULL),
-    m_CurrentLo16Reloc(NULL)
-{
+    : Relocator(pConfig),
+      m_Target(pParent),
+      m_pApplyingInput(NULL),
+      m_CurrentLo16Reloc(NULL) {
 }
 
-Relocator::Result
-MipsRelocator::applyRelocation(Relocation& pReloc)
-{
+Relocator::Result MipsRelocator::applyRelocation(Relocation& pReloc) {
   // If m_CurrentLo16Reloc is not NULL we are processing
   // postponed relocation. Otherwise check relocation type
   // and postpone it for later handling.
-  if (NULL == m_CurrentLo16Reloc && isPostponed(pReloc)) {
+  if (m_CurrentLo16Reloc == NULL && isPostponed(pReloc)) {
     postponeRelocation(pReloc);
     return OK;
   }
 
-  for (MipsRelocationInfo info(pReloc, isRel());
-       !info.isNone(); info = info.next()) {
+  for (MipsRelocationInfo info(pReloc, isRel()); !info.isNone();
+       info = info.next()) {
     if (info.type() >= sizeof(ApplyFunctions) / sizeof(ApplyFunctions[0]))
       return Unknown;
 
-    const ApplyFunctionTriple & triple = ApplyFunctions[info.type()];
+    const ApplyFunctionTriple& triple = ApplyFunctions[info.type()];
 
     Result res = triple.func(info, *this);
     if (OK != res)
@@ -213,13 +173,11 @@ MipsRelocator::applyRelocation(Relocation& pReloc)
   return OK;
 }
 
-const char* MipsRelocator::getName(Relocation::Type pType) const
-{
+const char* MipsRelocator::getName(Relocation::Type pType) const {
   return ApplyFunctions[pType & 0xff].name;
 }
 
-Relocator::Size MipsRelocator::getSize(Relocation::Type pType) const
-{
+Relocator::Size MipsRelocator::getSize(Relocation::Type pType) const {
   return ApplyFunctions[pType & 0xff].size;
 }
 
@@ -227,23 +185,23 @@ void MipsRelocator::scanRelocation(Relocation& pReloc,
                                    IRBuilder& pBuilder,
                                    Module& pModule,
                                    LDSection& pSection,
-                                   Input& pInput)
-{
+                                   Input& pInput) {
   // rsym - The relocation target symbol
   ResolveInfo* rsym = pReloc.symInfo();
-  assert(NULL != rsym && "ResolveInfo of relocation not set while scanRelocation");
+  assert(rsym != NULL &&
+         "ResolveInfo of relocation not set while scanRelocation");
 
   // Skip relocation against _gp_disp
-  if (NULL != getTarget().getGpDispSymbol() &&
+  if (getTarget().getGpDispSymbol() != NULL &&
       rsym == getTarget().getGpDispSymbol()->resolveInfo())
     return;
 
-  assert(NULL != pSection.getLink());
-  if (0 == (pSection.getLink()->flag() & llvm::ELF::SHF_ALLOC))
+  assert(pSection.getLink() != NULL);
+  if ((pSection.getLink()->flag() & llvm::ELF::SHF_ALLOC) == 0)
     return;
 
-  for (MipsRelocationInfo info(pReloc, isRel());
-       !info.isNone(); info = info.next()) {
+  for (MipsRelocationInfo info(pReloc, isRel()); !info.isNone();
+       info = info.next()) {
     // We test isLocal or if pInputSym is not a dynamic symbol
     // We assume -Bsymbolic to bind all symbols internaly via !rsym->isDyn()
     // Don't put undef symbols into local entries.
@@ -262,39 +220,34 @@ void MipsRelocator::scanRelocation(Relocation& pReloc,
     issueUndefRef(pReloc, pSection, pInput);
 }
 
-bool MipsRelocator::initializeScan(Input& pInput)
-{
+bool MipsRelocator::initializeScan(Input& pInput) {
   if (LinkerConfig::Object != config().codeGenType())
     getTarget().getGOT().initializeScan(pInput);
   return true;
 }
 
-bool MipsRelocator::finalizeScan(Input& pInput)
-{
+bool MipsRelocator::finalizeScan(Input& pInput) {
   if (LinkerConfig::Object != config().codeGenType())
     getTarget().getGOT().finalizeScan(pInput);
   return true;
 }
 
-bool MipsRelocator::initializeApply(Input& pInput)
-{
+bool MipsRelocator::initializeApply(Input& pInput) {
   m_pApplyingInput = &pInput;
   return true;
 }
 
-bool MipsRelocator::finalizeApply(Input& pInput)
-{
+bool MipsRelocator::finalizeApply(Input& pInput) {
   m_pApplyingInput = NULL;
   return true;
 }
 
 void MipsRelocator::scanLocalReloc(MipsRelocationInfo& pReloc,
                                    IRBuilder& pBuilder,
-                                   const LDSection& pSection)
-{
+                                   const LDSection& pSection) {
   ResolveInfo* rsym = pReloc.parent().symInfo();
 
-  switch (pReloc.type()){
+  switch (pReloc.type()) {
     case llvm::ELF::R_MIPS_NONE:
     case llvm::ELF::R_MIPS_16:
       break;
@@ -342,8 +295,9 @@ void MipsRelocator::scanLocalReloc(MipsRelocationInfo& pReloc,
     case llvm::ELF::R_MIPS_GOT_DISP:
     case llvm::ELF::R_MIPS_GOT_PAGE:
     case llvm::ELF::R_MIPS_GOT_OFST:
-      if (getTarget().getGOT().reserveLocalEntry(*rsym,
-                                                 pReloc.type(), pReloc.A())) {
+      if (getTarget()
+              .getGOT()
+              .reserveLocalEntry(*rsym, pReloc.type(), pReloc.A())) {
         if (getTarget().getGOT().hasMultipleGOT())
           getTarget().checkAndSetHasTextRel(*pSection.getLink());
       }
@@ -369,17 +323,17 @@ void MipsRelocator::scanLocalReloc(MipsRelocationInfo& pReloc,
     case llvm::ELF::R_MIPS_PC32:
       break;
     default:
-      fatal(diag::unknown_relocation) << (int)pReloc.type() << rsym->name();
+      fatal(diag::unknown_relocation) << static_cast<int>(pReloc.type())
+                                      << rsym->name();
   }
 }
 
 void MipsRelocator::scanGlobalReloc(MipsRelocationInfo& pReloc,
                                     IRBuilder& pBuilder,
-                                    const LDSection& pSection)
-{
+                                    const LDSection& pSection) {
   ResolveInfo* rsym = pReloc.parent().symInfo();
 
-  switch (pReloc.type()){
+  switch (pReloc.type()) {
     case llvm::ELF::R_MIPS_NONE:
     case llvm::ELF::R_MIPS_INSERT_A:
     case llvm::ELF::R_MIPS_INSERT_B:
@@ -401,8 +355,7 @@ void MipsRelocator::scanGlobalReloc(MipsRelocationInfo& pReloc,
         if (getTarget().symbolNeedsCopyReloc(pReloc.parent(), *rsym)) {
           LDSymbol& cpySym = defineSymbolforCopyReloc(pBuilder, *rsym);
           addCopyReloc(*cpySym.resolveInfo());
-        }
-        else {
+        } else {
           // set Rel bit
           rsym->setReserved(rsym->reserved() | ReserveRel);
           getTarget().checkAndSetHasTextRel(*pSection.getLink());
@@ -425,7 +378,7 @@ void MipsRelocator::scanGlobalReloc(MipsRelocationInfo& pReloc,
       break;
     case llvm::ELF::R_MIPS_LITERAL:
     case llvm::ELF::R_MIPS_GPREL32:
-      fatal(diag::invalid_global_relocation) << (int)pReloc.type()
+      fatal(diag::invalid_global_relocation) << static_cast<int>(pReloc.type())
                                              << rsym->name();
       break;
     case llvm::ELF::R_MIPS_GPREL16:
@@ -467,15 +420,15 @@ void MipsRelocator::scanGlobalReloc(MipsRelocationInfo& pReloc,
     case llvm::ELF::R_MIPS_COPY:
     case llvm::ELF::R_MIPS_GLOB_DAT:
     case llvm::ELF::R_MIPS_JUMP_SLOT:
-      fatal(diag::dynamic_relocation) << (int)pReloc.type();
+      fatal(diag::dynamic_relocation) << static_cast<int>(pReloc.type());
       break;
     default:
-      fatal(diag::unknown_relocation) << (int)pReloc.type() << rsym->name();
+      fatal(diag::unknown_relocation) << static_cast<int>(pReloc.type())
+                                      << rsym->name();
   }
 }
 
-bool MipsRelocator::isPostponed(const Relocation& pReloc) const
-{
+bool MipsRelocator::isPostponed(const Relocation& pReloc) const {
   if (MipsRelocationInfo::HasSubType(pReloc, llvm::ELF::R_MIPS_HI16))
     return true;
 
@@ -486,8 +439,7 @@ bool MipsRelocator::isPostponed(const Relocation& pReloc) const
   return false;
 }
 
-void MipsRelocator::addCopyReloc(ResolveInfo& pSym)
-{
+void MipsRelocator::addCopyReloc(ResolveInfo& pSym) {
   Relocation& relEntry = *getTarget().getRelDyn().consumeEntry();
   relEntry.setType(llvm::ELF::R_MIPS_COPY);
   assert(pSym.outSymbol()->hasFragRef());
@@ -496,18 +448,17 @@ void MipsRelocator::addCopyReloc(ResolveInfo& pSym)
 }
 
 LDSymbol& MipsRelocator::defineSymbolforCopyReloc(IRBuilder& pBuilder,
-                                                  const ResolveInfo& pSym)
-{
+                                                  const ResolveInfo& pSym) {
   // Get or create corresponding BSS LDSection
   ELFFileFormat* fileFormat = getTarget().getOutputFormat();
-  LDSection* bssSectHdr =
-    ResolveInfo::ThreadLocal == pSym.type() ? &fileFormat->getTBSS()
-                                            : &fileFormat->getBSS();
+  LDSection* bssSectHdr = ResolveInfo::ThreadLocal == pSym.type()
+                              ? &fileFormat->getTBSS()
+                              : &fileFormat->getBSS();
 
   // Get or create corresponding BSS SectionData
-  SectionData* bssData =
-    bssSectHdr->hasSectionData() ? bssSectHdr->getSectionData()
-                                 : IRBuilder::CreateSectionData(*bssSectHdr);
+  SectionData* bssData = bssSectHdr->hasSectionData()
+                             ? bssSectHdr->getSectionData()
+                             : IRBuilder::CreateSectionData(*bssSectHdr);
 
   // Determine the alignment by the symbol value
   // FIXME: here we use the largest alignment
@@ -525,22 +476,23 @@ LDSymbol& MipsRelocator::defineSymbolforCopyReloc(IRBuilder& pBuilder,
 
   // Define the copy symbol in the bss section and resolve it
   LDSymbol* cpySym = pBuilder.AddSymbol<IRBuilder::Force, IRBuilder::Resolve>(
-                      pSym.name(),
-                      (ResolveInfo::Type)pSym.type(),
-                      ResolveInfo::Define,
-                      binding,
-                      pSym.size(),  // size
-                      0x0,          // value
-                      FragmentRef::Create(*frag, 0x0),
-                      (ResolveInfo::Visibility)pSym.other());
+      pSym.name(),
+      (ResolveInfo::Type)pSym.type(),
+      ResolveInfo::Define,
+      binding,
+      pSym.size(),  // size
+      0x0,          // value
+      FragmentRef::Create(*frag, 0x0),
+      (ResolveInfo::Visibility)pSym.other());
 
   // Output all other alias symbols if any
   Module::AliasList* alias_list = pBuilder.getModule().getAliasList(pSym);
-  if (NULL == alias_list)
+  if (alias_list == NULL)
     return *cpySym;
 
   for (Module::alias_iterator it = alias_list->begin(), ie = alias_list->end();
-       it != ie; ++it) {
+       it != ie;
+       ++it) {
     const ResolveInfo* alias = *it;
     if (alias == &pSym || !alias->isDyn())
       continue;
@@ -559,19 +511,17 @@ LDSymbol& MipsRelocator::defineSymbolforCopyReloc(IRBuilder& pBuilder,
   return *cpySym;
 }
 
-void MipsRelocator::postponeRelocation(Relocation& pReloc)
-{
+void MipsRelocator::postponeRelocation(Relocation& pReloc) {
   ResolveInfo* rsym = pReloc.symInfo();
   m_PostponedRelocs[rsym].insert(&pReloc);
 }
 
-void MipsRelocator::applyPostponedRelocations(MipsRelocationInfo& pLo16Reloc)
-{
+void MipsRelocator::applyPostponedRelocations(MipsRelocationInfo& pLo16Reloc) {
   m_CurrentLo16Reloc = &pLo16Reloc;
 
   ResolveInfo* rsym = pLo16Reloc.parent().symInfo();
 
-  RelocationSet & relocs = m_PostponedRelocs[rsym];
+  RelocationSet& relocs = m_PostponedRelocs[rsym];
   for (RelocationSet::iterator it = relocs.begin(); it != relocs.end(); ++it)
     (*it)->apply(*this);
 
@@ -580,39 +530,31 @@ void MipsRelocator::applyPostponedRelocations(MipsRelocationInfo& pLo16Reloc)
   m_CurrentLo16Reloc = NULL;
 }
 
-bool MipsRelocator::isGpDisp(const Relocation& pReloc) const
-{
-  return 0 == strcmp("_gp_disp", pReloc.symInfo()->name());
+bool MipsRelocator::isGpDisp(const Relocation& pReloc) const {
+  return strcmp("_gp_disp", pReloc.symInfo()->name()) == 0;
 }
 
-bool MipsRelocator::isRel() const
-{
+bool MipsRelocator::isRel() const {
   return config().targets().is32Bits();
 }
 
-bool MipsRelocator::isLocalReloc(ResolveInfo& pSym) const
-{
+bool MipsRelocator::isLocalReloc(ResolveInfo& pSym) const {
   if (pSym.isUndef())
     return false;
 
-  return pSym.isLocal() ||
-         !getTarget().isDynamicSymbol(pSym) ||
-         !pSym.isDyn();
+  return pSym.isLocal() || !getTarget().isDynamicSymbol(pSym) || !pSym.isDyn();
 }
 
-Relocator::Address MipsRelocator::getGPAddress()
-{
+Relocator::Address MipsRelocator::getGPAddress() {
   return getTarget().getGOT().getGPAddr(getApplyingInput());
 }
 
-Relocator::Address MipsRelocator::getGP0()
-{
+Relocator::Address MipsRelocator::getGP0() {
   return getTarget().getGP0(getApplyingInput());
 }
 
 Fragment& MipsRelocator::getLocalGOTEntry(MipsRelocationInfo& pReloc,
-                                          Relocation::DWord entryValue)
-{
+                                          Relocation::DWord entryValue) {
   // rsym - The relocation target symbol
   ResolveInfo* rsym = pReloc.parent().symInfo();
   MipsGOT& got = getTarget().getGOT();
@@ -623,7 +565,7 @@ Fragment& MipsRelocator::getLocalGOTEntry(MipsRelocationInfo& pReloc,
   Fragment* got_entry = got.lookupLocalEntry(rsym, entryValue);
 
   // Found a mapping, then return the mapped entry immediately.
-  if (NULL != got_entry)
+  if (got_entry != NULL)
     return *got_entry;
 
   // Not found.
@@ -639,8 +581,7 @@ Fragment& MipsRelocator::getLocalGOTEntry(MipsRelocationInfo& pReloc,
   return *got_entry;
 }
 
-Fragment& MipsRelocator::getGlobalGOTEntry(MipsRelocationInfo& pReloc)
-{
+Fragment& MipsRelocator::getGlobalGOTEntry(MipsRelocationInfo& pReloc) {
   // rsym - The relocation target symbol
   ResolveInfo* rsym = pReloc.parent().symInfo();
   MipsGOT& got = getTarget().getGOT();
@@ -651,7 +592,7 @@ Fragment& MipsRelocator::getGlobalGOTEntry(MipsRelocationInfo& pReloc)
   Fragment* got_entry = got.lookupGlobalEntry(rsym);
 
   // Found a mapping, then return the mapped entry immediately.
-  if (NULL != got_entry)
+  if (got_entry != NULL)
     return *got_entry;
 
   // Not found.
@@ -667,8 +608,7 @@ Fragment& MipsRelocator::getGlobalGOTEntry(MipsRelocationInfo& pReloc)
   return *got_entry;
 }
 
-Relocator::Address MipsRelocator::getGOTOffset(MipsRelocationInfo& pReloc)
-{
+Relocator::Address MipsRelocator::getGOTOffset(MipsRelocationInfo& pReloc) {
   ResolveInfo* rsym = pReloc.parent().symInfo();
   MipsGOT& got = getTarget().getGOT();
 
@@ -680,14 +620,12 @@ Relocator::Address MipsRelocator::getGOTOffset(MipsRelocationInfo& pReloc)
 
     return got.getGPRelOffset(getApplyingInput(),
                               getLocalGOTEntry(pReloc, value));
-  }
-  else {
+  } else {
     return got.getGPRelOffset(getApplyingInput(), getGlobalGOTEntry(pReloc));
   }
 }
 
-void MipsRelocator::createDynRel(MipsRelocationInfo& pReloc)
-{
+void MipsRelocator::createDynRel(MipsRelocationInfo& pReloc) {
   Relocator::DWord A = pReloc.A();
   Relocator::DWord S = pReloc.S();
 
@@ -696,17 +634,15 @@ void MipsRelocator::createDynRel(MipsRelocationInfo& pReloc)
   if (isLocalReloc(*rsym)) {
     setupRelDynEntry(pReloc.parent().targetRef(), NULL);
     pReloc.result() = A + S;
-  }
-  else {
+  } else {
     setupRelDynEntry(pReloc.parent().targetRef(), rsym);
     // Don't add symbol value that will be resolved by the dynamic linker.
     pReloc.result() = A;
   }
 }
 
-uint64_t MipsRelocator::calcAHL(const MipsRelocationInfo& pHiReloc)
-{
-  assert(NULL != m_CurrentLo16Reloc &&
+uint64_t MipsRelocator::calcAHL(const MipsRelocationInfo& pHiReloc) {
+  assert(m_CurrentLo16Reloc != NULL &&
          "There is no saved R_MIPS_LO16 relocation");
 
   uint64_t AHI = pHiReloc.A() & 0xFFFF;
@@ -716,13 +652,11 @@ uint64_t MipsRelocator::calcAHL(const MipsRelocationInfo& pHiReloc)
   return AHL;
 }
 
-bool MipsRelocator::isN64ABI() const
-{
+bool MipsRelocator::isN64ABI() const {
   return config().targets().is64Bits();
 }
 
-uint64_t MipsRelocator::getPLTAddress(ResolveInfo& rsym)
-{
+uint64_t MipsRelocator::getPLTAddress(ResolveInfo& rsym) {
   assert((rsym.reserved() & MipsRelocator::ReservePLT) &&
          "Symbol does not require a PLT entry");
 
@@ -732,8 +666,7 @@ uint64_t MipsRelocator::getPLTAddress(ResolveInfo& rsym)
 
   if (it != m_SymPLTMap.end()) {
     plt = it->second.first;
-  }
-  else {
+  } else {
     plt = getTarget().getPLT().consume();
 
     Fragment* got = getTarget().getGOTPLT().consume();
@@ -754,11 +687,11 @@ uint64_t MipsRelocator::getPLTAddress(ResolveInfo& rsym)
 //===----------------------------------------------------------------------===//
 Mips32Relocator::Mips32Relocator(Mips32GNULDBackend& pParent,
                                  const LinkerConfig& pConfig)
-  : MipsRelocator(pParent, pConfig)
-{}
+    : MipsRelocator(pParent, pConfig) {
+}
 
-void Mips32Relocator::setupRelDynEntry(FragmentRef& pFragRef, ResolveInfo* pSym)
-{
+void Mips32Relocator::setupRelDynEntry(FragmentRef& pFragRef,
+                                       ResolveInfo* pSym) {
   Relocation& relEntry = *getTarget().getRelDyn().consumeEntry();
   relEntry.setType(llvm::ELF::R_MIPS_REL32);
   relEntry.targetRef() = pFragRef;
@@ -770,13 +703,12 @@ void Mips32Relocator::setupRelDynEntry(FragmentRef& pFragRef, ResolveInfo* pSym)
 //===----------------------------------------------------------------------===//
 Mips64Relocator::Mips64Relocator(Mips64GNULDBackend& pParent,
                                  const LinkerConfig& pConfig)
-  : MipsRelocator(pParent, pConfig)
-{}
+    : MipsRelocator(pParent, pConfig) {
+}
 
-void Mips64Relocator::setupRelDynEntry(FragmentRef& pFragRef, ResolveInfo* pSym)
-{
-  Relocation::Type type = llvm::ELF::R_MIPS_REL32 |
-                          llvm::ELF::R_MIPS_64 << 8;
+void Mips64Relocator::setupRelDynEntry(FragmentRef& pFragRef,
+                                       ResolveInfo* pSym) {
+  Relocation::Type type = llvm::ELF::R_MIPS_REL32 | llvm::ELF::R_MIPS_64 << 8;
   // FIXME (simon): Fix dynamic relocations.
   type = llvm::ELF::R_MIPS_NONE;
 
@@ -791,27 +723,26 @@ void Mips64Relocator::setupRelDynEntry(FragmentRef& pFragRef, ResolveInfo* pSym)
 //=========================================//
 
 // R_MIPS_NONE and those unsupported/deprecated relocation type
-static
-MipsRelocator::Result none(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result none(MipsRelocationInfo& pReloc,
+                                  MipsRelocator& pParent) {
   return Relocator::OK;
 }
 
 // R_MIPS_32: S + A
-static
-MipsRelocator::Result abs32(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result abs32(MipsRelocationInfo& pReloc,
+                                   MipsRelocator& pParent) {
   ResolveInfo* rsym = pReloc.parent().symInfo();
 
   Relocator::DWord A = pReloc.A();
   Relocator::DWord S = pReloc.S();
 
   LDSection& target_sect =
-    pReloc.parent().targetRef().frag()->getParent()->getSection();
+      pReloc.parent().targetRef().frag()->getParent()->getSection();
 
-  // If the flag of target section is not ALLOC, we will not scan this relocation
+  // If the flag of target section is not ALLOC, we will not scan this
+  // relocation
   // but perform static relocation. (e.g., applying .debug section)
-  if (0x0 == (llvm::ELF::SHF_ALLOC & target_sect.flag())) {
+  if ((llvm::ELF::SHF_ALLOC & target_sect.flag()) == 0x0) {
     pReloc.result() = S + A;
     return Relocator::OK;
   }
@@ -829,9 +760,8 @@ MipsRelocator::Result abs32(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
 // R_MIPS_26:
 //   local   : ((A | ((P + 4) & 0x3F000000)) + S) >> 2
 //   external: (sign–extend(A) + S) >> 2
-static
-MipsRelocator::Result rel26(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result rel26(MipsRelocationInfo& pReloc,
+                                   MipsRelocator& pParent) {
   ResolveInfo* rsym = pReloc.parent().symInfo();
 
   int32_t A = pParent.isN64ABI() ? pReloc.A() : (pReloc.A() & 0x03FFFFFF) << 2;
@@ -853,17 +783,15 @@ MipsRelocator::Result rel26(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
 // R_MIPS_HI16:
 //   local/external: ((AHL + S) - (short)(AHL + S)) >> 16
 //   _gp_disp      : ((AHL + GP - P) - (short)(AHL + GP - P)) >> 16
-static
-MipsRelocator::Result hi16(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result hi16(MipsRelocationInfo& pReloc,
+                                  MipsRelocator& pParent) {
   uint64_t AHL = pParent.calcAHL(pReloc);
 
   if (pParent.isGpDisp(pReloc.parent())) {
     int32_t P = pReloc.P();
     int32_t GP = pParent.getGPAddress();
     pReloc.result() = ((AHL + GP - P) - (int16_t)(AHL + GP - P)) >> 16;
-  }
-  else {
+  } else {
     int32_t S = pReloc.S();
     if (pParent.isN64ABI())
       pReloc.result() = (pReloc.A() + S + 0x8000ull) >> 16;
@@ -877,9 +805,8 @@ MipsRelocator::Result hi16(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
 // R_MIPS_LO16:
 //   local/external: AHL + S
 //   _gp_disp      : AHL + GP - P + 4
-static
-MipsRelocator::Result lo16(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result lo16(MipsRelocationInfo& pReloc,
+                                  MipsRelocator& pParent) {
   // AHL is a combination of HI16 and LO16 addends. But R_MIPS_LO16
   // uses low 16 bits of the AHL. That is why we do not need R_MIPS_HI16
   // addend here.
@@ -889,8 +816,7 @@ MipsRelocator::Result lo16(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
     int32_t P = pReloc.P();
     int32_t GP = pParent.getGPAddress();
     pReloc.result() = AHL + GP - P + 4;
-  }
-  else {
+  } else {
     int32_t S = pReloc.S();
     pReloc.result() = AHL + S;
   }
@@ -903,9 +829,8 @@ MipsRelocator::Result lo16(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
 // R_MIPS_GPREL16:
 //   external: sign–extend(A) + S - GP
 //   local   : sign–extend(A) + S + GP0 – GP
-static
-MipsRelocator::Result gprel16(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result gprel16(MipsRelocationInfo& pReloc,
+                                     MipsRelocator& pParent) {
   // Remember to add the section offset to A.
   uint64_t A = pReloc.A();
   uint64_t S = pReloc.S();
@@ -924,9 +849,8 @@ MipsRelocator::Result gprel16(MipsRelocationInfo& pReloc, MipsRelocator& pParent
 // R_MIPS_GOT16:
 //   local   : G (calculate AHL and put high 16 bit to GOT)
 //   external: G
-static
-MipsRelocator::Result got16(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result got16(MipsRelocationInfo& pReloc,
+                                   MipsRelocator& pParent) {
   if (pReloc.parent().symInfo()->isLocal()) {
     int32_t AHL = pParent.calcAHL(pReloc);
     int32_t S = pReloc.S();
@@ -937,8 +861,7 @@ MipsRelocator::Result got16(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
     Fragment& got_entry = pParent.getLocalGOTEntry(pReloc, res);
 
     pReloc.result() = got.getGPRelOffset(pParent.getApplyingInput(), got_entry);
-  }
-  else {
+  } else {
     pReloc.result() = pParent.getGOTOffset(pReloc);
   }
 
@@ -947,9 +870,8 @@ MipsRelocator::Result got16(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
 
 // R_MIPS_GOTHI16:
 //   external: (G - (short)G) >> 16 + A
-static
-MipsRelocator::Result gothi16(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result gothi16(MipsRelocationInfo& pReloc,
+                                     MipsRelocator& pParent) {
   Relocator::Address G = pParent.getGOTOffset(pReloc);
   int32_t A = pReloc.A();
 
@@ -960,9 +882,8 @@ MipsRelocator::Result gothi16(MipsRelocationInfo& pReloc, MipsRelocator& pParent
 
 // R_MIPS_GOTLO16:
 //   external: G & 0xffff
-static
-MipsRelocator::Result gotlo16(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result gotlo16(MipsRelocationInfo& pReloc,
+                                     MipsRelocator& pParent) {
   pReloc.result() = pParent.getGOTOffset(pReloc) & 0xffff;
 
   return Relocator::OK;
@@ -970,9 +891,8 @@ MipsRelocator::Result gotlo16(MipsRelocationInfo& pReloc, MipsRelocator& pParent
 
 // R_MIPS_SUB:
 //   external/local: S - A
-static
-MipsRelocator::Result sub(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result sub(MipsRelocationInfo& pReloc,
+                                 MipsRelocator& pParent) {
   uint64_t S = pReloc.S();
   uint64_t A = pReloc.A();
 
@@ -982,18 +902,16 @@ MipsRelocator::Result sub(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
 }
 
 // R_MIPS_CALL16: G
-static
-MipsRelocator::Result call16(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result call16(MipsRelocationInfo& pReloc,
+                                    MipsRelocator& pParent) {
   pReloc.result() = pParent.getGOTOffset(pReloc);
 
   return Relocator::OK;
 }
 
 // R_MIPS_GPREL32: A + S + GP0 - GP
-static
-MipsRelocator::Result gprel32(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result gprel32(MipsRelocationInfo& pReloc,
+                                     MipsRelocator& pParent) {
   // Remember to add the section offset to A.
   uint64_t A = pReloc.A();
   uint64_t S = pReloc.S();
@@ -1006,9 +924,8 @@ MipsRelocator::Result gprel32(MipsRelocationInfo& pReloc, MipsRelocator& pParent
 }
 
 // R_MIPS_64: S + A
-static
-MipsRelocator::Result abs64(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result abs64(MipsRelocationInfo& pReloc,
+                                   MipsRelocator& pParent) {
   // FIXME (simon): Consider to merge with abs32() or use the same function
   // but with another mask size.
   ResolveInfo* rsym = pReloc.parent().symInfo();
@@ -1017,9 +934,10 @@ MipsRelocator::Result abs64(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
   Relocator::DWord S = pReloc.S();
 
   LDSection& target_sect =
-    pReloc.parent().targetRef().frag()->getParent()->getSection();
+      pReloc.parent().targetRef().frag()->getParent()->getSection();
 
-  // If the flag of target section is not ALLOC, we will not scan this relocation
+  // If the flag of target section is not ALLOC, we will not scan this
+  // relocation
   // but perform static relocation. (e.g., applying .debug section)
   if (0x0 == (llvm::ELF::SHF_ALLOC & target_sect.flag())) {
     pReloc.result() = S + A;
@@ -1037,33 +955,29 @@ MipsRelocator::Result abs64(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
 }
 
 // R_MIPS_GOT_DISP / R_MIPS_GOT_PAGE: G
-static
-MipsRelocator::Result gotdisp(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result gotdisp(MipsRelocationInfo& pReloc,
+                                     MipsRelocator& pParent) {
   pReloc.result() = pParent.getGOTOffset(pReloc);
 
   return Relocator::OK;
 }
 
 // R_MIPS_GOT_OFST:
-static
-MipsRelocator::Result gotoff(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result gotoff(MipsRelocationInfo& pReloc,
+                                    MipsRelocator& pParent) {
   // FIXME (simon): Needs to be implemented.
   return Relocator::OK;
 }
 
 // R_MIPS_JALR:
-static
-MipsRelocator::Result jalr(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result jalr(MipsRelocationInfo& pReloc,
+                                  MipsRelocator& pParent) {
   return Relocator::OK;
 }
 
 // R_MIPS_LA25_LUI
-static
-MipsRelocator::Result la25lui(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result la25lui(MipsRelocationInfo& pReloc,
+                                     MipsRelocator& pParent) {
   int32_t S = pReloc.S();
 
   pReloc.result() = (S + 0x8000) >> 16;
@@ -1072,9 +986,8 @@ MipsRelocator::Result la25lui(MipsRelocationInfo& pReloc, MipsRelocator& pParent
 }
 
 // R_MIPS_LA25_J
-static
-MipsRelocator::Result la25j(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result la25j(MipsRelocationInfo& pReloc,
+                                   MipsRelocator& pParent) {
   int32_t S = pReloc.S();
 
   pReloc.result() = S >> 2;
@@ -1083,23 +996,20 @@ MipsRelocator::Result la25j(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
 }
 
 // R_MIPS_LA25_ADD
-static
-MipsRelocator::Result la25add(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result la25add(MipsRelocationInfo& pReloc,
+                                     MipsRelocator& pParent) {
   pReloc.result() = pReloc.S();
 
   return Relocator::OK;
 }
 
 // R_MIPS_PC32:
-static
-MipsRelocator::Result pc32(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result pc32(MipsRelocationInfo& pReloc,
+                                  MipsRelocator& pParent) {
   return Relocator::OK;
 }
 
-static
-MipsRelocator::Result unsupport(MipsRelocationInfo& pReloc, MipsRelocator& pParent)
-{
+static MipsRelocator::Result unsupport(MipsRelocationInfo& pReloc,
+                                       MipsRelocator& pParent) {
   return Relocator::Unsupport;
 }

@@ -81,6 +81,7 @@ TEST_F(FormatTestJS, UnderstandsJavaScriptOperators) {
                getGoogleJSStyleWithColumns(20));
 
   verifyFormat("var b = a.map((x) => x + 1);");
+  verifyFormat("return ('aaa') in bbbb;");
 }
 
 TEST_F(FormatTestJS, UnderstandsAmpAmp) {
@@ -248,6 +249,19 @@ TEST_F(FormatTestJS, MultipleFunctionLiterals) {
                "               doFoo();\n"
                "               doBaz();\n"
                "             });\n");
+
+  verifyFormat("getSomeLongPromise()\n"
+               "    .then(function(value) { body(); })\n"
+               "    .thenCatch(function(error) { body(); });");
+  verifyFormat("getSomeLongPromise()\n"
+               "    .then(function(value) {\n"
+               "      body();\n"
+               "      body();\n"
+               "    })\n"
+               "    .thenCatch(function(error) {\n"
+               "      body();\n"
+               "      body();\n"
+               "    });");
 }
 
 TEST_F(FormatTestJS, ReturnStatements) {
@@ -330,6 +344,8 @@ TEST_F(FormatTestJS, RegexLiteralSpecialCharacters) {
   verifyFormat("var regex = /\\\\/g;");
   verifyFormat("var regex = /\\a\\\\/g;");
   verifyFormat("var regex = /\a\\//g;");
+  verifyFormat("var regex = /a\\//;\n"
+               "var x = 0;");
 }
 
 TEST_F(FormatTestJS, RegexLiteralModifiers) {

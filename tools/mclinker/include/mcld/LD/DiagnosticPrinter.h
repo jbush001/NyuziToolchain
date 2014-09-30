@@ -6,21 +6,20 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_DIAGNOSTICPRINTER_H
-#define MCLD_LD_DIAGNOSTICPRINTER_H
-#include <mcld/LD/DiagnosticEngine.h>
-#include <mcld/LD/Diagnostic.h>
+#ifndef MCLD_LD_DIAGNOSTICPRINTER_H_
+#define MCLD_LD_DIAGNOSTICPRINTER_H_
 
-namespace mcld
-{
+#include <mcld/LD/Diagnostic.h>
+#include <mcld/LD/DiagnosticEngine.h>
+
+namespace mcld {
 
 /** \class DiagnosticPrinter
  *  \brief DiagnosticPrinter provides the interface to customize diagnostic
  *  messages and output.
  */
-class DiagnosticPrinter
-{
-public:
+class DiagnosticPrinter {
+ public:
   DiagnosticPrinter();
 
   virtual ~DiagnosticPrinter();
@@ -31,8 +30,7 @@ public:
 
   virtual void finish() {}
 
-  virtual void clear()
-  { m_NumErrors = m_NumWarnings = 0; }
+  virtual void clear() { m_NumErrors = m_NumWarnings = 0; }
 
   /// HandleDiagnostic - Handle this diagnostic, reporting it to the user or
   /// capturing it to a log as needed.
@@ -42,12 +40,11 @@ public:
   unsigned int getNumErrors() const { return m_NumErrors; }
   unsigned int getNumWarnings() const { return m_NumWarnings; }
 
-protected:
+ protected:
   unsigned int m_NumErrors;
   unsigned int m_NumWarnings;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_DIAGNOSTICPRINTER_H_

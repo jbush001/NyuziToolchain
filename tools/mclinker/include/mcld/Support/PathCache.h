@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SUPPORT_PATHCACHE_H
-#define MCLD_SUPPORT_PATHCACHE_H
+#ifndef MCLD_SUPPORT_PATHCACHE_H_
+#define MCLD_SUPPORT_PATHCACHE_H_
 
 #include <mcld/ADT/HashEntry.h>
 #include <mcld/ADT/HashTable.h>
@@ -15,20 +15,21 @@
 #include <mcld/Support/Path.h>
 
 namespace mcld {
-namespace sys  {
-namespace fs   {
+namespace sys {
+namespace fs {
 
 namespace {
-  typedef HashEntry<llvm::StringRef,
-                    mcld::sys::fs::Path,
-                    hash::StringCompare<llvm::StringRef> > HashEntryType;
-} // anonymous namespace
+typedef HashEntry<llvm::StringRef,
+                  mcld::sys::fs::Path,
+                  hash::StringCompare<llvm::StringRef> > HashEntryType;
+}  // anonymous namespace
 
-typedef HashTable<HashEntryType, hash::StringHash<hash::BKDR>, EntryFactory<HashEntryType> > PathCache;
+typedef HashTable<HashEntryType,
+                  hash::StringHash<hash::DJB>,
+                  EntryFactory<HashEntryType> > PathCache;
 
-} // namespace of fs
-} // namespace of sys
-} // namespace of mcld
+}  // namespace fs
+}  // namespace sys
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_SUPPORT_PATHCACHE_H_

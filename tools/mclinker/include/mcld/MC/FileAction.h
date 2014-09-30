@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_MC_FILEACTION_H
-#define MCLD_MC_FILEACTION_H
+#ifndef MCLD_MC_FILEACTION_H_
+#define MCLD_MC_FILEACTION_H_
 #include <mcld/MC/InputAction.h>
 #include <mcld/Support/FileHandle.h>
 
@@ -18,9 +18,8 @@ class ContextFactory;
 /** \class ContextAction
  *  \brief ContextAction is a command object to create input's LDContext.
  */
-class ContextAction : public InputAction
-{
-public:
+class ContextAction : public InputAction {
+ public:
   explicit ContextAction(unsigned int pPosition);
 
   bool activate(InputBuilder& pBuilder) const;
@@ -29,21 +28,19 @@ public:
 /** \class MemoryAreaAction
  *  \brief MemoryAreaAction is a command object to create input's MemoryArea.
  */
-class MemoryAreaAction : public InputAction
-{
-public:
+class MemoryAreaAction : public InputAction {
+ public:
   MemoryAreaAction(unsigned int pPosition,
-                   FileHandle::OpenMode pMode,
-                   FileHandle::Permission pPerm = FileHandle::System);
+                   FileHandle::OpenModeEnum pMode,
+                   FileHandle::PermissionEnum pPerm = FileHandle::System);
 
   bool activate(InputBuilder& pBuilder) const;
 
-private:
+ private:
   FileHandle::OpenMode m_Mode;
   FileHandle::Permission m_Permission;
 };
 
-} // end of namespace mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_MC_FILEACTION_H_

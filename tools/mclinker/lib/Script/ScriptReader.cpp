@@ -7,9 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 #include <mcld/Script/ScriptReader.h>
-#include <mcld/Script/ScriptScanner.h>
-#include <mcld/Script/ScriptFile.h>
+
 #include <mcld/MC/Input.h>
+#include <mcld/Script/ScriptFile.h>
+#include <mcld/Script/ScriptScanner.h>
 #include <mcld/Support/MemoryArea.h>
 
 #include <llvm/ADT/StringRef.h>
@@ -19,27 +20,28 @@
 
 using namespace mcld;
 
-ScriptReader::ScriptReader(GroupReader& pGroupReader)
-  : m_GroupReader(pGroupReader)
-{
+ScriptReader::ScriptReader(ObjectReader& pObjectReader,
+                           ArchiveReader& pArchiveReader,
+                           DynObjReader& pDynObjReader,
+                           GroupReader& pGroupReader)
+    : m_ObjectReader(pObjectReader),
+      m_ArchiveReader(pArchiveReader),
+      m_DynObjReader(pDynObjReader),
+      m_GroupReader(pGroupReader) {
 }
 
-ScriptReader::~ScriptReader()
-{
+ScriptReader::~ScriptReader() {
 }
 
 /// isMyFormat
-bool ScriptReader::isMyFormat(Input& input, bool &doContinue) const
-{
+bool ScriptReader::isMyFormat(Input& input, bool& doContinue) const {
   doContinue = true;
   // always return true now
   return true;
 }
 
 bool ScriptReader::readScript(const LinkerConfig& pConfig,
-                              ScriptFile& pScriptFile)
-{
-  bool result = false;
+                              ScriptFile& pScriptFile) {
   Input& input = pScriptFile.input();
   size_t size = input.memArea()->size();
   llvm::StringRef region = input.memArea()->request(input.fileOffset(), size);
@@ -50,9 +52,9 @@ bool ScriptReader::readScript(const LinkerConfig& pConfig,
   ScriptParser parser(pConfig,
                       pScriptFile,
                       scanner,
+                      m_ObjectReader,
+                      m_ArchiveReader,
+                      m_DynObjReader,
                       m_GroupReader);
-  result = (0 == parser.parse());;
-
-  return result;
+  return parser.parse() == 0;
 }
-

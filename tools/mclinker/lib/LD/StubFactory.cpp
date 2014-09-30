@@ -7,13 +7,14 @@
 //
 //===----------------------------------------------------------------------===//
 #include <mcld/LD/StubFactory.h>
+
 #include <mcld/IRBuilder.h>
-#include <mcld/LD/BranchIslandFactory.h>
+#include <mcld/Fragment/Relocation.h>
+#include <mcld/Fragment/Stub.h>
 #include <mcld/LD/BranchIsland.h>
+#include <mcld/LD/BranchIslandFactory.h>
 #include <mcld/LD/LDSymbol.h>
 #include <mcld/LD/ResolveInfo.h>
-#include <mcld/Fragment/Stub.h>
-#include <mcld/Fragment/Relocation.h>
 
 #include <string>
 
@@ -22,16 +23,15 @@ using namespace mcld;
 //===----------------------------------------------------------------------===//
 // StubFactory
 //===----------------------------------------------------------------------===//
-StubFactory::~StubFactory()
-{
+StubFactory::~StubFactory() {
   for (StubPoolType::iterator it = m_StubPool.begin(), ie = m_StubPool.end();
-       it != ie; ++it)
-    delete(*it);
+       it != ie;
+       ++it)
+    delete (*it);
 }
 
 /// addPrototype - register a stub prototype
-void StubFactory::addPrototype(Stub* pPrototype)
-{
+void StubFactory::addPrototype(Stub* pPrototype) {
   m_StubPool.push_back(pPrototype);
 }
 
@@ -39,8 +39,7 @@ void StubFactory::addPrototype(Stub* pPrototype)
 Stub* StubFactory::create(Relocation& pReloc,
                           uint64_t pTargetSymValue,
                           IRBuilder& pBuilder,
-                          BranchIslandFactory& pBRIslandFactory)
-{
+                          BranchIslandFactory& pBRIslandFactory) {
   // find if there is a prototype stub for the input relocation
   Stub* stub = NULL;
   Stub* prototype = findPrototype(pReloc, pReloc.place(), pTargetSymValue);
@@ -87,16 +86,18 @@ Stub* StubFactory::create(Relocation& pReloc,
                 ResolveInfo::Function,
                 ResolveInfo::Define,
                 ResolveInfo::Local,
-                stub->size(), // size
-                stub->initSymValue(), // value
+                stub->size(),          // size
+                stub->initSymValue(),  // value
                 FragmentRef::Create(*stub, stub->initSymValue()),
                 ResolveInfo::Default);
         stub->setSymInfo(symbol->resolveInfo());
 
-        // add relocations of this stub (i.e., set the branch target of the stub)
+        // add relocations of this stub (i.e., set the branch target of the
+        // stub)
         for (Stub::fixup_iterator it = stub->fixup_begin(),
-             ie = stub->fixup_end(); it != ie; ++it) {
-
+                                  ie = stub->fixup_end();
+             it != ie;
+             ++it) {
           Relocation* reloc =
               Relocation::Create((*it)->type(),
                                  *(FragmentRef::Create(*stub, (*it)->offset())),
@@ -120,10 +121,10 @@ Stub* StubFactory::create(Relocation& pReloc,
 /// relocation
 Stub* StubFactory::findPrototype(const Relocation& pReloc,
                                  uint64_t pSource,
-                                 uint64_t pTargetSymValue)
-{
+                                 uint64_t pTargetSymValue) {
   for (StubPoolType::iterator it = m_StubPool.begin(), ie = m_StubPool.end();
-       it != ie; ++it) {
+       it != ie;
+       ++it) {
     if ((*it)->isMyDuty(pReloc, pSource, pTargetSymValue))
       return (*it);
   }

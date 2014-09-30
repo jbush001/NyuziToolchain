@@ -6,23 +6,23 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_TEXTDIAGNOSTICPRINTER_H
-#define MCLD_LD_TEXTDIAGNOSTICPRINTER_H
+#ifndef MCLD_LD_TEXTDIAGNOSTICPRINTER_H_
+#define MCLD_LD_TEXTDIAGNOSTICPRINTER_H_
 #include <mcld/LD/DiagnosticPrinter.h>
+
 #include <llvm/Support/raw_ostream.h>
 
-namespace mcld
-{
+namespace mcld {
 
 class LinkerConfig;
 
 /** \class TextDiagnosticPrinter
  *  \brief The plain, text-based DiagnosticPrinter.
  */
-class TextDiagnosticPrinter : public DiagnosticPrinter
-{
-public:
-  TextDiagnosticPrinter(llvm::raw_ostream& pOStream, const LinkerConfig& pConfig);
+class TextDiagnosticPrinter : public DiagnosticPrinter {
+ public:
+  TextDiagnosticPrinter(llvm::raw_ostream& pOStream,
+                        const LinkerConfig& pConfig);
 
   virtual ~TextDiagnosticPrinter();
 
@@ -35,13 +35,12 @@ public:
 
   virtual void endInput();
 
-private:
+ private:
   llvm::raw_ostream& m_OStream;
   const LinkerConfig& m_Config;
   const Input* m_pInput;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_TEXTDIAGNOSTICPRINTER_H_

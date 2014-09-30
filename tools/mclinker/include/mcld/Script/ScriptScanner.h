@@ -6,19 +6,19 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SCRIPT_SCRIPTSCANNER_H
-#define MCLD_SCRIPT_SCRIPTSCANNER_H
+#ifndef MCLD_SCRIPT_SCRIPTSCANNER_H_
+#define MCLD_SCRIPT_SCRIPTSCANNER_H_
 
 #ifndef __FLEX_LEXER_H
 #include "FlexLexer.h"
 #endif
 
 #ifndef YY_DECL
-#define YY_DECL                                                       \
-  mcld::ScriptParser::token_type                                      \
-  mcld::ScriptScanner::lex(mcld::ScriptParser::semantic_type* yylval, \
-                           mcld::ScriptParser::location_type* yylloc, \
-                           const mcld::ScriptFile& pScriptFile)
+#define YY_DECL                                            \
+  mcld::ScriptParser::token_type mcld::ScriptScanner::lex( \
+      mcld::ScriptParser::semantic_type* yylval,           \
+      mcld::ScriptParser::location_type* yylloc,           \
+      const mcld::ScriptFile& pScriptFile)
 #endif
 
 #include <mcld/Script/ScriptFile.h>
@@ -30,10 +30,9 @@ namespace mcld {
 /** \class ScriptScanner
  *
  */
-class ScriptScanner : public yyFlexLexer
-{
-public:
-  ScriptScanner(std::istream* yyin = NULL, std::ostream* yyout = NULL);
+class ScriptScanner : public yyFlexLexer {
+ public:
+  explicit ScriptScanner(std::istream* yyin = NULL, std::ostream* yyout = NULL);
 
   virtual ~ScriptScanner();
 
@@ -45,15 +44,14 @@ public:
 
   void popLexState();
 
-private:
+ private:
   void enterComments(ScriptParser::location_type& pLocation);
 
-private:
+ private:
   ScriptFile::Kind m_Kind;
   std::stack<ScriptFile::Kind> m_StateStack;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_SCRIPT_SCRIPTSCANNER_H_

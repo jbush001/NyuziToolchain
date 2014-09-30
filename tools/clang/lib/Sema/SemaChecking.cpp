@@ -111,8 +111,37 @@ static bool SemaBuiltinAddressof(Sema &S, CallExpr *TheCall) {
   return false;
 }
 
+static void SemaBuiltinMemChkCall(Sema &S, FunctionDecl *FDecl,
+		                  CallExpr *TheCall, unsigned SizeIdx,
+                                  unsigned DstSizeIdx) {
+  if (TheCall->getNumArgs() <= SizeIdx ||
+      TheCall->getNumArgs() <= DstSizeIdx)
+    return;
+
+  const Expr *SizeArg = TheCall->getArg(SizeIdx);
+  const Expr *DstSizeArg = TheCall->getArg(DstSizeIdx);
+
+  llvm::APSInt Size, DstSize;
+
+  // find out if both sizes are known at compile time
+  if (!SizeArg->EvaluateAsInt(Size, S.Context) ||
+      !DstSizeArg->EvaluateAsInt(DstSize, S.Context))
+    return;
+
+  if (Size.ule(DstSize))
+    return;
+
+  // confirmed overflow so generate the diagnostic.
+  IdentifierInfo *FnName = FDecl->getIdentifier();
+  SourceLocation SL = TheCall->getLocStart();
+  SourceRange SR = TheCall->getSourceRange();
+
+  S.Diag(SL, diag::warn_memcpy_chk_overflow) << SR << FnName;
+}
+
 ExprResult
-Sema::CheckBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
+Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
+                               CallExpr *TheCall) {
   ExprResult TheCallResult(TheCall);
 
   // Find out if any arguments are required to be integer constant expressions.
@@ -189,7 +218,12 @@ Sema::CheckBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
       return ExprError();
     break;
   case Builtin::BI__assume:
+  case Builtin::BI__builtin_assume:
     if (SemaBuiltinAssume(TheCall))
+      return ExprError();
+    break;
+  case Builtin::BI__builtin_assume_aligned:
+    if (SemaBuiltinAssumeAligned(TheCall))
       return ExprError();
     break;
   case Builtin::BI__builtin_object_size:
@@ -326,6 +360,26 @@ Sema::CheckBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
     // CodeGen assumes it can find the global new and delete to call,
     // so ensure that they are declared.
     DeclareGlobalNewDelete();
+    break;
+
+  // check secure string manipulation functions where overflows
+  // are detectable at compile time
+  case Builtin::BI__builtin___memcpy_chk:
+  case Builtin::BI__builtin___memmove_chk:
+  case Builtin::BI__builtin___memset_chk:
+  case Builtin::BI__builtin___strlcat_chk:
+  case Builtin::BI__builtin___strlcpy_chk:
+  case Builtin::BI__builtin___strncat_chk:
+  case Builtin::BI__builtin___strncpy_chk:
+  case Builtin::BI__builtin___stpncpy_chk:
+    SemaBuiltinMemChkCall(*this, FDecl, TheCall, 2, 3);
+    break;
+  case Builtin::BI__builtin___memccpy_chk:
+    SemaBuiltinMemChkCall(*this, FDecl, TheCall, 3, 4);
+    break;
+  case Builtin::BI__builtin___snprintf_chk:
+  case Builtin::BI__builtin___vsnprintf_chk:
+    SemaBuiltinMemChkCall(*this, FDecl, TheCall, 1, 3);
     break;
   }
 
@@ -762,6 +816,57 @@ static void CheckNonNullArgument(Sema &S,
     S.Diag(CallSiteLoc, diag::warn_null_arg) << ArgExpr->getSourceRange();
 }
 
+bool Sema::GetFormatNSStringIdx(const FormatAttr *Format, unsigned &Idx) {
+  FormatStringInfo FSI;
+  if ((GetFormatStringType(Format) == FST_NSString) &&
+      getFormatStringInfo(Format, false, &FSI)) {
+    Idx = FSI.FormatIdx;
+    return true;
+  }
+  return false;
+}
+/// \brief Diagnose use of %s directive in an NSString which is being passed
+/// as formatting string to formatting method.
+static void
+DiagnoseCStringFormatDirectiveInCFAPI(Sema &S,
+                                        const NamedDecl *FDecl,
+                                        Expr **Args,
+                                        unsigned NumArgs) {
+  unsigned Idx = 0;
+  bool Format = false;
+  ObjCStringFormatFamily SFFamily = FDecl->getObjCFStringFormattingFamily();
+  if (SFFamily == ObjCStringFormatFamily::SFF_CFString) {
+    Idx = 2;
+    Format = true;
+  }
+  else
+    for (const auto *I : FDecl->specific_attrs<FormatAttr>()) {
+      if (S.GetFormatNSStringIdx(I, Idx)) {
+        Format = true;
+        break;
+      }
+    }
+  if (!Format || NumArgs <= Idx)
+    return;
+  const Expr *FormatExpr = Args[Idx];
+  if (const CStyleCastExpr *CSCE = dyn_cast<CStyleCastExpr>(FormatExpr))
+    FormatExpr = CSCE->getSubExpr();
+  const StringLiteral *FormatString;
+  if (const ObjCStringLiteral *OSL =
+      dyn_cast<ObjCStringLiteral>(FormatExpr->IgnoreParenImpCasts()))
+    FormatString = OSL->getString();
+  else
+    FormatString = dyn_cast<StringLiteral>(FormatExpr->IgnoreParenImpCasts());
+  if (!FormatString)
+    return;
+  if (S.FormatStringHasSArg(FormatString)) {
+    S.Diag(FormatExpr->getExprLoc(), diag::warn_objc_cdirective_format_string)
+      << "%s" << 1 << 1;
+    S.Diag(FDecl->getLocation(), diag::note_entity_declared_at)
+      << FDecl->getDeclName();
+  }
+}
+
 static void CheckNonNullArguments(Sema &S,
                                   const NamedDecl *FDecl,
                                   ArrayRef<const Expr *> Args,
@@ -772,7 +877,7 @@ static void CheckNonNullArguments(Sema &S,
     if (!NonNull->args_size()) {
       // Easy case: all pointer arguments are nonnull.
       for (const auto *Arg : Args)
-        if (S.isValidNonNullAttrType(Arg->getType()))
+        if (S.isValidPointerAttrType(Arg->getType()))
           CheckNonNullArgument(S, Arg, CallSiteLoc);
       return;
     }
@@ -894,6 +999,8 @@ bool Sema::CheckFunctionCall(FunctionDecl *FDecl, CallExpr *TheCall,
     return false;
 
   CheckAbsoluteValueFunction(TheCall, FDecl, FnInfo);
+  if (getLangOpts().ObjC1)
+    DiagnoseCStringFormatDirectiveInCFAPI(*this, FDecl, Args, NumArgs);
 
   unsigned CMId = FDecl->getMemoryFunctionKind();
   if (CMId == 0)
@@ -2059,7 +2166,46 @@ bool Sema::SemaBuiltinAssume(CallExpr *TheCall) {
 
   if (Arg->HasSideEffects(Context))
     return Diag(Arg->getLocStart(), diag::warn_assume_side_effects)
-      << Arg->getSourceRange();
+      << Arg->getSourceRange()
+      << cast<FunctionDecl>(TheCall->getCalleeDecl())->getIdentifier();
+
+  return false;
+}
+
+/// Handle __builtin_assume_aligned. This is declared
+/// as (const void*, size_t, ...) and can take one optional constant int arg.
+bool Sema::SemaBuiltinAssumeAligned(CallExpr *TheCall) {
+  unsigned NumArgs = TheCall->getNumArgs();
+
+  if (NumArgs > 3)
+    return Diag(TheCall->getLocEnd(),
+             diag::err_typecheck_call_too_many_args_at_most)
+             << 0 /*function call*/ << 3 << NumArgs
+             << TheCall->getSourceRange();
+
+  // The alignment must be a constant integer.
+  Expr *Arg = TheCall->getArg(1);
+
+  // We can't check the value of a dependent argument.
+  if (!Arg->isTypeDependent() && !Arg->isValueDependent()) {
+    llvm::APSInt Result;
+    if (SemaBuiltinConstantArg(TheCall, 1, Result))
+      return true;
+
+    if (!Result.isPowerOf2())
+      return Diag(TheCall->getLocStart(),
+                  diag::err_alignment_not_power_of_two)
+           << Arg->getSourceRange();
+  }
+
+  if (NumArgs > 2) {
+    ExprResult Arg(TheCall->getArg(2));
+    InitializedEntity Entity = InitializedEntity::InitializeParameter(Context,
+      Context.getSizeType(), false);
+    Arg = PerformCopyInitialization(Entity, SourceLocation(), Arg);
+    if (Arg.isInvalid()) return true;
+    TheCall->setArg(2, Arg.get());
+  }
 
   return false;
 }
@@ -3423,6 +3569,7 @@ CheckPrintfHandler::checkFormatExpr(const analyze_printf::PrintfSpecifier &FS,
       break;
 
     case Sema::VAK_Undefined:
+    case Sema::VAK_MSVCUndefined:
       EmitFormatDiagnostic(
         S.PDiag(diag::warn_non_pod_vararg_with_format_string)
           << S.getLangOpts().CPlusPlus11
@@ -3698,6 +3845,20 @@ void Sema::CheckFormatString(const StringLiteral *FExpr,
                                                  Context.getTargetInfo()))
       H.DoneProcessing();
   } // TODO: handle other formats
+}
+
+bool Sema::FormatStringHasSArg(const StringLiteral *FExpr) {
+  // Str - The format string.  NOTE: this is NOT null-terminated!
+  StringRef StrRef = FExpr->getString();
+  const char *Str = StrRef.data();
+  // Account for cases where the string literal is truncated in a declaration.
+  const ConstantArrayType *T = Context.getAsConstantArrayType(FExpr->getType());
+  assert(T && "String literal not of constant array type!");
+  size_t TypeSize = T->getSize().getZExtValue();
+  size_t StrLen = std::min(std::max(TypeSize, size_t(1)) - 1, StrRef.size());
+  return analyze_format_string::ParseFormatStringHasSArg(Str, Str + StrLen,
+                                                         getLangOpts(),
+                                                         Context.getTargetInfo());
 }
 
 //===--- CHECK: Warn on use of wrong absolute value function. -------------===//
@@ -4374,7 +4535,8 @@ void Sema::CheckStrlcpycatArguments(const CallExpr *Call,
                                     IdentifierInfo *FnName) {
 
   // Don't crash if the user has the wrong number of arguments
-  if (Call->getNumArgs() != 3)
+  unsigned NumArgs = Call->getNumArgs();
+  if ((NumArgs != 3) && (NumArgs != 4))
     return;
 
   const Expr *SrcArg = ignoreLiteralAdditions(Call->getArg(1), Context);

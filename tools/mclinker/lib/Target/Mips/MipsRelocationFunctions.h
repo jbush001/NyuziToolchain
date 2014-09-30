@@ -6,33 +6,35 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
+#ifndef TARGET_MIPS_MIPSRELOCATIONFUNCTIONS_H_
+#define TARGET_MIPS_MIPSRELOCATIONFUNCTIONS_H_
 
-#define DECL_MIPS_APPLY_RELOC_FUNC(Name) \
-static MipsRelocator::Result Name(MipsRelocationInfo& pReloc, \
-                                  MipsRelocator& pParent);
+#define DECL_MIPS_APPLY_RELOC_FUNC(Name)                        \
+  static MipsRelocator::Result Name(MipsRelocationInfo& pReloc, \
+                                    MipsRelocator& pParent);
 
-#define DECL_MIPS_APPLY_RELOC_FUNCS \
-DECL_MIPS_APPLY_RELOC_FUNC(none) \
-DECL_MIPS_APPLY_RELOC_FUNC(abs32) \
-DECL_MIPS_APPLY_RELOC_FUNC(rel26) \
-DECL_MIPS_APPLY_RELOC_FUNC(hi16) \
-DECL_MIPS_APPLY_RELOC_FUNC(lo16) \
-DECL_MIPS_APPLY_RELOC_FUNC(gprel16) \
-DECL_MIPS_APPLY_RELOC_FUNC(got16) \
-DECL_MIPS_APPLY_RELOC_FUNC(call16) \
-DECL_MIPS_APPLY_RELOC_FUNC(gprel32) \
-DECL_MIPS_APPLY_RELOC_FUNC(abs64) \
-DECL_MIPS_APPLY_RELOC_FUNC(gotdisp) \
-DECL_MIPS_APPLY_RELOC_FUNC(gotoff) \
-DECL_MIPS_APPLY_RELOC_FUNC(gothi16) \
-DECL_MIPS_APPLY_RELOC_FUNC(gotlo16) \
-DECL_MIPS_APPLY_RELOC_FUNC(sub) \
-DECL_MIPS_APPLY_RELOC_FUNC(jalr) \
-DECL_MIPS_APPLY_RELOC_FUNC(la25lui) \
-DECL_MIPS_APPLY_RELOC_FUNC(la25j) \
-DECL_MIPS_APPLY_RELOC_FUNC(la25add) \
-DECL_MIPS_APPLY_RELOC_FUNC(pc32) \
-DECL_MIPS_APPLY_RELOC_FUNC(unsupport)
+#define DECL_MIPS_APPLY_RELOC_FUNCS   \
+  DECL_MIPS_APPLY_RELOC_FUNC(none)    \
+  DECL_MIPS_APPLY_RELOC_FUNC(abs32)   \
+  DECL_MIPS_APPLY_RELOC_FUNC(rel26)   \
+  DECL_MIPS_APPLY_RELOC_FUNC(hi16)    \
+  DECL_MIPS_APPLY_RELOC_FUNC(lo16)    \
+  DECL_MIPS_APPLY_RELOC_FUNC(gprel16) \
+  DECL_MIPS_APPLY_RELOC_FUNC(got16)   \
+  DECL_MIPS_APPLY_RELOC_FUNC(call16)  \
+  DECL_MIPS_APPLY_RELOC_FUNC(gprel32) \
+  DECL_MIPS_APPLY_RELOC_FUNC(abs64)   \
+  DECL_MIPS_APPLY_RELOC_FUNC(gotdisp) \
+  DECL_MIPS_APPLY_RELOC_FUNC(gotoff)  \
+  DECL_MIPS_APPLY_RELOC_FUNC(gothi16) \
+  DECL_MIPS_APPLY_RELOC_FUNC(gotlo16) \
+  DECL_MIPS_APPLY_RELOC_FUNC(sub)     \
+  DECL_MIPS_APPLY_RELOC_FUNC(jalr)    \
+  DECL_MIPS_APPLY_RELOC_FUNC(la25lui) \
+  DECL_MIPS_APPLY_RELOC_FUNC(la25j)   \
+  DECL_MIPS_APPLY_RELOC_FUNC(la25add) \
+  DECL_MIPS_APPLY_RELOC_FUNC(pc32)    \
+  DECL_MIPS_APPLY_RELOC_FUNC(unsupport)
 
 #define DECL_MIPS_APPLY_RELOC_FUNC_PTRS \
   { &none,         0, "R_MIPS_NONE",                  0}, \
@@ -290,3 +292,5 @@ DECL_MIPS_APPLY_RELOC_FUNC(unsupport)
   { &unsupport,  252, "",                             0}, \
   { &unsupport,  253, "R_MIPS_GNU_VTINHERIT",         0}, \
   { &unsupport,  254, "R_MIPS_GNU_VTENTRY",           0}
+
+#endif  // TARGET_MIPS_MIPSRELOCATIONFUNCTIONS_H_

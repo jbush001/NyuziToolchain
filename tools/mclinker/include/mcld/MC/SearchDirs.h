@@ -6,21 +6,22 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_MC_SEARCHDIRS_H
-#define MCLD_MC_SEARCHDIRS_H
+#ifndef MCLD_MC_SEARCHDIRS_H_
+#define MCLD_MC_SEARCHDIRS_H_
+
 #include <mcld/ADT/Uncopyable.h>
 #include <mcld/MC/Input.h>
 #include <mcld/Support/Path.h>
 
 #include <llvm/ADT/StringRef.h>
 
-#include <vector>
 #include <string>
+#include <vector>
 
 namespace mcld {
 
-class MCLDFile;
 class MCLDDirectory;
+class MCLDFile;
 
 /** \class SearchDirs
  *  \brief SearchDirs contains the list of paths that MCLinker will search for
@@ -31,35 +32,34 @@ class MCLDDirectory;
  *
  *  @see MCLDDirectory.
  */
-class SearchDirs : private Uncopyable
-{
-public:
+class SearchDirs : private Uncopyable {
+ public:
   typedef std::vector<MCLDDirectory*> DirList;
   typedef DirList::iterator iterator;
   typedef DirList::const_iterator const_iterator;
 
-public:
+ public:
   SearchDirs();
 
-  SearchDirs(const sys::fs::Path& pSysRoot);
+  explicit SearchDirs(const sys::fs::Path& pSysRoot);
 
   ~SearchDirs();
 
   // find - give a namespec, return a real path of the shared object.
-  sys::fs::Path*
-  find(const std::string& pNamespec, mcld::Input::Type pPreferType);
+  sys::fs::Path* find(const std::string& pNamespec,
+                      mcld::Input::Type pPreferType);
 
-  const sys::fs::Path*
-  find(const std::string& pNamespec, mcld::Input::Type pPreferType) const;
+  const sys::fs::Path* find(const std::string& pNamespec,
+                            mcld::Input::Type pPreferType) const;
 
   void setSysRoot(const sys::fs::Path& pSysRoot) { m_SysRoot = pSysRoot; }
   const sys::fs::Path& sysroot() const { return m_SysRoot; }
 
   // -----  iterators  ----- //
   const_iterator begin() const { return m_DirList.begin(); }
-  iterator       begin()       { return m_DirList.begin(); }
-  const_iterator end  () const { return m_DirList.end();   }
-  iterator       end  ()       { return m_DirList.end();   }
+  iterator begin() { return m_DirList.begin(); }
+  const_iterator end() const { return m_DirList.end(); }
+  iterator end() { return m_DirList.end(); }
 
   // -----  modifiers  ----- //
   bool insert(const char* pDirectory);
@@ -68,12 +68,11 @@ public:
 
   bool insert(const sys::fs::Path& pDirectory);
 
-private:
+ private:
   DirList m_DirList;
   sys::fs::Path m_SysRoot;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_MC_SEARCHDIRS_H_

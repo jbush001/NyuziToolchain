@@ -6,15 +6,16 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SCRIPT_SECTIONSCMD_H
-#define MCLD_SCRIPT_SECTIONSCMD_H
+#ifndef MCLD_SCRIPT_SECTIONSCMD_H_
+#define MCLD_SCRIPT_SECTIONSCMD_H_
 
 #include <mcld/Script/ScriptCommand.h>
+
 #include <llvm/Support/DataTypes.h>
+
 #include <vector>
 
-namespace mcld
-{
+namespace mcld {
 
 class Module;
 
@@ -22,28 +23,27 @@ class Module;
  *  \brief This class defines the interfaces to SECTIONS command.
  */
 
-class SectionsCmd : public ScriptCommand
-{
-public:
+class SectionsCmd : public ScriptCommand {
+ public:
   typedef std::vector<ScriptCommand*> SectionCommands;
   typedef SectionCommands::const_iterator const_iterator;
   typedef SectionCommands::iterator iterator;
   typedef SectionCommands::const_reference const_reference;
   typedef SectionCommands::reference reference;
 
-public:
+ public:
   SectionsCmd();
   ~SectionsCmd();
 
-  const_iterator  begin() const { return m_SectionCommands.begin(); }
-  iterator        begin()       { return m_SectionCommands.begin(); }
-  const_iterator  end()   const { return m_SectionCommands.end(); }
-  iterator        end()         { return m_SectionCommands.end(); }
+  const_iterator begin() const { return m_SectionCommands.begin(); }
+  iterator begin() { return m_SectionCommands.begin(); }
+  const_iterator end() const { return m_SectionCommands.end(); }
+  iterator end() { return m_SectionCommands.end(); }
 
   const_reference front() const { return m_SectionCommands.front(); }
-  reference       front()       { return m_SectionCommands.front(); }
-  const_reference back()  const { return m_SectionCommands.back(); }
-  reference       back()        { return m_SectionCommands.back(); }
+  reference front() { return m_SectionCommands.front(); }
+  const_reference back() const { return m_SectionCommands.back(); }
+  reference back() { return m_SectionCommands.back(); }
 
   size_t size() const { return m_SectionCommands.size(); }
 
@@ -51,8 +51,7 @@ public:
 
   void dump() const;
 
-  static bool classof(const ScriptCommand* pCmd)
-  {
+  static bool classof(const ScriptCommand* pCmd) {
     return pCmd->getKind() == ScriptCommand::SECTIONS;
   }
 
@@ -60,10 +59,10 @@ public:
 
   void push_back(ScriptCommand* pCommand);
 
-private:
+ private:
   SectionCommands m_SectionCommands;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
+#endif  // MCLD_SCRIPT_SECTIONSCMD_H_

@@ -4617,10 +4617,13 @@ void ASTWriter::WriteASTCore(Sema &SemaRef,
       auto Cmp = [](const ModuleInfo &A, const ModuleInfo &B) {
         return A.ID < B.ID;
       };
+      auto Eq = [](const ModuleInfo &A, const ModuleInfo &B) {
+        return A.ID == B.ID;
+      };
 
       // Sort and deduplicate module IDs.
       std::sort(Imports.begin(), Imports.end(), Cmp);
-      Imports.erase(std::unique(Imports.begin(), Imports.end(), Cmp),
+      Imports.erase(std::unique(Imports.begin(), Imports.end(), Eq),
                     Imports.end());
 
       RecordData ImportedModules;
@@ -5242,6 +5245,10 @@ void ASTWriter::AddNestedNameSpecifier(NestedNameSpecifier *NNS,
     case NestedNameSpecifier::Global:
       // Don't need to write an associated value.
       break;
+
+    case NestedNameSpecifier::Super:
+      AddDeclRef(NNS->getAsRecordDecl(), Record);
+      break;
     }
   }
 }
@@ -5290,6 +5297,11 @@ void ASTWriter::AddNestedNameSpecifierLoc(NestedNameSpecifierLoc NNS,
 
     case NestedNameSpecifier::Global:
       AddSourceLocation(NNS.getLocalSourceRange().getEnd(), Record);
+      break;
+
+    case NestedNameSpecifier::Super:
+      AddDeclRef(NNS.getNestedNameSpecifier()->getAsRecordDecl(), Record);
+      AddSourceRange(NNS.getLocalSourceRange(), Record);
       break;
     }
   }
@@ -5696,8 +5708,6 @@ void ASTWriter::CompletedTagDefinition(const TagDecl *D) {
 }
 
 void ASTWriter::AddedVisibleDecl(const DeclContext *DC, const Decl *D) {
-  assert(!WritingAST && "Already writing the AST!");
-
   // TU and namespaces are handled elsewhere.
   if (isa<TranslationUnitDecl>(DC) || isa<NamespaceDecl>(DC))
     return;
@@ -5706,12 +5716,12 @@ void ASTWriter::AddedVisibleDecl(const DeclContext *DC, const Decl *D) {
     return; // Not a source decl added to a DeclContext from PCH.
 
   assert(!getDefinitiveDeclContext(DC) && "DeclContext not definitive!");
+  assert(!WritingAST && "Already writing the AST!");
   AddUpdatedDeclContext(DC);
   UpdatingVisibleDecls.push_back(D);
 }
 
 void ASTWriter::AddedCXXImplicitMember(const CXXRecordDecl *RD, const Decl *D) {
-  assert(!WritingAST && "Already writing the AST!");
   assert(D->isImplicit());
   if (!(!D->isFromASTFile() && RD->isFromASTFile()))
     return; // Not a source member added to a class from PCH.
@@ -5720,17 +5730,18 @@ void ASTWriter::AddedCXXImplicitMember(const CXXRecordDecl *RD, const Decl *D) {
 
   // A decl coming from PCH was modified.
   assert(RD->isCompleteDefinition());
+  assert(!WritingAST && "Already writing the AST!");
   DeclUpdates[RD].push_back(DeclUpdate(UPD_CXX_ADDED_IMPLICIT_MEMBER, D));
 }
 
 void ASTWriter::AddedCXXTemplateSpecialization(const ClassTemplateDecl *TD,
                                      const ClassTemplateSpecializationDecl *D) {
   // The specializations set is kept in the canonical template.
-  assert(!WritingAST && "Already writing the AST!");
   TD = TD->getCanonicalDecl();
   if (!(!D->isFromASTFile() && TD->isFromASTFile()))
     return; // Not a source specialization added to a template from PCH.
 
+  assert(!WritingAST && "Already writing the AST!");
   DeclUpdates[TD].push_back(DeclUpdate(UPD_CXX_ADDED_TEMPLATE_SPECIALIZATION,
                                        D));
 }
@@ -5738,11 +5749,11 @@ void ASTWriter::AddedCXXTemplateSpecialization(const ClassTemplateDecl *TD,
 void ASTWriter::AddedCXXTemplateSpecialization(
     const VarTemplateDecl *TD, const VarTemplateSpecializationDecl *D) {
   // The specializations set is kept in the canonical template.
-  assert(!WritingAST && "Already writing the AST!");
   TD = TD->getCanonicalDecl();
   if (!(!D->isFromASTFile() && TD->isFromASTFile()))
     return; // Not a source specialization added to a template from PCH.
 
+  assert(!WritingAST && "Already writing the AST!");
   DeclUpdates[TD].push_back(DeclUpdate(UPD_CXX_ADDED_TEMPLATE_SPECIALIZATION,
                                        D));
 }
@@ -5750,11 +5761,11 @@ void ASTWriter::AddedCXXTemplateSpecialization(
 void ASTWriter::AddedCXXTemplateSpecialization(const FunctionTemplateDecl *TD,
                                                const FunctionDecl *D) {
   // The specializations set is kept in the canonical template.
-  assert(!WritingAST && "Already writing the AST!");
   TD = TD->getCanonicalDecl();
   if (!(!D->isFromASTFile() && TD->isFromASTFile()))
     return; // Not a source specialization added to a template from PCH.
 
+  assert(!WritingAST && "Already writing the AST!");
   DeclUpdates[TD].push_back(DeclUpdate(UPD_CXX_ADDED_TEMPLATE_SPECIALIZATION,
                                        D));
 }

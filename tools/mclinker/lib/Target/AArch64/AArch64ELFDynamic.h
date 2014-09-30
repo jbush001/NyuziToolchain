@@ -6,23 +6,23 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef TARGET_AARCH64_AARCH64ELFDYNAMIC_H
-#define TARGET_AARCH64_AARCH64ELFDYNAMIC_H
+#ifndef TARGET_AARCH64_AARCH64ELFDYNAMIC_H_
+#define TARGET_AARCH64_AARCH64ELFDYNAMIC_H_
 
 #include <mcld/Target/ELFDynamic.h>
 
 namespace mcld {
 
 class AArch64ELFDynamic : public ELFDynamic {
-public:
+ public:
   AArch64ELFDynamic(const GNULDBackend& pParent, const LinkerConfig& pConfig);
   ~AArch64ELFDynamic();
 
-private:
+ private:
   void reserveTargetEntries(const ELFFileFormat& pFormat);
   void applyTargetEntries(const ELFFileFormat& pFormat);
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
+#endif  // TARGET_AARCH64_AARCH64ELFDYNAMIC_H_

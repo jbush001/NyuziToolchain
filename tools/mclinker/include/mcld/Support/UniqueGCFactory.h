@@ -6,39 +6,36 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SUPPORT_UNIQUEGCFACTORY_H
-#define MCLD_SUPPORT_UNIQUEGCFACTORY_H
+#ifndef MCLD_SUPPORT_UNIQUEGCFACTORY_H_
+#define MCLD_SUPPORT_UNIQUEGCFACTORY_H_
 
-#include "mcld/Support/GCFactory.h"
+#include <mcld/Support/GCFactory.h>
+
 #include <map>
 #include <utility>
 
-namespace mcld
-{
+namespace mcld {
 
 /** \class UniqueGCFactoryBase
  *  \brief UniqueGCFactories are unique associative factories, meaning that
  *  no two elements have the same key.
  */
-template<typename KeyType, typename DataType, size_t ChunkSize>
-class UniqueGCFactoryBase : public GCFactoryBase<LinearAllocator<DataType, ChunkSize> >
-{
-protected:
+template <typename KeyType, typename DataType, size_t ChunkSize>
+class UniqueGCFactoryBase
+    : public GCFactoryBase<LinearAllocator<DataType, ChunkSize> > {
+ protected:
   typedef GCFactoryBase<LinearAllocator<DataType, ChunkSize> > Alloc;
   typedef std::map<KeyType, DataType*> KeyMap;
 
-protected:
+ protected:
   UniqueGCFactoryBase()
-  : GCFactoryBase<LinearAllocator<DataType, ChunkSize> >()
-  { }
+      : GCFactoryBase<LinearAllocator<DataType, ChunkSize> >() {}
 
-  UniqueGCFactoryBase(size_t pNum)
-  : GCFactoryBase<LinearAllocator<DataType, ChunkSize> >(pNum)
-  { }
+  explicit UniqueGCFactoryBase(size_t pNum)
+      : GCFactoryBase<LinearAllocator<DataType, ChunkSize> >(pNum) {}
 
-public:
-  virtual ~UniqueGCFactoryBase()
-  { f_KeyMap.clear(); }
+ public:
+  virtual ~UniqueGCFactoryBase() { f_KeyMap.clear(); }
 
   DataType* find(const KeyType& pKey) {
     typename KeyMap::iterator dataIter = f_KeyMap.find(pKey);
@@ -80,12 +77,10 @@ public:
     return data;
   }
 
-protected:
+ protected:
   KeyMap f_KeyMap;
-
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_SUPPORT_UNIQUEGCFACTORY_H_

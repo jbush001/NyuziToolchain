@@ -6,30 +6,28 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_ATTRIBUTEOPTION_H
-#define MCLD_ATTRIBUTEOPTION_H
+#ifndef MCLD_ATTRIBUTEOPTION_H_
+#define MCLD_ATTRIBUTEOPTION_H_
 #include <mcld/MC/Attribute.h>
 
 namespace mcld {
 
-class AttributeOption
-{
-public:
+class AttributeOption {
+ public:
   AttributeOption();
   ~AttributeOption();
 
   const Attribute& predefined() const { return m_Predefined; }
-  Attribute&       predefined()       { return m_Predefined; }
+  Attribute& predefined() { return m_Predefined; }
 
   const AttrConstraint& constraint() const { return m_Constraint; }
-  AttrConstraint&       constraint()       { return m_Constraint; }
+  AttrConstraint& constraint() { return m_Constraint; }
 
-private:
+ private:
   Attribute m_Predefined;
   AttrConstraint m_Constraint;
 };
 
-} // namespace mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_ATTRIBUTEOPTION_H_

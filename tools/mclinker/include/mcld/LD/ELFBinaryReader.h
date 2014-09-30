@@ -6,14 +6,13 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_ELFBINARYREADER_H
-#define MCLD_LD_ELFBINARYREADER_H
+#ifndef MCLD_LD_ELFBINARYREADER_H_
+#define MCLD_LD_ELFBINARYREADER_H_
 
 #include <mcld/LD/BinaryReader.h>
 
 namespace mcld {
 
-class Module;
 class Input;
 class IRBuilder;
 class LinkerConfig;
@@ -21,23 +20,21 @@ class LinkerConfig;
 /** \lclass ELFBinaryReader
  *  \brief ELFBinaryReader reads target-independent parts of Binary file
  */
-class ELFBinaryReader : public BinaryReader
-{
-public:
+class ELFBinaryReader : public BinaryReader {
+ public:
   ELFBinaryReader(IRBuilder& pBuilder, const LinkerConfig& pConfig);
 
   ~ELFBinaryReader();
 
-  bool isMyFormat(Input& pInput, bool &pContinue) const;
+  bool isMyFormat(Input& pInput, bool& pContinue) const;
 
   bool readBinary(Input& pInput);
 
-private:
+ private:
   IRBuilder& m_Builder;
   const LinkerConfig& m_Config;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_ELFBINARYREADER_H_

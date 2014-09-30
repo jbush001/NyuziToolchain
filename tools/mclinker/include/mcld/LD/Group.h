@@ -6,20 +6,16 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_GROUP_H
-#define MCLD_LD_GROUP_H
+#ifndef MCLD_LD_GROUP_H_
+#define MCLD_LD_GROUP_H_
 
-namespace mcld
-{
+namespace mcld {
 
 /** \class Group
  *  \brief Group records the grouping of all regions
  */
-class Group
-{
-};
+class Group {};
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_GROUP_H_

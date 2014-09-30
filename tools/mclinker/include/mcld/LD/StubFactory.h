@@ -6,26 +6,26 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_STUBFACTORY_H
-#define MCLD_LD_STUBFACTORY_H
+#ifndef MCLD_LD_STUBFACTORY_H_
+#define MCLD_LD_STUBFACTORY_H_
 
 #include <llvm/Support/DataTypes.h>
+
 #include <vector>
 
 namespace mcld {
 
-class Stub;
-class Relocation;
 class BranchIslandFactory;
 class IRBuilder;
+class Relocation;
+class Stub;
 
 /** \class StubFactory
  *  \brief the clone factory of Stub
  *
  */
-class StubFactory
-{
-public:
+class StubFactory {
+ public:
   ~StubFactory();
 
   /// addPrototype - register a stub prototype
@@ -37,20 +37,20 @@ public:
                IRBuilder& pBuilder,
                BranchIslandFactory& pBRIslandFactory);
 
-private:
+ private:
   /// findPrototype - find if there is a registered stub prototype for the given
   ///                 relocation
   Stub* findPrototype(const Relocation& pReloc,
                       const uint64_t pSource,
                       uint64_t pTargetSymValue);
 
-private:
- typedef std::vector<Stub*> StubPoolType;
+ private:
+  typedef std::vector<Stub*> StubPoolType;
 
-private:
-  StubPoolType m_StubPool; // stub pool
+ private:
+  StubPoolType m_StubPool;  // stub pool
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
+#endif  // MCLD_LD_STUBFACTORY_H_

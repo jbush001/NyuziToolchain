@@ -6,16 +6,16 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SUPPORT_MEMORYAREAFACTORY_H
-#define MCLD_SUPPORT_MEMORYAREAFACTORY_H
+#ifndef MCLD_SUPPORT_MEMORYAREAFACTORY_H_
+#define MCLD_SUPPORT_MEMORYAREAFACTORY_H_
+#include <mcld/Support/FileHandle.h>
 #include <mcld/Support/GCFactory.h>
 #include <mcld/Support/MemoryArea.h>
 #include <mcld/Support/Path.h>
-#include <mcld/Support/FileHandle.h>
+
 #include <llvm/ADT/StringMap.h>
 
-namespace mcld
-{
+namespace mcld {
 
 /** \class MemoryAreaFactory
  *  \brief MemoryAreaFactory avoids creating duplicated MemoryAreas of the
@@ -35,16 +35,14 @@ namespace mcld
  *
  *  @see MemoryRegion
  */
-class MemoryAreaFactory : public GCFactory<MemoryArea, 0>
-{
-public:
+class MemoryAreaFactory : public GCFactory<MemoryArea, 0> {
+ public:
   explicit MemoryAreaFactory(size_t pNum);
 
   virtual ~MemoryAreaFactory();
 
   // produce - create a MemoryArea and open its file.
-  MemoryArea* produce(const sys::fs::Path& pPath,
-                      FileHandle::OpenMode pMode);
+  MemoryArea* produce(const sys::fs::Path& pPath, FileHandle::OpenMode pMode);
 
   // produce - create a MemoryArea and open its file.
   MemoryArea* produce(const sys::fs::Path& pPath,
@@ -60,10 +58,11 @@ public:
   MemoryArea* produce(int pFD, FileHandle::OpenMode pMode);
 
   void destruct(MemoryArea* pArea);
-private:
+
+ private:
   llvm::StringMap<MemoryArea*> m_AreaMap;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
+#endif  // MCLD_SUPPORT_MEMORYAREAFACTORY_H_

@@ -6,15 +6,15 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_BRANCHISLANDFACTORY_H
-#define MCLD_LD_BRANCHISLANDFACTORY_H
+#ifndef MCLD_LD_BRANCHISLANDFACTORY_H_
+#define MCLD_LD_BRANCHISLANDFACTORY_H_
+
+#include <mcld/LD/BranchIsland.h>
+#include <mcld/Support/GCFactory.h>
 
 #include <llvm/Support/DataTypes.h>
-#include <mcld/Support/GCFactory.h>
-#include <mcld/LD/BranchIsland.h>
 
-namespace mcld
-{
+namespace mcld {
 
 class Fragment;
 class Module;
@@ -23,9 +23,8 @@ class Module;
  *  \brief
  *
  */
-class BranchIslandFactory : public GCFactory<BranchIsland, 0>
-{
-public:
+class BranchIslandFactory : public GCFactory<BranchIsland, 0> {
+ public:
   /// ctor
   /// @param pMaxFwdBranchRange - the max forward branch range of the target
   /// @param pMaxBwdBranchRange - the max backward branch range of the target
@@ -50,13 +49,12 @@ public:
   /// @return - return the pair of <fwd island, bwd island>
   std::pair<BranchIsland*, BranchIsland*> getIslands(const Fragment& pFragment);
 
-private:
+ private:
   int64_t m_MaxFwdBranchRange;
   int64_t m_MaxBwdBranchRange;
   size_t m_MaxIslandSize;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_BRANCHISLANDFACTORY_H_

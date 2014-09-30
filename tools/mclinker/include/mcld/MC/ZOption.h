@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_MC_ZOPTION_H
-#define MCLD_MC_ZOPTION_H
+#ifndef MCLD_MC_ZOPTION_H_
+#define MCLD_MC_ZOPTION_H_
 
 #include <llvm/Support/DataTypes.h>
 
@@ -16,9 +16,8 @@ namespace mcld {
 /** \class ZOption
  *  \brief The -z options for GNU ld compatibility.
  */
-class ZOption
-{
-public:
+class ZOption {
+ public:
   enum Kind {
     CombReloc,
     NoCombReloc,
@@ -44,7 +43,7 @@ public:
     Unknown
   };
 
-public:
+ public:
   ZOption();
 
   Kind kind() const { return m_Kind; }
@@ -55,12 +54,11 @@ public:
 
   void setPageSize(uint64_t pPageSize) { m_PageSize = pPageSize; }
 
-private:
+ private:
   Kind m_Kind;
   uint64_t m_PageSize;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_MC_ZOPTION_H_

@@ -6,9 +6,11 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <llvm/Support/raw_ostream.h>
 #include <mcld/LD/NamePool.h>
+
 #include <mcld/LD/StaticResolver.h>
+
+#include <llvm/Support/raw_ostream.h>
 
 using namespace mcld;
 
@@ -16,11 +18,10 @@ using namespace mcld;
 // NamePool
 //===----------------------------------------------------------------------===//
 NamePool::NamePool(NamePool::size_type pSize)
-  : m_pResolver(new StaticResolver()), m_Table(pSize) {
+    : m_pResolver(new StaticResolver()), m_Table(pSize) {
 }
 
-NamePool::~NamePool()
-{
+NamePool::~NamePool() {
   delete m_pResolver;
 
   FreeInfoSet::iterator info, iEnd = m_FreeInfoSet.end();
@@ -36,8 +37,7 @@ ResolveInfo* NamePool::createSymbol(const llvm::StringRef& pName,
                                     ResolveInfo::Desc pDesc,
                                     ResolveInfo::Binding pBinding,
                                     ResolveInfo::SizeType pSize,
-                                    ResolveInfo::Visibility pVisibility)
-{
+                                    ResolveInfo::Visibility pVisibility) {
   ResolveInfo** result = m_FreeInfoSet.allocate();
   (*result) = ResolveInfo::Create(pName);
   (*result)->setIsSymbol(true);
@@ -54,16 +54,15 @@ ResolveInfo* NamePool::createSymbol(const llvm::StringRef& pName,
 /// @return the pointer of resolved ResolveInfo
 /// @return is the symbol existent?
 void NamePool::insertSymbol(const llvm::StringRef& pName,
-                              bool pIsDyn,
-                              ResolveInfo::Type pType,
-                              ResolveInfo::Desc pDesc,
-                              ResolveInfo::Binding pBinding,
-                              ResolveInfo::SizeType pSize,
-                              LDSymbol::ValueType pValue,
-                              ResolveInfo::Visibility pVisibility,
-                              ResolveInfo* pOldInfo,
-                              Resolver::Result& pResult)
-{
+                            bool pIsDyn,
+                            ResolveInfo::Type pType,
+                            ResolveInfo::Desc pDesc,
+                            ResolveInfo::Binding pBinding,
+                            ResolveInfo::SizeType pSize,
+                            LDSymbol::ValueType pValue,
+                            ResolveInfo::Visibility pVisibility,
+                            ResolveInfo* pOldInfo,
+                            Resolver::Result& pResult) {
   // We should check if there is any symbol with the same name existed.
   // If it already exists, we should use resolver to decide which symbol
   // should be reserved. Otherwise, we insert the symbol and set up its
@@ -73,8 +72,7 @@ void NamePool::insertSymbol(const llvm::StringRef& pName,
   ResolveInfo* new_symbol = NULL;
   if (exist && old_symbol->isSymbol()) {
     new_symbol = m_Table.getEntryFactory().produce(pName);
-  }
-  else {
+  } else {
     exist = false;
     new_symbol = old_symbol;
   }
@@ -89,12 +87,11 @@ void NamePool::insertSymbol(const llvm::StringRef& pName,
 
   if (!exist) {
     // old_symbol is neither existed nor a symbol.
-    pResult.info      = new_symbol;
-    pResult.existent  = false;
+    pResult.info = new_symbol;
+    pResult.existent = false;
     pResult.overriden = true;
     return;
-  }
-  else if (NULL != pOldInfo) {
+  } else if (pOldInfo != NULL) {
     // existent, remember its attribute
     pOldInfo->override(*old_symbol);
   }
@@ -104,64 +101,55 @@ void NamePool::insertSymbol(const llvm::StringRef& pName,
   bool override = false;
   unsigned int action = Resolver::LastAction;
   if (m_pResolver->resolve(*old_symbol, *new_symbol, override, pValue)) {
-    pResult.info      = old_symbol;
-    pResult.existent  = true;
+    pResult.info = old_symbol;
+    pResult.existent = true;
     pResult.overriden = override;
-  }
-  else {
-      m_pResolver->resolveAgain(*this, action, *old_symbol, *new_symbol, pResult);
+  } else {
+    m_pResolver->resolveAgain(*this, action, *old_symbol, *new_symbol, pResult);
   }
 
   m_Table.getEntryFactory().destroy(new_symbol);
   return;
 }
 
-llvm::StringRef NamePool::insertString(const llvm::StringRef& pString)
-{
+llvm::StringRef NamePool::insertString(const llvm::StringRef& pString) {
   bool exist = false;
   ResolveInfo* resolve_info = m_Table.insert(pString, exist);
   return llvm::StringRef(resolve_info->name(), resolve_info->nameSize());
 }
 
-void NamePool::reserve(NamePool::size_type pSize)
-{
+void NamePool::reserve(NamePool::size_type pSize) {
   m_Table.rehash(pSize);
 }
 
-NamePool::size_type NamePool::capacity() const
-{
+NamePool::size_type NamePool::capacity() const {
   return (m_Table.numOfBuckets() - m_Table.numOfEntries());
 }
 
 /// findInfo - find the resolved ResolveInfo
-ResolveInfo* NamePool::findInfo(const llvm::StringRef& pName)
-{
+ResolveInfo* NamePool::findInfo(const llvm::StringRef& pName) {
   Table::iterator iter = m_Table.find(pName);
   return iter.getEntry();
 }
 
 /// findInfo - find the resolved ResolveInfo
-const ResolveInfo* NamePool::findInfo(const llvm::StringRef& pName) const
-{
+const ResolveInfo* NamePool::findInfo(const llvm::StringRef& pName) const {
   Table::const_iterator iter = m_Table.find(pName);
   return iter.getEntry();
 }
 
 /// findSymbol - find the resolved output LDSymbol
-LDSymbol* NamePool::findSymbol(const llvm::StringRef& pName)
-{
+LDSymbol* NamePool::findSymbol(const llvm::StringRef& pName) {
   ResolveInfo* info = findInfo(pName);
-  if (NULL == info)
+  if (info == NULL)
     return NULL;
   return info->outSymbol();
 }
 
 /// findSymbol - find the resolved output LDSymbol
-const LDSymbol* NamePool::findSymbol(const llvm::StringRef& pName) const
-{
+const LDSymbol* NamePool::findSymbol(const llvm::StringRef& pName) const {
   const ResolveInfo* info = findInfo(pName);
-  if (NULL == info)
+  if (info == NULL)
     return NULL;
   return info->outSymbol();
 }
-

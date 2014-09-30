@@ -6,32 +6,28 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LINKER_H
-#define MCLD_LINKER_H
+#ifndef MCLD_LINKER_H_
+#define MCLD_LINKER_H_
 
 #include <string>
 
 namespace mcld {
 
-class Module;
-class LinkerConfig;
-class LinkerScript;
-
-class Target;
-class TargetLDBackend;
-
-class IRBuilder;
-class ObjectLinker;
-
 class FileHandle;
 class FileOutputBuffer;
+class IRBuilder;
+class LinkerConfig;
+class LinkerScript;
+class Module;
+class ObjectLinker;
+class Target;
+class TargetLDBackend;
 
 /** \class Linker
 *  \brief Linker is a modular linker.
 */
-class Linker
-{
-public:
+class Linker {
+ public:
   Linker();
 
   ~Linker();
@@ -63,7 +59,7 @@ public:
 
   bool reset();
 
-private:
+ private:
   bool initTarget();
 
   bool initBackend();
@@ -72,7 +68,7 @@ private:
 
   bool initEmulator(LinkerScript& pScript);
 
-private:
+ private:
   LinkerConfig* m_pConfig;
   IRBuilder* m_pIRBuilder;
 
@@ -81,7 +77,6 @@ private:
   ObjectLinker* m_pObjLinker;
 };
 
-} // namespace of MC Linker
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LINKER_H_

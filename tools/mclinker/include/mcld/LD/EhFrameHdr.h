@@ -6,13 +6,13 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_EHFRAMEHDR_H
-#define MCLD_LD_EHFRAMEHDR_H
+#ifndef MCLD_LD_EHFRAMEHDR_H_
+#define MCLD_LD_EHFRAMEHDR_H_
 #include <mcld/ADT/SizeTraits.h>
-#include <cassert>
-
 #include <mcld/LD/EhFrame.h>
 #include <mcld/Support/FileOutputBuffer.h>
+
+#include <cassert>
 namespace mcld {
 
 class LDSection;
@@ -32,9 +32,8 @@ class FileOutputBuffer;
  *  __________________________ when fde_count > 0
  *  <uint32_t, uint32_t>+ : binary search table
  */
-class EhFrameHdr
-{
-public:
+class EhFrameHdr {
+ public:
   EhFrameHdr(LDSection& pEhFrameHdr, const LDSection& pEhFrame);
 
   ~EhFrameHdr();
@@ -43,17 +42,17 @@ public:
   void sizeOutput();
 
   /// emitOutput - write out eh_frame_hdr
-  template<size_t size>
-  void emitOutput(FileOutputBuffer& pOutput)
-  { assert(false && "Call invalid EhFrameHdr::emitOutput"); }
+  template <size_t size>
+  void emitOutput(FileOutputBuffer& pOutput) {
+    assert(false && "Call invalid EhFrameHdr::emitOutput");
+  }
 
-private:
+ private:
   /// computePCBegin - return the address of FDE's pc
-  /// @ref binutils gold: ehframe.cc:222
   uint32_t computePCBegin(const EhFrame::FDE& pFDE,
                           const MemoryRegion& pEhFrameRegion);
 
-private:
+ private:
   /// .eh_frame_hdr section
   LDSection& m_EhFrameHdr;
 
@@ -65,10 +64,9 @@ private:
 // Template Specification Functions
 //===----------------------------------------------------------------------===//
 /// emitOutput - write out eh_frame_hdr
-template<>
+template <>
 void EhFrameHdr::emitOutput<32>(FileOutputBuffer& pOutput);
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_EHFRAMEHDR_H_

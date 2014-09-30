@@ -683,31 +683,19 @@ static void UpdateCallGraphAfterInlining(CallSite CS,
 static void HandleByValArgumentInit(Value *Dst, Value *Src, Module *M,
                                     BasicBlock *InsertBlock,
                                     InlineFunctionInfo &IFI) {
-  LLVMContext &Context = Src->getContext();
-  Type *VoidPtrTy = Type::getInt8PtrTy(Context);
   Type *AggTy = cast<PointerType>(Src->getType())->getElementType();
-  Type *Tys[3] = { VoidPtrTy, VoidPtrTy, Type::getInt64Ty(Context) };
-  Function *MemCpyFn = Intrinsic::getDeclaration(M, Intrinsic::memcpy, Tys);
-  IRBuilder<> builder(InsertBlock->begin());
-  Value *DstCast = builder.CreateBitCast(Dst, VoidPtrTy, "tmp");
-  Value *SrcCast = builder.CreateBitCast(Src, VoidPtrTy, "tmp");
+  IRBuilder<> Builder(InsertBlock->begin());
 
   Value *Size;
   if (IFI.DL == nullptr)
     Size = ConstantExpr::getSizeOf(AggTy);
   else
-    Size = ConstantInt::get(Type::getInt64Ty(Context),
-                            IFI.DL->getTypeStoreSize(AggTy));
+    Size = Builder.getInt64(IFI.DL->getTypeStoreSize(AggTy));
 
   // Always generate a memcpy of alignment 1 here because we don't know
   // the alignment of the src pointer.  Other optimizations can infer
   // better alignment.
-  Value *CallArgs[] = {
-    DstCast, SrcCast, Size,
-    ConstantInt::get(Type::getInt32Ty(Context), 1),
-    ConstantInt::getFalse(Context) // isVolatile
-  };
-  builder.CreateCall(MemCpyFn, CallArgs);
+  Builder.CreateMemCpy(Dst, Src, Size, /*Align=*/1);
 }
 
 /// HandleByValArgument - When inlining a call site that has a byval argument,
@@ -732,7 +720,7 @@ static Value *HandleByValArgument(Value *Arg, Instruction *TheCall,
     // If the pointer is already known to be sufficiently aligned, or if we can
     // round it up to a larger alignment, then we don't need a temporary.
     if (getOrEnforceKnownAlignment(Arg, ByValAlignment,
-                                   IFI.DL) >= ByValAlignment)
+                                   IFI.DL, IFI.AT, TheCall) >= ByValAlignment)
       return Arg;
     
     // Otherwise, we have to make a memcpy to get a safe alignment.  This is bad
@@ -1358,7 +1346,7 @@ bool llvm::InlineFunction(CallSite CS, InlineFunctionInfo &IFI,
   // the entries are the same or undef).  If so, remove the PHI so it doesn't
   // block other optimizations.
   if (PHI) {
-    if (Value *V = SimplifyInstruction(PHI, IFI.DL)) {
+    if (Value *V = SimplifyInstruction(PHI, IFI.DL, nullptr, nullptr, IFI.AT)) {
       PHI->replaceAllUsesWith(V);
       PHI->eraseFromParent();
     }

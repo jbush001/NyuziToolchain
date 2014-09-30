@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SCRIPT_COMMAND_H
-#define MCLD_SCRIPT_COMMAND_H
+#ifndef MCLD_SCRIPT_SCRIPTCOMMAND_H_
+#define MCLD_SCRIPT_SCRIPTCOMMAND_H_
 
 namespace mcld {
 
@@ -16,29 +16,27 @@ class Module;
 /** \class ScriptCommand
  *  \brief This class defines the interfaces to a script command.
  */
-class ScriptCommand
-{
-public:
+class ScriptCommand {
+ public:
   enum Kind {
-    ENTRY,
-    OUTPUT_FORMAT,
-    GROUP,
-    OUTPUT,
-    SEARCH_DIR,
-    OUTPUT_ARCH,
     ASSERT,
     ASSIGNMENT,
-    SECTIONS,
+    ENTRY,
+    GROUP,
+    INPUT,
+    INPUT_SECT_DESC,
+    OUTPUT,
+    OUTPUT_ARCH,
+    OUTPUT_FORMAT,
+    SEARCH_DIR,
     OUTPUT_SECT_DESC,
-    INPUT_SECT_DESC
+    SECTIONS
   };
 
-protected:
-  ScriptCommand(Kind pKind)
-    : m_Kind(pKind)
-  {}
+ protected:
+  explicit ScriptCommand(Kind pKind) : m_Kind(pKind) {}
 
-public:
+ public:
   virtual ~ScriptCommand() = 0;
 
   virtual void dump() const = 0;
@@ -47,11 +45,10 @@ public:
 
   Kind getKind() const { return m_Kind; }
 
-private:
+ private:
   Kind m_Kind;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_SCRIPT_SCRIPTCOMMAND_H_
