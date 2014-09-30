@@ -6,40 +6,42 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SCRIPT_SCRIPTFILE_H
-#define MCLD_SCRIPT_SCRIPTFILE_H
+#ifndef MCLD_SCRIPT_SCRIPTFILE_H_
+#define MCLD_SCRIPT_SCRIPTFILE_H_
 
 #include <mcld/Script/Assignment.h>
-#include <mcld/Script/OutputSectDesc.h>
 #include <mcld/Script/InputSectDesc.h>
-#include <vector>
+#include <mcld/Script/OutputSectDesc.h>
+
 #include <string>
+#include <vector>
 
-namespace mcld
-{
+namespace mcld {
 
-class ScriptCommand;
-class Input;
-class InputTree;
-class InputBuilder;
+class ArchiveReader;
+class DynObjReader;
 class GroupReader;
+class Input;
+class InputBuilder;
+class InputTree;
 class LinkerConfig;
-class RpnExpr;
-class StringList;
 class Module;
+class ObjectReader;
+class ScriptCommand;
+class StringList;
+class RpnExpr;
 
 /** \class ScriptFile
  *  \brief This class defines the interfaces to a linker script file.
  */
 
-class ScriptFile
-{
-public:
+class ScriptFile {
+ public:
   enum Kind {
-    LDScript,      // -T
-    Expression,    // --defsym
-    VersionScript, // --version-script
-    DynamicList,   // --dynamic-list
+    LDScript,       // -T
+    Expression,     // --defsym
+    VersionScript,  // --version-script
+    DynamicList,    // --dynamic-list
     Unknown
   };
 
@@ -49,32 +51,32 @@ public:
   typedef CommandQueue::const_reference const_reference;
   typedef CommandQueue::reference reference;
 
-public:
+ public:
   ScriptFile(Kind pKind, Input& pInput, InputBuilder& pBuilder);
   ~ScriptFile();
 
-  const_iterator  begin() const { return m_CommandQueue.begin(); }
-  iterator        begin()       { return m_CommandQueue.begin(); }
-  const_iterator  end()   const { return m_CommandQueue.end(); }
-  iterator        end()         { return m_CommandQueue.end(); }
+  const_iterator begin() const { return m_CommandQueue.begin(); }
+  iterator begin() { return m_CommandQueue.begin(); }
+  const_iterator end() const { return m_CommandQueue.end(); }
+  iterator end() { return m_CommandQueue.end(); }
 
   const_reference front() const { return m_CommandQueue.front(); }
-  reference       front()       { return m_CommandQueue.front(); }
-  const_reference back()  const { return m_CommandQueue.back(); }
-  reference       back()        { return m_CommandQueue.back(); }
+  reference front() { return m_CommandQueue.front(); }
+  const_reference back() const { return m_CommandQueue.back(); }
+  reference back() { return m_CommandQueue.back(); }
 
   const Input& input() const { return m_Input; }
-  Input&       input()       { return m_Input; }
+  Input& input() { return m_Input; }
 
   size_t size() const { return m_CommandQueue.size(); }
 
   Kind getKind() const { return m_Kind; }
 
   const InputTree& inputs() const { return *m_pInputTree; }
-  InputTree&       inputs()       { return *m_pInputTree; }
+  InputTree& inputs() { return *m_pInputTree; }
 
   const std::string& name() const { return m_Name; }
-  std::string&       name()       { return m_Name; }
+  std::string& name() { return m_Name; }
 
   void dump() const;
   void activate(Module& pModule);
@@ -88,6 +90,14 @@ public:
   void addOutputFormatCmd(const std::string& pDefault,
                           const std::string& pBig,
                           const std::string& pLittle);
+
+  /// INPUT(file, file, ...)
+  /// INPUT(file file ...)
+  void addInputCmd(StringList& pStringList,
+                   ObjectReader& pObjectReader,
+                   ArchiveReader& pArchiveReader,
+                   DynObjReader& pDynObjReader,
+                   const LinkerConfig& pConfig);
 
   /// GROUP(file, file, ...)
   /// GROUP(file file ...)
@@ -128,11 +138,11 @@ public:
 
   RpnExpr* createRpnExpr();
   const RpnExpr* getCurrentRpnExpr() const { return m_pRpnExpr; }
-  RpnExpr*       getCurrentRpnExpr()       { return m_pRpnExpr; }
+  RpnExpr* getCurrentRpnExpr() { return m_pRpnExpr; }
 
   StringList* createStringList();
   const StringList* getCurrentStringList() const { return m_pStringList; }
-  StringList*       getCurrentStringList()       { return m_pStringList; }
+  StringList* getCurrentStringList() { return m_pStringList; }
 
   void setAsNeeded(bool pEnable = true);
   bool asNeeded() const { return m_bAsNeeded; }
@@ -141,7 +151,7 @@ public:
 
   static void clearParserStrPool();
 
-private:
+ private:
   Kind m_Kind;
   Input& m_Input;
   std::string m_Name;
@@ -156,7 +166,6 @@ private:
   bool m_bAsNeeded;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_SCRIPT_SCRIPTFILE_H_

@@ -7,14 +7,15 @@
 //
 //===----------------------------------------------------------------------===//
 #include <mcld/LD/RelocationFactory.h>
+
 #include <mcld/LinkerConfig.h>
-#include <mcld/Target/TargetLDBackend.h>
 #include <mcld/Support/MsgHandling.h>
+#include <mcld/Target/TargetLDBackend.h>
 
 #include <llvm/Support/Host.h>
 
-#include <cstring>
 #include <cassert>
+#include <cstring>
 
 using namespace mcld;
 
@@ -22,19 +23,17 @@ using namespace mcld;
 // RelocationFactory
 //===----------------------------------------------------------------------===//
 RelocationFactory::RelocationFactory()
-  : GCFactory<Relocation, MCLD_RELOCATIONS_PER_INPUT>(), m_pConfig(NULL) {
+    : GCFactory<Relocation, MCLD_RELOCATIONS_PER_INPUT>(), m_pConfig(NULL) {
 }
 
-void RelocationFactory::setConfig(const LinkerConfig& pConfig)
-{
+void RelocationFactory::setConfig(const LinkerConfig& pConfig) {
   m_pConfig = &pConfig;
 }
 
 Relocation* RelocationFactory::produce(RelocationFactory::Type pType,
                                        FragmentRef& pFragRef,
-                                       Address pAddend)
-{
-  if (NULL == m_pConfig) {
+                                       Address pAddend) {
+  if (m_pConfig == NULL) {
     fatal(diag::reloc_factory_has_not_config);
     return NULL;
   }
@@ -65,10 +64,9 @@ Relocation* RelocationFactory::produce(RelocationFactory::Type pType,
                                           << m_pConfig->targets().bitclass();
         return NULL;
       }
-    } // end of switch
-  }
-  else {
-    pFragRef.memcpy(&target_data, (m_pConfig->targets().bitclass()/8));
+    }  // end of switch
+  } else {
+    pFragRef.memcpy(&target_data, (m_pConfig->targets().bitclass() / 8));
   }
 
   Relocation* result = allocate();
@@ -76,15 +74,12 @@ Relocation* RelocationFactory::produce(RelocationFactory::Type pType,
   return result;
 }
 
-Relocation* RelocationFactory::produceEmptyEntry()
-{
+Relocation* RelocationFactory::produceEmptyEntry() {
   Relocation* result = allocate();
   new (result) Relocation(0, 0, 0, 0);
   return result;
 }
 
-void RelocationFactory::destroy(Relocation* pRelocation)
-{
-   /** GCFactory will recycle the relocation **/
+void RelocationFactory::destroy(Relocation* pRelocation) {
+  /** GCFactory will recycle the relocation **/
 }
-

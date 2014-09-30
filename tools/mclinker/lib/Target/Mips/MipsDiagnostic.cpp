@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Support/TargetRegistry.h>
 #include <mcld/LD/DWARFLineInfo.h>
+#include <mcld/Support/TargetRegistry.h>
 #include "Mips.h"
 
 namespace {
@@ -17,12 +17,11 @@ namespace {
 // MipsDiagnostic
 //===----------------------------------------------------------------------===//
 mcld::DiagnosticLineInfo* createMipsDiagLineInfo(const mcld::Target& pTarget,
-                                                 const std::string &pTriple)
-{
+                                                 const std::string& pTriple) {
   return new mcld::DWARFLineInfo();
 }
 
-} // namespace of mcld
+}  // anonymous namespace
 
 //===----------------------------------------------------------------------===//
 // InitializeMipsDiagnostic

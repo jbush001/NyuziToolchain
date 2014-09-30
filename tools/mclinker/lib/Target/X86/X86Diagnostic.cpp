@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Support/TargetRegistry.h>
 #include <mcld/LD/DWARFLineInfo.h>
+#include <mcld/Support/TargetRegistry.h>
 #include "X86.h"
 
 using namespace mcld;
@@ -17,19 +17,19 @@ namespace mcld {
 // createX86Diagnostic - the help function to create corresponding X86Diagnostic
 //===----------------------------------------------------------------------===//
 DiagnosticLineInfo* createX86DiagLineInfo(const mcld::Target& pTarget,
-                                          const std::string &pTriple)
-{
+                                          const std::string& pTriple) {
   return new DWARFLineInfo();
 }
 
-} // namespace of mcld
+}  // namespace mcld
 
 //===----------------------------------------------------------------------===//
 // InitializeX86Diagnostic
 //===----------------------------------------------------------------------===//
 extern "C" void MCLDInitializeX86DiagnosticLineInfo() {
   // Register the linker frontend
-  mcld::TargetRegistry::RegisterDiagnosticLineInfo(TheX86_32Target, createX86DiagLineInfo);
-  mcld::TargetRegistry::RegisterDiagnosticLineInfo(TheX86_64Target, createX86DiagLineInfo);
+  mcld::TargetRegistry::RegisterDiagnosticLineInfo(TheX86_32Target,
+                                                   createX86DiagLineInfo);
+  mcld::TargetRegistry::RegisterDiagnosticLineInfo(TheX86_64Target,
+                                                   createX86DiagLineInfo);
 }
-

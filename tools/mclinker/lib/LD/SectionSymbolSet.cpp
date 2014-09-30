@@ -7,16 +7,16 @@
 //
 //===----------------------------------------------------------------------===//
 #include <mcld/LD/SectionSymbolSet.h>
-#include <mcld/LD/LDSection.h>
-#include <mcld/LD/RelocData.h>
-#include <mcld/LD/SectionData.h>
+
+#include <mcld/Fragment/FragmentRef.h>
 #include <mcld/LD/EhFrame.h>
-#include <mcld/LD/ResolveInfo.h>
+#include <mcld/LD/LDFileFormat.h>
+#include <mcld/LD/LDSection.h>
 #include <mcld/LD/LDSymbol.h>
 #include <mcld/LD/NamePool.h>
-#include <mcld/Fragment/FragmentRef.h>
-#include <mcld/LD/LDFileFormat.h>
-
+#include <mcld/LD/RelocData.h>
+#include <mcld/LD/ResolveInfo.h>
+#include <mcld/LD/SectionData.h>
 
 using namespace mcld;
 
@@ -24,18 +24,15 @@ using namespace mcld;
 // SectionSymbolSet
 //===----------------------------------------------------------------------===//
 
-SectionSymbolSet::SectionSymbolSet()
-{
+SectionSymbolSet::SectionSymbolSet() {
   m_pSectionSymbolMap = new SectHashTableType(16);
 }
 
-SectionSymbolSet::~SectionSymbolSet()
-{
+SectionSymbolSet::~SectionSymbolSet() {
   delete m_pSectionSymbolMap;
 }
 
-bool SectionSymbolSet::add(LDSection& pOutSect, NamePool& pNamePool)
-{
+bool SectionSymbolSet::add(LDSection& pOutSect, NamePool& pNamePool) {
   // create the resolveInfo for this section symbol
   llvm::StringRef sym_name = llvm::StringRef(pOutSect.name());
   ResolveInfo* sym_info = pNamePool.createSymbol(sym_name,
@@ -43,7 +40,7 @@ bool SectionSymbolSet::add(LDSection& pOutSect, NamePool& pNamePool)
                                                  ResolveInfo::Section,
                                                  ResolveInfo::Define,
                                                  ResolveInfo::Local,
-                                                 0x0, // size
+                                                 0x0,  // size
                                                  ResolveInfo::Default);
 
   // create the output section symbol and set its fragRef to the first fragment
@@ -54,7 +51,7 @@ bool SectionSymbolSet::add(LDSection& pOutSect, NamePool& pNamePool)
   // insert the symbol to the Section to Symbol hash map
   bool exist = false;
   SectHashTableType::entry_type* entry =
-                            m_pSectionSymbolMap->insert(&pOutSect, exist);
+      m_pSectionSymbolMap->insert(&pOutSect, exist);
   assert(!exist);
   entry->setValue(sym);
 
@@ -62,13 +59,13 @@ bool SectionSymbolSet::add(LDSection& pOutSect, NamePool& pNamePool)
 }
 
 bool SectionSymbolSet::finalize(LDSection& pOutSect,
-                                SymbolTable& pSymTab, bool relocatable)
-{
+                                SymbolTable& pSymTab,
+                                bool relocatable) {
   if (!relocatable && pOutSect.size() == 0)
-      return true;
+    return true;
 
   LDSymbol* sym = get(pOutSect);
-  assert(NULL != sym);
+  assert(sym != NULL);
   SectionData* data = NULL;
   switch (pOutSect.kind()) {
     case LDFileFormat::Relocation:
@@ -76,8 +73,8 @@ bool SectionSymbolSet::finalize(LDSection& pOutSect,
       return true;
 
     case LDFileFormat::EhFrame:
-      if (EhFrame *ehframe = pOutSect.getEhFrame())
-          data = ehframe->getSectionData();
+      if (EhFrame* ehframe = pOutSect.getEhFrame())
+        data = ehframe->getSectionData();
       break;
 
     default:
@@ -96,15 +93,12 @@ bool SectionSymbolSet::finalize(LDSection& pOutSect,
   return true;
 }
 
-LDSymbol* SectionSymbolSet::get(const LDSection& pOutSect)
-{
+LDSymbol* SectionSymbolSet::get(const LDSection& pOutSect) {
   SectHashTableType::iterator entry = m_pSectionSymbolMap->find(&pOutSect);
   return entry.getEntry()->value();
 }
 
-const LDSymbol* SectionSymbolSet::get(const LDSection& pOutSect) const
-{
+const LDSymbol* SectionSymbolSet::get(const LDSection& pOutSect) const {
   SectHashTableType::iterator entry = m_pSectionSymbolMap->find(&pOutSect);
   return entry.getEntry()->value();
 }
-

@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_TARGET_ELFEMULATION_H
-#define MCLD_TARGET_ELFEMULATION_H
+#ifndef MCLD_TARGET_ELFEMULATION_H_
+#define MCLD_TARGET_ELFEMULATION_H_
 
 namespace mcld {
 
@@ -16,7 +16,6 @@ class LinkerScript;
 
 bool MCLDEmulateELF(LinkerScript& pScript, LinkerConfig& pConfig);
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_TARGET_ELFEMULATION_H_

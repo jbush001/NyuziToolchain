@@ -22,17 +22,17 @@ static llvm::ManagedStatic<SectionFactory> g_SectFactory;
 // LDSection
 //===----------------------------------------------------------------------===//
 LDSection::LDSection()
-  : m_Name(),
-    m_Kind(LDFileFormat::Ignore),
-    m_Type(0x0),
-    m_Flag(0x0),
-    m_Size(0),
-    m_Offset(~uint64_t(0)),
-    m_Addr(0x0),
-    m_Align(0),
-    m_Info(0),
-    m_pLink(NULL),
-    m_Index(0) {
+    : m_Name(),
+      m_Kind(LDFileFormat::Ignore),
+      m_Type(0x0),
+      m_Flag(0x0),
+      m_Size(0),
+      m_Offset(~uint64_t(0)),
+      m_Addr(0x0),
+      m_Align(0),
+      m_Info(0),
+      m_pLink(NULL),
+      m_Index(0) {
   m_Data.sect_data = NULL;
 }
 
@@ -42,26 +42,24 @@ LDSection::LDSection(const std::string& pName,
                      uint32_t pFlag,
                      uint64_t pSize,
                      uint64_t pAddr)
-  : m_Name(pName),
-    m_Kind(pKind),
-    m_Type(pType),
-    m_Flag(pFlag),
-    m_Size(pSize),
-    m_Offset(~uint64_t(0)),
-    m_Addr(pAddr),
-    m_Align(0),
-    m_Info(0),
-    m_pLink(NULL),
-    m_Index(0) {
+    : m_Name(pName),
+      m_Kind(pKind),
+      m_Type(pType),
+      m_Flag(pFlag),
+      m_Size(pSize),
+      m_Offset(~uint64_t(0)),
+      m_Addr(pAddr),
+      m_Align(0),
+      m_Info(0),
+      m_pLink(NULL),
+      m_Index(0) {
   m_Data.sect_data = NULL;
 }
 
-LDSection::~LDSection()
-{
+LDSection::~LDSection() {
 }
 
-bool LDSection::hasOffset() const
-{
+bool LDSection::hasOffset() const {
   return (m_Offset != ~uint64_t(0));
 }
 
@@ -70,40 +68,33 @@ LDSection* LDSection::Create(const std::string& pName,
                              uint32_t pType,
                              uint32_t pFlag,
                              uint64_t pSize,
-                             uint64_t pAddr)
-{
+                             uint64_t pAddr) {
   LDSection* result = g_SectFactory->allocate();
   new (result) LDSection(pName, pKind, pType, pFlag, pSize, pAddr);
   return result;
 }
 
-void LDSection::Destroy(LDSection*& pSection)
-{
+void LDSection::Destroy(LDSection*& pSection) {
   g_SectFactory->destroy(pSection);
   g_SectFactory->deallocate(pSection);
   pSection = NULL;
 }
 
-void LDSection::Clear()
-{
+void LDSection::Clear() {
   g_SectFactory->clear();
 }
 
-bool LDSection::hasSectionData() const
-{
+bool LDSection::hasSectionData() const {
   assert(LDFileFormat::Relocation != kind() && LDFileFormat::EhFrame != kind());
-  return (NULL != m_Data.sect_data);
+  return (m_Data.sect_data != NULL);
 }
 
-bool LDSection::hasRelocData() const
-{
+bool LDSection::hasRelocData() const {
   assert(LDFileFormat::Relocation == kind());
-  return (NULL != m_Data.reloc_data);
+  return (m_Data.reloc_data != NULL);
 }
 
-bool LDSection::hasEhFrame() const
-{
+bool LDSection::hasEhFrame() const {
   assert(LDFileFormat::EhFrame == kind());
-  return (NULL != m_Data.eh_frame);
+  return (m_Data.eh_frame != NULL);
 }
-

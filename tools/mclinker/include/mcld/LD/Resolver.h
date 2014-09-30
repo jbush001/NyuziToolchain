@@ -6,17 +6,17 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_RESOLVER_H
-#define MCLD_LD_RESOLVER_H
-#include <string>
-#include <utility>
+#ifndef MCLD_LD_RESOLVER_H_
+#define MCLD_LD_RESOLVER_H_
 #include <mcld/LD/LDSymbol.h>
 
-namespace mcld
-{
+#include <string>
+#include <utility>
 
-class ResolveInfo;
+namespace mcld {
+
 class NamePool;
+class ResolveInfo;
 
 /** \class Resolver
  *  \brief Resolver binds a symbol reference from one file to a symbol
@@ -26,15 +26,9 @@ class NamePool;
  *  two symbols depends on their type, binding and whether it is belonging to
  *  a shared object.
  */
-class Resolver
-{
-public:
-  enum Action {
-    Success,
-    Warning,
-    Abort,
-    LastAction
-  };
+class Resolver {
+ public:
+  enum Action { Success, Warning, Abort, LastAction };
 
   /** \class Resolver::Result
    *  \brief the result of symbol resolution
@@ -48,33 +42,32 @@ public:
     bool overriden;
   };
 
-public:
+ public:
   virtual ~Resolver();
 
   /// shouldOverride - Can resolver override the symbol pOld by the symbol pNew?
   /// @return the action should be taken.
   /// @param pOld the symbol which may be overridden.
   /// @param pNew the symbol which is used to replace pOld
-  virtual bool resolve(ResolveInfo & __restrict__ pOld,
-                       const ResolveInfo & __restrict__ pNew,
-                       bool &pOverride, LDSymbol::ValueType pValue) const = 0;
+  virtual bool resolve(ResolveInfo& __restrict__ pOld,
+                       const ResolveInfo& __restrict__ pNew,
+                       bool& pOverride,
+                       LDSymbol::ValueType pValue) const = 0;
 
   /// resolveAgain - Can override by derived classes.
   /// @return the pointer to resolved ResolveInfo
   /// @return is the symbol existent?
   virtual void resolveAgain(NamePool& pNamePool,
-                              unsigned int pAction,
-                              ResolveInfo& __restrict__ pOld,
-                              const ResolveInfo& __restrict__ pNew,
-                              Result& pResult) const {
+                            unsigned int pAction,
+                            ResolveInfo& __restrict__ pOld,
+                            const ResolveInfo& __restrict__ pNew,
+                            Result& pResult) const {
     pResult.info = NULL;
     pResult.existent = false;
     pResult.overriden = false;
   }
-
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_RESOLVER_H_

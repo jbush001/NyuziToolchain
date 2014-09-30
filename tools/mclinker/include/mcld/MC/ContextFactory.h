@@ -6,15 +6,14 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_MC_CONTEXTFACTORY_H
-#define MCLD_MC_CONTEXTFACTORY_H
+#ifndef MCLD_MC_CONTEXTFACTORY_H_
+#define MCLD_MC_CONTEXTFACTORY_H_
 
 #include <mcld/LD/LDContext.h>
 #include <mcld/Support/UniqueGCFactory.h>
 #include <mcld/Support/Path.h>
 
-namespace mcld
-{
+namespace mcld {
 /** \class ContextFactory
  *  \brief ContextFactory avoids the duplicated LDContext of the same file.
  *
@@ -29,17 +28,16 @@ namespace mcld
  *  @see LDContext
  *  @see UniqueGCFactoryBase
  */
-class ContextFactory : public UniqueGCFactoryBase<sys::fs::Path, LDContext, 0>
-{
-public:
+class ContextFactory : public UniqueGCFactoryBase<sys::fs::Path, LDContext, 0> {
+ public:
   explicit ContextFactory(size_t pNum);
   ~ContextFactory();
 
   LDContext* produce();
   LDContext* produce(const sys::fs::Path& pPath);
+  LDContext* produce(const char* pPath);
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_MC_CONTEXTFACTORY_H_

@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_FRAGMENT_TARGETFRAGMENT_H
-#define MCLD_FRAGMENT_TARGETFRAGMENT_H
+#ifndef MCLD_FRAGMENT_TARGETFRAGMENT_H_
+#define MCLD_FRAGMENT_TARGETFRAGMENT_H_
 
 #include <mcld/Fragment/Fragment.h>
 
@@ -19,23 +19,21 @@ class SectionData;
  *  \brief TargetFragment is a kind of MCFragment inherited by
  *  target-depedent Fragment.
  */
-class TargetFragment : public Fragment
-{
-protected:
-  TargetFragment(Fragment::Type pKind, SectionData* pSD = NULL)
-    : Fragment(pKind, pSD) {}
+class TargetFragment : public Fragment {
+ protected:
+  explicit TargetFragment(Fragment::Type pKind, SectionData* pSD = NULL)
+      : Fragment(pKind, pSD) {}
 
-public:
+ public:
   virtual ~TargetFragment() {}
 
-  static bool classof(const Fragment *F)
-  { return F->getKind() == Fragment::Target; }
+  static bool classof(const Fragment* F) {
+    return F->getKind() == Fragment::Target;
+  }
 
-  static bool classof(const TargetFragment *)
-  { return true; }
+  static bool classof(const TargetFragment*) { return true; }
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_FRAGMENT_TARGETFRAGMENT_H_

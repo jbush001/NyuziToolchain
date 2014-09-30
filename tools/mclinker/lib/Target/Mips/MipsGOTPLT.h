@@ -6,11 +6,11 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef TARGET_MIPS_MIPSGOTPLT_H
-#define TARGET_MIPS_MIPSGOTPLT_H
+#ifndef TARGET_MIPS_MIPSGOTPLT_H_
+#define TARGET_MIPS_MIPSGOTPLT_H_
 
-#include <mcld/Target/GOT.h>
 #include <mcld/Support/MemoryRegion.h>
+#include <mcld/Target/GOT.h>
 #include <llvm/ADT/DenseMap.h>
 
 namespace mcld {
@@ -20,10 +20,9 @@ class LDSection;
 /** \class MipsGOTPLT
  *  \brief Mips .got.plt section.
  */
-class MipsGOTPLT : public GOT
-{
-public:
-  MipsGOTPLT(LDSection &pSection);
+class MipsGOTPLT : public GOT {
+ public:
+  explicit MipsGOTPLT(LDSection& pSection);
 
   // hasGOT1 - return if this section has any GOT1 entry
   bool hasGOT1() const;
@@ -36,15 +35,15 @@ public:
 
   void applyAllGOTPLT(uint64_t pltAddr);
 
-public:
+ public:
   // GOT
   void reserve(size_t pNum = 1);
 
-private:
+ private:
   // the last consumed entry.
   SectionData::iterator m_Last;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
+#endif  // TARGET_MIPS_MIPSGOTPLT_H_

@@ -6,14 +6,15 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_DIAGNOSTICINFORMATION_H
-#define MCLD_LD_DIAGNOSTICINFORMATION_H
+#ifndef MCLD_LD_DIAGNOSTICINFOS_H_
+#define MCLD_LD_DIAGNOSTICINFOS_H_
+
 #include <llvm/ADT/StringRef.h>
 
 namespace mcld {
 
 namespace diag {
-  enum ID {
+enum ID {
 #define DIAG(ENUM, CLASS, ADDRMSG, LINEMSG) ENUM,
 #include "mcld/LD/DiagAttribute.inc"
 #include "mcld/LD/DiagCommonKinds.inc"
@@ -24,20 +25,19 @@ namespace diag {
 #include "mcld/LD/DiagGOTPLT.inc"
 #include "mcld/LD/DiagLDScript.inc"
 #undef DIAG
-    NUM_OF_BUILDIN_DIAGNOSTIC_INFO
-  };
-} // namespace of diag
+  NUM_OF_BUILDIN_DIAGNOSTIC_INFO
+};
+}  // namespace diag
 
-class LinkerConfig;
 class DiagnosticEngine;
+class LinkerConfig;
 
 /** \class DiagnosticInfos
  *  \brief DiagnosticInfos caches run-time information of DiagnosticInfo.
  */
-class DiagnosticInfos
-{
-public:
-  DiagnosticInfos(const LinkerConfig& pConfig);
+class DiagnosticInfos {
+ public:
+  explicit DiagnosticInfos(const LinkerConfig& pConfig);
 
   ~DiagnosticInfos();
 
@@ -45,11 +45,10 @@ public:
 
   bool process(DiagnosticEngine& pEngine) const;
 
-private:
+ private:
   const LinkerConfig& m_Config;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_DIAGNOSTICINFOS_H_

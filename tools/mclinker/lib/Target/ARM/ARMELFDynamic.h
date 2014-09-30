@@ -6,23 +6,23 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef TARGET_ARM_ARMELFDYNAMIC_H
-#define TARGET_ARM_ARMELFDYNAMIC_H
+#ifndef TARGET_ARM_ARMELFDYNAMIC_H_
+#define TARGET_ARM_ARMELFDYNAMIC_H_
 
 #include <mcld/Target/ELFDynamic.h>
 
 namespace mcld {
 
 class ARMELFDynamic : public ELFDynamic {
-public:
+ public:
   ARMELFDynamic(const GNULDBackend& pParent, const LinkerConfig& pConfig);
   ~ARMELFDynamic();
 
-private:
+ private:
   void reserveTargetEntries(const ELFFileFormat& pFormat);
   void applyTargetEntries(const ELFFileFormat& pFormat);
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
+#endif  // TARGET_ARM_ARMELFDYNAMIC_H_

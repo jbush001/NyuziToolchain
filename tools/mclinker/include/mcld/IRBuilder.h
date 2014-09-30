@@ -11,30 +11,27 @@
 // with a consistent and simplified interface.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_IRBUILDER_H
-#define MCLD_IRBUILDER_H
+#ifndef MCLD_IRBUILDER_H_
+#define MCLD_IRBUILDER_H_
 
+#include <mcld/Fragment/FillFragment.h>
+#include <mcld/Fragment/Fragment.h>
+#include <mcld/Fragment/FragmentRef.h>
+#include <mcld/Fragment/RegionFragment.h>
+#include <mcld/Fragment/Relocation.h>
+#include <mcld/LD/EhFrame.h>
+#include <mcld/LD/LDSection.h>
+#include <mcld/LD/LDSymbol.h>
 #include <mcld/MC/Input.h>
 #include <mcld/MC/InputBuilder.h>
-
-#include <mcld/LD/LDSection.h>
-#include <mcld/LD/EhFrame.h>
-#include <mcld/LD/LDSymbol.h>
-
-#include <mcld/Fragment/Fragment.h>
-#include <mcld/Fragment/Relocation.h>
-#include <mcld/Fragment/RegionFragment.h>
-#include <mcld/Fragment/FillFragment.h>
-#include <mcld/Fragment/FragmentRef.h>
-
-#include <mcld/Support/Path.h>
 #include <mcld/Support/FileHandle.h>
+#include <mcld/Support/Path.h>
 
 namespace mcld {
 
-class Module;
-class LinkerConfig;
 class InputTree;
+class LinkerConfig;
+class Module;
 
 /** \class IRBuilder
  *  \brief IRBuilder provides an uniform API for creating sections and
@@ -44,38 +41,27 @@ class InputTree;
  *  language into a system-dependent binary.  IRBuilder helps such kind of VMs
  *  to emit binaries in native object format, such as ELF or MachO.
  */
-class IRBuilder
-{
-public:
-  enum ObjectFormat {
-    ELF,
-    MachO,
-    COFF
-  };
+class IRBuilder {
+ public:
+  enum ObjectFormat { ELF, MachO, COFF };
 
-  enum SymbolDefinePolicy {
-    Force,
-    AsReferred
-  };
+  enum SymbolDefinePolicy { Force, AsReferred };
 
-  enum SymbolResolvePolicy {
-    Unresolve,
-    Resolve
-  };
+  enum SymbolResolvePolicy { Unresolve, Resolve };
 
-public:
+ public:
   IRBuilder(Module& pModule, const LinkerConfig& pConfig);
 
   ~IRBuilder();
 
   const InputBuilder& getInputBuilder() const { return m_InputBuilder; }
-  InputBuilder&       getInputBuilder()       { return m_InputBuilder; }
+  InputBuilder& getInputBuilder() { return m_InputBuilder; }
   const Module& getModule() const { return m_Module; }
-  Module&       getModule()       { return m_Module; }
+  Module& getModule() { return m_Module; }
 
-/// @}
-/// @name Input Files On The Command Line
-/// @{
+  /// @}
+  /// @name Input Files On The Command Line
+  /// @{
 
   /// CreateInput - To create an input file and append it to the input tree.
   /// This function is like to add an input file in the command line.
@@ -159,9 +145,9 @@ public:
   /// MCLinker to stop adding following archives in the created group.
   bool EndGroup();
 
-/// @}
-/// @name Positional Options On The Command Line
-/// @{
+  /// @}
+  /// @name Positional Options On The Command Line
+  /// @{
 
   /// WholeArchive - Append a --whole-archive option on the command line
   ///
@@ -217,9 +203,9 @@ public:
   /// search archives before shared objects for the following namespec.
   void AgainstStatic();
 
-/// @}
-/// @name Input Methods
-/// @{
+  /// @}
+  /// @name Input Methods
+  /// @{
 
   /// CreateELFHeader - To create and append a section header in the input file
   ///
@@ -255,7 +241,7 @@ public:
   /// @return The created relocation data. If the pSection already has
   ///         relocation data, or if the pSection's type is not
   ///         LDFileFormat::Relocation, then an assertion occurs.
-  static RelocData* CreateRelocData(LDSection &pSection);
+  static RelocData* CreateRelocData(LDSection& pSection);
 
   /// CreateEhFrame - To create a eh_frame for given pSection
   /// @param [in, out] pSection The given LDSection. It can be in either an
@@ -432,19 +418,21 @@ public:
   ///                      { Global, Weak, Local, Absolute }
   ///
   /// @return The symbol kept in mcld::Module.
-  template<SymbolDefinePolicy POLICY, SymbolResolvePolicy RESOLVE>
-  LDSymbol* AddSymbol(const llvm::StringRef& pName,
-                      ResolveInfo::Type pType,
-                      ResolveInfo::Desc pDesc,
-                      ResolveInfo::Binding pBinding,
-                      ResolveInfo::SizeType pSize = 0,
-                      LDSymbol::ValueType pValue = 0x0,
-                      FragmentRef* pFragmentRef = FragmentRef::Null(),
-                      ResolveInfo::Visibility pVisibility = ResolveInfo::Default);
+  template <SymbolDefinePolicy POLICY, SymbolResolvePolicy RESOLVE>
+  LDSymbol* AddSymbol(
+      const llvm::StringRef& pName,
+      ResolveInfo::Type pType,
+      ResolveInfo::Desc pDesc,
+      ResolveInfo::Binding pBinding,
+      ResolveInfo::SizeType pSize = 0,
+      LDSymbol::ValueType pValue = 0x0,
+      FragmentRef * pFragmentRef = FragmentRef::Null(),
+      ResolveInfo::Visibility pVisibility = ResolveInfo::Default);
 
   /// AddRelocation - To add a relocation entry
   ///
-  /// @param [in] pSection The relocation section. pSection's link should point to
+  /// @param [in] pSection The relocation section. pSection's link should point
+  /// to
   ///                      the target section.
   /// @param [in] pType    The type of the relocation (target dependent)
   /// @param [in] pSym     The symbol should be the symbol in the input file.
@@ -460,7 +448,7 @@ public:
   /// symbols should be force to local symbols
   bool shouldForceLocal(const ResolveInfo& pInfo, const LinkerConfig& pConfig);
 
-private:
+ private:
   LDSymbol* addSymbolFromObject(const std::string& pName,
                                 ResolveInfo::Type pType,
                                 ResolveInfo::Desc pDesc,
@@ -479,57 +467,57 @@ private:
                                 LDSymbol::ValueType pValue,
                                 ResolveInfo::Visibility pVisibility);
 
-private:
+ private:
   Module& m_Module;
   const LinkerConfig& m_Config;
 
   InputBuilder m_InputBuilder;
 };
 
-template<> LDSymbol*
-IRBuilder::AddSymbol<IRBuilder::Force, IRBuilder::Unresolve>(
-                         const llvm::StringRef& pName,
-                         ResolveInfo::Type pType,
-                         ResolveInfo::Desc pDesc,
-                         ResolveInfo::Binding pBinding,
-                         ResolveInfo::SizeType pSize,
-                         LDSymbol::ValueType pValue,
-                         FragmentRef* pFragmentRef,
-                         ResolveInfo::Visibility pVisibility);
+template <>
+LDSymbol* IRBuilder::AddSymbol<IRBuilder::Force, IRBuilder::Unresolve>(
+    const llvm::StringRef& pName,
+    ResolveInfo::Type pType,
+    ResolveInfo::Desc pDesc,
+    ResolveInfo::Binding pBinding,
+    ResolveInfo::SizeType pSize,
+    LDSymbol::ValueType pValue,
+    FragmentRef* pFragmentRef,
+    ResolveInfo::Visibility pVisibility);
 
-template<> LDSymbol*
-IRBuilder::AddSymbol<IRBuilder::AsReferred, IRBuilder::Unresolve>(
-                         const llvm::StringRef& pName,
-                         ResolveInfo::Type pType,
-                         ResolveInfo::Desc pDesc,
-                         ResolveInfo::Binding pBinding,
-                         ResolveInfo::SizeType pSize,
-                         LDSymbol::ValueType pValue,
-                         FragmentRef* pFragmentRef,
-                         ResolveInfo::Visibility pVisibility);
+template <>
+LDSymbol* IRBuilder::AddSymbol<IRBuilder::AsReferred, IRBuilder::Unresolve>(
+    const llvm::StringRef& pName,
+    ResolveInfo::Type pType,
+    ResolveInfo::Desc pDesc,
+    ResolveInfo::Binding pBinding,
+    ResolveInfo::SizeType pSize,
+    LDSymbol::ValueType pValue,
+    FragmentRef* pFragmentRef,
+    ResolveInfo::Visibility pVisibility);
 
-template<> LDSymbol*
-IRBuilder::AddSymbol<IRBuilder::Force, IRBuilder::Resolve>(
-                         const llvm::StringRef& pName,
-                         ResolveInfo::Type pType,
-                         ResolveInfo::Desc pDesc,
-                         ResolveInfo::Binding pBinding,
-                         ResolveInfo::SizeType pSize,
-                         LDSymbol::ValueType pValue,
-                         FragmentRef* pFragmentRef,
-                         ResolveInfo::Visibility pVisibility);
+template <>
+LDSymbol* IRBuilder::AddSymbol<IRBuilder::Force, IRBuilder::Resolve>(
+    const llvm::StringRef& pName,
+    ResolveInfo::Type pType,
+    ResolveInfo::Desc pDesc,
+    ResolveInfo::Binding pBinding,
+    ResolveInfo::SizeType pSize,
+    LDSymbol::ValueType pValue,
+    FragmentRef* pFragmentRef,
+    ResolveInfo::Visibility pVisibility);
 
-template<> LDSymbol*
-IRBuilder::AddSymbol<IRBuilder::AsReferred, IRBuilder::Resolve>(
-                         const llvm::StringRef& pName,
-                         ResolveInfo::Type pType,
-                         ResolveInfo::Desc pDesc,
-                         ResolveInfo::Binding pBinding,
-                         ResolveInfo::SizeType pSize,
-                         LDSymbol::ValueType pValue,
-                         FragmentRef* pFragmentRef,
-                         ResolveInfo::Visibility pVisibility);
+template <>
+LDSymbol* IRBuilder::AddSymbol<IRBuilder::AsReferred, IRBuilder::Resolve>(
+    const llvm::StringRef& pName,
+    ResolveInfo::Type pType,
+    ResolveInfo::Desc pDesc,
+    ResolveInfo::Binding pBinding,
+    ResolveInfo::SizeType pSize,
+    LDSymbol::ValueType pValue,
+    FragmentRef* pFragmentRef,
+    ResolveInfo::Visibility pVisibility);
 
-} // end of namespace mcld
+}  // end of namespace mcld
 
-#endif
+#endif  // MCLD_IRBUILDER_H_

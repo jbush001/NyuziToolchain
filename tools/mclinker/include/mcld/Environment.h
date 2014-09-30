@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_ENVIRONMENT_H
-#define MCLD_ENVIRONMENT_H
+#ifndef MCLD_ENVIRONMENT_H_
+#define MCLD_ENVIRONMENT_H_
 
 namespace mcld {
 
@@ -15,6 +15,6 @@ void Initialize();
 
 void Finalize();
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
+#endif  // MCLD_ENVIRONMENT_H_

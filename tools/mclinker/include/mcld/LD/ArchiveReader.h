@@ -6,15 +6,14 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_ARCHIVEREADER_H
-#define MCLD_LD_ARCHIVEREADER_H
+#ifndef MCLD_LD_ARCHIVEREADER_H_
+#define MCLD_LD_ARCHIVEREADER_H_
 #include <mcld/LD/LDReader.h>
 
-namespace mcld
-{
+namespace mcld {
 
-class LinkerConfig;
 class Archive;
+class LinkerConfig;
 
 /** \class ArchiveReader
  *  \brief ArchiveReader provides an common interface for all archive readers.
@@ -26,16 +25,14 @@ class Archive;
  *  3. All archive headers are the same size.
  */
 
-class ArchiveReader : public LDReader
-{
-public:
+class ArchiveReader : public LDReader {
+ public:
   ArchiveReader();
   virtual ~ArchiveReader();
 
   virtual bool readArchive(const LinkerConfig& pConfig, Archive& pArchive) = 0;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_ARCHIVEREADER_H_

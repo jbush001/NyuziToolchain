@@ -6,16 +6,15 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SUPPORT_TARGET_H
-#define MCLD_SUPPORT_TARGET_H
+#ifndef MCLD_SUPPORT_TARGET_H_
+#define MCLD_SUPPORT_TARGET_H_
 #include <string>
-#include <list>
 
 namespace llvm {
 class Target;
 class Triple;
 class TargetMachine;
-} // namespace of llvm
+}  // namespace llvm
 
 namespace mcld {
 
@@ -32,32 +31,31 @@ class TargetLDBackend;
 /** \class Target
  *  \brief Target collects target specific information
  */
-class Target
-{
+class Target {
   friend class mcld::MCLDTargetMachine;
   friend class mcld::TargetRegistry;
 
-public:
+ public:
   typedef unsigned int (*TripleMatchQualityFnTy)(const llvm::Triple& pTriple);
 
-  typedef MCLDTargetMachine *(*TargetMachineCtorTy)(const llvm::Target &,
-                                                    const mcld::Target &,
-                                                    llvm::TargetMachine &,
+  typedef MCLDTargetMachine* (*TargetMachineCtorTy)(const llvm::Target&,
+                                                    const mcld::Target&,
+                                                    llvm::TargetMachine&,
                                                     const std::string&);
 
-  typedef MCLinker *(*MCLinkerCtorTy)(const std::string& pTriple,
+  typedef MCLinker* (*MCLinkerCtorTy)(const std::string& pTriple,
                                       LinkerConfig&,
                                       Module&,
                                       FileHandle& pFileHandle);
 
   typedef bool (*EmulationFnTy)(LinkerScript&, LinkerConfig&);
 
-  typedef TargetLDBackend  *(*TargetLDBackendCtorTy)(const LinkerConfig&);
+  typedef TargetLDBackend* (*TargetLDBackendCtorTy)(const LinkerConfig&);
 
-  typedef DiagnosticLineInfo *(*DiagnosticLineInfoCtorTy)(const mcld::Target&,
+  typedef DiagnosticLineInfo* (*DiagnosticLineInfoCtorTy)(const mcld::Target&,
                                                           const std::string&);
 
-public:
+ public:
   Target();
 
   /// getName - get the target name
@@ -71,7 +69,7 @@ public:
                                          llvm::TargetMachine& pTM) const;
 
   /// createMCLinker - create target-specific MCLinker
-  MCLinker *createMCLinker(const std::string &pTriple,
+  MCLinker* createMCLinker(const std::string& pTriple,
                            LinkerConfig& pConfig,
                            Module& pModule,
                            FileHandle& pFileHandle) const;
@@ -84,10 +82,11 @@ public:
   TargetLDBackend* createLDBackend(const LinkerConfig& pConfig) const;
 
   /// createDiagnosticLineInfo - create target-specific DiagnosticLineInfo
-  DiagnosticLineInfo* createDiagnosticLineInfo(const mcld::Target& pTarget,
-                                               const std::string& pTriple) const;
+  DiagnosticLineInfo* createDiagnosticLineInfo(
+      const mcld::Target& pTarget,
+      const std::string& pTriple) const;
 
-private:
+ private:
   /// Name - The target name
   const char* Name;
 
@@ -99,7 +98,6 @@ private:
   DiagnosticLineInfoCtorTy DiagnosticLineInfoCtorFn;
 };
 
-} //end namespace mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_SUPPORT_TARGET_H_

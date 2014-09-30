@@ -135,30 +135,33 @@ static void SetUpDiagnosticLog(DiagnosticOptions *DiagOpts,
                                const CodeGenOptions *CodeGenOpts,
                                DiagnosticsEngine &Diags) {
   std::error_code EC;
-  bool OwnsStream = false;
+  std::unique_ptr<raw_ostream> StreamOwner;
   raw_ostream *OS = &llvm::errs();
   if (DiagOpts->DiagnosticLogFile != "-") {
     // Create the output stream.
-    llvm::raw_fd_ostream *FileOS(new llvm::raw_fd_ostream(
+    auto FileOS = llvm::make_unique<llvm::raw_fd_ostream>(
         DiagOpts->DiagnosticLogFile, EC,
-        llvm::sys::fs::F_Append | llvm::sys::fs::F_Text));
+        llvm::sys::fs::F_Append | llvm::sys::fs::F_Text);
     if (EC) {
       Diags.Report(diag::warn_fe_cc_log_diagnostics_failure)
           << DiagOpts->DiagnosticLogFile << EC.message();
     } else {
       FileOS->SetUnbuffered();
       FileOS->SetUseAtomicWrites(true);
-      OS = FileOS;
-      OwnsStream = true;
+      OS = FileOS.get();
+      StreamOwner = std::move(FileOS);
     }
   }
 
   // Chain in the diagnostic client which will log the diagnostics.
-  LogDiagnosticPrinter *Logger = new LogDiagnosticPrinter(*OS, DiagOpts,
-                                                          OwnsStream);
+  auto Logger = llvm::make_unique<LogDiagnosticPrinter>(*OS, DiagOpts,
+                                                        std::move(StreamOwner));
   if (CodeGenOpts)
     Logger->setDwarfDebugFlags(CodeGenOpts->DwarfDebugFlags);
-  Diags.setClient(new ChainedDiagnosticConsumer(Diags.takeClient(), Logger));
+  assert(Diags.ownsClient());
+  Diags.setClient(new ChainedDiagnosticConsumer(
+      std::unique_ptr<DiagnosticConsumer>(Diags.takeClient()),
+      std::move(Logger)));
 }
 
 static void SetupSerializedDiagnostics(DiagnosticOptions *DiagOpts,
@@ -174,11 +177,13 @@ static void SetupSerializedDiagnostics(DiagnosticOptions *DiagOpts,
     return;
   }
 
-  DiagnosticConsumer *SerializedConsumer =
+  auto SerializedConsumer =
       clang::serialized_diags::create(std::move(OS), DiagOpts);
 
-  Diags.setClient(new ChainedDiagnosticConsumer(Diags.takeClient(),
-                                                SerializedConsumer));
+  assert(Diags.ownsClient());
+  Diags.setClient(new ChainedDiagnosticConsumer(
+      std::unique_ptr<DiagnosticConsumer>(Diags.takeClient()),
+      std::move(SerializedConsumer)));
 }
 
 void CompilerInstance::createDiagnostics(DiagnosticConsumer *Client,
@@ -985,9 +990,10 @@ static bool compileAndLoadModule(CompilerInstance &ImportingInstance,
                                  SourceLocation ImportLoc,
                                  SourceLocation ModuleNameLoc, Module *Module,
                                  StringRef ModuleFileName) {
+  DiagnosticsEngine &Diags = ImportingInstance.getDiagnostics();
+
   auto diagnoseBuildFailure = [&] {
-    ImportingInstance.getDiagnostics().Report(ModuleNameLoc,
-                                              diag::err_module_not_built)
+    Diags.Report(ModuleNameLoc, diag::err_module_not_built)
         << Module->Name << SourceRange(ImportLoc, ModuleNameLoc);
   };
 
@@ -1001,6 +1007,8 @@ static bool compileAndLoadModule(CompilerInstance &ImportingInstance,
     llvm::LockFileManager Locked(ModuleFileName);
     switch (Locked) {
     case llvm::LockFileManager::LFS_Error:
+      Diags.Report(ModuleNameLoc, diag::err_module_lock_failure)
+          << Module->Name;
       return false;
 
     case llvm::LockFileManager::LFS_Owned:
@@ -1034,6 +1042,10 @@ static bool compileAndLoadModule(CompilerInstance &ImportingInstance,
       // consistent with this ImportingInstance.  Try again...
       continue;
     } else if (ReadResult == ASTReader::Missing) {
+      diagnoseBuildFailure();
+    } else if (ReadResult != ASTReader::Success &&
+               !Diags.hasErrorOccurred()) {
+      // The ASTReader didn't diagnose the error, so conservatively report it.
       diagnoseBuildFailure();
     }
     return ReadResult == ASTReader::Success;
@@ -1357,6 +1369,8 @@ CompilerInstance::loadModule(SourceLocation ImportLoc,
       // Try to compile and then load the module.
       if (!compileAndLoadModule(*this, ImportLoc, ModuleNameLoc, Module,
                                 ModuleFileName)) {
+        assert(getDiagnostics().hasErrorOccurred() &&
+               "undiagnosed error in compileAndLoadModule");
         if (getPreprocessorOpts().FailedModules)
           getPreprocessorOpts().FailedModules->addFailed(ModuleName);
         KnownModules[Path[0].first] = nullptr;

@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_ELF_FILE_FORMAT_H
-#define MCLD_ELF_FILE_FORMAT_H
+#ifndef MCLD_LD_ELFFILEFORMAT_H_
+#define MCLD_LD_ELFFILEFORMAT_H_
 #include <mcld/LD/LDFileFormat.h>
 #include <mcld/LD/LDSection.h>
 
@@ -25,683 +25,707 @@ class ObjectBuilder;
  *  @ref "Object Format," Ch. 10, in ISO/IEC 23360 Part 1:2010(E), Linux
  *  Standard Base Core Specification 4.1.
  */
-class ELFFileFormat : public LDFileFormat
-{
-private:
+class ELFFileFormat : public LDFileFormat {
+ private:
   /// initObjectFormat - initialize sections that are dependent on object
   /// formats. (executable, shared objects or relocatable objects).
-  virtual void
-  initObjectFormat(ObjectBuilder& pBuilder, unsigned int pBitClass) = 0;
+  virtual void initObjectFormat(ObjectBuilder& pBuilder,
+                                unsigned int pBitClass) = 0;
 
-public:
+ public:
   ELFFileFormat();
 
   void initStdSections(ObjectBuilder& pBuilder, unsigned int pBitClass);
 
   // -----  capacity  ----- //
   /// @ref Special Sections, Ch. 4.17, System V ABI, 4th edition.
-  bool hasNULLSection() const
-  { return (NULL != f_pNULLSection) && (0 != f_pNULLSection->size()); }
+  bool hasNULLSection() const {
+    return (f_pNULLSection != NULL) && (f_pNULLSection->size() != 0);
+  }
 
-  bool hasGOT() const
-  { return (NULL != f_pGOT) && (0 != f_pGOT->size()); }
+  bool hasGOT() const { return (f_pGOT != NULL) && (f_pGOT->size() != 0); }
 
-  bool hasPLT() const
-  { return (NULL != f_pPLT) && (0 != f_pPLT->size()); }
+  bool hasPLT() const { return (f_pPLT != NULL) && (f_pPLT->size() != 0); }
 
-  bool hasRelDyn() const
-  { return (NULL != f_pRelDyn) && (0 != f_pRelDyn->size()); }
+  bool hasRelDyn() const {
+    return (f_pRelDyn != NULL) && (f_pRelDyn->size() != 0);
+  }
 
-  bool hasRelPlt() const
-  { return (NULL != f_pRelPlt) && (0 != f_pRelPlt->size()); }
+  bool hasRelPlt() const {
+    return (f_pRelPlt != NULL) && (f_pRelPlt->size() != 0);
+  }
 
-  bool hasRelaDyn() const
-  { return (NULL != f_pRelaDyn) && (0 != f_pRelaDyn->size()); }
+  bool hasRelaDyn() const {
+    return (f_pRelaDyn != NULL) && (f_pRelaDyn->size() != 0);
+  }
 
-  bool hasRelaPlt() const
-  { return (NULL != f_pRelaPlt) && (0 != f_pRelaPlt->size()); }
+  bool hasRelaPlt() const {
+    return (f_pRelaPlt != NULL) && (f_pRelaPlt->size() != 0);
+  }
 
   /// @ref 10.3.1.1, ISO/IEC 23360, Part 1:2010(E), p. 21.
-  bool hasComment() const
-  { return (NULL != f_pComment) && (0 != f_pComment->size()); }
+  bool hasComment() const {
+    return (f_pComment != NULL) && (f_pComment->size() != 0);
+  }
 
-  bool hasData1() const
-  { return (NULL != f_pData1) && (0 != f_pData1->size()); }
+  bool hasData1() const {
+    return (f_pData1 != NULL) && (f_pData1->size() != 0);
+  }
 
-  bool hasDebug() const
-  { return (NULL != f_pDebug) && (0 != f_pDebug->size()); }
+  bool hasDebug() const {
+    return (f_pDebug != NULL) && (f_pDebug->size() != 0);
+  }
 
-  bool hasDynamic() const
-  { return (NULL != f_pDynamic) && (0 != f_pDynamic->size()); }
+  bool hasDynamic() const {
+    return (f_pDynamic != NULL) && (f_pDynamic->size() != 0);
+  }
 
-  bool hasDynStrTab() const
-  { return (NULL != f_pDynStrTab) && (0 != f_pDynStrTab->size()); }
+  bool hasDynStrTab() const {
+    return (f_pDynStrTab != NULL) && (f_pDynStrTab->size() != 0);
+  }
 
-  bool hasDynSymTab() const
-  { return (NULL != f_pDynSymTab) && (0 != f_pDynSymTab->size()); }
+  bool hasDynSymTab() const {
+    return (f_pDynSymTab != NULL) && (f_pDynSymTab->size() != 0);
+  }
 
-  bool hasFini() const
-  { return (NULL != f_pFini) && (0 != f_pFini->size()); }
+  bool hasFini() const { return (f_pFini != NULL) && (f_pFini->size() != 0); }
 
-  bool hasFiniArray() const
-  { return (NULL != f_pFiniArray) && (0 != f_pFiniArray->size()); }
+  bool hasFiniArray() const {
+    return (f_pFiniArray != NULL) && (f_pFiniArray->size() != 0);
+  }
 
-  bool hasHashTab() const
-  { return (NULL != f_pHashTab) && (0 != f_pHashTab->size()); }
+  bool hasHashTab() const {
+    return (f_pHashTab != NULL) && (f_pHashTab->size() != 0);
+  }
 
-  bool hasInit() const
-  { return (NULL != f_pInit) && (0 != f_pInit->size()); }
+  bool hasInit() const { return (f_pInit != NULL) && (f_pInit->size() != 0); }
 
-  bool hasInitArray() const
-  { return (NULL != f_pInitArray) && (0 != f_pInitArray->size()); }
+  bool hasInitArray() const {
+    return (f_pInitArray != NULL) && (f_pInitArray->size() != 0);
+  }
 
-  bool hasInterp() const
-  { return (NULL != f_pInterp) && (0 != f_pInterp->size()); }
+  bool hasInterp() const {
+    return (f_pInterp != NULL) && (f_pInterp->size() != 0);
+  }
 
-  bool hasLine() const
-  { return (NULL != f_pLine) && (0 != f_pLine->size()); }
+  bool hasLine() const { return (f_pLine != NULL) && (f_pLine->size() != 0); }
 
-  bool hasNote() const
-  { return (NULL != f_pNote) && (0 != f_pNote->size()); }
+  bool hasNote() const { return (f_pNote != NULL) && (f_pNote->size() != 0); }
 
-  bool hasPreInitArray() const
-  { return (NULL != f_pPreInitArray) && (0 != f_pPreInitArray->size()); }
+  bool hasPreInitArray() const {
+    return (f_pPreInitArray != NULL) && (f_pPreInitArray->size() != 0);
+  }
 
-  bool hasROData1() const
-  { return (NULL != f_pROData1) && (0 != f_pROData1->size()); }
+  bool hasROData1() const {
+    return (f_pROData1 != NULL) && (f_pROData1->size() != 0);
+  }
 
-  bool hasShStrTab() const
-  { return (NULL != f_pShStrTab) && (0 != f_pShStrTab->size()); }
+  bool hasShStrTab() const {
+    return (f_pShStrTab != NULL) && (f_pShStrTab->size() != 0);
+  }
 
-  bool hasStrTab() const
-  { return (NULL != f_pStrTab) && (0 != f_pStrTab->size()); }
+  bool hasStrTab() const {
+    return (f_pStrTab != NULL) && (f_pStrTab->size() != 0);
+  }
 
-  bool hasSymTab() const
-  { return (NULL != f_pSymTab) && (0 != f_pSymTab->size()); }
+  bool hasSymTab() const {
+    return (f_pSymTab != NULL) && (f_pSymTab->size() != 0);
+  }
 
-  bool hasTBSS() const
-  { return (NULL != f_pTBSS) && (0 != f_pTBSS->size()); }
+  bool hasTBSS() const { return (f_pTBSS != NULL) && (f_pTBSS->size() != 0); }
 
-  bool hasTData() const
-  { return (NULL != f_pTData) && (0 != f_pTData->size()); }
+  bool hasTData() const {
+    return (f_pTData != NULL) && (f_pTData->size() != 0);
+  }
 
   /// @ref 10.3.1.2, ISO/IEC 23360, Part 1:2010(E), p. 24.
-  bool hasCtors() const
-  { return (NULL != f_pCtors) && (0 != f_pCtors->size()); }
+  bool hasCtors() const {
+    return (f_pCtors != NULL) && (f_pCtors->size() != 0);
+  }
 
-  bool hasDataRelRo() const
-  { return (NULL != f_pDataRelRo) && (0 != f_pDataRelRo->size()); }
+  bool hasDataRelRo() const {
+    return (f_pDataRelRo != NULL) && (f_pDataRelRo->size() != 0);
+  }
 
-  bool hasDtors() const
-  { return (NULL != f_pDtors) && (0 != f_pDtors->size()); }
+  bool hasDtors() const {
+    return (f_pDtors != NULL) && (f_pDtors->size() != 0);
+  }
 
-  bool hasEhFrame() const
-  { return (NULL != f_pEhFrame) && (0 != f_pEhFrame->size()); }
+  bool hasEhFrame() const {
+    return (f_pEhFrame != NULL) && (f_pEhFrame->size() != 0);
+  }
 
-  bool hasEhFrameHdr() const
-  { return (NULL != f_pEhFrameHdr) && (0 != f_pEhFrameHdr->size()); }
+  bool hasEhFrameHdr() const {
+    return (f_pEhFrameHdr != NULL) && (f_pEhFrameHdr->size() != 0);
+  }
 
-  bool hasGCCExceptTable() const
-  { return (NULL != f_pGCCExceptTable) && (0 != f_pGCCExceptTable->size()); }
+  bool hasGCCExceptTable() const {
+    return (f_pGCCExceptTable != NULL) && (f_pGCCExceptTable->size() != 0);
+  }
 
-  bool hasGNUVersion() const
-  { return (NULL != f_pGNUVersion) && (0 != f_pGNUVersion->size()); }
+  bool hasGNUVersion() const {
+    return (f_pGNUVersion != NULL) && (f_pGNUVersion->size() != 0);
+  }
 
-  bool hasGNUVersionD() const
-  { return (NULL != f_pGNUVersionD) && (0 != f_pGNUVersionD->size()); }
+  bool hasGNUVersionD() const {
+    return (f_pGNUVersionD != NULL) && (f_pGNUVersionD->size() != 0);
+  }
 
-  bool hasGNUVersionR() const
-  { return (NULL != f_pGNUVersionR) && (0 != f_pGNUVersionR->size()); }
+  bool hasGNUVersionR() const {
+    return (f_pGNUVersionR != NULL) && (f_pGNUVersionR->size() != 0);
+  }
 
-  bool hasGOTPLT() const
-  { return (NULL != f_pGOTPLT) && (0 != f_pGOTPLT->size()); }
+  bool hasGOTPLT() const {
+    return (f_pGOTPLT != NULL) && (f_pGOTPLT->size() != 0);
+  }
 
-  bool hasJCR() const
-  { return (NULL != f_pJCR) && (0 != f_pJCR->size()); }
+  bool hasJCR() const { return (f_pJCR != NULL) && (f_pJCR->size() != 0); }
 
-  bool hasNoteABITag() const
-  { return (NULL != f_pNoteABITag) && (0 != f_pNoteABITag->size()); }
+  bool hasNoteABITag() const {
+    return (f_pNoteABITag != NULL) && (f_pNoteABITag->size() != 0);
+  }
 
-  bool hasStab() const
-  { return (NULL != f_pStab) && (0 != f_pStab->size()); }
+  bool hasStab() const { return (f_pStab != NULL) && (f_pStab->size() != 0); }
 
-  bool hasStabStr() const
-  { return (NULL != f_pStabStr) && (0 != f_pStabStr->size()); }
+  bool hasStabStr() const {
+    return (f_pStabStr != NULL) && (f_pStabStr->size() != 0);
+  }
 
-  bool hasStack() const
-  { return (NULL != f_pStack) && (0 != f_pStack->size()); }
+  bool hasStack() const {
+    return (f_pStack != NULL) && (f_pStack->size() != 0);
+  }
 
-  bool hasStackNote() const
-  { return (NULL != f_pStackNote); }
+  bool hasStackNote() const { return (f_pStackNote != NULL); }
 
-  bool hasDataRelRoLocal() const
-  { return (NULL != f_pDataRelRoLocal) && (0 != f_pDataRelRoLocal->size()); }
+  bool hasDataRelRoLocal() const {
+    return (f_pDataRelRoLocal != NULL) && (f_pDataRelRoLocal->size() != 0);
+  }
 
-  bool hasGNUHashTab() const
-  { return (NULL != f_pGNUHashTab) && (0 != f_pGNUHashTab->size()); }
+  bool hasGNUHashTab() const {
+    return (f_pGNUHashTab != NULL) && (f_pGNUHashTab->size() != 0);
+  }
 
   // -----  access functions  ----- //
   /// @ref Special Sections, Ch. 4.17, System V ABI, 4th edition.
   LDSection& getNULLSection() {
-    assert(NULL != f_pNULLSection);
+    assert(f_pNULLSection != NULL);
     return *f_pNULLSection;
   }
 
   const LDSection& getNULLSection() const {
-    assert(NULL != f_pNULLSection);
+    assert(f_pNULLSection != NULL);
     return *f_pNULLSection;
   }
 
   LDSection& getGOT() {
-    assert(NULL != f_pGOT);
+    assert(f_pGOT != NULL);
     return *f_pGOT;
   }
 
   const LDSection& getGOT() const {
-    assert(NULL != f_pGOT);
+    assert(f_pGOT != NULL);
     return *f_pGOT;
   }
 
   LDSection& getPLT() {
-    assert(NULL != f_pPLT);
+    assert(f_pPLT != NULL);
     return *f_pPLT;
   }
 
   const LDSection& getPLT() const {
-    assert(NULL != f_pPLT);
+    assert(f_pPLT != NULL);
     return *f_pPLT;
   }
 
   LDSection& getRelDyn() {
-    assert(NULL != f_pRelDyn);
+    assert(f_pRelDyn != NULL);
     return *f_pRelDyn;
   }
 
   const LDSection& getRelDyn() const {
-    assert(NULL != f_pRelDyn);
+    assert(f_pRelDyn != NULL);
     return *f_pRelDyn;
   }
 
   LDSection& getRelPlt() {
-    assert(NULL != f_pRelPlt);
+    assert(f_pRelPlt != NULL);
     return *f_pRelPlt;
   }
 
   const LDSection& getRelPlt() const {
-    assert(NULL != f_pRelPlt);
+    assert(f_pRelPlt != NULL);
     return *f_pRelPlt;
   }
 
   LDSection& getRelaDyn() {
-    assert(NULL != f_pRelaDyn);
+    assert(f_pRelaDyn != NULL);
     return *f_pRelaDyn;
   }
 
   const LDSection& getRelaDyn() const {
-    assert(NULL != f_pRelaDyn);
+    assert(f_pRelaDyn != NULL);
     return *f_pRelaDyn;
   }
 
   LDSection& getRelaPlt() {
-    assert(NULL != f_pRelaPlt);
+    assert(f_pRelaPlt != NULL);
     return *f_pRelaPlt;
   }
 
   const LDSection& getRelaPlt() const {
-    assert(NULL != f_pRelaPlt);
+    assert(f_pRelaPlt != NULL);
     return *f_pRelaPlt;
   }
 
   LDSection& getComment() {
-    assert(NULL != f_pComment);
+    assert(f_pComment != NULL);
     return *f_pComment;
   }
 
   /// @ref 10.3.1.1, ISO/IEC 23360, Part 1:2010(E), p. 21.
   const LDSection& getComment() const {
-    assert(NULL != f_pComment);
+    assert(f_pComment != NULL);
     return *f_pComment;
   }
 
   LDSection& getData1() {
-    assert(NULL != f_pData1);
+    assert(f_pData1 != NULL);
     return *f_pData1;
   }
 
   const LDSection& getData1() const {
-    assert(NULL != f_pData1);
+    assert(f_pData1 != NULL);
     return *f_pData1;
   }
 
   LDSection& getDebug() {
-    assert(NULL != f_pDebug);
+    assert(f_pDebug != NULL);
     return *f_pDebug;
   }
 
   const LDSection& getDebug() const {
-    assert(NULL != f_pDebug);
+    assert(f_pDebug != NULL);
     return *f_pDebug;
   }
 
   LDSection& getDynamic() {
-    assert(NULL != f_pDynamic);
+    assert(f_pDynamic != NULL);
     return *f_pDynamic;
   }
 
   const LDSection& getDynamic() const {
-    assert(NULL != f_pDynamic);
+    assert(f_pDynamic != NULL);
     return *f_pDynamic;
   }
 
   LDSection& getDynStrTab() {
-    assert(NULL != f_pDynStrTab);
+    assert(f_pDynStrTab != NULL);
     return *f_pDynStrTab;
   }
 
   const LDSection& getDynStrTab() const {
-    assert(NULL != f_pDynStrTab);
+    assert(f_pDynStrTab != NULL);
     return *f_pDynStrTab;
   }
 
   LDSection& getDynSymTab() {
-    assert(NULL != f_pDynSymTab);
+    assert(f_pDynSymTab != NULL);
     return *f_pDynSymTab;
   }
 
   const LDSection& getDynSymTab() const {
-    assert(NULL != f_pDynSymTab);
+    assert(f_pDynSymTab != NULL);
     return *f_pDynSymTab;
   }
 
   LDSection& getFini() {
-    assert(NULL != f_pFini);
+    assert(f_pFini != NULL);
     return *f_pFini;
   }
 
   const LDSection& getFini() const {
-    assert(NULL != f_pFini);
+    assert(f_pFini != NULL);
     return *f_pFini;
   }
 
   LDSection& getFiniArray() {
-    assert(NULL != f_pFiniArray);
+    assert(f_pFiniArray != NULL);
     return *f_pFiniArray;
   }
 
   const LDSection& getFiniArray() const {
-    assert(NULL != f_pFiniArray);
+    assert(f_pFiniArray != NULL);
     return *f_pFiniArray;
   }
 
   LDSection& getHashTab() {
-    assert(NULL != f_pHashTab);
+    assert(f_pHashTab != NULL);
     return *f_pHashTab;
   }
 
   const LDSection& getHashTab() const {
-    assert(NULL != f_pHashTab);
+    assert(f_pHashTab != NULL);
     return *f_pHashTab;
   }
 
   LDSection& getInit() {
-    assert(NULL != f_pInit);
+    assert(f_pInit != NULL);
     return *f_pInit;
   }
 
   const LDSection& getInit() const {
-    assert(NULL != f_pInit);
+    assert(f_pInit != NULL);
     return *f_pInit;
   }
 
   LDSection& getInitArray() {
-    assert(NULL != f_pInitArray);
+    assert(f_pInitArray != NULL);
     return *f_pInitArray;
   }
 
   const LDSection& getInitArray() const {
-    assert(NULL != f_pInitArray);
+    assert(f_pInitArray != NULL);
     return *f_pInitArray;
   }
 
   LDSection& getInterp() {
-    assert(NULL != f_pInterp);
+    assert(f_pInterp != NULL);
     return *f_pInterp;
   }
 
   const LDSection& getInterp() const {
-    assert(NULL != f_pInterp);
+    assert(f_pInterp != NULL);
     return *f_pInterp;
   }
 
   LDSection& getLine() {
-    assert(NULL != f_pLine);
+    assert(f_pLine != NULL);
     return *f_pLine;
   }
 
   const LDSection& getLine() const {
-    assert(NULL != f_pLine);
+    assert(f_pLine != NULL);
     return *f_pLine;
   }
 
   LDSection& getNote() {
-    assert(NULL != f_pNote);
+    assert(f_pNote != NULL);
     return *f_pNote;
   }
 
   const LDSection& getNote() const {
-    assert(NULL != f_pNote);
+    assert(f_pNote != NULL);
     return *f_pNote;
   }
 
   LDSection& getPreInitArray() {
-    assert(NULL != f_pPreInitArray);
+    assert(f_pPreInitArray != NULL);
     return *f_pPreInitArray;
   }
 
   const LDSection& getPreInitArray() const {
-    assert(NULL != f_pPreInitArray);
+    assert(f_pPreInitArray != NULL);
     return *f_pPreInitArray;
   }
 
   LDSection& getROData1() {
-    assert(NULL != f_pROData1);
+    assert(f_pROData1 != NULL);
     return *f_pROData1;
   }
 
   const LDSection& getROData1() const {
-    assert(NULL != f_pROData1);
+    assert(f_pROData1 != NULL);
     return *f_pROData1;
   }
 
   LDSection& getShStrTab() {
-    assert(NULL != f_pShStrTab);
+    assert(f_pShStrTab != NULL);
     return *f_pShStrTab;
   }
 
   const LDSection& getShStrTab() const {
-    assert(NULL != f_pShStrTab);
+    assert(f_pShStrTab != NULL);
     return *f_pShStrTab;
   }
 
   LDSection& getStrTab() {
-    assert(NULL != f_pStrTab);
+    assert(f_pStrTab != NULL);
     return *f_pStrTab;
   }
 
   const LDSection& getStrTab() const {
-    assert(NULL != f_pStrTab);
+    assert(f_pStrTab != NULL);
     return *f_pStrTab;
   }
 
   LDSection& getSymTab() {
-    assert(NULL != f_pSymTab);
+    assert(f_pSymTab != NULL);
     return *f_pSymTab;
   }
 
   const LDSection& getSymTab() const {
-    assert(NULL != f_pSymTab);
+    assert(f_pSymTab != NULL);
     return *f_pSymTab;
   }
 
   LDSection& getTBSS() {
-    assert(NULL != f_pTBSS);
+    assert(f_pTBSS != NULL);
     return *f_pTBSS;
   }
 
   const LDSection& getTBSS() const {
-    assert(NULL != f_pTBSS);
+    assert(f_pTBSS != NULL);
     return *f_pTBSS;
   }
 
   LDSection& getTData() {
-    assert(NULL != f_pTData);
+    assert(f_pTData != NULL);
     return *f_pTData;
   }
 
   const LDSection& getTData() const {
-    assert(NULL != f_pTData);
+    assert(f_pTData != NULL);
     return *f_pTData;
   }
 
   /// @ref 10.3.1.2, ISO/IEC 23360, Part 1:2010(E), p. 24.
   LDSection& getCtors() {
-    assert(NULL != f_pCtors);
+    assert(f_pCtors != NULL);
     return *f_pCtors;
   }
 
   const LDSection& getCtors() const {
-    assert(NULL != f_pCtors);
+    assert(f_pCtors != NULL);
     return *f_pCtors;
   }
 
   LDSection& getDataRelRo() {
-    assert(NULL != f_pDataRelRo);
+    assert(f_pDataRelRo != NULL);
     return *f_pDataRelRo;
   }
 
   const LDSection& getDataRelRo() const {
-    assert(NULL != f_pDataRelRo);
+    assert(f_pDataRelRo != NULL);
     return *f_pDataRelRo;
   }
 
   LDSection& getDtors() {
-    assert(NULL != f_pDtors);
+    assert(f_pDtors != NULL);
     return *f_pDtors;
   }
 
   const LDSection& getDtors() const {
-    assert(NULL != f_pDtors);
+    assert(f_pDtors != NULL);
     return *f_pDtors;
   }
 
   LDSection& getEhFrame() {
-    assert(NULL != f_pEhFrame);
+    assert(f_pEhFrame != NULL);
     return *f_pEhFrame;
   }
 
   const LDSection& getEhFrame() const {
-    assert(NULL != f_pEhFrame);
+    assert(f_pEhFrame != NULL);
     return *f_pEhFrame;
   }
 
   LDSection& getEhFrameHdr() {
-    assert(NULL != f_pEhFrameHdr);
+    assert(f_pEhFrameHdr != NULL);
     return *f_pEhFrameHdr;
   }
 
   const LDSection& getEhFrameHdr() const {
-    assert(NULL != f_pEhFrameHdr);
+    assert(f_pEhFrameHdr != NULL);
     return *f_pEhFrameHdr;
   }
 
   LDSection& getGCCExceptTable() {
-    assert(NULL != f_pGCCExceptTable);
+    assert(f_pGCCExceptTable != NULL);
     return *f_pGCCExceptTable;
   }
 
   const LDSection& getGCCExceptTable() const {
-    assert(NULL != f_pGCCExceptTable);
+    assert(f_pGCCExceptTable != NULL);
     return *f_pGCCExceptTable;
   }
 
   LDSection& getGNUVersion() {
-    assert(NULL != f_pGNUVersion);
+    assert(f_pGNUVersion != NULL);
     return *f_pGNUVersion;
   }
 
   const LDSection& getGNUVersion() const {
-    assert(NULL != f_pGNUVersion);
+    assert(f_pGNUVersion != NULL);
     return *f_pGNUVersion;
   }
 
   LDSection& getGNUVersionD() {
-    assert(NULL != f_pGNUVersionD);
+    assert(f_pGNUVersionD != NULL);
     return *f_pGNUVersionD;
   }
 
   const LDSection& getGNUVersionD() const {
-    assert(NULL != f_pGNUVersionD);
+    assert(f_pGNUVersionD != NULL);
     return *f_pGNUVersionD;
   }
 
   LDSection& getGNUVersionR() {
-    assert(NULL != f_pGNUVersionR);
+    assert(f_pGNUVersionR != NULL);
     return *f_pGNUVersionR;
   }
 
   const LDSection& getGNUVersionR() const {
-    assert(NULL != f_pGNUVersionR);
+    assert(f_pGNUVersionR != NULL);
     return *f_pGNUVersionR;
   }
 
   LDSection& getGOTPLT() {
-    assert(NULL != f_pGOTPLT);
+    assert(f_pGOTPLT != NULL);
     return *f_pGOTPLT;
   }
 
   const LDSection& getGOTPLT() const {
-    assert(NULL != f_pGOTPLT);
+    assert(f_pGOTPLT != NULL);
     return *f_pGOTPLT;
   }
 
   LDSection& getJCR() {
-    assert(NULL != f_pJCR);
+    assert(f_pJCR != NULL);
     return *f_pJCR;
   }
 
   const LDSection& getJCR() const {
-    assert(NULL != f_pJCR);
+    assert(f_pJCR != NULL);
     return *f_pJCR;
   }
 
   LDSection& getNoteABITag() {
-    assert(NULL != f_pNoteABITag);
+    assert(f_pNoteABITag != NULL);
     return *f_pNoteABITag;
   }
 
   const LDSection& getNoteABITag() const {
-    assert(NULL != f_pNoteABITag);
+    assert(f_pNoteABITag != NULL);
     return *f_pNoteABITag;
   }
 
   LDSection& getStab() {
-    assert(NULL != f_pStab);
+    assert(f_pStab != NULL);
     return *f_pStab;
   }
 
   const LDSection& getStab() const {
-    assert(NULL != f_pStab);
+    assert(f_pStab != NULL);
     return *f_pStab;
   }
 
   LDSection& getStabStr() {
-    assert(NULL != f_pStabStr);
+    assert(f_pStabStr != NULL);
     return *f_pStabStr;
   }
 
   const LDSection& getStabStr() const {
-    assert(NULL != f_pStabStr);
+    assert(f_pStabStr != NULL);
     return *f_pStabStr;
   }
 
   LDSection& getStack() {
-    assert(NULL != f_pStack);
+    assert(f_pStack != NULL);
     return *f_pStack;
   }
 
   const LDSection& getStack() const {
-    assert(NULL != f_pStack);
+    assert(f_pStack != NULL);
     return *f_pStack;
   }
 
   LDSection& getStackNote() {
-    assert(NULL != f_pStackNote);
+    assert(f_pStackNote != NULL);
     return *f_pStackNote;
   }
 
   const LDSection& getStackNote() const {
-    assert(NULL != f_pStackNote);
+    assert(f_pStackNote != NULL);
     return *f_pStackNote;
   }
 
   LDSection& getDataRelRoLocal() {
-    assert(NULL != f_pDataRelRoLocal);
+    assert(f_pDataRelRoLocal != NULL);
     return *f_pDataRelRoLocal;
   }
 
   const LDSection& getDataRelRoLocal() const {
-    assert(NULL != f_pDataRelRoLocal);
+    assert(f_pDataRelRoLocal != NULL);
     return *f_pDataRelRoLocal;
   }
 
   LDSection& getGNUHashTab() {
-    assert(NULL != f_pGNUHashTab);
+    assert(f_pGNUHashTab != NULL);
     return *f_pGNUHashTab;
   }
 
   const LDSection& getGNUHashTab() const {
-    assert(NULL != f_pGNUHashTab);
+    assert(f_pGNUHashTab != NULL);
     return *f_pGNUHashTab;
   }
 
-protected:
+ protected:
   //         variable name         :  ELF
   /// @ref Special Sections, Ch. 4.17, System V ABI, 4th edition.
   LDSection* f_pNULLSection;
-  LDSection* f_pGOT;               // .got
-  LDSection* f_pPLT;               // .plt
-  LDSection* f_pRelDyn;            // .rel.dyn
-  LDSection* f_pRelPlt;            // .rel.plt
-  LDSection* f_pRelaDyn;           // .rela.dyn
-  LDSection* f_pRelaPlt;           // .rela.plt
+  LDSection* f_pGOT;      // .got
+  LDSection* f_pPLT;      // .plt
+  LDSection* f_pRelDyn;   // .rel.dyn
+  LDSection* f_pRelPlt;   // .rel.plt
+  LDSection* f_pRelaDyn;  // .rela.dyn
+  LDSection* f_pRelaPlt;  // .rela.plt
 
   /// @ref 10.3.1.1, ISO/IEC 23360, Part 1:2010(E), p. 21.
-  LDSection* f_pComment;           // .comment
-  LDSection* f_pData1;             // .data1
-  LDSection* f_pDebug;             // .debug
-  LDSection* f_pDynamic;           // .dynamic
-  LDSection* f_pDynStrTab;         // .dynstr
-  LDSection* f_pDynSymTab;         // .dynsym
-  LDSection* f_pFini;              // .fini
-  LDSection* f_pFiniArray;         // .fini_array
-  LDSection* f_pHashTab;           // .hash
-  LDSection* f_pInit;              // .init
-  LDSection* f_pInitArray;         // .init_array
-  LDSection* f_pInterp;            // .interp
-  LDSection* f_pLine;              // .line
-  LDSection* f_pNote;              // .note
-  LDSection* f_pPreInitArray;      // .preinit_array
-  LDSection* f_pROData1;           // .rodata1
-  LDSection* f_pShStrTab;          // .shstrtab
-  LDSection* f_pStrTab;            // .strtab
-  LDSection* f_pSymTab;            // .symtab
-  LDSection* f_pTBSS;              // .tbss
-  LDSection* f_pTData;             // .tdata
+  LDSection* f_pComment;       // .comment
+  LDSection* f_pData1;         // .data1
+  LDSection* f_pDebug;         // .debug
+  LDSection* f_pDynamic;       // .dynamic
+  LDSection* f_pDynStrTab;     // .dynstr
+  LDSection* f_pDynSymTab;     // .dynsym
+  LDSection* f_pFini;          // .fini
+  LDSection* f_pFiniArray;     // .fini_array
+  LDSection* f_pHashTab;       // .hash
+  LDSection* f_pInit;          // .init
+  LDSection* f_pInitArray;     // .init_array
+  LDSection* f_pInterp;        // .interp
+  LDSection* f_pLine;          // .line
+  LDSection* f_pNote;          // .note
+  LDSection* f_pPreInitArray;  // .preinit_array
+  LDSection* f_pROData1;       // .rodata1
+  LDSection* f_pShStrTab;      // .shstrtab
+  LDSection* f_pStrTab;        // .strtab
+  LDSection* f_pSymTab;        // .symtab
+  LDSection* f_pTBSS;          // .tbss
+  LDSection* f_pTData;         // .tdata
 
   /// @ref 10.3.1.2, ISO/IEC 23360, Part 1:2010(E), p. 24.
-  LDSection* f_pCtors;             // .ctors
-  LDSection* f_pDataRelRo;         // .data.rel.ro
-  LDSection* f_pDtors;             // .dtors
-  LDSection* f_pEhFrame;           // .eh_frame
-  LDSection* f_pEhFrameHdr;        // .eh_frame_hdr
-  LDSection* f_pGCCExceptTable;    // .gcc_except_table
-  LDSection* f_pGNUVersion;        // .gnu.version
-  LDSection* f_pGNUVersionD;       // .gnu.version_d
-  LDSection* f_pGNUVersionR;       // .gnu.version_r
-  LDSection* f_pGOTPLT;            // .got.plt
-  LDSection* f_pJCR;               // .jcr
-  LDSection* f_pNoteABITag;        // .note.ABI-tag
-  LDSection* f_pStab;              // .stab
-  LDSection* f_pStabStr;           // .stabstr
+  LDSection* f_pCtors;           // .ctors
+  LDSection* f_pDataRelRo;       // .data.rel.ro
+  LDSection* f_pDtors;           // .dtors
+  LDSection* f_pEhFrame;         // .eh_frame
+  LDSection* f_pEhFrameHdr;      // .eh_frame_hdr
+  LDSection* f_pGCCExceptTable;  // .gcc_except_table
+  LDSection* f_pGNUVersion;      // .gnu.version
+  LDSection* f_pGNUVersionD;     // .gnu.version_d
+  LDSection* f_pGNUVersionR;     // .gnu.version_r
+  LDSection* f_pGOTPLT;          // .got.plt
+  LDSection* f_pJCR;             // .jcr
+  LDSection* f_pNoteABITag;      // .note.ABI-tag
+  LDSection* f_pStab;            // .stab
+  LDSection* f_pStabStr;         // .stabstr
 
   /// practical
-  LDSection* f_pStack;             // .stack
-  LDSection* f_pStackNote;         // .note.GNU-stack
-  LDSection* f_pDataRelRoLocal;    // .data.rel.ro.local
-  LDSection* f_pGNUHashTab;        // .gnu.hash
+  LDSection* f_pStack;           // .stack
+  LDSection* f_pStackNote;       // .note.GNU-stack
+  LDSection* f_pDataRelRoLocal;  // .data.rel.ro.local
+  LDSection* f_pGNUHashTab;      // .gnu.hash
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_ELFFILEFORMAT_H_

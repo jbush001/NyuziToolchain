@@ -14,8 +14,7 @@
 
 namespace mcld {
 
-static bool MCLDEmulateARMELF(LinkerScript& pScript, LinkerConfig& pConfig)
-{
+static bool MCLDEmulateARMELF(LinkerScript& pScript, LinkerConfig& pConfig) {
   if (!MCLDEmulateELF(pScript, pConfig))
     return false;
 
@@ -36,6 +35,11 @@ static bool MCLDEmulateARMELF(LinkerScript& pScript, LinkerConfig& pConfig)
   // set up section map
   if (pConfig.options().getScriptList().empty() &&
       pConfig.codeGenType() != LinkerConfig::Object) {
+    // .ARM.exidx is associated with .text (which is always the first input
+    // text section in GNU ELF), and thus we have to do this special treatment.
+    pScript.sectionMap().insert(".ARM.exidx", ".ARM.exidx");
+    pScript.sectionMap().insert(".ARM.extab", ".ARM.extab");
+
     pScript.sectionMap().insert(".ARM.exidx*", ".ARM.exidx");
     pScript.sectionMap().insert(".ARM.extab*", ".ARM.extab");
     pScript.sectionMap().insert(".ARM.attributes*", ".ARM.attributes");
@@ -46,8 +50,7 @@ static bool MCLDEmulateARMELF(LinkerScript& pScript, LinkerConfig& pConfig)
 //===----------------------------------------------------------------------===//
 // emulateARMLD - the help function to emulate ARM ld
 //===----------------------------------------------------------------------===//
-bool emulateARMLD(LinkerScript& pScript, LinkerConfig& pConfig)
-{
+bool emulateARMLD(LinkerScript& pScript, LinkerConfig& pConfig) {
   if (pConfig.targets().triple().isOSDarwin()) {
     assert(0 && "MachO linker has not supported yet");
     return false;
@@ -60,14 +63,15 @@ bool emulateARMLD(LinkerScript& pScript, LinkerConfig& pConfig)
   return MCLDEmulateARMELF(pScript, pConfig);
 }
 
-} // namespace of mcld
+}  // namespace mcld
 
 //===----------------------------------------------------------------------===//
 // ARMEmulation
 //===----------------------------------------------------------------------===//
 extern "C" void MCLDInitializeARMEmulation() {
   // Register the emulation
-  mcld::TargetRegistry::RegisterEmulation(mcld::TheARMTarget, mcld::emulateARMLD);
-  mcld::TargetRegistry::RegisterEmulation(mcld::TheThumbTarget, mcld::emulateARMLD);
+  mcld::TargetRegistry::RegisterEmulation(mcld::TheARMTarget,
+                                          mcld::emulateARMLD);
+  mcld::TargetRegistry::RegisterEmulation(mcld::TheThumbTarget,
+                                          mcld::emulateARMLD);
 }
-

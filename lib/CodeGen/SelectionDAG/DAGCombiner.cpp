@@ -276,6 +276,7 @@ namespace {
     SDValue visitFMA(SDNode *N);
     SDValue visitFDIV(SDNode *N);
     SDValue visitFREM(SDNode *N);
+    SDValue visitFSQRT(SDNode *N);
     SDValue visitFCOPYSIGN(SDNode *N);
     SDValue visitSINT_TO_FP(SDNode *N);
     SDValue visitUINT_TO_FP(SDNode *N);
@@ -326,6 +327,8 @@ namespace {
     SDValue BuildSDIV(SDNode *N);
     SDValue BuildSDIVPow2(SDNode *N);
     SDValue BuildUDIV(SDNode *N);
+    SDValue BuildReciprocalEstimate(SDValue Op);
+    SDValue BuildRsqrtEstimate(SDValue Op);
     SDValue MatchBSwapHWordLow(SDNode *N, SDValue N0, SDValue N1,
                                bool DemandHighBits = true);
     SDValue MatchBSwapHWord(SDNode *N, SDValue N0, SDValue N1);
@@ -1306,6 +1309,7 @@ SDValue DAGCombiner::visit(SDNode *N) {
   case ISD::FMA:                return visitFMA(N);
   case ISD::FDIV:               return visitFDIV(N);
   case ISD::FREM:               return visitFREM(N);
+  case ISD::FSQRT:              return visitFSQRT(N);
   case ISD::FCOPYSIGN:          return visitFCOPYSIGN(N);
   case ISD::SINT_TO_FP:         return visitSINT_TO_FP(N);
   case ISD::UINT_TO_FP:         return visitUINT_TO_FP(N);
@@ -1517,28 +1521,6 @@ SDValue DAGCombiner::visitMERGE_VALUES(SDNode *N) {
   return SDValue(N, 0);   // Return N so it doesn't get rechecked!
 }
 
-static
-SDValue combineShlAddConstant(SDLoc DL, SDValue N0, SDValue N1,
-                              SelectionDAG &DAG) {
-  EVT VT = N0.getValueType();
-  SDValue N00 = N0.getOperand(0);
-  SDValue N01 = N0.getOperand(1);
-  ConstantSDNode *N01C = dyn_cast<ConstantSDNode>(N01);
-
-  if (N01C && N00.getOpcode() == ISD::ADD && N00.getNode()->hasOneUse() &&
-      isa<ConstantSDNode>(N00.getOperand(1))) {
-    // fold (add (shl (add x, c1), c2), ) -> (add (add (shl x, c2), c1<<c2), )
-    N0 = DAG.getNode(ISD::ADD, SDLoc(N0), VT,
-                     DAG.getNode(ISD::SHL, SDLoc(N00), VT,
-                                 N00.getOperand(0), N01),
-                     DAG.getNode(ISD::SHL, SDLoc(N01), VT,
-                                 N00.getOperand(1), N01));
-    return DAG.getNode(ISD::ADD, DL, VT, N0, N1);
-  }
-
-  return SDValue();
-}
-
 SDValue DAGCombiner::visitADD(SDNode *N) {
   SDValue N0 = N->getOperand(0);
   SDValue N1 = N->getOperand(1);
@@ -1653,16 +1635,6 @@ SDValue DAGCombiner::visitADD(SDNode *N) {
           return DAG.getNode(ISD::OR, SDLoc(N), VT, N0, N1);
       }
     }
-  }
-
-  // fold (add (shl (add x, c1), c2), ) -> (add (add (shl x, c2), c1<<c2), )
-  if (N0.getOpcode() == ISD::SHL && N0.getNode()->hasOneUse()) {
-    SDValue Result = combineShlAddConstant(SDLoc(N), N0, N1, DAG);
-    if (Result.getNode()) return Result;
-  }
-  if (N1.getOpcode() == ISD::SHL && N1.getNode()->hasOneUse()) {
-    SDValue Result = combineShlAddConstant(SDLoc(N), N1, N0, DAG);
-    if (Result.getNode()) return Result;
   }
 
   // fold (add x, shl(0 - y, n)) -> sub(x, shl(y, n))
@@ -2664,9 +2636,17 @@ SDValue DAGCombiner::visitAND(SDNode *N) {
 
     // fold (and x, 0) -> 0, vector edition
     if (ISD::isBuildVectorAllZeros(N0.getNode()))
-      return N0;
+      // do not return N0, because undef node may exist in N0
+      return DAG.getConstant(
+          APInt::getNullValue(
+              N0.getValueType().getScalarType().getSizeInBits()),
+          N0.getValueType());
     if (ISD::isBuildVectorAllZeros(N1.getNode()))
-      return N1;
+      // do not return N1, because undef node may exist in N1
+      return DAG.getConstant(
+          APInt::getNullValue(
+              N1.getValueType().getScalarType().getSizeInBits()),
+          N1.getValueType());
 
     // fold (and x, -1) -> x, vector edition
     if (ISD::isBuildVectorAllOnes(N0.getNode()))
@@ -3312,9 +3292,17 @@ SDValue DAGCombiner::visitOR(SDNode *N) {
 
     // fold (or x, -1) -> -1, vector edition
     if (ISD::isBuildVectorAllOnes(N0.getNode()))
-      return N0;
+      // do not return N0, because undef node may exist in N0
+      return DAG.getConstant(
+          APInt::getAllOnesValue(
+              N0.getValueType().getScalarType().getSizeInBits()),
+          N0.getValueType());
     if (ISD::isBuildVectorAllOnes(N1.getNode()))
-      return N1;
+      // do not return N1, because undef node may exist in N1
+      return DAG.getConstant(
+          APInt::getAllOnesValue(
+              N1.getValueType().getScalarType().getSizeInBits()),
+          N1.getValueType());
 
     // fold (or (shuf A, V_0, MA), (shuf B, V_0, MB)) -> (shuf A, B, Mask1)
     // fold (or (shuf A, V_0, MA), (shuf B, V_0, MB)) -> (shuf B, A, Mask2)
@@ -4167,6 +4155,18 @@ SDValue DAGCombiner::visitSHL(SDNode *N) {
                                             BitSize - N1C->getZExtValue()), VT);
     return DAG.getNode(ISD::AND, SDLoc(N), VT, N0.getOperand(0),
                        HiBitsMask);
+  }
+
+  // fold (shl (add x, c1), c2) -> (add (shl x, c2), c1 << c2)
+  // Variant of version done on multiply, except mul by a power of 2 is turned
+  // into a shift.
+  APInt Val;
+  if (N1C && N0.getOpcode() == ISD::ADD && N0.getNode()->hasOneUse() &&
+      (isa<ConstantSDNode>(N0.getOperand(1)) ||
+       isConstantSplatVector(N0.getOperand(1).getNode(), Val))) {
+    SDValue Shl0 = DAG.getNode(ISD::SHL, SDLoc(N0), VT, N0.getOperand(0), N1);
+    SDValue Shl1 = DAG.getNode(ISD::SHL, SDLoc(N1), VT, N0.getOperand(1), N1);
+    return DAG.getNode(ISD::ADD, SDLoc(N), VT, Shl0, Shl1);
   }
 
   if (N1C) {
@@ -6557,177 +6557,128 @@ SDValue DAGCombiner::visitFADD(SDNode *N) {
   // fold (fadd c1, c2) -> c1 + c2
   if (N0CFP && N1CFP)
     return DAG.getNode(ISD::FADD, SDLoc(N), VT, N0, N1);
+
   // canonicalize constant to RHS
   if (N0CFP && !N1CFP)
     return DAG.getNode(ISD::FADD, SDLoc(N), VT, N1, N0);
-  // fold (fadd A, 0) -> A
-  if (Options.UnsafeFPMath && N1CFP && N1CFP->getValueAPF().isZero())
-    return N0;
+
   // fold (fadd A, (fneg B)) -> (fsub A, B)
   if ((!LegalOperations || TLI.isOperationLegalOrCustom(ISD::FSUB, VT)) &&
-    isNegatibleForFree(N1, LegalOperations, TLI, &Options) == 2)
+      isNegatibleForFree(N1, LegalOperations, TLI, &Options) == 2)
     return DAG.getNode(ISD::FSUB, SDLoc(N), VT, N0,
                        GetNegatedExpression(N1, DAG, LegalOperations));
+  
   // fold (fadd (fneg A), B) -> (fsub B, A)
   if ((!LegalOperations || TLI.isOperationLegalOrCustom(ISD::FSUB, VT)) &&
-    isNegatibleForFree(N0, LegalOperations, TLI, &Options) == 2)
+      isNegatibleForFree(N0, LegalOperations, TLI, &Options) == 2)
     return DAG.getNode(ISD::FSUB, SDLoc(N), VT, N1,
                        GetNegatedExpression(N0, DAG, LegalOperations));
 
-  // If allowed, fold (fadd (fadd x, c1), c2) -> (fadd x, (fadd c1, c2))
-  if (Options.UnsafeFPMath && N1CFP &&
-      N0.getOpcode() == ISD::FADD && N0.getNode()->hasOneUse() &&
-      isa<ConstantFPSDNode>(N0.getOperand(1)))
-    return DAG.getNode(ISD::FADD, SDLoc(N), VT, N0.getOperand(0),
-                       DAG.getNode(ISD::FADD, SDLoc(N), VT,
-                                   N0.getOperand(1), N1));
+  // If 'unsafe math' is enabled, fold lots of things.
+  if (Options.UnsafeFPMath) {
+    // No FP constant should be created after legalization as Instruction
+    // Selection pass has a hard time dealing with FP constants.
+    bool AllowNewConst = (Level < AfterLegalizeDAG);
+    
+    // fold (fadd A, 0) -> A
+    if (N1CFP && N1CFP->getValueAPF().isZero())
+      return N0;
 
-  // No FP constant should be created after legalization as Instruction
-  // Selection pass has hard time in dealing with FP constant.
-  //
-  // We don't need test this condition for transformation like following, as
-  // the DAG being transformed implies it is legal to take FP constant as
-  // operand.
-  //
-  //  (fadd (fmul c, x), x) -> (fmul c+1, x)
-  //
-  bool AllowNewFpConst = (Level < AfterLegalizeDAG);
+    // fold (fadd (fadd x, c1), c2) -> (fadd x, (fadd c1, c2))
+    if (N1CFP && N0.getOpcode() == ISD::FADD && N0.getNode()->hasOneUse() &&
+        isa<ConstantFPSDNode>(N0.getOperand(1)))
+      return DAG.getNode(ISD::FADD, SDLoc(N), VT, N0.getOperand(0),
+                         DAG.getNode(ISD::FADD, SDLoc(N), VT,
+                                     N0.getOperand(1), N1));
+    
+    // If allowed, fold (fadd (fneg x), x) -> 0.0
+    if (AllowNewConst && N0.getOpcode() == ISD::FNEG && N0.getOperand(0) == N1)
+      return DAG.getConstantFP(0.0, VT);
+    
+    // If allowed, fold (fadd x, (fneg x)) -> 0.0
+    if (AllowNewConst && N1.getOpcode() == ISD::FNEG && N1.getOperand(0) == N0)
+      return DAG.getConstantFP(0.0, VT);
+    
+    // We can fold chains of FADD's of the same value into multiplications.
+    // This transform is not safe in general because we are reducing the number
+    // of rounding steps.
+    if (TLI.isOperationLegalOrCustom(ISD::FMUL, VT) && !N0CFP && !N1CFP) {
+      if (N0.getOpcode() == ISD::FMUL) {
+        ConstantFPSDNode *CFP00 = dyn_cast<ConstantFPSDNode>(N0.getOperand(0));
+        ConstantFPSDNode *CFP01 = dyn_cast<ConstantFPSDNode>(N0.getOperand(1));
+        
+        // (fadd (fmul x, c), x) -> (fmul x, c+1)
+        if (CFP01 && !CFP00 && N0.getOperand(0) == N1) {
+          SDValue NewCFP = DAG.getNode(ISD::FADD, SDLoc(N), VT,
+                                       SDValue(CFP01, 0),
+                                       DAG.getConstantFP(1.0, VT));
+          return DAG.getNode(ISD::FMUL, SDLoc(N), VT, N1, NewCFP);
+        }
+        
+        // (fadd (fmul x, c), (fadd x, x)) -> (fmul x, c+2)
+        if (CFP01 && !CFP00 && N1.getOpcode() == ISD::FADD &&
+            N1.getOperand(0) == N1.getOperand(1) &&
+            N0.getOperand(0) == N1.getOperand(0)) {
+          SDValue NewCFP = DAG.getNode(ISD::FADD, SDLoc(N), VT,
+                                       SDValue(CFP01, 0),
+                                       DAG.getConstantFP(2.0, VT));
+          return DAG.getNode(ISD::FMUL, SDLoc(N), VT,
+                             N0.getOperand(0), NewCFP);
+        }
+      }
+      
+      if (N1.getOpcode() == ISD::FMUL) {
+        ConstantFPSDNode *CFP10 = dyn_cast<ConstantFPSDNode>(N1.getOperand(0));
+        ConstantFPSDNode *CFP11 = dyn_cast<ConstantFPSDNode>(N1.getOperand(1));
+        
+        // (fadd x, (fmul x, c)) -> (fmul x, c+1)
+        if (CFP11 && !CFP10 && N1.getOperand(0) == N0) {
+          SDValue NewCFP = DAG.getNode(ISD::FADD, SDLoc(N), VT,
+                                       SDValue(CFP11, 0),
+                                       DAG.getConstantFP(1.0, VT));
+          return DAG.getNode(ISD::FMUL, SDLoc(N), VT, N0, NewCFP);
+        }
 
-  // If allow, fold (fadd (fneg x), x) -> 0.0
-  if (AllowNewFpConst && Options.UnsafeFPMath &&
-      N0.getOpcode() == ISD::FNEG && N0.getOperand(0) == N1)
-    return DAG.getConstantFP(0.0, VT);
-
-  // If allow, fold (fadd x, (fneg x)) -> 0.0
-  if (AllowNewFpConst && Options.UnsafeFPMath &&
-      N1.getOpcode() == ISD::FNEG && N1.getOperand(0) == N0)
-    return DAG.getConstantFP(0.0, VT);
-
-  // In unsafe math mode, we can fold chains of FADD's of the same value
-  // into multiplications.  This transform is not safe in general because
-  // we are reducing the number of rounding steps.
-  if (Options.UnsafeFPMath && TLI.isOperationLegalOrCustom(ISD::FMUL, VT) &&
-      !N0CFP && !N1CFP) {
-    if (N0.getOpcode() == ISD::FMUL) {
-      ConstantFPSDNode *CFP00 = dyn_cast<ConstantFPSDNode>(N0.getOperand(0));
-      ConstantFPSDNode *CFP01 = dyn_cast<ConstantFPSDNode>(N0.getOperand(1));
-
-      // (fadd (fmul c, x), x) -> (fmul x, c+1)
-      if (CFP00 && !CFP01 && N0.getOperand(1) == N1) {
-        SDValue NewCFP = DAG.getNode(ISD::FADD, SDLoc(N), VT,
-                                     SDValue(CFP00, 0),
-                                     DAG.getConstantFP(1.0, VT));
-        return DAG.getNode(ISD::FMUL, SDLoc(N), VT,
-                           N1, NewCFP);
+        // (fadd (fadd x, x), (fmul x, c)) -> (fmul x, c+2)
+        if (CFP11 && !CFP10 && N0.getOpcode() == ISD::FADD &&
+            N0.getOperand(0) == N0.getOperand(1) &&
+            N1.getOperand(0) == N0.getOperand(0)) {
+          SDValue NewCFP = DAG.getNode(ISD::FADD, SDLoc(N), VT,
+                                       SDValue(CFP11, 0),
+                                       DAG.getConstantFP(2.0, VT));
+          return DAG.getNode(ISD::FMUL, SDLoc(N), VT, N1.getOperand(0), NewCFP);
+        }
       }
 
-      // (fadd (fmul x, c), x) -> (fmul x, c+1)
-      if (CFP01 && !CFP00 && N0.getOperand(0) == N1) {
-        SDValue NewCFP = DAG.getNode(ISD::FADD, SDLoc(N), VT,
-                                     SDValue(CFP01, 0),
-                                     DAG.getConstantFP(1.0, VT));
-        return DAG.getNode(ISD::FMUL, SDLoc(N), VT,
-                           N1, NewCFP);
+      if (N0.getOpcode() == ISD::FADD && AllowNewConst) {
+        ConstantFPSDNode *CFP = dyn_cast<ConstantFPSDNode>(N0.getOperand(0));
+        // (fadd (fadd x, x), x) -> (fmul x, 3.0)
+        if (!CFP && N0.getOperand(0) == N0.getOperand(1) &&
+            (N0.getOperand(0) == N1))
+          return DAG.getNode(ISD::FMUL, SDLoc(N), VT,
+                             N1, DAG.getConstantFP(3.0, VT));
       }
-
-      // (fadd (fmul c, x), (fadd x, x)) -> (fmul x, c+2)
-      if (CFP00 && !CFP01 && N1.getOpcode() == ISD::FADD &&
-          N1.getOperand(0) == N1.getOperand(1) &&
-          N0.getOperand(1) == N1.getOperand(0)) {
-        SDValue NewCFP = DAG.getNode(ISD::FADD, SDLoc(N), VT,
-                                     SDValue(CFP00, 0),
-                                     DAG.getConstantFP(2.0, VT));
-        return DAG.getNode(ISD::FMUL, SDLoc(N), VT,
-                           N0.getOperand(1), NewCFP);
+      
+      if (N1.getOpcode() == ISD::FADD && AllowNewConst) {
+        ConstantFPSDNode *CFP10 = dyn_cast<ConstantFPSDNode>(N1.getOperand(0));
+        // (fadd x, (fadd x, x)) -> (fmul x, 3.0)
+        if (!CFP10 && N1.getOperand(0) == N1.getOperand(1) &&
+            N1.getOperand(0) == N0)
+          return DAG.getNode(ISD::FMUL, SDLoc(N), VT,
+                             N0, DAG.getConstantFP(3.0, VT));
       }
-
-      // (fadd (fmul x, c), (fadd x, x)) -> (fmul x, c+2)
-      if (CFP01 && !CFP00 && N1.getOpcode() == ISD::FADD &&
-          N1.getOperand(0) == N1.getOperand(1) &&
-          N0.getOperand(0) == N1.getOperand(0)) {
-        SDValue NewCFP = DAG.getNode(ISD::FADD, SDLoc(N), VT,
-                                     SDValue(CFP01, 0),
-                                     DAG.getConstantFP(2.0, VT));
-        return DAG.getNode(ISD::FMUL, SDLoc(N), VT,
-                           N0.getOperand(0), NewCFP);
-      }
-    }
-
-    if (N1.getOpcode() == ISD::FMUL) {
-      ConstantFPSDNode *CFP10 = dyn_cast<ConstantFPSDNode>(N1.getOperand(0));
-      ConstantFPSDNode *CFP11 = dyn_cast<ConstantFPSDNode>(N1.getOperand(1));
-
-      // (fadd x, (fmul c, x)) -> (fmul x, c+1)
-      if (CFP10 && !CFP11 && N1.getOperand(1) == N0) {
-        SDValue NewCFP = DAG.getNode(ISD::FADD, SDLoc(N), VT,
-                                     SDValue(CFP10, 0),
-                                     DAG.getConstantFP(1.0, VT));
-        return DAG.getNode(ISD::FMUL, SDLoc(N), VT,
-                           N0, NewCFP);
-      }
-
-      // (fadd x, (fmul x, c)) -> (fmul x, c+1)
-      if (CFP11 && !CFP10 && N1.getOperand(0) == N0) {
-        SDValue NewCFP = DAG.getNode(ISD::FADD, SDLoc(N), VT,
-                                     SDValue(CFP11, 0),
-                                     DAG.getConstantFP(1.0, VT));
-        return DAG.getNode(ISD::FMUL, SDLoc(N), VT,
-                           N0, NewCFP);
-      }
-
-
-      // (fadd (fadd x, x), (fmul c, x)) -> (fmul x, c+2)
-      if (CFP10 && !CFP11 && N0.getOpcode() == ISD::FADD &&
+      
+      // (fadd (fadd x, x), (fadd x, x)) -> (fmul x, 4.0)
+      if (AllowNewConst &&
+          N0.getOpcode() == ISD::FADD && N1.getOpcode() == ISD::FADD &&
           N0.getOperand(0) == N0.getOperand(1) &&
-          N1.getOperand(1) == N0.getOperand(0)) {
-        SDValue NewCFP = DAG.getNode(ISD::FADD, SDLoc(N), VT,
-                                     SDValue(CFP10, 0),
-                                     DAG.getConstantFP(2.0, VT));
+          N1.getOperand(0) == N1.getOperand(1) &&
+          N0.getOperand(0) == N1.getOperand(0))
         return DAG.getNode(ISD::FMUL, SDLoc(N), VT,
-                           N1.getOperand(1), NewCFP);
-      }
-
-      // (fadd (fadd x, x), (fmul x, c)) -> (fmul x, c+2)
-      if (CFP11 && !CFP10 && N0.getOpcode() == ISD::FADD &&
-          N0.getOperand(0) == N0.getOperand(1) &&
-          N1.getOperand(0) == N0.getOperand(0)) {
-        SDValue NewCFP = DAG.getNode(ISD::FADD, SDLoc(N), VT,
-                                     SDValue(CFP11, 0),
-                                     DAG.getConstantFP(2.0, VT));
-        return DAG.getNode(ISD::FMUL, SDLoc(N), VT,
-                           N1.getOperand(0), NewCFP);
-      }
+                           N0.getOperand(0), DAG.getConstantFP(4.0, VT));
     }
-
-    if (N0.getOpcode() == ISD::FADD && AllowNewFpConst) {
-      ConstantFPSDNode *CFP = dyn_cast<ConstantFPSDNode>(N0.getOperand(0));
-      // (fadd (fadd x, x), x) -> (fmul x, 3.0)
-      if (!CFP && N0.getOperand(0) == N0.getOperand(1) &&
-          (N0.getOperand(0) == N1))
-        return DAG.getNode(ISD::FMUL, SDLoc(N), VT,
-                           N1, DAG.getConstantFP(3.0, VT));
-    }
-
-    if (N1.getOpcode() == ISD::FADD && AllowNewFpConst) {
-      ConstantFPSDNode *CFP10 = dyn_cast<ConstantFPSDNode>(N1.getOperand(0));
-      // (fadd x, (fadd x, x)) -> (fmul x, 3.0)
-      if (!CFP10 && N1.getOperand(0) == N1.getOperand(1) &&
-          N1.getOperand(0) == N0)
-        return DAG.getNode(ISD::FMUL, SDLoc(N), VT,
-                           N0, DAG.getConstantFP(3.0, VT));
-    }
-
-    // (fadd (fadd x, x), (fadd x, x)) -> (fmul x, 4.0)
-    if (AllowNewFpConst &&
-        N0.getOpcode() == ISD::FADD && N1.getOpcode() == ISD::FADD &&
-        N0.getOperand(0) == N0.getOperand(1) &&
-        N1.getOperand(0) == N1.getOperand(1) &&
-        N0.getOperand(0) == N1.getOperand(0))
-      return DAG.getNode(ISD::FMUL, SDLoc(N), VT,
-                         N0.getOperand(0),
-                         DAG.getConstantFP(4.0, VT));
-  }
-
+  } // enable-unsafe-fp-math
+  
   // FADD -> FMA combines:
   if ((Options.AllowFPOpFusion == FPOpFusion::Fast || Options.UnsafeFPMath) &&
       DAG.getTarget()
@@ -6737,13 +6688,15 @@ SDValue DAGCombiner::visitFADD(SDNode *N) {
       (!LegalOperations || TLI.isOperationLegalOrCustom(ISD::FMA, VT))) {
 
     // fold (fadd (fmul x, y), z) -> (fma x, y, z)
-    if (N0.getOpcode() == ISD::FMUL && N0->hasOneUse())
+    if (N0.getOpcode() == ISD::FMUL &&
+        (N0->hasOneUse() || TLI.enableAggressiveFMAFusion(VT)))
       return DAG.getNode(ISD::FMA, SDLoc(N), VT,
                          N0.getOperand(0), N0.getOperand(1), N1);
 
     // fold (fadd x, (fmul y, z)) -> (fma y, z, x)
     // Note: Commutes FADD operands.
-    if (N1.getOpcode() == ISD::FMUL && N1->hasOneUse())
+    if (N1.getOpcode() == ISD::FMUL &&
+        (N1->hasOneUse() || TLI.enableAggressiveFMAFusion(VT)))
       return DAG.getNode(ISD::FMA, SDLoc(N), VT,
                          N1.getOperand(0), N1.getOperand(1), N0);
   }
@@ -6815,14 +6768,16 @@ SDValue DAGCombiner::visitFSUB(SDNode *N) {
       (!LegalOperations || TLI.isOperationLegalOrCustom(ISD::FMA, VT))) {
 
     // fold (fsub (fmul x, y), z) -> (fma x, y, (fneg z))
-    if (N0.getOpcode() == ISD::FMUL && N0->hasOneUse())
+    if (N0.getOpcode() == ISD::FMUL &&
+        (N0->hasOneUse() || TLI.enableAggressiveFMAFusion(VT)))
       return DAG.getNode(ISD::FMA, dl, VT,
                          N0.getOperand(0), N0.getOperand(1),
                          DAG.getNode(ISD::FNEG, dl, VT, N1));
 
     // fold (fsub x, (fmul y, z)) -> (fma (fneg y), z, x)
     // Note: Commutes FSUB operands.
-    if (N1.getOpcode() == ISD::FMUL && N1->hasOneUse())
+    if (N1.getOpcode() == ISD::FMUL &&
+        (N1->hasOneUse() || TLI.enableAggressiveFMAFusion(VT)))
       return DAG.getNode(ISD::FMA, dl, VT,
                          DAG.getNode(ISD::FNEG, dl, VT,
                          N1.getOperand(0)),
@@ -6831,7 +6786,8 @@ SDValue DAGCombiner::visitFSUB(SDNode *N) {
     // fold (fsub (fneg (fmul, x, y)), z) -> (fma (fneg x), y, (fneg z))
     if (N0.getOpcode() == ISD::FNEG &&
         N0.getOperand(0).getOpcode() == ISD::FMUL &&
-        N0->hasOneUse() && N0.getOperand(0).hasOneUse()) {
+        ((N0->hasOneUse() && N0.getOperand(0).hasOneUse()) ||
+            TLI.enableAggressiveFMAFusion(VT))) {
       SDValue N00 = N0.getOperand(0).getOperand(0);
       SDValue N01 = N0.getOperand(0).getOperand(1);
       return DAG.getNode(ISD::FMA, dl, VT,
@@ -6853,33 +6809,52 @@ SDValue DAGCombiner::visitFMUL(SDNode *N) {
 
   // fold vector ops
   if (VT.isVector()) {
+    // This just handles C1 * C2 for vectors. Other vector folds are below.
     SDValue FoldedVOp = SimplifyVBinOp(N);
-    if (FoldedVOp.getNode()) return FoldedVOp;
+    if (FoldedVOp.getNode())
+      return FoldedVOp;
+    // Canonicalize vector constant to RHS.
+    if (N0.getOpcode() == ISD::BUILD_VECTOR &&
+        N1.getOpcode() != ISD::BUILD_VECTOR)
+      if (auto *BV0 = dyn_cast<BuildVectorSDNode>(N0))
+        if (BV0->isConstant())
+          return DAG.getNode(N->getOpcode(), SDLoc(N), VT, N1, N0);
   }
 
   // fold (fmul c1, c2) -> c1*c2
   if (N0CFP && N1CFP)
     return DAG.getNode(ISD::FMUL, SDLoc(N), VT, N0, N1);
+
   // canonicalize constant to RHS
   if (N0CFP && !N1CFP)
     return DAG.getNode(ISD::FMUL, SDLoc(N), VT, N1, N0);
-  // fold (fmul A, 0) -> 0
-  if (Options.UnsafeFPMath && N1CFP && N1CFP->getValueAPF().isZero())
-    return N1;
+
   // fold (fmul A, 1.0) -> A
   if (N1CFP && N1CFP->isExactlyValue(1.0))
     return N0;
 
-  if (DAG.getTarget().Options.UnsafeFPMath) {
-    // If allowed, fold (fmul (fmul x, c1), c2) -> (fmul x, (fmul c1, c2))
-    if (N1CFP && N0.getOpcode() == ISD::FMUL &&
-        N0.getNode()->hasOneUse() && isConstOrConstSplatFP(N0.getOperand(1))) {
-      SDLoc SL(N);
-      SDValue MulConsts = DAG.getNode(ISD::FMUL, SL, VT, N0.getOperand(1), N1);
-      return DAG.getNode(ISD::FMUL, SL, VT, N0.getOperand(0), MulConsts);
+  if (Options.UnsafeFPMath) {
+    // fold (fmul A, 0) -> 0
+    if (N1CFP && N1CFP->getValueAPF().isZero())
+      return N1;
+
+    // fold (fmul (fmul x, c1), c2) -> (fmul x, (fmul c1, c2))
+    if (N0.getOpcode() == ISD::FMUL) {
+      // Fold scalars or any vector constants (not just splats).
+      // This fold is done in general by InstCombine, but extra fmul insts
+      // may have been generated during lowering.
+      SDValue N01 = N0.getOperand(1);
+      auto *BV1 = dyn_cast<BuildVectorSDNode>(N1);
+      auto *BV01 = dyn_cast<BuildVectorSDNode>(N01);
+      if ((N1CFP && isConstOrConstSplatFP(N01)) ||
+          (BV1 && BV01 && BV1->isConstant() && BV01->isConstant())) {
+        SDLoc SL(N);
+        SDValue MulConsts = DAG.getNode(ISD::FMUL, SL, VT, N01, N1);
+        return DAG.getNode(ISD::FMUL, SL, VT, N0.getOperand(0), MulConsts);
+      }
     }
 
-    // If allowed, fold (fmul (fadd x, x), c) -> (fmul x, (fmul 2.0, c))
+    // fold (fmul (fadd x, x), c) -> (fmul x, (fmul 2.0, c))
     // Undo the fmul 2.0, x -> fadd x, x transformation, since if it occurs
     // during an early run of DAGCombiner can prevent folding with fmuls
     // inserted during lowering.
@@ -6894,6 +6869,7 @@ SDValue DAGCombiner::visitFMUL(SDNode *N) {
   // fold (fmul X, 2.0) -> (fadd X, X)
   if (N1CFP && N1CFP->isExactlyValue(+2.0))
     return DAG.getNode(ISD::FADD, SDLoc(N), VT, N0, N0);
+
   // fold (fmul X, -1.0) -> (fneg X)
   if (N1CFP && N1CFP->isExactlyValue(-1.0))
     if (!LegalOperations || TLI.isOperationLegal(ISD::FNEG, VT))
@@ -7003,6 +6979,7 @@ SDValue DAGCombiner::visitFDIV(SDNode *N) {
   ConstantFPSDNode *N0CFP = dyn_cast<ConstantFPSDNode>(N0);
   ConstantFPSDNode *N1CFP = dyn_cast<ConstantFPSDNode>(N1);
   EVT VT = N->getValueType(0);
+  SDLoc DL(N);
   const TargetOptions &Options = DAG.getTarget().Options;
 
   // fold vector ops
@@ -7015,23 +6992,56 @@ SDValue DAGCombiner::visitFDIV(SDNode *N) {
   if (N0CFP && N1CFP)
     return DAG.getNode(ISD::FDIV, SDLoc(N), VT, N0, N1);
 
-  // fold (fdiv X, c2) -> fmul X, 1/c2 if losing precision is acceptable.
-  if (N1CFP && Options.UnsafeFPMath) {
-    // Compute the reciprocal 1.0 / c2.
-    APFloat N1APF = N1CFP->getValueAPF();
-    APFloat Recip(N1APF.getSemantics(), 1); // 1.0
-    APFloat::opStatus st = Recip.divide(N1APF, APFloat::rmNearestTiesToEven);
-    // Only do the transform if the reciprocal is a legal fp immediate that
-    // isn't too nasty (eg NaN, denormal, ...).
-    if ((st == APFloat::opOK || st == APFloat::opInexact) && // Not too nasty
-        (!LegalOperations ||
-         // FIXME: custom lowering of ConstantFP might fail (see e.g. ARM
-         // backend)... we should handle this gracefully after Legalize.
-         // TLI.isOperationLegalOrCustom(llvm::ISD::ConstantFP, VT) ||
-         TLI.isOperationLegal(llvm::ISD::ConstantFP, VT) ||
-         TLI.isFPImmLegal(Recip, VT)))
-      return DAG.getNode(ISD::FMUL, SDLoc(N), VT, N0,
-                         DAG.getConstantFP(Recip, VT));
+  if (Options.UnsafeFPMath) {
+    // fold (fdiv X, c2) -> fmul X, 1/c2 if losing precision is acceptable.
+    if (N1CFP) {
+      // Compute the reciprocal 1.0 / c2.
+      APFloat N1APF = N1CFP->getValueAPF();
+      APFloat Recip(N1APF.getSemantics(), 1); // 1.0
+      APFloat::opStatus st = Recip.divide(N1APF, APFloat::rmNearestTiesToEven);
+      // Only do the transform if the reciprocal is a legal fp immediate that
+      // isn't too nasty (eg NaN, denormal, ...).
+      if ((st == APFloat::opOK || st == APFloat::opInexact) && // Not too nasty
+          (!LegalOperations ||
+           // FIXME: custom lowering of ConstantFP might fail (see e.g. ARM
+           // backend)... we should handle this gracefully after Legalize.
+           // TLI.isOperationLegalOrCustom(llvm::ISD::ConstantFP, VT) ||
+           TLI.isOperationLegal(llvm::ISD::ConstantFP, VT) ||
+           TLI.isFPImmLegal(Recip, VT)))
+        return DAG.getNode(ISD::FMUL, SDLoc(N), VT, N0,
+                           DAG.getConstantFP(Recip, VT));
+    }
+    
+    // If this FDIV is part of a reciprocal square root, it may be folded
+    // into a target-specific square root estimate instruction.
+    if (N1.getOpcode() == ISD::FSQRT) {
+      if (SDValue RV = BuildRsqrtEstimate(N1.getOperand(0))) {
+        AddToWorklist(RV.getNode());
+        return DAG.getNode(ISD::FMUL, DL, VT, N0, RV);
+      }
+    } else if (N1.getOpcode() == ISD::FP_EXTEND &&
+               N1.getOperand(0).getOpcode() == ISD::FSQRT) {
+      if (SDValue RV = BuildRsqrtEstimate(N1.getOperand(0).getOperand(0))) {
+        AddToWorklist(RV.getNode());
+        RV = DAG.getNode(ISD::FP_EXTEND, SDLoc(N1), VT, RV);
+        AddToWorklist(RV.getNode());
+        return DAG.getNode(ISD::FMUL, DL, VT, N0, RV);
+      }
+    } else if (N1.getOpcode() == ISD::FP_ROUND &&
+               N1.getOperand(0).getOpcode() == ISD::FSQRT) {
+      if (SDValue RV = BuildRsqrtEstimate(N1.getOperand(0).getOperand(0))) {
+        AddToWorklist(RV.getNode());
+        RV = DAG.getNode(ISD::FP_ROUND, SDLoc(N1), VT, RV, N1.getOperand(1));
+        AddToWorklist(RV.getNode());
+        return DAG.getNode(ISD::FMUL, DL, VT, N0, RV);
+      }
+    }
+    
+    // Fold into a reciprocal estimate and multiply instead of a real divide.
+    if (SDValue RV = BuildReciprocalEstimate(N1)) {
+      AddToWorklist(RV.getNode());
+      return DAG.getNode(ISD::FMUL, DL, VT, N0, RV);
+    }
   }
 
   // (fdiv (fneg X), (fneg Y)) -> (fdiv X, Y)
@@ -7060,6 +7070,33 @@ SDValue DAGCombiner::visitFREM(SDNode *N) {
   if (N0CFP && N1CFP)
     return DAG.getNode(ISD::FREM, SDLoc(N), VT, N0, N1);
 
+  return SDValue();
+}
+
+SDValue DAGCombiner::visitFSQRT(SDNode *N) {
+  if (DAG.getTarget().Options.UnsafeFPMath) {
+    // Compute this as 1/(1/sqrt(X)): the reciprocal of the reciprocal sqrt.
+    if (SDValue RV = BuildRsqrtEstimate(N->getOperand(0))) {
+      AddToWorklist(RV.getNode());
+      RV = BuildReciprocalEstimate(RV);
+      if (RV.getNode()) {
+        // Unfortunately, RV is now NaN if the input was exactly 0.
+        // Select out this case and force the answer to 0.
+        EVT VT = RV.getValueType();
+      
+        SDValue Zero = DAG.getConstantFP(0.0, VT);
+        SDValue ZeroCmp =
+          DAG.getSetCC(SDLoc(N), TLI.getSetCCResultType(*DAG.getContext(), VT),
+                       N->getOperand(0), Zero, ISD::SETEQ);
+        AddToWorklist(ZeroCmp.getNode());
+        AddToWorklist(RV.getNode());
+
+        RV = DAG.getNode(VT.isVector() ? ISD::VSELECT : ISD::SELECT,
+                         SDLoc(N), VT, ZeroCmp, Zero, RV);
+        return RV;
+      }
+    }
+  }
   return SDValue();
 }
 
@@ -9821,6 +9858,17 @@ SDValue DAGCombiner::visitSTORE(SDNode *N) {
     }
   }
 
+  // If this is a store followed by a store with the same value to the same
+  // location, then the store is dead/noop.
+  if (StoreSDNode *ST1 = dyn_cast<StoreSDNode>(Chain)) {
+    if (ST1->getBasePtr() == Ptr && ST->getMemoryVT() == ST1->getMemoryVT() &&
+        ST1->getValue() == Value && ST->isUnindexed() && !ST->isVolatile() &&
+        ST1->isUnindexed() && !ST1->isVolatile()) {
+      // The store is dead, remove it.
+      return Chain;
+    }
+  }
+
   // If this is an FP_ROUND or TRUNC followed by a store, fold this into a
   // truncating store.  We can do this even if this is already a truncstore.
   if ((Value.getOpcode() == ISD::FP_ROUND || Value.getOpcode() == ISD::TRUNCATE)
@@ -11662,8 +11710,8 @@ SDValue DAGCombiner::SimplifySetCC(EVT VT, SDValue N0,
 
 /// Given an ISD::SDIV node expressing a divide by constant, return
 /// a DAG expression to select that will generate the same value by multiplying
-/// by a magic number.  See:
-/// <http://the.wall.riscom.net/books/proc/ppc/cwg/code2.html>
+/// by a magic number.
+/// Ref: "Hacker's Delight" or "The PowerPC Compiler Writer's Guide".
 SDValue DAGCombiner::BuildSDIV(SDNode *N) {
   ConstantSDNode *C = isConstOrConstSplat(N->getOperand(1));
   if (!C)
@@ -11703,8 +11751,8 @@ SDValue DAGCombiner::BuildSDIVPow2(SDNode *N) {
 
 /// Given an ISD::UDIV node expressing a divide by constant, return a DAG
 /// expression that will generate the same value by multiplying by a magic
-/// number. See:
-/// <http://the.wall.riscom.net/books/proc/ppc/cwg/code2.html>
+/// number.
+/// Ref: "Hacker's Delight" or "The PowerPC Compiler Writer's Guide".
 SDValue DAGCombiner::BuildUDIV(SDNode *N) {
   ConstantSDNode *C = isConstOrConstSplat(N->getOperand(1));
   if (!C)
@@ -11721,6 +11769,97 @@ SDValue DAGCombiner::BuildUDIV(SDNode *N) {
   for (SDNode *N : Built)
     AddToWorklist(N);
   return S;
+}
+
+SDValue DAGCombiner::BuildReciprocalEstimate(SDValue Op) {
+  if (Level >= AfterLegalizeDAG)
+    return SDValue();
+
+  // Expose the DAG combiner to the target combiner implementations.
+  TargetLowering::DAGCombinerInfo DCI(DAG, Level, false, this);
+
+  unsigned Iterations;
+  if (SDValue Est = TLI.getEstimate(ISD::FDIV, Op, DCI, Iterations)) {
+    // Newton iteration for a function: F(X) is X_{i+1} = X_i - F(X_i)/F'(X_i)
+    // For the reciprocal, we need to find the zero of the function:
+    //   F(X) = A X - 1 [which has a zero at X = 1/A]
+    //     =>
+    //   X_{i+1} = X_i (2 - A X_i) = X_i + X_i (1 - A X_i) [this second form
+    //     does not require additional intermediate precision]
+    EVT VT = Op.getValueType();
+    SDLoc DL(Op);
+    SDValue FPOne = DAG.getConstantFP(1.0, VT);
+
+    AddToWorklist(Est.getNode());
+
+    // Newton iterations: Est = Est + Est (1 - Arg * Est)
+    for (unsigned i = 0; i < Iterations; ++i) {
+      SDValue NewEst = DAG.getNode(ISD::FMUL, DL, VT, Op, Est);
+      AddToWorklist(NewEst.getNode());
+
+      NewEst = DAG.getNode(ISD::FSUB, DL, VT, FPOne, NewEst);
+      AddToWorklist(NewEst.getNode());
+
+      NewEst = DAG.getNode(ISD::FMUL, DL, VT, Est, NewEst);
+      AddToWorklist(NewEst.getNode());
+
+      Est = DAG.getNode(ISD::FADD, DL, VT, Est, NewEst);
+      AddToWorklist(Est.getNode());
+    }
+
+    return Est;
+  }
+
+  return SDValue();
+}
+
+SDValue DAGCombiner::BuildRsqrtEstimate(SDValue Op) {
+  if (Level >= AfterLegalizeDAG)
+    return SDValue();
+
+  // Expose the DAG combiner to the target combiner implementations.
+  TargetLowering::DAGCombinerInfo DCI(DAG, Level, false, this);
+  unsigned Iterations;
+  if (SDValue Est = TLI.getEstimate(ISD::FSQRT, Op, DCI, Iterations)) {
+    // Newton iteration for a function: F(X) is X_{i+1} = X_i - F(X_i)/F'(X_i)
+    // For the reciprocal sqrt, we need to find the zero of the function:
+    //   F(X) = 1/X^2 - A [which has a zero at X = 1/sqrt(A)]
+    //     =>
+    //   X_{i+1} = X_i (1.5 - A X_i^2 / 2)
+    // As a result, we precompute A/2 prior to the iteration loop.
+    EVT VT = Op.getValueType();
+    SDLoc DL(Op);
+    SDValue FPThreeHalves = DAG.getConstantFP(1.5, VT);
+
+    AddToWorklist(Est.getNode());
+
+    // We now need 0.5 * Arg which we can write as (1.5 * Arg - Arg) so that
+    // this entire sequence requires only one FP constant.
+    SDValue HalfArg = DAG.getNode(ISD::FMUL, DL, VT, FPThreeHalves, Op);
+    AddToWorklist(HalfArg.getNode());
+
+    HalfArg = DAG.getNode(ISD::FSUB, DL, VT, HalfArg, Op);
+    AddToWorklist(HalfArg.getNode());
+
+    // Newton iterations: Est = Est * (1.5 - HalfArg * Est * Est)
+    for (unsigned i = 0; i < Iterations; ++i) {
+      SDValue NewEst = DAG.getNode(ISD::FMUL, DL, VT, Est, Est);
+      AddToWorklist(NewEst.getNode());
+
+      NewEst = DAG.getNode(ISD::FMUL, DL, VT, HalfArg, NewEst);
+      AddToWorklist(NewEst.getNode());
+
+      NewEst = DAG.getNode(ISD::FSUB, DL, VT, FPThreeHalves, NewEst);
+      AddToWorklist(NewEst.getNode());
+
+      Est = DAG.getNode(ISD::FMUL, DL, VT, Est, NewEst);
+      AddToWorklist(Est.getNode());
+    }
+
+    return Est;
+  }
+
+  return SDValue();
 }
 
 /// Return true if base is a frame index, which is known not to alias with

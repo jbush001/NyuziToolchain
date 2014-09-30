@@ -6,36 +6,34 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_ELF_OBJECT_READER_H
-#define MCLD_ELF_OBJECT_READER_H
+#ifndef MCLD_LD_ELFOBJECTREADER_H_
+#define MCLD_LD_ELFOBJECTREADER_H_
 
-#include <mcld/LD/ObjectReader.h>
 #include <mcld/ADT/Flags.h>
+#include <mcld/LD/ObjectReader.h>
 
 namespace mcld {
 
-class Module;
+class EhFrameReader;
+class ELFReaderIF;
 class Input;
 class IRBuilder;
 class GNULDBackend;
-class ELFReaderIF;
-class EhFrameReader;
 class LinkerConfig;
 
 /** \lclass ELFObjectReader
  *  \brief ELFObjectReader reads target-independent parts of ELF object file
  */
-class ELFObjectReader : public ObjectReader
-{
-public:
+class ELFObjectReader : public ObjectReader {
+ public:
   enum ReadFlagType {
-    ParseEhFrame    = 0x1, ///< parse .eh_frame section if the bit is set.
-    NumOfReadFlags  = 1
+    ParseEhFrame = 0x1,  ///< parse .eh_frame section if the bit is set.
+    NumOfReadFlags = 1
   };
 
   typedef Flags<ReadFlagType> ReadFlag;
 
-public:
+ public:
   ELFObjectReader(GNULDBackend& pBackend,
                   IRBuilder& pBuilder,
                   const LinkerConfig& pConfig);
@@ -43,7 +41,7 @@ public:
   ~ELFObjectReader();
 
   // -----  observers  ----- //
-  bool isMyFormat(Input &pFile, bool &pContinue) const;
+  bool isMyFormat(Input& pFile, bool& pContinue) const;
 
   // -----  readers  ----- //
   bool readHeader(Input& pFile);
@@ -57,7 +55,7 @@ public:
   /// This function should be called after symbol resolution.
   virtual bool readRelocations(Input& pFile);
 
-private:
+ private:
   ELFReaderIF* m_pELFReader;
   EhFrameReader* m_pEhFrameReader;
   IRBuilder& m_Builder;
@@ -66,7 +64,6 @@ private:
   const LinkerConfig& m_Config;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_ELFOBJECTREADER_H_

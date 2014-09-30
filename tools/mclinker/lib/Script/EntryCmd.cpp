@@ -7,6 +7,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include <mcld/Script/EntryCmd.h>
+
 #include <mcld/Support/raw_ostream.h>
 #include <mcld/LinkerScript.h>
 #include <mcld/Module.h>
@@ -17,24 +18,18 @@ using namespace mcld;
 // EntryCmd
 //===----------------------------------------------------------------------===//
 EntryCmd::EntryCmd(const std::string& pEntry)
-  : ScriptCommand(ScriptCommand::ENTRY),
-    m_Entry(pEntry)
-{
+    : ScriptCommand(ScriptCommand::ENTRY), m_Entry(pEntry) {
 }
 
-EntryCmd::~EntryCmd()
-{
+EntryCmd::~EntryCmd() {
 }
 
-void EntryCmd::dump() const
-{
+void EntryCmd::dump() const {
   mcld::outs() << "ENTRY ( " << m_Entry << " )\n";
 }
 
-void EntryCmd::activate(Module& pModule)
-{
+void EntryCmd::activate(Module& pModule) {
   LinkerScript& script = pModule.getScript();
   if (!script.hasEntry())
     script.setEntry(m_Entry);
 }
-

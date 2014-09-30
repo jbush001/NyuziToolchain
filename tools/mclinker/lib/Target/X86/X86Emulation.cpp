@@ -9,13 +9,12 @@
 #include "X86.h"
 #include <mcld/LinkerConfig.h>
 #include <mcld/LinkerScript.h>
-#include <mcld/Target/ELFEmulation.h>
 #include <mcld/Support/TargetRegistry.h>
+#include <mcld/Target/ELFEmulation.h>
 
 namespace mcld {
 
-static bool MCLDEmulateX86ELF(LinkerScript& pScript, LinkerConfig& pConfig)
-{
+static bool MCLDEmulateX86ELF(LinkerScript& pScript, LinkerConfig& pConfig) {
   if (!MCLDEmulateELF(pScript, pConfig))
     return false;
 
@@ -23,12 +22,11 @@ static bool MCLDEmulateX86ELF(LinkerScript& pScript, LinkerConfig& pConfig)
   pConfig.targets().setEndian(TargetOptions::Little);
   unsigned int bitclass;
   llvm::Triple::ArchType arch = pConfig.targets().triple().getArch();
-  assert (arch == llvm::Triple::x86 || arch == llvm::Triple::x86_64);
+  assert(arch == llvm::Triple::x86 || arch == llvm::Triple::x86_64);
   if (arch == llvm::Triple::x86 ||
       pConfig.targets().triple().getEnvironment() == llvm::Triple::GNUX32) {
     bitclass = 32;
-  }
-  else {
+  } else {
     bitclass = 64;
   }
   pConfig.targets().setBitClass(bitclass);
@@ -48,8 +46,7 @@ static bool MCLDEmulateX86ELF(LinkerScript& pScript, LinkerConfig& pConfig)
 //===----------------------------------------------------------------------===//
 // emulateX86LD - the help function to emulate X86 ld
 //===----------------------------------------------------------------------===//
-bool emulateX86LD(LinkerScript& pScript, LinkerConfig& pConfig)
-{
+bool emulateX86LD(LinkerScript& pScript, LinkerConfig& pConfig) {
   if (pConfig.targets().triple().isOSDarwin()) {
     assert(0 && "MachO linker has not supported yet");
     return false;
@@ -62,14 +59,15 @@ bool emulateX86LD(LinkerScript& pScript, LinkerConfig& pConfig)
   return MCLDEmulateX86ELF(pScript, pConfig);
 }
 
-} // namespace of mcld
+}  // namespace mcld
 
 //===----------------------------------------------------------------------===//
 // X86Emulation
 //===----------------------------------------------------------------------===//
 extern "C" void MCLDInitializeX86Emulation() {
   // Register the emulation
-  mcld::TargetRegistry::RegisterEmulation(mcld::TheX86_32Target, mcld::emulateX86LD);
-  mcld::TargetRegistry::RegisterEmulation(mcld::TheX86_64Target, mcld::emulateX86LD);
+  mcld::TargetRegistry::RegisterEmulation(mcld::TheX86_32Target,
+                                          mcld::emulateX86LD);
+  mcld::TargetRegistry::RegisterEmulation(mcld::TheX86_64Target,
+                                          mcld::emulateX86LD);
 }
-

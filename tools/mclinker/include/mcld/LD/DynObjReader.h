@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_DYNOBJREADER_H
-#define MCLD_LD_DYNOBJREADER_H
+#ifndef MCLD_LD_DYNOBJREADER_H_
+#define MCLD_LD_DYNOBJREADER_H_
 #include "mcld/LD/LDReader.h"
 
 namespace mcld {
@@ -19,22 +19,18 @@ class Input;
  *  \brief DynObjReader provides an common interface for different object
  *  formats.
  */
-class DynObjReader : public LDReader
-{
-protected:
-  DynObjReader()
-  { }
+class DynObjReader : public LDReader {
+ protected:
+  DynObjReader() {}
 
-public:
-  virtual ~DynObjReader() { }
+ public:
+  virtual ~DynObjReader() {}
 
   virtual bool readHeader(Input& pFile) = 0;
 
   virtual bool readSymbols(Input& pFile) = 0;
-
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_DYNOBJREADER_H_

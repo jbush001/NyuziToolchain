@@ -6,14 +6,14 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SCRIPT_SEARCHDIRCMD_H
-#define MCLD_SCRIPT_SEARCHDIRCMD_H
+#ifndef MCLD_SCRIPT_SEARCHDIRCMD_H_
+#define MCLD_SCRIPT_SEARCHDIRCMD_H_
 
 #include <mcld/Script/ScriptCommand.h>
+
 #include <string>
 
-namespace mcld
-{
+namespace mcld {
 
 class Module;
 
@@ -21,26 +21,23 @@ class Module;
  *  \brief This class defines the interfaces to SEARCH_DIR command.
  */
 
-class SearchDirCmd : public ScriptCommand
-{
-public:
-  SearchDirCmd(const std::string& pPath);
+class SearchDirCmd : public ScriptCommand {
+ public:
+  explicit SearchDirCmd(const std::string& pPath);
   ~SearchDirCmd();
 
   void dump() const;
 
   void activate(Module& pModule);
 
-  static bool classof(const ScriptCommand* pCmd)
-  {
+  static bool classof(const ScriptCommand* pCmd) {
     return pCmd->getKind() == ScriptCommand::SEARCH_DIR;
   }
 
-private:
+ private:
   std::string m_Path;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_SCRIPT_SEARCHDIRCMD_H_

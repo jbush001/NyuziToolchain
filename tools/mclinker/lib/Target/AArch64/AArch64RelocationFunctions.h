@@ -6,22 +6,25 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
+#ifndef TARGET_AARCH64_AARCH64RELOCATIONFUNCTIONS_H_
+#define TARGET_AARCH64_AARCH64RELOCATIONFUNCTIONS_H_
 
-#define DECL_AARCH64_APPLY_RELOC_FUNC(Name) \
-static AArch64Relocator::Result Name (Relocation& pEntry, AArch64Relocator& pParent);
+#define DECL_AARCH64_APPLY_RELOC_FUNC(Name)                \
+  static AArch64Relocator::Result Name(Relocation& pEntry, \
+                                       AArch64Relocator& pParent);
 
-#define DECL_AARCH64_APPLY_RELOC_FUNCS \
-DECL_AARCH64_APPLY_RELOC_FUNC(none) \
-DECL_AARCH64_APPLY_RELOC_FUNC(abs) \
-DECL_AARCH64_APPLY_RELOC_FUNC(rel) \
-DECL_AARCH64_APPLY_RELOC_FUNC(call) \
-DECL_AARCH64_APPLY_RELOC_FUNC(condbr) \
-DECL_AARCH64_APPLY_RELOC_FUNC(adr_prel_pg_hi21) \
-DECL_AARCH64_APPLY_RELOC_FUNC(add_abs_lo12) \
-DECL_AARCH64_APPLY_RELOC_FUNC(adr_got_page) \
-DECL_AARCH64_APPLY_RELOC_FUNC(ld64_got_lo12) \
-DECL_AARCH64_APPLY_RELOC_FUNC(ldst_abs_lo12) \
-DECL_AARCH64_APPLY_RELOC_FUNC(unsupport)
+#define DECL_AARCH64_APPLY_RELOC_FUNCS            \
+  DECL_AARCH64_APPLY_RELOC_FUNC(none)             \
+  DECL_AARCH64_APPLY_RELOC_FUNC(abs)              \
+  DECL_AARCH64_APPLY_RELOC_FUNC(rel)              \
+  DECL_AARCH64_APPLY_RELOC_FUNC(call)             \
+  DECL_AARCH64_APPLY_RELOC_FUNC(condbr)           \
+  DECL_AARCH64_APPLY_RELOC_FUNC(adr_prel_pg_hi21) \
+  DECL_AARCH64_APPLY_RELOC_FUNC(add_abs_lo12)     \
+  DECL_AARCH64_APPLY_RELOC_FUNC(adr_got_page)     \
+  DECL_AARCH64_APPLY_RELOC_FUNC(ld64_got_lo12)    \
+  DECL_AARCH64_APPLY_RELOC_FUNC(ldst_abs_lo12)    \
+  DECL_AARCH64_APPLY_RELOC_FUNC(unsupport)
 
 #define DECL_AARCH64_APPLY_RELOC_FUNC_PTRS(ValueType, MappedType) \
   ValueType(0x0,   MappedType(&none, "R_AARCH64_NULL")), \
@@ -99,12 +102,14 @@ DECL_AARCH64_APPLY_RELOC_FUNC(unsupport)
   ValueType(0x233, MappedType(&unsupport, "R_AARCH64_TLSDESC_LD64_LO12_NC")), \
   ValueType(0x234, MappedType(&unsupport, "R_AARCH64_TLSDESC_ADD_LO12_NC")), \
   ValueType(0x239, MappedType(&unsupport, "R_AARCH64_TLSDESC_CALL")), \
-  ValueType( 1024, MappedType(&unsupport, "R_AARCH64_COPY")), \
-  ValueType( 1025, MappedType(&unsupport, "R_AARCH64_GLOB_DAT")), \
-  ValueType( 1026, MappedType(&unsupport, "R_AARCH64_JUMP_SLOT")), \
-  ValueType( 1027, MappedType(&unsupport, "R_AARCH64_RELATIVE")), \
-  ValueType( 1028, MappedType(&unsupport, "R_AARCH64_TLS_DTPREL64")), \
-  ValueType( 1029, MappedType(&unsupport, "R_AARCH64_TLS_DTPMOD64")), \
-  ValueType( 1030, MappedType(&unsupport, "R_AARCH64_TLS_TPREL64")), \
-  ValueType( 1031, MappedType(&unsupport, "R_AARCH64_TLSDESC")), \
-  ValueType( 1032, MappedType(&unsupport, "R_AARCH64_IRELATIVE"))
+  ValueType(1024,  MappedType(&unsupport, "R_AARCH64_COPY")), \
+  ValueType(1025,  MappedType(&unsupport, "R_AARCH64_GLOB_DAT")), \
+  ValueType(1026,  MappedType(&unsupport, "R_AARCH64_JUMP_SLOT")), \
+  ValueType(1027,  MappedType(&unsupport, "R_AARCH64_RELATIVE")), \
+  ValueType(1028,  MappedType(&unsupport, "R_AARCH64_TLS_DTPREL64")), \
+  ValueType(1029,  MappedType(&unsupport, "R_AARCH64_TLS_DTPMOD64")), \
+  ValueType(1030,  MappedType(&unsupport, "R_AARCH64_TLS_TPREL64")), \
+  ValueType(1031,  MappedType(&unsupport, "R_AARCH64_TLSDESC")), \
+  ValueType(1032,  MappedType(&unsupport, "R_AARCH64_IRELATIVE"))
+
+#endif  // TARGET_AARCH64_AARCH64RELOCATIONFUNCTIONS_H_

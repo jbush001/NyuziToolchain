@@ -6,11 +6,11 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef TARGET_MIPS_MIPSPLT_H
-#define TARGET_MIPS_MIPSPLT_H
+#ifndef TARGET_MIPS_MIPSPLT_H_
+#define TARGET_MIPS_MIPSPLT_H_
 
-#include <mcld/Target/PLT.h>
 #include <mcld/Support/MemoryRegion.h>
+#include <mcld/Target/PLT.h>
 
 namespace mcld {
 
@@ -22,10 +22,9 @@ class MipsGOTPLT;
 /** \class MipsPLT
  *  \brief Mips Procedure Linkage Table
  */
-class MipsPLT : public PLT
-{
-public:
-  MipsPLT(LDSection& pSection);
+class MipsPLT : public PLT {
+ public:
+  explicit MipsPLT(LDSection& pSection);
 
   // hasPLT1 - return if this PLT has any PLTA/PLTB entries
   bool hasPLT1() const;
@@ -36,16 +35,16 @@ public:
 
   void applyAllPLT(MipsGOTPLT& pGOTPLT);
 
-public:
+ public:
   // PLT
   void reserveEntry(size_t pNum = 1);
   void finalizeSectionSize();
 
-private:
+ private:
   // the last consumed entry.
   SectionData::iterator m_Last;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
+#endif  // TARGET_MIPS_MIPSPLT_H_

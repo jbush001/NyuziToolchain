@@ -6,17 +6,16 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef TARGET_MIPS_MIPSGNUINFO_H
-#define TARGET_MIPS_MIPSGNUINFO_H
-#include <llvm/Support/ELF.h>
+#ifndef TARGET_MIPS_MIPSGNUINFO_H_
+#define TARGET_MIPS_MIPSGNUINFO_H_
 #include <mcld/Target/GNUInfo.h>
 
+#include <llvm/Support/ELF.h>
 namespace mcld {
 
-class MipsGNUInfo : public GNUInfo
-{
-public:
-  MipsGNUInfo(const llvm::Triple& pTriple);
+class MipsGNUInfo : public GNUInfo {
+ public:
+  explicit MipsGNUInfo(const llvm::Triple& pTriple);
 
   void setABIVersion(uint8_t ver);
   void setPICFlags(uint64_t flags);
@@ -30,11 +29,11 @@ public:
   const char* dyld() const;
   uint64_t abiPageSize() const;
 
-private:
+ private:
   uint8_t m_ABIVersion;
   uint64_t m_PICFlags;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
+#endif  // TARGET_MIPS_MIPSGNUINFO_H_

@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_ARCHIVE_H
-#define MCLD_LD_ARCHIVE_H
+#ifndef MCLD_LD_ARCHIVE_H_
+#define MCLD_LD_ARCHIVE_H_
 
 #include <mcld/InputTree.h>
 #include <mcld/ADT/HashEntry.h>
@@ -15,32 +15,30 @@
 #include <mcld/ADT/StringHash.h>
 #include <mcld/Support/GCFactory.h>
 
-#include <vector>
 #include <string>
+#include <vector>
 
 namespace mcld {
 
 class Input;
-class InputFactory;
 class InputBuilder;
+class InputFactory;
 
 /** \class Archive
  *  \brief This class define the interfacee to Archive files
  */
-class Archive
-{
-public:
-  static const char   MAGIC[];             ///< magic string
-  static const char   THIN_MAGIC[];        ///< magic of thin archive
-  static const size_t MAGIC_LEN;           ///< length of magic string
-  static const char   SVR4_SYMTAB_NAME[];  ///< SVR4 symtab entry name
-  static const char   IRIX6_SYMTAB_NAME[]; ///< Irix6 symtab entry name
-  static const char   STRTAB_NAME[];       ///< Name of string table
-  static const char   PAD[];               ///< inter-file align padding
-  static const char   MEMBER_MAGIC[];      ///< fmag field magic #
+class Archive {
+ public:
+  static const char MAGIC[];              ///< magic string
+  static const char THIN_MAGIC[];         ///< magic of thin archive
+  static const size_t MAGIC_LEN;          ///< length of magic string
+  static const char SVR4_SYMTAB_NAME[];   ///< SVR4 symtab entry name
+  static const char IRIX6_SYMTAB_NAME[];  ///< Irix6 symtab entry name
+  static const char STRTAB_NAME[];        ///< Name of string table
+  static const char PAD[];                ///< inter-file align padding
+  static const char MEMBER_MAGIC[];       ///< fmag field magic #
 
-  struct MemberHeader
-  {
+  struct MemberHeader {
     char name[16];  ///< Name of the file member.
     char date[12];  ///< File date, decimal seconds since Epoch
     char uid[6];    ///< user id in ASCII decimal
@@ -50,18 +48,14 @@ public:
     char fmag[2];   ///< Always contains ARFILE_MAGIC_TERMINATOR
   };
 
-private:
-  template<typename OFFSET_TYPE>
-  struct OffsetCompare
-  {
-    bool operator()(OFFSET_TYPE X, OFFSET_TYPE Y) const
-    { return (X == Y); }
+ private:
+  template <typename OFFSET_TYPE>
+  struct OffsetCompare {
+    bool operator()(OFFSET_TYPE X, OFFSET_TYPE Y) const { return (X == Y); }
   };
 
-  struct MurmurHash3
-  {
-    size_t operator()(uint32_t pKey) const
-    {
+  struct MurmurHash3 {
+    size_t operator()(uint32_t pKey) const {
       pKey ^= pKey >> 16;
       pKey *= 0x85ebca6b;
       pKey ^= pKey >> 13;
@@ -71,51 +65,41 @@ private:
     }
   };
 
-  typedef HashEntry<uint32_t,
-                    InputTree::iterator,
-                    OffsetCompare<uint32_t> > ObjectMemberEntryType;
-public:
+  typedef HashEntry<uint32_t, InputTree::iterator, OffsetCompare<uint32_t> >
+      ObjectMemberEntryType;
+
+ public:
   typedef HashTable<ObjectMemberEntryType,
                     MurmurHash3,
                     EntryFactory<ObjectMemberEntryType> > ObjectMemberMapType;
 
-  struct ArchiveMember
-  {
+  struct ArchiveMember {
     Input* file;
     InputTree::iterator lastPos;
     InputTree::Mover* move;
   };
 
-private:
+ private:
   typedef HashEntry<const llvm::StringRef,
                     ArchiveMember,
-                    hash::StringCompare<llvm::StringRef> > ArchiveMemberEntryType;
+                    hash::StringCompare<llvm::StringRef> >
+      ArchiveMemberEntryType;
 
-public:
+ public:
   typedef HashTable<ArchiveMemberEntryType,
                     hash::StringHash<hash::DJB>,
                     EntryFactory<ArchiveMemberEntryType> > ArchiveMemberMapType;
 
-  struct Symbol
-  {
-  public:
-    enum Status
-    {
-      Include,
-      Exclude,
-      Unknown
-    };
+  struct Symbol {
+   public:
+    enum Status { Include, Exclude, Unknown };
 
-    Symbol(const char* pName,
-           uint32_t pOffset,
-           enum Status pStatus)
-     : name(pName), fileOffset(pOffset), status(pStatus)
-    {}
+    Symbol(const char* pName, uint32_t pOffset, enum Status pStatus)
+        : name(pName), fileOffset(pOffset), status(pStatus) {}
 
-    ~Symbol()
-    {}
+    ~Symbol() {}
 
-  public:
+   public:
     std::string name;
     uint32_t fileOffset;
     enum Status status;
@@ -123,7 +107,7 @@ public:
 
   typedef std::vector<Symbol*> SymTabType;
 
-public:
+ public:
   Archive(Input& pInputFile, InputBuilder& pBuilder);
 
   ~Archive();
@@ -198,10 +182,9 @@ public:
   /// addSymbol - add a symtab entry to symtab
   /// @param pName - symbol name
   /// @param pFileOffset - file offset in symtab represents a object file
-  void
-  addSymbol(const char* pName,
-            uint32_t pFileOffset,
-            enum Symbol::Status pStatus = Archive::Symbol::Unknown);
+  void addSymbol(const char* pName,
+                 uint32_t pFileOffset,
+                 enum Symbol::Status pStatus = Archive::Symbol::Unknown);
 
   /// getSymbolName - get the symbol name with the given index
   const std::string& getSymbolName(size_t pSymIdx) const;
@@ -236,12 +219,12 @@ public:
                        const sys::fs::Path& pPath,
                        off_t pFileOffset = 0);
 
-private:
+ private:
   typedef GCFactory<Symbol, 0> SymbolFactory;
 
-private:
+ private:
   Input& m_ArchiveFile;
-  InputTree *m_pInputTree;
+  InputTree* m_pInputTree;
   ObjectMemberMapType m_ObjectMemberMap;
   ArchiveMemberMapType m_ArchiveMemberMap;
   SymbolFactory m_SymbolFactory;
@@ -251,7 +234,6 @@ private:
   InputBuilder& m_Builder;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_ARCHIVE_H_

@@ -12,80 +12,76 @@
 using namespace mcld;
 using namespace mcld::sys::fs;
 
-namespace { // anonymous
+namespace {  // anonymous
 
-bool status_known(FileStatus f)
-{
+bool status_known(FileStatus f) {
   return f.type() != StatusError;
 }
 
-bool is_symlink(FileStatus f)
-{
+bool is_symlink(FileStatus f) {
   return f.type() == SymlinkFile;
 }
 
 const Path dot_path(".");
 const Path dot_dot_path("..");
 
-} // namespace of anonymous
+}  // anonymous namespace
 
 //===----------------------------------------------------------------------===//
 // Directory
 //===----------------------------------------------------------------------===//
 Directory::Directory()
-  : m_Path(),
-    m_FileStatus(),
-    m_SymLinkStatus(),
-    m_Handler(0),
-    m_Cache(),
-    m_CacheFull(false) {
+    : m_Path(),
+      m_FileStatus(),
+      m_SymLinkStatus(),
+      m_Handler(0),
+      m_Cache(),
+      m_CacheFull(false) {
 }
 
-Directory::Directory(const Path& pPath,
-                     FileStatus st,
-                     FileStatus symlink_st)
-  : m_Path(pPath),
-    m_FileStatus(st),
-    m_SymLinkStatus(symlink_st),
-    m_Handler(0),
-    m_Cache(),
-    m_CacheFull(false) {
+Directory::Directory(const Path& pPath, FileStatus st, FileStatus symlink_st)
+    : m_Path(pPath),
+      m_FileStatus(st),
+      m_SymLinkStatus(symlink_st),
+      m_Handler(0),
+      m_Cache(),
+      m_CacheFull(false) {
   if (m_Path == dot_path)
     detail::get_pwd(m_Path);
   m_Path.m_append_separator_if_needed();
   detail::open_dir(*this);
 }
 
+Directory::Directory(const char* pPath, FileStatus st, FileStatus symlink_st)
+    : Directory(sys::fs::Path(pPath), st, symlink_st) {
+}
+
 Directory::Directory(const Directory& pCopy)
-  : m_Path(pCopy.m_Path),
-    m_FileStatus(pCopy.m_FileStatus),
-    m_SymLinkStatus(pCopy.m_SymLinkStatus),
-    m_Handler(0),
-    m_Cache(),
-    m_CacheFull(false) {
+    : m_Path(pCopy.m_Path),
+      m_FileStatus(pCopy.m_FileStatus),
+      m_SymLinkStatus(pCopy.m_SymLinkStatus),
+      m_Handler(0),
+      m_Cache(),
+      m_CacheFull(false) {
   detail::open_dir(*this);
 }
 
-Directory::~Directory()
-{
+Directory::~Directory() {
   detail::close_dir(*this);
 }
 
-bool Directory::isGood() const
-{
+bool Directory::isGood() const {
   return (0 != m_Handler);
 }
 
-Directory& Directory::operator=(const Directory& pCopy)
-{
+Directory& Directory::operator=(const Directory& pCopy) {
   assign(pCopy.m_Path, pCopy.m_FileStatus, pCopy.m_SymLinkStatus);
   return *this;
 }
 
 void Directory::assign(const Path& pPath,
                        FileStatus st,
-                       FileStatus symlink_st)
-{
+                       FileStatus symlink_st) {
   if (isGood())
     clear();
 
@@ -99,48 +95,39 @@ void Directory::assign(const Path& pPath,
   detail::open_dir(*this);
 }
 
-FileStatus Directory::status() const
-{
-  if (!status_known(m_FileStatus))
-  {
+FileStatus Directory::status() const {
+  if (!status_known(m_FileStatus)) {
     // optimization: if the symlink status is known, and it isn't a symlink,
     // then status and symlink_status are identical so just copy the
     // symlink status to the regular status.
-    if (status_known(m_SymLinkStatus)
-      && !is_symlink(m_SymLinkStatus))
-    {
+    if (status_known(m_SymLinkStatus) && !is_symlink(m_SymLinkStatus)) {
       m_FileStatus = m_SymLinkStatus;
-    }
-    else detail::status(m_Path,m_FileStatus);
+    } else
+      detail::status(m_Path, m_FileStatus);
   }
   return m_FileStatus;
-
 }
 
-FileStatus Directory::symlinkStatus() const
-{
+FileStatus Directory::symlinkStatus() const {
   if (!status_known(m_SymLinkStatus))
-     detail::symlink_status(m_Path,m_SymLinkStatus);
-  return  m_SymLinkStatus;
+    detail::symlink_status(m_Path, m_SymLinkStatus);
+  return m_SymLinkStatus;
 }
 
-Directory::iterator Directory::begin()
-{
+Directory::iterator Directory::begin() {
   if (m_CacheFull && m_Cache.empty())
     return end();
   PathCache::iterator iter = m_Cache.begin();
-  if (NULL == iter.getEntry())
+  if (iter.getEntry() == NULL)
     ++iter;
   return iterator(this, iter);
 }
 
-Directory::iterator Directory::end()
-{
+Directory::iterator Directory::end() {
   return iterator(0, m_Cache.end());
 }
 
-void Directory::clear()
-{
+void Directory::clear() {
   m_Path.native().clear();
   m_FileStatus = FileStatus();
   m_SymLinkStatus = FileStatus();
@@ -152,46 +139,40 @@ void Directory::clear()
 // DirIterator
 DirIterator::DirIterator(Directory* pParent,
                          const DirIterator::DirCache::iterator& pIter)
-  : m_pParent(pParent),
-    m_Iter(pIter) {
+    : m_pParent(pParent), m_Iter(pIter) {
   m_pEntry = m_Iter.getEntry();
 }
 
 DirIterator::DirIterator(const DirIterator& pCopy)
-  : m_pParent(pCopy.m_pParent),
-    m_Iter(pCopy.m_Iter),
-    m_pEntry(pCopy.m_pEntry) {
+    : m_pParent(pCopy.m_pParent),
+      m_Iter(pCopy.m_Iter),
+      m_pEntry(pCopy.m_pEntry) {
 }
 
-DirIterator::~DirIterator()
-{
+DirIterator::~DirIterator() {
 }
 
-Path* DirIterator::path()
-{
-  if (NULL == m_pParent)
+Path* DirIterator::path() {
+  if (m_pParent == NULL)
     return NULL;
   return &m_pEntry->value();
 }
 
-const Path* DirIterator::path() const
-{
-  if (NULL == m_pParent)
+const Path* DirIterator::path() const {
+  if (m_pParent == NULL)
     return NULL;
   return &m_pEntry->value();
 }
 
-DirIterator& DirIterator::operator=(const DirIterator& pCopy)
-{
+DirIterator& DirIterator::operator=(const DirIterator& pCopy) {
   m_pParent = pCopy.m_pParent;
   m_Iter = pCopy.m_Iter;
   m_pEntry = pCopy.m_pEntry;
   return (*this);
 }
 
-DirIterator& DirIterator::operator++()
-{
-  if (0 == m_pParent)
+DirIterator& DirIterator::operator++() {
+  if (m_pParent == 0)
     return *this;
 
   // move forward one step first.
@@ -200,7 +181,7 @@ DirIterator& DirIterator::operator++()
   if (m_pParent->m_Cache.end() == m_Iter) {
     if (!m_pParent->m_CacheFull) {
       m_pEntry = detail::bring_one_into_cache(*this);
-      if (0 == m_pEntry && m_pParent->m_CacheFull)
+      if (m_pEntry == 0 && m_pParent->m_CacheFull)
         m_pParent = 0;
       return *this;
     }
@@ -212,8 +193,7 @@ DirIterator& DirIterator::operator++()
   return *this;
 }
 
-DirIterator DirIterator::operator++(int)
-{
+DirIterator DirIterator::operator++(int) {
   DirIterator tmp(*this);
 
   // move forward one step first.
@@ -222,7 +202,7 @@ DirIterator DirIterator::operator++(int)
   if (m_pParent->m_Cache.end() == m_Iter) {
     if (!m_pParent->m_CacheFull) {
       m_pEntry = detail::bring_one_into_cache(*this);
-      if (0 == m_pEntry && m_pParent->m_CacheFull)
+      if (m_pEntry == 0 && m_pParent->m_CacheFull)
         m_pParent = 0;
       return tmp;
     }
@@ -234,23 +214,20 @@ DirIterator DirIterator::operator++(int)
   return tmp;
 }
 
-bool DirIterator::operator==(const DirIterator& y) const
-{
+bool DirIterator::operator==(const DirIterator& y) const {
   if (m_pParent != y.m_pParent)
     return false;
-  if (0 == m_pParent)
+  if (m_pParent == 0)
     return true;
   const Path* x_path = path();
   const Path* y_path = y.path();
-  if (0 == x_path && 0 == y_path)
+  if (x_path == 0 && y_path == 0)
     return true;
-  if (0 == x_path || 0 == y_path)
+  if (x_path == 0 || y_path == 0)
     return false;
   return (*x_path == *y_path);
 }
 
-bool DirIterator::operator!=(const DirIterator& y) const
-{
+bool DirIterator::operator!=(const DirIterator& y) const {
   return !this->operator==(y);
 }
-

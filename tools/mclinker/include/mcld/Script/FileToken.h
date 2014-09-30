@@ -6,33 +6,30 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SCRIPT_FILETOKEN_H
-#define MCLD_SCRIPT_FILETOKEN_H
+#ifndef MCLD_SCRIPT_FILETOKEN_H_
+#define MCLD_SCRIPT_FILETOKEN_H_
 
+#include <mcld/Config/Config.h>
 #include <mcld/Script/InputToken.h>
 #include <mcld/Support/Allocators.h>
-#include <mcld/Config/Config.h>
 
-namespace mcld
-{
+namespace mcld {
 
 /** \class FileToken
  *  \brief This class defines the interfaces to a filename in INPUT/GROUP
  *         command.
  */
 
-class FileToken : public InputToken
-{
-private:
+class FileToken : public InputToken {
+ private:
   friend class Chunk<FileToken, MCLD_SYMBOLS_PER_INPUT>;
   FileToken();
   FileToken(const std::string& pName, bool pAsNeeded);
 
-public:
+ public:
   ~FileToken();
 
-  static bool classof(const InputToken* pToken)
-  {
+  static bool classof(const InputToken* pToken) {
     return pToken->type() == InputToken::File;
   }
 
@@ -42,6 +39,6 @@ public:
   static void clear();
 };
 
-} // namepsace of mcld
+}  // namespace mcld
 
-#endif
+#endif  // MCLD_SCRIPT_FILETOKEN_H_

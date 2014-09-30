@@ -6,25 +6,30 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SCRIPT_SCRIPTREADER_H
-#define MCLD_SCRIPT_SCRIPTREADER_H
+#ifndef MCLD_SCRIPT_SCRIPTREADER_H_
+#define MCLD_SCRIPT_SCRIPTREADER_H_
 
 #include <mcld/LD/LDReader.h>
 
 namespace mcld {
 
-class Module;
-class ScriptFile;
-class Input;
+class ArchiveReader;
+class DynObjReader;
 class GroupReader;
+class Input;
 class LinkerConfig;
 class LinkerScript;
+class Module;
+class ObjectReader;
+class ScriptFile;
 class TargetLDBackend;
 
-class ScriptReader : public LDReader
-{
-public:
-  ScriptReader(GroupReader& pGroupReader);
+class ScriptReader : public LDReader {
+ public:
+  ScriptReader(ObjectReader& pObjectReader,
+               ArchiveReader& pArchiveReader,
+               DynObjReader& pDynObjReader,
+               GroupReader& pGroupReader);
 
   ~ScriptReader();
 
@@ -32,15 +37,15 @@ public:
   bool readScript(const LinkerConfig& pConfig, ScriptFile& pScriptFile);
 
   /// isMyFormat
-  bool isMyFormat(Input& pInput, bool &pContinue) const;
+  bool isMyFormat(Input& pInput, bool& pContinue) const;
 
-  GroupReader& getGroupReader() { return m_GroupReader; }
-
-private:
+ private:
+  ObjectReader& m_ObjectReader;
+  ArchiveReader& m_ArchiveReader;
+  DynObjReader& m_DynObjReader;
   GroupReader& m_GroupReader;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_SCRIPT_SCRIPTREADER_H_

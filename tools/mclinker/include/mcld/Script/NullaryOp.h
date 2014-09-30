@@ -6,14 +6,14 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SCRIPT_NULLOP_H
-#define MCLD_SCRIPT_NULLOP_H
+#ifndef MCLD_SCRIPT_NULLARYOP_H_
+#define MCLD_SCRIPT_NULLARYOP_H_
 
 #include <mcld/Script/Operator.h>
+
 #include <cassert>
 
-namespace mcld
-{
+namespace mcld {
 
 class Operand;
 class IntOperand;
@@ -24,39 +24,32 @@ class TargetLDBackend;
  *  \brief This class defines the interfaces to an nullary operator token.
  */
 
-template<Operator::Type TYPE>
-class NullaryOp : public Operator
-{
-private:
+template <Operator::Type TYPE>
+class NullaryOp : public Operator {
+ private:
   friend class Operator;
 
-  NullaryOp()
-    : Operator(Operator::NULLARY, TYPE)
-  {}
+  NullaryOp() : Operator(Operator::NULLARY, TYPE) {}
 
-public:
-  ~NullaryOp()
-  {}
+ public:
+  ~NullaryOp() {}
 
   IntOperand* eval(const Module& pModule, const TargetLDBackend& pBackend);
 
-  void appendOperand(Operand* pOperand)
-  {
-    assert(0);
-  }
+  void appendOperand(Operand* pOperand) { assert(0); }
 };
 
-template<>
+template <>
 IntOperand* NullaryOp<Operator::SIZEOF_HEADERS>::eval(const Module&,
                                                       const TargetLDBackend&);
-template<>
+template <>
 IntOperand* NullaryOp<Operator::MAXPAGESIZE>::eval(const Module&,
                                                    const TargetLDBackend&);
 
-template<>
+template <>
 IntOperand* NullaryOp<Operator::COMMONPAGESIZE>::eval(const Module&,
                                                       const TargetLDBackend&);
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
+#endif  // MCLD_SCRIPT_NULLARYOP_H_

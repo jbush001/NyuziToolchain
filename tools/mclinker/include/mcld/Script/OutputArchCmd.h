@@ -6,14 +6,14 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_SCRIPT_OUTPUTARCHCMD_H
-#define MCLD_SCRIPT_OUTPUTARCHCMD_H
+#ifndef MCLD_SCRIPT_OUTPUTARCHCMD_H_
+#define MCLD_SCRIPT_OUTPUTARCHCMD_H_
 
 #include <mcld/Script/ScriptCommand.h>
+
 #include <string>
 
-namespace mcld
-{
+namespace mcld {
 
 class Module;
 
@@ -21,26 +21,23 @@ class Module;
  *  \brief This class defines the interfaces to OutputArch command.
  */
 
-class OutputArchCmd : public ScriptCommand
-{
-public:
-  OutputArchCmd(const std::string& pArch);
+class OutputArchCmd : public ScriptCommand {
+ public:
+  explicit OutputArchCmd(const std::string& pArch);
   ~OutputArchCmd();
 
   void dump() const;
 
-  static bool classof(const ScriptCommand* pCmd)
-  {
+  static bool classof(const ScriptCommand* pCmd) {
     return pCmd->getKind() == ScriptCommand::OUTPUT_ARCH;
   }
 
   void activate(Module& pModule);
 
-private:
+ private:
   std::string m_Arch;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_SCRIPT_OUTPUTARCHCMD_H_

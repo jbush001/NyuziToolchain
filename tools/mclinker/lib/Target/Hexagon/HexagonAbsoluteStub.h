@@ -1,4 +1,4 @@
-//===- HexagonAbsoluteStub.h -----------------------------------------------===//
+//===- HexagonAbsoluteStub.h ----------------------------------------------===//
 //
 //                     The MCLinker Project
 //
@@ -6,17 +6,15 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
+#ifndef TARGET_HEXAGON_HEXAGONABSOLUTESTUB_H_
+#define TARGET_HEXAGON_HEXAGONABSOLUTESTUB_H_
 
-#ifndef TARGET_HEXAGON_HEXAGONABSOLUTESTUB_H
-#define TARGET_HEXAGON_HEXAGONABSOLUTESTUB_H
-
-#include <llvm/Support/DataTypes.h>
 #include <mcld/Fragment/Stub.h>
+#include <llvm/Support/DataTypes.h>
 #include <string>
 #include <vector>
 
-namespace mcld
-{
+namespace mcld {
 
 class Relocation;
 class ResolveInfo;
@@ -25,10 +23,9 @@ class ResolveInfo;
  *  \brief Hexagon stub for abs long call from source to target
  *
  */
-class HexagonAbsoluteStub : public Stub
-{
-public:
-  HexagonAbsoluteStub(bool pIsOutputPIC);
+class HexagonAbsoluteStub : public Stub {
+ public:
+  explicit HexagonAbsoluteStub(bool pIsOutputPIC);
 
   ~HexagonAbsoluteStub();
 
@@ -46,27 +43,27 @@ public:
 
   size_t alignment() const;
 
-private:
+ private:
   HexagonAbsoluteStub(const HexagonAbsoluteStub&);
 
   HexagonAbsoluteStub& operator=(const HexagonAbsoluteStub&);
 
   /// for doClone
   HexagonAbsoluteStub(const uint32_t* pData,
-               size_t pSize,
-               const_fixup_iterator pBegin,
-               const_fixup_iterator pEnd);
+                      size_t pSize,
+                      const_fixup_iterator pBegin,
+                      const_fixup_iterator pEnd);
 
   /// doClone
   Stub* doClone();
 
-private:
+ private:
   std::string m_Name;
   static const uint32_t TEMPLATE[];
   const uint32_t* m_pData;
   size_t m_Size;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
+#endif  // TARGET_HEXAGON_HEXAGONABSOLUTESTUB_H_

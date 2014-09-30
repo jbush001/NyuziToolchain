@@ -6,32 +6,33 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#ifndef MCLD_LD_BRANCHISLAND_H
-#define MCLD_LD_BRANCHISLAND_H
+#ifndef MCLD_LD_BRANCHISLAND_H_
+#define MCLD_LD_BRANCHISLAND_H_
 
 #include <mcld/ADT/HashEntry.h>
 #include <mcld/ADT/HashTable.h>
 #include <mcld/ADT/StringHash.h>
 #include <mcld/LD/SectionData.h>
-#include <mcld/LD/LDSymbol.h>
 #include <mcld/Fragment/FragmentRef.h>
 #include <mcld/Fragment/Stub.h>
+#include <mcld/LD/LDSymbol.h>
+
 #include <llvm/Support/DataTypes.h>
 #include <llvm/ADT/StringRef.h>
+
 #include <string>
 
 namespace mcld {
 
-class Stub;
 class Relocation;
+class Stub;
 
 /** \class BranchIsland
  *  \brief BranchIsland is a collection of stubs
  *
  */
-class BranchIsland
-{
-public:
+class BranchIsland {
+ public:
   typedef SectionData::iterator iterator;
   typedef SectionData::const_iterator const_iterator;
 
@@ -39,7 +40,7 @@ public:
   typedef RelocationListType::iterator reloc_iterator;
   typedef RelocationListType::const_iterator const_reloc_iterator;
 
-public:
+ public:
   /*
    *               ----------
    *  --- Entry -> | Island | -> Exit ---
@@ -64,17 +65,13 @@ public:
   const_iterator end() const;
 
   /// relocation iterators of the island
-  reloc_iterator reloc_begin()
-  { return m_Relocations.begin(); }
+  reloc_iterator reloc_begin() { return m_Relocations.begin(); }
 
-  const_reloc_iterator reloc_begin() const
-  { return m_Relocations.begin(); }
+  const_reloc_iterator reloc_begin() const { return m_Relocations.begin(); }
 
-  reloc_iterator reloc_end()
-  { return m_Relocations.end(); }
+  reloc_iterator reloc_end() { return m_Relocations.end(); }
 
-  const_reloc_iterator reloc_end() const
-  { return m_Relocations.end(); }
+  const_reloc_iterator reloc_end() const { return m_Relocations.end(); }
 
   /// observers
   uint64_t offset() const;
@@ -97,47 +94,38 @@ public:
   /// addRelocation - add a relocation into island
   bool addRelocation(Relocation& pReloc);
 
-private:
+ private:
   /** \class Key
    *  \brief Key to recognize a stub in the island.
    *
    */
-  class Key
-  {
-  public:
+  class Key {
+   public:
     Key(const Stub* pPrototype, const LDSymbol* pSymbol, Stub::SWord pAddend)
-    : m_pPrototype(pPrototype), m_pSymbol(pSymbol), m_Addend(pAddend)
-    { }
+        : m_pPrototype(pPrototype), m_pSymbol(pSymbol), m_Addend(pAddend) {}
 
-    ~Key()
-    { }
+    ~Key() {}
 
-    const Stub*  prototype() const { return m_pPrototype; }
+    const Stub* prototype() const { return m_pPrototype; }
 
     const LDSymbol* symbol() const { return m_pSymbol; }
 
-    Stub::SWord     addend() const { return m_Addend; }
+    Stub::SWord addend() const { return m_Addend; }
 
-    struct Hash
-    {
-      size_t operator() (const Key& KEY) const
-      {
+    struct Hash {
+      size_t operator()(const Key& KEY) const {
         llvm::StringRef sym_name(KEY.symbol()->name());
         hash::StringHash<hash::DJB> str_hasher;
-        return (size_t((uintptr_t)KEY.prototype())) ^
-               str_hasher(sym_name) ^
+        return (size_t((uintptr_t)KEY.prototype())) ^ str_hasher(sym_name) ^
                KEY.addend();
       }
     };
 
-    struct Compare
-    {
-      bool operator() (const Key& KEY1, const Key& KEY2) const
-      {
+    struct Compare {
+      bool operator()(const Key& KEY1, const Key& KEY2) const {
         bool res = false;
         if ((KEY1.prototype() == KEY2.prototype()) &&
             (KEY1.addend() == KEY2.addend())) {
-
           if (KEY1.symbol() == KEY2.symbol()) {
             res = true;
           } else {
@@ -156,7 +144,7 @@ private:
       }
     };
 
-  private:
+   private:
     const Stub* m_pPrototype;
     const LDSymbol* m_pSymbol;
     Stub::SWord m_Addend;
@@ -164,13 +152,13 @@ private:
 
   typedef HashEntry<Key, Stub*, Key::Compare> StubEntryType;
 
-  typedef HashTable<StubEntryType,
-                    Key::Hash,
-                    EntryFactory<StubEntryType> > StubMapType;
-private:
-  Fragment& m_Entry; // entry fragment of the island
-  Fragment* m_pExit; // exit fragment of the island
-  Fragment* m_pRear; // rear fragment of the island
+  typedef HashTable<StubEntryType, Key::Hash, EntryFactory<StubEntryType> >
+      StubMapType;
+
+ private:
+  Fragment& m_Entry;  // entry fragment of the island
+  Fragment* m_pExit;  // exit fragment of the island
+  Fragment* m_pRear;  // rear fragment of the island
   size_t m_MaxSize;
   std::string m_Name;
   StubMapType m_StubMap;
@@ -178,7 +166,6 @@ private:
   RelocationListType m_Relocations;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
-
+#endif  // MCLD_LD_BRANCHISLAND_H_

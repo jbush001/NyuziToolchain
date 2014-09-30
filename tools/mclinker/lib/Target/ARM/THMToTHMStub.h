@@ -6,16 +6,14 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
+#ifndef TARGET_ARM_THMTOTHMSTUB_H_
+#define TARGET_ARM_THMTOTHMSTUB_H_
 
-#ifndef TARGET_ARM_THMTOTHMSTUB_H
-#define TARGET_ARM_THMTOTHMSTUB_H
-
-#include <llvm/Support/DataTypes.h>
 #include <mcld/Fragment/Stub.h>
+#include <llvm/Support/DataTypes.h>
 #include <string>
 
-namespace mcld
-{
+namespace mcld {
 
 class Relocation;
 class ResolveInfo;
@@ -24,9 +22,8 @@ class ResolveInfo;
  *  \brief ARM stub for long call from ARM source to ARM target
  *
  */
-class THMToTHMStub : public Stub
-{
-public:
+class THMToTHMStub : public Stub {
+ public:
   THMToTHMStub(bool pIsOutputPIC, bool pUsingThumb2);
 
   ~THMToTHMStub();
@@ -48,7 +45,7 @@ public:
   // for T bit of this stub
   uint64_t initSymValue() const;
 
-private:
+ private:
   THMToTHMStub(const THMToTHMStub&);
 
   THMToTHMStub& operator=(const THMToTHMStub&);
@@ -63,7 +60,7 @@ private:
   /// doClone
   Stub* doClone();
 
-private:
+ private:
   static const uint32_t PIC_TEMPLATE[];
   static const uint32_t TEMPLATE[];
   const uint32_t* m_pData;
@@ -72,6 +69,6 @@ private:
   bool m_bUsingThumb2;
 };
 
-} // namespace of mcld
+}  // namespace mcld
 
-#endif
+#endif  // TARGET_ARM_THMTOTHMSTUB_H_
