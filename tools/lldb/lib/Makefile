@@ -15,10 +15,8 @@ LIBRARYNAME = lldb
 #EXPORTED_SYMBOL_FILE = $(PROJ_SRC_DIR)/$(LLDB_LEVEL)/resources/lldb-framework-exports
 NO_BUILD_ARCHIVE = 1
 
-# XXX Nyuzi: build as static library to avoid conflicting with system compiler (and
-# needing to modify environment to pick up lib path)
-LINK_LIBS_IN_SHARED = 0
-SHARED_LIBRARY = 0
+LINK_LIBS_IN_SHARED = 1
+SHARED_LIBRARY = 1
 
 ifeq (,$(findstring -DLLDB_DISABLE_PYTHON,$(CXXFLAGS)))
 PYTHON_BUILD_FLAGS = $(shell python-config --ldflags)
