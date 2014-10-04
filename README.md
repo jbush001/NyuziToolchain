@@ -15,10 +15,11 @@ https://groups.google.com/forum/#!forum/nyuzi-processor-dev
 - bison 2.7+
 - flex 2.5+
 - swig (http://www.swig.org/) with python wrappers
+- libedit (http://thrysoee.dk/editline/)
 
 On Ubuntu, these can be installed by using: 
 
-    sudo apt-get install libxml2-dev cmake gcc g++ python bison flex zlib1g-dev swig python-dev
+    sudo apt-get install libxml2-dev cmake gcc g++ python bison flex zlib1g-dev swig python-dev libedit-dev
 
 (On Fedora, replace python-dev with python-devel)
 
