@@ -14,12 +14,20 @@ https://groups.google.com/forum/#!forum/nyuzi-processor-dev
 - zlib (including headers)
 - bison 2.7+
 - flex 2.5+
+- swig (http://www.swig.org/) with python wrappers
 
 On Ubuntu, these can be installed by using: 
 
-    sudo apt-get install libxml2-dev cmake gcc g++ python bison flex zlib1g-dev  
+    sudo apt-get install libxml2-dev cmake gcc g++ python bison flex zlib1g-dev swig python-dev
 
-On MacOS, I'd recommend installing a package manager like MacPorts (https://www.macports.org/) to install/upgrade these. Most of the libraries should already be installed by default, but Apple likes their command line utilities... finely aged... so many will be out of date and won't work.
+(On Fedora, replace python-dev with python-devel)
+
+On MacOS, I'd recommend installing a package manager like MacPorts (https://www.macports.org/) to install/upgrade these. 
+You will need to use the App Store app to download XCode for the host compiler. Most of the libraries should already be 
+installed by default, but Apple likes their command line utilities... finely aged... so flex and bison will be out of 
+date and won't work. Here's the port command to install the dependencies:
+
+    sudo port install cmake bison flex python swig swig-python
 
 ### Compiling
 

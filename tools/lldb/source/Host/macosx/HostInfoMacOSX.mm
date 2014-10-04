@@ -181,6 +181,11 @@ HostInfoMacOSX::ComputePythonDirectory(FileSpec &file_spec)
     if (!GetLLDBPath(lldb::ePathTypeLLDBShlibDir, lldb_file_spec))
         return false;
 
+	// XXX Nyuzi: because this is linked statically, trying to get the shlib dir returns
+	// the bin dir, which is not where the plugins are.  Fix that.
+	lldb_file_spec.RemoveLastPathComponent();
+	lldb_file_spec.AppendPathComponent("lib");
+
     char raw_path[PATH_MAX];
     lldb_file_spec.GetPath(raw_path, sizeof(raw_path));
 

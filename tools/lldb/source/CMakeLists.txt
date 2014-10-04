@@ -204,7 +204,10 @@ if ( NOT LLDB_DISABLE_PYTHON )
                  APPEND_STRING PROPERTY COMPILE_FLAGS " -Wno-sequence-point")
   endif ()
 endif()
-set(SHARED_LIBRARY 1)
+
+# XXX Nyuzi: build as static library to avoid conflicting with system compiler (and
+# needing to modify environment to pick up lib path)
+set(SHARED_LIBRARY 0)
 
 if ( CMAKE_SYSTEM_NAME MATCHES "Windows" )
 add_definitions( -DEXPORT_LIBLLDB )
