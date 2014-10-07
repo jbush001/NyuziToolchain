@@ -31,6 +31,7 @@
 #include "Plugins/ABI/MacOSX-arm/ABIMacOSX_arm.h"
 #include "Plugins/ABI/MacOSX-arm64/ABIMacOSX_arm64.h"
 #include "Plugins/ABI/SysV-x86_64/ABISysV_x86_64.h"
+#include "Plugins/ABI/Nyuzi/ABINyuzi.h"
 #include "Plugins/Disassembler/llvm/DisassemblerLLVMC.h"
 #include "Plugins/DynamicLoader/POSIX-DYLD/DynamicLoaderPOSIXDYLD.h"
 #include "Plugins/Instruction/ARM/EmulateInstructionARM.h"
@@ -131,6 +132,7 @@ lldb_private::Initialize ()
         ABIMacOSX_arm::Initialize();
         ABIMacOSX_arm64::Initialize();
         ABISysV_x86_64::Initialize();
+        ABINyuzi::Initialize();
         DisassemblerLLVMC::Initialize();
         ObjectContainerBSDArchive::Initialize();
         ObjectFileELF::Initialize();
@@ -223,6 +225,7 @@ lldb_private::Terminate ()
     ABIMacOSX_arm::Terminate();
     ABIMacOSX_arm64::Terminate();
     ABISysV_x86_64::Terminate();
+	ABINyuzi::Terminate();
     DisassemblerLLVMC::Terminate();
     ObjectContainerBSDArchive::Terminate();
     ObjectFileELF::Terminate();

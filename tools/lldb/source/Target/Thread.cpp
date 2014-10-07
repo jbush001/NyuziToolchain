@@ -2270,6 +2270,7 @@ Thread::GetUnwinder ()
             case llvm::Triple::thumb:
             case llvm::Triple::mips64:
             case llvm::Triple::hexagon:
+			case llvm::Triple::nyuzi:
                 m_unwinder_ap.reset (new UnwindLLDB (*this));
                 break;
                 

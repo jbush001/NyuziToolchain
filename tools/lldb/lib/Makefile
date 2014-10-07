@@ -37,6 +37,7 @@ USEDLIBS = lldbAPI.a \
 	lldbPluginABIMacOSX_i386.a \
 	lldbPluginABISysV_x86_64.a \
 	lldbPluginABISysV_hexagon.a \
+	lldbPluginABINyuzi.a \
 	lldbPluginDisassemblerLLVM.a \
 	lldbPluginDynamicLoaderStatic.a \
 	lldbPluginDynamicLoaderPOSIX.a \
