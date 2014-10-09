@@ -1,6 +1,6 @@
 This is a toolchain for a parallel processor architecture called Nyuzi 
 (https://github.com/jbush001/NyuziProcessor). It includes a C/C++ 
-compiler, assembler, linker and in-progress debugger (lldb). Questions
+compiler, assembler, linker and work-in-progress debugger (lldb). Questions
 or comments can be directed to the mailing list here:
 https://groups.google.com/forum/#!forum/nyuzi-processor-dev
 
@@ -35,19 +35,18 @@ date and won't work. Here's the port command to install the dependencies:
 
 Assuming the proper packages are installed, configure and build using the following commands. 
 
-<pre>
+```
 > mkdir build
 > cd build
 > cmake ..
 > make
 > sudo make install
-</pre>
+```
 
 A few other things to note:
 
 * The name of the target is 'nyuzi'.
 * There are also bits of an autoconf based build system in this project.  It doesn't work.
-* The toolchain will be installed to /usr/local/llvm-nyuzi
 * Using sudo on make install as described can leave files with root ownership in your build directory, which can then cause cryptic build errors later when building as non-root.  Doing a 'sudo chown -R &#x60;whoami&#x60; .' in the build directory will fix this.
 * If you want to make changes to the compiler, add '-DCMAKE_BUILD_TYPE=Debug' as a parameter to the cmake command enable a debug build.  This enables the -debug flag for command line tools, which is important to see various transormations and output of intermediate passes.
 
@@ -60,18 +59,19 @@ Once built, the toolchain will be installed into /usr/local/llvm-nyuzi
 
 ## Running tests
 
-* Change PATH environment variable to include the binary directory (build/bin) 
-* the test can be run as follows (assuming you are at the top of the project directory)
+Change PATH environment variable to include the binary directory (build/bin). This is only required 
+for llvm-lit based tests. The test can be run as follows (assuming you are at the top of the project 
+directory):
 
-<pre>
-    llvm-lit test
-    llvm-lit tools/clang/test/CodeGen/nyuzi*
-</pre>
+```
+export PATH=<BUILDDIR>/build/bin:$PATH
+llvm-lit test
+llvm-lit tools/clang/test/CodeGen/nyuzi*
+```
 
 ## Running whole program tests
 
 There are a set of tests in https://github.com/jbush001/NyuziProcessor/tree/master/tests/compiler
 Each test case is compiled and then run in the instruction set simulator.
 The output is checked for validity. This is similar to the test-suite project
-in LLVM. Instructions are found in that directory.ls
-sudo
+in LLVM. Instructions are found in that directory.
