@@ -622,6 +622,14 @@ PlatformDarwin::GetSoftwareBreakpointTrapOpcode (Target &target, BreakpointSite 
             trap_opcode_size = sizeof(g_ppc_breakpoint_opcode);
         }
         break;
+
+    case llvm::Triple::nyuzi:
+        {
+            static const uint8_t g_nyuzi_breakpoint_opcode[] = { 0xFF, 0xFF, 0x7F, 0xC0 };
+            trap_opcode = g_nyuzi_breakpoint_opcode;
+            trap_opcode_size = sizeof(g_nyuzi_breakpoint_opcode);
+        }
+        break;
         
     default:
         assert(!"Unhandled architecture in PlatformDarwin::GetSoftwareBreakpointTrapOpcode()");
