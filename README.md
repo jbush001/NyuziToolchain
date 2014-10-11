@@ -29,7 +29,7 @@ You will need to use the App Store app to download XCode for the host compiler. 
 installed by default, but Apple likes their command line utilities... finely aged... so flex and bison will be out of 
 date and won't work. Here's the port command to install the dependencies:
 
-    sudo port install cmake bison flex python swig swig-python
+    sudo port install cmake bison flex swig swig-python
 
 ### Compiling
 
