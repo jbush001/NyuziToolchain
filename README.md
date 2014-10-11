@@ -24,12 +24,18 @@ On Ubuntu, these can be installed by using:
 
 (On Fedora, replace python-dev with python-devel)
 
-On MacOS, I'd recommend installing a package manager like MacPorts (https://www.macports.org/) to install/upgrade these. 
-You will need to use the App Store app to download XCode for the host compiler. Most of the libraries should already be 
-installed by default, but Apple likes their command line utilities... finely aged... so flex and bison will be out of 
-date and won't work. Here's the port command to install the dependencies:
+Building on MacOS requires a bit more finesse. You will need to use the App 
+Store app to download XCode for the command line host compiler. I'd recommend 
+installing a package manager like MacPorts (https://www.macports.org/) to 
+obtain the remaining dependencies. Be sure to a new terminal to do the build
+after installing MacPorts, because it installs alternate versions of the tools 
+and updates the PATH. Most of the libraries should already be installed by 
+default, but Apple likes their command line utilities... finely aged... so 
+bison will be out of date and won't work. *However*, if you upgrade flex, 
+you'll get a build error, so you'll want to use the system supplied version. 
+Here's the port command to install the dependencies:
 
-    sudo port install cmake bison flex swig swig-python
+    sudo port install cmake bison swig swig-python
 
 ### Compiling
 
