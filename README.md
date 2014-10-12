@@ -24,16 +24,16 @@ On Ubuntu, these can be installed by using:
 
 (On Fedora, replace python-dev with python-devel)
 
-Building on MacOS requires a bit more finesse. You will need to use the App 
-Store app to download XCode for the command line host compiler. I'd recommend 
-installing a package manager like MacPorts (https://www.macports.org/) to 
-obtain the remaining dependencies. Be sure to a new terminal to do the build
-after installing MacPorts, because it installs alternate versions of the tools 
-and updates the PATH. Most of the libraries should already be installed by 
-default, but Apple likes their command line utilities... finely aged... so 
-bison will be out of date and won't work. *However*, if you upgrade flex, 
-you'll get a build error, so you'll want to use the system supplied version. 
-Here's the port command to install the dependencies:
+On MacOS, you will need to use the App Store app to download XCode for the 
+command line host compiler. I'd recommend installing a package manager like 
+MacPorts (https://www.macports.org/) to obtain the remaining dependencies. 
+Be sure to a new terminal to do the build after installing MacPorts, because 
+it installs alternate versions of some binaries and updates the PATH. Most of 
+the libraries should already be installed by default, but Apple likes their 
+command line utilities... finely aged... so bison will be out of date and 
+won't work. *However*, if you upgrade flex, you'll get a build error, so 
+you'll want to use the system supplied version. Here's the port command to 
+install the dependencies:
 
     sudo port install cmake bison swig swig-python
 
@@ -42,11 +42,11 @@ Here's the port command to install the dependencies:
 Assuming the proper packages are installed, configure and build using the following commands. 
 
 ```
-> mkdir build
-> cd build
-> cmake ..
-> make
-> sudo make install
+$ mkdir build
+$ cd build
+$ cmake ..
+$ make
+$ sudo make install
 ```
 
 A few other things to note:
@@ -55,7 +55,6 @@ A few other things to note:
 * There are also bits of an autoconf based build system in this project.  It doesn't work.
 * Using sudo on make install as described can leave files with root ownership in your build directory, which can then cause cryptic build errors later when building as non-root.  Doing a 'sudo chown -R &#x60;whoami&#x60; .' in the build directory will fix this.
 * If you want to make changes to the compiler, add '-DCMAKE_BUILD_TYPE=Debug' as a parameter to the cmake command enable a debug build.  This enables the -debug flag for command line tools, which is important to see various transormations and output of intermediate passes.
-
 
 ## Invoking compiler
 
