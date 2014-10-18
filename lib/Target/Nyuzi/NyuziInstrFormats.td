@@ -673,7 +673,6 @@ class FmtC<bits<3> val> {
 	bits<3> Value = val;
 }
 
-def FmtC_Preload : FmtC<0>;
 def FmtC_DInvalidate : FmtC<1>;
 def FmtC_DFlush : FmtC<2>;
 def FmtC_IInvalidate : FmtC<3>;
