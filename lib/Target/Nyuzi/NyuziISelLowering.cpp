@@ -929,7 +929,7 @@ SDValue NyuziTargetLowering::LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) cons
   MFI->setReturnAddressIsTaken(true);
 
   // Return RA, which contains the return address. Mark it an implicit live-in.
-  unsigned Reg = MF.addLiveIn(Nyuzi::LINK_REG, getRegClassFor(VT));
+  unsigned Reg = MF.addLiveIn(Nyuzi::RA_REG, getRegClassFor(VT));
   return DAG.getCopyFromReg(DAG.getEntryNode(), DL, Reg, VT);
 }
 

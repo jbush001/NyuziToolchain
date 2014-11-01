@@ -33,6 +33,6 @@ def RetCC_Nyuzi32 : CallingConv<[
   CCIfType<[v16i32, v16f32], CCAssignToReg<[V0, V1, V2, V3, V4, V5]>>
 ]>;
 
-def NyuziCSR : CalleeSavedRegs<(add (sequence "S%u", 24, 27), FP_REG, LINK_REG,
+def NyuziCSR : CalleeSavedRegs<(add (sequence "S%u", 24, 27), FP_REG, RA_REG,
                                    (sequence "V%u", 26, 31))>;
 

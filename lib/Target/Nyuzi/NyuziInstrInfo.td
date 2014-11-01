@@ -521,11 +521,11 @@ def RET : VPInstruction<
 	"ret",
 	[(return)]>
 {
-	// This is encoded as move pc, link
+	// This is encoded as move pc, ra
 	let Inst{31-29} = 6;	// format A instruction
 	let Inst{25-20} = 0xf;	// opcode
 	let Inst{9-5} = 31;		// dest (reg 31)
-	let Inst{19-15} = 30;	// src (link)
+	let Inst{19-15} = 30;	// src (ra)
 	
 	let isReturn = 1;
 	let isTerminator = 1;
@@ -564,7 +564,7 @@ let Defs = [ SP_REG ], Uses = [ SP_REG ], hasSideEffects = 1 in {
 
 // Note: Unlike other branches, call is not a terminator: it does not end a 
 // basic block (subtle and serious bugs occur if it is marked as such).
-let isCall = 1, Defs = [ LINK_REG ] in {
+let isCall = 1, Defs = [ RA_REG ] in {
 	def CALLSYM : UnconditionalBranchInst<
 		(outs), 
 		(ins calltarget:$dest, variable_ops),

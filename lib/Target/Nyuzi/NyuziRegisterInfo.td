@@ -22,7 +22,7 @@ let Namespace = "Nyuzi" in {
 
 	def FP_REG : NyuziReg<"fp", 28>, DwarfRegNum<[28]>;
 	def SP_REG : NyuziReg<"sp", 29>, DwarfRegNum<[29]>;
-	def LINK_REG : NyuziReg<"link", 30>, DwarfRegNum<[30]>;
+	def RA_REG : NyuziReg<"ra", 30>, DwarfRegNum<[30]>;
 	def PC_REG : NyuziReg<"pc", 31>, DwarfRegNum<[31]>;
 
 	foreach i = 0-31 in {
@@ -31,7 +31,7 @@ let Namespace = "Nyuzi" in {
 }
 
 def GPR32 : RegisterClass<"Nyuzi", [i32, f32], 32, (add (sequence "S%u", 0, 27),
-	FP_REG, SP_REG, LINK_REG, PC_REG)>;
+	FP_REG, SP_REG, RA_REG, PC_REG)>;
 
 def VR512 : RegisterClass<"Nyuzi", [v16i32, v16f32], 512, (sequence "V%u", 0, 31)>;
 

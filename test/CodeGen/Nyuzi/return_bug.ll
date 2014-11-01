@@ -14,13 +14,13 @@ entry:
 }
 
 define void @_Z8printHexj(i32 %value) {
-  call void @_Z9printCharc(i32 %value)	; Need to dirty link pointer
+  call void @_Z9printCharc(i32 %value)	; Need to dirty ra pointer
   store i32 %value, i32* @foo, align 4	; Add a non-terminator instruction
   call void @_Z9printCharc(i32 10)		; This one should not be part of epilogue
   ret void
 
 ; CHECK: move s{{[0-9]+}}, 10
 ; CHECK: call _Z9printCharc
-; CHECK: load_32 link, {{[0-9]+}}(sp) 
+; CHECK: load_32 ra, {{[0-9]+}}(sp) 
 
 }

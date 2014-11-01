@@ -144,7 +144,7 @@ unsigned int test_builtin_frame_address() // CHECK: test_builtin_frame_address:
 unsigned int test_builtin_return_address() // CHECK: test_builtin_return_address:
 {
 	return __builtin_return_address(0);	
-	// CHECK: move s0, link
+	// CHECK: move s0, ra
 }
 
 
