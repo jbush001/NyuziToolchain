@@ -7,7 +7,7 @@ https://groups.google.com/forum/#!forum/nyuzi-processor-dev
 ## Building
 
 ### Requirements
-- gcc 4.7+ or Apple clang 4.2+
+- gcc 4.8+ or Apple clang 4.2+
 - cmake 2.8.8
 - python 2.7
 - libxml (including headers)
