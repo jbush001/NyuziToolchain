@@ -6009,6 +6009,7 @@ namespace {
 	static const Builtin::Info BuiltinInfo[];
   public:
     NyuziTargetInfo(const llvm::Triple &Triple) : TargetInfo(Triple) {
+      BigEndian = false;
       TLSSupported = false;
       IntWidth = IntAlign = 32;
       PointerWidth = PointerAlign = 32;
