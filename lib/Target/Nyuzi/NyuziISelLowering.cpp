@@ -476,6 +476,9 @@ NyuziTargetLowering::NyuziTargetLowering(TargetMachine &TM,
   setOperationAction(ISD::FSQRT, MVT::f32, Expand); // sqrtf
   setOperationAction(ISD::FSIN, MVT::f32, Expand); // sinf
   setOperationAction(ISD::FCOS, MVT::f32, Expand); // cosf
+  
+  setCondCodeAction(ISD::SETO, MVT::f32, Expand);
+  setCondCodeAction(ISD::SETUO, MVT::f32, Expand);  // XXX this is broken
 
   setStackPointerRegisterToSaveRestore(Nyuzi::SP_REG);
   setMinFunctionAlignment(2);
@@ -781,7 +784,7 @@ SDValue NyuziTargetLowering::LowerFNEG(SDValue Op,
 // Handle unsupported floating point operations: unordered comparisons
 // and equality.
 SDValue NyuziTargetLowering::LowerSETCC(SDValue Op,
-                                             SelectionDAG &DAG) const {
+                                        SelectionDAG &DAG) const {
   ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
   ISD::CondCode NewCode;
   SDLoc DL(Op);
@@ -799,58 +802,34 @@ SDValue NyuziTargetLowering::LowerSETCC(SDValue Op,
   // XXX In order to be correct, we should probably emit code that explicitly
   // checks for NaN and forces the result to true.
   //
+  case ISD::SETGT:
   case ISD::SETUGT:
     NewCode = ISD::SETOGT;
     break;
+  case ISD::SETGE:
   case ISD::SETUGE:
     NewCode = ISD::SETOGE;
     break;
+  case ISD::SETLT:
   case ISD::SETULT:
     NewCode = ISD::SETOLT;
     break;
+  case ISD::SETLE:
   case ISD::SETULE:
     NewCode = ISD::SETOLE;
     break;
-
-  // Change don't care floating point comparisons to the default CPU Type
-  case ISD::SETGT:
-    NewCode = ISD::SETOGT;
-    break;
-  case ISD::SETGE:
-    NewCode = ISD::SETOGE;
-    break;
-  case ISD::SETLT:
-    NewCode = ISD::SETOLT;
-    break;
-  case ISD::SETLE:
-    NewCode = ISD::SETOLE;
-    break;
-
-  // Note: there is no floating point eq/ne.  Just use integer
-  // forms
+  case ISD::SETEQ:
   case ISD::SETUEQ:
-  case ISD::SETOEQ:
-    NewCode = ISD::SETEQ;
+    NewCode = ISD::SETOEQ;
     break;
-
+  case ISD::SETNE:
   case ISD::SETUNE:
-  case ISD::SETONE:
-    NewCode = ISD::SETNE;
+    NewCode = ISD::SETONE;
     break;
   }
 
   SDValue Op0 = Op.getOperand(0);
   SDValue Op1 = Op.getOperand(1);
-  if (NewCode == ISD::SETEQ || NewCode == ISD::SETNE) {
-    // Need to bitcast so we will match
-    Op0 = DAG.getNode(ISD::BITCAST, DL,
-                      Op0.getValueType().isVector() ? MVT::v16i32 : MVT::i32,
-                      Op0);
-    Op1 = DAG.getNode(ISD::BITCAST, DL,
-                      Op1.getValueType().isVector() ? MVT::v16i32 : MVT::i32,
-                      Op1);
-  }
-
   return DAG.getNode(ISD::SETCC, DL, Op.getValueType().getSimpleVT(), Op0, Op1,
                      DAG.getCondCode(NewCode));
 }

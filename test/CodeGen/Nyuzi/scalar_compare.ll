@@ -89,13 +89,13 @@ define i32 @cmpfle(float %a, float %b) #0 {	; CHECK: cmpfle:
 }
 
 define i32 @cmpfeq(float %a, float %b) #0 {	; CHECK: cmpfeq:
-	%cmp = fcmp oeq float %a, %b			; CHECK: cmpeq_i s{{[0-9]+}}, s0, s1
+	%cmp = fcmp oeq float %a, %b			; CHECK: cmpeq_f s{{[0-9]+}}, s0, s1
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpfne(float %a, float %b) #0 {	; CHECK: cmpfne:
-	%cmp = fcmp one float %a, %b			; CHECK: cmpne_i s{{[0-9]+}}, s0, s1
+	%cmp = fcmp one float %a, %b			; CHECK: cmpne_f s{{[0-9]+}}, s0, s1
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
@@ -125,13 +125,28 @@ define i32 @cmpfleu(float %a, float %b) #0 {	; CHECK: cmpfleu:
 }
 
 define i32 @cmpfequ(float %a, float %b) #0 {	; CHECK: cmpfequ:
-	%cmp = fcmp ueq float %a, %b			; CHECK: cmpeq_i s{{[0-9]+}}, s0, s1
+	%cmp = fcmp ueq float %a, %b			; CHECK: cmpeq_f s{{[0-9]+}}, s0, s1
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpfneu(float %a, float %b) #0 {	; CHECK: cmpfneu:
-	%cmp = fcmp une float %a, %b			; CHECK: cmpne_i s{{[0-9]+}}, s0, s1
+	%cmp = fcmp une float %a, %b			; CHECK: cmpne_f s{{[0-9]+}}, s0, s1
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
+
+define i32 @check_notnan(float %a) #0 {  ; CHECK: check_notnan:
+entry:
+  %lnot = fcmp ord float %a, 0.000000e+00
+  %lnot.ext = zext i1 %lnot to i32			; CHECK: cmpeq_f
+  ret i32 %lnot.ext
+}
+
+; XXX broken
+;define i32 @check_nan(float %a) #0 {	; NCHECK: check_nan:
+;entry:
+;  %lnot = fcmp uno float %a, 0.000000e+00
+;  %lnot.ext = zext i1 %lnot to i32			; NCHECK: cmpeq_f
+;  ret i32 %lnot.ext
+;}

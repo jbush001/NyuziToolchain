@@ -114,17 +114,8 @@ defm SGTFO : FloatCompareInst<"cmpgt", SETOGT, 0x2c, int_nyuzi_mask_cmpf_gt>;
 defm SGEFO : FloatCompareInst<"cmpge", SETOGE, 0x2d, int_nyuzi_mask_cmpf_ge>;
 defm SLTFO : FloatCompareInst<"cmplt", SETOLT, 0x2e, int_nyuzi_mask_cmpf_lt>;
 defm SLEFO : FloatCompareInst<"cmple", SETOLE, 0x2f, int_nyuzi_mask_cmpf_le>;
-	
-// Note: there is no floating point eq/ne.  Just use integer
-// forms
-def : Pat<(int_nyuzi_mask_cmpf_eq v16f32:$src1, v16f32:$src2),
-	(SEQSIVV  v16f32:$src1, v16f32:$src2)>;
-def : Pat<(int_nyuzi_mask_cmpf_eq v16f32:$src1, (splat f32:$src2)),
-	(SEQSIVS  v16f32:$src1, f32:$src2)>;
-def : Pat<(int_nyuzi_mask_cmpf_ne v16f32:$src1, v16f32:$src2),
-	(SNESIVV  v16f32:$src1, v16f32:$src2)>;
-def : Pat<(int_nyuzi_mask_cmpf_ne v16f32:$src1, (splat f32:$src2)),
-	(SNESIVS  v16f32:$src1, f32:$src2)>;
+defm SEQFO : FloatCompareInst<"cmpeq", SETOEQ, 0x30, int_nyuzi_mask_cmpf_eq>;
+defm SNEFO : FloatCompareInst<"cmpne", SETONE, 0x31, int_nyuzi_mask_cmpf_ne>;
 
 def GET_LANEI : FormatRUnmaskedTwoOpInst<
 	(outs GPR32:$dest),
