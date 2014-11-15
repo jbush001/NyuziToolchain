@@ -435,8 +435,6 @@ NyuziTargetLowering::NyuziTargetLowering(TargetMachine &TM,
   setOperationAction(ISD::ROTR, MVT::i32, Expand);
   setOperationAction(ISD::UDIVREM, MVT::i32, Expand);
   setOperationAction(ISD::SDIVREM, MVT::i32, Expand);
-  setOperationAction(ISD::MULHU, MVT::i32, Expand);
-  setOperationAction(ISD::MULHS, MVT::i32, Expand);
   setOperationAction(ISD::UMUL_LOHI, MVT::i32, Expand);
   setOperationAction(ISD::SMUL_LOHI, MVT::i32, Expand);
   setOperationAction(ISD::FP_TO_UINT, MVT::i32, Expand);

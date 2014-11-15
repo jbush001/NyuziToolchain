@@ -20,12 +20,12 @@ define i32 @sub(i32 %a, i32 %b) { 	; CHECK: sub:
 ; XXX sub immediate gets converted to add with a negative.
 
 define i32 @mul(i32 %a, i32 %b) { 	; CHECK: mul:
-	%1 = mul i32 %a, %b 			; CHECK: mul_i s{{[0-9]+}}, s0, s1
+	%1 = mul i32 %a, %b 			; CHECK: mull_i s{{[0-9]+}}, s0, s1
 	ret i32 %1
 }
 
 define i32 @mulimm(i32 %a) { 	; CHECK: mulimm:
-	%1 = mul i32 %a, 22 			; CHECK: mul_i s{{[0-9]+}}, s0, 22
+	%1 = mul i32 %a, 22 			; CHECK: mull_i s{{[0-9]+}}, s0, 22
 	ret i32 %1
 }
 

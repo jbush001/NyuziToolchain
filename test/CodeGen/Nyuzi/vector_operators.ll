@@ -13,7 +13,7 @@ define <16 x i32> @sub(<16 x i32> %a, <16 x i32> %b) { 	; CHECK: sub:
 }
 
 define <16 x i32> @mul(<16 x i32> %a, <16 x i32> %b) { 	; CHECK: mul:
-	%1 = mul <16 x i32> %a, %b 			; CHECK: mul_i v{{[0-9]+}}, v0, v1
+	%1 = mul <16 x i32> %a, %b 			; CHECK: mull_i v{{[0-9]+}}, v0, v1
 	ret <16 x i32> %1
 }
 
