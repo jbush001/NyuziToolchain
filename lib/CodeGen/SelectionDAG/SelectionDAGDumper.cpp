@@ -626,7 +626,8 @@ static void printrWithDepthHelper(raw_ostream &OS, const SDNode *N,
 
   for (unsigned i = 0, e = N->getNumOperands(); i != e; ++i) {
     // Don't follow chain operands.
-    if (N->getOperand(i).getValueType() == MVT::Other)
+    if (N->getOperand(i).getValueType() == MVT::Other
+		&& !dyn_cast<CondCodeSDNode>(N->getOperand(i)))
       continue;
     OS << '\n';
     printrWithDepthHelper(OS, N->getOperand(i).getNode(), G, depth-1, indent+2);
