@@ -73,14 +73,14 @@ binaryOps = [
 	(5, 'add_i'),
 	(6, 'sub_i'),
 	(7, 'mull_i'),
-	(8, 'mulhu_i'),
+	(8, 'mulh_u'),
 	(9, 'ashr'),
 	(10, 'shr'),
 	(11, 'shl'),
 	(0x20, 'add_f'),
 	(0x21, 'sub_f'),
 	(0x22, 'mul_f'),
-	(0x1f, 'mulhs_i'),
+	(0x1f, 'mulh_i'),
 ]
 
 a_instruction_types = [
