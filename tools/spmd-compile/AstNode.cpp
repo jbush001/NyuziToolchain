@@ -3,7 +3,7 @@
 
 using namespace llvm;
 
-Value *BinaryAst::generate(SPMDBuilder &Builder)
+Value *SubAst::generate(SPMDBuilder &Builder)
 {
 	Value *Op1Val = Op1->generate(Builder);
 	Value *Op2Val = Op2->generate(Builder);
@@ -21,17 +21,30 @@ Value *IfAst::generate(SPMDBuilder &Builder)
 	Builder.pushMask(Cond->generate(Builder));
 	Then->generate(Builder);
 	if (Else) {
-//		llvm::BasicBlock *ElseBB = Builder.createBasicBlock("else");
-//		llvm::BasicBlock *EndIfBB = Builder.createBasicBlock("endif");
-//		Builder.setInsertPoint(ElseBB);
-//		Builder.shortCircuitZeroMask(EndIfBB, ElseBB);
 		Builder.invertLastPushedMask();
 		Else->generate(Builder);
-//		Builder.setInsertPoint(EndIfBB);
 	}
 
 	Builder.popMask();	
 	return nullptr;
+}
+
+Value *WhileAst::generate(SPMDBuilder &Builder)
+{
+  llvm::BasicBlock *LoopTop = Builder.createBasicBlock("looptop");
+  llvm::BasicBlock *LoopBody = Builder.createBasicBlock("loopbody");
+  llvm::BasicBlock *LoopEnd = Builder.createBasicBlock("loopbody");
+  
+  Builder.createBranch(LoopTop);
+  Builder.setInsertPoint(LoopTop);
+	Value *LoopCond = Cond->generate(Builder);
+  Builder.pushMask(LoopCond);
+  Builder.shortCircuitZeroMask(LoopEnd, LoopBody); 
+  Builder.setInsertPoint(LoopBody);
+  Body->generate(Builder);
+  Builder.createBranch(LoopTop);
+  Builder.popMask();
+  Builder.setInsertPoint(LoopEnd);
 }
 
 Value *VariableAst::generate(SPMDBuilder &Builder)
@@ -58,4 +71,9 @@ Value *ReturnAst::generate(SPMDBuilder &Builder) {
   Value *RetVal = RetNode->generate(Builder);
   Builder.createReturn(RetVal);
 }
+
+Value *ConstantAst::generate(SPMDBuilder &Builder) {
+  return Builder.createConstant(Value);
+}
+
 

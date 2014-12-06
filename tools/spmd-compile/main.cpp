@@ -33,18 +33,18 @@ static Module *TheModule;
 void MakeFunction(Module *M)
 {
   SPMDBuilder Builder(M);
-  Builder.startFunction("test");
-  Value *Var1 = Builder.createLocalVariable("foo");
-  Value *Var2 = Builder.createLocalVariable("bar");
-
-  AstNode *Cmp = new CompareAst(CmpInst::FCMP_UGE, new VariableAst(Var1), new VariableAst(Var2));
-  AstNode *Then = new AssignAst(new VariableAst(Var1), new BinaryAst(new VariableAst(Var1), new VariableAst(Var2)));
-  AstNode *Else = new AssignAst(new VariableAst(Var2), new BinaryAst(new VariableAst(Var2), new VariableAst(Var1)));
+  Builder.startFunction("gcd");
+  Value *A = Builder.createLocalVariable("a");
+  Value *B = Builder.createLocalVariable("b");
+  AstNode *Cmp = new CompareAst(CmpInst::FCMP_UGE, new VariableAst(A), new VariableAst(B));
+  AstNode *Then = new AssignAst(new VariableAst(A), new SubAst(new VariableAst(A), new VariableAst(B)));
+  AstNode *Else = new AssignAst(new VariableAst(B), new SubAst(new VariableAst(B), new VariableAst(A)));
   AstNode *If = new IfAst(Cmp, Then, Else);
+  AstNode *LoopPred = new CompareAst(CmpInst::FCMP_UGE, new VariableAst(B), new ConstantAst(0.0));
+  AstNode *Loop = new WhileAst(LoopPred, If);
   SequenceAst *Seq = new SequenceAst;
-  Seq->addNode(If);
-  AstNode *Res = new BinaryAst(new VariableAst(Var1), new VariableAst(Var2)); 
-  Seq->addNode(new ReturnAst(Res));
+  Seq->addNode(Loop);
+  Seq->addNode(new ReturnAst(new VariableAst(A)));
   Seq->generate(Builder);
 
   Builder.endFunction();

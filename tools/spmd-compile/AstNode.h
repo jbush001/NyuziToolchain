@@ -8,14 +8,14 @@ public:
 	virtual llvm::Value *generate(SPMDBuilder&) = 0;
 };
 
-class BinaryAst : public AstNode {
+class SubAst : public AstNode {
 public:
-	BinaryAst(AstNode *_Op1, AstNode *_Op2)
+	SubAst(AstNode *_Op1, AstNode *_Op2)
 		: Op1(_Op1), Op2(_Op2)
 	{}
 		
 	virtual llvm::Value *generate(SPMDBuilder&);
-	
+
 private:
 	AstNode *Op1;
 	AstNode *Op2;
@@ -48,6 +48,20 @@ private:
 	AstNode *Cond;
 	AstNode *Then;
 	AstNode *Else;	
+};
+
+class WhileAst : public AstNode {
+public:   
+    WhileAst(AstNode *_Cond, AstNode *_Body)
+        : Cond(_Cond),
+          Body(_Body)
+    {}
+        
+    virtual llvm::Value *generate(SPMDBuilder&);
+
+private:
+    AstNode *Cond;
+    AstNode *Body;
 };
 
 class VariableAst : public AstNode {
@@ -101,6 +115,18 @@ public:
   
 private:
   AstNode *RetNode;
+};
+
+class ConstantAst : public AstNode {
+public:
+  ConstantAst(float _Value)
+    : Value(_Value)
+  {}
+
+	virtual llvm::Value *generate(SPMDBuilder&);
+    
+private:
+  float Value;    
 };
 
 #endif

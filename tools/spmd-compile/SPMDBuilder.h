@@ -36,6 +36,8 @@ public:
   /// Emit a branch to skip the block if no mask bits are set.
   void shortCircuitZeroMask(llvm::BasicBlock *SkipTo, llvm::BasicBlock *Next);
   
+  void createBranch(llvm::BasicBlock *Dest);
+  
   llvm::Value *createCompare(llvm::CmpInst::Predicate type, llvm::Value *lhs, llvm::Value *rhs);
 
   llvm::Value *createSub(llvm::Value *lhs, llvm::Value *rhs);
@@ -43,6 +45,8 @@ public:
   llvm::BasicBlock *createBasicBlock(const char *Name);
   
   void setInsertPoint(llvm::BasicBlock *Block);
+  
+  llvm::Value *createConstant(float value);
 
 private:
   struct MaskStackEntry {

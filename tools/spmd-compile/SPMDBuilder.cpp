@@ -95,7 +95,14 @@ Value *SPMDBuilder::getCurrentMask() {
 }
 
 void SPMDBuilder::shortCircuitZeroMask(llvm::BasicBlock *SkipTo, llvm::BasicBlock *Next) {
-  Builder.CreateCondBr(getCurrentMask(), Next, SkipTo);
+  llvm::Value *BoolCond = Builder.CreateICmpEQ(getCurrentMask(),
+    ConstantInt::get(getGlobalContext(), APInt(32, 0)));
+  Builder.CreateCondBr(BoolCond, Next, SkipTo);
+}
+
+void SPMDBuilder::createBranch(llvm::BasicBlock *Dest)
+{
+  Builder.CreateBr(Dest);
 }
 
 Value *SPMDBuilder::createCompare(CmpInst::Predicate Type, Value *lhs, Value *rhs) {
@@ -199,4 +206,10 @@ BasicBlock *SPMDBuilder::createBasicBlock(const char *name) {
 void SPMDBuilder::setInsertPoint(BasicBlock *BB) {
   Builder.SetInsertPoint(BB);
 }
+
+Value *SPMDBuilder::createConstant(float Value) {
+  return Builder.CreateVectorSplat(16, ConstantFP::get(getGlobalContext(), APFloat(Value)));
+}
+
+
 
