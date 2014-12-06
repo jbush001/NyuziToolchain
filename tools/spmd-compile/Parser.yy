@@ -12,9 +12,10 @@ using namespace llvm;
 
 int ErrorCount;
 extern int CurrentLine;
-AstNode *AstRoot;
 typedef map<string, Symbol*> Scope;
 static vector<Scope> ScopeStack;
+SPMDBuilder *Builder;
+
 
 int yyerror(const char *error);
 int yywrap();
@@ -53,14 +54,20 @@ Symbol *lookupSymbol(const char *name);
 }
 
 %type <node> expr statement stmtseq ifstmt whilestmt assignstmt
-%type <node> variable vardecl returnstmt
+%type <node> variable vardecl returnstmt 
 %type <numVal> TOK_NUMBER
 %type <strval> TOK_STRING TOK_IDENTIFIER
 
 %%
-module			:		enter_scope stmtseq leave_scope
+module			:		funcdecl
+				;
+
+funcdecl		:		TOK_FLOAT TOK_IDENTIFIER '(' ')' 
+						'{' enter_scope stmtseq leave_scope '}'
 						{
-							AstRoot = $2;
+							Builder->startFunction($2);
+							$7->generate(*Builder);
+							Builder->endFunction();  
 						}
 				;
 
@@ -220,15 +227,14 @@ int yyerror(const char *error)
 	return 0;
 }
 
-AstNode* parse(void)
+int parse(Module *TheModule)
 {
 	CurrentLine = 1;
-	yyparse();
-	return AstRoot;
-}
+	Builder = new SPMDBuilder(TheModule);
+	if (yyparse())
+		return 0;
 
-int yywrap()
-{
+	delete Builder;
 	return 1;
 }
 

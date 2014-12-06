@@ -30,7 +30,7 @@ using namespace llvm;
 
 static Module *TheModule;
 
-AstNode* parse(void);
+int parse(Module*);
 
 bool generateTargetCode(Module *TheModule)
 {
@@ -88,19 +88,10 @@ int main(int argc, const char *argv[]) {
   LLVMContext &Context = getGlobalContext();
   TheModule = new Module("my module", Context);
 
-  // Parse
-  AstNode *Tree = parse();
-  if (Tree == nullptr)
+  if (!parse(TheModule))
     return 1;
 
-  // Generate IR
-  SPMDBuilder Builder(TheModule);
-  Builder.startFunction("top");
-  Tree->generate(Builder);
-  Builder.endFunction();  
   TheModule->dump();
-
-  // Generate target code
   if (!generateTargetCode(TheModule))
     return 1;
 
