@@ -11,9 +11,34 @@ Value *SubAst::generate(SPMDBuilder &Builder)
 	return Builder.createSub(Op1Val, Op2Val);
 }
 
+Value *AddAst::generate(SPMDBuilder &Builder)
+{
+	Value *Op1Val = Op1->generate(Builder);
+	Value *Op2Val = Op2->generate(Builder);
+		
+	return Builder.createAdd(Op1Val, Op2Val);
+}
+
+Value *MulAst::generate(SPMDBuilder &Builder)
+{
+	Value *Op1Val = Op1->generate(Builder);
+	Value *Op2Val = Op2->generate(Builder);
+		
+	return Builder.createMul(Op1Val, Op2Val);
+}
+
+Value *DivAst::generate(SPMDBuilder &Builder)
+{
+	Value *Op1Val = Op1->generate(Builder);
+	Value *Op2Val = Op2->generate(Builder);
+		
+	return Builder.createDiv(Op1Val, Op2Val);
+}
+
 Value *AssignAst::generate(SPMDBuilder &Builder)
 {
-	Builder.assignLocalVariable(static_cast<VariableAst*>(Lhs)->Var, Rhs->generate(Builder));
+	Builder.assignLocalVariable(static_cast<VariableAst*>(Lhs)->Sym->Val, 
+    Rhs->generate(Builder));
 }
 
 Value *IfAst::generate(SPMDBuilder &Builder)
@@ -49,7 +74,10 @@ Value *WhileAst::generate(SPMDBuilder &Builder)
 
 Value *VariableAst::generate(SPMDBuilder &Builder)
 {
-	return Builder.readLocalVariable(Var);
+  if (Sym->Val == nullptr)
+    Sym->Val = Builder.createLocalVariable(Sym->Name.c_str());
+  
+	return Builder.readLocalVariable(Sym->Val);
 }
 
 Value *CompareAst::generate(SPMDBuilder &Builder)
@@ -61,8 +89,8 @@ Value *CompareAst::generate(SPMDBuilder &Builder)
 }
 
 Value *SequenceAst::generate(SPMDBuilder &Builder){
-	for (auto *Node : Nodes)
-		Node->generate(Builder);
+  if (Stmt) Stmt->generate(Builder);
+  if (Next) Next->generate(Builder);
 
 	return nullptr;
 }

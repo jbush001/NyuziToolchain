@@ -30,27 +30,9 @@ using namespace llvm;
 
 static Module *TheModule;
 
-void MakeFunction(Module *M)
-{
-  SPMDBuilder Builder(M);
-  Builder.startFunction("gcd");
-  Value *A = Builder.createLocalVariable("a");
-  Value *B = Builder.createLocalVariable("b");
-  AstNode *Cmp = new CompareAst(CmpInst::FCMP_UGE, new VariableAst(A), new VariableAst(B));
-  AstNode *Then = new AssignAst(new VariableAst(A), new SubAst(new VariableAst(A), new VariableAst(B)));
-  AstNode *Else = new AssignAst(new VariableAst(B), new SubAst(new VariableAst(B), new VariableAst(A)));
-  AstNode *If = new IfAst(Cmp, Then, Else);
-  AstNode *LoopPred = new CompareAst(CmpInst::FCMP_UGE, new VariableAst(B), new ConstantAst(0.0));
-  AstNode *Loop = new WhileAst(LoopPred, If);
-  SequenceAst *Seq = new SequenceAst;
-  Seq->addNode(Loop);
-  Seq->addNode(new ReturnAst(new VariableAst(A)));
-  Seq->generate(Builder);
+AstNode* parse(void);
 
-  Builder.endFunction();
-}
-
-bool generateCode(Module *TheModule)
+bool generateTargetCode(Module *TheModule)
 {
   std::string ErrStr;
   PassManager PM;
@@ -106,13 +88,20 @@ int main(int argc, const char *argv[]) {
   LLVMContext &Context = getGlobalContext();
   TheModule = new Module("my module", Context);
 
-  // Generate code
-  MakeFunction(TheModule);
-  
+  // Parse
+  AstNode *Tree = parse();
+  if (Tree == nullptr)
+    return 1;
+
+  // Generate IR
+  SPMDBuilder Builder(TheModule);
+  Builder.startFunction("top");
+  Tree->generate(Builder);
+  Builder.endFunction();  
   TheModule->dump();
 
-  // Compile
-  if (!generateCode(TheModule))
+  // Generate target code
+  if (!generateTargetCode(TheModule))
     return 1;
 
   return 0;

@@ -41,6 +41,9 @@ public:
   llvm::Value *createCompare(llvm::CmpInst::Predicate type, llvm::Value *lhs, llvm::Value *rhs);
 
   llvm::Value *createSub(llvm::Value *lhs, llvm::Value *rhs);
+  llvm::Value *createAdd(llvm::Value *lhs, llvm::Value *rhs);
+  llvm::Value *createMul(llvm::Value *lhs, llvm::Value *rhs);
+  llvm::Value *createDiv(llvm::Value *lhs, llvm::Value *rhs);
 
   llvm::BasicBlock *createBasicBlock(const char *Name);
   

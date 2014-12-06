@@ -2,6 +2,7 @@
 #define __AST_NODE_H
 
 #include "SPMDBuilder.h"
+#include "Symbol.h"
 
 class AstNode {
 public:
@@ -11,6 +12,45 @@ public:
 class SubAst : public AstNode {
 public:
 	SubAst(AstNode *_Op1, AstNode *_Op2)
+		: Op1(_Op1), Op2(_Op2)
+	{}
+		
+	virtual llvm::Value *generate(SPMDBuilder&);
+
+private:
+	AstNode *Op1;
+	AstNode *Op2;
+};
+
+class AddAst : public AstNode {
+public:
+	AddAst(AstNode *_Op1, AstNode *_Op2)
+		: Op1(_Op1), Op2(_Op2)
+	{}
+		
+	virtual llvm::Value *generate(SPMDBuilder&);
+
+private:
+	AstNode *Op1;
+	AstNode *Op2;
+};
+
+class MulAst : public AstNode {
+public:
+	MulAst(AstNode *_Op1, AstNode *_Op2)
+		: Op1(_Op1), Op2(_Op2)
+	{}
+		
+	virtual llvm::Value *generate(SPMDBuilder&);
+
+private:
+	AstNode *Op1;
+	AstNode *Op2;
+};
+
+class DivAst : public AstNode {
+public:
+	DivAst(AstNode *_Op1, AstNode *_Op2)
 		: Op1(_Op1), Op2(_Op2)
 	{}
 		
@@ -66,14 +106,14 @@ private:
 
 class VariableAst : public AstNode {
 public:
-	VariableAst(llvm::Value *_Var)
-		: Var(_Var)
+	VariableAst(Symbol *_Sym)
+		: Sym(_Sym)
 	{}
 		
 	virtual llvm::Value *generate(SPMDBuilder&);
 
 private:
-	llvm::Value *Var;	
+  Symbol *Sym;
 	friend class AssignAst;
 };
 
@@ -93,16 +133,16 @@ private:
 
 class SequenceAst : public AstNode {
 public:
-    SequenceAst() {}
-    
-    void addNode(AstNode *Node) {
-      Nodes.push_back(Node);
-    }
+  SequenceAst(AstNode *_Stmt, AstNode *_Next) 
+    : Stmt(_Stmt),
+      Next(_Next)
+  {}
 
 	virtual llvm::Value *generate(SPMDBuilder&);
   
 private:
-  std::vector<AstNode*> Nodes;
+  AstNode *Stmt;
+  AstNode *Next;
 };
 
 class ReturnAst : public AstNode {

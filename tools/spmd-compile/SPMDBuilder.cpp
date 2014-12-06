@@ -110,14 +110,12 @@ Value *SPMDBuilder::createCompare(CmpInst::Predicate Type, Value *lhs, Value *rh
   switch (Type) {              
     case CmpInst::FCMP_OEQ: 
     case CmpInst::FCMP_UEQ: 
-      // XXX need to cast parameters
-      IntrinsicId = Intrinsic::nyuzi_mask_cmpi_eq;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpf_eq;
       break;
 
     case CmpInst::FCMP_ONE: 
     case CmpInst::FCMP_UNE: 
-      // XXX need to cast parameters
-      IntrinsicId = Intrinsic::nyuzi_mask_cmpi_ne;
+      IntrinsicId = Intrinsic::nyuzi_mask_cmpf_ne;
       break;
 
     case CmpInst::FCMP_OGT: 
@@ -197,6 +195,18 @@ Value *SPMDBuilder::createCompare(CmpInst::Predicate Type, Value *lhs, Value *rh
 
 Value *SPMDBuilder::createSub(Value *Lhs, Value *Rhs) {
     return Builder.CreateFSub(Lhs, Rhs);
+}
+
+Value *SPMDBuilder::createAdd(Value *Lhs, Value *Rhs) {
+    return Builder.CreateFAdd(Lhs, Rhs);
+}
+
+Value *SPMDBuilder::createMul(Value *Lhs, Value *Rhs) {
+    return Builder.CreateFMul(Lhs, Rhs);
+}
+
+Value *SPMDBuilder::createDiv(Value *Lhs, Value *Rhs) {
+    return Builder.CreateFDiv(Lhs, Rhs);
 }
 
 BasicBlock *SPMDBuilder::createBasicBlock(const char *name) {
