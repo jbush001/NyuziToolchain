@@ -8,7 +8,7 @@
 
 %%
 
-#[^\n]*					{	/* Skip Comments */ }
+\/\/[^\n]*					{	/* Skip Comments */ }
 [0-9]*					{
 							yylval.numVal = atoi(yytext);
 							return TOK_NUMBER;

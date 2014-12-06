@@ -81,6 +81,8 @@ statement		:		ifstmt
 						{
 							$$ = $3;
 						}
+				|		'{' '}'
+				|		';'
 				;
 
 returnstmt		:		TOK_RETURN expr
@@ -93,13 +95,13 @@ whilestmt		:		TOK_WHILE '(' expr ')' statement
 							$$ = new WhileAst($3, $5);
 						}
 
-ifstmt			:		TOK_IF expr statement TOK_ELSE statement
+ifstmt			:		TOK_IF '(' expr ')' statement TOK_ELSE statement
 						{
-							$$ = new IfAst($2, $3, $5);
+							$$ = new IfAst($3, $5, $7);
 						}
-				|		TOK_IF expr statement
+				|		TOK_IF '(' expr ')' statement
 						{
-							$$ = new IfAst($2, $3, nullptr);
+							$$ = new IfAst($3, $5, nullptr);
 						}
 				;
 
