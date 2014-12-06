@@ -11,7 +11,7 @@ public:
 class BinaryAst : public AstNode {
 public:
 	BinaryAst(AstNode *_Op1, AstNode *_Op2)
-		: Op1(_Op2), Op2(_Op2)
+		: Op1(_Op1), Op2(_Op2)
 	{}
 		
 	virtual llvm::Value *generate(SPMDBuilder&);

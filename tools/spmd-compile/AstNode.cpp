@@ -1,3 +1,4 @@
+#include "llvm/Support/Debug.h"
 #include "AstNode.h"
 
 using namespace llvm;
@@ -5,9 +6,9 @@ using namespace llvm;
 Value *BinaryAst::generate(SPMDBuilder &Builder)
 {
 	Value *Op1Val = Op1->generate(Builder);
-	Value *Op2Val = Op1->generate(Builder);
-	
-	return Builder.createAdd(Op1Val, Op2Val);
+	Value *Op2Val = Op2->generate(Builder);
+		
+	return Builder.createSub(Op1Val, Op2Val);
 }
 
 Value *AssignAst::generate(SPMDBuilder &Builder)
@@ -43,7 +44,7 @@ Value *CompareAst::generate(SPMDBuilder &Builder)
   Value *Op1Val = Op1->generate(Builder);
   Value *Op2Val = Op2->generate(Builder);
   
-	return Builder.createCompare(Type, Op1Val, Op2Val);
+  return Builder.createCompare(Type, Op1Val, Op2Val);
 }
 
 Value *SequenceAst::generate(SPMDBuilder &Builder){

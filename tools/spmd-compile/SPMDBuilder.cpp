@@ -46,7 +46,6 @@ void SPMDBuilder::assignLocalVariable(Value *Variable, Value *NewValue)
     Builder.CreateStore(NewValue, Variable);
   } else {
     // Need to predicate this instruction
-    Value *CurrentMaskVal = Builder.CreateLoad(getCurrentMask());
     llvm::Function *BlendFunc = llvm::Intrinsic::getDeclaration(MainModule, 
                                 (llvm::Intrinsic::ID) Intrinsic::nyuzi_vector_mixf,
                                 None);
@@ -54,7 +53,7 @@ void SPMDBuilder::assignLocalVariable(Value *Variable, Value *NewValue)
     Value *OldValue = Builder.CreateLoad(Variable);
 
     SmallVector<Value*, 3> Ops;
-    Ops.push_back(CurrentMaskVal);
+    Ops.push_back(getCurrentMask());
     Ops.push_back(NewValue);
     Ops.push_back(OldValue);
 
@@ -64,16 +63,12 @@ void SPMDBuilder::assignLocalVariable(Value *Variable, Value *NewValue)
 }
 
 void SPMDBuilder::pushMask(Value *MaskValue) {
-  Value *MaskLocation = Builder.CreateAlloca(Type::getInt32Ty(getGlobalContext()), 0, "mask");
   if (MaskStack.empty()) {
-    Builder.CreateStore(MaskValue, MaskLocation);
-    MaskStackEntry Entry = { MaskLocation, MaskLocation };
+    MaskStackEntry Entry = { MaskValue, MaskValue };
     MaskStack.push_back(Entry);
   } else {
-    Value *PreviousMaskVal = Builder.CreateLoad(getCurrentMask());
-    Value *NewMaskValue = Builder.CreateAnd(MaskValue, PreviousMaskVal);
-    Builder.CreateStore(NewMaskValue, MaskLocation);
-    MaskStackEntry Entry = { MaskLocation, getCurrentMask() };
+    Value *NewCombinedValue = Builder.CreateAnd(MaskValue, getCurrentMask());
+    MaskStackEntry Entry = { MaskValue, NewCombinedValue };
     MaskStack.push_back(Entry);
   }
 }
@@ -86,21 +81,12 @@ void SPMDBuilder::invertLastPushedMask() {
   MaskStackEntry PreviousTop = MaskStack.back();
   MaskStack.pop_back();
 
-  Value *LastPredicate = Builder.CreateLoad(PreviousTop.ThisMask);
-  Value *InvertedMask = Builder.CreateNot(LastPredicate);
-
-  Value *NewMask = InvertedMask;
-  if (!MaskStack.empty()) {
-    Value *PreviousMaskVal = Builder.CreateLoad(getCurrentMask());
-    NewMask = Builder.CreateAnd(InvertedMask, PreviousMaskVal);
-  }
+  Value *NewMask = Builder.CreateNot(PreviousTop.ThisMask);
+  Value *NewCombined = NewMask;
+  if (!MaskStack.empty())
+    NewCombined = Builder.CreateAnd(NewMask, getCurrentMask());
   
-  Value *NewMaskLoc = Builder.CreateAlloca(Type::getInt32Ty(getGlobalContext()), 0, "mask");
-  Value *InvertedMaskLoc = Builder.CreateAlloca(Type::getInt32Ty(getGlobalContext()), 0, "mask");
-  Builder.CreateStore(NewMask, NewMaskLoc);
-  Builder.CreateStore(InvertedMask, InvertedMaskLoc);
-
-  MaskStackEntry NewTop = { NewMaskLoc, InvertedMaskLoc };
+  MaskStackEntry NewTop = { NewMask, NewCombined };
   MaskStack.push_back(NewTop);
 }
 
@@ -109,8 +95,7 @@ Value *SPMDBuilder::getCurrentMask() {
 }
 
 void SPMDBuilder::shortCircuitZeroMask(llvm::BasicBlock *SkipTo, llvm::BasicBlock *Next) {
-  Value *CurrentMaskVal = Builder.CreateLoad(getCurrentMask());
-  Builder.CreateCondBr(CurrentMaskVal, Next, SkipTo);
+  Builder.CreateCondBr(getCurrentMask(), Next, SkipTo);
 }
 
 Value *SPMDBuilder::createCompare(CmpInst::Predicate Type, Value *lhs, Value *rhs) {
@@ -203,8 +188,8 @@ Value *SPMDBuilder::createCompare(CmpInst::Predicate Type, Value *lhs, Value *rh
   return Builder.CreateCall(CompareFunc, Ops, "");
 }
 
-Value *SPMDBuilder::createAdd(Value *Lhs, Value *Rhs) {
-    return Builder.CreateFAdd(Lhs, Rhs);
+Value *SPMDBuilder::createSub(Value *Lhs, Value *Rhs) {
+    return Builder.CreateFSub(Lhs, Rhs);
 }
 
 BasicBlock *SPMDBuilder::createBasicBlock(const char *name) {

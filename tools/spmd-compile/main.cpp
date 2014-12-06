@@ -37,9 +37,9 @@ void MakeFunction(Module *M)
   Value *Var1 = Builder.createLocalVariable("foo");
   Value *Var2 = Builder.createLocalVariable("bar");
 
-  AstNode *Cmp = new CompareAst(CmpInst::FCMP_ULE, new VariableAst(Var1), new VariableAst(Var2));
-  AstNode *Then = new AssignAst(new VariableAst(Var1), new VariableAst(Var2));
-  AstNode *Else = new AssignAst(new VariableAst(Var2), new VariableAst(Var1));
+  AstNode *Cmp = new CompareAst(CmpInst::FCMP_UGE, new VariableAst(Var1), new VariableAst(Var2));
+  AstNode *Then = new AssignAst(new VariableAst(Var1), new BinaryAst(new VariableAst(Var1), new VariableAst(Var2)));
+  AstNode *Else = new AssignAst(new VariableAst(Var2), new BinaryAst(new VariableAst(Var2), new VariableAst(Var1)));
   AstNode *If = new IfAst(Cmp, Then, Else);
   SequenceAst *Seq = new SequenceAst;
   Seq->addNode(If);
