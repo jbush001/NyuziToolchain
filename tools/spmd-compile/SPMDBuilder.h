@@ -65,6 +65,7 @@ private:
   llvm::Module *MainModule;
   llvm::SmallVector<MaskStackEntry, 10> MaskStack;
   llvm::Function *CurrentFunction;
+  llvm::Value *Result;
 };
 
 #endif

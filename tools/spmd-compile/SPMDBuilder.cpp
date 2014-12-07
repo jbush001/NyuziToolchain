@@ -30,9 +30,12 @@ void SPMDBuilder::startFunction(const char *Name, const std::vector<std::string>
 	{
   	AI->setName(ArgNames[Idx]);
 	}
+  
+  Result = createLocalVariable("result");
 }
 
 void SPMDBuilder::endFunction() {
+  Builder.CreateRet(Result);
 }
 
 llvm::Function::arg_iterator SPMDBuilder::getFuncArguments() {
@@ -40,9 +43,8 @@ llvm::Function::arg_iterator SPMDBuilder::getFuncArguments() {
 }
 
 void SPMDBuilder::createReturn(llvm::Value *ReturnValue) {
-  Builder.CreateRet(ReturnValue);
+  assignLocalVariable(Result, ReturnValue);
 }
-
 
 llvm::Value *SPMDBuilder::createLocalVariable(const char *Name) {
   return Builder.CreateAlloca(VectorType::get(Type::getFloatTy(getGlobalContext()), 
