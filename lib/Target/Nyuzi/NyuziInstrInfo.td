@@ -440,28 +440,28 @@ let isTerminator = 1 in {
 		(outs), 
 		(ins GPR32:$test, brtarget:$dest),
 		"bfalse $test, $dest",
-		[(brcond (i32 (seteq i32:$test, 0)), bb:$dest)],
+		[],
 		BT_IfFalse>;
 
 	def BTRUE : ConditionalBranchInst<
 		(outs), 
 		(ins GPR32:$test, brtarget:$dest),
 		"btrue $test, $dest",
-		[(brcond i32:$test, bb:$dest)],
+		[],
 		BT_IfTrue>;
 
 	def BALL: ConditionalBranchInst<
 		(outs),
 		(ins GPR32:$test, brtarget:$dest),
 		"ball $test, $dest",
-		[],	// assembler only XXX expose this to compiler
+		[],
 		BT_All>;
 
 	def BNALL: ConditionalBranchInst<
 		(outs),
 		(ins GPR32:$test, brtarget:$dest),
 		"bnall $test, $dest",
-		[], // assembler only XXX expose this to compiler
+		[],
 		BT_NAll>;
 
 	// Converts to MOVE pc, <srcreg>
@@ -507,6 +507,11 @@ let isTerminator = 1 in {
 		let Inst{4-0} = tableptr;	// Register holds computed pointer into table
 	}
 }
+
+// Branch patterns
+def : Pat<(brcond (i32 (setne i32:$lhs, 0)), bb:$dest), (BTRUE i32:$lhs, bb:$dest)>;
+def : Pat<(brcond (i32 (seteq i32:$lhs, 0)), bb:$dest), (BFALSE i32:$lhs, bb:$dest)>;
+def : Pat<(brcond i32:$lhs, bb:$dest), (BTRUE i32:$lhs, bb:$dest)>;
 
 def RET : VPInstruction<
 	(outs),
