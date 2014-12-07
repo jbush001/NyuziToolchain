@@ -66,6 +66,7 @@ private:
   llvm::SmallVector<MaskStackEntry, 10> MaskStack;
   llvm::Function *CurrentFunction;
   llvm::Value *Result;
+  llvm::Function *VMixFInt;
 };
 
 #endif

@@ -9,6 +9,10 @@ SPMDBuilder::SPMDBuilder(Module *Mod)
   : Builder(getGlobalContext()),
     MainModule(Mod),
     CurrentFunction(nullptr) {
+
+  VMixFInt = llvm::Intrinsic::getDeclaration(MainModule, 
+                                (llvm::Intrinsic::ID) Intrinsic::nyuzi_vector_mixf,
+                                None);
 }
 
 SPMDBuilder::~SPMDBuilder() {
@@ -61,18 +65,9 @@ void SPMDBuilder::assignLocalVariable(Value *Variable, Value *NewValue)
     Builder.CreateStore(NewValue, Variable);
   } else {
     // Need to predicate this instruction
-    llvm::Function *BlendFunc = llvm::Intrinsic::getDeclaration(MainModule, 
-                                (llvm::Intrinsic::ID) Intrinsic::nyuzi_vector_mixf,
-                                None);
-
     Value *OldValue = Builder.CreateLoad(Variable);
-
-    SmallVector<Value*, 3> Ops;
-    Ops.push_back(getCurrentMask());
-    Ops.push_back(NewValue);
-    Ops.push_back(OldValue);
-
-    Value *Blended = Builder.CreateCall(BlendFunc, Ops, "");
+    Value *Blended = Builder.CreateCall3(VMixFInt, 
+      getCurrentMask(), NewValue, OldValue, "whatisthisname");
     Builder.CreateStore(Blended, Variable);
   }
 }
