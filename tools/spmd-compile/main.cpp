@@ -54,7 +54,7 @@ bool generateTargetCode(Module *TheModule)
     target(TheTarget->createTargetMachine(TheTriple.getTriple(),
                                           "", "", Options,
                                           Reloc::Default, CodeModel::Default, 
-                                          CodeGenOpt::Default));
+                                          CodeGenOpt::Aggressive));
   TargetMachine &Target = *target.get();
 
   // Override default to generate verbose assembly.
@@ -63,7 +63,12 @@ bool generateTargetCode(Module *TheModule)
   raw_fd_ostream Raw("-", Error, llvm::sys::fs::F_Text);
   formatted_raw_ostream FOS(Raw);
   
+  PM.add(createBasicAliasAnalysisPass());
   PM.add(createPromoteMemoryToRegisterPass());
+  PM.add(createInstructionCombiningPass());
+  PM.add(createReassociatePass());
+  PM.add(createGVNPass());
+  PM.add(createCFGSimplificationPass());
   
   if (Target.addPassesToEmitFile(PM, FOS, TargetMachine::CGFT_AssemblyFile, true,
                                  0, 0)) {
