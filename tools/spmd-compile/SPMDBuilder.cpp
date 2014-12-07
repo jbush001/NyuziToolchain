@@ -35,7 +35,7 @@ void SPMDBuilder::startFunction(const char *Name, const std::vector<std::string>
 }
 
 void SPMDBuilder::endFunction() {
-  Builder.CreateRet(Result);
+  Builder.CreateRet(readLocalVariable(Result));
 }
 
 llvm::Function::arg_iterator SPMDBuilder::getFuncArguments() {
