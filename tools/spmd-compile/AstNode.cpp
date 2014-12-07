@@ -44,11 +44,41 @@ Value *AssignAst::generate(SPMDBuilder &Builder)
 Value *IfAst::generate(SPMDBuilder &Builder)
 {
 	Builder.pushMask(Cond->generate(Builder));
-	Then->generate(Builder);
-	if (Else) {
+  if (Else)
+  {
+    llvm::BasicBlock *ThenBB = Builder.createBasicBlock("then");
+    llvm::BasicBlock *ElseTopBB = Builder.createBasicBlock("elsetop");
+    llvm::BasicBlock *ElseBodyBB = Builder.createBasicBlock("elsebody");
+    llvm::BasicBlock *EndifBB = Builder.createBasicBlock("endif");
+
+    // Skip threads that aren't active for 'then' block
+    Builder.shortCircuitZeroMask(ElseTopBB, ThenBB); 
+
+    // Generate 'then'
+    Builder.setInsertPoint(ThenBB);
+    Then->generate(Builder);
+    Builder.branch(ElseTopBB);
+
+    // Invert active mask
+    Builder.setInsertPoint(ElseTopBB);
 		Builder.invertLastPushedMask();
+    Builder.shortCircuitZeroMask(EndifBB, ElseBodyBB); 
+
+    // Generate 'else'
+    Builder.setInsertPoint(ElseBodyBB);
 		Else->generate(Builder);
-	}
+    Builder.branch(EndifBB);
+    Builder.setInsertPoint(EndifBB);
+  }
+  else
+  {
+    llvm::BasicBlock *ThenBB = Builder.createBasicBlock("then");
+    llvm::BasicBlock *EndifBB = Builder.createBasicBlock("endif");
+    Builder.shortCircuitZeroMask(EndifBB, ThenBB); 
+    Builder.setInsertPoint(ThenBB);
+    Then->generate(Builder);
+    Builder.setInsertPoint(EndifBB);
+  }
 
 	Builder.popMask();	
 	return nullptr;
@@ -56,20 +86,23 @@ Value *IfAst::generate(SPMDBuilder &Builder)
 
 Value *WhileAst::generate(SPMDBuilder &Builder)
 {
-  llvm::BasicBlock *LoopTop = Builder.createBasicBlock("looptop");
-  llvm::BasicBlock *LoopBody = Builder.createBasicBlock("loopbody");
-  llvm::BasicBlock *LoopEnd = Builder.createBasicBlock("loopbody");
+  llvm::BasicBlock *LoopTopBB = Builder.createBasicBlock("looptop");
+  llvm::BasicBlock *LoopBodyBB = Builder.createBasicBlock("loopbody");
+  llvm::BasicBlock *LoopEndBB = Builder.createBasicBlock("loopbody");
   
-  Builder.branch(LoopTop);
-  Builder.setInsertPoint(LoopTop);
+  // Loop check
+  Builder.branch(LoopTopBB);
+  Builder.setInsertPoint(LoopTopBB);
 	Value *LoopCond = Cond->generate(Builder);
   Builder.pushMask(LoopCond);
-  Builder.shortCircuitZeroMask(LoopEnd, LoopBody); 
-  Builder.setInsertPoint(LoopBody);
+  Builder.shortCircuitZeroMask(LoopEndBB, LoopBodyBB); 
+
+  // Loop body
+  Builder.setInsertPoint(LoopBodyBB);
   Body->generate(Builder);
-  Builder.branch(LoopTop);
+  Builder.branch(LoopTopBB);
   Builder.popMask();
-  Builder.setInsertPoint(LoopEnd);
+  Builder.setInsertPoint(LoopEndBB);
 }
 
 Value *VariableAst::generate(SPMDBuilder &Builder)

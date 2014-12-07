@@ -112,11 +112,10 @@ Value *SPMDBuilder::getCurrentMask() {
 void SPMDBuilder::shortCircuitZeroMask(llvm::BasicBlock *SkipTo, llvm::BasicBlock *Next) {
   llvm::Value *BoolCond = Builder.CreateICmpEQ(getCurrentMask(),
     ConstantInt::get(getGlobalContext(), APInt(32, 0)));
-  Builder.CreateCondBr(BoolCond, Next, SkipTo);
+  Builder.CreateCondBr(BoolCond, SkipTo, Next);
 }
 
-void SPMDBuilder::branch(llvm::BasicBlock *Dest)
-{
+void SPMDBuilder::branch(llvm::BasicBlock *Dest) {
   Builder.CreateBr(Dest);
 }
 
