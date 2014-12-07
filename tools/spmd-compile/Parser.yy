@@ -10,18 +10,19 @@
 using namespace std;
 using namespace llvm;
 
+int yyerror(const char *error);
+int yywrap();
+int yylex();
+Symbol *lookupSymbol(const char *name);
+
 int ErrorCount;
 extern int CurrentLine;
 typedef map<string, Symbol*> Scope;
 static vector<Scope> ScopeStack;
 SPMDBuilder *Builder;
-
-
-int yyerror(const char *error);
-int yywrap();
-int yylex();
-
-Symbol *lookupSymbol(const char *name);
+string FunctionName;
+static vector<string> ArgumentNames;
+static vector<Symbol*> ArgumentSyms;
 
 %}
 
@@ -54,7 +55,7 @@ Symbol *lookupSymbol(const char *name);
 }
 
 %type <node> expr statement stmtseq ifstmt whilestmt assignstmt
-%type <node> variable vardecl returnstmt 
+%type <node> variable vardecl returnstmt
 %type <numVal> TOK_NUMBER
 %type <strval> TOK_STRING TOK_IDENTIFIER
 
@@ -62,12 +63,40 @@ Symbol *lookupSymbol(const char *name);
 module			:		funcdecl
 				;
 
-funcdecl		:		TOK_FLOAT TOK_IDENTIFIER '(' ')' 
-						'{' enter_scope stmtseq leave_scope '}'
+funcdecl		:		TOK_FLOAT TOK_IDENTIFIER enter_scope '(' parameters ')'
+						'{' stmtseq leave_scope '}'
 						{
-							Builder->startFunction($2);
-							$7->generate(*Builder);
+							FunctionName = $2;
+							Builder->startFunction($2, ArgumentNames);
+							Function::arg_iterator AI = Builder->getFuncArguments();
+							for (auto Sym : ArgumentSyms)
+							{
+								Sym->Val = Builder->createLocalVariable(Sym->Name.c_str());
+								Builder->assignLocalVariable(Sym->Val, AI);
+								AI++;
+							}
+
+							$8->generate(*Builder);
 							Builder->endFunction();  
+							ArgumentNames.clear();
+						}
+				;
+	
+parameters		: 		paramlist
+				|		/* nothing */
+				;
+				
+paramlist		:		paramlist ',' paramdecl
+				|		paramdecl
+				;
+
+paramdecl		:		TOK_FLOAT TOK_IDENTIFIER
+						{
+							ArgumentNames.push_back($2);
+							Symbol *Sym = new Symbol;
+							Sym->Name = $2;
+							ScopeStack.back()[$2] = Sym;
+							ArgumentSyms.push_back(Sym);
 						}
 				;
 
@@ -82,7 +111,13 @@ statement		:		ifstmt
 							$$ = $3;
 						}
 				|		'{' '}'
+						{
+							$$ = nullptr;
+						}
 				|		';'
+						{
+							$$ = nullptr;
+						}
 				;
 
 returnstmt		:		TOK_RETURN expr
@@ -115,7 +150,7 @@ vardecl			:		TOK_FLOAT TOK_IDENTIFIER
 						{
 							if (lookupSymbol($2))
 							{
-								printf("Redeclared symbol %s\n", $2);
+								yyerror("Redeclared symbol");
 								YYERROR;
 							}
 							else
@@ -131,7 +166,7 @@ vardecl			:		TOK_FLOAT TOK_IDENTIFIER
 						{
 							if (lookupSymbol($2))
 							{
-								printf("Redeclared symbol %s\n", $2);
+								yyerror("Redeclared symbol");
 								YYERROR;
 							}
 							else
@@ -212,7 +247,7 @@ variable		:		TOK_IDENTIFIER
 							Symbol *Sym = lookupSymbol($1);
 							if (Sym == nullptr)
 							{
-								printf("Undefined variable %s\n", $1);
+								yyerror("Undefined variable");
 								YYERROR;
 							}
 

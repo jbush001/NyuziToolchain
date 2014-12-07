@@ -8,9 +8,9 @@ class SPMDBuilder {
 public:
   SPMDBuilder(llvm::Module *Mod);
   ~SPMDBuilder();
-	void startFunction(const char *name);
-  
+	void startFunction(const char *name, const std::vector<std::string> &ArgNames);
   void endFunction();
+  llvm::Function::arg_iterator getFuncArguments();
   
   void createReturn(llvm::Value *ReturnValue);
   
@@ -36,7 +36,7 @@ public:
   /// Emit a branch to skip the block if no mask bits are set.
   void shortCircuitZeroMask(llvm::BasicBlock *SkipTo, llvm::BasicBlock *Next);
   
-  void createBranch(llvm::BasicBlock *Dest);
+  void branch(llvm::BasicBlock *Dest);
   
   llvm::Value *createCompare(llvm::CmpInst::Predicate type, llvm::Value *lhs, llvm::Value *rhs);
 

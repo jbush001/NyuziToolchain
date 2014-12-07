@@ -14,16 +14,29 @@ SPMDBuilder::SPMDBuilder(Module *Mod)
 SPMDBuilder::~SPMDBuilder() {
 }
 
-void SPMDBuilder::startFunction(const char *name) {
-  CurrentFunction = cast<Function>(MainModule->getOrInsertFunction(name, 
-                                  Type::getInt32Ty(getGlobalContext()),
-                                  Type::getInt32Ty(getGlobalContext()),
-                                  (Type *)0));
+void SPMDBuilder::startFunction(const char *Name, const std::vector<std::string> 
+  &ArgNames) {
+  Type *VecF = VectorType::get(Type::getFloatTy(getGlobalContext()), 16);
+  std::vector<Type*> Params(ArgNames.size(), VecF);
+  FunctionType *FT = FunctionType::get(VecF, Params, false);
+  CurrentFunction = Function::Create(FT, Function::ExternalLinkage, Name, MainModule);
+
   BasicBlock *BB = BasicBlock::Create(getGlobalContext(), "Entry", CurrentFunction);
   Builder.SetInsertPoint(BB);
+  
+	unsigned Idx = 0;
+	for (Function::arg_iterator AI = CurrentFunction->arg_begin(); 
+		Idx != ArgNames.size(); ++AI, ++Idx)
+	{
+  	AI->setName(ArgNames[Idx]);
+	}
 }
 
 void SPMDBuilder::endFunction() {
+}
+
+llvm::Function::arg_iterator SPMDBuilder::getFuncArguments() {
+  return CurrentFunction->arg_begin();
 }
 
 void SPMDBuilder::createReturn(llvm::Value *ReturnValue) {
@@ -100,7 +113,7 @@ void SPMDBuilder::shortCircuitZeroMask(llvm::BasicBlock *SkipTo, llvm::BasicBloc
   Builder.CreateCondBr(BoolCond, Next, SkipTo);
 }
 
-void SPMDBuilder::createBranch(llvm::BasicBlock *Dest)
+void SPMDBuilder::branch(llvm::BasicBlock *Dest)
 {
   Builder.CreateBr(Dest);
 }

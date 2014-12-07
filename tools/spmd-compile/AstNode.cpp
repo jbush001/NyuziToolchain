@@ -60,14 +60,14 @@ Value *WhileAst::generate(SPMDBuilder &Builder)
   llvm::BasicBlock *LoopBody = Builder.createBasicBlock("loopbody");
   llvm::BasicBlock *LoopEnd = Builder.createBasicBlock("loopbody");
   
-  Builder.createBranch(LoopTop);
+  Builder.branch(LoopTop);
   Builder.setInsertPoint(LoopTop);
 	Value *LoopCond = Cond->generate(Builder);
   Builder.pushMask(LoopCond);
   Builder.shortCircuitZeroMask(LoopEnd, LoopBody); 
   Builder.setInsertPoint(LoopBody);
   Body->generate(Builder);
-  Builder.createBranch(LoopTop);
+  Builder.branch(LoopTop);
   Builder.popMask();
   Builder.setInsertPoint(LoopEnd);
 }
