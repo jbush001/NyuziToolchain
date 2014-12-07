@@ -67,7 +67,7 @@ void SPMDBuilder::assignLocalVariable(Value *Variable, Value *NewValue)
     // Need to predicate this instruction
     Value *OldValue = Builder.CreateLoad(Variable);
     Value *Blended = Builder.CreateCall3(VMixFInt, 
-      getCurrentMask(), NewValue, OldValue, "whatisthisname");
+      getCurrentMask(), NewValue, OldValue);
     Builder.CreateStore(Blended, Variable);
   }
 }
@@ -77,7 +77,7 @@ void SPMDBuilder::pushMask(Value *MaskValue) {
     MaskStackEntry Entry = { MaskValue, MaskValue };
     MaskStack.push_back(Entry);
   } else {
-    Value *NewCombinedValue = Builder.CreateAnd(MaskValue, getCurrentMask());
+    Value *NewCombinedValue = Builder.CreateAnd(MaskValue, getCurrentMask(), "pred");
     MaskStackEntry Entry = { MaskValue, NewCombinedValue };
     MaskStack.push_back(Entry);
   }
@@ -91,7 +91,7 @@ void SPMDBuilder::invertLastPushedMask() {
   MaskStackEntry PreviousTop = MaskStack.back();
   MaskStack.pop_back();
 
-  Value *NewMask = Builder.CreateNot(PreviousTop.ThisMask);
+  Value *NewMask = Builder.CreateNot(PreviousTop.ThisMask, "invpred");
   Value *NewCombined = NewMask;
   if (!MaskStack.empty())
     NewCombined = Builder.CreateAnd(NewMask, getCurrentMask());
@@ -199,7 +199,7 @@ Value *SPMDBuilder::createCompare(CmpInst::Predicate Type, Value *lhs, Value *rh
   Ops.push_back(lhs);
   Ops.push_back(rhs);
   
-  return Builder.CreateCall(CompareFunc, Ops, "");
+  return Builder.CreateCall(CompareFunc, Ops, "pred");
 }
 
 Value *SPMDBuilder::createSub(Value *Lhs, Value *Rhs) {
@@ -227,7 +227,7 @@ void SPMDBuilder::setInsertPoint(BasicBlock *BB) {
 }
 
 Value *SPMDBuilder::createConstant(float Value) {
-  return Builder.CreateVectorSplat(16, ConstantFP::get(getGlobalContext(), APFloat(Value)));
+  return Builder.CreateVectorSplat(16, ConstantFP::get(getGlobalContext(), APFloat(Value)), "const");
 }
 
 
