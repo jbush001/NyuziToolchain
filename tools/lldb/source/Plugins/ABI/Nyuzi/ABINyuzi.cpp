@@ -158,14 +158,14 @@ ABINyuzi::PrepareTrivialCall ( Thread &thread,
                                       llvm::ArrayRef<addr_t> args ) const
 {
  	// XXX implement me
-    return false;
+  return false;
 }
 
 bool
 ABINyuzi::GetArgumentValues ( Thread &thread, ValueList &values ) const
 {
 	// XXX implement me
-    return false;
+  return false;
 }
 
 Error
@@ -176,85 +176,86 @@ ABINyuzi::SetReturnValueObject ( lldb::StackFrameSP &frame_sp, lldb::ValueObject
 	// XXX implement me
 	assert(0);
 
-    return error;
+  return error;
 }
 
 ValueObjectSP
 ABINyuzi::GetReturnValueObjectSimple ( Thread &thread, ClangASTType &return_clang_type ) const
 {
-    ValueObjectSP return_valobj_sp;
+  ValueObjectSP return_valobj_sp;
 
 	// XXX implement me
 	assert(0);
 
-    return return_valobj_sp;
+  return return_valobj_sp;
 }
 
 ValueObjectSP
 ABINyuzi::GetReturnValueObjectImpl ( Thread &thread, ClangASTType &return_clang_type ) const
 {
-    ValueObjectSP return_valobj_sp;
+  ValueObjectSP return_valobj_sp;
 
 	// XXX implement me
 	assert(0);
 
-    return return_valobj_sp;
+  return return_valobj_sp;
 }
 
 // See lib/Target/Nyuzi/NyuziFrameLowering.cpp, emitPrologue
 bool
 ABINyuzi::CreateFunctionEntryUnwindPlan ( UnwindPlan &unwind_plan )
 {
-    unwind_plan.Clear();
-    unwind_plan.SetRegisterKind(eRegisterKindGeneric);
-    unwind_plan.SetReturnAddressRegister(LLDB_REGNUM_GENERIC_RA);
-    
-    UnwindPlan::RowSP row(new UnwindPlan::Row);
+  unwind_plan.Clear();
+  unwind_plan.SetRegisterKind(eRegisterKindDWARF);
+  unwind_plan.SetReturnAddressRegister(LLDB_REGNUM_GENERIC_RA);
+  
+  UnwindPlan::RowSP row(new UnwindPlan::Row);
 
-    // Our Call Frame Address is the stack pointer value
-    row->SetCFARegister(LLDB_REGNUM_GENERIC_SP);
-    row->SetCFAOffset(0);
-    row->SetOffset(0);
+  // Our Call Frame Address is the stack pointer value
+  row->SetCFARegister(29);
+  row->SetCFAOffset(0);
+  row->SetOffset(0);
 
-    // The previous PC is in the link
-    row->SetRegisterLocationToRegister(LLDB_REGNUM_GENERIC_PC, LLDB_REGNUM_GENERIC_RA, true);
-    unwind_plan.AppendRow(row);
-    
-    unwind_plan.SetSourceName("nyuzi at-func-entry default");
-    unwind_plan.SetSourcedFromCompiler(eLazyBoolNo);
-    return true;
+  // The previous PC is in the link
+  row->SetRegisterLocationToRegister(31, 30, true);
+  unwind_plan.AppendRow(row);
+  
+  unwind_plan.SetSourceName("nyuzi at-func-entry default");
+  unwind_plan.SetSourcedFromCompiler(eLazyBoolNo);
+  return true;
 }
 
 bool
 ABINyuzi::CreateDefaultUnwindPlan ( UnwindPlan &unwind_plan )
 {
-    unwind_plan.Clear();
-    unwind_plan.SetRegisterKind(eRegisterKindGeneric);
+  unwind_plan.Clear();
+  unwind_plan.SetRegisterKind(eRegisterKindDWARF);
+  UnwindPlan::RowSP row(new UnwindPlan::Row);
 
-    uint32_t fp_reg_num = LLDB_REGNUM_GENERIC_FP;
-    uint32_t sp_reg_num = LLDB_REGNUM_GENERIC_SP;
-    uint32_t pc_reg_num = LLDB_REGNUM_GENERIC_PC;
+  row->SetCFARegister(29);
+  row->SetCFAOffset(0);
+  row->SetOffset(0);
+  row->SetRegisterLocationToRegister(31, 30, true);
 
-    UnwindPlan::RowSP row(new UnwindPlan::Row);
-
-    row->SetCFARegister(LLDB_REGNUM_GENERIC_SP);
-    row->SetCFAOffset(0);
-    row->SetOffset(0);
-
-    unwind_plan.AppendRow(row);
-    unwind_plan.SetSourceName("nyuzi default unwind plan");
-    unwind_plan.SetSourcedFromCompiler(eLazyBoolNo);
+  unwind_plan.AppendRow(row);
+  unwind_plan.SetSourceName("nyuzi default unwind plan");
+  unwind_plan.SetSourcedFromCompiler(eLazyBoolNo);
 	unwind_plan.SetUnwindPlanValidAtAllInstructions(eLazyBoolNo);
-    return true;
+  return true;
 }
 
+// Return if a register is caller saved
 // See lib/Target/Nyuzi/NyuziCallingConv.td
+// PC must be marked not volatile.
 bool
 ABINyuzi::RegisterIsVolatile ( const RegisterInfo *reg_info )
 {
-    int reg = reg_info->kinds[eRegisterKindDWARF];
-	if ((reg >= 24 && reg <= 30) || reg >= 26 + 32)
-		return false;	// Callee saved, not volatile
+  int reg = reg_info->kinds[eRegisterKindDWARF];
+  if (reg == 30)  // link register
+    return true;
+
+	if ((reg >= 24 && reg <= 31) || reg >= 26 + 32)
+		return false;
 	
 	return true;
 }
