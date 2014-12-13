@@ -25,6 +25,47 @@ using namespace lldb;
 using namespace lldb_private;
 using namespace lldb_private::formatters;
 
+namespace lldb_private {
+    namespace formatters {
+        class LibcxxStdMapSyntheticFrontEnd : public SyntheticChildrenFrontEnd
+        {
+        public:
+            LibcxxStdMapSyntheticFrontEnd (lldb::ValueObjectSP valobj_sp);
+            
+            virtual size_t
+            CalculateNumChildren ();
+            
+            virtual lldb::ValueObjectSP
+            GetChildAtIndex (size_t idx);
+            
+            virtual bool
+            Update();
+            
+            virtual bool
+            MightHaveChildren ();
+            
+            virtual size_t
+            GetIndexOfChildWithName (const ConstString &name);
+            
+            virtual
+            ~LibcxxStdMapSyntheticFrontEnd ();
+        private:
+            bool
+            GetDataType();
+            
+            void
+            GetValueOffset (const lldb::ValueObjectSP& node);
+            
+            ValueObject* m_tree;
+            ValueObject* m_root_node;
+            ClangASTType m_element_type;
+            uint32_t m_skip_size;
+            size_t m_count;
+            std::map<size_t,lldb::ValueObjectSP> m_children;
+        };
+    }
+}
+
 class MapEntry
 {
 public:
@@ -379,7 +420,7 @@ lldb_private::formatters::LibcxxStdMapSyntheticFrontEnd::GetChildAtIndex (size_t
     }
     StreamString name;
     name.Printf("[%" PRIu64 "]", (uint64_t)idx);
-    auto potential_child_sp = ValueObject::CreateValueObjectFromData(name.GetData(), data, m_backend.GetExecutionContextRef(), m_element_type);
+    auto potential_child_sp = CreateValueObjectFromData(name.GetData(), data, m_backend.GetExecutionContextRef(), m_element_type);
     if (potential_child_sp)
     {
         switch (potential_child_sp->GetNumChildren())

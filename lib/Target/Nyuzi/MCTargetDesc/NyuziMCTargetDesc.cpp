@@ -72,8 +72,8 @@ static MCStreamer *createNyuziMCStreamer(const Target &T, StringRef TT,
                                               raw_ostream &_OS,
                                               MCCodeEmitter *_Emitter,
                                               const MCSubtargetInfo &STI,
-                                              bool RelaxAll, bool NoExecStack) {
-  return createELFStreamer(Ctx, MAB, _OS, _Emitter, RelaxAll, NoExecStack);
+                                              bool RelaxAll) {
+  return createELFStreamer(Ctx, MAB, _OS, _Emitter, RelaxAll);
 }
 
 static MCInstPrinter *

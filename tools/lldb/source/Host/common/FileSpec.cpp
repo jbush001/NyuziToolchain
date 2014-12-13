@@ -167,10 +167,10 @@ FileSpec::Resolve (llvm::SmallVectorImpl<char> &path)
     llvm::sys::fs::make_absolute(path);
 }
 
-FileSpec::FileSpec()
-    : m_directory()
-    , m_filename()
-    , m_syntax(FileSystem::GetNativePathSyntax())
+FileSpec::FileSpec() : 
+    m_directory(), 
+    m_filename(), 
+    m_syntax(FileSystem::GetNativePathSyntax())
 {
 }
 
@@ -181,7 +181,8 @@ FileSpec::FileSpec()
 FileSpec::FileSpec(const char *pathname, bool resolve_path, PathSyntax syntax) :
     m_directory(),
     m_filename(),
-    m_is_resolved(false)
+    m_is_resolved(false),
+    m_syntax(syntax)
 {
     if (pathname && pathname[0])
         SetFile(pathname, resolve_path, syntax);
@@ -267,14 +268,18 @@ FileSpec::SetFile (const char *pathname, bool resolve, PathSyntax syntax)
         return;
 
     llvm::SmallString<64> normalized(pathname);
-    Normalize(normalized, syntax);
 
     if (resolve)
     {
         FileSpec::Resolve (normalized);
         m_is_resolved = true;
     }
-    
+
+    // Only normalize after resolving the path.  Resolution will modify the path
+    // string, potentially adding wrong kinds of slashes to the path, that need
+    // to be re-normalized.
+    Normalize(normalized, syntax);
+
     llvm::StringRef resolve_path_ref(normalized.c_str());
     llvm::StringRef filename_ref = llvm::sys::path::filename(resolve_path_ref);
     if (!filename_ref.empty())
@@ -447,15 +452,129 @@ FileSpec::Compare(const FileSpec& a, const FileSpec& b, bool full)
 }
 
 bool
-FileSpec::Equal (const FileSpec& a, const FileSpec& b, bool full)
+FileSpec::Equal (const FileSpec& a, const FileSpec& b, bool full, bool remove_backups)
 {
     if (!full && (a.GetDirectory().IsEmpty() || b.GetDirectory().IsEmpty()))
         return a.m_filename == b.m_filename;
-    else
+    else if (remove_backups == false)
         return a == b;
+    else
+    {
+        if (a.m_filename != b.m_filename)
+            return false;
+        if (a.m_directory == b.m_directory)
+            return true;
+        ConstString a_without_dots;
+        ConstString b_without_dots;
+
+        RemoveBackupDots (a.m_directory, a_without_dots);
+        RemoveBackupDots (b.m_directory, b_without_dots);
+        return a_without_dots == b_without_dots;
+    }
 }
 
+void
+FileSpec::RemoveBackupDots (const ConstString &input_const_str, ConstString &result_const_str)
+{
+    const char *input = input_const_str.GetCString();
+    result_const_str.Clear();
+    if (!input || input[0] == '\0')
+        return;
 
+    const char win_sep = '\\';
+    const char unix_sep = '/';
+    char found_sep;
+    const char *win_backup = "\\..";
+    const char *unix_backup = "/..";
+
+    bool is_win = false;
+
+    // Determine the platform for the path (win or unix):
+    
+    if (input[0] == win_sep)
+        is_win = true;
+    else if (input[0] == unix_sep)
+        is_win = false;
+    else if (input[1] == ':')
+        is_win = true;
+    else if (strchr(input, unix_sep) != nullptr)
+        is_win = false;
+    else if (strchr(input, win_sep) != nullptr)
+        is_win = true;
+    else
+    {
+        // No separators at all, no reason to do any work here.
+        result_const_str = input_const_str;
+        return;
+    }
+
+    llvm::StringRef backup_sep;
+    if (is_win)
+    {
+        found_sep = win_sep;
+        backup_sep = win_backup;
+    }
+    else
+    {
+        found_sep = unix_sep;
+        backup_sep = unix_backup;
+    }
+    
+    llvm::StringRef input_ref(input);
+    llvm::StringRef curpos(input);
+
+    bool had_dots = false;
+    std::string result;
+
+    while (1)
+    {
+        // Start of loop
+        llvm::StringRef before_sep;
+        std::pair<llvm::StringRef, llvm::StringRef> around_sep = curpos.split(backup_sep);
+        
+        before_sep = around_sep.first;
+        curpos     = around_sep.second;
+
+        if (curpos.empty())
+        {
+            if (had_dots)
+            {
+                if (!before_sep.empty())
+                {
+                    result.append(before_sep.data(), before_sep.size());
+                }
+            }
+            break;
+        }
+        had_dots = true;
+
+        unsigned num_backups = 1;
+        while (curpos.startswith(backup_sep))
+        {
+            num_backups++;
+            curpos = curpos.slice(backup_sep.size(), curpos.size());
+        }
+        
+        size_t end_pos = before_sep.size();
+        while (num_backups-- > 0)
+        {
+            end_pos = before_sep.rfind(found_sep, end_pos);
+            if (end_pos == llvm::StringRef::npos)
+            {
+                result_const_str = input_const_str;
+                return;
+            }
+        }
+        result.append(before_sep.data(), end_pos);
+    }
+
+    if (had_dots)
+        result_const_str.SetCString(result.c_str());
+    else
+        result_const_str = input_const_str;
+        
+    return;
+}
 
 //------------------------------------------------------------------
 // Dump the object to the supplied stream. If the object contains
@@ -503,7 +622,10 @@ FileSpec::ResolveExecutableLocation ()
         if (file_cstr)
         {
             const std::string file_str (file_cstr);
-            std::string path = llvm::sys::FindProgramByName (file_str);
+            llvm::ErrorOr<std::string> error_or_path = llvm::sys::findProgramByName (file_str);
+            if (!error_or_path)
+                return false;
+            std::string path = error_or_path.get();
             llvm::StringRef dir_ref = llvm::sys::path::parent_path(path);
             if (!dir_ref.empty())
             {
@@ -1218,17 +1340,30 @@ FileSpec::IsSourceImplementationFile () const
 bool
 FileSpec::IsRelativeToCurrentWorkingDirectory () const
 {
-    const char *directory = m_directory.GetCString();
-    if (directory && directory[0])
+    const char *dir = m_directory.GetCString();
+    llvm::StringRef directory(dir ? dir : "");
+
+    if (directory.size() > 0)
     {
-        // If the path doesn't start with '/' or '~', return true
-        switch (directory[0])
+        if (m_syntax == ePathSyntaxWindows)
         {
-        case '/':
-        case '~':
-            return false;
-        default:
+            if (directory.size() >= 2 && directory[1] == ':')
+                return false;
+            if (directory[0] == '/')
+                return false;
             return true;
+        }
+        else
+        {
+            // If the path doesn't start with '/' or '~', return true
+            switch (directory[0])
+            {
+                case '/':
+                case '~':
+                    return false;
+                default:
+                    return true;
+            }
         }
     }
     else if (m_filename)

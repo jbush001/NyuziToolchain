@@ -49,7 +49,7 @@ CommandObject::CommandObject
     uint32_t flags
 ) :
     m_interpreter (interpreter),
-    m_cmd_name (name),
+    m_cmd_name (name ? name : ""),
     m_cmd_help_short (),
     m_cmd_help_long (),
     m_cmd_syntax (),
@@ -1016,6 +1016,18 @@ CommandObject::GetArgumentDescriptionAsCString (const lldb::CommandArgumentType 
     if (arg_type >=0 && arg_type < eArgTypeLastArg)
         return g_arguments_data[arg_type].help_text;
     return nullptr;
+}
+
+Target *
+CommandObject::GetDummyTarget()
+{
+    return m_interpreter.GetDebugger().GetDummyTarget();
+}
+
+Target *
+CommandObject::GetSelectedOrDummyTarget(bool prefer_dummy)
+{
+    return m_interpreter.GetDebugger().GetSelectedOrDummyTarget(prefer_dummy);
 }
 
 bool

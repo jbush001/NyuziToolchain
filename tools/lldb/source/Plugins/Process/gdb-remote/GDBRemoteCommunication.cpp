@@ -17,10 +17,10 @@
 
 // C++ Includes
 // Other libraries and framework includes
-#include "lldb/Core/ConnectionFileDescriptor.h"
 #include "lldb/Core/Log.h"
 #include "lldb/Core/StreamFile.h"
 #include "lldb/Core/StreamString.h"
+#include "lldb/Host/ConnectionFileDescriptor.h"
 #include "lldb/Host/FileSpec.h"
 #include "lldb/Host/FileSystem.h"
 #include "lldb/Host/Host.h"
@@ -475,8 +475,8 @@ GDBRemoteCommunication::CheckForPacket (const uint8_t *src, size_t src_len, Stri
                     }
                     if (log)
                         log->Printf ("GDBRemoteCommunication::%s tossing %u junk bytes: '%.*s'",
-                                     __FUNCTION__, idx, idx, m_bytes.c_str());
-                    m_bytes.erase(0, idx);
+                                     __FUNCTION__, idx - 1, idx - 1, m_bytes.c_str());
+                    m_bytes.erase(0, idx - 1);
                 }
                 break;
         }
@@ -863,11 +863,15 @@ GDBRemoteCommunication::StartDebugserverProcess (const char *hostname,
             }
         } while (has_env_var);
 
-        // Close STDIN, STDOUT and STDERR. We might need to redirect them
-        // to "/dev/null" if we run into any problems.
+        // Close STDIN, STDOUT and STDERR.
         launch_info.AppendCloseFileAction (STDIN_FILENO);
         launch_info.AppendCloseFileAction (STDOUT_FILENO);
         launch_info.AppendCloseFileAction (STDERR_FILENO);
+
+        // Redirect STDIN, STDOUT and STDERR to "/dev/null".
+        launch_info.AppendSuppressFileAction (STDIN_FILENO, true, false);
+        launch_info.AppendSuppressFileAction (STDOUT_FILENO, false, true);
+        launch_info.AppendSuppressFileAction (STDERR_FILENO, false, true);
         
         error = Host::LaunchProcess(launch_info);
         

@@ -156,6 +156,14 @@ SBType::IsPointerType()
 }
 
 bool
+SBType::IsArrayType()
+{
+    if (!IsValid())
+        return false;
+    return m_opaque_sp->GetClangASTType(true).IsArrayType(nullptr, nullptr, nullptr);
+}
+
+bool
 SBType::IsReferenceType()
 {
     if (!IsValid())
@@ -204,6 +212,14 @@ SBType::GetDereferencedType()
     return SBType(TypeImplSP(new TypeImpl(m_opaque_sp->GetDereferencedType())));
 }
 
+SBType
+SBType::GetArrayElementType()
+{
+    if (!IsValid())
+        return SBType();
+    return SBType(TypeImplSP(new TypeImpl(m_opaque_sp->GetClangASTType(true).GetArrayElementType())));
+}
+
 bool 
 SBType::IsFunctionType ()
 {
@@ -220,7 +236,13 @@ SBType::IsPolymorphicClass ()
     return m_opaque_sp->GetClangASTType(true).IsPolymorphicClass();
 }
 
-
+bool
+SBType::IsTypedefType ()
+{
+    if (!IsValid())
+        return false;
+    return m_opaque_sp->GetClangASTType(true).IsTypedefType();
+}
 
 lldb::SBType
 SBType::GetFunctionReturnType ()
@@ -324,7 +346,7 @@ uint32_t
 SBType::GetNumberOfFields ()
 {
     if (IsValid())
-        return m_opaque_sp->GetClangASTType(false).GetNumFields();
+        return m_opaque_sp->GetClangASTType(true).GetNumFields();
     return 0;
 }
 
@@ -449,6 +471,14 @@ SBType::IsTypeComplete()
     return m_opaque_sp->GetClangASTType(false).IsCompleteType();
 }
 
+uint32_t
+SBType::GetTypeFlags ()
+{
+    if (!IsValid())
+        return 0;
+    return m_opaque_sp->GetClangASTType(true).GetTypeInfo();
+}
+
 const char*
 SBType::GetName()
 {
@@ -469,7 +499,7 @@ lldb::TypeClass
 SBType::GetTypeClass ()
 {
     if (IsValid())
-        return m_opaque_sp->GetClangASTType(false).GetTypeClass();
+        return m_opaque_sp->GetClangASTType(true).GetTypeClass();
     return lldb::eTypeClassInvalid;
 }
 

@@ -44,7 +44,7 @@ public:
 
   /// getInstruction - See MCDisassembler.
   virtual DecodeStatus getInstruction(MCInst &instr, uint64_t &size,
-                                      const MemoryObject &region,
+                                      ArrayRef<uint8_t> Bytes,
                                       uint64_t address, raw_ostream &vStream,
                                       raw_ostream &cStream) const override;
 
@@ -102,29 +102,26 @@ extern "C" void LLVMInitializeNyuziDisassembler() {
 
 /// readInstruction - read four bytes from the MemoryObject
 /// and return 32 bit word sorted according to the given endianess
-static DecodeStatus readInstruction32(const MemoryObject &region,
-                                      uint64_t address, uint64_t &size,
-                                      uint32_t &insn) {
-  uint8_t Bytes[4];
-
+static DecodeStatus readInstruction32(ArrayRef<uint8_t> Bytes,
+                                      uint64_t Address, uint64_t &Size,
+                                      uint32_t &Insn) {
   // We want to read exactly 4 Bytes of data.
-  if (region.readBytes(address, 4, Bytes) == -1) {
-    size = 0;
+  if (Bytes.size() < 4) {
+    Size = 0;
     return MCDisassembler::Fail;
   }
 
-  insn =
-      (Bytes[0] << 0) | (Bytes[1] << 8) | (Bytes[2] << 16) | (Bytes[3] << 24);
+  Insn = (Bytes[0] << 0) | (Bytes[1] << 8) | (Bytes[2] << 16) | (Bytes[3] << 24);
 
   return MCDisassembler::Success;
 }
 
 DecodeStatus NyuziDisassembler::getInstruction(
-    MCInst &instr, uint64_t &Size, const MemoryObject &Region, uint64_t Address,
+    MCInst &instr, uint64_t &Size, ArrayRef<uint8_t> Bytes, uint64_t Address,
     raw_ostream &vStream, raw_ostream &cStream) const {
   uint32_t Insn;
 
-  DecodeStatus Result = readInstruction32(Region, Address, Size, Insn);
+  DecodeStatus Result = readInstruction32(Bytes, Address, Size, Insn);
   if (Result == MCDisassembler::Fail)
     return MCDisassembler::Fail;
 

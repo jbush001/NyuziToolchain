@@ -7,9 +7,15 @@ if ( CMAKE_SYSTEM_NAME MATCHES "Windows" )
     set(LLDB_DEFAULT_ENABLE_PYTHON_SCRIPTS_SWIG_API_GENERATION 1)
   endif()
 else()
-  set(LLDB_DEFAULT_DISABLE_PYTHON 0)
-  set(LLDB_DEFAULT_DISABLE_CURSES 0)
-  set(LLDB_DEFAULT_ENABLE_PYTHON_SCRIPTS_SWIG_API_GENERATION 0)
+  if ( __ANDROID_NDK__ )
+    set(LLDB_DEFAULT_DISABLE_PYTHON 1)
+    set(LLDB_DEFAULT_DISABLE_CURSES 1)
+    set(LLDB_DEFAULT_ENABLE_PYTHON_SCRIPTS_SWIG_API_GENERATION 0)
+  else()
+    set(LLDB_DEFAULT_DISABLE_PYTHON 0)
+    set(LLDB_DEFAULT_DISABLE_CURSES 0)
+    set(LLDB_DEFAULT_ENABLE_PYTHON_SCRIPTS_SWIG_API_GENERATION 0)
+  endif()
 endif()
 set(LLDB_DISABLE_PYTHON ${LLDB_DEFAULT_DISABLE_PYTHON} CACHE BOOL
   "Disables the Python scripting integration.")
@@ -59,9 +65,16 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   get_filename_component(PATH_TO_CLANG_BUILD ${LLDB_PATH_TO_CLANG_BUILD}
                          ABSOLUTE)
 
+  # These variables are used by add_llvm_library.
+  set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/bin)
+  set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/lib)
+
   include(AddLLVM)
-  include("${LLDB_PATH_TO_LLVM_BUILD}/share/llvm/cmake/LLVMConfig.cmake")
   include(HandleLLVMOptions)
+
+  # Import CMake library targets from LLVM and Clang.
+  include("${LLDB_PATH_TO_LLVM_BUILD}/share/llvm/cmake/LLVMConfig.cmake")
+  include("${LLDB_PATH_TO_CLANG_BUILD}/share/clang/cmake/ClangConfig.cmake")
 
   set(PACKAGE_VERSION "${LLVM_PACKAGE_VERSION}")
 
@@ -108,8 +121,14 @@ macro(add_lldb_definitions)
 endmacro(add_lldb_definitions)
 
 if (NOT LLDB_DISABLE_PYTHON)
-    find_package(PythonLibs REQUIRED)
-    include_directories(${PYTHON_INCLUDE_DIRS})
+  if(UNIX)
+    # This is necessary for crosscompile on Ubuntu 14.04 64bit. Need a proper fix.
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+      set(CMAKE_LIBRARY_ARCHITECTURE "x86_64-linux-gnu")
+    endif()
+  endif()
+  find_package(PythonLibs REQUIRED)
+  include_directories(${PYTHON_INCLUDE_DIRS})
 endif()
 
 include_directories(../clang/include)

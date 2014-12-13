@@ -6,14 +6,14 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/BranchIslandFactory.h>
+#include "mcld/LD/BranchIslandFactory.h"
 
-#include <mcld/Fragment/Fragment.h>
-#include <mcld/LD/LDSection.h>
-#include <mcld/LD/SectionData.h>
-#include <mcld/Module.h>
+#include "mcld/Fragment/Fragment.h"
+#include "mcld/LD/LDSection.h"
+#include "mcld/LD/SectionData.h"
+#include "mcld/Module.h"
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // BranchIslandFactory
@@ -94,3 +94,5 @@ std::pair<BranchIsland*, BranchIsland*> BranchIslandFactory::getIslands(
   }
   return std::make_pair(fwd, bwd);
 }
+
+}  // namespace mcld

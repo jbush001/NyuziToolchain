@@ -30,6 +30,7 @@ NyuziTargetMachine::NyuziTargetMachine(const Target &T, StringRef TT,
                                                  CodeModel::Model CM,
                                                  CodeGenOpt::Level OL)
     : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
+      TLOF(make_unique<NyuziTargetObjectFile>()),
       Subtarget(TT, CPU, FS, this) {
   initAsmInfo();
 }
@@ -46,7 +47,6 @@ public:
   }
 
   virtual bool addInstSelector() override;
-  virtual bool addPreEmitPass() override;
 };
 } // namespace
 
@@ -60,7 +60,3 @@ bool NyuziPassConfig::addInstSelector() {
   return false;
 }
 
-/// addPreEmitPass - This pass may be implemented by targets that want to run
-/// passes immediately before machine code is emitted.  This should return
-/// true if -print-machineinstrs should print out the code after the passes.
-bool NyuziPassConfig::addPreEmitPass() { return true; }

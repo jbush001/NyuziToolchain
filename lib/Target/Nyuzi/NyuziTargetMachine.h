@@ -16,6 +16,7 @@
 #define NYUZITARGETMACHINE_H
 
 #include "NyuziSubtarget.h"
+#include "NyuziTargetObjectFile.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/Target/TargetFrameLowering.h"
 #include "llvm/Target/TargetMachine.h"
@@ -23,6 +24,7 @@
 namespace llvm {
 
 class NyuziTargetMachine : public LLVMTargetMachine {
+  std::unique_ptr<TargetLoweringObjectFile> TLOF;
 public:
   NyuziTargetMachine(const Target &T, StringRef TT, StringRef CPU,
                           StringRef FS, const TargetOptions &Options,
@@ -34,6 +36,10 @@ public:
   virtual TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
   virtual const NyuziSubtarget *getSubtargetImpl() const override {
     return &Subtarget;
+  }
+
+  TargetLoweringObjectFile *getObjFileLowering() const override {
+    return TLOF.get();
   }
 
 private:

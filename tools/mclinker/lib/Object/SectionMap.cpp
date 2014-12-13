@@ -6,17 +6,17 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Object/SectionMap.h>
+#include "mcld/Object/SectionMap.h"
 
-#include <mcld/Fragment/NullFragment.h>
-#include <mcld/LD/LDSection.h>
-#include <mcld/LD/SectionData.h>
-#include <mcld/Script/Assignment.h>
-#include <mcld/Script/Operand.h>
-#include <mcld/Script/Operator.h>
-#include <mcld/Script/RpnExpr.h>
-#include <mcld/Script/StringList.h>
-#include <mcld/Script/WildcardPattern.h>
+#include "mcld/Fragment/NullFragment.h"
+#include "mcld/LD/LDSection.h"
+#include "mcld/LD/SectionData.h"
+#include "mcld/Script/Assignment.h"
+#include "mcld/Script/Operand.h"
+#include "mcld/Script/Operator.h"
+#include "mcld/Script/RpnExpr.h"
+#include "mcld/Script/StringList.h"
+#include "mcld/Script/WildcardPattern.h"
 
 #include <llvm/Support/Casting.h>
 
@@ -32,7 +32,8 @@
 #define fnmatch0(pattern, string) (PathMatchSpec(string, pattern) == true)
 #endif
 
-using namespace mcld;
+namespace mcld {
+
 //===----------------------------------------------------------------------===//
 // SectionMap::Input
 //===----------------------------------------------------------------------===//
@@ -375,3 +376,5 @@ void SectionMap::fixupDotSymbols() {
     }
   }  // for each output section
 }
+
+}  // namespace mcld

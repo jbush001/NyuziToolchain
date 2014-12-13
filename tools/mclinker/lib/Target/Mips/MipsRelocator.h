@@ -9,8 +9,8 @@
 #ifndef TARGET_MIPS_MIPSRELOCATOR_H_
 #define TARGET_MIPS_MIPSRELOCATOR_H_
 
-#include <mcld/LD/Relocator.h>
-#include <mcld/Support/GCFactory.h>
+#include "mcld/LD/Relocator.h"
+#include "mcld/Support/GCFactory.h"
 #include "MipsLDBackend.h"
 
 #include <llvm/ADT/DenseMapInfo.h>
@@ -60,6 +60,14 @@ class MipsRelocator : public Relocator {
   bool finalizeApply(Input& pInput);
 
   Result applyRelocation(Relocation& pReloc);
+
+  /// getDebugStringOffset - get the offset from the relocation target. This is
+  /// used to get the debug string offset.
+  uint32_t getDebugStringOffset(Relocation& pReloc) const;
+
+  /// applyDebugStringOffset - apply the relocation target to specific offset.
+  /// This is used to set the debug string offset.
+  void applyDebugStringOffset(Relocation& pReloc, uint32_t pOffset);
 
   const Input& getApplyingInput() const { return *m_pApplyingInput; }
 

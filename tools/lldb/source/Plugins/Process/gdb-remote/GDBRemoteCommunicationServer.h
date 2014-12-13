@@ -58,7 +58,7 @@ public:
                               bool &quit);
 
     virtual bool
-    GetThreadSuffixSupported ()
+    GetThreadSuffixSupported () override
     {
         return true;
     }
@@ -152,8 +152,6 @@ public:
     //------------------------------------------------------------------
     /// Specify the program to launch and its arguments.
     ///
-    /// The LaunchProcess () command can be executed to do the lauching.
-    ///
     /// @param[in] args
     ///     The command line to launch.
     ///
@@ -169,8 +167,6 @@ public:
 
     //------------------------------------------------------------------
     /// Specify the launch flags for the process.
-    ///
-    /// The LaunchProcess () command can be executed to do the lauching.
     ///
     /// @param[in] launch_flags
     ///     The launch flags to use when launching this process.
@@ -464,6 +460,9 @@ protected:
     Handle_vAttach (StringExtractorGDBRemote &packet);
 
     PacketResult
+    Handle_D (StringExtractorGDBRemote &packet);
+
+    PacketResult
     Handle_qThreadStopInfo (StringExtractorGDBRemote &packet);
 
     void
@@ -542,6 +541,9 @@ private:
 
     void
     ClearProcessSpecificData ();
+
+    bool
+    ShouldRedirectInferiorOutputOverGdbRemote (const lldb_private::ProcessLaunchInfo &launch_info) const;
 
     //------------------------------------------------------------------
     // For GDBRemoteCommunicationServer only

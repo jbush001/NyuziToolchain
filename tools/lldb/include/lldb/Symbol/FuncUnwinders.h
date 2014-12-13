@@ -16,7 +16,8 @@ public:
     // FuncUnwinders objects are used to track UnwindPlans for a function
     // (named or not - really just an address range)
 
-    // We'll record three different UnwindPlans for each address range:
+    // We'll record four different UnwindPlans for each address range:
+    //   
     //   1. Unwinding from a call site (a valid exception throw location)
     //      This is often sourced from the eh_frame exception handling info
     //   2. Unwinding from a non-call site (any location in the function)
@@ -41,7 +42,7 @@ public:
     // offset value will have already been decremented by 1 to stay within the bounds of the 
     // correct function body.
     lldb::UnwindPlanSP
-    GetUnwindPlanAtCallSite (int current_offset);
+    GetUnwindPlanAtCallSite (Target &target, int current_offset);
 
     lldb::UnwindPlanSP
     GetUnwindPlanAtNonCallSite (Target& target, lldb_private::Thread& thread, int current_offset);
@@ -67,13 +68,19 @@ public:
         return m_range.ContainsFileAddress (addr);
     }
 
-    // When we're doing an unwind using the UnwindPlanAtNonCallSite and we find an
-    // impossible unwind condition, we know that the UnwindPlan is invalid.  Calling
-    // this method on the FuncUnwinder will tell it to replace that UnwindPlan with
-    // the architectural default UnwindPlan so hopefully our stack walk will get past
-    // this frame.
-    void
-    InvalidateNonCallSiteUnwindPlan (lldb_private::Thread& Thread);
+    // A function may have a Language Specific Data Area specified -- a block of data in
+    // the object file which is used in the processing of an exception throw / catch.
+    // If any of the UnwindPlans have the address of the LSDA region for this function,
+    // this will return it.  
+    Address
+    GetLSDAAddress (Target &target);
+
+    // A function may have a Personality Routine associated with it -- used in the
+    // processing of throwing an exception.  If any of the UnwindPlans have the
+    // address of the personality routine, this will return it.  Read the target-pointer
+    // at this address to get the personality function address.
+    Address
+    GetPersonalityRoutinePtrAddress (Target &target);
 
 private:
 
@@ -90,6 +97,8 @@ private:
     lldb::UnwindPlanSP m_unwind_plan_arch_default_sp;
     lldb::UnwindPlanSP m_unwind_plan_arch_default_at_func_entry_sp;
 
+    // Fetching the UnwindPlans can be expensive - if we've already attempted
+    // to get one & failed, don't try again.
     bool m_tried_unwind_at_call_site:1,
          m_tried_unwind_at_non_call_site:1,
          m_tried_unwind_fast:1,

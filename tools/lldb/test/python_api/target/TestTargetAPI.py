@@ -104,12 +104,172 @@ class TargetAPITestCase(TestBase):
         self.buildDwarf()
         self.resolve_symbol_context_with_address()
 
+    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @python_api_test
+    @dsym_test
+    def test_get_platform_with_dsym(self):
+        d = {'EXE': 'a.out'}
+        self.buildDsym(dictionary=d)
+        self.setTearDownCleanup(dictionary=d)
+        target = self.create_simple_target('a.out')
+        platform = target.platform
+        self.assertTrue(platform, VALID_PLATFORM)
+
+    @python_api_test
+    @dwarf_test
+    def test_get_platform_with_dwarf(self):
+        d = {'EXE': 'b.out'}
+        self.buildDwarf(dictionary=d)
+        self.setTearDownCleanup(dictionary=d)
+        target = self.create_simple_target('b.out')
+        platform = target.platform
+        self.assertTrue(platform, VALID_PLATFORM)
+
+    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @python_api_test
+    @dsym_test
+    def test_get_data_byte_size_with_dsym(self):
+        d = {'EXE': 'a.out'}
+        self.buildDsym(dictionary=d)
+        self.setTearDownCleanup(dictionary=d)
+        target = self.create_simple_target('a.out')
+        self.assertEquals(target.data_byte_size, 1)
+
+    @python_api_test
+    @dwarf_test
+    def test_get_data_byte_size_with_dwarf(self):
+        d = {'EXE': 'b.out'}
+        self.buildDwarf(dictionary=d)
+        self.setTearDownCleanup(dictionary=d)
+        target = self.create_simple_target('b.out')
+        self.assertEquals(target.data_byte_size, 1)
+
+    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @python_api_test
+    @dsym_test
+    def test_get_code_byte_size_with_dsym(self):
+        d = {'EXE': 'a.out'}
+        self.buildDsym(dictionary=d)
+        self.setTearDownCleanup(dictionary=d)
+        target = self.create_simple_target('a.out')
+        self.assertEquals(target.code_byte_size, 1)
+
+    @python_api_test
+    @dwarf_test
+    def test_get_code_byte_size_with_dwarf(self):
+        d = {'EXE': 'b.out'}
+        self.buildDwarf(dictionary=d)
+        self.setTearDownCleanup(dictionary=d)
+        target = self.create_simple_target('b.out')
+        self.assertEquals(target.code_byte_size, 1)
+
+    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @python_api_test
+    @dsym_test
+    def test_resolve_file_address_with_dsym(self):
+        d = {'EXE': 'a.out'}
+        self.buildDsym(dictionary=d)
+        self.setTearDownCleanup(dictionary=d)
+        target = self.create_simple_target('a.out')
+        self.resolve_file_address(target)
+
+    @python_api_test
+    @dwarf_test
+    def test_resolve_file_address_with_dwarf(self):
+        d = {'EXE': 'b.out'}
+        self.buildDwarf(dictionary=d)
+        self.setTearDownCleanup(dictionary=d)
+        target = self.create_simple_target('b.out')
+        self.resolve_file_address(target)
+
+    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @python_api_test
+    @dsym_test
+    def test_read_memory_with_dsym(self):
+        d = {'EXE': 'a.out'}
+        self.buildDsym(dictionary=d)
+        self.setTearDownCleanup(dictionary=d)
+        target = self.create_simple_target('a.out')
+        self.read_memory(target)
+
+    @python_api_test
+    @dwarf_test
+    def test_read_memory_with_dwarf(self):
+        d = {'EXE': 'b.out'}
+        self.buildDwarf(dictionary=d)
+        self.setTearDownCleanup(dictionary=d)
+        target = self.create_simple_target('b.out')
+        self.read_memory(target)
+
     def setUp(self):
         # Call super's setUp().
         TestBase.setUp(self)
         # Find the line number to of function 'c'.
         self.line1 = line_number('main.c', '// Find the line number for breakpoint 1 here.')
         self.line2 = line_number('main.c', '// Find the line number for breakpoint 2 here.')
+        self.line_main = line_number("main.c", "// Set a break at entry to main.")
+
+    def read_memory(self, target):
+        breakpoint = target.BreakpointCreateByLocation("main.c", self.line_main)
+        self.assertTrue(breakpoint, VALID_BREAKPOINT)
+
+        # Put debugger into synchronous mode so when we target.LaunchSimple returns
+        # it will guaranteed to be at the breakpoint
+        self.dbg.SetAsync(False)
+        
+        # Launch the process, and do not stop at the entry point.
+        process = target.LaunchSimple (None, None, self.get_process_working_directory())
+
+        # find the file address in the .data section of the main
+        # module            
+        data_section = self.find_data_section(target)
+        sb_addr = lldb.SBAddress(data_section, 0)
+        error = lldb.SBError()
+        content = target.ReadMemory(sb_addr, 1, error)
+        self.assertTrue(error.Success(), "Make sure memory read succeeded")
+        self.assertEquals(len(content), 1)
+
+    def create_simple_target(self, fn):
+        exe = os.path.join(os.getcwd(), fn)
+        target = self.dbg.CreateTarget(exe)
+        self.assertTrue(target, VALID_TARGET)
+        return target
+
+    def resolve_file_address(self, target):
+        # find the file address in the .data section of the main
+        # module            
+        data_section = self.find_data_section(target)
+        data_section_addr = data_section.file_addr
+
+        # resolve the above address, and compare the address produced
+        # by the resolution against the original address/section       
+        res_file_addr = target.ResolveFileAddress(data_section_addr)
+        self.assertTrue(res_file_addr.IsValid())
+
+        self.assertEquals(data_section_addr, res_file_addr.file_addr) 
+
+        data_section2 = res_file_addr.section
+        self.assertIsNotNone(data_section2)
+        self.assertEquals(data_section.name, data_section2.name) 
+
+    def find_data_section(self, target):
+        mod = target.GetModuleAtIndex(0)
+        data_section = None
+        for s in mod.sections:
+            sect_type = s.GetSectionType()
+            if sect_type == lldb.eSectionTypeData:
+                data_section = s
+                break
+            elif sect_type == lldb.eSectionTypeContainer:
+                for i in range(s.GetNumSubSections()):
+                    ss = s.GetSubSectionAtIndex(i)
+                    sect_type = ss.GetSectionType()
+                    if sect_type == lldb.eSectionTypeData:
+                        data_section = ss
+                        break                    
+
+        self.assertIsNotNone(data_section)
+        return data_section
 
     def find_global_variables(self, exe_name):
         """Exercise SBTaget.FindGlobalVariables() API."""

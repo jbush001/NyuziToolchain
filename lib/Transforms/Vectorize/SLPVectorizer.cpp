@@ -21,6 +21,8 @@
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
+#include "llvm/Analysis/AssumptionTracker.h"
+#include "llvm/Analysis/CodeMetrics.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/ScalarEvolutionExpressions.h"
@@ -396,10 +398,12 @@ public:
 
   BoUpSLP(Function *Func, ScalarEvolution *Se, const DataLayout *Dl,
           TargetTransformInfo *Tti, TargetLibraryInfo *TLi, AliasAnalysis *Aa,
-          LoopInfo *Li, DominatorTree *Dt)
+          LoopInfo *Li, DominatorTree *Dt, AssumptionTracker *AT)
       : NumLoadsWantToKeepOrder(0), NumLoadsWantToChangeOrder(0),
         F(Func), SE(Se), DL(Dl), TTI(Tti), TLI(TLi), AA(Aa), LI(Li), DT(Dt),
-        Builder(Se->getContext()) {}
+        Builder(Se->getContext()) {
+    CodeMetrics::collectEphemeralValues(F, AT, EphValues);
+  }
 
   /// \brief Vectorize the tree that starts with the elements in \p VL.
   /// Returns the vectorized root.
@@ -434,6 +438,13 @@ public:
 
   /// \returns true if the memory operations A and B are consecutive.
   bool isConsecutiveAccess(Value *A, Value *B);
+
+  /// For consecutive loads (+(+ v0, v1)(+ v2, v3)), Left had v0 and v2
+  /// while Right had v1 and v3, which prevented bundling them into
+  /// a vector of loads. Rorder them so that Left now has v0 and v1
+  /// while Right has v2 and v3 enabling their bundling into a vector.
+  void reorderIfConsecutiveLoads(SmallVectorImpl<Value *> &Left,
+                                 SmallVectorImpl<Value *> &Right);
 
   /// \brief Perform LICM and CSE on the newly generated gather sequences.
   void optimizeGatherSequence();
@@ -554,6 +565,9 @@ private:
   /// A list of values that need to extracted out of the tree.
   /// This list holds pairs of (Internal Scalar : External User).
   UserList ExternalUses;
+
+  /// Values used only by @llvm.assume calls.
+  SmallPtrSet<const Value *, 32> EphValues;
 
   /// Holds all of the instructions that we gathered.
   SetVector<Instruction *> GatherSeq;
@@ -988,6 +1002,16 @@ void BoUpSLP::buildTree_rec(ArrayRef<Value *> VL, unsigned Depth) {
   // We now know that this is a vector of instructions of the same type from
   // the same block.
 
+  // Don't vectorize ephemeral values.
+  for (unsigned i = 0, e = VL.size(); i != e; ++i) {
+    if (EphValues.count(VL[i])) {
+      DEBUG(dbgs() << "SLP: The instruction (" << *VL[i] <<
+            ") is ephemeral.\n");
+      newTreeEntry(VL, false);
+      return;
+    }
+  }
+
   // Check if this is a duplicate of another entry.
   if (ScalarToTreeEntry.count(VL[0])) {
     int Idx = ScalarToTreeEntry[VL[0]];
@@ -1217,6 +1241,7 @@ void BoUpSLP::buildTree_rec(ArrayRef<Value *> VL, unsigned Depth) {
       if (isa<BinaryOperator>(VL0) && VL0->isCommutative()) {
         ValueList Left, Right;
         reorderInputsAccordingToOpcode(VL, Left, Right);
+        reorderIfConsecutiveLoads (Left, Right);
         buildTree_rec(Left, Depth + 1);
         buildTree_rec(Right, Depth + 1);
         return;
@@ -1707,7 +1732,13 @@ int BoUpSLP::getTreeCost() {
   for (UserList::iterator I = ExternalUses.begin(), E = ExternalUses.end();
        I != E; ++I) {
     // We only add extract cost once for the same scalar.
-    if (!ExtractCostCalculated.insert(I->Scalar))
+    if (!ExtractCostCalculated.insert(I->Scalar).second)
+      continue;
+
+    // Uses by ephemeral values are free (because the ephemeral value will be
+    // removed prior to code generation, and so the extraction will be
+    // removed as well).
+    if (EphValues.count(I->User))
       continue;
 
     VectorType *VecTy = VectorType::get(I->Scalar->getType(), BundleWidth);
@@ -1793,6 +1824,19 @@ bool BoUpSLP::isConsecutiveAccess(Value *A, Value *B) {
   const SCEV *C = SE->getConstant(BaseDelta);
   const SCEV *X = SE->getAddExpr(PtrSCEVA, C);
   return X == PtrSCEVB;
+}
+
+void BoUpSLP::reorderIfConsecutiveLoads(SmallVectorImpl<Value *> &Left,
+                                        SmallVectorImpl<Value *> &Right) {
+  for (unsigned i = 0, e = Left.size(); i < e - 1; ++i) {
+    if (!isa<LoadInst>(Left[i]) || !isa<LoadInst>(Right[i]))
+      return;
+    if (!(isConsecutiveAccess(Left[i], Right[i]) &&
+          isConsecutiveAccess(Right[i], Left[i + 1])))
+      continue;
+    else
+      std::swap(Left[i + 1], Right[i]);
+  }
 }
 
 void BoUpSLP::setInsertPointAfterBundle(ArrayRef<Value *> VL) {
@@ -1899,7 +1943,7 @@ Value *BoUpSLP::vectorizeTree(TreeEntry *E) {
         ValueList Operands;
         BasicBlock *IBB = PH->getIncomingBlock(i);
 
-        if (!VisitedBBs.insert(IBB)) {
+        if (!VisitedBBs.insert(IBB).second) {
           NewPhi->addIncoming(NewPhi->getIncomingValueForBlock(IBB), IBB);
           continue;
         }
@@ -2025,9 +2069,10 @@ Value *BoUpSLP::vectorizeTree(TreeEntry *E) {
     case Instruction::Or:
     case Instruction::Xor: {
       ValueList LHSVL, RHSVL;
-      if (isa<BinaryOperator>(VL0) && VL0->isCommutative())
+      if (isa<BinaryOperator>(VL0) && VL0->isCommutative()) {
         reorderInputsAccordingToOpcode(E->Scalars, LHSVL, RHSVL);
-      else
+        reorderIfConsecutiveLoads(LHSVL, RHSVL);
+      } else
         for (int i = 0, e = E->Scalars.size(); i < e; ++i) {
           LHSVL.push_back(cast<Instruction>(E->Scalars[i])->getOperand(0));
           RHSVL.push_back(cast<Instruction>(E->Scalars[i])->getOperand(1));
@@ -2810,6 +2855,7 @@ struct SLPVectorizer : public FunctionPass {
   AliasAnalysis *AA;
   LoopInfo *LI;
   DominatorTree *DT;
+  AssumptionTracker *AT;
 
   bool runOnFunction(Function &F) override {
     if (skipOptnoneFunction(F))
@@ -2823,6 +2869,7 @@ struct SLPVectorizer : public FunctionPass {
     AA = &getAnalysis<AliasAnalysis>();
     LI = &getAnalysis<LoopInfo>();
     DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
+    AT = &getAnalysis<AssumptionTracker>();
 
     StoreRefs.clear();
     bool Changed = false;
@@ -2845,7 +2892,7 @@ struct SLPVectorizer : public FunctionPass {
 
     // Use the bottom up slp vectorizer to construct chains that start with
     // store instructions.
-    BoUpSLP R(&F, SE, DL, TTI, TLI, AA, LI, DT);
+    BoUpSLP R(&F, SE, DL, TTI, TLI, AA, LI, DT, AT);
 
     // Scan the blocks in the function in post order.
     for (po_iterator<BasicBlock*> it = po_begin(&F.getEntryBlock()),
@@ -2872,6 +2919,7 @@ struct SLPVectorizer : public FunctionPass {
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     FunctionPass::getAnalysisUsage(AU);
+    AU.addRequired<AssumptionTracker>();
     AU.addRequired<ScalarEvolution>();
     AU.addRequired<AliasAnalysis>();
     AU.addRequired<TargetTransformInfo>();
@@ -3606,7 +3654,7 @@ bool SLPVectorizer::vectorizeChainsInBlock(BasicBlock *BB, BoUpSLP &R) {
 
   for (BasicBlock::iterator it = BB->begin(), e = BB->end(); it != e; it++) {
     // We may go through BB multiple times so skip the one we have checked.
-    if (!VisitedInstrs.insert(it))
+    if (!VisitedInstrs.insert(it).second)
       continue;
 
     if (isa<DbgInfoIntrinsic>(it))
@@ -3663,6 +3711,21 @@ bool SLPVectorizer::vectorizeChainsInBlock(BasicBlock *BB, BoUpSLP &R) {
           if (((HorRdx.matchAssociativeReduction(nullptr, BinOp, DL) &&
                 HorRdx.tryToReduce(R, TTI)) ||
                tryToVectorize(BinOp, R))) {
+            Changed = true;
+            it = BB->begin();
+            e = BB->end();
+            continue;
+          }
+        }
+
+    // Try to vectorize horizontal reductions feeding into a return.
+    if (ReturnInst *RI = dyn_cast<ReturnInst>(it))
+      if (RI->getNumOperands() != 0)
+        if (BinaryOperator *BinOp =
+                dyn_cast<BinaryOperator>(RI->getOperand(0))) {
+          DEBUG(dbgs() << "SLP: Found a return to vectorize.\n");
+          if (tryToVectorizePair(BinOp->getOperand(0),
+                                 BinOp->getOperand(1), R)) {
             Changed = true;
             it = BB->begin();
             e = BB->end();
@@ -3746,6 +3809,7 @@ static const char lv_name[] = "SLP Vectorizer";
 INITIALIZE_PASS_BEGIN(SLPVectorizer, SV_NAME, lv_name, false, false)
 INITIALIZE_AG_DEPENDENCY(AliasAnalysis)
 INITIALIZE_AG_DEPENDENCY(TargetTransformInfo)
+INITIALIZE_PASS_DEPENDENCY(AssumptionTracker)
 INITIALIZE_PASS_DEPENDENCY(ScalarEvolution)
 INITIALIZE_PASS_DEPENDENCY(LoopSimplify)
 INITIALIZE_PASS_END(SLPVectorizer, SV_NAME, lv_name, false, false)

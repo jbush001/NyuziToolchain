@@ -889,6 +889,13 @@ ClangASTContext::GetBuiltinTypeForDWARFEncodingAndBitSize (const char *type_name
                 break;
                 
             case DW_ATE_float:
+                if (streq(type_name, "float") && QualTypeMatchesBitSize (bit_size, ast, ast->FloatTy))
+                    return ClangASTType (ast, ast->FloatTy.getAsOpaquePtr());
+                if (streq(type_name, "double") && QualTypeMatchesBitSize (bit_size, ast, ast->DoubleTy))
+                    return ClangASTType (ast, ast->DoubleTy.getAsOpaquePtr());
+                if (streq(type_name, "long double") && QualTypeMatchesBitSize (bit_size, ast, ast->LongDoubleTy))
+                    return ClangASTType (ast, ast->LongDoubleTy.getAsOpaquePtr());
+                // Fall back to not requring a name match
                 if (QualTypeMatchesBitSize (bit_size, ast, ast->FloatTy))
                     return ClangASTType (ast, ast->FloatTy.getAsOpaquePtr());
                 if (QualTypeMatchesBitSize (bit_size, ast, ast->DoubleTy))
@@ -1125,6 +1132,16 @@ ClangASTContext::AreTypesSame (ClangASTType type1,
     return ast->hasSameType (type1_qual, type2_qual);
 }
 
+ClangASTType
+ClangASTContext::GetTypeForDecl (clang::NamedDecl *decl)
+{
+    if (clang::ObjCInterfaceDecl *interface_decl = llvm::dyn_cast<clang::ObjCInterfaceDecl>(decl))
+        return GetTypeForDecl(interface_decl);
+    if (clang::TagDecl *tag_decl = llvm::dyn_cast<clang::TagDecl>(decl))
+        return GetTypeForDecl(tag_decl);
+    return ClangASTType();
+}
+
 
 ClangASTType
 ClangASTContext::GetTypeForDecl (TagDecl *decl)
@@ -1132,7 +1149,7 @@ ClangASTContext::GetTypeForDecl (TagDecl *decl)
     // No need to call the getASTContext() accessor (which can create the AST
     // if it isn't created yet, because we can't have created a decl in this
     // AST if our AST didn't already exist...
-    ASTContext *ast = m_ast_ap.get();
+    ASTContext *ast = &decl->getASTContext();
     if (ast)
         return ClangASTType (ast, ast->getTagDeclType(decl).getAsOpaquePtr());
     return ClangASTType();
@@ -1144,7 +1161,7 @@ ClangASTContext::GetTypeForDecl (ObjCInterfaceDecl *decl)
     // No need to call the getASTContext() accessor (which can create the AST
     // if it isn't created yet, because we can't have created a decl in this
     // AST if our AST didn't already exist...
-    ASTContext *ast = m_ast_ap.get();
+    ASTContext *ast = &decl->getASTContext();
     if (ast)
         return ClangASTType (ast, ast->getObjCInterfaceType(decl).getAsOpaquePtr());
     return ClangASTType();
@@ -1739,7 +1756,7 @@ ClangASTContext::CreateFunctionDeclaration (DeclContext *decl_ctx,
                                           DeclarationName (&ast->Idents.get(name)),
                                           function_clang_type.GetQualType(),
                                           nullptr,
-                                          (FunctionDecl::StorageClass)storage,
+                                          (clang::StorageClass)storage,
                                           is_inline,
                                           hasWrittenPrototype,
                                           isConstexprSpecified);
@@ -1753,7 +1770,7 @@ ClangASTContext::CreateFunctionDeclaration (DeclContext *decl_ctx,
                                           DeclarationName (),
                                           function_clang_type.GetQualType(),
                                           nullptr,
-                                          (FunctionDecl::StorageClass)storage,
+                                          (clang::StorageClass)storage,
                                           is_inline,
                                           hasWrittenPrototype,
                                           isConstexprSpecified);
@@ -1805,7 +1822,7 @@ ClangASTContext::CreateParameterDeclaration (const char *name, const ClangASTTyp
                                 name && name[0] ? &ast->Idents.get(name) : nullptr,
                                 param_type.GetQualType(),
                                 nullptr,
-                                (VarDecl::StorageClass)storage,
+                                (clang::StorageClass)storage,
                                 nullptr);
 }
 
@@ -1855,7 +1872,23 @@ ClangASTContext::CreateArrayType (const ClangASTType &element_type,
     return ClangASTType();
 }
 
-
+ClangASTType
+ClangASTContext::GetOrCreateStructForIdentifier (const ConstString &type_name,
+                                                 const std::initializer_list< std::pair < const char *, ClangASTType > >& type_fields,
+                                                 bool packed)
+{
+    ClangASTType type;
+    if ((type = GetTypeForIdentifier<clang::CXXRecordDecl>(type_name)).IsValid())
+        return type;
+    type = CreateRecordType(nullptr, lldb::eAccessPublic, type_name.GetCString(), clang::TTK_Struct, lldb::eLanguageTypeC);
+    type.StartTagDeclarationDefinition();
+    for (const auto& field : type_fields)
+        type.AddFieldToRecordType(field.first, field.second, lldb::eAccessPublic, 0);
+    if (packed)
+        type.SetIsPacked();
+    type.CompleteTagDeclarationDefinition();
+    return type;
+}
 
 #pragma mark Enumeration Types
 
@@ -2073,7 +2106,7 @@ ClangASTContext::SetMetadata (clang::ASTContext *ast,
                               ClangASTMetadata &metadata)
 {
     ClangExternalASTSourceCommon *external_source =
-        static_cast<ClangExternalASTSourceCommon*>(ast->getExternalSource());
+        ClangExternalASTSourceCommon::Lookup(ast->getExternalSource());
     
     if (external_source)
         external_source->SetMetadata(object, metadata);
@@ -2084,7 +2117,7 @@ ClangASTContext::GetMetadata (clang::ASTContext *ast,
                               const void *object)
 {
     ClangExternalASTSourceCommon *external_source =
-        static_cast<ClangExternalASTSourceCommon*>(ast->getExternalSource());
+        ClangExternalASTSourceCommon::Lookup(ast->getExternalSource());
     
     if (external_source && external_source->HasMetadata(object))
         return external_source->GetMetadata(object);

@@ -381,8 +381,8 @@ unsigned NyuziTargetLowering::getJumpTableEncoding() const {
 }
 
 NyuziTargetLowering::NyuziTargetLowering(TargetMachine &TM,
-                                                   const NyuziSubtarget &STI)
-    : TargetLowering(TM, new NyuziTargetObjectFile()),
+                                         const NyuziSubtarget &STI)
+    : TargetLowering(TM),
 	  Subtarget(STI) {
 
   // Set up the register classes.

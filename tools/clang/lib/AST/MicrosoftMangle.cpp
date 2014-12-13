@@ -160,7 +160,7 @@ public:
     unsigned &discriminator = Uniquifier[ND];
     if (!discriminator)
       discriminator = ++Discriminator[std::make_pair(DC, ND->getIdentifier())];
-    disc = discriminator;
+    disc = discriminator + 1;
     return true;
   }
 
@@ -338,9 +338,7 @@ bool MicrosoftMangleContextImpl::shouldMangleCXXName(const NamedDecl *D) {
 
 bool
 MicrosoftMangleContextImpl::shouldMangleStringLiteral(const StringLiteral *SL) {
-  return SL->isAscii() || SL->isWide();
-  // TODO: This needs to be updated when MSVC gains support for Unicode
-  // literals.
+  return true;
 }
 
 void MicrosoftCXXNameMangler::mangle(const NamedDecl *D, StringRef Prefix) {
@@ -441,7 +439,7 @@ void MicrosoftCXXNameMangler::mangleVariableEncoding(const VarDecl *VD) {
       mangleQualifiers(Ty.getQualifiers(), false);
   } else {
     mangleType(Ty, SR, QMM_Drop);
-    mangleQualifiers(Ty.getLocalQualifiers(), false);
+    mangleQualifiers(Ty.getQualifiers(), false);
   }
 }
 
@@ -1042,8 +1040,10 @@ void MicrosoftCXXNameMangler::mangleIntegerLiteral(const llvm::APSInt &Value,
   // Make sure booleans are encoded as 0/1.
   if (IsBoolean && Value.getBoolValue())
     mangleNumber(1);
-  else
+  else if (Value.isSigned())
     mangleNumber(Value.getSExtValue());
+  else
+    mangleNumber(Value.getZExtValue());
 }
 
 void MicrosoftCXXNameMangler::mangleExpression(const Expr *E) {
@@ -1139,7 +1139,7 @@ void MicrosoftCXXNameMangler::mangleTemplateArg(const TemplateDecl *TD,
       else
         mangle(FD, "$1?");
     } else {
-      mangle(ND, TA.isDeclForReferenceParam() ? "$E?" : "$1?");
+      mangle(ND, TA.getParamTypeForDecl()->isReferenceType() ? "$E?" : "$1?");
     }
     break;
   }
@@ -1485,6 +1485,8 @@ void MicrosoftCXXNameMangler::mangleType(const BuiltinType *T,
   case BuiltinType::Int128: Out << "_L"; break;
   case BuiltinType::UInt128: Out << "_M"; break;
   case BuiltinType::Bool: Out << "_N"; break;
+  case BuiltinType::Char16: Out << "_S"; break;
+  case BuiltinType::Char32: Out << "_U"; break;
   case BuiltinType::WChar_S:
   case BuiltinType::WChar_U: Out << "_W"; break;
 
@@ -1510,8 +1512,6 @@ void MicrosoftCXXNameMangler::mangleType(const BuiltinType *T,
 
   case BuiltinType::NullPtr: Out << "$$T"; break;
 
-  case BuiltinType::Char16:
-  case BuiltinType::Char32:
   case BuiltinType::Half: {
     DiagnosticsEngine &Diags = Context.getDiags();
     unsigned DiagID = Diags.getCustomDiagID(DiagnosticsEngine::Error,
@@ -1687,6 +1687,7 @@ void MicrosoftCXXNameMangler::mangleCallingConvention(const FunctionType *T) {
   //                      ::= H # __export __stdcall
   //                      ::= I # __fastcall
   //                      ::= J # __export __fastcall
+  //                      ::= Q # __vectorcall
   // The 'export' calling conventions are from a bygone era
   // (*cough*Win16*cough*) when functions were declared for export with
   // that keyword. (It didn't actually export them, it just made them so
@@ -1703,6 +1704,7 @@ void MicrosoftCXXNameMangler::mangleCallingConvention(const FunctionType *T) {
     case CC_X86ThisCall: Out << 'E'; break;
     case CC_X86StdCall: Out << 'G'; break;
     case CC_X86FastCall: Out << 'I'; break;
+    case CC_X86VectorCall: Out << 'Q'; break;
   }
 }
 void MicrosoftCXXNameMangler::mangleThrowSpecification(
@@ -2348,7 +2350,7 @@ void MicrosoftMangleContextImpl::mangleReferenceTemporary(const VarDecl *VD,
 
 void MicrosoftMangleContextImpl::mangleStaticGuardVariable(const VarDecl *VD,
                                                            raw_ostream &Out) {
-  // TODO: This is not correct, especially with respect to MSVC2013.  MSVC2013
+  // TODO: This is not correct, especially with respect to VS "14".  VS "14"
   // utilizes thread local variables to implement thread safe, re-entrant
   // initialization for statics.  They no longer differentiate between an
   // externally visible and non-externally visible static with respect to
@@ -2437,14 +2439,10 @@ void MicrosoftMangleContextImpl::mangleStringLiteral(const StringLiteral *SL,
   Mangler.getStream() << "\01??_C@_";
 
   // <char-type>: The "kind" of string literal is encoded into the mangled name.
-  // TODO: This needs to be updated when MSVC gains support for unicode
-  // literals.
-  if (SL->isAscii())
-    Mangler.getStream() << '0';
-  else if (SL->isWide())
+  if (SL->isWide())
     Mangler.getStream() << '1';
   else
-    llvm_unreachable("unexpected string literal kind!");
+    Mangler.getStream() << '0';
 
   // <literal-length>: The next part of the mangled name consists of the length
   // of the string.
@@ -2567,7 +2565,10 @@ void MicrosoftMangleContextImpl::mangleStringLiteral(const StringLiteral *SL,
   unsigned NumCharsToMangle = std::min(32U, SL->getLength());
   for (unsigned I = 0, E = NumCharsToMangle * SL->getCharByteWidth(); I != E;
        ++I)
-    MangleByte(GetBigEndianByte(I));
+    if (SL->isWide())
+      MangleByte(GetBigEndianByte(I));
+    else
+      MangleByte(GetLittleEndianByte(I));
 
   // Encode the NUL terminator if there is room.
   if (NumCharsToMangle < 32)

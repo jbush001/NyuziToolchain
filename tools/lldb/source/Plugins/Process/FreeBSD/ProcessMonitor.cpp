@@ -113,6 +113,7 @@ PtraceWrapper(int req, lldb::pid_t pid, void *addr, int data,
             log->Printf("PT_GETREGS: ax=0x%lx", r->r_rax);
         }
 #endif
+#ifndef __powerpc__
         if (req == PT_GETDBREGS || req == PT_SETDBREGS) {
             struct dbreg *r = (struct dbreg *) addr;
             char setget = (req == PT_GETDBREGS) ? 'G' : 'S';
@@ -120,6 +121,7 @@ PtraceWrapper(int req, lldb::pid_t pid, void *addr, int data,
             for (int i = 0; i <= 7; i++)
                 log->Printf("PT_%cETDBREGS: dr[%d]=0x%lx", setget, i, r->dr[i]);
         }
+#endif
     }
      
     return result;
@@ -310,9 +312,14 @@ ReadRegOperation::Execute(ProcessMonitor *monitor)
     if ((rc = PTRACE(PT_GETREGS, m_tid, (caddr_t)&regs, 0)) < 0) {
         m_result = false;
     } else {
-        if (m_size == sizeof(uintptr_t))
-            m_value = *(uintptr_t *)(((caddr_t)&regs) + m_offset);
-        else 
+        // 'struct reg' contains only 32- or 64-bit register values.  Punt on
+        // others.  Also, not all entries may be uintptr_t sized, such as 32-bit
+        // processes on powerpc64 (probably the same for i386 on amd64)
+        if (m_size == sizeof(uint32_t))
+            m_value = *(uint32_t *)(((caddr_t)&regs) + m_offset);
+        else if (m_size == sizeof(uint64_t))
+            m_value = *(uint64_t *)(((caddr_t)&regs) + m_offset);
+        else
             memcpy(&m_value, (((caddr_t)&regs) + m_offset), m_size);
         m_result = true;
     }
@@ -851,7 +858,7 @@ WAIT_AGAIN:
     // Finally, start monitoring the child process for change in state.
     m_monitor_thread = Host::StartMonitoringChildProcess(
         ProcessMonitor::MonitorCallback, this, GetPID(), true);
-    if (m_monitor_thread.GetState() != eThreadStateRunning)
+    if (!m_monitor_thread.IsJoinable())
     {
         error.SetErrorToGenericError();
         error.SetErrorString("Process launch failed.");
@@ -901,7 +908,7 @@ WAIT_AGAIN:
     // Finally, start monitoring the child process for change in state.
     m_monitor_thread = Host::StartMonitoringChildProcess(
         ProcessMonitor::MonitorCallback, this, GetPID(), true);
-    if (m_monitor_thread.GetState() != eThreadStateRunning)
+    if (!m_monitor_thread.IsJoinable())
     {
         error.SetErrorToGenericError();
         error.SetErrorString("Process attach failed.");
@@ -921,7 +928,7 @@ ProcessMonitor::StartLaunchOpThread(LaunchArgs *args, Error &error)
 {
     static const char *g_thread_name = "lldb.process.freebsd.operation";
 
-    if (m_operation_thread.GetState() == eThreadStateRunning)
+    if (m_operation_thread.IsJoinable())
         return;
 
     m_operation_thread = ThreadLauncher::LaunchThread(g_thread_name, LaunchOpThread, args, &error);
@@ -1097,7 +1104,7 @@ ProcessMonitor::StartAttachOpThread(AttachArgs *args, lldb_private::Error &error
 {
     static const char *g_thread_name = "lldb.process.freebsd.operation";
 
-    if (m_operation_thread.GetState() == eThreadStateRunning)
+    if (m_operation_thread.IsJoinable())
         return;
 
     m_operation_thread = ThreadLauncher::LaunchThread(g_thread_name, AttachOpThread, args, &error);
@@ -1108,14 +1115,13 @@ ProcessMonitor::AttachOpThread(void *arg)
 {
     AttachArgs *args = static_cast<AttachArgs*>(arg);
 
-    if (!Attach(args))
-        return NULL;
+    Attach(args);
 
     ServeOperation(args);
     return NULL;
 }
 
-bool
+void
 ProcessMonitor::Attach(AttachArgs *args)
 {
     lldb::pid_t pid = args->m_pid;
@@ -1127,27 +1133,24 @@ ProcessMonitor::Attach(AttachArgs *args)
     {
         args->m_error.SetErrorToGenericError();
         args->m_error.SetErrorString("Attaching to process 1 is not allowed.");
-        goto FINISH;
+        return;
     }
 
     // Attach to the requested process.
     if (PTRACE(PT_ATTACH, pid, NULL, 0) < 0)
     {
         args->m_error.SetErrorToErrno();
-        goto FINISH;
+        return;
     }
 
     int status;
     if ((status = waitpid(pid, NULL, 0)) < 0)
     {
         args->m_error.SetErrorToErrno();
-        goto FINISH;
+        return;
     }
 
     process.SendMessage(ProcessMessage::Attach(pid));
-
-FINISH:
-    return args->m_error.Success();
 }
 
 size_t
@@ -1709,7 +1712,7 @@ ProcessMonitor::DupDescriptor(const char *path, int fd, int flags)
 void
 ProcessMonitor::StopMonitoringChildProcess()
 {
-    if (m_monitor_thread.GetState() == eThreadStateRunning)
+    if (m_monitor_thread.IsJoinable())
     {
         m_monitor_thread.Cancel();
         m_monitor_thread.Join(nullptr);
@@ -1757,7 +1760,7 @@ ProcessMonitor::WaitForInitialTIDStop(lldb::tid_t tid)
 void
 ProcessMonitor::StopOpThread()
 {
-    if (m_operation_thread.GetState() != eThreadStateRunning)
+    if (!m_operation_thread.IsJoinable())
         return;
 
     m_operation_thread.Cancel();

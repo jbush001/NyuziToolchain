@@ -32,6 +32,8 @@
 #include "Plugins/ABI/MacOSX-arm64/ABIMacOSX_arm64.h"
 #include "Plugins/ABI/SysV-x86_64/ABISysV_x86_64.h"
 #include "Plugins/ABI/Nyuzi/ABINyuzi.h"
+#include "Plugins/ABI/SysV-ppc/ABISysV_ppc.h"
+#include "Plugins/ABI/SysV-ppc64/ABISysV_ppc64.h"
 #include "Plugins/Disassembler/llvm/DisassemblerLLVMC.h"
 #include "Plugins/DynamicLoader/POSIX-DYLD/DynamicLoaderPOSIXDYLD.h"
 #include "Plugins/Instruction/ARM/EmulateInstructionARM.h"
@@ -82,6 +84,8 @@
 #endif
 
 #if defined (_WIN32)
+#include "lldb/Host/windows/windows.h"
+#include "Plugins/Process/Windows/DynamicLoaderWindows.h"
 #include "Plugins/Process/Windows/ProcessWindows.h"
 #endif
 
@@ -94,6 +98,7 @@
 #include "Plugins/Process/gdb-remote/ProcessGDBRemote.h"
 #include "Plugins/DynamicLoader/Static/DynamicLoaderStatic.h"
 #include "Plugins/MemoryHistory/asan/MemoryHistoryASan.h"
+#include "Plugins/InstrumentationRuntime/AddressSanitizer/AddressSanitizerRuntime.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -115,6 +120,25 @@ lldb_private::Initialize ()
     if (!g_inited)
     {
         g_inited = true;
+
+#if defined(_MSC_VER)
+        const char *disable_crash_dialog_var = getenv("LLDB_DISABLE_CRASH_DIALOG");
+        if (disable_crash_dialog_var && llvm::StringRef(disable_crash_dialog_var).equals_lower("true"))
+        {
+            // This will prevent Windows from displaying a dialog box requiring user interaction when
+            // LLDB crashes.  This is mostly useful when automating LLDB, for example via the test
+            // suite, so that a crash in LLDB does not prevent completion of the test suite.
+            ::SetErrorMode(GetErrorMode() | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+
+            _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
+            _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
+            _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
+            _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+            _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
+            _CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
+        }
+#endif
+
         Log::Initialize();
         HostInfo::Initialize();
         Timer::Initialize ();
@@ -133,6 +157,8 @@ lldb_private::Initialize ()
         ABIMacOSX_arm64::Initialize();
         ABISysV_x86_64::Initialize();
         ABINyuzi::Initialize();
+        ABISysV_ppc::Initialize();
+        ABISysV_ppc64::Initialize();
         DisassemblerLLVMC::Initialize();
         ObjectContainerBSDArchive::Initialize();
         ObjectFileELF::Initialize();
@@ -158,6 +184,7 @@ lldb_private::Initialize ()
         JITLoaderGDB::Initialize();
         ProcessElfCore::Initialize();
         MemoryHistoryASan::Initialize();
+        AddressSanitizerRuntime::Initialize();
         
 #if defined (__APPLE__)
         //----------------------------------------------------------------------
@@ -185,6 +212,7 @@ lldb_private::Initialize ()
         ProcessLinux::Initialize();
 #endif
 #if defined(_WIN32)
+        DynamicLoaderWindows::Initialize();
         ProcessWindows::Initialize();
 #endif
 #if defined (__FreeBSD__)
@@ -225,7 +253,9 @@ lldb_private::Terminate ()
     ABIMacOSX_arm::Terminate();
     ABIMacOSX_arm64::Terminate();
     ABISysV_x86_64::Terminate();
-	ABINyuzi::Terminate();
+	  ABINyuzi::Terminate();
+    ABISysV_ppc::Terminate();
+    ABISysV_ppc64::Terminate();
     DisassemblerLLVMC::Terminate();
     ObjectContainerBSDArchive::Terminate();
     ObjectFileELF::Terminate();
@@ -250,6 +280,7 @@ lldb_private::Terminate ()
     JITLoaderGDB::Terminate();
     ProcessElfCore::Terminate();
     MemoryHistoryASan::Terminate();
+    AddressSanitizerRuntime::Terminate();
     
 #if defined (__APPLE__)
     DynamicLoaderMacOSXDYLD::Terminate();
@@ -269,6 +300,10 @@ lldb_private::Terminate ()
 #endif
 
     Debugger::SettingsTerminate ();
+
+#if defined (_WIN32)
+    DynamicLoaderWindows::Terminate();
+#endif
 
 #if defined (__linux__)
     ProcessLinux::Terminate();
@@ -431,6 +466,7 @@ lldb_private::GetSectionTypeAsCString (SectionType sect_type)
     case eSectionTypeDWARFAppleNamespaces: return "apple-namespaces";
     case eSectionTypeDWARFAppleObjC: return "apple-objc";
     case eSectionTypeEHFrame: return "eh-frame";
+    case eSectionTypeCompactUnwind: return "compact-unwind";
     case eSectionTypeOther: return "regular";
     }
     return "unknown";

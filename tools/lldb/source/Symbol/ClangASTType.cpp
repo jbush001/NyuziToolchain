@@ -3642,7 +3642,7 @@ ClangASTType::GetChildClangTypeAtIndex (ExecutionContext *exe_ctx,
         case clang::Type::IncompleteArray:
             if (ignore_array_bounds || idx_is_valid)
             {
-                const clang::ArrayType *array = llvm::cast<clang::ArrayType>(parent_qual_type.getTypePtr());
+                const clang::ArrayType *array = GetQualType()->getAsArrayTypeUnsafe();
                 if (array)
                 {
                     ClangASTType element_type (m_ast, array->getElementType());
@@ -4946,6 +4946,17 @@ ClangASTType::BuildIndirectFields ()
     }
 }
 
+void
+ClangASTType::SetIsPacked ()
+{
+    clang::RecordDecl *record_decl = GetAsRecordDecl();
+    
+    if (!record_decl)
+        return;
+    
+    record_decl->addAttr(clang::PackedAttr::CreateImplicit(*m_ast));
+}
+
 clang::VarDecl *
 ClangASTType::AddVariableToRecordType (const char *name,
                                        const ClangASTType &var_type,
@@ -5370,9 +5381,12 @@ ClangASTType::AddObjCClassProperty (const char *property_name,
                     if (getter && metadata)
                         ClangASTContext::SetMetadata(m_ast, getter, *metadata);
                     
-                    getter->setMethodParams(*m_ast, llvm::ArrayRef<clang::ParmVarDecl*>(), llvm::ArrayRef<clang::SourceLocation>());
+                    if (getter)
+                    {
+                        getter->setMethodParams(*m_ast, llvm::ArrayRef<clang::ParmVarDecl*>(), llvm::ArrayRef<clang::SourceLocation>());
                     
-                    class_interface_decl->addDecl(getter);
+                        class_interface_decl->addDecl(getter);
+                    }
                 }
                 
                 if (!setter_sel.isNull() && !class_interface_decl->lookupInstanceMethod(setter_sel))
@@ -5417,9 +5431,12 @@ ClangASTType::AddObjCClassProperty (const char *property_name,
                                                                   clang::SC_Auto,
                                                                   nullptr));
                     
-                    setter->setMethodParams(*m_ast, llvm::ArrayRef<clang::ParmVarDecl*>(params), llvm::ArrayRef<clang::SourceLocation>());
+                    if (setter)
+                    {
+                        setter->setMethodParams(*m_ast, llvm::ArrayRef<clang::ParmVarDecl*>(params), llvm::ArrayRef<clang::SourceLocation>());
                     
-                    class_interface_decl->addDecl(setter);
+                        class_interface_decl->addDecl(setter);
+                    }
                 }
                 
                 return true;

@@ -6,12 +6,12 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Script/OutputCmd.h>
-#include <mcld/Support/raw_ostream.h>
-#include <mcld/LinkerScript.h>
-#include <mcld/Module.h>
+#include "mcld/Script/OutputCmd.h"
+#include "mcld/Support/raw_ostream.h"
+#include "mcld/LinkerScript.h"
+#include "mcld/Module.h"
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // OutputCmd
@@ -33,3 +33,5 @@ void OutputCmd::activate(Module& pModule) {
   // This option is to define a default name for the output file other than the
   // usual default of a.out.
 }
+
+}  // namespace mcld

@@ -13,7 +13,9 @@
 #include "ARM.h"
 #include "ARMTargetMachine.h"
 #include "ARMFrameLowering.h"
+#include "ARMTargetObjectFile.h"
 #include "llvm/CodeGen/Passes.h"
+#include "llvm/IR/Function.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/PassManager.h"
 #include "llvm/Support/CommandLine.h"
@@ -42,6 +44,13 @@ extern "C" void LLVMInitializeARMTarget() {
   RegisterTargetMachine<ThumbBETargetMachine> B(TheThumbBETarget);
 }
 
+static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
+  if (TT.isOSBinFormatMachO())
+    return make_unique<TargetLoweringObjectFileMachO>();
+  if (TT.isOSWindows())
+    return make_unique<TargetLoweringObjectFileCOFF>();
+  return make_unique<ARMElfTargetObjectFile>();
+}
 
 /// TargetMachine ctor - Create an ARM architecture model.
 ///
@@ -51,12 +60,53 @@ ARMBaseTargetMachine::ARMBaseTargetMachine(const Target &T, StringRef TT,
                                            Reloc::Model RM, CodeModel::Model CM,
                                            CodeGenOpt::Level OL, bool isLittle)
     : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
-      Subtarget(TT, CPU, FS, *this, isLittle, Options) {
+      TLOF(createTLOF(Triple(getTargetTriple()))),
+      Subtarget(TT, CPU, FS, *this, isLittle), isLittle(isLittle) {
 
   // Default to triple-appropriate float ABI
   if (Options.FloatABIType == FloatABI::Default)
     this->Options.FloatABIType =
         Subtarget.isTargetHardFloat() ? FloatABI::Hard : FloatABI::Soft;
+}
+
+ARMBaseTargetMachine::~ARMBaseTargetMachine() {}
+
+const ARMSubtarget *
+ARMBaseTargetMachine::getSubtargetImpl(const Function &F) const {
+  AttributeSet FnAttrs = F.getAttributes();
+  Attribute CPUAttr =
+      FnAttrs.getAttribute(AttributeSet::FunctionIndex, "target-cpu");
+  Attribute FSAttr =
+      FnAttrs.getAttribute(AttributeSet::FunctionIndex, "target-features");
+
+  std::string CPU = !CPUAttr.hasAttribute(Attribute::None)
+                        ? CPUAttr.getValueAsString().str()
+                        : TargetCPU;
+  std::string FS = !FSAttr.hasAttribute(Attribute::None)
+                       ? FSAttr.getValueAsString().str()
+                       : TargetFS;
+
+  // FIXME: This is related to the code below to reset the target options,
+  // we need to know whether or not the soft float flag is set on the
+  // function before we can generate a subtarget. We also need to use
+  // it as a key for the subtarget since that can be the only difference
+  // between two functions.
+  Attribute SFAttr =
+      FnAttrs.getAttribute(AttributeSet::FunctionIndex, "use-soft-float");
+  bool SoftFloat = !SFAttr.hasAttribute(Attribute::None)
+                       ? SFAttr.getValueAsString() == "true"
+                       : Options.UseSoftFloat;
+
+  auto &I = SubtargetMap[CPU + FS + (SoftFloat ? "use-soft-float=true"
+                                               : "use-soft-float=false")];
+  if (!I) {
+    // This needs to be done before we create a new subtarget since any
+    // creation will depend on the TM and the code generation flags on the
+    // function that reside in TargetOptions.
+    resetTargetOptions(F);
+    I = llvm::make_unique<ARMSubtarget>(TargetTriple, CPU, FS, *this, isLittle);
+  }
+  return I.get();
 }
 
 void ARMBaseTargetMachine::addAnalysisPasses(PassManagerBase &PM) {
@@ -147,9 +197,9 @@ public:
   void addIRPasses() override;
   bool addPreISel() override;
   bool addInstSelector() override;
-  bool addPreRegAlloc() override;
-  bool addPreSched2() override;
-  bool addPreEmitPass() override;
+  void addPreRegAlloc() override;
+  void addPreSched2() override;
+  void addPreEmitPass() override;
 };
 } // namespace
 
@@ -191,7 +241,7 @@ bool ARMPassConfig::addInstSelector() {
   return false;
 }
 
-bool ARMPassConfig::addPreRegAlloc() {
+void ARMPassConfig::addPreRegAlloc() {
   if (getOptLevel() != CodeGenOpt::None)
     addPass(createARMLoadStoreOptimizationPass(true));
   if (getOptLevel() != CodeGenOpt::None && getARMSubtarget().isCortexA9())
@@ -202,13 +252,11 @@ bool ARMPassConfig::addPreRegAlloc() {
     getARMSubtarget().hasNEON() && !DisableA15SDOptimization) {
     addPass(createA15SDOptimizerPass());
   }
-  return true;
 }
 
-bool ARMPassConfig::addPreSched2() {
+void ARMPassConfig::addPreSched2() {
   if (getOptLevel() != CodeGenOpt::None) {
     addPass(createARMLoadStoreOptimizationPass());
-    printAndVerify("After ARM load / store optimizer");
 
     if (getARMSubtarget().hasNEON())
       addPass(createExecutionDependencyFixPass(&ARM::DPRRegClass));
@@ -229,11 +277,9 @@ bool ARMPassConfig::addPreSched2() {
   }
   if (getARMSubtarget().isThumb2())
     addPass(createThumb2ITBlockPass());
-
-  return true;
 }
 
-bool ARMPassConfig::addPreEmitPass() {
+void ARMPassConfig::addPreEmitPass() {
   if (getARMSubtarget().isThumb2()) {
     if (!getARMSubtarget().prefers32BitThumb())
       addPass(createThumb2SizeReductionPass());
@@ -244,6 +290,4 @@ bool ARMPassConfig::addPreEmitPass() {
 
   addPass(createARMOptimizeBarriersPass());
   addPass(createARMConstantIslandPass());
-
-  return true;
 }

@@ -3,12 +3,11 @@
 define i32 @atomic_add_reg(i32* %ptr, i32 %value) { ; CHECK: atomic_add_reg:
 	%tmp = atomicrmw volatile add i32* %ptr, i32 %value monotonic
 
-; CHECK: [[TOPLABEL1:\.[A-Za-z_0-9]+]]:
 ; CHECK: load_sync s{{[0-9]+}}, (s0)
 ; CHECK: move s{{[0-9]+}}, s{{[0-9]+}}
 ; CHECK: add_i s{{[0-9]+}}, s{{[0-9]+}}, s1
 ; CHECK: store_sync s{{[0-9]+}}, (s0)	
-; CHECK: bfalse s{{[0-9]+}}, [[TOPLABEL1]]
+; CHECK: bfalse s{{[0-9]+}}, 
 
 
 	ret i32 %tmp
@@ -18,12 +17,11 @@ define i32 @atomic_add_reg(i32* %ptr, i32 %value) { ; CHECK: atomic_add_reg:
 define i32 @atomic_add_imm(i32* %ptr) { ; CHECK: atomic_add_imm:
 	%tmp = atomicrmw volatile add i32* %ptr, i32 13 monotonic
 
-; CHECK: [[TOPLABEL2:\.[A-Za-z_0-9]+]]:
 ; CHECK: load_sync s{{[0-9]+}}, (s0)
 ; CHECK: move s{{[0-9]+}}, s{{[0-9]+}}
 ; CHECK: add_i s{{[0-9]+}}, s{{[0-9]+}}, 13
 ; CHECK: store_sync s{{[0-9]+}}, (s0)	
-; CHECK: bfalse s{{[0-9]+}}, [[TOPLABEL2]]
+; CHECK: bfalse s{{[0-9]+}}, 
 
 	ret i32 %tmp
 }
@@ -35,12 +33,11 @@ define i32 @atomic_add_large_imm(i32* %ptr) { ; CHECK: atomic_add_large_imm:
 	%tmp = atomicrmw volatile add i32* %ptr, i32 1300000 monotonic
 
 ; CHECK: load_32 [[CONSTREG1:s[0-9]+]], .LCPI
-; CHECK: [[TOPLABEL3:\.[A-Za-z_0-9]+]]:
 ; CHECK: load_sync s{{[0-9]+}}, (s0)
 ; CHECK: move s{{[0-9]+}}, s{{[0-9]+}}
 ; CHECK: add_i s{{[0-9]+}}, s{{[0-9]+}}, [[CONSTREG1]]
 ; CHECK: store_sync s{{[0-9]+}}, (s0)	
-; CHECK: bfalse s{{[0-9]+}}, [[TOPLABEL3]]
+; CHECK: bfalse s{{[0-9]+}}, 
 
 	ret i32 %tmp
 }
@@ -151,7 +148,7 @@ define i32 @atomic_xchg(i32* %ptr, i32 %value) { ; CHECK: atomic_xchg:
 ; CHECK: load_sync s{{[0-9]+}}, (s0)
 ; CHECK: move s{{[0-9]+}}, s{{[0-9]+}}
 ; CHECK: store_sync s{{[0-9]+}}, (s0)	
-; CHECK: bfalse s{{[0-9]+}}, .L
+; CHECK: bfalse s{{[0-9]+}},
 
 	ret i32 %tmp
 }
@@ -159,14 +156,12 @@ define i32 @atomic_xchg(i32* %ptr, i32 %value) { ; CHECK: atomic_xchg:
 define { i32, i1 } @atomic_cmpxchg(i32* %ptr, i32 %cmp, i32 %newvalue) { ; CHECK: atomic_cmpxchg:
 	%tmp = cmpxchg volatile i32* %ptr, i32 %cmp, i32 %newvalue monotonic monotonic
 
-; CHECK: [[LOOP1:\.[A-Za-z_0-9]+]]:
 ; CHECK: load_sync [[DEST:s[0-9]+]], 
 ; CHECK: cmpne_i [[CMPRES:s[0-9]+]], [[DEST]], s1
-; CHECK: btrue [[CMPRES]], [[EXIT:\.[A-Za-z_0-9]+]]
+; CHECK: btrue [[CMPRES]], 
 ; CHECK: move [[SUCCESS:s[0-9]+]], s2
 ; CHECK: store_sync [[SUCCESS]], 
-; CHECK: bfalse [[SUCCESS]], [[LOOP1]]
-; CHECK: [[EXIT]]:
+; CHECK: bfalse  
 
 	ret { i32, i1 } %tmp
 }

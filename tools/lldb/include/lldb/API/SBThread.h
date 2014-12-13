@@ -78,7 +78,10 @@ public:
     //--------------------------------------------------------------------------
     uint64_t
     GetStopReasonDataAtIndex(uint32_t idx);
-
+    
+    bool
+    GetStopReasonExtendedInfoAsJSON (lldb::SBStream &stream);
+    
     size_t
     GetStopDescription (char *dst, size_t dst_len);
     
@@ -231,6 +234,7 @@ public:
 protected:
     friend class SBBreakpoint;
     friend class SBBreakpointLocation;
+    friend class SBExecutionContext;
     friend class SBFrame;
     friend class SBProcess;
     friend class SBDebugger;

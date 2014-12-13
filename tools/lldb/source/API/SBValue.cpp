@@ -640,6 +640,32 @@ SBValue::GetSummary ()
     }
     return cstr;
 }
+
+const char *
+SBValue::GetSummary (lldb::SBStream& stream,
+                     lldb::SBTypeSummaryOptions& options)
+{
+    Log *log(lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_API));
+    ValueLocker locker;
+    lldb::ValueObjectSP value_sp(GetSP(locker));
+    if (value_sp)
+    {
+        std::string buffer;
+        if (value_sp->GetSummaryAsCString(buffer,options.ref()) && !buffer.empty())
+            stream.Printf("%s",buffer.c_str());
+    }
+    const char* cstr = stream.GetData();
+    if (log)
+    {
+        if (cstr)
+            log->Printf ("SBValue(%p)::GetSummary() => \"%s\"",
+                         static_cast<void*>(value_sp.get()), cstr);
+        else
+            log->Printf ("SBValue(%p)::GetSummary() => NULL",
+                         static_cast<void*>(value_sp.get()));
+    }
+    return cstr;
+}
 #endif // LLDB_DISABLE_PYTHON
 
 const char *
@@ -1865,4 +1891,17 @@ SBValue::WatchPointee (bool resolve_location, bool read, bool write, SBError &er
     if (IsInScope() && GetType().IsPointerType())
         sb_watchpoint = Dereference().Watch (resolve_location, read, write, error);
     return sb_watchpoint;
+}
+
+lldb::SBValue
+SBValue::Persist ()
+{
+    ValueLocker locker;
+    lldb::ValueObjectSP value_sp(GetSP(locker));
+    SBValue persisted_sb;
+    if (value_sp)
+    {
+        persisted_sb.SetSP(value_sp->Persist());
+    }
+    return persisted_sb;
 }

@@ -6,17 +6,17 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/LDSection.h>
-#include <mcld/IRBuilder.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/Target/GOT.h>
+#include "mcld/LD/LDSection.h"
+#include "mcld/IRBuilder.h"
+#include "mcld/Support/MsgHandling.h"
+#include "mcld/Target/GOT.h"
 
 #include <llvm/Support/Casting.h>
 
 #include <cstring>
 #include <cstdlib>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // GOT
@@ -38,3 +38,5 @@ void GOT::finalizeSectionSize() {
 
   m_Section.setSize(offset);
 }
+
+}  // namespace mcld

@@ -6,35 +6,36 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/ELFObjectWriter.h>
+#include "mcld/LD/ELFObjectWriter.h"
 
-#include <mcld/LinkerConfig.h>
-#include <mcld/LinkerScript.h>
-#include <mcld/Module.h>
-#include <mcld/ADT/SizeTraits.h>
-#include <mcld/Fragment/AlignFragment.h>
-#include <mcld/Fragment/FillFragment.h>
-#include <mcld/Fragment/NullFragment.h>
-#include <mcld/Fragment/RegionFragment.h>
-#include <mcld/Fragment/Stub.h>
-#include <mcld/LD/EhFrame.h>
-#include <mcld/LD/ELFFileFormat.h>
-#include <mcld/LD/ELFSegment.h>
-#include <mcld/LD/ELFSegmentFactory.h>
-#include <mcld/LD/LDSection.h>
-#include <mcld/LD/LDSymbol.h>
-#include <mcld/LD/RelocData.h>
-#include <mcld/LD/SectionData.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/Target/GNUInfo.h>
-#include <mcld/Target/GNULDBackend.h>
+#include "mcld/LinkerConfig.h"
+#include "mcld/LinkerScript.h"
+#include "mcld/Module.h"
+#include "mcld/ADT/SizeTraits.h"
+#include "mcld/Fragment/AlignFragment.h"
+#include "mcld/Fragment/FillFragment.h"
+#include "mcld/Fragment/NullFragment.h"
+#include "mcld/Fragment/RegionFragment.h"
+#include "mcld/Fragment/Stub.h"
+#include "mcld/LD/DebugString.h"
+#include "mcld/LD/EhFrame.h"
+#include "mcld/LD/ELFFileFormat.h"
+#include "mcld/LD/ELFSegment.h"
+#include "mcld/LD/ELFSegmentFactory.h"
+#include "mcld/LD/LDSection.h"
+#include "mcld/LD/LDSymbol.h"
+#include "mcld/LD/RelocData.h"
+#include "mcld/LD/SectionData.h"
+#include "mcld/Support/MsgHandling.h"
+#include "mcld/Target/GNUInfo.h"
+#include "mcld/Target/GNULDBackend.h"
 
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/ELF.h>
 #include <llvm/Support/Errc.h>
 #include <llvm/Support/ErrorHandling.h>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // ELFObjectWriter
@@ -62,6 +63,7 @@ void ELFObjectWriter::writeSection(Module& pModule,
     case LDFileFormat::Relocation:
     case LDFileFormat::Target:
     case LDFileFormat::Debug:
+    case LDFileFormat::DebugString:
     case LDFileFormat::GCCExceptTable:
     case LDFileFormat::EhFrame: {
       region = pOutput.request(section->offset(), section->size());
@@ -105,6 +107,9 @@ void ELFObjectWriter::writeSection(Module& pModule,
       break;
     case LDFileFormat::Target:
       target().emitSectionData(*section, region);
+      break;
+    case LDFileFormat::DebugString:
+      section->getDebugString()->emit(region);
       break;
     default:
       llvm_unreachable("invalid section kind");
@@ -365,8 +370,9 @@ void ELFObjectWriter::emitShStrTab(const LDSection& pShStrTab,
   size_t shstrsize = 0;
   Module::const_iterator section, sectEnd = pModule.end();
   for (section = pModule.begin(); section != sectEnd; ++section) {
-    strcpy(reinterpret_cast<char*>(data + shstrsize),
-           (*section)->name().data());
+    ::memcpy(reinterpret_cast<char*>(data + shstrsize),
+             (*section)->name().data(),
+             (*section)->name().size());
     shstrsize += (*section)->name().size() + 1;
   }
 }
@@ -707,3 +713,5 @@ void ELFObjectWriter::emitSectionData(const SectionData& pSD,
     cur_offset += size;
   }
 }
+
+}  // namespace mcld

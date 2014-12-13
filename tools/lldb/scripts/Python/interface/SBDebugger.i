@@ -363,11 +363,14 @@ public:
 
     lldb::SBTypeSynthetic
     GetSyntheticForType (lldb::SBTypeNameSpecifier);
-    
+
     void
     RunCommandInterpreter (bool auto_handle_events,
-                           bool spawn_thread);
-
+                           bool spawn_thread,
+                           SBCommandInterpreterRunOptions &options,
+                           int  &num_errors,
+                           bool &quit_requested,
+                           bool &stopped_for_crash);
 }; // class SBDebugger
 
 } // namespace lldb

@@ -6,22 +6,22 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/EhFrame.h>
+#include "mcld/LD/EhFrame.h"
 
-#include <mcld/Fragment/Relocation.h>
-#include <mcld/LD/LDContext.h>
-#include <mcld/LD/LDSection.h>
-#include <mcld/LD/LDSymbol.h>
-#include <mcld/LD/RelocData.h>
-#include <mcld/LD/ResolveInfo.h>
-#include <mcld/LD/SectionData.h>
-#include <mcld/MC/Input.h>
-#include <mcld/Object/ObjectBuilder.h>
-#include <mcld/Support/GCFactory.h>
+#include "mcld/Fragment/Relocation.h"
+#include "mcld/LD/LDContext.h"
+#include "mcld/LD/LDSection.h"
+#include "mcld/LD/LDSymbol.h"
+#include "mcld/LD/RelocData.h"
+#include "mcld/LD/ResolveInfo.h"
+#include "mcld/LD/SectionData.h"
+#include "mcld/MC/Input.h"
+#include "mcld/Object/ObjectBuilder.h"
+#include "mcld/Support/GCFactory.h"
 
 #include <llvm/Support/ManagedStatic.h>
 
-using namespace mcld;
+namespace mcld {
 
 typedef GCFactory<EhFrame, MCLD_SECTIONS_PER_INPUT> EhFrameFactory;
 
@@ -365,7 +365,9 @@ size_t EhFrame::computeOffsetSize() {
   return offset;
 }
 
-bool mcld::operator==(const EhFrame::CIE& p1, const EhFrame::CIE& p2) {
+bool operator==(const EhFrame::CIE& p1, const EhFrame::CIE& p2) {
   return p1.getPersonalityName() == p2.getPersonalityName() &&
          p1.getAugmentationData() == p2.getAugmentationData();
 }
+
+}  // namespace mcld

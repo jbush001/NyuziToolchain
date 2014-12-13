@@ -26,6 +26,7 @@
 #include "MipsSEISelDAGToDAG.h"
 #include "MipsSEISelLowering.h"
 #include "MipsSEInstrInfo.h"
+#include "MipsTargetObjectFile.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/PassManager.h"
@@ -56,7 +57,9 @@ MipsTargetMachine::MipsTargetMachine(const Target &T, StringRef TT,
                                      Reloc::Model RM, CodeModel::Model CM,
                                      CodeGenOpt::Level OL, bool isLittle)
     : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
-      isLittle(isLittle), Subtarget(nullptr),
+      isLittle(isLittle),
+      TLOF(make_unique<MipsTargetObjectFile>()),
+      Subtarget(nullptr),
       DefaultSubtarget(TT, CPU, FS, isLittle, this),
       NoMips16Subtarget(TT, CPU, FS.empty() ? "-mips16" : FS.str() + ",-mips16",
                         isLittle, this),
@@ -65,6 +68,8 @@ MipsTargetMachine::MipsTargetMachine(const Target &T, StringRef TT,
   Subtarget = &DefaultSubtarget;
   initAsmInfo();
 }
+
+MipsTargetMachine::~MipsTargetMachine() {}
 
 void MipsebTargetMachine::anchor() { }
 
@@ -165,9 +170,9 @@ public:
   void addIRPasses() override;
   bool addInstSelector() override;
   void addMachineSSAOptimization() override;
-  bool addPreEmitPass() override;
+  void addPreEmitPass() override;
 
-  bool addPreRegAlloc() override;
+  void addPreRegAlloc() override;
 
 };
 } // namespace
@@ -178,6 +183,7 @@ TargetPassConfig *MipsTargetMachine::createPassConfig(PassManagerBase &PM) {
 
 void MipsPassConfig::addIRPasses() {
   TargetPassConfig::addIRPasses();
+  addPass(createAtomicExpandPass(&getMipsTargetMachine()));
   if (getMipsSubtarget().os16())
     addPass(createMipsOs16(getMipsTargetMachine()));
   if (getMipsSubtarget().inMips16HardFloat())
@@ -197,13 +203,9 @@ void MipsPassConfig::addMachineSSAOptimization() {
   TargetPassConfig::addMachineSSAOptimization();
 }
 
-bool MipsPassConfig::addPreRegAlloc() {
-  if (getOptLevel() == CodeGenOpt::None) {
+void MipsPassConfig::addPreRegAlloc() {
+  if (getOptLevel() == CodeGenOpt::None)
     addPass(createMipsOptimizePICCallPass(getMipsTargetMachine()));
-    return true;
-  }
-  else
-    return false;
 }
 
 void MipsTargetMachine::addAnalysisPasses(PassManagerBase &PM) {
@@ -222,10 +224,9 @@ void MipsTargetMachine::addAnalysisPasses(PassManagerBase &PM) {
 // Implemented by targets that want to run passes immediately before
 // machine code is emitted. return true if -print-machineinstrs should
 // print out the code after the passes.
-bool MipsPassConfig::addPreEmitPass() {
+void MipsPassConfig::addPreEmitPass() {
   MipsTargetMachine &TM = getMipsTargetMachine();
   addPass(createMipsDelaySlotFillerPass(TM));
   addPass(createMipsLongBranchPass(TM));
   addPass(createMipsConstantIslandPass(TM));
-  return true;
 }

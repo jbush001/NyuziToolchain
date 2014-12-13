@@ -6,12 +6,12 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/MC/Attribute.h>
+#include "mcld/MC/Attribute.h"
 
-#include <mcld/MC/AttributeSet.h>
-#include <mcld/Support/MsgHandling.h>
+#include "mcld/MC/AttributeSet.h"
+#include "mcld/Support/MsgHandling.h"
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // AttrConstraint
@@ -157,3 +157,5 @@ AttributeProxy& AttributeProxy::assign(Attribute* pBase) {
   m_pBase = pBase;
   return *this;
 }
+
+}  // namespace mcld

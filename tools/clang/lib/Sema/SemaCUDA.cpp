@@ -14,6 +14,7 @@
 #include "clang/Sema/Sema.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Decl.h"
+#include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/SemaDiagnostic.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"
@@ -48,6 +49,12 @@ Sema::CUDAFunctionTarget Sema::IdentifyCUDATarget(const FunctionDecl *D) {
     if (D->hasAttr<CUDAHostAttr>())
       return CFT_HostDevice;
     return CFT_Device;
+  } else if (D->hasAttr<CUDAHostAttr>()) {
+    return CFT_Host;
+  } else if (D->isImplicit()) {
+    // Some implicit declarations (like intrinsic functions) are not marked.
+    // Set the most lenient target on them for maximal flexibility.
+    return CFT_HostDevice;
   }
 
   return CFT_Host;
@@ -66,21 +73,29 @@ bool Sema::CheckCUDATarget(CUDAFunctionTarget CallerTarget,
   if (CallerTarget == CFT_InvalidTarget || CalleeTarget == CFT_InvalidTarget)
     return true;
 
-  // CUDA B.1.1 "The __device__ qualifier declares a function that is...
+  // CUDA B.1.1 "The __device__ qualifier declares a function that is [...]
   // Callable from the device only."
   if (CallerTarget == CFT_Host && CalleeTarget == CFT_Device)
     return true;
 
-  // CUDA B.1.2 "The __global__ qualifier declares a function that is...
+  // CUDA B.1.2 "The __global__ qualifier declares a function that is [...]
   // Callable from the host only."
-  // CUDA B.1.3 "The __host__ qualifier declares a function that is...
+  // CUDA B.1.3 "The __host__ qualifier declares a function that is [...]
   // Callable from the host only."
   if ((CallerTarget == CFT_Device || CallerTarget == CFT_Global) &&
       (CalleeTarget == CFT_Host || CalleeTarget == CFT_Global))
     return true;
 
-  if (CallerTarget == CFT_HostDevice && CalleeTarget != CFT_HostDevice)
-    return true;
+  // CUDA B.1.3 "The __device__ and __host__ qualifiers can be used together
+  // however, in which case the function is compiled for both the host and the
+  // device. The __CUDA_ARCH__ macro [...] can be used to differentiate code
+  // paths between host and device."
+  bool InDeviceMode = getLangOpts().CUDAIsDevice;
+  if (CallerTarget == CFT_HostDevice && CalleeTarget != CFT_HostDevice) {
+    if ((InDeviceMode && CalleeTarget != CFT_Device) ||
+        (!InDeviceMode && CalleeTarget != CFT_Host))
+      return true;
+  }
 
   return false;
 }

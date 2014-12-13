@@ -9,14 +9,14 @@
 #include "ARMGOT.h"
 #include "ARMPLT.h"
 
-#include <mcld/LD/LDSection.h>
-#include <mcld/Support/MsgHandling.h>
+#include "mcld/LD/LDSection.h"
+#include "mcld/Support/MsgHandling.h"
 
 #include <new>
 
 #include <llvm/Support/Casting.h>
 
-using namespace mcld;
+namespace mcld {
 
 ARMPLT0::ARMPLT0(SectionData& pParent) : PLT::Entry<sizeof(arm_plt0)>(pParent) {
 }
@@ -157,3 +157,5 @@ uint64_t ARMPLT::emit(MemoryRegion& pRegion) {
   }
   return result;
 }
+
+}  // namespace mcld

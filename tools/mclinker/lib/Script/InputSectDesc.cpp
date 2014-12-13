@@ -6,16 +6,16 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Script/InputSectDesc.h>
+#include "mcld/Script/InputSectDesc.h"
 
-#include <mcld/Script/WildcardPattern.h>
-#include <mcld/Support/raw_ostream.h>
-#include <mcld/LinkerScript.h>
-#include <mcld/Module.h>
+#include "mcld/Script/WildcardPattern.h"
+#include "mcld/Support/raw_ostream.h"
+#include "mcld/LinkerScript.h"
+#include "mcld/Module.h"
 
 #include <llvm/Support/Casting.h>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // InputSectDesc
@@ -102,3 +102,5 @@ void InputSectDesc::dump() const {
 void InputSectDesc::activate(Module& pModule) {
   pModule.getScript().sectionMap().insert(*this, m_OutputSectDesc);
 }
+
+}  // namespace mcld

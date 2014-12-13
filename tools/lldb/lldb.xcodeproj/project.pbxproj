@@ -69,6 +69,7 @@
 		233B007F1960CB280090E598 /* ProcessLaunchInfo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 233B007E1960CB280090E598 /* ProcessLaunchInfo.cpp */; };
 		236124A41986B4E2004EFC37 /* IOObject.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 236124A21986B4E2004EFC37 /* IOObject.cpp */; };
 		236124A51986B4E2004EFC37 /* Socket.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 236124A31986B4E2004EFC37 /* Socket.cpp */; };
+		2377C2F819E613C100737875 /* PipePosix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2377C2F719E613C100737875 /* PipePosix.cpp */; };
 		23CDD8FB19D47B3600461DDC /* ThreadStateCoordinator.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 23CDD8E819D3E13200461DDC /* ThreadStateCoordinator.cpp */; };
 		23DDF226196C3EE600BB8417 /* CommandOptionValidators.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 23DDF224196C3EE600BB8417 /* CommandOptionValidators.cpp */; };
 		23EDE33319269E7C00F6A132 /* NativeRegisterContext.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 23EDE3301926839700F6A132 /* NativeRegisterContext.cpp */; };
@@ -82,7 +83,6 @@
 		2606EDDF184E68A10034641B /* liblldb-core.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 2689FFCA13353D7A00698AC0 /* liblldb-core.a */; };
 		260A248E15D06C50009981B0 /* OptionValues.h in Headers */ = {isa = PBXBuildFile; fileRef = 260A248D15D06C4F009981B0 /* OptionValues.h */; };
 		260A39A619647A3A004B4130 /* Pipe.h in Headers */ = {isa = PBXBuildFile; fileRef = 260A39A519647A3A004B4130 /* Pipe.h */; };
-		260A39A819647A4E004B4130 /* Pipe.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 260A39A719647A4E004B4130 /* Pipe.cpp */; };
 		260A63171861008E00FECF8E /* IOHandler.h in Headers */ = {isa = PBXBuildFile; fileRef = 260A63161861008E00FECF8E /* IOHandler.h */; };
 		260A63191861009E00FECF8E /* IOHandler.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 260A63181861009E00FECF8E /* IOHandler.cpp */; };
 		260CC62E15D04377002BF2E0 /* OptionValueArgs.h in Headers */ = {isa = PBXBuildFile; fileRef = 260CC62115D04377002BF2E0 /* OptionValueArgs.h */; };
@@ -121,7 +121,6 @@
 		26274FA714030F79006BA130 /* DynamicLoaderDarwinKernel.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26274FA514030F79006BA130 /* DynamicLoaderDarwinKernel.cpp */; };
 		2628A4D513D4977900F5487A /* ThreadKDP.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 2628A4D313D4977900F5487A /* ThreadKDP.cpp */; };
 		262CFC7711A4510000946C6C /* debugserver in Resources */ = {isa = PBXBuildFile; fileRef = 26CE05A0115C31E50022F371 /* debugserver */; };
-		262D24E613FB8710002D1960 /* RegisterContextMemory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 262D24E413FB8710002D1960 /* RegisterContextMemory.cpp */; };
 		262ED0051631FA2800879631 /* OptionGroupString.h in Headers */ = {isa = PBXBuildFile; fileRef = 262ED0041631FA2800879631 /* OptionGroupString.h */; };
 		262ED0081631FA3A00879631 /* OptionGroupString.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 262ED0071631FA3A00879631 /* OptionGroupString.cpp */; };
 		262F12B51835468600AEB384 /* SBPlatform.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 262F12B41835468600AEB384 /* SBPlatform.cpp */; };
@@ -173,7 +172,7 @@
 		265205A813D3E3F700132FE2 /* RegisterContextKDP_arm.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 265205A213D3E3F700132FE2 /* RegisterContextKDP_arm.cpp */; };
 		265205AA13D3E3F700132FE2 /* RegisterContextKDP_i386.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 265205A413D3E3F700132FE2 /* RegisterContextKDP_i386.cpp */; };
 		265205AC13D3E3F700132FE2 /* RegisterContextKDP_x86_64.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 265205A613D3E3F700132FE2 /* RegisterContextKDP_x86_64.cpp */; };
-		2660AAB914622483003A9694 /* LLDBWrapPython.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26A4EEB511682AAC007A372A /* LLDBWrapPython.cpp */; };
+		2660AAB914622483003A9694 /* LLDBWrapPython.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26A4EEB511682AAC007A372A /* LLDBWrapPython.cpp */; settings = {COMPILER_FLAGS = "-Dregister="; }; };
 		26651A18133BF9E0005B64B7 /* Opcode.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26651A17133BF9DF005B64B7 /* Opcode.cpp */; };
 		266603CA1345B5A8004DA8B6 /* ConnectionSharedMemory.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 266603C91345B5A8004DA8B6 /* ConnectionSharedMemory.cpp */; };
 		2668020E115FD12C008E1FE4 /* lldb-defines.h in Headers */ = {isa = PBXBuildFile; fileRef = 26BC7C2510F1B3BC00F91463 /* lldb-defines.h */; settings = {ATTRIBUTES = (Public, ); }; };
@@ -270,7 +269,6 @@
 		2689003113353E0400698AC0 /* Broadcaster.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26BC7E6D10F1B85900F91463 /* Broadcaster.cpp */; };
 		2689003213353E0400698AC0 /* Communication.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26BC7E6E10F1B85900F91463 /* Communication.cpp */; };
 		2689003313353E0400698AC0 /* Connection.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26BC7E6F10F1B85900F91463 /* Connection.cpp */; };
-		2689003413353E0400698AC0 /* ConnectionFileDescriptor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26BC7E7010F1B85900F91463 /* ConnectionFileDescriptor.cpp */; };
 		2689003513353E0400698AC0 /* ConstString.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26BC7E9410F1B85900F91463 /* ConstString.cpp */; };
 		2689003613353E0400698AC0 /* DataBufferHeap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26BC7E7210F1B85900F91463 /* DataBufferHeap.cpp */; };
 		2689003713353E0400698AC0 /* DataBufferMemoryMap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 26BC7E7310F1B85900F91463 /* DataBufferMemoryMap.cpp */; };
@@ -604,12 +602,14 @@
 		490A36C2180F0E9300BA31F8 /* PlatformWindows.h in Headers */ = {isa = PBXBuildFile; fileRef = 490A36BE180F0E6F00BA31F8 /* PlatformWindows.h */; };
 		490A966B1628C3BF00F0002E /* SBDeclaration.h in Headers */ = {isa = PBXBuildFile; fileRef = 9452573816262CEF00325455 /* SBDeclaration.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		494260DA14579144003C1C78 /* VerifyDecl.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 494260D914579144003C1C78 /* VerifyDecl.cpp */; };
+		4959511D1A1BC49500F6F8FC /* ClangModulesDeclVendor.h in Headers */ = {isa = PBXBuildFile; fileRef = 4959511B1A1BC48100F6F8FC /* ClangModulesDeclVendor.h */; };
+		4959511F1A1BC4BC00F6F8FC /* ClangModulesDeclVendor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4959511E1A1BC4BC00F6F8FC /* ClangModulesDeclVendor.cpp */; };
 		4966DCC4148978A10028481B /* ClangExternalASTSourceCommon.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4966DCC3148978A10028481B /* ClangExternalASTSourceCommon.cpp */; };
 		49A1CAC51430E8DE00306AC9 /* ExpressionSourceCode.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 49A1CAC31430E8BD00306AC9 /* ExpressionSourceCode.cpp */; };
 		49A71FE7141FFA5C00D59478 /* IRInterpreter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 496B01581406DE8900F830D5 /* IRInterpreter.cpp */; };
 		49A71FE8141FFACF00D59478 /* DataEncoder.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 268ED0A4140FF54200DE830F /* DataEncoder.cpp */; };
 		49D8FB3913B5598F00411094 /* ClangASTImporter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 49D8FB3513B558DE00411094 /* ClangASTImporter.cpp */; };
-		49DA65031485C92A005FF180 /* AppleObjCTypeVendor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 49DA65021485C92A005FF180 /* AppleObjCTypeVendor.cpp */; };
+		49DA65031485C92A005FF180 /* AppleObjCDeclVendor.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 49DA65021485C92A005FF180 /* AppleObjCDeclVendor.cpp */; };
 		49DCF6FE170E6B4A0092F75E /* IRMemoryMap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 49DCF6FD170E6B4A0092F75E /* IRMemoryMap.cpp */; };
 		49DCF702170E70120092F75E /* Materializer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 49DCF700170E70120092F75E /* Materializer.cpp */; };
 		4C3ADCD61810D88B00357218 /* BreakpointResolverFileRegex.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4CAA56141422D986001FFA01 /* BreakpointResolverFileRegex.cpp */; };
@@ -638,13 +638,20 @@
 		8CCB017E19BA28A80009FD44 /* ThreadCollection.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8CCB017A19BA283D0009FD44 /* ThreadCollection.cpp */; };
 		8CCB018219BA4E270009FD44 /* SBThreadCollection.h in Headers */ = {isa = PBXBuildFile; fileRef = 8CCB018119BA4E210009FD44 /* SBThreadCollection.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		8CCB018319BA51BF0009FD44 /* SBThreadCollection.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8CCB017F19BA4DD00009FD44 /* SBThreadCollection.cpp */; };
+		8CF02AE919DCC01900B14BE0 /* InstrumentationRuntime.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8CF02ADF19DCBF3B00B14BE0 /* InstrumentationRuntime.cpp */; };
+		8CF02AEA19DCC02100B14BE0 /* AddressSanitizerRuntime.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8CF02AE519DCBF8400B14BE0 /* AddressSanitizerRuntime.cpp */; };
+		8CF02AEF19DD16B100B14BE0 /* InstrumentationRuntimeStopInfo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 8CF02AED19DD15CF00B14BE0 /* InstrumentationRuntimeStopInfo.cpp */; };
 		94094C6B163B6F840083A547 /* ValueObjectCast.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 94094C69163B6CD90083A547 /* ValueObjectCast.cpp */; };
+		940B02F619DC96E700AD0F52 /* SBExecutionContext.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 940B02F519DC96E700AD0F52 /* SBExecutionContext.cpp */; };
 		94145431175E63B500284436 /* lldb-versioning.h in Headers */ = {isa = PBXBuildFile; fileRef = 94145430175D7FDE00284436 /* lldb-versioning.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		941BCC7F14E48C4000BB969C /* SBTypeFilter.h in Headers */ = {isa = PBXBuildFile; fileRef = 9461568614E355F2003A195C /* SBTypeFilter.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		941BCC8014E48C4000BB969C /* SBTypeFormat.h in Headers */ = {isa = PBXBuildFile; fileRef = 9461568714E355F2003A195C /* SBTypeFormat.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		941BCC8114E48C4000BB969C /* SBTypeSummary.h in Headers */ = {isa = PBXBuildFile; fileRef = 9461568814E355F2003A195C /* SBTypeSummary.h */; settings = {ATTRIBUTES = (Public, ); }; };
 		941BCC8214E48C4000BB969C /* SBTypeSynthetic.h in Headers */ = {isa = PBXBuildFile; fileRef = 9461568914E355F2003A195C /* SBTypeSynthetic.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		942AFF0519F84ABF007B43B4 /* LibCxxVector.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 942AFF0419F84ABF007B43B4 /* LibCxxVector.cpp */; };
+		942AFF0719F84C02007B43B4 /* LibCxxInitializerList.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 942AFF0619F84C02007B43B4 /* LibCxxInitializerList.cpp */; };
 		94380B8219940B0A00BFE4A8 /* StringLexer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 94380B8119940B0A00BFE4A8 /* StringLexer.cpp */; };
+		9439FB1A19EF140C006FD6A4 /* NSIndexPath.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9439FB1919EF140C006FD6A4 /* NSIndexPath.cpp */; };
 		944372DC171F6B4300E57C32 /* RegisterContextDummy.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 944372DA171F6B4300E57C32 /* RegisterContextDummy.cpp */; };
 		944372DD171F6B4300E57C32 /* RegisterContextDummy.h in Headers */ = {isa = PBXBuildFile; fileRef = 944372DB171F6B4300E57C32 /* RegisterContextDummy.h */; };
 		9443B122140C18C40013457C /* SBData.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 9443B121140C18C10013457C /* SBData.cpp */; };
@@ -694,7 +701,10 @@
 		94E829CA152D33C1006F96A3 /* lldb-platform in Resources */ = {isa = PBXBuildFile; fileRef = 26DC6A101337FE6900FF7998 /* lldb-platform */; };
 		94EA1D5C15E6C9B400D4171A /* PythonDataObjects.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 94EA1D5B15E6C9B400D4171A /* PythonDataObjects.cpp */; };
 		94EA27CE17DE91750070F505 /* LibCxxUnorderedMap.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 94EA27CD17DE91750070F505 /* LibCxxUnorderedMap.cpp */; };
+		94F48F251A01C687005C0EC6 /* StringPrinter.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 94F48F241A01C687005C0EC6 /* StringPrinter.cpp */; };
 		94FA3DE01405D50400833217 /* ValueObjectConstResultChild.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 94FA3DDF1405D50300833217 /* ValueObjectConstResultChild.cpp */; };
+		964463EC1A330C0500154ED8 /* CompactUnwindInfo.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 964463EB1A330C0500154ED8 /* CompactUnwindInfo.cpp */; };
+		964463EE1A330C1B00154ED8 /* CompactUnwindInfo.h in Headers */ = {isa = PBXBuildFile; fileRef = 964463ED1A330C1B00154ED8 /* CompactUnwindInfo.h */; };
 		966C6B7918E6A56A0093F5EC /* libz.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 966C6B7818E6A56A0093F5EC /* libz.dylib */; };
 		966C6B7A18E6A56A0093F5EC /* libz.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 966C6B7818E6A56A0093F5EC /* libz.dylib */; };
 		966C6B7B18E6A56A0093F5EC /* libz.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 966C6B7818E6A56A0093F5EC /* libz.dylib */; };
@@ -745,12 +755,29 @@
 		AF37E10A17C861F20061E18E /* ProcessRunLock.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF37E10917C861F20061E18E /* ProcessRunLock.cpp */; };
 		AF45FDE518A1F3AC0007051C /* AppleGetThreadItemInfoHandler.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF45FDE318A1F3AC0007051C /* AppleGetThreadItemInfoHandler.cpp */; };
 		AF45FDE618A1F3AC0007051C /* AppleGetThreadItemInfoHandler.h in Headers */ = {isa = PBXBuildFile; fileRef = AF45FDE418A1F3AC0007051C /* AppleGetThreadItemInfoHandler.h */; };
+		AF77E08F1A033C700096C0EA /* ABISysV_ppc.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF77E08D1A033C700096C0EA /* ABISysV_ppc.cpp */; };
+		AF77E0901A033C700096C0EA /* ABISysV_ppc.h in Headers */ = {isa = PBXBuildFile; fileRef = AF77E08E1A033C700096C0EA /* ABISysV_ppc.h */; };
+		AF77E0931A033C7F0096C0EA /* ABISysV_ppc64.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF77E0911A033C7F0096C0EA /* ABISysV_ppc64.cpp */; };
+		AF77E0941A033C7F0096C0EA /* ABISysV_ppc64.h in Headers */ = {isa = PBXBuildFile; fileRef = AF77E0921A033C7F0096C0EA /* ABISysV_ppc64.h */; };
+		AF77E0971A033CC70096C0EA /* RegisterContextPOSIXProcessMonitor_powerpc.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF77E0951A033CC70096C0EA /* RegisterContextPOSIXProcessMonitor_powerpc.cpp */; };
+		AF77E0981A033CC70096C0EA /* RegisterContextPOSIXProcessMonitor_powerpc.h in Headers */ = {isa = PBXBuildFile; fileRef = AF77E0961A033CC70096C0EA /* RegisterContextPOSIXProcessMonitor_powerpc.h */; };
+		AF77E0A01A033D360096C0EA /* RegisterContext_powerpc.h in Headers */ = {isa = PBXBuildFile; fileRef = AF77E0991A033D360096C0EA /* RegisterContext_powerpc.h */; };
+		AF77E0A11A033D360096C0EA /* RegisterContextFreeBSD_powerpc.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF77E09A1A033D360096C0EA /* RegisterContextFreeBSD_powerpc.cpp */; };
+		AF77E0A21A033D360096C0EA /* RegisterContextFreeBSD_powerpc.h in Headers */ = {isa = PBXBuildFile; fileRef = AF77E09B1A033D360096C0EA /* RegisterContextFreeBSD_powerpc.h */; };
+		AF77E0A31A033D360096C0EA /* RegisterContextMacOSXFrameBackchain.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF77E09C1A033D360096C0EA /* RegisterContextMacOSXFrameBackchain.cpp */; };
+		AF77E0A41A033D360096C0EA /* RegisterContextPOSIX_powerpc.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF77E09D1A033D360096C0EA /* RegisterContextPOSIX_powerpc.cpp */; };
+		AF77E0A51A033D360096C0EA /* RegisterContextPOSIX_powerpc.h in Headers */ = {isa = PBXBuildFile; fileRef = AF77E09E1A033D360096C0EA /* RegisterContextPOSIX_powerpc.h */; };
+		AF77E0A61A033D360096C0EA /* RegisterInfos_powerpc.h in Headers */ = {isa = PBXBuildFile; fileRef = AF77E09F1A033D360096C0EA /* RegisterInfos_powerpc.h */; };
+		AF77E0A91A033D740096C0EA /* RegisterContextPOSIXCore_powerpc.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF77E0A71A033D740096C0EA /* RegisterContextPOSIXCore_powerpc.cpp */; };
+		AF77E0AA1A033D740096C0EA /* RegisterContextPOSIXCore_powerpc.h in Headers */ = {isa = PBXBuildFile; fileRef = AF77E0A81A033D740096C0EA /* RegisterContextPOSIXCore_powerpc.h */; };
 		AF81DEFA1828A23F0042CF19 /* SystemRuntime.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF81DEF91828A23F0042CF19 /* SystemRuntime.cpp */; };
 		AF90106515AB7D3600FF120D /* lldb.1 in CopyFiles */ = {isa = PBXBuildFile; fileRef = AF90106315AB7C5700FF120D /* lldb.1 */; };
 		AF9107EE168570D200DBCD3C /* RegisterContextDarwin_arm64.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF9107EC168570D200DBCD3C /* RegisterContextDarwin_arm64.cpp */; };
 		AF9107EF168570D200DBCD3C /* RegisterContextDarwin_arm64.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF9107EC168570D200DBCD3C /* RegisterContextDarwin_arm64.cpp */; };
 		AF9B8F33182DB52900DA866F /* SystemRuntimeMacOSX.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AF9B8F31182DB52900DA866F /* SystemRuntimeMacOSX.cpp */; };
 		AF9B8F34182DB52900DA866F /* SystemRuntimeMacOSX.h in Headers */ = {isa = PBXBuildFile; fileRef = AF9B8F32182DB52900DA866F /* SystemRuntimeMacOSX.h */; };
+		AFDCDBCB19DD0F42005EA55E /* SBExecutionContext.h in Headers */ = {isa = PBXBuildFile; fileRef = 940B02F419DC96CB00AD0F52 /* SBExecutionContext.h */; settings = {ATTRIBUTES = (Public, ); }; };
+		AFDFDFD119E34D3400EAE509 /* ConnectionFileDescriptorPosix.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AFDFDFD019E34D3400EAE509 /* ConnectionFileDescriptorPosix.cpp */; };
 		AFEC3362194A8ABA00FF05C6 /* StructuredData.cpp in Sources */ = {isa = PBXBuildFile; fileRef = AFEC3361194A8ABA00FF05C6 /* StructuredData.cpp */; };
 		AFF87C87150FF669000E1742 /* com.apple.debugserver.plist in CopyFiles */ = {isa = PBXBuildFile; fileRef = AFF87C86150FF669000E1742 /* com.apple.debugserver.plist */; };
 		AFF87C89150FF672000E1742 /* com.apple.debugserver-secure.plist in CopyFiles */ = {isa = PBXBuildFile; fileRef = AFF87C88150FF672000E1742 /* com.apple.debugserver-secure.plist */; };
@@ -978,6 +1005,7 @@
 		236124A31986B4E2004EFC37 /* Socket.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Socket.cpp; sourceTree = "<group>"; };
 		236124A61986B50E004EFC37 /* IOObject.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = IOObject.h; path = include/lldb/Host/IOObject.h; sourceTree = "<group>"; };
 		236124A71986B50E004EFC37 /* Socket.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Socket.h; path = include/lldb/Host/Socket.h; sourceTree = "<group>"; };
+		2377C2F719E613C100737875 /* PipePosix.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = PipePosix.cpp; sourceTree = "<group>"; };
 		237C577A19AF9D9F00213D59 /* HostInfoLinux.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = HostInfoLinux.h; path = include/lldb/Host/linux/HostInfoLinux.h; sourceTree = SOURCE_ROOT; };
 		23AB052D199FF639003B8084 /* FreeBSDThread.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = FreeBSDThread.cpp; sourceTree = "<group>"; };
 		23AB052E199FF639003B8084 /* FreeBSDThread.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = FreeBSDThread.h; sourceTree = "<group>"; };
@@ -1002,7 +1030,6 @@
 		26022532115F281400A601A2 /* SBFileSpec.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SBFileSpec.cpp; path = source/API/SBFileSpec.cpp; sourceTree = "<group>"; };
 		260A248D15D06C4F009981B0 /* OptionValues.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = OptionValues.h; path = include/lldb/Interpreter/OptionValues.h; sourceTree = "<group>"; };
 		260A39A519647A3A004B4130 /* Pipe.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Pipe.h; path = include/lldb/Host/Pipe.h; sourceTree = "<group>"; };
-		260A39A719647A4E004B4130 /* Pipe.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = Pipe.cpp; sourceTree = "<group>"; };
 		260A63111860FDB600FECF8E /* Queue.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Queue.h; path = include/lldb/Target/Queue.h; sourceTree = "<group>"; };
 		260A63121860FDBD00FECF8E /* QueueItem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = QueueItem.h; path = include/lldb/Target/QueueItem.h; sourceTree = "<group>"; };
 		260A63131860FDC700FECF8E /* QueueList.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = QueueList.h; path = include/lldb/Target/QueueList.h; sourceTree = "<group>"; };
@@ -1466,7 +1493,6 @@
 		26BC7D5510F1B77400F91463 /* ClangForward.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ClangForward.h; path = include/lldb/Core/ClangForward.h; sourceTree = "<group>"; };
 		26BC7D5610F1B77400F91463 /* Communication.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Communication.h; path = include/lldb/Core/Communication.h; sourceTree = "<group>"; };
 		26BC7D5710F1B77400F91463 /* Connection.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Connection.h; path = include/lldb/Core/Connection.h; sourceTree = "<group>"; };
-		26BC7D5810F1B77400F91463 /* ConnectionFileDescriptor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ConnectionFileDescriptor.h; path = include/lldb/Core/ConnectionFileDescriptor.h; sourceTree = "<group>"; };
 		26BC7D5910F1B77400F91463 /* DataBuffer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = DataBuffer.h; path = include/lldb/Core/DataBuffer.h; sourceTree = "<group>"; };
 		26BC7D5A10F1B77400F91463 /* DataExtractor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = DataExtractor.h; path = include/lldb/Core/DataExtractor.h; sourceTree = "<group>"; };
 		26BC7D5B10F1B77400F91463 /* DataBufferHeap.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = DataBufferHeap.h; path = include/lldb/Core/DataBufferHeap.h; sourceTree = "<group>"; };
@@ -1568,7 +1594,6 @@
 		26BC7E6D10F1B85900F91463 /* Broadcaster.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Broadcaster.cpp; path = source/Core/Broadcaster.cpp; sourceTree = "<group>"; };
 		26BC7E6E10F1B85900F91463 /* Communication.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Communication.cpp; path = source/Core/Communication.cpp; sourceTree = "<group>"; };
 		26BC7E6F10F1B85900F91463 /* Connection.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Connection.cpp; path = source/Core/Connection.cpp; sourceTree = "<group>"; };
-		26BC7E7010F1B85900F91463 /* ConnectionFileDescriptor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ConnectionFileDescriptor.cpp; path = source/Core/ConnectionFileDescriptor.cpp; sourceTree = "<group>"; };
 		26BC7E7110F1B85900F91463 /* DataExtractor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = DataExtractor.cpp; path = source/Core/DataExtractor.cpp; sourceTree = "<group>"; };
 		26BC7E7210F1B85900F91463 /* DataBufferHeap.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = DataBufferHeap.cpp; path = source/Core/DataBufferHeap.cpp; sourceTree = "<group>"; };
 		26BC7E7310F1B85900F91463 /* DataBufferMemoryMap.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = DataBufferMemoryMap.cpp; path = source/Core/DataBufferMemoryMap.cpp; sourceTree = "<group>"; };
@@ -1774,11 +1799,11 @@
 		3FDFDDBE199D345E009756A7 /* FileCache.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = FileCache.cpp; path = source/Host/common/FileCache.cpp; sourceTree = "<group>"; };
 		3FDFDDC0199D34E2009756A7 /* FileCache.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = FileCache.h; path = include/lldb/Host/FileCache.h; sourceTree = "<group>"; };
 		3FDFDDC1199D34E2009756A7 /* FileSystem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = FileSystem.h; path = include/lldb/Host/FileSystem.h; sourceTree = "<group>"; };
-		3FDFDDC5199D37ED009756A7 /* FileSystem.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = FileSystem.cpp; path = source/Host/posix/FileSystem.cpp; sourceTree = "<group>"; };
+		3FDFDDC5199D37ED009756A7 /* FileSystem.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = FileSystem.cpp; sourceTree = "<group>"; };
 		3FDFE52B19A2917A009756A7 /* HostInfoMacOSX.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = HostInfoMacOSX.mm; path = source/Host/macosx/HostInfoMacOSX.mm; sourceTree = "<group>"; };
 		3FDFE52D19A291AF009756A7 /* HostInfoMacOSX.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = HostInfoMacOSX.h; path = include/lldb/Host/macosx/HostInfoMacOSX.h; sourceTree = "<group>"; };
-		3FDFE53019A292F0009756A7 /* HostInfoPosix.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = HostInfoPosix.cpp; path = source/Host/posix/HostInfoPosix.cpp; sourceTree = "<group>"; };
-		3FDFE53219A29304009756A7 /* HostInfoPosix.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = HostInfoPosix.h; path = include/lldb/Host/posix/HostInfoPosix.h; sourceTree = "<group>"; };
+		3FDFE53019A292F0009756A7 /* HostInfoPosix.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = HostInfoPosix.cpp; sourceTree = "<group>"; };
+		3FDFE53219A29304009756A7 /* HostInfoPosix.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = HostInfoPosix.h; path = ../../../include/lldb/Host/posix/HostInfoPosix.h; sourceTree = "<group>"; };
 		3FDFE53419A29327009756A7 /* HostInfoBase.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = HostInfoBase.cpp; sourceTree = "<group>"; };
 		3FDFE53619A2933E009756A7 /* HostInfoLinux.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = HostInfoLinux.cpp; sourceTree = "<group>"; };
 		3FDFE53719A2936B009756A7 /* HostInfo.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = HostInfo.h; path = include/lldb/Host/HostInfo.h; sourceTree = "<group>"; };
@@ -1808,10 +1833,10 @@
 		3FDFE56519AF9B77009756A7 /* HostThreadLinux.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = HostThreadLinux.h; path = include/lldb/Host/linux/HostThreadLinux.h; sourceTree = SOURCE_ROOT; };
 		3FDFE56619AF9BB2009756A7 /* Config.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = Config.h; path = include/lldb/Host/macosx/Config.h; sourceTree = "<group>"; };
 		3FDFE56719AF9BB2009756A7 /* HostThreadMacOSX.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = HostThreadMacOSX.h; path = include/lldb/Host/macosx/HostThreadMacOSX.h; sourceTree = "<group>"; };
-		3FDFE56A19AF9C44009756A7 /* HostProcessPosix.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = HostProcessPosix.cpp; path = source/Host/posix/HostProcessPosix.cpp; sourceTree = "<group>"; };
-		3FDFE56B19AF9C44009756A7 /* HostThreadPosix.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = HostThreadPosix.cpp; path = source/Host/posix/HostThreadPosix.cpp; sourceTree = "<group>"; };
-		3FDFE56E19AF9C5A009756A7 /* HostProcessPosix.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = HostProcessPosix.h; path = include/lldb/Host/posix/HostProcessPosix.h; sourceTree = "<group>"; };
-		3FDFE56F19AF9C5A009756A7 /* HostThreadPosix.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = HostThreadPosix.h; path = include/lldb/Host/posix/HostThreadPosix.h; sourceTree = "<group>"; };
+		3FDFE56A19AF9C44009756A7 /* HostProcessPosix.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = HostProcessPosix.cpp; sourceTree = "<group>"; };
+		3FDFE56B19AF9C44009756A7 /* HostThreadPosix.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = HostThreadPosix.cpp; sourceTree = "<group>"; };
+		3FDFE56E19AF9C5A009756A7 /* HostProcessPosix.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = HostProcessPosix.h; path = ../../../include/lldb/Host/posix/HostProcessPosix.h; sourceTree = "<group>"; };
+		3FDFE56F19AF9C5A009756A7 /* HostThreadPosix.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = HostThreadPosix.h; path = ../../../include/lldb/Host/posix/HostThreadPosix.h; sourceTree = "<group>"; };
 		3FDFE57019AF9CA0009756A7 /* HostProcessWindows.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = HostProcessWindows.cpp; path = source/Host/windows/HostProcessWindows.cpp; sourceTree = "<group>"; };
 		3FDFE57119AF9CA0009756A7 /* HostThreadWindows.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = HostThreadWindows.cpp; path = source/Host/windows/HostThreadWindows.cpp; sourceTree = "<group>"; };
 		3FDFE57219AF9CD3009756A7 /* HostProcessWindows.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = HostProcessWindows.h; path = include/lldb/Host/windows/HostProcessWindows.h; sourceTree = "<group>"; };
@@ -1846,6 +1871,8 @@
 		49445C2512245E3600C11A81 /* ClangExpressionParser.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ClangExpressionParser.cpp; path = source/Expression/ClangExpressionParser.cpp; sourceTree = "<group>"; };
 		49445C2912245E5500C11A81 /* ClangExpressionParser.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ClangExpressionParser.h; path = include/lldb/Expression/ClangExpressionParser.h; sourceTree = "<group>"; };
 		49445E341225AB6A00C11A81 /* ClangUserExpression.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ClangUserExpression.h; path = include/lldb/Expression/ClangUserExpression.h; sourceTree = "<group>"; };
+		4959511B1A1BC48100F6F8FC /* ClangModulesDeclVendor.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ClangModulesDeclVendor.h; path = include/lldb/Expression/ClangModulesDeclVendor.h; sourceTree = "<group>"; };
+		4959511E1A1BC4BC00F6F8FC /* ClangModulesDeclVendor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ClangModulesDeclVendor.cpp; path = source/Expression/ClangModulesDeclVendor.cpp; sourceTree = "<group>"; };
 		495B38431489714C002708C5 /* ClangExternalASTSourceCommon.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ClangExternalASTSourceCommon.h; path = include/lldb/Symbol/ClangExternalASTSourceCommon.h; sourceTree = "<group>"; };
 		495BBACB119A0DBE00418BEA /* PathMappingList.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = PathMappingList.cpp; path = source/Target/PathMappingList.cpp; sourceTree = "<group>"; };
 		495BBACF119A0DE700418BEA /* PathMappingList.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = PathMappingList.h; path = include/lldb/Target/PathMappingList.h; sourceTree = "<group>"; };
@@ -1862,7 +1889,7 @@
 		49A1CAC31430E8BD00306AC9 /* ExpressionSourceCode.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ExpressionSourceCode.cpp; path = source/Expression/ExpressionSourceCode.cpp; sourceTree = "<group>"; };
 		49A8A39F11D568A300AD3B68 /* ASTResultSynthesizer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ASTResultSynthesizer.cpp; path = source/Expression/ASTResultSynthesizer.cpp; sourceTree = "<group>"; };
 		49A8A3A311D568BF00AD3B68 /* ASTResultSynthesizer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ASTResultSynthesizer.h; path = include/lldb/Expression/ASTResultSynthesizer.h; sourceTree = "<group>"; };
-		49B01A2D15F67B1700666829 /* TypeVendor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = TypeVendor.h; path = include/lldb/Symbol/TypeVendor.h; sourceTree = "<group>"; };
+		49B01A2D15F67B1700666829 /* DeclVendor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = DeclVendor.h; path = include/lldb/Symbol/DeclVendor.h; sourceTree = "<group>"; };
 		49BB309511F79450001A4197 /* TaggedASTType.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = TaggedASTType.h; path = include/lldb/Symbol/TaggedASTType.h; sourceTree = "<group>"; };
 		49C66B1C17011A43004D1922 /* IRMemoryMap.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = IRMemoryMap.h; path = include/lldb/Expression/IRMemoryMap.h; sourceTree = "<group>"; };
 		49CF9829122C70BD007A0B96 /* IRDynamicChecks.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = IRDynamicChecks.cpp; path = source/Expression/IRDynamicChecks.cpp; sourceTree = "<group>"; };
@@ -1873,8 +1900,8 @@
 		49D7072811B5AD11001AD875 /* ClangASTSource.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ClangASTSource.cpp; path = source/Expression/ClangASTSource.cpp; sourceTree = "<group>"; };
 		49D8FB3513B558DE00411094 /* ClangASTImporter.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ClangASTImporter.cpp; path = source/Symbol/ClangASTImporter.cpp; sourceTree = "<group>"; };
 		49D8FB3713B5594900411094 /* ClangASTImporter.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ClangASTImporter.h; path = include/lldb/Symbol/ClangASTImporter.h; sourceTree = "<group>"; };
-		49DA65021485C92A005FF180 /* AppleObjCTypeVendor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = AppleObjCTypeVendor.cpp; sourceTree = "<group>"; };
-		49DA65041485C942005FF180 /* AppleObjCTypeVendor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppleObjCTypeVendor.h; sourceTree = "<group>"; };
+		49DA65021485C92A005FF180 /* AppleObjCDeclVendor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; lineEnding = 0; path = AppleObjCDeclVendor.cpp; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = xcode.lang.cpp; };
+		49DA65041485C942005FF180 /* AppleObjCDeclVendor.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppleObjCDeclVendor.h; sourceTree = "<group>"; };
 		49DCF6FD170E6B4A0092F75E /* IRMemoryMap.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = IRMemoryMap.cpp; path = source/Expression/IRMemoryMap.cpp; sourceTree = "<group>"; };
 		49DCF6FF170E6FD90092F75E /* Materializer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = Materializer.h; path = include/lldb/Expression/Materializer.h; sourceTree = "<group>"; };
 		49DCF700170E70120092F75E /* Materializer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = Materializer.cpp; path = source/Expression/Materializer.cpp; sourceTree = "<group>"; };
@@ -1935,10 +1962,10 @@
 		4CCA643E13B40B82003BDF98 /* ItaniumABILanguageRuntime.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ItaniumABILanguageRuntime.h; sourceTree = "<group>"; };
 		4CCA644213B40B82003BDF98 /* AppleObjCRuntime.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = AppleObjCRuntime.cpp; sourceTree = "<group>"; };
 		4CCA644313B40B82003BDF98 /* AppleObjCRuntime.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AppleObjCRuntime.h; sourceTree = "<group>"; };
-		4CCA644413B40B82003BDF98 /* AppleObjCRuntimeV1.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = AppleObjCRuntimeV1.cpp; sourceTree = "<group>"; };
-		4CCA644513B40B82003BDF98 /* AppleObjCRuntimeV1.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AppleObjCRuntimeV1.h; sourceTree = "<group>"; };
-		4CCA644613B40B82003BDF98 /* AppleObjCRuntimeV2.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = AppleObjCRuntimeV2.cpp; sourceTree = "<group>"; };
-		4CCA644713B40B82003BDF98 /* AppleObjCRuntimeV2.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AppleObjCRuntimeV2.h; sourceTree = "<group>"; };
+		4CCA644413B40B82003BDF98 /* AppleObjCRuntimeV1.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; lineEnding = 0; path = AppleObjCRuntimeV1.cpp; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = xcode.lang.cpp; };
+		4CCA644513B40B82003BDF98 /* AppleObjCRuntimeV1.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; lineEnding = 0; path = AppleObjCRuntimeV1.h; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = xcode.lang.objcpp; };
+		4CCA644613B40B82003BDF98 /* AppleObjCRuntimeV2.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; lineEnding = 0; path = AppleObjCRuntimeV2.cpp; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = xcode.lang.cpp; };
+		4CCA644713B40B82003BDF98 /* AppleObjCRuntimeV2.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; lineEnding = 0; path = AppleObjCRuntimeV2.h; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = xcode.lang.objcpp; };
 		4CCA644813B40B82003BDF98 /* AppleObjCTrampolineHandler.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = AppleObjCTrampolineHandler.cpp; sourceTree = "<group>"; };
 		4CCA644913B40B82003BDF98 /* AppleObjCTrampolineHandler.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AppleObjCTrampolineHandler.h; sourceTree = "<group>"; };
 		4CCA644A13B40B82003BDF98 /* AppleThreadPlanStepThroughObjCTrampoline.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = AppleThreadPlanStepThroughObjCTrampoline.cpp; sourceTree = "<group>"; };
@@ -1965,14 +1992,26 @@
 		8CCB017F19BA4DD00009FD44 /* SBThreadCollection.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = SBThreadCollection.cpp; path = source/API/SBThreadCollection.cpp; sourceTree = "<group>"; };
 		8CCB018119BA4E210009FD44 /* SBThreadCollection.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SBThreadCollection.h; path = include/lldb/API/SBThreadCollection.h; sourceTree = "<group>"; };
 		8CCB018419BA54930009FD44 /* SBThreadCollection.i */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c.preprocessed; path = SBThreadCollection.i; sourceTree = "<group>"; };
+		8CF02ADF19DCBF3B00B14BE0 /* InstrumentationRuntime.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = InstrumentationRuntime.cpp; path = source/Target/InstrumentationRuntime.cpp; sourceTree = "<group>"; };
+		8CF02AE019DCBF3B00B14BE0 /* InstrumentationRuntime.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = InstrumentationRuntime.h; path = include/lldb/Target/InstrumentationRuntime.h; sourceTree = "<group>"; };
+		8CF02AE519DCBF8400B14BE0 /* AddressSanitizerRuntime.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = AddressSanitizerRuntime.cpp; sourceTree = "<group>"; };
+		8CF02AE619DCBF8400B14BE0 /* AddressSanitizerRuntime.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = AddressSanitizerRuntime.h; sourceTree = "<group>"; };
+		8CF02AED19DD15CF00B14BE0 /* InstrumentationRuntimeStopInfo.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; name = InstrumentationRuntimeStopInfo.cpp; path = source/Target/InstrumentationRuntimeStopInfo.cpp; sourceTree = "<group>"; };
+		8CF02AEE19DD15CF00B14BE0 /* InstrumentationRuntimeStopInfo.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = InstrumentationRuntimeStopInfo.h; path = include/lldb/Target/InstrumentationRuntimeStopInfo.h; sourceTree = "<group>"; };
 		94005E0313F438DF001EF42D /* python-wrapper.swig */ = {isa = PBXFileReference; lastKnownFileType = text; path = "python-wrapper.swig"; sourceTree = "<group>"; };
 		94005E0513F45A1B001EF42D /* embedded_interpreter.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; name = embedded_interpreter.py; path = source/Interpreter/embedded_interpreter.py; sourceTree = "<group>"; };
 		94031A9F13CF5B3D00DCFF3C /* PriorityPointerPair.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = PriorityPointerPair.h; path = include/lldb/Utility/PriorityPointerPair.h; sourceTree = "<group>"; };
 		94094C68163B6CCC0083A547 /* ValueObjectCast.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ValueObjectCast.h; path = include/lldb/Core/ValueObjectCast.h; sourceTree = "<group>"; };
 		94094C69163B6CD90083A547 /* ValueObjectCast.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ValueObjectCast.cpp; path = source/Core/ValueObjectCast.cpp; sourceTree = "<group>"; };
+		940B02F419DC96CB00AD0F52 /* SBExecutionContext.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SBExecutionContext.h; path = include/lldb/API/SBExecutionContext.h; sourceTree = "<group>"; };
+		940B02F519DC96E700AD0F52 /* SBExecutionContext.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SBExecutionContext.cpp; path = source/API/SBExecutionContext.cpp; sourceTree = "<group>"; };
+		940B02F719DC970900AD0F52 /* SBExecutionContext.i */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c.preprocessed; path = SBExecutionContext.i; sourceTree = "<group>"; };
 		94145430175D7FDE00284436 /* lldb-versioning.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "lldb-versioning.h"; path = "include/lldb/lldb-versioning.h"; sourceTree = "<group>"; };
+		942AFF0419F84ABF007B43B4 /* LibCxxVector.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = LibCxxVector.cpp; path = source/DataFormatters/LibCxxVector.cpp; sourceTree = "<group>"; };
+		942AFF0619F84C02007B43B4 /* LibCxxInitializerList.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = LibCxxInitializerList.cpp; path = source/DataFormatters/LibCxxInitializerList.cpp; sourceTree = "<group>"; };
 		94380B8019940B0300BFE4A8 /* StringLexer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = StringLexer.h; path = include/lldb/Utility/StringLexer.h; sourceTree = "<group>"; };
 		94380B8119940B0A00BFE4A8 /* StringLexer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = StringLexer.cpp; path = source/Utility/StringLexer.cpp; sourceTree = "<group>"; };
+		9439FB1919EF140C006FD6A4 /* NSIndexPath.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = NSIndexPath.cpp; path = source/DataFormatters/NSIndexPath.cpp; sourceTree = "<group>"; };
 		944372DA171F6B4300E57C32 /* RegisterContextDummy.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = RegisterContextDummy.cpp; path = Utility/RegisterContextDummy.cpp; sourceTree = "<group>"; };
 		944372DB171F6B4300E57C32 /* RegisterContextDummy.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = RegisterContextDummy.h; path = Utility/RegisterContextDummy.h; sourceTree = "<group>"; };
 		9443B120140C18A90013457C /* SBData.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = SBData.h; path = include/lldb/API/SBData.h; sourceTree = "<group>"; };
@@ -2046,7 +2085,7 @@
 		94CD7D0719A3FB8600908B7C /* AppleObjCClassDescriptorV2.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppleObjCClassDescriptorV2.h; sourceTree = "<group>"; };
 		94CD7D0819A3FBA300908B7C /* AppleObjCClassDescriptorV2.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = AppleObjCClassDescriptorV2.cpp; sourceTree = "<group>"; };
 		94CD7D0A19A3FBC300908B7C /* AppleObjCTypeEncodingParser.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AppleObjCTypeEncodingParser.h; sourceTree = "<group>"; };
-		94CD7D0B19A3FBCE00908B7C /* AppleObjCTypeEncodingParser.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = AppleObjCTypeEncodingParser.cpp; sourceTree = "<group>"; };
+		94CD7D0B19A3FBCE00908B7C /* AppleObjCTypeEncodingParser.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; lineEnding = 0; path = AppleObjCTypeEncodingParser.cpp; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = xcode.lang.cpp; };
 		94D0B10A16D5535900EA9C70 /* LibCxx.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = LibCxx.cpp; path = source/DataFormatters/LibCxx.cpp; sourceTree = "<group>"; };
 		94D0B10B16D5535900EA9C70 /* LibStdcpp.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = LibStdcpp.cpp; path = source/DataFormatters/LibStdcpp.cpp; sourceTree = "<group>"; };
 		94D6A0A716CEB55F00833B6E /* NSArray.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = NSArray.cpp; path = source/DataFormatters/NSArray.cpp; sourceTree = "<group>"; };
@@ -2060,6 +2099,8 @@
 		94EBAC8313D9EE26009BA64E /* PythonPointer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = PythonPointer.h; path = include/lldb/Utility/PythonPointer.h; sourceTree = "<group>"; };
 		94ED54A119C8A822007BE2EA /* ThreadSafeDenseMap.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ThreadSafeDenseMap.h; path = include/lldb/Core/ThreadSafeDenseMap.h; sourceTree = "<group>"; };
 		94EE33F218643C6900CD703B /* FormattersContainer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = FormattersContainer.h; path = include/lldb/DataFormatters/FormattersContainer.h; sourceTree = "<group>"; };
+		94F48F231A01C679005C0EC6 /* StringPrinter.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = StringPrinter.h; path = include/lldb/DataFormatters/StringPrinter.h; sourceTree = "<group>"; };
+		94F48F241A01C687005C0EC6 /* StringPrinter.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = StringPrinter.cpp; path = source/DataFormatters/StringPrinter.cpp; sourceTree = "<group>"; };
 		94F6C4D119C264C70049D089 /* ProcessStructReader.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ProcessStructReader.h; path = include/lldb/Utility/ProcessStructReader.h; sourceTree = "<group>"; };
 		94FA3DDD1405D4E500833217 /* ValueObjectConstResultChild.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ValueObjectConstResultChild.h; path = include/lldb/Core/ValueObjectConstResultChild.h; sourceTree = "<group>"; };
 		94FA3DDF1405D50300833217 /* ValueObjectConstResultChild.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ValueObjectConstResultChild.cpp; path = source/Core/ValueObjectConstResultChild.cpp; sourceTree = "<group>"; };
@@ -2067,6 +2108,8 @@
 		961FABB81235DE1600F93A47 /* FuncUnwinders.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = FuncUnwinders.cpp; path = source/Symbol/FuncUnwinders.cpp; sourceTree = "<group>"; };
 		961FABB91235DE1600F93A47 /* UnwindPlan.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = UnwindPlan.cpp; path = source/Symbol/UnwindPlan.cpp; sourceTree = "<group>"; };
 		961FABBA1235DE1600F93A47 /* UnwindTable.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = UnwindTable.cpp; path = source/Symbol/UnwindTable.cpp; sourceTree = "<group>"; };
+		964463EB1A330C0500154ED8 /* CompactUnwindInfo.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = CompactUnwindInfo.cpp; path = source/Symbol/CompactUnwindInfo.cpp; sourceTree = "<group>"; };
+		964463ED1A330C1B00154ED8 /* CompactUnwindInfo.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = CompactUnwindInfo.h; path = include/lldb/Symbol/CompactUnwindInfo.h; sourceTree = "<group>"; };
 		966C6B7818E6A56A0093F5EC /* libz.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libz.dylib; path = /usr/lib/libz.dylib; sourceTree = "<absolute>"; };
 		9A19A6A51163BB7E00E0D453 /* SBValue.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = SBValue.h; path = include/lldb/API/SBValue.h; sourceTree = "<group>"; };
 		9A19A6AD1163BB9800E0D453 /* SBValue.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SBValue.cpp; path = source/API/SBValue.cpp; sourceTree = "<group>"; };
@@ -2111,7 +2154,7 @@
 		9A9831041125FC5800A56CB0 /* SBProcess.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = SBProcess.h; path = include/lldb/API/SBProcess.h; sourceTree = "<group>"; };
 		9A9831051125FC5800A56CB0 /* SBSourceManager.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SBSourceManager.cpp; path = source/API/SBSourceManager.cpp; sourceTree = "<group>"; };
 		9A9831061125FC5800A56CB0 /* SBSourceManager.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = SBSourceManager.h; path = include/lldb/API/SBSourceManager.h; sourceTree = "<group>"; };
-		9A9831071125FC5800A56CB0 /* SBTarget.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SBTarget.cpp; path = source/API/SBTarget.cpp; sourceTree = "<group>"; };
+		9A9831071125FC5800A56CB0 /* SBTarget.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; lineEnding = 0; name = SBTarget.cpp; path = source/API/SBTarget.cpp; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = xcode.lang.cpp; };
 		9A9831081125FC5800A56CB0 /* SBTarget.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = SBTarget.h; path = include/lldb/API/SBTarget.h; sourceTree = "<group>"; };
 		9A9831091125FC5800A56CB0 /* SBThread.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SBThread.cpp; path = source/API/SBThread.cpp; sourceTree = "<group>"; };
 		9A98310A1125FC5800A56CB0 /* SBThread.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = SBThread.h; path = include/lldb/API/SBThread.h; sourceTree = "<group>"; };
@@ -2167,6 +2210,21 @@
 		AF68D2551255416E002FF25B /* RegisterContextLLDB.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = RegisterContextLLDB.h; path = Utility/RegisterContextLLDB.h; sourceTree = "<group>"; };
 		AF68D32F1255A110002FF25B /* UnwindLLDB.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = UnwindLLDB.cpp; path = Utility/UnwindLLDB.cpp; sourceTree = "<group>"; };
 		AF68D3301255A110002FF25B /* UnwindLLDB.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = UnwindLLDB.h; path = Utility/UnwindLLDB.h; sourceTree = "<group>"; };
+		AF77E08D1A033C700096C0EA /* ABISysV_ppc.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ABISysV_ppc.cpp; path = "SysV-ppc/ABISysV_ppc.cpp"; sourceTree = "<group>"; };
+		AF77E08E1A033C700096C0EA /* ABISysV_ppc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ABISysV_ppc.h; path = "SysV-ppc/ABISysV_ppc.h"; sourceTree = "<group>"; };
+		AF77E0911A033C7F0096C0EA /* ABISysV_ppc64.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = ABISysV_ppc64.cpp; path = "SysV-ppc64/ABISysV_ppc64.cpp"; sourceTree = "<group>"; };
+		AF77E0921A033C7F0096C0EA /* ABISysV_ppc64.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ABISysV_ppc64.h; path = "SysV-ppc64/ABISysV_ppc64.h"; sourceTree = "<group>"; };
+		AF77E0951A033CC70096C0EA /* RegisterContextPOSIXProcessMonitor_powerpc.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = RegisterContextPOSIXProcessMonitor_powerpc.cpp; sourceTree = "<group>"; };
+		AF77E0961A033CC70096C0EA /* RegisterContextPOSIXProcessMonitor_powerpc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = RegisterContextPOSIXProcessMonitor_powerpc.h; sourceTree = "<group>"; };
+		AF77E0991A033D360096C0EA /* RegisterContext_powerpc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = RegisterContext_powerpc.h; path = Utility/RegisterContext_powerpc.h; sourceTree = "<group>"; };
+		AF77E09A1A033D360096C0EA /* RegisterContextFreeBSD_powerpc.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = RegisterContextFreeBSD_powerpc.cpp; path = Utility/RegisterContextFreeBSD_powerpc.cpp; sourceTree = "<group>"; };
+		AF77E09B1A033D360096C0EA /* RegisterContextFreeBSD_powerpc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = RegisterContextFreeBSD_powerpc.h; path = Utility/RegisterContextFreeBSD_powerpc.h; sourceTree = "<group>"; };
+		AF77E09C1A033D360096C0EA /* RegisterContextMacOSXFrameBackchain.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = RegisterContextMacOSXFrameBackchain.cpp; path = Utility/RegisterContextMacOSXFrameBackchain.cpp; sourceTree = "<group>"; };
+		AF77E09D1A033D360096C0EA /* RegisterContextPOSIX_powerpc.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = RegisterContextPOSIX_powerpc.cpp; path = Utility/RegisterContextPOSIX_powerpc.cpp; sourceTree = "<group>"; };
+		AF77E09E1A033D360096C0EA /* RegisterContextPOSIX_powerpc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = RegisterContextPOSIX_powerpc.h; path = Utility/RegisterContextPOSIX_powerpc.h; sourceTree = "<group>"; };
+		AF77E09F1A033D360096C0EA /* RegisterInfos_powerpc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = RegisterInfos_powerpc.h; path = Utility/RegisterInfos_powerpc.h; sourceTree = "<group>"; };
+		AF77E0A71A033D740096C0EA /* RegisterContextPOSIXCore_powerpc.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = RegisterContextPOSIXCore_powerpc.cpp; sourceTree = "<group>"; };
+		AF77E0A81A033D740096C0EA /* RegisterContextPOSIXCore_powerpc.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = RegisterContextPOSIXCore_powerpc.h; sourceTree = "<group>"; };
 		AF81DEF91828A23F0042CF19 /* SystemRuntime.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SystemRuntime.cpp; path = source/Target/SystemRuntime.cpp; sourceTree = "<group>"; };
 		AF90106315AB7C5700FF120D /* lldb.1 */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.man; name = lldb.1; path = docs/lldb.1; sourceTree = "<group>"; };
 		AF9107E91685709A00DBCD3C /* ARM64_GCC_Registers.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ARM64_GCC_Registers.h; path = source/Utility/ARM64_GCC_Registers.h; sourceTree = "<group>"; };
@@ -2175,6 +2233,7 @@
 		AF94005711C03F6500085DB9 /* SymbolVendor.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = SymbolVendor.cpp; path = source/Symbol/SymbolVendor.cpp; sourceTree = "<group>"; };
 		AF9B8F31182DB52900DA866F /* SystemRuntimeMacOSX.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = SystemRuntimeMacOSX.cpp; sourceTree = "<group>"; };
 		AF9B8F32182DB52900DA866F /* SystemRuntimeMacOSX.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = SystemRuntimeMacOSX.h; sourceTree = "<group>"; };
+		AFDFDFD019E34D3400EAE509 /* ConnectionFileDescriptorPosix.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = ConnectionFileDescriptorPosix.cpp; sourceTree = "<group>"; };
 		AFEC3361194A8ABA00FF05C6 /* StructuredData.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = StructuredData.cpp; path = source/Core/StructuredData.cpp; sourceTree = "<group>"; };
 		AFF87C86150FF669000E1742 /* com.apple.debugserver.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = com.apple.debugserver.plist; path = tools/debugserver/source/com.apple.debugserver.plist; sourceTree = "<group>"; };
 		AFF87C88150FF672000E1742 /* com.apple.debugserver-secure.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = "com.apple.debugserver-secure.plist"; path = "tools/debugserver/source/com.apple.debugserver-secure.plist"; sourceTree = "<group>"; };
@@ -2419,6 +2478,7 @@
 		260C897110F57C5600BB2B04 /* Plugins */ = {
 			isa = PBXGroup;
 			children = (
+				8CF02ADD19DCBEC200B14BE0 /* InstrumentationRuntime */,
 				8C2D6A58197A1FB9006989C9 /* MemoryHistory */,
 				26DB3E051379E7AD0080DC73 /* ABI */,
 				260C897210F57C5600BB2B04 /* Disassembler */,
@@ -2653,6 +2713,7 @@
 				9452573616262CD000325455 /* SBDeclaration.i */,
 				2611FEFA142D83060017FEA3 /* SBError.i */,
 				2611FEFB142D83060017FEA3 /* SBEvent.i */,
+				940B02F719DC970900AD0F52 /* SBExecutionContext.i */,
 				2611FEFC142D83060017FEA3 /* SBFileSpec.i */,
 				2611FEFD142D83060017FEA3 /* SBFileSpecList.i */,
 				2611FEFE142D83060017FEA3 /* SBFrame.i */,
@@ -2744,6 +2805,8 @@
 				2682F284115EF3A700CCFF99 /* SBError.cpp */,
 				9A9830FE1125FC5800A56CB0 /* SBEvent.h */,
 				9A9830FD1125FC5800A56CB0 /* SBEvent.cpp */,
+				940B02F419DC96CB00AD0F52 /* SBExecutionContext.h */,
+				940B02F519DC96E700AD0F52 /* SBExecutionContext.cpp */,
 				4CE4F672162C971A00F75CB3 /* SBExpressionOptions.h */,
 				4CE4F674162C973F00F75CB3 /* SBExpressionOptions.cpp */,
 				26022531115F27FA00A601A2 /* SBFileSpec.h */,
@@ -3095,8 +3158,8 @@
 				AF23B4D919009C66003E2A58 /* FreeBSDSignals.cpp */,
 				AF23B4DA19009C66003E2A58 /* FreeBSDSignals.h */,
 				AF1729D4182C907200E0AB97 /* HistoryThread.cpp */,
-				AF1729D5182C907200E0AB97 /* HistoryUnwind.cpp */,
 				AF061F89182C980000B6A19C /* HistoryThread.h */,
+				AF1729D5182C907200E0AB97 /* HistoryUnwind.cpp */,
 				AF061F8A182C980000B6A19C /* HistoryUnwind.h */,
 				B28058A0139988B0002D96D0 /* InferiorCallPOSIX.cpp */,
 				B28058A2139988C6002D96D0 /* InferiorCallPOSIX.h */,
@@ -3105,6 +3168,7 @@
 				23059A0619532B96007B8189 /* LinuxSignals.h */,
 				23173F8B192BA93F005C708F /* lldb-x86-register-enums.h */,
 				26474C9E18D0CAEC0073DEBA /* RegisterContext_mips64.h */,
+				AF77E0991A033D360096C0EA /* RegisterContext_powerpc.h */,
 				26474C9F18D0CAEC0073DEBA /* RegisterContext_x86.h */,
 				26957D9213D381C900670048 /* RegisterContextDarwin_arm.cpp */,
 				26957D9313D381C900670048 /* RegisterContextDarwin_arm.h */,
@@ -3120,6 +3184,8 @@
 				26474CA318D0CB070073DEBA /* RegisterContextFreeBSD_i386.h */,
 				26474CA418D0CB070073DEBA /* RegisterContextFreeBSD_mips64.cpp */,
 				26474CA518D0CB070073DEBA /* RegisterContextFreeBSD_mips64.h */,
+				AF77E09A1A033D360096C0EA /* RegisterContextFreeBSD_powerpc.cpp */,
+				AF77E09B1A033D360096C0EA /* RegisterContextFreeBSD_powerpc.h */,
 				26474CA618D0CB070073DEBA /* RegisterContextFreeBSD_x86_64.cpp */,
 				26474CA718D0CB070073DEBA /* RegisterContextFreeBSD_x86_64.h */,
 				AF061F85182C97ED00B6A19C /* RegisterContextHistory.cpp */,
@@ -3136,14 +3202,14 @@
 				26474CB918D0CB2D0073DEBA /* RegisterContextMach_i386.h */,
 				26474CBA18D0CB2D0073DEBA /* RegisterContextMach_x86_64.cpp */,
 				26474CBB18D0CB2D0073DEBA /* RegisterContextMach_x86_64.h */,
+				AF77E09C1A033D360096C0EA /* RegisterContextMacOSXFrameBackchain.cpp */,
+				26E3EEF811A994E800FBADB6 /* RegisterContextMacOSXFrameBackchain.h */,
 				262D24E413FB8710002D1960 /* RegisterContextMemory.cpp */,
 				262D24E513FB8710002D1960 /* RegisterContextMemory.h */,
-				26E3EEF711A994E800FBADB6 /* RegisterContextMacOSXFrameBackchain.cpp */,
-				26E3EEF811A994E800FBADB6 /* RegisterContextMacOSXFrameBackchain.h */,
-				26474CC218D0CB5B0073DEBA /* RegisterContextMemory.cpp */,
-				26474CC318D0CB5B0073DEBA /* RegisterContextMemory.h */,
 				26474CC418D0CB5B0073DEBA /* RegisterContextPOSIX_mips64.cpp */,
 				26474CC518D0CB5B0073DEBA /* RegisterContextPOSIX_mips64.h */,
+				AF77E09D1A033D360096C0EA /* RegisterContextPOSIX_powerpc.cpp */,
+				AF77E09E1A033D360096C0EA /* RegisterContextPOSIX_powerpc.h */,
 				26474CC618D0CB5B0073DEBA /* RegisterContextPOSIX_x86.cpp */,
 				26474CC718D0CB5B0073DEBA /* RegisterContextPOSIX_x86.h */,
 				26474CC818D0CB5B0073DEBA /* RegisterContextPOSIX.h */,
@@ -3152,15 +3218,19 @@
 				23EDE3371926AAD500F6A132 /* RegisterInfoInterface.h */,
 				26474CD018D0CB700073DEBA /* RegisterInfos_i386.h */,
 				26474CD118D0CB710073DEBA /* RegisterInfos_mips64.h */,
+				AF77E09F1A033D360096C0EA /* RegisterInfos_powerpc.h */,
 				26474CD218D0CB710073DEBA /* RegisterInfos_x86_64.h */,
-				2615DBC91208B5FC0021781D /* StopInfoMachException.h */,
 				2615DBC81208B5FC0021781D /* StopInfoMachException.cpp */,
+				2615DBC91208B5FC0021781D /* StopInfoMachException.h */,
 				26F4A21A13FBA31A0064B613 /* ThreadMemory.cpp */,
 				26F4A21B13FBA31A0064B613 /* ThreadMemory.h */,
 				AF68D32F1255A110002FF25B /* UnwindLLDB.cpp */,
 				AF68D3301255A110002FF25B /* UnwindLLDB.h */,
-				26E3EEE411A9901300FBADB6 /* UnwindMacOSXFrameBackchain.h */,
 				26E3EEE311A9901300FBADB6 /* UnwindMacOSXFrameBackchain.cpp */,
+				26E3EEE411A9901300FBADB6 /* UnwindMacOSXFrameBackchain.h */,
+				26E3EEF711A994E800FBADB6 /* RegisterContextMacOSXFrameBackchain.cpp */,
+				26474CC218D0CB5B0073DEBA /* RegisterContextMemory.cpp */,
+				26474CC318D0CB5B0073DEBA /* RegisterContextMemory.h */,
 			);
 			name = Utility;
 			sourceTree = "<group>";
@@ -3172,6 +3242,8 @@
 				26BC17A318C7F4CB00D2196D /* ProcessElfCore.h */,
 				26BC17A418C7F4CB00D2196D /* RegisterContextPOSIXCore_mips64.cpp */,
 				26BC17A518C7F4CB00D2196D /* RegisterContextPOSIXCore_mips64.h */,
+				AF77E0A71A033D740096C0EA /* RegisterContextPOSIXCore_powerpc.cpp */,
+				AF77E0A81A033D740096C0EA /* RegisterContextPOSIXCore_powerpc.h */,
 				26BC17A618C7F4CB00D2196D /* RegisterContextPOSIXCore_x86_64.cpp */,
 				26BC17A718C7F4CB00D2196D /* RegisterContextPOSIXCore_x86_64.h */,
 				26BC17A818C7F4CB00D2196D /* ThreadElfCore.cpp */,
@@ -3195,6 +3267,8 @@
 				26BC17BF18C7F4FA00D2196D /* ProcessPOSIXLog.h */,
 				26BC17D118C7F4FA00D2196D /* RegisterContextPOSIXProcessMonitor_mips64.cpp */,
 				26BC17D218C7F4FA00D2196D /* RegisterContextPOSIXProcessMonitor_mips64.h */,
+				AF77E0951A033CC70096C0EA /* RegisterContextPOSIXProcessMonitor_powerpc.cpp */,
+				AF77E0961A033CC70096C0EA /* RegisterContextPOSIXProcessMonitor_powerpc.h */,
 				26BC17D318C7F4FA00D2196D /* RegisterContextPOSIXProcessMonitor_x86.cpp */,
 				26BC17D418C7F4FA00D2196D /* RegisterContextPOSIXProcessMonitor_x86.h */,
 			);
@@ -3225,8 +3299,6 @@
 				26BC7E6E10F1B85900F91463 /* Communication.cpp */,
 				26BC7D5710F1B77400F91463 /* Connection.h */,
 				26BC7E6F10F1B85900F91463 /* Connection.cpp */,
-				26BC7D5810F1B77400F91463 /* ConnectionFileDescriptor.h */,
-				26BC7E7010F1B85900F91463 /* ConnectionFileDescriptor.cpp */,
 				2671A0CD134825F6003A87BB /* ConnectionMachPort.h */,
 				2671A0CF13482601003A87BB /* ConnectionMachPort.cpp */,
 				266603CC1345B5C0004DA8B6 /* ConnectionSharedMemory.h */,
@@ -3381,10 +3453,13 @@
 				26E69030129C6BEF00DDECD9 /* ClangExternalASTSourceCallbacks.cpp */,
 				266A42D7128E40040090CF7C /* ClangNamespaceDecl.h */,
 				266A42D5128E3FFB0090CF7C /* ClangNamespaceDecl.cpp */,
+				964463ED1A330C1B00154ED8 /* CompactUnwindInfo.h */,
+				964463EB1A330C0500154ED8 /* CompactUnwindInfo.cpp */,
 				26BC7C5710F1B6E900F91463 /* CompileUnit.h */,
 				26BC7F1510F1B8EC00F91463 /* CompileUnit.cpp */,
 				26BC7C5810F1B6E900F91463 /* Declaration.h */,
 				26BC7F1610F1B8EC00F91463 /* Declaration.cpp */,
+				49B01A2D15F67B1700666829 /* DeclVendor.h */,
 				26BC7C5910F1B6E900F91463 /* DWARFCallFrameInfo.h */,
 				26BC7F1710F1B8EC00F91463 /* DWARFCallFrameInfo.cpp */,
 				26BC7C5A10F1B6E900F91463 /* Function.h */,
@@ -3414,7 +3489,6 @@
 				26BC7F2010F1B8EC00F91463 /* Type.cpp */,
 				26BC7C6610F1B6E900F91463 /* TypeList.h */,
 				26BC7F2110F1B8EC00F91463 /* TypeList.cpp */,
-				49B01A2D15F67B1700666829 /* TypeVendor.h */,
 				269FF07F12494F8E00225026 /* UnwindPlan.h */,
 				961FABB91235DE1600F93A47 /* UnwindPlan.cpp */,
 				269FF08112494FC200225026 /* UnwindTable.h */,
@@ -3555,6 +3629,8 @@
 				49445C2512245E3600C11A81 /* ClangExpressionParser.cpp */,
 				26BC7DC110F1B79500F91463 /* ClangExpressionVariable.h */,
 				26BC7ED610F1B86700F91463 /* ClangExpressionVariable.cpp */,
+				4959511B1A1BC48100F6F8FC /* ClangModulesDeclVendor.h */,
+				4959511E1A1BC4BC00F6F8FC /* ClangModulesDeclVendor.cpp */,
 				49D4FE821210B5FB00CDB854 /* ClangPersistentVariables.h */,
 				49D4FE871210B61C00CDB854 /* ClangPersistentVariables.cpp */,
 				49445E341225AB6A00C11A81 /* ClangUserExpression.h */,
@@ -3741,6 +3817,10 @@
 		26BC7DEF10F1B80200F91463 /* Target */ = {
 			isa = PBXGroup;
 			children = (
+				8CF02AE019DCBF3B00B14BE0 /* InstrumentationRuntime.h */,
+				8CF02ADF19DCBF3B00B14BE0 /* InstrumentationRuntime.cpp */,
+				8CF02AEE19DD15CF00B14BE0 /* InstrumentationRuntimeStopInfo.h */,
+				8CF02AED19DD15CF00B14BE0 /* InstrumentationRuntimeStopInfo.cpp */,
 				3FDFD6C3199C396E009756A7 /* FileAction.h */,
 				3FDFDDBC199C3A06009756A7 /* FileAction.cpp */,
 				23EDE3311926843600F6A132 /* NativeRegisterContext.h */,
@@ -3949,6 +4029,8 @@
 				26DB3E061379E7AD0080DC73 /* MacOSX-arm */,
 				26DB3E0A1379E7AD0080DC73 /* MacOSX-arm64 */,
 				26DB3E0E1379E7AD0080DC73 /* MacOSX-i386 */,
+				AF77E08B1A033C3E0096C0EA /* SysV-ppc */,
+				AF77E08C1A033C4B0096C0EA /* SysV-ppc64 */,
 				26DB3E121379E7AD0080DC73 /* SysV-x86_64 */,
 			);
 			path = ABI;
@@ -4077,15 +4159,18 @@
 		3FDFDDC4199D37BE009756A7 /* posix */ = {
 			isa = PBXGroup;
 			children = (
+				AFDFDFD019E34D3400EAE509 /* ConnectionFileDescriptorPosix.cpp */,
+				3FDFDDC5199D37ED009756A7 /* FileSystem.cpp */,
 				3FDFE53019A292F0009756A7 /* HostInfoPosix.cpp */,
 				3FDFE53219A29304009756A7 /* HostInfoPosix.h */,
 				3FDFE56A19AF9C44009756A7 /* HostProcessPosix.cpp */,
 				3FDFE56E19AF9C5A009756A7 /* HostProcessPosix.h */,
 				3FDFE56B19AF9C44009756A7 /* HostThreadPosix.cpp */,
 				3FDFE56F19AF9C5A009756A7 /* HostThreadPosix.h */,
-				3FDFDDC5199D37ED009756A7 /* FileSystem.cpp */,
+				2377C2F719E613C100737875 /* PipePosix.cpp */,
 			);
 			name = posix;
+			path = source/Host/posix;
 			sourceTree = "<group>";
 		};
 		3FDFE53919A29399009756A7 /* freebsd */ = {
@@ -4183,8 +4268,8 @@
 				4CCA644913B40B82003BDF98 /* AppleObjCTrampolineHandler.h */,
 				94CD7D0A19A3FBC300908B7C /* AppleObjCTypeEncodingParser.h */,
 				94CD7D0B19A3FBCE00908B7C /* AppleObjCTypeEncodingParser.cpp */,
-				49DA65041485C942005FF180 /* AppleObjCTypeVendor.h */,
-				49DA65021485C92A005FF180 /* AppleObjCTypeVendor.cpp */,
+				49DA65041485C942005FF180 /* AppleObjCDeclVendor.h */,
+				49DA65021485C92A005FF180 /* AppleObjCDeclVendor.cpp */,
 				4CCA644A13B40B82003BDF98 /* AppleThreadPlanStepThroughObjCTrampoline.cpp */,
 				4CCA644B13B40B82003BDF98 /* AppleThreadPlanStepThroughObjCTrampoline.h */,
 			);
@@ -4228,7 +4313,6 @@
 				236124A21986B4E2004EFC37 /* IOObject.cpp */,
 				69A01E1E1236C5D400C660B5 /* Mutex.cpp */,
 				A36FF33B17D8E94600244D40 /* OptionParser.cpp */,
-				260A39A719647A4E004B4130 /* Pipe.cpp */,
 				AF37E10917C861F20061E18E /* ProcessRunLock.cpp */,
 				236124A31986B4E2004EFC37 /* Socket.cpp */,
 				69A01E1F1236C5D400C660B5 /* Symbols.cpp */,
@@ -4257,6 +4341,23 @@
 			path = asan;
 			sourceTree = "<group>";
 		};
+		8CF02ADD19DCBEC200B14BE0 /* InstrumentationRuntime */ = {
+			isa = PBXGroup;
+			children = (
+				8CF02ADE19DCBEE600B14BE0 /* AddressSanitizer */,
+			);
+			path = InstrumentationRuntime;
+			sourceTree = "<group>";
+		};
+		8CF02ADE19DCBEE600B14BE0 /* AddressSanitizer */ = {
+			isa = PBXGroup;
+			children = (
+				8CF02AE519DCBF8400B14BE0 /* AddressSanitizerRuntime.cpp */,
+				8CF02AE619DCBF8400B14BE0 /* AddressSanitizerRuntime.h */,
+			);
+			path = AddressSanitizer;
+			sourceTree = "<group>";
+		};
 		9457596415349416005A9070 /* POSIX */ = {
 			isa = PBXGroup;
 			children = (
@@ -4283,13 +4384,18 @@
 				94CB255A16B069770059775D /* FormatManager.cpp */,
 				94EE33F218643C6900CD703B /* FormattersContainer.h */,
 				94D0B10A16D5535900EA9C70 /* LibCxx.cpp */,
+				942AFF0619F84C02007B43B4 /* LibCxxInitializerList.cpp */,
 				94CD704F16F8DF1C00CF1E42 /* LibCxxList.cpp */,
 				94CD705116F8F5BC00CF1E42 /* LibCxxMap.cpp */,
 				94EA27CD17DE91750070F505 /* LibCxxUnorderedMap.cpp */,
+				942AFF0419F84ABF007B43B4 /* LibCxxVector.cpp */,
 				94D0B10B16D5535900EA9C70 /* LibStdcpp.cpp */,
 				94D6A0A716CEB55F00833B6E /* NSArray.cpp */,
 				94D6A0A816CEB55F00833B6E /* NSDictionary.cpp */,
+				9439FB1919EF140C006FD6A4 /* NSIndexPath.cpp */,
 				94D6A0A916CEB55F00833B6E /* NSSet.cpp */,
+				94F48F231A01C679005C0EC6 /* StringPrinter.h */,
+				94F48F241A01C687005C0EC6 /* StringPrinter.cpp */,
 				94CB256816B096F90059775D /* TypeCategory.h */,
 				94CB256416B096F10059775D /* TypeCategory.cpp */,
 				94CB256916B096FA0059775D /* TypeCategoryMap.h */,
@@ -4350,6 +4456,24 @@
 			path = GDB;
 			sourceTree = "<group>";
 		};
+		AF77E08B1A033C3E0096C0EA /* SysV-ppc */ = {
+			isa = PBXGroup;
+			children = (
+				AF77E08D1A033C700096C0EA /* ABISysV_ppc.cpp */,
+				AF77E08E1A033C700096C0EA /* ABISysV_ppc.h */,
+			);
+			name = "SysV-ppc";
+			sourceTree = "<group>";
+		};
+		AF77E08C1A033C4B0096C0EA /* SysV-ppc64 */ = {
+			isa = PBXGroup;
+			children = (
+				AF77E0911A033C7F0096C0EA /* ABISysV_ppc64.cpp */,
+				AF77E0921A033C7F0096C0EA /* ABISysV_ppc64.h */,
+			);
+			name = "SysV-ppc64";
+			sourceTree = "<group>";
+		};
 		EDC6D49114E5C15C001B75F8 /* launcherXPCService */ = {
 			isa = PBXGroup;
 			children = (
@@ -4395,6 +4519,7 @@
 				AF0EBBEC185941360059E52F /* SBQueue.h in Headers */,
 				26680222115FD13D008E1FE4 /* SBError.h in Headers */,
 				26680223115FD13D008E1FE4 /* SBEvent.h in Headers */,
+				AFDCDBCB19DD0F42005EA55E /* SBExecutionContext.h in Headers */,
 				26680224115FD13D008E1FE4 /* SBFileSpec.h in Headers */,
 				4CF52AF51428291E0051E832 /* SBFileSpecList.h in Headers */,
 				26680225115FD13D008E1FE4 /* SBFrame.h in Headers */,
@@ -4458,15 +4583,19 @@
 				26BC179D18C7F2CB00D2196D /* JITLoader.h in Headers */,
 				26FFC19C14FC072100087D58 /* DYLDRendezvous.h in Headers */,
 				AF1F7B08189C904B0087DB9C /* AppleGetPendingItemsHandler.h in Headers */,
+				AF77E0AA1A033D740096C0EA /* RegisterContextPOSIXCore_powerpc.h in Headers */,
 				AF2BCA6D18C7EFDE005B4526 /* JITLoaderGDB.h in Headers */,
 				232CB61E191E00CD00EF39FC /* SoftwareBreakpoint.h in Headers */,
 				26BC17B218C7F4CB00D2196D /* ThreadElfCore.h in Headers */,
+				AF77E0A51A033D360096C0EA /* RegisterContextPOSIX_powerpc.h in Headers */,
+				AF77E0A61A033D360096C0EA /* RegisterInfos_powerpc.h in Headers */,
 				26FFC19E14FC072100087D58 /* DynamicLoaderPOSIXDYLD.h in Headers */,
 				AF254E32170CCC33007AE5C9 /* PlatformDarwinKernel.h in Headers */,
 				2694E99E14FC0BB30076DE67 /* PlatformFreeBSD.h in Headers */,
 				2694E9A514FC0BBD0076DE67 /* PlatformLinux.h in Headers */,
 				26AB54121832DC3400EADFF3 /* RegisterCheckpoint.h in Headers */,
 				26AB92131819D74600E63F3E /* DWARFDataExtractor.h in Headers */,
+				AF77E0941A033C7F0096C0EA /* ABISysV_ppc64.h in Headers */,
 				945759681534941F005A9070 /* PlatformPOSIX.h in Headers */,
 				26B1EFAF154638AF00E2DAC7 /* DWARFDeclContext.h in Headers */,
 				260CC62E15D04377002BF2E0 /* OptionValueArgs.h in Headers */,
@@ -4496,16 +4625,21 @@
 				490A36C2180F0E9300BA31F8 /* PlatformWindows.h in Headers */,
 				26EFC4CE18CFAF0D00865D87 /* ObjectFileJIT.h in Headers */,
 				260CC63615D04377002BF2E0 /* OptionValueFormat.h in Headers */,
+				964463EE1A330C1B00154ED8 /* CompactUnwindInfo.h in Headers */,
+				AF77E0901A033C700096C0EA /* ABISysV_ppc.h in Headers */,
 				260A39A619647A3A004B4130 /* Pipe.h in Headers */,
 				26D1804516CEE12500EDFB5B /* KQueue.h in Headers */,
+				AF77E0A21A033D360096C0EA /* RegisterContextFreeBSD_powerpc.h in Headers */,
 				260CC63715D04377002BF2E0 /* OptionValueSInt64.h in Headers */,
 				AF061F8C182C980000B6A19C /* HistoryUnwind.h in Headers */,
 				260CC63815D04377002BF2E0 /* OptionValueString.h in Headers */,
 				260CC63915D04377002BF2E0 /* OptionValueUInt64.h in Headers */,
 				AF0F6E511739A76D009180FE /* RegisterContextKDP_arm64.h in Headers */,
+				AF77E0A01A033D360096C0EA /* RegisterContext_powerpc.h in Headers */,
 				260CC63A15D04377002BF2E0 /* OptionValueUUID.h in Headers */,
 				260A248E15D06C50009981B0 /* OptionValues.h in Headers */,
 				3FDFE53319A29304009756A7 /* HostInfoPosix.h in Headers */,
+				AF77E0981A033CC70096C0EA /* RegisterContextPOSIXProcessMonitor_powerpc.h in Headers */,
 				AF061F88182C97ED00B6A19C /* RegisterContextHistory.h in Headers */,
 				26DAED6015D327A200E15819 /* OptionValuePathMappings.h in Headers */,
 				26ACEC2815E077AE00E94760 /* Property.h in Headers */,
@@ -4514,6 +4648,7 @@
 				2697A39515E404BA003E682C /* OptionValueArch.h in Headers */,
 				26474CBF18D0CB2D0073DEBA /* RegisterContextMach_i386.h in Headers */,
 				26474CC118D0CB2D0073DEBA /* RegisterContextMach_x86_64.h in Headers */,
+				4959511D1A1BC49500F6F8FC /* ClangModulesDeclVendor.h in Headers */,
 				4C73152219B7D71700F865A4 /* Iterable.h in Headers */,
 				2698699D15E6CBD0002415FF /* OperatingSystemPython.h in Headers */,
 				232CB618191E00CD00EF39FC /* NativeBreakpointList.h in Headers */,
@@ -4579,6 +4714,7 @@
 				26680205115FD0ED008E1FE4 /* Frameworks */,
 				261B5A7511C3FA6F00AABD0A /* Fixup Framework Headers */,
 				9A19ACE2116563A700E0D453 /* Finish swig wrapper classes (lldb) */,
+				4959511A1A1ACE9500F6F8FC /* Install Clang compiler headers */,
 				ED4AFF44199C2207004FFDC6 /* CopyFiles */,
 			);
 			buildRules = (
@@ -4705,7 +4841,7 @@
 		08FB7793FE84155DC02AAC07 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 0500;
+				LastUpgradeCheck = 0600;
 			};
 			buildConfigurationList = 1DEB91EF08733DB70010E9CD /* Build configuration list for PBXProject "lldb" */;
 			compatibilityVersion = "Xcode 3.2";
@@ -4823,6 +4959,21 @@
 			shellPath = /bin/sh;
 			shellScript = "$SRCROOT/scripts/build-swig-wrapper-classes.sh $SRCROOT $TARGET_BUILD_DIR $CONFIGURATION_BUILD_DIR \"\"\n";
 		};
+		4959511A1A1ACE9500F6F8FC /* Install Clang compiler headers */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/LLDB.framework/Resources/Clang",
+			);
+			name = "Install Clang compiler headers";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/usr/bin/python $SRCROOT/scripts/package-clang-headers.py $TARGET_BUILD_DIR $LLVM_BUILD_DIR/$CURRENT_ARCH/$LLVM_CONFIGURATION";
+		};
 		4C3326CA18B2A2B800EB5DD7 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -4876,6 +5027,7 @@
 				9461569B14E358A6003A195C /* SBTypeFormat.cpp in Sources */,
 				262F12B51835468600AEB384 /* SBPlatform.cpp in Sources */,
 				9461569C14E358A6003A195C /* SBTypeSummary.cpp in Sources */,
+				940B02F619DC96E700AD0F52 /* SBExecutionContext.cpp in Sources */,
 				9461569D14E358A6003A195C /* SBTypeSynthetic.cpp in Sources */,
 				26680324116005D9008E1FE4 /* SBThread.cpp in Sources */,
 				26680326116005DB008E1FE4 /* SBTarget.cpp in Sources */,
@@ -4939,8 +5091,10 @@
 				26474CCD18D0CB5B0073DEBA /* RegisterContextPOSIX_x86.cpp in Sources */,
 				2689FFEF13353DB600698AC0 /* Breakpoint.cpp in Sources */,
 				2689FFF113353DB600698AC0 /* BreakpointID.cpp in Sources */,
+				AF77E0A91A033D740096C0EA /* RegisterContextPOSIXCore_powerpc.cpp in Sources */,
 				2689FFF313353DB600698AC0 /* BreakpointIDList.cpp in Sources */,
 				2689FFF513353DB600698AC0 /* BreakpointList.cpp in Sources */,
+				AF77E08F1A033C700096C0EA /* ABISysV_ppc.cpp in Sources */,
 				94CD704D16F8DDEA00CF1E42 /* CF.cpp in Sources */,
 				2689FFF713353DB600698AC0 /* BreakpointLocation.cpp in Sources */,
 				2689FFF913353DB600698AC0 /* BreakpointLocationCollection.cpp in Sources */,
@@ -4956,6 +5110,7 @@
 				2689000713353DB600698AC0 /* BreakpointSite.cpp in Sources */,
 				2689000913353DB600698AC0 /* BreakpointSiteList.cpp in Sources */,
 				26474CC918D0CB5B0073DEBA /* RegisterContextMemory.cpp in Sources */,
+				8CF02AEA19DCC02100B14BE0 /* AddressSanitizerRuntime.cpp in Sources */,
 				26474CB218D0CB180073DEBA /* RegisterContextLinux_i386.cpp in Sources */,
 				26474CCB18D0CB5B0073DEBA /* RegisterContextPOSIX_mips64.cpp in Sources */,
 				2689000B13353DB600698AC0 /* Stoppoint.cpp in Sources */,
@@ -4975,6 +5130,7 @@
 				2689001A13353DDE00698AC0 /* CommandObjectFrame.cpp in Sources */,
 				2689001B13353DDE00698AC0 /* CommandObjectHelp.cpp in Sources */,
 				23F4034D1926E0F60046DC9B /* NativeRegisterContextRegisterInfo.cpp in Sources */,
+				964463EC1A330C0500154ED8 /* CompactUnwindInfo.cpp in Sources */,
 				2689001D13353DDE00698AC0 /* CommandObjectLog.cpp in Sources */,
 				262173A318395D4600C52091 /* SectionLoadHistory.cpp in Sources */,
 				2689001E13353DDE00698AC0 /* CommandObjectMemory.cpp in Sources */,
@@ -4988,11 +5144,13 @@
 				2689002413353DDE00698AC0 /* CommandObjectSettings.cpp in Sources */,
 				2689002513353DDE00698AC0 /* CommandObjectSource.cpp in Sources */,
 				2689002613353DDE00698AC0 /* CommandObjectSyntax.cpp in Sources */,
+				4959511F1A1BC4BC00F6F8FC /* ClangModulesDeclVendor.cpp in Sources */,
 				26BC179918C7F2B300D2196D /* JITLoader.cpp in Sources */,
 				2689002713353DDE00698AC0 /* CommandObjectTarget.cpp in Sources */,
 				2689002813353DDE00698AC0 /* CommandObjectThread.cpp in Sources */,
 				2689002913353DDE00698AC0 /* CommandObjectVersion.cpp in Sources */,
 				2689002A13353E0400698AC0 /* Address.cpp in Sources */,
+				8CF02AE919DCC01900B14BE0 /* InstrumentationRuntime.cpp in Sources */,
 				2689002B13353E0400698AC0 /* AddressRange.cpp in Sources */,
 				236124A41986B4E2004EFC37 /* IOObject.cpp in Sources */,
 				2689002C13353E0400698AC0 /* AddressResolver.cpp in Sources */,
@@ -5004,7 +5162,6 @@
 				49DCF702170E70120092F75E /* Materializer.cpp in Sources */,
 				2689003213353E0400698AC0 /* Communication.cpp in Sources */,
 				2689003313353E0400698AC0 /* Connection.cpp in Sources */,
-				2689003413353E0400698AC0 /* ConnectionFileDescriptor.cpp in Sources */,
 				2689003513353E0400698AC0 /* ConstString.cpp in Sources */,
 				2689003613353E0400698AC0 /* DataBufferHeap.cpp in Sources */,
 				2689003713353E0400698AC0 /* DataBufferMemoryMap.cpp in Sources */,
@@ -5014,6 +5171,7 @@
 				236124A51986B4E2004EFC37 /* Socket.cpp in Sources */,
 				3FDFDDBF199D345E009756A7 /* FileCache.cpp in Sources */,
 				AF1729D7182C907200E0AB97 /* HistoryUnwind.cpp in Sources */,
+				AF77E0A11A033D360096C0EA /* RegisterContextFreeBSD_powerpc.cpp in Sources */,
 				2689003B13353E0400698AC0 /* EmulateInstruction.cpp in Sources */,
 				2689003C13353E0400698AC0 /* Error.cpp in Sources */,
 				2689003D13353E0400698AC0 /* Event.cpp in Sources */,
@@ -5038,6 +5196,7 @@
 				94D0B10D16D5535900EA9C70 /* LibStdcpp.cpp in Sources */,
 				AF0E22F018A09FB20009B7D1 /* AppleGetItemInfoHandler.cpp in Sources */,
 				2689004E13353E0400698AC0 /* Stream.cpp in Sources */,
+				9439FB1A19EF140C006FD6A4 /* NSIndexPath.cpp in Sources */,
 				2689004F13353E0400698AC0 /* StreamFile.cpp in Sources */,
 				2689005013353E0400698AC0 /* StreamString.cpp in Sources */,
 				2689005113353E0400698AC0 /* StringList.cpp in Sources */,
@@ -5061,6 +5220,7 @@
 				3FDFED0F19B7D269009756A7 /* ThisThread.cpp in Sources */,
 				2689005F13353E0E00698AC0 /* ClangFunction.cpp in Sources */,
 				2689006013353E0E00698AC0 /* ClangExpressionDeclMap.cpp in Sources */,
+				942AFF0719F84C02007B43B4 /* LibCxxInitializerList.cpp in Sources */,
 				2689006113353E0E00698AC0 /* ClangExpressionParser.cpp in Sources */,
 				2689006213353E0E00698AC0 /* ClangExpressionVariable.cpp in Sources */,
 				2689006313353E0E00698AC0 /* ClangPersistentVariables.cpp in Sources */,
@@ -5098,6 +5258,7 @@
 				2689007F13353E2200698AC0 /* CommandCompletions.cpp in Sources */,
 				26CEB5F218762056008F575A /* CommandObjectGUI.cpp in Sources */,
 				2689008013353E2200698AC0 /* CommandInterpreter.cpp in Sources */,
+				AF77E0A41A033D360096C0EA /* RegisterContextPOSIX_powerpc.cpp in Sources */,
 				AF9B8F33182DB52900DA866F /* SystemRuntimeMacOSX.cpp in Sources */,
 				2689008113353E2200698AC0 /* CommandObject.cpp in Sources */,
 				2689008313353E2200698AC0 /* CommandObjectMultiword.cpp in Sources */,
@@ -5171,7 +5332,6 @@
 				268900D313353E6F00698AC0 /* ClangExternalASTSourceCallbacks.cpp in Sources */,
 				268900D413353E6F00698AC0 /* ClangNamespaceDecl.cpp in Sources */,
 				268900D513353E6F00698AC0 /* CompileUnit.cpp in Sources */,
-				260A39A819647A4E004B4130 /* Pipe.cpp in Sources */,
 				268900D613353E6F00698AC0 /* Declaration.cpp in Sources */,
 				268900D713353E6F00698AC0 /* DWARFCallFrameInfo.cpp in Sources */,
 				268900D813353E6F00698AC0 /* Function.cpp in Sources */,
@@ -5206,6 +5366,7 @@
 				26BC17AD18C7F4CB00D2196D /* RegisterContextPOSIXCore_mips64.cpp in Sources */,
 				268900F113353E6F00698AC0 /* RegisterContext.cpp in Sources */,
 				268900F213353E6F00698AC0 /* SectionLoadList.cpp in Sources */,
+				942AFF0519F84ABF007B43B4 /* LibCxxVector.cpp in Sources */,
 				268900F313353E6F00698AC0 /* StackFrame.cpp in Sources */,
 				268900F413353E6F00698AC0 /* StackFrameList.cpp in Sources */,
 				268900F513353E6F00698AC0 /* StackID.cpp in Sources */,
@@ -5216,6 +5377,7 @@
 				268900FA13353E6F00698AC0 /* ThreadList.cpp in Sources */,
 				268900FB13353E6F00698AC0 /* ThreadPlan.cpp in Sources */,
 				232CB619191E00CD00EF39FC /* NativeProcessProtocol.cpp in Sources */,
+				8CF02AEF19DD16B100B14BE0 /* InstrumentationRuntimeStopInfo.cpp in Sources */,
 				268900FC13353E6F00698AC0 /* ThreadPlanBase.cpp in Sources */,
 				268900FD13353E6F00698AC0 /* ThreadPlanCallFunction.cpp in Sources */,
 				268900FE13353E6F00698AC0 /* ThreadPlanCallUserExpression.cpp in Sources */,
@@ -5260,12 +5422,16 @@
 				4CABA9E0134A8BCD00539BDD /* ValueObjectMemory.cpp in Sources */,
 				4CD0BD0F134BFADF00CB44D4 /* ValueObjectDynamicValue.cpp in Sources */,
 				AF45FDE518A1F3AC0007051C /* AppleGetThreadItemInfoHandler.cpp in Sources */,
+				2377C2F819E613C100737875 /* PipePosix.cpp in Sources */,
+				AF77E0931A033C7F0096C0EA /* ABISysV_ppc64.cpp in Sources */,
 				26D5E15F135BAEA2006EA0A7 /* OptionGroupArchitecture.cpp in Sources */,
 				26D5E163135BB054006EA0A7 /* OptionGroupPlatform.cpp in Sources */,
 				94CD131A19BA33B400DB7BED /* TypeValidator.cpp in Sources */,
 				26BD407F135D2AE000237D80 /* FileLineResolver.cpp in Sources */,
 				26A7A035135E6E4200FB369E /* OptionValue.cpp in Sources */,
 				9A22A161135E30370024DDC3 /* EmulateInstructionARM.cpp in Sources */,
+				AF77E0971A033CC70096C0EA /* RegisterContextPOSIXProcessMonitor_powerpc.cpp in Sources */,
+				AFDFDFD119E34D3400EAE509 /* ConnectionFileDescriptorPosix.cpp in Sources */,
 				9A22A163135E30370024DDC3 /* EmulationStateARM.cpp in Sources */,
 				9A4F35101368A51A00823F52 /* StreamAsynchronousIO.cpp in Sources */,
 				2692BA15136610C100F9E14D /* UnwindAssemblyInstEmulation.cpp in Sources */,
@@ -5316,12 +5482,12 @@
 				94CD7D0919A3FBA300908B7C /* AppleObjCClassDescriptorV2.cpp in Sources */,
 				265205A813D3E3F700132FE2 /* RegisterContextKDP_arm.cpp in Sources */,
 				265205AA13D3E3F700132FE2 /* RegisterContextKDP_i386.cpp in Sources */,
+				AF77E0A31A033D360096C0EA /* RegisterContextMacOSXFrameBackchain.cpp in Sources */,
 				265205AC13D3E3F700132FE2 /* RegisterContextKDP_x86_64.cpp in Sources */,
 				2628A4D513D4977900F5487A /* ThreadKDP.cpp in Sources */,
 				26D7E45D13D5E30A007FD12B /* SocketAddress.cpp in Sources */,
 				94CD7D0C19A3FBCE00908B7C /* AppleObjCTypeEncodingParser.cpp in Sources */,
 				94B6E76213D88365005F417F /* ValueObjectSyntheticFilter.cpp in Sources */,
-				262D24E613FB8710002D1960 /* RegisterContextMemory.cpp in Sources */,
 				26F4A21C13FBA31A0064B613 /* ThreadMemory.cpp in Sources */,
 				94EA27CE17DE91750070F505 /* LibCxxUnorderedMap.cpp in Sources */,
 				266DFE9713FD656E00D0C574 /* OperatingSystem.cpp in Sources */,
@@ -5341,7 +5507,7 @@
 				26EFC4CD18CFAF0D00865D87 /* ObjectFileJIT.cpp in Sources */,
 				49A1CAC51430E8DE00306AC9 /* ExpressionSourceCode.cpp in Sources */,
 				494260DA14579144003C1C78 /* VerifyDecl.cpp in Sources */,
-				49DA65031485C92A005FF180 /* AppleObjCTypeVendor.cpp in Sources */,
+				49DA65031485C92A005FF180 /* AppleObjCDeclVendor.cpp in Sources */,
 				4966DCC4148978A10028481B /* ClangExternalASTSourceCommon.cpp in Sources */,
 				26A527C114E24F5F00F3A14A /* ProcessMachCore.cpp in Sources */,
 				26A527C314E24F5F00F3A14A /* ThreadMachCore.cpp in Sources */,
@@ -5389,6 +5555,7 @@
 				2698699B15E6CBD0002415FF /* OperatingSystemPython.cpp in Sources */,
 				947A1D641616476B0017C8D1 /* CommandObjectPlugin.cpp in Sources */,
 				262ED0081631FA3A00879631 /* OptionGroupString.cpp in Sources */,
+				94F48F251A01C687005C0EC6 /* StringPrinter.cpp in Sources */,
 				94094C6B163B6F840083A547 /* ValueObjectCast.cpp in Sources */,
 				AF9107EF168570D200DBCD3C /* RegisterContextDarwin_arm64.cpp in Sources */,
 				94CB255B16B069770059775D /* CXXFormatterFunctions.cpp in Sources */,
@@ -5534,7 +5701,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ARCHS = "$(NATIVE_ARCH)";
 				"ARCHS[sdk=iphoneos*]" = (
 					arm64,
 					armv7,
@@ -5545,13 +5711,16 @@
 				);
 				CLANG_CXX_LANGUAGE_STANDARD = "c++0x";
 				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_WARN_BOOL_CONVERSION = YES;
 				CLANG_WARN_CONSTANT_CONVERSION = YES;
 				CLANG_WARN_EMPTY_BODY = YES;
 				CLANG_WARN_ENUM_CONVERSION = YES;
 				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = c99;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
@@ -5567,6 +5736,7 @@
 					NO_XPC_SERVICES,
 				);
 				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				"GCC_WARN_64_TO_32_BIT_CONVERSION[arch=*64]" = NO;
 				GCC_WARN_ABOUT_MISSING_FIELD_INITIALIZERS = YES;
 				GCC_WARN_ABOUT_MISSING_NEWLINE = YES;
@@ -5576,7 +5746,9 @@
 				GCC_WARN_INITIALIZER_NOT_FULLY_BRACKETED = YES;
 				GCC_WARN_MISSING_PARENTHESES = YES;
 				GCC_WARN_NON_VIRTUAL_DESTRUCTOR = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_LABEL = YES;
 				GCC_WARN_UNUSED_VALUE = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
@@ -5605,18 +5777,20 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ARCHS = "$(NATIVE_ARCH)";
 				"ARCHS[sdk=iphoneos*]" = arm64;
 				"ARCHS[sdk=macosx*]" = "$(ARCHS_STANDARD_64_BIT)";
 				CLANG_CXX_LANGUAGE_STANDARD = "c++0x";
 				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_WARN_BOOL_CONVERSION = YES;
 				CLANG_WARN_CONSTANT_CONVERSION = YES;
 				CLANG_WARN_EMPTY_BODY = YES;
 				CLANG_WARN_ENUM_CONVERSION = YES;
 				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = c99;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					__STDC_CONSTANT_MACROS,
@@ -5631,6 +5805,7 @@
 					NO_XPC_SERVICES,
 				);
 				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				"GCC_WARN_64_TO_32_BIT_CONVERSION[arch=*64]" = NO;
 				GCC_WARN_ABOUT_MISSING_FIELD_INITIALIZERS = YES;
 				GCC_WARN_ABOUT_MISSING_NEWLINE = YES;
@@ -5640,7 +5815,9 @@
 				GCC_WARN_INITIALIZER_NOT_FULLY_BRACKETED = YES;
 				GCC_WARN_MISSING_PARENTHESES = YES;
 				GCC_WARN_NON_VIRTUAL_DESTRUCTOR = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_LABEL = YES;
 				GCC_WARN_UNUSED_VALUE = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
@@ -5743,6 +5920,7 @@
 					"$(OTHER_CFLAGS)",
 				);
 				OTHER_LDFLAGS = (
+					"$(inherited)",
 					"-L/System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/config",
 					"-lpython2.7",
 					"-lllvmclang",
@@ -5758,6 +5936,7 @@
 					ApplicationServices,
 				);
 				"OTHER_LDFLAGS[sdk=iphoneos*][arch=*]" = (
+					"$(inherited)",
 					"-lllvmclang",
 					"-framework",
 					Foundation,
@@ -5807,6 +5986,7 @@
 					"$(OTHER_CFLAGS)",
 				);
 				OTHER_LDFLAGS = (
+					"$(inherited)",
 					"-L/System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/config",
 					"-lpython2.7",
 					"-lllvmclang",
@@ -5822,6 +6002,7 @@
 					ApplicationServices,
 				);
 				"OTHER_LDFLAGS[sdk=iphoneos*][arch=*]" = (
+					"$(inherited)",
 					"-lllvmclang",
 					"-framework",
 					Foundation,
@@ -5835,7 +6016,6 @@
 		2687EAC71508110B00DD8C2E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 330.99.0;
@@ -5860,7 +6040,6 @@
 		2687EAC81508110B00DD8C2E /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COMBINE_HIDPI_IMAGES = YES;
 				COPY_PHASE_STRIP = YES;
@@ -5877,7 +6056,6 @@
 		2687EAC91508110B00DD8C2E /* BuildAndIntegration */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COMBINE_HIDPI_IMAGES = YES;
 				COPY_PHASE_STRIP = YES;
@@ -6003,7 +6181,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ARCHS = "$(NATIVE_ARCH)";
 				"ARCHS[sdk=iphoneos*]" = arm64;
 				"ARCHS[sdk=macosx*]" = (
 					x86_64,
@@ -6011,13 +6188,16 @@
 				);
 				CLANG_CXX_LANGUAGE_STANDARD = "c++0x";
 				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_WARN_BOOL_CONVERSION = YES;
 				CLANG_WARN_CONSTANT_CONVERSION = YES;
 				CLANG_WARN_EMPTY_BODY = YES;
 				CLANG_WARN_ENUM_CONVERSION = YES;
 				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = c99;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					__STDC_CONSTANT_MACROS,
@@ -6032,6 +6212,7 @@
 					NO_XPC_SERVICES,
 				);
 				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				"GCC_WARN_64_TO_32_BIT_CONVERSION[arch=*64]" = NO;
 				GCC_WARN_ABOUT_MISSING_FIELD_INITIALIZERS = YES;
 				GCC_WARN_ABOUT_MISSING_NEWLINE = YES;
@@ -6041,7 +6222,9 @@
 				GCC_WARN_INITIALIZER_NOT_FULLY_BRACKETED = YES;
 				GCC_WARN_MISSING_PARENTHESES = YES;
 				GCC_WARN_NON_VIRTUAL_DESTRUCTOR = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_LABEL = YES;
 				GCC_WARN_UNUSED_VALUE = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
@@ -6083,6 +6266,7 @@
 				INSTALL_PATH = "$(LLDB_TOOLS_INSTALL_DIR)";
 				LIBRARY_SEARCH_PATHS = "$(inherited)";
 				"OTHER_LDFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
 					"-sectcreate",
 					__TEXT,
 					__info_plist,
@@ -6090,6 +6274,7 @@
 					"-Wl,-rpath,@loader_path/../../../System/Library/PrivateFrameworks",
 				);
 				"OTHER_LDFLAGS[sdk=macosx*]" = (
+					"$(inherited)",
 					"-sectcreate",
 					__TEXT,
 					__info_plist,
@@ -6146,6 +6331,7 @@
 					"$(OTHER_CFLAGS)",
 				);
 				OTHER_LDFLAGS = (
+					"$(inherited)",
 					"-L/System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/config",
 					"-lpython2.7",
 					"-lllvmclang",
@@ -6161,6 +6347,7 @@
 					ApplicationServices,
 				);
 				"OTHER_LDFLAGS[sdk=iphoneos*][arch=*]" = (
+					"$(inherited)",
 					"-lllvmclang",
 					"-framework",
 					Foundation,
@@ -6563,16 +6750,19 @@
 				);
 				MACH_O_TYPE = mh_execute;
 				OTHER_CFLAGS = (
+					"$(inherited)",
 					"-I/System/Library/Frameworks/Python.framework/Versions/2.7/include/python2.7",
 					"-flimit-debug-info",
 					"-Wparentheses",
 				);
 				"OTHER_CFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
 					"-flimit-debug-info",
 					"-Wparentheses",
 				);
 				"OTHER_CPLUSPLUSFLAGS[sdk=iphoneos*]" = "$(OTHER_CFLAGS)";
 				OTHER_LDFLAGS = (
+					"$(inherited)",
 					"-lllvmclang",
 					"-L/System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/config",
 					"-lpython2.7",
@@ -6631,16 +6821,19 @@
 				);
 				MACH_O_TYPE = mh_execute;
 				OTHER_CFLAGS = (
+					"$(inherited)",
 					"-I/System/Library/Frameworks/Python.framework/Versions/2.7/include/python2.7",
 					"-flimit-debug-info",
 					"-Wparentheses",
 				);
 				"OTHER_CFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
 					"-flimit-debug-info",
 					"-Wparentheses",
 				);
 				"OTHER_CPLUSPLUSFLAGS[sdk=iphoneos*]" = "$(OTHER_CFLAGS)";
 				OTHER_LDFLAGS = (
+					"$(inherited)",
 					"-lllvmclang",
 					"-L/System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/config",
 					"-lpython2.7",
@@ -6699,16 +6892,19 @@
 				);
 				MACH_O_TYPE = mh_execute;
 				OTHER_CFLAGS = (
+					"$(inherited)",
 					"-I/System/Library/Frameworks/Python.framework/Versions/2.7/include/python2.7",
 					"-flimit-debug-info",
 					"-Wparentheses",
 				);
 				"OTHER_CFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
 					"-flimit-debug-info",
 					"-Wparentheses",
 				);
 				"OTHER_CPLUSPLUSFLAGS[sdk=iphoneos*]" = "$(OTHER_CFLAGS)";
 				OTHER_LDFLAGS = (
+					"$(inherited)",
 					"-lllvmclang",
 					"-L/System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/config",
 					"-lpython2.7",
@@ -6753,6 +6949,7 @@
 				LIBRARY_SEARCH_PATHS = "$(inherited)";
 				LLVM_BUILD_DIR_ARCH = "$(OBJROOT)/llvm";
 				OTHER_LDFLAGS = (
+					"$(inherited)",
 					"-sectcreate",
 					__TEXT,
 					__info_plist,
@@ -6780,6 +6977,7 @@
 				INSTALL_PATH = "$(LLDB_TOOLS_INSTALL_DIR)";
 				LIBRARY_SEARCH_PATHS = "$(inherited)";
 				OTHER_LDFLAGS = (
+					"$(inherited)",
 					"-sectcreate",
 					__TEXT,
 					__info_plist,
@@ -6796,7 +6994,6 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ARCHS = "$(NATIVE_ARCH)";
 				"ARCHS[sdk=iphoneos*]" = (
 					armv7,
 					arm64,
@@ -6807,13 +7004,16 @@
 				);
 				CLANG_CXX_LANGUAGE_STANDARD = "c++0x";
 				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_WARN_BOOL_CONVERSION = YES;
 				CLANG_WARN_CONSTANT_CONVERSION = YES;
 				CLANG_WARN_EMPTY_BODY = YES;
 				CLANG_WARN_ENUM_CONVERSION = YES;
 				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = c99;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = (
@@ -6829,6 +7029,7 @@
 					NO_XPC_SERVICES,
 				);
 				GCC_VERSION = com.apple.compilers.llvm.clang.1_0;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
 				"GCC_WARN_64_TO_32_BIT_CONVERSION[arch=*64]" = NO;
 				GCC_WARN_ABOUT_MISSING_FIELD_INITIALIZERS = YES;
 				GCC_WARN_ABOUT_MISSING_NEWLINE = YES;
@@ -6838,7 +7039,9 @@
 				GCC_WARN_INITIALIZER_NOT_FULLY_BRACKETED = YES;
 				GCC_WARN_MISSING_PARENTHESES = YES;
 				GCC_WARN_NON_VIRTUAL_DESTRUCTOR = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
 				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_LABEL = YES;
 				GCC_WARN_UNUSED_VALUE = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
@@ -6906,6 +7109,7 @@
 				LIBRARY_SEARCH_PATHS = "$(inherited)";
 				LLVM_BUILD_DIR_ARCH = "$(OBJROOT)/llvm";
 				OTHER_LDFLAGS = (
+					"$(inherited)",
 					"-sectcreate",
 					__TEXT,
 					__info_plist,
@@ -6957,6 +7161,7 @@
 					"$(OTHER_CFLAGS)",
 				);
 				OTHER_LDFLAGS = (
+					"$(inherited)",
 					"-L/System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/config",
 					"-lpython2.7",
 					"-lllvmclang",
@@ -6972,6 +7177,7 @@
 					ApplicationServices,
 				);
 				"OTHER_LDFLAGS[sdk=iphoneos*][arch=*]" = (
+					"$(inherited)",
 					"-lllvmclang",
 					"-framework",
 					Foundation,
@@ -7066,16 +7272,19 @@
 				);
 				MACH_O_TYPE = mh_execute;
 				OTHER_CFLAGS = (
+					"$(inherited)",
 					"-I/System/Library/Frameworks/Python.framework/Versions/2.7/include/python2.7",
 					"-flimit-debug-info",
 					"-Wparentheses",
 				);
 				"OTHER_CFLAGS[sdk=iphoneos*]" = (
+					"$(inherited)",
 					"-flimit-debug-info",
 					"-Wparentheses",
 				);
 				"OTHER_CPLUSPLUSFLAGS[sdk=iphoneos*]" = "$(OTHER_CFLAGS)";
 				OTHER_LDFLAGS = (
+					"$(inherited)",
 					"-lllvmclang",
 					"-L/System/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/config",
 					"-lpython2.7",
@@ -7094,8 +7303,6 @@
 					"-lxml2",
 					"-framework",
 					Foundation,
-					"-framework",
-					UIKit,
 				);
 				PRODUCT_NAME = "lldb-platform";
 				SKIP_INSTALL = YES;
@@ -7171,7 +7378,6 @@
 		49BB8F3F1611172B00BDD462 /* DebugClang */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ARCHS = "$(ARCHS_STANDARD_64_BIT)";
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 330.99.0;

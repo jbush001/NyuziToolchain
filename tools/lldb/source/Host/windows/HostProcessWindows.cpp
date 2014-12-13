@@ -8,6 +8,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "lldb/Host/FileSpec.h"
+#include "lldb/Host/HostThread.h"
+#include "lldb/Host/ThreadLauncher.h"
 #include "lldb/Host/windows/windows.h"
 #include "lldb/Host/windows/HostProcessWindows.h"
 
@@ -17,14 +19,37 @@
 
 using namespace lldb_private;
 
+namespace
+{
+struct MonitorInfo
+{
+    HostProcess::MonitorCallback callback;
+    void *baton;
+    HANDLE process_handle;
+};
+}
+
+HostProcessWindows::HostProcessWindows()
+    : HostNativeProcessBase()
+    , m_owns_handle(true)
+{
+}
+
 HostProcessWindows::HostProcessWindows(lldb::process_t process)
     : HostNativeProcessBase(process)
+    , m_owns_handle(true)
 {
 }
 
 HostProcessWindows::~HostProcessWindows()
 {
     Close();
+}
+
+void
+HostProcessWindows::SetOwnsHandle(bool owns)
+{
+    m_owns_handle = owns;
 }
 
 Error HostProcessWindows::Terminate()
@@ -56,7 +81,7 @@ Error HostProcessWindows::GetMainModule(FileSpec &file_spec) const
 
 lldb::pid_t HostProcessWindows::GetProcessId() const
 {
-    return ::GetProcessId(m_process);
+    return (m_process == LLDB_INVALID_PROCESS) ? -1 : ::GetProcessId(m_process);
 }
 
 bool HostProcessWindows::IsRunning() const
@@ -71,9 +96,42 @@ bool HostProcessWindows::IsRunning() const
     return (code == STILL_ACTIVE);
 }
 
+HostThread
+HostProcessWindows::StartMonitoring(HostProcess::MonitorCallback callback, void *callback_baton, bool monitor_signals)
+{
+    HostThread monitor_thread;
+    MonitorInfo *info = new MonitorInfo;
+    info->callback = callback;
+    info->baton = callback_baton;
+
+    // Since the life of this HostProcessWindows instance and the life of the process may be different, duplicate the handle so that
+    // the monitor thread can have ownership over its own copy of the handle.
+    HostThread result;
+    if (::DuplicateHandle(GetCurrentProcess(), m_process, GetCurrentProcess(), &info->process_handle, 0, FALSE, DUPLICATE_SAME_ACCESS))
+        result = ThreadLauncher::LaunchThread("ChildProcessMonitor", HostProcessWindows::MonitorThread, info, nullptr);
+    return result;
+}
+
+lldb::thread_result_t
+HostProcessWindows::MonitorThread(void *thread_arg)
+{
+    DWORD exit_code;
+
+    MonitorInfo *info = static_cast<MonitorInfo *>(thread_arg);
+    if (info)
+    {
+        DWORD wait_result = ::WaitForSingleObject(info->process_handle, INFINITE);
+        ::GetExitCodeProcess(info->process_handle, &exit_code);
+        info->callback(info->baton, ::GetProcessId(info->process_handle), true, 0, exit_code);
+        ::CloseHandle(info->process_handle);
+        delete (info);
+    }
+    return 0;
+}
+
 void HostProcessWindows::Close()
 {
-    if (m_process != nullptr)
+    if (m_owns_handle && m_process != LLDB_INVALID_PROCESS)
         ::CloseHandle(m_process);
     m_process = nullptr;
 }

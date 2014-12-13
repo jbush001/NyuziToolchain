@@ -66,7 +66,7 @@ set(MCLD_DEFAULT_TARGET_TRIPLE nyuzi CACHE STRING
 ################################################################################
 #  Versioning, see VERSION
   set(MAJOR 2)
-  set(MINOR 9)
+  set(MINOR 10)
   set(MICRO 0)
   set(BUILD dev)
   set(DEV_VERSION ${MAJOR}.${MINOR}.${MICRO}-${BUILD})

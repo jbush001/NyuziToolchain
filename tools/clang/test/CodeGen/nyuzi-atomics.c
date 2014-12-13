@@ -5,12 +5,11 @@ int atomic_add(volatile int *lockvar)
 {
 	return __sync_fetch_and_and(lockvar, 1);
 
-	// CHECK: [[LABEL:\.L[0-9A-Za-z_]+]]:
 	// CHECK: load_sync [[SCRATCH1:s[0-9]+]], (s0)
 	// CHECK: move {{s[0-9]+}}, [[SCRATCH1]]
 	// CHECK: and [[SCRATCH2:s[0-9]+]], [[SCRATCH1]], 
 	// CHECK: store_sync [[SCRATCH2]], (s0)	
-	// CHECK: bfalse [[SCRATCH2]], [[LABEL]]
+	// CHECK: bfalse [[SCRATCH2]], 
 }
 
 // CHECK: stbar:
@@ -24,21 +23,19 @@ void atomic_cmp_swap(volatile int *lockvar)
 {
 	int old;
 
-	do	// CHECK: {{\.L[0-9A-Za-z_]+}}
+	do	
 	{
 		 old = *lockvar;
 	}
 	while (__sync_val_compare_and_swap(lockvar, old, old + 1) != old);
 
-	// CHECK: [[LOOP1MBB:\.L[0-9A-Za-z_]+]]
 	// CHECK:   load_sync
 	// CHECK:   cmpne_i [[CMPRES:s[0-9]+]]
-	// CHECK:   btrue [[CMPRES]], [[EXITMBB:\.L[0-9A-Za-z_]+]]
+	// CHECK:   btrue [[CMPRES]], 
 
 	// CHECK:   move [[SUCCESS:s[0-9]+]]
 	// CHECK:   store_sync [[SUCCESS]]
-	// CHECK:   bfalse [[SUCCESS]], [[LOOP1MBB]]
-	// CHECK: [[EXITMBB]]
+	// CHECK:   bfalse [[SUCCESS]], 
 }
 
 // CHECK: atomic_test_set:
@@ -50,5 +47,5 @@ void atomic_test_set(volatile int *lockvar)
 	// CHECK: load_sync [[SCRATCH1:s[0-9]+]], (s0)
 	// CHECK: move {{s[0-9]+}}, [[SCRATCH1]]
 	// CHECK: store_sync [[SCRATCH1]], (s0)	
-	// CHECK: bfalse [[SCRATCH1]], {{\.L[0-9A-Za-z_]+}}
+	// CHECK: bfalse [[SCRATCH1]], 
 }

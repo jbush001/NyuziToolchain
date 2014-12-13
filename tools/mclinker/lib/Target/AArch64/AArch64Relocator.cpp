@@ -7,12 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <mcld/LinkerConfig.h>
-#include <mcld/IRBuilder.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/LD/LDSymbol.h>
-#include <mcld/LD/ELFFileFormat.h>
-#include <mcld/Object/ObjectBuilder.h>
+#include "mcld/LinkerConfig.h"
+#include "mcld/IRBuilder.h"
+#include "mcld/Support/MsgHandling.h"
+#include "mcld/LD/LDSymbol.h"
+#include "mcld/LD/ELFFileFormat.h"
+#include "mcld/Object/ObjectBuilder.h"
 
 #include "AArch64Relocator.h"
 #include "AArch64RelocationFunctions.h"
@@ -23,7 +23,7 @@
 #include <llvm/Support/ELF.h>
 #include <llvm/Support/Host.h>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // Relocation Functions and Tables
@@ -397,6 +397,23 @@ void AArch64Relocator::scanRelocation(Relocation& pReloc,
     issueUndefRef(pReloc, pSection, pInput);
 }
 
+uint32_t AArch64Relocator::getDebugStringOffset(Relocation& pReloc) const {
+  if (pReloc.type() != llvm::ELF::R_AARCH64_ABS32)
+    error(diag::unsupport_reloc_for_debug_string)
+        << getName(pReloc.type()) << "mclinker@googlegroups.com";
+
+  if (pReloc.symInfo()->type() == ResolveInfo::Section)
+    return pReloc.target();
+  else
+    return pReloc.symInfo()->outSymbol()->fragRef()->offset() +
+               pReloc.target() + pReloc.addend();
+}
+
+void AArch64Relocator::applyDebugStringOffset(Relocation& pReloc,
+                                              uint32_t pOffset) {
+  pReloc.target() = pOffset;
+}
+
 //===----------------------------------------------------------------------===//
 // Each relocation function implementation
 //===----------------------------------------------------------------------===//
@@ -406,8 +423,8 @@ Relocator::Result none(Relocation& pReloc, AArch64Relocator& pParent) {
   return Relocator::OK;
 }
 
-Relocator::Result unsupport(Relocation& pReloc, AArch64Relocator& pParent) {
-  return Relocator::Unsupport;
+Relocator::Result unsupported(Relocation& pReloc, AArch64Relocator& pParent) {
+  return Relocator::Unsupported;
 }
 
 // R_AARCH64_ABS64: S + A
@@ -665,3 +682,5 @@ Relocator::Result ldst_abs_lo12(Relocation& pReloc, AArch64Relocator& pParent) {
   }
   return Relocator::OK;
 }
+
+}  // namespace mcld

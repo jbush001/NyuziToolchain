@@ -6,13 +6,13 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/MC/AttributeSet.h>
+#include "mcld/MC/AttributeSet.h"
 
-#include <mcld/MC/Attribute.h>
+#include "mcld/MC/Attribute.h"
 
 #include <cstddef>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // AttributeSet
@@ -50,3 +50,5 @@ Attribute* AttributeSet::exists(const Attribute& pAttr) const {
 void AttributeSet::record(mcld::Attribute& pAttr) {
   m_AttrSet.push_back(&pAttr);
 }
+
+}  // namespace mcld

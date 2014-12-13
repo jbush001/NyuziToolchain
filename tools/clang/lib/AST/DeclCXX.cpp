@@ -209,7 +209,7 @@ CXXRecordDecl::setBases(CXXBaseSpecifier const * const *Bases,
     // Now go through all virtual bases of this base and add them.
     for (const auto &VBase : BaseClassDecl->vbases()) {
       // Add this base if it's not already in the list.
-      if (SeenVBaseTypes.insert(C.getCanonicalType(VBase.getType()))) {
+      if (SeenVBaseTypes.insert(C.getCanonicalType(VBase.getType())).second) {
         VBases.push_back(&VBase);
 
         // C++11 [class.copy]p8:
@@ -225,7 +225,7 @@ CXXRecordDecl::setBases(CXXBaseSpecifier const * const *Bases,
 
     if (Base->isVirtual()) {
       // Add this base if it's not already in the list.
-      if (SeenVBaseTypes.insert(C.getCanonicalType(BaseType)))
+      if (SeenVBaseTypes.insert(C.getCanonicalType(BaseType)).second)
         VBases.push_back(Base);
 
       // C++0x [meta.unary.prop] is_empty:
@@ -1259,6 +1259,44 @@ CXXRecordDecl::setTemplateSpecializationKind(TemplateSpecializationKind TSK) {
   }
   
   llvm_unreachable("Not a class template or member class specialization");
+}
+
+const CXXRecordDecl *CXXRecordDecl::getTemplateInstantiationPattern() const {
+  // If it's a class template specialization, find the template or partial
+  // specialization from which it was instantiated.
+  if (auto *TD = dyn_cast<ClassTemplateSpecializationDecl>(this)) {
+    auto From = TD->getInstantiatedFrom();
+    if (auto *CTD = From.dyn_cast<ClassTemplateDecl *>()) {
+      while (auto *NewCTD = CTD->getInstantiatedFromMemberTemplate()) {
+        if (NewCTD->isMemberSpecialization())
+          break;
+        CTD = NewCTD;
+      }
+      return CTD->getTemplatedDecl();
+    }
+    if (auto *CTPSD =
+            From.dyn_cast<ClassTemplatePartialSpecializationDecl *>()) {
+      while (auto *NewCTPSD = CTPSD->getInstantiatedFromMember()) {
+        if (NewCTPSD->isMemberSpecialization())
+          break;
+        CTPSD = NewCTPSD;
+      }
+      return CTPSD;
+    }
+  }
+
+  if (MemberSpecializationInfo *MSInfo = getMemberSpecializationInfo()) {
+    if (isTemplateInstantiation(MSInfo->getTemplateSpecializationKind())) {
+      const CXXRecordDecl *RD = this;
+      while (auto *NewRD = RD->getInstantiatedFromMemberClass())
+        RD = NewRD;
+      return RD;
+    }
+  }
+
+  assert(!isTemplateInstantiation(this->getTemplateSpecializationKind()) &&
+         "couldn't find pattern for class template instantiation");
+  return nullptr;
 }
 
 CXXDestructorDecl *CXXRecordDecl::getDestructor() const {

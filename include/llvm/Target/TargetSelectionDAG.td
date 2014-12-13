@@ -188,6 +188,14 @@ def SDTIStore : SDTypeProfile<1, 3, [       // indexed store
   SDTCisSameAs<0, 2>, SDTCisPtrTy<0>, SDTCisPtrTy<3>
 ]>;
 
+def SDTMaskedStore: SDTypeProfile<0, 3, [       // masked store
+  SDTCisPtrTy<0>, SDTCisVec<1>, SDTCisVec<2>
+]>;
+
+def SDTMaskedLoad: SDTypeProfile<1, 3, [       // masked load
+  SDTCisVec<0>, SDTCisPtrTy<1>, SDTCisVec<2>, SDTCisSameAs<0, 3>
+]>;
+
 def SDTVecShuffle : SDTypeProfile<1, 2, [
   SDTCisSameAs<0, 1>, SDTCisSameAs<1, 2>
 ]>;
@@ -373,6 +381,8 @@ def fdiv       : SDNode<"ISD::FDIV"       , SDTFPBinOp>;
 def frem       : SDNode<"ISD::FREM"       , SDTFPBinOp>;
 def fma        : SDNode<"ISD::FMA"        , SDTFPTernaryOp>;
 def fabs       : SDNode<"ISD::FABS"       , SDTFPUnaryOp>;
+def fminnum    : SDNode<"ISD::FMINNUM"    , SDTFPBinOp>;
+def fmaxnum    : SDNode<"ISD::FMAXNUM"    , SDTFPBinOp>;
 def fgetsign   : SDNode<"ISD::FGETSIGN"   , SDTFPToIntOp>;
 def fneg       : SDNode<"ISD::FNEG"       , SDTFPUnaryOp>;
 def fsqrt      : SDNode<"ISD::FSQRT"      , SDTFPUnaryOp>;
@@ -451,6 +461,11 @@ def atomic_load      : SDNode<"ISD::ATOMIC_LOAD", SDTAtomicLoad,
                     [SDNPHasChain, SDNPMayLoad, SDNPMemOperand]>;
 def atomic_store     : SDNode<"ISD::ATOMIC_STORE", SDTAtomicStore,
                     [SDNPHasChain, SDNPMayStore, SDNPMemOperand]>;
+
+def masked_store : SDNode<"ISD::MSTORE",  SDTMaskedStore,
+                       [SDNPHasChain, SDNPMayStore, SDNPMemOperand]>;
+def masked_load  : SDNode<"ISD::MLOAD",  SDTMaskedLoad,
+                       [SDNPHasChain, SDNPMayLoad, SDNPMemOperand]>;
 
 // Do not use ld, st directly. Use load, extload, sextload, zextload, store,
 // and truncst (see below).

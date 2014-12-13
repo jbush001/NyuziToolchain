@@ -8,10 +8,11 @@
 //===----------------------------------------------------------------------===//
 #ifndef MCLD_TARGET_TARGETLDBACKEND_H_
 #define MCLD_TARGET_TARGETLDBACKEND_H_
+#include "mcld/LD/GarbageCollection.h"
+#include "mcld/Support/Compiler.h"
 
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/DataTypes.h>
-#include <mcld/LD/GarbageCollection.h>
 
 namespace mcld {
 
@@ -42,9 +43,6 @@ class StubFactory;
 /// TargetLDBackend - Generic interface to target specific assembler backends.
 //===----------------------------------------------------------------------===//
 class TargetLDBackend {
-  TargetLDBackend(const TargetLDBackend&);  // DO NOT IMPLEMENT
-  void operator=(const TargetLDBackend&);   // DO NOT IMPLEMENT
-
  protected:
   explicit TargetLDBackend(const LinkerConfig& pConfig);
 
@@ -108,6 +106,12 @@ class TargetLDBackend {
   /// allocateCommonSymbols - allocate common symbols in the corresponding
   /// sections.
   virtual bool allocateCommonSymbols(Module& pModule) = 0;
+
+  /// preMergeSections - hooks to be executed before merging sections
+  virtual void preMergeSections(Module& pModule) { }
+
+  /// postMergeSections - hooks to be executed after merging sections
+  virtual void postMergeSections(Module& pModule) { }
 
   /// mergeSection - merge target dependent sections.
   virtual bool mergeSection(Module& pModule,
@@ -183,6 +187,9 @@ class TargetLDBackend {
 
  private:
   const LinkerConfig& m_Config;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(TargetLDBackend);
 };
 
 }  // namespace mcld
