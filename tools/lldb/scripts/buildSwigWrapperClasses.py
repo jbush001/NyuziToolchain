@@ -85,10 +85,11 @@ Args:	-h		(optional) Print help information on this program.\n\
 			automatically. Python install directory.\n\
 	--argsFile=	The args are read from a file instead of the\n\
 			command line. Other command line args are ignored.\n\
+	--swigExecutable=	(optional) Full path of swig executable.\n\
 \n\
 Usage:\n\
 	buildSwigWrapperClasses.py --srcRoot=ADirPath --targetDir=ADirPath\n\
-	--cfgBldDir=ADirPath --prefix=ADirPath -m -d\n\
+	--cfgBldDir=ADirPath --prefix=ADirPath --swigExecutable=ADirPath -m -d\n\
 \n\
 "; #TAG_PROGRAM_HELP_INFO
 strHelpInfoExtraWindows = "\
@@ -329,8 +330,8 @@ def check_lldb_swig_executable_file_exists_Unknown( vDictArgs ):
 #			Str		- Error message.
 # Throws:	None.
 #--
-def check_lldb_swig_executable_file_exists_windows( vDictArgs ):
-	dbg = utilsDebug.CDebugFnVerbose( "check_lldb_swig_executable_file_exists_windows()" );
+def check_lldb_swig_executable_file_exists_Windows( vDictArgs ):
+	dbg = utilsDebug.CDebugFnVerbose( "check_lldb_swig_executable_file_exists_Windows()" );
 	
 	# Will always be true as it assumed the path to SWIG executable will be 
 	# in the OS system environmental variable %PATH%. Easier this way as the 
@@ -391,7 +392,26 @@ def check_lldb_swig_executable_file_exists_Darwin( vDictArgs ):
 	strStatusMsg = "Sorry function 'check_lldb_swig_executable_file_exists_Darwin()' is not implemented";	
 	
 	return (bExeFileFound, strStatusMsg);
+
+#++---------------------------------------------------------------------------
+# Details:	Locate the SWIG executable file in a OSX system. Several hard 
+#			coded predetermined possible file path locations are searched. 
+#			(This is good candidate for a derived class object)
+# Args:		vDictArgs	- (W) Program input parameters.
+# Returns:	Bool	- True = Success.
+#					- False = Failure file not found.
+#			Str		- Error message.
+# Throws:	None.
+#--
+def check_lldb_swig_executable_file_exists_FreeBSD( vDictArgs ):
+	dbg = utilsDebug.CDebugFnVerbose( "check_lldb_swig_executable_file_exists_FreeBSD()" );
+	bExeFileFound = False;
+	# ToDo: Find the SWIG executable and add the path to the args dictionary
+	#vDictArgs.[ "--swigExePath" ] = "/usr/bin/swig";
+	strStatusMsg = "Sorry function 'check_lldb_swig_executable_file_exists_FreeBSD()' is not implemented";	
 	
+	return (bExeFileFound, strStatusMsg);
+
 #++---------------------------------------------------------------------------
 # Details:	Locate the SWIG executable file. Several hard coded predetermined
 #			possible file path locations are searched. 
@@ -406,15 +426,19 @@ def check_lldb_swig_executable_file_exists( vDictArgs, veOSType ):
 	dbg = utilsDebug.CDebugFnVerbose( "check_lldb_swig_executable_file_exists()" );
 	bExeFileFound = False;
 	strStatusMsg = "";
-	
-	switch = { 0 : check_lldb_swig_executable_file_exists_Unknown,
-			   1 : check_lldb_swig_executable_file_exists_windows,
-			   2 : check_lldb_swig_executable_file_exists_Linux,
-			   3 : check_lldb_swig_executable_file_exists_Darwin }
-	bExeFileFound, strStatusMsg = switch[ veOSType ]( vDictArgs );
-	
+	if "--swigExecutable" in vDictArgs:
+		vDictArgs["--swigExeName"] = os.path.basename(vDictArgs["--swigExecutable"])
+		vDictArgs["--swigExePath"] = os.path.dirname(vDictArgs["--swigExecutable"])
+		bExeFileFound = True
+	else:
+		from utilsOsType import EnumOsType;
+		switch = { EnumOsType.Unknown : check_lldb_swig_executable_file_exists_Unknown,
+			   EnumOsType.Darwin : check_lldb_swig_executable_file_exists_Darwin,
+			   EnumOsType.FreeBSD : check_lldb_swig_executable_file_exists_FreeBSD,
+			   EnumOsType.Linux : check_lldb_swig_executable_file_exists_Linux,
+			   EnumOsType.Windows : check_lldb_swig_executable_file_exists_Windows }
+		bExeFileFound, strStatusMsg = switch[ veOSType ]( vDictArgs );
 	return (bExeFileFound, strStatusMsg);
-
 #++---------------------------------------------------------------------------
 # Details:	Validate the arguments passed to the program. This function exits
 #			the program should error with the arguments be found.
@@ -429,14 +453,15 @@ def validate_arguments( vArgv ):
 	dictArgs = {};
 	nResult = 0;
 	strListArgs = "hdmM"; # Format "hiox:" = -h -i -o -x <arg>
-	listLongArgs = ["srcRoot=", "targetDir=", "cfgBldDir=", "prefix=", 
-					"argsFile"];
+	listLongArgs = ["srcRoot=", "targetDir=", "cfgBldDir=", "prefix=",
+			"swigExecutable=", "argsFile"];
 	dictArgReq = {	"-h": "o",			# o = optional, m = mandatory
 					"-d": "o",
 					"-m": "o",
 					"-M": "o",
 					"--srcRoot": "m",
 					"--targetDir": "m",
+					"--swigExecutable" : "o",
 					"--cfgBldDir": "o",
 					"--prefix": "o",
 					"--argsFile": "o" };
@@ -532,8 +557,8 @@ def main( vArgv ):
 			--argsFile=		The args are read from a file instead of the
 							command line. Other command line args are ignored.
 	Usage:
-			buildSwigWrapperClasses.py --srcRoot=ADirPath --targetDir=ADirPath 
-			--cfgBldDir=ADirPath --prefix=ADirPath -m -d
+			buildSwigWrapperClasses.py --srcRoot=ADirPath --targetDir=ADirPath
+			--cfgBldDir=ADirPath --prefix=ADirPath --swigExecutable=ADirPath -m -d
 
 	Results:	0 Success
 				-1 Error - invalid parameters passed.
@@ -558,4 +583,3 @@ if __name__ == "__main__":
 	main( sys.argv[ 1: ] );
 else:
 	program_exit( -5, strMsgErrorNoMain );
-	

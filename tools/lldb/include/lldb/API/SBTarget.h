@@ -22,6 +22,8 @@
 
 namespace lldb {
 
+class SBPlatform;
+
 class SBLaunchInfo
 {
 public:
@@ -49,7 +51,7 @@ public:
     
     SBFileSpec
     GetExecutableFile ();
-    
+
     //----------------------------------------------------------------------
     /// Set the executable file that will be used to launch the process and
     /// optionally set it as the first argument in the argument vector.
@@ -75,7 +77,29 @@ public:
     //----------------------------------------------------------------------
     void
     SetExecutableFile (SBFileSpec exe_file, bool add_as_first_arg);
-    
+
+
+    //----------------------------------------------------------------------
+    /// Get the listener that will be used to receive process events.
+    ///
+    /// If no listener has been set via a call to
+    /// SBLaunchInfo::SetListener(), then an invalid SBListener will be
+    /// returned (SBListener::IsValid() will return false). If a listener
+    /// has been set, then the valid listener object will be returned.
+    //----------------------------------------------------------------------
+    SBListener
+    GetListener ();
+
+    //----------------------------------------------------------------------
+    /// Set the listener that will be used to receive process events.
+    ///
+    /// By default the SBDebugger, which has a listener, that the SBTarget
+    /// belongs to will listen for the process events. Calling this function
+    /// allows a different listener to be used to listen for process events.
+    //----------------------------------------------------------------------
+    void
+    SetListener (SBListener &listener);
+
     uint32_t
     GetNumArguments ();
     
@@ -256,7 +280,28 @@ public:
     
     bool
     ParentProcessIDIsValid();
-    
+
+    //----------------------------------------------------------------------
+    /// Get the listener that will be used to receive process events.
+    ///
+    /// If no listener has been set via a call to
+    /// SBLaunchInfo::SetListener(), then an invalid SBListener will be
+    /// returned (SBListener::IsValid() will return false). If a listener
+    /// has been set, then the valid listener object will be returned.
+    //----------------------------------------------------------------------
+    SBListener
+    GetListener ();
+
+    //----------------------------------------------------------------------
+    /// Set the listener that will be used to receive process events.
+    ///
+    /// By default the SBDebugger, which has a listener, that the SBTarget
+    /// belongs to will listen for the process events. Calling this function
+    /// allows a different listener to be used to listen for process events.
+    //----------------------------------------------------------------------
+    void
+    SetListener (SBListener &listener);
+
     
 protected:
     friend class SBTarget;
@@ -307,6 +352,18 @@ public:
 
     lldb::SBProcess
     GetProcess ();
+
+    //------------------------------------------------------------------
+    /// Return the platform object associated with the target.
+    ///
+    /// After return, the platform object should be checked for
+    /// validity.
+    ///
+    /// @return
+    ///     A platform object.
+    //------------------------------------------------------------------
+    lldb::SBPlatform
+    GetPlatform ();
 
     //------------------------------------------------------------------
     /// Install any binaries that need to be installed.
@@ -564,6 +621,26 @@ public:
     GetTriple ();
 
     //------------------------------------------------------------------
+    /// Architecture data byte width accessor
+    ///
+    /// @return
+    /// The size in 8-bit (host) bytes of a minimum addressable
+    /// unit from the Architecture's data bus
+    //------------------------------------------------------------------
+    uint32_t
+    GetDataByteSize ();
+
+    //------------------------------------------------------------------
+    /// Architecture code byte width accessor
+    ///
+    /// @return
+    /// The size in 8-bit (host) bytes of a minimum addressable
+    /// unit from the Architecture's code bus
+    //------------------------------------------------------------------
+    uint32_t
+    GetCodeByteSize ();
+
+    //------------------------------------------------------------------
     /// Set the base load address for a module section.
     ///
     /// @param[in] section
@@ -728,6 +805,17 @@ public:
     Clear ();
 
     //------------------------------------------------------------------
+    /// Resolve a current file address into a section offset address.
+    ///
+    /// @param[in] file_addr
+    ///
+    /// @return
+    ///     An SBAddress which will be valid if...
+    //------------------------------------------------------------------
+    lldb::SBAddress
+    ResolveFileAddress (lldb::addr_t file_addr);
+
+    //------------------------------------------------------------------
     /// Resolve a current load address into a section offset address.
     ///
     /// @param[in] vm_addr
@@ -771,6 +859,31 @@ public:
     SBSymbolContext
     ResolveSymbolContextForAddress (const SBAddress& addr, 
                                     uint32_t resolve_scope);
+
+    //------------------------------------------------------------------
+    /// Read target memory. If a target process is running then memory  
+    /// is read from here. Otherwise the memory is read from the object
+    /// files. For a target whose bytes are sized as a multiple of host
+    /// bytes, the data read back will preserve the target's byte order.
+    ///
+    /// @param[in] addr
+    ///     A target address to read from. 
+    ///
+    /// @param[out] buf
+    ///     The buffer to read memory into. 
+    ///
+    /// @param[in] size
+    ///     The maximum number of host bytes to read in the buffer passed
+    ///     into this call
+    ///
+    /// @param[out] error
+    ///     Error information is written here if the memory read fails.
+    ///
+    /// @return
+    ///     The amount of data read in host bytes.
+    //------------------------------------------------------------------
+    size_t
+    ReadMemory (const SBAddress addr, void *buf, size_t size, lldb::SBError &error);
 
     lldb::SBBreakpoint
     BreakpointCreateByLocation (const char *file, uint32_t line);
@@ -933,6 +1046,7 @@ protected:
     friend class SBAddress;
     friend class SBBlock;
     friend class SBDebugger;
+    friend class SBExecutionContext;
     friend class SBFunction;
     friend class SBInstruction;
     friend class SBModule;

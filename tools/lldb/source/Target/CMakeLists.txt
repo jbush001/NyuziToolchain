@@ -9,6 +9,8 @@ add_lldb_library(lldbTarget
   FileAction.cpp
   JITLoader.cpp
   JITLoaderList.cpp
+  InstrumentationRuntime.cpp
+  InstrumentationRuntimeStopInfo.cpp
   LanguageRuntime.cpp
   Memory.cpp
   MemoryHistory.cpp
@@ -41,6 +43,7 @@ add_lldb_library(lldbTarget
   ThreadPlanBase.cpp
   ThreadPlanCallFunction.cpp
   ThreadPlanCallUserExpression.cpp
+  ThreadPlanPython.cpp
   ThreadPlanRunToAddress.cpp
   ThreadPlanShouldStopHere.cpp
   ThreadPlanStepInRange.cpp

@@ -35,6 +35,7 @@ class LLDB_API SBBreakpointLocation;
 class LLDB_API SBBroadcaster;
 class LLDB_API SBCommand;
 class LLDB_API SBCommandInterpreter;
+class LLDB_API SBCommandInterpreterRunOptions;
 class LLDB_API SBCommandPluginInterface;
 class LLDB_API SBCommandReturnObject;
 class LLDB_API SBCommunication;
@@ -45,6 +46,7 @@ class LLDB_API SBDeclaration;
 class LLDB_API SBError;
 class LLDB_API SBEvent;
 class LLDB_API SBEventList;
+class LLDB_API SBExecutionContext;
 class LLDB_API SBExpressionOptions;
 class LLDB_API SBFileSpec;
 class LLDB_API SBFileSpecList;
@@ -81,6 +83,7 @@ class LLDB_API SBTypeFormat;
 class LLDB_API SBTypeMemberFunction;
 class LLDB_API SBTypeNameSpecifier;
 class LLDB_API SBTypeSummary;
+class LLDB_API SBTypeSummaryOptions;
 #ifndef LLDB_DISABLE_PYTHON
 class LLDB_API SBTypeSynthetic;
 #endif

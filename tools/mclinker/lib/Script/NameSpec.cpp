@@ -6,13 +6,13 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Script/NameSpec.h>
+#include "mcld/Script/NameSpec.h"
 
-#include <mcld/Support/GCFactory.h>
+#include "mcld/Support/GCFactory.h"
 
 #include <llvm/Support/ManagedStatic.h>
 
-using namespace mcld;
+namespace mcld {
 
 typedef GCFactory<NameSpec, MCLD_SYMBOLS_PER_INPUT> NameSpecFactory;
 static llvm::ManagedStatic<NameSpecFactory> g_NameSpecFactory;
@@ -45,3 +45,5 @@ void NameSpec::destroy(NameSpec*& pNameSpec) {
 void NameSpec::clear() {
   g_NameSpecFactory->clear();
 }
+
+}  // namespace mcld

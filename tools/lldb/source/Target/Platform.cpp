@@ -462,6 +462,20 @@ Platform::GetOSKernelDescription (std::string &s)
         return GetRemoteOSKernelDescription (s);
 }
 
+void
+Platform::AddClangModuleCompilationOptions (std::vector<std::string> &options)
+{
+    std::vector<std::string> default_compilation_options =
+    {
+        "-x", "c++", "-Xclang", "-nostdsysteminc", "-Xclang", "-nostdsysteminc"
+    };
+    
+    options.insert(options.end(),
+                   default_compilation_options.begin(),
+                   default_compilation_options.end());
+}
+
+
 ConstString
 Platform::GetWorkingDirectory ()
 {
@@ -882,15 +896,13 @@ Platform::SetOSVersion (uint32_t major,
 
 
 Error
-Platform::ResolveExecutable (const FileSpec &exe_file,
-                             const ArchSpec &exe_arch,
+Platform::ResolveExecutable (const ModuleSpec &module_spec,
                              lldb::ModuleSP &exe_module_sp,
                              const FileSpecList *module_search_paths_ptr)
 {
     Error error;
-    if (exe_file.Exists())
+    if (module_spec.GetFileSpec().Exists())
     {
-        ModuleSpec module_spec (exe_file, exe_arch);
         if (module_spec.GetArchitecture().IsValid())
         {
             error = ModuleList::GetSharedModule (module_spec, 
@@ -904,9 +916,10 @@ Platform::ResolveExecutable (const FileSpec &exe_file,
             // No valid architecture was specified, ask the platform for
             // the architectures that we should be using (in the correct order)
             // and see if we can find a match that way
-            for (uint32_t idx = 0; GetSupportedArchitectureAtIndex (idx, module_spec.GetArchitecture()); ++idx)
+            ModuleSpec arch_module_spec(module_spec);
+            for (uint32_t idx = 0; GetSupportedArchitectureAtIndex (idx, arch_module_spec.GetArchitecture()); ++idx)
             {
-                error = ModuleList::GetSharedModule (module_spec, 
+                error = ModuleList::GetSharedModule (arch_module_spec,
                                                      exe_module_sp, 
                                                      module_search_paths_ptr,
                                                      NULL, 
@@ -920,7 +933,7 @@ Platform::ResolveExecutable (const FileSpec &exe_file,
     else
     {
         error.SetErrorStringWithFormat ("'%s' does not exist",
-                                        exe_file.GetPath().c_str());
+                                        module_spec.GetFileSpec().GetPath().c_str());
     }
     return error;
 }
@@ -1045,7 +1058,11 @@ Error
 Platform::LaunchProcess (ProcessLaunchInfo &launch_info)
 {
     Error error;
-    // Take care of the host case so that each subclass can just 
+    Log *log(lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_PLATFORM));
+    if (log)
+        log->Printf ("Platform::%s()", __FUNCTION__);
+
+    // Take care of the host case so that each subclass can just
     // call this function to get the host functionality.
     if (IsHost())
     {
@@ -1058,6 +1075,16 @@ Platform::LaunchProcess (ProcessLaunchInfo &launch_info)
             const bool will_debug = launch_info.GetFlags().Test(eLaunchFlagDebug);
             const bool first_arg_is_full_shell_command = false;
             uint32_t num_resumes = GetResumeCountForLaunchInfo (launch_info);
+            if (log)
+            {
+                const FileSpec &shell = launch_info.GetShell();
+                const char *shell_str = (shell) ? shell.GetPath().c_str() : "<null>";
+                log->Printf ("Platform::%s GetResumeCountForLaunchInfo() returned %" PRIu32 ", shell is '%s'",
+                             __FUNCTION__,
+                             num_resumes,
+                             shell_str);
+            }
+
             if (!launch_info.ConvertArgumentsForLaunchingInShell (error,
                                                                   is_localhost,
                                                                   will_debug,
@@ -1065,6 +1092,9 @@ Platform::LaunchProcess (ProcessLaunchInfo &launch_info)
                                                                   num_resumes))
                 return error;
         }
+
+        if (log)
+            log->Printf ("Platform::%s final launch_info resume count: %" PRIu32, __FUNCTION__, launch_info.GetResumeCount ());
 
         error = Host::LaunchProcess (launch_info);
     }
@@ -1077,9 +1107,12 @@ lldb::ProcessSP
 Platform::DebugProcess (ProcessLaunchInfo &launch_info, 
                         Debugger &debugger,
                         Target *target,       // Can be NULL, if NULL create a new target, else use existing one
-                        Listener &listener,
                         Error &error)
 {
+    Log *log(lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_PLATFORM));
+    if (log)
+        log->Printf ("Platform::%s entered (target %p)", __FUNCTION__, static_cast<void*>(target));
+
     ProcessSP process_sp;
     // Make sure we stop at the entry point
     launch_info.GetFlags ().Set (eLaunchFlagDebug);
@@ -1091,12 +1124,16 @@ Platform::DebugProcess (ProcessLaunchInfo &launch_info,
     error = LaunchProcess (launch_info);
     if (error.Success())
     {
+        if (log)
+            log->Printf ("Platform::%s LaunchProcess() call succeeded (pid=%" PRIu64 ")", __FUNCTION__, launch_info.GetProcessID ());
         if (launch_info.GetProcessID() != LLDB_INVALID_PROCESS_ID)
         {
             ProcessAttachInfo attach_info (launch_info);
-            process_sp = Attach (attach_info, debugger, target, listener, error);
+            process_sp = Attach (attach_info, debugger, target, error);
             if (process_sp)
             {
+                if (log)
+                    log->Printf ("Platform::%s Attach() succeeded, Process plugin: %s", __FUNCTION__, process_sp->GetPluginName ().AsCString ());
                 launch_info.SetHijackListener(attach_info.GetHijackListener());
                 
                 // Since we attached to the process, it will think it needs to detach
@@ -1115,8 +1152,24 @@ Platform::DebugProcess (ProcessLaunchInfo &launch_info,
                     process_sp->SetSTDIOFileDescriptor(pty_fd);
                 }
             }
+            else
+            {
+                if (log)
+                    log->Printf ("Platform::%s Attach() failed: %s", __FUNCTION__, error.AsCString ());
+            }
+        }
+        else
+        {
+            if (log)
+                log->Printf ("Platform::%s LaunchProcess() returned launch_info with invalid process id", __FUNCTION__);
         }
     }
+    else
+    {
+        if (log)
+            log->Printf ("Platform::%s LaunchProcess() failed: %s", __FUNCTION__, error.AsCString ());
+    }
+
     return process_sp;
 }
 

@@ -88,16 +88,13 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
     CodeSegStack(nullptr), CurInitSeg(nullptr), VisContext(nullptr),
     IsBuildingRecoveryCallExpr(false),
     ExprNeedsCleanups(false), LateTemplateParser(nullptr),
+    LateTemplateParserCleanup(nullptr),
     OpaqueParser(nullptr), IdResolver(pp), StdInitializerList(nullptr),
     CXXTypeInfoDecl(nullptr), MSVCGuidDecl(nullptr),
     NSNumberDecl(nullptr),
     NSStringDecl(nullptr), StringWithUTF8StringMethod(nullptr),
     NSArrayDecl(nullptr), ArrayWithObjectsMethod(nullptr),
-    InitArrayWithObjectsMethod(nullptr),
     NSDictionaryDecl(nullptr), DictionaryWithObjectsMethod(nullptr),
-    InitDictionaryWithObjectsMethod(nullptr),
-    ArrayAllocObjectsMethod(nullptr),
-    DictAllocObjectsMethod(nullptr),
     MSAsmLabelNameCounter(0),
     GlobalNewDeleteDeclared(false),
     TUKind(TUKind),
@@ -248,6 +245,8 @@ Sema::~Sema() {
 
   // Destroys data sharing attributes stack for OpenMP
   DestroyDataSharingAttributesStack();
+
+  assert(DelayedTypos.empty() && "Uncorrected typos!");
 }
 
 /// makeUnavailableInSystemHeader - There is an error in the current
@@ -545,7 +544,12 @@ static bool MethodsAndNestedClassesComplete(const CXXRecordDecl *RD,
     if (const CXXMethodDecl *M = dyn_cast<CXXMethodDecl>(*I))
       Complete = M->isDefined() || (M->isPure() && !isa<CXXDestructorDecl>(M));
     else if (const FunctionTemplateDecl *F = dyn_cast<FunctionTemplateDecl>(*I))
-      Complete = F->getTemplatedDecl()->isDefined();
+      // If the template function is marked as late template parsed at this point,
+      // it has not been instantiated and therefore we have not performed semantic
+      // analysis on it yet, so we cannot know if the type can be considered
+      // complete.
+      Complete = !F->getTemplatedDecl()->isLateTemplateParsed() &&
+                  F->getTemplatedDecl()->isDefined();
     else if (const CXXRecordDecl *R = dyn_cast<CXXRecordDecl>(*I)) {
       if (R->isInjectedClassName())
         continue;
@@ -667,13 +671,16 @@ void Sema::ActOnEndOfTranslationUnit() {
     }
     PerformPendingInstantiations();
 
+    if (LateTemplateParserCleanup)
+      LateTemplateParserCleanup(OpaqueParser);
+
     CheckDelayedMemberExceptionSpecs();
   }
 
   // All delayed member exception specs should be checked or we end up accepting
   // incompatible declarations.
   assert(DelayedDefaultedMemberExceptionSpecs.empty());
-  assert(DelayedDestructorExceptionSpecChecks.empty());
+  assert(DelayedExceptionSpecChecks.empty());
 
   // Remove file scoped decls that turned out to be used.
   UnusedFileScopedDecls.erase(
@@ -764,7 +771,7 @@ void Sema::ActOnEndOfTranslationUnit() {
     // If the tentative definition was completed, getActingDefinition() returns
     // null. If we've already seen this variable before, insert()'s second
     // return value is false.
-    if (!VD || VD->isInvalidDecl() || !Seen.insert(VD))
+    if (!VD || VD->isInvalidDecl() || !Seen.insert(VD).second)
       continue;
 
     if (const IncompleteArrayType *ArrayT

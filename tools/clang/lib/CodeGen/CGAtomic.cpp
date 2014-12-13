@@ -588,8 +588,14 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E, llvm::Value *Dest) {
     break;
   }
 
-  if (!E->getType()->isVoidType() && !Dest)
-    Dest = CreateMemTemp(E->getType(), ".atomicdst");
+  QualType RValTy = E->getType().getUnqualifiedType();
+
+  auto GetDest = [&] {
+    if (!RValTy->isVoidType() && !Dest) {
+      Dest = CreateMemTemp(RValTy, ".atomicdst");
+    }
+    return Dest;
+  };
 
   // Use a library call.  See: http://gcc.gnu.org/wiki/Atomic/GCCMM/LIbrary .
   if (UseLibcall) {
@@ -729,33 +735,30 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E, llvm::Value *Dest) {
       } else {
         // Value is returned through parameter before the order.
         RetTy = getContext().VoidTy;
-        Args.add(RValue::get(EmitCastToVoidPtr(Dest)),
-                 getContext().VoidPtrTy);
+        Args.add(RValue::get(EmitCastToVoidPtr(Dest)), getContext().VoidPtrTy);
       }
     }
     // order is always the last parameter
     Args.add(RValue::get(Order),
              getContext().IntTy);
 
-    const CGFunctionInfo &FuncInfo =
-        CGM.getTypes().arrangeFreeFunctionCall(RetTy, Args,
-            FunctionType::ExtInfo(), RequiredArgs::All);
-    llvm::FunctionType *FTy = CGM.getTypes().GetFunctionType(FuncInfo);
-    llvm::Constant *Func = CGM.CreateRuntimeFunction(FTy, LibCallName);
-    RValue Res = EmitCall(FuncInfo, Func, ReturnValueSlot(), Args);
-    if (!RetTy->isVoidType()) {
-      if (UseOptimizedLibcall) {
-        if (HaveRetTy)
-          return Res;
-        llvm::StoreInst *StoreDest = Builder.CreateStore(
-            Res.getScalarVal(),
-            Builder.CreateBitCast(Dest, FTy->getReturnType()->getPointerTo()));
-        StoreDest->setAlignment(Align);
-      }
-    }
-    if (E->getType()->isVoidType())
+    RValue Res = emitAtomicLibcall(*this, LibCallName, RetTy, Args);
+    // The value is returned directly from the libcall.
+    if (HaveRetTy && !RetTy->isVoidType())
+      return Res;
+    // The value is returned via an explicit out param.
+    if (RetTy->isVoidType())
       return RValue::get(nullptr);
-    return convertTempToRValue(Dest, E->getType(), E->getExprLoc());
+    // The value is returned directly for optimized libcalls but the caller is
+    // expected an out-param.
+    if (UseOptimizedLibcall) {
+      llvm::Value *ResVal = Res.getScalarVal();
+      llvm::StoreInst *StoreDest = Builder.CreateStore(
+          ResVal,
+          Builder.CreateBitCast(GetDest(), ResVal->getType()->getPointerTo()));
+      StoreDest->setAlignment(Align);
+    }
+    return convertTempToRValue(Dest, RValTy, E->getExprLoc());
   }
 
   bool IsStore = E->getOp() == AtomicExpr::AO__c11_atomic_store ||
@@ -765,13 +768,15 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E, llvm::Value *Dest) {
                 E->getOp() == AtomicExpr::AO__atomic_load ||
                 E->getOp() == AtomicExpr::AO__atomic_load_n;
 
-  llvm::Type *IPtrTy =
-      llvm::IntegerType::get(getLLVMContext(), Size * 8)->getPointerTo();
-  llvm::Value *OrigDest = Dest;
-  Ptr = Builder.CreateBitCast(Ptr, IPtrTy);
-  if (Val1) Val1 = Builder.CreateBitCast(Val1, IPtrTy);
-  if (Val2) Val2 = Builder.CreateBitCast(Val2, IPtrTy);
-  if (Dest && !E->isCmpXChg()) Dest = Builder.CreateBitCast(Dest, IPtrTy);
+  llvm::Type *ITy =
+      llvm::IntegerType::get(getLLVMContext(), Size * 8);
+  llvm::Value *OrigDest = GetDest();
+  Ptr = Builder.CreateBitCast(
+      Ptr, ITy->getPointerTo(Ptr->getType()->getPointerAddressSpace()));
+  if (Val1) Val1 = Builder.CreateBitCast(Val1, ITy->getPointerTo());
+  if (Val2) Val2 = Builder.CreateBitCast(Val2, ITy->getPointerTo());
+  if (Dest && !E->isCmpXChg())
+    Dest = Builder.CreateBitCast(Dest, ITy->getPointerTo());
 
   if (isa<llvm::ConstantInt>(Order)) {
     int ord = cast<llvm::ConstantInt>(Order)->getZExtValue();
@@ -808,9 +813,9 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E, llvm::Value *Dest) {
       // enforce that in general.
       break;
     }
-    if (E->getType()->isVoidType())
+    if (RValTy->isVoidType())
       return RValue::get(nullptr);
-    return convertTempToRValue(OrigDest, E->getType(), E->getExprLoc());
+    return convertTempToRValue(OrigDest, RValTy, E->getExprLoc());
   }
 
   // Long case, when Order isn't obviously constant.
@@ -876,9 +881,9 @@ RValue CodeGenFunction::EmitAtomicExpr(AtomicExpr *E, llvm::Value *Dest) {
 
   // Cleanup and return
   Builder.SetInsertPoint(ContBB);
-  if (E->getType()->isVoidType())
+  if (RValTy->isVoidType())
     return RValue::get(nullptr);
-  return convertTempToRValue(OrigDest, E->getType(), E->getExprLoc());
+  return convertTempToRValue(OrigDest, RValTy, E->getExprLoc());
 }
 
 llvm::Value *AtomicInfo::emitCastToAtomicIntPointer(llvm::Value *addr) const {

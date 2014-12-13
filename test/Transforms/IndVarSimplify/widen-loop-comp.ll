@@ -67,8 +67,7 @@ for.end:
 define void @test2([8 x i8]* %a, i8* %b, i8 %limit) {
 entry:
   %conv = zext i8 %limit to i32
-  %cmp23 = icmp eq i8 %limit, 0
-  br i1 %cmp23, label %for.cond1.preheader, label %for.cond1.preheader.us
+  br i1 undef, label %for.cond1.preheader, label %for.cond1.preheader.us
 
 for.cond1.preheader.us:
   %storemerge5.us = phi i32 [ 0, %entry ], [ %inc14.us, %for.inc13.us ]
@@ -161,4 +160,32 @@ for.body:
 
 for.end:
   ret i32 0
+}
+
+; CHECK-LABEL: @test5
+; CHECK: zext i32 %b
+; CHECK: for.cond:
+; CHECK: phi i64
+; CHECK: icmp ule i64
+
+define i32 @test5(i32* %a, i32 %b) {
+entry:
+  br label %for.cond
+
+for.cond:
+  %sum.0 = phi i32 [ 0, %entry ], [ %add, %for.body ]
+  %i.0 = phi i32 [ 0, %entry ], [ %inc, %for.body ]
+  %cmp = icmp ule i32 %i.0, %b
+  br i1 %cmp, label %for.body, label %for.end
+
+for.body:
+  %idxprom = zext i32 %i.0 to i64
+  %arrayidx = getelementptr inbounds i32* %a, i64 %idxprom
+  %0 = load i32* %arrayidx, align 4
+  %add = add nsw i32 %sum.0, %0
+  %inc = add nsw i32 %i.0, 1
+  br label %for.cond
+
+for.end:
+  ret i32 %sum.0
 }

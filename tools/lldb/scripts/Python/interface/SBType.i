@@ -206,6 +206,12 @@ public:
     bool
     IsPolymorphicClass ();
     
+    bool
+    IsArrayType ();
+    
+    bool
+    IsTypedefType ();
+    
     lldb::SBType
     GetPointerType();
 
@@ -226,6 +232,9 @@ public:
     
     lldb::SBType
     GetCanonicalType();
+    
+    lldb::SBType
+    GetArrayElementType ();
 
     lldb::BasicType
     GetBasicType();
@@ -286,6 +295,9 @@ public:
 
     bool
     IsTypeComplete ();
+    
+    uint32_t
+    GetTypeFlags ();
 
     %pythoncode %{
         def template_arg_array(self):

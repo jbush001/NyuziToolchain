@@ -6,41 +6,41 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Target/GNULDBackend.h>
+#include "mcld/Target/GNULDBackend.h"
 
-#include <mcld/IRBuilder.h>
-#include <mcld/InputTree.h>
-#include <mcld/LinkerConfig.h>
-#include <mcld/LinkerScript.h>
-#include <mcld/Module.h>
-#include <mcld/ADT/SizeTraits.h>
-#include <mcld/Config/Config.h>
-#include <mcld/Fragment/FillFragment.h>
-#include <mcld/LD/BranchIslandFactory.h>
-#include <mcld/LD/EhFrame.h>
-#include <mcld/LD/EhFrameHdr.h>
-#include <mcld/LD/ELFDynObjFileFormat.h>
-#include <mcld/LD/ELFExecFileFormat.h>
-#include <mcld/LD/ELFFileFormat.h>
-#include <mcld/LD/ELFObjectFileFormat.h>
-#include <mcld/LD/ELFSegment.h>
-#include <mcld/LD/ELFSegmentFactory.h>
-#include <mcld/LD/LDContext.h>
-#include <mcld/LD/LDSymbol.h>
-#include <mcld/LD/RelocData.h>
-#include <mcld/LD/RelocationFactory.h>
-#include <mcld/LD/StubFactory.h>
-#include <mcld/MC/Attribute.h>
-#include <mcld/Object/ObjectBuilder.h>
-#include <mcld/Object/SectionMap.h>
-#include <mcld/Script/Operand.h>
-#include <mcld/Script/OutputSectDesc.h>
-#include <mcld/Script/RpnEvaluator.h>
-#include <mcld/Support/FileOutputBuffer.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/Target/ELFAttribute.h>
-#include <mcld/Target/ELFDynamic.h>
-#include <mcld/Target/GNUInfo.h>
+#include "mcld/IRBuilder.h"
+#include "mcld/InputTree.h"
+#include "mcld/LinkerConfig.h"
+#include "mcld/LinkerScript.h"
+#include "mcld/Module.h"
+#include "mcld/ADT/SizeTraits.h"
+#include "mcld/Config/Config.h"
+#include "mcld/Fragment/FillFragment.h"
+#include "mcld/LD/BranchIslandFactory.h"
+#include "mcld/LD/EhFrame.h"
+#include "mcld/LD/EhFrameHdr.h"
+#include "mcld/LD/ELFDynObjFileFormat.h"
+#include "mcld/LD/ELFExecFileFormat.h"
+#include "mcld/LD/ELFFileFormat.h"
+#include "mcld/LD/ELFObjectFileFormat.h"
+#include "mcld/LD/ELFSegment.h"
+#include "mcld/LD/ELFSegmentFactory.h"
+#include "mcld/LD/LDContext.h"
+#include "mcld/LD/LDSymbol.h"
+#include "mcld/LD/RelocData.h"
+#include "mcld/LD/RelocationFactory.h"
+#include "mcld/LD/StubFactory.h"
+#include "mcld/MC/Attribute.h"
+#include "mcld/Object/ObjectBuilder.h"
+#include "mcld/Object/SectionMap.h"
+#include "mcld/Script/Operand.h"
+#include "mcld/Script/OutputSectDesc.h"
+#include "mcld/Script/RpnEvaluator.h"
+#include "mcld/Support/FileOutputBuffer.h"
+#include "mcld/Support/MsgHandling.h"
+#include "mcld/Target/ELFAttribute.h"
+#include "mcld/Target/ELFDynamic.h"
+#include "mcld/Target/GNUInfo.h"
 
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/Host.h>
@@ -71,7 +71,7 @@ static bool isCIdentifier(const std::string& pName) {
 
 }  // anonymous namespace
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // GNULDBackend
@@ -877,7 +877,7 @@ void GNULDBackend::emitSymbol32(llvm::ELF::Elf32_Sym& pSym,
   // write out symbol
   if (hasEntryInStrTab(pSymbol)) {
     pSym.st_name = pStrtabsize;
-    strcpy((pStrtab + pStrtabsize), pSymbol.name());
+    ::memcpy((pStrtab + pStrtabsize), pSymbol.name(), pSymbol.nameSize());
   } else {
     pSym.st_name = 0;
   }
@@ -898,7 +898,7 @@ void GNULDBackend::emitSymbol64(llvm::ELF::Elf64_Sym& pSym,
   // write out symbol
   if (hasEntryInStrTab(pSymbol)) {
     pSym.st_name = pStrtabsize;
-    strcpy((pStrtab + pStrtabsize), pSymbol.name());
+    ::memcpy((pStrtab + pStrtabsize), pSymbol.name(), pSymbol.nameSize());
   } else {
     pSym.st_name = 0;
   }
@@ -1057,7 +1057,9 @@ void GNULDBackend::emitDynNamePools(Module& pModule,
   Module::const_lib_iterator lib, libEnd = pModule.lib_end();
   for (lib = pModule.lib_begin(); lib != libEnd; ++lib) {
     if (!(*lib)->attribute()->isAsNeeded() || (*lib)->isNeeded()) {
-      strcpy((strtab + strtabsize), (*lib)->name().c_str());
+      ::memcpy((strtab + strtabsize),
+               (*lib)->name().c_str(),
+               (*lib)->name().size());
       (*dt_need)->setValue(llvm::ELF::DT_NEEDED, strtabsize);
       strtabsize += (*lib)->name().size() + 1;
       ++dt_need;
@@ -1090,7 +1092,9 @@ void GNULDBackend::emitDynNamePools(Module& pModule,
 
   // emit soname
   if (LinkerConfig::DynObj == config().codeGenType()) {
-    strcpy((strtab + strtabsize), config().options().soname().c_str());
+    ::memcpy((strtab + strtabsize),
+             config().options().soname().c_str(),
+             config().options().soname().size());
     strtabsize += config().options().soname().size() + 1;
   }
 }
@@ -1340,8 +1344,15 @@ unsigned int GNULDBackend::getSectionOrder(const LDSection& pSectHdr) const {
               &pSectHdr == &file_format->getJCR() ||
               &pSectHdr == &file_format->getDataRelRo())
             return SHO_RELRO;
+
           if (&pSectHdr == &file_format->getDataRelRoLocal())
             return SHO_RELRO_LOCAL;
+
+          // Make special sections that end with .rel.ro suffix as RELRO.
+          llvm::StringRef name(pSectHdr.name());
+          if (name.endswith(".rel.ro")) {
+            return SHO_RELRO;
+          }
         }
         if ((pSectHdr.flag() & llvm::ELF::SHF_TLS) != 0x0) {
           return SHO_TLS_DATA;
@@ -1388,6 +1399,7 @@ unsigned int GNULDBackend::getSectionOrder(const LDSection& pSectHdr) const {
 
     case LDFileFormat::MetaData:
     case LDFileFormat::Debug:
+    case LDFileFormat::DebugString:
     default:
       return SHO_UNDEFINED;
   }
@@ -2311,6 +2323,7 @@ void GNULDBackend::placeOutputSections(Module& pModule) {
       case LDFileFormat::MetaData:
       case LDFileFormat::BSS:
       case LDFileFormat::Debug:
+      case LDFileFormat::DebugString:
       case LDFileFormat::GCCExceptTable:
       case LDFileFormat::Note:
       case LDFileFormat::NamePool:
@@ -2912,18 +2925,18 @@ bool GNULDBackend::DynsymCompare::operator()(const LDSymbol* X,
   return !needGNUHash(*X) && needGNUHash(*Y);
 }
 
-bool GNULDBackend::RelocCompare::operator()(const Relocation* X,
-                                            const Relocation* Y) const {
+bool GNULDBackend::RelocCompare::operator()(const Relocation& X,
+                                            const Relocation& Y) const {
   // 1. compare if relocation is relative
-  if (X->symInfo() == NULL) {
-    if (Y->symInfo() != NULL)
+  if (X.symInfo() == NULL) {
+    if (Y.symInfo() != NULL)
       return true;
-  } else if (Y->symInfo() == NULL) {
+  } else if (Y.symInfo() == NULL) {
     return false;
   } else {
     // 2. compare the symbol index
-    size_t symIdxX = m_Backend.getSymbolIdx(X->symInfo()->outSymbol());
-    size_t symIdxY = m_Backend.getSymbolIdx(Y->symInfo()->outSymbol());
+    size_t symIdxX = m_Backend.getSymbolIdx(X.symInfo()->outSymbol());
+    size_t symIdxY = m_Backend.getSymbolIdx(Y.symInfo()->outSymbol());
     if (symIdxX < symIdxY)
       return true;
     if (symIdxX > symIdxY)
@@ -2931,22 +2944,24 @@ bool GNULDBackend::RelocCompare::operator()(const Relocation* X,
   }
 
   // 3. compare the relocation address
-  if (X->place() < Y->place())
+  if (X.place() < Y.place())
     return true;
-  if (X->place() > Y->place())
+  if (X.place() > Y.place())
     return false;
 
   // 4. compare the relocation type
-  if (X->type() < Y->type())
+  if (X.type() < Y.type())
     return true;
-  if (X->type() > Y->type())
+  if (X.type() > Y.type())
     return false;
 
   // 5. compare the addend
-  if (X->addend() < Y->addend())
+  if (X.addend() < Y.addend())
     return true;
-  if (X->addend() > Y->addend())
+  if (X.addend() > Y.addend())
     return false;
 
   return false;
 }
+
+}  // namespace mcld

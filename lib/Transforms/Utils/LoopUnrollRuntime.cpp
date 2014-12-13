@@ -217,9 +217,9 @@ static void CloneLoopBlocks(Loop *L, Value *NewIter, const bool UnrollProlog,
   }
   if (NewLoop) {
     // Add unroll disable metadata to disable future unrolling for this loop.
-    SmallVector<Value *, 4> Vals;
+    SmallVector<Metadata *, 4> MDs;
     // Reserve first location for self reference to the LoopID metadata node.
-    Vals.push_back(nullptr);
+    MDs.push_back(nullptr);
     MDNode *LoopID = NewLoop->getLoopID();
     if (LoopID) {
       // First remove any existing loop unrolling metadata.
@@ -230,17 +230,18 @@ static void CloneLoopBlocks(Loop *L, Value *NewIter, const bool UnrollProlog,
           const MDString *S = dyn_cast<MDString>(MD->getOperand(0));
           IsUnrollMetadata = S && S->getString().startswith("llvm.loop.unroll.");
         }
-        if (!IsUnrollMetadata) Vals.push_back(LoopID->getOperand(i));
+        if (!IsUnrollMetadata)
+          MDs.push_back(LoopID->getOperand(i));
       }
     }
 
     LLVMContext &Context = NewLoop->getHeader()->getContext();
-    SmallVector<Value *, 1> DisableOperands;
+    SmallVector<Metadata *, 1> DisableOperands;
     DisableOperands.push_back(MDString::get(Context, "llvm.loop.unroll.disable"));
     MDNode *DisableNode = MDNode::get(Context, DisableOperands);
-    Vals.push_back(DisableNode);
+    MDs.push_back(DisableNode);
 
-    MDNode *NewLoopID = MDNode::get(Context, Vals);
+    MDNode *NewLoopID = MDNode::get(Context, MDs);
     // Set operand 0 to refer to the loop id itself.
     NewLoopID->replaceOperandWith(0, NewLoopID);
     NewLoop->setLoopID(NewLoopID);
@@ -293,6 +294,10 @@ bool llvm::UnrollRuntimeLoopProlog(Loop *L, unsigned Count, LoopInfo *LI,
   // to be an int value (allowing a pointer type is a TODO item)
   const SCEV *BECount = SE->getBackedgeTakenCount(L);
   if (isa<SCEVCouldNotCompute>(BECount) || !BECount->getType()->isIntegerTy())
+    return false;
+
+  // If BECount is INT_MAX, we can't compute trip-count without overflow.
+  if (BECount->isAllOnesValue())
     return false;
 
   // Add 1 since the backedge count doesn't include the first loop iteration
@@ -357,11 +362,16 @@ bool llvm::UnrollRuntimeLoopProlog(Loop *L, unsigned Count, LoopInfo *LI,
   std::vector<BasicBlock *> NewBlocks;
   ValueToValueMapTy VMap;
 
+  // If unroll count is 2 and we can't overflow in tripcount computation (which
+  // is BECount + 1), then we don't need a loop for prologue, and we can unroll
+  // it. We can be sure that we don't overflow only if tripcount is a constant.
+  bool UnrollPrologue = (Count == 2 && isa<ConstantInt>(TripCount));
+
   // Clone all the basic blocks in the loop. If Count is 2, we don't clone
   // the loop, otherwise we create a cloned loop to execute the extra
   // iterations. This function adds the appropriate CFG connections.
-  CloneLoopBlocks(L, ModVal, Count == 2, PH, PEnd, NewBlocks, LoopBlocks, VMap,
-                  LI);
+  CloneLoopBlocks(L, ModVal, UnrollPrologue, PH, PEnd, NewBlocks, LoopBlocks,
+                  VMap, LI);
 
   // Insert the cloned blocks into function just before the original loop
   F->getBasicBlockList().splice(PEnd, F->getBasicBlockList(), NewBlocks[0],

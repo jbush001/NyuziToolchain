@@ -1176,7 +1176,7 @@ struct DeclaratorChunk {
     unsigned TypeQuals : 3;
 
     /// ExceptionSpecType - An ExceptionSpecificationType value.
-    unsigned ExceptionSpecType : 3;
+    unsigned ExceptionSpecType : 4;
 
     /// DeleteParams - If this is true, we need to delete[] Params.
     unsigned DeleteParams : 1;
@@ -1217,6 +1217,11 @@ struct DeclaratorChunk {
     /// If this is an invalid location, there is no volatile-qualifier.
     unsigned VolatileQualifierLoc;
 
+    /// \brief The location of the restrict-qualifier, if any.
+    ///
+    /// If this is an invalid location, there is no restrict-qualifier.
+    unsigned RestrictQualifierLoc;
+
     /// \brief The location of the 'mutable' qualifer in a lambda-declarator, if
     /// any.
     unsigned MutableLoc;
@@ -1238,6 +1243,10 @@ struct DeclaratorChunk {
       /// \brief Pointer to the expression in the noexcept-specifier of this
       /// function, if it has one.
       Expr *NoexceptExpr;
+  
+      /// \brief Pointer to the cached tokens for an exception-specification
+      /// that has not yet been parsed.
+      CachedTokens *ExceptionSpecTokens;
     };
 
     /// \brief If HasTrailingReturnType is true, this is the trailing return
@@ -1264,6 +1273,8 @@ struct DeclaratorChunk {
         delete[] Params;
       if (getExceptionSpecType() == EST_Dynamic)
         delete[] Exceptions;
+      else if (getExceptionSpecType() == EST_Unparsed)
+        delete ExceptionSpecTokens;
     }
 
     /// isKNRPrototype - Return true if this is a K&R style identifier list,
@@ -1292,14 +1303,19 @@ struct DeclaratorChunk {
       return SourceLocation::getFromRawEncoding(RefQualifierLoc);
     }
 
-    /// \brief Retrieve the location of the ref-qualifier, if any.
+    /// \brief Retrieve the location of the 'const' qualifier, if any.
     SourceLocation getConstQualifierLoc() const {
       return SourceLocation::getFromRawEncoding(ConstQualifierLoc);
     }
 
-    /// \brief Retrieve the location of the ref-qualifier, if any.
+    /// \brief Retrieve the location of the 'volatile' qualifier, if any.
     SourceLocation getVolatileQualifierLoc() const {
       return SourceLocation::getFromRawEncoding(VolatileQualifierLoc);
+    }
+
+    /// \brief Retrieve the location of the 'restrict' qualifier, if any.
+    SourceLocation getRestrictQualifierLoc() const {
+      return SourceLocation::getFromRawEncoding(RestrictQualifierLoc);
     }
 
     /// \brief Retrieve the location of the 'mutable' qualifier, if any.
@@ -1446,6 +1462,7 @@ struct DeclaratorChunk {
                                      SourceLocation RefQualifierLoc,
                                      SourceLocation ConstQualifierLoc,
                                      SourceLocation VolatileQualifierLoc,
+                                     SourceLocation RestrictQualifierLoc,
                                      SourceLocation MutableLoc,
                                      ExceptionSpecificationType ESpecType,
                                      SourceLocation ESpecLoc,
@@ -1453,6 +1470,7 @@ struct DeclaratorChunk {
                                      SourceRange *ExceptionRanges,
                                      unsigned NumExceptions,
                                      Expr *NoexceptExpr,
+                                     CachedTokens *ExceptionSpecTokens,
                                      SourceLocation LocalRangeBegin,
                                      SourceLocation LocalRangeEnd,
                                      Declarator &TheDeclarator,

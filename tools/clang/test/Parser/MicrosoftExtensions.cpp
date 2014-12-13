@@ -208,12 +208,12 @@ extern TypenameWrongPlace<AAAA> PR16925;
 
 __interface MicrosoftInterface;
 __interface MicrosoftInterface {
-   void foo1() = 0;
+   void foo1() = 0; // expected-note {{overridden virtual function is here}}
    virtual void foo2() = 0;
 };
 
 __interface MicrosoftDerivedInterface : public MicrosoftInterface {
-  void foo1();
+  void foo1(); // expected-warning {{'foo1' overrides a member function but is not marked 'override'}}
   void foo2() override;
   void foo3();
 };
@@ -366,3 +366,11 @@ void foo(void) {
 template <int *>
 struct NullptrArg {};
 NullptrArg<nullptr> a;
+
+// Ignored type qualifiers after comma in declarator lists
+typedef int ignored_quals_dummy1, const volatile __ptr32 __ptr64 __w64 __unaligned __sptr __uptr ignored_quals1; // expected-warning {{qualifiers after comma in declarator list are ignored}}
+typedef void(*ignored_quals_dummy2)(), __fastcall ignored_quals2; // expected-warning {{qualifiers after comma in declarator list are ignored}}
+typedef void(*ignored_quals_dummy3)(), __stdcall ignored_quals3; // expected-warning {{qualifiers after comma in declarator list are ignored}}
+typedef void(*ignored_quals_dummy4)(), __thiscall ignored_quals4; // expected-warning {{qualifiers after comma in declarator list are ignored}}
+typedef void(*ignored_quals_dummy5)(), __cdecl ignored_quals5; // expected-warning {{qualifiers after comma in declarator list are ignored}}
+typedef void(*ignored_quals_dummy6)(), __vectorcall ignored_quals6; // expected-warning {{qualifiers after comma in declarator list are ignored}}

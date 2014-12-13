@@ -66,6 +66,7 @@ llvm::cl::alias ArgSharedAlias("Bshareable",
 
 llvm::cl::opt<bool> ArgPIE(
     "pie",
+    llvm::cl::ZeroOrMore,
     llvm::cl::desc("Emit a position-independent executable file"),
     llvm::cl::init(false));
 
@@ -155,6 +156,7 @@ llvm::cl::alias ArgOMagicAlias("N",
 
 llvm::cl::opt<mcld::GeneralOptions::HashStyle> ArgHashStyle(
     "hash-style",
+    llvm::cl::ZeroOrMore,
     llvm::cl::init(mcld::GeneralOptions::SystemV),
     llvm::cl::desc("Set the type of linker's hash table(s)."),
     llvm::cl::values(

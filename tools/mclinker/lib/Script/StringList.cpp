@@ -6,15 +6,15 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Script/StringList.h>
+#include "mcld/Script/StringList.h"
 
-#include <mcld/Script/StrToken.h>
-#include <mcld/Support/GCFactory.h>
-#include <mcld/Support/raw_ostream.h>
+#include "mcld/Script/StrToken.h"
+#include "mcld/Support/GCFactory.h"
+#include "mcld/Support/raw_ostream.h"
 
 #include <llvm/Support/ManagedStatic.h>
 
-using namespace mcld;
+namespace mcld {
 
 typedef GCFactory<StringList, MCLD_SYMBOLS_PER_INPUT> StringListFactory;
 static llvm::ManagedStatic<StringListFactory> g_StringListFactory;
@@ -53,3 +53,5 @@ void StringList::destroy(StringList*& pStringList) {
 void StringList::clear() {
   g_StringListFactory->clear();
 }
+
+}  // namespace mcld

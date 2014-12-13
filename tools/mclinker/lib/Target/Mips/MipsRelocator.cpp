@@ -9,12 +9,12 @@
 #include "MipsRelocator.h"
 #include "MipsRelocationFunctions.h"
 
-#include <mcld/IRBuilder.h>
-#include <mcld/LinkerConfig.h>
-#include <mcld/Object/ObjectBuilder.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/Target/OutputRelocSection.h>
-#include <mcld/LD/ELFFileFormat.h>
+#include "mcld/IRBuilder.h"
+#include "mcld/LinkerConfig.h"
+#include "mcld/Object/ObjectBuilder.h"
+#include "mcld/Support/MsgHandling.h"
+#include "mcld/Target/OutputRelocSection.h"
+#include "mcld/LD/ELFFileFormat.h"
 
 #include <llvm/ADT/Twine.h>
 #include <llvm/Support/ELF.h>
@@ -32,12 +32,12 @@ enum {
 }  // namespace ELF
 }  // namespace llvm
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // MipsRelocationInfo
 //===----------------------------------------------------------------------===//
-class mcld::MipsRelocationInfo {
+class MipsRelocationInfo {
  public:
   static bool HasSubType(const Relocation& pParent, Relocation::Type pType) {
     if (llvm::ELF::R_MIPS_NONE == pType)
@@ -682,6 +682,23 @@ uint64_t MipsRelocator::getPLTAddress(ResolveInfo& rsym) {
   return getTarget().getPLT().addr() + plt->getOffset();
 }
 
+uint32_t MipsRelocator::getDebugStringOffset(Relocation& pReloc) const {
+  if (pReloc.type() != llvm::ELF::R_MIPS_32)
+    error(diag::unsupport_reloc_for_debug_string)
+        << getName(pReloc.type()) << "mclinker@googlegroups.com";
+  if (pReloc.symInfo()->type() == ResolveInfo::Section)
+    return pReloc.target();
+  else
+    return pReloc.symInfo()->outSymbol()->fragRef()->offset() +
+               pReloc.target() + pReloc.addend();
+}
+
+void MipsRelocator::applyDebugStringOffset(Relocation& pReloc,
+                                           uint32_t pOffset) {
+  pReloc.target() = pOffset;
+}
+
+
 //===----------------------------------------------------------------------===//
 // Mips32Relocator
 //===----------------------------------------------------------------------===//
@@ -773,7 +790,7 @@ static MipsRelocator::Result rel26(MipsRelocationInfo& pReloc,
   if (rsym->isLocal())
     pReloc.result() = A | ((P + 4) & 0x3F000000);
   else
-    pReloc.result() = mcld::signExtend<28>(A);
+    pReloc.result() = signExtend<28>(A);
 
   pReloc.result() = (pReloc.result() + S) >> 2;
 
@@ -1009,7 +1026,9 @@ static MipsRelocator::Result pc32(MipsRelocationInfo& pReloc,
   return Relocator::OK;
 }
 
-static MipsRelocator::Result unsupport(MipsRelocationInfo& pReloc,
-                                       MipsRelocator& pParent) {
-  return Relocator::Unsupport;
+static MipsRelocator::Result unsupported(MipsRelocationInfo& pReloc,
+                                         MipsRelocator& pParent) {
+  return Relocator::Unsupported;
 }
+
+}  // namespace mcld

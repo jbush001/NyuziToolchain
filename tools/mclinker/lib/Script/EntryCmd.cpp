@@ -6,13 +6,13 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Script/EntryCmd.h>
+#include "mcld/Script/EntryCmd.h"
 
-#include <mcld/Support/raw_ostream.h>
-#include <mcld/LinkerScript.h>
-#include <mcld/Module.h>
+#include "mcld/Support/raw_ostream.h"
+#include "mcld/LinkerScript.h"
+#include "mcld/Module.h"
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // EntryCmd
@@ -33,3 +33,5 @@ void EntryCmd::activate(Module& pModule) {
   if (!script.hasEntry())
     script.setEntry(m_Entry);
 }
+
+}  // namespace mcld

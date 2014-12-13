@@ -6,18 +6,18 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Script/RpnExpr.h>
+#include "mcld/Script/RpnExpr.h"
 
-#include <mcld/Script/ExprToken.h>
-#include <mcld/Script/Operand.h>
-#include <mcld/Script/Operator.h>
-#include <mcld/Support/GCFactory.h>
-#include <mcld/Support/raw_ostream.h>
+#include "mcld/Script/ExprToken.h"
+#include "mcld/Script/Operand.h"
+#include "mcld/Script/Operator.h"
+#include "mcld/Support/GCFactory.h"
+#include "mcld/Support/raw_ostream.h"
 
 #include <llvm/Support/ManagedStatic.h>
 #include <llvm/Support/Casting.h>
 
-using namespace mcld;
+namespace mcld {
 
 typedef GCFactory<RpnExpr, MCLD_SYMBOLS_PER_INPUT> ExprFactory;
 static llvm::ManagedStatic<ExprFactory> g_ExprFactory;
@@ -93,3 +93,5 @@ RpnExpr* RpnExpr::buildHelperExpr(Fragment& pFrag) {
   expr->push_back(FragOperand::create(pFrag));
   return expr;
 }
+
+}  // namespace mcld

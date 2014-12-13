@@ -685,7 +685,7 @@ Args::ParseOptions (Options &options)
             }
         }
         // Call the callback with the option
-        if (long_options_index >= 0)
+        if (long_options_index >= 0 && long_options[long_options_index].definition)
         {
             const OptionDefinition *def = long_options[long_options_index].definition;
             CommandInterpreter &interpreter = options.GetInterpreter();
@@ -829,15 +829,18 @@ Args::StringToAddress (const ExecutionContext *exe_ctx, const char *s, lldb::add
                 options.SetTryAllThreads(true);
                 
                 ExpressionResults expr_result = target->EvaluateExpression(s,
-                                                                          exe_ctx->GetFramePtr(),
-                                                                          valobj_sp,
-                                                                          options);
+                                                                           exe_ctx->GetFramePtr(),
+                                                                           valobj_sp,
+                                                                           options);
 
                 bool success = false;
                 if (expr_result == eExpressionCompleted)
                 {
+                    if (valobj_sp)
+                        valobj_sp = valobj_sp->GetQualifiedRepresentationIfAvailable(valobj_sp->GetDynamicValueType(), true);
                     // Get the address to watch.
-                    addr = valobj_sp->GetValueAsUnsigned(fail_value, &success);
+                    if (valobj_sp)
+                        addr = valobj_sp->GetValueAsUnsigned(fail_value, &success);
                     if (success)
                     {
                         if (error_ptr)

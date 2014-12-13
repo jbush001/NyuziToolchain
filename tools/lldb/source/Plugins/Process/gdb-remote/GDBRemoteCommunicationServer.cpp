@@ -23,11 +23,11 @@
 // Other libraries and framework includes
 #include "llvm/ADT/Triple.h"
 #include "lldb/Interpreter/Args.h"
-#include "lldb/Core/ConnectionFileDescriptor.h"
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/Log.h"
 #include "lldb/Core/State.h"
 #include "lldb/Core/StreamString.h"
+#include "lldb/Host/ConnectionFileDescriptor.h"
 #include "lldb/Host/Debug.h"
 #include "lldb/Host/Endian.h"
 #include "lldb/Host/File.h"
@@ -430,6 +430,10 @@ GDBRemoteCommunicationServer::GetPacketAndSendResponse (uint32_t timeout_usec,
             packet_result = Handle_vAttach (packet);
             break;
 
+        case StringExtractorGDBRemote::eServerPacketType_D:
+            packet_result = Handle_D (packet);
+            break;
+
         case StringExtractorGDBRemote::eServerPacketType_qThreadStopInfo:
             packet_result = Handle_qThreadStopInfo (packet);
             break;
@@ -483,6 +487,27 @@ GDBRemoteCommunicationServer::LaunchProcess ()
         return LaunchPlatformProcess ();
 }
 
+bool
+GDBRemoteCommunicationServer::ShouldRedirectInferiorOutputOverGdbRemote (const lldb_private::ProcessLaunchInfo &launch_info) const
+{
+    // Retrieve the file actions specified for stdout and stderr.
+    auto stdout_file_action = launch_info.GetFileActionForFD (STDOUT_FILENO);
+    auto stderr_file_action = launch_info.GetFileActionForFD (STDERR_FILENO);
+
+    // If neither stdout and stderr file actions are specified, we're not doing anything special, so
+    // assume we want to redirect stdout/stderr over gdb-remote $O messages.
+    if ((stdout_file_action == nullptr) && (stderr_file_action == nullptr))
+    {
+        // Send stdout/stderr over the gdb-remote protocol.
+        return true;
+    }
+
+    // Any other setting for either stdout or stderr implies we are either suppressing
+    // it (with /dev/null) or we've got it set to a PTY.  Either way, we don't want the
+    // output over gdb-remote.
+    return false;
+}
+
 lldb_private::Error
 GDBRemoteCommunicationServer::LaunchProcessForDebugging ()
 {
@@ -507,20 +532,34 @@ GDBRemoteCommunicationServer::LaunchProcessForDebugging ()
         return error;
     }
 
-    // Setup stdout/stderr mapping from inferior.
-    auto terminal_fd = m_debugged_process_sp->GetTerminalFileDescriptor ();
-    if (terminal_fd >= 0)
+    // Handle mirroring of inferior stdout/stderr over the gdb-remote protocol as needed.
+    // llgs local-process debugging may specify PTYs, which will eliminate the need to reflect inferior
+    // stdout/stderr over the gdb-remote protocol.
+    if (ShouldRedirectInferiorOutputOverGdbRemote (m_process_launch_info))
     {
         if (log)
-            log->Printf ("ProcessGDBRemoteCommunicationServer::%s setting inferior STDIO fd to %d", __FUNCTION__, terminal_fd);
-        error = SetSTDIOFileDescriptor (terminal_fd);
-        if (error.Fail ())
-            return error;
+            log->Printf ("GDBRemoteCommunicationServer::%s pid %" PRIu64 " setting up stdout/stderr redirection via $O gdb-remote commands", __FUNCTION__, m_debugged_process_sp->GetID ());
+
+        // Setup stdout/stderr mapping from inferior to $O
+        auto terminal_fd = m_debugged_process_sp->GetTerminalFileDescriptor ();
+        if (terminal_fd >= 0)
+        {
+            if (log)
+                log->Printf ("ProcessGDBRemoteCommunicationServer::%s setting inferior STDIO fd to %d", __FUNCTION__, terminal_fd);
+            error = SetSTDIOFileDescriptor (terminal_fd);
+            if (error.Fail ())
+                return error;
+        }
+        else
+        {
+            if (log)
+                log->Printf ("ProcessGDBRemoteCommunicationServer::%s ignoring inferior STDIO since terminal fd reported as %d", __FUNCTION__, terminal_fd);
+        }
     }
     else
     {
         if (log)
-            log->Printf ("ProcessGDBRemoteCommunicationServer::%s ignoring inferior STDIO since terminal fd reported as %d", __FUNCTION__, terminal_fd);
+            log->Printf ("GDBRemoteCommunicationServer::%s pid %" PRIu64 " skipping stdout/stderr redirection via $O: inferior will communicate over client-provided file descriptors", __FUNCTION__, m_debugged_process_sp->GetID ());
     }
 
     printf ("Launched '%s' as process %" PRIu64 "...\n", m_process_launch_info.GetArguments ().GetArgumentAtIndex (0), m_process_launch_info.GetProcessID ());
@@ -1239,7 +1278,6 @@ GDBRemoteCommunicationServer::Handle_qHostInfo (StringExtractorGDBRemote &packet
     }
 
     std::string s;
-#if !defined(__linux__)
     if (HostInfo::GetOSBuildString(s))
     {
         response.PutCString ("os_build:");
@@ -1252,7 +1290,6 @@ GDBRemoteCommunicationServer::Handle_qHostInfo (StringExtractorGDBRemote &packet
         response.PutCStringAsRawHex8(s.c_str());
         response.PutChar(';');
     }
-#endif
 
 #if defined(__APPLE__)
 
@@ -3757,7 +3794,7 @@ GDBRemoteCommunicationServer::Handle_z (StringExtractorGDBRemote &packet)
     }
 
     // Parse out software or hardware breakpoint requested.
-    packet.SetFilePos (strlen("Z"));
+    packet.SetFilePos (strlen("z"));
     if (packet.GetBytesLeft() < 1)
         return SendIllFormedResponse(packet, "Too short z packet, missing software/hardware specifier");
 
@@ -3797,7 +3834,7 @@ GDBRemoteCommunicationServer::Handle_z (StringExtractorGDBRemote &packet)
 
     if (want_breakpoint)
     {
-        // Try to set the breakpoint.
+        // Try to clear the breakpoint.
         const Error error = m_debugged_process_sp->RemoveBreakpoint (breakpoint_addr);
         if (error.Success ())
             return SendOKResponse ();
@@ -4157,8 +4194,73 @@ GDBRemoteCommunicationServer::Handle_vAttach (StringExtractorGDBRemote &packet)
 
     // Notify we attached by sending a stop packet.
     return SendStopReasonForState (m_debugged_process_sp->GetState (), true);
+}
 
-    return PacketResult::Success;
+GDBRemoteCommunicationServer::PacketResult
+GDBRemoteCommunicationServer::Handle_D (StringExtractorGDBRemote &packet)
+{
+    Log *log (GetLogIfAnyCategoriesSet (LIBLLDB_LOG_PROCESS));
+
+    // We don't support if we're not llgs.
+    if (!IsGdbServer())
+        return SendUnimplementedResponse ("only supported for lldb-gdbserver");
+
+    // Scope for mutex locker.
+    Mutex::Locker locker (m_spawned_pids_mutex);
+
+    // Fail if we don't have a current process.
+    if (!m_debugged_process_sp || (m_debugged_process_sp->GetID () == LLDB_INVALID_PROCESS_ID))
+    {
+        if (log)
+            log->Printf ("GDBRemoteCommunicationServer::%s failed, no process available", __FUNCTION__);
+        return SendErrorResponse (0x15);
+    }
+
+    if (m_spawned_pids.find(m_debugged_process_sp->GetID ()) == m_spawned_pids.end())
+    {
+        if (log)
+            log->Printf ("GDBRemoteCommunicationServer::%s failed to find PID %" PRIu64 " in spawned pids list",
+                         __FUNCTION__, m_debugged_process_sp->GetID ());
+        return SendErrorResponse (0x1);
+    }
+
+    lldb::pid_t pid = LLDB_INVALID_PROCESS_ID;
+
+    // Consume the ';' after D.
+    packet.SetFilePos (1);
+    if (packet.GetBytesLeft ())
+    {
+        if (packet.GetChar () != ';')
+            return SendIllFormedResponse (packet, "D missing expected ';'");
+
+        // Grab the PID from which we will detach (assume hex encoding).
+        pid = packet.GetU32 (LLDB_INVALID_PROCESS_ID, 16);
+        if (pid == LLDB_INVALID_PROCESS_ID)
+            return SendIllFormedResponse (packet, "D failed to parse the process id");
+    }
+
+    if (pid != LLDB_INVALID_PROCESS_ID &&
+        m_debugged_process_sp->GetID () != pid)
+    {
+        return SendIllFormedResponse (packet, "Invalid pid");
+    }
+
+    if (m_stdio_communication.IsConnected ())
+    {
+        m_stdio_communication.StopReadThread ();
+    }
+
+    const Error error = m_debugged_process_sp->Detach ();
+    if (error.Fail ())
+    {
+        if (log)
+            log->Printf ("GDBRemoteCommunicationServer::%s failed to detach from pid %" PRIu64 ": %s\n",
+                         __FUNCTION__, m_debugged_process_sp->GetID (), error.AsCString ());
+        return SendErrorResponse (0x01);
+    }
+
+    m_spawned_pids.erase (m_debugged_process_sp->GetID ());
+    return SendOKResponse ();
 }
 
 GDBRemoteCommunicationServer::PacketResult

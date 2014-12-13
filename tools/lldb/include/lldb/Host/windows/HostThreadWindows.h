@@ -26,14 +26,16 @@ class HostThreadWindows : public HostNativeThreadBase
     HostThreadWindows(lldb::thread_t thread);
     virtual ~HostThreadWindows();
 
+    void SetOwnsHandle(bool owns);
+
     virtual Error Join(lldb::thread_result_t *result);
     virtual Error Cancel();
     virtual void Reset();
 
     lldb::tid_t GetThreadId() const;
 
-  protected:
-    llvm::SmallString<32> m_thread_name;
+  private:
+    bool m_owns_handle;
 };
 }
 

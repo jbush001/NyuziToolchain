@@ -18,6 +18,7 @@ add_lldb_library(lldbAPI
   SBDeclaration.cpp
   SBError.cpp
   SBEvent.cpp
+  SBExecutionContext.cpp
   SBExpressionOptions.cpp
   SBFileSpec.cpp
   SBFileSpecList.cpp
@@ -44,6 +45,7 @@ add_lldb_library(lldbAPI
   SBTarget.cpp
   SBThread.cpp
   SBThreadCollection.cpp
+  SBThreadPlan.cpp
   SBType.cpp
   SBTypeCategory.cpp
   SBTypeEnumMember.cpp

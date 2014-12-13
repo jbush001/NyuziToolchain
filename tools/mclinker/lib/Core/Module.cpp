@@ -6,17 +6,17 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Module.h>
-#include <mcld/Fragment/FragmentRef.h>
-#include <mcld/LD/EhFrame.h>
-#include <mcld/LD/LDSection.h>
-#include <mcld/LD/LDSymbol.h>
-#include <mcld/LD/NamePool.h>
-#include <mcld/LD/ResolveInfo.h>
-#include <mcld/LD/SectionData.h>
-#include <mcld/LD/StaticResolver.h>
+#include "mcld/Module.h"
+#include "mcld/Fragment/FragmentRef.h"
+#include "mcld/LD/EhFrame.h"
+#include "mcld/LD/LDSection.h"
+#include "mcld/LD/LDSymbol.h"
+#include "mcld/LD/NamePool.h"
+#include "mcld/LD/ResolveInfo.h"
+#include "mcld/LD/SectionData.h"
+#include "mcld/LD/StaticResolver.h"
 
-using namespace mcld;
+namespace mcld {
 
 static GCFactory<Module::AliasList, MCLD_SECTIONS_PER_INPUT>
     gc_aliaslist_factory;
@@ -79,3 +79,5 @@ Module::AliasList* Module::getAliasList(const ResolveInfo& pSym) {
   }
   return NULL;
 }
+
+}  // namespace mcld

@@ -9,9 +9,9 @@
 #ifndef TARGET_AARCH64_AARCH64RELOCATOR_H_
 #define TARGET_AARCH64_AARCH64RELOCATOR_H_
 
-#include <mcld/LD/Relocator.h>
-#include <mcld/Target/GOT.h>
-#include <mcld/Target/KeyEntryMap.h>
+#include "mcld/LD/Relocator.h"
+#include "mcld/Target/GOT.h"
+#include "mcld/Target/KeyEntryMap.h"
 #include "AArch64LDBackend.h"
 
 namespace mcld {
@@ -110,6 +110,14 @@ class AArch64Relocator : public Relocator {
                       Module& pModule,
                       LDSection& pSection,
                       Input& pInput);
+
+  /// getDebugStringOffset - get the offset from the relocation target. This is
+  /// used to get the debug string offset.
+  uint32_t getDebugStringOffset(Relocation& pReloc) const;
+
+  /// applyDebugStringOffset - apply the relocation target to specific offset.
+  /// This is used to set the debug string offset.
+  void applyDebugStringOffset(Relocation& pReloc, uint32_t pOffset);
 
  private:
   void scanLocalReloc(Relocation& pReloc, const LDSection& pSection);

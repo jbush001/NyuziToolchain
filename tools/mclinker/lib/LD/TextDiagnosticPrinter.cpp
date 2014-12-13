@@ -6,15 +6,15 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/TextDiagnosticPrinter.h>
+#include "mcld/LD/TextDiagnosticPrinter.h"
 
-#include <mcld/LinkerConfig.h>
+#include "mcld/LinkerConfig.h"
 
 #include <llvm/Support/Signals.h>
 
 #include <string>
 
-using namespace mcld;
+namespace mcld {
 
 static const enum llvm::raw_ostream::Colors UnreachableColor =
     llvm::raw_ostream::RED;
@@ -171,3 +171,5 @@ void TextDiagnosticPrinter::beginInput(const Input& pInput,
 void TextDiagnosticPrinter::endInput() {
   m_pInput = NULL;
 }
+
+}  // namespace mcld

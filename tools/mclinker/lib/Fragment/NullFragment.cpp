@@ -6,12 +6,14 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Fragment/NullFragment.h>
+#include "mcld/Fragment/NullFragment.h"
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // NullFragment
 //===----------------------------------------------------------------------===//
 NullFragment::NullFragment(SectionData* pSD) : Fragment(Fragment::Null, pSD) {
 }
+
+}  // namespace mcld

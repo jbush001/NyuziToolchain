@@ -312,6 +312,7 @@ raw_ostream &raw_ostream::write(const char *Ptr, size_t Size) {
     // than the buffer. Directly write the chunk that is a multiple of the
     // preferred buffer size and put the remainder in the buffer.
     if (LLVM_UNLIKELY(OutBufCur == OutBufStart)) {
+      assert(NumBytes != 0 && "undefined behavior");
       size_t BytesToWrite = Size - (Size % NumBytes);
       write_impl(Ptr, BytesToWrite);
       size_t BytesRemaining = Size - BytesToWrite;
@@ -536,12 +537,8 @@ raw_fd_ostream::raw_fd_ostream(int fd, bool shouldClose, bool unbuffered)
 raw_fd_ostream::~raw_fd_ostream() {
   if (FD >= 0) {
     flush();
-    if (ShouldClose)
-      while (::close(FD) != 0)
-        if (errno != EINTR) {
-          error_detected();
-          break;
-        }
+    if (ShouldClose && sys::Process::SafelyCloseFileDescriptor(FD))
+      error_detected();
   }
 
 #ifdef __MINGW32__
@@ -615,11 +612,8 @@ void raw_fd_ostream::close() {
   assert(ShouldClose);
   ShouldClose = false;
   flush();
-  while (::close(FD) != 0)
-    if (errno != EINTR) {
-      error_detected();
-      break;
-    }
+  if (sys::Process::SafelyCloseFileDescriptor(FD))
+    error_detected();
   FD = -1;
 }
 

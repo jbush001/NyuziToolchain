@@ -6,12 +6,12 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/GeneralOptions.h>
-#include <mcld/MC/Input.h>
-#include <mcld/MC/ZOption.h>
+#include "mcld/GeneralOptions.h"
+#include "mcld/MC/Input.h"
+#include "mcld/MC/ZOption.h"
 #include <cassert>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // GeneralOptions
@@ -169,3 +169,5 @@ bool GeneralOptions::isInExcludeLIBS(const Input& pInput) const {
 
   return false;
 }
+
+}  // namespace mcld

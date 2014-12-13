@@ -9,10 +9,10 @@
 #ifndef TARGET_X86_X86RELOCATOR_H_
 #define TARGET_X86_X86RELOCATOR_H_
 
-#include <mcld/LD/Relocator.h>
-#include <mcld/Target/GOT.h>
-#include <mcld/Target/PLT.h>
-#include <mcld/Target/KeyEntryMap.h>
+#include "mcld/LD/Relocator.h"
+#include "mcld/Target/GOT.h"
+#include "mcld/Target/PLT.h"
+#include "mcld/Target/KeyEntryMap.h"
 #include "X86LDBackend.h"
 
 namespace mcld {
@@ -148,6 +148,14 @@ class X86_32Relocator : public X86Relocator {
   /// access a function pointer.
   virtual bool mayHaveFunctionPointerAccess(const Relocation& pReloc) const;
 
+  /// getDebugStringOffset - get the offset from the relocation target. This is
+  /// used to get the debug string offset.
+  uint32_t getDebugStringOffset(Relocation& pReloc) const;
+
+  /// applyDebugStringOffset - apply the relocation target to specific offset.
+  /// This is used to set the debug string offset.
+  void applyDebugStringOffset(Relocation& pReloc, uint32_t pOffset);
+
  private:
   void scanLocalReloc(Relocation& pReloc,
                       IRBuilder& pBuilder,
@@ -204,6 +212,14 @@ class X86_64Relocator : public X86Relocator {
   /// mayHaveFunctionPointerAccess - check if the given reloc would possibly
   /// access a function pointer.
   virtual bool mayHaveFunctionPointerAccess(const Relocation& pReloc) const;
+
+  /// getDebugStringOffset - get the offset from the relocation target. This is
+  /// used to get the debug string offset.
+  uint32_t getDebugStringOffset(Relocation& pReloc) const;
+
+  /// applyDebugStringOffset - apply the relocation target to specific offset.
+  /// This is used to set the debug string offset.
+  void applyDebugStringOffset(Relocation& pReloc, uint32_t pOffset);
 
  private:
   void scanLocalReloc(Relocation& pReloc,

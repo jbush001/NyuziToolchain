@@ -6,10 +6,10 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Support/Path.h>
+#include "mcld/Support/Path.h"
 
-#include <mcld/Config/Config.h>
-#include <mcld/Support/FileSystem.h>
+#include "mcld/Config/Config.h"
+#include "mcld/Support/FileSystem.h"
 
 #include <llvm/ADT/StringRef.h>
 
@@ -18,8 +18,9 @@
 #include <ostream>
 #include <string.h>
 
-using namespace mcld;
-using namespace mcld::sys::fs;
+namespace mcld {
+namespace sys {
+namespace fs {
 
 //===--------------------------------------------------------------------===//
 // Helper
@@ -89,12 +90,8 @@ Path& Path::append(const Path& pPath) {
   // first path is a/,second path is /b
   if (m_PathName[m_PathName.length() - 1] == separator &&
       pPath.native()[0] == separator) {
-    unsigned int old_size = m_PathName.size() - 1;
-    unsigned int new_size = old_size + pPath.native().size();
-
-    m_PathName.resize(new_size);
-    strcpy(const_cast<ValueType*>(m_PathName.data() + old_size),
-           pPath.native().data());
+    llvm::StringRef path(pPath.native());
+    m_PathName.append(path.begin() + 1, path.end());
   } else if (this->native()[this->native().size() - 1] != separator &&
              pPath.native()[0] != separator) {
     // first path is a,second path is b
@@ -191,16 +188,20 @@ Path Path::extension() const {
 //===--------------------------------------------------------------------===//
 // non-member functions
 //===--------------------------------------------------------------------===//
-bool mcld::sys::fs::operator==(const Path& pLHS, const Path& pRHS) {
+bool operator==(const Path& pLHS, const Path& pRHS) {
   return (pLHS.generic_string() == pRHS.generic_string());
 }
 
-bool mcld::sys::fs::operator!=(const Path& pLHS, const Path& pRHS) {
+bool operator!=(const Path& pLHS, const Path& pRHS) {
   return !(pLHS == pRHS);
 }
 
-Path mcld::sys::fs::operator+(const Path& pLHS, const Path& pRHS) {
+Path operator+(const Path& pLHS, const Path& pRHS) {
   mcld::sys::fs::Path result = pLHS;
   result.append(pRHS);
   return result;
 }
+
+}  // namespace fs
+}  // namespace sys
+}  // namespace mcld

@@ -20,11 +20,11 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Triple.h"
 #include "lldb/Interpreter/Args.h"
-#include "lldb/Core/ConnectionFileDescriptor.h"
 #include "lldb/Core/Log.h"
 #include "lldb/Core/State.h"
 #include "lldb/Core/StreamGDBRemote.h"
 #include "lldb/Core/StreamString.h"
+#include "lldb/Host/ConnectionFileDescriptor.h"
 #include "lldb/Host/Endian.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Host/HostInfo.h"
@@ -2971,6 +2971,11 @@ GDBRemoteCommunicationClient::GetThreadStopInfo (lldb::tid_t tid, StringExtracto
 uint8_t
 GDBRemoteCommunicationClient::SendGDBStoppointTypePacket (GDBStoppointType type, bool insert,  addr_t addr, uint32_t length)
 {
+    Log *log (GetLogIfAnyCategoriesSet (LIBLLDB_LOG_BREAKPOINTS));
+    if (log)
+        log->Printf ("GDBRemoteCommunicationClient::%s() %s at addr = 0x%" PRIx64,
+                     __FUNCTION__, insert ? "add" : "remove", addr);
+
     // Check if the stub is known not to support this breakpoint type
     if (!SupportsGDBStoppointPacket(type))
         return UINT8_MAX;

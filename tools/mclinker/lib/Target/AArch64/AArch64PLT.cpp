@@ -10,14 +10,14 @@
 #include "AArch64PLT.h"
 #include "AArch64RelocationHelpers.h"
 
-#include <mcld/LD/LDSection.h>
-#include <mcld/Support/MsgHandling.h>
+#include "mcld/LD/LDSection.h"
+#include "mcld/Support/MsgHandling.h"
 
 #include <llvm/Support/Casting.h>
 
 #include <new>
 
-using namespace mcld;
+namespace mcld {
 
 AArch64PLT0::AArch64PLT0(SectionData& pParent)
     : PLT::Entry<sizeof(aarch64_plt0)>(pParent) {
@@ -165,3 +165,5 @@ uint64_t AArch64PLT::emit(MemoryRegion& pRegion) {
   }
   return result;
 }
+
+}  // namespace mcld

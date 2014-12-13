@@ -13,13 +13,13 @@
 
 // C++ Includes
 // Other libraries and framework includes
-#include "lldb/Core/ConnectionFileDescriptor.h"
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleSpec.h"
 #include "lldb/Core/State.h"
 #include "lldb/Core/UUID.h"
+#include "lldb/Host/ConnectionFileDescriptor.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Host/Symbols.h"
 #include "lldb/Host/Socket.h"
@@ -439,7 +439,12 @@ ProcessKDP::DidAttach (ArchSpec &process_arch)
         log->Printf ("ProcessKDP::DidAttach()");
     if (GetID() != LLDB_INVALID_PROCESS_ID)
     {
-        // TODO: figure out the register context that we will use
+        uint32_t cpu = m_comm.GetCPUType();
+        if (cpu)
+        {
+            uint32_t sub = m_comm.GetCPUSubtype();
+            process_arch.SetArchitecture(eArchTypeMachO, cpu, sub);
+        }
     }
 }
 
