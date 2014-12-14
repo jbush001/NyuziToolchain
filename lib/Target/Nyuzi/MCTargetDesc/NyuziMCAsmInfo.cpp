@@ -25,4 +25,5 @@ NyuziMCAsmInfo::NyuziMCAsmInfo(StringRef TT) {
   SupportsDebugInformation = true;
   ExceptionsType = ExceptionHandling::None;
   PrivateGlobalPrefix = ".L";
+  PrivateLabelPrefix = ".L";
 }
