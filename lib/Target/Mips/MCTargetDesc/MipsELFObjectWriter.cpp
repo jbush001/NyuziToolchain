@@ -45,9 +45,7 @@ MipsELFObjectWriter::~MipsELFObjectWriter() {}
 
 unsigned MipsELFObjectWriter::GetRelocType(const MCValue &Target,
                                            const MCFixup &Fixup,
-                                           bool IsPCRel, 
-					                                 bool IsRelocWithSymbol,
-                                           int64_t Addend) const {
+                                           bool IsPCRel) const {
   // determine the type of the relocation
   unsigned Type = (unsigned)ELF::R_MIPS_NONE;
   unsigned Kind = (unsigned)Fixup.getKind();

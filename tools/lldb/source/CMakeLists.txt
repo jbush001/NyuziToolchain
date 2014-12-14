@@ -44,8 +44,6 @@ add_subdirectory(Utility)
 
 include(../cmake/LLDBDependencies.cmake)
 
-# XXX Nyuzi: build as static library to avoid conflicting with system compiler (and
-# needing to modify environment to pick up lib path)
 set(SHARED_LIBRARY 1)
 
 if ( CMAKE_SYSTEM_NAME MATCHES "Windows" )
