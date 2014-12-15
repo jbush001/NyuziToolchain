@@ -6,17 +6,17 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Script/Operand.h"
+#include <mcld/Script/Operand.h>
 
-#include "mcld/Fragment/Fragment.h"
-#include "mcld/LD/LDSection.h"
-#include "mcld/LD/SectionData.h"
-#include "mcld/Support/GCFactory.h"
-#include "mcld/Support/raw_ostream.h"
+#include <mcld/Fragment/Fragment.h>
+#include <mcld/LD/LDSection.h>
+#include <mcld/LD/SectionData.h>
+#include <mcld/Support/GCFactory.h>
+#include <mcld/Support/raw_ostream.h>
 
 #include <llvm/Support/ManagedStatic.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // Operand
@@ -203,5 +203,3 @@ void FragOperand::destroy(FragOperand*& pOperand) {
 void FragOperand::clear() {
   g_FragOperandFactory->clear();
 }
-
-}  // namespace mcld

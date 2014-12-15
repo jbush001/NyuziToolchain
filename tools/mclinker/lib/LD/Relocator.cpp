@@ -6,21 +6,21 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/Relocator.h"
+#include <mcld/LD/Relocator.h>
 
-#include "mcld/Module.h"
-#include "mcld/Fragment/Fragment.h"
-#include "mcld/LD/LDContext.h"
-#include "mcld/LD/LDSection.h"
-#include "mcld/LD/LDSymbol.h"
-#include "mcld/LD/ResolveInfo.h"
-#include "mcld/LD/SectionData.h"
-#include "mcld/Support/Demangle.h"
-#include "mcld/Support/MsgHandling.h"
+#include <mcld/Module.h>
+#include <mcld/Fragment/Fragment.h>
+#include <mcld/LD/LDContext.h>
+#include <mcld/LD/LDSection.h>
+#include <mcld/LD/LDSymbol.h>
+#include <mcld/LD/ResolveInfo.h>
+#include <mcld/LD/SectionData.h>
+#include <mcld/Support/Demangle.h>
+#include <mcld/Support/MsgHandling.h>
 
 #include <sstream>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // Relocator
@@ -29,7 +29,8 @@ Relocator::~Relocator() {
 }
 
 void Relocator::partialScanRelocation(Relocation& pReloc,
-                                      Module& pModule) {
+                                      Module& pModule,
+                                      const LDSection& pSection) {
   // if we meet a section symbol
   if (pReloc.symInfo()->type() == ResolveInfo::Section) {
     LDSymbol* input_sym = pReloc.symInfo()->outSymbol();
@@ -95,5 +96,3 @@ void Relocator::issueUndefRef(Relocation& pReloc,
   fatal(diag::undefined_reference_text) << reloc_sym << pInput.path()
                                         << caller_file_name << caller_func_name;
 }
-
-}  // namespace mcld

@@ -6,18 +6,18 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/ELFBinaryReader.h"
+#include <mcld/LD/ELFBinaryReader.h>
 
-#include "mcld/IRBuilder.h"
-#include "mcld/LinkerConfig.h"
-#include "mcld/MC/Input.h"
-#include "mcld/Support/MemoryArea.h"
+#include <mcld/IRBuilder.h>
+#include <mcld/LinkerConfig.h>
+#include <mcld/MC/Input.h>
+#include <mcld/Support/MemoryArea.h>
 
 #include <llvm/Support/ELF.h>
 
 #include <cctype>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // ELFBinaryReader
@@ -122,5 +122,3 @@ bool ELFBinaryReader::readBinary(Input& pInput) {
 
   return true;
 }
-
-}  // namespace mcld

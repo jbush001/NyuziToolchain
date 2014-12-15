@@ -6,13 +6,13 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/ELFDynObjFileFormat.h"
-#include "mcld/LD/LDSection.h"
-#include "mcld/Object/ObjectBuilder.h"
+#include <mcld/LD/ELFDynObjFileFormat.h>
+#include <mcld/LD/LDSection.h>
+#include <mcld/Object/ObjectBuilder.h>
 
 #include <llvm/Support/ELF.h>
 
-namespace mcld {
+using namespace mcld;
 
 void ELFDynObjFileFormat::initObjectFormat(ObjectBuilder& pBuilder,
                                            unsigned int pBitClass) {
@@ -90,5 +90,3 @@ void ELFDynObjFileFormat::initObjectFormat(ObjectBuilder& pBuilder,
                                          llvm::ELF::SHF_ALLOC,
                                          pBitClass / 8);
 }
-
-}  // namespace mcld

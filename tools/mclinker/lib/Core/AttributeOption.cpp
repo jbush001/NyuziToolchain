@@ -6,9 +6,9 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/AttributeOption.h"
+#include <mcld/AttributeOption.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // AttributeOption
@@ -18,5 +18,3 @@ AttributeOption::AttributeOption() {
 
 AttributeOption::~AttributeOption() {
 }
-
-}  // namespace mcld

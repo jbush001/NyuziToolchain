@@ -6,16 +6,16 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/DiagnosticEngine.h"
+#include <mcld/LD/DiagnosticEngine.h>
 
-#include "mcld/LinkerConfig.h"
-#include "mcld/LD/DiagnosticLineInfo.h"
-#include "mcld/LD/DiagnosticPrinter.h"
-#include "mcld/LD/MsgHandler.h"
+#include <mcld/LinkerConfig.h>
+#include <mcld/LD/DiagnosticLineInfo.h>
+#include <mcld/LD/DiagnosticPrinter.h>
+#include <mcld/LD/MsgHandler.h>
 
 #include <cassert>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // DiagnosticEngine
@@ -73,5 +73,3 @@ MsgHandler DiagnosticEngine::report(uint16_t pID,
   MsgHandler result(*this);
   return result;
 }
-
-}  // namespace mcld

@@ -9,9 +9,11 @@
 #ifndef TARGET_AARCH64_AARCH64PLT_H_
 #define TARGET_AARCH64_AARCH64PLT_H_
 
-#include "mcld/Support/MemoryRegion.h"
-#include "mcld/Target/GOT.h"
-#include "mcld/Target/PLT.h"
+#include <mcld/Support/MemoryRegion.h>
+#include <mcld/Target/GOT.h>
+#include <mcld/Target/PLT.h>
+
+namespace {
 
 const uint8_t aarch64_plt0[] = {
     0xf0, 0x7b, 0xbf, 0xa9,  /* stp x16, x30, [sp, #-16]! */
@@ -30,6 +32,8 @@ const uint8_t aarch64_plt1[] = {
     0x10, 0x02, 0x00, 0x91,  /* add x16, x16, :lo12:PLTGOT + n * 8 */
     0x20, 0x02, 0x1f, 0xd6   /* br x17.  */
 };
+
+}  // anonymous namespace
 
 namespace mcld {
 

@@ -6,7 +6,7 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/Diagnostic.h"
+#include <mcld/LD/Diagnostic.h>
 
 #include <llvm/Support/ErrorHandling.h>
 #include <llvm/Support/raw_ostream.h>
@@ -16,7 +16,7 @@
 
 #include <ctype.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 //  Diagnostic
@@ -173,5 +173,3 @@ void Diagnostic::format(const char* pBegin,
     }  // end of switch
   }    // end of while
 }
-
-}  // namespace mcld

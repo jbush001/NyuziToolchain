@@ -6,16 +6,16 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/MC/CommandAction.h"
+#include <mcld/MC/CommandAction.h>
 
-#include "mcld/LinkerConfig.h"
-#include "mcld/MC/Attribute.h"
-#include "mcld/MC/InputBuilder.h"
-#include "mcld/MC/SearchDirs.h"
-#include "mcld/Support/MsgHandling.h"
-#include "mcld/Support/FileSystem.h"
+#include <mcld/LinkerConfig.h>
+#include <mcld/MC/Attribute.h>
+#include <mcld/MC/InputBuilder.h>
+#include <mcld/MC/SearchDirs.h>
+#include <mcld/Support/MsgHandling.h>
+#include <mcld/Support/FileSystem.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // Derived Positional Option
@@ -272,5 +272,3 @@ bool ScriptAction::activate(InputBuilder& pBuilder) const {
 
   return true;
 }
-
-}  // namespace mcld

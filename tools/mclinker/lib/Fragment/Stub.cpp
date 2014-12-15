@@ -6,9 +6,9 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Fragment/Stub.h"
+#include <mcld/Fragment/Stub.h>
 
-namespace mcld {
+using namespace mcld;
 
 Stub::Stub() : Fragment(Fragment::Stub), m_pSymInfo(NULL) {
 }
@@ -31,5 +31,3 @@ void Stub::addFixup(const Fixup& pFixup) {
   assert(pFixup.offset() < size());
   m_FixupList.push_back(new Fixup(pFixup));
 }
-
-}  // namespace mcld

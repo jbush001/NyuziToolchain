@@ -7,12 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mcld/Fragment/Fragment.h"
-#include "mcld/LD/SectionData.h"
+#include <mcld/Fragment/Fragment.h>
+#include <mcld/LD/SectionData.h>
 
 #include <llvm/Support/DataTypes.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // Fragment
@@ -38,5 +38,3 @@ uint64_t Fragment::getOffset() const {
 bool Fragment::hasOffset() const {
   return (m_Offset != ~uint64_t(0));
 }
-
-}  // namespace mcld

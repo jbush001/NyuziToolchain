@@ -6,15 +6,15 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/MC/SymbolCategory.h"
+#include <mcld/MC/SymbolCategory.h>
 
-#include "mcld/LD/LDSymbol.h"
-#include "mcld/LD/ResolveInfo.h"
+#include <mcld/LD/LDSymbol.h>
+#include <mcld/LD/ResolveInfo.h>
 
 #include <algorithm>
 #include <cassert>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // Category
@@ -399,7 +399,7 @@ SymbolCategory::const_iterator SymbolCategory::dynamicEnd() const {
 }
 
 SymbolCategory::iterator SymbolCategory::regularBegin() {
-  return dynamicEnd();
+  return commonEnd();
 }
 
 SymbolCategory::iterator SymbolCategory::regularEnd() {
@@ -407,11 +407,9 @@ SymbolCategory::iterator SymbolCategory::regularEnd() {
 }
 
 SymbolCategory::const_iterator SymbolCategory::regularBegin() const {
-  return dynamicEnd();
+  return commonEnd();
 }
 
 SymbolCategory::const_iterator SymbolCategory::regularEnd() const {
   return m_OutputSymbols.end();
 }
-
-}  // namespace mcld

@@ -23,6 +23,7 @@ HEADER = $(INCDIR)/AttributeOption.h \
          $(INCDIR)/ADT/TreeAllocator.h \
          $(INCDIR)/ADT/TreeBase.h \
          $(INCDIR)/ADT/TypeTraits.h \
+         $(INCDIR)/ADT/Uncopyable.h \
          $(INCDIR)/Fragment/AlignFragment.h \
          $(INCDIR)/Fragment/FillFragment.h \
          $(INCDIR)/Fragment/Fragment.h \
@@ -38,7 +39,6 @@ HEADER = $(INCDIR)/AttributeOption.h \
          $(INCDIR)/LD/BranchIslandFactory.h \
          $(INCDIR)/LD/BranchIsland.h \
          $(INCDIR)/LD/BSDArchiveReader.h \
-         $(INCDIR)/LD/DebugString.h \
          $(INCDIR)/LD/DiagnosticEngine.h \
          $(INCDIR)/LD/Diagnostic.h \
          $(INCDIR)/LD/DiagnosticInfos.h \
@@ -72,7 +72,6 @@ HEADER = $(INCDIR)/AttributeOption.h \
          $(INCDIR)/LD/LDReader.h \
          $(INCDIR)/LD/LDSection.h \
          $(INCDIR)/LD/LDSymbol.h \
-         $(INCDIR)/LD/MergedStringTable.h \
          $(INCDIR)/LD/MsgHandler.h \
          $(INCDIR)/LD/NamePool.h \
          $(INCDIR)/LD/ObjectReader.h \
@@ -136,7 +135,6 @@ HEADER = $(INCDIR)/AttributeOption.h \
          $(INCDIR)/Script/WildcardPattern.h \
          $(INCDIR)/Support/Allocators.h \
          $(INCDIR)/Support/CommandLine.h \
-         $(INCDIR)/Support/Compiler.h \
          $(INCDIR)/Support/CXADemangle.tcc \
          $(INCDIR)/Support/Demangle.h \
          $(INCDIR)/Support/Directory.h \

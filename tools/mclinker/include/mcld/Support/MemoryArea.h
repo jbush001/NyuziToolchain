@@ -9,7 +9,7 @@
 #ifndef MCLD_SUPPORT_MEMORYAREA_H_
 #define MCLD_SUPPORT_MEMORYAREA_H_
 
-#include "mcld/Support/Compiler.h"
+#include <mcld/ADT/Uncopyable.h>
 
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/MemoryBuffer.h>
@@ -19,7 +19,7 @@ namespace mcld {
 /** \class MemoryArea
  *  \brief MemoryArea is used to manage input read-only memory space.
  */
-class MemoryArea {
+class MemoryArea : private Uncopyable {
   friend class MemoryAreaFactory;
 
  public:
@@ -41,9 +41,6 @@ class MemoryArea {
 
  private:
   std::unique_ptr<llvm::MemoryBuffer> m_pMemoryBuffer;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(MemoryArea);
 };
 
 }  // namespace mcld

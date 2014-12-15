@@ -6,15 +6,15 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Support/MemoryArea.h"
-#include "mcld/Support/MsgHandling.h"
+#include <mcld/Support/MemoryArea.h>
+#include <mcld/Support/MsgHandling.h>
 
 #include <llvm/Support/ErrorOr.h>
 
 #include <cassert>
 #include <system_error>
 
-namespace mcld {
+using namespace mcld;
 
 //===--------------------------------------------------------------------===//
 // MemoryArea
@@ -45,5 +45,3 @@ llvm::StringRef MemoryArea::request(size_t pOffset, size_t pLength) {
 size_t MemoryArea::size() const {
   return m_pMemoryBuffer->getBufferSize();
 }
-
-}  // namespace mcld

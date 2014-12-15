@@ -9,9 +9,9 @@
 #ifndef MCLD_MC_SEARCHDIRS_H_
 #define MCLD_MC_SEARCHDIRS_H_
 
-#include "mcld/MC/Input.h"
-#include "mcld/Support/Path.h"
-#include "mcld/Support/Compiler.h"
+#include <mcld/ADT/Uncopyable.h>
+#include <mcld/MC/Input.h>
+#include <mcld/Support/Path.h>
 
 #include <llvm/ADT/StringRef.h>
 
@@ -32,7 +32,7 @@ class MCLDFile;
  *
  *  @see MCLDDirectory.
  */
-class SearchDirs {
+class SearchDirs : private Uncopyable {
  public:
   typedef std::vector<MCLDDirectory*> DirList;
   typedef DirList::iterator iterator;
@@ -71,9 +71,6 @@ class SearchDirs {
  private:
   DirList m_DirList;
   sys::fs::Path m_SysRoot;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(SearchDirs);
 };
 
 }  // namespace mcld

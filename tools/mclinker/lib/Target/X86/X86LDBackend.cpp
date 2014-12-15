@@ -12,14 +12,14 @@
 #include "X86Relocator.h"
 #include "X86GNUInfo.h"
 
-#include "mcld/IRBuilder.h"
-#include "mcld/LinkerConfig.h"
-#include "mcld/Fragment/FillFragment.h"
-#include "mcld/Fragment/RegionFragment.h"
-#include "mcld/LD/ELFFileFormat.h"
-#include "mcld/Object/ObjectBuilder.h"
-#include "mcld/Support/MsgHandling.h"
-#include "mcld/Support/TargetRegistry.h"
+#include <mcld/IRBuilder.h>
+#include <mcld/LinkerConfig.h>
+#include <mcld/Fragment/FillFragment.h>
+#include <mcld/Fragment/RegionFragment.h>
+#include <mcld/LD/ELFFileFormat.h>
+#include <mcld/Object/ObjectBuilder.h>
+#include <mcld/Support/MsgHandling.h>
+#include <mcld/Support/TargetRegistry.h>
 
 #include <llvm/ADT/StringRef.h>
 #include <llvm/ADT/Triple.h>
@@ -28,7 +28,7 @@
 
 #include <cstring>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // X86GNULDBackend
@@ -693,6 +693,8 @@ uint64_t X86_64GNULDBackend::emitGOTPLTSectionData(
   return RegionSize;
 }
 
+namespace mcld {
+
 //===----------------------------------------------------------------------===//
 /// createX86LDBackend - the help funtion to create corresponding X86LDBackend
 ///
@@ -729,8 +731,8 @@ TargetLDBackend* createX86LDBackend(const LinkerConfig& pConfig) {
 //===----------------------------------------------------------------------===//
 extern "C" void MCLDInitializeX86LDBackend() {
   // Register the linker backend
-  mcld::TargetRegistry::RegisterTargetLDBackend(mcld::TheX86_32Target,
-                                                mcld::createX86LDBackend);
-  mcld::TargetRegistry::RegisterTargetLDBackend(mcld::TheX86_64Target,
-                                                mcld::createX86LDBackend);
+  mcld::TargetRegistry::RegisterTargetLDBackend(TheX86_32Target,
+                                                createX86LDBackend);
+  mcld::TargetRegistry::RegisterTargetLDBackend(TheX86_64Target,
+                                                createX86LDBackend);
 }

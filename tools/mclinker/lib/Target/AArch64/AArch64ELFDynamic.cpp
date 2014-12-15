@@ -8,10 +8,10 @@
 //===----------------------------------------------------------------------===//
 #include "AArch64ELFDynamic.h"
 
-#include "mcld/LD/ELFFileFormat.h"
-#include "mcld/LinkerConfig.h"
+#include <mcld/LD/ELFFileFormat.h>
+#include <mcld/LinkerConfig.h>
 
-namespace mcld {
+using namespace mcld;
 
 AArch64ELFDynamic::AArch64ELFDynamic(const GNULDBackend& pParent,
                                      const LinkerConfig& pConfig)
@@ -42,5 +42,3 @@ void AArch64ELFDynamic::applyTargetEntries(const ELFFileFormat& pFormat) {
       applyOne(llvm::ELF::DT_PLTGOT, pFormat.getGOTPLT().addr());
   }
 }
-
-}  // namespace mcld

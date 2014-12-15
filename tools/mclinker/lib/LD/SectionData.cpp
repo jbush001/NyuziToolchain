@@ -6,14 +6,14 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/SectionData.h"
+#include <mcld/LD/SectionData.h>
 
-#include "mcld/LD/LDSection.h"
-#include "mcld/Support/GCFactory.h"
+#include <mcld/LD/LDSection.h>
+#include <mcld/Support/GCFactory.h>
 
 #include <llvm/Support/ManagedStatic.h>
 
-namespace mcld {
+using namespace mcld;
 
 typedef GCFactory<SectionData, MCLD_SECTIONS_PER_INPUT> SectDataFactory;
 
@@ -43,5 +43,3 @@ void SectionData::Destroy(SectionData*& pSection) {
 void SectionData::Clear() {
   g_SectDataFactory->clear();
 }
-
-}  // namespace mcld

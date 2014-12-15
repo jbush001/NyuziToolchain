@@ -6,13 +6,13 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/ELFFileFormat.h"
-#include "mcld/Object/ObjectBuilder.h"
-#include "mcld/Target/GNULDBackend.h"
+#include <mcld/LD/ELFFileFormat.h>
+#include <mcld/Object/ObjectBuilder.h>
+#include <mcld/Target/GNULDBackend.h>
 
 #include <llvm/Support/ELF.h>
 
-namespace mcld {
+using namespace mcld;
 
 ELFFileFormat::ELFFileFormat()
     : f_pNULLSection(NULL),
@@ -233,5 +233,3 @@ void ELFFileFormat::initStdSections(ObjectBuilder& pBuilder,
   /// objects)
   initObjectFormat(pBuilder, pBitClass);
 }
-
-}  // namespace mcld

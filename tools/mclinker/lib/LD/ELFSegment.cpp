@@ -6,17 +6,17 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/ELFSegment.h"
+#include <mcld/LD/ELFSegment.h>
 
-#include "mcld/Config/Config.h"
-#include "mcld/LD/LDSection.h"
-#include "mcld/Support/GCFactory.h"
+#include <mcld/Config/Config.h>
+#include <mcld/LD/LDSection.h>
+#include <mcld/Support/GCFactory.h>
 
 #include <llvm/Support/ManagedStatic.h>
 
 #include <cassert>
 
-namespace mcld {
+using namespace mcld;
 
 typedef GCFactory<ELFSegment, MCLD_SEGMENTS_PER_OUTPUT> ELFSegmentFactory;
 static llvm::ManagedStatic<ELFSegmentFactory> g_ELFSegmentFactory;
@@ -96,5 +96,3 @@ void ELFSegment::Destroy(ELFSegment*& pSegment) {
 void ELFSegment::Clear() {
   g_ELFSegmentFactory->clear();
 }
-
-}  // namespace mcld

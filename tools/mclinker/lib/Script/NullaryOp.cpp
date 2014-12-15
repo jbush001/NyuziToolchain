@@ -6,12 +6,12 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Script/NullaryOp.h"
+#include <mcld/Script/NullaryOp.h>
 
-#include "mcld/Script/Operand.h"
-#include "mcld/Target/TargetLDBackend.h"
+#include <mcld/Script/Operand.h>
+#include <mcld/Target/TargetLDBackend.h>
 
-namespace mcld {
+using namespace mcld;
 //===----------------------------------------------------------------------===//
 // NullaryOp
 //===----------------------------------------------------------------------===//
@@ -41,5 +41,3 @@ IntOperand* NullaryOp<Operator::COMMONPAGESIZE>::eval(
   res->setValue(pBackend.commonPageSize());
   return res;
 }
-
-}  // namespace mcld

@@ -8,9 +8,9 @@
 //===----------------------------------------------------------------------===//
 #include "AArch64GOT.h"
 
-#include "mcld/LD/LDSection.h"
-#include "mcld/LD/LDFileFormat.h"
-#include "mcld/Support/MsgHandling.h"
+#include <mcld/LD/LDSection.h>
+#include <mcld/LD/LDFileFormat.h>
+#include <mcld/Support/MsgHandling.h>
 
 #include <llvm/Support/Casting.h>
 
@@ -18,7 +18,7 @@ namespace {
 const unsigned int AArch64GOT0Num = 3;
 }  // end of anonymous namespace
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // AArch64GOT
@@ -127,5 +127,3 @@ uint64_t AArch64GOT::emit(MemoryRegion& pRegion) {
   }
   return result;
 }
-
-}  // namespace mcld

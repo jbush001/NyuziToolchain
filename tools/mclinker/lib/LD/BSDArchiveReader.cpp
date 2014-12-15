@@ -6,11 +6,11 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/BSDArchiveReader.h"
-#include "mcld/LD/Archive.h"
-#include "mcld/MC/Input.h"
+#include <mcld/LD/BSDArchiveReader.h>
+#include <mcld/LD/Archive.h>
+#include <mcld/MC/Input.h>
 
-namespace mcld {
+using namespace mcld;
 
 BSDArchiveReader::BSDArchiveReader() {
 }
@@ -29,5 +29,3 @@ bool BSDArchiveReader::isMyFormat(Input& pInput, bool& pContinue) const {
   // TODO
   return false;
 }
-
-}  // namespace mcld

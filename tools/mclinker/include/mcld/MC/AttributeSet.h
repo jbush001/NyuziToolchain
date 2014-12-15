@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 #ifndef MCLD_MC_ATTRIBUTESET_H_
 #define MCLD_MC_ATTRIBUTESET_H_
-#include "mcld/Support/Compiler.h"
+#include <mcld/ADT/Uncopyable.h>
 
 #include <vector>
 
@@ -22,7 +22,7 @@ class Attribute;
  *  Clients delegates Attributes to AttributeSet. AttributeSet deletes delegated
  *  Attributes during destruction.
  */
-class AttributeSet {
+class AttributeSet : private Uncopyable {
  private:
   typedef std::vector<Attribute*> AttrSet;
 
@@ -51,9 +51,6 @@ class AttributeSet {
  private:
   AttrSet m_AttrSet;
   const Attribute& m_Predefined;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(AttributeSet);
 };
 
 }  // namespace mcld

@@ -9,20 +9,20 @@
 #include "X86Relocator.h"
 #include "X86RelocationFunctions.h"
 
-#include "mcld/IRBuilder.h"
-#include "mcld/LinkerConfig.h"
-#include "mcld/LD/ELFFileFormat.h"
-#include "mcld/LD/ELFSegmentFactory.h"
-#include "mcld/LD/ELFSegment.h"
-#include "mcld/LD/LDSymbol.h"
-#include "mcld/Object/ObjectBuilder.h"
-#include "mcld/Support/MsgHandling.h"
+#include <mcld/IRBuilder.h>
+#include <mcld/LinkerConfig.h>
+#include <mcld/LD/ELFFileFormat.h>
+#include <mcld/LD/ELFSegmentFactory.h>
+#include <mcld/LD/ELFSegment.h>
+#include <mcld/LD/LDSymbol.h>
+#include <mcld/Object/ObjectBuilder.h>
+#include <mcld/Support/MsgHandling.h>
 
 #include <llvm/ADT/Twine.h>
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/ELF.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===--------------------------------------------------------------------===//
 // X86_32 Relocation helper function
@@ -830,23 +830,6 @@ void X86_32Relocator::convertTLSIEtoLE(Relocation& pReloc,
   pReloc.setType(llvm::ELF::R_386_TLS_LE);
 }
 
-uint32_t X86_32Relocator::getDebugStringOffset(Relocation& pReloc) const {
-  if (pReloc.type() != llvm::ELF::R_386_32)
-    error(diag::unsupport_reloc_for_debug_string)
-        << getName(pReloc.type()) << "mclinker@googlegroups.com";
-
-  if (pReloc.symInfo()->type() == ResolveInfo::Section)
-    return pReloc.target();
-  else
-    return pReloc.symInfo()->outSymbol()->fragRef()->offset() +
-               pReloc.target() + pReloc.addend();
-}
-
-void X86_32Relocator::applyDebugStringOffset(Relocation& pReloc,
-                                             uint32_t pOffset) {
-  pReloc.target() = pOffset;
-}
-
 //================================================//
 // X86_32 Each relocation function implementation //
 //================================================//
@@ -1096,8 +1079,8 @@ Relocator::Result tls_le(Relocation& pReloc, X86_32Relocator& pParent) {
   return Relocator::OK;
 }
 
-Relocator::Result unsupported(Relocation& pReloc, X86_32Relocator& pParent) {
-  return Relocator::Unsupported;
+Relocator::Result unsupport(Relocation& pReloc, X86_32Relocator& pParent) {
+  return Relocator::Unsupport;
 }
 
 //===--------------------------------------------------------------------===//
@@ -1499,26 +1482,6 @@ void X86_64Relocator::scanGlobalReloc(Relocation& pReloc,
   }  // end switch
 }
 
-uint32_t X86_64Relocator::getDebugStringOffset(Relocation& pReloc) const {
-  if (pReloc.type() != llvm::ELF::R_X86_64_32)
-    error(diag::unsupport_reloc_for_debug_string)
-        << getName(pReloc.type()) << "mclinker@googlegroups.com";
-
-  if (pReloc.symInfo()->type() == ResolveInfo::Section)
-    return pReloc.target();
-  else
-    return pReloc.symInfo()->outSymbol()->fragRef()->offset() +
-               pReloc.target() + pReloc.addend();
-}
-
-void X86_64Relocator::applyDebugStringOffset(Relocation& pReloc,
-                                             uint32_t pOffset) {
-  pReloc.target() = pOffset;
-}
-
-//------------------------------------------------//
-// X86_64 Each relocation function implementation //
-//------------------------------------------------//
 // R_X86_64_NONE
 Relocator::Result none(Relocation& pReloc, X86_64Relocator& pParent) {
   return Relocator::OK;
@@ -1682,8 +1645,6 @@ Relocator::Result rel(Relocation& pReloc, X86_64Relocator& pParent) {
   return Relocator::OK;
 }
 
-Relocator::Result unsupported(Relocation& pReloc, X86_64Relocator& pParent) {
-  return Relocator::Unsupported;
+Relocator::Result unsupport(Relocation& pReloc, X86_64Relocator& pParent) {
+  return Relocator::Unsupport;
 }
-
-}  // namespace mcld

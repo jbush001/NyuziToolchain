@@ -6,12 +6,12 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Fragment/AlignFragment.h"
-#include "mcld/LD/SectionData.h"
+#include <mcld/Fragment/AlignFragment.h>
+#include <mcld/LD/SectionData.h>
 
 #include <llvm/Support/MathExtras.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // AlignFragment
@@ -38,5 +38,3 @@ size_t AlignFragment::size() const {
 
   return size;
 }
-
-}  // namespace mcld

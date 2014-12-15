@@ -6,14 +6,12 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Script/ScriptCommand.h"
+#include <mcld/Script/ScriptCommand.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // ScriptCommand
 //===----------------------------------------------------------------------===//
 ScriptCommand::~ScriptCommand() {
 }
-
-}  // namespace mcld

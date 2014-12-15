@@ -6,12 +6,10 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Support/RealPath.h"
-#include "mcld/Support/FileSystem.h"
+#include <mcld/Support/RealPath.h>
+#include <mcld/Support/FileSystem.h>
 
-namespace mcld {
-namespace sys {
-namespace fs {
+using namespace mcld::sys::fs;
 
 //==========================
 // RealPath
@@ -50,7 +48,3 @@ void RealPath::initialize() {
     m_PathName = path_name.native();
   }
 }
-
-}  // namespace fs
-}  // namespace sys
-}  // namespace mcld

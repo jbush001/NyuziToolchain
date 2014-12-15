@@ -6,13 +6,13 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/LDSection.h"
+#include <mcld/LD/LDSection.h>
 
-#include "mcld/Support/GCFactory.h"
+#include <mcld/Support/GCFactory.h>
 
 #include <llvm/Support/ManagedStatic.h>
 
-namespace mcld {
+using namespace mcld;
 
 typedef GCFactory<LDSection, MCLD_SECTIONS_PER_INPUT> SectionFactory;
 
@@ -98,10 +98,3 @@ bool LDSection::hasEhFrame() const {
   assert(LDFileFormat::EhFrame == kind());
   return (m_Data.eh_frame != NULL);
 }
-
-bool LDSection::hasDebugString() const {
-  assert(LDFileFormat::DebugString == kind());
-  return (NULL != m_Data.debug_string);
-}
-
-}  // namespace mcld

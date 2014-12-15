@@ -6,17 +6,17 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Target/OutputRelocSection.h"
+#include <mcld/Target/OutputRelocSection.h>
 
-#include "mcld/IRBuilder.h"
-#include "mcld/LD/LDSection.h"
-#include "mcld/LD/RelocationFactory.h"
-#include "mcld/Support/MsgHandling.h"
-#include "mcld/Module.h"
+#include <mcld/IRBuilder.h>
+#include <mcld/LD/LDSection.h>
+#include <mcld/LD/RelocationFactory.h>
+#include <mcld/Support/MsgHandling.h>
+#include <mcld/Module.h>
 
 #include <llvm/Support/Casting.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // OutputRelocSection
@@ -75,5 +75,3 @@ bool OutputRelocSection::addSymbolToDynSym(LDSymbol& pSymbol) {
   m_Module.getSymbolTable().changeToDynamic(pSymbol);
   return true;
 }
-
-}  // namespace mcld

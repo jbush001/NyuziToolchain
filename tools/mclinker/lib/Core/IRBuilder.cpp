@@ -6,24 +6,23 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/IRBuilder.h"
+#include <mcld/IRBuilder.h>
 
-#include "mcld/Fragment/FragmentRef.h"
-#include "mcld/LinkerScript.h"
-#include "mcld/LD/DebugString.h"
-#include "mcld/LD/EhFrame.h"
-#include "mcld/LD/ELFReader.h"
-#include "mcld/LD/LDContext.h"
-#include "mcld/LD/RelocData.h"
-#include "mcld/LD/SectionData.h"
-#include "mcld/Object/ObjectBuilder.h"
-#include "mcld/Support/ELF.h"
-#include "mcld/Support/MemoryArea.h"
-#include "mcld/Support/MsgHandling.h"
+#include <mcld/Fragment/FragmentRef.h>
+#include <mcld/LinkerScript.h>
+#include <mcld/LD/LDContext.h>
+#include <mcld/LD/EhFrame.h>
+#include <mcld/LD/ELFReader.h>
+#include <mcld/LD/RelocData.h>
+#include <mcld/LD/SectionData.h>
+#include <mcld/Object/ObjectBuilder.h>
+#include <mcld/Support/ELF.h>
+#include <mcld/Support/MemoryArea.h>
+#include <mcld/Support/MsgHandling.h>
 
 #include <llvm/ADT/StringRef.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // Helper Functions
@@ -40,11 +39,8 @@ LDFileFormat::Kind GetELFSectionKind(uint32_t pType,
   // name rules
   llvm::StringRef name(pName);
   if (name.startswith(".debug") || name.startswith(".zdebug") ||
-      name.startswith(".line") || name.startswith(".stab")) {
-    if (name.startswith(".debug_str"))
-      return LDFileFormat::DebugString;
+      name.startswith(".line") || name.startswith(".stab"))
     return LDFileFormat::Debug;
-  }
   if (name.startswith(".comment"))
     return LDFileFormat::MetaData;
   if (name.startswith(".interp") || name.startswith(".dynamic"))
@@ -305,15 +301,6 @@ EhFrame* IRBuilder::CreateEhFrame(LDSection& pSection) {
   EhFrame* eh_frame = EhFrame::Create(pSection);
   pSection.setEhFrame(eh_frame);
   return eh_frame;
-}
-
-/// CreateDebugString - To create a DebugString for given pSection
-DebugString* IRBuilder::CreateDebugString(LDSection& pSection) {
-  assert(!pSection.hasDebugString() && "pSection already has debug_str.");
-
-  DebugString* debug_str = DebugString::Create(pSection);
-  pSection.setDebugString(debug_str);
-  return debug_str;
 }
 
 /// CreateBSS - To create a bss section for given pSection
@@ -789,5 +776,3 @@ LDSymbol* IRBuilder::AddSymbol<IRBuilder::AsReferred, IRBuilder::Resolve>(
   return AddSymbol<Force, Resolve>(
       pName, pType, pDesc, pBinding, pSize, pValue, pFragmentRef, pVisibility);
 }
-
-}  // namespace mcld

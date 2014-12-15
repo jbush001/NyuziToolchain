@@ -6,14 +6,14 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Target/ELFEmulation.h"
-#include "mcld/LinkerScript.h"
-#include "mcld/LinkerConfig.h"
-#include "mcld/Script/InputSectDesc.h"
+#include <mcld/Target/ELFEmulation.h>
+#include <mcld/LinkerScript.h>
+#include <mcld/LinkerConfig.h>
+#include <mcld/Script/InputSectDesc.h>
 
 #include <llvm/Support/Host.h>
 
-namespace mcld {
+using namespace mcld;
 
 struct NameMap {
   const char* from;  ///< the prefix of the input string. (match FROM*)
@@ -68,7 +68,7 @@ static const NameMap map[] = {
 };
 
 // FIXME: LinkerConfig& pConfig should be constant
-bool MCLDEmulateELF(LinkerScript& pScript, LinkerConfig& pConfig) {
+bool mcld::MCLDEmulateELF(LinkerScript& pScript, LinkerConfig& pConfig) {
   // set up section map
   if (pConfig.options().getScriptList().empty() &&
       pConfig.codeGenType() != LinkerConfig::Object) {
@@ -103,5 +103,3 @@ bool MCLDEmulateELF(LinkerScript& pScript, LinkerConfig& pConfig) {
   }
   return true;
 }
-
-}  // namespace mcld

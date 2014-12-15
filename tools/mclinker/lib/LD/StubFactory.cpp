@@ -6,19 +6,19 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/StubFactory.h"
+#include <mcld/LD/StubFactory.h>
 
-#include "mcld/IRBuilder.h"
-#include "mcld/Fragment/Relocation.h"
-#include "mcld/Fragment/Stub.h"
-#include "mcld/LD/BranchIsland.h"
-#include "mcld/LD/BranchIslandFactory.h"
-#include "mcld/LD/LDSymbol.h"
-#include "mcld/LD/ResolveInfo.h"
+#include <mcld/IRBuilder.h>
+#include <mcld/Fragment/Relocation.h>
+#include <mcld/Fragment/Stub.h>
+#include <mcld/LD/BranchIsland.h>
+#include <mcld/LD/BranchIslandFactory.h>
+#include <mcld/LD/LDSymbol.h>
+#include <mcld/LD/ResolveInfo.h>
 
 #include <string>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // StubFactory
@@ -130,5 +130,3 @@ Stub* StubFactory::findPrototype(const Relocation& pReloc,
   }
   return NULL;
 }
-
-}  // namespace mcld

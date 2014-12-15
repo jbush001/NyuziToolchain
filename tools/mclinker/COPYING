@@ -5,6 +5,5 @@ Distributed with MCLinker Project
 ================================================
 Program             Directory
 -------             ---------
-cpplint             ${MCLinker}/utils/cpplint
 Google Test         ${MCLinker}/utils/gtest
 zlib                ${MCLinker}/utils/zlib

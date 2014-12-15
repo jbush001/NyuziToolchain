@@ -6,23 +6,22 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Object/ObjectBuilder.h"
+#include <mcld/Object/ObjectBuilder.h>
 
-#include "mcld/IRBuilder.h"
-#include "mcld/LinkerScript.h"
-#include "mcld/Module.h"
-#include "mcld/Fragment/AlignFragment.h"
-#include "mcld/Fragment/FillFragment.h"
-#include "mcld/Fragment/NullFragment.h"
-#include "mcld/LD/DebugString.h"
-#include "mcld/LD/EhFrame.h"
-#include "mcld/LD/LDSection.h"
-#include "mcld/LD/SectionData.h"
-#include "mcld/Object/SectionMap.h"
+#include <mcld/IRBuilder.h>
+#include <mcld/LinkerScript.h>
+#include <mcld/Module.h>
+#include <mcld/Fragment/AlignFragment.h>
+#include <mcld/Fragment/FillFragment.h>
+#include <mcld/Fragment/NullFragment.h>
+#include <mcld/LD/EhFrame.h>
+#include <mcld/LD/LDSection.h>
+#include <mcld/LD/SectionData.h>
+#include <mcld/Object/SectionMap.h>
 
 #include <llvm/Support/Casting.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // ObjectBuilder
@@ -84,17 +83,6 @@ LDSection* ObjectBuilder::MergeSection(const Input& pInputFile,
         eh_frame = IRBuilder::CreateEhFrame(*target);
 
       eh_frame->merge(pInputFile, *pInputSection.getEhFrame());
-      UpdateSectionAlign(*target, pInputSection);
-      return target;
-    }
-    case LDFileFormat::DebugString: {
-      DebugString* debug_str = NULL;
-      if (target->hasDebugString())
-        debug_str = target->getDebugString();
-      else
-        debug_str = IRBuilder::CreateDebugString(*target);
-
-      debug_str->merge(pInputSection);
       UpdateSectionAlign(*target, pInputSection);
       return target;
     }
@@ -212,5 +200,3 @@ uint64_t ObjectBuilder::AppendFragment(Fragment& pFrag,
   else
     return pFrag.size();
 }
-
-}  // namespace mcld

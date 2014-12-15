@@ -7,9 +7,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mcld/LD/ResolveInfo.h"
-#include "mcld/Support/MsgHandling.h"
-#include "mcld/Target/OutputRelocSection.h"
+#include <mcld/LD/ResolveInfo.h>
+#include <mcld/Support/MsgHandling.h>
+#include <mcld/Target/OutputRelocSection.h>
 
 #include "MipsGOT.h"
 #include "MipsRelocator.h"
@@ -25,7 +25,7 @@ const size_t MipsGOTGpOffset = 0x7FF0;
 const size_t MipsGOTSize = MipsGOTGpOffset + 0x7FFF;
 }
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // MipsGOT::GOTMultipart
@@ -435,5 +435,3 @@ void Mips64GOT::reserveHeader() {
   createEntry(0, m_SectionData);
   createEntry(Mips64ModulePtr, m_SectionData);
 }
-
-}  // namespace mcld

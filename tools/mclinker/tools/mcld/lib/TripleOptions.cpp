@@ -15,6 +15,7 @@
 #include <mcld/Support/SystemUtils.h>
 
 #include <llvm/ADT/StringSwitch.h>
+#include <llvm/MC/SubtargetFeature.h>
 
 namespace {
 
@@ -31,6 +32,12 @@ llvm::cl::opt<std::string> ArgMCPU(
     llvm::cl::desc("Target a specific cpu type (-mcpu=help for details)"),
     llvm::cl::value_desc("cpu-name"),
     llvm::cl::init(""));
+
+llvm::cl::list<std::string> ArgMAttrs(
+    "mattr",
+    llvm::cl::CommaSeparated,
+    llvm::cl::desc("Target specific attributes (-mattr=help for details)"),
+    llvm::cl::value_desc("a1,+a2,-a3,..."));
 
 llvm::cl::opt<std::string> ArgEmulation(
     "m",
@@ -115,6 +122,7 @@ TripleOptions::TripleOptions()
     : m_TargetTriple(ArgTargetTriple),
       m_MArch(ArgMArch),
       m_MCPU(ArgMCPU),
+      m_MAttrs(ArgMAttrs),
       m_Emulation(ArgEmulation) {
 }
 
@@ -143,5 +151,14 @@ bool TripleOptions::parse(int pArgc, char* pArgv[], LinkerConfig& pConfig) {
   pConfig.targets().setTriple(triple);
   pConfig.targets().setTargetCPU(m_MCPU);
 
+  // Package up features to be passed to target/subtarget
+  std::string feature_str;
+  if (m_MAttrs.size()) {
+    llvm::SubtargetFeatures features;
+    for (unsigned i = 0; i != m_MAttrs.size(); ++i)
+      features.AddFeature(m_MAttrs[i]);
+    feature_str = features.getString();
+  }
+  pConfig.targets().setTargetFeatureString(feature_str);
   return true;
 }

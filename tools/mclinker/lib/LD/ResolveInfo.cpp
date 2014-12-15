@@ -6,18 +6,18 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/ResolveInfo.h"
+#include <mcld/LD/ResolveInfo.h>
 
-#include "mcld/LinkerConfig.h"
-#include "mcld/LD/LDSection.h"
-#include "mcld/Support/GCFactory.h"
+#include <mcld/LinkerConfig.h>
+#include <mcld/LD/LDSection.h>
+#include <mcld/Support/GCFactory.h>
 
 #include <llvm/Support/ManagedStatic.h>
 
 #include <cstdlib>
 #include <cstring>
 
-namespace mcld {
+using namespace mcld;
 
 /// g_NullResolveInfo - a pointer to Null ResolveInfo.
 static ResolveInfo* g_NullResolveInfo = NULL;
@@ -270,5 +270,3 @@ ResolveInfo* ResolveInfo::Null() {
   }
   return g_NullResolveInfo;
 }
-
-}  // namespace mcld
