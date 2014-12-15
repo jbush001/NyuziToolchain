@@ -6,10 +6,10 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Script/OutputArchCmd.h"
-#include "mcld/Support/raw_ostream.h"
+#include <mcld/Script/OutputArchCmd.h>
+#include <mcld/Support/raw_ostream.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // OutputArchCmd
@@ -28,5 +28,3 @@ void OutputArchCmd::dump() const {
 void OutputArchCmd::activate(Module& pModule) {
   // TODO
 }
-
-}  // namespace mcld

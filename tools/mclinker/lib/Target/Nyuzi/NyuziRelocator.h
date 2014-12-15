@@ -51,14 +51,6 @@ public:
                       LDSection& pSection,
                       Input& pInput);
 
-  /// getDebugStringOffset - get the offset from the relocation target. This is
-  /// used to get the debug string offset.
-  uint32_t getDebugStringOffset(Relocation& pReloc) const;
-
-  /// applyDebugStringOffset - apply the relocation target to specific offset.
-  /// This is used to set the debug string offset.
-  void applyDebugStringOffset(Relocation& pReloc, uint32_t pOffset);
-
 private:
   NyuziGNULDBackend& m_Target;
   RelRelMap m_RelRelMap;

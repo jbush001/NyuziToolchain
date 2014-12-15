@@ -6,19 +6,19 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/DiagnosticInfos.h"
+#include <mcld/LD/DiagnosticInfos.h>
 
-#include "mcld/LinkerConfig.h"
-#include "mcld/ADT/SizeTraits.h"
-#include "mcld/LD/Diagnostic.h"
-#include "mcld/LD/DiagnosticPrinter.h"
+#include <mcld/LinkerConfig.h>
+#include <mcld/ADT/SizeTraits.h>
+#include <mcld/LD/Diagnostic.h>
+#include <mcld/LD/DiagnosticPrinter.h>
 
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/DataTypes.h>
 
 #include <algorithm>
 
-namespace mcld {
+using namespace mcld;
 
 namespace {
 
@@ -169,5 +169,3 @@ bool DiagnosticInfos::process(DiagnosticEngine& pEngine) const {
   pEngine.getPrinter()->handleDiagnostic(severity, info);
   return true;
 }
-
-}  // namespace mcld

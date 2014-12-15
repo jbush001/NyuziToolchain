@@ -6,14 +6,14 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/Archive.h"
-#include "mcld/MC/Input.h"
-#include "mcld/MC/InputBuilder.h"
-#include "mcld/Support/MsgHandling.h"
+#include <mcld/LD/Archive.h>
+#include <mcld/MC/Input.h>
+#include <mcld/MC/InputBuilder.h>
+#include <mcld/Support/MsgHandling.h>
 
 #include <llvm/ADT/StringRef.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // Archive
@@ -245,5 +245,3 @@ Input* Archive::getMemberFile(Input& pArchiveFile,
   }
   return member;
 }
-
-}  // namespace mcld

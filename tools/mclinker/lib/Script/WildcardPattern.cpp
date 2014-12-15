@@ -6,15 +6,15 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Script/WildcardPattern.h"
+#include <mcld/Script/WildcardPattern.h>
 
-#include "mcld/Support/GCFactory.h"
-#include "mcld/Support/raw_ostream.h"
+#include <mcld/Support/GCFactory.h>
+#include <mcld/Support/raw_ostream.h>
 
 #include <llvm/Support/ManagedStatic.h>
 #include <cassert>
 
-namespace mcld {
+using namespace mcld;
 
 typedef GCFactory<WildcardPattern, MCLD_SYMBOLS_PER_INPUT>
     WildcardPatternFactory;
@@ -61,5 +61,3 @@ void WildcardPattern::destroy(WildcardPattern*& pWildcardPattern) {
 void WildcardPattern::clear() {
   g_WildcardPatternFactory->clear();
 }
-
-}  // namespace mcld

@@ -13,28 +13,28 @@
 #include "MipsLDBackend.h"
 #include "MipsRelocator.h"
 
-#include "mcld/IRBuilder.h"
-#include "mcld/LinkerConfig.h"
-#include "mcld/Module.h"
-#include "mcld/Fragment/FillFragment.h"
-#include "mcld/LD/BranchIslandFactory.h"
-#include "mcld/LD/LDContext.h"
-#include "mcld/LD/StubFactory.h"
-#include "mcld/LD/ELFFileFormat.h"
-#include "mcld/MC/Attribute.h"
-#include "mcld/Object/ObjectBuilder.h"
-#include "mcld/Support/MemoryRegion.h"
-#include "mcld/Support/MemoryArea.h"
-#include "mcld/Support/MsgHandling.h"
-#include "mcld/Support/TargetRegistry.h"
-#include "mcld/Target/OutputRelocSection.h"
+#include <mcld/IRBuilder.h>
+#include <mcld/LinkerConfig.h>
+#include <mcld/Module.h>
+#include <mcld/Fragment/FillFragment.h>
+#include <mcld/LD/BranchIslandFactory.h>
+#include <mcld/LD/LDContext.h>
+#include <mcld/LD/StubFactory.h>
+#include <mcld/LD/ELFFileFormat.h>
+#include <mcld/MC/Attribute.h>
+#include <mcld/Object/ObjectBuilder.h>
+#include <mcld/Support/MemoryRegion.h>
+#include <mcld/Support/MemoryArea.h>
+#include <mcld/Support/MsgHandling.h>
+#include <mcld/Support/TargetRegistry.h>
+#include <mcld/Target/OutputRelocSection.h>
 
 #include <llvm/ADT/Triple.h>
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/ELF.h>
 #include <llvm/Support/Host.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // MipsGNULDBackend
@@ -302,8 +302,6 @@ void MipsGNULDBackend::orderSymbolTable(Module& pModule) {
       symbols.dynamicBegin(), symbols.dynamicEnd(), DynsymGOTCompare(*m_pGOT));
 }
 
-}  // namespace mcld
-
 namespace llvm {
 namespace ELF {
 // SHT_MIPS_OPTIONS section's block descriptor.
@@ -348,8 +346,6 @@ struct Elf64_RegInfo {
 
 }  // namespace ELF
 }  // namespace llvm
-
-namespace mcld {
 
 bool MipsGNULDBackend::readSection(Input& pInput, SectionData& pSD) {
   llvm::StringRef name(pSD.getSection().name());
@@ -952,14 +948,12 @@ static TargetLDBackend* createMipsLDBackend(const LinkerConfig& pConfig) {
   return new Mips32GNULDBackend(pConfig, new MipsGNUInfo(triple));
 }
 
-}  // namespace mcld
-
 //===----------------------------------------------------------------------===//
 // Force static initialization.
 //===----------------------------------------------------------------------===//
 extern "C" void MCLDInitializeMipsLDBackend() {
   mcld::TargetRegistry::RegisterTargetLDBackend(mcld::TheMipselTarget,
-                                                mcld::createMipsLDBackend);
+                                                createMipsLDBackend);
   mcld::TargetRegistry::RegisterTargetLDBackend(mcld::TheMips64elTarget,
-                                                mcld::createMipsLDBackend);
+                                                createMipsLDBackend);
 }

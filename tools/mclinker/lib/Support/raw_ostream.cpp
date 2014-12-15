@@ -6,8 +6,8 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Config/Config.h"
-#include "mcld/Support/raw_ostream.h"
+#include <mcld/Config/Config.h>
+#include <mcld/Support/raw_ostream.h>
 
 #if defined(HAVE_UNISTD_H)
 #include <unistd.h>
@@ -29,36 +29,36 @@
 #endif
 #endif
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // raw_ostream
 //===----------------------------------------------------------------------===//
-raw_fd_ostream::raw_fd_ostream(const char* pFilename,
-                               std::error_code& pErrorCode,
-                               llvm::sys::fs::OpenFlags pFlags)
+mcld::raw_fd_ostream::raw_fd_ostream(const char* pFilename,
+                                     std::error_code& pErrorCode,
+                                     llvm::sys::fs::OpenFlags pFlags)
     : llvm::raw_fd_ostream(pFilename, pErrorCode, pFlags),
       m_bConfigColor(false),
       m_bSetColor(false) {
 }
 
-raw_fd_ostream::raw_fd_ostream(int pFD,
-                               bool pShouldClose,
-                               bool pUnbuffered)
+mcld::raw_fd_ostream::raw_fd_ostream(int pFD,
+                                     bool pShouldClose,
+                                     bool pUnbuffered)
     : llvm::raw_fd_ostream(pFD, pShouldClose, pUnbuffered),
       m_bConfigColor(false),
       m_bSetColor(false) {
 }
 
-raw_fd_ostream::~raw_fd_ostream() {
+mcld::raw_fd_ostream::~raw_fd_ostream() {
 }
 
-void raw_fd_ostream::setColor(bool pEnable) {
+void mcld::raw_fd_ostream::setColor(bool pEnable) {
   m_bConfigColor = true;
   m_bSetColor = pEnable;
 }
 
-llvm::raw_ostream& raw_fd_ostream::changeColor(
+llvm::raw_ostream& mcld::raw_fd_ostream::changeColor(
     enum llvm::raw_ostream::Colors pColor,
     bool pBold,
     bool pBackground) {
@@ -67,19 +67,19 @@ llvm::raw_ostream& raw_fd_ostream::changeColor(
   return llvm::raw_fd_ostream::changeColor(pColor, pBold, pBackground);
 }
 
-llvm::raw_ostream& raw_fd_ostream::resetColor() {
+llvm::raw_ostream& mcld::raw_fd_ostream::resetColor() {
   if (!is_displayed())
     return *this;
   return llvm::raw_fd_ostream::resetColor();
 }
 
-llvm::raw_ostream& raw_fd_ostream::reverseColor() {
+llvm::raw_ostream& mcld::raw_fd_ostream::reverseColor() {
   if (!is_displayed())
     return *this;
   return llvm::raw_ostream::reverseColor();
 }
 
-bool raw_fd_ostream::is_displayed() const {
+bool mcld::raw_fd_ostream::is_displayed() const {
   if (m_bConfigColor)
     return m_bSetColor;
 
@@ -89,16 +89,14 @@ bool raw_fd_ostream::is_displayed() const {
 //===----------------------------------------------------------------------===//
 //  outs(), errs(), nulls()
 //===----------------------------------------------------------------------===//
-raw_fd_ostream& outs() {
+mcld::raw_fd_ostream& mcld::outs() {
   // Set buffer settings to model stdout behavior.
-  static raw_fd_ostream S(STDOUT_FILENO, false);
+  static mcld::raw_fd_ostream S(STDOUT_FILENO, false);
   return S;
 }
 
-raw_fd_ostream& errs() {
+mcld::raw_fd_ostream& mcld::errs() {
   // Set standard error to be unbuffered by default.
-  static raw_fd_ostream S(STDERR_FILENO, false, true);
+  static mcld::raw_fd_ostream S(STDERR_FILENO, false, true);
   return S;
 }
-
-}  // namespace mcld

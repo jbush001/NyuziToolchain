@@ -6,11 +6,11 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Target/PLT.h"
+#include <mcld/Target/PLT.h>
 
-#include "mcld/IRBuilder.h"
+#include <mcld/IRBuilder.h>
 
-namespace mcld {
+using namespace mcld;
 
 class GOT;
 
@@ -23,5 +23,3 @@ PLT::PLT(LDSection& pSection) : m_Section(pSection) {
 
 PLT::~PLT() {
 }
-
-}  // namespace mcld

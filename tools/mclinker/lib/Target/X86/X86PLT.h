@@ -9,7 +9,9 @@
 #ifndef TARGET_X86_X86PLT_H_
 #define TARGET_X86_X86PLT_H_
 
-#include "mcld/Target/PLT.h"
+#include <mcld/Target/PLT.h>
+
+namespace {
 
 const uint8_t x86_32_dyn_plt0[] = {
     0xff, 0xb3, 0x04, 0, 0, 0,  // pushl  0x4(%ebx)
@@ -46,6 +48,8 @@ const uint8_t x86_64_plt1[] = {
     0x68, 0, 0, 0, 0,        // pushq  $index
     0xe9, 0, 0, 0, 0         // jmpq   plt0
 };
+
+}  // anonymous namespace
 
 namespace mcld {
 

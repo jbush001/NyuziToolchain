@@ -6,9 +6,9 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Config/Config.h"
-#include "mcld/Support/FileHandle.h"
-#include "mcld/Support/FileSystem.h"
+#include <mcld/Config/Config.h>
+#include <mcld/Support/FileHandle.h>
+#include <mcld/Support/FileSystem.h>
 
 #include <errno.h>
 
@@ -21,7 +21,7 @@
 
 #include <sys/stat.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // FileHandle
@@ -243,5 +243,3 @@ bool FileHandle::isFailed() const {
 bool FileHandle::isOwned() const {
   return !(m_State & DeputedBit);
 }
-
-}  // namespace mcld

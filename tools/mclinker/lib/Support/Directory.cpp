@@ -6,12 +6,11 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Support/Directory.h"
-#include "mcld/Support/FileSystem.h"
+#include <mcld/Support/Directory.h>
+#include <mcld/Support/FileSystem.h>
 
-namespace mcld {
-namespace sys {
-namespace fs {
+using namespace mcld;
+using namespace mcld::sys::fs;
 
 namespace {  // anonymous
 
@@ -194,7 +193,7 @@ DirIterator& DirIterator::operator++() {
   return *this;
 }
 
-DirIterator DirIterator::operator++(int pIn) {
+DirIterator DirIterator::operator++(int) {
   DirIterator tmp(*this);
 
   // move forward one step first.
@@ -232,7 +231,3 @@ bool DirIterator::operator==(const DirIterator& y) const {
 bool DirIterator::operator!=(const DirIterator& y) const {
   return !this->operator==(y);
 }
-
-}  // namespace fs
-}  // namespace sys
-}  // namespace mcld

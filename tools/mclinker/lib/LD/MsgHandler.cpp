@@ -6,11 +6,11 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/MsgHandler.h"
+#include <mcld/LD/MsgHandler.h>
 
-#include "mcld/LD/DiagnosticEngine.h"
+#include <mcld/LD/DiagnosticEngine.h>
 
-namespace mcld {
+using namespace mcld;
 
 MsgHandler::MsgHandler(DiagnosticEngine& pEngine)
     : m_Engine(pEngine), m_NumArgs(0) {
@@ -46,5 +46,3 @@ void MsgHandler::addTaggedVal(intptr_t pValue,
   m_Engine.state().ArgumentKinds[m_NumArgs] = pKind;
   m_Engine.state().ArgumentVals[m_NumArgs++] = pValue;
 }
-
-}  // namespace mcld

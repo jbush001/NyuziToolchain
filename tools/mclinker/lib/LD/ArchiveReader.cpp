@@ -6,9 +6,9 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/ArchiveReader.h"
+#include <mcld/LD/ArchiveReader.h>
 
-namespace mcld {
+using namespace mcld;
 
 //==========================
 // MCELFArchiveReader
@@ -17,5 +17,3 @@ ArchiveReader::ArchiveReader() {
 
 ArchiveReader::~ArchiveReader() {
 }
-
-}  // namespace mcld

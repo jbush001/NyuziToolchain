@@ -8,9 +8,9 @@
 //===----------------------------------------------------------------------===//
 #include "X86ELFDynamic.h"
 
-#include "mcld/LD/ELFFileFormat.h"
+#include <mcld/LD/ELFFileFormat.h>
 
-namespace mcld {
+using namespace mcld;
 
 X86ELFDynamic::X86ELFDynamic(const GNULDBackend& pParent,
                              const LinkerConfig& pConfig)
@@ -31,5 +31,3 @@ void X86ELFDynamic::applyTargetEntries(const ELFFileFormat& pFormat) {
   if (pFormat.hasGOTPLT())
     applyOne(llvm::ELF::DT_PLTGOT, pFormat.getGOTPLT().addr());
 }
-
-}  // namespace mcld

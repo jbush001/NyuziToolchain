@@ -6,48 +6,47 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Object/ObjectLinker.h"
+#include <mcld/Object/ObjectLinker.h>
 
-#include "mcld/InputTree.h"
-#include "mcld/IRBuilder.h"
-#include "mcld/LinkerConfig.h"
-#include "mcld/LinkerScript.h"
-#include "mcld/Module.h"
-#include "mcld/Fragment/Relocation.h"
-#include "mcld/LD/Archive.h"
-#include "mcld/LD/ArchiveReader.h"
-#include "mcld/LD/BinaryReader.h"
-#include "mcld/LD/BranchIslandFactory.h"
-#include "mcld/LD/DebugString.h"
-#include "mcld/LD/DynObjReader.h"
-#include "mcld/LD/GarbageCollection.h"
-#include "mcld/LD/GroupReader.h"
-#include "mcld/LD/IdenticalCodeFolding.h"
-#include "mcld/LD/LDContext.h"
-#include "mcld/LD/LDSection.h"
-#include "mcld/LD/ObjectReader.h"
-#include "mcld/LD/ObjectWriter.h"
-#include "mcld/LD/Relocator.h"
-#include "mcld/LD/RelocData.h"
-#include "mcld/LD/ResolveInfo.h"
-#include "mcld/LD/SectionData.h"
-#include "mcld/Object/ObjectBuilder.h"
-#include "mcld/Script/Assignment.h"
-#include "mcld/Script/Operand.h"
-#include "mcld/Script/RpnEvaluator.h"
-#include "mcld/Script/ScriptFile.h"
-#include "mcld/Script/ScriptReader.h"
-#include "mcld/Support/FileOutputBuffer.h"
-#include "mcld/Support/MsgHandling.h"
-#include "mcld/Support/RealPath.h"
-#include "mcld/Target/TargetLDBackend.h"
+#include <mcld/InputTree.h>
+#include <mcld/IRBuilder.h>
+#include <mcld/LinkerConfig.h>
+#include <mcld/LinkerScript.h>
+#include <mcld/Module.h>
+#include <mcld/Fragment/Relocation.h>
+#include <mcld/LD/Archive.h>
+#include <mcld/LD/ArchiveReader.h>
+#include <mcld/LD/BinaryReader.h>
+#include <mcld/LD/BranchIslandFactory.h>
+#include <mcld/LD/DynObjReader.h>
+#include <mcld/LD/GarbageCollection.h>
+#include <mcld/LD/GroupReader.h>
+#include <mcld/LD/IdenticalCodeFolding.h>
+#include <mcld/LD/LDContext.h>
+#include <mcld/LD/LDSection.h>
+#include <mcld/LD/ObjectReader.h>
+#include <mcld/LD/ObjectWriter.h>
+#include <mcld/LD/Relocator.h>
+#include <mcld/LD/RelocData.h>
+#include <mcld/LD/ResolveInfo.h>
+#include <mcld/LD/SectionData.h>
+#include <mcld/Object/ObjectBuilder.h>
+#include <mcld/Script/Assignment.h>
+#include <mcld/Script/Operand.h>
+#include <mcld/Script/RpnEvaluator.h>
+#include <mcld/Script/ScriptFile.h>
+#include <mcld/Script/ScriptReader.h>
+#include <mcld/Support/FileOutputBuffer.h>
+#include <mcld/Support/MsgHandling.h>
+#include <mcld/Support/RealPath.h>
+#include <mcld/Target/TargetLDBackend.h>
 
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/Host.h>
 
 #include <system_error>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // ObjectLinker
@@ -134,8 +133,10 @@ void ObjectLinker::addUndefinedSymbols() {
                                           result);
 
     LDSymbol* output_sym = result.info->outSymbol();
+    bool has_output_sym = (output_sym != NULL);
+
     // create the output symbol if it dose not have one
-    if (!result.existent || (output_sym != NULL)) {
+    if (!result.existent || !has_output_sym) {
       output_sym = LDSymbol::Create(*result.info);
       result.info->setSymPtr(output_sym);
       output_sym->setFragmentRef(FragmentRef::Null());
@@ -262,10 +263,6 @@ bool ObjectLinker::linkable() const {
 }
 
 void ObjectLinker::dataStrippingOpt() {
-  if (m_Config.codeGenType() == LinkerConfig::Object) {
-    return;
-  }
-
   // Garbege collection
   if (m_Config.options().GCSections()) {
     GarbageCollection GC(m_Config, m_LDBackend, *m_pModule);
@@ -300,9 +297,6 @@ bool ObjectLinker::readRelocations() {
 
 /// mergeSections - put allinput sections into output sections
 bool ObjectLinker::mergeSections() {
-  // run the target-dependent hooks before merging sections
-  m_LDBackend.preMergeSections(*m_pModule);
-
   // Set up input/output from ldscript requirement if any
   {
     RpnEvaluator evaluator(*m_pModule, m_LDBackend);
@@ -350,7 +344,7 @@ bool ObjectLinker::mergeSections() {
         case LDFileFormat::StackNote:
           // skip
           continue;
-        case LDFileFormat::Relocation:
+        case LDFileFormat::Relocation: {
           if (!(*sect)->hasRelocData())
             continue;  // skip
 
@@ -358,6 +352,7 @@ bool ObjectLinker::mergeSections() {
               (*sect)->getLink()->kind() == LDFileFormat::Folded)
             (*sect)->setKind(LDFileFormat::Ignore);
           break;
+        }
         case LDFileFormat::Target:
           if (!m_LDBackend.mergeSection(*m_pModule, **obj, **sect)) {
             error(diag::err_cannot_merge_section) << (*sect)->name()
@@ -379,11 +374,6 @@ bool ObjectLinker::mergeSections() {
           }
           break;
         }
-        case LDFileFormat::DebugString: {
-          // FIXME: disable debug string merge when doing partial link.
-          if (LinkerConfig::Object == m_Config.codeGenType())
-            (*sect)->setKind(LDFileFormat::Debug);
-        } // Fall through
         default: {
           if (!(*sect)->hasSectionData())
             continue;  // skip
@@ -433,9 +423,6 @@ bool ObjectLinker::mergeSections() {
     }  // for each output section description
   }
 
-  // run the target-dependent hooks after merging sections
-  m_LDBackend.postMergeSections(*m_pModule);
-
   return true;
 }
 
@@ -447,26 +434,14 @@ void ObjectLinker::addSymbolToOutput(ResolveInfo& pInfo, Module& pModule) {
 
   // if the symbols defined in the Ignore sections (e.g. discared by GC), then
   // not to put them to output
-  // make sure that symbols defined in .debug_str won't add into output
-  // symbol table. Since these symbols has fragRef to input fragments, which
-  // will refer to input LDSection and has bad result when emitting their
-  // section index. However, .debug_str actually does not need symobl in
-  // shrad/executable objects, so it's fine to do so.
   if (pInfo.outSymbol()->hasFragRef() &&
-      (LDFileFormat::Ignore ==
-           pInfo.outSymbol()
-               ->fragRef()
-               ->frag()
-               ->getParent()
-               ->getSection()
-               .kind() ||
-       LDFileFormat::DebugString ==
-           pInfo.outSymbol()
-               ->fragRef()
-               ->frag()
-               ->getParent()
-               ->getSection()
-               .kind()))
+      LDFileFormat::Ignore ==
+          pInfo.outSymbol()
+              ->fragRef()
+              ->frag()
+              ->getParent()
+              ->getSection()
+              .kind())
     return;
 
   if (pInfo.shouldForceLocal(m_Config))
@@ -608,7 +583,7 @@ bool ObjectLinker::scanRelocations() {
               *relocation, *m_pBuilder, *m_pModule, **rs, **input);
         } else {
           m_LDBackend.getRelocator()->partialScanRelocation(
-              *relocation, *m_pModule);
+              *relocation, *m_pModule, **rs);
         }
       }  // for all relocations
     }    // for all relocation section
@@ -676,16 +651,6 @@ bool ObjectLinker::prelayout() {
     eh_frame_sect->getEhFrame()->computeOffsetSize();
   m_LDBackend.createAndSizeEhFrameHdr(*m_pModule);
 
-  // size debug string table and set up the debug string offset
-  // we set the .debug_str size here so that there won't be a section symbol for
-  // .debug_str. While actually it doesn't matter that .debug_str has section
-  // symbol or not.
-  // FIXME: disable debug string merge when doing partial link.
-  if (LinkerConfig::Object != m_Config.codeGenType()) {
-    LDSection* debug_str_sect = m_pModule->getSection(".debug_str");
-    if (debug_str_sect && debug_str_sect->hasDebugString())
-      debug_str_sect->getDebugString()->computeOffsetSize();
-  }
   return true;
 }
 
@@ -780,8 +745,6 @@ bool ObjectLinker::relocation() {
   if (LinkerConfig::Object == m_Config.codeGenType())
     return true;
 
-  LDSection* debug_str_sect = m_pModule->getSection(".debug_str");
-
   // apply all relocations of all inputs
   Module::obj_iterator input, inEnd = m_pModule->obj_end();
   for (input = m_pModule->obj_begin(); input != inEnd; ++input) {
@@ -806,19 +769,6 @@ bool ObjectLinker::relocation() {
             ResolveInfo::Undefined == info->desc())
           continue;
 
-        // apply the relocation aginst symbol on DebugString
-        if (info->outSymbol()->hasFragRef() &&
-            info->outSymbol()->fragRef()->frag()->getKind()
-                == Fragment::Region &&
-            info->outSymbol()->fragRef()->frag()->getParent()->getSection()
-                .kind() == LDFileFormat::DebugString) {
-          assert(debug_str_sect != NULL);
-          assert(debug_str_sect->hasDebugString());
-          debug_str_sect->getDebugString()->applyOffset(*relocation,
-                                                        m_LDBackend);
-          continue;
-        }
-
         relocation->apply(*m_LDBackend.getRelocator());
       }  // for all relocations
     }    // for all relocation section
@@ -834,7 +784,6 @@ bool ObjectLinker::relocation() {
     for (iter = island.reloc_begin(); iter != iterEnd; ++iter)
       (*iter)->apply(*m_LDBackend.getRelocator());
   }
-
   return true;
 }
 
@@ -976,5 +925,3 @@ void ObjectLinker::writeRelocationResult(Relocation& pReloc, uint8_t* pOutput) {
                 pReloc.size(*m_LDBackend.getRelocator()) / 8);
   }
 }
-
-}  // namespace mcld

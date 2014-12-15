@@ -3,7 +3,6 @@ add_mcld_library(MCLDARMLDBackend
   ARMELFAttributeData.cpp
   ARMELFDynamic.cpp
   ARMEmulation.cpp
-  ARMException.cpp
   ARMGOT.cpp
   ARMLDBackend.cpp
   ARMPLT.cpp

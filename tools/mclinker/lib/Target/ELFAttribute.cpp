@@ -6,26 +6,26 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Target/ELFAttribute.h"
+#include <mcld/Target/ELFAttribute.h>
 
-#include "mcld/ADT/SizeTraits.h"
-#include "mcld/Fragment/RegionFragment.h"
-#include "mcld/LD/LDSection.h"
-#include "mcld/LD/SectionData.h"
-#include "mcld/LinkerConfig.h"
-#include "mcld/MC/Input.h"
-#include "mcld/Support/LEB128.h"
-#include "mcld/Support/MemoryArea.h"
-#include "mcld/Support/MsgHandling.h"
-#include "mcld/Target/ELFAttributeValue.h"
-#include "mcld/Target/GNULDBackend.h"
+#include <mcld/ADT/SizeTraits.h>
+#include <mcld/Fragment/RegionFragment.h>
+#include <mcld/LD/LDSection.h>
+#include <mcld/LD/SectionData.h>
+#include <mcld/LinkerConfig.h>
+#include <mcld/MC/Input.h>
+#include <mcld/Support/LEB128.h>
+#include <mcld/Support/MemoryArea.h>
+#include <mcld/Support/MsgHandling.h>
+#include <mcld/Target/ELFAttributeValue.h>
+#include <mcld/Target/GNULDBackend.h>
 
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/Support/Host.h>
 
 #include <cstring>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // ELFAttribute
@@ -356,5 +356,3 @@ size_t ELFAttribute::Subsection::emit(char* pBuf) const {
 
   return subsection_length;
 }
-
-}  // namespace mcld

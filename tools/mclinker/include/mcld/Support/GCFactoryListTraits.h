@@ -35,13 +35,13 @@ class GCFactoryListTraits : public llvm::ilist_default_traits<DataType> {
     return reinterpret_cast<DataType*>(&mSentinel);
   }
 
-  static void destroySentinel(DataType* pData) {}
+  static void destroySentinel(DataType*) {}
 
   DataType* provideInitialHead() const { return createSentinel(); }
 
-  DataType* ensureHead(DataType* pData) const { return createSentinel(); }
+  DataType* ensureHead(DataType*) const { return createSentinel(); }
 
-  static void noteHead(DataType* pNew, DataType* pSentinel) {}
+  static void noteHead(DataType*, DataType*) {}
 
   // override the traits provided in llvm::ilist_node_traits since
   static DataType* createNode(const DataType& V) {

@@ -6,12 +6,12 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/MC/SearchDirs.h"
+#include <mcld/MC/SearchDirs.h>
 
-#include "mcld/MC/MCLDDirectory.h"
-#include "mcld/Support/FileSystem.h"
+#include <mcld/MC/MCLDDirectory.h>
+#include <mcld/Support/FileSystem.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // Non-member functions
@@ -196,5 +196,3 @@ const mcld::sys::fs::Path* SearchDirs::find(const std::string& pNamespec,
   }    // end of for
   return NULL;
 }
-
-}  // namespace mcld

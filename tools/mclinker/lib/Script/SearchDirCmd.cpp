@@ -6,13 +6,13 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Script/SearchDirCmd.h"
+#include <mcld/Script/SearchDirCmd.h>
 
-#include "mcld/Support/raw_ostream.h"
-#include "mcld/LinkerScript.h"
-#include "mcld/Module.h"
+#include <mcld/Support/raw_ostream.h>
+#include <mcld/LinkerScript.h>
+#include <mcld/Module.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // SearchDirCmd
@@ -31,5 +31,3 @@ void SearchDirCmd::dump() const {
 void SearchDirCmd::activate(Module& pModule) {
   pModule.getScript().directories().insert(m_Path);
 }
-
-}  // namespace mcld

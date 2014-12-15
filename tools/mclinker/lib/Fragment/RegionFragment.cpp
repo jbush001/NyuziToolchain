@@ -6,9 +6,9 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/Fragment/RegionFragment.h"
+#include <mcld/Fragment/RegionFragment.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // RegionFragment
@@ -23,5 +23,3 @@ RegionFragment::~RegionFragment() {
 size_t RegionFragment::size() const {
   return m_Region.size();
 }
-
-}  // namespace mcld

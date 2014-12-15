@@ -6,13 +6,13 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/MC/InputFactory.h"
+#include <mcld/MC/InputFactory.h>
 
-#include "mcld/LinkerConfig.h"
-#include "mcld/AttributeOption.h"
-#include "mcld/MC/AttributeSet.h"
+#include <mcld/LinkerConfig.h>
+#include <mcld/AttributeOption.h>
+#include <mcld/MC/AttributeSet.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // InputFactory
@@ -47,5 +47,3 @@ Input* InputFactory::produce(llvm::StringRef pName,
   new (result) Input(pName, sys::fs::Path(pPath), *m_pLast, pType, pFileOffset);
   return result;
 }
-
-}  // namespace mcld

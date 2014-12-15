@@ -109,23 +109,6 @@ void NyuziRelocator::scanRelocation(Relocation& pReloc,
     issueUndefRef(pReloc, pSection, pInput);
 }
 
-uint32_t NyuziRelocator::getDebugStringOffset(Relocation& pReloc) const {
-  if (pReloc.type() != llvm::ELF::R_NYUZI_ABS32)
-    error(diag::unsupport_reloc_for_debug_string)
-        << getName(pReloc.type());
-
-  if (pReloc.symInfo()->type() == ResolveInfo::Section)
-    return pReloc.target();
-  else
-    return pReloc.symInfo()->outSymbol()->fragRef()->offset() +
-               pReloc.target() + pReloc.addend();
-}
-
-void NyuziRelocator::applyDebugStringOffset(Relocation& pReloc,
-                                            uint32_t pOffset) {
-  pReloc.target() = pOffset;
-}
-
 //===----------------------------------------------------------------------===//
 // Each relocation function implementation
 //===----------------------------------------------------------------------===//

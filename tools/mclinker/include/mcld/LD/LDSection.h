@@ -9,9 +9,9 @@
 #ifndef MCLD_LD_LDSECTION_H_
 #define MCLD_LD_LDSECTION_H_
 
-#include "mcld/Config/Config.h"
-#include "mcld/LD/LDFileFormat.h"
-#include "mcld/Support/Allocators.h"
+#include <mcld/Config/Config.h>
+#include <mcld/LD/LDFileFormat.h>
+#include <mcld/Support/Allocators.h>
 
 #include <llvm/Support/DataTypes.h>
 
@@ -19,7 +19,6 @@
 
 namespace mcld {
 
-class DebugString;
 class EhFrame;
 class RelocData;
 class SectionData;
@@ -153,15 +152,6 @@ class LDSection {
 
   bool hasEhFrame() const;
 
-  // ------  DebugString  ------ //
-  const DebugString* getDebugString() const { return m_Data.debug_string; }
-  DebugString*       getDebugString()       { return m_Data.debug_string; }
-
-  void setDebugString(DebugString* pDebugString)
-  { m_Data.debug_string = pDebugString; }
-
-  bool hasDebugString() const;
-
   /// setLink - set the sections should link with.
   /// if pLink is NULL, no Link section is set.
   void setLink(LDSection* pLink) { m_pLink = pLink; }
@@ -171,11 +161,10 @@ class LDSection {
   void setIndex(size_t pIndex) { m_Index = pIndex; }
 
  private:
-  union Data {
+  union SectOrRelocData {
     SectionData* sect_data;
-    RelocData*   reloc_data;
-    EhFrame*     eh_frame;
-    DebugString* debug_string;
+    RelocData* reloc_data;
+    EhFrame* eh_frame;
   };
 
  private:
@@ -194,7 +183,7 @@ class LDSection {
   LDSection* m_pLink;
 
   /// m_Data - the SectionData or RelocData of this section
-  Data m_Data;
+  SectOrRelocData m_Data;
 
   /// m_Index - the index of the file
   size_t m_Index;

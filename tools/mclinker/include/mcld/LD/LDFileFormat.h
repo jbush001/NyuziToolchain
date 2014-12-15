@@ -30,7 +30,6 @@ class LDFileFormat {
     NamePool,
     Relocation,
     Debug,
-    DebugString,
     Target,
     EhFrame,
     EhFrameHdr,

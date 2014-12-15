@@ -6,19 +6,19 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/EhFrameReader.h"
+#include <mcld/LD/EhFrameReader.h>
 
-#include "mcld/Fragment/NullFragment.h"
-#include "mcld/MC/Input.h"
-#include "mcld/LD/LDSection.h"
-#include "mcld/Support/MsgHandling.h"
-#include "mcld/Support/MemoryArea.h"
+#include <mcld/Fragment/NullFragment.h>
+#include <mcld/MC/Input.h>
+#include <mcld/LD/LDSection.h>
+#include <mcld/Support/MsgHandling.h>
+#include <mcld/Support/MemoryArea.h>
 
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/Dwarf.h>
 #include <llvm/Support/LEB128.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // Helper Functions
@@ -358,5 +358,3 @@ bool EhFrameReader::reject(EhFrame& pEhFrame,
                            const EhFrameReader::Token& pToken) {
   return true;
 }
-
-}  // namespace mcld

@@ -6,9 +6,11 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/DWARFLineInfo.h"
-#include "mcld/Support/TargetRegistry.h"
+#include <mcld/LD/DWARFLineInfo.h>
+#include <mcld/Support/TargetRegistry.h>
 #include "ARM.h"
+
+using namespace mcld;
 
 namespace mcld {
 //===----------------------------------------------------------------------===//
@@ -26,8 +28,8 @@ DiagnosticLineInfo* createARMDiagLineInfo(const mcld::Target& pTarget,
 //===----------------------------------------------------------------------===//
 extern "C" void MCLDInitializeARMDiagnosticLineInfo() {
   // Register the linker frontend
-  mcld::TargetRegistry::RegisterDiagnosticLineInfo(mcld::TheARMTarget,
-                                                   mcld::createARMDiagLineInfo);
-  mcld::TargetRegistry::RegisterDiagnosticLineInfo(mcld::TheThumbTarget,
-                                                   mcld::createARMDiagLineInfo);
+  mcld::TargetRegistry::RegisterDiagnosticLineInfo(TheARMTarget,
+                                                   createARMDiagLineInfo);
+  mcld::TargetRegistry::RegisterDiagnosticLineInfo(TheThumbTarget,
+                                                   createARMDiagLineInfo);
 }

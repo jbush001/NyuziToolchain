@@ -10,15 +10,15 @@
 #include "HexagonRelocationFunctions.h"
 #include "HexagonEncodings.h"
 
-#include "mcld/LD/ELFFileFormat.h"
-#include "mcld/LD/LDSymbol.h"
-#include "mcld/Support/MsgHandling.h"
+#include <mcld/LD/ELFFileFormat.h>
+#include <mcld/LD/LDSymbol.h>
+#include <mcld/Support/MsgHandling.h>
 
 #include <llvm/ADT/Twine.h>
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/ELF.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===--------------------------------------------------------------------===//
 // Relocation Helper Functions
@@ -473,7 +473,8 @@ LDSymbol& HexagonRelocator::defineSymbolforCopyReloc(
 }
 
 void HexagonRelocator::partialScanRelocation(Relocation& pReloc,
-                                             Module& pModule) {
+                                             Module& pModule,
+                                             const LDSection& pSection) {
   pReloc.updateAddend();
   // if we meet a section symbol
   if (pReloc.symInfo()->type() == ResolveInfo::Section) {
@@ -961,8 +962,6 @@ Relocator::Result relocGOTREL(Relocation& pReloc, HexagonRelocator& pParent) {
   return Relocator::OK;
 }
 
-Relocator::Result unsupported(Relocation& pReloc, HexagonRelocator& pParent) {
-  return Relocator::Unsupported;
+Relocator::Result unsupport(Relocation& pReloc, HexagonRelocator& pParent) {
+  return Relocator::Unsupport;
 }
-
-}  // namespace mcld

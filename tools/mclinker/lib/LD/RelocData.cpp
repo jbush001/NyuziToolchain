@@ -6,13 +6,13 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/RelocData.h"
+#include <mcld/LD/RelocData.h>
 
-#include "mcld/Support/GCFactory.h"
+#include <mcld/Support/GCFactory.h>
 
 #include <llvm/Support/ManagedStatic.h>
 
-namespace mcld {
+using namespace mcld;
 
 typedef GCFactory<RelocData, MCLD_SECTIONS_PER_INPUT> RelocDataFactory;
 
@@ -53,5 +53,3 @@ Relocation& RelocData::remove(Relocation& pRelocation) {
   Relocation* rel = m_Relocations.remove(iter);
   return *rel;
 }
-
-}  // namespace mcld

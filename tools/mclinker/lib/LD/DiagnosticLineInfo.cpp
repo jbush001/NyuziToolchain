@@ -6,11 +6,9 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/DiagnosticLineInfo.h"
+#include <mcld/LD/DiagnosticLineInfo.h>
 
-namespace mcld {
+using namespace mcld;
 
 //==========================
 // DiagnosticLineInfo
-
-}  // namespace mcld

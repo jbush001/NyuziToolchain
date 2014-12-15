@@ -10,14 +10,14 @@
 #include "HexagonAbsoluteStub.h"
 #include "HexagonLDBackend.h"
 
-#include "mcld/LD/ResolveInfo.h"
-#include "mcld/LD/LDSymbol.h"
-#include "mcld/Fragment/Relocation.h"
+#include <mcld/LD/ResolveInfo.h>
+#include <mcld/LD/LDSymbol.h>
+#include <mcld/Fragment/Relocation.h>
 
 #include <llvm/Support/ELF.h>
 #include <llvm/Support/MathExtras.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // HexagonAbsoluteStub
@@ -108,5 +108,3 @@ size_t HexagonAbsoluteStub::alignment() const {
 Stub* HexagonAbsoluteStub::doClone() {
   return new HexagonAbsoluteStub(m_pData, m_Size, fixup_begin(), fixup_end());
 }
-
-}  // namespace mcld

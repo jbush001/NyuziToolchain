@@ -6,14 +6,12 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/BinaryReader.h"
+#include <mcld/LD/BinaryReader.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // BinaryReader
 //===----------------------------------------------------------------------===//
 BinaryReader::~BinaryReader() {
 }
-
-}  // namespace mcld

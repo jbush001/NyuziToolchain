@@ -9,12 +9,12 @@
 #ifndef MCLD_ADT_HASHTABLE_H_
 #define MCLD_ADT_HASHTABLE_H_
 
-#include "mcld/ADT/HashBase.h"
-#include "mcld/ADT/HashEntryFactory.h"
-#include "mcld/ADT/HashIterator.h"
-#include "mcld/ADT/TypeTraits.h"
-#include "mcld/Support/Allocators.h"
-#include "mcld/Support/Compiler.h"
+#include <mcld/ADT/HashBase.h>
+#include <mcld/ADT/HashEntryFactory.h>
+#include <mcld/ADT/HashIterator.h>
+#include <mcld/ADT/TypeTraits.h>
+#include <mcld/ADT/Uncopyable.h>
+#include <mcld/Support/Allocators.h>
 
 #include <utility>
 
@@ -31,7 +31,8 @@ namespace mcld {
 template <typename HashEntryTy,
           typename HashFunctionTy,
           typename EntryFactoryTy = HashEntryFactory<HashEntryTy> >
-class HashTable : public HashTableImpl<HashEntryTy, HashFunctionTy> {
+class HashTable : public HashTableImpl<HashEntryTy, HashFunctionTy>,
+                  private Uncopyable {
  private:
   typedef HashTableImpl<HashEntryTy, HashFunctionTy> BaseTy;
 
@@ -109,9 +110,6 @@ class HashTable : public HashTableImpl<HashEntryTy, HashFunctionTy> {
 
  private:
   EntryFactoryTy m_EntryFactory;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(HashTable);
 };
 
 #include "HashTable.tcc"

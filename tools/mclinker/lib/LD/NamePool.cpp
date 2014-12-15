@@ -6,13 +6,13 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/LD/NamePool.h"
+#include <mcld/LD/NamePool.h>
 
-#include "mcld/LD/StaticResolver.h"
+#include <mcld/LD/StaticResolver.h>
 
 #include <llvm/Support/raw_ostream.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // NamePool
@@ -153,5 +153,3 @@ const LDSymbol* NamePool::findSymbol(const llvm::StringRef& pName) const {
     return NULL;
   return info->outSymbol();
 }
-
-}  // namespace mcld

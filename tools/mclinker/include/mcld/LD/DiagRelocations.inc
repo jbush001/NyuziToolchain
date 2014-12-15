@@ -16,9 +16,9 @@ DIAG(undefined_reference_text,
      "%1:%2: undefined reference to `%0'")
 DIAG(non_pic_relocation,
      DiagnosticEngine::Error,
-     "attempt to generate unsupported relocation `%0' for symbol `%1', "
+     "attempt to generate unsupported relocation type `%0' for symbol `%1', "
      "recompile with -fPIC",
-     "attempt to generate unsupported relocation `%0' for symbol `%1, "
+     "attempt to generate unsupported relocation type `%0' for symbol `%1, "
      "recompile with -fPIC")
 DIAG(base_relocation,
      DiagnosticEngine::Fatal,
@@ -58,15 +58,9 @@ DIAG(unknown_reloc_section_type,
      DiagnosticEngine::Unreachable,
      "unknown relocation section type: `%0' in section `%1'",
      "unknown relocation section type: `%0' in section `%1'")
-DIAG(unsupported_cond_branch_reloc,
+DIAG(unsupport_cond_branch_reloc,
      DiagnosticEngine::Error,
      "applying relocation `%0', conditional branch to PLT in THUMB-2 not "
      "supported yet",
      "applying relocation `%0', conditional branch to PLT in THUMB-2 not "
      "supported yet")
-DIAG(unsupport_reloc_for_debug_string,
-     DiagnosticEngine::Error,
-     "applying relocation `%0' for .debug_str is not supported. "
-     "Please report to %1",
-     "applying relocation `%0' for .debug_str is not supported. "
-     "Please report to %1")

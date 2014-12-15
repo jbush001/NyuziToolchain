@@ -6,9 +6,9 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/TargetOptions.h"
+#include <mcld/TargetOptions.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // TargetOptions
@@ -39,4 +39,6 @@ void TargetOptions::setTargetCPU(const std::string& pCPU) {
   m_TargetCPU = pCPU;
 }
 
-}  // namespace mcld
+void TargetOptions::setTargetFeatureString(const std::string& pFS) {
+  m_TargetFS = pFS;
+}

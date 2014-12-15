@@ -6,9 +6,9 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include "mcld/ADT/StringEntry.h"
+#include <mcld/ADT/StringEntry.h>
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // StringEntry<llvm::StringRef>
@@ -31,15 +31,13 @@ StringEntry<llvm::StringRef>::~StringEntry() {
 
 void StringEntry<llvm::StringRef>::setValue(llvm::StringRef pVal) {
   char* data = reinterpret_cast<char*>(malloc(pVal.size() + 1));
-  ::memcpy(data, pVal.data(), pVal.size());
+  strcpy(data, pVal.data());
   m_Value = llvm::StringRef(data, pVal.size());
 }
 
 void StringEntry<llvm::StringRef>::setValue(const char* pVal) {
   size_t length = strlen(pVal);
   char* data = reinterpret_cast<char*>(malloc(length + 1));
-  ::memcpy(data, pVal, length);
+  strcpy(data, pVal);
   m_Value = llvm::StringRef(data, length);
 }
-
-}  // namespace mcld

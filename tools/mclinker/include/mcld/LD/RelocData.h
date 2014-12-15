@@ -9,12 +9,10 @@
 #ifndef MCLD_LD_RELOCDATA_H_
 #define MCLD_LD_RELOCDATA_H_
 
-#include "mcld/ADT/ilist_sort.h"
-#include "mcld/Config/Config.h"
-#include "mcld/Fragment/Relocation.h"
-#include "mcld/Support/Allocators.h"
-#include "mcld/Support/Compiler.h"
-#include "mcld/Support/GCFactoryListTraits.h"
+#include <mcld/Config/Config.h>
+#include <mcld/Fragment/Relocation.h>
+#include <mcld/Support/Allocators.h>
+#include <mcld/Support/GCFactoryListTraits.h>
 
 #include <llvm/ADT/ilist.h>
 #include <llvm/ADT/ilist_node.h>
@@ -39,6 +37,9 @@ class RelocData {
 
   RelocData();
   explicit RelocData(LDSection& pSection);
+
+  RelocData(const RelocData&);             // DO NOT IMPLEMENT
+  RelocData& operator=(const RelocData&);  // DO NOT IMPLEMENT
 
  public:
   typedef llvm::iplist<Relocation, GCFactoryListTraits<Relocation> >
@@ -89,15 +90,23 @@ class RelocData {
 
   template <class Comparator>
   void sort(Comparator pComparator) {
-    mcld::sort(m_Relocations, pComparator);
+    /* FIXME: use llvm::iplist::sort */
+    std::list<Relocation*> relocs;
+    for (iterator it = begin(), ie = end(); it != ie; ++it)
+      relocs.push_back(it);
+    relocs.sort(pComparator);
+    m_Relocations.clear();
+    for (std::list<Relocation*>::iterator it = relocs.begin(),
+                                          ie = relocs.end();
+         it != ie;
+         ++it) {
+      m_Relocations.push_back(*it);
+    }
   }
 
  private:
   RelocationListType m_Relocations;
   LDSection* m_pSection;
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(RelocData);
 };
 
 }  // namespace mcld

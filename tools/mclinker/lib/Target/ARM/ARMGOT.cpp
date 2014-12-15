@@ -8,9 +8,9 @@
 //===----------------------------------------------------------------------===//
 #include "ARMGOT.h"
 
-#include "mcld/LD/LDSection.h"
-#include "mcld/LD/LDFileFormat.h"
-#include "mcld/Support/MsgHandling.h"
+#include <mcld/LD/LDSection.h>
+#include <mcld/LD/LDFileFormat.h>
+#include <mcld/Support/MsgHandling.h>
 
 #include <llvm/Support/Casting.h>
 
@@ -18,7 +18,7 @@ namespace {
 const unsigned int ARMGOT0Num = 3;
 }  // end of anonymous namespace
 
-namespace mcld {
+using namespace mcld;
 
 //===----------------------------------------------------------------------===//
 // ARMGOT
@@ -124,5 +124,3 @@ uint64_t ARMGOT::emit(MemoryRegion& pRegion) {
   }
   return result;
 }
-
-}  // namespace mcld

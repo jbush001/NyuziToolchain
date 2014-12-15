@@ -7,13 +7,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mcld/Target/ELFAttributeValue.h"
+#include <mcld/Target/ELFAttributeValue.h>
 
 #include <llvm/Support/ErrorHandling.h>
 
-#include "mcld/Support/LEB128.h"
+#include <mcld/Support/LEB128.h>
 
-namespace mcld {
+using namespace mcld;
 
 size_t ELFAttributeValue::getSize() const {
   size_t size = 0;
@@ -61,5 +61,3 @@ bool ELFAttributeValue::equals(const ELFAttributeValue& pValue) const {
 
   return true;
 }
-
-}  // namespace mcld
