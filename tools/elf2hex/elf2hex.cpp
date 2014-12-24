@@ -69,21 +69,19 @@ int main(int argc, const char *argv[]) {
   }
 
   // Walk throught the segments and find the highest address
-  int maxLoadAddress = 0;
+  unsigned int maxAddress = 0;
   for (int segment = 0; segment < eheader.e_phnum; segment++) {
-    int highLoadAddr = pheader[segment].p_vaddr + pheader[segment].p_filesz;
-    if (pheader[segment].p_type == PT_LOAD) {
-      if (highLoadAddr > maxLoadAddress)
-        maxLoadAddress = highLoadAddr;
-      
-      if (pheader[segment].p_vaddr < BaseAddress) {
-        errs() << "Program segment comes before base address\n";
-        return 1;
-      }
+    unsigned int highAddr = pheader[segment].p_vaddr + pheader[segment].p_memsz;
+    if (highAddr > maxAddress)
+      maxAddress = highAddr;
+    
+    if (pheader[segment].p_vaddr < BaseAddress) {
+      errs() << "Program segment comes before base address\n";
+      return 1;
     }
   }
 
-  unsigned char *memoryImage = (unsigned char *)calloc(maxLoadAddress - BaseAddress, 1);
+  unsigned char *memoryImage = (unsigned char *)calloc(maxAddress - BaseAddress, 1);
   if (!memoryImage) {
     errs() << "not enough memory for program image\n";
     return 1;
@@ -112,7 +110,7 @@ int main(int argc, const char *argv[]) {
     return 1;
   }
 
-  for (int i = 0; i < maxLoadAddress - BaseAddress; i++) {
+  for (unsigned int i = 0; i < maxAddress - BaseAddress; i++) {
     fprintf(outputFile, "%02x", memoryImage[i]);
     if ((i & 3) == 3)
       fprintf(outputFile, "\n");
