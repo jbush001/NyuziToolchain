@@ -12,8 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef VPINSTPRINTER_H
-#define VPINSTPRINTER_H
+#ifndef NYUZIINSTPRINTER_H
+#define NYUZIINSTPRINTER_H
 #include "llvm/MC/MCInstPrinter.h"
 #include "llvm/Support/Compiler.h"
 

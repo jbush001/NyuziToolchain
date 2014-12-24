@@ -114,7 +114,7 @@ def call       : SDNode<"NyuziISD::CALL", SDT_SPCall,
 // Instruction Classes
 //////////////////////////////////////////////////////////////////
 
-class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
+class NyuziInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
 	: Instruction 
 {
 	let Namespace = "Nyuzi";
@@ -129,9 +129,8 @@ class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern
 }
 
 class Pseudo<dag outputs, dag inputs, list<dag> pattern>
-	: VPInstruction<outputs, inputs, "Pseudo", pattern>
+	: NyuziInstruction<outputs, inputs, "Pseudo", pattern>
 {
-	let Pattern = pattern;
 	let isCodeGenOnly = 1;
 	let isPseudo = 1;
 	let Inst{31-0} = 0;
@@ -166,7 +165,7 @@ def FmtR_VVVM : FmtR<5>;
 
 class FormatRInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	bits<6> opcode, FmtR fmt> 
-	: VPInstruction<outputs, inputs, asmString, pattern>
+	: NyuziInstruction<outputs, inputs, asmString, pattern>
 {
 	bits <5> dest;
 	bits <5> src2;
@@ -228,7 +227,7 @@ def FmtI_VSM : FmtI<5>;
 
 class FormatIInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	bits<5> opcode, FmtI fmt>  
-	: VPInstruction<outputs, inputs, asmString, pattern> 
+	: NyuziInstruction<outputs, inputs, asmString, pattern> 
 {
 	bits <5> dest;
 	bits <5> src1;
@@ -597,7 +596,7 @@ def FmtM_ScGathMasked : FmtM<14>;
 
 class FormatMInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	FmtM fmt, bits <1> isLoad>  
-	: VPInstruction<outputs, inputs, asmString, pattern> 
+	: NyuziInstruction<outputs, inputs, asmString, pattern> 
 {
 	bits <5> srcDest;
 
@@ -669,7 +668,7 @@ def FmtC_MemBar : FmtC<4>;
 
 class FormatCInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	FmtC fmt> 
-	: VPInstruction<outputs, inputs, asmString, pattern>
+	: NyuziInstruction<outputs, inputs, asmString, pattern>
 {
 	let Inst{31-28} = 0xe;
 	let Inst{27-25} = fmt.Value;
@@ -704,7 +703,7 @@ def BT_Eret : BranchType<7>;
 
 class BranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	BranchType type>
-	: VPInstruction<outputs, inputs, asmString, pattern>
+	: NyuziInstruction<outputs, inputs, asmString, pattern>
 {
 	let isBranch = 1;
 

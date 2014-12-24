@@ -51,7 +51,7 @@ def SEXT8 : FormatRUnmaskedOneOpInst<
 	FmtR_SSS>;
 
 // XXX need predicated versions of these
-def SITOFSS : FormatRUnmaskedOneOpInst<
+def ITOFSS : FormatRUnmaskedOneOpInst<
 	(outs GPR32:$dest), 
 	(ins GPR32:$src2),
 	"itof $dest, $src2",
@@ -59,7 +59,7 @@ def SITOFSS : FormatRUnmaskedOneOpInst<
 	0x2a,
 	FmtR_SSS>;
 
-def SITOFVV : FormatRUnmaskedOneOpInst<
+def ITOFVV : FormatRUnmaskedOneOpInst<
 	(outs VR512:$dest), 
 	(ins VR512:$src2),
 	"itof $dest, $src2",
@@ -67,7 +67,7 @@ def SITOFVV : FormatRUnmaskedOneOpInst<
 	0x2a,
 	FmtR_VVV>;
 
-def SITOFVS : FormatRUnmaskedOneOpInst<
+def ITOFVS : FormatRUnmaskedOneOpInst<
 	(outs VR512:$dest), 
 	(ins GPR32:$src2),
 	"itof $dest, $src2",
@@ -75,7 +75,7 @@ def SITOFVS : FormatRUnmaskedOneOpInst<
 	0x2a,
 	FmtR_VVS>;
 
-def FTOSISS : FormatRUnmaskedOneOpInst<
+def FTOIISS : FormatRUnmaskedOneOpInst<
 	(outs GPR32:$dest), 
 	(ins GPR32:$src2),
 	"ftoi $dest, $src2",
@@ -422,7 +422,7 @@ def MEMBAR : FormatCInst<
 	FmtC_MemBar>;
 
 //////////////////////////////////////////////////////////////////
-// Flow Control (format E)
+// Branch
 //////////////////////////////////////////////////////////////////
 
 let isTerminator = 1 in {
@@ -465,7 +465,7 @@ let isTerminator = 1 in {
 		BT_NAll>;
 
 	// Converts to MOVE pc, <srcreg>
-	def JUMPREG : VPInstruction<
+	def JUMPREG : NyuziInstruction<
 		(outs), 
 		(ins GPR32:$dest),
 		"goto $dest",
@@ -487,7 +487,7 @@ let isTerminator = 1 in {
 	// branching as a side effect.
 	// $jumptable is not a real instruction operand. The AsmPrinter
 	// will use it to output the jump table in-line.
-	def JUMP_TABLE : VPInstruction<
+	def JUMP_TABLE : NyuziInstruction<
 		(outs), 
 		(ins GPR32:$tableptr, GPR32:$jt),
 		"load_32 pc, ( $tableptr )",
@@ -513,7 +513,7 @@ def : Pat<(brcond (i32 (setne i32:$lhs, 0)), bb:$dest), (BTRUE i32:$lhs, bb:$des
 def : Pat<(brcond (i32 (seteq i32:$lhs, 0)), bb:$dest), (BFALSE i32:$lhs, bb:$dest)>;
 def : Pat<(brcond i32:$lhs, bb:$dest), (BTRUE i32:$lhs, bb:$dest)>;
 
-def RET : VPInstruction<
+def RET : NyuziInstruction<
 	(outs),
 	(ins),
 	"ret",
@@ -531,7 +531,7 @@ def RET : VPInstruction<
 }
 
 // Return from exception
-def ERET : VPInstruction<
+def ERET : NyuziInstruction<
 	(outs),
 	(ins),
 	"eret",
@@ -649,7 +649,7 @@ def WRITE_CONTROL_REG : FormatMInst<
 	let Inst{9-5} = src;
 }
 
-def LOAD_EFFECTIVE_ADDR : VPInstruction<
+def LOAD_EFFECTIVE_ADDR : NyuziInstruction<
 	(outs GPR32:$dest),
 	(ins LEAri:$addr),
 	"lea $dest, $addr",
@@ -672,7 +672,7 @@ def : Pat<(f32 (load tconstpool:$addr)), (LW tconstpool:$addr, 0)>;
 
 // Get address of jump table
 // This turns into add.i <destreg>, pc, <offset from pc>
-def LOAD_JTABLE_ADDR : VPInstruction<
+def LOAD_JTABLE_ADDR : NyuziInstruction<
 	(outs GPR32:$dest),
 	(ins JTADDR:$addr),
 	"lea $dest, $addr",
@@ -690,7 +690,7 @@ def LOAD_JTABLE_ADDR : VPInstruction<
 	let Inst{4-0} = 31;     // base register (PC)
 }
 
-def NOP : VPInstruction<
+def NOP : NyuziInstruction<
 	(outs),
 	(ins),
 	"nop",
