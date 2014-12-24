@@ -14,7 +14,7 @@ clean() {
 ### Periods should be escaped with backslash for use by grep.
 ###
 ### If you update these, please also update docs/GettingStarted.rst
-want_autoconf_version='2\.68'
+want_autoconf_version='2\.60'
 want_autoheader_version=$want_autoconf_version
 want_aclocal_version='1\.9\.6'
 ### END NOTE #########################################################
