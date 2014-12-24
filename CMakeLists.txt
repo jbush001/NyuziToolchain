@@ -31,13 +31,6 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 	)
 endif()
 
-# Need to enable C++11 for LLD. Set appropriate compiler specific flags.
-if (CMAKE_COMPILER_IS_GNUCXX)
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++0x")
-elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -stdlib=libc++" )
-endif()
-
 # The following only works with the Ninja generator in CMake >= 3.0.
 set(LLVM_PARALLEL_COMPILE_JOBS "" CACHE STRING
   "Define the maximum number of concurrent compilation jobs.")
@@ -350,7 +343,7 @@ endif()
 include(config-ix)
 
 # Default to building nyuzi
-set(LLVM_DEFAULT_TARGET_TRIPLE "nyuzi" CACHE STRING
+set(LLVM_DEFAULT_TARGET_TRIPLE "nyuzi-none-none" CACHE STRING
   "Default target for which LLVM will generate code." )
 set(TARGET_TRIPLE "${LLVM_DEFAULT_TARGET_TRIPLE}")
 
