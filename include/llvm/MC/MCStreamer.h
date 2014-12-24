@@ -25,7 +25,6 @@
 #include <string>
 
 namespace llvm {
-
 class MCAsmBackend;
 class MCCodeEmitter;
 class MCContext;

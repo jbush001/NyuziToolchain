@@ -543,7 +543,6 @@ ELFFile<ELFT>::getSectionContents(const Elf_Shdr *Sec) const {
   return makeArrayRef(Start, Sec->sh_size);
 }
 
-
 template <class ELFT>
 StringRef ELFFile<ELFT>::getRelocationTypeName(uint32_t Type) const {
   return getELFRelocationTypeName(Header->e_machine, Type);
