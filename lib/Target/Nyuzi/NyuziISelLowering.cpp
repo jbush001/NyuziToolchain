@@ -718,7 +718,7 @@ SDValue NyuziTargetLowering::LowerFDIV(SDValue Op,
   // of precision, so two iterations results in 24 bits, which is larger than the 
   // (23 bit) significand.
   for (int i = 0; i < 2; i++) {
-    // Trial = x * Estimate (ideally, x * 1/x should be 1.0)
+    // Trial = x * Estimate (our target is for x * 1/x to be 1.0)
     // Error = 2.0 - Trial 
     // Estimate = Estimate * Error
     SDValue Trial = DAG.getNode(ISD::FMUL, DL, Type, Estimate, Denominator);
@@ -781,8 +781,16 @@ SDValue NyuziTargetLowering::LowerFNEG(SDValue Op,
   return DAG.getNode(ISD::BITCAST, DL, ResultVT, flipped);
 }
 
-// Handle unsupported floating point operations: unordered comparisons
-// and equality.
+//
+// Convert unordered comparisons to ordered.
+// An ordered comparison is always false if either operand is NaN
+// An unordered comparision is always true if either operand is NaN
+// The hardware implements ordered comparisons.  Clang generally emits
+// ordered comparisons.
+//
+// XXX In order to be correct, we should probably emit code that explicitly
+// checks for NaN and forces the result to true.
+//
 SDValue NyuziTargetLowering::LowerSETCC(SDValue Op,
                                         SelectionDAG &DAG) const {
   ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
@@ -793,15 +801,6 @@ SDValue NyuziTargetLowering::LowerSETCC(SDValue Op,
   default:
     return Op; // No change
 
-  // Convert unordered comparisons to ordered.
-  // An ordered comparison is always false if either operand is NaN
-  // An unordered comparision is always true if either operand is NaN
-  // The hardware implements ordered comparisons.  Clang generally emits
-  // ordered comparisons.
-  //
-  // XXX In order to be correct, we should probably emit code that explicitly
-  // checks for NaN and forces the result to true.
-  //
   case ISD::SETGT:
   case ISD::SETUGT:
     NewCode = ISD::SETOGT;
