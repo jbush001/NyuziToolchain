@@ -131,9 +131,6 @@ class VPInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern
 class Pseudo<dag outputs, dag inputs, list<dag> pattern>
 	: VPInstruction<outputs, inputs, "Pseudo", pattern>
 {
-	let Namespace = "Nyuzi";
-	dag OutOperandList = outputs;
-	dag InOperandList = inputs;
 	let Pattern = pattern;
 	let isCodeGenOnly = 1;
 	let isPseudo = 1;
@@ -172,10 +169,12 @@ class FormatRInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	: VPInstruction<outputs, inputs, asmString, pattern>
 {
 	bits <5> dest;
+	bits <5> src2;
 
 	let Inst{31-29} = 6;
 	let Inst{28-26} = fmt.Value;
 	let Inst{25-20} = opcode;
+	let Inst{19-15} = src2;
 	let Inst{9-5} = dest;
 }
 
@@ -183,8 +182,6 @@ class FormatRUnmaskedOneOpInst<dag outputs, dag inputs, string asmString, list<d
 	bits<6> opcode, FmtR fmt> 
 	: FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt>
 {
-	bits <5> src2;
-	let Inst{19-15} = src2;
 	let Inst{4-0} = 0;
 }
 
@@ -192,9 +189,7 @@ class FormatRMaskedOneOpInst<dag outputs, dag inputs, string asmString, list<dag
 	bits<6> opcode, FmtR fmt> 
 	: FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt>
 {
-	bits <5> src2;
 	bits <5> mask;
-	let Inst{19-15} = src2;
 	let Inst{14-10} = mask;
 	let Inst{4-0} = 0;
 }
@@ -204,8 +199,6 @@ class FormatRUnmaskedTwoOpInst<dag outputs, dag inputs, string asmString, list<d
 	: FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt>
 {
 	bits <5> src1;
-	bits <5> src2;
-	let Inst{19-15} = src2;
 	let Inst{4-0} = src1;
 }
 
@@ -214,9 +207,7 @@ class FormatRMaskedTwoOpInst<dag outputs, dag inputs, string asmString, list<dag
 	: FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt>
 {
 	bits <5> src1;
-	bits <5> src2;
 	bits <5> mask;
-	let Inst{19-15} = src2;
 	let Inst{14-10} = mask;
 	let Inst{4-0} = src1;
 }
@@ -608,10 +599,12 @@ class FormatMInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	FmtM fmt, bits <1> isLoad>  
 	: VPInstruction<outputs, inputs, asmString, pattern> 
 {
+	bits <5> srcDest;
 
 	let Inst{31} = 1;
 	let Inst{29} = isLoad;
 	let Inst{28-25} = fmt.Value;
+	let Inst{9-5} = srcDest;
 	
 	// XXX set hasSideEffects = 1, mayStore = 1 is !isLoad?
 }
@@ -622,11 +615,9 @@ class FormatMMaskedInst<dag outputs, dag inputs, string asmString, list<dag> pat
 {
 	bits <20> addr;	// Is offset/ptr, this is set up by encodeMemoryOpValue.
 	bits <5> mask;
-	bits <5> srcDest;
 
 	let Inst{24-15} = addr{14-5};
 	let Inst{14-10} = mask;
-	let Inst{9-5} = srcDest;
 	let Inst{4-0} = addr{4-0};
 }
 
@@ -635,10 +626,8 @@ class FormatMUnmaskedInst<dag outputs, dag inputs, string asmString, list<dag> p
 	: FormatMInst<outputs, inputs, asmString, pattern, fmt, isLoad> 
 {
 	bits <20> addr;	// Is offset/ptr, this is set up by encodeMemoryOpValue.
-	bits <5> srcDest;
 
 	let Inst{24-10} = addr{19-5};
-	let Inst{9-5} = srcDest;
 	let Inst{4-0} = addr{4-0};
 }
 
