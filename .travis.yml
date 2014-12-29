@@ -1,0 +1,15 @@
+language: cpp
+compiler: 
+  - gcc
+  - clang
+before_install:
+  - echo $LANG
+  - echo $LC_ALL
+  - sudo apt-get install libxml2-dev bison flex zlib1g-dev swig python-dev libedit-dev ncurses-dev
+script:
+  - mkdir build
+  - cd build && cmake .. && make -j 2
+  - cd test && llvm-lit .
+os:
+  - linux
+  
