@@ -423,6 +423,8 @@ NyuziTargetLowering::NyuziTargetLowering(TargetMachine &TM,
   setOperationAction(ISD::RETURNADDR, MVT::i32, Custom);
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::v16i1, Custom);
   setOperationAction(ISD::VASTART, MVT::Other, Custom);
+  setOperationAction(ISD::FABS,  MVT::f32, Custom);
+  setOperationAction(ISD::FABS,  MVT::v16f32, Custom);
 
   setOperationAction(ISD::BR_CC, MVT::i32, Expand);
   setOperationAction(ISD::BR_CC, MVT::f32, Expand);
@@ -461,8 +463,6 @@ NyuziTargetLowering::NyuziTargetLowering(TargetMachine &TM,
   setInsertFencesForAtomic(true);
 
   setOperationAction(ISD::FCOPYSIGN,  MVT::f32, Expand);
-  setOperationAction(ISD::FABS,  MVT::f32, Expand);
-  setOperationAction(ISD::FABS,  MVT::v16f32, Expand);
   setOperationAction(ISD::FFLOOR,  MVT::f32, Expand);
   setOperationAction(ISD::FFLOOR,  MVT::v16f32, Expand);
 
@@ -578,6 +578,22 @@ SDValue NyuziTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
   const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
   return DAG.getStore(Op.getOperand(0), DL, FI, Op.getOperand(1),
                       MachinePointerInfo(SV), false, false, 0);
+}
+
+// Mask off the sign bit
+SDValue NyuziTargetLowering::LowerFABS(SDValue Op, SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  MVT ResultVT = Op.getValueType().getSimpleVT();
+  MVT IntermediateVT = ResultVT.isVector() ? MVT::v16i32 : MVT::i32;
+
+  SDValue rhs = DAG.getConstant(0x7fffffff, MVT::i32);
+  SDValue iconv;
+  if (ResultVT.isVector())
+    rhs = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32, rhs);
+
+  iconv = DAG.getNode(ISD::BITCAST, DL, IntermediateVT, Op.getOperand(0));
+  SDValue flipped = DAG.getNode(ISD::AND, DL, IntermediateVT, iconv, rhs);
+  return DAG.getNode(ISD::BITCAST, DL, ResultVT, flipped);
 }
 
 /// isSplatVector - Returns true if N is a BUILD_VECTOR node whose elements are
@@ -1067,6 +1083,8 @@ SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
     return LowerSIGN_EXTEND_INREG(Op, DAG);
   case ISD::VASTART:
     return LowerVASTART(Op, DAG);
+  case ISD::FABS:
+    return LowerFABS(Op, DAG);
   default:
     llvm_unreachable("Should not custom lower this!");
   }

@@ -96,6 +96,7 @@ private:
   SDValue LowerSIGN_EXTEND_INREG(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
+  SDValue LowerFABS(SDValue Op, SelectionDAG &DAG) const;
 
 private:
   const NyuziSubtarget &Subtarget;
