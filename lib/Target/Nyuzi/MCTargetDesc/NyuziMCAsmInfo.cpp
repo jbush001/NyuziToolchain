@@ -23,7 +23,10 @@ NyuziMCAsmInfo::NyuziMCAsmInfo(StringRef TT) {
   IsLittleEndian = true;
   CommentString = ";";
   SupportsDebugInformation = true;
-  ExceptionsType = ExceptionHandling::None;
   PrivateGlobalPrefix = ".L";
   PrivateLabelPrefix = ".L";
+
+  // The C++ frontend has exceptions disabled. However, the compiler
+  // will not emit debug frame info unless this is set to DwarfCFI.
+  ExceptionsType = ExceptionHandling::DwarfCFI;
 }
