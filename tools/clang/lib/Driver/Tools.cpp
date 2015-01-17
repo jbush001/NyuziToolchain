@@ -4293,6 +4293,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                    false))
     CmdArgs.push_back("-fasm-blocks");
 
+#if 0
+  // XXX Nyuzi: disable loop vectorizer by default, because it does not
+  // work correctly on this target.  This is a hack. I couldn't find an
+  // easy way to do it in the target.
+
   // Enable vectorization per default according to the optimization level
   // selected. For optimization levels that want vectorization we use the alias
   // option to simplify the hasFlag logic.
@@ -4315,6 +4320,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasFlag(options::OPT_fslp_vectorize_aggressive,
                    options::OPT_fno_slp_vectorize_aggressive, false))
     CmdArgs.push_back("-vectorize-slp-aggressive");
+#endif
 
   if (Arg *A = Args.getLastArg(options::OPT_fshow_overloads_EQ))
     A->render(Args, CmdArgs);
