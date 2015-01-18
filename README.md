@@ -1,7 +1,7 @@
 This is a toolchain for a parallel processor architecture called Nyuzi 
-(https://github.com/jbush001/NyuziProcessor). It includes a C/C++ 
-compiler, assembler, linker and work-in-progress debugger (lldb). Questions
-or comments can be directed to the mailing list here:
+(https://github.com/jbush001/NyuziProcessor), based on [LLVM](http://llvm.org/). 
+It includes a C/C++ compiler, assembler, linker and partially functional debugger (lldb). 
+Questions or comments can be directed to the mailing list here:
 https://groups.google.com/forum/#!forum/nyuzi-processor-dev
 
 ## Building
