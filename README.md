@@ -4,9 +4,9 @@ It includes a C/C++ compiler, assembler, linker and partially functional debugge
 Questions or comments can be directed to the mailing list here:
 https://groups.google.com/forum/#!forum/nyuzi-processor-dev
 
-## Building
+# Building
 
-### Requirements
+## Prerequisites
 - gcc 4.8+ or Apple clang 4.2+
 - cmake 2.8.8
 - python 2.7
@@ -18,27 +18,36 @@ https://groups.google.com/forum/#!forum/nyuzi-processor-dev
 - libedit (http://thrysoee.dk/editline/)
 - ncurses
 
-On Ubuntu, these can be installed by using: 
+### Linux 
+On Linux, these can be installed using the built-in package manager (apt-get, yum, etc). 
+Here is the command line for Ubuntu:
 
     sudo apt-get install libxml2-dev cmake gcc g++ python bison flex zlib1g-dev swig python-dev libedit-dev ncurses-dev
 
 (On Fedora, replace python-dev with python-devel)
 
-On MacOS Mavericks, the command line compiler can be installed by typing
-`xcode-select --install`. It will also be installed automatically if you 
-download XCode from the Mac App Store. I'd recommend installing a package 
-manager like MacPorts (https://www.macports.org/) to obtain the remaining 
-dependencies. Be sure to open a new terminal to do the build after installing 
-MacPorts, because it installs alternate versions of some utilities and 
-updates the PATH. Most of the libraries should already be installed by 
-default, but Apple likes their command line utilities... finely aged... 
-so bison will be out of date and won't work. *However*, if you upgrade 
-flex, you'll get a build error, so you'll want to use the system supplied 
-version. Here's the port command to install the dependencies:
+### MacOS
+
+On Mavericks and later, the command line compiler can be installed 
+by typing`xcode-select --install`. It will also be installed automatically 
+if you download XCode from the Mac App Store. I'd recommend installing a 
+package manager like [MacPorts](https://www.macports.org/) to obtain the 
+remaining dependencies. Be sure to open a new terminal to do the build 
+after installing MacPorts, because it installs alternate versions of some 
+utilities and updates the PATH. Most of the libraries should already be 
+installed by default, but Apple likes their command line utilities...
+finely aged... so bison will be out of date and won't work. *However*, 
+if you upgrade flex, you'll get a build error, so you'll want to use the 
+system supplied version. Here's the port command to install the dependencies:
 
     sudo port install cmake bison swig swig-python
 
-### Compiling
+### Windows
+
+I have not tested this on Windows. Many of the libraries are already cross platform, 
+so it should theoretically be possible.
+
+## Building
 
 Assuming the proper packages are installed, configure and build using the following commands. 
 
@@ -55,7 +64,7 @@ A few other things to note:
 * The name of the target is 'nyuzi'.
 * There are also bits of an autoconf based build system in this project.  It doesn't work.
 * Using sudo on make install as described can leave files with root ownership in your build directory, which can then cause cryptic build errors later when building as non-root.  Doing a 'sudo chown -R &#x60;whoami&#x60; .' in the build directory will fix this.
-* If you want to make changes to the compiler, add '-DCMAKE_BUILD_TYPE=Debug' as a parameter to the cmake command enable a debug build.  This enables the -debug flag for command line tools, which is important to see various transormations and output of intermediate passes.
+* If you want to make changes to the compiler, add '-DCMAKE_BUILD_TYPE=Debug' as a parameter to the cmake command enable a debug build.  This enables the -debug flag for command line tools, which is important to see various transformations and output of intermediate passes.
 
 ## Invoking compiler
 
