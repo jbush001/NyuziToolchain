@@ -159,20 +159,18 @@ void HexagonRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
       //
       // r0 = add(r30, #10000)
       // r0 = memw(r0)
-      if ( (MI.getOpcode() == Hexagon::LDriw)  ||
-           (MI.getOpcode() == Hexagon::LDrid)   ||
-           (MI.getOpcode() == Hexagon::LDrih)   ||
-           (MI.getOpcode() == Hexagon::LDriuh)  ||
-           (MI.getOpcode() == Hexagon::LDrib)   ||
-           (MI.getOpcode() == Hexagon::LDriub)  ||
-           (MI.getOpcode() == Hexagon::LDriw_f) ||
-           (MI.getOpcode() == Hexagon::LDrid_f)) {
-        unsigned dstReg = (MI.getOpcode() == Hexagon::LDrid) ?
+      if ( (MI.getOpcode() == Hexagon::L2_loadri_io)  ||
+           (MI.getOpcode() == Hexagon::L2_loadrd_io)   ||
+           (MI.getOpcode() == Hexagon::L2_loadrh_io) ||
+           (MI.getOpcode() == Hexagon::L2_loadruh_io) ||
+           (MI.getOpcode() == Hexagon::L2_loadrb_io) ||
+           (MI.getOpcode() == Hexagon::L2_loadrub_io)) {
+        unsigned dstReg = (MI.getOpcode() == Hexagon::L2_loadrd_io) ?
           getSubReg(MI.getOperand(0).getReg(), Hexagon::subreg_loreg) :
           MI.getOperand(0).getReg();
 
         // Check if offset can fit in addi.
-        if (!TII.isValidOffset(Hexagon::ADD_ri, Offset)) {
+        if (!TII.isValidOffset(Hexagon::A2_addi, Offset)) {
           BuildMI(*MI.getParent(), II, MI.getDebugLoc(),
                   TII.get(Hexagon::CONST32_Int_Real), dstReg).addImm(Offset);
           BuildMI(*MI.getParent(), II, MI.getDebugLoc(),
@@ -180,19 +178,16 @@ void HexagonRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
                   dstReg).addReg(FrameReg).addReg(dstReg);
         } else {
           BuildMI(*MI.getParent(), II, MI.getDebugLoc(),
-                  TII.get(Hexagon::ADD_ri),
+                  TII.get(Hexagon::A2_addi),
                   dstReg).addReg(FrameReg).addImm(Offset);
         }
 
         MI.getOperand(FIOperandNum).ChangeToRegister(dstReg, false, false,true);
         MI.getOperand(FIOperandNum+1).ChangeToImmediate(0);
-      } else if ((MI.getOpcode() == Hexagon::STriw_indexed) ||
-                 (MI.getOpcode() == Hexagon::STriw) ||
-                 (MI.getOpcode() == Hexagon::STrid) ||
-                 (MI.getOpcode() == Hexagon::STrih) ||
-                 (MI.getOpcode() == Hexagon::STrib) ||
-                 (MI.getOpcode() == Hexagon::STrid_f) ||
-                 (MI.getOpcode() == Hexagon::STriw_f)) {
+      } else if ((MI.getOpcode() == Hexagon::S2_storeri_io) ||
+                 (MI.getOpcode() == Hexagon::S2_storerd_io) ||
+                 (MI.getOpcode() == Hexagon::S2_storerh_io) ||
+                 (MI.getOpcode() == Hexagon::S2_storerb_io)) {
         // For stores, we need a reserved register. Change
         // memw(r30 + #10000) = r0 to:
         //
@@ -201,7 +196,7 @@ void HexagonRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
         unsigned resReg = HEXAGON_RESERVED_REG_1;
 
         // Check if offset can fit in addi.
-        if (!TII.isValidOffset(Hexagon::ADD_ri, Offset)) {
+        if (!TII.isValidOffset(Hexagon::A2_addi, Offset)) {
           BuildMI(*MI.getParent(), II, MI.getDebugLoc(),
                   TII.get(Hexagon::CONST32_Int_Real), resReg).addImm(Offset);
           BuildMI(*MI.getParent(), II, MI.getDebugLoc(),
@@ -209,7 +204,7 @@ void HexagonRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
                   resReg).addReg(FrameReg).addReg(resReg);
         } else {
           BuildMI(*MI.getParent(), II, MI.getDebugLoc(),
-                  TII.get(Hexagon::ADD_ri),
+                  TII.get(Hexagon::A2_addi),
                   resReg).addReg(FrameReg).addImm(Offset);
         }
         MI.getOperand(FIOperandNum).ChangeToRegister(resReg, false, false,true);
@@ -233,7 +228,7 @@ void HexagonRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
             MI.getOperand(FIOperandNum).ChangeToRegister(getStackRegister(),
                                                          false, false, false);
             MI.getOperand(FIOperandNum+1).ChangeToImmediate(FrameSize+Offset);
-          } else if (!TII.isValidOffset(Hexagon::ADD_ri, Offset)) {
+          } else if (!TII.isValidOffset(Hexagon::A2_addi, Offset)) {
             BuildMI(*MI.getParent(), II, MI.getDebugLoc(),
                     TII.get(Hexagon::CONST32_Int_Real), ResReg).addImm(Offset);
             BuildMI(*MI.getParent(), II, MI.getDebugLoc(),
@@ -244,7 +239,7 @@ void HexagonRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
             MI.getOperand(FIOperandNum+1).ChangeToImmediate(0);
           } else {
             BuildMI(*MI.getParent(), II, MI.getDebugLoc(),
-                    TII.get(Hexagon::ADD_ri), ResReg).addReg(FrameReg).
+                    TII.get(Hexagon::A2_addi), ResReg).addReg(FrameReg).
               addImm(Offset);
             MI.getOperand(FIOperandNum).ChangeToRegister(ResReg, false, false,
                                                          true);

@@ -1122,7 +1122,7 @@ void ItaniumCXXABI::EmitCXXConstructors(const CXXConstructorDecl *D) {
   CGM.EmitGlobal(GlobalDecl(D, Ctor_Base));
 
   // The constructor used for constructing this as a complete class;
-  // constucts the virtual bases, then calls the base constructor.
+  // constructs the virtual bases, then calls the base constructor.
   if (!D->getParent()->isAbstract()) {
     // We don't need to emit the complete ctor if the class is abstract.
     CGM.EmitGlobal(GlobalDecl(D, Ctor_Complete));
@@ -1255,6 +1255,9 @@ void ItaniumCXXABI::emitVTableDefinitions(CodeGenVTables &CGVT,
 
   // Set the correct linkage.
   VTable->setLinkage(Linkage);
+
+  if (CGM.supportsCOMDAT() && VTable->isWeakForLinker())
+    VTable->setComdat(CGM.getModule().getOrInsertComdat(VTable->getName()));
 
   // Set the right visibility.
   CGM.setGlobalVisibility(VTable, RD);
@@ -1711,11 +1714,12 @@ void ItaniumCXXABI::EmitGuardedInit(CodeGenFunction &CGF,
 
     // The ABI says: It is suggested that it be emitted in the same COMDAT group
     // as the associated data object
-    if (!D.isLocalVarDecl() && var->isWeakForLinker() && CGM.supportsCOMDAT()) {
-      llvm::Comdat *C = CGM.getModule().getOrInsertComdat(var->getName());
+    llvm::Comdat *C = var->getComdat();
+    if (!D.isLocalVarDecl() && C) {
       guard->setComdat(C);
-      var->setComdat(C);
       CGF.CurFn->setComdat(C);
+    } else if (CGM.supportsCOMDAT() && guard->isWeakForLinker()) {
+      guard->setComdat(CGM.getModule().getOrInsertComdat(guard->getName()));
     }
 
     CGM.setStaticLocalDeclGuardAddress(&D, guard);
@@ -2715,9 +2719,13 @@ llvm::Constant *ItaniumRTTIBuilder::BuildTypeInfo(QualType Ty, bool Force) {
 
   llvm::Constant *Init = llvm::ConstantStruct::getAnon(Fields);
 
+  llvm::Module &M = CGM.getModule();
   llvm::GlobalVariable *GV =
-    new llvm::GlobalVariable(CGM.getModule(), Init->getType(),
-                             /*Constant=*/true, Linkage, Init, Name);
+      new llvm::GlobalVariable(M, Init->getType(),
+                               /*Constant=*/true, Linkage, Init, Name);
+
+  if (CGM.supportsCOMDAT() && GV->isWeakForLinker())
+    GV->setComdat(M.getOrInsertComdat(GV->getName()));
 
   // If there's already an old global variable, replace it with the new one.
   if (OldGV) {
@@ -3201,5 +3209,7 @@ void ItaniumCXXABI::emitCXXStructor(const CXXMethodDecl *MD,
       getMangleContext().mangleCXXCtorComdat(CD, Out);
     llvm::Comdat *C = CGM.getModule().getOrInsertComdat(Out.str());
     Fn->setComdat(C);
+  } else {
+    CGM.maybeSetTrivialComdat(*MD, *Fn);
   }
 }

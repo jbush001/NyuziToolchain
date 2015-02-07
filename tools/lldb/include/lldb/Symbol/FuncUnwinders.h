@@ -1,6 +1,8 @@
 #ifndef liblldb_FuncUnwinders_h
 #define liblldb_FuncUnwinders_h
 
+#include <vector>
+
 #include "lldb/Core/AddressRange.h"
 #include "lldb/Core/ArchSpec.h"
 #include "lldb/Core/AddressRange.h"
@@ -82,6 +84,30 @@ public:
     Address
     GetPersonalityRoutinePtrAddress (Target &target);
 
+
+
+    // The following methods to retrieve specific unwind plans should rarely be used.
+    // Instead, clients should ask for the *behavior* they are looking for, using one
+    // of the above UnwindPlan retrieval methods.
+
+    lldb::UnwindPlanSP
+    GetAssemblyUnwindPlan (Target &target, Thread &thread, int current_offset);
+
+    lldb::UnwindPlanSP
+    GetEHFrameUnwindPlan (Target &target, int current_offset);
+
+    lldb::UnwindPlanSP
+    GetEHFrameAugmentedUnwindPlan (Target &target, Thread &thread, int current_offset);
+
+    lldb::UnwindPlanSP
+    GetCompactUnwindUnwindPlan (Target &target, int current_offset);
+
+    lldb::UnwindPlanSP
+    GetArchDefaultUnwindPlan (Thread &thread);
+
+    lldb::UnwindPlanSP
+    GetArchDefaultAtFuncEntryUnwindPlan (Thread &thread);
+
 private:
 
     lldb::UnwindAssemblySP
@@ -91,21 +117,25 @@ private:
     AddressRange m_range;
 
     Mutex m_mutex;
-    lldb::UnwindPlanSP m_unwind_plan_call_site_sp;
-    lldb::UnwindPlanSP m_unwind_plan_non_call_site_sp;
-    lldb::UnwindPlanSP m_unwind_plan_fast_sp;
-    lldb::UnwindPlanSP m_unwind_plan_arch_default_sp;
-    lldb::UnwindPlanSP m_unwind_plan_arch_default_at_func_entry_sp;
+
+    lldb::UnwindPlanSP              m_unwind_plan_assembly_sp;
+    lldb::UnwindPlanSP              m_unwind_plan_eh_frame_sp;
+    lldb::UnwindPlanSP              m_unwind_plan_eh_frame_augmented_sp;   // augmented by assembly inspection so it's valid everywhere
+    std::vector<lldb::UnwindPlanSP> m_unwind_plan_compact_unwind;
+    lldb::UnwindPlanSP              m_unwind_plan_fast_sp;
+    lldb::UnwindPlanSP              m_unwind_plan_arch_default_sp;
+    lldb::UnwindPlanSP              m_unwind_plan_arch_default_at_func_entry_sp;
 
     // Fetching the UnwindPlans can be expensive - if we've already attempted
     // to get one & failed, don't try again.
-    bool m_tried_unwind_at_call_site:1,
-         m_tried_unwind_at_non_call_site:1,
+    bool m_tried_unwind_plan_assembly:1,
+         m_tried_unwind_plan_eh_frame:1,
+         m_tried_unwind_plan_eh_frame_augmented:1,
+         m_tried_unwind_plan_compact_unwind:1,
          m_tried_unwind_fast:1,
          m_tried_unwind_arch_default:1,
          m_tried_unwind_arch_default_at_func_entry:1;
-         
-         
+
     Address m_first_non_prologue_insn;
 
     DISALLOW_COPY_AND_ASSIGN (FuncUnwinders);

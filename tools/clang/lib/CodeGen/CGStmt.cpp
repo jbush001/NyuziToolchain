@@ -564,8 +564,8 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
   // Emit the 'else' code if present.
   if (const Stmt *Else = S.getElse()) {
     {
-      // There is no need to emit line number for unconditional branch.
-      SuppressDebugLocation S(Builder);
+      // There is no need to emit line number for an unconditional branch.
+      auto NL = ApplyDebugLocation::CreateEmpty(*this);
       EmitBlock(ElseBlock);
     }
     {
@@ -573,8 +573,8 @@ void CodeGenFunction::EmitIfStmt(const IfStmt &S) {
       EmitStmt(Else);
     }
     {
-      // There is no need to emit line number for unconditional branch.
-      SuppressDebugLocation S(Builder);
+      // There is no need to emit line number for an unconditional branch.
+      auto NL = ApplyDebugLocation::CreateEmpty(*this);
       EmitBranch(ContBlock);
     }
   }
@@ -1659,6 +1659,12 @@ SimplifyConstraint(const char *Constraint, const TargetInfo &Target,
       while (Constraint[1] && Constraint[1] != ',')
         Constraint++;
       break;
+    case '&':
+    case '%':
+      Result += *Constraint;
+      while (Constraint[1] && Constraint[1] == *Constraint)
+        Constraint++;
+      break;
     case ',':
       Result += "|";
       break;
@@ -1690,7 +1696,7 @@ SimplifyConstraint(const char *Constraint, const TargetInfo &Target,
 static std::string
 AddVariableConstraints(const std::string &Constraint, const Expr &AsmExpr,
                        const TargetInfo &Target, CodeGenModule &CGM,
-                       const AsmStmt &Stmt) {
+                       const AsmStmt &Stmt, const bool EarlyClobber) {
   const DeclRefExpr *AsmDeclRef = dyn_cast<DeclRefExpr>(&AsmExpr);
   if (!AsmDeclRef)
     return Constraint;
@@ -1715,7 +1721,7 @@ AddVariableConstraints(const std::string &Constraint, const Expr &AsmExpr,
   }
   // Canonicalize the register here before returning it.
   Register = Target.getNormalizedGCCRegisterName(Register);
-  return "{" + Register.str() + "}";
+  return (EarlyClobber ? "&{" : "{") + Register.str() + "}";
 }
 
 llvm::Value*
@@ -1848,7 +1854,8 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
     OutExpr = OutExpr->IgnoreParenNoopCasts(getContext());
 
     OutputConstraint = AddVariableConstraints(OutputConstraint, *OutExpr,
-                                              getTarget(), CGM, S);
+                                              getTarget(), CGM, S,
+                                              Info.earlyClobber());
 
     LValue Dest = EmitLValue(OutExpr);
     if (!Constraints.empty())
@@ -1950,10 +1957,9 @@ void CodeGenFunction::EmitAsmStmt(const AsmStmt &S) {
     InputConstraint = SimplifyConstraint(InputConstraint.c_str(), getTarget(),
                                          &OutputConstraintInfos);
 
-    InputConstraint =
-      AddVariableConstraints(InputConstraint,
-                            *InputExpr->IgnoreParenNoopCasts(getContext()),
-                            getTarget(), CGM, S);
+    InputConstraint = AddVariableConstraints(
+        InputConstraint, *InputExpr->IgnoreParenNoopCasts(getContext()),
+        getTarget(), CGM, S, false /* No EarlyClobber */);
 
     llvm::Value *Arg = EmitAsmInput(Info, InputExpr, Constraints);
 

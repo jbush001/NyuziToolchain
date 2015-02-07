@@ -1249,10 +1249,9 @@ static void WriteConstantInternal(raw_ostream &Out, const Constant *CV,
   Out << "<placeholder or erroneous Constant>";
 }
 
-static void WriteMDNodeBodyInternal(raw_ostream &Out, const MDNode *Node,
-                                    TypePrinting *TypePrinter,
-                                    SlotTracker *Machine,
-                                    const Module *Context) {
+static void writeMDTuple(raw_ostream &Out, const MDTuple *Node,
+                         TypePrinting *TypePrinter, SlotTracker *Machine,
+                         const Module *Context) {
   Out << "!{";
   for (unsigned mi = 0, me = Node->getNumOperands(); mi != me; ++mi) {
     const Metadata *MD = Node->getOperand(mi);
@@ -1264,7 +1263,6 @@ static void WriteMDNodeBodyInternal(raw_ostream &Out, const MDNode *Node,
       Out << ' ';
       WriteAsOperandInternal(Out, V, TypePrinter, Machine, Context);
     } else {
-      Out << "metadata ";
       WriteAsOperandInternal(Out, MD, TypePrinter, Machine, Context);
     }
     if (mi + 1 != me)
@@ -1272,6 +1270,101 @@ static void WriteMDNodeBodyInternal(raw_ostream &Out, const MDNode *Node,
   }
 
   Out << "}";
+}
+
+namespace {
+struct FieldSeparator {
+  bool Skip;
+  FieldSeparator() : Skip(true) {}
+};
+raw_ostream &operator<<(raw_ostream &OS, FieldSeparator &FS) {
+  if (FS.Skip) {
+    FS.Skip = false;
+    return OS;
+  }
+  return OS << ", ";
+}
+} // end namespace
+
+static void writeMetadataAsOperand(raw_ostream &Out, const Metadata *MD,
+                                   TypePrinting *TypePrinter,
+                                   SlotTracker *Machine,
+                                   const Module *Context) {
+  if (!MD) {
+    Out << "null";
+    return;
+  }
+  WriteAsOperandInternal(Out, MD, TypePrinter, Machine, Context);
+}
+
+static void writeTag(raw_ostream &Out, FieldSeparator &FS, const DebugNode *N) {
+  Out << FS << "tag: ";
+  if (const char *Tag = dwarf::TagString(N->getTag()))
+    Out << Tag;
+  else
+    Out << N->getTag();
+}
+
+static void writeGenericDebugNode(raw_ostream &Out, const GenericDebugNode *N,
+                                  TypePrinting *TypePrinter,
+                                  SlotTracker *Machine, const Module *Context) {
+  Out << "!GenericDebugNode(";
+  FieldSeparator FS;
+  writeTag(Out, FS, N);
+  if (!N->getHeader().empty()) {
+    Out << FS << "header: \"";
+    PrintEscapedString(N->getHeader(), Out);
+    Out << "\"";
+  }
+  if (N->getNumDwarfOperands()) {
+    Out << FS << "operands: {";
+    FieldSeparator IFS;
+    for (auto &I : N->dwarf_operands()) {
+      Out << IFS;
+      writeMetadataAsOperand(Out, I, TypePrinter, Machine, Context);
+    }
+    Out << "}";
+  }
+  Out << ")";
+}
+
+static void writeMDLocation(raw_ostream &Out, const MDLocation *DL,
+                            TypePrinting *TypePrinter, SlotTracker *Machine,
+                            const Module *Context) {
+  Out << "!MDLocation(";
+  FieldSeparator FS;
+  // Always output the line, since 0 is a relevant and important value for it.
+  Out << FS << "line: " << DL->getLine();
+  if (DL->getColumn())
+    Out << FS << "column: " << DL->getColumn();
+  Out << FS << "scope: ";
+  WriteAsOperandInternal(Out, DL->getScope(), TypePrinter, Machine, Context);
+  if (DL->getInlinedAt()) {
+    Out << FS << "inlinedAt: ";
+    WriteAsOperandInternal(Out, DL->getInlinedAt(), TypePrinter, Machine,
+                           Context);
+  }
+  Out << ")";
+}
+
+static void WriteMDNodeBodyInternal(raw_ostream &Out, const MDNode *Node,
+                                    TypePrinting *TypePrinter,
+                                    SlotTracker *Machine,
+                                    const Module *Context) {
+  assert(!Node->isTemporary() && "Unexpected forward declaration");
+
+  if (Node->isDistinct())
+    Out << "distinct ";
+
+  switch (Node->getMetadataID()) {
+  default:
+    llvm_unreachable("Expected uniquable MDNode");
+#define HANDLE_MDNODE_LEAF(CLASS)                                              \
+  case Metadata::CLASS##Kind:                                                  \
+    write##CLASS(Out, cast<CLASS>(Node), TypePrinter, Machine, Context);       \
+    break;
+#include "llvm/IR/Metadata.def"
+  }
 }
 
 // Full implementation of printing a Value as an operand with support for
@@ -1363,7 +1456,9 @@ static void WriteAsOperandInternal(raw_ostream &Out, const Metadata *MD,
       Machine = new SlotTracker(Context);
     int Slot = Machine->getMetadataSlot(N);
     if (Slot == -1)
-      Out << "<badref>";
+      // Give the pointer value instead of "badref", since this comes up all
+      // the time when debugging.
+      Out << "<" << N << ">";
     else
       Out << '!' << Slot;
     return;
@@ -1381,13 +1476,9 @@ static void WriteAsOperandInternal(raw_ostream &Out, const Metadata *MD,
   assert((FromValue || !isa<LocalAsMetadata>(V)) &&
          "Unexpected function-local metadata outside of value argument");
 
-  if (FromValue)
-    Out << "!{";
   TypePrinter->print(V->getValue()->getType(), Out);
   Out << ' ';
   WriteAsOperandInternal(Out, V->getValue(), TypePrinter, Machine, Context);
-  if (FromValue)
-    Out << "}";
 }
 
 void AssemblyWriter::init() {
@@ -1686,6 +1777,24 @@ static void PrintThreadLocalModel(GlobalVariable::ThreadLocalMode TLM,
   }
 }
 
+static void maybePrintComdat(formatted_raw_ostream &Out,
+                             const GlobalObject &GO) {
+  const Comdat *C = GO.getComdat();
+  if (!C)
+    return;
+
+  if (isa<GlobalVariable>(GO))
+    Out << ',';
+  Out << " comdat";
+
+  if (GO.getName() == C->getName())
+    return;
+
+  Out << '(';
+  PrintLLVMName(Out, C->getName(), ComdatPrefix);
+  Out << ')';
+}
+
 void AssemblyWriter::printGlobal(const GlobalVariable *GV) {
   if (GV->isMaterializable())
     Out << "; Materializable\n";
@@ -1719,10 +1828,7 @@ void AssemblyWriter::printGlobal(const GlobalVariable *GV) {
     PrintEscapedString(GV->getSection(), Out);
     Out << '"';
   }
-  if (GV->hasComdat()) {
-    Out << ", comdat ";
-    PrintLLVMName(Out, GV->getComdat()->getName(), ComdatPrefix);
-  }
+  maybePrintComdat(Out, *GV);
   if (GV->getAlignment())
     Out << ", align " << GV->getAlignment();
 
@@ -1903,10 +2009,7 @@ void AssemblyWriter::printFunction(const Function *F) {
     PrintEscapedString(F->getSection(), Out);
     Out << '"';
   }
-  if (F->hasComdat()) {
-    Out << " comdat ";
-    PrintLLVMName(Out, F->getComdat()->getName(), ComdatPrefix);
-  }
+  maybePrintComdat(Out, *F);
   if (F->getAlignment())
     Out << " align " << F->getAlignment();
   if (F->hasGC())
@@ -2378,7 +2481,7 @@ static void WriteMDNodeComment(const MDNode *Node,
 }
 
 void AssemblyWriter::writeMDNode(unsigned Slot, const MDNode *Node) {
-  Out << '!' << Slot << " = metadata ";
+  Out << '!' << Slot << " = ";
   printMDNodeBody(Node);
 }
 
@@ -2570,7 +2673,6 @@ void Value::printAsOperand(raw_ostream &O, bool PrintType, const Module *M) cons
 void Metadata::print(raw_ostream &ROS) const {
   formatted_raw_ostream OS(ROS);
   if (auto *N = dyn_cast<MDNode>(this)) {
-    OS << "metadata ";
     SlotTracker SlotTable(static_cast<Function *>(nullptr));
     AssemblyWriter W(OS, SlotTable, nullptr, nullptr);
     W.printMDNodeBody(N);
@@ -2583,8 +2685,6 @@ void Metadata::print(raw_ostream &ROS) const {
 void Metadata::printAsOperand(raw_ostream &ROS, bool PrintType,
                               const Module *M) const {
   formatted_raw_ostream OS(ROS);
-  if (PrintType)
-    OS << "metadata ";
 
   std::unique_ptr<TypePrinting> TypePrinter;
   if (PrintType) {

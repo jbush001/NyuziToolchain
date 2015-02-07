@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Support/Dwarf.h"
+#include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
 
 using namespace llvm;
@@ -19,87 +20,19 @@ using namespace dwarf;
 
 const char *llvm::dwarf::TagString(unsigned Tag) {
   switch (Tag) {
-  case DW_TAG_array_type:                return "DW_TAG_array_type";
-  case DW_TAG_class_type:                return "DW_TAG_class_type";
-  case DW_TAG_entry_point:               return "DW_TAG_entry_point";
-  case DW_TAG_enumeration_type:          return "DW_TAG_enumeration_type";
-  case DW_TAG_formal_parameter:          return "DW_TAG_formal_parameter";
-  case DW_TAG_imported_declaration:      return "DW_TAG_imported_declaration";
-  case DW_TAG_label:                     return "DW_TAG_label";
-  case DW_TAG_lexical_block:             return "DW_TAG_lexical_block";
-  case DW_TAG_member:                    return "DW_TAG_member";
-  case DW_TAG_pointer_type:              return "DW_TAG_pointer_type";
-  case DW_TAG_reference_type:            return "DW_TAG_reference_type";
-  case DW_TAG_compile_unit:              return "DW_TAG_compile_unit";
-  case DW_TAG_string_type:               return "DW_TAG_string_type";
-  case DW_TAG_structure_type:            return "DW_TAG_structure_type";
-  case DW_TAG_subroutine_type:           return "DW_TAG_subroutine_type";
-  case DW_TAG_typedef:                   return "DW_TAG_typedef";
-  case DW_TAG_union_type:                return "DW_TAG_union_type";
-  case DW_TAG_unspecified_parameters:    return "DW_TAG_unspecified_parameters";
-  case DW_TAG_variant:                   return "DW_TAG_variant";
-  case DW_TAG_common_block:              return "DW_TAG_common_block";
-  case DW_TAG_common_inclusion:          return "DW_TAG_common_inclusion";
-  case DW_TAG_inheritance:               return "DW_TAG_inheritance";
-  case DW_TAG_inlined_subroutine:        return "DW_TAG_inlined_subroutine";
-  case DW_TAG_module:                    return "DW_TAG_module";
-  case DW_TAG_ptr_to_member_type:        return "DW_TAG_ptr_to_member_type";
-  case DW_TAG_set_type:                  return "DW_TAG_set_type";
-  case DW_TAG_subrange_type:             return "DW_TAG_subrange_type";
-  case DW_TAG_with_stmt:                 return "DW_TAG_with_stmt";
-  case DW_TAG_access_declaration:        return "DW_TAG_access_declaration";
-  case DW_TAG_base_type:                 return "DW_TAG_base_type";
-  case DW_TAG_catch_block:               return "DW_TAG_catch_block";
-  case DW_TAG_const_type:                return "DW_TAG_const_type";
-  case DW_TAG_constant:                  return "DW_TAG_constant";
-  case DW_TAG_enumerator:                return "DW_TAG_enumerator";
-  case DW_TAG_file_type:                 return "DW_TAG_file_type";
-  case DW_TAG_friend:                    return "DW_TAG_friend";
-  case DW_TAG_namelist:                  return "DW_TAG_namelist";
-  case DW_TAG_namelist_item:             return "DW_TAG_namelist_item";
-  case DW_TAG_packed_type:               return "DW_TAG_packed_type";
-  case DW_TAG_subprogram:                return "DW_TAG_subprogram";
-  case DW_TAG_template_type_parameter:   return "DW_TAG_template_type_parameter";
-  case DW_TAG_template_value_parameter:  return "DW_TAG_template_value_parameter";
-  case DW_TAG_thrown_type:               return "DW_TAG_thrown_type";
-  case DW_TAG_try_block:                 return "DW_TAG_try_block";
-  case DW_TAG_variant_part:              return "DW_TAG_variant_part";
-  case DW_TAG_variable:                  return "DW_TAG_variable";
-  case DW_TAG_volatile_type:             return "DW_TAG_volatile_type";
-  case DW_TAG_dwarf_procedure:           return "DW_TAG_dwarf_procedure";
-  case DW_TAG_restrict_type:             return "DW_TAG_restrict_type";
-  case DW_TAG_interface_type:            return "DW_TAG_interface_type";
-  case DW_TAG_namespace:                 return "DW_TAG_namespace";
-  case DW_TAG_imported_module:           return "DW_TAG_imported_module";
-  case DW_TAG_unspecified_type:          return "DW_TAG_unspecified_type";
-  case DW_TAG_partial_unit:              return "DW_TAG_partial_unit";
-  case DW_TAG_imported_unit:             return "DW_TAG_imported_unit";
-  case DW_TAG_condition:                 return "DW_TAG_condition";
-  case DW_TAG_shared_type:               return "DW_TAG_shared_type";
-  case DW_TAG_lo_user:                   return "DW_TAG_lo_user";
-  case DW_TAG_hi_user:                   return "DW_TAG_hi_user";
-  case DW_TAG_auto_variable:             return "DW_TAG_auto_variable";
-  case DW_TAG_arg_variable:              return "DW_TAG_arg_variable";
-  case DW_TAG_expression:                return "DW_TAG_expression";
-  case DW_TAG_rvalue_reference_type:     return "DW_TAG_rvalue_reference_type";
-  case DW_TAG_template_alias:            return "DW_TAG_template_alias";
-  case DW_TAG_coarray_type:              return "DW_TAG_coarray_type";
-  case DW_TAG_generic_subrange:          return "DW_TAG_generic_subrange";
-  case DW_TAG_dynamic_type:              return "DW_TAG_dynamic_type";
-  case DW_TAG_MIPS_loop:                 return "DW_TAG_MIPS_loop";
-  case DW_TAG_type_unit:                 return "DW_TAG_type_unit";
-  case DW_TAG_format_label:              return "DW_TAG_format_label";
-  case DW_TAG_function_template:         return "DW_TAG_function_template";
-  case DW_TAG_class_template:            return "DW_TAG_class_template";
-  case DW_TAG_GNU_template_template_param:
-    return "DW_TAG_GNU_template_template_param";
-  case DW_TAG_GNU_template_parameter_pack:
-    return "DW_TAG_GNU_template_parameter_pack";
-  case DW_TAG_GNU_formal_parameter_pack:
-    return "DW_TAG_GNU_formal_parameter_pack";
-  case DW_TAG_APPLE_property:            return "DW_TAG_APPLE_property";
+  default: return nullptr;
+#define HANDLE_DW_TAG(ID, NAME)                                                \
+  case DW_TAG_##NAME:                                                          \
+    return "DW_TAG_" #NAME;
+#include "llvm/Support/Dwarf.def"
   }
-  return nullptr;
+}
+
+unsigned llvm::dwarf::getTag(StringRef TagString) {
+  return StringSwitch<unsigned>(TagString)
+#define HANDLE_DW_TAG(ID, NAME) .Case("DW_TAG_" #NAME, DW_TAG_##NAME)
+#include "llvm/Support/Dwarf.def"
+      .Default(DW_TAG_invalid);
 }
 
 const char *llvm::dwarf::ChildrenString(unsigned Children) {
@@ -473,26 +406,19 @@ const char *llvm::dwarf::OperationEncodingString(unsigned Encoding) {
 
 const char *llvm::dwarf::AttributeEncodingString(unsigned Encoding) {
   switch (Encoding) {
-  case DW_ATE_address:                   return "DW_ATE_address";
-  case DW_ATE_boolean:                   return "DW_ATE_boolean";
-  case DW_ATE_complex_float:             return "DW_ATE_complex_float";
-  case DW_ATE_float:                     return "DW_ATE_float";
-  case DW_ATE_signed:                    return "DW_ATE_signed";
-  case DW_ATE_signed_char:               return "DW_ATE_signed_char";
-  case DW_ATE_unsigned:                  return "DW_ATE_unsigned";
-  case DW_ATE_unsigned_char:             return "DW_ATE_unsigned_char";
-  case DW_ATE_imaginary_float:           return "DW_ATE_imaginary_float";
-  case DW_ATE_UTF:                       return "DW_ATE_UTF";
-  case DW_ATE_packed_decimal:            return "DW_ATE_packed_decimal";
-  case DW_ATE_numeric_string:            return "DW_ATE_numeric_string";
-  case DW_ATE_edited:                    return "DW_ATE_edited";
-  case DW_ATE_signed_fixed:              return "DW_ATE_signed_fixed";
-  case DW_ATE_unsigned_fixed:            return "DW_ATE_unsigned_fixed";
-  case DW_ATE_decimal_float:             return "DW_ATE_decimal_float";
-  case DW_ATE_lo_user:                   return "DW_ATE_lo_user";
-  case DW_ATE_hi_user:                   return "DW_ATE_hi_user";
+  default: return nullptr;
+#define HANDLE_DW_ATE(ID, NAME)                                                \
+  case DW_ATE_##NAME:                                                          \
+    return "DW_ATE_" #NAME;
+#include "llvm/Support/Dwarf.def"
   }
-  return nullptr;
+}
+
+unsigned llvm::dwarf::getAttributeEncoding(StringRef EncodingString) {
+  return StringSwitch<unsigned>(EncodingString)
+#define HANDLE_DW_ATE(ID, NAME) .Case("DW_ATE_" #NAME, DW_ATE_##NAME)
+#include "llvm/Support/Dwarf.def"
+      .Default(0);
 }
 
 const char *llvm::dwarf::DecimalSignString(unsigned Sign) {
@@ -538,47 +464,39 @@ const char *llvm::dwarf::VisibilityString(unsigned Visibility) {
 
 const char *llvm::dwarf::VirtualityString(unsigned Virtuality) {
   switch (Virtuality) {
-  case DW_VIRTUALITY_none:               return "DW_VIRTUALITY_none";
-  case DW_VIRTUALITY_virtual:            return "DW_VIRTUALITY_virtual";
-  case DW_VIRTUALITY_pure_virtual:       return "DW_VIRTUALITY_pure_virtual";
+  default:
+    return nullptr;
+#define HANDLE_DW_VIRTUALITY(ID, NAME)                                         \
+  case DW_VIRTUALITY_##NAME:                                                   \
+    return "DW_VIRTUALITY_" #NAME;
+#include "llvm/Support/Dwarf.def"
   }
-  return nullptr;
+}
+
+unsigned llvm::dwarf::getVirtuality(StringRef VirtualityString) {
+  return StringSwitch<unsigned>(VirtualityString)
+#define HANDLE_DW_VIRTUALITY(ID, NAME)                                         \
+  .Case("DW_VIRTUALITY_" #NAME, DW_VIRTUALITY_##NAME)
+#include "llvm/Support/Dwarf.def"
+      .Default(DW_VIRTUALITY_invalid);
 }
 
 const char *llvm::dwarf::LanguageString(unsigned Language) {
   switch (Language) {
-  case DW_LANG_C89:                      return "DW_LANG_C89";
-  case DW_LANG_C:                        return "DW_LANG_C";
-  case DW_LANG_Ada83:                    return "DW_LANG_Ada83";
-  case DW_LANG_C_plus_plus:              return "DW_LANG_C_plus_plus";
-  case DW_LANG_Cobol74:                  return "DW_LANG_Cobol74";
-  case DW_LANG_Cobol85:                  return "DW_LANG_Cobol85";
-  case DW_LANG_Fortran77:                return "DW_LANG_Fortran77";
-  case DW_LANG_Fortran90:                return "DW_LANG_Fortran90";
-  case DW_LANG_Pascal83:                 return "DW_LANG_Pascal83";
-  case DW_LANG_Modula2:                  return "DW_LANG_Modula2";
-  case DW_LANG_Java:                     return "DW_LANG_Java";
-  case DW_LANG_C99:                      return "DW_LANG_C99";
-  case DW_LANG_Ada95:                    return "DW_LANG_Ada95";
-  case DW_LANG_Fortran95:                return "DW_LANG_Fortran95";
-  case DW_LANG_PLI:                      return "DW_LANG_PLI";
-  case DW_LANG_ObjC:                     return "DW_LANG_ObjC";
-  case DW_LANG_ObjC_plus_plus:           return "DW_LANG_ObjC_plus_plus";
-  case DW_LANG_UPC:                      return "DW_LANG_UPC";
-  case DW_LANG_D:                        return "DW_LANG_D";
-  case DW_LANG_Python:                   return "DW_LANG_Python";
-  case DW_LANG_OpenCL:                   return "DW_LANG_OpenCL";
-  case DW_LANG_Go:                       return "DW_LANG_Go";
-  case DW_LANG_Modula3:                  return "DW_LANG_Modula3";
-  case DW_LANG_Haskell:                  return "DW_LANG_Haskell";
-  case DW_LANG_C_plus_plus_03:           return "DW_LANG_C_plus_plus_03";
-  case DW_LANG_C_plus_plus_11:           return "DW_LANG_C_plus_plus_11";
-  case DW_LANG_OCaml:                    return "DW_LANG_OCaml";
-  case DW_LANG_lo_user:                  return "DW_LANG_lo_user";
-  case DW_LANG_Mips_Assembler:           return "DW_LANG_Mips_Assembler";
-  case DW_LANG_hi_user:                  return "DW_LANG_hi_user";
+  default:
+    return nullptr;
+#define HANDLE_DW_LANG(ID, NAME)                                               \
+  case DW_LANG_##NAME:                                                         \
+    return "DW_LANG_" #NAME;
+#include "llvm/Support/Dwarf.def"
   }
-  return nullptr;
+}
+
+unsigned llvm::dwarf::getLanguage(StringRef LanguageString) {
+  return StringSwitch<unsigned>(LanguageString)
+#define HANDLE_DW_LANG(ID, NAME) .Case("DW_LANG_" #NAME, DW_LANG_##NAME)
+#include "llvm/Support/Dwarf.def"
+      .Default(0);
 }
 
 const char *llvm::dwarf::CaseString(unsigned Case) {

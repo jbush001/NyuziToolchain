@@ -14,7 +14,7 @@
 // Other libraries and framework includes
 // Project includes
 #include "lldb/Core/Stream.h"
-#include "lldb/Interpreter/Args.h"
+#include "lldb/Host/StringConvert.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -44,19 +44,21 @@ OptionValueSInt64::SetValueFromCString (const char *value_cstr, VarSetOperationT
     {
         case eVarSetOperationClear:
             Clear();
+            NotifyValueChanged();
             break;
             
         case eVarSetOperationReplace:
         case eVarSetOperationAssign:
             {
                 bool success = false;
-                int64_t value = Args::StringToSInt64 (value_cstr, 0, 0, &success);
+                int64_t value = StringConvert::ToSInt64 (value_cstr, 0, 0, &success);
                 if (success)
                 {
                     if (value >= m_min_value && value <= m_max_value)
                     {
                         m_value_was_set = true;
                         m_current_value = value;
+                        NotifyValueChanged();
                     }
                     else
                         error.SetErrorStringWithFormat ("%" PRIi64 " is out of range, valid values must be between %" PRIi64 " and %" PRIi64 ".",

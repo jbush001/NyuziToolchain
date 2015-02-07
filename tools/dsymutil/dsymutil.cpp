@@ -14,13 +14,11 @@
 
 #include "DebugMap.h"
 #include "dsymutil.h"
-
 #include "llvm/Support/ManagedStatic.h"
-#include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Options.h"
-#include "llvm/Support/raw_ostream.h"
+#include "llvm/Support/PrettyStackTrace.h"
 #include "llvm/Support/Signals.h"
-
+#include "llvm/Support/raw_ostream.h"
 #include <string>
 
 using namespace llvm::dsymutil;
@@ -51,7 +49,7 @@ int main(int argc, char **argv) {
   llvm::llvm_shutdown_obj Shutdown;
 
   llvm::cl::ParseCommandLineOptions(argc, argv, "llvm dsymutil\n");
-  auto DebugMapPtrOrErr = parseDebugMap(InputFile, OsoPrependPath);
+  auto DebugMapPtrOrErr = parseDebugMap(InputFile, OsoPrependPath, Verbose);
 
   if (auto EC = DebugMapPtrOrErr.getError()) {
     llvm::errs() << "error: cannot parse the debug map for \"" << InputFile
@@ -69,5 +67,5 @@ int main(int argc, char **argv) {
   if (OutputBasename == "-")
     OutputBasename = "a.out";
 
-  return !linkDwarf(OutputBasename + ".dwarf", **DebugMapPtrOrErr);
+  return !linkDwarf(OutputBasename + ".dwarf", **DebugMapPtrOrErr, Verbose);
 }

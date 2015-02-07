@@ -1613,7 +1613,8 @@ namespace TypeId {
   A &g();
   constexpr auto &x = typeid(f());
   constexpr auto &y = typeid(g()); // expected-error{{constant expression}} \
-  // expected-note{{typeid applied to expression of polymorphic type 'TypeId::A' is not allowed in a constant expression}}
+  // expected-note{{typeid applied to expression of polymorphic type 'TypeId::A' is not allowed in a constant expression}} \
+  // expected-warning {{expression with side effects will be evaluated despite being used as an operand to 'typeid'}}
 }
 
 namespace PR14203 {
@@ -1712,6 +1713,9 @@ namespace InitializerList {
     return sum(ints.begin(), ints.end());
   }
   static_assert(sum({1, 2, 3, 4, 5}) == 15, "");
+
+  static_assert(*std::initializer_list<int>{1, 2, 3}.begin() == 1, "");
+  static_assert(std::initializer_list<int>{1, 2, 3}.begin()[2] == 3, "");
 }
 
 namespace StmtExpr {
@@ -1960,6 +1964,7 @@ namespace PR21786 {
   extern void (*start[])();
   extern void (*end[])();
   static_assert(&start != &end, ""); // expected-error {{constant expression}}
+  static_assert(&start != nullptr, "");
 
   struct Foo;
   struct Bar {
@@ -1967,5 +1972,15 @@ namespace PR21786 {
     static const Foo y;
   };
   static_assert(&Bar::x != nullptr, "");
-  static_assert(&Bar::x != &Bar::y, ""); // expected-error {{constant expression}}
+  static_assert(&Bar::x != &Bar::y, "");
 }
+
+namespace PR21859 {
+  constexpr int Fun() { return; } // expected-error {{non-void constexpr function 'Fun' should return a value}}
+  constexpr int Var = Fun(); // expected-error {{constexpr variable 'Var' must be initialized by a constant expression}}
+}
+
+struct InvalidRedef {
+  int f; // expected-note{{previous definition is here}}
+  constexpr int f(void); // expected-error{{redefinition of 'f'}} expected-warning{{will not be implicitly 'const'}}
+};

@@ -42,6 +42,13 @@
 // RUN: %clang_cl /Gy /Gy- -### -- %s 2>&1 | FileCheck -check-prefix=Gy_ %s
 // Gy_-NOT: -ffunction-sections
 
+// RUN: %clang_cl /Gs -### -- %s 2>&1 | FileCheck -check-prefix=Gs %s
+// Gs: "-mstack-probe-size=0"
+// RUN: %clang_cl /Gs0 -### -- %s 2>&1 | FileCheck -check-prefix=Gs0 %s
+// Gs0: "-mstack-probe-size=0"
+// RUN: %clang_cl /Gs4096 -### -- %s 2>&1 | FileCheck -check-prefix=Gs4096 %s
+// Gs4096: "-mstack-probe-size=4096"
+
 // RUN: %clang_cl /Gw -### -- %s 2>&1 | FileCheck -check-prefix=Gw %s
 // Gw: -fdata-sections
 
@@ -172,9 +179,12 @@
 // (/Zs is for syntax-only)
 // RUN: %clang_cl /Zs \
 // RUN:    /analyze- \
+// RUN:    /cgthreads4 \
+// RUN:    /cgthreads8 \
 // RUN:    /d2Zi+ \
 // RUN:    /errorReport:foo \
 // RUN:    /FS \
+// RUN:    /Gd \
 // RUN:    /GF \
 // RUN:    /GS- \
 // RUN:    /kernel- \
@@ -185,12 +195,9 @@
 // RUN:    /sdl \
 // RUN:    /sdl- \
 // RUN:    /vmg \
+// RUN:    /volatile:iso \
 // RUN:    /w12345 \
 // RUN:    /wd1234 \
-// RUN:    /Zc:forScope \
-// RUN:    /Zc:wchar_t \
-// RUN:    /Zc:inline \
-// RUN:    /Zc:rvalueCast \
 // RUN:    /Zo \
 // RUN:    /Zo- \
 // RUN:    -### -- %s 2>&1 | FileCheck -check-prefix=IGNORED %s
@@ -245,9 +252,9 @@
 // RUN:     /Gm- \
 // RUN:     /Gr \
 // RUN:     /GS \
-// RUN:     /Gs1000 \
 // RUN:     /GT \
 // RUN:     /GX \
+// RUN:     /Gv \
 // RUN:     /Gz \
 // RUN:     /GZ \
 // RUN:     /H \
@@ -266,7 +273,7 @@
 // RUN:     /Qvec-report:2 \
 // RUN:     /u \
 // RUN:     /V \
-// RUN:     /volatile \
+// RUN:     /volatile:ms \
 // RUN:     /wfoo \
 // RUN:     /WL \
 // RUN:     /Wp64 \
@@ -280,8 +287,6 @@
 // RUN:     /Yustdafx.h \
 // RUN:     /Z7 \
 // RUN:     /Za \
-// RUN:     /Zc:auto \
-// RUN:     /Zc:wchar_t- \
 // RUN:     /Ze \
 // RUN:     /Zg \
 // RUN:     /Zi \

@@ -31,8 +31,10 @@
 #include "lldb/Core/StreamFile.h"
 #include "lldb/Host/ConnectionFileDescriptor.h"
 #include "lldb/Host/HostThread.h"
+#include "lldb/Host/Pipe.h"
 #include "lldb/Host/OptionParser.h"
 #include "lldb/Host/Socket.h"
+#include "lldb/Host/StringConvert.h"
 #include "lldb/Host/ThreadLauncher.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
 #include "lldb/Interpreter/CommandReturnObject.h"
@@ -309,24 +311,18 @@ JoinListenThread ()
 Error
 writePortToPipe (const char *const named_pipe_path, const uint16_t port)
 {
-    Error error;
-
-    // FIXME use new generic named pipe support.
-    int fd = ::open (named_pipe_path, O_WRONLY);
-    if (fd == -1)
-    {
-        error.SetErrorToErrno ();
+    Pipe port_name_pipe;
+    // Wait for 10 seconds for pipe to be opened.
+    auto error = port_name_pipe.OpenAsWriterWithTimeout (named_pipe_path, false, std::chrono::microseconds (10 * 1000000));
+    if (error.Fail ())
         return error;
-    }
 
     char port_str[64];
-    const ssize_t port_str_len = ::snprintf (port_str, sizeof(port_str), "%u", port);
-    // Write the port number as a C string with the NULL terminator.
-    if (::write (fd, port_str, port_str_len + 1) == -1)
-        error.SetErrorToErrno ();
+    const auto port_str_len = ::snprintf (port_str, sizeof (port_str), "%u", port);
 
-    close (fd);
-    return error;
+    size_t bytes_written = 0;
+    // Write the port number as a C string with the NULL terminator.
+    return port_name_pipe.Write (port_str, port_str_len + 1, bytes_written);
 }
 
 void
@@ -352,7 +348,7 @@ ConnectToRemote (GDBRemoteCommunicationServer &gdb_server, bool reverse_connect,
         {
             connection_host = final_host_and_port.substr (0, colon_pos);
             connection_port = final_host_and_port.substr (colon_pos + 1);
-            connection_portno = Args::StringToUInt32 (connection_port.c_str (), 0);
+            connection_portno = StringConvert::ToUInt32 (connection_port.c_str (), 0);
         }
         else
         {
@@ -432,7 +428,7 @@ ConnectToRemote (GDBRemoteCommunicationServer &gdb_server, bool reverse_connect,
             // Ensure we connected.
             if (s_listen_connection_up)
             {
-                printf ("Connection established.\n");
+                printf ("Connection established '%s'\n", s_listen_connection_up->GetURI().c_str());
                 gdb_server.SetConnection (s_listen_connection_up.release());
             }
             else
@@ -643,6 +639,15 @@ main (int argc, char *argv[])
         if (log_args.GetArgumentCount() == 0)
             log_args.AppendArgument("default");
         ProcessGDBRemoteLog::EnableLog (log_stream_sp, 0,log_args.GetConstArgumentVector(), log_stream_sp.get());
+    }
+    Log *log(lldb_private::GetLogIfAnyCategoriesSet (GDBR_LOG_VERBOSE));
+    if (log)
+    {
+        log->Printf ("lldb-gdbserver launch");
+        for (int i = 0; i < argc; i++)
+        {
+            log->Printf ("argv[%i] = '%s'", i, argv[i]);
+        }
     }
 
     // Skip any options we consumed with getopt_long_only.

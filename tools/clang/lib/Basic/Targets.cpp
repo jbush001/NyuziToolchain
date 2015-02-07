@@ -273,6 +273,12 @@ protected:
     // On FreeBSD, wchar_t contains the number of the code point as
     // used by the character set of the locale. These character sets are
     // not necessarily a superset of ASCII.
+    //
+    // FIXME: This is wrong; the macro refers to the numerical values
+    // of wchar_t *literals*, which are not locale-dependent. However,
+    // FreeBSD systems apparently depend on us getting this wrong, and
+    // setting this to 1 is conforming even if all the basic source
+    // character literals have the same encoding as char and wchar_t.
     Builder.defineMacro("__STDC_MB_MIGHT_NEQ_WC__", "1");
   }
 public:
@@ -519,6 +525,33 @@ public:
   }
 };
 
+template <typename Target>
+class PS4OSTargetInfo : public OSTargetInfo<Target> {
+protected:
+  void getOSDefines(const LangOptions &Opts, const llvm::Triple &Triple,
+                    MacroBuilder &Builder) const override {
+    Builder.defineMacro("__FreeBSD__", "9");
+    Builder.defineMacro("__FreeBSD_cc_version", "900001");
+    Builder.defineMacro("__KPRINTF_ATTRIBUTE__");
+    DefineStd(Builder, "unix", Opts);
+    Builder.defineMacro("__ELF__");
+    Builder.defineMacro("__PS4__");
+  }
+public:
+  PS4OSTargetInfo(const llvm::Triple &Triple) : OSTargetInfo<Target>(Triple) {
+    this->WCharType = this->UnsignedShort;
+
+    this->UserLabelPrefix = "";
+
+    switch (Triple.getArch()) {
+    default:
+    case llvm::Triple::x86_64:
+      this->MCountName = ".mcount";
+      break;
+    }
+  }
+};
+
 // Solaris target
 template<typename Target>
 class SolarisTargetInfo : public OSTargetInfo<Target> {
@@ -567,7 +600,7 @@ protected:
       if (Opts.RTTIData)
         Builder.defineMacro("_CPPRTTI");
 
-      if (Opts.Exceptions)
+      if (Opts.CXXExceptions)
         Builder.defineMacro("_CPPUNWIND");
     }
 
@@ -652,11 +685,6 @@ public:
       assert(Triple.getArch() == llvm::Triple::le32);
       this->DescriptionString = "e-p:32:32-i64:64";
     }
-  }
-  typename Target::CallingConvCheckResult checkCallingConvention(
-      CallingConv CC) const override {
-    return CC == CC_PnaclCall ? Target::CCCR_OK :
-        Target::checkCallingConvention(CC);
   }
 };
 } // end anonymous namespace.
@@ -1564,8 +1592,15 @@ class R600TargetInfo : public TargetInfo {
 
 public:
   R600TargetInfo(const llvm::Triple &Triple)
-      : TargetInfo(Triple), GPU(GK_R600) {
-    DescriptionString = DescriptionStringR600;
+      : TargetInfo(Triple) {
+
+    if (Triple.getArch() == llvm::Triple::amdgcn) {
+      DescriptionString = DescriptionStringSI;
+      GPU = GK_SOUTHERN_ISLANDS;
+    } else {
+      DescriptionString = DescriptionStringR600;
+      GPU = GK_R600;
+    }
     AddrSpaceMap = &R600AddrSpaceMap;
     UseAddrSpaceMapMangling = true;
   }
@@ -2418,8 +2453,8 @@ void X86TargetInfo::setSSELevel(llvm::StringMap<bool> &Features,
     Features["avx2"] = false;
   case AVX512F:
     Features["avx512f"] = Features["avx512cd"] = Features["avx512er"] =
-        Features["avx512pf"] = Features["avx512dq"] = Features["avx512bw"] =
-            Features["avx512vl"] = false;
+      Features["avx512pf"] = Features["avx512dq"] = Features["avx512bw"] =
+      Features["avx512vl"] = false;
   }
 }
 
@@ -3102,6 +3137,28 @@ X86TargetInfo::validateAsmConstraint(const char *&Name,
                                      TargetInfo::ConstraintInfo &Info) const {
   switch (*Name) {
   default: return false;
+  case 'I':
+    Info.setRequiresImmediate(0, 31);
+    return true;
+  case 'J':
+    Info.setRequiresImmediate(0, 63);
+    return true;
+  case 'K':
+    Info.setRequiresImmediate(-128, 127);
+    return true;
+  case 'L':
+    // FIXME: properly analyze this constraint:
+    //  must be one of 0xff, 0xffff, or 0xffffffff
+    return true;
+  case 'M':
+    Info.setRequiresImmediate(0, 3);
+    return true;
+  case 'N':
+    Info.setRequiresImmediate(0, 255);
+    return true;
+  case 'O':
+    Info.setRequiresImmediate(0, 127);
+    return true;
   case 'Y': // first letter of a pair:
     switch (*(Name+1)) {
     default: return false;
@@ -3899,6 +3956,9 @@ public:
       case llvm::Triple::EABI:
         setABI("aapcs");
         break;
+      case llvm::Triple::GNU:
+	setABI("apcs-gnu");
+	break;
       default:
         if (Triple.getOS() == llvm::Triple::NetBSD)
           setABI("apcs-gnu");
@@ -3942,11 +4002,6 @@ public:
   }
 
   void getDefaultFeatures(llvm::StringMap<bool> &Features) const override {
-    if (IsAAPCS)
-      Features["aapcs"] = true;
-    else
-      Features["apcs"] = true;
-
     StringRef ArchName = getTriple().getArchName();
     if (CPU == "arm1136jf-s" || CPU == "arm1176jzf-s" || CPU == "mpcore")
       Features["vfp2"] = true;
@@ -3969,7 +4024,7 @@ public:
       Features["neon"] = true;
       Features["hwdiv"] = true;
       Features["hwdiv-arm"] = true;
-    } else if (CPU == "cortex-a53" || CPU == "cortex-a57") {
+    } else if (CPU == "cortex-a53" || CPU == "cortex-a57" || CPU == "cortex-a72") {
       Features["fp-armv8"] = true;
       Features["neon"] = true;
       Features["hwdiv"] = true;
@@ -4089,7 +4144,7 @@ public:
         .Case("cortex-m3", "7M")
         .Cases("cortex-m4", "cortex-m7", "7EM")
         .Case("cortex-m0", "6M")
-        .Cases("cortex-a53", "cortex-a57", "8A")
+        .Cases("cortex-a53", "cortex-a57", "cortex-a72", "8A")
         .Default(nullptr);
   }
   static const char *getCPUProfile(StringRef Name) {
@@ -4097,7 +4152,7 @@ public:
         .Cases("cortex-a5", "cortex-a7", "cortex-a8", "A")
         .Cases("cortex-a9", "cortex-a12", "cortex-a15", "cortex-a17", "krait",
                "A")
-        .Cases("cortex-a53", "cortex-a57", "A")
+        .Cases("cortex-a53", "cortex-a57", "cortex-a72", "A")
         .Cases("cortex-m3", "cortex-m4", "cortex-m0", "cortex-m7", "M")
         .Cases("cortex-r4", "cortex-r5", "R")
         .Default("");
@@ -4290,6 +4345,13 @@ public:
     case 'w': // VFP Floating point register single precision
     case 'P': // VFP Floating point register double precision
       Info.setAllowsRegister();
+      return true;
+    case 'I':
+    case 'J':
+    case 'K':
+    case 'L':
+    case 'M':
+      // FIXME
       return true;
     case 'Q': // A memory address that is a single base register.
       Info.setAllowsMemory();
@@ -4610,12 +4672,19 @@ public:
     MaxAtomicInlineWidth = 128;
     MaxAtomicPromoteWidth = 128;
 
-    LongDoubleWidth = LongDoubleAlign = 128;
+    LongDoubleWidth = LongDoubleAlign = SuitableAlign = 128;
     LongDoubleFormat = &llvm::APFloat::IEEEquad;
 
     // {} in inline assembly are neon specifiers, not assembly variant
     // specifiers.
     NoAsmVariants = true;
+
+    // AAPCS gives rules for bitfields. 7.1.7 says: "The container type
+    // contributes to the alignment of the containing aggregate in the same way
+    // a plain (non bit-field) member of that type would, without exception for
+    // zero-sized or anonymous bit-fields."
+    UseBitFieldTypeAlignment = true;
+    UseZeroLengthBitfieldAlignment = true;
 
     // AArch64 targets default to using the ARM C++ ABI.
     TheCXXABI.set(TargetCXXABI::GenericAArch64);
@@ -4633,7 +4702,7 @@ public:
   bool setCPU(const std::string &Name) override {
     bool CPUKnown = llvm::StringSwitch<bool>(Name)
                         .Case("generic", true)
-                        .Cases("cortex-a53", "cortex-a57", true)
+                        .Cases("cortex-a53", "cortex-a57", "cortex-a72", true)
                         .Case("cyclone", true)
                         .Default(false);
     return CPUKnown;
@@ -4943,7 +5012,7 @@ public:
     WCharType = SignedInt;
     UseSignedCharForObjCBool = false;
 
-    LongDoubleWidth = LongDoubleAlign = 64;
+    LongDoubleWidth = LongDoubleAlign = SuitableAlign = 64;
     LongDoubleFormat = &llvm::APFloat::IEEEdouble;
 
     TheCXXABI.set(TargetCXXABI::iOS64);
@@ -5154,6 +5223,16 @@ public:
   bool validateAsmConstraint(const char *&Name,
                              TargetInfo::ConstraintInfo &info) const override {
     // FIXME: Implement!
+    switch (*Name) {
+    case 'I': // Signed 13-bit constant
+    case 'J': // Zero
+    case 'K': // 32-bit constant with the low 12 bits clear
+    case 'L': // A constant in the range supported by movcc (11-bit signed imm)
+    case 'M': // A constant in the range supported by movrcc (19-bit signed imm)
+    case 'N': // Same as 'K' but zext (required for SIMode)
+    case 'O': // The constant 4096
+      return true;
+    }
     return false;
   }
   const char *getClobbers() const override {
@@ -5446,6 +5525,13 @@ namespace {
     bool
     validateAsmConstraint(const char *&Name,
                           TargetInfo::ConstraintInfo &info) const override {
+      // FIXME: implement
+      switch (*Name) {
+      case 'K': // the constant 1
+      case 'L': // constant -1^20 .. 1^19
+      case 'M': // constant 1-4:
+        return true;
+      }
       // No target constraints for now.
       return false;
     }
@@ -5610,14 +5696,6 @@ public:
   }
   const std::string& getCPU() const { return CPU; }
   void getDefaultFeatures(llvm::StringMap<bool> &Features) const override {
-    // The backend enables certain ABI's by default according to the
-    // architecture.
-    // Disable both possible defaults so that we don't end up with multiple
-    // ABI's selected and trigger an assertion.
-    Features["o32"] = false;
-    Features["n64"] = false;
-
-    Features[ABI] = true;
     if (CPU == "octeon")
       Features["mips64r2"] = Features["cnmips"] = true;
     else
@@ -5742,6 +5820,15 @@ public:
     case 'x': // hilo register pair
       Info.setAllowsRegister();
       return true;
+    case 'I': // Signed 16-bit constant
+    case 'J': // Integer 0
+    case 'K': // Unsigned 16-bit constant
+    case 'L': // Signed 32-bit constant, lower 16-bit zeros (for lui)
+    case 'M': // Constants not loadable via lui, addiu, or ori
+    case 'N': // Constant -1 to -65535
+    case 'O': // A signed 15-bit constant
+    case 'P': // A constant between 1 go 65535
+      return true;
     case 'R': // An address that can be used in a non-macro load or store
       Info.setAllowsMemory();
       return true;
@@ -5749,8 +5836,28 @@ public:
   }
 
   const char *getClobbers() const override {
-    // FIXME: Implement!
-    return "";
+    // In GCC, $1 is not widely used in generated code (it's used only in a few
+    // specific situations), so there is no real need for users to add it to
+    // the clobbers list if they want to use it in their inline assembly code.
+    //
+    // In LLVM, $1 is treated as a normal GPR and is always allocatable during
+    // code generation, so using it in inline assembly without adding it to the
+    // clobbers list can cause conflicts between the inline assembly code and
+    // the surrounding generated code.
+    //
+    // Another problem is that LLVM is allowed to choose $1 for inline assembly
+    // operands, which will conflict with the ".set at" assembler option (which
+    // we use only for inline assembly, in order to maintain compatibility with
+    // GCC) and will also conflict with the user's usage of $1.
+    //
+    // The easiest way to avoid these conflicts and keep $1 as an allocatable
+    // register for generated code is to automatically clobber $1 for all inline
+    // assembly code.
+    //
+    // FIXME: We should automatically clobber $1 only for inline assembly code
+    // which actually uses it. This would allow LLVM to use $1 for inline
+    // assembly operands if the user's assembly code doesn't use it.
+    return "~{$1}";
   }
 
   bool handleTargetFeatures(std::vector<std::string> &Features,
@@ -5822,6 +5929,8 @@ public:
       : MipsTargetInfoBase(Triple, "o32", "mips32r2") {
     SizeType = UnsignedInt;
     PtrDiffType = SignedInt;
+    Int64Type = SignedLongLong;
+    IntMaxType = Int64Type;
     MaxAtomicPromoteWidth = MaxAtomicInlineWidth = 32;
   }
   bool setABI(const std::string &Name) override {
@@ -5843,6 +5952,8 @@ public:
       Builder.defineMacro("__mips_isa_rev", "1");
     else if (CPUStr == "mips32r2")
       Builder.defineMacro("__mips_isa_rev", "2");
+    else if (CPUStr == "mips32r6")
+      Builder.defineMacro("__mips_isa_rev", "6");
 
     if (ABI == "o32") {
       Builder.defineMacro("__mips_o32");
@@ -5949,6 +6060,8 @@ public:
     PointerWidth = PointerAlign = 64;
     SizeType = UnsignedLong;
     PtrDiffType = SignedLong;
+    Int64Type = SignedLong;
+    IntMaxType = Int64Type;
   }
 
   void setN32ABITypes() {
@@ -5956,6 +6069,8 @@ public:
     PointerWidth = PointerAlign = 32;
     SizeType = UnsignedInt;
     PtrDiffType = SignedInt;
+    Int64Type = SignedLongLong;
+    IntMaxType = Int64Type;
   }
 
   bool setABI(const std::string &Name) override {
@@ -5986,6 +6101,8 @@ public:
       Builder.defineMacro("__mips_isa_rev", "1");
     else if (CPUStr == "mips64r2")
       Builder.defineMacro("__mips_isa_rev", "2");
+    else if (CPUStr == "mips64r6")
+      Builder.defineMacro("__mips_isa_rev", "6");
 
     if (ABI == "n32") {
       Builder.defineMacro("__mips_n32");
@@ -6255,6 +6372,15 @@ namespace {
                           unsigned &NumAliases) const override {}
     BuiltinVaListKind getBuiltinVaListKind() const override {
       return TargetInfo::VoidPtrBuiltinVaList;
+    }
+
+    CallingConvCheckResult checkCallingConvention(CallingConv CC) const override {
+      return (CC == CC_SpirFunction ||
+              CC == CC_SpirKernel) ? CCCR_OK : CCCR_Warning;
+    }
+
+    CallingConv getDefaultCallingConv(CallingConvMethodType MT) const override {
+      return CC_SpirFunction;
     }
   };
 
@@ -6582,6 +6708,7 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple) {
   case llvm::Triple::nvptx64:
     return new NVPTX64TargetInfo(Triple);
 
+  case llvm::Triple::amdgcn:
   case llvm::Triple::r600:
     return new R600TargetInfo(Triple);
 
@@ -6707,6 +6834,8 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple) {
     }
     case llvm::Triple::NaCl:
       return new NaClTargetInfo<X86_64TargetInfo>(Triple);
+    case llvm::Triple::PS4:
+      return new PS4OSTargetInfo<X86_64TargetInfo>(Triple);
     default:
       return new X86_64TargetInfo(Triple);
     }

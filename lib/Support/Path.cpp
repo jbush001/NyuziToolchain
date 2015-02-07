@@ -14,9 +14,9 @@
 #include "llvm/Support/COFF.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/Errc.h"
-#include "llvm/Support/Path.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
 #include <cctype>
 #include <cstdio>
@@ -888,6 +888,14 @@ bool is_other(file_status status) {
          !is_directory(status);
 }
 
+std::error_code is_other(const Twine &Path, bool &Result) {
+  file_status FileStatus;
+  if (std::error_code EC = status(Path, FileStatus))
+    return EC;
+  Result = is_other(FileStatus);
+  return std::error_code();
+}
+
 void directory_entry::replace_filename(const Twine &filename, file_status st) {
   SmallString<128> path(Path.begin(), Path.end());
   path::remove_filename(path);
@@ -952,7 +960,7 @@ file_magic identify_magic(StringRef Magic) {
         unsigned low  = Data2MSB ? 17 : 16;
         if (Magic[high] == 0)
           switch (Magic[low]) {
-            default: break;
+            default: return file_magic::elf;
             case 1: return file_magic::elf_relocatable;
             case 2: return file_magic::elf_executable;
             case 3: return file_magic::elf_shared_object;

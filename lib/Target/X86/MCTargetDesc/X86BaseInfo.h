@@ -328,21 +328,28 @@ namespace X86II {
     OpSizeShift = 7,
     OpSizeMask = 0x3 << OpSizeShift,
 
-    OpSize16 = 1 << OpSizeShift,
-    OpSize32 = 2 << OpSizeShift,
+    OpSizeFixed = 0 << OpSizeShift,
+    OpSize16    = 1 << OpSizeShift,
+    OpSize32    = 2 << OpSizeShift,
 
-    // AsSize - Set if this instruction requires an operand size prefix (0x67),
-    // which most often indicates that the instruction address 16 bit address
-    // instead of 32 bit address (or 32 bit address in 64 bit mode).
+    // AsSize - AdSizeX implies this instruction determines its need of 0x67
+    // prefix from a normal ModRM memory operand. The other types indicate that
+    // an operand is encoded with a specific width and a prefix is needed if
+    // it differs from the current mode.
     AdSizeShift = OpSizeShift + 2,
-    AdSize      = 1 << AdSizeShift,
+    AdSizeMask  = 0x3 << AdSizeShift,
+
+    AdSizeX  = 1 << AdSizeShift,
+    AdSize16 = 1 << AdSizeShift,
+    AdSize32 = 2 << AdSizeShift,
+    AdSize64 = 3 << AdSizeShift,
 
     //===------------------------------------------------------------------===//
     // OpPrefix - There are several prefix bytes that are used as opcode
     // extensions. These are 0x66, 0xF3, and 0xF2. If this field is 0 there is
     // no prefix.
     //
-    OpPrefixShift = AdSizeShift + 1,
+    OpPrefixShift = AdSizeShift + 2,
     OpPrefixMask  = 0x7 << OpPrefixShift,
 
     // PS, PD - Prefix code for packed single and double precision vector
@@ -669,19 +676,10 @@ namespace X86II {
        return -1;
     case X86II::MRMDestMem:
       return 0;
-    case X86II::MRMSrcMem: {
-      unsigned FirstMemOp = 1;
-      if (HasVEX_4V)
-        ++FirstMemOp;// Skip the register source (which is encoded in VEX_VVVV).
-      if (HasMemOp4)
-        ++FirstMemOp;// Skip the register source (which is encoded in I8IMM).
-      if (HasEVEX_K)
-        ++FirstMemOp;// Skip the mask register
-      // FIXME: Maybe lea should have its own form?  This is a horrible hack.
-      //if (Opcode == X86::LEA64r || Opcode == X86::LEA64_32r ||
-      //    Opcode == X86::LEA16r || Opcode == X86::LEA32r)
-      return FirstMemOp;
-    }
+    case X86II::MRMSrcMem:
+      // Start from 1, skip any registers encoded in VEX_VVVV or I8IMM, or a
+      // mask register.
+      return 1 + HasVEX_4V + HasMemOp4 + HasEVEX_K;
     case X86II::MRMXr:
     case X86II::MRM0r: case X86II::MRM1r:
     case X86II::MRM2r: case X86II::MRM3r:
@@ -692,15 +690,9 @@ namespace X86II {
     case X86II::MRM0m: case X86II::MRM1m:
     case X86II::MRM2m: case X86II::MRM3m:
     case X86II::MRM4m: case X86II::MRM5m:
-    case X86II::MRM6m: case X86II::MRM7m: {
-      bool HasVEX_4V = TSFlags & X86II::VEX_4V;
-      unsigned FirstMemOp = 0;
-      if (HasVEX_4V)
-        ++FirstMemOp;// Skip the register dest (which is encoded in VEX_VVVV).
-      if (HasEVEX_K)
-        ++FirstMemOp;// Skip the mask register
-      return FirstMemOp;
-    }
+    case X86II::MRM6m: case X86II::MRM7m:
+      // Start from 0, skip registers encoded in VEX_VVVV or a mask register.
+      return 0 + HasVEX_4V + HasEVEX_K;
     case X86II::MRM_C0: case X86II::MRM_C1: case X86II::MRM_C2:
     case X86II::MRM_C3: case X86II::MRM_C4: case X86II::MRM_C8:
     case X86II::MRM_C9: case X86II::MRM_CA: case X86II::MRM_CB:

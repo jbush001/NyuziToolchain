@@ -50,6 +50,7 @@ public:
     armeb,      // ARM (big endian): armeb
     aarch64,    // AArch64 (little endian): aarch64
     aarch64_be, // AArch64 (big endian): aarch64_be
+    bpf,        // eBPF or extended BPF or 64-bit BPF (little endian)
     hexagon,    // Hexagon: hexagon
     mips,       // MIPS: mips, mipsallegrex
     mipsel,     // MIPSEL: mipsel, mipsallegrexel
@@ -60,6 +61,7 @@ public:
     ppc64,      // PPC64: powerpc64, ppu
     ppc64le,    // PPC64LE: powerpc64le
     r600,       // R600: AMD GPUs HD2XXX - HD6XXX
+    amdgcn,     // AMDGCN: AMD GCN GPUs
     sparc,      // Sparc: sparc
     sparcv9,    // Sparcv9: Sparcv9
     systemz,    // SystemZ: s390x
@@ -139,7 +141,8 @@ public:
     AIX,
     CUDA,       // NVIDIA CUDA
     NVCL,       // NVIDIA OpenCL
-    AMDHSA      // AMD HSA Runtime
+    AMDHSA,     // AMD HSA Runtime
+    PS4
   };
   enum EnvironmentType {
     UnknownEnvironment,
@@ -208,6 +211,9 @@ public:
   /// nothing better can reasonably be done).  In particular, it handles the
   /// common case in which otherwise valid components are in the wrong order.
   static std::string normalize(StringRef Str);
+
+  /// \brief Return the normalized form of this triple's string.
+  std::string normalize() const { return normalize(Data); }
 
   /// @}
   /// @name Typed Component Access
@@ -377,6 +383,8 @@ public:
     return getOS() == Triple::FreeBSD;
   }
 
+  bool isOSDragonFly() const { return getOS() == Triple::DragonFly; }
+
   bool isOSSolaris() const {
     return getOS() == Triple::Solaris;
   }
@@ -420,7 +428,7 @@ public:
 
   /// \brief Tests whether the OS is Windows.
   bool isOSWindows() const {
-    return getOS() == Triple::Win32 || isOSCygMing();
+    return getOS() == Triple::Win32;
   }
 
   /// \brief Tests whether the OS is NaCl (Native Client)
@@ -446,6 +454,19 @@ public:
   /// \brief Tests whether the environment is MachO.
   bool isOSBinFormatMachO() const {
     return getObjectFormat() == Triple::MachO;
+  }
+
+  /// \brief Tests whether the target is the PS4 CPU
+  bool isPS4CPU() const {
+    return getArch() == Triple::x86_64 &&
+           getVendor() == Triple::SCEI &&
+           getOS() == Triple::PS4;
+  }
+
+  /// \brief Tests whether the target is the PS4 platform
+  bool isPS4() const {
+    return getVendor() == Triple::SCEI &&
+           getOS() == Triple::PS4;
   }
 
   /// @}

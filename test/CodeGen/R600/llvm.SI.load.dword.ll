@@ -1,4 +1,5 @@
-;RUN: llc < %s -march=r600 -mcpu=verde -verify-machineinstrs | FileCheck %s
+;RUN: llc < %s -march=amdgcn -mcpu=verde -verify-machineinstrs | FileCheck %s
+;RUN: llc < %s -march=amdgcn -mcpu=tonga -verify-machineinstrs | FileCheck %s
 
 ; Example of a simple geometry shader loading vertex attributes from the
 ; ESGS ring buffer
@@ -37,4 +38,4 @@ declare void @llvm.SI.export(i32, i32, i32, i32, i32, float, float, float, float
 attributes #0 = { "ShaderType"="1" }
 attributes #1 = { nounwind readonly }
 
-!0 = metadata !{metadata !"const", null, i32 1}
+!0 = !{!"const", null, i32 1}

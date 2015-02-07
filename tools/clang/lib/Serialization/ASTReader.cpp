@@ -650,14 +650,14 @@ ASTSelectorLookupTrait::ReadData(Selector, const unsigned char* d,
 
   Result.ID = Reader.getGlobalSelectorID(
       F, endian::readNext<uint32_t, little, unaligned>(d));
-  unsigned NumInstanceMethodsAndBits =
-      endian::readNext<uint16_t, little, unaligned>(d);
-  unsigned NumFactoryMethodsAndBits =
-      endian::readNext<uint16_t, little, unaligned>(d);
-  Result.InstanceBits = NumInstanceMethodsAndBits & 0x3;
-  Result.FactoryBits = NumFactoryMethodsAndBits & 0x3;
-  unsigned NumInstanceMethods = NumInstanceMethodsAndBits >> 2;
-  unsigned NumFactoryMethods = NumFactoryMethodsAndBits >> 2;
+  unsigned FullInstanceBits = endian::readNext<uint16_t, little, unaligned>(d);
+  unsigned FullFactoryBits = endian::readNext<uint16_t, little, unaligned>(d);
+  Result.InstanceBits = FullInstanceBits & 0x3;
+  Result.InstanceHasMoreThanOneDecl = (FullInstanceBits >> 2) & 0x1;
+  Result.FactoryBits = FullFactoryBits & 0x3;
+  Result.FactoryHasMoreThanOneDecl = (FullFactoryBits >> 2) & 0x1;
+  unsigned NumInstanceMethods = FullInstanceBits >> 3;
+  unsigned NumFactoryMethods = FullFactoryBits >> 3;
 
   // Load instance methods
   for (unsigned I = 0; I != NumInstanceMethods; ++I) {
@@ -3457,7 +3457,7 @@ static void moveMethodToBackOfGlobalList(Sema &S, ObjCMethodDecl *Method) {
   bool Found = false;
   for (ObjCMethodList *List = &Start; List; List = List->getNext()) {
     if (!Found) {
-      if (List->Method == Method) {
+      if (List->getMethod() == Method) {
         Found = true;
       } else {
         // Keep searching.
@@ -3466,9 +3466,9 @@ static void moveMethodToBackOfGlobalList(Sema &S, ObjCMethodDecl *Method) {
     }
 
     if (List->getNext())
-      List->Method = List->getNext()->Method;
+      List->setMethod(List->getNext()->getMethod());
     else
-      List->Method = Method;
+      List->setMethod(Method);
   }
 }
 
@@ -4823,21 +4823,22 @@ ASTReader::getModulePreprocessedEntity(unsigned GlobalIndex) {
   return std::make_pair(M, LocalIndex);
 }
 
-std::pair<PreprocessingRecord::iterator, PreprocessingRecord::iterator>
+llvm::iterator_range<PreprocessingRecord::iterator>
 ASTReader::getModulePreprocessedEntities(ModuleFile &Mod) const {
   if (PreprocessingRecord *PPRec = PP.getPreprocessingRecord())
     return PPRec->getIteratorsForLoadedRange(Mod.BasePreprocessedEntityID,
                                              Mod.NumPreprocessedEntities);
 
-  return std::make_pair(PreprocessingRecord::iterator(),
-                        PreprocessingRecord::iterator());
+  return llvm::make_range(PreprocessingRecord::iterator(),
+                          PreprocessingRecord::iterator());
 }
 
-std::pair<ASTReader::ModuleDeclIterator, ASTReader::ModuleDeclIterator>
+llvm::iterator_range<ASTReader::ModuleDeclIterator>
 ASTReader::getModuleFileLevelDecls(ModuleFile &Mod) {
-  return std::make_pair(ModuleDeclIterator(this, &Mod, Mod.FileSortedDecls),
-                        ModuleDeclIterator(this, &Mod,
-                                 Mod.FileSortedDecls + Mod.NumFileSortedDecls));
+  return llvm::make_range(
+      ModuleDeclIterator(this, &Mod, Mod.FileSortedDecls),
+      ModuleDeclIterator(this, &Mod,
+                         Mod.FileSortedDecls + Mod.NumFileSortedDecls));
 }
 
 PreprocessedEntity *ASTReader::ReadPreprocessedEntity(unsigned Index) {
@@ -6081,6 +6082,12 @@ Decl *ASTReader::GetExternalDecl(uint32_t ID) {
   return GetDecl(ID);
 }
 
+template<typename TemplateSpecializationDecl>
+static void completeRedeclChainForTemplateSpecialization(Decl *D) {
+  if (auto *TSD = dyn_cast<TemplateSpecializationDecl>(D))
+    TSD->getSpecializedTemplate()->LoadLazySpecializations();
+}
+
 void ASTReader::CompleteRedeclChain(const Decl *D) {
   if (NumCurrentElementsDeserializing) {
     // We arrange to not care about the complete redeclaration chain while we're
@@ -6113,6 +6120,15 @@ void ASTReader::CompleteRedeclChain(const Decl *D) {
       // FIXME: It'd be nice to do something a bit more targeted here.
       D->getDeclContext()->decls_begin();
     }
+  }
+
+  if (auto *CTSD = dyn_cast<ClassTemplateSpecializationDecl>(D))
+    CTSD->getSpecializedTemplate()->LoadLazySpecializations();
+  if (auto *VTSD = dyn_cast<VarTemplateSpecializationDecl>(D))
+    VTSD->getSpecializedTemplate()->LoadLazySpecializations();
+  if (auto *FD = dyn_cast<FunctionDecl>(D)) {
+    if (auto *Template = FD->getPrimaryTemplate())
+      Template->LoadLazySpecializations();
   }
 }
 
@@ -7061,15 +7077,18 @@ namespace clang { namespace serialization {
     unsigned PriorGeneration;
     unsigned InstanceBits;
     unsigned FactoryBits;
+    bool InstanceHasMoreThanOneDecl;
+    bool FactoryHasMoreThanOneDecl;
     SmallVector<ObjCMethodDecl *, 4> InstanceMethods;
     SmallVector<ObjCMethodDecl *, 4> FactoryMethods;
 
   public:
-    ReadMethodPoolVisitor(ASTReader &Reader, Selector Sel, 
+    ReadMethodPoolVisitor(ASTReader &Reader, Selector Sel,
                           unsigned PriorGeneration)
-      : Reader(Reader), Sel(Sel), PriorGeneration(PriorGeneration),
-        InstanceBits(0), FactoryBits(0) { }
-    
+        : Reader(Reader), Sel(Sel), PriorGeneration(PriorGeneration),
+          InstanceBits(0), FactoryBits(0), InstanceHasMoreThanOneDecl(false),
+          FactoryHasMoreThanOneDecl(false) {}
+
     static bool visit(ModuleFile &M, void *UserData) {
       ReadMethodPoolVisitor *This
         = static_cast<ReadMethodPoolVisitor *>(UserData);
@@ -7103,6 +7122,8 @@ namespace clang { namespace serialization {
       This->FactoryMethods.append(Data.Factory.begin(), Data.Factory.end());
       This->InstanceBits = Data.InstanceBits;
       This->FactoryBits = Data.FactoryBits;
+      This->InstanceHasMoreThanOneDecl = Data.InstanceHasMoreThanOneDecl;
+      This->FactoryHasMoreThanOneDecl = Data.FactoryHasMoreThanOneDecl;
       return true;
     }
     
@@ -7118,6 +7139,10 @@ namespace clang { namespace serialization {
 
     unsigned getInstanceBits() const { return InstanceBits; }
     unsigned getFactoryBits() const { return FactoryBits; }
+    bool instanceHasMoreThanOneDecl() const {
+      return InstanceHasMoreThanOneDecl;
+    }
+    bool factoryHasMoreThanOneDecl() const { return FactoryHasMoreThanOneDecl; }
   };
 } } // end namespace clang::serialization
 
@@ -7152,11 +7177,17 @@ void ASTReader::ReadMethodPool(Selector Sel) {
   Sema &S = *getSema();
   Sema::GlobalMethodPool::iterator Pos
     = S.MethodPool.insert(std::make_pair(Sel, Sema::GlobalMethods())).first;
-  
+
+  Pos->second.first.setBits(Visitor.getInstanceBits());
+  Pos->second.first.setHasMoreThanOneDecl(Visitor.instanceHasMoreThanOneDecl());
+  Pos->second.second.setBits(Visitor.getFactoryBits());
+  Pos->second.second.setHasMoreThanOneDecl(Visitor.factoryHasMoreThanOneDecl());
+
+  // Add methods to the global pool *after* setting hasMoreThanOneDecl, since
+  // when building a module we keep every method individually and may need to
+  // update hasMoreThanOneDecl as we add the methods.
   addMethodsToPool(S, Visitor.getInstanceMethods(), Pos->second.first);
   addMethodsToPool(S, Visitor.getFactoryMethods(), Pos->second.second);
-  Pos->second.first.setBits(Visitor.getInstanceBits());
-  Pos->second.second.setBits(Visitor.getFactoryBits());
 }
 
 void ASTReader::ReadKnownNamespaces(
@@ -8283,7 +8314,12 @@ void ASTReader::finishPendingActions() {
       loadDeclUpdateRecords(Update.first, Update.second);
     }
   }
-  
+
+  // At this point, all update records for loaded decls are in place, so any
+  // fake class definitions should have become real.
+  assert(PendingFakeDefinitionData.empty() &&
+         "faked up a class definition but never saw the real one");
+
   // If we deserialized any C++ or Objective-C class definitions, any
   // Objective-C protocol definitions, or any redeclarable templates, make sure
   // that all redeclarations point to the definitions. Note that this can only 

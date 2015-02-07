@@ -11,70 +11,69 @@
 #define liblldb_Host_posix_PipePosix_h_
 #if defined(__cplusplus)
 
-#include <stdarg.h>
-#include <stdio.h>
-#include <sys/types.h>
-
-#include "lldb/lldb-private.h"
+#include "lldb/Host/PipeBase.h"
 
 namespace lldb_private {
 
 //----------------------------------------------------------------------
-/// @class Pipe Pipe.h "lldb/Host/posix/PipePosix.h"
+/// @class PipePosix PipePosix	.h "lldb/Host/posix/PipePosix.h"
 /// @brief A posix-based implementation of Pipe, a class that abtracts
 ///        unix style pipes.
 ///
 /// A class that abstracts the LLDB core from host pipe functionality.
 //----------------------------------------------------------------------
-class Pipe
+class PipePosix : public PipeBase
 {
 public:
     static int kInvalidDescriptor;
-    
-    Pipe();
-    
-    ~Pipe();
-    
-    bool
-    Open(bool child_processes_inherit = false);
+
+    PipePosix();
+
+    ~PipePosix() override;
+
+    Error
+    CreateNew(bool child_process_inherit) override;
+    Error
+    CreateNew(llvm::StringRef name, bool child_process_inherit) override;
+    Error
+    CreateWithUniqueName(llvm::StringRef prefix, bool child_process_inherit, llvm::SmallVectorImpl<char>& name) override;
+    Error
+    OpenAsReader(llvm::StringRef name, bool child_process_inherit) override;
+    Error
+    OpenAsWriterWithTimeout(llvm::StringRef name, bool child_process_inherit, const std::chrono::microseconds &timeout) override;
 
     bool
-    IsValid() const;
-    
+    CanRead() const override;
     bool
-    ReadDescriptorIsValid() const;
-
-    bool
-    WriteDescriptorIsValid() const;
+    CanWrite() const override;
 
     int
-    GetReadFileDescriptor() const;
-    
+    GetReadFileDescriptor() const override;
     int
-    GetWriteFileDescriptor() const;
-    
+    GetWriteFileDescriptor() const override;
+    int
+    ReleaseReadFileDescriptor() override;
+    int
+    ReleaseWriteFileDescriptor() override;
+
     // Close both descriptors
     void
-    Close();
+    Close() override;
 
-    bool
+    Error
+    Delete(llvm::StringRef name) override;
+
+    Error
+    Write(const void *buf, size_t size, size_t &bytes_written) override;
+    Error
+    ReadWithTimeout(void *buf, size_t size, const std::chrono::microseconds &timeout, size_t &bytes_read) override;
+
+private:
+    void
     CloseReadFileDescriptor();
-    
-    bool
+    void
     CloseWriteFileDescriptor();
 
-    int
-    ReleaseReadFileDescriptor();
-    
-    int
-    ReleaseWriteFileDescriptor();
-
-    size_t
-    Read (void *buf, size_t size);
-
-    size_t
-    Write (const void *buf, size_t size);
-private:
     int m_fds[2];
 };
 

@@ -551,9 +551,11 @@ struct AdditionalKeywords {
     kw_implements = &IdentTable.get("implements");
     kw_instanceof = &IdentTable.get("instanceof");
     kw_interface = &IdentTable.get("interface");
+    kw_native = &IdentTable.get("native");
     kw_package = &IdentTable.get("package");
     kw_synchronized = &IdentTable.get("synchronized");
     kw_throws = &IdentTable.get("throws");
+    kw___except = &IdentTable.get("__except");
 
     kw_option = &IdentTable.get("option");
     kw_optional = &IdentTable.get("optional");
@@ -562,12 +564,13 @@ struct AdditionalKeywords {
     kw_returns = &IdentTable.get("returns");
   }
 
-  // ObjC context sensitive keywords.
+  // Context sensitive keywords.
   IdentifierInfo *kw_in;
   IdentifierInfo *kw_CF_ENUM;
   IdentifierInfo *kw_CF_OPTIONS;
   IdentifierInfo *kw_NS_ENUM;
   IdentifierInfo *kw_NS_OPTIONS;
+  IdentifierInfo *kw___except;
 
   // JavaScript keywords.
   IdentifierInfo *kw_finally;
@@ -581,6 +584,7 @@ struct AdditionalKeywords {
   IdentifierInfo *kw_implements;
   IdentifierInfo *kw_instanceof;
   IdentifierInfo *kw_interface;
+  IdentifierInfo *kw_native;
   IdentifierInfo *kw_package;
   IdentifierInfo *kw_synchronized;
   IdentifierInfo *kw_throws;

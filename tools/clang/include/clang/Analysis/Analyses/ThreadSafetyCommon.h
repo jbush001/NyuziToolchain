@@ -27,7 +27,6 @@
 #include "clang/Analysis/Analyses/ThreadSafetyTraverse.h"
 #include "clang/Analysis/AnalysisContext.h"
 #include "clang/Basic/OperatorKinds.h"
-
 #include <memory>
 #include <ostream>
 #include <sstream>
@@ -285,6 +284,14 @@ public:
   bool partiallyMatches(const CapabilityExpr &other) const {
     return (Negated == other.Negated) &&
             sx::partiallyMatches(CapExpr, other.CapExpr);
+  }
+
+  const ValueDecl* valueDecl() const {
+    if (Negated)
+      return nullptr;
+    if (auto *P = dyn_cast<til::Project>(CapExpr))
+      return P->clangDecl();
+    return nullptr;
   }
 
   std::string toString() const {

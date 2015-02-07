@@ -12,8 +12,11 @@
 
 // C Includes
 // C++ Includes
+#include <unordered_set>
+
 // Other libraries and framework includes
 // Project includes
+#include "lldb/Breakpoint/BreakpointID.h"
 #include "lldb/Breakpoint/BreakpointLocationList.h"
 #include "lldb/Breakpoint/BreakpointOptions.h"
 #include "lldb/Breakpoint/BreakpointLocationCollection.h"
@@ -636,6 +639,32 @@ public:
         return m_filter_sp;
     }
 
+    bool
+    AddName (const char *new_name, Error &error);
+
+    void
+    RemoveName (const char *name_to_remove)
+    {
+        if (name_to_remove)
+            m_name_list.erase(name_to_remove);
+    }
+
+    bool
+    MatchesName (const char *name)
+    {
+        return m_name_list.find(name) != m_name_list.end();
+    }
+
+    void
+    GetNames (std::vector<std::string> &names)
+    {
+        names.clear();
+        for (auto name : m_name_list)
+        {
+            names.push_back(name);
+        }
+    }
+
 protected:
     friend class Target;
     //------------------------------------------------------------------
@@ -685,6 +714,19 @@ protected:
     bool
     IgnoreCountShouldStop ();
 
+    void
+    IncrementHitCount()
+    {
+        m_hit_count++;
+    }
+
+    void
+    DecrementHitCount()
+    {
+        assert (m_hit_count > 0);
+        m_hit_count--;
+    }
+
 private:
     // This one should only be used by Target to copy breakpoints from target to target - primarily from the dummy
     // target to prime new targets.
@@ -697,13 +739,17 @@ private:
     bool m_being_created;
     bool m_hardware;                          // If this breakpoint is required to use a hardware breakpoint
     Target &m_target;                         // The target that holds this breakpoint.
+    std::unordered_set<std::string> m_name_list; // If not empty, this is the name of this breakpoint (many breakpoints can share the same name.)
     lldb::SearchFilterSP m_filter_sp;         // The filter that constrains the breakpoint's domain.
     lldb::BreakpointResolverSP m_resolver_sp; // The resolver that defines this breakpoint.
     BreakpointOptions m_options;              // Settable breakpoint options
     BreakpointLocationList m_locations;       // The list of locations currently found for this breakpoint.
     std::string m_kind_description;
     bool m_resolve_indirect_symbols;
-    
+    uint32_t    m_hit_count;                   // Number of times this breakpoint/watchpoint has been hit.  This is kept
+                                               // separately from the locations hit counts, since locations can go away when
+                                               // their backing library gets unloaded, and we would lose hit counts.
+
     void
     SendBreakpointChangedEvent (lldb::BreakpointEventType eventKind);
     

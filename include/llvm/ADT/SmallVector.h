@@ -135,11 +135,11 @@ public:
   const_pointer data() const { return const_pointer(begin()); }
 
   reference operator[](size_type idx) {
-    assert(begin() + idx < end());
+    assert(idx < size());
     return begin()[idx];
   }
   const_reference operator[](size_type idx) const {
-    assert(begin() + idx < end());
+    assert(idx < size());
     return begin()[idx];
   }
 
@@ -236,51 +236,6 @@ public:
     this->setEnd(this->end()-1);
     this->end()->~T();
   }
-
-#if LLVM_HAS_VARIADIC_TEMPLATES
-  template <typename... ArgTypes> void emplace_back(ArgTypes &&... Args) {
-    if (LLVM_UNLIKELY(this->EndX >= this->CapacityX))
-      this->grow();
-    ::new ((void *)this->end()) T(std::forward<ArgTypes>(Args)...);
-    this->setEnd(this->end() + 1);
-  }
-#else
-private:
-  template <typename Constructor> void emplace_back_impl(Constructor construct) {
-    if (LLVM_UNLIKELY(this->EndX >= this->CapacityX))
-      this->grow();
-    construct((void *)this->end());
-    this->setEnd(this->end() + 1);
-  }
-
-public:
-  void emplace_back() {
-    emplace_back_impl([](void *Mem) { ::new (Mem) T(); });
-  }
-  template <typename T1> void emplace_back(T1 &&A1) {
-    emplace_back_impl([&](void *Mem) { ::new (Mem) T(std::forward<T1>(A1)); });
-  }
-  template <typename T1, typename T2> void emplace_back(T1 &&A1, T2 &&A2) {
-    emplace_back_impl([&](void *Mem) {
-      ::new (Mem) T(std::forward<T1>(A1), std::forward<T2>(A2));
-    });
-  }
-  template <typename T1, typename T2, typename T3>
-  void emplace_back(T1 &&A1, T2 &&A2, T3 &&A3) {
-    T(std::forward<T1>(A1), std::forward<T2>(A2), std::forward<T3>(A3));
-    emplace_back_impl([&](void *Mem) {
-      ::new (Mem)
-          T(std::forward<T1>(A1), std::forward<T2>(A2), std::forward<T3>(A3));
-    });
-  }
-  template <typename T1, typename T2, typename T3, typename T4>
-  void emplace_back(T1 &&A1, T2 &&A2, T3 &&A3, T4 &&A4) {
-    emplace_back_impl([&](void *Mem) {
-      ::new (Mem) T(std::forward<T1>(A1), std::forward<T2>(A2),
-                    std::forward<T3>(A3), std::forward<T4>(A4));
-    });
-  }
-#endif // LLVM_HAS_VARIADIC_TEMPLATES
 };
 
 // Define this out-of-line to dissuade the C++ compiler from inlining it.
@@ -677,6 +632,51 @@ public:
     return I;
   }
 
+#if LLVM_HAS_VARIADIC_TEMPLATES
+  template <typename... ArgTypes> void emplace_back(ArgTypes &&... Args) {
+    if (LLVM_UNLIKELY(this->EndX >= this->CapacityX))
+      this->grow();
+    ::new ((void *)this->end()) T(std::forward<ArgTypes>(Args)...);
+    this->setEnd(this->end() + 1);
+  }
+#else
+private:
+  template <typename Constructor> void emplace_back_impl(Constructor construct) {
+    if (LLVM_UNLIKELY(this->EndX >= this->CapacityX))
+      this->grow();
+    construct((void *)this->end());
+    this->setEnd(this->end() + 1);
+  }
+
+public:
+  void emplace_back() {
+    emplace_back_impl([](void *Mem) { ::new (Mem) T(); });
+  }
+  template <typename T1> void emplace_back(T1 &&A1) {
+    emplace_back_impl([&](void *Mem) { ::new (Mem) T(std::forward<T1>(A1)); });
+  }
+  template <typename T1, typename T2> void emplace_back(T1 &&A1, T2 &&A2) {
+    emplace_back_impl([&](void *Mem) {
+      ::new (Mem) T(std::forward<T1>(A1), std::forward<T2>(A2));
+    });
+  }
+  template <typename T1, typename T2, typename T3>
+  void emplace_back(T1 &&A1, T2 &&A2, T3 &&A3) {
+    T(std::forward<T1>(A1), std::forward<T2>(A2), std::forward<T3>(A3));
+    emplace_back_impl([&](void *Mem) {
+      ::new (Mem)
+          T(std::forward<T1>(A1), std::forward<T2>(A2), std::forward<T3>(A3));
+    });
+  }
+  template <typename T1, typename T2, typename T3, typename T4>
+  void emplace_back(T1 &&A1, T2 &&A2, T3 &&A3, T4 &&A4) {
+    emplace_back_impl([&](void *Mem) {
+      ::new (Mem) T(std::forward<T1>(A1), std::forward<T2>(A2),
+                    std::forward<T3>(A3), std::forward<T4>(A4));
+    });
+  }
+#endif // LLVM_HAS_VARIADIC_TEMPLATES
+
   SmallVectorImpl &operator=(const SmallVectorImpl &RHS);
 
   SmallVectorImpl &operator=(SmallVectorImpl &&RHS);
@@ -921,6 +921,17 @@ public:
     SmallVectorImpl<T>::operator=(::std::move(RHS));
     return *this;
   }
+
+  SmallVector(SmallVectorImpl<T> &&RHS) : SmallVectorImpl<T>(N) {
+    if (!RHS.empty())
+      SmallVectorImpl<T>::operator=(::std::move(RHS));
+  }
+
+  const SmallVector &operator=(SmallVectorImpl<T> &&RHS) {
+    SmallVectorImpl<T>::operator=(::std::move(RHS));
+    return *this;
+  }
+
 };
 
 template<typename T, unsigned N>

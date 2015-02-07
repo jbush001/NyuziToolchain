@@ -35,7 +35,7 @@
 
 namespace llvm {
   class APInt;
-  class AssumptionTracker;
+  class AssumptionCache;
   class Constant;
   class ConstantInt;
   class DominatorTree;
@@ -225,7 +225,7 @@ namespace llvm {
     Function *F;
 
     /// The tracker for @llvm.assume intrinsics in this function.
-    AssumptionTracker *AT;
+    AssumptionCache *AC;
 
     /// LI - The loop information for the function we are currently analyzing.
     ///
@@ -372,14 +372,17 @@ namespace llvm {
 
     /// LoopDispositions - Memoized computeLoopDisposition results.
     DenseMap<const SCEV *,
-             SmallVector<std::pair<const Loop *, LoopDisposition>, 2> > LoopDispositions;
+             SmallVector<PointerIntPair<const Loop *, 2, LoopDisposition>, 2>>
+        LoopDispositions;
 
     /// computeLoopDisposition - Compute a LoopDisposition value.
     LoopDisposition computeLoopDisposition(const SCEV *S, const Loop *L);
 
     /// BlockDispositions - Memoized computeBlockDisposition results.
-    DenseMap<const SCEV *,
-             SmallVector<std::pair<const BasicBlock *, BlockDisposition>, 2> > BlockDispositions;
+    DenseMap<
+        const SCEV *,
+        SmallVector<PointerIntPair<const BasicBlock *, 2, BlockDisposition>, 2>>
+        BlockDispositions;
 
     /// computeBlockDisposition - Compute a BlockDisposition value.
     BlockDisposition computeBlockDisposition(const SCEV *S, const BasicBlock *BB);

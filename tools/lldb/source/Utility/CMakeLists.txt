@@ -6,9 +6,11 @@ add_lldb_library(lldbUtility
   KQueue.cpp
   PseudoTerminal.cpp
   Range.cpp
+  RegisterNumber.cpp
   SharingPtr.cpp
   StringExtractor.cpp
   StringExtractorGDBRemote.cpp
   StringLexer.cpp
   TimeSpecTimeout.cpp
+  UriParser.cpp
   )

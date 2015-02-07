@@ -1,6 +1,6 @@
-// RUN: %clang_cc1 -std=c++11 -fsanitize=signed-integer-overflow,integer-divide-by-zero,float-divide-by-zero,shift,unreachable,return,vla-bound,alignment,null,vptr,object-size,float-cast-overflow,bool,enum,array-bounds,function -emit-llvm %s -o - -triple x86_64-linux-gnu | FileCheck %s
-// RUN: %clang_cc1 -std=c++11 -fsanitize=vptr,address -emit-llvm %s -o - -triple x86_64-linux-gnu | FileCheck %s --check-prefix=CHECK-ASAN
-// RUN: %clang_cc1 -std=c++11 -fsanitize=vptr -emit-llvm %s -o - -triple x86_64-linux-gnu | FileCheck %s --check-prefix=DOWNCAST-NULL
+// RUN: %clang_cc1 -std=c++11 -fsanitize=signed-integer-overflow,integer-divide-by-zero,float-divide-by-zero,shift,unreachable,return,vla-bound,alignment,null,vptr,object-size,float-cast-overflow,bool,enum,array-bounds,function -fsanitize-recover=signed-integer-overflow,integer-divide-by-zero,float-divide-by-zero,shift,vla-bound,alignment,null,vptr,object-size,float-cast-overflow,bool,enum,array-bounds,function -emit-llvm %s -o - -triple x86_64-linux-gnu | FileCheck %s
+// RUN: %clang_cc1 -std=c++11 -fsanitize=vptr,address -fsanitize-recover=vptr,address -emit-llvm %s -o - -triple x86_64-linux-gnu | FileCheck %s --check-prefix=CHECK-ASAN
+// RUN: %clang_cc1 -std=c++11 -fsanitize=vptr -fsanitize-recover=vptr -emit-llvm %s -o - -triple x86_64-linux-gnu | FileCheck %s --check-prefix=DOWNCAST-NULL
 
 struct S {
   double d;
@@ -446,11 +446,11 @@ namespace CopyValueRepresentation {
   // CHECK-NOT: call {{.*}} @__ubsan_handle_load_invalid_value
   // CHECK-LABEL: define {{.*}} @_ZN23CopyValueRepresentation2S4aSEOS0_
   // CHECK-NOT: call {{.*}} @__ubsan_handle_load_invalid_value
-  // CHECK-LABEL: define {{.*}} @_ZN23CopyValueRepresentation2S5C2ERKS0_
+  // CHECK-LABEL: define {{.*}} @_ZN23CopyValueRepresentation2S1C2ERKS0_
   // CHECK-NOT: call {{.*}} __ubsan_handle_load_invalid_value
   // CHECK-LABEL: define {{.*}} @_ZN23CopyValueRepresentation2S2C2ERKS0_
   // CHECK: __ubsan_handle_load_invalid_value
-  // CHECK-LABEL: define {{.*}} @_ZN23CopyValueRepresentation2S1C2ERKS0_
+  // CHECK-LABEL: define {{.*}} @_ZN23CopyValueRepresentation2S5C2ERKS0_
   // CHECK-NOT: call {{.*}} __ubsan_handle_load_invalid_value
 
   struct CustomCopy { CustomCopy(); CustomCopy(const CustomCopy&); };

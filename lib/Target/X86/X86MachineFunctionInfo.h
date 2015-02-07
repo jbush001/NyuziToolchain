@@ -14,6 +14,7 @@
 #ifndef LLVM_LIB_TARGET_X86_X86MACHINEFUNCTIONINFO_H
 #define LLVM_LIB_TARGET_X86_X86MACHINEFUNCTIONINFO_H
 
+#include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineValueType.h"
 #include <vector>
@@ -76,22 +77,14 @@ class X86MachineFunctionInfo : public MachineFunctionInfo {
   unsigned ArgumentStackSize;
   /// NumLocalDynamics - Number of local-dynamic TLS accesses.
   unsigned NumLocalDynamics;
-
-public:
-  /// Describes a register that needs to be forwarded from the prologue to a
-  /// musttail call.
-  struct Forward {
-    Forward(unsigned VReg, MCPhysReg PReg, MVT VT)
-        : VReg(VReg), PReg(PReg), VT(VT) {}
-    unsigned VReg;
-    MCPhysReg PReg;
-    MVT VT;
-  };
+  /// HasPushSequences - Keeps track of whether this function uses sequences
+  /// of pushes to pass function parameters.
+  bool HasPushSequences;
 
 private:
   /// ForwardedMustTailRegParms - A list of virtual and physical registers
   /// that must be forwarded to every musttail call.
-  std::vector<Forward> ForwardedMustTailRegParms;
+  SmallVector<ForwardedRegister, 1> ForwardedMustTailRegParms;
 
 public:
   X86MachineFunctionInfo() : ForceFramePointer(false),
@@ -107,7 +100,8 @@ public:
                              VarArgsGPOffset(0),
                              VarArgsFPOffset(0),
                              ArgumentStackSize(0),
-                             NumLocalDynamics(0) {}
+                             NumLocalDynamics(0),
+                             HasPushSequences(false) {}
 
   explicit X86MachineFunctionInfo(MachineFunction &MF)
     : ForceFramePointer(false),
@@ -123,10 +117,14 @@ public:
       VarArgsGPOffset(0),
       VarArgsFPOffset(0),
       ArgumentStackSize(0),
-      NumLocalDynamics(0) {}
+      NumLocalDynamics(0),
+      HasPushSequences(false) {}
 
   bool getForceFramePointer() const { return ForceFramePointer;}
   void setForceFramePointer(bool forceFP) { ForceFramePointer = forceFP; }
+
+  bool getHasPushSequences() const { return HasPushSequences; }
+  void setHasPushSequences(bool HasPush) { HasPushSequences = HasPush; }
 
   bool getRestoreBasePointer() const { return RestoreBasePointerOffset!=0; }
   void setRestoreBasePointer(const MachineFunction *MF);
@@ -168,7 +166,7 @@ public:
   unsigned getNumLocalDynamicTLSAccesses() const { return NumLocalDynamics; }
   void incNumLocalDynamicTLSAccesses() { ++NumLocalDynamics; }
 
-  std::vector<Forward> &getForwardedMustTailRegParms() {
+  SmallVectorImpl<ForwardedRegister> &getForwardedMustTailRegParms() {
     return ForwardedMustTailRegParms;
   }
 };

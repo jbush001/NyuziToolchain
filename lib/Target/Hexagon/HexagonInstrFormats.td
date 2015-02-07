@@ -192,7 +192,6 @@ class InstHexagon<dag outs, dag ins, string asmstr, list<dag> pattern,
                                     "");
   let PNewValue = !if(isPredicatedNew, "new", "");
   let NValueST = !if(isNVStore, "true", "false");
-  let isCodeGenOnly = 1;
 
   // *** Must match MCTargetDesc/HexagonBaseInfo.h ***
 }
@@ -203,6 +202,7 @@ class InstHexagon<dag outs, dag ins, string asmstr, list<dag> pattern,
 
 // LD Instruction Class in V2/V3/V4.
 // Definition of the instruction class NOT CHANGED.
+let mayLoad = 1 in
 class LDInst<dag outs, dag ins, string asmstr, list<dag> pattern = [],
              string cstr = "", InstrItinClass itin = LD_tc_ld_SLOT01>
   : InstHexagon<outs, ins, asmstr, pattern, cstr, itin, TypeLD>;

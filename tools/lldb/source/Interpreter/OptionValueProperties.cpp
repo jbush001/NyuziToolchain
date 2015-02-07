@@ -81,6 +81,16 @@ OptionValueProperties::Initialize (const PropertyDefinition *defs)
 }
 
 void
+OptionValueProperties::SetValueChangedCallback (uint32_t property_idx,
+                                                OptionValueChangedCallback callback,
+                                                void *baton)
+{
+    Property *property = ProtectedGetPropertyAtIndex (property_idx);
+    if (property)
+        property->SetValueChangedCallback (callback, baton);
+}
+
+void
 OptionValueProperties::AppendProperty(const ConstString &name,
                                       const ConstString &desc,
                                       bool is_global,
@@ -411,6 +421,18 @@ OptionValueProperties::SetPropertyAtIndexAsEnumeration (const ExecutionContext *
     return false;
 }
 
+const FormatEntity::Entry *
+OptionValueProperties::GetPropertyAtIndexAsFormatEntity (const ExecutionContext *exe_ctx, uint32_t idx)
+{
+    const Property *property = GetPropertyAtIndex (exe_ctx, true, idx);
+    if (property)
+    {
+        OptionValue *value = property->GetValue().get();
+        if (value)
+            return value->GetFormatEntity();
+    }
+    return nullptr;
+}
 
 OptionValueFileSpec *
 OptionValueProperties::GetPropertyAtIndexAsOptionValueFileSpec (const ExecutionContext *exe_ctx, bool will_modify, uint32_t idx) const

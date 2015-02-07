@@ -2,7 +2,6 @@ import lldb
 from lldbtest import *
 import lldbutil
 import os
-import new
 import unittest2
 import sys
 
@@ -66,60 +65,66 @@ class CommandParser:
                 test.execute_user_command(breakpoint['command'])
                 return
 
-def BuildMakefile(mydir):
-    categories = {}
-
-    for f in os.listdir(os.getcwd()):
-        t = source_type(f)
-        if t:
-            if t in categories.keys():
-                categories[t].append(f)
-            else:
-                categories[t] = [f]
-
-    makefile = open("Makefile", 'w+')
-
-    level = os.sep.join([".."] * len(mydir.split(os.sep))) + os.sep + "make"
-
-    makefile.write("LEVEL = " + level + "\n")
-   
-    for t in categories.keys():
-        line = t + " := " + " ".join(categories[t])
-        makefile.write(line + "\n")
-
-    if ('OBJCXX_SOURCES' in categories.keys()) or ('OBJC_SOURCES' in categories.keys()):
-        makefile.write("LDFLAGS = $(CFLAGS) -lobjc -framework Foundation\n")
-
-    if ('CXX_SOURCES' in categories.keys()):
-        makefile.write("CXXFLAGS += -std=c++11\n")
-
-    makefile.write("include $(LEVEL)/Makefile.rules\n")
-    makefile.flush()
-    makefile.close()
-
-def CleanMakefile():
-    if (os.path.isfile("Makefile")):
-        os.unlink("Makefile")
-
 class InlineTest(TestBase):
     # Internal implementation
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
-    def buildDsymWithImplicitMakefile(self):
-        BuildMakefile(self.mydir)
-        self.buildDsym()
+    def getRerunArgs(self):
+        # The -N option says to NOT run a if it matches the option argument, so
+        # if we are using dSYM we say to NOT run dwarf (-N dwarf) and vice versa.
+        if self.using_dsym is None:
+            # The test was skipped altogether.
+            return ""
+        elif self.using_dsym:
+            return "-N dwarf %s" % (self.mydir)
+        else:
+            return "-N dsym %s" % (self.mydir)
+        
+    def BuildMakefile(self):
+        if os.path.exists("Makefile"):
+            return
 
-    def buildDwarfWithImplicitMakefile(self):
-        BuildMakefile(self.mydir)
-        self.buildDwarf()
+        categories = {}
+
+        for f in os.listdir(os.getcwd()):
+            t = source_type(f)
+            if t:
+                if t in categories.keys():
+                    categories[t].append(f)
+                else:
+                    categories[t] = [f]
+
+        makefile = open("Makefile", 'w+')
+
+        level = os.sep.join([".."] * len(self.mydir.split(os.sep))) + os.sep + "make"
+
+        makefile.write("LEVEL = " + level + "\n")
+
+        for t in categories.keys():
+            line = t + " := " + " ".join(categories[t])
+            makefile.write(line + "\n")
+
+        if ('OBJCXX_SOURCES' in categories.keys()) or ('OBJC_SOURCES' in categories.keys()):
+            makefile.write("LDFLAGS = $(CFLAGS) -lobjc -framework Foundation\n")
+
+        if ('CXX_SOURCES' in categories.keys()):
+            makefile.write("CXXFLAGS += -std=c++11\n")
+
+        makefile.write("include $(LEVEL)/Makefile.rules\n")
+        makefile.flush()
+        makefile.close()
+
 
     @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
     def __test_with_dsym(self):
-        self.buildDsymWithImplicitMakefile()
+        self.using_dsym = True
+        self.BuildMakefile()
+        self.buildDsym()
         self.do_test()
 
     def __test_with_dwarf(self):
-        self.buildDwarfWithImplicitMakefile()
+        self.using_dsym = False
+        self.BuildMakefile()
+        self.buildDwarf()
         self.do_test()
 
     def execute_user_command(self, __command):
@@ -143,9 +148,6 @@ class InlineTest(TestBase):
             parser.handle_breakpoint(self, breakpoint_id)
             process.Continue()
 
-    @classmethod
-    def classCleanup(cls):
-        CleanMakefile()
 
     # Utilities for testcases
 
@@ -179,7 +181,7 @@ def MakeInlineTest(__file, __globals, decorators=None):
 
     test_name, _ = os.path.splitext(file_basename)
     # Build the test case 
-    test = new.classobj(test_name, (InlineTest,), {})
+    test = type(test_name, (InlineTest,), {'using_dsym': None})
     test.name = test_name
 
     test.test_with_dsym = ApplyDecoratorsToFunction(test._InlineTest__test_with_dsym, decorators)

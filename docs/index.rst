@@ -199,6 +199,8 @@ For developers of applications which use LLVM as a library.
   (`classes <http://llvm.org/doxygen/inherits.html>`_)
   (`tarball <http://llvm.org/doxygen/doxygen.tar.gz>`_)
 
+`Documentation for Go bindings <http://godoc.org/llvm.org/llvm/bindings/go/llvm>`_
+
 `ViewVC Repository Browser <http://llvm.org/viewvc/>`_
    ..
 
@@ -340,6 +342,9 @@ For API clients and LLVM developers.
 
 :doc:`MergeFunctions`
   Describes functions merging optimization.
+
+:doc:`InAlloca`
+  Description of the ``inalloca`` argument attribute.
 
 Development Process Documentation
 =================================

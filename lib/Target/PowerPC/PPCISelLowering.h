@@ -61,6 +61,9 @@ namespace llvm {
       ///
       VPERM,
 
+      /// The CMPB instruction (takes two operands of i32 or i64).
+      CMPB,
+
       /// Hi/Lo - These represent the high and low 16-bit parts of a global
       /// address respectively.  These nodes have two operands, the first of
       /// which must be a TargetGlobalAddress, and the second of which must be a
@@ -72,13 +75,6 @@ namespace llvm {
 
       /// The following two target-specific nodes are used for calls through
       /// function pointers in the 64-bit SVR4 ABI.
-
-      /// Like a regular LOAD but additionally taking/producing a flag.
-      LOAD,
-
-      /// Like LOAD (taking/producing a flag), but using r2 as hard-coded
-      /// destination.
-      LOAD_TOC,
 
       /// OPRC, CHAIN = DYNALLOC(CHAIN, NEGSIZE, FRAME_INDEX)
       /// This instruction is lowered in PPCRegisterInfo::eliminateFrameIndex to
@@ -116,6 +112,10 @@ namespace llvm {
       /// CHAIN,FLAG = BCTRL(CHAIN, INFLAG) - Directly corresponds to a
       /// BCTRL instruction.
       BCTRL,
+
+      /// CHAIN,FLAG = BCTRL(CHAIN, ADDR, INFLAG) - The combination of a bctrl
+      /// instruction and the TOC reload required on SVR4 PPC64.
+      BCTRL_LOAD_TOC,
 
       /// Return with a flag operand, matched by 'blr'
       RET_FLAG,
@@ -367,18 +367,26 @@ namespace llvm {
     SDValue get_VSPLTI_elt(SDNode *N, unsigned ByteSize, SelectionDAG &DAG);
   }
 
-  class PPCSubtarget;
   class PPCTargetLowering : public TargetLowering {
     const PPCSubtarget &Subtarget;
 
   public:
-    explicit PPCTargetLowering(const PPCTargetMachine &TM);
+    explicit PPCTargetLowering(const PPCTargetMachine &TM,
+                               const PPCSubtarget &STI);
 
     /// getTargetNodeName() - This method returns the name of a target specific
     /// DAG node.
     const char *getTargetNodeName(unsigned Opcode) const override;
 
     MVT getScalarShiftAmountTy(EVT LHSTy) const override { return MVT::i32; }
+
+    bool isCheapToSpeculateCttz() const override {
+      return true;
+    }
+
+    bool isCheapToSpeculateCtlz() const override {
+      return true;
+    }
 
     /// getSetCCResultType - Return the ISD::SETCC ValueType
     EVT getSetCCResultType(LLVMContext &Context, EVT VT) const override;
@@ -441,6 +449,8 @@ namespace llvm {
                                        APInt &KnownOne,
                                        const SelectionDAG &DAG,
                                        unsigned Depth = 0) const override;
+
+    unsigned getPrefLoopAlignment(MachineLoop *ML) const override;
 
     Instruction* emitLeadingFence(IRBuilder<> &Builder, AtomicOrdering Ord,
                                   bool IsStore, bool IsLoad) const override;
@@ -509,6 +519,10 @@ namespace llvm {
     bool isTruncateFree(Type *Ty1, Type *Ty2) const override;
     bool isTruncateFree(EVT VT1, EVT VT2) const override;
 
+    bool isZExtFree(SDValue Val, EVT VT2) const override;
+
+    bool isFPExtFree(EVT VT) const override;
+
     /// \brief Returns true if it is beneficial to convert a load of a constant
     /// to just the constant itself.
     bool shouldConvertConstantLoadToIntImm(const APInt &Imm,
@@ -549,6 +563,8 @@ namespace llvm {
     /// expanded to fmul + fadd.
     bool isFMAFasterThanFMulAndFAdd(EVT VT) const override;
 
+    const MCPhysReg *getScratchRegisters(CallingConv::ID CC) const override;
+
     // Should we expand the build vector with shuffles?
     bool
     shouldExpandBuildVectorWithShuffles(EVT VT,
@@ -574,6 +590,29 @@ namespace llvm {
     }
 
   private:
+
+    struct ReuseLoadInfo {
+      SDValue Ptr;
+      SDValue Chain;
+      SDValue ResChain;
+      MachinePointerInfo MPI;
+      bool IsInvariant;
+      unsigned Alignment;
+      AAMDNodes AAInfo;
+      const MDNode *Ranges;
+
+      ReuseLoadInfo() : IsInvariant(false), Alignment(0), Ranges(nullptr) {}
+    };
+
+    bool canReuseLoadAddress(SDValue Op, EVT MemVT, ReuseLoadInfo &RLI,
+                             SelectionDAG &DAG,
+                             ISD::LoadExtType ET = ISD::NON_EXTLOAD) const;
+    void spliceIntoChain(SDValue ResChain, SDValue NewResChain,
+                         SelectionDAG &DAG) const;
+
+    void LowerFP_TO_INTForReuse(SDValue Op, ReuseLoadInfo &RLI,
+                                SelectionDAG &DAG, SDLoc dl) const;
+
     SDValue getFramePointerFrameIndex(SelectionDAG & DAG) const;
     SDValue getReturnAddrFrameIndex(SelectionDAG & DAG) const;
 
@@ -637,15 +676,16 @@ namespace llvm {
                             SDLoc dl, SelectionDAG &DAG,
                             SmallVectorImpl<SDValue> &InVals) const;
     SDValue FinishCall(CallingConv::ID CallConv, SDLoc dl, bool isTailCall,
-                       bool isVarArg,
+                       bool isVarArg, bool IsPatchPoint,
                        SelectionDAG &DAG,
                        SmallVector<std::pair<unsigned, SDValue>, 8>
                          &RegsToPass,
-                       SDValue InFlag, SDValue Chain,
+                       SDValue InFlag, SDValue Chain, SDValue CallSeqStart,
                        SDValue &Callee,
                        int SPDiff, unsigned NumBytes,
                        const SmallVectorImpl<ISD::InputArg> &Ins,
-                       SmallVectorImpl<SDValue> &InVals) const;
+                       SmallVectorImpl<SDValue> &InVals,
+                       ImmutableCallSite *CS) const;
 
     SDValue
       LowerFormalArguments(SDValue Chain,
@@ -702,35 +742,39 @@ namespace llvm {
     SDValue
       LowerCall_Darwin(SDValue Chain, SDValue Callee,
                        CallingConv::ID CallConv,
-                       bool isVarArg, bool isTailCall,
+                       bool isVarArg, bool isTailCall, bool IsPatchPoint,
                        const SmallVectorImpl<ISD::OutputArg> &Outs,
                        const SmallVectorImpl<SDValue> &OutVals,
                        const SmallVectorImpl<ISD::InputArg> &Ins,
                        SDLoc dl, SelectionDAG &DAG,
-                       SmallVectorImpl<SDValue> &InVals) const;
+                       SmallVectorImpl<SDValue> &InVals,
+                       ImmutableCallSite *CS) const;
     SDValue
       LowerCall_64SVR4(SDValue Chain, SDValue Callee,
                        CallingConv::ID CallConv,
-                       bool isVarArg, bool isTailCall,
+                       bool isVarArg, bool isTailCall, bool IsPatchPoint,
                        const SmallVectorImpl<ISD::OutputArg> &Outs,
                        const SmallVectorImpl<SDValue> &OutVals,
                        const SmallVectorImpl<ISD::InputArg> &Ins,
                        SDLoc dl, SelectionDAG &DAG,
-                       SmallVectorImpl<SDValue> &InVals) const;
+                       SmallVectorImpl<SDValue> &InVals,
+                       ImmutableCallSite *CS) const;
     SDValue
     LowerCall_32SVR4(SDValue Chain, SDValue Callee, CallingConv::ID CallConv,
-                     bool isVarArg, bool isTailCall,
+                     bool isVarArg, bool isTailCall, bool IsPatchPoint,
                      const SmallVectorImpl<ISD::OutputArg> &Outs,
                      const SmallVectorImpl<SDValue> &OutVals,
                      const SmallVectorImpl<ISD::InputArg> &Ins,
                      SDLoc dl, SelectionDAG &DAG,
-                     SmallVectorImpl<SDValue> &InVals) const;
+                     SmallVectorImpl<SDValue> &InVals,
+                     ImmutableCallSite *CS) const;
 
     SDValue lowerEH_SJLJ_SETJMP(SDValue Op, SelectionDAG &DAG) const;
     SDValue lowerEH_SJLJ_LONGJMP(SDValue Op, SelectionDAG &DAG) const;
 
     SDValue DAGCombineExtBoolTrunc(SDNode *N, DAGCombinerInfo &DCI) const;
     SDValue DAGCombineTruncBoolExt(SDNode *N, DAGCombinerInfo &DCI) const;
+    SDValue combineFPToIntToFP(SDNode *N, DAGCombinerInfo &DCI) const;
 
     SDValue getRsqrtEstimate(SDValue Operand, DAGCombinerInfo &DCI,
                              unsigned &RefinementSteps,

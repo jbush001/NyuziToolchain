@@ -391,6 +391,10 @@ struct MatchableInfo {
   /// AsmVariantID - Target's assembly syntax variant no.
   int AsmVariantID;
 
+  /// AsmString - The assembly string for this instruction (with variants
+  /// removed), e.g. "movsx $src, $dst".
+  std::string AsmString;
+
   /// TheDef - This is the definition of the instruction or InstAlias that this
   /// matchable came from.
   Record *const TheDef;
@@ -407,10 +411,6 @@ struct MatchableInfo {
   /// ResOperands - This is the operand list that should be built for the result
   /// MCInst.
   SmallVector<ResOperand, 8> ResOperands;
-
-  /// AsmString - The assembly string for this instruction (with variants
-  /// removed), e.g. "movsx $src, $dst".
-  std::string AsmString;
 
   /// Mnemonic - This is the first token of the matched instruction, its
   /// mnemonic.
@@ -434,18 +434,15 @@ struct MatchableInfo {
   bool HasDeprecation;
 
   MatchableInfo(const CodeGenInstruction &CGI)
-    : AsmVariantID(0), TheDef(CGI.TheDef), DefRec(&CGI),
-      AsmString(CGI.AsmString) {
+    : AsmVariantID(0), AsmString(CGI.AsmString), TheDef(CGI.TheDef), DefRec(&CGI) {
   }
 
-  MatchableInfo(const CodeGenInstAlias *Alias)
-    : AsmVariantID(0), TheDef(Alias->TheDef), DefRec(Alias),
-      AsmString(Alias->AsmString) {
+  MatchableInfo(std::unique_ptr<const CodeGenInstAlias> Alias)
+    : AsmVariantID(0), AsmString(Alias->AsmString), TheDef(Alias->TheDef), DefRec(Alias.release()) {
   }
 
   ~MatchableInfo() {
-    if (DefRec.is<const CodeGenInstAlias*>())
-      delete DefRec.get<const CodeGenInstAlias*>();
+    delete DefRec.dyn_cast<const CodeGenInstAlias*>();
   }
 
   // Two-operand aliases clone from the main matchable, but mark the second
@@ -982,6 +979,7 @@ static std::string getEnumNameForToken(StringRef Str) {
     case '.': Res += "_DOT_"; break;
     case '<': Res += "_LT_"; break;
     case '>': Res += "_GT_"; break;
+    case '-': Res += "_MINUS_"; break;
     default:
       if ((*it >= 'A' && *it <= 'Z') ||
           (*it >= 'a' && *it <= 'z') ||
@@ -1358,8 +1356,8 @@ void AsmMatcherInfo::buildInfo() {
     std::vector<Record*> AllInstAliases =
       Records.getAllDerivedDefinitions("InstAlias");
     for (unsigned i = 0, e = AllInstAliases.size(); i != e; ++i) {
-      CodeGenInstAlias *Alias =
-          new CodeGenInstAlias(AllInstAliases[i], AsmVariantNo, Target);
+      auto Alias = llvm::make_unique<CodeGenInstAlias>(AllInstAliases[i],
+                                                       AsmVariantNo, Target);
 
       // If the tblgen -match-prefix option is specified (for tblgen hackers),
       // filter the set of instruction aliases we consider, based on the target
@@ -1368,7 +1366,7 @@ void AsmMatcherInfo::buildInfo() {
             .startswith( MatchPrefix))
         continue;
 
-      std::unique_ptr<MatchableInfo> II(new MatchableInfo(Alias));
+      std::unique_ptr<MatchableInfo> II(new MatchableInfo(std::move(Alias)));
 
       II->initialize(*this, SingletonRegisters, AsmVariantNo, RegisterPrefix);
 
@@ -1851,6 +1849,7 @@ static void emitConvertFuncs(CodeGenTarget &Target, StringRef ClassName,
       case MatchableInfo::ResOperand::ImmOperand: {
         int64_t Val = OpInfo.ImmVal;
         std::string Ty = "imm_" + itostr(Val);
+        Ty = getEnumNameForToken(Ty);
         Signature += "__" + Ty;
 
         std::string Name = "CVT_" + Ty;
@@ -2609,10 +2608,11 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   // Check for ambiguous matchables.
   DEBUG_WITH_TYPE("ambiguous_instrs", {
     unsigned NumAmbiguous = 0;
-    for (unsigned i = 0, e = Info.Matchables.size(); i != e; ++i) {
-      for (unsigned j = i + 1; j != e; ++j) {
-        const MatchableInfo &A = *Info.Matchables[i];
-        const MatchableInfo &B = *Info.Matchables[j];
+    for (auto I = Info.Matchables.begin(), E = Info.Matchables.end(); I != E;
+         ++I) {
+      for (auto J = std::next(I); J != E; ++J) {
+        const MatchableInfo &A = **I;
+        const MatchableInfo &B = **J;
 
         if (A.couldMatchAmbiguouslyWith(B)) {
           errs() << "warning: ambiguous matchables:\n";
@@ -2647,15 +2647,13 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "  void convertToMapAndConstraints(unsigned Kind,\n                ";
   OS << "           const OperandVector &Operands) override;\n";
   OS << "  bool mnemonicIsValid(StringRef Mnemonic, unsigned VariantID) override;\n";
-  OS << "  unsigned MatchInstructionImpl(\n";
-  OS.indent(27);
-  OS << "const OperandVector &Operands,\n"
+  OS << "  unsigned MatchInstructionImpl(const OperandVector &Operands,\n"
      << "                                MCInst &Inst,\n"
      << "                                uint64_t &ErrorInfo,"
      << " bool matchingInlineAsm,\n"
      << "                                unsigned VariantID = 0);\n";
 
-  if (Info.OperandMatchInfo.size()) {
+  if (!Info.OperandMatchInfo.empty()) {
     OS << "\n  enum OperandMatchResultTy {\n";
     OS << "    MatchOperand_Success,    // operand matched successfully\n";
     OS << "    MatchOperand_NoMatch,    // operand did not match\n";
@@ -2836,7 +2834,7 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "  // Find the appropriate table for this asm variant.\n";
   OS << "  const MatchEntry *Start, *End;\n";
   OS << "  switch (VariantID) {\n";
-  OS << "  default: // unreachable\n";
+  OS << "  default: llvm_unreachable(\"invalid variant!\");\n";
   for (unsigned VC = 0; VC != VariantCount; ++VC) {
     Record *AsmVariant = Target.getAsmParserVariant(VC);
     int AsmVariantNo = AsmVariant->getValueAsInt("Variant");
@@ -2852,10 +2850,9 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
 
   // Finally, build the match function.
   OS << "unsigned " << Target.getName() << ClassName << "::\n"
-     << "MatchInstructionImpl(const OperandVector"
-     << " &Operands,\n";
-  OS << "                     MCInst &Inst,\n"
-     << "uint64_t &ErrorInfo, bool matchingInlineAsm, unsigned VariantID) {\n";
+     << "MatchInstructionImpl(const OperandVector &Operands,\n";
+  OS << "                     MCInst &Inst, uint64_t &ErrorInfo,\n"
+     << "                     bool matchingInlineAsm, unsigned VariantID) {\n";
 
   OS << "  // Eliminate obvious mismatches.\n";
   OS << "  if (Operands.size() > " << (MaxNumOperands+1) << ") {\n";
@@ -2890,7 +2887,7 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "  // Find the appropriate table for this asm variant.\n";
   OS << "  const MatchEntry *Start, *End;\n";
   OS << "  switch (VariantID) {\n";
-  OS << "  default: // unreachable\n";
+  OS << "  default: llvm_unreachable(\"invalid variant!\");\n";
   for (unsigned VC = 0; VC != VariantCount; ++VC) {
     Record *AsmVariant = Target.getAsmParserVariant(VC);
     int AsmVariantNo = AsmVariant->getValueAsInt("Variant");
@@ -2965,6 +2962,7 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "      continue;\n";
   OS << "    }\n";
   OS << "\n";
+  OS << "    Inst.clear();\n\n";
   OS << "    if (matchingInlineAsm) {\n";
   OS << "      Inst.setOpcode(it->Opcode);\n";
   OS << "      convertToMapAndConstraints(it->ConvertFn, Operands);\n";
@@ -3013,7 +3011,7 @@ void AsmMatcherEmitter::run(raw_ostream &OS) {
   OS << "  return Match_MissingFeature;\n";
   OS << "}\n\n";
 
-  if (Info.OperandMatchInfo.size())
+  if (!Info.OperandMatchInfo.empty())
     emitCustomOperandParsing(OS, Target, Info, ClassName, StringTable,
                              MaxMnemonicIndex);
 

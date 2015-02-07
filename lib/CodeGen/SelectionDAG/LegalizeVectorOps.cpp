@@ -200,7 +200,8 @@ SDValue VectorLegalizer::LegalizeOp(SDValue Op) {
     LoadSDNode *LD = cast<LoadSDNode>(Op.getNode());
     ISD::LoadExtType ExtType = LD->getExtensionType();
     if (LD->getMemoryVT().isVector() && ExtType != ISD::NON_EXTLOAD)
-      switch (TLI.getLoadExtAction(LD->getExtensionType(), LD->getMemoryVT())) {
+      switch (TLI.getLoadExtAction(LD->getExtensionType(), LD->getValueType(0),
+                                   LD->getMemoryVT())) {
       default: llvm_unreachable("This action is not supported yet!");
       case TargetLowering::Legal:
         return TranslateLegalizeResults(Op, Result);
@@ -553,9 +554,9 @@ SDValue VectorLegalizer::ExpandLoad(SDValue Op) {
       BitOffset += SrcEltBits;
       if (BitOffset >= WideBits) {
         WideIdx++;
-        Offset -= WideBits;
-        if (Offset > 0) {
-          ShAmt = DAG.getConstant(SrcEltBits - Offset,
+        BitOffset -= WideBits;
+        if (BitOffset > 0) {
+          ShAmt = DAG.getConstant(SrcEltBits - BitOffset,
                                   TLI.getShiftAmountTy(WideVT));
           Hi = DAG.getNode(ISD::SHL, dl, WideVT, LoadVals[WideIdx], ShAmt);
           Hi = DAG.getNode(ISD::AND, dl, WideVT, Hi, SrcEltBitMask);

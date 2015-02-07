@@ -19,7 +19,7 @@ class A {
 void no_constructor_destructor_infinite_recursion() {
   A a;
 
-// CHECK:      define linkonce_odr x86_thiscallcc %"class.basic::A"* @"\01??0A@basic@@QAE@XZ"(%"class.basic::A"* returned %this)
+// CHECK:      define linkonce_odr x86_thiscallcc %"class.basic::A"* @"\01??0A@basic@@QAE@XZ"(%"class.basic::A"* returned %this) {{.*}} comdat {{.*}} {
 // CHECK:        [[THIS_ADDR:%[.0-9A-Z_a-z]+]] = alloca %"class.basic::A"*, align 4
 // CHECK-NEXT:   store %"class.basic::A"* %this, %"class.basic::A"** [[THIS_ADDR]], align 4
 // CHECK-NEXT:   [[T1:%[.0-9A-Z_a-z]+]] = load %"class.basic::A"** [[THIS_ADDR]]
@@ -46,7 +46,7 @@ B::B() {
 
 struct C {
   virtual ~C() {
-// DTORS:      define linkonce_odr x86_thiscallcc i8* @"\01??_GC@basic@@UAEPAXI@Z"(%"struct.basic::C"* %this, i32 %should_call_delete)
+// DTORS:      define linkonce_odr x86_thiscallcc i8* @"\01??_GC@basic@@UAEPAXI@Z"(%"struct.basic::C"* %this, i32 %should_call_delete) {{.*}} comdat {{.*}} {
 // DTORS:        store i32 %should_call_delete, i32* %[[SHOULD_DELETE_VAR:[0-9a-z._]+]], align 4
 // DTORS:        store i8* %{{.*}}, i8** %[[RETVAL:[0-9a-z._]+]]
 // DTORS:        %[[SHOULD_DELETE_VALUE:[0-9a-z._]+]] = load i32* %[[SHOULD_DELETE_VAR]]
@@ -206,7 +206,7 @@ F::~F() {
 void foo() {
   F f;
 }
-// DTORS3-LABEL: define linkonce_odr x86_thiscallcc void @"\01??_DF@test2@@UAE@XZ"
+// DTORS3-LABEL: define linkonce_odr x86_thiscallcc void @"\01??_DF@test2@@UAE@XZ"({{.*}} {{.*}} comdat
 //      Do an adjustment from C* to F*.
 // DTORS3:   getelementptr i8* %{{.*}}, i32 20
 // DTORS3:   bitcast i8* %{{.*}} to %"struct.test2::F"*
@@ -365,7 +365,7 @@ void call_vbase_complete(D *d) {
 }
 
 // The complete dtor should call the base dtors for D and the vbase A (once).
-// CHECK: define linkonce_odr x86_thiscallcc void @"\01??_DD@dtors@@QAE@XZ"
+// CHECK: define linkonce_odr x86_thiscallcc void @"\01??_DD@dtors@@QAE@XZ"({{.*}}) {{.*}} comdat
 // CHECK-NOT: call
 // CHECK: call x86_thiscallcc void @"\01??1D@dtors@@QAE@XZ"
 // CHECK-NOT: call

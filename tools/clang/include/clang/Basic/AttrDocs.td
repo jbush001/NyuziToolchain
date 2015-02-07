@@ -1253,6 +1253,15 @@ an error:
 }];
 }
 
+def MSNoVTableDocs : Documentation {
+  let Category = DocCatType;
+  let Content = [{
+This attribute can be added to a class declaration or definition to signal to
+the compiler that constructors and destructors will not reference the virtual
+function table.
+  }];
+}
+
 def OptnoneDocs : Documentation {
   let Category = DocCatFunction;
   let Content = [{
@@ -1264,7 +1273,8 @@ entire application without optimization.  Avoiding optimization on the
 specified function can improve the quality of the debugging information
 for that function.
 
-This attribute is incompatible with the ``always_inline`` attribute.
+This attribute is incompatible with the ``always_inline`` and ``minsize``
+attributes.
   }];
 }
 

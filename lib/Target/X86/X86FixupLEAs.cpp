@@ -155,8 +155,7 @@ bool FixupLEAPass::runOnMachineFunction(MachineFunction &Func) {
   if (!ST.LEAusesAG() && !ST.slowLEA())
     return false;
 
-  TII =
-      static_cast<const X86InstrInfo *>(TM->getSubtargetImpl()->getInstrInfo());
+  TII = ST.getInstrInfo();
 
   DEBUG(dbgs() << "Start X86FixupLEAs\n";);
   // Process all basic blocks.
@@ -219,7 +218,7 @@ FixupLEAPass::searchBackwards(MachineOperand &p, MachineBasicBlock::iterator &I,
       return CurInst;
     }
     InstrDistance += TII->getInstrLatency(
-        TM->getSubtargetImpl()->getInstrItineraryData(), CurInst);
+        MF->getSubtarget().getInstrItineraryData(), CurInst);
     Found = getPreviousInstr(CurInst, MFI);
   }
   return nullptr;
@@ -283,6 +282,7 @@ void FixupLEAPass::processInstructionForSLM(MachineBasicBlock::iterator &I,
     return;
   int addrr_opcode, addri_opcode;
   switch (opcode) {
+  default: llvm_unreachable("Unexpected LEA instruction");
   case X86::LEA16r:
     addrr_opcode = X86::ADD16rr;
     addri_opcode = X86::ADD16ri;
@@ -296,8 +296,6 @@ void FixupLEAPass::processInstructionForSLM(MachineBasicBlock::iterator &I,
     addrr_opcode = X86::ADD64rr;
     addri_opcode = X86::ADD64ri32;
     break;
-  default:
-    assert(false && "Unexpected LEA instruction");
   }
   DEBUG(dbgs() << "FixLEA: Candidate to replace:"; I->dump(););
   DEBUG(dbgs() << "FixLEA: Replaced by: ";);

@@ -19,6 +19,7 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/LLVMContext.h"
@@ -416,11 +417,14 @@ class ModuleLinker {
   // Vector of GlobalValues to lazily link in.
   std::vector<GlobalValue *> LazilyLinkGlobalValues;
 
-  Linker::DiagnosticHandlerFunction DiagnosticHandler;
+  /// Functions that have replaced other functions.
+  SmallPtrSet<const Function *, 16> OverridingFunctions;
+
+  DiagnosticHandlerFunction DiagnosticHandler;
 
 public:
   ModuleLinker(Module *dstM, Linker::IdentifiedStructTypeSet &Set, Module *srcM,
-               Linker::DiagnosticHandlerFunction DiagnosticHandler)
+               DiagnosticHandlerFunction DiagnosticHandler)
       : DstM(dstM), SrcM(srcM), TypeMap(Set),
         ValMaterializer(TypeMap, DstM, LazilyLinkGlobalValues),
         DiagnosticHandler(DiagnosticHandler) {}
@@ -494,6 +498,7 @@ private:
   bool linkGlobalValueBody(GlobalValue &Src);
 
   void linkNamedMDNodes();
+  void stripReplacedSubprograms();
 };
 }
 
@@ -1078,6 +1083,10 @@ bool ModuleLinker::linkGlobalValueProto(GlobalValue *SGV) {
     }
 
     NewGV = copyGlobalValueProto(TypeMap, *DstM, SGV);
+
+    if (DGV && isa<Function>(DGV))
+      if (auto *NewF = dyn_cast<Function>(NewGV))
+        OverridingFunctions.insert(NewF);
   }
 
   NewGV->setUnnamedAddr(HasUnnamedAddr);
@@ -1239,8 +1248,50 @@ void ModuleLinker::linkNamedMDNodes() {
     NamedMDNode *DestNMD = DstM->getOrInsertNamedMetadata(I->getName());
     // Add Src elements into Dest node.
     for (unsigned i = 0, e = I->getNumOperands(); i != e; ++i)
-      DestNMD->addOperand(MapValue(I->getOperand(i), ValueMap,
-                                   RF_None, &TypeMap, &ValMaterializer));
+      DestNMD->addOperand(MapMetadata(I->getOperand(i), ValueMap, RF_None,
+                                      &TypeMap, &ValMaterializer));
+  }
+}
+
+/// Drop DISubprograms that have been superseded.
+///
+/// FIXME: this creates an asymmetric result: we strip losing subprograms from
+/// DstM, but leave losing subprograms in SrcM.  Instead we should also strip
+/// losers from SrcM, but this requires extra plumbing in MapMetadata.
+void ModuleLinker::stripReplacedSubprograms() {
+  // Avoid quadratic runtime by returning early when there's nothing to do.
+  if (OverridingFunctions.empty())
+    return;
+
+  // Move the functions now, so the set gets cleared even on early returns.
+  auto Functions = std::move(OverridingFunctions);
+  OverridingFunctions.clear();
+
+  // Drop subprograms whose functions have been overridden by the new compile
+  // unit.
+  NamedMDNode *CompileUnits = DstM->getNamedMetadata("llvm.dbg.cu");
+  if (!CompileUnits)
+    return;
+  for (unsigned I = 0, E = CompileUnits->getNumOperands(); I != E; ++I) {
+    DICompileUnit CU(CompileUnits->getOperand(I));
+    assert(CU && "Expected valid compile unit");
+
+    DITypedArray<DISubprogram> SPs(CU.getSubprograms());
+    assert(SPs && "Expected valid subprogram array");
+
+    SmallVector<Metadata *, 16> NewSPs;
+    NewSPs.reserve(SPs.getNumElements());
+    for (unsigned S = 0, SE = SPs.getNumElements(); S != SE; ++S) {
+      DISubprogram SP = SPs.getElement(S);
+      if (SP && SP.getFunction() && Functions.count(SP.getFunction()))
+        continue;
+
+      NewSPs.push_back(SP);
+    }
+
+    // Redirect operand to the overriding subprogram.
+    if (NewSPs.size() != SPs.getNumElements())
+      CU.replaceSubprograms(DIArray(MDNode::get(DstM->getContext(), NewSPs)));
   }
 }
 
@@ -1261,7 +1312,7 @@ bool ModuleLinker::linkModuleFlagsMetadata() {
   }
 
   // First build a map of the existing module flags and requirements.
-  DenseMap<MDString*, MDNode*> Flags;
+  DenseMap<MDString *, std::pair<MDNode *, unsigned>> Flags;
   SmallSetVector<MDNode*, 16> Requirements;
   for (unsigned I = 0, E = DstModFlags->getNumOperands(); I != E; ++I) {
     MDNode *Op = DstModFlags->getOperand(I);
@@ -1271,7 +1322,7 @@ bool ModuleLinker::linkModuleFlagsMetadata() {
     if (Behavior->getZExtValue() == Module::Require) {
       Requirements.insert(cast<MDNode>(Op->getOperand(2)));
     } else {
-      Flags[ID] = Op;
+      Flags[ID] = std::make_pair(Op, I);
     }
   }
 
@@ -1283,7 +1334,9 @@ bool ModuleLinker::linkModuleFlagsMetadata() {
     ConstantInt *SrcBehavior =
         mdconst::extract<ConstantInt>(SrcOp->getOperand(0));
     MDString *ID = cast<MDString>(SrcOp->getOperand(1));
-    MDNode *DstOp = Flags.lookup(ID);
+    MDNode *DstOp;
+    unsigned DstIndex;
+    std::tie(DstOp, DstIndex) = Flags.lookup(ID);
     unsigned SrcBehaviorValue = SrcBehavior->getZExtValue();
 
     // If this is a requirement, add it and continue.
@@ -1298,7 +1351,7 @@ bool ModuleLinker::linkModuleFlagsMetadata() {
 
     // If there is no existing flag with this ID, just add it.
     if (!DstOp) {
-      Flags[ID] = SrcOp;
+      Flags[ID] = std::make_pair(SrcOp, DstModFlags->getNumOperands());
       DstModFlags->addOperand(SrcOp);
       continue;
     }
@@ -1319,8 +1372,8 @@ bool ModuleLinker::linkModuleFlagsMetadata() {
       continue;
     } else if (SrcBehaviorValue == Module::Override) {
       // Update the destination flag to that of the source.
-      DstOp->replaceOperandWith(0, ConstantAsMetadata::get(SrcBehavior));
-      DstOp->replaceOperandWith(2, SrcOp->getOperand(2));
+      DstModFlags->setOperand(DstIndex, SrcOp);
+      Flags[ID].first = SrcOp;
       continue;
     }
 
@@ -1330,6 +1383,13 @@ bool ModuleLinker::linkModuleFlagsMetadata() {
                           "': IDs have conflicting behaviors");
       continue;
     }
+
+    auto replaceDstValue = [&](MDNode *New) {
+      Metadata *FlagOps[] = {DstOp->getOperand(0), ID, New};
+      MDNode *Flag = MDNode::get(DstM->getContext(), FlagOps);
+      DstModFlags->setOperand(DstIndex, Flag);
+      Flags[ID].first = Flag;
+    };
 
     // Perform the merge for standard behavior types.
     switch (SrcBehaviorValue) {
@@ -1360,7 +1420,8 @@ bool ModuleLinker::linkModuleFlagsMetadata() {
         MDs.push_back(DstValue->getOperand(i));
       for (unsigned i = 0, e = SrcValue->getNumOperands(); i != e; ++i)
         MDs.push_back(SrcValue->getOperand(i));
-      DstOp->replaceOperandWith(2, MDNode::get(DstM->getContext(), MDs));
+
+      replaceDstValue(MDNode::get(DstM->getContext(), MDs));
       break;
     }
     case Module::AppendUnique: {
@@ -1371,9 +1432,9 @@ bool ModuleLinker::linkModuleFlagsMetadata() {
         Elts.insert(DstValue->getOperand(i));
       for (unsigned i = 0, e = SrcValue->getNumOperands(); i != e; ++i)
         Elts.insert(SrcValue->getOperand(i));
-      DstOp->replaceOperandWith(
-          2, MDNode::get(DstM->getContext(),
-                         makeArrayRef(Elts.begin(), Elts.end())));
+
+      replaceDstValue(MDNode::get(DstM->getContext(),
+                                  makeArrayRef(Elts.begin(), Elts.end())));
       break;
     }
     }
@@ -1385,7 +1446,7 @@ bool ModuleLinker::linkModuleFlagsMetadata() {
     MDString *Flag = cast<MDString>(Requirement->getOperand(0));
     Metadata *ReqValue = Requirement->getOperand(1);
 
-    MDNode *Op = Flags[Flag];
+    MDNode *Op = Flags[Flag].first;
     if (!Op || Op->getOperand(2) != ReqValue) {
       HasErr |= emitError("linking module flags '" + Flag->getString() +
                           "': does not have the required value");
@@ -1509,6 +1570,9 @@ bool ModuleLinker::run() {
     linkGlobalValueBody(Src);
   }
 
+  // Strip replaced subprograms before linking together compile units.
+  stripReplacedSubprograms();
+
   // Remap all of the named MDNodes in Src into the DstM module. We do this
   // after linking GlobalValues so that MDNodes that reference GlobalValues
   // are properly remapped.
@@ -1532,9 +1596,7 @@ bool ModuleLinker::run() {
     GlobalValue *SGV = LazilyLinkGlobalValues.back();
     LazilyLinkGlobalValues.pop_back();
 
-    if (auto F = dyn_cast<Function>(SGV))
-      if (F->isDeclaration())
-        continue;
+    assert(!SGV->isDeclaration() && "users should not pass down decls");
     if (linkGlobalValueBody(*SGV))
       return true;
   }
@@ -1659,7 +1721,9 @@ void Linker::deleteModule() {
 bool Linker::linkInModule(Module *Src) {
   ModuleLinker TheLinker(Composite, IdentifiedStructTypes, Src,
                          DiagnosticHandler);
-  return TheLinker.run();
+  bool RetCode = TheLinker.run();
+  Composite->dropTriviallyDeadConstantArrays();
+  return RetCode;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1687,7 +1751,7 @@ bool Linker::LinkModules(Module *Dest, Module *Src) {
 //===----------------------------------------------------------------------===//
 
 LLVMBool LLVMLinkModules(LLVMModuleRef Dest, LLVMModuleRef Src,
-                         LLVMLinkerMode Mode, char **OutMessages) {
+                         unsigned Unused, char **OutMessages) {
   Module *D = unwrap(Dest);
   std::string Message;
   raw_string_ostream Stream(Message);

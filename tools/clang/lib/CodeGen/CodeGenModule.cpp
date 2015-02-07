@@ -21,8 +21,8 @@
 #include "CGOpenMPRuntime.h"
 #include "CodeGenFunction.h"
 #include "CodeGenPGO.h"
-#include "CoverageMappingGen.h"
 #include "CodeGenTBAA.h"
+#include "CoverageMappingGen.h"
 #include "TargetInfo.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/CharUnits.h"
@@ -769,9 +769,10 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
     // OptimizeNone wins over OptimizeForSize, MinSize, AlwaysInline.
     assert(!F->hasFnAttribute(llvm::Attribute::OptimizeForSize) &&
            "OptimizeNone and OptimizeForSize on same function!");
-    // FIXME: Change these to asserts.
-    F->removeFnAttr(llvm::Attribute::MinSize);
-    F->removeFnAttr(llvm::Attribute::AlwaysInline);
+    assert(!F->hasFnAttribute(llvm::Attribute::MinSize) &&
+           "OptimizeNone and MinSize on same function!");
+    assert(!F->hasFnAttribute(llvm::Attribute::AlwaysInline) &&
+           "OptimizeNone and AlwaysInline on same function!");
 
     // Attribute 'inlinehint' has no effect on 'optnone' functions.
     // Explicitly remove it from the set of function attributes.
@@ -934,8 +935,8 @@ static void emitUsed(CodeGenModule &CGM, StringRef Name,
   UsedArray.resize(List.size());
   for (unsigned i = 0, e = List.size(); i != e; ++i) {
     UsedArray[i] =
-     llvm::ConstantExpr::getBitCast(cast<llvm::Constant>(&*List[i]),
-                                    CGM.Int8PtrTy);
+        llvm::ConstantExpr::getPointerBitCastOrAddrSpaceCast(
+            cast<llvm::Constant>(&*List[i]), CGM.Int8PtrTy);
   }
 
   if (UsedArray.empty())
@@ -1083,36 +1084,52 @@ void CodeGenModule::EmitDeferred() {
   // previously unused static decl may become used during the generation of code
   // for a static function, iterate until no changes are made.
 
-  while (true) {
-    if (!DeferredVTables.empty()) {
-      EmitDeferredVTables();
+  if (!DeferredVTables.empty()) {
+    EmitDeferredVTables();
 
-      // Emitting a v-table doesn't directly cause more v-tables to
-      // become deferred, although it can cause functions to be
-      // emitted that then need those v-tables.
-      assert(DeferredVTables.empty());
-    }
+    // Emitting a v-table doesn't directly cause more v-tables to
+    // become deferred, although it can cause functions to be
+    // emitted that then need those v-tables.
+    assert(DeferredVTables.empty());
+  }
 
-    // Stop if we're out of both deferred v-tables and deferred declarations.
-    if (DeferredDeclsToEmit.empty()) break;
+  // Stop if we're out of both deferred v-tables and deferred declarations.
+  if (DeferredDeclsToEmit.empty())
+    return;
 
-    DeferredGlobal &G = DeferredDeclsToEmit.back();
+  // Grab the list of decls to emit. If EmitGlobalDefinition schedules more
+  // work, it will not interfere with this.
+  std::vector<DeferredGlobal> CurDeclsToEmit;
+  CurDeclsToEmit.swap(DeferredDeclsToEmit);
+
+  for (DeferredGlobal &G : CurDeclsToEmit) {
     GlobalDecl D = G.GD;
     llvm::GlobalValue *GV = G.GV;
-    DeferredDeclsToEmit.pop_back();
+    G.GV = nullptr;
 
-    assert(GV == GetGlobalValue(getMangledName(D)));
+    assert(!GV || GV == GetGlobalValue(getMangledName(D)));
+    if (!GV)
+      GV = GetGlobalValue(getMangledName(D));
+
     // Check to see if we've already emitted this.  This is necessary
     // for a couple of reasons: first, decls can end up in the
     // deferred-decls queue multiple times, and second, decls can end
     // up with definitions in unusual ways (e.g. by an extern inline
     // function acquiring a strong function redefinition).  Just
     // ignore these cases.
-    if(!GV->isDeclaration())
+    if (GV && !GV->isDeclaration())
       continue;
 
     // Otherwise, emit the definition and move on to the next one.
     EmitGlobalDefinition(D, GV);
+
+    // If we found out that we need to emit more decls, do that recursively.
+    // This has the advantage that the decls are emitted in a DFS and related
+    // ones are close together, which is convenient for testing.
+    if (!DeferredVTables.empty() || !DeferredDeclsToEmit.empty()) {
+      EmitDeferred();
+      assert(DeferredVTables.empty() && DeferredDeclsToEmit.empty());
+    }
   }
 }
 
@@ -1233,12 +1250,22 @@ bool CodeGenModule::isInSanitizerBlacklist(llvm::GlobalVariable *GV,
   return false;
 }
 
-bool CodeGenModule::MayDeferGeneration(const ValueDecl *Global) {
+bool CodeGenModule::MustBeEmitted(const ValueDecl *Global) {
   // Never defer when EmitAllDecls is specified.
   if (LangOpts.EmitAllDecls)
-    return false;
+    return true;
 
-  return !getContext().DeclMustBeEmitted(Global);
+  return getContext().DeclMustBeEmitted(Global);
+}
+
+bool CodeGenModule::MayBeEmittedEagerly(const ValueDecl *Global) {
+  if (const auto *FD = dyn_cast<FunctionDecl>(Global))
+    if (FD->getTemplateSpecializationKind() == TSK_ImplicitInstantiation)
+      // Implicit template instantiations may change linkage if they are later
+      // explicitly instantiated, so they should not be emitted eagerly.
+      return false;
+
+  return true;
 }
 
 llvm::Constant *CodeGenModule::GetAddrOfUuidDescriptor(
@@ -1259,6 +1286,8 @@ llvm::Constant *CodeGenModule::GetAddrOfUuidDescriptor(
   auto *GV = new llvm::GlobalVariable(
       getModule(), Init->getType(),
       /*isConstant=*/true, llvm::GlobalValue::LinkOnceODRLinkage, Init, Name);
+  if (supportsCOMDAT())
+    GV->setComdat(TheModule.getOrInsertComdat(GV->getName()));
   return GV;
 }
 
@@ -1347,9 +1376,10 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
       return;
   }
 
-  // Defer code generation when possible if this is a static definition, inline
-  // function etc.  These we only want to emit if they are used.
-  if (!MayDeferGeneration(Global)) {
+  // Defer code generation to first use when possible, e.g. if this is an inline
+  // function. If the global must always be emitted, do it eagerly if possible
+  // to benefit from cache locality.
+  if (MustBeEmitted(Global) && MayBeEmittedEagerly(Global)) {
     // Emit the definition if it can't be deferred.
     EmitGlobalDefinition(GD);
     return;
@@ -1362,13 +1392,16 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
     DelayedCXXInitPosition[Global] = CXXGlobalInits.size();
     CXXGlobalInits.push_back(nullptr);
   }
-  
-  // If the value has already been used, add it directly to the
-  // DeferredDeclsToEmit list.
+
   StringRef MangledName = getMangledName(GD);
-  if (llvm::GlobalValue *GV = GetGlobalValue(MangledName))
+  if (llvm::GlobalValue *GV = GetGlobalValue(MangledName)) {
+    // The value has already been used and should therefore be emitted.
     addDeferredDeclToEmit(GV, GD);
-  else {
+  } else if (MustBeEmitted(Global)) {
+    // The value must be emitted, but cannot be emitted eagerly.
+    assert(!MayBeEmittedEagerly(Global));
+    addDeferredDeclToEmit(/*GV=*/nullptr, GD);
+  } else {
     // Otherwise, remember that we saw a deferred decl with this name.  The
     // first use of the mangled name will cause it to move into
     // DeferredDeclsToEmit.
@@ -1809,7 +1842,10 @@ CodeGenModule::CreateOrReplaceCXXRuntimeVariable(StringRef Name,
     
     OldGV->eraseFromParent();
   }
-  
+
+  if (supportsCOMDAT() && GV->isWeakForLinker())
+    GV->setComdat(TheModule.getOrInsertComdat(GV->getName()));
+
   return GV;
 }
 
@@ -1842,7 +1878,7 @@ CodeGenModule::CreateRuntimeVariable(llvm::Type *Ty,
 void CodeGenModule::EmitTentativeDefinition(const VarDecl *D) {
   assert(!D->getInit() && "Cannot emit definite definitions here!");
 
-  if (MayDeferGeneration(D)) {
+  if (!MustBeEmitted(D)) {
     // If we have not seen a reference to this variable yet, place it
     // into the deferred declarations table to be emitted if needed
     // later.
@@ -1907,6 +1943,38 @@ void CodeGenModule::MaybeHandleStaticInExternC(const SomeDecl *D,
   // in extern "C" regions, none of them gets that name.
   if (!R.second)
     R.first->second = nullptr;
+}
+
+static bool shouldBeInCOMDAT(CodeGenModule &CGM, const Decl &D) {
+  if (!CGM.supportsCOMDAT())
+    return false;
+
+  if (D.hasAttr<SelectAnyAttr>())
+    return true;
+
+  GVALinkage Linkage;
+  if (auto *VD = dyn_cast<VarDecl>(&D))
+    Linkage = CGM.getContext().GetGVALinkageForVariable(VD);
+  else
+    Linkage = CGM.getContext().GetGVALinkageForFunction(cast<FunctionDecl>(&D));
+
+  switch (Linkage) {
+  case GVA_Internal:
+  case GVA_AvailableExternally:
+  case GVA_StrongExternal:
+    return false;
+  case GVA_DiscardableODR:
+  case GVA_StrongODR:
+    return true;
+  }
+  llvm_unreachable("No such linkage");
+}
+
+void CodeGenModule::maybeSetTrivialComdat(const Decl &D,
+                                          llvm::GlobalObject &GO) {
+  if (!shouldBeInCOMDAT(*this, D))
+    return;
+  GO.setComdat(TheModule.getOrInsertComdat(GO.getName()));
 }
 
 void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D) {
@@ -2052,6 +2120,8 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D) {
     setTLSMode(GV, *D);
   }
 
+  maybeSetTrivialComdat(*D, *GV);
+
   // Emit the initializer function if necessary.
   if (NeedsGlobalCtor || NeedsGlobalDtor)
     EmitCXXGlobalVarDeclInitFunc(D, GV, NeedsGlobalCtor);
@@ -2092,9 +2162,25 @@ static bool isVarDeclStrongDefinition(const ASTContext &Context,
 
   // Declarations with a required alignment do not have common linakge in MSVC
   // mode.
-  if (Context.getLangOpts().MSVCCompat &&
-      (Context.isAlignmentRequired(D->getType()) || D->hasAttr<AlignedAttr>()))
-    return true;
+  if (Context.getLangOpts().MSVCCompat) {
+    if (D->hasAttr<AlignedAttr>())
+      return true;
+    QualType VarType = D->getType();
+    if (Context.isAlignmentRequired(VarType))
+      return true;
+
+    if (const auto *RT = VarType->getAs<RecordType>()) {
+      const RecordDecl *RD = RT->getDecl();
+      for (const FieldDecl *FD : RD->fields()) {
+        if (FD->isBitField())
+          continue;
+        if (FD->hasAttr<AlignedAttr>())
+          return true;
+        if (Context.isAlignmentRequired(FD->getType()))
+          return true;
+      }
+    }
+  }
 
   return false;
 }
@@ -2385,6 +2471,8 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
   setGlobalVisibility(Fn, D);
 
   MaybeHandleStaticInExternC(D, Fn);
+
+  maybeSetTrivialComdat(*D, *Fn);
 
   CodeGenFunction(*this).GenerateCode(D, Fn, FI);
 
@@ -2818,12 +2906,18 @@ GenerateStringLiteral(llvm::Constant *C, llvm::GlobalValue::LinkageTypes LT,
   if (CGM.getLangOpts().OpenCL)
     AddrSpace = CGM.getContext().getTargetAddressSpace(LangAS::opencl_constant);
 
+  llvm::Module &M = CGM.getModule();
   // Create a global variable for this string
   auto *GV = new llvm::GlobalVariable(
-      CGM.getModule(), C->getType(), !CGM.getLangOpts().WritableStrings, LT, C,
-      GlobalName, nullptr, llvm::GlobalVariable::NotThreadLocal, AddrSpace);
+      M, C->getType(), !CGM.getLangOpts().WritableStrings, LT, C, GlobalName,
+      nullptr, llvm::GlobalVariable::NotThreadLocal, AddrSpace);
   GV->setAlignment(Alignment);
   GV->setUnnamedAddr(true);
+  if (GV->isWeakForLinker()) {
+    assert(CGM.supportsCOMDAT() && "Only COFF uses weak string literals");
+    GV->setComdat(M.getOrInsertComdat(GV->getName()));
+  }
+
   return GV;
 }
 
@@ -3282,7 +3376,8 @@ void CodeGenModule::EmitTopLevelDecl(Decl *D) {
   case Decl::ClassTemplateSpecialization: {
     const auto *Spec = cast<ClassTemplateSpecializationDecl>(D);
     if (DebugInfo &&
-        Spec->getSpecializationKind() == TSK_ExplicitInstantiationDefinition)
+        Spec->getSpecializationKind() == TSK_ExplicitInstantiationDefinition &&
+        Spec->hasDefinition())
       DebugInfo->completeTemplateDefinition(*Spec);
     break;
   }

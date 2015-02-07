@@ -127,11 +127,13 @@ enum {
     ePropertyMemCacheLineSize
 };
 
-ProcessProperties::ProcessProperties (bool is_global) :
-    Properties ()
+ProcessProperties::ProcessProperties (lldb_private::Process *process) :
+    Properties (),
+    m_process (process) // Can be NULL for global ProcessProperties
 {
-    if (is_global)
+    if (process == NULL)
     {
+        // Global process properties, set them up one time
         m_collection_sp.reset (new ProcessOptionValueProperties(ConstString("process")));
         m_collection_sp->Initialize(g_properties);
         m_collection_sp->AppendProperty(ConstString("thread"),
@@ -140,11 +142,22 @@ ProcessProperties::ProcessProperties (bool is_global) :
                                         Thread::GetGlobalProperties()->GetValueProperties());
     }
     else
+    {
         m_collection_sp.reset (new ProcessOptionValueProperties(Process::GetGlobalProperties().get()));
+        m_collection_sp->SetValueChangedCallback(ePropertyPythonOSPluginPath, ProcessProperties::OptionValueChangedCallback, this);
+    }
 }
 
 ProcessProperties::~ProcessProperties()
 {
+}
+
+void
+ProcessProperties::OptionValueChangedCallback (void *baton, OptionValue *option_value)
+{
+    ProcessProperties *properties = (ProcessProperties *)baton;
+    if (properties->m_process)
+        properties->m_process->LoadOperatingSystemPlugin(true);
 }
 
 bool
@@ -673,7 +686,7 @@ Process::Process(Target &target, Listener &listener) :
 }
 
 Process::Process(Target &target, Listener &listener, const UnixSignalsSP &unix_signals_sp) :
-    ProcessProperties (false),
+    ProcessProperties (this),
     UserID (LLDB_INVALID_PROCESS_ID),
     Broadcaster (&(target.GetDebugger()), "lldb.process"),
     m_target (target),
@@ -707,6 +720,7 @@ Process::Process(Target &target, Listener &listener, const UnixSignalsSP &unix_s
     m_process_input_reader (),
     m_stdio_communication ("process.stdio"),
     m_stdio_communication_mutex (Mutex::eMutexTypeRecursive),
+    m_stdio_disable(true),
     m_stdout_data (),
     m_stderr_data (),
     m_profile_data_comm_mutex (Mutex::eMutexTypeRecursive),
@@ -786,7 +800,7 @@ Process::GetGlobalProperties()
 {
     static ProcessPropertiesSP g_settings_sp;
     if (!g_settings_sp)
-        g_settings_sp.reset (new ProcessProperties (true));
+        g_settings_sp.reset (new ProcessProperties (NULL));
     return g_settings_sp;
 }
 
@@ -1044,7 +1058,6 @@ Process::HandleProcessStateChangedEvent (const EventSP &event_sp,
     {
         case eStateInvalid:
         case eStateUnloaded:
-        case eStateConnected:
         case eStateAttaching:
         case eStateLaunching:
         case eStateStepping:
@@ -1060,6 +1073,7 @@ Process::HandleProcessStateChangedEvent (const EventSP &event_sp,
             }
             break;
 
+        case eStateConnected:
         case eStateRunning:
             // Don't be chatty when we run...
             break;
@@ -2994,6 +3008,16 @@ Process::WaitForProcessStopPrivate (const TimeValue *timeout, EventSP &event_sp)
     return state;
 }
 
+void
+Process::LoadOperatingSystemPlugin(bool flush)
+{
+    if (flush)
+        m_thread_list.Clear();
+    m_os_ap.reset (OperatingSystem::FindPlugin (this, NULL));
+    if (flush)
+        Flush();
+}
+
 Error
 Process::Launch (ProcessLaunchInfo &launch_info)
 {
@@ -3084,7 +3108,7 @@ Process::Launch (ProcessLaunchInfo &launch_info)
                         if (system_runtime)
                             system_runtime->DidLaunch();
 
-                        m_os_ap.reset (OperatingSystem::FindPlugin (this, NULL));
+                        LoadOperatingSystemPlugin(false);
 
                         // Note, the stop event was consumed above, but not handled. This was done
                         // to give DidLaunch a chance to run. The target is either stopped or crashed.
@@ -3098,6 +3122,11 @@ Process::Launch (ProcessLaunchInfo &launch_info)
                             StartPrivateStateThread ();
 
                         m_stop_info_override_callback = GetTarget().GetArchitecture().GetStopInfoOverrideCallback();
+
+                        // Target was stopped at entry as was intended. Need to notify the listeners
+                        // about it.
+                        if (launch_info.GetFlags().Test(eLaunchFlagStopAtEntry) == true)
+                            HandlePrivateEvent(event_sp);
                     }
                     else if (state == eStateExited)
                     {
@@ -3620,7 +3649,8 @@ Process::PrivateResume ()
         }
         else
         {
-            // Somebody wanted to run without running.  So generate a continue & a stopped event,
+            // Somebody wanted to run without running (e.g. we were faking a step from one frame of a set of inlined
+            // frames that share the same PC to another.)  So generate a continue & a stopped event,
             // and let the world handle them.
             if (log)
                 log->Printf ("Process::PrivateResume() asked to simulate a start & stop.");
@@ -3882,6 +3912,7 @@ Process::Destroy ()
         }
         m_stdio_communication.StopReadThread();
         m_stdio_communication.Disconnect();
+        m_stdio_disable = true;
 
         if (m_process_input_reader)
         {
@@ -4927,9 +4958,10 @@ public:
     bool
     OpenPipes ()
     {
-        if (m_pipe.IsValid())
+        if (m_pipe.CanRead() && m_pipe.CanWrite())
             return true;
-        return m_pipe.Open();
+        Error result = m_pipe.CreateNew(false);
+        return result.Success();
     }
 
     void
@@ -4990,8 +5022,10 @@ public:
                         }
                         if (FD_ISSET (pipe_read_fd, &read_fdset))
                         {
+                            size_t bytes_read;
                             // Consume the interrupt byte
-                            if (m_pipe.Read (&ch, 1) == 1)
+                            Error error = m_pipe.Read(&ch, 1, bytes_read);
+                            if (error.Success())
                             {
                                 switch (ch)
                                 {
@@ -5039,7 +5073,8 @@ public:
     Cancel ()
     {
         char ch = 'q';  // Send 'q' for quit
-        m_pipe.Write (&ch, 1);
+        size_t bytes_written = 0;
+        m_pipe.Write(&ch, 1, bytes_written);
     }
 
     virtual bool
@@ -5053,7 +5088,9 @@ public:
         if (m_active)
         {
             char ch = 'i'; // Send 'i' for interrupt
-            return m_pipe.Write (&ch, 1) == 1;
+            size_t bytes_written = 0;
+            Error result = m_pipe.Write(&ch, 1, bytes_written);
+            return result.Success();
         }
         else
         {
@@ -6136,21 +6173,21 @@ Process::GetThreadStatus (Stream &strm,
     // ID's, and look them up one by one:
     
     uint32_t num_threads;
-    std::vector<uint32_t> thread_index_array;
+    std::vector<lldb::tid_t> thread_id_array;
     //Scope for thread list locker;
     {
         Mutex::Locker locker (GetThreadList().GetMutex());
         ThreadList &curr_thread_list = GetThreadList();
         num_threads = curr_thread_list.GetSize();
         uint32_t idx;
-        thread_index_array.resize(num_threads);
+        thread_id_array.resize(num_threads);
         for (idx = 0; idx < num_threads; ++idx)
-            thread_index_array[idx] = curr_thread_list.GetThreadAtIndex(idx)->GetID();
+            thread_id_array[idx] = curr_thread_list.GetThreadAtIndex(idx)->GetID();
     }
     
     for (uint32_t i = 0; i < num_threads; i++)
     {
-        ThreadSP thread_sp(GetThreadList().FindThreadByID(thread_index_array[i]));
+        ThreadSP thread_sp(GetThreadList().FindThreadByID(thread_id_array[i]));
         if (thread_sp)
         {
             if (only_threads_with_stop_reason)

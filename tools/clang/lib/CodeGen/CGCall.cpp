@@ -51,6 +51,8 @@ static unsigned ClangCallConvToLLVMCallConv(CallingConv CC) {
   case CC_X86Pascal: return llvm::CallingConv::C;
   // TODO: Add support for __vectorcall to LLVM.
   case CC_X86VectorCall: return llvm::CallingConv::X86_VectorCall;
+  case CC_SpirFunction: return llvm::CallingConv::SPIR_FUNC;
+  case CC_SpirKernel: return llvm::CallingConv::SPIR_KERNEL;
   }
 }
 
@@ -132,9 +134,6 @@ static CallingConv getCallingConventionForDecl(const Decl *D, bool IsWindows) {
 
   if (PcsAttr *PCS = D->getAttr<PcsAttr>())
     return (PCS->getPCS() == PcsAttr::AAPCS ? CC_AAPCS : CC_AAPCS_VFP);
-
-  if (D->hasAttr<PnaclCallAttr>())
-    return CC_PnaclCall;
 
   if (D->hasAttr<IntelOclBiccAttr>())
     return CC_IntelOclBicc;
@@ -1403,7 +1402,7 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
       FuncAttrs.addAttribute(llvm::Attribute::ReadOnly);
       FuncAttrs.addAttribute(llvm::Attribute::NoUnwind);
     }
-    if (TargetDecl->hasAttr<MallocAttr>())
+    if (TargetDecl->hasAttr<RestrictAttr>())
       RetAttrs.addAttribute(llvm::Attribute::NoAlias);
     if (TargetDecl->hasAttr<ReturnsNonNullAttr>())
       RetAttrs.addAttribute(llvm::Attribute::NonNull);
@@ -2343,7 +2342,7 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
   }
 
   if (!RetDbgLoc.isUnknown())
-    Ret->setDebugLoc(RetDbgLoc);
+    Ret->setDebugLoc(std::move(RetDbgLoc));
 }
 
 static bool isInAllocaArgument(CGCXXABI &ABI, QualType type) {
@@ -2678,12 +2677,7 @@ void CodeGenFunction::EmitCallArgs(CallArgList &Args,
                                    CallExpr::const_arg_iterator ArgBeg,
                                    CallExpr::const_arg_iterator ArgEnd,
                                    const FunctionDecl *CalleeDecl,
-                                   unsigned ParamsToSkip,
-                                   bool ForceColumnInfo) {
-  CGDebugInfo *DI = getDebugInfo();
-  SourceLocation CallLoc;
-  if (DI) CallLoc = DI->getLocation();
-
+                                   unsigned ParamsToSkip) {
   // We *have* to evaluate arguments from right to left in the MS C++ ABI,
   // because arguments are destroyed left to right in the callee.
   if (CGM.getTarget().getCXXABI().areArgsDestroyedLeftToRightInCallee()) {
@@ -2704,8 +2698,6 @@ void CodeGenFunction::EmitCallArgs(CallArgList &Args,
       EmitCallArg(Args, *Arg, ArgTypes[I]);
       emitNonNullArgCheck(*this, Args.back().RV, ArgTypes[I], Arg->getExprLoc(),
                           CalleeDecl, ParamsToSkip + I);
-      // Restore the debug location.
-      if (DI) DI->EmitLocation(Builder, CallLoc, ForceColumnInfo);
     }
 
     // Un-reverse the arguments we just evaluated so they match up with the LLVM
@@ -2720,8 +2712,6 @@ void CodeGenFunction::EmitCallArgs(CallArgList &Args,
     EmitCallArg(Args, *Arg, ArgTypes[I]);
     emitNonNullArgCheck(*this, Args.back().RV, ArgTypes[I], Arg->getExprLoc(),
                         CalleeDecl, ParamsToSkip + I);
-    // Restore the debug location.
-    if (DI) DI->EmitLocation(Builder, CallLoc, ForceColumnInfo);
   }
 }
 

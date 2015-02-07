@@ -35,6 +35,9 @@ public:
     {
     }
 
+    virtual std::string
+    GetDescription () = 0;
+
     // Return false if the coordinator should terminate running.
     virtual EventLoopResult
     ProcessEvent (ThreadStateCoordinator &coordinator) = 0;
@@ -55,6 +58,12 @@ public:
     {
         return eventLoopResultStop;
     }
+
+    std::string
+    GetDescription () override
+    {
+        return "EventStopCoordinator";
+    }
 };
 
 //===----------------------------------------------------------------------===//
@@ -64,7 +73,7 @@ class ThreadStateCoordinator::EventCallAfterThreadsStop : public ThreadStateCoor
 public:
     EventCallAfterThreadsStop (lldb::tid_t triggering_tid,
                                const ThreadIDSet &wait_for_stop_tids,
-                               const ThreadIDFunction &request_thread_stop_function,
+                               const StopThreadFunction &request_thread_stop_function,
                                const ThreadIDFunction &call_after_function,
                                const ErrorFunction &error_function):
     EventBase (),
@@ -74,12 +83,13 @@ public:
     m_request_thread_stop_function (request_thread_stop_function),
     m_call_after_function (call_after_function),
     m_error_function (error_function),
-    m_request_stop_on_all_unstopped_threads (false)
+    m_request_stop_on_all_unstopped_threads (false),
+    m_skip_stop_request_tids ()
     {
     }
 
     EventCallAfterThreadsStop (lldb::tid_t triggering_tid,
-                               const ThreadIDFunction &request_thread_stop_function,
+                               const StopThreadFunction &request_thread_stop_function,
                                const ThreadIDFunction &call_after_function,
                                const ErrorFunction &error_function) :
     EventBase (),
@@ -89,7 +99,25 @@ public:
     m_request_thread_stop_function (request_thread_stop_function),
     m_call_after_function (call_after_function),
     m_error_function (error_function),
-    m_request_stop_on_all_unstopped_threads (true)
+    m_request_stop_on_all_unstopped_threads (true),
+    m_skip_stop_request_tids ()
+    {
+    }
+
+    EventCallAfterThreadsStop (lldb::tid_t triggering_tid,
+                               const StopThreadFunction &request_thread_stop_function,
+                               const ThreadIDFunction &call_after_function,
+                               const ThreadIDSet &skip_stop_request_tids,
+                               const ErrorFunction &error_function) :
+    EventBase (),
+    m_triggering_tid (triggering_tid),
+    m_wait_for_stop_tids (),
+    m_original_wait_for_stop_tids (),
+    m_request_thread_stop_function (request_thread_stop_function),
+    m_call_after_function (call_after_function),
+    m_error_function (error_function),
+    m_request_stop_on_all_unstopped_threads (true),
+    m_skip_stop_request_tids (skip_stop_request_tids)
     {
     }
 
@@ -121,7 +149,7 @@ public:
     ProcessEvent(ThreadStateCoordinator &coordinator) override
     {
         // Validate we know about the deferred trigger thread.
-        if (coordinator.m_tid_stop_map.find (m_triggering_tid) == coordinator.m_tid_stop_map.end ())
+        if (!coordinator.IsKnownThread (m_triggering_tid))
         {
             // We don't know about this thread.  This is an error condition.
             std::ostringstream error_message;
@@ -144,7 +172,7 @@ public:
 
         if (m_wait_for_stop_tids.empty ())
         {
-        // We're not waiting for any threads.  Fire off the deferred signal delivery event.
+            // We're not waiting for any threads.  Fire off the deferred signal delivery event.
             NotifyNow ();
         }
         else
@@ -190,6 +218,14 @@ public:
             m_request_thread_stop_function (tid);
     }
 
+    std::string
+    GetDescription () override
+    {
+        std::ostringstream description;
+        description << "EventCallAfterThreadsStop (triggering_tid=" << m_triggering_tid << ", request_stop_on_all_unstopped_threads=" << m_request_stop_on_all_unstopped_threads << ", skip_stop_request_tids.size()=" << m_skip_stop_request_tids.size () << ")";
+        return description.str ();
+    }
+
 private:
 
     void
@@ -199,7 +235,7 @@ private:
     }
 
     bool
-    RequestStopOnAllSpecifiedThreads (const ThreadStateCoordinator &coordinator)
+    RequestStopOnAllSpecifiedThreads (ThreadStateCoordinator &coordinator)
     {
         // Request a stop for all the thread stops that need to be stopped
         // and are not already known to be stopped.  Keep a list of all the
@@ -210,8 +246,8 @@ private:
         {
             // Validate we know about all tids for which we must first receive a stop before
             // triggering the deferred stop notification.
-            auto find_it = coordinator.m_tid_stop_map.find (tid);
-            if (find_it == coordinator.m_tid_stop_map.end ())
+            auto find_it = coordinator.m_tid_map.find (tid);
+            if (find_it == coordinator.m_tid_map.end ())
             {
                 // This is an error.  We shouldn't be asking for waiting pids that aren't known.
                 // NOTE: we may be stripping out the specification of wait tids and handle this
@@ -225,9 +261,10 @@ private:
             }
 
             // If the pending stop thread is currently running, we need to send it a stop request.
-            if (!find_it->second)
+            auto& context = find_it->second;
+            if (context.m_state == ThreadState::Running)
             {
-                m_request_thread_stop_function (tid);
+                RequestThreadStop (tid, coordinator, context);
                 sent_tids.insert (tid);
             }
         }
@@ -242,22 +279,28 @@ private:
     }
 
     void
-    RequestStopOnAllRunningThreads (const ThreadStateCoordinator &coordinator)
+    RequestStopOnAllRunningThreads (ThreadStateCoordinator &coordinator)
     {
         // Request a stop for all the thread stops that need to be stopped
         // and are not already known to be stopped.  Keep a list of all the
         // threads from which we still need to hear a stop reply.
 
         ThreadIDSet sent_tids;
-        for (auto it = coordinator.m_tid_stop_map.begin(); it != coordinator.m_tid_stop_map.end(); ++it)
+        for (auto it = coordinator.m_tid_map.begin(); it != coordinator.m_tid_map.end(); ++it)
         {
             // We only care about threads not stopped.
-            const bool running = !it->second;
+            const bool running = it->second.m_state == ThreadState::Running;
             if (running)
             {
-                // Request this thread stop.
                 const lldb::tid_t tid = it->first;
-                m_request_thread_stop_function (tid);
+
+                // Request this thread stop if the tid stop request is not explicitly ignored.
+                const bool skip_stop_request = m_skip_stop_request_tids.count (tid) > 0;
+                if (!skip_stop_request)
+                    RequestThreadStop (tid, coordinator, it->second);
+
+                // Even if we skipped sending the stop request for other reasons (like stepping),
+                // we still need to wait for that stepping thread to notify completion/stop.
                 sent_tids.insert (tid);
             }
         }
@@ -266,13 +309,29 @@ private:
         m_wait_for_stop_tids.swap (sent_tids);
     }
 
+    void
+    RequestThreadStop (lldb::tid_t tid, ThreadStateCoordinator &coordinator, ThreadContext& context)
+    {
+        const auto error = m_request_thread_stop_function (tid);
+        if (error.Success ())
+        {
+            context.m_stop_requested = true;
+        }
+        else
+        {
+            coordinator.Log ("EventCallAfterThreadsStop::%s failed to request thread stop tid  %" PRIu64 ": %s",
+                             __FUNCTION__, tid, error.AsCString ());
+        }
+    }
+
     const lldb::tid_t m_triggering_tid;
     ThreadIDSet m_wait_for_stop_tids;
     const ThreadIDSet m_original_wait_for_stop_tids;
-    ThreadIDFunction m_request_thread_stop_function;
+    StopThreadFunction m_request_thread_stop_function;
     ThreadIDFunction m_call_after_function;
     ErrorFunction m_error_function;
     const bool m_request_stop_on_all_unstopped_threads;
+    ThreadIDSet m_skip_stop_request_tids;
 };
 
 //===----------------------------------------------------------------------===//
@@ -291,6 +350,12 @@ public:
         coordinator.ResetNow ();
         return eventLoopResultContinue;
     }
+
+    std::string
+    GetDescription () override
+    {
+        return "EventReset";
+    }
 };
 
 //===----------------------------------------------------------------------===//
@@ -299,9 +364,11 @@ class ThreadStateCoordinator::EventThreadStopped : public ThreadStateCoordinator
 {
 public:
     EventThreadStopped (lldb::tid_t tid,
+                        bool initiated_by_llgs,
                         const ErrorFunction &error_function):
     EventBase (),
     m_tid (tid),
+    m_initiated_by_llgs (initiated_by_llgs),
     m_error_function (error_function)
     {
     }
@@ -309,13 +376,22 @@ public:
     EventLoopResult
     ProcessEvent(ThreadStateCoordinator &coordinator) override
     {
-        coordinator.ThreadDidStop (m_tid, m_error_function);
+        coordinator.ThreadDidStop (m_tid, m_initiated_by_llgs, m_error_function);
         return eventLoopResultContinue;
+    }
+
+    std::string
+    GetDescription () override
+    {
+        std::ostringstream description;
+        description << "EventThreadStopped (tid=" << m_tid << ")";
+        return description.str ();
     }
 
 private:
 
     const lldb::tid_t m_tid;
+    const bool m_initiated_by_llgs;
     ErrorFunction m_error_function;
 };
 
@@ -339,6 +415,14 @@ public:
     {
         coordinator.ThreadWasCreated (m_tid, m_is_stopped, m_error_function);
         return eventLoopResultContinue;
+    }
+
+    std::string
+    GetDescription () override
+    {
+        std::ostringstream description;
+        description << "EventThreadCreate (tid=" << m_tid << ", " << (m_is_stopped ? "stopped" : "running") << ")";
+        return description.str ();
     }
 
 private:
@@ -368,6 +452,14 @@ public:
         return eventLoopResultContinue;
     }
 
+    std::string
+    GetDescription () override
+    {
+        std::ostringstream description;
+        description << "EventThreadDeath (tid=" << m_tid << ")";
+        return description.str ();
+    }
+
 private:
 
     const lldb::tid_t m_tid;
@@ -380,12 +472,14 @@ class ThreadStateCoordinator::EventRequestResume : public ThreadStateCoordinator
 {
 public:
     EventRequestResume (lldb::tid_t tid,
-                        const ThreadIDFunction &request_thread_resume_function,
-                        const ErrorFunction &error_function):
+                        const ResumeThreadFunction &request_thread_resume_function,
+                        const ErrorFunction &error_function,
+                        bool error_when_already_running):
     EventBase (),
     m_tid (tid),
     m_request_thread_resume_function (request_thread_resume_function),
-    m_error_function (error_function)
+    m_error_function (error_function),
+    m_error_when_already_running (error_when_already_running)
     {
     }
 
@@ -393,8 +487,8 @@ public:
     ProcessEvent(ThreadStateCoordinator &coordinator) override
     {
         // Ensure we know about the thread.
-        auto find_it = coordinator.m_tid_stop_map.find (m_tid);
-        if (find_it == coordinator.m_tid_stop_map.end ())
+        auto find_it = coordinator.m_tid_map.find (m_tid);
+        if (find_it == coordinator.m_tid_map.end ())
         {
             // We don't know about this thread.  This is an error condition.
             std::ostringstream error_message;
@@ -402,15 +496,30 @@ public:
             m_error_function (error_message.str ());
             return eventLoopResultContinue;
         }
-        
+        auto& context = find_it->second;
         // Tell the thread to resume if we don't already think it is running.
-        const bool is_stopped = find_it->second;
+        const bool is_stopped = context.m_state == ThreadState::Stopped;
         if (!is_stopped)
         {
-            // Skip the resume call - we have tracked it to be running.
-            std::ostringstream error_message;
-            error_message << "error: tid " << m_tid << " asked to resume but we think it is already running";
-            m_error_function (error_message.str ());
+            // It's not an error, just a log, if the m_already_running_no_error flag is set.
+            // This covers cases where, for instance, we're just trying to resume all threads
+            // from the user side.
+            if (!m_error_when_already_running)
+            {
+                coordinator.Log ("EventRequestResume::%s tid %" PRIu64 " optional resume skipped since it is already running",
+                                 __FUNCTION__,
+                                 m_tid);
+            }
+            else
+            {
+                // Skip the resume call - we have tracked it to be running.  And we unconditionally
+                // expected to resume this thread.  Flag this as an error.
+                std::ostringstream error_message;
+                error_message << "error: tid " << m_tid << " asked to resume but we think it is already running";
+                m_error_function (error_message.str ());
+            }
+
+            // Error or not, we're done.
             return eventLoopResultContinue;
         }
 
@@ -442,19 +551,36 @@ public:
 
         // Request a resume.  We expect this to be synchronous and the system
         // to reflect it is running after this completes.
-        m_request_thread_resume_function (m_tid);
-
-        // Now mark it is running.
-        find_it->second = false;
+        const auto error = m_request_thread_resume_function (m_tid, false);
+        if (error.Success ())
+        {
+            // Now mark it is running.
+            context.m_state = ThreadState::Running;
+            context.m_request_resume_function = m_request_thread_resume_function;
+        }
+        else
+        {
+            coordinator.Log ("EventRequestResume::%s failed to resume thread tid  %" PRIu64 ": %s",
+                             __FUNCTION__, m_tid, error.AsCString ());
+        }
 
         return eventLoopResultContinue;
+    }
+
+    std::string
+    GetDescription () override
+    {
+        std::ostringstream description;
+        description << "EventRequestResume (tid=" << m_tid << ")";
+        return description.str ();
     }
 
 private:
 
     const lldb::tid_t m_tid;
-    ThreadIDFunction m_request_thread_resume_function;
+    ResumeThreadFunction m_request_thread_resume_function;
     ErrorFunction m_error_function;
+    const bool m_error_when_already_running;
 };
 
 //===----------------------------------------------------------------------===//
@@ -464,7 +590,8 @@ ThreadStateCoordinator::ThreadStateCoordinator (const LogFunction &log_function)
     m_event_queue (),
     m_queue_condition (),
     m_queue_mutex (),
-    m_tid_stop_map ()
+    m_tid_map (),
+    m_log_event_processing (false)
 {
 }
 
@@ -472,7 +599,11 @@ void
 ThreadStateCoordinator::EnqueueEvent (EventBaseSP event_sp)
 {
     std::lock_guard<std::mutex> lock (m_queue_mutex);
+
     m_event_queue.push (event_sp);
+    if (m_log_event_processing)
+        Log ("ThreadStateCoordinator::%s enqueued event: %s", __FUNCTION__, event_sp->GetDescription ().c_str ());
+
     m_queue_condition.notify_one ();
 }
 
@@ -517,7 +648,7 @@ ThreadStateCoordinator::SetPendingNotification (const EventBaseSP &event_sp)
 void
 ThreadStateCoordinator::CallAfterThreadsStop (const lldb::tid_t triggering_tid,
                                               const ThreadIDSet &wait_for_stop_tids,
-                                              const ThreadIDFunction &request_thread_stop_function,
+                                              const StopThreadFunction &request_thread_stop_function,
                                               const ThreadIDFunction &call_after_function,
                                               const ErrorFunction &error_function)
 {
@@ -530,7 +661,7 @@ ThreadStateCoordinator::CallAfterThreadsStop (const lldb::tid_t triggering_tid,
 
 void
 ThreadStateCoordinator::CallAfterRunningThreadsStop (const lldb::tid_t triggering_tid,
-                                                     const ThreadIDFunction &request_thread_stop_function,
+                                                     const StopThreadFunction &request_thread_stop_function,
                                                      const ThreadIDFunction &call_after_function,
                                                      const ErrorFunction &error_function)
 {
@@ -541,11 +672,26 @@ ThreadStateCoordinator::CallAfterRunningThreadsStop (const lldb::tid_t triggerin
 }
 
 void
-ThreadStateCoordinator::ThreadDidStop (lldb::tid_t tid, ErrorFunction &error_function)
+ThreadStateCoordinator::CallAfterRunningThreadsStopWithSkipTIDs (lldb::tid_t triggering_tid,
+                                                                 const ThreadIDSet &skip_stop_request_tids,
+                                                                 const StopThreadFunction &request_thread_stop_function,
+                                                                 const ThreadIDFunction &call_after_function,
+                                                                 const ErrorFunction &error_function)
+{
+    EnqueueEvent (EventBaseSP (new EventCallAfterThreadsStop (triggering_tid,
+                                                              request_thread_stop_function,
+                                                              call_after_function,
+                                                              skip_stop_request_tids,
+                                                              error_function)));
+}
+
+
+void
+ThreadStateCoordinator::ThreadDidStop (lldb::tid_t tid, bool initiated_by_llgs, ErrorFunction &error_function)
 {
     // Ensure we know about the thread.
-    auto find_it = m_tid_stop_map.find (tid);
-    if (find_it == m_tid_stop_map.end ())
+    auto find_it = m_tid_map.find (tid);
+    if (find_it == m_tid_map.end ())
     {
         // We don't know about this thread.  This is an error condition.
         std::ostringstream error_message;
@@ -555,7 +701,10 @@ ThreadStateCoordinator::ThreadDidStop (lldb::tid_t tid, ErrorFunction &error_fun
     }
 
     // Update the global list of known thread states.  This one is definitely stopped.
-    find_it->second = true;
+    auto& context = find_it->second;
+    const auto stop_was_requested = context.m_stop_requested;
+    context.m_state = ThreadState::Stopped;
+    context.m_stop_requested = false;
 
     // If we have a pending notification, remove this from the set.
     EventCallAfterThreadsStop *const call_after_event = GetPendingThreadStopNotification ();
@@ -568,14 +717,31 @@ ThreadStateCoordinator::ThreadDidStop (lldb::tid_t tid, ErrorFunction &error_fun
             m_pending_notification_sp.reset ();
         }
     }
+
+    if (initiated_by_llgs && context.m_request_resume_function && !stop_was_requested)
+    {
+        // We can end up here if stop was initiated by LLGS but by this time a
+        // thread stop has occurred - maybe initiated by another event.
+        Log ("Resuming thread %"  PRIu64 " since stop wasn't requested", tid);
+        const auto error = context.m_request_resume_function (tid, true);
+        if (error.Success ())
+        {
+            context.m_state = ThreadState::Running;
+        }
+        else
+        {
+            Log ("ThreadStateCoordinator::%s failed to resume thread tid  %" PRIu64 ": %s",
+                 __FUNCTION__, tid, error.AsCString ());
+        }
+    }
 }
 
 void
 ThreadStateCoordinator::ThreadWasCreated (lldb::tid_t tid, bool is_stopped, ErrorFunction &error_function)
 {
     // Ensure we don't already know about the thread.
-    auto find_it = m_tid_stop_map.find (tid);
-    if (find_it != m_tid_stop_map.end ())
+    auto find_it = m_tid_map.find (tid);
+    if (find_it != m_tid_map.end ())
     {
         // We already know about this thread.  This is an error condition.
         std::ostringstream error_message;
@@ -585,7 +751,9 @@ ThreadStateCoordinator::ThreadWasCreated (lldb::tid_t tid, bool is_stopped, Erro
     }
 
     // Add the new thread to the stop map.
-    m_tid_stop_map[tid] = is_stopped;
+    ThreadContext ctx;
+    ctx.m_state = (is_stopped) ? ThreadState::Stopped : ThreadState::Running;
+    m_tid_map[tid] = std::move(ctx);
 
     EventCallAfterThreadsStop *const call_after_event = GetPendingThreadStopNotification ();
     if (call_after_event && !is_stopped)
@@ -600,8 +768,8 @@ void
 ThreadStateCoordinator::ThreadDidDie (lldb::tid_t tid, ErrorFunction &error_function)
 {
     // Ensure we know about the thread.
-    auto find_it = m_tid_stop_map.find (tid);
-    if (find_it == m_tid_stop_map.end ())
+    auto find_it = m_tid_map.find (tid);
+    if (find_it == m_tid_map.end ())
     {
         // We don't know about this thread.  This is an error condition.
         std::ostringstream error_message;
@@ -613,7 +781,7 @@ ThreadStateCoordinator::ThreadDidDie (lldb::tid_t tid, ErrorFunction &error_func
     // Update the global list of known thread states.  While this one is stopped, it is also dead.
     // So stop tracking it.  We assume the user of this coordinator will not keep trying to add
     // dependencies on a thread after it is known to be dead.
-    m_tid_stop_map.erase (find_it);
+    m_tid_map.erase (find_it);
 
     // If we have a pending notification, remove this from the set.
     EventCallAfterThreadsStop *const call_after_event = GetPendingThreadStopNotification ();
@@ -638,7 +806,7 @@ ThreadStateCoordinator::ResetNow ()
     // The caller is expected to reset thread states for all threads, and we
     // will assume anything we haven't heard about is running and requires a
     // stop.
-    m_tid_stop_map.clear ();
+    m_tid_map.clear ();
 }
 
 void
@@ -654,17 +822,26 @@ ThreadStateCoordinator::Log (const char *format, ...)
 
 void
 ThreadStateCoordinator::NotifyThreadStop (lldb::tid_t tid,
+                                          bool initiated_by_llgs,
                                           const ErrorFunction &error_function)
 {
-    EnqueueEvent (EventBaseSP (new EventThreadStopped (tid, error_function)));
+    EnqueueEvent (EventBaseSP (new EventThreadStopped (tid, initiated_by_llgs, error_function)));
 }
 
 void
 ThreadStateCoordinator::RequestThreadResume (lldb::tid_t tid,
-                                             const ThreadIDFunction &request_thread_resume_function,
+                                             const ResumeThreadFunction &request_thread_resume_function,
                                              const ErrorFunction &error_function)
 {
-    EnqueueEvent (EventBaseSP (new EventRequestResume (tid, request_thread_resume_function, error_function)));
+    EnqueueEvent (EventBaseSP (new EventRequestResume (tid, request_thread_resume_function, error_function, true)));
+}
+
+void
+ThreadStateCoordinator::RequestThreadResumeAsNeeded (lldb::tid_t tid,
+                                                     const ResumeThreadFunction &request_thread_resume_function,
+                                                     const ErrorFunction &error_function)
+{
+    EnqueueEvent (EventBaseSP (new EventRequestResume (tid, request_thread_resume_function, error_function, false)));
 }
 
 void
@@ -711,11 +888,49 @@ ThreadStateCoordinator::StopCoordinator ()
 ThreadStateCoordinator::EventLoopResult
 ThreadStateCoordinator::ProcessNextEvent ()
 {
-    return DequeueEventWithWait()->ProcessEvent (*this);
+    // Dequeue the next event, synchronous.
+    if (m_log_event_processing)
+        Log ("ThreadStateCoordinator::%s about to dequeue next event in blocking mode", __FUNCTION__);
+
+    EventBaseSP event_sp = DequeueEventWithWait();
+    assert (event_sp && "event should never be null");
+    if (!event_sp)
+    {
+        Log ("ThreadStateCoordinator::%s error: event_sp was null, signaling exit of event loop.", __FUNCTION__);
+        return eventLoopResultStop;
+    }
+
+    if (m_log_event_processing)
+    {
+        Log ("ThreadStateCoordinator::%s about to process event: %s", __FUNCTION__, event_sp->GetDescription ().c_str ());
+    }
+
+    // Process the event.
+    const EventLoopResult result = event_sp->ProcessEvent (*this);
+
+    if (m_log_event_processing)
+    {
+        Log ("ThreadStateCoordinator::%s event processing returned value %s", __FUNCTION__,
+             result == eventLoopResultContinue ? "eventLoopResultContinue" : "eventLoopResultStop");
+    }
+
+    return result;
+}
+
+void
+ThreadStateCoordinator::LogEnableEventProcessing (bool enabled)
+{
+    m_log_event_processing = enabled;
 }
 
 ThreadStateCoordinator::EventCallAfterThreadsStop *
 ThreadStateCoordinator::GetPendingThreadStopNotification ()
 {
     return static_cast<EventCallAfterThreadsStop*> (m_pending_notification_sp.get ());
+}
+
+bool
+ThreadStateCoordinator::IsKnownThread (lldb::tid_t tid) const
+{
+    return m_tid_map.find (tid) != m_tid_map.end ();
 }

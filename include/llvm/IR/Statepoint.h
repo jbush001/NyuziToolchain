@@ -17,9 +17,9 @@
 #define __LLVM_IR_STATEPOINT_H
 
 #include "llvm/ADT/iterator_range.h"
+#include "llvm/IR/CallSite.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
-#include "llvm/IR/CallSite.h"
 #include "llvm/Support/Compiler.h"
 
 namespace llvm {
@@ -194,19 +194,19 @@ class GCRelocateOperands {
   /// The index into the associate statepoint's argument list
   /// which contains the base pointer of the pointer whose
   /// relocation this gc.relocate describes.
-  int basePtrIndex() {
+  unsigned basePtrIndex() {
     return cast<ConstantInt>(RelocateCS.getArgument(1))->getZExtValue();
   }
   /// The index into the associate statepoint's argument list which
   /// contains the pointer whose relocation this gc.relocate describes.
-  int derivedPtrIndex() {
+  unsigned derivedPtrIndex() {
     return cast<ConstantInt>(RelocateCS.getArgument(2))->getZExtValue();
   }
-  const Value *basePtr() {
+  Value *basePtr() {
     ImmutableCallSite CS(statepoint());
     return *(CS.arg_begin() + basePtrIndex());
   }
-  const Value *derivedPtr() {
+  Value *derivedPtr() {
     ImmutableCallSite CS(statepoint());
     return *(CS.arg_begin() + derivedPtrIndex());
   }

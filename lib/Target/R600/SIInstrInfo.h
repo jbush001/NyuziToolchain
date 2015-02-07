@@ -110,6 +110,10 @@ public:
 
   bool expandPostRAPseudo(MachineBasicBlock::iterator MI) const override;
 
+  // \brief Returns an opcode that can be used to move a value to a \p DstRC
+  // register.  If there is no hardware instruction that can store to \p
+  // DstRC, then AMDGPU::COPY is returned.
+  unsigned getMovOpcode(const TargetRegisterClass *DstRC) const;
   unsigned commuteOpcode(unsigned Opcode) const;
 
   MachineInstr *commuteInstruction(MachineInstr *MI,
@@ -198,6 +202,10 @@ public:
 
   bool isFLAT(uint16_t Opcode) const {
     return get(Opcode).TSFlags & SIInstrFlags::FLAT;
+  }
+
+  bool isWQM(uint16_t Opcode) const {
+    return get(Opcode).TSFlags & SIInstrFlags::WQM;
   }
 
   bool isInlineConstant(const APInt &Imm) const;
@@ -321,7 +329,6 @@ namespace AMDGPU {
   int getVOPe32(uint16_t Opcode);
   int getCommuteRev(uint16_t Opcode);
   int getCommuteOrig(uint16_t Opcode);
-  int getMCOpcode(uint16_t Opcode, unsigned Gen);
   int getAddr64Inst(uint16_t Opcode);
   int getAtomicRetOp(uint16_t Opcode);
   int getAtomicNoRetOp(uint16_t Opcode);

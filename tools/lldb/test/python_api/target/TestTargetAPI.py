@@ -310,7 +310,7 @@ class TargetAPITestCase(TestBase):
 
         # While we are at it, let's also exercise the similar SBModule.FindGlobalVariables() API.
         for m in target.module_iter():
-            if m.GetFileSpec().GetDirectory() == os.getcwd() and m.GetFileSpec().GetFilename() == exe_name:
+            if os.path.normpath(m.GetFileSpec().GetDirectory()) == os.getcwd() and m.GetFileSpec().GetFilename() == exe_name:
                 value_list = m.FindGlobalVariables(target, 'my_global_var_of_char_type', 3)
                 self.assertTrue(value_list.GetSize() == 1)
                 self.assertTrue(value_list.GetValueAtIndex(0).GetValue() == "'X'")
@@ -373,10 +373,18 @@ class TargetAPITestCase(TestBase):
 
         # Now launch the process, do not stop at entry point, and redirect stdout to "stdout.txt" file.
         # The inferior should run to completion after "process.Continue()" call.
+        local_path = "stdout.txt";
+        if lldb.remote_platform:
+            stdout_path = os.path.join(lldb.remote_platform.GetWorkingDirectory(), "lldb-stdout-redirect.txt")
+        else:
+            stdout_path = local_path
         error = lldb.SBError()
-        process = target.Launch (self.dbg.GetListener(), None, None, None, "stdout.txt", None, None, 0, False, error)
+        process = target.Launch (self.dbg.GetListener(), None, None, None, stdout_path, None, None, 0, False, error)
         process.Continue()
         #self.runCmd("process status")
+        if lldb.remote_platform:
+            # copy output file to host
+            lldb.remote_platform.Get(lldb.SBFileSpec(stdout_path), lldb.SBFileSpec(local_path))
 
         # The 'stdout.txt' file should now exist.
         self.assertTrue(os.path.isfile("stdout.txt"),

@@ -51,7 +51,7 @@ enum ShiftExtendType {
 /// getShiftName - Get the string encoding for the shift type.
 static inline const char *getShiftExtendName(AArch64_AM::ShiftExtendType ST) {
   switch (ST) {
-  default: assert(false && "unhandled shift type!");
+  default: llvm_unreachable("unhandled shift type!");
   case AArch64_AM::LSL: return "lsl";
   case AArch64_AM::LSR: return "lsr";
   case AArch64_AM::ASR: return "asr";
@@ -236,6 +236,7 @@ static inline bool processLogicalImmediate(uint64_t Imm, unsigned RegSize,
 
   if (isShiftedMask_64(Imm)) {
     I = countTrailingZeros(Imm);
+    assert(I < 64 && "undefined behavior");
     CTO = CountTrailingOnes_64(Imm >> I);
   } else {
     Imm |= ~Mask;

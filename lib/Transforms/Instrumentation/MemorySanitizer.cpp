@@ -120,10 +120,7 @@ using namespace llvm;
 
 #define DEBUG_TYPE "msan"
 
-static const uint64_t kShadowMask32 = 1ULL << 31;
-static const uint64_t kShadowMask64 = 1ULL << 46;
-static const uint64_t kOriginOffset32 = 1ULL << 30;
-static const uint64_t kOriginOffset64 = 1ULL << 45;
+static const unsigned kOriginSize = 4;
 static const unsigned kMinOriginAlignment = 4;
 static const unsigned kShadowTLSAlignment = 8;
 
@@ -196,6 +193,77 @@ static cl::opt<bool> ClCheckConstantShadow("msan-check-constant-shadow",
 
 namespace {
 
+// Memory map parameters used in application-to-shadow address calculation.
+// Offset = (Addr & ~AndMask) ^ XorMask
+// Shadow = ShadowBase + Offset
+// Origin = OriginBase + Offset
+struct MemoryMapParams {
+  uint64_t AndMask;
+  uint64_t XorMask;
+  uint64_t ShadowBase;
+  uint64_t OriginBase;
+};
+
+struct PlatformMemoryMapParams {
+  const MemoryMapParams *bits32;
+  const MemoryMapParams *bits64;
+};
+
+// i386 Linux
+static const MemoryMapParams Linux_I386_MemoryMapParams = {
+  0x000080000000,  // AndMask
+  0,               // XorMask (not used)
+  0,               // ShadowBase (not used)
+  0x000040000000,  // OriginBase
+};
+
+// x86_64 Linux
+static const MemoryMapParams Linux_X86_64_MemoryMapParams = {
+  0x400000000000,  // AndMask
+  0,               // XorMask (not used)
+  0,               // ShadowBase (not used)
+  0x200000000000,  // OriginBase
+};
+
+// mips64 Linux
+static const MemoryMapParams Linux_MIPS64_MemoryMapParams = {
+  0x004000000000,  // AndMask
+  0,               // XorMask (not used)
+  0,               // ShadowBase (not used)
+  0x002000000000,  // OriginBase
+};
+
+// i386 FreeBSD
+static const MemoryMapParams FreeBSD_I386_MemoryMapParams = {
+  0x000180000000,  // AndMask
+  0x000040000000,  // XorMask
+  0x000020000000,  // ShadowBase
+  0x000700000000,  // OriginBase
+};
+
+// x86_64 FreeBSD
+static const MemoryMapParams FreeBSD_X86_64_MemoryMapParams = {
+  0xc00000000000,  // AndMask
+  0x200000000000,  // XorMask
+  0x100000000000,  // ShadowBase
+  0x380000000000,  // OriginBase
+};
+
+static const PlatformMemoryMapParams Linux_X86_MemoryMapParams = {
+  &Linux_I386_MemoryMapParams,
+  &Linux_X86_64_MemoryMapParams,
+};
+
+static const PlatformMemoryMapParams Linux_MIPS_MemoryMapParams = {
+  NULL,
+  &Linux_MIPS64_MemoryMapParams,
+};
+
+static const PlatformMemoryMapParams FreeBSD_X86_MemoryMapParams = {
+  &FreeBSD_I386_MemoryMapParams,
+  &FreeBSD_X86_64_MemoryMapParams,
+};
+
 /// \brief An instrumentation pass implementing detection of uninitialized
 /// reads.
 ///
@@ -258,13 +326,9 @@ class MemorySanitizer : public FunctionPass {
   /// \brief MSan runtime replacements for memmove, memcpy and memset.
   Value *MemmoveFn, *MemcpyFn, *MemsetFn;
 
-  /// \brief Address mask used in application-to-shadow address calculation.
-  /// ShadowAddr is computed as ApplicationAddr & ~ShadowMask.
-  uint64_t ShadowMask;
-  /// \brief Offset of the origin shadow from the "normal" shadow.
-  /// OriginAddr is computed as (ShadowAddr + OriginOffset) & ~3ULL
-  uint64_t OriginOffset;
-  /// \brief Branch weights for error reporting.
+  /// \brief Memory map parameters used in application-to-shadow calculation.
+  const MemoryMapParams *MapParams;
+
   MDNode *ColdCallWeights;
   /// \brief Branch weights for origin store.
   MDNode *OriginStoreWeights;
@@ -389,22 +453,41 @@ bool MemorySanitizer::doInitialization(Module &M) {
     report_fatal_error("data layout missing");
   DL = &DLP->getDataLayout();
 
-  C = &(M.getContext());
-  unsigned PtrSize = DL->getPointerSizeInBits(/* AddressSpace */0);
-  switch (PtrSize) {
-    case 64:
-      ShadowMask = kShadowMask64;
-      OriginOffset = kOriginOffset64;
+  Triple TargetTriple(M.getTargetTriple());
+  switch (TargetTriple.getOS()) {
+    case Triple::FreeBSD:
+      switch (TargetTriple.getArch()) {
+        case Triple::x86_64:
+          MapParams = FreeBSD_X86_MemoryMapParams.bits64;
+          break;
+        case Triple::x86:
+          MapParams = FreeBSD_X86_MemoryMapParams.bits32;
+          break;
+        default:
+          report_fatal_error("unsupported architecture");
+      }
       break;
-    case 32:
-      ShadowMask = kShadowMask32;
-      OriginOffset = kOriginOffset32;
+    case Triple::Linux:
+      switch (TargetTriple.getArch()) {
+        case Triple::x86_64:
+          MapParams = Linux_X86_MemoryMapParams.bits64;
+          break;
+        case Triple::x86:
+          MapParams = Linux_X86_MemoryMapParams.bits32;
+          break;
+        case Triple::mips64:
+        case Triple::mips64el:
+          MapParams = Linux_MIPS_MemoryMapParams.bits64;
+          break;
+        default:
+          report_fatal_error("unsupported architecture");
+      }
       break;
     default:
-      report_fatal_error("unsupported pointer size");
-      break;
+      report_fatal_error("unsupported operating system");
   }
 
+  C = &(M.getContext());
   IRBuilder<> IRB(*C);
   IntptrTy = IRB.getIntPtrTy(DL);
   OriginTy = IRB.getInt32Ty();
@@ -520,20 +603,63 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return IRB.CreateCall(MS.MsanChainOriginFn, V);
   }
 
+  Value *originToIntptr(IRBuilder<> &IRB, Value *Origin) {
+    unsigned IntptrSize = MS.DL->getTypeStoreSize(MS.IntptrTy);
+    if (IntptrSize == kOriginSize) return Origin;
+    assert(IntptrSize == kOriginSize * 2);
+    Origin = IRB.CreateIntCast(Origin, MS.IntptrTy, /* isSigned */ false);
+    return IRB.CreateOr(Origin, IRB.CreateShl(Origin, kOriginSize * 8));
+  }
+
+  /// \brief Fill memory range with the given origin value.
+  void paintOrigin(IRBuilder<> &IRB, Value *Origin, Value *OriginPtr,
+                   unsigned Size, unsigned Alignment) {
+    unsigned IntptrAlignment = MS.DL->getABITypeAlignment(MS.IntptrTy);
+    unsigned IntptrSize = MS.DL->getTypeStoreSize(MS.IntptrTy);
+    assert(IntptrAlignment >= kMinOriginAlignment);
+    assert(IntptrSize >= kOriginSize);
+
+    unsigned Ofs = 0;
+    unsigned CurrentAlignment = Alignment;
+    if (Alignment >= IntptrAlignment && IntptrSize > kOriginSize) {
+      Value *IntptrOrigin = originToIntptr(IRB, Origin);
+      Value *IntptrOriginPtr =
+          IRB.CreatePointerCast(OriginPtr, PointerType::get(MS.IntptrTy, 0));
+      for (unsigned i = 0; i < Size / IntptrSize; ++i) {
+        Value *Ptr =
+            i ? IRB.CreateConstGEP1_32(IntptrOriginPtr, i) : IntptrOriginPtr;
+        IRB.CreateAlignedStore(IntptrOrigin, Ptr, CurrentAlignment);
+        Ofs += IntptrSize / kOriginSize;
+        CurrentAlignment = IntptrAlignment;
+      }
+    }
+
+    for (unsigned i = Ofs; i < (Size + kOriginSize - 1) / kOriginSize; ++i) {
+      Value *GEP = i ? IRB.CreateConstGEP1_32(OriginPtr, i) : OriginPtr;
+      IRB.CreateAlignedStore(Origin, GEP, CurrentAlignment);
+      CurrentAlignment = kMinOriginAlignment;
+    }
+  }
+
   void storeOrigin(IRBuilder<> &IRB, Value *Addr, Value *Shadow, Value *Origin,
                    unsigned Alignment, bool AsCall) {
     unsigned OriginAlignment = std::max(kMinOriginAlignment, Alignment);
+    unsigned StoreSize = MS.DL->getTypeStoreSize(Shadow->getType());
     if (isa<StructType>(Shadow->getType())) {
-      IRB.CreateAlignedStore(updateOrigin(Origin, IRB),
-                             getOriginPtr(Addr, IRB, Alignment),
-                             OriginAlignment);
+      paintOrigin(IRB, updateOrigin(Origin, IRB),
+                  getOriginPtr(Addr, IRB, Alignment), StoreSize,
+                  OriginAlignment);
     } else {
       Value *ConvertedShadow = convertToShadowTyNoVec(Shadow, IRB);
-      // TODO(eugenis): handle non-zero constant shadow by inserting an
-      // unconditional check (can not simply fail compilation as this could
-      // be in the dead code).
-      if (!ClCheckConstantShadow)
-        if (isa<Constant>(ConvertedShadow)) return;
+      Constant *ConstantShadow = dyn_cast_or_null<Constant>(ConvertedShadow);
+      if (ConstantShadow) {
+        if (ClCheckConstantShadow && !ConstantShadow->isZeroValue())
+          paintOrigin(IRB, updateOrigin(Origin, IRB),
+                      getOriginPtr(Addr, IRB, Alignment), StoreSize,
+                      OriginAlignment);
+        return;
+      }
+
       unsigned TypeSizeInBits =
           MS.DL->getTypeSizeInBits(ConvertedShadow->getType());
       unsigned SizeIndex = TypeSizeToSizeIndex(TypeSizeInBits);
@@ -550,9 +676,9 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
         Instruction *CheckTerm = SplitBlockAndInsertIfThen(
             Cmp, IRB.GetInsertPoint(), false, MS.OriginStoreWeights);
         IRBuilder<> IRBNew(CheckTerm);
-        IRBNew.CreateAlignedStore(updateOrigin(Origin, IRBNew),
-                                  getOriginPtr(Addr, IRBNew, Alignment),
-                                  OriginAlignment);
+        paintOrigin(IRBNew, updateOrigin(Origin, IRBNew),
+                    getOriginPtr(Addr, IRBNew, Alignment), StoreSize,
+                    OriginAlignment);
       }
     }
   }
@@ -576,7 +702,7 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
 
       if (SI.isAtomic()) SI.setOrdering(addReleaseOrdering(SI.getOrdering()));
 
-      if (MS.TrackOrigins)
+      if (MS.TrackOrigins && !SI.isAtomic())
         storeOrigin(IRB, Addr, Shadow, getOrigin(Val), SI.getAlignment(),
                     InstrumentWithCalls);
     }
@@ -588,9 +714,23 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     DEBUG(dbgs() << "  SHAD0 : " << *Shadow << "\n");
     Value *ConvertedShadow = convertToShadowTyNoVec(Shadow, IRB);
     DEBUG(dbgs() << "  SHAD1 : " << *ConvertedShadow << "\n");
-    // See the comment in storeOrigin().
-    if (!ClCheckConstantShadow)
-      if (isa<Constant>(ConvertedShadow)) return;
+
+    Constant *ConstantShadow = dyn_cast_or_null<Constant>(ConvertedShadow);
+    if (ConstantShadow) {
+      if (ClCheckConstantShadow && !ConstantShadow->isZeroValue()) {
+        if (MS.TrackOrigins) {
+          IRB.CreateStore(Origin ? (Value *)Origin : (Value *)IRB.getInt32(0),
+                          MS.OriginTLS);
+        }
+        IRB.CreateCall(MS.WarningFn);
+        IRB.CreateCall(MS.EmptyAsm);
+        // FIXME: Insert UnreachableInst if !ClKeepGoing?
+        // This may invalidate some of the following checks and needs to be done
+        // at the very end.
+      }
+      return;
+    }
+
     unsigned TypeSizeInBits =
         MS.DL->getTypeSizeInBits(ConvertedShadow->getType());
     unsigned SizeIndex = TypeSizeToSizeIndex(TypeSizeInBits);
@@ -724,33 +864,57 @@ struct MemorySanitizerVisitor : public InstVisitor<MemorySanitizerVisitor> {
     return IRB.CreateBitCast(V, NoVecTy);
   }
 
+  /// \brief Compute the integer shadow offset that corresponds to a given
+  /// application address.
+  ///
+  /// Offset = (Addr & ~AndMask) ^ XorMask
+  Value *getShadowPtrOffset(Value *Addr, IRBuilder<> &IRB) {
+    uint64_t AndMask = MS.MapParams->AndMask;
+    assert(AndMask != 0 && "AndMask shall be specified");
+    Value *OffsetLong =
+      IRB.CreateAnd(IRB.CreatePointerCast(Addr, MS.IntptrTy),
+                    ConstantInt::get(MS.IntptrTy, ~AndMask));
+
+    uint64_t XorMask = MS.MapParams->XorMask;
+    if (XorMask != 0)
+      OffsetLong = IRB.CreateXor(OffsetLong,
+                                 ConstantInt::get(MS.IntptrTy, XorMask));
+    return OffsetLong;
+  }
+
   /// \brief Compute the shadow address that corresponds to a given application
   /// address.
   ///
-  /// Shadow = Addr & ~ShadowMask.
+  /// Shadow = ShadowBase + Offset
   Value *getShadowPtr(Value *Addr, Type *ShadowTy,
                       IRBuilder<> &IRB) {
-    Value *ShadowLong =
-      IRB.CreateAnd(IRB.CreatePointerCast(Addr, MS.IntptrTy),
-                    ConstantInt::get(MS.IntptrTy, ~MS.ShadowMask));
+    Value *ShadowLong = getShadowPtrOffset(Addr, IRB);
+    uint64_t ShadowBase = MS.MapParams->ShadowBase;
+    if (ShadowBase != 0)
+      ShadowLong =
+        IRB.CreateAdd(ShadowLong,
+                      ConstantInt::get(MS.IntptrTy, ShadowBase));
     return IRB.CreateIntToPtr(ShadowLong, PointerType::get(ShadowTy, 0));
   }
 
   /// \brief Compute the origin address that corresponds to a given application
   /// address.
   ///
-  /// OriginAddr = (ShadowAddr + OriginOffset) & ~3ULL
+  /// OriginAddr = (OriginBase + Offset) & ~3ULL
   Value *getOriginPtr(Value *Addr, IRBuilder<> &IRB, unsigned Alignment) {
-    Value *ShadowLong =
-        IRB.CreateAnd(IRB.CreatePointerCast(Addr, MS.IntptrTy),
-                      ConstantInt::get(MS.IntptrTy, ~MS.ShadowMask));
-    Value *Origin = IRB.CreateAdd(
-        ShadowLong, ConstantInt::get(MS.IntptrTy, MS.OriginOffset));
+    Value *OriginLong = getShadowPtrOffset(Addr, IRB);
+    uint64_t OriginBase = MS.MapParams->OriginBase;
+    if (OriginBase != 0)
+      OriginLong =
+        IRB.CreateAdd(OriginLong,
+                      ConstantInt::get(MS.IntptrTy, OriginBase));
     if (Alignment < kMinOriginAlignment) {
       uint64_t Mask = kMinOriginAlignment - 1;
-      Origin = IRB.CreateAnd(Origin, ConstantInt::get(MS.IntptrTy, ~Mask));
+      OriginLong = IRB.CreateAnd(OriginLong,
+                                 ConstantInt::get(MS.IntptrTy, ~Mask));
     }
-    return IRB.CreateIntToPtr(Origin, PointerType::get(IRB.getInt32Ty(), 0));
+    return IRB.CreateIntToPtr(OriginLong,
+                              PointerType::get(IRB.getInt32Ty(), 0));
   }
 
   /// \brief Compute the shadow address for a given function argument.

@@ -419,7 +419,10 @@ FormatStyle getGoogleStyle(FormatStyle::LanguageKind Language) {
   if (Language == FormatStyle::LK_Java) {
     GoogleStyle.AlignAfterOpenBracket = false;
     GoogleStyle.AlignOperands = false;
+    GoogleStyle.AlignTrailingComments = false;
     GoogleStyle.AllowShortFunctionsOnASingleLine = FormatStyle::SFS_Empty;
+    GoogleStyle.AllowShortIfStatementsOnASingleLine = false;
+    GoogleStyle.AlwaysBreakBeforeMultilineStrings = false;
     GoogleStyle.BreakBeforeBinaryOperators = FormatStyle::BOS_NonAssignment;
     GoogleStyle.ColumnLimit = 100;
     GoogleStyle.SpaceAfterCStyleCast = true;
@@ -429,6 +432,7 @@ FormatStyle getGoogleStyle(FormatStyle::LanguageKind Language) {
     GoogleStyle.MaxEmptyLinesToKeep = 3;
     GoogleStyle.SpacesInContainerLiterals = false;
     GoogleStyle.AllowShortFunctionsOnASingleLine = FormatStyle::SFS_Inline;
+    GoogleStyle.AlwaysBreakBeforeMultilineStrings = false;
   } else if (Language == FormatStyle::LK_Proto) {
     GoogleStyle.AllowShortFunctionsOnASingleLine = FormatStyle::SFS_None;
     GoogleStyle.SpacesInContainerLiterals = false;
@@ -440,6 +444,7 @@ FormatStyle getGoogleStyle(FormatStyle::LanguageKind Language) {
 FormatStyle getChromiumStyle(FormatStyle::LanguageKind Language) {
   FormatStyle ChromiumStyle = getGoogleStyle(Language);
   if (Language == FormatStyle::LK_Java) {
+    ChromiumStyle.AllowShortIfStatementsOnASingleLine = true;
     ChromiumStyle.IndentWidth = 4;
     ChromiumStyle.ContinuationIndentWidth = 8;
   } else {
@@ -840,8 +845,8 @@ private:
   FormatToken *getNextToken() {
     if (GreaterStashed) {
       // Create a synthesized second '>' token.
-      // FIXME: Increment Column and set OriginalColumn.
       Token Greater = FormatTok->Tok;
+      unsigned OriginalColumn = FormatTok->OriginalColumn;
       FormatTok = new (Allocator.Allocate()) FormatToken;
       FormatTok->Tok = Greater;
       SourceLocation GreaterLocation =
@@ -850,6 +855,7 @@ private:
           SourceRange(GreaterLocation, GreaterLocation);
       FormatTok->TokenText = ">";
       FormatTok->ColumnWidth = 1;
+      FormatTok->OriginalColumn = OriginalColumn;
       GreaterStashed = false;
       return FormatTok;
     }
@@ -878,6 +884,9 @@ private:
           Column = 0;
           break;
         case '\r':
+          FormatTok->LastNewlineOffset = WhitespaceLength + i + 1;
+          Column = 0;
+          break;
         case '\f':
         case '\v':
           Column = 0;
@@ -889,7 +898,6 @@ private:
           Column += Style.TabWidth - Column % Style.TabWidth;
           break;
         case '\\':
-          ++Column;
           if (i + 1 == e || (FormatTok->TokenText[i + 1] != '\r' &&
                              FormatTok->TokenText[i + 1] != '\n'))
             FormatTok->Type = TT_ImplicitStringLiteral;
@@ -1118,7 +1126,8 @@ public:
     ContinuationIndenter Indenter(Style, Tokens.getKeywords(), SourceMgr,
                                   Whitespaces, Encoding,
                                   BinPackInconclusiveFunctions);
-    UnwrappedLineFormatter Formatter(&Indenter, &Whitespaces, Style);
+    UnwrappedLineFormatter Formatter(&Indenter, &Whitespaces, Style,
+                                     Tokens.getKeywords());
     Formatter.format(AnnotatedLines, /*DryRun=*/false);
     return Whitespaces.generateReplacements();
   }
@@ -1394,6 +1403,7 @@ LangOptions getFormattingLangOpts(const FormatStyle &Style) {
   LangOpts.Bool = 1;
   LangOpts.ObjC1 = 1;
   LangOpts.ObjC2 = 1;
+  LangOpts.MicrosoftExt = 1; // To get kw___try, kw___finally.
   return LangOpts;
 }
 

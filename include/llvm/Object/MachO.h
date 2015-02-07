@@ -346,8 +346,8 @@ public:
   getSegmentLoadCommand(const LoadCommandInfo &L) const;
   MachO::segment_command_64
   getSegment64LoadCommand(const LoadCommandInfo &L) const;
-  MachO::linker_options_command
-  getLinkerOptionsLoadCommand(const LoadCommandInfo &L) const;
+  MachO::linker_option_command
+  getLinkerOptionLoadCommand(const LoadCommandInfo &L) const;
   MachO::version_min_command
   getVersionMinLoadCommand(const LoadCommandInfo &L) const;
   MachO::dylib_command
@@ -364,6 +364,24 @@ public:
   getSourceVersionCommand(const LoadCommandInfo &L) const;
   MachO::entry_point_command
   getEntryPointCommand(const LoadCommandInfo &L) const;
+  MachO::encryption_info_command
+  getEncryptionInfoCommand(const LoadCommandInfo &L) const;
+  MachO::encryption_info_command_64
+  getEncryptionInfoCommand64(const LoadCommandInfo &L) const;
+  MachO::sub_framework_command
+  getSubFrameworkCommand(const LoadCommandInfo &L) const;
+  MachO::sub_umbrella_command
+  getSubUmbrellaCommand(const LoadCommandInfo &L) const;
+  MachO::sub_library_command
+  getSubLibraryCommand(const LoadCommandInfo &L) const;
+  MachO::sub_client_command
+  getSubClientCommand(const LoadCommandInfo &L) const;
+  MachO::routines_command
+  getRoutinesCommand(const LoadCommandInfo &L) const;
+  MachO::routines_command_64
+  getRoutinesCommand64(const LoadCommandInfo &L) const;
+  MachO::thread_command
+  getThreadCommand(const LoadCommandInfo &L) const;
 
   MachO::any_relocation_info getRelocation(DataRefImpl Rel) const;
   MachO::data_in_code_entry getDice(DataRefImpl Rel) const;
@@ -377,6 +395,7 @@ public:
   MachO::symtab_command getSymtabLoadCommand() const;
   MachO::dysymtab_command getDysymtabLoadCommand() const;
   MachO::linkedit_data_command getDataInCodeLoadCommand() const;
+  MachO::linkedit_data_command getLinkOptHintsLoadCommand() const;
   ArrayRef<uint8_t> getDyldInfoRebaseOpcodes() const;
   ArrayRef<uint8_t> getDyldInfoBindOpcodes() const;
   ArrayRef<uint8_t> getDyldInfoWeakBindOpcodes() const;
@@ -419,6 +438,7 @@ private:
   const char *SymtabLoadCmd;
   const char *DysymtabLoadCmd;
   const char *DataInCodeLoadCmd;
+  const char *LinkOptHintsLoadCmd;
   const char *DyldInfoLoadCmd;
   const char *UuidLoadCmd;
   bool HasPageZeroSegment;

@@ -160,7 +160,7 @@ PlatformLinux::CreateInstance (bool force, const ArchSpec *arch)
             case llvm::Triple::PC:
                 create = true;
                 break;
-                
+
 #if defined(__linux__)
             // Only accept "unknown" for the vendor if the host is linux and
             // it "unknown" wasn't specified (it was just returned because it
@@ -503,14 +503,20 @@ PlatformLinux::GetStatus (Stream &strm)
     Platform::GetStatus(strm);
 
 #ifndef LLDB_DISABLE_POSIX
-    struct utsname un;
+    // Display local kernel information only when we are running in host mode.
+    // Otherwise, we would end up printing non-Linux information (when running
+    // on Mac OS for example).
+    if (IsHost())
+    {
+        struct utsname un;
 
-    if (uname(&un))
-        return;
+        if (uname(&un))
+            return;
 
-    strm.Printf ("    Kernel: %s\n", un.sysname);
-    strm.Printf ("   Release: %s\n", un.release);
-    strm.Printf ("   Version: %s\n", un.version);
+        strm.Printf ("    Kernel: %s\n", un.sysname);
+        strm.Printf ("   Release: %s\n", un.release);
+        strm.Printf ("   Version: %s\n", un.version);
+    }
 #endif
 }
 
@@ -575,6 +581,13 @@ PlatformLinux::GetSoftwareBreakpointTrapOpcode (Target &target,
                 trap_opcode = g_arm_breakpoint_opcode;
                 trap_opcode_size = sizeof(g_arm_breakpoint_opcode);
             }
+        }
+        break;
+    case llvm::Triple::mips64:
+        {
+            static const uint8_t g_hex_opcode[] = { 0x00, 0x00, 0x00, 0x0d };
+            trap_opcode = g_hex_opcode;
+            trap_opcode_size = sizeof(g_hex_opcode);
         }
         break;
     }
@@ -748,6 +761,7 @@ PlatformLinux::DebugProcess (ProcessLaunchInfo &launch_info,
 
     // Adjust launch for a hijacker.
     ListenerSP listener_sp;
+#if 0
     if (!launch_info.GetHijackListener ())
     {
         if (log)
@@ -757,6 +771,7 @@ PlatformLinux::DebugProcess (ProcessLaunchInfo &launch_info,
         launch_info.SetHijackListener (listener_sp);
         process_sp->HijackProcessEvents (listener_sp.get ());
     }
+#endif
 
     // Log file actions.
     if (log)
