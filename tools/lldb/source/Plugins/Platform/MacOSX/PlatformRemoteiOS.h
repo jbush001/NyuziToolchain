@@ -97,9 +97,9 @@ public:
                                      lldb_private::ArchSpec &arch) override;
     
     void
-    AddClangModuleCompilationOptions (std::vector<std::string> &options) override
+    AddClangModuleCompilationOptions (lldb_private::Target *target, std::vector<std::string> &options) override
     {
-        return PlatformDarwin::AddClangModuleCompilationOptionsForSDKType(options, PlatformDarwin::SDKType::iPhoneOS);
+        return PlatformDarwin::AddClangModuleCompilationOptionsForSDKType(target, options, PlatformDarwin::SDKType::iPhoneOS);
     }
 
 protected:
@@ -122,7 +122,7 @@ protected:
     uint32_t m_connected_module_sdk_idx;
 
     bool
-    UpdateSDKDirectoryInfosInNeeded();
+    UpdateSDKDirectoryInfosIfNeeded();
 
     const char *
     GetDeviceSupportDirectory();

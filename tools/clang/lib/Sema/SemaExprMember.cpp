@@ -11,7 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 #include "clang/Sema/Overload.h"
-#include "clang/Sema/SemaInternal.h"
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
@@ -22,6 +21,7 @@
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/ScopeInfo.h"
+#include "clang/Sema/SemaInternal.h"
 
 using namespace clang;
 using namespace sema;
@@ -90,7 +90,6 @@ enum IMAKind {
 /// conservatively answer "yes", in which case some errors will simply
 /// not be caught until template-instantiation.
 static IMAKind ClassifyImplicitMemberAccess(Sema &SemaRef,
-                                            Scope *CurScope,
                                             const LookupResult &R) {
   assert(!R.empty() && (*R.begin())->isCXXClassMember());
 
@@ -205,6 +204,9 @@ static void diagnoseInstanceReference(Sema &SemaRef,
   SourceRange Range(Loc);
   if (SS.isSet()) Range.setBegin(SS.getRange().getBegin());
 
+  // Look through using shadow decls and aliases.
+  Rep = Rep->getUnderlyingDecl();
+
   DeclContext *FunctionLevelDC = SemaRef.getFunctionLevelDeclContext();
   CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(FunctionLevelDC);
   CXXRecordDecl *ContextClass = Method ? Method->getParent() : nullptr;
@@ -237,7 +239,7 @@ Sema::BuildPossibleImplicitMemberExpr(const CXXScopeSpec &SS,
                                       SourceLocation TemplateKWLoc,
                                       LookupResult &R,
                                 const TemplateArgumentListInfo *TemplateArgs) {
-  switch (ClassifyImplicitMemberAccess(*this, CurScope, R)) {
+  switch (ClassifyImplicitMemberAccess(*this, R)) {
   case IMA_Instance:
     return BuildImplicitMemberExpr(SS, TemplateKWLoc, R, TemplateArgs, true);
 

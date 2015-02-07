@@ -61,6 +61,12 @@ class Driver {
     CLMode
   } Mode;
 
+  enum SaveTempsMode {
+    SaveTempsNone,
+    SaveTempsCwd,
+    SaveTempsObj
+  } SaveTemps;
+
 public:
   // Diag - Forwarding function for diagnostics.
   DiagnosticBuilder Diag(unsigned DiagID) const {
@@ -103,9 +109,6 @@ public:
 
   /// Default target triple.
   std::string DefaultTargetTriple;
-
-  /// Default name for linked images (e.g., "a.out").
-  std::string DefaultImageName;
 
   /// Driver title to use with help.
   std::string DriverTitle;
@@ -234,6 +237,9 @@ public:
   void setInstalledDir(StringRef Value) {
     InstalledDir = Value;
   }
+
+  bool isSaveTempsEnabled() const { return SaveTemps != SaveTempsNone; }
+  bool isSaveTempsObj() const { return SaveTemps == SaveTempsObj; }
 
   /// @}
   /// @name Primary Functionality
@@ -364,6 +370,9 @@ public:
                           bool MultipleArchs,
                           const char *LinkingOutput,
                           InputInfo &Result) const;
+
+  /// Returns the default name for linked images (e.g., "a.out").
+  const char *getDefaultImageName() const;
 
   /// GetNamedOutputPath - Return the name to use for the output of
   /// the action \p JA. The result is appended to the compilation's

@@ -18,14 +18,12 @@ set( LLDB_USED_LIBS
   lldbPluginDynamicLoaderPosixDYLD
   lldbPluginDynamicLoaderHexagonDYLD
 
-  lldbPluginObjectFileMachO
   lldbPluginObjectFileELF
   lldbPluginObjectFileJIT
   lldbPluginSymbolVendorELF
   lldbPluginObjectContainerBSDArchive
   lldbPluginObjectContainerMachOArchive
   lldbPluginProcessGDBRemote
-  lldbPluginProcessMachCore
   lldbPluginProcessUtility
   lldbPluginPlatformGDB
   lldbPluginPlatformFreeBSD
@@ -33,7 +31,6 @@ set( LLDB_USED_LIBS
   lldbPluginPlatformLinux
   lldbPluginPlatformPOSIX
   lldbPluginPlatformWindows
-  lldbPluginObjectFileMachO
   lldbPluginObjectContainerMachOArchive
   lldbPluginObjectContainerBSDArchive
   lldbPluginPlatformMacOSX
@@ -107,6 +104,8 @@ if ( CMAKE_SYSTEM_NAME MATCHES "Darwin" )
   set_source_files_properties(${LLDB_VERS_GENERATED_FILE} PROPERTIES GENERATED 1)
   list(APPEND LLDB_USED_LIBS
     lldbPluginDynamicLoaderDarwinKernel
+    lldbPluginObjectFileMachO
+    lldbPluginProcessMachCore
     lldbPluginProcessMacOSXKernel
     lldbPluginSymbolVendorMacOSX
     lldbPluginSystemRuntimeMacOSX
@@ -140,11 +139,15 @@ if (CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
   list(APPEND LLDB_SYSTEM_LIBS execinfo)
 endif()
 
-if (NOT LLDB_DISABLE_PYTHON)
+if (NOT LLDB_DISABLE_PYTHON AND NOT LLVM_BUILD_STATIC)
   list(APPEND LLDB_SYSTEM_LIBS ${PYTHON_LIBRARIES})
 endif()
 
 list(APPEND LLDB_SYSTEM_LIBS ${system_libs})
+
+if (LLVM_BUILD_STATIC)
+  list(APPEND LLDB_SYSTEM_LIBS python2.7 z util termcap gpm ssl crypto bsd)
+endif()
 
 set( LLVM_LINK_COMPONENTS
   ${LLVM_TARGETS_TO_BUILD}
@@ -162,6 +165,7 @@ set( LLVM_LINK_COMPONENTS
   mcdisassembler
   executionengine
   option
+  support
   )
 
 if ( NOT LLDB_DISABLE_PYTHON )

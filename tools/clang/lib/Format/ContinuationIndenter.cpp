@@ -93,8 +93,9 @@ bool ContinuationIndenter::canBreak(const LineState &State) {
   const FormatToken &Current = *State.NextToken;
   const FormatToken &Previous = *Current.Previous;
   assert(&Previous == Current.Previous);
-  if (!Current.CanBreakBefore && !(State.Stack.back().BreakBeforeClosingBrace &&
-                                   Current.closesBlockTypeList(Style)))
+  if (!Current.CanBreakBefore &&
+      !(State.Stack.back().BreakBeforeClosingBrace &&
+        Current.closesBlockTypeList(Style)))
     return false;
   // The opening "{" of a braced list has to be on the same line as the first
   // element if it is nested in another braced init list or function call.
@@ -196,7 +197,6 @@ bool ContinuationIndenter::mustBreak(const LineState &State) {
       return true;
   }
 
-
   // Same as above, but for the first "<<" operator.
   if (Current.is(tok::lessless) && Current.isNot(TT_OverloadedOperator) &&
       State.Stack.back().BreakBeforeParameter &&
@@ -209,12 +209,13 @@ bool ContinuationIndenter::mustBreak(const LineState &State) {
   if (Current.NestingLevel == 0 && !Current.isTrailingComment()) {
     if (Previous.ClosesTemplateDeclaration)
       return true;
-    if (Previous.is(TT_LeadingJavaAnnotation) && Current.isNot(tok::l_paren))
+    if (Previous.is(TT_LeadingJavaAnnotation) && Current.isNot(tok::l_paren) &&
+        Current.isNot(TT_LeadingJavaAnnotation))
       return true;
   }
 
   // If the return type spans multiple lines, wrap before the function name.
-  if (Current.isOneOf(TT_FunctionDeclarationName ,tok::kw_operator) &&
+  if (Current.isOneOf(TT_FunctionDeclarationName, tok::kw_operator) &&
       State.Stack.back().BreakBeforeParameter)
     return true;
 
@@ -244,12 +245,18 @@ unsigned ContinuationIndenter::addTokenToState(LineState &State, bool Newline,
        (Current.Previous->Tok.getIdentifierInfo() == nullptr ||
         Current.Previous->Tok.getIdentifierInfo()->getPPKeywordID() ==
             tok::pp_not_keyword))) {
-    // FIXME: Is this correct?
-    int WhitespaceLength = SourceMgr.getSpellingColumnNumber(
-                               State.NextToken->WhitespaceRange.getEnd()) -
-                           SourceMgr.getSpellingColumnNumber(
-                               State.NextToken->WhitespaceRange.getBegin());
-    State.Column += WhitespaceLength;
+    unsigned EndColumn =
+        SourceMgr.getSpellingColumnNumber(Current.WhitespaceRange.getEnd());
+    if (Current.LastNewlineOffset != 0) {
+      // If there is a newline within this token, the final column will solely
+      // determined by the current end column.
+      State.Column = EndColumn;
+    } else {
+      unsigned StartColumn =
+          SourceMgr.getSpellingColumnNumber(Current.WhitespaceRange.getBegin());
+      assert(EndColumn >= StartColumn);
+      State.Column += EndColumn - StartColumn;
+    }
     moveStateToNextToken(State, DryRun, /*Newline=*/false);
     return 0;
   }
@@ -515,7 +522,7 @@ unsigned ContinuationIndenter::getNewLineColumn(const LineState &State) {
   if (NextNonComment->is(tok::l_brace) && NextNonComment->BlockKind == BK_Block)
     return Current.NestingLevel == 0 ? State.FirstIndent
                                      : State.Stack.back().Indent;
-  if (Current.isOneOf(tok::r_brace, tok::r_square)) {
+  if (Current.isOneOf(tok::r_brace, tok::r_square) && State.Stack.size() > 1) {
     if (Current.closesBlockTypeList(Style))
       return State.Stack[State.Stack.size() - 2].NestedBlockIndent;
     if (Current.MatchingParen &&
@@ -631,6 +638,7 @@ unsigned ContinuationIndenter::moveStateToNextToken(LineState &State,
     //       ^ line up here.
     State.Stack.back().Indent =
         State.Column + (Style.BreakConstructorInitializersBeforeComma ? 0 : 2);
+    State.Stack.back().NestedBlockIndent = State.Stack.back().Indent;
     if (Style.ConstructorInitializerAllOnOneLineOrOnePerLine)
       State.Stack.back().AvoidBinPacking = true;
     State.Stack.back().BreakBeforeParameter = false;
@@ -781,7 +789,6 @@ void ContinuationIndenter::moveStatePastFakeLParens(LineState &State,
 void ContinuationIndenter::moveStatePastFakeRParens(LineState &State) {
   for (unsigned i = 0, e = State.NextToken->FakeRParens; i != e; ++i) {
     unsigned VariablePos = State.Stack.back().VariablePos;
-    assert(State.Stack.size() > 1);
     if (State.Stack.size() == 1) {
       // Do not pop the last element.
       break;
@@ -902,33 +909,9 @@ unsigned ContinuationIndenter::addMultilineToken(const FormatToken &Current,
   return 0;
 }
 
-static bool getRawStringLiteralPrefixPostfix(StringRef Text, StringRef &Prefix,
-                                             StringRef &Postfix) {
-  if (Text.startswith(Prefix = "R\"") || Text.startswith(Prefix = "uR\"") ||
-      Text.startswith(Prefix = "UR\"") || Text.startswith(Prefix = "u8R\"") ||
-      Text.startswith(Prefix = "LR\"")) {
-    size_t ParenPos = Text.find('(');
-    if (ParenPos != StringRef::npos) {
-      StringRef Delimiter =
-          Text.substr(Prefix.size(), ParenPos - Prefix.size());
-      Prefix = Text.substr(0, ParenPos + 1);
-      Postfix = Text.substr(Text.size() - 2 - Delimiter.size());
-      return Postfix.front() == ')' && Postfix.back() == '"' &&
-             Postfix.substr(1).startswith(Delimiter);
-    }
-  }
-  return false;
-}
-
 unsigned ContinuationIndenter::breakProtrudingToken(const FormatToken &Current,
                                                     LineState &State,
                                                     bool DryRun) {
-  // FIXME: String literal breaking is currently disabled for Java and JS, as
-  // it requires strings to be merged using "+" which we don't support.
-  if (Style.Language == FormatStyle::LK_Java ||
-      Style.Language == FormatStyle::LK_JavaScript)
-    return 0;
-
   // Don't break multi-line tokens other than block comments. Instead, just
   // update the state.
   if (Current.isNot(TT_BlockComment) && Current.IsMultiline)
@@ -947,6 +930,12 @@ unsigned ContinuationIndenter::breakProtrudingToken(const FormatToken &Current,
   unsigned ColumnLimit = getColumnLimit(State);
 
   if (Current.isStringLiteral()) {
+    // FIXME: String literal breaking is currently disabled for Java and JS, as
+    // it requires strings to be merged using "+" which we don't support.
+    if (Style.Language == FormatStyle::LK_Java ||
+        Style.Language == FormatStyle::LK_JavaScript)
+      return 0;
+
     // Don't break string literals inside preprocessor directives (except for
     // #define directives, as their contents are stored in separate lines and
     // are not affected by this check).
@@ -977,8 +966,7 @@ unsigned ContinuationIndenter::breakProtrudingToken(const FormatToken &Current,
           Text.startswith(Prefix = "u\"") || Text.startswith(Prefix = "U\"") ||
           Text.startswith(Prefix = "u8\"") ||
           Text.startswith(Prefix = "L\""))) ||
-        (Text.startswith(Prefix = "_T(\"") && Text.endswith(Postfix = "\")")) ||
-        getRawStringLiteralPrefixPostfix(Text, Prefix, Postfix)) {
+        (Text.startswith(Prefix = "_T(\"") && Text.endswith(Postfix = "\")"))) {
       Token.reset(new BreakableStringLiteral(
           Current, State.Line->Level, StartColumn, Prefix, Postfix,
           State.Line->InPPDirective, Encoding, Style));
@@ -1099,8 +1087,9 @@ bool ContinuationIndenter::nextIsMultilineString(const LineState &State) {
   if (Current.getNextNonComment() &&
       Current.getNextNonComment()->isStringLiteral())
     return true; // Implicit concatenation.
-  if (State.Column + Current.ColumnWidth + Current.UnbreakableTailLength >
-      Style.ColumnLimit)
+  if (Style.ColumnLimit != 0 &&
+      State.Column + Current.ColumnWidth + Current.UnbreakableTailLength >
+          Style.ColumnLimit)
     return true; // String will be split.
   return false;
 }

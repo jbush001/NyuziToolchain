@@ -245,6 +245,10 @@ namespace {
         (Msg->getReceiverKind() != ObjCMessageExpr::Instance &&
          Msg->getReceiverKind() != ObjCMessageExpr::SuperInstance))
       return false;
+    if (const Expr *Receiver = Msg->getInstanceReceiver())
+      if (Receiver->getType()->isObjCBuiltinType())
+        return false;
+      
     const ObjCMethodDecl *Method = Msg->getMethodDecl();
     if (!Method)
       return false;
@@ -305,6 +309,10 @@ namespace {
       BegLoc = PP.getLocForEndOfToken(BegLoc);
       SourceLocation EndLoc = RHS->getLocStart();
       EndLoc = EndLoc.getLocWithOffset(-1);
+      const char *colon = PP.getSourceManager().getCharacterData(EndLoc);
+      // Add a space after '=' if there is no space between RHS and '='
+      if (colon && colon[0] == ':')
+        PropertyDotString += " ";
       SourceRange Range(BegLoc, EndLoc);
       commit.replace(Range, PropertyDotString);
       // remove '[' ']'
@@ -780,7 +788,22 @@ static void rewriteToNSMacroDecl(ASTContext &Ctx,
   
   ClassString += TypedefDcl->getIdentifier()->getName();
   ClassString += ')';
-  SourceRange R(EnumDcl->getLocStart(), EnumDcl->getLocStart());
+  SourceLocation EndLoc;
+  if (EnumDcl->getIntegerTypeSourceInfo()) {
+    TypeSourceInfo *TSourceInfo = EnumDcl->getIntegerTypeSourceInfo();
+    TypeLoc TLoc = TSourceInfo->getTypeLoc();
+    EndLoc = TLoc.getLocEnd();
+    const char *lbrace = Ctx.getSourceManager().getCharacterData(EndLoc);
+    unsigned count = 0;
+    if (lbrace)
+      while (lbrace[count] != '{')
+        ++count;
+    if (count > 0)
+      EndLoc = EndLoc.getLocWithOffset(count-1);
+  }
+  else
+    EndLoc = EnumDcl->getLocStart();
+  SourceRange R(EnumDcl->getLocStart(), EndLoc);
   commit.replace(R, ClassString);
   // This is to remove spaces between '}' and typedef name.
   SourceLocation StartTypedefLoc = EnumDcl->getLocEnd();
@@ -902,7 +925,7 @@ bool ObjCMigrateASTConsumer::migrateNSEnumDecl(ASTContext &Ctx,
                                            const EnumDecl *EnumDcl,
                                            const TypedefDecl *TypedefDcl) {
   if (!EnumDcl->isCompleteDefinition() || EnumDcl->getIdentifier() ||
-      EnumDcl->isDeprecated() || EnumDcl->getIntegerTypeSourceInfo())
+      EnumDcl->isDeprecated())
     return false;
   if (!TypedefDcl) {
     if (NSIntegerTypedefed) {

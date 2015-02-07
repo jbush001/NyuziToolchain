@@ -18,13 +18,18 @@ add_host_subdirectory(common
   common/MonitoringProcessLauncher.cpp
   common/NativeBreakpoint.cpp
   common/NativeBreakpointList.cpp
+  common/NativeWatchpointList.cpp
   common/NativeProcessProtocol.cpp
+  common/NativeRegisterContext.cpp
+  common/NativeRegisterContextRegisterInfo.cpp
   common/NativeThreadProtocol.cpp
   common/OptionParser.cpp
+  common/PipeBase.cpp
   common/ProcessRunLock.cpp
   common/Socket.cpp
   common/SocketAddress.cpp
   common/SoftwareBreakpoint.cpp
+  common/StringConvert.cpp
   common/Symbols.cpp
   common/Terminal.cpp
   common/ThisThread.cpp

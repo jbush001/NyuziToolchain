@@ -61,8 +61,8 @@ MachineRegisterInfo::constrainRegClass(unsigned Reg,
 }
 
 bool
-MachineRegisterInfo::recomputeRegClass(unsigned Reg, const TargetMachine &TM) {
-  const TargetInstrInfo *TII = TM.getSubtargetImpl()->getInstrInfo();
+MachineRegisterInfo::recomputeRegClass(unsigned Reg) {
+  const TargetInstrInfo *TII = MF->getSubtarget().getInstrInfo();
   const TargetRegisterClass *OldRC = getRegClass(Reg);
   const TargetRegisterClass *NewRC =
     getTargetRegisterInfo()->getLargestLegalSuperClass(OldRC);
@@ -129,6 +129,7 @@ void MachineRegisterInfo::verifyUseList(unsigned Reg) const {
              << " use list MachineOperand " << MO
              << " has no parent instruction.\n";
       Valid = false;
+      continue;
     }
     MachineOperand *MO0 = &MI->getOperand(0);
     unsigned NumOps = MI->getNumOperands();

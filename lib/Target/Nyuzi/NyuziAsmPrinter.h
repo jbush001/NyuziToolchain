@@ -36,8 +36,8 @@ class NyuziAsmPrinter : public AsmPrinter {
   NyuziMCInstLower MCInstLowering;
 
 public:
-  explicit NyuziAsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
-      : AsmPrinter(TM, Streamer), MCInstLowering(*this) {}
+  explicit NyuziAsmPrinter(TargetMachine &TM, std::unique_ptr<MCStreamer> Streamer)
+      : AsmPrinter(TM, std::move(Streamer)), MCInstLowering(*this) {}
 
   virtual const char *getPassName() const override {
     return "Nyuzi Assembly Printer";

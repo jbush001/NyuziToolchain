@@ -12,14 +12,17 @@
 // C++ Includes
 #include <algorithm>
 
-#include "lldb/Core/Log.h"
-#include "lldb/Core/Section.h"
 #include "lldb/Core/ArchSpec.h"
+#include "lldb/Core/Log.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/Section.h"
+#include "lldb/Core/Section.h"
+#include "lldb/Core/StreamString.h"
 #include "lldb/Symbol/CompactUnwindInfo.h"
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Symbol/UnwindPlan.h"
+#include "lldb/Target/Process.h"
+#include "lldb/Target/Target.h"
 
 #include "llvm/Support/MathExtras.h"
 
@@ -124,6 +127,7 @@ namespace lldb_private {
 CompactUnwindInfo::CompactUnwindInfo(ObjectFile& objfile, SectionSP& section_sp) :
     m_objfile (objfile),
     m_section_sp (section_sp),
+    m_section_contents_if_encrypted (),
     m_mutex (),
     m_indexes (),
     m_indexes_computed (eLazyBoolCalculate),
@@ -145,7 +149,7 @@ CompactUnwindInfo::~CompactUnwindInfo()
 bool
 CompactUnwindInfo::GetUnwindPlan (Target &target, Address addr, UnwindPlan& unwind_plan)
 {
-    if (!IsValid ())
+    if (!IsValid (target.GetProcessSP()))
     {
         return false;
     }
@@ -159,6 +163,29 @@ CompactUnwindInfo::GetUnwindPlan (Target &target, Address addr, UnwindPlan& unwi
         ArchSpec arch;
         if (m_objfile.GetArchitecture (arch))
         {
+
+            Log *log(GetLogIfAllCategoriesSet (LIBLLDB_LOG_UNWIND));
+            if (log && log->GetVerbose())
+            {
+                StreamString strm;
+                addr.Dump (&strm, NULL, Address::DumpStyle::DumpStyleResolvedDescriptionNoFunctionArguments, Address::DumpStyle::DumpStyleFileAddress, arch.GetAddressByteSize()); 
+                log->Printf ("Got compact unwind encoding 0x%x for function %s", function_info.encoding, strm.GetData());
+            }
+
+            if (function_info.valid_range_offset_start != 0 && function_info.valid_range_offset_end != 0)
+            {
+                SectionList *sl = m_objfile.GetSectionList ();
+                if (sl)
+                {
+                    addr_t func_range_start_file_addr = 
+                              function_info.valid_range_offset_start + m_objfile.GetHeaderAddress().GetFileAddress();
+                    AddressRange func_range (func_range_start_file_addr,
+                                      function_info.valid_range_offset_end - function_info.valid_range_offset_start,
+                                      sl);
+                    unwind_plan.SetPlanValidAddressRange (func_range);
+                }
+            }
+
             if (arch.GetTriple().getArch() == llvm::Triple::x86_64)
             {
                 return CreateUnwindPlan_x86_64 (target, function_info, unwind_plan, addr);
@@ -173,21 +200,21 @@ CompactUnwindInfo::GetUnwindPlan (Target &target, Address addr, UnwindPlan& unwi
 }
 
 bool
-CompactUnwindInfo::IsValid ()
+CompactUnwindInfo::IsValid (const ProcessSP &process_sp)
 {
-    if (m_section_sp.get() == nullptr || m_section_sp->IsEncrypted())
+    if (m_section_sp.get() == nullptr)
         return false;
 
     if (m_indexes_computed == eLazyBoolYes && m_unwindinfo_data_computed)
         return true;
 
-    ScanIndex ();
+    ScanIndex (process_sp);
 
     return m_indexes_computed == eLazyBoolYes && m_unwindinfo_data_computed;
 }
 
 void
-CompactUnwindInfo::ScanIndex ()
+CompactUnwindInfo::ScanIndex (const ProcessSP &process_sp)
 {
     Mutex::Locker locker(m_mutex);
     if (m_indexes_computed == eLazyBoolYes && m_unwindinfo_data_computed)
@@ -199,9 +226,36 @@ CompactUnwindInfo::ScanIndex ()
         return;
     }
 
+    Log *log (GetLogIfAllCategoriesSet (LIBLLDB_LOG_UNWIND));
+    if (log)
+        m_objfile.GetModule()->LogMessage(log, "Reading compact unwind first-level indexes");
+
     if (m_unwindinfo_data_computed == false)
     {
-        m_objfile.ReadSectionData (m_section_sp.get(), m_unwindinfo_data);
+        if (m_section_sp->IsEncrypted())
+        {
+            // Can't get section contents of a protected/encrypted section until we have a live
+            // process and can read them out of memory.
+            if (process_sp.get() == nullptr)
+                return;
+            m_section_contents_if_encrypted.reset (new DataBufferHeap (m_section_sp->GetByteSize(), 0));
+            Error error;
+            if (process_sp->ReadMemory (
+                        m_section_sp->GetLoadBaseAddress (&process_sp->GetTarget()), 
+                        m_section_contents_if_encrypted->GetBytes(), 
+                        m_section_sp->GetByteSize(), error) == m_section_sp->GetByteSize() && error.Success())
+            {
+                m_unwindinfo_data.SetAddressByteSize (process_sp->GetTarget().GetArchitecture().GetAddressByteSize());
+                m_unwindinfo_data.SetByteOrder (process_sp->GetTarget().GetArchitecture().GetByteOrder());
+                m_unwindinfo_data.SetData (m_section_contents_if_encrypted, 0);
+            }
+        }
+        else
+        {
+            m_objfile.ReadSectionData (m_section_sp.get(), m_unwindinfo_data);
+        }
+        if (m_unwindinfo_data.GetByteSize() != m_section_sp->GetByteSize())
+            return;
         m_unwindinfo_data_computed = true;
     }
 
@@ -244,7 +298,7 @@ CompactUnwindInfo::ScanIndex ()
             // };
 
         offset = indexSectionOffset;
-        for (int idx = 0; idx < indexCount; idx++)
+        for (uint32_t idx = 0; idx < indexCount; idx++)
         {
             uint32_t function_offset = m_unwindinfo_data.GetU32(&offset);      // functionOffset
             uint32_t second_level_offset = m_unwindinfo_data.GetU32(&offset);  // secondLevelPagesSectionOffset
@@ -315,7 +369,7 @@ CompactUnwindInfo::GetLSDAForFunctionOffset (uint32_t lsda_offset, uint32_t lsda
 }
 
 lldb::offset_t
-CompactUnwindInfo::BinarySearchRegularSecondPage (uint32_t entry_page_offset, uint32_t entry_count, uint32_t function_offset)
+CompactUnwindInfo::BinarySearchRegularSecondPage (uint32_t entry_page_offset, uint32_t entry_count, uint32_t function_offset, uint32_t *entry_func_start_offset, uint32_t *entry_func_end_offset)
 {
     // typedef uint32_t compact_unwind_encoding_t;
     // struct unwind_info_regular_second_level_entry 
@@ -343,6 +397,10 @@ CompactUnwindInfo::BinarySearchRegularSecondPage (uint32_t entry_page_offset, ui
         {
             if (mid == last || (next_func_offset > function_offset))
             {
+                if (entry_func_start_offset)
+                    *entry_func_start_offset = mid_func_offset;
+                if (mid != last && entry_func_end_offset)
+                    *entry_func_end_offset = next_func_offset;
                 return first_entry + (mid * 8);
             }
             else
@@ -359,7 +417,7 @@ CompactUnwindInfo::BinarySearchRegularSecondPage (uint32_t entry_page_offset, ui
 }
 
 uint32_t
-CompactUnwindInfo::BinarySearchCompressedSecondPage (uint32_t entry_page_offset, uint32_t entry_count, uint32_t function_offset_to_find, uint32_t function_offset_base)
+CompactUnwindInfo::BinarySearchCompressedSecondPage (uint32_t entry_page_offset, uint32_t entry_count, uint32_t function_offset_to_find, uint32_t function_offset_base, uint32_t *entry_func_start_offset, uint32_t *entry_func_end_offset)
 {
     offset_t first_entry = entry_page_offset;
 
@@ -385,6 +443,10 @@ CompactUnwindInfo::BinarySearchCompressedSecondPage (uint32_t entry_page_offset,
         {
             if (mid == last || (next_func_offset > function_offset_to_find))
             {
+                if (entry_func_start_offset)
+                    *entry_func_start_offset = mid_func_offset;
+                if (mid != last && entry_func_end_offset)
+                    *entry_func_end_offset = next_func_offset;
                 return UNWIND_INFO_COMPRESSED_ENTRY_ENCODING_INDEX (entry);
             }
             else
@@ -401,7 +463,6 @@ CompactUnwindInfo::BinarySearchCompressedSecondPage (uint32_t entry_page_offset,
     return UINT32_MAX;
 }
 
-
 bool
 CompactUnwindInfo::GetCompactUnwindInfoForFunction (Target &target, Address address, FunctionInfo &unwind_info)
 {
@@ -409,7 +470,7 @@ CompactUnwindInfo::GetCompactUnwindInfoForFunction (Target &target, Address addr
     unwind_info.lsda_address.Clear();
     unwind_info.personality_ptr_address.Clear();
 
-    if (!IsValid ())
+    if (!IsValid (target.GetProcessSP()))
         return false;
 
     addr_t text_section_file_address = LLDB_INVALID_ADDRESS;
@@ -448,6 +509,15 @@ CompactUnwindInfo::GetCompactUnwindInfoForFunction (Target &target, Address addr
         return false;
     }
 
+    auto next_it = it + 1;
+    if (next_it != m_indexes.begin())
+    {
+        // initialize the function offset end range to be the start of the 
+        // next index offset.  If we find an entry which is at the end of
+        // the index table, this will establish the range end.
+        unwind_info.valid_range_offset_end = next_it->function_offset;
+    }
+
     offset_t second_page_offset = it->second_level;
     offset_t lsda_array_start = it->lsda_array_start;
     offset_t lsda_array_count = (it->lsda_array_end - it->lsda_array_start) / 8;
@@ -472,7 +542,7 @@ CompactUnwindInfo::GetCompactUnwindInfoForFunction (Target &target, Address addr
         uint16_t entry_page_offset = m_unwindinfo_data.GetU16(&offset); // entryPageOffset
         uint16_t entry_count = m_unwindinfo_data.GetU16(&offset);       // entryCount
 
-        offset_t entry_offset = BinarySearchRegularSecondPage (second_page_offset + entry_page_offset, entry_count, function_offset);
+        offset_t entry_offset = BinarySearchRegularSecondPage (second_page_offset + entry_page_offset, entry_count, function_offset, &unwind_info.valid_range_offset_start, &unwind_info.valid_range_offset_end);
         if (entry_offset == LLDB_INVALID_OFFSET)
         {
             return false;
@@ -530,7 +600,7 @@ CompactUnwindInfo::GetCompactUnwindInfoForFunction (Target &target, Address addr
         uint16_t encodings_page_offset = m_unwindinfo_data.GetU16(&offset); // encodingsPageOffset
         uint16_t encodings_count = m_unwindinfo_data.GetU16(&offset);       // encodingsCount
 
-        uint32_t encoding_index = BinarySearchCompressedSecondPage (second_page_offset + entry_page_offset, entry_count, function_offset, it->function_offset);
+        uint32_t encoding_index = BinarySearchCompressedSecondPage (second_page_offset + entry_page_offset, entry_count, function_offset, it->function_offset, &unwind_info.valid_range_offset_start, &unwind_info.valid_range_offset_end);
         if (encoding_index == UINT32_MAX || encoding_index >= encodings_count + m_unwind_header.common_encodings_array_count)
         {
             return false;
@@ -549,7 +619,6 @@ CompactUnwindInfo::GetCompactUnwindInfoForFunction (Target &target, Address addr
         }
         if (encoding == 0)
             return false;
-        unwind_info.encoding = encoding;
 
         unwind_info.encoding = encoding;
         if (unwind_info.encoding & UNWIND_HAS_LSDA)
@@ -690,46 +759,71 @@ CompactUnwindInfo::CreateUnwindPlan_x86_64 (Target &target, FunctionInfo &functi
         case UNWIND_X86_64_MODE_STACK_IND:
         {
             // The clang in Xcode 6 is emitting incorrect compact unwind encodings for this
-            // style of unwind.  It was fixed in llvm r217020 although the algorith being
-            // used to compute this style of unwind in generateCompactUnwindEncodingImpl()
-            // isn't as foolproof as I'm comfortable with -- if any instructions other than
-            // a push are scheduled before the subq, it will give bogus encoding results.
-
-            // The target and pc_or_function_start arguments will be needed to handle this
-            // encoding style correctly -- to find the start address of the function and 
-            // read memory offset from there.
+            // style of unwind.  It was fixed in llvm r217020.
             return false;
         }
         break;
 
-#if 0
         case UNWIND_X86_64_MODE_STACK_IMMD:
         {
-            uint32_t stack_size = EXTRACT_BITS (encoding, UNWIND_X86_64_FRAMELESS_STACK_SIZE);
-            uint32_t register_count = EXTRACT_BITS (encoding, UNWIND_X86_64_FRAMELESS_STACK_REG_COUNT);
-            uint32_t permutation = EXTRACT_BITS (encoding, UNWIND_X86_64_FRAMELESS_STACK_REG_PERMUTATION);
+            uint32_t stack_size = EXTRACT_BITS (function_info.encoding, UNWIND_X86_64_FRAMELESS_STACK_SIZE);
+            uint32_t register_count = EXTRACT_BITS (function_info.encoding, UNWIND_X86_64_FRAMELESS_STACK_REG_COUNT);
+            uint32_t permutation = EXTRACT_BITS (function_info.encoding, UNWIND_X86_64_FRAMELESS_STACK_REG_PERMUTATION);
 
-            if (mode == UNWIND_X86_64_MODE_STACK_IND && function_start)
+            if (mode == UNWIND_X86_64_MODE_STACK_IND && function_info.valid_range_offset_start != 0)
             {
-                uint32_t stack_adjust = EXTRACT_BITS (encoding, UNWIND_X86_64_FRAMELESS_STACK_ADJUST);
+                uint32_t stack_adjust = EXTRACT_BITS (function_info.encoding, UNWIND_X86_64_FRAMELESS_STACK_ADJUST);
 
                 // offset into the function instructions; 0 == beginning of first instruction
-                uint32_t offset_to_subl_insn = EXTRACT_BITS (encoding, UNWIND_X86_64_FRAMELESS_STACK_SIZE);
+                uint32_t offset_to_subl_insn = EXTRACT_BITS (function_info.encoding, UNWIND_X86_64_FRAMELESS_STACK_SIZE);
 
-                stack_size = *((uint32_t*) (function_start + offset_to_subl_insn));
-
-                stack_size += stack_adjust * 8;
-
-                printf ("large stack ");
+                SectionList *sl = m_objfile.GetSectionList ();
+                if (sl)
+                {
+                    ProcessSP process_sp = target.GetProcessSP();
+                    if (process_sp)
+                    {
+                        Address subl_payload_addr (function_info.valid_range_offset_start, sl);
+                        subl_payload_addr.Slide (offset_to_subl_insn);
+                        Error error;
+                        uint64_t large_stack_size = process_sp->ReadUnsignedIntegerFromMemory (subl_payload_addr.GetLoadAddress (&target),
+                                4, 0, error);
+                        if (large_stack_size != 0 && error.Success ())
+                        {
+                            // Got the large stack frame size correctly - use it
+                            stack_size = large_stack_size + (stack_adjust * wordsize);
+                        }
+                        else
+                        {
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    return false;
+                }
             }
-            
-            printf ("frameless function: stack size %d, register count %d ", stack_size * 8, register_count);
 
-            if (register_count == 0)
+            if (mode == UNWIND_X86_64_MODE_STACK_IND)
             {
-                printf (" no registers saved");
+                row->SetCFAOffset (stack_size);
             }
             else
+            {
+                row->SetCFAOffset (stack_size * wordsize);
+            }
+
+            row->SetCFARegister (x86_64_eh_regnum::rsp);
+            row->SetOffset (0);
+            row->SetRegisterLocationToAtCFAPlusOffset (x86_64_eh_regnum::rip, wordsize * -1, true);
+            row->SetRegisterLocationToIsCFAPlusOffset (x86_64_eh_regnum::rsp, 0, true);
+
+            if (register_count > 0)
             {
 
                 // We need to include (up to) 6 registers in 10 bits.
@@ -800,7 +894,7 @@ CompactUnwindInfo::CreateUnwindPlan_x86_64 (Target &target, FunctionInfo &functi
 
                 int registers[6];
                 bool used[7] = { false, false, false, false, false, false, false };
-                for (int i = 0; i < register_count; i++)
+                for (uint32_t i = 0; i < register_count; i++)
                 {
                     int renum = 0;
                     for (int j = 1; j < 7; j++)
@@ -818,11 +912,7 @@ CompactUnwindInfo::CreateUnwindPlan_x86_64 (Target &target, FunctionInfo &functi
                     }
                 }
 
-
-                printf (" CFA is rsp+%d ", stack_size * 8);
-
                 uint32_t saved_registers_offset = 1;
-                printf (" rip=[CFA-%d]", saved_registers_offset * 8);
                 saved_registers_offset++;
 
                 for (int i = (sizeof (registers) / sizeof (int)) - 1; i >= 0; i--)
@@ -832,32 +922,21 @@ CompactUnwindInfo::CreateUnwindPlan_x86_64 (Target &target, FunctionInfo &functi
                         case UNWIND_X86_64_REG_NONE:
                             break;
                         case UNWIND_X86_64_REG_RBX:
-                            printf (" rbx=[CFA-%d]", saved_registers_offset * 8);
-                            break;
                         case UNWIND_X86_64_REG_R12:
-                            printf (" r12=[CFA-%d]", saved_registers_offset * 8);
-                            break;
                         case UNWIND_X86_64_REG_R13:
-                            printf (" r13=[CFA-%d]", saved_registers_offset * 8);
-                            break;
                         case UNWIND_X86_64_REG_R14:
-                            printf (" r14=[CFA-%d]", saved_registers_offset * 8);
-                            break;
                         case UNWIND_X86_64_REG_R15:
-                            printf (" r15=[CFA-%d]", saved_registers_offset * 8);
-                            break;
                         case UNWIND_X86_64_REG_RBP:
-                            printf (" rbp=[CFA-%d]", saved_registers_offset * 8);
-                            break;
+                            row->SetRegisterLocationToAtCFAPlusOffset (translate_to_eh_frame_regnum_x86_64 (registers[i]), wordsize * -saved_registers_offset, true);
+                            saved_registers_offset++;
+                        break;
                     }
-                    saved_registers_offset++;
                 }
-
             }
-
+            unwind_plan.AppendRow (row);
+            return true;
         }
         break;
-#endif
 
         case UNWIND_X86_64_MODE_DWARF:
         {
@@ -968,6 +1047,181 @@ CompactUnwindInfo::CreateUnwindPlan_i386 (Target &target, FunctionInfo &function
 
         case UNWIND_X86_MODE_STACK_IND:
         case UNWIND_X86_MODE_STACK_IMMD:
+        {
+            uint32_t stack_size = EXTRACT_BITS (function_info.encoding, UNWIND_X86_FRAMELESS_STACK_SIZE);
+            uint32_t register_count = EXTRACT_BITS (function_info.encoding, UNWIND_X86_FRAMELESS_STACK_REG_COUNT);
+            uint32_t permutation = EXTRACT_BITS (function_info.encoding, UNWIND_X86_FRAMELESS_STACK_REG_PERMUTATION);
+
+            if (mode == UNWIND_X86_MODE_STACK_IND && function_info.valid_range_offset_start != 0)
+            {
+                uint32_t stack_adjust = EXTRACT_BITS (function_info.encoding, UNWIND_X86_FRAMELESS_STACK_ADJUST);
+
+                // offset into the function instructions; 0 == beginning of first instruction
+                uint32_t offset_to_subl_insn = EXTRACT_BITS (function_info.encoding, UNWIND_X86_FRAMELESS_STACK_SIZE);
+
+                SectionList *sl = m_objfile.GetSectionList ();
+                if (sl)
+                {
+                    ProcessSP process_sp = target.GetProcessSP();
+                    if (process_sp)
+                    {
+                        Address subl_payload_addr (function_info.valid_range_offset_start, sl);
+                        subl_payload_addr.Slide (offset_to_subl_insn);
+                        Error error;
+                        uint64_t large_stack_size = process_sp->ReadUnsignedIntegerFromMemory (subl_payload_addr.GetLoadAddress (&target),
+                                4, 0, error);
+                        if (large_stack_size != 0 && error.Success ())
+                        {
+                            // Got the large stack frame size correctly - use it
+                            stack_size = large_stack_size + (stack_adjust * wordsize);
+                        }
+                        else
+                        {
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            row->SetCFARegister (i386_eh_regnum::esp);
+
+            if (mode == UNWIND_X86_MODE_STACK_IND)
+            {
+                row->SetCFAOffset (stack_size);
+            }
+            else
+            {
+                row->SetCFAOffset (stack_size * wordsize);
+            }
+
+            row->SetOffset (0);
+            row->SetRegisterLocationToAtCFAPlusOffset (i386_eh_regnum::eip, wordsize * -1, true);
+            row->SetRegisterLocationToIsCFAPlusOffset (i386_eh_regnum::esp, 0, true);
+            
+            if (register_count > 0)
+            {
+
+                // We need to include (up to) 6 registers in 10 bits.
+                // That would be 18 bits if we just used 3 bits per reg to indicate
+                // the order they're saved on the stack. 
+                //
+                // This is done with Lehmer code permutation, e.g. see
+                // http://stackoverflow.com/questions/1506078/fast-permutation-number-permutation-mapping-algorithms
+                int permunreg[6];
+
+                // This decodes the variable-base number in the 10 bits
+                // and gives us the Lehmer code sequence which can then
+                // be decoded.
+
+                switch (register_count) 
+                {
+                    case 6:
+                        permunreg[0] = permutation/120;    // 120 == 5!
+                        permutation -= (permunreg[0]*120);
+                        permunreg[1] = permutation/24;     // 24 == 4!
+                        permutation -= (permunreg[1]*24);
+                        permunreg[2] = permutation/6;      // 6 == 3!
+                        permutation -= (permunreg[2]*6);
+                        permunreg[3] = permutation/2;      // 2 == 2!
+                        permutation -= (permunreg[3]*2);
+                        permunreg[4] = permutation;        // 1 == 1!
+                        permunreg[5] = 0;
+                        break;
+                    case 5:
+                        permunreg[0] = permutation/120;
+                        permutation -= (permunreg[0]*120);
+                        permunreg[1] = permutation/24;
+                        permutation -= (permunreg[1]*24);
+                        permunreg[2] = permutation/6;
+                        permutation -= (permunreg[2]*6);
+                        permunreg[3] = permutation/2;
+                        permutation -= (permunreg[3]*2);
+                        permunreg[4] = permutation;
+                        break;
+                    case 4:
+                        permunreg[0] = permutation/60;
+                        permutation -= (permunreg[0]*60);
+                        permunreg[1] = permutation/12;
+                        permutation -= (permunreg[1]*12);
+                        permunreg[2] = permutation/3;
+                        permutation -= (permunreg[2]*3);
+                        permunreg[3] = permutation;
+                        break;
+                    case 3:
+                        permunreg[0] = permutation/20;
+                        permutation -= (permunreg[0]*20);
+                        permunreg[1] = permutation/4;
+                        permutation -= (permunreg[1]*4);
+                        permunreg[2] = permutation;
+                        break;
+                    case 2:
+                        permunreg[0] = permutation/5;
+                        permutation -= (permunreg[0]*5);
+                        permunreg[1] = permutation;
+                        break;
+                    case 1:
+                        permunreg[0] = permutation;
+                        break;
+                }
+                
+                // Decode the Lehmer code for this permutation of
+                // the registers v. http://en.wikipedia.org/wiki/Lehmer_code
+
+                int registers[6];
+                bool used[7] = { false, false, false, false, false, false, false };
+                for (uint32_t i = 0; i < register_count; i++)
+                {
+                    int renum = 0;
+                    for (int j = 1; j < 7; j++)
+                    {
+                        if (used[j] == false)
+                        {
+                            if (renum == permunreg[i])
+                            {
+                                registers[i] = j;
+                                used[j] = true;
+                                break;
+                            }
+                            renum++;
+                        }
+                    }
+                }
+
+                uint32_t saved_registers_offset = 1;
+                saved_registers_offset++;
+
+                for (int i = (sizeof (registers) / sizeof (int)) - 1; i >= 0; i--)
+                {
+                    switch (registers[i])
+                    {
+                        case UNWIND_X86_REG_NONE:
+                            break;
+                        case UNWIND_X86_REG_EBX:
+                        case UNWIND_X86_REG_ECX:
+                        case UNWIND_X86_REG_EDX:
+                        case UNWIND_X86_REG_EDI:
+                        case UNWIND_X86_REG_ESI:
+                        case UNWIND_X86_REG_EBP:
+                            row->SetRegisterLocationToAtCFAPlusOffset (translate_to_eh_frame_regnum_i386 (registers[i]), wordsize * -saved_registers_offset, true);
+                            saved_registers_offset++;
+                        break;
+                    }
+                }
+            }
+
+            unwind_plan.AppendRow (row);
+            return true;
+        }
+        break;
+
         case UNWIND_X86_MODE_DWARF:
         {
             return false;

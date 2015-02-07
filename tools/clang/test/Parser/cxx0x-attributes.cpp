@@ -86,6 +86,10 @@ class [[]] [[]] final_class_another
   [[]] [[]] alignas(16) final // expected-error {{an attribute list cannot appear here}}
   [[]] [[]] alignas(16) [[]]{}; // expected-error {{an attribute list cannot appear here}}
 
+// The diagnostics here don't matter much, this just shouldn't crash:
+class C final [[deprecated(l]] {}); // expected-error {{use of undeclared identifier}} expected-error {{expected ']'}} expected-error {{an attribute list cannot appear here}} expected-error {{expected unqualified-id}}
+class D final alignas ([l) {}]{}); // expected-error {{expected ',' or ']' in lambda capture list}} expected-error {{an attribute list cannot appear here}}
+
 [[]] struct with_init_declarators {} init_declarator;
 [[]] struct no_init_declarators; // expected-error {{an attribute list cannot appear here}}
 template<typename> [[]] struct no_init_declarators_template; // expected-error {{an attribute list cannot appear here}}
@@ -329,4 +333,11 @@ namespace {
   [[deprecated("hello")]] void baz();
   [[deprecated()]] void foo(); // expected-error {{parentheses must be omitted if 'deprecated' attribute's argument list is empty}}
   [[gnu::deprecated()]] void quux();
+}
+
+namespace {
+[[ // expected-error {{expected ']'}}
+#pragma pack(pop)
+deprecated
+]] void bad();
 }

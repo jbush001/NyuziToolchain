@@ -196,6 +196,10 @@ Error
 ProcessWindows::DoLaunch(Module *exe_module,
                          ProcessLaunchInfo &launch_info)
 {
+    // Even though m_session_data is accessed here, it is before a debugger thread has been
+    // kicked off.  So there's no race conditions, and it shouldn't be necessary to acquire
+    // the mutex.
+
     Error result;
     if (!launch_info.GetFlags().Test(eLaunchFlagDebug))
     {
@@ -248,6 +252,13 @@ ProcessWindows::DoResume()
             // Resume the process and continue processing debug events.  Mask the exception so that
             // from the process's view, there is no indication that anything happened.
             m_session_data->m_debugger->ContinueAsyncException(ExceptionResult::MaskException);
+        }
+
+        for (int i = 0; i < m_thread_list.GetSize(); ++i)
+        {
+            typedef std::shared_ptr<TargetThreadWindows> TargetThreadWindowsSP;
+            TargetThreadWindowsSP thread = std::static_pointer_cast<TargetThreadWindows>(m_thread_list.GetThreadAtIndex(i));
+            thread->DoResume();
         }
 
         SetPrivateState(eStateRunning);
@@ -315,20 +326,19 @@ ProcessWindows::RefreshStateAfterStop()
     uint64_t pc = register_context->GetPC();
     if (active_exception->GetExceptionCode() == EXCEPTION_BREAKPOINT)
     {
-        // TODO(zturner): The current EIP is AFTER the BP opcode, which is one byte.  So
-        // to find the breakpoint, move the PC back.  A better way to do this is probably
-        // to ask the Platform how big a breakpoint opcode is.
-        --pc;
-        BreakpointSiteSP site(GetBreakpointSiteList().FindByAddress(pc));
-        lldb::break_id_t break_id = LLDB_INVALID_BREAK_ID;
-        bool should_stop = true;
-        if (site)
+        // TODO(zturner): The current EIP is AFTER the BP opcode, which is one byte.
+        BreakpointSiteSP site(GetBreakpointSiteList().FindByAddress(pc - 1));
+        if (site && site->ValidForThisThread(stop_thread.get()))
         {
-            should_stop = site->ValidForThisThread(stop_thread.get());
-            break_id = site->GetID();
+            lldb::break_id_t break_id = LLDB_INVALID_BREAK_ID;
+            stop_info = StopInfo::CreateStopReasonWithBreakpointSiteID(*stop_thread, site->GetID());
+            register_context->SetPC(pc - 1);
         }
-
-        stop_info = StopInfo::CreateStopReasonWithBreakpointSiteID(*stop_thread, break_id, should_stop);
+        stop_thread->SetStopInfo(stop_info);
+    }
+    else if (active_exception->GetExceptionCode() == EXCEPTION_SINGLE_STEP)
+    {
+        stop_info = StopInfo::CreateStopReasonToTrace(*stop_thread);
         stop_thread->SetStopInfo(stop_info);
     }
     else
@@ -367,6 +377,7 @@ ProcessWindows::DoHalt(bool &caused_stop)
         caused_stop = false;
     else
     {
+        llvm::sys::ScopedLock lock(m_mutex);
         caused_stop = ::DebugBreakProcess(m_session_data->m_debugger->GetProcess().GetNativeProcess().GetSystemHandle());
         if (!caused_stop)
             error.SetError(GetLastError(), eErrorTypeWin32);
@@ -391,10 +402,10 @@ ProcessWindows::DoReadMemory(lldb::addr_t vm_addr,
                              size_t size,
                              Error &error)
 {
+    llvm::sys::ScopedLock lock(m_mutex);
+
     if (!m_session_data)
         return 0;
-
-    llvm::sys::ScopedLock lock(m_mutex);
 
     HostProcess process = m_session_data->m_debugger->GetProcess();
     void *addr = reinterpret_cast<void *>(vm_addr);
@@ -407,10 +418,10 @@ ProcessWindows::DoReadMemory(lldb::addr_t vm_addr,
 size_t
 ProcessWindows::DoWriteMemory(lldb::addr_t vm_addr, const void *buf, size_t size, Error &error)
 {
+    llvm::sys::ScopedLock lock(m_mutex);
+
     if (!m_session_data)
         return 0;
-
-    llvm::sys::ScopedLock lock(m_mutex);
 
     HostProcess process = m_session_data->m_debugger->GetProcess();
     void *addr = reinterpret_cast<void *>(vm_addr);
@@ -421,6 +432,44 @@ ProcessWindows::DoWriteMemory(lldb::addr_t vm_addr, const void *buf, size_t size
     else
         error.SetError(GetLastError(), eErrorTypeWin32);
     return bytes_written;
+}
+
+Error
+ProcessWindows::GetMemoryRegionInfo(lldb::addr_t vm_addr, MemoryRegionInfo &info)
+{
+    Error error;
+    llvm::sys::ScopedLock lock(m_mutex);
+
+    if (!m_session_data)
+    {
+        error.SetErrorString("ProcessWindows::GetMemoryRegionInfo called with no debugging session.");
+        return error;
+    }
+
+    HostProcess process = m_session_data->m_debugger->GetProcess();
+    lldb::process_t handle = process.GetNativeProcess().GetSystemHandle();
+    if (handle == nullptr || handle == LLDB_INVALID_PROCESS)
+    {
+        error.SetErrorString("ProcessWindows::GetMemoryRegionInfo called with an invalid target process.");
+        return error;
+    }
+
+    void *addr = reinterpret_cast<void *>(vm_addr);
+    MEMORY_BASIC_INFORMATION mem_info = {0};
+    SIZE_T result = ::VirtualQueryEx(handle, addr, &mem_info, sizeof(mem_info));
+    if (result == 0)
+    {
+        error.SetError(::GetLastError(), eErrorTypeWin32);
+        return error;
+    }
+
+    bool readable = !(mem_info.Protect & PAGE_NOACCESS);
+    bool executable = mem_info.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY);
+    bool writable = mem_info.Protect & (PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY | PAGE_READWRITE | PAGE_WRITECOPY);
+    info.SetReadable(readable ? MemoryRegionInfo::eYes : MemoryRegionInfo::eNo);
+    info.SetExecutable(executable ? MemoryRegionInfo::eYes : MemoryRegionInfo::eNo);
+    info.SetWritable(writable ? MemoryRegionInfo::eYes : MemoryRegionInfo::eNo);
+    return error;
 }
 
 lldb::addr_t
@@ -451,7 +500,7 @@ ProcessWindows::CanDebug(Target &target, bool plugin_specified_by_name)
 void
 ProcessWindows::OnExitProcess(uint32_t exit_code)
 {
-    llvm::sys::ScopedLock lock(m_mutex);
+    // No need to acquire the lock since m_session_data isn't accessed.
 
     ModuleSP executable_module = GetTarget().GetExecutableModule();
     ModuleList unloaded_modules;
@@ -467,8 +516,6 @@ ProcessWindows::OnDebuggerConnected(lldb::addr_t image_base)
 {
     // Either we successfully attached to an existing process, or we successfully launched a new
     // process under the debugger.
-    llvm::sys::ScopedLock lock(m_mutex);
-
     ModuleSP module = GetTarget().GetExecutableModule();
     bool load_addr_changed;
     module->SetLoadAddress(GetTarget(), image_base, false, load_addr_changed);
@@ -478,6 +525,8 @@ ProcessWindows::OnDebuggerConnected(lldb::addr_t image_base)
     ModuleList loaded_modules;
     loaded_modules.Append(module);
     GetTarget().ModulesDidLoad(loaded_modules);
+
+    llvm::sys::ScopedLock lock(m_mutex);
 
     DebuggerThreadSP debugger = m_session_data->m_debugger;
     const HostThreadWindows &wmain_thread = debugger->GetMainThread().GetNativeThread();
@@ -497,7 +546,14 @@ ProcessWindows::OnDebugException(bool first_chance, const ExceptionRecord &recor
     if (!m_session_data)
         return ExceptionResult::SendToApplication;
 
+    if (!first_chance)
+    {
+        // Any second chance exception is an application crash by definition.
+        SetPrivateState(eStateCrashed);
+    }
+
     ExceptionResult result = ExceptionResult::SendToApplication;
+    lldb::StateType state = GetPrivateState();
     switch (record.GetExceptionCode())
     {
         case EXCEPTION_BREAKPOINT:
@@ -509,7 +565,11 @@ ProcessWindows::OnDebugException(bool first_chance, const ExceptionRecord &recor
                 m_session_data->m_initial_stop_received = true;
                 ::SetEvent(m_session_data->m_initial_stop_event);
             }
-
+            SetPrivateState(eStateStopped);
+            break;
+        case EXCEPTION_SINGLE_STEP:
+            result = ExceptionResult::BreakInDebugger;
+            SetPrivateState(eStateStopped);
             break;
         default:
             // For non-breakpoints, give the application a chance to handle the exception first.
@@ -517,23 +577,6 @@ ProcessWindows::OnDebugException(bool first_chance, const ExceptionRecord &recor
                 result = ExceptionResult::SendToApplication;
             else
                 result = ExceptionResult::BreakInDebugger;
-    }
-
-    if (!first_chance)
-    {
-        // Any second chance exception is an application crash by definition.
-        SetPrivateState(eStateCrashed);
-    }
-    else if (result == ExceptionResult::BreakInDebugger)
-    {
-        // For first chance exceptions that we can handle, the process is stopped so the user
-        // can interact with the debugger.
-        SetPrivateState(eStateStopped);
-    }
-    else
-    {
-        // For first chance exceptions that we either eat or send back to the application, don't
-        // modify the state of the application.
     }
 
     return result;
@@ -566,8 +609,6 @@ ProcessWindows::OnExitThread(const HostThread &exited_thread)
 void
 ProcessWindows::OnLoadDll(const ModuleSpec &module_spec, lldb::addr_t module_addr)
 {
-    llvm::sys::ScopedLock lock(m_mutex);
-
     // Confusingly, there is no Target::AddSharedModule.  Instead, calling GetSharedModule() with
     // a new module will add it to the module list and return a corresponding ModuleSP.
     Error error;
@@ -583,8 +624,6 @@ ProcessWindows::OnLoadDll(const ModuleSpec &module_spec, lldb::addr_t module_add
 void
 ProcessWindows::OnUnloadDll(lldb::addr_t module_addr)
 {
-    llvm::sys::ScopedLock lock(m_mutex);
-
     Address resolved_addr;
     if (GetTarget().ResolveLoadAddress(module_addr, resolved_addr))
     {

@@ -1,6 +1,7 @@
 if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
 # XXX Nyuzi: disable debugserver because this doesn't run on target
 #  add_subdirectory(debugserver)
+#  add_subdirectory(darwin-debug)
 endif()
   add_subdirectory(driver)
 if (NOT __ANDROID_NDK__)

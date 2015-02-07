@@ -103,13 +103,14 @@ ScriptInterpreterPython::Locker::DoAcquireLock()
     m_GILState = PyGILState_Ensure();
     if (log)
         log->Printf("Ensured PyGILState. Previous state = %slocked\n", m_GILState == PyGILState_UNLOCKED ? "un" : "");
-    
+
     // we need to save the thread state when we first start the command
     // because we might decide to interrupt it while some action is taking
     // place outside of Python (e.g. printing to screen, waiting for the network, ...)
     // in that case, _PyThreadState_Current will be NULL - and we would be unable
     // to set the asynchronous exception - not a desirable situation
     m_python_interpreter->SetThreadState (_PyThreadState_Current);
+    m_python_interpreter->IncrementLockCount();
     return true;
 }
 
@@ -128,6 +129,7 @@ ScriptInterpreterPython::Locker::DoFreeLock()
     if (log)
         log->Printf("Releasing PyGILState. Returning to state = %slocked\n", m_GILState == PyGILState_UNLOCKED ? "un" : "");
     PyGILState_Release(m_GILState);
+    m_python_interpreter->DecrementLockCount();
     return true;
 }
 
@@ -166,6 +168,7 @@ ScriptInterpreterPython::ScriptInterpreterPython (CommandInterpreter &interprete
     m_session_is_active (false),
     m_pty_slave_is_open (false),
     m_valid_session (true),
+    m_lock_count (0),
     m_command_thread_state (nullptr)
 {
 
@@ -444,19 +447,23 @@ ScriptInterpreterPython::EnterSession (uint16_t on_entry_flags,
         if (in == nullptr || out == nullptr || err == nullptr)
             m_interpreter.GetDebugger().AdoptTopIOHandlerFilesIfInvalid (in_sp, out_sp, err_sp);
 
-        if (in == nullptr && in_sp && (on_entry_flags & Locker::NoSTDIN) == 0)
-            in = in_sp->GetFile().GetStream();
-        if (in)
-        {
-            m_saved_stdin.Reset(sys_module_dict.GetItemForKey("stdin"));
+        m_saved_stdin.Reset();
 
-            PyObject *new_file = PyFile_FromFile (in, (char *) "", (char *) "r", nullptr);
-            sys_module_dict.SetItemForKey ("stdin", new_file);
-            Py_DECREF (new_file);
+        if ((on_entry_flags & Locker::NoSTDIN) == 0)
+        {
+            // STDIN is enabled
+            if (in == nullptr && in_sp)
+                in = in_sp->GetFile().GetStream();
+            if (in)
+            {
+                m_saved_stdin.Reset(sys_module_dict.GetItemForKey("stdin"));
+                // This call can deadlock your process if the file is locked
+                PyObject *new_file = PyFile_FromFile (in, (char *) "", (char *) "r", nullptr);
+                sys_module_dict.SetItemForKey ("stdin", new_file);
+                Py_DECREF (new_file);
+            }
         }
-        else
-            m_saved_stdin.Reset();
-        
+
         if (out == nullptr && out_sp)
             out = out_sp->GetFile().GetStream();
         if (out)
@@ -531,7 +538,7 @@ ScriptInterpreterPython::GetSysModuleDictionary ()
 static std::string
 GenerateUniqueName (const char* base_name_wanted,
                     uint32_t& functions_counter,
-                    void* name_token = nullptr)
+                    const void* name_token = nullptr)
 {
     StreamString sstr;
     
@@ -603,18 +610,14 @@ ScriptInterpreterPython::ExecuteOneLine (const char *command, CommandReturnObjec
                 // Set output to a temporary file so we can forward the results on to the result object
                 
                 Pipe pipe;
-#if defined(_WIN32)
-                // By default Windows does not create a pipe object that can be used for a non-blocking read.
-                // We must explicitly request it.  Furthermore, we can't use an fd for non-blocking read
-                // operations, and must use the native os HANDLE.
-                if (pipe.Open(true, false))
+                Error pipe_result = pipe.CreateNew(false);
+                if (pipe_result.Success())
                 {
+#if defined(_WIN32)
                     lldb::file_t read_file = pipe.GetReadNativeHandle();
                     pipe.ReleaseReadFileDescriptor();
                     std::unique_ptr<ConnectionGenericFile> conn_ap(new ConnectionGenericFile(read_file, true));
 #else
-                if (pipe.Open())
-                {
                     std::unique_ptr<ConnectionFileDescriptor> conn_ap(new ConnectionFileDescriptor(pipe.ReleaseReadFileDescriptor(), true));
 #endif
                     if (conn_ap->IsConnected())
@@ -652,7 +655,8 @@ ScriptInterpreterPython::ExecuteOneLine (const char *command, CommandReturnObjec
         Locker locker(this,
                       ScriptInterpreterPython::Locker::AcquireLock |
                       ScriptInterpreterPython::Locker::InitSession |
-                      (options.GetSetLLDBGlobals() ? ScriptInterpreterPython::Locker::InitGlobals : 0),
+                      (options.GetSetLLDBGlobals() ? ScriptInterpreterPython::Locker::InitGlobals : 0) |
+                      ((result && result->GetInteractive()) ? 0: Locker::NoSTDIN),
                       ScriptInterpreterPython::Locker::FreeAcquiredLock |
                       ScriptInterpreterPython::Locker::TearDownSession,
                       in_file,
@@ -816,24 +820,7 @@ public:
     virtual bool
     Interrupt ()
     {
-        Log *log (lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_SCRIPT));
-
-        PyThreadState* state = _PyThreadState_Current;
-        if (!state)
-            state = m_python->GetThreadState();
-        if (state)
-        {
-            long tid = state->thread_id;
-            _PyThreadState_Current = state;
-            int num_threads = PyThreadState_SetAsyncExc(tid, PyExc_KeyboardInterrupt);
-            if (log)
-                log->Printf("ScriptInterpreterPython::NonInteractiveInputReaderCallback, eInputReaderInterrupt, tid = %ld, num_threads = %d, state = %p",
-                            tid, num_threads, static_cast<void *>(state));
-        }
-        else if (log)
-            log->Printf("ScriptInterpreterPython::NonInteractiveInputReaderCallback, eInputReaderInterrupt, state = NULL");
-
-        return false;
+        return m_python->Interrupt();
     }
     
     virtual void
@@ -868,6 +855,31 @@ ScriptInterpreterPython::ExecuteInterpreterLoop ()
     }
 }
 
+bool
+ScriptInterpreterPython::Interrupt()
+{
+    Log *log (lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_SCRIPT));
+
+    if (IsExecutingPython())
+    {
+        PyThreadState* state = _PyThreadState_Current;
+        if (!state)
+            state = GetThreadState();
+        if (state)
+        {
+            long tid = state->thread_id;
+            _PyThreadState_Current = state;
+            int num_threads = PyThreadState_SetAsyncExc(tid, PyExc_KeyboardInterrupt);
+            if (log)
+                log->Printf("ScriptInterpreterPython::Interrupt() sending PyExc_KeyboardInterrupt (tid = %li, num_threads = %i)...", tid, num_threads);
+            return true;
+        }
+    }
+    if (log)
+        log->Printf("ScriptInterpreterPython::Interrupt() python code not running, can't interrupt");
+    return false;
+
+}
 bool
 ScriptInterpreterPython::ExecuteOneLineWithReturn (const char *in_string,
                                                    ScriptInterpreter::ScriptReturnType return_type,
@@ -1242,7 +1254,7 @@ ScriptInterpreterPython::GenerateFunction(const char *signature, const StringLis
 }
 
 bool
-ScriptInterpreterPython::GenerateTypeScriptFunction (StringList &user_input, std::string& output, void* name_token)
+ScriptInterpreterPython::GenerateTypeScriptFunction (StringList &user_input, std::string& output, const void* name_token)
 {
     static uint32_t num_created_functions = 0;
     user_input.RemoveBlankLines ();
@@ -1291,7 +1303,7 @@ ScriptInterpreterPython::GenerateScriptAliasFunction (StringList &user_input, st
 
 
 bool
-ScriptInterpreterPython::GenerateTypeSynthClass (StringList &user_input, std::string &output, void* name_token)
+ScriptInterpreterPython::GenerateTypeSynthClass (StringList &user_input, std::string &output, const void* name_token)
 {
     static uint32_t num_created_classes = 0;
     user_input.RemoveBlankLines ();
@@ -1794,7 +1806,7 @@ ScriptInterpreterPython::CreateSyntheticScriptedProvider (const char *class_name
 }
 
 bool
-ScriptInterpreterPython::GenerateTypeScriptFunction (const char* oneliner, std::string& output, void* name_token)
+ScriptInterpreterPython::GenerateTypeScriptFunction (const char* oneliner, std::string& output, const void* name_token)
 {
     StringList input;
     input.SplitIntoLines(oneliner, strlen(oneliner));
@@ -1802,7 +1814,7 @@ ScriptInterpreterPython::GenerateTypeScriptFunction (const char* oneliner, std::
 }
 
 bool
-ScriptInterpreterPython::GenerateTypeSynthClass (const char* oneliner, std::string& output, void* name_token)
+ScriptInterpreterPython::GenerateTypeSynthClass (const char* oneliner, std::string& output, const void* name_token)
 {
     StringList input;
     input.SplitIntoLines(oneliner, strlen(oneliner));

@@ -13,6 +13,7 @@
 #include "llvm/Option/Arg.h"
 #include "llvm/Option/ArgList.h"
 #include <string>
+#include <vector>
 
 namespace clang {
 namespace driver {
@@ -22,9 +23,9 @@ class ToolChain;
 
 class SanitizerArgs {
   SanitizerSet Sanitizers;
-  bool SanitizeRecover;
+  SanitizerSet RecoverableSanitizers;
 
-  std::string BlacklistFile;
+  std::vector<std::string> BlacklistFiles;
   int SanitizeCoverage;
   int MsanTrackOrigins;
   int AsanFieldPadding;

@@ -290,9 +290,8 @@ def note_pp_ambiguous_macro_chosen : Note<
   "expanding this definition of %0">;
 def note_pp_ambiguous_macro_other : Note<
   "other definition of %0">;
-def warn_pp_macro_hides_keyword : Warning<
-  "keyword is hidden by macro definition">,
-  InGroup<KeywordAsMacro>;
+def warn_pp_macro_hides_keyword : Extension<
+  "keyword is hidden by macro definition">, InGroup<KeywordAsMacro>;
 def warn_pp_macro_is_reserved_id : Warning<
   "macro name is a reserved identifier">, DefaultIgnore,
   InGroup<ReservedIdAsMacro>;
@@ -333,7 +332,7 @@ def warn_cxx98_compat_variadic_macro : Warning<
   InGroup<CXX98CompatPedantic>, DefaultIgnore;
 def ext_named_variadic_macro : Extension<
   "named variadic macros are a GNU extension">, InGroup<VariadicMacros>;
-def err_embedded_include : Error<
+def err_embedded_directive : Error<
   "embedding a #%0 directive within macro arguments is not supported">;
 def ext_embedded_directive : Extension<
   "embedding a directive within macro arguments has undefined behavior">,

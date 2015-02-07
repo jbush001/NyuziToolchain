@@ -38,7 +38,7 @@ using namespace llvm;
 
 #include "NyuziGenCallingConv.inc"
 
-const NyuziTargetLowering *NyuziTargetLowering::create(NyuziTargetMachine &TM,
+const NyuziTargetLowering *NyuziTargetLowering::create(const NyuziTargetMachine &TM,
                                                 const NyuziSubtarget &STI) {
  return new NyuziTargetLowering(TM, STI);
 }
@@ -380,7 +380,7 @@ unsigned NyuziTargetLowering::getJumpTableEncoding() const {
   return MachineJumpTableInfo::EK_Inline;
 }
 
-NyuziTargetLowering::NyuziTargetLowering(TargetMachine &TM,
+NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
                                          const NyuziSubtarget &STI)
     : TargetLowering(TM),
 	  Subtarget(STI) {

@@ -12,8 +12,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "PPCTargetMachine.h"
-#include "PPCTargetObjectFile.h"
 #include "PPC.h"
+#include "PPCTargetObjectFile.h"
+#include "PPCTargetTransformInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/IR/Function.h"
 #include "llvm/MC/MCStreamer.h"
@@ -29,6 +30,10 @@ static cl::
 opt<bool> DisableCTRLoops("disable-ppc-ctrloops", cl::Hidden,
                         cl::desc("Disable CTR loops for PPC"));
 
+static cl::
+opt<bool> DisablePreIncPrep("disable-ppc-preinc-prep", cl::Hidden,
+                            cl::desc("Disable PPC loop preinc prep"));
+
 static cl::opt<bool>
 VSXFMAMutateEarly("schedule-ppc-vsx-fma-mutation-early",
   cl::Hidden, cl::desc("Schedule VSX FMA instruction mutation early"));
@@ -43,6 +48,40 @@ extern "C" void LLVMInitializePowerPCTarget() {
   RegisterTargetMachine<PPC32TargetMachine> A(ThePPC32Target);
   RegisterTargetMachine<PPC64TargetMachine> B(ThePPC64Target);
   RegisterTargetMachine<PPC64TargetMachine> C(ThePPC64LETarget);
+}
+
+/// Return the datalayout string of a subtarget.
+static std::string getDataLayoutString(const Triple &T) {
+  bool is64Bit = T.getArch() == Triple::ppc64 || T.getArch() == Triple::ppc64le;
+  std::string Ret;
+
+  // Most PPC* platforms are big endian, PPC64LE is little endian.
+  if (T.getArch() == Triple::ppc64le)
+    Ret = "e";
+  else
+    Ret = "E";
+
+  Ret += DataLayout::getManglingComponent(T);
+
+  // PPC32 has 32 bit pointers. The PS3 (OS Lv2) is a PPC64 machine with 32 bit
+  // pointers.
+  if (!is64Bit || T.getOS() == Triple::Lv2)
+    Ret += "-p:32:32";
+
+  // Note, the alignment values for f64 and i64 on ppc64 in Darwin
+  // documentation are wrong; these are correct (i.e. "what gcc does").
+  if (is64Bit || !T.isOSDarwin())
+    Ret += "-i64:64";
+  else
+    Ret += "-f64:32:64";
+
+  // PPC64 has 32 and 64 bit registers, PPC32 has only 32 bit ones.
+  if (is64Bit)
+    Ret += "-n32:64";
+  else
+    Ret += "-n32";
+
+  return Ret;
 }
 
 static std::string computeFSAdditions(StringRef FS, CodeGenOpt::Level OL, StringRef TT) {
@@ -64,6 +103,14 @@ static std::string computeFSAdditions(StringRef FS, CodeGenOpt::Level OL, String
     else
       FullFS = "+crbits";
   }
+
+  if (OL != CodeGenOpt::None) {
+     if (!FullFS.empty())
+      FullFS = "+invariant-function-descriptors," + FullFS;
+    else
+      FullFS = "+invariant-function-descriptors";
+  }
+
   return FullFS;
 }
 
@@ -87,7 +134,7 @@ PPCTargetMachine::PPCTargetMachine(const Target &T, StringRef TT, StringRef CPU,
     : LLVMTargetMachine(T, TT, CPU, computeFSAdditions(FS, OL, TT), Options, RM,
                         CM, OL),
       TLOF(createTLOF(Triple(getTargetTriple()))),
-      Subtarget(TT, CPU, TargetFS, *this) {
+      DL(getDataLayoutString(Triple(TT))), Subtarget(TT, CPU, TargetFS, *this) {
   initAsmInfo();
 }
 
@@ -154,10 +201,6 @@ public:
     return getTM<PPCTargetMachine>();
   }
 
-  const PPCSubtarget &getPPCSubtarget() const {
-    return *getPPCTargetMachine().getSubtargetImpl();
-  }
-
   void addIRPasses() override;
   bool addPreISel() override;
   bool addILPOpts() override;
@@ -192,6 +235,9 @@ void PPCPassConfig::addIRPasses() {
 }
 
 bool PPCPassConfig::addPreISel() {
+  if (!DisablePreIncPrep && getOptLevel() != CodeGenOpt::None)
+    addPass(createPPCLoopPreIncPrepPass(getPPCTargetMachine()));
+
   if (!DisableCTRLoops && getOptLevel() != CodeGenOpt::None)
     addPass(createPPCCTRLoops(getPPCTargetMachine()));
 
@@ -223,8 +269,6 @@ void PPCPassConfig::addPreRegAlloc() {
 }
 
 void PPCPassConfig::addPreSched2() {
-  addPass(createPPCVSXCopyCleanupPass(), false);
-
   if (getOptLevel() != CodeGenOpt::None)
     addPass(&IfConverterID);
 }
@@ -236,11 +280,7 @@ void PPCPassConfig::addPreEmitPass() {
   addPass(createPPCBranchSelectionPass(), false);
 }
 
-void PPCTargetMachine::addAnalysisPasses(PassManagerBase &PM) {
-  // Add first the target-independent BasicTTI pass, then our PPC pass. This
-  // allows the PPC pass to delegate to the target independent layer when
-  // appropriate.
-  PM.add(createBasicTargetTransformInfoPass(this));
-  PM.add(createPPCTargetTransformInfoPass(this));
+TargetIRAnalysis PPCTargetMachine::getTargetIRAnalysis() {
+  return TargetIRAnalysis(
+      [this](Function &F) { return TargetTransformInfo(PPCTTIImpl(this, F)); });
 }
-

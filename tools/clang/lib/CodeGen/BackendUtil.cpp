@@ -15,6 +15,8 @@
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/Utils.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
+#include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Bitcode/BitcodeWriterPass.h"
 #include "llvm/CodeGen/RegAllocRegistry.h"
 #include "llvm/CodeGen/SchedulerRegistry.h"
@@ -30,7 +32,6 @@
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Target/TargetLibraryInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/Target/TargetSubtargetInfo.h"
@@ -39,6 +40,7 @@
 #include "llvm/Transforms/Instrumentation.h"
 #include "llvm/Transforms/ObjCARC.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Utils/SymbolRewriter.h"
 #include <memory>
 using namespace clang;
 using namespace llvm;
@@ -59,12 +61,19 @@ class EmitAssemblyHelper {
   mutable FunctionPassManager *PerFunctionPasses;
 
 private:
+  TargetIRAnalysis getTargetIRAnalysis() const {
+    if (TM)
+      return TM->getTargetIRAnalysis();
+
+    return TargetIRAnalysis();
+  }
+
   PassManager *getCodeGenPasses() const {
     if (!CodeGenPasses) {
       CodeGenPasses = new PassManager();
       CodeGenPasses->add(new DataLayoutPass());
-      if (TM)
-        TM->addAnalysisPasses(*CodeGenPasses);
+      CodeGenPasses->add(
+          createTargetTransformInfoWrapperPass(getTargetIRAnalysis()));
     }
     return CodeGenPasses;
   }
@@ -73,8 +82,8 @@ private:
     if (!PerModulePasses) {
       PerModulePasses = new PassManager();
       PerModulePasses->add(new DataLayoutPass());
-      if (TM)
-        TM->addAnalysisPasses(*PerModulePasses);
+      PerModulePasses->add(
+          createTargetTransformInfoWrapperPass(getTargetIRAnalysis()));
     }
     return PerModulePasses;
   }
@@ -83,8 +92,8 @@ private:
     if (!PerFunctionPasses) {
       PerFunctionPasses = new FunctionPassManager(TheModule);
       PerFunctionPasses->add(new DataLayoutPass());
-      if (TM)
-        TM->addAnalysisPasses(*PerFunctionPasses);
+      PerFunctionPasses->add(
+          createTargetTransformInfoWrapperPass(getTargetIRAnalysis()));
     }
     return PerFunctionPasses;
   }
@@ -223,15 +232,26 @@ static void addDataFlowSanitizerPass(const PassManagerBuilder &Builder,
   const PassManagerBuilderWrapper &BuilderWrapper =
       static_cast<const PassManagerBuilderWrapper&>(Builder);
   const LangOptions &LangOpts = BuilderWrapper.getLangOpts();
-  PM.add(createDataFlowSanitizerPass(LangOpts.SanitizerBlacklistFile));
+  PM.add(createDataFlowSanitizerPass(LangOpts.SanitizerBlacklistFiles));
 }
 
-static TargetLibraryInfo *createTLI(llvm::Triple &TargetTriple,
-                                    const CodeGenOptions &CodeGenOpts) {
-  TargetLibraryInfo *TLI = new TargetLibraryInfo(TargetTriple);
+static TargetLibraryInfoImpl *createTLII(llvm::Triple &TargetTriple,
+                                         const CodeGenOptions &CodeGenOpts) {
+  TargetLibraryInfoImpl *TLII = new TargetLibraryInfoImpl(TargetTriple);
   if (!CodeGenOpts.SimplifyLibCalls)
-    TLI->disableAllFunctions();
-  return TLI;
+    TLII->disableAllFunctions();
+  return TLII;
+}
+
+static void addSymbolRewriterPass(const CodeGenOptions &Opts,
+                                  PassManager *MPM) {
+  llvm::SymbolRewriter::RewriteDescriptorList DL;
+
+  llvm::SymbolRewriter::RewriteMapParser MapParser;
+  for (const auto &MapFile : Opts.RewriteMapFiles)
+    MapParser.parse(MapFile, &DL);
+
+  MPM->add(createRewriteSymbolsPass(DL));
 }
 
 void EmitAssemblyHelper::CreatePasses() {
@@ -319,7 +339,7 @@ void EmitAssemblyHelper::CreatePasses() {
 
   // Figure out TargetLibraryInfo.
   Triple TargetTriple(TheModule->getTargetTriple());
-  PMBuilder.LibraryInfo = createTLI(TargetTriple, CodeGenOpts);
+  PMBuilder.LibraryInfo = createTLII(TargetTriple, CodeGenOpts);
 
   switch (Inlining) {
   case CodeGenOptions::NoInlining: break;
@@ -346,6 +366,8 @@ void EmitAssemblyHelper::CreatePasses() {
 
   // Set up the per-module pass manager.
   PassManager *MPM = getPerModulePasses();
+  if (!CodeGenOpts.RewriteMapFiles.empty())
+    addSymbolRewriterPass(CodeGenOpts, MPM);
   if (CodeGenOpts.VerifyModule)
     MPM->add(createDebugInfoVerifierPass());
 
@@ -418,7 +440,7 @@ TargetMachine *EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
                                     BackendArgs.data());
 
   std::string FeaturesStr;
-  if (TargetOpts.Features.size()) {
+  if (!TargetOpts.Features.empty()) {
     SubtargetFeatures Features;
     for (std::vector<std::string>::const_iterator
            it = TargetOpts.Features.begin(),
@@ -512,6 +534,7 @@ TargetMachine *EmitAssemblyHelper::CreateTargetMachine(bool MustCreateTM) {
   Options.MCOptions.MCNoExecStack = CodeGenOpts.NoExecStack;
   Options.MCOptions.MCFatalWarnings = CodeGenOpts.FatalWarnings;
   Options.MCOptions.AsmVerbose = CodeGenOpts.AsmVerbose;
+  Options.MCOptions.ABIName = TargetOpts.ABI;
 
   TargetMachine *TM = TheTarget->createTargetMachine(Triple, TargetOpts.CPU,
                                                      FeaturesStr, Options,
@@ -528,10 +551,9 @@ bool EmitAssemblyHelper::AddEmitPasses(BackendAction Action,
 
   // Add LibraryInfo.
   llvm::Triple TargetTriple(TheModule->getTargetTriple());
-  PM->add(createTLI(TargetTriple, CodeGenOpts));
-
-  // Add Target specific analysis passes.
-  TM->addAnalysisPasses(*PM);
+  std::unique_ptr<TargetLibraryInfoImpl> TLII(
+      createTLII(TargetTriple, CodeGenOpts));
+  PM->add(new TargetLibraryInfoWrapperPass(*TLII));
 
   // Normal mode, emit a .s or .o file by running the code generator. Note,
   // this also adds codegenerator level optimization passes.
@@ -632,9 +654,8 @@ void clang::EmitBackendOutput(DiagnosticsEngine &Diags,
   // If an optional clang TargetInfo description string was passed in, use it to
   // verify the LLVM TargetMachine's DataLayout.
   if (AsmHelper.TM && !TDesc.empty()) {
-    std::string DLDesc = AsmHelper.TM->getSubtargetImpl()
-                             ->getDataLayout()
-                             ->getStringRepresentation();
+    std::string DLDesc =
+        AsmHelper.TM->getDataLayout()->getStringRepresentation();
     if (DLDesc != TDesc) {
       unsigned DiagID = Diags.getCustomDiagID(
           DiagnosticsEngine::Error, "backend data layout '%0' does not match "

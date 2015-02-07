@@ -1,26 +1,25 @@
 if ( CMAKE_SYSTEM_NAME MATCHES "Windows" )
-  set(LLDB_DEFAULT_DISABLE_PYTHON 1)
+  set(LLDB_DEFAULT_DISABLE_PYTHON 0)
   set(LLDB_DEFAULT_DISABLE_CURSES 1)
-  if (LLDB_DISABLE_PYTHON)
-    set(LLDB_DEFAULT_ENABLE_PYTHON_SCRIPTS_SWIG_API_GENERATION 0)
-  else()
-    set(LLDB_DEFAULT_ENABLE_PYTHON_SCRIPTS_SWIG_API_GENERATION 1)
-  endif()
 else()
   if ( __ANDROID_NDK__ )
     set(LLDB_DEFAULT_DISABLE_PYTHON 1)
     set(LLDB_DEFAULT_DISABLE_CURSES 1)
-    set(LLDB_DEFAULT_ENABLE_PYTHON_SCRIPTS_SWIG_API_GENERATION 0)
   else()
     set(LLDB_DEFAULT_DISABLE_PYTHON 0)
     set(LLDB_DEFAULT_DISABLE_CURSES 0)
-    set(LLDB_DEFAULT_ENABLE_PYTHON_SCRIPTS_SWIG_API_GENERATION 0)
   endif()
 endif()
 set(LLDB_DISABLE_PYTHON ${LLDB_DEFAULT_DISABLE_PYTHON} CACHE BOOL
   "Disables the Python scripting integration.")
 set(LLDB_DISABLE_CURSES ${LLDB_DEFAULT_DISABLE_CURSES} CACHE BOOL
   "Disables the Curses integration.")
+
+if ( LLDB_DISABLE_PYTHON )
+  set(LLDB_DEFAULT_ENABLE_PYTHON_SCRIPTS_SWIG_API_GENERATION 0)
+else ()
+  set(LLDB_DEFAULT_ENABLE_PYTHON_SCRIPTS_SWIG_API_GENERATION 1)
+endif ()
 
 set(LLDB_ENABLE_PYTHON_SCRIPTS_SWIG_API_GENERATION ${LLDB_DEFAULT_ENABLE_PYTHON_SCRIPTS_SWIG_API_GENERATION} CACHE BOOL
   "Enables using new Python scripts for SWIG API generation .")  
@@ -67,10 +66,20 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
   # These variables are used by add_llvm_library.
   set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/bin)
-  set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/lib)
+  set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/lib${LLVM_LIBDIR_SUFFIX})
 
   include(AddLLVM)
   include(HandleLLVMOptions)
+
+  # Verify that we can find a Python 2 interpreter.  Python 3 is unsupported.
+  set(Python_ADDITIONAL_VERSIONS 2.7 2.6 2.5)
+  include(FindPythonInterp)
+  if( NOT PYTHONINTERP_FOUND )
+    message(FATAL_ERROR
+  "Unable to find Python interpreter, required for builds and testing.
+
+  Please install Python or specify the PYTHON_EXECUTABLE CMake variable.")
+  endif()
 
   # Import CMake library targets from LLVM and Clang.
   include("${LLDB_PATH_TO_LLVM_BUILD}/share/llvm/cmake/LLVMConfig.cmake")
@@ -89,12 +98,12 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
                       "${PATH_TO_CLANG_BUILD}/include"
                       "${CLANG_MAIN_INCLUDE_DIR}"
                       "${CMAKE_CURRENT_SOURCE_DIR}/source")
-  link_directories("${PATH_TO_LLVM_BUILD}/lib"
-                   "${PATH_TO_CLANG_BUILD}/lib")
+  link_directories("${PATH_TO_LLVM_BUILD}/lib${LLVM_LIBDIR_SUFFIX}"
+                   "${PATH_TO_CLANG_BUILD}/lib${LLVM_LIBDIR_SUFFIX}")
 
   set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+  set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX})
+  set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX})
 
   set(LLDB_BUILT_STANDALONE 1)
 endif()
@@ -227,7 +236,15 @@ else ()
 endif ()
 
 macro(add_lldb_library name)
-  llvm_process_sources(srcs ${ARGN})
+  # only supported parameters to this macro are the optional 
+  # MODULE;SHARED;STATIC library type and source files
+  cmake_parse_arguments(PARAM
+    "MODULE;SHARED;STATIC"
+    ""
+    ""
+    ${ARGN})
+  llvm_process_sources(srcs ${PARAM_UNPARSED_ARGUMENTS})
+  
   if (MSVC_IDE OR XCODE)
     string(REGEX MATCHALL "/[^/]+" split_path ${CMAKE_CURRENT_SOURCE_DIR})
     list(GET split_path -1 dir)
@@ -235,13 +252,17 @@ macro(add_lldb_library name)
       ../../include/lldb${dir}/*.h)
     set(srcs ${srcs} ${headers})
   endif()
-  if (MODULE)
+  if (PARAM_MODULE)
     set(libkind MODULE)
-  elseif (SHARED_LIBRARY)
+  elseif (PARAM_SHARED)
     set(libkind SHARED)
-  else()
+  elseif (PARAM_STATIC)
     set(libkind STATIC)
+  else ()
+    # library type unspecified - controlled by BUILD_SHARED_LIBS
+    unset(libkind)
   endif()
+
   #PIC not needed on Win
   if (NOT MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIC")

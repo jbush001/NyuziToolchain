@@ -274,6 +274,7 @@ def ObjCInvalidIBOutletProperty : DiagGroup<"invalid-iboutlet">;
 def ObjCRootClass : DiagGroup<"objc-root-class">;
 def ObjCPointerIntrospectPerformSelector : DiagGroup<"deprecated-objc-pointer-introspection-performSelector">;
 def ObjCPointerIntrospect : DiagGroup<"deprecated-objc-pointer-introspection", [ObjCPointerIntrospectPerformSelector]>;
+def ObjCMultipleMethodNames : DiagGroup<"objc-multiple-method-names">;
 def DeprecatedObjCIsaUsage : DiagGroup<"deprecated-objc-isa-usage">;
 def ExplicitInitializeCall : DiagGroup<"explicit-initialize-call">;
 def Packed : DiagGroup<"packed">;
@@ -293,6 +294,7 @@ def BindToTemporaryCopy : DiagGroup<"bind-to-temporary-copy",
                                     [CXX98CompatBindToTemporaryCopy]>;
 def SelfAssignmentField : DiagGroup<"self-assign-field">;
 def SelfAssignment : DiagGroup<"self-assign", [SelfAssignmentField]>;
+def SelfMove : DiagGroup<"self-move">;
 def SemiBeforeMethodBody : DiagGroup<"semicolon-before-method-body">;
 def Sentinel : DiagGroup<"sentinel">;
 def MissingMethodReturnType : DiagGroup<"missing-method-return-type">;
@@ -408,12 +410,17 @@ def UnusedMemberFunction : DiagGroup<"unused-member-function",
 def UnusedLabel : DiagGroup<"unused-label">;
 def UnusedParameter : DiagGroup<"unused-parameter">;
 def UnusedResult : DiagGroup<"unused-result">;
-def UnusedValue : DiagGroup<"unused-value", [UnusedComparison, UnusedResult]>;
+def PotentiallyEvaluatedExpression : DiagGroup<"potentially-evaluated-expression">;
+def UnevaluatedExpression : DiagGroup<"unevaluated-expression",
+                                      [PotentiallyEvaluatedExpression]>;
+def UnusedValue : DiagGroup<"unused-value", [UnusedComparison, UnusedResult,
+                                             UnevaluatedExpression]>;
 def UnusedConstVariable : DiagGroup<"unused-const-variable">;
 def UnusedVariable : DiagGroup<"unused-variable",
                                [UnusedConstVariable]>;
 def UnusedLocalTypedef : DiagGroup<"unused-local-typedef">;
 def UnusedPropertyIvar :  DiagGroup<"unused-property-ivar">;
+def UnusedGetterReturnValue : DiagGroup<"unused-getter-return-value">;
 def UsedButMarkedUnused : DiagGroup<"used-but-marked-unused">;
 def UserDefinedLiterals : DiagGroup<"user-defined-literals">;
 def Reorder : DiagGroup<"reorder">;
@@ -580,6 +587,7 @@ def Most : DiagGroup<"most", [
     Reorder,
     ReturnType,
     SelfAssignment,
+    SelfMove,
     SizeofArrayArgument,
     SizeofArrayDecay,
     StringPlusInt,

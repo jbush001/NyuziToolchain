@@ -19,6 +19,8 @@
 
 #include "lldb/lldb-types.h"
 
+#include "lldb/Core/Error.h"
+
 namespace lldb_private
 {
     class ThreadStateCoordinator
@@ -38,6 +40,8 @@ namespace lldb_private
         typedef std::function<void (lldb::tid_t tid)> ThreadIDFunction;
         typedef std::function<void (const char *format, va_list args)> LogFunction;
         typedef std::function<void (const std::string &error_message)> ErrorFunction;
+        typedef std::function<Error (lldb::tid_t tid)> StopThreadFunction;
+        typedef std::function<Error (lldb::tid_t tid, bool supress_signal)> ResumeThreadFunction;
 
         // Constructors.
         ThreadStateCoordinator (const LogFunction &log_function);
@@ -67,7 +71,7 @@ namespace lldb_private
         void
         CallAfterThreadsStop (lldb::tid_t triggering_tid,
                               const ThreadIDSet &wait_for_stop_tids,
-                              const ThreadIDFunction &request_thread_stop_function,
+                              const StopThreadFunction &request_thread_stop_function,
                               const ThreadIDFunction &call_after_function,
                               const ErrorFunction &error_function);
 
@@ -77,23 +81,47 @@ namespace lldb_private
         // be fired if the triggering tid is unknown at the time of execution.
         void
         CallAfterRunningThreadsStop (lldb::tid_t triggering_tid,
-                                     const ThreadIDFunction &request_thread_stop_function,
+                                     const StopThreadFunction &request_thread_stop_function,
                                      const ThreadIDFunction &call_after_function,
                                      const ErrorFunction &error_function);
+
+        // This method is the main purpose of the class: triggering a deferred
+        // action after all non-stopped threads stop.  The triggering_tid is the
+        // thread id passed to the call_after_function.  The error_function will
+        // be fired if the triggering tid is unknown at the time of execution.
+        // This variant will send stop requests to all non-stopped threads except
+        // for any contained in skip_stop_request_tids.
+        void
+        CallAfterRunningThreadsStopWithSkipTIDs (lldb::tid_t triggering_tid,
+                                                 const ThreadIDSet &skip_stop_request_tids,
+                                                 const StopThreadFunction &request_thread_stop_function,
+                                                 const ThreadIDFunction &call_after_function,
+                                                 const ErrorFunction &error_function);
 
         // Notify the thread stopped.  Will trigger error at time of execution if we
         // already think it is stopped.
         void
         NotifyThreadStop (lldb::tid_t tid,
+                          bool initiated_by_llgs,
                           const ErrorFunction &error_function);
 
         // Request that the given thread id should have the request_thread_resume_function
         // called.  Will trigger the error_function if the thread is thought to be running
-        // already at that point.
+        // already at that point.  This call signals an error if the thread resume is for
+        // a thread that is already in a running state.
         void
         RequestThreadResume (lldb::tid_t tid,
-                             const ThreadIDFunction &request_thread_resume_function,
+                             const ResumeThreadFunction &request_thread_resume_function,
                              const ErrorFunction &error_function);
+
+        // Request that the given thread id should have the request_thread_resume_function
+        // called.  Will trigger the error_function if the thread is thought to be running
+        // already at that point.  This call ignores threads that are already running and
+        // does not trigger an error in that case.
+        void
+        RequestThreadResumeAsNeeded (lldb::tid_t tid,
+                                     const ResumeThreadFunction &request_thread_resume_function,
+                                     const ErrorFunction &error_function);
 
         // Indicate the calling process did an exec and that the thread state
         // should be 100% cleared.
@@ -115,6 +143,10 @@ namespace lldb_private
         EventLoopResult
         ProcessNextEvent ();
 
+        // Enable/disable verbose logging of event processing.
+        void
+        LogEnableEventProcessing (bool enabled);
+
     private:
 
         // Typedefs.
@@ -133,7 +165,19 @@ namespace lldb_private
 
         typedef std::queue<EventBaseSP> QueueType;
 
-        typedef std::unordered_map<lldb::tid_t, bool> TIDBoolMap;
+        enum class ThreadState
+        {
+            Running,
+            Stopped
+        };
+
+        struct ThreadContext
+        {
+            ThreadState m_state;
+            bool m_stop_requested = false;
+            ResumeThreadFunction m_request_resume_function;
+        };
+        typedef std::unordered_map<lldb::tid_t, ThreadContext> TIDContextMap;
 
 
         // Private member functions.
@@ -147,7 +191,7 @@ namespace lldb_private
         SetPendingNotification (const EventBaseSP &event_sp);
 
         void
-        ThreadDidStop (lldb::tid_t tid, ErrorFunction &error_function);
+        ThreadDidStop (lldb::tid_t tid, bool initiated_by_llgs, ErrorFunction &error_function);
 
         void
         ThreadWasCreated (lldb::tid_t tid, bool is_stopped, ErrorFunction &error_function);
@@ -157,6 +201,9 @@ namespace lldb_private
 
         void
         ResetNow ();
+
+        bool
+        IsKnownThread(lldb::tid_t tid) const;
 
         void
         Log (const char *format, ...);
@@ -177,8 +224,10 @@ namespace lldb_private
 
         EventBaseSP m_pending_notification_sp;
 
-        // Maps known TIDs to stop (true) or not-stopped (false) state.
-        TIDBoolMap m_tid_stop_map;
+        // Maps known TIDs to ThreadContext.
+        TIDContextMap m_tid_map;
+
+        bool m_log_event_processing;
     };
 }
 

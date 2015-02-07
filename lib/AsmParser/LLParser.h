@@ -52,7 +52,6 @@ namespace llvm {
       t_EmptyArray,               // No value:  []
       t_Constant,                 // Value in ConstantVal.
       t_InlineAsm,                // Value in StrVal/StrVal2/UIntVal.
-      t_Metadata,                 // Value in MetadataVal.
       t_ConstantStruct,           // Value in ConstantStructElts.
       t_PackedConstantStruct      // Value in ConstantStructElts.
     } Kind;
@@ -63,7 +62,6 @@ namespace llvm {
     APSInt APSIntVal;
     APFloat APFloatVal;
     Constant *ConstantVal;
-    MetadataAsValue *MetadataVal;
     Constant **ConstantStructElts;
 
     ValID() : Kind(t_LocalID), APFloatVal(0.0) {}
@@ -104,7 +102,6 @@ namespace llvm {
       SMLoc Loc;
       unsigned MDKind, MDSlot;
     };
-    DenseMap<Instruction*, std::vector<MDRef> > ForwardRefInstMetadata;
 
     SmallVector<Instruction*, 64> InstsWithTBAATag;
 
@@ -114,7 +111,7 @@ namespace llvm {
     std::vector<std::pair<Type*, LocTy> > NumberedTypes;
 
     std::vector<TrackingMDNodeRef> NumberedMetadata;
-    std::map<unsigned, std::pair<MDNodeFwdDecl *, LocTy>> ForwardRefMDNodes;
+    std::map<unsigned, std::pair<TempMDTuple, LocTy>> ForwardRefMDNodes;
 
     // Global Value reference information.
     std::map<std::string, std::pair<GlobalValue*, LocTy> > ForwardRefVals;
@@ -268,14 +265,21 @@ namespace llvm {
     bool ParseNamedMetadata();
     bool ParseMDString(MDString *&Result);
     bool ParseMDNodeID(MDNode *&Result);
-    bool ParseMDNodeID(MDNode *&Result, unsigned &SlotNo);
     bool ParseUnnamedAttrGrp();
     bool ParseFnAttributeValuePairs(AttrBuilder &B,
                                     std::vector<unsigned> &FwdRefAttrGrps,
                                     bool inAttrGrp, LocTy &BuiltinLoc);
 
     // Type Parsing.
-    bool ParseType(Type *&Result, bool AllowVoid = false);
+    bool ParseType(Type *&Result, const Twine &Msg, bool AllowVoid = false);
+    bool ParseType(Type *&Result, bool AllowVoid = false) {
+      return ParseType(Result, "expected type", AllowVoid);
+    }
+    bool ParseType(Type *&Result, const Twine &Msg, LocTy &Loc,
+                   bool AllowVoid = false) {
+      Loc = Lex.getLoc();
+      return ParseType(Result, Msg, AllowVoid);
+    }
     bool ParseType(Type *&Result, LocTy &Loc, bool AllowVoid = false) {
       Loc = Lex.getLoc();
       return ParseType(Result, AllowVoid);
@@ -379,14 +383,26 @@ namespace llvm {
     bool ParseGlobalValue(Type *Ty, Constant *&V);
     bool ParseGlobalTypeAndValue(Constant *&V);
     bool ParseGlobalValueVector(SmallVectorImpl<Constant *> &Elts);
-    bool parseOptionalComdat(Comdat *&C);
-    bool ParseMetadataAsValue(ValID &ID, PerFunctionState *PFS);
+    bool parseOptionalComdat(StringRef GlobalName, Comdat *&C);
+    bool ParseMetadataAsValue(Value *&V, PerFunctionState &PFS);
+    bool ParseValueAsMetadata(Metadata *&MD, PerFunctionState *PFS);
     bool ParseMetadata(Metadata *&MD, PerFunctionState *PFS);
+    bool ParseMDTuple(MDNode *&MD, bool IsDistinct = false);
     bool ParseMDNode(MDNode *&MD);
-    bool ParseMDNodeOrLocal(Metadata *&MD, PerFunctionState *PFS);
-    bool ParseMDNodeVector(SmallVectorImpl<Metadata *> &,
-                           PerFunctionState *PFS);
+    bool ParseMDNodeTail(MDNode *&MD);
+    bool ParseMDNodeVector(SmallVectorImpl<Metadata *> &MDs);
     bool ParseInstructionMetadata(Instruction *Inst, PerFunctionState *PFS);
+
+    template <class FieldTy>
+    bool ParseMDField(LocTy Loc, StringRef Name, FieldTy &Result);
+    template <class FieldTy> bool ParseMDField(StringRef Name, FieldTy &Result);
+    template <class ParserTy>
+    bool ParseMDFieldsImplBody(ParserTy parseField);
+    template <class ParserTy>
+    bool ParseMDFieldsImpl(ParserTy parseField, LocTy &ClosingLoc);
+    bool ParseSpecializedMDNode(MDNode *&N, bool IsDistinct = false);
+    bool ParseMDLocation(MDNode *&Result, bool IsDistinct);
+    bool ParseGenericDebugNode(MDNode *&Result, bool IsDistinct);
 
     // Function Parsing.
     struct ArgInfo {

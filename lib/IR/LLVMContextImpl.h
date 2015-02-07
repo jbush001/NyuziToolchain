@@ -17,7 +17,6 @@
 
 #include "AttributeImpl.h"
 #include "ConstantsContext.h"
-#include "LeaksContext.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -28,6 +27,7 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Metadata.h"
@@ -41,6 +41,7 @@ class ConstantFP;
 class DiagnosticInfoOptimizationRemark;
 class DiagnosticInfoOptimizationRemarkMissed;
 class DiagnosticInfoOptimizationRemarkAnalysis;
+class GCStrategy;
 class LLVMContext;
 class Type;
 class Value;
@@ -166,54 +167,137 @@ struct FunctionTypeKeyInfo {
   }
 };
 
-/// \brief DenseMapInfo for GenericMDNode.
+/// \brief Structure for hashing arbitrary MDNode operands.
+class MDNodeOpsKey {
+  ArrayRef<Metadata *> RawOps;
+  ArrayRef<MDOperand> Ops;
+
+  unsigned Hash;
+
+protected:
+  MDNodeOpsKey(ArrayRef<Metadata *> Ops)
+      : RawOps(Ops), Hash(calculateHash(Ops)) {}
+
+  template <class NodeTy>
+  MDNodeOpsKey(const NodeTy *N, unsigned Offset = 0)
+      : Ops(N->op_begin() + Offset, N->op_end()), Hash(N->getHash()) {}
+
+  template <class NodeTy>
+  bool compareOps(const NodeTy *RHS, unsigned Offset = 0) const {
+    if (getHash() != RHS->getHash())
+      return false;
+
+    assert((RawOps.empty() || Ops.empty()) && "Two sets of operands?");
+    return RawOps.empty() ? compareOps(Ops, RHS, Offset)
+                          : compareOps(RawOps, RHS, Offset);
+  }
+
+  static unsigned calculateHash(MDNode *N, unsigned Offset = 0);
+
+private:
+  template <class T>
+  static bool compareOps(ArrayRef<T> Ops, const MDNode *RHS, unsigned Offset) {
+    if (Ops.size() != RHS->getNumOperands() - Offset)
+      return false;
+    return std::equal(Ops.begin(), Ops.end(), RHS->op_begin() + Offset);
+  }
+
+  static unsigned calculateHash(ArrayRef<Metadata *> Ops);
+
+public:
+  unsigned getHash() const { return Hash; }
+};
+
+template <class NodeTy> struct MDNodeKeyImpl;
+template <class NodeTy> struct MDNodeInfo;
+
+/// \brief DenseMapInfo for MDTuple.
 ///
 /// Note that we don't need the is-function-local bit, since that's implicit in
 /// the operands.
-struct GenericMDNodeInfo {
-  struct KeyTy {
-    ArrayRef<Metadata *> RawOps;
-    ArrayRef<MDOperand> Ops;
-    unsigned Hash;
+template <> struct MDNodeKeyImpl<MDTuple> : MDNodeOpsKey {
+  MDNodeKeyImpl(ArrayRef<Metadata *> Ops) : MDNodeOpsKey(Ops) {}
+  MDNodeKeyImpl(const MDTuple *N) : MDNodeOpsKey(N) {}
 
-    KeyTy(ArrayRef<Metadata *> Ops)
-        : RawOps(Ops), Hash(hash_combine_range(Ops.begin(), Ops.end())) {}
+  bool isKeyOf(const MDTuple *RHS) const { return compareOps(RHS); }
 
-    KeyTy(GenericMDNode *N)
-        : Ops(N->op_begin(), N->op_end()), Hash(N->getHash()) {}
+  unsigned getHashValue() const { return getHash(); }
 
-    bool operator==(const GenericMDNode *RHS) const {
-      if (RHS == getEmptyKey() || RHS == getTombstoneKey())
-        return false;
-      if (Hash != RHS->getHash())
-        return false;
-      assert((RawOps.empty() || Ops.empty()) && "Two sets of operands?");
-      return RawOps.empty() ? compareOps(Ops, RHS) : compareOps(RawOps, RHS);
-    }
-    template <class T>
-    static bool compareOps(ArrayRef<T> Ops, const GenericMDNode *RHS) {
-      if (Ops.size() != RHS->getNumOperands())
-        return false;
-      return std::equal(Ops.begin(), Ops.end(), RHS->op_begin());
-    }
-  };
-  static inline GenericMDNode *getEmptyKey() {
-    return DenseMapInfo<GenericMDNode *>::getEmptyKey();
+  static unsigned calculateHash(MDTuple *N) {
+    return MDNodeOpsKey::calculateHash(N);
   }
-  static inline GenericMDNode *getTombstoneKey() {
-    return DenseMapInfo<GenericMDNode *>::getTombstoneKey();
+};
+
+/// \brief DenseMapInfo for MDLocation.
+template <> struct MDNodeKeyImpl<MDLocation> {
+  unsigned Line;
+  unsigned Column;
+  Metadata *Scope;
+  Metadata *InlinedAt;
+
+  MDNodeKeyImpl(unsigned Line, unsigned Column, Metadata *Scope,
+                Metadata *InlinedAt)
+      : Line(Line), Column(Column), Scope(Scope), InlinedAt(InlinedAt) {}
+
+  MDNodeKeyImpl(const MDLocation *L)
+      : Line(L->getLine()), Column(L->getColumn()), Scope(L->getScope()),
+        InlinedAt(L->getInlinedAt()) {}
+
+  bool isKeyOf(const MDLocation *RHS) const {
+    return Line == RHS->getLine() && Column == RHS->getColumn() &&
+           Scope == RHS->getScope() && InlinedAt == RHS->getInlinedAt();
   }
-  static unsigned getHashValue(const KeyTy &Key) { return Key.Hash; }
-  static unsigned getHashValue(const GenericMDNode *U) {
-    return U->getHash();
+  unsigned getHashValue() const {
+    return hash_combine(Line, Column, Scope, InlinedAt);
   }
-  static bool isEqual(const KeyTy &LHS, const GenericMDNode *RHS) {
-    return LHS == RHS;
+};
+
+/// \brief DenseMapInfo for GenericDebugNode.
+template <> struct MDNodeKeyImpl<GenericDebugNode> : MDNodeOpsKey {
+  unsigned Tag;
+  StringRef Header;
+  MDNodeKeyImpl(unsigned Tag, StringRef Header, ArrayRef<Metadata *> DwarfOps)
+      : MDNodeOpsKey(DwarfOps), Tag(Tag), Header(Header) {}
+  MDNodeKeyImpl(const GenericDebugNode *N)
+      : MDNodeOpsKey(N, 1), Tag(N->getTag()), Header(N->getHeader()) {}
+
+  bool isKeyOf(const GenericDebugNode *RHS) const {
+    return Tag == RHS->getTag() && Header == RHS->getHeader() &&
+           compareOps(RHS, 1);
   }
-  static bool isEqual(const GenericMDNode *LHS, const GenericMDNode *RHS) {
+
+  unsigned getHashValue() const { return hash_combine(getHash(), Tag, Header); }
+
+  static unsigned calculateHash(GenericDebugNode *N) {
+    return MDNodeOpsKey::calculateHash(N, 1);
+  }
+};
+
+/// \brief DenseMapInfo for MDNode subclasses.
+template <class NodeTy> struct MDNodeInfo {
+  typedef MDNodeKeyImpl<NodeTy> KeyTy;
+  static inline NodeTy *getEmptyKey() {
+    return DenseMapInfo<NodeTy *>::getEmptyKey();
+  }
+  static inline NodeTy *getTombstoneKey() {
+    return DenseMapInfo<NodeTy *>::getTombstoneKey();
+  }
+  static unsigned getHashValue(const KeyTy &Key) { return Key.getHashValue(); }
+  static unsigned getHashValue(const NodeTy *N) {
+    return KeyTy(N).getHashValue();
+  }
+  static bool isEqual(const KeyTy &LHS, const NodeTy *RHS) {
+    if (RHS == getEmptyKey() || RHS == getTombstoneKey())
+      return false;
+    return LHS.isKeyOf(RHS);
+  }
+  static bool isEqual(const NodeTy *LHS, const NodeTy *RHS) {
     return LHS == RHS;
   }
 };
+
+#define HANDLE_MDNODE_LEAF(CLASS) typedef MDNodeInfo<CLASS> CLASS##Info;
+#include "llvm/IR/Metadata.def"
 
 class LLVMContextImpl {
 public:
@@ -245,13 +329,14 @@ public:
   DenseMap<Value *, ValueAsMetadata *> ValuesAsMetadata;
   DenseMap<Metadata *, MetadataAsValue *> MetadataAsValues;
 
-  DenseSet<GenericMDNode *, GenericMDNodeInfo> MDNodeSet;
+#define HANDLE_MDNODE_LEAF(CLASS) DenseSet<CLASS *, CLASS##Info> CLASS##s;
+#include "llvm/IR/Metadata.def"
 
   // MDNodes may be uniqued or not uniqued.  When they're not uniqued, they
   // aren't in the MDNodeSet, but they're still shared between objects, so no
   // one object can destroy them.  This set allows us to at least destroy them
   // on Context destruction.
-  SmallPtrSet<GenericMDNode *, 1> NonUniquedMDNodes;
+  SmallPtrSet<MDNode *, 1> DistinctMDNodes;
 
   DenseMap<Type*, ConstantAggregateZero*> CAZConstants;
 
@@ -278,9 +363,6 @@ public:
 
   ConstantInt *TheTrueVal;
   ConstantInt *TheFalseVal;
-  
-  LeakDetectorImpl<Value> LLVMObjects;
-  LeakDetectorImpl<Metadata> LLVMMDObjects;
 
   // Basic type instances.
   Type VoidTy, LabelTy, HalfTy, FloatTy, DoubleTy, MetadataTy;
@@ -346,9 +428,12 @@ public:
 
   int getOrAddScopeRecordIdxEntry(MDNode *N, int ExistingIdx);
   int getOrAddScopeInlinedAtIdxEntry(MDNode *Scope, MDNode *IA,int ExistingIdx);
-  
+
   LLVMContextImpl(LLVMContext &C);
   ~LLVMContextImpl();
+
+  /// Destroy the ConstantArrays if they are not used.
+  void dropTriviallyDeadConstantArrays();
 };
 
 }

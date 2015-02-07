@@ -57,13 +57,15 @@ OptionValueRegex::SetValueFromCString (const char *value_cstr,
 
     case eVarSetOperationClear:
         Clear();
+        NotifyValueChanged();
         break;
 
     case eVarSetOperationReplace:
     case eVarSetOperationAssign:
-        if (m_regex.Compile (value_cstr, m_regex.GetCompileFlags()))
+        if (m_regex.Compile (value_cstr))
         {
             m_value_was_set = true;
+            NotifyValueChanged();
         }
         else
         {
@@ -82,5 +84,5 @@ OptionValueRegex::SetValueFromCString (const char *value_cstr,
 lldb::OptionValueSP
 OptionValueRegex::DeepCopy () const
 {
-    return OptionValueSP(new OptionValueRegex(m_regex.GetText(), m_regex.GetCompileFlags()));
+    return OptionValueSP(new OptionValueRegex(m_regex.GetText()));
 }

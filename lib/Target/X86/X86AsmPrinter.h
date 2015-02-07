@@ -85,10 +85,9 @@ class LLVM_LIBRARY_VISIBILITY X86AsmPrinter : public AsmPrinter {
   void LowerTlsAddr(X86MCInstLower &MCInstLowering, const MachineInstr &MI);
 
  public:
-  explicit X86AsmPrinter(TargetMachine &TM, MCStreamer &Streamer)
-    : AsmPrinter(TM, Streamer), SM(*this), SMShadowTracker(TM) {
-    Subtarget = &TM.getSubtarget<X86Subtarget>();
-  }
+   explicit X86AsmPrinter(TargetMachine &TM,
+                          std::unique_ptr<MCStreamer> Streamer)
+       : AsmPrinter(TM, std::move(Streamer)), SM(*this), SMShadowTracker(TM) {}
 
   const char *getPassName() const override {
     return "X86 Assembly / Object Emitter";

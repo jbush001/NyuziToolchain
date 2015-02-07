@@ -126,6 +126,10 @@ N: Chad Rosier
 E: mcrosier@codeaurora.org
 D: Fast-Isel
 
+N: Alex Rosenberg
+E: alexr@leftfield.org
+D: Sony PlayStation®4 support
+
 N: Nadav Rotem
 E: nrotem@apple.com
 D: X86 Backend, Loop Vectorizer
@@ -133,10 +137,6 @@ D: X86 Backend, Loop Vectorizer
 N: Daniel Sanders
 E: daniel.sanders@imgtec.com
 D: MIPS Backend (lib/Target/Mips/*)
-
-N: Richard Sandiford
-E: rsandifo@linux.vnet.ibm.com
-D: SystemZ Backend
 
 N: Duncan Sands
 E: baldrick@free.fr
@@ -150,6 +150,10 @@ N: Michael Spencer
 E: bigcheesegs@gmail.com
 D: Windows parts of Support, Object, ar, nm, objdump, ranlib, size
 
+N: Alexei Starovoitov
+E: alexei.starovoitov@gmail.com
+D: BPF backend
+
 N: Tom Stellard
 E: thomas.stellard@amd.com
 E: mesa-dev@lists.freedesktop.org
@@ -162,6 +166,10 @@ D: MemorySanitizer (LLVM part)
 N: Andrew Trick
 E: atrick@apple.com
 D: IndVar Simplify, Loop Strength Reduction, Instruction Scheduling
+
+N: Ulrich Weigand
+E: uweigand@de.ibm.com
+D: SystemZ Backend
 
 N: Bill Wendling
 E: isanbard@gmail.com

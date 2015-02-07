@@ -1173,7 +1173,7 @@ static void CollectVisibleConversions(ASTContext &Context,
 
 /// getVisibleConversionFunctions - get all conversion functions visible
 /// in current class; including conversion function templates.
-std::pair<CXXRecordDecl::conversion_iterator,CXXRecordDecl::conversion_iterator>
+llvm::iterator_range<CXXRecordDecl::conversion_iterator>
 CXXRecordDecl::getVisibleConversionFunctions() {
   ASTContext &Ctx = getASTContext();
 
@@ -1189,7 +1189,7 @@ CXXRecordDecl::getVisibleConversionFunctions() {
       data().ComputedVisibleConversions = true;
     }
   }
-  return std::make_pair(Set->begin(), Set->end());
+  return llvm::make_range(Set->begin(), Set->end());
 }
 
 void CXXRecordDecl::removeConversion(const NamedDecl *ConvDecl) {
@@ -1693,12 +1693,12 @@ const Type *CXXCtorInitializer::getBaseClass() const {
 }
 
 SourceLocation CXXCtorInitializer::getSourceLocation() const {
-  if (isAnyMemberInitializer())
-    return getMemberLocation();
-
   if (isInClassMemberInitializer())
     return getAnyMember()->getLocation();
   
+  if (isAnyMemberInitializer())
+    return getMemberLocation();
+
   if (TypeSourceInfo *TSInfo = Initializee.get<TypeSourceInfo*>())
     return TSInfo->getTypeLoc().getLocalSourceRange().getBegin();
   
@@ -1831,7 +1831,6 @@ bool CXXConstructorDecl::isConvertingConstructor(bool AllowExplicit) const {
 bool CXXConstructorDecl::isSpecializationCopyingObject() const {
   if ((getNumParams() < 1) ||
       (getNumParams() > 1 && !getParamDecl(1)->hasDefaultArg()) ||
-      (getPrimaryTemplate() == nullptr) ||
       (getDescribedFunctionTemplate() != nullptr))
     return false;
 

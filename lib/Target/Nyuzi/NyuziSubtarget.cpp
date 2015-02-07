@@ -13,6 +13,7 @@
 
 #include "NyuziSubtarget.h"
 #include "Nyuzi.h"
+#include "NyuziTargetMachine.h"
 #include "llvm/Support/TargetRegistry.h"
 
 #define GET_SUBTARGETINFO_TARGET_DESC
@@ -27,12 +28,11 @@ void NyuziSubtarget::anchor() {}
 NyuziSubtarget::NyuziSubtarget(const std::string &TT,
                                          const std::string &CPU,
                                          const std::string &FS,
-										 NyuziTargetMachine *_TM)
+										 const NyuziTargetMachine &TM)
     : NyuziGenSubtargetInfo(TT, CPU, FS),
-      DL("e-m:e-p:32:32"),
       InstrInfo(NyuziInstrInfo::create(*this)), 
-	  TLInfo(NyuziTargetLowering::create(*_TM, *this)), 
-	  TSInfo(DL),
+	  TLInfo(NyuziTargetLowering::create(TM, *this)), 
+	  TSInfo(*TM.getDataLayout()),
       FrameLowering(NyuziFrameLowering::create(*this)) {
 
   // Determine default and user specified characteristics

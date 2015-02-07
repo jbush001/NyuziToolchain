@@ -224,6 +224,7 @@ public:
         eCommandTypesBuiltin = 0x0001,  // native commands such as "frame"
         eCommandTypesUserDef = 0x0002,  // scripted commands
         eCommandTypesAliases = 0x0004,  // aliases such as "po"
+        eCommandTypesHidden  = 0x0008,  // commands prefixed with an underscore
         eCommandTypesAllThem = 0xFFFF   // all commands
     };
 
@@ -281,6 +282,10 @@ public:
     void
     AddAlias (const char *alias_name, 
               lldb::CommandObjectSP& command_obj_sp);
+
+    // Remove a command if it is removable (python or regex command)
+    bool
+    RemoveCommand (const char *cmd);
 
     bool
     RemoveAlias (const char *alias_name);
@@ -425,6 +430,11 @@ public:
     GetAliasHelp (const char *alias_name, 
                   const char *command_name, 
                   StreamString &help_string);
+
+    void
+    OutputFormattedHelpText (Stream &strm,
+                             const char *prefix,
+                             const char *help_text);
 
     void
     OutputFormattedHelpText (Stream &stream,
@@ -602,6 +612,9 @@ public:
                                     IOHandlerDelegate &delegate,
                                     bool asynchronously,
                                     void *baton);
+
+    const char *
+    GetCommandPrefix ();
 
     //------------------------------------------------------------------
     // Properties

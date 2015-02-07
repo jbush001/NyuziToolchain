@@ -104,6 +104,15 @@ if(APPLE)
   set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,-flat_namespace -Wl,-undefined -Wl,suppress")
 endif()
 
+# Pass -Wl,-z,defs. This makes sure all symbols are defined. Otherwise a DSO
+# build might work on ELF but fail on MachO/COFF.
+if(NOT (${CMAKE_SYSTEM_NAME} MATCHES "Darwin" OR WIN32 OR
+        ${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD") AND
+   NOT LLVM_USE_SANITIZER)
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,defs")
+endif()
+
+
 function(append value)
   foreach(variable ${ARGN})
     set(${variable} "${${variable}} ${value}" PARENT_SCOPE)
@@ -395,11 +404,19 @@ if(LLVM_USE_SANITIZER)
     elseif (LLVM_USE_SANITIZER STREQUAL "Thread")
       append_common_sanitizer_flags()
       append("-fsanitize=thread" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
+    elseif (LLVM_USE_SANITIZER STREQUAL "Address;Undefined" OR
+            LLVM_USE_SANITIZER STREQUAL "Undefined;Address")
+      append_common_sanitizer_flags()
+      append("-fsanitize=address,undefined -fno-sanitize=vptr,function -fno-sanitize-recover"
+              CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
     else()
       message(WARNING "Unsupported value of LLVM_USE_SANITIZER: ${LLVM_USE_SANITIZER}")
     endif()
   else()
     message(WARNING "LLVM_USE_SANITIZER is not supported on this platform.")
+  endif()
+  if (LLVM_USE_SANITIZE_COVERAGE)
+    append("-fsanitize-coverage=4" CMAKE_C_FLAGS CMAKE_CXX_FLAGS)
   endif()
 endif()
 

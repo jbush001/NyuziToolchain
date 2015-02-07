@@ -22,7 +22,7 @@
 // Third party headers:
 #include <stdarg.h> // va_list, va_start, var_end
 #include <iostream>
-#include <lldb/API/SBError.h>
+#include "lldb/API/SBError.h"
 
 // In-house headers:
 #include "Driver.h"
@@ -41,6 +41,7 @@
 #include "MICmdArgValFile.h"
 #include "MICmdArgValString.h"
 #include "MICmnConfig.h"
+#include "MICmnLLDBDebugSessionInfo.h"
 
 // Instantiations:
 #if _DEBUG
@@ -687,7 +688,13 @@ CMIDriver::ReadStdinLineQueue(void)
         }
 
         // Process the command
-        const bool bOk = InterpretCommand(lineText);
+        bool bOk = false;
+        {
+            // Lock Mutex before processing commands so that we don't disturb an event
+            // that is being processed.
+            CMIUtilThreadLock lock(CMICmnLLDBDebugSessionInfo::Instance().GetSessionMutex());
+            bOk = InterpretCommand(lineText);
+        }
 
         // Draw prompt if desired
         if (bOk && m_rStdin.GetEnablePrompt())
@@ -1075,6 +1082,7 @@ CMIDriver::SetExitApplicationFlag(const bool vbForceExit)
     {
         CMIUtilThreadLock lock(m_threadMutex);
         m_bExitApp = true;
+        m_rStdin.OnExitHandler();
         return;
     }
 
@@ -1089,6 +1097,7 @@ CMIDriver::SetExitApplicationFlag(const bool vbForceExit)
     }
 
     m_bExitApp = true;
+    m_rStdin.OnExitHandler();
 }
 
 //++ ------------------------------------------------------------------------------------

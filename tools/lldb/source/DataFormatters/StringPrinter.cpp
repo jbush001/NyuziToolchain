@@ -149,6 +149,9 @@ GetPrintableImpl<StringElementType::ASCII> (uint8_t* buffer, uint8_t* buffer_end
     
     switch (*buffer)
     {
+        case 0:
+            retval = {"\\0",2};
+            break;
         case '\a':
             retval = {"\\a",2};
             break;
@@ -250,6 +253,9 @@ GetPrintableImpl<StringElementType::UTF8> (uint8_t* buffer, uint8_t* buffer_end,
     {
         switch (codepoint)
         {
+            case 0:
+                retval = {"\\0",2};
+                break;
             case '\a':
                 retval = {"\\a",2};
                 break;
@@ -402,7 +408,7 @@ DumpUTFBufferToStream (ConversionResult (*ConvertFunction) (const SourceDataType
                     printable_size = 1;
                     next_data = utf8_data_ptr+1;
                 }
-                for (int c = 0; c < printable_size; c++)
+                for (unsigned c = 0; c < printable_size; c++)
                     stream.Printf("%c", *(printable_bytes+c));
                 utf8_data_ptr = (uint8_t*)next_data;
             }
@@ -494,7 +500,7 @@ ReadStringAndDumpToStream<StringElementType::ASCII> (ReadStringAndDumpToStreamOp
                 printable_size = 1;
                 next_data = data+1;
             }
-            for (int c = 0; c < printable_size; c++)
+            for (unsigned c = 0; c < printable_size; c++)
                 options.GetStream()->Printf("%c", *(printable_bytes+c));
             data = (uint8_t*)next_data;
         }

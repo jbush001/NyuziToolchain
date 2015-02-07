@@ -25,12 +25,13 @@
 #include "lldb/Host/Mutex.h"
 #include "lldb/Target/MemoryRegionInfo.h"
 
-#include "Host/common/NativeProcessProtocol.h"
+#include "lldb/Host/common/NativeProcessProtocol.h"
 
 namespace lldb_private
 {
     class Error;
     class Module;
+    class ThreadStateCoordinator;
     class Scalar;
 
     /// @class NativeProcessLinux
@@ -82,6 +83,9 @@ namespace lldb_private
         Signal (int signo) override;
 
         Error
+        Interrupt () override;
+
+        Error
         Kill () override;
 
         Error
@@ -122,7 +126,7 @@ namespace lldb_private
         /// dependent) offset.
         ///
         /// This method is provided for use by RegisterContextLinux derivatives.
-        bool
+        Error
         ReadRegisterValue(lldb::tid_t tid, unsigned offset, const char *reg_name,
                           unsigned size, lldb_private::RegisterValue &value);
 
@@ -130,34 +134,34 @@ namespace lldb_private
         /// (architecture dependent) offset.
         ///
         /// This method is provided for use by RegisterContextLinux derivatives.
-        bool
+        Error
         WriteRegisterValue(lldb::tid_t tid, unsigned offset, const char *reg_name,
                            const lldb_private::RegisterValue &value);
 
         /// Reads all general purpose registers into the specified buffer.
-        bool
+        Error
         ReadGPR(lldb::tid_t tid, void *buf, size_t buf_size);
 
         /// Reads generic floating point registers into the specified buffer.
-        bool
+        Error
         ReadFPR(lldb::tid_t tid, void *buf, size_t buf_size);
 
         /// Reads the specified register set into the specified buffer.
         /// For instance, the extended floating-point register set.
-        bool
+        Error
         ReadRegisterSet(lldb::tid_t tid, void *buf, size_t buf_size, unsigned int regset);
 
         /// Writes all general purpose registers into the specified buffer.
-        bool
+        Error
         WriteGPR(lldb::tid_t tid, void *buf, size_t buf_size);
 
         /// Writes generic floating point registers into the specified buffer.
-        bool
+        Error
         WriteFPR(lldb::tid_t tid, void *buf, size_t buf_size);
 
         /// Writes the specified register set into the specified buffer.
         /// For instance, the extended floating-point register set.
-        bool
+        Error
         WriteRegisterSet(lldb::tid_t tid, void *buf, size_t buf_size, unsigned int regset);
         
     protected:
@@ -183,21 +187,12 @@ namespace lldb_private
         sem_t m_operation_pending;
         sem_t m_operation_done;
 
-        // Set of tids we're waiting to stop before we notify the delegate of
-        // the stopped state.  We only notify the delegate after all threads
-        // ordered to stop have signaled their stop.
-        std::unordered_set<lldb::tid_t> m_wait_for_stop_tids;
-        lldb_private::Mutex m_wait_for_stop_tids_mutex;
-
-        std::unordered_set<lldb::tid_t> m_wait_for_group_stop_tids;
-        lldb::tid_t m_group_stop_signal_tid;
-        int m_group_stop_signal;
-        lldb_private::Mutex m_wait_for_group_stop_tids_mutex;
-
         lldb_private::LazyBool m_supports_mem_region;
         std::vector<MemoryRegionInfo> m_mem_region_cache;
         lldb_private::Mutex m_mem_region_cache_mutex;
 
+        std::unique_ptr<ThreadStateCoordinator> m_coordinator_up;
+        HostThread m_coordinator_thread;
 
         struct OperationArgs
         {
@@ -290,7 +285,7 @@ namespace lldb_private
         static bool
         Attach(AttachArgs *args);
 
-        static bool
+        static Error
         SetDefaultPtraceOpts(const lldb::pid_t);
 
         static void
@@ -334,6 +329,15 @@ namespace lldb_private
         void
         StopOpThread();
 
+        Error
+        StartCoordinatorThread ();
+
+        static void*
+        CoordinatorThread (void *arg);
+
+        void
+        StopCoordinatorThread ();
+
         /// Stops monitoring the child process thread.
         void
         StopMonitor();
@@ -361,38 +365,52 @@ namespace lldb_private
 
         /// Writes a siginfo_t structure corresponding to the given thread ID to the
         /// memory region pointed to by @p siginfo.
-        bool
-        GetSignalInfo(lldb::tid_t tid, void *siginfo, int &ptrace_err);
+        Error
+        GetSignalInfo(lldb::tid_t tid, void *siginfo);
 
         /// Writes the raw event message code (vis-a-vis PTRACE_GETEVENTMSG)
         /// corresponding to the given thread ID to the memory pointed to by @p
         /// message.
-        bool
+        Error
         GetEventMessage(lldb::tid_t tid, unsigned long *message);
 
         /// Resumes the given thread.  If @p signo is anything but
         /// LLDB_INVALID_SIGNAL_NUMBER, deliver that signal to the thread.
-        bool
+        Error
         Resume(lldb::tid_t tid, uint32_t signo);
 
         /// Single steps the given thread.  If @p signo is anything but
         /// LLDB_INVALID_SIGNAL_NUMBER, deliver that signal to the thread.
-        bool
+        Error
         SingleStep(lldb::tid_t tid, uint32_t signo);
 
-        /// Safely mark all existing threads as waiting for group stop.
-        /// When the final group stop comes in from the set of group stop threads,
-        /// we'll mark the current thread as signaled_thread_tid and set its stop
-        /// reason as the given signo.  All other threads from group stop notification
-        /// will have thread stop reason marked as signaled with no signo.
+        // ThreadStateCoordinator helper methods.
         void
-        SetGroupStopTids (lldb::tid_t signaled_thread_tid, int signo);
+        NotifyThreadCreateStopped (lldb::tid_t tid);
 
         void
-        OnGroupStop (lldb::tid_t tid);
+        NotifyThreadCreateRunning (lldb::tid_t tid);
+
+        void
+        NotifyThreadDeath (lldb::tid_t tid);
+
+        void
+        NotifyThreadStop (lldb::tid_t tid);
+
+        void
+        CallAfterRunningThreadsStop (lldb::tid_t tid,
+                                     const std::function<void (lldb::tid_t tid)> &call_after_function);
+
+        void
+        CallAfterRunningThreadsStopWithSkipTID (lldb::tid_t deferred_signal_tid,
+                                                lldb::tid_t skip_stop_request_tid,
+                                                const std::function<void (lldb::tid_t tid)> &call_after_function);
 
         lldb_private::Error
         Detach(lldb::tid_t tid);
+
+        lldb_private::Error
+        RequestThreadStop (const lldb::pid_t pid, const lldb::tid_t tid);
     };
 } // End lldb_private namespace.
 

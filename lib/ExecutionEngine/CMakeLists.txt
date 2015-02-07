@@ -5,11 +5,13 @@ add_llvm_library(LLVMExecutionEngine
   ExecutionEngineBindings.cpp
   GDBRegistrationListener.cpp
   RTDyldMemoryManager.cpp
+  SectionMemoryManager.cpp
   TargetSelect.cpp
   )
 
 add_subdirectory(Interpreter)
 add_subdirectory(MCJIT)
+add_subdirectory(Orc)
 add_subdirectory(RuntimeDyld)
 
 if( LLVM_USE_OPROFILE )

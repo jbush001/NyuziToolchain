@@ -506,14 +506,14 @@ def parseOptionsAndInitTestdirs():
     group = parser.add_argument_group('Test filtering options')
     group.add_argument('-N', choices=['dwarf', 'dsym'], help="Don't do test cases marked with the @dsym decorator by passing 'dsym' as the option arg, or don't do test cases marked with the @dwarf decorator by passing 'dwarf' as the option arg")
     X('-a', "Don't do lldb Python API tests")
-    X('+a', "Just do lldb Python API tests. Do not specify along with '+a'", dest='plus_a')
+    X('+a', "Just do lldb Python API tests. Do not specify along with '-a'", dest='plus_a')
     X('+b', 'Just do benchmark tests', dest='plus_b')
     group.add_argument('-b', metavar='blacklist', help='Read a blacklist file specified after this option')
     group.add_argument('-f', metavar='filterspec', action='append', help='Specify a filter, which consists of the test class name, a dot, followed by the test method, to only admit such test into the test suite')  # FIXME: Example?
     X('-g', 'If specified, the filterspec by -f is not exclusive, i.e., if a test module does not match the filterspec (testclass.testmethod), the whole module is still admitted to the test suite')
     X('-l', "Don't skip long running tests")
     X('-m', "Don't do lldb-mi tests")
-    X('+m', "Just do lldb-mi tests. Do not specify along with '+m'", dest='plus_m')
+    X('+m', "Just do lldb-mi tests. Do not specify along with '-m'", dest='plus_m')
     group.add_argument('-p', metavar='pattern', help='Specify a regexp filename pattern for inclusion in the test suite')
     group.add_argument('-X', metavar='directory', help="Exclude a directory from consideration for test discovery. -X types => if 'types' appear in the pathname components of a potential testfile, it will be ignored")
     group.add_argument('-G', '--category', metavar='category', action='append', dest='categoriesList', help=textwrap.dedent('''Specify categories of test cases of interest. Can be specified more than once.'''))
@@ -949,13 +949,13 @@ def setupSysPath():
 
     lldbExec = None
     lldbMiExec = None
+    lldbHere = None
     if lldbExecutablePath:
         if is_exe(lldbExecutablePath):
             lldbExec = lldbExecutablePath
             lldbHere = lldbExec
         else:
-            print lldbExecutablePath + " is not an executable"
-            sys.exit(-1)
+            print lldbExecutablePath + " is not an executable, lldb tests will fail."
     else:
         # First, you can define an environment variable LLDB_EXEC specifying the
         # full pathname of the lldb executable.
@@ -975,7 +975,6 @@ def setupSysPath():
         baiExec2 = os.path.join(base, *(xcode4_build_dir + bai + executable))
     
         # The 'lldb' executable built here in the source tree.
-        lldbHere = None
         if is_exe(dbgExec):
             lldbHere = dbgExec
         elif is_exe(dbgExec2):
@@ -1068,6 +1067,18 @@ def setupSysPath():
         if lldb_dash_p_result and not lldb_dash_p_result.startswith(("<", "lldb: invalid option:")) \
 							  and not lldb_dash_p_result.startswith("Traceback"):
             lines = lldb_dash_p_result.splitlines()
+
+            # Workaround for readline vs libedit issue on FreeBSD.  If stdout
+            # is not a terminal Python executes
+            #     rl_variable_bind ("enable-meta-key", "off");
+            # This produces a warning with FreeBSD's libedit because the
+            # enable-meta-key variable is unknown.  Not an issue on Apple
+            # because cpython commit f0ab6f9f0603 added a #ifndef __APPLE__
+            # around the call.  See http://bugs.python.org/issue19884 for more
+            # information.  For now we just discard the warning output.
+            if len(lines) >= 1 and lines[0].startswith("bind: Invalid command"):
+                lines.pop(0)
+
             if len(lines) >= 1 and os.path.isfile(os.path.join(lines[0], init_in_python_dir)):
                 lldbPath = lines[0]
                 if "freebsd" in sys.platform or "linux" in sys.platform:
@@ -1102,24 +1113,24 @@ def setupSysPath():
 
         if not lldbPath:
             print 'This script requires lldb.py to be in either ' + dbgPath + ',',
-            print relPath + ', or ' + baiPath
-            sys.exit(-1)
+            print relPath + ', or ' + baiPath + '. Some tests might fail.'
 
-    # Some of the code that uses this path assumes it hasn't resolved the Versions... link.  
-    # If the path we've constructed looks like that, then we'll strip out the Versions/A part.
-    (before, frameWithVersion, after) = lldbPath.rpartition("LLDB.framework/Versions/A")
-    if frameWithVersion != "" :
-        lldbPath = before + "LLDB.framework" + after
+    if lldbPath:
+        # Some of the code that uses this path assumes it hasn't resolved the Versions... link.  
+        # If the path we've constructed looks like that, then we'll strip out the Versions/A part.
+        (before, frameWithVersion, after) = lldbPath.rpartition("LLDB.framework/Versions/A")
+        if frameWithVersion != "" :
+            lldbPath = before + "LLDB.framework" + after
 
-    lldbPath = os.path.abspath(lldbPath)
+        lldbPath = os.path.abspath(lldbPath)
 
-    # If tests need to find LLDB_FRAMEWORK, now they can do it
-    os.environ["LLDB_FRAMEWORK"] = os.path.dirname(os.path.dirname(lldbPath))
+        # If tests need to find LLDB_FRAMEWORK, now they can do it
+        os.environ["LLDB_FRAMEWORK"] = os.path.dirname(os.path.dirname(lldbPath))
 
-    # This is to locate the lldb.py module.  Insert it right after sys.path[0].
-    sys.path[1:1] = [lldbPath]
-    if dumpSysPath:
-        print "sys.path:", sys.path
+        # This is to locate the lldb.py module.  Insert it right after sys.path[0].
+        sys.path[1:1] = [lldbPath]
+        if dumpSysPath:
+            print "sys.path:", sys.path
 
 def visit(prefix, dir, names):
     """Visitor function for os.path.walk(path, visit, arg)."""
@@ -1192,6 +1203,13 @@ def visit(prefix, dir, names):
                 # doesn't make sense.
                 suite.addTests(unittest2.defaultTestLoader.loadTestsFromName(base))
 
+
+def disabledynamics():
+    ci = lldb.DBG.GetCommandInterpreter()
+    res = lldb.SBCommandReturnObject()
+    ci.HandleCommand("setting set target.prefer-dynamic-value no-dynamic-values", res, False)    
+    if not res.Succeeded():
+        raise Exception('disabling dynamic type support failed')
 
 def lldbLoggings():
     """Check and do lldb loggings if necessary."""
@@ -1381,6 +1399,9 @@ lldb.runHooks = runHooks
 
 # Turn on lldb loggings if necessary.
 lldbLoggings()
+
+# Disable default dynamic types for testing purposes
+disabledynamics()
 
 # Install the control-c handler.
 unittest2.signals.installHandler()

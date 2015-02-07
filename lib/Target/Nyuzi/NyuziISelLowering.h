@@ -37,10 +37,10 @@ enum {
 
 class NyuziTargetLowering : public TargetLowering {
 public:
-  static const NyuziTargetLowering *create(NyuziTargetMachine &TM,
+  static const NyuziTargetLowering *create(const NyuziTargetMachine &TM,
                                                 const NyuziSubtarget &STI);
 
-  explicit NyuziTargetLowering(TargetMachine &TM, const NyuziSubtarget &STI);
+  explicit NyuziTargetLowering(const TargetMachine &TM, const NyuziSubtarget &STI);
   virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
   virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI, 
   	                                                     MachineBasicBlock *MBB) const override;

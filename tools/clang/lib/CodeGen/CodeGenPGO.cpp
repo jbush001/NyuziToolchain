@@ -732,8 +732,6 @@ CodeGenPGO::emitEmptyCounterMapping(const Decl *D, StringRef FuncName,
                                     llvm::GlobalValue::LinkageTypes Linkage) {
   if (SkipCoverageMapping)
     return;
-  setFuncName(FuncName, Linkage);
-
   // Don't map the functions inside the system headers
   auto Loc = D->getBody()->getLocStart();
   if (CGM.getContext().getSourceManager().isInSystemHeader(Loc))
@@ -750,6 +748,7 @@ CodeGenPGO::emitEmptyCounterMapping(const Decl *D, StringRef FuncName,
   if (CoverageMapping.empty())
     return;
 
+  setFuncName(FuncName, Linkage);
   CGM.getCoverageMapping()->addFunctionMappingRecord(
       FuncNameVar, FuncName, FunctionHash, CoverageMapping);
 }
@@ -787,6 +786,8 @@ CodeGenPGO::applyFunctionAttributes(llvm::IndexedInstrProfReader *PGOReader,
 
 void CodeGenPGO::emitCounterIncrement(CGBuilderTy &Builder, unsigned Counter) {
   if (!CGM.getCodeGenOpts().ProfileInstrGenerate || !RegionCounterMap)
+    return;
+  if (!Builder.GetInsertPoint())
     return;
   auto *I8PtrTy = llvm::Type::getInt8PtrTy(CGM.getLLVMContext());
   Builder.CreateCall4(CGM.getIntrinsic(llvm::Intrinsic::instrprof_increment),

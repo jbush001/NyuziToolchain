@@ -15,8 +15,11 @@
 
 #include "TargetThreadWindows.h"
 #include "ProcessWindows.h"
-#include "RegisterContextWindows_x86.h"
 #include "UnwindLLDB.h"
+
+#if !defined(_WIN64)
+#include "x86/RegisterContextWindows_x86.h"
+#endif
 
 using namespace lldb;
 using namespace lldb_private;
@@ -35,12 +38,15 @@ TargetThreadWindows::~TargetThreadWindows()
 void
 TargetThreadWindows::RefreshStateAfterStop()
 {
+    DWORD old_suspend_count = ::SuspendThread(m_host_thread.GetNativeThread().GetSystemHandle());
+
     GetRegisterContext()->InvalidateIfNeeded(false);
 }
 
 void
 TargetThreadWindows::WillResume(lldb::StateType resume_state)
 {
+    SetResumeState(resume_state);
 }
 
 void
@@ -72,10 +78,19 @@ TargetThreadWindows::CreateRegisterContextForFrameIndex(uint32_t idx)
         switch (arch.GetMachine())
         {
             case llvm::Triple::x86:
+#if defined(_WIN64)
+                // FIXME: This is a Wow64 process, create a RegisterContextWindows_Wow64
+#else
                 m_reg_context_sp.reset(new RegisterContextWindows_x86(*this, idx));
+#endif
                 break;
+            case llvm::Triple::x86_64:
+#if defined(_WIN64)
+                // FIXME: This is a 64-bit process, create a RegisterContextWindows_x86_64
+#else
+                // LLDB is 32-bit, but the target process is 64-bit.  We probably can't debug this.
+#endif
             default:
-                // FIXME: Support x64 by creating a RegisterContextWindows_x86_64
                 break;
         }
     }
@@ -106,28 +121,22 @@ TargetThreadWindows::DoResume()
     if (resume_state == current_state)
         return true;
 
-    bool success = false;
-    DWORD suspend_count = 0;
-    switch (resume_state)
+    if (resume_state == eStateStepping)
     {
-        case eStateRunning:
-            SetState(resume_state);
-            do
-            {
-                suspend_count = ::ResumeThread(m_host_thread.GetNativeThread().GetSystemHandle());
-            } while (suspend_count > 1 && suspend_count != (DWORD)-1);
-            success = (suspend_count != (DWORD)-1);
-            break;
-        case eStateStopped:
-        case eStateSuspended:
-            if (current_state != eStateStopped && current_state != eStateSuspended)
-            {
-                suspend_count = SuspendThread(m_host_thread.GetNativeThread().GetSystemHandle());
-                success = (suspend_count != (DWORD)-1);
-            }
-            break;
-        default:
-            success = false;
+        uint32_t flags_index = GetRegisterContext()->ConvertRegisterKindToRegisterNumber(eRegisterKindGeneric, LLDB_REGNUM_GENERIC_FLAGS);
+        uint64_t flags_value = GetRegisterContext()->ReadRegisterAsUnsigned(flags_index, 0);
+        flags_value |= 0x100; // Set the trap flag on the CPU
+        GetRegisterContext()->WriteRegisterFromUnsigned(flags_index, flags_value);
     }
-    return success;
+
+    if (resume_state == eStateStepping || resume_state == eStateRunning)
+    {
+        DWORD previous_suspend_count = 0;
+        HANDLE thread_handle = m_host_thread.GetNativeThread().GetSystemHandle();
+        do
+        {
+            previous_suspend_count = ::ResumeThread(thread_handle);
+        } while (previous_suspend_count > 0);
+    }
+    return true;
 }

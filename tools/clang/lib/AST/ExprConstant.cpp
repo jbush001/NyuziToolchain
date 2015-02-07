@@ -1426,7 +1426,9 @@ static bool isZeroSized(const LValue &Value) {
   const ValueDecl *Decl = GetLValueBaseDecl(Value);
   if (Decl && isa<VarDecl>(Decl)) {
     QualType Ty = Decl->getType();
-    return Ty->isIncompleteType() || Decl->getASTContext().getTypeSize(Ty) == 0;
+    if (Ty->isArrayType())
+      return Ty->isIncompleteType() ||
+             Decl->getASTContext().getTypeSize(Ty) == 0;
   }
   return false;
 }
@@ -5472,6 +5474,9 @@ public:
   bool VisitCallExpr(const CallExpr *E) {
     return VisitConstructExpr(E);
   }
+  bool VisitCXXStdInitializerListExpr(const CXXStdInitializerListExpr *E) {
+    return VisitConstructExpr(E);
+  }
 };
 } // end anonymous namespace
 
@@ -6829,7 +6834,7 @@ void DataRecursiveIntBinOpEvaluator::process(EvalResult &Result) {
 }
 
 bool IntExprEvaluator::VisitBinaryOperator(const BinaryOperator *E) {
-  if (E->isAssignmentOp())
+  if (!Info.keepEvaluatingAfterFailure() && E->isAssignmentOp())
     return Error(E);
 
   if (DataRecursiveIntBinOpEvaluator::shouldEnqueue(E))
@@ -6841,7 +6846,11 @@ bool IntExprEvaluator::VisitBinaryOperator(const BinaryOperator *E) {
   if (LHSTy->isAnyComplexType() || RHSTy->isAnyComplexType()) {
     ComplexValue LHS, RHS;
     bool LHSOK;
-    if (E->getLHS()->getType()->isRealFloatingType()) {
+    if (E->isAssignmentOp()) {
+      LValue LV;
+      EvaluateLValue(E->getLHS(), LV, Info);
+      LHSOK = false;
+    } else if (LHSTy->isRealFloatingType()) {
       LHSOK = EvaluateFloat(E->getLHS(), LHS.FloatReal, Info);
       if (LHSOK) {
         LHS.makeComplexFloat();
@@ -9086,7 +9095,8 @@ bool Expr::EvaluateWithSubstitution(APValue &Value, ASTContext &Ctx,
   ArgVector ArgValues(Args.size());
   for (ArrayRef<const Expr*>::iterator I = Args.begin(), E = Args.end();
        I != E; ++I) {
-    if (!Evaluate(ArgValues[I - Args.begin()], Info, *I))
+    if ((*I)->isValueDependent() ||
+        !Evaluate(ArgValues[I - Args.begin()], Info, *I))
       // If evaluation fails, throw away the argument entirely.
       ArgValues[I - Args.begin()] = APValue();
     if (Info.EvalStatus.HasSideEffects)

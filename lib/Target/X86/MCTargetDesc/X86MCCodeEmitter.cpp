@@ -590,6 +590,8 @@ void X86MCCodeEmitter::EmitVEXOpcodePrefix(uint64_t TSFlags, unsigned &CurByte,
                                            int MemOperand, const MCInst &MI,
                                            const MCInstrDesc &Desc,
                                            raw_ostream &OS) const {
+  assert(!(TSFlags & X86II::LOCK) && "Can't have LOCK VEX.");
+
   uint64_t Encoding = TSFlags & X86II::EncodingMask;
   bool HasEVEX_K = TSFlags & X86II::EVEX_K;
   bool HasVEX_4V = TSFlags & X86II::VEX_4V;
@@ -1109,6 +1111,10 @@ void X86MCCodeEmitter::EmitOpcodePrefix(uint64_t TSFlags, unsigned &CurByte,
                                                          : X86II::OpSize16))
     EmitByte(0x66, CurByte, OS);
 
+  // Emit the LOCK opcode prefix.
+  if (TSFlags & X86II::LOCK)
+    EmitByte(0xF0, CurByte, OS);
+
   switch (TSFlags & X86II::OpPrefixMask) {
   case X86II::PD:   // 66
     EmitByte(0x66, CurByte, OS);
@@ -1182,10 +1188,6 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
   int MemoryOperand = X86II::getMemoryOperandNo(TSFlags, Opcode);
   if (MemoryOperand != -1) MemoryOperand += CurOp;
 
-  // Emit the lock opcode prefix as needed.
-  if (TSFlags & X86II::LOCK)
-    EmitByte(0xF0, CurByte, OS);
-
   // Emit segment override opcode prefix as needed.
   if (MemoryOperand >= 0)
     EmitSegmentOverridePrefix(CurByte, MemoryOperand+X86::AddrSegmentReg,
@@ -1197,16 +1199,10 @@ EncodeInstruction(const MCInst &MI, raw_ostream &OS,
 
   // Emit the address size opcode prefix as needed.
   bool need_address_override;
-  // The AdSize prefix is only for 32-bit and 64-bit modes. Hm, perhaps we
-  // should introduce an AdSize16 bit instead of having seven special cases?
-  if ((!is16BitMode(STI) && TSFlags & X86II::AdSize) ||
-      (is16BitMode(STI) && (MI.getOpcode() == X86::JECXZ_32 ||
-                         MI.getOpcode() == X86::MOV8o8a ||
-                         MI.getOpcode() == X86::MOV16o16a ||
-                         MI.getOpcode() == X86::MOV32o32a ||
-                         MI.getOpcode() == X86::MOV8ao8 ||
-                         MI.getOpcode() == X86::MOV16ao16 ||
-                         MI.getOpcode() == X86::MOV32ao32))) {
+  uint64_t AdSize = TSFlags & X86II::AdSizeMask;
+  if ((is16BitMode(STI) && AdSize == X86II::AdSize32) ||
+      (is32BitMode(STI) && AdSize == X86II::AdSize16) ||
+      (is64BitMode(STI) && AdSize == X86II::AdSize32)) {
     need_address_override = true;
   } else if (MemoryOperand < 0) {
     need_address_override = false;

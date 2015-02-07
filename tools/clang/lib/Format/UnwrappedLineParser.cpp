@@ -374,6 +374,7 @@ void UnwrappedLineParser::calculateBraceTypes() {
     case tok::kw_for:
     case tok::kw_switch:
     case tok::kw_try:
+    case tok::kw___try:
       if (!LBraceStack.empty())
         LBraceStack.back()->BlockKind = BK_Block;
       break;
@@ -549,6 +550,7 @@ void UnwrappedLineParser::conditionalCompilationEnd() {
 void UnwrappedLineParser::parsePPIf(bool IfDef) {
   nextToken();
   bool IsLiteralFalse = (FormatTok->Tok.isLiteral() &&
+                         FormatTok->Tok.getLiteralData() != nullptr &&
                          StringRef(FormatTok->Tok.getLiteralData(),
                                    FormatTok->Tok.getLength()) == "0") ||
                         FormatTok->Tok.is(tok::kw_false);
@@ -655,20 +657,25 @@ void UnwrappedLineParser::parseStructuralElement() {
       nextToken();
       addUnwrappedLine();
       return;
+    case tok::objc_try:
+      // This branch isn't strictly necessary (the kw_try case below would
+      // do this too after the tok::at is parsed above).  But be explicit.
+      parseTryCatch();
+      return;
     default:
       break;
     }
     break;
   case tok::kw_asm:
-    FormatTok->Finalized = true;
     nextToken();
     if (FormatTok->is(tok::l_brace)) {
+      nextToken();
       while (FormatTok && FormatTok->isNot(tok::eof)) {
-        FormatTok->Finalized = true;
         if (FormatTok->is(tok::r_brace)) {
           nextToken();
           break;
         }
+        FormatTok->Finalized = true;
         nextToken();
       }
     }
@@ -712,6 +719,7 @@ void UnwrappedLineParser::parseStructuralElement() {
     parseCaseLabel();
     return;
   case tok::kw_try:
+  case tok::kw___try:
     parseTryCatch();
     return;
   case tok::kw_extern:
@@ -1033,6 +1041,8 @@ void UnwrappedLineParser::parseParens() {
     switch (FormatTok->Tok.getKind()) {
     case tok::l_paren:
       parseParens();
+      if (Style.Language == FormatStyle::LK_Java && FormatTok->is(tok::l_brace))
+        parseChildBlock();
       break;
     case tok::r_paren:
       nextToken();
@@ -1043,12 +1053,11 @@ void UnwrappedLineParser::parseParens() {
     case tok::l_square:
       tryToParseLambda();
       break;
-    case tok::l_brace: {
+    case tok::l_brace:
       if (!tryToParseBracedList()) {
         parseChildBlock();
       }
       break;
-    }
     case tok::at:
       nextToken();
       if (FormatTok->Tok.is(tok::l_brace))
@@ -1147,7 +1156,7 @@ void UnwrappedLineParser::parseIfThenElse() {
 }
 
 void UnwrappedLineParser::parseTryCatch() {
-  assert(FormatTok->is(tok::kw_try) && "'try' expected");
+  assert(FormatTok->isOneOf(tok::kw_try, tok::kw___try) && "'try' expected");
   nextToken();
   bool NeedsUnwrappedLine = false;
   if (FormatTok->is(tok::colon)) {
@@ -1162,6 +1171,10 @@ void UnwrappedLineParser::parseTryCatch() {
       if (FormatTok->is(tok::comma))
         nextToken();
     }
+  }
+  // Parse try with resource.
+  if (Style.Language == FormatStyle::LK_Java && FormatTok->is(tok::l_paren)) {
+    parseParens();
   }
   if (FormatTok->is(tok::l_brace)) {
     CompoundStatementIndenter Indenter(this, Style, Line->Level);
@@ -1183,17 +1196,24 @@ void UnwrappedLineParser::parseTryCatch() {
     parseStructuralElement();
     --Line->Level;
   }
-  while (FormatTok->is(tok::kw_catch) ||
-         ((Style.Language == FormatStyle::LK_Java ||
-           Style.Language == FormatStyle::LK_JavaScript) &&
-          FormatTok->is(Keywords.kw_finally))) {
+  while (1) {
+    if (FormatTok->is(tok::at))
+      nextToken();
+    if (!(FormatTok->isOneOf(tok::kw_catch, Keywords.kw___except,
+                             tok::kw___finally) ||
+          ((Style.Language == FormatStyle::LK_Java ||
+            Style.Language == FormatStyle::LK_JavaScript) &&
+           FormatTok->is(Keywords.kw_finally)) ||
+          (FormatTok->Tok.isObjCAtKeyword(tok::objc_catch) ||
+           FormatTok->Tok.isObjCAtKeyword(tok::objc_finally))))
+      break;
     nextToken();
     while (FormatTok->isNot(tok::l_brace)) {
       if (FormatTok->is(tok::l_paren)) {
         parseParens();
         continue;
       }
-      if (FormatTok->isOneOf(tok::semi, tok::r_brace))
+      if (FormatTok->isOneOf(tok::semi, tok::r_brace, tok::eof))
         return;
       nextToken();
     }

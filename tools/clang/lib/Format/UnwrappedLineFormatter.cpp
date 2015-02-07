@@ -27,7 +27,8 @@ bool startsExternCBlock(const AnnotatedLine &Line) {
 
 class LineJoiner {
 public:
-  LineJoiner(const FormatStyle &Style) : Style(Style) {}
+  LineJoiner(const FormatStyle &Style, const AdditionalKeywords &Keywords)
+      : Style(Style), Keywords(Keywords) {}
 
   /// \brief Calculates how many lines can be merged into 1 starting at \p I.
   unsigned
@@ -191,6 +192,8 @@ private:
     AnnotatedLine &Line = **I;
 
     // Don't merge ObjC @ keywords and methods.
+    // FIXME: If an option to allow short exception handling clauses on a single
+    // line is added, change this to not return for @try and friends.
     if (Style.Language != FormatStyle::LK_Java &&
         Line.First->isOneOf(tok::at, tok::minus, tok::plus))
       return 0;
@@ -200,7 +203,9 @@ private:
     if (Line.First->isOneOf(tok::kw_else, tok::kw_case))
       return 0;
     if (Line.First->isOneOf(tok::kw_if, tok::kw_while, tok::kw_do, tok::kw_try,
-                            tok::kw_catch, tok::kw_for, tok::r_brace)) {
+                            tok::kw___try, tok::kw_catch, tok::kw___finally,
+                            tok::kw_for, tok::r_brace) ||
+        Line.First->is(Keywords.kw___except)) {
       if (!Style.AllowShortBlocksOnASingleLine)
         return 0;
       if (!Style.AllowShortIfStatementsOnASingleLine &&
@@ -211,7 +216,11 @@ private:
         return 0;
       // FIXME: Consider an option to allow short exception handling clauses on
       // a single line.
-      if (Line.First->isOneOf(tok::kw_try, tok::kw_catch))
+      // FIXME: This isn't covered by tests.
+      // FIXME: For catch, __except, __finally the first token on the line
+      // is '}', so this isn't correct here.
+      if (Line.First->isOneOf(tok::kw_try, tok::kw___try, tok::kw_catch,
+                              Keywords.kw___except, tok::kw___finally))
         return 0;
     }
 
@@ -286,6 +295,7 @@ private:
   }
 
   const FormatStyle &Style;
+  const AdditionalKeywords &Keywords;
 };
 
 class NoColumnLimitFormatter {
@@ -309,13 +319,22 @@ private:
   ContinuationIndenter *Indenter;
 };
 
+
+static void markFinalized(FormatToken *Tok) {
+  for (; Tok; Tok = Tok->Next) {
+    Tok->Finalized = true;
+    for (AnnotatedLine *Child : Tok->Children)
+      markFinalized(Child->First);
+  }
+}
+
 } // namespace
 
 unsigned
 UnwrappedLineFormatter::format(const SmallVectorImpl<AnnotatedLine *> &Lines,
                                bool DryRun, int AdditionalIndent,
                                bool FixBadIndentation) {
-  LineJoiner Joiner(Style);
+  LineJoiner Joiner(Style, Keywords);
 
   // Try to look up already computed penalty in DryRun-mode.
   std::pair<const SmallVectorImpl<AnnotatedLine *> *, unsigned> CacheKey(
@@ -400,7 +419,7 @@ UnwrappedLineFormatter::format(const SmallVectorImpl<AnnotatedLine *> &Lines,
           TheLine.Type == LT_ImportStatement) {
         LineState State = Indenter->getInitialState(Indent, &TheLine, DryRun);
         while (State.NextToken) {
-          formatChildren(State, /*Newline=*/false, /*DryRun=*/false, Penalty);
+          formatChildren(State, /*Newline=*/false, DryRun, Penalty);
           Indenter->addTokenToState(State, /*Newline=*/false, DryRun);
         }
       } else if (Style.ColumnLimit == 0) {
@@ -442,11 +461,8 @@ UnwrappedLineFormatter::format(const SmallVectorImpl<AnnotatedLine *> &Lines,
         }
       }
     }
-    if (!DryRun) {
-      for (FormatToken *Tok = TheLine.First; Tok; Tok = Tok->Next) {
-        Tok->Finalized = true;
-      }
-    }
+    if (!DryRun)
+      markFinalized(TheLine.First);
     PreviousLine = *I;
   }
   PenaltyCache[CacheKey] = Penalty;
@@ -593,6 +609,7 @@ unsigned UnwrappedLineFormatter::analyzeSolutionSpace(LineState &InitialState,
   return Penalty;
 }
 
+#ifndef NDEBUG
 static void printLineState(const LineState &State) {
   llvm::dbgs() << "State: ";
   for (const ParenState &P : State.Stack) {
@@ -601,6 +618,7 @@ static void printLineState(const LineState &State) {
   }
   llvm::dbgs() << State.NextToken->TokenText << "\n";
 }
+#endif
 
 void UnwrappedLineFormatter::reconstructPath(LineState &State,
                                              StateNode *Current) {
@@ -649,8 +667,8 @@ void UnwrappedLineFormatter::addNextStateToQueue(unsigned Penalty,
 
 bool UnwrappedLineFormatter::formatChildren(LineState &State, bool NewLine,
                                             bool DryRun, unsigned &Penalty) {
-  FormatToken &Previous = *State.NextToken->Previous;
   const FormatToken *LBrace = State.NextToken->getPreviousNonComment();
+  FormatToken &Previous = *State.NextToken->Previous;
   if (!LBrace || LBrace->isNot(tok::l_brace) || LBrace->BlockKind != BK_Block ||
       Previous.Children.size() == 0)
     // The previous token does not open a block. Nothing to do. We don't

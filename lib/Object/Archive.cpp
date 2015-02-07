@@ -22,6 +22,7 @@ using namespace llvm;
 using namespace object;
 
 static const char *const Magic = "!<arch>\n";
+static const char *const ThinMagic = "!<thin>\n";
 
 void Archive::anchor() { }
 
@@ -86,7 +87,10 @@ Archive::Child::Child(const Archive *Parent, const char *Start)
 
   const ArchiveMemberHeader *Header =
       reinterpret_cast<const ArchiveMemberHeader *>(Start);
-  Data = StringRef(Start, sizeof(ArchiveMemberHeader) + Header->getSize());
+  uint64_t Size = sizeof(ArchiveMemberHeader);
+  if (!Parent->IsThin || Header->getName() == "/" || Header->getName() == "//")
+    Size += Header->getSize();
+  Data = StringRef(Start, Size);
 
   // Setup StartOfFile and PaddingBytes.
   StartOfFile = sizeof(ArchiveMemberHeader);
@@ -98,6 +102,16 @@ Archive::Child::Child(const Archive *Parent, const char *Start)
       llvm_unreachable("Long name length is not an integer");
     StartOfFile += NameSize;
   }
+}
+
+uint64_t Archive::Child::getSize() const {
+  if (Parent->IsThin)
+    return getHeader()->getSize();
+  return Data.size() - StartOfFile;
+}
+
+uint64_t Archive::Child::getRawSize() const {
+  return getHeader()->getSize();
 }
 
 Archive::Child Archive::Child::getNext() const {
@@ -113,6 +127,13 @@ Archive::Child Archive::Child::getNext() const {
     return Child(Parent, nullptr);
 
   return Child(Parent, NextLoc);
+}
+
+uint64_t Archive::Child::getChildOffset() const {
+  const char *a = Parent->Data.getBuffer().data();
+  const char *c = Data.data();
+  uint64_t offset = c - a;
+  return offset;
 }
 
 ErrorOr<StringRef> Archive::Child::getName() const {
@@ -186,9 +207,13 @@ ErrorOr<std::unique_ptr<Archive>> Archive::create(MemoryBufferRef Source) {
 
 Archive::Archive(MemoryBufferRef Source, std::error_code &ec)
     : Binary(Binary::ID_Archive, Source), SymbolTable(child_end()) {
+  StringRef Buffer = Data.getBuffer();
   // Check for sufficient magic.
-  if (Data.getBufferSize() < 8 ||
-      StringRef(Data.getBufferStart(), 8) != Magic) {
+  if (Buffer.startswith(ThinMagic)) {
+    IsThin = true;
+  } else if (Buffer.startswith(Magic)) {
+    IsThin = false;
+  } else {
     ec = object_error::invalid_file_type;
     return;
   }

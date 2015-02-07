@@ -30,8 +30,9 @@ NyuziTargetMachine::NyuziTargetMachine(const Target &T, StringRef TT,
                                                  CodeModel::Model CM,
                                                  CodeGenOpt::Level OL)
     : LLVMTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL),
+      DL("e-m:e-p:32:32"),
       TLOF(make_unique<NyuziTargetObjectFile>()),
-      Subtarget(TT, CPU, FS, this) {
+      Subtarget(TT, CPU, FS, *this) {
   initAsmInfo();
 }
 

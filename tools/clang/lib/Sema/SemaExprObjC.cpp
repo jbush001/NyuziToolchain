@@ -987,7 +987,7 @@ static bool HelperToDiagnoseMismatchedMethodsInGlobalPool(Sema &S,
   ObjCMethodList *M = &MethList;
   bool Warned = false;
   for (M = M->getNext(); M; M=M->getNext()) {
-    ObjCMethodDecl *MatchingMethodDecl = M->Method;
+    ObjCMethodDecl *MatchingMethodDecl = M->getMethod();
     if (MatchingMethodDecl == Method ||
         isa<ObjCImplDecl>(MatchingMethodDecl->getDeclContext()) ||
         MatchingMethodDecl->getSelector() != Method->getSelector())
@@ -1751,29 +1751,30 @@ ActOnClassPropertyRefExpr(IdentifierInfo &receiverName,
       IsSuper = true;
 
       if (ObjCMethodDecl *CurMethod = tryCaptureObjCSelf(receiverNameLoc)) {
-        if (CurMethod->isInstanceMethod()) {
-          ObjCInterfaceDecl *Super =
-            CurMethod->getClassInterface()->getSuperClass();
-          if (!Super) {
-            // The current class does not have a superclass.
-            Diag(receiverNameLoc, diag::error_root_class_cannot_use_super)
-            << CurMethod->getClassInterface()->getIdentifier();
-            return ExprError();
+        if (ObjCInterfaceDecl *Class = CurMethod->getClassInterface()) {
+          if (CurMethod->isInstanceMethod()) {
+            ObjCInterfaceDecl *Super = Class->getSuperClass();
+            if (!Super) {
+              // The current class does not have a superclass.
+              Diag(receiverNameLoc, diag::error_root_class_cannot_use_super)
+              << Class->getIdentifier();
+              return ExprError();
+            }
+            QualType T = Context.getObjCInterfaceType(Super);
+            T = Context.getObjCObjectPointerType(T);
+
+            return HandleExprPropertyRefExpr(T->getAsObjCInterfacePointerType(),
+                                             /*BaseExpr*/nullptr,
+                                             SourceLocation()/*OpLoc*/,
+                                             &propertyName,
+                                             propertyNameLoc,
+                                             receiverNameLoc, T, true);
           }
-          QualType T = Context.getObjCInterfaceType(Super);
-          T = Context.getObjCObjectPointerType(T);
 
-          return HandleExprPropertyRefExpr(T->getAsObjCInterfacePointerType(),
-                                           /*BaseExpr*/nullptr,
-                                           SourceLocation()/*OpLoc*/, 
-                                           &propertyName,
-                                           propertyNameLoc,
-                                           receiverNameLoc, T, true);
+          // Otherwise, if this is a class method, try dispatching to our
+          // superclass.
+          IFace = Class->getSuperClass();
         }
-
-        // Otherwise, if this is a class method, try dispatching to our
-        // superclass.
-        IFace = CurMethod->getClassInterface()->getSuperClass();
       }
     }
 
@@ -2458,8 +2459,9 @@ ExprResult Sema::BuildInstanceMessage(Expr *Receiver,
     } else if (ReceiverType->isObjCClassType() ||
                ReceiverType->isObjCQualifiedClassType()) {
       // Handle messages to Class.
-      // We allow sending a message to a qualified Class ("Class<foo>"), which 
-      // is ok as long as one of the protocols implements the selector (if not, warn).
+      // We allow sending a message to a qualified Class ("Class<foo>"), which
+      // is ok as long as one of the protocols implements the selector (if not,
+      // warn).
       if (const ObjCObjectPointerType *QClassTy 
             = ReceiverType->getAsObjCQualifiedClassType()) {
         // Search protocols for class methods.

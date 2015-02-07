@@ -11,6 +11,7 @@ add_llvm_library(LLVMCore
   DIBuilder.cpp
   DataLayout.cpp
   DebugInfo.cpp
+  DebugInfoMetadata.cpp
   DebugLoc.cpp
   DiagnosticInfo.cpp
   DiagnosticPrinter.cpp
@@ -27,7 +28,6 @@ add_llvm_library(LLVMCore
   IntrinsicInst.cpp
   LLVMContext.cpp
   LLVMContextImpl.cpp
-  LeakDetector.cpp
   LegacyPassManager.cpp
   MDBuilder.cpp
   Mangler.cpp

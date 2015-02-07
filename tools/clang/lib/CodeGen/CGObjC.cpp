@@ -60,7 +60,6 @@ llvm::Value *CodeGenFunction::EmitObjCStringLiteral(const ObjCStringLiteral *E)
 llvm::Value *
 CodeGenFunction::EmitObjCBoxedExpr(const ObjCBoxedExpr *E) {
   // Generate the correct selector for this literal's concrete type.
-  const Expr *SubExpr = E->getSubExpr();
   // Get the method.
   const ObjCMethodDecl *BoxingMethod = E->getBoxingMethod();
   assert(BoxingMethod && "BoxingMethod is null");
@@ -73,12 +72,9 @@ CodeGenFunction::EmitObjCBoxedExpr(const ObjCBoxedExpr *E) {
   CGObjCRuntime &Runtime = CGM.getObjCRuntime();
   const ObjCInterfaceDecl *ClassDecl = BoxingMethod->getClassInterface();
   llvm::Value *Receiver = Runtime.GetClass(*this, ClassDecl);
-  
-  const ParmVarDecl *argDecl = *BoxingMethod->param_begin();
-  QualType ArgQT = argDecl->getType().getUnqualifiedType();
-  RValue RV = EmitAnyExpr(SubExpr);
+
   CallArgList Args;
-  Args.add(RV, ArgQT);
+  EmitCallArgs(Args, BoxingMethod, E->arg_begin(), E->arg_end());
 
   RValue result = Runtime.GenerateMessageSend(
       *this, ReturnValueSlot(), BoxingMethod->getReturnType(), Sel, Receiver,
@@ -461,8 +457,8 @@ struct FinishARCDealloc : EHScopeStack::Cleanup {
 /// the LLVM function and sets the other context used by
 /// CodeGenFunction.
 void CodeGenFunction::StartObjCMethod(const ObjCMethodDecl *OMD,
-                                      const ObjCContainerDecl *CD,
-                                      SourceLocation StartLoc) {
+                                      const ObjCContainerDecl *CD) {
+  SourceLocation StartLoc = OMD->getLocStart();
   FunctionArgList args;
   // Check if we should generate debug info for this method.
   if (OMD->hasAttr<NoDebugAttr>())
@@ -480,6 +476,7 @@ void CodeGenFunction::StartObjCMethod(const ObjCMethodDecl *OMD,
     args.push_back(PI);
 
   CurGD = OMD;
+  CurEHLocation = OMD->getLocEnd();
 
   StartFunction(OMD, OMD->getReturnType(), Fn, FI, args,
                 OMD->getLocation(), StartLoc);
@@ -501,7 +498,7 @@ static llvm::Value *emitARCRetainLoadOfScalar(CodeGenFunction &CGF,
 /// Generate an Objective-C method.  An Objective-C method is a C function with
 /// its pointer, name, and types registered in the class struture.
 void CodeGenFunction::GenerateObjCMethod(const ObjCMethodDecl *OMD) {
-  StartObjCMethod(OMD, OMD->getClassInterface(), OMD->getLocStart());
+  StartObjCMethod(OMD, OMD->getClassInterface());
   PGO.assignRegionCounters(OMD, CurFn);
   assert(isa<CompoundStmt>(OMD->getBody()));
   RegionCounter Cnt = getPGORegionCounter(OMD->getBody());
@@ -747,7 +744,7 @@ void CodeGenFunction::GenerateObjCGetter(ObjCImplementationDecl *IMP,
   const ObjCPropertyDecl *PD = PID->getPropertyDecl();
   ObjCMethodDecl *OMD = PD->getGetterMethodDecl();
   assert(OMD && "Invalid call to generate getter (empty method)");
-  StartObjCMethod(OMD, IMP->getClassInterface(), OMD->getLocStart());
+  StartObjCMethod(OMD, IMP->getClassInterface());
 
   generateObjCGetterBody(IMP, PID, OMD, AtomicHelperFn);
 
@@ -1276,7 +1273,7 @@ void CodeGenFunction::GenerateObjCSetter(ObjCImplementationDecl *IMP,
   const ObjCPropertyDecl *PD = PID->getPropertyDecl();
   ObjCMethodDecl *OMD = PD->getSetterMethodDecl();
   assert(OMD && "Invalid call to generate setter (empty method)");
-  StartObjCMethod(OMD, IMP->getClassInterface(), OMD->getLocStart());
+  StartObjCMethod(OMD, IMP->getClassInterface());
 
   generateObjCSetterBody(IMP, PID, AtomicHelperFn);
 
@@ -1354,7 +1351,7 @@ void CodeGenFunction::GenerateObjCCtorDtorMethod(ObjCImplementationDecl *IMP,
                                                  ObjCMethodDecl *MD,
                                                  bool ctor) {
   MD->createImplicitParams(CGM.getContext(), IMP->getClassInterface());
-  StartObjCMethod(MD, IMP->getClassInterface(), MD->getLocStart());
+  StartObjCMethod(MD, IMP->getClassInterface());
 
   // Emit .cxx_construct.
   if (ctor) {

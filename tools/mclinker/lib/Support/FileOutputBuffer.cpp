@@ -28,7 +28,11 @@ std::error_code FileOutputBuffer::create(
     std::unique_ptr<FileOutputBuffer>& pResult) {
   std::error_code ec;
 
-  pFileHandle.truncate(pSize);  // XXX jeff: Need to grow output file.
+  // Resize the file before mapping the file region.
+  ec = llvm::sys::fs::resize_file(pFileHandle.handler(), pSize);
+  if (ec)
+    return ec;
+
   std::unique_ptr<llvm::sys::fs::mapped_file_region> mapped_file(
       new llvm::sys::fs::mapped_file_region(pFileHandle.handler(),
           llvm::sys::fs::mapped_file_region::readwrite, pSize, 0, ec));

@@ -27,6 +27,7 @@
 #include "clang/AST/Type.h"
 #include "clang/Basic/ABI.h"
 #include "clang/Basic/CapturedStmt.h"
+#include "clang/Basic/OpenMPKinds.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Frontend/CodeGenOptions.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -91,19 +92,6 @@ enum TypeEvaluationKind {
   TEK_Scalar,
   TEK_Complex,
   TEK_Aggregate
-};
-
-class SuppressDebugLocation {
-  llvm::DebugLoc CurLoc;
-  llvm::IRBuilderBase &Builder;
-public:
-  SuppressDebugLocation(llvm::IRBuilderBase &Builder)
-      : CurLoc(Builder.getCurrentDebugLocation()), Builder(Builder) {
-    Builder.SetCurrentDebugLocation(llvm::DebugLoc());
-  }
-  ~SuppressDebugLocation() {
-    Builder.SetCurrentDebugLocation(CurLoc);
-  }
 };
 
 /// CodeGenFunction - This class organizes the per-function state that is used
@@ -182,6 +170,8 @@ public:
   /// \brief API for captured statement code generation.
   class CGCapturedStmtInfo {
   public:
+    explicit CGCapturedStmtInfo(CapturedRegionKind K = CR_Default)
+        : Kind(K), ThisValue(nullptr), CXXThisFieldDecl(nullptr) {}
     explicit CGCapturedStmtInfo(const CapturedStmt &S,
                                 CapturedRegionKind K = CR_Default)
       : Kind(K), ThisValue(nullptr), CXXThisFieldDecl(nullptr) {
@@ -316,6 +306,12 @@ public:
   /// write the current selector value into this alloca.
   llvm::AllocaInst *EHSelectorSlot;
 
+  llvm::AllocaInst *AbnormalTerminationSlot;
+
+  /// The implicit parameter to SEH filter functions of type
+  /// 'EXCEPTION_POINTERS*'.
+  ImplicitParamDecl *SEHPointersDecl;
+
   /// Emits a landing pad for the current EH stack.
   llvm::BasicBlock *EmitLandingPad();
 
@@ -352,6 +348,17 @@ public:
                llvm::Constant *beginCatchFn, llvm::Constant *endCatchFn,
                llvm::Constant *rethrowFn);
     void exit(CodeGenFunction &CGF);
+  };
+
+  /// Cleanups can be emitted for two reasons: normal control leaving a region
+  /// exceptional control flow leaving a region.
+  struct SEHFinallyInfo {
+    SEHFinallyInfo()
+        : FinallyBB(nullptr), ContBB(nullptr), ResumeBB(nullptr) {}
+
+    llvm::BasicBlock *FinallyBB;
+    llvm::BasicBlock *ContBB;
+    llvm::BasicBlock *ResumeBB;
   };
 
   /// pushFullExprCleanup - Push a cleanup to be run at the end of the
@@ -573,7 +580,10 @@ public:
 
       // If we should perform a cleanup, force them now.  Note that
       // this ends the cleanup scope before rescoping any labels.
-      if (PerformCleanup) ForceCleanup();
+      if (PerformCleanup) {
+        ApplyDebugLocation DL(CGF, Range.getEnd());
+        ForceCleanup();
+      }
     }
 
     /// \brief Force the emission of cleanups now, instead of waiting
@@ -614,7 +624,6 @@ public:
     addPrivate(const VarDecl *LocalVD,
                const std::function<llvm::Value *()> &PrivateGen) {
       assert(PerformCleanup && "adding private to dead scope");
-      assert(LocalVD->isLocalVarDecl() && "privatizing non-local variable");
       if (SavedLocals.count(LocalVD) > 0) return false;
       SavedLocals[LocalVD] = CGF.LocalDeclMap.lookup(LocalVD);
       CGF.LocalDeclMap.erase(LocalVD);
@@ -1089,6 +1098,10 @@ public:
   llvm::Value *getExceptionSlot();
   llvm::Value *getEHSelectorSlot();
 
+  /// Stack slot that contains whether a __finally block is being executed as an
+  /// EH cleanup or as a normal cleanup.
+  llvm::Value *getAbnormalTerminationSlot();
+
   /// Returns the contents of the function's exception object and selector
   /// slots.
   llvm::Value *getExceptionFromSlot();
@@ -1178,9 +1191,7 @@ public:
 
   void GenerateObjCMethod(const ObjCMethodDecl *OMD);
 
-  void StartObjCMethod(const ObjCMethodDecl *MD,
-                       const ObjCContainerDecl *CD,
-                       SourceLocation StartLoc);
+  void StartObjCMethod(const ObjCMethodDecl *MD, const ObjCContainerDecl *CD);
 
   /// GenerateObjCGetter - Synthesize an Objective-C property getter function.
   void GenerateObjCGetter(ObjCImplementationDecl *IMP,
@@ -1272,9 +1283,11 @@ public:
   void EmitLambdaStaticInvokeFunction(const CXXMethodDecl *MD);
   void EmitAsanPrologueOrEpilogue(bool Prologue);
 
-  /// EmitReturnBlock - Emit the unified return block, trying to avoid its
-  /// emission when possible.
-  void EmitReturnBlock();
+  /// \brief Emit the unified return block, trying to avoid its emission when
+  /// possible.
+  /// \return The debug location of the user written return statement if the
+  /// return block is is avoided.
+  llvm::DebugLoc EmitReturnBlock();
 
   /// FinishFunction - Complete IR generation of the current function. It is
   /// legal to call this function even if there is no current insertion point.
@@ -1299,8 +1312,7 @@ public:
                         FunctionArgList &Args);
 
   void EmitInitializerForField(FieldDecl *Field, LValue LHS, Expr *Init,
-                               ArrayRef<VarDecl *> ArrayIndexes,
-                               SourceLocation DbgLoc = SourceLocation());
+                               ArrayRef<VarDecl *> ArrayIndexes);
 
   /// InitializeVTablePointer - Initialize the vtable pointer of the given
   /// subobject.
@@ -1545,7 +1557,7 @@ public:
   /// EmitExprAsInit - Emits the code necessary to initialize a
   /// location in memory with the given initializer.
   void EmitExprAsInit(const Expr *init, const ValueDecl *D, LValue lvalue,
-                      bool capturedByInit, SourceLocation DbgLoc);
+                      bool capturedByInit);
 
   /// hasVolatileMember - returns true if aggregate type has a volatile
   /// member.
@@ -1565,6 +1577,15 @@ public:
     bool IsVolatile = hasVolatileMember(EltTy);
     EmitAggregateCopy(DestPtr, SrcPtr, EltTy, IsVolatile, CharUnits::Zero(),
                       true);
+  }
+
+  void EmitAggregateCopyCtor(llvm::Value *DestPtr, llvm::Value *SrcPtr,
+                           QualType DestTy, QualType SrcTy) {
+    CharUnits DestTypeAlign = getContext().getTypeAlignInChars(DestTy);
+    CharUnits SrcTypeAlign = getContext().getTypeAlignInChars(SrcTy);
+    EmitAggregateCopy(DestPtr, SrcPtr, SrcTy, /*IsVolatile=*/false,
+                      std::min(DestTypeAlign, SrcTypeAlign),
+                      /*IsAssignment=*/false);
   }
 
   /// EmitAggregateCopy - Emit an aggregate copy.
@@ -1832,8 +1853,7 @@ public:
   void EmitVarDecl(const VarDecl &D);
 
   void EmitScalarInit(const Expr *init, const ValueDecl *D, LValue lvalue,
-                      bool capturedByInit,
-                      SourceLocation DbgLoc = SourceLocation());
+                      bool capturedByInit);
   void EmitScalarInit(llvm::Value *init, LValue lvalue);
 
   typedef void SpecialInitFn(CodeGenFunction &Init, const VarDecl &D,
@@ -2004,6 +2024,17 @@ public:
   void EmitCXXTryStmt(const CXXTryStmt &S);
   void EmitSEHTryStmt(const SEHTryStmt &S);
   void EmitSEHLeaveStmt(const SEHLeaveStmt &S);
+  void EnterSEHTryStmt(const SEHTryStmt &S, SEHFinallyInfo &FI);
+  void ExitSEHTryStmt(const SEHTryStmt &S, SEHFinallyInfo &FI);
+
+  llvm::Function *GenerateSEHFilterFunction(CodeGenFunction &ParentCGF,
+                                            const SEHExceptStmt &Except);
+
+  void EmitSEHExceptionCodeSave();
+  llvm::Value *EmitSEHExceptionCode();
+  llvm::Value *EmitSEHExceptionInfo();
+  llvm::Value *EmitSEHAbnormalTermination();
+
   void EmitCXXForRangeStmt(const CXXForRangeStmt &S,
                            ArrayRef<const Attr *> Attrs = None);
 
@@ -2043,12 +2074,22 @@ public:
   void EmitOMPTargetDirective(const OMPTargetDirective &S);
   void EmitOMPTeamsDirective(const OMPTeamsDirective &S);
 
-  /// Helpers for 'omp simd' directive.
+private:
+
+  /// Helpers for the OpenMP loop directives.
   void EmitOMPLoopBody(const OMPLoopDirective &Directive,
                        bool SeparateIter = false);
   void EmitOMPInnerLoop(const OMPLoopDirective &S, OMPPrivateScope &LoopScope,
                         bool SeparateIter = false);
   void EmitOMPSimdFinal(const OMPLoopDirective &S);
+  void EmitOMPWorksharingLoop(const OMPLoopDirective &S);
+  void EmitOMPForOuterLoop(OpenMPScheduleClauseKind ScheduleKind,
+                           const OMPLoopDirective &S,
+                           OMPPrivateScope &LoopScope, llvm::Value *LB,
+                           llvm::Value *UB, llvm::Value *ST, llvm::Value *IL,
+                           llvm::Value *Chunk);
+
+public:
 
   //===--------------------------------------------------------------------===//
   //                         LValue Expression Emission
@@ -2101,6 +2142,12 @@ public:
 
   void EmitAtomicStore(RValue rvalue, LValue lvalue, bool isInit);
 
+  std::pair<RValue, RValue> EmitAtomicCompareExchange(
+      LValue Obj, RValue Expected, RValue Desired, SourceLocation Loc,
+      llvm::AtomicOrdering Success = llvm::SequentiallyConsistent,
+      llvm::AtomicOrdering Failure = llvm::SequentiallyConsistent,
+      bool IsWeak = false, AggValueSlot Slot = AggValueSlot::ignored());
+
   /// EmitToMemory - Change a scalar value from its value
   /// representation to its in-memory representation.
   llvm::Value *EmitToMemory(llvm::Value *Value, QualType Ty);
@@ -2152,8 +2199,7 @@ public:
   /// EmitStoreThroughLValue - Store the specified rvalue into the specified
   /// lvalue, where both are guaranteed to the have the same type, and that type
   /// is 'Ty'.
-  void EmitStoreThroughLValue(RValue Src, LValue Dst, bool isInit = false,
-                              SourceLocation DbgLoc = SourceLocation());
+  void EmitStoreThroughLValue(RValue Src, LValue Dst, bool isInit = false);
   void EmitStoreThroughExtVectorComponentLValue(RValue Src, LValue Dst);
   void EmitStoreThroughGlobalRegLValue(RValue Src, LValue Dst);
 
@@ -2526,12 +2572,10 @@ public:
 
   /// EmitComplexExprIntoLValue - Emit the given expression of complex
   /// type and place its result into the specified l-value.
-  void EmitComplexExprIntoLValue(const Expr *E, LValue dest, bool isInit,
-                                 SourceLocation DbgLoc = SourceLocation());
+  void EmitComplexExprIntoLValue(const Expr *E, LValue dest, bool isInit);
 
   /// EmitStoreOfComplex - Store a complex number into the specified l-value.
-  void EmitStoreOfComplex(ComplexPairTy V, LValue dest, bool isInit,
-                          SourceLocation DbgLoc = SourceLocation());
+  void EmitStoreOfComplex(ComplexPairTy V, LValue dest, bool isInit);
 
   /// EmitLoadOfComplex - Load a complex number from the specified l-value.
   ComplexPairTy EmitLoadOfComplex(LValue src, SourceLocation loc);
@@ -2723,7 +2767,7 @@ public:
                     CallExpr::const_arg_iterator ArgBeg,
                     CallExpr::const_arg_iterator ArgEnd,
                     const FunctionDecl *CalleeDecl = nullptr,
-                    unsigned ParamsToSkip = 0, bool ForceColumnInfo = false) {
+                    unsigned ParamsToSkip = 0) {
     SmallVector<QualType, 16> ArgTypes;
     CallExpr::const_arg_iterator Arg = ArgBeg;
 
@@ -2735,28 +2779,13 @@ public:
                 E = CallArgTypeInfo->param_type_end();
            I != E; ++I, ++Arg) {
         assert(Arg != ArgEnd && "Running over edge of argument list!");
-#ifndef NDEBUG
-        QualType ArgType = *I;
-        QualType ActualArgType = Arg->getType();
-        if (ArgType->isPointerType() && ActualArgType->isPointerType()) {
-          QualType ActualBaseType =
-              ActualArgType->getAs<PointerType>()->getPointeeType();
-          QualType ArgBaseType =
-              ArgType->getAs<PointerType>()->getPointeeType();
-          if (ArgBaseType->isVariableArrayType()) {
-            if (const VariableArrayType *VAT =
-                    getContext().getAsVariableArrayType(ActualBaseType)) {
-              if (!VAT->getSizeExpr())
-                ActualArgType = ArgType;
-            }
-          }
-        }
-        assert(getContext()
-                       .getCanonicalType(ArgType.getNonReferenceType())
-                       .getTypePtr() ==
-                   getContext().getCanonicalType(ActualArgType).getTypePtr() &&
-               "type mismatch in call argument!");
-#endif
+        assert(
+            ((*I)->isVariablyModifiedType() ||
+             getContext()
+                     .getCanonicalType((*I).getNonReferenceType())
+                     .getTypePtr() ==
+                 getContext().getCanonicalType(Arg->getType()).getTypePtr()) &&
+            "type mismatch in call argument!");
         ArgTypes.push_back(*I);
       }
     }
@@ -2771,15 +2800,14 @@ public:
     for (; Arg != ArgEnd; ++Arg)
       ArgTypes.push_back(getVarArgType(*Arg));
 
-    EmitCallArgs(Args, ArgTypes, ArgBeg, ArgEnd, CalleeDecl, ParamsToSkip,
-                 ForceColumnInfo);
+    EmitCallArgs(Args, ArgTypes, ArgBeg, ArgEnd, CalleeDecl, ParamsToSkip);
   }
 
   void EmitCallArgs(CallArgList &Args, ArrayRef<QualType> ArgTypes,
                     CallExpr::const_arg_iterator ArgBeg,
                     CallExpr::const_arg_iterator ArgEnd,
                     const FunctionDecl *CalleeDecl = nullptr,
-                    unsigned ParamsToSkip = 0, bool ForceColumnInfo = false);
+                    unsigned ParamsToSkip = 0);
 
 private:
   QualType getVarArgType(const Expr *Arg);

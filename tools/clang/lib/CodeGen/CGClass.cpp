@@ -544,6 +544,7 @@ static void EmitMemberInitializer(CodeGenFunction &CGF,
                                   CXXCtorInitializer *MemberInit,
                                   const CXXConstructorDecl *Constructor,
                                   FunctionArgList &Args) {
+  ApplyDebugLocation Loc(CGF, MemberInit->getSourceLocation());
   assert(MemberInit->isAnyMemberInitializer() &&
          "Must have member initializer!");
   assert(MemberInit->getInit() && "Must have initializer!");
@@ -597,26 +598,24 @@ static void EmitMemberInitializer(CodeGenFunction &CGF,
   ArrayRef<VarDecl *> ArrayIndexes;
   if (MemberInit->getNumArrayIndices())
     ArrayIndexes = MemberInit->getArrayIndexes();
-  CGF.EmitInitializerForField(Field, LHS, MemberInit->getInit(), ArrayIndexes,
-                              MemberInit->getMemberLocation());
+  CGF.EmitInitializerForField(Field, LHS, MemberInit->getInit(), ArrayIndexes);
 }
 
-void CodeGenFunction::EmitInitializerForField(FieldDecl *Field, LValue LHS,
-                                              Expr *Init,
-                                              ArrayRef<VarDecl *> ArrayIndexes,
-                                              SourceLocation DbgLoc) {
+void CodeGenFunction::EmitInitializerForField(
+    FieldDecl *Field, LValue LHS, Expr *Init,
+    ArrayRef<VarDecl *> ArrayIndexes) {
   QualType FieldType = Field->getType();
   switch (getEvaluationKind(FieldType)) {
   case TEK_Scalar:
     if (LHS.isSimple()) {
-      EmitExprAsInit(Init, Field, LHS, false, DbgLoc);
+      EmitExprAsInit(Init, Field, LHS, false);
     } else {
       RValue RHS = RValue::get(EmitScalarExpr(Init));
       EmitStoreThroughLValue(RHS, LHS);
     }
     break;
   case TEK_Complex:
-    EmitComplexExprIntoLValue(Init, LHS, /*isInit*/ true, DbgLoc);
+    EmitComplexExprIntoLValue(Init, LHS, /*isInit*/ true);
     break;
   case TEK_Aggregate: {
     llvm::Value *ArrayIndexVar = nullptr;
@@ -783,8 +782,6 @@ void CodeGenFunction::EmitConstructorBody(FunctionArgList &Args) {
   // delegation optimization.
   if (CtorType == Ctor_Complete && IsConstructorDelegationValid(Ctor) &&
       CGM.getTarget().getCXXABI().hasConstructorVariants()) {
-    if (CGDebugInfo *DI = getDebugInfo()) 
-      DI->EmitLocation(Builder, Ctor->getLocEnd());
     EmitDelegateCXXConstructorCall(Ctor, Ctor_Base, Args, Ctor->getLocEnd());
     return;
   }
@@ -1750,9 +1747,10 @@ void CodeGenFunction::EmitCXXConstructorCall(const CXXConstructorDecl *D,
            "trivial 1-arg ctor not a copy/move ctor");
 
     const Expr *Arg = E->getArg(0);
-    QualType Ty = Arg->getType();
+    QualType SrcTy = Arg->getType();
     llvm::Value *Src = EmitLValue(Arg).getAddress();
-    EmitAggregateCopy(This, Src, Ty);
+    QualType DestTy = getContext().getTypeDeclType(D->getParent());
+    EmitAggregateCopyCtor(This, Src, DestTy, SrcTy);
     return;
   }
 
@@ -1792,7 +1790,9 @@ CodeGenFunction::EmitSynthesizedCXXCopyCtorCall(const CXXConstructorDecl *D,
     assert(E->getNumArgs() == 1 && "unexpected argcount for trivial ctor");
     assert(D->isCopyOrMoveConstructor() &&
            "trivial 1-arg ctor not a copy/move ctor");
-    EmitAggregateCopy(This, Src, E->arg_begin()->getType());
+    EmitAggregateCopyCtor(This, Src,
+                          getContext().getTypeDeclType(D->getParent()),
+                          E->arg_begin()->getType());
     return;
   }
   llvm::Value *Callee = CGM.getAddrOfCXXStructor(D, StructorType::Complete);
@@ -1952,6 +1952,14 @@ CodeGenFunction::InitializeVTablePointer(BaseSubobject Base,
                                          const CXXRecordDecl *NearestVBase,
                                          CharUnits OffsetFromNearestVBase,
                                          const CXXRecordDecl *VTableClass) {
+  const CXXRecordDecl *RD = Base.getBase();
+
+  // Don't initialize the vtable pointer if the class is marked with the
+  // 'novtable' attribute.
+  if ((RD == VTableClass || RD == NearestVBase) &&
+      VTableClass->hasAttr<MSNoVTableAttr>())
+    return;
+
   // Compute the address point.
   bool NeedsVirtualOffset;
   llvm::Value *VTableAddressPoint =

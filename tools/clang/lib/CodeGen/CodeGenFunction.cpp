@@ -44,6 +44,7 @@ CodeGenFunction::CodeGenFunction(CodeGenModule &cgm, bool suppressNewContext)
       LambdaThisCaptureField(nullptr), NormalCleanupDest(nullptr),
       NextCleanupDestIndex(1), FirstBlockInfo(nullptr), EHResumeBlock(nullptr),
       ExceptionSlot(nullptr), EHSelectorSlot(nullptr),
+      AbnormalTerminationSlot(nullptr), SEHPointersDecl(nullptr),
       DebugInfo(CGM.getModuleDebugInfo()), DisableDebugInfo(false),
       DidCallStackSave(false), IndirectBranch(nullptr), PGO(cgm),
       SwitchInsn(nullptr), SwitchWeights(nullptr), CaseRangeBlock(nullptr),
@@ -158,7 +159,7 @@ TypeEvaluationKind CodeGenFunction::getEvaluationKind(QualType type) {
   }
 }
 
-void CodeGenFunction::EmitReturnBlock() {
+llvm::DebugLoc CodeGenFunction::EmitReturnBlock() {
   // For cleanliness, we try to avoid emitting the return block for
   // simple cases.
   llvm::BasicBlock *CurBB = Builder.GetInsertBlock();
@@ -173,7 +174,7 @@ void CodeGenFunction::EmitReturnBlock() {
       delete ReturnBlock.getBlock();
     } else
       EmitBlock(ReturnBlock.getBlock());
-    return;
+    return llvm::DebugLoc();
   }
 
   // Otherwise, if the return block is the target of a single direct
@@ -184,15 +185,13 @@ void CodeGenFunction::EmitReturnBlock() {
       dyn_cast<llvm::BranchInst>(*ReturnBlock.getBlock()->user_begin());
     if (BI && BI->isUnconditional() &&
         BI->getSuccessor(0) == ReturnBlock.getBlock()) {
-      // Reset insertion point, including debug location, and delete the
-      // branch.  This is really subtle and only works because the next change
-      // in location will hit the caching in CGDebugInfo::EmitLocation and not
-      // override this.
-      Builder.SetCurrentDebugLocation(BI->getDebugLoc());
+      // Record/return the DebugLoc of the simple 'return' expression to be used
+      // later by the actual 'ret' instruction.
+      llvm::DebugLoc Loc = BI->getDebugLoc();
       Builder.SetInsertPoint(BI->getParent());
       BI->eraseFromParent();
       delete ReturnBlock.getBlock();
-      return;
+      return Loc;
     }
   }
 
@@ -201,6 +200,7 @@ void CodeGenFunction::EmitReturnBlock() {
   // region.end for now.
 
   EmitBlock(ReturnBlock.getBlock());
+  return llvm::DebugLoc();
 }
 
 static void EmitIfUsed(CodeGenFunction &CGF, llvm::BasicBlock *BB) {
@@ -242,8 +242,6 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
   // edges will be *really* confused.
   bool EmitRetDbgLoc = true;
   if (EHStack.stable_begin() != PrologueCleanupDepth) {
-    PopCleanupBlocks(PrologueCleanupDepth);
-
     // Make sure the line table doesn't jump back into the body for
     // the ret after it's been at EndLoc.
     EmitRetDbgLoc = false;
@@ -251,19 +249,23 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
     if (CGDebugInfo *DI = getDebugInfo())
       if (OnlySimpleReturnStmts)
         DI->EmitLocation(Builder, EndLoc);
+
+    PopCleanupBlocks(PrologueCleanupDepth);
   }
 
   // Emit function epilog (to return).
-  EmitReturnBlock();
+  llvm::DebugLoc Loc = EmitReturnBlock();
 
   if (ShouldInstrumentFunction())
     EmitFunctionInstrumentation("__cyg_profile_func_exit");
 
   // Emit debug descriptor for function end.
-  if (CGDebugInfo *DI = getDebugInfo()) {
+  if (CGDebugInfo *DI = getDebugInfo())
     DI->EmitFunctionEnd(Builder);
-  }
 
+  // Reset the debug location to that of the simple 'return' expression, if any
+  // rather than that of the end of the function's scope '}'.
+  ApplyDebugLocation AL(*this, Loc);
   EmitFunctionEpilog(*CurFnInfo, EmitRetDbgLoc, EndLoc);
   EmitEndEHSpec(CurCodeDecl);
 
@@ -1057,8 +1059,11 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       uint64_t RHSCount = Cnt.getCount();
 
       ConditionalEvaluation eval(*this);
-      EmitBranchOnBoolExpr(CondBOp->getLHS(), LHSTrue, FalseBlock, RHSCount);
-      EmitBlock(LHSTrue);
+      {
+        ApplyDebugLocation DL(*this, Cond);
+        EmitBranchOnBoolExpr(CondBOp->getLHS(), LHSTrue, FalseBlock, RHSCount);
+        EmitBlock(LHSTrue);
+      }
 
       // Any temporaries created here are conditional.
       Cnt.beginRegion(Builder);
@@ -1102,8 +1107,11 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
       uint64_t RHSCount = TrueCount - LHSCount;
 
       ConditionalEvaluation eval(*this);
-      EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, LHSFalse, LHSCount);
-      EmitBlock(LHSFalse);
+      {
+        ApplyDebugLocation DL(*this, Cond);
+        EmitBranchOnBoolExpr(CondBOp->getLHS(), TrueBlock, LHSFalse, LHSCount);
+        EmitBlock(LHSFalse);
+      }
 
       // Any temporaries created here are conditional.
       Cnt.beginRegion(Builder);
@@ -1150,8 +1158,11 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
     cond.begin(*this);
     EmitBlock(LHSBlock);
     Cnt.beginRegion(Builder);
-    EmitBranchOnBoolExpr(CondOp->getLHS(), TrueBlock, FalseBlock,
-                         LHSScaledTrueCount);
+    {
+      ApplyDebugLocation DL(*this, Cond);
+      EmitBranchOnBoolExpr(CondOp->getLHS(), TrueBlock, FalseBlock,
+                           LHSScaledTrueCount);
+    }
     cond.end(*this);
 
     cond.begin(*this);
@@ -1180,7 +1191,11 @@ void CodeGenFunction::EmitBranchOnBoolExpr(const Expr *Cond,
                                                   CurrentCount - TrueCount);
 
   // Emit the code with the fully general case.
-  llvm::Value *CondV = EvaluateExprAsBool(Cond);
+  llvm::Value *CondV;
+  {
+    ApplyDebugLocation DL(*this, Cond);
+    CondV = EvaluateExprAsBool(Cond);
+  }
   Builder.CreateCondBr(CondV, TrueBlock, FalseBlock, Weights);
 }
 

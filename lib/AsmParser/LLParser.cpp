@@ -16,6 +16,7 @@
 #include "llvm/IR/AutoUpgrade.h"
 #include "llvm/IR/CallingConv.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Instructions.h"
@@ -23,6 +24,7 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/ValueSymbolTable.h"
+#include "llvm/Support/Dwarf.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/raw_ostream.h"
@@ -47,27 +49,6 @@ bool LLParser::Run() {
 /// ValidateEndOfModule - Do final validity and sanity checks at the end of the
 /// module.
 bool LLParser::ValidateEndOfModule() {
-  // Handle any instruction metadata forward references.
-  if (!ForwardRefInstMetadata.empty()) {
-    for (DenseMap<Instruction*, std::vector<MDRef> >::iterator
-         I = ForwardRefInstMetadata.begin(), E = ForwardRefInstMetadata.end();
-         I != E; ++I) {
-      Instruction *Inst = I->first;
-      const std::vector<MDRef> &MDList = I->second;
-
-      for (unsigned i = 0, e = MDList.size(); i != e; ++i) {
-        unsigned SlotNo = MDList[i].MDSlot;
-
-        if (SlotNo >= NumberedMetadata.size() ||
-            NumberedMetadata[SlotNo] == nullptr)
-          return Error(MDList[i].Loc, "use of undefined metadata '!" +
-                       Twine(SlotNo) + "'");
-        Inst->setMetadata(MDList[i].MDKind, NumberedMetadata[SlotNo]);
-      }
-    }
-    ForwardRefInstMetadata.clear();
-  }
-
   for (unsigned I = 0, E = InstsWithTBAATag.size(); I < E; I++)
     UpgradeInstWithTBAATag(InstsWithTBAATag[I]);
 
@@ -169,8 +150,8 @@ bool LLParser::ValidateEndOfModule() {
 
   // Resolve metadata cycles.
   for (auto &N : NumberedMetadata)
-    if (auto *G = cast_or_null<GenericMDNode>(N))
-      G->resolveCycles();
+    if (N && !N->isResolved())
+      N->resolveCycles();
 
   // Look for intrinsic functions and CallInst that need to be upgraded
   for (Module::iterator FI = M->begin(), FE = M->end(); FI != FE; )
@@ -539,37 +520,26 @@ bool LLParser::ParseMDString(MDString *&Result) {
 
 // MDNode:
 //   ::= '!' MDNodeNumber
-//
-/// This version of ParseMDNodeID returns the slot number and null in the case
-/// of a forward reference.
-bool LLParser::ParseMDNodeID(MDNode *&Result, unsigned &SlotNo) {
-  // !{ ..., !42, ... }
-  if (ParseUInt32(SlotNo)) return true;
-
-  // Check existing MDNode.
-  if (SlotNo < NumberedMetadata.size() && NumberedMetadata[SlotNo] != nullptr)
-    Result = NumberedMetadata[SlotNo];
-  else
-    Result = nullptr;
-  return false;
-}
-
 bool LLParser::ParseMDNodeID(MDNode *&Result) {
   // !{ ..., !42, ... }
   unsigned MID = 0;
-  if (ParseMDNodeID(Result, MID)) return true;
+  if (ParseUInt32(MID))
+    return true;
 
   // If not a forward reference, just return it now.
-  if (Result) return false;
+  if (MID < NumberedMetadata.size() && NumberedMetadata[MID] != nullptr) {
+    Result = NumberedMetadata[MID];
+    return false;
+  }
 
   // Otherwise, create MDNode forward reference.
-  MDNodeFwdDecl *FwdNode = MDNode::getTemporary(Context, None);
-  ForwardRefMDNodes[MID] = std::make_pair(FwdNode, Lex.getLoc());
+  auto &FwdRef = ForwardRefMDNodes[MID];
+  FwdRef = std::make_pair(MDTuple::getTemporary(Context, None), Lex.getLoc());
 
   if (NumberedMetadata.size() <= MID)
     NumberedMetadata.resize(MID+1);
-  NumberedMetadata[MID].reset(FwdNode);
-  Result = FwdNode;
+  Result = FwdRef.first.get();
+  NumberedMetadata[MID].reset(Result);
   return false;
 }
 
@@ -609,22 +579,27 @@ bool LLParser::ParseStandaloneMetadata() {
   Lex.Lex();
   unsigned MetadataID = 0;
 
-  LocTy TyLoc;
-  Type *Ty = nullptr;
   MDNode *Init;
   if (ParseUInt32(MetadataID) ||
-      ParseToken(lltok::equal, "expected '=' here") ||
-      ParseType(Ty, TyLoc) ||
-      ParseToken(lltok::exclaim, "Expected '!' here") ||
-      ParseMDNode(Init))
+      ParseToken(lltok::equal, "expected '=' here"))
+    return true;
+
+  // Detect common error, from old metadata syntax.
+  if (Lex.getKind() == lltok::Type)
+    return TokError("unexpected type in metadata definition");
+
+  bool IsDistinct = EatIfPresent(lltok::kw_distinct);
+  if (Lex.getKind() == lltok::MetadataVar) {
+    if (ParseSpecializedMDNode(Init, IsDistinct))
+      return true;
+  } else if (ParseToken(lltok::exclaim, "Expected '!' here") ||
+             ParseMDTuple(Init, IsDistinct))
     return true;
 
   // See if this was forward referenced, if so, handle it.
   auto FI = ForwardRefMDNodes.find(MetadataID);
   if (FI != ForwardRefMDNodes.end()) {
-    auto *Temp = FI->second.first;
-    Temp->replaceAllUsesWith(Init);
-    MDNode::deleteTemporary(Temp);
+    FI->second.first->replaceAllUsesWith(Init);
     ForwardRefMDNodes.erase(FI);
 
     assert(NumberedMetadata[MetadataID] == Init && "Tracking VH didn't work");
@@ -847,7 +822,7 @@ bool LLParser::ParseGlobal(const std::string &Name, LocTy NameLoc,
       GV->setAlignment(Alignment);
     } else {
       Comdat *C;
-      if (parseOptionalComdat(C))
+      if (parseOptionalComdat(Name, C))
         return true;
       if (C)
         GV->setComdat(C);
@@ -1518,35 +1493,11 @@ bool LLParser::ParseInstructionMetadata(Instruction *Inst,
     unsigned MDK = M->getMDKindID(Name);
     Lex.Lex();
 
-    MDNode *Node;
-    SMLoc Loc = Lex.getLoc();
-
-    if (ParseToken(lltok::exclaim, "expected '!' here"))
+    MDNode *N;
+    if (ParseMDNode(N))
       return true;
 
-    // This code is similar to that of ParseMetadata, however it needs to
-    // have special-case code for a forward reference; see the comments on
-    // ForwardRefInstMetadata for details. Also, MDStrings are not supported
-    // at the top level here.
-    if (Lex.getKind() == lltok::lbrace) {
-      MDNode *N;
-      if (ParseMDNode(N))
-        return true;
-      Inst->setMetadata(MDK, N);
-    } else {
-      unsigned NodeID = 0;
-      if (ParseMDNodeID(Node, NodeID))
-        return true;
-      if (Node) {
-        // If we got the node, add it to the instruction.
-        Inst->setMetadata(MDK, Node);
-      } else {
-        MDRef R = { Loc, MDK, NodeID };
-        // Otherwise, remember that this should be resolved later.
-        ForwardRefInstMetadata[Inst].push_back(R);
-      }
-    }
-
+    Inst->setMetadata(MDK, N);
     if (MDK == LLVMContext::MD_tbaa)
       InstsWithTBAATag.push_back(Inst);
 
@@ -1705,11 +1656,11 @@ bool LLParser::ParseIndexList(SmallVectorImpl<unsigned> &Indices,
 //===----------------------------------------------------------------------===//
 
 /// ParseType - Parse a type.
-bool LLParser::ParseType(Type *&Result, bool AllowVoid) {
+bool LLParser::ParseType(Type *&Result, const Twine &Msg, bool AllowVoid) {
   SMLoc TypeLoc = Lex.getLoc();
   switch (Lex.getKind()) {
   default:
-    return TokError("expected type");
+    return TokError(Msg);
   case lltok::Type:
     // Type ::= 'float' | 'void' (etc)
     Result = Lex.getTyVal();
@@ -1853,9 +1804,14 @@ bool LLParser::ParseParameterList(SmallVectorImpl<ParamInfo> &ArgList,
     if (ParseType(ArgTy, ArgLoc))
       return true;
 
-    // Otherwise, handle normal operands.
-    if (ParseOptionalParamAttrs(ArgAttrs) || ParseValue(ArgTy, V, PFS))
-      return true;
+    if (ArgTy->isMetadataTy()) {
+      if (ParseMetadataAsValue(V, PFS))
+        return true;
+    } else {
+      // Otherwise, handle normal operands.
+      if (ParseOptionalParamAttrs(ArgAttrs) || ParseValue(ArgTy, V, PFS))
+        return true;
+    }
     ArgList.push_back(ParamInfo(ArgLoc, V, AttributeSet::get(V->getContext(),
                                                              AttrIndex++,
                                                              ArgAttrs)));
@@ -2388,8 +2344,6 @@ bool LLParser::ParseValID(ValID &ID, PerFunctionState *PFS) {
     ID.StrVal = Lex.getStrVal();
     ID.Kind = ValID::t_LocalName;
     break;
-  case lltok::exclaim:   // !42, !{...}, or !"foo"
-    return ParseMetadataAsValue(ID, PFS);
   case lltok::APSInt:
     ID.APSIntVal = Lex.getAPSIntVal();
     ID.Kind = ValID::t_APSInt;
@@ -2893,16 +2847,26 @@ bool LLParser::ParseGlobalTypeAndValue(Constant *&V) {
          ParseGlobalValue(Ty, V);
 }
 
-bool LLParser::parseOptionalComdat(Comdat *&C) {
+bool LLParser::parseOptionalComdat(StringRef GlobalName, Comdat *&C) {
   C = nullptr;
+
+  LocTy KwLoc = Lex.getLoc();
   if (!EatIfPresent(lltok::kw_comdat))
     return false;
-  if (Lex.getKind() != lltok::ComdatVar)
-    return TokError("expected comdat variable");
-  LocTy Loc = Lex.getLoc();
-  StringRef Name = Lex.getStrVal();
-  C = getComdat(Name, Loc);
-  Lex.Lex();
+
+  if (EatIfPresent(lltok::lparen)) {
+    if (Lex.getKind() != lltok::ComdatVar)
+      return TokError("expected comdat variable");
+    C = getComdat(Lex.getStrVal(), Lex.getLoc());
+    Lex.Lex();
+    if (ParseToken(lltok::rparen, "expected ')' after comdat var"))
+      return true;
+  } else {
+    if (GlobalName.empty())
+      return TokError("comdat cannot be unnamed");
+    C = getComdat(GlobalName, KwLoc);
+  }
+
   return false;
 }
 
@@ -2929,69 +2893,344 @@ bool LLParser::ParseGlobalValueVector(SmallVectorImpl<Constant *> &Elts) {
   return false;
 }
 
-bool LLParser::ParseMDNode(MDNode *&MD) {
+bool LLParser::ParseMDTuple(MDNode *&MD, bool IsDistinct) {
   SmallVector<Metadata *, 16> Elts;
-  if (ParseMDNodeVector(Elts, nullptr))
+  if (ParseMDNodeVector(Elts))
     return true;
 
-  MD = MDNode::get(Context, Elts);
+  MD = (IsDistinct ? MDTuple::getDistinct : MDTuple::get)(Context, Elts);
   return false;
 }
 
-bool LLParser::ParseMDNodeOrLocal(Metadata *&MD, PerFunctionState *PFS) {
-  SmallVector<Metadata *, 16> Elts;
-  if (ParseMDNodeVector(Elts, PFS))
-    return true;
+/// MDNode:
+///  ::= !{ ... }
+///  ::= !7
+///  ::= !MDLocation(...)
+bool LLParser::ParseMDNode(MDNode *&N) {
+  if (Lex.getKind() == lltok::MetadataVar)
+    return ParseSpecializedMDNode(N);
 
-  // Check for function-local metadata masquerading as an MDNode.
-  if (PFS && Elts.size() == 1 && Elts[0] && isa<LocalAsMetadata>(Elts[0])) {
-    MD = Elts[0];
-    return false;
+  return ParseToken(lltok::exclaim, "expected '!' here") ||
+         ParseMDNodeTail(N);
+}
+
+bool LLParser::ParseMDNodeTail(MDNode *&N) {
+  // !{ ... }
+  if (Lex.getKind() == lltok::lbrace)
+    return ParseMDTuple(N);
+
+  // !42
+  return ParseMDNodeID(N);
+}
+
+namespace {
+
+/// Structure to represent an optional metadata field.
+template <class FieldTy> struct MDFieldImpl {
+  typedef MDFieldImpl ImplTy;
+  FieldTy Val;
+  bool Seen;
+
+  void assign(FieldTy Val) {
+    Seen = true;
+    this->Val = std::move(Val);
   }
 
-  MD = MDNode::get(Context, Elts);
+  explicit MDFieldImpl(FieldTy Default)
+      : Val(std::move(Default)), Seen(false) {}
+};
+struct MDUnsignedField : public MDFieldImpl<uint64_t> {
+  uint64_t Max;
+
+  MDUnsignedField(uint64_t Default = 0, uint64_t Max = UINT64_MAX)
+      : ImplTy(Default), Max(Max) {}
+};
+struct LineField : public MDUnsignedField {
+  LineField() : MDUnsignedField(0, UINT32_MAX) {}
+};
+struct ColumnField : public MDUnsignedField {
+  ColumnField() : MDUnsignedField(0, UINT16_MAX) {}
+};
+struct DwarfTagField : public MDUnsignedField {
+  DwarfTagField() : MDUnsignedField(0, dwarf::DW_TAG_hi_user) {}
+};
+struct MDField : public MDFieldImpl<Metadata *> {
+  MDField() : ImplTy(nullptr) {}
+};
+struct MDStringField : public MDFieldImpl<std::string> {
+  MDStringField() : ImplTy(std::string()) {}
+};
+struct MDFieldList : public MDFieldImpl<SmallVector<Metadata *, 4>> {
+  MDFieldList() : ImplTy(SmallVector<Metadata *, 4>()) {}
+};
+
+} // end namespace
+
+namespace llvm {
+
+template <>
+bool LLParser::ParseMDField(LocTy Loc, StringRef Name,
+                            MDUnsignedField &Result) {
+  if (Lex.getKind() != lltok::APSInt || Lex.getAPSIntVal().isSigned())
+    return TokError("expected unsigned integer");
+
+  auto &U = Lex.getAPSIntVal();
+  if (U.ugt(Result.Max))
+    return TokError("value for '" + Name + "' too large, limit is " +
+                    Twine(Result.Max));
+  Result.assign(U.getZExtValue());
+  assert(Result.Val <= Result.Max && "Expected value in range");
+  Lex.Lex();
   return false;
 }
 
-bool LLParser::ParseMetadataAsValue(ValID &ID, PerFunctionState *PFS) {
+template <>
+bool LLParser::ParseMDField(LocTy Loc, StringRef Name, LineField &Result) {
+  return ParseMDField(Loc, Name, static_cast<MDUnsignedField &>(Result));
+}
+template <>
+bool LLParser::ParseMDField(LocTy Loc, StringRef Name, ColumnField &Result) {
+  return ParseMDField(Loc, Name, static_cast<MDUnsignedField &>(Result));
+}
+
+template <>
+bool LLParser::ParseMDField(LocTy Loc, StringRef Name, DwarfTagField &Result) {
+  if (Lex.getKind() == lltok::APSInt)
+    return ParseMDField(Loc, Name, static_cast<MDUnsignedField &>(Result));
+
+  if (Lex.getKind() != lltok::DwarfTag)
+    return TokError("expected DWARF tag");
+
+  unsigned Tag = dwarf::getTag(Lex.getStrVal());
+  if (Tag == dwarf::DW_TAG_invalid)
+    return TokError("invalid DWARF tag" + Twine(" '") + Lex.getStrVal() + "'");
+  assert(Tag <= Result.Max && "Expected valid DWARF tag");
+
+  Result.assign(Tag);
+  Lex.Lex();
+  return false;
+}
+
+template <>
+bool LLParser::ParseMDField(LocTy Loc, StringRef Name, MDField &Result) {
   Metadata *MD;
-  if (ParseMetadata(MD, PFS))
+  if (ParseMetadata(MD, nullptr))
     return true;
 
-  ID.Kind = ValID::t_Metadata;
-  ID.MetadataVal = MetadataAsValue::get(Context, MD);
+  Result.assign(MD);
+  return false;
+}
+
+template <>
+bool LLParser::ParseMDField(LocTy Loc, StringRef Name, MDStringField &Result) {
+  std::string S;
+  if (ParseStringConstant(S))
+    return true;
+
+  Result.assign(std::move(S));
+  return false;
+}
+
+template <>
+bool LLParser::ParseMDField(LocTy Loc, StringRef Name, MDFieldList &Result) {
+  SmallVector<Metadata *, 4> MDs;
+  if (ParseMDNodeVector(MDs))
+    return true;
+
+  Result.assign(std::move(MDs));
+  return false;
+}
+
+} // end namespace llvm
+
+template <class ParserTy>
+bool LLParser::ParseMDFieldsImplBody(ParserTy parseField) {
+  do {
+    if (Lex.getKind() != lltok::LabelStr)
+      return TokError("expected field label here");
+
+    if (parseField())
+      return true;
+  } while (EatIfPresent(lltok::comma));
+
+  return false;
+}
+
+template <class ParserTy>
+bool LLParser::ParseMDFieldsImpl(ParserTy parseField, LocTy &ClosingLoc) {
+  assert(Lex.getKind() == lltok::MetadataVar && "Expected metadata type name");
+  Lex.Lex();
+
+  if (ParseToken(lltok::lparen, "expected '(' here"))
+    return true;
+  if (Lex.getKind() != lltok::rparen)
+    if (ParseMDFieldsImplBody(parseField))
+      return true;
+
+  ClosingLoc = Lex.getLoc();
+  return ParseToken(lltok::rparen, "expected ')' here");
+}
+
+template <class FieldTy>
+bool LLParser::ParseMDField(StringRef Name, FieldTy &Result) {
+  if (Result.Seen)
+    return TokError("field '" + Name + "' cannot be specified more than once");
+
+  LocTy Loc = Lex.getLoc();
+  Lex.Lex();
+  return ParseMDField(Loc, Name, Result);
+}
+
+bool LLParser::ParseSpecializedMDNode(MDNode *&N, bool IsDistinct) {
+  assert(Lex.getKind() == lltok::MetadataVar && "Expected metadata type name");
+#define DISPATCH_TO_PARSER(CLASS)                                              \
+  if (Lex.getStrVal() == #CLASS)                                               \
+    return Parse##CLASS(N, IsDistinct);
+
+  DISPATCH_TO_PARSER(MDLocation);
+  DISPATCH_TO_PARSER(GenericDebugNode);
+#undef DISPATCH_TO_PARSER
+
+  return TokError("expected metadata type");
+}
+
+#define DECLARE_FIELD(NAME, TYPE, INIT) TYPE NAME INIT
+#define NOP_FIELD(NAME, TYPE, INIT)
+#define REQUIRE_FIELD(NAME, TYPE, INIT)                                        \
+  if (!NAME.Seen)                                                              \
+    return Error(ClosingLoc, "missing required field '" #NAME "'");
+#define PARSE_MD_FIELD(NAME, TYPE, DEFAULT)                                    \
+  if (Lex.getStrVal() == #NAME)                                                \
+    return ParseMDField(#NAME, NAME);
+#define PARSE_MD_FIELDS()                                                      \
+  VISIT_MD_FIELDS(DECLARE_FIELD, DECLARE_FIELD)                                \
+  do {                                                                         \
+    LocTy ClosingLoc;                                                          \
+    if (ParseMDFieldsImpl([&]() -> bool {                                      \
+      VISIT_MD_FIELDS(PARSE_MD_FIELD, PARSE_MD_FIELD)                          \
+      return TokError(Twine("invalid field '") + Lex.getStrVal() + "'");       \
+    }, ClosingLoc))                                                            \
+      return true;                                                             \
+    VISIT_MD_FIELDS(NOP_FIELD, REQUIRE_FIELD)                                  \
+  } while (false)
+#define GET_OR_DISTINCT(CLASS, ARGS)                                           \
+  (IsDistinct ? CLASS::getDistinct ARGS : CLASS::get ARGS)
+
+/// ParseMDLocationFields:
+///   ::= !MDLocation(line: 43, column: 8, scope: !5, inlinedAt: !6)
+bool LLParser::ParseMDLocation(MDNode *&Result, bool IsDistinct) {
+#define VISIT_MD_FIELDS(OPTIONAL, REQUIRED)                                    \
+  OPTIONAL(line, LineField, );                                                 \
+  OPTIONAL(column, ColumnField, );                                             \
+  REQUIRED(scope, MDField, );                                                  \
+  OPTIONAL(inlinedAt, MDField, );
+  PARSE_MD_FIELDS();
+#undef VISIT_MD_FIELDS
+
+  auto get = (IsDistinct ? MDLocation::getDistinct : MDLocation::get);
+  Result = get(Context, line.Val, column.Val, scope.Val, inlinedAt.Val);
+  return false;
+}
+
+/// ParseGenericDebugNode:
+///   ::= !GenericDebugNode(tag: 15, header: "...", operands: {...})
+bool LLParser::ParseGenericDebugNode(MDNode *&Result, bool IsDistinct) {
+#define VISIT_MD_FIELDS(OPTIONAL, REQUIRED)                                    \
+  REQUIRED(tag, DwarfTagField, );                                              \
+  OPTIONAL(header, MDStringField, );                                           \
+  OPTIONAL(operands, MDFieldList, );
+  PARSE_MD_FIELDS();
+#undef VISIT_MD_FIELDS
+
+  Result = GET_OR_DISTINCT(GenericDebugNode,
+                           (Context, tag.Val, header.Val, operands.Val));
+  return false;
+}
+#undef PARSE_MD_FIELD
+#undef NOP_FIELD
+#undef REQUIRE_FIELD
+#undef DECLARE_FIELD
+
+/// ParseMetadataAsValue
+///  ::= metadata i32 %local
+///  ::= metadata i32 @global
+///  ::= metadata i32 7
+///  ::= metadata !0
+///  ::= metadata !{...}
+///  ::= metadata !"string"
+bool LLParser::ParseMetadataAsValue(Value *&V, PerFunctionState &PFS) {
+  // Note: the type 'metadata' has already been parsed.
+  Metadata *MD;
+  if (ParseMetadata(MD, &PFS))
+    return true;
+
+  V = MetadataAsValue::get(Context, MD);
+  return false;
+}
+
+/// ParseValueAsMetadata
+///  ::= i32 %local
+///  ::= i32 @global
+///  ::= i32 7
+bool LLParser::ParseValueAsMetadata(Metadata *&MD, PerFunctionState *PFS) {
+  Type *Ty;
+  LocTy Loc;
+  if (ParseType(Ty, "expected metadata operand", Loc))
+    return true;
+  if (Ty->isMetadataTy())
+    return Error(Loc, "invalid metadata-value-metadata roundtrip");
+
+  Value *V;
+  if (ParseValue(Ty, V, PFS))
+    return true;
+
+  MD = ValueAsMetadata::get(V);
   return false;
 }
 
 /// ParseMetadata
+///  ::= i32 %local
+///  ::= i32 @global
+///  ::= i32 7
 ///  ::= !42
 ///  ::= !{...}
 ///  ::= !"string"
+///  ::= !MDLocation(...)
 bool LLParser::ParseMetadata(Metadata *&MD, PerFunctionState *PFS) {
-  if (ParseToken(lltok::exclaim, "expected '!' here"))
-    return true;
-
-  // MDNode:
-  // !{ ... }
-  if (Lex.getKind() == lltok::lbrace)
-    return ParseMDNodeOrLocal(MD, PFS);
-
-  // Standalone metadata reference
-  // !42
-  if (Lex.getKind() == lltok::APSInt) {
+  if (Lex.getKind() == lltok::MetadataVar) {
     MDNode *N;
-    if (ParseMDNodeID(N))
+    if (ParseSpecializedMDNode(N))
       return true;
     MD = N;
     return false;
   }
 
+  // ValueAsMetadata:
+  // <type> <value>
+  if (Lex.getKind() != lltok::exclaim)
+    return ParseValueAsMetadata(MD, PFS);
+
+  // '!'.
+  assert(Lex.getKind() == lltok::exclaim && "Expected '!' here");
+  Lex.Lex();
+
   // MDString:
   //   ::= '!' STRINGCONSTANT
-  MDString *S;
-  if (ParseMDString(S))
+  if (Lex.getKind() == lltok::StringConstant) {
+    MDString *S;
+    if (ParseMDString(S))
+      return true;
+    MD = S;
+    return false;
+  }
+
+  // MDNode:
+  // !{ ... }
+  // !7
+  MDNode *N;
+  if (ParseMDNodeTail(N))
     return true;
-  MD = S;
+  MD = N;
   return false;
 }
 
@@ -3024,11 +3263,6 @@ bool LLParser::ConvertValIDToValue(Type *Ty, ValID &ID, Value *&V,
                        (ID.UIntVal>>1)&1, (InlineAsm::AsmDialect(ID.UIntVal>>2)));
     return false;
   }
-  case ValID::t_Metadata:
-    if (!Ty->isMetadataTy())
-      return Error(ID.Loc, "metadata value must have metadata type");
-    V = ID.MetadataVal;
-    return false;
   case ValID::t_GlobalName:
     V = GetGlobalVal(ID.StrVal, Ty, ID.Loc);
     return V == nullptr;
@@ -3235,7 +3469,7 @@ bool LLParser::ParseFunctionHeader(Function *&Fn, bool isDefine) {
                                  BuiltinLoc) ||
       (EatIfPresent(lltok::kw_section) &&
        ParseStringConstant(Section)) ||
-      parseOptionalComdat(C) ||
+      parseOptionalComdat(FunctionName, C) ||
       ParseOptionalAlignment(Alignment) ||
       (EatIfPresent(lltok::kw_gc) &&
        ParseStringConstant(GC)) ||
@@ -4684,8 +4918,7 @@ int LLParser::ParseInsertValue(Instruction *&Inst, PerFunctionState &PFS) {
 ///   ::= { Element (',' Element)* }
 /// Element
 ///   ::= 'null' | TypeAndValue
-bool LLParser::ParseMDNodeVector(SmallVectorImpl<Metadata *> &Elts,
-                                 PerFunctionState *PFS) {
+bool LLParser::ParseMDNodeVector(SmallVectorImpl<Metadata *> &Elts) {
   if (ParseToken(lltok::lbrace, "expected '{' here"))
     return true;
 
@@ -4693,42 +4926,17 @@ bool LLParser::ParseMDNodeVector(SmallVectorImpl<Metadata *> &Elts,
   if (EatIfPresent(lltok::rbrace))
     return false;
 
-  bool IsLocal = false;
   do {
-    if (IsLocal)
-      return TokError("unexpected operand after function-local metadata");
-
     // Null is a special case since it is typeless.
     if (EatIfPresent(lltok::kw_null)) {
       Elts.push_back(nullptr);
       continue;
     }
 
-    Type *Ty = nullptr;
-    if (ParseType(Ty))
+    Metadata *MD;
+    if (ParseMetadata(MD, nullptr))
       return true;
-
-    if (Ty->isMetadataTy()) {
-      // No function-local metadata here.
-      Metadata *MD = nullptr;
-      if (ParseMetadata(MD, nullptr))
-        return true;
-      Elts.push_back(MD);
-      continue;
-    }
-
-    Value *V = nullptr;
-    if (ParseValue(Ty, V, PFS))
-      return true;
-    assert(V && "Expected valid value");
-    Elts.push_back(ValueAsMetadata::get(V));
-
-    if (isa<LocalAsMetadata>(Elts.back())) {
-      assert(PFS && "Unexpected function-local metadata without PFS");
-      if (Elts.size() > 1)
-        return TokError("unexpected function-local metadata");
-      IsLocal = true;
-    }
+    Elts.push_back(MD);
   } while (EatIfPresent(lltok::comma));
 
   return ParseToken(lltok::rbrace, "expected end of metadata node");

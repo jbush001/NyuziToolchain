@@ -10,6 +10,7 @@
 #ifndef liblldb_Host_windows_PipeWindows_h_
 #define liblldb_Host_windows_PipeWindows_h_
 
+#include "lldb/Host/PipeBase.h"
 #include "lldb/Host/windows/windows.h"
 
 namespace lldb_private
@@ -22,55 +23,51 @@ namespace lldb_private
 ///
 /// A class that abstracts the LLDB core from host pipe functionality.
 //----------------------------------------------------------------------
-class Pipe
+class PipeWindows : public PipeBase
 {
   public:
-    Pipe();
+    PipeWindows();
+    ~PipeWindows() override;
 
-    ~Pipe();
+    Error CreateNew(bool child_process_inherit) override;
+    Error CreateNew(llvm::StringRef name, bool child_process_inherit) override;
+    Error CreateWithUniqueName(llvm::StringRef prefix, bool child_process_inherit, llvm::SmallVectorImpl<char>& name) override;
+    Error OpenAsReader(llvm::StringRef name, bool child_process_inherit) override;
+    Error OpenAsWriterWithTimeout(llvm::StringRef name, bool child_process_inherit, const std::chrono::microseconds &timeout) override;
 
-    bool Open(bool read_overlapped = false, bool write_overlapped = false);
+    bool CanRead() const override;
+    bool CanWrite() const override;
 
-    bool IsValid() const;
+    int GetReadFileDescriptor() const override;
+    int GetWriteFileDescriptor() const override;
+    int ReleaseReadFileDescriptor() override;
+    int ReleaseWriteFileDescriptor() override;
 
-    bool ReadDescriptorIsValid() const;
+    void Close() override;
 
-    bool WriteDescriptorIsValid() const;
+    Error Delete(llvm::StringRef name) override;
 
-    int GetReadFileDescriptor() const;
+    Error Write(const void *buf, size_t size, size_t &bytes_written) override;
+    Error ReadWithTimeout(void *buf, size_t size, const std::chrono::microseconds &timeout, size_t &bytes_read) override;
 
-    int GetWriteFileDescriptor() const;
-
-    // Close both descriptors
-    void Close();
-
-    bool CloseReadFileDescriptor();
-
-    bool CloseWriteFileDescriptor();
-
-    int ReleaseReadFileDescriptor();
-
-    int ReleaseWriteFileDescriptor();
-
-    HANDLE
-    GetReadNativeHandle();
-
-    HANDLE
-    GetWriteNativeHandle();
-
-    size_t Read(void *buf, size_t size);
-
-    size_t Write(const void *buf, size_t size);
+    // PipeWindows specific methods.  These allow access to the underlying OS handle.
+    HANDLE GetReadNativeHandle();
+    HANDLE GetWriteNativeHandle();
 
   private:
+    Error OpenNamedPipe(llvm::StringRef name, bool child_process_inherit, bool is_read);
+
+    void CloseReadEndpoint();
+    void CloseWriteEndpoint();
+
     HANDLE m_read;
     HANDLE m_write;
 
     int m_read_fd;
     int m_write_fd;
 
-    OVERLAPPED *m_read_overlapped;
-    OVERLAPPED *m_write_overlapped;
+    OVERLAPPED m_read_overlapped;
+    OVERLAPPED m_write_overlapped;
 };
 
 } // namespace lldb_private

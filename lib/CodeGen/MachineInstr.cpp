@@ -595,10 +595,10 @@ void MachineInstr::addImplicitDefUseOperands(MachineFunction &MF) {
 /// implicit operands. It reserves space for the number of operands specified by
 /// the MCInstrDesc.
 MachineInstr::MachineInstr(MachineFunction &MF, const MCInstrDesc &tid,
-                           const DebugLoc dl, bool NoImp)
-  : MCID(&tid), Parent(nullptr), Operands(nullptr), NumOperands(0),
-    Flags(0), AsmPrinterFlags(0),
-    NumMemRefs(0), MemRefs(nullptr), debugLoc(dl) {
+                           DebugLoc dl, bool NoImp)
+    : MCID(&tid), Parent(nullptr), Operands(nullptr), NumOperands(0), Flags(0),
+      AsmPrinterFlags(0), NumMemRefs(0), MemRefs(nullptr),
+      debugLoc(std::move(dl)) {
   assert(debugLoc.hasTrivialDestructor() && "Expected trivial destructor");
 
   // Reserve space for the expected number of operands.
@@ -1887,6 +1887,22 @@ bool MachineInstr::addRegisterDead(unsigned Reg,
                                        false /*IsKill*/,
                                        true  /*IsDead*/));
   return true;
+}
+
+void MachineInstr::clearRegisterDeads(unsigned Reg) {
+  for (MachineOperand &MO : operands()) {
+    if (!MO.isReg() || !MO.isDef() || MO.getReg() != Reg)
+      continue;
+    MO.setIsDead(false);
+  }
+}
+
+void MachineInstr::addRegisterDefReadUndef(unsigned Reg) {
+  for (MachineOperand &MO : operands()) {
+    if (!MO.isReg() || !MO.isDef() || MO.getReg() != Reg || MO.getSubReg() == 0)
+      continue;
+    MO.setIsUndef();
+  }
 }
 
 void MachineInstr::addRegisterDefined(unsigned Reg,
