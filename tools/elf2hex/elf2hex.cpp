@@ -71,13 +71,16 @@ int main(int argc, const char *argv[]) {
   // Walk throught the segments and find the highest address
   unsigned int maxAddress = 0;
   for (int segment = 0; segment < eheader.e_phnum; segment++) {
-    unsigned int highAddr = pheader[segment].p_vaddr + pheader[segment].p_memsz;
-    if (highAddr > maxAddress)
-      maxAddress = highAddr;
+    if (pheader[segment].p_type == PT_LOAD) {
+      unsigned int highAddr = pheader[segment].p_vaddr + pheader[segment].p_memsz;
+      if (highAddr > maxAddress)
+        maxAddress = highAddr;
     
-    if (pheader[segment].p_vaddr < BaseAddress) {
-      errs() << "Program segment comes before base address\n";
-      return 1;
+      if (pheader[segment].p_vaddr < BaseAddress) {
+        errs() << "Program segment " << segment << " @" << pheader[segment].p_vaddr
+  		    << " is before requested base address " << BaseAddress << "\n";
+        return 1;
+      }
     }
   }
 
