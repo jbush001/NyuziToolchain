@@ -22,6 +22,14 @@ else()
   set(cmake_3_2_USES_TERMINAL USES_TERMINAL)
 endif()
 
+# Set build type if user doesn't specify (LLDB does not build if
+# this is unset)
+IF(DEFINED CMAKE_BUILD_TYPE)
+   SET(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE} CACHE STRING "Choose the type of build: Debug Release")
+ELSE()
+   SET(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build: Debug Release")
+ENDIF()
+
 project(LLVM)
 
 # Set install path
