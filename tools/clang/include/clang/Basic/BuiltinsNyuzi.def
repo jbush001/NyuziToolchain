@@ -50,7 +50,5 @@ BUILTIN(__builtin_nyuzi_mask_cmpf_lt, "iV16fV16f", "nc")
 BUILTIN(__builtin_nyuzi_mask_cmpf_le, "iV16fV16f", "nc")
 BUILTIN(__builtin_nyuzi_mask_cmpf_eq, "iV16fV16f", "nc")
 BUILTIN(__builtin_nyuzi_mask_cmpf_ne, "iV16fV16f", "nc")
-BUILTIN(__builtin_nyuzi_vitof, "V16fV16i", "nc")
-BUILTIN(__builtin_nyuzi_vftoi, "V16iV16f", "nc")
 
 #undef BUILTIN

@@ -6277,14 +6277,6 @@ Value *CodeGenFunction::EmitNyuziBuiltinExpr(unsigned BuiltinID,
 		case Nyuzi::BI__builtin_nyuzi_makevectori:
 		case Nyuzi::BI__builtin_nyuzi_makevectorf:
 			return Builder.CreateVectorSplat(16, Ops[0]);
-
-		case Nyuzi::BI__builtin_nyuzi_vitof:
-			return Builder.CreateSIToFP(Ops[0], llvm::VectorType::get(Builder.getFloatTy(),
-				16));
-
-		case Nyuzi::BI__builtin_nyuzi_vftoi:
-			return Builder.CreateFPToSI(Ops[0], llvm::VectorType::get(Builder.getInt32Ty(),
-				16));
 	}
 
 	// This maps directly to an LLVM intrinsic.  Look up the function name and create
