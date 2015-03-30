@@ -1,5 +1,5 @@
-This is a toolchain for a parallel processor architecture called 
-[Nyuzi](https://github.com/jbush001/NyuziProcessor), based on 
+This is a toolchain for an experimental parallel processor architecture 
+called [Nyuzi](https://github.com/jbush001/NyuziProcessor), based on 
 [LLVM](http://llvm.org/).  It includes a C/C++ compiler (clang), assembler, 
 linker and partially functional debugger (lldb). 
 
@@ -7,15 +7,14 @@ While this project includes a C/C++ compiler, the LLVM backend can be used for
 any language.  There is a small, experimental SPMD parallel compiler in 
 tools/spmd_compiler.
 
-Questions or comments can be directed to the mailing list here:
+Questions or comments can be directed to the mailing list:
 https://groups.google.com/forum/#!forum/nyuzi-processor-dev
 
-# Building
+# Getting Started
 
-## Prerequisites
+## Required Packages
 
-The following packages are required to build the compiler.  Instructions for 
-obtaining these are in the following sections.
+Instructions for installing these packages are in the following sections.
 
 - gcc 4.8+ or Apple clang 4.2+
 - cmake 2.8.8
@@ -28,7 +27,7 @@ obtaining these are in the following sections.
 - libedit (http://thrysoee.dk/editline/)
 - ncurses
 
-### Linux 
+## Linux 
 
 On Linux, these can be installed using the built-in package manager (apt-get, yum, etc).
 I've only tested this on Ubuntu, for which the instructions are below. You may need to
@@ -45,7 +44,7 @@ with python-devel):
     make
     sudo make install
 
-### MacOS
+## MacOS
 
 On Mavericks and later, the command line compiler can be installed like this
 if you don't have it already:
@@ -61,6 +60,7 @@ utilities and updates the PATH. Once you have done this:
     sudo port install cmake bison swig swig-python
 
     git clone git@github.com:jbush001/NyuziToolchain.git
+    cd NyuziToolchain
     mkdir build
     cd build
     cmake ..
@@ -70,12 +70,12 @@ utilities and updates the PATH. Once you have done this:
 **Note: if you upgrade 'flex' using the package manager, you will get build
 errors, so I would recommend using the system supplied version.**
 
-### Windows
+## Windows
 
 I have not tested this on Windows. Many of the libraries are already cross platform, 
 so it should theoretically be possible.
 
-### Other notes
+## Other notes
 
 * The triple for this target is 'nyuzi-'.
 * There are also bits of an autoconf based build system in this project.  It doesn't work.
