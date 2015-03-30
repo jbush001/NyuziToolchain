@@ -12,7 +12,7 @@ https://groups.google.com/forum/#!forum/nyuzi-processor-dev
 
 # Getting Started
 
-## Required Packages
+## Required Software
 
 Instructions for installing these packages are in the following sections.
 
@@ -27,12 +27,12 @@ Instructions for installing these packages are in the following sections.
 - libedit (http://thrysoee.dk/editline/)
 - ncurses
 
-## Linux 
+## Building on Linux 
 
-On Linux, these can be installed using the built-in package manager (apt-get, yum, etc).
-I've only tested this on Ubuntu, for which the instructions are below. You may need to
-tweak the package names for other distros (for example, on Fedora, replace python-dev 
-with python-devel):
+On Linux, required packages can be installed using the built-in package 
+manager (apt-get, yum, etc). I've only tested this on Ubuntu, for which 
+the instructions are below. You may need to tweak the package names for 
+other distros (for example, on Fedora, replace python-dev with python-devel):
 
     sudo apt-get install libxml2-dev cmake gcc g++ python bison flex zlib1g-dev swig python-dev libedit-dev ncurses-dev
 
@@ -44,7 +44,7 @@ with python-devel):
     make
     sudo make install
 
-## MacOS
+## Building on MacOS
 
 On Mavericks and later, the command line compiler can be installed like this
 if you don't have it already:
@@ -70,24 +70,24 @@ utilities and updates the PATH. Once you have done this:
 **Note: if you upgrade 'flex' using the package manager, you will get build
 errors, so I would recommend using the system supplied version.**
 
-## Windows
+## Building on Windows
 
 I have not tested this on Windows. Many of the libraries are already cross platform, 
 so it should theoretically be possible.
 
-## Other notes
+## Other Notes
 
 * The triple for this target is 'nyuzi-'.
 * There are also bits of an autoconf based build system in this project.  It doesn't work.
 * Using sudo on make install as described can leave files with root ownership in your build directory, which can then cause cryptic build errors later when building as non-root.  Doing a 'sudo chown -R &#x60;whoami&#x60; .' in the build directory will fix this.
 
-## Invoking compiler
+## Invoking the Compiler
 
 Once built, the toolchain will be installed into /usr/local/llvm-nyuzi
 
     /usr/local/llvm-nyuzi/bin/clang -o program.elf test_program.c 
 
-## Running tests
+## Running Regression Tests
 
 Change PATH environment variable to include the binary directory (build/bin). This is only required 
 for llvm-lit based tests. The test can be run as follows (assuming you are at the top of the project 
@@ -99,7 +99,7 @@ llvm-lit test
 llvm-lit tools/clang/test/CodeGen/nyuzi*
 ```
 
-## Running whole program tests
+## Running Whole Program Tests
 
 There are a set of tests in https://github.com/jbush001/NyuziProcessor/tree/master/tests/compiler
 Each test case is compiled and then run in the instruction set simulator.
