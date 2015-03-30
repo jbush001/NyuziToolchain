@@ -13,6 +13,10 @@ https://groups.google.com/forum/#!forum/nyuzi-processor-dev
 # Building
 
 ## Prerequisites
+
+The following packages are required to build the compiler.  Instructions for 
+obtaining these are in the following sections.
+
 - gcc 4.8+ or Apple clang 4.2+
 - cmake 2.8.8
 - python 2.7
@@ -25,49 +29,55 @@ https://groups.google.com/forum/#!forum/nyuzi-processor-dev
 - ncurses
 
 ### Linux 
-On Linux, these can be installed using the built-in package manager (apt-get, yum, etc). 
-Here is the command line for Ubuntu:
+
+On Linux, these can be installed using the built-in package manager (apt-get, yum, etc).
+I've only tested this on Ubuntu, for which the instructions are below. You may need to
+tweak the package names for other distros (for example, on Fedora, replace python-dev 
+with python-devel):
 
     sudo apt-get install libxml2-dev cmake gcc g++ python bison flex zlib1g-dev swig python-dev libedit-dev ncurses-dev
 
-(On Fedora, replace python-dev with python-devel)
+    git clone git@github.com:jbush001/NyuziToolchain.git
+    cd NyuziToolchain
+    mkdir build
+    cd build
+    cmake ..
+    make
+    sudo make install
 
 ### MacOS
 
-On Mavericks and later, the command line compiler can be installed 
-by typing`xcode-select --install`. It will also be installed automatically 
-if you download XCode from the Mac App Store. I'd recommend installing a 
-package manager like [MacPorts](https://www.macports.org/) to obtain the 
-remaining dependencies. Be sure to open a new terminal to do the build 
-after installing MacPorts, because it installs alternate versions of some 
-utilities and updates the PATH. Most of the libraries should already be 
-installed by default, but Apple likes their command line utilities...
-finely aged... so bison will be out of date and won't work. *However*, 
-if you upgrade flex, you'll get a build error, so you'll want to use the 
-system supplied version. Here's the port command to install the dependencies:
+On Mavericks and later, the command line compiler can be installed like this
+if you don't have it already:
+
+    xcode-select --install
+    
+On earlier versions, you can download XCode from the app store.  You will
+also need to install a package manager like [MacPorts](https://www.macports.org/)
+to obtain the remaining dependencies. Be sure to open a new terminal to do the
+build after installing MacPorts, because it installs alternate versions of some
+utilities and updates the PATH. Once you have done this:
 
     sudo port install cmake bison swig swig-python
+
+    git clone git@github.com:jbush001/NyuziToolchain.git
+    mkdir build
+    cd build
+    cmake ..
+    make
+    sudo make install
+
+**Note: if you upgrade 'flex' using the package manager, you will get build
+errors, so I would recommend using the system supplied version.**
 
 ### Windows
 
 I have not tested this on Windows. Many of the libraries are already cross platform, 
 so it should theoretically be possible.
 
-## Building
+### Other notes
 
-Assuming the proper packages are installed, configure and build using the following commands. 
-
-```
-$ mkdir build
-$ cd build
-$ cmake ..
-$ make
-$ sudo make install
-```
-
-A few other things to note:
-
-* The name of the target is 'nyuzi'.
+* The triple for this target is 'nyuzi-'.
 * There are also bits of an autoconf based build system in this project.  It doesn't work.
 * Using sudo on make install as described can leave files with root ownership in your build directory, which can then cause cryptic build errors later when building as non-root.  Doing a 'sudo chown -R &#x60;whoami&#x60; .' in the build directory will fix this.
 
