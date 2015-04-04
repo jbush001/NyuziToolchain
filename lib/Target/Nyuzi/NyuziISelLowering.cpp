@@ -477,6 +477,7 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::FSQRT, MVT::f32, Expand); // sqrtf
   setOperationAction(ISD::FSIN, MVT::f32, Expand); // sinf
   setOperationAction(ISD::FCOS, MVT::f32, Expand); // cosf
+  setOperationAction(ISD::FSINCOS, MVT::f32, Expand); 
   
   setCondCodeAction(ISD::SETO, MVT::f32, Expand);
   setCondCodeAction(ISD::SETUO, MVT::f32, Expand);  // XXX this is broken
