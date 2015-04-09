@@ -682,6 +682,7 @@ CXXABI *ASTContext::createCXXABI(const TargetInfo &T) {
   case TargetCXXABI::iOS:
   case TargetCXXABI::iOS64:
   case TargetCXXABI::GenericAArch64:
+  case TargetCXXABI::GenericMIPS:
   case TargetCXXABI::GenericItanium:
     return CreateItaniumCXXABI(*this);
   case TargetCXXABI::Microsoft:
@@ -737,7 +738,8 @@ ASTContext::ASTContext(LangOptions &LOpts, SourceManager &SM,
       FILEDecl(nullptr), jmp_bufDecl(nullptr), sigjmp_bufDecl(nullptr),
       ucontext_tDecl(nullptr), BlockDescriptorType(nullptr),
       BlockDescriptorExtendedType(nullptr), cudaConfigureCallDecl(nullptr),
-      FirstLocalImport(), LastLocalImport(), SourceMgr(SM), LangOpts(LOpts),
+      FirstLocalImport(), LastLocalImport(), ExternCContext(nullptr),
+      SourceMgr(SM), LangOpts(LOpts),
       SanitizerBL(new SanitizerBlacklist(LangOpts.SanitizerBlacklistFiles, SM)),
       AddrSpaceMap(nullptr), Target(nullptr), PrintingPolicy(LOpts),
       Idents(idents), Selectors(sels), BuiltinInfo(builtins),
@@ -862,6 +864,13 @@ void ASTContext::PrintStats() const {
   }
 
   BumpAlloc.PrintStats();
+}
+
+ExternCContextDecl *ASTContext::getExternCContextDecl() const {
+  if (!ExternCContext)
+    ExternCContext = ExternCContextDecl::Create(*this, getTranslationUnitDecl());
+
+  return ExternCContext;
 }
 
 RecordDecl *ASTContext::buildImplicitRecord(StringRef Name,
@@ -3349,7 +3358,7 @@ ASTContext::getElaboratedType(ElaboratedTypeKeyword Keyword,
     (void)CheckT;
   }
 
-  T = new (*this) ElaboratedType(Keyword, NNS, NamedType, Canon);
+  T = new (*this, TypeAlignment) ElaboratedType(Keyword, NNS, NamedType, Canon);
   Types.push_back(T);
   ElaboratedTypes.InsertNode(T, InsertPos);
   return QualType(T, 0);
@@ -3373,7 +3382,7 @@ ASTContext::getParenType(QualType InnerType) const {
     (void)CheckT;
   }
 
-  T = new (*this) ParenType(InnerType, Canon);
+  T = new (*this, TypeAlignment) ParenType(InnerType, Canon);
   Types.push_back(T);
   ParenTypes.InsertNode(T, InsertPos);
   return QualType(T, 0);
@@ -3402,7 +3411,7 @@ QualType ASTContext::getDependentNameType(ElaboratedTypeKeyword Keyword,
   if (T)
     return QualType(T, 0);
 
-  T = new (*this) DependentNameType(Keyword, NNS, Name, Canon);
+  T = new (*this, TypeAlignment) DependentNameType(Keyword, NNS, Name, Canon);
   Types.push_back(T);
   DependentNameTypes.InsertNode(T, InsertPos);
   return QualType(T, 0);
@@ -3504,7 +3513,8 @@ QualType ASTContext::getPackExpansionType(QualType Pattern,
     }
   }
 
-  T = new (*this) PackExpansionType(Pattern, Canon, NumExpansions);
+  T = new (*this, TypeAlignment)
+      PackExpansionType(Pattern, Canon, NumExpansions);
   Types.push_back(T);
   PackExpansionTypes.InsertNode(T, InsertPos);
   return QualType(T, 0);
@@ -3512,9 +3522,9 @@ QualType ASTContext::getPackExpansionType(QualType Pattern,
 
 /// CmpProtocolNames - Comparison predicate for sorting protocols
 /// alphabetically.
-static bool CmpProtocolNames(const ObjCProtocolDecl *LHS,
-                            const ObjCProtocolDecl *RHS) {
-  return LHS->getDeclName() < RHS->getDeclName();
+static int CmpProtocolNames(ObjCProtocolDecl *const *LHS,
+                            ObjCProtocolDecl *const *RHS) {
+  return DeclarationName::compare((*LHS)->getDeclName(), (*RHS)->getDeclName());
 }
 
 static bool areSortedAndUniqued(ObjCProtocolDecl * const *Protocols,
@@ -3525,7 +3535,7 @@ static bool areSortedAndUniqued(ObjCProtocolDecl * const *Protocols,
     return false;
   
   for (unsigned i = 1; i != NumProtocols; ++i)
-    if (!CmpProtocolNames(Protocols[i-1], Protocols[i]) ||
+    if (CmpProtocolNames(&Protocols[i - 1], &Protocols[i]) >= 0 ||
         Protocols[i]->getCanonicalDecl() != Protocols[i])
       return false;
   return true;
@@ -3536,7 +3546,7 @@ static void SortAndUniqueProtocols(ObjCProtocolDecl **Protocols,
   ObjCProtocolDecl **ProtocolsEnd = Protocols+NumProtocols;
 
   // Sort protocols, keyed by name.
-  std::sort(Protocols, Protocols+NumProtocols, CmpProtocolNames);
+  llvm::array_pod_sort(Protocols, ProtocolsEnd, CmpProtocolNames);
 
   // Canonicalize.
   for (unsigned I = 0, N = NumProtocols; I != N; ++I)
@@ -4334,6 +4344,19 @@ QualType ASTContext::getAdjustedParameterType(QualType T) const {
 QualType ASTContext::getSignatureParameterType(QualType T) const {
   T = getVariableArrayDecayedType(T);
   T = getAdjustedParameterType(T);
+  return T.getUnqualifiedType();
+}
+
+QualType ASTContext::getExceptionObjectType(QualType T) const {
+  // C++ [except.throw]p3:
+  //   A throw-expression initializes a temporary object, called the exception
+  //   object, the type of which is determined by removing any top-level
+  //   cv-qualifiers from the static type of the operand of throw and adjusting
+  //   the type from "array of T" or "function returning T" to "pointer to T"
+  //   or "pointer to function returning T", [...]
+  T = getVariableArrayDecayedType(T);
+  if (T->isArrayType() || T->isFunctionType())
+    T = getDecayedType(T);
   return T.getUnqualifiedType();
 }
 
@@ -7818,6 +7841,9 @@ QualType ASTContext::GetBuiltinType(unsigned Id,
     ArgTypes.push_back(Ty);
   }
 
+  if (Id == Builtin::BI__GetExceptionInfo)
+    return QualType();
+
   assert((TypeStr[0] != '.' || TypeStr[1] == 0) &&
          "'.' should only occur at end of builtin type list!");
 
@@ -7886,7 +7912,7 @@ static GVALinkage basicGVALinkageForFunction(const ASTContext &Context,
   // Functions specified with extern and inline in -fms-compatibility mode
   // forcibly get emitted.  While the body of the function cannot be later
   // replaced, the function definition cannot be discarded.
-  if (FD->getMostRecentDecl()->isMSExternInline())
+  if (FD->isMSExternInline())
     return GVA_StrongODR;
 
   return GVA_DiscardableODR;
@@ -7921,7 +7947,7 @@ static GVALinkage basicGVALinkageForVariable(const ASTContext &Context,
     while (LexicalContext && !isa<FunctionDecl>(LexicalContext))
       LexicalContext = LexicalContext->getLexicalParent();
 
-    // Let the static local variable inherit it's linkage from the nearest
+    // Let the static local variable inherit its linkage from the nearest
     // enclosing function.
     if (LexicalContext)
       StaticLocalLinkage =
@@ -8079,6 +8105,7 @@ MangleContext *ASTContext::createMangleContext() {
   case TargetCXXABI::GenericAArch64:
   case TargetCXXABI::GenericItanium:
   case TargetCXXABI::GenericARM:
+  case TargetCXXABI::GenericMIPS:
   case TargetCXXABI::iOS:
   case TargetCXXABI::iOS64:
     return ItaniumMangleContext::create(*this, getDiagnostics());
@@ -8172,6 +8199,31 @@ ASTContext::getManglingNumberContext(const DeclContext *DC) {
 
 MangleNumberingContext *ASTContext::createMangleNumberingContext() const {
   return ABI->createMangleNumberingContext();
+}
+
+const CXXConstructorDecl *
+ASTContext::getCopyConstructorForExceptionObject(CXXRecordDecl *RD) {
+  return ABI->getCopyConstructorForExceptionObject(
+      cast<CXXRecordDecl>(RD->getFirstDecl()));
+}
+
+void ASTContext::addCopyConstructorForExceptionObject(CXXRecordDecl *RD,
+                                                      CXXConstructorDecl *CD) {
+  return ABI->addCopyConstructorForExceptionObject(
+      cast<CXXRecordDecl>(RD->getFirstDecl()),
+      cast<CXXConstructorDecl>(CD->getFirstDecl()));
+}
+
+void ASTContext::addDefaultArgExprForConstructor(const CXXConstructorDecl *CD,
+                                                 unsigned ParmIdx, Expr *DAE) {
+  ABI->addDefaultArgExprForConstructor(
+      cast<CXXConstructorDecl>(CD->getFirstDecl()), ParmIdx, DAE);
+}
+
+Expr *ASTContext::getDefaultArgExprForConstructor(const CXXConstructorDecl *CD,
+                                                  unsigned ParmIdx) {
+  return ABI->getDefaultArgExprForConstructor(
+      cast<CXXConstructorDecl>(CD->getFirstDecl()), ParmIdx);
 }
 
 void ASTContext::setParameterIndex(const ParmVarDecl *D, unsigned int index) {

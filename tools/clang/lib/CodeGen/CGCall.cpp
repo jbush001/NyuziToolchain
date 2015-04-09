@@ -31,6 +31,7 @@
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/Transforms/Utils/Local.h"
+#include <sstream>
 using namespace clang;
 using namespace CodeGen;
 
@@ -98,8 +99,7 @@ arrangeLLVMFunctionInfo(CodeGenTypes &CGT, bool instanceMethod,
                         CanQual<FunctionProtoType> FTP) {
   RequiredArgs required = RequiredArgs::forPrototypePlus(FTP, prefix.size());
   // FIXME: Kill copy.
-  for (unsigned i = 0, e = FTP->getNumParams(); i != e; ++i)
-    prefix.push_back(FTP->getParamType(i));
+  prefix.append(FTP->param_type_begin(), FTP->param_type_end());
   CanQualType resultType = FTP->getReturnType().getUnqualifiedType();
   return CGT.arrangeLLVMFunctionInfo(resultType, instanceMethod,
                                      /*chainCall=*/false, prefix,
@@ -207,8 +207,7 @@ CodeGenTypes::arrangeCXXStructorDeclaration(const CXXMethodDecl *MD,
   CanQual<FunctionProtoType> FTP = GetFormalType(MD);
 
   // Add the formal parameters.
-  for (unsigned i = 0, e = FTP->getNumParams(); i != e; ++i)
-    argTypes.push_back(FTP->getParamType(i));
+  argTypes.append(FTP->param_type_begin(), FTP->param_type_end());
 
   TheCXXABI.buildStructorSignature(MD, Type, argTypes);
 
@@ -346,6 +345,26 @@ CodeGenTypes::arrangeMSMemberPointerThunk(const CXXMethodDecl *MD) {
   return arrangeLLVMFunctionInfo(Context.VoidTy, /*instanceMethod=*/false,
                                  /*chainCall=*/false, ArgTys,
                                  FTP->getExtInfo(), RequiredArgs(1));
+}
+
+const CGFunctionInfo &
+CodeGenTypes::arrangeMSCtorClosure(const CXXConstructorDecl *CD,
+                                   CXXCtorType CT) {
+  assert(CT == Ctor_CopyingClosure || CT == Ctor_DefaultClosure);
+
+  CanQual<FunctionProtoType> FTP = GetFormalType(CD);
+  SmallVector<CanQualType, 2> ArgTys;
+  const CXXRecordDecl *RD = CD->getParent();
+  ArgTys.push_back(GetThisType(Context, RD));
+  if (CT == Ctor_CopyingClosure)
+    ArgTys.push_back(*FTP->param_type_begin());
+  if (RD->getNumVBases() > 0)
+    ArgTys.push_back(Context.IntTy);
+  CallingConv CC = Context.getDefaultCallingConvention(
+      /*IsVariadic=*/false, /*IsCXXMethod=*/true);
+  return arrangeLLVMFunctionInfo(Context.VoidTy, /*instanceMethod=*/true,
+                                 /*chainCall=*/false, ArgTys,
+                                 FunctionType::ExtInfo(CC), RequiredArgs::All);
 }
 
 /// Arrange a call as unto a free function, except possibly with an
@@ -715,7 +734,8 @@ void CodeGenFunction::ExpandTypeFromArgs(
   auto Exp = getTypeExpansion(Ty, getContext());
   if (auto CAExp = dyn_cast<ConstantArrayExpansion>(Exp.get())) {
     for (int i = 0, n = CAExp->NumElts; i < n; i++) {
-      llvm::Value *EltAddr = Builder.CreateConstGEP2_32(LV.getAddress(), 0, i);
+      llvm::Value *EltAddr =
+          Builder.CreateConstGEP2_32(nullptr, LV.getAddress(), 0, i);
       LValue LV = MakeAddrLValue(EltAddr, CAExp->EltTy);
       ExpandTypeFromArgs(CAExp->EltTy, LV, AI);
     }
@@ -737,10 +757,12 @@ void CodeGenFunction::ExpandTypeFromArgs(
       ExpandTypeFromArgs(FD->getType(), SubLV, AI);
     }
   } else if (auto CExp = dyn_cast<ComplexExpansion>(Exp.get())) {
-    llvm::Value *RealAddr = Builder.CreateStructGEP(LV.getAddress(), 0, "real");
+    llvm::Value *RealAddr =
+        Builder.CreateStructGEP(nullptr, LV.getAddress(), 0, "real");
     EmitStoreThroughLValue(RValue::get(*AI++),
                            MakeAddrLValue(RealAddr, CExp->EltTy));
-    llvm::Value *ImagAddr = Builder.CreateStructGEP(LV.getAddress(), 1, "imag");
+    llvm::Value *ImagAddr =
+        Builder.CreateStructGEP(nullptr, LV.getAddress(), 1, "imag");
     EmitStoreThroughLValue(RValue::get(*AI++),
                            MakeAddrLValue(ImagAddr, CExp->EltTy));
   } else {
@@ -756,7 +778,7 @@ void CodeGenFunction::ExpandTypeToArgs(
   if (auto CAExp = dyn_cast<ConstantArrayExpansion>(Exp.get())) {
     llvm::Value *Addr = RV.getAggregateAddr();
     for (int i = 0, n = CAExp->NumElts; i < n; i++) {
-      llvm::Value *EltAddr = Builder.CreateConstGEP2_32(Addr, 0, i);
+      llvm::Value *EltAddr = Builder.CreateConstGEP2_32(nullptr, Addr, 0, i);
       RValue EltRV =
           convertTempToRValue(EltAddr, CAExp->EltTy, SourceLocation());
       ExpandTypeToArgs(CAExp->EltTy, EltRV, IRFuncTy, IRCallArgs, IRCallArgPos);
@@ -824,7 +846,7 @@ EnterStructPointerForCoercedAccess(llvm::Value *SrcPtr,
     return SrcPtr;
 
   // GEP into the first element.
-  SrcPtr = CGF.Builder.CreateConstGEP2_32(SrcPtr, 0, 0, "coerce.dive");
+  SrcPtr = CGF.Builder.CreateConstGEP2_32(SrcSTy, SrcPtr, 0, 0, "coerce.dive");
 
   // If the first element is a struct, recurse.
   llvm::Type *SrcTy =
@@ -962,7 +984,7 @@ static void BuildAggStore(CodeGenFunction &CGF, llvm::Value *Val,
   if (llvm::StructType *STy =
         dyn_cast<llvm::StructType>(Val->getType())) {
     for (unsigned i = 0, e = STy->getNumElements(); i != e; ++i) {
-      llvm::Value *EltPtr = CGF.Builder.CreateConstGEP2_32(DestPtr, 0, i);
+      llvm::Value *EltPtr = CGF.Builder.CreateConstGEP2_32(STy, DestPtr, 0, i);
       llvm::Value *Elt = CGF.Builder.CreateExtractValue(Val, i);
       llvm::StoreInst *SI = CGF.Builder.CreateStore(Elt, EltPtr,
                                                     DestIsVolatile);
@@ -1457,6 +1479,26 @@ void CodeGenModule::ConstructAttributeList(const CGFunctionInfo &FI,
 
     if (!CodeGenOpts.StackRealignment)
       FuncAttrs.addAttribute("no-realign-stack");
+
+    // Add target-cpu and target-features work if they differ from the defaults.
+    std::string &CPU = getTarget().getTargetOpts().CPU;
+    if (CPU != "" && CPU != getTarget().getTriple().getArchName())
+      FuncAttrs.addAttribute("target-cpu", getTarget().getTargetOpts().CPU);
+
+    // TODO: FeaturesAsWritten gets us the features on the command line,
+    // for canonicalization purposes we might want to avoid putting features
+    // in the target-features set if we know it'll be one of the default
+    // features in the backend, e.g. corei7-avx and +avx.
+    std::vector<std::string> &Features =
+        getTarget().getTargetOpts().FeaturesAsWritten;
+    if (!Features.empty()) {
+      std::stringstream S;
+      std::copy(Features.begin(), Features.end(),
+                std::ostream_iterator<std::string>(S, ","));
+      // The drop_back gets rid of the trailing space.
+      FuncAttrs.addAttribute("target-features",
+                             StringRef(S.str()).drop_back(1));
+    }
   }
 
   ClangToLLVMArgMapping IRFunctionArgs(getContext(), FI);
@@ -1733,8 +1775,9 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
     switch (ArgI.getKind()) {
     case ABIArgInfo::InAlloca: {
       assert(NumIRArgs == 0);
-      llvm::Value *V = Builder.CreateStructGEP(
-          ArgStruct, ArgI.getInAllocaFieldIndex(), Arg->getName());
+      llvm::Value *V =
+          Builder.CreateStructGEP(FI.getArgStruct(), ArgStruct,
+                                  ArgI.getInAllocaFieldIndex(), Arg->getName());
       ArgVals.push_back(ValueAndIsPtr(V, HavePointer));
       break;
     }
@@ -1900,7 +1943,7 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
       // If the value is offset in memory, apply the offset now.
       if (unsigned Offs = ArgI.getDirectOffset()) {
         Ptr = Builder.CreateBitCast(Ptr, Builder.getInt8PtrTy());
-        Ptr = Builder.CreateConstGEP1_32(Ptr, Offs);
+        Ptr = Builder.CreateConstGEP1_32(Builder.getInt8Ty(), Ptr, Offs);
         Ptr = Builder.CreateBitCast(Ptr,
                           llvm::PointerType::getUnqual(ArgI.getCoerceToType()));
       }
@@ -1922,7 +1965,7 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
           for (unsigned i = 0, e = STy->getNumElements(); i != e; ++i) {
             auto AI = FnArgs[FirstIRArg + i];
             AI->setName(Arg->getName() + ".coerce" + Twine(i));
-            llvm::Value *EltPtr = Builder.CreateConstGEP2_32(Ptr, 0, i);
+            llvm::Value *EltPtr = Builder.CreateConstGEP2_32(STy, Ptr, 0, i);
             Builder.CreateStore(AI, EltPtr);
           }
         } else {
@@ -1935,7 +1978,8 @@ void CodeGenFunction::EmitFunctionProlog(const CGFunctionInfo &FI,
           for (unsigned i = 0, e = STy->getNumElements(); i != e; ++i) {
             auto AI = FnArgs[FirstIRArg + i];
             AI->setName(Arg->getName() + ".coerce" + Twine(i));
-            llvm::Value *EltPtr = Builder.CreateConstGEP2_32(TempV, 0, i);
+            llvm::Value *EltPtr =
+                Builder.CreateConstGEP2_32(ArgI.getCoerceToType(), TempV, 0, i);
             Builder.CreateStore(AI, EltPtr);
           }
 
@@ -2230,8 +2274,8 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
       llvm::Function::arg_iterator EI = CurFn->arg_end();
       --EI;
       llvm::Value *ArgStruct = EI;
-      llvm::Value *SRet =
-          Builder.CreateStructGEP(ArgStruct, RetAI.getInAllocaFieldIndex());
+      llvm::Value *SRet = Builder.CreateStructGEP(
+          nullptr, ArgStruct, RetAI.getInAllocaFieldIndex());
       RV = Builder.CreateLoad(SRet, "sret");
     }
     break;
@@ -2295,7 +2339,7 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
       // If the value is offset in memory, apply the offset now.
       if (unsigned Offs = RetAI.getDirectOffset()) {
         V = Builder.CreateBitCast(V, Builder.getInt8PtrTy());
-        V = Builder.CreateConstGEP1_32(V, Offs);
+        V = Builder.CreateConstGEP1_32(Builder.getInt8Ty(), V, Offs);
         V = Builder.CreateBitCast(V,
                          llvm::PointerType::getUnqual(RetAI.getCoerceToType()));
       }
@@ -2341,7 +2385,7 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
     Ret = Builder.CreateRetVoid();
   }
 
-  if (!RetDbgLoc.isUnknown())
+  if (RetDbgLoc)
     Ret->setDebugLoc(std::move(RetDbgLoc));
 }
 
@@ -2734,8 +2778,22 @@ struct DestroyUnpassedArg : EHScopeStack::Cleanup {
 
 }
 
+struct DisableDebugLocationUpdates {
+  CodeGenFunction &CGF;
+  bool disabledDebugInfo;
+  DisableDebugLocationUpdates(CodeGenFunction &CGF, const Expr *E) : CGF(CGF) {
+    if ((disabledDebugInfo = isa<CXXDefaultArgExpr>(E) && CGF.getDebugInfo()))
+      CGF.disableDebugInfo();
+  }
+  ~DisableDebugLocationUpdates() {
+    if (disabledDebugInfo)
+      CGF.enableDebugInfo();
+  }
+};
+
 void CodeGenFunction::EmitCallArg(CallArgList &args, const Expr *E,
                                   QualType type) {
+  DisableDebugLocationUpdates Dis(*this, E);
   if (const ObjCIndirectCopyRestoreExpr *CRE
         = dyn_cast<ObjCIndirectCopyRestoreExpr>(E)) {
     assert(getLangOpts().ObjCAutoRefCount);
@@ -2976,7 +3034,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 
   // If we're using inalloca, insert the allocation after the stack save.
   // FIXME: Do this earlier rather than hacking it in here!
-  llvm::Value *ArgMemory = nullptr;
+  llvm::AllocaInst *ArgMemory = nullptr;
   if (llvm::StructType *ArgStruct = CallInfo.getArgStruct()) {
     llvm::Instruction *IP = CallArgs.getStackBase();
     llvm::AllocaInst *AI;
@@ -3005,7 +3063,8 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
       IRCallArgs[IRFunctionArgs.getSRetArgNo()] = SRetPtr;
     } else {
       llvm::Value *Addr =
-          Builder.CreateStructGEP(ArgMemory, RetAI.getInAllocaFieldIndex());
+          Builder.CreateStructGEP(ArgMemory->getAllocatedType(), ArgMemory,
+                                  RetAI.getInAllocaFieldIndex());
       Builder.CreateStore(SRetPtr, Addr);
     }
   }
@@ -3039,14 +3098,16 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
             cast<llvm::Instruction>(RV.getAggregateAddr());
         CGBuilderTy::InsertPoint IP = Builder.saveIP();
         Builder.SetInsertPoint(Placeholder);
-        llvm::Value *Addr = Builder.CreateStructGEP(
-            ArgMemory, ArgInfo.getInAllocaFieldIndex());
+        llvm::Value *Addr =
+            Builder.CreateStructGEP(ArgMemory->getAllocatedType(), ArgMemory,
+                                    ArgInfo.getInAllocaFieldIndex());
         Builder.restoreIP(IP);
         deferPlaceholderReplacement(Placeholder, Addr);
       } else {
         // Store the RValue into the argument struct.
         llvm::Value *Addr =
-            Builder.CreateStructGEP(ArgMemory, ArgInfo.getInAllocaFieldIndex());
+            Builder.CreateStructGEP(ArgMemory->getAllocatedType(), ArgMemory,
+                                    ArgInfo.getInAllocaFieldIndex());
         unsigned AS = Addr->getType()->getPointerAddressSpace();
         llvm::Type *MemType = ConvertTypeForMem(I->Ty)->getPointerTo(AS);
         // There are some cases where a trivial bitcast is not avoidable.  The
@@ -3090,8 +3151,8 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
                  : 0);
         if ((!ArgInfo.getIndirectByVal() && I->NeedsCopy) ||
             (ArgInfo.getIndirectByVal() && TypeAlign.getQuantity() < Align &&
-             llvm::getOrEnforceKnownAlignment(Addr, Align, TD) < Align) ||
-             (ArgInfo.getIndirectByVal() && (RVAddrSpace != ArgAddrSpace))) {
+             llvm::getOrEnforceKnownAlignment(Addr, Align, *TD) < Align) ||
+            (ArgInfo.getIndirectByVal() && (RVAddrSpace != ArgAddrSpace))) {
           // Create an aligned temporary, and copy to it.
           llvm::AllocaInst *AI = CreateMemTemp(I->Ty);
           if (Align > AI->getAlignment())
@@ -3148,7 +3209,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
       // If the value is offset in memory, apply the offset now.
       if (unsigned Offs = ArgInfo.getDirectOffset()) {
         SrcPtr = Builder.CreateBitCast(SrcPtr, Builder.getInt8PtrTy());
-        SrcPtr = Builder.CreateConstGEP1_32(SrcPtr, Offs);
+        SrcPtr = Builder.CreateConstGEP1_32(Builder.getInt8Ty(), SrcPtr, Offs);
         SrcPtr = Builder.CreateBitCast(SrcPtr,
                        llvm::PointerType::getUnqual(ArgInfo.getCoerceToType()));
 
@@ -3180,7 +3241,7 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 
         assert(NumIRArgs == STy->getNumElements());
         for (unsigned i = 0, e = STy->getNumElements(); i != e; ++i) {
-          llvm::Value *EltPtr = Builder.CreateConstGEP2_32(SrcPtr, 0, i);
+          llvm::Value *EltPtr = Builder.CreateConstGEP2_32(STy, SrcPtr, 0, i);
           llvm::LoadInst *LI = Builder.CreateLoad(EltPtr);
           // We don't know what we're loading from.
           LI->setAlignment(1);
@@ -3290,7 +3351,8 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
 
   llvm::BasicBlock *InvokeDest = nullptr;
   if (!Attrs.hasAttribute(llvm::AttributeSet::FunctionIndex,
-                          llvm::Attribute::NoUnwind))
+                          llvm::Attribute::NoUnwind) ||
+      currentFunctionUsesSEHTry())
     InvokeDest = getInvokeDest();
 
   llvm::CallSite CS;
@@ -3309,6 +3371,12 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
     Attrs =
         Attrs.addAttribute(getLLVMContext(), llvm::AttributeSet::FunctionIndex,
                            llvm::Attribute::AlwaysInline);
+
+  // Disable inlining inside SEH __try blocks.
+  if (isSEHTryScope())
+    Attrs =
+        Attrs.addAttribute(getLLVMContext(), llvm::AttributeSet::FunctionIndex,
+                           llvm::Attribute::NoInline);
 
   CS.setAttributes(Attrs);
   CS.setCallingConv(static_cast<llvm::CallingConv::ID>(CallingConv));
@@ -3403,7 +3471,8 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
       llvm::Value *StorePtr = DestPtr;
       if (unsigned Offs = RetAI.getDirectOffset()) {
         StorePtr = Builder.CreateBitCast(StorePtr, Builder.getInt8PtrTy());
-        StorePtr = Builder.CreateConstGEP1_32(StorePtr, Offs);
+        StorePtr =
+            Builder.CreateConstGEP1_32(Builder.getInt8Ty(), StorePtr, Offs);
         StorePtr = Builder.CreateBitCast(StorePtr,
                            llvm::PointerType::getUnqual(RetAI.getCoerceToType()));
       }

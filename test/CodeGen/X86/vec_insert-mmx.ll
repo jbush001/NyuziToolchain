@@ -6,7 +6,7 @@ define x86_mmx @t0(i32 %A) nounwind {
 ; X86-32-LABEL: t0:
 ; X86-32:       ## BB#0:
 ; X86-32:    movd {{[0-9]+}}(%esp), %xmm0
-; X86-32-NEXT:    pshufd {{.*#+}} xmm0 = xmm0[1,0,0,1]
+; X86-32-NEXT:    pshufd {{.*#+}} xmm0 = xmm0[1,0,1,1]
 ; X86-32-NEXT:    movlpd %xmm0, (%esp)
 ; X86-32-NEXT:    movq (%esp), %mm0
 ; X86-32-NEXT:    addl $12, %esp
@@ -50,8 +50,8 @@ define void @t3() {
 ; X86-64-NEXT:    pshufb {{.*#+}} xmm0 = xmm0[0,1,4,5,8,9,12,13,8,9,12,13,12,13,14,15]
 ; X86-64-NEXT:    movq %xmm0
 ; X86-64-NEXT:    retq
-  load i16* @g0
-  load <4 x i16>* @g1
+  load i16, i16* @g0
+  load <4 x i16>, <4 x i16>* @g1
   insertelement <4 x i16> %2, i16 %1, i32 0
   store <4 x i16> %3, <4 x i16>* @g1
   ret void

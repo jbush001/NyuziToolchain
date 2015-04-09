@@ -17,6 +17,7 @@
 //
 
 #include "AMDGPUAsmPrinter.h"
+#include "InstPrinter/AMDGPUInstPrinter.h"
 #include "AMDGPU.h"
 #include "AMDKernelCodeT.h"
 #include "AMDGPUSubtarget.h"
@@ -58,7 +59,7 @@ using namespace llvm;
 // instructions to run at the double precision rate for the device so it's
 // probably best to just report no single precision denormals.
 static uint32_t getFPMode(const MachineFunction &F) {
-  const AMDGPUSubtarget& ST = F.getTarget().getSubtarget<AMDGPUSubtarget>();
+  const AMDGPUSubtarget& ST = F.getSubtarget<AMDGPUSubtarget>();
   // TODO: Is there any real use for the flush in only / flush out only modes?
 
   uint32_t FP32Denormals =
@@ -86,9 +87,7 @@ extern "C" void LLVMInitializeR600AsmPrinter() {
 
 AMDGPUAsmPrinter::AMDGPUAsmPrinter(TargetMachine &TM,
                                    std::unique_ptr<MCStreamer> Streamer)
-    : AsmPrinter(TM, std::move(Streamer)) {
-  DisasmEnabled = TM.getSubtarget<AMDGPUSubtarget>().dumpCode();
-}
+    : AsmPrinter(TM, std::move(Streamer)) {}
 
 void AMDGPUAsmPrinter::EmitEndOfAsmFile(Module &M) {
 
@@ -107,14 +106,12 @@ bool AMDGPUAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
 
   SetupMachineFunction(MF);
 
-  EmitFunctionHeader();
-
   MCContext &Context = getObjFileLowering().getContext();
   const MCSectionELF *ConfigSection =
       Context.getELFSection(".AMDGPU.config", ELF::SHT_PROGBITS, 0);
   OutStreamer.SwitchSection(ConfigSection);
 
-  const AMDGPUSubtarget &STM = TM.getSubtarget<AMDGPUSubtarget>();
+  const AMDGPUSubtarget &STM = MF.getSubtarget<AMDGPUSubtarget>();
   SIProgramInfo KernelInfo;
   if (STM.isAmdHsaOS()) {
     getSIProgramInfo(KernelInfo, MF);
@@ -131,7 +128,6 @@ bool AMDGPUAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   HexLines.clear();
   DisasmLineMaxLen = 0;
 
-  OutStreamer.SwitchSection(getObjFileLowering().getTextSection());
   EmitFunctionBody();
 
   if (isVerbose()) {
@@ -160,7 +156,7 @@ bool AMDGPUAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
     }
   }
 
-  if (STM.dumpCode() && DisasmEnabled) {
+  if (STM.dumpCode()) {
 
     OutStreamer.SwitchSection(
         Context.getELFSection(".AMDGPU.disasm", ELF::SHT_NOTE, 0));
@@ -180,10 +176,10 @@ bool AMDGPUAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
 void AMDGPUAsmPrinter::EmitProgramInfoR600(const MachineFunction &MF) {
   unsigned MaxGPR = 0;
   bool killPixel = false;
-  const R600RegisterInfo *RI = static_cast<const R600RegisterInfo *>(
-      TM.getSubtargetImpl()->getRegisterInfo());
+  const AMDGPUSubtarget &STM = MF.getSubtarget<AMDGPUSubtarget>();
+  const R600RegisterInfo *RI =
+      static_cast<const R600RegisterInfo *>(STM.getRegisterInfo());
   const R600MachineFunctionInfo *MFI = MF.getInfo<R600MachineFunctionInfo>();
-  const AMDGPUSubtarget &STM = TM.getSubtarget<AMDGPUSubtarget>();
 
   for (const MachineBasicBlock &MBB : MF) {
     for (const MachineInstr &MI : MBB) {
@@ -239,15 +235,15 @@ void AMDGPUAsmPrinter::EmitProgramInfoR600(const MachineFunction &MF) {
 
 void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
                                         const MachineFunction &MF) const {
-  const AMDGPUSubtarget &STM = TM.getSubtarget<AMDGPUSubtarget>();
+  const AMDGPUSubtarget &STM = MF.getSubtarget<AMDGPUSubtarget>();
   const SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
   uint64_t CodeSize = 0;
   unsigned MaxSGPR = 0;
   unsigned MaxVGPR = 0;
   bool VCCUsed = false;
   bool FlatUsed = false;
-  const SIRegisterInfo *RI = static_cast<const SIRegisterInfo *>(
-      TM.getSubtargetImpl()->getRegisterInfo());
+  const SIRegisterInfo *RI =
+      static_cast<const SIRegisterInfo *>(STM.getRegisterInfo());
 
   for (const MachineBasicBlock &MBB : MF) {
     for (const MachineInstr &MI : MBB) {
@@ -341,6 +337,13 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
   ProgInfo.NumVGPR = MaxVGPR + 1;
   ProgInfo.NumSGPR = MaxSGPR + 1;
 
+  if (STM.hasSGPRInitBug()) {
+    if (ProgInfo.NumSGPR > AMDGPUSubtarget::FIXED_SGPR_COUNT_FOR_INIT_BUG)
+      llvm_unreachable("Too many SGPRs used with the SGPR init bug");
+
+    ProgInfo.NumSGPR = AMDGPUSubtarget::FIXED_SGPR_COUNT_FOR_INIT_BUG;
+  }
+
   ProgInfo.VGPRBlocks = (ProgInfo.NumVGPR - 1) / 4;
   ProgInfo.SGPRBlocks = (ProgInfo.NumSGPR - 1) / 8;
   // Set the value to initialize FP_ROUND and FP_DENORM parts of the mode
@@ -418,7 +421,7 @@ static unsigned getRsrcReg(unsigned ShaderType) {
 
 void AMDGPUAsmPrinter::EmitProgramInfoSI(const MachineFunction &MF,
                                          const SIProgramInfo &KernelInfo) {
-  const AMDGPUSubtarget &STM = TM.getSubtarget<AMDGPUSubtarget>();
+  const AMDGPUSubtarget &STM = MF.getSubtarget<AMDGPUSubtarget>();
   const SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
   unsigned RsrcReg = getRsrcReg(MFI->getShaderType());
 
@@ -456,7 +459,7 @@ void AMDGPUAsmPrinter::EmitProgramInfoSI(const MachineFunction &MF,
 void AMDGPUAsmPrinter::EmitAmdKernelCodeT(const MachineFunction &MF,
                                         const SIProgramInfo &KernelInfo) const {
   const SIMachineFunctionInfo *MFI = MF.getInfo<SIMachineFunctionInfo>();
-  const AMDGPUSubtarget &STM = TM.getSubtarget<AMDGPUSubtarget>();
+  const AMDGPUSubtarget &STM = MF.getSubtarget<AMDGPUSubtarget>();
   amd_kernel_code_t header;
 
   memset(&header, 0, sizeof(header));
@@ -571,4 +574,25 @@ void AMDGPUAsmPrinter::EmitAmdKernelCodeT(const MachineFunction &MF,
   }
 
   OutStreamer.EmitBytes(StringRef((char*)&header, sizeof(header)));
+}
+
+bool AMDGPUAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+                                       unsigned AsmVariant,
+                                       const char *ExtraCode, raw_ostream &O) {
+  if (ExtraCode && ExtraCode[0]) {
+    if (ExtraCode[1] != 0)
+      return true; // Unknown modifier.
+
+    switch (ExtraCode[0]) {
+    default:
+      // See if this is a generic print operand
+      return AsmPrinter::PrintAsmOperand(MI, OpNo, AsmVariant, ExtraCode, O);
+    case 'r':
+      break;
+    }
+  }
+
+  AMDGPUInstPrinter::printRegOperand(MI->getOperand(OpNo).getReg(), O,
+                   *TM.getSubtargetImpl(*MF->getFunction())->getRegisterInfo());
+  return false;
 }

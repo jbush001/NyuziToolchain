@@ -324,6 +324,16 @@ namespace dr1467 {  // dr1467: 3.7 c++11
     S s1;
     S s2 = {s1}; // ok, not list-initialization so we pick the non-explicit constructor
   }
+
+  struct NestedInit { int a, b, c; };
+  NestedInit ni[1] = {{NestedInit{1, 2, 3}}};
+
+  namespace NestedInit2 {
+    struct Pair { int a, b; };
+    struct TwoPairs { TwoPairs(Pair, Pair); };
+    struct Value { Value(Pair); Value(TwoPairs); };
+    void f() { Value{{{1,2},{3,4}}}; }
+  }
 } // dr1467
 
 namespace dr1490 {  // dr1490: 3.7 c++11

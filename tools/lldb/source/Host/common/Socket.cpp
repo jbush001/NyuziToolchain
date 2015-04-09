@@ -167,7 +167,12 @@ Error Socket::TcpConnect(llvm::StringRef host_and_port, bool child_processes_inh
     return error;
 }
 
-Error Socket::TcpListen(llvm::StringRef host_and_port, bool child_processes_inherit, Socket *&socket, Predicate<uint16_t>* predicate)
+Error Socket::TcpListen(
+    llvm::StringRef host_and_port,
+    bool child_processes_inherit,
+    Socket *&socket,
+    Predicate<uint16_t>* predicate,
+    int backlog)
 {
     std::unique_ptr<Socket> listen_socket;
     NativeSocket listen_sock = kInvalidSocketValue;
@@ -209,7 +214,7 @@ Error Socket::TcpListen(llvm::StringRef host_and_port, bool child_processes_inhe
             return error;
         }
 
-        err = ::listen (listen_sock, 1);
+        err = ::listen (listen_sock, backlog);
         if (err == -1)
         {
             // TODO: On Windows, use WSAGetLastError()
@@ -699,7 +704,7 @@ int Socket::SetOption(int level, int option_name, int option_value)
 uint16_t Socket::GetLocalPortNumber(const NativeSocket& socket)
 {
     // We bound to port zero, so we need to figure out which port we actually bound to
-    if (socket >= 0)
+    if (socket != kInvalidSocketValue)
     {
         SocketAddress sock_addr;
         socklen_t sock_addr_len = sock_addr.GetMaxLength ();
@@ -718,7 +723,7 @@ uint16_t Socket::GetLocalPortNumber() const
 std::string  Socket::GetLocalIPAddress () const
 {
     // We bound to port zero, so we need to figure out which port we actually bound to
-    if (m_socket >= 0)
+    if (m_socket != kInvalidSocketValue)
     {
         SocketAddress sock_addr;
         socklen_t sock_addr_len = sock_addr.GetMaxLength ();
@@ -730,7 +735,7 @@ std::string  Socket::GetLocalIPAddress () const
 
 uint16_t Socket::GetRemotePortNumber () const
 {
-    if (m_socket >= 0)
+    if (m_socket != kInvalidSocketValue)
     {
         SocketAddress sock_addr;
         socklen_t sock_addr_len = sock_addr.GetMaxLength ();
@@ -743,7 +748,7 @@ uint16_t Socket::GetRemotePortNumber () const
 std::string Socket::GetRemoteIPAddress () const
 {
     // We bound to port zero, so we need to figure out which port we actually bound to
-    if (m_socket >= 0)
+    if (m_socket != kInvalidSocketValue)
     {
         SocketAddress sock_addr;
         socklen_t sock_addr_len = sock_addr.GetMaxLength ();

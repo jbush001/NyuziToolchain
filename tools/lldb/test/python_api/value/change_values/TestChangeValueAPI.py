@@ -12,7 +12,7 @@ class ChangeValueAPITestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     @python_api_test
     @dsym_test
     def test_change_value_with_dsym(self):
@@ -24,6 +24,7 @@ class ChangeValueAPITestCase(TestBase):
 
     @python_api_test
     @dwarf_test
+    @expectedFailureLinux # this test fails 6/100 dosep runs
     def test_change_value_with_dwarf(self):
         """Exercise the SBValue::SetValueFromCString API."""
         d = {'EXE': self.exe_name}

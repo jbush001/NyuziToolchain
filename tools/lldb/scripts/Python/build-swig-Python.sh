@@ -79,6 +79,7 @@ HEADER_FILES="${SRC_ROOT}/include/lldb/lldb.h"\
 " ${SRC_ROOT}/include/lldb/lldb-forward-rtti.h"\
 " ${SRC_ROOT}/include/lldb/lldb-types.h"\
 " ${SRC_ROOT}/include/lldb/API/SBAddress.h"\
+" ${SRC_ROOT}/include/lldb/API/SBAttachInfo.h"\
 " ${SRC_ROOT}/include/lldb/API/SBBlock.h"\
 " ${SRC_ROOT}/include/lldb/API/SBBreakpoint.h"\
 " ${SRC_ROOT}/include/lldb/API/SBBreakpointLocation.h"\
@@ -126,10 +127,12 @@ HEADER_FILES="${SRC_ROOT}/include/lldb/lldb.h"\
 " ${SRC_ROOT}/include/lldb/API/SBTypeSynthetic.h"\
 " ${SRC_ROOT}/include/lldb/API/SBValue.h"\
 " ${SRC_ROOT}/include/lldb/API/SBValueList.h"\
+" ${SRC_ROOT}/include/lldb/API/SBVariablesOptions.h"\
 " ${SRC_ROOT}/include/lldb/API/SBWatchpoint.h"\
 " ${SRC_ROOT}/include/lldb/API/SBUnixSignals.h"
 
 INTERFACE_FILES="${SRC_ROOT}/scripts/Python/interface/SBAddress.i"\
+" ${SRC_ROOT}/scripts/Python/interface/SBAttachInfo.i"\
 " ${SRC_ROOT}/scripts/Python/interface/SBBlock.i"\
 " ${SRC_ROOT}/scripts/Python/interface/SBBreakpoint.i"\
 " ${SRC_ROOT}/scripts/Python/interface/SBBreakpointLocation.i"\
@@ -178,6 +181,7 @@ INTERFACE_FILES="${SRC_ROOT}/scripts/Python/interface/SBAddress.i"\
 " ${SRC_ROOT}/scripts/Python/interface/SBTypeSynthetic.i"\
 " ${SRC_ROOT}/scripts/Python/interface/SBValue.i"\
 " ${SRC_ROOT}/scripts/Python/interface/SBValueList.i"\
+" ${SRC_ROOT}/scripts/Python/interface/SBVariablesOptions.i"\
 " ${SRC_ROOT}/scripts/Python/interface/SBWatchpoint.i"\
 " ${SRC_ROOT}/scripts/Python/interface/SBUnixSignals.i"
 

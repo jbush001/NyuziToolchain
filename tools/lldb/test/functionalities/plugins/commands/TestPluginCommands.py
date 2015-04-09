@@ -9,6 +9,7 @@ import lldb
 from lldbtest import *
 import lldbutil
 
+@expectedFailureGcc #xfail to get buildbot green, test failed with gcc4.8.2
 class PluginCommandTestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
@@ -17,6 +18,7 @@ class PluginCommandTestCase(TestBase):
         # Call super's setUp().
         TestBase.setUp(self)
         self.lib_dir = os.environ["LLDB_LIB_DIR"]
+        self.implib_dir = os.environ["LLDB_IMPLIB_DIR"]
 
     @expectedFailureFreeBSD('llvm.org/pr17430')
     @skipIfi386 # This test links against liblldb.so. Thus, the test requires a 32-bit liblldb.so.

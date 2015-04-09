@@ -31,8 +31,7 @@ public:
     }
 
     bool
-    FindExternalVisibleDeclsByName (const clang::DeclContext *decl_ctx,
-                                    clang::DeclarationName name)
+    FindExternalVisibleDeclsByName(const clang::DeclContext *decl_ctx, clang::DeclarationName name) override
     {
         static unsigned int invocation_id = 0;
         unsigned int current_id = invocation_id++;
@@ -60,7 +59,7 @@ public:
             if (!m_decl_vendor.FinishDecl(non_const_interface_decl))
                 break;
 
-            clang::DeclContext::lookup_const_result result = non_const_interface_decl->lookup(name);
+            clang::DeclContext::lookup_result result = non_const_interface_decl->lookup(name);
 
             return (result.size() != 0);
         }
@@ -71,15 +70,14 @@ public:
     }
 
     clang::ExternalLoadResult
-    FindExternalLexicalDecls (const clang::DeclContext *DC,
-                              bool (*isKindWeWant)(clang::Decl::Kind),
-                              llvm::SmallVectorImpl<clang::Decl*> &Decls)
+    FindExternalLexicalDecls(const clang::DeclContext *DC, bool (*isKindWeWant)(clang::Decl::Kind),
+                             llvm::SmallVectorImpl<clang::Decl *> &Decls) override
     {
         return clang::ELR_Success;
     }
 
     void
-    CompleteType (clang::TagDecl *tag_decl)
+    CompleteType(clang::TagDecl *tag_decl) override
     {
         static unsigned int invocation_id = 0;
         unsigned int current_id = invocation_id++;
@@ -109,7 +107,7 @@ public:
     }
 
     void
-    CompleteType (clang::ObjCInterfaceDecl *interface_decl)
+    CompleteType(clang::ObjCInterfaceDecl *interface_decl) override
     {
         static unsigned int invocation_id = 0;
         unsigned int current_id = invocation_id++;
@@ -141,17 +139,16 @@ public:
     }
 
     bool
-    layoutRecordType(const clang::RecordDecl *Record,
-                     uint64_t &Size,
-                     uint64_t &Alignment,
-                     llvm::DenseMap <const clang::FieldDecl *, uint64_t> &FieldOffsets,
-                     llvm::DenseMap <const clang::CXXRecordDecl *, clang::CharUnits> &BaseOffsets,
-                     llvm::DenseMap <const clang::CXXRecordDecl *, clang::CharUnits> &VirtualBaseOffsets)
+    layoutRecordType(const clang::RecordDecl *Record, uint64_t &Size, uint64_t &Alignment,
+                     llvm::DenseMap<const clang::FieldDecl *, uint64_t> &FieldOffsets,
+                     llvm::DenseMap<const clang::CXXRecordDecl *, clang::CharUnits> &BaseOffsets,
+                     llvm::DenseMap<const clang::CXXRecordDecl *, clang::CharUnits> &VirtualBaseOffsets) override
     {
         return false;
     }
 
-    void StartTranslationUnit (clang::ASTConsumer *Consumer)
+    void
+    StartTranslationUnit(clang::ASTConsumer *Consumer) override
     {
         clang::TranslationUnitDecl *translation_unit_decl = m_decl_vendor.m_ast_ctx.getASTContext()->getTranslationUnitDecl();
         translation_unit_decl->setHasExternalVisibleStorage();
@@ -588,7 +585,7 @@ AppleObjCDeclVendor::FindDecls (const ConstString &name,
         clang::IdentifierInfo &identifier_info = ast_ctx->Idents.get(name.GetStringRef());
         clang::DeclarationName decl_name = ast_ctx->DeclarationNames.getIdentifier(&identifier_info);
         
-        clang::DeclContext::lookup_const_result lookup_result = ast_ctx->getTranslationUnitDecl()->lookup(decl_name);
+        clang::DeclContext::lookup_result lookup_result = ast_ctx->getTranslationUnitDecl()->lookup(decl_name);
         
         if (!lookup_result.empty())
         {

@@ -9,11 +9,13 @@ add_lldb_library(lldbPluginProcessUtility
   HistoryUnwind.cpp
   InferiorCallPOSIX.cpp
   LinuxSignals.cpp
+  MipsLinuxSignals.cpp
   RegisterContextDarwin_arm.cpp
   RegisterContextDarwin_arm64.cpp
   RegisterContextDarwin_i386.cpp
   RegisterContextDarwin_x86_64.cpp
   RegisterContextDummy.cpp
+  RegisterContextFreeBSD_arm64.cpp
   RegisterContextFreeBSD_i386.cpp
   RegisterContextFreeBSD_mips64.cpp
   RegisterContextFreeBSD_powerpc.cpp
@@ -22,6 +24,7 @@ add_lldb_library(lldbPluginProcessUtility
   RegisterContextLinux_arm64.cpp
   RegisterContextLinux_i386.cpp
   RegisterContextLinux_x86_64.cpp
+  RegisterContextLinux_mips64.cpp
   RegisterContextLLDB.cpp
   RegisterContextMacOSXFrameBackchain.cpp
   RegisterContextMach_arm.cpp

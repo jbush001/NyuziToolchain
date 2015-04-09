@@ -90,6 +90,9 @@ public:
     
     static const char *
     GetNameForLanguageType (lldb::LanguageType language);
+
+    static bool
+    LanguageIsCPlusPlus (lldb::LanguageType language);
     
     Process *
     GetProcess()
@@ -106,6 +109,12 @@ public:
     virtual bool
     GetTypeBitSize (const ClangASTType& clang_type,
                     uint64_t &size)
+    {
+        return false;
+    }
+    
+    virtual bool
+    IsRuntimeSupportValue (ValueObject& valobj)
     {
         return false;
     }

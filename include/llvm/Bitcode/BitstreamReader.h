@@ -24,8 +24,6 @@
 
 namespace llvm {
 
-class Deserializer;
-
 /// This class is used to read from an LLVM bitcode stream, maintaining
 /// information that is global to decoding the entire file. While a file is
 /// being read, multiple cursors can be independently advanced or skipped around
@@ -50,8 +48,8 @@ private:
   /// information in the BlockInfo block. Only llvm-bcanalyzer uses this.
   bool IgnoreBlockInfoNames;
 
-  BitstreamReader(const BitstreamReader&) LLVM_DELETED_FUNCTION;
-  void operator=(const BitstreamReader&) LLVM_DELETED_FUNCTION;
+  BitstreamReader(const BitstreamReader&) = delete;
+  void operator=(const BitstreamReader&) = delete;
 public:
   BitstreamReader() : IgnoreBlockInfoNames(true) {
   }
@@ -164,7 +162,6 @@ struct BitstreamEntry {
 /// Unlike iterators, BitstreamCursors are heavy-weight objects that should not
 /// be passed by value.
 class BitstreamCursor {
-  friend class Deserializer;
   BitstreamReader *BitStream;
   size_t NextChar;
 
@@ -258,8 +255,8 @@ public:
     AF_DontAutoprocessAbbrevs = 2
   };
 
-      /// Advance the current bitstream, returning the next entry in the stream.
-      BitstreamEntry advance(unsigned Flags = 0) {
+  /// Advance the current bitstream, returning the next entry in the stream.
+  BitstreamEntry advance(unsigned Flags = 0) {
     while (1) {
       unsigned Code = ReadCode();
       if (Code == bitc::END_BLOCK) {
@@ -301,7 +298,7 @@ public:
 
   /// Reset the stream to the specified bit number.
   void JumpToBit(uint64_t BitNo) {
-    uintptr_t ByteNo = uintptr_t(BitNo/8) & ~(sizeof(word_t)-1);
+    size_t ByteNo = size_t(BitNo/8) & ~(sizeof(word_t)-1);
     unsigned WordBitNo = unsigned(BitNo & (sizeof(word_t)*8-1));
     assert(canSkipToPos(ByteNo) && "Invalid location");
 
@@ -315,7 +312,7 @@ public:
   }
 
   void fillCurWord() {
-    if (Size != 0 && NextChar >= (unsigned)Size)
+    if (Size != 0 && NextChar >= Size)
       report_fatal_error("Unexpected end of file");
 
     // Read the next word from the stream.

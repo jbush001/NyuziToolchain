@@ -27,6 +27,8 @@ def MMX_X86movw2d : SDNode<"X86ISD::MMX_MOVW2D", SDTypeProfile<1, 1,
 //===----------------------------------------------------------------------===//
 
 def load_mmx : PatFrag<(ops node:$ptr), (x86mmx (load node:$ptr))>;
+def load_mvmmx : PatFrag<(ops node:$ptr),
+                         (x86mmx (MMX_X86movw2d (load node:$ptr)))>;
 def bc_mmx  : PatFrag<(ops node:$in), (x86mmx  (bitconvert node:$in))>;
 
 //===----------------------------------------------------------------------===//
@@ -212,6 +214,9 @@ def SDTVBroadcastm : SDTypeProfile<1, 2, [SDTCisVec<0>, SDTCisVec<1>]>;
 def SDTBlend : SDTypeProfile<1, 3, [SDTCisVec<0>, SDTCisSameAs<0,1>,
                              SDTCisSameAs<1,2>, SDTCisVT<3, i8>]>;
 
+def SDTFPBinOpRound : SDTypeProfile<1, 3, [      // fadd_round, fmul_round, etc.
+  SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>, SDTCisFP<0>, SDTCisInt<3>]>;
+
 def SDTFma : SDTypeProfile<1, 3, [SDTCisSameAs<0,1>,
                            SDTCisSameAs<1,2>, SDTCisSameAs<1,3>]>;
 def SDTFmaRound : SDTypeProfile<1, 4, [SDTCisSameAs<0,1>,
@@ -220,6 +225,8 @@ def STDFp1SrcRm : SDTypeProfile<1, 2, [SDTCisSameAs<0,1>,
                            SDTCisVec<0>, SDTCisInt<2>]>;
 def STDFp2SrcRm : SDTypeProfile<1, 3, [SDTCisSameAs<0,1>,
                            SDTCisVec<0>, SDTCisInt<3>]>;
+def STDFp3SrcRm : SDTypeProfile<1, 4, [SDTCisSameAs<0,1>,
+                           SDTCisVec<0>, SDTCisInt<3>, SDTCisInt<4>]>;
 
 def X86PAlignr : SDNode<"X86ISD::PALIGNR", SDTShuff3OpI>;
 def X86VAlign  : SDNode<"X86ISD::VALIGN", SDTShuff3OpI>;
@@ -271,6 +278,13 @@ def X86Blendi    : SDNode<"X86ISD::BLENDI",   SDTBlend>;
 
 def X86Addsub    : SDNode<"X86ISD::ADDSUB", SDTFPBinOp>;
 
+def X86faddRnd   : SDNode<"X86ISD::FADD_RND",  SDTFPBinOpRound>;
+def X86fsubRnd   : SDNode<"X86ISD::FSUB_RND",  SDTFPBinOpRound>;
+def X86fmulRnd   : SDNode<"X86ISD::FMUL_RND",  SDTFPBinOpRound>;
+def X86fdivRnd   : SDNode<"X86ISD::FDIV_RND",  SDTFPBinOpRound>;
+def X86fmaxRnd   : SDNode<"X86ISD::FMAX",      SDTFPBinOpRound>;
+def X86fminRnd   : SDNode<"X86ISD::FMIN",      SDTFPBinOpRound>;
+
 def X86Fmadd     : SDNode<"X86ISD::FMADD",     SDTFma>;
 def X86Fnmadd    : SDNode<"X86ISD::FNMADD",    SDTFma>;
 def X86Fmsub     : SDNode<"X86ISD::FMSUB",     SDTFma>;
@@ -291,6 +305,7 @@ def X86exp2      : SDNode<"X86ISD::EXP2",     STDFp1SrcRm>;
 
 def X86rsqrt28s  : SDNode<"X86ISD::RSQRT28",  STDFp2SrcRm>;
 def X86rcp28s    : SDNode<"X86ISD::RCP28",    STDFp2SrcRm>;
+def X86RndScale  : SDNode<"X86ISD::RNDSCALE", STDFp3SrcRm>;
 
 def SDT_PCMPISTRI : SDTypeProfile<2, 3, [SDTCisVT<0, i32>, SDTCisVT<1, i32>,
                                          SDTCisVT<2, v16i8>, SDTCisVT<3, v16i8>,
@@ -365,6 +380,15 @@ def loadv8i64    : PatFrag<(ops node:$ptr), (v8i64 (load node:$ptr))>;
 def extloadv2f32 : PatFrag<(ops node:$ptr), (v2f64 (extloadvf32 node:$ptr))>;
 def extloadv4f32 : PatFrag<(ops node:$ptr), (v4f64 (extloadvf32 node:$ptr))>;
 def extloadv8f32 : PatFrag<(ops node:$ptr), (v8f64 (extloadvf32 node:$ptr))>;
+
+// These are needed to match a scalar load that is used in a vector-only
+// math instruction such as the FP logical ops: andps, andnps, orps, xorps.
+// The memory operand is required to be a 128-bit load, so it must be converted
+// from a vector to a scalar.
+def loadf32_128 : PatFrag<(ops node:$ptr),
+  (f32 (vector_extract (loadv4f32 node:$ptr), (iPTR 0)))>;
+def loadf64_128 : PatFrag<(ops node:$ptr),
+  (f64 (vector_extract (loadv2f64 node:$ptr), (iPTR 0)))>;
 
 // Like 'store', but always requires 128-bit vector alignment.
 def alignedstore : PatFrag<(ops node:$val, node:$ptr),
@@ -457,17 +481,15 @@ def memopv4f32 : PatFrag<(ops node:$ptr), (v4f32 (memop node:$ptr))>;
 def memopv2f64 : PatFrag<(ops node:$ptr), (v2f64 (memop node:$ptr))>;
 def memopv2i64 : PatFrag<(ops node:$ptr), (v2i64 (memop node:$ptr))>;
 
-// 256-bit memop pattern fragments
-// NOTE: all 256-bit integer vector loads are promoted to v4i64
-def memopv8f32 : PatFrag<(ops node:$ptr), (v8f32 (memop node:$ptr))>;
-def memopv4f64 : PatFrag<(ops node:$ptr), (v4f64 (memop node:$ptr))>;
-def memopv4i64 : PatFrag<(ops node:$ptr), (v4i64 (memop node:$ptr))>;
+// These are needed to match a scalar memop that is used in a vector-only
+// math instruction such as the FP logical ops: andps, andnps, orps, xorps.
+// The memory operand is required to be a 128-bit load, so it must be converted
+// from a vector to a scalar.
+def memopfsf32_128 : PatFrag<(ops node:$ptr),
+  (f32 (vector_extract (memopv4f32 node:$ptr), (iPTR 0)))>;
+def memopfsf64_128 : PatFrag<(ops node:$ptr),
+  (f64 (vector_extract (memopv2f64 node:$ptr), (iPTR 0)))>;
 
-// 512-bit memop pattern fragments
-def memopv16f32 : PatFrag<(ops node:$ptr), (v16f32 (memop node:$ptr))>;
-def memopv8f64  : PatFrag<(ops node:$ptr), (v8f64  (memop node:$ptr))>;
-def memopv16i32 : PatFrag<(ops node:$ptr), (v16i32 (memop node:$ptr))>;
-def memopv8i64  : PatFrag<(ops node:$ptr), (v8i64  (memop node:$ptr))>;
 
 // SSSE3 uses MMX registers for some instructions. They aren't aligned on a
 // 16-byte boundary.
@@ -606,4 +628,56 @@ def vinsert256_insert : PatFrag<(ops node:$bigvec, node:$smallvec,
                                                    node:$index), [{
   return X86::isVINSERT256Index(N);
 }], INSERT_get_vinsert256_imm>;
+
+def masked_load_aligned128 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+                         (masked_load node:$src1, node:$src2, node:$src3), [{
+  if (dyn_cast<MaskedLoadSDNode>(N))
+    return cast<MaskedLoadSDNode>(N)->getAlignment() >= 16;
+  return false;
+}]>;
+
+def masked_load_aligned256 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+                         (masked_load node:$src1, node:$src2, node:$src3), [{
+  if (dyn_cast<MaskedLoadSDNode>(N))
+    return cast<MaskedLoadSDNode>(N)->getAlignment() >= 32;
+  return false;
+}]>;
+
+def masked_load_aligned512 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+                         (masked_load node:$src1, node:$src2, node:$src3), [{
+  if (dyn_cast<MaskedLoadSDNode>(N))
+    return cast<MaskedLoadSDNode>(N)->getAlignment() >= 64;
+  return false;
+}]>;
+
+def masked_load_unaligned : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+                         (masked_load node:$src1, node:$src2, node:$src3), [{
+  return (dyn_cast<MaskedLoadSDNode>(N) != 0);
+}]>;
+
+def masked_store_aligned128 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+                         (masked_store node:$src1, node:$src2, node:$src3), [{
+  if (dyn_cast<MaskedStoreSDNode>(N))
+    return cast<MaskedStoreSDNode>(N)->getAlignment() >= 16;
+  return false;
+}]>;
+
+def masked_store_aligned256 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+                         (masked_store node:$src1, node:$src2, node:$src3), [{
+  if (dyn_cast<MaskedStoreSDNode>(N))
+    return cast<MaskedStoreSDNode>(N)->getAlignment() >= 32;
+  return false;
+}]>;
+
+def masked_store_aligned512 : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+                         (masked_store node:$src1, node:$src2, node:$src3), [{
+  if (dyn_cast<MaskedStoreSDNode>(N))
+    return cast<MaskedStoreSDNode>(N)->getAlignment() >= 64;
+  return false;
+}]>;
+
+def masked_store_unaligned : PatFrag<(ops node:$src1, node:$src2, node:$src3),
+                         (masked_store node:$src1, node:$src2, node:$src3), [{
+  return (dyn_cast<MaskedStoreSDNode>(N) != 0);
+}]>;
 

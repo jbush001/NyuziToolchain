@@ -1,5 +1,7 @@
 // RUN: %clang_cc1 -std=c++11 -S -triple armv7-none-eabi -emit-llvm -o - %s | FileCheck %s
 
+// CHECK: private constant { i8** } { i8** getelementptr inbounds ([3 x i8*], [3 x i8*]* @_ZTVN7PR2316510ChildClassE, i64 0, i64 2) }, align 4
+
 namespace reference {
   struct A {
     int i1, i2;
@@ -35,22 +37,30 @@ namespace reference {
     // CHECK-NEXT: ret
   }
 
-  void reference_to_aggregate() {
+  void reference_to_aggregate(int i) {
     // CHECK: getelementptr {{.*}}, i32 0, i32 0
     // CHECK-NEXT: store i32 1
     // CHECK-NEXT: getelementptr {{.*}}, i32 0, i32 1
-    // CHECK-NEXT: store i32 2
+    // CHECK-NEXT: %[[I1:.*]] = load i32, i32*
+    // CHECK-NEXT: store i32 %[[I1]]
     // CHECK-NEXT: store %{{.*}}* %{{.*}}, %{{.*}}** %{{.*}}, align
-    const A &ra1{1, 2};
+    const A &ra1{1, i};
 
-    // CHECK-NEXT: getelementptr inbounds [3 x i32]* %{{.*}}, i{{32|64}} 0, i{{32|64}} 0
+    // CHECK-NEXT: getelementptr inbounds [3 x i32], [3 x i32]* %{{.*}}, i{{32|64}} 0, i{{32|64}} 0
     // CHECK-NEXT: store i32 1
-    // CHECK-NEXT: getelementptr inbounds i32* %{{.*}}, i{{32|64}} 1
+    // CHECK-NEXT: getelementptr inbounds i32, i32* %{{.*}}, i{{32|64}} 1
     // CHECK-NEXT: store i32 2
-    // CHECK-NEXT: getelementptr inbounds i32* %{{.*}}, i{{32|64}} 1
-    // CHECK-NEXT: store i32 3
+    // CHECK-NEXT: getelementptr inbounds i32, i32* %{{.*}}, i{{32|64}} 1
+    // CHECK-NEXT: %[[I2:.*]] = load i32, i32*
+    // CHECK-NEXT: store i32 %[[I2]]
     // CHECK-NEXT: store [3 x i32]* %{{.*}}, [3 x i32]** %{{.*}}, align
-    const int (&arrayRef)[] = {1, 2, 3};
+    const int (&arrayRef)[] = {1, 2, i};
+
+    // CHECK: store %{{.*}}* @{{.*}}, %{{.*}}** %{{.*}}, align
+    const A &constra1{1, 2};
+
+    // CHECK-NEXT: store [3 x i32]* @{{.*}}, [3 x i32]** %{{.*}}, align
+    const int (&constarrayRef)[] = {1, 2, 3};
 
     // CHECK-NEXT: ret
   }
@@ -70,4 +80,23 @@ namespace reference {
     // CHECK: call %"struct.reference::B"* @_ZN9reference1BD1Ev
   }
 
+}
+
+namespace PR23165 {
+struct AbstractClass {
+  virtual void foo() const = 0;
+};
+
+struct ChildClass : public AbstractClass {
+  virtual void foo() const {}
+};
+
+void helper(const AbstractClass &param) {
+  param.foo();
+}
+
+void foo() {
+// CHECK: call void @_ZN7PR231656helperERKNS_13AbstractClassE(%{{.*}} bitcast ({ i8** }* @{{.*}} to %{{.*}}*))
+  helper(ChildClass());
+}
 }

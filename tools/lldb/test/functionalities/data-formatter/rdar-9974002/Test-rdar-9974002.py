@@ -13,7 +13,7 @@ class Radar9974002DataFormatterTestCase(TestBase):
     # test for rdar://problem/9974002 ()
     mydir = TestBase.compute_mydir(__file__)
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     @dsym_test
     def test_with_dsym_and_run_command(self):
         """Test data formatter commands."""
@@ -21,7 +21,6 @@ class Radar9974002DataFormatterTestCase(TestBase):
         self.data_formatter_commands()
 
     @dwarf_test
-    @expectedFailureLinux("llvm.org/pr20232")
     def test_with_dwarf_and_run_command(self):
         """Test data formatter commands."""
         self.buildDwarf()

@@ -7,22 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-//++
-// File:        MICmdCmdBreak.cpp
-//
 // Overview:    CMICmdCmdBreakInsert            implementation.
 //              CMICmdCmdBreakDelete            implementation.
 //              CMICmdCmdBreakDisable           implementation.
 //              CMICmdCmdBreakEnable            implementation.
 //              CMICmdCmdBreakAfter             implementation.
 //              CMICmdCmdBreakCondition         implementation.
-//
-// Environment: Compilers:  Visual C++ 12.
-//                          gcc (Ubuntu/Linaro 4.8.1-10ubuntu9) 4.8.1
-//              Libraries:  See MIReadmetxt.
-//
-// Copyright:   None.
-//--
 
 // Third Party Headers:
 #include "lldb/API/SBBreakpointLocation.h"
@@ -180,19 +170,16 @@ CMICmdCmdBreakInsert::Execute(void)
     CMIUtilString fileName;
     MIuint nFileLine = 0;
     CMIUtilString strFileFn;
-    const MIint nPosColon = m_brkName.find(cColon);
-    if (nPosColon != (MIint)std::string::npos)
+    CMIUtilString rStrLineOrFn;
+    // Full path in windows can have : after drive letter. So look for the
+    // last colon
+    const size_t nPosColon = m_brkName.find_last_of(cColon);
+    if (nPosColon != std::string::npos)
     {
-        CMIUtilString::VecString_t vecFileAndLocation;
-        const MIuint nSplits = m_brkName.Split(cColon, vecFileAndLocation);
-        MIunused(nSplits);
-        if (vecFileAndLocation.size() != 2)
-        {
-            SetError(CMIUtilString::Format(MIRSRC(IDS_CMD_ERR_BRKPT_LOCATION_FORMAT), m_cmdData.strMiCmd.c_str(), m_brkName.c_str()));
-            return MIstatus::failure;
-        }
-        fileName = vecFileAndLocation.at(0);
-        const CMIUtilString &rStrLineOrFn(vecFileAndLocation.at(1));
+        // extract file name and line number from it
+        fileName = m_brkName.substr(0, nPosColon);
+        rStrLineOrFn = m_brkName.substr(nPosColon + 1, m_brkName.size() - nPosColon - 1);
+
         if (rStrLineOrFn.empty())
             eBrkPtType = eBreakPoint_ByName;
         else
@@ -245,7 +232,7 @@ CMICmdCmdBreakInsert::Execute(void)
             m_brkPt = sbTarget.BreakpointCreateByLocation(fileName.c_str(), nFileLine);
             break;
         case eBreakPoint_ByName:
-            m_brkPt = sbTarget.BreakpointCreateByName(m_brkName.c_str(), sbTarget.GetExecutable().GetFilename());
+            m_brkPt = sbTarget.BreakpointCreateByName(m_brkName.c_str(), nullptr);
             break;
         case eBreakPoint_count:
         case eBreakPoint_NotDefineYet:
@@ -337,7 +324,7 @@ CMICmdCmdBreakInsert::Acknowledge(void)
     sBrkPtInfo.m_nBrkPtThreadId = m_nBrkPtThreadId;
 
     // MI print
-    // "^done,bkpt={number=\"%d\",type=\"breakpoint\",disp=\"%s\",enabled=\"%c\",addr=\"0x%08x\",func=\"%s\",file=\"%s\",fullname=\"%s/%s\",line=\"%d\",thread-groups=[\"%s\"],times=\"%d\",original-location=\"%s\"}"
+    // "^done,bkpt={number=\"%d\",type=\"breakpoint\",disp=\"%s\",enabled=\"%c\",addr=\"0x%016" PRIx64 "\",func=\"%s\",file=\"%s\",fullname=\"%s/%s\",line=\"%d\",thread-groups=[\"%s\"],times=\"%d\",original-location=\"%s\"}"
     CMICmnMIValueTuple miValueTuple;
     if (!rSessionInfo.MIResponseFormBrkPtInfo(sBrkPtInfo, miValueTuple))
     {

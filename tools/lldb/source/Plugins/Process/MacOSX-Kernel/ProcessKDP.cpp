@@ -12,6 +12,8 @@
 #include <stdlib.h>
 
 // C++ Includes
+#include <mutex>
+
 // Other libraries and framework includes
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/PluginManager.h"
@@ -30,6 +32,7 @@
 #include "lldb/Interpreter/CommandReturnObject.h"
 #include "lldb/Interpreter/OptionGroupString.h"
 #include "lldb/Interpreter/OptionGroupUInt64.h"
+#include "lldb/Interpreter/OptionValueProperties.h"
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Target/RegisterContext.h"
 #include "lldb/Target/Target.h"
@@ -834,24 +837,23 @@ ProcessKDP::DoSignal (int signo)
 void
 ProcessKDP::Initialize()
 {
-    static bool g_initialized = false;
-    
-    if (g_initialized == false)
+    static std::once_flag g_once_flag;
+
+    std::call_once(g_once_flag, []()
     {
-        g_initialized = true;
         PluginManager::RegisterPlugin (GetPluginNameStatic(),
                                        GetPluginDescriptionStatic(),
                                        CreateInstance,
                                        DebuggerInitialize);
-        
+
         Log::Callbacks log_callbacks = {
             ProcessKDPLog::DisableLog,
             ProcessKDPLog::EnableLog,
             ProcessKDPLog::ListLogCategories
         };
-        
+
         Log::RegisterLogChannel (ProcessKDP::GetPluginNameStatic(), log_callbacks);
-    }
+    });
 }
 
 void

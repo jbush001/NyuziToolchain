@@ -129,9 +129,11 @@ void ARMSubtarget::initializeEnvironment() {
   HasV5TEOps = false;
   HasV6Ops = false;
   HasV6MOps = false;
+  HasV6KOps = false;
   HasV6T2Ops = false;
   HasV7Ops = false;
   HasV8Ops = false;
+  HasV8_1aOps = false;
   HasVFPv2 = false;
   HasVFPv3 = false;
   HasVFPv4 = false;
@@ -188,7 +190,7 @@ void ARMSubtarget::initSubtargetFeatures(StringRef CPU, StringRef FS) {
       ARM_MC::ParseARMTriple(TargetTriple.getTriple(), CPUString);
   if (!FS.empty()) {
     if (!ArchFS.empty())
-      ArchFS = ArchFS + "," + FS.str();
+      ArchFS = (Twine(ArchFS) + "," + FS).str();
     else
       ArchFS = FS;
   }
@@ -348,6 +350,5 @@ bool ARMSubtarget::useMovt(const MachineFunction &MF) const {
   // immediates as it is inherently position independent, and may be out of
   // range otherwise.
   return UseMovt && (isTargetWindows() ||
-                     !MF.getFunction()->getAttributes().hasAttribute(
-                         AttributeSet::FunctionIndex, Attribute::MinSize));
+                     !MF.getFunction()->hasFnAttribute(Attribute::MinSize));
 }

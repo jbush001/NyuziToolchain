@@ -12,7 +12,7 @@ class StdVectorDataFormatterTestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     @dsym_test
     def test_with_dsym_and_run_command(self):
         """Test data formatter commands."""
@@ -21,16 +21,9 @@ class StdVectorDataFormatterTestCase(TestBase):
 
     @dwarf_test
     @skipIfFreeBSD
-    @expectedFailureLinux # non-core functionality, need to reenable and fix
-                          # later (DES 2014.11.07). Most likely failing because
-                          # of mis-match is version of libstdc++ supported by
-                          # the data-formatters.
     @expectedFailureIcc # llvm.org/pr15301 LLDB prints incorrect sizes of STL containers
-    @expectedFailureGcc # llvm.org/pr17499 The data formatter cannot parse STL containers
     def test_with_dwarf_and_run_command(self):
         """Test data formatter commands."""
-        if "gcc" in self.getCompiler() and "4.8" in self.getCompilerVersion():
-            self.skipTest("llvm.org/pr15301 LLDB prints incorrect sizes of STL containers")
         self.buildDwarf()
         self.data_formatter_commands()
 

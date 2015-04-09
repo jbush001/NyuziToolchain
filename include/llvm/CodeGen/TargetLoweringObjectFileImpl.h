@@ -34,8 +34,11 @@ namespace llvm {
 
 class TargetLoweringObjectFileELF : public TargetLoweringObjectFile {
   bool UseInitArray;
+  mutable unsigned NextUniqueID = 0;
 
 public:
+  TargetLoweringObjectFileELF() : UseInitArray(false) {}
+
   virtual ~TargetLoweringObjectFileELF() {}
 
   void emitPersonalityValue(MCStreamer &Streamer, const TargetMachine &TM,
@@ -53,6 +56,13 @@ public:
   const MCSection *SelectSectionForGlobal(const GlobalValue *GV,
                                         SectionKind Kind, Mangler &Mang,
                                         const TargetMachine &TM) const override;
+
+  const MCSection *
+  getSectionForJumpTable(const Function &F, Mangler &Mang,
+                         const TargetMachine &TM) const override;
+
+  bool shouldPutJumpTableInFunctionSection(bool UsesLabelDifference,
+                                           const Function &F) const override;
 
   /// Return an MCExpr to use for a reference to the specified type info global
   /// variable from exception handling information.
@@ -79,6 +89,7 @@ public:
 class TargetLoweringObjectFileMachO : public TargetLoweringObjectFile {
 public:
   virtual ~TargetLoweringObjectFileMachO() {}
+  TargetLoweringObjectFileMachO();
 
   /// Extract the dependent library name from a linker option string. Returns
   /// StringRef() if the option does not specify a library.
@@ -113,6 +124,12 @@ public:
   MCSymbol *getCFIPersonalitySymbol(const GlobalValue *GV, Mangler &Mang,
                                     const TargetMachine &TM,
                                     MachineModuleInfo *MMI) const override;
+
+  /// Get MachO PC relative GOT entry relocation
+  const MCExpr *getIndirectSymViaGOTPCRel(const MCSymbol *Sym,
+                                          const MCValue &MV, int64_t Offset,
+                                          MachineModuleInfo *MMI,
+                                          MCStreamer &Streamer) const override;
 };
 
 
@@ -130,6 +147,14 @@ public:
     SelectSectionForGlobal(const GlobalValue *GV,
                            SectionKind Kind, Mangler &Mang,
                            const TargetMachine &TM) const override;
+
+  void getNameWithPrefix(SmallVectorImpl<char> &OutName, const GlobalValue *GV,
+                         bool CannotUsePrivateLabel, Mangler &Mang,
+                         const TargetMachine &TM) const override;
+
+  const MCSection *
+  getSectionForJumpTable(const Function &F, Mangler &Mang,
+                         const TargetMachine &TM) const override;
 
   /// Extract the dependent library name from a linker option string. Returns
   /// StringRef() if the option does not specify a library.

@@ -35,6 +35,7 @@
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Analysis/LibCallSemantics.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/ValueHandle.h"
@@ -45,13 +46,6 @@
 #include "llvm/Support/Dwarf.h"
 
 namespace llvm {
-
-/// Different personality functions used by a function.
-enum class EHPersonality {
-  None,     /// No exception handling
-  Itanium,  /// An Itanium C++ EH personality like __gxx_personality_seh0
-  Win64SEH, /// x86_64 SEH, uses __C_specific_handler
-};
 
 //===----------------------------------------------------------------------===//
 // Forward declarations.
@@ -64,22 +58,25 @@ class MachineFunction;
 class Module;
 class PointerType;
 class StructType;
+struct WinEHFuncInfo;
 
 //===----------------------------------------------------------------------===//
 /// LandingPadInfo - This structure is used to retain landing pad info for
 /// the current function.
 ///
 struct LandingPadInfo {
-  MachineBasicBlock *LandingPadBlock;    // Landing pad block.
-  SmallVector<MCSymbol*, 1> BeginLabels; // Labels prior to invoke.
-  SmallVector<MCSymbol*, 1> EndLabels;   // Labels after invoke.
-  SmallVector<MCSymbol*, 1> ClauseLabels; // Labels for each clause.
-  MCSymbol *LandingPadLabel;             // Label at beginning of landing pad.
-  const Function *Personality;           // Personality function.
-  std::vector<int> TypeIds;              // List of type ids (filters negative)
+  MachineBasicBlock *LandingPadBlock;      // Landing pad block.
+  SmallVector<MCSymbol *, 1> BeginLabels;  // Labels prior to invoke.
+  SmallVector<MCSymbol *, 1> EndLabels;    // Labels after invoke.
+  SmallVector<MCSymbol *, 1> ClauseLabels; // Labels for each clause.
+  MCSymbol *LandingPadLabel;               // Label at beginning of landing pad.
+  const Function *Personality;             // Personality function.
+  std::vector<int> TypeIds;               // List of type ids (filters negative).
+  int WinEHState;                         // WinEH specific state number.
 
   explicit LandingPadInfo(MachineBasicBlock *MBB)
-    : LandingPadBlock(MBB), LandingPadLabel(nullptr), Personality(nullptr) {}
+      : LandingPadBlock(MBB), LandingPadLabel(nullptr), Personality(nullptr),
+        WinEHState(-1) {}
 };
 
 //===----------------------------------------------------------------------===//
@@ -94,7 +91,10 @@ public:
   virtual ~MachineModuleInfoImpl();
   typedef std::vector<std::pair<MCSymbol*, StubValueTy> > SymbolListTy;
 protected:
-  static SymbolListTy GetSortedStubs(const DenseMap<MCSymbol*, StubValueTy>&);
+
+  /// Return the entries from a DenseMap in a deterministic sorted orer.
+  /// Clears the map.
+  static SymbolListTy getSortedStubs(DenseMap<MCSymbol*, StubValueTy>&);
 };
 
 //===----------------------------------------------------------------------===//
@@ -178,7 +178,7 @@ class MachineModuleInfo : public ImmutablePass {
 
   EHPersonality PersonalityTypeCache;
 
-  EHPersonality getPersonalityTypeSlow();
+  DenseMap<const Function *, std::unique_ptr<WinEHFuncInfo>> FuncInfoMap;
 
 public:
   static char ID; // Pass identification, replacement for typeid
@@ -214,6 +214,12 @@ public:
 
   void setModule(const Module *M) { TheModule = M; }
   const Module *getModule() const { return TheModule; }
+
+  const Function *getWinEHParent(const Function *F) const;
+  WinEHFuncInfo &getWinEHFuncInfo(const Function *F);
+  bool hasWinEHFuncInfo(const Function *F) const {
+    return FuncInfoMap.count(getWinEHParent(F)) > 0;
+  }
 
   /// getInfo - Keep track of various per-function pieces of information for
   /// backends that would like to do so.
@@ -311,6 +317,8 @@ public:
   /// information.
   void addPersonality(MachineBasicBlock *LandingPad,
                       const Function *Personality);
+
+  void addWinEHState(MachineBasicBlock *LandingPad, int State);
 
   /// getPersonalityIndex - Get index of the current personality function inside
   /// Personalitites array
@@ -425,11 +433,7 @@ public:
   const Function *getPersonality() const;
 
   /// Classify the personality function amongst known EH styles.
-  EHPersonality getPersonalityType() {
-    if (PersonalityTypeCache != EHPersonality::None)
-      return PersonalityTypeCache;
-    return getPersonalityTypeSlow();
-  }
+  EHPersonality getPersonalityType();
 
   /// setVariableDbgInfo - Collect information used to emit debugging
   /// information of a variable.

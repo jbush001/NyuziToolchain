@@ -54,6 +54,7 @@ public:
     NonOpaqueStructTypeSet NonOpaqueStructTypes;
 
     void addNonOpaque(StructType *Ty);
+    void switchToNonOpaque(StructType *Ty);
     void addOpaque(StructType *Ty);
     StructType *findNonOpaque(ArrayRef<Type *> ETypes, bool IsPacked);
     bool hasType(StructType *Ty);
@@ -69,6 +70,9 @@ public:
   /// \brief Link \p Src into the composite. The source is destroyed.
   /// Returns true on error.
   bool linkInModule(Module *Src);
+
+  /// \brief Set the composite to the passed-in module.
+  void setModule(Module *Dst);
 
   static bool LinkModules(Module *Dest, Module *Src,
                           DiagnosticHandlerFunction DiagnosticHandler);

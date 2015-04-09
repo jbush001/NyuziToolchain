@@ -27,7 +27,20 @@ class TestPaths(TestBase):
             f = lldb.SBHostOS.GetLLDBPath(path_type);
             # No directory path types should have the filename set
             self.assertTrue (f.GetFilename() == None);
-        
+
+    def test_filespec_resolve_doesnt_prepend_cwd_if_file_doesnt_exist (self):
+        file_only = lldb.SBFileSpec("VeryUnlikelToExistInTheCurrentWorkingDirectory", True)
+        # SBFileSpec(path, True) should not prepend the current-working-directory to the
+        # file path if it doesn't exist in the current directory.
+        self.assertTrue (file_only.GetDirectory() == None)
+
+    @skipUnlessPlatform(["windows"])
+    def test_windows_double_slash (self):
+        '''Test to check the path with double slash is handled correctly '''
+        # Create a path and see if lldb gets the directory and file right
+        fspec = lldb.SBFileSpec("C:\\dummy1\\dummy2//unknown_file", True);
+        self.assertTrue (fspec.GetDirectory() == "C:/dummy1/dummy2");
+        self.assertTrue (fspec.GetFilename() == "unknown_file");
 
 if __name__ == '__main__':
     import atexit

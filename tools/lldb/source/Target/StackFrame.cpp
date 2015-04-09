@@ -920,7 +920,7 @@ StackFrame::GetValueForVariableExpressionPath (const char *var_expr_cstr,
                                     }
                                     else
                                     {
-                                        child_valobj_sp = valobj_sp->GetSyntheticArrayMemberFromPointer (child_index, true);
+                                        child_valobj_sp = valobj_sp->GetSyntheticArrayMember (child_index, true);
                                         if (!child_valobj_sp)
                                         {
                                             valobj_sp->GetExpressionPath (var_expr_path_strm, false);
@@ -1406,13 +1406,15 @@ StackFrame::Dump (Stream *strm, bool show_frame_index, bool show_fullpaths)
     const bool show_module = true;
     const bool show_inline = true;
     const bool show_function_arguments = true;
+    const bool show_function_name = true;
     m_sc.DumpStopContext (strm, 
                           exe_ctx.GetBestExecutionContextScope(), 
                           GetFrameCodeAddress(), 
                           show_fullpaths, 
                           show_module, 
                           show_inline,
-                          show_function_arguments);
+                          show_function_arguments,
+                          show_function_name);
 }
 
 void

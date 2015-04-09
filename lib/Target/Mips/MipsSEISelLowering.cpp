@@ -224,7 +224,7 @@ MipsSETargetLowering::MipsSETargetLowering(const MipsTargetMachine &TM,
     setOperationAction(ISD::SELECT_CC, MVT::i64, Expand);
   }
 
-  computeRegisterProperties();
+  computeRegisterProperties(Subtarget.getRegisterInfo());
 }
 
 const MipsTargetLowering *
@@ -1836,11 +1836,9 @@ SDValue MipsSETargetLowering::lowerINTRINSIC_WO_CHAIN(SDValue Op,
   case Intrinsic::mips_fill_h:
   case Intrinsic::mips_fill_w:
   case Intrinsic::mips_fill_d: {
-    SmallVector<SDValue, 16> Ops;
     EVT ResTy = Op->getValueType(0);
-
-    for (unsigned i = 0; i < ResTy.getVectorNumElements(); ++i)
-      Ops.push_back(Op->getOperand(1));
+    SmallVector<SDValue, 16> Ops(ResTy.getVectorNumElements(),
+                                 Op->getOperand(1));
 
     // If ResTy is v2i64 then the type legalizer will break this node down into
     // an equivalent v4i32.
@@ -2291,9 +2289,9 @@ lowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const {
 static bool isConstantOrUndef(const SDValue Op) {
   if (Op->getOpcode() == ISD::UNDEF)
     return true;
-  if (dyn_cast<ConstantSDNode>(Op))
+  if (isa<ConstantSDNode>(Op))
     return true;
-  if (dyn_cast<ConstantFPSDNode>(Op))
+  if (isa<ConstantFPSDNode>(Op))
     return true;
   return false;
 }
@@ -2880,10 +2878,21 @@ emitCOPY_FW(MachineInstr *MI, MachineBasicBlock *BB) const{
   unsigned Ws = MI->getOperand(1).getReg();
   unsigned Lane = MI->getOperand(2).getImm();
 
-  if (Lane == 0)
-    BuildMI(*BB, MI, DL, TII->get(Mips::COPY), Fd).addReg(Ws, 0, Mips::sub_lo);
-  else {
-    unsigned Wt = RegInfo.createVirtualRegister(&Mips::MSA128WRegClass);
+  if (Lane == 0) {
+    unsigned Wt = Ws;
+    if (!Subtarget.useOddSPReg()) {
+      // We must copy to an even-numbered MSA register so that the
+      // single-precision sub-register is also guaranteed to be even-numbered.
+      Wt = RegInfo.createVirtualRegister(&Mips::MSA128WEvensRegClass);
+
+      BuildMI(*BB, MI, DL, TII->get(Mips::COPY), Wt).addReg(Ws);
+    }
+
+    BuildMI(*BB, MI, DL, TII->get(Mips::COPY), Fd).addReg(Wt, 0, Mips::sub_lo);
+  } else {
+    unsigned Wt = RegInfo.createVirtualRegister(
+        Subtarget.useOddSPReg() ? &Mips::MSA128WRegClass :
+                                  &Mips::MSA128WEvensRegClass);
 
     BuildMI(*BB, MI, DL, TII->get(Mips::SPLATI_W), Wt).addReg(Ws).addImm(Lane);
     BuildMI(*BB, MI, DL, TII->get(Mips::COPY), Fd).addReg(Wt, 0, Mips::sub_lo);
@@ -2943,7 +2952,9 @@ MipsSETargetLowering::emitINSERT_FW(MachineInstr *MI,
   unsigned Wd_in = MI->getOperand(1).getReg();
   unsigned Lane = MI->getOperand(2).getImm();
   unsigned Fs = MI->getOperand(3).getReg();
-  unsigned Wt = RegInfo.createVirtualRegister(&Mips::MSA128WRegClass);
+  unsigned Wt = RegInfo.createVirtualRegister(
+      Subtarget.useOddSPReg() ? &Mips::MSA128WRegClass :
+                                &Mips::MSA128WEvensRegClass);
 
   BuildMI(*BB, MI, DL, TII->get(Mips::SUBREG_TO_REG), Wt)
       .addImm(0)

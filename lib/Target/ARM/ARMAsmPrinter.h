@@ -105,10 +105,14 @@ private:
 public:
   unsigned getISAEncoding() override {
     // ARM/Darwin adds ISA to the DWARF info for each function.
-    if (!Subtarget->isTargetMachO())
+    Triple TT(TM.getTargetTriple());
+    if (!TT.isOSBinFormatMachO())
       return 0;
-    return Subtarget->isThumb() ?
-      ARM::DW_ISA_ARM_thumb : ARM::DW_ISA_ARM_arm;
+    bool isThumb = TT.getArch() == Triple::thumb ||
+                   TT.getArch() == Triple::thumbeb ||
+                   TT.getSubArch() == Triple::ARMSubArch_v7m ||
+                   TT.getSubArch() == Triple::ARMSubArch_v6m;
+    return isThumb ? ARM::DW_ISA_ARM_thumb : ARM::DW_ISA_ARM_arm;
   }
 
 private:

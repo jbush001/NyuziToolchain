@@ -10,7 +10,7 @@ class TestInlineStepping(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     @python_api_test
     @dsym_test
     def test_with_dsym_and_python_api(self):
@@ -27,7 +27,7 @@ class TestInlineStepping(TestBase):
         self.buildDwarf()
         self.inline_stepping()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     @python_api_test
     @dsym_test
     def test_step_over_with_dsym_and_python_api(self):
@@ -108,7 +108,7 @@ class TestInlineStepping(TestBase):
         test_stack_depth = True
         # Work around for <rdar://problem/16363195>, the darwin unwinder seems flakey about whether it duplicates the first frame 
         # or not, which makes counting stack depth unreliable.
-        if "darwin" in sys.platform:
+        if self.platformIsDarwin():
             test_stack_depth = False
 
         for step_pattern in step_sequence:

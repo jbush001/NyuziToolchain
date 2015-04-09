@@ -110,7 +110,7 @@ MCSymbol *TargetLoweringObjectFile::getSymbolWithGlobalValueBase(
   NameStr += DL->getPrivateGlobalPrefix();
   TM.getNameWithPrefix(NameStr, GV, Mang);
   NameStr.append(Suffix.begin(), Suffix.end());
-  return Ctx->GetOrCreateSymbol(NameStr.str());
+  return Ctx->GetOrCreateSymbol(NameStr);
 }
 
 MCSymbol *TargetLoweringObjectFile::getCFIPersonalitySymbol(
@@ -270,6 +270,29 @@ SectionForGlobal(const GlobalValue *GV, SectionKind Kind, Mangler &Mang,
   return SelectSectionForGlobal(GV, Kind, Mang, TM);
 }
 
+const MCSection *TargetLoweringObjectFile::getSectionForJumpTable(
+    const Function &F, Mangler &Mang, const TargetMachine &TM) const {
+  return getSectionForConstant(SectionKind::getReadOnly(), /*C=*/nullptr);
+}
+
+bool TargetLoweringObjectFile::shouldPutJumpTableInFunctionSection(
+    bool UsesLabelDifference, const Function &F) const {
+  // In PIC mode, we need to emit the jump table to the same section as the
+  // function body itself, otherwise the label differences won't make sense.
+  // FIXME: Need a better predicate for this: what about custom entries?
+  if (UsesLabelDifference)
+    return true;
+
+  // We should also do if the section name is NULL or function is declared
+  // in discardable section
+  // FIXME: this isn't the right predicate, should be based on the MCSection
+  // for the function.
+  if (F.isWeakForLinker())
+    return true;
+
+  return false;
+}
+
 /// getSectionForConstant - Given a mergable constant with the
 /// specified size and relocation information, return a section that it
 /// should be placed in.
@@ -319,4 +342,10 @@ const MCExpr *TargetLoweringObjectFile::getDebugThreadLocalSymbol(const MCSymbol
   // FIXME: It's not clear what, if any, default this should have - perhaps a
   // null return could mean 'no location' & we should just do that here.
   return MCSymbolRefExpr::Create(Sym, *Ctx);
+}
+
+void TargetLoweringObjectFile::getNameWithPrefix(
+    SmallVectorImpl<char> &OutName, const GlobalValue *GV,
+    bool CannotUsePrivateLabel, Mangler &Mang, const TargetMachine &TM) const {
+  Mang.getNameWithPrefix(OutName, GV, CannotUsePrivateLabel);
 }

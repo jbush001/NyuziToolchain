@@ -10,7 +10,7 @@ class ChangedInferiorTestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     def test_inferior_crashing_dsym(self):
         """Test lldb reloads the inferior after it was changed during the session."""
         self.buildDsym()
@@ -49,7 +49,7 @@ class ChangedInferiorTestCase(TestBase):
 
         self.runCmd("run", RUN_SUCCEEDED)
 
-        if sys.platform.startswith("darwin"):
+        if self.platformIsDarwin():
             stop_reason = 'stop reason = EXC_BAD_ACCESS'
         else:
             stop_reason = 'stop reason = invalid address'
@@ -73,7 +73,7 @@ class ChangedInferiorTestCase(TestBase):
         self.runCmd("run", RUN_SUCCEEDED)
         self.runCmd("process status")
 
-        if sys.platform.startswith("darwin"):
+        if self.platformIsDarwin():
             stop_reason = 'EXC_BAD_ACCESS'
         else:
             stop_reason = 'invalid address'

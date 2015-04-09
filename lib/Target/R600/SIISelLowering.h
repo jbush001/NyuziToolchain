@@ -42,13 +42,7 @@ class SITargetLowering : public AMDGPUTargetLowering {
   SDValue LowerTrig(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerBRCOND(SDValue Op, SelectionDAG &DAG) const;
 
-  const TargetRegisterClass *getRegClassForNode(SelectionDAG &DAG,
-                                                const SDValue &Op) const;
-  bool fitsRegClass(SelectionDAG &DAG, const SDValue &Op,
-                    unsigned RegClass) const;
-
   void adjustWritemask(MachineSDNode *&N, SelectionDAG &DAG) const;
-  MachineSDNode *AdjustRegClass(MachineSDNode *N, SelectionDAG &DAG) const;
 
   SDValue performUCharToFloatCombine(SDNode *N,
                                      DAGCombinerInfo &DCI) const;
@@ -119,6 +113,10 @@ public:
   MachineSDNode *buildScratchRSRC(SelectionDAG &DAG,
                                   SDLoc DL,
                                   SDValue Ptr) const;
+
+  std::pair<unsigned, const TargetRegisterClass *> getRegForInlineAsmConstraint(
+                                   const TargetRegisterInfo *TRI,
+                                   const std::string &Constraint, MVT VT) const override;
 };
 
 } // End namespace llvm

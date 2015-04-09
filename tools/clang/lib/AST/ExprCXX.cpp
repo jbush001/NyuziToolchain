@@ -208,8 +208,9 @@ void CXXNewExpr::AllocateArgsArray(const ASTContext &C, bool isArray,
 }
 
 bool CXXNewExpr::shouldNullCheckAllocation(const ASTContext &Ctx) const {
-  return getOperatorNew()->getType()->
-    castAs<FunctionProtoType>()->isNothrow(Ctx);
+  return getOperatorNew()->getType()->castAs<FunctionProtoType>()->isNothrow(
+             Ctx) &&
+         !getOperatorNew()->isReservedGlobalPlacementOperator();
 }
 
 // CXXDeleteExpr
@@ -237,10 +238,7 @@ CXXPseudoDestructorExpr::CXXPseudoDestructorExpr(const ASTContext &Context,
                 SourceLocation ColonColonLoc, SourceLocation TildeLoc, 
                 PseudoDestructorTypeStorage DestroyedType)
   : Expr(CXXPseudoDestructorExprClass,
-         Context.getPointerType(Context.getFunctionType(
-             Context.VoidTy, None,
-             FunctionProtoType::ExtProtoInfo(
-                 Context.getDefaultCallingConvention(false, true)))),
+         Context.BoundMemberTy,
          VK_RValue, OK_Ordinary,
          /*isTypeDependent=*/(Base->isTypeDependent() ||
            (DestroyedType.getTypeSourceInfo() &&

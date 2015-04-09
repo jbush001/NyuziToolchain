@@ -158,8 +158,8 @@ class TemplateArgumentList {
   /// argument list.
   unsigned NumArguments;
 
-  TemplateArgumentList(const TemplateArgumentList &Other) LLVM_DELETED_FUNCTION;
-  void operator=(const TemplateArgumentList &Other) LLVM_DELETED_FUNCTION;
+  TemplateArgumentList(const TemplateArgumentList &Other) = delete;
+  void operator=(const TemplateArgumentList &Other) = delete;
 
   TemplateArgumentList(const TemplateArgument *Args, unsigned NumArgs,
                        bool Owned)
@@ -545,8 +545,11 @@ protected:
   template <typename EntryType> struct SpecEntryTraits {
     typedef EntryType DeclType;
 
-    static DeclType *getMostRecentDecl(EntryType *D) {
-      return D->getMostRecentDecl();
+    static DeclType *getDecl(EntryType *D) {
+      return D;
+    }
+    static ArrayRef<TemplateArgument> getTemplateArgs(EntryType *D) {
+      return D->getTemplateArgs().asArray();
     }
   };
 
@@ -565,7 +568,7 @@ protected:
         : SpecIterator::iterator_adaptor_base(std::move(SetIter)) {}
 
     DeclType *operator*() const {
-      return SETraits::getMostRecentDecl(&*this->I);
+      return SETraits::getDecl(&*this->I)->getMostRecentDecl();
     }
     DeclType *operator->() const { return **this; }
   };
@@ -579,6 +582,10 @@ protected:
   template <class EntryType> typename SpecEntryTraits<EntryType>::DeclType*
   findSpecializationImpl(llvm::FoldingSetVector<EntryType> &Specs,
                          ArrayRef<TemplateArgument> Args, void *&InsertPos);
+
+  template <class Derived, class EntryType>
+  void addSpecializationImpl(llvm::FoldingSetVector<EntryType> &Specs,
+                             EntryType *Entry, void *InsertPos);
 
   struct CommonBase {
     CommonBase() : InstantiatedFromMember(nullptr, false) { }
@@ -719,9 +726,12 @@ template <> struct RedeclarableTemplateDecl::
 SpecEntryTraits<FunctionTemplateSpecializationInfo> {
   typedef FunctionDecl DeclType;
 
-  static DeclType *
-  getMostRecentDecl(FunctionTemplateSpecializationInfo *I) {
-    return I->Function->getMostRecentDecl();
+  static DeclType *getDecl(FunctionTemplateSpecializationInfo *I) {
+    return I->Function;
+  }
+  static ArrayRef<TemplateArgument>
+  getTemplateArgs(FunctionTemplateSpecializationInfo *I) {
+    return I->TemplateArguments->asArray();
   }
 };
 
@@ -825,6 +835,15 @@ public:
        static_cast<const RedeclarableTemplateDecl *>(this)->getPreviousDecl());
   }
 
+  FunctionTemplateDecl *getMostRecentDecl() {
+    return cast<FunctionTemplateDecl>(
+        static_cast<RedeclarableTemplateDecl *>(this)
+            ->getMostRecentDecl());
+  }
+  const FunctionTemplateDecl *getMostRecentDecl() const {
+    return const_cast<FunctionTemplateDecl*>(this)->getMostRecentDecl();
+  }
+
   FunctionTemplateDecl *getInstantiatedFromMemberTemplate() {
     return cast_or_null<FunctionTemplateDecl>(
              RedeclarableTemplateDecl::getInstantiatedFromMemberTemplate());
@@ -885,7 +904,7 @@ public:
 /// This class is inheritedly privately by different kinds of template
 /// parameters and is not part of the Decl hierarchy. Just a facility.
 class TemplateParmPosition {
-  TemplateParmPosition() LLVM_DELETED_FUNCTION;
+  TemplateParmPosition() = delete;
 
 protected:
   TemplateParmPosition(unsigned D, unsigned P)
@@ -2719,6 +2738,14 @@ public:
     return cast_or_null<VarTemplateDecl>(
             static_cast<const RedeclarableTemplateDecl *>(
               this)->getPreviousDecl());
+  }
+
+  VarTemplateDecl *getMostRecentDecl() {
+    return cast<VarTemplateDecl>(
+        static_cast<RedeclarableTemplateDecl *>(this)->getMostRecentDecl());
+  }
+  const VarTemplateDecl *getMostRecentDecl() const {
+    return const_cast<VarTemplateDecl *>(this)->getMostRecentDecl();
   }
 
   VarTemplateDecl *getInstantiatedFromMemberTemplate() {

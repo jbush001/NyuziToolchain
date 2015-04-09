@@ -344,14 +344,30 @@ static void translateImmediate(MCInst &mcInst, uint64_t immediate,
       unsigned NewOpc;
       switch (mcInst.getOpcode()) {
       default: llvm_unreachable("unexpected opcode");
-      case X86::CMPPDrmi: NewOpc = X86::CMPPDrmi_alt; break;
-      case X86::CMPPDrri: NewOpc = X86::CMPPDrri_alt; break;
-      case X86::CMPPSrmi: NewOpc = X86::CMPPSrmi_alt; break;
-      case X86::CMPPSrri: NewOpc = X86::CMPPSrri_alt; break;
-      case X86::CMPSDrm:  NewOpc = X86::CMPSDrm_alt;  break;
-      case X86::CMPSDrr:  NewOpc = X86::CMPSDrr_alt;  break;
-      case X86::CMPSSrm:  NewOpc = X86::CMPSSrm_alt;  break;
-      case X86::CMPSSrr:  NewOpc = X86::CMPSSrr_alt;  break;
+      case X86::CMPPDrmi:  NewOpc = X86::CMPPDrmi_alt;  break;
+      case X86::CMPPDrri:  NewOpc = X86::CMPPDrri_alt;  break;
+      case X86::CMPPSrmi:  NewOpc = X86::CMPPSrmi_alt;  break;
+      case X86::CMPPSrri:  NewOpc = X86::CMPPSrri_alt;  break;
+      case X86::CMPSDrm:   NewOpc = X86::CMPSDrm_alt;   break;
+      case X86::CMPSDrr:   NewOpc = X86::CMPSDrr_alt;   break;
+      case X86::CMPSSrm:   NewOpc = X86::CMPSSrm_alt;   break;
+      case X86::CMPSSrr:   NewOpc = X86::CMPSSrr_alt;   break;
+      case X86::VPCOMBri:  NewOpc = X86::VPCOMBri_alt;  break;
+      case X86::VPCOMBmi:  NewOpc = X86::VPCOMBmi_alt;  break;
+      case X86::VPCOMWri:  NewOpc = X86::VPCOMWri_alt;  break;
+      case X86::VPCOMWmi:  NewOpc = X86::VPCOMWmi_alt;  break;
+      case X86::VPCOMDri:  NewOpc = X86::VPCOMDri_alt;  break;
+      case X86::VPCOMDmi:  NewOpc = X86::VPCOMDmi_alt;  break;
+      case X86::VPCOMQri:  NewOpc = X86::VPCOMQri_alt;  break;
+      case X86::VPCOMQmi:  NewOpc = X86::VPCOMQmi_alt;  break;
+      case X86::VPCOMUBri: NewOpc = X86::VPCOMUBri_alt; break;
+      case X86::VPCOMUBmi: NewOpc = X86::VPCOMUBmi_alt; break;
+      case X86::VPCOMUWri: NewOpc = X86::VPCOMUWri_alt; break;
+      case X86::VPCOMUWmi: NewOpc = X86::VPCOMUWmi_alt; break;
+      case X86::VPCOMUDri: NewOpc = X86::VPCOMUDri_alt; break;
+      case X86::VPCOMUDmi: NewOpc = X86::VPCOMUDmi_alt; break;
+      case X86::VPCOMUQri: NewOpc = X86::VPCOMUQri_alt; break;
+      case X86::VPCOMUQmi: NewOpc = X86::VPCOMUQmi_alt; break;
       }
       // Switch opcode to the one that doesn't get special printing.
       mcInst.setOpcode(NewOpc);
@@ -362,26 +378,28 @@ static void translateImmediate(MCInst &mcInst, uint64_t immediate,
       unsigned NewOpc;
       switch (mcInst.getOpcode()) {
       default: llvm_unreachable("unexpected opcode");
-      case X86::VCMPPDrmi:  NewOpc = X86::VCMPPDrmi_alt;  break;
-      case X86::VCMPPDrri:  NewOpc = X86::VCMPPDrri_alt;  break;
-      case X86::VCMPPSrmi:  NewOpc = X86::VCMPPSrmi_alt;  break;
-      case X86::VCMPPSrri:  NewOpc = X86::VCMPPSrri_alt;  break;
-      case X86::VCMPSDrm:   NewOpc = X86::VCMPSDrm_alt;   break;
-      case X86::VCMPSDrr:   NewOpc = X86::VCMPSDrr_alt;   break;
-      case X86::VCMPSSrm:   NewOpc = X86::VCMPSSrm_alt;   break;
-      case X86::VCMPSSrr:   NewOpc = X86::VCMPSSrr_alt;   break;
-      case X86::VCMPPDYrmi: NewOpc = X86::VCMPPDYrmi_alt; break;
-      case X86::VCMPPDYrri: NewOpc = X86::VCMPPDYrri_alt; break;
-      case X86::VCMPPSYrmi: NewOpc = X86::VCMPPSYrmi_alt; break;
-      case X86::VCMPPSYrri: NewOpc = X86::VCMPPSYrri_alt; break;
-      case X86::VCMPPDZrmi: NewOpc = X86::VCMPPDZrmi_alt; break;
-      case X86::VCMPPDZrri: NewOpc = X86::VCMPPDZrri_alt; break;
-      case X86::VCMPPSZrmi: NewOpc = X86::VCMPPSZrmi_alt; break;
-      case X86::VCMPPSZrri: NewOpc = X86::VCMPPSZrri_alt; break;
-      case X86::VCMPSDZrm:  NewOpc = X86::VCMPSDZrmi_alt; break;
-      case X86::VCMPSDZrr:  NewOpc = X86::VCMPSDZrri_alt; break;
-      case X86::VCMPSSZrm:  NewOpc = X86::VCMPSSZrmi_alt; break;
-      case X86::VCMPSSZrr:  NewOpc = X86::VCMPSSZrri_alt; break;
+      case X86::VCMPPDrmi:   NewOpc = X86::VCMPPDrmi_alt;   break;
+      case X86::VCMPPDrri:   NewOpc = X86::VCMPPDrri_alt;   break;
+      case X86::VCMPPSrmi:   NewOpc = X86::VCMPPSrmi_alt;   break;
+      case X86::VCMPPSrri:   NewOpc = X86::VCMPPSrri_alt;   break;
+      case X86::VCMPSDrm:    NewOpc = X86::VCMPSDrm_alt;    break;
+      case X86::VCMPSDrr:    NewOpc = X86::VCMPSDrr_alt;    break;
+      case X86::VCMPSSrm:    NewOpc = X86::VCMPSSrm_alt;    break;
+      case X86::VCMPSSrr:    NewOpc = X86::VCMPSSrr_alt;    break;
+      case X86::VCMPPDYrmi:  NewOpc = X86::VCMPPDYrmi_alt;  break;
+      case X86::VCMPPDYrri:  NewOpc = X86::VCMPPDYrri_alt;  break;
+      case X86::VCMPPSYrmi:  NewOpc = X86::VCMPPSYrmi_alt;  break;
+      case X86::VCMPPSYrri:  NewOpc = X86::VCMPPSYrri_alt;  break;
+      case X86::VCMPPDZrmi:  NewOpc = X86::VCMPPDZrmi_alt;  break;
+      case X86::VCMPPDZrri:  NewOpc = X86::VCMPPDZrri_alt;  break;
+      case X86::VCMPPDZrrib: NewOpc = X86::VCMPPDZrrib_alt; break;
+      case X86::VCMPPSZrmi:  NewOpc = X86::VCMPPSZrmi_alt;  break;
+      case X86::VCMPPSZrri:  NewOpc = X86::VCMPPSZrri_alt;  break;
+      case X86::VCMPPSZrrib: NewOpc = X86::VCMPPSZrrib_alt; break;
+      case X86::VCMPSDZrm:   NewOpc = X86::VCMPSDZrmi_alt;  break;
+      case X86::VCMPSDZrr:   NewOpc = X86::VCMPSDZrri_alt;  break;
+      case X86::VCMPSSZrm:   NewOpc = X86::VCMPSSZrmi_alt;  break;
+      case X86::VCMPSSZrr:   NewOpc = X86::VCMPSSZrri_alt;  break;
       }
       // Switch opcode to the one that doesn't get special printing.
       mcInst.setOpcode(NewOpc);

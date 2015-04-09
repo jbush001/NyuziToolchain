@@ -284,8 +284,7 @@ DWARFCallFrameInfo::ParseCIE (const dw_offset_t cie_offset)
                 // register and offset.
                 uint32_t reg_num = (uint32_t)m_cfi_data.GetULEB128(&offset);
                 int op_offset = (int32_t)m_cfi_data.GetULEB128(&offset);
-                cie_sp->initial_row.SetCFARegister (reg_num);
-                cie_sp->initial_row.SetCFAOffset (op_offset);
+                cie_sp->initial_row.GetCFAValue().SetIsRegisterPlusOffset (reg_num, op_offset);
                 continue;
             }
             if (primary_opcode == DW_CFA_offset)
@@ -364,6 +363,31 @@ DWARFCallFrameInfo::GetFDEIndex ()
             cie_id = m_cfi_data.GetU32 (&offset);
             next_entry = current_entry + len + 4;
             cie_offset = current_entry + 4 - cie_id;
+        }
+
+        if (next_entry > m_cfi_data.GetByteSize() + 1)
+        {
+            Host::SystemLog (Host::eSystemLogError,
+                    "error: Invalid fde/cie next entry offset of 0x%x found in cie/fde at 0x%x\n",
+                    next_entry,
+                    current_entry);
+            // Don't trust anything in this eh_frame section if we find blatently 
+            // invalid data.
+            m_fde_index.Clear();
+            m_fde_index_initialized = true;
+            return;
+        }
+        if (cie_offset > m_cfi_data.GetByteSize())
+        {
+            Host::SystemLog (Host::eSystemLogError,
+                    "error: Invalid cie offset of 0x%x found in cie/fde at 0x%x\n",
+                    cie_offset,
+                    current_entry);
+            // Don't trust anything in this eh_frame section if we find blatently 
+            // invalid data.
+            m_fde_index.Clear();
+            m_fde_index_initialized = true;
+            return;
         }
 
         if (cie_id == 0 || cie_id == UINT32_MAX || len == 0)
@@ -719,8 +743,7 @@ DWARFCallFrameInfo::FDEToUnwindPlan (dw_offset_t dwarf_offset, Address startaddr
                         // register and offset.
                         reg_num = (uint32_t)m_cfi_data.GetULEB128(&offset);
                         op_offset = (int32_t)m_cfi_data.GetULEB128(&offset);
-                        row->SetCFARegister (reg_num);
-                        row->SetCFAOffset (op_offset);
+                        row->GetCFAValue().SetIsRegisterPlusOffset (reg_num, op_offset);
                     }
                     break;
 
@@ -730,7 +753,8 @@ DWARFCallFrameInfo::FDEToUnwindPlan (dw_offset_t dwarf_offset, Address startaddr
                         // number. The required action is to define the current CFA rule to
                         // use the provided register (but to keep the old offset).
                         reg_num = (uint32_t)m_cfi_data.GetULEB128(&offset);
-                        row->SetCFARegister (reg_num);
+                        row->GetCFAValue().SetIsRegisterPlusOffset (reg_num,
+                                row->GetCFAValue().GetOffset());
                     }
                     break;
 
@@ -741,14 +765,17 @@ DWARFCallFrameInfo::FDEToUnwindPlan (dw_offset_t dwarf_offset, Address startaddr
                         // the current CFA rule to use the provided offset (but
                         // to keep the old register).
                         op_offset = (int32_t)m_cfi_data.GetULEB128(&offset);
-                        row->SetCFAOffset (op_offset);
+                        row->GetCFAValue().SetIsRegisterPlusOffset (
+                                row->GetCFAValue().GetRegisterNumber(), op_offset);
                     }
                     break;
 
                 case DW_CFA_def_cfa_expression  : // 0xF    (CFA Definition Instruction)
                     {
                         size_t block_len = (size_t)m_cfi_data.GetULEB128(&offset);
-                        offset += (uint32_t)block_len;
+                        const uint8_t *block_data =
+                            static_cast<const uint8_t *>(m_cfi_data.GetData(&offset, block_len));
+                        row->GetCFAValue().SetIsDWARFExpression(block_data, block_len);
                     }
                     break;
 
@@ -792,8 +819,7 @@ DWARFCallFrameInfo::FDEToUnwindPlan (dw_offset_t dwarf_offset, Address startaddr
                         // that the second operand is signed and factored.
                         reg_num = (uint32_t)m_cfi_data.GetULEB128(&offset);
                         op_offset = (int32_t)m_cfi_data.GetSLEB128(&offset) * data_align;
-                        row->SetCFARegister (reg_num);
-                        row->SetCFAOffset (op_offset);
+                        row->GetCFAValue().SetIsRegisterPlusOffset (reg_num, op_offset);
                     }
                     break;
 
@@ -803,7 +829,8 @@ DWARFCallFrameInfo::FDEToUnwindPlan (dw_offset_t dwarf_offset, Address startaddr
                         // offset. This instruction is identical to  DW_CFA_def_cfa_offset
                         // except that the operand is signed and factored.
                         op_offset = (int32_t)m_cfi_data.GetSLEB128(&offset) * data_align;
-                        row->SetCFAOffset (op_offset);
+                        row->GetCFAValue().SetIsRegisterPlusOffset (
+                                row->GetCFAValue().GetRegisterNumber(), op_offset);
                     }
                     break;
 

@@ -24,6 +24,7 @@
 #include "lldb/Breakpoint/Watchpoint.h"
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/StreamString.h"
+#include "lldb/Core/ValueObject.h"
 #include "lldb/Expression/ClangUserExpression.h"
 #include "lldb/Target/Target.h"
 #include "lldb/Target/Thread.h"
@@ -160,6 +161,19 @@ public:
 
     virtual ~StopInfoBreakpoint ()
     {
+    }
+
+    virtual bool
+    IsValidForOperatingSystemThread (Thread &thread)
+    {
+        ProcessSP process_sp (thread.GetProcess());
+        if (process_sp)
+        {
+            BreakpointSiteSP bp_site_sp (process_sp->GetBreakpointSiteList().FindByID (m_value));
+            if (bp_site_sp)
+                return bp_site_sp->ValidForThisThread (&thread);
+        }
+        return false;
     }
 
     virtual StopReason

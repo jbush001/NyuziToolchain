@@ -15,6 +15,7 @@
 #include "lldb/Core/DataBufferHeap.h"
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/Disassembler.h"
+#include "lldb/Core/Log.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/Stream.h"
 #include "lldb/Core/StreamFile.h"
@@ -226,6 +227,9 @@ ClangExpressionParser::ClangExpressionParser (ExecutionContextScope *exe_scope,
     m_compiler->getLangOpts().DebuggerSupport = true; // Features specifically for debugger clients
     if (expr.DesiredResultType() == ClangExpression::eResultTypeId)
         m_compiler->getLangOpts().DebuggerCastResultToId = true;
+
+    m_compiler->getLangOpts().CharIsSigned =
+            ArchSpec(m_compiler->getTargetOpts().Triple.c_str()).CharIsSignedByDefault();
 
     // Spell checking is a nice feature, but it ends up completing a
     // lot of types that we didn't strictly speaking need to complete.

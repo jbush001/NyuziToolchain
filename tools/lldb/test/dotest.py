@@ -125,19 +125,8 @@ just_do_lldbmi_test = False
 # By default, benchmarks tests are not run.
 just_do_benchmarks_test = False
 
-# By default, both dsym and dwarf tests are performed.
-# Use @dsym_test or @dwarf_test decorators, defined in lldbtest.py, to mark a test
-# as a dsym or dwarf test.  Use '-N dsym' or '-N dwarf' to exclude dsym or dwarf
-# tests from running.
-dont_do_dsym_test = "linux" in sys.platform or "freebsd" in sys.platform
+dont_do_dsym_test = False
 dont_do_dwarf_test = False
-
-# Don't do debugserver tests on everything except OS X.
-# Something for Windows here?
-dont_do_debugserver_test = "linux" in sys.platform or "freebsd" in sys.platform
-
-# Don't do lldb-gdbserver (llgs) tests on anything except Linux.
-dont_do_llgs_test = not ("linux" in sys.platform)
 
 # The blacklist is optional (-b blacklistFile) and allows a central place to skip
 # testclass's and/or testclass.testmethod's.
@@ -551,6 +540,7 @@ def parseOptionsAndInitTestdirs():
     X('-S', "Skip the build and cleanup while running the test. Use this option with care as you would need to build the inferior(s) by hand and build the executable(s) with the correct name(s). This can be used with '-# n' to stress test certain test cases for n number of times")
     X('-t', 'Turn on tracing of lldb command and other detailed test executions')
     group.add_argument('-u', dest='unset_env_varnames', metavar='variable', action='append', help='Specify an environment variable to unset before running the test cases. e.g., -u DYLD_INSERT_LIBRARIES -u MallocScribble')
+    group.add_argument('--env', dest='set_env_vars', metavar='variable', action='append', help='Specify an environment variable to set to the given value before running the test cases e.g.: --env CXXFLAGS=-O3 --env DYLD_INSERT_LIBRARIES')
     X('-v', 'Do verbose mode of unittest framework (print out each test case invocation)')
     X('-w', 'Insert some wait time (currently 0.5 sec) between consecutive test cases')
     X('-T', 'Obtain and dump svn information for this checkout of LLDB (off by default)')
@@ -574,7 +564,15 @@ def parseOptionsAndInitTestdirs():
                 # is automatically translated into a corresponding call to unsetenv().
                 del os.environ[env_var]
                 #os.unsetenv(env_var)
-    
+
+    if args.set_env_vars:
+        for env_var in args.set_env_vars:
+            parts = env_var.split('=', 1)
+            if len(parts) == 1:
+                os.environ[parts[0]] = ""
+            else:
+                os.environ[parts[0]] = parts[1]
+
     # only print the args if being verbose (and parsable is off)
     if args.v and not args.q:
         print sys.argv
@@ -923,14 +921,20 @@ def setupSysPath():
 
     pluginPath = os.path.join(scriptPath, 'plugins')
     pexpectPath = os.path.join(scriptPath, 'pexpect-2.4')
+    toolsLLDBMIPath = os.path.join(scriptPath, 'tools', 'lldb-mi')
+    toolsLLDBServerPath = os.path.join(scriptPath, 'tools', 'lldb-server')
 
     # Put embedded pexpect at front of the load path so we ensure we
     # use that version.
     sys.path.insert(0, pexpectPath)
 
-    # Append script dir and plugin dir to the sys.path.
-    sys.path.append(scriptPath)
-    sys.path.append(pluginPath)
+    # Insert script dir, plugin dir, lldb-mi dir and lldb-server dir to the sys.path.
+    sys.path.insert(0, scriptPath)
+    sys.path.insert(0, pluginPath)
+    sys.path.insert(0, toolsLLDBMIPath)      # Adding test/tools/lldb-mi to the path makes it easy
+                                             # to "import lldbmi_testcase" from the MI tests
+    sys.path.insert(0, toolsLLDBServerPath)  # Adding test/tools/lldb-server to the path makes it easy
+                                             # to "import lldbgdbserverutils" from the lldb-server tests
 
     # This is our base name component.
     base = os.path.abspath(os.path.join(scriptPath, os.pardir))
@@ -1004,9 +1008,13 @@ def setupSysPath():
     
     if lldbHere:
         os.environ["LLDB_HERE"] = lldbHere
-        os.environ["LLDB_LIB_DIR"] = os.path.split(lldbHere)[0]
+        lldbLibDir = os.path.split(lldbHere)[0]  # confusingly, this is the "bin" directory
+        os.environ["LLDB_LIB_DIR"] = lldbLibDir
+        lldbImpLibDir = os.path.join(lldbLibDir, '..', 'lib') if sys.platform.startswith('win32') else lldbLibDir
+        os.environ["LLDB_IMPLIB_DIR"] = lldbImpLibDir
         if not noHeaders:
             print "LLDB library dir:", os.environ["LLDB_LIB_DIR"]
+            print "LLDB import library dir:", os.environ["LLDB_IMPLIB_DIR"]
             os.system('%s -v' % lldbHere)
 
     if not lldbExec:
@@ -1056,13 +1064,12 @@ def setupSysPath():
             return
         
         # If our lldb supports the -P option, use it to find the python path:
-        init_in_python_dir = 'lldb/__init__.py'
+        init_in_python_dir = os.path.join('lldb', '__init__.py')
         lldb_dash_p_result = None
 
-        if lldbHere:
-            lldb_dash_p_result = subprocess.check_output([lldbHere, "-P"], stderr=subprocess.STDOUT)
-        elif lldbExec:
-            lldb_dash_p_result = subprocess.check_output([lldbExec, "-P"], stderr=subprocess.STDOUT)
+        lldbExecutable = lldbHere if lldbHere else lldbExec
+        if lldbExecutable:
+            lldb_dash_p_result = subprocess.check_output([lldbExecutable, "-P"], stderr=subprocess.STDOUT)
 
         if lldb_dash_p_result and not lldb_dash_p_result.startswith(("<", "lldb: invalid option:")) \
 							  and not lldb_dash_p_result.startswith("Traceback"):
@@ -1084,38 +1091,51 @@ def setupSysPath():
                 if "freebsd" in sys.platform or "linux" in sys.platform:
                     os.environ['LLDB_LIB_DIR'] = os.path.join(lldbPath, '..', '..')
         
-        if not lldbPath: 
-            dbgPath  = os.path.join(base, *(xcode3_build_dir + dbg + python_resource_dir))
-            dbgPath2 = os.path.join(base, *(xcode4_build_dir + dbg + python_resource_dir))
-            dbcPath  = os.path.join(base, *(xcode3_build_dir + dbc + python_resource_dir))
-            dbcPath2 = os.path.join(base, *(xcode4_build_dir + dbc + python_resource_dir))
-            relPath  = os.path.join(base, *(xcode3_build_dir + rel + python_resource_dir))
-            relPath2 = os.path.join(base, *(xcode4_build_dir + rel + python_resource_dir))
-            baiPath  = os.path.join(base, *(xcode3_build_dir + bai + python_resource_dir))
-            baiPath2 = os.path.join(base, *(xcode4_build_dir + bai + python_resource_dir))
-    
-            if os.path.isfile(os.path.join(dbgPath, init_in_python_dir)):
-                lldbPath = dbgPath
-            elif os.path.isfile(os.path.join(dbgPath2, init_in_python_dir)):
-                lldbPath = dbgPath2
-            elif os.path.isfile(os.path.join(dbcPath, init_in_python_dir)):
-                lldbPath = dbcPath
-            elif os.path.isfile(os.path.join(dbcPath2, init_in_python_dir)):
-                lldbPath = dbcPath2
-            elif os.path.isfile(os.path.join(relPath, init_in_python_dir)):
-                lldbPath = relPath
-            elif os.path.isfile(os.path.join(relPath2, init_in_python_dir)):
-                lldbPath = relPath2
-            elif os.path.isfile(os.path.join(baiPath, init_in_python_dir)):
-                lldbPath = baiPath
-            elif os.path.isfile(os.path.join(baiPath2, init_in_python_dir)):
-                lldbPath = baiPath2
-
         if not lldbPath:
-            print 'This script requires lldb.py to be in either ' + dbgPath + ',',
-            print relPath + ', or ' + baiPath + '. Some tests might fail.'
+            if platform.system() == "Darwin":
+                dbgPath  = os.path.join(base, *(xcode3_build_dir + dbg + python_resource_dir))
+                dbgPath2 = os.path.join(base, *(xcode4_build_dir + dbg + python_resource_dir))
+                dbcPath  = os.path.join(base, *(xcode3_build_dir + dbc + python_resource_dir))
+                dbcPath2 = os.path.join(base, *(xcode4_build_dir + dbc + python_resource_dir))
+                relPath  = os.path.join(base, *(xcode3_build_dir + rel + python_resource_dir))
+                relPath2 = os.path.join(base, *(xcode4_build_dir + rel + python_resource_dir))
+                baiPath  = os.path.join(base, *(xcode3_build_dir + bai + python_resource_dir))
+                baiPath2 = os.path.join(base, *(xcode4_build_dir + bai + python_resource_dir))
+
+                if os.path.isfile(os.path.join(dbgPath, init_in_python_dir)):
+                    lldbPath = dbgPath
+                elif os.path.isfile(os.path.join(dbgPath2, init_in_python_dir)):
+                    lldbPath = dbgPath2
+                elif os.path.isfile(os.path.join(dbcPath, init_in_python_dir)):
+                    lldbPath = dbcPath
+                elif os.path.isfile(os.path.join(dbcPath2, init_in_python_dir)):
+                    lldbPath = dbcPath2
+                elif os.path.isfile(os.path.join(relPath, init_in_python_dir)):
+                    lldbPath = relPath
+                elif os.path.isfile(os.path.join(relPath2, init_in_python_dir)):
+                    lldbPath = relPath2
+                elif os.path.isfile(os.path.join(baiPath, init_in_python_dir)):
+                    lldbPath = baiPath
+                elif os.path.isfile(os.path.join(baiPath2, init_in_python_dir)):
+                    lldbPath = baiPath2
+
+                if not lldbPath:
+                    print 'This script requires lldb.py to be in either ' + dbgPath + ',',
+                    print relPath + ', or ' + baiPath + '. Some tests might fail.'
+            else:
+                print "Unable to load lldb extension module.  Possible reasons for this include:"
+                print "  1) LLDB was built with LLDB_DISABLE_PYTHON=1"
+                print "  2) PYTHONPATH and PYTHONHOME are not set correctly.  PYTHONHOME should refer to"
+                print "     the version of Python that LLDB built and linked against, and PYTHONPATH"
+                print "     should contain the Lib directory for the same python distro, as well as the"
+                print "     location of LLDB\'s site-packages folder."
+                print "  3) A different version of Python than that which was built against is exported in"
+                print "     the system\'s PATH environment variable, causing conflicts."
+                print "  4) The executable '%s' could not be found.  Please check " % lldbExecutable
+                print "     that it exists and is executable."
 
     if lldbPath:
+        lldbPath = os.path.normpath(lldbPath)
         # Some of the code that uses this path assumes it hasn't resolved the Versions... link.  
         # If the path we've constructed looks like that, then we'll strip out the Versions/A part.
         (before, frameWithVersion, after) = lldbPath.rpartition("LLDB.framework/Versions/A")
@@ -1326,14 +1346,17 @@ if lldb_platform_name:
     if lldb_platform_url:
         # We must connect to a remote platform if a LLDB platform URL was specified
         print "Connecting to remote platform '%s' at '%s'..." % (lldb_platform_name, lldb_platform_url)
-        platform_connect_options = lldb.SBPlatformConnectOptions(lldb_platform_url); 
+        lldb.platfrom_url = lldb_platform_url
+        platform_connect_options = lldb.SBPlatformConnectOptions(lldb_platform_url)
         err = lldb.remote_platform.ConnectRemote(platform_connect_options)
         if err.Success():
             print "Connected."
         else:
             print "error: failed to connect to remote platform using URL '%s': %s" % (lldb_platform_url, err)
             exitTestSuite(1)
-    
+    else:
+        lldb.platfrom_url = None
+
     if lldb_platform_working_dir:
         print "Setting remote platform working directory to '%s'..." % (lldb_platform_working_dir)
         lldb.remote_platform.SetWorkingDirectory(lldb_platform_working_dir)
@@ -1343,6 +1366,23 @@ if lldb_platform_name:
 else:
     lldb.remote_platform = None
     lldb.remote_platform_working_dir = None
+    lldb.platfrom_url = None
+
+target_platform = lldb.DBG.GetSelectedPlatform().GetTriple().split('-')[2]
+
+# By default, both dsym and dwarf tests are performed.
+# Use @dsym_test or @dwarf_test decorators, defined in lldbtest.py, to mark a test
+# as a dsym or dwarf test.  Use '-N dsym' or '-N dwarf' to exclude dsym or dwarf
+# tests from running.
+dont_do_dsym_test = dont_do_dsym_test or "linux" in target_platform or "freebsd" in target_platform
+
+# Don't do debugserver tests on everything except OS X.
+# Something for Windows here?
+dont_do_debugserver_test = "linux" in target_platform or "freebsd" in target_platform
+
+# Don't do lldb-server (llgs) tests on anything except Linux.
+dont_do_llgs_test = not ("linux" in target_platform)
+
 # Put the blacklist in the lldb namespace, to be used by lldb.TestBase.
 lldb.blacklist = blacklist
 

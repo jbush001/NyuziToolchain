@@ -13,15 +13,17 @@
 #include <sstream>
 
 #include "NativeProcessLinux.h"
+#include "NativeRegisterContextLinux_arm64.h"
 #include "NativeRegisterContextLinux_x86_64.h"
+#include "NativeRegisterContextLinux_mips64.h"
 
 #include "lldb/Core/Log.h"
 #include "lldb/Core/State.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Host/HostInfo.h"
 #include "lldb/Host/HostNativeThread.h"
+#include "lldb/Utility/LLDBAssert.h"
 #include "lldb/lldb-enumerations.h"
-#include "lldb/lldb-private-log.h"
 
 #include "llvm/ADT/SmallString.h"
 
@@ -30,10 +32,12 @@
 #include "Plugins/Process/Utility/RegisterContextLinux_arm64.h"
 #include "Plugins/Process/Utility/RegisterContextLinux_i386.h"
 #include "Plugins/Process/Utility/RegisterContextLinux_x86_64.h"
+#include "Plugins/Process/Utility/RegisterContextLinux_mips64.h"
 #include "Plugins/Process/Utility/RegisterInfoInterface.h"
 
 using namespace lldb;
 using namespace lldb_private;
+using namespace lldb_private::process_linux;
 
 namespace
 {
@@ -41,6 +45,18 @@ namespace
     {
         switch (stop_info.reason)
         {
+            case eStopReasonNone:
+                log.Printf ("%s: %s no stop reason", __FUNCTION__, header);
+                return;
+            case eStopReasonTrace:
+                log.Printf ("%s: %s trace, stopping signal 0x%" PRIx32, __FUNCTION__, header, stop_info.details.signal.signo);
+                return;
+            case eStopReasonBreakpoint:
+                log.Printf ("%s: %s breakpoint, stopping signal 0x%" PRIx32, __FUNCTION__, header, stop_info.details.signal.signo);
+                return;
+            case eStopReasonWatchpoint:
+                log.Printf ("%s: %s watchpoint, stopping signal 0x%" PRIx32, __FUNCTION__, header, stop_info.details.signal.signo);
+                return;
             case eStopReasonSignal:
                 log.Printf ("%s: %s signal 0x%02" PRIx32, __FUNCTION__, header, stop_info.details.signal.signo);
                 return;
@@ -49,6 +65,15 @@ namespace
                 return;
             case eStopReasonExec:
                 log.Printf ("%s: %s exec, stopping signal 0x%" PRIx32, __FUNCTION__, header, stop_info.details.signal.signo);
+                return;
+            case eStopReasonPlanComplete:
+                log.Printf ("%s: %s plan complete", __FUNCTION__, header);
+                return;
+            case eStopReasonThreadExiting:
+                log.Printf ("%s: %s thread exiting", __FUNCTION__, header);
+                return;
+            case eStopReasonInstrumentation:
+                log.Printf ("%s: %s instrumentation", __FUNCTION__, header);
                 return;
             default:
                 log.Printf ("%s: %s invalid stop reason %" PRIu32, __FUNCTION__, header, static_cast<uint32_t> (stop_info.reason));
@@ -133,7 +158,7 @@ NativeThreadLinux::GetStopReason (ThreadStopInfo &stop_info, std::string& descri
     llvm_unreachable("unhandled StateType!");
 }
 
-lldb_private::NativeRegisterContextSP
+NativeRegisterContextSP
 NativeThreadLinux::GetRegisterContext ()
 {
     // Return the register context if we already created it.
@@ -174,6 +199,12 @@ NativeThreadLinux::GetRegisterContext ()
                     reg_interface = static_cast<RegisterInfoInterface*> (new RegisterContextLinux_x86_64 (target_arch));
                 }
                 break;
+            case llvm::Triple::mips64:
+            case llvm::Triple::mips64el:
+                assert((HostInfo::GetArchitecture ().GetAddressByteSize() == 8)
+                    && "Register setting path assumes this is a 64-bit host");
+                reg_interface = static_cast<RegisterInfoInterface*>(new RegisterContextLinux_mips64 (target_arch));
+                break;
             default:
                 break;
             }
@@ -198,9 +229,20 @@ NativeThreadLinux::GetRegisterContext ()
             break;
         }
 #endif
-#if 0
+        case llvm::Triple::mips64:
+        case llvm::Triple::mips64el:
+        {
+            const uint32_t concrete_frame_idx = 0;
+            m_reg_context_sp.reset (new NativeRegisterContextLinux_mips64 (*this, concrete_frame_idx, reg_interface));
+            break;
+        }
+        case llvm::Triple::aarch64:
+        {
+            const uint32_t concrete_frame_idx = 0;
+            m_reg_context_sp.reset (new NativeRegisterContextLinux_arm64(*this, concrete_frame_idx, reg_interface));
+            break;
+        }
         case llvm::Triple::x86:
-#endif
         case llvm::Triple::x86_64:
         {
             const uint32_t concrete_frame_idx = 0;
@@ -219,6 +261,8 @@ NativeThreadLinux::SetWatchpoint (lldb::addr_t addr, size_t size, uint32_t watch
 {
     if (!hardware)
         return Error ("not implemented");
+    if (m_state == eStateLaunching)
+        return Error ();
     Error error = RemoveWatchpoint(addr);
     if (error.Fail()) return error;
     NativeRegisterContextSP reg_ctx = GetRegisterContext ();
@@ -271,13 +315,17 @@ NativeThreadLinux::SetRunning ()
     // then this is a new thread. So set all existing watchpoints.
     if (m_watchpoint_index_map.empty())
     {
-        const auto &watchpoint_map = GetProcess()->GetWatchpointMap();
-        if (watchpoint_map.empty()) return;
-        GetRegisterContext()->ClearAllHardwareWatchpoints();
-        for (const auto &pair : watchpoint_map)
+        const auto process_sp = GetProcess();
+        if (process_sp)
         {
-            const auto& wp = pair.second;
-            SetWatchpoint(wp.m_addr, wp.m_size, wp.m_watch_flags, wp.m_hardware);
+            const auto &watchpoint_map = process_sp->GetWatchpointMap();
+            if (watchpoint_map.empty()) return;
+            GetRegisterContext()->ClearAllHardwareWatchpoints();
+            for (const auto &pair : watchpoint_map)
+            {
+                const auto& wp = pair.second;
+                SetWatchpoint(wp.m_addr, wp.m_size, wp.m_watch_flags, wp.m_hardware);
+            }
         }
     }
 }
@@ -354,38 +402,23 @@ NativeThreadLinux::SetStoppedByBreakpoint ()
 }
 
 void
-NativeThreadLinux::SetStoppedByWatchpoint ()
+NativeThreadLinux::SetStoppedByWatchpoint (uint32_t wp_index)
 {
     const StateType new_state = StateType::eStateStopped;
     MaybeLogStateChange (new_state);
     m_state = new_state;
+    m_stop_description.clear ();
+
+    lldbassert(wp_index != LLDB_INVALID_INDEX32 &&
+               "wp_index cannot be invalid");
+
+    std::ostringstream ostr;
+    ostr << GetRegisterContext()->GetWatchpointAddress(wp_index) << " ";
+    ostr << wp_index;
+    m_stop_description = ostr.str();
 
     m_stop_info.reason = StopReason::eStopReasonWatchpoint;
     m_stop_info.details.signal.signo = SIGTRAP;
-
-    NativeRegisterContextLinux_x86_64 *reg_ctx =
-        reinterpret_cast<NativeRegisterContextLinux_x86_64*> (GetRegisterContext().get());
-    const uint32_t num_hw_watchpoints =
-        reg_ctx->NumSupportedHardwareWatchpoints();
-
-    m_stop_description.clear ();
-    for (uint32_t wp_index = 0; wp_index < num_hw_watchpoints; ++wp_index)
-        if (reg_ctx->IsWatchpointHit(wp_index).Success())
-        {
-            std::ostringstream ostr;
-            ostr << reg_ctx->GetWatchpointAddress(wp_index) << " " << wp_index;
-            m_stop_description = ostr.str();
-            return;
-        }
-    Log *log (GetLogIfAllCategoriesSet (LIBLLDB_LOG_THREAD));
-    if (log)
-    {
-        NativeProcessProtocolSP m_process_sp = m_process_wp.lock ();
-        lldb::pid_t pid = m_process_sp ? m_process_sp->GetID () : LLDB_INVALID_PROCESS_ID;
-        log->Printf ("NativeThreadLinux: thread (pid=%" PRIu64 ", tid=%" PRIu64 ") "
-                "stopped by a watchpoint, but failed to find it",
-                pid, GetID ());
-    }
 }
 
 bool

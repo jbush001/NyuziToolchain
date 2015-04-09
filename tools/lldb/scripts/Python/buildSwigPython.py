@@ -6,11 +6,6 @@
 	Overview: 		Creates SWIG Python C++ Script Bridge wrapper code. This
 					script is called by build-swig-wrapper-classes.py in turn.
 					
-	Environment:	OS:			Windows Vista or newer, LINUX, OSX.
-					IDE: 	    Visual Studio 2013 Plugin Python Tools (PTVS)
-					Script:		Python 2.6/2.7.5 x64
-					Other:		SWIG 2.0.11
-
 	Gotchas:		Python debug complied pythonXX_d.lib is required for SWIG
 					to build correct LLDBWrapperPython.cpp in order for Visual
 					Studio to compile successfully. The release version of the 
@@ -81,6 +76,7 @@ def get_header_files( vDictArgs ):
 						"/include/lldb/lldb-forward-rtti.h",
 						"/include/lldb/lldb-types.h",
 						"/include/lldb/API/SBAddress.h",
+            "/include/lldb/API/SBAttachInfo.h",
 						"/include/lldb/API/SBBlock.h",
 						"/include/lldb/API/SBBreakpoint.h",
 						"/include/lldb/API/SBBreakpointLocation.h",
@@ -157,6 +153,7 @@ def get_header_files( vDictArgs ):
 def get_interface_files( vDictArgs ):
 	dbg = utilsDebug.CDebugFnVerbose( "Python script get_interface_files()" );
 	listIFaceFiles = [ 	"/scripts/Python/interface/SBAddress.i",
+            "/scripts/Python/interface/SBAttachInfo.i",
 						"/scripts/Python/interface/SBBlock.i",
 						"/scripts/Python/interface/SBBreakpoint.i",
 						"/scripts/Python/interface/SBBreakpointLocation.i",
@@ -429,6 +426,18 @@ def get_config_build_dir( vDictArgs, vstrFrameworkPythonDir ):
 	
 	return (bOk, strConfigBldDir, strErrMsg);
 
+"""
+Removes given file, ignoring error if it doesn't exist.
+"""
+def remove_ignore_enoent(filename):
+	try:
+		os.remove( filename );
+	except OSError as e:
+		import errno
+		if e.errno != errno.ENOENT:
+			raise
+		pass
+
 #++---------------------------------------------------------------------------
 # Details:	Do a SWIG code rebuild. Any number returned by SWIG which is not
 #			zero is treated as an error. The generate dependencies flag decides
@@ -685,10 +694,10 @@ def main( vDictArgs ):
     # iOS be sure to set LLDB_DISABLE_PYTHON to 1.
 	if (strEnvVarLLDBDisablePython != None) and \
 	   (strEnvVarLLDBDisablePython == "1"):
-		os.remove( strSwigOutputFile );
+		remove_ignore_enoent( strSwigOutputFile )
 		open( strSwigOutputFile, 'w' ).close(); # Touch the file
 		if bDebug:
-			strMsg = strMsgLldbDisablePython;
+			strMsg = strMsgLldbDisablePythonEnv;
 		return (0, strMsg );
 		
 	# If this project is being built with LLDB_DISABLE_PYTHON defined,
@@ -698,7 +707,7 @@ def main( vDictArgs ):
 											None );
 	if (strEnvVarGccPreprocessDefs != None) or \
 	   (strEnvVarLLDBDisablePython != None):
-		os.remove( strSwigOutputFile );
+		remove_ignore_enoent( strSwigOutputFile )
 		open( strSwigOutputFile, 'w' ).close(); # Touch the file
 		if bDebug:
 			strMsg = strMsgLldbDisableGccEnv;

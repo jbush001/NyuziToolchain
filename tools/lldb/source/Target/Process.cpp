@@ -10,19 +10,18 @@
 #include "lldb/lldb-python.h"
 
 #include "lldb/Target/Process.h"
-
-#include "lldb/lldb-private-log.h"
-
 #include "lldb/Breakpoint/StoppointCallbackContext.h"
 #include "lldb/Breakpoint/BreakpointLocation.h"
 #include "lldb/Core/Event.h"
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/Log.h"
 #include "lldb/Core/Module.h"
+#include "lldb/Core/ModuleSpec.h"
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Core/State.h"
 #include "lldb/Core/StreamFile.h"
 #include "lldb/Expression/ClangUserExpression.h"
+#include "lldb/Expression/IRDynamicChecks.h"
 #include "lldb/Host/ConnectionFileDescriptor.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Host/HostInfo.h"
@@ -30,11 +29,15 @@
 #include "lldb/Host/Terminal.h"
 #include "lldb/Host/ThreadLauncher.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
+#include "lldb/Interpreter/OptionValueProperties.h"
 #include "lldb/Symbol/Symbol.h"
 #include "lldb/Target/ABI.h"
 #include "lldb/Target/DynamicLoader.h"
+#include "lldb/Target/InstrumentationRuntime.h"
 #include "lldb/Target/JITLoader.h"
+#include "lldb/Target/JITLoaderList.h"
 #include "lldb/Target/MemoryHistory.h"
+#include "lldb/Target/MemoryRegionInfo.h"
 #include "lldb/Target/OperatingSystem.h"
 #include "lldb/Target/LanguageRuntime.h"
 #include "lldb/Target/CPPLanguageRuntime.h"
@@ -48,7 +51,8 @@
 #include "lldb/Target/Thread.h"
 #include "lldb/Target/ThreadPlan.h"
 #include "lldb/Target/ThreadPlanBase.h"
-#include "lldb/Target/InstrumentationRuntime.h"
+#include "lldb/Target/UnixSignals.h"
+#include "lldb/Utility/NameMatches.h"
 #include "Plugins/Process/Utility/InferiorCallPOSIX.h"
 
 using namespace lldb;
@@ -491,6 +495,17 @@ ProcessLaunchCommandOptions::SetOptionValue (uint32_t option_idx, const char *op
             break;
         }
 
+        case 'X':   // shell expand args.
+        {
+            bool success;
+            const bool expand_args = Args::StringToBoolean (option_arg, true, &success);
+            if (success)
+                launch_info.SetShellExpandArguments(expand_args);
+            else
+                error.SetErrorStringWithFormat ("Invalid boolean value for shell-expand-args option: '%s'", option_arg ? option_arg : "<null>");
+            break;
+        }
+            
         case 'c':
             if (option_arg && option_arg[0])
                 launch_info.SetShell (FileSpec(option_arg, false));
@@ -518,7 +533,7 @@ ProcessLaunchCommandOptions::g_option_table[] =
 { LLDB_OPT_SET_ALL, false, "working-dir",   'w', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypeDirectoryName,          "Set the current working directory to <path> when running the inferior."},
 { LLDB_OPT_SET_ALL, false, "arch",          'a', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypeArchitecture,  "Set the architecture for the process to launch when ambiguous."},
 { LLDB_OPT_SET_ALL, false, "environment",   'v', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypeNone,          "Specify an environment variable name/value string (--environment NAME=VALUE). Can be specified multiple times for subsequent environment entries."},
-{ LLDB_OPT_SET_ALL, false, "shell",         'c', OptionParser::eOptionalArgument, NULL, NULL, 0, eArgTypeFilename,          "Run the process in a shell (not supported on all platforms)."},
+{ LLDB_OPT_SET_1|LLDB_OPT_SET_2|LLDB_OPT_SET_3, false, "shell",         'c', OptionParser::eOptionalArgument, NULL, NULL, 0, eArgTypeFilename,          "Run the process in a shell (not supported on all platforms)."},
 
 { LLDB_OPT_SET_1  , false, "stdin",         'i', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypeFilename,    "Redirect stdin for the process to <filename>."},
 { LLDB_OPT_SET_1  , false, "stdout",        'o', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypeFilename,    "Redirect stdout for the process to <filename>."},
@@ -527,7 +542,7 @@ ProcessLaunchCommandOptions::g_option_table[] =
 { LLDB_OPT_SET_2  , false, "tty",           't', OptionParser::eNoArgument,       NULL, NULL, 0, eArgTypeNone,    "Start the process in a terminal (not supported on all platforms)."},
 
 { LLDB_OPT_SET_3  , false, "no-stdio",      'n', OptionParser::eNoArgument,       NULL, NULL, 0, eArgTypeNone,    "Do not set up for terminal I/O to go to running process."},
-
+{ LLDB_OPT_SET_4,   false, "shell-expand-args",       'X', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypeBoolean,          "Set whether to shell expand arguments to the process when launching."},
 { 0               , false, NULL,             0,  0,                 NULL, NULL, 0, eArgTypeNone,    NULL }
 };
 
@@ -688,7 +703,7 @@ Process::Process(Target &target, Listener &listener) :
 Process::Process(Target &target, Listener &listener, const UnixSignalsSP &unix_signals_sp) :
     ProcessProperties (this),
     UserID (LLDB_INVALID_PROCESS_ID),
-    Broadcaster (&(target.GetDebugger()), "lldb.process"),
+    Broadcaster (&(target.GetDebugger()), Process::GetStaticBroadcasterClass().AsCString()),
     m_target (target),
     m_public_state (eStateUnloaded),
     m_private_state (eStateUnloaded),
@@ -720,7 +735,7 @@ Process::Process(Target &target, Listener &listener, const UnixSignalsSP &unix_s
     m_process_input_reader (),
     m_stdio_communication ("process.stdio"),
     m_stdio_communication_mutex (Mutex::eMutexTypeRecursive),
-    m_stdio_disable(true),
+    m_stdin_forward (false),
     m_stdout_data (),
     m_stderr_data (),
     m_profile_data_comm_mutex (Mutex::eMutexTypeRecursive),
@@ -734,9 +749,10 @@ Process::Process(Target &target, Listener &listener, const UnixSignalsSP &unix_s
     m_private_run_lock (),
     m_currently_handling_event(false),
     m_stop_info_override_callback (NULL),
-    m_finalize_called(false),
+    m_finalizing (false),
+    m_finalize_called (false),
     m_clear_thread_plans_on_stop (false),
-    m_force_next_event_delivery(false),
+    m_force_next_event_delivery (false),
     m_last_broadcast_state (eStateInvalid),
     m_destroy_in_process (false),
     m_can_jit(eCanJITDontKnow)
@@ -807,6 +823,9 @@ Process::GetGlobalProperties()
 void
 Process::Finalize()
 {
+    m_finalizing = true;
+    
+    // Destroy this process if needed
     switch (GetPrivateState())
     {
         case eStateConnected:
@@ -817,14 +836,7 @@ Process::Finalize()
         case eStateStepping:
         case eStateCrashed:
         case eStateSuspended:
-            if (GetShouldDetach())
-            {
-                // FIXME: This will have to be a process setting:
-                bool keep_stopped = false;
-                Detach(keep_stopped);
-            }
-            else
-                Destroy();
+            Destroy();
             break;
             
         case eStateInvalid:
@@ -995,6 +1007,10 @@ Process::WaitForProcessToStop (const TimeValue *timeout,
         if (log)
             log->Printf("Process::%s returning without waiting for events; process private and public states are already 'stopped'.",
                         __FUNCTION__);
+        // We need to toggle the run lock as this won't get done in
+        // SetPublicState() if the process is hijacked.
+        if (hijack_listener)
+            m_public_run_lock.SetStopped();
         return state;
     }
 
@@ -1819,6 +1835,12 @@ Process::GetImageInfoAddress()
 uint32_t
 Process::LoadImage (const FileSpec &image_spec, Error &error)
 {
+    if (m_finalizing)
+    {
+        error.SetErrorString("process is tearing itself down");
+        return LLDB_INVALID_IMAGE_TOKEN;
+    }
+
     char path[PATH_MAX];
     image_spec.GetPath(path, sizeof(path));
 
@@ -1938,6 +1960,13 @@ Error
 Process::UnloadImage (uint32_t image_token)
 {
     Error error;
+
+    if (m_finalizing)
+    {
+        error.SetErrorString("process is tearing itself down");
+        return error;
+    }
+
     if (image_token < m_image_tokens.size())
     {
         const addr_t image_addr = m_image_tokens[image_token];
@@ -2020,6 +2049,9 @@ Process::GetABI()
 LanguageRuntime *
 Process::GetLanguageRuntime(lldb::LanguageType language, bool retry_if_null)
 {
+    if (m_finalizing)
+        return nullptr;
+
     LanguageRuntimeCollection::iterator pos;
     pos = m_language_runtimes.find (language);
     if (pos == m_language_runtimes.end() || (retry_if_null && !(*pos).second))
@@ -2054,6 +2086,9 @@ Process::GetObjCLanguageRuntime (bool retry_if_null)
 bool
 Process::IsPossibleDynamicValue (ValueObject& in_value)
 {
+    if (m_finalizing)
+        return false;
+
     if (in_value.IsDynamic())
         return false;
     LanguageType known_type = in_value.GetObjectRuntimeLanguage();
@@ -2070,6 +2105,12 @@ Process::IsPossibleDynamicValue (ValueObject& in_value)
     
     LanguageRuntime *objc_runtime = GetLanguageRuntime (eLanguageTypeObjC);
     return objc_runtime ? objc_runtime->CouldHaveDynamicValue(in_value) : false;
+}
+
+void
+Process::SetDynamicCheckers(DynamicCheckerFunctions *dynamic_checkers)
+{
+    m_dynamic_checkers_ap.reset(dynamic_checkers);
 }
 
 BreakpointSiteList &
@@ -2968,6 +3009,33 @@ Process::ReadModuleFromMemory (const FileSpec& file_spec,
     return ModuleSP();
 }
 
+bool
+Process::GetLoadAddressPermissions (lldb::addr_t load_addr, uint32_t &permissions)
+{
+    MemoryRegionInfo range_info;
+    permissions = 0;
+    Error error (GetMemoryRegionInfo (load_addr, range_info));
+    if (!error.Success())
+        return false;
+    if (range_info.GetReadable() == MemoryRegionInfo::eDontKnow 
+        || range_info.GetWritable() == MemoryRegionInfo::eDontKnow 
+        || range_info.GetExecutable() == MemoryRegionInfo::eDontKnow)
+    {
+        return false;
+    }
+
+    if (range_info.GetReadable() == MemoryRegionInfo::eYes)
+        permissions |= lldb::ePermissionsReadable;
+
+    if (range_info.GetWritable() == MemoryRegionInfo::eYes)
+        permissions |= lldb::ePermissionsWritable;
+
+    if (range_info.GetExecutable() == MemoryRegionInfo::eYes)
+        permissions |= lldb::ePermissionsExecutable;
+
+    return true;
+}
+
 Error
 Process::EnableWatchpoint (Watchpoint *watchpoint, bool notify)
 {
@@ -3090,6 +3158,7 @@ Process::Launch (ProcessLaunchInfo &launch_info)
                     {
                         // We were able to launch the process, but we failed to
                         // catch the initial stop.
+                        error.SetErrorString ("failed to catch stop after launch");
                         SetExitStatus (0, "failed to catch stop after launch");
                         Destroy();
                     }
@@ -3125,7 +3194,7 @@ Process::Launch (ProcessLaunchInfo &launch_info)
 
                         // Target was stopped at entry as was intended. Need to notify the listeners
                         // about it.
-                        if (launch_info.GetFlags().Test(eLaunchFlagStopAtEntry) == true)
+                        if (state == eStateStopped && launch_info.GetFlags().Test(eLaunchFlagStopAtEntry))
                             HandlePrivateEvent(event_sp);
                     }
                     else if (state == eStateExited)
@@ -3152,6 +3221,9 @@ Process::LoadCore ()
     Error error = DoLoadCore();
     if (error.Success())
     {
+        Listener listener ("lldb.process.load_core_listener");
+        HijackProcessEvents(&listener);
+
         if (PrivateStateThreadIsValid ())
             ResumePrivateStateThread ();
         else
@@ -3172,7 +3244,20 @@ Process::LoadCore ()
         // show all of the threads in the core file and explore the crashed
         // state.
         SetPrivateState (eStateStopped);
-        
+
+        // Wait indefinitely for a stopped event since we just posted one above...
+        lldb::EventSP event_sp;
+        listener.WaitForEvent (NULL, event_sp);
+        StateType state = ProcessEventData::GetStateFromEvent(event_sp.get());
+
+        if (!StateIsStoppedState (state, false))
+        {
+            Log *log(lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_PROCESS));
+            if (log)
+                log->Printf("Process::Halt() failed to stop, state is: %s", StateAsCString(state));
+            error.SetErrorString ("Did not get stopped event after loading the core file.");
+        }
+        RestoreProcessEvents ();
     }
     return error;
 }
@@ -3883,6 +3968,13 @@ Process::Destroy ()
     // that might hinder the destruction.  Remember to set this back to false when we are done.  That way if the attempt
     // failed and the process stays around for some reason it won't be in a confused state.
     
+    if (GetShouldDetach())
+    {
+        // FIXME: This will have to be a process setting:
+        bool keep_stopped = false;
+        Detach(keep_stopped);
+    }
+
     m_destroy_in_process = true;
 
     Error error (WillDestroy());
@@ -3912,7 +4004,7 @@ Process::Destroy ()
         }
         m_stdio_communication.StopReadThread();
         m_stdio_communication.Disconnect();
-        m_stdio_disable = true;
+        m_stdin_forward = false;
 
         if (m_process_input_reader)
         {
@@ -3954,6 +4046,20 @@ Process::Signal (int signal)
     return error;
 }
 
+void
+Process::SetUnixSignals (const UnixSignalsSP &signals_sp)
+{
+    assert (signals_sp && "null signals_sp");
+    m_unix_signals_sp = signals_sp;
+}
+
+UnixSignals &
+Process::GetUnixSignals ()
+{
+    assert (m_unix_signals_sp && "null m_unix_signals_sp");
+    return *m_unix_signals_sp;
+}
+
 lldb::ByteOrder
 Process::GetByteOrder () const
 {
@@ -3976,12 +4082,14 @@ Process::ShouldBroadcastEvent (Event *event_ptr)
     
     switch (state)
     {
-        case eStateConnected:
-        case eStateAttaching:
-        case eStateLaunching:
         case eStateDetached:
         case eStateExited:
         case eStateUnloaded:
+            m_stdio_communication.SynchronizeWithReadThread();
+            // fall-through
+        case eStateConnected:
+        case eStateAttaching:
+        case eStateLaunching:
             // These events indicate changes in the state of the debugging session, always report them.
             return_value = true;
             break;
@@ -4041,6 +4149,7 @@ Process::ShouldBroadcastEvent (Event *event_ptr)
             // If we aren't going to stop, let the thread plans decide if we're going to report this event.
             // If no thread has an opinion, we don't report it.
 
+            m_stdio_communication.SynchronizeWithReadThread();
             RefreshStateAfterStop ();
             if (ProcessEventData::GetInterruptedFromEvent (event_ptr))
             {
@@ -4982,7 +5091,6 @@ public:
             if (OpenPipes())
             {
                 const int read_fd = m_read_file.GetDescriptor();
-                const int pipe_read_fd = m_pipe.GetReadFileDescriptor();
                 TerminalState terminal_state;
                 terminal_state.Save (read_fd, false);
                 Terminal terminal(read_fd);
@@ -4990,6 +5098,7 @@ public:
                 terminal.SetEcho(false);
 // FD_ZERO, FD_SET are not supported on windows
 #ifndef _WIN32
+                const int pipe_read_fd = m_pipe.GetReadFileDescriptor();
                 while (!GetIsDone())
                 {
                     fd_set read_fdset;
@@ -6252,6 +6361,15 @@ Process::ClearPreResumeActions ()
     m_pre_resume_actions.clear();
 }
 
+ProcessRunLock &
+Process::GetRunLock()
+{
+    if (m_private_state_thread.EqualsThread(Host::GetCurrentThread()))
+        return m_private_run_lock;
+    else
+        return m_public_run_lock;
+}
+
 void
 Process::Flush ()
 {
@@ -6380,4 +6498,13 @@ Process::GetInstrumentationRuntime(lldb::InstrumentationRuntimeType type)
     }
     else
         return (*pos).second;
+}
+
+bool
+Process::GetModuleSpec(const FileSpec& module_file_spec,
+                       const ArchSpec& arch,
+                       ModuleSpec& module_spec)
+{
+    module_spec.Clear();
+    return false;
 }

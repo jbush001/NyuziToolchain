@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Support/YAMLParser.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/Twine.h"
@@ -1528,12 +1529,10 @@ Stream::~Stream() {}
 bool Stream::failed() { return scanner->failed(); }
 
 void Stream::printError(Node *N, const Twine &Msg) {
-  SmallVector<SMRange, 1> Ranges;
-  Ranges.push_back(N->getSourceRange());
   scanner->printError( N->getSourceRange().Start
                      , SourceMgr::DK_Error
                      , Msg
-                     , Ranges);
+                     , N->getSourceRange());
 }
 
 document_iterator Stream::begin() {

@@ -140,7 +140,13 @@ FileSystem::Readlink(const char *path, char *buf, size_t buf_len)
 }
 
 bool
-FileSystem::CalculateMD5(const FileSpec &file_spec, uint64_t &low, uint64_t &high)
+FileSystem::IsLocal(const FileSpec &spec)
 {
+    if (spec)
+    {
+        // TODO: return true if the file is on a locally mounted file system
+        return true;
+    }
+
     return false;
 }

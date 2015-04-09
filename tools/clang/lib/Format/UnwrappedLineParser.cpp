@@ -14,7 +14,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "UnwrappedLineParser.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 
 #define DEBUG_TYPE "format-parser"
 
@@ -262,7 +264,7 @@ bool UnwrappedLineParser::parse() {
 void UnwrappedLineParser::parseFile() {
   ScopedDeclarationState DeclarationState(
       *Line, DeclarationScopeStack,
-      /*MustBeDeclaration=*/ !Line->InPPDirective);
+      /*MustBeDeclaration=*/!Line->InPPDirective);
   parseLevel(/*HasOpeningBrace=*/false);
   // Make sure to format the remaining tokens.
   flushComments(true);
@@ -418,7 +420,7 @@ void UnwrappedLineParser::parseBlock(bool MustBeDeclaration, bool AddLevel,
   Line->Level = InitialLevel;
 }
 
-static bool IsGoogScope(const UnwrappedLine &Line) {
+static bool isGoogScope(const UnwrappedLine &Line) {
   // FIXME: Closure-library specific stuff should not be hard-coded but be
   // configurable.
   if (Line.Tokens.size() < 4)
@@ -454,12 +456,13 @@ void UnwrappedLineParser::parseChildBlock() {
   nextToken();
   {
     bool GoogScope =
-        Style.Language == FormatStyle::LK_JavaScript && IsGoogScope(*Line);
+        Style.Language == FormatStyle::LK_JavaScript && isGoogScope(*Line);
     ScopedLineState LineState(*this);
     ScopedDeclarationState DeclarationState(*Line, DeclarationScopeStack,
                                             /*MustBeDeclaration=*/false);
     Line->Level += GoogScope ? 0 : 1;
     parseLevel(/*HasOpeningBrace=*/true);
+    flushComments(isOnNewLine(*FormatTok));
     Line->Level -= GoogScope ? 0 : 1;
   }
   nextToken();
@@ -604,7 +607,7 @@ void UnwrappedLineParser::parsePPUnknown() {
 // Here we blacklist certain tokens that are not usually the first token in an
 // unwrapped line. This is used in attempt to distinguish macro calls without
 // trailing semicolons from other constructs split to several lines.
-bool tokenCanStartNewLine(clang::Token Tok) {
+static bool tokenCanStartNewLine(const clang::Token &Tok) {
   // Semicolon can be a null-statement, l_square can be a start of a macro or
   // a C++11 attribute, but this doesn't seem to be common.
   return Tok.isNot(tok::semi) && Tok.isNot(tok::l_brace) &&
@@ -693,7 +696,8 @@ void UnwrappedLineParser::parseStructuralElement() {
   case tok::kw_public:
   case tok::kw_protected:
   case tok::kw_private:
-    if (Style.Language == FormatStyle::LK_Java)
+    if (Style.Language == FormatStyle::LK_Java ||
+        Style.Language == FormatStyle::LK_JavaScript)
       nextToken();
     else
       parseAccessSpecifier();
@@ -733,9 +737,24 @@ void UnwrappedLineParser::parseStructuralElement() {
       }
     }
     break;
+  case tok::kw_export:
+    if (Style.Language == FormatStyle::LK_JavaScript) {
+      parseJavaScriptEs6ImportExport();
+      return;
+    }
+    break;
   case tok::identifier:
     if (FormatTok->IsForEachMacro) {
       parseForOrWhileLoop();
+      return;
+    }
+    if (Style.Language == FormatStyle::LK_JavaScript &&
+        FormatTok->is(Keywords.kw_import)) {
+      parseJavaScriptEs6ImportExport();
+      return;
+    }
+    if (FormatTok->is(Keywords.kw_signals)) {
+      parseAccessSpecifier();
       return;
     }
     // In all other cases, parse the declaration.
@@ -823,13 +842,16 @@ void UnwrappedLineParser::parseStructuralElement() {
         break;
       }
       nextToken();
-      if (Line->Tokens.size() == 1) {
-        if (FormatTok->Tok.is(tok::colon)) {
+      if (Line->Tokens.size() == 1 &&
+          // JS doesn't have macros, and within classes colons indicate fields,
+          // not labels.
+          Style.Language != FormatStyle::LK_JavaScript) {
+        if (FormatTok->Tok.is(tok::colon) && !Line->MustBeDeclaration) {
           parseLabel();
           return;
         }
         // Recognize function-like macro usages without trailing semicolon as
-        // well as free-standing macrose like Q_OBJECT.
+        // well as free-standing macros like Q_OBJECT.
         bool FunctionLike = FormatTok->is(tok::l_paren);
         if (FunctionLike)
           parseParens();
@@ -850,6 +872,9 @@ void UnwrappedLineParser::parseStructuralElement() {
       break;
     case tok::l_square:
       parseSquare();
+      break;
+    case tok::kw_new:
+      parseNew();
       break;
     default:
       nextToken();
@@ -960,7 +985,7 @@ void UnwrappedLineParser::tryToParseJSFunction() {
 
   // Consume function name.
   if (FormatTok->is(tok::identifier))
-      nextToken();
+    nextToken();
 
   if (FormatTok->isNot(tok::l_paren))
     return;
@@ -1013,6 +1038,17 @@ bool UnwrappedLineParser::parseBracedList(bool ContinueOnSemicolons) {
       // from the ones we explicitly parse out (like lambdas).
       FormatTok->BlockKind = BK_BracedInit;
       parseBracedList();
+      break;
+    case tok::r_paren:
+      // JavaScript can just have free standing methods and getters/setters in
+      // object literals. Detect them by a "{" following ")".
+      if (Style.Language == FormatStyle::LK_JavaScript) {
+        nextToken();
+        if (FormatTok->is(tok::l_brace))
+          parseChildBlock();
+        break;
+      }
+      nextToken();
       break;
     case tok::r_brace:
       nextToken();
@@ -1257,6 +1293,31 @@ void UnwrappedLineParser::parseNamespace() {
   // FIXME: Add error handling.
 }
 
+void UnwrappedLineParser::parseNew() {
+  assert(FormatTok->is(tok::kw_new) && "'new' expected");
+  nextToken();
+  if (Style.Language != FormatStyle::LK_Java)
+    return;
+
+  // In Java, we can parse everything up to the parens, which aren't optional.
+  do {
+    // There should not be a ;, { or } before the new's open paren.
+    if (FormatTok->isOneOf(tok::semi, tok::l_brace, tok::r_brace))
+      return;
+
+    // Consume the parens.
+    if (FormatTok->is(tok::l_paren)) {
+      parseParens();
+
+      // If there is a class body of an anonymous class, consume that as child.
+      if (FormatTok->is(tok::l_brace))
+        parseChildBlock();
+      return;
+    }
+    nextToken();
+  } while (!eof());
+}
+
 void UnwrappedLineParser::parseForOrWhileLoop() {
   assert((FormatTok->Tok.is(tok::kw_for) || FormatTok->Tok.is(tok::kw_while) ||
           FormatTok->IsForEachMacro) &&
@@ -1353,8 +1414,7 @@ void UnwrappedLineParser::parseSwitch() {
 void UnwrappedLineParser::parseAccessSpecifier() {
   nextToken();
   // Understand Qt's slots.
-  if (FormatTok->is(tok::identifier) &&
-      (FormatTok->TokenText == "slots" || FormatTok->TokenText == "Q_SLOTS"))
+  if (FormatTok->isOneOf(Keywords.kw_slots, Keywords.kw_qslots))
     nextToken();
   // Otherwise, we don't know what it is, and we'd better keep the next token.
   if (FormatTok->Tok.is(tok::colon))
@@ -1514,7 +1574,8 @@ void UnwrappedLineParser::parseRecord() {
   // class A {} n, m;
   // will end up in one unwrapped line.
   // This does not apply for Java.
-  if (Style.Language == FormatStyle::LK_Java)
+  if (Style.Language == FormatStyle::LK_Java ||
+      Style.Language == FormatStyle::LK_JavaScript)
     addUnwrappedLine();
 }
 
@@ -1591,6 +1652,30 @@ void UnwrappedLineParser::parseObjCProtocol() {
 
   addUnwrappedLine();
   parseObjCUntilAtEnd();
+}
+
+void UnwrappedLineParser::parseJavaScriptEs6ImportExport() {
+  assert(FormatTok->isOneOf(Keywords.kw_import, tok::kw_export));
+  nextToken();
+
+  if (FormatTok->isOneOf(tok::kw_const, tok::kw_class, Keywords.kw_function,
+                         Keywords.kw_var))
+    return; // Fall through to parsing the corresponding structure.
+
+  if (FormatTok->is(tok::kw_default)) {
+    nextToken(); // export default ..., fall through after eating 'default'.
+    return;
+  }
+
+  if (FormatTok->is(tok::l_brace)) {
+    FormatTok->BlockKind = BK_Block;
+    parseBracedList();
+  }
+
+  while (!eof() && FormatTok->isNot(tok::semi) &&
+         FormatTok->isNot(tok::l_brace)) {
+    nextToken();
+  }
 }
 
 LLVM_ATTRIBUTE_UNUSED static void printDebugInfo(const UnwrappedLine &Line,
@@ -1677,8 +1762,7 @@ void UnwrappedLineParser::readToken() {
            (FormatTok->HasUnescapedNewline || FormatTok->IsFirst)) {
       // If there is an unfinished unwrapped line, we flush the preprocessor
       // directives only after that unwrapped line was finished later.
-      bool SwitchToPreprocessorLines =
-          !Line->Tokens.empty() && CurrentLines == &Lines;
+      bool SwitchToPreprocessorLines = !Line->Tokens.empty();
       ScopedLineState BlockState(*this, SwitchToPreprocessorLines);
       // Comments stored before the preprocessor directive need to be output
       // before the preprocessor directive, at the same level as the

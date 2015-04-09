@@ -12,7 +12,7 @@ class StdListDataFormatterTestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     @dsym_test
     def test_with_dsym_and_run_command(self):
         """Test data formatter commands."""
@@ -21,8 +21,6 @@ class StdListDataFormatterTestCase(TestBase):
 
     @dwarf_test
     @expectedFailureFreeBSD("llvm.org/pr20548") # fails to build on lab.llvm.org buildbot
-    @expectedFailureLinux('llvm.org/pr15301', ['icc']) # LLDB prints incorrect sizes of STL containers
-    @expectedFailureGcc # llvm.org/pr17499 The data formatter cannot parse STL containers
     def test_with_dwarf_and_run_command(self):
         """Test data formatter commands."""
         self.buildDwarf()

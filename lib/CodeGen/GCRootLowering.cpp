@@ -12,11 +12,11 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/CodeGen/GCMetadata.h"
+#include "llvm/CodeGen/GCStrategy.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
-#include "llvm/CodeGen/GCStrategy.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/IR/Dominators.h"
 #include "llvm/IR/IntrinsicInst.h"
@@ -57,7 +57,6 @@ public:
 /// in the machine code. It inserts labels at safe points and populates a
 /// GCMetadata record for each function.
 class GCMachineCodeAnalysis : public MachineFunctionPass {
-  const TargetMachine *TM;
   GCFunctionInfo *FI;
   MachineModuleInfo *MMI;
   const TargetInstrInfo *TII;
@@ -312,7 +311,7 @@ void GCMachineCodeAnalysis::FindSafePoints(MachineFunction &MF) {
 }
 
 void GCMachineCodeAnalysis::FindStackOffsets(MachineFunction &MF) {
-  const TargetFrameLowering *TFI = TM->getSubtargetImpl()->getFrameLowering();
+  const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
   assert(TFI && "TargetRegisterInfo not available!");
 
   for (GCFunctionInfo::roots_iterator RI = FI->roots_begin();
@@ -333,20 +332,22 @@ bool GCMachineCodeAnalysis::runOnMachineFunction(MachineFunction &MF) {
     return false;
 
   FI = &getAnalysis<GCModuleInfo>().getFunctionInfo(*MF.getFunction());
-  if (!FI->getStrategy().needsSafePoints())
-    return false;
-
-  TM = &MF.getTarget();
   MMI = &getAnalysis<MachineModuleInfo>();
-  TII = TM->getSubtargetImpl()->getInstrInfo();
+  TII = MF.getSubtarget().getInstrInfo();
 
-  // Find the size of the stack frame.
-  FI->setFrameSize(MF.getFrameInfo()->getStackSize());
+  // Find the size of the stack frame.  There may be no correct static frame
+  // size, we use UINT64_MAX to represent this.
+  const MachineFrameInfo *MFI = MF.getFrameInfo();
+  const TargetRegisterInfo *RegInfo = MF.getSubtarget().getRegisterInfo();
+  const bool DynamicFrameSize = MFI->hasVarSizedObjects() ||
+    RegInfo->needsStackRealignment(MF);
+  FI->setFrameSize(DynamicFrameSize ? UINT64_MAX : MFI->getStackSize());
 
   // Find all safe points.
-  FindSafePoints(MF);
+  if (FI->getStrategy().needsSafePoints())
+    FindSafePoints(MF);
 
-  // Find the stack offsets for all roots.
+  // Find the concrete stack offsets for all roots (stack slots)
   FindStackOffsets(MF);
 
   return false;

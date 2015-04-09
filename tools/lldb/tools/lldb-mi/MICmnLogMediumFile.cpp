@@ -7,24 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-//++
-// File:        MICmnLogMediumFile.cpp
-//
-// Overview:    CMICmnLogMediumFile implementation.
-//
-// Environment: Compilers:  Visual C++ 12.
-//                          gcc (Ubuntu/Linaro 4.8.1-10ubuntu9) 4.8.1
-//              Libraries:  See MIReadmetxt.
-//
-// Copyright:   None.
-//--
-
 // In-house headers:
 #include "MICmnLogMediumFile.h"
 #include "MICmnResources.h"
 #if defined(_MSC_VER)
 #include "MIUtilSystemWindows.h"
-#elif defined(__FreeBSD__) || defined(__linux__)
+#elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__linux__)
 #include "MIUtilSystemLinux.h"
 #elif defined(__APPLE__)
 #include "MIUtilSystemOsx.h"
@@ -228,7 +216,7 @@ CMICmnLogMediumFile::FileFormFileNamePath(void)
     CMIUtilString strPathName;
     if (CMIUtilSystem().GetLogFilesPath(strPathName))
     {
-        const CMIUtilString strPath = CMIUtilFileStd().StripOffFileName(strPathName);
+        const CMIUtilString strPath = CMIUtilFileStd::StripOffFileName(strPathName);
 
 // ToDo: Review this LINUX log file quick fix so not hidden
 // AD:

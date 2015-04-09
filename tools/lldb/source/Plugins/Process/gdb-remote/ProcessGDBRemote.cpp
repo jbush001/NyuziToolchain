@@ -24,6 +24,7 @@
 // C++ Includes
 #include <algorithm>
 #include <map>
+#include <mutex>
 
 // Other libraries and framework includes
 
@@ -50,9 +51,8 @@
 #include "lldb/Interpreter/CommandObject.h"
 #include "lldb/Interpreter/CommandObjectMultiword.h"
 #include "lldb/Interpreter/CommandReturnObject.h"
-#ifndef LLDB_DISABLE_PYTHON
-#include "lldb/Interpreter/PythonDataObjects.h"
-#endif
+#include "lldb/Interpreter/OptionValueProperties.h"
+#include "lldb/Interpreter/Property.h"
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Target/DynamicLoader.h"
 #include "lldb/Target/Target.h"
@@ -66,6 +66,7 @@
 #include "Plugins/Process/Utility/FreeBSDSignals.h"
 #include "Plugins/Process/Utility/InferiorCallPOSIX.h"
 #include "Plugins/Process/Utility/LinuxSignals.h"
+#include "Plugins/Process/Utility/MipsLinuxSignals.h"
 #include "Plugins/Process/Utility/StopInfoMachException.h"
 #include "Plugins/Platform/MacOSX/PlatformRemoteiOS.h"
 #include "Utility/StringExtractorGDBRemote.h"
@@ -74,6 +75,10 @@
 #include "ProcessGDBRemoteLog.h"
 #include "ThreadGDBRemote.h"
 
+#define DEBUGSERVER_BASENAME    "debugserver"
+using namespace lldb;
+using namespace lldb_private;
+using namespace lldb_private::process_gdb_remote;
 
 namespace lldb
 {
@@ -86,17 +91,12 @@ namespace lldb
     void
     DumpProcessGDBRemotePacketHistory (void *p, const char *path)
     {
-        lldb_private::StreamFile strm;
-        lldb_private::Error error (strm.GetFile().Open(path, lldb_private::File::eOpenOptionWrite | lldb_private::File::eOpenOptionCanCreate));
+        StreamFile strm;
+        Error error (strm.GetFile().Open(path, File::eOpenOptionWrite | File::eOpenOptionCanCreate));
         if (error.Success())
             ((ProcessGDBRemote *)p)->GetGDBRemote().DumpHistory (strm);
     }
 }
-
-#define DEBUGSERVER_BASENAME    "debugserver"
-using namespace lldb;
-using namespace lldb_private;
-
 
 namespace {
 
@@ -200,7 +200,7 @@ get_random_port ()
 }
 #endif
 
-lldb_private::ConstString
+ConstString
 ProcessGDBRemote::GetPluginNameStatic()
 {
     static ConstString g_name("gdb-remote");
@@ -268,7 +268,7 @@ ProcessGDBRemote::CanDebug (Target &target, bool plugin_specified_by_name)
 ProcessGDBRemote::ProcessGDBRemote(Target& target, Listener &listener) :
     Process (target, listener),
     m_flags (0),
-    m_gdb_comm(false),
+    m_gdb_comm (),
     m_debugserver_pid (LLDB_INVALID_PROCESS_ID),
     m_last_stop_packet (),
     m_last_stop_packet_mutex (Mutex::eMutexTypeNormal),
@@ -335,41 +335,47 @@ ProcessGDBRemote::GetPluginVersion()
 bool
 ProcessGDBRemote::ParsePythonTargetDefinition(const FileSpec &target_definition_fspec)
 {
-#ifndef LLDB_DISABLE_PYTHON
     ScriptInterpreter *interpreter = GetTarget().GetDebugger().GetCommandInterpreter().GetScriptInterpreter();
     Error error;
-    lldb::ScriptInterpreterObjectSP module_object_sp (interpreter->LoadPluginModule(target_definition_fspec, error));
+    StructuredData::ObjectSP module_object_sp(interpreter->LoadPluginModule(target_definition_fspec, error));
     if (module_object_sp)
     {
-        lldb::ScriptInterpreterObjectSP target_definition_sp (interpreter->GetDynamicSettings(module_object_sp,
-                                                                                              &GetTarget(),
-                                                                                              "gdb-server-target-definition",
-                                                                                              error));
-        
-        PythonDictionary target_dict(target_definition_sp);
+        StructuredData::DictionarySP target_definition_sp(
+            interpreter->GetDynamicSettings(module_object_sp, &GetTarget(), "gdb-server-target-definition", error));
 
-        if (target_dict)
+        if (target_definition_sp)
         {
-            PythonDictionary host_info_dict (target_dict.GetItemForKey("host-info"));
-            if (host_info_dict)
+            StructuredData::ObjectSP target_object(target_definition_sp->GetValueForKey("host-info"));
+            if (target_object)
             {
-                ArchSpec host_arch (host_info_dict.GetItemForKeyAsString(PythonString("triple")));
-                
-                if (!host_arch.IsCompatibleMatch(GetTarget().GetArchitecture()))
+                if (auto host_info_dict = target_object->GetAsDictionary())
                 {
-                    GetTarget().SetArchitecture(host_arch);
+                    StructuredData::ObjectSP triple_value = host_info_dict->GetValueForKey("triple");
+                    if (auto triple_string_value = triple_value->GetAsString())
+                    {
+                        std::string triple_string = triple_string_value->GetValue();
+                        ArchSpec host_arch(triple_string.c_str());
+                        if (!host_arch.IsCompatibleMatch(GetTarget().GetArchitecture()))
+                        {
+                            GetTarget().SetArchitecture(host_arch);
+                        }
+                    }
                 }
-                    
             }
-            m_breakpoint_pc_offset = target_dict.GetItemForKeyAsInteger("breakpoint-pc-offset", 0);
+            m_breakpoint_pc_offset = 0;
+            StructuredData::ObjectSP breakpoint_pc_offset_value = target_definition_sp->GetValueForKey("breakpoint-pc-offset");
+            if (breakpoint_pc_offset_value)
+            {
+                if (auto breakpoint_pc_int_value = breakpoint_pc_offset_value->GetAsInteger())
+                    m_breakpoint_pc_offset = breakpoint_pc_int_value->GetValue();
+            }
 
-            if (m_register_info.SetRegisterInfo (target_dict, GetTarget().GetArchitecture().GetByteOrder()) > 0)
+            if (m_register_info.SetRegisterInfo(*target_definition_sp, GetTarget().GetArchitecture().GetByteOrder()) > 0)
             {
                 return true;
             }
         }
     }
-#endif
     return false;
 }
 
@@ -703,7 +709,7 @@ ProcessGDBRemote::DoConnectRemote (Stream *strm, const char *remote_url)
     // FIXME Add a gdb-remote packet to discover dynamically.
     if (error.Success ())
     {
-        const ArchSpec arch_spec = GetTarget ().GetArchitecture ();
+        const ArchSpec arch_spec = m_gdb_comm.GetHostArchitecture();
         if (arch_spec.IsValid ())
         {
             if (log)
@@ -712,7 +718,10 @@ ProcessGDBRemote::DoConnectRemote (Stream *strm, const char *remote_url)
             switch (arch_spec.GetTriple ().getOS ())
             {
             case llvm::Triple::Linux:
-                SetUnixSignals (UnixSignalsSP (new process_linux::LinuxSignals ()));
+                if (arch_spec.GetTriple ().getArch () == llvm::Triple::mips64 || arch_spec.GetTriple ().getArch () == llvm::Triple::mips64el)
+                    SetUnixSignals (UnixSignalsSP (new process_linux::MipsLinuxSignals ()));
+                else
+                    SetUnixSignals (UnixSignalsSP (new process_linux::LinuxSignals ()));
                 if (log)
                     log->Printf ("ProcessGDBRemote::%s using Linux unix signals type for pid %" PRIu64, __FUNCTION__, GetID ());
                 break;
@@ -784,13 +793,25 @@ ProcessGDBRemote::DoLaunch (Module *exe_module, ProcessLaunchInfo &launch_info)
     if (log)
     {
         if (stdin_path || stdout_path || stderr_path)
-            log->Printf ("ProcessGDBRemote::%s provided with STDIO paths via launch_info: stdin=%s, stdout=%s, stdout=%s",
+            log->Printf ("ProcessGDBRemote::%s provided with STDIO paths via launch_info: stdin=%s, stdout=%s, stderr=%s",
                          __FUNCTION__,
                          stdin_path ? stdin_path : "<null>",
                          stdout_path ? stdout_path : "<null>",
                          stderr_path ? stderr_path : "<null>");
         else
             log->Printf ("ProcessGDBRemote::%s no STDIO paths given via launch_info", __FUNCTION__);
+    }
+
+    const bool disable_stdio = (launch_flags & eLaunchFlagDisableSTDIO) != 0;
+    if (stdin_path || disable_stdio)
+    {
+        // the inferior will be reading stdin from the specified file
+        // or stdio is completely disabled
+        m_stdin_forward = false;
+    }
+    else
+    {
+        m_stdin_forward = true;
     }
 
     //  ::LogSetBitMask (GDBR_LOG_DEFAULT);
@@ -811,13 +832,23 @@ ProcessGDBRemote::DoLaunch (Module *exe_module, ProcessLaunchInfo &launch_info)
             lldb_utility::PseudoTerminal pty;
             const bool disable_stdio = (launch_flags & eLaunchFlagDisableSTDIO) != 0;
 
-            // If the debugserver is local and we aren't disabling STDIO, lets use
-            // a pseudo terminal to instead of relying on the 'O' packets for stdio
-            // since 'O' packets can really slow down debugging if the inferior 
-            // does a lot of output.
             PlatformSP platform_sp (m_target.GetPlatform());
-            if (platform_sp && platform_sp->IsHost() && !disable_stdio)
+            if (disable_stdio)
             {
+                // set to /dev/null unless redirected to a file above
+                if (!stdin_path)
+                    stdin_path = "/dev/null";
+                if (!stdout_path)
+                    stdout_path = "/dev/null";
+                if (!stderr_path)
+                    stderr_path = "/dev/null";
+            }
+            else if (platform_sp && platform_sp->IsHost())
+            {
+                // If the debugserver is local and we aren't disabling STDIO, lets use
+                // a pseudo terminal to instead of relying on the 'O' packets for stdio
+                // since 'O' packets can really slow down debugging if the inferior
+                // does a lot of output.
                 const char *slave_name = NULL;
                 if (stdin_path == NULL || stdout_path == NULL || stderr_path == NULL)
                 {
@@ -834,30 +865,15 @@ ProcessGDBRemote::DoLaunch (Module *exe_module, ProcessLaunchInfo &launch_info)
                     stderr_path = slave_name;
 
                 if (log)
-                    log->Printf ("ProcessGDBRemote::%s adjusted STDIO paths for local platform (IsHost() is true) using slave: stdin=%s, stdout=%s, stdout=%s",
+                    log->Printf ("ProcessGDBRemote::%s adjusted STDIO paths for local platform (IsHost() is true) using slave: stdin=%s, stdout=%s, stderr=%s",
                                  __FUNCTION__,
                                  stdin_path ? stdin_path : "<null>",
                                  stdout_path ? stdout_path : "<null>",
                                  stderr_path ? stderr_path : "<null>");
             }
 
-            // Set STDIN to /dev/null if we want STDIO disabled or if either
-            // STDOUT or STDERR have been set to something and STDIN hasn't
-            if (disable_stdio || (stdin_path == NULL && (stdout_path || stderr_path)))
-                stdin_path = "/dev/null";
-            
-            // Set STDOUT to /dev/null if we want STDIO disabled or if either
-            // STDIN or STDERR have been set to something and STDOUT hasn't
-            if (disable_stdio || (stdout_path == NULL && (stdin_path || stderr_path)))
-                stdout_path = "/dev/null";
-            
-            // Set STDERR to /dev/null if we want STDIO disabled or if either
-            // STDIN or STDOUT have been set to something and STDERR hasn't
-            if (disable_stdio || (stderr_path == NULL && (stdin_path || stdout_path)))
-                stderr_path = "/dev/null";
-
             if (log)
-                log->Printf ("ProcessGDBRemote::%s final STDIO paths after all adjustments: stdin=%s, stdout=%s, stdout=%s",
+                log->Printf ("ProcessGDBRemote::%s final STDIO paths after all adjustments: stdin=%s, stdout=%s, stderr=%s",
                              __FUNCTION__,
                              stdin_path ? stdin_path : "<null>",
                              stdout_path ? stdout_path : "<null>",
@@ -897,27 +913,29 @@ ProcessGDBRemote::DoLaunch (Module *exe_module, ProcessLaunchInfo &launch_info)
                 }
             }
 
-            const uint32_t old_packet_timeout = m_gdb_comm.SetPacketTimeout (10);
-            int arg_packet_err = m_gdb_comm.SendArgumentsPacket (launch_info);
-            if (arg_packet_err == 0)
             {
-                std::string error_str;
-                if (m_gdb_comm.GetLaunchSuccess (error_str))
+                // Scope for the scoped timeout object
+                GDBRemoteCommunication::ScopedTimeout timeout (m_gdb_comm, 10);
+
+                int arg_packet_err = m_gdb_comm.SendArgumentsPacket (launch_info);
+                if (arg_packet_err == 0)
                 {
-                    SetID (m_gdb_comm.GetCurrentProcessID ());
+                    std::string error_str;
+                    if (m_gdb_comm.GetLaunchSuccess (error_str))
+                    {
+                        SetID (m_gdb_comm.GetCurrentProcessID ());
+                    }
+                    else
+                    {
+                        error.SetErrorString (error_str.c_str());
+                    }
                 }
                 else
                 {
-                    error.SetErrorString (error_str.c_str());
+                    error.SetErrorStringWithFormat("'A' packet returned an error: %i", arg_packet_err);
                 }
             }
-            else
-            {
-                error.SetErrorStringWithFormat("'A' packet returned an error: %i", arg_packet_err);
-            }
-            
-            m_gdb_comm.SetPacketTimeout (old_packet_timeout);
-                
+
             if (GetID() == LLDB_INVALID_PROCESS_ID)
             {
                 if (log)
@@ -928,21 +946,21 @@ ProcessGDBRemote::DoLaunch (Module *exe_module, ProcessLaunchInfo &launch_info)
 
             if (m_gdb_comm.SendPacketAndWaitForResponse("?", 1, m_last_stop_packet, false) == GDBRemoteCommunication::PacketResult::Success)
             {
-                if (!m_target.GetArchitecture().IsValid()) 
+                const ArchSpec &process_arch = m_gdb_comm.GetProcessArchitecture();
+
+                if (process_arch.IsValid())
                 {
-                    if (m_gdb_comm.GetProcessArchitecture().IsValid())
-                    {
-                        m_target.SetArchitecture(m_gdb_comm.GetProcessArchitecture());
-                    }
-                    else
-                    {
-                        m_target.SetArchitecture(m_gdb_comm.GetHostArchitecture());
-                    }
+                    m_target.MergeArchitecture(process_arch);
+                }
+                else
+                {
+                    const ArchSpec &host_arch = m_gdb_comm.GetHostArchitecture();
+                    if (host_arch.IsValid())
+                        m_target.MergeArchitecture(host_arch);
                 }
 
                 SetPrivateState (SetThreadStopInfo (m_last_stop_packet));
                 
-                m_stdio_disable = disable_stdio;
                 if (!disable_stdio)
                 {
                     if (pty.GetMasterFileDescriptor() != lldb_utility::PseudoTerminal::invalid_fd)
@@ -1081,7 +1099,7 @@ ProcessGDBRemote::DidLaunchOrAttach (ArchSpec& process_arch)
 
         if (process_arch.IsValid())
         {
-            ArchSpec &target_arch = GetTarget().GetArchitecture();
+            const ArchSpec &target_arch = GetTarget().GetArchitecture();
             if (target_arch.IsValid())
             {
                 if (log)
@@ -1111,20 +1129,23 @@ ProcessGDBRemote::DidLaunchOrAttach (ArchSpec& process_arch)
                 {
                     // Fill in what is missing in the triple
                     const llvm::Triple &remote_triple = process_arch.GetTriple();
-                    llvm::Triple &target_triple = target_arch.GetTriple();
-                    if (target_triple.getVendorName().size() == 0)
+                    llvm::Triple new_target_triple = target_arch.GetTriple();
+                    if (new_target_triple.getVendorName().size() == 0)
                     {
-                        target_triple.setVendor (remote_triple.getVendor());
+                        new_target_triple.setVendor (remote_triple.getVendor());
 
-                        if (target_triple.getOSName().size() == 0)
+                        if (new_target_triple.getOSName().size() == 0)
                         {
-                            target_triple.setOS (remote_triple.getOS());
+                            new_target_triple.setOS (remote_triple.getOS());
 
-                            if (target_triple.getEnvironmentName().size() == 0)
-                                target_triple.setEnvironment (remote_triple.getEnvironment());
+                            if (new_target_triple.getEnvironmentName().size() == 0)
+                                new_target_triple.setEnvironment (remote_triple.getEnvironment());
                         }
-                    }
 
+                        ArchSpec new_target_arch = target_arch;
+                        new_target_arch.SetTriple(new_target_triple);
+                        GetTarget().SetArchitecture(new_target_arch);
+                    }
                 }
 
                 if (log)
@@ -2152,10 +2173,9 @@ ProcessGDBRemote::DoDestroy ()
     {
         if (m_public_state.GetValue() != eStateAttaching)
         {
-
             StringExtractorGDBRemote response;
             bool send_async = true;
-            const uint32_t old_packet_timeout = m_gdb_comm.SetPacketTimeout (3);
+            GDBRemoteCommunication::ScopedTimeout (m_gdb_comm, 3);
 
             if (m_gdb_comm.SendPacketAndWaitForResponse("k", 1, response, send_async) == GDBRemoteCommunication::PacketResult::Success)
             {
@@ -2199,8 +2219,6 @@ ProcessGDBRemote::DoDestroy ()
                     log->Printf ("ProcessGDBRemote::DoDestroy - failed to send k packet");
                 exit_string.assign("failed to send the k packet");
             }
-
-            m_gdb_comm.SetPacketTimeout(old_packet_timeout);
         }
         else
         {
@@ -2226,7 +2244,7 @@ ProcessGDBRemote::DoDestroy ()
 void
 ProcessGDBRemote::SetLastStopPacket (const StringExtractorGDBRemote &response)
 {
-    lldb_private::Mutex::Locker locker (m_last_stop_packet_mutex);
+    Mutex::Locker locker (m_last_stop_packet_mutex);
     const bool did_exec = response.GetStringRef().find(";reason:exec;") != std::string::npos;
     if (did_exec)
     {
@@ -2366,7 +2384,7 @@ ProcessGDBRemote::DoWriteMemory (addr_t addr, const void *buf, size_t size, Erro
 lldb::addr_t
 ProcessGDBRemote::DoAllocateMemory (size_t size, uint32_t permissions, Error &error)
 {
-    lldb_private::Log *log (lldb_private::GetLogIfAnyCategoriesSet (LIBLLDB_LOG_PROCESS|LIBLLDB_LOG_EXPRESSIONS));
+    Log *log (GetLogIfAnyCategoriesSet (LIBLLDB_LOG_PROCESS|LIBLLDB_LOG_EXPRESSIONS));
     addr_t allocated_addr = LLDB_INVALID_ADDRESS;
     
     LazyBool supported = m_gdb_comm.SupportsAllocDeallocMemory();
@@ -2478,7 +2496,7 @@ ProcessGDBRemote::PutSTDIN (const char *src, size_t src_len, Error &error)
         ConnectionStatus status;
         m_stdio_communication.Write(src, src_len, status, NULL);
     }
-    else if (!m_stdio_disable)
+    else if (m_stdin_forward)
     {
         m_gdb_comm.SendStdinNotification(src, src_len);
     }
@@ -2945,28 +2963,19 @@ ProcessGDBRemote::KillDebugserverProcess ()
 void
 ProcessGDBRemote::Initialize()
 {
-    static bool g_initialized = false;
+    static std::once_flag g_once_flag;
 
-    if (g_initialized == false)
+    std::call_once(g_once_flag, []()
     {
-        g_initialized = true;
         PluginManager::RegisterPlugin (GetPluginNameStatic(),
                                        GetPluginDescriptionStatic(),
                                        CreateInstance,
                                        DebuggerInitialize);
-
-        Log::Callbacks log_callbacks = {
-            ProcessGDBRemoteLog::DisableLog,
-            ProcessGDBRemoteLog::EnableLog,
-            ProcessGDBRemoteLog::ListLogCategories
-        };
-
-        Log::RegisterLogChannel (ProcessGDBRemote::GetPluginNameStatic(), log_callbacks);
-    }
+    });
 }
 
 void
-ProcessGDBRemote::DebuggerInitialize (lldb_private::Debugger &debugger)
+ProcessGDBRemote::DebuggerInitialize (Debugger &debugger)
 {
     if (!PluginManager::GetSettingForProcessPlugin(debugger, PluginProperties::GetSettingName()))
     {
@@ -3018,6 +3027,7 @@ ProcessGDBRemote::StopAsyncThread ()
 
         // Stop the stdio thread
         m_async_thread.Join(nullptr);
+        m_async_thread.Reset();
     }
     else if (log)
         log->Printf("ProcessGDBRemote::%s () - Called when Async thread was not running.", __FUNCTION__);
@@ -3162,7 +3172,6 @@ ProcessGDBRemote::AsyncThread (void *arg)
     if (log)
         log->Printf ("ProcessGDBRemote::%s (arg = %p, pid = %" PRIu64 ") thread exiting...", __FUNCTION__, arg, process->GetID());
 
-    process->m_async_thread.Reset();
     return NULL;
 }
 
@@ -3185,13 +3194,13 @@ ProcessGDBRemote::AsyncThread (void *arg)
 //
 bool
 ProcessGDBRemote::NewThreadNotifyBreakpointHit (void *baton,
-                             lldb_private::StoppointCallbackContext *context,
+                             StoppointCallbackContext *context,
                              lldb::user_id_t break_id,
                              lldb::user_id_t break_loc_id)
 {
     // I don't think I have to do anything here, just make sure I notice the new thread when it starts to 
     // run so I can stop it if that's what I want to do.
-    Log *log (lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_STEP));
+    Log *log (GetLogIfAllCategoriesSet (LIBLLDB_LOG_STEP));
     if (log)
         log->Printf("Hit New Thread Notification breakpoint.");
     return false;
@@ -3201,7 +3210,7 @@ ProcessGDBRemote::NewThreadNotifyBreakpointHit (void *baton,
 bool
 ProcessGDBRemote::StartNoticingNewThreads()
 {
-    Log *log (lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_STEP));
+    Log *log (GetLogIfAllCategoriesSet (LIBLLDB_LOG_STEP));
     if (m_thread_create_bp_sp)
     {
         if (log && log->GetVerbose())
@@ -3233,7 +3242,7 @@ ProcessGDBRemote::StartNoticingNewThreads()
 bool
 ProcessGDBRemote::StopNoticingNewThreads()
 {   
-    Log *log (lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_STEP));
+    Log *log (GetLogIfAllCategoriesSet (LIBLLDB_LOG_STEP));
     if (log && log->GetVerbose())
         log->Printf ("Disabling new thread notification breakpoint.");
 
@@ -3243,7 +3252,7 @@ ProcessGDBRemote::StopNoticingNewThreads()
     return true;
 }
     
-lldb_private::DynamicLoader *
+DynamicLoader *
 ProcessGDBRemote::GetDynamicLoader ()
 {
     if (m_dyld_ap.get() == NULL)
@@ -3392,6 +3401,34 @@ ProcessGDBRemote::SetUserSpecifiedMaxMemoryTransferSize (uint64_t user_specified
     }
 }
 
+bool
+ProcessGDBRemote::GetModuleSpec(const FileSpec& module_file_spec,
+                                const ArchSpec& arch,
+                                ModuleSpec &module_spec)
+{
+    Log *log = GetLogIfAnyCategoriesSet (LIBLLDB_LOG_PLATFORM);
+
+    if (!m_gdb_comm.GetModuleInfo (module_file_spec, arch, module_spec))
+    {
+        if (log)
+            log->Printf ("ProcessGDBRemote::%s - failed to get module info for %s:%s",
+                         __FUNCTION__, module_file_spec.GetPath ().c_str (),
+                         arch.GetTriple ().getTriple ().c_str ());
+        return false;
+    }
+
+    if (log)
+    {
+        StreamString stream;
+        module_spec.Dump (stream);
+        log->Printf ("ProcessGDBRemote::%s - got module info for (%s:%s) : %s",
+                     __FUNCTION__, module_file_spec.GetPath ().c_str (),
+                     arch.GetTriple ().getTriple ().c_str (), stream.GetString ().c_str ());
+    }
+
+    return true;
+}
+
 class CommandObjectProcessGDBRemotePacketHistory : public CommandObjectParsed
 {
 private:
@@ -3410,7 +3447,7 @@ public:
     }
     
     bool
-    DoExecute (Args& command, CommandReturnObject &result)
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         const size_t argc = command.GetArgumentCount();
         if (argc == 0)
@@ -3450,7 +3487,7 @@ public:
     }
     
     bool
-    DoExecute (Args& command, CommandReturnObject &result)
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         const size_t argc = command.GetArgumentCount();
         if (argc == 0)
@@ -3498,7 +3535,7 @@ public:
     }
     
     bool
-    DoExecute (Args& command, CommandReturnObject &result)
+    DoExecute (Args& command, CommandReturnObject &result) override
     {
         const size_t argc = command.GetArgumentCount();
         if (argc == 0)
@@ -3556,7 +3593,7 @@ public:
     }
     
     bool
-    DoExecute (const char *command, CommandReturnObject &result)
+    DoExecute (const char *command, CommandReturnObject &result) override
     {
         if (command == NULL || command[0] == '\0')
         {

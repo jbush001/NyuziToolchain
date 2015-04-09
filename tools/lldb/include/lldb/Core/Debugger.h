@@ -14,22 +14,16 @@
 
 #include <stdint.h>
 
-#include <stack>
-
 #include "lldb/lldb-public.h"
 #include "lldb/Core/Broadcaster.h"
-#include "lldb/Core/Communication.h"
 #include "lldb/Core/FormatEntity.h"
 #include "lldb/Core/IOHandler.h"
 #include "lldb/Core/Listener.h"
 #include "lldb/Core/SourceManager.h"
 #include "lldb/Core/UserID.h"
 #include "lldb/Core/UserSettingsController.h"
-#include "lldb/DataFormatters/FormatManager.h"
 #include "lldb/Host/HostThread.h"
 #include "lldb/Host/Terminal.h"
-#include "lldb/Interpreter/OptionValueProperties.h"
-#include "lldb/Target/ExecutionContext.h"
 #include "lldb/Target/Platform.h"
 #include "lldb/Target/TargetList.h"
 
@@ -61,10 +55,6 @@ friend class SourceManager;  // For GetSourceFileCache.
 
 public:
 
-    typedef llvm::sys::DynamicLibrary (*LoadPluginCallbackType) (const lldb::DebuggerSP &debugger_sp,
-                                                                 const FileSpec& spec,
-                                                                 Error& error);
-
     static lldb::DebuggerSP
     CreateInstance (lldb::LogOutputCallback log_callback = NULL, void *baton = NULL);
 
@@ -75,10 +65,10 @@ public:
     FindTargetWithProcess (Process *process);
 
     static void
-    Initialize (LoadPluginCallbackType load_plugin_callback);
+    Initialize(LoadPluginCallbackType load_plugin_callback);
     
-    static void 
-    Terminate ();
+    static void
+    Terminate();
     
     static void
     SettingsInitialize ();
@@ -258,9 +248,6 @@ public:
     void
     ClearIOHandlers ();
 
-    static int
-    TestDebuggerRefCount ();
-
     bool
     GetCloseInputOnEOF () const;
     
@@ -360,7 +347,7 @@ public:
     LoadPlugin (const FileSpec& spec, Error& error);
 
     void
-    ExecuteIOHanders();
+    ExecuteIOHandlers();
     
     bool
     IsForwardingEvents ();

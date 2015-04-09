@@ -49,6 +49,13 @@ class FPR<bits<5> num, string n> : PPCReg<n> {
   let HWEncoding{4-0} = num;
 }
 
+// QFPR - One of the 32 256-bit floating-point vector registers (used for QPX)
+class QFPR<FPR SubReg, string n> : PPCReg<n> {
+  let HWEncoding = SubReg.HWEncoding;
+  let SubRegs = [SubReg];
+  let SubRegIndices = [sub_64];
+}
+
 // VF - One of the 32 64-bit floating-point subregisters of the vector
 // registers (used by VSX).
 class VF<bits<5> num, string n> : PPCReg<n> {
@@ -112,6 +119,12 @@ foreach Index = 0-31 in {
 // Floating-point vector subregisters (for VSX)
 foreach Index = 0-31 in {
   def VF#Index : VF<Index, "vs" # !add(Index, 32)>;
+}
+
+// QPX Floating-point registers
+foreach Index = 0-31 in {
+  def QF#Index : QFPR<!cast<FPR>("F"#Index), "q"#Index>,
+                 DwarfRegNum<[!add(Index, 32), !add(Index, 32)]>;
 }
 
 // Vector registers
@@ -224,7 +237,7 @@ def GPRC : RegisterClass<"PPC", [i32], 32, (add (sequence "R%u", 2, 12),
   // put it at the end of the list.
   let AltOrders = [(add (sub GPRC, R2), R2)];
   let AltOrderSelect = [{
-    const PPCSubtarget &S = MF.getTarget().getSubtarget<PPCSubtarget>();
+    const PPCSubtarget &S = MF.getSubtarget<PPCSubtarget>();
     return S.isPPC64() && S.isSVR4ABI();
   }];
 }
@@ -236,7 +249,7 @@ def G8RC : RegisterClass<"PPC", [i64], 64, (add (sequence "X%u", 2, 12),
   // put it at the end of the list.
   let AltOrders = [(add (sub G8RC, X2), X2)];
   let AltOrderSelect = [{
-    const PPCSubtarget &S = MF.getTarget().getSubtarget<PPCSubtarget>();
+    const PPCSubtarget &S = MF.getSubtarget<PPCSubtarget>();
     return S.isPPC64() && S.isSVR4ABI();
   }];
 }
@@ -249,7 +262,7 @@ def GPRC_NOR0 : RegisterClass<"PPC", [i32], 32, (add (sub GPRC, R0), ZERO)> {
   // put it at the end of the list.
   let AltOrders = [(add (sub GPRC_NOR0, R2), R2)];
   let AltOrderSelect = [{
-    const PPCSubtarget &S = MF.getTarget().getSubtarget<PPCSubtarget>();
+    const PPCSubtarget &S = MF.getSubtarget<PPCSubtarget>();
     return S.isPPC64() && S.isSVR4ABI();
   }];
 }
@@ -259,7 +272,7 @@ def G8RC_NOX0 : RegisterClass<"PPC", [i64], 64, (add (sub G8RC, X0), ZERO8)> {
   // put it at the end of the list.
   let AltOrders = [(add (sub G8RC_NOX0, X2), X2)];
   let AltOrderSelect = [{
-    const PPCSubtarget &S = MF.getTarget().getSubtarget<PPCSubtarget>();
+    const PPCSubtarget &S = MF.getSubtarget<PPCSubtarget>();
     return S.isPPC64() && S.isSVR4ABI();
   }];
 }
@@ -303,6 +316,16 @@ def VFRC :  RegisterClass<"PPC", [f64], 64,
                                VF22, VF21, VF20)>;
 def VSFRC : RegisterClass<"PPC", [f64], 64, (add F8RC, VFRC)>;
 
+// For QPX
+def QFRC : RegisterClass<"PPC", [v4f64], 256, (add (sequence "QF%u", 0, 13),
+                                                (sequence "QF%u", 31, 14))>;
+def QSRC : RegisterClass<"PPC", [v4f32], 128, (add QFRC)>;
+def QBRC : RegisterClass<"PPC", [v4i1], 256, (add QFRC)> {
+  // These are actually stored as floating-point values where a positive
+  // number is true and anything else (including NaN) is false.
+  let Size = 256;
+}
+
 def CRBITRC : RegisterClass<"PPC", [i1], 32,
   (add CR2LT, CR2GT, CR2EQ, CR2UN,
        CR3LT, CR3GT, CR3EQ, CR3UN,
@@ -317,6 +340,8 @@ def CRBITRC : RegisterClass<"PPC", [i1], 32,
 
 def CRRC : RegisterClass<"PPC", [i32], 32, (add CR0, CR1, CR5, CR6,
                                                 CR7, CR2, CR3, CR4)>;
+
+def CRRC0 : RegisterClass<"PPC", [i32], 32, (add CR0)>;
 
 // The CTR registers are not allocatable because they're used by the
 // decrement-and-branch instructions, and thus need to stay live across

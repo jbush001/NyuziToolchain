@@ -26,6 +26,7 @@
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/DiagnosticPrinter.h"
 #include "llvm/IR/LLVMContext.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Mangler.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
@@ -35,7 +36,6 @@
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/SubtargetFeature.h"
-#include "llvm/PassManager.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/FormattedStream.h"
@@ -71,7 +71,7 @@ LTOCodeGenerator::LTOCodeGenerator()
 
 LTOCodeGenerator::LTOCodeGenerator(std::unique_ptr<LLVMContext> Context)
     : OwnedContext(std::move(Context)), Context(*OwnedContext),
-      IRLinker(new Module("ld-temp.o", *OwnedContext)) {
+      IRLinker(new Module("ld-temp.o", *OwnedContext)), OptLevel(2) {
   initialize();
 }
 
@@ -82,15 +82,26 @@ void LTOCodeGenerator::initialize() {
   CodeModel = LTO_CODEGEN_PIC_MODEL_DEFAULT;
   DiagHandler = nullptr;
   DiagContext = nullptr;
+  OwnedModule = nullptr;
 
   initializeLTOPasses();
 }
 
+void LTOCodeGenerator::destroyMergedModule() {
+  if (OwnedModule) {
+    assert(IRLinker.getModule() == &OwnedModule->getModule() &&
+           "The linker's module should be the same as the owned module");
+    delete OwnedModule;
+    OwnedModule = nullptr;
+  } else if (IRLinker.getModule())
+    IRLinker.deleteModule();
+}
+
 LTOCodeGenerator::~LTOCodeGenerator() {
+  destroyMergedModule();
+
   delete TargetMach;
   TargetMach = nullptr;
-
-  IRLinker.deleteModule();
 
   for (std::vector<char *>::iterator I = CodegenOptions.begin(),
                                      E = CodegenOptions.end();
@@ -139,6 +150,22 @@ bool LTOCodeGenerator::addModule(LTOModule *mod) {
     AsmUndefinedRefs[undefs[i]] = 1;
 
   return !ret;
+}
+
+void LTOCodeGenerator::setModule(LTOModule *Mod) {
+  assert(&Mod->getModule().getContext() == &Context &&
+         "Expected module in same context");
+
+  // Delete the old merged module.
+  destroyMergedModule();
+  AsmUndefinedRefs.clear();
+
+  OwnedModule = Mod;
+  IRLinker.setModule(&Mod->getModule());
+
+  const std::vector<const char*> &Undefs = Mod->getAsmUndefinedRefs();
+  for (int I = 0, E = Undefs.size(); I != E; ++I)
+    AsmUndefinedRefs[Undefs[I]] = 1;
 }
 
 void LTOCodeGenerator::setTargetOptions(TargetOptions options) {
@@ -264,12 +291,11 @@ const void *LTOCodeGenerator::compileOptimized(size_t *length,
 
 
 bool LTOCodeGenerator::compile_to_file(const char **name,
-                                       bool disableOpt,
                                        bool disableInline,
                                        bool disableGVNLoadPRE,
                                        bool disableVectorization,
                                        std::string &errMsg) {
-  if (!optimize(disableOpt, disableInline, disableGVNLoadPRE,
+  if (!optimize(disableInline, disableGVNLoadPRE,
                 disableVectorization, errMsg))
     return false;
 
@@ -277,12 +303,11 @@ bool LTOCodeGenerator::compile_to_file(const char **name,
 }
 
 const void* LTOCodeGenerator::compile(size_t *length,
-                                      bool disableOpt,
                                       bool disableInline,
                                       bool disableGVNLoadPRE,
                                       bool disableVectorization,
                                       std::string &errMsg) {
-  if (!optimize(disableOpt, disableInline, disableGVNLoadPRE,
+  if (!optimize(disableInline, disableGVNLoadPRE,
                 disableVectorization, errMsg))
     return nullptr;
 
@@ -336,9 +361,25 @@ bool LTOCodeGenerator::determineTarget(std::string &errMsg) {
       MCpu = "cyclone";
   }
 
+  CodeGenOpt::Level CGOptLevel;
+  switch (OptLevel) {
+  case 0:
+    CGOptLevel = CodeGenOpt::None;
+    break;
+  case 1:
+    CGOptLevel = CodeGenOpt::Less;
+    break;
+  case 2:
+    CGOptLevel = CodeGenOpt::Default;
+    break;
+  case 3:
+    CGOptLevel = CodeGenOpt::Aggressive;
+    break;
+  }
+
   TargetMach = march->createTargetMachine(TripleStr, MCpu, FeatureStr, Options,
                                           RelocModel, CodeModel::Default,
-                                          CodeGenOpt::Aggressive);
+                                          CGOptLevel);
   return true;
 }
 
@@ -428,9 +469,8 @@ void LTOCodeGenerator::applyScopeRestrictions() {
   Module *mergedModule = IRLinker.getModule();
 
   // Start off with a verification pass.
-  PassManager passes;
+  legacy::PassManager passes;
   passes.add(createVerifierPass());
-  passes.add(createDebugInfoVerifierPass());
 
   // mark which symbols can not be internalized
   Mangler Mangler(TargetMach->getDataLayout());
@@ -485,8 +525,7 @@ void LTOCodeGenerator::applyScopeRestrictions() {
 }
 
 /// Optimize merged modules using various IPO passes
-bool LTOCodeGenerator::optimize(bool DisableOpt,
-                                bool DisableInline,
+bool LTOCodeGenerator::optimize(bool DisableInline,
                                 bool DisableGVNLoadPRE,
                                 bool DisableVectorization,
                                 std::string &errMsg) {
@@ -499,12 +538,11 @@ bool LTOCodeGenerator::optimize(bool DisableOpt,
   this->applyScopeRestrictions();
 
   // Instantiate the pass manager to organize the passes.
-  PassManager passes;
+  legacy::PassManager passes;
 
   // Add an appropriate DataLayout instance for this module...
-  mergedModule->setDataLayout(TargetMach->getDataLayout());
+  mergedModule->setDataLayout(*TargetMach->getDataLayout());
 
-  passes.add(new DataLayoutPass());
   passes.add(
       createTargetTransformInfoWrapperPass(TargetMach->getTargetIRAnalysis()));
 
@@ -516,8 +554,7 @@ bool LTOCodeGenerator::optimize(bool DisableOpt,
   if (!DisableInline)
     PMB.Inliner = createFunctionInliningPass();
   PMB.LibraryInfo = new TargetLibraryInfoImpl(TargetTriple);
-  if (DisableOpt)
-    PMB.OptLevel = 0;
+  PMB.OptLevel = OptLevel;
   PMB.VerifyInput = true;
   PMB.VerifyOutput = true;
 
@@ -535,12 +572,7 @@ bool LTOCodeGenerator::compileOptimized(raw_ostream &out, std::string &errMsg) {
 
   Module *mergedModule = IRLinker.getModule();
 
-  // Mark which symbols can not be internalized
-  this->applyScopeRestrictions();
-
-  PassManager codeGenPasses;
-
-  codeGenPasses.add(new DataLayoutPass());
+  legacy::PassManager codeGenPasses;
 
   formatted_raw_ostream Out(out);
 

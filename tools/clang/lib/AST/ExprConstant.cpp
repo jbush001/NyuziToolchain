@@ -1406,7 +1406,7 @@ static bool CheckConstantExpression(EvalInfo &Info, SourceLocation DiagLoc,
   return true;
 }
 
-const ValueDecl *GetLValueBaseDecl(const LValue &LVal) {
+static const ValueDecl *GetLValueBaseDecl(const LValue &LVal) {
   return LVal.Base.dyn_cast<const ValueDecl*>();
 }
 
@@ -2173,7 +2173,7 @@ struct CompleteObject {
     assert(Value && "missing value for complete object");
   }
 
-  LLVM_EXPLICIT operator bool() const { return Value; }
+  explicit operator bool() const { return Value; }
 };
 
 /// Find the designated sub-object of an rvalue.
@@ -2502,8 +2502,9 @@ static bool AreElementsOfSameArray(QualType ObjType,
 }
 
 /// Find the complete object to which an LValue refers.
-CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E, AccessKinds AK,
-                                  const LValue &LVal, QualType LValType) {
+static CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E,
+                                         AccessKinds AK, const LValue &LVal,
+                                         QualType LValType) {
   if (!LVal.Base) {
     Info.Diag(E, diag::note_constexpr_access_null) << AK;
     return CompleteObject();
@@ -7590,10 +7591,23 @@ static bool TryEvaluateBuiltinNaN(const ASTContext &Context,
   else if (S->getString().getAsInteger(0, fill))
     return false;
 
-  if (SNaN)
-    Result = llvm::APFloat::getSNaN(Sem, false, &fill);
-  else
-    Result = llvm::APFloat::getQNaN(Sem, false, &fill);
+  if (Context.getTargetInfo().isNan2008()) {
+    if (SNaN)
+      Result = llvm::APFloat::getSNaN(Sem, false, &fill);
+    else
+      Result = llvm::APFloat::getQNaN(Sem, false, &fill);
+  } else {
+    // Prior to IEEE 754-2008, architectures were allowed to choose whether
+    // the first bit of their significand was set for qNaN or sNaN. MIPS chose
+    // a different encoding to what became a standard in 2008, and for pre-
+    // 2008 revisions, MIPS interpreted sNaN-2008 as qNan and qNaN-2008 as
+    // sNaN. This is now known as "legacy NaN" encoding.
+    if (SNaN)
+      Result = llvm::APFloat::getQNaN(Sem, false, &fill);
+    else
+      Result = llvm::APFloat::getSNaN(Sem, false, &fill);
+  }
+
   return true;
 }
 

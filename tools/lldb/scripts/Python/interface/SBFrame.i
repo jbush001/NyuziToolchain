@@ -199,6 +199,9 @@ public:
                   lldb::DynamicValueType  use_dynamic);
 
     lldb::SBValueList
+    GetVariables (const lldb::SBVariablesOptions& options);
+             
+    lldb::SBValueList
     GetRegisters ();
 
     %feature("docstring", "

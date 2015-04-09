@@ -1,10 +1,16 @@
 set(LLVM_NO_RTTI 1)
 
-# On Windows, the file list for liblldb is maintained in source\CMakeLists.txt.
-# When adding a file to this list, do not forget to add it to the other list as
-# well (where appropriate).
-add_lldb_library(lldbAPI
+if ( CMAKE_SYSTEM_NAME MATCHES "Windows" )
+  add_definitions( -DEXPORT_LIBLLDB )
+endif()
+
+# Include this so that add_lldb_library() has the list of dependencies
+# for liblldb to link against
+include(${LLDB_PROJECT_ROOT}/cmake/LLDBDependencies.cmake)
+
+add_lldb_library(liblldb SHARED
   SBAddress.cpp
+  SBAttachInfo.cpp
   SBBlock.cpp
   SBBreakpoint.cpp
   SBBreakpointLocation.cpp
@@ -57,6 +63,34 @@ add_lldb_library(lldbAPI
   SBTypeSynthetic.cpp
   SBValue.cpp
   SBValueList.cpp
+  SBVariablesOptions.cpp
   SBWatchpoint.cpp
   SBUnixSignals.cpp
+  SystemInitializerFull.cpp
+  ${LLDB_WRAP_PYTHON}
+  ${LLDB_VERS_GENERATED_FILE}
   )
+
+set_target_properties(liblldb
+  PROPERTIES
+  VERSION ${LLDB_VERSION}
+  )
+
+if ( CMAKE_SYSTEM_NAME MATCHES "Windows" )
+  # Only MSVC has the ABI compatibility problem and avoids using FindPythonLibs,
+  # so only it needs to explicitly link against ${PYTHON_LIBRARY}
+  if (MSVC AND NOT LLDB_DISABLE_PYTHON)
+    target_link_libraries(liblldb PRIVATE ${PYTHON_LIBRARY})
+  endif()
+else()
+  set_target_properties(liblldb
+    PROPERTIES
+    OUTPUT_NAME lldb
+    )
+endif()
+
+if (LLDB_WRAP_PYTHON OR LLDB_VERS_GENERATED_FILE)
+  add_dependencies(liblldb swig_wrapper)
+endif()
+target_link_libraries(liblldb ${cmake_2_8_12_PRIVATE} ${LLDB_SYSTEM_LIBS})
+

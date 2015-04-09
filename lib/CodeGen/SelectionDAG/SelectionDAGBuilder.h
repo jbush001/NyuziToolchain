@@ -20,6 +20,7 @@
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
 #include "llvm/IR/CallSite.h"
+#include "llvm/IR/Statepoint.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Target/TargetLowering.h"
@@ -136,19 +137,19 @@ private:
   /// Case - A struct to record the Value for a switch case, and the
   /// case's target basic block.
   struct Case {
-    const Constant *Low;
-    const Constant *High;
+    const ConstantInt *Low;
+    const ConstantInt *High;
     MachineBasicBlock* BB;
     uint32_t ExtraWeight;
 
     Case() : Low(nullptr), High(nullptr), BB(nullptr), ExtraWeight(0) { }
-    Case(const Constant *low, const Constant *high, MachineBasicBlock *bb,
+    Case(const ConstantInt *low, const ConstantInt *high, MachineBasicBlock *bb,
          uint32_t extraweight) : Low(low), High(high), BB(bb),
          ExtraWeight(extraweight) { }
 
     APInt size() const {
-      const APInt &rHigh = cast<ConstantInt>(High)->getValue();
-      const APInt &rLow  = cast<ConstantInt>(Low)->getValue();
+      const APInt &rHigh = High->getValue();
+      const APInt &rLow  = Low->getValue();
       return (rHigh - rLow + 1ULL);
     }
   };
@@ -172,7 +173,7 @@ private:
   /// CaseRec - A struct with ctor used in lowering switches to a binary tree
   /// of conditional branches.
   struct CaseRec {
-    CaseRec(MachineBasicBlock *bb, const Constant *lt, const Constant *ge,
+    CaseRec(MachineBasicBlock *bb, const ConstantInt *lt, const ConstantInt *ge,
             CaseRange r) :
     CaseBB(bb), LT(lt), GE(ge), Range(r) {}
 
@@ -180,8 +181,8 @@ private:
     MachineBasicBlock *CaseBB;
     /// LT, GE - If nonzero, we know the current case value must be less-than or
     /// greater-than-or-equal-to these Constants.
-    const Constant *LT;
-    const Constant *GE;
+    const ConstantInt *LT;
+    const ConstantInt *GE;
     /// Range - A pair of iterators representing the range of case values to be
     /// processed at this point in the binary search tree.
     CaseRange Range;
@@ -189,24 +190,15 @@ private:
 
   typedef std::vector<CaseRec> CaseRecVector;
 
-  /// The comparison function for sorting the switch case values in the vector.
-  /// WARNING: Case ranges should be disjoint!
-  struct CaseCmp {
-    bool operator()(const Case &C1, const Case &C2) {
-      assert(isa<ConstantInt>(C1.Low) && isa<ConstantInt>(C2.High));
-      const ConstantInt* CI1 = cast<const ConstantInt>(C1.Low);
-      const ConstantInt* CI2 = cast<const ConstantInt>(C2.High);
-      return CI1->getValue().slt(CI2->getValue());
-    }
-  };
-
   struct CaseBitsCmp {
     bool operator()(const CaseBits &C1, const CaseBits &C2) {
       return C1.Bits > C2.Bits;
     }
   };
 
-  void Clusterify(CaseVector &Cases, const SwitchInst &SI);
+  /// Populate Cases with the cases in SI, clustering adjacent cases with the
+  /// same destination together.
+  void Clusterify(CaseVector &Cases, const SwitchInst *SI);
 
   /// CaseBlock - This structure is used to communicate between
   /// SelectionDAGBuilder and SDISel for the code generation of additional basic
@@ -605,6 +597,10 @@ public:
 
   void visit(unsigned Opcode, const User &I);
 
+  /// getCopyFromRegs - If there was virtual register allocated for the value V
+  /// emit CopyFromReg of the specified type Ty. Return empty SDValue() otherwise.
+  SDValue getCopyFromRegs(const Value *V, Type *Ty);
+
   // resolveDanglingDebugInfo - if we saw an earlier dbg_value referring to V,
   // generate the debug data structures now that we've seen its definition.
   void resolveDanglingDebugInfo(const Value *V, SDValue Val);
@@ -621,8 +617,7 @@ public:
   void removeValue(const Value *V) {
     // This is to support hack in lowerCallFromStatepoint
     // Should be removed when hack is resolved
-    if (NodeMap.count(V))
-      NodeMap.erase(V);
+    NodeMap.erase(V);
   }
 
   void setUnusedArgValue(const Value *V, SDValue NewN) {
@@ -660,6 +655,10 @@ public:
   /// references that need to refer to the last resulting block.
   void UpdateSplitBlock(MachineBasicBlock *First, MachineBasicBlock *Last);
 
+  // This function is responsible for the whole statepoint lowering process.
+  // It uniformly handles invoke and call statepoints.
+  void LowerStatepoint(ImmutableStatepoint Statepoint,
+                       MachineBasicBlock *LandingPad = nullptr);
 private:
   std::pair<SDValue, SDValue> lowerInvokable(
           TargetLowering::CallLoweringInfo &CLI,
@@ -824,9 +823,13 @@ private:
   /// EmitFuncArgumentDbgValue - If V is an function argument then create
   /// corresponding DBG_VALUE machine instruction for it now. At the end of
   /// instruction selection, they will be inserted to the entry BB.
-  bool EmitFuncArgumentDbgValue(const Value *V, MDNode *Variable, MDNode *Expr,
+  bool EmitFuncArgumentDbgValue(const Value *V, MDLocalVariable *Variable,
+                                MDExpression *Expr, MDLocation *DL,
                                 int64_t Offset, bool IsIndirect,
                                 const SDValue &N);
+
+  /// Return the next block after MBB, or nullptr if there is none.
+  MachineBasicBlock *NextBlock(MachineBasicBlock *MBB);
 };
 
 } // end namespace llvm

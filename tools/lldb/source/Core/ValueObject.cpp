@@ -973,7 +973,7 @@ ValueObject::GetPointeeData (DataExtractor& data,
     
     ExecutionContext exe_ctx (GetExecutionContextRef());
     
-    const uint64_t item_type_size = pointee_or_element_clang_type.GetByteSize(&exe_ctx);
+    const uint64_t item_type_size = pointee_or_element_clang_type.GetByteSize(exe_ctx.GetBestExecutionContextScope());
     const uint64_t bytes = item_count * item_type_size;
     const uint64_t offset = item_idx * item_type_size;
     
@@ -1049,7 +1049,7 @@ ValueObject::GetPointeeData (DataExtractor& data,
                 break;
             case eAddressTypeHost:
                 {
-                    const uint64_t max_bytes = GetClangType().GetByteSize(&exe_ctx);
+                    const uint64_t max_bytes = GetClangType().GetByteSize(exe_ctx.GetBestExecutionContextScope());
                     if (max_bytes > offset)
                     {
                         size_t bytes_read = std::min<uint64_t>(max_bytes - offset, bytes);
@@ -2064,6 +2064,21 @@ ValueObject::IsPossibleDynamicType ()
 }
 
 bool
+ValueObject::IsRuntimeSupportValue ()
+{
+    Process *process(GetProcessSP().get());
+    if (process)
+    {
+        LanguageRuntime *runtime = process->GetLanguageRuntime(GetObjectRuntimeLanguage());
+        if (!runtime)
+            runtime = process->GetObjCLanguageRuntime();
+        if (runtime)
+            return runtime->IsRuntimeSupportValue(*this);
+    }
+    return false;
+}
+
+bool
 ValueObject::IsObjCNil ()
 {
     const uint32_t mask = eTypeIsObjC | eTypeIsPointer;
@@ -2073,52 +2088,6 @@ ValueObject::IsObjCNil ()
     bool canReadValue = true;
     bool isZero = GetValueAsUnsigned(0,&canReadValue) == 0;
     return canReadValue && isZero;
-}
-
-ValueObjectSP
-ValueObject::GetSyntheticArrayMember (size_t index, bool can_create)
-{
-    const uint32_t type_info = GetTypeInfo ();
-    if (type_info & eTypeIsArray)
-        return GetSyntheticArrayMemberFromArray(index, can_create);
-
-    if (type_info & eTypeIsPointer)
-        return GetSyntheticArrayMemberFromPointer(index, can_create);
-    
-    return ValueObjectSP();
-    
-}
-
-ValueObjectSP
-ValueObject::GetSyntheticArrayMemberFromPointer (size_t index, bool can_create)
-{
-    ValueObjectSP synthetic_child_sp;
-    if (IsPointerType ())
-    {
-        char index_str[64];
-        snprintf(index_str, sizeof(index_str), "[%" PRIu64 "]", (uint64_t)index);
-        ConstString index_const_str(index_str);
-        // Check if we have already created a synthetic array member in this
-        // valid object. If we have we will re-use it.
-        synthetic_child_sp = GetSyntheticChild (index_const_str);
-        if (!synthetic_child_sp)
-        {
-            ValueObject *synthetic_child;
-            // We haven't made a synthetic array member for INDEX yet, so
-            // lets make one and cache it for any future reference.
-            synthetic_child = CreateChildAtIndex(0, true, index);
-
-            // Cache the value if we got one back...
-            if (synthetic_child)
-            {
-                AddSyntheticChild(index_const_str, synthetic_child);
-                synthetic_child_sp = synthetic_child->GetSP();
-                synthetic_child_sp->SetName(ConstString(index_str));
-                synthetic_child_sp->m_is_array_item_for_pointer = true;
-            }
-        }
-    }
-    return synthetic_child_sp;
 }
 
 // This allows you to create an array member using and index
@@ -2133,10 +2102,10 @@ ValueObject::GetSyntheticArrayMemberFromPointer (size_t index, bool can_create)
 // there are more items in "item_array".
 
 ValueObjectSP
-ValueObject::GetSyntheticArrayMemberFromArray (size_t index, bool can_create)
+ValueObject::GetSyntheticArrayMember (size_t index, bool can_create)
 {
     ValueObjectSP synthetic_child_sp;
-    if (IsArrayType ())
+    if (IsPointerType () || IsArrayType())
     {
         char index_str[64];
         snprintf(index_str, sizeof(index_str), "[%" PRIu64 "]", (uint64_t)index);
@@ -2150,7 +2119,7 @@ ValueObject::GetSyntheticArrayMemberFromArray (size_t index, bool can_create)
             // We haven't made a synthetic array member for INDEX yet, so
             // lets make one and cache it for any future reference.
             synthetic_child = CreateChildAtIndex(0, true, index);
-            
+
             // Cache the value if we got one back...
             if (synthetic_child)
             {
@@ -2229,7 +2198,7 @@ ValueObject::GetSyntheticChildAtOffset(uint32_t offset, const ClangASTType& type
     ValueObjectChild *synthetic_child = new ValueObjectChild(*this,
                                                              type,
                                                              name_const_str,
-                                                             type.GetByteSize(&exe_ctx),
+                                                             type.GetByteSize(exe_ctx.GetBestExecutionContextScope()),
                                                              offset,
                                                              0,
                                                              0,
@@ -2272,7 +2241,7 @@ ValueObject::GetSyntheticBase (uint32_t offset, const ClangASTType& type, bool c
     ValueObjectChild *synthetic_child = new ValueObjectChild(*this,
                                                              type,
                                                              name_const_str,
-                                                             type.GetByteSize(&exe_ctx),
+                                                             type.GetByteSize(exe_ctx.GetBestExecutionContextScope()),
                                                              offset,
                                                              0,
                                                              0,
@@ -2320,7 +2289,7 @@ ValueObject::GetSyntheticExpressionPathChild(const char* expression, bool can_cr
         // lets make one and cache it for any future reference.
         synthetic_child_sp = GetValueForExpressionPath(expression,
                                                        NULL, NULL, NULL,
-                                                       GetValueForExpressionPathOptions().DontAllowSyntheticChildren());
+                                                       GetValueForExpressionPathOptions().SetSyntheticChildrenTraversal(GetValueForExpressionPathOptions::SyntheticChildrenTraversal::None));
         
         // Cache the value if we got one back...
         if (synthetic_child_sp.get())
@@ -2851,19 +2820,43 @@ ValueObject::GetValueForExpressionPath_Impl(const char* expression_cstr,
                         *final_result = ValueObject::eExpressionPathEndResultTypePlain;
                         return child_valobj_sp;
                     }
-                    else if (options.m_no_synthetic_children == false) // let's try with synthetic children
+                    else
                     {
-                        if (root->IsSynthetic())
+                        switch (options.m_synthetic_children_traversal)
                         {
-                            *first_unparsed = expression_cstr;
-                            *reason_to_stop = ValueObject::eExpressionPathScanEndReasonNoSuchSyntheticChild;
-                            *final_result = ValueObject::eExpressionPathEndResultTypeInvalid;
-                            return ValueObjectSP();
+                            case GetValueForExpressionPathOptions::SyntheticChildrenTraversal::None:
+                                break;
+                            case GetValueForExpressionPathOptions::SyntheticChildrenTraversal::FromSynthetic:
+                                if (root->IsSynthetic())
+                                {
+                                    child_valobj_sp = root->GetNonSyntheticValue();
+                                    if (child_valobj_sp.get())
+                                        child_valobj_sp = child_valobj_sp->GetChildMemberWithName(child_name, true);
+                                }
+                                break;
+                            case GetValueForExpressionPathOptions::SyntheticChildrenTraversal::ToSynthetic:
+                                if (!root->IsSynthetic())
+                                {
+                                    child_valobj_sp = root->GetSyntheticValue();
+                                    if (child_valobj_sp.get())
+                                        child_valobj_sp = child_valobj_sp->GetChildMemberWithName(child_name, true);
+                                }
+                                break;
+                            case GetValueForExpressionPathOptions::SyntheticChildrenTraversal::Both:
+                                if (root->IsSynthetic())
+                                {
+                                    child_valobj_sp = root->GetNonSyntheticValue();
+                                    if (child_valobj_sp.get())
+                                        child_valobj_sp = child_valobj_sp->GetChildMemberWithName(child_name, true);
+                                }
+                                else
+                                {
+                                    child_valobj_sp = root->GetSyntheticValue();
+                                    if (child_valobj_sp.get())
+                                        child_valobj_sp = child_valobj_sp->GetChildMemberWithName(child_name, true);
+                                }
+                                break;
                         }
-
-                        child_valobj_sp = root->GetSyntheticValue();
-                        if (child_valobj_sp.get())
-                            child_valobj_sp = child_valobj_sp->GetChildMemberWithName(child_name, true);
                     }
                     
                     // if we are here and options.m_no_synthetic_children is true, child_valobj_sp is going to be a NULL SP,
@@ -2894,19 +2887,43 @@ ValueObject::GetValueForExpressionPath_Impl(const char* expression_cstr,
                         *final_result = ValueObject::eExpressionPathEndResultTypePlain;
                         continue;
                     }
-                    else if (options.m_no_synthetic_children == false) // let's try with synthetic children
+                    else
                     {
-                        if (root->IsSynthetic())
+                        switch (options.m_synthetic_children_traversal)
                         {
-                            *first_unparsed = expression_cstr;
-                            *reason_to_stop = ValueObject::eExpressionPathScanEndReasonNoSuchChild;
-                            *final_result = ValueObject::eExpressionPathEndResultTypeInvalid;
-                            return ValueObjectSP();
+                            case GetValueForExpressionPathOptions::SyntheticChildrenTraversal::None:
+                                break;
+                            case GetValueForExpressionPathOptions::SyntheticChildrenTraversal::FromSynthetic:
+                                if (root->IsSynthetic())
+                                {
+                                    child_valobj_sp = root->GetNonSyntheticValue();
+                                    if (child_valobj_sp.get())
+                                        child_valobj_sp = child_valobj_sp->GetChildMemberWithName(child_name, true);
+                                }
+                                break;
+                            case GetValueForExpressionPathOptions::SyntheticChildrenTraversal::ToSynthetic:
+                                if (!root->IsSynthetic())
+                                {
+                                    child_valobj_sp = root->GetSyntheticValue();
+                                    if (child_valobj_sp.get())
+                                        child_valobj_sp = child_valobj_sp->GetChildMemberWithName(child_name, true);
+                                }
+                                break;
+                            case GetValueForExpressionPathOptions::SyntheticChildrenTraversal::Both:
+                                if (root->IsSynthetic())
+                                {
+                                    child_valobj_sp = root->GetNonSyntheticValue();
+                                    if (child_valobj_sp.get())
+                                        child_valobj_sp = child_valobj_sp->GetChildMemberWithName(child_name, true);
+                                }
+                                else
+                                {
+                                    child_valobj_sp = root->GetSyntheticValue();
+                                    if (child_valobj_sp.get())
+                                        child_valobj_sp = child_valobj_sp->GetChildMemberWithName(child_name, true);
+                                }
+                                break;
                         }
-                        
-                        child_valobj_sp = root->GetSyntheticValue(true);
-                        if (child_valobj_sp)
-                            child_valobj_sp = child_valobj_sp->GetChildMemberWithName(child_name, true);
                     }
                     
                     // if we are here and options.m_no_synthetic_children is true, child_valobj_sp is going to be a NULL SP,
@@ -2934,7 +2951,7 @@ ValueObject::GetValueForExpressionPath_Impl(const char* expression_cstr,
                 {
                     if (!root_clang_type_info.Test(eTypeIsScalar)) // if this is not even a scalar...
                     {
-                        if (options.m_no_synthetic_children) // ...only chance left is synthetic
+                        if (options.m_synthetic_children_traversal == GetValueForExpressionPathOptions::SyntheticChildrenTraversal::None) // ...only chance left is synthetic
                         {
                             *first_unparsed = expression_cstr;
                             *reason_to_stop = ValueObject::eExpressionPathScanEndReasonRangeOperatorInvalid;
@@ -3009,7 +3026,7 @@ ValueObject::GetValueForExpressionPath_Impl(const char* expression_cstr,
                     {
                         ValueObjectSP child_valobj_sp = root->GetChildAtIndex(index, true);
                         if (!child_valobj_sp)
-                            child_valobj_sp = root->GetSyntheticArrayMemberFromArray(index, true);
+                            child_valobj_sp = root->GetSyntheticArrayMember(index, true);
                         if (!child_valobj_sp)
                             if (root->HasSyntheticValue() && root->GetSyntheticValue()->GetNumChildren() > index)
                                 child_valobj_sp = root->GetSyntheticValue()->GetChildAtIndex(index, true);
@@ -3053,12 +3070,13 @@ ValueObject::GetValueForExpressionPath_Impl(const char* expression_cstr,
                             if (root->GetClangType().GetMinimumLanguage() == eLanguageTypeObjC
                                 && pointee_clang_type_info.AllClear(eTypeIsPointer)
                                 && root->HasSyntheticValue()
-                                && options.m_no_synthetic_children == false)
+                                && (options.m_synthetic_children_traversal == GetValueForExpressionPathOptions::SyntheticChildrenTraversal::ToSynthetic ||
+                                    options.m_synthetic_children_traversal == GetValueForExpressionPathOptions::SyntheticChildrenTraversal::Both))
                             {
                                 root = root->GetSyntheticValue()->GetChildAtIndex(index, true);
                             }
                             else
-                                root = root->GetSyntheticArrayMemberFromPointer(index, true);
+                                root = root->GetSyntheticArrayMember(index, true);
                             if (!root.get())
                             {
                                 *first_unparsed = expression_cstr;
@@ -3109,7 +3127,8 @@ ValueObject::GetValueForExpressionPath_Impl(const char* expression_cstr,
                             continue;
                         }
                     }
-                    else if (options.m_no_synthetic_children == false)
+                    else if (options.m_synthetic_children_traversal == GetValueForExpressionPathOptions::SyntheticChildrenTraversal::ToSynthetic ||
+                             options.m_synthetic_children_traversal == GetValueForExpressionPathOptions::SyntheticChildrenTraversal::Both)
                     {
                         if (root->HasSyntheticValue())
                             root = root->GetSyntheticValue();
@@ -3401,7 +3420,7 @@ ValueObject::ExpandArraySliceExpression(const char* expression_cstr,
                         }
                         else
                         {
-                            root = root->GetSyntheticArrayMemberFromPointer(index, true);
+                            root = root->GetSyntheticArrayMember(index, true);
                             if (!root.get())
                             {
                                 *first_unparsed = expression_cstr;

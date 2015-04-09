@@ -35,14 +35,12 @@
 namespace llvm {
 MCCodeEmitter *createMipsMCCodeEmitterEB(const MCInstrInfo &MCII,
                                          const MCRegisterInfo &MRI,
-                                         const MCSubtargetInfo &STI,
                                          MCContext &Ctx) {
   return new MipsMCCodeEmitter(MCII, Ctx, false);
 }
 
 MCCodeEmitter *createMipsMCCodeEmitterEL(const MCInstrInfo &MCII,
                                          const MCRegisterInfo &MRI,
-                                         const MCSubtargetInfo &STI,
                                          MCContext &Ctx) {
   return new MipsMCCodeEmitter(MCII, Ctx, true);
 }
@@ -451,7 +449,7 @@ getSImm9AddiuspValue(const MCInst &MI, unsigned OpNo,
 }
 
 unsigned MipsMCCodeEmitter::
-getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
+getExprOpValue(const MCExpr *Expr, SmallVectorImpl<MCFixup> &Fixups,
                const MCSubtargetInfo &STI) const {
   int64_t Res;
 
@@ -499,6 +497,9 @@ getExprOpValue(const MCExpr *Expr,SmallVectorImpl<MCFixup> &Fixups,
 
     switch(cast<MCSymbolRefExpr>(Expr)->getKind()) {
     default: llvm_unreachable("Unknown fixup kind!");
+      break;
+    case MCSymbolRefExpr::VK_None:
+      FixupKind = Mips::fixup_Mips_32; // FIXME: This is ok for O32/N32 but not N64.
       break;
     case MCSymbolRefExpr::VK_Mips_GPOFF_HI :
       FixupKind = Mips::fixup_Mips_GPOFF_HI;
@@ -940,6 +941,40 @@ MipsMCCodeEmitter::getRegisterPairOpValue(const MCInst &MI, unsigned OpNo,
                                           SmallVectorImpl<MCFixup> &Fixups,
                                           const MCSubtargetInfo &STI) const {
   return getMachineOpValue(MI, MI.getOperand(OpNo), Fixups, STI);
+}
+
+unsigned
+MipsMCCodeEmitter::getMovePRegPairOpValue(const MCInst &MI, unsigned OpNo,
+                                          SmallVectorImpl<MCFixup> &Fixups,
+                                          const MCSubtargetInfo &STI) const {
+  unsigned res = 0;
+
+  if (MI.getOperand(0).getReg() == Mips::A1 &&
+      MI.getOperand(1).getReg() == Mips::A2)
+    res = 0;
+  else if (MI.getOperand(0).getReg() == Mips::A1 &&
+           MI.getOperand(1).getReg() == Mips::A3)
+    res = 1;
+  else if (MI.getOperand(0).getReg() == Mips::A2 &&
+           MI.getOperand(1).getReg() == Mips::A3)
+    res = 2;
+  else if (MI.getOperand(0).getReg() == Mips::A0 &&
+           MI.getOperand(1).getReg() == Mips::S5)
+    res = 3;
+  else if (MI.getOperand(0).getReg() == Mips::A0 &&
+           MI.getOperand(1).getReg() == Mips::S6)
+    res = 4;
+  else if (MI.getOperand(0).getReg() == Mips::A0 &&
+           MI.getOperand(1).getReg() == Mips::A1)
+    res = 5;
+  else if (MI.getOperand(0).getReg() == Mips::A0 &&
+           MI.getOperand(1).getReg() == Mips::A2)
+    res = 6;
+  else if (MI.getOperand(0).getReg() == Mips::A0 &&
+           MI.getOperand(1).getReg() == Mips::A3)
+    res = 7;
+
+  return res;
 }
 
 unsigned

@@ -70,7 +70,7 @@ static bool isShiftedMask(uint64_t I, uint64_t &Pos, uint64_t &Size) {
   if (!isShiftedMask_64(I))
     return false;
 
-  Size = CountPopulation_64(I);
+  Size = countPopulation(I);
   Pos = countTrailingZeros(I);
   return true;
 }
@@ -617,6 +617,33 @@ static SDValue performSELECTCombine(SDNode *N, SelectionDAG &DAG,
   return SDValue();
 }
 
+static SDValue performCMovFPCombine(SDNode *N, SelectionDAG &DAG,
+                                    TargetLowering::DAGCombinerInfo &DCI,
+                                    const MipsSubtarget &Subtarget) {
+  if (DCI.isBeforeLegalizeOps())
+    return SDValue();
+
+  SDValue ValueIfTrue = N->getOperand(0), ValueIfFalse = N->getOperand(2);
+
+  ConstantSDNode *FalseC = dyn_cast<ConstantSDNode>(ValueIfFalse);
+  if (!FalseC || FalseC->getZExtValue())
+    return SDValue();
+
+  // Since RHS (False) is 0, we swap the order of the True/False operands
+  // (obviously also inverting the condition) so that we can
+  // take advantage of conditional moves using the $0 register.
+  // Example:
+  //   return (a != 0) ? x : 0;
+  //     load $reg, x
+  //     movz $reg, $0, a
+  unsigned Opc = (N->getOpcode() == MipsISD::CMovFP_T) ? MipsISD::CMovFP_F :
+                                                         MipsISD::CMovFP_T;
+
+  SDValue FCC = N->getOperand(1), Glue = N->getOperand(3);
+  return DAG.getNode(Opc, SDLoc(N), ValueIfFalse.getValueType(),
+                     ValueIfFalse, FCC, ValueIfTrue, Glue);
+}
+
 static SDValue performANDCombine(SDNode *N, SelectionDAG &DAG,
                                  TargetLowering::DAGCombinerInfo &DCI,
                                  const MipsSubtarget &Subtarget) {
@@ -750,6 +777,9 @@ SDValue  MipsTargetLowering::PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI)
     return performDivRemCombine(N, DAG, DCI, Subtarget);
   case ISD::SELECT:
     return performSELECTCombine(N, DAG, DCI, Subtarget);
+  case MipsISD::CMovFP_F:
+  case MipsISD::CMovFP_T:
+    return performCMovFPCombine(N, DAG, DCI, Subtarget);
   case ISD::AND:
     return performANDCombine(N, DAG, DCI, Subtarget);
   case ISD::OR:
@@ -2272,11 +2302,9 @@ SDValue MipsTargetLowering::lowerFP_TO_SINT(SDValue Op,
 
 static bool CC_MipsO32(unsigned ValNo, MVT ValVT, MVT LocVT,
                        CCValAssign::LocInfo LocInfo, ISD::ArgFlagsTy ArgFlags,
-                       CCState &State, const MCPhysReg *F64Regs) {
+                       CCState &State, ArrayRef<MCPhysReg> F64Regs) {
   const MipsSubtarget &Subtarget = static_cast<const MipsSubtarget &>(
       State.getMachineFunction().getSubtarget());
-
-  static const unsigned IntRegsSize = 4, FloatRegsSize = 2;
 
   static const MCPhysReg IntRegs[] = { Mips::A0, Mips::A1, Mips::A2, Mips::A3 };
   static const MCPhysReg F32Regs[] = { Mips::F12, Mips::F14 };
@@ -2314,39 +2342,39 @@ static bool CC_MipsO32(unsigned ValNo, MVT ValVT, MVT LocVT,
   // f32 and f64 are allocated in A0, A1, A2, A3 when either of the following
   // is true: function is vararg, argument is 3rd or higher, there is previous
   // argument which is not f32 or f64.
-  bool AllocateFloatsInIntReg = State.isVarArg() || ValNo > 1
-      || State.getFirstUnallocated(F32Regs, FloatRegsSize) != ValNo;
+  bool AllocateFloatsInIntReg = State.isVarArg() || ValNo > 1 ||
+                                State.getFirstUnallocated(F32Regs) != ValNo;
   unsigned OrigAlign = ArgFlags.getOrigAlign();
   bool isI64 = (ValVT == MVT::i32 && OrigAlign == 8);
 
   if (ValVT == MVT::i32 || (ValVT == MVT::f32 && AllocateFloatsInIntReg)) {
-    Reg = State.AllocateReg(IntRegs, IntRegsSize);
+    Reg = State.AllocateReg(IntRegs);
     // If this is the first part of an i64 arg,
     // the allocated register must be either A0 or A2.
     if (isI64 && (Reg == Mips::A1 || Reg == Mips::A3))
-      Reg = State.AllocateReg(IntRegs, IntRegsSize);
+      Reg = State.AllocateReg(IntRegs);
     LocVT = MVT::i32;
   } else if (ValVT == MVT::f64 && AllocateFloatsInIntReg) {
     // Allocate int register and shadow next int register. If first
     // available register is Mips::A1 or Mips::A3, shadow it too.
-    Reg = State.AllocateReg(IntRegs, IntRegsSize);
+    Reg = State.AllocateReg(IntRegs);
     if (Reg == Mips::A1 || Reg == Mips::A3)
-      Reg = State.AllocateReg(IntRegs, IntRegsSize);
-    State.AllocateReg(IntRegs, IntRegsSize);
+      Reg = State.AllocateReg(IntRegs);
+    State.AllocateReg(IntRegs);
     LocVT = MVT::i32;
   } else if (ValVT.isFloatingPoint() && !AllocateFloatsInIntReg) {
     // we are guaranteed to find an available float register
     if (ValVT == MVT::f32) {
-      Reg = State.AllocateReg(F32Regs, FloatRegsSize);
+      Reg = State.AllocateReg(F32Regs);
       // Shadow int register
-      State.AllocateReg(IntRegs, IntRegsSize);
+      State.AllocateReg(IntRegs);
     } else {
-      Reg = State.AllocateReg(F64Regs, FloatRegsSize);
+      Reg = State.AllocateReg(F64Regs);
       // Shadow int registers
-      unsigned Reg2 = State.AllocateReg(IntRegs, IntRegsSize);
+      unsigned Reg2 = State.AllocateReg(IntRegs);
       if (Reg2 == Mips::A1 || Reg2 == Mips::A3)
-        State.AllocateReg(IntRegs, IntRegsSize);
-      State.AllocateReg(IntRegs, IntRegsSize);
+        State.AllocateReg(IntRegs);
+      State.AllocateReg(IntRegs);
     }
   } else
     llvm_unreachable("Cannot handle this ValVT.");
@@ -2453,7 +2481,8 @@ getOpndList(SmallVectorImpl<SDValue> &Ops,
 
   // Add a register mask operand representing the call-preserved registers.
   const TargetRegisterInfo *TRI = Subtarget.getRegisterInfo();
-  const uint32_t *Mask = TRI->getCallPreservedMask(CLI.CallConv);
+  const uint32_t *Mask =
+      TRI->getCallPreservedMask(CLI.DAG.getMachineFunction(), CLI.CallConv);
   assert(Mask && "Missing call preserved mask for calling convention");
   if (Subtarget.inMips16HardFloat()) {
     if (GlobalAddressSDNode *G = dyn_cast<GlobalAddressSDNode>(CLI.Callee)) {
@@ -2873,13 +2902,16 @@ MipsTargetLowering::LowerFormalArguments(SDValue Chain,
 
   for (unsigned i = 0, e = ArgLocs.size(); i != e; ++i) {
     CCValAssign &VA = ArgLocs[i];
-    std::advance(FuncArg, Ins[i].OrigArgIndex - CurArgIdx);
-    CurArgIdx = Ins[i].OrigArgIndex;
+    if (Ins[i].isOrigArg()) {
+      std::advance(FuncArg, Ins[i].getOrigArgIndex() - CurArgIdx);
+      CurArgIdx = Ins[i].getOrigArgIndex();
+    }
     EVT ValVT = VA.getValVT();
     ISD::ArgFlagsTy Flags = Ins[i].Flags;
     bool IsRegLoc = VA.isRegLoc();
 
     if (Flags.isByVal()) {
+      assert(Ins[i].isOrigArg() && "Byval arguments cannot be implicit");
       unsigned FirstByValReg, LastByValReg;
       unsigned ByValIdx = CCInfo.getInRegsParamsProcessed();
       CCInfo.getInRegsParamInfo(ByValIdx, FirstByValReg, LastByValReg);
@@ -2998,6 +3030,15 @@ MipsTargetLowering::CanLowerReturn(CallingConv::ID CallConv,
   SmallVector<CCValAssign, 16> RVLocs;
   MipsCCState CCInfo(CallConv, IsVarArg, MF, RVLocs, Context);
   return CCInfo.CheckReturn(Outs, RetCC_Mips);
+}
+
+bool
+MipsTargetLowering::shouldSignExtendTypeInLibCall(EVT Type, bool IsSigned) const {
+  if (Subtarget.hasMips3() && Subtarget.abiUsesSoftFloat()) {
+    if (Type == MVT::i32)
+      return true;
+  }
+  return IsSigned;
 }
 
 SDValue
@@ -3132,6 +3173,10 @@ getConstraintType(const std::string &Constraint) const
         return C_Memory;
     }
   }
+
+  if (Constraint == "ZC")
+    return C_Memory;
+
   return TargetLowering::getConstraintType(Constraint);
 }
 
@@ -3290,9 +3335,10 @@ parseRegForInlineAsmConstraint(StringRef C, MVT VT) const {
 /// Given a register class constraint, like 'r', if this corresponds directly
 /// to an LLVM register class, return a register of 0 and the register class
 /// pointer.
-std::pair<unsigned, const TargetRegisterClass*> MipsTargetLowering::
-getRegForInlineAsmConstraint(const std::string &Constraint, MVT VT) const
-{
+std::pair<unsigned, const TargetRegisterClass *>
+MipsTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                                                 const std::string &Constraint,
+                                                 MVT VT) const {
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
     case 'd': // Address register. Same as 'r' unless generating MIPS16 code.
@@ -3348,7 +3394,7 @@ getRegForInlineAsmConstraint(const std::string &Constraint, MVT VT) const
   if (R.second)
     return R;
 
-  return TargetLowering::getRegForInlineAsmConstraint(Constraint, VT);
+  return TargetLowering::getRegForInlineAsmConstraint(TRI, Constraint, VT);
 }
 
 /// LowerAsmOperandForConstraint - Lower the specified operand into the Ops
@@ -3645,7 +3691,7 @@ void MipsTargetLowering::writeVarArgRegs(std::vector<SDValue> &OutChains,
                                          SelectionDAG &DAG,
                                          CCState &State) const {
   const ArrayRef<MCPhysReg> ArgRegs = ABI.GetVarArgRegs();
-  unsigned Idx = State.getFirstUnallocated(ArgRegs.data(), ArgRegs.size());
+  unsigned Idx = State.getFirstUnallocated(ArgRegs);
   unsigned RegSizeInBytes = Subtarget.getGPRSizeInBytes();
   MVT RegTy = MVT::getIntegerVT(RegSizeInBytes * 8);
   const TargetRegisterClass *RC = getRegClassFor(RegTy);
@@ -3712,7 +3758,7 @@ void MipsTargetLowering::HandleByVal(CCState *State, unsigned &Size,
            "Byval argument's alignment should be a multiple of"
            "RegSizeInBytes.");
 
-    FirstReg = State->getFirstUnallocated(IntArgRegs.data(), IntArgRegs.size());
+    FirstReg = State->getFirstUnallocated(IntArgRegs);
 
     // If Align > RegSizeInBytes, the first arg register must be even.
     // FIXME: This condition happens to do the right thing but it's not the

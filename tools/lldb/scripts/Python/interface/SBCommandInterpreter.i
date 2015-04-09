@@ -139,12 +139,21 @@ public:
     
     static const char *
     GetArgumentDescriptionAsCString (const lldb::CommandArgumentType arg_type);
-    
+
+    static bool
+    EventIsCommandInterpreterEvent (const lldb::SBEvent &event);
+
     bool
     IsValid() const;
 
     const char *
     GetIOHandlerControlSequence(char ch);
+
+    bool
+    GetPromptOnQuit();
+
+    void
+    SetPromptOnQuit(bool b);
 
     bool
     CommandExists (const char *cmd);

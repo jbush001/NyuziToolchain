@@ -132,11 +132,11 @@ static const char *GetArmArchForMCpu(StringRef Value) {
     .Cases("arm1020t", "arm1020e", "arm1022e", "arm1026ej-s", "armv5")
     .Case("xscale", "xscale")
     .Cases("arm1136j-s", "arm1136jf-s", "arm1176jz-s", "arm1176jzf-s", "armv6")
-    .Case("cortex-m0", "armv6m")
+    .Cases("sc000", "cortex-m0", "cortex-m0plus", "cortex-m1", "armv6m")
     .Cases("cortex-a5", "cortex-a7", "cortex-a8", "armv7")
     .Cases("cortex-a9", "cortex-a12", "cortex-a15", "cortex-a17", "krait", "armv7")
-    .Cases("cortex-r4", "cortex-r5", "armv7r")
-    .Case("cortex-m3", "armv7m")
+    .Cases("cortex-r4", "cortex-r4f", "cortex-r5", "cortex-r7", "armv7r")
+    .Cases("sc300", "cortex-m3", "armv7m")
     .Cases("cortex-m4", "cortex-m7", "armv7em")
     .Case("swift", "armv7s")
     .Default(nullptr);
@@ -302,8 +302,8 @@ void MachO::AddLinkRuntimeLib(const ArgList &Args, ArgStringList &CmdArgs,
   // For now, allow missing resource libraries to support developers who may
   // not have compiler-rt checked out or integrated into their build (unless
   // we explicitly force linking with this library).
-  if (AlwaysLink || llvm::sys::fs::exists(P.str()))
-    CmdArgs.push_back(Args.MakeArgString(P.str()));
+  if (AlwaysLink || llvm::sys::fs::exists(P))
+    CmdArgs.push_back(Args.MakeArgString(P));
 
   // Adding the rpaths might negatively interact when other rpaths are involved,
   // so we should make sure we add the rpaths last, after all user-specified
@@ -320,8 +320,27 @@ void MachO::AddLinkRuntimeLib(const ArgList &Args, ArgStringList &CmdArgs,
     // Add the path to the resource dir to rpath to support using the dylib
     // from the default location without copying.
     CmdArgs.push_back("-rpath");
-    CmdArgs.push_back(Args.MakeArgString(Dir.str()));
+    CmdArgs.push_back(Args.MakeArgString(Dir));
   }
+}
+
+void DarwinClang::AddLinkSanitizerLibArgs(const ArgList &Args,
+                                          ArgStringList &CmdArgs,
+                                          StringRef Sanitizer) const {
+  if (!Args.hasArg(options::OPT_dynamiclib) &&
+      !Args.hasArg(options::OPT_bundle)) {
+    // Sanitizer runtime libraries requires C++.
+    AddCXXStdlibLibArgs(Args, CmdArgs);
+  }
+  assert(isTargetMacOS() || isTargetIOSSimulator());
+  StringRef OS = isTargetMacOS() ? "osx" : "iossim";
+  AddLinkRuntimeLib(Args, CmdArgs, (Twine("libclang_rt.") + Sanitizer + "_" +
+                                    OS + "_dynamic.dylib").str(),
+                    /*AlwaysLink*/ true, /*IsEmbedded*/ false,
+                    /*AddRPath*/ true);
+  // Add explicit dependcy on -lc++abi, as -lc++ doesn't re-export
+  // all RTTI-related symbols that UBSan uses.
+  CmdArgs.push_back("-lc++abi");
 }
 
 void DarwinClang::AddLinkRuntimeLibArgs(const ArgList &Args,
@@ -368,47 +387,23 @@ void DarwinClang::AddLinkRuntimeLibArgs(const ArgList &Args,
 
   const SanitizerArgs &Sanitize = getSanitizerArgs();
 
-  // Add Ubsan runtime library, if required.
-  if (Sanitize.needsUbsanRt()) {
-    // FIXME: Move this check to SanitizerArgs::filterUnsupportedKinds.
-    if (isTargetIOSBased()) {
+  if (Sanitize.needsAsanRt()) {
+    if (!isTargetMacOS() && !isTargetIOSSimulator()) {
+      // FIXME: Move this check to SanitizerArgs::filterUnsupportedKinds.
       getDriver().Diag(diag::err_drv_clang_unsupported_per_platform)
-        << "-fsanitize=undefined";
+          << "-fsanitize=address";
     } else {
-      assert(isTargetMacOS() && "unexpected non OS X target");
-      AddLinkRuntimeLib(Args, CmdArgs, "libclang_rt.ubsan_osx.a", true);
-
-      // The Ubsan runtime library requires C++.
-      AddCXXStdlibLibArgs(Args, CmdArgs);
+      AddLinkSanitizerLibArgs(Args, CmdArgs, "asan");
     }
   }
 
-  // Add ASAN runtime library, if required. Dynamic libraries and bundles
-  // should not be linked with the runtime library.
-  if (Sanitize.needsAsanRt()) {
-    // FIXME: Move this check to SanitizerArgs::filterUnsupportedKinds.
-    if (isTargetIPhoneOS()) {
+  if (Sanitize.needsUbsanRt()) {
+    if (!isTargetMacOS() && !isTargetIOSSimulator()) {
+      // FIXME: Move this check to SanitizerArgs::filterUnsupportedKinds.
       getDriver().Diag(diag::err_drv_clang_unsupported_per_platform)
-        << "-fsanitize=address";
+          << "-fsanitize=undefined";
     } else {
-      if (!Args.hasArg(options::OPT_dynamiclib) &&
-          !Args.hasArg(options::OPT_bundle)) {
-        // The ASAN runtime library requires C++.
-        AddCXXStdlibLibArgs(Args, CmdArgs);
-      }
-      if (isTargetMacOS()) {
-        AddLinkRuntimeLib(Args, CmdArgs,
-                          "libclang_rt.asan_osx_dynamic.dylib",
-                          /*AlwaysLink*/ true, /*IsEmbedded*/ false,
-                          /*AddRPath*/ true);
-      } else {
-        if (isTargetIOSSimulator()) {
-          AddLinkRuntimeLib(Args, CmdArgs,
-                            "libclang_rt.asan_iossim_dynamic.dylib",
-                            /*AlwaysLink*/ true, /*IsEmbedded*/ false,
-                            /*AddRPath*/ true);
-        }
-      }
+      AddLinkSanitizerLibArgs(Args, CmdArgs, "ubsan");
     }
   }
 
@@ -599,11 +594,11 @@ void DarwinClang::AddCXXStdlibLibArgs(const ArgList &Args,
       SmallString<128> P(A->getValue());
       llvm::sys::path::append(P, "usr", "lib", "libstdc++.dylib");
 
-      if (!llvm::sys::fs::exists(P.str())) {
+      if (!llvm::sys::fs::exists(P)) {
         llvm::sys::path::remove_filename(P);
         llvm::sys::path::append(P, "libstdc++.6.dylib");
-        if (llvm::sys::fs::exists(P.str())) {
-          CmdArgs.push_back(Args.MakeArgString(P.str()));
+        if (llvm::sys::fs::exists(P)) {
+          CmdArgs.push_back(Args.MakeArgString(P));
           return;
         }
       }
@@ -646,8 +641,8 @@ void DarwinClang::AddCCKextLibArgs(const ArgList &Args,
 
   // For now, allow missing resource libraries to support developers who may
   // not have compiler-rt checked out or integrated into their build.
-  if (llvm::sys::fs::exists(P.str()))
-    CmdArgs.push_back(Args.MakeArgString(P.str()));
+  if (llvm::sys::fs::exists(P))
+    CmdArgs.push_back(Args.MakeArgString(P));
 }
 
 DerivedArgList *MachO::TranslateArgs(const DerivedArgList &Args,
@@ -1498,11 +1493,12 @@ bool Generic_GCC::GCCInstallationDetector::getBiarchSibling(Multilib &M) const {
 
 namespace {
 // Filter to remove Multilibs that don't exist as a suffix to Path
-class FilterNonExistent : public MultilibSet::FilterCallback {
-  std::string Base;
+class FilterNonExistent {
+  StringRef Base;
+
 public:
-  FilterNonExistent(std::string Base) : Base(Base) {}
-  bool operator()(const Multilib &M) const override {
+  FilterNonExistent(StringRef Base) : Base(Base) {}
+  bool operator()(const Multilib &M) {
     return !llvm::sys::fs::exists(Base + M.gccSuffix() + "/crtbegin.o");
   }
 };
@@ -1724,6 +1720,7 @@ static bool findMIPSMultilibs(const llvm::Triple &TargetTriple, StringRef Path,
 
   MultilibSet AndroidMipsMultilibs = MultilibSet()
     .Maybe(Multilib("/mips-r2").flag("+march=mips32r2"))
+    .Maybe(Multilib("/mips-r6").flag("+march=mips32r6"))
     .FilterOut(NonExistent);
 
   MultilibSet DebianMipsMultilibs;
@@ -1782,9 +1779,13 @@ static bool findMIPSMultilibs(const llvm::Triple &TargetTriple, StringRef Path,
   addMultilibFlag(isMips64(TargetArch), "m64", Flags);
   addMultilibFlag(isMips16(Args), "mips16", Flags);
   addMultilibFlag(CPUName == "mips32", "march=mips32", Flags);
-  addMultilibFlag(CPUName == "mips32r2", "march=mips32r2", Flags);
+  addMultilibFlag(CPUName == "mips32r2" || CPUName == "mips32r3" ||
+                      CPUName == "mips32r5",
+                  "march=mips32r2", Flags);
+  addMultilibFlag(CPUName == "mips32r6", "march=mips32r6", Flags);
   addMultilibFlag(CPUName == "mips64", "march=mips64", Flags);
-  addMultilibFlag(CPUName == "mips64r2" || CPUName == "octeon",
+  addMultilibFlag(CPUName == "mips64r2" || CPUName == "mips64r3" ||
+                      CPUName == "mips64r5" || CPUName == "octeon",
                   "march=mips64r2", Flags);
   addMultilibFlag(isMicroMips(Args), "mmicromips", Flags);
   addMultilibFlag(tools::mips::isUCLibc(Args), "muclibc", Flags);
@@ -2083,7 +2084,8 @@ void Generic_ELF::addClangTargetOptions(const ArgList &DriverArgs,
       getTriple().getArch() == llvm::Triple::aarch64_be ||
       (getTriple().getOS() == llvm::Triple::Linux &&
        (!V.isOlderThan(4, 7, 0) ||
-        getTriple().getEnvironment() == llvm::Triple::Android));
+        getTriple().getEnvironment() == llvm::Triple::Android)) ||
+      getTriple().getOS() == llvm::Triple::NaCl;
 
   if (DriverArgs.hasFlag(options::OPT_fuse_init_array,
                          options::OPT_fno_use_init_array,
@@ -2244,7 +2246,7 @@ void Hexagon_TC::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
 
   llvm::sys::path::append(IncludeDir, "hexagon/include/c++/");
   llvm::sys::path::append(IncludeDir, Ver);
-  addSystemInclude(DriverArgs, CC1Args, IncludeDir.str());
+  addSystemInclude(DriverArgs, CC1Args, IncludeDir);
 }
 
 ToolChain::CXXStdlibType
@@ -2306,6 +2308,159 @@ StringRef Hexagon_TC::GetTargetCPU(const ArgList &Args)
 }
 // End Hexagon
 
+/// NaCl Toolchain
+NaCl_TC::NaCl_TC(const Driver &D, const llvm::Triple &Triple,
+                 const ArgList &Args)
+  : Generic_ELF(D, Triple, Args) {
+
+  // Remove paths added by Generic_GCC. NaCl Toolchain cannot use the
+  // default paths, and must instead only use the paths provided
+  // with this toolchain based on architecture.
+  path_list& file_paths = getFilePaths();
+  path_list& prog_paths = getProgramPaths();
+
+  file_paths.clear();
+  prog_paths.clear();
+
+  // Path for library files (libc.a, ...)
+  std::string FilePath(getDriver().Dir + "/../");
+
+  // Path for tools (clang, ld, etc..)
+  std::string ProgPath(getDriver().Dir + "/../");
+
+  // Path for toolchain libraries (libgcc.a, ...)
+  std::string ToolPath(getDriver().ResourceDir + "/lib/");
+
+  switch(Triple.getArch()) {
+    case llvm::Triple::x86: {
+      file_paths.push_back(FilePath + "x86_64-nacl/lib32");
+      file_paths.push_back(FilePath + "x86_64-nacl/usr/lib32");
+      prog_paths.push_back(ProgPath + "x86_64-nacl/bin");
+      file_paths.push_back(ToolPath + "i686-nacl");
+      break;
+    }
+    case llvm::Triple::x86_64: {
+      file_paths.push_back(FilePath + "x86_64-nacl/lib");
+      file_paths.push_back(FilePath + "x86_64-nacl/usr/lib");
+      prog_paths.push_back(ProgPath + "x86_64-nacl/bin");
+      file_paths.push_back(ToolPath + "x86_64-nacl");
+      break;
+    }
+    case llvm::Triple::arm: {
+      file_paths.push_back(FilePath + "arm-nacl/lib");
+      file_paths.push_back(FilePath + "arm-nacl/usr/lib");
+      prog_paths.push_back(ProgPath + "arm-nacl/bin");
+      file_paths.push_back(ToolPath + "arm-nacl");
+      break;
+    }
+    default:
+      break;
+  }
+
+  // Use provided linker, not system linker
+  Linker = GetProgramPath("ld");
+  NaClArmMacrosPath = GetFilePath("nacl-arm-macros.s");
+}
+
+void NaCl_TC::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
+                                        ArgStringList &CC1Args) const {
+  const Driver &D = getDriver();
+  if (DriverArgs.hasArg(options::OPT_nostdinc))
+    return;
+
+  if (!DriverArgs.hasArg(options::OPT_nobuiltininc)) {
+    SmallString<128> P(D.ResourceDir);
+    llvm::sys::path::append(P, "include");
+    addSystemInclude(DriverArgs, CC1Args, P.str());
+  }
+
+  if (DriverArgs.hasArg(options::OPT_nostdlibinc))
+    return;
+
+  SmallString<128> P(D.Dir + "/../");
+  if (getTriple().getArch() == llvm::Triple::arm) {
+    llvm::sys::path::append(P, "arm-nacl/usr/include");
+  } else if (getTriple().getArch() == llvm::Triple::x86) {
+    llvm::sys::path::append(P, "x86_64-nacl/usr/include");
+  } else if (getTriple().getArch() == llvm::Triple::x86_64) {
+    llvm::sys::path::append(P, "x86_64-nacl/usr/include");
+  } else {
+    return;
+  }
+
+  addSystemInclude(DriverArgs, CC1Args, P.str());
+  llvm::sys::path::remove_filename(P);
+  llvm::sys::path::remove_filename(P);
+  llvm::sys::path::append(P, "include");
+  addSystemInclude(DriverArgs, CC1Args, P.str());
+}
+
+void NaCl_TC::AddCXXStdlibLibArgs(const ArgList &Args,
+                                  ArgStringList &CmdArgs) const {
+  // Check for -stdlib= flags. We only support libc++ but this consumes the arg
+  // if the value is libc++, and emits an error for other values.
+  GetCXXStdlibType(Args);
+  CmdArgs.push_back("-lc++");
+}
+
+void NaCl_TC::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
+                                           ArgStringList &CC1Args) const {
+  const Driver &D = getDriver();
+  if (DriverArgs.hasArg(options::OPT_nostdlibinc) ||
+      DriverArgs.hasArg(options::OPT_nostdincxx))
+    return;
+
+  // Check for -stdlib= flags. We only support libc++ but this consumes the arg
+  // if the value is libc++, and emits an error for other values.
+  GetCXXStdlibType(DriverArgs);
+
+  if (getTriple().getArch() == llvm::Triple::arm) {
+    SmallString<128> P(D.Dir + "/../");
+    llvm::sys::path::append(P, "arm-nacl/include/c++/v1");
+    addSystemInclude(DriverArgs, CC1Args, P.str());
+  } else if (getTriple().getArch() == llvm::Triple::x86) {
+    SmallString<128> P(D.Dir + "/../");
+    llvm::sys::path::append(P, "x86_64-nacl/include/c++/v1");
+    addSystemInclude(DriverArgs, CC1Args, P.str());
+  } else if (getTriple().getArch() == llvm::Triple::x86_64) {
+    SmallString<128> P(D.Dir + "/../");
+    llvm::sys::path::append(P, "x86_64-nacl/include/c++/v1");
+    addSystemInclude(DriverArgs, CC1Args, P.str());
+  }
+}
+
+ToolChain::CXXStdlibType NaCl_TC::GetCXXStdlibType(const ArgList &Args) const {
+  if (Arg *A = Args.getLastArg(options::OPT_stdlib_EQ)) {
+    StringRef Value = A->getValue();
+    if (Value == "libc++")
+      return ToolChain::CST_Libcxx;
+    getDriver().Diag(diag::err_drv_invalid_stdlib_name)
+      << A->getAsString(Args);
+  }
+
+  return ToolChain::CST_Libcxx;
+}
+
+std::string NaCl_TC::ComputeEffectiveClangTriple(
+    const ArgList &Args, types::ID InputType) const {
+  llvm::Triple TheTriple(ComputeLLVMTriple(Args, InputType));
+  if (TheTriple.getArch() == llvm::Triple::arm &&
+      TheTriple.getEnvironment() == llvm::Triple::UnknownEnvironment)
+    TheTriple.setEnvironment(llvm::Triple::GNUEABIHF);
+  return TheTriple.getTriple();
+}
+
+Tool *NaCl_TC::buildLinker() const {
+  return new tools::nacltools::Link(*this);
+}
+
+Tool *NaCl_TC::buildAssembler() const {
+  if (getTriple().getArch() == llvm::Triple::arm)
+    return new tools::nacltools::AssembleARM(*this);
+  return new tools::gnutools::Assemble(*this);
+}
+// End NaCl
+
 /// TCEToolChain - A tool chain using the llvm bitcode tools to perform
 /// all subcommands. See http://tce.cs.tut.fi for our peculiar target.
 /// Currently does not support anything else but compilation.
@@ -2338,6 +2493,36 @@ bool TCEToolChain::isPIEDefault() const {
 bool TCEToolChain::isPICDefaultForced() const {
   return false;
 }
+
+// CloudABI - CloudABI tool chain which can call ld(1) directly.
+
+CloudABI::CloudABI(const Driver &D, const llvm::Triple &Triple,
+                   const ArgList &Args)
+    : Generic_ELF(D, Triple, Args) {
+  SmallString<128> P(getDriver().Dir);
+  llvm::sys::path::append(P, "..", getTriple().str(), "lib");
+  getFilePaths().push_back(P.str());
+}
+
+void CloudABI::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
+                                            ArgStringList &CC1Args) const {
+  if (DriverArgs.hasArg(options::OPT_nostdlibinc) &&
+      DriverArgs.hasArg(options::OPT_nostdincxx))
+    return;
+
+  SmallString<128> P(getDriver().Dir);
+  llvm::sys::path::append(P, "..", getTriple().str(), "include/c++/v1");
+  addSystemInclude(DriverArgs, CC1Args, P.str());
+}
+
+void CloudABI::AddCXXStdlibLibArgs(const ArgList &Args,
+                                   ArgStringList &CmdArgs) const {
+  CmdArgs.push_back("-lc++");
+  CmdArgs.push_back("-lc++abi");
+  CmdArgs.push_back("-lunwind");
+}
+
+Tool *CloudABI::buildLinker() const { return new tools::cloudabi::Link(*this); }
 
 /// OpenBSD - OpenBSD tool chain which can call as(1) and ld(1) directly.
 
@@ -2675,10 +2860,12 @@ enum Distro {
   DebianSqueeze,
   DebianWheezy,
   DebianJessie,
+  DebianStretch,
   Exherbo,
   RHEL4,
   RHEL5,
   RHEL6,
+  RHEL7,
   Fedora,
   OpenSUSE,
   UbuntuHardy,
@@ -2694,11 +2881,13 @@ enum Distro {
   UbuntuRaring,
   UbuntuSaucy,
   UbuntuTrusty,
+  UbuntuUtopic,
+  UbuntuVivid,
   UnknownDistro
 };
 
 static bool IsRedhat(enum Distro Distro) {
-  return Distro == Fedora || (Distro >= RHEL4 && Distro <= RHEL6);
+  return Distro == Fedora || (Distro >= RHEL4 && Distro <= RHEL7);
 }
 
 static bool IsOpenSUSE(enum Distro Distro) {
@@ -2706,11 +2895,11 @@ static bool IsOpenSUSE(enum Distro Distro) {
 }
 
 static bool IsDebian(enum Distro Distro) {
-  return Distro >= DebianLenny && Distro <= DebianJessie;
+  return Distro >= DebianLenny && Distro <= DebianStretch;
 }
 
 static bool IsUbuntu(enum Distro Distro) {
-  return Distro >= UbuntuHardy && Distro <= UbuntuTrusty;
+  return Distro >= UbuntuHardy && Distro <= UbuntuVivid;
 }
 
 static Distro DetectDistro(llvm::Triple::ArchType Arch) {
@@ -2737,6 +2926,8 @@ static Distro DetectDistro(llvm::Triple::ArchType Arch) {
           .Case("raring", UbuntuRaring)
           .Case("saucy", UbuntuSaucy)
           .Case("trusty", UbuntuTrusty)
+          .Case("utopic", UbuntuUtopic)
+          .Case("vivid", UbuntuVivid)
           .Default(UnknownDistro);
     return Version;
   }
@@ -2748,7 +2939,9 @@ static Distro DetectDistro(llvm::Triple::ArchType Arch) {
       return Fedora;
     if (Data.startswith("Red Hat Enterprise Linux") ||
         Data.startswith("CentOS")) {
-      if (Data.find("release 6") != StringRef::npos)
+      if (Data.find("release 7") != StringRef::npos)
+        return RHEL7;
+      else if (Data.find("release 6") != StringRef::npos)
         return RHEL6;
       else if (Data.find("release 5") != StringRef::npos)
         return RHEL5;
@@ -2769,6 +2962,8 @@ static Distro DetectDistro(llvm::Triple::ArchType Arch) {
       return DebianWheezy;
     else if (Data.startswith("jessie/sid")  || Data[0] == '8')
       return DebianJessie;
+    else if (Data.startswith("stretch/sid") || Data[0] == '9')
+      return DebianStretch;
     return UnknownDistro;
   }
 
@@ -2965,8 +3160,7 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
   if (IsRedhat(Distro))
     ExtraOpts.push_back("--no-add-needed");
 
-  if (Distro == DebianSqueeze || Distro == DebianWheezy ||
-      Distro == DebianJessie || IsOpenSUSE(Distro) ||
+  if ((IsDebian(Distro) && Distro >= DebianSqueeze) || IsOpenSUSE(Distro) ||
       (IsRedhat(Distro) && Distro != RHEL4 && Distro != RHEL5) ||
       (IsUbuntu(Distro) && Distro >= UbuntuKarmic))
     ExtraOpts.push_back("--build-id");
@@ -3142,7 +3336,7 @@ void Linux::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
   if (!DriverArgs.hasArg(options::OPT_nobuiltininc)) {
     SmallString<128> P(D.ResourceDir);
     llvm::sys::path::append(P, "include");
-    addSystemInclude(DriverArgs, CC1Args, P.str());
+    addSystemInclude(DriverArgs, CC1Args, P);
   }
 
   if (DriverArgs.hasArg(options::OPT_nostdlibinc))
@@ -3154,7 +3348,8 @@ void Linux::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
     SmallVector<StringRef, 5> dirs;
     CIncludeDirs.split(dirs, ":");
     for (StringRef dir : dirs) {
-      StringRef Prefix = llvm::sys::path::is_absolute(dir) ? SysRoot : "";
+      StringRef Prefix =
+          llvm::sys::path::is_absolute(dir) ? StringRef(SysRoot) : "";
       addExternCSystemInclude(DriverArgs, CC1Args, Prefix + dir);
     }
     return;
@@ -3165,7 +3360,7 @@ void Linux::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
 
   // Add include directories specific to the selected multilib set and multilib.
   if (GCCInstallation.isValid()) {
-    auto Callback = Multilibs.includeDirsCallback();
+    const auto &Callback = Multilibs.includeDirsCallback();
     if (Callback) {
       const auto IncludePaths = Callback(GCCInstallation.getInstallPath(),
                                          GCCInstallation.getTriple().str(),

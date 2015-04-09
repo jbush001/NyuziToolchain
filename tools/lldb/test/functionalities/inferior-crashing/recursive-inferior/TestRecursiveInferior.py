@@ -2,7 +2,7 @@
 
 import os, time
 import unittest2
-import lldb, lldbutil
+import lldb, lldbutil, lldbplatformutil
 import sys
 from lldbtest import *
 
@@ -10,7 +10,7 @@ class CrashingRecursiveInferiorTestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     def test_recursive_inferior_crashing_dsym(self):
         """Test that lldb reliably catches the inferior crashing (command)."""
         self.buildDsym()
@@ -21,7 +21,7 @@ class CrashingRecursiveInferiorTestCase(TestBase):
         self.buildDwarf()
         self.recursive_inferior_crashing()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     def test_recursive_inferior_crashing_registers_dsym(self):
         """Test that lldb reliably reads registers from the inferior after crashing (command)."""
         self.buildDsym()
@@ -38,7 +38,7 @@ class CrashingRecursiveInferiorTestCase(TestBase):
         self.buildDefault()
         self.recursive_inferior_crashing_python()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     def test_recursive_inferior_crashing_expr_dsym(self):
         """Test that the lldb expression interpreter can read from the inferior after crashing (command)."""
         self.buildDsym()
@@ -49,7 +49,7 @@ class CrashingRecursiveInferiorTestCase(TestBase):
         self.buildDwarf()
         self.recursive_inferior_crashing_expr()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     def test_recursive_inferior_crashing_step_dsym(self):
         """Test that lldb functions correctly after stepping through a crash."""
         self.buildDsym()
@@ -60,27 +60,25 @@ class CrashingRecursiveInferiorTestCase(TestBase):
         self.buildDwarf()
         self.recursive_inferior_crashing_step()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     def test_recursive_inferior_crashing_step_after_break_dsym(self):
         """Test that stepping after a crash behaves correctly."""
         self.buildDsym()
         self.recursive_inferior_crashing_step_after_break()
 
     @skipIfFreeBSD # llvm.org/pr16684
-    @expectedFailureLinux('llvm.org/pr16684')
     def test_recursive_inferior_crashing_step_after_break_dwarf(self):
         """Test that lldb functions correctly after stepping through a crash."""
         self.buildDwarf()
         self.recursive_inferior_crashing_step_after_break()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     def test_recursive_inferior_crashing_expr_step_and_expr_dsym(self):
         """Test that lldb expressions work before and after stepping after a crash."""
         self.buildDsym()
         self.recursive_inferior_crashing_expr_step_expr()
 
     @expectedFailureFreeBSD('llvm.org/pr15989') # Couldn't allocate space for the stack frame
-    @expectedFailureLinux('llvm.org/pr15989') # Couldn't allocate space for the stack frame
     def test_recursive_inferior_crashing_expr_step_and_expr_dwarf(self):
         """Test that lldb expressions work before and after stepping after a crash."""
         self.buildDwarf()
@@ -90,7 +88,7 @@ class CrashingRecursiveInferiorTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, "main.c", line, num_expected_locations=1, loc_exact=True)
 
     def check_stop_reason(self):
-        if sys.platform.startswith("darwin"):
+        if self.platformIsDarwin():
             stop_reason = 'stop reason = EXC_BAD_ACCESS'
         else:
             stop_reason = 'stop reason = invalid address'
@@ -157,8 +155,7 @@ class CrashingRecursiveInferiorTestCase(TestBase):
         self.check_stop_reason()
 
         # lldb should be able to read from registers from the inferior after crashing.
-        self.expect("register read eax",
-            substrs = ['eax = 0x'])
+        lldbplatformutil.check_first_register_readable(self)
 
     def recursive_inferior_crashing_expr(self):
         """Test that the lldb expression interpreter can read symbols after crashing."""
@@ -192,8 +189,7 @@ class CrashingRecursiveInferiorTestCase(TestBase):
             substrs = ['(int) $0 ='])
 
         # lldb should be able to read from registers from the inferior after crashing.
-        self.expect("register read eax",
-            substrs = ['eax = 0x'])
+        lldbplatformutil.check_first_register_readable(self)
 
         # And it should report the correct line number.
         self.expect("thread backtrace all",
@@ -209,14 +205,16 @@ class CrashingRecursiveInferiorTestCase(TestBase):
         self.check_stop_reason()
 
         expected_state = 'exited' # Provide the exit code.
-        if sys.platform.startswith("darwin"):
+        if self.platformIsDarwin() or self.platformIsLinux():
             expected_state = 'stopped' # TODO: Determine why 'next' and 'continue' have no effect after a crash.
 
         self.expect("next",
             substrs = ['Process', expected_state])
 
-        if not(sys.platform.startswith("darwin")): # if stopped, we will have a process around
+        if expected_state == 'exited':
             self.expect("thread list", error=True,substrs = ['Process must be launched'])
+        else:
+            self.check_stop_reason()
 
     def recursive_inferior_crashing_expr_step_expr(self):
         """Test that lldb expressions work before and after stepping after a crash."""

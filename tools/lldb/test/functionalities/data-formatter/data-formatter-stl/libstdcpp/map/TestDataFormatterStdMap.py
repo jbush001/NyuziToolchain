@@ -12,22 +12,16 @@ class StdMapDataFormatterTestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     @dsym_test
     def test_with_dsym_and_run_command(self):
         """Test data formatter commands."""
         self.buildDsym()
         self.data_formatter_commands()
 
-    @skipIfGcc # llvm.org/pr15036: When built with GCC, this test causes lldb to crash with
-               # assert DeclCXX.h:554 queried property of class with no definition
     @expectedFailureIcc   # llvm.org/pr15301: LLDB prints incorrect size of
                           # libstdc++ containers
     @skipIfFreeBSD
-    @expectedFailureLinux # non-core functionality, need to reenable and fix
-                          # later (DES 2014.11.07). Most likely failing because
-                          # of mis-match is version of libstdc++ supported by
-                          # the data-formatters.
     @dwarf_test
     def test_with_dwarf_and_run_command(self):
         """Test data formatter commands."""

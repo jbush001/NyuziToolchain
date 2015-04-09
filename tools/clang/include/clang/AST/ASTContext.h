@@ -383,6 +383,7 @@ private:
   ImportDecl *LastLocalImport;
   
   TranslationUnitDecl *TUDecl;
+  mutable ExternCContextDecl *ExternCContext;
 
   /// \brief The associated SourceManager object.a
   SourceManager &SourceMgr;
@@ -782,6 +783,7 @@ public:
 
   TranslationUnitDecl *getTranslationUnitDecl() const { return TUDecl; }
 
+  ExternCContextDecl *getExternCContextDecl() const;
 
   // Builtin Types.
   CanQualType VoidTy;
@@ -1936,6 +1938,8 @@ public:
   /// cv-qualifiers.
   QualType getSignatureParameterType(QualType T) const;
   
+  QualType getExceptionObjectType(QualType T) const;
+  
   /// \brief Return the properly qualified result of decaying the specified
   /// array type to a pointer.
   ///
@@ -2191,6 +2195,18 @@ public:
   /// it is not used.
   bool DeclMustBeEmitted(const Decl *D);
 
+  const CXXConstructorDecl *
+  getCopyConstructorForExceptionObject(CXXRecordDecl *RD);
+
+  void addCopyConstructorForExceptionObject(CXXRecordDecl *RD,
+                                            CXXConstructorDecl *CD);
+
+  void addDefaultArgExprForConstructor(const CXXConstructorDecl *CD,
+                                       unsigned ParmIdx, Expr *DAE);
+
+  Expr *getDefaultArgExprForConstructor(const CXXConstructorDecl *CD,
+                                        unsigned ParmIdx);
+
   void setManglingNumber(const NamedDecl *ND, unsigned Number);
   unsigned getManglingNumber(const NamedDecl *ND) const;
 
@@ -2263,8 +2279,8 @@ public:
   static unsigned NumImplicitDestructorsDeclared;
   
 private:
-  ASTContext(const ASTContext &) LLVM_DELETED_FUNCTION;
-  void operator=(const ASTContext &) LLVM_DELETED_FUNCTION;
+  ASTContext(const ASTContext &) = delete;
+  void operator=(const ASTContext &) = delete;
 
 public:
   /// \brief Initialize built-in types.

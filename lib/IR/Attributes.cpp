@@ -298,12 +298,12 @@ std::string Attribute::getAsString(bool InAttrGrp) const {
   //
   if (isStringAttribute()) {
     std::string Result;
-    Result += '\"' + getKindAsString().str() + '"';
+    Result += (Twine('"') + getKindAsString() + Twine('"')).str();
 
     StringRef Val = pImpl->getValueAsString();
     if (Val.empty()) return Result;
 
-    Result += "=\"" + Val.str() + '"';
+    Result += ("=\"" + Val + Twine('"')).str();
     return Result;
   }
 
@@ -833,6 +833,13 @@ AttributeSet AttributeSet::removeAttributes(LLVMContext &C, unsigned Index,
     AttrSet.push_back(getSlotAttributes(I));
 
   return get(C, AttrSet);
+}
+
+AttributeSet AttributeSet::addDereferenceableAttr(LLVMContext &C, unsigned Index,
+                                                  uint64_t Bytes) const {
+  llvm::AttrBuilder B;
+  B.addDereferenceableAttr(Bytes);
+  return addAttributes(C, Index, AttributeSet::get(C, Index, B));
 }
 
 //===----------------------------------------------------------------------===//

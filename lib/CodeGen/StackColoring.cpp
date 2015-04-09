@@ -364,7 +364,7 @@ void StackColoring::calculateLocalLiveness() {
       }
     }
 
-    BBSet = NextBBSet;
+    BBSet = std::move(NextBBSet);
   }// while changed.
 }
 
@@ -464,7 +464,7 @@ void StackColoring::remapInstructions(DenseMap<int, int> &SlotRemap) {
       continue;
     if (SlotRemap.count(VI.Slot)) {
       DEBUG(dbgs() << "Remapping debug info for ["
-                   << DIVariable(VI.Var).getName() << "].\n");
+                   << cast<MDLocalVariable>(VI.Var)->getName() << "].\n");
       VI.Slot = SlotRemap[VI.Slot];
       FixedDbg++;
     }

@@ -16,7 +16,6 @@
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCSectionMachO.h"
-#include "llvm/MC/MCStreamer.h"
 using namespace llvm;
 
 bool MCAsmInfoDarwin::isSectionAtomizableBySymbols(
@@ -31,6 +30,10 @@ bool MCAsmInfoDarwin::isSectionAtomizableBySymbols(
     return false;
 
   if (SMO.getSegmentName() == "__DATA" && SMO.getSectionName() == "__cfstring")
+    return false;
+
+  if (SMO.getSegmentName() == "__DATA" &&
+      SMO.getSectionName() == "__objc_classrefs")
     return false;
 
   switch (SMO.getType()) {

@@ -51,7 +51,6 @@ static void reset_stdin_termios ();
 static bool g_old_stdin_termios_is_valid = false;
 static struct termios g_old_stdin_termios;
 
-static char *g_debugger_name =  (char *) "";
 static Driver *g_driver = NULL;
 
 // In the Driver::MainLoop, we change the terminal settings.  This function is
@@ -146,16 +145,12 @@ Driver::Driver () :
     // We want to be able to handle CTRL+D in the terminal to have it terminate
     // certain input
     m_debugger.SetCloseInputOnEOF (false);
-    g_debugger_name = (char *) m_debugger.GetInstanceName();
-    if (g_debugger_name == NULL)
-        g_debugger_name = (char *) "";
     g_driver = this;
 }
 
 Driver::~Driver ()
 {
     g_driver = NULL;
-    g_debugger_name = NULL;
 }
 
 
@@ -887,9 +882,9 @@ PrepareCommandsForSourcing (const char *commands_data, size_t commands_size, int
         ssize_t nrwr = write(fds[WRITE], commands_data, commands_size);
         if (nrwr < 0)
         {
-            fprintf(stderr, "error: write(%i, %p, %zd) failed (errno = %i) "
+            fprintf(stderr, "error: write(%i, %p, %" PRIu64 ") failed (errno = %i) "
                             "when trying to open LLDB commands pipe\n",
-                    fds[WRITE], commands_data, commands_size, errno);
+                    fds[WRITE], commands_data, static_cast<uint64_t>(commands_size), errno);
             success = false;
         }
         else if (static_cast<size_t>(nrwr) == commands_size)
@@ -956,6 +951,18 @@ CleanupAfterCommandSourcing (int fds[2])
 
 }
 
+std::string
+EscapeString (std::string arg)
+{
+    std::string::size_type pos = 0;
+    while ((pos = arg.find_first_of("\"\\", pos)) != std::string::npos)
+    {
+        arg.insert (pos, 1, '\\');
+        pos += 2;
+    }
+    return '"' + arg + '"';
+}
+
 void
 Driver::MainLoop ()
 {
@@ -1005,13 +1012,13 @@ Driver::MainLoop ()
     {
         char arch_name[64];
         if (m_debugger.GetDefaultArchitecture (arch_name, sizeof (arch_name)))
-            commands_stream.Printf("target create --arch=%s \"%s\"", arch_name, m_option_data.m_args[0].c_str());
+            commands_stream.Printf("target create --arch=%s %s", arch_name, EscapeString(m_option_data.m_args[0]).c_str());
         else
-            commands_stream.Printf("target create \"%s\"", m_option_data.m_args[0].c_str());
+            commands_stream.Printf("target create %s", EscapeString(m_option_data.m_args[0]).c_str());
 
         if (!m_option_data.m_core_file.empty())
         {
-            commands_stream.Printf(" --core \"%s\"", m_option_data.m_core_file.c_str());
+            commands_stream.Printf(" --core %s", EscapeString(m_option_data.m_core_file).c_str());
         }
         commands_stream.Printf("\n");
         
@@ -1019,23 +1026,17 @@ Driver::MainLoop ()
         {
             commands_stream.Printf ("settings set -- target.run-args ");
             for (size_t arg_idx = 1; arg_idx < num_args; ++arg_idx)
-            {
-                const char *arg_cstr = m_option_data.m_args[arg_idx].c_str();
-                if (strchr(arg_cstr, '"') == NULL)
-                    commands_stream.Printf(" \"%s\"", arg_cstr);
-                else
-                    commands_stream.Printf(" '%s'", arg_cstr);
-            }
+                commands_stream.Printf(" %s", EscapeString(m_option_data.m_args[arg_idx]).c_str());
             commands_stream.Printf("\n");
         }
     }
     else if (!m_option_data.m_core_file.empty())
     {
-        commands_stream.Printf("target create --core \"%s\"\n", m_option_data.m_core_file.c_str());
+        commands_stream.Printf("target create --core %s\n", EscapeString(m_option_data.m_core_file).c_str());
     }
     else if (!m_option_data.m_process_name.empty())
     {
-        commands_stream.Printf ("process attach --name \"%s\"", m_option_data.m_process_name.c_str());
+        commands_stream.Printf ("process attach --name %s", EscapeString(m_option_data.m_process_name).c_str());
         
         if (m_option_data.m_wait_for)
             commands_stream.Printf(" --waitfor");

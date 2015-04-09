@@ -63,8 +63,8 @@ public:
     std::string Str;
     raw_string_ostream OS(Str);
 
-    if (DLoc.isUnknown() == false) {
-      DILocation DIL(DLoc.getAsMDNode(Fn.getContext()));
+    if (DLoc) {
+      DILocation DIL(DLoc.get());
       StringRef Filename = DIL.getFilename();
       unsigned Line = DIL.getLineNumber();
       unsigned Column = DIL.getColumnNumber();
@@ -88,14 +88,15 @@ public:
 int DiagnosticInfoUnsupported::KindID = 0;
 }
 
-BPFTargetLowering::BPFTargetLowering(const TargetMachine &TM)
+BPFTargetLowering::BPFTargetLowering(const TargetMachine &TM,
+                                     const BPFSubtarget &STI)
     : TargetLowering(TM) {
 
   // Set up the register classes.
   addRegisterClass(MVT::i64, &BPF::GPRRegClass);
 
   // Compute derived properties from the register classes
-  computeRegisterProperties();
+  computeRegisterProperties(STI.getRegisterInfo());
 
   setStackPointerRegisterToSaveRestore(BPF::R11);
 
@@ -136,7 +137,6 @@ BPFTargetLowering::BPFTargetLowering(const TargetMachine &TM)
   setOperationAction(ISD::SRL_PARTS, MVT::i64, Expand);
   setOperationAction(ISD::SRA_PARTS, MVT::i64, Expand);
 
-  setOperationAction(ISD::BSWAP, MVT::i64, Expand);
   setOperationAction(ISD::CTTZ, MVT::i64, Custom);
   setOperationAction(ISD::CTLZ, MVT::i64, Custom);
   setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i64, Custom);
@@ -537,12 +537,10 @@ SDValue BPFTargetLowering::LowerGlobalAddress(SDValue Op,
 MachineBasicBlock *
 BPFTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
                                                MachineBasicBlock *BB) const {
-  unsigned Opc = MI->getOpcode();
-
   const TargetInstrInfo &TII = *BB->getParent()->getSubtarget().getInstrInfo();
   DebugLoc DL = MI->getDebugLoc();
 
-  assert(Opc == BPF::Select && "Unexpected instr type to insert");
+  assert(MI->getOpcode() == BPF::Select && "Unexpected instr type to insert");
 
   // To "insert" a SELECT instruction, we actually have to insert the diamond
   // control-flow pattern.  The incoming instruction knows the destination vreg

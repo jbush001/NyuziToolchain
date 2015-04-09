@@ -14,9 +14,11 @@
 #include "lldb/Host/common/NativeThreadProtocol.h"
 
 #include <map>
+#include <string>
 
-namespace lldb_private
-{
+namespace lldb_private {
+namespace process_linux {
+
     class NativeProcessLinux;
 
     class NativeThreadLinux : public NativeThreadProtocol
@@ -76,7 +78,7 @@ namespace lldb_private
         SetStoppedByBreakpoint ();
 
         void
-        SetStoppedByWatchpoint ();
+        SetStoppedByWatchpoint (uint32_t wp_index);
 
         bool
         IsStoppedAtBreakpoint ();
@@ -112,6 +114,8 @@ namespace lldb_private
         using WatchpointIndexMap = std::map<lldb::addr_t, uint32_t>;
         WatchpointIndexMap m_watchpoint_index_map;
     };
-}
+
+} // namespace process_linux
+} // namespace lldb_private
 
 #endif // #ifndef liblldb_NativeThreadLinux_H_

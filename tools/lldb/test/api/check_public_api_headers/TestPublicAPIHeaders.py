@@ -15,6 +15,7 @@ class SBDirCheckerCase(TestBase):
     def setUp(self):
         TestBase.setUp(self)
         self.lib_dir = os.environ["LLDB_LIB_DIR"]
+        self.implib_dir = os.environ["LLDB_IMPLIB_DIR"]
         self.template = 'main.cpp.template'
         self.source = 'main.cpp'
         self.exe_name = 'a.out'
@@ -23,8 +24,8 @@ class SBDirCheckerCase(TestBase):
     def test_sb_api_directory(self):
         """Test the SB API directory and make sure there's no unwanted stuff."""
 
-        # Only proceed if this is "darwin", "x86_64", and local platform.
-        if not (sys.platform.startswith("darwin") and self.getArchitecture() == "x86_64" and not lldb.test_remote):
+        # Only proceed if this is an Apple OS, "x86_64", and local platform.
+        if not (self.platformIsDarwin() and self.getArchitecture() == "x86_64" and not lldb.test_remote):
             self.skipTest("This test is only for LLDB.framework built 64-bit and !lldb.test_remote")
         if self.getArchitecture() == "i386":
             self.skipTest("LLDB is 64-bit and cannot be linked to 32-bit test program.")
@@ -46,9 +47,9 @@ class SBDirCheckerCase(TestBase):
         # for all the SB API headers.
         public_headers = os.listdir(public_api_dir)
         # For different platforms, the include statement can vary.
-        if sys.platform.startswith("darwin"):
+        if self.platformIsDarwin():
             include_stmt = "'#include <%s>' % os.path.join('LLDB', header)"
-        if sys.platform.startswith('freebsd') or sys.platform.startswith("linux") or os.environ.get('LLDB_BUILD_TYPE') == 'Makefile':
+        if self.getPlatform() == "freebsd" or self.getPlatform() == "linux" or os.environ.get('LLDB_BUILD_TYPE') == 'Makefile':
             include_stmt = "'#include <%s>' % os.path.join(public_api_dir, header)"
         list = [eval(include_stmt) for header in public_headers if (header.startswith("SB") and
                                                                     header.endswith(".h"))]

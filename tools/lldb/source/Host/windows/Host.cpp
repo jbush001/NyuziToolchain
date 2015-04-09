@@ -20,9 +20,11 @@
 #include "lldb/Target/Process.h"
 
 #include "lldb/Host/Host.h"
+#include "lldb/Host/HostInfo.h"
 #include "lldb/Core/DataBufferHeap.h"
 #include "lldb/Core/DataExtractor.h"
 #include "lldb/Core/StreamFile.h"
+#include "lldb/Core/StructuredData.h"
 
 // Windows includes
 #include <TlHelp32.h>
@@ -217,4 +219,90 @@ HostThread
 Host::StartMonitoringChildProcess(Host::MonitorChildProcessCallback callback, void *callback_baton, lldb::pid_t pid, bool monitor_signals)
 {
     return HostThread();
+}
+
+Error
+Host::ShellExpandArguments (ProcessLaunchInfo &launch_info)
+{
+    Error error;
+    if (launch_info.GetFlags().Test(eLaunchFlagShellExpandArguments))
+    {
+        FileSpec expand_tool_spec;
+        if (!HostInfo::GetLLDBPath(lldb::ePathTypeSupportExecutableDir, expand_tool_spec))
+        {
+            error.SetErrorString("could not find argdumper tool");
+            return error;
+        }
+        expand_tool_spec.AppendPathComponent("argdumper.exe");
+        if (!expand_tool_spec.Exists())
+        {
+            error.SetErrorString("could not find argdumper tool");
+            return error;
+        }
+        
+        std::string quoted_cmd_string;
+        launch_info.GetArguments().GetQuotedCommandString(quoted_cmd_string);
+        std::replace(quoted_cmd_string.begin(), quoted_cmd_string.end(), '\\', '/');
+        StreamString expand_command;
+        
+        expand_command.Printf("%s %s",
+                              expand_tool_spec.GetPath().c_str(),
+                              quoted_cmd_string.c_str());
+        
+        int status;
+        std::string output;
+        RunShellCommand(expand_command.GetData(), launch_info.GetWorkingDirectory(), &status, nullptr, &output, 10);
+        
+        if (status != 0)
+        {
+            error.SetErrorStringWithFormat("argdumper exited with error %d", status);
+            return error;
+        }
+        
+        auto data_sp = StructuredData::ParseJSON(output);
+        if (!data_sp)
+        {
+            error.SetErrorString("invalid JSON");
+            return error;
+        }
+        
+        auto dict_sp = data_sp->GetAsDictionary();
+        if (!data_sp)
+        {
+            error.SetErrorString("invalid JSON");
+            return error;
+        }
+        
+        auto args_sp = dict_sp->GetObjectForDotSeparatedPath("arguments");
+        if (!args_sp)
+        {
+            error.SetErrorString("invalid JSON");
+            return error;
+        }
+        
+        auto args_array_sp = args_sp->GetAsArray();
+        if (!args_array_sp)
+        {
+            error.SetErrorString("invalid JSON");
+            return error;
+        }
+        
+        launch_info.GetArguments().Clear();
+        
+        for (size_t i = 0;
+             i < args_array_sp->GetSize();
+             i++)
+        {
+            auto item_sp = args_array_sp->GetItemAtIndex(i);
+            if (!item_sp)
+                continue;
+            auto str_sp = item_sp->GetAsString();
+            if (!str_sp)
+                continue;
+            
+            launch_info.GetArguments().AppendArgument(str_sp->GetValue().c_str());
+        }
+    }
+    
+    return error;
 }

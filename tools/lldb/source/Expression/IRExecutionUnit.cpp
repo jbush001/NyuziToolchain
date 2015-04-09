@@ -11,6 +11,8 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/raw_ostream.h"
+
 #include "lldb/Core/DataBufferHeap.h"
 #include "lldb/Core/DataExtractor.h"
 #include "lldb/Core/Debugger.h"
@@ -18,9 +20,11 @@
 #include "lldb/Core/Log.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/Section.h"
+#include "lldb/Symbol/SymbolContext.h"
 #include "lldb/Expression/IRExecutionUnit.h"
 #include "lldb/Target/ExecutionContext.h"
 #include "lldb/Target/Target.h"
+#include "lldb/Target/ObjCLanguageRuntime.h"
 
 using namespace lldb_private;
 
@@ -584,7 +588,7 @@ IRExecutionUnit::MemoryManager::allocateCodeSection(uintptr_t Size,
     if (log)
     {
         log->Printf("IRExecutionUnit::allocateCodeSection(Size=0x%" PRIx64 ", Alignment=%u, SectionID=%u) = %p",
-                    (uint64_t)Size, Alignment, SectionID, return_value);
+                    (uint64_t)Size, Alignment, SectionID, (void *)return_value);
     }
 
     return return_value;
@@ -611,7 +615,7 @@ IRExecutionUnit::MemoryManager::allocateDataSection(uintptr_t Size,
     if (log)
     {
         log->Printf("IRExecutionUnit::allocateDataSection(Size=0x%" PRIx64 ", Alignment=%u, SectionID=%u) = %p",
-                    (uint64_t)Size, Alignment, SectionID, return_value);
+                    (uint64_t)Size, Alignment, SectionID, (void *)return_value);
     }
 
     return return_value;

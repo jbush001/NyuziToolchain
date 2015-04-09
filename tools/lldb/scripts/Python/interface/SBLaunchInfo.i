@@ -91,6 +91,12 @@ public:
 
     void
     SetShell (const char * path);
+    
+    bool
+    GetShellExpandArguments ();
+    
+    void
+    SetShellExpandArguments (bool expand);
 
     uint32_t
     GetResumeCount ();

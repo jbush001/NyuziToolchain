@@ -7,18 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-//++
-// File:        MICmnMIOutOfBandRecord.h
-//
-// Overview:    CMICmnMIOutOfBandRecord implementation.
-//
-// Environment: Compilers:  Visual C++ 12.
-//                          gcc (Ubuntu/Linaro 4.8.1-10ubuntu9) 4.8.1
-//              Libraries:  See MIReadmetxt.
-//
-// Copyright:   None.
-//--
-
 // In-house headers:
 #include "MICmnMIOutOfBandRecord.h"
 #include "MICmnResources.h"
@@ -36,7 +24,9 @@ CMICmnMIOutOfBandRecord::MapOutOfBandToOutOfBandText_t ms_MapOutOfBandToOutOfBan
     {CMICmnMIOutOfBandRecord::eOutOfBand_ThreadGroupStarted, "thread-group-started"},
     {CMICmnMIOutOfBandRecord::eOutOfBand_ThreadCreated, "thread-created"},
     {CMICmnMIOutOfBandRecord::eOutOfBand_ThreadExited, "thread-exited"},
-    {CMICmnMIOutOfBandRecord::eOutOfBand_ThreadSelected, "thread-selected"}};
+    {CMICmnMIOutOfBandRecord::eOutOfBand_ThreadSelected, "thread-selected"},
+    {CMICmnMIOutOfBandRecord::eOutOfBand_TargetModulesLoaded, "shlibs-added"},
+    {CMICmnMIOutOfBandRecord::eOutOfBand_TargetModulesUnloaded, "shlibs-removed"}};
 CMICmnMIOutOfBandRecord::MapOutOfBandToOutOfBandText_t ms_constMapAsyncRecordTextToToken = {
     {CMICmnMIOutOfBandRecord::eOutOfBand_Running, "*"},
     {CMICmnMIOutOfBandRecord::eOutOfBand_Stopped, "*"},
@@ -49,7 +39,9 @@ CMICmnMIOutOfBandRecord::MapOutOfBandToOutOfBandText_t ms_constMapAsyncRecordTex
     {CMICmnMIOutOfBandRecord::eOutOfBand_ThreadGroupStarted, "="},
     {CMICmnMIOutOfBandRecord::eOutOfBand_ThreadCreated, "="},
     {CMICmnMIOutOfBandRecord::eOutOfBand_ThreadExited, "="},
-    {CMICmnMIOutOfBandRecord::eOutOfBand_ThreadSelected, "="}};
+    {CMICmnMIOutOfBandRecord::eOutOfBand_ThreadSelected, "="},
+    {CMICmnMIOutOfBandRecord::eOutOfBand_TargetModulesLoaded, "="},
+    {CMICmnMIOutOfBandRecord::eOutOfBand_TargetModulesUnloaded, "="}};
 
 //++ ------------------------------------------------------------------------------------
 // Details: CMICmnMIOutOfBandRecord constructor.

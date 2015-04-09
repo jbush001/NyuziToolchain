@@ -7,24 +7,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-//++
-// File:        MIUtilString.h
-//
-// Overview:    CMIUtilString implementation.
-//
-// Environment: Compilers:  Visual C++ 12.
-//                          gcc (Ubuntu/Linaro 4.8.1-10ubuntu9) 4.8.1
-//              Libraries:  See MIReadmetxt.
-//
-// Copyright:   None.
-//--
-
 // Third party headers
-#include <memory>   // std::unique_ptr
-#include <stdarg.h> // va_list, va_start, var_end
-#include <sstream>  // std::stringstream
-#include <string.h> // for strcpy
-#include <limits.h> // for ULONG_MAX
+#include <inttypes.h> // for PRIx8
+#include <limits.h>   // for ULONG_MAX
+#include <memory>     // std::unique_ptr
+#include <sstream>    // std::stringstream
+#include <stdarg.h>   // va_list, va_start, var_end
+#include <string.h>   // for strncmp
 
 // In-house headers:
 #include "MIUtilString.h"
@@ -224,39 +213,29 @@ CMIUtilString::Split(const CMIUtilString &vDelimiter, VecString_t &vwVecSplits) 
     if (this->empty() || vDelimiter.empty())
         return 0;
 
-    MIint nPos = find(vDelimiter);
-    if (nPos == (MIint)std::string::npos)
+    const MIuint nLen(length());
+    MIuint nOffset(0);
+    do
     {
-        vwVecSplits.push_back(*this);
-        return 1;
-    }
-    const MIint strLen(length());
-    if (nPos == strLen)
-    {
-        vwVecSplits.push_back(*this);
-        return 1;
-    }
+        // Find first occurrence which doesn't match to the delimiter
+        const MIuint nSectionPos(FindFirstNot(vDelimiter, nOffset));
+        if (nSectionPos == (MIuint)std::string::npos)
+            break;
 
-    MIuint nAdd1(1);
-    if ((nPos > 0) && (substr(0, nPos) != vDelimiter))
-    {
-        nPos = 0;
-        nAdd1 = 0;
-    }
-    MIint nPos2 = find(vDelimiter, nPos + 1);
-    while (nPos2 != (MIint)std::string::npos)
-    {
-        const MIuint len(nPos2 - nPos - nAdd1);
-        const std::string strSection(substr(nPos + nAdd1, len));
-        if (strSection != vDelimiter)
-            vwVecSplits.push_back(strSection.c_str());
-        nPos += len + 1;
-        nPos2 = find(vDelimiter, nPos + 1);
-        nAdd1 = 0;
-    }
-    const std::string strSection(substr(nPos, strLen - nPos));
-    if ((strSection.length() != 0) && (strSection != vDelimiter))
+        // Find next occurrence of the delimiter after section
+        MIuint nNextDelimiterPos(FindFirst(vDelimiter, nSectionPos));
+        if (nNextDelimiterPos == (MIuint)std::string::npos)
+            nNextDelimiterPos = nLen;
+
+        // Extract string between delimiters
+        const MIuint nSectionLen(nNextDelimiterPos - nSectionPos);
+        const std::string strSection(substr(nSectionPos, nSectionLen));
         vwVecSplits.push_back(strSection.c_str());
+
+        // Next
+        nOffset = nNextDelimiterPos + 1;
+    }
+    while (nOffset < nLen);
 
     return vwVecSplits.size();
 }
@@ -283,82 +262,51 @@ CMIUtilString::SplitConsiderQuotes(const CMIUtilString &vDelimiter, VecString_t 
     if (this->empty() || vDelimiter.empty())
         return 0;
 
-    MIint nPos = find(vDelimiter);
-    if (nPos == (MIint)std::string::npos)
+    const MIuint nLen(length());
+    MIuint nOffset(0);
+    do
     {
-        vwVecSplits.push_back(*this);
-        return 1;
-    }
-    const MIint strLen(length());
-    if (nPos == strLen)
-    {
-        vwVecSplits.push_back(*this);
-        return 1;
-    }
+        // Find first occurrence which doesn't match to the delimiter
+        const MIuint nSectionPos(FindFirstNot(vDelimiter, nOffset));
+        if (nSectionPos == (MIuint)std::string::npos)
+            break;
 
-    // Look for more quotes
-    bool bHaveQuotes = false;
-    const MIchar cBckSlash = '\\';
-    const MIchar cQuote = '"';
-    MIint nPosQ = find(cQuote);
-    MIint nPosQ2 = (MIint)std::string::npos;
-    if (nPosQ != (MIint)std::string::npos)
-    {
-        nPosQ2 = nPosQ + 1;
-        while (nPosQ2 < strLen)
+        // Find next occurrence of the delimiter after (quoted) section
+        const bool bSkipQuotedText(true);
+        bool bUnmatchedQuote(false);
+        MIuint nNextDelimiterPos(FindFirst(vDelimiter, bSkipQuotedText, bUnmatchedQuote, nSectionPos));
+        if (bUnmatchedQuote)
         {
-            nPosQ2 = find(cQuote, nPosQ2);
-            if ((nPosQ2 == (MIint)std::string::npos) || (at(nPosQ2 - 1) != cBckSlash))
-                break;
-            nPosQ2++;
+            vwVecSplits.clear();
+            return 0;
         }
-        bHaveQuotes = (nPosQ2 != (MIint)std::string::npos);
-    }
+        if (nNextDelimiterPos == (MIuint)std::string::npos)
+            nNextDelimiterPos = nLen;
 
-    MIuint nAdd1(1);
-    if ((nPos > 0) && (substr(0, nPos) != vDelimiter))
-    {
-        nPos = 0;
-        nAdd1 = 0;
-    }
-    MIint nPos2 = find(vDelimiter, nPos + 1);
-    while (nPos2 != (MIint)std::string::npos)
-    {
-        if (!bHaveQuotes || (bHaveQuotes && ((nPos2 > nPosQ2) || (nPos2 < nPosQ))))
-        {
-            // Extract text or quoted text
-            const MIuint len(nPos2 - nPos - nAdd1);
-            const std::string strSection(substr(nPos + nAdd1, len));
-            if (strSection != vDelimiter)
-                vwVecSplits.push_back(strSection.c_str());
-            nPos += len + 1;
-            nPos2 = find(vDelimiter, nPos + 1);
-            nAdd1 = 0;
-
-            if (bHaveQuotes && (nPos2 > nPosQ2))
-            {
-                // Reset, look for more quotes
-                bHaveQuotes = false;
-                nPosQ = find(cQuote, nPos);
-                nPosQ2 = (MIint)std::string::npos;
-                if (nPosQ != (MIint)std::string::npos)
-                {
-                    nPosQ2 = find(cQuote, nPosQ + 1);
-                    bHaveQuotes = (nPosQ2 != (MIint)std::string::npos);
-                }
-            }
-        }
-        else
-        {
-            // Skip passed text in quotes
-            nPos2 = find(vDelimiter, nPosQ2 + 1);
-        }
-    }
-    const std::string strSection(substr(nPos, strLen - nPos));
-    if ((strSection.length() != 0) && (strSection != vDelimiter))
+        // Extract string between delimiters
+        const MIuint nSectionLen(nNextDelimiterPos - nSectionPos);
+        const std::string strSection(substr(nSectionPos, nSectionLen));
         vwVecSplits.push_back(strSection.c_str());
 
+        // Next
+        nOffset = nNextDelimiterPos + 1;
+    }
+    while (nOffset < nLen);
+
     return vwVecSplits.size();
+}
+
+//++ ------------------------------------------------------------------------------------
+// Details: Split string into lines using \n and return an array of strings.
+// Type:    Method.
+// Args:    vwVecSplits - (W) Container of splits found in string data.
+// Return:  MIuint - Number of splits found in the string data.
+// Throws:  None.
+//--
+MIuint
+CMIUtilString::SplitLines(VecString_t &vwVecSplits) const
+{
+    return Split("\n", vwVecSplits);
 }
 
 //++ ------------------------------------------------------------------------------------
@@ -449,6 +397,28 @@ CMIUtilString::IsNumber(void) const
 }
 
 //++ ------------------------------------------------------------------------------------
+// Details: Check if *this string is a hexadecimal number.
+// Type:    Method.
+// Args:    None.
+// Return:  bool - True = yes number, false not a number.
+// Throws:  None.
+//--
+bool
+CMIUtilString::IsHexadecimalNumber(void) const
+{
+    // Compare '0x..' prefix
+    if ((strncmp(c_str(), "0x", 2) != 0) && (strncmp(c_str(), "0X", 2) != 0))
+        return false;
+
+    // Skip '0x..' prefix
+    const MIint nPos = find_first_not_of("01234567890ABCDEFabcedf", 2);
+    if (nPos != (MIint)std::string::npos)
+        return false;
+
+    return true;
+}
+
+//++ ------------------------------------------------------------------------------------
 // Details: Extract the number from the string. The number can be either a hexadecimal or
 //          natural number. It cannot contain other non-numeric characters.
 // Type:    Method.
@@ -487,16 +457,16 @@ CMIUtilString::ExtractNumberFromHexadecimal(MIint64 &vwrNumber) const
 {
     vwrNumber = 0;
 
-    const MIint nPos = find_first_not_of("x01234567890ABCDEFabcedf");
+    const MIint nPos = find_first_not_of("xX01234567890ABCDEFabcedf");
     if (nPos != (MIint)std::string::npos)
         return false;
 
-    const MIint64 nNum = ::strtoul(this->c_str(), nullptr, 16);
-    if (nNum != LONG_MAX)
-    {
-        vwrNumber = nNum;
-        return true;
-    }
+    errno = 0;
+    const MIuint64 nNum = ::strtoull(this->c_str(), nullptr, 16);
+    if (errno == ERANGE)
+        return false;
+
+    vwrNumber = static_cast<MIint64>(nNum);
 
     return true;
 }
@@ -695,4 +665,275 @@ CMIUtilString::IsQuoted(void) const
         return false;
 
     return true;
+}
+
+//++ ------------------------------------------------------------------------------------
+// Details: Find first occurence in *this string which maches the pattern.
+// Type:    Method.
+// Args:    vrPattern   - (R) The pattern to search for.
+//          vnPos       - (R) The starting position at which to start searching. (Dflt = 0)
+// Return:  MIuint - The position of the first substring that match.
+// Throws:  None.
+//--
+MIuint
+CMIUtilString::FindFirst(const CMIUtilString &vrPattern, const MIuint vnPos /* = 0 */) const
+{
+    return find(vrPattern, vnPos);
+}
+
+//++ ------------------------------------------------------------------------------------
+// Details: Find first occurence in *this string which maches the pattern and isn't surrounded by quotes.
+// Type:    Method.
+// Args:    vrPattern                 - (R) The pattern to search for.
+//          vbSkipQuotedText          - (R) True = don't look at quoted text, false = otherwise.
+//          vrwbNotFoundClosedQuote   - (W) True = parsing error: unmatched quote, false = otherwise.
+//          vnPos                     - (R) Position of the first character in the string to be considered in the search. (Dflt = 0)
+// Return:  MIuint - The position of the first substring that matches and isn't quoted.
+// Throws:  None.
+//--
+MIuint
+CMIUtilString::FindFirst(const CMIUtilString &vrPattern, const bool vbSkipQuotedText, bool &vrwbNotFoundClosedQuote,
+                         const MIuint vnPos /* = 0 */) const
+{
+    vrwbNotFoundClosedQuote = false;
+
+    if (!vbSkipQuotedText)
+        return FindFirst(vrPattern, vnPos);
+
+    const MIuint nLen(length());
+
+    MIuint nPos = vnPos;
+    do
+    {
+        const MIuint nQuotePos(FindFirstQuote(nPos));
+        const MIuint nPatternPos(FindFirst(vrPattern, nPos));
+        if (nQuotePos == (MIuint)std::string::npos)
+            return nPatternPos;
+
+        const MIuint nQuoteClosedPos = FindFirstQuote(nQuotePos + 1);
+        if (nQuoteClosedPos == (MIuint)std::string::npos)
+        {
+            vrwbNotFoundClosedQuote = true;
+            return (MIuint)std::string::npos;
+        }
+
+        if ((nPatternPos == (MIuint)std::string::npos) || (nPatternPos < nQuotePos))
+            return nPatternPos;
+
+        nPos = nQuoteClosedPos + 1;
+    }
+    while (nPos < nLen);
+
+    return (MIuint)std::string::npos;
+}
+
+//++ ------------------------------------------------------------------------------------
+// Details: Find first occurence in *this string which doesn't mach to the pattern.
+// Type:    Method.
+// Args:    vrPattern   - (R) The pattern to search for.
+//          vnPos       - (R) Position of the first character in the string to be considered in the search. (Dflt = 0)
+// Return:  MIuint - The position of the first character that doesn't match.
+// Throws:  None.
+//--
+MIuint
+CMIUtilString::FindFirstNot(const CMIUtilString &vrPattern, const MIuint vnPos /* = 0 */) const
+{
+    const MIuint nLen(length());
+    const MIuint nPatternLen(vrPattern.length());
+
+    MIuint nPatternPos(vnPos);
+    do
+    {
+        const bool bMatchPattern(compare(nPatternPos, nPatternLen, vrPattern) == 0);
+        if (!bMatchPattern)
+            return nPatternPos;
+        nPatternPos += nPatternLen;
+    }
+    while (nPatternPos < nLen);
+
+    return (MIuint)std::string::npos;
+}
+
+//++ ------------------------------------------------------------------------------------
+// Details: Find first occurence of not escaped quotation mark in *this string.
+// Type:    Method.
+// Args:    vnPos   - (R) Position of the first character in the string to be considered in the search.
+// Return:  MIuint - The position of the quotation mark.
+// Throws:  None.
+//--
+MIuint
+CMIUtilString::FindFirstQuote(const MIuint vnPos) const
+{
+    const MIchar cBckSlash('\\');
+    const MIchar cQuote('"');
+    const MIuint nLen(length());
+
+    MIuint nPos = vnPos;
+    do
+    {
+        const MIuint nBckSlashPos(find(cBckSlash, nPos));
+        const MIuint nQuotePos(find(cQuote, nPos));
+        if ((nBckSlashPos == (MIuint)std::string::npos) || (nQuotePos == (MIuint)std::string::npos))
+            return nQuotePos;
+
+        if (nQuotePos < nBckSlashPos)
+            return nQuotePos;
+
+        // Skip 2 characters: First is '\', second is that which is escaped by '\'
+        nPos = nBckSlashPos + 2;
+    }
+    while (nPos < nLen);
+
+    return (MIuint)std::string::npos;
+}
+
+//++ ------------------------------------------------------------------------------------
+// Details: Get escaped string from *this string.
+// Type:    Method.
+// Args:    None.
+// Return:  CMIUtilString - The escaped version of the initial string.
+// Throws:  None.
+//--
+CMIUtilString
+CMIUtilString::Escape(const bool vbEscapeQuotes /* = false */) const
+{
+    const MIuint nLen(length());
+    CMIUtilString strNew;
+    strNew.reserve(nLen);
+    for (MIuint nIndex(0); nIndex < nLen; ++nIndex)
+    {
+        const MIchar cUnescapedChar((*this)[nIndex]);
+        switch (cUnescapedChar)
+        {
+            case '\a':
+                strNew.append("\\a");
+                break;
+            case '\b':
+                strNew.append("\\b");
+                break;
+            case '\t':
+                strNew.append("\\t");
+                break;
+            case '\n':
+                strNew.append("\\n");
+                break;
+            case '\v':
+                strNew.append("\\v");
+                break;
+            case '\f':
+                strNew.append("\\f");
+                break;
+            case '\r':
+                strNew.append("\\r");
+                break;
+            case '\033':
+                strNew.append("\\e");
+                break;
+            case '\\':
+                strNew.append("\\\\");
+                break;
+            case '\"':
+                if (vbEscapeQuotes)
+                {
+                    strNew.append("\\\"");
+                    break;
+                }
+                // FALLTHROUGH
+            default:
+                if (::isprint(cUnescapedChar))
+                    strNew.push_back(cUnescapedChar);
+                else
+                {
+                    char strEscapedChar[sizeof("\\xXX")];
+                    ::sprintf(strEscapedChar, "\\x%02" PRIx8, cUnescapedChar);
+                    strNew.append(strEscapedChar);
+                }
+                break;
+        }
+    }
+    return strNew;
+}
+
+//++ ------------------------------------------------------------------------------------
+// Details: Get string with backslashes in front of double quote '"' and backslash '\\'
+//          characters.
+// Type:    Method.
+// Args:    None.
+// Return:  CMIUtilString - The wrapped version of the initial string.
+// Throws:  None.
+//--
+CMIUtilString
+CMIUtilString::AddSlashes(void) const
+{
+    const MIchar cBckSlash('\\');
+    const MIuint nLen(length());
+    CMIUtilString strNew;
+    strNew.reserve(nLen);
+
+    MIuint nOffset(0);
+    while (nOffset < nLen)
+    {
+        const MIuint nUnescapedCharPos(find_first_of("\"\\", nOffset));
+        const bool bUnescapedCharNotFound(nUnescapedCharPos == (MIuint)std::string::npos);
+        if (bUnescapedCharNotFound)
+        {
+            const MIuint nAppendAll((MIuint)std::string::npos);
+            strNew.append(*this, nOffset, nAppendAll);
+            break;
+        }
+        const MIuint nAppendLen(nUnescapedCharPos - nOffset);
+        strNew.append(*this, nOffset, nAppendLen);
+        strNew.push_back(cBckSlash);
+        const MIchar cUnescapedChar((*this)[nUnescapedCharPos]);
+        strNew.push_back(cUnescapedChar);
+        nOffset = nUnescapedCharPos + 1;
+    }
+
+    return strNew;
+}
+
+//++ ------------------------------------------------------------------------------------
+// Details: Remove backslashes added by CMIUtilString::AddSlashes.
+// Type:    Method.
+// Args:    None.
+// Return:  CMIUtilString - The initial version of wrapped string.
+// Throws:  None.
+//--
+CMIUtilString
+CMIUtilString::StripSlashes(void) const
+{
+    const MIchar cBckSlash('\\');
+    const MIuint nLen(length());
+    CMIUtilString strNew;
+    strNew.reserve(nLen);
+
+    MIuint nOffset(0);
+    while (nOffset < nLen)
+    {
+        const MIuint nBckSlashPos(find(cBckSlash, nOffset));
+        const bool bBckSlashNotFound(nBckSlashPos == (MIuint)std::string::npos);
+        if (bBckSlashNotFound)
+        {
+            const MIuint nAppendAll((MIuint)std::string::npos);
+            strNew.append(*this, nOffset, nAppendAll);
+            break;
+        }
+        const MIuint nAppendLen(nBckSlashPos - nOffset);
+        strNew.append(*this, nOffset, nAppendLen);
+        const bool bBckSlashIsLast(nBckSlashPos == nLen);
+        if (bBckSlashIsLast)
+        {
+            strNew.push_back(cBckSlash);
+            break;
+        }
+        const MIchar cEscapedChar((*this)[nBckSlashPos + 1]);
+        const MIuint nEscapedCharPos(std::string("\"\\").find(cEscapedChar));
+        const bool bEscapedCharNotFound(nEscapedCharPos == (MIuint)std::string::npos);
+        if (bEscapedCharNotFound)
+            strNew.push_back(cBckSlash);
+        strNew.push_back(cEscapedChar);
+        nOffset = nBckSlashPos + 2;
+    }
+
+    return strNew;
 }

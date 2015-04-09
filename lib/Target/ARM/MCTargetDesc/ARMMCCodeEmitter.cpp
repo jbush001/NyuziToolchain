@@ -37,8 +37,8 @@ STATISTIC(MCNumCPRelocations, "Number of constant pool relocations created.");
 
 namespace {
 class ARMMCCodeEmitter : public MCCodeEmitter {
-  ARMMCCodeEmitter(const ARMMCCodeEmitter &) LLVM_DELETED_FUNCTION;
-  void operator=(const ARMMCCodeEmitter &) LLVM_DELETED_FUNCTION;
+  ARMMCCodeEmitter(const ARMMCCodeEmitter &) = delete;
+  void operator=(const ARMMCCodeEmitter &) = delete;
   const MCInstrInfo &MCII;
   const MCContext &CTX;
   bool IsLittleEndian;
@@ -441,14 +441,12 @@ public:
 
 MCCodeEmitter *llvm::createARMLEMCCodeEmitter(const MCInstrInfo &MCII,
                                               const MCRegisterInfo &MRI,
-                                              const MCSubtargetInfo &STI,
                                               MCContext &Ctx) {
   return new ARMMCCodeEmitter(MCII, Ctx, true);
 }
 
 MCCodeEmitter *llvm::createARMBEMCCodeEmitter(const MCInstrInfo &MCII,
                                               const MCRegisterInfo &MRI,
-                                              const MCSubtargetInfo &STI,
                                               MCContext &Ctx) {
   return new ARMMCCodeEmitter(MCII, Ctx, false);
 }

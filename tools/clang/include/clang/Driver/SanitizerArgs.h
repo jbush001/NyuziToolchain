@@ -18,7 +18,6 @@
 namespace clang {
 namespace driver {
 
-class Driver;
 class ToolChain;
 
 class SanitizerArgs {
@@ -49,16 +48,15 @@ class SanitizerArgs {
   bool needsUbsanRt() const;
   bool needsDfsanRt() const { return Sanitizers.has(SanitizerKind::DataFlow); }
 
-  bool sanitizesVptr() const { return Sanitizers.has(SanitizerKind::Vptr); }
   bool requiresPIE() const;
   bool needsUnwindTables() const;
+  bool needsLTO() const;
   bool linkCXXRuntimes() const { return LinkCXXRuntimes; }
   void addArgs(const llvm::opt::ArgList &Args,
                llvm::opt::ArgStringList &CmdArgs) const;
 
  private:
   void clear();
-  bool getDefaultBlacklist(const Driver &D, std::string &BLPath);
 };
 
 }  // namespace driver

@@ -21,6 +21,7 @@
 // C++ Includes
 // Other libraries and framework includes
 // Project includes
+#include "lldb/Breakpoint/BreakpointSite.h"
 #include "lldb/Core/Error.h"
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/Module.h"
@@ -28,6 +29,7 @@
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Host/HostInfo.h"
+#include "lldb/Target/Process.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -118,6 +120,8 @@ static uint32_t g_initialize_count = 0;
 void
 PlatformFreeBSD::Initialize ()
 {
+    Platform::Initialize ();
+
     if (g_initialize_count++ == 0)
     {
 #if defined (__FreeBSD__)
@@ -137,6 +141,8 @@ PlatformFreeBSD::Terminate ()
 {
     if (g_initialize_count > 0 && --g_initialize_count == 0)
     	PluginManager::UnregisterPlugin (PlatformFreeBSD::CreateInstance);
+
+    Platform::Terminate ();
 }
 
 //------------------------------------------------------------------
@@ -159,6 +165,18 @@ PlatformFreeBSD::~PlatformFreeBSD()
 }
 
 //TODO:VK: inherit PlatformPOSIX
+
+bool
+PlatformFreeBSD::GetModuleSpec (const FileSpec& module_file_spec,
+                                const ArchSpec& arch,
+                                ModuleSpec &module_spec)
+{
+    if (m_remote_platform_sp)
+        return m_remote_platform_sp->GetModuleSpec (module_file_spec, arch, module_spec);
+
+    return Platform::GetModuleSpec (module_file_spec, arch, module_spec);
+}
+
 lldb_private::Error
 PlatformFreeBSD::RunShellCommand (const char *command,
                                   const char *working_dir,
@@ -214,9 +232,7 @@ PlatformFreeBSD::ResolveExecutable (const ModuleSpec &module_spec,
     {
         if (m_remote_platform_sp)
         {
-            error = m_remote_platform_sp->ResolveExecutable (module_spec,
-                                                             exe_module_sp,
-                                                             module_search_paths_ptr);
+            error = GetCachedExecutable (resolved_module_spec, exe_module_sp, module_search_paths_ptr, *m_remote_platform_sp);
         }
         else
         {
@@ -597,6 +613,7 @@ PlatformFreeBSD::GetFileWithUUID (const FileSpec &platform_file,
 
 Error
 PlatformFreeBSD::GetSharedModule (const ModuleSpec &module_spec,
+                                  Process* process,
                                   ModuleSP &module_sp,
                                   const FileSpecList *module_search_paths_ptr,
                                   ModuleSP *old_module_sp_ptr,
@@ -612,6 +629,7 @@ PlatformFreeBSD::GetSharedModule (const ModuleSpec &module_spec,
         if (m_remote_platform_sp)
         {
             error = m_remote_platform_sp->GetSharedModule (module_spec,
+                                                           process,
                                                            module_sp,
                                                            module_search_paths_ptr,
                                                            old_module_sp_ptr,
@@ -623,6 +641,7 @@ PlatformFreeBSD::GetSharedModule (const ModuleSpec &module_spec,
     {
         // Fall back to the local platform and find the file locally
         error = Platform::GetSharedModule (module_spec,
+                                           process,
                                            module_sp,
                                            module_search_paths_ptr,
                                            old_module_sp_ptr,

@@ -111,8 +111,8 @@ struct ParseStatementInfo {
 
 /// \brief The concrete assembly parser instance.
 class AsmParser : public MCAsmParser {
-  AsmParser(const AsmParser &) LLVM_DELETED_FUNCTION;
-  void operator=(const AsmParser &) LLVM_DELETED_FUNCTION;
+  AsmParser(const AsmParser &) = delete;
+  void operator=(const AsmParser &) = delete;
 private:
   AsmLexer Lexer;
   MCContext &Ctx;
@@ -339,8 +339,8 @@ private:
     DK_WEAK_DEF_CAN_BE_HIDDEN, DK_COMM, DK_COMMON, DK_LCOMM, DK_ABORT,
     DK_INCLUDE, DK_INCBIN, DK_CODE16, DK_CODE16GCC, DK_REPT, DK_IRP, DK_IRPC,
     DK_IF, DK_IFEQ, DK_IFGE, DK_IFGT, DK_IFLE, DK_IFLT, DK_IFNE, DK_IFB,
-    DK_IFNB, DK_IFC, DK_IFEQS, DK_IFNC, DK_IFDEF, DK_IFNDEF, DK_IFNOTDEF,
-    DK_ELSEIF, DK_ELSE, DK_ENDIF,
+    DK_IFNB, DK_IFC, DK_IFEQS, DK_IFNC, DK_IFNES, DK_IFDEF, DK_IFNDEF,
+    DK_IFNOTDEF, DK_ELSEIF, DK_ELSE, DK_ENDIF,
     DK_SPACE, DK_SKIP, DK_FILE, DK_LINE, DK_LOC, DK_STABS,
     DK_CFI_SECTIONS, DK_CFI_STARTPROC, DK_CFI_ENDPROC, DK_CFI_DEF_CFA,
     DK_CFI_DEF_CFA_OFFSET, DK_CFI_ADJUST_CFA_OFFSET, DK_CFI_DEF_CFA_REGISTER,
@@ -435,8 +435,8 @@ private:
   bool parseDirectiveIfb(SMLoc DirectiveLoc, bool ExpectBlank);
   // ".ifc" or ".ifnc", depending on ExpectEqual.
   bool parseDirectiveIfc(SMLoc DirectiveLoc, bool ExpectEqual);
-  // ".ifeqs"
-  bool parseDirectiveIfeqs(SMLoc DirectiveLoc);
+  // ".ifeqs" or ".ifnes", depending on ExpectEqual.
+  bool parseDirectiveIfeqs(SMLoc DirectiveLoc, bool ExpectEqual);
   // ".ifdef" or ".ifndef", depending on expect_defined
   bool parseDirectiveIfdef(SMLoc DirectiveLoc, bool expect_defined);
   bool parseDirectiveElseIf(SMLoc DirectiveLoc); // ".elseif"
@@ -486,10 +486,10 @@ extern MCAsmParserExtension *createCOFFAsmParser();
 
 enum { DEFAULT_ADDRSPACE = 0 };
 
-AsmParser::AsmParser(SourceMgr &_SM, MCContext &_Ctx, MCStreamer &_Out,
-                     const MCAsmInfo &_MAI)
-    : Lexer(_MAI), Ctx(_Ctx), Out(_Out), MAI(_MAI), SrcMgr(_SM),
-      PlatformParser(nullptr), CurBuffer(_SM.getMainFileID()),
+AsmParser::AsmParser(SourceMgr &SM, MCContext &Ctx, MCStreamer &Out,
+                     const MCAsmInfo &MAI)
+    : Lexer(MAI), Ctx(Ctx), Out(Out), MAI(MAI), SrcMgr(SM),
+      PlatformParser(nullptr), CurBuffer(SM.getMainFileID()),
       MacrosEnabledFlag(true), HadError(false), CppHashLineNumber(0),
       AssemblerDialect(~0U), IsDarwin(false), ParsingInlineAsm(false) {
   // Save the old handler.
@@ -500,7 +500,7 @@ AsmParser::AsmParser(SourceMgr &_SM, MCContext &_Ctx, MCStreamer &_Out,
   Lexer.setBuffer(SrcMgr.getMemoryBuffer(CurBuffer)->getBuffer());
 
   // Initialize the platform / file format parser.
-  switch (_Ctx.getObjectFileInfo()->getObjectFileType()) {
+  switch (Ctx.getObjectFileInfo()->getObjectFileType()) {
   case MCObjectFileInfo::IsCOFF:
     PlatformParser.reset(createCOFFAsmParser());
     break;
@@ -1244,9 +1244,11 @@ bool AsmParser::parseStatement(ParseStatementInfo &Info,
   case DK_IFC:
     return parseDirectiveIfc(IDLoc, true);
   case DK_IFEQS:
-    return parseDirectiveIfeqs(IDLoc);
+    return parseDirectiveIfeqs(IDLoc, true);
   case DK_IFNC:
     return parseDirectiveIfc(IDLoc, false);
+  case DK_IFNES:
+    return parseDirectiveIfeqs(IDLoc, false);
   case DK_IFDEF:
     return parseDirectiveIfdef(IDLoc, true);
   case DK_IFNDEF:
@@ -2791,7 +2793,7 @@ bool AsmParser::parseDirectiveFile(SMLoc DirectiveLoc) {
   if (FileNumber == -1)
     getStreamer().EmitFileDirective(Filename);
   else {
-    if (getContext().getGenDwarfForAssembly() == true)
+    if (getContext().getGenDwarfForAssembly())
       Error(DirectiveLoc,
             "input can't have .file dwarf directives when -g is "
             "used to generate dwarf debug info for assembly code");
@@ -3636,21 +3638,27 @@ bool AsmParser::parseDirectiveSpace(StringRef IDVal) {
 }
 
 /// parseDirectiveLEB128
-/// ::= (.sleb128 | .uleb128) expression
+/// ::= (.sleb128 | .uleb128) [ expression (, expression)* ]
 bool AsmParser::parseDirectiveLEB128(bool Signed) {
   checkForValidSection();
   const MCExpr *Value;
 
-  if (parseExpression(Value))
-    return true;
+  for (;;) {
+    if (parseExpression(Value))
+      return true;
 
-  if (getLexer().isNot(AsmToken::EndOfStatement))
-    return TokError("unexpected token in directive");
+    if (Signed)
+      getStreamer().EmitSLEB128Value(Value);
+    else
+      getStreamer().EmitULEB128Value(Value);
 
-  if (Signed)
-    getStreamer().EmitSLEB128Value(Value);
-  else
-    getStreamer().EmitULEB128Value(Value);
+    if (getLexer().is(AsmToken::EndOfStatement))
+      break;
+
+    if (getLexer().isNot(AsmToken::Comma))
+      return TokError("unexpected token in directive");
+    Lex();
+  }
 
   return false;
 }
@@ -3937,9 +3945,12 @@ bool AsmParser::parseDirectiveIfc(SMLoc DirectiveLoc, bool ExpectEqual) {
 
 /// parseDirectiveIfeqs
 ///   ::= .ifeqs string1, string2
-bool AsmParser::parseDirectiveIfeqs(SMLoc DirectiveLoc) {
+bool AsmParser::parseDirectiveIfeqs(SMLoc DirectiveLoc, bool ExpectEqual) {
   if (Lexer.isNot(AsmToken::String)) {
-    TokError("expected string parameter for '.ifeqs' directive");
+    if (ExpectEqual)
+      TokError("expected string parameter for '.ifeqs' directive");
+    else
+      TokError("expected string parameter for '.ifnes' directive");
     eatToEndOfStatement();
     return true;
   }
@@ -3948,7 +3959,10 @@ bool AsmParser::parseDirectiveIfeqs(SMLoc DirectiveLoc) {
   Lex();
 
   if (Lexer.isNot(AsmToken::Comma)) {
-    TokError("expected comma after first string for '.ifeqs' directive");
+    if (ExpectEqual)
+      TokError("expected comma after first string for '.ifeqs' directive");
+    else
+      TokError("expected comma after first string for '.ifnes' directive");
     eatToEndOfStatement();
     return true;
   }
@@ -3956,7 +3970,10 @@ bool AsmParser::parseDirectiveIfeqs(SMLoc DirectiveLoc) {
   Lex();
 
   if (Lexer.isNot(AsmToken::String)) {
-    TokError("expected string parameter for '.ifeqs' directive");
+    if (ExpectEqual)
+      TokError("expected string parameter for '.ifeqs' directive");
+    else
+      TokError("expected string parameter for '.ifnes' directive");
     eatToEndOfStatement();
     return true;
   }
@@ -3966,7 +3983,7 @@ bool AsmParser::parseDirectiveIfeqs(SMLoc DirectiveLoc) {
 
   TheCondStack.push_back(TheCondState);
   TheCondState.TheCond = AsmCond::IfCond;
-  TheCondState.CondMet = String1 == String2;
+  TheCondState.CondMet = ExpectEqual == (String1 == String2);
   TheCondState.Ignore = !TheCondState.CondMet;
 
   return false;
@@ -4213,6 +4230,7 @@ void AsmParser::initializeDirectiveKindMap() {
   DirectiveKindMap[".ifc"] = DK_IFC;
   DirectiveKindMap[".ifeqs"] = DK_IFEQS;
   DirectiveKindMap[".ifnc"] = DK_IFNC;
+  DirectiveKindMap[".ifnes"] = DK_IFNES;
   DirectiveKindMap[".ifdef"] = DK_IFDEF;
   DirectiveKindMap[".ifndef"] = DK_IFNDEF;
   DirectiveKindMap[".ifnotdef"] = DK_IFNOTDEF;
@@ -4588,7 +4606,7 @@ bool AsmParser::parseMSInlineAsm(
         ++InputIdx;
         OutputDecls.push_back(OpDecl);
         OutputDeclsAddressOf.push_back(Operand.needAddressOf());
-        OutputConstraints.push_back('=' + Operand.getConstraint().str());
+        OutputConstraints.push_back(("=" + Operand.getConstraint()).str());
         AsmStrRewrites.push_back(AsmRewrite(AOK_Output, Start, SymName.size()));
       } else {
         InputDecls.push_back(OpDecl);

@@ -1,7 +1,7 @@
 " Vim syntax file
 " Language:   llvm
 " Maintainer: The LLVM team, http://llvm.org/
-" Version:      $Revision: 228042 $
+" Version:      $Revision: 230111 $
 
 if version < 600
   syntax clear
@@ -78,6 +78,11 @@ syn match   llvmIdentifier /![-a-zA-Z$._][-a-zA-Z$._0-9]*\ze\s*$/
 syn match   llvmIdentifier /![-a-zA-Z$._][-a-zA-Z$._0-9]*\ze\s*[=!]/
 syn match   llvmType /!\zs\a\+\ze\s*(/
 syn match   llvmConstant /\<DW_TAG_[a-z_]\+\>/
+syn match   llvmConstant /\<DW_ATE_[a-zA-Z_]\+\>/
+syn match   llvmConstant /\<DW_OP_[a-zA-Z0-9_]\+\>/
+syn match   llvmConstant /\<DW_LANG_[a-zA-Z0-9_]\+\>/
+syn match   llvmConstant /\<DW_VIRTUALITY_[a-z_]\+\>/
+syn match   llvmConstant /\<DIFlag[A-Za-z]\+\>/
 
 " Syntax-highlight dejagnu test commands.
 syn match  llvmSpecialComment /;\s*RUN:.*$/

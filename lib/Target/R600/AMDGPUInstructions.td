@@ -23,8 +23,6 @@ class AMDGPUInst <dag outs, dag ins, string asm, list<dag> pattern> : Instructio
   let Pattern = pattern;
   let Itinerary = NullALU;
 
-  let isCodeGenOnly = 1;
-
   let TSFlags{63} = isRegisterLoad;
   let TSFlags{62} = isRegisterStore;
 }
@@ -164,10 +162,6 @@ class PrivateStore <SDPatternOperator op> : PrivateMemOp <
   (ops node:$value, node:$ptr), (op node:$value, node:$ptr)
 >;
 
-def extloadi8_private : PrivateLoad <extloadi8>;
-def sextloadi8_private : PrivateLoad <sextloadi8>;
-def extloadi16_private : PrivateLoad <extloadi16>;
-def sextloadi16_private : PrivateLoad <sextloadi16>;
 def load_private : PrivateLoad <load>;
 
 def truncstorei8_private : PrivateStore <truncstorei8>;
@@ -231,6 +225,9 @@ def sextloadi8_local : PatFrag<(ops node:$ptr), (sextloadi8 node:$ptr), [{
     return isLocalLoad(dyn_cast<LoadSDNode>(N));
 }]>;
 
+def extloadi8_private : PrivateLoad <az_extloadi8>;
+def sextloadi8_private : PrivateLoad <sextloadi8>;
+
 def az_extloadi16 : PatFrag<(ops node:$ptr), (az_extload node:$ptr), [{
   return cast<LoadSDNode>(N)->getMemoryVT() == MVT::i16;
 }]>;
@@ -266,6 +263,9 @@ def az_extloadi16_local : PatFrag<(ops node:$ptr), (az_extloadi16 node:$ptr), [{
 def sextloadi16_local : PatFrag<(ops node:$ptr), (sextloadi16 node:$ptr), [{
     return isLocalLoad(dyn_cast<LoadSDNode>(N));
 }]>;
+
+def extloadi16_private : PrivateLoad <az_extloadi16>;
+def sextloadi16_private : PrivateLoad <sextloadi16>;
 
 def az_extloadi32 : PatFrag<(ops node:$ptr), (az_extload node:$ptr), [{
   return cast<LoadSDNode>(N)->getMemoryVT() == MVT::i32;
@@ -412,11 +412,6 @@ def atomic_xor_global : global_binary_atomic_op<atomic_load_xor>;
 //===----------------------------------------------------------------------===//
 // Misc Pattern Fragments
 //===----------------------------------------------------------------------===//
-
-def fmad : PatFrag <
-  (ops node:$src0, node:$src1, node:$src2),
-  (fadd (fmul node:$src0, node:$src1), node:$src2)
->;
 
 class Constants {
 int TWO_PI = 0x40c90fdb;
@@ -583,21 +578,19 @@ class SHA256MaPattern <Instruction BFI_INT, Instruction XOR> : Pat <
 
 // Bitfield extract patterns
 
-/*
+def IMMZeroBasedBitfieldMask : PatLeaf <(imm), [{
+  return isMask_32(N->getZExtValue());
+}]>;
 
-XXX: The BFE pattern is not working correctly because the XForm is not being
-applied.
+def IMMPopCount : SDNodeXForm<imm, [{
+  return CurDAG->getTargetConstant(countPopulation(N->getZExtValue()),
+                                   MVT::i32);
+}]>;
 
-def legalshift32 : ImmLeaf <i32, [{return Imm >=0 && Imm < 32;}]>;
-def bfemask : PatLeaf <(imm), [{return isMask_32(N->getZExtValue());}],
-                            SDNodeXForm<imm, [{ return CurDAG->getTargetConstant(CountTrailingOnes_32(N->getZExtValue()), MVT::i32);}]>>;
-
-class BFEPattern <Instruction BFE> : Pat <
-  (and (srl i32:$x, legalshift32:$y), bfemask:$z),
-  (BFE $x, $y, $z)
+class BFEPattern <Instruction BFE, Instruction MOV> : Pat <
+  (i32 (and (i32 (srl i32:$src, i32:$rshift)), IMMZeroBasedBitfieldMask:$mask)),
+  (BFE $src, $rshift, (MOV (i32 (IMMPopCount $mask))))
 >;
-
-*/
 
 // rotr pattern
 class ROTRPattern <Instruction BIT_ALIGN> : Pat <
@@ -668,17 +661,10 @@ class RcpPat<Instruction RcpInst, ValueType vt> : Pat <
   (RcpInst $src)
 >;
 
-multiclass RsqPat<Instruction RsqInst, ValueType vt> {
-  def : Pat <
-    (fdiv FP_ONE, (fsqrt vt:$src)),
-    (RsqInst $src)
-  >;
-
-  def : Pat <
-    (AMDGPUrcp (fsqrt vt:$src)),
-    (RsqInst $src)
-  >;
-}
+class RsqPat<Instruction RsqInst, ValueType vt> : Pat <
+  (AMDGPUrcp (fsqrt vt:$src)),
+  (RsqInst $src)
+>;
 
 include "R600Instructions.td"
 include "R700Instructions.td"

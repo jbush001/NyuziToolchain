@@ -340,6 +340,8 @@ struct language_name_pair language_names[] =
     {   "c++14",            eLanguageTypeC_plus_plus_14 },
     {   "fortran03",        eLanguageTypeFortran03      },
     {   "fortran08",        eLanguageTypeFortran08      },
+    // Vendor Extensions
+    {   "renderscript",     eLanguageTypeExtRenderScript},
     // Now synonyms, in arbitrary order
     {   "objc",             eLanguageTypeObjC           },
     {   "objc++",           eLanguageTypeObjC_plus_plus }
@@ -365,6 +367,21 @@ LanguageRuntime::GetNameForLanguageType (LanguageType language)
         return language_names[language].name;
     else
         return language_names[eLanguageTypeUnknown].name;
+}
+
+bool
+LanguageRuntime::LanguageIsCPlusPlus (LanguageType language)
+{
+    switch (language)
+    {
+        case eLanguageTypeC_plus_plus:
+        case eLanguageTypeC_plus_plus_03:
+        case eLanguageTypeC_plus_plus_11:
+        case eLanguageTypeC_plus_plus_14:
+            return true;
+        default:
+            return false;
+    }
 }
 
 lldb::SearchFilterSP

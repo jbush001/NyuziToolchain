@@ -456,7 +456,7 @@ public:
   bool operator==(Qualifiers Other) const { return Mask == Other.Mask; }
   bool operator!=(Qualifiers Other) const { return Mask != Other.Mask; }
 
-  LLVM_EXPLICIT operator bool() const { return hasQualifiers(); }
+  explicit operator bool() const { return hasQualifiers(); }
 
   Qualifiers &operator+=(Qualifiers R) {
     addQualifiers(R);
@@ -1179,8 +1179,8 @@ public:
   };
 
 private:
-  Type(const Type &) LLVM_DELETED_FUNCTION;
-  void operator=(const Type &) LLVM_DELETED_FUNCTION;
+  Type(const Type &) = delete;
+  void operator=(const Type &) = delete;
 
   /// Bitfields required by the Type class.
   class TypeBitfields {

@@ -2,14 +2,14 @@
 
 import os, time
 import unittest2
-import lldb, lldbutil
+import lldb, lldbutil, lldbplatformutil
 from lldbtest import *
 
 class AssertingInferiorTestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     @unittest2.expectedFailure("rdar://15367233")
     def test_inferior_asserting_dsym(self):
         """Test that lldb reliably catches the inferior asserting (command)."""
@@ -24,7 +24,7 @@ class AssertingInferiorTestCase(TestBase):
         self.buildDwarf()
         self.inferior_asserting()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     def test_inferior_asserting_registers_dsym(self):
         """Test that lldb reliably reads registers from the inferior after asserting (command)."""
         self.buildDsym()
@@ -38,7 +38,6 @@ class AssertingInferiorTestCase(TestBase):
 
     @expectedFailurei386("llvm.org/pr17384: lldb needs to be aware of linux-vdso.so to unwind stacks properly")
     @expectedFailureFreeBSD('llvm.org/pr18533 - PC in __assert frame is outside of function')
-    @expectedFailureLinux("PC in __GI___assert_fail frame is just after the function (this is a no-return so there is no epilogue afterwards)")
     @expectedFailureWindows("llvm.org/pr21793: need to implement support for detecting assertion / abort on Windows")
     def test_inferior_asserting_disassemble(self):
         """Test that lldb reliably disassembles frames after asserting (command)."""
@@ -52,7 +51,7 @@ class AssertingInferiorTestCase(TestBase):
         self.buildDefault()
         self.inferior_asserting_python()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     @unittest2.expectedFailure("rdar://15367233")
     def test_inferior_asserting_expr_dsym(self):
         """Test that the lldb expression interpreter can read from the inferior after asserting (command)."""
@@ -67,7 +66,7 @@ class AssertingInferiorTestCase(TestBase):
         self.buildDwarf()
         self.inferior_asserting_expr()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     @unittest2.expectedFailure("rdar://15367233")
     def test_inferior_asserting_step_dsym(self):
         """Test that lldb functions correctly after stepping through a call to assert()."""
@@ -150,8 +149,7 @@ class AssertingInferiorTestCase(TestBase):
         self.check_stop_reason()
 
         # lldb should be able to read from registers from the inferior after asserting.
-        self.expect("register read eax",
-            substrs = ['eax = 0x'])
+        lldbplatformutil.check_first_register_readable(self)
 
     def inferior_asserting_disassemble(self):
         """Test that lldb can disassemble frames after asserting."""
@@ -186,7 +184,7 @@ class AssertingInferiorTestCase(TestBase):
             if frame.GetFrameID() == 0:
                 pc_backup_offset = 0
             self.expect("disassemble -a %s" % (frame.GetPC() - pc_backup_offset),
-                    substrs = ['<%s>:' % frame.GetFunctionName()])
+                    substrs = ['<+0>: '])
 
     def check_expr_in_main(self, thread):
         depth = thread.GetNumFrames()

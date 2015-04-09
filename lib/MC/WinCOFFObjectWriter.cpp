@@ -172,8 +172,11 @@ public:
 
   bool IsSymbolRefDifferenceFullyResolvedImpl(const MCAssembler &Asm,
                                               const MCSymbolData &DataA,
+                                              const MCSymbolData *DataB,
                                               const MCFragment &FB, bool InSet,
                                               bool IsPCRel) const override;
+
+  bool isWeak(const MCSymbolData &SD) const override;
 
   void RecordRelocation(MCAssembler &Asm, const MCAsmLayout &Layout,
                         const MCFragment *Fragment, const MCFixup &Fixup,
@@ -380,9 +383,7 @@ void WinCOFFObjectWriter::DefineSymbol(MCSymbolData const &SymbolData,
 
       coff_symbol->Other = GetOrCreateCOFFSymbol(&SymRef->getSymbol());
     } else {
-      std::string WeakName = std::string(".weak.")
-                           +  Symbol.getName().str()
-                           + ".default";
+      std::string WeakName = (".weak." + Symbol.getName() + ".default").str();
       COFFSymbol *WeakDefault = createSymbol(WeakName);
       WeakDefault->Data.SectionNumber = COFF::IMAGE_SYM_ABSOLUTE;
       WeakDefault->Data.StorageClass  = COFF::IMAGE_SYM_CLASS_EXTERNAL;
@@ -649,16 +650,23 @@ void WinCOFFObjectWriter::ExecutePostLayoutBinding(MCAssembler &Asm,
 }
 
 bool WinCOFFObjectWriter::IsSymbolRefDifferenceFullyResolvedImpl(
-    const MCAssembler &Asm, const MCSymbolData &DataA, const MCFragment &FB,
-    bool InSet, bool IsPCRel) const {
+    const MCAssembler &Asm, const MCSymbolData &DataA,
+    const MCSymbolData *DataB, const MCFragment &FB, bool InSet,
+    bool IsPCRel) const {
   // MS LINK expects to be able to replace all references to a function with a
   // thunk to implement their /INCREMENTAL feature.  Make sure we don't optimize
   // away any relocations to functions.
   if ((((DataA.getFlags() & COFF::SF_TypeMask) >> COFF::SF_TypeShift) >>
        COFF::SCT_COMPLEX_TYPE_SHIFT) == COFF::IMAGE_SYM_DTYPE_FUNCTION)
     return false;
-  return MCObjectWriter::IsSymbolRefDifferenceFullyResolvedImpl(Asm, DataA, FB,
-                                                                InSet, IsPCRel);
+  return MCObjectWriter::IsSymbolRefDifferenceFullyResolvedImpl(
+      Asm, DataA, DataB, FB, InSet, IsPCRel);
+}
+
+bool WinCOFFObjectWriter::isWeak(const MCSymbolData &SD) const {
+  // FIXME: this is for PR23025. Write a good description on
+  // why this is needed.
+  return SD.isExternal();
 }
 
 void WinCOFFObjectWriter::RecordRelocation(
@@ -706,17 +714,22 @@ void WinCOFFObjectWriter::RecordRelocation(
     CrossSection = &Symbol.getSection() != &B->getSection();
 
     // Offset of the symbol in the section
-    int64_t a = Layout.getSymbolOffset(&B_SD);
+    int64_t OffsetOfB = Layout.getSymbolOffset(&B_SD);
 
-    // Offset of the relocation in the section
-    int64_t b = Layout.getFragmentOffset(Fragment) + Fixup.getOffset();
-
-    FixedValue = b - a;
     // In the case where we have SymbA and SymB, we just need to store the delta
     // between the two symbols.  Update FixedValue to account for the delta, and
     // skip recording the relocation.
-    if (!CrossSection)
+    if (!CrossSection) {
+      int64_t OffsetOfA = Layout.getSymbolOffset(&A_SD);
+      FixedValue = (OffsetOfA - OffsetOfB) + Target.getConstant();
       return;
+    }
+
+    // Offset of the relocation in the section
+    int64_t OffsetOfRelocation =
+        Layout.getFragmentOffset(Fragment) + Fixup.getOffset();
+
+    FixedValue = OffsetOfRelocation - OffsetOfB;
   } else {
     FixedValue = Target.getConstant();
   }
@@ -934,6 +947,8 @@ void WinCOFFObjectWriter::WriteObject(MCAssembler &Asm,
     Sec->Header.SizeOfRawData = Layout.getSectionAddressSize(&Section);
 
     if (IsPhysicalSection(Sec)) {
+      // Align the section data to a four byte boundary.
+      offset = RoundUpToAlignment(offset, 4);
       Sec->Header.PointerToRawData = offset;
 
       offset += Sec->Header.SizeOfRawData;
@@ -1004,8 +1019,14 @@ void WinCOFFObjectWriter::WriteObject(MCAssembler &Asm,
         continue;
 
       if ((*i)->Header.PointerToRawData != 0) {
-        assert(OS.tell() == (*i)->Header.PointerToRawData &&
+        assert(OS.tell() <= (*i)->Header.PointerToRawData &&
                "Section::PointerToRawData is insane!");
+
+        unsigned SectionDataPadding = (*i)->Header.PointerToRawData - OS.tell();
+        assert(SectionDataPadding < 4 &&
+               "Should only need at most three bytes of padding!");
+
+        WriteZeros(SectionDataPadding);
 
         Asm.writeSectionData(j, Layout);
       }

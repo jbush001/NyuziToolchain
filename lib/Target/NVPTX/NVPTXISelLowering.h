@@ -470,7 +470,8 @@ public:
   ConstraintType
   getConstraintType(const std::string &Constraint) const override;
   std::pair<unsigned, const TargetRegisterClass *>
-  getRegForInlineAsmConstraint(const std::string &Constraint,
+  getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                               const std::string &Constraint,
                                MVT VT) const override;
 
   SDValue LowerFormalArguments(
@@ -495,6 +496,12 @@ public:
   void LowerAsmOperandForConstraint(SDValue Op, std::string &Constraint,
                                     std::vector<SDValue> &Ops,
                                     SelectionDAG &DAG) const override;
+
+  unsigned getInlineAsmMemConstraint(
+      const std::string &ConstraintCode) const override {
+    // FIXME: Map different constraints differently.
+    return InlineAsm::Constraint_m;
+  }
 
   const NVPTXTargetMachine *nvTM;
 

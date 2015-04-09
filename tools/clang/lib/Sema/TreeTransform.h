@@ -1702,7 +1702,7 @@ public:
   }
 
   StmtResult RebuildSEHFinallyStmt(SourceLocation Loc, Stmt *Block) {
-    return getSema().ActOnSEHFinallyBlock(Loc, Block);
+    return SEHFinallyStmt::Create(getSema().getASTContext(), Loc, Block);
   }
 
   /// \brief Build a new predefined expression.
@@ -1870,11 +1870,9 @@ public:
         return ExprError();
       Base = BaseResult.get();
       ExprValueKind VK = isArrow ? VK_LValue : Base->getValueKind();
-      MemberExpr *ME =
-        new (getSema().Context) MemberExpr(Base, isArrow,
-                                           Member, MemberNameInfo,
-                                           cast<FieldDecl>(Member)->getType(),
-                                           VK, OK_Ordinary);
+      MemberExpr *ME = new (getSema().Context)
+          MemberExpr(Base, isArrow, OpLoc, Member, MemberNameInfo,
+                     cast<FieldDecl>(Member)->getType(), VK, OK_Ordinary);
       return ME;
     }
 
@@ -2623,6 +2621,31 @@ public:
                                         /*SuperLoc=*/SourceLocation(),
                                         Sel, Method, LBracLoc, SelectorLocs,
                                         RBracLoc, Args);
+  }
+
+  /// \brief Build a new Objective-C instance/class message to 'super'.
+  ExprResult RebuildObjCMessageExpr(SourceLocation SuperLoc,
+                                    Selector Sel,
+                                    ArrayRef<SourceLocation> SelectorLocs,
+                                    ObjCMethodDecl *Method,
+                                    SourceLocation LBracLoc,
+                                    MultiExprArg Args,
+                                    SourceLocation RBracLoc) {
+    ObjCInterfaceDecl *Class = Method->getClassInterface();
+    QualType ReceiverTy = SemaRef.Context.getObjCInterfaceType(Class);
+    
+    return Method->isInstanceMethod() ? SemaRef.BuildInstanceMessage(nullptr,
+                                          ReceiverTy,
+                                          SuperLoc,
+                                          Sel, Method, LBracLoc, SelectorLocs,
+                                          RBracLoc, Args)
+                                      : SemaRef.BuildClassMessage(nullptr,
+                                          ReceiverTy,
+                                          SuperLoc,
+                                          Sel, Method, LBracLoc, SelectorLocs,
+                                          RBracLoc, Args);
+
+      
   }
 
   /// \brief Build a new Objective-C ivar reference expression.
@@ -6647,7 +6670,16 @@ StmtResult TreeTransform<Derived>::TransformOMPExecutableDirective(
     if (!D->getAssociatedStmt()) {
       return StmtError();
     }
-    AssociatedStmt = getDerived().TransformStmt(D->getAssociatedStmt());
+    getDerived().getSema().ActOnOpenMPRegionStart(D->getDirectiveKind(),
+                                                  /*CurScope=*/nullptr);
+    StmtResult Body;
+    {
+      Sema::CompoundScopeRAII CompoundScope(getSema());
+      Body = getDerived().TransformStmt(
+          cast<CapturedStmt>(D->getAssociatedStmt())->getCapturedStmt());
+    }
+    AssociatedStmt =
+        getDerived().getSema().ActOnOpenMPRegionEnd(Body, TClauses);
     if (AssociatedStmt.isInvalid()) {
       return StmtError();
     }
@@ -10049,6 +10081,19 @@ TreeTransform<Derived>::TransformObjCMessageExpr(ObjCMessageExpr *E) {
                                                Args,
                                                E->getRightLoc());
   }
+  else if (E->getReceiverKind() == ObjCMessageExpr::SuperClass ||
+           E->getReceiverKind() == ObjCMessageExpr::SuperInstance) {
+    // Build a new class message send to 'super'.
+    SmallVector<SourceLocation, 16> SelLocs;
+    E->getSelectorLocs(SelLocs);
+    return getDerived().RebuildObjCMessageExpr(E->getSuperLoc(),
+                                               E->getSelector(),
+                                               SelLocs,
+                                               E->getMethodDecl(),
+                                               E->getLeftLoc(),
+                                               Args,
+                                               E->getRightLoc());
+  }
 
   // Instance message: transform the receiver
   assert(E->getReceiverKind() == ObjCMessageExpr::Instance &&
@@ -10727,11 +10772,9 @@ TreeTransform<Derived>::RebuildCXXPseudoDestructorExpr(Expr *Base,
        !BaseType->getAs<PointerType>()->getPointeeType()
                                               ->template getAs<RecordType>())){
     // This pseudo-destructor expression is still a pseudo-destructor.
-    return SemaRef.BuildPseudoDestructorExpr(Base, OperatorLoc,
-                                             isArrow? tok::arrow : tok::period,
-                                             SS, ScopeType, CCLoc, TildeLoc,
-                                             Destroyed,
-                                             /*FIXME?*/true);
+    return SemaRef.BuildPseudoDestructorExpr(
+        Base, OperatorLoc, isArrow ? tok::arrow : tok::period, SS, ScopeType,
+        CCLoc, TildeLoc, Destroyed);
   }
 
   TypeSourceInfo *DestroyedType = Destroyed.getTypeSourceInfo();

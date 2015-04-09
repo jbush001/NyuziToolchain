@@ -276,6 +276,9 @@ class ARMAsmParser : public MCTargetAsmParser {
   bool hasD16() const {
     return STI.getFeatureBits() & ARM::FeatureD16;
   }
+  bool hasV8_1aOps() const {
+    return STI.getFeatureBits() & ARM::HasV8_1aOps;
+  }
 
   void SwitchMode() {
     uint64_t FB = ComputeAvailableFeatures(STI.ToggleFeature(ARM::ModeThumb));
@@ -342,10 +345,10 @@ public:
 
   };
 
-  ARMAsmParser(MCSubtargetInfo & _STI, MCAsmParser & _Parser,
+  ARMAsmParser(MCSubtargetInfo &STI, MCAsmParser &Parser,
                const MCInstrInfo &MII, const MCTargetOptions &Options)
-      : MCTargetAsmParser(), STI(_STI), MII(MII), UC(_Parser) {
-    MCAsmParserExtension::Initialize(_Parser);
+      : STI(STI), MII(MII), UC(Parser) {
+    MCAsmParserExtension::Initialize(Parser);
 
     // Cache the MCRegisterInfo.
     MRI = getContext().getRegisterInfo();
@@ -4424,11 +4427,6 @@ ARMAsmParser::parseModImm(OperandVector &Operands) {
   if (CE) {
     // Immediate must fit within 32-bits
     Imm1 = CE->getValue();
-    if (Imm1 < INT32_MIN || Imm1 > UINT32_MAX) {
-      Error(Sx1, "immediate operand must be representable with 32 bits");
-      return MatchOperand_ParseFail;
-    }
-
     int Enc = ARM_AM::getSOImmVal(Imm1);
     if (Enc != -1 && Parser.getTok().is(AsmToken::EndOfStatement)) {
       // We have a match!

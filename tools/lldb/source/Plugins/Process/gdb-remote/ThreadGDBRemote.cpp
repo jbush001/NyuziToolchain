@@ -21,6 +21,7 @@
 #include "lldb/Target/StopInfo.h"
 #include "lldb/Target/SystemRuntime.h"
 #include "lldb/Target/Target.h"
+#include "lldb/Target/UnixSignals.h"
 #include "lldb/Target/Unwind.h"
 
 #include "ProcessGDBRemote.h"
@@ -29,6 +30,7 @@
 
 using namespace lldb;
 using namespace lldb_private;
+using namespace lldb_private::process_gdb_remote;
 
 //----------------------------------------------------------------------
 // Thread Registers
@@ -147,7 +149,7 @@ ThreadGDBRemote::FetchThreadExtendedInfo ()
 {
     StructuredData::ObjectSP object_sp;
     const lldb::user_id_t tid = GetProtocolID();
-    Log *log(lldb_private::GetLogIfAnyCategoriesSet (GDBR_LOG_THREAD));
+    Log *log(GetLogIfAnyCategoriesSet (GDBR_LOG_THREAD));
     if (log)
         log->Printf ("Fetching extended information for thread %4.4" PRIx64, tid);
     ProcessSP process_sp (GetProcess());
@@ -164,7 +166,7 @@ ThreadGDBRemote::WillResume (StateType resume_state)
 {
     int signo = GetResumeSignal();
     const lldb::user_id_t tid = GetProtocolID();
-    Log *log(lldb_private::GetLogIfAnyCategoriesSet (GDBR_LOG_THREAD));
+    Log *log(GetLogIfAnyCategoriesSet (GDBR_LOG_THREAD));
     if (log)
         log->Printf ("Resuming thread: %4.4" PRIx64 " with state: %s.", tid, StateAsCString(resume_state));
 
