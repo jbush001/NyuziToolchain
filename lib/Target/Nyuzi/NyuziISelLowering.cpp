@@ -419,6 +419,7 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Custom);
   setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Custom);
   setOperationAction(ISD::UINT_TO_FP, MVT::i32, Custom);
+  setOperationAction(ISD::UINT_TO_FP, MVT::v16i32, Custom);
   setOperationAction(ISD::FRAMEADDR, MVT::i32, Custom);
   setOperationAction(ISD::RETURNADDR, MVT::i32, Custom);
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::v16i1, Custom);
@@ -441,6 +442,7 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::UMUL_LOHI, MVT::i32, Expand);
   setOperationAction(ISD::SMUL_LOHI, MVT::i32, Expand);
   setOperationAction(ISD::FP_TO_UINT, MVT::i32, Expand);
+  setOperationAction(ISD::FP_TO_UINT, MVT::v16i32, Expand);
   setOperationAction(ISD::DYNAMIC_STACKALLOC, MVT::i32, Expand);
   setOperationAction(ISD::STACKSAVE, MVT::Other, Expand);
   setOperationAction(ISD::STACKRESTORE, MVT::Other, Expand);
@@ -874,27 +876,44 @@ NyuziTargetLowering::LowerCTTZ_ZERO_UNDEF(SDValue Op,
 // with constant pool symbols, and that gets clobbered (see comments in
 // NyuziMCInstLower::Lower)
 //
+
 SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
                                                   SelectionDAG &DAG) const {
   SDLoc DL(Op);
 
+  MVT ResultVT = Op.getValueType().getSimpleVT();
   SDValue RVal = Op.getOperand(0);
-  SDValue SignedVal = DAG.getNode(ISD::SINT_TO_FP, DL, MVT::f32, RVal);
-  Constant *FudgeFactor =
-      ConstantInt::get(Type::getInt32Ty(*DAG.getContext()),
-                       0x4f800000); // UINT_MAX in float format
-  SDValue CPIdx = DAG.getConstantPool(FudgeFactor, MVT::f32);
-  SDValue FudgeInReg = DAG.getLoad(MVT::f32, DL, DAG.getEntryNode(), CPIdx,
+  SDValue SignedVal = DAG.getNode(ISD::SINT_TO_FP, DL, ResultVT, RVal);
+  
+  // Load constant offset to adjust
+  Constant *AdjustConst = ConstantInt::get(Type::getInt32Ty(*DAG.getContext()),
+         0x4f800000); // UINT_MAX in float format
+  SDValue CPIdx = DAG.getConstantPool(AdjustConst, MVT::f32);
+  SDValue AdjustReg = DAG.getLoad(MVT::f32, DL, DAG.getEntryNode(), CPIdx,
                                    MachinePointerInfo::getConstantPool(), false,
                                    false, false, 4);
-  SDValue IsNegative =
-      DAG.getSetCC(DL, getSetCCResultType(*DAG.getContext(), MVT::i32), RVal,
-                   DAG.getConstant(0, MVT::i32), ISD::SETLT);
-  SDValue Adjusted =
-      DAG.getNode(ISD::FADD, DL, MVT::f32, SignedVal, FudgeInReg);
-
-  return DAG.getNode(NyuziISD::SEL_COND_RESULT, DL, MVT::f32, IsNegative,
-                     Adjusted, SignedVal);
+  if (ResultVT.isVector())
+  {
+    // Vector Result
+    SDValue ZeroVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32, DAG.getConstant(0, MVT::i32));
+    SDValue LtIntrinsic = DAG.getConstant(Intrinsic::nyuzi_mask_cmpi_ult, MVT::i32);
+    SDValue IsNegativeMask = DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::i32,
+                                         LtIntrinsic, RVal, ZeroVec);
+    SDValue AdjustVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32, AdjustReg);
+    SDValue Adjusted = DAG.getNode(ISD::FADD, DL, ResultVT, SignedVal, AdjustVec);
+    return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, ResultVT,
+                       DAG.getConstant(Intrinsic::nyuzi_vector_mixf, MVT::i32), IsNegativeMask,
+                       Adjusted, SignedVal);
+  }
+  else
+  {
+    // Scalar Result.  If the result is negative, add UINT_MASK to make it positive
+    SDValue IsNegative = DAG.getSetCC(DL, getSetCCResultType(*DAG.getContext(), MVT::i32), RVal,
+                         DAG.getConstant(0, MVT::i32), ISD::SETLT);
+    SDValue Adjusted = DAG.getNode(ISD::FADD, DL, MVT::f32, SignedVal, AdjustReg);
+    return DAG.getNode(NyuziISD::SEL_COND_RESULT, DL, MVT::f32, IsNegative,
+                       Adjusted, SignedVal);
+  }
 }
 
 SDValue NyuziTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const {
