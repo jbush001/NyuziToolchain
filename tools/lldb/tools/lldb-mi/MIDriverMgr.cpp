@@ -7,18 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-//++
-// File:        MIDriverMgr.cpp
-//
-// Overview:    CMIDriverMgr implementation.
-//
-// Environment: Compilers:  Visual C++ 12.
-//                          gcc (Ubuntu/Linaro 4.8.1-10ubuntu9) 4.8.1
-//              Libraries:  See MIReadmetxt.
-//
-// Copyright:   None.
-//--
-
 // Third Party Headers:
 #include "lldb/API/SBError.h"
 
@@ -28,7 +16,6 @@
 #include "MICmnLog.h"
 #include "MICmnLogMediumFile.h"
 #include "MIDriver.h"
-#include "MIUtilTermios.h"
 #include "MICmnStreamStdout.h"
 #include "MIUtilSingletonHelper.h"
 
@@ -82,11 +69,6 @@ CMIDriverMgr::Initialize(void)
     MI::ModuleInit<CMICmnLog>(IDS_MI_INIT_ERR_LOG, bOk, errMsg);
     MI::ModuleInit<CMICmnResources>(IDS_MI_INIT_ERR_RESOURCES, bOk, errMsg);
 
-    if (bOk)
-    {
-        MIUtilTermios::StdinTermiosSet();
-    }
-
     m_bInitialized = bOk;
 
     if (!bOk)
@@ -116,37 +98,10 @@ CMIDriverMgr::Shutdown(void)
     // if( --m_clientUsageRefCnt > 0 )
     //  return MIstatus::success;
 
-    bool vbAppExitOk = true;
-
     ClrErrorDescription();
 
     if (!m_bInitialized)
         return MIstatus::success;
-
-    if (vbAppExitOk)
-    {
-#if _DEBUG
-        CMICmnStreamStdout::Instance().Write(MIRSRC(IDE_MI_APP_EXIT_OK)); // Both stdout and Log
-#else
-        CMICmnLog::WriteLog(MIRSRC(IDE_MI_APP_EXIT_OK)); // Just to the Log
-#endif // _DEBUG
-    }
-    else
-    {
-        CMICmnLog &rAppLog = CMICmnLog::Instance();
-        if (rAppLog.GetEnabled())
-        {
-            const CMIUtilString msg(
-                CMIUtilString::Format(MIRSRC(IDE_MI_APP_EXIT_WITH_PROBLEM), CMICmnLogMediumFile::Instance().GetFileName().c_str()));
-            CMICmnStreamStdout::Instance().Write(msg);
-        }
-        else
-        {
-            const CMIUtilString msg(
-                CMIUtilString::Format(MIRSRC(IDE_MI_APP_EXIT_WITH_PROBLEM_NO_LOG), CMICmnLogMediumFile::Instance().GetFileName().c_str()));
-            CMICmnStreamStdout::Instance().Write(msg);
-        }
-    }
 
     m_bInitialized = false;
 
@@ -155,7 +110,6 @@ CMIDriverMgr::Shutdown(void)
 
     // Tidy up
     UnregisterDriverAll();
-    MIUtilTermios::StdinTermiosReset();
 
     // Note shutdown order is important here
     MI::ModuleShutdown<CMICmnResources>(IDE_MI_SHTDWN_ERR_RESOURCES, bOk, errMsg);
@@ -355,26 +309,6 @@ CMIDriverMgr::DriverMainLoop(void)
 }
 
 //++ ------------------------------------------------------------------------------------
-// Details: Call *this driver to resize the console window.
-// Type:    Method.
-// Args:    vWindowSizeWsCol  - (R) New window column size.
-// Return:  MIstatus::success - Functional succeeded.
-//          MIstatus::failure - Functional failed.
-// Throws:  None.
-//--
-void
-CMIDriverMgr::DriverResizeWindow(const uint32_t vWindowSizeWsCol)
-{
-    if (m_pDriverCurrent != nullptr)
-        return m_pDriverCurrent->DoResizeWindow(vWindowSizeWsCol);
-    else
-    {
-        const CMIUtilString errMsg(CMIUtilString::Format(MIRSRC(IDS_DRIVER_ERR_CURRENT_NOT_SET)));
-        CMICmnStreamStdout::Instance().Write(errMsg, true);
-    }
-}
-
-//++ ------------------------------------------------------------------------------------
 // Details: Get the current driver to validate executable command line arguments.
 // Type:    Method.
 // Args:    argc        - (R)   An integer that contains the count of arguments that follow in
@@ -551,11 +485,7 @@ CMIDriverMgr::ParseArgs(const int argc, const char *argv[], bool &vwbExiting)
     bool bHaveArgLog = false;
     bool bHaveArgHelp = false;
 
-// Hardcode the use of the MI driver
-#if MICONFIG_DEFAULT_TO_MI_DRIVER
     bHaveArgInterpret = true;
-#endif // MICONFIG_DEFAULT_TO_MI_DRIVER
-
     if (bHaveArgs)
     {
         // CODETAG_MIDRIVE_CMD_LINE_ARG_HANDLING
@@ -777,4 +707,20 @@ CMIDriverMgr::GetDriver(const CMIUtilString &vrDriverId) const
     IDriver *pDriver = (*it).second;
 
     return pDriver;
+}
+
+
+//++ ------------------------------------------------------------------------------------
+// Details: Gets called when lldb-mi gets a signal. Passed signal to current driver.
+//
+// Type:    Method.
+// Args:    signal that was delivered
+// Return:  None.
+// Throws:  None.
+//--
+void
+CMIDriverMgr::DeliverSignal(int signal)
+{
+    if (m_pDriverCurrent != nullptr)
+        m_pDriverCurrent->DeliverSignal(signal);
 }

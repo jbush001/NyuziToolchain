@@ -24,7 +24,7 @@ class LoadUnloadTestCase(TestBase):
                                 '// Set break point at this line for test_lldb_process_load_and_unload_commands().')
         self.line_d_function = line_number('d.c',
                                            '// Find this line number within d_dunction().')
-        if not sys.platform.startswith("darwin"):
+        if not self.platformIsDarwin():
             if "LD_LIBRARY_PATH" in os.environ:
                 self.runCmd("settings set target.env-vars " + self.dylibPath + "=" + os.environ["LD_LIBRARY_PATH"] + ":" + os.getcwd())
             else:
@@ -38,7 +38,7 @@ class LoadUnloadTestCase(TestBase):
         # Invoke the default build rule.
         self.buildDefault()
 
-        if sys.platform.startswith("darwin"):
+        if self.platformIsDarwin():
             dylibName = 'libloadunload_d.dylib'
         else:
             dylibName = 'libloadunload_d.so'
@@ -58,10 +58,6 @@ class LoadUnloadTestCase(TestBase):
         #    patterns = ["%s-[^-]*-[^-]*" % self.getArchitecture()])
         # Add an image search path substitution pair.
         self.runCmd("target modules search-paths add %s %s" % (os.getcwd(), new_dir))
-        # Add teardown hook to clear image-search-paths after the test.
-        # rdar://problem/10501020
-        # Uncomment the following to reproduce 10501020.
-        self.addTearDownHook(lambda: self.runCmd("target modules search-paths clear"))
 
         self.expect("target modules search-paths list",
             substrs = [os.getcwd(), new_dir])
@@ -79,7 +75,7 @@ class LoadUnloadTestCase(TestBase):
         self.runCmd("settings show target.env-vars")
 
         remove_dyld_path_cmd = "settings remove target.env-vars " + self.dylibPath
-        self.addTearDownHook(lambda: self.runCmd(remove_dyld_path_cmd))
+        self.addTearDownHook(lambda: self.dbg.HandleCommand(remove_dyld_path_cmd))
 
         self.runCmd("run")
 
@@ -97,7 +93,7 @@ class LoadUnloadTestCase(TestBase):
         exe = os.path.join(os.getcwd(), "a.out")
         self.runCmd("file " + exe, CURRENT_EXECUTABLE_SET)
 
-        if sys.platform.startswith("darwin"):
+        if self.platformIsDarwin():
             dylibName = 'libloadunload_d.dylib'
             dsymName = 'libloadunload_d.dylib.dSYM'
         else:
@@ -116,7 +112,7 @@ class LoadUnloadTestCase(TestBase):
         # we pick up the hidden dylib.
 
         env_cmd_string = "settings set target.env-vars " + self.dylibPath + "=" + new_dir
-        if not sys.platform.startswith("darwin"):
+        if not self.platformIsDarwin():
             env_cmd_string += ":" + os.getcwd()
 
         if self.TraceOn():
@@ -125,7 +121,7 @@ class LoadUnloadTestCase(TestBase):
         self.runCmd("settings show target.env-vars")
 
         remove_dyld_path_cmd = "settings remove target.env-vars " + self.dylibPath
-        self.addTearDownHook(lambda: self.runCmd(remove_dyld_path_cmd))
+        self.addTearDownHook(lambda: self.dbg.HandleCommand(remove_dyld_path_cmd))
 
         lldbutil.run_break_set_by_file_and_line (self, "d.c", self.line_d_function, num_expected_locations=1, loc_exact=True)
 
@@ -168,7 +164,7 @@ class LoadUnloadTestCase(TestBase):
                     error=True, matching=False,
             patterns = ["1 match found .* %s" % self.mydir])
 
-        if sys.platform.startswith("darwin"):
+        if self.platformIsDarwin():
             dylibName = 'libloadunload_a.dylib'
         else:
             dylibName = 'libloadunload_a.so'

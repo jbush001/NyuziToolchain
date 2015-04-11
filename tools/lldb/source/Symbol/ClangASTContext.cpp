@@ -109,13 +109,8 @@ ClangASTContext::ConvertAccessTypeToAccessSpecifier (AccessType access)
     return AS_none;
 }
 
-
 static void
-ParseLangArgs
-(
-    LangOptions &Opts,
-    InputKind IK
-)
+ParseLangArgs (LangOptions &Opts, InputKind IK, const char* triple)
 {
     // FIXME: Cleanup per-file based stuff.
 
@@ -144,6 +139,7 @@ ParseLangArgs
                 LangStd = LangStandard::lang_opencl;
                 break;
             case IK_CUDA:
+            case IK_PreprocessedCuda:
                 LangStd = LangStandard::lang_cuda;
                 break;
             case IK_Asm:
@@ -234,7 +230,7 @@ ParseLangArgs
 //    Opts.Exceptions = Args.hasArg(OPT_fexceptions);
 //    Opts.RTTI = !Args.hasArg(OPT_fno_rtti);
 //    Opts.Blocks = Args.hasArg(OPT_fblocks);
-//    Opts.CharIsSigned = !Args.hasArg(OPT_fno_signed_char);
+      Opts.CharIsSigned = ArchSpec(triple).CharIsSignedByDefault();
 //    Opts.ShortWChar = Args.hasArg(OPT_fshort_wchar);
 //    Opts.Freestanding = Args.hasArg(OPT_ffreestanding);
 //    Opts.NoBuiltin = Args.hasArg(OPT_fno_builtin) || Opts.Freestanding;
@@ -449,7 +445,7 @@ ClangASTContext::getLanguageOptions()
     if (m_language_options_ap.get() == nullptr)
     {
         m_language_options_ap.reset(new LangOptions());
-        ParseLangArgs(*m_language_options_ap, IK_ObjCXX);
+        ParseLangArgs(*m_language_options_ap, IK_ObjCXX, GetTargetTriple());
 //        InitializeLangOptions(*m_language_options_ap, IK_ObjCXX);
     }
     return m_language_options_ap.get();
@@ -908,7 +904,8 @@ ClangASTContext::GetBuiltinTypeForDWARFEncodingAndBitSize (const char *type_name
                 if (type_name)
                 {
                     if (streq(type_name, "wchar_t") &&
-                        QualTypeMatchesBitSize (bit_size, ast, ast->WCharTy))
+                        QualTypeMatchesBitSize (bit_size, ast, ast->WCharTy) &&
+                        TargetInfo::isTypeSigned (getTargetInfo()->getWCharType()))
                         return ClangASTType (ast, ast->WCharTy.getAsOpaquePtr());
                     if (streq(type_name, "void") &&
                         QualTypeMatchesBitSize (bit_size, ast, ast->VoidTy))
@@ -951,18 +948,13 @@ ClangASTContext::GetBuiltinTypeForDWARFEncodingAndBitSize (const char *type_name
                 if (QualTypeMatchesBitSize (bit_size, ast, ast->Int128Ty))
                     return ClangASTType (ast, ast->Int128Ty.getAsOpaquePtr());
                 break;
-                
+
             case DW_ATE_signed_char:
-                if (type_name)
+                if (ast->getLangOpts().CharIsSigned && type_name && streq(type_name, "char"))
                 {
-                    if (streq(type_name, "signed char"))
-                    {
-                        if (QualTypeMatchesBitSize (bit_size, ast, ast->SignedCharTy))
-                            return ClangASTType (ast, ast->SignedCharTy.getAsOpaquePtr());
-                    }
+                    if (QualTypeMatchesBitSize (bit_size, ast, ast->CharTy))
+                        return ClangASTType (ast, ast->CharTy.getAsOpaquePtr());
                 }
-                if (QualTypeMatchesBitSize (bit_size, ast, ast->CharTy))
-                    return ClangASTType (ast, ast->CharTy.getAsOpaquePtr());
                 if (QualTypeMatchesBitSize (bit_size, ast, ast->SignedCharTy))
                     return ClangASTType (ast, ast->SignedCharTy.getAsOpaquePtr());
                 break;
@@ -970,6 +962,14 @@ ClangASTContext::GetBuiltinTypeForDWARFEncodingAndBitSize (const char *type_name
             case DW_ATE_unsigned:
                 if (type_name)
                 {
+                    if (streq(type_name, "wchar_t"))
+                    {
+                        if (QualTypeMatchesBitSize (bit_size, ast, ast->WCharTy))
+                        {
+                            if (!TargetInfo::isTypeSigned (getTargetInfo()->getWCharType()))
+                                return ClangASTType (ast, ast->WCharTy.getAsOpaquePtr());
+                        }
+                    }
                     if (strstr(type_name, "long long"))
                     {
                         if (QualTypeMatchesBitSize (bit_size, ast, ast->UnsignedLongLongTy))
@@ -1012,8 +1012,13 @@ ClangASTContext::GetBuiltinTypeForDWARFEncodingAndBitSize (const char *type_name
                 if (QualTypeMatchesBitSize (bit_size, ast, ast->UnsignedInt128Ty))
                     return ClangASTType (ast, ast->UnsignedInt128Ty.getAsOpaquePtr());
                 break;
-                
+
             case DW_ATE_unsigned_char:
+                if (!ast->getLangOpts().CharIsSigned && type_name && streq(type_name, "char"))
+                {
+                    if (QualTypeMatchesBitSize (bit_size, ast, ast->CharTy))
+                        return ClangASTType (ast, ast->CharTy.getAsOpaquePtr());
+                }
                 if (QualTypeMatchesBitSize (bit_size, ast, ast->UnsignedCharTy))
                     return ClangASTType (ast, ast->UnsignedCharTy.getAsOpaquePtr());
                 if (QualTypeMatchesBitSize (bit_size, ast, ast->UnsignedShortTy))

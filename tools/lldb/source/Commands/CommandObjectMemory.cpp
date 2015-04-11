@@ -16,6 +16,7 @@
 
 // C++ Includes
 // Other libraries and framework includes
+#include "clang/AST/Decl.h"
 // Project includes
 #include "lldb/Core/DataBufferHeap.h"
 #include "lldb/Core/DataExtractor.h"
@@ -24,6 +25,7 @@
 #include "lldb/Core/StreamString.h"
 #include "lldb/Core/ValueObjectMemory.h"
 #include "lldb/DataFormatters/ValueObjectPrinter.h"
+#include "lldb/Expression/ClangPersistentVariables.h"
 #include "lldb/Host/StringConvert.h"
 #include "lldb/Interpreter/Args.h"
 #include "lldb/Interpreter/CommandReturnObject.h"
@@ -95,7 +97,7 @@ public:
         switch (short_option)
         {
             case 'l':
-                error = m_num_per_line.SetValueFromCString (option_arg);
+                error = m_num_per_line.SetValueFromString (option_arg);
                 if (m_num_per_line.GetCurrentValue() == 0)
                     error.SetErrorStringWithFormat("invalid value for --num-per-line option '%s'", option_arg);
                 break;
@@ -105,7 +107,7 @@ public:
                 break;
                 
             case 't':
-                error = m_view_as_type.SetValueFromCString (option_arg);
+                error = m_view_as_type.SetValueFromString (option_arg);
                 break;
             
             case 'r':
@@ -742,6 +744,7 @@ protected:
             auto data_addr = addr;
             auto count = item_count;
             item_count = 0;
+            bool break_on_no_NULL = false;
             while (item_count < count)
             {
                 std::string buffer;
@@ -754,17 +757,24 @@ protected:
                     result.SetStatus(eReturnStatusFailed);
                     return false;
                 }
+                
                 if (item_byte_size == read)
                 {
                     result.AppendWarningWithFormat("unable to find a NULL terminated string at 0x%" PRIx64 ".Consider increasing the maximum read length.\n", data_addr);
-                    break;
+                    --read;
+                    break_on_no_NULL = true;
                 }
-                read+=1; // account for final NULL byte
+                else
+                    ++read; // account for final NULL byte
+                
                 memcpy(data_ptr, &buffer[0], read);
                 data_ptr += read;
                 data_addr += read;
                 bytes_read += read;
                 item_count++; // if we break early we know we only read item_count strings
+                
+                if (break_on_no_NULL)
+                    break;
             }
             data_sp.reset(new DataBufferHeap(data_sp->GetBytes(),bytes_read+1));
         }
@@ -981,20 +991,20 @@ public:
         switch (short_option)
         {
         case 'e':
-              m_expr.SetValueFromCString(option_arg);
+              m_expr.SetValueFromString(option_arg);
               break;
           
         case 's':
-              m_string.SetValueFromCString(option_arg);
+              m_string.SetValueFromString(option_arg);
               break;
           
         case 'c':
-              if (m_count.SetValueFromCString(option_arg).Fail())
+              if (m_count.SetValueFromString(option_arg).Fail())
                   error.SetErrorString("unrecognized value for count");
               break;
                 
         case 'o':
-               if (m_offset.SetValueFromCString(option_arg).Fail())
+               if (m_offset.SetValueFromString(option_arg).Fail())
                    error.SetErrorString("unrecognized value for dump-offset");
                 break;
 

@@ -343,8 +343,8 @@ NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     Ops.push_back(DAG.getRegister(Reg.first, Reg.second.getValueType()));
 
   // Add a register mask operand representing the call-preserved registers.
-  const TargetRegisterInfo *TRI = getTargetMachine().getSubtargetImpl()->getRegisterInfo();
-  const uint32_t *Mask = TRI->getCallPreservedMask(CLI.CallConv);
+  const TargetRegisterInfo *TRI = Subtarget.getRegisterInfo();
+  const uint32_t *Mask = TRI->getCallPreservedMask(MF, CLI.CallConv);
   assert(Mask && "Missing call preserved mask for calling convention");
   Ops.push_back(CLI.DAG.getRegisterMask(Mask));
 
@@ -488,7 +488,7 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setIntDivIsCheap(false);
   setSchedulingPreference(Sched::RegPressure);
 
-  computeRegisterProperties();
+  computeRegisterProperties(Subtarget.getRegisterInfo());
 }
 
 const char *NyuziTargetLowering::getTargetNodeName(unsigned Opcode) const {
@@ -1155,7 +1155,7 @@ MachineBasicBlock *NyuziTargetLowering::EmitInstrWithCustomInserter(
 MachineBasicBlock *
 NyuziTargetLowering::EmitSelectCC(MachineInstr *MI,
                                        MachineBasicBlock *BB) const {
-  const TargetInstrInfo *TII = getTargetMachine().getSubtargetImpl()->getInstrInfo();
+  const TargetInstrInfo *TII = Subtarget.getInstrInfo();
   DebugLoc DL = MI->getDebugLoc();
 
   // The instruction we are replacing is SELECTI (Dest, predicate, trueval,
@@ -1222,7 +1222,7 @@ NyuziTargetLowering::EmitSelectCC(MachineInstr *MI,
 MachineBasicBlock *
 NyuziTargetLowering::EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *BB,
                                         unsigned Opcode) const {
-  const TargetInstrInfo *TII = getTargetMachine().getSubtargetImpl()->getInstrInfo();
+  const TargetInstrInfo *TII = Subtarget.getInstrInfo();
 
   unsigned Dest = MI->getOperand(0).getReg();
   unsigned Ptr = MI->getOperand(1).getReg();
@@ -1291,7 +1291,7 @@ NyuziTargetLowering::EmitAtomicCmpSwap(MachineInstr *MI,
   MachineFunction *MF = BB->getParent();
   MachineRegisterInfo &RegInfo = MF->getRegInfo();
   const TargetRegisterClass *RC = getRegClassFor(MVT::i32);
-  const TargetInstrInfo *TII = getTargetMachine().getSubtargetImpl()->getInstrInfo();
+  const TargetInstrInfo *TII = Subtarget.getInstrInfo();
   DebugLoc DL = MI->getDebugLoc();
 
   unsigned Dest = MI->getOperand(0).getReg();
@@ -1381,7 +1381,9 @@ NyuziTargetLowering::getConstraintType(const std::string &Constraint)
 
 std::pair<unsigned, const TargetRegisterClass *>
 NyuziTargetLowering::getRegForInlineAsmConstraint(
-    const std::string &Constraint, MVT VT) const {
+                             const TargetRegisterInfo *TRI,
+                             const std::string &Constraint,
+                             MVT VT) const {
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
     case 's':
@@ -1393,7 +1395,7 @@ NyuziTargetLowering::getRegForInlineAsmConstraint(
     }
   }
 
-  return TargetLowering::getRegForInlineAsmConstraint(Constraint, VT);
+  return TargetLowering::getRegForInlineAsmConstraint(TRI, Constraint, VT);
 }
 
 bool NyuziTargetLowering::isOffsetFoldingLegal(

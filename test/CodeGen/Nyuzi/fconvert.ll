@@ -7,7 +7,7 @@ target triple = "nyuzi"
 
 define void @test() #0 {
 entry:
-  %0 = load i32* @i, align 4
+  %0 = load i32, i32* @i, align 4
   %conv1 = sitofp i32 %0 to float
   %conv2 = fptosi float %conv1 to i32
   store i32 %conv2, i32* @i, align 4

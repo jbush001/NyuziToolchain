@@ -32,6 +32,7 @@
 #include <algorithm>
 using namespace llvm;
 
+namespace {
 //===----------------------------------------------------------------------===//
 // Implementation of various methods necessary for calculation of live ranges.
 // The implementation of the methods abstracts from the concrete type of the
@@ -88,18 +89,18 @@ public:
     return VNI;
   }
 
-  VNInfo *extendInBlock(SlotIndex StartIdx, SlotIndex Kill) {
+  VNInfo *extendInBlock(SlotIndex StartIdx, SlotIndex Use) {
     if (segments().empty())
       return nullptr;
     iterator I =
-        impl().findInsertPos(Segment(Kill.getPrevSlot(), Kill, nullptr));
+        impl().findInsertPos(Segment(Use.getPrevSlot(), Use, nullptr));
     if (I == segments().begin())
       return nullptr;
     --I;
     if (I->end <= StartIdx)
       return nullptr;
-    if (I->end < Kill)
-      extendSegmentEndTo(I, Kill);
+    if (I->end < Use)
+      extendSegmentEndTo(I, Use);
     return I->valno;
   }
 
@@ -293,6 +294,7 @@ private:
     return I;
   }
 };
+} // namespace
 
 //===----------------------------------------------------------------------===//
 //   LiveRange methods
@@ -567,13 +569,9 @@ void LiveRange::removeSegment(SlotIndex Start, SlotIndex End,
 /// Also remove the value# from value# list.
 void LiveRange::removeValNo(VNInfo *ValNo) {
   if (empty()) return;
-  iterator I = end();
-  iterator E = begin();
-  do {
-    --I;
-    if (I->valno == ValNo)
-      segments.erase(I);
-  } while (I != E);
+  segments.erase(std::remove_if(begin(), end(), [ValNo](const Segment &S) {
+    return S.valno == ValNo;
+  }), end());
   // Now that ValNo is dead, remove it.
   markValNoForDeletion(ValNo);
 }
@@ -747,7 +745,6 @@ void LiveRange::flushSegmentSet() {
       segments.empty() &&
       "segment set can be used only initially before switching to the array");
   segments.append(segmentSet->begin(), segmentSet->end());
-  delete segmentSet;
   segmentSet = nullptr;
   verify();
 }
@@ -819,23 +816,45 @@ static VNInfo *searchForVNI(const SlotIndexes &Indexes, LiveRange &LR,
 
 static void determineMissingVNIs(const SlotIndexes &Indexes, LiveInterval &LI) {
   SmallPtrSet<const MachineBasicBlock*, 5> Visited;
-  for (LiveRange::Segment &S : LI.segments) {
-    if (S.valno != nullptr)
-      continue;
-    // This can only happen at the begin of a basic block.
-    assert(S.start.isBlock() && "valno should only be missing at block begin");
 
-    Visited.clear();
-    const MachineBasicBlock *MBB = Indexes.getMBBFromIndex(S.start);
-    for (const MachineBasicBlock *Pred : MBB->predecessors()) {
-      VNInfo *VNI = searchForVNI(Indexes, LI, Pred, Visited);
-      if (VNI != nullptr) {
-        S.valno = VNI;
-        break;
+  LiveRange::iterator OutIt;
+  VNInfo *PrevValNo = nullptr;
+  for (LiveRange::iterator I = LI.begin(), E = LI.end(); I != E; ++I) {
+    LiveRange::Segment &S = *I;
+    // Determine final VNI if necessary.
+    if (S.valno == nullptr) {
+      // This can only happen at the begin of a basic block.
+      assert(S.start.isBlock() && "valno should only be missing at block begin");
+
+      Visited.clear();
+      const MachineBasicBlock *MBB = Indexes.getMBBFromIndex(S.start);
+      for (const MachineBasicBlock *Pred : MBB->predecessors()) {
+        VNInfo *VNI = searchForVNI(Indexes, LI, Pred, Visited);
+        if (VNI != nullptr) {
+          S.valno = VNI;
+          break;
+        }
       }
+      assert(S.valno != nullptr && "could not determine valno");
     }
-    assert(S.valno != nullptr && "could not determine valno");
+    // Merge with previous segment if it has the same VNI.
+    if (PrevValNo == S.valno && OutIt->end == S.start) {
+      OutIt->end = S.end;
+    } else {
+      // Didn't merge. Move OutIt to next segment.
+      if (PrevValNo == nullptr)
+        OutIt = LI.begin();
+      else
+        ++OutIt;
+
+      if (OutIt != I)
+        *OutIt = *I;
+      PrevValNo = S.valno;
+    }
   }
+  // If we merged some segments chop off the end.
+  ++OutIt;
+  LI.segments.erase(OutIt, LI.end());
 }
 
 void LiveInterval::constructMainRangeFromSubranges(
@@ -958,6 +977,12 @@ void LiveInterval::constructMainRangeFromSubranges(
             NeedVNIFixup = true;
         }
 
+        // In rare cases we can produce adjacent segments with the same value
+        // number (if they come from different subranges, but happen to have
+        // the same defining instruction). VNIFixup will fix those cases.
+        if (!empty() && segments.back().end == Pos &&
+            segments.back().valno == VNI)
+          NeedVNIFixup = true;
         CurrentSegment.start = Pos;
         CurrentSegment.valno = VNI;
         ConstructingSegment = true;

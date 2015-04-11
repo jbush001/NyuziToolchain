@@ -67,20 +67,18 @@ static MCAsmInfo *createNyuziMCAsmInfo(const MCRegisterInfo &MRI,
   return new NyuziMCAsmInfo(TT);
 }
 
-static MCStreamer *createNyuziMCStreamer(const Target &T, StringRef TT,
-                                              MCContext &Ctx, MCAsmBackend &MAB,
-                                              raw_ostream &_OS,
-                                              MCCodeEmitter *_Emitter,
-                                              const MCSubtargetInfo &STI,
-                                              bool RelaxAll) {
-  return createELFStreamer(Ctx, MAB, _OS, _Emitter, RelaxAll);
+static MCStreamer *createNyuziMCStreamer(const Triple &T, MCContext &Context,
+                                         MCAsmBackend &MAB, raw_ostream &OS,
+                                         MCCodeEmitter *Emitter, bool RelaxAll) {
+  return createELFStreamer(Context, MAB, OS, Emitter, RelaxAll);
 }
 
 static MCInstPrinter *
-createNyuziMCInstPrinter(const Target &T, unsigned SyntaxVariant,
-                              const MCAsmInfo &MAI, const MCInstrInfo &MII,
-                              const MCRegisterInfo &MRI,
-                              const MCSubtargetInfo &STI) {
+createNyuziMCInstPrinter(const Triple &T,
+                         unsigned SyntaxVariant,
+                         const MCAsmInfo &MAI,
+                         const MCInstrInfo &MII,
+                         const MCRegisterInfo &MRI) {
   return new NyuziInstPrinter(MAI, MII, MRI);
 }
 
@@ -112,8 +110,8 @@ extern "C" void LLVMInitializeNyuziTargetMC() {
                                        createNyuziAsmBackend);
 
   // Register the object streamer
-  TargetRegistry::RegisterMCObjectStreamer(TheNyuziTarget,
-                                           createNyuziMCStreamer);
+  TargetRegistry::RegisterELFStreamer(TheNyuziTarget,
+                                      createNyuziMCStreamer);
 
   // MC instruction printer
   TargetRegistry::RegisterMCInstPrinter(TheNyuziTarget,

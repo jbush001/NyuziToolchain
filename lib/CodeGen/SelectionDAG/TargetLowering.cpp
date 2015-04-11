@@ -96,18 +96,21 @@ TargetLowering::makeLibCall(SelectionDAG &DAG,
   for (unsigned i = 0; i != NumOps; ++i) {
     Entry.Node = Ops[i];
     Entry.Ty = Entry.Node.getValueType().getTypeForEVT(*DAG.getContext());
-    Entry.isSExt = isSigned;
-    Entry.isZExt = !isSigned;
+    Entry.isSExt = shouldSignExtendTypeInLibCall(Ops[i].getValueType(), isSigned);
+    Entry.isZExt = !shouldSignExtendTypeInLibCall(Ops[i].getValueType(), isSigned);
     Args.push_back(Entry);
   }
+  if (LC == RTLIB::UNKNOWN_LIBCALL)
+    report_fatal_error("Unsupported library call operation!");
   SDValue Callee = DAG.getExternalSymbol(getLibcallName(LC), getPointerTy());
 
   Type *RetTy = RetVT.getTypeForEVT(*DAG.getContext());
   TargetLowering::CallLoweringInfo CLI(DAG);
+  bool signExtend = shouldSignExtendTypeInLibCall(RetVT, isSigned);
   CLI.setDebugLoc(dl).setChain(DAG.getEntryNode())
     .setCallee(getLibcallCallingConv(LC), RetTy, Callee, std::move(Args), 0)
     .setNoReturn(doesNotReturn).setDiscardResult(!isReturnValueUsed)
-    .setSExtResult(isSigned).setZExtResult(!isSigned);
+    .setSExtResult(signExtend).setZExtResult(!signExtend);
   return LowerCallTo(CLI);
 }
 
@@ -793,19 +796,26 @@ bool TargetLowering::SimplifyDemandedBits(SDValue Op,
 
     APInt MsbMask = APInt::getHighBitsSet(BitWidth, 1);
     // If we only care about the highest bit, don't bother shifting right.
-    if (MsbMask == DemandedMask) {
+    if (MsbMask == NewMask) {
       unsigned ShAmt = ExVT.getScalarType().getSizeInBits();
       SDValue InOp = Op.getOperand(0);
+      unsigned VTBits = Op->getValueType(0).getScalarType().getSizeInBits();
+      bool AlreadySignExtended =
+        TLO.DAG.ComputeNumSignBits(InOp) >= VTBits-ShAmt+1;
+      // However if the input is already sign extended we expect the sign
+      // extension to be dropped altogether later and do not simplify.
+      if (!AlreadySignExtended) {
+        // Compute the correct shift amount type, which must be getShiftAmountTy
+        // for scalar types after legalization.
+        EVT ShiftAmtTy = Op.getValueType();
+        if (TLO.LegalTypes() && !ShiftAmtTy.isVector())
+          ShiftAmtTy = getShiftAmountTy(ShiftAmtTy);
 
-      // Compute the correct shift amount type, which must be getShiftAmountTy
-      // for scalar types after legalization.
-      EVT ShiftAmtTy = Op.getValueType();
-      if (TLO.LegalTypes() && !ShiftAmtTy.isVector())
-        ShiftAmtTy = getShiftAmountTy(ShiftAmtTy);
-
-      SDValue ShiftAmt = TLO.DAG.getConstant(BitWidth - ShAmt, ShiftAmtTy);
-      return TLO.CombineTo(Op, TLO.DAG.getNode(ISD::SHL, dl,
-                                            Op.getValueType(), InOp, ShiftAmt));
+        SDValue ShiftAmt = TLO.DAG.getConstant(BitWidth - ShAmt, ShiftAmtTy);
+        return TLO.CombineTo(Op, TLO.DAG.getNode(ISD::SHL, dl,
+                                                 Op.getValueType(), InOp,
+                                                 ShiftAmt));
+      }
     }
 
     // Sign extension.  Compute the demanded bits in the result that are not
@@ -2180,9 +2190,10 @@ void TargetLowering::LowerAsmOperandForConstraint(SDValue Op,
   }
 }
 
-std::pair<unsigned, const TargetRegisterClass*> TargetLowering::
-getRegForInlineAsmConstraint(const std::string &Constraint,
-                             MVT VT) const {
+std::pair<unsigned, const TargetRegisterClass *>
+TargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *RI,
+                                             const std::string &Constraint,
+                                             MVT VT) const {
   if (Constraint.empty() || Constraint[0] != '{')
     return std::make_pair(0u, static_cast<TargetRegisterClass*>(nullptr));
   assert(*(Constraint.end()-1) == '}' && "Not a brace enclosed constraint?");
@@ -2194,8 +2205,6 @@ getRegForInlineAsmConstraint(const std::string &Constraint,
     std::make_pair(0u, static_cast<const TargetRegisterClass*>(nullptr));
 
   // Figure out which register class contains this reg.
-  const TargetRegisterInfo *RI =
-      getTargetMachine().getSubtargetImpl()->getRegisterInfo();
   for (TargetRegisterInfo::regclass_iterator RCI = RI->regclass_begin(),
        E = RI->regclass_end(); RCI != E; ++RCI) {
     const TargetRegisterClass *RC = *RCI;
@@ -2248,8 +2257,9 @@ unsigned TargetLowering::AsmOperandInfo::getMatchedOperand() const {
 /// and also tie in the associated operand values.
 /// If this returns an empty vector, and if the constraint string itself
 /// isn't empty, there was an error parsing.
-TargetLowering::AsmOperandInfoVector TargetLowering::ParseConstraints(
-    ImmutableCallSite CS) const {
+TargetLowering::AsmOperandInfoVector
+TargetLowering::ParseConstraints(const TargetRegisterInfo *TRI,
+                                 ImmutableCallSite CS) const {
   /// ConstraintOperands - Information about all of the constraints.
   AsmOperandInfoVector ConstraintOperands;
   const InlineAsm *IA = cast<InlineAsm>(CS.getCalledValue());
@@ -2411,12 +2421,12 @@ TargetLowering::AsmOperandInfoVector TargetLowering::ParseConstraints(
       AsmOperandInfo &Input = ConstraintOperands[OpInfo.MatchingInput];
 
       if (OpInfo.ConstraintVT != Input.ConstraintVT) {
-        std::pair<unsigned, const TargetRegisterClass*> MatchRC =
-          getRegForInlineAsmConstraint(OpInfo.ConstraintCode,
-                                       OpInfo.ConstraintVT);
-        std::pair<unsigned, const TargetRegisterClass*> InputRC =
-          getRegForInlineAsmConstraint(Input.ConstraintCode,
-                                       Input.ConstraintVT);
+        std::pair<unsigned, const TargetRegisterClass *> MatchRC =
+            getRegForInlineAsmConstraint(TRI, OpInfo.ConstraintCode,
+                                         OpInfo.ConstraintVT);
+        std::pair<unsigned, const TargetRegisterClass *> InputRC =
+            getRegForInlineAsmConstraint(TRI, Input.ConstraintCode,
+                                         Input.ConstraintVT);
         if ((OpInfo.ConstraintVT.isInteger() !=
              Input.ConstraintVT.isInteger()) ||
             (MatchRC.second != InputRC.second)) {

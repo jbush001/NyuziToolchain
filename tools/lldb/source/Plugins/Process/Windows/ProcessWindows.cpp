@@ -12,6 +12,7 @@
 
 // C++ Includes
 #include <list>
+#include <mutex>
 #include <vector>
 
 // Other libraries and framework includes
@@ -31,6 +32,7 @@
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Target/DynamicLoader.h"
 #include "lldb/Target/FileAction.h"
+#include "lldb/Target/MemoryRegionInfo.h"
 #include "lldb/Target/RegisterContext.h"
 #include "lldb/Target/StopInfo.h"
 #include "lldb/Target/Target.h"
@@ -55,8 +57,8 @@ class ProcessWindowsData
 {
   public:
     ProcessWindowsData(const ProcessLaunchInfo &launch_info)
-        : m_initial_stop_event(nullptr)
-        , m_launch_info(launch_info)
+        : m_launch_info(launch_info)
+        , m_initial_stop_event(nullptr)
         , m_initial_stop_received(false)
     {
         m_initial_stop_event = ::CreateEvent(nullptr, TRUE, FALSE, nullptr);
@@ -86,15 +88,14 @@ ProcessWindows::CreateInstance(Target &target, Listener &listener, const FileSpe
 void
 ProcessWindows::Initialize()
 {
-    static bool g_initialized = false;
+    static std::once_flag g_once_flag;
 
-    if (!g_initialized)
+    std::call_once(g_once_flag, []()
     {
-        g_initialized = true;
         PluginManager::RegisterPlugin(GetPluginNameStatic(),
                                       GetPluginDescriptionStatic(),
                                       CreateInstance);
-    }
+    });
 }
 
 //------------------------------------------------------------------------------
@@ -222,7 +223,11 @@ ProcessWindows::DoLaunch(Module *exe_module,
     {
         // Block this function until we receive the initial stop from the process.
         if (::WaitForSingleObject(m_session_data->m_initial_stop_event, INFINITE) == WAIT_OBJECT_0)
+        {
             process = debugger->GetProcess();
+            if (m_session_data->m_launch_error.Fail())
+                result = m_session_data->m_launch_error;
+        }
         else
             result.SetError(::GetLastError(), eErrorTypeWin32);
     }
@@ -330,7 +335,6 @@ ProcessWindows::RefreshStateAfterStop()
         BreakpointSiteSP site(GetBreakpointSiteList().FindByAddress(pc - 1));
         if (site && site->ValidForThisThread(stop_thread.get()))
         {
-            lldb::break_id_t break_id = LLDB_INVALID_BREAK_ID;
             stop_info = StopInfo::CreateStopReasonWithBreakpointSiteID(*stop_thread, site->GetID());
             register_context->SetPC(pc - 1);
         }
@@ -389,7 +393,6 @@ void ProcessWindows::DidLaunch()
 {
     llvm::sys::ScopedLock lock(m_mutex);
 
-    StateType state = GetPrivateState();
     // The initial stop won't broadcast the state change event, so account for that here.
     if (m_session_data && GetPrivateState() == eStateStopped &&
             m_session_data->m_launch_info.GetFlags().Test(eLaunchFlagStopAtEntry))
@@ -553,7 +556,6 @@ ProcessWindows::OnDebugException(bool first_chance, const ExceptionRecord &recor
     }
 
     ExceptionResult result = ExceptionResult::SendToApplication;
-    lldb::StateType state = GetPrivateState();
     switch (record.GetExceptionCode())
     {
         case EXCEPTION_BREAKPOINT:

@@ -46,8 +46,10 @@ public:
   	                                                     MachineBasicBlock *MBB) const override;
   virtual const char *getTargetNodeName(unsigned Opcode) const override;
   virtual ConstraintType getConstraintType(const std::string &Constraint) const override;
-  virtual std::pair<unsigned, const TargetRegisterClass *>
-	  getRegForInlineAsmConstraint(const std::string &Constraint, MVT VT) const override;
+  std::pair<unsigned, const TargetRegisterClass *>
+    getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                                 const std::string &Constraint,
+                                 MVT VT) const override;
   virtual bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
   virtual EVT getSetCCResultType(LLVMContext &Context, EVT VT) const override;
   virtual SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv,

@@ -32,7 +32,8 @@ public:
   static const char *getRegisterName(unsigned RegNo);
 
   virtual void printRegName(raw_ostream &OS, unsigned RegNo) const override;
-  virtual void printInst(const MCInst *MI, raw_ostream &O, StringRef Annot) override;
+  virtual void printInst(const MCInst *MI, raw_ostream &O, StringRef Annot,
+                         const MCSubtargetInfo &STI) override;
 
 private:
   void printCPURegs(const MCInst *MI, unsigned OpNo, raw_ostream &O);

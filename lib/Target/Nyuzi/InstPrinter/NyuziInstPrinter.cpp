@@ -35,7 +35,8 @@ void NyuziInstPrinter::printRegName(raw_ostream &OS,
 }
 
 void NyuziInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
-                                      StringRef Annot) {
+                                 StringRef Annot,
+                                 const MCSubtargetInfo &STI) {
 
   // NOP is or s0, s0, 0
   if (MI->getOpcode() == Nyuzi::ORSSI 

@@ -79,9 +79,9 @@ class LoopBase {
 
   SmallPtrSet<const BlockT*, 8> DenseBlockSet;
 
-  LoopBase(const LoopBase<BlockT, LoopT> &) LLVM_DELETED_FUNCTION;
+  LoopBase(const LoopBase<BlockT, LoopT> &) = delete;
   const LoopBase<BlockT, LoopT>&
-    operator=(const LoopBase<BlockT, LoopT> &) LLVM_DELETED_FUNCTION;
+    operator=(const LoopBase<BlockT, LoopT> &) = delete;
 public:
   /// Loop ctor - This creates an empty loop.
   LoopBase() : ParentLoop(nullptr) {}
@@ -464,23 +464,20 @@ public:
   /// cannot find a terminating instruction with location information,
   /// it returns an unknown location.
   DebugLoc getStartLoc() const {
-    DebugLoc StartLoc;
     BasicBlock *HeadBB;
 
     // Try the pre-header first.
-    if ((HeadBB = getLoopPreheader()) != nullptr) {
-      StartLoc = HeadBB->getTerminator()->getDebugLoc();
-      if (!StartLoc.isUnknown())
-        return StartLoc;
-    }
+    if ((HeadBB = getLoopPreheader()) != nullptr)
+      if (DebugLoc DL = HeadBB->getTerminator()->getDebugLoc())
+        return DL;
 
     // If we have no pre-header or there are no instructions with debug
     // info in it, try the header.
     HeadBB = getHeader();
     if (HeadBB)
-      StartLoc = HeadBB->getTerminator()->getDebugLoc();
+      return HeadBB->getTerminator()->getDebugLoc();
 
-    return StartLoc;
+    return DebugLoc();
   }
 
 private:
@@ -501,8 +498,8 @@ class LoopInfoBase {
   friend class LoopBase<BlockT, LoopT>;
   friend class LoopInfo;
 
-  void operator=(const LoopInfoBase &) LLVM_DELETED_FUNCTION;
-  LoopInfoBase(const LoopInfoBase &) LLVM_DELETED_FUNCTION;
+  void operator=(const LoopInfoBase &) = delete;
+  LoopInfoBase(const LoopInfoBase &) = delete;
 public:
   LoopInfoBase() { }
   ~LoopInfoBase() { releaseMemory(); }
@@ -651,8 +648,8 @@ class LoopInfo : public LoopInfoBase<BasicBlock, Loop> {
 
   friend class LoopBase<BasicBlock, Loop>;
 
-  void operator=(const LoopInfo &) LLVM_DELETED_FUNCTION;
-  LoopInfo(const LoopInfo &) LLVM_DELETED_FUNCTION;
+  void operator=(const LoopInfo &) = delete;
+  LoopInfo(const LoopInfo &) = delete;
 public:
   LoopInfo() {}
 

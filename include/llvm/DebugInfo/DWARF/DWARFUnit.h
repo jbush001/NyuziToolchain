@@ -10,6 +10,7 @@
 #ifndef LLVM_LIB_DEBUGINFO_DWARFUNIT_H
 #define LLVM_LIB_DEBUGINFO_DWARFUNIT_H
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/DebugInfo/DWARF/DWARFDebugAbbrev.h"
 #include "llvm/DebugInfo/DWARF/DWARFDebugInfoEntry.h"
 #include "llvm/DebugInfo/DWARF/DWARFDebugRangeList.h"
@@ -231,6 +232,26 @@ public:
     assert(!DieArray.empty() && DIE >= &DieArray[0] &&
            DIE < &DieArray[0] + DieArray.size());
     return DIE - &DieArray[0];
+  }
+
+  /// \brief Return the DIE object at the given index.
+  const DWARFDebugInfoEntryMinimal *getDIEAtIndex(unsigned Index) const {
+    assert(Index < DieArray.size());
+    return &DieArray[Index];
+  }
+
+  /// \brief Return the DIE object for a given offset inside the
+  /// unit's DIE vector.
+  ///
+  /// The unit needs to have his DIEs extracted for this method to work.
+  const DWARFDebugInfoEntryMinimal *getDIEForOffset(uint32_t Offset) const {
+    assert(!DieArray.empty());
+    auto it = std::lower_bound(
+        DieArray.begin(), DieArray.end(), Offset,
+        [=](const DWARFDebugInfoEntryMinimal &LHS, uint32_t Offset) {
+          return LHS.getOffset() < Offset;
+        });
+    return it == DieArray.end() ? nullptr : &*it;
   }
 
 private:

@@ -7,7 +7,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
-#include "llvm/PassManager.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Support/Host.h"
@@ -35,7 +35,7 @@ int parse(Module*);
 bool generateTargetCode(Module *TheModule)
 {
   std::string ErrStr;
-  PassManager PM;
+  llvm::legacy::PassManager PM;
 
   Triple TheTriple;
   TheTriple.setTriple(sys::getDefaultTargetTriple());
@@ -50,15 +50,13 @@ bool generateTargetCode(Module *TheModule)
   }
 
   TargetOptions Options;
+  Options.MCOptions.AsmVerbose = true;
   std::unique_ptr<TargetMachine>
     target(TheTarget->createTargetMachine(TheTriple.getTriple(),
                                           "", "", Options,
                                           Reloc::Default, CodeModel::Default, 
                                           CodeGenOpt::Aggressive));
   TargetMachine &Target = *target.get();
-
-  // Override default to generate verbose assembly.
-  Target.setAsmVerbosityDefault(true);
 
   raw_fd_ostream Raw("-", Error, llvm::sys::fs::F_Text);
   formatted_raw_ostream FOS(Raw);

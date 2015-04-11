@@ -1,23 +1,28 @@
 #include "llvm/Analysis/Passes.h"
 #include "llvm/ExecutionEngine/Orc/CompileUtils.h"
 #include "llvm/ExecutionEngine/Orc/IRCompileLayer.h"
+#include "llvm/ExecutionEngine/Orc/LambdaResolver.h"
 #include "llvm/ExecutionEngine/Orc/LazyEmittingLayer.h"
 #include "llvm/ExecutionEngine/Orc/ObjectLinkingLayer.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
-#include "llvm/PassManager.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Transforms/Scalar.h"
 #include <cctype>
-#include <cstdio>
+#include <iomanip>
+#include <iostream>
 #include <map>
+#include <sstream>
 #include <string>
 #include <vector>
+
 using namespace llvm;
+using namespace llvm::orc;
 
 //===----------------------------------------------------------------------===//
 // Lexer
@@ -113,13 +118,13 @@ class IRGenContext;
 /// ExprAST - Base class for all expression nodes.
 struct ExprAST {
   virtual ~ExprAST() {}
-  virtual Value* IRGen(IRGenContext &C) = 0;
+  virtual Value *IRGen(IRGenContext &C) const = 0;
 };
 
 /// NumberExprAST - Expression class for numeric literals like "1.0".
 struct NumberExprAST : public ExprAST {
   NumberExprAST(double Val) : Val(Val) {}
-  Value* IRGen(IRGenContext &C) override;
+  Value *IRGen(IRGenContext &C) const override;
 
   double Val;
 };
@@ -127,7 +132,7 @@ struct NumberExprAST : public ExprAST {
 /// VariableExprAST - Expression class for referencing a variable, like "a".
 struct VariableExprAST : public ExprAST {
   VariableExprAST(std::string Name) : Name(std::move(Name)) {}
-  Value* IRGen(IRGenContext &C) override;
+  Value *IRGen(IRGenContext &C) const override;
 
   std::string Name;
 };
@@ -137,7 +142,7 @@ struct UnaryExprAST : public ExprAST {
   UnaryExprAST(char Opcode, std::unique_ptr<ExprAST> Operand) 
     : Opcode(std::move(Opcode)), Operand(std::move(Operand)) {}
 
-  Value* IRGen(IRGenContext &C) override;
+  Value *IRGen(IRGenContext &C) const override;
 
   char Opcode;
   std::unique_ptr<ExprAST> Operand;
@@ -149,7 +154,7 @@ struct BinaryExprAST : public ExprAST {
                 std::unique_ptr<ExprAST> RHS) 
     : Op(Op), LHS(std::move(LHS)), RHS(std::move(RHS)) {}
 
-  Value* IRGen(IRGenContext &C) override;
+  Value *IRGen(IRGenContext &C) const override;
 
   char Op;
   std::unique_ptr<ExprAST> LHS, RHS;
@@ -161,7 +166,7 @@ struct CallExprAST : public ExprAST {
               std::vector<std::unique_ptr<ExprAST>> Args)
     : CalleeName(std::move(CalleeName)), Args(std::move(Args)) {}
 
-  Value* IRGen(IRGenContext &C) override;
+  Value *IRGen(IRGenContext &C) const override;
 
   std::string CalleeName;
   std::vector<std::unique_ptr<ExprAST>> Args;
@@ -172,7 +177,7 @@ struct IfExprAST : public ExprAST {
   IfExprAST(std::unique_ptr<ExprAST> Cond, std::unique_ptr<ExprAST> Then,
             std::unique_ptr<ExprAST> Else)
     : Cond(std::move(Cond)), Then(std::move(Then)), Else(std::move(Else)) {}
-  Value* IRGen(IRGenContext &C) override;
+  Value *IRGen(IRGenContext &C) const override;
 
   std::unique_ptr<ExprAST> Cond, Then, Else;
 };
@@ -185,7 +190,7 @@ struct ForExprAST : public ExprAST {
     : VarName(std::move(VarName)), Start(std::move(Start)), End(std::move(End)),
       Step(std::move(Step)), Body(std::move(Body)) {}
 
-  Value* IRGen(IRGenContext &C) override;
+  Value *IRGen(IRGenContext &C) const override;
 
   std::string VarName;
   std::unique_ptr<ExprAST> Start, End, Step, Body;
@@ -198,8 +203,8 @@ struct VarExprAST : public ExprAST {
 
   VarExprAST(BindingList VarBindings, std::unique_ptr<ExprAST> Body)
     : VarBindings(std::move(VarBindings)), Body(std::move(Body)) {}
-  
-  Value* IRGen(IRGenContext &C) override;
+
+  Value *IRGen(IRGenContext &C) const override;
 
   BindingList VarBindings;
   std::unique_ptr<ExprAST> Body;
@@ -213,7 +218,7 @@ struct PrototypeAST {
     : Name(std::move(Name)), Args(std::move(Args)), IsOperator(IsOperator),
       Precedence(Precedence) {}
 
-  Function* IRGen(IRGenContext &C);
+  Function *IRGen(IRGenContext &C) const;
   void CreateArgumentAllocas(Function *F, IRGenContext &C);
 
   bool isUnaryOp() const { return IsOperator && Args.size() == 1; }
@@ -236,7 +241,7 @@ struct FunctionAST {
               std::unique_ptr<ExprAST> Body)
     : Proto(std::move(Proto)), Body(std::move(Body)) {}
 
-  Function* IRGen(IRGenContext &C);
+  Function *IRGen(IRGenContext &C) const;
 
   std::unique_ptr<PrototypeAST> Proto;
   std::unique_ptr<ExprAST> Body;
@@ -270,14 +275,14 @@ static int GetTokPrecedence() {
 }
 
 template <typename T>
-std::unique_ptr<T> ErrorU(const char *Str) {
-  fprintf(stderr, "Error: %s\n", Str);
+std::unique_ptr<T> ErrorU(const std::string &Str) {
+  std::cerr << "Error: " << Str << "\n";
   return nullptr;
 }
 
 template <typename T>
-T* ErrorP(const char *Str) {
-  fprintf(stderr, "Error: %s\n", Str);
+T* ErrorP(const std::string &Str) {
+  std::cerr << "Error: " << Str << "\n";
   return nullptr;
 }
 
@@ -643,13 +648,11 @@ static std::unique_ptr<PrototypeAST> ParseExtern() {
 //===----------------------------------------------------------------------===//
 
 // FIXME: Obviously we can do better than this
-std::string GenerateUniqueName(const char *root)
-{
+std::string GenerateUniqueName(const std::string &Root) {
   static int i = 0;
-  char s[16];
-  sprintf(s, "%s%d", root, i++);
-  std::string S = s;
-  return S;
+  std::ostringstream NameStream;
+  NameStream << Root << ++i;
+  return NameStream.str();
 }
 
 std::string MakeLegalFunctionName(std::string Name)
@@ -669,10 +672,9 @@ std::string MakeLegalFunctionName(std::string Name)
   std::string legal_elements = "_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   size_t pos;
   while ((pos = NewName.find_first_not_of(legal_elements)) != std::string::npos) {
-    char old_c = NewName.at(pos);
-    char new_str[16];
-    sprintf(new_str, "%d", (int)old_c);
-    NewName = NewName.replace(pos, 1, new_str);
+    std::ostringstream NumStream;
+    NumStream << (int)NewName.at(pos);
+    NewName = NewName.replace(pos, 1, NumStream.str());
   }
 
   return NewName;
@@ -680,14 +682,18 @@ std::string MakeLegalFunctionName(std::string Name)
 
 class SessionContext {
 public:
-  SessionContext(LLVMContext &C) : Context(C) {}
+  SessionContext(LLVMContext &C)
+    : Context(C), TM(EngineBuilder().selectTarget()) {}
   LLVMContext& getLLVMContext() const { return Context; }
+  TargetMachine& getTarget() { return *TM; }
   void addPrototypeAST(std::unique_ptr<PrototypeAST> P);
   PrototypeAST* getPrototypeAST(const std::string &Name);
-  std::map<std::string, std::unique_ptr<FunctionAST>> FunctionDefs; 
 private:
   typedef std::map<std::string, std::unique_ptr<PrototypeAST>> PrototypeMap;
+  
   LLVMContext &Context;
+  std::unique_ptr<TargetMachine> TM;
+      
   PrototypeMap Prototypes;
 };
 
@@ -700,7 +706,7 @@ PrototypeAST* SessionContext::getPrototypeAST(const std::string &Name) {
   if (I != Prototypes.end())
     return I->second.get();
   return nullptr;
-} 
+}
 
 class IRGenContext {
 public:
@@ -709,7 +715,9 @@ public:
     : Session(S),
       M(new Module(GenerateUniqueName("jit_module_"),
                    Session.getLLVMContext())),
-      Builder(Session.getLLVMContext()) {}
+      Builder(Session.getLLVMContext()) {
+    M->setDataLayout(*Session.getTarget().getDataLayout());
+  }
 
   SessionContext& getSession() { return Session; }
   Module& getM() const { return *M; }
@@ -743,25 +751,22 @@ static AllocaInst *CreateEntryBlockAlloca(Function *TheFunction,
                            VarName.c_str());
 }
 
-Value *NumberExprAST::IRGen(IRGenContext &C) {
+Value *NumberExprAST::IRGen(IRGenContext &C) const {
   return ConstantFP::get(C.getLLVMContext(), APFloat(Val));
 }
 
-Value *VariableExprAST::IRGen(IRGenContext &C) {
+Value *VariableExprAST::IRGen(IRGenContext &C) const {
   // Look this variable up in the function.
   Value *V = C.NamedValues[Name];
 
-  if (V == 0) {
-    char ErrStr[256];
-    sprintf(ErrStr, "Unknown variable name %s", Name.c_str());
-    return ErrorP<Value>(ErrStr);
-  }
+  if (V == 0)
+    return ErrorP<Value>("Unknown variable name '" + Name + "'");
 
   // Load the value.
   return C.getBuilder().CreateLoad(V, Name.c_str());
 }
 
-Value *UnaryExprAST::IRGen(IRGenContext &C) {
+Value *UnaryExprAST::IRGen(IRGenContext &C) const {
   if (Value *OperandV = Operand->IRGen(C)) {
     std::string FnName = MakeLegalFunctionName(std::string("unary")+Opcode);
     if (Function *F = C.getPrototype(FnName))
@@ -773,7 +778,7 @@ Value *UnaryExprAST::IRGen(IRGenContext &C) {
   return nullptr;
 }
 
-Value *BinaryExprAST::IRGen(IRGenContext &C) {
+Value *BinaryExprAST::IRGen(IRGenContext &C) const {
   // Special case '=' because we don't want to emit the LHS as an expression.
   if (Op == '=') {
     // Assignment requires the LHS to be an identifier.
@@ -818,7 +823,7 @@ Value *BinaryExprAST::IRGen(IRGenContext &C) {
   return ErrorP<Value>("Unknown binary operator");
 }
 
-Value *CallExprAST::IRGen(IRGenContext &C) {
+Value *CallExprAST::IRGen(IRGenContext &C) const {
   // Look up the name in the global module table.
   if (auto CalleeF = C.getPrototype(CalleeName)) {
     // If argument mismatch error.
@@ -837,7 +842,7 @@ Value *CallExprAST::IRGen(IRGenContext &C) {
   return ErrorP<Value>("Unknown function referenced");
 }
 
-Value *IfExprAST::IRGen(IRGenContext &C) {
+Value *IfExprAST::IRGen(IRGenContext &C) const {
   Value *CondV = Cond->IRGen(C);
   if (!CondV) return nullptr;
   
@@ -888,7 +893,7 @@ Value *IfExprAST::IRGen(IRGenContext &C) {
   return PN;
 }
 
-Value *ForExprAST::IRGen(IRGenContext &C) {
+Value *ForExprAST::IRGen(IRGenContext &C) const {
   // Output this as:
   //   var = alloca double
   //   ...
@@ -987,7 +992,7 @@ Value *ForExprAST::IRGen(IRGenContext &C) {
   return Constant::getNullValue(Type::getDoubleTy(getGlobalContext()));
 }
 
-Value *VarExprAST::IRGen(IRGenContext &C) {
+Value *VarExprAST::IRGen(IRGenContext &C) const {
   std::vector<AllocaInst *> OldBindings;
   
   Function *TheFunction = C.getBuilder().GetInsertBlock()->getParent();
@@ -1032,7 +1037,7 @@ Value *VarExprAST::IRGen(IRGenContext &C) {
   return BodyVal;
 }
 
-Function *PrototypeAST::IRGen(IRGenContext &C) {
+Function *PrototypeAST::IRGen(IRGenContext &C) const {
   std::string FnName = MakeLegalFunctionName(Name);
 
   // Make the function type:  double(double,double) etc.
@@ -1088,7 +1093,7 @@ void PrototypeAST::CreateArgumentAllocas(Function *F, IRGenContext &C) {
   }
 }
 
-Function *FunctionAST::IRGen(IRGenContext &C) {
+Function *FunctionAST::IRGen(IRGenContext &C) const {
   C.NamedValues.clear();
   
   Function *TheFunction = Proto->IRGen(C);
@@ -1128,15 +1133,40 @@ Function *FunctionAST::IRGen(IRGenContext &C) {
 // Top-Level parsing and JIT Driver
 //===----------------------------------------------------------------------===//
 
+static std::unique_ptr<llvm::Module> IRGen(SessionContext &S,
+                                           const FunctionAST &F) {
+  IRGenContext C(S);
+  auto LF = F.IRGen(C);
+  if (!LF)
+    return nullptr;
+#ifndef MINIMAL_STDERR_OUTPUT
+  fprintf(stderr, "Read function definition:");
+  LF->dump();
+#endif
+  return C.takeM();
+}
+
+template <typename T>
+static std::vector<T> singletonSet(T t) {
+  std::vector<T> Vec;
+  Vec.push_back(std::move(t));
+  return Vec;
+}
+
 class KaleidoscopeJIT {
 public:
   typedef ObjectLinkingLayer<> ObjLayerT;
   typedef IRCompileLayer<ObjLayerT> CompileLayerT;
   typedef LazyEmittingLayer<CompileLayerT> LazyEmitLayerT;
-
   typedef LazyEmitLayerT::ModuleSetHandleT ModuleHandleT;
 
-  std::string Mangle(const std::string &Name) {
+  KaleidoscopeJIT(SessionContext &Session)
+    : Session(Session),
+      Mang(Session.getTarget().getDataLayout()),
+      CompileLayer(ObjectLayer, SimpleCompiler(Session.getTarget())),
+      LazyEmitLayer(CompileLayer) {}
+
+  std::string mangle(const std::string &Name) {
     std::string MangledName;
     {
       raw_string_ostream MangledNameStream(MangledName);
@@ -1145,77 +1175,79 @@ public:
     return MangledName;
   }
 
-  KaleidoscopeJIT(SessionContext &Session)
-    : TM(EngineBuilder().selectTarget()),
-      Mang(TM->getDataLayout()), Session(Session),
-      CompileLayer(ObjectLayer, SimpleCompiler(*TM)),
-      LazyEmitLayer(CompileLayer) {}
+  void addFunctionAST(std::unique_ptr<FunctionAST> FnAST) {
+    std::cerr << "Adding AST: " << FnAST->Proto->Name << "\n";
+    FunctionDefs[mangle(FnAST->Proto->Name)] = std::move(FnAST);
+  }
 
   ModuleHandleT addModule(std::unique_ptr<Module> M) {
-    if (!M->getDataLayout())
-      M->setDataLayout(TM->getDataLayout());
-
-    // The LazyEmitLayer takes lists of modules, rather than single modules, so
-    // we'll just build a single-element list.
-    std::vector<std::unique_ptr<Module>> S;
-    S.push_back(std::move(M));
-
     // We need a memory manager to allocate memory and resolve symbols for this
-    // new module. Create one that resolves symbols by looking back into the JIT.
-    auto MM = createLookasideRTDyldMM<SectionMemoryManager>(
-                [&](const std::string &Name) -> uint64_t {
-                  // First try to find 'Name' within the JIT.
-                  if (uint64_t Addr = getUnmangledSymbolAddress(Name))
-                    return Addr;
+    // new module. Create one that resolves symbols by looking back into the
+    // JIT.
+    auto Resolver = createLambdaResolver(
+                      [&](const std::string &Name) {
+                        // First try to find 'Name' within the JIT.
+                        if (auto Symbol = findSymbol(Name))
+                          return RuntimeDyld::SymbolInfo(Symbol.getAddress(),
+                                                         Symbol.getFlags());
 
-                  // If we don't find 'Name' in the JIT, see if we have some AST
-                  // for it.
-                  if (!Session.FunctionDefs.count(Name))
-                    return 0;
+                        // If we don't already have a definition of 'Name' then search
+                        // the ASTs.
+                        return searchFunctionASTs(Name);
+                      },
+                      [](const std::string &S) { return nullptr; } );
 
-                  // We have AST for 'Name'. IRGen it, add it to the JIT, and
-                  // return the address for it.
-                  IRGenContext C(Session);
-                  {
-                    // Take ownership of the AST: We can release the memory as
-                    // soon as we've IRGen'd it.
-                    auto FuncAST = std::move(Session.FunctionDefs[Name]);
-                    FuncAST->IRGen(C);
-                  }
-
-                  addModule(C.takeM());
-                  return getUnmangledSymbolAddress(Name);
-                }, 
-                [](const std::string &S) { return 0; } );
-
-    return LazyEmitLayer.addModuleSet(std::move(S), std::move(MM));
+    return LazyEmitLayer.addModuleSet(singletonSet(std::move(M)),
+                                      make_unique<SectionMemoryManager>(),
+                                      std::move(Resolver));
   }
 
   void removeModule(ModuleHandleT H) { LazyEmitLayer.removeModuleSet(H); }
 
-  uint64_t getUnmangledSymbolAddress(const std::string &Name) {
-    return LazyEmitLayer.getSymbolAddress(Name, false);
+  JITSymbol findSymbol(const std::string &Name) {
+    return LazyEmitLayer.findSymbol(Name, true);
   }
 
-  uint64_t getSymbolAddress(const std::string &Name) {
-    return getUnmangledSymbolAddress(Mangle(Name));
+  JITSymbol findSymbolIn(ModuleHandleT H, const std::string &Name) {
+    return LazyEmitLayer.findSymbolIn(H, Name, true);
+  }
+
+  JITSymbol findUnmangledSymbol(const std::string &Name) {
+    return findSymbol(mangle(Name));
   }
 
 private:
 
-  std::unique_ptr<TargetMachine> TM;
-  Mangler Mang;
-  SessionContext &Session;
+  // This method searches the FunctionDefs map for a definition of 'Name'. If it
+  // finds one it generates a stub for it and returns the address of the stub.
+  RuntimeDyld::SymbolInfo searchFunctionASTs(const std::string &Name) {
+    auto DefI = FunctionDefs.find(Name);
+    if (DefI == FunctionDefs.end())
+      return 0;
 
+    // Take the FunctionAST out of the map.
+    auto FnAST = std::move(DefI->second);
+    FunctionDefs.erase(DefI);
+
+    // IRGen the AST, add it to the JIT, and return the address for it.
+    auto H = addModule(IRGen(Session, *FnAST));
+    auto Sym = findSymbolIn(H, Name);
+    return RuntimeDyld::SymbolInfo(Sym.getAddress(), Sym.getFlags());
+  }
+
+  SessionContext &Session;
+  Mangler Mang;
   ObjLayerT ObjectLayer;
   CompileLayerT CompileLayer;
   LazyEmitLayerT LazyEmitLayer;
+
+  std::map<std::string, std::unique_ptr<FunctionAST>> FunctionDefs;
 };
 
 static void HandleDefinition(SessionContext &S, KaleidoscopeJIT &J) {
   if (auto F = ParseDefinition()) {
     S.addPrototypeAST(llvm::make_unique<PrototypeAST>(*F->Proto));
-    S.FunctionDefs[J.Mangle(F->Proto->Name)] = std::move(F);
+    J.addFunctionAST(std::move(F));
   } else {
     // Skip token for error recovery.
     getNextToken();
@@ -1237,7 +1269,7 @@ static void HandleTopLevelExpression(SessionContext &S, KaleidoscopeJIT &J) {
     IRGenContext C(S);
     if (auto ExprFunc = F->IRGen(C)) {
 #ifndef MINIMAL_STDERR_OUTPUT
-      fprintf(stderr, "Expression function:\n");
+      std::cerr << "Expression function:\n";
       ExprFunc->dump();
 #endif
       // Add the CodeGen'd module to the JIT. Keep a handle to it: We can remove
@@ -1245,15 +1277,15 @@ static void HandleTopLevelExpression(SessionContext &S, KaleidoscopeJIT &J) {
       auto H = J.addModule(C.takeM());
 
       // Get the address of the JIT'd function in memory.
-      uint64_t ExprFuncAddr = J.getSymbolAddress("__anon_expr");
+      auto ExprSymbol = J.findUnmangledSymbol("__anon_expr");
       
       // Cast it to the right type (takes no arguments, returns a double) so we
       // can call it as a native function.
-      double (*FP)() = (double (*)())(intptr_t)ExprFuncAddr;
+      double (*FP)() = (double (*)())(intptr_t)ExprSymbol.getAddress();
 #ifdef MINIMAL_STDERR_OUTPUT
       FP();
 #else
-      fprintf(stderr, "Evaluated to %f\n", FP());
+      std::cerr << "Evaluated to " << FP() << "\n";
 #endif
 
       // Remove the function.
@@ -1271,16 +1303,16 @@ static void MainLoop() {
   KaleidoscopeJIT J(S);
 
   while (1) {
-#ifndef MINIMAL_STDERR_OUTPUT
-    fprintf(stderr, "ready> ");
-#endif
     switch (CurTok) {
     case tok_eof:    return;
-    case ';':        getNextToken(); break;  // ignore top-level semicolons.
+    case ';':        getNextToken(); continue;  // ignore top-level semicolons.
     case tok_def:    HandleDefinition(S, J); break;
     case tok_extern: HandleExtern(S); break;
     default:         HandleTopLevelExpression(S, J); break;
     }
+#ifndef MINIMAL_STDERR_OUTPUT
+    std::cerr << "ready> ";
+#endif
   }
 }
 
@@ -1316,7 +1348,6 @@ int main() {
   InitializeNativeTarget();
   InitializeNativeTargetAsmPrinter();
   InitializeNativeTargetAsmParser();
-  LLVMContext &Context = getGlobalContext();
 
   // Install standard binary operators.
   // 1 is lowest precedence.
@@ -1329,9 +1360,11 @@ int main() {
 
   // Prime the first token.
 #ifndef MINIMAL_STDERR_OUTPUT
-  fprintf(stderr, "ready> ");
+  std::cerr << "ready> ";
 #endif
   getNextToken();
+
+  std::cerr << std::fixed;
 
   // Run the main "interpreter loop" now.
   MainLoop();

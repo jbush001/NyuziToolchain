@@ -7,19 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-//++
-// File:        MICmnResources.cpp
-//
-// Overview:    CMICmnResources implementation.
-//
-// Environment: Compilers:  Visual C++ 12.
-//                          gcc (Ubuntu/Linaro 4.8.1-10ubuntu9) 4.8.1
-//              Libraries:  See MIReadmetxt.
-//
-// Copyright:   None.
-//--
-
 // Third party headers
+#include <inttypes.h> // For PRIx64
 #include "assert.h"
 
 // In-house headers:
@@ -62,9 +51,6 @@ const CMICmnResources::SRsrcTextData CMICmnResources::ms_pResourceId2TextData[] 
     {IDS_DRIVERMGR_DRIVER_ERR_INIT, "Driver Manager. Driver '%s' (ID:'%s') initialise failed. %s"},
     {IDE_MEDIUMSTDERR_NAME, "Stderr"},
     {IDE_MEDIUMSTDOUT_NAME, "Stdout"},
-    {IDE_MI_APP_EXIT_OK, "Program exited OK"},
-    {IDE_MI_APP_EXIT_WITH_PROBLEM, "Program exited with a problem, see '%s' file"},
-    {IDE_MI_APP_EXIT_WITH_PROBLEM_NO_LOG, "Program exited with a problem, the application's log file '%s' was disabled"},
     {IDE_MI_APP_DESCRIPTION, "Description:\nThe Machine Interface Driver (MI Driver) is a stand alone executable\nthat either be used via "
                              "a client i.e. Eclipse or directly from the command\nline. It processes MI commands, actions those commands "
                              "using the internal\ndebugger then forms MI response formatted text which is returned to the\nclient."},
@@ -75,13 +61,8 @@ const CMICmnResources::SRsrcTextData CMICmnResources::ms_pResourceId2TextData[] 
     {IDE_MI_APP_ARG_HELP, "-h\n--help\n\tPrints out usage information for the MI debugger. Exit the MI\n\tDriver immediately."},
     {IDE_MI_APP_ARG_VERSION, "--version\n\tPrints out GNU (gdb) version information. Exit the MI Driver\n\timmediately."},
     {IDE_MI_APP_ARG_VERSION_LONG, "--versionLong\n\tPrints out MI Driver version information. Exit the MI Driver\n\timmediately."},
-    {IDE_MI_APP_ARG_INTERPRETER, "--interpreter\n\tUse the MI Driver for the debugger (MI mode)(Default is the\n\tLLDB driver). Any LLDB "
-                                 "command line options are ignored even\n\tif the MI Driver falls through to the LLDB driver. "
-                                 "(Depends\n\ton the build configuration see MICmnConfig.h)\n\tNormally specified by the driver client "
-                                 "i.e. Eclipse.\n\tCannot specify an executable with this option, use --executable."},
-    {IDE_MI_APP_ARG_EXECUTEABLE, "--executable\n\tUse the MI Driver in MI mode for the debugging the specified\n\texecutable. Any LLDB "
-                                 "command line options are ignored even\n\tif the MI Driver falls through to the LLDB driver. "
-                                 "(Depends\n\ton the build configuration see MICmnConfig.h)\n\tNormally specified from the command line."},
+    {IDE_MI_APP_ARG_INTERPRETER, "--interpreter\n\t This option is kept for backward compatibility. This executable always run in MI mode"},
+    {IDE_MI_APP_ARG_EXECUTEABLE, "--executable\n\tUse the MI Driver in MI mode for the debugging the specified executable." },
     {IDE_MI_APP_ARG_APP_LOG, "--log\n\tUse this argument to tell the MI Driver to update it's log\n\tfile '%s'."},
     {IDE_MI_APP_ARG_EXAMPLE, "Example MI command:\n\t3-info-gdb-mi-command gdb-set\n\t3^done,command={exists=\"true\"}"},
     {IDE_MI_APP_ARG_EXECUTABLE, "executable (NOT IMPLEMENTED)\n\tThe file path to the executable i.e. '\"C:\\My Dev\\foo.exe\"'."},
@@ -103,7 +84,6 @@ const CMICmnResources::SRsrcTextData CMICmnResources::ms_pResourceId2TextData[] 
     {IDS_CMDFACTORY_ERR_CMD_ALREADY_REGED, "Command factory. Command '%s' by that name already registered"},
     {IDS_CMDMGR_ERR_CMD_FAILED_CREATE, "Command manager. Command creation failed. %s"},
     {IDS_CMDMGR_ERR_CMD_INVOKER, "Command manager. %s "},
-    {IDS_PROCESS_SIGNAL_RECEIVED, "Process signal. Application received signal '%s' (%d)"},
     {IDS_MI_INIT_ERR_LOG, "Log. Error occurred during initialisation %s"},
     {IDS_MI_INIT_ERR_RESOURCES, "Resources. Error occurred during initialisation %s"},
     {IDS_MI_INIT_ERR_INIT, "Driver. Error occurred during initialisation %s"},
@@ -225,6 +205,7 @@ const CMICmnResources::SRsrcTextData CMICmnResources::ms_pResourceId2TextData[] 
     {IDS_CMD_ERR_FNFAILED, "Command '%s'. Fn '%s' failed"},
     {IDS_CMD_ERR_SHARED_DATA_NOT_FOUND, "Command '%s'. Shared data '%s' not found"},
     {IDS_CMD_ERR_LLDBPROCESS_DETACH, "Command '%s'. Process detach failed. '%s'"},
+    {IDS_CMD_ERR_LLDBPROCESS_DESTROY, "Command '%s'. Process destroy failed. '%s'"},
     {IDS_CMD_ERR_SETWKDIR, "Command '%s'. Failed to set working directory '%s'"},
     {IDS_CMD_ERR_INVALID_TARGET, "Command '%s'. Target binary '%s' is invalid. %s"},
     {IDS_CMD_ERR_INVALID_TARGET_CURRENT, "Command '%s'. Current SBTarget is invalid"},
@@ -251,17 +232,18 @@ const CMICmnResources::SRsrcTextData CMICmnResources::ms_pResourceId2TextData[] 
     {IDS_CMD_ERR_DISASM_ADDR_START_INVALID, "Command '%s'. Invalid start value '%s'"},
     {IDS_CMD_ERR_DISASM_ADDR_END_INVALID, "Command '%s'. Invalid end value '%s'"},
     {IDS_CMD_ERR_MEMORY_ALLOC_FAILURE, "Command '%s'. Failed to allocate memory %d bytes"},
-    {IDS_CMD_ERR_LLDB_ERR_NOT_READ_WHOLE_BLK, "Command '%s'. LLDB unable to read entire memory block of %u bytes at address 0x%08x"},
-    {IDS_CMD_ERR_LLDB_ERR_READ_MEM_BYTES, "Command '%s'. Unable to read memory block of %u bytes at address 0x%08x: %s "},
+    {IDS_CMD_ERR_LLDB_ERR_NOT_READ_WHOLE_BLK, "Command '%s'. LLDB unable to read entire memory block of %u bytes at address 0x%016" PRIx64 },
+    {IDS_CMD_ERR_LLDB_ERR_READ_MEM_BYTES, "Command '%s'. Unable to read memory block of %u bytes at address 0x%016" PRIx64 ": %s "},
     {IDS_CMD_ERR_INVALID_PROCESS, "Command '%s'. Invalid process during debug session"},
-    {IDS_CMD_ERR_INVALID_PRINT_VALUES, "Command '%s'. Unknown value for PRINT_VALUES: must be: 0 or \"--no-values\", 1 or \"all-values\", 2 or \"simple-values\""},
+    {IDS_CMD_ERR_INVALID_PRINT_VALUES, "Command '%s'. Unknown value for PRINT_VALUES: must be: 0 or \"--no-values\", 1 or \"--all-values\", 2 or \"--simple-values\""},
     {IDS_CMD_ERR_INVALID_FORMAT_TYPE, "Command '%s'. Invalid var format type '%s'"},
     {IDS_CMD_ERR_BRKPT_INFO_OBJ_NOT_FOUND, "Command '%s'. Breakpoint information for breakpoint ID %d not found"},
-    {IDS_CMD_ERR_LLDB_ERR_READ_MEM_BYTES, "Command '%s'. Unable to write memory block of %u bytes at address 0x%08x: %s "},
-    {IDS_CMD_ERR_LLDB_ERR_NOT_WRITE_WHOLEBLK, "Command '%s'. LLDB unable to write entire memory block of %u bytes at address 0x%08x"},
+    {IDS_CMD_ERR_LLDB_ERR_WRITE_MEM_BYTES, "Command '%s'. Unable to write memory block of %u bytes at address 0x%016" PRIx64 ": %s "},
+    {IDS_CMD_ERR_LLDB_ERR_NOT_WRITE_WHOLEBLK, "Command '%s'. LLDB unable to write entire memory block of %u bytes at address 0x%016" PRIX64},
     {IDS_CMD_ERR_SET_NEW_DRIVER_STATE, "Command '%s'. Command tried to set new MI Driver running state and failed. %s"},
     {IDS_CMD_ERR_INFO_PRINTFN_NOT_FOUND, "The request '%s' was not recogised, not implemented"},
     {IDS_CMD_ERR_INFO_PRINTFN_FAILED, "The request '%s' failed."},
+    {IDS_CMD_ERR_GDBSET_OPT_TARGETASYNC, "'target-async' expects \"on\" or \"off\""},
     {IDS_CMD_ERR_GDBSET_OPT_SOLIBSEARCHPATH, "'solib-search-path' requires at least one argument"}};
 
 //++ ------------------------------------------------------------------------------------

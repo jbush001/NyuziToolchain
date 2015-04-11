@@ -12,7 +12,9 @@
 
 // C Includes
 // C++ Includes
+#include <functional>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -23,6 +25,7 @@
 #include "lldb/Core/ArchSpec.h"
 #include "lldb/Core/ConstString.h"
 #include "lldb/Core/PluginInterface.h"
+#include "lldb/Core/UserSettingsController.h"
 #include "lldb/Interpreter/Options.h"
 #include "lldb/Host/Mutex.h"
 
@@ -31,6 +34,29 @@
 #include "lldb/Host/common/NativeProcessProtocol.h"
 
 namespace lldb_private {
+
+class ModuleCache;
+
+    class PlatformProperties : public Properties
+    {
+    public:
+        static ConstString
+        GetSettingName ();
+
+        PlatformProperties();
+
+        bool
+        GetUseModuleCache () const;
+        bool
+        SetUseModuleCache (bool use_module_cache);
+
+        FileSpec
+        GetModuleCacheDirectory () const;
+        bool
+        SetModuleCacheDirectory (const FileSpec& dir_spec);
+    };
+
+    typedef std::shared_ptr<PlatformProperties> PlatformPropertiesSP;
 
     //----------------------------------------------------------------------
     /// @class Platform Platform.h "lldb/Target/Platform.h"
@@ -49,9 +75,17 @@ namespace lldb_private {
         public PluginInterface
     {
     public:
+        static void
+        Initialize ();
+
+        static void
+        Terminate ();
+
+        static const PlatformPropertiesSP &
+        GetGlobalPlatformProperties ();
 
         //------------------------------------------------------------------
-        /// Get the native host platform plug-in. 
+        /// Get the native host platform plug-in.
         ///
         /// There should only be one of these for each host that LLDB runs
         /// upon that should be statically compiled in and registered using
@@ -336,13 +370,19 @@ namespace lldb_private {
         LocateExecutableScriptingResources (Target *target,
                                             Module &module,
                                             Stream* feedback_stream);
-        
+
         virtual Error
-        GetSharedModule (const ModuleSpec &module_spec, 
+        GetSharedModule (const ModuleSpec &module_spec,
+                         Process* process,
                          lldb::ModuleSP &module_sp,
                          const FileSpecList *module_search_paths_ptr,
                          lldb::ModuleSP *old_module_sp_ptr,
                          bool *did_create_ptr);
+
+        virtual bool
+        GetModuleSpec (const FileSpec& module_file_spec,
+                       const ArchSpec& arch,
+                       ModuleSpec &module_spec);
 
         virtual Error
         ConnectRemote (Args& args);
@@ -379,6 +419,16 @@ namespace lldb_private {
         virtual Error
         LaunchProcess (ProcessLaunchInfo &launch_info);
 
+        //------------------------------------------------------------------
+        /// Perform expansion of the command-line for this launch info
+        /// This can potentially involve wildcard expansion
+        //  environment variable replacement, and whatever other
+        //  argument magic the platform defines as part of its typical
+        //  user experience
+        //------------------------------------------------------------------
+        virtual Error
+        ShellExpandArguments (ProcessLaunchInfo &launch_info);
+        
         //------------------------------------------------------------------
         /// Kill process on a platform.
         //------------------------------------------------------------------
@@ -972,6 +1022,7 @@ namespace lldb_private {
         std::string m_local_cache_directory;
         std::vector<ConstString> m_trap_handlers;
         bool m_calculated_trap_handlers;
+        const std::unique_ptr<ModuleCache> m_module_cache;
 
         //------------------------------------------------------------------
         /// Ask the Platform subclass to fill in the list of trap handler names
@@ -1074,7 +1125,45 @@ namespace lldb_private {
             m_gid_map.clear();
         }
 
+        Error
+        GetCachedExecutable (ModuleSpec &module_spec,
+                             lldb::ModuleSP &module_sp,
+                             const FileSpecList *module_search_paths_ptr,
+                             Platform &remote_platform);
+
+        Error
+        DownloadModuleSlice (const FileSpec& src_file_spec,
+                             const uint64_t src_offset,
+                             const uint64_t src_size,
+                             const FileSpec& dst_file_spec);
+
+        virtual const char *
+        GetCacheHostname ();
+
     private:
+        typedef std::function<Error (const ModuleSpec &)> ModuleResolver;
+
+        Error
+        GetRemoteSharedModule (const ModuleSpec &module_spec,
+                               Process* process,
+                               lldb::ModuleSP &module_sp,
+                               const ModuleResolver &module_resolver,
+                               bool *did_create_ptr);
+
+        bool
+        GetCachedSharedModule (const ModuleSpec& module_spec,
+                               lldb::ModuleSP &module_sp,
+                               bool *did_create_ptr);
+
+        Error
+        LoadCachedExecutable (const ModuleSpec &module_spec,
+                              lldb::ModuleSP &module_sp,
+                              const FileSpecList *module_search_paths_ptr,
+                              Platform &remote_platform);
+
+        FileSpec
+        GetModuleCacheRoot ();
+
         DISALLOW_COPY_AND_ASSIGN (Platform);
     };
 

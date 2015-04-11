@@ -7,9 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-//++
-// File:        MICmdCommands.cpp
-//
 // Overview:    MI command are registered with the MI command factory.
 //
 //              To implement new MI commands derive a new command class from the command base
@@ -18,13 +15,6 @@
 //                  MICmdCommands.cpp
 //                  MICmdBase.h / .cpp
 //                  MICmdCmd.h / .cpp
-//
-// Environment: Compilers:  Visual C++ 12.
-//                          gcc (Ubuntu/Linaro 4.8.1-10ubuntu9) 4.8.1
-//              Libraries:  See MIReadmetxt.
-//
-// Copyright:   None.
-//--
 
 // In-house headers:
 #include "MICmdCommands.h"
@@ -37,11 +27,13 @@
 #include "MICmdCmdFile.h"
 #include "MICmdCmdGdbInfo.h"
 #include "MICmdCmdGdbSet.h"
+#include "MICmdCmdGdbShow.h"
 #include "MICmdCmdGdbThread.h"
 #include "MICmdCmdMiscellanous.h"
 #include "MICmdCmdStack.h"
 #include "MICmdCmdSupportInfo.h"
 #include "MICmdCmdSupportList.h"
+#include "MICmdCmdSymbol.h"
 #include "MICmdCmdTarget.h"
 #include "MICmdCmdThread.h"
 #include "MICmdCmdTrace.h"
@@ -98,6 +90,8 @@ MICmnCommands::RegisterAll(void)
     bOk &= Register<CMICmdCmdDataWriteMemory>();
     bOk &= Register<CMICmdCmdEnablePrettyPrinting>();
     bOk &= Register<CMICmdCmdEnvironmentCd>();
+    bOk &= Register<CMICmdCmdExecAbort>();
+    bOk &= Register<CMICmdCmdExecArguments>();
     bOk &= Register<CMICmdCmdExecContinue>();
     bOk &= Register<CMICmdCmdExecInterrupt>();
     bOk &= Register<CMICmdCmdExecFinish>();
@@ -110,16 +104,20 @@ MICmnCommands::RegisterAll(void)
     bOk &= Register<CMICmdCmdGdbExit>();
     bOk &= Register<CMICmdCmdGdbInfo>();
     bOk &= Register<CMICmdCmdGdbSet>();
+    bOk &= Register<CMICmdCmdGdbShow>();
     bOk &= Register<CMICmdCmdGdbThread>();
     bOk &= Register<CMICmdCmdInferiorTtySet>();
     bOk &= Register<CMICmdCmdInterpreterExec>();
     bOk &= Register<CMICmdCmdListThreadGroups>();
     bOk &= Register<CMICmdCmdSource>();
     bOk &= Register<CMICmdCmdStackInfoDepth>();
+    bOk &= Register<CMICmdCmdStackInfoFrame>();
     bOk &= Register<CMICmdCmdStackListFrames>();
     bOk &= Register<CMICmdCmdStackListArguments>();
     bOk &= Register<CMICmdCmdStackListLocals>();
+    bOk &= Register<CMICmdCmdStackSelectFrame>();
     bOk &= Register<CMICmdCmdSupportListFeatures>();
+    bOk &= Register<CMICmdCmdSymbolListLines>();
     bOk &= Register<CMICmdCmdTargetSelect>();
     bOk &= Register<CMICmdCmdThreadInfo>();
     bOk &= Register<CMICmdCmdVarAssign>();

@@ -132,6 +132,15 @@ namespace lldb_private
 
         void
         SetLaunchInSeparateProcessGroup (bool separate);
+        
+        bool
+        GetShellExpandArguments () const
+        {
+            return m_flags.Test(lldb::eLaunchFlagShellExpandArguments);
+        }
+        
+        void
+        SetShellExpandArguments (bool expand);
 
         void
         Clear ();

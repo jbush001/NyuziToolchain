@@ -15,14 +15,26 @@
 
 namespace llvm {
 
+class raw_ostream;
+
 class PDBSymbolFunc : public PDBSymbol {
 public:
-  PDBSymbolFunc(std::unique_ptr<IPDBRawSymbol> FuncSymbol);
+  PDBSymbolFunc(const IPDBSession &PDBSession,
+                std::unique_ptr<IPDBRawSymbol> FuncSymbol);
+
+  void dump(PDBSymDumper &Dumper) const override;
+
+  std::unique_ptr<PDBSymbolTypeFunctionSig> getSignature() const;
+  std::unique_ptr<PDBSymbolTypeUDT> getClassParent() const;
+  std::unique_ptr<IPDBEnumChildren<PDBSymbolData>> getArguments() const;
+
+  DECLARE_PDB_SYMBOL_CONCRETE_TYPE(PDB_SymType::Function)
 
   FORWARD_SYMBOL_METHOD(getAccess)
   FORWARD_SYMBOL_METHOD(getAddressOffset)
   FORWARD_SYMBOL_METHOD(getAddressSection)
   FORWARD_SYMBOL_METHOD(getClassParentId)
+  FORWARD_SYMBOL_METHOD(isCompilerGenerated)
   FORWARD_SYMBOL_METHOD(isConstType)
   FORWARD_SYMBOL_METHOD(hasCustomCallingConvention)
   FORWARD_SYMBOL_METHOD(hasFarReturn)
@@ -41,8 +53,10 @@ public:
   FORWARD_SYMBOL_METHOD(isStatic)
   FORWARD_SYMBOL_METHOD(getLength)
   FORWARD_SYMBOL_METHOD(getLexicalParentId)
+  FORWARD_SYMBOL_METHOD(getLocalBasePointerRegisterId)
   FORWARD_SYMBOL_METHOD(getLocationType)
   FORWARD_SYMBOL_METHOD(getName)
+  FORWARD_SYMBOL_METHOD(hasFramePointer)
   FORWARD_SYMBOL_METHOD(hasNoInlineAttribute)
   FORWARD_SYMBOL_METHOD(hasNoReturnAttribute)
   FORWARD_SYMBOL_METHOD(isUnreached)
@@ -59,10 +73,6 @@ public:
   FORWARD_SYMBOL_METHOD(getVirtualAddress)
   FORWARD_SYMBOL_METHOD(getVirtualBaseOffset)
   FORWARD_SYMBOL_METHOD(isVolatileType)
-
-  static bool classof(const PDBSymbol *S) {
-    return S->getSymTag() == PDB_SymType::Function;
-  }
 };
 
 } // namespace llvm

@@ -15,7 +15,7 @@
 
 namespace lldb {
 
-class SBCommandInterpreterRunOptions
+class LLDB_API SBCommandInterpreterRunOptions
 {
 friend class SBDebugger;
 friend class SBCommandInterpreter;
@@ -94,6 +94,9 @@ public:
     
     static const char *
     GetArgumentDescriptionAsCString (const lldb::CommandArgumentType arg_type);
+
+    static bool
+    EventIsCommandInterpreterEvent (const lldb::SBEvent &event);
     
     bool
     IsValid() const;
@@ -216,6 +219,12 @@ public:
     const char *
     GetIOHandlerControlSequence(char ch);
 
+    bool
+    GetPromptOnQuit();
+
+    void
+    SetPromptOnQuit(bool b);
+
 protected:
 
     lldb_private::CommandInterpreter &
@@ -265,6 +274,15 @@ public:
     
     const char*
     GetHelp ();
+    
+    const char*
+    GetHelpLong ();
+    
+    void
+    SetHelp (const char*);
+    
+    void
+    SetHelpLong (const char*);
     
     lldb::SBCommand
     AddMultiwordCommand (const char* name, const char* help = NULL);

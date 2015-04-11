@@ -27,6 +27,7 @@
 #include "lldb/Interpreter/CommandCompletions.h"
 #include "lldb/Symbol/Variable.h"
 #include "lldb/Symbol/VariableList.h"
+#include "lldb/Target/StackFrame.h"
 #include "lldb/Target/Target.h"
 
 #include "llvm/ADT/StringRef.h"
@@ -1211,7 +1212,7 @@ protected:
             
             if (end_options)
             {
-                Args args (raw_command, end_options - raw_command);
+                Args args (llvm::StringRef(raw_command, end_options - raw_command));
                 if (!ParseOptions (args, result))
                     return false;
                 

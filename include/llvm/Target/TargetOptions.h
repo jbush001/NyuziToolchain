@@ -78,8 +78,8 @@ namespace llvm {
           EnableFastISel(false), PositionIndependentExecutable(false),
           UseInitArray(false), DisableIntegratedAS(false),
           CompressDebugSections(false), FunctionSections(false),
-          DataSections(false), TrapUnreachable(false), TrapFuncName(),
-          FloatABIType(FloatABI::Default),
+          DataSections(false), UniqueSectionNames(true), TrapUnreachable(false),
+          TrapFuncName(), FloatABIType(FloatABI::Default),
           AllowFPOpFusion(FPOpFusion::Standard), JTType(JumpTable::Single),
           FCFI(false), ThreadModel(ThreadModel::POSIX),
           CFIType(CFIntegrity::Sub), CFIEnforcing(false), CFIFuncName() {}
@@ -198,6 +198,8 @@ namespace llvm {
     /// Emit data into separate sections.
     unsigned DataSections : 1;
 
+    unsigned UniqueSectionNames : 1;
+
     /// Emit target-specific trap instruction for 'unreachable' IR instructions.
     unsigned TrapUnreachable : 1;
 
@@ -210,9 +212,9 @@ namespace llvm {
     /// FloatABIType - This setting is set by -float-abi=xxx option is specfied
     /// on the command line. This setting may either be Default, Soft, or Hard.
     /// Default selects the target's default behavior. Soft selects the ABI for
-    /// UseSoftFloat, but does not indicate that FP hardware may not be used.
-    /// Such a combination is unfortunately popular (e.g. arm-apple-darwin).
-    /// Hard presumes that the normal FP ABI is used.
+    /// software floating point, but does not indicate that FP hardware may not
+    /// be used. Such a combination is unfortunately popular (e.g.
+    /// arm-apple-darwin). Hard presumes that the normal FP ABI is used.
     FloatABI::ABIType FloatABIType;
 
     /// AllowFPOpFusion - This flag is set by the -fuse-fp-ops=xxx option.

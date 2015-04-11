@@ -477,7 +477,7 @@ FormatManager::GetValidatorForType (lldb::TypeNameSpecifierImplSP type_sp)
 
 lldb::TypeCategoryImplSP
 FormatManager::GetCategory (const ConstString& category_name,
-                         bool can_create)
+                            bool can_create)
 {
     if (!category_name)
         return GetCategory(m_default_category_name);
@@ -866,6 +866,7 @@ FormatManager::FormatManager() :
     m_coreservices_category_name(ConstString("CoreServices")),
     m_vectortypes_category_name(ConstString("VectorTypes")),
     m_appkit_category_name(ConstString("AppKit")),
+    m_coremedia_category_name(ConstString("CoreMedia")),
     m_hardcoded_formats(),
     m_hardcoded_summaries(),
     m_hardcoded_synthetics(),
@@ -876,6 +877,7 @@ FormatManager::FormatManager() :
     LoadLibStdcppFormatters();
     LoadLibcxxFormatters();
     LoadObjCFormatters();
+    LoadCoreMediaFormatters();
     LoadHardcodedFormatters();
     
     EnableCategory(m_objc_category_name,TypeCategoryMap::Last);
@@ -883,6 +885,7 @@ FormatManager::FormatManager() :
     EnableCategory(m_appkit_category_name,TypeCategoryMap::Last);
     EnableCategory(m_coreservices_category_name,TypeCategoryMap::Last);
     EnableCategory(m_coregraphics_category_name,TypeCategoryMap::Last);
+    EnableCategory(m_coremedia_category_name,TypeCategoryMap::Last);
     EnableCategory(m_gnu_cpp_category_name,TypeCategoryMap::Last);
     EnableCategory(m_libcxx_category_name,TypeCategoryMap::Last);
     EnableCategory(m_vectortypes_category_name,TypeCategoryMap::Last);
@@ -1212,7 +1215,6 @@ FormatManager::LoadSystemFormatters()
     fourchar_flags.SetCascades(true).SetSkipPointers(true).SetSkipReferences(true);
     
     AddFormat(sys_category_sp, lldb::eFormatOSType, ConstString("FourCharCode"), fourchar_flags);
-    
 #endif
 }
 
@@ -1563,6 +1565,25 @@ FormatManager::LoadObjCFormatters()
 }
 
 void
+FormatManager::LoadCoreMediaFormatters()
+{
+    TypeSummaryImpl::Flags cm_flags;
+    cm_flags.SetCascades(true)
+    .SetDontShowChildren(false)
+    .SetDontShowValue(false)
+    .SetHideItemNames(false)
+    .SetShowMembersOneLiner(false)
+    .SetSkipPointers(false)
+    .SetSkipReferences(false);
+    
+    TypeCategoryImpl::SharedPointer cm_category_sp = GetCategory(m_coremedia_category_name);
+
+#ifndef LLDB_DISABLE_PYTHON
+    AddCXXSummary(cm_category_sp, lldb_private::formatters::CMTimeSummaryProvider, "CMTime summary provider", ConstString("CMTime"), cm_flags);
+#endif // LLDB_DISABLE_PYTHON
+}
+
+void
 FormatManager::LoadHardcodedFormatters()
 {
     {
@@ -1584,6 +1605,20 @@ FormatManager::LoadHardcodedFormatters()
     }
     {
         // insert code to load synthetics here
+        m_hardcoded_synthetics.push_back(
+                                         [](lldb_private::ValueObject& valobj,
+                                            lldb::DynamicValueType,
+                                            FormatManager& fmt_mgr) -> SyntheticChildren::SharedPointer {
+                                             static CXXSyntheticChildren::SharedPointer formatter_sp(new CXXSyntheticChildren(SyntheticChildren::Flags().SetCascades(true).SetSkipPointers(true).SetSkipReferences(true),
+                                                                                                                              "vector_type synthetic children",
+                                                                                                                              lldb_private::formatters::VectorTypeSyntheticFrontEndCreator));
+                                             if (valobj.GetClangType().IsVectorType(nullptr, nullptr))
+                                             {
+                                                 if (fmt_mgr.GetCategory(fmt_mgr.m_vectortypes_category_name)->IsEnabled())
+                                                     return formatter_sp;
+                                             }
+                                             return nullptr;
+                                         });
     }
     {
         // insert code to load validators here

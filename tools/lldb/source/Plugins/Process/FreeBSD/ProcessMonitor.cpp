@@ -28,6 +28,7 @@
 #include "lldb/Host/ThreadLauncher.h"
 #include "lldb/Target/Thread.h"
 #include "lldb/Target/RegisterContext.h"
+#include "lldb/Target/UnixSignals.h"
 #include "lldb/Utility/PseudoTerminal.h"
 
 #include "Plugins/Process/POSIX/CrashReason.h"
@@ -112,8 +113,6 @@ PtraceWrapper(int req, lldb::pid_t pid, void *addr, int data,
             log->Printf("PT_GETREGS: bp=0x%lx", r->r_rbp);
             log->Printf("PT_GETREGS: ax=0x%lx", r->r_rax);
         }
-#endif
-#ifndef __powerpc__
         if (req == PT_GETDBREGS || req == PT_SETDBREGS) {
             struct dbreg *r = (struct dbreg *) addr;
             char setget = (req == PT_GETDBREGS) ? 'G' : 'S';
@@ -963,7 +962,7 @@ ProcessMonitor::Launch(LaunchArgs *args)
     lldb_utility::PseudoTerminal terminal;
     const size_t err_len = 1024;
     char err_str[err_len];
-    lldb::pid_t pid;
+    ::pid_t pid;
 
     // Propagate the environment if one is not supplied.
     if (envp == NULL || envp[0] == NULL)

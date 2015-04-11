@@ -28,33 +28,25 @@
 #include "lldb/Core/Communication.h"
 #include "lldb/Core/Error.h"
 #include "lldb/Core/Event.h"
-#include "lldb/Core/RangeMap.h"
-#include "lldb/Core/StringList.h"
 #include "lldb/Core/ThreadSafeValue.h"
 #include "lldb/Core/PluginInterface.h"
 #include "lldb/Core/UserSettingsController.h"
 #include "lldb/Breakpoint/BreakpointSiteList.h"
-#include "lldb/Expression/ClangPersistentVariables.h"
-#include "lldb/Expression/IRDynamicChecks.h"
-#include "lldb/Host/FileSpec.h"
-#include "lldb/Host/Host.h"
 #include "lldb/Host/HostThread.h"
 #include "lldb/Host/ProcessRunLock.h"
-#include "lldb/Interpreter/Args.h"
 #include "lldb/Interpreter/Options.h"
 #include "lldb/Target/ExecutionContextScope.h"
-#include "lldb/Target/JITLoaderList.h"
 #include "lldb/Target/Memory.h"
-#include "lldb/Target/MemoryRegionInfo.h"
 #include "lldb/Target/ProcessInfo.h"
 #include "lldb/Target/ProcessLaunchInfo.h"
 #include "lldb/Target/QueueList.h"
 #include "lldb/Target/ThreadList.h"
-#include "lldb/Target/UnixSignals.h"
-#include "lldb/Utility/PseudoTerminal.h"
 #include "lldb/Target/InstrumentationRuntime.h"
 
 namespace lldb_private {
+
+template <typename B, typename S>
+struct Range;
 
 //----------------------------------------------------------------------
 // ProcessProperties
@@ -1370,18 +1362,10 @@ public:
     Signal (int signal);
 
     void
-    SetUnixSignals (const UnixSignalsSP &signals_sp)
-    {
-        assert (signals_sp && "null signals_sp");
-        m_unix_signals_sp = signals_sp;
-    }
+    SetUnixSignals (const UnixSignalsSP &signals_sp);
 
     UnixSignals &
-    GetUnixSignals ()
-    {
-        assert (m_unix_signals_sp && "null m_unix_signals_sp");
-        return *m_unix_signals_sp;
-    }
+    GetUnixSignals ();
 
     //==================================================================
     // Plug-in Process Control Overrides
@@ -2399,33 +2383,8 @@ public:
     ///     Returns true if it was able to determine the attributes of the
     ///     memory region.  False if not.
     //------------------------------------------------------------------
-
     virtual bool
-    GetLoadAddressPermissions (lldb::addr_t load_addr, uint32_t &permissions)
-    {
-        MemoryRegionInfo range_info;
-        permissions = 0;
-        Error error (GetMemoryRegionInfo (load_addr, range_info));
-        if (!error.Success())
-            return false;
-        if (range_info.GetReadable() == MemoryRegionInfo::eDontKnow 
-            || range_info.GetWritable() == MemoryRegionInfo::eDontKnow 
-            || range_info.GetExecutable() == MemoryRegionInfo::eDontKnow)
-        {
-            return false;
-        }
-
-        if (range_info.GetReadable() == MemoryRegionInfo::eYes)
-            permissions |= lldb::ePermissionsReadable;
-
-        if (range_info.GetWritable() == MemoryRegionInfo::eYes)
-            permissions |= lldb::ePermissionsWritable;
-
-        if (range_info.GetExecutable() == MemoryRegionInfo::eYes)
-            permissions |= lldb::ePermissionsExecutable;
-
-        return true;
-    }
+    GetLoadAddressPermissions (lldb::addr_t load_addr, uint32_t &permissions);
 
     //------------------------------------------------------------------
     /// Determines whether executing JIT-compiled code in this process 
@@ -2906,10 +2865,7 @@ public:
         return m_dynamic_checkers_ap.get();
     }
     
-    void SetDynamicCheckers(DynamicCheckerFunctions *dynamic_checkers)
-    {
-        m_dynamic_checkers_ap.reset(dynamic_checkers);
-    }
+    void SetDynamicCheckers(DynamicCheckerFunctions *dynamic_checkers);
 
     //------------------------------------------------------------------
     /// Call this to set the lldb in the mode where it breaks on new thread
@@ -3010,17 +2966,10 @@ public:
     
     void
     ClearPreResumeActions ();
-                              
+            
     ProcessRunLock &
-    GetRunLock ()
-    {
-        if (m_private_state_thread.EqualsThread(Host::GetCurrentThread()))
-            return m_private_run_lock;
-        else
-            return m_public_run_lock;
-    }
+    GetRunLock ();
 
-public:
     virtual Error
     SendEventData(const char *data)
     {
@@ -3033,6 +2982,29 @@ public:
 
     lldb::InstrumentationRuntimeSP
     GetInstrumentationRuntime(lldb::InstrumentationRuntimeType type);
+
+    //------------------------------------------------------------------
+    /// Try to fetch the module specification for a module with the
+    /// given file name and architecture. Process sub-classes have to
+    /// override this method if they support platforms where the
+    /// Platform object can't get the module spec for all module.
+    ///
+    /// @param[in] module_file_spec
+    ///     The file name of the module to get specification for.
+    ///
+    /// @param[in] arch
+    ///     The architecture of the module to get specification for.
+    ///
+    /// @param[out] module_spec
+    ///     The fetched module specification if the return value is
+    ///     \b true, unchanged otherwise.
+    ///
+    /// @return
+    ///     Returns \b true if the module spec fetched successfully,
+    ///     \b false otherwise.
+    //------------------------------------------------------------------
+    virtual bool
+    GetModuleSpec(const FileSpec& module_file_spec, const ArchSpec& arch, ModuleSpec &module_spec);
 
 protected:
 
@@ -3150,7 +3122,7 @@ protected:
     Broadcaster                 m_private_state_control_broadcaster; // This is the control broadcaster, used to pause, resume & stop the private state thread.
     Listener                    m_private_state_listener;     // This is the listener for the private state thread.
     Predicate<bool>             m_private_state_control_wait; /// This Predicate is used to signal that a control operation is complete.
-    HostThread m_private_state_thread;                        // Thread ID for the thread that watches internal state events
+    HostThread                  m_private_state_thread; ///< Thread ID for the thread that watches internal state events
     ProcessModID                m_mod_id;               ///< Tracks the state of the process over stops and other alterations.
     uint32_t                    m_process_unique_id;    ///< Each lldb_private::Process class that is created gets a unique integer ID that increments with each new instance
     uint32_t                    m_thread_index_id;      ///< Each thread is created with a 1 based index that won't get re-used.
@@ -3170,17 +3142,17 @@ protected:
     std::vector<lldb::addr_t>   m_image_tokens;
     Listener                    &m_listener;
     BreakpointSiteList          m_breakpoint_site_list; ///< This is the list of breakpoint locations we intend to insert in the target.
-    std::unique_ptr<DynamicLoader> m_dyld_ap;
-    std::unique_ptr<JITLoaderList> m_jit_loaders_ap;
-    std::unique_ptr<DynamicCheckerFunctions> m_dynamic_checkers_ap; ///< The functions used by the expression parser to validate data that expressions use.
-    std::unique_ptr<OperatingSystem> m_os_ap;
-    std::unique_ptr<SystemRuntime> m_system_runtime_ap;
+    lldb::DynamicLoaderUP       m_dyld_ap;
+    lldb::JITLoaderListUP       m_jit_loaders_ap;
+    lldb::DynamicCheckerFunctionsUP m_dynamic_checkers_ap; ///< The functions used by the expression parser to validate data that expressions use.
+    lldb::OperatingSystemUP     m_os_ap;
+    lldb::SystemRuntimeUP       m_system_runtime_ap;
     UnixSignalsSP               m_unix_signals_sp;         /// This is the current signal set for this process.
     lldb::ABISP                 m_abi_sp;
     lldb::IOHandlerSP           m_process_input_reader;
     Communication               m_stdio_communication;
     Mutex                       m_stdio_communication_mutex;
-    bool                        m_stdio_disable;           /// Remember process launch setting
+    bool                        m_stdin_forward;           /// Remember if stdin must be forwarded to remote debug server
     std::string                 m_stdout_data;
     std::string                 m_stderr_data;
     Mutex                       m_profile_data_comm_mutex;
@@ -3199,7 +3171,8 @@ protected:
     ArchSpec::StopInfoOverrideCallbackType m_stop_info_override_callback;
     bool                        m_currently_handling_do_on_removals;
     bool                        m_resume_requested;         // If m_currently_handling_event or m_currently_handling_do_on_removals are true, Resume will only request a resume, using this flag to check.
-    bool                        m_finalize_called;
+    bool                        m_finalizing; // This is set at the beginning of Process::Finalize() to stop functions from looking up or creating things during a finalize call
+    bool                        m_finalize_called; // This is set at the end of Process::Finalize()
     bool                        m_clear_thread_plans_on_stop;
     bool                        m_force_next_event_delivery;
     lldb::StateType             m_last_broadcast_state;   /// This helps with the Public event coalescing in ShouldBroadcastEvent.

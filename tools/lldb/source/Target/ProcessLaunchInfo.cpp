@@ -15,6 +15,10 @@
 #include "lldb/Target/FileAction.h"
 #include "lldb/Target/Target.h"
 
+#if !defined(_WIN32)
+#include <limits.h>
+#endif
+
 using namespace lldb;
 using namespace lldb_private;
 
@@ -208,7 +212,15 @@ ProcessLaunchInfo::SetLaunchInSeparateProcessGroup (bool separate)
         m_flags.Set(lldb::eLaunchFlagLaunchInSeparateProcessGroup);
     else
         m_flags.Clear (lldb::eLaunchFlagLaunchInSeparateProcessGroup);
+}
 
+void
+ProcessLaunchInfo::SetShellExpandArguments (bool expand)
+{
+    if (expand)
+        m_flags.Set(lldb::eLaunchFlagShellExpandArguments);
+    else
+        m_flags.Clear(lldb::eLaunchFlagShellExpandArguments);
 }
 
 void

@@ -18,7 +18,7 @@ class ExprFormattersTestCase(TestBase):
         self.line = line_number('main.cpp',
                                 '// Stop here')
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     @dsym_test
     def test_with_dsym(self):
         """Test expr + formatters for good interoperability."""
@@ -26,7 +26,6 @@ class ExprFormattersTestCase(TestBase):
         self.do_my_test()
 
     @expectedFailureFreeBSD('llvm.org/pr19011') # Newer Clang omits C1 complete object constructor
-    @expectedFailureLinux('llvm.org/pr20230')
     @dwarf_test
     def test_with_dwarf(self):
         """Test expr + formatters for good interoperability."""

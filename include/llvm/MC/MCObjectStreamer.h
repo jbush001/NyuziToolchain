@@ -49,10 +49,8 @@ class MCObjectStreamer : public MCStreamer {
   void flushPendingLabels(MCFragment *F);
 
 protected:
-  MCObjectStreamer(MCContext &Context, MCAsmBackend &TAB, raw_ostream &_OS,
-                   MCCodeEmitter *_Emitter);
-  MCObjectStreamer(MCContext &Context, MCAsmBackend &TAB, raw_ostream &_OS,
-                   MCCodeEmitter *_Emitter, MCAssembler *_Assembler);
+  MCObjectStreamer(MCContext &Context, MCAsmBackend &TAB, raw_ostream &OS,
+                   MCCodeEmitter *Emitter);
   ~MCObjectStreamer();
 
 public:
@@ -84,6 +82,8 @@ protected:
   /// Get a data fragment to write into, creating a new one if the current
   /// fragment is not a data fragment.
   MCDataFragment *getOrCreateDataFragment();
+
+  bool changeSectionImpl(const MCSection *Section, const MCExpr *Subsection);
 
 public:
   void visitUsedSymbol(const MCSymbol &Sym) override;

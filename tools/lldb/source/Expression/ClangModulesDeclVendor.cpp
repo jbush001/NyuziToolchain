@@ -11,6 +11,7 @@
 
 #include "lldb/Expression/ClangModulesDeclVendor.h"
 
+#include "lldb/Core/Log.h"
 #include "lldb/Core/StreamString.h"
 #include "lldb/Host/FileSpec.h"
 #include "lldb/Host/Host.h"
@@ -79,6 +80,7 @@ namespace {
         llvm::IntrusiveRefCntPtr<clang::CompilerInvocation> m_compiler_invocation;
         std::unique_ptr<clang::CompilerInstance>            m_compiler_instance;
         std::unique_ptr<clang::Parser>                      m_parser;
+        size_t                                              m_source_location_index = 0; // used to give name components fake SourceLocations
     };
 }
 
@@ -176,13 +178,12 @@ ClangModulesDeclVendorImpl::AddModule(std::vector<llvm::StringRef> &path,
     llvm::SmallVector<std::pair<clang::IdentifierInfo *, clang::SourceLocation>, 4> clang_path;
     
     {
-        size_t source_loc_counter = 0;
         clang::SourceManager &source_manager = m_compiler_instance->getASTContext().getSourceManager();
         
         for (llvm::StringRef &component : path)
         {
             clang_path.push_back(std::make_pair(&m_compiler_instance->getASTContext().Idents.get(component),
-                                                source_manager.getLocForStartOfFile(source_manager.getMainFileID()).getLocWithOffset(source_loc_counter++)));
+                                                source_manager.getLocForStartOfFile(source_manager.getMainFileID()).getLocWithOffset(m_source_location_index++)));
         }
     }
     
@@ -306,6 +307,18 @@ ClangModulesDeclVendor::Create(Target &target)
         std::string module_cache_argument("-fmodules-cache-path=");
         module_cache_argument.append(DefaultModuleCache.str().str());
         compiler_invocation_arguments.push_back(module_cache_argument);
+    }
+    
+    FileSpecList &module_search_paths = target.GetClangModuleSearchPaths();
+    
+    for (size_t spi = 0, spe = module_search_paths.GetSize(); spi < spe; ++spi)
+    {
+        const FileSpec &search_path = module_search_paths.GetFileSpecAtIndex(spi);
+        
+        std::string search_path_argument = "-I";
+        search_path_argument.append(search_path.GetPath());
+        
+        compiler_invocation_arguments.push_back(search_path_argument);
     }
     
     {

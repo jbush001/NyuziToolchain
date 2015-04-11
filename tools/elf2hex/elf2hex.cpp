@@ -3,8 +3,7 @@
 // This tool is specific to the GPGPU target.
 // Convert a statically linked ELF executable into its in-memory representation
 // and write it out in hex format compatible with a Verilog simulator's
-// $readmemh function.  Because LLD doesn't support linker scripts, we can't
-// make a proper boot.  As a hack around this, this overwrites the low address of
+// $readmemh function.  This overwrites the low address of
 // the binary with a jump to the entry point (this clobbers the ELF header, which is
 // unused).
 //
@@ -13,6 +12,7 @@
 
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 #include <llvm/Support/Compiler.h>
 #include <llvm/Support/ELF.h>
 #include <stdio.h>

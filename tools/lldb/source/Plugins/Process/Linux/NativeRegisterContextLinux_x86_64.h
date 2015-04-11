@@ -15,8 +15,9 @@
 #include "Plugins/Process/Utility/RegisterContext_x86.h"
 #include "Plugins/Process/Utility/lldb-x86-register-enums.h"
 
-namespace lldb_private
-{
+namespace lldb_private {
+namespace process_linux {
+
     class NativeProcessLinux;
 
     class NativeRegisterContextLinux_x86_64 : public NativeRegisterContextRegisterInfo
@@ -29,6 +30,9 @@ namespace lldb_private
 
         const RegisterSet *
         GetRegisterSet (uint32_t set_index) const override;
+
+        uint32_t
+        GetUserRegisterCount() const override;
 
         Error
         ReadRegister (const RegisterInfo *reg_info, RegisterValue &reg_value) override;
@@ -43,16 +47,19 @@ namespace lldb_private
         WriteAllRegisterValues (const lldb::DataBufferSP &data_sp) override;
 
         Error
-        IsWatchpointHit(uint8_t wp_index);
+        IsWatchpointHit(uint32_t wp_index, bool &is_hit) override;
 
         Error
-        IsWatchpointVacant(uint32_t wp_index);
+        GetWatchpointHitIndex(uint32_t &wp_index) override;
+
+        Error
+        IsWatchpointVacant(uint32_t wp_index, bool &is_vacant) override;
 
         bool
-        ClearHardwareWatchpoint(uint32_t wp_index);
+        ClearHardwareWatchpoint(uint32_t wp_index) override;
 
         Error
-        ClearAllHardwareWatchpoints ();
+        ClearAllHardwareWatchpoints () override;
 
         Error
         SetHardwareWatchpointWithIndex(lldb::addr_t addr, size_t size,
@@ -60,13 +67,13 @@ namespace lldb_private
 
         uint32_t
         SetHardwareWatchpoint(lldb::addr_t addr, size_t size,
-                uint32_t watch_flags);
+                uint32_t watch_flags) override;
 
         lldb::addr_t
-        GetWatchpointAddress(uint32_t wp_index);
+        GetWatchpointAddress(uint32_t wp_index) override;
 
         uint32_t
-        NumSupportedHardwareWatchpoints();
+        NumSupportedHardwareWatchpoints() override;
 
     private:
 
@@ -112,7 +119,7 @@ namespace lldb_private
         uint64_t m_gpr_x86_64[k_num_gpr_registers_x86_64];
 
         // Private member methods.
-        lldb_private::Error
+        Error
         WriteRegister(const uint32_t reg, const RegisterValue &value);
 
         bool IsRegisterSetAvailable (uint32_t set_index) const;
@@ -146,7 +153,7 @@ namespace lldb_private
         bool
         ReadFPR ();
 
-        lldb_private::Error
+        Error
         ReadRegisterRaw (uint32_t reg_index, RegisterValue &reg_value);
 
         bool
@@ -155,7 +162,9 @@ namespace lldb_private
         bool
         WriteGPR();
     };
-}
+
+} // namespace process_linux
+} // namespace lldb_private
 
 #endif // #ifndef lldb_NativeRegisterContextLinux_x86_64_h
 

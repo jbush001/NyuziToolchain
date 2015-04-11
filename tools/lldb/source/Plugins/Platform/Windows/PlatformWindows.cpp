@@ -26,6 +26,8 @@
 #include "lldb/Core/ModuleSpec.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Breakpoint/BreakpointLocation.h"
+#include "lldb/Breakpoint/BreakpointSite.h"
+#include "lldb/Target/Process.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -146,6 +148,8 @@ PlatformWindows::GetPluginName(void)
 void
 PlatformWindows::Initialize(void)
 {
+    Platform::Initialize ();
+
     if (g_initialize_count++ == 0)
     {
 #if defined (_WIN32)
@@ -175,6 +179,8 @@ PlatformWindows::Terminate( void )
             PluginManager::UnregisterPlugin (PlatformWindows::CreateInstance);
         }
     }
+
+    Platform::Terminate ();
 }
 
 //------------------------------------------------------------------
@@ -193,6 +199,17 @@ PlatformWindows::PlatformWindows (bool is_host) :
 //------------------------------------------------------------------
 PlatformWindows::~PlatformWindows()
 {
+}
+
+bool
+PlatformWindows::GetModuleSpec (const FileSpec& module_file_spec,
+                                const ArchSpec& arch,
+                                ModuleSpec &module_spec)
+{
+    if (m_remote_platform_sp)
+        return m_remote_platform_sp->GetModuleSpec (module_file_spec, arch, module_spec);
+
+    return Platform::GetModuleSpec (module_file_spec, arch, module_spec);
 }
 
 Error
@@ -230,9 +247,7 @@ PlatformWindows::ResolveExecutable (const ModuleSpec &ms,
     {
         if (m_remote_platform_sp)
         {
-            error = m_remote_platform_sp->ResolveExecutable (ms,
-                                                             exe_module_sp,
-                                                             NULL);
+            error = GetCachedExecutable (resolved_module_spec, exe_module_sp, nullptr, *m_remote_platform_sp);
         }
         else
         {
@@ -602,6 +617,7 @@ PlatformWindows::GetFileWithUUID (const FileSpec &platform_file,
 
 Error
 PlatformWindows::GetSharedModule (const ModuleSpec &module_spec,
+                                  Process* process,
                                   ModuleSP &module_sp,
                                   const FileSpecList *module_search_paths_ptr,
                                   ModuleSP *old_module_sp_ptr,
@@ -617,6 +633,7 @@ PlatformWindows::GetSharedModule (const ModuleSpec &module_spec,
         if (m_remote_platform_sp)
         {
             error = m_remote_platform_sp->GetSharedModule (module_spec,
+                                                           process,
                                                            module_sp,
                                                            module_search_paths_ptr,
                                                            old_module_sp_ptr,
@@ -628,6 +645,7 @@ PlatformWindows::GetSharedModule (const ModuleSpec &module_spec,
     {
         // Fall back to the local platform and find the file locally
         error = Platform::GetSharedModule (module_spec,
+                                           process,
                                            module_sp,
                                            module_search_paths_ptr,
                                            old_module_sp_ptr,

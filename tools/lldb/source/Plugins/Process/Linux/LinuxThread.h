@@ -13,18 +13,20 @@
 // Other libraries and framework includes
 #include "Plugins/Process/POSIX/POSIXThread.h"
 
+namespace lldb_private {
+namespace process_linux {
+
 //------------------------------------------------------------------------------
 // @class LinuxThread
 // @brief Abstraction of a Linux thread.
-class LinuxThread
-    : public POSIXThread
+class LinuxThread : public POSIXThread
 {
 public:
 
     //------------------------------------------------------------------
     // Constructors and destructors
     //------------------------------------------------------------------
-    LinuxThread(lldb_private::Process &process, lldb::tid_t tid);
+    LinuxThread(Process &process, lldb::tid_t tid);
 
     virtual ~LinuxThread();
 
@@ -32,8 +34,11 @@ public:
     // LinuxThread internal API.
 
     // POSIXThread override
-    virtual void
-    RefreshStateAfterStop();
+    void
+    RefreshStateAfterStop() override;
 };
+
+} // namespace process_linux
+} // namespace lldb_private
 
 #endif // #ifndef liblldb_LinuxThread_H_

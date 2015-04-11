@@ -12,9 +12,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/CodeGen/GCMetadata.h"
+#include "llvm/CodeGen/GCStrategy.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/Passes.h"
-#include "llvm/CodeGen/GCStrategy.h"
 #include "llvm/IR/Function.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/Pass.h"
@@ -99,10 +99,6 @@ void Printer::getAnalysisUsage(AnalysisUsage &AU) const {
 
 static const char *DescKind(GC::PointKind Kind) {
   switch (Kind) {
-  case GC::Loop:
-    return "loop";
-  case GC::Return:
-    return "return";
   case GC::PreCall:
     return "pre-call";
   case GC::PostCall:

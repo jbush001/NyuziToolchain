@@ -58,12 +58,9 @@ namespace {
 
 static void printDebugLoc(const DebugLoc &DL, formatted_raw_ostream &OS) {
   OS << DL.getLine() << ":" << DL.getCol();
-  if (MDNode *N = DL.getInlinedAt(getGlobalContext())) {
-    DebugLoc IDL = DebugLoc::getFromDILocation(N);
-    if (!IDL.isUnknown()) {
-      OS << "@";
-      printDebugLoc(IDL,OS);
-    }
+  if (MDLocation *IDL = DL.getInlinedAt()) {
+    OS << "@";
+    printDebugLoc(IDL, OS);
   }
 }
 class CommentWriter : public AssemblyAnnotationWriter {
@@ -81,8 +78,7 @@ public:
       OS << "; [#uses=" << V.getNumUses() << " type=" << *V.getType() << "]";  // Output # uses and type
     }
     if (const Instruction *I = dyn_cast<Instruction>(&V)) {
-      const DebugLoc &DL = I->getDebugLoc();
-      if (!DL.isUnknown()) {
+      if (const DebugLoc &DL = I->getDebugLoc()) {
         if (!Padded) {
           OS.PadToColumn(50);
           Padded = true;
@@ -115,14 +111,21 @@ public:
 } // end anon namespace
 
 static void diagnosticHandler(const DiagnosticInfo &DI, void *Context) {
-  assert(DI.getSeverity() == DS_Error && "Only expecting errors");
-
   raw_ostream &OS = errs();
   OS << (char *)Context << ": ";
+  switch (DI.getSeverity()) {
+  case DS_Error: OS << "error: "; break;
+  case DS_Warning: OS << "warning: "; break;
+  case DS_Remark: OS << "remark: "; break;
+  case DS_Note: OS << "note: "; break;
+  }
+
   DiagnosticPrinterRawOStream DP(OS);
   DI.print(DP);
   OS << '\n';
-  exit(1);
+
+  if (DI.getSeverity() == DS_Error)
+    exit(1);
 }
 
 int main(int argc, char **argv) {

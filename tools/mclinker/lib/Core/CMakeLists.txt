@@ -11,7 +11,7 @@ add_mcld_library(MCLDCore
   TargetOptions.cpp
   )
 
-target_link_libraries(MCLDCore ${cmake_2_8_12_PRIVATE}
+target_link_libraries(MCLDCore PRIVATE
   MCLDADT
   MCLDMC
   MCLDObject

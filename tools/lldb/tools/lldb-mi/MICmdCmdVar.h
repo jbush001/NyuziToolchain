@@ -7,9 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-//++
-// File:        MICmdCmdVar.h
-//
 // Overview:    CMICmdCmdVarCreate              interface.
 //              CMICmdCmdVarUpdate              interface.
 //              CMICmdCmdVarDelete              interface.
@@ -28,13 +25,6 @@
 //                  MICmdCmd.h / .cpp
 //              For an introduction to adding a new command see CMICmdCmdSupportInfoMiCmdQuery
 //              command class as an example.
-//
-// Environment: Compilers:  Visual C++ 12.
-//                          gcc (Ubuntu/Linaro 4.8.1-10ubuntu9) 4.8.1
-//              Libraries:  See MIReadmetxt.
-//
-// Copyright:   None.
-//--
 
 #pragma once
 
@@ -72,8 +62,15 @@ class CMICmdCmdVarCreate : public CMICmdBase
     virtual bool Execute(void);
     virtual bool Acknowledge(void);
     virtual bool ParseArgs(void);
+
+    // Overridden:
+  public:
     // From CMICmnBase
     /* dtor */ virtual ~CMICmdCmdVarCreate(void);
+
+    // Methods:
+  private:
+    void CompleteSBValue(lldb::SBValue &vrwValue);
 
     // Attribute:
   private:
@@ -124,18 +121,17 @@ class CMICmdCmdVarUpdate : public CMICmdBase
 
     // Methods:
   private:
-    bool ExamineSBValueForChange(const CMICmnLLDBDebugSessionInfoVarObj &vrVarObj, const bool vbIgnoreVarType, bool &vrwbChanged);
-    bool MIFormResponse(const CMIUtilString &vrStrVarName, const CMIUtilString &vrStrValue, const CMIUtilString &vrStrScope);
+    bool ExamineSBValueForChange(lldb::SBValue &vrwValue, bool &vrwbChanged);
+    bool MIFormResponse(const CMIUtilString &vrStrVarName, const MIchar *const vpValue, const CMIUtilString &vrStrScope);
 
     // Attribute:
   private:
-    CMIUtilString m_strValueName;
-    CMICmnLLDBDebugSessionInfo::VariableInfoFormat_e m_eVarInfoFormat;
-    const CMIUtilString m_constStrArgPrintValues; // Not handled by *this command
+    const CMIUtilString m_constStrArgPrintValues;
     const CMIUtilString m_constStrArgName;
-    bool m_bValueChangedArrayType;     // True = yes value changed, false = no change
-    bool m_bValueChangedCompositeType; // True = yes value changed, false = no change
-    bool m_bValueChangedNormalType;    // True = yes value changed, false = no change
+    const CMIUtilString m_constStrArgNoValues;
+    const CMIUtilString m_constStrArgAllValues;
+    const CMIUtilString m_constStrArgSimpleValues;
+    bool m_bValueChanged; // True = yes value changed, false = no change
     CMICmnMIValueList m_miValueList;
 };
 

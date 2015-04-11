@@ -36,6 +36,7 @@
 #include "llvm/IR/Value.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetInstrInfo.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetRegisterInfo.h"
@@ -268,15 +269,9 @@ public:
   void emitDebugValues(VirtRegMap *VRM,
                        LiveIntervals &LIS, const TargetInstrInfo &TRI);
 
-  /// findDebugLoc - Return DebugLoc used for this DBG_VALUE instruction. A
-  /// variable may have more than one corresponding DBG_VALUE instructions.
-  /// Only first one needs DebugLoc to identify variable's lexical scope
-  /// in source file.
-  DebugLoc findDebugLoc();
-
   /// getDebugLoc - Return DebugLoc of this UserValue.
   DebugLoc getDebugLoc() { return dl;}
-  void print(raw_ostream&, const TargetMachine*);
+  void print(raw_ostream &, const TargetRegisterInfo *);
 };
 } // namespace
 
@@ -362,8 +357,8 @@ public:
 };
 } // namespace
 
-void UserValue::print(raw_ostream &OS, const TargetMachine *TM) {
-  DIVariable DV(Variable);
+void UserValue::print(raw_ostream &OS, const TargetRegisterInfo *TRI) {
+  DIVariable DV = cast<MDLocalVariable>(Variable);
   OS << "!\"";
   DV.printExtendedName(OS);
   OS << "\"\t";
@@ -378,7 +373,7 @@ void UserValue::print(raw_ostream &OS, const TargetMachine *TM) {
   }
   for (unsigned i = 0, e = locations.size(); i != e; ++i) {
     OS << " Loc" << i << '=';
-    locations[i].print(OS, TM);
+    locations[i].print(OS, TRI);
   }
   OS << '\n';
 }
@@ -386,7 +381,7 @@ void UserValue::print(raw_ostream &OS, const TargetMachine *TM) {
 void LDVImpl::print(raw_ostream &OS) {
   OS << "********** DEBUG VARIABLES **********\n";
   for (unsigned i = 0, e = userValues.size(); i != e; ++i)
-    userValues[i]->print(OS, &MF->getTarget());
+    userValues[i]->print(OS, TRI);
 }
 
 void UserValue::coalesceLocation(unsigned LocNo) {
@@ -941,11 +936,6 @@ findInsertLocation(MachineBasicBlock *MBB, SlotIndex Idx,
                               std::next(MachineBasicBlock::iterator(MI));
 }
 
-DebugLoc UserValue::findDebugLoc() {
-  DebugLoc D = dl;
-  dl = DebugLoc();
-  return D;
-}
 void UserValue::insertDebugValue(MachineBasicBlock *MBB, SlotIndex Idx,
                                  unsigned LocNo,
                                  LiveIntervals &LIS,
@@ -954,11 +944,14 @@ void UserValue::insertDebugValue(MachineBasicBlock *MBB, SlotIndex Idx,
   MachineOperand &Loc = locations[LocNo];
   ++NumInsertedDebugValues;
 
+  assert(cast<MDLocalVariable>(Variable)
+             ->isValidLocationForIntrinsic(getDebugLoc()) &&
+         "Expected inlined-at fields to agree");
   if (Loc.isReg())
-    BuildMI(*MBB, I, findDebugLoc(), TII.get(TargetOpcode::DBG_VALUE),
+    BuildMI(*MBB, I, getDebugLoc(), TII.get(TargetOpcode::DBG_VALUE),
             IsIndirect, Loc.getReg(), offset, Variable, Expression);
   else
-    BuildMI(*MBB, I, findDebugLoc(), TII.get(TargetOpcode::DBG_VALUE))
+    BuildMI(*MBB, I, getDebugLoc(), TII.get(TargetOpcode::DBG_VALUE))
         .addOperand(Loc)
         .addImm(offset)
         .addMetadata(Variable)
@@ -1004,7 +997,7 @@ void LDVImpl::emitDebugValues(VirtRegMap *VRM) {
     return;
   const TargetInstrInfo *TII = MF->getSubtarget().getInstrInfo();
   for (unsigned i = 0, e = userValues.size(); i != e; ++i) {
-    DEBUG(userValues[i]->print(dbgs(), &MF->getTarget()));
+    DEBUG(userValues[i]->print(dbgs(), TRI));
     userValues[i]->rewriteLocations(*VRM, *TRI);
     userValues[i]->emitDebugValues(VRM, *LIS, *TII);
   }

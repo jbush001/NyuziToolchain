@@ -17,8 +17,8 @@
 #include "PPCTargetTransformInfo.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/MC/MCStreamer.h"
-#include "llvm/PassManager.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/TargetRegistry.h"
@@ -42,6 +42,11 @@ static cl::opt<bool>
 EnableGEPOpt("ppc-gep-opt", cl::Hidden,
              cl::desc("Enable optimizations on complex GEPs"),
              cl::init(true));
+
+static cl::opt<bool>
+EnablePrefetch("enable-ppc-prefetching",
+                  cl::desc("disable software prefetching on PPC"),
+                  cl::init(false), cl::Hidden);
 
 extern "C" void LLVMInitializePowerPCTarget() {
   // Register the targets
@@ -123,6 +128,30 @@ static std::unique_ptr<TargetLoweringObjectFile> createTLOF(const Triple &TT) {
   return make_unique<PPC64LinuxTargetObjectFile>();
 }
 
+static PPCTargetMachine::PPCABI computeTargetABI(const Triple &TT,
+                                                 const TargetOptions &Options) {
+  if (Options.MCOptions.getABIName().startswith("elfv1"))
+    return PPCTargetMachine::PPC_ABI_ELFv1;
+  else if (Options.MCOptions.getABIName().startswith("elfv2"))
+    return PPCTargetMachine::PPC_ABI_ELFv2;
+
+  assert(Options.MCOptions.getABIName().empty() &&
+	 "Unknown target-abi option!");
+
+  if (!TT.isMacOSX()) {
+    switch (TT.getArch()) {
+    case Triple::ppc64le:
+      return PPCTargetMachine::PPC_ABI_ELFv2;
+    case Triple::ppc64:
+      return PPCTargetMachine::PPC_ABI_ELFv1;
+    default:
+      // Fallthrough.
+      ;
+    }
+  }
+  return PPCTargetMachine::PPC_ABI_UNKNOWN;
+}
+
 // The FeatureString here is a little subtle. We are modifying the feature string
 // with what are (currently) non-function specific overrides as it goes into the
 // LLVMTargetMachine constructor and then using the stored value in the
@@ -131,10 +160,10 @@ PPCTargetMachine::PPCTargetMachine(const Target &T, StringRef TT, StringRef CPU,
                                    StringRef FS, const TargetOptions &Options,
                                    Reloc::Model RM, CodeModel::Model CM,
                                    CodeGenOpt::Level OL)
-    : LLVMTargetMachine(T, TT, CPU, computeFSAdditions(FS, OL, TT), Options, RM,
-                        CM, OL),
+    : LLVMTargetMachine(T, getDataLayoutString(Triple(TT)), TT, CPU,
+                        computeFSAdditions(FS, OL, TT), Options, RM, CM, OL),
       TLOF(createTLOF(Triple(getTargetTriple()))),
-      DL(getDataLayoutString(Triple(TT))), Subtarget(TT, CPU, TargetFS, *this) {
+      TargetABI(computeTargetABI(Triple(TT), Options)) {
   initAsmInfo();
 }
 
@@ -162,11 +191,8 @@ PPC64TargetMachine::PPC64TargetMachine(const Target &T, StringRef TT,
 
 const PPCSubtarget *
 PPCTargetMachine::getSubtargetImpl(const Function &F) const {
-  AttributeSet FnAttrs = F.getAttributes();
-  Attribute CPUAttr =
-      FnAttrs.getAttribute(AttributeSet::FunctionIndex, "target-cpu");
-  Attribute FSAttr =
-      FnAttrs.getAttribute(AttributeSet::FunctionIndex, "target-features");
+  Attribute CPUAttr = F.getFnAttribute("target-cpu");
+  Attribute FSAttr = F.getFnAttribute("target-features");
 
   std::string CPU = !CPUAttr.hasAttribute(Attribute::None)
                         ? CPUAttr.getValueAsString().str()
@@ -181,7 +207,15 @@ PPCTargetMachine::getSubtargetImpl(const Function &F) const {
     // creation will depend on the TM and the code generation flags on the
     // function that reside in TargetOptions.
     resetTargetOptions(F);
-    I = llvm::make_unique<PPCSubtarget>(TargetTriple, CPU, FS, *this);
+    I = llvm::make_unique<PPCSubtarget>(
+        TargetTriple, CPU,
+        // FIXME: It would be good to have the subtarget additions here
+        // not necessary. Anything that turns them on/off (overrides) ends
+        // up being put at the end of the feature string, but the defaults
+        // shouldn't require adding them. Fixing this means pulling Feature64Bit
+        // out of most of the target cpus in the .td file and making it set only
+        // as part of initialization via the TargetTriple.
+        computeFSAdditions(FS, getOptLevel(), getTargetTriple()), *this);
   }
   return I.get();
 }
@@ -217,6 +251,16 @@ TargetPassConfig *PPCTargetMachine::createPassConfig(PassManagerBase &PM) {
 
 void PPCPassConfig::addIRPasses() {
   addPass(createAtomicExpandPass(&getPPCTargetMachine()));
+
+  // For the BG/Q (or if explicitly requested), add explicit data prefetch
+  // intrinsics.
+  bool UsePrefetching =
+    Triple(TM->getTargetTriple()).getVendor() == Triple::BGQ &&           
+    getOptLevel() != CodeGenOpt::None;
+  if (EnablePrefetch.getNumOccurrences() > 0)
+    UsePrefetching = EnablePrefetch;
+  if (UsePrefetching)
+    addPass(createPPCLoopDataPrefetchPass());
 
   if (TM->getOptLevel() == CodeGenOpt::Aggressive && EnableGEPOpt) {
     // Call SeparateConstOffsetFromGEP pass to extract constants within indices
@@ -266,6 +310,8 @@ void PPCPassConfig::addPreRegAlloc() {
   initializePPCVSXFMAMutatePass(*PassRegistry::getPassRegistry());
   insertPass(VSXFMAMutateEarly ? &RegisterCoalescerID : &MachineSchedulerID,
              &PPCVSXFMAMutateID);
+  if (getPPCTargetMachine().getRelocationModel() == Reloc::PIC_)
+    addPass(createPPCTLSDynamicCallPass());
 }
 
 void PPCPassConfig::addPreSched2() {

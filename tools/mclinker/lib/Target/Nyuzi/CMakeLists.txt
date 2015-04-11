@@ -8,7 +8,7 @@ add_mcld_library(MCLDNyuziLDBackend
 
 add_subdirectory(TargetInfo)
 
-target_link_libraries(MCLDNyuziLDBackend ${cmake_2_8_12_PRIVATE}
+target_link_libraries(MCLDNyuziLDBackend PRIVATE
   MCLDNyuziTargetInfo
   MCLDCore
   MCLDFragment

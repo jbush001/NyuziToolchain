@@ -33,7 +33,6 @@ extern Target TheNyuziTarget;
 
 MCCodeEmitter *createNyuziMCCodeEmitter(const MCInstrInfo &MCII,
                                              const MCRegisterInfo &MRI,
-                                             const MCSubtargetInfo &STI,
                                              MCContext &Ctx);
 
 MCObjectWriter *createNyuziELFObjectWriter(raw_ostream &OS, uint8_t OSABI);

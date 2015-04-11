@@ -48,6 +48,7 @@ enum TokenType {
   TT_InheritanceColon,
   TT_InlineASMColon,
   TT_JavaAnnotation,
+  TT_JsTypeColon,
   TT_LambdaArrow,
   TT_LambdaLSquare,
   TT_LeadingJavaAnnotation,
@@ -69,6 +70,7 @@ enum TokenType {
   TT_StartOfName,
   TT_TemplateCloser,
   TT_TemplateOpener,
+  TT_TemplateString,
   TT_TrailingAnnotation,
   TT_TrailingReturnArrow,
   TT_TrailingUnaryOperator,
@@ -278,27 +280,10 @@ struct FormatToken {
   template <typename A, typename B> bool isOneOf(A K1, B K2) const {
     return is(K1) || is(K2);
   }
-  template <typename A, typename B, typename C>
-  bool isOneOf(A K1, B K2, C K3) const {
-    return is(K1) || is(K2) || is(K3);
+  template <typename A, typename B, typename... Ts>
+  bool isOneOf(A K1, B K2, Ts... Ks) const {
+    return is(K1) || isOneOf(K2, Ks...);
   }
-  template <typename A, typename B, typename C, typename D>
-  bool isOneOf(A K1, B K2, C K3, D K4) const {
-    return is(K1) || is(K2) || is(K3) || is(K4);
-  }
-  template <typename A, typename B, typename C, typename D, typename E>
-  bool isOneOf(A K1, B K2, C K3, D K4, E K5) const {
-    return is(K1) || is(K2) || is(K3) || is(K4) || is(K5);
-  }
-  template <typename T>
-  bool isOneOf(T K1, T K2, T K3, T K4, T K5, T K6, T K7 = tok::NUM_TOKENS,
-               T K8 = tok::NUM_TOKENS, T K9 = tok::NUM_TOKENS,
-               T K10 = tok::NUM_TOKENS, T K11 = tok::NUM_TOKENS,
-               T K12 = tok::NUM_TOKENS) const {
-    return is(K1) || is(K2) || is(K3) || is(K4) || is(K5) || is(K6) || is(K7) ||
-           is(K8) || is(K9) || is(K10) || is(K11) || is(K12);
-  }
-
   template <typename T> bool isNot(T Kind) const { return !is(Kind); }
 
   bool isStringLiteral() const { return tok::isStringLiteral(Tok.getKind()); }
@@ -336,7 +321,8 @@ struct FormatToken {
   /// \brief Returns \c true if this is a "." or "->" accessing a member.
   bool isMemberAccess() const {
     return isOneOf(tok::arrow, tok::period, tok::arrowstar) &&
-           !isOneOf(TT_DesignatedInitializerPeriod, TT_TrailingReturnArrow);
+           !isOneOf(TT_DesignatedInitializerPeriod, TT_TrailingReturnArrow,
+                    TT_LambdaArrow);
   }
 
   bool isUnaryOperator() const {
@@ -436,8 +422,8 @@ struct FormatToken {
 
 private:
   // Disallow copying.
-  FormatToken(const FormatToken &) LLVM_DELETED_FUNCTION;
-  void operator=(const FormatToken &) LLVM_DELETED_FUNCTION;
+  FormatToken(const FormatToken &) = delete;
+  void operator=(const FormatToken &) = delete;
 };
 
 class ContinuationIndenter;
@@ -543,6 +529,7 @@ struct AdditionalKeywords {
 
     kw_finally = &IdentTable.get("finally");
     kw_function = &IdentTable.get("function");
+    kw_import = &IdentTable.get("import");
     kw_var = &IdentTable.get("var");
 
     kw_abstract = &IdentTable.get("abstract");
@@ -562,6 +549,10 @@ struct AdditionalKeywords {
     kw_repeated = &IdentTable.get("repeated");
     kw_required = &IdentTable.get("required");
     kw_returns = &IdentTable.get("returns");
+
+    kw_signals = &IdentTable.get("signals");
+    kw_slots = &IdentTable.get("slots");
+    kw_qslots = &IdentTable.get("Q_SLOTS");
   }
 
   // Context sensitive keywords.
@@ -575,6 +566,7 @@ struct AdditionalKeywords {
   // JavaScript keywords.
   IdentifierInfo *kw_finally;
   IdentifierInfo *kw_function;
+  IdentifierInfo *kw_import;
   IdentifierInfo *kw_var;
 
   // Java keywords.
@@ -595,6 +587,11 @@ struct AdditionalKeywords {
   IdentifierInfo *kw_repeated;
   IdentifierInfo *kw_required;
   IdentifierInfo *kw_returns;
+
+  // QT keywords.
+  IdentifierInfo *kw_signals;
+  IdentifierInfo *kw_slots;
+  IdentifierInfo *kw_qslots;
 };
 
 } // namespace format

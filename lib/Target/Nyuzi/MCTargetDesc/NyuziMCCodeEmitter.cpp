@@ -34,9 +34,8 @@ STATISTIC(MCNumEmitted, "Number of MC instructions emitted");
 namespace {
 class NyuziMCCodeEmitter : public MCCodeEmitter {
 public:
-  NyuziMCCodeEmitter(const MCInstrInfo &mcii, const MCSubtargetInfo &sti,
-                          MCContext &ctx)
-      : MCII(mcii), STI(sti), Ctx(ctx) {}
+  NyuziMCCodeEmitter(const MCInstrInfo &mcii, MCContext &ctx)
+      : MCII(mcii), Ctx(ctx) {}
 
 
   ~NyuziMCCodeEmitter() {}
@@ -90,20 +89,18 @@ public:
                                  const MCSubtargetInfo &STI) const override;
 
 private:
-  NyuziMCCodeEmitter(const NyuziMCCodeEmitter &) LLVM_DELETED_FUNCTION; 
-  void operator=(const NyuziMCCodeEmitter &) LLVM_DELETED_FUNCTION; 
+  NyuziMCCodeEmitter(const NyuziMCCodeEmitter &) = delete; 
+  void operator=(const NyuziMCCodeEmitter &) = delete; 
   const MCInstrInfo &MCII;
-  const MCSubtargetInfo &STI;
   MCContext &Ctx;
 };
 } // end anonymous namepsace
 
 MCCodeEmitter *llvm::createNyuziMCCodeEmitter(const MCInstrInfo &MCII,
                                                    const MCRegisterInfo &MRI,
-                                                   const MCSubtargetInfo &STI,
                                                    MCContext &Ctx) {
 
-  return new NyuziMCCodeEmitter(MCII, STI, Ctx);
+  return new NyuziMCCodeEmitter(MCII, Ctx);
 }
 
 /// getMachineOpValue - Return binary encoding of operand.

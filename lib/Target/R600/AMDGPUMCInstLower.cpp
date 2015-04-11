@@ -92,13 +92,12 @@ void AMDGPUMCInstLower::lower(const MachineInstr *MI, MCInst &OutMI) const {
 }
 
 void AMDGPUAsmPrinter::EmitInstruction(const MachineInstr *MI) {
-  AMDGPUMCInstLower MCInstLowering(OutContext,
-                                   MF->getSubtarget<AMDGPUSubtarget>());
+  const AMDGPUSubtarget &STI = MF->getSubtarget<AMDGPUSubtarget>();
+  AMDGPUMCInstLower MCInstLowering(OutContext, STI);
 
 #ifdef _DEBUG
   StringRef Err;
-  if (!MF->getSubtarget<AMDGPUSubtarget>().getInstrInfo()->verifyInstruction(
-          MI, Err)) {
+  if (!STI.getInstrInfo()->verifyInstruction(MI, Err)) {
     errs() << "Warning: Illegal instruction detected: " << Err << "\n";
     MI->dump();
   }
@@ -116,7 +115,7 @@ void AMDGPUAsmPrinter::EmitInstruction(const MachineInstr *MI) {
     MCInstLowering.lower(MI, TmpInst);
     EmitToStreamer(OutStreamer, TmpInst);
 
-    if (DisasmEnabled) {
+    if (STI.dumpCode()) {
       // Disassemble instruction/operands to text.
       DisasmLines.resize(DisasmLines.size() + 1);
       std::string &DisasmLine = DisasmLines.back();
@@ -125,7 +124,8 @@ void AMDGPUAsmPrinter::EmitInstruction(const MachineInstr *MI) {
       AMDGPUInstPrinter InstPrinter(*TM.getMCAsmInfo(),
                                     *MF->getSubtarget().getInstrInfo(),
                                     *MF->getSubtarget().getRegisterInfo());
-      InstPrinter.printInst(&TmpInst, DisasmStream, StringRef());
+      InstPrinter.printInst(&TmpInst, DisasmStream, StringRef(),
+                            MF->getSubtarget());
 
       // Disassemble instruction/operands to hex representation.
       SmallVector<MCFixup, 4> Fixups;

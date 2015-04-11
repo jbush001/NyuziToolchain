@@ -488,6 +488,9 @@ gathered, use the '``-stats``' option:
   $ opt -stats -mypassname < program.bc > /dev/null
   ... statistics output ...
 
+Note that in order to use the '``-stats``' option, LLVM must be
+compiled with assertions enabled.
+
 When running ``opt`` on a C file from the SPEC benchmark suite, it gives a
 report that looks like this:
 
@@ -1813,7 +1816,7 @@ chain of ``F``:
 
   Function *F = ...;
 
-  for (User *U : GV->users()) {    
+  for (User *U : F->users()) {
     if (Instruction *Inst = dyn_cast<Instruction>(U)) {
       errs() << "F is used in instruction:\n";
       errs() << *Inst << "\n";
@@ -2549,6 +2552,22 @@ have built custom helpers to facilitate this design. See this document's
 section on :ref:`isa and dyn_cast <isa>` and our :doc:`detailed document
 <HowToSetUpLLVMStyleRTTI>` which describes how you can implement this
 pattern for use with the LLVM helpers.
+
+.. _abi_breaking_checks:
+
+ABI Breaking Checks
+-------------------
+
+Checks and asserts that alter the LLVM C++ ABI are predicated on the
+preprocessor symbol `LLVM_ENABLE_ABI_BREAKING_CHECKS` -- LLVM
+libraries built with `LLVM_ENABLE_ABI_BREAKING_CHECKS` are not ABI
+compatible LLVM libraries built without it defined.  By default,
+turning on assertions also turns on `LLVM_ENABLE_ABI_BREAKING_CHECKS`
+so a default +Asserts build is not ABI compatible with a
+default -Asserts build.  Clients that want ABI compatibility
+between +Asserts and -Asserts builds should use the CMake or autoconf
+build systems to set `LLVM_ENABLE_ABI_BREAKING_CHECKS` independently
+of `LLVM_ENABLE_ASSERTIONS`.
 
 .. _coreclasses:
 

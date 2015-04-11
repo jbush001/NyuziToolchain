@@ -7,15 +7,24 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/ADT/StringRef.h"
-
 #include "llvm/DebugInfo/PDB/PDB.h"
+
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Config/config.h"
 #include "llvm/DebugInfo/PDB/IPDBSession.h"
+#include "llvm/DebugInfo/PDB/PDB.h"
+
+#if HAVE_DIA_SDK
+#include "llvm/DebugInfo/PDB/DIA/DIASession.h"
+#endif
 
 using namespace llvm;
 
-std::unique_ptr<IPDBSession> llvm::createPDBReader(PDB_ReaderType Type,
-                                                   StringRef Path) {
+PDB_ErrorCode llvm::createPDBReader(PDB_ReaderType Type, StringRef Path,
+                                    std::unique_ptr<IPDBSession> &Session) {
   // Create the correct concrete instance type based on the value of Type.
-  return nullptr;
+#if HAVE_DIA_SDK
+  return DIASession::createFromPdb(Path, Session);
+#endif
+  return PDB_ErrorCode::NoPdbImpl;
 }

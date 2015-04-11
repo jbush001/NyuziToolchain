@@ -12,7 +12,7 @@ target triple = "nyuzi"
 ; CHECK: .long bar
 
 define void @test() #0 {
-	%1 = load i32* @foo, align 4
+	%1 = load i32, i32* @foo, align 4
 	store i32 %1, i32* @bar, align 4
 
 	; CHECK: load_32 [[FOO_PTR:s[0-9]+]], [[FOO_LBL]]

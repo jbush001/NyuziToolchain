@@ -31,26 +31,6 @@ namespace llvm {
 class FunctionType;
 class LLVMContext;
 
-// Traits for intrusive list of basic blocks...
-template<> struct ilist_traits<BasicBlock>
-  : public SymbolTableListTraits<BasicBlock, Function> {
-
-  // createSentinel is used to get hold of the node that marks the end of the
-  // list... (same trick used here as in ilist_traits<Instruction>)
-  BasicBlock *createSentinel() const {
-    return static_cast<BasicBlock*>(&Sentinel);
-  }
-  static void destroySentinel(BasicBlock*) {}
-
-  BasicBlock *provideInitialHead() const { return createSentinel(); }
-  BasicBlock *ensureHead(BasicBlock*) const { return createSentinel(); }
-  static void noteHead(BasicBlock*, BasicBlock*) {}
-
-  static ValueSymbolTable *getSymTab(Function *ItemParent);
-private:
-  mutable ilist_half_node<BasicBlock> Sentinel;
-};
-
 template<> struct ilist_traits<Argument>
   : public SymbolTableListTraits<Argument, Function> {
 
@@ -86,6 +66,7 @@ private:
   mutable ArgumentListType ArgumentList;  ///< The formal arguments
   ValueSymbolTable *SymTab;               ///< Symbol table of args/instructions
   AttributeSet AttributeSets;             ///< Parameter attributes
+  FunctionType *Ty;
 
   /*
    * Value::SubclassData
@@ -113,8 +94,8 @@ private:
   }
   void BuildLazyArguments() const;
 
-  Function(const Function&) LLVM_DELETED_FUNCTION;
-  void operator=(const Function&) LLVM_DELETED_FUNCTION;
+  Function(const Function&) = delete;
+  void operator=(const Function&) = delete;
 
   /// Do the actual lookup of an intrinsic ID when the query could not be
   /// answered from the cache.
@@ -218,6 +199,11 @@ public:
     return AttributeSets.getAttribute(AttributeSet::FunctionIndex, Kind);
   }
 
+  /// \brief Return the stack alignment for the function.
+  unsigned getFnStackAlignment() const {
+    return AttributeSets.getStackAlignment(AttributeSet::FunctionIndex);
+  }
+
   /// hasGC/getGC/setGC/clearGC - The name of the garbage collection algorithm
   ///                             to use during code generation.
   bool hasGC() const;
@@ -233,6 +219,9 @@ public:
 
   /// @brief removes the attributes from the list of attributes.
   void removeAttributes(unsigned i, AttributeSet attr);
+
+  /// @brief adds the dereferenceable attribute to the list of attributes.
+  void addDereferenceableAttr(unsigned i, uint64_t Bytes);
 
   /// @brief Extract the alignment for a call or parameter (0=unknown).
   unsigned getParamAlignment(unsigned i) const {

@@ -233,7 +233,7 @@ void IdenticalCodeFolding::FoldingCandidate::initConstantContent(
   if (reloc_sect != NULL && reloc_sect->hasRelocData()) {
     RelocData::iterator rel, relEnd = reloc_sect->getRelocData()->end();
     for (rel = reloc_sect->getRelocData()->begin(); rel != relEnd; ++rel) {
-      llvm::format_object4<Relocation::Type,
+      llvm::format_object<Relocation::Type,
                            Relocation::Address,
                            Relocation::Address,
                            Relocation::Address> rel_info("%x%llx%llx%llx",
@@ -286,7 +286,7 @@ std::string IdenticalCodeFolding::FoldingCandidate::getContentWithVariables(
     LDSection* def = &sym->fragRef()->frag()->getParent()->getSection();
     // Use the kept section index.
     KeptSections::const_iterator it = pKeptSections.find(def);
-    llvm::format_object1<size_t> kept_info("%x", (*it).second.second);
+    llvm::format_object<size_t> kept_info("%x", (*it).second.second);
     char kept_str[8];
     kept_info.print(kept_str, sizeof(kept_str));
     result.append(kept_str);

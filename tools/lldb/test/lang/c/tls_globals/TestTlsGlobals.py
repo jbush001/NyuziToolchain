@@ -10,7 +10,7 @@ class TlsGlobalTestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     @dsym_test
     @unittest2.expectedFailure("rdar://7796742")
     def test_with_dsym(self):
@@ -28,7 +28,7 @@ class TlsGlobalTestCase(TestBase):
     def setUp(self):
         TestBase.setUp(self)
 
-        if sys.platform.startswith("freebsd") or sys.platform.startswith("linux"):
+        if self.getPlatform() == "freebsd" or self.getPlatform() == "linux":
             # LD_LIBRARY_PATH must be set so the shared libraries are found on startup
             if "LD_LIBRARY_PATH" in os.environ:
                 self.runCmd("settings set target.env-vars " + self.dylibPath + "=" + os.environ["LD_LIBRARY_PATH"] + ":" + os.getcwd())

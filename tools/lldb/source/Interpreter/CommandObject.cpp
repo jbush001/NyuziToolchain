@@ -25,6 +25,7 @@
 // FIXME: Make a separate file for the completers.
 #include "lldb/Host/FileSpec.h"
 #include "lldb/Core/FileSpecList.h"
+#include "lldb/DataFormatters/FormatManager.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Target/Target.h"
 
@@ -120,6 +121,12 @@ void
 CommandObject::SetHelp (const char *cstr)
 {
     m_cmd_help_short = cstr;
+}
+
+void
+CommandObject::SetHelp (std::string str)
+{
+    m_cmd_help_short = str;
 }
 
 void
@@ -1020,18 +1027,15 @@ CommandObject::AddIDsArgumentData(CommandArgumentEntry &arg, CommandArgumentType
 const char * 
 CommandObject::GetArgumentTypeAsCString (const lldb::CommandArgumentType arg_type)
 {
-    if (arg_type >=0 && arg_type < eArgTypeLastArg)
-        return g_arguments_data[arg_type].arg_name;
-    return nullptr;
-
+    assert(arg_type < eArgTypeLastArg && "Invalid argument type passed to GetArgumentTypeAsCString");
+    return g_arguments_data[arg_type].arg_name;
 }
 
 const char * 
 CommandObject::GetArgumentDescriptionAsCString (const lldb::CommandArgumentType arg_type)
 {
-    if (arg_type >=0 && arg_type < eArgTypeLastArg)
-        return g_arguments_data[arg_type].help_text;
-    return nullptr;
+    assert(arg_type < eArgTypeLastArg && "Invalid argument type passed to GetArgumentDescriptionAsCString");
+    return g_arguments_data[arg_type].help_text;
 }
 
 Target *

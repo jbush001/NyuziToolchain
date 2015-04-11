@@ -7,18 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-//++
-// File:        MICmnLLDBDebugger.cpp
-//
-// Overview:    CMICmnLLDBDebugger implementation.
-//
-// Environment: Compilers:  Visual C++ 12.
-//                          gcc (Ubuntu/Linaro 4.8.1-10ubuntu9) 4.8.1
-//              Libraries:  See MIReadmetxt.
-//
-// Copyright:   None.
-//--
-
 // Third party headers:
 #include "lldb/API/SBTarget.h"
 #include "lldb/API/SBThread.h"
@@ -245,11 +233,15 @@ bool
 CMICmnLLDBDebugger::InitSBDebugger(void)
 {
     m_lldbDebugger = lldb::SBDebugger::Create(false);
-    if (m_lldbDebugger.IsValid())
-        return MIstatus::success;
+    if (!m_lldbDebugger.IsValid())
+    {
+        SetErrorDescription(MIRSRC(IDS_LLDBDEBUGGER_ERR_INVALIDDEBUGGER));
+        return MIstatus::failure;
+    }
 
-    SetErrorDescription(MIRSRC(IDS_LLDBDEBUGGER_ERR_INVALIDDEBUGGER));
-    return MIstatus::failure;
+    m_lldbDebugger.GetCommandInterpreter().SetPromptOnQuit(false);
+
+    return MIstatus::success;
 }
 
 //++ ------------------------------------------------------------------------------------
@@ -293,7 +285,9 @@ CMICmnLLDBDebugger::InitSBListener(void)
     }
 
     const CMIUtilString strDbgId("CMICmnLLDBDebugger1");
-    MIuint eventMask = lldb::SBTarget::eBroadcastBitBreakpointChanged;
+    MIuint eventMask = lldb::SBTarget::eBroadcastBitBreakpointChanged | lldb::SBTarget::eBroadcastBitModulesLoaded |
+                       lldb::SBTarget::eBroadcastBitModulesUnloaded | lldb::SBTarget::eBroadcastBitWatchpointChanged |
+                       lldb::SBTarget::eBroadcastBitSymbolsLoaded;
     bool bOk = RegisterForEvent(strDbgId, CMIUtilString(lldb::SBTarget::GetBroadcasterClassName()), eventMask);
 
     eventMask = lldb::SBThread::eBroadcastBitStackChanged;
@@ -306,7 +300,7 @@ CMICmnLLDBDebugger::InitSBListener(void)
     eventMask = lldb::SBCommandInterpreter::eBroadcastBitQuitCommandReceived | lldb::SBCommandInterpreter::eBroadcastBitThreadShouldExit |
                 lldb::SBCommandInterpreter::eBroadcastBitAsynchronousOutputData |
                 lldb::SBCommandInterpreter::eBroadcastBitAsynchronousErrorData;
-    bOk = bOk && RegisterForEvent(strDbgId, CMIUtilString(lldb::SBCommandInterpreter::GetBroadcasterClass()), eventMask);
+    bOk = bOk && RegisterForEvent(strDbgId, m_lldbDebugger.GetCommandInterpreter().GetBroadcaster(), eventMask);
 
     return bOk;
 }
@@ -663,13 +657,12 @@ CMICmnLLDBDebugger::MonitorSBListenerEvents(bool &vrbIsAlive)
     m_pLog->WriteLog(CMIUtilString::Format("##### An event occurred: %s", event.GetBroadcasterClass()));
 
     bool bHandledEvent = false;
-    bool bExitAppEvent = false;
 
     bool bOk = false;
     {
         // Lock Mutex before handling events so that we don't disturb a running cmd
         CMIUtilThreadLock lock(CMICmnLLDBDebugSessionInfo::Instance().GetSessionMutex());
-        bOk = CMICmnLLDBDebuggerHandleEvents::Instance().HandleEvent(event, bHandledEvent, bExitAppEvent);
+        bOk = CMICmnLLDBDebuggerHandleEvents::Instance().HandleEvent(event, bHandledEvent);
     }
     if (!bHandledEvent)
     {
@@ -679,15 +672,6 @@ CMICmnLLDBDebugger::MonitorSBListenerEvents(bool &vrbIsAlive)
     if (!bOk)
     {
         m_pLog->WriteLog(CMICmnLLDBDebuggerHandleEvents::Instance().GetErrorDescription());
-    }
-
-    if (bExitAppEvent)
-    {
-        // Set the application to shutdown
-        m_pClientDriver->SetExitApplicationFlag(true);
-
-        // Kill *this thread
-        vrbIsAlive = false;
     }
 
     return bOk;

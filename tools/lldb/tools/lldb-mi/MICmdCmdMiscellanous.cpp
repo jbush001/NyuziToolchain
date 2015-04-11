@@ -7,20 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-//++
-// File:        MICmdCmdMiscellanous.cpp
-//
 // Overview:    CMICmdCmdGdbExit                implementation.
 //              CMICmdCmdListThreadGroups       implementation.
 //              CMICmdCmdInterpreterExec        implementation.
 //              CMICmdCmdInferiorTtySet         implementation.
-//
-// Environment: Compilers:  Visual C++ 12.
-//                          gcc (Ubuntu/Linaro 4.8.1-10ubuntu9) 4.8.1
-//              Libraries:  See MIReadmetxt.
-//
-// Copyright:   None.
-//--
 
 // Third Party Headers:
 #include "lldb/API/SBCommandInterpreter.h"
@@ -84,7 +74,7 @@ bool
 CMICmdCmdGdbExit::Execute(void)
 {
     CMICmnLLDBDebugger::Instance().GetDriver().SetExitApplicationFlag(true);
-    const lldb::SBError sbErr = m_rLLDBDebugSessionInfo.GetProcess().Detach();
+    const lldb::SBError sbErr = m_rLLDBDebugSessionInfo.GetProcess().Destroy();
     // Do not check for sbErr.Fail() here, m_lldbProcess is likely !IsValid()
 
     return MIstatus::success;
@@ -249,7 +239,7 @@ CMICmdCmdListThreadGroups::Execute(void)
         if (thread.IsValid())
         {
             CMICmnMIValueTuple miTuple;
-            if (!rSessionInfo.MIResponseFormThreadInfo2(m_cmdData, thread, miTuple))
+            if (!rSessionInfo.MIResponseFormThreadInfo(m_cmdData, thread, CMICmnLLDBDebugSessionInfo::eThreadInfoFormat_NoFrames, miTuple))
                 return MIstatus::failure;
 
             m_vecMIValueTuple.push_back(miTuple);

@@ -16,7 +16,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "PrologEpilogInserter.h"
 #include "llvm/ADT/IndexedMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SetVector.h"
@@ -28,8 +27,10 @@
 #include "llvm/CodeGen/MachineLoopInfo.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/RegisterScavenging.h"
 #include "llvm/CodeGen/StackProtector.h"
+#include "llvm/CodeGen/WinEHFuncInfo.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/LLVMContext.h"
@@ -47,6 +48,53 @@
 using namespace llvm;
 
 #define DEBUG_TYPE "pei"
+
+namespace {
+class PEI : public MachineFunctionPass {
+public:
+  static char ID;
+  PEI() : MachineFunctionPass(ID) {
+    initializePEIPass(*PassRegistry::getPassRegistry());
+  }
+
+  void getAnalysisUsage(AnalysisUsage &AU) const override;
+
+  /// runOnMachineFunction - Insert prolog/epilog code and replace abstract
+  /// frame indexes with appropriate references.
+  ///
+  bool runOnMachineFunction(MachineFunction &Fn) override;
+
+private:
+  RegScavenger *RS;
+
+  // MinCSFrameIndex, MaxCSFrameIndex - Keeps the range of callee saved
+  // stack frame indexes.
+  unsigned MinCSFrameIndex, MaxCSFrameIndex;
+
+  // Entry and return blocks of the current function.
+  MachineBasicBlock *EntryBlock;
+  SmallVector<MachineBasicBlock *, 4> ReturnBlocks;
+
+  // Flag to control whether to use the register scavenger to resolve
+  // frame index materialization registers. Set according to
+  // TRI->requiresFrameIndexScavenging() for the current function.
+  bool FrameIndexVirtualScavenging;
+
+  void calculateSets(MachineFunction &Fn);
+  void calculateCallsInformation(MachineFunction &Fn);
+  void calculateCalleeSavedRegisters(MachineFunction &Fn);
+  void insertCSRSpillsAndRestores(MachineFunction &Fn);
+  void calculateFrameObjectOffsets(MachineFunction &Fn);
+  void replaceFrameIndices(MachineFunction &Fn);
+  void replaceFrameIndices(MachineBasicBlock *BB, MachineFunction &Fn,
+                           int &SPAdj);
+  void scavengeFrameVirtualRegs(MachineFunction &Fn);
+  void insertPrologEpilogCode(MachineFunction &Fn);
+
+  // Convenience for recognizing return blocks.
+  bool isReturnBlock(MachineBasicBlock *MBB);
+};
+} // namespace
 
 char PEI::ID = 0;
 char &llvm::PrologEpilogCodeInserterID = PEI::ID;
@@ -495,7 +543,7 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
 
       unsigned Align = MFI->getObjectAlignment(i);
       // Adjust to alignment boundary
-      Offset = (Offset+Align-1)/Align*Align;
+      Offset = RoundUpToAlignment(Offset, Align);
 
       MFI->setObjectOffset(i, -Offset);        // Set the computed offset
     }
@@ -504,7 +552,7 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
     for (int i = MaxCSFI; i >= MinCSFI ; --i) {
       unsigned Align = MFI->getObjectAlignment(i);
       // Adjust to alignment boundary
-      Offset = (Offset+Align-1)/Align*Align;
+      Offset = RoundUpToAlignment(Offset, Align);
 
       MFI->setObjectOffset(i, Offset);
       Offset += MFI->getObjectSize(i);
@@ -537,7 +585,7 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
     unsigned Align = MFI->getLocalFrameMaxAlign();
 
     // Adjust to alignment boundary.
-    Offset = (Offset + Align - 1) / Align * Align;
+    Offset = RoundUpToAlignment(Offset, Align);
 
     DEBUG(dbgs() << "Local frame base offset: " << Offset << "\n");
 
@@ -656,8 +704,7 @@ void PEI::calculateFrameObjectOffsets(MachineFunction &Fn) {
     // If the frame pointer is eliminated, all frame offsets will be relative to
     // SP not FP. Align to MaxAlign so this works.
     StackAlign = std::max(StackAlign, MaxAlign);
-    unsigned AlignMask = StackAlign - 1;
-    Offset = (Offset + AlignMask) & ~uint64_t(AlignMask);
+    Offset = RoundUpToAlignment(Offset, StackAlign);
   }
 
   // Update frame info to pretend that this is part of the stack...
@@ -705,6 +752,25 @@ void PEI::insertPrologEpilogCode(MachineFunction &Fn) {
 void PEI::replaceFrameIndices(MachineFunction &Fn) {
   const TargetFrameLowering &TFI = *Fn.getSubtarget().getFrameLowering();
   if (!TFI.needsFrameIndexResolution(Fn)) return;
+
+  MachineModuleInfo &MMI = Fn.getMMI();
+  const Function *F = Fn.getFunction();
+  const Function *ParentF = MMI.getWinEHParent(F);
+  unsigned FrameReg;
+  if (F == ParentF) {
+    WinEHFuncInfo &FuncInfo = MMI.getWinEHFuncInfo(Fn.getFunction());
+    // FIXME: This should be unconditional but we have bugs in the preparation
+    // pass.
+    if (FuncInfo.UnwindHelpFrameIdx != INT_MAX)
+      FuncInfo.UnwindHelpFrameOffset = TFI.getFrameIndexReferenceFromSP(
+          Fn, FuncInfo.UnwindHelpFrameIdx, FrameReg);
+  } else if (MMI.hasWinEHFuncInfo(F)) {
+    WinEHFuncInfo &FuncInfo = MMI.getWinEHFuncInfo(Fn.getFunction());
+    auto I = FuncInfo.CatchHandlerParentFrameObjIdx.find(F);
+    if (I != FuncInfo.CatchHandlerParentFrameObjIdx.end())
+      FuncInfo.CatchHandlerParentFrameObjOffset[F] =
+          TFI.getFrameIndexReferenceFromSP(Fn, I->second, FrameReg);
+  }
 
   // Store SPAdj at exit of a basic block.
   SmallVector<int, 8> SPState;
@@ -808,17 +874,6 @@ void PEI::replaceFrameIndices(MachineBasicBlock *BB, MachineFunction &Fn,
 
         Offset.setImm(Offset.getImm() + refOffset);
         MI->getOperand(i).ChangeToRegister(Reg, false /*isDef*/);
-        continue;
-      }
-
-      // Frame allocations are target independent. Simply swap the index with
-      // the offset.
-      if (MI->getOpcode() == TargetOpcode::FRAME_ALLOC) {
-        assert(TFI->hasFP(Fn) && "frame alloc requires FP");
-        MachineOperand &FI = MI->getOperand(i);
-        unsigned Reg;
-        int FrameOffset = TFI->getFrameIndexReference(Fn, FI.getIndex(), Reg);
-        FI.ChangeToImmediate(FrameOffset);
         continue;
       }
 

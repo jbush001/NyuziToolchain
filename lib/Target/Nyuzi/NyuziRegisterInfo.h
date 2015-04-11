@@ -33,7 +33,8 @@ struct NyuziRegisterInfo : public NyuziGenRegisterInfo {
 
   NyuziRegisterInfo(NyuziSubtarget &st, const TargetInstrInfo &tii);
   virtual const uint16_t *getCalleeSavedRegs(const MachineFunction *MF = 0) const override;
-  virtual const uint32_t *getCallPreservedMask(CallingConv::ID) const override;
+  virtual const uint32_t *getCallPreservedMask(const MachineFunction &MF,
+                                               CallingConv::ID) const override;
   virtual BitVector getReservedRegs(const MachineFunction &MF) const override;
   virtual const TargetRegisterClass *getPointerRegClass(const MachineFunction &MF,
                                                         unsigned Kind) const override;

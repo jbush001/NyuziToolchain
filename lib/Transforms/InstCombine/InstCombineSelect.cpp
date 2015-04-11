@@ -312,9 +312,9 @@ Instruction *InstCombiner::FoldSelectIntoOp(SelectInst &SI, Value *TrueVal,
 /// SimplifyWithOpReplaced - See if V simplifies when its operand Op is
 /// replaced with RepOp.
 static Value *SimplifyWithOpReplaced(Value *V, Value *Op, Value *RepOp,
-                                     const DataLayout *TD,
                                      const TargetLibraryInfo *TLI,
-                                     DominatorTree *DT, AssumptionCache *AC) {
+                                     const DataLayout &DL, DominatorTree *DT,
+                                     AssumptionCache *AC) {
   // Trivial replacement.
   if (V == Op)
     return RepOp;
@@ -326,18 +326,18 @@ static Value *SimplifyWithOpReplaced(Value *V, Value *Op, Value *RepOp,
   // If this is a binary operator, try to simplify it with the replaced op.
   if (BinaryOperator *B = dyn_cast<BinaryOperator>(I)) {
     if (B->getOperand(0) == Op)
-      return SimplifyBinOp(B->getOpcode(), RepOp, B->getOperand(1), TD, TLI);
+      return SimplifyBinOp(B->getOpcode(), RepOp, B->getOperand(1), DL, TLI);
     if (B->getOperand(1) == Op)
-      return SimplifyBinOp(B->getOpcode(), B->getOperand(0), RepOp, TD, TLI);
+      return SimplifyBinOp(B->getOpcode(), B->getOperand(0), RepOp, DL, TLI);
   }
 
   // Same for CmpInsts.
   if (CmpInst *C = dyn_cast<CmpInst>(I)) {
     if (C->getOperand(0) == Op)
-      return SimplifyCmpInst(C->getPredicate(), RepOp, C->getOperand(1), TD,
+      return SimplifyCmpInst(C->getPredicate(), RepOp, C->getOperand(1), DL,
                              TLI, DT, AC);
     if (C->getOperand(1) == Op)
-      return SimplifyCmpInst(C->getPredicate(), C->getOperand(0), RepOp, TD,
+      return SimplifyCmpInst(C->getPredicate(), C->getOperand(0), RepOp, DL,
                              TLI, DT, AC);
   }
 
@@ -361,14 +361,14 @@ static Value *SimplifyWithOpReplaced(Value *V, Value *Op, Value *RepOp,
     if (ConstOps.size() == I->getNumOperands()) {
       if (CmpInst *C = dyn_cast<CmpInst>(I))
         return ConstantFoldCompareInstOperands(C->getPredicate(), ConstOps[0],
-                                               ConstOps[1], TD, TLI);
+                                               ConstOps[1], DL, TLI);
 
       if (LoadInst *LI = dyn_cast<LoadInst>(I))
         if (!LI->isVolatile())
-          return ConstantFoldLoadFromConstPtr(ConstOps[0], TD);
+          return ConstantFoldLoadFromConstPtr(ConstOps[0], DL);
 
-      return ConstantFoldInstOperands(I->getOpcode(), I->getType(),
-                                      ConstOps, TD, TLI);
+      return ConstantFoldInstOperands(I->getOpcode(), I->getType(), ConstOps,
+                                      DL, TLI);
     }
   }
 
@@ -482,16 +482,12 @@ static Value *foldSelectCttzCtlz(ICmpInst *ICI, Value *TrueVal, Value *FalseVal,
       match(Count, m_Intrinsic<Intrinsic::ctlz>(m_Specific(CmpLHS)))) {
     IntrinsicInst *II = cast<IntrinsicInst>(Count);
     IRBuilder<> Builder(II);
-    if (cast<ConstantInt>(II->getArgOperand(1))->isOne()) {
-      // Explicitly clear the 'undef_on_zero' flag.
-      IntrinsicInst *NewI = cast<IntrinsicInst>(II->clone());
-      Type *Ty = NewI->getArgOperand(1)->getType();
-      NewI->setArgOperand(1, Constant::getNullValue(Ty));
-      Builder.Insert(NewI);
-      Count = NewI;
-    }
-
-    return Builder.CreateZExtOrTrunc(Count, ValueOnZero->getType());
+    // Explicitly clear the 'undef_on_zero' flag.
+    IntrinsicInst *NewI = cast<IntrinsicInst>(II->clone());
+    Type *Ty = NewI->getArgOperand(1)->getType();
+    NewI->setArgOperand(1, Constant::getNullValue(Ty));
+    Builder.Insert(NewI);
+    return Builder.CreateZExtOrTrunc(NewI, ValueOnZero->getType());
   }
 
   return nullptr;
@@ -639,25 +635,25 @@ Instruction *InstCombiner::visitSelectInstWithICmp(SelectInst &SI,
   // arms of the select. See if substituting this value into the arm and
   // simplifying the result yields the same value as the other arm.
   if (Pred == ICmpInst::ICMP_EQ) {
-    if (SimplifyWithOpReplaced(FalseVal, CmpLHS, CmpRHS, DL, TLI, DT, AC) ==
+    if (SimplifyWithOpReplaced(FalseVal, CmpLHS, CmpRHS, TLI, DL, DT, AC) ==
             TrueVal ||
-        SimplifyWithOpReplaced(FalseVal, CmpRHS, CmpLHS, DL, TLI, DT, AC) ==
+        SimplifyWithOpReplaced(FalseVal, CmpRHS, CmpLHS, TLI, DL, DT, AC) ==
             TrueVal)
       return ReplaceInstUsesWith(SI, FalseVal);
-    if (SimplifyWithOpReplaced(TrueVal, CmpLHS, CmpRHS, DL, TLI, DT, AC) ==
+    if (SimplifyWithOpReplaced(TrueVal, CmpLHS, CmpRHS, TLI, DL, DT, AC) ==
             FalseVal ||
-        SimplifyWithOpReplaced(TrueVal, CmpRHS, CmpLHS, DL, TLI, DT, AC) ==
+        SimplifyWithOpReplaced(TrueVal, CmpRHS, CmpLHS, TLI, DL, DT, AC) ==
             FalseVal)
       return ReplaceInstUsesWith(SI, FalseVal);
   } else if (Pred == ICmpInst::ICMP_NE) {
-    if (SimplifyWithOpReplaced(TrueVal, CmpLHS, CmpRHS, DL, TLI, DT, AC) ==
+    if (SimplifyWithOpReplaced(TrueVal, CmpLHS, CmpRHS, TLI, DL, DT, AC) ==
             FalseVal ||
-        SimplifyWithOpReplaced(TrueVal, CmpRHS, CmpLHS, DL, TLI, DT, AC) ==
+        SimplifyWithOpReplaced(TrueVal, CmpRHS, CmpLHS, TLI, DL, DT, AC) ==
             FalseVal)
       return ReplaceInstUsesWith(SI, TrueVal);
-    if (SimplifyWithOpReplaced(FalseVal, CmpLHS, CmpRHS, DL, TLI, DT, AC) ==
+    if (SimplifyWithOpReplaced(FalseVal, CmpLHS, CmpRHS, TLI, DL, DT, AC) ==
             TrueVal ||
-        SimplifyWithOpReplaced(FalseVal, CmpRHS, CmpLHS, DL, TLI, DT, AC) ==
+        SimplifyWithOpReplaced(FalseVal, CmpRHS, CmpLHS, TLI, DL, DT, AC) ==
             TrueVal)
       return ReplaceInstUsesWith(SI, TrueVal);
   }
@@ -931,7 +927,7 @@ Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
       return BinaryOperator::CreateAnd(NotCond, FalseVal);
     }
     if (ConstantInt *C = dyn_cast<ConstantInt>(FalseVal)) {
-      if (C->getZExtValue() == false) {
+      if (!C->getZExtValue()) {
         // Change: A = select B, C, false --> A = and B, C
         return BinaryOperator::CreateAnd(CondVal, TrueVal);
       }
@@ -1149,12 +1145,14 @@ Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
     if (Instruction *FoldI = FoldSelectIntoOp(SI, TrueVal, FalseVal))
       return FoldI;
 
+    Value *LHS, *RHS, *LHS2, *RHS2;
+    SelectPatternFlavor SPF = MatchSelectPattern(&SI, LHS, RHS);
+
     // MAX(MAX(a, b), a) -> MAX(a, b)
     // MIN(MIN(a, b), a) -> MIN(a, b)
     // MAX(MIN(a, b), a) -> a
     // MIN(MAX(a, b), a) -> a
-    Value *LHS, *RHS, *LHS2, *RHS2;
-    if (SelectPatternFlavor SPF = MatchSelectPattern(&SI, LHS, RHS)) {
+    if (SPF) {
       if (SelectPatternFlavor SPF2 = MatchSelectPattern(LHS, LHS2, RHS2))
         if (Instruction *R = FoldSPFofSPF(cast<Instruction>(LHS),SPF2,LHS2,RHS2,
                                           SI, SPF, RHS))
@@ -1163,6 +1161,33 @@ Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
         if (Instruction *R = FoldSPFofSPF(cast<Instruction>(RHS),SPF2,LHS2,RHS2,
                                           SI, SPF, LHS))
           return R;
+    }
+
+    // MAX(~a, ~b) -> ~MIN(a, b)
+    if (SPF == SPF_SMAX || SPF == SPF_UMAX) {
+      if (IsFreeToInvert(LHS, LHS->hasNUses(2)) &&
+          IsFreeToInvert(RHS, RHS->hasNUses(2))) {
+
+        // This transform adds a xor operation and that extra cost needs to be
+        // justified.  We look for simplifications that will result from
+        // applying this rule:
+
+        bool Profitable =
+            (LHS->hasNUses(2) && match(LHS, m_Not(m_Value()))) ||
+            (RHS->hasNUses(2) && match(RHS, m_Not(m_Value()))) ||
+            (SI.hasOneUse() && match(*SI.user_begin(), m_Not(m_Value())));
+
+        if (Profitable) {
+          Value *NewLHS = Builder->CreateNot(LHS);
+          Value *NewRHS = Builder->CreateNot(RHS);
+          Value *NewCmp = SPF == SPF_SMAX
+                              ? Builder->CreateICmpSLT(NewLHS, NewRHS)
+                              : Builder->CreateICmpULT(NewLHS, NewRHS);
+          Value *NewSI =
+              Builder->CreateNot(Builder->CreateSelect(NewCmp, NewLHS, NewRHS));
+          return ReplaceInstUsesWith(SI, NewSI);
+        }
+      }
     }
 
     // TODO.
@@ -1178,37 +1203,41 @@ Instruction *InstCombiner::visitSelectInst(SelectInst &SI) {
         return NV;
 
   if (SelectInst *TrueSI = dyn_cast<SelectInst>(TrueVal)) {
-    // select(C, select(C, a, b), c) -> select(C, a, c)
-    if (TrueSI->getCondition() == CondVal) {
-      if (SI.getTrueValue() == TrueSI->getTrueValue())
-        return nullptr;
-      SI.setOperand(1, TrueSI->getTrueValue());
-      return &SI;
-    }
-    // select(C0, select(C1, a, b), b) -> select(C0&C1, a, b)
-    // We choose this as normal form to enable folding on the And and shortening
-    // paths for the values (this helps GetUnderlyingObjects() for example).
-    if (TrueSI->getFalseValue() == FalseVal && TrueSI->hasOneUse()) {
-      Value *And = Builder->CreateAnd(CondVal, TrueSI->getCondition());
-      SI.setOperand(0, And);
-      SI.setOperand(1, TrueSI->getTrueValue());
-      return &SI;
+    if (TrueSI->getCondition()->getType() == CondVal->getType()) {
+      // select(C, select(C, a, b), c) -> select(C, a, c)
+      if (TrueSI->getCondition() == CondVal) {
+        if (SI.getTrueValue() == TrueSI->getTrueValue())
+          return nullptr;
+        SI.setOperand(1, TrueSI->getTrueValue());
+        return &SI;
+      }
+      // select(C0, select(C1, a, b), b) -> select(C0&C1, a, b)
+      // We choose this as normal form to enable folding on the And and shortening
+      // paths for the values (this helps GetUnderlyingObjects() for example).
+      if (TrueSI->getFalseValue() == FalseVal && TrueSI->hasOneUse()) {
+        Value *And = Builder->CreateAnd(CondVal, TrueSI->getCondition());
+        SI.setOperand(0, And);
+        SI.setOperand(1, TrueSI->getTrueValue());
+        return &SI;
+      }
     }
   }
   if (SelectInst *FalseSI = dyn_cast<SelectInst>(FalseVal)) {
-    // select(C, a, select(C, b, c)) -> select(C, a, c)
-    if (FalseSI->getCondition() == CondVal) {
-      if (SI.getFalseValue() == FalseSI->getFalseValue())
-        return nullptr;
-      SI.setOperand(2, FalseSI->getFalseValue());
-      return &SI;
-    }
-    // select(C0, a, select(C1, a, b)) -> select(C0|C1, a, b)
-    if (FalseSI->getTrueValue() == TrueVal && FalseSI->hasOneUse()) {
-      Value *Or = Builder->CreateOr(CondVal, FalseSI->getCondition());
-      SI.setOperand(0, Or);
-      SI.setOperand(2, FalseSI->getFalseValue());
-      return &SI;
+    if (FalseSI->getCondition()->getType() == CondVal->getType()) {
+      // select(C, a, select(C, b, c)) -> select(C, a, c)
+      if (FalseSI->getCondition() == CondVal) {
+        if (SI.getFalseValue() == FalseSI->getFalseValue())
+          return nullptr;
+        SI.setOperand(2, FalseSI->getFalseValue());
+        return &SI;
+      }
+      // select(C0, a, select(C1, a, b)) -> select(C0|C1, a, b)
+      if (FalseSI->getTrueValue() == TrueVal && FalseSI->hasOneUse()) {
+        Value *Or = Builder->CreateOr(CondVal, FalseSI->getCondition());
+        SI.setOperand(0, Or);
+        SI.setOperand(2, FalseSI->getFalseValue());
+        return &SI;
+      }
     }
   }
 

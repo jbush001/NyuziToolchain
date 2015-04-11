@@ -7,18 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-//++
-// File:        MICmnMIValueList.h
-//
-// Overview:    CMICmnMIValueList implementation.
-//
-// Environment: Compilers:  Visual C++ 12.
-//                          gcc (Ubuntu/Linaro 4.8.1-10ubuntu9) 4.8.1
-//              Libraries:  See MIReadmetxt.
-//
-// Copyright:   None.
-//--
-
 // In-house headers:
 #include "MICmnMIValueList.h"
 #include "MICmnResources.h"
@@ -175,9 +163,12 @@ CMICmnMIValueList::BuildList(const CMICmnMIValue &vValue)
         return BuildList();
     }
 
+    // Remove already present '[' and ']' from the start and end
+    m_strValue = m_strValue.Trim();
+    size_t len = m_strValue.size();
+    if ( (len > 1) && (m_strValue[0] == '[') && (m_strValue[len - 1] == ']') )
+        m_strValue = m_strValue.substr(1, len - 2);
     const MIchar *pFormat = "[%s,%s]";
-    m_strValue = m_strValue.FindAndReplace("[", "");
-    m_strValue = m_strValue.FindAndReplace("]", "");
     m_strValue = CMIUtilString::Format(pFormat, m_strValue.c_str(), vValue.GetString().c_str());
 
     return MIstatus::success;

@@ -13,6 +13,7 @@
 #include <algorithm>
 
 #include "lldb/Core/ArchSpec.h"
+#include "lldb/Core/DataBufferHeap.h"
 #include "lldb/Core/Log.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/Section.h"
@@ -34,13 +35,15 @@ namespace lldb_private {
 
     // Constants from <mach-o/compact_unwind_encoding.h>
 
-    enum {
+    FLAGS_ANONYMOUS_ENUM()
+    {
         UNWIND_IS_NOT_FUNCTION_START           = 0x80000000,
         UNWIND_HAS_LSDA                        = 0x40000000,
         UNWIND_PERSONALITY_MASK                = 0x30000000,
     };
 
-    enum {
+    FLAGS_ANONYMOUS_ENUM()
+    {
         UNWIND_X86_MODE_MASK                         = 0x0F000000,
         UNWIND_X86_MODE_EBP_FRAME                    = 0x01000000,
         UNWIND_X86_MODE_STACK_IMMD                   = 0x02000000,
@@ -58,7 +61,8 @@ namespace lldb_private {
         UNWIND_X86_DWARF_SECTION_OFFSET              = 0x00FFFFFF,
     };
 
-    enum {
+    enum
+    {
         UNWIND_X86_REG_NONE     = 0,
         UNWIND_X86_REG_EBX      = 1,
         UNWIND_X86_REG_ECX      = 2,
@@ -67,7 +71,9 @@ namespace lldb_private {
         UNWIND_X86_REG_ESI      = 5,
         UNWIND_X86_REG_EBP      = 6,
     };
-    enum {
+
+    FLAGS_ANONYMOUS_ENUM()
+    {
         UNWIND_X86_64_MODE_MASK                         = 0x0F000000,
         UNWIND_X86_64_MODE_RBP_FRAME                    = 0x01000000,
         UNWIND_X86_64_MODE_STACK_IMMD                   = 0x02000000,
@@ -85,7 +91,8 @@ namespace lldb_private {
         UNWIND_X86_64_DWARF_SECTION_OFFSET              = 0x00FFFFFF,
     };
 
-    enum {
+    enum
+    {
         UNWIND_X86_64_REG_NONE       = 0,
         UNWIND_X86_64_REG_RBX        = 1,
         UNWIND_X86_64_REG_R12        = 2,
@@ -115,7 +122,7 @@ namespace lldb_private {
 
 #define EXTRACT_BITS(value, mask) \
         ( (value >> llvm::countTrailingZeros(static_cast<uint32_t>(mask), llvm::ZB_Width)) & \
-          (((1 << llvm::CountPopulation_32(static_cast<uint32_t>(mask))))-1) )
+          (((1 << llvm::countPopulation(static_cast<uint32_t>(mask))))-1) )
 
 
 
@@ -282,9 +289,17 @@ CompactUnwindInfo::ScanIndex (const ProcessSP &process_sp)
 
         uint32_t indexCount = m_unwindinfo_data.GetU32(&offset);
 
-        if (m_unwind_header.version != 1)
+        if (m_unwind_header.common_encodings_array_offset > m_unwindinfo_data.GetByteSize()
+            || m_unwind_header.personality_array_offset > m_unwindinfo_data.GetByteSize()
+            || indexSectionOffset > m_unwindinfo_data.GetByteSize()
+            || offset > m_unwindinfo_data.GetByteSize())
         {
+            Host::SystemLog (Host::eSystemLogError,
+                    "error: Invalid offset encountered in compact unwind info, skipping\n");
+            // don't trust anything from this compact_unwind section if it looks
+            // blatently invalid data in the header.
             m_indexes_computed = eLazyBoolNo;
+            return;
         }
 
         // Parse the basic information from the indexes
@@ -720,8 +735,9 @@ CompactUnwindInfo::CreateUnwindPlan_x86_64 (Target &target, FunctionInfo &functi
     {
         case UNWIND_X86_64_MODE_RBP_FRAME:
         {
-            row->SetCFARegister (translate_to_eh_frame_regnum_x86_64 (UNWIND_X86_64_REG_RBP));
-            row->SetCFAOffset (2 * wordsize);
+            row->GetCFAValue().SetIsRegisterPlusOffset (
+                    translate_to_eh_frame_regnum_x86_64 (UNWIND_X86_64_REG_RBP),
+                    2 * wordsize);
             row->SetOffset (0);
             row->SetRegisterLocationToAtCFAPlusOffset (x86_64_eh_regnum::rbp, wordsize * -2, true);
             row->SetRegisterLocationToAtCFAPlusOffset (x86_64_eh_regnum::rip, wordsize * -1, true);
@@ -809,16 +825,9 @@ CompactUnwindInfo::CreateUnwindPlan_x86_64 (Target &target, FunctionInfo &functi
                 }
             }
 
-            if (mode == UNWIND_X86_64_MODE_STACK_IND)
-            {
-                row->SetCFAOffset (stack_size);
-            }
-            else
-            {
-                row->SetCFAOffset (stack_size * wordsize);
-            }
+            int32_t offset = mode == UNWIND_X86_64_MODE_STACK_IND ? stack_size : stack_size * wordsize;
+            row->GetCFAValue().SetIsRegisterPlusOffset (x86_64_eh_regnum::rsp, offset);
 
-            row->SetCFARegister (x86_64_eh_regnum::rsp);
             row->SetOffset (0);
             row->SetRegisterLocationToAtCFAPlusOffset (x86_64_eh_regnum::rip, wordsize * -1, true);
             row->SetRegisterLocationToIsCFAPlusOffset (x86_64_eh_regnum::rsp, 0, true);
@@ -1009,8 +1018,8 @@ CompactUnwindInfo::CreateUnwindPlan_i386 (Target &target, FunctionInfo &function
     {
         case UNWIND_X86_MODE_EBP_FRAME:
         {
-            row->SetCFARegister (translate_to_eh_frame_regnum_i386 (UNWIND_X86_REG_EBP));
-            row->SetCFAOffset (2 * wordsize);
+            row->GetCFAValue().SetIsRegisterPlusOffset (
+                    translate_to_eh_frame_regnum_i386 (UNWIND_X86_REG_EBP), 2 * wordsize);
             row->SetOffset (0);
             row->SetRegisterLocationToAtCFAPlusOffset (i386_eh_regnum::ebp, wordsize * -2, true);
             row->SetRegisterLocationToAtCFAPlusOffset (i386_eh_regnum::eip, wordsize * -1, true);
@@ -1091,17 +1100,8 @@ CompactUnwindInfo::CreateUnwindPlan_i386 (Target &target, FunctionInfo &function
                 }
             }
 
-            row->SetCFARegister (i386_eh_regnum::esp);
-
-            if (mode == UNWIND_X86_MODE_STACK_IND)
-            {
-                row->SetCFAOffset (stack_size);
-            }
-            else
-            {
-                row->SetCFAOffset (stack_size * wordsize);
-            }
-
+            int32_t offset = mode == UNWIND_X86_MODE_STACK_IND ? stack_size : stack_size * wordsize;
+            row->GetCFAValue().SetIsRegisterPlusOffset (i386_eh_regnum::esp, offset);
             row->SetOffset (0);
             row->SetRegisterLocationToAtCFAPlusOffset (i386_eh_regnum::eip, wordsize * -1, true);
             row->SetRegisterLocationToIsCFAPlusOffset (i386_eh_regnum::esp, 0, true);

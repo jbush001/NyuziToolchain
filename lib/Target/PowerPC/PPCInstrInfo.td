@@ -46,13 +46,6 @@ def SDT_PPCstbrx : SDTypeProfile<0, 3, [
   SDTCisInt<0>, SDTCisPtrTy<1>, SDTCisVT<2, OtherVT>
 ]>;
 
-def SDT_PPClarx : SDTypeProfile<1, 1, [
-  SDTCisInt<0>, SDTCisPtrTy<1>
-]>;
-def SDT_PPCstcx : SDTypeProfile<0, 2, [
-  SDTCisInt<0>, SDTCisPtrTy<1>
-]>;
-
 def SDT_PPCTC_ret : SDTypeProfile<0, 2, [
   SDTCisPtrTy<0>, SDTCisVT<1, i32>
 ]>;
@@ -60,6 +53,27 @@ def SDT_PPCTC_ret : SDTypeProfile<0, 2, [
 def tocentry32 : Operand<iPTR> {
   let MIOperandInfo = (ops i32imm:$imm);
 }
+
+def SDT_PPCqvfperm   : SDTypeProfile<1, 3, [
+  SDTCisVec<0>, SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>, SDTCisVec<3>
+]>;
+def SDT_PPCqvgpci   : SDTypeProfile<1, 1, [
+  SDTCisVec<0>, SDTCisInt<1>
+]>;
+def SDT_PPCqvaligni   : SDTypeProfile<1, 3, [
+  SDTCisVec<0>, SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>, SDTCisInt<3>
+]>;
+def SDT_PPCqvesplati   : SDTypeProfile<1, 2, [
+  SDTCisVec<0>, SDTCisSameAs<0, 1>, SDTCisInt<2>
+]>;
+
+def SDT_PPCqbflt : SDTypeProfile<1, 1, [
+  SDTCisVec<0>, SDTCisVec<1>
+]>;
+
+def SDT_PPCqvlfsb : SDTypeProfile<1, 1, [
+  SDTCisVec<0>, SDTCisPtrTy<1>
+]>;
 
 //===----------------------------------------------------------------------===//
 // PowerPC specific DAG Nodes.
@@ -98,7 +112,8 @@ def PPCfsel   : SDNode<"PPCISD::FSEL",
 
 def PPChi       : SDNode<"PPCISD::Hi", SDTIntBinOp, []>;
 def PPClo       : SDNode<"PPCISD::Lo", SDTIntBinOp, []>;
-def PPCtoc_entry: SDNode<"PPCISD::TOC_ENTRY", SDTIntBinOp, [SDNPMayLoad]>;
+def PPCtoc_entry: SDNode<"PPCISD::TOC_ENTRY", SDTIntBinOp,
+                         [SDNPMayLoad, SDNPMemOperand]>;
 def PPCvmaddfp  : SDNode<"PPCISD::VMADDFP", SDTFPTernaryOp, []>;
 def PPCvnmsubfp : SDNode<"PPCISD::VNMSUBFP", SDTFPTernaryOp, []>;
 
@@ -110,13 +125,32 @@ def PPCldGotTprelL : SDNode<"PPCISD::LD_GOT_TPREL_L", SDTIntBinOp,
 def PPCaddTls     : SDNode<"PPCISD::ADD_TLS", SDTIntBinOp, []>;
 def PPCaddisTlsgdHA : SDNode<"PPCISD::ADDIS_TLSGD_HA", SDTIntBinOp>;
 def PPCaddiTlsgdL   : SDNode<"PPCISD::ADDI_TLSGD_L", SDTIntBinOp>;
+def PPCgetTlsAddr   : SDNode<"PPCISD::GET_TLS_ADDR", SDTIntBinOp>;
+def PPCaddiTlsgdLAddr : SDNode<"PPCISD::ADDI_TLSGD_L_ADDR",
+                               SDTypeProfile<1, 3, [
+                                 SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>,
+                                 SDTCisSameAs<0, 3>, SDTCisInt<0> ]>>;
 def PPCaddisTlsldHA : SDNode<"PPCISD::ADDIS_TLSLD_HA", SDTIntBinOp>;
 def PPCaddiTlsldL   : SDNode<"PPCISD::ADDI_TLSLD_L", SDTIntBinOp>;
-def PPCaddisDtprelHA : SDNode<"PPCISD::ADDIS_DTPREL_HA", SDTIntBinOp,
-                              [SDNPHasChain]>;
+def PPCgetTlsldAddr : SDNode<"PPCISD::GET_TLSLD_ADDR", SDTIntBinOp>;
+def PPCaddiTlsldLAddr : SDNode<"PPCISD::ADDI_TLSLD_L_ADDR",
+                               SDTypeProfile<1, 3, [
+                                 SDTCisSameAs<0, 1>, SDTCisSameAs<0, 2>,
+                                 SDTCisSameAs<0, 3>, SDTCisInt<0> ]>>;
+def PPCaddisDtprelHA : SDNode<"PPCISD::ADDIS_DTPREL_HA", SDTIntBinOp>;
 def PPCaddiDtprelL   : SDNode<"PPCISD::ADDI_DTPREL_L", SDTIntBinOp>;
 
 def PPCvperm    : SDNode<"PPCISD::VPERM", SDT_PPCvperm, []>;
+
+def PPCqvfperm   : SDNode<"PPCISD::QVFPERM", SDT_PPCqvfperm, []>;
+def PPCqvgpci    : SDNode<"PPCISD::QVGPCI", SDT_PPCqvgpci, []>;
+def PPCqvaligni  : SDNode<"PPCISD::QVALIGNI", SDT_PPCqvaligni, []>;
+def PPCqvesplati : SDNode<"PPCISD::QVESPLATI", SDT_PPCqvesplati, []>;
+
+def PPCqbflt     : SDNode<"PPCISD::QBFLT", SDT_PPCqbflt, []>;
+
+def PPCqvlfsb    : SDNode<"PPCISD::QVLFSb", SDT_PPCqvlfsb,
+                          [SDNPHasChain, SDNPMayLoad]>;
 
 def PPCcmpb     : SDNode<"PPCISD::CMPB", SDTIntBinOp, []>;
 
@@ -136,15 +170,9 @@ def SDT_PPCCall   : SDTypeProfile<0, -1, [SDTCisInt<0>]>;
 def PPCcall  : SDNode<"PPCISD::CALL", SDT_PPCCall,
                       [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
                        SDNPVariadic]>;
-def PPCcall_tls : SDNode<"PPCISD::CALL_TLS", SDT_PPCCall,
-                         [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
-                          SDNPVariadic]>;
 def PPCcall_nop  : SDNode<"PPCISD::CALL_NOP", SDT_PPCCall,
                           [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
                            SDNPVariadic]>;
-def PPCcall_nop_tls : SDNode<"PPCISD::CALL_NOP_TLS", SDT_PPCCall,
-                             [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue,
-                              SDNPVariadic]>;
 def PPCmtctr      : SDNode<"PPCISD::MTCTR", SDT_PPCCall,
                            [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
 def PPCbctrl : SDNode<"PPCISD::BCTRL", SDTNone,
@@ -189,18 +217,6 @@ def PPCcr6set   : SDNode<"PPCISD::CR6SET", SDTNone,
                          [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
 def PPCcr6unset : SDNode<"PPCISD::CR6UNSET", SDTNone,
                          [SDNPHasChain, SDNPOptInGlue, SDNPOutGlue]>;
-
-// Instructions to support atomic operations
-def PPClarx      : SDNode<"PPCISD::LARX", SDT_PPClarx,
-                          [SDNPHasChain, SDNPMayLoad]>;
-def PPCstcx      : SDNode<"PPCISD::STCX", SDT_PPCstcx,
-                          [SDNPHasChain, SDNPMayStore]>;
-
-// Instructions to support medium and large code model
-def PPCaddisTocHA : SDNode<"PPCISD::ADDIS_TOC_HA", SDTIntBinOp, []>;
-def PPCldTocL     : SDNode<"PPCISD::LD_TOC_L", SDTIntBinOp, [SDNPMayLoad]>;
-def PPCaddiTocL   : SDNode<"PPCISD::ADDI_TOC_L", SDTIntBinOp, []>;
-
 
 // Instructions to support dynamic alloca.
 def SDTDynOp  : SDTypeProfile<1, 2, []>;
@@ -416,6 +432,18 @@ def PPCRegCRRCAsmOperand : AsmOperandClass {
 def crrc : RegisterOperand<CRRC> {
   let ParserMatchClass = PPCRegCRRCAsmOperand;
 }
+def crrc0 : RegisterOperand<CRRC0> {
+  let ParserMatchClass = PPCRegCRRCAsmOperand;
+}
+
+def PPCU1ImmAsmOperand : AsmOperandClass {
+  let Name = "U1Imm"; let PredicateMethod = "isU1Imm";
+  let RenderMethod = "addImmOperands";
+}
+def u1imm   : Operand<i32> {
+  let PrintMethod = "printU1ImmOperand";
+  let ParserMatchClass = PPCU1ImmAsmOperand;
+}
 
 def PPCU2ImmAsmOperand : AsmOperandClass {
   let Name = "U2Imm"; let PredicateMethod = "isU2Imm";
@@ -424,6 +452,15 @@ def PPCU2ImmAsmOperand : AsmOperandClass {
 def u2imm   : Operand<i32> {
   let PrintMethod = "printU2ImmOperand";
   let ParserMatchClass = PPCU2ImmAsmOperand;
+}
+
+def PPCU3ImmAsmOperand : AsmOperandClass {
+  let Name = "U3Imm"; let PredicateMethod = "isU3Imm";
+  let RenderMethod = "addImmOperands";
+}
+def u3imm   : Operand<i32> {
+  let PrintMethod = "printU3ImmOperand";
+  let ParserMatchClass = PPCU3ImmAsmOperand;
 }
 
 def PPCU4ImmAsmOperand : AsmOperandClass {
@@ -460,6 +497,15 @@ def u6imm   : Operand<i32> {
   let PrintMethod = "printU6ImmOperand";
   let ParserMatchClass = PPCU6ImmAsmOperand;
   let DecoderMethod = "decodeUImmOperand<6>";
+}
+def PPCU12ImmAsmOperand : AsmOperandClass {
+  let Name = "U12Imm"; let PredicateMethod = "isU12Imm";
+  let RenderMethod = "addImmOperands";
+}
+def u12imm  : Operand<i32> {
+  let PrintMethod = "printU12ImmOperand";
+  let ParserMatchClass = PPCU12ImmAsmOperand;
+  let DecoderMethod = "decodeUImmOperand<12>";
 }
 def PPCS16ImmAsmOperand : AsmOperandClass {
   let Name = "S16Imm"; let PredicateMethod = "isS16Imm";
@@ -677,6 +723,10 @@ def IsPPC6xx  : Predicate<"PPCSubTarget->isPPC6xx()">;
 def IsE500  : Predicate<"PPCSubTarget->isE500()">;
 def HasSPE  : Predicate<"PPCSubTarget->HasSPE()">;
 def HasICBT : Predicate<"PPCSubTarget->hasICBT()">;
+def HasPartwordAtomics : Predicate<"PPCSubTarget->hasPartwordAtomics()">;
+def NoNaNsFPMath : Predicate<"TM.Options.NoNaNsFPMath">;
+def NaNsFPMath   : Predicate<"!TM.Options.NoNaNsFPMath">;
+
 //===----------------------------------------------------------------------===//
 // PowerPC Multiclass Definitions.
 
@@ -1404,15 +1454,44 @@ let usesCustomInserter = 1 in {
 }
 
 // Instructions to support atomic operations
-def LWARX : XForm_1<31,  20, (outs gprc:$rD), (ins memrr:$src),
-                   "lwarx $rD, $src", IIC_LdStLWARX,
-                   [(set i32:$rD, (PPClarx xoaddr:$src))]>;
+let mayLoad = 1, hasSideEffects = 0 in {
+def LBARX : XForm_1<31,  52, (outs gprc:$rD), (ins memrr:$src),
+                    "lbarx $rD, $src", IIC_LdStLWARX, []>,
+                    Requires<[HasPartwordAtomics]>;
 
-let Defs = [CR0] in
+def LHARX : XForm_1<31,  116, (outs gprc:$rD), (ins memrr:$src),
+                    "lharx $rD, $src", IIC_LdStLWARX, []>,
+                    Requires<[HasPartwordAtomics]>;
+
+def LWARX : XForm_1<31,  20, (outs gprc:$rD), (ins memrr:$src),
+                    "lwarx $rD, $src", IIC_LdStLWARX, []>;
+
+// Instructions to support lock versions of atomics
+// (EH=1 - see Power ISA 2.07 Book II 4.4.2)
+def LBARXL : XForm_1<31,  52, (outs gprc:$rD), (ins memrr:$src),
+                     "lbarx $rD, $src, 1", IIC_LdStLWARX, []>, isDOT,
+                     Requires<[HasPartwordAtomics]>;
+
+def LHARXL : XForm_1<31,  116, (outs gprc:$rD), (ins memrr:$src),
+                     "lharx $rD, $src, 1", IIC_LdStLWARX, []>, isDOT,
+                     Requires<[HasPartwordAtomics]>;
+
+def LWARXL : XForm_1<31,  20, (outs gprc:$rD), (ins memrr:$src),
+                     "lwarx $rD, $src, 1", IIC_LdStLWARX, []>, isDOT;
+}
+
+let Defs = [CR0], mayStore = 1, hasSideEffects = 0 in {
+def STBCX : XForm_1<31, 694, (outs), (ins gprc:$rS, memrr:$dst),
+                    "stbcx. $rS, $dst", IIC_LdStSTWCX, []>,
+                    isDOT, Requires<[HasPartwordAtomics]>;
+
+def STHCX : XForm_1<31, 726, (outs), (ins gprc:$rS, memrr:$dst),
+                    "sthcx. $rS, $dst", IIC_LdStSTWCX, []>,
+                    isDOT, Requires<[HasPartwordAtomics]>;
+
 def STWCX : XForm_1<31, 150, (outs), (ins gprc:$rS, memrr:$dst),
-                   "stwcx. $rS, $dst", IIC_LdStSTWCX,
-                   [(PPCstcx i32:$rS, xoaddr:$dst)]>,
-                   isDOT;
+                    "stwcx. $rS, $dst", IIC_LdStSTWCX, []>, isDOT;
+}
 
 let isTerminator = 1, isBarrier = 1, hasCtrlDep = 1 in
 def TRAP  : XForm_24<31, 4, (outs), (ins), "trap", IIC_LdStLoad, [(trap)]>;
@@ -1431,7 +1510,7 @@ def TD : XForm_1<31, 68, (outs), (ins u5imm:$to, g8rc:$rA, g8rc:$rB),
 //
 
 // Unindexed (r+i) Loads. 
-let canFoldAsLoad = 1, PPC970_Unit = 2 in {
+let PPC970_Unit = 2 in {
 def LBZ : DForm_1<34, (outs gprc:$rD), (ins memri:$src),
                   "lbz $rD, $src", IIC_LdStLoad,
                   [(set i32:$rD, (zextloadi8 iaddr:$src))]>;
@@ -1528,7 +1607,7 @@ def LFDUX : XForm_1<31, 631, (outs f8rc:$rD, ptr_rc_nor0:$ea_result),
 
 // Indexed (r+r) Loads.
 //
-let canFoldAsLoad = 1, PPC970_Unit = 2 in {
+let PPC970_Unit = 2 in {
 def LBZX : XForm_1<31,  87, (outs gprc:$rD), (ins memrr:$src),
                    "lbzx $rD, $src", IIC_LdStLoad,
                    [(set i32:$rD, (zextloadi8 xaddr:$src))]>;
@@ -2459,9 +2538,6 @@ def : Pat<(PPCcall (i32 tglobaladdr:$dst)),
 def : Pat<(PPCcall (i32 texternalsym:$dst)),
           (BL texternalsym:$dst)>;
 
-def : Pat<(PPCcall_tls texternalsym:$func, tglobaltlsaddr:$sym),
-          (BL_TLS texternalsym:$func, tglobaltlsaddr:$sym)>;
-
 def : Pat<(PPCtc_return (i32 tglobaladdr:$dst),  imm:$imm),
           (TCRETURNdi tglobaladdr:$dst, imm:$imm)>;
 
@@ -2516,10 +2592,49 @@ def ADDItlsgdL32 : Pseudo<(outs gprc:$rD), (ins gprc_nor0:$reg, s16imm:$disp),
                          "#ADDItlsgdL32",
                          [(set i32:$rD,
                            (PPCaddiTlsgdL i32:$reg, tglobaltlsaddr:$disp))]>;
+// LR is a true define, while the rest of the Defs are clobbers.  R3 is
+// explicitly defined when this op is created, so not mentioned here.
+let hasExtraSrcRegAllocReq = 1, hasExtraDefRegAllocReq = 1,
+    Defs = [R0,R4,R5,R6,R7,R8,R9,R10,R11,R12,LR,CTR,CR0,CR1,CR5,CR6,CR7] in
+def GETtlsADDR32 : Pseudo<(outs gprc:$rD), (ins gprc:$reg, tlsgd32:$sym),
+                          "GETtlsADDR32",
+                          [(set i32:$rD,
+                            (PPCgetTlsAddr i32:$reg, tglobaltlsaddr:$sym))]>;
+// Combined op for ADDItlsgdL32 and GETtlsADDR32, late expanded.  R3 and LR
+// are true defines while the rest of the Defs are clobbers.
+let hasExtraSrcRegAllocReq = 1, hasExtraDefRegAllocReq = 1,
+    Defs = [R0,R3,R4,R5,R6,R7,R8,R9,R10,R11,R12,LR,CTR,CR0,CR1,CR5,CR6,CR7] in
+def ADDItlsgdLADDR32 : Pseudo<(outs gprc:$rD),
+                              (ins gprc_nor0:$reg, s16imm:$disp, tlsgd32:$sym),
+                              "#ADDItlsgdLADDR32",
+                              [(set i32:$rD,
+                                (PPCaddiTlsgdLAddr i32:$reg,
+                                                   tglobaltlsaddr:$disp,
+                                                   tglobaltlsaddr:$sym))]>;
 def ADDItlsldL32 : Pseudo<(outs gprc:$rD), (ins gprc_nor0:$reg, s16imm:$disp),
                           "#ADDItlsldL32",
                           [(set i32:$rD,
                             (PPCaddiTlsldL i32:$reg, tglobaltlsaddr:$disp))]>;
+// LR is a true define, while the rest of the Defs are clobbers.  R3 is
+// explicitly defined when this op is created, so not mentioned here.
+let hasExtraSrcRegAllocReq = 1, hasExtraDefRegAllocReq = 1,
+    Defs = [R0,R4,R5,R6,R7,R8,R9,R10,R11,R12,LR,CTR,CR0,CR1,CR5,CR6,CR7] in
+def GETtlsldADDR32 : Pseudo<(outs gprc:$rD), (ins gprc:$reg, tlsgd32:$sym),
+                            "GETtlsldADDR32",
+                            [(set i32:$rD,
+                              (PPCgetTlsldAddr i32:$reg,
+                                               tglobaltlsaddr:$sym))]>;
+// Combined op for ADDItlsldL32 and GETtlsADDR32, late expanded.  R3 and LR
+// are true defines while the rest of the Defs are clobbers.
+let hasExtraSrcRegAllocReq = 1, hasExtraDefRegAllocReq = 1,
+    Defs = [R0,R3,R4,R5,R6,R7,R8,R9,R10,R11,R12,LR,CTR,CR0,CR1,CR5,CR6,CR7] in
+def ADDItlsldLADDR32 : Pseudo<(outs gprc:$rD),
+                              (ins gprc_nor0:$reg, s16imm:$disp, tlsgd32:$sym),
+                              "#ADDItlsldLADDR32",
+                              [(set i32:$rD,
+                                (PPCaddiTlsldLAddr i32:$reg,
+                                                   tglobaltlsaddr:$disp,
+                                                   tglobaltlsaddr:$sym))]>;
 def ADDIdtprelL32 : Pseudo<(outs gprc:$rD), (ins gprc_nor0:$reg, s16imm:$disp),
                            "#ADDIdtprelL32",
                            [(set i32:$rD,
@@ -2604,6 +2719,8 @@ include "PPCInstrAltivec.td"
 include "PPCInstrSPE.td"
 include "PPCInstr64Bit.td"
 include "PPCInstrVSX.td"
+include "PPCInstrQPX.td"
+include "PPCInstrHTM.td"
 
 def crnot : OutPatFrag<(ops node:$in),
                        (CRNOR $in, $in)>;
@@ -3566,6 +3683,9 @@ def : InstAlias<"rotlw. $rA, $rS, $rB", (RLWNMo gprc:$rA, gprc:$rS, gprc:$rB, 0,
 def : InstAlias<"clrlwi $rA, $rS, $n", (RLWINM gprc:$rA, gprc:$rS, 0, u5imm:$n, 31)>;
 def : InstAlias<"clrlwi. $rA, $rS, $n", (RLWINMo gprc:$rA, gprc:$rS, 0, u5imm:$n, 31)>;
 
+def : InstAlias<"cntlz $rA, $rS", (CNTLZW gprc:$rA, gprc:$rS)>;
+def : InstAlias<"cntlz. $rA, $rS", (CNTLZWo gprc:$rA, gprc:$rS)>;
+
 def EXTLDI : PPCAsmPseudo<"extldi $rA, $rS, $n, $b",
                           (ins g8rc:$rA, g8rc:$rS, u6imm:$n, u6imm:$b)>;
 def EXTLDIo : PPCAsmPseudo<"extldi. $rA, $rS, $n, $b",
@@ -3605,6 +3725,19 @@ def : InstAlias<"rotld $rA, $rS, $rB", (RLDCL g8rc:$rA, g8rc:$rS, gprc:$rB, 0)>;
 def : InstAlias<"rotld. $rA, $rS, $rB", (RLDCLo g8rc:$rA, g8rc:$rS, gprc:$rB, 0)>;
 def : InstAlias<"clrldi $rA, $rS, $n", (RLDICL g8rc:$rA, g8rc:$rS, 0, u6imm:$n)>;
 def : InstAlias<"clrldi. $rA, $rS, $n", (RLDICLo g8rc:$rA, g8rc:$rS, 0, u6imm:$n)>;
+
+def RLWINMbm : PPCAsmPseudo<"rlwinm $rA, $rS, $n, $b",
+                            (ins g8rc:$rA, g8rc:$rS, u5imm:$n, i32imm:$b)>;
+def RLWINMobm : PPCAsmPseudo<"rlwinm. $rA, $rS, $n, $b",
+                            (ins g8rc:$rA, g8rc:$rS, u5imm:$n, i32imm:$b)>;
+def RLWIMIbm : PPCAsmPseudo<"rlwimi $rA, $rS, $n, $b",
+                           (ins g8rc:$rA, g8rc:$rS, u5imm:$n, i32imm:$b)>;
+def RLWIMIobm : PPCAsmPseudo<"rlwimi. $rA, $rS, $n, $b",
+                            (ins g8rc:$rA, g8rc:$rS, u5imm:$n, i32imm:$b)>;
+def RLWNMbm : PPCAsmPseudo<"rlwnm $rA, $rS, $n, $b",
+                          (ins g8rc:$rA, g8rc:$rS, u5imm:$n, i32imm:$b)>;
+def RLWNMobm : PPCAsmPseudo<"rlwnm. $rA, $rS, $n, $b",
+                           (ins g8rc:$rA, g8rc:$rS, u5imm:$n, i32imm:$b)>;
 
 // These generic branch instruction forms are used for the assembler parser only.
 // Defs and Uses are conservative, since we don't know the BO value.

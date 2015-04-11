@@ -25,7 +25,6 @@ namespace llvm {
 
 class NyuziTargetMachine : public LLVMTargetMachine {
   std::unique_ptr<TargetLoweringObjectFile> TLOF;
-  const DataLayout DL;
   NyuziSubtarget Subtarget;
 public:
   NyuziTargetMachine(const Target &T, StringRef TT, StringRef CPU,
@@ -36,15 +35,13 @@ public:
 
   // Pass Pipeline Configuration
   virtual TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
-  virtual const NyuziSubtarget *getSubtargetImpl() const override {
+  virtual const NyuziSubtarget *getSubtargetImpl(const Function &) const override {
     return &Subtarget;
   }
 
   TargetLoweringObjectFile *getObjFileLowering() const override {
     return TLOF.get();
   }
-
-  const DataLayout *getDataLayout() const override { return &DL; }
 };
 
 } // end namespace llvm

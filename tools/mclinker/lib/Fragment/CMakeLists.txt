@@ -9,6 +9,6 @@ add_mcld_library(MCLDFragment
   Stub.cpp
   )
 
-target_link_libraries(MCLDFragment ${cmake_2_8_12_PRIVATE}
+target_link_libraries(MCLDFragment PRIVATE
   MCLDLD
   )

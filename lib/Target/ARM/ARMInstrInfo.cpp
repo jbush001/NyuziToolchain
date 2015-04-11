@@ -30,8 +30,7 @@
 using namespace llvm;
 
 ARMInstrInfo::ARMInstrInfo(const ARMSubtarget &STI)
-  : ARMBaseInstrInfo(STI), RI(STI) {
-}
+    : ARMBaseInstrInfo(STI), RI() {}
 
 /// getNoopForMachoTarget - Return the noop instruction to use for a noop.
 void ARMInstrInfo::getNoopForMachoTarget(MCInst &NopInst) const {
@@ -93,7 +92,7 @@ unsigned ARMInstrInfo::getUnindexedOpcode(unsigned Opc) const {
 void ARMInstrInfo::expandLoadStackGuard(MachineBasicBlock::iterator MI,
                                         Reloc::Model RM) const {
   MachineFunction &MF = *MI->getParent()->getParent();
-  const ARMSubtarget &Subtarget = MF.getTarget().getSubtarget<ARMSubtarget>();
+  const ARMSubtarget &Subtarget = MF.getSubtarget<ARMSubtarget>();
 
   if (!Subtarget.useMovt(MF)) {
     if (RM == Reloc::PIC_)
@@ -146,6 +145,10 @@ namespace {
         return false;
       const ARMSubtarget &STI =
           static_cast<const ARMSubtarget &>(MF.getSubtarget());
+      // Don't do this for Thumb1.
+      if (STI.isThumb1Only())
+	return false;
+
       const TargetMachine &TM = MF.getTarget();
       if (TM.getRelocationModel() != Reloc::PIC_)
         return false;

@@ -7,8 +7,9 @@
 //
 //===---------------------------------------------------------------------===//
 
-#include "lldb/Target/Thread.h"
+#include "lldb/Core/DataBufferHeap.h"
 #include "lldb/Core/RegisterValue.h"
+#include "lldb/Target/Thread.h"
 
 #include "Plugins/Process/Utility/RegisterContextPOSIX_arm64.h"
 #include "ProcessPOSIX.h"
@@ -16,6 +17,9 @@
 #include "Plugins/Process/Linux/ProcessMonitor.h"
 
 #define REG_CONTEXT_SIZE (GetGPRSize())
+
+using namespace lldb;
+using namespace lldb_private;
 
 RegisterContextPOSIXProcessMonitor_arm64::RegisterContextPOSIXProcessMonitor_arm64(lldb_private::Thread &thread,
                                                                                    uint32_t concrete_frame_idx,

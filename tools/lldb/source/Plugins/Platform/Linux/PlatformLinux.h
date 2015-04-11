@@ -17,20 +17,21 @@
 #include "Plugins/Platform/POSIX/PlatformPOSIX.h"
 
 namespace lldb_private {
+namespace platform_linux {
 
     class PlatformLinux : public PlatformPOSIX
     {
     public:
 
         static void
-        DebuggerInitialize (lldb_private::Debugger &debugger);
+        DebuggerInitialize (Debugger &debugger);
 
         static void
         Initialize ();
 
         static void
         Terminate ();
-        
+
         PlatformLinux (bool is_host);
 
         virtual
@@ -40,17 +41,17 @@ namespace lldb_private {
         // lldb_private::PluginInterface functions
         //------------------------------------------------------------
         static lldb::PlatformSP
-        CreateInstance (bool force, const lldb_private::ArchSpec *arch);
+        CreateInstance (bool force, const ArchSpec *arch);
 
-        static lldb_private::ConstString
+        static ConstString
         GetPluginNameStatic (bool is_host);
 
         static const char *
         GetPluginDescriptionStatic (bool is_host);
 
-        lldb_private::ConstString
+        ConstString
         GetPluginName() override;
-        
+
         uint32_t
         GetPluginVersion() override
         {
@@ -61,7 +62,7 @@ namespace lldb_private {
         // lldb_private::Platform functions
         //------------------------------------------------------------
         Error
-        ResolveExecutable (const lldb_private::ModuleSpec &module_spec,
+        ResolveExecutable (const ModuleSpec &module_spec,
                            lldb::ModuleSP &module_sp,
                            const FileSpecList *module_search_paths_ptr) override;
 
@@ -89,7 +90,7 @@ namespace lldb_private {
         GetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch) override;
 
         size_t
-        GetSoftwareBreakpointTrapOpcode (Target &target, 
+        GetSoftwareBreakpointTrapOpcode (Target &target,
                                          BreakpointSite *bp_site) override;
 
         int32_t
@@ -110,12 +111,12 @@ namespace lldb_private {
         Error
         LaunchNativeProcess (
             ProcessLaunchInfo &launch_info,
-            lldb_private::NativeProcessProtocol::NativeDelegate &native_delegate,
+            NativeProcessProtocol::NativeDelegate &native_delegate,
             NativeProcessProtocolSP &process_sp) override;
 
         Error
         AttachNativeProcess (lldb::pid_t pid,
-                             lldb_private::NativeProcessProtocol::NativeDelegate &native_delegate,
+                             NativeProcessProtocol::NativeDelegate &native_delegate,
                              NativeProcessProtocolSP &process_sp) override;
 
         static bool
@@ -124,6 +125,8 @@ namespace lldb_private {
     private:
         DISALLOW_COPY_AND_ASSIGN (PlatformLinux);
     };
+
+} // namespace platform_linux
 } // namespace lldb_private
 
 #endif  // liblldb_PlatformLinux_h_

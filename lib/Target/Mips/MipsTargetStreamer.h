@@ -35,6 +35,7 @@ public:
   virtual void emitDirectiveSetMsa();
   virtual void emitDirectiveSetNoMsa();
   virtual void emitDirectiveSetAt();
+  virtual void emitDirectiveSetAtWithArg(unsigned RegNo);
   virtual void emitDirectiveSetNoAt();
   virtual void emitDirectiveEnd(StringRef Name);
 
@@ -58,9 +59,13 @@ public:
   virtual void emitDirectiveSetMips5();
   virtual void emitDirectiveSetMips32();
   virtual void emitDirectiveSetMips32R2();
+  virtual void emitDirectiveSetMips32R3();
+  virtual void emitDirectiveSetMips32R5();
   virtual void emitDirectiveSetMips32R6();
   virtual void emitDirectiveSetMips64();
   virtual void emitDirectiveSetMips64R2();
+  virtual void emitDirectiveSetMips64R3();
+  virtual void emitDirectiveSetMips64R5();
   virtual void emitDirectiveSetMips64R6();
   virtual void emitDirectiveSetDsp();
   virtual void emitDirectiveSetNoDsp();
@@ -87,9 +92,9 @@ public:
   }
 
   virtual void emitDirectiveModuleOddSPReg(bool Enabled, bool IsO32ABI);
-  virtual void emitDirectiveSetFp(MipsABIFlagsSection::FpABIKind Value){};
-  virtual void emitMipsAbiFlags(){};
+  virtual void emitDirectiveSetFp(MipsABIFlagsSection::FpABIKind Value);
   void forbidModuleDirective() { ModuleDirectiveAllowed = false; }
+  void reallowModuleDirective() { ModuleDirectiveAllowed = true; }
   bool isModuleDirectiveAllowed() { return ModuleDirectiveAllowed; }
 
   // This method enables template classes to set internal abi flags
@@ -145,6 +150,7 @@ public:
   void emitDirectiveSetMsa() override;
   void emitDirectiveSetNoMsa() override;
   void emitDirectiveSetAt() override;
+  void emitDirectiveSetAtWithArg(unsigned RegNo) override;
   void emitDirectiveSetNoAt() override;
   void emitDirectiveEnd(StringRef Name) override;
 
@@ -168,9 +174,13 @@ public:
   void emitDirectiveSetMips5() override;
   void emitDirectiveSetMips32() override;
   void emitDirectiveSetMips32R2() override;
+  void emitDirectiveSetMips32R3() override;
+  void emitDirectiveSetMips32R5() override;
   void emitDirectiveSetMips32R6() override;
   void emitDirectiveSetMips64() override;
   void emitDirectiveSetMips64R2() override;
+  void emitDirectiveSetMips64R3() override;
+  void emitDirectiveSetMips64R5() override;
   void emitDirectiveSetMips64R6() override;
   void emitDirectiveSetDsp() override;
   void emitDirectiveSetNoDsp() override;
@@ -187,7 +197,6 @@ public:
                              bool Is32BitABI) override;
   void emitDirectiveModuleOddSPReg(bool Enabled, bool IsO32ABI) override;
   void emitDirectiveSetFp(MipsABIFlagsSection::FpABIKind Value) override;
-  void emitMipsAbiFlags() override;
 };
 
 // This part is for ELF object output
@@ -230,7 +239,7 @@ public:
 
   // ABI Flags
   void emitDirectiveModuleOddSPReg(bool Enabled, bool IsO32ABI) override;
-  void emitMipsAbiFlags() override;
+  void emitMipsAbiFlags();
 };
 }
 #endif

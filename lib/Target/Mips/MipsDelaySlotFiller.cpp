@@ -140,7 +140,7 @@ namespace {
   /// memory instruction can be moved to a delay slot.
   class MemDefsUses : public InspectMemInstr {
   public:
-    MemDefsUses(const MachineFrameInfo *MFI);
+    MemDefsUses(const DataLayout &DL, const MachineFrameInfo *MFI);
 
   private:
     typedef PointerUnion<const Value *, const PseudoSourceValue *> ValueType;
@@ -158,6 +158,7 @@ namespace {
 
     const MachineFrameInfo *MFI;
     SmallPtrSet<ValueType, 4> Uses, Defs;
+    const DataLayout &DL;
 
     /// Flags indicating whether loads or stores with no underlying objects have
     /// been seen.
@@ -199,6 +200,9 @@ namespace {
     Iter replaceWithCompactBranch(MachineBasicBlock &MBB,
                                   Iter Branch, DebugLoc DL);
 
+    Iter replaceWithCompactJump(MachineBasicBlock &MBB,
+                                Iter Jump, DebugLoc DL);
+
     /// This function checks if it is valid to move Candidate to the delay slot
     /// and returns true if it isn't. It also updates memory and register
     /// dependence information.
@@ -209,8 +213,8 @@ namespace {
     /// moved to the delay slot. Returns true on success.
     template<typename IterTy>
     bool searchRange(MachineBasicBlock &MBB, IterTy Begin, IterTy End,
-                     RegDefsUses &RegDU, InspectMemInstr &IM,
-                     IterTy &Filler, Iter Slot) const;
+                     RegDefsUses &RegDU, InspectMemInstr &IM, Iter Slot,
+                     IterTy &Filler) const;
 
     /// This function searches in the backward direction for an instruction that
     /// can be moved to the delay slot. Returns true on success.
@@ -317,7 +321,8 @@ void RegDefsUses::setCallerSaved(const MachineInstr &MI) {
   CallerSavedRegs.reset(Mips::ZERO);
   CallerSavedRegs.reset(Mips::ZERO_64);
 
-  for (const MCPhysReg *R = TRI.getCalleeSavedRegs(); *R; ++R)
+  for (const MCPhysReg *R = TRI.getCalleeSavedRegs(MI.getParent()->getParent());
+       *R; ++R)
     for (MCRegAliasIterator AI(*R, &TRI, true); AI.isValid(); ++AI)
       CallerSavedRegs.reset(*AI);
 
@@ -424,9 +429,9 @@ bool LoadFromStackOrConst::hasHazard_(const MachineInstr &MI) {
   return true;
 }
 
-MemDefsUses::MemDefsUses(const MachineFrameInfo *MFI_)
-  : InspectMemInstr(false), MFI(MFI_), SeenNoObjLoad(false),
-    SeenNoObjStore(false) {}
+MemDefsUses::MemDefsUses(const DataLayout &DL, const MachineFrameInfo *MFI_)
+    : InspectMemInstr(false), MFI(MFI_), DL(DL), SeenNoObjLoad(false),
+      SeenNoObjStore(false) {}
 
 bool MemDefsUses::hasHazard_(const MachineInstr &MI) {
   bool HasHazard = false;
@@ -479,7 +484,7 @@ getUnderlyingObjects(const MachineInstr &MI,
   const Value *V = (*MI.memoperands_begin())->getValue();
 
   SmallVector<Value *, 4> Objs;
-  GetUnderlyingObjects(const_cast<Value *>(V), Objs);
+  GetUnderlyingObjects(const_cast<Value *>(V), Objs, DL);
 
   for (SmallVectorImpl<Value *>::iterator I = Objs.begin(), E = Objs.end();
        I != E; ++I) {
@@ -513,6 +518,24 @@ Iter Filler::replaceWithCompactBranch(MachineBasicBlock &MBB,
   MBB.erase(tmpIter);
 
   return Branch;
+}
+
+// Replace Jumps with the compact jump instruction.
+Iter Filler::replaceWithCompactJump(MachineBasicBlock &MBB,
+                                    Iter Jump, DebugLoc DL) {
+  const MipsInstrInfo *TII =
+      MBB.getParent()->getSubtarget<MipsSubtarget>().getInstrInfo();
+
+  const MCInstrDesc &NewDesc = TII->get(Mips::JRC16_MM);
+  MachineInstrBuilder MIB = BuildMI(MBB, Jump, DL, NewDesc);
+
+  MIB.addReg(Jump->getOperand(0).getReg());
+
+  Iter tmpIter = Jump;
+  Jump = std::prev(Jump);
+  MBB.erase(tmpIter);
+
+  return Jump;
 }
 
 // For given opcode returns opcode of corresponding instruction with short
@@ -582,17 +605,29 @@ bool Filler::runOnMachineBasicBlock(MachineBasicBlock &MBB) {
     // adding NOP replace this instruction with the corresponding compact
     // branch instruction, i.e. BEQZC or BNEZC.
     unsigned Opcode = I->getOpcode();
-    if (InMicroMipsMode &&
-        (Opcode == Mips::BEQ || Opcode == Mips::BNE) &&
-        ((unsigned) I->getOperand(1).getReg()) == Mips::ZERO) {
-
-      I = replaceWithCompactBranch(MBB, I, I->getDebugLoc());
-
-    } else {
-      // Bundle the NOP to the instruction with the delay slot.
-      BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(Mips::NOP));
-      MIBundleBuilder(MBB, I, std::next(I, 2));
+    if (InMicroMipsMode) {
+      switch (Opcode) {
+        case Mips::BEQ:
+        case Mips::BNE:
+          if (((unsigned) I->getOperand(1).getReg()) == Mips::ZERO) {
+            I = replaceWithCompactBranch(MBB, I, I->getDebugLoc());
+            continue;
+          }
+          break;
+        case Mips::JR:
+        case Mips::PseudoReturn:
+        case Mips::PseudoIndirectBranch:
+          // For microMIPS the PseudoReturn and PseudoIndirectBranch are allways
+          // expanded to JR_MM, so they can be replaced with JRC16_MM.
+          I = replaceWithCompactJump(MBB, I, I->getDebugLoc());
+          continue;
+        default:
+          break;
+      }
     }
+    // Bundle the NOP to the instruction with the delay slot.
+    BuildMI(MBB, std::next(I), I->getDebugLoc(), TII->get(Mips::NOP));
+    MIBundleBuilder(MBB, I, std::next(I, 2));
   }
 
   return Changed;
@@ -606,8 +641,8 @@ FunctionPass *llvm::createMipsDelaySlotFillerPass(MipsTargetMachine &tm) {
 
 template<typename IterTy>
 bool Filler::searchRange(MachineBasicBlock &MBB, IterTy Begin, IterTy End,
-                         RegDefsUses &RegDU, InspectMemInstr& IM,
-                         IterTy &Filler, Iter Slot) const {
+                         RegDefsUses &RegDU, InspectMemInstr& IM, Iter Slot,
+                         IterTy &Filler) const {
   for (IterTy I = Begin; I != End; ++I) {
     // skip debug value
     if (I->isDebugValue())
@@ -655,13 +690,13 @@ bool Filler::searchBackward(MachineBasicBlock &MBB, Iter Slot) const {
     return false;
 
   RegDefsUses RegDU(*MBB.getParent()->getSubtarget().getRegisterInfo());
-  MemDefsUses MemDU(MBB.getParent()->getFrameInfo());
+  MemDefsUses MemDU(*TM.getDataLayout(), MBB.getParent()->getFrameInfo());
   ReverseIter Filler;
 
   RegDU.init(*Slot);
 
-  if (!searchRange(MBB, ReverseIter(Slot), MBB.rend(), RegDU, MemDU, Filler,
-      Slot))
+  if (!searchRange(MBB, ReverseIter(Slot), MBB.rend(), RegDU, MemDU, Slot,
+                   Filler))
     return false;
 
   MBB.splice(std::next(Slot), &MBB, std::next(Filler).base());
@@ -681,7 +716,7 @@ bool Filler::searchForward(MachineBasicBlock &MBB, Iter Slot) const {
 
   RegDU.setCallerSaved(*Slot);
 
-  if (!searchRange(MBB, std::next(Slot), MBB.end(), RegDU, NM, Filler, Slot))
+  if (!searchRange(MBB, std::next(Slot), MBB.end(), RegDU, NM, Slot, Filler))
     return false;
 
   MBB.splice(std::next(Slot), &MBB, Filler);
@@ -721,11 +756,11 @@ bool Filler::searchSuccBBs(MachineBasicBlock &MBB, Iter Slot) const {
     IM.reset(new LoadFromStackOrConst());
   } else {
     const MachineFrameInfo *MFI = MBB.getParent()->getFrameInfo();
-    IM.reset(new MemDefsUses(MFI));
+    IM.reset(new MemDefsUses(*TM.getDataLayout(), MFI));
   }
 
-  if (!searchRange(MBB, SuccBB->begin(), SuccBB->end(), RegDU, *IM, Filler,
-      Slot))
+  if (!searchRange(MBB, SuccBB->begin(), SuccBB->end(), RegDU, *IM, Slot,
+                   Filler))
     return false;
 
   insertDelayFiller(Filler, BrMap);

@@ -2,14 +2,14 @@
 
 import os, time
 import unittest2
-import lldb, lldbutil
+import lldb, lldbutil, lldbplatformutil
 from lldbtest import *
 
 class CrashingInferiorTestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     def test_inferior_crashing_dsym(self):
         """Test that lldb reliably catches the inferior crashing (command)."""
         self.buildDsym()
@@ -20,7 +20,7 @@ class CrashingInferiorTestCase(TestBase):
         self.buildDwarf()
         self.inferior_crashing()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     def test_inferior_crashing_registers_dsym(self):
         """Test that lldb reliably reads registers from the inferior after crashing (command)."""
         self.buildDsym()
@@ -37,7 +37,7 @@ class CrashingInferiorTestCase(TestBase):
         self.buildDefault()
         self.inferior_crashing_python()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     def test_inferior_crashing_expr_dsym(self):
         """Test that the lldb expression interpreter can read from the inferior after crashing (command)."""
         self.buildDsym()
@@ -48,7 +48,7 @@ class CrashingInferiorTestCase(TestBase):
         self.buildDwarf()
         self.inferior_crashing_expr()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     def test_inferior_crashing_step_dsym(self):
         """Test that lldb functions correctly after stepping through a crash."""
         self.buildDsym()
@@ -59,27 +59,25 @@ class CrashingInferiorTestCase(TestBase):
         self.buildDwarf()
         self.inferior_crashing_step()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     def test_inferior_crashing_step_after_break_dsym(self):
         """Test that stepping after a crash behaves correctly."""
         self.buildDsym()
         self.inferior_crashing_step_after_break()
 
     @skipIfFreeBSD # llvm.org/pr16684
-    @expectedFailureLinux # due to llvm.org/pr15988 -- step over misbehaves after crash
     def test_inferior_crashing_step_after_break_dwarf(self):
         """Test that lldb functions correctly after stepping through a crash."""
         self.buildDwarf()
         self.inferior_crashing_step_after_break()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     def test_inferior_crashing_expr_step_and_expr_dsym(self):
         """Test that lldb expressions work before and after stepping after a crash."""
         self.buildDsym()
         self.inferior_crashing_expr_step_expr()
 
     @expectedFailureFreeBSD('llvm.org/pr15989') # Couldn't allocate space for the stack frame
-    @expectedFailureLinux # due to llvm.org/pr15989 -- expression fails after crash and step
     def test_inferior_crashing_expr_step_and_expr_dwarf(self):
         """Test that lldb expressions work before and after stepping after a crash."""
         self.buildDwarf()
@@ -89,7 +87,7 @@ class CrashingInferiorTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, "main.c", line, num_expected_locations=1, loc_exact=True)
 
     def check_stop_reason(self):
-        if sys.platform.startswith("darwin"):
+        if self.platformIsDarwin():
             stop_reason = 'stop reason = EXC_BAD_ACCESS'
         else:
             stop_reason = 'stop reason = invalid address'
@@ -155,8 +153,7 @@ class CrashingInferiorTestCase(TestBase):
         self.check_stop_reason()
 
         # lldb should be able to read from registers from the inferior after crashing.
-        self.expect("register read eax",
-            substrs = ['eax = 0x'])
+        lldbplatformutil.check_first_register_readable(self)
 
     def inferior_crashing_expr(self):
         """Test that the lldb expression interpreter can read symbols after crashing."""
@@ -195,8 +192,7 @@ class CrashingInferiorTestCase(TestBase):
             substrs = ['= 0x0'])
 
         # lldb should be able to read from registers from the inferior after crashing.
-        self.expect("register read eax",
-            substrs = ['eax = 0x'])
+        lldbplatformutil.check_first_register_readable(self)
 
         # And it should report the correct line number.
         self.expect("thread backtrace all",

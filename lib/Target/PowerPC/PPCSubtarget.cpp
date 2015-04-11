@@ -21,7 +21,6 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Host.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Target/TargetMachine.h"
 #include <cstdlib>
@@ -37,6 +36,10 @@ using namespace llvm;
 static cl::opt<bool> UseSubRegLiveness("ppc-track-subreg-liveness",
 cl::desc("Enable subregister liveness tracking for PPC"), cl::Hidden);
 
+static cl::opt<bool> QPXStackUnaligned("qpx-stack-unaligned",
+  cl::desc("Even when QPX is enabled the stack is not 32-byte aligned"),
+  cl::Hidden);
+
 PPCSubtarget &PPCSubtarget::initializeSubtargetDependencies(StringRef CPU,
                                                             StringRef FS) {
   initializeEnvironment();
@@ -49,9 +52,8 @@ PPCSubtarget::PPCSubtarget(const std::string &TT, const std::string &CPU,
     : PPCGenSubtargetInfo(TT, CPU, FS), TargetTriple(TT),
       IsPPC64(TargetTriple.getArch() == Triple::ppc64 ||
               TargetTriple.getArch() == Triple::ppc64le),
-      TargetABI(PPC_ABI_UNKNOWN),
-      FrameLowering(initializeSubtargetDependencies(CPU, FS)), InstrInfo(*this),
-      TLInfo(TM, *this), TSInfo(TM.getDataLayout()) {}
+      TM(TM), FrameLowering(initializeSubtargetDependencies(CPU, FS)),
+      InstrInfo(*this), TLInfo(TM, *this), TSInfo(TM.getDataLayout()) {}
 
 void PPCSubtarget::initializeEnvironment() {
   StackAlignment = 16;
@@ -66,6 +68,7 @@ void PPCSubtarget::initializeEnvironment() {
   HasVSX = false;
   HasP8Vector = false;
   HasP8Altivec = false;
+  HasP8Crypto = false;
   HasFCPSGN = false;
   HasFSQRT = false;
   HasFRE = false;
@@ -91,6 +94,9 @@ void PPCSubtarget::initializeEnvironment() {
   HasLazyResolverStubs = false;
   HasICBT = false;
   HasInvariantFunctionDescriptors = false;
+  HasPartwordAtomics = false;
+  IsQPXStackUnaligned = false;
+  HasHTM = false;
 }
 
 void PPCSubtarget::initSubtargetFeatures(StringRef CPU, StringRef FS) {
@@ -103,11 +109,6 @@ void PPCSubtarget::initSubtargetFeatures(StringRef CPU, StringRef FS) {
     else
       CPUName = "generic";
   }
-#if (defined(__APPLE__) || defined(__linux__)) && \
-    (defined(__ppc__) || defined(__powerpc__))
-  if (CPUName == "generic")
-    CPUName = sys::getHostCPUName();
-#endif
 
   // Initialize scheduling itinerary for the specified CPU.
   InstrItins = getInstrItineraryForCPU(CPUName);
@@ -127,28 +128,18 @@ void PPCSubtarget::initSubtargetFeatures(StringRef CPU, StringRef FS) {
   // QPX requires a 32-byte aligned stack. Note that we need to do this if
   // we're compiling for a BG/Q system regardless of whether or not QPX
   // is enabled because external functions will assume this alignment.
-  if (hasQPX() || isBGQ())
-    StackAlignment = 32;
+  IsQPXStackUnaligned = QPXStackUnaligned;
+  StackAlignment = getPlatformStackAlignment();
 
   // Determine endianness.
+  // FIXME: Part of the TargetMachine.
   IsLittleEndian = (TargetTriple.getArch() == Triple::ppc64le);
-
-  // Determine default ABI.
-  if (TargetABI == PPC_ABI_UNKNOWN) {
-    if (!isDarwin() && IsPPC64) {
-      if (IsLittleEndian)
-        TargetABI = PPC_ABI_ELFv2;
-      else
-        TargetABI = PPC_ABI_ELFv1;
-    }
-  }
 }
 
 /// hasLazyResolverStub - Return true if accesses to the specified global have
 /// to go through a dyld lazy resolution stub.  This means that an extra load
 /// is required to get the address of the global.
-bool PPCSubtarget::hasLazyResolverStub(const GlobalValue *GV,
-                                       const TargetMachine &TM) const {
+bool PPCSubtarget::hasLazyResolverStub(const GlobalValue *GV) const {
   // We never have stubs if HasLazyResolverStubs=false or if in static mode.
   if (!HasLazyResolverStubs || TM.getRelocationModel() == Reloc::Static)
     return false;
@@ -216,3 +207,5 @@ bool PPCSubtarget::enableSubRegLiveness() const {
   return UseSubRegLiveness;
 }
 
+bool PPCSubtarget::isELFv2ABI() const { return TM.isELFv2ABI(); }
+bool PPCSubtarget::isPPC64() const { return TM.isPPC64(); }

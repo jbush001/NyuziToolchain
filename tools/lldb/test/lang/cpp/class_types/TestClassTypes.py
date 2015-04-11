@@ -10,16 +10,15 @@ import lldbutil
 class ClassTypesTestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
-    failing_compilers = ['clang', 'gcc']
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     @dsym_test
     def test_with_dsym_and_run_command(self):
         """Test 'frame variable this' when stopped on a class constructor."""
         self.buildDsym()
         self.class_types()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     @python_api_test
     @dsym_test
     def test_with_dsym_and_python_api(self):
@@ -43,7 +42,7 @@ class ClassTypesTestCase(TestBase):
         self.buildDwarf()
         self.breakpoint_creation_by_filespec_python()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     # rdar://problem/8557478
     # test/class_types test failures: runCmd: expr this->m_c_int
     @dsym_test
@@ -60,7 +59,7 @@ class ClassTypesTestCase(TestBase):
         self.buildDwarf()
         self.class_types_expr_parser()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     # rdar://problem/8557478
     # test/class_types test failures: runCmd: expr this->m_c_int
     @dsym_test
@@ -74,7 +73,6 @@ class ClassTypesTestCase(TestBase):
     # test/class_types test failures: runCmd: expr this->m_c_int
     @dwarf_test
     @expectedFailureFreeBSD('llvm.org/pr14540')
-    @expectedFailureLinux('llvm.org/pr14540', failing_compilers)
     @expectedFailureDarwin(16362674)
     def test_with_dwarf_and_constructor_name (self):
         """Test 'frame variable this' and 'expr this' when stopped inside a constructor."""

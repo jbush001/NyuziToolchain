@@ -160,7 +160,8 @@ Relocator::Result memext(Relocation& pReloc, NyuziRelocator& pParent)
 {
   Relocator::Address S = pReloc.symValue();
   Relocator::Address P = pReloc.place();
-  int offset = S - (P + 4);
+  Relocator::Address A = pReloc.addend();
+  int offset = (S + A) - (P + 4);
 
   if (helper_check_signed_overflow(offset, 15))
     return Relocator::Overflow;

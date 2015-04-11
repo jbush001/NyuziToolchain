@@ -969,14 +969,7 @@ SBValue::GetChildAtIndex (uint32_t idx, lldb::DynamicValueType use_dynamic, bool
         child_sp = value_sp->GetChildAtIndex (idx, can_create);
         if (can_create_synthetic && !child_sp)
         {
-            if (value_sp->IsPointerType())
-            {
-                child_sp = value_sp->GetSyntheticArrayMemberFromPointer(idx, can_create);
-            }
-            else if (value_sp->IsArrayType())
-            {
-                child_sp = value_sp->GetSyntheticArrayMemberFromArray(idx, can_create);
-            }
+            child_sp = value_sp->GetSyntheticArrayMember(idx, can_create);
         }
     }
 
@@ -1242,6 +1235,22 @@ SBValue::MightHaveChildren ()
         log->Printf ("SBValue(%p)::MightHaveChildren() => %i",
                      static_cast<void*>(value_sp.get()), has_children);
     return has_children;
+}
+
+bool
+SBValue::IsRuntimeSupportValue ()
+{
+    Log *log(lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_API));
+    bool is_support = false;
+    ValueLocker locker;
+    lldb::ValueObjectSP value_sp(GetSP(locker));
+    if (value_sp)
+        is_support = value_sp->IsRuntimeSupportValue();
+    
+    if (log)
+        log->Printf ("SBValue(%p)::IsRuntimeSupportValue() => %i",
+                     static_cast<void*>(value_sp.get()), is_support);
+    return is_support;
 }
 
 uint32_t

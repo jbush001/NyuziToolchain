@@ -271,7 +271,7 @@ NVPTXTargetLowering::NVPTXTargetLowering(const NVPTXTargetMachine &TM,
 
   // Now deduce the information based on the above mentioned
   // actions
-  computeRegisterProperties();
+  computeRegisterProperties(STI.getRegisterInfo());
 }
 
 const char *NVPTXTargetLowering::getTargetNodeName(unsigned Opcode) const {
@@ -930,7 +930,7 @@ NVPTXTargetLowering::getPrototype(Type *retTy, const ArgListTy &Args,
     }
     first = false;
 
-    if (Outs[OIdx].Flags.isByVal() == false) {
+    if (!Outs[OIdx].Flags.isByVal()) {
       if (Ty->isAggregateType() || Ty->isVectorTy()) {
         unsigned align = 0;
         const CallInst *CallI = cast<CallInst>(CS->getInstruction());
@@ -1075,7 +1075,7 @@ SDValue NVPTXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     EVT VT = Outs[OIdx].VT;
     Type *Ty = Args[i].Ty;
 
-    if (Outs[OIdx].Flags.isByVal() == false) {
+    if (!Outs[OIdx].Flags.isByVal()) {
       if (Ty->isAggregateType()) {
         // aggregate
         SmallVector<EVT, 16> vtparts;
@@ -1459,7 +1459,7 @@ SDValue NVPTXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
                                                       ObjectVT) == NumElts &&
              "Vector was not scalarized");
       unsigned sz = EltVT.getSizeInBits();
-      bool needTruncate = sz < 8 ? true : false;
+      bool needTruncate = sz < 8;
 
       if (NumElts == 1) {
         // Just a simple load
@@ -1474,11 +1474,8 @@ SDValue NVPTXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
           LoadRetVTs.push_back(EltVT);
         LoadRetVTs.push_back(MVT::Other);
         LoadRetVTs.push_back(MVT::Glue);
-        SmallVector<SDValue, 4> LoadRetOps;
-        LoadRetOps.push_back(Chain);
-        LoadRetOps.push_back(DAG.getConstant(1, MVT::i32));
-        LoadRetOps.push_back(DAG.getConstant(0, MVT::i32));
-        LoadRetOps.push_back(InFlag);
+        SDValue LoadRetOps[] = {Chain, DAG.getConstant(1, MVT::i32),
+                                DAG.getConstant(0, MVT::i32), InFlag};
         SDValue retval = DAG.getMemIntrinsicNode(
             NVPTXISD::LoadParam, dl,
             DAG.getVTList(LoadRetVTs), LoadRetOps, EltVT, MachinePointerInfo());
@@ -1504,11 +1501,8 @@ SDValue NVPTXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
         }
         LoadRetVTs.push_back(MVT::Other);
         LoadRetVTs.push_back(MVT::Glue);
-        SmallVector<SDValue, 4> LoadRetOps;
-        LoadRetOps.push_back(Chain);
-        LoadRetOps.push_back(DAG.getConstant(1, MVT::i32));
-        LoadRetOps.push_back(DAG.getConstant(0, MVT::i32));
-        LoadRetOps.push_back(InFlag);
+        SDValue LoadRetOps[] = {Chain, DAG.getConstant(1, MVT::i32),
+                                DAG.getConstant(0, MVT::i32), InFlag};
         SDValue retval = DAG.getMemIntrinsicNode(
             NVPTXISD::LoadParamV2, dl,
             DAG.getVTList(LoadRetVTs), LoadRetOps, EltVT, MachinePointerInfo());
@@ -1550,11 +1544,8 @@ SDValue NVPTXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
           }
           LoadRetVTs.push_back(MVT::Other);
           LoadRetVTs.push_back(MVT::Glue);
-          SmallVector<SDValue, 4> LoadRetOps;
-          LoadRetOps.push_back(Chain);
-          LoadRetOps.push_back(DAG.getConstant(1, MVT::i32));
-          LoadRetOps.push_back(DAG.getConstant(Ofst, MVT::i32));
-          LoadRetOps.push_back(InFlag);
+          SDValue LoadRetOps[] = {Chain, DAG.getConstant(1, MVT::i32),
+                                  DAG.getConstant(Ofst, MVT::i32), InFlag};
           SDValue retval = DAG.getMemIntrinsicNode(
               Opc, dl, DAG.getVTList(LoadRetVTs),
               LoadRetOps, EltVT, MachinePointerInfo());
@@ -1586,7 +1577,7 @@ SDValue NVPTXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
       for (unsigned i = 0, e = Ins.size(); i != e; ++i) {
         unsigned sz = VTs[i].getSizeInBits();
         unsigned AlignI = GreatestCommonDivisor64(RetAlign, Offsets[i]);
-        bool needTruncate = sz < 8 ? true : false;
+        bool needTruncate = sz < 8;
         if (VTs[i].isInteger() && (sz < 8))
           sz = 8;
 
@@ -1608,11 +1599,8 @@ SDValue NVPTXTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
         LoadRetVTs.push_back(MVT::Other);
         LoadRetVTs.push_back(MVT::Glue);
 
-        SmallVector<SDValue, 4> LoadRetOps;
-        LoadRetOps.push_back(Chain);
-        LoadRetOps.push_back(DAG.getConstant(1, MVT::i32));
-        LoadRetOps.push_back(DAG.getConstant(Offsets[i], MVT::i32));
-        LoadRetOps.push_back(InFlag);
+        SDValue LoadRetOps[] = {Chain, DAG.getConstant(1, MVT::i32),
+                                DAG.getConstant(Offsets[i], MVT::i32), InFlag};
         SDValue retval = DAG.getMemIntrinsicNode(
             NVPTXISD::LoadParam, dl,
             DAG.getVTList(LoadRetVTs), LoadRetOps,
@@ -1952,9 +1940,7 @@ NVPTXTargetLowering::LowerSTOREVector(SDValue Op, SelectionDAG &DAG) const {
     }
 
     // Then any remaining arguments
-    for (unsigned i = 2, e = N->getNumOperands(); i != e; ++i) {
-      Ops.push_back(N->getOperand(i));
-    }
+    Ops.append(N->op_begin() + 2, N->op_end());
 
     SDValue NewSt = DAG.getMemIntrinsicNode(
         Opcode, DL, DAG.getVTList(MVT::Other), Ops,
@@ -2130,7 +2116,7 @@ SDValue NVPTXTargetLowering::LowerFormalArguments(
     // to newly created nodes. The SDNodes for params have to
     // appear in the same order as their order of appearance
     // in the original function. "idx+1" holds that order.
-    if (PAL.hasAttribute(i + 1, Attribute::ByVal) == false) {
+    if (!PAL.hasAttribute(i + 1, Attribute::ByVal)) {
       if (Ty->isAggregateType()) {
         SmallVector<EVT, 16> vtparts;
         SmallVector<uint64_t, 16> offsets;
@@ -3774,7 +3760,8 @@ NVPTXTargetLowering::getConstraintType(const std::string &Constraint) const {
 }
 
 std::pair<unsigned, const TargetRegisterClass *>
-NVPTXTargetLowering::getRegForInlineAsmConstraint(const std::string &Constraint,
+NVPTXTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                                                  const std::string &Constraint,
                                                   MVT VT) const {
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
@@ -3795,7 +3782,7 @@ NVPTXTargetLowering::getRegForInlineAsmConstraint(const std::string &Constraint,
       return std::make_pair(0U, &NVPTX::Float64RegsRegClass);
     }
   }
-  return TargetLowering::getRegForInlineAsmConstraint(Constraint, VT);
+  return TargetLowering::getRegForInlineAsmConstraint(TRI, Constraint, VT);
 }
 
 /// getFunctionAlignment - Return the Log2 alignment of this function.
@@ -4302,11 +4289,8 @@ static void ReplaceLoadVector(SDNode *N, SelectionDAG &DAG,
   }
   }
 
-  SmallVector<SDValue, 8> OtherOps;
-
   // Copy regular operands
-  for (unsigned i = 0, e = N->getNumOperands(); i != e; ++i)
-    OtherOps.push_back(N->getOperand(i));
+  SmallVector<SDValue, 8> OtherOps(N->op_begin(), N->op_end());
 
   // The select routine does not have access to the LoadSDNode instance, so
   // pass along the extension information
@@ -4419,8 +4403,7 @@ static void ReplaceINTRINSIC_W_CHAIN(SDNode *N, SelectionDAG &DAG,
       OtherOps.push_back(Chain); // Chain
                                  // Skip operand 1 (intrinsic ID)
       // Others
-      for (unsigned i = 2, e = N->getNumOperands(); i != e; ++i)
-        OtherOps.push_back(N->getOperand(i));
+      OtherOps.append(N->op_begin() + 2, N->op_end());
 
       MemIntrinsicSDNode *MemSD = cast<MemIntrinsicSDNode>(N);
 
@@ -4451,9 +4434,7 @@ static void ReplaceINTRINSIC_W_CHAIN(SDNode *N, SelectionDAG &DAG,
              "Custom handling of non-i8 ldu/ldg?");
 
       // Just copy all operands as-is
-      SmallVector<SDValue, 4> Ops;
-      for (unsigned i = 0, e = N->getNumOperands(); i != e; ++i)
-        Ops.push_back(N->getOperand(i));
+      SmallVector<SDValue, 4> Ops(N->op_begin(), N->op_end());
 
       // Force output to i16
       SDVTList LdResVTs = DAG.getVTList(MVT::i16, MVT::Other);
@@ -4511,7 +4492,6 @@ NVPTXTargetObjectFile::~NVPTXTargetObjectFile() {
   delete DwarfLocSection;
   delete DwarfARangesSection;
   delete DwarfRangesSection;
-  delete DwarfMacroInfoSection;
 }
 
 const MCSection *

@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Compiler.h"
 #include "gtest/gtest.h"
@@ -144,8 +145,8 @@ struct NonCopyable {
   NonCopyable(NonCopyable &&) {}
   NonCopyable &operator=(NonCopyable &&) { return *this; }
 private:
-  NonCopyable(const NonCopyable &) LLVM_DELETED_FUNCTION;
-  NonCopyable &operator=(const NonCopyable &) LLVM_DELETED_FUNCTION;
+  NonCopyable(const NonCopyable &) = delete;
+  NonCopyable &operator=(const NonCopyable &) = delete;
 };
 
 LLVM_ATTRIBUTE_USED void CompileTest() {
@@ -786,8 +787,8 @@ template <int I> struct EmplaceableArg {
   explicit EmplaceableArg(bool) : State(EAS_Arg) {}
 
 private:
-  EmplaceableArg &operator=(EmplaceableArg &&) LLVM_DELETED_FUNCTION;
-  EmplaceableArg &operator=(const EmplaceableArg &) LLVM_DELETED_FUNCTION;
+  EmplaceableArg &operator=(EmplaceableArg &&) = delete;
+  EmplaceableArg &operator=(const EmplaceableArg &) = delete;
 };
 
 enum EmplaceableState { ES_Emplaced, ES_Moved };
@@ -827,8 +828,8 @@ struct Emplaceable {
   }
 
 private:
-  Emplaceable(const Emplaceable &) LLVM_DELETED_FUNCTION;
-  Emplaceable &operator=(const Emplaceable &) LLVM_DELETED_FUNCTION;
+  Emplaceable(const Emplaceable &) = delete;
+  Emplaceable &operator=(const Emplaceable &) = delete;
 };
 
 TEST(SmallVectorTest, EmplaceBack) {
@@ -904,6 +905,24 @@ TEST(SmallVectorTest, EmplaceBack) {
     EXPECT_EQ(0, V[0]);
     EXPECT_EQ(42, V[1]);
   }
+}
+
+TEST(SmallVectorTest, InitializerList) {
+  SmallVector<int, 2> V1 = {};
+  EXPECT_TRUE(V1.empty());
+  V1 = {0, 0};
+  EXPECT_TRUE(makeArrayRef(V1).equals({0, 0}));
+  V1 = {-1, -1};
+  EXPECT_TRUE(makeArrayRef(V1).equals({-1, -1}));
+
+  SmallVector<int, 2> V2 = {1, 2, 3, 4};
+  EXPECT_TRUE(makeArrayRef(V2).equals({1, 2, 3, 4}));
+  V2.assign({4});
+  EXPECT_TRUE(makeArrayRef(V2).equals({4}));
+  V2.append({3, 2});
+  EXPECT_TRUE(makeArrayRef(V2).equals({4, 3, 2}));
+  V2.insert(V2.begin() + 1, 5);
+  EXPECT_TRUE(makeArrayRef(V2).equals({4, 5, 3, 2}));
 }
 
 } // end namespace

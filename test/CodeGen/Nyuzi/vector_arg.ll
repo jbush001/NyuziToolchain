@@ -28,14 +28,14 @@ define <16 x i32> @main() #1 {	; CHECK: main:
 	%6 = alloca <16 x i32>
 	%7 = alloca <16 x i32>
 	%8 = alloca <16 x i32>
-	%a = load i32* %1
-	%b = load <16 x i32>* %2
-	%c = load <16 x i32>* %3
-	%d = load <16 x i32>* %4
-	%e = load <16 x i32>* %5
-	%f = load <16 x i32>* %6
-	%g = load <16 x i32>* %7
-	%h = load <16 x i32>* %8
+	%a = load i32, i32* %1
+	%b = load <16 x i32>, <16 x i32>* %2
+	%c = load <16 x i32>, <16 x i32>* %3
+	%d = load <16 x i32>, <16 x i32>* %4
+	%e = load <16 x i32>, <16 x i32>* %5
+	%f = load <16 x i32>, <16 x i32>* %6
+	%g = load <16 x i32>, <16 x i32>* %7
+	%h = load <16 x i32>, <16 x i32>* %8
 
 	%result = call <16 x i32> @somefunc(i32 %a, <16 x i32> %b, <16 x i32> %c, 
 		<16 x i32> %d, <16 x i32> %e, <16 x i32> %f, <16 x i32> %g,

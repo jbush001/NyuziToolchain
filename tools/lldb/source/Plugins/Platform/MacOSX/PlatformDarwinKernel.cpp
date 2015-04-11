@@ -51,6 +51,8 @@ static uint32_t g_initialize_count = 0;
 void
 PlatformDarwinKernel::Initialize ()
 {
+    PlatformDarwin::Initialize ();
+
     if (g_initialize_count++ == 0)
     {
         PluginManager::RegisterPlugin (PlatformDarwinKernel::GetPluginNameStatic(),
@@ -70,6 +72,8 @@ PlatformDarwinKernel::Terminate ()
             PluginManager::UnregisterPlugin (PlatformDarwinKernel::CreateInstance);
         }
     }
+
+    PlatformDarwin::Terminate ();
 }
 
 PlatformSP
@@ -756,6 +760,7 @@ PlatformDarwinKernel::GetKernelsInDirectory (void *baton,
 
 Error
 PlatformDarwinKernel::GetSharedModule (const ModuleSpec &module_spec,
+                                       Process *process,
                                        ModuleSP &module_sp,
                                        const FileSpecList *module_search_paths_ptr,
                                        ModuleSP *old_module_sp_ptr,
@@ -809,7 +814,7 @@ PlatformDarwinKernel::GetSharedModule (const ModuleSpec &module_spec,
     }
 
     // Else fall back to treating the file's path as an actual file path - defer to PlatformDarwin's GetSharedModule.
-    return PlatformDarwin::GetSharedModule (module_spec, module_sp, module_search_paths_ptr, old_module_sp_ptr, did_create_ptr);
+    return PlatformDarwin::GetSharedModule (module_spec, process, module_sp, module_search_paths_ptr, old_module_sp_ptr, did_create_ptr);
 }
 
 Error

@@ -22,17 +22,19 @@
 
 class ProcessMonitor;
 
-class ProcessLinux :
-    public ProcessPOSIX
+namespace lldb_private {
+namespace process_linux {
+
+class ProcessLinux : public ProcessPOSIX
 {
 public:
     //------------------------------------------------------------------
     // Static functions.
     //------------------------------------------------------------------
     static lldb::ProcessSP
-    CreateInstance(lldb_private::Target& target,
-                   lldb_private::Listener &listener,
-                   const lldb_private::FileSpec *);
+    CreateInstance(Target& target,
+                   Listener &listener,
+                   const FileSpec *);
 
     static void
     Initialize();
@@ -40,7 +42,7 @@ public:
     static void
     Terminate();
 
-    static lldb_private::ConstString
+    static ConstString
     GetPluginNameStatic();
 
     static const char *
@@ -49,57 +51,60 @@ public:
     //------------------------------------------------------------------
     // Constructors and destructors
     //------------------------------------------------------------------
-    ProcessLinux(lldb_private::Target& target,
-                 lldb_private::Listener &listener,
-                 lldb_private::FileSpec *core_file);
+    ProcessLinux(Target& target,
+                 Listener &listener,
+                 FileSpec *core_file);
 
-    virtual lldb_private::Error
-    DoDetach(bool keep_stopped);
+    Error
+    DoDetach(bool keep_stopped) override;
 
-    virtual bool
-    DetachRequiresHalt() { return true; }
+    bool
+    DetachRequiresHalt() override { return true; }
 
-    virtual bool
-    UpdateThreadList(lldb_private::ThreadList &old_thread_list, lldb_private::ThreadList &new_thread_list);
+    bool
+    UpdateThreadList(ThreadList &old_thread_list, ThreadList &new_thread_list) override;
 
     //------------------------------------------------------------------
     // PluginInterface protocol
     //------------------------------------------------------------------
-    virtual lldb_private::ConstString
-    GetPluginName();
+    ConstString
+    GetPluginName() override;
 
-    virtual uint32_t
-    GetPluginVersion();
+    uint32_t
+    GetPluginVersion() override;
 
     virtual void
-    GetPluginCommandHelp(const char *command, lldb_private::Stream *strm);
+    GetPluginCommandHelp(const char *command, Stream *strm);
 
-    virtual lldb_private::Error
-    ExecutePluginCommand(lldb_private::Args &command,
-                         lldb_private::Stream *strm);
+    virtual Error
+    ExecutePluginCommand(Args &command,
+                         Stream *strm);
 
-    virtual lldb_private::Log *
-    EnablePluginLogging(lldb_private::Stream *strm,
-                        lldb_private::Args &command);
+    virtual Log *
+    EnablePluginLogging(Stream *strm,
+                        Args &command);
 
-    virtual bool
-    CanDebug(lldb_private::Target &target, bool plugin_specified_by_name);
+    bool
+    CanDebug(Target &target, bool plugin_specified_by_name) override;
 
     //------------------------------------------------------------------
     // ProcessPOSIX overrides
     //------------------------------------------------------------------
-    virtual void
-    StopAllThreads(lldb::tid_t stop_tid);
+    void
+    StopAllThreads(lldb::tid_t stop_tid) override;
 
-    virtual POSIXThread *
-    CreateNewPOSIXThread(lldb_private::Process &process, lldb::tid_t tid);
+    POSIXThread *
+    CreateNewPOSIXThread(Process &process, lldb::tid_t tid) override;
 
 private:
 
-    lldb_private::FileSpec *m_core_file;
+    FileSpec *m_core_file;
 
     // Flag to avoid recursion when stopping all threads.
     bool m_stopping_threads;
 };
+
+} // namespace process_linux
+} // namespace lldb_private
 
 #endif  // liblldb_ProcessLinux_H_

@@ -7,18 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-//++
-// File:        MICmnLLDBDebugSessionInfoVarObj.h
-//
-// Overview:    CMICmnLLDBDebugSessionInfoVarObj interface.
-//
-// Environment: Compilers:  Visual C++ 12.
-//                          gcc (Ubuntu/Linaro 4.8.1-10ubuntu9) 4.8.1
-//              Libraries:  See MIReadmetxt.
-//
-// Copyright:   None.
-//--
-
 #pragma once
 
 // Third Party Headers:
@@ -79,6 +67,7 @@ class CMICmnLLDBDebugSessionInfoVarObj
     static MIuint VarObjIdGet(void);
     static void VarObjIdResetToZero(void);
     static void VarObjClear(void);
+    static void VarObjSetFormat(varFormat_e eDefaultFormat);
 
     // Methods:
   public:
@@ -97,6 +86,7 @@ class CMICmnLLDBDebugSessionInfoVarObj
     const CMIUtilString &GetName(void) const;
     const CMIUtilString &GetNameReal(void) const;
     const CMIUtilString &GetValueFormatted(void) const;
+    lldb::SBValue &GetValue(void);
     const lldb::SBValue &GetValue(void) const;
     varType_e GetType(void) const;
     bool SetVarFormat(const varFormat_e veVarFormat);
@@ -128,6 +118,7 @@ class CMICmnLLDBDebugSessionInfoVarObj
     static const MIchar *ms_aVarFormatChars[];
     static MapKeyToVarObj_t ms_mapVarIdToVarObj;
     static MIuint ms_nVarUniqueId;
+    static varFormat_e ms_eDefaultFormat;    // overrides "natural" format
     //
     // *** Upate the copy move constructors and assignment operator ***
     varFormat_e m_eVarFormat;

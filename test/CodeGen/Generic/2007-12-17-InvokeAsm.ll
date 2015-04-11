@@ -1,4 +1,5 @@
 ; RUN: llc -no-integrated-as < %s
+; XFAIL: nyuzi
 
 define fastcc void @bc__support__high_resolution_time__initialize_clock_rate() {
 entry:

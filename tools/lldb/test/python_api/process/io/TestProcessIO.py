@@ -10,7 +10,7 @@ class ProcessIOTestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "dsym requires Darwin")
+    @skipUnlessDarwin
     @python_api_test
     @dsym_test
     def test_stdin_by_api_with_dsym(self):
@@ -18,7 +18,7 @@ class ProcessIOTestCase(TestBase):
         self.buildDsym()
         self.do_stdin_by_api()
 
-    @unittest2.skipIf(sys.platform.startswith("win32"), "stdio manipulation unsupported on Windows")
+    @skipIfWindows # stdio manipulation unsupported on Windows
     @python_api_test
     @dwarf_test
     def test_stdin_by_api_with_dwarf(self):
@@ -26,7 +26,7 @@ class ProcessIOTestCase(TestBase):
         self.buildDwarf()
         self.do_stdin_by_api()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "dsym requires Darwin")
+    @skipUnlessDarwin
     @python_api_test
     @dsym_test
     def test_stdin_redirection_with_dsym(self):
@@ -34,7 +34,7 @@ class ProcessIOTestCase(TestBase):
         self.buildDsym()
         self.do_stdin_redirection()
 
-    @unittest2.skipIf(sys.platform.startswith("win32"), "stdio manipulation unsupported on Windows")
+    @skipIfWindows # stdio manipulation unsupported on Windows
     @python_api_test
     @dwarf_test
     def test_stdin_redirection_with_dwarf(self):
@@ -42,7 +42,7 @@ class ProcessIOTestCase(TestBase):
         self.buildDwarf()
         self.do_stdin_redirection()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "dsym requires Darwin")
+    @skipUnlessDarwin
     @python_api_test
     @dsym_test
     def test_stdout_redirection_with_dsym(self):
@@ -50,7 +50,7 @@ class ProcessIOTestCase(TestBase):
         self.buildDsym()
         self.do_stdout_redirection()
 
-    @unittest2.skipIf(sys.platform.startswith("win32"), "stdio manipulation unsupported on Windows")
+    @skipIfWindows # stdio manipulation unsupported on Windows
     @python_api_test
     @dwarf_test
     def test_stdout_redirection_with_dwarf(self):
@@ -58,7 +58,7 @@ class ProcessIOTestCase(TestBase):
         self.buildDwarf()
         self.do_stdout_redirection()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "dsym requires Darwin")
+    @skipUnlessDarwin
     @python_api_test
     @dsym_test
     def test_stderr_redirection_with_dsym(self):
@@ -66,7 +66,7 @@ class ProcessIOTestCase(TestBase):
         self.buildDsym()
         self.do_stderr_redirection()
 
-    @unittest2.skipIf(sys.platform.startswith("win32"), "stdio manipulation unsupported on Windows")
+    @skipIfWindows # stdio manipulation unsupported on Windows
     @python_api_test
     @dwarf_test
     def test_stderr_redirection_with_dwarf(self):
@@ -74,7 +74,7 @@ class ProcessIOTestCase(TestBase):
         self.buildDwarf()
         self.do_stderr_redirection()
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "dsym requires Darwin")
+    @skipUnlessDarwin
     @python_api_test
     @dsym_test
     def test_stdout_stderr_redirection_with_dsym(self):
@@ -82,7 +82,7 @@ class ProcessIOTestCase(TestBase):
         self.buildDsym()
         self.do_stdout_stderr_redirection()
 
-    @unittest2.skipIf(sys.platform.startswith("win32"), "stdio manipulation unsupported on Windows")
+    @skipIfWindows # stdio manipulation unsupported on Windows
     @python_api_test
     @dwarf_test
     def test_stdout_stderr_redirection_with_dwarf(self):
@@ -95,26 +95,38 @@ class ProcessIOTestCase(TestBase):
         TestBase.setUp(self)
         # Get the full path to our executable to be debugged.
         self.exe = os.path.join(os.getcwd(), "process_io")
-        self.input_file  = os.path.join(os.getcwd(), "input.txt")
-        self.output_file = os.path.join(os.getcwd(), "output.txt")
-        self.error_file  = os.path.join(os.getcwd(), "error.txt")
+        self.local_input_file  = os.path.join(os.getcwd(), "input.txt")
+        self.local_output_file = os.path.join(os.getcwd(), "output.txt")
+        self.local_error_file  = os.path.join(os.getcwd(), "error.txt")
+
+        self.input_file  = os.path.join(self.get_process_working_directory(), "input.txt")
+        self.output_file = os.path.join(self.get_process_working_directory(), "output.txt")
+        self.error_file  = os.path.join(self.get_process_working_directory(), "error.txt")
         self.lines = ["Line 1", "Line 2", "Line 3"]
-    
-    def read_output_file_and_delete (self):
-        self.assertTrue(os.path.exists(self.output_file), "Make sure output.txt file exists")
-        f = open(self.output_file, 'r')
+
+    # target_file - path on local file system or remote file system if running remote
+    # local_file - path on local system
+    def read_file_and_delete(self, target_file, local_file):
+        if lldb.remote_platform:
+            self.runCmd('platform get-file "{remote}" "{local}"'.format(
+                remote=target_file, local=local_file))
+
+        self.assertTrue(os.path.exists(local_file), 'Make sure "{local}" file exists'.format(local=local_file))
+        f = open(local_file, 'r')
         contents = f.read()
         f.close()
-        os.unlink(self.output_file)
+
+        #TODO: add 'platform delete-file' file command
+        #if lldb.remote_platform:
+        #    self.runCmd('platform delete-file "{remote}"'.format(remote=target_file))
+        os.unlink(local_file)
         return contents
 
+    def read_output_file_and_delete(self):
+        return self.read_file_and_delete(self.output_file, self.local_output_file)
+
     def read_error_file_and_delete(self):
-        self.assertTrue(os.path.exists(self.error_file), "Make sure error.txt file exists")
-        f = open(self.error_file, 'r')
-        contents = f.read()
-        f.close()
-        os.unlink(self.error_file)
-        return contents
+        return self.read_file_and_delete(self.error_file, self.local_error_file)
 
     def create_target(self):
         '''Create the target and launch info that will be used by all tests'''
@@ -128,15 +140,23 @@ class ProcessIOTestCase(TestBase):
         Make the input.txt file to use when redirecting STDIN, setup a cleanup action
         to delete the input.txt at the end of the test in case exceptions are thrown,
         and redirect STDIN in the launch info.'''
-        f = open(self.input_file, 'w')
+        f = open(self.local_input_file, 'w')
         for line in self.lines:
             f.write(line + "\n")
         f.close()
+
+        if lldb.remote_platform:
+            self.runCmd('platform put-file "{local}" "{remote}"'.format(
+                local=self.local_input_file, remote=self.input_file))
+
         # This is the function to remove the custom formats in order to have a
         # clean slate for the next test case.
         def cleanup():
-            os.unlink(self.input_file)
-        
+            os.unlink(self.local_input_file)
+            #TODO: add 'platform delete-file' file command
+            #if lldb.remote_platform:
+            #    self.runCmd('platform delete-file "{remote}"'.format(remote=self.input_file))
+
         # Execute the cleanup function during test case tear down.
         self.addTearDownHook(cleanup)
         self.launch_info.AddOpenFileAction(0, self.input_file, True, False);

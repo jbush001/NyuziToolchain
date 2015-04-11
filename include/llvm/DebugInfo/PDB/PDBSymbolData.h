@@ -15,9 +15,18 @@
 
 namespace llvm {
 
+class raw_ostream;
+
 class PDBSymbolData : public PDBSymbol {
 public:
-  PDBSymbolData(std::unique_ptr<IPDBRawSymbol> DataSymbol);
+  PDBSymbolData(const IPDBSession &PDBSession,
+                std::unique_ptr<IPDBRawSymbol> DataSymbol);
+
+  DECLARE_PDB_SYMBOL_CONCRETE_TYPE(PDB_SymType::Data)
+
+  std::unique_ptr<PDBSymbol> getType() const;
+
+  void dump(PDBSymDumper &Dumper) const override;
 
   FORWARD_SYMBOL_METHOD(getAccess)
   FORWARD_SYMBOL_METHOD(getAddressOffset)
@@ -42,13 +51,9 @@ public:
   FORWARD_SYMBOL_METHOD(getToken)
   FORWARD_SYMBOL_METHOD(getTypeId)
   FORWARD_SYMBOL_METHOD(isUnalignedType)
-  // FORWARD_SYMBOL_METHOD(getValue)
+  FORWARD_SYMBOL_METHOD(getValue)
   FORWARD_SYMBOL_METHOD(getVirtualAddress)
   FORWARD_SYMBOL_METHOD(isVolatileType)
-
-  static bool classof(const PDBSymbol *S) {
-    return S->getSymTag() == PDB_SymType::Data;
-  }
 };
 
 } // namespace llvm

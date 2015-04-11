@@ -7,9 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-//++
-// File:        MICmdCmdData.cpp
-//
 // Overview:    CMICmdCmdDataEvaluateExpression     implementation.
 //              CMICmdCmdDataDisassemble            implementation.
 //              CMICmdCmdDataReadMemoryBytes        implementation.
@@ -19,15 +16,9 @@
 //              CMICmdCmdDataListRegisterChanged    implementation.
 //              CMICmdCmdDataWriteMemoryBytes       implementation.
 //              CMICmdCmdDataWriteMemory            implementation.
-//
-// Environment: Compilers:  Visual C++ 12.
-//                          gcc (Ubuntu/Linaro 4.8.1-10ubuntu9) 4.8.1
-//              Libraries:  See MIReadmetxt.
-//
-// Copyright:   None.
-//--
 
 // Third Party Headers:
+#include <inttypes.h> // For PRIx64
 #include "lldb/API/SBThread.h"
 #include "lldb/API/SBInstruction.h"
 #include "lldb/API/SBInstructionList.h"
@@ -408,6 +399,11 @@ CMICmdCmdDataDisassemble::Execute(void)
     lldb::addr_t lldbStartAddr = static_cast<lldb::addr_t>(nAddrStart);
     lldb::SBInstructionList instructions = sbTarget.ReadInstructions(lldb::SBAddress(lldbStartAddr, sbTarget), nAddrEnd - nAddrStart);
     const MIuint nInstructions = instructions.GetSize();
+    // Calculate the offset of first instruction so that we can generate offset starting at 0
+    lldb::addr_t start_offset = 0;
+    if(nInstructions > 0)
+        start_offset = instructions.GetInstructionAtIndex(0).GetAddress().GetOffset();
+
     for (size_t i = 0; i < nInstructions; i++)
     {
         const MIchar *pUnknown = "??";
@@ -418,19 +414,19 @@ CMICmdCmdDataDisassemble::Execute(void)
         lldb::addr_t addr = address.GetLoadAddress(sbTarget);
         const MIchar *pFnName = address.GetFunction().GetName();
         pFnName = (pFnName != nullptr) ? pFnName : pUnknown;
-        lldb::addr_t addrOffSet = address.GetOffset();
+        lldb::addr_t addrOffSet = address.GetOffset() - start_offset;
         const MIchar *pStrOperands = instrt.GetOperands(sbTarget);
         pStrOperands = (pStrOperands != nullptr) ? pStrOperands : pUnknown;
         const size_t instrtSize = instrt.GetByteSize();
 
-        // MI "{address=\"0x%08llx\",func-name=\"%s\",offset=\"%lld\",inst=\"%s %s\"}"
-        const CMICmnMIValueConst miValueConst(CMIUtilString::Format("0x%08llx", addr));
+        // MI "{address=\"0x%016" PRIx64 "\",func-name=\"%s\",offset=\"%lld\",inst=\"%s %s\"}"
+        const CMICmnMIValueConst miValueConst(CMIUtilString::Format("0x%016" PRIx64, addr));
         const CMICmnMIValueResult miValueResult("address", miValueConst);
         CMICmnMIValueTuple miValueTuple(miValueResult);
         const CMICmnMIValueConst miValueConst2(pFnName);
         const CMICmnMIValueResult miValueResult2("func-name", miValueConst2);
         miValueTuple.Add(miValueResult2);
-        const CMICmnMIValueConst miValueConst3(CMIUtilString::Format("0x%lld", addrOffSet));
+        const CMICmnMIValueConst miValueConst3(CMIUtilString::Format("%lld", addrOffSet));
         const CMICmnMIValueResult miValueResult3("offset", miValueConst3);
         miValueTuple.Add(miValueResult3);
         const CMICmnMIValueConst miValueConst4(CMIUtilString::Format("%d", instrtSize));
@@ -563,7 +559,7 @@ CMICmdCmdDataReadMemoryBytes::ParseArgs(void)
     bOk =
         bOk &&
         m_setCmdArgs.Add(*(new CMICmdArgValOptionShort(m_constStrArgByteOffset, false, true, CMICmdArgValListBase::eArgValType_Number, 1)));
-    bOk = bOk && m_setCmdArgs.Add(*(new CMICmdArgValNumber(m_constStrArgAddrStart, true, true)));
+    bOk = bOk && m_setCmdArgs.Add(*(new CMICmdArgValNumber(m_constStrArgAddrStart, true, true, CMICmdArgValNumber::eArgValNumberFormat_Auto)));
     bOk = bOk && m_setCmdArgs.Add(*(new CMICmdArgValNumber(m_constStrArgNumBytes, true, true)));
     return (bOk && ParseValidateCmdOptions());
 }
@@ -634,14 +630,14 @@ CMICmdCmdDataReadMemoryBytes::Execute(void)
 bool
 CMICmdCmdDataReadMemoryBytes::Acknowledge(void)
 {
-    // MI: memory=[{begin=\"0x%08x\",offset=\"0x%08x\",end=\"0x%08x\",contents=\" \" }]"
-    const CMICmnMIValueConst miValueConst(CMIUtilString::Format("0x%08x", m_nAddrStart));
+    // MI: memory=[{begin=\"0x%016" PRIx64 "\",offset=\"0x%016" PRIx64" \",end=\"0x%016" PRIx64 "\",contents=\" \" }]"
+    const CMICmnMIValueConst miValueConst(CMIUtilString::Format("0x%016" PRIx64, m_nAddrStart));
     const CMICmnMIValueResult miValueResult("begin", miValueConst);
     CMICmnMIValueTuple miValueTuple(miValueResult);
-    const CMICmnMIValueConst miValueConst2(CMIUtilString::Format("0x%08x", m_nAddrOffset));
+    const CMICmnMIValueConst miValueConst2(CMIUtilString::Format("0x%016" PRIx64, m_nAddrOffset));
     const CMICmnMIValueResult miValueResult2("offset", miValueConst2);
     miValueTuple.Add(miValueResult2);
-    const CMICmnMIValueConst miValueConst3(CMIUtilString::Format("0x%08x", m_nAddrStart + m_nAddrNumBytesToRead));
+    const CMICmnMIValueConst miValueConst3(CMIUtilString::Format("0x%016" PRIx64, m_nAddrStart + m_nAddrNumBytesToRead));
     const CMICmnMIValueResult miValueResult3("end", miValueConst3);
     miValueTuple.Add(miValueResult3);
 
@@ -650,7 +646,7 @@ CMICmdCmdDataReadMemoryBytes::Acknowledge(void)
     strContent.reserve((m_nAddrNumBytesToRead << 1) + 1);
     for (MIuint64 i = 0; i < m_nAddrNumBytesToRead; i++)
     {
-        strContent += CMIUtilString::Format("%02x", m_pBufferMemory[i]);
+        strContent += CMIUtilString::Format("%02hhx", m_pBufferMemory[i]);
     }
     const CMICmnMIValueConst miValueConst4(strContent);
     const CMICmnMIValueResult miValueResult4("contents", miValueConst4);

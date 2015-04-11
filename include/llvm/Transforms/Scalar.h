@@ -82,6 +82,13 @@ FunctionPass *createAggressiveDCEPass();
 
 //===----------------------------------------------------------------------===//
 //
+// BitTrackingDCE - This pass uses a bit-tracking DCE algorithm in order to
+// remove computations of dead bits.
+//
+FunctionPass *createBitTrackingDCEPass();
+
+//===----------------------------------------------------------------------===//
+//
 // SROA - Replace aggregates or pieces of aggregates with scalar SSA values.
 //
 FunctionPass *createSROAPass(bool RequiresDomTree = true);
@@ -133,12 +140,19 @@ Pass *createLICMPass();
 
 //===----------------------------------------------------------------------===//
 //
+// LoopInterchange - This pass interchanges loops to provide a more
+// cache-friendly memory access patterns.
+//
+Pass *createLoopInterchangePass();
+
+//===----------------------------------------------------------------------===//
+//
 // LoopStrengthReduce - This pass is strength reduces GEP instructions that use
 // a loop's canonical induction variable as one of their indices.
 //
 Pass *createLoopStrengthReducePass();
 
-Pass *createGlobalMergePass(const TargetMachine *TM = nullptr);
+Pass *createGlobalMergePass(const TargetMachine *TM, unsigned MaximalOffset);
 
 //===----------------------------------------------------------------------===//
 //
@@ -415,7 +429,6 @@ BasicBlockPass *createLoadCombinePass();
 
 FunctionPass *createStraightLineStrengthReducePass();
 
-
 //===----------------------------------------------------------------------===//
 //
 // PlaceSafepoints - Rewrite any IR calls to gc.statepoints and insert any
@@ -425,6 +438,19 @@ FunctionPass *createStraightLineStrengthReducePass();
 // order following this pass.
 //
 ModulePass *createPlaceSafepointsPass();
+
+//===----------------------------------------------------------------------===//
+//
+// RewriteStatepointsForGC - Rewrite any gc.statepoints which do not yet have
+// explicit relocations to include explicit relocations.
+//
+FunctionPass *createRewriteStatepointsForGCPass();
+
+//===----------------------------------------------------------------------===//
+//
+// Float2Int - Demote floats to ints where possible.
+//
+FunctionPass *createFloat2IntPass();
 
 } // End llvm namespace
 

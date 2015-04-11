@@ -7,18 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-//++
-// File:        MICmnResources.h
-//
-// Overview:    CMICmnResources interface.
-//
-// Environment: Compilers:  Visual C++ 12.
-//                          gcc (Ubuntu/Linaro 4.8.1-10ubuntu9) 4.8.1
-//              Libraries:  See MIReadmetxt.
-//
-// Copyright:   None.
-//--
-
 #pragma once
 
 // Third party headers
@@ -77,10 +65,6 @@ enum
     IDE_MEDIUMSTDERR_NAME,
     IDE_MEDIUMSTDOUT_NAME,
 
-    IDE_MI_APP_EXIT_OK,
-    IDE_MI_APP_EXIT_WITH_PROBLEM,
-    IDE_MI_APP_EXIT_WITH_PROBLEM_NO_LOG,
-
     IDE_MI_APP_DESCRIPTION,
     IDE_MI_APP_INFORMATION,
     IDE_MI_APP_ARG_USAGE,
@@ -115,8 +99,6 @@ enum
 
     IDS_CMDMGR_ERR_CMD_FAILED_CREATE,
     IDS_CMDMGR_ERR_CMD_INVOKER,
-
-    IDS_PROCESS_SIGNAL_RECEIVED,
 
     IDS_MI_INIT_ERR_LOG,
     IDS_MI_INIT_ERR_RESOURCES,
@@ -241,6 +223,7 @@ enum
     IDS_CMD_ERR_FNFAILED,
     IDS_CMD_ERR_SHARED_DATA_NOT_FOUND,
     IDS_CMD_ERR_LLDBPROCESS_DETACH,
+    IDS_CMD_ERR_LLDBPROCESS_DESTROY,
     IDS_CMD_ERR_SETWKDIR,
     IDS_CMD_ERR_INVALID_TARGET,
     IDS_CMD_ERR_INVALID_TARGET_CURRENT,
@@ -278,6 +261,7 @@ enum
     IDS_CMD_ERR_SET_NEW_DRIVER_STATE,
     IDS_CMD_ERR_INFO_PRINTFN_NOT_FOUND,
     IDS_CMD_ERR_INFO_PRINTFN_FAILED,
+    IDS_CMD_ERR_GDBSET_OPT_TARGETASYNC,
     IDS_CMD_ERR_GDBSET_OPT_SOLIBSEARCHPATH
 };
 

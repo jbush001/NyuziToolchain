@@ -17,7 +17,7 @@ https://groups.google.com/forum/#!forum/nyuzi-processor-dev
 Instructions for installing these packages are in the following sections.
 
 - gcc 4.8+ or Apple clang 4.2+
-- cmake 2.8.8
+- cmake 2.8.12+
 - python 2.7
 - libxml (including headers)
 - zlib (including headers)
@@ -98,6 +98,8 @@ export PATH=<BUILDDIR>/build/bin:$PATH
 llvm-lit test
 llvm-lit tools/clang/test/CodeGen/nyuzi*
 ```
+
+All tests should pass.
 
 ## Running Whole Program Tests
 

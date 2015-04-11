@@ -6,13 +6,13 @@ typedef float vecf16 __attribute__((__vector_size__(16 * sizeof(float))));
 veci16 test_vaddi(veci16 a, veci16 b)	// CHECK: test_vaddi:
 {
 	return a + b;
-	// CHECK: add_i v{{[0-9]+}}, v0, v1
+	// CHECK: add_i v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
 }
 
 vecf16 test_vaddf(vecf16 a, vecf16 b)	// CHECK: test_vaddf:
 {
 	return a + b;
-	// CHECK: add_f v{{[0-9]+}}, v0, v1
+	// CHECK: add_f v{{[0-9]+}}, v{{[0-9]+}}, v{{[0-9]+}}
 }
 
 // Note: the following two will probably unroll loops and use the immediate form of getlane

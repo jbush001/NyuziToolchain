@@ -20,6 +20,7 @@
 #include "lldb/Core/ValueObjectVariable.h"
 #include "lldb/DataFormatters/DataVisualization.h"
 #include "lldb/DataFormatters/FormatManager.h"
+#include "lldb/Expression/ClangExpressionVariable.h"
 #include "lldb/Host/FileSpec.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
 #include "lldb/Symbol/Block.h"
@@ -94,7 +95,9 @@ static FormatEntity::Entry::Definition g_function_child_entries[] =
     ENTRY ("addr-offset"         , FunctionAddrOffset     , UInt64),
     ENTRY ("concrete-only-addr-offset-no-padding", FunctionAddrOffsetConcrete, UInt64),
     ENTRY ("line-offset"         , FunctionLineOffset     , UInt64),
-    ENTRY ("pc-offset"           , FunctionPCOffset       , UInt64)
+    ENTRY ("pc-offset"           , FunctionPCOffset       , UInt64),
+    ENTRY ("initial-function"    , FunctionInitial        , None),
+    ENTRY ("changed"             , FunctionChanged        , None)
 };
 
 static FormatEntity::Entry::Definition g_line_child_entries[] =
@@ -335,6 +338,8 @@ FormatEntity::Entry::TypeToCString (Type t)
     ENUM_TO_CSTR(FunctionAddrOffsetConcrete);
     ENUM_TO_CSTR(FunctionLineOffset);
     ENUM_TO_CSTR(FunctionPCOffset);
+    ENUM_TO_CSTR(FunctionInitial);
+    ENUM_TO_CSTR(FunctionChanged);
     ENUM_TO_CSTR(LineEntryFile);
     ENUM_TO_CSTR(LineEntryLineNumber);
     ENUM_TO_CSTR(LineEntryStartAddress);
@@ -444,7 +449,8 @@ DumpAddressOffsetFromFunction (Stream &s,
                                const ExecutionContext *exe_ctx,
                                const Address &format_addr,
                                bool concrete_only,
-                               bool no_padding)
+                               bool no_padding,
+                               bool print_zero_offsets)
 {
     if (format_addr.IsValid())
     {
@@ -479,10 +485,15 @@ DumpAddressOffsetFromFunction (Stream &s,
             {
                 addr_t func_file_addr = func_addr.GetFileAddress();
                 addr_t addr_file_addr = format_addr.GetFileAddress();
-                if (addr_file_addr > func_file_addr)
+                if (addr_file_addr > func_file_addr
+                    || (addr_file_addr == func_file_addr && print_zero_offsets))
+                {
                     s.Printf("%s+%s%" PRIu64, addr_offset_padding, addr_offset_padding, addr_file_addr - func_file_addr);
+                }
                 else if (addr_file_addr < func_file_addr)
+                {
                     s.Printf("%s-%s%" PRIu64, addr_offset_padding, addr_offset_padding, func_file_addr - addr_file_addr);
+                }
                 return true;
             }
             else
@@ -492,10 +503,15 @@ DumpAddressOffsetFromFunction (Stream &s,
                 {
                     addr_t func_load_addr = func_addr.GetLoadAddress (target);
                     addr_t addr_load_addr = format_addr.GetLoadAddress (target);
-                    if (addr_load_addr > func_load_addr)
+                    if (addr_load_addr > func_load_addr
+                        || (addr_load_addr == func_load_addr && print_zero_offsets))
+                    {
                         s.Printf("%s+%s%" PRIu64, addr_offset_padding, addr_offset_padding, addr_load_addr - func_load_addr);
+                    }
                     else if (addr_load_addr < func_load_addr)
+                    {
                         s.Printf("%s-%s%" PRIu64, addr_offset_padding, addr_offset_padding, func_load_addr - addr_load_addr);
+                    }
                     return true;
                 }
             }
@@ -750,7 +766,7 @@ DumpValue (Stream &s,
     ValueObject::ExpressionPathAftermath what_next = (do_deref_pointer ?
                                                       ValueObject::eExpressionPathAftermathDereference : ValueObject::eExpressionPathAftermathNothing);
     ValueObject::GetValueForExpressionPathOptions options;
-    options.DontCheckDotVsArrowSyntax().DoAllowBitfieldSyntax().DoAllowFragileIVar().DoAllowSyntheticChildren();
+    options.DontCheckDotVsArrowSyntax().DoAllowBitfieldSyntax().DoAllowFragileIVar().SetSyntheticChildrenTraversal(ValueObject::GetValueForExpressionPathOptions::SyntheticChildrenTraversal::Both);
     ValueObject* target = NULL;
     const char* var_name_final_if_array_range = NULL;
     size_t close_bracket_index = llvm::StringRef::npos;
@@ -935,11 +951,11 @@ DumpValue (Stream &s,
             return false;
         if (log)
             log->Printf("[Debugger::FormatPrompt] handle as array");
+        StreamString special_directions_stream;
         llvm::StringRef special_directions;
         if (close_bracket_index != llvm::StringRef::npos && subpath.size() > close_bracket_index)
         {
             ConstString additional_data (subpath.drop_front(close_bracket_index+1));
-            StreamString special_directions_stream;
             special_directions_stream.Printf("${%svar%s",
                                              do_deref_pointer ? "*" : "",
                                              additional_data.GetCString());
@@ -1803,7 +1819,7 @@ FormatEntity::Format (const Entry &entry,
         case Entry::Type::FunctionAddrOffset:
             if (addr)
             {
-                if (DumpAddressOffsetFromFunction (s, sc, exe_ctx, *addr, false, false))
+                if (DumpAddressOffsetFromFunction (s, sc, exe_ctx, *addr, false, false, false))
                     return true;
             }
             return false;
@@ -1811,13 +1827,13 @@ FormatEntity::Format (const Entry &entry,
         case Entry::Type::FunctionAddrOffsetConcrete:
             if (addr)
             {
-                if (DumpAddressOffsetFromFunction (s, sc, exe_ctx, *addr, true, true))
+                if (DumpAddressOffsetFromFunction (s, sc, exe_ctx, *addr, true, true, true))
                     return true;
             }
             return false;
 
         case Entry::Type::FunctionLineOffset:
-            if (DumpAddressOffsetFromFunction (s, sc, exe_ctx, sc->line_entry.range.GetBaseAddress(), false, false))
+            if (DumpAddressOffsetFromFunction (s, sc, exe_ctx, sc->line_entry.range.GetBaseAddress(), false, false, false))
                 return true;
             return false;
 
@@ -1827,11 +1843,17 @@ FormatEntity::Format (const Entry &entry,
                 StackFrame *frame = exe_ctx->GetFramePtr();
                 if (frame)
                 {
-                    if (DumpAddressOffsetFromFunction (s, sc, exe_ctx, frame->GetFrameCodeAddress(), false, false))
+                    if (DumpAddressOffsetFromFunction (s, sc, exe_ctx, frame->GetFrameCodeAddress(), false, false, false))
                         return true;
                 }
             }
             return false;
+
+        case Entry::Type::FunctionChanged:
+            return function_changed == true;
+
+        case Entry::Type::FunctionInitial:
+            return initial_function == true;
 
         case Entry::Type::LineEntryFile:
             if (sc && sc->line_entry.IsValid())

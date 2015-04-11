@@ -38,11 +38,12 @@
 #if defined(__APPLE__)
 # define DEBUGSERVER_BASENAME    "debugserver"
 #else
-# define DEBUGSERVER_BASENAME    "lldb-gdbserver"
+# define DEBUGSERVER_BASENAME    "lldb-server"
 #endif
 
 using namespace lldb;
 using namespace lldb_private;
+using namespace lldb_private::process_gdb_remote;
 
 GDBRemoteCommunication::History::History (uint32_t size) :
     m_packets(),
@@ -93,7 +94,7 @@ GDBRemoteCommunication::History::AddPacket (const std::string &src,
 }
 
 void
-GDBRemoteCommunication::History::Dump (lldb_private::Stream &strm) const
+GDBRemoteCommunication::History::Dump (Stream &strm) const
 {
     const uint32_t size = GetNumPacketsInHistory ();
     const uint32_t first_idx = GetFirstSavedPacketIndex ();
@@ -114,7 +115,7 @@ GDBRemoteCommunication::History::Dump (lldb_private::Stream &strm) const
 }
 
 void
-GDBRemoteCommunication::History::Dump (lldb_private::Log *log) const
+GDBRemoteCommunication::History::Dump (Log *log) const
 {
     if (log && !m_dumped_to_log)
     {
@@ -142,8 +143,7 @@ GDBRemoteCommunication::History::Dump (lldb_private::Log *log) const
 // GDBRemoteCommunication constructor
 //----------------------------------------------------------------------
 GDBRemoteCommunication::GDBRemoteCommunication(const char *comm_name, 
-                                               const char *listener_name, 
-                                               bool is_platform) :
+                                               const char *listener_name) :
     Communication(comm_name),
 #ifdef LLDB_CONFIGURATION_DEBUG
     m_packet_timeout (1000),
@@ -155,7 +155,6 @@ GDBRemoteCommunication::GDBRemoteCommunication(const char *comm_name,
     m_private_is_running (false),
     m_history (512),
     m_send_acks (true),
-    m_is_platform (is_platform),
     m_listen_url ()
 {
 }
@@ -681,7 +680,7 @@ GDBRemoteCommunication::ListenThread (lldb::thread_arg_t arg)
 Error
 GDBRemoteCommunication::StartDebugserverProcess (const char *hostname,
                                                  uint16_t in_port,
-                                                 lldb_private::ProcessLaunchInfo &launch_info,
+                                                 ProcessLaunchInfo &launch_info,
                                                  uint16_t &out_port)
 {
     Log *log (ProcessGDBRemoteLog::GetLogIfAllCategoriesSet (GDBR_LOG_PROCESS));
@@ -741,9 +740,14 @@ GDBRemoteCommunication::StartDebugserverProcess (const char *hostname,
         Args &debugserver_args = launch_info.GetArguments();
         debugserver_args.Clear();
         char arg_cstr[PATH_MAX];
-        
+
         // Start args with "debugserver /file/path -r --"
         debugserver_args.AppendArgument(debugserver_path);
+
+#if !defined(__APPLE__)
+        // First argument to lldb-server must be mode in which to run.
+        debugserver_args.AppendArgument("gdbserver");
+#endif
 
         // If a host and port is supplied then use it
         char host_and_port[128];
@@ -922,4 +926,16 @@ void
 GDBRemoteCommunication::DumpHistory(Stream &strm)
 {
     m_history.Dump (strm);
+}
+
+GDBRemoteCommunication::ScopedTimeout::ScopedTimeout (GDBRemoteCommunication& gdb_comm,
+                                                      uint32_t timeout) :
+    m_gdb_comm (gdb_comm)
+{
+    m_saved_timeout = m_gdb_comm.SetPacketTimeout (timeout);
+}
+
+GDBRemoteCommunication::ScopedTimeout::~ScopedTimeout ()
+{
+    m_gdb_comm.SetPacketTimeout (m_saved_timeout);
 }

@@ -16,6 +16,7 @@
 #ifndef NYUZIMCINSTLOWER_H
 #define NYUZIMCINSTLOWER_H
 
+#include "llvm/MC/MCStreamer.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/Support/Compiler.h"

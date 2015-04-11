@@ -17,6 +17,7 @@
 #include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/Job.h"
 #include "clang/Driver/Options.h"
+#include "clang/Driver/SanitizerArgs.h"
 #include "clang/Driver/Tool.h"
 #include "clang/Driver/ToolChain.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -56,7 +57,7 @@ Driver::Driver(StringRef ClangExecutable, StringRef DefaultTargetTriple,
       CCGenDiagnostics(false), CCCGenericGCCName(""), CheckInputsExist(true),
       CCCUsePCH(true), SuppressMissingInputWarning(false) {
 
-  Name = llvm::sys::path::stem(ClangExecutable);
+  Name = llvm::sys::path::filename(ClangExecutable);
   Dir  = llvm::sys::path::parent_path(ClangExecutable);
 
   // Compute the path to the resource directory.
@@ -550,6 +551,9 @@ void Driver::generateCompilationDiagnostics(Compilation &C,
     Diag(clang::diag::note_drv_command_failed_diag_msg)
         << "Error generating run script: " + Script + " " + EC.message();
   } else {
+    ScriptOS << "# Crash reproducer for " << getClangFullVersion() << "\n"
+             << "# Original command: ";
+    Cmd.Print(ScriptOS, "\n", /*Quote=*/true);
     Cmd.Print(ScriptOS, "\n", /*Quote=*/true, &CrashInfo);
     Diag(clang::diag::note_drv_command_failed_diag_msg) << Script;
   }
@@ -975,7 +979,7 @@ static bool DiagnoseInputExistence(const Driver &D, const DerivedArgList &Args,
 
   SmallString<64> Path(Value);
   if (Arg *WorkDir = Args.getLastArg(options::OPT_working_directory)) {
-    if (!llvm::sys::path::is_absolute(Path.str())) {
+    if (!llvm::sys::path::is_absolute(Path)) {
       SmallString<64> Directory(WorkDir->getValue());
       llvm::sys::path::append(Directory, Value);
       Path.assign(Directory);
@@ -988,7 +992,7 @@ static bool DiagnoseInputExistence(const Driver &D, const DerivedArgList &Args,
   if (D.IsCLMode() && llvm::sys::Process::FindInEnvPath("LIB", Value))
     return true;
 
-  D.Diag(clang::diag::err_drv_no_such_file) << Path.str();
+  D.Diag(clang::diag::err_drv_no_such_file) << Path;
   return false;
 }
 
@@ -1269,7 +1273,7 @@ void Driver::BuildActions(const ToolChain &TC, DerivedArgList &Args,
         continue;
 
       // Otherwise construct the appropriate action.
-      Current = ConstructPhaseAction(Args, Phase, std::move(Current));
+      Current = ConstructPhaseAction(TC, Args, Phase, std::move(Current));
       if (Current->getType() == types::TY_Nothing)
         break;
     }
@@ -1295,7 +1299,8 @@ void Driver::BuildActions(const ToolChain &TC, DerivedArgList &Args,
 }
 
 std::unique_ptr<Action>
-Driver::ConstructPhaseAction(const ArgList &Args, phases::ID Phase,
+Driver::ConstructPhaseAction(const ToolChain &TC, const ArgList &Args,
+                             phases::ID Phase,
                              std::unique_ptr<Action> Input) const {
   llvm::PrettyStackTraceString CrashInfo("Constructing phase actions");
   // Build the appropriate action.
@@ -1354,7 +1359,7 @@ Driver::ConstructPhaseAction(const ArgList &Args, phases::ID Phase,
                                                types::TY_LLVM_BC);
   }
   case phases::Backend: {
-    if (IsUsingLTO(Args)) {
+    if (IsUsingLTO(TC, Args)) {
       types::ID Output =
         Args.hasArg(options::OPT_S) ? types::TY_LTO_IR : types::TY_LTO_BC;
       return llvm::make_unique<BackendJobAction>(std::move(Input), Output);
@@ -1375,7 +1380,10 @@ Driver::ConstructPhaseAction(const ArgList &Args, phases::ID Phase,
   llvm_unreachable("invalid phase in ConstructPhaseAction");
 }
 
-bool Driver::IsUsingLTO(const ArgList &Args) const {
+bool Driver::IsUsingLTO(const ToolChain &TC, const ArgList &Args) const {
+  if (TC.getSanitizerArgs().needsLTO())
+    return true;
+
   if (Args.hasFlag(options::OPT_flto, options::OPT_fno_lto, false))
     return true;
 
@@ -2022,6 +2030,9 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
   ToolChain *&TC = ToolChains[Target.str()];
   if (!TC) {
     switch (Target.getOS()) {
+    case llvm::Triple::CloudABI:
+      TC = new toolchains::CloudABI(*this, Target, Args);
+      break;
     case llvm::Triple::Darwin:
     case llvm::Triple::MacOSX:
     case llvm::Triple::IOS:
@@ -2050,6 +2061,9 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
         TC = new toolchains::Hexagon_TC(*this, Target, Args);
       else
         TC = new toolchains::Linux(*this, Target, Args);
+      break;
+    case llvm::Triple::NaCl:
+      TC = new toolchains::NaCl_TC(*this, Target, Args);
       break;
     case llvm::Triple::Solaris:
       TC = new toolchains::Solaris(*this, Target, Args);
@@ -2142,7 +2156,7 @@ bool Driver::GetReleaseVersion(const char *Str, unsigned &Major,
 
   Major = Minor = Micro = 0;
   if (*Str == '\0')
-    return true;
+    return false;
 
   char *End;
   Major = (unsigned) strtol(Str, &End, 10);

@@ -12,7 +12,7 @@ class CreateAfterAttachTestCase(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
     @dsym_test
     def test_create_after_attach_with_dsym(self):
         """Test thread creation after process attach."""
@@ -32,6 +32,7 @@ class CreateAfterAttachTestCase(TestBase):
     @skipIfFreeBSD # Hangs. Revisit once required functionality is implemented
                    # for FreeBSD.
     @dwarf_test
+    @expectedFailureLinux # this test fails 1/100 dosep runs
     def test_create_after_attach_with_dwarf_and_fork(self):
         """Test thread creation after process attach."""
         self.buildDwarf(dictionary=self.getBuildFlags(use_cpp11=False))

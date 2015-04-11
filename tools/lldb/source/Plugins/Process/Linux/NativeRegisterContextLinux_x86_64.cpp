@@ -9,6 +9,7 @@
 
 #include "NativeRegisterContextLinux_x86_64.h"
 
+#include "lldb/Core/Log.h"
 #include "lldb/lldb-private-forward.h"
 #include "lldb/Core/DataBufferHeap.h"
 #include "lldb/Core/Error.h"
@@ -18,6 +19,7 @@
 #include "Plugins/Process/Linux/NativeProcessLinux.h"
 
 using namespace lldb_private;
+using namespace lldb_private::process_linux;
 
 // ----------------------------------------------------------------------------
 // Private namespace.
@@ -408,7 +410,20 @@ NativeRegisterContextLinux_x86_64::GetRegisterSetCount () const
     return sets;
 }
 
-const lldb_private::RegisterSet *
+uint32_t
+NativeRegisterContextLinux_x86_64::GetUserRegisterCount() const
+{
+    uint32_t count = 0;
+    for (uint32_t set_index = 0; set_index < k_num_register_sets; ++set_index)
+    {
+        const RegisterSet* set = GetRegisterSet(set_index);
+        if (set)
+            count += set->num_registers;
+    }
+    return count;
+}
+
+const RegisterSet *
 NativeRegisterContextLinux_x86_64::GetRegisterSet (uint32_t set_index) const
 {
     if (!IsRegisterSetAvailable (set_index))
@@ -428,7 +443,7 @@ NativeRegisterContextLinux_x86_64::GetRegisterSet (uint32_t set_index) const
     return nullptr;
 }
 
-lldb_private::Error
+Error
 NativeRegisterContextLinux_x86_64::ReadRegisterRaw (uint32_t reg_index, RegisterValue &reg_value)
 {
     Error error;
@@ -454,7 +469,7 @@ NativeRegisterContextLinux_x86_64::ReadRegisterRaw (uint32_t reg_index, Register
                                         reg_value);
 }
 
-lldb_private::Error
+Error
 NativeRegisterContextLinux_x86_64::ReadRegister (const RegisterInfo *reg_info, RegisterValue &reg_value)
 {
     Error error;
@@ -565,7 +580,7 @@ NativeRegisterContextLinux_x86_64::ReadRegister (const RegisterInfo *reg_info, R
     return error;
 }
 
-lldb_private::Error
+Error
 NativeRegisterContextLinux_x86_64::WriteRegister(const uint32_t reg,
                                                  const RegisterValue &value)
 {
@@ -637,7 +652,7 @@ NativeRegisterContextLinux_x86_64::WriteRegister(const uint32_t reg,
                                          value_to_write);
 }
 
-lldb_private::Error
+Error
 NativeRegisterContextLinux_x86_64::WriteRegister (const RegisterInfo *reg_info, const RegisterValue &reg_value)
 {
     assert (reg_info && "reg_info is null");
@@ -708,7 +723,7 @@ NativeRegisterContextLinux_x86_64::WriteRegister (const RegisterInfo *reg_info, 
     return Error ("failed - register wasn't recognized to be a GPR or an FPR, write strategy unknown");
 }
 
-lldb_private::Error
+Error
 NativeRegisterContextLinux_x86_64::ReadAllRegisterValues (lldb::DataBufferSP &data_sp)
 {
     Error error;
@@ -769,7 +784,7 @@ NativeRegisterContextLinux_x86_64::ReadAllRegisterValues (lldb::DataBufferSP &da
     return error;
 }
 
-lldb_private::Error
+Error
 NativeRegisterContextLinux_x86_64::WriteAllRegisterValues (const lldb::DataBufferSP &data_sp)
 {
     Error error;
@@ -1033,39 +1048,61 @@ NativeRegisterContextLinux_x86_64::WriteGPR()
 }
 
 Error
-NativeRegisterContextLinux_x86_64::IsWatchpointHit(uint8_t wp_index)
+NativeRegisterContextLinux_x86_64::IsWatchpointHit(uint32_t wp_index, bool &is_hit)
 {
     if (wp_index >= NumSupportedHardwareWatchpoints())
-        return Error ("Watchpoint index out of range");
+        return Error("Watchpoint index out of range");
 
     RegisterValue reg_value;
-    Error error = ReadRegisterRaw(lldb_dr6_x86_64, reg_value);
-    if (error.Fail()) return error;
+    Error error = ReadRegisterRaw(m_reg_info.first_dr + 6, reg_value);
+    if (error.Fail())
+    {
+        is_hit = false;
+        return error;
+    }
 
     uint64_t status_bits = reg_value.GetAsUInt64();
 
-    bool is_hit = status_bits & (1 << wp_index);
-
-    error.SetError (!is_hit, lldb::eErrorTypeInvalid);
+    is_hit = status_bits & (1 << wp_index);
 
     return error;
 }
 
 Error
-NativeRegisterContextLinux_x86_64::IsWatchpointVacant(uint32_t wp_index)
+NativeRegisterContextLinux_x86_64::GetWatchpointHitIndex(uint32_t &wp_index) {
+    uint32_t num_hw_wps = NumSupportedHardwareWatchpoints();
+    for (wp_index = 0; wp_index < num_hw_wps; ++wp_index)
+    {
+        bool is_hit;
+        Error error = IsWatchpointHit(wp_index, is_hit);
+        if (error.Fail()) {
+            wp_index = LLDB_INVALID_INDEX32;
+            return error;
+        } else if (is_hit) {
+            return error;
+        }
+    }
+    wp_index = LLDB_INVALID_INDEX32;
+    return Error();
+}
+
+Error
+NativeRegisterContextLinux_x86_64::IsWatchpointVacant(uint32_t wp_index, bool &is_vacant)
 {
     if (wp_index >= NumSupportedHardwareWatchpoints())
         return Error ("Watchpoint index out of range");
 
     RegisterValue reg_value;
-    Error error = ReadRegisterRaw(lldb_dr7_x86_64, reg_value);
-    if (error.Fail()) return error;
+    Error error = ReadRegisterRaw(m_reg_info.first_dr + 7, reg_value);
+    if (error.Fail())
+    {
+        is_vacant = false;
+        return error;
+    }
 
     uint64_t control_bits = reg_value.GetAsUInt64();
 
-    bool is_vacant = !(control_bits & (1 << (2 * wp_index)));
-
-    error.SetError (!is_vacant, lldb::eErrorTypeInvalid);
+    is_vacant = !(control_bits & (1 << (2 * wp_index)));
 
     return error;
 }
@@ -1083,11 +1120,13 @@ NativeRegisterContextLinux_x86_64::SetHardwareWatchpointWithIndex(
     if (size != 1 && size != 2 && size != 4 && size != 8)
         return Error ("Invalid size for watchpoint");
 
-    Error error = IsWatchpointVacant (wp_index);
+    bool is_vacant;
+    Error error = IsWatchpointVacant (wp_index, is_vacant);
     if (error.Fail()) return error;
+    if (!is_vacant) return Error("Watchpoint index not vacant");
 
     RegisterValue reg_value;
-    error = ReadRegisterRaw(lldb_dr7_x86_64, reg_value);
+    error = ReadRegisterRaw(m_reg_info.first_dr + 7, reg_value);
     if (error.Fail()) return error;
 
     // for watchpoints 0, 1, 2, or 3, respectively,
@@ -1112,7 +1151,7 @@ NativeRegisterContextLinux_x86_64::SetHardwareWatchpointWithIndex(
     error = WriteRegister(m_reg_info.first_dr + wp_index, RegisterValue(addr));
     if (error.Fail()) return error;
 
-    error = WriteRegister(lldb_dr7_x86_64, RegisterValue(control_bits));
+    error = WriteRegister(m_reg_info.first_dr + 7, RegisterValue(control_bits));
     if (error.Fail()) return error;
 
     error.Clear();
@@ -1129,21 +1168,21 @@ NativeRegisterContextLinux_x86_64::ClearHardwareWatchpoint(uint32_t wp_index)
 
     // for watchpoints 0, 1, 2, or 3, respectively,
     // clear bits 0, 1, 2, or 3 of the debug status register (DR6)
-    Error error = ReadRegisterRaw(lldb_dr6_x86_64, reg_value);
+    Error error = ReadRegisterRaw(m_reg_info.first_dr + 6, reg_value);
     if (error.Fail()) return false;
     uint64_t bit_mask = 1 << wp_index;
     uint64_t status_bits = reg_value.GetAsUInt64() & ~bit_mask;
-    error = WriteRegister(lldb_dr6_x86_64, RegisterValue(status_bits));
+    error = WriteRegister(m_reg_info.first_dr + 6, RegisterValue(status_bits));
     if (error.Fail()) return false;
 
     // for watchpoints 0, 1, 2, or 3, respectively,
     // clear bits {0-1,16-19}, {2-3,20-23}, {4-5,24-27}, or {6-7,28-31}
     // of the debug control register (DR7)
-    error = ReadRegisterRaw(lldb_dr7_x86_64, reg_value);
+    error = ReadRegisterRaw(m_reg_info.first_dr + 7, reg_value);
     if (error.Fail()) return false;
     bit_mask = (0x3 << (2 * wp_index)) | (0xF << (16 + 4 * wp_index));
     uint64_t control_bits = reg_value.GetAsUInt64() & ~bit_mask;
-    return WriteRegister(lldb_dr7_x86_64, RegisterValue(control_bits)).Success();
+    return WriteRegister(m_reg_info.first_dr + 7, RegisterValue(control_bits)).Success();
 }
 
 Error
@@ -1152,33 +1191,43 @@ NativeRegisterContextLinux_x86_64::ClearAllHardwareWatchpoints()
     RegisterValue reg_value;
 
     // clear bits {0-4} of the debug status register (DR6)
-    Error error = ReadRegisterRaw(lldb_dr6_x86_64, reg_value);
+    Error error = ReadRegisterRaw(m_reg_info.first_dr + 6, reg_value);
     if (error.Fail()) return error;
     uint64_t bit_mask = 0xF;
     uint64_t status_bits = reg_value.GetAsUInt64() & ~bit_mask;
-    error = WriteRegister(lldb_dr6_x86_64, RegisterValue(status_bits));
+    error = WriteRegister(m_reg_info.first_dr + 6, RegisterValue(status_bits));
     if (error.Fail()) return error;
 
     // clear bits {0-7,16-31} of the debug control register (DR7)
-    error = ReadRegisterRaw(lldb_dr7_x86_64, reg_value);
+    error = ReadRegisterRaw(m_reg_info.first_dr + 7, reg_value);
     if (error.Fail()) return error;
     bit_mask = 0xFF | (0xFFFF << 16);
     uint64_t control_bits = reg_value.GetAsUInt64() & ~bit_mask;
-    return WriteRegister(lldb_dr7_x86_64, RegisterValue(control_bits));
+    return WriteRegister(m_reg_info.first_dr + 7, RegisterValue(control_bits));
 }
 
 uint32_t
 NativeRegisterContextLinux_x86_64::SetHardwareWatchpoint(
         lldb::addr_t addr, size_t size, uint32_t watch_flags)
 {
+    Log *log(GetLogIfAllCategoriesSet(LIBLLDB_LOG_WATCHPOINTS));
     const uint32_t num_hw_watchpoints = NumSupportedHardwareWatchpoints();
     for (uint32_t wp_index = 0; wp_index < num_hw_watchpoints; ++wp_index)
-        if (IsWatchpointVacant(wp_index).Success())
+    {
+        bool is_vacant;
+        Error error = IsWatchpointVacant(wp_index, is_vacant);
+        if (is_vacant)
         {
-            if (SetHardwareWatchpointWithIndex(addr, size, watch_flags, wp_index).Fail())
-                continue;
-            return wp_index;
+            error = SetHardwareWatchpointWithIndex(addr, size, watch_flags, wp_index);
+            if (error.Success())
+                return wp_index;
         }
+        if (error.Fail() && log)
+        {
+            log->Printf("NativeRegisterContextLinux_x86_64::%s Error: %s",
+                    __FUNCTION__, error.AsCString());
+        }
+    }
     return LLDB_INVALID_INDEX32;
 }
 

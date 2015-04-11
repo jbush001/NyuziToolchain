@@ -8,6 +8,7 @@ add_host_subdirectory(common
   common/File.cpp
   common/FileCache.cpp
   common/FileSpec.cpp
+  common/FileSystem.cpp
   common/Host.cpp
   common/HostInfoBase.cpp
   common/HostNativeThreadBase.cpp
@@ -63,6 +64,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Windows")
     windows/ProcessRunLock.cpp
     windows/ThisThread.cpp
     windows/Windows.cpp
+    windows/getopt/GetOptInc.cpp
     )
 else()
   add_host_subdirectory(posix
@@ -71,8 +73,13 @@ else()
     posix/HostProcessPosix.cpp
     posix/HostThreadPosix.cpp
     posix/PipePosix.cpp
-    posix/ProcessLauncherPosix.cpp
     )
+
+  if (NOT __ANDROID_NDK__)
+    add_host_subdirectory(posix
+      posix/ProcessLauncherPosix.cpp
+      )
+  endif()
 
   if (CMAKE_SYSTEM_NAME MATCHES "Darwin")
     include_directories(SYSTEM ${LIBXML2_INCLUDE_DIR})
@@ -93,6 +100,8 @@ else()
   elseif (CMAKE_SYSTEM_NAME MATCHES "Linux")
     if (__ANDROID_NDK__)
       add_host_subdirectory(android
+        android/HostInfoAndroid.cpp
+        android/ProcessLauncherAndroid.cpp
         linux/Host.cpp
         linux/HostInfoLinux.cpp
         linux/HostThreadLinux.cpp

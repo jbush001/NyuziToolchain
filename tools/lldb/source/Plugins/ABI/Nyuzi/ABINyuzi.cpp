@@ -212,8 +212,7 @@ ABINyuzi::CreateFunctionEntryUnwindPlan ( UnwindPlan &unwind_plan )
   UnwindPlan::RowSP row(new UnwindPlan::Row);
 
   // Our Call Frame Address is the stack pointer value
-  row->SetCFARegister(29);
-  row->SetCFAOffset(0);
+  row->GetCFAValue().SetIsRegisterPlusOffset(29, 0);
   row->SetOffset(0);
 
   // The previous PC is in the link
@@ -232,8 +231,7 @@ ABINyuzi::CreateDefaultUnwindPlan ( UnwindPlan &unwind_plan )
   unwind_plan.SetRegisterKind(eRegisterKindDWARF);
   UnwindPlan::RowSP row(new UnwindPlan::Row);
 
-  row->SetCFARegister(29);
-  row->SetCFAOffset(0);
+  row->GetCFAValue().SetIsRegisterPlusOffset(29, 0);
   row->SetOffset(0);
   row->SetRegisterLocationToRegister(31, 30, true);
 

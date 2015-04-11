@@ -120,7 +120,6 @@ HostInfoLinux::GetDistributionId()
 {
     // Try to run 'lbs_release -i', and use that response
     // for the distribution id.
-    static bool success = false;
     static std::once_flag g_once_flag;
     std::call_once(g_once_flag,  []() {
 
@@ -220,6 +219,17 @@ HostInfoLinux::GetProgramFileSpec()
     }
 
     return g_program_filespec;
+}
+
+bool
+HostInfoLinux::ComputeSupportExeDirectory(FileSpec &file_spec)
+{
+    if (HostInfoPosix::ComputeSupportExeDirectory(file_spec) &&
+            !file_spec.IsRelativeToCurrentWorkingDirectory() &&
+            file_spec.Exists())
+        return true;
+    file_spec.GetDirectory() = GetProgramFileSpec().GetDirectory();
+    return !file_spec.GetDirectory().IsEmpty();
 }
 
 bool

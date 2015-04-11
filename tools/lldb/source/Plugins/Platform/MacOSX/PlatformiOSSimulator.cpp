@@ -41,6 +41,8 @@ static uint32_t g_initialize_count = 0;
 void
 PlatformiOSSimulator::Initialize ()
 {
+    PlatformDarwin::Initialize ();
+
     if (g_initialize_count++ == 0)
     {
         PluginManager::RegisterPlugin (PlatformiOSSimulator::GetPluginNameStatic(),
@@ -59,6 +61,8 @@ PlatformiOSSimulator::Terminate ()
             PluginManager::UnregisterPlugin (PlatformiOSSimulator::CreateInstance);
         }
     }
+
+    PlatformDarwin::Terminate ();
 }
 
 PlatformSP
@@ -367,6 +371,7 @@ PlatformiOSSimulator::GetSymbolFile (const FileSpec &platform_file,
 
 Error
 PlatformiOSSimulator::GetSharedModule (const ModuleSpec &module_spec,
+                                       Process* process,
                                        ModuleSP &module_sp,
                                        const FileSpecList *module_search_paths_ptr,
                                        ModuleSP *old_module_sp_ptr,

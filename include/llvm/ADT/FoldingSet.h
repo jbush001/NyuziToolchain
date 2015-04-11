@@ -23,9 +23,6 @@
 #include "llvm/Support/DataTypes.h"
 
 namespace llvm {
-  class APFloat;
-  class APInt;
-
 /// This folding set used for two purposes:
 ///   1. Given information about a node we want to create, look up the unique
 ///      instance of the node in the set.  If the node already exists, return
@@ -110,6 +107,8 @@ class FoldingSetNodeID;
 /// back to the bucket to facilitate node removal.
 ///
 class FoldingSetImpl {
+  virtual void anchor(); // Out of line virtual method.
+
 protected:
   /// Buckets - Array of bucket chains.
   ///
@@ -123,10 +122,11 @@ protected:
   /// is greater than twice the number of buckets.
   unsigned NumNodes;
 
-public:
-  explicit FoldingSetImpl(unsigned Log2InitSize = 6);
-  virtual ~FoldingSetImpl();
+  ~FoldingSetImpl();
 
+  explicit FoldingSetImpl(unsigned Log2InitSize = 6);
+
+public:
   //===--------------------------------------------------------------------===//
   /// Node - This class is used to maintain the singly linked bucket list in
   /// a folding set.
@@ -393,7 +393,7 @@ DefaultContextualFoldingSetTrait<T, Ctx>::ComputeHash(T &X,
 /// implementation of the folding set to the node class T.  T must be a
 /// subclass of FoldingSetNode and implement a Profile function.
 ///
-template<class T> class FoldingSet : public FoldingSetImpl {
+template <class T> class FoldingSet final : public FoldingSetImpl {
 private:
   /// GetNodeProfile - Each instantiatation of the FoldingSet needs to provide a
   /// way to convert nodes into a unique specifier.
@@ -463,7 +463,7 @@ public:
 /// function with signature
 ///   void Profile(llvm::FoldingSetNodeID &, Ctx);
 template <class T, class Ctx>
-class ContextualFoldingSet : public FoldingSetImpl {
+class ContextualFoldingSet final : public FoldingSetImpl {
   // Unfortunately, this can't derive from FoldingSet<T> because the
   // construction vtable for FoldingSet<T> requires
   // FoldingSet<T>::GetNodeProfile to be instantiated, which in turn
@@ -695,31 +695,9 @@ template <typename T>
 class FoldingSetNodeWrapper : public FoldingSetNode {
   T data;
 public:
-  explicit FoldingSetNodeWrapper(const T &x) : data(x) {}
-  virtual ~FoldingSetNodeWrapper() {}
-
-  template<typename A1>
-  explicit FoldingSetNodeWrapper(const A1 &a1)
-    : data(a1) {}
-
-  template <typename A1, typename A2>
-  explicit FoldingSetNodeWrapper(const A1 &a1, const A2 &a2)
-    : data(a1,a2) {}
-
-  template <typename A1, typename A2, typename A3>
-  explicit FoldingSetNodeWrapper(const A1 &a1, const A2 &a2, const A3 &a3)
-    : data(a1,a2,a3) {}
-
-  template <typename A1, typename A2, typename A3, typename A4>
-  explicit FoldingSetNodeWrapper(const A1 &a1, const A2 &a2, const A3 &a3,
-                                 const A4 &a4)
-    : data(a1,a2,a3,a4) {}
-
-  template <typename A1, typename A2, typename A3, typename A4, typename A5>
-  explicit FoldingSetNodeWrapper(const A1 &a1, const A2 &a2, const A3 &a3,
-                                 const A4 &a4, const A5 &a5)
-  : data(a1,a2,a3,a4,a5) {}
-
+  template <typename... Ts>
+  explicit FoldingSetNodeWrapper(Ts &&... Args)
+      : data(std::forward<Ts>(Args)...) {}
 
   void Profile(FoldingSetNodeID &ID) { FoldingSetTrait<T>::Profile(data, ID); }
 

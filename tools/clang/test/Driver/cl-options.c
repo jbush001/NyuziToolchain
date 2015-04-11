@@ -30,6 +30,24 @@
 // EP: "-P"
 // EP: "-o" "-"
 
+// RUN: %clang_cl /fp:fast /fp:except -### -- %s 2>&1 | FileCheck -check-prefix=fpexcept %s
+// fpexcept-NOT: -menable-unsafe-fp-math
+
+// RUN: %clang_cl /fp:fast /fp:except /fp:except- -### -- %s 2>&1 | FileCheck -check-prefix=fpexcept_ %s
+// fpexcept_: -menable-unsafe-fp-math
+
+// RUN: %clang_cl /fp:precise /fp:fast -### -- %s 2>&1 | FileCheck -check-prefix=fpfast %s
+// fpfast: -menable-unsafe-fp-math
+// fpfast: -ffast-math
+
+// RUN: %clang_cl /fp:fast /fp:precise -### -- %s 2>&1 | FileCheck -check-prefix=fpprecise %s
+// fpprecise-NOT: -menable-unsafe-fp-math
+// fpprecise-NOT: -ffast-math
+
+// RUN: %clang_cl /fp:fast /fp:strict -### -- %s 2>&1 | FileCheck -check-prefix=fpstrict %s
+// fpstrict-NOT: -menable-unsafe-fp-math
+// fpstrict-NOT: -ffast-math
+
 // RTTI is on by default; just check that we don't error.
 // RUN: %clang_cl /Zs /GR -- %s 2>&1
 
@@ -123,6 +141,12 @@
 // RUN: %clang_cl /vmg /vmm /vms -### -- %s 2>&1 | FileCheck -check-prefix=VMX %s
 // VMX: '/vms' not allowed with '/vmm'
 
+// RUN: %clang_cl /volatile:iso -### -- %s 2>&1 | FileCheck -check-prefix=VOLATILE-ISO %s
+// VOLATILE-ISO-NOT: "-fms-volatile"
+
+// RUN: %clang_cl /volatile:ms -### -- %s 2>&1 | FileCheck -check-prefix=VOLATILE-MS %s
+// VOLATILE-MS: "-fms-volatile"
+
 // RUN: %clang_cl /W0 -### -- %s 2>&1 | FileCheck -check-prefix=W0 %s
 // W0: -w
 
@@ -171,18 +195,19 @@
 // NOSTRICT: "-relaxed-aliasing"
 
 // For some warning ids, we can map from MSVC warning to Clang warning.
-// RUN: %clang_cl -wd4005 -### -- %s 2>&1 | FileCheck -check-prefix=wd4005 %s
-// wd4005: "-cc1"
-// wd4005: "-Wno-macro-redefined"
+// RUN: %clang_cl -wd4005 -wd4996 -### -- %s 2>&1 | FileCheck -check-prefix=Wno %s
+// Wno: "-cc1"
+// Wno: "-Wno-macro-redefined"
+// Wno: "-Wno-deprecated-declarations"
 
 // Ignored options. Check that we don't get "unused during compilation" errors.
-// (/Zs is for syntax-only)
-// RUN: %clang_cl /Zs \
+// RUN: %clang_cl /c \
 // RUN:    /analyze- \
 // RUN:    /cgthreads4 \
 // RUN:    /cgthreads8 \
 // RUN:    /d2Zi+ \
 // RUN:    /errorReport:foo \
+// RUN:    /Fdfoo \
 // RUN:    /FS \
 // RUN:    /Gd \
 // RUN:    /GF \
@@ -191,6 +216,7 @@
 // RUN:    /nologo \
 // RUN:    /Ob1 \
 // RUN:    /Ob2 \
+// RUN:    /openmp- \
 // RUN:    /RTC1 \
 // RUN:    /sdl \
 // RUN:    /sdl- \
@@ -203,6 +229,8 @@
 // RUN:    -### -- %s 2>&1 | FileCheck -check-prefix=IGNORED %s
 // IGNORED-NOT: argument unused during compilation
 // IGNORED-NOT: no such file or directory
+// Don't confuse /openmp- with the /o flag:
+// IGNORED-NOT: "-o" "penmp-.obj"
 
 // Ignored options and compile-only options are ignored for link jobs.
 // RUN: touch %t.obj
@@ -230,11 +258,9 @@
 // RUN:     /FAu \
 // RUN:     /favor:blend \
 // RUN:     /FC \
-// RUN:     /Fdfoo \
 // RUN:     /Fifoo \
 // RUN:     /Fmfoo \
 // RUN:     /FpDebug\main.pch \
-// RUN:     /fp:precise \
 // RUN:     /Frfoo \
 // RUN:     /FRfoo \
 // RUN:     /FU foo \
@@ -307,6 +333,14 @@
 // RUN: %clang_cl /c /GR -### -- %s 2>&1 | FileCheck -check-prefix=RTTI %s
 // RTTI-NOT: "-fno-rtti-data"
 // RTTI-NOT: "-fno-rtti"
+
+// thread safe statics are off for versions < 19.
+// RUN: %clang_cl /c -### -- %s 2>&1 | FileCheck -check-prefix=NoThreadSafeStatics %s
+// RUN: %clang_cl /Zc:threadSafeInit /Zc:threadSafeInit- /c -### -- %s 2>&1 | FileCheck -check-prefix=NoThreadSafeStatics %s
+// NoThreadSafeStatics: "-fno-threadsafe-statics"
+
+// RUN: %clang_cl /Zc:threadSafeInit /c -### -- %s 2>&1 | FileCheck -check-prefix=ThreadSafeStatics %s
+// ThreadSafeStatics-NOT: "-fno-threadsafe-statics"
 
 // Accept "core" clang options.
 // (/Zs is for syntax-only)

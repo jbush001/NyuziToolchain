@@ -20,13 +20,13 @@ namespace lldb {
 
 class SBEvent;
 
-class SBProcess
+class LLDB_API SBProcess
 {
 public:
     //------------------------------------------------------------------
     /// Broadcaster event bits definitions.
     //------------------------------------------------------------------
-    enum
+    FLAGS_ANONYMOUS_ENUM()
     {
         eBroadcastBitStateChanged   = (1 << 0),
         eBroadcastBitInterrupt      = (1 << 1),

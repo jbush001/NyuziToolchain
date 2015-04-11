@@ -362,8 +362,7 @@ public:
                          llvm::opt::ArgStringList &CmdArgs) const override;
 
   bool isKernelStatic() const override {
-    return !isTargetIPhoneOS() || isIPhoneOSVersionLT(6, 0) ||
-           getTriple().getArch() == llvm::Triple::aarch64;
+    return !isTargetIPhoneOS() || isIPhoneOSVersionLT(6, 0);
   }
 
 protected:
@@ -495,6 +494,11 @@ public:
   AddLinkARCArgs(const llvm::opt::ArgList &Args,
                  llvm::opt::ArgStringList &CmdArgs) const override;
   /// }
+
+private:
+  void AddLinkSanitizerLibArgs(const llvm::opt::ArgList &Args,
+                               llvm::opt::ArgStringList &CmdArgs,
+                               StringRef Sanitizer) const;
 };
 
 class LLVM_LIBRARY_VISIBILITY Generic_ELF : public Generic_GCC {
@@ -506,6 +510,31 @@ public:
 
   void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
                              llvm::opt::ArgStringList &CC1Args) const override;
+};
+
+class LLVM_LIBRARY_VISIBILITY CloudABI : public Generic_ELF {
+public:
+  CloudABI(const Driver &D, const llvm::Triple &Triple,
+           const llvm::opt::ArgList &Args);
+  bool HasNativeLLVMSupport() const override { return true; }
+
+  bool IsMathErrnoDefault() const override { return false; }
+  bool IsObjCNonFragileABIDefault() const override { return true; }
+
+  CXXStdlibType GetCXXStdlibType(const llvm::opt::ArgList &Args)
+      const override {
+    return ToolChain::CST_Libcxx;
+  }
+  void AddClangCXXStdlibIncludeArgs(
+      const llvm::opt::ArgList &DriverArgs,
+      llvm::opt::ArgStringList &CC1Args) const override;
+  void AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
+                           llvm::opt::ArgStringList &CmdArgs) const override;
+
+  bool isPIEDefault() const override { return false; }
+
+protected:
+  Tool *buildLinker() const override;
 };
 
 class LLVM_LIBRARY_VISIBILITY Solaris : public Generic_GCC {
@@ -686,6 +715,45 @@ public:
                                const llvm::opt::ArgList &Args);
 
   static StringRef GetTargetCPU(const llvm::opt::ArgList &Args);
+};
+
+class LLVM_LIBRARY_VISIBILITY NaCl_TC : public Generic_ELF {
+public:
+  NaCl_TC(const Driver &D, const llvm::Triple &Triple,
+          const llvm::opt::ArgList &Args);
+
+  void
+  AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
+                            llvm::opt::ArgStringList &CC1Args) const override;
+  void
+  AddClangCXXStdlibIncludeArgs(const llvm::opt::ArgList &DriverArgs,
+                               llvm::opt::ArgStringList &CC1Args) const override;
+
+  CXXStdlibType
+  GetCXXStdlibType(const llvm::opt::ArgList &Args) const override;
+
+  void
+  AddCXXStdlibLibArgs(const llvm::opt::ArgList &Args,
+                      llvm::opt::ArgStringList &CmdArgs) const override;
+
+  bool
+  IsIntegratedAssemblerDefault() const override { return false; }
+
+  // Get the path to the file containing NaCl's ARM macros. It lives in NaCl_TC
+  // because the AssembleARM tool needs a const char * that it can pass around
+  // and the toolchain outlives all the jobs.
+  const char *GetNaClArmMacrosPath() const { return NaClArmMacrosPath.c_str(); }
+
+  std::string ComputeEffectiveClangTriple(const llvm::opt::ArgList &Args,
+                                          types::ID InputType) const override;
+  std::string Linker;
+
+protected:
+  Tool *buildLinker() const override;
+  Tool *buildAssembler() const override;
+
+private:
+  std::string NaClArmMacrosPath;
 };
 
 /// TCEToolChain - A tool chain using the llvm bitcode tools to perform

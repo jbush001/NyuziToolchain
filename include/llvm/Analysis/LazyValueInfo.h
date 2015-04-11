@@ -29,12 +29,11 @@ namespace llvm {
 /// This pass computes, caches, and vends lazy value constraint information.
 class LazyValueInfo : public FunctionPass {
   AssumptionCache *AC;
-  const DataLayout *DL;
   class TargetLibraryInfo *TLI;
   DominatorTree *DT;
   void *PImpl;
-  LazyValueInfo(const LazyValueInfo&) LLVM_DELETED_FUNCTION;
-  void operator=(const LazyValueInfo&) LLVM_DELETED_FUNCTION;
+  LazyValueInfo(const LazyValueInfo&) = delete;
+  void operator=(const LazyValueInfo&) = delete;
 public:
   static char ID;
   LazyValueInfo() : FunctionPass(ID), PImpl(nullptr) {

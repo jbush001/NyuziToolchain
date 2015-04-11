@@ -15,22 +15,22 @@ class LaunchInTerminalTestCase(TestBase):
     # Darwin is the only platform that I know of that supports optionally launching
     # a program in a separate terminal window. It would be great if other platforms
     # added support for this.
-    @unittest2.skipUnless(sys.platform.startswith("darwin"), "requires Darwin")
+    @skipUnlessDarwin
 
 
     # If the test is being run under sudo, the spawned terminal won't retain that elevated
     # privilege so it can't open the socket to talk back to the test case
     @unittest2.skipUnless(os.geteuid() != 0, "test cannot be run as root")
 
-    # Do we need to disable this test if the testsuite is being run on a rmeote system?
+    # Do we need to disable this test if the testsuite is being run on a remote system?
     # This env var is only defined when the shell is running in a local mac terminal window
-    # @unittest2.skipUnless(os.environ.has_key('TERM_PROGRAM'), "test must be run on local system")
+    @unittest2.skipUnless(os.environ.has_key('TERM_PROGRAM'), "test must be run on local system")
 
     def test_launch_in_terminal (self):
         exe = "/bin/ls"
         target = self.dbg.CreateTarget(exe)
         launch_info = lldb.SBLaunchInfo(["-lAF", "/tmp/"])
-        launch_info.SetLaunchFlags(lldb.eLaunchFlagLaunchInTTY)
+        launch_info.SetLaunchFlags(lldb.eLaunchFlagLaunchInTTY | lldb.eLaunchFlagCloseTTYOnExit)
         error = lldb.SBError()
         process = target.Launch (launch_info, error)
         self.assertTrue(error.Success(), "Make sure launch happened successfully in a terminal window")

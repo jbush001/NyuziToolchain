@@ -43,7 +43,8 @@ NyuziRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
 }
 
 const uint32_t *
-NyuziRegisterInfo::getCallPreservedMask(CallingConv::ID) const {
+NyuziRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
+                                        CallingConv::ID) const {
   return NyuziCSR_RegMask;
 }
 
@@ -112,7 +113,7 @@ void NyuziRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBBI,
     DebugLoc DL = MBBI->getDebugLoc();
     MachineBasicBlock &MBB = *MBBI->getParent();
     const NyuziInstrInfo &TII =
-        *static_cast<const NyuziInstrInfo*>(MBB.getParent()->getTarget().getSubtargetImpl()->getInstrInfo());
+        *static_cast<const NyuziInstrInfo*>(Subtarget.getInstrInfo());
 
     MachineRegisterInfo &RegInfo = MBB.getParent()->getRegInfo();
     unsigned Reg = RegInfo.createVirtualRegister(&Nyuzi::GPR32RegClass);

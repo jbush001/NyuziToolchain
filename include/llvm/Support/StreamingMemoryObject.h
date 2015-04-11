@@ -14,7 +14,6 @@
 #include "llvm/Support/DataStream.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MemoryObject.h"
-#include <cassert>
 #include <memory>
 #include <vector>
 
@@ -81,8 +80,8 @@ private:
     return Pos < BytesRead;
   }
 
-  StreamingMemoryObject(const StreamingMemoryObject&) LLVM_DELETED_FUNCTION;
-  void operator=(const StreamingMemoryObject&) LLVM_DELETED_FUNCTION;
+  StreamingMemoryObject(const StreamingMemoryObject&) = delete;
+  void operator=(const StreamingMemoryObject&) = delete;
 };
 
 MemoryObject *getNonStreamedMemoryObject(

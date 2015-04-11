@@ -19,6 +19,6 @@ add_subdirectory(Mips)
 add_subdirectory(X86)
 add_subdirectory(Nyuzi)
 
-target_link_libraries(MCLDTarget ${cmake_2_8_12_PRIVATE}
+target_link_libraries(MCLDTarget PRIVATE
   MCLDLD
   )

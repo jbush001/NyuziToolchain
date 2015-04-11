@@ -21,12 +21,14 @@
 #include "lldb/Breakpoint/BreakpointLocation.h"
 #include "lldb/Host/StringConvert.h"
 #include "lldb/Interpreter/Options.h"
+#include "lldb/Interpreter/OptionValueBoolean.h"
 #include "lldb/Interpreter/OptionValueString.h"
 #include "lldb/Interpreter/OptionValueUInt64.h"
 #include "lldb/Core/RegularExpression.h"
 #include "lldb/Core/StreamString.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
 #include "lldb/Interpreter/CommandReturnObject.h"
+#include "lldb/Target/LanguageRuntime.h"
 #include "lldb/Target/Target.h"
 #include "lldb/Interpreter/CommandCompletions.h"
 #include "lldb/Target/StackFrame.h"
@@ -112,7 +114,8 @@ public:
             m_hardware (false),
             m_language (eLanguageTypeUnknown),
             m_skip_prologue (eLazyBoolCalculate),
-            m_one_shot (false)
+            m_one_shot (false),
+            m_all_files (false)
         {
         }
 
@@ -135,15 +138,23 @@ public:
                     }
                     break;
 
+                case 'A':
+                    m_all_files = true;
+                    break;
+
                 case 'b':
                     m_func_names.push_back (option_arg);
                     m_func_name_type_mask |= eFunctionNameTypeBase;
                     break;
 
                 case 'C':
-                    m_column = StringConvert::ToUInt32 (option_arg, 0);
+                {
+                    bool success;
+                    m_column = StringConvert::ToUInt32 (option_arg, 0, 0, &success);
+                    if (!success)
+                        error.SetErrorStringWithFormat("invalid column number: %s", option_arg);
                     break;
-
+                }
                 case 'c':
                     m_condition.assign(option_arg);
                     break;
@@ -231,9 +242,13 @@ public:
                 break;
 
                 case 'l':
-                    m_line_num = StringConvert::ToUInt32 (option_arg, 0);
+                {
+                    bool success;
+                    m_line_num = StringConvert::ToUInt32 (option_arg, 0, 0, &success);
+                    if (!success)
+                        error.SetErrorStringWithFormat ("invalid line number: %s.", option_arg);
                     break;
-
+                }
                 case 'M':
                     m_func_names.push_back (option_arg);
                     m_func_name_type_mask |= eFunctionNameTypeMethod;
@@ -339,6 +354,7 @@ public:
             m_one_shot = false;
             m_use_dummy = false;
             m_breakpoint_names.clear();
+            m_all_files = false;
         }
     
         const OptionDefinition*
@@ -376,6 +392,7 @@ public:
         LazyBool m_skip_prologue;
         bool m_one_shot;
         bool m_use_dummy;
+        bool m_all_files;
 
     };
 
@@ -505,7 +522,7 @@ protected:
                 {
                     const size_t num_files = m_options.m_filenames.GetSize();
                     
-                    if (num_files == 0)
+                    if (num_files == 0 && !m_options.m_all_files)
                     {
                         FileSpec file;
                         if (!GetDefaultFile (target, file, result))
@@ -728,6 +745,9 @@ CommandObjectBreakpointSet::CommandOptions::g_option_table[] =
         "Set the breakpoint by specifying a regular expression which is matched against the source text in a source file or files "
         "specified with the -f option.  The -f option can be specified more than once.  "
         "If no source files are specified, uses the current \"default source file\"" },
+
+    { LLDB_OPT_SET_9, false, "all-files", 'A', OptionParser::eNoArgument,   NULL, NULL, 0, eArgTypeNone,
+        "All files are searched for source pattern matches." },
 
     { LLDB_OPT_SET_10, true, "language-exception", 'E', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypeLanguage,
         "Set the breakpoint on exceptions thrown by the specified language (without options, on throw but not catch.)" },
@@ -1940,15 +1960,15 @@ public:
         {
         case 'N':
             if (BreakpointID::StringIsBreakpointName(option_value, error) && error.Success())
-                m_name.SetValueFromCString(option_value);
+                m_name.SetValueFromString(option_value);
             break;
           
         case 'B':
-            if (m_breakpoint.SetValueFromCString(option_value).Fail())
+            if (m_breakpoint.SetValueFromString(option_value).Fail())
                 error.SetErrorStringWithFormat ("unrecognized value \"%s\" for breakpoint", option_value);
             break;
         case 'D':
-            if (m_use_dummy.SetValueFromCString(option_value).Fail())
+            if (m_use_dummy.SetValueFromString(option_value).Fail())
                 error.SetErrorStringWithFormat ("unrecognized value \"%s\" for use-dummy", option_value);
             break;
 
@@ -2187,7 +2207,6 @@ public:
     return &m_option_group;
   }
   
-protected:
 protected:
     virtual bool
     DoExecute (Args& command, CommandReturnObject &result)
