@@ -2009,7 +2009,8 @@ static void addExceptionArgs(const ArgList &Args, types::ID InputType,
 
   if (types::isCXX(InputType)) {
     bool CXXExceptionsEnabled =
-        Triple.getArch() != llvm::Triple::xcore && !Triple.isPS4CPU();
+        Triple.getArch() != llvm::Triple::xcore && !Triple.isPS4CPU()
+		&& Triple.getArch() != llvm::Triple::nyuzi;
     Arg *ExceptionArg = Args.getLastArg(
         options::OPT_fcxx_exceptions, options::OPT_fno_cxx_exceptions,
         options::OPT_fexceptions, options::OPT_fno_exceptions);
