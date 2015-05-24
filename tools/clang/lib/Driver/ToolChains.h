@@ -775,12 +775,13 @@ public:
   NyuziToolChain(const Driver &D, const llvm::Triple &Triple,
                       const llvm::opt::ArgList &Args);
   ~NyuziToolChain();
-  virtual bool IsIntegratedAssemblerDefault() const override;
-  virtual bool isPICDefault() const override;
-  virtual bool isPIEDefault() const override;
-  virtual bool isPICDefaultForced() const override;
-  virtual void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
+  bool IsIntegratedAssemblerDefault() const override;
+  bool isPICDefault() const override;
+  bool isPIEDefault() const override;
+  bool isPICDefaultForced() const override;
+  void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
      tools::ArgStringList &CC1Args) const override;
+  bool IsUnwindTablesDefault() const override;
 
 protected:
    virtual Tool *buildLinker() const;

@@ -2349,6 +2349,11 @@ void NyuziToolChain::addClangTargetOptions(const ArgList &DriverArgs,
   }
 }
 
+// Emit .eh_frame to allow stack unwinding.
+bool NyuziToolChain::IsUnwindTablesDefault() const {
+	return true;
+}
+
 Tool *NyuziToolChain::buildLinker() const {
   return new tools::Nyuzi::Link(*this);
 }
