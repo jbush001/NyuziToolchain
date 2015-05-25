@@ -213,14 +213,12 @@ ABINyuzi::CreateFunctionEntryUnwindPlan ( UnwindPlan &unwind_plan )
 
   // Our Call Frame Address is the stack pointer value
   row->GetCFAValue().SetIsRegisterPlusOffset(29, 0);
-  row->SetOffset(0);
 
-  // The previous PC is in the link
-  row->SetRegisterLocationToRegister(31, 30, true);
   unwind_plan.AppendRow(row);
   
   unwind_plan.SetSourceName("nyuzi at-func-entry default");
   unwind_plan.SetSourcedFromCompiler(eLazyBoolNo);
+  unwind_plan.SetReturnAddressRegister(30);
   return true;
 }
 
@@ -232,13 +230,12 @@ ABINyuzi::CreateDefaultUnwindPlan ( UnwindPlan &unwind_plan )
   UnwindPlan::RowSP row(new UnwindPlan::Row);
 
   row->GetCFAValue().SetIsRegisterPlusOffset(29, 0);
-  row->SetOffset(0);
-  row->SetRegisterLocationToRegister(31, 30, true);
 
   unwind_plan.AppendRow(row);
   unwind_plan.SetSourceName("nyuzi default unwind plan");
   unwind_plan.SetSourcedFromCompiler(eLazyBoolNo);
 	unwind_plan.SetUnwindPlanValidAtAllInstructions(eLazyBoolNo);
+  unwind_plan.SetReturnAddressRegister(30);
   return true;
 }
 
