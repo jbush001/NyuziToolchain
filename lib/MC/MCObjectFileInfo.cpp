@@ -257,6 +257,9 @@ void MCObjectFileInfo::InitELFMCObjectFileInfo(Triple T) {
                                                     : dwarf::DW_EH_PE_sdata4);
 
     break;
+  case Triple::nyuzi:
+    FDECFIEncoding = dwarf::DW_EH_PE_sdata4;
+	break;
   default:
     FDECFIEncoding = dwarf::DW_EH_PE_pcrel | dwarf::DW_EH_PE_sdata4;
     break;
@@ -376,6 +379,11 @@ void MCObjectFileInfo::InitELFMCObjectFileInfo(Triple T) {
       LSDAEncoding = dwarf::DW_EH_PE_absptr;
       TTypeEncoding = dwarf::DW_EH_PE_absptr;
     }
+    break;
+  case Triple::nyuzi:
+    PersonalityEncoding = dwarf::DW_EH_PE_absptr;
+    LSDAEncoding = dwarf::DW_EH_PE_absptr;
+    TTypeEncoding = dwarf::DW_EH_PE_absptr;
     break;
   default:
     break;
