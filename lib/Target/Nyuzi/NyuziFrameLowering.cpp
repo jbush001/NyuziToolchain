@@ -44,7 +44,7 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF) const {
   MachineBasicBlock::iterator MBBI = MBB.begin();
   DebugLoc DL = MBBI != MBB.end() ? MBBI->getDebugLoc() : DebugLoc();
 
-  // Compute stack size. Allocate space, keeping SP 64 byte aligned so we
+  // Compute stack size to allocate, keeping SP 64 byte aligned so we
   // can do block vector load/stores
   int StackSize = RoundUpToAlignment(MFI->getStackSize(), getStackAlignment()); 
 
@@ -53,9 +53,9 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF) const {
 
   TII.adjustStackPointer(MBB, MBBI, -StackSize);
 
-  // emit ".cfi_def_cfa_offset StackSize" (debug information)
+  // Emit DW_CFA_def_cfa 
   unsigned CFIIndex = MMI.addFrameInst(
-      MCCFIInstruction::createDefCfaOffset(nullptr, -StackSize));
+      MCCFIInstruction::createDefCfa(nullptr, MRI->getDwarfRegNum(Nyuzi::SP_REG, true), -StackSize));
   BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))
       .addCFIIndex(CFIIndex);
 
@@ -86,6 +86,7 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF) const {
         .addReg(Nyuzi::SP_REG);
 
     // emit ".cfi_def_cfa_register $fp" (debug information)
+    // XXX should this replace the CFA_def_cfa instruction above?
     unsigned CFIIndex = MMI.addFrameInst(MCCFIInstruction::createDefCfaRegister(
         nullptr, MRI->getDwarfRegNum(Nyuzi::FP_REG, true)));
     BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))

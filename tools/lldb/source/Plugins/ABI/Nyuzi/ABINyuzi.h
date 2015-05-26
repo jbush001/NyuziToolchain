@@ -71,7 +71,7 @@ public:
     CallFrameAddressIsValid ( lldb::addr_t cfa )
     {
         // Make sure the stack call frame addresses are 64 byte aligned
-        if (cfa & 0x63)
+        if (cfa & 63)
             return false;   // Not 64 byte aligned
         if (cfa == 0)
             return false;   // Zero is not a valid stack address

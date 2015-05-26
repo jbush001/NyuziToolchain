@@ -66,10 +66,10 @@ static RegisterInfo g_register_infos[] =
     { "s25"   , "", 4, 0, eEncodingUint, eFormatAddressInfo, { 25, 25, LLDB_INVALID_REGNUM,    25, 25 }, NULL, NULL },
     { "s26"   , "", 4, 0, eEncodingUint, eFormatAddressInfo, { 26, 26, LLDB_INVALID_REGNUM,    26, 26 }, NULL, NULL },
     { "s27"   , "", 4, 0, eEncodingUint, eFormatAddressInfo, { 27, 27, LLDB_INVALID_REGNUM,    27, 27 }, NULL, NULL },
-    { "fp"  ,"r28", 4, 0, eEncodingUint, eFormatAddressInfo, { 30, 30, LLDB_REGNUM_GENERIC_FP, 30, 30 }, NULL, NULL },
+    { "fp"  ,"r28", 4, 0, eEncodingUint, eFormatAddressInfo, { 28, 28, LLDB_REGNUM_GENERIC_FP, 28, 28 }, NULL, NULL },
     { "sp"  ,"r29", 4, 0, eEncodingUint, eFormatAddressInfo, { 29, 29, LLDB_REGNUM_GENERIC_SP, 29, 29 }, NULL, NULL },
-    { "link","r30", 4, 0, eEncodingUint, eFormatAddressInfo, { 31, 31, LLDB_REGNUM_GENERIC_RA, 31, 31 }, NULL, NULL },
-    { "lr"  ,"r31", 4, 0, eEncodingUint, eFormatAddressInfo, { 31, 31, LLDB_REGNUM_GENERIC_PC, 31, 31 }, NULL, NULL },
+    { "link","r30", 4, 0, eEncodingUint, eFormatAddressInfo, { 30, 30, LLDB_REGNUM_GENERIC_RA, 30, 30 }, NULL, NULL },
+    { "pc"  ,"r31", 4, 0, eEncodingUint, eFormatAddressInfo, { 31, 31, LLDB_REGNUM_GENERIC_PC, 31, 31 }, NULL, NULL },
 	{ "v00"   , "", 64, 0, eEncodingUint, eFormatAddressInfo, { 32, 32, LLDB_INVALID_REGNUM,    32, 32 }, NULL, NULL },
 	{ "v01"   , "", 64, 0, eEncodingUint, eFormatAddressInfo, { 33, 33, LLDB_INVALID_REGNUM,    33, 33 }, NULL, NULL },
 	{ "v02"   , "", 64, 0, eEncodingUint, eFormatAddressInfo, { 34, 34, LLDB_INVALID_REGNUM,    34, 34 }, NULL, NULL },
@@ -207,7 +207,7 @@ ABINyuzi::CreateFunctionEntryUnwindPlan ( UnwindPlan &unwind_plan )
 {
   unwind_plan.Clear();
   unwind_plan.SetRegisterKind(eRegisterKindDWARF);
-  unwind_plan.SetReturnAddressRegister(LLDB_REGNUM_GENERIC_RA);
+  unwind_plan.SetReturnAddressRegister(30);
   
   UnwindPlan::RowSP row(new UnwindPlan::Row);
 
@@ -218,7 +218,6 @@ ABINyuzi::CreateFunctionEntryUnwindPlan ( UnwindPlan &unwind_plan )
   
   unwind_plan.SetSourceName("nyuzi at-func-entry default");
   unwind_plan.SetSourcedFromCompiler(eLazyBoolNo);
-  unwind_plan.SetReturnAddressRegister(30);
   return true;
 }
 
@@ -227,6 +226,7 @@ ABINyuzi::CreateDefaultUnwindPlan ( UnwindPlan &unwind_plan )
 {
   unwind_plan.Clear();
   unwind_plan.SetRegisterKind(eRegisterKindDWARF);
+  unwind_plan.SetReturnAddressRegister(30);
   UnwindPlan::RowSP row(new UnwindPlan::Row);
 
   row->GetCFAValue().SetIsRegisterPlusOffset(29, 0);
@@ -235,7 +235,6 @@ ABINyuzi::CreateDefaultUnwindPlan ( UnwindPlan &unwind_plan )
   unwind_plan.SetSourceName("nyuzi default unwind plan");
   unwind_plan.SetSourcedFromCompiler(eLazyBoolNo);
 	unwind_plan.SetUnwindPlanValidAtAllInstructions(eLazyBoolNo);
-  unwind_plan.SetReturnAddressRegister(30);
   return true;
 }
 

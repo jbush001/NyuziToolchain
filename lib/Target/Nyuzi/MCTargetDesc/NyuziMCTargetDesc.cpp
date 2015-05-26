@@ -42,7 +42,7 @@ static MCInstrInfo *createNyuziMCInstrInfo() {
 
 static MCRegisterInfo *createNyuziMCRegisterInfo(StringRef TT) {
   MCRegisterInfo *X = new MCRegisterInfo();
-  InitNyuziMCRegisterInfo(X, Nyuzi::FP_REG);
+  InitNyuziMCRegisterInfo(X, Nyuzi::RA_REG);
   return X;
 }
 
