@@ -164,7 +164,11 @@ ABINyuzi::PrepareTrivialCall ( Thread &thread,
 bool
 ABINyuzi::GetArgumentValues ( Thread &thread, ValueList &values ) const
 {
-	// XXX implement me
+  printf("ABINyuzi::GetArgumentValues %d\n", values.GetSize());
+
+  assert(0);
+
+
   return false;
 }
 
@@ -177,17 +181,6 @@ ABINyuzi::SetReturnValueObject ( lldb::StackFrameSP &frame_sp, lldb::ValueObject
 	assert(0);
 
   return error;
-}
-
-ValueObjectSP
-ABINyuzi::GetReturnValueObjectSimple ( Thread &thread, ClangASTType &return_clang_type ) const
-{
-  ValueObjectSP return_valobj_sp;
-
-	// XXX implement me
-	assert(0);
-
-  return return_valobj_sp;
 }
 
 ValueObjectSP
