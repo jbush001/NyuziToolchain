@@ -55,7 +55,7 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF) const {
 
   // Emit DW_CFA_def_cfa 
   unsigned CFIIndex = MMI.addFrameInst(
-      MCCFIInstruction::createDefCfa(nullptr, MRI->getDwarfRegNum(Nyuzi::SP_REG, true), -StackSize));
+      MCCFIInstruction::createDefCfaOffset(nullptr, -StackSize));
   BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))
       .addCFIIndex(CFIIndex);
 
@@ -86,7 +86,6 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF) const {
         .addReg(Nyuzi::SP_REG);
 
     // emit ".cfi_def_cfa_register $fp" (debug information)
-    // XXX should this replace the CFA_def_cfa instruction above?
     unsigned CFIIndex = MMI.addFrameInst(MCCFIInstruction::createDefCfaRegister(
         nullptr, MRI->getDwarfRegNum(Nyuzi::FP_REG, true)));
     BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))

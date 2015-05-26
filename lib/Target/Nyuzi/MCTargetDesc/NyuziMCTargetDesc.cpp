@@ -64,7 +64,13 @@ static MCCodeGenInfo *createNyuziMCCodeGenInfo(StringRef TT,
 
 static MCAsmInfo *createNyuziMCAsmInfo(const MCRegisterInfo &MRI,
                                             StringRef TT) {
-  return new NyuziMCAsmInfo(TT);
+  MCAsmInfo *MAI = new NyuziMCAsmInfo(TT);
+
+  unsigned SP = MRI.getDwarfRegNum(Nyuzi::SP_REG, true);
+  MCCFIInstruction Inst = MCCFIInstruction::createDefCfa(nullptr, SP, 0);
+  MAI->addInitialFrameState(Inst);
+
+  return MAI;
 }
 
 static MCStreamer *createNyuziMCStreamer(const Triple &T, MCContext &Context,
