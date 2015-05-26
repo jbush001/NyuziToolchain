@@ -1,7 +1,7 @@
 This is a toolchain for an experimental parallel processor architecture 
 called [Nyuzi](https://github.com/jbush001/NyuziProcessor), based on 
 [LLVM](http://llvm.org/).  It includes a C/C++ compiler (clang), assembler, 
-linker and partially functional debugger (lldb). 
+linker and debugger (lldb). 
 
 While this project includes a C/C++ compiler, the LLVM backend can be used for 
 any language.  There is a small, experimental SPMD parallel compiler in 
