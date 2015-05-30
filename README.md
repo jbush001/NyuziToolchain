@@ -29,10 +29,14 @@ Instructions for installing these packages are in the following sections.
 
 ## Building on Linux 
 
-On Linux, required packages can be installed using the built-in package 
-manager (apt-get, yum, etc). I've only tested this on Ubuntu, for which 
-the instructions are below. You may need to tweak the package names for 
-other distros (for example, on Fedora, replace python-dev with python-devel):
+On Linux, required packages can be installed using the built-in package manager
+(apt-get, yum, etc). Since LLVM uses newer versions of many libraries and 
+utilities, it is helpful if your linux distribution is on a recent version
+so up-to-date packages are available.
+
+I've only tested this on Ubuntu, for which the instructions are below. 
+You may need to tweak the package names for other distros (for example, 
+on Fedora, replace python-dev with python-devel):
 
     sudo apt-get install libxml2-dev cmake gcc g++ python bison flex zlib1g-dev swig python-dev libedit-dev ncurses-dev
 
