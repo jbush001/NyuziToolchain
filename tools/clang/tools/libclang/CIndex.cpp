@@ -454,14 +454,14 @@ bool CursorVisitor::visitPreprocessedEntities(InputIterator First,
     if (MacroExpansion *ME = dyn_cast<MacroExpansion>(PPE)) {
       if (Visit(MakeMacroExpansionCursor(ME, TU)))
         return true;
-      
+
       continue;
     }
-    
-    if (MacroDefinition *MD = dyn_cast<MacroDefinition>(PPE)) {
+
+    if (MacroDefinitionRecord *MD = dyn_cast<MacroDefinitionRecord>(PPE)) {
       if (Visit(MakeMacroDefinitionCursor(MD, TU)))
         return true;
-      
+
       continue;
     }
     
@@ -568,8 +568,8 @@ bool CursorVisitor::VisitChildren(CXCursor Cursor) {
     SourceLocation Loc = AU->mapLocationToPreamble(BeginLoc);
     const MacroInfo *MI =
         getMacroInfo(cxcursor::getCursorMacroDefinition(Cursor), TU);
-    if (MacroDefinition *MacroDef =
-          checkForMacroInMacroDefinition(MI, Loc, TU))
+    if (MacroDefinitionRecord *MacroDef =
+            checkForMacroInMacroDefinition(MI, Loc, TU))
       return Visit(cxcursor::MakeMacroExpansionCursor(MacroDef, BeginLoc, TU));
   }
 
@@ -1982,6 +1982,7 @@ void OMPClauseEnqueue::VisitOMPProcBindClause(const OMPProcBindClause *C) { }
 
 void OMPClauseEnqueue::VisitOMPScheduleClause(const OMPScheduleClause *C) {
   Visitor->AddStmt(C->getChunkSize());
+  Visitor->AddStmt(C->getHelperChunkSize());
 }
 
 void OMPClauseEnqueue::VisitOMPOrderedClause(const OMPOrderedClause *) {}
@@ -2022,12 +2023,33 @@ void OMPClauseEnqueue::VisitOMPFirstprivateClause(
 void OMPClauseEnqueue::VisitOMPLastprivateClause(
                                         const OMPLastprivateClause *C) {
   VisitOMPClauseList(C);
+  for (auto *E : C->private_copies()) {
+    Visitor->AddStmt(E);
+  }
+  for (auto *E : C->source_exprs()) {
+    Visitor->AddStmt(E);
+  }
+  for (auto *E : C->destination_exprs()) {
+    Visitor->AddStmt(E);
+  }
+  for (auto *E : C->assignment_ops()) {
+    Visitor->AddStmt(E);
+  }
 }
 void OMPClauseEnqueue::VisitOMPSharedClause(const OMPSharedClause *C) {
   VisitOMPClauseList(C);
 }
 void OMPClauseEnqueue::VisitOMPReductionClause(const OMPReductionClause *C) {
   VisitOMPClauseList(C);
+  for (auto *E : C->lhs_exprs()) {
+    Visitor->AddStmt(E);
+  }
+  for (auto *E : C->rhs_exprs()) {
+    Visitor->AddStmt(E);
+  }
+  for (auto *E : C->reduction_ops()) {
+    Visitor->AddStmt(E);
+  }
 }
 void OMPClauseEnqueue::VisitOMPLinearClause(const OMPLinearClause *C) {
   VisitOMPClauseList(C);
@@ -2049,6 +2071,15 @@ void OMPClauseEnqueue::VisitOMPAlignedClause(const OMPAlignedClause *C) {
 }
 void OMPClauseEnqueue::VisitOMPCopyinClause(const OMPCopyinClause *C) {
   VisitOMPClauseList(C);
+  for (auto *E : C->source_exprs()) {
+    Visitor->AddStmt(E);
+  }
+  for (auto *E : C->destination_exprs()) {
+    Visitor->AddStmt(E);
+  }
+  for (auto *E : C->assignment_ops()) {
+    Visitor->AddStmt(E);
+  }
 }
 void
 OMPClauseEnqueue::VisitOMPCopyprivateClause(const OMPCopyprivateClause *C) {
@@ -4857,9 +4888,10 @@ CXCursor clang_getCursorReferenced(CXCursor C) {
 
     return clang_getNullCursor();
   }
-  
+
   if (C.kind == CXCursor_MacroExpansion) {
-    if (const MacroDefinition *Def = getCursorMacroExpansion(C).getDefinition())
+    if (const MacroDefinitionRecord *Def =
+            getCursorMacroExpansion(C).getDefinition())
       return MakeMacroDefinitionCursor(Def, tu);
   }
 
@@ -6034,11 +6066,12 @@ static void annotatePreprocessorTokens(CXTranslationUnit TU,
         if (MI) {
           SourceLocation SaveLoc = Tok.getLocation();
           Tok.setLocation(CXXUnit->mapLocationToPreamble(SaveLoc));
-          MacroDefinition *MacroDef = checkForMacroInMacroDefinition(MI,Tok,TU);
+          MacroDefinitionRecord *MacroDef =
+              checkForMacroInMacroDefinition(MI, Tok, TU);
           Tok.setLocation(SaveLoc);
           if (MacroDef)
-            Cursors[NextIdx-1] = MakeMacroExpansionCursor(MacroDef,
-                                                         Tok.getLocation(), TU);
+            Cursors[NextIdx - 1] =
+                MakeMacroExpansionCursor(MacroDef, Tok.getLocation(), TU);
         }
       } while (!Tok.isAtStartOfLine());
 
@@ -7114,7 +7147,7 @@ MacroInfo *cxindex::getMacroInfo(const IdentifierInfo &II,
 
   ASTUnit *Unit = cxtu::getASTUnit(TU);
   Preprocessor &PP = Unit->getPreprocessor();
-  MacroDirective *MD = PP.getMacroDirectiveHistory(&II);
+  MacroDirective *MD = PP.getLocalMacroDirectiveHistory(&II);
   if (MD) {
     for (MacroDirective::DefInfo
            Def = MD->getDefinition(); Def; Def = Def.getPreviousDefinition()) {
@@ -7126,7 +7159,7 @@ MacroInfo *cxindex::getMacroInfo(const IdentifierInfo &II,
   return nullptr;
 }
 
-const MacroInfo *cxindex::getMacroInfo(const MacroDefinition *MacroDef,
+const MacroInfo *cxindex::getMacroInfo(const MacroDefinitionRecord *MacroDef,
                                        CXTranslationUnit TU) {
   if (!MacroDef || !TU)
     return nullptr;
@@ -7137,9 +7170,9 @@ const MacroInfo *cxindex::getMacroInfo(const MacroDefinition *MacroDef,
   return getMacroInfo(*II, MacroDef->getLocation(), TU);
 }
 
-MacroDefinition *cxindex::checkForMacroInMacroDefinition(const MacroInfo *MI,
-                                                         const Token &Tok,
-                                                         CXTranslationUnit TU) {
+MacroDefinitionRecord *
+cxindex::checkForMacroInMacroDefinition(const MacroInfo *MI, const Token &Tok,
+                                        CXTranslationUnit TU) {
   if (!MI || !TU)
     return nullptr;
   if (Tok.isNot(tok::raw_identifier))
@@ -7171,16 +7204,16 @@ MacroDefinition *cxindex::checkForMacroInMacroDefinition(const MacroInfo *MI,
   if (std::find(MI->arg_begin(), MI->arg_end(), &II) != MI->arg_end())
     return nullptr;
 
-  MacroDirective *InnerMD = PP.getMacroDirectiveHistory(&II);
+  MacroDirective *InnerMD = PP.getLocalMacroDirectiveHistory(&II);
   if (!InnerMD)
     return nullptr;
 
   return PPRec->findMacroDefinition(InnerMD->getMacroInfo());
 }
 
-MacroDefinition *cxindex::checkForMacroInMacroDefinition(const MacroInfo *MI,
-                                                         SourceLocation Loc,
-                                                         CXTranslationUnit TU) {
+MacroDefinitionRecord *
+cxindex::checkForMacroInMacroDefinition(const MacroInfo *MI, SourceLocation Loc,
+                                        CXTranslationUnit TU) {
   if (Loc.isInvalid() || !MI || !TU)
     return nullptr;
 

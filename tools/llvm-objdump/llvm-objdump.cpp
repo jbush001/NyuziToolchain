@@ -194,24 +194,91 @@ static const Target *getTarget(const ObjectFile *Obj = nullptr) {
   return TheTarget;
 }
 
-void llvm::DumpBytes(ArrayRef<uint8_t> bytes) {
-  static const char hex_rep[] = "0123456789abcdef";
-  SmallString<64> output;
-
-  for (char i: bytes) {
-    output.push_back(hex_rep[(i & 0xF0) >> 4]);
-    output.push_back(hex_rep[i & 0xF]);
-    output.push_back(' ');
-  }
-
-  outs() << output.c_str();
-}
-
 bool llvm::RelocAddressLess(RelocationRef a, RelocationRef b) {
   uint64_t a_addr, b_addr;
   if (error(a.getOffset(a_addr))) return false;
   if (error(b.getOffset(b_addr))) return false;
   return a_addr < b_addr;
+}
+
+namespace {
+class PrettyPrinter {
+public:
+  virtual ~PrettyPrinter(){}
+  virtual void printInst(MCInstPrinter &IP, const MCInst *MI,
+                         ArrayRef<uint8_t> Bytes, uint64_t Address,
+                         raw_ostream &OS, StringRef Annot,
+                         MCSubtargetInfo const &STI) {
+    outs() << format("%8" PRIx64 ":", Address);
+    if (!NoShowRawInsn) {
+      outs() << "\t";
+      dumpBytes(Bytes, outs());
+    }
+    IP.printInst(MI, outs(), "", STI);
+  }
+};
+PrettyPrinter PrettyPrinterInst;
+class HexagonPrettyPrinter : public PrettyPrinter {
+public:
+  void printLead(ArrayRef<uint8_t> Bytes, uint64_t Address,
+                 raw_ostream &OS) {
+    uint32_t opcode =
+      (Bytes[3] << 24) | (Bytes[2] << 16) | (Bytes[1] << 8) | Bytes[0];
+    OS << format("%8" PRIx64 ":", Address);
+    if (!NoShowRawInsn) {
+      OS << "\t";
+      dumpBytes(Bytes.slice(0, 4), OS);
+      OS << format("%08" PRIx32, opcode);
+    }
+  }
+  void printInst(MCInstPrinter &IP, const MCInst *MI,
+                 ArrayRef<uint8_t> Bytes, uint64_t Address,
+                 raw_ostream &OS, StringRef Annot,
+                 MCSubtargetInfo const &STI) override {
+    std::string Buffer;
+    {
+      raw_string_ostream TempStream(Buffer);
+      IP.printInst(MI, TempStream, "", STI);
+    }
+    StringRef Contents(Buffer);
+    // Split off bundle attributes
+    auto PacketBundle = Contents.rsplit('\n');
+    // Split off first instruction from the rest
+    auto HeadTail = PacketBundle.first.split('\n');
+    auto Preamble = " { ";
+    auto Separator = "";
+    while(!HeadTail.first.empty()) {
+      OS << Separator;
+      Separator = "\n";
+      printLead(Bytes, Address, OS);
+      OS << Preamble;
+      Preamble = "   ";
+      StringRef Inst;
+      auto Duplex = HeadTail.first.split('\v');
+      if(!Duplex.second.empty()){
+        OS << Duplex.first;
+        OS << "; ";
+        Inst = Duplex.second;
+      }
+      else
+        Inst = HeadTail.first;
+      OS << Inst;
+      Bytes = Bytes.slice(4);
+      Address += 4;
+      HeadTail = HeadTail.second.split('\n');
+    }
+    OS << " } " << PacketBundle.second;
+  }
+};
+HexagonPrettyPrinter HexagonPrettyPrinterInst;
+PrettyPrinter &selectPrettyPrinter(Triple const &Triple) {
+  switch(Triple.getArch()) {
+  default:
+    return PrettyPrinterInst;
+  case Triple::hexagon:
+    return HexagonPrettyPrinterInst;
+  }
+}
 }
 
 static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
@@ -280,6 +347,7 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
       << '\n';
     return;
   }
+  PrettyPrinter &PIP = selectPrettyPrinter(Triple(TripleName));
 
   StringRef Fmt = Obj->getBytesInAddress() > 4 ? "\t\t%016" PRIx64 ":  " :
                                                  "\t\t\t%08" PRIx64 ":  ";
@@ -396,12 +464,9 @@ static void DisassembleObject(const ObjectFile *Obj, bool InlineRelocs) {
         if (DisAsm->getInstruction(Inst, Size, Bytes.slice(Index),
                                    SectionAddr + Index, DebugOut,
                                    CommentStream)) {
-          outs() << format("%8" PRIx64 ":", SectionAddr + Index);
-          if (!NoShowRawInsn) {
-            outs() << "\t";
-            DumpBytes(ArrayRef<uint8_t>(Bytes.data() + Index, Size));
-          }
-          IP->printInst(&Inst, outs(), "", *STI);
+          PIP.printInst(*IP, &Inst,
+                        Bytes.slice(Index, Size),
+                        SectionAddr + Index, outs(), "", *STI);
           outs() << CommentStream.str();
           Comments.clear();
           outs() << "\n";
@@ -629,6 +694,7 @@ void llvm::PrintSymbolTable(const ObjectFile *o) {
     bool Weak = Flags & SymbolRef::SF_Weak;
     bool Absolute = Flags & SymbolRef::SF_Absolute;
     bool Common = Flags & SymbolRef::SF_Common;
+    bool Hidden = Flags & SymbolRef::SF_Hidden;
 
     if (Common) {
       uint32_t Alignment;
@@ -683,8 +749,11 @@ void llvm::PrintSymbolTable(const ObjectFile *o) {
       outs() << SectionName;
     }
     outs() << '\t'
-           << format("%08" PRIx64 " ", Size)
-           << Name
+           << format("%08" PRIx64 " ", Size);
+    if (Hidden) {
+      outs() << ".hidden ";
+    }
+    outs() << Name
            << '\n';
   }
 }

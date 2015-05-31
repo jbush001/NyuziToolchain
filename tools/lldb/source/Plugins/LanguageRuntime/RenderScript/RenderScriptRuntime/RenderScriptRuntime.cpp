@@ -58,6 +58,45 @@ RenderScriptRuntime::GetPluginNameStatic()
     return g_name;
 }
 
+RenderScriptRuntime::ModuleKind 
+RenderScriptRuntime::GetModuleKind(const lldb::ModuleSP &module_sp)
+{
+    if (module_sp)
+    {
+        // Is this a module containing renderscript kernels?
+        const Symbol *info_sym = module_sp->FindFirstSymbolWithNameAndType(ConstString(".rs.info"), eSymbolTypeData);
+        if (info_sym)
+        {
+            return eModuleKindKernelObj;
+        }
+    }
+    return eModuleKindIgnored;
+}
+
+bool
+RenderScriptRuntime::IsRenderScriptModule(const lldb::ModuleSP &module_sp)
+{
+    return GetModuleKind(module_sp) != eModuleKindIgnored;
+}
+
+
+void 
+RenderScriptRuntime::ModulesDidLoad(const ModuleList &module_list )
+{
+    Mutex::Locker locker (module_list.GetMutex ());
+
+    size_t num_modules = module_list.GetSize();
+    for (size_t i = 0; i < num_modules; i++)
+    {
+        auto mod = module_list.GetModuleAtIndex (i);
+        if (IsRenderScriptModule (mod))
+        {
+            LoadModule(mod);
+        }
+    }
+}
+
+
 //------------------------------------------------------------------
 // PluginInterface protocol
 //------------------------------------------------------------------
@@ -109,15 +148,44 @@ RenderScriptRuntime::LoadModule(const lldb::ModuleSP &module_sp)
             if (rs_module.m_module == module_sp)
                 return false;
         }
-        RSModuleDescriptor module_desc(module_sp);
-        if (module_desc.ParseRSInfo())
+        bool module_loaded = false;
+        switch (GetModuleKind(module_sp))
         {
-            m_rsmodules.push_back(module_desc);
-            return true;
+            case eModuleKindKernelObj:
+            {
+                RSModuleDescriptor module_desc(module_sp);
+                if (module_desc.ParseRSInfo())
+                {
+                    m_rsmodules.push_back(module_desc);
+                    module_loaded = true;
+                }
+                break;
+            }
+            case eModuleKindDriver:
+            case eModuleKindImpl:
+            case eModuleKindLibRS:
+            default:
+                break;
         }
+        if (module_loaded)
+            Update();  
+        return module_loaded;
     }
     return false;
 }
+
+void
+RenderScriptRuntime::Update()
+{
+    if (m_rsmodules.size() > 0)
+    {
+        if (!m_initiated)
+        {
+            Initiate();
+        }
+    }
+}
+
 
 // The maximum line length of an .rs.info packet
 #define MAXLINE 500
@@ -221,7 +289,7 @@ RSModuleDescriptor::Dump(Stream &strm) const
     strm.EOL();
     strm.IndentMore();
     strm.Indent();
-    strm.Printf("Globals: %u", m_globals.size());
+    strm.Printf("Globals: %" PRIu64, static_cast<uint64_t>(m_globals.size()));
     strm.EOL();
     strm.IndentMore();
     for (const auto &global : m_globals)
@@ -230,7 +298,7 @@ RSModuleDescriptor::Dump(Stream &strm) const
     }
     strm.IndentLess();
     strm.Indent();
-    strm.Printf("Kernels: %u", m_kernels.size());
+    strm.Printf("Kernels: %" PRIu64, static_cast<uint64_t>(m_kernels.size()));
     strm.EOL();
     strm.IndentMore();
     for (const auto &kernel : m_kernels)
@@ -262,7 +330,7 @@ class CommandObjectRenderScriptRuntimeModuleProbe : public CommandObjectParsed
         : CommandObjectParsed(interpreter, "renderscript module probe",
                               "Initiates a Probe of all loaded modules for kernels and other renderscript objects.",
                               "renderscript module probe",
-                              eFlagRequiresTarget | eFlagRequiresProcess | eFlagProcessMustBeLaunched)
+                              eCommandRequiresTarget | eCommandRequiresProcess | eCommandProcessMustBeLaunched)
     {
     }
 
@@ -300,7 +368,7 @@ class CommandObjectRenderScriptRuntimeModuleDump : public CommandObjectParsed
     CommandObjectRenderScriptRuntimeModuleDump(CommandInterpreter &interpreter)
         : CommandObjectParsed(interpreter, "renderscript module dump",
                               "Dumps renderscript specific information for all modules.", "renderscript module dump",
-                              eFlagRequiresProcess | eFlagProcessMustBeLaunched)
+                              eCommandRequiresProcess | eCommandProcessMustBeLaunched)
     {
     }
 
@@ -344,13 +412,22 @@ class CommandObjectRenderScriptRuntime : public CommandObjectMultiword
 
     ~CommandObjectRenderScriptRuntime() {}
 };
-RenderScriptRuntime::RenderScriptRuntime(Process *process)
-    : lldb_private::CPPLanguageRuntime(process)
+
+void
+RenderScriptRuntime::Initiate()
 {
+    assert(!m_initiated);
+    Process* process = GetProcess();
     if (process)
     {
         CommandInterpreter &interpreter = process->GetTarget().GetDebugger().GetCommandInterpreter();
-        interpreter.AddCommand("renderscript", CommandObjectSP(new CommandObjectRenderScriptRuntime(interpreter)),
-                               true);
+        m_initiated = interpreter.AddCommand("renderscript", CommandObjectSP(
+                                           new CommandObjectRenderScriptRuntime(interpreter)), true);
     }
+}
+
+RenderScriptRuntime::RenderScriptRuntime(Process *process)
+    : lldb_private::CPPLanguageRuntime(process), m_initiated(false)
+{
+
 }

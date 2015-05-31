@@ -42,6 +42,11 @@ EnableARMLoadStoreOpt("arm-load-store-opt", cl::Hidden,
                       cl::desc("Enable ARM load/store optimization pass"),
                       cl::init(true));
 
+// FIXME: Unify control over GlobalMerge.
+static cl::opt<cl::boolOrDefault>
+EnableGlobalMerge("arm-global-merge", cl::Hidden,
+                  cl::desc("Enable the global merge pass"));
+
 extern "C" void LLVMInitializeARMTarget() {
   // Register the target.
   RegisterTargetMachine<ARMLETargetMachine> X(TheARMLETarget);
@@ -202,13 +207,15 @@ ARMBaseTargetMachine::getSubtargetImpl(const Function &F) const {
   // function before we can generate a subtarget. We also need to use
   // it as a key for the subtarget since that can be the only difference
   // between two functions.
-  Attribute SFAttr = F.getFnAttribute("use-soft-float");
-  bool SoftFloat = !SFAttr.hasAttribute(Attribute::None)
-                       ? SFAttr.getValueAsString() == "true"
-                       : Options.UseSoftFloat;
+  bool SoftFloat =
+      F.hasFnAttribute("use-soft-float") &&
+      F.getFnAttribute("use-soft-float").getValueAsString() == "true";
+  // If the soft float attribute is set on the function turn on the soft float
+  // subtarget feature.
+  if (SoftFloat)
+    FS += FS.empty() ? "+soft-float" : ",+soft-float";
 
-  auto &I = SubtargetMap[CPU + FS + (SoftFloat ? "use-soft-float=true"
-                                               : "use-soft-float=false")];
+  auto &I = SubtargetMap[CPU + FS];
   if (!I) {
     // This needs to be done before we create a new subtarget since any
     // creation will depend on the TM and the code generation flags on the
@@ -332,7 +339,9 @@ void ARMPassConfig::addIRPasses() {
 }
 
 bool ARMPassConfig::addPreISel() {
-  if (TM->getOptLevel() == CodeGenOpt::Aggressive)
+  if ((TM->getOptLevel() == CodeGenOpt::Aggressive &&
+       EnableGlobalMerge == cl::BOU_UNSET) ||
+      EnableGlobalMerge == cl::BOU_TRUE)
     // FIXME: This is using the thumb1 only constant value for
     // maximal global offset for merging globals. We may want
     // to look into using the old value for non-thumb1 code of
@@ -393,6 +402,9 @@ void ARMPassConfig::addPreEmitPass() {
   if (getARMSubtarget().isThumb2())
     addPass(&UnpackMachineBundlesID);
 
-  addPass(createARMOptimizeBarriersPass());
+  // Don't optimize barriers at -O0.
+  if (getOptLevel() != CodeGenOpt::None)
+    addPass(createARMOptimizeBarriersPass());
+
   addPass(createARMConstantIslandPass());
 }

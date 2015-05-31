@@ -21,6 +21,8 @@ class SBDirCheckerCase(TestBase):
         self.exe_name = 'a.out'
 
     @skipIfNoSBHeaders
+    @skipIfDarwin # test passes but teardown command 'settings remove target.env-vars DYLD_LIBRARY_PATH' fails
+    # (expectedFailureDarwin doesn't work for teardown failures)
     def test_sb_api_directory(self):
         """Test the SB API directory and make sure there's no unwanted stuff."""
 
@@ -77,7 +79,7 @@ class SBDirCheckerCase(TestBase):
 
         lldbutil.run_break_set_by_file_and_line (self, self.source, self.line_to_break, num_expected_locations = -1)
 
-        self.runCmd("run", RUN_SUCCEEDED)
+        self.runCmd("run", RUN_FAILED)
 
         # The stop reason of the thread should be breakpoint.
         self.expect("thread list", STOPPED_DUE_TO_BREAKPOINT,

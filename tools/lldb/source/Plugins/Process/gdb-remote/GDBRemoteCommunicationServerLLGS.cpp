@@ -24,8 +24,8 @@
 #include "llvm/ADT/Triple.h"
 #include "lldb/Interpreter/Args.h"
 #include "lldb/Core/DataBuffer.h"
-#include "lldb/Core/Debugger.h"
 #include "lldb/Core/Log.h"
+#include "lldb/Core/RegisterValue.h"
 #include "lldb/Core/State.h"
 #include "lldb/Core/StreamString.h"
 #include "lldb/Host/ConnectionFileDescriptor.h"
@@ -40,7 +40,6 @@
 #include "lldb/Target/FileAction.h"
 #include "lldb/Target/MemoryRegionInfo.h"
 #include "lldb/Target/Platform.h"
-#include "lldb/Target/Process.h"
 #include "lldb/Host/common/NativeRegisterContext.h"
 #include "lldb/Host/common/NativeProcessProtocol.h"
 #include "lldb/Host/common/NativeThreadProtocol.h"
@@ -75,8 +74,7 @@ namespace
 // GDBRemoteCommunicationServerLLGS constructor
 //----------------------------------------------------------------------
 GDBRemoteCommunicationServerLLGS::GDBRemoteCommunicationServerLLGS(
-        const lldb::PlatformSP& platform_sp,
-        lldb::DebuggerSP &debugger_sp) :
+        const lldb::PlatformSP& platform_sp) :
     GDBRemoteCommunicationServerCommon ("gdb-remote.server", "gdb-remote.server.rx_packet"),
     m_platform_sp (platform_sp),
     m_async_thread (LLDB_INVALID_HOST_THREAD),
@@ -84,7 +82,6 @@ GDBRemoteCommunicationServerLLGS::GDBRemoteCommunicationServerLLGS(
     m_continue_tid (LLDB_INVALID_THREAD_ID),
     m_debugged_process_mutex (Mutex::eMutexTypeRecursive),
     m_debugged_process_sp (),
-    m_debugger_sp (debugger_sp),
     m_stdio_communication ("process.stdio"),
     m_inferior_prev_state (StateType::eStateInvalid),
     m_active_auxv_buffer_sp (),
@@ -93,7 +90,6 @@ GDBRemoteCommunicationServerLLGS::GDBRemoteCommunicationServerLLGS(
     m_next_saved_registers_id (1)
 {
     assert(platform_sp);
-    assert(debugger_sp && "must specify non-NULL debugger_sp for lldb-gdbserver");
     RegisterPacketHandlers();
 }
 
@@ -747,6 +743,11 @@ GDBRemoteCommunicationServerLLGS::ProcessStateChanged (NativeProcessProtocol *pr
                 StateAsCString (state));
     }
 
+    // Make sure we get all of the pending stdout/stderr from the inferior
+    // and send it to the lldb host before we send the state change
+    // notification
+    m_stdio_communication.SynchronizeWithReadThread();
+
     switch (state)
     {
     case StateType::eStateExited:
@@ -949,18 +950,18 @@ GDBRemoteCommunicationServerLLGS::Handle_QSetWorkingDir (StringExtractorGDBRemot
     packet.SetFilePos (::strlen ("QSetWorkingDir:"));
     std::string path;
     packet.GetHexByteString (path);
-    m_process_launch_info.SwapWorkingDirectory (path);
+    m_process_launch_info.SetWorkingDirectory(FileSpec{path, true});
     return SendOKResponse ();
 }
 
 GDBRemoteCommunication::PacketResult
 GDBRemoteCommunicationServerLLGS::Handle_qGetWorkingDir (StringExtractorGDBRemote &packet)
 {
-    const char *working_dir = m_process_launch_info.GetWorkingDirectory();
-    if (working_dir && working_dir[0])
+    FileSpec working_dir{m_process_launch_info.GetWorkingDirectory()};
+    if (working_dir)
     {
         StreamString response;
-        response.PutBytesAsRawHex8(working_dir, strlen(working_dir));
+        response.PutCStringAsRawHex8(working_dir.GetCString());
         return SendPacketNoLock(response.GetData(), response.GetSize());
     }
 
@@ -1841,8 +1842,8 @@ GDBRemoteCommunicationServerLLGS::Handle_m (StringExtractorGDBRemote &packet)
 
 
     // Retrieve the process memory.
-    lldb::addr_t bytes_read = 0;
-    Error error = m_debugged_process_sp->ReadMemory (read_addr, &buf[0], byte_count, bytes_read);
+    size_t bytes_read = 0;
+    Error error = m_debugged_process_sp->ReadMemoryWithoutTrap(read_addr, &buf[0], byte_count, bytes_read);
     if (error.Fail ())
     {
         if (log)
@@ -1853,12 +1854,12 @@ GDBRemoteCommunicationServerLLGS::Handle_m (StringExtractorGDBRemote &packet)
     if (bytes_read == 0)
     {
         if (log)
-            log->Printf ("GDBRemoteCommunicationServerLLGS::%s pid %" PRIu64 " mem 0x%" PRIx64 ": read %" PRIu64 " of %" PRIu64 " requested bytes", __FUNCTION__, m_debugged_process_sp->GetID (), read_addr, bytes_read, byte_count);
+            log->Printf ("GDBRemoteCommunicationServerLLGS::%s pid %" PRIu64 " mem 0x%" PRIx64 ": read 0 of %" PRIu64 " requested bytes", __FUNCTION__, m_debugged_process_sp->GetID (), read_addr, byte_count);
         return SendErrorResponse (0x08);
     }
 
     StreamGDBRemote response;
-    for (lldb::addr_t i = 0; i < bytes_read; ++i)
+    for (size_t i = 0; i < bytes_read; ++i)
         response.PutHex8(buf[i]);
 
     return SendPacketNoLock(response.GetData(), response.GetSize());
@@ -1912,7 +1913,7 @@ GDBRemoteCommunicationServerLLGS::Handle_M (StringExtractorGDBRemote &packet)
 
     // Convert the hex memory write contents to bytes.
     StreamGDBRemote response;
-    const uint64_t convert_count = static_cast<uint64_t> (packet.GetHexBytes (&buf[0], byte_count, 0));
+    const uint64_t convert_count = packet.GetHexBytes(&buf[0], byte_count, 0);
     if (convert_count != byte_count)
     {
         if (log)
@@ -1921,7 +1922,7 @@ GDBRemoteCommunicationServerLLGS::Handle_M (StringExtractorGDBRemote &packet)
     }
 
     // Write the process memory.
-    lldb::addr_t bytes_written = 0;
+    size_t bytes_written = 0;
     Error error = m_debugged_process_sp->WriteMemory (write_addr, &buf[0], byte_count, bytes_written);
     if (error.Fail ())
     {
@@ -1933,7 +1934,7 @@ GDBRemoteCommunicationServerLLGS::Handle_M (StringExtractorGDBRemote &packet)
     if (bytes_written == 0)
     {
         if (log)
-            log->Printf ("GDBRemoteCommunicationServerLLGS::%s pid %" PRIu64 " mem 0x%" PRIx64 ": wrote %" PRIu64 " of %" PRIu64 " requested bytes", __FUNCTION__, m_debugged_process_sp->GetID (), write_addr, bytes_written, byte_count);
+            log->Printf ("GDBRemoteCommunicationServerLLGS::%s pid %" PRIu64 " mem 0x%" PRIx64 ": wrote 0 of %" PRIu64 " requested bytes", __FUNCTION__, m_debugged_process_sp->GetID (), write_addr, byte_count);
         return SendErrorResponse (0x09);
     }
 

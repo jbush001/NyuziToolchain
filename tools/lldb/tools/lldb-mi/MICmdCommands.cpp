@@ -83,6 +83,7 @@ MICmnCommands::RegisterAll(void)
     bOk &= Register<CMICmdCmdBreakInsert>();
     bOk &= Register<CMICmdCmdDataDisassemble>();
     bOk &= Register<CMICmdCmdDataEvaluateExpression>();
+    bOk &= Register<CMICmdCmdDataInfoLine>();
     bOk &= Register<CMICmdCmdDataReadMemoryBytes>();
     bOk &= Register<CMICmdCmdDataReadMemory>();
     bOk &= Register<CMICmdCmdDataListRegisterNames>();
@@ -115,10 +116,13 @@ MICmnCommands::RegisterAll(void)
     bOk &= Register<CMICmdCmdStackListFrames>();
     bOk &= Register<CMICmdCmdStackListArguments>();
     bOk &= Register<CMICmdCmdStackListLocals>();
+    bOk &= Register<CMICmdCmdStackListVariables>();
     bOk &= Register<CMICmdCmdStackSelectFrame>();
     bOk &= Register<CMICmdCmdSupportListFeatures>();
     bOk &= Register<CMICmdCmdSymbolListLines>();
     bOk &= Register<CMICmdCmdTargetSelect>();
+    bOk &= Register<CMICmdCmdTargetAttach>();
+    bOk &= Register<CMICmdCmdTargetDetach>();
     bOk &= Register<CMICmdCmdThreadInfo>();
     bOk &= Register<CMICmdCmdVarAssign>();
     bOk &= Register<CMICmdCmdVarCreate>();

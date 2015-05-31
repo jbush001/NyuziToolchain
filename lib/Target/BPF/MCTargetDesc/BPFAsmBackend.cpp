@@ -31,7 +31,7 @@ public:
   void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
                   uint64_t Value, bool IsPCRel) const override;
 
-  MCObjectWriter *createObjectWriter(raw_ostream &OS) const override;
+  MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const override;
 
   // No instruction requires relaxation
   bool fixupNeedsRelaxation(const MCFixup &Fixup, uint64_t Value,
@@ -68,10 +68,12 @@ void BPFAsmBackend::applyFixup(const MCFixup &Fixup, char *Data,
     return;
   }
   assert(Fixup.getKind() == FK_PCRel_2);
-  *(uint16_t *)&Data[Fixup.getOffset() + 2] = (uint16_t)((Value - 8) / 8);
+  Value = (uint16_t)((Value - 8) / 8);
+  Data[Fixup.getOffset() + 2] = Value & 0xFF;
+  Data[Fixup.getOffset() + 3] = Value >> 8;
 }
 
-MCObjectWriter *BPFAsmBackend::createObjectWriter(raw_ostream &OS) const {
+MCObjectWriter *BPFAsmBackend::createObjectWriter(raw_pwrite_stream &OS) const {
   return createBPFELFObjectWriter(OS, 0);
 }
 }

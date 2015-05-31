@@ -165,7 +165,8 @@ class SettingsCommandTestCase(TestBase):
         self.expect("settings show auto-confirm", SETTING_MSG("auto-confirm"),
             startstr = "auto-confirm (boolean) = false")
 
-    @unittest2.skipUnless(os.name != "nt" and os.uname()[4] in ['amd64', 'i386', 'x86_64'], "requires x86 or x86_64")
+    @expectedFailureArch("arm")
+    @expectedFailureArch("aarch64")
     def test_disassembler_settings(self):
         """Test that user options for the disassembler take effect."""
         self.buildDefault()
@@ -226,7 +227,7 @@ class SettingsCommandTestCase(TestBase):
         self.addTearDownHook(
             lambda: self.runCmd("settings clear target.env-vars"))
 
-        self.runCmd("run", RUN_SUCCEEDED)
+        self.runCmd("run", RUN_FAILED)
 
         # Read the output file produced by running the program.
         if lldb.remote_platform:
@@ -262,7 +263,7 @@ class SettingsCommandTestCase(TestBase):
             os.environ.pop("MY_HOST_ENV_VAR2")
 
         self.addTearDownHook(unset_env_variables)
-        self.runCmd("run", RUN_SUCCEEDED)
+        self.runCmd("run", RUN_FAILED)
 
         # Read the output file produced by running the program.
         if lldb.remote_platform:
@@ -298,7 +299,7 @@ class SettingsCommandTestCase(TestBase):
                     SETTING_MSG("target.output-path"),
                     substrs = ['target.output-path (file) = "stdout.txt"'])
 
-        self.runCmd("run", RUN_SUCCEEDED)
+        self.runCmd("run", RUN_FAILED)
 
         if lldb.remote_platform:
             self.runCmd('platform get-file "stderr.txt" "stderr.txt"')
@@ -449,6 +450,7 @@ class SettingsCommandTestCase(TestBase):
                                  "thread-format",
                                  "use-external-editor",
                                  "target.default-arch",
+                                 "target.move-to-nearest-code",
                                  "target.expr-prefix",
                                  "target.prefer-dynamic-value",
                                  "target.enable-synthetic-value",

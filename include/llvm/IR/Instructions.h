@@ -73,6 +73,8 @@ return (Ord == Release ||
 /// AllocaInst - an instruction to allocate memory on the stack
 ///
 class AllocaInst : public UnaryInstruction {
+  Type *AllocatedType;
+
 protected:
   AllocaInst *clone_impl() const override;
 public:
@@ -91,7 +93,7 @@ public:
              const Twine &Name, BasicBlock *InsertAtEnd);
 
   // Out of line virtual method, so the vtable, etc. has a home.
-  virtual ~AllocaInst();
+  ~AllocaInst() override;
 
   /// isArrayAllocation - Return true if there is an allocation size parameter
   /// to the allocation instruction that is not 1.
@@ -113,7 +115,10 @@ public:
   /// getAllocatedType - Return the type that is being allocated by the
   /// instruction.
   ///
-  Type *getAllocatedType() const;
+  Type *getAllocatedType() const { return AllocatedType; }
+  /// \brief for use only in special circumstances that need to generically
+  /// transform a whole instruction (eg: IR linking and vectorization).
+  void setAllocatedType(Type *Ty) { AllocatedType = Ty; }
 
   /// getAlignment - Return the alignment of the memory that is being allocated
   /// by the instruction.
@@ -172,11 +177,19 @@ protected:
 public:
   LoadInst(Value *Ptr, const Twine &NameStr, Instruction *InsertBefore);
   LoadInst(Value *Ptr, const Twine &NameStr, BasicBlock *InsertAtEnd);
-  LoadInst(Value *Ptr, const Twine &NameStr, bool isVolatile = false,
+  LoadInst(Type *Ty, Value *Ptr, const Twine &NameStr, bool isVolatile = false,
            Instruction *InsertBefore = nullptr);
+  LoadInst(Value *Ptr, const Twine &NameStr, bool isVolatile = false,
+           Instruction *InsertBefore = nullptr)
+      : LoadInst(cast<PointerType>(Ptr->getType())->getElementType(), Ptr,
+                 NameStr, isVolatile, InsertBefore) {}
   LoadInst(Value *Ptr, const Twine &NameStr, bool isVolatile,
            BasicBlock *InsertAtEnd);
-  LoadInst(Value *Ptr, const Twine &NameStr, bool isVolatile,
+  LoadInst(Value *Ptr, const Twine &NameStr, bool isVolatile, unsigned Align,
+           Instruction *InsertBefore = nullptr)
+      : LoadInst(cast<PointerType>(Ptr->getType())->getElementType(), Ptr,
+                 NameStr, isVolatile, Align, InsertBefore) {}
+  LoadInst(Type *Ty, Value *Ptr, const Twine &NameStr, bool isVolatile,
            unsigned Align, Instruction *InsertBefore = nullptr);
   LoadInst(Value *Ptr, const Twine &NameStr, bool isVolatile,
            unsigned Align, BasicBlock *InsertAtEnd);
@@ -196,9 +209,13 @@ public:
 
   LoadInst(Value *Ptr, const char *NameStr, Instruction *InsertBefore);
   LoadInst(Value *Ptr, const char *NameStr, BasicBlock *InsertAtEnd);
+  LoadInst(Type *Ty, Value *Ptr, const char *NameStr = nullptr,
+           bool isVolatile = false, Instruction *InsertBefore = nullptr);
   explicit LoadInst(Value *Ptr, const char *NameStr = nullptr,
                     bool isVolatile = false,
-                    Instruction *InsertBefore = nullptr);
+                    Instruction *InsertBefore = nullptr)
+      : LoadInst(cast<PointerType>(Ptr->getType())->getElementType(), Ptr,
+                 NameStr, isVolatile, InsertBefore) {}
   LoadInst(Value *Ptr, const char *NameStr, bool isVolatile,
            BasicBlock *InsertAtEnd);
 
@@ -792,6 +809,8 @@ inline Type *checkGEPType(Type *Ty) {
 /// access elements of arrays and structs
 ///
 class GetElementPtrInst : public Instruction {
+  Type *SourceElementType;
+
   GetElementPtrInst(const GetElementPtrInst &GEPI);
   void init(Value *Ptr, ArrayRef<Value *> IdxList, const Twine &NameStr);
 
@@ -814,6 +833,13 @@ public:
                                    const Twine &NameStr = "",
                                    Instruction *InsertBefore = nullptr) {
     unsigned Values = 1 + unsigned(IdxList.size());
+    if (!PointeeType)
+      PointeeType =
+          cast<PointerType>(Ptr->getType()->getScalarType())->getElementType();
+    else
+      assert(
+          PointeeType ==
+          cast<PointerType>(Ptr->getType()->getScalarType())->getElementType());
     return new (Values) GetElementPtrInst(PointeeType, Ptr, IdxList, Values,
                                           NameStr, InsertBefore);
   }
@@ -822,6 +848,13 @@ public:
                                    const Twine &NameStr,
                                    BasicBlock *InsertAtEnd) {
     unsigned Values = 1 + unsigned(IdxList.size());
+    if (!PointeeType)
+      PointeeType =
+          cast<PointerType>(Ptr->getType()->getScalarType())->getElementType();
+    else
+      assert(
+          PointeeType ==
+          cast<PointerType>(Ptr->getType()->getScalarType())->getElementType());
     return new (Values) GetElementPtrInst(PointeeType, Ptr, IdxList, Values,
                                           NameStr, InsertAtEnd);
   }
@@ -867,12 +900,13 @@ public:
     return cast<SequentialType>(Instruction::getType());
   }
 
-  Type *getSourceElementType() const {
-    return cast<SequentialType>(getPointerOperandType()->getScalarType())
-        ->getElementType();
-  }
+  Type *getSourceElementType() const { return SourceElementType; }
 
-  Type *getResultElementType() const { return getType()->getElementType(); }
+  void setSourceElementType(Type *Ty) { SourceElementType = Ty; }
+
+  Type *getResultElementType() const {
+    return cast<PointerType>(getType()->getScalarType())->getElementType();
+  }
 
   /// \brief Returns the address space of this instruction's pointer type.
   unsigned getAddressSpace() const {
@@ -920,12 +954,14 @@ public:
   /// GetGEPReturnType - Returns the pointer type returned by the GEP
   /// instruction, which may be a vector of pointers.
   static Type *getGEPReturnType(Value *Ptr, ArrayRef<Value *> IdxList) {
-    Type *PtrTy =
-        PointerType::get(checkGEPType(getIndexedType(
-                             cast<PointerType>(Ptr->getType()->getScalarType())
-                                 ->getElementType(),
-                             IdxList)),
-                         Ptr->getType()->getPointerAddressSpace());
+    return getGEPReturnType(
+        cast<PointerType>(Ptr->getType()->getScalarType())->getElementType(),
+        Ptr, IdxList);
+  }
+  static Type *getGEPReturnType(Type *ElTy, Value *Ptr,
+                                ArrayRef<Value *> IdxList) {
+    Type *PtrTy = PointerType::get(checkGEPType(getIndexedType(ElTy, IdxList)),
+                                   Ptr->getType()->getPointerAddressSpace());
     // Vector GEP
     if (Ptr->getType()->isVectorTy()) {
       unsigned NumElem = cast<VectorType>(Ptr->getType())->getNumElements();
@@ -989,21 +1025,21 @@ GetElementPtrInst::GetElementPtrInst(Type *PointeeType, Value *Ptr,
                                      ArrayRef<Value *> IdxList, unsigned Values,
                                      const Twine &NameStr,
                                      Instruction *InsertBefore)
-    : Instruction(getGEPReturnType(Ptr, IdxList), GetElementPtr,
+    : Instruction(getGEPReturnType(PointeeType, Ptr, IdxList), GetElementPtr,
                   OperandTraits<GetElementPtrInst>::op_end(this) - Values,
-                  Values, InsertBefore) {
+                  Values, InsertBefore),
+      SourceElementType(PointeeType) {
   init(Ptr, IdxList, NameStr);
-  assert(!PointeeType || PointeeType == getSourceElementType());
 }
 GetElementPtrInst::GetElementPtrInst(Type *PointeeType, Value *Ptr,
                                      ArrayRef<Value *> IdxList, unsigned Values,
                                      const Twine &NameStr,
                                      BasicBlock *InsertAtEnd)
-    : Instruction(getGEPReturnType(Ptr, IdxList), GetElementPtr,
+    : Instruction(getGEPReturnType(PointeeType, Ptr, IdxList), GetElementPtr,
                   OperandTraits<GetElementPtrInst>::op_end(this) - Values,
-                  Values, InsertAtEnd) {
+                  Values, InsertAtEnd),
+      SourceElementType(PointeeType) {
   init(Ptr, IdxList, NameStr);
-  assert(!PointeeType || PointeeType == getSourceElementType());
 }
 
 
@@ -1274,14 +1310,26 @@ public:
 ///
 class CallInst : public Instruction {
   AttributeSet AttributeList; ///< parameter attributes for call
+  FunctionType *FTy;
   CallInst(const CallInst &CI);
-  void init(Value *Func, ArrayRef<Value *> Args, const Twine &NameStr);
+  void init(Value *Func, ArrayRef<Value *> Args, const Twine &NameStr) {
+    init(cast<FunctionType>(
+             cast<PointerType>(Func->getType())->getElementType()),
+         Func, Args, NameStr);
+  }
+  void init(FunctionType *FTy, Value *Func, ArrayRef<Value *> Args,
+            const Twine &NameStr);
   void init(Value *Func, const Twine &NameStr);
 
   /// Construct a CallInst given a range of arguments.
   /// \brief Construct a CallInst from a range of arguments
-  inline CallInst(Value *Func, ArrayRef<Value *> Args,
+  inline CallInst(FunctionType *Ty, Value *Func, ArrayRef<Value *> Args,
                   const Twine &NameStr, Instruction *InsertBefore);
+  inline CallInst(Value *Func, ArrayRef<Value *> Args, const Twine &NameStr,
+                  Instruction *InsertBefore)
+      : CallInst(cast<FunctionType>(
+                     cast<PointerType>(Func->getType())->getElementType()),
+                 Func, Args, NameStr, InsertBefore) {}
 
   /// Construct a CallInst given a range of arguments.
   /// \brief Construct a CallInst from a range of arguments
@@ -1298,8 +1346,15 @@ public:
                           ArrayRef<Value *> Args,
                           const Twine &NameStr = "",
                           Instruction *InsertBefore = nullptr) {
-    return new(unsigned(Args.size() + 1))
-      CallInst(Func, Args, NameStr, InsertBefore);
+    return Create(cast<FunctionType>(
+                      cast<PointerType>(Func->getType())->getElementType()),
+                  Func, Args, NameStr, InsertBefore);
+  }
+  static CallInst *Create(FunctionType *Ty, Value *Func, ArrayRef<Value *> Args,
+                          const Twine &NameStr = "",
+                          Instruction *InsertBefore = nullptr) {
+    return new (unsigned(Args.size() + 1))
+        CallInst(Ty, Func, Args, NameStr, InsertBefore);
   }
   static CallInst *Create(Value *Func,
                           ArrayRef<Value *> Args,
@@ -1335,7 +1390,14 @@ public:
   static Instruction* CreateFree(Value* Source, Instruction *InsertBefore);
   static Instruction* CreateFree(Value* Source, BasicBlock *InsertAtEnd);
 
-  ~CallInst();
+  ~CallInst() override;
+
+  FunctionType *getFunctionType() const { return FTy; }
+
+  void mutateFunctionType(FunctionType *FTy) {
+    mutateType(FTy->getReturnType());
+    this->FTy = FTy;
+  }
 
   // Note that 'musttail' implies 'tail'.
   enum TailCallKind { TCK_None = 0, TCK_Tail = 1, TCK_MustTail = 2 };
@@ -1412,6 +1474,10 @@ public:
   /// \brief adds the dereferenceable attribute to the list of attributes.
   void addDereferenceableAttr(unsigned i, uint64_t Bytes);
 
+  /// \brief adds the dereferenceable_or_null attribute to the list of
+  /// attributes.
+  void addDereferenceableOrNullAttr(unsigned i, uint64_t Bytes);
+
   /// \brief Determine whether this call has the given attribute.
   bool hasFnAttr(Attribute::AttrKind A) const {
     assert(A != Attribute::NoBuiltin &&
@@ -1433,6 +1499,12 @@ public:
     return AttributeList.getDereferenceableBytes(i);
   }
 
+  /// \brief Extract the number of dereferenceable_or_null bytes for a call or
+  /// parameter (0=unknown).
+  uint64_t getDereferenceableOrNullBytes(unsigned i) const {
+    return AttributeList.getDereferenceableOrNullBytes(i);
+  }
+  
   /// \brief Return true if the call should not be treated as a call to a
   /// builtin.
   bool isNoBuiltin() const {
@@ -1514,6 +1586,14 @@ public:
 
   /// setCalledFunction - Set the function called.
   void setCalledFunction(Value* Fn) {
+    setCalledFunction(
+        cast<FunctionType>(cast<PointerType>(Fn->getType())->getElementType()),
+        Fn);
+  }
+  void setCalledFunction(FunctionType *FTy, Value *Fn) {
+    this->FTy = FTy;
+    assert(FTy == cast<FunctionType>(
+                      cast<PointerType>(Fn->getType())->getElementType()));
     Op<-1>() = Fn;
   }
 
@@ -1554,14 +1634,12 @@ CallInst::CallInst(Value *Func, ArrayRef<Value *> Args,
   init(Func, Args, NameStr);
 }
 
-CallInst::CallInst(Value *Func, ArrayRef<Value *> Args,
+CallInst::CallInst(FunctionType *Ty, Value *Func, ArrayRef<Value *> Args,
                    const Twine &NameStr, Instruction *InsertBefore)
-  : Instruction(cast<FunctionType>(cast<PointerType>(Func->getType())
-                                   ->getElementType())->getReturnType(),
-                Instruction::Call,
-                OperandTraits<CallInst>::op_end(this) - (Args.size() + 1),
-                unsigned(Args.size() + 1), InsertBefore) {
-  init(Func, Args, NameStr);
+    : Instruction(Ty->getReturnType(), Instruction::Call,
+                  OperandTraits<CallInst>::op_end(this) - (Args.size() + 1),
+                  unsigned(Args.size() + 1), InsertBefore) {
+  init(Ty, Func, Args, NameStr);
 }
 
 
@@ -2175,7 +2253,7 @@ public:
                          const Twine &NameStr, BasicBlock *InsertAtEnd) {
     return new PHINode(Ty, NumReservedValues, NameStr, InsertAtEnd);
   }
-  ~PHINode();
+  ~PHINode() override;
 
   /// Provide fast operand accessors
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
@@ -2207,6 +2285,8 @@ public:
   }
 
   op_range incoming_values() { return operands(); }
+
+  const_op_range incoming_values() const { return operands(); }
 
   /// getNumIncomingValues - Return the number of incoming edges
   ///
@@ -2366,7 +2446,7 @@ public:
   static LandingPadInst *Create(Type *RetTy, Value *PersonalityFn,
                                 unsigned NumReservedClauses,
                                 const Twine &NameStr, BasicBlock *InsertAtEnd);
-  ~LandingPadInst();
+  ~LandingPadInst() override;
 
   /// Provide fast operand accessors
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
@@ -2468,7 +2548,7 @@ public:
   static ReturnInst* Create(LLVMContext &C, BasicBlock *InsertAtEnd) {
     return new(0) ReturnInst(C, InsertAtEnd);
   }
-  virtual ~ReturnInst();
+  ~ReturnInst() override;
 
   /// Provide fast operand accessors
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
@@ -2765,7 +2845,7 @@ public:
     return new SwitchInst(Value, Default, NumCases, InsertAtEnd);
   }
 
-  ~SwitchInst();
+  ~SwitchInst() override;
 
   /// Provide fast operand accessors
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
@@ -2951,7 +3031,7 @@ public:
                                 BasicBlock *InsertAtEnd) {
     return new IndirectBrInst(Address, NumDests, InsertAtEnd);
   }
-  ~IndirectBrInst();
+  ~IndirectBrInst() override;
 
   /// Provide fast operand accessors.
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
@@ -3015,17 +3095,33 @@ DEFINE_TRANSPARENT_OPERAND_ACCESSORS(IndirectBrInst, Value)
 ///
 class InvokeInst : public TerminatorInst {
   AttributeSet AttributeList;
+  FunctionType *FTy;
   InvokeInst(const InvokeInst &BI);
   void init(Value *Func, BasicBlock *IfNormal, BasicBlock *IfException,
-            ArrayRef<Value *> Args, const Twine &NameStr);
+            ArrayRef<Value *> Args, const Twine &NameStr) {
+    init(cast<FunctionType>(
+             cast<PointerType>(Func->getType())->getElementType()),
+         Func, IfNormal, IfException, Args, NameStr);
+  }
+  void init(FunctionType *FTy, Value *Func, BasicBlock *IfNormal,
+            BasicBlock *IfException, ArrayRef<Value *> Args,
+            const Twine &NameStr);
 
   /// Construct an InvokeInst given a range of arguments.
   ///
   /// \brief Construct an InvokeInst from a range of arguments
   inline InvokeInst(Value *Func, BasicBlock *IfNormal, BasicBlock *IfException,
                     ArrayRef<Value *> Args, unsigned Values,
-                    const Twine &NameStr, Instruction *InsertBefore);
+                    const Twine &NameStr, Instruction *InsertBefore)
+      : InvokeInst(cast<FunctionType>(
+                       cast<PointerType>(Func->getType())->getElementType()),
+                   Func, IfNormal, IfException, Args, Values, NameStr,
+                   InsertBefore) {}
 
+  inline InvokeInst(FunctionType *Ty, Value *Func, BasicBlock *IfNormal,
+                    BasicBlock *IfException, ArrayRef<Value *> Args,
+                    unsigned Values, const Twine &NameStr,
+                    Instruction *InsertBefore);
   /// Construct an InvokeInst given a range of arguments.
   ///
   /// \brief Construct an InvokeInst from a range of arguments
@@ -3039,9 +3135,17 @@ public:
                             BasicBlock *IfNormal, BasicBlock *IfException,
                             ArrayRef<Value *> Args, const Twine &NameStr = "",
                             Instruction *InsertBefore = nullptr) {
+    return Create(cast<FunctionType>(
+                      cast<PointerType>(Func->getType())->getElementType()),
+                  Func, IfNormal, IfException, Args, NameStr, InsertBefore);
+  }
+  static InvokeInst *Create(FunctionType *Ty, Value *Func, BasicBlock *IfNormal,
+                            BasicBlock *IfException, ArrayRef<Value *> Args,
+                            const Twine &NameStr = "",
+                            Instruction *InsertBefore = nullptr) {
     unsigned Values = unsigned(Args.size()) + 3;
-    return new(Values) InvokeInst(Func, IfNormal, IfException, Args,
-                                  Values, NameStr, InsertBefore);
+    return new (Values) InvokeInst(Ty, Func, IfNormal, IfException, Args,
+                                   Values, NameStr, InsertBefore);
   }
   static InvokeInst *Create(Value *Func,
                             BasicBlock *IfNormal, BasicBlock *IfException,
@@ -3054,6 +3158,13 @@ public:
 
   /// Provide fast operand accessors
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
+
+  FunctionType *getFunctionType() const { return FTy; }
+
+  void mutateFunctionType(FunctionType *FTy) {
+    mutateType(FTy->getReturnType());
+    this->FTy = FTy;
+  }
 
   /// getNumArgOperands - Return the number of invoke arguments.
   ///
@@ -3104,6 +3215,10 @@ public:
   /// \brief adds the dereferenceable attribute to the list of attributes.
   void addDereferenceableAttr(unsigned i, uint64_t Bytes);
 
+  /// \brief adds the dereferenceable_or_null attribute to the list of
+  /// attributes.
+  void addDereferenceableOrNullAttr(unsigned i, uint64_t Bytes);
+
   /// \brief Determine whether this call has the given attribute.
   bool hasFnAttr(Attribute::AttrKind A) const {
     assert(A != Attribute::NoBuiltin &&
@@ -3123,6 +3238,12 @@ public:
   /// parameter (0=unknown).
   uint64_t getDereferenceableBytes(unsigned i) const {
     return AttributeList.getDereferenceableBytes(i);
+  }
+  
+  /// \brief Extract the number of dereferenceable_or_null bytes for a call or
+  /// parameter (0=unknown).
+  uint64_t getDereferenceableOrNullBytes(unsigned i) const {
+    return AttributeList.getDereferenceableOrNullBytes(i);
   }
 
   /// \brief Return true if the call should not be treated as a call to a
@@ -3200,6 +3321,14 @@ public:
 
   /// setCalledFunction - Set the function called.
   void setCalledFunction(Value* Fn) {
+    setCalledFunction(
+        cast<FunctionType>(cast<PointerType>(Fn->getType())->getElementType()),
+        Fn);
+  }
+  void setCalledFunction(FunctionType *FTy, Value *Fn) {
+    this->FTy = FTy;
+    assert(FTy == cast<FunctionType>(
+                      cast<PointerType>(Fn->getType())->getElementType()));
     Op<-3>() = Fn;
   }
 
@@ -3259,16 +3388,14 @@ template <>
 struct OperandTraits<InvokeInst> : public VariadicOperandTraits<InvokeInst, 3> {
 };
 
-InvokeInst::InvokeInst(Value *Func,
-                       BasicBlock *IfNormal, BasicBlock *IfException,
-                       ArrayRef<Value *> Args, unsigned Values,
-                       const Twine &NameStr, Instruction *InsertBefore)
-  : TerminatorInst(cast<FunctionType>(cast<PointerType>(Func->getType())
-                                      ->getElementType())->getReturnType(),
-                   Instruction::Invoke,
-                   OperandTraits<InvokeInst>::op_end(this) - Values,
-                   Values, InsertBefore) {
-  init(Func, IfNormal, IfException, Args, NameStr);
+InvokeInst::InvokeInst(FunctionType *Ty, Value *Func, BasicBlock *IfNormal,
+                       BasicBlock *IfException, ArrayRef<Value *> Args,
+                       unsigned Values, const Twine &NameStr,
+                       Instruction *InsertBefore)
+    : TerminatorInst(Ty->getReturnType(), Instruction::Invoke,
+                     OperandTraits<InvokeInst>::op_end(this) - Values, Values,
+                     InsertBefore) {
+  init(Ty, Func, IfNormal, IfException, Args, NameStr);
 }
 InvokeInst::InvokeInst(Value *Func,
                        BasicBlock *IfNormal, BasicBlock *IfException,

@@ -50,6 +50,7 @@ public:
         eServerPacketType_qfProcessInfo,
         eServerPacketType_qsProcessInfo,
         eServerPacketType_qC,
+        eServerPacketType_qEcho,
         eServerPacketType_qGroupName,
         eServerPacketType_qHostInfo,
         eServerPacketType_qLaunchGDBServer,
@@ -145,6 +146,7 @@ public:
 
         eServerPacketType__M,
         eServerPacketType__m,
+        eServerPacketType_notify, // '%' notification
     };
     
     ServerPacketType

@@ -162,11 +162,23 @@ void AArch64InstPrinter::printInst(const MCInst *MI, raw_ostream &O,
     int ImmR = MI->getOperand(3).getImm();
     int ImmS = MI->getOperand(4).getImm();
 
-    // BFI alias
-    if (ImmS < ImmR) {
+    if ((Op2.getReg() == AArch64::WZR || Op2.getReg() == AArch64::XZR) &&
+        (ImmR == 0 || ImmS < ImmR)) {
+      // BFC takes precedence over its entire range, sligtly differently to BFI.
       int BitWidth = Opcode == AArch64::BFMXri ? 64 : 32;
       int LSB = (BitWidth - ImmR) % BitWidth;
       int Width = ImmS + 1;
+
+      O << "\tbfc\t" << getRegisterName(Op0.getReg())
+        << ", #" << LSB << ", #" << Width;
+      printAnnotation(O, Annot);
+      return;
+    } else if (ImmS < ImmR) {
+      // BFI alias
+      int BitWidth = Opcode == AArch64::BFMXri ? 64 : 32;
+      int LSB = (BitWidth - ImmR) % BitWidth;
+      int Width = ImmS + 1;
+
       O << "\tbfi\t" << getRegisterName(Op0.getReg()) << ", "
         << getRegisterName(Op2.getReg()) << ", #" << LSB << ", #" << Width;
       printAnnotation(O, Annot);
@@ -1101,7 +1113,8 @@ void AArch64InstPrinter::printPrefetchOp(const MCInst *MI, unsigned OpNum,
                                          raw_ostream &O) {
   unsigned prfop = MI->getOperand(OpNum).getImm();
   bool Valid;
-  StringRef Name = AArch64PRFM::PRFMMapper().toString(prfop, Valid);
+  StringRef Name = 
+      AArch64PRFM::PRFMMapper().toString(prfop, STI.getFeatureBits(), Valid);
   if (Valid)
     O << Name;
   else
@@ -1251,7 +1264,7 @@ void AArch64InstPrinter::printAlignedLabel(const MCInst *MI, unsigned OpNum,
   const MCConstantExpr *BranchTarget =
       dyn_cast<MCConstantExpr>(MI->getOperand(OpNum).getExpr());
   int64_t Address;
-  if (BranchTarget && BranchTarget->EvaluateAsAbsolute(Address)) {
+  if (BranchTarget && BranchTarget->evaluateAsAbsolute(Address)) {
     O << "0x";
     O.write_hex(Address);
   } else {
@@ -1285,9 +1298,11 @@ void AArch64InstPrinter::printBarrierOption(const MCInst *MI, unsigned OpNo,
   bool Valid;
   StringRef Name;
   if (Opcode == AArch64::ISB)
-    Name = AArch64ISB::ISBMapper().toString(Val, Valid);
+    Name = AArch64ISB::ISBMapper().toString(Val, STI.getFeatureBits(), 
+                                            Valid);
   else
-    Name = AArch64DB::DBarrierMapper().toString(Val, Valid);
+    Name = AArch64DB::DBarrierMapper().toString(Val, STI.getFeatureBits(), 
+                                                Valid);
   if (Valid)
     O << Name;
   else
@@ -1322,7 +1337,8 @@ void AArch64InstPrinter::printSystemPStateField(const MCInst *MI, unsigned OpNo,
   unsigned Val = MI->getOperand(OpNo).getImm();
 
   bool Valid;
-  StringRef Name = AArch64PState::PStateMapper().toString(Val, Valid);
+  StringRef Name = 
+      AArch64PState::PStateMapper().toString(Val, STI.getFeatureBits(), Valid);
   if (Valid)
     O << StringRef(Name.str()).upper();
   else

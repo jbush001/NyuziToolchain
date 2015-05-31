@@ -11,13 +11,31 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "HexagonMCInstrInfo.h"
+#include "Hexagon.h"
 #include "HexagonBaseInfo.h"
+#include "HexagonMCInstrInfo.h"
 
 namespace llvm {
-void HexagonMCInstrInfo::AppendImplicitOperands(MCInst &MCI) {
-  MCI.addOperand(MCOperand::CreateImm(0));
-  MCI.addOperand(MCOperand::CreateInst(nullptr));
+iterator_range<MCInst::const_iterator>
+HexagonMCInstrInfo::bundleInstructions(MCInst const &MCI) {
+  assert(isBundle(MCI));
+  return iterator_range<MCInst::const_iterator>(
+      MCI.begin() + bundleInstructionsOffset, MCI.end());
+}
+
+size_t HexagonMCInstrInfo::bundleSize(MCInst const &MCI) {
+  if (HexagonMCInstrInfo::isBundle(MCI))
+    return (MCI.size() - bundleInstructionsOffset);
+  else
+    return (1);
+}
+
+HexagonII::MemAccessSize
+HexagonMCInstrInfo::getAccessSize(MCInstrInfo const &MCII, MCInst const &MCI) {
+  const uint64_t F = HexagonMCInstrInfo::getDesc(MCII, MCI).TSFlags;
+
+  return (HexagonII::MemAccessSize((F >> HexagonII::MemAccessSizePos) &
+                                   HexagonII::MemAccesSizeMask));
 }
 
 unsigned HexagonMCInstrInfo::getBitCount(MCInstrInfo const &MCII,
@@ -38,10 +56,34 @@ MCInstrDesc const &HexagonMCInstrInfo::getDesc(MCInstrInfo const &MCII,
   return (MCII.get(MCI.getOpcode()));
 }
 
-std::bitset<16> HexagonMCInstrInfo::GetImplicitBits(MCInst const &MCI) {
-  SanityCheckImplicitOperands(MCI);
-  std::bitset<16> Bits(MCI.getOperand(MCI.getNumOperands() - 2).getImm());
-  return Bits;
+unsigned short HexagonMCInstrInfo::getExtendableOp(MCInstrInfo const &MCII,
+                                                   MCInst const &MCI) {
+  const uint64_t F = HexagonMCInstrInfo::getDesc(MCII, MCI).TSFlags;
+  return ((F >> HexagonII::ExtendableOpPos) & HexagonII::ExtendableOpMask);
+}
+
+MCOperand const &
+HexagonMCInstrInfo::getExtendableOperand(MCInstrInfo const &MCII,
+                                         MCInst const &MCI) {
+  unsigned O = HexagonMCInstrInfo::getExtendableOp(MCII, MCI);
+  MCOperand const &MO = MCI.getOperand(O);
+
+  assert((HexagonMCInstrInfo::isExtendable(MCII, MCI) ||
+          HexagonMCInstrInfo::isExtended(MCII, MCI)) &&
+         (MO.isImm() || MO.isExpr()));
+  return (MO);
+}
+
+unsigned HexagonMCInstrInfo::getExtentAlignment(MCInstrInfo const &MCII,
+                                                MCInst const &MCI) {
+  const uint64_t F = HexagonMCInstrInfo::getDesc(MCII, MCI).TSFlags;
+  return ((F >> HexagonII::ExtentAlignPos) & HexagonII::ExtentAlignMask);
+}
+
+unsigned HexagonMCInstrInfo::getExtentBits(MCInstrInfo const &MCII,
+                                           MCInst const &MCI) {
+  const uint64_t F = HexagonMCInstrInfo::getDesc(MCII, MCI).TSFlags;
+  return ((F >> HexagonII::ExtentBitsPos) & HexagonII::ExtentBitsMask);
 }
 
 // Return the max value that a constant extendable operand can have
@@ -74,9 +116,19 @@ int HexagonMCInstrInfo::getMinValue(MCInstrInfo const &MCII,
     return 0;
 }
 
-// Return the operand that consumes or produces a new value.
-MCOperand const &HexagonMCInstrInfo::getNewValue(MCInstrInfo const &MCII,
+char const *HexagonMCInstrInfo::getName(MCInstrInfo const &MCII,
+                                        MCInst const &MCI) {
+  return MCII.getName(MCI.getOpcode());
+}
+
+unsigned short HexagonMCInstrInfo::getNewValueOp(MCInstrInfo const &MCII,
                                                  MCInst const &MCI) {
+  const uint64_t F = HexagonMCInstrInfo::getDesc(MCII, MCI).TSFlags;
+  return ((F >> HexagonII::NewValueOpPos) & HexagonII::NewValueOpMask);
+}
+
+MCOperand const &HexagonMCInstrInfo::getNewValueOperand(MCInstrInfo const &MCII,
+                                                        MCInst const &MCI) {
   uint64_t const F = HexagonMCInstrInfo::getDesc(MCII, MCI).TSFlags;
   unsigned const O =
       (F >> HexagonII::NewValueOpPos) & HexagonII::NewValueOpMask;
@@ -101,6 +153,18 @@ bool HexagonMCInstrInfo::hasNewValue(MCInstrInfo const &MCII,
                                      MCInst const &MCI) {
   const uint64_t F = HexagonMCInstrInfo::getDesc(MCII, MCI).TSFlags;
   return ((F >> HexagonII::hasNewValuePos) & HexagonII::hasNewValueMask);
+}
+
+MCInst const &HexagonMCInstrInfo::instruction(MCInst const &MCB, size_t Index) {
+  assert(isBundle(MCB));
+  assert(Index < HEXAGON_PACKET_SIZE);
+  return *MCB.getOperand(bundleInstructionsOffset + Index).getInst();
+}
+
+bool HexagonMCInstrInfo::isBundle(MCInst const &MCI) {
+  auto Result = Hexagon::BUNDLE == MCI.getOpcode();
+  assert(!Result || (MCI.size() > 0 && MCI.getOperand(0).isImm()));
+  return Result;
 }
 
 // Return whether the insn is an actual insn.
@@ -162,6 +226,18 @@ bool HexagonMCInstrInfo::isExtended(MCInstrInfo const &MCII,
   return (F >> HexagonII::ExtendedPos) & HexagonII::ExtendedMask;
 }
 
+bool HexagonMCInstrInfo::isImmext(MCInst const &MCI) {
+  auto Op = MCI.getOpcode();
+  return (Op == Hexagon::A4_ext_b || Op == Hexagon::A4_ext_c ||
+          Op == Hexagon::A4_ext_g || Op == Hexagon::A4_ext);
+}
+
+bool HexagonMCInstrInfo::isInnerLoop(MCInst const &MCI) {
+  assert(isBundle(MCI));
+  int64_t Flags = MCI.getOperand(0).getImm();
+  return (Flags & innerLoopMask) != 0;
+}
+
 // Return whether the insn is a new-value consumer.
 bool HexagonMCInstrInfo::isNewValue(MCInstrInfo const &MCII,
                                     MCInst const &MCI) {
@@ -178,14 +254,23 @@ bool HexagonMCInstrInfo::isOperandExtended(MCInstrInfo const &MCII,
          OperandNum;
 }
 
-bool HexagonMCInstrInfo::isPacketBegin(MCInst const &MCI) {
-  std::bitset<16> Bits(GetImplicitBits(MCI));
-  return Bits.test(packetBeginIndex);
+bool HexagonMCInstrInfo::isOuterLoop(MCInst const &MCI) {
+  assert(isBundle(MCI));
+  int64_t Flags = MCI.getOperand(0).getImm();
+  return (Flags & outerLoopMask) != 0;
 }
 
-bool HexagonMCInstrInfo::isPacketEnd(MCInst const &MCI) {
-  std::bitset<16> Bits(GetImplicitBits(MCI));
-  return Bits.test(packetEndIndex);
+bool HexagonMCInstrInfo::isPredicated(MCInstrInfo const &MCII,
+                                      MCInst const &MCI) {
+  const uint64_t F = HexagonMCInstrInfo::getDesc(MCII, MCI).TSFlags;
+  return ((F >> HexagonII::PredicatedPos) & HexagonII::PredicatedMask);
+}
+
+bool HexagonMCInstrInfo::isPredicatedTrue(MCInstrInfo const &MCII,
+                                          MCInst const &MCI) {
+  const uint64_t F = HexagonMCInstrInfo::getDesc(MCII, MCI).TSFlags;
+  return (
+      !((F >> HexagonII::PredicatedFalsePos) & HexagonII::PredicatedFalseMask));
 }
 
 // Return whether the insn is a prefix.
@@ -199,25 +284,26 @@ bool HexagonMCInstrInfo::isSolo(MCInstrInfo const &MCII, MCInst const &MCI) {
   return ((F >> HexagonII::SoloPos) & HexagonII::SoloMask);
 }
 
-void HexagonMCInstrInfo::resetPacket(MCInst &MCI) {
-  setPacketBegin(MCI, false);
-  setPacketEnd(MCI, false);
+void HexagonMCInstrInfo::padEndloop(MCInst &MCB) {
+  MCInst Nop;
+  Nop.setOpcode(Hexagon::A2_nop);
+  assert(isBundle(MCB));
+  while ((HexagonMCInstrInfo::isInnerLoop(MCB) &&
+          (HexagonMCInstrInfo::bundleSize(MCB) < HEXAGON_PACKET_INNER_SIZE)) ||
+         ((HexagonMCInstrInfo::isOuterLoop(MCB) &&
+           (HexagonMCInstrInfo::bundleSize(MCB) < HEXAGON_PACKET_OUTER_SIZE))))
+    MCB.addOperand(MCOperand::createInst(new MCInst(Nop)));
 }
 
-void HexagonMCInstrInfo::SetImplicitBits(MCInst &MCI, std::bitset<16> Bits) {
-  SanityCheckImplicitOperands(MCI);
-  MCI.getOperand(MCI.getNumOperands() - 2).setImm(Bits.to_ulong());
+void HexagonMCInstrInfo::setInnerLoop(MCInst &MCI) {
+  assert(isBundle(MCI));
+  MCOperand &Operand = MCI.getOperand(0);
+  Operand.setImm(Operand.getImm() | innerLoopMask);
 }
 
-void HexagonMCInstrInfo::setPacketBegin(MCInst &MCI, bool f) {
-  std::bitset<16> Bits(GetImplicitBits(MCI));
-  Bits.set(packetBeginIndex, f);
-  SetImplicitBits(MCI, Bits);
-}
-
-void HexagonMCInstrInfo::setPacketEnd(MCInst &MCI, bool f) {
-  std::bitset<16> Bits(GetImplicitBits(MCI));
-  Bits.set(packetEndIndex, f);
-  SetImplicitBits(MCI, Bits);
+void HexagonMCInstrInfo::setOuterLoop(MCInst &MCI) {
+  assert(isBundle(MCI));
+  MCOperand &Operand = MCI.getOperand(0);
+  Operand.setImm(Operand.getImm() | outerLoopMask);
 }
 }

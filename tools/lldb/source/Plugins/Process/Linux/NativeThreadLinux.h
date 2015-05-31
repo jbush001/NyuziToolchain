@@ -54,16 +54,13 @@ namespace process_linux {
         // Interface for friend classes
         // ---------------------------------------------------------------------
         void
-        SetLaunching ();
-
-        void
         SetRunning ();
 
         void
         SetStepping ();
 
         void
-        SetStoppedBySignal (uint32_t signo);
+        SetStoppedBySignal(uint32_t signo, const siginfo_t *info = nullptr);
 
         /// Return true if the thread is stopped.
         /// If stopped by a signal, indicate the signo in the signo argument.
@@ -98,6 +95,19 @@ namespace process_linux {
         void
         SetExited ();
 
+        Error
+        RequestStop ();
+
+        typedef std::function<Error (lldb::tid_t tid, bool supress_signal)> ResumeThreadFunction;
+        struct ThreadContext
+        {
+            bool stop_requested = false;
+            ResumeThreadFunction request_resume_function;
+        };
+
+        ThreadContext &
+        GetThreadContext() { return m_thread_context; }
+
         // ---------------------------------------------------------------------
         // Private interface
         // ---------------------------------------------------------------------
@@ -113,6 +123,7 @@ namespace process_linux {
         std::string m_stop_description;
         using WatchpointIndexMap = std::map<lldb::addr_t, uint32_t>;
         WatchpointIndexMap m_watchpoint_index_map;
+        ThreadContext m_thread_context;
     };
 
 } // namespace process_linux

@@ -37,6 +37,9 @@ public:
     GetFrameID () const;
 
     lldb::addr_t
+    GetCFA () const;
+
+    lldb::addr_t
     GetPC () const;
 
     bool
@@ -213,9 +216,6 @@ protected:
     friend class SBInstruction;
     friend class SBThread;
     friend class SBValue;
-#ifndef LLDB_DISABLE_PYTHON
-    friend class lldb_private::ScriptInterpreterPython;
-#endif
 
     lldb::StackFrameSP
     GetFrameSP() const;

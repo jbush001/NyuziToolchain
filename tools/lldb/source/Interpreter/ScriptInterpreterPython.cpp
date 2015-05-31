@@ -382,6 +382,13 @@ ScriptInterpreterPython::LeaveSession ()
     m_session_is_active = false;
 }
 
+static PyObject *
+PyFile_FromFile_Const(FILE *fp, const char *name, const char *mode, int (*close)(FILE *))
+{
+    // Read through the Python source, doesn't seem to modify these strings
+    return PyFile_FromFile(fp, const_cast<char*>(name), const_cast<char*>(mode), close);
+}
+
 bool
 ScriptInterpreterPython::EnterSession (uint16_t on_entry_flags,
                                        FILE *in,
@@ -447,7 +454,7 @@ ScriptInterpreterPython::EnterSession (uint16_t on_entry_flags,
             {
                 m_saved_stdin.Reset(sys_module_dict.GetItemForKey("stdin"));
                 // This call can deadlock your process if the file is locked
-                PyObject *new_file = PyFile_FromFile (in, (char *) "", (char *) "r", nullptr);
+                PyObject *new_file = PyFile_FromFile_Const (in, "", "r", nullptr);
                 sys_module_dict.SetItemForKey ("stdin", new_file);
                 Py_DECREF (new_file);
             }
@@ -459,7 +466,7 @@ ScriptInterpreterPython::EnterSession (uint16_t on_entry_flags,
         {
             m_saved_stdout.Reset(sys_module_dict.GetItemForKey("stdout"));
 
-            PyObject *new_file = PyFile_FromFile (out, (char *) "", (char *) "w", nullptr);
+            PyObject *new_file = PyFile_FromFile_Const (out, "", "w", nullptr);
             sys_module_dict.SetItemForKey ("stdout", new_file);
             Py_DECREF (new_file);
         }
@@ -472,7 +479,7 @@ ScriptInterpreterPython::EnterSession (uint16_t on_entry_flags,
         {
             m_saved_stderr.Reset(sys_module_dict.GetItemForKey("stderr"));
 
-            PyObject *new_file = PyFile_FromFile (err, (char *) "", (char *) "w", nullptr);
+            PyObject *new_file = PyFile_FromFile_Const (err, "", "w", nullptr);
             sys_module_dict.SetItemForKey ("stderr", new_file);
             Py_DECREF (new_file);
         }
@@ -727,22 +734,21 @@ public:
         
     }
     
-    virtual
-    ~IOHandlerPythonInterpreter()
+    ~IOHandlerPythonInterpreter() override
     {
         
     }
     
-    virtual ConstString
-    GetControlSequence (char ch)
+    ConstString
+    GetControlSequence (char ch) override
     {
         if (ch == 'd')
             return ConstString("quit()\n");
         return ConstString();
     }
 
-    virtual void
-    Run ()
+    void
+    Run () override
     {
         if (m_python)
         {
@@ -788,32 +794,20 @@ public:
         SetIsDone(true);
     }
 
-    virtual void
-    Hide ()
-    {
-        
-    }
-    
-    virtual void
-    Refresh ()
+    void
+    Cancel () override
     {
         
     }
 
-    virtual void
-    Cancel ()
-    {
-        
-    }
-
-    virtual bool
-    Interrupt ()
+    bool
+    Interrupt () override
     {
         return m_python->Interrupt();
     }
     
-    virtual void
-    GotEOF()
+    void
+    GotEOF() override
     {
         
     }
@@ -2871,6 +2865,78 @@ ScriptInterpreterPython::GetShortHelpForCommandObject (StructuredData::GenericSP
     return got_string;
 }
 
+uint32_t
+ScriptInterpreterPython::GetFlagsForCommandObject (StructuredData::GenericSP cmd_obj_sp)
+{
+    uint32_t result = 0;
+    
+    Locker py_lock (this,
+                    Locker::AcquireLock | Locker::NoSTDIN,
+                    Locker::FreeLock);
+    
+    static char callee_name[] = "get_flags";
+    
+    if (!cmd_obj_sp)
+        return result;
+    
+    PyObject* implementor = (PyObject*)cmd_obj_sp->GetValue();
+    
+    if (implementor == nullptr || implementor == Py_None)
+        return result;
+    
+    PyObject* pmeth  = PyObject_GetAttrString(implementor, callee_name);
+    
+    if (PyErr_Occurred())
+    {
+        PyErr_Clear();
+    }
+    
+    if (pmeth == nullptr || pmeth == Py_None)
+    {
+        Py_XDECREF(pmeth);
+        return result;
+    }
+    
+    if (PyCallable_Check(pmeth) == 0)
+    {
+        if (PyErr_Occurred())
+        {
+            PyErr_Clear();
+        }
+        
+        Py_XDECREF(pmeth);
+        return result;
+    }
+    
+    if (PyErr_Occurred())
+    {
+        PyErr_Clear();
+    }
+    
+    Py_XDECREF(pmeth);
+    
+    // right now we know this function exists and is callable..
+    PyObject* py_return = PyObject_CallMethod(implementor, callee_name, nullptr);
+    
+    // if it fails, print the error but otherwise go on
+    if (PyErr_Occurred())
+    {
+        PyErr_Print();
+        PyErr_Clear();
+    }
+    
+    if (py_return != nullptr && py_return != Py_None)
+    {
+        if (PyInt_Check(py_return))
+            result = (uint32_t)PyInt_AsLong(py_return);
+        else if (PyLong_Check(py_return))
+            result = (uint32_t)PyLong_AsLong(py_return);
+    }
+    Py_XDECREF(py_return);
+    
+    return result;
+}
+
 bool
 ScriptInterpreterPython::GetLongHelpForCommandObject (StructuredData::GenericSP cmd_obj_sp,
                                                       std::string& dest)
@@ -3024,6 +3090,9 @@ ScriptInterpreterPython::InitializePrivate ()
     TerminalState stdin_tty_state;
     stdin_tty_state.Save(STDIN_FILENO, false);
 
+#if defined(LLDB_PYTHON_HOME)
+    Py_SetPythonHome(LLDB_PYTHON_HOME);
+#endif
     PyGILState_STATE gstate;
     Log *log (lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_SCRIPT | LIBLLDB_LOG_VERBOSE));
     bool threads_already_initialized = false;
@@ -3044,36 +3113,17 @@ ScriptInterpreterPython::InitializePrivate ()
     // Update the path python uses to search for modules to include the current directory.
 
     PyRun_SimpleString ("import sys");
-    PyRun_SimpleString ("sys.path.append ('.')");
-
-    // Find the module that owns this code and use that path we get to
-    // set the sys.path appropriately.
+    AddToSysPath(AddLocation::End, ".");
 
     FileSpec file_spec;
-    char python_dir_path[PATH_MAX];
+    // Don't denormalize paths when calling file_spec.GetPath().  On platforms that use
+    // a backslash as the path separator, this will result in executing python code containing
+    // paths with unescaped backslashes.  But Python also accepts forward slashes, so to make
+    // life easier we just use that.
     if (HostInfo::GetLLDBPath(ePathTypePythonDir, file_spec))
-    {
-        std::string python_path("sys.path.insert(0,\"");
-        size_t orig_len = python_path.length();
-        if (file_spec.GetPath(python_dir_path, sizeof (python_dir_path)))
-        {
-            python_path.append (python_dir_path);
-            python_path.append ("\")");
-            PyRun_SimpleString (python_path.c_str());
-            python_path.resize (orig_len);
-        }
-
-        if (HostInfo::GetLLDBPath(ePathTypeLLDBShlibDir, file_spec))
-        {
-            if (file_spec.GetPath(python_dir_path, sizeof (python_dir_path)))
-            {
-                python_path.append (python_dir_path);
-                python_path.append ("\")");
-                PyRun_SimpleString (python_path.c_str());
-                python_path.resize (orig_len);
-            }
-        }
-    }
+        AddToSysPath(AddLocation::Beginning, file_spec.GetPath(false));
+    if (HostInfo::GetLLDBPath(ePathTypeLLDBShlibDir, file_spec))
+        AddToSysPath(AddLocation::Beginning, file_spec.GetPath(false));
 
     PyRun_SimpleString ("sys.dont_write_bytecode = 1; import lldb.embedded_interpreter; from lldb.embedded_interpreter import run_python_interpreter; from lldb.embedded_interpreter import run_one_line");
 
@@ -3088,6 +3138,28 @@ ScriptInterpreterPython::InitializePrivate ()
 
     stdin_tty_state.Restore();
 }
+
+void
+ScriptInterpreterPython::AddToSysPath(AddLocation location, std::string path)
+{
+    std::string path_copy;
+
+    std::string statement;
+    if (location == AddLocation::Beginning)
+    {
+        statement.assign("sys.path.insert(0,\"");
+        statement.append (path);
+        statement.append ("\")");
+    }
+    else
+    {
+        statement.assign("sys.path.append(\"");
+        statement.append(path);
+        statement.append("\")");
+    }
+    PyRun_SimpleString (statement.c_str());
+}
+
 
 //void
 //ScriptInterpreterPython::Terminate ()

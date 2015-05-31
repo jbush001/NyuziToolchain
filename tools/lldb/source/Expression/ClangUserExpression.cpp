@@ -26,6 +26,7 @@
 #include "lldb/Expression/ClangExpressionDeclMap.h"
 #include "lldb/Expression/ClangExpressionParser.h"
 #include "lldb/Expression/ClangFunction.h"
+#include "lldb/Expression/ClangModulesDeclVendor.h"
 #include "lldb/Expression/ClangPersistentVariables.h"
 #include "lldb/Expression/ClangUserExpression.h"
 #include "lldb/Expression/ExpressionSourceCode.h"
@@ -453,8 +454,41 @@ ClangUserExpression::Parse (Stream &error_stream,
     ApplyObjcCastHack(m_expr_text);
     //ApplyUnicharHack(m_expr_text);
 
-    std::unique_ptr<ExpressionSourceCode> source_code (ExpressionSourceCode::CreateWrapped(m_expr_prefix.c_str(), m_expr_text.c_str()));
+    std::string prefix = m_expr_prefix;
+    
+    if (ClangModulesDeclVendor *decl_vendor = m_target->GetClangModulesDeclVendor())
+    {
+        const ClangModulesDeclVendor::ModuleVector &hand_imported_modules = m_target->GetPersistentVariables().GetHandLoadedClangModules();
+        ClangModulesDeclVendor::ModuleVector modules_for_macros;
+        
+        for (ClangModulesDeclVendor::ModuleID module : hand_imported_modules)
+        {
+            modules_for_macros.push_back(module);
+        }
 
+        if (m_target->GetEnableAutoImportClangModules())
+        {
+            if (StackFrame *frame = exe_ctx.GetFramePtr())
+            {
+                if (Block *block = frame->GetFrameBlock())
+                {
+                    SymbolContext sc;
+                    
+                    block->CalculateSymbolContext(&sc);
+                    
+                    if (sc.comp_unit)
+                    {
+                        StreamString error_stream;
+                        
+                        decl_vendor->AddModulesForCompileUnit(*sc.comp_unit, modules_for_macros, error_stream);
+                    }
+                }
+            }
+        }
+    }
+    
+    std::unique_ptr<ExpressionSourceCode> source_code (ExpressionSourceCode::CreateWrapped(prefix.c_str(), m_expr_text.c_str()));
+    
     lldb::LanguageType lang_type;
 
     if (m_cplusplus)
@@ -1009,7 +1043,22 @@ ClangUserExpression::Evaluate (ExecutionContext &exe_ctx,
     if (process == NULL || !process->CanJIT())
         execution_policy = eExecutionPolicyNever;
 
-    lldb::ClangUserExpressionSP user_expression_sp (new ClangUserExpression (expr_cstr, expr_prefix, language, desired_type));
+    const char *full_prefix = NULL;
+    const char *option_prefix = options.GetPrefix();
+    std::string full_prefix_storage;
+    if (expr_prefix && option_prefix)
+    {
+        full_prefix_storage.assign(expr_prefix);
+        full_prefix_storage.append(option_prefix);
+        if (!full_prefix_storage.empty())
+            full_prefix = full_prefix_storage.c_str();
+    }
+    else if (expr_prefix)
+        full_prefix = expr_prefix;
+    else
+        full_prefix = option_prefix;
+
+    lldb::ClangUserExpressionSP user_expression_sp (new ClangUserExpression (expr_cstr, full_prefix, language, desired_type));
 
     StreamString error_stream;
 
@@ -1032,10 +1081,11 @@ ClangUserExpression::Evaluate (ExecutionContext &exe_ctx,
                                     keep_expression_in_memory,
                                     generate_debug_info))
     {
+        execution_results = lldb::eExpressionParseError;
         if (error_stream.GetString().empty())
-            error.SetExpressionError (lldb::eExpressionParseError, "expression failed to parse, unknown error");
+            error.SetExpressionError (execution_results, "expression failed to parse, unknown error");
         else
-            error.SetExpressionError (lldb::eExpressionParseError, error_stream.GetString().c_str());
+            error.SetExpressionError (execution_results, error_stream.GetString().c_str());
     }
     else
     {

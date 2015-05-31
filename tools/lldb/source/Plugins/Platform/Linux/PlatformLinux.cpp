@@ -7,8 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "lldb/lldb-python.h"
-
 #include "PlatformLinux.h"
 #include "lldb/Host/Config.h"
 
@@ -41,6 +39,11 @@
 #if defined(__linux__)
 #include "../../Process/Linux/NativeProcessLinux.h"
 #endif
+
+// Define these constants from Linux mman.h for use when targetting
+// remote linux systems even when host has different values.
+#define MAP_PRIVATE 2
+#define MAP_ANON 0x20
 
 using namespace lldb;
 using namespace lldb_private;
@@ -166,43 +169,22 @@ PlatformLinux::CreateInstance (bool force, const ArchSpec *arch)
     if (create == false && arch && arch->IsValid())
     {
         const llvm::Triple &triple = arch->GetTriple();
-        switch (triple.getVendor())
+        switch (triple.getOS())
         {
-            case llvm::Triple::PC:
+            case llvm::Triple::Linux:
                 create = true;
                 break;
 
 #if defined(__linux__)
-            // Only accept "unknown" for the vendor if the host is linux and
+            // Only accept "unknown" for the OS if the host is linux and
             // it "unknown" wasn't specified (it was just returned because it
-            // was NOT specified_
-            case llvm::Triple::VendorType::UnknownVendor:
-                create = !arch->TripleVendorWasSpecified();
+            // was NOT specified)
+            case llvm::Triple::OSType::UnknownOS:
+                create = !arch->TripleOSWasSpecified();
                 break;
 #endif
             default:
                 break;
-        }
-
-        if (create)
-        {
-            switch (triple.getOS())
-            {
-                case llvm::Triple::Linux:
-                    break;
-
-#if defined(__linux__)
-                // Only accept "unknown" for the OS if the host is linux and
-                // it "unknown" wasn't specified (it was just returned because it
-                // was NOT specified)
-                case llvm::Triple::OSType::UnknownOS:
-                    create = !arch->TripleOSWasSpecified();
-                    break;
-#endif
-                default:
-                    create = false;
-                    break;
-            }
         }
     }
 
@@ -492,20 +474,55 @@ PlatformLinux::FindProcesses (const ProcessInstanceInfoMatch &match_info,
 bool
 PlatformLinux::GetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch)
 {
-    if (idx == 0)
+    if (IsHost())
     {
-        arch = HostInfo::GetArchitecture(HostInfo::eArchKindDefault);
-        return arch.IsValid();
-    }
-    else if (idx == 1)
-    {
-        // If the default host architecture is 64-bit, look for a 32-bit variant
         ArchSpec hostArch = HostInfo::GetArchitecture(HostInfo::eArchKindDefault);
-        if (hostArch.IsValid() && hostArch.GetTriple().isArch64Bit())
+        if (hostArch.GetTriple().isOSLinux())
         {
-            arch = HostInfo::GetArchitecture(HostInfo::eArchKind32);
-            return arch.IsValid();
+            if (idx == 0)
+            {
+                arch = hostArch;
+                return arch.IsValid();
+            }
+            else if (idx == 1)
+            {
+                // If the default host architecture is 64-bit, look for a 32-bit variant
+                if (hostArch.IsValid() && hostArch.GetTriple().isArch64Bit())
+                {
+                    arch = HostInfo::GetArchitecture(HostInfo::eArchKind32);
+                    return arch.IsValid();
+                }
+            }
         }
+    }
+    else
+    {
+        if (m_remote_platform_sp)
+            return m_remote_platform_sp->GetSupportedArchitectureAtIndex(idx, arch);
+
+        llvm::Triple triple;
+        // Set the OS to linux
+        triple.setOS(llvm::Triple::Linux);
+        // Set the architecture
+        switch (idx)
+        {
+            case 0: triple.setArchName("x86_64"); break;
+            case 1: triple.setArchName("i386"); break;
+            case 2: triple.setArchName("arm"); break;
+            case 3: triple.setArchName("aarch64"); break;
+            case 4: triple.setArchName("mips64"); break;
+            case 5: triple.setArchName("hexagon"); break;
+            case 6: triple.setArchName("mips"); break;
+            default: return false;
+        }
+        // Leave the vendor as "llvm::Triple:UnknownVendor" and don't specify the vendor by
+        // calling triple.SetVendorName("unknown") so that it is a "unspecified unknown".
+        // This means when someone calls triple.GetVendorName() it will return an empty string
+        // which indicates that the vendor can be set when two architectures are merged
+
+        // Now set the triple into "arch" and return true
+        arch.SetTriple(triple);
+        return true;
     }
     return false;
 }
@@ -583,8 +600,7 @@ PlatformLinux::GetSoftwareBreakpointTrapOpcode (Target &target,
                 addr_class = bp_loc_sp->GetAddress ().GetAddressClass ();
 
             if (addr_class == eAddressClassCodeAlternateISA
-                || (addr_class == eAddressClassUnknown
-                    && bp_loc_sp->GetAddress().GetOffset() & 1))
+                || (addr_class == eAddressClassUnknown && (bp_site->GetLoadAddress() & 1)))
             {
                 trap_opcode = g_thumb_breakpoint_opcode;
                 trap_opcode_size = sizeof(g_thumb_breakpoint_opcode);
@@ -596,6 +612,7 @@ PlatformLinux::GetSoftwareBreakpointTrapOpcode (Target &target,
             }
         }
         break;
+    case llvm::Triple::mips:
     case llvm::Triple::mips64:
         {
             static const uint8_t g_hex_opcode[] = { 0x00, 0x00, 0x00, 0x0d };
@@ -603,6 +620,7 @@ PlatformLinux::GetSoftwareBreakpointTrapOpcode (Target &target,
             trap_opcode_size = sizeof(g_hex_opcode);
         }
         break;
+    case llvm::Triple::mipsel:
     case llvm::Triple::mips64el:
         {
             static const uint8_t g_hex_opcode[] = { 0x0d, 0x00, 0x00, 0x00 };
@@ -911,4 +929,15 @@ PlatformLinux::AttachNativeProcess (lldb::pid_t pid,
     // Launch it for debugging
     return process_linux::NativeProcessLinux::AttachToProcess (pid, native_delegate, process_sp);
 #endif
+}
+
+uint64_t
+PlatformLinux::ConvertMmapFlagsToPlatform(unsigned flags)
+{
+    uint64_t flags_platform = 0;
+    if (flags & eMmapFlagsPrivate)
+        flags_platform |= MAP_PRIVATE;
+    if (flags & eMmapFlagsAnon)
+        flags_platform |= MAP_ANON;
+    return flags_platform;
 }

@@ -13,6 +13,7 @@
 #include "lldb/Core/Log.h"
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Host/HostInfo.h"
+#include "Utility/UriParser.h"
 
 // Project includes
 #include "AdbClient.h"
@@ -171,9 +172,9 @@ PlatformAndroid::GetPluginName()
 }
 
 Error
-PlatformAndroid::ConnectRemote (Args& args)
+PlatformAndroid::ConnectRemote(Args& args)
 {
-    m_device_id.clear ();
+    m_device_id.clear();
 
     if (IsHost())
     {
@@ -183,23 +184,73 @@ PlatformAndroid::ConnectRemote (Args& args)
     if (!m_remote_platform_sp)
         m_remote_platform_sp = PlatformSP(new PlatformAndroidRemoteGDBServer());
 
-    auto error = PlatformLinux::ConnectRemote (args);
-    if (error.Success ())
+    int port;
+    std::string scheme, host, path;
+    const char *url = args.GetArgumentAtIndex(0);
+    if (!url)
+        return Error("URL is null.");
+    if (!UriParser::Parse(url, scheme, host, port, path))
+        return Error("Invalid URL: %s", url);
+    if (scheme == "adb")
+        m_device_id = host;
+
+    auto error = PlatformLinux::ConnectRemote(args);
+    if (error.Success())
     {
-        // Fetch the device list from ADB and if only 1 device found then use that device
-        // TODO: Handle the case when more device is available
         AdbClient adb;
-        error = AdbClient::CreateByDeviceID (nullptr, adb);
-        if (error.Fail ())
+        error = AdbClient::CreateByDeviceID(m_device_id, adb);
+        if (error.Fail())
             return error;
 
-        m_device_id = adb.GetDeviceID ();
+        m_device_id = adb.GetDeviceID();
     }
     return error;
+}
+
+Error
+PlatformAndroid::GetFile (const FileSpec& source,
+                          const FileSpec& destination)
+{
+    if (IsHost() || !m_remote_platform_sp)
+        return PlatformLinux::GetFile(source, destination);
+
+    FileSpec source_spec (source.GetPath (false), false, FileSpec::ePathSyntaxPosix);
+    if (source_spec.IsRelativeToCurrentWorkingDirectory ())
+        source_spec = GetRemoteWorkingDirectory ().CopyByAppendingPathComponent (source_spec.GetCString (false));
+
+    AdbClient adb (m_device_id);
+    return adb.PullFile (source_spec, destination);
+}
+
+Error
+PlatformAndroid::PutFile (const FileSpec& source,
+                          const FileSpec& destination,
+                          uint32_t uid,
+                          uint32_t gid)
+{
+    if (!IsHost() && m_remote_platform_sp)
+    {
+        AdbClient adb (m_device_id);
+        // TODO: Set correct uid and gid on remote file.
+        return adb.PushFile(source, destination);
+    }
+    return PlatformLinux::PutFile(source, destination, uid, gid);
 }
 
 const char *
 PlatformAndroid::GetCacheHostname ()
 {
     return m_device_id.c_str ();
+}
+
+Error
+PlatformAndroid::DownloadModuleSlice (const FileSpec &src_file_spec,
+                                      const uint64_t src_offset,
+                                      const uint64_t src_size,
+                                      const FileSpec &dst_file_spec)
+{
+    if (src_offset != 0)
+        return Error ("Invalid offset - %" PRIu64, src_offset);
+
+    return GetFile (src_file_spec, dst_file_spec);
 }

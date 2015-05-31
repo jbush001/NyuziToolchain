@@ -1,6 +1,6 @@
-// RUN: %clang_cc1 -verify -fopenmp=libiomp5 -x c++ -emit-llvm -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -o - %s | FileCheck %s
-// RUN: %clang_cc1 -fopenmp=libiomp5 -x c++ -std=c++11 -fexceptions -fcxx-exceptions -triple x86_64-unknown-unknown -emit-pch -o %t %s
-// RUN: %clang_cc1 -fopenmp=libiomp5 -x c++ -std=c++11 -include-pch %t -fsyntax-only -verify %s -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -emit-llvm -o - | FileCheck %s
+// RUN: %clang_cc1 -verify -fopenmp -x c++ -emit-llvm -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -o - %s | FileCheck %s
+// RUN: %clang_cc1 -fopenmp -x c++ -std=c++11 -fexceptions -fcxx-exceptions -triple x86_64-unknown-unknown -emit-pch -o %t %s
+// RUN: %clang_cc1 -fopenmp -x c++ -std=c++11 -include-pch %t -fsyntax-only -verify %s -triple x86_64-unknown-unknown -fexceptions -fcxx-exceptions -emit-llvm -o - | FileCheck %s
 // expected-no-diagnostics
 
 #ifndef HEADER
@@ -96,6 +96,7 @@ int main() {
 // CHECK-NEXT:  br label %[[END]]
 // CHECK:       [[END]]
 // CHECK-NEXT:  call i32 @__kmpc_cancel_barrier(%{{.+}}* [[IMPLICIT_BARRIER_SINGLE_LOC]],
+// CHECK-NEXT:  call i32 @__kmpc_cancel_barrier(
 // CHECK-NEXT:  ret
 // CHECK:       [[TERM_LPAD]]
 // CHECK:       call void @__clang_call_terminate(i8*

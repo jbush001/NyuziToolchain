@@ -38,7 +38,6 @@
 #include "llvm/MC/SubtargetFeature.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
-#include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/Host.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Signals.h"
@@ -66,24 +65,12 @@ const char* LTOCodeGenerator::getVersionString() {
 
 LTOCodeGenerator::LTOCodeGenerator()
     : Context(getGlobalContext()), IRLinker(new Module("ld-temp.o", Context)) {
-  initialize();
+  initializeLTOPasses();
 }
 
 LTOCodeGenerator::LTOCodeGenerator(std::unique_ptr<LLVMContext> Context)
     : OwnedContext(std::move(Context)), Context(*OwnedContext),
-      IRLinker(new Module("ld-temp.o", *OwnedContext)), OptLevel(2) {
-  initialize();
-}
-
-void LTOCodeGenerator::initialize() {
-  TargetMach = nullptr;
-  EmitDwarfDebugInfo = false;
-  ScopeRestrictionsDone = false;
-  CodeModel = LTO_CODEGEN_PIC_MODEL_DEFAULT;
-  DiagHandler = nullptr;
-  DiagContext = nullptr;
-  OwnedModule = nullptr;
-
+      IRLinker(new Module("ld-temp.o", *OwnedContext)) {
   initializeLTOPasses();
 }
 
@@ -215,7 +202,7 @@ bool LTOCodeGenerator::writeMergedModules(const char *path,
   }
 
   // write bitcode to it
-  WriteBitcodeToFile(IRLinker.getModule(), Out.os());
+  WriteBitcodeToFile(IRLinker.getModule(), Out.os(), ShouldEmbedUselists);
   Out.os().close();
 
   if (Out.os().has_error()) {
@@ -464,7 +451,7 @@ static void accumulateAndSortLibcalls(std::vector<StringRef> &Libcalls,
 }
 
 void LTOCodeGenerator::applyScopeRestrictions() {
-  if (ScopeRestrictionsDone)
+  if (ScopeRestrictionsDone || !ShouldInternalize)
     return;
   Module *mergedModule = IRLinker.getModule();
 
@@ -566,7 +553,8 @@ bool LTOCodeGenerator::optimize(bool DisableInline,
   return true;
 }
 
-bool LTOCodeGenerator::compileOptimized(raw_ostream &out, std::string &errMsg) {
+bool LTOCodeGenerator::compileOptimized(raw_pwrite_stream &out,
+                                        std::string &errMsg) {
   if (!this->determineTarget(errMsg))
     return false;
 
@@ -574,13 +562,11 @@ bool LTOCodeGenerator::compileOptimized(raw_ostream &out, std::string &errMsg) {
 
   legacy::PassManager codeGenPasses;
 
-  formatted_raw_ostream Out(out);
-
   // If the bitcode files contain ARC code and were compiled with optimization,
   // the ObjCARCContractPass must be run, so do it unconditionally here.
   codeGenPasses.add(createObjCARCContractPass());
 
-  if (TargetMach->addPassesToEmitFile(codeGenPasses, Out,
+  if (TargetMach->addPassesToEmitFile(codeGenPasses, out,
                                       TargetMachine::CGFT_ObjectFile)) {
     errMsg = "target file type not supported";
     return false;

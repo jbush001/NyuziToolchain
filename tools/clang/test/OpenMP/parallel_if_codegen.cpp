@@ -1,6 +1,6 @@
-// RUN: %clang_cc1 -verify -fopenmp=libiomp5 -x c++ -triple %itanium_abi_triple -emit-llvm %s -o - | FileCheck %s
-// RUN: %clang_cc1 -fopenmp=libiomp5 -x c++ -std=c++11 -triple %itanium_abi_triple -emit-pch -o %t %s
-// RUN: %clang_cc1 -fopenmp=libiomp5 -x c++ -triple %itanium_abi_triple -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck --check-prefix=CHECK %s
+// RUN: %clang_cc1 -verify -fopenmp -x c++ -triple %itanium_abi_triple -emit-llvm %s -o - | FileCheck %s
+// RUN: %clang_cc1 -fopenmp -x c++ -std=c++11 -triple %itanium_abi_triple -emit-pch -o %t %s
+// RUN: %clang_cc1 -fopenmp -x c++ -triple %itanium_abi_triple -std=c++11 -include-pch %t -verify %s -emit-llvm -o - | FileCheck --check-prefix=CHECK %s
 // expected-no-diagnostics
 #ifndef HEADER
 #define HEADER
@@ -16,7 +16,7 @@ int Arg;
 
 // CHECK-LABEL: define void @{{.+}}gtid_test
 void gtid_test() {
-// CHECK:  call void {{.+}}* @__kmpc_fork_call(%{{.+}}* @{{.+}}, i{{.+}} 1, {{.+}}* [[GTID_TEST_REGION1:@.+]] to void
+// CHECK:  call void {{.+}} @__kmpc_fork_call(%{{.+}}* @{{.+}}, i{{.+}} 1, {{.+}}* [[GTID_TEST_REGION1:@.+]] to void
 #pragma omp parallel
 #pragma omp parallel if (false)
   gtid_test();

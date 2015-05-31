@@ -51,7 +51,7 @@ public:
   ///
   MultiplexExternalSemaSource(ExternalSemaSource& s1, ExternalSemaSource& s2);
 
-  ~MultiplexExternalSemaSource();
+  ~MultiplexExternalSemaSource() override;
 
   ///\brief Appends new source to the source list.
   ///
@@ -229,6 +229,10 @@ public:
   /// internal linkage, or used but not defined inline functions.
   void ReadUndefinedButUsed(
                 llvm::DenseMap<NamedDecl*, SourceLocation> &Undefined) override;
+
+  void ReadMismatchingDeleteExpressions(llvm::MapVector<
+      FieldDecl *, llvm::SmallVector<std::pair<SourceLocation, bool>, 4>> &
+                                            Exprs) override;
 
   /// \brief Do last resort, unqualified lookup on a LookupResult that
   /// Sema cannot find.

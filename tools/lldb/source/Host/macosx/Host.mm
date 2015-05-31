@@ -411,9 +411,9 @@ LaunchInNewTerminalWithAppleScript (const char *exe_path, ProcessLaunchInfo &lau
     if (arch_spec.IsValid())
         command.Printf(" --arch=%s", arch_spec.GetArchitectureName());
 
-    const char *working_dir = launch_info.GetWorkingDirectory();
+    FileSpec working_dir{launch_info.GetWorkingDirectory()};
     if (working_dir)
-        command.Printf(" --working-dir '%s'", working_dir);
+        command.Printf(" --working-dir '%s'", working_dir.GetCString());
     else
     {
         char cwd[PATH_MAX];
@@ -527,7 +527,7 @@ LaunchInNewTerminalWithAppleScript (const char *exe_path, ProcessLaunchInfo &lau
         WaitForProcessToSIGSTOP(pid, 5);
     }
 
-    FileSystem::Unlink(unix_socket_name);
+    FileSystem::Unlink(FileSpec{unix_socket_name, false});
     [applescript release];
     if (pid != LLDB_INVALID_PROCESS_ID)
         launch_info.SetProcessID (pid);
@@ -1352,18 +1352,13 @@ Host::ShellExpandArguments (ProcessLaunchInfo &launch_info)
             error.SetErrorString("could not find argdumper tool");
             return error;
         }
-        
-        std::string quoted_cmd_string;
-        launch_info.GetArguments().GetQuotedCommandString(quoted_cmd_string);
-        StreamString expand_command;
-        
-        expand_command.Printf("%s %s",
-                              expand_tool_spec.GetPath().c_str(),
-                              quoted_cmd_string.c_str());
+
+        Args expand_command(expand_tool_spec.GetPath().c_str());
+        expand_command.AppendArguments (launch_info.GetArguments());
         
         int status;
         std::string output;
-        RunShellCommand(expand_command.GetData(), launch_info.GetWorkingDirectory(), &status, nullptr, &output, 10);
+        RunShellCommand(expand_command, launch_info.GetWorkingDirectory(), &status, nullptr, &output, 10);
         
         if (status != 0)
         {

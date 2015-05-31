@@ -20,7 +20,8 @@ class LibcxxStringDataFormatterTestCase(TestBase):
         self.buildDsym()
         self.data_formatter_commands()
 
-    @skipIfLinux # No standard locations for libc++ on Linux, so skip for now 
+    @skipIfGcc
+    @skipIfWindows # libc++ not ported to Windows yet
     @dwarf_test
     def test_with_dwarf_and_run_command(self):
         """Test data formatter commands."""
@@ -39,7 +40,7 @@ class LibcxxStringDataFormatterTestCase(TestBase):
 
         lldbutil.run_break_set_by_file_and_line (self, "main.cpp", self.line, num_expected_locations=-1)
 
-        self.runCmd("run", RUN_SUCCEEDED)
+        self.runCmd("run", RUN_FAILED)
 
         # The stop reason of the thread should be breakpoint.
         self.expect("thread list", STOPPED_DUE_TO_BREAKPOINT,

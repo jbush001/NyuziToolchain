@@ -142,11 +142,10 @@ public:
       // to resolve the fixup directly.  Emit a relocation and leave
       // resolution of the final target address to the linker.
       if (const MCSymbolRefExpr *A = Target.getSymA()) {
-        const MCSymbolData &Data = Asm.getSymbolData(A->getSymbol());
         // The "other" values are stored in the last 6 bits of the second byte.
         // The traditional defines for STO values assume the full byte and thus
         // the shift to pack it.
-        unsigned Other = MCELF::getOther(Data) << 2;
+        unsigned Other = MCELF::getOther(A->getSymbol()) << 2;
         if ((Other & ELF::STO_PPC64_LOCAL_MASK) != 0)
           IsResolved = false;
       }
@@ -178,12 +177,7 @@ public:
     for (uint64_t i = 0; i != NumNops; ++i)
       OW->Write32(0x60000000);
 
-    switch (Count % 4) {
-    default: break; // No leftover bytes to write
-    case 1: OW->Write8(0); break;
-    case 2: OW->Write16(0); break;
-    case 3: OW->Write16(0); OW->Write8(0); break;
-    }
+    OW->WriteZeros(Count % 4);
 
     return true;
   }
@@ -208,7 +202,7 @@ namespace {
   public:
     DarwinPPCAsmBackend(const Target &T) : PPCAsmBackend(T, false) { }
 
-    MCObjectWriter *createObjectWriter(raw_ostream &OS) const override {
+    MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const override {
       bool is64 = getPointerSize() == 8;
       return createPPCMachObjectWriter(
           OS,
@@ -224,8 +218,7 @@ namespace {
     ELFPPCAsmBackend(const Target &T, bool IsLittleEndian, uint8_t OSABI) :
       PPCAsmBackend(T, IsLittleEndian), OSABI(OSABI) { }
 
-
-    MCObjectWriter *createObjectWriter(raw_ostream &OS) const override {
+    MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const override {
       bool is64 = getPointerSize() == 8;
       return createPPCELFObjectWriter(OS, is64, isLittleEndian(), OSABI);
     }

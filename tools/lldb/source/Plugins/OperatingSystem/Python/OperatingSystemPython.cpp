@@ -7,8 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "lldb/lldb-python.h"
-
 #ifndef LLDB_DISABLE_PYTHON
 
 #include "OperatingSystemPython.h"
@@ -146,7 +144,7 @@ OperatingSystemPython::GetDynamicRegisterInfo ()
         if (!dictionary)
             return NULL;
 
-        m_register_info_ap.reset(new DynamicRegisterInfo(*dictionary, m_process->GetTarget().GetArchitecture().GetByteOrder()));
+        m_register_info_ap.reset(new DynamicRegisterInfo(*dictionary, m_process->GetTarget().GetArchitecture()));
         assert (m_register_info_ap->GetNumRegisters() > 0);
         assert (m_register_info_ap->GetNumRegisterSets() > 0);
     }

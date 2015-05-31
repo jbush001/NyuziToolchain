@@ -46,12 +46,15 @@ set( LLDB_USED_LIBS
   lldbPluginABIMacOSX_arm
   lldbPluginABIMacOSX_arm64
   lldbPluginABIMacOSX_i386
+  lldbPluginABISysV_arm
+  lldbPluginABISysV_arm64
   lldbPluginABISysV_x86_64
   lldbPluginABISysV_hexagon
   lldbPluginABISysV_ppc
   lldbPluginABISysV_ppc64
   lldbPluginInstructionARM
   lldbPluginInstructionARM64
+  lldbPluginInstructionMIPS
   lldbPluginInstructionMIPS64
   lldbPluginObjectFilePECOFF
   lldbPluginOSPython

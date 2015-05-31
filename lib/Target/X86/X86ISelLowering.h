@@ -26,7 +26,7 @@ namespace llvm {
 
   namespace X86ISD {
     // X86 Specific DAG Nodes
-    enum NodeType {
+    enum NodeType : unsigned {
       // Start the numbering where the builtin ops leave off.
       FIRST_NUMBER = ISD::BUILTIN_OP_END,
 
@@ -184,6 +184,9 @@ namespace llvm {
       /// Shuffle 16 8-bit values within a vector.
       PSHUFB,
 
+      /// Compute Sum of Absolute Differences.
+      PSADBW,
+
       /// Bitwise Logical AND NOT of Packed FP values.
       ANDNP,
 
@@ -205,9 +208,15 @@ namespace llvm {
       FSUB_RND,
       FMUL_RND,
       FDIV_RND,
+      FMAX_RND,
+      FMIN_RND,
       
-      // Integer sub with unsigned saturation.
+      // Integer add/sub with unsigned saturation.
+      ADDUS,
       SUBUS,
+      // Integer add/sub with signed saturation.
+      ADDS,
+      SUBS,
 
       /// Integer horizontal add.
       HADD,
@@ -304,6 +313,8 @@ namespace llvm {
       /// integer signed and unsigned data types.
       CMPM,
       CMPMU,
+      // Vector comparison with rounding mode for FP values
+      CMPM_RND,
 
       // Arithmetic operations with FLAGS results.
       ADD, SUB, ADC, SBB, SMUL,
@@ -366,9 +377,10 @@ namespace llvm {
       VPERMIV3,
       VPERMI,
       VPERM2X128,
+      // Broadcast scalar to vector
       VBROADCAST,
-      // masked broadcast
-      VBROADCASTM,
+      // Broadcast subvector to vector
+      SUBV_BROADCAST,
       // Insert/Extract vector element
       VINSERT,
       VEXTRACT,
@@ -566,6 +578,7 @@ namespace llvm {
                                const X86Subtarget &STI);
 
     unsigned getJumpTableEncoding() const override;
+    bool useSoftFloat() const override;
 
     MVT getScalarShiftAmountTy(EVT LHSTy) const override { return MVT::i8; }
 
@@ -697,8 +710,15 @@ namespace llvm {
 
     unsigned getInlineAsmMemConstraint(
         const std::string &ConstraintCode) const override {
-      // FIXME: Map different constraints differently.
-      return InlineAsm::Constraint_m;
+      if (ConstraintCode == "i")
+        return InlineAsm::Constraint_i;
+      else if (ConstraintCode == "o")
+        return InlineAsm::Constraint_o;
+      else if (ConstraintCode == "v")
+        return InlineAsm::Constraint_v;
+      else if (ConstraintCode == "X")
+        return InlineAsm::Constraint_X;
+      return TargetLowering::getInlineAsmMemConstraint(ConstraintCode);
     }
 
     /// Given a physical register constraint
@@ -965,6 +985,8 @@ namespace llvm {
     SDValue LowerINIT_TRAMPOLINE(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerFLT_ROUNDS_(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerWin64_i128OP(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerGC_TRANSITION_START(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerGC_TRANSITION_END(SDValue Op, SelectionDAG &DAG) const;
 
     SDValue
       LowerFormalArguments(SDValue Chain,
@@ -1072,6 +1094,9 @@ namespace llvm {
     /// Use rcp* to speed up fdiv calculations.
     SDValue getRecipEstimate(SDValue Operand, DAGCombinerInfo &DCI,
                              unsigned &RefinementSteps) const override;
+
+    /// Reassociate floating point divisions into multiply by reciprocal.
+    bool combineRepeatedFPDivisors(unsigned NumUsers) const override;
   };
 
   namespace X86 {

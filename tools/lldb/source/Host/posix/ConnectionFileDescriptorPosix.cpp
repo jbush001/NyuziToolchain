@@ -166,6 +166,14 @@ ConnectionFileDescriptor::Connect(const char *s, Error *error_ptr)
             // unix://SOCKNAME
             return NamedSocketAccept(s + strlen("unix-accept://"), error_ptr);
         }
+        else if (strstr(s, "adb://") == s)
+        {
+            int port = -1;
+            sscanf(s, "adb://%*[^:]:%d", &port);
+            char host_and_port[sizeof("localhost:65535")];
+            snprintf(host_and_port, sizeof(host_and_port), "localhost:%d", port);
+            return ConnectTCP(host_and_port, error_ptr);
+        }
         else if (strstr(s, "connect://") == s)
         {
             return ConnectTCP(s + strlen("connect://"), error_ptr);
@@ -363,6 +371,9 @@ ConnectionFileDescriptor::Disconnect(Error *error_ptr)
         status = eConnectionStatusError;
     if (error_ptr)
         *error_ptr = error.Fail() ? error : error2;
+
+    // Close any pipes we were using for async interrupts
+    m_pipe.Close();
 
     m_uri.clear();
     m_shutting_down = false;
@@ -685,8 +696,10 @@ ConnectionFileDescriptor::BytesAvailable(uint32_t timeout_usec, Error *error_ptr
                     return eConnectionStatusSuccess;
                 if (have_pipe_fd && FD_ISSET(pipe_fd, FD_SET_DATA(read_fds)))
                 {
-                    // We got a command to exit.  Read the data from that pipe:
-                    char buffer[16];
+                    // There is an interrupt or exit command in the command pipe
+                    // Read the data from that pipe:
+                    char buffer[1];
+
                     ssize_t bytes_read;
 
                     do
@@ -698,8 +711,9 @@ ConnectionFileDescriptor::BytesAvailable(uint32_t timeout_usec, Error *error_ptr
                     {
                         case 'q':
                             if (log)
-                                log->Printf("%p ConnectionFileDescriptor::BytesAvailable() got data: %*s from the command channel.",
-                                            static_cast<void *>(this), static_cast<int>(bytes_read), buffer);
+                                log->Printf("%p ConnectionFileDescriptor::BytesAvailable() "
+                                            "got data: %c from the command channel.",
+                                            static_cast<void *>(this), buffer[0]);
                             return eConnectionStatusEndOfFile;
                         case 'i':
                             // Interrupt the current read

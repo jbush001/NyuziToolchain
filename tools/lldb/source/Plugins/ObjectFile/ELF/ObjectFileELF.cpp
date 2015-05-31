@@ -27,7 +27,6 @@
 #include "lldb/Symbol/SymbolContext.h"
 #include "lldb/Target/SectionLoadList.h"
 #include "lldb/Target/Target.h"
-#include "lldb/Host/HostInfo.h"
 
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/StringRef.h"
@@ -287,17 +286,22 @@ static uint32_t
 mipsVariantFromElfFlags(const elf::elf_word e_flags, uint32_t endian)
 {
     const uint32_t mips_arch = e_flags & llvm::ELF::EF_MIPS_ARCH;
-    uint32_t arch_variant = LLDB_INVALID_CPUTYPE;
+    uint32_t arch_variant = ArchSpec::eMIPSSubType_unknown;
 
     switch (mips_arch)
     {
+        case llvm::ELF::EF_MIPS_ARCH_32:
+            return (endian == ELFDATA2LSB) ? ArchSpec::eMIPSSubType_mips32el : ArchSpec::eMIPSSubType_mips32;
+        case llvm::ELF::EF_MIPS_ARCH_32R2:
+            return (endian == ELFDATA2LSB) ? ArchSpec::eMIPSSubType_mips32r2el : ArchSpec::eMIPSSubType_mips32r2;
+        case llvm::ELF::EF_MIPS_ARCH_32R6:
+            return (endian == ELFDATA2LSB) ? ArchSpec::eMIPSSubType_mips32r6el : ArchSpec::eMIPSSubType_mips32r6;
         case llvm::ELF::EF_MIPS_ARCH_64:
-            if (endian == ELFDATA2LSB)
-                arch_variant = llvm::Triple::mips64el;
-            else
-                arch_variant = llvm::Triple::mips64;
-            break;
-
+            return (endian == ELFDATA2LSB) ? ArchSpec::eMIPSSubType_mips64el : ArchSpec::eMIPSSubType_mips64;
+        case llvm::ELF::EF_MIPS_ARCH_64R2:
+            return (endian == ELFDATA2LSB) ? ArchSpec::eMIPSSubType_mips64r2el : ArchSpec::eMIPSSubType_mips64r2;
+        case llvm::ELF::EF_MIPS_ARCH_64R6:
+            return (endian == ELFDATA2LSB) ? ArchSpec::eMIPSSubType_mips64r6el : ArchSpec::eMIPSSubType_mips64r6;
         default:
             break;
     }
@@ -673,14 +677,7 @@ ObjectFileELF::GetModuleSpecifications (const lldb_private::FileSpec& file,
 
                     GetSectionHeaderInfo(section_headers, data, header, uuid, gnu_debuglink_file, gnu_debuglink_crc, spec.GetArchitecture ());
 
-                    // If the module vendor is not set and the module OS matches this host OS, set the module vendor to the host vendor.
                     llvm::Triple &spec_triple = spec.GetArchitecture ().GetTriple ();
-                    if (spec_triple.getVendor () == llvm::Triple::VendorType::UnknownVendor)
-                    {
-                        const llvm::Triple &host_triple = HostInfo::GetArchitecture().GetTriple();
-                        if (spec_triple.getOS () == host_triple.getOS ())
-                            spec_triple.setVendor (host_triple.getVendor ());
-                    }
 
                     if (log)
                         log->Printf ("ObjectFileELF::%s file '%s' module set to triple: %s (architecture %s)", __FUNCTION__, file.GetPath ().c_str (), spec_triple.getTriple ().c_str (), spec.GetArchitecture ().GetArchitectureName ());
@@ -1392,30 +1389,6 @@ ObjectFileELF::GetSectionHeaderInfo(SectionHeaderColl &section_headers,
     {
         const uint32_t sub_type = subTypeFromElfHeader(header);
         arch_spec.SetArchitecture (eArchTypeELF, header.e_machine, sub_type);
-
-        switch (arch_spec.GetAddressByteSize())
-        {
-        case 4:
-            {
-                const ArchSpec host_arch32 = HostInfo::GetArchitecture(HostInfo::eArchKind32);
-                if (host_arch32.GetCore() == arch_spec.GetCore())
-                {
-                    arch_spec.GetTriple().setOSName(HostInfo::GetOSString().data());
-                    arch_spec.GetTriple().setVendorName(HostInfo::GetVendorString().data());
-                }
-            }
-            break;
-        case 8:
-            {
-                const ArchSpec host_arch64 = HostInfo::GetArchitecture(HostInfo::eArchKind64);
-                if (host_arch64.GetCore() == arch_spec.GetCore())
-                {
-                    arch_spec.GetTriple().setOSName(HostInfo::GetOSString().data());
-                    arch_spec.GetTriple().setVendorName(HostInfo::GetVendorString().data());
-                }
-            }
-            break;
-        }
     }
 
     // If there are no section headers we are done.
@@ -1562,6 +1535,17 @@ ObjectFileELF::GetSectionHeaderByIndex(lldb::user_id_t id)
         return &m_section_headers[id];
 
     return NULL;
+}
+
+lldb::user_id_t
+ObjectFileELF::GetSectionIndexByName(const char* name)
+{
+    if (!name || !name[0] || !ParseSectionHeaders())
+        return 0;
+    for (size_t i = 1; i < m_section_headers.size(); ++i)
+        if (m_section_headers[i].section_name == ConstString(name))
+            return i;
+    return 0;
 }
 
 void
@@ -1878,23 +1862,26 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
                     // These are reserved for the specification (e.g.: mapping
                     // symbols). We don't want to add them to the symbol table.
 
-                    llvm::StringRef symbol_name_ref(symbol_name);
-                    if (symbol_name_ref == "$a" || symbol_name_ref.startswith("$a."))
+                    if (symbol_type == eSymbolTypeCode)
                     {
-                        // $a[.<any>]* - marks an ARM instruction sequence
-                        m_address_class_map[symbol.st_value] = eAddressClassCode;
-                    }
-                    else if (symbol_name_ref == "$b" || symbol_name_ref.startswith("$b.") ||
-                             symbol_name_ref == "$t" || symbol_name_ref.startswith("$t."))
-                    {
-                        // $b[.<any>]* - marks a THUMB BL instruction sequence
-                        // $t[.<any>]* - marks a THUMB instruction sequence
-                        m_address_class_map[symbol.st_value] = eAddressClassCodeAlternateISA;
-                    }
-                    else if (symbol_name_ref == "$d" || symbol_name_ref.startswith("$d."))
-                    {
-                        // $d[.<any>]* - marks a data item sequence (e.g. lit pool)
-                        m_address_class_map[symbol.st_value] = eAddressClassData;
+                        llvm::StringRef symbol_name_ref(symbol_name);
+                        if (symbol_name_ref == "$a" || symbol_name_ref.startswith("$a."))
+                        {
+                            // $a[.<any>]* - marks an ARM instruction sequence
+                            m_address_class_map[symbol.st_value] = eAddressClassCode;
+                        }
+                        else if (symbol_name_ref == "$b" || symbol_name_ref.startswith("$b.") ||
+                                 symbol_name_ref == "$t" || symbol_name_ref.startswith("$t."))
+                        {
+                            // $b[.<any>]* - marks a THUMB BL instruction sequence
+                            // $t[.<any>]* - marks a THUMB instruction sequence
+                            m_address_class_map[symbol.st_value] = eAddressClassCodeAlternateISA;
+                        }
+                        else if (symbol_name_ref == "$d" || symbol_name_ref.startswith("$d."))
+                        {
+                            // $d[.<any>]* - marks a data item sequence (e.g. lit pool)
+                            m_address_class_map[symbol.st_value] = eAddressClassData;
+                        }
                     }
 
                     continue;
@@ -1907,16 +1894,19 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
                     // These are reserved for the specification (e.g.: mapping
                     // symbols). We don't want to add them to the symbol table.
 
-                    llvm::StringRef symbol_name_ref(symbol_name);
-                    if (symbol_name_ref == "$x" || symbol_name_ref.startswith("$x."))
+                    if (symbol_type == eSymbolTypeCode)
                     {
-                        // $x[.<any>]* - marks an A64 instruction sequence
-                        m_address_class_map[symbol.st_value] = eAddressClassCode;
-                    }
-                    else if (symbol_name_ref == "$d" || symbol_name_ref.startswith("$d."))
-                    {
-                        // $d[.<any>]* - marks a data item sequence (e.g. lit pool)
-                        m_address_class_map[symbol.st_value] = eAddressClassData;
+                        llvm::StringRef symbol_name_ref(symbol_name);
+                        if (symbol_name_ref == "$x" || symbol_name_ref.startswith("$x."))
+                        {
+                            // $x[.<any>]* - marks an A64 instruction sequence
+                            m_address_class_map[symbol.st_value] = eAddressClassCode;
+                        }
+                        else if (symbol_name_ref == "$d" || symbol_name_ref.startswith("$d."))
+                        {
+                            // $d[.<any>]* - marks a data item sequence (e.g. lit pool)
+                            m_address_class_map[symbol.st_value] = eAddressClassData;
+                        }
                     }
 
                     continue;
@@ -1925,18 +1915,25 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
 
             if (arch.GetMachine() == llvm::Triple::arm)
             {
-                // THUMB functions have the lower bit of their address set. Fixup
-                // the actual address and mark the symbol as THUMB.
-                if (symbol_type == eSymbolTypeCode && symbol.st_value & 1)
+                if (symbol_type == eSymbolTypeCode)
                 {
-                    // Substracting 1 from the address effectively unsets
-                    // the low order bit, which results in the address
-                    // actually pointing to the beginning of the symbol.
-                    // This delta will be used below in conjuction with
-                    // symbol.st_value to produce the final symbol_value
-                    // that we store in the symtab.
-                    symbol_value_offset = -1;
-                    additional_flags = ARM_ELF_SYM_IS_THUMB;
+                    if (symbol.st_value & 1)
+                    {
+                        // Subtracting 1 from the address effectively unsets
+                        // the low order bit, which results in the address
+                        // actually pointing to the beginning of the symbol.
+                        // This delta will be used below in conjunction with
+                        // symbol.st_value to produce the final symbol_value
+                        // that we store in the symtab.
+                        symbol_value_offset = -1;
+                        additional_flags = ARM_ELF_SYM_IS_THUMB;
+                        m_address_class_map[symbol.st_value^1] = eAddressClassCodeAlternateISA;
+                    }
+                    else
+                    {
+                        // This address is ARM
+                        m_address_class_map[symbol.st_value] = eAddressClassCode;
+                    }
                 }
             }
         }
@@ -1963,7 +1960,7 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
 
         // symbol_value_offset may contain 0 for ARM symbols or -1 for
         // THUMB symbols. See above for more details.
-        uint64_t symbol_value = symbol.st_value | symbol_value_offset;
+        uint64_t symbol_value = symbol.st_value + symbol_value_offset;
         if (symbol_section_sp && CalculateType() != ObjectFile::Type::eTypeObjectFile)
             symbol_value -= symbol_section_sp->GetFileAddress();
         bool is_global = symbol.getBinding() == STB_GLOBAL;
@@ -2129,6 +2126,36 @@ ObjectFileELF::PLTRelocationType()
     return 0;
 }
 
+// Returns the size of the normal plt entries and the offset of the first normal plt entry. The
+// 0th entry in the plt table is ususally a resolution entry which have different size in some
+// architectures then the rest of the plt entries.
+static std::pair<uint64_t, uint64_t>
+GetPltEntrySizeAndOffset(const ELFSectionHeader* rel_hdr, const ELFSectionHeader* plt_hdr)
+{
+    const elf_xword num_relocations = rel_hdr->sh_size / rel_hdr->sh_entsize;
+
+    // Clang 3.3 sets entsize to 4 for 32-bit binaries, but the plt entries are 16 bytes.
+    // So round the entsize up by the alignment if addralign is set.
+    elf_xword plt_entsize = plt_hdr->sh_addralign ?
+        llvm::RoundUpToAlignment (plt_hdr->sh_entsize, plt_hdr->sh_addralign) : plt_hdr->sh_entsize;
+
+    if (plt_entsize == 0)
+    {
+        // The linker haven't set the plt_hdr->sh_entsize field. Try to guess the size of the plt
+        // entries based on the number of entries and the size of the plt section with the
+        // asumption that the size of the 0th entry is at least as big as the size of the normal
+        // entries and it isn't mutch bigger then that.
+        if (plt_hdr->sh_addralign)
+            plt_entsize = plt_hdr->sh_size / plt_hdr->sh_addralign / (num_relocations + 1) * plt_hdr->sh_addralign;
+        else
+            plt_entsize = plt_hdr->sh_size / (num_relocations + 1);
+    }
+
+    elf_xword plt_offset = plt_hdr->sh_size - num_relocations * plt_entsize;
+
+    return std::make_pair(plt_entsize, plt_offset);
+}
+
 static unsigned
 ParsePLTRelocations(Symtab *symbol_table,
                     user_id_t start_id,
@@ -2145,10 +2172,9 @@ ParsePLTRelocations(Symtab *symbol_table,
     ELFRelocation rel(rel_type);
     ELFSymbol symbol;
     lldb::offset_t offset = 0;
-    // Clang 3.3 sets entsize to 4 for 32-bit binaries, but the plt entries are 16 bytes.
-    // So round the entsize up by the alignment if addralign is set.
-    const elf_xword plt_entsize = plt_hdr->sh_addralign ?
-        llvm::RoundUpToAlignment (plt_hdr->sh_entsize, plt_hdr->sh_addralign) : plt_hdr->sh_entsize;
+
+    uint64_t plt_offset, plt_entsize;
+    std::tie(plt_entsize, plt_offset) = GetPltEntrySizeAndOffset(rel_hdr, plt_hdr);
     const elf_xword num_relocations = rel_hdr->sh_size / rel_hdr->sh_entsize;
 
     typedef unsigned (*reloc_info_fn)(const ELFRelocation &rel);
@@ -2177,13 +2203,12 @@ ParsePLTRelocations(Symtab *symbol_table,
             continue;
 
         lldb::offset_t symbol_offset = reloc_symbol(rel) * sym_hdr->sh_entsize;
-        uint64_t plt_index = (i + 1) * plt_entsize;
-
         if (!symbol.Parse(symtab_data, &symbol_offset))
             break;
 
         const char *symbol_name = strtab_data.PeekCStr(symbol.st_name);
         bool is_mangled = symbol_name ? (symbol_name[0] == '_' && symbol_name[1] == 'Z') : false;
+        uint64_t plt_index = plt_offset + i * plt_entsize;
 
         Symbol jump_symbol(
             i + start_id,    // Symbol table index
@@ -2219,6 +2244,13 @@ ObjectFileELF::ParseTrampolineSymbols(Symtab *symbol_table,
     // points to the section holding the plt.
     user_id_t symtab_id = rel_hdr->sh_link;
     user_id_t plt_id = rel_hdr->sh_info;
+
+    // If the link field doesn't point to the appropriate symbol name table then
+    // try to find it by name as some compiler don't fill in the link fields.
+    if (!symtab_id)
+        symtab_id = GetSectionIndexByName(".dynsym");
+    if (!plt_id)
+        plt_id = GetSectionIndexByName(".plt");
 
     if (!symtab_id || !plt_id)
         return 0;

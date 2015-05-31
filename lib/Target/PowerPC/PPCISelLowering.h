@@ -24,7 +24,7 @@
 
 namespace llvm {
   namespace PPCISD {
-    enum NodeType {
+    enum NodeType : unsigned {
       // Start the numbering where the builtin ops and target ops leave off.
       FIRST_NUMBER = ISD::BUILTIN_OP_END,
 
@@ -118,6 +118,15 @@ namespace llvm {
       /// This copies the bits corresponding to the specified CRREG into the
       /// resultant GPR.  Bits corresponding to other CR regs are undefined.
       MFOCRF,
+
+      /// Direct move from a VSX register to a GPR
+      MFVSR,
+
+      /// Direct move from a GPR to a VSX register (algebraic)
+      MTVSRA,
+
+      /// Direct move from a GPR to a VSX register (zero)
+      MTVSRZ,
 
       // FIXME: Remove these once the ANDI glue bug is fixed:
       /// i1 = ANDIo_1_[EQ|GT]_BIT(i32 or i64 x) - Represents the result of the
@@ -266,6 +275,16 @@ namespace llvm {
       /// operand identifies the operating system entry point.
       SC,
 
+      /// CHAIN = CLRBHRB CHAIN - Clear branch history rolling buffer.
+      CLRBHRB,
+
+      /// GPRC, CHAIN = MFBHRBE CHAIN, Entry, Dummy - Move from branch
+      /// history rolling buffer entry.
+      MFBHRBE,
+
+      /// CHAIN = RFEBB CHAIN, State - Return from event-based branch.
+      RFEBB,
+
       /// VSRC, CHAIN = XXSWAPD CHAIN, VSRC - Occurs only for little
       /// endian.  Maps to an xxswapd instruction that corrects an lxvd2x
       /// or stxvd2x instruction.  The chain is necessary because the
@@ -346,6 +365,11 @@ namespace llvm {
     /// isVPKUWUMShuffleMask - Return true if this is the shuffle mask for a
     /// VPKUWUM instruction.
     bool isVPKUWUMShuffleMask(ShuffleVectorSDNode *N, unsigned ShuffleKind,
+                              SelectionDAG &DAG);
+
+    /// isVPKUDUMShuffleMask - Return true if this is the shuffle mask for a
+    /// VPKUDUM instruction.
+    bool isVPKUDUMShuffleMask(ShuffleVectorSDNode *N, unsigned ShuffleKind,
                               SelectionDAG &DAG);
 
     /// isVMRGLShuffleMask - Return true if this is a shuffle mask suitable for
@@ -645,6 +669,10 @@ namespace llvm {
 
     void LowerFP_TO_INTForReuse(SDValue Op, ReuseLoadInfo &RLI,
                                 SelectionDAG &DAG, SDLoc dl) const;
+    SDValue LowerFP_TO_INTDirectMove(SDValue Op, SelectionDAG &DAG,
+                                     SDLoc dl) const;
+    SDValue LowerINT_TO_FPDirectMove(SDValue Op, SelectionDAG &DAG,
+                                     SDLoc dl) const;
 
     SDValue getFramePointerFrameIndex(SelectionDAG & DAG) const;
     SDValue getReturnAddrFrameIndex(SelectionDAG & DAG) const;

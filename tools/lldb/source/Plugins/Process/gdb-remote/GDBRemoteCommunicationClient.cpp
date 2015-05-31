@@ -11,10 +11,12 @@
 #include "GDBRemoteCommunicationClient.h"
 
 // C Includes
+#include <math.h>
 #include <sys/stat.h>
 
 // C++ Includes
 #include <sstream>
+#include <numeric>
 
 // Other libraries and framework includes
 #include "llvm/ADT/STLExtras.h"
@@ -33,6 +35,7 @@
 #include "lldb/Host/TimeValue.h"
 #include "lldb/Target/Target.h"
 #include "lldb/Target/MemoryRegionInfo.h"
+#include "lldb/Target/UnixSignals.h"
 
 // Project includes
 #include "Utility/StringExtractorGDBRemote.h"
@@ -43,10 +46,6 @@
 using namespace lldb;
 using namespace lldb_private;
 using namespace lldb_private::process_gdb_remote;
-
-#if defined(LLDB_DISABLE_POSIX) && !defined(SIGSTOP)
-#define SIGSTOP 17
-#endif
 
 //----------------------------------------------------------------------
 // GDBRemoteCommunicationClient constructor
@@ -80,6 +79,7 @@ GDBRemoteCommunicationClient::GDBRemoteCommunicationClient() :
     m_supports_qXfer_auxv_read (eLazyBoolCalculate),
     m_supports_qXfer_libraries_read (eLazyBoolCalculate),
     m_supports_qXfer_libraries_svr4_read (eLazyBoolCalculate),
+    m_supports_qXfer_features_read (eLazyBoolCalculate),
     m_supports_augmented_libraries_svr4_read (eLazyBoolCalculate),
     m_supports_jThreadExtendedInfo (eLazyBoolCalculate),
     m_supports_qProcessInfoPID (true),
@@ -145,7 +145,7 @@ GDBRemoteCommunicationClient::HandshakeWithServer (Error *error_ptr)
         PacketResult packet_result = PacketResult::Success;
         const uint32_t timeout_usec = 10 * 1000; // Wait for 10 ms for a response
         while (packet_result == PacketResult::Success)
-            packet_result = WaitForPacketWithTimeoutMicroSecondsNoLock (response, timeout_usec);
+            packet_result = WaitForPacketWithTimeoutMicroSecondsNoLock (response, timeout_usec, false);
 
         // The return value from QueryNoAckModeSupported() is true if the packet
         // was sent and _any_ response (including UNIMPLEMENTED) was received),
@@ -153,11 +153,6 @@ GDBRemoteCommunicationClient::HandshakeWithServer (Error *error_ptr)
         // a live connection to a remote GDB server...
         if (QueryNoAckModeSupported())
         {
-#if 0
-            // Set above line to "#if 1" to test packet speed if remote GDB server
-            // supports the qSpeedTest packet...
-            TestPacketSpeed(10000);
-#endif
             return true;
         }
         else
@@ -175,13 +170,24 @@ GDBRemoteCommunicationClient::HandshakeWithServer (Error *error_ptr)
 }
 
 bool
+GDBRemoteCommunicationClient::GetEchoSupported ()
+{
+    if (m_supports_qEcho == eLazyBoolCalculate)
+    {
+        GetRemoteQSupported();
+    }
+    return m_supports_qEcho == eLazyBoolYes;
+}
+
+
+bool
 GDBRemoteCommunicationClient::GetAugmentedLibrariesSVR4ReadSupported ()
 {
     if (m_supports_augmented_libraries_svr4_read == eLazyBoolCalculate)
     {
         GetRemoteQSupported();
     }
-    return (m_supports_augmented_libraries_svr4_read == eLazyBoolYes);
+    return m_supports_augmented_libraries_svr4_read == eLazyBoolYes;
 }
 
 bool
@@ -191,7 +197,7 @@ GDBRemoteCommunicationClient::GetQXferLibrariesSVR4ReadSupported ()
     {
         GetRemoteQSupported();
     }
-    return (m_supports_qXfer_libraries_svr4_read == eLazyBoolYes);
+    return m_supports_qXfer_libraries_svr4_read == eLazyBoolYes;
 }
 
 bool
@@ -201,7 +207,7 @@ GDBRemoteCommunicationClient::GetQXferLibrariesReadSupported ()
     {
         GetRemoteQSupported();
     }
-    return (m_supports_qXfer_libraries_read == eLazyBoolYes);
+    return m_supports_qXfer_libraries_read == eLazyBoolYes;
 }
 
 bool
@@ -211,7 +217,17 @@ GDBRemoteCommunicationClient::GetQXferAuxvReadSupported ()
     {
         GetRemoteQSupported();
     }
-    return (m_supports_qXfer_auxv_read == eLazyBoolYes);
+    return m_supports_qXfer_auxv_read == eLazyBoolYes;
+}
+
+bool
+GDBRemoteCommunicationClient::GetQXferFeaturesReadSupported ()
+{
+    if (m_supports_qXfer_features_read == eLazyBoolCalculate)
+    {
+        GetRemoteQSupported();
+    }
+    return m_supports_qXfer_features_read == eLazyBoolYes;
 }
 
 uint64_t
@@ -335,6 +351,7 @@ GDBRemoteCommunicationClient::ResetDiscoverableSettings()
     m_supports_qXfer_auxv_read = eLazyBoolCalculate;
     m_supports_qXfer_libraries_read = eLazyBoolCalculate;
     m_supports_qXfer_libraries_svr4_read = eLazyBoolCalculate;
+    m_supports_qXfer_features_read = eLazyBoolCalculate;
     m_supports_augmented_libraries_svr4_read = eLazyBoolCalculate;
 
     m_supports_qProcessInfoPID = true;
@@ -373,10 +390,21 @@ GDBRemoteCommunicationClient::GetRemoteQSupported ()
     m_supports_qXfer_libraries_read = eLazyBoolNo;
     m_supports_qXfer_libraries_svr4_read = eLazyBoolNo;
     m_supports_augmented_libraries_svr4_read = eLazyBoolNo;
+    m_supports_qXfer_features_read = eLazyBoolNo;
     m_max_packet_size = UINT64_MAX;  // It's supposed to always be there, but if not, we assume no limit
 
+    // build the qSupported packet
+    std::vector<std::string> features = {"xmlRegisters=i386,arm,mips"};
+    StreamString packet;
+    packet.PutCString( "qSupported" );
+    for ( uint32_t i = 0; i < features.size( ); ++i )
+    {
+        packet.PutCString( i==0 ? ":" : ";");
+        packet.PutCString( features[i].c_str( ) );
+    }
+
     StringExtractorGDBRemote response;
-    if (SendPacketAndWaitForResponse("qSupported",
+    if (SendPacketAndWaitForResponse(packet.GetData(),
                                      response,
                                      /*send_async=*/false) == PacketResult::Success)
     {
@@ -392,6 +420,13 @@ GDBRemoteCommunicationClient::GetRemoteQSupported ()
         }
         if (::strstr (response_cstr, "qXfer:libraries:read+"))
             m_supports_qXfer_libraries_read = eLazyBoolYes;
+        if (::strstr (response_cstr, "qXfer:features:read+"))
+            m_supports_qXfer_features_read = eLazyBoolYes;
+
+        if (::strstr (response_cstr, "qEcho"))
+            m_supports_qEcho = eLazyBoolYes;
+        else
+            m_supports_qEcho = eLazyBoolNo;
 
         const char *packet_size_str = ::strstr (response_cstr, "PacketSize=");
         if (packet_size_str)
@@ -619,7 +654,7 @@ GDBRemoteCommunicationClient::SendPacketAndWaitForResponseNoLock (const char *pa
 {
     PacketResult packet_result = SendPacketNoLock (payload, payload_length);
     if (packet_result == PacketResult::Success)
-        packet_result = WaitForPacketWithTimeoutMicroSecondsNoLock (response, GetPacketTimeoutInMicroSeconds ());
+        packet_result = WaitForPacketWithTimeoutMicroSecondsNoLock (response, GetPacketTimeoutInMicroSeconds (), true);
     return packet_result;
 }
 
@@ -844,7 +879,10 @@ GDBRemoteCommunicationClient::SendContinuePacketAndWaitForResponse
     // Set the starting continue packet into "continue_packet". This packet
     // may change if we are interrupted and we continue after an async packet...
     std::string continue_packet(payload, packet_length);
-    
+
+    const auto sigstop_signo = process->GetUnixSignals().GetSignalNumberFromName("SIGSTOP");
+    const auto sigint_signo = process->GetUnixSignals().GetSignalNumberFromName("SIGINT");
+
     bool got_async_packet = false;
     
     while (state == eStateRunning)
@@ -866,7 +904,7 @@ GDBRemoteCommunicationClient::SendContinuePacketAndWaitForResponse
         if (log)
             log->Printf ("GDBRemoteCommunicationClient::%s () WaitForPacket(%s)", __FUNCTION__, continue_packet.c_str());
 
-        if (WaitForPacketWithTimeoutMicroSecondsNoLock(response, UINT32_MAX) == PacketResult::Success)
+        if (WaitForPacketWithTimeoutMicroSecondsNoLock(response, UINT32_MAX, false) == PacketResult::Success)
         {
             if (response.Empty())
                 state = eStateInvalid;
@@ -914,7 +952,7 @@ GDBRemoteCommunicationClient::SendContinuePacketAndWaitForResponse
                             // packet. If we don't do this, then the reply for our
                             // async packet will be the repeat stop reply packet and cause
                             // a lot of trouble for us!
-                            if (signo != SIGINT && signo != SIGSTOP)
+                            if (signo != sigint_signo && signo != sigstop_signo)
                             {
                                 continue_after_async = false;
 
@@ -923,7 +961,7 @@ GDBRemoteCommunicationClient::SendContinuePacketAndWaitForResponse
                                 // packet to make sure it doesn't get in the way
                                 StringExtractorGDBRemote extra_stop_reply_packet;
                                 uint32_t timeout_usec = 1000;
-                                if (WaitForPacketWithTimeoutMicroSecondsNoLock (extra_stop_reply_packet, timeout_usec) == PacketResult::Success)
+                                if (WaitForPacketWithTimeoutMicroSecondsNoLock (extra_stop_reply_packet, timeout_usec, false) == PacketResult::Success)
                                 {
                                     switch (extra_stop_reply_packet.GetChar())
                                     {
@@ -1287,7 +1325,7 @@ GDBRemoteCommunicationClient::SendArgumentsPacket (const ProcessLaunchInfo &laun
     const char *arg = NULL;
     const Args &launch_args = launch_info.GetArguments();
     if (exe_file)
-        exe_path = exe_file.GetPath();
+        exe_path = exe_file.GetPath(false);
     else
     {
         arg = launch_args.GetArgumentAtIndex(0);
@@ -1593,6 +1631,22 @@ GDBRemoteCommunicationClient::GetGDBServerProgramVersion()
     if (GetGDBServerVersion())
         return m_gdb_server_version;
     return 0;
+}
+
+bool
+GDBRemoteCommunicationClient::GetDefaultThreadId (lldb::tid_t &tid)
+{
+    StringExtractorGDBRemote response;
+    if (SendPacketAndWaitForResponse("qC",response,false) !=  PacketResult::Success)
+        return false;
+
+    if (!response.IsNormalResponse())
+        return false;
+
+    if (response.GetChar() == 'Q' && response.GetChar() == 'C')
+        tid = response.GetHexMaxU32(true, -1);
+
+    return true;
 }
 
 bool
@@ -2167,13 +2221,14 @@ GDBRemoteCommunicationClient::GetWatchpointsTriggerAfterInstruction (bool &after
 }
 
 int
-GDBRemoteCommunicationClient::SetSTDIN (char const *path)
+GDBRemoteCommunicationClient::SetSTDIN(const FileSpec &file_spec)
 {
-    if (path && path[0])
+    if (file_spec)
     {
+        std::string path{file_spec.GetPath(false)};
         StreamString packet;
         packet.PutCString("QSetSTDIN:");
-        packet.PutBytesAsRawHex8(path, strlen(path));
+        packet.PutCStringAsRawHex8(path.c_str());
 
         StringExtractorGDBRemote response;
         if (SendPacketAndWaitForResponse (packet.GetData(), packet.GetSize(), response, false) == PacketResult::Success)
@@ -2189,14 +2244,15 @@ GDBRemoteCommunicationClient::SetSTDIN (char const *path)
 }
 
 int
-GDBRemoteCommunicationClient::SetSTDOUT (char const *path)
+GDBRemoteCommunicationClient::SetSTDOUT(const FileSpec &file_spec)
 {
-    if (path && path[0])
+    if (file_spec)
     {
+        std::string path{file_spec.GetPath(false)};
         StreamString packet;
         packet.PutCString("QSetSTDOUT:");
-        packet.PutBytesAsRawHex8(path, strlen(path));
-        
+        packet.PutCStringAsRawHex8(path.c_str());
+
         StringExtractorGDBRemote response;
         if (SendPacketAndWaitForResponse (packet.GetData(), packet.GetSize(), response, false) == PacketResult::Success)
         {
@@ -2211,14 +2267,15 @@ GDBRemoteCommunicationClient::SetSTDOUT (char const *path)
 }
 
 int
-GDBRemoteCommunicationClient::SetSTDERR (char const *path)
+GDBRemoteCommunicationClient::SetSTDERR(const FileSpec &file_spec)
 {
-    if (path && path[0])
+    if (file_spec)
     {
+        std::string path{file_spec.GetPath(false)};
         StreamString packet;
         packet.PutCString("QSetSTDERR:");
-        packet.PutBytesAsRawHex8(path, strlen(path));
-        
+        packet.PutCStringAsRawHex8(path.c_str());
+
         StringExtractorGDBRemote response;
         if (SendPacketAndWaitForResponse (packet.GetData(), packet.GetSize(), response, false) == PacketResult::Success)
         {
@@ -2233,7 +2290,7 @@ GDBRemoteCommunicationClient::SetSTDERR (char const *path)
 }
 
 bool
-GDBRemoteCommunicationClient::GetWorkingDir (std::string &cwd)
+GDBRemoteCommunicationClient::GetWorkingDir(FileSpec &working_dir)
 {
     StringExtractorGDBRemote response;
     if (SendPacketAndWaitForResponse ("qGetWorkingDir", response, false) == PacketResult::Success)
@@ -2242,21 +2299,24 @@ GDBRemoteCommunicationClient::GetWorkingDir (std::string &cwd)
             return false;
         if (response.IsErrorResponse())
             return false;
-        response.GetHexByteString (cwd);
+        std::string cwd;
+        response.GetHexByteString(cwd);
+        working_dir.SetFile(cwd, false, GetHostArchitecture());
         return !cwd.empty();
     }
     return false;
 }
 
 int
-GDBRemoteCommunicationClient::SetWorkingDir (char const *path)
+GDBRemoteCommunicationClient::SetWorkingDir(const FileSpec &working_dir)
 {
-    if (path && path[0])
+    if (working_dir)
     {
+        std::string path{working_dir.GetPath(false)};
         StreamString packet;
         packet.PutCString("QSetWorkingDir:");
-        packet.PutBytesAsRawHex8(path, strlen(path));
-        
+        packet.PutCStringAsRawHex8(path.c_str());
+
         StringExtractorGDBRemote response;
         if (SendPacketAndWaitForResponse (packet.GetData(), packet.GetSize(), response, false) == PacketResult::Success)
         {
@@ -2653,6 +2713,9 @@ GDBRemoteCommunicationClient::FindProcesses (const ProcessInstanceInfoMatch &mat
             }
         }
         StringExtractorGDBRemote response;
+        // Increase timeout as the first qfProcessInfo packet takes a long time
+        // on Android. The value of 1min was arrived at empirically.
+        GDBRemoteCommunication::ScopedTimeout timeout (*this, 60);
         if (SendPacketAndWaitForResponse (packet.GetData(), packet.GetSize(), response, false) == PacketResult::Success)
         {
             do
@@ -2734,87 +2797,184 @@ GDBRemoteCommunicationClient::GetGroupName (uint32_t gid, std::string &name)
     return false;
 }
 
+bool
+GDBRemoteCommunicationClient::SetNonStopMode (const bool enable)
+{
+    // Form non-stop packet request
+    char packet[32];
+    const int packet_len = ::snprintf(packet, sizeof(packet), "QNonStop:%1d", (int)enable);
+    assert(packet_len < (int)sizeof(packet));
+
+    StringExtractorGDBRemote response;
+    // Send to target
+    if (SendPacketAndWaitForResponse(packet, packet_len, response, false) == PacketResult::Success)
+        if (response.IsOKResponse())
+            return true;
+
+    // Failed or not supported
+    return false;
+
+}
+
+static void
+MakeSpeedTestPacket(StreamString &packet, uint32_t send_size, uint32_t recv_size)
+{
+    packet.Clear();
+    packet.Printf ("qSpeedTest:response_size:%i;data:", recv_size);
+    uint32_t bytes_left = send_size;
+    while (bytes_left > 0)
+    {
+        if (bytes_left >= 26)
+        {
+            packet.PutCString("abcdefghijklmnopqrstuvwxyz");
+            bytes_left -= 26;
+        }
+        else
+        {
+            packet.Printf ("%*.*s;", bytes_left, bytes_left, "abcdefghijklmnopqrstuvwxyz");
+            bytes_left = 0;
+        }
+    }
+}
+
+template<typename T>
+T calculate_standard_deviation(const std::vector<T> &v)
+{
+    T sum = std::accumulate(std::begin(v), std::end(v), T(0));
+    T mean =  sum / (T)v.size();
+    T accum = T(0);
+    std::for_each (std::begin(v), std::end(v), [&](const T d) {
+        T delta = d - mean;
+        accum += delta * delta;
+    });
+
+    T stdev = sqrt(accum / (v.size()-1));
+    return stdev;
+}
+
 void
-GDBRemoteCommunicationClient::TestPacketSpeed (const uint32_t num_packets)
+GDBRemoteCommunicationClient::TestPacketSpeed (const uint32_t num_packets, uint32_t max_send, uint32_t max_recv, bool json, Stream &strm)
 {
     uint32_t i;
     TimeValue start_time, end_time;
     uint64_t total_time_nsec;
     if (SendSpeedTestPacket (0, 0))
     {
-        static uint32_t g_send_sizes[] = { 0, 64, 128, 512, 1024 };
-        static uint32_t g_recv_sizes[] = { 0, 64, 128, 512, 1024 }; //, 4*1024, 8*1024, 16*1024, 32*1024, 48*1024, 64*1024, 96*1024, 128*1024 };
-        const size_t k_num_send_sizes = llvm::array_lengthof(g_send_sizes);
-        const size_t k_num_recv_sizes = llvm::array_lengthof(g_recv_sizes);
-        const uint64_t k_recv_amount = 4*1024*1024; // Receive 4MB
-        for (uint32_t send_idx = 0; send_idx < k_num_send_sizes; ++send_idx)
-        {
-            const uint32_t send_size = g_send_sizes[send_idx];
-            for (uint32_t recv_idx = 0; recv_idx < k_num_recv_sizes; ++recv_idx)
-            {
-                const uint32_t recv_size = g_recv_sizes[recv_idx];
-                StreamString packet;
-                packet.Printf ("qSpeedTest:response_size:%i;data:", recv_size);
-                uint32_t bytes_left = send_size;
-                while (bytes_left > 0)
-                {
-                    if (bytes_left >= 26)
-                    {
-                        packet.PutCString("abcdefghijklmnopqrstuvwxyz");
-                        bytes_left -= 26;
-                    }
-                    else
-                    {
-                        packet.Printf ("%*.*s;", bytes_left, bytes_left, "abcdefghijklmnopqrstuvwxyz");
-                        bytes_left = 0;
-                    }
-                }
+        StreamString packet;
+        if (json)
+            strm.Printf("{ \"packet_speeds\" : {\n    \"num_packets\" : %u,\n    \"results\" : [", num_packets);
+        else
+            strm.Printf("Testing sending %u packets of various sizes:\n", num_packets);
+        strm.Flush();
 
+        uint32_t result_idx = 0;
+        uint32_t send_size;
+        std::vector<float> packet_times;
+
+        for (send_size = 0; send_size <= max_send; send_size ? send_size *= 2 : send_size = 4)
+        {
+            for (uint32_t recv_size = 0; recv_size <= max_recv; recv_size ? recv_size *= 2 : recv_size = 4)
+            {
+                MakeSpeedTestPacket (packet, send_size, recv_size);
+
+                packet_times.clear();
+                // Test how long it takes to send 'num_packets' packets
                 start_time = TimeValue::Now();
-                if (recv_size == 0)
+                for (i=0; i<num_packets; ++i)
                 {
-                    for (i=0; i<num_packets; ++i)
-                    {
-                        StringExtractorGDBRemote response;
-                        SendPacketAndWaitForResponse (packet.GetData(), packet.GetSize(), response, false);
-                    }
-                }
-                else
-                {
-                    uint32_t bytes_read = 0;
-                    while (bytes_read < k_recv_amount)
-                    {
-                        StringExtractorGDBRemote response;
-                        SendPacketAndWaitForResponse (packet.GetData(), packet.GetSize(), response, false);
-                        bytes_read += recv_size;
-                    }
+                    TimeValue packet_start_time = TimeValue::Now();
+                    StringExtractorGDBRemote response;
+                    SendPacketAndWaitForResponse (packet.GetData(), packet.GetSize(), response, false);
+                    TimeValue packet_end_time = TimeValue::Now();
+                    uint64_t packet_time_nsec = packet_end_time.GetAsNanoSecondsSinceJan1_1970() - packet_start_time.GetAsNanoSecondsSinceJan1_1970();
+                    packet_times.push_back((float)packet_time_nsec);
                 }
                 end_time = TimeValue::Now();
                 total_time_nsec = end_time.GetAsNanoSecondsSinceJan1_1970() - start_time.GetAsNanoSecondsSinceJan1_1970();
-                if (recv_size == 0)
+
+                float packets_per_second = (((float)num_packets)/(float)total_time_nsec) * (float)TimeValue::NanoSecPerSec;
+                float total_ms = (float)total_time_nsec/(float)TimeValue::NanoSecPerMilliSec;
+                float average_ms_per_packet = total_ms / num_packets;
+                const float standard_deviation = calculate_standard_deviation<float>(packet_times);
+                if (json)
                 {
-                    float packets_per_second = (((float)num_packets)/(float)total_time_nsec) * (float)TimeValue::NanoSecPerSec;
-                    printf ("%u qSpeedTest(send=%-7u, recv=%-7u) in %" PRIu64 ".%9.9" PRIu64 " sec for %f packets/sec.\n",
-                            num_packets, 
-                            send_size,
-                            recv_size,
-                            total_time_nsec / TimeValue::NanoSecPerSec,
-                            total_time_nsec % TimeValue::NanoSecPerSec, 
-                            packets_per_second);
+                    strm.Printf ("%s\n     {\"send_size\" : %6" PRIu32 ", \"recv_size\" : %6" PRIu32 ", \"total_time_nsec\" : %12" PRIu64 ", \"standard_deviation_nsec\" : %9" PRIu64 " }", result_idx > 0 ? "," : "", send_size, recv_size, total_time_nsec, (uint64_t)standard_deviation);
+                    ++result_idx;
                 }
                 else
                 {
-                    float mb_second = ((((float)k_recv_amount)/(float)total_time_nsec) * (float)TimeValue::NanoSecPerSec) / (1024.0*1024.0);
-                    printf ("%u qSpeedTest(send=%-7u, recv=%-7u) sent 4MB in %" PRIu64 ".%9.9" PRIu64 " sec for %f MB/sec.\n",
-                            num_packets,
-                            send_size,
-                            recv_size,
-                            total_time_nsec / TimeValue::NanoSecPerSec,
-                            total_time_nsec % TimeValue::NanoSecPerSec,
-                            mb_second);
+                    strm.Printf ("qSpeedTest(send=%-7u, recv=%-7u) in %" PRIu64 ".%9.9" PRIu64 " sec for %9.2f packets/sec (%10.6f ms per packet) with standard deviation of %10.6f ms\n",
+                                 send_size,
+                                 recv_size,
+                                 total_time_nsec / TimeValue::NanoSecPerSec,
+                                 total_time_nsec % TimeValue::NanoSecPerSec,
+                                 packets_per_second,
+                                 average_ms_per_packet,
+                                 standard_deviation/(float)TimeValue::NanoSecPerMilliSec);
                 }
+                strm.Flush();
             }
         }
+
+        const uint64_t k_recv_amount = 4*1024*1024; // Receive amount in bytes
+
+        const float k_recv_amount_mb = (float)k_recv_amount/(1024.0f*1024.0f);
+        if (json)
+            strm.Printf("\n    ]\n  },\n  \"download_speed\" : {\n    \"byte_size\" : %" PRIu64 ",\n    \"results\" : [", k_recv_amount);
+        else
+            strm.Printf("Testing receiving %2.1fMB of data using varying receive packet sizes:\n", k_recv_amount_mb);
+        strm.Flush();
+        send_size = 0;
+        result_idx = 0;
+        for (uint32_t recv_size = 32; recv_size <= max_recv; recv_size *= 2)
+        {
+            MakeSpeedTestPacket (packet, send_size, recv_size);
+
+            // If we have a receive size, test how long it takes to receive 4MB of data
+            if (recv_size > 0)
+            {
+                start_time = TimeValue::Now();
+                uint32_t bytes_read = 0;
+                uint32_t packet_count = 0;
+                while (bytes_read < k_recv_amount)
+                {
+                    StringExtractorGDBRemote response;
+                    SendPacketAndWaitForResponse (packet.GetData(), packet.GetSize(), response, false);
+                    bytes_read += recv_size;
+                    ++packet_count;
+                }
+                end_time = TimeValue::Now();
+                total_time_nsec = end_time.GetAsNanoSecondsSinceJan1_1970() - start_time.GetAsNanoSecondsSinceJan1_1970();
+                float mb_second = ((((float)k_recv_amount)/(float)total_time_nsec) * (float)TimeValue::NanoSecPerSec) / (1024.0*1024.0);
+                float packets_per_second = (((float)packet_count)/(float)total_time_nsec) * (float)TimeValue::NanoSecPerSec;
+                float total_ms = (float)total_time_nsec/(float)TimeValue::NanoSecPerMilliSec;
+                float average_ms_per_packet = total_ms / packet_count;
+
+                if (json)
+                {
+                    strm.Printf ("%s\n     {\"send_size\" : %6" PRIu32 ", \"recv_size\" : %6" PRIu32 ", \"total_time_nsec\" : %12" PRIu64 " }", result_idx > 0 ? "," : "", send_size, recv_size, total_time_nsec);
+                    ++result_idx;
+                }
+                else
+                {
+                    strm.Printf ("qSpeedTest(send=%-7u, recv=%-7u) %6u packets needed to receive %2.1fMB in %" PRIu64 ".%9.9" PRIu64 " sec for %f MB/sec for %9.2f packets/sec (%10.6f ms per packet)\n",
+                                 send_size,
+                                 recv_size,
+                                 packet_count,
+                                 k_recv_amount_mb,
+                                 total_time_nsec / TimeValue::NanoSecPerSec,
+                                 total_time_nsec % TimeValue::NanoSecPerSec,
+                                 mb_second,
+                                 packets_per_second,
+                                 average_ms_per_packet);
+                }
+                strm.Flush();
+            }
+        }
+        if (json)
+            strm.Printf("\n    ]\n  }\n}\n");
+        else
+            strm.EOL();
     }
 }
 
@@ -3108,22 +3268,23 @@ GDBRemoteCommunicationClient::GetShlibInfoAddr()
 }
 
 lldb_private::Error
-GDBRemoteCommunicationClient::RunShellCommand (const char *command,           // Shouldn't be NULL
-                                               const char *working_dir,       // Pass NULL to use the current working directory
-                                               int *status_ptr,               // Pass NULL if you don't want the process exit status
-                                               int *signo_ptr,                // Pass NULL if you don't want the signal that caused the process to exit
-                                               std::string *command_output,   // Pass NULL if you don't want the command output
-                                               uint32_t timeout_sec)          // Timeout in seconds to wait for shell program to finish
+GDBRemoteCommunicationClient::RunShellCommand(const char *command,           // Shouldn't be NULL
+                                              const FileSpec &working_dir,   // Pass empty FileSpec to use the current working directory
+                                              int *status_ptr,               // Pass NULL if you don't want the process exit status
+                                              int *signo_ptr,                // Pass NULL if you don't want the signal that caused the process to exit
+                                              std::string *command_output,   // Pass NULL if you don't want the command output
+                                              uint32_t timeout_sec)          // Timeout in seconds to wait for shell program to finish
 {
     lldb_private::StreamString stream;
     stream.PutCString("qPlatform_shell:");
     stream.PutBytesAsRawHex8(command, strlen(command));
     stream.PutChar(',');
     stream.PutHex32(timeout_sec);
-    if (working_dir && *working_dir)
+    if (working_dir)
     {
+        std::string path{working_dir.GetPath(false)};
         stream.PutChar(',');
-        stream.PutBytesAsRawHex8(working_dir, strlen(working_dir));
+        stream.PutCStringAsRawHex8(path.c_str());
     }
     const char *packet = stream.GetData();
     int packet_len = stream.GetSize();
@@ -3156,14 +3317,15 @@ GDBRemoteCommunicationClient::RunShellCommand (const char *command,           //
 }
 
 Error
-GDBRemoteCommunicationClient::MakeDirectory (const char *path,
-                                             uint32_t file_permissions)
+GDBRemoteCommunicationClient::MakeDirectory(const FileSpec &file_spec,
+                                            uint32_t file_permissions)
 {
+    std::string path{file_spec.GetPath(false)};
     lldb_private::StreamString stream;
     stream.PutCString("qPlatform_mkdir:");
     stream.PutHex32(file_permissions);
     stream.PutChar(',');
-    stream.PutBytesAsRawHex8(path, strlen(path));
+    stream.PutCStringAsRawHex8(path.c_str());
     const char *packet = stream.GetData();
     int packet_len = stream.GetSize();
     StringExtractorGDBRemote response;
@@ -3178,14 +3340,15 @@ GDBRemoteCommunicationClient::MakeDirectory (const char *path,
 }
 
 Error
-GDBRemoteCommunicationClient::SetFilePermissions (const char *path,
-                                                  uint32_t file_permissions)
+GDBRemoteCommunicationClient::SetFilePermissions(const FileSpec &file_spec,
+                                                 uint32_t file_permissions)
 {
+    std::string path{file_spec.GetPath(false)};
     lldb_private::StreamString stream;
     stream.PutCString("qPlatform_chmod:");
     stream.PutHex32(file_permissions);
     stream.PutChar(',');
-    stream.PutBytesAsRawHex8(path, strlen(path));
+    stream.PutCStringAsRawHex8(path.c_str());
     const char *packet = stream.GetData();
     int packet_len = stream.GetSize();
     StringExtractorGDBRemote response;
@@ -3196,7 +3359,7 @@ GDBRemoteCommunicationClient::SetFilePermissions (const char *path,
     if (response.GetChar() != 'F')
         return Error("invalid response to '%s' packet", packet);
 
-    return Error(response.GetU32(false, UINT32_MAX), eErrorTypePOSIX);
+    return Error(response.GetU32(UINT32_MAX), eErrorTypePOSIX);
 }
 
 static uint64_t
@@ -3228,9 +3391,9 @@ GDBRemoteCommunicationClient::OpenFile (const lldb_private::FileSpec& file_spec,
                                         mode_t mode,
                                         Error &error)
 {
+    std::string path(file_spec.GetPath(false));
     lldb_private::StreamString stream;
     stream.PutCString("vFile:open:");
-    std::string path (file_spec.GetPath());
     if (path.empty())
         return UINT64_MAX;
     stream.PutCStringAsRawHex8(path.c_str());
@@ -3268,9 +3431,9 @@ GDBRemoteCommunicationClient::CloseFile (lldb::user_id_t fd,
 lldb::user_id_t
 GDBRemoteCommunicationClient::GetFileSize (const lldb_private::FileSpec& file_spec)
 {
+    std::string path(file_spec.GetPath(false));
     lldb_private::StreamString stream;
     stream.PutCString("vFile:size:");
-    std::string path (file_spec.GetPath());
     stream.PutCStringAsRawHex8(path.c_str());
     const char* packet = stream.GetData();
     int packet_len = stream.GetSize();
@@ -3286,12 +3449,14 @@ GDBRemoteCommunicationClient::GetFileSize (const lldb_private::FileSpec& file_sp
 }
 
 Error
-GDBRemoteCommunicationClient::GetFilePermissions(const char *path, uint32_t &file_permissions)
+GDBRemoteCommunicationClient::GetFilePermissions(const FileSpec &file_spec,
+                                                 uint32_t &file_permissions)
 {
+    std::string path{file_spec.GetPath(false)};
     Error error;
     lldb_private::StreamString stream;
     stream.PutCString("vFile:mode:");
-    stream.PutCStringAsRawHex8(path);
+    stream.PutCStringAsRawHex8(path.c_str());
     const char* packet = stream.GetData();
     int packet_len = stream.GetSize();
     StringExtractorGDBRemote response;
@@ -3410,16 +3575,18 @@ GDBRemoteCommunicationClient::WriteFile (lldb::user_id_t fd,
 }
 
 Error
-GDBRemoteCommunicationClient::CreateSymlink (const char *src, const char *dst)
+GDBRemoteCommunicationClient::CreateSymlink(const FileSpec &src, const FileSpec &dst)
 {
+    std::string src_path{src.GetPath(false)},
+                dst_path{dst.GetPath(false)};
     Error error;
     lldb_private::StreamGDBRemote stream;
     stream.PutCString("vFile:symlink:");
     // the unix symlink() command reverses its parameters where the dst if first,
     // so we follow suit here
-    stream.PutCStringAsRawHex8(dst);
+    stream.PutCStringAsRawHex8(dst_path.c_str());
     stream.PutChar(',');
-    stream.PutCStringAsRawHex8(src);
+    stream.PutCStringAsRawHex8(src_path.c_str());
     const char* packet = stream.GetData();
     int packet_len = stream.GetSize();
     StringExtractorGDBRemote response;
@@ -3453,14 +3620,15 @@ GDBRemoteCommunicationClient::CreateSymlink (const char *src, const char *dst)
 }
 
 Error
-GDBRemoteCommunicationClient::Unlink (const char *path)
+GDBRemoteCommunicationClient::Unlink(const FileSpec &file_spec)
 {
+    std::string path{file_spec.GetPath(false)};
     Error error;
     lldb_private::StreamGDBRemote stream;
     stream.PutCString("vFile:unlink:");
     // the unix symlink() command reverses its parameters where the dst if first,
     // so we follow suit here
-    stream.PutCStringAsRawHex8(path);
+    stream.PutCStringAsRawHex8(path.c_str());
     const char* packet = stream.GetData();
     int packet_len = stream.GetSize();
     StringExtractorGDBRemote response;
@@ -3497,9 +3665,9 @@ GDBRemoteCommunicationClient::Unlink (const char *path)
 bool
 GDBRemoteCommunicationClient::GetFileExists (const lldb_private::FileSpec& file_spec)
 {
+    std::string path(file_spec.GetPath(false));
     lldb_private::StreamString stream;
     stream.PutCString("vFile:exists:");
-    std::string path (file_spec.GetPath());
     stream.PutCStringAsRawHex8(path.c_str());
     const char* packet = stream.GetData();
     int packet_len = stream.GetSize();
@@ -3521,9 +3689,9 @@ GDBRemoteCommunicationClient::CalculateMD5 (const lldb_private::FileSpec& file_s
                                             uint64_t &high,
                                             uint64_t &low)
 {
+    std::string path(file_spec.GetPath(false));
     lldb_private::StreamString stream;
     stream.PutCString("vFile:MD5:");
-    std::string path (file_spec.GetPath());
     stream.PutCStringAsRawHex8(path.c_str());
     const char* packet = stream.GetData();
     int packet_len = stream.GetSize();
@@ -3711,7 +3879,7 @@ GDBRemoteCommunicationClient::GetModuleInfo (const FileSpec& module_file_spec,
                                              const lldb_private::ArchSpec& arch_spec,
                                              ModuleSpec &module_spec)
 {
-    std::string module_path = module_file_spec.GetPath ();
+    std::string module_path = module_file_spec.GetPath (false);
     if (module_path.empty ())
         return false;
 
@@ -3719,14 +3887,14 @@ GDBRemoteCommunicationClient::GetModuleInfo (const FileSpec& module_file_spec,
     packet.PutCString("qModuleInfo:");
     packet.PutCStringAsRawHex8(module_path.c_str());
     packet.PutCString(";");
-    const auto& tripple = arch_spec.GetTriple().getTriple();
-    packet.PutBytesAsRawHex8(tripple.c_str(), tripple.size());
+    const auto& triple = arch_spec.GetTriple().getTriple();
+    packet.PutCStringAsRawHex8(triple.c_str());
 
     StringExtractorGDBRemote response;
     if (SendPacketAndWaitForResponse (packet.GetData(), packet.GetSize(), response, false) != PacketResult::Success)
         return false;
 
-    if (response.IsErrorResponse ())
+    if (response.IsErrorResponse () || response.IsUnsupportedResponse ())
         return false;
 
     std::string name;
@@ -3770,9 +3938,84 @@ GDBRemoteCommunicationClient::GetModuleInfo (const FileSpec& module_file_spec,
             extractor.GetStringRef ().swap (value);
             extractor.SetFilePos (0);
             extractor.GetHexByteString (value);
-            module_spec.GetFileSpec () = FileSpec (value.c_str(), false);
+            module_spec.GetFileSpec() = FileSpec(value.c_str(), false, arch_spec);
         }
     }
 
+    return true;
+}
+
+// query the target remote for extended information using the qXfer packet
+//
+// example: object='features', annex='target.xml', out=<xml output>
+// return:  'true'  on success
+//          'false' on failure (err set)
+bool
+GDBRemoteCommunicationClient::ReadExtFeature (const lldb_private::ConstString object,
+                                              const lldb_private::ConstString annex,
+                                              std::string & out,
+                                              lldb_private::Error & err) {
+
+    std::stringstream output;
+    StringExtractorGDBRemote chunk;
+
+    uint64_t size = GetRemoteMaxPacketSize();
+    if (size == 0)
+        size = 0x1000;
+    size = size - 1; // Leave space for the 'm' or 'l' character in the response
+    int offset = 0;
+    bool active = true;
+
+    // loop until all data has been read
+    while ( active ) {
+
+        // send query extended feature packet
+        std::stringstream packet;
+        packet << "qXfer:" 
+               << object.AsCString( ) << ":read:" 
+               << annex.AsCString( )  << ":" 
+               << std::hex << offset  << "," 
+               << std::hex << size;
+
+        GDBRemoteCommunication::PacketResult res =
+            SendPacketAndWaitForResponse( packet.str().c_str(),
+                                          chunk,
+                                          false );
+
+        if ( res != GDBRemoteCommunication::PacketResult::Success ) {
+            err.SetErrorString( "Error sending $qXfer packet" );
+            return false;
+        }
+
+        const std::string & str = chunk.GetStringRef( );
+        if ( str.length() == 0 ) {
+            // should have some data in chunk
+            err.SetErrorString( "Empty response from $qXfer packet" );
+            return false;
+        }
+
+        // check packet code
+        switch ( str[0] ) {
+            // last chunk
+        case ( 'l' ):
+            active = false;
+            // fall through intentional
+
+            // more chunks
+        case ( 'm' ) :
+            if ( str.length() > 1 )
+                output << &str[1];
+            offset += size;
+            break;
+
+            // unknown chunk
+        default:
+            err.SetErrorString( "Invalid continuation code from $qXfer packet" );
+            return false;
+        }
+    }
+
+    out = output.str( );
+    err.Success( );
     return true;
 }

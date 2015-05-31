@@ -105,9 +105,6 @@ public:
     
     Error
     WillLaunchOrAttach ();
-
-    Error
-    DoAttachToProcessWithID (lldb::pid_t pid) override;
     
     Error
     DoAttachToProcessWithID (lldb::pid_t pid, const ProcessAttachInfo &attach_info) override;
@@ -228,10 +225,10 @@ public:
     SendEventData(const char *data) override;
 
     //----------------------------------------------------------------------
-    // Override SetExitStatus so we can disconnect from the remote GDB server
+    // Override DidExit so we can disconnect from the remote GDB server
     //----------------------------------------------------------------------
-    bool
-    SetExitStatus (int exit_status, const char *cstr) override;
+    void
+    DidExit () override;
 
     void
     SetUserSpecifiedMaxMemoryTransferSize (uint64_t user_specified_max);
@@ -241,10 +238,15 @@ public:
                   const ArchSpec& arch,
                   ModuleSpec &module_spec) override;
 
+    virtual size_t
+    LoadModules () override;
+
 protected:
     friend class ThreadGDBRemote;
     friend class GDBRemoteCommunicationClient;
     friend class GDBRemoteRegisterContext;
+
+    class GDBLoadedModuleInfoList;
 
     //----------------------------------------------------------------------
     // Accessors
@@ -331,7 +333,7 @@ protected:
     Flags m_flags;            // Process specific flags (see eFlags enums)
     GDBRemoteCommunicationClient m_gdb_comm;
     std::atomic<lldb::pid_t> m_debugserver_pid;
-    StringExtractorGDBRemote m_last_stop_packet;
+    std::vector<StringExtractorGDBRemote> m_stop_packet_stack;  // The stop packet stack replaces the last stop packet variable
     Mutex m_last_stop_packet_mutex;
     GDBRemoteDynamicRegisterInfo m_register_info;
     Broadcaster m_async_broadcaster;
@@ -353,6 +355,7 @@ protected:
     bool m_destroy_tried_resuming;
     lldb::CommandObjectSP m_command_sp;
     int64_t m_breakpoint_pc_offset;
+    lldb::tid_t m_initial_tid; // The inital thread ID, given by stub on attach
 
     bool
     StartAsyncThread ();
@@ -374,6 +377,9 @@ protected:
     SetThreadStopInfo (StringExtractor& stop_packet);
 
     void
+    HandleStopReplySequence ();
+
+    void
     ClearThreadIDList ();
 
     bool
@@ -391,6 +397,17 @@ protected:
 
     DynamicLoader *
     GetDynamicLoader () override;
+
+    // Query remote GDBServer for register information
+    bool
+    GetGDBServerRegisterInfo ();
+
+    // Query remote GDBServer for a detailed loaded library list
+    Error
+    GetLoadedModuleList (GDBLoadedModuleInfoList &);
+
+    lldb::ModuleSP
+    LoadModuleAtAddress (const FileSpec &file, lldb::addr_t base_addr);
 
 private:
     //------------------------------------------------------------------

@@ -36,7 +36,6 @@ class EventAPITestCase(TestBase):
         self.buildDsym()
         self.do_wait_for_event()
 
-    @skipIfLinux # non-core functionality, need to reenable and fix later (DES 2014.11.07)
     @python_api_test
     @dwarf_test
     def test_wait_for_event_with_dwarf(self):
@@ -53,9 +52,9 @@ class EventAPITestCase(TestBase):
         self.do_add_listener_to_broadcaster()
 
     @skipIfFreeBSD # llvm.org/pr21325
-    @skipIfLinux # non-core functionality, need to reenable and fix later (DES 2014.11.07)
     @python_api_test
     @dwarf_test
+    @expectedFailureLinux("llvm.org/pr23617") # Flaky, fails ~1/10 cases
     def test_add_listener_to_broadcaster_with_dwarf(self):
         """Exercise some SBBroadcaster APIs."""
         self.buildDwarf()
@@ -249,11 +248,13 @@ class EventAPITestCase(TestBase):
 
 
         # The finite state machine for our custom listening thread, with an
-        # initail state of 0, which means a "running" event is expected.
-        # It changes to 1 after "running" is received.
-        # It cahnges to 2 after "stopped" is received.
-        # 2 will be our final state and the test is complete.
-        self.state = 0 
+        # initail state of None, which means no event has been received.
+        # It changes to 'connected' after 'connected' event is received (for remote platforms)
+        # It changes to 'running' after 'running' event is received (should happen only if the
+        # currentstate is either 'None' or 'connected')
+        # It changes to 'stopped' if a 'stopped' event is received (should happen only if the
+        # current state is 'running'.)
+        self.state = None
 
         # Create MyListeningThread to wait for state changed events.
         # By design, a "running" event is expected following by a "stopped" event.
@@ -274,12 +275,20 @@ class EventAPITestCase(TestBase):
                         match = pattern.search(desc)
                         if not match:
                             break;
-                        if self.context.state == 0 and match.group(1) == 'running':
-                            self.context.state = 1
+                        if match.group(1) == 'connected':
+                            # When debugging remote targets with lldb-server, we
+                            # first get the 'connected' event.
+                            self.context.assertTrue(self.context.state == None)
+                            self.context.state = 'connected'
                             continue
-                        elif self.context.state == 1 and match.group(1) == 'stopped':
+                        elif match.group(1) == 'running':
+                            self.context.assertTrue(self.context.state == None or self.context.state == 'connected')
+                            self.context.state = 'running'
+                            continue
+                        elif match.group(1) == 'stopped':
+                            self.context.assertTrue(self.context.state == 'running')
                             # Whoopee, both events have been received!
-                            self.context.state = 2
+                            self.context.state = 'stopped'
                             break
                         else:
                             break
@@ -306,7 +315,7 @@ class EventAPITestCase(TestBase):
         my_thread.join()
 
         # The final judgement. :-)
-        self.assertTrue(self.state == 2,
+        self.assertTrue(self.state == 'stopped',
                         "Both expected state changed events received")
 
         

@@ -40,6 +40,9 @@ CMICmnLLDBDebugSessionInfo::CMICmnLLDBDebugSessionInfo(void)
     , m_currentSelectedThread(LLDB_INVALID_THREAD_ID)
     , m_constStrSharedDataKeyWkDir("Working Directory")
     , m_constStrSharedDataSolibPath("Solib Path")
+    , m_constStrPrintCharArrayAsString("Print CharArrayAsString")
+    , m_constStrPrintExpandAggregates("Print ExpandAggregates")
+    , m_constStrPrintAggregateFieldNames("Print AggregateFieldNames")
 {
 }
 
@@ -428,7 +431,8 @@ CMICmnLLDBDebugSessionInfo::MIResponseFormThreadInfo(const SMICmdData &vCmdData,
 bool
 CMICmnLLDBDebugSessionInfo::MIResponseFormVariableInfo(const lldb::SBFrame &vrFrame, const MIuint vMaskVarTypes,
                                                        const VariableInfoFormat_e veVarInfoFormat, CMICmnMIValueList &vwrMiValueList,
-                                                       const MIuint vnMaxDepth /* = 10 */)
+                                                       const MIuint vnMaxDepth, /* = 10 */
+                                                       const bool vbMarkArgs /* = false*/)
 {
     bool bOk = MIstatus::success;
     lldb::SBFrame &rFrame = const_cast<lldb::SBFrame &>(vrFrame);
@@ -437,16 +441,49 @@ CMICmnLLDBDebugSessionInfo::MIResponseFormVariableInfo(const lldb::SBFrame &vrFr
     const bool bLocals = (vMaskVarTypes & eVariableType_Locals);
     const bool bStatics = (vMaskVarTypes & eVariableType_Statics);
     const bool bInScopeOnly = (vMaskVarTypes & eVariableType_InScope);
-    lldb::SBValueList listArg = rFrame.GetVariables(bArg, bLocals, bStatics, bInScopeOnly);
-    const MIuint nArgs = listArg.GetSize();
+    
+    // Handle arguments first
+    lldb::SBValueList listArg = rFrame.GetVariables(bArg, false, false, false);
+    bOk = bOk && MIResponseForVariableInfoInternal(veVarInfoFormat, vwrMiValueList, listArg, vnMaxDepth, true, vbMarkArgs);
+    
+    // Handle remaining variables
+    lldb::SBValueList listVars = rFrame.GetVariables(false, bLocals, bStatics, bInScopeOnly);
+    bOk = bOk && MIResponseForVariableInfoInternal(veVarInfoFormat, vwrMiValueList, listVars, vnMaxDepth, false, vbMarkArgs);
+    
+    return bOk;
+}
+
+bool
+CMICmnLLDBDebugSessionInfo::MIResponseForVariableInfoInternal(const VariableInfoFormat_e veVarInfoFormat,
+                                                              CMICmnMIValueList &vwrMiValueList,
+                                                              const lldb::SBValueList &vwrSBValueList,
+                                                              const MIuint vnMaxDepth,
+                                                              const bool vbIsArgs,
+                                                              const bool vbMarkArgs)
+{
+    bool bOk = MIstatus::success;
+    const MIuint nArgs = vwrSBValueList.GetSize();
     for (MIuint i = 0; bOk && (i < nArgs); i++)
     {
         CMICmnMIValueTuple miValueTuple;
-        lldb::SBValue value = listArg.GetValueAtIndex(i);
+        lldb::SBValue value = vwrSBValueList.GetValueAtIndex(i);
         const CMICmnMIValueConst miValueConst(value.GetName());
         const CMICmnMIValueResult miValueResultName("name", miValueConst);
+        if (vbMarkArgs && vbIsArgs)
+        {
+            const CMICmnMIValueConst miValueConstArg("1");
+            const CMICmnMIValueResult miValueResultArg("arg", miValueConstArg);
+            miValueTuple.Add(miValueResultArg);
+        }
         if (veVarInfoFormat != eVariableInfoFormat_NoValues)
         {
+            miValueTuple.Add(miValueResultName); // name
+            if (veVarInfoFormat == eVariableInfoFormat_SimpleValues)
+            {
+                const CMICmnMIValueConst miValueConst3(value.GetTypeName());
+                const CMICmnMIValueResult miValueResult3("type", miValueConst3);
+                miValueTuple.Add(miValueResult3);
+            }
             const MIuint nChildren = value.GetNumChildren();
             const bool bIsPointerType = value.GetType().IsPointerType();
             if (nChildren == 0 || // no children
@@ -458,15 +495,24 @@ CMICmnLLDBDebugSessionInfo::MIResponseFormVariableInfo(const lldb::SBFrame &vrFr
                 {
                     const CMICmnMIValueConst miValueConst2(strValue.Escape().AddSlashes());
                     const CMICmnMIValueResult miValueResult2("value", miValueConst2);
-                    miValueTuple.Add(miValueResultName); // name
                     miValueTuple.Add(miValueResult2);
-                    vwrMiValueList.Add(miValueTuple);
-                    continue;
                 }
             }
+            vwrMiValueList.Add(miValueTuple);
+            continue;
         }
-        // If we are printing name only then no need to put it in the tuple.
-        vwrMiValueList.Add(miValueResultName);
+        
+        if (vbMarkArgs)
+        {
+            // If we are printing names only with vbMarkArgs, we still need to add the name to the value tuple
+            miValueTuple.Add(miValueResultName); // name
+            vwrMiValueList.Add(miValueTuple);
+        }
+        else
+        {
+            // If we are printing name only then no need to put it in the tuple.
+            vwrMiValueList.Add(miValueResultName);
+        }
     }
     return bOk;
 }
@@ -763,7 +809,9 @@ CMICmnLLDBDebugSessionInfo::GetBrkPtInfo(const lldb::SBBreakpoint &vBrkPt, SBrkP
     const MIchar *pFn = pUnkwn;
     const MIchar *pFilePath = pUnkwn;
     size_t nLine = 0;
-    const size_t nAddr = brkPtAddr.GetLoadAddress(GetTarget());
+    lldb::addr_t nAddr = brkPtAddr.GetLoadAddress(GetTarget());
+    if (nAddr == LLDB_INVALID_ADDRESS)
+        nAddr = brkPtAddr.GetFileAddress();
 
     lldb::SBCompileUnit rCmplUnit = symbolCntxt.GetCompileUnit();
     if (rCmplUnit.IsValid())

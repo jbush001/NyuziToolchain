@@ -79,7 +79,7 @@ class BreakpointConditionsTestCase(TestBase):
             self.runCmd("breakpoint modify -c 'val == 3' 1")
 
         # Now run the program.
-        self.runCmd("run", RUN_SUCCEEDED)
+        self.runCmd("run", RUN_FAILED)
 
         # The process should be stopped at this point.
         self.expect("process status", PROCESS_STOPPED,
@@ -110,7 +110,7 @@ class BreakpointConditionsTestCase(TestBase):
             substrs = ["Condition:"])
 
         # Now run the program again.
-        self.runCmd("run", RUN_SUCCEEDED)
+        self.runCmd("run", RUN_FAILED)
 
         # The process should be stopped at this point.
         self.expect("process status", PROCESS_STOPPED,
@@ -128,8 +128,10 @@ class BreakpointConditionsTestCase(TestBase):
             self.runCmd("breakpoint modify -c ($eax&&i)")
         elif self.getArchitecture() in ['aarch64']:
             self.runCmd("breakpoint modify -c ($x1&&i)")
+        elif self.getArchitecture() in ['arm']:
+            self.runCmd("breakpoint modify -c ($r0&&i)")
         self.runCmd("run")
-        
+
         self.expect("process status", PROCESS_STOPPED,
             patterns = ['Process .* stopped'])
 

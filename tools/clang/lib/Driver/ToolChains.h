@@ -152,7 +152,7 @@ protected:
 public:
   Generic_GCC(const Driver &D, const llvm::Triple &Triple,
               const llvm::opt::ArgList &Args);
-  ~Generic_GCC();
+  ~Generic_GCC() override;
 
   void printVerboseInfo(raw_ostream &OS) const override;
 
@@ -196,7 +196,7 @@ private:
 public:
   MachO(const Driver &D, const llvm::Triple &Triple,
              const llvm::opt::ArgList &Args);
-  ~MachO();
+  ~MachO() override;
 
   /// @name MachO specific toolchain API
   /// {
@@ -238,6 +238,13 @@ public:
                          bool AlwaysLink = false,
                          bool IsEmbedded = false,
                          bool AddRPath = false) const;
+
+  /// Add any profiling runtime libraries that are needed. This is essentially a
+  /// MachO specific version of addProfileRT in Tools.cpp.
+  virtual void addProfileRTLibs(const llvm::opt::ArgList &Args,
+                                llvm::opt::ArgStringList &CmdArgs) const {
+    // There aren't any profiling libs for embedded targets currently.
+  }
 
   /// }
   /// @name ToolChain Implementation
@@ -345,7 +352,7 @@ private:
 public:
   Darwin(const Driver &D, const llvm::Triple &Triple,
          const llvm::opt::ArgList &Args);
-  ~Darwin();
+  ~Darwin() override;
 
   std::string ComputeEffectiveClangTriple(const llvm::opt::ArgList &Args,
                                           types::ID InputType) const override;
@@ -364,6 +371,9 @@ public:
   bool isKernelStatic() const override {
     return !isTargetIPhoneOS() || isIPhoneOSVersionLT(6, 0);
   }
+
+  void addProfileRTLibs(const llvm::opt::ArgList &Args,
+                        llvm::opt::ArgStringList &CmdArgs) const override;
 
 protected:
   /// }
@@ -487,8 +497,7 @@ public:
   AddCCKextLibArgs(const llvm::opt::ArgList &Args,
                    llvm::opt::ArgStringList &CmdArgs) const override;
 
-  virtual void addClangWarningOptions(llvm::opt::ArgStringList &CC1Args)
-                                                      const override;
+  void addClangWarningOptions(llvm::opt::ArgStringList &CC1Args) const override;
 
   void
   AddLinkARCArgs(const llvm::opt::ArgList &Args,
@@ -699,7 +708,7 @@ protected:
 public:
   Hexagon_TC(const Driver &D, const llvm::Triple &Triple,
              const llvm::opt::ArgList &Args);
-  ~Hexagon_TC();
+  ~Hexagon_TC() override;
 
   void
   AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
@@ -715,6 +724,10 @@ public:
                                const llvm::opt::ArgList &Args);
 
   static StringRef GetTargetCPU(const llvm::opt::ArgList &Args);
+
+  static const char *GetSmallDataThreshold(const llvm::opt::ArgList &Args);
+
+  static bool UsesG0(const char* smallDataThreshold);
 };
 
 class LLVM_LIBRARY_VISIBILITY NaCl_TC : public Generic_ELF {
@@ -762,7 +775,7 @@ class LLVM_LIBRARY_VISIBILITY TCEToolChain : public ToolChain {
 public:
   TCEToolChain(const Driver &D, const llvm::Triple &Triple,
                const llvm::opt::ArgList &Args);
-  ~TCEToolChain();
+  ~TCEToolChain() override;
 
   bool IsMathErrnoDefault() const override;
   bool isPICDefault() const override;

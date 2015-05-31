@@ -472,7 +472,7 @@ private:
 
   /// Create a new VectorizableTree entry.
   TreeEntry *newTreeEntry(ArrayRef<Value *> VL, bool Vectorized) {
-    VectorizableTree.push_back(TreeEntry());
+    VectorizableTree.emplace_back();
     int idx = VectorizableTree.size() - 1;
     TreeEntry *Last = &VectorizableTree[idx];
     Last->Scalars.insert(Last->Scalars.begin(), VL.begin(), VL.end());
@@ -1183,7 +1183,7 @@ void BoUpSLP::buildTree_rec(ArrayRef<Value *> VL, unsigned Depth) {
     case Instruction::ICmp:
     case Instruction::FCmp: {
       // Check that all of the compares have the same predicate.
-      CmpInst::Predicate P0 = dyn_cast<CmpInst>(VL0)->getPredicate();
+      CmpInst::Predicate P0 = cast<CmpInst>(VL0)->getPredicate();
       Type *ComparedTy = cast<Instruction>(VL[0])->getOperand(0)->getType();
       for (unsigned i = 1, e = VL.size(); i < e; ++i) {
         CmpInst *Cmp = cast<CmpInst>(VL[i]);
@@ -2202,7 +2202,7 @@ Value *BoUpSLP::vectorizeTree(TreeEntry *E) {
       if (Value *V = alreadyVectorized(E->Scalars))
         return V;
 
-      CmpInst::Predicate P0 = dyn_cast<CmpInst>(VL0)->getPredicate();
+      CmpInst::Predicate P0 = cast<CmpInst>(VL0)->getPredicate();
       Value *V;
       if (Opcode == Instruction::FCmp)
         V = Builder.CreateFCmp(P0, L, R);
@@ -2382,7 +2382,7 @@ Value *BoUpSLP::vectorizeTree(TreeEntry *E) {
       Intrinsic::ID IID  = Intrinsic::not_intrinsic;
       Value *ScalarArg = nullptr;
       if (CI && (FI = CI->getCalledFunction())) {
-        IID = (Intrinsic::ID) FI->getIntrinsicID();
+        IID = FI->getIntrinsicID();
       }
       std::vector<Value *> OpVecs;
       for (int j = 0, e = CI->getNumArgOperands(); j < e; ++j) {
@@ -3101,9 +3101,7 @@ struct SLPVectorizer : public FunctionPass {
     // delete instructions.
 
     // Scan the blocks in the function in post order.
-    for (po_iterator<BasicBlock*> it = po_begin(&F.getEntryBlock()),
-         e = po_end(&F.getEntryBlock()); it != e; ++it) {
-      BasicBlock *BB = *it;
+    for (auto BB : post_order(&F.getEntryBlock())) {
       // Vectorize trees that end at stores.
       if (unsigned count = collectStores(BB, R)) {
         (void)count;

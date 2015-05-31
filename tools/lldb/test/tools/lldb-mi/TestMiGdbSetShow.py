@@ -12,6 +12,7 @@ class MiGdbSetShowTestCase(lldbmi_testcase.MiTestCaseBase):
 
     @lldbmi_test
     @expectedFailureWindows("llvm.org/pr22274: need a pexpect replacement for windows")
+    @skipIfFreeBSD # llvm.org/pr22411: Failure presumably due to known thread races
     def test_lldbmi_gdb_set_target_async_default(self):
         """Test that 'lldb-mi --interpreter' switches to async mode by default."""
 
@@ -31,6 +32,7 @@ class MiGdbSetShowTestCase(lldbmi_testcase.MiTestCaseBase):
 
     @lldbmi_test
     @expectedFailureWindows("llvm.org/pr22274: need a pexpect replacement for windows")
+    @skipIfFreeBSD # llvm.org/pr22411: Failure presumably due to known thread races
     def test_lldbmi_gdb_set_target_async_on(self):
         """Test that 'lldb-mi --interpreter' can execute commands in async mode."""
 
@@ -55,10 +57,11 @@ class MiGdbSetShowTestCase(lldbmi_testcase.MiTestCaseBase):
         # Test that program is executed in async mode
         self.runCmd("-exec-run")
         self.expect("\*running")
-        self.expect("~\"argc=1")
+        self.expect("@\"argc=1")
 
     @lldbmi_test
     @expectedFailureWindows("llvm.org/pr22274: need a pexpect replacement for windows")
+    @skipIfFreeBSD # llvm.org/pr22411: Failure presumably due to known thread races
     def test_lldbmi_gdb_set_target_async_off(self):
         """Test that 'lldb-mi --interpreter' can execute commands in sync mode."""
 
@@ -77,13 +80,13 @@ class MiGdbSetShowTestCase(lldbmi_testcase.MiTestCaseBase):
         # Test that program is executed in async mode
         self.runCmd("-exec-run")
         unexpected = [ "\*running" ] # "\*running" is async notification
-        it = self.expect(unexpected + [ "~\"argc=1\\\\r\\\\n" ])
+        it = self.expect(unexpected + [ "@\"argc=1\\\\r\\\\n" ])
         if it < len(unexpected):
-            # generate error if it's not "~\"argc=1\\\\r\\\\n"
-            self.expect("$UNEXPECTED FOUND: %s.^" % unexpected[it], timeout = 0)
+            self.fail("unexpected found: %s" % unexpected[it])
 
     @lldbmi_test
     @expectedFailureWindows("llvm.org/pr22274: need a pexpect replacement for windows")
+    @skipIfFreeBSD # llvm.org/pr22411: Failure presumably due to known thread races
     def test_lldbmi_gdb_show_target_async(self):
         """Test that 'lldb-mi --interpreter' in async mode by default."""
 
@@ -92,6 +95,29 @@ class MiGdbSetShowTestCase(lldbmi_testcase.MiTestCaseBase):
         # Test that default target-async value is "on"
         self.runCmd("-gdb-show target-async")
         self.expect("\^done,value=\"on\"")
+
+    @lldbmi_test
+    @expectedFailureWindows("llvm.org/pr22274: need a pexpect replacement for windows")
+    @skipIfFreeBSD # llvm.org/pr22411: Failure presumably due to known thread races
+    def test_lldbmi_gdb_show_language(self):
+        """Test that 'lldb-mi --interpreter' can get current language."""
+
+        self.spawnLldbMi(args = None)
+
+        # Load executable
+        self.runCmd("-file-exec-and-symbols %s" % self.myexe)
+        self.expect("\^done")
+
+        # Run to main
+        self.runCmd("-break-insert -f main")
+        self.expect("\^done,bkpt={number=\"1\"")
+        self.runCmd("-exec-run")
+        self.expect("\^running")
+        self.expect("\*stopped,reason=\"breakpoint-hit\"")
+
+        # Test that -gdb-show language gets current language
+        self.runCmd("-gdb-show language")
+        self.expect("\^done,value=\"c\+\+\"")
 
     @lldbmi_test
     @expectedFailureWindows("llvm.org/pr22274: need a pexpect replacement for windows")

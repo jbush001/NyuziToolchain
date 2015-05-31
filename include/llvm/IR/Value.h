@@ -216,6 +216,7 @@ public:
 
 private:
   void destroyValueName();
+  void setNameImpl(const Twine &Name);
 
 public:
   /// \brief Return a constant reference to the value's name.
@@ -445,12 +446,6 @@ public:
   const Value *stripInBoundsOffsets() const {
     return const_cast<Value*>(this)->stripInBoundsOffsets();
   }
-
-  /// \brief Check if this is always a dereferenceable pointer.
-  ///
-  /// Test if this value is always a pointer to allocated and suitably aligned
-  /// memory for a simple load or store.
-  bool isDereferenceablePointer(const DataLayout &DL) const;
 
   /// \brief Translate PHI node to its predecessor from the given basic block.
   ///

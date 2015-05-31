@@ -86,7 +86,7 @@ class GenericTester(TestBase):
         if lldb.remote_platform:
             # process launch -o requires a path that is valid on the target
             self.assertIsNotNone(lldb.remote_platform.GetWorkingDirectory())
-            remote_path = os.path.join(lldb.remote_platform.GetWorkingDirectory(), "lldb-stdout-redirect.txt")
+            remote_path = lldbutil.append_to_remote_wd("lldb-stdout-redirect.txt")
             self.runCmd('process launch -o {remote}'.format(remote=remote_path))
             # copy remote_path to local host
             self.runCmd('platform get-file {remote} "{local}"'.format(
@@ -140,7 +140,7 @@ class GenericTester(TestBase):
             break_line = line_number ("basic_type.cpp", "// Here is the line we will break on to check variables.")
         lldbutil.run_break_set_by_file_and_line (self, "basic_type.cpp", break_line, num_expected_locations=1, loc_exact=True)
 
-        self.runCmd("run", RUN_SUCCEEDED)
+        self.runCmd("run", RUN_FAILED)
         self.expect("process status", STOPPED_DUE_TO_BREAKPOINT,
             substrs = [" at basic_type.cpp:%d" % break_line,
                        "stop reason = breakpoint"])
@@ -224,7 +224,7 @@ class GenericTester(TestBase):
             break_line = line_number ("basic_type.cpp", "// Here is the line we will break on to check variables.")
         lldbutil.run_break_set_by_file_and_line (self, "basic_type.cpp", break_line, num_expected_locations=1, loc_exact=True)
 
-        self.runCmd("run", RUN_SUCCEEDED)
+        self.runCmd("run", RUN_FAILED)
         self.expect("process status", STOPPED_DUE_TO_BREAKPOINT,
             substrs = [" at basic_type.cpp:%d" % break_line,
                        "stop reason = breakpoint"])
