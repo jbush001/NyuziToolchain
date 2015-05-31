@@ -283,9 +283,11 @@ static bool isIntOrIntVectorValue(const std::pair<const Value*, unsigned> &V) {
   return V.first->getType()->isIntOrIntVectorTy();
 }
 
-ValueEnumerator::ValueEnumerator(const Module &M)
-    : HasMDString(false), HasMDLocation(false), HasGenericDebugNode(false) {
-  if (shouldPreserveBitcodeUseListOrder())
+ValueEnumerator::ValueEnumerator(const Module &M,
+                                 bool ShouldPreserveUseListOrder)
+    : HasMDString(false), HasDILocation(false), HasGenericDINode(false),
+      ShouldPreserveUseListOrder(ShouldPreserveUseListOrder) {
+  if (ShouldPreserveUseListOrder)
     UseListOrders = predictUseListOrder(M);
 
   // Enumerate the global variables.
@@ -346,6 +348,11 @@ ValueEnumerator::ValueEnumerator(const Module &M)
     for (const Argument &A : F.args())
       EnumerateType(A.getType());
 
+    // Enumerate metadata attached to this function.
+    F.getAllMetadata(MDs);
+    for (const auto &I : MDs)
+      EnumerateMetadata(I.second);
+
     for (const BasicBlock &BB : F)
       for (const Instruction &I : BB) {
         for (const Use &Op : I.operands()) {
@@ -375,7 +382,7 @@ ValueEnumerator::ValueEnumerator(const Module &M)
 
         // Don't enumerate the location directly -- it has a special record
         // type -- but enumerate its operands.
-        if (MDLocation *L = I.getDebugLoc())
+        if (DILocation *L = I.getDebugLoc())
           EnumerateMDNodeOperands(L);
       }
   }
@@ -461,7 +468,7 @@ void ValueEnumerator::print(raw_ostream &OS, const MetadataMapType &Map,
 void ValueEnumerator::OptimizeConstants(unsigned CstStart, unsigned CstEnd) {
   if (CstStart == CstEnd || CstStart+1 == CstEnd) return;
 
-  if (shouldPreserveBitcodeUseListOrder())
+  if (ShouldPreserveUseListOrder)
     // Optimizing constants makes the use-list order difficult to predict.
     // Disable it for now when trying to preserve the order.
     return;
@@ -541,8 +548,8 @@ void ValueEnumerator::EnumerateMetadata(const Metadata *MD) {
     EnumerateValue(C->getValue());
 
   HasMDString |= isa<MDString>(MD);
-  HasMDLocation |= isa<MDLocation>(MD);
-  HasGenericDebugNode |= isa<GenericDebugNode>(MD);
+  HasDILocation |= isa<DILocation>(MD);
+  HasGenericDINode |= isa<GenericDINode>(MD);
 
   // Replace the dummy ID inserted above with the correct one.  MDValueMap may
   // have changed by inserting operands, so we need a fresh lookup here.

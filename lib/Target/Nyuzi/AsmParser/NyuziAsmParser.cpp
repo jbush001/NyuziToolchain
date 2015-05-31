@@ -159,16 +159,16 @@ public:
   void addExpr(MCInst &Inst, const MCExpr *Expr) const {
     // Add as immediates where possible. Null MCExpr = 0
     if (Expr == 0)
-      Inst.addOperand(MCOperand::CreateImm(0));
+      Inst.addOperand(MCOperand::createImm(0));
     else if (const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(Expr))
-      Inst.addOperand(MCOperand::CreateImm(CE->getValue()));
+      Inst.addOperand(MCOperand::createImm(CE->getValue()));
     else
-      Inst.addOperand(MCOperand::CreateExpr(Expr));
+      Inst.addOperand(MCOperand::createExpr(Expr));
   }
 
   void addRegOperands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands!");
-    Inst.addOperand(MCOperand::CreateReg(getReg()));
+    Inst.addOperand(MCOperand::createReg(getReg()));
   }
 
   void addImmOperands(MCInst &Inst, unsigned N) const {
@@ -179,7 +179,7 @@ public:
   void addMemOperands(MCInst &Inst, unsigned N) const {
     assert(N == 2 && "Invalid number of operands!");
 
-    Inst.addOperand(MCOperand::CreateReg(getMemBase()));
+    Inst.addOperand(MCOperand::createReg(getMemBase()));
     const MCExpr *Expr = getMemOff();
     addExpr(Inst, Expr);
   }
@@ -208,7 +208,7 @@ public:
     }
   }
 
-  static std::unique_ptr<NyuziOperand> CreateToken(StringRef Str, SMLoc S) {
+  static std::unique_ptr<NyuziOperand> createToken(StringRef Str, SMLoc S) {
     auto Op = make_unique<NyuziOperand>(Token);
     Op->Tok.Data = Str.data();
     Op->Tok.Length = Str.size();
@@ -217,7 +217,7 @@ public:
     return Op;
   }
 
-  static std::unique_ptr<NyuziOperand> CreateReg(unsigned RegNo, SMLoc S, SMLoc E) {
+  static std::unique_ptr<NyuziOperand> createReg(unsigned RegNo, SMLoc S, SMLoc E) {
     auto Op = make_unique<NyuziOperand>(Register);
     Op->Reg.RegNum = RegNo;
     Op->StartLoc = S;
@@ -225,7 +225,7 @@ public:
     return Op;
   }
 
-  static std::unique_ptr<NyuziOperand> CreateImm(const MCExpr *Val, SMLoc S, SMLoc E) {
+  static std::unique_ptr<NyuziOperand> createImm(const MCExpr *Val, SMLoc S, SMLoc E) {
     auto Op = make_unique<NyuziOperand>(Immediate);
     Op->Imm.Val = Val;
     Op->StartLoc = S;
@@ -233,7 +233,7 @@ public:
     return Op;
   }
 
-  static std::unique_ptr<NyuziOperand> CreateMem(unsigned BaseReg, const MCExpr *Offset,
+  static std::unique_ptr<NyuziOperand> createMem(unsigned BaseReg, const MCExpr *Offset,
                                       SMLoc S, SMLoc E) {
     auto Op = make_unique<NyuziOperand>(Memory);
     Op->Mem.BaseReg = BaseReg;
@@ -318,8 +318,8 @@ bool NyuziAsmParser::ParseImmediate(OperandVector &Ops) {
 		return true;
 
     int64_t ans;
-    EVal->EvaluateAsAbsolute(ans);
-    Ops.push_back(NyuziOperand::CreateImm(EVal, S, E));
+    EVal->evaluateAsAbsolute(ans);
+    Ops.push_back(NyuziOperand::createImm(EVal, S, E));
 	return false;
   }
 }
@@ -339,7 +339,7 @@ bool NyuziAsmParser::ParseOperand(
 
   // Attempt to parse token as register
   if (!ParseRegister(RegNo, StartLoc, EndLoc)) {
-    Operands.push_back(NyuziOperand::CreateReg(RegNo, StartLoc, EndLoc));
+    Operands.push_back(NyuziOperand::createReg(RegNo, StartLoc, EndLoc));
     return false;
   }
 
@@ -351,7 +351,7 @@ bool NyuziAsmParser::ParseOperand(
   SMLoc S = Parser.getTok().getLoc();
   if (!getParser().parseExpression(IdVal)) {
     SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-    Operands.push_back(NyuziOperand::CreateImm(IdVal, S, E));
+    Operands.push_back(NyuziOperand::createImm(IdVal, S, E));
     return false;
   }
 
@@ -376,7 +376,7 @@ NyuziAsmParser::ParseMemoryOperand(
 
     // This will be turned into a PC relative load.
     Operands.push_back(
-        NyuziOperand::CreateMem(MatchRegisterName("pc"), IdVal, S, E));
+        NyuziOperand::createMem(MatchRegisterName("pc"), IdVal, S, E));
     return MatchOperand_Success;
   }
 
@@ -409,7 +409,7 @@ NyuziAsmParser::ParseMemoryOperand(
   getLexer().Lex();
 
   SMLoc E = SMLoc::getFromPointer(Parser.getTok().getLoc().getPointer() - 1);
-  Operands.push_back(NyuziOperand::CreateMem(RegNo, Offset, S, E));
+  Operands.push_back(NyuziOperand::createMem(RegNo, Offset, S, E));
 
   return MatchOperand_Success;
 }
@@ -419,17 +419,17 @@ bool NyuziAsmParser::ParseInstruction(
     OperandVector &Operands) {
   size_t dotLoc = Name.find('.');
   StringRef stem = Name.substr(0, dotLoc);
-  Operands.push_back(NyuziOperand::CreateToken(stem, NameLoc));
+  Operands.push_back(NyuziOperand::createToken(stem, NameLoc));
   if (dotLoc < Name.size()) {
     size_t dotLoc2 = Name.rfind('.');
     if (dotLoc == dotLoc2)
       Operands.push_back(
-          NyuziOperand::CreateToken(Name.substr(dotLoc), NameLoc));
+          NyuziOperand::createToken(Name.substr(dotLoc), NameLoc));
     else {
-      Operands.push_back(NyuziOperand::CreateToken(
+      Operands.push_back(NyuziOperand::createToken(
           Name.substr(dotLoc, dotLoc2 - dotLoc), NameLoc));
       Operands.push_back(
-          NyuziOperand::CreateToken(Name.substr(dotLoc2), NameLoc));
+          NyuziOperand::createToken(Name.substr(dotLoc2), NameLoc));
     }
   }
 

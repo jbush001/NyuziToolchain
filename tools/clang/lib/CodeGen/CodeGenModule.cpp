@@ -350,6 +350,13 @@ void CodeGenModule::Release() {
   if (ObjCRuntime)
     if (llvm::Function *ObjCInitFunction = ObjCRuntime->ModuleInitFunction())
       AddGlobalCtor(ObjCInitFunction);
+  if (Context.getLangOpts().CUDA && !Context.getLangOpts().CUDAIsDevice &&
+      CUDARuntime) {
+    if (llvm::Function *CudaCtorFunction = CUDARuntime->makeModuleCtorFunction())
+      AddGlobalCtor(CudaCtorFunction);
+    if (llvm::Function *CudaDtorFunction = CUDARuntime->makeModuleDtorFunction())
+      AddGlobalDtor(CudaDtorFunction);
+  }
   if (PGOReader && PGOStats.hasDiagnostics())
     PGOStats.reportDiagnostics(getDiags(), getCodeGenOpts().MainFileName);
   EmitCtorList(GlobalCtors, "llvm.global_ctors");
@@ -669,6 +676,25 @@ CodeGenModule::getFunctionLinkage(GlobalDecl GD) {
   return getLLVMLinkageForDeclarator(D, Linkage, /*isConstantVariable=*/false);
 }
 
+void CodeGenModule::setFunctionDLLStorageClass(GlobalDecl GD, llvm::Function *F) {
+  const auto *FD = cast<FunctionDecl>(GD.getDecl());
+
+  if (const auto *Dtor = dyn_cast_or_null<CXXDestructorDecl>(FD)) {
+    if (getCXXABI().useThunkForDtorVariant(Dtor, GD.getDtorType())) {
+      // Don't dllexport/import destructor thunks.
+      F->setDLLStorageClass(llvm::GlobalValue::DefaultStorageClass);
+      return;
+    }
+  }
+
+  if (FD->hasAttr<DLLImportAttr>())
+    F->setDLLStorageClass(llvm::GlobalVariable::DLLImportStorageClass);
+  else if (FD->hasAttr<DLLExportAttr>())
+    F->setDLLStorageClass(llvm::GlobalVariable::DLLExportStorageClass);
+  else
+    F->setDLLStorageClass(llvm::GlobalVariable::DefaultStorageClass);
+}
+
 void CodeGenModule::setFunctionDefinitionAttributes(const FunctionDecl *D,
                                                     llvm::Function *F) {
   setNonAliasAttributes(D, F);
@@ -744,23 +770,6 @@ void CodeGenModule::SetLLVMFunctionAttributesForDefinition(const Decl *D,
     B.addAttribute(llvm::Attribute::StackProtectStrong);
   else if (LangOpts.getStackProtector() == LangOptions::SSPReq)
     B.addAttribute(llvm::Attribute::StackProtectReq);
-
-  // Add sanitizer attributes if function is not blacklisted.
-  if (!isInSanitizerBlacklist(F, D->getLocation())) {
-    // When AddressSanitizer is enabled, set SanitizeAddress attribute
-    // unless __attribute__((no_sanitize_address)) is used.
-    if (LangOpts.Sanitize.has(SanitizerKind::Address) &&
-        !D->hasAttr<NoSanitizeAddressAttr>())
-      B.addAttribute(llvm::Attribute::SanitizeAddress);
-    // Same for ThreadSanitizer and __attribute__((no_sanitize_thread))
-    if (LangOpts.Sanitize.has(SanitizerKind::Thread) &&
-        !D->hasAttr<NoSanitizeThreadAttr>())
-      B.addAttribute(llvm::Attribute::SanitizeThread);
-    // Same for MemorySanitizer and __attribute__((no_sanitize_memory))
-    if (LangOpts.Sanitize.has(SanitizerKind::Memory) &&
-        !D->hasAttr<NoSanitizeMemoryAttr>())
-      B.addAttribute(llvm::Attribute::SanitizeMemory);
-  }
 
   F->addAttributes(llvm::AttributeSet::FunctionIndex,
                    llvm::AttributeSet::get(
@@ -869,11 +878,10 @@ static void setLinkageAndVisibilityForGV(llvm::GlobalValue *GV,
 void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
                                           bool IsIncompleteFunction,
                                           bool IsThunk) {
-  if (unsigned IID = F->getIntrinsicID()) {
+  if (llvm::Intrinsic::ID IID = F->getIntrinsicID()) {
     // If this is an intrinsic function, set the function's attributes
     // to the intrinsic's attributes.
-    F->setAttributes(llvm::Intrinsic::getAttributes(getLLVMContext(),
-                                                    (llvm::Intrinsic::ID)IID));
+    F->setAttributes(llvm::Intrinsic::getAttributes(getLLVMContext(), IID));
     return;
   }
 
@@ -900,13 +908,6 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
 
   setLinkageAndVisibilityForGV(F, FD);
 
-  if (const auto *Dtor = dyn_cast_or_null<CXXDestructorDecl>(FD)) {
-    if (getCXXABI().useThunkForDtorVariant(Dtor, GD.getDtorType())) {
-      // Don't dllexport/import destructor thunks.
-      F->setDLLStorageClass(llvm::GlobalValue::DefaultStorageClass);
-    }
-  }
-
   if (const SectionAttr *SA = FD->getAttr<SectionAttr>())
     F->setSection(SA->getName());
 
@@ -920,13 +921,13 @@ void CodeGenModule::SetFunctionAttributes(GlobalDecl GD, llvm::Function *F,
 void CodeGenModule::addUsedGlobal(llvm::GlobalValue *GV) {
   assert(!GV->isDeclaration() &&
          "Only globals with definition can force usage.");
-  LLVMUsed.push_back(GV);
+  LLVMUsed.emplace_back(GV);
 }
 
 void CodeGenModule::addCompilerUsedGlobal(llvm::GlobalValue *GV) {
   assert(!GV->isDeclaration() &&
          "Only globals with definition can force usage.");
-  LLVMCompilerUsed.push_back(GV);
+  LLVMCompilerUsed.emplace_back(GV);
 }
 
 static void emitUsed(CodeGenModule &CGM, StringRef Name,
@@ -1777,6 +1778,8 @@ CodeGenModule::GetOrCreateLLVMGlobal(StringRef MangledName,
     // handling.
     GV->setConstant(isTypeConstant(D->getType(), false));
 
+    GV->setAlignment(getContext().getDeclAlign(D).getQuantity());
+
     setLinkageAndVisibilityForGV(GV, D);
 
     if (D->getTLSKind()) {
@@ -2134,7 +2137,8 @@ void CodeGenModule::EmitGlobalVarDefinition(const VarDecl *D) {
 }
 
 static bool isVarDeclStrongDefinition(const ASTContext &Context,
-                                      const VarDecl *D, bool NoCommon) {
+                                      CodeGenModule &CGM, const VarDecl *D,
+                                      bool NoCommon) {
   // Don't give variables common linkage if -fno-common was specified unless it
   // was overridden by a NoCommon attribute.
   if ((NoCommon || D->hasAttr<NoCommonAttr>()) && !D->hasAttr<CommonAttr>())
@@ -2157,6 +2161,10 @@ static bool isVarDeclStrongDefinition(const ASTContext &Context,
 
   // Tentative definitions marked with WeakImportAttr are true definitions.
   if (D->hasAttr<WeakImportAttr>())
+    return true;
+
+  // A variable cannot be both common and exist in a comdat.
+  if (shouldBeInCOMDAT(CGM, *D))
     return true;
 
   // Declarations with a required alignment do not have common linakge in MSVC
@@ -2227,7 +2235,7 @@ llvm::GlobalValue::LinkageTypes CodeGenModule::getLLVMLinkageForDeclarator(
   // C++ doesn't have tentative definitions and thus cannot have common
   // linkage.
   if (!getLangOpts().CPlusPlus && isa<VarDecl>(D) &&
-      !isVarDeclStrongDefinition(Context, cast<VarDecl>(D),
+      !isVarDeclStrongDefinition(Context, *this, cast<VarDecl>(D),
                                  CodeGenOpts.NoCommon))
     return llvm::GlobalVariable::CommonLinkage;
 
@@ -2459,12 +2467,7 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
   // declarations).
   auto *Fn = cast<llvm::Function>(GV);
   setFunctionLinkage(GD, Fn);
-  if (D->hasAttr<DLLImportAttr>())
-    GV->setDLLStorageClass(llvm::GlobalVariable::DLLImportStorageClass);
-  else if (D->hasAttr<DLLExportAttr>())
-    GV->setDLLStorageClass(llvm::GlobalVariable::DLLExportStorageClass);
-  else
-    GV->setDLLStorageClass(llvm::GlobalVariable::DefaultStorageClass);
+  setFunctionDLLStorageClass(GD, Fn);
 
   // FIXME: this is redundant with part of setFunctionDefinitionAttributes
   setGlobalVisibility(Fn, D);
@@ -2516,7 +2519,7 @@ void CodeGenModule::EmitAliasDefinition(GlobalDecl GD) {
 
   // Create the new alias itself, but don't set a name yet.
   auto *GA = llvm::GlobalAlias::create(
-      cast<llvm::PointerType>(Aliasee->getType())->getElementType(), 0,
+      cast<llvm::PointerType>(Aliasee->getType()),
       llvm::Function::ExternalLinkage, "", Aliasee, &getModule());
 
   if (Entry) {
@@ -2683,7 +2686,8 @@ CodeGenModule::GetAddrOfConstantCFString(const StringLiteral *Literal) {
   }
 
   // String.
-  Fields[2] = llvm::ConstantExpr::getGetElementPtr(GV->getType(), GV, Zeros);
+  Fields[2] =
+      llvm::ConstantExpr::getGetElementPtr(GV->getValueType(), GV, Zeros);
 
   if (isUTF16)
     // Cast the UTF16 string to the correct type.
@@ -3349,6 +3353,9 @@ void CodeGenModule::EmitTopLevelDecl(Decl *D) {
     break;
 
   case Decl::FileScopeAsm: {
+    // File-scope asm is ignored during device-side CUDA compilation.
+    if (LangOpts.CUDA && LangOpts.CUDAIsDevice)
+      break;
     auto *AD = cast<FileScopeAsmDecl>(D);
     getModule().appendModuleInlineAsm(AD->getAsmString()->getString());
     break;
@@ -3358,7 +3365,7 @@ void CodeGenModule::EmitTopLevelDecl(Decl *D) {
     auto *Import = cast<ImportDecl>(D);
 
     // Ignore import declarations that come from imported modules.
-    if (clang::Module *Owner = Import->getOwningModule()) {
+    if (clang::Module *Owner = Import->getImportedOwningModule()) {
       if (getLangOpts().CurrentModule.empty() ||
           Owner->getTopLevelModule()->Name == getLangOpts().CurrentModule)
         break;
@@ -3430,7 +3437,7 @@ void CodeGenModule::ClearUnusedCoverageMapping(const Decl *D) {
 
 void CodeGenModule::EmitDeferredUnusedCoverageMappings() {
   std::vector<const Decl *> DeferredDecls;
-  for (const auto I : DeferredEmptyCoverageMappingDecls) {
+  for (const auto &I : DeferredEmptyCoverageMappingDecls) {
     if (!I.second)
       continue;
     DeferredDecls.push_back(I.first);
@@ -3667,4 +3674,3 @@ void CodeGenModule::EmitOMPThreadPrivateDecl(const OMPThreadPrivateDecl *D) {
       CXXGlobalInits.push_back(InitFunction);
   }
 }
-

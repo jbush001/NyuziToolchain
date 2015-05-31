@@ -72,16 +72,16 @@ MCOperand NyuziMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
     llvm_unreachable("<unknown operand type>");
   }
 
-  const MCSymbolRefExpr *MCSym = MCSymbolRefExpr::Create(Symbol, Kind, *Ctx);
+  const MCSymbolRefExpr *MCSym = MCSymbolRefExpr::create(Symbol, Kind, *Ctx);
   if (!Offset)
-    return MCOperand::CreateExpr(MCSym);
+    return MCOperand::createExpr(MCSym);
 
   // Assume offset is never negative.
   assert(Offset > 0);
 
-  const MCConstantExpr *OffsetExpr = MCConstantExpr::Create(Offset, *Ctx);
-  const MCBinaryExpr *Add = MCBinaryExpr::CreateAdd(MCSym, OffsetExpr, *Ctx);
-  return MCOperand::CreateExpr(Add);
+  const MCConstantExpr *OffsetExpr = MCConstantExpr::create(Offset, *Ctx);
+  const MCBinaryExpr *Add = MCBinaryExpr::createAdd(MCSym, OffsetExpr, *Ctx);
+  return MCOperand::createExpr(Add);
 }
 
 MCOperand NyuziMCInstLower::LowerOperand(const MachineOperand &MO,
@@ -95,10 +95,10 @@ MCOperand NyuziMCInstLower::LowerOperand(const MachineOperand &MO,
     // Ignore all implicit register operands.
     if (MO.isImplicit())
       break;
-    return MCOperand::CreateReg(MO.getReg());
+    return MCOperand::createReg(MO.getReg());
 
   case MachineOperand::MO_Immediate:
-    return MCOperand::CreateImm(MO.getImm() + offset);
+    return MCOperand::createImm(MO.getImm() + offset);
 
   case MachineOperand::MO_MachineBasicBlock:
   case MachineOperand::MO_GlobalAddress:
@@ -134,7 +134,7 @@ void NyuziMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
     // It should look like this:
     // <MCInst #97 LWi <MCOperand Reg:8> <MCOperand Reg:3> <MCOperand
     // Expr:(foo)>>
-    OutMI.addOperand(MCOperand::CreateReg(Nyuzi::PC_REG));
+    OutMI.addOperand(MCOperand::createReg(Nyuzi::PC_REG));
     const MCSymbol *Symbol;
     if (MI->getOperand(1).getType() == MachineOperand::MO_ConstantPoolIndex)
       Symbol = AsmPrinter.GetCPISymbol(cpEntry.getIndex());
@@ -142,8 +142,8 @@ void NyuziMCInstLower::Lower(const MachineInstr *MI, MCInst &OutMI) const {
       Symbol = AsmPrinter.GetJTISymbol(cpEntry.getIndex());
 
     const MCSymbolRefExpr *MCSym =
-        MCSymbolRefExpr::Create(Symbol, MCSymbolRefExpr::VK_None, *Ctx);
-    MCOperand MCOp = MCOperand::CreateExpr(MCSym);
+        MCSymbolRefExpr::create(Symbol, MCSymbolRefExpr::VK_None, *Ctx);
+    MCOperand MCOp = MCOperand::createExpr(MCSym);
     OutMI.addOperand(MCOp);
   } else {
     for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {

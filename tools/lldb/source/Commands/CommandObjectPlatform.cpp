@@ -7,8 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "lldb/lldb-python.h"
-
 #include "CommandObjectPlatform.h"
 
 // C Includes
@@ -558,7 +556,7 @@ protected:
         if (platform_sp)
         {
             if (m_option_working_dir.GetOptionValue().OptionWasSet())
-                platform_sp->SetWorkingDirectory (ConstString(m_option_working_dir.GetOptionValue().GetCurrentValue().GetPath().c_str()));
+                platform_sp->SetWorkingDirectory(m_option_working_dir.GetOptionValue().GetCurrentValue());
         }
         else
         {
@@ -572,10 +570,7 @@ protected:
     GetOptions ()
     {
         if (m_options.DidFinalize() == false)
-        {
-            m_options.Append(new OptionPermissions());
             m_options.Finalize();
-        }
         return &m_options;
     }
 protected:
@@ -621,7 +616,7 @@ public:
                 mode = options_permissions->m_permissions;
             else
                 mode = lldb::eFilePermissionsUserRWX | lldb::eFilePermissionsGroupRWX | lldb::eFilePermissionsWorldRX;
-            Error error = platform_sp->MakeDirectory(cmd_line.c_str(), mode);
+            Error error = platform_sp->MakeDirectory(FileSpec{cmd_line, false}, mode);
             if (error.Success())
             {
                 result.SetStatus (eReturnStatusSuccessFinishResult);
@@ -1241,8 +1236,8 @@ public:
         const char* dst = args.GetArgumentAtIndex(1);
 
         FileSpec src_fs(src, true);
-        FileSpec dst_fs(dst, false);
-        
+        FileSpec dst_fs(dst ? dst : src_fs.GetFilename().GetCString(), false);
+
         PlatformSP platform_sp (m_interpreter.GetDebugger().GetPlatformList().GetSelectedPlatform());
         if (platform_sp)
         {
@@ -1277,7 +1272,7 @@ public:
                              "platform process launch",
                              "Launch a new process on a remote platform.",
                              "platform process launch program",
-                             eFlagRequiresTarget | eFlagTryTargetAPILock),
+                             eCommandRequiresTarget | eCommandTryTargetAPILock),
         m_options (interpreter)
     {
     }
@@ -2155,7 +2150,7 @@ public:
         Error error;
         if (platform_sp)
         {
-            const char *working_dir = NULL;
+            FileSpec working_dir{};
             std::string output;
             int status = -1;
             int signo = -1;

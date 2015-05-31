@@ -52,7 +52,7 @@ class Twine;
 class SectionEntry {
 public:
   /// Name - section name.
-  StringRef Name;
+  std::string Name;
 
   /// Address - address in the linker's memory where the section resides.
   uint8_t *Address;
@@ -203,7 +203,7 @@ protected:
   SectionList Sections;
 
   typedef unsigned SID; // Type for SectionIDs
-#define RTDYLD_INVALID_SECTION_ID ((SID)(-1))
+#define RTDYLD_INVALID_SECTION_ID ((RuntimeDyldImpl::SID)(-1))
 
   // Keep a map of sections from object file to the SectionID which
   // references it.
@@ -236,6 +236,8 @@ protected:
 
   Triple::ArchType Arch;
   bool IsTargetLittleEndian;
+  bool IsMipsO32ABI;
+  bool IsMipsN64ABI;
 
   // True if all sections should be passed to the memory manager, false if only
   // sections containing relocations should be. Defaults to 'false'.
@@ -303,6 +305,11 @@ protected:
     *(Addr + 7) = Value & 0xFF;
   }
 
+  virtual void setMipsABI(const ObjectFile &Obj) {
+    IsMipsO32ABI = false;
+    IsMipsN64ABI = false;
+  }
+
   /// Endian-aware read Read the least significant Size bytes from Src.
   uint64_t readBytesUnaligned(uint8_t *Src, unsigned Size) const;
 
@@ -360,10 +367,6 @@ protected:
 
   /// \brief Resolve relocations to external symbols.
   void resolveExternalSymbols();
-
-  /// \brief Update GOT entries for external symbols.
-  // The base class does nothing.  ELF overrides this.
-  virtual void updateGOTEntries(StringRef Name, uint64_t Addr) {}
 
   // \brief Compute an upper bound of the memory that is required to load all
   // sections

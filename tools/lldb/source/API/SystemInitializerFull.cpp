@@ -17,15 +17,15 @@
 #include "Plugins/ABI/MacOSX-i386/ABIMacOSX_i386.h"
 #include "Plugins/ABI/MacOSX-arm/ABIMacOSX_arm.h"
 #include "Plugins/ABI/MacOSX-arm64/ABIMacOSX_arm64.h"
+#include "Plugins/ABI/SysV-arm/ABISysV_arm.h"
+#include "Plugins/ABI/SysV-arm64/ABISysV_arm64.h"
 #include "Plugins/ABI/SysV-x86_64/ABISysV_x86_64.h"
 #include "Plugins/ABI/SysV-ppc/ABISysV_ppc.h"
 #include "Plugins/ABI/SysV-ppc64/ABISysV_ppc64.h"
 #include "Plugins/ABI/Nyuzi/ABINyuzi.h"
 #include "Plugins/Disassembler/llvm/DisassemblerLLVMC.h"
 #include "Plugins/DynamicLoader/Static/DynamicLoaderStatic.h"
-#include "Plugins/Instruction/ARM/EmulateInstructionARM.h"
 #include "Plugins/Instruction/ARM64/EmulateInstructionARM64.h"
-#include "Plugins/Instruction/MIPS64/EmulateInstructionMIPS64.h"
 #include "Plugins/InstrumentationRuntime/AddressSanitizer/AddressSanitizerRuntime.h"
 #include "Plugins/JITLoader/GDB/JITLoaderGDB.h"
 #include "Plugins/LanguageRuntime/CPlusPlus/ItaniumABI/ItaniumABILanguageRuntime.h"
@@ -237,6 +237,8 @@ SystemInitializerFull::Initialize()
     ABIMacOSX_i386::Initialize();
     ABIMacOSX_arm::Initialize();
     ABIMacOSX_arm64::Initialize();
+    ABISysV_arm::Initialize();
+    ABISysV_arm64::Initialize();
     ABISysV_x86_64::Initialize();
     ABISysV_ppc::Initialize();
     ABISysV_ppc64::Initialize();
@@ -253,9 +255,7 @@ SystemInitializerFull::Initialize()
     SymbolFileSymtab::Initialize();
     UnwindAssemblyInstEmulation::Initialize();
     UnwindAssembly_x86::Initialize();
-    EmulateInstructionARM::Initialize();
     EmulateInstructionARM64::Initialize();
-    EmulateInstructionMIPS64::Initialize();
     SymbolFileDWARFDebugMap::Initialize();
     ItaniumABILanguageRuntime::Initialize();
     AppleObjCRuntimeV2::Initialize();
@@ -343,6 +343,8 @@ SystemInitializerFull::Terminate()
     ABIMacOSX_i386::Terminate();
     ABIMacOSX_arm::Terminate();
     ABIMacOSX_arm64::Terminate();
+    ABISysV_arm::Terminate();
+    ABISysV_arm64::Terminate();
     ABISysV_x86_64::Terminate();
     ABISysV_ppc::Terminate();
     ABISysV_ppc64::Terminate();
@@ -358,9 +360,7 @@ SystemInitializerFull::Terminate()
     SymbolFileSymtab::Terminate();
     UnwindAssembly_x86::Terminate();
     UnwindAssemblyInstEmulation::Terminate();
-    EmulateInstructionARM::Terminate();
     EmulateInstructionARM64::Terminate();
-    EmulateInstructionMIPS64::Terminate();
     SymbolFileDWARFDebugMap::Terminate();
     ItaniumABILanguageRuntime::Terminate();
     AppleObjCRuntimeV2::Terminate();

@@ -64,9 +64,25 @@ namespace platform_android {
         Error
         ConnectRemote (Args& args) override;
 
-    protected:
+        Error
+        GetFile (const FileSpec& source,
+                 const FileSpec& destination) override;
+
+        Error
+        PutFile (const FileSpec& source,
+                 const FileSpec& destination,
+                 uint32_t uid = UINT32_MAX,
+                 uint32_t gid = UINT32_MAX) override;
+
+     protected:
         const char *
         GetCacheHostname () override;
+
+        Error
+        DownloadModuleSlice (const FileSpec &src_file_spec,
+                             const uint64_t src_offset,
+                             const uint64_t src_size,
+                             const FileSpec &dst_file_spec) override;
 
     private:
         std::string m_device_id;

@@ -7,13 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "lldb/lldb-python.h"
-
 // C Includes
 #include <errno.h>
 
 // C++ Includes
 // Other libraries and framework includes
+#include "lldb/Breakpoint/BreakpointLocation.h"
 #include "lldb/Breakpoint/Watchpoint.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleSpec.h"
@@ -32,6 +31,8 @@
 #include "Plugins/Process/Linux/ProcessMonitor.h"
 #include "POSIXThread.h"
 
+#include "lldb/Host/posix/Fcntl.h"
+
 using namespace lldb;
 using namespace lldb_private;
 
@@ -49,9 +50,9 @@ ProcessPOSIX::ProcessPOSIX(Target& target, Listener &listener, UnixSignalsSP &un
 {
     // FIXME: Putting this code in the ctor and saving the byte order in a
     // member variable is a hack to avoid const qual issues in GetByteOrder.
-	lldb::ModuleSP module = GetTarget().GetExecutableModule();
-	if (module && module->GetObjectFile())
-		m_byte_order = module->GetObjectFile()->GetByteOrder();
+    lldb::ModuleSP module = GetTarget().GetExecutableModule();
+    if (module && module->GetObjectFile())
+        m_byte_order = module->GetObjectFile()->GetByteOrder();
 }
 
 ProcessPOSIX::~ProcessPOSIX()
@@ -82,7 +83,7 @@ ProcessPOSIX::CanDebug(Target &target, bool plugin_specified_by_name)
 }
 
 Error
-ProcessPOSIX::DoAttachToProcessWithID(lldb::pid_t pid)
+ProcessPOSIX::DoAttachToProcessWithID (lldb::pid_t pid,  const ProcessAttachInfo &attach_info)
 {
     Error error;
     assert(m_monitor == NULL);
@@ -131,39 +132,30 @@ ProcessPOSIX::DoAttachToProcessWithID(lldb::pid_t pid)
 }
 
 Error
-ProcessPOSIX::DoAttachToProcessWithID (lldb::pid_t pid,  const ProcessAttachInfo &attach_info)
-{
-    return DoAttachToProcessWithID(pid);
-}
-
-Error
 ProcessPOSIX::WillLaunch(Module* module)
 {
     Error error;
     return error;
 }
 
-const char *
-ProcessPOSIX::GetFilePath(const lldb_private::FileAction *file_action, const char *default_path,
-                          const char *dbg_pts_path)
+FileSpec
+ProcessPOSIX::GetFileSpec(const lldb_private::FileAction *file_action,
+                          const FileSpec &default_file_spec,
+                          const FileSpec &dbg_pts_file_spec)
 {
-    const char *path = NULL;
+    FileSpec file_spec{};
 
-    if (file_action)
+    if (file_action && file_action->GetAction() == FileAction::eFileActionOpen)
     {
-        if (file_action->GetAction() == FileAction::eFileActionOpen)
-        {
-            path = file_action->GetPath();
-            // By default the stdio paths passed in will be pseudo-terminal
-            // (/dev/pts). If so, convert to using a different default path
-            // instead to redirect I/O to the debugger console. This should
-            //  also handle user overrides to /dev/null or a different file.
-            if (!path || (dbg_pts_path &&
-                          ::strncmp(path, dbg_pts_path, ::strlen(dbg_pts_path)) == 0))
-                path = default_path;
-        }
+        file_spec = file_action->GetFileSpec();
+        // By default the stdio paths passed in will be pseudo-terminal
+        // (/dev/pts). If so, convert to using a different default path
+        // instead to redirect I/O to the debugger console. This should
+        // also handle user overrides to /dev/null or a different file.
+        if (!file_spec || file_spec == dbg_pts_file_spec)
+            file_spec = default_file_spec;
     }
-    return path;
+    return file_spec;
 }
 
 Error
@@ -173,46 +165,46 @@ ProcessPOSIX::DoLaunch (Module *module,
     Error error;
     assert(m_monitor == NULL);
 
-    const char* working_dir = launch_info.GetWorkingDirectory();
-    if (working_dir) {
-      FileSpec WorkingDir(working_dir, true);
-      if (!WorkingDir || WorkingDir.GetFileType() != FileSpec::eFileTypeDirectory)
-      {
-          error.SetErrorStringWithFormat("No such file or directory: %s", working_dir);
-          return error;
-      }
+    FileSpec working_dir = launch_info.GetWorkingDirectory();
+    if (working_dir &&
+            (!working_dir.ResolvePath() ||
+             working_dir.GetFileType() != FileSpec::eFileTypeDirectory))
+    {
+        error.SetErrorStringWithFormat("No such file or directory: %s",
+                working_dir.GetCString());
+        return error;
     }
 
     SetPrivateState(eStateLaunching);
 
     const lldb_private::FileAction *file_action;
 
-    // Default of NULL will mean to use existing open file descriptors
-    const char *stdin_path = NULL;
-    const char *stdout_path = NULL;
-    const char *stderr_path = NULL;
+    // Default of empty will mean to use existing open file descriptors
+    FileSpec stdin_file_spec{};
+    FileSpec stdout_file_spec{};
+    FileSpec stderr_file_spec{};
 
-    const char * dbg_pts_path = launch_info.GetPTY().GetSlaveName(NULL,0);
+    const FileSpec dbg_pts_file_spec{launch_info.GetPTY().GetSlaveName(NULL,0), false};
 
     file_action = launch_info.GetFileActionForFD (STDIN_FILENO);
-    stdin_path = GetFilePath(file_action, stdin_path, dbg_pts_path);
+    stdin_file_spec = GetFileSpec(file_action, stdin_file_spec, dbg_pts_file_spec);
 
     file_action = launch_info.GetFileActionForFD (STDOUT_FILENO);
-    stdout_path = GetFilePath(file_action, stdout_path, dbg_pts_path);
+    stdout_file_spec = GetFileSpec(file_action, stdout_file_spec, dbg_pts_file_spec);
 
     file_action = launch_info.GetFileActionForFD (STDERR_FILENO);
-    stderr_path = GetFilePath(file_action, stderr_path, dbg_pts_path);
+    stderr_file_spec = GetFileSpec(file_action, stderr_file_spec, dbg_pts_file_spec);
 
-    m_monitor = new ProcessMonitor (this, 
-                                    module,
-                                    launch_info.GetArguments().GetConstArgumentVector(), 
-                                    launch_info.GetEnvironmentEntries().GetConstArgumentVector(),
-                                    stdin_path, 
-                                    stdout_path, 
-                                    stderr_path,
-                                    working_dir,
-                                    launch_info,
-                                    error);
+    m_monitor = new ProcessMonitor(this,
+                                   module,
+                                   launch_info.GetArguments().GetConstArgumentVector(),
+                                   launch_info.GetEnvironmentEntries().GetConstArgumentVector(),
+                                   stdin_file_spec,
+                                   stdout_file_spec,
+                                   stderr_file_spec,
+                                   working_dir,
+                                   launch_info,
+                                   error);
 
     m_module = module;
 
@@ -638,6 +630,33 @@ ProcessPOSIX::GetSoftwareBreakpointTrapOpcode(BreakpointSite* bp_site)
         assert(false && "CPU type not supported!");
         break;
 
+    case llvm::Triple::arm:
+        {
+            // The ARM reference recommends the use of 0xe7fddefe and 0xdefe
+            // but the linux kernel does otherwise.
+            static const uint8_t g_arm_breakpoint_opcode[] = { 0xf0, 0x01, 0xf0, 0xe7 };
+            static const uint8_t g_thumb_breakpoint_opcode[] = { 0x01, 0xde };
+
+            lldb::BreakpointLocationSP bp_loc_sp (bp_site->GetOwnerAtIndex (0));
+            AddressClass addr_class = eAddressClassUnknown;
+
+            if (bp_loc_sp)
+                addr_class = bp_loc_sp->GetAddress ().GetAddressClass ();
+
+            if (addr_class == eAddressClassCodeAlternateISA
+                || (addr_class == eAddressClassUnknown
+                    && bp_loc_sp->GetAddress().GetOffset() & 1))
+            {
+                opcode = g_thumb_breakpoint_opcode;
+                opcode_size = sizeof(g_thumb_breakpoint_opcode);
+            }
+            else
+            {
+                opcode = g_arm_breakpoint_opcode;
+                opcode_size = sizeof(g_arm_breakpoint_opcode);
+            }
+        }
+        break;
     case llvm::Triple::aarch64:
         opcode = g_aarch64_opcode;
         opcode_size = sizeof(g_aarch64_opcode);

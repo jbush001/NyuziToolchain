@@ -114,6 +114,8 @@ public:
 
   bool hasBranchDivergence() { return false; }
 
+  bool isSourceOfDivergence(const Value *V) { return false; }
+
   bool isLegalAddImmediate(int64_t imm) {
     return getTLI()->isLegalAddImmediate(imm);
   }
@@ -283,7 +285,7 @@ public:
 
   unsigned getRegisterBitWidth(bool Vector) { return 32; }
 
-  unsigned getMaxInterleaveFactor() { return 1; }
+  unsigned getMaxInterleaveFactor(unsigned VF) { return 1; }
 
   unsigned getArithmeticInstrCost(
       unsigned Opcode, Type *Ty,

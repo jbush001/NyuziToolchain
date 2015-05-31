@@ -28,7 +28,7 @@ class MCInstPrinter;
 class MCExpr;
 class MCInst;
 
-/// MCOperand - Instances of this class represent operands of the MCInst class.
+/// \brief Instances of this class represent operands of the MCInst class.
 /// This is a simple discriminated union.
 class MCOperand {
   enum MachineOperandType : unsigned char {
@@ -59,13 +59,13 @@ public:
   bool isExpr() const { return Kind == kExpr; }
   bool isInst() const { return Kind == kInst; }
 
-  /// getReg - Returns the register number.
+  /// \brief Returns the register number.
   unsigned getReg() const {
     assert(isReg() && "This is not a register operand!");
     return RegVal;
   }
 
-  /// setReg - Set the register number.
+  /// \brief Set the register number.
   void setReg(unsigned Reg) {
     assert(isReg() && "This is not a register operand!");
     RegVal = Reg;
@@ -108,31 +108,31 @@ public:
     InstVal = Val;
   }
 
-  static MCOperand CreateReg(unsigned Reg) {
+  static MCOperand createReg(unsigned Reg) {
     MCOperand Op;
     Op.Kind = kRegister;
     Op.RegVal = Reg;
     return Op;
   }
-  static MCOperand CreateImm(int64_t Val) {
+  static MCOperand createImm(int64_t Val) {
     MCOperand Op;
     Op.Kind = kImmediate;
     Op.ImmVal = Val;
     return Op;
   }
-  static MCOperand CreateFPImm(double Val) {
+  static MCOperand createFPImm(double Val) {
     MCOperand Op;
     Op.Kind = kFPImmediate;
     Op.FPImmVal = Val;
     return Op;
   }
-  static MCOperand CreateExpr(const MCExpr *Val) {
+  static MCOperand createExpr(const MCExpr *Val) {
     MCOperand Op;
     Op.Kind = kExpr;
     Op.ExprVal = Val;
     return Op;
   }
-  static MCOperand CreateInst(const MCInst *Val) {
+  static MCOperand createInst(const MCInst *Val) {
     MCOperand Op;
     Op.Kind = kInst;
     Op.InstVal = Val;
@@ -145,7 +145,7 @@ public:
 
 template <> struct isPodLike<MCOperand> { static const bool value = true; };
 
-/// MCInst - Instances of this class represent a single low-level machine
+/// \brief Instances of this class represent a single low-level machine
 /// instruction.
 class MCInst {
   unsigned Opcode;

@@ -329,7 +329,7 @@ private:
   };
   std::vector<DeferredGlobal> DeferredDeclsToEmit;
   void addDeferredDeclToEmit(llvm::GlobalValue *GV, GlobalDecl GD) {
-    DeferredDeclsToEmit.push_back(DeferredGlobal(GV, GD));
+    DeferredDeclsToEmit.emplace_back(GV, GD);
   }
 
   /// List of alias we have emitted. Used to make sure that what they point to
@@ -400,7 +400,8 @@ private:
   /// When a C++ decl with an initializer is deferred, null is
   /// appended to CXXGlobalInits, and the index of that null is placed
   /// here so that the initializer will be performed in the correct
-  /// order.
+  /// order. Once the decl is emitted, the index is replaced with ~0U to ensure
+  /// that we don't re-emit the initializer.
   llvm::DenseMap<const Decl*, unsigned> DelayedCXXInitPosition;
   
   typedef std::pair<OrderGlobalInits, llvm::Function*> GlobalInitData;
@@ -875,7 +876,7 @@ public:
 
   /// Add a destructor and object to add to the C++ global destructor function.
   void AddCXXDtorEntry(llvm::Constant *DtorFn, llvm::Constant *Object) {
-    CXXGlobalDtors.push_back(std::make_pair(DtorFn, Object));
+    CXXGlobalDtors.emplace_back(DtorFn, Object);
   }
 
   /// Create a new runtime function with the specified type and name.
@@ -1016,6 +1017,9 @@ public:
   void setFunctionLinkage(GlobalDecl GD, llvm::Function *F) {
     F->setLinkage(getFunctionLinkage(GD));
   }
+
+  /// Set the DLL storage class on F.
+  void setFunctionDLLStorageClass(GlobalDecl GD, llvm::Function *F);
 
   /// Return the appropriate linkage for the vtable, VTT, and type information
   /// of the given class.

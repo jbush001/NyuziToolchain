@@ -230,7 +230,7 @@ public:
   void addCalledFunction(CallSite CS, CallGraphNode *M) {
     assert(!CS.getInstruction() || !CS.getCalledFunction() ||
            !CS.getCalledFunction()->isIntrinsic());
-    CalledFunctions.push_back(std::make_pair(CS.getInstruction(), M));
+    CalledFunctions.emplace_back(CS.getInstruction(), M);
     M->AddRef();
   }
 
@@ -318,7 +318,7 @@ public:
   static char ID; // Class identification, replacement for typeinfo
 
   CallGraphWrapperPass();
-  virtual ~CallGraphWrapperPass();
+  ~CallGraphWrapperPass() override;
 
   /// \brief The internal \c CallGraph around which the rest of this interface
   /// is wrapped.

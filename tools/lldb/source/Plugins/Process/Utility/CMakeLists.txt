@@ -15,12 +15,14 @@ add_lldb_library(lldbPluginProcessUtility
   RegisterContextDarwin_i386.cpp
   RegisterContextDarwin_x86_64.cpp
   RegisterContextDummy.cpp
+  RegisterContextFreeBSD_arm.cpp
   RegisterContextFreeBSD_arm64.cpp
   RegisterContextFreeBSD_i386.cpp
   RegisterContextFreeBSD_mips64.cpp
   RegisterContextFreeBSD_powerpc.cpp
   RegisterContextFreeBSD_x86_64.cpp
   RegisterContextHistory.cpp
+  RegisterContextLinux_arm.cpp
   RegisterContextLinux_arm64.cpp
   RegisterContextLinux_i386.cpp
   RegisterContextLinux_x86_64.cpp
@@ -31,6 +33,7 @@ add_lldb_library(lldbPluginProcessUtility
   RegisterContextMach_i386.cpp
   RegisterContextMach_x86_64.cpp
   RegisterContextMemory.cpp
+  RegisterContextPOSIX_arm.cpp
   RegisterContextPOSIX_arm64.cpp
   RegisterContextPOSIX_mips64.cpp
   RegisterContextPOSIX_powerpc.cpp

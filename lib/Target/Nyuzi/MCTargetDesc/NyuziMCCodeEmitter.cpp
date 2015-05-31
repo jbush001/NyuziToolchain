@@ -35,7 +35,7 @@ namespace {
 class NyuziMCCodeEmitter : public MCCodeEmitter {
 public:
   NyuziMCCodeEmitter(const MCInstrInfo &mcii, MCContext &ctx)
-      : MCII(mcii), Ctx(ctx) {}
+      : Ctx(ctx) {}
 
 
   ~NyuziMCCodeEmitter() {}
@@ -84,14 +84,13 @@ public:
     }
   }
 
-  virtual void EncodeInstruction(const MCInst &MI, raw_ostream &OS,
+  virtual void encodeInstruction(const MCInst &MI, raw_ostream &OS,
                                  SmallVectorImpl<MCFixup> &Fixups,
                                  const MCSubtargetInfo &STI) const override;
 
 private:
   NyuziMCCodeEmitter(const NyuziMCCodeEmitter &) = delete; 
   void operator=(const NyuziMCCodeEmitter &) = delete; 
-  const MCInstrInfo &MCII;
   MCContext &Ctx;
 };
 } // end anonymous namepsace
@@ -132,13 +131,13 @@ unsigned NyuziMCCodeEmitter::encodeBranchTargetOpValue(
          "encodeBranchTargetOpValue expects only expressions or an immediate");
 
   const MCExpr *Expr = MO.getExpr();
-  Fixups.push_back(MCFixup::Create(
+  Fixups.push_back(MCFixup::create(
       0, Expr, MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_Branch)));
   return 0;
 }
 
 void
-NyuziMCCodeEmitter::EncodeInstruction(const MCInst &MI, raw_ostream &OS,
+NyuziMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
                                            SmallVectorImpl<MCFixup> &Fixups,
                                            const MCSubtargetInfo &STI) const {
 
@@ -156,7 +155,7 @@ NyuziMCCodeEmitter::encodeJumpTableAddr(const MCInst &MI, unsigned Op,
                                              SmallVectorImpl<MCFixup> &Fixups,
                                              const MCSubtargetInfo &STI) const {
   MCOperand label = MI.getOperand(2);
-  Fixups.push_back(MCFixup::Create(
+  Fixups.push_back(MCFixup::create(
       0, label.getExpr(),
       MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress)));
   return 0;
@@ -175,7 +174,7 @@ NyuziMCCodeEmitter::encodeLEAValue(const MCInst &MI, unsigned Op,
 
   if (offsetOp.isExpr()) {
     // Load with a label. This is a PC relative load.  Add a fixup.
-    Fixups.push_back(MCFixup::Create(
+    Fixups.push_back(MCFixup::create(
         0, offsetOp.getExpr(),
         MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_ComputeLabelAddress)));
   } else if (offsetOp.isImm())
@@ -218,7 +217,7 @@ NyuziMCCodeEmitter::encodeMemoryOpValue(const MCInst &MI, unsigned Op,
     // Load with a label. This is a PC relative load.  Add a fixup.
     // XXX Note that this assumes unmasked instructions.  A masked
     // instruction will not work and should nto be used.
-    Fixups.push_back(MCFixup::Create(
+    Fixups.push_back(MCFixup::create(
         0, offsetOp.getExpr(),
         MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_MemAccExt)));
   } else if (offsetOp.isImm())

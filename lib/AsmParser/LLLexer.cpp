@@ -597,7 +597,9 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(byval);
   KEYWORD(inalloca);
   KEYWORD(cold);
+  KEYWORD(convergent);
   KEYWORD(dereferenceable);
+  KEYWORD(dereferenceable_or_null);
   KEYWORD(inlinehint);
   KEYWORD(inreg);
   KEYWORD(jumptable);

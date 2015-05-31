@@ -135,11 +135,11 @@ bool DiagnosticInfoOptimizationBase::isLocationAvailable() const {
 void DiagnosticInfoOptimizationBase::getLocation(StringRef *Filename,
                                                  unsigned *Line,
                                                  unsigned *Column) const {
-  MDLocation *L = getDebugLoc();
-  DILocation DIL = L;
-  *Filename = DIL.getFilename();
-  *Line = DIL.getLineNumber();
-  *Column = DIL.getColumnNumber();
+  DILocation *L = getDebugLoc();
+  assert(L != nullptr && "debug location is invalid");
+  *Filename = L->getFilename();
+  *Line = L->getLine();
+  *Column = L->getColumn();
 }
 
 const std::string DiagnosticInfoOptimizationBase::getLocationStr() const {

@@ -51,7 +51,7 @@ bool NyuziDAGToDAGISel::SelectADDRri(SDValue Addr, SDValue &Base,
                                           SDValue &Offset) {
   if (FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>(Addr)) {
     Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), MVT::i32);
-    Offset = CurDAG->getTargetConstant(0, MVT::i32);
+    Offset = CurDAG->getTargetConstant(0, SDLoc(Addr), MVT::i32);
     return true;
   }
   if (Addr.getOpcode() == ISD::TargetExternalSymbol ||
@@ -68,13 +68,13 @@ bool NyuziDAGToDAGISel::SelectADDRri(SDValue Addr, SDValue &Base,
         } else {
           Base = Addr.getOperand(0);
         }
-        Offset = CurDAG->getTargetConstant(CN->getZExtValue(), MVT::i32);
+        Offset = CurDAG->getTargetConstant(CN->getZExtValue(), SDLoc(Addr), MVT::i32);
         return true;
       }
     }
   }
   Base = Addr;
-  Offset = CurDAG->getTargetConstant(0, MVT::i32);
+  Offset = CurDAG->getTargetConstant(0, SDLoc(Addr), MVT::i32);
   return true;
 }
 

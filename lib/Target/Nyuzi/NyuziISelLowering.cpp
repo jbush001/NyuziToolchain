@@ -152,7 +152,7 @@ SDValue NyuziTargetLowering::LowerFormalArguments(
       ISD::LoadExtType LoadOp = ISD::SEXTLOAD;
       unsigned Offset = 4 - std::max(1U, VA.getValVT().getSizeInBits() / 8);
       FIPtr = DAG.getNode(ISD::ADD, DL, MVT::i32, FIPtr,
-                          DAG.getConstant(Offset, MVT::i32));
+                          DAG.getConstant(Offset, DL, MVT::i32));
       Load = DAG.getExtLoad(LoadOp, DL, MVT::i32, Chain, FIPtr,
                             MachinePointerInfo(), VA.getValVT(), false, false, false, 0);
       Load = DAG.getNode(ISD::TRUNCATE, DL, VA.getValVT(), Load);
@@ -236,18 +236,18 @@ NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
     int FI = MFI->CreateStackObject(Size, Align, false);
     SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy());
-    SDValue SizeNode = DAG.getConstant(Size, MVT::i32);
+    SDValue SizeNode = DAG.getConstant(Size, DL, MVT::i32);
     Chain = DAG.getMemcpy(Chain, DL, FIPtr, Arg, SizeNode, Align,
                           false, // isVolatile,
                           (Size <= 32), // AlwaysInline if size <= 32
-                          MachinePointerInfo(), MachinePointerInfo());
+                          false, MachinePointerInfo(), MachinePointerInfo());
 
     ByValArgs.push_back(FIPtr);
   }
 
   // CALLSEQ_START will decrement the stack to reserve space
   Chain =
-      DAG.getCALLSEQ_START(Chain, DAG.getIntPtrConstant(ArgsSize, true), DL);
+      DAG.getCALLSEQ_START(Chain, DAG.getIntPtrConstant(ArgsSize, DL, true), DL);
 
   SmallVector<std::pair<unsigned, SDValue>, 8> RegsToPass;
   SmallVector<SDValue, 8> MemOpChains;
@@ -302,7 +302,7 @@ NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
     // Create a store off the stack pointer for this argument.
     SDValue StackPtr = DAG.getRegister(Nyuzi::SP_REG, MVT::i32);
-    SDValue PtrOff = DAG.getIntPtrConstant(VA.getLocMemOffset());
+    SDValue PtrOff = DAG.getIntPtrConstant(VA.getLocMemOffset(), DL);
     PtrOff = DAG.getNode(ISD::ADD, DL, MVT::i32, StackPtr, PtrOff);
     MemOpChains.push_back(DAG.getStore(Chain, DL, Arg, PtrOff,
                                        MachinePointerInfo(), false, false, 0));
@@ -354,8 +354,8 @@ NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   Chain = DAG.getNode(NyuziISD::CALL, DL, NodeTys, Ops);
   InFlag = Chain.getValue(1);
 
-  Chain = DAG.getCALLSEQ_END(Chain, DAG.getIntPtrConstant(ArgsSize, true),
-                             DAG.getIntPtrConstant(0, true), InFlag, DL);
+  Chain = DAG.getCALLSEQ_END(Chain, DAG.getIntPtrConstant(ArgsSize, DL, true),
+                             DAG.getIntPtrConstant(0, DL, true), InFlag, DL);
   InFlag = Chain.getValue(1);
 
   // The call has returned, handle return values
@@ -590,7 +590,7 @@ SDValue NyuziTargetLowering::LowerFABS(SDValue Op, SelectionDAG &DAG) const {
   MVT ResultVT = Op.getValueType().getSimpleVT();
   MVT IntermediateVT = ResultVT.isVector() ? MVT::v16i32 : MVT::i32;
 
-  SDValue rhs = DAG.getConstant(0x7fffffff, MVT::i32);
+  SDValue rhs = DAG.getConstant(0x7fffffff, DL, MVT::i32);
   SDValue iconv;
   if (ResultVT.isVector())
     rhs = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32, rhs);
@@ -652,11 +652,11 @@ NyuziTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op,
   // This could also be (1 << (15 - index)), which avoids the load of 0x8000
   // but requires more operations.
   SDValue Mask =
-      DAG.getNode(ISD::SRL, DL, MVT::i32, DAG.getConstant(0x8000, MVT::i32),
+      DAG.getNode(ISD::SRL, DL, MVT::i32, DAG.getConstant(0x8000, DL, MVT::i32),
                   Op.getOperand(2));
   SDValue Splat = DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(1));
   return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, VT,
-                     DAG.getConstant(Intrinsic::nyuzi_vector_mixi, MVT::i32), Mask,
+                     DAG.getConstant(Intrinsic::nyuzi_vector_mixi, DL, MVT::i32), Mask,
                      Splat, Op.getOperand(0));
 }
 
@@ -728,7 +728,7 @@ SDValue NyuziTargetLowering::LowerFDIV(SDValue Op,
 
   EVT Type = Op.getOperand(1).getValueType();
 
-  SDValue Two = DAG.getConstantFP(2.0, Type);
+  SDValue Two = DAG.getConstantFP(2.0, DL, Type);
   SDValue Denominator = Op.getOperand(1);
   SDValue Estimate =
       DAG.getNode(NyuziISD::RECIPROCAL_EST, DL, Type, Denominator);
@@ -778,7 +778,7 @@ SDValue NyuziTargetLowering::LowerBR_JT(SDValue Op,
   SDValue JTI = DAG.getTargetJumpTable(JT->getIndex(), PTy);
   SDValue TableWrapper = DAG.getNode(NyuziISD::JT_WRAPPER, DL, PTy, JTI);
   SDValue TableMul =
-      DAG.getNode(ISD::MUL, DL, PTy, Index, DAG.getConstant(4, PTy));
+      DAG.getNode(ISD::MUL, DL, PTy, Index, DAG.getConstant(4, DL, PTy));
   SDValue JTAddr = DAG.getNode(ISD::ADD, DL, PTy, TableWrapper, TableMul);
   return DAG.getNode(NyuziISD::BR_JT, DL, MVT::Other, Chain, JTAddr, JTI);
 }
@@ -791,7 +791,7 @@ SDValue NyuziTargetLowering::LowerFNEG(SDValue Op,
   MVT ResultVT = Op.getValueType().getSimpleVT();
   MVT IntermediateVT = ResultVT.isVector() ? MVT::v16i32 : MVT::i32;
 
-  SDValue rhs = DAG.getConstant(0x80000000, MVT::i32);
+  SDValue rhs = DAG.getConstant(0x80000000, DL, MVT::i32);
   SDValue iconv;
   if (ResultVT.isVector())
     rhs = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32, rhs);
@@ -895,21 +895,21 @@ SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
   if (ResultVT.isVector())
   {
     // Vector Result
-    SDValue ZeroVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32, DAG.getConstant(0, MVT::i32));
-    SDValue LtIntrinsic = DAG.getConstant(Intrinsic::nyuzi_mask_cmpi_ult, MVT::i32);
+    SDValue ZeroVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32, DAG.getConstant(0, DL, MVT::i32));
+    SDValue LtIntrinsic = DAG.getConstant(Intrinsic::nyuzi_mask_cmpi_ult, DL, MVT::i32);
     SDValue IsNegativeMask = DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::i32,
                                          LtIntrinsic, RVal, ZeroVec);
     SDValue AdjustVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32, AdjustReg);
     SDValue Adjusted = DAG.getNode(ISD::FADD, DL, ResultVT, SignedVal, AdjustVec);
     return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, ResultVT,
-                       DAG.getConstant(Intrinsic::nyuzi_vector_mixf, MVT::i32), IsNegativeMask,
+                       DAG.getConstant(Intrinsic::nyuzi_vector_mixf, DL, MVT::i32), IsNegativeMask,
                        Adjusted, SignedVal);
   }
   else
   {
     // Scalar Result.  If the result is negative, add UINT_MASK to make it positive
     SDValue IsNegative = DAG.getSetCC(DL, getSetCCResultType(*DAG.getContext(), MVT::i32), RVal,
-                         DAG.getConstant(0, MVT::i32), ISD::SETLT);
+                         DAG.getConstant(0, DL, MVT::i32), ISD::SETLT);
     SDValue Adjusted = DAG.getNode(ISD::FADD, DL, MVT::f32, SignedVal, AdjustReg);
     return DAG.getNode(NyuziISD::SEL_COND_RESULT, DL, MVT::f32, IsNegative,
                        Adjusted, SignedVal);
@@ -1050,14 +1050,14 @@ SDValue NyuziTargetLowering::LowerSIGN_EXTEND_INREG(SDValue Op,
                                                       .getSimpleVT().isFloatingPoint());
 
   SDValue FalseVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
-                             DAG.getConstant(0, MVT::i32));
+                             DAG.getConstant(0, DL, MVT::i32));
   SDValue TrueVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32, 
-                            DAG.getConstant(0xffffffff, MVT::i32));
+                            DAG.getConstant(0xffffffff, DL, MVT::i32));
   SDValue Mask = DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::i32,
-                             DAG.getConstant(intrinsic, MVT::i32), 
+                             DAG.getConstant(intrinsic, DL, MVT::i32), 
                              SetCcOp.getOperand(0), SetCcOp.getOperand(1));
   return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32,
-                     DAG.getConstant(Intrinsic::nyuzi_vector_mixi, MVT::i32), Mask,
+                     DAG.getConstant(Intrinsic::nyuzi_vector_mixi, DL, MVT::i32), Mask,
                      TrueVal, FalseVal);
 }
 

@@ -27,6 +27,7 @@
 #include <pwd.h>
 #endif
 
+#include "lldb/Core/ArchSpec.h"
 #include "lldb/Core/DataBufferHeap.h"
 #include "lldb/Core/DataBufferMemoryMap.h"
 #include "lldb/Core/RegularExpression.h"
@@ -46,13 +47,53 @@
 using namespace lldb;
 using namespace lldb_private;
 
-static bool
+namespace {
+
+bool
+PathSyntaxIsPosix(FileSpec::PathSyntax syntax)
+{
+    return (syntax == FileSpec::ePathSyntaxPosix ||
+            (syntax == FileSpec::ePathSyntaxHostNative &&
+             FileSystem::GetNativePathSyntax() == FileSpec::ePathSyntaxPosix));
+}
+
+char
+GetPathSeparator(FileSpec::PathSyntax syntax)
+{
+    return PathSyntaxIsPosix(syntax) ? '/' : '\\';
+}
+
+void
+Normalize(llvm::SmallVectorImpl<char> &path, FileSpec::PathSyntax syntax)
+{
+    if (PathSyntaxIsPosix(syntax)) return;
+
+    std::replace(path.begin(), path.end(), '\\', '/');
+    // Windows path can have \\ slashes which can be changed by replace
+    // call above to //. Here we remove the duplicate.
+    auto iter = std::unique ( path.begin(), path.end(),
+                               []( char &c1, char &c2 ){
+                                  return (c1 == '/' && c2 == '/');});
+    path.erase(iter, path.end());
+}
+
+void
+Denormalize(llvm::SmallVectorImpl<char> &path, FileSpec::PathSyntax syntax)
+{
+    if (PathSyntaxIsPosix(syntax)) return;
+
+    std::replace(path.begin(), path.end(), '/', '\\');
+}
+
+bool
 GetFileStats (const FileSpec *file_spec, struct stat *stats_ptr)
 {
     char resolved_path[PATH_MAX];
     if (file_spec->GetPath (resolved_path, sizeof(resolved_path)))
         return ::stat (resolved_path, stats_ptr) == 0;
     return false;
+}
+
 }
 
 // Resolves the username part of a path of the form ~user/other/directories, and
@@ -201,6 +242,21 @@ FileSpec::FileSpec(const char *pathname, bool resolve_path, PathSyntax syntax) :
         SetFile(pathname, resolve_path, syntax);
 }
 
+FileSpec::FileSpec(const char *pathname, bool resolve_path, ArchSpec arch) :
+    FileSpec{pathname, resolve_path, arch.GetTriple().isOSWindows() ? ePathSyntaxWindows : ePathSyntaxPosix}
+{
+}
+
+FileSpec::FileSpec(const std::string &path, bool resolve_path, PathSyntax syntax) :
+    FileSpec{path.c_str(), resolve_path, syntax}
+{
+}
+
+FileSpec::FileSpec(const std::string &path, bool resolve_path, ArchSpec arch) :
+    FileSpec{path.c_str(), resolve_path, arch}
+{
+}
+
 //------------------------------------------------------------------
 // Copy constructor
 //------------------------------------------------------------------
@@ -246,30 +302,6 @@ FileSpec::operator= (const FileSpec& rhs)
     return *this;
 }
 
-void FileSpec::Normalize(llvm::SmallVectorImpl<char> &path, PathSyntax syntax)
-{
-    if (syntax == ePathSyntaxPosix ||
-        (syntax == ePathSyntaxHostNative && FileSystem::GetNativePathSyntax() == ePathSyntaxPosix))
-        return;
-
-    std::replace(path.begin(), path.end(), '\\', '/');
-    // Windows path can have \\ slashes which can be changed by replace
-    // call above to //. Here we remove the duplicate.
-    auto iter = std::unique ( path.begin(), path.end(),
-                               []( char &c1, char &c2 ){
-                                  return (c1 == '/' && c2 == '/');});
-    path.erase(iter, path.end());
-}
-
-void FileSpec::DeNormalize(llvm::SmallVectorImpl<char> &path, PathSyntax syntax)
-{
-    if (syntax == ePathSyntaxPosix ||
-        (syntax == ePathSyntaxHostNative && FileSystem::GetNativePathSyntax() == ePathSyntaxPosix))
-        return;
-
-    std::replace(path.begin(), path.end(), '/', '\\');
-}
-
 //------------------------------------------------------------------
 // Update the contents of this object with a new path. The path will
 // be split up into a directory and filename and stored as uniqued
@@ -310,6 +342,27 @@ FileSpec::SetFile (const char *pathname, bool resolve, PathSyntax syntax)
     }
     else
         m_directory.SetCString(normalized.c_str());
+}
+
+void
+FileSpec::SetFile(const char *pathname, bool resolve, ArchSpec arch)
+{
+    return SetFile(pathname, resolve,
+            arch.GetTriple().isOSWindows()
+            ? ePathSyntaxWindows
+            : ePathSyntaxPosix);
+}
+
+void
+FileSpec::SetFile(const std::string &pathname, bool resolve, PathSyntax syntax)
+{
+    return SetFile(pathname.c_str(), resolve, syntax);
+}
+
+void
+FileSpec::SetFile(const std::string &pathname, bool resolve, ArchSpec arch)
+{
+    return SetFile(pathname.c_str(), resolve, arch);
 }
 
 //----------------------------------------------------------------------
@@ -558,6 +611,8 @@ FileSpec::RemoveBackupDots (const ConstString &input_const_str, ConstString &res
         {
             if (had_dots)
             {
+                while (before_sep.startswith("//"))
+                    before_sep = before_sep.substr(1);
                 if (!before_sep.empty())
                 {
                     result.append(before_sep.data(), before_sep.size());
@@ -603,13 +658,13 @@ FileSpec::RemoveBackupDots (const ConstString &input_const_str, ConstString &res
 void
 FileSpec::Dump(Stream *s) const
 {
-    static ConstString g_slash_only ("/");
     if (s)
     {
-        m_directory.Dump(s);
-        if (m_directory && m_directory != g_slash_only)
-            s->PutChar('/');
-        m_filename.Dump(s);
+        std::string path{GetPath(true)};
+        s->PutCString(path.c_str());
+        char path_separator = GetPathSeparator(m_syntax);
+        if (!m_filename && !path.empty() && path.back() != path_separator)
+            s->PutChar(path_separator);
     }
 }
 
@@ -731,7 +786,7 @@ FileSpec::GetPermissions () const
 {
     uint32_t file_permissions = 0;
     if (*this)
-        FileSystem::GetFilePermissions(GetPath().c_str(), file_permissions);
+        FileSystem::GetFilePermissions(*this, file_permissions);
     return file_permissions;
 }
 
@@ -798,17 +853,30 @@ FileSpec::GetPath(char *path, size_t path_max_len, bool denormalize) const
 }
 
 std::string
-FileSpec::GetPath (bool denormalize) const
+FileSpec::GetPath(bool denormalize) const
 {
     llvm::SmallString<64> result;
-    if (m_directory)
-        result.append(m_directory.GetCString());
-    if (m_filename)
-        llvm::sys::path::append(result, m_filename.GetCString());
-    if (denormalize && !result.empty())
-        DeNormalize(result, m_syntax);
-
+    GetPath(result, denormalize);
     return std::string(result.begin(), result.end());
+}
+
+const char *
+FileSpec::GetCString(bool denormalize) const
+{
+    return ConstString{GetPath(denormalize)}.AsCString(NULL);
+}
+
+void
+FileSpec::GetPath(llvm::SmallVectorImpl<char> &path, bool denormalize) const
+{
+    path.append(m_directory.GetStringRef().begin(), m_directory.GetStringRef().end());
+    if (m_directory)
+        path.insert(path.end(), '/');
+    path.append(m_filename.GetStringRef().begin(), m_filename.GetStringRef().end());
+    Normalize(path, m_syntax);
+    if (path.size() > 1 && path.back() == '/') path.pop_back();
+    if (denormalize && !path.empty())
+        Denormalize(path, m_syntax);
 }
 
 ConstString
@@ -1305,6 +1373,12 @@ FileSpec::AppendPathComponent (const char *new_path)
 }
 
 void
+FileSpec::AppendPathComponent(const std::string &new_path)
+{
+    return AppendPathComponent(new_path.c_str());
+}
+
+void
 FileSpec::RemoveLastPathComponent ()
 {
     const bool resolve = false;
@@ -1370,15 +1444,7 @@ FileSpec::IsRelativeToCurrentWorkingDirectory () const
 
     if (directory.size() > 0)
     {
-        if (m_syntax == ePathSyntaxWindows)
-        {
-            if (directory.size() >= 2 && directory[1] == ':')
-                return false;
-            if (directory[0] == '/')
-                return false;
-            return true;
-        }
-        else
+        if (PathSyntaxIsPosix(m_syntax))
         {
             // If the path doesn't start with '/' or '~', return true
             switch (directory[0])
@@ -1389,6 +1455,14 @@ FileSpec::IsRelativeToCurrentWorkingDirectory () const
                 default:
                     return true;
             }
+        }
+        else
+        {
+            if (directory.size() >= 2 && directory[1] == ':')
+                return false;
+            if (directory[0] == '/')
+                return false;
+            return true;
         }
     }
     else if (m_filename)

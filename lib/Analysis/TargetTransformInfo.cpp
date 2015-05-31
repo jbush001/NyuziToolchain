@@ -76,6 +76,10 @@ bool TargetTransformInfo::hasBranchDivergence() const {
   return TTIImpl->hasBranchDivergence();
 }
 
+bool TargetTransformInfo::isSourceOfDivergence(const Value *V) const {
+  return TTIImpl->isSourceOfDivergence(V);
+}
+
 bool TargetTransformInfo::isLoweredToCall(const Function *F) const {
   return TTIImpl->isLoweredToCall(F);
 }
@@ -182,8 +186,8 @@ unsigned TargetTransformInfo::getRegisterBitWidth(bool Vector) const {
   return TTIImpl->getRegisterBitWidth(Vector);
 }
 
-unsigned TargetTransformInfo::getMaxInterleaveFactor() const {
-  return TTIImpl->getMaxInterleaveFactor();
+unsigned TargetTransformInfo::getMaxInterleaveFactor(unsigned VF) const {
+  return TTIImpl->getMaxInterleaveFactor(VF);
 }
 
 unsigned TargetTransformInfo::getArithmeticInstrCost(

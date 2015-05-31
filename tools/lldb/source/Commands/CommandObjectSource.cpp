@@ -7,8 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "lldb/lldb-python.h"
-
 #include "CommandObjectSource.h"
 
 // C Includes
@@ -253,7 +251,7 @@ public:
                              "source list",
                              "Display source code (as specified) based on the current executable's debug info.",
                              NULL,
-                             eFlagRequiresTarget), 
+                             eCommandRequiresTarget), 
         m_options (interpreter)
     {
     }

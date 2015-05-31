@@ -37,7 +37,7 @@ public:
   NyuziAsmBackend(const Target &T, Triple::OSType _OSType)
       : MCAsmBackend(), OSType(_OSType) {}
 
-  virtual MCObjectWriter *createObjectWriter(raw_ostream &OS) const override {
+  virtual MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const override {
     return createNyuziELFObjectWriter(
         OS, MCELFObjectTargetWriter::getOSABI(OSType));
   }

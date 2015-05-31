@@ -27,6 +27,7 @@ template <class T, unsigned n> class SmallSetVector;
 namespace clang {
 
 class CXXConstructorDecl;
+class CXXDeleteExpr;
 class CXXRecordDecl;
 class DeclaratorDecl;
 class LookupResult;
@@ -55,7 +56,7 @@ public:
     ExternalASTSource::SemaSource = true;
   }
 
-  ~ExternalSemaSource();
+  ~ExternalSemaSource() override;
 
   /// \brief Initialize the semantic source with the Sema instance
   /// being used to perform semantic analysis on the abstract syntax
@@ -78,6 +79,9 @@ public:
   /// internal linkage, or used but not defined internal functions.
   virtual void ReadUndefinedButUsed(
                          llvm::DenseMap<NamedDecl*, SourceLocation> &Undefined);
+
+  virtual void ReadMismatchingDeleteExpressions(llvm::MapVector<
+      FieldDecl *, llvm::SmallVector<std::pair<SourceLocation, bool>, 4>> &);
 
   /// \brief Do last resort, unqualified lookup on a LookupResult that
   /// Sema cannot find.

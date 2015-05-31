@@ -24,6 +24,7 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/TargetRegistry.h"
@@ -39,7 +40,7 @@ void NyuziAsmPrinter::EmitInstruction(const MachineInstr *MI) {
   do {
     MCInst TmpInst;
     MCInstLowering.Lower(MI, TmpInst);
-    EmitToStreamer(OutStreamer, TmpInst);
+    EmitToStreamer(*OutStreamer, TmpInst);
     if (MI->getOpcode() == Nyuzi::JUMP_TABLE) {
       EmitInlineJumpTable(MI);
     }
@@ -51,7 +52,7 @@ void NyuziAsmPrinter::EmitFunctionBodyStart() {
 }
 
 void NyuziAsmPrinter::EmitFunctionBodyEnd() {
-  OutStreamer.EmitDataRegion(MCDR_DataRegionEnd);
+  OutStreamer->EmitDataRegion(MCDR_DataRegionEnd);
 }
 
 void NyuziAsmPrinter::EmitConstantPool() {
@@ -63,11 +64,11 @@ void NyuziAsmPrinter::EmitConstantPool() {
   // Emit constants for this function in the same section as the function so
   // they are close by and can be accessed with PC relative addresses.
   const Function *F = MF->getFunction();
-  OutStreamer.SwitchSection(getObjFileLowering().SectionForGlobal(F, *Mang, TM));
+  OutStreamer->SwitchSection(getObjFileLowering().SectionForGlobal(F, *Mang, TM));
   for (unsigned i = 0, e = CP.size(); i != e; ++i) {
     const MachineConstantPoolEntry &CPE = CP[i];
     EmitAlignment(Log2_32(CPE.getAlignment()));
-    OutStreamer.EmitLabel(GetCPISymbol(i));
+    OutStreamer->EmitLabel(GetCPISymbol(i));
     if (CPE.isMachineConstantPoolEntry())
       EmitMachineConstantPoolValue(CPE.Val.MachineCPVal);
     else
@@ -79,13 +80,13 @@ void NyuziAsmPrinter::EmitInlineJumpTable(const MachineInstr *MI) {
   const MachineOperand &MO1 = MI->getOperand(1);
   unsigned JTI = MO1.getIndex();
   MCSymbol *JTISymbol = GetJumpTableLabel(JTI);
-  OutStreamer.EmitLabel(JTISymbol);
+  OutStreamer->EmitLabel(JTISymbol);
   const MachineJumpTableInfo *MJTI = MF->getJumpTableInfo();
   const std::vector<MachineJumpTableEntry> &JT = MJTI->getJumpTables();
   const std::vector<MachineBasicBlock *> &JTBBs = JT[JTI].MBBs;
   for (const auto &MBB : JTBBs) {
-    const MCExpr *Expr = MCSymbolRefExpr::Create(MBB->getSymbol(), OutContext);
-    OutStreamer.EmitValue(Expr, 4);
+    const MCExpr *Expr = MCSymbolRefExpr::create(MBB->getSymbol(), OutContext);
+    OutStreamer->EmitValue(Expr, 4);
   }
 }
 
@@ -93,7 +94,7 @@ MCSymbol *NyuziAsmPrinter::GetJumpTableLabel(unsigned uid) const {
   SmallString<60> Name;
   raw_svector_ostream(Name) << MAI->getPrivateGlobalPrefix() << "JTI"
                             << getFunctionNumber() << '_' << uid;
-  return OutContext.GetOrCreateSymbol(Name.str());
+  return OutContext.getOrCreateSymbol(Name.str());
 }
 
 // Print operand for inline assembly

@@ -7,8 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "lldb/lldb-python.h"
-
 #include "lldb/Breakpoint/BreakpointLocation.h"
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/Log.h"
@@ -2320,7 +2318,10 @@ Thread::GetUnwinder ()
             case llvm::Triple::arm:
             case llvm::Triple::aarch64:
             case llvm::Triple::thumb:
+            case llvm::Triple::mips:
+            case llvm::Triple::mipsel:
             case llvm::Triple::mips64:
+            case llvm::Triple::mips64el:
             case llvm::Triple::ppc:
             case llvm::Triple::ppc64:
             case llvm::Triple::hexagon:

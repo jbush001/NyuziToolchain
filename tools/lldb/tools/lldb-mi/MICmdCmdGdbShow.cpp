@@ -9,6 +9,12 @@
 
 // Overview:    CMICmdCmdGdbShow implementation.
 
+// Third party headers:
+#include "lldb/API/SBCompileUnit.h"
+#include "lldb/API/SBFrame.h"
+#include "lldb/API/SBLanguageRuntime.h"
+#include "lldb/API/SBThread.h"
+
 // In-house headers:
 #include "MICmdCmdGdbShow.h"
 #include "MICmnMIResultRecord.h"
@@ -21,6 +27,8 @@
 // Instantiations:
 const CMICmdCmdGdbShow::MapGdbOptionNameToFnGdbOptionPtr_t CMICmdCmdGdbShow::ms_mapGdbOptionNameToFnGdbOptionPtr = {
     {"target-async", &CMICmdCmdGdbShow::OptionFnTargetAsync},
+    {"print", &CMICmdCmdGdbShow::OptionFnPrint},
+    {"language", &CMICmdCmdGdbShow::OptionFnLanguage},
     {"fallback", &CMICmdCmdGdbShow::OptionFnFallback}};
 
 //++ ------------------------------------------------------------------------------------
@@ -235,6 +243,78 @@ CMICmdCmdGdbShow::OptionFnTargetAsync(const CMIUtilString::VecString_t &vrWords)
     const bool bAsyncMode = rSessionInfo.GetDebugger().GetAsync();
 
     m_strValue = bAsyncMode ? "on" : "off";
+    return MIstatus::success;
+}
+
+//++ ------------------------------------------------------------------------------------
+// Details: Carry out work to complete the GDB show option 'print' to prepare and send
+//          back the requested information.
+// Type:    Method.
+// Args:    vrWords - (R) List of additional parameters used by this option.
+// Return:  MIstatus::success - Function succeeded.
+//          MIstatus::failure - Function failed.
+// Throws:  None.
+//--
+bool
+CMICmdCmdGdbShow::OptionFnPrint(const CMIUtilString::VecString_t &vrWords)
+{
+    const bool bAllArgs(vrWords.size() == 1);
+    if (!bAllArgs)
+    {
+        m_bGbbOptionFnHasError = true;
+        m_strGdbOptionFnError = MIRSRC(IDS_CMD_ERR_GDBSHOW_OPT_PRINT_BAD_ARGS);
+        return MIstatus::failure;
+    }
+
+    const CMIUtilString strOption(vrWords[0]);
+    CMIUtilString strOptionKey;
+    bool bOptionValueDefault = false;
+    if (CMIUtilString::Compare(strOption, "char-array-as-string"))
+        strOptionKey = m_rLLDBDebugSessionInfo.m_constStrPrintCharArrayAsString;
+    else if (CMIUtilString::Compare(strOption, "expand-aggregates"))
+        strOptionKey = m_rLLDBDebugSessionInfo.m_constStrPrintExpandAggregates;
+    else if (CMIUtilString::Compare(strOption, "aggregate-field-names"))
+    {
+        strOptionKey = m_rLLDBDebugSessionInfo.m_constStrPrintAggregateFieldNames;
+        bOptionValueDefault = true;
+    }
+    else
+    {
+        m_bGbbOptionFnHasError = true;
+        m_strGdbOptionFnError = CMIUtilString::Format(MIRSRC(IDS_CMD_ERR_GDBSHOW_OPT_PRINT_UNKNOWN_OPTION), strOption.c_str());
+        return MIstatus::failure;
+    }
+
+    bool bOptionValue = false;
+    bOptionValue = bOptionValueDefault ? !m_rLLDBDebugSessionInfo.SharedDataRetrieve<bool>(strOptionKey, bOptionValue) || bOptionValue
+        : m_rLLDBDebugSessionInfo.SharedDataRetrieve<bool>(strOptionKey, bOptionValue) && bOptionValue;
+
+    m_strValue = bOptionValue ? "on" : "off";
+    return MIstatus::success;
+}
+
+//++ ------------------------------------------------------------------------------------
+// Details: Carry out work to complete the GDB show option 'language' to prepare
+//          and send back the requested information.
+// Type:    Method.
+// Args:    vrWords - (R) List of additional parameters used by this option.
+// Return:  MIstatus::success - Function succeeded.
+//          MIstatus::failure - Function failed.
+// Throws:  None.
+//--
+bool
+CMICmdCmdGdbShow::OptionFnLanguage(const CMIUtilString::VecString_t &vrWords)
+{
+    MIunused(vrWords);
+
+    // Get current language
+    CMICmnLLDBDebugSessionInfo &rSessionInfo(CMICmnLLDBDebugSessionInfo::Instance());
+    lldb::SBThread sbThread = rSessionInfo.GetProcess().GetSelectedThread();
+    const lldb::SBFrame sbFrame = sbThread.GetSelectedFrame();
+    lldb::SBCompileUnit sbCompileUnit = sbFrame.GetCompileUnit();
+    const lldb::LanguageType eLanguageType = sbCompileUnit.GetLanguage();
+
+    m_strValue = lldb::SBLanguageRuntime::GetNameForLanguageType(eLanguageType);
     return MIstatus::success;
 }
 

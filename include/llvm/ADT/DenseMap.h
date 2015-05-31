@@ -100,16 +100,18 @@ public:
     }
 
     const KeyT EmptyKey = getEmptyKey(), TombstoneKey = getTombstoneKey();
+    unsigned NumEntries = getNumEntries();
     for (BucketT *P = getBuckets(), *E = getBucketsEnd(); P != E; ++P) {
       if (!KeyInfoT::isEqual(P->getFirst(), EmptyKey)) {
         if (!KeyInfoT::isEqual(P->getFirst(), TombstoneKey)) {
           P->getSecond().~ValueT();
-          decrementNumEntries();
+          --NumEntries;
         }
         P->getFirst() = EmptyKey;
       }
     }
-    assert(getNumEntries() == 0 && "Node count imbalance!");
+    assert(NumEntries == 0 && "Node count imbalance!");
+    setNumEntries(0);
     setNumTombstones(0);
   }
 
@@ -257,7 +259,7 @@ public:
   const void *getPointerIntoBucketsArray() const { return getBuckets(); }
 
 protected:
-  DenseMapBase() {}
+  DenseMapBase() = default;
 
   void destroyAll() {
     if (getNumBuckets() == 0) // Nothing to do.
@@ -270,10 +272,6 @@ protected:
         P->getSecond().~ValueT();
       P->getFirst().~KeyT();
     }
-
-#ifndef NDEBUG
-    memset((void*)getBuckets(), 0x5a, sizeof(BucketT)*getNumBuckets());
-#endif
   }
 
   void initEmpty() {
@@ -310,12 +308,6 @@ protected:
       }
       B->getFirst().~KeyT();
     }
-
-#ifndef NDEBUG
-    if (OldBucketsBegin != OldBucketsEnd)
-      memset((void*)OldBucketsBegin, 0x5a,
-             sizeof(BucketT) * (OldBucketsEnd - OldBucketsBegin));
-#endif
   }
 
   template <typename OtherBaseT>

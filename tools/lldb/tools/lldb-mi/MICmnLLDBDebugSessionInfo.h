@@ -110,10 +110,9 @@ class CMICmnLLDBDebugSessionInfo : public CMICmnBase, public MI::ISingleton<CMIC
     //--
     enum VariableInfoFormat_e
     {
-        eVariableInfoFormat_NoValues,
-        eVariableInfoFormat_AllValues,
-        eVariableInfoFormat_SimpleValues,
-        kNumVariableInfoFormats
+        eVariableInfoFormat_NoValues     = 0,
+        eVariableInfoFormat_AllValues    = 1,
+        eVariableInfoFormat_SimpleValues = 2
     };
 
     //++ ===================================================================
@@ -159,7 +158,7 @@ class CMICmnLLDBDebugSessionInfo : public CMICmnBase, public MI::ISingleton<CMIC
                                   const ThreadInfoFormat_e veThreadInfoFormat, CMICmnMIValueTuple &vwrMIValueTuple);
     bool MIResponseFormVariableInfo(const lldb::SBFrame &vrFrame, const MIuint vMaskVarTypes,
                                     const VariableInfoFormat_e veVarInfoFormat, CMICmnMIValueList &vwrMiValueList,
-                                    const MIuint vnMaxDepth = 10);
+                                    const MIuint vnMaxDepth = 10, const bool vbMarkArgs = false);
     bool MIResponseFormBrkPtFrameInfo(const SBrkPtInfo &vrBrkPtInfo, CMICmnMIValueTuple &vwrMiValueTuple);
     bool MIResponseFormBrkPtInfo(const SBrkPtInfo &vrBrkPtInfo, CMICmnMIValueTuple &vwrMiValueTuple);
     bool GetBrkPtInfo(const lldb::SBBreakpoint &vBrkPt, SBrkPtInfo &vrwBrkPtInfo) const;
@@ -183,6 +182,9 @@ class CMICmnLLDBDebugSessionInfo : public CMICmnBase, public MI::ISingleton<CMIC
     // Note: This list is expected to grow and will be moved and abstracted in the future.
     const CMIUtilString m_constStrSharedDataKeyWkDir;
     const CMIUtilString m_constStrSharedDataSolibPath;
+    const CMIUtilString m_constStrPrintCharArrayAsString;
+    const CMIUtilString m_constStrPrintExpandAggregates;
+    const CMIUtilString m_constStrPrintAggregateFieldNames;
 
     // Typedefs:
   private:
@@ -201,6 +203,8 @@ class CMICmnLLDBDebugSessionInfo : public CMICmnBase, public MI::ISingleton<CMIC
                       CMIUtilString &vwPath, MIuint &vwnLine);
     bool GetThreadFrames(const SMICmdData &vCmdData, const MIuint vThreadIdx, const FrameInfoFormat_e veFrameInfoFormat,
                          CMIUtilString &vwrThreadFrames);
+    bool MIResponseForVariableInfoInternal(const VariableInfoFormat_e veVarInfoFormat, CMICmnMIValueList &vwrMiValueList,
+                                           const lldb::SBValueList &vwrSBValueList, const MIuint vnMaxDepth, const bool vbIsArgs, const bool vbMarkArgs);
 
     // Overridden:
   private:

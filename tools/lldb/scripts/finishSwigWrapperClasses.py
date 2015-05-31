@@ -158,14 +158,13 @@ def validate_arguments( vArgv ):
     nResult = 0;
     strListArgs = "hdm"; # Format "hiox:" = -h -i -o -x <arg>
     listLongArgs = ["srcRoot=", "targetDir=", "cfgBldDir=", "prefix=", "cmakeBuildConfiguration=",
-                    "argsFile", "buildConfig="];
+                    "argsFile"];
     dictArgReq = {  "-h": "o",          # o = optional, m = mandatory
                     "-d": "o",
                     "-m": "o",
                     "--srcRoot": "m",
                     "--targetDir": "m",
                     "--cfgBldDir": "o",
-                    "--buildConfig": "m",
                     "--prefix": "o",
                     "--cmakeBuildConfiguration": "o",
                     "--argsFile": "o" };
@@ -260,6 +259,9 @@ def run_post_process_for_each_script_supported( vDictArgs ):
         nDepth = nDepth - 1;
         if nDepth == 0:
             break;
+
+    # Skip the directory that contains the interface files.
+    listDirs.remove('interface')
 
     if gbDbgFlag:
         print strScriptLangsFound,

@@ -59,27 +59,27 @@ protected:
 public:
   enum MetadataKind {
     MDTupleKind,
-    MDLocationKind,
-    GenericDebugNodeKind,
-    MDSubrangeKind,
-    MDEnumeratorKind,
-    MDBasicTypeKind,
-    MDDerivedTypeKind,
-    MDCompositeTypeKind,
-    MDSubroutineTypeKind,
-    MDFileKind,
-    MDCompileUnitKind,
-    MDSubprogramKind,
-    MDLexicalBlockKind,
-    MDLexicalBlockFileKind,
-    MDNamespaceKind,
-    MDTemplateTypeParameterKind,
-    MDTemplateValueParameterKind,
-    MDGlobalVariableKind,
-    MDLocalVariableKind,
-    MDExpressionKind,
-    MDObjCPropertyKind,
-    MDImportedEntityKind,
+    DILocationKind,
+    GenericDINodeKind,
+    DISubrangeKind,
+    DIEnumeratorKind,
+    DIBasicTypeKind,
+    DIDerivedTypeKind,
+    DICompositeTypeKind,
+    DISubroutineTypeKind,
+    DIFileKind,
+    DICompileUnitKind,
+    DISubprogramKind,
+    DILexicalBlockKind,
+    DILexicalBlockFileKind,
+    DINamespaceKind,
+    DITemplateTypeParameterKind,
+    DITemplateValueParameterKind,
+    DIGlobalVariableKind,
+    DILocalVariableKind,
+    DIExpressionKind,
+    DIObjCPropertyKind,
+    DIImportedEntityKind,
     ConstantAsMetadataKind,
     LocalAsMetadataKind,
     MDStringKind
@@ -89,7 +89,7 @@ protected:
   Metadata(unsigned ID, StorageType Storage)
       : SubclassID(ID), Storage(Storage), SubclassData16(0), SubclassData32(0) {
   }
-  ~Metadata() {}
+  ~Metadata() = default;
 
   /// \brief Default handling of a changed operand, which asserts.
   ///
@@ -164,7 +164,7 @@ class MetadataAsValue : public Value {
   Metadata *MD;
 
   MetadataAsValue(Type *Ty, Metadata *MD);
-  ~MetadataAsValue();
+  ~MetadataAsValue() override;
 
   /// \brief Drop use of metadata (during teardown).
   void dropUse() { MD = nullptr; }
@@ -253,7 +253,7 @@ protected:
       : Metadata(ID, Uniqued), ReplaceableMetadataImpl(V->getContext()), V(V) {
     assert(V && "Expected valid value");
   }
-  ~ValueAsMetadata() {}
+  ~ValueAsMetadata() = default;
 
 public:
   static ValueAsMetadata *get(Value *V);
@@ -754,7 +754,7 @@ protected:
 
   MDNode(LLVMContext &Context, unsigned ID, StorageType Storage,
          ArrayRef<Metadata *> Ops1, ArrayRef<Metadata *> Ops2 = None);
-  ~MDNode() {}
+  ~MDNode() = default;
 
   void dropAllReferences();
 

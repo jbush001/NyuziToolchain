@@ -66,7 +66,7 @@ unsigned NyuziELFObjectWriter::GetRelocType(const MCValue &Target,
   return Type;
 }
 
-MCObjectWriter *llvm::createNyuziELFObjectWriter(raw_ostream &OS,
+MCObjectWriter *llvm::createNyuziELFObjectWriter(raw_pwrite_stream &OS,
                                                       uint8_t OSABI) {
   MCELFObjectTargetWriter *MOTW = new NyuziELFObjectWriter(OSABI);
   return createELFObjectWriter(MOTW, OS, true);

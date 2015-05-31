@@ -135,6 +135,9 @@ public:
   virtual void mangleSEHFilterExpression(const NamedDecl *EnclosingDecl,
                                          raw_ostream &Out) = 0;
 
+  virtual void mangleSEHFinallyBlock(const NamedDecl *EnclosingDecl,
+                                     raw_ostream &Out) = 0;
+
   /// Generates a unique string for an externally visible type for use with TBAA
   /// or type uniquing.
   /// TODO: Extend this to internal types by generating names that are unique
@@ -193,6 +196,10 @@ public:
   virtual void mangleCXXVBTable(const CXXRecordDecl *Derived,
                                 ArrayRef<const CXXRecordDecl *> BasePath,
                                 raw_ostream &Out) = 0;
+
+  virtual void mangleThreadSafeStaticGuardVariable(const VarDecl *VD,
+                                                   unsigned GuardNum,
+                                                   raw_ostream &Out) = 0;
 
   virtual void mangleVirtualMemPtrThunk(const CXXMethodDecl *MD,
                                         raw_ostream &) = 0;

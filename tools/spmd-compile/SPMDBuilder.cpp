@@ -66,8 +66,8 @@ void SPMDBuilder::assignLocalVariable(Value *Variable, Value *NewValue)
   } else {
     // Need to predicate this instruction
     Value *OldValue = Builder.CreateLoad(Variable);
-    Value *Blended = Builder.CreateCall3(VMixFInt, 
-      getCurrentMask(), NewValue, OldValue);
+	Value *Ops[] = { getCurrentMask(), NewValue, OldValue };
+    Value *Blended = Builder.CreateCall(VMixFInt, Ops);
     Builder.CreateStore(Blended, Variable);
   }
 }

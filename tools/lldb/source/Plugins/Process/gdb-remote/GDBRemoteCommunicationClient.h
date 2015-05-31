@@ -205,11 +205,11 @@ public:
     ///     Zero if the for success, or an error code for failure.
     //------------------------------------------------------------------
     int
-    SetSTDIN (char const *path);
+    SetSTDIN(const FileSpec &file_spec);
     int
-    SetSTDOUT (char const *path);
+    SetSTDOUT(const FileSpec &file_spec);
     int
-    SetSTDERR (char const *path);
+    SetSTDERR(const FileSpec &file_spec);
 
     //------------------------------------------------------------------
     /// Sets the disable ASLR flag to \a enable for a process that will 
@@ -243,27 +243,27 @@ public:
     /// implements the platform, it will change the current working
     /// directory for the platform process.
     ///
-    /// @param[in] path
+    /// @param[in] working_dir
     ///     The path to a directory to use when launching our process
     ///
     /// @return
     ///     Zero if the for success, or an error code for failure.
     //------------------------------------------------------------------
     int
-    SetWorkingDir (char const *path);
+    SetWorkingDir(const FileSpec &working_dir);
 
     //------------------------------------------------------------------
     /// Gets the current working directory of a remote platform GDB
     /// server.
     ///
-    /// @param[out] cwd
+    /// @param[out] working_dir
     ///     The current working directory on the remote platform.
     ///
     /// @return
     ///     Boolean for success
     //------------------------------------------------------------------
     bool
-    GetWorkingDir (std::string &cwd);
+    GetWorkingDir(FileSpec &working_dir);
 
     lldb::addr_t
     AllocateMemory (size_t size, uint32_t permissions);
@@ -318,6 +318,9 @@ public:
 
     bool
     GetHostInfo (bool force = false);
+
+    bool
+    GetDefaultThreadId (lldb::tid_t &tid);
     
     bool
     GetOSVersion (uint32_t &major, 
@@ -393,8 +396,11 @@ public:
                                 lldb::addr_t addr,        // Address of breakpoint or watchpoint
                                 uint32_t length);         // Byte Size of breakpoint or watchpoint
 
+    bool
+    SetNonStopMode (const bool enable);
+
     void
-    TestPacketSpeed (const uint32_t num_packets);
+    TestPacketSpeed (const uint32_t num_packets, uint32_t max_send, uint32_t max_recv, bool json, Stream &strm);
 
     // This packet is for testing the speed of the interface only. Both
     // the client and server need to support it, but this allows us to
@@ -424,7 +430,13 @@ public:
     GetRemoteMaxPacketSize();
 
     bool
+    GetEchoSupported ();
+
+    bool
     GetAugmentedLibrariesSVR4ReadSupported ();
+
+    bool
+    GetQXferFeaturesReadSupported ();
 
     LazyBool
     SupportsAllocDeallocMemory () // const
@@ -454,10 +466,10 @@ public:
     GetFileSize (const FileSpec& file_spec);
     
     Error
-    GetFilePermissions(const char *path, uint32_t &file_permissions);
+    GetFilePermissions(const FileSpec &file_spec, uint32_t &file_permissions);
 
     Error
-    SetFilePermissions(const char *path, uint32_t file_permissions);
+    SetFilePermissions(const FileSpec &file_spec, uint32_t file_permissions);
 
     uint64_t
     ReadFile (lldb::user_id_t fd,
@@ -474,26 +486,26 @@ public:
                Error &error);
     
     Error
-    CreateSymlink (const char *src,
-                   const char *dst);
+    CreateSymlink(const FileSpec &src,
+                  const FileSpec &dst);
     
     Error
-    Unlink (const char *path);
+    Unlink(const FileSpec &file_spec);
 
     Error
-    MakeDirectory (const char *path, uint32_t mode);
-    
+    MakeDirectory(const FileSpec &file_spec, uint32_t mode);
+
     bool
     GetFileExists (const FileSpec& file_spec);
     
     Error
-    RunShellCommand (const char *command,           // Shouldn't be NULL
-                     const char *working_dir,       // Pass NULL to use the current working directory
-                     int *status_ptr,               // Pass NULL if you don't want the process exit status
-                     int *signo_ptr,                // Pass NULL if you don't want the signal that caused the process to exit
-                     std::string *command_output,   // Pass NULL if you don't want the command output
-                     uint32_t timeout_sec);         // Timeout in seconds to wait for shell program to finish
-    
+    RunShellCommand(const char *command,           // Shouldn't be NULL
+                    const FileSpec &working_dir,   // Pass empty FileSpec to use the current working directory
+                    int *status_ptr,               // Pass NULL if you don't want the process exit status
+                    int *signo_ptr,                // Pass NULL if you don't want the signal that caused the process to exit
+                    std::string *command_output,   // Pass NULL if you don't want the command output
+                    uint32_t timeout_sec);         // Timeout in seconds to wait for shell program to finish
+
     bool
     CalculateMD5 (const FileSpec& file_spec, uint64_t &high, uint64_t &low);
     
@@ -532,6 +544,12 @@ public:
     GetModuleInfo (const FileSpec& module_file_spec,
                    const ArchSpec& arch_spec,
                    ModuleSpec &module_spec);
+
+    bool
+    ReadExtFeature (const lldb_private::ConstString object,
+                    const lldb_private::ConstString annex,
+                    std::string & out,
+                    lldb_private::Error & err);
 
 protected:
 
@@ -576,6 +594,7 @@ protected:
     LazyBool m_supports_qXfer_auxv_read;
     LazyBool m_supports_qXfer_libraries_read;
     LazyBool m_supports_qXfer_libraries_svr4_read;
+    LazyBool m_supports_qXfer_features_read;
     LazyBool m_supports_augmented_libraries_svr4_read;
     LazyBool m_supports_jThreadExtendedInfo;
 

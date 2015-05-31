@@ -7,8 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "lldb/lldb-python.h"
-
 #include "lldb/lldb-types.h"
 #include "lldb/Core/SourceManager.h"
 #include "lldb/Core/Listener.h"
@@ -462,6 +460,22 @@ SBCommandInterpreter::SetPromptOnQuit (bool b)
         m_opaque_ptr->SetPromptOnQuit(b);
 }
 
+void
+SBCommandInterpreter::ResolveCommand(const char *command_line, SBCommandReturnObject &result)
+{
+    result.Clear();
+    if (command_line && m_opaque_ptr)
+    {
+        m_opaque_ptr->ResolveCommand(command_line, result.ref());
+    }
+    else
+    {
+        result->AppendError("SBCommandInterpreter or the command line is not valid");
+        result->SetStatus(eReturnStatusFailed);
+    }
+}
+
+
 CommandInterpreter *
 SBCommandInterpreter::get ()
 {
@@ -687,4 +701,19 @@ SBCommand::AddCommand (const char* name, lldb::SBCommandPluginInterface *impl, c
     if (new_command_sp && m_opaque_sp->LoadSubCommand(name,new_command_sp))
         return lldb::SBCommand(new_command_sp);
     return lldb::SBCommand();
+}
+
+uint32_t
+SBCommand::GetFlags ()
+{
+    if (!IsValid())
+        return 0;
+    return m_opaque_sp->GetFlags().Get();
+}
+
+void
+SBCommand::SetFlags (uint32_t flags)
+{
+    if (IsValid())
+        m_opaque_sp->GetFlags().Set(flags);
 }

@@ -72,15 +72,19 @@ static MCCodeGenInfo *createHexagonMCCodeGenInfo(StringRef TT, Reloc::Model RM,
   MCCodeGenInfo *X = new MCCodeGenInfo();
   // For the time being, use static relocations, since there's really no
   // support for PIC yet.
-  X->InitMCCodeGenInfo(Reloc::Static, CM, OL);
+  X->initMCCodeGenInfo(Reloc::Static, CM, OL);
   return X;
 }
+
 static MCInstPrinter *createHexagonMCInstPrinter(const Triple &T,
                                                  unsigned SyntaxVariant,
                                                  const MCAsmInfo &MAI,
                                                  const MCInstrInfo &MII,
                                                  const MCRegisterInfo &MRI) {
-    return new HexagonInstPrinter(MAI, MII, MRI);
+  if (SyntaxVariant == 0)
+    return(new HexagonInstPrinter(MAI, MII, MRI));
+  else
+   return nullptr;
 }
 
 // Force static initialization.

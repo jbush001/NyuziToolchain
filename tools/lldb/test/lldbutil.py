@@ -466,7 +466,7 @@ def check_breakpoint_result (test, break_results, file_name=None, line_number=-1
         test.assertTrue (file_name == out_file_name, "Breakpoint file name '%s' doesn't match resultant name '%s'."%(file_name, out_file_name))
 
     if line_number != -1:
-        out_file_line = -1
+        out_line_number = -1
         if 'line_no' in break_results:
             out_line_number = break_results['line_no']
 
@@ -486,7 +486,7 @@ def check_breakpoint_result (test, break_results, file_name=None, line_number=-1
             test.assertTrue(out_symbol_name.find(symbol_name) != -1, "Symbol name '%s' isn't in resultant symbol '%s'."%(symbol_name, out_symbol_name))
 
     if module_name:
-        out_nodule_name = None
+        out_module_name = None
         if 'module' in break_results:
             out_module_name = break_results['module']
         
@@ -551,6 +551,25 @@ def get_threads_stopped_at_breakpoint (process, bkpt):
         if break_id == bkpt.GetID():
             threads.append(thread)
 
+    return threads
+
+def is_thread_crashed (test, thread):
+    """In the test suite we dereference a null pointer to simulate a crash. The way this is
+    reported depends on the platform."""
+    if test.platformIsDarwin():
+        return thread.GetStopReason() == lldb.eStopReasonException and "EXC_BAD_ACCESS" in thread.GetStopDescription(100)
+    elif test.getPlatform() == "linux":
+        return thread.GetStopReason() == lldb.eStopReasonSignal and thread.GetStopReasonDataAtIndex(0) == thread.GetProcess().GetUnixSignals().GetSignalNumberFromName("SIGSEGV")
+    else:
+        return "invalid address" in thread.GetStopDescription(100)
+
+def get_crashed_threads (test, process):
+    threads = []
+    if process.GetState() != lldb.eStateStopped:
+        return threads
+    for thread in process:
+        if is_thread_crashed(test, thread):
+            threads.append(thread)
     return threads
 
 def continue_to_breakpoint (process, bkpt):
@@ -890,3 +909,16 @@ class RecursiveDecentFormatter(BasicFormatter):
                     BasicFormatter.format(self, child, buffer=output, indent=new_indent)
 
         return output.getvalue()
+
+# ===========================================================
+# Utility functions for path manipulation on remote platforms
+# ===========================================================
+
+def join_remote_paths(*paths):
+    # TODO: update with actual platform name for remote windows once it exists
+    if lldb.remote_platform.GetName() == 'remote-windows':
+        return os.path.join(*paths).replace(os.path.sep, '\\')
+    return os.path.join(*paths).replace(os.path.sep, '/')
+
+def append_to_remote_wd(*paths):
+    return join_remote_paths(lldb.remote_platform.GetWorkingDirectory(), *paths)

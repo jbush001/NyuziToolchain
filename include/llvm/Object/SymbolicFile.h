@@ -93,6 +93,7 @@ public:
     SF_FormatSpecific = 1U << 7, // Specific to the object file format
                                  // (e.g. section symbols)
     SF_Thumb = 1U << 8,          // Thumb symbol in a 32-bit ARM binary
+    SF_Hidden = 1U << 9,         // Symbol has hidden visibility
   };
 
   BasicSymbolRef() : OwningObject(nullptr) { }
@@ -118,7 +119,7 @@ const uint64_t UnknownAddressOrSize = ~0ULL;
 
 class SymbolicFile : public Binary {
 public:
-  virtual ~SymbolicFile();
+  ~SymbolicFile() override;
   SymbolicFile(unsigned int Type, MemoryBufferRef Source);
 
   // virtual interface.

@@ -59,7 +59,6 @@ bool generateTargetCode(Module *TheModule)
   TargetMachine &Target = *target.get();
 
   raw_fd_ostream Raw("-", Error, llvm::sys::fs::F_Text);
-  formatted_raw_ostream FOS(Raw);
   
   PM.add(createBasicAliasAnalysisPass());
   PM.add(createPromoteMemoryToRegisterPass());
@@ -68,7 +67,7 @@ bool generateTargetCode(Module *TheModule)
   PM.add(createGVNPass());
   PM.add(createCFGSimplificationPass());
   
-  if (Target.addPassesToEmitFile(PM, FOS, TargetMachine::CGFT_AssemblyFile, true,
+  if (Target.addPassesToEmitFile(PM, Raw, TargetMachine::CGFT_AssemblyFile, true,
                                  0, 0)) {
     errs() << "target does not support generation of this"
            << " file type!\n";

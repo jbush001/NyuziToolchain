@@ -29,13 +29,10 @@ using namespace llvm;
 
 typedef MCDisassembler::DecodeStatus DecodeStatus;
 
-namespace {
+namespace llvm {
 
-/// NyuziDisassembler - a disasembler class for Nyuzi32.
 class NyuziDisassembler : public MCDisassembler {
 public:
-  /// Constructor     - Initializes the disassembler.
-  ///
   NyuziDisassembler(const MCSubtargetInfo &STI, MCContext &Ctx, const MCRegisterInfo *Info)
       : MCDisassembler(STI, Ctx), RegInfo(Info) {}
   ~NyuziDisassembler() {}
@@ -43,16 +40,16 @@ public:
   const MCRegisterInfo *getRegInfo() const { return RegInfo; }
 
   /// getInstruction - See MCDisassembler.
-  virtual DecodeStatus getInstruction(MCInst &instr, uint64_t &size,
-                                      ArrayRef<uint8_t> Bytes,
-                                      uint64_t address, raw_ostream &vStream,
-                                      raw_ostream &cStream) const override;
+  DecodeStatus getInstruction(MCInst &instr, uint64_t &size,
+                              ArrayRef<uint8_t> Bytes,
+                              uint64_t address, raw_ostream &vStream,
+                              raw_ostream &cStream) const override;
 
 private:
   const MCRegisterInfo *RegInfo;
 };
 
-} // end anonymous namespace
+} // namespace llvm
 
 static DecodeStatus decodeSimm8Value(MCInst &Inst, unsigned Insn,
                                               uint64_t Address,
@@ -149,8 +146,8 @@ static DecodeStatus decodeMemoryOpValue(MCInst &Inst, unsigned Insn,
   int RegisterIndex = fieldFromInstruction(Insn, 0, 5);
   unsigned BaseReg = getReg(Decoder, RC, RegisterIndex);
 
-  Inst.addOperand(MCOperand::CreateReg(BaseReg));
-  Inst.addOperand(MCOperand::CreateImm(Offset));
+  Inst.addOperand(MCOperand::createReg(BaseReg));
+  Inst.addOperand(MCOperand::createImm(Offset));
   
   return MCDisassembler::Success;
 }
@@ -165,7 +162,7 @@ static DecodeStatus decodeScalarMemoryOpValue(MCInst &Inst, unsigned Insn,
 static DecodeStatus decodeSimm13Value(MCInst &Inst, unsigned Insn,
                                               uint64_t Address,
                                               const void *Decoder) {
-  Inst.addOperand(MCOperand::CreateImm(SignExtend32<13>(Insn)));
+  Inst.addOperand(MCOperand::createImm(SignExtend32<13>(Insn)));
   return MCDisassembler::Success;
 }
 
@@ -173,7 +170,7 @@ static DecodeStatus decodeSimm8Value(MCInst &Inst, unsigned Insn,
                                               uint64_t Address,
                                               const void *Decoder) {
 
-  Inst.addOperand(MCOperand::CreateImm(SignExtend32<8>(Insn)));
+  Inst.addOperand(MCOperand::createImm(SignExtend32<8>(Insn)));
   return MCDisassembler::Success;
 }
 
@@ -191,7 +188,7 @@ static DecodeStatus decodeBranchTargetOpValue(MCInst &Inst, unsigned Insn,
   if (!Dis->tryAddingSymbolicOperand(Inst, Address + 4 + SignExtend32<20>(Insn), 
     Address, true, 0, 4))
   {
-    Inst.addOperand(MCOperand::CreateImm(SignExtend32<20>(Insn)));
+    Inst.addOperand(MCOperand::createImm(SignExtend32<20>(Insn)));
   }
 
   return MCDisassembler::Success;
@@ -205,7 +202,7 @@ DecodeStatus DecodeGPR32RegisterClass(MCInst &Inst, unsigned RegNo,
     return MCDisassembler::Fail;
 
   // The internal representation of the registers counts r0: 1, r1: 2, etc.
-  Inst.addOperand(MCOperand::CreateReg(
+  Inst.addOperand(MCOperand::createReg(
       getReg(Decoder, Nyuzi::GPR32RegClassID, RegNo)));
   return MCDisassembler::Success;
 }
@@ -218,7 +215,7 @@ DecodeStatus DecodeVR512RegisterClass(MCInst &Inst, unsigned RegNo,
     return MCDisassembler::Fail;
 
   // The internal representation of the registers counts r0: 1, r1: 2, etc.
-  Inst.addOperand(MCOperand::CreateReg(
+  Inst.addOperand(MCOperand::createReg(
       getReg(Decoder, Nyuzi::VR512RegClassID, RegNo)));
   return MCDisassembler::Success;
 }

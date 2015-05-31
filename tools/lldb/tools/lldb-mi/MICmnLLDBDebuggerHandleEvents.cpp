@@ -618,114 +618,118 @@ CMICmnLLDBDebuggerHandleEvents::HandleEventSBTarget(const lldb::SBEvent &vEvent)
 }
 
 //++ ------------------------------------------------------------------------------------
-// Details: Print to stdout "=shlibs-added,shlib-info=[key=\"value\"...]"
+// Details: Print to stdout "=library-loaded,id=\"%s\",target-name=\"%s\",host-name=\"%s\",symbols-loaded="%d"[,symbols-path=\"%s\"],loaded_addr=\"0x%016" PRIx64"\""
 // Type:    Method.
 // Args:    None.
-// Return:  MIstatus::success - Functional succeeded.
-//          MIstatus::failure - Functional failed.
+// Return:  MIstatus::success - Function succeeded.
+//          MIstatus::failure - Function failed.
 // Throws:  None.
 //--
 bool
 CMICmnLLDBDebuggerHandleEvents::HandleTargetEventBroadcastBitModulesLoaded(const lldb::SBEvent &vEvent)
 {
-    static MIuint s_nModulesLoadedNumber(0);
-    const MIuint nSize(lldb::SBTarget::GetNumModulesFromEvent(vEvent));
-    bool bOk = MIstatus::success;
-    for (MIuint nIndex(0); bOk && (nIndex < nSize); ++nIndex)
+    bool bOk = MIstatus::failure;
+    const MIuint nSize = lldb::SBTarget::GetNumModulesFromEvent(vEvent);
+    for (MIuint nIndex = 0; nIndex < nSize; ++nIndex)
     {
         const lldb::SBModule sbModule = lldb::SBTarget::GetModuleAtIndexFromEvent(nIndex, vEvent);
-        CMICmnMIValueList miValueList(true);
-        bOk = MiHelpGetModuleInfo(sbModule, ++s_nModulesLoadedNumber, miValueList);
-        const CMICmnMIValueResult miValueResult("shlib-info", miValueList);
-        const CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_TargetModulesLoaded, miValueResult);
+        CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_TargetModuleLoaded);
+        const bool bWithExtraFields = true;
+        bOk = MiHelpGetModuleInfo(sbModule, bWithExtraFields, miOutOfBandRecord);
         bOk = bOk && MiOutOfBandRecordToStdout(miOutOfBandRecord);
+        if (!bOk)
+            break;
     }
 
     return bOk;
 }
 
 //++ ------------------------------------------------------------------------------------
-// Details: Print to stdout "=shlibs-removed,shlib-info=[key=\"value\"...]"
+// Details: Print to stdout "=library-unloaded,id=\"%s\",target-name=\"%s\",host-name=\"%s\",symbols-loaded="%d"[,symbols-path=\"%s\"],loaded_addr=\"0x%016" PRIx64"\""
 // Type:    Method.
 // Args:    None.
-// Return:  MIstatus::success - Functional succeeded.
-//          MIstatus::failure - Functional failed.
+// Return:  MIstatus::success - Function succeeded.
+//          MIstatus::failure - Function failed.
 // Throws:  None.
 //--
 bool
 CMICmnLLDBDebuggerHandleEvents::HandleTargetEventBroadcastBitModulesUnloaded(const lldb::SBEvent &vEvent)
 {
-    static MIuint s_nModulesUnloadedNumber(0);
-    const MIuint nSize(lldb::SBTarget::GetNumModulesFromEvent(vEvent));
-    bool bOk = MIstatus::success;
-    for (MIuint nIndex(0); bOk && (nIndex < nSize); ++nIndex)
+    bool bOk = MIstatus::failure;
+    const MIuint nSize = lldb::SBTarget::GetNumModulesFromEvent(vEvent);
+    for (MIuint nIndex = 0; nIndex < nSize; ++nIndex)
     {
         const lldb::SBModule sbModule = lldb::SBTarget::GetModuleAtIndexFromEvent(nIndex, vEvent);
-        CMICmnMIValueList miValueList(true);
-        bOk = MiHelpGetModuleInfo(sbModule, ++s_nModulesUnloadedNumber, miValueList);
-        const CMICmnMIValueResult miValueResult("shlib-info", miValueList);
-        const CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_TargetModulesUnloaded, miValueResult);
+        CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_TargetModuleUnloaded);
+        const bool bWithExtraFields = false;
+        bOk = MiHelpGetModuleInfo(sbModule, bWithExtraFields, miOutOfBandRecord);
         bOk = bOk && MiOutOfBandRecordToStdout(miOutOfBandRecord);
+        if (!bOk)
+            break;
     }
 
     return bOk;
 }
 
 //++ ------------------------------------------------------------------------------------
-// Details: Build module information for shlib-info "[num=\"%ld\",name=\"%s\",dyld-addr=\"%#lx\",reason=\"dyld\",path=\"%s\",loaded_addr=\"%#lx\",dsym-objpath=\"%s\"]"
+// Details: Build module information for =library-loaded/=library-unloaded: "id=\"%s\",target-name=\"%s\",host-name=\"%s\",symbols-loaded="%d"[,symbols-path=\"%s\"],loaded_addr=\"0x%016" PRIx64"\""
 // Type:    Method.
 // Args:    vwrMiValueList    - (W) MI value list object.
-// Return:  MIstatus::success - Functional succeeded.
-//          MIstatus::failure - Functional failed.
+// Return:  MIstatus::success - Function succeeded.
+//          MIstatus::failure - Function failed.
 // Throws:  None.
 //--
 bool
-CMICmnLLDBDebuggerHandleEvents::MiHelpGetModuleInfo(const lldb::SBModule &vModule, const MIuint nModuleNum,
-                                                    CMICmnMIValueList &vwrMiValueList)
+CMICmnLLDBDebuggerHandleEvents::MiHelpGetModuleInfo(const lldb::SBModule &vModule, const bool vbWithExtraFields,
+                                                    CMICmnMIOutOfBandRecord &vwrMiOutOfBandRecord)
 {
     bool bOk = MIstatus::success;
 
-    // Build "num" field
-    const CMIUtilString strNum(CMIUtilString::Format("%ld", nModuleNum));
-    const CMICmnMIValueConst miValueConst(strNum);
-    const CMICmnMIValueResult miValueResult("num", miValueConst);
-    bOk = bOk && vwrMiValueList.Add(miValueResult);
-    // Build "name" field
-    const CMICmnMIValueConst miValueConst2(vModule.GetPlatformFileSpec().GetFilename());
-    const CMICmnMIValueResult miValueResult2("name", miValueConst2);
-    bOk = bOk && vwrMiValueList.Add(miValueResult2);
-    // Build "dyld-addr" field
-    const lldb::SBAddress sbAddress(vModule.GetObjectFileHeaderAddress());
-    const CMICmnLLDBDebugSessionInfo &rSessionInfo(CMICmnLLDBDebugSessionInfo::Instance());
-    const lldb::addr_t nLoadAddress(sbAddress.GetLoadAddress(rSessionInfo.GetTarget()));
-    const CMIUtilString strDyldAddr(CMIUtilString::Format("%#lx", nLoadAddress));
-    const CMICmnMIValueConst miValueConst3(nLoadAddress != LLDB_INVALID_ADDRESS ? strDyldAddr : "-");
-    const CMICmnMIValueResult miValueResult3("dyld-addr", miValueConst3);
-    bOk = bOk && vwrMiValueList.Add(miValueResult3);
-    // Build "reason" field
-    const CMICmnMIValueConst miValueConst4("dyld");
-    const CMICmnMIValueResult miValueResult4("reason", miValueConst4);
-    bOk = bOk && vwrMiValueList.Add(miValueResult4);
-    // Build "path" field
-    char path[PATH_MAX];
-    vModule.GetPlatformFileSpec().GetPath(path, sizeof(path));
-    const CMIUtilString strPlatformPath(path);
-    const CMICmnMIValueConst miValueConst5(strPlatformPath);
-    const CMICmnMIValueResult miValueResult5("path", miValueConst5);
-    bOk = bOk && vwrMiValueList.Add(miValueResult5);
-    // Build "loaded_addr" field
-    const CMIUtilString strLoadedAddr(CMIUtilString::Format("%#lx", nLoadAddress));
-    const CMICmnMIValueConst miValueConst6(nLoadAddress != LLDB_INVALID_ADDRESS ? strDyldAddr : "-");
-    const CMICmnMIValueResult miValueResult6("loaded_addr", miValueConst6);
-    bOk = bOk && vwrMiValueList.Add(miValueResult6);
-    // Build "dsym-objpath" field
-    vModule.GetSymbolFileSpec().GetPath(path, sizeof(path));
-    const CMIUtilString strSymbolFilePath(path);
-    if (!CMIUtilString::Compare(strPlatformPath, strSymbolFilePath))
+    // First, build standard fields:
+    // Build "id" field
+    std::unique_ptr<char[]> apPath(new char[PATH_MAX]);
+    vModule.GetFileSpec().GetPath(apPath.get(), PATH_MAX);
+    const CMIUtilString strTargetPath(apPath.get());
+    const CMICmnMIValueConst miValueConst(strTargetPath);
+    const CMICmnMIValueResult miValueResult("id", miValueConst);
+    bOk = bOk && vwrMiOutOfBandRecord.Add(miValueResult);
+    // Build "target-name" field
+    const CMICmnMIValueConst miValueConst2(strTargetPath);
+    const CMICmnMIValueResult miValueResult2("target-name", miValueConst2);
+    bOk = bOk && vwrMiOutOfBandRecord.Add(miValueResult2);
+    // Build "host-name" field
+    vModule.GetPlatformFileSpec().GetPath(apPath.get(), PATH_MAX);
+    const CMIUtilString strHostPath(apPath.get());
+    const CMICmnMIValueConst miValueConst3(strHostPath);
+    const CMICmnMIValueResult miValueResult3("host-name", miValueConst3);
+    bOk = bOk && vwrMiOutOfBandRecord.Add(miValueResult3);
+
+    // Then build extra fields if needed:
+    if (vbWithExtraFields)
     {
-        const CMICmnMIValueConst miValueConst7(strSymbolFilePath);
-        const CMICmnMIValueResult miValueResult7("dsym-objpath", miValueConst7);
-        bOk = bOk && vwrMiValueList.Add(miValueResult7);
+        // Build "symbols-loaded" field
+        vModule.GetSymbolFileSpec().GetPath(apPath.get(), PATH_MAX);
+        const CMIUtilString strSymbolsPath(apPath.get());
+        const bool bSymbolsLoaded = !CMIUtilString::Compare(strHostPath, strSymbolsPath);
+        const CMICmnMIValueConst miValueConst4(CMIUtilString::Format("%d", bSymbolsLoaded));
+        const CMICmnMIValueResult miValueResult4("symbols-loaded", miValueConst4);
+        bOk = bOk && vwrMiOutOfBandRecord.Add(miValueResult4);
+        // Build "symbols-path" field
+        if (bSymbolsLoaded)
+        {
+            const CMICmnMIValueConst miValueConst5(strSymbolsPath);
+            const CMICmnMIValueResult miValueResult5("symbols-path", miValueConst5);
+            bOk = bOk && vwrMiOutOfBandRecord.Add(miValueResult5);
+        }
+        // Build "loaded_addr" field
+        const lldb::SBAddress sbAddress(vModule.GetObjectFileHeaderAddress());
+        CMICmnLLDBDebugSessionInfo &rSessionInfo(CMICmnLLDBDebugSessionInfo::Instance());
+        const lldb::addr_t nLoadAddress(sbAddress.GetLoadAddress(rSessionInfo.GetTarget()));
+        const CMIUtilString strLoadedAddr(nLoadAddress != LLDB_INVALID_ADDRESS ?
+                                          CMIUtilString::Format("0x%016" PRIx64, nLoadAddress) : "-");
+        const CMICmnMIValueConst miValueConst6(strLoadedAddr);
+        const CMICmnMIValueResult miValueResult6("loaded_addr", miValueConst6);
+        bOk = bOk && vwrMiOutOfBandRecord.Add(miValueResult6);
     }
 
     return bOk;
@@ -799,8 +803,10 @@ CMICmnLLDBDebuggerHandleEvents::HandleEventSBCommandInterpreter(const lldb::SBEv
 bool
 CMICmnLLDBDebuggerHandleEvents::HandleProcessEventBroadcastBitStateChanged(const lldb::SBEvent &vEvent)
 {
-    if (lldb::SBProcess::GetRestartedFromEvent (vEvent))
-        return true;
+    // Make sure the program hasn't been auto-restarted:
+    if (lldb::SBProcess::GetRestartedFromEvent(vEvent))
+        return MIstatus::success;
+
     bool bOk = ChkForStateChanges();
     bOk = bOk && GetProcessStdout();
     bOk = bOk && GetProcessStderr();
@@ -840,7 +846,7 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventBroadcastBitStateChanged(const
             break;
         case lldb::eStateStopped:
             pEventType = "eStateStopped";
-            bOk = HandleProcessEventStateStopped(bShouldBrk);
+            bOk = HandleProcessEventStateStopped(vEvent, bShouldBrk);
             if (bShouldBrk)
                 break;
         case lldb::eStateCrashed:
@@ -889,10 +895,6 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventBroadcastBitStateChanged(const
 bool
 CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStateSuspended(const lldb::SBEvent &vEvent)
 {
-    // Make sure the program hasn't been auto-restarted:
-    if (lldb::SBProcess::GetRestartedFromEvent(vEvent))
-        return MIstatus::success;
-
     bool bOk = MIstatus::success;
     lldb::SBDebugger &rDebugger = CMICmnLLDBDebugSessionInfo::Instance().GetDebugger();
     lldb::SBProcess sbProcess = CMICmnLLDBDebugSessionInfo::Instance().GetProcess();
@@ -933,7 +935,7 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStateSuspended(const lldb::SBE
 // Throws:  None.
 //--
 bool
-CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStateStopped(bool &vwrbShouldBrk)
+CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStateStopped(const lldb::SBEvent &vrEvent, bool &vwrbShouldBrk)
 {
     if (!UpdateSelectedThread())
         return MIstatus::failure;
@@ -964,7 +966,7 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStateStopped(bool &vwrbShouldB
             break;
         case lldb::eStopReasonSignal:
             pEventType = "eStopReasonSignal";
-            bOk = HandleProcessEventStopSignal(vwrbShouldBrk);
+            bOk = HandleProcessEventStopSignal(vrEvent);
             break;
         case lldb::eStopReasonException:
             pEventType = "eStopReasonException";
@@ -994,22 +996,23 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStateStopped(bool &vwrbShouldB
 //++ ------------------------------------------------------------------------------------
 // Details: Asynchronous event handler for LLDB Process stop signal.
 // Type:    Method.
-// Args:    vwrbShouldBrk   - (W) True = Yes break, false = do not.
+// Args:    vrEvent           - (R) An LLDB broadcast event.
 // Return:  MIstatus::success - Functionality succeeded.
 //          MIstatus::failure - Functionality failed.
 // Throws:  None.
 //--
 bool
-CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopSignal(bool &vwrbShouldBrk)
+CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopSignal(const lldb::SBEvent &vrEvent)
 {
     bool bOk = MIstatus::success;
 
     InitializeSignals ();
     lldb::SBProcess sbProcess = CMICmnLLDBDebugSessionInfo::Instance().GetProcess();
     const MIuint64 nStopReason = sbProcess.GetSelectedThread().GetStopReasonDataAtIndex(0);
-    if (nStopReason == m_SIGINT || nStopReason == m_SIGSTOP)
+    const bool bInterrupted = lldb::SBProcess::GetInterruptedFromEvent(vrEvent);
+    if (nStopReason == m_SIGINT || (nStopReason == m_SIGSTOP && bInterrupted))
     {
-        // MI print "*stopped,reason=\"signal-received\",signal-name=\"SIGNINT\",signal-meaning=\"Interrupt\",frame={%s}"
+        // MI print "*stopped,reason=\"signal-received\",signal-name=\"SIGINT\",signal-meaning=\"Interrupt\",frame={%s},thread-id=\"%d\",stopped-threads=\"all\""
         const CMICmnMIValueConst miValueConst("signal-received");
         const CMICmnMIValueResult miValueResult("reason", miValueConst);
         CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_Stopped, miValueResult);
@@ -1021,22 +1024,47 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopSignal(bool &vwrbShouldBrk
         bOk = bOk && miOutOfBandRecord.Add(miValueResult3);
         CMICmnMIValueTuple miValueTuple;
         bOk = bOk && MiHelpGetCurrentThreadFrame(miValueTuple);
-        const CMICmnMIValueResult miValueResult5("frame", miValueTuple);
+        const CMICmnMIValueResult miValueResult4("frame", miValueTuple);
+        bOk = bOk && miOutOfBandRecord.Add(miValueResult4);
+        const CMIUtilString strThreadId(CMIUtilString::Format("%" PRIu32, sbProcess.GetSelectedThread().GetIndexID()));
+        const CMICmnMIValueConst miValueConst5(strThreadId);
+        const CMICmnMIValueResult miValueResult5("thread-id", miValueConst5);
         bOk = bOk && miOutOfBandRecord.Add(miValueResult5);
-        const CMIUtilString strThreadId(CMIUtilString::Format("%d", sbProcess.GetSelectedThread().GetIndexID()));
-        const CMICmnMIValueConst miValueConst6(strThreadId);
-        const CMICmnMIValueResult miValueResult6("thread-id", miValueConst6);
+        const CMICmnMIValueConst miValueConst6("all");
+        const CMICmnMIValueResult miValueResult6("stopped-threads", miValueConst6);
         bOk = bOk && miOutOfBandRecord.Add(miValueResult6);
-        const CMICmnMIValueConst miValueConst7("all");
-        const CMICmnMIValueResult miValueResult7("stopped-threads", miValueConst7);
-        bOk = bOk && miOutOfBandRecord.Add(miValueResult7);
         bOk = bOk && MiOutOfBandRecordToStdout(miOutOfBandRecord);
-        bOk = bOk && TextToStdout("(gdb)");
+        bOk = bOk && CMICmnStreamStdout::WritePrompt();
+    }
+    else if (nStopReason == m_SIGSTOP)
+    {
+        // MI print "*stopped,reason=\"signal-received\",signal-name=\"SIGSTOP\",signal-meaning=\"Stop\",frame={%s},thread-id=\"%d\",stopped-threads=\"all\""
+        const CMICmnMIValueConst miValueConst("signal-received");
+        const CMICmnMIValueResult miValueResult("reason", miValueConst);
+        CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_Stopped, miValueResult);
+        const CMICmnMIValueConst miValueConst2("SIGSTOP");
+        const CMICmnMIValueResult miValueResult2("signal-name", miValueConst2);
+        bOk = miOutOfBandRecord.Add(miValueResult2);
+        const CMICmnMIValueConst miValueConst3("Stop");
+        const CMICmnMIValueResult miValueResult3("signal-meaning", miValueConst3);
+        bOk = bOk && miOutOfBandRecord.Add(miValueResult3);
+        CMICmnMIValueTuple miValueTuple;
+        bOk = bOk && MiHelpGetCurrentThreadFrame(miValueTuple);
+        const CMICmnMIValueResult miValueResult4("frame", miValueTuple);
+        bOk = bOk && miOutOfBandRecord.Add(miValueResult4);
+        const CMIUtilString strThreadId(CMIUtilString::Format("%" PRIu32, sbProcess.GetSelectedThread().GetIndexID()));
+        const CMICmnMIValueConst miValueConst5(strThreadId);
+        const CMICmnMIValueResult miValueResult5("thread-id", miValueConst5);
+        bOk = bOk && miOutOfBandRecord.Add(miValueResult5);
+        const CMICmnMIValueConst miValueConst6("all");
+        const CMICmnMIValueResult miValueResult6("stopped-threads", miValueConst6);
+        bOk = bOk && miOutOfBandRecord.Add(miValueResult6);
+        bOk = bOk && MiOutOfBandRecordToStdout(miOutOfBandRecord);
+        bOk = bOk && CMICmnStreamStdout::WritePrompt();
     }
     else if (nStopReason == m_SIGSEGV)
     {
-        // MI print "*stopped,reason=\"signal-received\",signal-name=\"SIGSEGV\",signal-meaning=\"Segmentation
-        // fault\",thread-id=\"%d\",frame={%s}"
+        // MI print "*stopped,reason=\"signal-received\",signal-name=\"SIGSEGV\",signal-meaning=\"Segmentation fault\",thread-id=\"%d\",frame={%s}"
         const CMICmnMIValueConst miValueConst("signal-received");
         const CMICmnMIValueResult miValueResult("reason", miValueConst);
         CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_Stopped, miValueResult);
@@ -1046,13 +1074,13 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopSignal(bool &vwrbShouldBrk
         const CMICmnMIValueConst miValueConst3("Segmentation fault");
         const CMICmnMIValueResult miValueResult3("signal-meaning", miValueConst3);
         bOk = bOk && miOutOfBandRecord.Add(miValueResult3);
-        const CMIUtilString strThreadId(CMIUtilString::Format("%d", sbProcess.GetSelectedThread().GetIndexID()));
-        const CMICmnMIValueConst miValueConst4(strThreadId);
-        const CMICmnMIValueResult miValueResult4("thread-id", miValueConst4);
-        bOk = bOk && miOutOfBandRecord.Add(miValueResult4);
         CMICmnMIValueTuple miValueTuple;
         bOk = bOk && MiHelpGetCurrentThreadFrame(miValueTuple);
-        const CMICmnMIValueResult miValueResult5("frame", miValueTuple);
+        const CMICmnMIValueResult miValueResult4("frame", miValueTuple);
+        bOk = bOk && miOutOfBandRecord.Add(miValueResult4);
+        const CMIUtilString strThreadId(CMIUtilString::Format("%d", sbProcess.GetSelectedThread().GetIndexID()));
+        const CMICmnMIValueConst miValueConst5(strThreadId);
+        const CMICmnMIValueResult miValueResult5("thread-id", miValueConst5);
         bOk = bOk && miOutOfBandRecord.Add(miValueResult5);
         bOk = bOk && MiOutOfBandRecordToStdout(miOutOfBandRecord);
         // Note no "(gdb)" output here
@@ -1073,24 +1101,33 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopSignal(bool &vwrbShouldBrk
                 if (CMIUtilString::Compare(threadCloneFn, fnName))
                 {
                     if (sbProcess.IsValid())
-                    {
                         sbProcess.Continue();
-                        vwrbShouldBrk = true;
-                    }
                 }
             }
         }
     }
     else
     {
-        // MI print "*stopped,reason=\"signal-received\",signal=\"%lld\",thread-id=\"%d\",stopped-threads=\"all\""
+        // MI print "*stopped,reason=\"signal-received\",signal-name=\"%s\",thread-id=\"%d\",stopped-threads=\"all\""
+        // MI print "*stopped,reason=\"signal-received\",signal=\"%d\",thread-id=\"%d\",stopped-threads=\"all\""
         const CMICmnMIValueConst miValueConst("signal-received");
         const CMICmnMIValueResult miValueResult("reason", miValueConst);
         CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_Stopped, miValueResult);
-        const CMIUtilString strReason(CMIUtilString::Format("%lld", nStopReason));
-        const CMICmnMIValueConst miValueConst2(strReason);
-        const CMICmnMIValueResult miValueResult2("signal", miValueConst2);
-        bOk = miOutOfBandRecord.Add(miValueResult2);
+        lldb::SBUnixSignals sbUnixSignals = sbProcess.GetUnixSignals();
+        const MIchar *pSignal = sbUnixSignals.GetSignalAsCString(nStopReason);
+        if (pSignal)
+        {
+            const CMICmnMIValueConst miValueConst2(pSignal);
+            const CMICmnMIValueResult miValueResult2("signal-name", miValueConst2);
+            bOk = miOutOfBandRecord.Add(miValueResult2);
+        }
+        else
+        {
+            const CMIUtilString strSignal(CMIUtilString::Format("%" PRIu64, nStopReason));
+            const CMICmnMIValueConst miValueConst2(strSignal);
+            const CMICmnMIValueResult miValueResult2("signal", miValueConst2);
+            bOk = miOutOfBandRecord.Add(miValueResult2);
+        }
         const CMIUtilString strThreadId(CMIUtilString::Format("%d", sbProcess.GetSelectedThread().GetIndexID()));
         const CMICmnMIValueConst miValueConst3(strThreadId);
         const CMICmnMIValueResult miValueResult3("thread-id", miValueConst3);
@@ -1099,7 +1136,7 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopSignal(bool &vwrbShouldBrk
         const CMICmnMIValueResult miValueResult4("stopped-threads", miValueConst4);
         bOk = bOk && miOutOfBandRecord.Add(miValueResult4);
         bOk = bOk && MiOutOfBandRecordToStdout(miOutOfBandRecord);
-        bOk = bOk && TextToStdout("(gdb)");
+        bOk = bOk && CMICmnStreamStdout::WritePrompt();
     }
     return bOk;
 }
@@ -1137,7 +1174,7 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopException(void)
     const CMICmnMIValueResult miValueResult4("stopped-threads", miValueConst4);
     bOk = bOk && miOutOfBandRecord.Add(miValueResult4);
     bOk = bOk && MiOutOfBandRecordToStdout(miOutOfBandRecord);
-    bOk = bOk && TextToStdout("(gdb)");
+    bOk = bOk && CMICmnStreamStdout::WritePrompt();
 
     return bOk;
 }
@@ -1257,7 +1294,7 @@ CMICmnLLDBDebuggerHandleEvents::MiStoppedAtBreakPoint(const MIuint64 vBrkPtId, c
         const CMICmnMIValueResult miValueResult6("stopped-threads", miValueConst6);
         bOk = bOk && miOutOfBandRecord.Add(miValueResult6);
         bOk = bOk && MiOutOfBandRecordToStdout(miOutOfBandRecord);
-        bOk = bOk && TextToStdout("(gdb)");
+        bOk = bOk && CMICmnStreamStdout::WritePrompt();
         return bOk;
     }
 
@@ -1299,7 +1336,7 @@ CMICmnLLDBDebuggerHandleEvents::MiStoppedAtBreakPoint(const MIuint64 vBrkPtId, c
         const CMICmnMIValueResult miValueResult9("stopped-threads", miValueConst9);
         bOk = miOutOfBandRecord.Add(miValueResult9);
         bOk = MiOutOfBandRecordToStdout(miOutOfBandRecord);
-        bOk = bOk && TextToStdout("(gdb)");
+        bOk = bOk && CMICmnStreamStdout::WritePrompt();
     }
 
     return MIstatus::success;
@@ -1330,7 +1367,7 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopReasonTrace(void)
         const CMICmnMIValueResult miValueResult2("stopped-threads", miValueConst2);
         bOk = miOutOfBandRecord.Add(miValueResult2);
         bOk = MiOutOfBandRecordToStdout(miOutOfBandRecord);
-        bOk = bOk && TextToStdout("(gdb)");
+        bOk = bOk && CMICmnStreamStdout::WritePrompt();
         return bOk;
     }
 
@@ -1364,7 +1401,7 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopReasonTrace(void)
         const CMICmnMIValueResult miValueResult9("stopped-threads", miValueConst9);
         bOk = miOutOfBandRecord.Add(miValueResult9);
         bOk = MiOutOfBandRecordToStdout(miOutOfBandRecord);
-        bOk = bOk && TextToStdout("(gdb)");
+        bOk = bOk && CMICmnStreamStdout::WritePrompt();
     }
 
     return bOk;
@@ -1456,7 +1493,7 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStateRunning(void)
     CMICmnMIValueResult miValueResult("thread-id", miValueConst);
     CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_Running, miValueResult);
     bool bOk = MiOutOfBandRecordToStdout(miOutOfBandRecord);
-    bOk = bOk && TextToStdout("(gdb)");
+    bOk = bOk && CMICmnStreamStdout::WritePrompt();
 
     return bOk;
 }
@@ -1500,7 +1537,7 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStateExited(void)
         CMICmnMIOutOfBandRecord miOutOfBandRecord3(CMICmnMIOutOfBandRecord::eOutOfBand_Stopped, miValueResult4);
         bOk = MiOutOfBandRecordToStdout(miOutOfBandRecord3);
     }
-    bOk = bOk && TextToStdout("(gdb)");
+    bOk = bOk && CMICmnStreamStdout::WritePrompt();
 
     return bOk;
 }
@@ -1524,18 +1561,38 @@ CMICmnLLDBDebuggerHandleEvents::GetProcessStdout(void)
     while (1)
     {
         const size_t nBytes = process.GetSTDOUT(apStdoutBuffer.get(), 1024);
-        if (nBytes == 0)
-            break;
-
         text.append(apStdoutBuffer.get(), nBytes);
+
+        while (1)
+        {
+            const size_t nNewLine = text.find('\n');
+            if (nNewLine == std::string::npos)
+                break;
+
+            const CMIUtilString line(text.substr(0, nNewLine + 1).c_str());
+            text.erase(0, nNewLine + 1);
+            const bool bEscapeQuotes(true);
+            CMICmnMIValueConst miValueConst(line.Escape(bEscapeQuotes));
+            CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_TargetStreamOutput, miValueConst);
+            const bool bOk = MiOutOfBandRecordToStdout(miOutOfBandRecord);
+            if (!bOk)
+                return MIstatus::failure;
+        }
+
+        if (nBytes == 0)
+        {
+            if (!text.empty())
+            {
+                const bool bEscapeQuotes(true);
+                CMICmnMIValueConst miValueConst(text.Escape(bEscapeQuotes));
+                CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_TargetStreamOutput, miValueConst);
+                return MiOutOfBandRecordToStdout(miOutOfBandRecord);
+            }
+            break;
+        }
     }
 
-    if (text.empty())
-        return MIstatus::success;
-
-    const bool bEscapeQuotes(true);
-    const CMIUtilString t(CMIUtilString::Format("~\"%s\"", text.Escape(bEscapeQuotes).c_str()));
-    return TextToStdout(t);
+    return MIstatus::success;
 }
 
 //++ ------------------------------------------------------------------------------------
@@ -1557,18 +1614,37 @@ CMICmnLLDBDebuggerHandleEvents::GetProcessStderr(void)
     while (1)
     {
         const size_t nBytes = process.GetSTDERR(apStderrBuffer.get(), 1024);
-        if (nBytes == 0)
-            break;
-
         text.append(apStderrBuffer.get(), nBytes);
+
+        while (1)
+        {
+            const size_t nNewLine = text.find('\n');
+            if (nNewLine == std::string::npos)
+                break;
+
+            const CMIUtilString line(text.substr(0, nNewLine + 1).c_str());
+            const bool bEscapeQuotes(true);
+            CMICmnMIValueConst miValueConst(line.Escape(bEscapeQuotes));
+            CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_TargetStreamOutput, miValueConst);
+            const bool bOk = MiOutOfBandRecordToStdout(miOutOfBandRecord);
+            if (!bOk)
+                return MIstatus::failure;
+        }
+
+        if (nBytes == 0)
+        {
+            if (!text.empty())
+            {
+                const bool bEscapeQuotes(true);
+                CMICmnMIValueConst miValueConst(text.Escape(bEscapeQuotes));
+                CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_TargetStreamOutput, miValueConst);
+                return MiOutOfBandRecordToStdout(miOutOfBandRecord);
+            }
+            break;
+        }
     }
 
-    if (text.empty())
-        return MIstatus::success;
-
-    const bool bEscapeQuotes(true);
-    const CMIUtilString t(CMIUtilString::Format("~\"%s\"", text.Escape(bEscapeQuotes).c_str()));
-    return TextToStdout(t);
+    return MIstatus::success;
 }
 
 //++ ------------------------------------------------------------------------------------
@@ -1663,7 +1739,7 @@ CMICmnLLDBDebuggerHandleEvents::ChkForStateChanges(void)
             ++it;
     }
 
-    return TextToStdout("(gdb)");
+    return CMICmnStreamStdout::WritePrompt();
 }
 
 //++ ------------------------------------------------------------------------------------

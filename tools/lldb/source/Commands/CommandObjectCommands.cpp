@@ -7,8 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "lldb/lldb-python.h"
-
 #include "CommandObjectCommands.h"
 
 // C Includes
@@ -1455,6 +1453,8 @@ public:
         StreamString stream;
         stream.Printf("For more information run 'help %s'",name.c_str());
         SetHelp(stream.GetData());
+        if (ScriptInterpreter* scripter = m_interpreter.GetScriptInterpreter())
+            GetFlags().Set(scripter->GetFlagsForCommandObject(cmd_obj_sp));
     }
     
     virtual

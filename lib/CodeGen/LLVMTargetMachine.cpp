@@ -140,12 +140,9 @@ static MCContext *addPassesToGenerateCode(LLVMTargetMachine *TM,
   return &MMI->getContext();
 }
 
-bool LLVMTargetMachine::addPassesToEmitFile(PassManagerBase &PM,
-                                            formatted_raw_ostream &Out,
-                                            CodeGenFileType FileType,
-                                            bool DisableVerify,
-                                            AnalysisID StartAfter,
-                                            AnalysisID StopAfter) {
+bool LLVMTargetMachine::addPassesToEmitFile(
+    PassManagerBase &PM, raw_pwrite_stream &Out, CodeGenFileType FileType,
+    bool DisableVerify, AnalysisID StartAfter, AnalysisID StopAfter) {
   // Add common CodeGen passes.
   MCContext *Context = addPassesToGenerateCode(this, PM, DisableVerify,
                                                StartAfter, StopAfter);
@@ -153,12 +150,7 @@ bool LLVMTargetMachine::addPassesToEmitFile(PassManagerBase &PM,
     return true;
 
   if (StopAfter) {
-    // FIXME: The intent is that this should eventually write out a YAML file,
-    // containing the LLVM IR, the machine-level IR (when stopping after a
-    // machine-level pass), and whatever other information is needed to
-    // deserialize the code and resume compilation.  For now, just write the
-    // LLVM IR.
-    PM.add(createPrintModulePass(Out));
+    PM.add(createPrintMIRPass(outs()));
     return false;
   }
 
@@ -184,8 +176,9 @@ bool LLVMTargetMachine::addPassesToEmitFile(PassManagerBase &PM,
 
     MCAsmBackend *MAB = getTarget().createMCAsmBackend(MRI, getTargetTriple(),
                                                        TargetCPU);
+    auto FOut = llvm::make_unique<formatted_raw_ostream>(Out);
     MCStreamer *S = getTarget().createAsmStreamer(
-        *Context, Out, Options.MCOptions.AsmVerbose,
+        *Context, std::move(FOut), Options.MCOptions.AsmVerbose,
         Options.MCOptions.MCUseDwarfDirectory, InstPrinter, MCE, MAB,
         Options.MCOptions.ShowMCInst);
     AsmStreamer.reset(S);
@@ -199,6 +192,9 @@ bool LLVMTargetMachine::addPassesToEmitFile(PassManagerBase &PM,
                                                        TargetCPU);
     if (!MCE || !MAB)
       return true;
+
+    // Don't waste memory on names of temp labels.
+    Context->setUseNamesOnTempLabels(false);
 
     Triple T(getTargetTriple());
     AsmStreamer.reset(getTarget().createMCObjectStreamer(
@@ -229,9 +225,8 @@ bool LLVMTargetMachine::addPassesToEmitFile(PassManagerBase &PM,
 /// code is not supported. It fills the MCContext Ctx pointer which can be
 /// used to build custom MCStreamer.
 ///
-bool LLVMTargetMachine::addPassesToEmitMC(PassManagerBase &PM,
-                                          MCContext *&Ctx,
-                                          raw_ostream &Out,
+bool LLVMTargetMachine::addPassesToEmitMC(PassManagerBase &PM, MCContext *&Ctx,
+                                          raw_pwrite_stream &Out,
                                           bool DisableVerify) {
   // Add common CodeGen passes.
   Ctx = addPassesToGenerateCode(this, PM, DisableVerify, nullptr, nullptr);

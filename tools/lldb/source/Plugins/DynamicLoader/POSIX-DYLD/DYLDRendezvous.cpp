@@ -147,7 +147,7 @@ DYLDRendezvous::Resolve()
     address_size = m_process->GetAddressByteSize();
     padding = address_size - word_size;
     if (log)
-        log->Printf ("DYLDRendezvous::%s address size: %zu, padding %zu", __FUNCTION__, address_size, padding);
+        log->Printf ("DYLDRendezvous::%s address size: %" PRIu64 ", padding %" PRIu64, __FUNCTION__, uint64_t(address_size), uint64_t(padding));
 
     if (m_rendezvous_addr == LLDB_INVALID_ADDRESS)
         cursor = info_addr = ResolveRendezvousAddress(m_process);
@@ -382,10 +382,11 @@ DYLDRendezvous::ReadSOEntryFromMemory(lldb::addr_t addr, SOEntry &entry)
     // FreeBSD and NetBSD (need to validate other OSes).
     // http://svnweb.freebsd.org/base/head/sys/sys/link_elf.h?revision=217153&view=markup#l57
     const ArchSpec &arch = m_process->GetTarget().GetArchitecture();
-    if (arch.GetCore() == ArchSpec::eCore_mips64)
+    if ((arch.GetTriple().getOS() == llvm::Triple::FreeBSD 
+        || arch.GetTriple().getOS() == llvm::Triple::NetBSD) && 
+        (arch.GetMachine() == llvm::Triple::mips || arch.GetMachine() == llvm::Triple::mipsel
+        || arch.GetMachine() == llvm::Triple::mips64 || arch.GetMachine() == llvm::Triple::mips64el))
     {
-        assert (arch.GetTriple().getOS() == llvm::Triple::FreeBSD ||
-                arch.GetTriple().getOS() == llvm::Triple::NetBSD);
         addr_t mips_l_offs;
         if (!(addr = ReadPointer(addr, &mips_l_offs)))
             return false;

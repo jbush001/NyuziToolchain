@@ -24,7 +24,7 @@ public:
   explicit NyuziFrameLowering(const NyuziSubtarget &ST)
       : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 64, 0, 64) {}
 
-  virtual void emitPrologue(MachineFunction &MF) const override;
+  virtual void emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
   virtual void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
   virtual void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                      		 MachineBasicBlock &MBB,

@@ -83,6 +83,7 @@ public:
         query_monitor,                  // 'qRcmd'
         query_current_thread_id,        // 'qC'
         query_get_pid,                  // 'qGetPid'
+        query_echo,                     // 'qEcho'
         query_thread_ids_first,         // 'qfThreadInfo'
         query_thread_ids_subsequent,    // 'qsThreadInfo'
         query_thread_extra_info,        // 'qThreadExtraInfo'
@@ -127,6 +128,7 @@ public:
         restore_register_state,         // '_G'
         speed_test,                     // 'qSpeedTest:'
         set_detach_on_error,            // 'QSetDetachOnError:'
+        query_transfer,                 // 'qXfer:'
         unknown_type
     } PacketEnum;
 
@@ -176,6 +178,7 @@ public:
     rnb_err_t HandlePacket_qC (const char *p);
     rnb_err_t HandlePacket_qRcmd (const char *p);
     rnb_err_t HandlePacket_qGetPid (const char *p);
+    rnb_err_t HandlePacket_qEcho (const char *p);
     rnb_err_t HandlePacket_qLaunchSuccess (const char *p);
     rnb_err_t HandlePacket_qRegisterInfo (const char *p);
     rnb_err_t HandlePacket_qShlibInfoAddr (const char *p);
@@ -234,6 +237,7 @@ public:
     rnb_err_t HandlePacket_SetEnableAsyncProfiling(const char *p);
     rnb_err_t HandlePacket_WatchpointSupportInfo (const char *p);
     rnb_err_t HandlePacket_qSpeedTest (const char *p);
+    rnb_err_t HandlePacket_qXfer (const char *p);
     rnb_err_t HandlePacket_stop_process (const char *p);
     rnb_err_t HandlePacket_QSetDetachOnError (const char *p);
 

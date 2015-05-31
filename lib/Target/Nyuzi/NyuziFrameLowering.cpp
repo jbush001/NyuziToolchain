@@ -34,8 +34,8 @@ const NyuziFrameLowering *NyuziFrameLowering::create(const NyuziSubtarget &ST) {
   return new NyuziFrameLowering(ST);
 }
 
-void NyuziFrameLowering::emitPrologue(MachineFunction &MF) const {
-  MachineBasicBlock &MBB = MF.front();
+void NyuziFrameLowering::emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const {
+  assert(&MF.front() == &MBB);
   MachineFrameInfo *MFI = MF.getFrameInfo();
   const NyuziInstrInfo &TII =
       *static_cast<const NyuziInstrInfo *>(MF.getSubtarget().getInstrInfo());

@@ -64,6 +64,7 @@ public:
     amdgcn,     // AMDGCN: AMD GCN GPUs
     sparc,      // Sparc: sparc
     sparcv9,    // Sparcv9: Sparcv9
+    sparcel,    // Sparc: (endianness = little). NB: 'Sparcle' is a CPU variant
     systemz,    // SystemZ: s390x
     tce,        // TCE (http://tce.cs.tut.fi/): tce
     thumb,      // Thumb (little endian): thumb, thumbv.*
@@ -81,8 +82,9 @@ public:
     hsail64,    // AMD HSAIL with 64-bit pointers
     spir,       // SPIR: standard portable IR for OpenCL 32-bit version
     spir64,     // SPIR: standard portable IR for OpenCL 64-bit version
+    nyuzi,      // Nyuzi
     kalimba,    // Kalimba: generic kalimba
-    nyuzi
+    LastArchType = kalimba
   };
   enum SubArchType {
     NoSubArch,
@@ -118,7 +120,8 @@ public:
     ImaginationTechnologies,
     MipsTechnologies,
     NVIDIA,
-    CSR
+    CSR,
+    LastVendorType = CSR
   };
   enum OSType {
     UnknownOS,
@@ -146,7 +149,8 @@ public:
     CUDA,       // NVIDIA CUDA
     NVCL,       // NVIDIA OpenCL
     AMDHSA,     // AMD HSA Runtime
-    PS4
+    PS4,
+    LastOSType = PS4
   };
   enum EnvironmentType {
     UnknownEnvironment,
@@ -163,6 +167,7 @@ public:
     MSVC,
     Itanium,
     Cygnus,
+    LastEnvironmentType = Cygnus
   };
   enum ObjectFormatType {
     UnknownObjectFormat,

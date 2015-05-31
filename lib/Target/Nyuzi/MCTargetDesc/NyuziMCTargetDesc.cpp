@@ -58,7 +58,7 @@ static MCCodeGenInfo *createNyuziMCCodeGenInfo(StringRef TT,
                                                     CodeModel::Model CM,
                                                     CodeGenOpt::Level OL) {
   MCCodeGenInfo *X = new MCCodeGenInfo();
-  X->InitMCCodeGenInfo(RM, CM, OL);
+  X->initMCCodeGenInfo(RM, CM, OL);
   return X;
 }
 
@@ -77,7 +77,7 @@ static MCAsmInfo *createNyuziMCAsmInfo(const MCRegisterInfo &MRI,
 }
 
 static MCStreamer *createNyuziMCStreamer(const Triple &T, MCContext &Context,
-                                         MCAsmBackend &MAB, raw_ostream &OS,
+                                         MCAsmBackend &MAB, raw_pwrite_stream &OS,
                                          MCCodeEmitter *Emitter, bool RelaxAll) {
   return createELFStreamer(Context, MAB, OS, Emitter, RelaxAll);
 }

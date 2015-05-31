@@ -19,6 +19,8 @@ from lldbtest import *
 
 class LldbGdbServerTestCase(gdbremote_testcase.GdbRemoteTestCaseBase):
 
+    mydir = TestBase.compute_mydir(__file__)
+
     @debugserver_test
     def test_exe_starts_debugserver(self):
         self.init_debugserver_test()
@@ -93,8 +95,7 @@ class LldbGdbServerTestCase(gdbremote_testcase.GdbRemoteTestCaseBase):
         exe_path = os.path.abspath('a.out')
         if not lldb.remote_platform:
             return [exe_path]
-        remote_work_dir = lldb.remote_platform.GetWorkingDirectory()
-        remote_path = os.path.join(remote_work_dir, os.path.basename(exe_path))
+        remote_path = lldbutil.append_to_remote_wd(os.path.basename(exe_path))
         remote_file_spec = lldb.SBFileSpec(remote_path, False)
         err = lldb.remote_platform.Install(lldb.SBFileSpec(exe_path, True), remote_file_spec)
         if err.Fail():
@@ -878,7 +879,6 @@ class LldbGdbServerTestCase(gdbremote_testcase.GdbRemoteTestCaseBase):
 
     @llgs_test
     @dwarf_test
-    @expectedFailureLinux('llvm.org/pr22928') # failed once on builder x86_64-ubuntu-14.04-cmake over 34 builds
     def test_Hc_then_Csignal_signals_correct_thread_launch_llgs_dwarf(self):
         self.init_llgs_test()
         self.buildDwarf()
@@ -1204,8 +1204,11 @@ class LldbGdbServerTestCase(gdbremote_testcase.GdbRemoteTestCaseBase):
         function_address = int(context.get("function_address"), 16)
 
         # Set the breakpoint.
-        # Note this might need to be switched per platform (ARM, mips, etc.).
-        BREAKPOINT_KIND = 1
+        if self.getArchitecture() == "arm":
+            # TODO: Handle case when setting breakpoint in thumb code
+            BREAKPOINT_KIND = 4
+        else:
+            BREAKPOINT_KIND = 1
         self.reset_test_sequence()
         self.add_set_breakpoint_packets(function_address, do_continue=True, breakpoint_kind=BREAKPOINT_KIND)
 

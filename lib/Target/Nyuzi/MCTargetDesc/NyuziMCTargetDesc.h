@@ -16,6 +16,7 @@
 #define NYUZIMCTARGETDESC_H
 
 #include "llvm/Support/DataTypes.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace llvm {
 class Target;
@@ -35,7 +36,7 @@ MCCodeEmitter *createNyuziMCCodeEmitter(const MCInstrInfo &MCII,
                                              const MCRegisterInfo &MRI,
                                              MCContext &Ctx);
 
-MCObjectWriter *createNyuziELFObjectWriter(raw_ostream &OS, uint8_t OSABI);
+MCObjectWriter *createNyuziELFObjectWriter(raw_pwrite_stream &OS, uint8_t OSABI);
 
 MCAsmBackend *createNyuziAsmBackend(const Target &T,
                                          const MCRegisterInfo &MRI,

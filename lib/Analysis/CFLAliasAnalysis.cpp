@@ -161,7 +161,7 @@ struct FunctionHandle : public CallbackVH {
     assert(CFLAA != nullptr);
   }
 
-  virtual ~FunctionHandle() {}
+  ~FunctionHandle() override {}
 
   void deleted() override { removeSelfFromCache(); }
   void allUsesReplacedWith(Value *) override { removeSelfFromCache(); }
@@ -189,7 +189,7 @@ public:
     initializeCFLAliasAnalysisPass(*PassRegistry::getPassRegistry());
   }
 
-  virtual ~CFLAliasAnalysis() {}
+  ~CFLAliasAnalysis() override {}
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AliasAnalysis::getAnalysisUsage(AU);
@@ -305,8 +305,7 @@ public:
   }
 
   void visitPHINode(PHINode &Inst) {
-    for (unsigned I = 0, E = Inst.getNumIncomingValues(); I != E; ++I) {
-      Value *Val = Inst.getIncomingValue(I);
+    for (Value *Val : Inst.incoming_values()) {
       Output.push_back(Edge(&Inst, Val, EdgeType::Assign, AttrNone));
     }
   }
