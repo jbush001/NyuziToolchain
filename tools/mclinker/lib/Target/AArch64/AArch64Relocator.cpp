@@ -7,12 +7,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <mcld/LinkerConfig.h>
-#include <mcld/IRBuilder.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/LD/LDSymbol.h>
-#include <mcld/LD/ELFFileFormat.h>
-#include <mcld/Object/ObjectBuilder.h>
+#include "mcld/LinkerConfig.h"
+#include "mcld/IRBuilder.h"
+#include "mcld/Support/MsgHandling.h"
+#include "mcld/LD/LDSymbol.h"
+#include "mcld/LD/ELFFileFormat.h"
+#include "mcld/Object/ObjectBuilder.h"
 
 #include "AArch64Relocator.h"
 #include "AArch64RelocationFunctions.h"
@@ -23,7 +23,7 @@
 #include <llvm/Support/ELF.h>
 #include <llvm/Support/Host.h>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // Relocation Functions and Tables
@@ -90,7 +90,7 @@ Relocator::Size AArch64Relocator::getSize(Relocation::Type pType) const {
 
 void AArch64Relocator::addCopyReloc(ResolveInfo& pSym) {
   Relocation& rel_entry = *getTarget().getRelaDyn().create();
-  rel_entry.setType(R_AARCH64_COPY);
+  rel_entry.setType(llvm::ELF::R_AARCH64_COPY);
   assert(pSym.outSymbol()->hasFragRef());
   rel_entry.targetRef().assign(*pSym.outSymbol()->fragRef());
   rel_entry.setSymInfo(&pSym);
@@ -163,7 +163,7 @@ void AArch64Relocator::scanLocalReloc(Relocation& pReloc,
         Relocation& reloc = helper_DynRela_init(rsym,
                                                 *pReloc.targetRef().frag(),
                                                 pReloc.targetRef().offset(),
-                                                R_AARCH64_RELATIVE,
+                                                llvm::ELF::R_AARCH64_RELATIVE,
                                                 *this);
         getRelRelMap().record(pReloc, reloc);
       }
@@ -246,11 +246,12 @@ void AArch64Relocator::scanGlobalReloc(Relocation& pReloc,
           getTarget().checkAndSetHasTextRel(*pSection.getLink());
           if (llvm::ELF::R_AARCH64_ABS64 == pReloc.type() &&
               helper_use_relative_reloc(*rsym, *this)) {
-            Relocation& reloc = helper_DynRela_init(rsym,
-                                                    *pReloc.targetRef().frag(),
-                                                    pReloc.targetRef().offset(),
-                                                    R_AARCH64_RELATIVE,
-                                                    *this);
+            Relocation& reloc =
+                helper_DynRela_init(rsym,
+                                    *pReloc.targetRef().frag(),
+                                    pReloc.targetRef().offset(),
+                                    llvm::ELF::R_AARCH64_RELATIVE,
+                                    *this);
             getRelRelMap().record(pReloc, reloc);
           } else {
             Relocation& reloc = helper_DynRela_init(rsym,
@@ -322,8 +323,9 @@ void AArch64Relocator::scanGlobalReloc(Relocation& pReloc,
       return;
     }
 
+    case llvm::ELF::R_AARCH64_ADR_PREL_LO21:
     case llvm::ELF::R_AARCH64_ADR_PREL_PG_HI21:
-    case R_AARCH64_ADR_PREL_PG_HI21_NC:
+    case llvm::ELF::R_AARCH64_ADR_PREL_PG_HI21_NC:
       if (getTarget()
               .symbolNeedsDynRel(
                   *rsym, (rsym->reserved() & ReservePLT), false)) {
@@ -397,6 +399,23 @@ void AArch64Relocator::scanRelocation(Relocation& pReloc,
     issueUndefRef(pReloc, pSection, pInput);
 }
 
+uint32_t AArch64Relocator::getDebugStringOffset(Relocation& pReloc) const {
+  if (pReloc.type() != llvm::ELF::R_AARCH64_ABS32)
+    error(diag::unsupport_reloc_for_debug_string)
+        << getName(pReloc.type()) << "mclinker@googlegroups.com";
+
+  if (pReloc.symInfo()->type() == ResolveInfo::Section)
+    return pReloc.target();
+  else
+    return pReloc.symInfo()->outSymbol()->fragRef()->offset() +
+               pReloc.target() + pReloc.addend();
+}
+
+void AArch64Relocator::applyDebugStringOffset(Relocation& pReloc,
+                                              uint32_t pOffset) {
+  pReloc.target() = pOffset;
+}
+
 //===----------------------------------------------------------------------===//
 // Each relocation function implementation
 //===----------------------------------------------------------------------===//
@@ -406,8 +425,8 @@ Relocator::Result none(Relocation& pReloc, AArch64Relocator& pParent) {
   return Relocator::OK;
 }
 
-Relocator::Result unsupport(Relocation& pReloc, AArch64Relocator& pParent) {
-  return Relocator::Unsupport;
+Relocator::Result unsupported(Relocation& pReloc, AArch64Relocator& pParent) {
+  return Relocator::Unsupported;
 }
 
 // R_AARCH64_ABS64: S + A
@@ -442,7 +461,7 @@ Relocator::Result abs(Relocation& pReloc, AArch64Relocator& pParent) {
     // in order to keep the addend store in the place correct.
     if (has_dyn_rel) {
       if (llvm::ELF::R_AARCH64_ABS64 == pReloc.type() &&
-          R_AARCH64_RELATIVE == dyn_rel->type()) {
+          llvm::ELF::R_AARCH64_RELATIVE == dyn_rel->type()) {
         dyn_rel->setAddend(S + A);
       } else {
         dyn_rel->setAddend(A);
@@ -499,6 +518,23 @@ Relocator::Result add_abs_lo12(Relocation& pReloc, AArch64Relocator& pParent) {
 
   value = helper_get_page_offset(S + A);
   pReloc.target() = helper_reencode_add_imm(pReloc.target(), value);
+
+  return Relocator::OK;
+}
+
+// R_AARCH64_ADR_PREL_LO21: S + A - P
+Relocator::Result adr_prel_lo21(Relocation& pReloc, AArch64Relocator& pParent) {
+  ResolveInfo* rsym = pReloc.symInfo();
+  Relocator::Address S = pReloc.symValue();
+  // if plt entry exists, the S value is the plt entry address
+  if (rsym->reserved() & AArch64Relocator::ReservePLT) {
+    S = helper_get_PLT_address(*rsym, pParent);
+  }
+  Relocator::DWord A = pReloc.addend();
+  Relocator::DWord P = pReloc.place();
+  Relocator::DWord X = S + A - P;
+
+  pReloc.target() = helper_reencode_adr_imm(pReloc.target(), X);
 
   return Relocator::OK;
 }
@@ -665,3 +701,5 @@ Relocator::Result ldst_abs_lo12(Relocation& pReloc, AArch64Relocator& pParent) {
   }
   return Relocator::OK;
 }
+
+}  // namespace mcld

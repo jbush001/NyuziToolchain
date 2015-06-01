@@ -6,13 +6,13 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Script/StrToken.h>
+#include "mcld/Script/StrToken.h"
 
-#include <mcld/Support/GCFactory.h>
+#include "mcld/Support/GCFactory.h"
 
 #include <llvm/Support/ManagedStatic.h>
 
-using namespace mcld;
+namespace mcld {
 
 typedef GCFactory<StrToken, MCLD_SYMBOLS_PER_INPUT> StrTokenFactory;
 static llvm::ManagedStatic<StrTokenFactory> g_StrTokenFactory;
@@ -45,3 +45,5 @@ void StrToken::destroy(StrToken*& pStrToken) {
 void StrToken::clear() {
   g_StrTokenFactory->clear();
 }
+
+}  // namespace mcld

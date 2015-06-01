@@ -7,9 +7,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <mcld/LD/ResolveInfo.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/Target/OutputRelocSection.h>
+#include "mcld/LD/ResolveInfo.h"
+#include "mcld/Support/MsgHandling.h"
+#include "mcld/Target/OutputRelocSection.h"
 
 #include "MipsGOT.h"
 #include "MipsRelocator.h"
@@ -25,7 +25,7 @@ const size_t MipsGOTGpOffset = 0x7FF0;
 const size_t MipsGOTSize = MipsGOTGpOffset + 0x7FFF;
 }
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // MipsGOT::GOTMultipart
@@ -33,14 +33,19 @@ using namespace mcld;
 MipsGOT::GOTMultipart::GOTMultipart(size_t local, size_t global)
     : m_LocalNum(local),
       m_GlobalNum(global),
+      m_TLSNum(0),
+      m_TLSDynNum(0),
       m_ConsumedLocal(0),
       m_ConsumedGlobal(0),
+      m_ConsumedTLS(0),
       m_pLastLocal(NULL),
-      m_pLastGlobal(NULL) {
+      m_pLastGlobal(NULL),
+      m_pLastTLS(NULL) {
 }
 
 bool MipsGOT::GOTMultipart::isConsumed() const {
-  return m_LocalNum == m_ConsumedLocal && m_GlobalNum == m_ConsumedGlobal;
+  return m_LocalNum == m_ConsumedLocal && m_GlobalNum == m_ConsumedGlobal &&
+         m_TLSNum == m_ConsumedTLS;
 }
 
 void MipsGOT::GOTMultipart::consumeLocal() {
@@ -54,6 +59,13 @@ void MipsGOT::GOTMultipart::consumeGlobal() {
          "Consumed too many global GOT entries");
   ++m_ConsumedGlobal;
   m_pLastGlobal = m_pLastGlobal->getNextNode();
+}
+
+void MipsGOT::GOTMultipart::consumeTLS(Relocation::Type pType) {
+  assert(m_ConsumedTLS < m_TLSNum &&
+         "Consumed too many TLS GOT entries");
+  m_ConsumedTLS += pType == llvm::ELF::R_MIPS_TLS_GOTTPREL ? 1 : 2;
+  m_pLastTLS = m_pLastTLS->getNextNode();
 }
 
 //===----------------------------------------------------------------------===//
@@ -79,7 +91,11 @@ bool MipsGOT::LocalEntry::operator<(const LocalEntry& O) const {
 // MipsGOT
 //===----------------------------------------------------------------------===//
 MipsGOT::MipsGOT(LDSection& pSection)
-    : GOT(pSection), m_pInput(NULL), m_CurrentGOTPart(0) {
+    : GOT(pSection),
+      m_pInput(NULL),
+      m_HasTLSLdmSymbol(false),
+      m_CurrentGOTPart(0),
+      m_GotTLSLdmEntry(nullptr) {
 }
 
 uint64_t MipsGOT::getGPDispAddress() const {
@@ -108,6 +124,8 @@ void MipsGOT::finalizeScanning(OutputRelocSection& pRelDyn) {
     reserve(it->m_LocalNum);
     it->m_pLastGlobal = &m_SectionData->back();
     reserve(it->m_GlobalNum);
+    it->m_pLastTLS = &m_SectionData->back();
+    reserve(it->m_TLSNum);
 
     if (it == m_MultipartList.begin()) {
       // Reserve entries in the second part of the primary GOT.
@@ -122,6 +140,9 @@ void MipsGOT::finalizeScanning(OutputRelocSection& pRelDyn) {
       for (size_t i = 0; i < count; ++i)
         pRelDyn.reserveEntry();
     }
+
+    for (size_t i = 0; i < it->m_TLSDynNum; ++i)
+      pRelDyn.reserveEntry();
   }
 }
 
@@ -147,6 +168,8 @@ void MipsGOT::initGOTList() {
   m_InputGlobalSymbols.clear();
   m_MergedLocalSymbols.clear();
   m_InputLocalSymbols.clear();
+  m_InputTLSGdSymbols.clear();
+  m_HasTLSLdmSymbol = false;
 }
 
 void MipsGOT::changeInput() {
@@ -262,6 +285,39 @@ bool MipsGOT::reserveGlobalEntry(ResolveInfo& pInfo) {
   return true;
 }
 
+bool MipsGOT::reserveTLSGdEntry(ResolveInfo& pInfo) {
+  if (m_InputTLSGdSymbols.count(&pInfo))
+    return false;
+
+  m_InputTLSGdSymbols.insert(&pInfo);
+  m_MultipartList.back().m_TLSNum += 2;
+  m_MultipartList.back().m_TLSDynNum += 2;
+
+  return true;
+}
+
+bool MipsGOT::reserveTLSLdmEntry() {
+  if (m_HasTLSLdmSymbol)
+    return false;
+
+  m_HasTLSLdmSymbol = true;
+  m_MultipartList.back().m_TLSNum += 2;
+  m_MultipartList.back().m_TLSDynNum += 1;
+
+  return true;
+}
+
+bool MipsGOT::reserveTLSGotEntry(ResolveInfo& pInfo) {
+  if (m_InputTLSGotSymbols.count(&pInfo))
+    return false;
+
+  m_InputTLSGotSymbols.insert(&pInfo);
+  m_MultipartList.back().m_TLSNum += 1;
+  m_MultipartList.back().m_TLSDynNum += 1;
+
+  return true;
+}
+
 bool MipsGOT::isPrimaryGOTConsumed() {
   return m_CurrentGOTPart > 0;
 }
@@ -288,6 +344,18 @@ Fragment* MipsGOT::consumeGlobal() {
   m_MultipartList[m_CurrentGOTPart].consumeGlobal();
 
   return m_MultipartList[m_CurrentGOTPart].m_pLastGlobal;
+}
+
+Fragment* MipsGOT::consumeTLS(Relocation::Type pType) {
+  assert(m_CurrentGOTPart < m_MultipartList.size() &&
+         "GOT number is out of range!");
+
+  if (m_MultipartList[m_CurrentGOTPart].isConsumed())
+    ++m_CurrentGOTPart;
+
+  m_MultipartList[m_CurrentGOTPart].consumeTLS(pType);
+
+  return m_MultipartList[m_CurrentGOTPart].m_pLastTLS;
 }
 
 uint64_t MipsGOT::getGPAddr(const Input& pInput) const {
@@ -331,6 +399,50 @@ Fragment* MipsGOT::lookupGlobalEntry(const ResolveInfo* pInfo) {
     return NULL;
 
   return it->second;
+}
+
+void MipsGOT::recordTLSEntry(const ResolveInfo* pInfo, Fragment* pEntry,
+                             Relocation::Type pType) {
+  if (pType == llvm::ELF::R_MIPS_TLS_LDM) {
+    m_GotTLSLdmEntry = pEntry;
+  } else if (pType == llvm::ELF::R_MIPS_TLS_GD) {
+    GotEntryKey key;
+    key.m_GOTPage = m_CurrentGOTPart;
+    key.m_pInfo = pInfo;
+    key.m_Addend = 0;
+    m_GotTLSGdEntriesMap[key] = pEntry;
+  } else if (pType == llvm::ELF::R_MIPS_TLS_GOTTPREL) {
+    GotEntryKey key;
+    key.m_GOTPage = m_CurrentGOTPart;
+    key.m_pInfo = pInfo;
+    key.m_Addend = 0;
+    m_GotTLSGotEntriesMap[key] = pEntry;
+  } else {
+    llvm_unreachable("Unexpected relocation");
+  }
+}
+
+Fragment* MipsGOT::lookupTLSEntry(const ResolveInfo* pInfo,
+                                  Relocation::Type pType) {
+  if (pType == llvm::ELF::R_MIPS_TLS_LDM)
+    return m_GotTLSLdmEntry;
+  if (pType == llvm::ELF::R_MIPS_TLS_GD) {
+    GotEntryKey key;
+    key.m_GOTPage = m_CurrentGOTPart;
+    key.m_pInfo = pInfo;
+    key.m_Addend = 0;
+    GotEntryMapType::iterator it = m_GotTLSGdEntriesMap.find(key);
+    return it == m_GotTLSGdEntriesMap.end() ? nullptr : it->second;
+  }
+  if (pType == llvm::ELF::R_MIPS_TLS_GOTTPREL) {
+    GotEntryKey key;
+    key.m_GOTPage = m_CurrentGOTPart;
+    key.m_pInfo = pInfo;
+    key.m_Addend = 0;
+    GotEntryMapType::iterator it = m_GotTLSGotEntriesMap.find(key);
+    return it == m_GotTLSGotEntriesMap.end() ? nullptr : it->second;
+  }
+  llvm_unreachable("Unexpected relocation");
 }
 
 void MipsGOT::recordLocalEntry(const ResolveInfo* pInfo,
@@ -435,3 +547,5 @@ void Mips64GOT::reserveHeader() {
   createEntry(0, m_SectionData);
   createEntry(Mips64ModulePtr, m_SectionData);
 }
+
+}  // namespace mcld

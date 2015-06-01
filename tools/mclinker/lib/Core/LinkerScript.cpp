@@ -6,9 +6,9 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LinkerScript.h>
+#include "mcld/LinkerScript.h"
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // LinkerScript
@@ -54,3 +54,5 @@ void LinkerScript::setOutputFile(const std::string& pOutputFile) {
 bool LinkerScript::hasOutputFile() const {
   return !m_OutputFile.empty();
 }
+
+}  // namespace mcld

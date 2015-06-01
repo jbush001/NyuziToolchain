@@ -6,7 +6,7 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/ResolveInfo.h>
+#include "mcld/LD/ResolveInfo.h"
 #include "MipsLA25Stub.h"
 #include "MipsLDBackend.h"
 
@@ -17,13 +17,6 @@ const uint32_t STUB[] = {
     0x08000000,  // j func
     0x27390000,  // add $25,$25,%lo(func)
     0x00000000   // nop
-};
-
-enum {
-  // Fake relocations for patching LA25 stubs.
-  R_MIPS_LA25_LUI = 200,
-  R_MIPS_LA25_J = 201,
-  R_MIPS_LA25_ADD = 202
 };
 
 }  // anonymous namespace
@@ -39,9 +32,9 @@ MipsLA25Stub::MipsLA25Stub(const MipsGNULDBackend& pTarget)
       m_Name("MipsLA25_Prototype"),
       m_pData(STUB),
       m_Size(sizeof(STUB)) {
-  addFixup(0, 0x0, R_MIPS_LA25_LUI);
-  addFixup(4, 0x0, R_MIPS_LA25_J);
-  addFixup(8, 0x0, R_MIPS_LA25_ADD);
+  addFixup(0, 0x0, llvm::ELF::R_MIPS_HI16);
+  addFixup(4, 0x0, llvm::ELF::R_MIPS_26);
+  addFixup(8, 0x0, llvm::ELF::R_MIPS_LO16);
 }
 
 MipsLA25Stub::MipsLA25Stub(const MipsGNULDBackend& pTarget,

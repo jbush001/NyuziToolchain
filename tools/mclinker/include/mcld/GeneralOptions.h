@@ -8,9 +8,9 @@
 //===----------------------------------------------------------------------===//
 #ifndef MCLD_GENERALOPTIONS_H_
 #define MCLD_GENERALOPTIONS_H_
-#include <mcld/Config/Config.h>
-#include <mcld/Support/RealPath.h>
-#include <mcld/Support/FileSystem.h>
+#include "mcld/Config/Config.h"
+#include "mcld/Support/RealPath.h"
+#include "mcld/Support/FileSystem.h"
 #include <string>
 #include <vector>
 #include <set>
@@ -27,16 +27,26 @@ class ZOption;
  */
 class GeneralOptions {
  public:
-  enum StripSymbolMode {
+  enum class StripSymbolMode {
     KeepAllSymbols,
     StripTemporaries,
     StripLocals,
     StripAllSymbols
   };
 
-  enum HashStyle { SystemV = 0x1, GNU = 0x2, Both = 0x3 };
+  enum class HashStyle : uint8_t {
+    Unknown = 0x0,
+    SystemV = 0x1,
+    GNU = 0x2,
+    Both = 0x3
+  };
 
-  enum ICF { ICF_None, ICF_All, ICF_Safe };
+  enum class ICF {
+    Unknown,
+    None,
+    All,
+    Safe
+  };
 
   typedef std::vector<std::string> RpathList;
   typedef RpathList::iterator rpath_iterator;
@@ -106,6 +116,12 @@ class GeneralOptions {
   void setNoUndefined(bool pEnable = true) {
     m_NoUndefined = (pEnable ? YES : NO);
   }
+
+  void setNumSpareDTags(uint32_t pNum) {
+    m_NumSpareDTags = pNum;
+  }
+
+  unsigned getNumSpareDTags() const { return m_NumSpareDTags; }
 
   void setMulDefs(bool pEnable = true) { m_MulDefs = (pEnable ? YES : NO); }
 
@@ -240,9 +256,17 @@ class GeneralOptions {
 
   int getGPSize() const { return m_GPSize; }
 
-  unsigned int getHashStyle() const { return m_HashStyle; }
+  HashStyle getHashStyle() const { return m_HashStyle; }
 
-  void setHashStyle(unsigned int pStyle) { m_HashStyle = pStyle; }
+  bool hasGNUHash() const {
+    return m_HashStyle == HashStyle::GNU || m_HashStyle == HashStyle::Both;
+  }
+
+  bool hasSysVHash() const {
+    return m_HashStyle == HashStyle::SystemV || m_HashStyle == HashStyle::Both;
+  }
+
+  void setHashStyle(HashStyle pStyle) { m_HashStyle = pStyle; }
 
   ICF getICFMode() const { return m_ICF; }
 
@@ -254,7 +278,7 @@ class GeneralOptions {
 
   bool printICFSections() const { return m_bPrintICFSections; }
 
-  void setPrintICFSections(bool pPrintICFSections) {
+  void setPrintICFSections(bool pPrintICFSections = true) {
     m_bPrintICFSections = pPrintICFSections;
   }
 
@@ -322,6 +346,7 @@ class GeneralOptions {
   int8_t m_Verbose;          // --verbose[=0,1,2]
   uint16_t m_MaxErrorNum;    // --error-limit=N
   uint16_t m_MaxWarnNum;     // --warning-limit=N
+  unsigned m_NumSpareDTags;  // --spare-dynamic-tags
   status m_ExecStack;        // execstack, noexecstack
   status m_NoUndefined;      // defs, --no-undefined
   status m_MulDefs;          // muldefs, --allow-multiple-definition
@@ -368,7 +393,7 @@ class GeneralOptions {
   RpathList m_RpathList;
   ScriptList m_ScriptList;
   UndefSymList m_UndefSymList;  // -u [symbol], --undefined [symbol]
-  unsigned int m_HashStyle;
+  HashStyle m_HashStyle;
   std::string m_Filter;
   AuxiliaryList m_AuxiliaryList;
   ExcludeLIBS m_ExcludeLIBS;

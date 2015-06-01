@@ -6,13 +6,13 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/LDContext.h>
-#include <mcld/LD/LDSection.h>
-#include <mcld/LD/LDSymbol.h>
+#include "mcld/LD/LDContext.h"
+#include "mcld/LD/LDSection.h"
+#include "mcld/LD/LDSymbol.h"
 
 #include <llvm/ADT/StringRef.h>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // LDContext
@@ -93,3 +93,5 @@ const LDSymbol* LDContext::getSymbol(const llvm::StringRef& pName) const {
       return m_SymTab[sym];
   return NULL;
 }
+
+}  // namespace mcld

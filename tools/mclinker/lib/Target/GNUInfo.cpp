@@ -6,9 +6,9 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Target/GNUInfo.h>
+#include "mcld/Target/GNUInfo.h"
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // GNUInfo
@@ -26,3 +26,5 @@ uint8_t GNUInfo::OSABI() const {
       return llvm::ELF::ELFOSABI_NONE;
   }
 }
+
+}  // namespace mcld

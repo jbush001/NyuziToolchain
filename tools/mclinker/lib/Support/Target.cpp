@@ -6,11 +6,11 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Support/Target.h>
+#include "mcld/Support/Target.h"
 
 #include <llvm/ADT/Triple.h>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // Target
@@ -71,3 +71,5 @@ DiagnosticLineInfo* Target::createDiagnosticLineInfo(
     return NULL;
   return DiagnosticLineInfoCtorFn(pTarget, pTriple);
 }
+
+}  // namespace mcld

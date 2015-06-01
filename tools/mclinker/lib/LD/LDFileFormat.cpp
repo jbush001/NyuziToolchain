@@ -6,9 +6,9 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/LDFileFormat.h>
+#include "mcld/LD/LDFileFormat.h"
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // LDFileInfo
@@ -22,3 +22,5 @@ LDFileFormat::LDFileFormat()
 
 LDFileFormat::~LDFileFormat() {
 }
+
+}  // namespace mcld

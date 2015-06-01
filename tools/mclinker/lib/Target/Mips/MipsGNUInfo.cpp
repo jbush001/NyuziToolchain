@@ -14,15 +14,15 @@ namespace mcld {
 // MipsGNUInfo
 //===----------------------------------------------------------------------===//
 MipsGNUInfo::MipsGNUInfo(const llvm::Triple& pTriple)
-    : GNUInfo(pTriple), m_ABIVersion(0), m_PICFlags(0) {
+    : GNUInfo(pTriple), m_ABIVersion(0), m_ElfFlags(0) {
 }
 
 void MipsGNUInfo::setABIVersion(uint8_t ver) {
   m_ABIVersion = ver;
 }
 
-void MipsGNUInfo::setPICFlags(uint64_t flags) {
-  m_PICFlags = flags;
+void MipsGNUInfo::setElfFlags(uint64_t flags) {
+  m_ElfFlags = flags;
 }
 
 uint32_t MipsGNUInfo::machine() const {
@@ -41,14 +41,7 @@ uint64_t MipsGNUInfo::defaultTextSegmentAddr() const {
 }
 
 uint64_t MipsGNUInfo::flags() const {
-  uint64_t val = llvm::ELF::EF_MIPS_NOREORDER | m_PICFlags;
-
-  if (m_Triple.isArch32Bit())
-    val |= llvm::ELF::EF_MIPS_ARCH_32R2 | llvm::ELF::EF_MIPS_ABI_O32;
-  else
-    val |= llvm::ELF::EF_MIPS_ARCH_64R2;
-
-  return val;
+  return m_ElfFlags;
 }
 
 const char* MipsGNUInfo::entry() const {

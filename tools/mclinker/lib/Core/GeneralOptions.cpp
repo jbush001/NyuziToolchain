@@ -6,12 +6,12 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/GeneralOptions.h>
-#include <mcld/MC/Input.h>
-#include <mcld/MC/ZOption.h>
+#include "mcld/GeneralOptions.h"
+#include "mcld/MC/Input.h"
+#include "mcld/MC/ZOption.h"
 #include <cassert>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // GeneralOptions
@@ -20,6 +20,7 @@ GeneralOptions::GeneralOptions()
     : m_Verbose(-1),
       m_MaxErrorNum(-1),
       m_MaxWarnNum(-1),
+      m_NumSpareDTags(5),
       m_ExecStack(Unknown),
       m_NoUndefined(Unknown),
       m_MulDefs(Unknown),
@@ -58,11 +59,11 @@ GeneralOptions::GeneralOptions()
       m_bPrintGCSections(false),
       m_bGenUnwindInfo(true),
       m_bPrintICFSections(false),
-      m_ICF(ICF_None),
-      m_ICFIterations(0),
+      m_ICF(ICF::None),
+      m_ICFIterations(2),
       m_GPSize(8),
-      m_StripSymbols(KeepAllSymbols),
-      m_HashStyle(SystemV) {
+      m_StripSymbols(StripSymbolMode::KeepAllSymbols),
+      m_HashStyle(HashStyle::SystemV) {
 }
 
 GeneralOptions::~GeneralOptions() {
@@ -169,3 +170,5 @@ bool GeneralOptions::isInExcludeLIBS(const Input& pInput) const {
 
   return false;
 }
+
+}  // namespace mcld

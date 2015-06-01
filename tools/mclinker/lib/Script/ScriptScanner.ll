@@ -10,9 +10,9 @@
 %{
 /* C/C++ Declarations */
 
-#include <mcld/Script/ScriptScanner.h>
-#include <mcld/Script/ScriptFile.h>
-#include <mcld/Support/MsgHandling.h>
+#include "mcld/Script/ScriptScanner.h"
+#include "mcld/Script/ScriptFile.h"
+#include "mcld/Support/MsgHandling.h"
 #include <llvm/ADT/StringRef.h>
 #include <string>
 
@@ -21,6 +21,13 @@ typedef mcld::ScriptParser::token_type token_type;
 
 #define yyterminate() return token::END
 #define YY_NO_UNISTD_H
+%}
+
+%{
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-register"
+#endif
 %}
 
 /* Flex Declarations and Options */
@@ -376,6 +383,10 @@ void ScriptScanner::popLexState()
 }
 
 } /* namespace mcld */
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 #ifdef yylex
 #undef yylex

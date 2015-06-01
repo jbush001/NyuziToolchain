@@ -6,18 +6,18 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/LDSymbol.h>
+#include "mcld/LD/LDSymbol.h"
 
-#include <mcld/Config/Config.h>
-#include <mcld/Fragment/FragmentRef.h>
-#include <mcld/Fragment/NullFragment.h>
-#include <mcld/Support/GCFactory.h>
+#include "mcld/Config/Config.h"
+#include "mcld/Fragment/FragmentRef.h"
+#include "mcld/Fragment/NullFragment.h"
+#include "mcld/Support/GCFactory.h"
 
 #include <llvm/Support/ManagedStatic.h>
 
 #include <cstring>
 
-using namespace mcld;
+namespace mcld {
 
 typedef GCFactory<LDSymbol, MCLD_SYMBOLS_PER_INPUT> LDSymbolFactory;
 
@@ -89,3 +89,5 @@ bool LDSymbol::isNull() const {
 bool LDSymbol::hasFragRef() const {
   return !m_pFragRef->isNull();
 }
+
+}  // namespace mcld

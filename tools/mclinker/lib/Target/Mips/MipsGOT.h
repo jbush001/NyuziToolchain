@@ -8,10 +8,10 @@
 //===----------------------------------------------------------------------===//
 #ifndef TARGET_MIPS_MIPSGOT_H_
 #define TARGET_MIPS_MIPSGOT_H_
-#include <mcld/ADT/SizeTraits.h>
-#include <mcld/Fragment/Relocation.h>
-#include <mcld/Support/MemoryRegion.h>
-#include <mcld/Target/GOT.h>
+#include "mcld/ADT/SizeTraits.h"
+#include "mcld/Fragment/Relocation.h"
+#include "mcld/Support/MemoryRegion.h"
+#include "mcld/Target/GOT.h"
 
 #include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/DenseSet.h>
@@ -50,6 +50,9 @@ class MipsGOT : public GOT {
                          int reloc,
                          Relocation::DWord pAddend);
   bool reserveGlobalEntry(ResolveInfo& pInfo);
+  bool reserveTLSGdEntry(ResolveInfo& pInfo);
+  bool reserveTLSGotEntry(ResolveInfo& pInfo);
+  bool reserveTLSLdmEntry();
 
   size_t getLocalNum() const;   ///< number of local symbols in primary GOT
   size_t getGlobalNum() const;  ///< total number of global symbols
@@ -58,12 +61,17 @@ class MipsGOT : public GOT {
 
   Fragment* consumeLocal();
   Fragment* consumeGlobal();
+  Fragment* consumeTLS(Relocation::Type pType);
 
   uint64_t getGPAddr(const Input& pInput) const;
   uint64_t getGPRelOffset(const Input& pInput, const Fragment& pEntry) const;
 
   void recordGlobalEntry(const ResolveInfo* pInfo, Fragment* pEntry);
   Fragment* lookupGlobalEntry(const ResolveInfo* pInfo);
+
+  void recordTLSEntry(const ResolveInfo* pInfo, Fragment* pEntry,
+                      Relocation::Type pType);
+  Fragment* lookupTLSEntry(const ResolveInfo* pInfo, Relocation::Type pType);
 
   void recordLocalEntry(const ResolveInfo* pInfo,
                         Relocation::DWord pAddend,
@@ -103,12 +111,16 @@ class MipsGOT : public GOT {
 
     size_t m_LocalNum;   ///< number of reserved local entries
     size_t m_GlobalNum;  ///< number of reserved global entries
+    size_t m_TLSNum;     ///< number of reserved TLS entries
+    size_t m_TLSDynNum;  ///< number of reserved TLS related dynamic relocations
 
     size_t m_ConsumedLocal;   ///< consumed local entries
     size_t m_ConsumedGlobal;  ///< consumed global entries
+    size_t m_ConsumedTLS;     ///< consumed TLS entries
 
     Fragment* m_pLastLocal;   ///< the last consumed local entry
     Fragment* m_pLastGlobal;  ///< the last consumed global entry
+    Fragment* m_pLastTLS;     ///< the last consumed TLS entry
 
     InputSetType m_Inputs;
 
@@ -116,6 +128,7 @@ class MipsGOT : public GOT {
 
     void consumeLocal();
     void consumeGlobal();
+    void consumeTLS(Relocation::Type pType);
   };
 
   /** \class LocalEntry
@@ -153,6 +166,12 @@ class MipsGOT : public GOT {
   SymbolSetType m_MergedGlobalSymbols;
   // Global symbols from the current input.
   SymbolUniqueMapType m_InputGlobalSymbols;
+  // Set of symbols referenced by TLS GD relocations.
+  SymbolSetType m_InputTLSGdSymbols;
+  // Set of symbols referenced by TLS GOTTPREL relocation.
+  SymbolSetType m_InputTLSGotSymbols;
+  // There is a symbol referenced by TLS LDM relocations.
+  bool m_HasTLSLdmSymbol;
   // Local symbols merged to the current GOT
   // except symbols from the current input.
   LocalSymbolSetType m_MergedLocalSymbols;
@@ -191,6 +210,9 @@ class MipsGOT : public GOT {
   typedef std::map<GotEntryKey, Fragment*> GotEntryMapType;
   GotEntryMapType m_GotLocalEntriesMap;
   GotEntryMapType m_GotGlobalEntriesMap;
+  GotEntryMapType m_GotTLSGdEntriesMap;
+  GotEntryMapType m_GotTLSGotEntriesMap;
+  Fragment* m_GotTLSLdmEntry;
 };
 
 /** \class Mips32GOT

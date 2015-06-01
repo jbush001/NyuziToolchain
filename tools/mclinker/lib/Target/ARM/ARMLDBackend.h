@@ -10,11 +10,12 @@
 #define TARGET_ARM_ARMLDBACKEND_H_
 
 #include "ARMELFDynamic.h"
+#include "ARMException.h"
 #include "ARMGOT.h"
 #include "ARMPLT.h"
-#include <mcld/LD/LDSection.h>
-#include <mcld/Target/GNULDBackend.h>
-#include <mcld/Target/OutputRelocSection.h>
+#include "mcld/LD/LDSection.h"
+#include "mcld/Target/GNULDBackend.h"
+#include "mcld/Target/OutputRelocSection.h"
 
 namespace mcld {
 
@@ -112,6 +113,12 @@ class ARMGNULDBackend : public GNULDBackend {
   /// finalizeTargetSymbols - finalize the symbol value
   bool finalizeTargetSymbols();
 
+  /// preMergeSections - hooks to be executed before merging sections
+  virtual void preMergeSections(Module& pModule);
+
+  /// postMergeSections - hooks to be executed after merging sections
+  virtual void postMergeSections(Module& pModule);
+
   /// mergeSection - merge target dependent sections
   bool mergeSection(Module& pModule, const Input& pInput, LDSection& pSection);
 
@@ -139,6 +146,9 @@ class ARMGNULDBackend : public GNULDBackend {
   /// mayRelax - Backends should override this function if they need relaxation
   bool mayRelax() { return true; }
 
+  /// relax - the relaxation pass
+  virtual bool relax(Module& pModule, IRBuilder& pBuilder);
+
   /// doRelax - Backend can orevride this function to add its relaxation
   /// implementation. Return true if the output (e.g., .text) is "relaxed"
   /// (i.e. layout is changed), and set pFinished to true if everything is fit,
@@ -160,6 +170,17 @@ class ARMGNULDBackend : public GNULDBackend {
   /// doCreateProgramHdrs - backend can implement this function to create the
   /// target-dependent segments
   virtual void doCreateProgramHdrs(Module& pModule);
+
+  /// scanInputExceptionSections - scan exception-related input sections in
+  /// the Module, build the ARMExData, and reclaim GC'ed sections
+  void scanInputExceptionSections(Module& pModule);
+
+  /// scanInputExceptionSections - scan exception-related input sections in
+  /// the Input, build the ARMInputExMap, and reclaim GC'ed sections
+  void scanInputExceptionSections(Module& pModule, Input& pInput);
+
+  /// rewriteExceptionSection - rewrite the output .ARM.exidx section.
+  void rewriteARMExIdxSection(Module& pModule);
 
  private:
   Relocator* m_pRelocator;
@@ -186,6 +207,9 @@ class ARMGNULDBackend : public GNULDBackend {
   //  LDSection* m_pPreemptMap;      // .ARM.preemptmap
   //  LDSection* m_pDebugOverlay;    // .ARM.debug_overlay
   //  LDSection* m_pOverlayTable;    // .ARM.overlay_table
+
+  // m_ExData - exception handling section data structures
+  ARMExData m_ExData;
 };
 }  // namespace mcld
 

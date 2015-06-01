@@ -6,17 +6,17 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/ELFFileFormat.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/Target/ELFDynamic.h>
-#include <mcld/Target/GNULDBackend.h>
-#include <mcld/LinkerConfig.h>
+#include "mcld/LD/ELFFileFormat.h"
+#include "mcld/Support/MsgHandling.h"
+#include "mcld/Target/ELFDynamic.h"
+#include "mcld/Target/GNULDBackend.h"
+#include "mcld/LinkerConfig.h"
 
 #include <llvm/Support/ErrorHandling.h>
 #include <llvm/Support/Host.h>
 
-using namespace mcld;
-using namespace elf_dynamic;
+namespace mcld {
+namespace elf_dynamic {
 
 //===----------------------------------------------------------------------===//
 // elf_dynamic::EntryIF
@@ -27,6 +27,8 @@ EntryIF::EntryIF() {
 EntryIF::~EntryIF() {
 }
 
+}  // namespace elf_dynamic
+
 //===----------------------------------------------------------------------===//
 // ELFDynamic
 //===----------------------------------------------------------------------===//
@@ -35,10 +37,10 @@ ELFDynamic::ELFDynamic(const GNULDBackend& pParent, const LinkerConfig& pConfig)
   // FIXME: support big-endian machine.
   if (m_Config.targets().is32Bits()) {
     if (m_Config.targets().isLittleEndian())
-      m_pEntryFactory = new Entry<32, true>();
+      m_pEntryFactory = new elf_dynamic::Entry<32, true>();
   } else if (m_Config.targets().is64Bits()) {
     if (m_Config.targets().isLittleEndian())
-      m_pEntryFactory = new Entry<64, true>();
+      m_pEntryFactory = new elf_dynamic::Entry<64, true>();
   } else {
     fatal(diag::unsupported_bitclass) << m_Config.targets().triple().str()
                                       << m_Config.targets().bitclass();
@@ -181,7 +183,10 @@ void ELFDynamic::reserveEntries(const ELFFileFormat& pFormat) {
     reserveOne(llvm::ELF::DT_FLAGS_1);
   }
 
-  reserveOne(llvm::ELF::DT_NULL);
+  unsigned num_spare_dtags = m_Config.options().getNumSpareDTags();
+  for (unsigned i = 0; i < num_spare_dtags; ++i) {
+    reserveOne(llvm::ELF::DT_NULL);
+  }
 }
 
 /// applyEntries - apply entries
@@ -303,7 +308,10 @@ void ELFDynamic::applyEntries(const ELFFileFormat& pFormat) {
   if (dt_flags_1 != 0x0)
     applyOne(llvm::ELF::DT_FLAGS_1, dt_flags_1);
 
-  applyOne(llvm::ELF::DT_NULL, 0x0);
+  unsigned num_spare_dtags = m_Config.options().getNumSpareDTags();
+  for (unsigned i = 0; i < num_spare_dtags; ++i) {
+    applyOne(llvm::ELF::DT_NULL, 0x0);
+  }
 }
 
 /// symbolSize
@@ -336,3 +344,5 @@ void ELFDynamic::emit(const LDSection& pSection, MemoryRegion& pRegion) const {
 void ELFDynamic::applySoname(uint64_t pStrTabIdx) {
   applyOne(llvm::ELF::DT_SONAME, pStrTabIdx);
 }
+
+}  // namespace mcld

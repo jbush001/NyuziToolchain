@@ -6,16 +6,16 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/MC/CommandAction.h>
+#include "mcld/MC/CommandAction.h"
 
-#include <mcld/LinkerConfig.h>
-#include <mcld/MC/Attribute.h>
-#include <mcld/MC/InputBuilder.h>
-#include <mcld/MC/SearchDirs.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/Support/FileSystem.h>
+#include "mcld/LinkerConfig.h"
+#include "mcld/MC/Attribute.h"
+#include "mcld/MC/InputBuilder.h"
+#include "mcld/MC/SearchDirs.h"
+#include "mcld/Support/MsgHandling.h"
+#include "mcld/Support/FileSystem.h"
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // Derived Positional Option
@@ -214,7 +214,8 @@ bool BStaticAction::activate(InputBuilder& pBuilder) const {
 //===----------------------------------------------------------------------===//
 // DefSymAction
 //===----------------------------------------------------------------------===//
-DefSymAction::DefSymAction(unsigned int pPosition, std::string& pAssignment)
+DefSymAction::DefSymAction(unsigned int pPosition,
+                           const std::string& pAssignment)
     : InputAction(pPosition), m_Assignment(pAssignment) {
 }
 
@@ -223,8 +224,9 @@ bool DefSymAction::activate(InputBuilder& pBuilder) const {
   Input* input = *pBuilder.getCurrentNode();
   pBuilder.setContext(*input, false);
 
-  m_Assignment.append(";");
-  pBuilder.setMemory(*input, &m_Assignment[0], m_Assignment.size());
+  // FIXME
+  void* base = static_cast<void*>(const_cast<char*>(m_Assignment.data()));
+  pBuilder.setMemory(*input, base, m_Assignment.size());
   return true;
 }
 
@@ -272,3 +274,5 @@ bool ScriptAction::activate(InputBuilder& pBuilder) const {
 
   return true;
 }
+
+}  // namespace mcld

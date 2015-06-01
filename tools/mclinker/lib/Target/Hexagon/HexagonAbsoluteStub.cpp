@@ -10,14 +10,14 @@
 #include "HexagonAbsoluteStub.h"
 #include "HexagonLDBackend.h"
 
-#include <mcld/LD/ResolveInfo.h>
-#include <mcld/LD/LDSymbol.h>
-#include <mcld/Fragment/Relocation.h>
+#include "mcld/LD/ResolveInfo.h"
+#include "mcld/LD/LDSymbol.h"
+#include "mcld/Fragment/Relocation.h"
 
 #include <llvm/Support/ELF.h>
 #include <llvm/Support/MathExtras.h>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // HexagonAbsoluteStub
@@ -34,7 +34,7 @@ const uint32_t HexagonAbsoluteStub::TEMPLATE[] = {
 };
 
 #define FITS_IN_NBITS(D, B) \
-  (llvm::abs64(D) < (~(~(int64_t)0 << ((B)-1)) & -(4 * 4)))
+  (std::abs(D) < (~(~(int64_t)0 << ((B)-1)) & -(4 * 4)))
 
 HexagonAbsoluteStub::HexagonAbsoluteStub(bool pIsOutputPIC)
     : Stub(), m_Name("HexagonTrampoline"), m_pData(NULL), m_Size(0x0) {
@@ -108,3 +108,5 @@ size_t HexagonAbsoluteStub::alignment() const {
 Stub* HexagonAbsoluteStub::doClone() {
   return new HexagonAbsoluteStub(m_pData, m_Size, fixup_begin(), fixup_end());
 }
+
+}  // namespace mcld

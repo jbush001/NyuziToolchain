@@ -14,18 +14,18 @@
 #ifndef MCLD_IRBUILDER_H_
 #define MCLD_IRBUILDER_H_
 
-#include <mcld/Fragment/FillFragment.h>
-#include <mcld/Fragment/Fragment.h>
-#include <mcld/Fragment/FragmentRef.h>
-#include <mcld/Fragment/RegionFragment.h>
-#include <mcld/Fragment/Relocation.h>
-#include <mcld/LD/EhFrame.h>
-#include <mcld/LD/LDSection.h>
-#include <mcld/LD/LDSymbol.h>
-#include <mcld/MC/Input.h>
-#include <mcld/MC/InputBuilder.h>
-#include <mcld/Support/FileHandle.h>
-#include <mcld/Support/Path.h>
+#include "mcld/Fragment/FillFragment.h"
+#include "mcld/Fragment/Fragment.h"
+#include "mcld/Fragment/FragmentRef.h"
+#include "mcld/Fragment/RegionFragment.h"
+#include "mcld/Fragment/Relocation.h"
+#include "mcld/LD/EhFrame.h"
+#include "mcld/LD/LDSection.h"
+#include "mcld/LD/LDSymbol.h"
+#include "mcld/MC/Input.h"
+#include "mcld/MC/InputBuilder.h"
+#include "mcld/Support/FileHandle.h"
+#include "mcld/Support/Path.h"
 
 namespace mcld {
 
@@ -251,6 +251,13 @@ class IRBuilder {
   ///         or if the pSection's type is not LDFileFormat::EhFrame, then an
   ///         assertion occurs.
   static EhFrame* CreateEhFrame(LDSection& pSection);
+
+  /// CreateDebugString - To create a debug_str for given pSection
+  /// @param  pSection The given LDSection. It should be the output
+  ///         .debug_str section
+  ///         pSection.getDebugString() is set to a valid eh_frame.
+  /// @return The created DebugString
+  static DebugString* CreateDebugString(LDSection& pSection);
 
   /// CreateBSS - To create a bss section for given pSection
   /// @param [in, out] pSection The given LDSection. It can be in either an

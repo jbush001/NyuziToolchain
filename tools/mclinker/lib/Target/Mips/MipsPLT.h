@@ -9,8 +9,8 @@
 #ifndef TARGET_MIPS_MIPSPLT_H_
 #define TARGET_MIPS_MIPSPLT_H_
 
-#include <mcld/Support/MemoryRegion.h>
-#include <mcld/Target/PLT.h>
+#include "mcld/Support/MemoryRegion.h"
+#include "mcld/Target/PLT.h"
 
 namespace mcld {
 
@@ -26,23 +26,16 @@ class MipsPLT : public PLT {
  public:
   explicit MipsPLT(LDSection& pSection);
 
+  void finalizeSectionSize();
+
   // hasPLT1 - return if this PLT has any PLTA/PLTB entries
   bool hasPLT1() const;
 
   uint64_t emit(MemoryRegion& pRegion);
 
-  Fragment* consume();
+  PLTEntryBase* create();
 
   void applyAllPLT(MipsGOTPLT& pGOTPLT);
-
- public:
-  // PLT
-  void reserveEntry(size_t pNum = 1);
-  void finalizeSectionSize();
-
- private:
-  // the last consumed entry.
-  SectionData::iterator m_Last;
 };
 
 }  // namespace mcld

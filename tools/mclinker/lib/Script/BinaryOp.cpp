@@ -6,19 +6,20 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Script/BinaryOp.h>
+#include "mcld/Script/BinaryOp.h"
 
-#include <mcld/LinkerScript.h>
-#include <mcld/Module.h>
-#include <mcld/ADT/SizeTraits.h>
-#include <mcld/Script/Operand.h>
-#include <mcld/Target/TargetLDBackend.h>
+#include "mcld/LinkerScript.h"
+#include "mcld/Module.h"
+#include "mcld/ADT/SizeTraits.h"
+#include "mcld/Script/Operand.h"
+#include "mcld/Target/TargetLDBackend.h"
 
 #include <llvm/Support/Casting.h>
 
 #include <cassert>
 
-using namespace mcld;
+namespace mcld {
+
 //===----------------------------------------------------------------------===//
 // BinaryOp
 //===----------------------------------------------------------------------===//
@@ -244,3 +245,5 @@ IntOperand* BinaryOp<Operator::SEGMENT_START>::eval(
   }
   return res;
 }
+
+}  // namespace mcld

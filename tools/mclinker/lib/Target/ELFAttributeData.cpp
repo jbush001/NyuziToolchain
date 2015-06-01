@@ -6,14 +6,14 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Target/ELFAttributeData.h>
+#include "mcld/Target/ELFAttributeData.h"
 
-#include <mcld/Support/LEB128.h>
-#include <mcld/Target/ELFAttributeValue.h>
+#include "mcld/Support/LEB128.h"
+#include "mcld/Target/ELFAttributeValue.h"
 #include <cstring>
 #include <cassert>
 
-using namespace mcld;
+namespace mcld {
 
 bool ELFAttributeData::ReadTag(TagType& pTag,
                                const char*& pBuf,
@@ -85,3 +85,5 @@ bool ELFAttributeData::WriteAttribute(TagType pTag,
 
   return true;
 }
+
+}  // namespace mcld

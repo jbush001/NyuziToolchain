@@ -12,26 +12,26 @@
 #include "AArch64LDBackend.h"
 #include "AArch64Relocator.h"
 
-#include <mcld/IRBuilder.h>
-#include <mcld/LinkerConfig.h>
-#include <mcld/Fragment/AlignFragment.h>
-#include <mcld/Fragment/FillFragment.h>
-#include <mcld/Fragment/NullFragment.h>
-#include <mcld/Fragment/RegionFragment.h>
-#include <mcld/Fragment/Stub.h>
-#include <mcld/LD/BranchIslandFactory.h>
-#include <mcld/LD/ELFFileFormat.h>
-#include <mcld/LD/ELFSegment.h>
-#include <mcld/LD/ELFSegmentFactory.h>
-#include <mcld/LD/LDContext.h>
-#include <mcld/LD/StubFactory.h>
-#include <mcld/Support/MemoryRegion.h>
-#include <mcld/Support/MemoryArea.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/Support/TargetRegistry.h>
-#include <mcld/Target/ELFAttribute.h>
-#include <mcld/Target/GNUInfo.h>
-#include <mcld/Object/ObjectBuilder.h>
+#include "mcld/IRBuilder.h"
+#include "mcld/LinkerConfig.h"
+#include "mcld/Fragment/AlignFragment.h"
+#include "mcld/Fragment/FillFragment.h"
+#include "mcld/Fragment/NullFragment.h"
+#include "mcld/Fragment/RegionFragment.h"
+#include "mcld/Fragment/Stub.h"
+#include "mcld/LD/BranchIslandFactory.h"
+#include "mcld/LD/ELFFileFormat.h"
+#include "mcld/LD/ELFSegment.h"
+#include "mcld/LD/ELFSegmentFactory.h"
+#include "mcld/LD/LDContext.h"
+#include "mcld/LD/StubFactory.h"
+#include "mcld/Support/MemoryRegion.h"
+#include "mcld/Support/MemoryArea.h"
+#include "mcld/Support/MsgHandling.h"
+#include "mcld/Support/TargetRegistry.h"
+#include "mcld/Target/ELFAttribute.h"
+#include "mcld/Target/GNUInfo.h"
+#include "mcld/Object/ObjectBuilder.h"
 
 #include <llvm/ADT/Triple.h>
 #include <llvm/ADT/Twine.h>
@@ -40,7 +40,7 @@
 
 #include <cstring>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // AArch64GNULDBackend
@@ -387,8 +387,6 @@ const OutputRelocSection& AArch64GNULDBackend::getRelaPLT() const {
   return *m_pRelaPLT;
 }
 
-namespace mcld {
-
 //===----------------------------------------------------------------------===//
 //  createAArch64LDBackend - the help funtion to create corresponding
 //  AArch64LDBackend
@@ -421,6 +419,6 @@ TargetLDBackend* createAArch64LDBackend(const LinkerConfig& pConfig) {
 //===----------------------------------------------------------------------===//
 extern "C" void MCLDInitializeAArch64LDBackend() {
   // Register the linker backend
-  mcld::TargetRegistry::RegisterTargetLDBackend(TheAArch64Target,
-                                                createAArch64LDBackend);
+  mcld::TargetRegistry::RegisterTargetLDBackend(mcld::TheAArch64Target,
+                                                mcld::createAArch64LDBackend);
 }

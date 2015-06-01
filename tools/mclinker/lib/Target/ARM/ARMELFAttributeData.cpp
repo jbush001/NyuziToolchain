@@ -8,13 +8,13 @@
 //===----------------------------------------------------------------------===//
 #include "ARMELFAttributeData.h"
 
-#include <mcld/LinkerConfig.h>
-#include <mcld/MC/Input.h>
-#include <mcld/Support/LEB128.h>
-#include <mcld/Support/MsgHandling.h>
+#include "mcld/LinkerConfig.h"
+#include "mcld/MC/Input.h"
+#include "mcld/Support/LEB128.h"
+#include "mcld/Support/MsgHandling.h"
 #include <llvm/ADT/STLExtras.h>
 
-using namespace mcld;
+namespace mcld {
 
 const ELFAttributeValue* ARMELFAttributeData::getAttributeValue(
     TagType pTag) const {
@@ -1076,3 +1076,5 @@ bool ARMELFAttributeData::usingThumb2() const {
   int arch = m_Attrs[Tag_CPU_arch].getIntValue();
   return (arch == CPU_Arch_ARM_V6T2) || (arch == CPU_Arch_ARM_V7);
 }
+
+}  // namespace mcld

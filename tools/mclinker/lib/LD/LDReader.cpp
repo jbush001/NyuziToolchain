@@ -6,9 +6,11 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/LDReader.h>
+#include "mcld/LD/LDReader.h"
 
-using namespace mcld;
+namespace mcld {
 
 //==========================
 // LDReader
+
+}  // namespace mcld

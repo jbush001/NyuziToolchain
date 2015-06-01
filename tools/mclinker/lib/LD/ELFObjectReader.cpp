@@ -6,18 +6,18 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/ELFObjectReader.h>
+#include "mcld/LD/ELFObjectReader.h"
 
-#include <mcld/IRBuilder.h>
-#include <mcld/MC/Input.h>
-#include <mcld/LD/ELFReader.h>
-#include <mcld/LD/EhFrameReader.h>
-#include <mcld/LD/EhFrame.h>
-#include <mcld/LD/LDContext.h>
-#include <mcld/Target/GNULDBackend.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/Support/MemoryArea.h>
-#include <mcld/Object/ObjectBuilder.h>
+#include "mcld/IRBuilder.h"
+#include "mcld/MC/Input.h"
+#include "mcld/LD/ELFReader.h"
+#include "mcld/LD/EhFrameReader.h"
+#include "mcld/LD/EhFrame.h"
+#include "mcld/LD/LDContext.h"
+#include "mcld/Target/GNULDBackend.h"
+#include "mcld/Support/MsgHandling.h"
+#include "mcld/Support/MemoryArea.h"
+#include "mcld/Object/ObjectBuilder.h"
 
 #include <llvm/Support/ELF.h>
 #include <llvm/ADT/Twine.h>
@@ -26,7 +26,7 @@
 #include <string>
 #include <cassert>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // ELFObjectReader
@@ -100,6 +100,7 @@ bool ELFObjectReader::readHeader(Input& pInput) {
   llvm::StringRef region =
       pInput.memArea()->request(pInput.fileOffset(), hdr_size);
   const char* ELF_hdr = region.begin();
+  m_Backend.mergeFlags(pInput, ELF_hdr);
   bool result = m_pELFReader->readSectionHeaders(pInput, ELF_hdr);
   return result;
 }
@@ -208,7 +209,8 @@ bool ELFObjectReader::readSections(Input& pInput) {
           fatal(diag::err_cannot_read_section) << (*section)->name();
         break;
       }
-      case LDFileFormat::Debug: {
+      case LDFileFormat::Debug:
+      case LDFileFormat::DebugString: {
         if (m_Config.options().stripDebug()) {
           (*section)->setKind(LDFileFormat::Ignore);
         } else {
@@ -333,3 +335,5 @@ bool ELFObjectReader::readRelocations(Input& pInput) {
 
   return true;
 }
+
+}  // namespace mcld

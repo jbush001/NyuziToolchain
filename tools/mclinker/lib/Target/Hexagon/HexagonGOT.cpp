@@ -8,12 +8,12 @@
 //===----------------------------------------------------------------------===//
 #include "HexagonGOT.h"
 
-#include <mcld/LD/LDFileFormat.h>
-#include <mcld/LD/SectionData.h>
+#include "mcld/LD/LDFileFormat.h"
+#include "mcld/LD/SectionData.h"
 
 #include <llvm/Support/Casting.h>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // HexagonGOT
@@ -27,3 +27,5 @@ HexagonGOT::~HexagonGOT() {
 HexagonGOTEntry* HexagonGOT::create() {
   return new HexagonGOTEntry(0, m_SectionData);
 }
+
+}  // namespace mcld
