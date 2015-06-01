@@ -9,19 +9,19 @@
 #include "ARMRelocator.h"
 #include "ARMRelocationFunctions.h"
 
-#include <mcld/IRBuilder.h>
-#include <mcld/LinkerConfig.h>
-#include <mcld/LD/ELFFileFormat.h>
-#include <mcld/LD/LDSymbol.h>
-#include <mcld/Object/ObjectBuilder.h>
-#include <mcld/Support/MsgHandling.h>
+#include "mcld/IRBuilder.h"
+#include "mcld/LinkerConfig.h"
+#include "mcld/LD/ELFFileFormat.h"
+#include "mcld/LD/LDSymbol.h"
+#include "mcld/Object/ObjectBuilder.h"
+#include "mcld/Support/MsgHandling.h"
 
 #include <llvm/ADT/Twine.h>
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/ELF.h>
 #include <llvm/Support/Host.h>
 
-using namespace mcld;
+namespace mcld {
 
 //=========================================//
 // Relocation helper function              //
@@ -399,7 +399,7 @@ void ARMRelocator::checkValidReloc(Relocation& pReloc) const {
       break;
 
     default:
-      error(diag::non_pic_relocation) << static_cast<int>(pReloc.type())
+      error(diag::non_pic_relocation) << getName(pReloc.type())
                                       << pReloc.symInfo()->name();
       break;
   }
@@ -462,7 +462,7 @@ void ARMRelocator::scanLocalReloc(Relocation& pReloc,
     case llvm::ELF::R_ARM_THM_MOVT_ABS: {
       // PIC code should not contain these kinds of relocation
       if (config().isCodeIndep()) {
-        error(diag::non_pic_relocation) << static_cast<int>(pReloc.type())
+        error(diag::non_pic_relocation) << getName(pReloc.type())
                                         << pReloc.symInfo()->name();
       }
       return;
@@ -757,6 +757,23 @@ void ARMRelocator::scanRelocation(Relocation& pReloc,
     issueUndefRef(pReloc, pSection, pInput);
 }
 
+uint32_t ARMRelocator::getDebugStringOffset(Relocation& pReloc) const {
+  if (pReloc.type() != llvm::ELF::R_ARM_ABS32)
+    error(diag::unsupport_reloc_for_debug_string)
+        << getName(pReloc.type()) << "mclinker@googlegroups.com";
+
+  if (pReloc.symInfo()->type() == ResolveInfo::Section)
+    return pReloc.target();
+  else
+    return pReloc.symInfo()->outSymbol()->fragRef()->offset() +
+               pReloc.target() + pReloc.addend();
+}
+
+void ARMRelocator::applyDebugStringOffset(Relocation& pReloc,
+                                          uint32_t pOffset) {
+  pReloc.target() = pOffset;
+}
+
 //=========================================//
 // Each relocation function implementation //
 //=========================================//
@@ -944,7 +961,8 @@ ARMRelocator::Result thm_jump19(Relocation& pReloc, ARMRelocator& pParent) {
 
   if (T == 0x0) {
     // FIXME: conditional branch to PLT in THUMB-2 not supported yet
-    error(diag::unsupport_cond_branch_reloc) << static_cast<int>(pReloc.type());
+    error(diag::unsupported_cond_branch_reloc)
+        << static_cast<int>(pReloc.type());
     return Relocator::BadReloc;
   }
 
@@ -1340,9 +1358,11 @@ ARMRelocator::Result prel31(Relocation& pReloc, ARMRelocator& pParent) {
 // R_ARM_TLS_IE32: GOT(S) + A - P
 // R_ARM_TLS_LE32: S + A - tp
 ARMRelocator::Result tls(Relocation& pReloc, ARMRelocator& pParent) {
-  return Relocator::Unsupport;
+  return Relocator::Unsupported;
 }
 
-ARMRelocator::Result unsupport(Relocation& pReloc, ARMRelocator& pParent) {
-  return Relocator::Unsupport;
+ARMRelocator::Result unsupported(Relocation& pReloc, ARMRelocator& pParent) {
+  return Relocator::Unsupported;
 }
+
+}  // namespace mcld

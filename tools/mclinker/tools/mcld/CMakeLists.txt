@@ -1,12 +1,13 @@
 include_directories( ${CMAKE_CURRENT_SOURCE_DIR}/include )
+set(LLVM_TARGET_DEFINITIONS Options.td)
+tablegen(LLVM Options.inc -gen-opt-parser-defs)
+add_public_tablegen_target(DriverOptionsTableGen)
 
 add_mcld_executable(ld.mcld
-  main.cpp
+  Main.cpp
   )
-add_subdirectory(lib)
 
 target_link_libraries(ld.mcld
-  LiteOptions
   MCLDADT
   MCLDAArch64LDBackend
   MCLDARMLDBackend
@@ -14,7 +15,10 @@ target_link_libraries(ld.mcld
   MCLDMipsLDBackend
   MCLDX86LDBackend
   MCLDNyuziLDBackend
+  LLVMOption
 )
 
 install(TARGETS ld.mcld
   RUNTIME DESTINATION bin)
+
+add_dependencies(ld.mcld DriverOptionsTableGen)

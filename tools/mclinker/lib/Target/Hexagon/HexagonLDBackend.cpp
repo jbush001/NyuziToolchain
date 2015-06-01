@@ -13,29 +13,29 @@
 #include "HexagonGNUInfo.h"
 #include "HexagonAbsoluteStub.h"
 
-#include <mcld/IRBuilder.h>
-#include <mcld/LinkerConfig.h>
-#include <mcld/Fragment/AlignFragment.h>
-#include <mcld/Fragment/FillFragment.h>
-#include <mcld/Fragment/RegionFragment.h>
-#include <mcld/Fragment/Stub.h>
-#include <mcld/LD/BranchIslandFactory.h>
-#include <mcld/LD/ELFFileFormat.h>
-#include <mcld/LD/ELFSegmentFactory.h>
-#include <mcld/LD/ELFSegment.h>
-#include <mcld/LD/LDContext.h>
-#include <mcld/LD/StubFactory.h>
-#include <mcld/Object/ObjectBuilder.h>
-#include <mcld/Support/MemoryArea.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/Support/TargetRegistry.h>
+#include "mcld/IRBuilder.h"
+#include "mcld/LinkerConfig.h"
+#include "mcld/Fragment/AlignFragment.h"
+#include "mcld/Fragment/FillFragment.h"
+#include "mcld/Fragment/RegionFragment.h"
+#include "mcld/Fragment/Stub.h"
+#include "mcld/LD/BranchIslandFactory.h"
+#include "mcld/LD/ELFFileFormat.h"
+#include "mcld/LD/ELFSegmentFactory.h"
+#include "mcld/LD/ELFSegment.h"
+#include "mcld/LD/LDContext.h"
+#include "mcld/LD/StubFactory.h"
+#include "mcld/Object/ObjectBuilder.h"
+#include "mcld/Support/MemoryArea.h"
+#include "mcld/Support/MsgHandling.h"
+#include "mcld/Support/TargetRegistry.h"
 
 #include <llvm/ADT/Triple.h>
 #include <llvm/Support/Casting.h>
 
 #include <cstring>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // HexagonLDBackend
@@ -999,8 +999,6 @@ void HexagonLDBackend::doCreateProgramHdrs(Module& pModule) {
   // TODO
 }
 
-namespace mcld {
-
 //===----------------------------------------------------------------------===//
 /// createHexagonLDBackend - the help funtion to create corresponding
 /// HexagonLDBackend
@@ -1031,6 +1029,6 @@ TargetLDBackend* createHexagonLDBackend(const LinkerConfig& pConfig) {
 //===----------------------------------------------------------------------===//
 extern "C" void MCLDInitializeHexagonLDBackend() {
   // Register the linker backend
-  mcld::TargetRegistry::RegisterTargetLDBackend(TheHexagonTarget,
-                                                createHexagonLDBackend);
+  mcld::TargetRegistry::RegisterTargetLDBackend(mcld::TheHexagonTarget,
+                                                mcld::createHexagonLDBackend);
 }

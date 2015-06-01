@@ -6,19 +6,19 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/DiagnosticInfos.h>
+#include "mcld/LD/DiagnosticInfos.h"
 
-#include <mcld/LinkerConfig.h>
-#include <mcld/ADT/SizeTraits.h>
-#include <mcld/LD/Diagnostic.h>
-#include <mcld/LD/DiagnosticPrinter.h>
+#include "mcld/LinkerConfig.h"
+#include "mcld/ADT/SizeTraits.h"
+#include "mcld/LD/Diagnostic.h"
+#include "mcld/LD/DiagnosticPrinter.h"
 
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/DataTypes.h>
 
 #include <algorithm>
 
-using namespace mcld;
+namespace mcld {
 
 namespace {
 
@@ -51,6 +51,7 @@ static const DiagStaticInfo DiagCommonInfo[] = {
 #include "mcld/LD/DiagLayouts.inc"  // NOLINT [build/include] [4]
 #include "mcld/LD/DiagGOTPLT.inc"  // NOLINT [build/include] [4]
 #include "mcld/LD/DiagLDScript.inc"  // NOLINT [build/include] [4]
+#include "mcld/LD/DiagMips.inc"  // NOLINT [build/include] [4]
 #undef DIAG
     {0, DiagnosticEngine::None, 0, 0}};
 
@@ -69,6 +70,7 @@ static const DiagStaticInfo DiagLoCInfo[] = {
 #include "mcld/LD/DiagLayouts.inc"  // NOLINT [build/include] [4]
 #include "mcld/LD/DiagGOTPLT.inc"  // NOLINT [build/include] [4]
 #include "mcld/LD/DiagLDScript.inc"  // NOLINT [build/include] [4]
+#include "mcld/LD/DiagMips.inc"  // NOLINT [build/include] [4]
 #undef DIAG
     {0, DiagnosticEngine::None, 0, 0}};
 
@@ -169,3 +171,5 @@ bool DiagnosticInfos::process(DiagnosticEngine& pEngine) const {
   pEngine.getPrinter()->handleDiagnostic(severity, info);
   return true;
 }
+
+}  // namespace mcld

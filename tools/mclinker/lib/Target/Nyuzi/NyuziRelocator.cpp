@@ -78,6 +78,19 @@ Relocator::Result NyuziRelocator::applyRelocation(Relocation& pRelocation)
   return ApplyFunctions[type].func(pRelocation, *this);
 }
 
+uint32_t NyuziRelocator::getDebugStringOffset(Relocation& pReloc) const {
+  if (pReloc.type() != llvm::ELF::R_NYUZI_ABS32)
+    error(diag::unsupport_reloc_for_debug_string) << getName(pReloc.type());
+
+  return pReloc.symInfo()->outSymbol()->fragRef()->offset() +
+         pReloc.target() + pReloc.addend();
+}
+
+void NyuziRelocator::applyDebugStringOffset(Relocation& pReloc,
+                                            uint32_t pOffset) {
+  pReloc.target() = pOffset;
+}
+
 const char* NyuziRelocator::getName(Relocator::Type pType) const
 {
   assert(ApplyFunctions.find(pType) != ApplyFunctions.end());

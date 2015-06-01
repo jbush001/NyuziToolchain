@@ -17,26 +17,26 @@
 #include "THMToTHMStub.h"
 #include "THMToARMStub.h"
 
-#include <mcld/IRBuilder.h>
-#include <mcld/LinkerConfig.h>
-#include <mcld/Fragment/AlignFragment.h>
-#include <mcld/Fragment/FillFragment.h>
-#include <mcld/Fragment/NullFragment.h>
-#include <mcld/Fragment/RegionFragment.h>
-#include <mcld/Fragment/Stub.h>
-#include <mcld/LD/BranchIslandFactory.h>
-#include <mcld/LD/LDContext.h>
-#include <mcld/LD/ELFFileFormat.h>
-#include <mcld/LD/ELFSegmentFactory.h>
-#include <mcld/LD/ELFSegment.h>
-#include <mcld/LD/StubFactory.h>
-#include <mcld/Object/ObjectBuilder.h>
-#include <mcld/Support/MemoryArea.h>
-#include <mcld/Support/MemoryRegion.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/Support/TargetRegistry.h>
-#include <mcld/Target/ELFAttribute.h>
-#include <mcld/Target/GNUInfo.h>
+#include "mcld/IRBuilder.h"
+#include "mcld/LinkerConfig.h"
+#include "mcld/Fragment/AlignFragment.h"
+#include "mcld/Fragment/FillFragment.h"
+#include "mcld/Fragment/NullFragment.h"
+#include "mcld/Fragment/RegionFragment.h"
+#include "mcld/Fragment/Stub.h"
+#include "mcld/LD/BranchIslandFactory.h"
+#include "mcld/LD/LDContext.h"
+#include "mcld/LD/ELFFileFormat.h"
+#include "mcld/LD/ELFSegmentFactory.h"
+#include "mcld/LD/ELFSegment.h"
+#include "mcld/LD/StubFactory.h"
+#include "mcld/Object/ObjectBuilder.h"
+#include "mcld/Support/MemoryArea.h"
+#include "mcld/Support/MemoryRegion.h"
+#include "mcld/Support/MsgHandling.h"
+#include "mcld/Support/TargetRegistry.h"
+#include "mcld/Target/ELFAttribute.h"
+#include "mcld/Target/GNUInfo.h"
 
 #include <llvm/ADT/StringRef.h>
 #include <llvm/ADT/Triple.h>
@@ -46,7 +46,7 @@
 
 #include <cstring>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // ARMGNULDBackend
@@ -395,6 +395,21 @@ bool ARMGNULDBackend::finalizeTargetSymbols() {
   return true;
 }
 
+
+/// preMergeSections - hooks to be executed before merging sections
+void ARMGNULDBackend::preMergeSections(Module& pModule) {
+  scanInputExceptionSections(pModule);
+}
+
+/// postMergeSections - hooks to be executed after merging sections
+void ARMGNULDBackend::postMergeSections(Module& pModule) {
+  if (m_pEXIDX->hasSectionData()) {
+    // Append the NullFragment so that __exidx_end can be correctly inserted.
+    NullFragment* null = new NullFragment(m_pEXIDX->getSectionData());
+    null->setOffset(m_pEXIDX->size());
+  }
+}
+
 bool ARMGNULDBackend::mergeSection(Module& pModule,
                                    const Input& pInput,
                                    LDSection& pSection) {
@@ -402,6 +417,7 @@ bool ARMGNULDBackend::mergeSection(Module& pModule,
     case llvm::ELF::SHT_ARM_ATTRIBUTES: {
       return attribute().merge(pInput, pSection);
     }
+
     case llvm::ELF::SHT_ARM_EXIDX: {
       assert(pSection.getLink() != NULL);
       if ((pSection.getLink()->kind() == LDFileFormat::Ignore) ||
@@ -411,8 +427,51 @@ bool ARMGNULDBackend::mergeSection(Module& pModule,
         pSection.setKind(LDFileFormat::Ignore);
         return true;
       }
+
+      if (!m_pEXIDX->hasSectionData()) {
+        // Create SectionData for m_pEXIDX.
+        SectionData* sectData = IRBuilder::CreateSectionData(*m_pEXIDX);
+
+        // Initialize the alignment of m_pEXIDX.
+        const size_t alignExIdx = 4;
+        m_pEXIDX->setAlign(alignExIdx);
+
+        // Insert an AlignFragment to the beginning of m_pEXIDX.
+        AlignFragment* frag =
+            new AlignFragment(/*alignment*/alignExIdx,
+                              /*the filled value*/0x0,
+                              /*the size of filled value*/1u,
+                              /*max bytes to emit*/alignExIdx - 1);
+        frag->setOffset(0);
+        frag->setParent(sectData);
+        sectData->getFragmentList().push_back(frag);
+        m_pEXIDX->setSize(frag->size());
+      }
+
+      // Move RegionFragment from pSection to m_pEXIDX.
+      uint64_t offset = m_pEXIDX->size();
+      SectionData::FragmentListType& src =
+          pSection.getSectionData()->getFragmentList();
+      SectionData::FragmentListType& dst =
+          m_pEXIDX->getSectionData()->getFragmentList();
+      SectionData::FragmentListType::iterator frag = src.begin();
+      SectionData::FragmentListType::iterator fragEnd = src.end();
+      while (frag != fragEnd) {
+        if (frag->getKind() != Fragment::Region) {
+          ++frag;
+        } else {
+          frag->setParent(m_pEXIDX->getSectionData());
+          frag->setOffset(offset);
+          offset += frag->size();
+          dst.splice(dst.end(), src, frag++);
+        }
+      }
+
+      // Update the size of m_pEXIDX.
+      m_pEXIDX->setSize(offset);
+      return true;
     }
-    /** fall through **/
+
     default: {
       ObjectBuilder builder(pModule);
       builder.MergeSection(pInput, pSection);
@@ -575,6 +634,15 @@ unsigned int ARMGNULDBackend::getTargetSectionOrder(
   return SHO_UNDEFINED;
 }
 
+/// relax - the relaxation pass
+bool ARMGNULDBackend::relax(Module& pModule, IRBuilder& pBuilder) {
+  if (!GNULDBackend::relax(pModule, pBuilder)) {
+    return false;
+  }
+  rewriteARMExIdxSection(pModule);
+  return true;
+}
+
 /// doRelax
 bool ARMGNULDBackend::doRelax(Module& pModule,
                               IRBuilder& pBuilder,
@@ -625,8 +693,8 @@ bool ARMGNULDBackend::doRelax(Module& pModule,
                                                   *getBRIslandFactory());
             if (stub != NULL) {
               switch (config().options().getStripSymbolMode()) {
-                case GeneralOptions::StripAllSymbols:
-                case GeneralOptions::StripLocals:
+                case GeneralOptions::StripSymbolMode::StripAllSymbols:
+                case GeneralOptions::StripSymbolMode::StripLocals:
                   break;
                 default: {
                   // a stub symbol should be local
@@ -746,8 +814,6 @@ bool ARMGNULDBackend::mayHaveUnsafeFunctionPointerAccess(
          GNULDBackend::mayHaveUnsafeFunctionPointerAccess(pSection);
 }
 
-namespace mcld {
-
 //===----------------------------------------------------------------------===//
 /// createARMLDBackend - the help funtion to create corresponding ARMLDBackend
 ///
@@ -779,8 +845,8 @@ TargetLDBackend* createARMLDBackend(const LinkerConfig& pConfig) {
 //===----------------------------------------------------------------------===//
 extern "C" void MCLDInitializeARMLDBackend() {
   // Register the linker backend
-  mcld::TargetRegistry::RegisterTargetLDBackend(TheARMTarget,
-                                                createARMLDBackend);
-  mcld::TargetRegistry::RegisterTargetLDBackend(TheThumbTarget,
-                                                createARMLDBackend);
+  mcld::TargetRegistry::RegisterTargetLDBackend(mcld::TheARMTarget,
+                                                mcld::createARMLDBackend);
+  mcld::TargetRegistry::RegisterTargetLDBackend(mcld::TheThumbTarget,
+                                                mcld::createARMLDBackend);
 }

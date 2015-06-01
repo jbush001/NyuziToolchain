@@ -10,13 +10,13 @@
 #include "ARMToTHMStub.h"
 #include "ARMLDBackend.h"
 
-#include <mcld/Fragment/Relocation.h>
-#include <mcld/LD/LDSymbol.h>
-#include <mcld/LD/ResolveInfo.h>
+#include "mcld/Fragment/Relocation.h"
+#include "mcld/LD/LDSymbol.h"
+#include "mcld/LD/ResolveInfo.h"
 
 #include <llvm/Support/ELF.h>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // ARMToTHMStub
@@ -112,3 +112,5 @@ size_t ARMToTHMStub::alignment() const {
 Stub* ARMToTHMStub::doClone() {
   return new ARMToTHMStub(m_pData, m_Size, fixup_begin(), fixup_end());
 }
+
+}  // namespace mcld

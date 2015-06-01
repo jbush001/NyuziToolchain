@@ -6,18 +6,18 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/GroupReader.h>
+#include "mcld/LD/GroupReader.h"
 
-#include <mcld/LD/Archive.h>
-#include <mcld/LD/ArchiveReader.h>
-#include <mcld/LD/BinaryReader.h>
-#include <mcld/LD/DynObjReader.h>
-#include <mcld/LD/ObjectReader.h>
-#include <mcld/LinkerConfig.h>
-#include <mcld/MC/Attribute.h>
-#include <mcld/Support/MsgHandling.h>
+#include "mcld/LD/Archive.h"
+#include "mcld/LD/ArchiveReader.h"
+#include "mcld/LD/BinaryReader.h"
+#include "mcld/LD/DynObjReader.h"
+#include "mcld/LD/ObjectReader.h"
+#include "mcld/LinkerConfig.h"
+#include "mcld/MC/Attribute.h"
+#include "mcld/Support/MsgHandling.h"
 
-using namespace mcld;
+namespace mcld {
 
 GroupReader::GroupReader(Module& pModule,
                          ObjectReader& pObjectReader,
@@ -144,3 +144,5 @@ bool GroupReader::readGroup(Module::input_iterator pRoot,
 
   return true;
 }
+
+}  // namespace mcld

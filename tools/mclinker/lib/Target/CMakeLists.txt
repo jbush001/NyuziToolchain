@@ -1,4 +1,4 @@
-add_mcld_library(MCLDTarget
+add_llvm_library(MCLDTarget
   ELFAttribute.cpp
   ELFAttributeData.cpp
   ELFAttributeValue.cpp
@@ -10,6 +10,8 @@ add_mcld_library(MCLDTarget
   OutputRelocSection.cpp
   PLT.cpp
   TargetLDBackend.cpp
+  LINK_LIBS
+    MCLDLD
   )
 
 add_subdirectory(AArch64)
@@ -18,7 +20,3 @@ add_subdirectory(Hexagon)
 add_subdirectory(Mips)
 add_subdirectory(X86)
 add_subdirectory(Nyuzi)
-
-target_link_libraries(MCLDTarget PRIVATE
-  MCLDLD
-  )

@@ -10,13 +10,13 @@
 #include "THMToARMStub.h"
 #include "ARMLDBackend.h"
 
-#include <mcld/Fragment/Relocation.h>
-#include <mcld/LD/LDSymbol.h>
-#include <mcld/LD/ResolveInfo.h>
+#include "mcld/Fragment/Relocation.h"
+#include "mcld/LD/LDSymbol.h"
+#include "mcld/LD/ResolveInfo.h"
 
 #include <llvm/Support/ELF.h>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // THMToARMStub
@@ -131,3 +131,5 @@ Stub* THMToARMStub::doClone() {
   return new THMToARMStub(
       m_pData, m_Size, fixup_begin(), fixup_end(), m_bUsingThumb2);
 }
+
+}  // namespace mcld

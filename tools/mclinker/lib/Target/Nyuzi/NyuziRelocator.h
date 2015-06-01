@@ -32,6 +32,9 @@ public:
 
   Result applyRelocation(Relocation& pRelocation);
 
+  uint32_t getDebugStringOffset(Relocation& pReloc) const;
+  void applyDebugStringOffset(Relocation& pReloc, uint32_t pOffset);
+
   NyuziGNULDBackend& getTarget()
   { return m_Target; }
 

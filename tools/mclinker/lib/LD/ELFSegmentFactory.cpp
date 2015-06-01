@@ -6,10 +6,10 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/ELFSegmentFactory.h>
-#include <mcld/LD/ELFSegment.h>
+#include "mcld/LD/ELFSegmentFactory.h"
+#include "mcld/LD/ELFSegment.h"
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // ELFSegmentFactory
@@ -80,6 +80,14 @@ ELFSegment* ELFSegmentFactory::produce(uint32_t pType, uint32_t pFlag) {
   return back();
 }
 
+ELFSegment* ELFSegmentFactory::insert(iterator pPosition,
+                                      uint32_t pType,
+                                      uint32_t pFlag) {
+  return *(m_Segments.insert(pPosition, ELFSegment::Create(pType, pFlag)));
+}
+
 void ELFSegmentFactory::erase(iterator pSegment) {
   m_Segments.erase(pSegment);
 }
+
+}  // namespace mcld

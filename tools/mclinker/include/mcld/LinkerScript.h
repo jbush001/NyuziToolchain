@@ -9,14 +9,16 @@
 #ifndef MCLD_LINKERSCRIPT_H_
 #define MCLD_LINKERSCRIPT_H_
 
-#include <mcld/ADT/HashTable.h>
+#include "mcld/ADT/HashTable.h"
+#include "mcld/ADT/StringEntry.h"
+#include "mcld/ADT/StringHash.h"
+#include "mcld/MC/SearchDirs.h"
+#include "mcld/Object/SectionMap.h"
+#include "mcld/Script/AssertCmd.h"
+#include "mcld/Script/Assignment.h"
+
 #include <llvm/ADT/StringRef.h>
-#include <mcld/ADT/StringEntry.h>
-#include <mcld/ADT/StringHash.h>
-#include <mcld/MC/SearchDirs.h>
-#include <mcld/Object/SectionMap.h>
-#include <mcld/Script/AssertCmd.h>
-#include <mcld/Script/Assignment.h>
+#include <llvm/ADT/SmallVector.h>
 
 #include <string>
 #include <vector>
@@ -42,6 +44,8 @@ class LinkerScript {
 
   typedef std::vector<AssertCmd> Assertions;
 
+  typedef llvm::SmallVector<std::string, 8> DefSyms;
+
  public:
   LinkerScript();
 
@@ -61,6 +65,9 @@ class LinkerScript {
 
   const Assertions& assertions() const { return m_Assertions; }
   Assertions& assertions() { return m_Assertions; }
+
+  const DefSyms& defsyms() const { return m_DefSyms; }
+  DefSyms& defsyms() { return m_DefSyms; }
 
   /// search directory
   const SearchDirs& directories() const { return m_SearchDirs; }
@@ -93,6 +100,7 @@ class LinkerScript {
   SectionMap m_SectionMap;
   Assignments m_Assignments;
   Assertions m_Assertions;
+  DefSyms m_DefSyms;
   SearchDirs m_SearchDirs;
   std::string m_Entry;
   std::string m_OutputFile;

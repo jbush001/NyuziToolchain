@@ -9,8 +9,8 @@
 #ifndef TARGET_MIPS_MIPSGOTPLT_H_
 #define TARGET_MIPS_MIPSGOTPLT_H_
 
-#include <mcld/Support/MemoryRegion.h>
-#include <mcld/Target/GOT.h>
+#include "mcld/Support/MemoryRegion.h"
+#include "mcld/Target/GOT.h"
 #include <llvm/ADT/DenseMap.h>
 
 namespace mcld {
@@ -31,17 +31,9 @@ class MipsGOTPLT : public GOT {
 
   uint64_t emit(MemoryRegion& pRegion);
 
-  Fragment* consume();
+  Fragment* create();
 
   void applyAllGOTPLT(uint64_t pltAddr);
-
- public:
-  // GOT
-  void reserve(size_t pNum = 1);
-
- private:
-  // the last consumed entry.
-  SectionData::iterator m_Last;
 };
 
 }  // namespace mcld

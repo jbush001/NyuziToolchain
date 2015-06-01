@@ -13,28 +13,33 @@
 #include "MipsLDBackend.h"
 #include "MipsRelocator.h"
 
-#include <mcld/IRBuilder.h>
-#include <mcld/LinkerConfig.h>
-#include <mcld/Module.h>
-#include <mcld/Fragment/FillFragment.h>
-#include <mcld/LD/BranchIslandFactory.h>
-#include <mcld/LD/LDContext.h>
-#include <mcld/LD/StubFactory.h>
-#include <mcld/LD/ELFFileFormat.h>
-#include <mcld/MC/Attribute.h>
-#include <mcld/Object/ObjectBuilder.h>
-#include <mcld/Support/MemoryRegion.h>
-#include <mcld/Support/MemoryArea.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/Support/TargetRegistry.h>
-#include <mcld/Target/OutputRelocSection.h>
+#include "mcld/IRBuilder.h"
+#include "mcld/LinkerConfig.h"
+#include "mcld/Module.h"
+#include "mcld/Fragment/AlignFragment.h"
+#include "mcld/Fragment/FillFragment.h"
+#include "mcld/LD/BranchIslandFactory.h"
+#include "mcld/LD/LDContext.h"
+#include "mcld/LD/StubFactory.h"
+#include "mcld/LD/ELFFileFormat.h"
+#include "mcld/LD/ELFSegment.h"
+#include "mcld/LD/ELFSegmentFactory.h"
+#include "mcld/MC/Attribute.h"
+#include "mcld/Object/ObjectBuilder.h"
+#include "mcld/Support/MemoryRegion.h"
+#include "mcld/Support/MemoryArea.h"
+#include "mcld/Support/MsgHandling.h"
+#include "mcld/Support/TargetRegistry.h"
+#include "mcld/Target/OutputRelocSection.h"
 
 #include <llvm/ADT/Triple.h>
+#include <llvm/Object/ELFTypes.h>
 #include <llvm/Support/Casting.h>
 #include <llvm/Support/ELF.h>
 #include <llvm/Support/Host.h>
+#include <llvm/Support/MipsABIFlags.h>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // MipsGNULDBackend
@@ -50,6 +55,7 @@ MipsGNULDBackend::MipsGNULDBackend(const LinkerConfig& pConfig,
       m_pRelPlt(NULL),
       m_pRelDyn(NULL),
       m_pDynamic(NULL),
+      m_pAbiFlags(NULL),
       m_pGOTSymbol(NULL),
       m_pPLTSymbol(NULL),
       m_pGpDispSymbol(NULL) {
@@ -99,6 +105,17 @@ void MipsGNULDBackend::initTargetSections(Module& pModule,
   // initialize .rel.dyn
   LDSection& reldyn = file_format->getRelDyn();
   m_pRelDyn = new OutputRelocSection(pModule, reldyn);
+
+  // initialize .sdata
+  m_psdata = pBuilder.CreateSection(
+      ".sdata", LDFileFormat::Target, llvm::ELF::SHT_PROGBITS,
+      llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_WRITE | llvm::ELF::SHF_MIPS_GPREL,
+      4);
+
+  // initialize .MIPS.abiflags
+  m_pAbiFlags = pBuilder.CreateSection(".MIPS.abiflags", LDFileFormat::Target,
+                                       llvm::ELF::SHT_MIPS_ABIFLAGS,
+                                       llvm::ELF::SHF_ALLOC, 4);
 }
 
 void MipsGNULDBackend::initTargetSymbols(IRBuilder& pBuilder, Module& pModule) {
@@ -163,6 +180,9 @@ void MipsGNULDBackend::doPreLayout(IRBuilder& pBuilder) {
   if (!config().isCodeStatic() && m_pDynamic == NULL)
     m_pDynamic = new MipsELFDynamic(*this, config());
 
+  if (m_pAbiInfo.hasValue())
+    m_pAbiFlags->setSize(m_pAbiInfo->size());
+
   // set .got size
   // when building shared object, the .got section is must.
   if (LinkerConfig::Object != config().codeGenType()) {
@@ -219,18 +239,6 @@ void MipsGNULDBackend::doPostLayout(Module& pModule, IRBuilder& pBuilder) {
   }
 
   m_pInfo.setABIVersion(m_pPLT && m_pPLT->hasPLT1() ? 1 : 0);
-
-  // FIXME: (simon) We need to iterate all input sections
-  // check that flags are consistent and merge them properly.
-  uint64_t picFlags = llvm::ELF::EF_MIPS_CPIC;
-  if (config().targets().triple().isArch64Bit()) {
-    picFlags |= llvm::ELF::EF_MIPS_PIC;
-  } else {
-    if (LinkerConfig::DynObj == config().codeGenType())
-      picFlags |= llvm::ELF::EF_MIPS_PIC;
-  }
-
-  m_pInfo.setPICFlags(picFlags);
 }
 
 /// dynamic - the dynamic section of the target machine.
@@ -265,6 +273,60 @@ uint64_t MipsGNULDBackend::emitSectionData(const LDSection& pSection,
     return m_pGOTPLT->emit(pRegion);
   }
 
+  if (&pSection == m_pAbiFlags && m_pAbiInfo.hasValue())
+    return MipsAbiFlags::emit(*m_pAbiInfo, pRegion);
+
+  if (&pSection == m_psdata && m_psdata->hasSectionData()) {
+    const SectionData* sect_data = pSection.getSectionData();
+    SectionData::const_iterator frag_iter, frag_end = sect_data->end();
+    uint8_t* out_offset = pRegion.begin();
+    for (frag_iter = sect_data->begin(); frag_iter != frag_end; ++frag_iter) {
+      size_t size = frag_iter->size();
+      switch (frag_iter->getKind()) {
+        case Fragment::Fillment: {
+          const FillFragment& fill_frag = llvm::cast<FillFragment>(*frag_iter);
+          if (fill_frag.getValueSize() == 0) {
+            // virtual fillment, ignore it.
+            break;
+          }
+          memset(out_offset, fill_frag.getValue(), fill_frag.size());
+          break;
+        }
+        case Fragment::Region: {
+          const RegionFragment& region_frag =
+              llvm::cast<RegionFragment>(*frag_iter);
+          const char* start = region_frag.getRegion().begin();
+          memcpy(out_offset, start, size);
+          break;
+        }
+        case Fragment::Alignment: {
+          const AlignFragment& align_frag =
+              llvm::cast<AlignFragment>(*frag_iter);
+          uint64_t count = size / align_frag.getValueSize();
+          switch (align_frag.getValueSize()) {
+            case 1u:
+              std::memset(out_offset, align_frag.getValue(), count);
+              break;
+            default:
+              llvm::report_fatal_error(
+                  "unsupported value size for align fragment emission yet.\n");
+              break;
+          }  // end switch
+          break;
+        }
+        case Fragment::Null: {
+          assert(0x0 == size);
+          break;
+        }
+        default:
+          llvm::report_fatal_error("unsupported fragment type.\n");
+          break;
+      }  // end switch
+      out_offset += size;
+    }
+    return pRegion.size();
+  }
+
   fatal(diag::unrecognized_output_sectoin) << pSection.name()
                                            << "mclinker@googlegroups.com";
   return 0;
@@ -287,8 +349,7 @@ struct DynsymGOTCompare {
 }  // anonymous namespace
 
 void MipsGNULDBackend::orderSymbolTable(Module& pModule) {
-  if (GeneralOptions::GNU == config().options().getHashStyle() ||
-      GeneralOptions::Both == config().options().getHashStyle()) {
+  if (config().options().hasGNUHash()) {
     // The MIPS ABI and .gnu.hash require .dynsym to be sorted
     // in different ways. The MIPS ABI requires a mapping between
     // the GOT and the symbol table. At the same time .gnu.hash
@@ -301,6 +362,8 @@ void MipsGNULDBackend::orderSymbolTable(Module& pModule) {
   std::stable_sort(
       symbols.dynamicBegin(), symbols.dynamicEnd(), DynsymGOTCompare(*m_pGOT));
 }
+
+}  // namespace mcld
 
 namespace llvm {
 namespace ELF {
@@ -332,10 +395,58 @@ struct Elf64_RegInfo {
 }  // namespace ELF
 }  // namespace llvm
 
-bool MipsGNULDBackend::readSection(Input& pInput, SectionData& pSD) {
-  llvm::StringRef name(pSD.getSection().name());
+namespace mcld {
 
-  if (name.startswith(".sdata")) {
+static const char* ArchName(uint64_t flagBits) {
+  using namespace llvm::ELF;
+  switch (flagBits) {
+    case EF_MIPS_ARCH_1:
+      return "mips1";
+    case EF_MIPS_ARCH_2:
+      return "mips2";
+    case EF_MIPS_ARCH_3:
+      return "mips3";
+    case EF_MIPS_ARCH_4:
+      return "mips4";
+    case EF_MIPS_ARCH_5:
+      return "mips5";
+    case EF_MIPS_ARCH_32:
+      return "mips32";
+    case EF_MIPS_ARCH_64:
+      return "mips64";
+    case EF_MIPS_ARCH_32R2:
+      return "mips32r2";
+    case EF_MIPS_ARCH_64R2:
+      return "mips64r2";
+    case EF_MIPS_ARCH_32R6:
+      return "mips32r6";
+    case EF_MIPS_ARCH_64R6:
+      return "mips64r6";
+    default:
+      return "Unknown Arch";
+  }
+}
+
+void MipsGNULDBackend::mergeFlags(Input& pInput, const char* ELF_hdr) {
+  using namespace llvm::ELF;
+  bool isTarget64Bit = config().targets().triple().isArch64Bit();
+  bool isInput64Bit = ELF_hdr[EI_CLASS] == ELFCLASS64;
+
+  if (isTarget64Bit != isInput64Bit) {
+    fatal(diag::error_Mips_incompatible_class)
+        << (isTarget64Bit ? "ELFCLASS64" : "ELFCLASS32")
+        << (isInput64Bit ? "ELFCLASS64" : "ELFCLASS32") << pInput.name();
+    return;
+  }
+
+  m_ElfFlagsMap[&pInput] =
+      isInput64Bit ? reinterpret_cast<const Elf64_Ehdr*>(ELF_hdr)->e_flags
+                   : reinterpret_cast<const Elf32_Ehdr*>(ELF_hdr)->e_flags;
+}
+
+bool MipsGNULDBackend::readSection(Input& pInput, SectionData& pSD) {
+  if ((pSD.getSection().flag() & llvm::ELF::SHF_MIPS_GPREL) ||
+      (pSD.getSection().type() == llvm::ELF::SHT_MIPS_ABIFLAGS)) {
     uint64_t offset = pInput.fileOffset() + pSD.getSection().offset();
     uint64_t size = pSD.getSection().size();
 
@@ -446,6 +557,12 @@ unsigned int MipsGNULDBackend::getTargetSectionOrder(
   if (file_format->hasPLT() && (&pSectHdr == &file_format->getPLT()))
     return SHO_PLT;
 
+  if (&pSectHdr == m_psdata)
+    return SHO_SMALL_DATA;
+
+  if (&pSectHdr == m_pAbiFlags)
+    return SHO_RO_NOTE;
+
   return SHO_UNDEFINED;
 }
 
@@ -555,6 +672,14 @@ bool MipsGNULDBackend::allocateCommonSymbols(Module& pModule) {
   return true;
 }
 
+uint64_t MipsGNULDBackend::getTPOffset(const Input& pInput) const {
+  return m_TpOffsetMap.lookup(&pInput);
+}
+
+uint64_t MipsGNULDBackend::getDTPOffset(const Input& pInput) const {
+  return m_DtpOffsetMap.lookup(&pInput);
+}
+
 uint64_t MipsGNULDBackend::getGP0(const Input& pInput) const {
   return m_GP0Map.lookup(&pInput);
 }
@@ -617,7 +742,22 @@ void MipsGNULDBackend::defineGOTPLTSymbol(IRBuilder& pBuilder) {
 /// doCreateProgramHdrs - backend can implement this function to create the
 /// target-dependent segments
 void MipsGNULDBackend::doCreateProgramHdrs(Module& pModule) {
-  // TODO
+  using namespace llvm::ELF;
+  if (!m_pAbiFlags || m_pAbiFlags->size() == 0)
+    return;
+
+  // create PT_MIPS_ABIFLAGS segment
+  ELFSegmentFactory::iterator sit = elfSegmentTable().find(PT_INTERP, 0x0, 0x0);
+  if (sit == elfSegmentTable().end())
+    sit = elfSegmentTable().find(PT_PHDR, 0x0, 0x0);
+  if (sit == elfSegmentTable().end())
+    sit = elfSegmentTable().begin();
+  else
+    ++sit;
+
+  ELFSegment* abiSeg = elfSegmentTable().insert(sit, PT_MIPS_ABIFLAGS, PF_R);
+  abiSeg->setAlign(8);
+  abiSeg->append(m_pAbiFlags);
 }
 
 bool MipsGNULDBackend::relaxRelocation(IRBuilder& pBuilder, Relocation& pRel) {
@@ -821,6 +961,249 @@ void MipsGNULDBackend::emitRelocation(llvm::ELF::Elf64_Rela& pRel,
   pRel.r_addend = pAddend;
 }
 
+namespace {
+struct ISATreeEdge {
+  unsigned child;
+  unsigned parent;
+};
+}
+
+static ISATreeEdge isaTree[] = {
+    // MIPS32R6 and MIPS64R6 are not compatible with other extensions
+
+    // MIPS64 extensions.
+    {llvm::ELF::EF_MIPS_ARCH_64R2, llvm::ELF::EF_MIPS_ARCH_64},
+    // MIPS V extensions.
+    {llvm::ELF::EF_MIPS_ARCH_64, llvm::ELF::EF_MIPS_ARCH_5},
+    // MIPS IV extensions.
+    {llvm::ELF::EF_MIPS_ARCH_5, llvm::ELF::EF_MIPS_ARCH_4},
+    // MIPS III extensions.
+    {llvm::ELF::EF_MIPS_ARCH_4, llvm::ELF::EF_MIPS_ARCH_3},
+    // MIPS32 extensions.
+    {llvm::ELF::EF_MIPS_ARCH_32R2, llvm::ELF::EF_MIPS_ARCH_32},
+    // MIPS II extensions.
+    {llvm::ELF::EF_MIPS_ARCH_3, llvm::ELF::EF_MIPS_ARCH_2},
+    {llvm::ELF::EF_MIPS_ARCH_32, llvm::ELF::EF_MIPS_ARCH_2},
+    // MIPS I extensions.
+    {llvm::ELF::EF_MIPS_ARCH_2, llvm::ELF::EF_MIPS_ARCH_1},
+};
+
+static bool isIsaMatched(uint32_t base, uint32_t ext) {
+  using namespace llvm::ELF;
+  if (base == ext)
+    return true;
+  if (base == EF_MIPS_ARCH_32 && isIsaMatched(EF_MIPS_ARCH_64, ext))
+    return true;
+  if (base == EF_MIPS_ARCH_32R2 && isIsaMatched(EF_MIPS_ARCH_64R2, ext))
+    return true;
+  for (const auto &edge : isaTree) {
+    if (ext == edge.child) {
+      ext = edge.parent;
+      if (ext == base)
+        return true;
+    }
+  }
+  return false;
+}
+
+static bool getAbiFlags(const Input& pInput, uint64_t elfFlags, bool& hasFlags,
+                        MipsAbiFlags& pFlags) {
+  MipsAbiFlags pElfFlags = {};
+  if (!MipsAbiFlags::fillByElfFlags(pInput, elfFlags, pElfFlags))
+    return false;
+
+  const LDContext* ctx = pInput.context();
+  for (auto it = ctx->sectBegin(), ie = ctx->sectEnd(); it != ie; ++it)
+    if ((*it)->type() == llvm::ELF::SHT_MIPS_ABIFLAGS) {
+      if (!MipsAbiFlags::fillBySection(pInput, **it, pFlags))
+        return false;
+      if (!MipsAbiFlags::isCompatible(pInput, pElfFlags, pFlags))
+        return false;
+      hasFlags = true;
+      return true;
+    }
+
+  pFlags = pElfFlags;
+  return true;
+}
+
+static const char* getNanName(uint64_t flags) {
+  return flags & llvm::ELF::EF_MIPS_NAN2008 ? "2008" : "legacy";
+}
+
+static bool mergeElfFlags(const Input& pInput, uint64_t& oldElfFlags,
+                          uint64_t newElfFlags) {
+  using namespace llvm::ELF;
+  // PIC code is inherently CPIC and may not set CPIC flag explicitly.
+  // Ensure that this flag will exist in the linked file.
+  if (newElfFlags & EF_MIPS_PIC)
+    newElfFlags |= EF_MIPS_CPIC;
+
+  if (newElfFlags & EF_MIPS_ARCH_ASE_M16) {
+    error(diag::error_Mips_m16_unsupported) << pInput.name();
+    return false;
+  }
+
+  if (!oldElfFlags) {
+    oldElfFlags = newElfFlags;
+    return true;
+  }
+
+  uint64_t newPic = newElfFlags & (EF_MIPS_PIC | EF_MIPS_CPIC);
+  uint64_t oldPic = oldElfFlags & (EF_MIPS_PIC | EF_MIPS_CPIC);
+
+  // Check PIC / CPIC flags compatibility.
+  if ((newPic != 0) != (oldPic != 0))
+    warning(diag::warn_Mips_abicalls_linking) << pInput.name();
+
+  if (!(newPic & EF_MIPS_PIC))
+    oldElfFlags &= ~EF_MIPS_PIC;
+  if (newPic)
+    oldElfFlags |= EF_MIPS_CPIC;
+
+  // Check ISA compatibility.
+  uint64_t newArch = newElfFlags & EF_MIPS_ARCH;
+  uint64_t oldArch = oldElfFlags & EF_MIPS_ARCH;
+  if (!isIsaMatched(newArch, oldArch)) {
+    if (!isIsaMatched(oldArch, newArch)) {
+      error(diag::error_Mips_inconsistent_arch)
+          << ArchName(oldArch) << ArchName(newArch) << pInput.name();
+      return false;
+    }
+    oldElfFlags &= ~EF_MIPS_ARCH;
+    oldElfFlags |= newArch;
+  }
+
+  // Check ABI compatibility.
+  uint32_t newAbi = newElfFlags & EF_MIPS_ABI;
+  uint32_t oldAbi = oldElfFlags & EF_MIPS_ABI;
+  if (newAbi != oldAbi && newAbi && oldAbi) {
+    error(diag::error_Mips_inconsistent_abi) << pInput.name();
+    return false;
+  }
+
+  // Check -mnan flags compatibility.
+  if ((newElfFlags & EF_MIPS_NAN2008) != (oldElfFlags & EF_MIPS_NAN2008)) {
+    // Linking -mnan=2008 and -mnan=legacy modules
+    error(diag::error_Mips_inconsistent_mnan)
+        << getNanName(oldElfFlags) << getNanName(newElfFlags) << pInput.name();
+    return false;
+  }
+
+  // Check ASE compatibility.
+  uint64_t newAse = newElfFlags & EF_MIPS_ARCH_ASE;
+  uint64_t oldAse = oldElfFlags & EF_MIPS_ARCH_ASE;
+  if (newAse != oldAse)
+    oldElfFlags |= newAse;
+
+  // Check FP64 compatibility.
+  if ((newElfFlags & EF_MIPS_FP64) != (oldElfFlags & EF_MIPS_FP64)) {
+    // Linking -mnan=2008 and -mnan=legacy modules
+    error(diag::error_Mips_inconsistent_fp64) << pInput.name();
+    return false;
+  }
+
+  oldElfFlags |= newElfFlags & EF_MIPS_NOREORDER;
+  oldElfFlags |= newElfFlags & EF_MIPS_MICROMIPS;
+  oldElfFlags |= newElfFlags & EF_MIPS_NAN2008;
+  oldElfFlags |= newElfFlags & EF_MIPS_32BITMODE;
+
+  return true;
+}
+
+void MipsGNULDBackend::saveTPOffset(const Input& pInput) {
+  const LDContext* ctx = pInput.context();
+  for (auto it = ctx->sectBegin(), ie = ctx->sectEnd(); it != ie; ++it) {
+    LDSection* sect = *it;
+    if (sect->flag() & llvm::ELF::SHF_TLS) {
+      m_TpOffsetMap[&pInput] = sect->addr() + 0x7000;
+      m_DtpOffsetMap[&pInput] = sect->addr() + 0x8000;
+      break;
+    }
+  }
+}
+
+void MipsGNULDBackend::preMergeSections(Module& pModule) {
+  uint64_t elfFlags = 0;
+  bool hasAbiFlags = false;
+  MipsAbiFlags abiFlags = {};
+  for (const Input *input : pModule.getObjectList()) {
+    if (input->type() != Input::Object)
+      continue;
+
+    uint64_t newElfFlags = m_ElfFlagsMap[input];
+
+    MipsAbiFlags newAbiFlags = {};
+    if (!getAbiFlags(*input, newElfFlags, hasAbiFlags, newAbiFlags))
+      continue;
+
+    if (!mergeElfFlags(*input, elfFlags, newElfFlags))
+      continue;
+
+    if (!MipsAbiFlags::merge(*input, abiFlags, newAbiFlags))
+      continue;
+
+    saveTPOffset(*input);
+  }
+
+  m_pInfo.setElfFlags(elfFlags);
+  if (hasAbiFlags)
+    m_pAbiInfo = abiFlags;
+}
+
+bool MipsGNULDBackend::mergeSection(Module& pModule, const Input& pInput,
+                                    LDSection& pSection) {
+  if (pSection.flag() & llvm::ELF::SHF_MIPS_GPREL) {
+    SectionData* sd = NULL;
+    if (!m_psdata->hasSectionData()) {
+      sd = IRBuilder::CreateSectionData(*m_psdata);
+      m_psdata->setSectionData(sd);
+    }
+    sd = m_psdata->getSectionData();
+    moveSectionData(*pSection.getSectionData(), *sd);
+  } else if (pSection.type() == llvm::ELF::SHT_MIPS_ABIFLAGS) {
+    // Nothing to do because we handle all .MIPS.abiflags sections
+    // in the preMergeSections method.
+  } else {
+    ObjectBuilder builder(pModule);
+    builder.MergeSection(pInput, pSection);
+  }
+  return true;
+}
+
+void MipsGNULDBackend::moveSectionData(SectionData& pFrom, SectionData& pTo) {
+  assert(&pFrom != &pTo && "Cannot move section data to itself!");
+
+  uint64_t offset = pTo.getSection().size();
+  AlignFragment* align = NULL;
+  if (pFrom.getSection().align() > 1) {
+    // if the align constraint is larger than 1, append an alignment
+    unsigned int alignment = pFrom.getSection().align();
+    align = new AlignFragment(/*alignment*/ alignment,
+                              /*the filled value*/ 0x0,
+                              /*the size of filled value*/ 1u,
+                              /*max bytes to emit*/ alignment - 1);
+    align->setOffset(offset);
+    align->setParent(&pTo);
+    pTo.getFragmentList().push_back(align);
+    offset += align->size();
+  }
+
+  // move fragments from pFrom to pTO
+  SectionData::FragmentListType& from_list = pFrom.getFragmentList();
+  SectionData::FragmentListType& to_list = pTo.getFragmentList();
+  SectionData::FragmentListType::iterator frag, fragEnd = from_list.end();
+  for (frag = from_list.begin(); frag != fragEnd; ++frag) {
+    frag->setParent(&pTo);
+    frag->setOffset(offset);
+    offset += frag->size();
+  }
+  to_list.splice(to_list.end(), from_list);
+
+  // set up pTo's header
+  pTo.getSection().setSize(offset);
+}
+
 //===----------------------------------------------------------------------===//
 // Mips32GNULDBackend
 //===----------------------------------------------------------------------===//
@@ -933,12 +1316,14 @@ static TargetLDBackend* createMipsLDBackend(const LinkerConfig& pConfig) {
   return new Mips32GNULDBackend(pConfig, new MipsGNUInfo(triple));
 }
 
+}  // namespace mcld
+
 //===----------------------------------------------------------------------===//
 // Force static initialization.
 //===----------------------------------------------------------------------===//
 extern "C" void MCLDInitializeMipsLDBackend() {
   mcld::TargetRegistry::RegisterTargetLDBackend(mcld::TheMipselTarget,
-                                                createMipsLDBackend);
+                                                mcld::createMipsLDBackend);
   mcld::TargetRegistry::RegisterTargetLDBackend(mcld::TheMips64elTarget,
-                                                createMipsLDBackend);
+                                                mcld::createMipsLDBackend);
 }

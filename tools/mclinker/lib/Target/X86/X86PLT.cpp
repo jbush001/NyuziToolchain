@@ -9,14 +9,14 @@
 #include "X86GOTPLT.h"
 #include "X86PLT.h"
 
-#include <mcld/LD/LDSection.h>
-#include <mcld/LinkerConfig.h>
-#include <mcld/Support/MsgHandling.h>
+#include "mcld/LD/LDSection.h"
+#include "mcld/LinkerConfig.h"
+#include "mcld/Support/MsgHandling.h"
 
 #include <llvm/Support/ELF.h>
 #include <llvm/Support/Casting.h>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // PLT entry data
@@ -301,3 +301,5 @@ void X86_64PLT::applyPLT1() {
     ++it;
   }
 }
+
+}  // namespace mcld

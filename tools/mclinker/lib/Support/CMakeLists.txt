@@ -1,5 +1,4 @@
-add_mcld_library(MCLDSupport
-  CommandLine.cpp
+add_llvm_library(MCLDSupport
   Demangle.cpp
   Directory.cpp
   FileHandle.cpp
@@ -21,8 +20,6 @@ add_mcld_library(MCLDSupport
   Windows/FileSystem.inc
   Windows/PathV3.inc
   Windows/System.inc
-  )
-
-target_link_libraries(MCLDSupport PRIVATE
-  MCLDLD
+  LINK_LIBS
+    MCLDLD
   )

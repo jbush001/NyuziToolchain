@@ -6,22 +6,22 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/LD/IdenticalCodeFolding.h>
+#include "mcld/LD/IdenticalCodeFolding.h"
 
-#include <mcld/GeneralOptions.h>
-#include <mcld/Module.h>
-#include <mcld/Fragment/RegionFragment.h>
-#include <mcld/LD/LDContext.h>
-#include <mcld/LD/LDSection.h>
-#include <mcld/LD/RelocData.h>
-#include <mcld/LD/Relocator.h>
-#include <mcld/LD/ResolveInfo.h>
-#include <mcld/LD/SectionData.h>
-#include <mcld/LinkerConfig.h>
-#include <mcld/MC/Input.h>
-#include <mcld/Support/Demangle.h>
-#include <mcld/Support/MsgHandling.h>
-#include <mcld/Target/GNULDBackend.h>
+#include "mcld/GeneralOptions.h"
+#include "mcld/Module.h"
+#include "mcld/Fragment/RegionFragment.h"
+#include "mcld/LD/LDContext.h"
+#include "mcld/LD/LDSection.h"
+#include "mcld/LD/RelocData.h"
+#include "mcld/LD/Relocator.h"
+#include "mcld/LD/ResolveInfo.h"
+#include "mcld/LD/SectionData.h"
+#include "mcld/LinkerConfig.h"
+#include "mcld/MC/Input.h"
+#include "mcld/Support/Demangle.h"
+#include "mcld/Support/MsgHandling.h"
+#include "mcld/Target/GNULDBackend.h"
 
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/Casting.h>
@@ -32,7 +32,8 @@
 #include <set>
 
 #include <zlib.h>
-using namespace mcld;
+
+namespace mcld {
 
 static bool isSymCtorOrDtor(const ResolveInfo& pSym) {
   // We can always fold ctors and dtors since accessing function pointer in C++
@@ -136,7 +137,7 @@ void IdenticalCodeFolding::findCandidates(FoldingCandidates& pCandidateList) {
           }
 
           // Safe icf
-          if (m_Config.options().getICFMode() == GeneralOptions::ICF_Safe) {
+          if (m_Config.options().getICFMode() == GeneralOptions::ICF::Safe) {
             RelocData::iterator rel, relEnd = (*sect)->getRelocData()->end();
             for (rel = (*sect)->getRelocData()->begin(); rel != relEnd; ++rel) {
               LDSymbol* sym = rel->symInfo()->outSymbol();
@@ -165,7 +166,7 @@ void IdenticalCodeFolding::findCandidates(FoldingCandidates& pCandidateList) {
     CandidateMap::iterator candidate, candidateEnd = candidate_map.end();
     for (candidate = candidate_map.begin(); candidate != candidateEnd;
          ++candidate) {
-      if ((m_Config.options().getICFMode() == GeneralOptions::ICF_All) ||
+      if ((m_Config.options().getICFMode() == GeneralOptions::ICF::All) ||
           (funcptr_access_set.count(candidate->first) == 0)) {
         size_t index = m_KeptSections.size();
         m_KeptSections[candidate->first] = ObjectAndId(*obj, index);
@@ -234,13 +235,13 @@ void IdenticalCodeFolding::FoldingCandidate::initConstantContent(
     RelocData::iterator rel, relEnd = reloc_sect->getRelocData()->end();
     for (rel = reloc_sect->getRelocData()->begin(); rel != relEnd; ++rel) {
       llvm::format_object<Relocation::Type,
-                           Relocation::Address,
-                           Relocation::Address,
-                           Relocation::Address> rel_info("%x%llx%llx%llx",
-                                                         rel->type(),
-                                                         rel->symValue(),
-                                                         rel->addend(),
-                                                         rel->place());
+                          Relocation::Address,
+                          Relocation::Address,
+                          Relocation::Address> rel_info("%x%llx%llx%llx",
+                                                        rel->type(),
+                                                        rel->symValue(),
+                                                        rel->addend(),
+                                                        rel->place());
       char rel_str[48];
       rel_info.print(rel_str, sizeof(rel_str));
       content.append(rel_str);
@@ -294,3 +295,5 @@ std::string IdenticalCodeFolding::FoldingCandidate::getContentWithVariables(
 
   return result;
 }
+
+}  // namespace mcld

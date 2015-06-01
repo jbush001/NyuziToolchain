@@ -1,10 +1,11 @@
-add_mcld_library(MCLDLD
+add_llvm_library(MCLDLD
   Archive.cpp
   ArchiveReader.cpp
   BinaryReader.cpp
   BranchIsland.cpp
   BranchIslandFactory.cpp
   BSDArchiveReader.cpp
+  DebugString.cpp
   Diagnostic.cpp
   DiagnosticEngine.cpp
   DiagnosticInfos.cpp
@@ -35,6 +36,7 @@ add_mcld_library(MCLDLD
   LDReader.cpp
   LDSection.cpp
   LDSymbol.cpp
+  MergedStringTable.cpp
   MsgHandler.cpp
   NamePool.cpp
   ObjectWriter.cpp
@@ -48,9 +50,7 @@ add_mcld_library(MCLDLD
   StaticResolver.cpp
   StubFactory.cpp
   TextDiagnosticPrinter.cpp
-  )
-
-target_link_libraries(MCLDLD PRIVATE
-  MCLDFragment
-  MCLDSupport
+  LINK_LIBS
+    MCLDFragment
+    MCLDSupport
   )

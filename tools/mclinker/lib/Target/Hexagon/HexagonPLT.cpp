@@ -9,14 +9,14 @@
 #include "HexagonPLT.h"
 #include "HexagonRelocationFunctions.h"
 
-#include <mcld/LD/LDSection.h>
-#include <mcld/LinkerConfig.h>
-#include <mcld/Support/MsgHandling.h>
+#include "mcld/LD/LDSection.h"
+#include "mcld/LinkerConfig.h"
+#include "mcld/Support/MsgHandling.h"
 
 #include <llvm/Support/ELF.h>
 #include <llvm/Support/Casting.h>
 
-using namespace mcld;
+namespace mcld {
 
 //===----------------------------------------------------------------------===//
 // PLT entry data
@@ -186,3 +186,5 @@ uint64_t HexagonPLT::emit(MemoryRegion& pRegion) {
   }
   return result;
 }
+
+}  // namespace mcld

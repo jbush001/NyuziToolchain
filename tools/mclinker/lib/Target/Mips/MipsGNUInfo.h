@@ -8,7 +8,7 @@
 //===----------------------------------------------------------------------===//
 #ifndef TARGET_MIPS_MIPSGNUINFO_H_
 #define TARGET_MIPS_MIPSGNUINFO_H_
-#include <mcld/Target/GNUInfo.h>
+#include "mcld/Target/GNUInfo.h"
 
 #include <llvm/Support/ELF.h>
 namespace mcld {
@@ -18,7 +18,7 @@ class MipsGNUInfo : public GNUInfo {
   explicit MipsGNUInfo(const llvm::Triple& pTriple);
 
   void setABIVersion(uint8_t ver);
-  void setPICFlags(uint64_t flags);
+  void setElfFlags(uint64_t flags);
 
   // GNUInfo
   uint32_t machine() const;
@@ -31,7 +31,7 @@ class MipsGNUInfo : public GNUInfo {
 
  private:
   uint8_t m_ABIVersion;
-  uint64_t m_PICFlags;
+  uint64_t m_ElfFlags;
 };
 
 }  // namespace mcld

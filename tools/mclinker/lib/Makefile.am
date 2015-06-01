@@ -32,6 +32,7 @@ SOURCE = ADT/StringEntry.cpp \
 	LD/BranchIsland.cpp \
 	LD/BranchIslandFactory.cpp \
 	LD/BSDArchiveReader.cpp \
+	LD/DebugString.cpp \
 	LD/Diagnostic.cpp \
 	LD/DiagnosticEngine.cpp \
 	LD/DiagnosticInfos.cpp \
@@ -62,6 +63,7 @@ SOURCE = ADT/StringEntry.cpp \
 	LD/LDReader.cpp \
 	LD/LDSection.cpp \
 	LD/LDSymbol.cpp \
+	LD/MergedStringTable.cpp \
 	LD/MsgHandler.cpp \
 	LD/NamePool.cpp \
 	LD/ObjectWriter.cpp \
@@ -122,7 +124,6 @@ SOURCE = ADT/StringEntry.cpp \
 	Script/TernaryOp.cpp \
 	Script/UnaryOp.cpp \
 	Script/WildcardPattern.cpp \
-	Support/CommandLine.cpp \
 	Support/Demangle.cpp \
 	Support/Directory.cpp \
 	Support/FileHandle.cpp \
@@ -180,6 +181,7 @@ SOURCE = ADT/StringEntry.cpp \
 	Target/ARM/ARMELFDynamic.cpp \
 	Target/ARM/ARMELFDynamic.h \
 	Target/ARM/ARMEmulation.cpp \
+	Target/ARM/ARMException.cpp \
 	Target/ARM/ARMGNUInfo.h \
 	Target/ARM/ARMGOT.cpp \
 	Target/ARM/ARMGOT.h \
@@ -222,6 +224,7 @@ SOURCE = ADT/StringEntry.cpp \
 	Target/Hexagon/HexagonRelocator.cpp \
 	Target/Hexagon/HexagonRelocator.h \
 	Target/Hexagon/TargetInfo/HexagonTargetInfo.cpp \
+	Target/Mips/MipsAbiFlags.cpp \
 	Target/Mips/MipsDiagnostic.cpp \
 	Target/Mips/MipsELFDynamic.cpp \
 	Target/Mips/MipsELFDynamic.h \

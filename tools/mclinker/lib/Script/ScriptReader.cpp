@@ -6,19 +6,19 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-#include <mcld/Script/ScriptReader.h>
+#include "mcld/Script/ScriptReader.h"
 
-#include <mcld/MC/Input.h>
-#include <mcld/Script/ScriptFile.h>
-#include <mcld/Script/ScriptScanner.h>
-#include <mcld/Support/MemoryArea.h>
+#include "mcld/MC/Input.h"
+#include "mcld/Script/ScriptFile.h"
+#include "mcld/Script/ScriptScanner.h"
+#include "mcld/Support/MemoryArea.h"
 
 #include <llvm/ADT/StringRef.h>
 
 #include <istream>
 #include <sstream>
 
-using namespace mcld;
+namespace mcld {
 
 ScriptReader::ScriptReader(ObjectReader& pObjectReader,
                            ArchiveReader& pArchiveReader,
@@ -58,3 +58,5 @@ bool ScriptReader::readScript(const LinkerConfig& pConfig,
                       m_GroupReader);
   return parser.parse() == 0;
 }
+
+}  // namespace mcld

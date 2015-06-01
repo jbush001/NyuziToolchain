@@ -7,6 +7,7 @@ CPPLINT = $(top_srcdir)/utils/cpplint/cpplint.py
 
 CPPLINT_DISABLE_FILTERS = \
   build/c++11 \
+  build/include_order \
   build/include_what_you_use \
   legal/copyright \
   readability/braces \
@@ -22,7 +23,8 @@ CPPLINT_FLAGS = \
 
 CPPLINT_SRCS_DIRS = \
   $(top_srcdir)/include \
-  $(top_srcdir)/lib
+  $(top_srcdir)/lib \
+  $(top_srcdir)/tools
 
 # List of files that doesn't want to run cpplint
 CPPLINT_SRC_FILES_FILTER =

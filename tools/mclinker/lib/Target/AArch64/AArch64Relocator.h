@@ -9,27 +9,12 @@
 #ifndef TARGET_AARCH64_AARCH64RELOCATOR_H_
 #define TARGET_AARCH64_AARCH64RELOCATOR_H_
 
-#include <mcld/LD/Relocator.h>
-#include <mcld/Target/GOT.h>
-#include <mcld/Target/KeyEntryMap.h>
+#include "mcld/LD/Relocator.h"
+#include "mcld/Target/GOT.h"
+#include "mcld/Target/KeyEntryMap.h"
 #include "AArch64LDBackend.h"
 
 namespace mcld {
-// FIXME: llvm::ELF doesn't define AArch64 dynamic relocation types
-enum {
-  // static relocations
-  R_AARCH64_ADR_PREL_PG_HI21_NC = 0x114,
-  // dyanmic rlocations
-  R_AARCH64_COPY = 1024,
-  R_AARCH64_GLOB_DAT = 1025,
-  R_AARCH64_JUMP_SLOT = 1026,
-  R_AARCH64_RELATIVE = 1027,
-  R_AARCH64_TLS_DTPREL64 = 1028,
-  R_AARCH64_TLS_DTPMOD64 = 1029,
-  R_AARCH64_TLS_TPREL64 = 1030,
-  R_AARCH64_TLSDESC = 1031,
-  R_AARCH64_IRELATIVE = 1032
-};
 
 /** \class AArch64Relocator
  *  \brief AArch64Relocator creates and destroys the AArch64 relocations.
@@ -110,6 +95,14 @@ class AArch64Relocator : public Relocator {
                       Module& pModule,
                       LDSection& pSection,
                       Input& pInput);
+
+  /// getDebugStringOffset - get the offset from the relocation target. This is
+  /// used to get the debug string offset.
+  uint32_t getDebugStringOffset(Relocation& pReloc) const;
+
+  /// applyDebugStringOffset - apply the relocation target to specific offset.
+  /// This is used to set the debug string offset.
+  void applyDebugStringOffset(Relocation& pReloc, uint32_t pOffset);
 
  private:
   void scanLocalReloc(Relocation& pReloc, const LDSection& pSection);

@@ -181,8 +181,8 @@ DIAG(fatal_unwritable_output,
      "unable to write output file %0")
 DIAG(warn_unsupported_option,
      DiagnosticEngine::Warning,
-     "Option `%0' is not implemented yet!",
-     "Option `%0' is not implemented yet!")
+     "%0: unsupported option",
+     "%0: unsupported option")
 DIAG(warn_shared_textrel,
      DiagnosticEngine::Warning,
      "Add DT_TEXTREL in a shared object!",
@@ -219,3 +219,11 @@ DIAG(debug_print_gc_sections,
      DiagnosticEngine::Debug,
      "removing unused section from '%0' in file '%1'",
      "removing unused section from '%0' in file '%1'")
+DIAG(eh_missing_text_section,
+     DiagnosticEngine::Fatal,
+     "missing text section for '%0' in file '%1'",
+     "missing text section for '%0' in file '%1'")
+DIAG(eh_missing_exidx_section,
+     DiagnosticEngine::Fatal,
+     "missing .ARM.exidx section for '%0' in file '%1'",
+     "missing .ARM.exidx section for '%0' in file '%1'")

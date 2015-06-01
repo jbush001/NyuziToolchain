@@ -1,3 +1,3 @@
-add_mcld_library(MCLDNyuziTargetInfo
+add_llvm_library(MCLDNyuziTargetInfo
   NyuziTargetInfo.cpp
   )

@@ -9,7 +9,7 @@
 #ifndef MCLD_LD_RELOCATOR_H_
 #define MCLD_LD_RELOCATOR_H_
 
-#include <mcld/Fragment/Relocation.h>
+#include "mcld/Fragment/Relocation.h"
 
 namespace mcld {
 
@@ -30,7 +30,7 @@ class Relocator {
   typedef Relocation::Size Size;
 
  public:
-  enum Result { OK, BadReloc, Overflow, Unsupport, Unknown };
+  enum Result { OK, BadReloc, Overflow, Unsupported, Unknown };
 
  public:
   explicit Relocator(const LinkerConfig& pConfig) : m_Config(pConfig) {}
@@ -87,8 +87,7 @@ class Relocator {
   /// @param pInputSym - the input LDSymbol of relocation target symbol
   /// @param pSection - the section of relocation applying target
   virtual void partialScanRelocation(Relocation& pReloc,
-                                     Module& pModule,
-                                     const LDSection& pSection);
+                                     Module& pModule);
 
   // ------ observers -----//
   virtual TargetLDBackend& getTarget() = 0;
@@ -108,6 +107,14 @@ class Relocator {
   virtual bool mayHaveFunctionPointerAccess(const Relocation& pReloc) const {
     return true;
   }
+
+  /// getDebugStringOffset - get the offset from the relocation target. This is
+  /// used to get the debug string offset.
+  virtual uint32_t getDebugStringOffset(Relocation& pReloc) const = 0;
+
+  /// applyDebugStringOffset - apply the relocation target to specific offset.
+  /// This is used to set the debug string offset.
+  virtual void applyDebugStringOffset(Relocation& pReloc, uint32_t pOffset) = 0;
 
  protected:
   const LinkerConfig& config() const { return m_Config; }
