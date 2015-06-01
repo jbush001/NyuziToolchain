@@ -77,23 +77,31 @@ struct NyuziOperand : public MCParsedAsmOperand {
     Memory
   } Kind;
 
+  struct Token {
+    const char *Data;
+    unsigned Length;
+  };
+  
+  struct RegisterIndex {
+    unsigned RegNum;
+  };
+
+  struct ImmediateOperand {
+    const MCExpr *Val;
+  };
+  
+  struct MemoryOperand {
+    unsigned BaseReg;
+    const MCExpr *Off;
+  };
+
   SMLoc StartLoc, EndLoc;
 
   union {
-    struct {
-      const char *Data;
-      unsigned Length;
-    } Tok;
-    struct {
-      unsigned RegNum;
-    } Reg;
-    struct {
-      const MCExpr *Val;
-    } Imm;
-    struct {
-      unsigned BaseReg;
-      const MCExpr *Off;
-    } Mem;
+    struct Token Tok;
+    struct RegisterIndex Reg;
+    struct ImmediateOperand Imm;
+    struct MemoryOperand Mem;
   };
 
   NyuziOperand(KindTy K) : MCParsedAsmOperand(), Kind(K) {}
