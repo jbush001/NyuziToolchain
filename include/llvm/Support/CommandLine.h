@@ -764,7 +764,7 @@ protected:
 //--------------------------------------------------
 // parser<bool>
 //
-template <> class parser<bool> : public basic_parser<bool> {
+template <> class parser<bool> final : public basic_parser<bool> {
 public:
   parser(Option &O) : basic_parser(O) {}
 
