@@ -68,7 +68,7 @@ and updates the PATH. Once you have done this:
     make
     sudo make install
     
-**Note: upgrading 'flex' using the package manager, may cause build errors. I
+**Upgrading 'flex' using the package manager may cause build errors. I
 would recommend using the system supplied version.**
 
 
