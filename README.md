@@ -60,7 +60,7 @@ and updates the PATH. Once you have done this:
 
     sudo port install cmake bison swig swig-python
 
-    git clone git@github.com:jbush001/NyuziToolchain.git
+    git clone https://github.com/jbush001/NyuziToolchain.git
     cd NyuziToolchain
     mkdir build
     cd build
