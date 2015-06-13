@@ -1,5 +1,8 @@
 ; RUN: llc < %s | FileCheck %s
 
+; Fails on Nyuzi because it doesn't support exceptions
+; XFAIL: nyuzi
+
 declare i32 @__gxx_personality_v0(...)
 declare void @__cxa_call_unexpected(i8*)
 declare void @llvm.donothing() readnone
