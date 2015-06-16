@@ -119,7 +119,7 @@ void NyuziRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBBI,
     unsigned Reg = RegInfo.createVirtualRegister(&Nyuzi::GPR32RegClass);
     BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::MOVESimm), Reg)
         .addImm(Offset >> 12);
-    BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::SLLSSS), Reg)
+    BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::SLLSSI), Reg)
         .addReg(Reg)
         .addImm(12);
     BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::ADDISSS), Reg)
