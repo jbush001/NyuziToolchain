@@ -373,7 +373,7 @@ IRExecutionUnit::GetRunnableInfo(Error &error,
                 ss.PutCString("\n");
             emitNewLine = true;
             ss.PutCString("  ");
-            ss.PutCString(Mangled(failed_lookup).GetDemangledName().AsCString());
+            ss.PutCString(Mangled(failed_lookup).GetDemangledName(lldb::eLanguageTypeObjC_plus_plus).AsCString());
         }
         
         m_failed_lookups.clear();
@@ -676,20 +676,10 @@ IRExecutionUnit::MemoryManager::getSymbolAddress(const std::string &Name)
         SymbolContext sym_ctx;
         sc_list.GetContextAtIndex(i, sym_ctx);
         
-        if (sym_ctx.symbol->GetType() == lldb::eSymbolTypeUndefined)
-            continue;
-        
-        const Address *sym_address = &sym_ctx.symbol->GetAddress();
-        
-        if (!sym_address || !sym_address->IsValid())
-            continue;
-
         symbol_load_addr = sym_ctx.symbol->ResolveCallableAddress(*target_sp);
-        
+
         if (symbol_load_addr == LLDB_INVALID_ADDRESS)
-        {
             symbol_load_addr = sym_ctx.symbol->GetAddress().GetLoadAddress(target_sp.get());
-        }
     }
     
     if (symbol_load_addr == LLDB_INVALID_ADDRESS && process_sp && name_cs)

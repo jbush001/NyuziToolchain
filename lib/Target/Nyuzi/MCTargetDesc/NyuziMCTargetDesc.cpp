@@ -40,30 +40,28 @@ static MCInstrInfo *createNyuziMCInstrInfo() {
   return X;
 }
 
-static MCRegisterInfo *createNyuziMCRegisterInfo(StringRef TT) {
+static MCRegisterInfo *createNyuziMCRegisterInfo(const Triple &TT) {
   MCRegisterInfo *X = new MCRegisterInfo();
   InitNyuziMCRegisterInfo(X, Nyuzi::RA_REG);
   return X;
 }
 
 static MCSubtargetInfo *
-createNyuziMCSubtargetInfo(StringRef TT, StringRef CPU, StringRef FS) {
-  MCSubtargetInfo *X = new MCSubtargetInfo();
-  InitNyuziMCSubtargetInfo(X, TT, CPU, FS);
-  return X;
+createNyuziMCSubtargetInfo(const Triple &TT, StringRef CPU, StringRef FS) {
+  return createNyuziMCSubtargetInfoImpl(TT, CPU, FS);
 }
 
-static MCCodeGenInfo *createNyuziMCCodeGenInfo(StringRef TT,
-                                                    Reloc::Model RM,
-                                                    CodeModel::Model CM,
-                                                    CodeGenOpt::Level OL) {
+static MCCodeGenInfo *createNyuziMCCodeGenInfo(const Triple &TT,
+                                               Reloc::Model RM,
+                                               CodeModel::Model CM,
+                                               CodeGenOpt::Level OL) {
   MCCodeGenInfo *X = new MCCodeGenInfo();
   X->initMCCodeGenInfo(RM, CM, OL);
   return X;
 }
 
 static MCAsmInfo *createNyuziMCAsmInfo(const MCRegisterInfo &MRI,
-                                            StringRef TT) {
+                                       const Triple &TT) {
   MCAsmInfo *MAI = new NyuziMCAsmInfo(TT);
 
   // Put an instruction into the common information entry (CIE), shared

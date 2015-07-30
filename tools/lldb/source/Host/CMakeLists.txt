@@ -76,6 +76,7 @@ else()
     posix/HostProcessPosix.cpp
     posix/HostThreadPosix.cpp
     posix/LockFilePosix.cpp
+    posix/MainLoopPosix.cpp
     posix/PipePosix.cpp
     )
 
@@ -110,6 +111,7 @@ else()
         linux/Host.cpp
         linux/HostInfoLinux.cpp
         linux/HostThreadLinux.cpp
+        linux/LibcGlue.cpp
         linux/ThisThread.cpp
         )
     else()
@@ -117,6 +119,7 @@ else()
         linux/Host.cpp
         linux/HostInfoLinux.cpp
         linux/HostThreadLinux.cpp
+        linux/LibcGlue.cpp
         linux/ThisThread.cpp
         )
     endif()

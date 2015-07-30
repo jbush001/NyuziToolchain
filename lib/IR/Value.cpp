@@ -39,15 +39,15 @@ using namespace llvm;
 //===----------------------------------------------------------------------===//
 //                                Value Class
 //===----------------------------------------------------------------------===//
-
 static inline Type *checkType(Type *Ty) {
   assert(Ty && "Value defined with a null type: Error!");
   return Ty;
 }
 
 Value::Value(Type *ty, unsigned scid)
-    : VTy(checkType(ty)), UseList(nullptr), SubclassID(scid), HasValueHandle(0),
-      SubclassOptionalData(0), SubclassData(0), NumOperands(0) {
+    : VTy(checkType(ty)), UseList(nullptr), SubclassID(scid),
+      HasValueHandle(0), SubclassOptionalData(0), SubclassData(0),
+      NumUserOperands(0), IsUsedByMD(false), HasName(false) {
   // FIXME: Why isn't this in the subclass gunk??
   // Note, we cannot call isa<CallInst> before the CallInst has been
   // constructed.
@@ -157,11 +157,39 @@ static bool getSymTab(Value *V, ValueSymbolTable *&ST) {
   return false;
 }
 
+ValueName *Value::getValueName() const {
+  if (!HasName) return nullptr;
+
+  LLVMContext &Ctx = getContext();
+  auto I = Ctx.pImpl->ValueNames.find(this);
+  assert(I != Ctx.pImpl->ValueNames.end() &&
+         "No name entry found!");
+
+  return I->second;
+}
+
+void Value::setValueName(ValueName *VN) {
+  LLVMContext &Ctx = getContext();
+
+  assert(HasName == Ctx.pImpl->ValueNames.count(this) &&
+         "HasName bit out of sync!");
+
+  if (!VN) {
+    if (HasName)
+      Ctx.pImpl->ValueNames.erase(this);
+    HasName = false;
+    return;
+  }
+
+  HasName = true;
+  Ctx.pImpl->ValueNames[this] = VN;
+}
+
 StringRef Value::getName() const {
   // Make sure the empty string is still a C string. For historical reasons,
   // some clients want to call .data() on the result and expect it to be null
   // terminated.
-  if (!getValueName())
+  if (!hasName())
     return StringRef("", 0);
   return getValueName()->getKey();
 }
@@ -339,7 +367,7 @@ void Value::replaceAllUsesWith(Value *New) {
     // constant because they are uniqued.
     if (auto *C = dyn_cast<Constant>(U.getUser())) {
       if (!isa<GlobalValue>(C)) {
-        C->replaceUsesOfWithOnConstant(this, New, &U);
+        C->handleOperandChange(this, New, &U);
         continue;
       }
     }

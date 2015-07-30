@@ -72,7 +72,7 @@ void NyuziAsmPrinter::EmitConstantPool() {
     if (CPE.isMachineConstantPoolEntry())
       EmitMachineConstantPoolValue(CPE.Val.MachineCPVal);
     else
-      EmitGlobalConstant(CPE.Val.ConstVal);
+      EmitGlobalConstant(MF->getDataLayout(), CPE.Val.ConstVal);
   }
 }
 

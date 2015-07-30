@@ -16,7 +16,6 @@ class CModulesTestCase(TestBase):
 
     @skipUnlessDarwin
     @dsym_test
-    @expectedFailureDarwin # use of undeclared identifier 'MIN'
     def test_expr_with_dsym(self):
         self.buildDsym()
         self.expr()
@@ -24,7 +23,6 @@ class CModulesTestCase(TestBase):
     @dwarf_test
     @skipIfFreeBSD
     @expectedFailureLinux('http://llvm.org/pr23456') # 'fopen' has unknown return type
-    @expectedFailureDarwin # use of undeclared identifier 'MIN'
     def test_expr_with_dwarf(self):
         self.buildDwarf()
         self.expr()
@@ -48,7 +46,7 @@ class CModulesTestCase(TestBase):
         # Break inside the foo function which takes a bar_ptr argument.
         lldbutil.run_break_set_by_file_and_line (self, "main.c", self.line, num_expected_locations=1, loc_exact=True)
 
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # The stop reason of the thread should be breakpoint.
         self.expect("thread list", STOPPED_DUE_TO_BREAKPOINT,
@@ -76,6 +74,9 @@ class CModulesTestCase(TestBase):
 
         self.expect("expr MIN((uint64_t)2, (uint64_t)3)", VARIABLES_DISPLAYED_CORRECTLY,
             substrs = ["uint64_t", "2"])
+
+        self.expect("expr stdin", VARIABLES_DISPLAYED_CORRECTLY,
+            substrs = ["(FILE *)", "0x"])
             
 if __name__ == '__main__':
     import atexit

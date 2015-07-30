@@ -29,7 +29,6 @@
 #include "lldb/Target/Thread.h"
 
 #include "CommunicationKDP.h"
-#include "Utility/StringExtractor.h"
 
 class ThreadKDP;
 

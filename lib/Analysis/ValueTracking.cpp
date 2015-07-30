@@ -551,12 +551,17 @@ static void computeKnownBitsFromTrueCondition(Value *V, ICmpInst *Cmp,
     }
     break;
   case ICmpInst::ICMP_EQ:
-    if (LHS == V)
-      computeKnownBits(RHS, KnownZero, KnownOne, DL, Depth + 1, Q);
-    else if (RHS == V)
-      computeKnownBits(LHS, KnownZero, KnownOne, DL, Depth + 1, Q);
-    else
-      llvm_unreachable("missing use?");
+    {
+      APInt KnownZeroTemp(BitWidth, 0), KnownOneTemp(BitWidth, 0);
+      if (LHS == V)
+        computeKnownBits(RHS, KnownZeroTemp, KnownOneTemp, DL, Depth + 1, Q);
+      else if (RHS == V)
+        computeKnownBits(LHS, KnownZeroTemp, KnownOneTemp, DL, Depth + 1, Q);
+      else
+        llvm_unreachable("missing use?");
+      KnownZero |= KnownZeroTemp;
+      KnownOne |= KnownOneTemp;
+    }
     break;
   case ICmpInst::ICMP_ULE:
     if (LHS == V) {
@@ -936,146 +941,10 @@ static void computeKnownBitsFromAssume(Value *V, APInt &KnownZero,
   }
 }
 
-/// Determine which bits of V are known to be either zero or one and return
-/// them in the KnownZero/KnownOne bit sets.
-///
-/// NOTE: we cannot consider 'undef' to be "IsZero" here.  The problem is that
-/// we cannot optimize based on the assumption that it is zero without changing
-/// it to be an explicit zero.  If we don't change it to zero, other code could
-/// optimized based on the contradictory assumption that it is non-zero.
-/// Because instcombine aggressively folds operations with undef args anyway,
-/// this won't lose us code quality.
-///
-/// This function is defined on values with integer type, values with pointer
-/// type, and vectors of integers.  In the case
-/// where V is a vector, known zero, and known one values are the
-/// same width as the vector element, and the bit is set only if it is true
-/// for all of the elements in the vector.
-void computeKnownBits(Value *V, APInt &KnownZero, APInt &KnownOne,
-                      const DataLayout &DL, unsigned Depth, const Query &Q) {
-  assert(V && "No Value?");
-  assert(Depth <= MaxDepth && "Limit Search Depth");
+static void computeKnownBitsFromOperator(Operator *I, APInt &KnownZero,
+                                         APInt &KnownOne, const DataLayout &DL,
+                                         unsigned Depth, const Query &Q) {
   unsigned BitWidth = KnownZero.getBitWidth();
-
-  assert((V->getType()->isIntOrIntVectorTy() ||
-          V->getType()->getScalarType()->isPointerTy()) &&
-         "Not integer or pointer type!");
-  assert((DL.getTypeSizeInBits(V->getType()->getScalarType()) == BitWidth) &&
-         (!V->getType()->isIntOrIntVectorTy() ||
-          V->getType()->getScalarSizeInBits() == BitWidth) &&
-         KnownZero.getBitWidth() == BitWidth &&
-         KnownOne.getBitWidth() == BitWidth &&
-         "V, KnownOne and KnownZero should have same BitWidth");
-
-  if (ConstantInt *CI = dyn_cast<ConstantInt>(V)) {
-    // We know all of the bits for a constant!
-    KnownOne = CI->getValue();
-    KnownZero = ~KnownOne;
-    return;
-  }
-  // Null and aggregate-zero are all-zeros.
-  if (isa<ConstantPointerNull>(V) ||
-      isa<ConstantAggregateZero>(V)) {
-    KnownOne.clearAllBits();
-    KnownZero = APInt::getAllOnesValue(BitWidth);
-    return;
-  }
-  // Handle a constant vector by taking the intersection of the known bits of
-  // each element.  There is no real need to handle ConstantVector here, because
-  // we don't handle undef in any particularly useful way.
-  if (ConstantDataSequential *CDS = dyn_cast<ConstantDataSequential>(V)) {
-    // We know that CDS must be a vector of integers. Take the intersection of
-    // each element.
-    KnownZero.setAllBits(); KnownOne.setAllBits();
-    APInt Elt(KnownZero.getBitWidth(), 0);
-    for (unsigned i = 0, e = CDS->getNumElements(); i != e; ++i) {
-      Elt = CDS->getElementAsInteger(i);
-      KnownZero &= ~Elt;
-      KnownOne &= Elt;
-    }
-    return;
-  }
-
-  // The address of an aligned GlobalValue has trailing zeros.
-  if (auto *GO = dyn_cast<GlobalObject>(V)) {
-    unsigned Align = GO->getAlignment();
-    if (Align == 0) {
-      if (auto *GVar = dyn_cast<GlobalVariable>(GO)) {
-        Type *ObjectType = GVar->getType()->getElementType();
-        if (ObjectType->isSized()) {
-          // If the object is defined in the current Module, we'll be giving
-          // it the preferred alignment. Otherwise, we have to assume that it
-          // may only have the minimum ABI alignment.
-          if (!GVar->isDeclaration() && !GVar->isWeakForLinker())
-            Align = DL.getPreferredAlignment(GVar);
-          else
-            Align = DL.getABITypeAlignment(ObjectType);
-        }
-      }
-    }
-    if (Align > 0)
-      KnownZero = APInt::getLowBitsSet(BitWidth,
-                                       countTrailingZeros(Align));
-    else
-      KnownZero.clearAllBits();
-    KnownOne.clearAllBits();
-    return;
-  }
-
-  if (Argument *A = dyn_cast<Argument>(V)) {
-    unsigned Align = A->getType()->isPointerTy() ? A->getParamAlignment() : 0;
-
-    if (!Align && A->hasStructRetAttr()) {
-      // An sret parameter has at least the ABI alignment of the return type.
-      Type *EltTy = cast<PointerType>(A->getType())->getElementType();
-      if (EltTy->isSized())
-        Align = DL.getABITypeAlignment(EltTy);
-    }
-
-    if (Align)
-      KnownZero = APInt::getLowBitsSet(BitWidth, countTrailingZeros(Align));
-    else
-      KnownZero.clearAllBits();
-    KnownOne.clearAllBits();
-
-    // Don't give up yet... there might be an assumption that provides more
-    // information...
-    computeKnownBitsFromAssume(V, KnownZero, KnownOne, DL, Depth, Q);
-
-    // Or a dominating condition for that matter
-    if (EnableDomConditions && Depth <= DomConditionsMaxDepth)
-      computeKnownBitsFromDominatingCondition(V, KnownZero, KnownOne, DL,
-                                              Depth, Q);
-    return;
-  }
-
-  // Start out not knowing anything.
-  KnownZero.clearAllBits(); KnownOne.clearAllBits();
-
-  // Limit search depth.
-  // All recursive calls that increase depth must come after this.
-  if (Depth == MaxDepth)
-    return;  
-
-  // A weak GlobalAlias is totally unknown. A non-weak GlobalAlias has
-  // the bits of its aliasee.
-  if (GlobalAlias *GA = dyn_cast<GlobalAlias>(V)) {
-    if (!GA->mayBeOverridden())
-      computeKnownBits(GA->getAliasee(), KnownZero, KnownOne, DL, Depth + 1, Q);
-    return;
-  }
-
-  // Check whether a nearby assume intrinsic can determine some known bits.
-  computeKnownBitsFromAssume(V, KnownZero, KnownOne, DL, Depth, Q);
-
-  // Check whether there's a dominating condition which implies something about
-  // this value at the given context.
-  if (EnableDomConditions && Depth <= DomConditionsMaxDepth)
-    computeKnownBitsFromDominatingCondition(V, KnownZero, KnownOne, DL, Depth,
-                                            Q);
-
-  Operator *I = dyn_cast<Operator>(V);
-  if (!I) return;
 
   APInt KnownZero2(KnownZero), KnownOne2(KnownOne);
   switch (I->getOpcode()) {
@@ -1328,7 +1197,7 @@ void computeKnownBits(Value *V, APInt &KnownZero, APInt &KnownOne,
   }
 
   case Instruction::Alloca: {
-    AllocaInst *AI = cast<AllocaInst>(V);
+    AllocaInst *AI = cast<AllocaInst>(I);
     unsigned Align = AI->getAlignment();
     if (Align == 0)
       Align = DL.getABITypeAlignment(AI->getType()->getElementType());
@@ -1523,6 +1392,151 @@ void computeKnownBits(Value *V, APInt &KnownZero, APInt &KnownOne,
       }
     }
   }
+}
+
+/// Determine which bits of V are known to be either zero or one and return
+/// them in the KnownZero/KnownOne bit sets.
+///
+/// NOTE: we cannot consider 'undef' to be "IsZero" here.  The problem is that
+/// we cannot optimize based on the assumption that it is zero without changing
+/// it to be an explicit zero.  If we don't change it to zero, other code could
+/// optimized based on the contradictory assumption that it is non-zero.
+/// Because instcombine aggressively folds operations with undef args anyway,
+/// this won't lose us code quality.
+///
+/// This function is defined on values with integer type, values with pointer
+/// type, and vectors of integers.  In the case
+/// where V is a vector, known zero, and known one values are the
+/// same width as the vector element, and the bit is set only if it is true
+/// for all of the elements in the vector.
+void computeKnownBits(Value *V, APInt &KnownZero, APInt &KnownOne,
+                      const DataLayout &DL, unsigned Depth, const Query &Q) {
+  assert(V && "No Value?");
+  assert(Depth <= MaxDepth && "Limit Search Depth");
+  unsigned BitWidth = KnownZero.getBitWidth();
+
+  assert((V->getType()->isIntOrIntVectorTy() ||
+          V->getType()->getScalarType()->isPointerTy()) &&
+         "Not integer or pointer type!");
+  assert((DL.getTypeSizeInBits(V->getType()->getScalarType()) == BitWidth) &&
+         (!V->getType()->isIntOrIntVectorTy() ||
+          V->getType()->getScalarSizeInBits() == BitWidth) &&
+         KnownZero.getBitWidth() == BitWidth &&
+         KnownOne.getBitWidth() == BitWidth &&
+         "V, KnownOne and KnownZero should have same BitWidth");
+
+  if (ConstantInt *CI = dyn_cast<ConstantInt>(V)) {
+    // We know all of the bits for a constant!
+    KnownOne = CI->getValue();
+    KnownZero = ~KnownOne;
+    return;
+  }
+  // Null and aggregate-zero are all-zeros.
+  if (isa<ConstantPointerNull>(V) ||
+      isa<ConstantAggregateZero>(V)) {
+    KnownOne.clearAllBits();
+    KnownZero = APInt::getAllOnesValue(BitWidth);
+    return;
+  }
+  // Handle a constant vector by taking the intersection of the known bits of
+  // each element.  There is no real need to handle ConstantVector here, because
+  // we don't handle undef in any particularly useful way.
+  if (ConstantDataSequential *CDS = dyn_cast<ConstantDataSequential>(V)) {
+    // We know that CDS must be a vector of integers. Take the intersection of
+    // each element.
+    KnownZero.setAllBits(); KnownOne.setAllBits();
+    APInt Elt(KnownZero.getBitWidth(), 0);
+    for (unsigned i = 0, e = CDS->getNumElements(); i != e; ++i) {
+      Elt = CDS->getElementAsInteger(i);
+      KnownZero &= ~Elt;
+      KnownOne &= Elt;
+    }
+    return;
+  }
+
+  // The address of an aligned GlobalValue has trailing zeros.
+  if (auto *GO = dyn_cast<GlobalObject>(V)) {
+    unsigned Align = GO->getAlignment();
+    if (Align == 0) {
+      if (auto *GVar = dyn_cast<GlobalVariable>(GO)) {
+        Type *ObjectType = GVar->getType()->getElementType();
+        if (ObjectType->isSized()) {
+          // If the object is defined in the current Module, we'll be giving
+          // it the preferred alignment. Otherwise, we have to assume that it
+          // may only have the minimum ABI alignment.
+          if (GVar->isStrongDefinitionForLinker())
+            Align = DL.getPreferredAlignment(GVar);
+          else
+            Align = DL.getABITypeAlignment(ObjectType);
+        }
+      }
+    }
+    if (Align > 0)
+      KnownZero = APInt::getLowBitsSet(BitWidth,
+                                       countTrailingZeros(Align));
+    else
+      KnownZero.clearAllBits();
+    KnownOne.clearAllBits();
+    return;
+  }
+
+  if (Argument *A = dyn_cast<Argument>(V)) {
+    unsigned Align = A->getType()->isPointerTy() ? A->getParamAlignment() : 0;
+
+    if (!Align && A->hasStructRetAttr()) {
+      // An sret parameter has at least the ABI alignment of the return type.
+      Type *EltTy = cast<PointerType>(A->getType())->getElementType();
+      if (EltTy->isSized())
+        Align = DL.getABITypeAlignment(EltTy);
+    }
+
+    if (Align)
+      KnownZero = APInt::getLowBitsSet(BitWidth, countTrailingZeros(Align));
+    else
+      KnownZero.clearAllBits();
+    KnownOne.clearAllBits();
+
+    // Don't give up yet... there might be an assumption that provides more
+    // information...
+    computeKnownBitsFromAssume(V, KnownZero, KnownOne, DL, Depth, Q);
+
+    // Or a dominating condition for that matter
+    if (EnableDomConditions && Depth <= DomConditionsMaxDepth)
+      computeKnownBitsFromDominatingCondition(V, KnownZero, KnownOne, DL,
+                                              Depth, Q);
+    return;
+  }
+
+  // Start out not knowing anything.
+  KnownZero.clearAllBits(); KnownOne.clearAllBits();
+
+  // Limit search depth.
+  // All recursive calls that increase depth must come after this.
+  if (Depth == MaxDepth)
+    return;
+
+  // A weak GlobalAlias is totally unknown. A non-weak GlobalAlias has
+  // the bits of its aliasee.
+  if (GlobalAlias *GA = dyn_cast<GlobalAlias>(V)) {
+    if (!GA->mayBeOverridden())
+      computeKnownBits(GA->getAliasee(), KnownZero, KnownOne, DL, Depth + 1, Q);
+    return;
+  }
+
+  if (Operator *I = dyn_cast<Operator>(V))
+    computeKnownBitsFromOperator(I, KnownZero, KnownOne, DL, Depth, Q);
+  // computeKnownBitsFromAssume and computeKnownBitsFromDominatingCondition
+  // strictly refines KnownZero and KnownOne. Therefore, we run them after
+  // computeKnownBitsFromOperator.
+
+  // Check whether a nearby assume intrinsic can determine some known bits.
+  computeKnownBitsFromAssume(V, KnownZero, KnownOne, DL, Depth, Q);
+
+  // Check whether there's a dominating condition which implies something about
+  // this value at the given context.
+  if (EnableDomConditions && Depth <= DomConditionsMaxDepth)
+    computeKnownBitsFromDominatingCondition(V, KnownZero, KnownOne, DL, Depth,
+                                            Q);
 
   assert((KnownZero & KnownOne) == 0 && "Bits known to be one AND zero?");
 }
@@ -2967,38 +2981,25 @@ static bool isDereferenceablePointer(const Value *V, const DataLayout &DL,
 
   // For GEPs, determine if the indexing lands within the allocated object.
   if (const GEPOperator *GEP = dyn_cast<GEPOperator>(V)) {
+    Type *VTy = GEP->getType();
+    Type *Ty = VTy->getPointerElementType();
+    const Value *Base = GEP->getPointerOperand();
+
     // Conservatively require that the base pointer be fully dereferenceable.
-    if (!Visited.insert(GEP->getOperand(0)).second)
+    if (!Visited.insert(Base).second)
       return false;
-    if (!isDereferenceablePointer(GEP->getOperand(0), DL, CtxI,
+    if (!isDereferenceablePointer(Base, DL, CtxI,
                                   DT, TLI, Visited))
       return false;
-    // Check the indices.
-    gep_type_iterator GTI = gep_type_begin(GEP);
-    for (User::const_op_iterator I = GEP->op_begin()+1,
-         E = GEP->op_end(); I != E; ++I) {
-      Value *Index = *I;
-      Type *Ty = *GTI++;
-      // Struct indices can't be out of bounds.
-      if (isa<StructType>(Ty))
-        continue;
-      ConstantInt *CI = dyn_cast<ConstantInt>(Index);
-      if (!CI)
-        return false;
-      // Zero is always ok.
-      if (CI->isZero())
-        continue;
-      // Check to see that it's within the bounds of an array.
-      ArrayType *ATy = dyn_cast<ArrayType>(Ty);
-      if (!ATy)
-        return false;
-      if (CI->getValue().getActiveBits() > 64)
-        return false;
-      if (CI->getZExtValue() >= ATy->getNumElements())
-        return false;
-    }
-    // Indices check out; this is dereferenceable.
-    return true;
+    
+    APInt Offset(DL.getPointerTypeSizeInBits(VTy), 0);
+    if (!GEP->accumulateConstantOffset(DL, Offset))
+      return false;
+    
+    // Check if the load is within the bounds of the underlying object.
+    uint64_t LoadSize = DL.getTypeStoreSize(Ty);
+    Type *BaseType = Base->getType()->getPointerElementType();
+    return (Offset + LoadSize).ule(DL.getTypeAllocSize(BaseType));
   }
 
   // For gc.relocate, look through relocations
@@ -3313,6 +3314,167 @@ OverflowResult llvm::computeOverflowForUnsignedAdd(Value *LHS, Value *RHS,
   }
 
   return OverflowResult::MayOverflow;
+}
+
+bool llvm::isGuaranteedToTransferExecutionToSuccessor(const Instruction *I) {
+  // FIXME: This conservative implementation can be relaxed. E.g. most
+  // atomic operations are guaranteed to terminate on most platforms
+  // and most functions terminate.
+
+  return !I->isAtomic() &&       // atomics may never succeed on some platforms
+         !isa<CallInst>(I) &&    // could throw and might not terminate
+         !isa<InvokeInst>(I) &&  // might not terminate and could throw to
+                                 //   non-successor (see bug 24185 for details).
+         !isa<ResumeInst>(I) &&  // has no successors
+         !isa<ReturnInst>(I);    // has no successors
+}
+
+bool llvm::isGuaranteedToExecuteForEveryIteration(const Instruction *I,
+                                                  const Loop *L) {
+  // The loop header is guaranteed to be executed for every iteration.
+  //
+  // FIXME: Relax this constraint to cover all basic blocks that are
+  // guaranteed to be executed at every iteration.
+  if (I->getParent() != L->getHeader()) return false;
+
+  for (const Instruction &LI : *L->getHeader()) {
+    if (&LI == I) return true;
+    if (!isGuaranteedToTransferExecutionToSuccessor(&LI)) return false;
+  }
+  llvm_unreachable("Instruction not contained in its own parent basic block.");
+}
+
+bool llvm::propagatesFullPoison(const Instruction *I) {
+  switch (I->getOpcode()) {
+    case Instruction::Add:
+    case Instruction::Sub:
+    case Instruction::Xor:
+    case Instruction::Trunc:
+    case Instruction::BitCast:
+    case Instruction::AddrSpaceCast:
+      // These operations all propagate poison unconditionally. Note that poison
+      // is not any particular value, so xor or subtraction of poison with
+      // itself still yields poison, not zero.
+      return true;
+
+    case Instruction::AShr:
+    case Instruction::SExt:
+      // For these operations, one bit of the input is replicated across
+      // multiple output bits. A replicated poison bit is still poison.
+      return true;
+
+    case Instruction::Shl: {
+      // Left shift *by* a poison value is poison. The number of
+      // positions to shift is unsigned, so no negative values are
+      // possible there. Left shift by zero places preserves poison. So
+      // it only remains to consider left shift of poison by a positive
+      // number of places.
+      //
+      // A left shift by a positive number of places leaves the lowest order bit
+      // non-poisoned. However, if such a shift has a no-wrap flag, then we can
+      // make the poison operand violate that flag, yielding a fresh full-poison
+      // value.
+      auto *OBO = cast<OverflowingBinaryOperator>(I);
+      return OBO->hasNoUnsignedWrap() || OBO->hasNoSignedWrap();
+    }
+
+    case Instruction::Mul: {
+      // A multiplication by zero yields a non-poison zero result, so we need to
+      // rule out zero as an operand. Conservatively, multiplication by a
+      // non-zero constant is not multiplication by zero.
+      //
+      // Multiplication by a non-zero constant can leave some bits
+      // non-poisoned. For example, a multiplication by 2 leaves the lowest
+      // order bit unpoisoned. So we need to consider that.
+      //
+      // Multiplication by 1 preserves poison. If the multiplication has a
+      // no-wrap flag, then we can make the poison operand violate that flag
+      // when multiplied by any integer other than 0 and 1.
+      auto *OBO = cast<OverflowingBinaryOperator>(I);
+      if (OBO->hasNoUnsignedWrap() || OBO->hasNoSignedWrap()) {
+        for (Value *V : OBO->operands()) {
+          if (auto *CI = dyn_cast<ConstantInt>(V)) {
+            // A ConstantInt cannot yield poison, so we can assume that it is
+            // the other operand that is poison.
+            return !CI->isZero();
+          }
+        }
+      }
+      return false;
+    }
+
+    case Instruction::GetElementPtr:
+      // A GEP implicitly represents a sequence of additions, subtractions,
+      // truncations, sign extensions and multiplications. The multiplications
+      // are by the non-zero sizes of some set of types, so we do not have to be
+      // concerned with multiplication by zero. If the GEP is in-bounds, then
+      // these operations are implicitly no-signed-wrap so poison is propagated
+      // by the arguments above for Add, Sub, Trunc, SExt and Mul.
+      return cast<GEPOperator>(I)->isInBounds();
+
+    default:
+      return false;
+  }
+}
+
+const Value *llvm::getGuaranteedNonFullPoisonOp(const Instruction *I) {
+  switch (I->getOpcode()) {
+    case Instruction::Store:
+      return cast<StoreInst>(I)->getPointerOperand();
+
+    case Instruction::Load:
+      return cast<LoadInst>(I)->getPointerOperand();
+
+    case Instruction::AtomicCmpXchg:
+      return cast<AtomicCmpXchgInst>(I)->getPointerOperand();
+
+    case Instruction::AtomicRMW:
+      return cast<AtomicRMWInst>(I)->getPointerOperand();
+
+    case Instruction::UDiv:
+    case Instruction::SDiv:
+    case Instruction::URem:
+    case Instruction::SRem:
+      return I->getOperand(1);
+
+    default:
+      return nullptr;
+  }
+}
+
+bool llvm::isKnownNotFullPoison(const Instruction *PoisonI) {
+  // We currently only look for uses of poison values within the same basic
+  // block, as that makes it easier to guarantee that the uses will be
+  // executed given that PoisonI is executed.
+  //
+  // FIXME: Expand this to consider uses beyond the same basic block. To do
+  // this, look out for the distinction between post-dominance and strong
+  // post-dominance.
+  const BasicBlock *BB = PoisonI->getParent();
+
+  // Set of instructions that we have proved will yield poison if PoisonI
+  // does.
+  SmallSet<const Value *, 16> YieldsPoison;
+  YieldsPoison.insert(PoisonI);
+
+  for (const Instruction *I = PoisonI, *E = BB->end(); I != E;
+       I = I->getNextNode()) {
+    if (I != PoisonI) {
+      const Value *NotPoison = getGuaranteedNonFullPoisonOp(I);
+      if (NotPoison != nullptr && YieldsPoison.count(NotPoison)) return true;
+      if (!isGuaranteedToTransferExecutionToSuccessor(I)) return false;
+    }
+
+    // Mark poison that propagates from I through uses of I.
+    if (YieldsPoison.count(I)) {
+      for (const User *User : I->users()) {
+        const Instruction *UserI = cast<Instruction>(User);
+        if (UserI->getParent() == BB && propagatesFullPoison(UserI))
+          YieldsPoison.insert(User);
+      }
+    }
+  }
+  return false;
 }
 
 static SelectPatternFlavor matchSelectPattern(ICmpInst::Predicate Pred,

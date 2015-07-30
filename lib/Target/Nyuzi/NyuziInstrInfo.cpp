@@ -136,7 +136,7 @@ bool NyuziInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
 unsigned NyuziInstrInfo::InsertBranch(
     MachineBasicBlock &MBB, MachineBasicBlock *TBB, // If true
     MachineBasicBlock *FBB,                         // If false
-    const SmallVectorImpl<MachineOperand> &Cond, DebugLoc DL) const {
+    ArrayRef<MachineOperand> Cond, DebugLoc DL) const {
   assert(TBB);
   if (FBB) {
     // Has a false block, this is a two way conditional branch

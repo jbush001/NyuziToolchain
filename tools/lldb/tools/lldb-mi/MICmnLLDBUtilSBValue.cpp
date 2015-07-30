@@ -20,7 +20,7 @@
 //++ ------------------------------------------------------------------------------------
 // Details: CMICmnLLDBUtilSBValue constructor.
 // Type:    Method.
-// Args:    vrValue             - (R) The LLDb value object.
+// Args:    vrValue             - (R) The LLDB value object.
 //          vbHandleCharType    - (R) True = Yes return text molding to char type,
 //                                    False = just return data.
 // Return:  None.
@@ -59,7 +59,7 @@ CMICmnLLDBUtilSBValue::~CMICmnLLDBUtilSBValue(void)
 CMIUtilString
 CMICmnLLDBUtilSBValue::GetName(void) const
 {
-    const MIchar *pName = m_bValidSBValue ? m_rValue.GetName() : nullptr;
+    const char *pName = m_bValidSBValue ? m_rValue.GetName() : nullptr;
     const CMIUtilString text((pName != nullptr) ? pName : m_pUnkwn);
 
     return text;
@@ -129,7 +129,7 @@ CMICmnLLDBUtilSBValue::GetSimpleValue(const bool vbHandleArrayType, CMIUtilStrin
         }
         else
         {
-            const MIchar *pValue = m_rValue.GetValue();
+            const char *pValue = m_rValue.GetValue();
             vwrValue = pValue != nullptr ? pValue : m_pUnkwn;
             return MIstatus::success;
         }
@@ -143,7 +143,7 @@ CMICmnLLDBUtilSBValue::GetSimpleValue(const bool vbHandleArrayType, CMIUtilStrin
         }
         else
         {
-            const MIchar *pValue = m_rValue.GetValue();
+            const char *pValue = m_rValue.GetValue();
             vwrValue = pValue != nullptr ? pValue : m_pUnkwn;
             return MIstatus::success;
         }
@@ -223,7 +223,7 @@ CMICmnLLDBUtilSBValue::GetSimpleValueChar(void) const
 CMIUtilString
 CMICmnLLDBUtilSBValue::GetSimpleValueCStringPointer(void) const
 {
-    const MIchar *value = m_rValue.GetValue();
+    const char *value = m_rValue.GetValue();
     if (value == nullptr)
         return m_pUnkwn;
 
@@ -237,8 +237,7 @@ CMICmnLLDBUtilSBValue::GetSimpleValueCStringPointer(void) const
         case lldb::eBasicTypeSignedChar:
         case lldb::eBasicTypeUnsignedChar:
         {
-            // FIXME Add slashes before double quotes
-            const CMIUtilString prefix(ReadCStringFromHostMemory<char>(child).AddSlashes());
+            const CMIUtilString prefix(ReadCStringFromHostMemory<char>(child));
             // Note code that has const in will not show the text suffix to the string pointer
             // i.e. const char * pMyStr = "blah"; ==> "0x00007000"" <-- Eclipse shows this
             // but        char * pMyStr = "blah"; ==> "0x00007000" "blah"" <-- Eclipse shows this
@@ -246,14 +245,12 @@ CMICmnLLDBUtilSBValue::GetSimpleValueCStringPointer(void) const
         }
         case lldb::eBasicTypeChar16:
         {
-            // FIXME Add slashes before double quotes
-            const CMIUtilString prefix(ReadCStringFromHostMemory<char16_t>(child).AddSlashes());
+            const CMIUtilString prefix(ReadCStringFromHostMemory<char16_t>(child));
             return CMIUtilString::Format("%s u\"%s\"", value, prefix.c_str());
         }
         case lldb::eBasicTypeChar32:
         {
-            // FIXME Add slashes before double quotes
-            const CMIUtilString prefix(ReadCStringFromHostMemory<char32_t>(child).AddSlashes());
+            const CMIUtilString prefix(ReadCStringFromHostMemory<char32_t>(child));
             return CMIUtilString::Format("%s U\"%s\"", value, prefix.c_str());
         }
     }
@@ -280,22 +277,19 @@ CMICmnLLDBUtilSBValue::GetSimpleValueCStringArray(void) const
         case lldb::eBasicTypeSignedChar:
         case lldb::eBasicTypeUnsignedChar:
         {
-            // FIXME Add slashes before double quotes
-            const CMIUtilString prefix(ReadCStringFromHostMemory<char>(m_rValue, nChildren).AddSlashes());
+            const CMIUtilString prefix(ReadCStringFromHostMemory<char>(m_rValue, nChildren));
             // TODO: to match char* it should be the following
             //       return CMIUtilString::Format("[%u] \"%s\"", nChildren, prefix.c_str());
             return CMIUtilString::Format("\"%s\"", prefix.c_str());
         }
         case lldb::eBasicTypeChar16:
         {
-            // FIXME Add slashes before double quotes
-            const CMIUtilString prefix(ReadCStringFromHostMemory<char16_t>(m_rValue, nChildren).AddSlashes());
+            const CMIUtilString prefix(ReadCStringFromHostMemory<char16_t>(m_rValue, nChildren));
             return CMIUtilString::Format("u\"%s\"", prefix.c_str());
         }
         case lldb::eBasicTypeChar32:
         {
-            // FIXME Add slashes before double quotes
-            const CMIUtilString prefix(ReadCStringFromHostMemory<char32_t>(m_rValue, nChildren).AddSlashes());
+            const CMIUtilString prefix(ReadCStringFromHostMemory<char32_t>(m_rValue, nChildren));
             return CMIUtilString::Format("U\"%s\"", prefix.c_str());
         }
     }
@@ -341,16 +335,12 @@ CMICmnLLDBUtilSBValue::GetCompositeValue(const bool vbPrintFieldNames, CMICmnMIV
         {
             const bool bUseSpacing = true;
             const CMICmnMIValueResult miValueResult(utilMember.GetName(), miValueConst, bUseSpacing);
-            const bool bOk = vwrMiValueTuple.Add(miValueResult, bUseSpacing);
-            if (!bOk)
-                return MIstatus::failure;
+            vwrMiValueTuple.Add(miValueResult, bUseSpacing);
         }
         else
         {
             const bool bUseSpacing = false;
-            const bool bOk = vwrMiValueTuple.Add(miValueConst, bUseSpacing);
-            if (!bOk)
-                return MIstatus::failure;
+            vwrMiValueTuple.Add(miValueConst, bUseSpacing);
         }
     }
 
@@ -476,7 +466,7 @@ CMICmnLLDBUtilSBValue::ReadCStringFromHostMemory(lldb::SBValue &vrValue, const M
             return m_pUnkwn;
         else if (ch == 0)
             break;
-        result.append(CMIUtilString::ConvertToPrintableASCII(ch));
+        result.append(CMIUtilString::ConvertToPrintableASCII(ch, true /* bEscapeQuotes */));
         addr += sizeof(ch);
     }
 
@@ -521,7 +511,7 @@ CMICmnLLDBUtilSBValue::IsValueUnknown(void) const
 CMIUtilString
 CMICmnLLDBUtilSBValue::GetTypeName(void) const
 {
-    const MIchar *pName = m_bValidSBValue ? m_rValue.GetTypeName() : nullptr;
+    const char *pName = m_bValidSBValue ? m_rValue.GetTypeName() : nullptr;
     const CMIUtilString text((pName != nullptr) ? pName : m_pUnkwn);
 
     return text;
@@ -537,7 +527,7 @@ CMICmnLLDBUtilSBValue::GetTypeName(void) const
 CMIUtilString
 CMICmnLLDBUtilSBValue::GetTypeNameDisplay(void) const
 {
-    const MIchar *pName = m_bValidSBValue ? m_rValue.GetDisplayTypeName() : nullptr;
+    const char *pName = m_bValidSBValue ? m_rValue.GetDisplayTypeName() : nullptr;
     const CMIUtilString text((pName != nullptr) ? pName : m_pUnkwn);
 
     return text;
@@ -569,7 +559,7 @@ CMICmnLLDBUtilSBValue::HasName(void) const
 {
     bool bHasAName = false;
 
-    const MIchar *pName = m_bValidSBValue ? m_rValue.GetDisplayTypeName() : nullptr;
+    const char *pName = m_bValidSBValue ? m_rValue.GetDisplayTypeName() : nullptr;
     if (pName != nullptr)
     {
         bHasAName = (CMIUtilString(pName).length() > 0);
@@ -579,7 +569,7 @@ CMICmnLLDBUtilSBValue::HasName(void) const
 }
 
 //++ ------------------------------------------------------------------------------------
-// Details: Determine if the value object' respresents a LLDB variable i.e. "$0".
+// Details: Determine if the value object' represents a LLDB variable i.e. "$0".
 // Type:    Method.
 // Args:    None.
 // Return:  bool    - True = Yes LLDB variable, false = no.

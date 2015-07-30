@@ -52,7 +52,7 @@ void NyuziInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
   printAnnotation(O, Annot);
 }
 
-static void printExpr(const MCExpr *Expr, raw_ostream &OS) {
+static void printExpr(const MCExpr *Expr, const MCAsmInfo *MAI, raw_ostream &OS) {
   int Offset = 0;
   const MCSymbolRefExpr *SRE;
 
@@ -62,8 +62,8 @@ static void printExpr(const MCExpr *Expr, raw_ostream &OS) {
     assert(SRE && CE && "Binary expression must be sym+const.");
     Offset = CE->getValue();
   } else if (!(SRE = dyn_cast<MCSymbolRefExpr>(Expr))) {
-    Expr->print(OS);
-	return;
+    Expr->print(OS, MAI);
+    return;
   }
   
   MCSymbolRefExpr::VariantKind Kind = SRE->getKind();
@@ -99,7 +99,7 @@ void NyuziInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
   }
 
   assert(Op.isExpr() && "unknown operand kind in printOperand");
-  printExpr(Op.getExpr(), O);
+  printExpr(Op.getExpr(), &MAI, O);
 }
 
 void NyuziInstPrinter::printUnsignedImm(const MCInst *MI, int opNum,
@@ -133,5 +133,5 @@ void NyuziInstPrinter::printMemOperand(const MCInst *MI, int opNum,
 void NyuziInstPrinter::printJumpTableOperand(const MCInst *MI, int opNum,
                                                   raw_ostream &O) {
   const MCOperand &Op = MI->getOperand(2);
-  printExpr(Op.getExpr(), O);
+  printExpr(Op.getExpr(), &MAI, O);
 }

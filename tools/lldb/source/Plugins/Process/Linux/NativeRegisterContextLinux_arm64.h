@@ -30,6 +30,9 @@ namespace process_linux {
         uint32_t
         GetRegisterSetCount () const override;
 
+        uint32_t
+        GetUserRegisterCount() const override;
+
         const RegisterSet *
         GetRegisterSet (uint32_t set_index) const override;
 
@@ -80,28 +83,28 @@ namespace process_linux {
         WatchpointIsEnabled(uint32_t wp_index);
 
     protected:
-        NativeProcessLinux::OperationUP
-        GetReadRegisterValueOperation(uint32_t offset,
-                                      const char* reg_name,
-                                      uint32_t size,
-                                      RegisterValue &value) override;
+        Error
+        DoReadRegisterValue(uint32_t offset,
+                            const char* reg_name,
+                            uint32_t size,
+                            RegisterValue &value) override;
 
-        NativeProcessLinux::OperationUP
-        GetWriteRegisterValueOperation(uint32_t offset,
-                                       const char* reg_name,
-                                       const RegisterValue &value) override;
+        Error
+        DoWriteRegisterValue(uint32_t offset,
+                             const char* reg_name,
+                             const RegisterValue &value) override;
 
-        NativeProcessLinux::OperationUP
-        GetReadGPROperation(void *buf, size_t buf_size) override;
+        Error
+        DoReadGPR(void *buf, size_t buf_size) override;
 
-        NativeProcessLinux::OperationUP
-        GetWriteGPROperation(void *buf, size_t buf_size) override;
+        Error
+        DoWriteGPR(void *buf, size_t buf_size) override;
 
-        NativeProcessLinux::OperationUP
-        GetReadFPROperation(void *buf, size_t buf_size) override;
+        Error
+        DoReadFPR(void *buf, size_t buf_size) override;
 
-        NativeProcessLinux::OperationUP
-        GetWriteFPROperation(void *buf, size_t buf_size) override;
+        Error
+        DoWriteFPR(void *buf, size_t buf_size) override;
 
         void*
         GetGPRBuffer() override { return &m_gpr_arm64; }

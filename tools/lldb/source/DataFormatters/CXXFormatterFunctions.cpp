@@ -362,6 +362,7 @@ lldb_private::formatters::Char16SummaryProvider (ValueObject& valobj, Stream& st
     options.SetPrefixToken('u');
     options.SetQuote('\'');
     options.SetSourceSize(1);
+    options.SetBinaryZeroIsTerminator(false);
     
     return ReadBufferAndDumpToStream<StringElementType::UTF16>(options);
 }
@@ -387,6 +388,7 @@ lldb_private::formatters::Char32SummaryProvider (ValueObject& valobj, Stream& st
     options.SetPrefixToken('U');
     options.SetQuote('\'');
     options.SetSourceSize(1);
+    options.SetBinaryZeroIsTerminator(false);
     
     return ReadBufferAndDumpToStream<StringElementType::UTF32>(options);
 }
@@ -407,6 +409,7 @@ lldb_private::formatters::WCharSummaryProvider (ValueObject& valobj, Stream& str
     options.SetPrefixToken('L');
     options.SetQuote('\'');
     options.SetSourceSize(1);
+    options.SetBinaryZeroIsTerminator(false);
     
     return ReadBufferAndDumpToStream<StringElementType::UTF16>(options);
 }
@@ -494,7 +497,7 @@ ExtractLibcxxStringInfo (ValueObject& valobj,
 }
 
 bool
-lldb_private::formatters::LibcxxWStringSummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& options)
+lldb_private::formatters::LibcxxWStringSummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& summary_options)
 {
     uint64_t size = 0;
     ValueObjectSP location_sp((ValueObject*)nullptr);
@@ -507,7 +510,43 @@ lldb_private::formatters::LibcxxWStringSummaryProvider (ValueObject& valobj, Str
     }   
     if (!location_sp)
         return false;
-    return WCharStringSummaryProvider(*location_sp.get(), stream, options);
+    
+    DataExtractor extractor;
+    if (summary_options.GetCapping() == TypeSummaryCapping::eTypeSummaryCapped)
+        size = std::min<decltype(size)>(size, valobj.GetTargetSP()->GetMaximumSizeOfStringSummary());
+    location_sp->GetPointeeData(extractor, 0, size);
+    
+    // std::wstring::size() is measured in 'characters', not bytes
+    auto wchar_t_size = valobj.GetTargetSP()->GetScratchClangASTContext()->GetBasicType(lldb::eBasicTypeWChar).GetByteSize(nullptr);
+    
+    ReadBufferAndDumpToStreamOptions options(valobj);
+    options.SetData(extractor);
+    options.SetStream(&stream);
+    options.SetPrefixToken('L');
+    options.SetQuote('"');
+    options.SetSourceSize(size);
+    options.SetBinaryZeroIsTerminator(false);
+    
+    switch (wchar_t_size)
+    {
+        case 1:
+            lldb_private::formatters::ReadBufferAndDumpToStream<lldb_private::formatters::StringElementType::UTF8>(options);
+            break;
+            
+        case 2:
+            lldb_private::formatters::ReadBufferAndDumpToStream<lldb_private::formatters::StringElementType::UTF16>(options);
+            break;
+            
+        case 4:
+            lldb_private::formatters::ReadBufferAndDumpToStream<lldb_private::formatters::StringElementType::UTF32>(options);
+            break;
+            
+        default:
+            stream.Printf("size for wchar_t is not valid");
+            return true;
+    }
+    
+    return true;
 }
 
 bool
@@ -534,11 +573,12 @@ lldb_private::formatters::LibcxxStringSummaryProvider (ValueObject& valobj, Stre
     location_sp->GetPointeeData(extractor, 0, size);
     
     ReadBufferAndDumpToStreamOptions options(valobj);
-    options.SetData(extractor); // none of this matters for a string - pass some defaults
+    options.SetData(extractor);
     options.SetStream(&stream);
     options.SetPrefixToken(0);
     options.SetQuote('"');
     options.SetSourceSize(size);
+    options.SetBinaryZeroIsTerminator(false);
     lldb_private::formatters::ReadBufferAndDumpToStream<lldb_private::formatters::StringElementType::ASCII>(options);
     
     return true;
@@ -676,48 +716,6 @@ lldb_private::formatters::NSDataSummaryProvider (ValueObject& valobj, Stream& st
     return true;
 }
 
-static bool
-ReadAsciiBufferAndDumpToStream (lldb::addr_t location,
-                                lldb::ProcessSP& process_sp,
-                                Stream& dest,
-                                uint32_t size = 0,
-                                Error* error = NULL,
-                                size_t *data_read = NULL,
-                                char prefix_token = '@',
-                                char quote = '"')
-{
-    Error my_error;
-    size_t my_data_read;
-    if (!process_sp || location == 0)
-        return false;
-    
-    if (!size)
-        size = process_sp->GetTarget().GetMaximumSizeOfStringSummary();
-    else
-        size = std::min(size,process_sp->GetTarget().GetMaximumSizeOfStringSummary());
-    
-    lldb::DataBufferSP buffer_sp(new DataBufferHeap(size,0));
-    
-    my_data_read = process_sp->ReadCStringFromMemory(location, (char*)buffer_sp->GetBytes(), size, my_error);
-
-    if (error)
-        *error = my_error;
-    if (data_read)
-        *data_read = my_data_read;
-    
-    if (my_error.Fail())
-        return false;
-    
-    dest.Printf("%c%c",prefix_token,quote);
-    
-    if (my_data_read)
-        dest.Printf("%s",(char*)buffer_sp->GetBytes());
-    
-    dest.Printf("%c",quote);
-    
-    return true;
-}
-
 bool
 lldb_private::formatters::NSTaggedString_SummaryProvider (ObjCLanguageRuntime::ClassDescriptorSP descriptor, Stream& stream)
 {
@@ -842,11 +840,11 @@ lldb_private::formatters::NSStringSummaryProvider (ValueObject& valobj, Stream& 
     bool is_inline = (info_bits & 0x60) == 0;
     bool has_explicit_length = (info_bits & (1 | 4)) != 4;
     bool is_unicode = (info_bits & 0x10) == 0x10;
-    bool is_special = strcmp(class_name,"NSPathStore2") == 0;
+    bool is_path_store = strcmp(class_name,"NSPathStore2") == 0;
     bool has_null = (info_bits & 8) == 8;
     
     size_t explicit_length = 0;
-    if (!has_null && has_explicit_length && !is_special)
+    if (!has_null && has_explicit_length && !is_path_store)
     {
         lldb::addr_t explicit_length_offset = 2*ptr_size;
         if (is_mutable && !is_inline)
@@ -896,6 +894,7 @@ lldb_private::formatters::NSStringSummaryProvider (ValueObject& valobj, Stream& 
             options.SetSourceSize(explicit_length);
             options.SetNeedsZeroTermination(false);
             options.SetIgnoreMaxLength(summary_options.GetCapping() == TypeSummaryCapping::eTypeSummaryUncapped);
+            options.SetBinaryZeroIsTerminator(false);
             return ReadStringAndDumpToStream<StringElementType::UTF16>(options);
         }
         else
@@ -908,13 +907,23 @@ lldb_private::formatters::NSStringSummaryProvider (ValueObject& valobj, Stream& 
             options.SetSourceSize(explicit_length);
             options.SetNeedsZeroTermination(false);
             options.SetIgnoreMaxLength(summary_options.GetCapping() == TypeSummaryCapping::eTypeSummaryUncapped);
+            options.SetBinaryZeroIsTerminator(false);
             return ReadStringAndDumpToStream<StringElementType::ASCII>(options);
         }
     }
-    else if (is_inline && has_explicit_length && !is_unicode && !is_special && !is_mutable)
+    else if (is_inline && has_explicit_length && !is_unicode && !is_path_store && !is_mutable)
     {
         uint64_t location = 3 * ptr_size + valobj_addr;
-        return ReadAsciiBufferAndDumpToStream(location,process_sp,stream,explicit_length);
+        
+        ReadStringAndDumpToStreamOptions options(valobj);
+        options.SetLocation(location);
+        options.SetProcessSP(process_sp);
+        options.SetStream(&stream);
+        options.SetPrefixToken('@');
+        options.SetQuote('"');
+        options.SetSourceSize(explicit_length);
+        options.SetIgnoreMaxLength(summary_options.GetCapping() == TypeSummaryCapping::eTypeSummaryUncapped);
+        return ReadStringAndDumpToStream<StringElementType::ASCII> (options);
     }
     else if (is_unicode)
     {
@@ -944,9 +953,10 @@ lldb_private::formatters::NSStringSummaryProvider (ValueObject& valobj, Stream& 
         options.SetSourceSize(explicit_length);
         options.SetNeedsZeroTermination(has_explicit_length == false);
         options.SetIgnoreMaxLength(summary_options.GetCapping() == TypeSummaryCapping::eTypeSummaryUncapped);
+        options.SetBinaryZeroIsTerminator(has_explicit_length == false);
         return ReadStringAndDumpToStream<StringElementType::UTF16> (options);
     }
-    else if (is_special)
+    else if (is_path_store)
     {
         ProcessStructReader reader(valobj.GetProcessSP().get(), valobj.GetValueAsUnsigned(0), GetNSPathStore2Type(*valobj.GetTargetSP()));
         explicit_length = reader.GetField<uint32_t>(ConstString("lengthAndRef")) >> 20;
@@ -961,21 +971,37 @@ lldb_private::formatters::NSStringSummaryProvider (ValueObject& valobj, Stream& 
         options.SetSourceSize(explicit_length);
         options.SetNeedsZeroTermination(has_explicit_length == false);
         options.SetIgnoreMaxLength(summary_options.GetCapping() == TypeSummaryCapping::eTypeSummaryUncapped);
+        options.SetBinaryZeroIsTerminator(has_explicit_length == false);
         return ReadStringAndDumpToStream<StringElementType::UTF16> (options);
     }
     else if (is_inline)
     {
         uint64_t location = valobj_addr + 2*ptr_size;
         if (!has_explicit_length)
+        {
+            // in this kind of string, the byte before the string content is a length byte
+            // so let's try and use it to handle the embedded NUL case
+            Error error;
+            explicit_length = process_sp->ReadUnsignedIntegerFromMemory(location, 1, 0, error);
+            if (error.Fail() || explicit_length == 0)
+                has_explicit_length = false;
+            else
+                has_explicit_length = true;
             location++;
+        }
         ReadStringAndDumpToStreamOptions options(valobj);
         options.SetLocation(location);
         options.SetProcessSP(process_sp);
         options.SetStream(&stream);
         options.SetPrefixToken('@');
         options.SetSourceSize(explicit_length);
+        options.SetNeedsZeroTermination(!has_explicit_length);
         options.SetIgnoreMaxLength(summary_options.GetCapping() == TypeSummaryCapping::eTypeSummaryUncapped);
-        return ReadStringAndDumpToStream<StringElementType::ASCII>(options);
+        options.SetBinaryZeroIsTerminator(!has_explicit_length);
+        if (has_explicit_length)
+            return ReadStringAndDumpToStream<StringElementType::UTF8>(options);
+        else
+            return ReadStringAndDumpToStream<StringElementType::ASCII>(options);
     }
     else
     {

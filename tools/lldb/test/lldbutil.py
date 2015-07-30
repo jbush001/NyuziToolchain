@@ -920,5 +920,25 @@ def join_remote_paths(*paths):
         return os.path.join(*paths).replace(os.path.sep, '\\')
     return os.path.join(*paths).replace(os.path.sep, '/')
 
-def append_to_remote_wd(*paths):
-    return join_remote_paths(lldb.remote_platform.GetWorkingDirectory(), *paths)
+def append_to_process_working_directory(*paths):
+    remote = lldb.remote_platform
+    if remote:
+        return join_remote_paths(remote.GetWorkingDirectory(), *paths)
+    return os.path.join(os.getcwd(), *paths)
+
+# ==================================================
+# Utility functions to get the correct signal number
+# ==================================================
+
+import signal
+
+def get_signal_number(signal_name):
+    platform = lldb.remote_platform
+    if platform and platform.IsValid():
+        signals = platform.GetUnixSignals()
+        if signals.IsValid():
+            signal_number = signals.GetSignalNumberFromName(signal_name)
+            if signal_number > 0:
+                return signal_number
+    # No remote platform; fall back to using local python signals.
+    return getattr(signal, signal_name)

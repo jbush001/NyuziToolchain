@@ -89,27 +89,41 @@ CMICmdCmdBreakInsert::~CMICmdCmdBreakInsert(void)
 bool
 CMICmdCmdBreakInsert::ParseArgs(void)
 {
-    bool bOk = m_setCmdArgs.Add(*(new CMICmdArgValOptionShort(m_constStrArgNamedTempBrkPt, false, true)));
-    // Not implemented bOk = bOk && m_setCmdArgs.Add( *(new CMICmdArgValOptionShort( m_constStrArgNamedHWBrkPt, false, false ) ) );
-    bOk = bOk &&
-          m_setCmdArgs.Add(*(new CMICmdArgValOptionShort(m_constStrArgNamedPendinfBrkPt, false, true,
-                                                         CMICmdArgValListBase::eArgValType_StringQuotedNumberPath, 1)));
-    bOk = bOk && m_setCmdArgs.Add(*(new CMICmdArgValOptionShort(m_constStrArgNamedDisableBrkPt, false, false)));
-    // Not implemented bOk = bOk && m_setCmdArgs.Add( *(new CMICmdArgValOptionShort( m_constStrArgNamedTracePt, false, false ) ) );
-    bOk = bOk &&
-          m_setCmdArgs.Add(*(new CMICmdArgValOptionShort(m_constStrArgNamedConditionalBrkPt, false, true,
-                                                         CMICmdArgValListBase::eArgValType_StringQuoted, 1)));
-    bOk = bOk &&
-          m_setCmdArgs.Add(
-              *(new CMICmdArgValOptionShort(m_constStrArgNamedInoreCnt, false, true, CMICmdArgValListBase::eArgValType_Number, 1)));
-    bOk = bOk &&
-          m_setCmdArgs.Add(*(new CMICmdArgValOptionShort(m_constStrArgNamedRestrictBrkPtToThreadId, false, true,
-                                                         CMICmdArgValListBase::eArgValType_Number, 1)));
-    bOk = bOk && m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgNamedLocation, false, true)));
-    bOk = bOk &&
-          m_setCmdArgs.Add(
-              *(new CMICmdArgValOptionLong(m_constStrArgNamedThreadGroup, false, true, CMICmdArgValListBase::eArgValType_ThreadGrp, 1)));
-    return (bOk && ParseValidateCmdOptions());
+    m_setCmdArgs.Add(*(new CMICmdArgValOptionShort(m_constStrArgNamedTempBrkPt, false, true)));
+    // Not implemented m_setCmdArgs.Add( *(new CMICmdArgValOptionShort( m_constStrArgNamedHWBrkPt, false, false ) ) );
+    m_setCmdArgs.Add(*(new CMICmdArgValOptionShort(m_constStrArgNamedPendinfBrkPt, false, true,
+                                                   CMICmdArgValListBase::eArgValType_StringQuotedNumberPath, 1)));
+    m_setCmdArgs.Add(*(new CMICmdArgValOptionShort(m_constStrArgNamedDisableBrkPt, false, false)));
+    // Not implemented m_setCmdArgs.Add( *(new CMICmdArgValOptionShort( m_constStrArgNamedTracePt, false, false ) ) );
+    m_setCmdArgs.Add(*(new CMICmdArgValOptionShort(m_constStrArgNamedConditionalBrkPt, false, true,
+                                                   CMICmdArgValListBase::eArgValType_StringQuoted, 1)));
+    m_setCmdArgs.Add(
+        *(new CMICmdArgValOptionShort(m_constStrArgNamedInoreCnt, false, true, CMICmdArgValListBase::eArgValType_Number, 1)));
+    m_setCmdArgs.Add(*(new CMICmdArgValOptionShort(m_constStrArgNamedRestrictBrkPtToThreadId, false, true,
+                                                   CMICmdArgValListBase::eArgValType_Number, 1)));
+    m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgNamedLocation, false, true)));
+    m_setCmdArgs.Add(
+        *(new CMICmdArgValOptionLong(m_constStrArgNamedThreadGroup, false, true, CMICmdArgValListBase::eArgValType_ThreadGrp, 1)));
+    return ParseValidateCmdOptions();
+}
+
+//++ ------------------------------------------------------------------------------------
+// Helper function for CMICmdCmdBreakInsert::Execute(void).
+//
+// Given a string, return the position of the ':' separator in 'file:func'
+// or 'file:line', if any.  If not found, return npos.  For example, return
+// 5 for 'foo.c:std::string'.
+//--
+static size_t findFileSeparatorPos(const std::string& x)
+{
+    // Full paths in windows can have ':' after a drive letter, so we
+    // search backwards, taking care to skip C++ namespace tokens '::'.
+    size_t n = x.find_last_of(':');
+    while (n != std::string::npos && n > 1 && x[n-1] == ':')
+    {
+        n = x.find_last_of(':', n - 2);
+    }
+    return n;
 }
 
 //++ ------------------------------------------------------------------------------------
@@ -166,17 +180,16 @@ CMICmdCmdBreakInsert::Execute(void)
 
     // Determine if break on a file line or at a function
     BreakPoint_e eBrkPtType = eBreakPoint_NotDefineYet;
-    const CMIUtilString cColon = ":";
     CMIUtilString fileName;
     MIuint nFileLine = 0;
     CMIUtilString strFileFn;
     CMIUtilString rStrLineOrFn;
-    // Full path in windows can have : after drive letter. So look for the
-    // last colon
-    const size_t nPosColon = m_brkName.find_last_of(cColon);
+    // Is the string in the form 'file:func' or 'file:line'?
+    // If so, find the position of the ':' separator.
+    const size_t nPosColon = findFileSeparatorPos(m_brkName);
     if (nPosColon != std::string::npos)
     {
-        // extract file name and line number from it
+        // Extract file name and line number from it
         fileName = m_brkName.substr(0, nPosColon);
         rStrLineOrFn = m_brkName.substr(nPosColon + 1, m_brkName.size() - nPosColon - 1);
 
@@ -226,8 +239,13 @@ CMICmdCmdBreakInsert::Execute(void)
             m_brkPt = sbTarget.BreakpointCreateByAddress(nAddress);
             break;
         case eBreakPoint_ByFileFn:
-            m_brkPt = sbTarget.BreakpointCreateByName(strFileFn.c_str(), fileName.c_str());
+        {
+            lldb::SBFileSpecList module;    // search in all modules
+            lldb::SBFileSpecList compUnit;
+            compUnit.Append (lldb::SBFileSpec(fileName.c_str()));
+            m_brkPt = sbTarget.BreakpointCreateByName(strFileFn.c_str(), module, compUnit);
             break;
+        }
         case eBreakPoint_ByFileLine:
             m_brkPt = sbTarget.BreakpointCreateByLocation(fileName.c_str(), nFileLine);
             break;
@@ -386,11 +404,10 @@ CMICmdCmdBreakDelete::~CMICmdCmdBreakDelete(void)
 bool
 CMICmdCmdBreakDelete::ParseArgs(void)
 {
-    bool bOk = m_setCmdArgs.Add(
+    m_setCmdArgs.Add(
         *(new CMICmdArgValOptionLong(m_constStrArgNamedThreadGrp, false, false, CMICmdArgValListBase::eArgValType_ThreadGrp, 1)));
-    bOk =
-        bOk && m_setCmdArgs.Add(*(new CMICmdArgValListOfN(m_constStrArgNamedBrkPt, true, true, CMICmdArgValListBase::eArgValType_Number)));
-    return (bOk && ParseValidateCmdOptions());
+    m_setCmdArgs.Add(*(new CMICmdArgValListOfN(m_constStrArgNamedBrkPt, true, true, CMICmdArgValListBase::eArgValType_Number)));
+    return ParseValidateCmdOptions();
 }
 
 //++ ------------------------------------------------------------------------------------
@@ -506,11 +523,10 @@ CMICmdCmdBreakDisable::~CMICmdCmdBreakDisable(void)
 bool
 CMICmdCmdBreakDisable::ParseArgs(void)
 {
-    bool bOk = m_setCmdArgs.Add(
+    m_setCmdArgs.Add(
         *(new CMICmdArgValOptionLong(m_constStrArgNamedThreadGrp, false, false, CMICmdArgValListBase::eArgValType_ThreadGrp, 1)));
-    bOk =
-        bOk && m_setCmdArgs.Add(*(new CMICmdArgValListOfN(m_constStrArgNamedBrkPt, true, true, CMICmdArgValListBase::eArgValType_Number)));
-    return (bOk && ParseValidateCmdOptions());
+    m_setCmdArgs.Add(*(new CMICmdArgValListOfN(m_constStrArgNamedBrkPt, true, true, CMICmdArgValListBase::eArgValType_Number)));
+    return ParseValidateCmdOptions();
 }
 
 //++ ------------------------------------------------------------------------------------
@@ -566,10 +582,10 @@ CMICmdCmdBreakDisable::Acknowledge(void)
         CMICmnMIValueTuple miValueTuple(miValueResult);
         const CMICmnMIValueConst miValueConst2("n");
         const CMICmnMIValueResult miValueResult2("enabled", miValueConst2);
-        bool bOk = miValueTuple.Add(miValueResult2);
+        miValueTuple.Add(miValueResult2);
         const CMICmnMIValueResult miValueResult3("bkpt", miValueTuple);
         const CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_BreakPointModified, miValueResult3);
-        bOk = bOk && CMICmnStreamStdout::TextToStdout(miOutOfBandRecord.GetString());
+        bool bOk = CMICmnStreamStdout::TextToStdout(miOutOfBandRecord.GetString());
 
         const CMICmnMIResultRecord miRecordResult(m_cmdData.strMiCmdToken, CMICmnMIResultRecord::eResultClass_Done);
         m_miResultRecord = miRecordResult;
@@ -646,11 +662,10 @@ CMICmdCmdBreakEnable::~CMICmdCmdBreakEnable(void)
 bool
 CMICmdCmdBreakEnable::ParseArgs(void)
 {
-    bool bOk = m_setCmdArgs.Add(
+    m_setCmdArgs.Add(
         *(new CMICmdArgValOptionLong(m_constStrArgNamedThreadGrp, false, false, CMICmdArgValListBase::eArgValType_ThreadGrp, 1)));
-    bOk =
-        bOk && m_setCmdArgs.Add(*(new CMICmdArgValListOfN(m_constStrArgNamedBrkPt, true, true, CMICmdArgValListBase::eArgValType_Number)));
-    return (bOk && ParseValidateCmdOptions());
+    m_setCmdArgs.Add(*(new CMICmdArgValListOfN(m_constStrArgNamedBrkPt, true, true, CMICmdArgValListBase::eArgValType_Number)));
+    return ParseValidateCmdOptions();
 }
 
 //++ ------------------------------------------------------------------------------------
@@ -706,10 +721,10 @@ CMICmdCmdBreakEnable::Acknowledge(void)
         CMICmnMIValueTuple miValueTuple(miValueResult);
         const CMICmnMIValueConst miValueConst2("y");
         const CMICmnMIValueResult miValueResult2("enabled", miValueConst2);
-        bool bOk = miValueTuple.Add(miValueResult2);
+        miValueTuple.Add(miValueResult2);
         const CMICmnMIValueResult miValueResult3("bkpt", miValueTuple);
         const CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_BreakPointModified, miValueResult3);
-        bOk = bOk && CMICmnStreamStdout::TextToStdout(miOutOfBandRecord.GetString());
+        bool bOk = CMICmnStreamStdout::TextToStdout(miOutOfBandRecord.GetString());
 
         const CMICmnMIResultRecord miRecordResult(m_cmdData.strMiCmdToken, CMICmnMIResultRecord::eResultClass_Done);
         m_miResultRecord = miRecordResult;
@@ -787,11 +802,11 @@ CMICmdCmdBreakAfter::~CMICmdCmdBreakAfter(void)
 bool
 CMICmdCmdBreakAfter::ParseArgs(void)
 {
-    bool bOk = m_setCmdArgs.Add(
+    m_setCmdArgs.Add(
         *(new CMICmdArgValOptionLong(m_constStrArgNamedThreadGrp, false, false, CMICmdArgValListBase::eArgValType_ThreadGrp, 1)));
-    bOk = bOk && m_setCmdArgs.Add(*(new CMICmdArgValNumber(m_constStrArgNamedNumber, true, true)));
-    bOk = bOk && m_setCmdArgs.Add(*(new CMICmdArgValNumber(m_constStrArgNamedCount, true, true)));
-    return (bOk && ParseValidateCmdOptions());
+    m_setCmdArgs.Add(*(new CMICmdArgValNumber(m_constStrArgNamedNumber, true, true)));
+    m_setCmdArgs.Add(*(new CMICmdArgValNumber(m_constStrArgNamedCount, true, true)));
+    return ParseValidateCmdOptions();
 }
 
 //++ ------------------------------------------------------------------------------------
@@ -918,14 +933,13 @@ CMICmdCmdBreakCondition::~CMICmdCmdBreakCondition(void)
 bool
 CMICmdCmdBreakCondition::ParseArgs(void)
 {
-    bool bOk = m_setCmdArgs.Add(
+    m_setCmdArgs.Add(
         *(new CMICmdArgValOptionLong(m_constStrArgNamedThreadGrp, false, false, CMICmdArgValListBase::eArgValType_ThreadGrp, 1)));
-    bOk = bOk && m_setCmdArgs.Add(*(new CMICmdArgValNumber(m_constStrArgNamedNumber, true, true)));
-    bOk = bOk && m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgNamedExpr, true, true, true, true)));
-    bOk = bOk &&
-          m_setCmdArgs.Add(*(new CMICmdArgValListOfN(m_constStrArgNamedExprNoQuotes, true, false,
-                                                     CMICmdArgValListBase::eArgValType_StringQuotedNumber)));
-    return (bOk && ParseValidateCmdOptions());
+    m_setCmdArgs.Add(*(new CMICmdArgValNumber(m_constStrArgNamedNumber, true, true)));
+    m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgNamedExpr, true, true, true, true)));
+    m_setCmdArgs.Add(*(new CMICmdArgValListOfN(m_constStrArgNamedExprNoQuotes, true, false,
+                                               CMICmdArgValListBase::eArgValType_StringQuotedNumber)));
+    return ParseValidateCmdOptions();
 }
 
 //++ ------------------------------------------------------------------------------------
@@ -1009,7 +1023,7 @@ CMICmdCmdBreakCondition::CreateSelf(void)
 //              a single string i.e. '2' -> ok.
 //              a quoted string i.e. "a > 100" -> ok
 //              a non quoted string i.e. 'a > 100' -> not ok
-//          CMICmdArgValString only extracts the first space seperated string, the "a".
+//          CMICmdArgValString only extracts the first space separated string, the "a".
 //          This function using the optional argument type CMICmdArgValListOfN collects
 //          the rest of the expression so that is may be added to the 'a' part to form a
 //          complete expression string i.e. "a > 100".

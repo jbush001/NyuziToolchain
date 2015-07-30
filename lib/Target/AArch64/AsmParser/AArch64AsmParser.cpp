@@ -107,6 +107,7 @@ private:
   OperandMatchResultTy tryParseAddSubImm(OperandVector &Operands);
   OperandMatchResultTy tryParseGPR64sp0Operand(OperandVector &Operands);
   bool tryParseVectorRegister(OperandVector &Operands);
+  OperandMatchResultTy tryParseGPRSeqPair(OperandVector &Operands);
 
 public:
   enum AArch64MatchResultTy {
@@ -116,7 +117,7 @@ public:
   };
   AArch64AsmParser(MCSubtargetInfo &STI, MCAsmParser &Parser,
                    const MCInstrInfo &MII, const MCTargetOptions &Options)
-      : MCTargetAsmParser(), STI(STI) {
+      : MCTargetAsmParser(Options), STI(STI) {
     MCAsmParserExtension::Initialize(Parser);
     MCStreamer &S = getParser().getStreamer();
     if (S.getTargetStreamer() == nullptr)
@@ -698,6 +699,25 @@ public:
     const MCConstantExpr *CE = cast<MCConstantExpr>(Expr);
     return CE->getValue() >= 0 && CE->getValue() <= 0xfff;
   }
+  bool isAddSubImmNeg() const {
+    if (!isShiftedImm() && !isImm())
+      return false;
+
+    const MCExpr *Expr;
+
+    // An ADD/SUB shifter is either 'lsl #0' or 'lsl #12'.
+    if (isShiftedImm()) {
+      unsigned Shift = ShiftedImm.ShiftAmount;
+      Expr = ShiftedImm.Val;
+      if (Shift != 0 && Shift != 12)
+        return false;
+    } else
+      Expr = getImm();
+
+    // Otherwise it should be a real negative immediate in range:
+    const MCConstantExpr *CE = dyn_cast<MCConstantExpr>(Expr);
+    return CE != nullptr && CE->getValue() < 0 && -CE->getValue() <= 0xfff;
+  }
   bool isCondCode() const { return Kind == k_CondCode; }
   bool isSIMDImmType10() const {
     if (!isImm())
@@ -874,6 +894,16 @@ public:
   bool isGPR32as64() const {
     return Kind == k_Register && !Reg.isVector &&
       AArch64MCRegisterClasses[AArch64::GPR64RegClassID].contains(Reg.RegNum);
+  }
+  bool isWSeqPair() const {
+    return Kind == k_Register && !Reg.isVector &&
+           AArch64MCRegisterClasses[AArch64::WSeqPairsClassRegClassID].contains(
+               Reg.RegNum);
+  }
+  bool isXSeqPair() const {
+    return Kind == k_Register && !Reg.isVector &&
+           AArch64MCRegisterClasses[AArch64::XSeqPairsClassRegClassID].contains(
+               Reg.RegNum);
   }
 
   bool isGPR64sp0() const {
@@ -1206,6 +1236,18 @@ public:
       addExpr(Inst, getImm());
       Inst.addOperand(MCOperand::createImm(0));
     }
+  }
+
+  void addAddSubImmNegOperands(MCInst &Inst, unsigned N) const {
+    assert(N == 2 && "Invalid number of operands!");
+
+    const MCExpr *MCE = isShiftedImm() ? getShiftedImmVal() : getImm();
+    const MCConstantExpr *CE = cast<MCConstantExpr>(MCE);
+    int64_t Val = -CE->getValue();
+    unsigned ShiftAmt = isShiftedImm() ? ShiftedImm.ShiftAmount : 0;
+
+    Inst.addOperand(MCOperand::createImm(Val));
+    Inst.addOperand(MCOperand::createImm(ShiftAmt));
   }
 
   void addCondCodeOperands(MCInst &Inst, unsigned N) const {
@@ -1753,7 +1795,7 @@ static unsigned MatchRegisterName(StringRef Name);
 /// }
 
 static unsigned matchVectorRegName(StringRef Name) {
-  return StringSwitch<unsigned>(Name)
+  return StringSwitch<unsigned>(Name.lower())
       .Case("v0", AArch64::Q0)
       .Case("v1", AArch64::Q1)
       .Case("v2", AArch64::Q2)
@@ -4353,4 +4395,78 @@ unsigned AArch64AsmParser::validateTargetOperandClass(MCParsedAsmOperand &AsmOp,
   if (CE->getValue() == ExpectedVal)
     return Match_Success;
   return Match_InvalidOperand;
+}
+
+
+AArch64AsmParser::OperandMatchResultTy
+AArch64AsmParser::tryParseGPRSeqPair(OperandVector &Operands) {
+
+  SMLoc S = getLoc();
+
+  if (getParser().getTok().isNot(AsmToken::Identifier)) {
+    Error(S, "expected register");
+    return MatchOperand_ParseFail;
+  }
+
+  int FirstReg = tryParseRegister();
+  if (FirstReg == -1) {
+    return MatchOperand_ParseFail;
+  }
+  const MCRegisterClass &WRegClass =
+      AArch64MCRegisterClasses[AArch64::GPR32RegClassID];
+  const MCRegisterClass &XRegClass =
+      AArch64MCRegisterClasses[AArch64::GPR64RegClassID];
+
+  bool isXReg = XRegClass.contains(FirstReg),
+       isWReg = WRegClass.contains(FirstReg);
+  if (!isXReg && !isWReg) {
+    Error(S, "expected first even register of a "
+             "consecutive same-size even/odd register pair");
+    return MatchOperand_ParseFail;
+  }
+
+  const MCRegisterInfo *RI = getContext().getRegisterInfo();
+  unsigned FirstEncoding = RI->getEncodingValue(FirstReg);
+
+  if (FirstEncoding & 0x1) {
+    Error(S, "expected first even register of a "
+             "consecutive same-size even/odd register pair");
+    return MatchOperand_ParseFail;
+  }
+
+  SMLoc M = getLoc();
+  if (getParser().getTok().isNot(AsmToken::Comma)) {
+    Error(M, "expected comma");
+    return MatchOperand_ParseFail;
+  }
+  // Eat the comma
+  getParser().Lex();
+
+  SMLoc E = getLoc();
+  int SecondReg = tryParseRegister();
+  if (SecondReg ==-1) {
+    return MatchOperand_ParseFail;
+  }
+
+ if (RI->getEncodingValue(SecondReg) != FirstEncoding + 1 ||
+      (isXReg && !XRegClass.contains(SecondReg)) ||
+      (isWReg && !WRegClass.contains(SecondReg))) {
+    Error(E,"expected second odd register of a "
+             "consecutive same-size even/odd register pair");
+    return MatchOperand_ParseFail;
+  }
+  
+  unsigned Pair = 0;
+  if(isXReg) {
+    Pair = RI->getMatchingSuperReg(FirstReg, AArch64::sube64,
+           &AArch64MCRegisterClasses[AArch64::XSeqPairsClassRegClassID]);
+  } else {
+    Pair = RI->getMatchingSuperReg(FirstReg, AArch64::sube32,
+           &AArch64MCRegisterClasses[AArch64::WSeqPairsClassRegClassID]);
+  }
+
+  Operands.push_back(AArch64Operand::CreateReg(Pair, false, S, getLoc(),
+      getContext()));
+
+  return MatchOperand_Success;
 }

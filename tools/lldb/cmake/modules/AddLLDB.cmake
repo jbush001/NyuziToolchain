@@ -3,18 +3,12 @@ function(lldb_link_common_libs name targetkind)
     return()
   endif()
 
-  set(COMPILER_SUPPORTS_GROUPS OFF)
-  if (LLVM_COMPILER_IS_GCC_COMPATIBLE AND NOT "${CMAKE_SYSTEM_NAME}" MATCHES "Darwin")
-    # The Darwin linker doesn't understand --start-group/--end-group.
-    set(COMPILER_SUPPORTS_GROUPS ON)
-  endif()
-
   if(${targetkind} MATCHES "SHARED")
     set(LINK_KEYWORD ${cmake_2_8_12_PUBLIC})
   endif()
-  
+
   if(${targetkind} MATCHES "SHARED" OR ${targetkind} MATCHES "EXE")
-    if (COMPILER_SUPPORTS_GROUPS)
+    if (LLDB_LINKER_SUPPORTS_GROUPS)
       target_link_libraries(${name} ${LINK_KEYWORD}
                             -Wl,--start-group ${LLDB_USED_LIBS} -Wl,--end-group)
     else()
@@ -24,7 +18,7 @@ function(lldb_link_common_libs name targetkind)
 endfunction(lldb_link_common_libs)
 
 macro(add_lldb_library name)
-  # only supported parameters to this macro are the optional 
+  # only supported parameters to this macro are the optional
   # MODULE;SHARED;STATIC library type and source files
   cmake_parse_arguments(PARAM
     "MODULE;SHARED;STATIC;OBJECT"
@@ -44,13 +38,14 @@ macro(add_lldb_library name)
     set(libkind MODULE)
   elseif (PARAM_SHARED)
     set(libkind SHARED)
-  elseif (PARAM_STATIC)
-    set(libkind STATIC)
   elseif (PARAM_OBJECT)
     set(libkind OBJECT)
   else ()
-    # library type unspecified - controlled by BUILD_SHARED_LIBS
-    unset(libkind)
+    # PARAM_STATIC or library type unspecified. BUILD_SHARED_LIBS
+    # does not control the kind of libraries created for LLDB,
+    # only whether or not they link to shared/static LLVM/Clang
+    # libraries.
+    set(libkind STATIC)
   endif()
 
   #PIC not needed on Win
@@ -65,19 +60,27 @@ macro(add_lldb_library name)
 
     lldb_link_common_libs(${name} "${libkind}")
 
-    
-    target_link_libraries(${name} ${cmake_2_8_12_PUBLIC} ${CLANG_USED_LIBS})
+    if (PARAM_SHARED)
+      if (LLDB_LINKER_SUPPORTS_GROUPS)
+        target_link_libraries(${name} ${cmake_2_8_12_PUBLIC}
+                    -Wl,--start-group ${CLANG_USED_LIBS} -Wl,--end-group)
+      else()
+        target_link_libraries(${name} ${cmake_2_8_12_PUBLIC} ${CLANG_USED_LIBS})
+      endif()
+    endif()
     llvm_config(${name} ${LLVM_LINK_COMPONENTS})
 
-    if (PARAM_SHARED)
-      install(TARGETS ${name}
-        RUNTIME DESTINATION bin
-        LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
-        ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX})
-    else()
-      install(TARGETS ${name}
-        LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
-        ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX})
+    if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY OR ${name} STREQUAL "liblldb")
+      if (PARAM_SHARED)
+        install(TARGETS ${name}
+          RUNTIME DESTINATION bin
+          LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
+          ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX})
+      else()
+        install(TARGETS ${name}
+          LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
+          ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX})
+      endif()
     endif()
   endif()
 

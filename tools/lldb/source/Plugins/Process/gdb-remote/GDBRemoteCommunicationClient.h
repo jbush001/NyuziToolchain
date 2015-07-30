@@ -17,6 +17,7 @@
 // Other libraries and framework includes
 // Project includes
 #include "lldb/Core/ArchSpec.h"
+#include "lldb/Core/StructuredData.h"
 #include "lldb/Target/Process.h"
 
 #include "GDBRemoteCommunication.h"
@@ -78,6 +79,11 @@ public:
                                           const char *packet_payload,
                                           size_t packet_length,
                                           StringExtractorGDBRemote &response);
+    bool
+    SendvContPacket (ProcessGDBRemote *process,
+                     const char *payload,
+                     size_t packet_length,
+                     StringExtractorGDBRemote &response);
 
     bool
     GetThreadSuffixSupported () override;
@@ -314,7 +320,7 @@ public:
     GetSyncThreadStateSupported();
     
     void
-    ResetDiscoverableSettings();
+    ResetDiscoverableSettings (bool did_exec);
 
     bool
     GetHostInfo (bool force = false);
@@ -537,8 +543,14 @@ public:
     bool
     AvoidGPackets(ProcessGDBRemote *process);
 
+    StructuredData::ObjectSP
+    GetThreadsInfo();
+
     bool
     GetThreadExtendedInfoSupported();
+
+    bool
+    GetLoadedDynamicLibrariesInfosSupported();
 
     bool
     GetModuleInfo (const FileSpec& module_file_spec,
@@ -550,6 +562,9 @@ public:
                     const lldb_private::ConstString annex,
                     std::string & out,
                     lldb_private::Error & err);
+
+    void
+    ServeSymbolLookups(lldb_private::Process *process);
 
 protected:
 
@@ -563,6 +578,11 @@ protected:
 
     bool
     GetGDBServerVersion();
+
+    // Given the list of compression types that the remote debug stub can support,
+    // possibly enable compression if we find an encoding we can handle.
+    void
+    MaybeEnableCompression (std::vector<std::string> supported_compressions);
 
     //------------------------------------------------------------------
     // Classes that inherit from GDBRemoteCommunicationClient can see and modify these
@@ -597,6 +617,7 @@ protected:
     LazyBool m_supports_qXfer_features_read;
     LazyBool m_supports_augmented_libraries_svr4_read;
     LazyBool m_supports_jThreadExtendedInfo;
+    LazyBool m_supports_jLoadedDynamicLibrariesInfos;
 
     bool
         m_supports_qProcessInfoPID:1,
@@ -610,7 +631,9 @@ protected:
         m_supports_z3:1,
         m_supports_z4:1,
         m_supports_QEnvironment:1,
-        m_supports_QEnvironmentHexEncoded:1;
+        m_supports_QEnvironmentHexEncoded:1,
+        m_supports_qSymbol:1,
+        m_supports_jThreadsInfo:1;
     
     lldb::pid_t m_curr_pid;
     lldb::tid_t m_curr_tid;         // Current gdb remote protocol thread index for all other operations
@@ -643,6 +666,7 @@ protected:
     uint32_t m_gdb_server_version; // from reply to qGDBServerVersion, zero if qGDBServerVersion is not supported
     uint32_t m_default_packet_timeout;
     uint64_t m_max_packet_size;  // as returned by qSupported
+
     
     bool
     DecodeProcessInfoResponse (StringExtractorGDBRemote &response, 

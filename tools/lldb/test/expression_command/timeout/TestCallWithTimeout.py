@@ -28,7 +28,7 @@ class ExprCommandWithTimeoutsTestCase(TestBase):
         self.call_function()
 
     @expectedFailureFreeBSD("llvm.org/pr19605") # fails on buildbot
-    @expectedFailureLinux("llvm.org/pr20275") # fails intermittently on Linux
+    @expectedFlakeyLinux("llvm.org/pr20275")
     @dwarf_test
     def test_with_dwarf(self):
         """Test calling std::String member function."""
@@ -60,7 +60,7 @@ class ExprCommandWithTimeoutsTestCase(TestBase):
         
         # First set the timeout too short, and make sure we fail.
         options = lldb.SBExpressionOptions()
-        options.SetTimeoutInMicroSeconds(100)
+        options.SetTimeoutInMicroSeconds(10)
         options.SetUnwindOnError(True)
 
         frame = thread.GetFrameAtIndex(0)

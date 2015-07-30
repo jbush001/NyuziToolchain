@@ -45,13 +45,13 @@ public:
   virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI, 
   	                                                     MachineBasicBlock *MBB) const override;
   virtual const char *getTargetNodeName(unsigned Opcode) const override;
-  virtual ConstraintType getConstraintType(const std::string &Constraint) const override;
+  virtual ConstraintType getConstraintType(StringRef Constraint) const override;
   std::pair<unsigned, const TargetRegisterClass *>
     getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
-                                 const std::string &Constraint,
+                                 StringRef Constraint,
                                  MVT VT) const override;
   virtual bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
-  virtual EVT getSetCCResultType(LLVMContext &Context, EVT VT) const override;
+  virtual EVT getSetCCResultType(const DataLayout&, LLVMContext &Context, EVT VT) const override;
   virtual SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv,
                               bool isVarArg,
                               const SmallVectorImpl<ISD::OutputArg> &Outs,

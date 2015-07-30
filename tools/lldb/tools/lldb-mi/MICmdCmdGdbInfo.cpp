@@ -1,4 +1,4 @@
-//===-- MICmdCmdGdbInfo.cpp ------------------------*- C++ -*-===//
+//===-- MICmdCmdGdbInfo.cpp -------------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -68,8 +68,8 @@ CMICmdCmdGdbInfo::~CMICmdCmdGdbInfo(void)
 bool
 CMICmdCmdGdbInfo::ParseArgs(void)
 {
-    bool bOk = m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgNamedPrint, true, true)));
-    return (bOk && ParseValidateCmdOptions());
+    m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgNamedPrint, true, true)));
+    return ParseValidateCmdOptions();
 }
 
 //++ ------------------------------------------------------------------------------------

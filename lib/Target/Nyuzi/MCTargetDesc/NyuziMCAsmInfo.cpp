@@ -19,7 +19,7 @@ using namespace llvm;
 
 void NyuziMCAsmInfo::anchor() {}
 
-NyuziMCAsmInfo::NyuziMCAsmInfo(StringRef TT) {
+NyuziMCAsmInfo::NyuziMCAsmInfo(const Triple &TT) {
   IsLittleEndian = true;
   CommentString = ";";
   SupportsDebugInformation = true;

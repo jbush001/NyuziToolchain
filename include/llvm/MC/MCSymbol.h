@@ -15,11 +15,13 @@
 #define LLVM_MC_MCSYMBOL_H
 
 #include "llvm/ADT/PointerIntPair.h"
+#include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/StringMap.h"
-#include "llvm/MC/MCExpr.h"
+#include "llvm/MC/MCAssembler.h"
 #include "llvm/Support/Compiler.h"
 
 namespace llvm {
+class MCAsmInfo;
 class MCExpr;
 class MCSymbol;
 class MCFragment;
@@ -35,22 +37,47 @@ class raw_ostream;
 /// Section member is set to indicate what section it lives in.  Otherwise, if
 /// it is a reference to an external entity, it has a null section.
 class MCSymbol {
+protected:
+  /// The kind of the symbol.  If it is any value other than unset then this
+  /// class is actually one of the appropriate subclasses of MCSymbol.
+  enum SymbolKind {
+    SymbolKindUnset,
+    SymbolKindCOFF,
+    SymbolKindELF,
+    SymbolKindMachO,
+  };
+
+  /// A symbol can contain an Offset, or Value, or be Common, but never more
+  /// than one of these.
+  enum Contents : uint8_t {
+    SymContentsUnset,
+    SymContentsOffset,
+    SymContentsVariable,
+    SymContentsCommon,
+  };
+
   // Special sentinal value for the absolute pseudo section.
   //
   // FIXME: Use a PointerInt wrapper for this?
   static MCSection *AbsolutePseudoSection;
 
-  /// Name - The name of the symbol.  The referred-to string data is actually
-  /// held by the StringMap that lives in MCContext.
-  const StringMapEntry<bool> *Name;
-
-  /// The section the symbol is defined in. This is null for undefined symbols,
-  /// and the special AbsolutePseudoSection value for absolute symbols. If this
-  /// is a variable symbol, this caches the variable value's section.
-  mutable MCSection *Section;
-
-  /// Value - If non-null, the value for a variable symbol.
-  const MCExpr *Value;
+  /// If a symbol has a Fragment, the section is implied, so we only need
+  /// one pointer.
+  /// FIXME: We might be able to simplify this by having the asm streamer create
+  /// dummy fragments.
+  /// If this is a section, then it gives the symbol is defined in. This is null
+  /// for undefined symbols, and the special AbsolutePseudoSection value for
+  /// absolute symbols. If this is a variable symbol, this caches the variable
+  /// value's section.
+  ///
+  /// If this is a fragment, then it gives the fragment this symbol's value is
+  /// relative to, if any.
+  ///
+  /// For the 'HasName' integer, this is true if this symbol is named.
+  /// A named symbol will have a pointer to the name allocated in the bytes
+  /// immediately prior to the MCSymbol.
+  mutable PointerIntPair<PointerUnion<MCSection *, MCFragment *>, 1>
+      SectionOrFragmentAndHasName;
 
   /// IsTemporary - True if this is an assembler temporary label, which
   /// typically does not survive in the .o file's symbol table.  Usually
@@ -63,14 +90,40 @@ class MCSymbol {
   /// IsUsed - True if this symbol has been used.
   mutable unsigned IsUsed : 1;
 
-  mutable bool HasData : 1;
+  mutable bool IsRegistered : 1;
+
+  /// This symbol is visible outside this translation unit.
+  mutable unsigned IsExternal : 1;
+
+  /// This symbol is private extern.
+  mutable unsigned IsPrivateExtern : 1;
+
+  /// LLVM RTTI discriminator. This is actually a SymbolKind enumerator, but is
+  /// unsigned to avoid sign extension and achieve better bitpacking with MSVC.
+  unsigned Kind : 2;
+
+  /// True if we have created a relocation that uses this symbol.
+  mutable unsigned IsUsedInReloc : 1;
+
+  /// This is actually a Contents enumerator, but is unsigned to avoid sign
+  /// extension and achieve better bitpacking with MSVC.
+  unsigned SymbolContents : 2;
+
+  /// The alignment of the symbol, if it is 'common', or -1.
+  ///
+  /// The alignment is stored as log2(align) + 1.  This allows all values from
+  /// 0 to 2^31 to be stored which is every power of 2 representable by an
+  /// unsigned.
+  enum : unsigned { NumCommonAlignmentBits = 5 };
+  unsigned CommonAlignLog2 : NumCommonAlignmentBits;
+
+  /// The Flags field is used by object file implementations to store
+  /// additional per symbol information which is not easily classified.
+  enum : unsigned { NumFlagsBits = 16 };
+  mutable uint32_t Flags : NumFlagsBits;
 
   /// Index field, for use by the object file implementation.
-  mutable uint64_t Index : 60;
-
-  /// An expression describing how to calculate the size of a symbol. If a
-  /// symbol has no size this field will be NULL.
-  const MCExpr *SymbolSize = nullptr;
+  mutable uint32_t Index = 0;
 
   union {
     /// The offset to apply to the fragment address to form this symbol's value.
@@ -78,51 +131,89 @@ class MCSymbol {
 
     /// The size of the symbol, if it is 'common'.
     uint64_t CommonSize;
+
+    /// If non-null, the value for a variable symbol.
+    const MCExpr *Value;
   };
 
-  /// The alignment of the symbol, if it is 'common', or -1.
-  //
-  // FIXME: Pack this in with other fields?
-  unsigned CommonAlign = -1U;
-
-  /// The Flags field is used by object file implementations to store
-  /// additional per symbol information which is not easily classified.
-  mutable uint32_t Flags = 0;
-
-  /// The fragment this symbol's value is relative to, if any. Also stores if
-  /// this symbol is visible outside this translation unit (bit 0) or if it is
-  /// private extern (bit 1).
-  mutable PointerIntPair<MCFragment *, 2> Fragment;
-
-private: // MCContext creates and uniques these.
+protected: // MCContext creates and uniques these.
   friend class MCExpr;
   friend class MCContext;
-  MCSymbol(const StringMapEntry<bool> *Name, bool isTemporary)
-      : Name(Name), Section(nullptr), Value(nullptr), IsTemporary(isTemporary),
-        IsRedefinable(false), IsUsed(false), HasData(false), Index(0) {
+
+  /// \brief The name for a symbol.
+  /// MCSymbol contains a uint64_t so is probably aligned to 8.  On a 32-bit
+  /// system, the name is a pointer so isn't going to satisfy the 8 byte
+  /// alignment of uint64_t.  Account for that here.
+  typedef union {
+    const StringMapEntry<bool> *NameEntry;
+    uint64_t AlignmentPadding;
+  } NameEntryStorageTy;
+
+  MCSymbol(SymbolKind Kind, const StringMapEntry<bool> *Name, bool isTemporary)
+      : IsTemporary(isTemporary), IsRedefinable(false), IsUsed(false),
+        IsRegistered(false), IsExternal(false), IsPrivateExtern(false),
+        Kind(Kind), IsUsedInReloc(false), SymbolContents(SymContentsUnset),
+        CommonAlignLog2(0), Flags(0) {
     Offset = 0;
+    SectionOrFragmentAndHasName.setInt(!!Name);
+    if (Name)
+      getNameEntryPtr() = Name;
+  }
+
+  // Provide custom new/delete as we will only allocate space for a name
+  // if we need one.
+  void *operator new(size_t s, const StringMapEntry<bool> *Name,
+                     MCContext &Ctx);
+
+private:
+
+  void operator delete(void *);
+  /// \brief Placement delete - required by std, but never called.
+  void operator delete(void*, unsigned) {
+    llvm_unreachable("Constructor throws?");
+  }
+  /// \brief Placement delete - required by std, but never called.
+  void operator delete(void*, unsigned, bool) {
+    llvm_unreachable("Constructor throws?");
   }
 
   MCSymbol(const MCSymbol &) = delete;
   void operator=(const MCSymbol &) = delete;
   MCSection *getSectionPtr() const {
-    if (Section || !Value)
+    if (MCFragment *F = getFragment())
+      return F->getParent();
+    const auto &SectionOrFragment = SectionOrFragmentAndHasName.getPointer();
+    assert(!SectionOrFragment.is<MCFragment *>() && "Section or null expected");
+    MCSection *Section = SectionOrFragment.dyn_cast<MCSection *>();
+    if (Section || !isVariable())
       return Section;
-    return Section = Value->findAssociatedSection();
+    return Section = getVariableValue()->findAssociatedSection();
+  }
+
+  /// \brief Get a reference to the name field.  Requires that we have a name
+  const StringMapEntry<bool> *&getNameEntryPtr() {
+    assert(SectionOrFragmentAndHasName.getInt() && "Name is required");
+    NameEntryStorageTy *Name = reinterpret_cast<NameEntryStorageTy *>(this);
+    return (*(Name - 1)).NameEntry;
+  }
+  const StringMapEntry<bool> *&getNameEntryPtr() const {
+    return const_cast<MCSymbol*>(this)->getNameEntryPtr();
   }
 
 public:
   /// getName - Get the symbol name.
-  StringRef getName() const { return Name ? Name->first() : ""; }
+  StringRef getName() const {
+    if (!SectionOrFragmentAndHasName.getInt())
+      return StringRef();
 
-  bool hasData() const { return HasData; }
+    return getNameEntryPtr()->first();
+  }
 
-  /// Initialize symbol data.
-  ///
-  /// Nothing really to do here, but this is enables an assertion that \a
-  /// MCAssembler::getOrCreateSymbolData() has actually been called before
-  /// anyone calls \a getData().
-  void initializeData() const { HasData = true; }
+  bool isRegistered() const { return IsRegistered; }
+  void setIsRegistered(bool Value) const { IsRegistered = Value; }
+
+  void setUsedInReloc() const { IsUsedInReloc = true; }
+  bool isUsedInReloc() const { return IsUsedInReloc; }
 
   /// \name Accessors
   /// @{
@@ -141,8 +232,11 @@ public:
   /// \brief Prepare this symbol to be redefined.
   void redefineIfPossible() {
     if (IsRedefinable) {
-      Value = nullptr;
-      Section = nullptr;
+      if (SymbolContents == SymContentsVariable) {
+        Value = nullptr;
+        SymbolContents = SymContentsUnset;
+      }
+      setUndefined();
       IsRedefinable = false;
     }
   }
@@ -175,18 +269,31 @@ public:
   /// Mark the symbol as defined in the section \p S.
   void setSection(MCSection &S) {
     assert(!isVariable() && "Cannot set section of variable");
-    Section = &S;
+    assert(!SectionOrFragmentAndHasName.getPointer().is<MCFragment *>() &&
+           "Section or null expected");
+    SectionOrFragmentAndHasName.setPointer(&S);
   }
 
-  /// setUndefined - Mark the symbol as undefined.
-  void setUndefined() { Section = nullptr; }
+  /// Mark the symbol as undefined.
+  void setUndefined() {
+    SectionOrFragmentAndHasName.setPointer(
+        PointerUnion<MCSection *, MCFragment *>());
+  }
+
+  bool isELF() const { return Kind == SymbolKindELF; }
+
+  bool isCOFF() const { return Kind == SymbolKindCOFF; }
+
+  bool isMachO() const { return Kind == SymbolKindMachO; }
 
   /// @}
   /// \name Variable Symbols
   /// @{
 
   /// isVariable - Check if this is a variable symbol.
-  bool isVariable() const { return Value != nullptr; }
+  bool isVariable() const {
+    return SymbolContents == SymContentsVariable;
+  }
 
   /// getVariableValue() - Get the value for variable symbols.
   const MCExpr *getVariableValue() const {
@@ -200,29 +307,27 @@ public:
   /// @}
 
   /// Get the (implementation defined) index.
-  uint64_t getIndex() const {
-    assert(HasData && "Uninitialized symbol data");
+  uint32_t getIndex() const {
     return Index;
   }
 
   /// Set the (implementation defined) index.
-  void setIndex(uint64_t Value) const {
-    assert(HasData && "Uninitialized symbol data");
-    assert(!(Value >> 60) && "Not enough bits for value");
+  void setIndex(uint32_t Value) const {
     Index = Value;
   }
 
-  void setSize(const MCExpr *SS) { SymbolSize = SS; }
-
-  const MCExpr *getSize() const { return SymbolSize; }
-
   uint64_t getOffset() const {
-    assert(!isCommon());
+    assert((SymbolContents == SymContentsUnset ||
+            SymbolContents == SymContentsOffset) &&
+           "Cannot get offset for a common/variable symbol");
     return Offset;
   }
   void setOffset(uint64_t Value) {
-    assert(!isCommon());
+    assert((SymbolContents == SymContentsUnset ||
+            SymbolContents == SymContentsOffset) &&
+           "Cannot set offset for a common/variable symbol");
     Offset = Value;
+    SymbolContents = SymContentsOffset;
   }
 
   /// Return the size of a 'common' symbol.
@@ -238,51 +343,80 @@ public:
   void setCommon(uint64_t Size, unsigned Align) {
     assert(getOffset() == 0);
     CommonSize = Size;
-    CommonAlign = Align;
+    SymbolContents = SymContentsCommon;
+
+    assert((!Align || isPowerOf2_32(Align)) &&
+           "Alignment must be a power of 2");
+    unsigned Log2Align = Log2_32(Align) + 1;
+    assert(Log2Align < (1U << NumCommonAlignmentBits) &&
+           "Out of range alignment");
+    CommonAlignLog2 = Log2Align;
   }
 
   ///  Return the alignment of a 'common' symbol.
   unsigned getCommonAlignment() const {
     assert(isCommon() && "Not a 'common' symbol!");
-    return CommonAlign;
+    return CommonAlignLog2 ? (1U << (CommonAlignLog2 - 1)) : 0;
+  }
+
+  /// Declare this symbol as being 'common'.
+  ///
+  /// \param Size - The size of the symbol.
+  /// \param Align - The alignment of the symbol.
+  /// \return True if symbol was already declared as a different type
+  bool declareCommon(uint64_t Size, unsigned Align) {
+    assert(isCommon() || getOffset() == 0);
+    if(isCommon()) {
+      if(CommonSize != Size || getCommonAlignment() != Align)
+       return true;
+    } else
+      setCommon(Size, Align);
+    return false;
   }
 
   /// Is this a 'common' symbol.
-  bool isCommon() const { return CommonAlign != -1U; }
+  bool isCommon() const {
+    return SymbolContents == SymContentsCommon;
+  }
 
+  MCFragment *getFragment() const {
+    return SectionOrFragmentAndHasName.getPointer().dyn_cast<MCFragment *>();
+  }
+  void setFragment(MCFragment *Value) const {
+    SectionOrFragmentAndHasName.setPointer(Value);
+  }
+
+  bool isExternal() const { return IsExternal; }
+  void setExternal(bool Value) const { IsExternal = Value; }
+
+  bool isPrivateExtern() const { return IsPrivateExtern; }
+  void setPrivateExtern(bool Value) { IsPrivateExtern = Value; }
+
+  /// print - Print the value to the stream \p OS.
+  void print(raw_ostream &OS, const MCAsmInfo *MAI) const;
+
+  /// dump - Print the value to stderr.
+  void dump() const;
+
+protected:
   /// Get the (implementation defined) symbol flags.
   uint32_t getFlags() const { return Flags; }
 
   /// Set the (implementation defined) symbol flags.
-  void setFlags(uint32_t Value) const { Flags = Value; }
+  void setFlags(uint32_t Value) const {
+    assert(Value < (1U << NumFlagsBits) && "Out of range flags");
+    Flags = Value;
+  }
 
   /// Modify the flags via a mask
   void modifyFlags(uint32_t Value, uint32_t Mask) const {
+    assert(Value < (1U << NumFlagsBits) && "Out of range flags");
     Flags = (Flags & ~Mask) | Value;
   }
-
-  MCFragment *getFragment() const { return Fragment.getPointer(); }
-  void setFragment(MCFragment *Value) const { Fragment.setPointer(Value); }
-
-  bool isExternal() const { return Fragment.getInt() & 1; }
-  void setExternal(bool Value) const {
-    Fragment.setInt((Fragment.getInt() & ~1) | unsigned(Value));
-  }
-
-  bool isPrivateExtern() const { return Fragment.getInt() & 2; }
-  void setPrivateExtern(bool Value) {
-    Fragment.setInt((Fragment.getInt() & ~2) | (unsigned(Value) << 1));
-  }
-
-  /// print - Print the value to the stream \p OS.
-  void print(raw_ostream &OS) const;
-
-  /// dump - Print the value to stderr.
-  void dump() const;
 };
 
 inline raw_ostream &operator<<(raw_ostream &OS, const MCSymbol &Sym) {
-  Sym.print(OS);
+  Sym.print(OS, nullptr);
   return OS;
 }
 } // end namespace llvm

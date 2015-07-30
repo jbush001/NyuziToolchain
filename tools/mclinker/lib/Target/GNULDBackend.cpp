@@ -59,7 +59,7 @@ namespace {
 //===----------------------------------------------------------------------===//
 static const std::string simple_c_identifier_allowed_chars =
     "0123456789"
-    "ABCDEFGHIJKLMNOPWRSTUVWXYZ"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     "abcdefghijklmnopqrstuvwxyz"
     "_";
 
@@ -2175,7 +2175,13 @@ void GNULDBackend::setOutputSectionAddress(Module& pModule) {
             // Try to align p_vaddr at page boundary if not in script options.
             // To do so will add more padding in file, but can save one page
             // at runtime.
-            alignAddress(vma, (*seg)->align());
+            // Avoid doing this optimization if -z relro is given, because there
+            // seems to be too many padding.
+            if (!config().options().hasRelro()) {
+              alignAddress(vma, (*seg)->align());
+            } else {
+              vma += abiPageSize();
+            }
           }
         }
       } else {
@@ -2876,11 +2882,21 @@ void GNULDBackend::sortRelocation(LDSection& pSection) {
   }
 }
 
+unsigned GNULDBackend::stubGroupSize() const {
+  const unsigned group_size = config().targets().getStubGroupSize();
+  if (group_size == 0) {
+    return m_pInfo->stubGroupSize();
+  } else {
+    return group_size;
+  }
+}
+
 /// initBRIslandFactory - initialize the branch island factory for relaxation
 bool GNULDBackend::initBRIslandFactory() {
   if (m_pBRIslandFactory == NULL) {
-    m_pBRIslandFactory =
-        new BranchIslandFactory(maxFwdBranchOffset(), maxBwdBranchOffset());
+    m_pBRIslandFactory = new BranchIslandFactory(maxFwdBranchOffset(),
+                                                 maxBwdBranchOffset(),
+                                                 stubGroupSize());
   }
   return true;
 }

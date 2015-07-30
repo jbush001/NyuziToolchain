@@ -23,6 +23,7 @@ class HelloWatchLocationTestCase(TestBase):
 
     @expectedFailureFreeBSD("llvm.org/pr18832")
     @dwarf_test
+    @expectedFailureAndroid(archs=['arm', 'aarch64']) # Watchpoints not supported
     def test_hello_watchlocation_with_dwarf(self):
         """Test watching a location with '-s size' option."""
         self.buildDwarf(dictionary=self.d)
@@ -51,7 +52,7 @@ class HelloWatchLocationTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, None, self.line, num_expected_locations=1, loc_exact=False)
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # We should be stopped again due to the breakpoint.
         # The stop reason of the thread should be breakpoint.

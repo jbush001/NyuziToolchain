@@ -371,6 +371,7 @@ Target::CreateBreakpoint (const FileSpecList *containingModules,
                           const FileSpecList *containingSourceFiles,
                           const char *func_name, 
                           uint32_t func_name_type_mask, 
+                          LanguageType language,
                           LazyBool skip_prologue,
                           bool internal,
                           bool hardware)
@@ -382,10 +383,13 @@ Target::CreateBreakpoint (const FileSpecList *containingModules,
 
         if (skip_prologue == eLazyBoolCalculate)
             skip_prologue = GetSkipPrologue() ? eLazyBoolYes : eLazyBoolNo;
+        if (language == lldb::eLanguageTypeUnknown)
+            language = GetLanguage();
 
         BreakpointResolverSP resolver_sp (new BreakpointResolverName (NULL, 
                                                                       func_name, 
                                                                       func_name_type_mask, 
+                                                                      language,
                                                                       Breakpoint::Exact, 
                                                                       skip_prologue));
         bp_sp = CreateBreakpoint (filter_sp, resolver_sp, internal, hardware, true);
@@ -398,6 +402,7 @@ Target::CreateBreakpoint (const FileSpecList *containingModules,
                           const FileSpecList *containingSourceFiles,
                           const std::vector<std::string> &func_names,
                           uint32_t func_name_type_mask,
+                          LanguageType language,
                           LazyBool skip_prologue,
                           bool internal,
                           bool hardware)
@@ -410,10 +415,13 @@ Target::CreateBreakpoint (const FileSpecList *containingModules,
 
         if (skip_prologue == eLazyBoolCalculate)
             skip_prologue = GetSkipPrologue() ? eLazyBoolYes : eLazyBoolNo;
+        if (language == lldb::eLanguageTypeUnknown)
+            language = GetLanguage();
 
         BreakpointResolverSP resolver_sp (new BreakpointResolverName (NULL,
                                                                       func_names,
                                                                       func_name_type_mask,
+                                                                      language,
                                                                       skip_prologue));
         bp_sp = CreateBreakpoint (filter_sp, resolver_sp, internal, hardware, true);
     }
@@ -426,6 +434,7 @@ Target::CreateBreakpoint (const FileSpecList *containingModules,
                           const char *func_names[],
                           size_t num_names, 
                           uint32_t func_name_type_mask, 
+                          LanguageType language,
                           LazyBool skip_prologue,
                           bool internal,
                           bool hardware)
@@ -437,11 +446,15 @@ Target::CreateBreakpoint (const FileSpecList *containingModules,
         
         if (skip_prologue == eLazyBoolCalculate)
             skip_prologue = GetSkipPrologue() ? eLazyBoolYes : eLazyBoolNo;
+        if (language == lldb::eLanguageTypeUnknown)
+            language = GetLanguage();
+
 
         BreakpointResolverSP resolver_sp (new BreakpointResolverName (NULL,
                                                                       func_names,
                                                                       num_names, 
                                                                       func_name_type_mask,
+                                                                      language,
                                                                       skip_prologue));
         bp_sp = CreateBreakpoint (filter_sp, resolver_sp, internal, hardware, true);
     }
@@ -2938,6 +2951,7 @@ g_properties[] =
 {
     { "default-arch"                       , OptionValue::eTypeArch      , true , 0                         , NULL, NULL, "Default architecture to choose, when there's a choice." },
     { "move-to-nearest-code"               , OptionValue::eTypeBoolean   , false, true                      , NULL, NULL, "Move breakpoints to nearest code." },
+    { "language"                           , OptionValue::eTypeLanguage  , false, eLanguageTypeUnknown      , NULL, NULL, "The language to use when interpreting expressions entered in commands (note: currently only implemented for breakpoints identifiers)." },
     { "expr-prefix"                        , OptionValue::eTypeFileSpec  , false, 0                         , NULL, NULL, "Path to a file containing expressions to be prepended to all expressions." },
     { "prefer-dynamic-value"               , OptionValue::eTypeEnum      , false, eDynamicDontRunTarget     , NULL, g_dynamic_value_types, "Should printed values be shown as their dynamic value." },
     { "enable-synthetic-value"             , OptionValue::eTypeBoolean   , false, true                      , NULL, NULL, "Should synthetic values be used by default whenever available." },
@@ -2967,7 +2981,7 @@ g_properties[] =
     { "disable-stdio"                      , OptionValue::eTypeBoolean   , false, false                     , NULL, NULL, "Disable stdin/stdout for process (e.g. for a GUI application)" },
     { "inline-breakpoint-strategy"         , OptionValue::eTypeEnum      , false, eInlineBreakpointsAlways  , NULL, g_inline_breakpoint_enums, "The strategy to use when settings breakpoints by file and line. "
         "Breakpoint locations can end up being inlined by the compiler, so that a compile unit 'a.c' might contain an inlined function from another source file. "
-        "Usually this is limitted to breakpoint locations from inlined functions from header or other include files, or more accurately non-implementation source files. "
+        "Usually this is limited to breakpoint locations from inlined functions from header or other include files, or more accurately non-implementation source files. "
         "Sometimes code might #include implementation files and cause inlined breakpoint locations in inlined implementation files. "
         "Always checking for inlined breakpoint locations can be expensive (memory and time), so if you have a project with many headers "
         "and find that setting breakpoints is slow, then you can change this setting to headers. "
@@ -2996,6 +3010,7 @@ enum
 {
     ePropertyDefaultArch,
     ePropertyMoveToNearestCode,
+    ePropertyLanguage,
     ePropertyExprPrefix,
     ePropertyPreferDynamic,
     ePropertyEnableSynthetic,
@@ -3444,6 +3459,15 @@ TargetProperties::GetStandardErrorPath () const
     return m_collection_sp->GetPropertyAtIndexAsFileSpec(NULL, idx);
 }
 
+LanguageType
+TargetProperties::GetLanguage () const
+{
+    OptionValueLanguage *value = m_collection_sp->GetPropertyAtIndexAsOptionValueLanguage (NULL, ePropertyLanguage);
+    if (value)
+        return value->GetCurrentValue();
+    return LanguageType();
+}
+
 const char *
 TargetProperties::GetExpressionPrefixContentsAsCString ()
 {
@@ -3548,6 +3572,13 @@ TargetProperties::GetNonStopModeEnabled () const
 {
     const uint32_t idx = ePropertyNonStopModeEnabled;
     return m_collection_sp->GetPropertyAtIndexAsBoolean (NULL, idx, false);
+}
+
+void
+TargetProperties::SetNonStopModeEnabled (bool b)
+{
+    const uint32_t idx = ePropertyNonStopModeEnabled;
+    m_collection_sp->SetPropertyAtIndexAsBoolean (NULL, idx, b);
 }
 
 const ProcessLaunchInfo &

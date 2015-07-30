@@ -24,7 +24,9 @@ class ChangeProcessGroupTestCase(TestBase):
         self.buildDsym()
         self.setpgid()
 
+    @skipIfFreeBSD # Times out on FreeBSD llvm.org/pr23731
     @skipIfWindows # setpgid call does not exist on Windows
+    @expectedFailureAndroid("http://llvm.org/pr23762", api_levels=[16])
     @dwarf_test
     def test_setpgid_with_dwarf(self):
         self.buildDwarf()
@@ -40,8 +42,8 @@ class ChangeProcessGroupTestCase(TestBase):
         exe = os.path.join(os.getcwd(), 'a.out')
 
         # Use a file as a synchronization point between test and inferior.
-        pid_file_path = os.path.join(self.get_process_working_directory(),
-                                     "pid_file_%d" % (int(time.time())))
+        pid_file_path = lldbutil.append_to_process_working_directory(
+                "pid_file_%d" % (int(time.time())))
         self.addTearDownHook(lambda: self.run_platform_command("rm %s" % (pid_file_path)))
 
         popen = self.spawnSubprocess(exe, [pid_file_path])

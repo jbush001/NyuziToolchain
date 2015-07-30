@@ -1,4 +1,4 @@
-//===-- CMICmdArgValBase.h --------------------------------------*- C++ -*-===//
+//===-- MICmdArgValBase.h ---------------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -30,9 +30,6 @@
 //          hardwired to fail and catch arguments or options that presented by
 //          different driver clients.
 //          Based on the Interpreter pattern.
-// Gotchas: None.
-// Authors: Illya Rudkin 14/04/2014.
-// Changes: None.
 //--
 class CMICmdArgValBase : public CMICmdArgSet::IArg
 {
@@ -43,18 +40,18 @@ class CMICmdArgValBase : public CMICmdArgSet::IArg
 
     // Overrideable:
   public:
-    /* dtor */ virtual ~CMICmdArgValBase(void);
+    /* dtor */ ~CMICmdArgValBase(void) override;
 
     // Overridden:
   public:
     // From CMICmdArgSet::IArg
-    virtual bool GetFound(void) const;
-    virtual bool GetIsHandledByCmd(void) const;
-    virtual bool GetIsMandatory(void) const;
-    virtual bool GetIsMissingOptions(void) const;
-    virtual const CMIUtilString &GetName(void) const;
-    virtual bool GetValid(void) const;
-    virtual bool Validate(CMICmdArgContext &vwArgContext);
+    bool GetFound(void) const override;
+    bool GetIsHandledByCmd(void) const override;
+    bool GetIsMandatory(void) const override;
+    bool GetIsMissingOptions(void) const override;
+    const CMIUtilString &GetName(void) const override;
+    bool GetValid(void) const override;
+    bool Validate(CMICmdArgContext &vwArgContext) override;
 
     // Attributes:
   protected:
@@ -68,9 +65,6 @@ class CMICmdArgValBase : public CMICmdArgSet::IArg
 
 //++ ============================================================================
 // Details: MI common code class. Templated command argument base class.
-// Gotchas: None.
-// Authors: Illya Rudkin 14/04/2014.
-// Changes: None.
 //--
 template <class T> class CMICmdArgValBaseTemplate : public CMICmdArgValBase
 {

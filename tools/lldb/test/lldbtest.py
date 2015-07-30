@@ -47,6 +47,11 @@ import lldbtest_config
 import lldbutil
 from _pyio import __metaclass__
 
+if sys.version_info.major < 3:
+    import urlparse
+else:
+    import urllib.parse as urlparse
+
 # dosep.py starts lots and lots of dotest instances
 # This option helps you find if two (or more) dotest instances are using the same
 # directory at the same time
@@ -87,7 +92,7 @@ PROCESS_EXITED = "Process exited successfully"
 
 PROCESS_STOPPED = "Process status should be stopped"
 
-RUN_FAILED = "Process could not be launched successfully"
+RUN_SUCCEEDED = "Process is launched successfully"
 
 RUN_COMPLETED = "Process exited successfully"
 
@@ -160,18 +165,9 @@ VARIABLES_DISPLAYED_CORRECTLY = "Variable(s) displayed correctly"
 
 WATCHPOINT_CREATED = "Watchpoint created successfully"
 
-def cmd_failure_message(cmd, res, msg=None):
-    """ Return a command failure message.
-
-    Args:
-        cmd - The command which failed.
-        res - The command result of type SBCommandReturnObject.
-        msg - Additional failure message if any.
-    """
-    err_msg = res.GetError()
-    full_msg = (err_msg or "") + (msg or "")
-    full_msg = (">>> %s" % full_msg.replace("\n", "\n>>> ")) if full_msg else ""
-    return "Command '%s' failed.\n%s" % (cmd, full_msg)
+def CMD_MSG(str):
+    '''A generic "Command '%s' returns successfully" message generator.'''
+    return "Command '%s' returns successfully" % str
 
 def COMPLETION_MSG(str_before, str_after):
     '''A generic message generator for the completion mechanism.'''
@@ -289,18 +285,15 @@ class _LocalProcess(_BaseProcess):
     def terminate(self):
         if self._proc.poll() == None:
             # Terminate _proc like it does the pexpect
-            self._proc.send_signal(signal.SIGHUP)
-            time.sleep(self._delayafterterminate)
-            if self._proc.poll() != None:
-                return
-            self._proc.send_signal(signal.SIGCONT)
-            time.sleep(self._delayafterterminate)
-            if self._proc.poll() != None:
-                return
-            self._proc.send_signal(signal.SIGINT)
-            time.sleep(self._delayafterterminate)
-            if self._proc.poll() != None:
-                return
+            signals_to_try = [sig for sig in ['SIGHUP', 'SIGCONT', 'SIGINT'] if sig in dir(signal)]
+            for sig in signals_to_try:
+                try:
+                    self._proc.send_signal(getattr(signal, sig))
+                    time.sleep(self._delayafterterminate)
+                    if self._proc.poll() != None:
+                        return
+                except ValueError:
+                    pass  # Windows says SIGINT is not a valid signal to send
             self._proc.terminate()
             time.sleep(self._delayafterterminate)
             if self._proc.poll() != None:
@@ -324,7 +317,7 @@ class _RemoteProcess(_BaseProcess):
     def launch(self, executable, args):
         if self._install_remote:
             src_path = executable
-            dst_path = lldbutil.append_to_remote_wd(os.path.basename(executable))
+            dst_path = lldbutil.append_to_process_working_directory(os.path.basename(executable))
 
             dst_file_spec = lldb.SBFileSpec(dst_path, False)
             err = lldb.remote_platform.Install(lldb.SBFileSpec(src_path, True), dst_file_spec)
@@ -428,6 +421,48 @@ def builder_module():
     if sys.platform.startswith("freebsd"):
         return __import__("builder_freebsd")
     return __import__("builder_" + sys.platform)
+
+def run_adb_command(cmd, device_id):
+    device_id_args = []
+    if device_id:
+        device_id_args = ["-s", device_id]
+    full_cmd = ["adb"] + device_id_args + cmd
+    p = Popen(full_cmd, stdout=PIPE, stderr=PIPE)
+    stdout, stderr = p.communicate()
+    return p.returncode, stdout, stderr
+
+def append_android_envs(dictionary):
+    if dictionary is None:
+        dictionary = {}
+    dictionary["OS"] = "Android"
+    if android_device_api() >= 16:
+        dictionary["PIE"] = 1
+    return dictionary
+
+def target_is_android():
+    if not hasattr(target_is_android, 'result'):
+        triple = lldb.DBG.GetSelectedPlatform().GetTriple()
+        match = re.match(".*-.*-.*-android", triple)
+        target_is_android.result = match is not None
+    return target_is_android.result
+
+def android_device_api():
+    if not hasattr(android_device_api, 'result'):
+        assert lldb.platform_url is not None
+        device_id = None
+        parsed_url = urlparse.urlparse(lldb.platform_url)
+        if parsed_url.scheme == "adb":
+            device_id = parsed_url.netloc.split(":")[0]
+        retcode, stdout, stderr = run_adb_command(
+            ["shell", "getprop", "ro.build.version.sdk"], device_id)
+        if retcode == 0:
+            android_device_api.result = int(stdout)
+        else:
+            raise LookupError(
+                ">>> Unable to determine the API level of the Android device.\n"
+                ">>> stdout:\n%s\n"
+                ">>> stderr:\n%s\n" % (stdout, stderr))
+    return android_device_api.result
 
 #
 # Decorators for categorizing test cases.
@@ -641,6 +676,12 @@ def expectedFailureOS(oslist, bugnumber=None, compilers=None):
                 self.expectedCompiler(compilers))
     return expectedFailure(fn, bugnumber)
 
+def expectedFailureHostOS(oslist, bugnumber=None, compilers=None):
+    def fn(self):
+        return (getHostPlatform() in oslist and
+                self.expectedCompiler(compilers))
+    return expectedFailure(fn, bugnumber)
+
 def expectedFailureDarwin(bugnumber=None, compilers=None):
     # For legacy reasons, we support both "darwin" and "macosx" as OS X triples.
     return expectedFailureOS(getDarwinOSTriples(), bugnumber, compilers)
@@ -654,20 +695,95 @@ def expectedFailureLinux(bugnumber=None, compilers=None):
 def expectedFailureWindows(bugnumber=None, compilers=None):
     return expectedFailureOS(['windows'], bugnumber, compilers)
 
-def expectedFailureAndroid(bugnumber=None):
+def expectedFailureHostWindows(bugnumber=None, compilers=None):
+    return expectedFailureHostOS(['windows'], bugnumber, compilers)
+
+def expectedFailureAndroid(bugnumber=None, api_levels=None, archs=None):
+    """ Mark a test as xfail for Android.
+
+    Arguments:
+        bugnumber - The LLVM pr associated with the problem.
+        api_levels - A sequence of numbers specifying the Android API levels
+            for which a test is expected to fail. None means all API level.
+        arch - A sequence of architecture names specifying the architectures
+            for which a test is expected to fail. None means all architectures.
+    """
     def fn(self):
-        triple = self.dbg.GetSelectedPlatform().GetTriple()
-        return re.match(".*-.*-.*-android", triple)
+        if target_is_android():
+            if archs is not None and self.getArchitecture() not in archs:
+                return False
+            if api_levels is not None and android_device_api() not in api_levels:
+                return False
+            return True
+
     return expectedFailure(fn, bugnumber)
 
-def expectedFailureLLGS(bugnumber=None, compilers=None):
+# if the test passes on the first try, we're done (success)
+# if the test fails once, then passes on the second try, raise an ExpectedFailure
+# if the test fails twice in a row, re-throw the exception from the second test run
+def expectedFlakey(expected_fn, bugnumber=None):
+    def expectedFailure_impl(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            from unittest2 import case
+            self = args[0]
+            try:
+                func(*args, **kwargs)
+            # don't retry if the test case is already decorated with xfail or skip
+            except (case._ExpectedFailure, case.SkipTest, case._UnexpectedSuccess):
+                raise
+            except Exception:
+                if expected_fn(self):
+                    # before retry, run tearDown for previous run and setup for next
+                    try:
+                        self.tearDown()
+                        self.setUp()
+                        func(*args, **kwargs)
+                    except Exception:
+                        # oh snap! two failures in a row, record a failure/error
+                        raise
+                    # record the expected failure
+                    raise case._ExpectedFailure(sys.exc_info(), bugnumber)
+                else:
+                    raise
+        return wrapper
+    # if bugnumber is not-callable(incluing None), that means decorator function is called with optional arguments
+    # return decorator in this case, so it will be used to decorating original method
+    if callable(bugnumber):
+        return expectedFailure_impl(bugnumber)
+    else:
+        return expectedFailure_impl
+
+def expectedFlakeyOS(oslist, bugnumber=None, compilers=None):
     def fn(self):
-        # llgs local is only an option on Linux targets
-        if self.getPlatform() != 'linux':
-            return False
-        self.runCmd('settings show platform.plugin.linux.use-llgs-for-local')
-        return 'true' in self.res.GetOutput() and self.expectedCompiler(compilers)
-    return expectedFailure(fn, bugnumber)
+        return (self.getPlatform() in oslist and
+                self.expectedCompiler(compilers))
+    return expectedFlakey(fn, bugnumber)
+
+def expectedFlakeyDarwin(bugnumber=None, compilers=None):
+    # For legacy reasons, we support both "darwin" and "macosx" as OS X triples.
+    return expectedFlakeyOS(getDarwinOSTriples(), bugnumber, compilers)
+
+def expectedFlakeyLinux(bugnumber=None, compilers=None):
+    return expectedFlakeyOS(['linux'], bugnumber, compilers)
+
+def expectedFlakeyFreeBSD(bugnumber=None, compilers=None):
+    return expectedFlakeyOS(['freebsd'], bugnumber, compilers)
+
+def expectedFlakeyCompiler(compiler, compiler_version=None, bugnumber=None):
+    if compiler_version is None:
+        compiler_version=['=', None]
+    def fn(self):
+        return compiler in self.getCompiler() and self.expectedCompilerVersion(compiler_version)
+    return expectedFlakey(fn, bugnumber)
+
+# @expectedFlakeyClang('bugnumber', ['<=', '3.4'])
+def expectedFlakeyClang(bugnumber=None, compiler_version=None):
+    return expectedFlakeyCompiler('clang', compiler_version, bugnumber)
+
+# @expectedFlakeyGcc('bugnumber', ['<=', '3.4'])
+def expectedFlakeyGcc(bugnumber=None, compiler_version=None):
+    return expectedFlakeyCompiler('gcc', compiler_version, bugnumber)
 
 def skipIfRemote(func):
     """Decorate the item to skip tests if testing remotely."""
@@ -682,6 +798,28 @@ def skipIfRemote(func):
         else:
             func(*args, **kwargs)
     return wrapper
+
+def skipUnlessListedRemote(remote_list=None):
+    def myImpl(func):
+        if isinstance(func, type) and issubclass(func, unittest2.TestCase):
+            raise Exception("@skipIfRemote can only be used to decorate a "
+                            "test method")
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            if remote_list and lldb.remote_platform:
+                self = args[0]
+                triple = self.dbg.GetSelectedPlatform().GetTriple()
+                for r in remote_list:
+                    if r in triple:
+                        func(*args, **kwargs)
+                        return
+                self.skipTest("skip on remote platform %s" % str(triple))
+            else:
+                func(*args, **kwargs)
+        return wrapper
+
+    return myImpl
 
 def skipIfRemoteDueToDeadlock(func):
     """Decorate the item to skip tests if testing remotely due to the test deadlocking."""
@@ -731,9 +869,17 @@ def skipIfLinux(func):
     """Decorate the item to skip tests that should be skipped on Linux."""
     return skipIfPlatform(["linux"])(func)
 
+def skipUnlessHostLinux(func):
+    """Decorate the item to skip tests that should be skipped on any non Linux host."""
+    return skipUnlessHostPlatform(["linux"])(func)
+
 def skipIfWindows(func):
     """Decorate the item to skip tests that should be skipped on Windows."""
     return skipIfPlatform(["windows"])(func)
+
+def skipIfHostWindows(func):
+    """Decorate the item to skip tests that should be skipped on Windows."""
+    return skipIfHostPlatform(["windows"])(func)
 
 def skipUnlessDarwin(func):
     """Decorate the item to skip tests that should be skipped on any non Darwin platform."""
@@ -783,6 +929,16 @@ def skipIfHostIncompatibleWithRemote(func):
         else:
             func(*args, **kwargs)
     return wrapper
+
+def skipIfHostPlatform(oslist):
+    """Decorate the item to skip tests if running on one of the listed host platforms."""
+    return unittest2.skipIf(getHostPlatform() in oslist,
+                            "skip on %s" % (", ".join(oslist)))
+
+def skipUnlessHostPlatform(oslist):
+    """Decorate the item to skip tests unless running on one of the listed host platforms."""
+    return unittest2.skipUnless(getHostPlatform() in oslist,
+                                "requires on of %s" % (", ".join(oslist)))
 
 def skipIfPlatform(oslist):
     """Decorate the item to skip tests if running on one of the listed platforms."""
@@ -887,20 +1043,32 @@ def skipIfi386(func):
             func(*args, **kwargs)
     return wrapper
 
-def skipIfTargetAndroid(func):
-    """Decorate the item to skip tests that should be skipped when the target is Android."""
-    if isinstance(func, type) and issubclass(func, unittest2.TestCase):
-        raise Exception("@skipIfTargetAndroid can only be used to decorate a test method")
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        from unittest2 import case
-        self = args[0]
-        triple = self.dbg.GetSelectedPlatform().GetTriple()
-        if re.match(".*-.*-.*-android", triple):
-            self.skipTest("skip on Android target")
-        else:
+def skipIfTargetAndroid(api_levels=None):
+    """Decorator to skip tests when the target is Android.
+
+    Arguments:
+        api_levels - The API levels for which the test should be skipped. If
+            it is None, then the test will be skipped for all API levels.
+    """
+    def myImpl(func):
+        if isinstance(func, type) and issubclass(func, unittest2.TestCase):
+            raise Exception("@skipIfTargetAndroid can only be used to "
+                            "decorate a test method")
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            from unittest2 import case
+            self = args[0]
+            if target_is_android():
+                if api_levels:
+                    device_api = android_device_api()
+                    if device_api and (device_api in api_levels):
+                        self.skipTest(
+                            "skip on Android target with API %d" % device_api)
+                else:
+                    self.skipTest("skip on Android target")
             func(*args, **kwargs)
-    return wrapper
+        return wrapper
+    return myImpl
 
 def skipUnlessCompilerRt(func):
     """Decorate the item to skip tests if testing remotely."""
@@ -1504,6 +1672,8 @@ class Base(unittest2.TestCase):
 
         if compiler[1] == ':':
             compiler = compiler[2:]
+        if os.path.altsep is not None:
+            compiler = compiler.replace(os.path.altsep, os.path.sep)
 
         fname = "{}-{}-{}".format(self.id(), self.getArchitecture(), "_".join(compiler.split(os.path.sep)))
         if len(fname) > 200:
@@ -1819,6 +1989,8 @@ class Base(unittest2.TestCase):
         if lldb.skip_build_and_cleanup:
             return
         module = builder_module()
+        if target_is_android():
+            dictionary = append_android_envs(dictionary)
         if not module.buildDefault(self, architecture, compiler, dictionary, clean):
             raise Exception("Don't know how to build default binary")
 
@@ -1835,6 +2007,8 @@ class Base(unittest2.TestCase):
         if lldb.skip_build_and_cleanup:
             return
         module = builder_module()
+        if target_is_android():
+            dictionary = append_android_envs(dictionary)
         if not module.buildDwarf(self, architecture, compiler, dictionary, clean):
             raise Exception("Don't know how to build binary with dwarf")
 
@@ -2140,7 +2314,7 @@ class TestBase(Base):
             if lldb.remote_platform:
                 # We must set the remote install location if we want the shared library
                 # to get uploaded to the remote target
-                remote_shlib_path = lldbutil.append_to_remote_wd(os.path.basename(local_shlib_path))
+                remote_shlib_path = lldbutil.append_to_process_working_directory(os.path.basename(local_shlib_path))
                 shlib_module.SetRemoteInstallFileSpec(lldb.SBFileSpec(remote_shlib_path, False))
 
         return environment
@@ -2287,9 +2461,8 @@ class TestBase(Base):
                     print >> sbuf, "Command '" + cmd + "' failed!"
 
         if check:
-            self.assertTrue(
-                self.res.Succeeded(),
-                cmd_failure_message(cmd, self.res, msg))
+            self.assertTrue(self.res.Succeeded(),
+                            msg if msg else CMD_MSG(cmd))
 
     def match (self, str, patterns, msg=None, trace=False, error=False, matching=True, exe=True):
         """run command in str, and match the result against regexp in patterns returning the match object for the first matching pattern

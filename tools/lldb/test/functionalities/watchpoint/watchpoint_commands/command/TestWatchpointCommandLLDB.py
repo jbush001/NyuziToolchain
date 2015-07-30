@@ -34,6 +34,7 @@ class WatchpointLLDBCommandTestCase(TestBase):
         self.watchpoint_command()
 
     @dwarf_test
+    @expectedFailureAndroid(archs=['arm', 'aarch64']) # Watchpoints not supported
     def test_watchpoint_command_with_dwarf(self):
         """Test 'watchpoint command'."""
         self.buildDwarf(dictionary=self.d)
@@ -49,6 +50,7 @@ class WatchpointLLDBCommandTestCase(TestBase):
         self.watchpoint_command_can_disable_a_watchpoint()
 
     @dwarf_test
+    @expectedFailureAndroid(archs=['arm', 'aarch64']) # Watchpoints not supported
     def test_watchpoint_command_can_disable_a_watchpoint_with_dwarf(self):
         """Test that 'watchpoint command' action can disable a watchpoint after it is triggered."""
         self.buildDwarf(dictionary=self.d)
@@ -64,7 +66,7 @@ class WatchpointLLDBCommandTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, None, self.line, num_expected_locations=1)
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # We should be stopped again due to the breakpoint.
         # The stop reason of the thread should be breakpoint.
@@ -113,7 +115,7 @@ class WatchpointLLDBCommandTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, None, self.line, num_expected_locations=1)
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # We should be stopped again due to the breakpoint.
         # The stop reason of the thread should be breakpoint.

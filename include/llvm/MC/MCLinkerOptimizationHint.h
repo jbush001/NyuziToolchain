@@ -106,7 +106,7 @@ class MCLOHDirective {
   /// Emit this directive in \p OutStream using the information available
   /// in the given \p ObjWriter and \p Layout to get the address of the
   /// arguments within the object file.
-  void Emit_impl(raw_ostream &OutStream, const MachObjectWriter &ObjWriter,
+  void emit_impl(raw_ostream &OutStream, const MachObjectWriter &ObjWriter,
                  const MCAsmLayout &Layout) const;
 
 public:
@@ -123,9 +123,9 @@ public:
 
   /// Emit this directive as:
   /// <kind, numArgs, addr1, ..., addrN>
-  void Emit(MachObjectWriter &ObjWriter, const MCAsmLayout &Layout) const {
+  void emit(MachObjectWriter &ObjWriter, const MCAsmLayout &Layout) const {
     raw_ostream &OutStream = ObjWriter.getStream();
-    Emit_impl(OutStream, ObjWriter, Layout);
+    emit_impl(OutStream, ObjWriter, Layout);
   }
 
   /// Get the size in bytes of this directive if emitted in \p ObjWriter with
@@ -145,7 +145,7 @@ public:
     };
 
     raw_counting_ostream OutStream;
-    Emit_impl(OutStream, ObjWriter, Layout);
+    emit_impl(OutStream, ObjWriter, Layout);
     return OutStream.tell();
   }
 };
@@ -160,7 +160,7 @@ class MCLOHContainer {
 public:
   typedef SmallVectorImpl<MCLOHDirective> LOHDirectives;
 
-  MCLOHContainer() : EmitSize(0) {};
+  MCLOHContainer() : EmitSize(0) {}
 
   /// Const accessor to the directives.
   const LOHDirectives &getDirectives() const {
@@ -184,10 +184,10 @@ public:
   }
 
   /// Emit all Linker Optimization Hint in one big table.
-  /// Each line of the table is emitted by LOHDirective::Emit.
-  void Emit(MachObjectWriter &ObjWriter, const MCAsmLayout &Layout) const {
+  /// Each line of the table is emitted by LOHDirective::emit.
+  void emit(MachObjectWriter &ObjWriter, const MCAsmLayout &Layout) const {
     for (const MCLOHDirective &D : Directives)
-      D.Emit(ObjWriter, Layout);
+      D.emit(ObjWriter, Layout);
   }
 
   void reset() {

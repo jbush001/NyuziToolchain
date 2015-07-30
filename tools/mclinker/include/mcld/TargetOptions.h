@@ -58,12 +58,37 @@ class TargetOptions {
   bool is32Bits() const { return (32 == m_BitClass); }
   bool is64Bits() const { return (64 == m_BitClass); }
 
+  // -G, max GP size option
+  void setGPSize(unsigned pGPSize) { m_GPSize = pGPSize; }
+
+  unsigned getGPSize() const { return m_GPSize; }
+
+  void setStubGroupSize(unsigned pSize) { m_StubGroupSize = pSize; }
+
+  unsigned getStubGroupSize() const { return m_StubGroupSize; }
+
+  void setFixCA53Erratum835769(bool pEnable = true) {
+    m_FixCA53Erratum835769 = pEnable;
+  }
+
+  bool fixCA53Erratum835769() const { return m_FixCA53Erratum835769; }
+
+  void setFixCA53Erratum843419(bool pEnable = true) {
+    m_FixCA53Erratum843419 = pEnable;
+  }
+
+  bool fixCA53Erratum843419() const { return m_FixCA53Erratum843419; }
+
  private:
   llvm::Triple m_Triple;
   std::string m_ArchName;
   std::string m_TargetCPU;
   Endian m_Endian;
   unsigned int m_BitClass;
+  unsigned m_GPSize;  // -G, --gpsize
+  unsigned m_StubGroupSize;
+  bool m_FixCA53Erratum835769 : 1;
+  bool m_FixCA53Erratum843419 : 1;
 };
 
 }  // namespace mcld

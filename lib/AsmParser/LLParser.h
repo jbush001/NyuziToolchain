@@ -37,6 +37,7 @@ namespace llvm {
   class Comdat;
   class MDString;
   class MDNode;
+  struct SlotMapping;
   class StructType;
 
   /// ValID - Represents a reference of a definition of some sort with no type.
@@ -51,13 +52,14 @@ namespace llvm {
       t_Null, t_Undef, t_Zero,    // No value.
       t_EmptyArray,               // No value:  []
       t_Constant,                 // Value in ConstantVal.
-      t_InlineAsm,                // Value in StrVal/StrVal2/UIntVal.
+      t_InlineAsm,                // Value in FTy/StrVal/StrVal2/UIntVal.
       t_ConstantStruct,           // Value in ConstantStructElts.
       t_PackedConstantStruct      // Value in ConstantStructElts.
     } Kind;
 
     LLLexer::LocTy Loc;
     unsigned UIntVal;
+    FunctionType *FTy;
     std::string StrVal, StrVal2;
     APSInt APSIntVal;
     APFloat APFloatVal;
@@ -87,6 +89,7 @@ namespace llvm {
     LLVMContext &Context;
     LLLexer Lex;
     Module *M;
+    SlotMapping *Slots;
 
     // Instruction metadata resolution.  Each instruction can have a list of
     // MDRef info associated with them.
@@ -135,10 +138,13 @@ namespace llvm {
     std::map<unsigned, AttrBuilder> NumberedAttrBuilders;
 
   public:
-    LLParser(StringRef F, SourceMgr &SM, SMDiagnostic &Err, Module *m)
-        : Context(m->getContext()), Lex(F, SM, Err, m->getContext()), M(m),
-          BlockAddressPFS(nullptr) {}
+    LLParser(StringRef F, SourceMgr &SM, SMDiagnostic &Err, Module *M,
+             SlotMapping *Slots = nullptr)
+        : Context(M->getContext()), Lex(F, SM, Err, M->getContext()), M(M),
+          Slots(Slots), BlockAddressPFS(nullptr) {}
     bool Run();
+
+    bool parseStandaloneConstantValue(Constant *&C);
 
     LLVMContext &getContext() { return Context; }
 
@@ -340,6 +346,7 @@ namespace llvm {
     bool ConvertValIDToValue(Type *Ty, ValID &ID, Value *&V,
                              PerFunctionState *PFS);
 
+    bool parseConstantValue(Type *Ty, Constant *&C);
     bool ParseValue(Type *Ty, Value *&V, PerFunctionState *PFS);
     bool ParseValue(Type *Ty, Value *&V, PerFunctionState &PFS) {
       return ParseValue(Ty, V, &PFS);

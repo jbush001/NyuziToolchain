@@ -32,16 +32,13 @@
 //          those objects (modules/components) to support it's own functionality).
 //          The Driver manager is the first object instantiated as part of the
 //          MI code base. It is also the first thing to interpret the command
-//          line arguments passed to the executeable. Bases on options it
+//          line arguments passed to the executable. Bases on options it
 //          understands the manage will set up the appropriate driver or give
 //          help information. Other options are passed on to the driver chosen
 //          to do work.
 //          Each driver instance (the CMIDriver, LLDB::Driver) has its own
 //          LLDB::SBDebugger.
 //          Singleton class.
-// Gotchas: None.
-// Authors: Illya Rudkin 28/02/2014.
-// Changes: None.
 //--
 class CMIDriverMgr : public CMICmnBase, public MI::ISingleton<CMIDriverMgr>
 {
@@ -75,8 +72,8 @@ class CMIDriverMgr : public CMICmnBase, public MI::ISingleton<CMIDriverMgr>
     // Methods:
   public:
     // MI system
-    bool Initialize(void);
-    bool Shutdown(void);
+    bool Initialize(void) override;
+    bool Shutdown(void) override;
     //
     CMIUtilString GetAppVersion(void) const;
     bool RegisterDriver(const IDriver &vrADriver, const CMIUtilString &vrDriverID);
@@ -115,7 +112,7 @@ class CMIDriverMgr : public CMICmnBase, public MI::ISingleton<CMIDriverMgr>
     // Overridden:
   private:
     // From CMICmnBase
-    /* dtor */ virtual ~CMIDriverMgr(void);
+    /* dtor */ ~CMIDriverMgr(void) override;
 
     // Attributes:
   private:

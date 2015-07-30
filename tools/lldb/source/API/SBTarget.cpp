@@ -847,11 +847,11 @@ SBTarget::BreakpointCreateByName (const char *symbol_name,
         {
             FileSpecList module_spec_list;
             module_spec_list.Append (FileSpec (module_name, false));
-            *sb_bp = target_sp->CreateBreakpoint (&module_spec_list, NULL, symbol_name, eFunctionNameTypeAuto, skip_prologue, internal, hardware);
+            *sb_bp = target_sp->CreateBreakpoint (&module_spec_list, NULL, symbol_name, eFunctionNameTypeAuto, eLanguageTypeUnknown, skip_prologue, internal, hardware);
         }
         else
         {
-            *sb_bp = target_sp->CreateBreakpoint (NULL, NULL, symbol_name, eFunctionNameTypeAuto, skip_prologue, internal, hardware);
+            *sb_bp = target_sp->CreateBreakpoint (NULL, NULL, symbol_name, eFunctionNameTypeAuto, eLanguageTypeUnknown, skip_prologue, internal, hardware);
         }
     }
 
@@ -892,6 +892,7 @@ SBTarget::BreakpointCreateByName (const char *symbol_name,
                                               comp_unit_list.get(),
                                               symbol_name,
                                               name_type_mask,
+                                              eLanguageTypeUnknown,
                                               skip_prologue,
                                               internal,
                                               hardware);
@@ -927,6 +928,7 @@ SBTarget::BreakpointCreateByNames (const char *symbol_names[],
                                                 symbol_names,
                                                 num_names,
                                                 name_type_mask, 
+                                                eLanguageTypeUnknown,
                                                 skip_prologue,
                                                 internal,
                                                 hardware);
@@ -2293,6 +2295,19 @@ SBTarget::FindSymbols (const char *name, lldb::SymbolType symbol_type)
     
 }
 
+lldb::SBValue
+SBTarget::EvaluateExpression (const char *expr)
+{
+    TargetSP target_sp(GetSP());
+    if (!target_sp)
+        return SBValue();
+
+    SBExpressionOptions options;
+    lldb::DynamicValueType fetch_dynamic_value = target_sp->GetPreferDynamicValue();
+    options.SetFetchDynamicValue (fetch_dynamic_value);
+    options.SetUnwindOnError (true);
+    return EvaluateExpression(expr, options);
+}
 
 lldb::SBValue
 SBTarget::EvaluateExpression (const char *expr, const SBExpressionOptions &options)

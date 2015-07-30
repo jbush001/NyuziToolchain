@@ -1435,10 +1435,10 @@ void SubtargetEmitter::run(raw_ostream &OS) {
 #endif
 
   // MCInstrInfo initialization routine.
-  OS << "static inline void Init" << Target
-     << "MCSubtargetInfo(MCSubtargetInfo *II, "
-     << "StringRef TT, StringRef CPU, StringRef FS) {\n";
-  OS << "  II->InitMCSubtargetInfo(TT, CPU, FS, ";
+  OS << "static inline MCSubtargetInfo *create" << Target
+     << "MCSubtargetInfoImpl("
+     << "const Triple &TT, StringRef CPU, StringRef FS) {\n";
+  OS << "  return new MCSubtargetInfo(TT, CPU, FS, ";
   if (NumFeatures)
     OS << Target << "FeatureKV, ";
   else
@@ -1482,10 +1482,11 @@ void SubtargetEmitter::run(raw_ostream &OS) {
   OS << "namespace llvm {\n";
   OS << "class DFAPacketizer;\n";
   OS << "struct " << ClassName << " : public TargetSubtargetInfo {\n"
-     << "  explicit " << ClassName << "(StringRef TT, StringRef CPU, "
+     << "  explicit " << ClassName << "(const Triple &TT, StringRef CPU, "
      << "StringRef FS);\n"
      << "public:\n"
-     << "  unsigned resolveSchedClass(unsigned SchedClass, const MachineInstr *DefMI,"
+     << "  unsigned resolveSchedClass(unsigned SchedClass, "
+     << " const MachineInstr *DefMI,"
      << " const TargetSchedModel *SchedModel) const override;\n"
      << "  DFAPacketizer *createDFAPacketizer(const InstrItineraryData *IID)"
      << " const;\n"
@@ -1515,10 +1516,9 @@ void SubtargetEmitter::run(raw_ostream &OS) {
     OS << "extern const unsigned " << Target << "ForwardingPaths[];\n";
   }
 
-  OS << ClassName << "::" << ClassName << "(StringRef TT, StringRef CPU, "
+  OS << ClassName << "::" << ClassName << "(const Triple &TT, StringRef CPU, "
      << "StringRef FS)\n"
-     << "  : TargetSubtargetInfo() {\n"
-     << "  InitMCSubtargetInfo(TT, CPU, FS, ";
+     << "  : TargetSubtargetInfo(TT, CPU, FS, ";
   if (NumFeatures)
     OS << "makeArrayRef(" << Target << "FeatureKV, " << NumFeatures << "), ";
   else
@@ -1527,19 +1527,19 @@ void SubtargetEmitter::run(raw_ostream &OS) {
     OS << "makeArrayRef(" << Target << "SubTypeKV, " << NumProcs << "), ";
   else
     OS << "None, ";
-  OS << '\n'; OS.indent(22);
+  OS << '\n'; OS.indent(24);
   OS << Target << "ProcSchedKV, "
      << Target << "WriteProcResTable, "
      << Target << "WriteLatencyTable, "
      << Target << "ReadAdvanceTable, ";
-  OS << '\n'; OS.indent(22);
+  OS << '\n'; OS.indent(24);
   if (SchedModels.hasItineraries()) {
     OS << Target << "Stages, "
        << Target << "OperandCycles, "
        << Target << "ForwardingPaths";
   } else
     OS << "0, 0, 0";
-  OS << ");\n}\n\n";
+  OS << ") {}\n\n";
 
   EmitSchedModelHelpers(ClassName, OS);
 

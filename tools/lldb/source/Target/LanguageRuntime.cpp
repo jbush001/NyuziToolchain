@@ -34,7 +34,7 @@ public:
     }
 
     virtual
-    ~ExceptionSearchFilter() {};
+    ~ExceptionSearchFilter() {}
 
     bool
     ModulePasses (const lldb::ModuleSP &module_sp) override
@@ -367,10 +367,12 @@ struct language_name_pair language_names[] =
     {   "fortran03",        eLanguageTypeFortran03      },
     {   "fortran08",        eLanguageTypeFortran08      },
     // Vendor Extensions
+    {   "mipsassem",        eLanguageTypeMipsAssembler  },
     {   "renderscript",     eLanguageTypeExtRenderScript},
     // Now synonyms, in arbitrary order
     {   "objc",             eLanguageTypeObjC           },
-    {   "objc++",           eLanguageTypeObjC_plus_plus }
+    {   "objc++",           eLanguageTypeObjC_plus_plus },
+    {   "pascal",           eLanguageTypePascal83       }
 };
 
 static uint32_t num_languages = sizeof(language_names) / sizeof (struct language_name_pair);
@@ -419,6 +421,46 @@ LanguageRuntime::LanguageIsCPlusPlus (LanguageType language)
     }
 }
 
+bool
+LanguageRuntime::LanguageIsObjC (LanguageType language)
+{
+    switch (language)
+    {
+        case eLanguageTypeObjC:
+        case eLanguageTypeObjC_plus_plus:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool
+LanguageRuntime::LanguageIsC (LanguageType language)
+{
+    switch (language)
+    {
+        case eLanguageTypeC:
+        case eLanguageTypeC89:
+        case eLanguageTypeC99:
+        case eLanguageTypeC11:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool
+LanguageRuntime::LanguageIsPascal (LanguageType language)
+{
+    switch (language)
+    {
+        case eLanguageTypePascal83:
+            return true;
+        default:
+            return false;
+    }
+}
+
 void
 LanguageRuntime::InitializeCommands (CommandObject* parent)
 {
@@ -451,6 +493,3 @@ LanguageRuntime::CreateExceptionSearchFilter ()
 {
     return m_process->GetTarget().GetSearchFilterForModule(NULL);
 }
-
-
-

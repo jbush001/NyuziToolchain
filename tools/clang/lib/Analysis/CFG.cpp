@@ -270,9 +270,8 @@ reverse_children::reverse_children(Stmt *S) {
   }
 
   // Default case for all other statements.
-  for (Stmt::child_range I = S->children(); I; ++I) {
-    childrenBuf.push_back(*I);
-  }
+  for (Stmt *SubStmt : S->children())
+    childrenBuf.push_back(SubStmt);
 
   // This needs to be done *after* childrenBuf has been populated.
   children = childrenBuf;
@@ -285,7 +284,7 @@ reverse_children::reverse_children(Stmt *S) {
 ///   Example usage:
 ///
 ///     CFGBuilder builder;
-///     CFG* cfg = builder.BuildAST(stmt1);
+///     std::unique_ptr<CFG> cfg = builder.buildCFG(decl, stmt1);
 ///
 ///  CFG construction is done via a recursive walk of an AST.  We actually parse
 ///  the AST in reverse order so that the successor of a basic block is
@@ -454,7 +453,7 @@ private:
           TerminatorExpr(nullptr) {}
 
     /// Returns whether we need to start a new branch for a temporary destructor
-    /// call. This is the case when the the temporary destructor is
+    /// call. This is the case when the temporary destructor is
     /// conditionally executed, and it is the first one we encounter while
     /// visiting a subexpression - other temporary destructors at the same level
     /// will be added to the same block and are executed under the same
@@ -1094,6 +1093,19 @@ CFGBlock *CFGBuilder::addInitializer(CXXCtorInitializer *I) {
       // For expression with temporaries go directly to subexpression to omit
       // generating destructors for the second time.
       return Visit(cast<ExprWithCleanups>(Init)->getSubExpr());
+    }
+    if (BuildOpts.AddCXXDefaultInitExprInCtors) {
+      if (CXXDefaultInitExpr *Default = dyn_cast<CXXDefaultInitExpr>(Init)) {
+        // In general, appending the expression wrapped by a CXXDefaultInitExpr
+        // may cause the same Expr to appear more than once in the CFG. Doing it
+        // here is safe because there's only one initializer per field.
+        autoCreateBlock();
+        appendStmt(Block, Default);
+        if (Stmt *Child = Default->getExpr())
+          if (CFGBlock *R = Visit(Child))
+            Block = R;
+        return Block;
+      }
     }
     return Visit(Init);
   }
@@ -3628,11 +3640,11 @@ CFGBlock *CFGBuilder::VisitChildrenForTemporaryDtors(Stmt *E,
   // bottom-up, this means we visit them in their natural order, which
   // reverses them in the CFG.
   CFGBlock *B = Block;
-  for (Stmt::child_range I = E->children(); I; ++I) {
-    if (Stmt *Child = *I)
+  for (Stmt *Child : E->children())
+    if (Child)
       if (CFGBlock *R = VisitForTemporaryDtors(Child, false, Context))
         B = R;
-  }
+
   return B;
 }
 
@@ -4116,7 +4128,8 @@ static void print_elem(raw_ostream &OS, StmtPrinterHelper &Helper,
     if (const StmtExpr *SE = dyn_cast<StmtExpr>(S)) {
       const CompoundStmt *Sub = SE->getSubStmt();
 
-      if (Sub->children()) {
+      auto Children = Sub->children();
+      if (Children.begin() != Children.end()) {
         OS << "({ ... ; ";
         Helper.handledStmt(*SE->getSubStmt()->body_rbegin(),OS);
         OS << " })\n";

@@ -15,9 +15,6 @@
 //++ ============================================================================
 // Details: MI command metadata. Holds the command's name, MI number and options
 //          as found on stdin. Holds the command's MI output (written to stdout).
-// Gotchas: None.
-// Authors: Illya Rudkin 18/02/2014.
-// Changes: None.
 //--
 struct SMICmdData
 {
@@ -26,7 +23,7 @@ struct SMICmdData
         , bCmdValid(false)
         , bCmdExecutedSuccessfully(false)
         , bMIOldStyle(false)
-        , bHasResultRecordExtra(false){};
+        , bHasResultRecordExtra(false){}
 
     MIuint id;                               // A command's unique ID i.e. GUID
     CMIUtilString strMiCmdToken;             // The command's MI token (a number)

@@ -284,6 +284,13 @@ ProcessLaunchInfo::FinalizeFileActions (Target *target, bool default_to_use_pty)
             log->Printf ("ProcessLaunchInfo::%s at least one of stdin/stdout/stderr was not set, evaluating default handling",
                          __FUNCTION__);
 
+        if (m_flags.Test(eLaunchFlagLaunchInTTY))
+        {
+            // Do nothing, if we are launching in a remote terminal
+            // no file actions should be done at all.
+            return;
+        }
+
         if (m_flags.Test(eLaunchFlagDisableSTDIO))
         {
             if (log)
@@ -423,7 +430,7 @@ ProcessLaunchInfo::ConvertArgumentsForLaunchingInShell (Error &error,
                 // is a relative path.
                 const char *argv0 = argv[0];
                 FileSpec arg_spec(argv0, false);
-                if (arg_spec.IsRelativeToCurrentWorkingDirectory())
+                if (arg_spec.IsRelative())
                 {
                     // We have a relative path to our executable which may not work if
                     // we just try to run "a.out" (without it being converted to "./a.out")

@@ -23,9 +23,6 @@ class CMICmdArgContext;
 //          argument and so extract a value from it. Thread group looks like
 //          "i1" in the options text.
 //          Based on the Interpreter pattern.
-// Gotchas: None.
-// Authors: Illya Rudkin 15/04/2014.
-// Changes: None.
 //--
 class CMICmdArgValThreadGrp : public CMICmdArgValBaseTemplate<MIuint>
 {
@@ -39,9 +36,9 @@ class CMICmdArgValThreadGrp : public CMICmdArgValBaseTemplate<MIuint>
     // Overridden:
   public:
     // From CMICmdArgValBase
-    /* dtor */ virtual ~CMICmdArgValThreadGrp(void);
+    /* dtor */ ~CMICmdArgValThreadGrp(void) override;
     // From CMICmdArgSet::IArg
-    virtual bool Validate(CMICmdArgContext &vArgContext);
+    bool Validate(CMICmdArgContext &vArgContext) override;
 
     // Methods:
   private:

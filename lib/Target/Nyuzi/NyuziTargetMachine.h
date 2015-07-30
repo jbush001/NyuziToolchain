@@ -27,7 +27,7 @@ class NyuziTargetMachine : public LLVMTargetMachine {
   std::unique_ptr<TargetLoweringObjectFile> TLOF;
   NyuziSubtarget Subtarget;
 public:
-  NyuziTargetMachine(const Target &T, StringRef TT, StringRef CPU,
+  NyuziTargetMachine(const Target &T, const Triple &TT, StringRef CPU,
                           StringRef FS, const TargetOptions &Options,
                           Reloc::Model RM, CodeModel::Model CM,
                           CodeGenOpt::Level OL);

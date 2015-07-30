@@ -26,9 +26,6 @@
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements GDB command "thread".
-// Gotchas: None.
-// Authors: Illya Rudkin 25/02/2014.
-// Changes: None.
 //--
 class CMICmdCmdGdbThread : public CMICmdBase
 {
@@ -44,8 +41,8 @@ class CMICmdCmdGdbThread : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdGdbThread(void);
+    /* dtor */ ~CMICmdCmdGdbThread(void) override;
 };

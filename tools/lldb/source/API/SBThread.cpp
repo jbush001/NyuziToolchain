@@ -114,13 +114,13 @@ SBThread::GetQueue () const
         else
         {
             if (log)
-                log->Printf ("SBThread(%p)::GetQueueKind() => error: process is running",
+                log->Printf ("SBThread(%p)::GetQueue() => error: process is running",
                              static_cast<void*>(exe_ctx.GetThreadPtr()));
         }
     }
 
     if (log)
-        log->Printf ("SBThread(%p)::GetQueueKind () => SBQueue(%p)",
+        log->Printf ("SBThread(%p)::GetQueue () => SBQueue(%p)",
                      static_cast<void*>(exe_ctx.GetThreadPtr()), static_cast<void*>(queue_sp.get()));
 
     return sb_queue;
@@ -392,7 +392,7 @@ SBThread::GetStopDescription (char *dst, size_t dst_len)
 
                     case eStopReasonSignal:
                         {
-                            stop_desc = exe_ctx.GetProcessPtr()->GetUnixSignals ().GetSignalAsCString (stop_info_sp->GetValue());
+                            stop_desc = exe_ctx.GetProcessPtr()->GetUnixSignals()->GetSignalAsCString(stop_info_sp->GetValue());
                             if (stop_desc == NULL || stop_desc[0] == '\0')
                             {
                                 static char signal_desc[] = "signal";

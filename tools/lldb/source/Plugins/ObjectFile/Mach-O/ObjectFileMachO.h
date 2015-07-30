@@ -212,9 +212,19 @@ protected:
     lldb_private::UUID
     GetLLDBSharedCacheUUID ();
 
+    lldb_private::Section *
+    GetMachHeaderSection();
+
+    lldb::addr_t
+    CalculateSectionLoadAddressForMemoryImage(lldb::addr_t mach_header_load_address,
+                                              const lldb_private::Section *mach_header_section,
+                                              const lldb_private::Section *section);
+
     llvm::MachO::mach_header m_header;
     static const lldb_private::ConstString &GetSegmentNameTEXT();
     static const lldb_private::ConstString &GetSegmentNameDATA();
+    static const lldb_private::ConstString &GetSegmentNameDATA_DIRTY();
+    static const lldb_private::ConstString &GetSegmentNameDATA_CONST();
     static const lldb_private::ConstString &GetSegmentNameOBJC();
     static const lldb_private::ConstString &GetSegmentNameLINKEDIT();
     static const lldb_private::ConstString &GetSectionNameEHFrame();

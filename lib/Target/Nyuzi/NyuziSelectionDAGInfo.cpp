@@ -16,8 +16,6 @@
 #include "NyuziTargetMachine.h"
 using namespace llvm;
 
-NyuziSelectionDAGInfo::NyuziSelectionDAGInfo(
-    const DataLayout &DL)
-    : TargetSelectionDAGInfo(&DL) {}
-
+NyuziSelectionDAGInfo::NyuziSelectionDAGInfo() {}
+  
 NyuziSelectionDAGInfo::~NyuziSelectionDAGInfo() {}

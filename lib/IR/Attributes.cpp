@@ -190,6 +190,8 @@ std::string Attribute::getAsString(bool InAttrGrp) const {
     return "sanitize_address";
   if (hasAttribute(Attribute::AlwaysInline))
     return "alwaysinline";
+  if (hasAttribute(Attribute::ArgMemOnly))
+    return "argmemonly";
   if (hasAttribute(Attribute::Builtin))
     return "builtin";
   if (hasAttribute(Attribute::ByVal))
@@ -252,6 +254,8 @@ std::string Attribute::getAsString(bool InAttrGrp) const {
     return "sspreq";
   if (hasAttribute(Attribute::StackProtectStrong))
     return "sspstrong";
+  if (hasAttribute(Attribute::SafeStack))
+    return "safestack";
   if (hasAttribute(Attribute::StructRet))
     return "sret";
   if (hasAttribute(Attribute::SanitizeThread))
@@ -437,12 +441,16 @@ uint64_t AttributeImpl::getAttrMask(Attribute::AttrKind Val) {
   case Attribute::NonNull:         return 1ULL << 44;
   case Attribute::JumpTable:       return 1ULL << 45;
   case Attribute::Convergent:      return 1ULL << 46;
+  case Attribute::SafeStack:       return 1ULL << 47;
   case Attribute::Dereferenceable:
     llvm_unreachable("dereferenceable attribute not supported in raw format");
     break;
   case Attribute::DereferenceableOrNull:
     llvm_unreachable("dereferenceable_or_null attribute not supported in raw "
                      "format");
+    break;
+  case Attribute::ArgMemOnly:
+    llvm_unreachable("argmemonly attribute not supported in raw format");
     break;
   }
   llvm_unreachable("Unsupported attribute type");
@@ -1353,7 +1361,8 @@ AttrBuilder &AttrBuilder::addRawValue(uint64_t Val) {
   for (Attribute::AttrKind I = Attribute::None; I != Attribute::EndAttrKinds;
        I = Attribute::AttrKind(I + 1)) {
     if (I == Attribute::Dereferenceable ||
-        I == Attribute::DereferenceableOrNull)
+        I == Attribute::DereferenceableOrNull ||
+        I == Attribute::ArgMemOnly)
       continue;
     if (uint64_t A = (Val & AttributeImpl::getAttrMask(I))) {
       Attrs[I] = true;

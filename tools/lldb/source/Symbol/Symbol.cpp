@@ -185,6 +185,14 @@ Symbol::ValueIsAddress() const
 }
 
 ConstString
+Symbol::GetDisplayName () const
+{
+    if (!m_mangled)
+        return ConstString();
+    return m_mangled.GetDisplayDemangledName(GetLanguage());
+}
+
+ConstString
 Symbol::GetReExportedSymbolName() const
 {
     if (m_type == eSymbolTypeReExported)
@@ -288,8 +296,9 @@ Symbol::GetDescription (Stream *s, lldb::DescriptionLevel level, Target *target)
         else
             s->Printf (", value = 0x%16.16" PRIx64, m_addr_range.GetBaseAddress().GetOffset());
     }
-    if (m_mangled.GetDemangledName())
-        s->Printf(", name=\"%s\"", m_mangled.GetDemangledName().AsCString());
+    ConstString demangled = m_mangled.GetDemangledName(GetLanguage());
+    if (demangled)
+        s->Printf(", name=\"%s\"", demangled.AsCString());
     if (m_mangled.GetMangledName())
         s->Printf(", mangled=\"%s\"", m_mangled.GetMangledName().AsCString());
 
@@ -309,6 +318,7 @@ Symbol::Dump(Stream *s, Target *target, uint32_t index) const
     // Make sure the size of the symbol is up to date before dumping
     GetByteSize();
 
+    ConstString name = m_mangled.GetName(GetLanguage());
     if (ValueIsAddress())
     {
         if (!m_addr_range.GetBaseAddress().Dump(s, nullptr, Address::DumpStyleFileAddress))
@@ -325,13 +335,13 @@ Symbol::Dump(Stream *s, Target *target, uint32_t index) const
         s->Printf(  format,
                     GetByteSize(),
                     m_flags,
-                    m_mangled.GetName().AsCString(""));
+                    name.AsCString(""));
     }
     else if (m_type == eSymbolTypeReExported)
     {
         s->Printf ("                                                         0x%8.8x %s",
                    m_flags,
-                   m_mangled.GetName().AsCString(""));
+                   name.AsCString(""));
         
         ConstString reexport_name = GetReExportedSymbolName();
         intptr_t shlib = m_addr_range.GetByteSize();
@@ -349,7 +359,7 @@ Symbol::Dump(Stream *s, Target *target, uint32_t index) const
                     m_addr_range.GetBaseAddress().GetOffset(),
                     GetByteSize(),
                     m_flags,
-                    m_mangled.GetName().AsCString(""));
+                    name.AsCString(""));
     }
 }
 
@@ -439,7 +449,7 @@ bool
 Symbol::Compare(const ConstString& name, SymbolType type) const
 {
     if (type == eSymbolTypeAny || m_type == type)
-        return m_mangled.GetMangledName() == name || m_mangled.GetDemangledName() == name;
+        return m_mangled.GetMangledName() == name || m_mangled.GetDemangledName(GetLanguage()) == name;
     return false;
 }
 
@@ -491,7 +501,7 @@ Symbol::CalculateSymbolContext (SymbolContext *sc)
     // Symbols can reconstruct the symbol and the module in the symbol context
     sc->symbol = this;
     if (ValueIsAddress())
-        sc->module_sp = GetAddress().GetModule();
+        sc->module_sp = GetAddressRef().GetModule();
     else
         sc->module_sp.reset();
 }
@@ -500,7 +510,7 @@ ModuleSP
 Symbol::CalculateSymbolContextModule ()
 {
     if (ValueIsAddress())
-        return GetAddress().GetModule();
+        return GetAddressRef().GetModule();
     return ModuleSP();
 }
 
@@ -516,7 +526,7 @@ Symbol::DumpSymbolContext (Stream *s)
     bool dumped_module = false;
     if (ValueIsAddress())
     {
-        ModuleSP module_sp (GetAddress().GetModule());
+        ModuleSP module_sp (GetAddressRef().GetModule());
         if (module_sp)
         {
             dumped_module = true;
@@ -616,6 +626,37 @@ Symbol::ResolveReExportedSymbol (Target &target) const
     }
     return nullptr;
 }
+
+lldb::addr_t
+Symbol::GetFileAddress () const
+{
+    if (ValueIsAddress())
+        return GetAddressRef().GetFileAddress();
+    else
+        return LLDB_INVALID_ADDRESS;
+}
+
+lldb::addr_t
+Symbol::GetLoadAddress (Target *target) const
+{
+    if (ValueIsAddress())
+        return GetAddressRef().GetLoadAddress(target);
+    else
+        return LLDB_INVALID_ADDRESS;
+}
+
+ConstString
+Symbol::GetName () const
+{
+    return m_mangled.GetName(GetLanguage());
+}
+
+ConstString
+Symbol::GetNameNoArguments () const
+{
+    return m_mangled.GetName(GetLanguage(), Mangled::ePreferDemangledWithoutArguments);
+}
+
 
 lldb::addr_t
 Symbol::ResolveCallableAddress(Target &target) const

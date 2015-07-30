@@ -60,8 +60,8 @@ CMICmdCmdSymbolListLines::~CMICmdCmdSymbolListLines(void)
 bool
 CMICmdCmdSymbolListLines::ParseArgs(void)
 {
-    bool bOk = m_setCmdArgs.Add(*(new CMICmdArgValFile(m_constStrArgNameFile, true, true)));
-    return (bOk && ParseValidateCmdOptions());
+    m_setCmdArgs.Add(*(new CMICmdArgValFile(m_constStrArgNameFile, true, true)));
+    return ParseValidateCmdOptions();
 }
 
 //++ ------------------------------------------------------------------------------------
@@ -104,7 +104,7 @@ CMICmdCmdSymbolListLines::Acknowledge(void)
 {
     if (m_lldbResult.GetErrorSize() > 0)
     {
-        const MIchar *pLldbErr = m_lldbResult.GetError();
+        const char *pLldbErr = m_lldbResult.GetError();
         const CMIUtilString strMsg(CMIUtilString(pLldbErr).StripCRAll());
         const CMICmnMIValueConst miValueConst(strMsg);
         const CMICmnMIValueResult miValueResult("message", miValueConst);
@@ -126,7 +126,7 @@ CMICmdCmdSymbolListLines::Acknowledge(void)
 
             // 0x0000000100000e70: /path/to/file:3[:4]
             // ^^^^^^^^^^^^^^^^^^ -- pc
-            const MIuint nAddrEndPos = rLine.find(':');
+            const size_t nAddrEndPos = rLine.find(':');
             const CMIUtilString strAddr(rLine.substr(0, nAddrEndPos).c_str());
             const CMICmnMIValueConst miValueConst(strAddr);
             const CMICmnMIValueResult miValueResult("pc", miValueConst);
@@ -134,19 +134,17 @@ CMICmdCmdSymbolListLines::Acknowledge(void)
 
             // 0x0000000100000e70: /path/to/file:3[:4]
             //                                   ^ -- line
-            const MIuint nLineOrColumnStartPos = rLine.rfind(':');
+            const size_t nLineOrColumnStartPos = rLine.rfind(':');
             const CMIUtilString strLineOrColumn(rLine.substr(nLineOrColumnStartPos + 1).c_str());
-            const MIuint nPathOrLineStartPos = rLine.rfind(':', nLineOrColumnStartPos - 1);
-            const MIuint nPathOrLineLen = nLineOrColumnStartPos - nPathOrLineStartPos - 1;
+            const size_t nPathOrLineStartPos = rLine.rfind(':', nLineOrColumnStartPos - 1);
+            const size_t nPathOrLineLen = nLineOrColumnStartPos - nPathOrLineStartPos - 1;
             const CMIUtilString strPathOrLine(rLine.substr(nPathOrLineStartPos + 1, nPathOrLineLen).c_str());
             const CMIUtilString strLine(strPathOrLine.IsNumber() ? strPathOrLine : strLineOrColumn);
             const CMICmnMIValueConst miValueConst2(strLine);
             const CMICmnMIValueResult miValueResult2("line", miValueConst2);
-            bool bOk = miValueTuple.Add(miValueResult2);
+            miValueTuple.Add(miValueResult2);
 
-            bOk = bOk && miValueList.Add(miValueTuple);
-            if (!bOk)
-                return MIstatus::failure;
+            miValueList.Add(miValueTuple);
         }
 
         // MI print "%s^done,lines=[{pc=\"%d\",line=\"%d\"}...]"

@@ -23,7 +23,7 @@ class NyuziTargetMachine;
 
 class NyuziSelectionDAGInfo : public TargetSelectionDAGInfo {
 public:
-  explicit NyuziSelectionDAGInfo(const DataLayout &DL);
+  explicit NyuziSelectionDAGInfo();
   ~NyuziSelectionDAGInfo();
 };
 }

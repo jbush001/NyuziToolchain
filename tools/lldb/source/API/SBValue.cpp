@@ -61,13 +61,19 @@ public:
                lldb::DynamicValueType use_dynamic,
                bool use_synthetic,
                const char *name = NULL) :
-    m_valobj_sp(in_valobj_sp),
+    m_valobj_sp(),
     m_use_dynamic(use_dynamic),
     m_use_synthetic(use_synthetic),
     m_name (name)
     {
-        if (!m_name.IsEmpty() && m_valobj_sp)
-            m_valobj_sp->SetName(m_name);
+        if (in_valobj_sp)
+        {
+            if ( (m_valobj_sp = in_valobj_sp->GetQualifiedRepresentationIfAvailable(lldb::eNoDynamicValues, false)) )
+            {
+                if (!m_name.IsEmpty())
+                    m_valobj_sp->SetName(m_name);
+            }
+        }
     }
 
     ValueImpl (const ValueImpl& rhs) :
@@ -150,10 +156,20 @@ public:
             return ValueObjectSP();
         }
 
-        if (value_sp->GetDynamicValue(m_use_dynamic))
-            value_sp = value_sp->GetDynamicValue(m_use_dynamic);
-        if (value_sp->GetSyntheticValue(m_use_synthetic))
-            value_sp = value_sp->GetSyntheticValue(m_use_synthetic);
+        if (m_use_dynamic != eNoDynamicValues)
+        {
+            ValueObjectSP dynamic_sp = value_sp->GetDynamicValue(m_use_dynamic);
+            if (dynamic_sp)
+                value_sp = dynamic_sp;
+        }
+
+        if (m_use_synthetic)
+        {
+            ValueObjectSP synthetic_sp = value_sp->GetSyntheticValue(m_use_synthetic);
+            if (synthetic_sp)
+                value_sp = synthetic_sp;
+        }
+
         if (!value_sp)
             error.SetErrorString("invalid value object");
         if (!m_name.IsEmpty())
@@ -1290,22 +1306,11 @@ SBValue::Dereference ()
     return sb_value;
 }
 
+// Deprecated - please use GetType().IsPointerType() instead.
 bool
 SBValue::TypeIsPointerType ()
 {
-    bool is_ptr_type = false;
-
-    ValueLocker locker;
-    lldb::ValueObjectSP value_sp(GetSP(locker));
-    if (value_sp)
-        is_ptr_type = value_sp->IsPointerType();
-
-    Log *log(lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_API));
-    if (log)
-        log->Printf ("SBValue(%p)::TypeIsPointerType () => %i",
-                     static_cast<void*>(value_sp.get()), is_ptr_type);
-
-    return is_ptr_type;
+    return GetType().IsPointerType();
 }
 
 void *

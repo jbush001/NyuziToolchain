@@ -60,7 +60,7 @@ bool
 CMICmdArgValFile::Validate(CMICmdArgContext &vwArgContext)
 {
     if (vwArgContext.IsEmpty())
-        return MIstatus::success;
+        return m_bMandatory ? MIstatus::failure : MIstatus::success;
 
     // The GDB/MI spec suggests there is only parameter
 
@@ -121,9 +121,9 @@ CMICmdArgValFile::GetFileNamePath(const CMIUtilString &vrTxt) const
     CMIUtilString fileNamePath(vrTxt);
 
     // Look for a space in the path
-    const MIchar cSpace = ' ';
-    const MIint nPos = fileNamePath.find(cSpace);
-    if (nPos != (MIint)std::string::npos)
+    const char cSpace = ' ';
+    const size_t nPos = fileNamePath.find(cSpace);
+    if (nPos != std::string::npos)
         fileNamePath = CMIUtilString::Format("\"%s\"", fileNamePath.c_str());
 
     return fileNamePath;
@@ -146,7 +146,7 @@ CMICmdArgValFile::IsFilePath(const CMIUtilString &vrFileNamePath) const
     const bool bHaveBckSlash = (vrFileNamePath.find_first_of("\\") != std::string::npos);
 
     // Look for --someLongOption
-    MIint nPos = vrFileNamePath.find_first_of("--");
+    size_t nPos = vrFileNamePath.find_first_of("--");
     const bool bLong = (nPos == 0);
     if (bLong)
         return false;
@@ -182,10 +182,10 @@ bool
 CMICmdArgValFile::IsValidChars(const CMIUtilString &vrText) const
 {
     static CMIUtilString s_strSpecialCharacters(".'\"`@#$%^&*()_+-={}[]| ");
-    const MIchar *pPtr = const_cast<MIchar *>(vrText.c_str());
+    const char *pPtr = vrText.c_str();
     for (MIuint i = 0; i < vrText.length(); i++, pPtr++)
     {
-        const MIchar c = *pPtr;
+        const char c = *pPtr;
         if (::isalnum((int)c) == 0)
         {
             if (s_strSpecialCharacters.find(c) == CMIUtilString::npos)

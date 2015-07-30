@@ -59,9 +59,9 @@ class NyuziAsmParser : public MCTargetAsmParser {
 
 public:
   NyuziAsmParser(MCSubtargetInfo &sti, MCAsmParser &_Parser,
-                      const MCInstrInfo &MII,
-                      const MCTargetOptions &Options)
-      : MCTargetAsmParser(), Parser(_Parser), STI(sti) {
+                 const MCInstrInfo &MII,
+                 const MCTargetOptions &Options)
+      : MCTargetAsmParser(Options), Parser(_Parser), STI(sti) {
     setAvailableFeatures(ComputeAvailableFeatures(STI.getFeatureBits()));
   }
 };
@@ -203,12 +203,12 @@ public:
       break;
     case Immediate:
       OS << "Imm ";
-      Imm.Val->print(OS);
+      OS << *Imm.Val;
       break;
     case Memory:
       OS << "Mem " << Mem.BaseReg << " ";
       if (Mem.Off)
-        Mem.Off->print(OS);
+        OS << *Mem.Off;
       else
         OS << "0";
 

@@ -107,9 +107,8 @@ void DyldELFObject<ELFT>::updateSymbolAddress(const SymbolRef &SymRef,
 class LoadedELFObjectInfo
     : public RuntimeDyld::LoadedObjectInfoHelper<LoadedELFObjectInfo> {
 public:
-  LoadedELFObjectInfo(RuntimeDyldImpl &RTDyld, unsigned BeginIdx,
-                      unsigned EndIdx)
-      : LoadedObjectInfoHelper(RTDyld, BeginIdx, EndIdx) {}
+  LoadedELFObjectInfo(RuntimeDyldImpl &RTDyld, ObjSectionToIDMap ObjSecToIDMap)
+      : LoadedObjectInfoHelper(RTDyld, std::move(ObjSecToIDMap)) {}
 
   OwningBinary<ObjectFile>
   getObjectForDebug(const ObjectFile &Obj) const override;
@@ -118,6 +117,7 @@ public:
 template <typename ELFT>
 std::unique_ptr<DyldELFObject<ELFT>>
 createRTDyldELFObject(MemoryBufferRef Buffer,
+                      const ObjectFile &SourceObject,
                       const LoadedELFObjectInfo &L,
                       std::error_code &ec) {
   typedef typename ELFFile<ELFT>::Elf_Shdr Elf_Shdr;
@@ -127,6 +127,7 @@ createRTDyldELFObject(MemoryBufferRef Buffer,
     llvm::make_unique<DyldELFObject<ELFT>>(Buffer, ec);
 
   // Iterate over all sections in the object.
+  auto SI = SourceObject.section_begin();
   for (const auto &Sec : Obj->sections()) {
     StringRef SectionName;
     Sec.getName(SectionName);
@@ -135,12 +136,13 @@ createRTDyldELFObject(MemoryBufferRef Buffer,
       Elf_Shdr *shdr = const_cast<Elf_Shdr *>(
           reinterpret_cast<const Elf_Shdr *>(ShdrRef.p));
 
-      if (uint64_t SecLoadAddr = L.getSectionLoadAddress(SectionName)) {
+      if (uint64_t SecLoadAddr = L.getSectionLoadAddress(*SI)) {
         // This assumes that the address passed in matches the target address
         // bitness. The template-based type cast handles everything else.
         shdr->sh_addr = static_cast<addr_type>(SecLoadAddr);
       }
     }
+    ++SI;
   }
 
   return Obj;
@@ -157,17 +159,21 @@ OwningBinary<ObjectFile> createELFDebugObject(const ObjectFile &Obj,
 
   std::unique_ptr<ObjectFile> DebugObj;
   if (Obj.getBytesInAddress() == 4 && Obj.isLittleEndian()) {
-    typedef ELFType<support::little, 2, false> ELF32LE;
-    DebugObj = createRTDyldELFObject<ELF32LE>(Buffer->getMemBufferRef(), L, ec);
+    typedef ELFType<support::little, false> ELF32LE;
+    DebugObj = createRTDyldELFObject<ELF32LE>(Buffer->getMemBufferRef(), Obj, L,
+                                              ec);
   } else if (Obj.getBytesInAddress() == 4 && !Obj.isLittleEndian()) {
-    typedef ELFType<support::big, 2, false> ELF32BE;
-    DebugObj = createRTDyldELFObject<ELF32BE>(Buffer->getMemBufferRef(), L, ec);
+    typedef ELFType<support::big, false> ELF32BE;
+    DebugObj = createRTDyldELFObject<ELF32BE>(Buffer->getMemBufferRef(), Obj, L,
+                                              ec);
   } else if (Obj.getBytesInAddress() == 8 && !Obj.isLittleEndian()) {
-    typedef ELFType<support::big, 2, true> ELF64BE;
-    DebugObj = createRTDyldELFObject<ELF64BE>(Buffer->getMemBufferRef(), L, ec);
+    typedef ELFType<support::big, true> ELF64BE;
+    DebugObj = createRTDyldELFObject<ELF64BE>(Buffer->getMemBufferRef(), Obj, L,
+                                              ec);
   } else if (Obj.getBytesInAddress() == 8 && Obj.isLittleEndian()) {
-    typedef ELFType<support::little, 2, true> ELF64LE;
-    DebugObj = createRTDyldELFObject<ELF64LE>(Buffer->getMemBufferRef(), L, ec);
+    typedef ELFType<support::little, true> ELF64LE;
+    DebugObj = createRTDyldELFObject<ELF64LE>(Buffer->getMemBufferRef(), Obj, L,
+                                              ec);
   } else
     llvm_unreachable("Unexpected ELF format");
 
@@ -215,10 +221,7 @@ void RuntimeDyldELF::deregisterEHFrames() {
 
 std::unique_ptr<RuntimeDyld::LoadedObjectInfo>
 RuntimeDyldELF::loadObject(const object::ObjectFile &O) {
-  unsigned SectionStartIdx, SectionEndIdx;
-  std::tie(SectionStartIdx, SectionEndIdx) = loadObjectImpl(O);
-  return llvm::make_unique<LoadedELFObjectInfo>(*this, SectionStartIdx,
-                                                SectionEndIdx);
+  return llvm::make_unique<LoadedELFObjectInfo>(*this, loadObjectImpl(O));
 }
 
 void RuntimeDyldELF::resolveX86_64Relocation(const SectionEntry &Section,
@@ -477,38 +480,93 @@ void RuntimeDyldELF::resolveARMRelocation(const SectionEntry &Section,
 void RuntimeDyldELF::resolveMIPSRelocation(const SectionEntry &Section,
                                            uint64_t Offset, uint32_t Value,
                                            uint32_t Type, int32_t Addend) {
-  uint32_t *TargetPtr = (uint32_t *)(Section.Address + Offset);
+  uint8_t *TargetPtr = Section.Address + Offset;
   Value += Addend;
 
-  DEBUG(dbgs() << "resolveMipselocation, LocalAddress: "
+  DEBUG(dbgs() << "resolveMIPSRelocation, LocalAddress: "
                << Section.Address + Offset << " FinalAddress: "
                << format("%p", Section.LoadAddress + Offset) << " Value: "
                << format("%x", Value) << " Type: " << format("%x", Type)
                << " Addend: " << format("%x", Addend) << "\n");
+
+  uint32_t Insn = readBytesUnaligned(TargetPtr, 4);
 
   switch (Type) {
   default:
     llvm_unreachable("Not implemented relocation type!");
     break;
   case ELF::R_MIPS_32:
-    *TargetPtr = Value;
+    writeBytesUnaligned(Value, TargetPtr, 4);
     break;
   case ELF::R_MIPS_26:
-    *TargetPtr = ((*TargetPtr) & 0xfc000000) | ((Value & 0x0fffffff) >> 2);
+    Insn &= 0xfc000000;
+    Insn |= (Value & 0x0fffffff) >> 2;
+    writeBytesUnaligned(Insn, TargetPtr, 4);
     break;
   case ELF::R_MIPS_HI16:
     // Get the higher 16-bits. Also add 1 if bit 15 is 1.
-    *TargetPtr =
-      ((*TargetPtr) & 0xffff0000) | (((Value + 0x8000) >> 16) & 0xffff);
+    Insn &= 0xffff0000;
+    Insn |= ((Value + 0x8000) >> 16) & 0xffff;
+    writeBytesUnaligned(Insn, TargetPtr, 4);
     break;
   case ELF::R_MIPS_LO16:
-    *TargetPtr = ((*TargetPtr) & 0xffff0000) | (Value & 0xffff);
+    Insn &= 0xffff0000;
+    Insn |= Value & 0xffff;
+    writeBytesUnaligned(Insn, TargetPtr, 4);
     break;
+  case ELF::R_MIPS_PC32: {
+    uint32_t FinalAddress = (Section.LoadAddress + Offset);
+    writeBytesUnaligned(Value - FinalAddress, (uint8_t *)TargetPtr, 4);
+    break;
+  }
+  case ELF::R_MIPS_PC16: {
+    uint32_t FinalAddress = (Section.LoadAddress + Offset);
+    Insn &= 0xffff0000;
+    Insn |= ((Value - FinalAddress) >> 2) & 0xffff;
+    writeBytesUnaligned(Insn, TargetPtr, 4);
+    break;
+  }
+  case ELF::R_MIPS_PC19_S2: {
+    uint32_t FinalAddress = (Section.LoadAddress + Offset);
+    Insn &= 0xfff80000;
+    Insn |= ((Value - (FinalAddress & ~0x3)) >> 2) & 0x7ffff;
+    writeBytesUnaligned(Insn, TargetPtr, 4);
+    break;
+  }
+  case ELF::R_MIPS_PC21_S2: {
+    uint32_t FinalAddress = (Section.LoadAddress + Offset);
+    Insn &= 0xffe00000;
+    Insn |= ((Value - FinalAddress) >> 2) & 0x1fffff;
+    writeBytesUnaligned(Insn, TargetPtr, 4);
+    break;
+  }
+  case ELF::R_MIPS_PC26_S2: {
+    uint32_t FinalAddress = (Section.LoadAddress + Offset);
+    Insn &= 0xfc000000;
+    Insn |= ((Value - FinalAddress) >> 2) & 0x3ffffff;
+    writeBytesUnaligned(Insn, TargetPtr, 4);
+    break;
+  }
+  case ELF::R_MIPS_PCHI16: {
+    uint32_t FinalAddress = (Section.LoadAddress + Offset);
+    Insn &= 0xffff0000;
+    Insn |= ((Value - FinalAddress + 0x8000) >> 16) & 0xffff;
+    writeBytesUnaligned(Insn, TargetPtr, 4);
+    break;
+  }
+  case ELF::R_MIPS_PCLO16: {
+    uint32_t FinalAddress = (Section.LoadAddress + Offset);
+    Insn &= 0xffff0000;
+    Insn |= (Value - FinalAddress) & 0xffff;
+    writeBytesUnaligned(Insn, TargetPtr, 4);
+    break;
+  }
   }
 }
 
 void RuntimeDyldELF::setMipsABI(const ObjectFile &Obj) {
-  if (!StringRef(Triple::getArchTypePrefix(Arch)).equals("mips")) {
+  if (Arch == Triple::UnknownArch ||
+      !StringRef(Triple::getArchTypePrefix(Arch)).equals("mips")) {
     IsMipsO32ABI = false;
     IsMipsN64ABI = false;
     return;
@@ -618,7 +676,11 @@ RuntimeDyldELF::evaluateMIPS64Relocation(const SectionEntry &Section,
   }
   case ELF::R_MIPS_PC16: {
     uint64_t FinalAddress = (Section.LoadAddress + Offset);
-    return ((Value + Addend - FinalAddress - 4) >> 2) & 0xffff;
+    return ((Value + Addend - FinalAddress) >> 2) & 0xffff;
+  }
+  case ELF::R_MIPS_PC32: {
+    uint64_t FinalAddress = (Section.LoadAddress + Offset);
+    return Value + Addend - FinalAddress;
   }
   case ELF::R_MIPS_PC18_S3: {
     uint64_t FinalAddress = (Section.LoadAddress + Offset);
@@ -658,6 +720,7 @@ void RuntimeDyldELF::applyMIPS64Relocation(uint8_t *TargetPtr,
       break;
     case ELF::R_MIPS_32:
     case ELF::R_MIPS_GPREL32:
+    case ELF::R_MIPS_PC32:
       writeBytesUnaligned(CalculatedValue & 0xffffffff, TargetPtr, 4);
       break;
     case ELF::R_MIPS_64:
@@ -701,7 +764,7 @@ void RuntimeDyldELF::applyMIPS64Relocation(uint8_t *TargetPtr,
 }
 
 // Return the .TOC. section and offset.
-void RuntimeDyldELF::findPPC64TOCSection(const ObjectFile &Obj,
+void RuntimeDyldELF::findPPC64TOCSection(const ELFObjectFileBase &Obj,
                                          ObjSectionToIDMap &LocalSections,
                                          RelocationValueRef &Rel) {
   // Set a default SectionID in case we do not find a TOC section below.
@@ -714,17 +777,15 @@ void RuntimeDyldELF::findPPC64TOCSection(const ObjectFile &Obj,
 
   // The TOC consists of sections .got, .toc, .tocbss, .plt in that
   // order. The TOC starts where the first of these sections starts.
-  for (section_iterator si = Obj.section_begin(), se = Obj.section_end();
-       si != se; ++si) {
-
+  for (auto &Section: Obj.sections()) {
     StringRef SectionName;
-    check(si->getName(SectionName));
+    check(Section.getName(SectionName));
 
     if (SectionName == ".got"
         || SectionName == ".toc"
         || SectionName == ".tocbss"
         || SectionName == ".plt") {
-      Rel.SectionID = findOrEmitSection(Obj, *si, false, LocalSections);
+      Rel.SectionID = findOrEmitSection(Obj, Section, false, LocalSections);
       break;
     }
   }
@@ -736,7 +797,7 @@ void RuntimeDyldELF::findPPC64TOCSection(const ObjectFile &Obj,
 
 // Returns the sections and offset associated with the ODP entry referenced
 // by Symbol.
-void RuntimeDyldELF::findOPDEntrySection(const ObjectFile &Obj,
+void RuntimeDyldELF::findOPDEntrySection(const ELFObjectFileBase &Obj,
                                          ObjSectionToIDMap &LocalSections,
                                          RelocationValueRef &Rel) {
   // Get the ELF symbol value (st_value) to compare with Relocation offset in
@@ -752,31 +813,29 @@ void RuntimeDyldELF::findOPDEntrySection(const ObjectFile &Obj,
     if (RelSectionName != ".opd")
       continue;
 
-    for (relocation_iterator i = si->relocation_begin(),
-                             e = si->relocation_end();
+    for (elf_relocation_iterator i = si->relocation_begin(),
+                                 e = si->relocation_end();
          i != e;) {
       // The R_PPC64_ADDR64 relocation indicates the first field
       // of a .opd entry
-      uint64_t TypeFunc;
-      check(i->getType(TypeFunc));
+      uint64_t TypeFunc = i->getType();
       if (TypeFunc != ELF::R_PPC64_ADDR64) {
         ++i;
         continue;
       }
 
-      uint64_t TargetSymbolOffset;
+      uint64_t TargetSymbolOffset = i->getOffset();
       symbol_iterator TargetSymbol = i->getSymbol();
-      check(i->getOffset(TargetSymbolOffset));
-      int64_t Addend;
-      check(getELFRelocationAddend(*i, Addend));
+      ErrorOr<int64_t> AddendOrErr = i->getAddend();
+      Check(AddendOrErr.getError());
+      int64_t Addend = *AddendOrErr;
 
       ++i;
       if (i == e)
         break;
 
       // Just check if following relocation is a R_PPC64_TOC
-      uint64_t TypeTOC;
-      check(i->getType(TypeTOC));
+      uint64_t TypeTOC = i->getType();
       if (TypeTOC != ELF::R_PPC64_TOC)
         continue;
 
@@ -1041,20 +1100,22 @@ void RuntimeDyldELF::processSimpleRelocation(unsigned SectionID, uint64_t Offset
 }
 
 relocation_iterator RuntimeDyldELF::processRelocationRef(
-    unsigned SectionID, relocation_iterator RelI,
-    const ObjectFile &Obj,
-    ObjSectionToIDMap &ObjSectionToID,
-    StubMap &Stubs) {
-  uint64_t RelType;
-  Check(RelI->getType(RelType));
-  int64_t Addend;
-  Check(getELFRelocationAddend(*RelI, Addend));
-  symbol_iterator Symbol = RelI->getSymbol();
+    unsigned SectionID, relocation_iterator RelI, const ObjectFile &O,
+    ObjSectionToIDMap &ObjSectionToID, StubMap &Stubs) {
+  const auto &Obj = cast<ELFObjectFileBase>(O);
+  uint64_t RelType = RelI->getType();
+  ErrorOr<int64_t> AddendOrErr = ELFRelocationRef(*RelI).getAddend();
+  int64_t Addend = AddendOrErr ? *AddendOrErr : 0;
+  elf_symbol_iterator Symbol = RelI->getSymbol();
 
   // Obtain the symbol name which is referenced in the relocation
   StringRef TargetName;
-  if (Symbol != Obj.symbol_end())
-    Symbol->getName(TargetName);
+  if (Symbol != Obj.symbol_end()) {
+    ErrorOr<StringRef> TargetNameOrErr = Symbol->getName();
+    if (std::error_code EC = TargetNameOrErr.getError())
+      report_fatal_error(EC.message());
+    TargetName = *TargetNameOrErr;
+  }
   DEBUG(dbgs() << "\t\tRelType: " << RelType << " Addend: " << Addend
                << " TargetName: " << TargetName << "\n");
   RelocationValueRef Value;
@@ -1065,7 +1126,7 @@ relocation_iterator RuntimeDyldELF::processRelocationRef(
   RTDyldSymbolTable::const_iterator gsi = GlobalSymbolTable.end();
   if (Symbol != Obj.symbol_end()) {
     gsi = GlobalSymbolTable.find(TargetName.data());
-    Symbol->getType(SymType);
+    SymType = Symbol->getType();
   }
   if (gsi != GlobalSymbolTable.end()) {
     const auto &SymInfo = gsi->second;
@@ -1107,8 +1168,7 @@ relocation_iterator RuntimeDyldELF::processRelocationRef(
     }
   }
 
-  uint64_t Offset;
-  Check(RelI->getOffset(Offset));
+  uint64_t Offset = RelI->getOffset();
 
   DEBUG(dbgs() << "\t\tSectionID: " << SectionID << " Offset: " << Offset
                << "\n");
@@ -1201,7 +1261,9 @@ relocation_iterator RuntimeDyldELF::processRelocationRef(
       processSimpleRelocation(SectionID, Offset, RelType, Value);
     }
   } else if (IsMipsO32ABI) {
-    uint32_t *Placeholder = reinterpret_cast<uint32_t*>(computePlaceholderAddress(SectionID, Offset));
+    uint8_t *Placeholder = reinterpret_cast<uint8_t *>(
+        computePlaceholderAddress(SectionID, Offset));
+    uint32_t Opcode = readBytesUnaligned(Placeholder, 4);
     if (RelType == ELF::R_MIPS_26) {
       // This is an Mips branch relocation, need to use a stub function.
       DEBUG(dbgs() << "\t\tThis is a Mips branch relocation.");
@@ -1210,7 +1272,7 @@ relocation_iterator RuntimeDyldELF::processRelocationRef(
       // Extract the addend from the instruction.
       // We shift up by two since the Value will be down shifted again
       // when applying the relocation.
-      uint32_t Addend = ((*Placeholder) & 0x03ffffff) << 2;
+      uint32_t Addend = (Opcode & 0x03ffffff) << 2;
 
       Value.Addend += Addend;
 
@@ -1247,12 +1309,24 @@ relocation_iterator RuntimeDyldELF::processRelocationRef(
         Section.StubOffset += getMaxStubSize();
       }
     } else {
-      if (RelType == ELF::R_MIPS_HI16)
-        Value.Addend += ((*Placeholder) & 0x0000ffff) << 16;
+      // FIXME: Calculate correct addends for R_MIPS_HI16, R_MIPS_LO16,
+      // R_MIPS_PCHI16 and R_MIPS_PCLO16 relocations.
+      if (RelType == ELF::R_MIPS_HI16 || RelType == ELF::R_MIPS_PCHI16)
+        Value.Addend += (Opcode & 0x0000ffff) << 16;
       else if (RelType == ELF::R_MIPS_LO16)
-        Value.Addend += ((*Placeholder) & 0x0000ffff);
+        Value.Addend += (Opcode & 0x0000ffff);
       else if (RelType == ELF::R_MIPS_32)
-        Value.Addend += *Placeholder;
+        Value.Addend += Opcode;
+      else if (RelType == ELF::R_MIPS_PCLO16)
+        Value.Addend += SignExtend32<16>((Opcode & 0x0000ffff));
+      else if (RelType == ELF::R_MIPS_PC16)
+        Value.Addend += SignExtend32<18>((Opcode & 0x0000ffff) << 2);
+      else if (RelType == ELF::R_MIPS_PC19_S2)
+        Value.Addend += SignExtend32<21>((Opcode & 0x0007ffff) << 2);
+      else if (RelType == ELF::R_MIPS_PC21_S2)
+        Value.Addend += SignExtend32<23>((Opcode & 0x001fffff) << 2);
+      else if (RelType == ELF::R_MIPS_PC26_S2)
+        Value.Addend += SignExtend32<28>((Opcode & 0x03ffffff) << 2);
       processSimpleRelocation(SectionID, Offset, RelType, Value);
     }
   } else if (IsMipsN64ABI) {
@@ -1293,8 +1367,7 @@ relocation_iterator RuntimeDyldELF::processRelocationRef(
         } else {
           // In the ELFv2 ABI, a function symbol may provide a local entry
           // point, which must be used for direct calls.
-          uint8_t SymOther;
-          Symbol->getOther(SymOther);
+          uint8_t SymOther = Symbol->getOther();
           Value.Addend += ELF::decodePPC64LocalEntryOffset(SymOther);
         }
         uint8_t *RelocTarget = Sections[Value.SectionID].Address + Value.Addend;

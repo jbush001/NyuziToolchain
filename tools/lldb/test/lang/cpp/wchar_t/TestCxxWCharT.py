@@ -76,6 +76,12 @@ class CxxWCharTTestCase(TestBase):
         self.expect("frame variable ws_NULL",substrs = ['(wchar_t *) ws_NULL = 0x0'])
         self.expect("frame variable ws_empty",substrs = [' L""'])
 
+        self.expect("frame variable array",substrs = ['L"Hey, I\'m a super wchar_t string'])
+        self.expect("frame variable array",substrs = ['[0]'], matching=False)
+        
+        self.expect('frame variable wchar_zero', substrs=["L'\\0'"])
+        self.expect('expression wchar_zero', substrs=["L'\\0'"])
+
 if __name__ == '__main__':
     import atexit
     lldb.SBDebugger.Initialize()

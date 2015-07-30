@@ -15,6 +15,7 @@
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
+#include "llvm/MC/MCInstPrinter.h"
 #include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCSection.h"
@@ -466,6 +467,8 @@ void MCStreamer::EmitWinEHHandlerData() {
     report_fatal_error("Chained unwind areas can't have handlers!");
 }
 
+void MCStreamer::EmitSyntaxDirective() {}
+
 void MCStreamer::EmitWinCFIPushReg(unsigned Register) {
   EnsureValidWinFrameInfo();
 
@@ -601,6 +604,11 @@ void MCStreamer::EmitAssignment(MCSymbol *Symbol, const MCExpr *Value) {
     TS->emitAssignment(Symbol, Value);
 }
 
+void MCTargetStreamer::prettyPrintAsm(MCInstPrinter &InstPrinter, raw_ostream &OS,
+                              const MCInst &Inst, const MCSubtargetInfo &STI) {
+  InstPrinter.printInst(&Inst, OS, "", STI);
+}
+
 void MCStreamer::visitUsedSymbol(const MCSymbol &Sym) {
 }
 
@@ -638,6 +646,25 @@ void MCStreamer::EmitInstruction(const MCInst &Inst,
       visitUsedExpr(*Inst.getOperand(i).getExpr());
 }
 
+void MCStreamer::emitAbsoluteSymbolDiff(const MCSymbol *Hi, const MCSymbol *Lo,
+                                        unsigned Size) {
+  // Get the Hi-Lo expression.
+  const MCExpr *Diff =
+      MCBinaryExpr::createSub(MCSymbolRefExpr::create(Hi, Context),
+                              MCSymbolRefExpr::create(Lo, Context), Context);
+
+  const MCAsmInfo *MAI = Context.getAsmInfo();
+  if (!MAI->doesSetDirectiveSuppressesReloc()) {
+    EmitValue(Diff, Size);
+    return;
+  }
+
+  // Otherwise, emit with .set (aka assignment).
+  MCSymbol *SetLabel = Context.createTempSymbol("set", true);
+  EmitAssignment(SetLabel, Diff);
+  EmitSymbolValue(SetLabel, Size);
+}
+
 void MCStreamer::EmitAssemblerFlag(MCAssemblerFlag Flag) {}
 void MCStreamer::EmitThumbFunc(MCSymbol *Func) {}
 void MCStreamer::EmitSymbolDesc(MCSymbol *Symbol, unsigned DescValue) {}
@@ -646,7 +673,7 @@ void MCStreamer::EndCOFFSymbolDef() {}
 void MCStreamer::EmitFileDirective(StringRef Filename) {}
 void MCStreamer::EmitCOFFSymbolStorageClass(int StorageClass) {}
 void MCStreamer::EmitCOFFSymbolType(int Type) {}
-void MCStreamer::EmitELFSize(MCSymbol *Symbol, const MCExpr *Value) {}
+void MCStreamer::emitELFSize(MCSymbolELF *Symbol, const MCExpr *Value) {}
 void MCStreamer::EmitLocalCommonSymbol(MCSymbol *Symbol, uint64_t Size,
                                        unsigned ByteAlignment) {}
 void MCStreamer::EmitTBSSSymbol(MCSection *Section, MCSymbol *Symbol,

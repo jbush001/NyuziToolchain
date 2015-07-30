@@ -22,6 +22,7 @@ class WatchpointForMultipleThreadsTestCase(TestBase):
         self.hello_multiple_threads()
 
     @dwarf_test
+    @expectedFailureAndroid(archs=['arm', 'aarch64']) # Watchpoints not supported
     def test_watchpoint_multiple_threads_with_dwarf(self):
         """Test that lldb watchpoint works for multiple threads."""
         self.buildDwarf()
@@ -37,6 +38,7 @@ class WatchpointForMultipleThreadsTestCase(TestBase):
         self.hello_multiple_threads_wp_set_and_then_delete()
 
     @dwarf_test
+    @expectedFailureAndroid(archs=['arm', 'aarch64']) # Watchpoints not supported
     def test_watchpoint_multiple_threads_wp_set_and_then_delete_with_dwarf(self):
         """Test that lldb watchpoint works for multiple threads, and after the watchpoint is deleted, the watchpoint event should no longer fires."""
         self.buildDwarf()
@@ -59,7 +61,7 @@ class WatchpointForMultipleThreadsTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, None, self.first_stop, num_expected_locations=1)
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # We should be stopped again due to the breakpoint.
         # The stop reason of the thread should be breakpoint.
@@ -103,7 +105,7 @@ class WatchpointForMultipleThreadsTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, None, self.first_stop, num_expected_locations=1)
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # We should be stopped again due to the breakpoint.
         # The stop reason of the thread should be breakpoint.

@@ -15,18 +15,17 @@
 #ifndef NYUZITARGETASMINFO_H
 #define NYUZITARGETASMINFO_H
 
-#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/MC/MCAsmInfoELF.h"
 
 namespace llvm {
-class StringRef;
-class Target;
+  class Triple;
 
-class NyuziMCAsmInfo : public MCAsmInfo {
-  virtual void anchor();
+  class NyuziMCAsmInfo : public MCAsmInfo {
+    virtual void anchor();
 
-public:
-  explicit NyuziMCAsmInfo(StringRef TT);
-};
+  public:
+    explicit NyuziMCAsmInfo(const Triple &TT);
+  };
 
 } // namespace llvm
 

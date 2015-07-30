@@ -79,6 +79,7 @@ so it should theoretically be possible.
 
 ## Other Notes
 
+* The toolchain is installed into /usr/local/llvm-nyuzi/
 * The triple for this target is 'nyuzi-'.
 * There are also bits of an autoconf based build system in this project.  It doesn't work.
 * Using sudo on make install as described leaves files with root ownership in

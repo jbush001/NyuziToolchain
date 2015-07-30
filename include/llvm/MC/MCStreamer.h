@@ -34,6 +34,7 @@ class MCInstPrinter;
 class MCSection;
 class MCStreamer;
 class MCSymbol;
+class MCSymbolELF;
 class MCSymbolRefExpr;
 class MCSubtargetInfo;
 class StringRef;
@@ -77,12 +78,15 @@ public:
   MCTargetStreamer(MCStreamer &S);
   virtual ~MCTargetStreamer();
 
-  const MCStreamer &getStreamer() { return Streamer; }
+  MCStreamer &getStreamer() { return Streamer; }
 
   // Allow a target to add behavior to the EmitLabel of MCStreamer.
   virtual void emitLabel(MCSymbol *Symbol);
   // Allow a target to add behavior to the emitAssignment of MCStreamer.
   virtual void emitAssignment(MCSymbol *Symbol, const MCExpr *Value);
+
+  virtual void prettyPrintAsm(MCInstPrinter &InstPrinter, raw_ostream &OS,
+                              const MCInst &Inst, const MCSubtargetInfo &STI);
 
   virtual void finish();
 };
@@ -306,11 +310,15 @@ public:
   bool PopSection() {
     if (SectionStack.size() <= 1)
       return false;
-    MCSectionSubPair oldSection = SectionStack.pop_back_val().first;
-    MCSectionSubPair curSection = SectionStack.back().first;
+    auto I = SectionStack.end();
+    --I;
+    MCSectionSubPair OldSection = I->first;
+    --I;
+    MCSectionSubPair NewSection = I->first;
 
-    if (oldSection != curSection)
-      ChangeSection(curSection.first, curSection.second);
+    if (OldSection != NewSection)
+      ChangeSection(NewSection.first, NewSection.second);
+    SectionStack.pop_back();
     return true;
   }
 
@@ -450,7 +458,7 @@ public:
   ///
   /// This corresponds to an assembler statement such as:
   ///  .size symbol, expression
-  virtual void EmitELFSize(MCSymbol *Symbol, const MCExpr *Value);
+  virtual void emitELFSize(MCSymbolELF *Symbol, const MCExpr *Value);
 
   /// \brief Emit a Linker Optimization Hint (LOH) directive.
   /// \param Args - Arguments of the LOH.
@@ -631,14 +639,11 @@ public:
                                      unsigned Isa, unsigned Discriminator,
                                      StringRef FileName);
 
-  /// Emit the absolute difference between two symbols if possible.
+  /// Emit the absolute difference between two symbols.
   ///
   /// \pre Offset of \c Hi is greater than the offset \c Lo.
-  /// \return true on success.
-  virtual bool emitAbsoluteSymbolDiff(const MCSymbol *Hi, const MCSymbol *Lo,
-                                      unsigned Size) {
-    return false;
-  }
+  virtual void emitAbsoluteSymbolDiff(const MCSymbol *Hi, const MCSymbol *Lo,
+                                      unsigned Size);
 
   virtual MCSymbol *getDwarfLineTableSymbol(unsigned CUID);
   virtual void EmitCFISections(bool EH, bool Debug);
@@ -676,6 +681,8 @@ public:
 
   virtual void EmitWinEHHandler(const MCSymbol *Sym, bool Unwind, bool Except);
   virtual void EmitWinEHHandlerData();
+
+  virtual void EmitSyntaxDirective();
 
   /// \brief Emit the given \p Instruction into the current section.
   virtual void EmitInstruction(const MCInst &Inst, const MCSubtargetInfo &STI);

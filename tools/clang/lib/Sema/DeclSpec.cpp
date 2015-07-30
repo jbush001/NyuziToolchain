@@ -893,18 +893,16 @@ bool DeclSpec::SetConstexprSpec(SourceLocation Loc, const char *&PrevSpec,
   return false;
 }
 
-void DeclSpec::setProtocolQualifiers(Decl * const *Protos,
-                                     unsigned NP,
-                                     SourceLocation *ProtoLocs,
-                                     SourceLocation LAngleLoc) {
-  if (NP == 0) return;
-  Decl **ProtoQuals = new Decl*[NP];
-  memcpy(ProtoQuals, Protos, sizeof(Decl*)*NP);
-  ProtocolQualifiers = ProtoQuals;
-  ProtocolLocs = new SourceLocation[NP];
-  memcpy(ProtocolLocs, ProtoLocs, sizeof(SourceLocation)*NP);
-  NumProtocolQualifiers = NP;
-  ProtocolLAngleLoc = LAngleLoc;
+bool DeclSpec::SetConceptSpec(SourceLocation Loc, const char *&PrevSpec,
+                              unsigned &DiagID) {
+  if (Concept_specified) {
+    DiagID = diag::ext_duplicate_declspec;
+    PrevSpec = "concept";
+    return true;
+  }
+  Concept_specified = true;
+  ConceptLoc = Loc;
+  return false;
 }
 
 void DeclSpec::SaveWrittenBuiltinSpecs() {

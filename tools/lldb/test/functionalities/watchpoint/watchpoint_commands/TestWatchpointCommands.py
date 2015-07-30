@@ -35,6 +35,7 @@ class WatchpointCommandsTestCase(TestBase):
         self.normal_read_write_watchpoint()
 
     @dwarf_test
+    @expectedFailureAndroid(archs=['arm', 'aarch64']) # Watchpoints not supported
     def test_rw_watchpoint_with_dwarf(self):
         """Test read_write watchpoint and expect to stop two times."""
         self.buildDwarf(dictionary=self.d)
@@ -50,6 +51,7 @@ class WatchpointCommandsTestCase(TestBase):
         self.delete_read_write_watchpoint()
 
     @dwarf_test
+    @expectedFailureAndroid(archs=['arm', 'aarch64']) # Watchpoints not supported
     def test_rw_watchpoint_delete_with_dwarf(self):
         """Test delete watchpoint and expect not to stop for watchpoint."""
         self.buildDwarf(dictionary=self.d)
@@ -65,6 +67,7 @@ class WatchpointCommandsTestCase(TestBase):
         self.ignore_read_write_watchpoint()
 
     @dwarf_test
+    @expectedFailureAndroid(archs=['arm', 'aarch64']) # Watchpoints not supported
     def test_rw_watchpoint_set_ignore_count_with_dwarf(self):
         """Test watchpoint ignore count and expect to not to stop at all."""
         self.buildDwarf(dictionary=self.d)
@@ -80,6 +83,7 @@ class WatchpointCommandsTestCase(TestBase):
         self.read_write_watchpoint_disable_after_first_stop()
 
     @dwarf_test
+    @expectedFailureAndroid(archs=['arm', 'aarch64']) # Watchpoints not supported
     def test_rw_disable_after_first_stop__with_dwarf(self):
         """Test read_write watchpoint but disable it after the first stop."""
         self.buildDwarf(dictionary=self.d)
@@ -95,6 +99,7 @@ class WatchpointCommandsTestCase(TestBase):
         self.read_write_watchpoint_disable_then_enable()
 
     @dwarf_test
+    @expectedFailureAndroid(archs=['arm', 'aarch64']) # Watchpoints not supported
     def test_rw_disable_then_enable_with_dwarf(self):
         """Test read_write watchpoint, disable initially, then enable it."""
         self.buildDwarf(dictionary=self.d)
@@ -110,7 +115,7 @@ class WatchpointCommandsTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, None, self.line, num_expected_locations=1)
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # We should be stopped again due to the breakpoint.
         # The stop reason of the thread should be breakpoint.
@@ -165,7 +170,7 @@ class WatchpointCommandsTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, None, self.line, num_expected_locations=1)
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # We should be stopped again due to the breakpoint.
         # The stop reason of the thread should be breakpoint.
@@ -205,7 +210,7 @@ class WatchpointCommandsTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, None, self.line, num_expected_locations=1)
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # We should be stopped again due to the breakpoint.
         # The stop reason of the thread should be breakpoint.
@@ -249,7 +254,7 @@ class WatchpointCommandsTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, "main.m")
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # We should be stopped again due to the breakpoint.
         # The stop reason of the thread should be breakpoint.
@@ -304,7 +309,7 @@ class WatchpointCommandsTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, None, self.line, num_expected_locations=1)
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # We should be stopped again due to the breakpoint.
         # The stop reason of the thread should be breakpoint.
@@ -344,7 +349,7 @@ class WatchpointCommandsTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, None, self.line, num_expected_locations=1)
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # We should be stopped again due to the breakpoint.
         # The stop reason of the thread should be breakpoint.
@@ -388,7 +393,7 @@ class WatchpointCommandsTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, None, self.line, num_expected_locations=1)
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # We should be stopped again due to the breakpoint.
         # The stop reason of the thread should be breakpoint.
@@ -443,7 +448,7 @@ class WatchpointCommandsTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, None, self.line2, num_expected_locations=1)
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # We should be stopped again due to the breakpoint.
         # The stop reason of the thread should be breakpoint.

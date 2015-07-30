@@ -29,8 +29,9 @@ public:
   virtual void eliminateCallFramePseudoInstr(MachineFunction &MF,
                                      		 MachineBasicBlock &MBB,
                                     		 MachineBasicBlock::iterator I) const override;
-  virtual void processFunctionBeforeCalleeSavedScan(MachineFunction &MF,
-                                                    RegScavenger *RS) const override;
+  virtual void determineCalleeSaves(MachineFunction &MF,
+                                    BitVector &SavedRegs,
+                                    RegScavenger *RS) const override;
   virtual bool hasFP(const MachineFunction &MF) const override;
   virtual bool hasReservedCallFrame(const MachineFunction &MF) const override;
 

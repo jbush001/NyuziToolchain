@@ -1055,7 +1055,7 @@ void SCCPSolver::visitLoadInst(LoadInst &I) {
 
   // load null -> null
   if (isa<ConstantPointerNull>(Ptr) && I.getPointerAddressSpace() == 0)
-    return markConstant(IV, &I, Constant::getNullValue(I.getType()));
+    return markConstant(IV, &I, UndefValue::get(I.getType()));
 
   // Transform load (constant global) into the value loaded.
   if (GlobalVariable *GV = dyn_cast<GlobalVariable>(Ptr)) {
@@ -1799,11 +1799,10 @@ bool IPSCCP::runOnModule(Module &M) {
         if (!TI->use_empty())
           TI->replaceAllUsesWith(UndefValue::get(TI->getType()));
         TI->eraseFromParent();
+        new UnreachableInst(M.getContext(), BB);
 
         if (&*BB != &F->front())
           BlocksToErase.push_back(BB);
-        else
-          new UnreachableInst(M.getContext(), BB);
         continue;
       }
 

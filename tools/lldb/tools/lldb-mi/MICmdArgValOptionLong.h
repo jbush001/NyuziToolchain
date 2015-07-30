@@ -26,9 +26,6 @@ class CMIUtilString;
 //          created to hold each of those option's values belong to *this argument
 //          object and so are deleted when *this object goes out of scope.
 //          Based on the Interpreter pattern.
-// Gotchas: None.
-// Authors: Illya Rudkin 16/04/2014.
-// Changes: None.
 //--
 class CMICmdArgValOptionLong : public CMICmdArgValListBase
 {
@@ -46,9 +43,9 @@ class CMICmdArgValOptionLong : public CMICmdArgValListBase
     // Overridden:
   public:
     // From CMICmdArgValBase
-    /* dtor */ virtual ~CMICmdArgValOptionLong(void);
+    /* dtor */ ~CMICmdArgValOptionLong(void) override;
     // From CMICmdArgSet::IArg
-    virtual bool Validate(CMICmdArgContext &vArgContext);
+    bool Validate(CMICmdArgContext &vArgContext) override;
 
     // Methods:
   protected:

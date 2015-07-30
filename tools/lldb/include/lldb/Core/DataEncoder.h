@@ -252,7 +252,7 @@ public:
     ///     The offset in bytes into the contained data at which to
     ///     start encoding.
     ///
-    /// @param[int] src
+    /// @param[in] src
     ///     The buffer that contains the bytes to encode.
     ///
     /// @param[in] src_len
@@ -446,7 +446,7 @@ protected:
     uint8_t *m_end;     ///< A pointer to the byte that is past the end of the data.
     lldb::ByteOrder m_byte_order;   ///< The byte order of the data we are extracting from.
     uint8_t m_addr_size;            ///< The address size to use when extracting pointers or addresses
-    mutable lldb::DataBufferSP m_data_sp; ///< The shared pointer to data that can be shared among multilple instances
+    mutable lldb::DataBufferSP m_data_sp; ///< The shared pointer to data that can be shared among multiple instances
     
 private:
     DISALLOW_COPY_AND_ASSIGN (DataEncoder);

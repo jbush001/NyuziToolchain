@@ -30,9 +30,6 @@
 //          list ==>  "[]" | "[" value ( "," value )* "]" | "[" result ( "," result )* "]"
 //          More information see:
 //          http://ftp.gnu.org/old-gnu/Manuals/gdb-5.1.1/html_chapter/gdb_22.html
-// Gotchas: None.
-// Authors: Illya Rudkin 24/02/2014.
-// Changes: None.
 //--
 class CMICmnMIValueTuple : public CMICmnMIValue
 {
@@ -42,23 +39,23 @@ class CMICmnMIValueTuple : public CMICmnMIValue
     /* ctor */ CMICmnMIValueTuple(const CMICmnMIValueResult &vResult);
     /* ctor */ CMICmnMIValueTuple(const CMICmnMIValueResult &vResult, const bool vbUseSpacing);
     //
-    bool Add(const CMICmnMIValueResult &vResult);
-    bool Add(const CMICmnMIValueResult &vResult, const bool vbUseSpacing);
-    bool Add(const CMICmnMIValueConst &vValue, const bool vbUseSpacing);
+    void Add(const CMICmnMIValueResult &vResult);
+    void Add(const CMICmnMIValueResult &vResult, const bool vbUseSpacing);
+    void Add(const CMICmnMIValueConst &vValue, const bool vbUseSpacing);
     CMIUtilString ExtractContentNoBrackets(void) const;
 
     // Overridden:
   public:
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmnMIValueTuple(void);
+    /* dtor */ ~CMICmnMIValueTuple(void) override;
 
     // Methods:
   private:
-    bool BuildTuple(void);
-    bool BuildTuple(const CMICmnMIValueResult &vResult);
-    bool BuildTuple(const CMIUtilString &vValue);
+    void BuildTuple(void);
+    void BuildTuple(const CMICmnMIValueResult &vResult);
+    void BuildTuple(const CMIUtilString &vValue);
 
     // Attributes:
   private:
-    bool m_bSpaceAfterComma; // True = put space seperators into the string, false = no spaces used
+    bool m_bSpaceAfterComma; // True = put space separators into the string, false = no spaces used
 };

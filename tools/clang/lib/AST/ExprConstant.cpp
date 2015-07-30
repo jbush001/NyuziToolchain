@@ -4276,6 +4276,9 @@ public:
 
     BlockScopeRAII Scope(Info);
     const CompoundStmt *CS = E->getSubStmt();
+    if (CS->body_empty())
+      return true;
+
     for (CompoundStmt::const_body_iterator BI = CS->body_begin(),
                                            BE = CS->body_end();
          /**/; ++BI) {
@@ -4301,6 +4304,8 @@ public:
         return false;
       }
     }
+
+    llvm_unreachable("Return from function from the loop above.");
   }
 
   /// Visit a value which is evaluated, but whose value is ignored.
@@ -7246,6 +7251,13 @@ bool IntExprEvaluator::VisitUnaryExprOrTypeTraitExpr(
       return false;
     return Success(Sizeof, E);
   }
+  case UETT_OpenMPRequiredSimdAlign:
+    assert(E->isArgumentType());
+    return Success(
+        Info.Ctx.toCharUnitsFromBits(
+                    Info.Ctx.getOpenMPDefaultSimdAlign(E->getArgumentType()))
+            .getQuantity(),
+        E);
   }
 
   llvm_unreachable("unknown expr/type trait");
@@ -8670,6 +8682,8 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
   case Expr::CompoundLiteralExprClass:
   case Expr::ExtVectorElementExprClass:
   case Expr::DesignatedInitExprClass:
+  case Expr::NoInitExprClass:
+  case Expr::DesignatedInitUpdateExprClass:
   case Expr::ImplicitValueInitExprClass:
   case Expr::ParenListExprClass:
   case Expr::VAArgExprClass:

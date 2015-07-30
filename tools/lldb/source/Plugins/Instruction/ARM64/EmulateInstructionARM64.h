@@ -265,29 +265,38 @@ protected:
     static Opcode*
     GetOpcodeForInstruction (const uint32_t opcode);
 
-    bool
-    Emulate_addsub_imm (const uint32_t opcode);
-    
-//    bool
-//    Emulate_STP_Q_ldstpair_off (const uint32_t opcode);
-//    
-//    bool
-//    Emulate_STP_S_ldstpair_off (const uint32_t opcode);
-//    
-//    bool
-//    Emulate_STP_32_ldstpair_off (const uint32_t opcode);
-//    
-//    bool
-//    Emulate_STP_D_ldstpair_off (const uint32_t opcode);
-//    
-    bool
-    Emulate_ldstpair_off (const uint32_t opcode);
+    uint32_t
+    GetFramePointerRegisterNumber() const;
 
     bool
-    Emulate_ldstpair_pre (const uint32_t opcode);
-    
+    BranchTo (const Context &context, uint32_t N, lldb::addr_t target);
+
     bool
-    Emulate_ldstpair (const uint32_t opcode, AddrMode a_mode);
+    ConditionHolds (const uint32_t cond);
+
+    bool
+    UsingAArch32 ();
+
+    bool
+    EmulateADDSUBImm (const uint32_t opcode);
+
+    template <AddrMode a_mode> bool
+    EmulateLDPSTP (const uint32_t opcode);
+
+    template <AddrMode a_mode> bool
+    EmulateLDRSTRImm (const uint32_t opcode);
+
+    bool
+    EmulateB (const uint32_t opcode);
+
+    bool
+    EmulateBcond (const uint32_t opcode);
+
+    bool
+    EmulateCBZ (const uint32_t opcode);
+
+    bool
+    EmulateTBZ (const uint32_t opcode);
 
     ProcState m_opcode_pstate;
     ProcState m_emulated_pstate; // This can get updated by the opcode.

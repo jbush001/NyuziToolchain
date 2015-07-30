@@ -123,7 +123,7 @@ public:
     /// @return
     ///     A const reference to the method name object.
     //------------------------------------------------------------------
-    const ConstString&
+    ConstString
     GetName () const;
 
     //------------------------------------------------------------------
@@ -240,11 +240,14 @@ public:
     Dump(Stream *s, bool show_fullpaths) const;
 
     void
-    DumpStopContext (Stream *s) const;
+    DumpStopContext (Stream *s, lldb::LanguageType language) const;
 
-    const ConstString &
-    GetName () const;
+    ConstString
+    GetName (lldb::LanguageType language) const;
 
+    ConstString
+    GetDisplayName (lldb::LanguageType language) const;
+    
     //------------------------------------------------------------------
     /// Get accessor for the call site declaration information.
     ///
@@ -437,6 +440,8 @@ public:
         return m_range;
     }
 
+    lldb::LanguageType
+    GetLanguage() const;
     //------------------------------------------------------------------
     /// Find the file and line number of the source location of the start
     /// of the function.  This will use the declaration if present and fall
@@ -524,11 +529,14 @@ public:
         return m_frame_base;
     }
 
-    const ConstString &
-    GetName() const
-    {
-        return m_mangled.GetName();
-    }
+    ConstString
+    GetName() const;
+
+    ConstString
+    GetNameNoArguments () const;
+    
+    ConstString
+    GetDisplayName () const;
 
     const Mangled &
     GetMangled() const
@@ -607,6 +615,24 @@ public:
     //------------------------------------------------------------------
     size_t
     MemorySize () const;
+
+    //------------------------------------------------------------------
+    /// Get whether compiler optimizations were enabled for this function
+    ///
+    /// The debug information may provide information about whether this
+    /// function was compiled with optimization or not.  In this case,
+    /// "optimized" means that the debug experience may be difficult
+    /// for the user to understand.  Variables may not be available when
+    /// the developer would expect them, stepping through the source lines
+    /// in the function may appear strange, etc.
+    /// 
+    /// @return
+    ///     Returns 'true' if this function was compiled with 
+    ///     optimization.  'false' indicates that either the optimization
+    ///     is unknown, or this function was built without optimization.
+    //------------------------------------------------------------------
+    bool
+    GetIsOptimized ();
 
     lldb::DisassemblerSP
     GetInstructions (const ExecutionContext &exe_ctx,

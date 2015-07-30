@@ -29,6 +29,7 @@ class MCRegisterInfo;
 class MCSubtargetInfo;
 class raw_ostream;
 class StringRef;
+class Triple;
 
 extern Target TheNyuziTarget;
 
@@ -39,8 +40,8 @@ MCCodeEmitter *createNyuziMCCodeEmitter(const MCInstrInfo &MCII,
 MCObjectWriter *createNyuziELFObjectWriter(raw_pwrite_stream &OS, uint8_t OSABI);
 
 MCAsmBackend *createNyuziAsmBackend(const Target &T,
-                                         const MCRegisterInfo &MRI,
-                                         StringRef TT, StringRef CPU);
+                                    const MCRegisterInfo &MRI,
+                                    const Triple &TT, StringRef CPU);
 
 } // End llvm namespace
 

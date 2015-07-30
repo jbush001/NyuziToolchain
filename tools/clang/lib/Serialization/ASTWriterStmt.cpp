@@ -738,6 +738,18 @@ void ASTStmtWriter::VisitDesignatedInitExpr(DesignatedInitExpr *E) {
   Code = serialization::EXPR_DESIGNATED_INIT;
 }
 
+void ASTStmtWriter::VisitDesignatedInitUpdateExpr(DesignatedInitUpdateExpr *E) {
+  VisitExpr(E);
+  Writer.AddStmt(E->getBase());
+  Writer.AddStmt(E->getUpdater());
+  Code = serialization::EXPR_DESIGNATED_INIT_UPDATE;
+}
+
+void ASTStmtWriter::VisitNoInitExpr(NoInitExpr *E) {
+  VisitExpr(E);
+  Code = serialization::EXPR_NO_INIT;
+}
+
 void ASTStmtWriter::VisitImplicitValueInitExpr(ImplicitValueInitExpr *E) {
   VisitExpr(E);
   Code = serialization::EXPR_IMPLICIT_VALUE_INIT;
@@ -1894,6 +1906,16 @@ void OMPClauseWriter::VisitOMPFlushClause(OMPFlushClause *C) {
     Writer->Writer.AddStmt(VE);
 }
 
+void OMPClauseWriter::VisitOMPDependClause(OMPDependClause *C) {
+  Record.push_back(C->varlist_size());
+  Writer->Writer.AddSourceLocation(C->getLParenLoc(), Record);
+  Record.push_back(C->getDependencyKind());
+  Writer->Writer.AddSourceLocation(C->getDependencyLoc(), Record);
+  Writer->Writer.AddSourceLocation(C->getColonLoc(), Record);
+  for (auto *VE : C->varlists())
+    Writer->Writer.AddStmt(VE);
+}
+
 //===----------------------------------------------------------------------===//
 // OpenMP Directives.
 //===----------------------------------------------------------------------===//
@@ -1917,8 +1939,7 @@ void ASTStmtWriter::VisitOMPLoopDirective(OMPLoopDirective *D) {
   Writer.AddStmt(D->getLastIteration());
   Writer.AddStmt(D->getCalcLastIteration());
   Writer.AddStmt(D->getPreCond());
-  Writer.AddStmt(D->getCond(/* SeparateIter */ false));
-  Writer.AddStmt(D->getCond(/* SeparateIter */ true));
+  Writer.AddStmt(D->getCond());
   Writer.AddStmt(D->getInit());
   Writer.AddStmt(D->getInc());
   if (isOpenMPWorksharingDirective(D->getDirectiveKind())) {
@@ -2042,6 +2063,13 @@ void ASTStmtWriter::VisitOMPTargetDirective(OMPTargetDirective *D) {
   Code = serialization::STMT_OMP_TARGET_DIRECTIVE;
 }
 
+void ASTStmtWriter::VisitOMPTargetDataDirective(OMPTargetDataDirective *D) {
+  VisitStmt(D);
+  Record.push_back(D->getNumClauses());
+  VisitOMPExecutableDirective(D);
+  Code = serialization::STMT_OMP_TARGET_DATA_DIRECTIVE;
+}
+
 void ASTStmtWriter::VisitOMPTaskyieldDirective(OMPTaskyieldDirective *D) {
   VisitStmt(D);
   VisitOMPExecutableDirective(D);
@@ -2058,6 +2086,12 @@ void ASTStmtWriter::VisitOMPTaskwaitDirective(OMPTaskwaitDirective *D) {
   VisitStmt(D);
   VisitOMPExecutableDirective(D);
   Code = serialization::STMT_OMP_TASKWAIT_DIRECTIVE;
+}
+
+void ASTStmtWriter::VisitOMPTaskgroupDirective(OMPTaskgroupDirective *D) {
+  VisitStmt(D);
+  VisitOMPExecutableDirective(D);
+  Code = serialization::STMT_OMP_TASKGROUP_DIRECTIVE;
 }
 
 void ASTStmtWriter::VisitOMPFlushDirective(OMPFlushDirective *D) {
@@ -2078,6 +2112,21 @@ void ASTStmtWriter::VisitOMPTeamsDirective(OMPTeamsDirective *D) {
   Record.push_back(D->getNumClauses());
   VisitOMPExecutableDirective(D);
   Code = serialization::STMT_OMP_TEAMS_DIRECTIVE;
+}
+
+void ASTStmtWriter::VisitOMPCancellationPointDirective(
+    OMPCancellationPointDirective *D) {
+  VisitStmt(D);
+  VisitOMPExecutableDirective(D);
+  Record.push_back(D->getCancelRegion());
+  Code = serialization::STMT_OMP_CANCELLATION_POINT_DIRECTIVE;
+}
+
+void ASTStmtWriter::VisitOMPCancelDirective(OMPCancelDirective *D) {
+  VisitStmt(D);
+  VisitOMPExecutableDirective(D);
+  Record.push_back(D->getCancelRegion());
+  Code = serialization::STMT_OMP_CANCEL_DIRECTIVE;
 }
 
 //===----------------------------------------------------------------------===//

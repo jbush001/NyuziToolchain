@@ -31,6 +31,18 @@ class MCSection;
 class MCSymbol;
 class raw_ostream;
 
+template<>
+struct ilist_node_traits<MCFragment> {
+  MCFragment *createNode(const MCFragment &V);
+  static void deleteNode(MCFragment *V);
+
+  void addNodeToList(MCFragment *) {}
+  void removeNodeFromList(MCFragment *) {}
+  void transferNodesFromList(ilist_node_traits &    /*SrcTraits*/,
+                             ilist_iterator<MCFragment> /*first*/,
+                             ilist_iterator<MCFragment> /*last*/) {}
+};
+
 /// Instances of this class represent a uniqued identifier for a section in the
 /// current translation unit.  The MCContext class uniques and creates these.
 class MCSection {
@@ -73,10 +85,12 @@ private:
 
   /// \brief We've seen a bundle_lock directive but not its first instruction
   /// yet.
-  bool BundleGroupBeforeFirstInst = false;
+  unsigned BundleGroupBeforeFirstInst : 1;
 
   /// Whether this section has had instructions emitted into it.
   unsigned HasInstructions : 1;
+
+  unsigned IsRegistered : 1;
 
   FragmentListType Fragments;
 
@@ -129,6 +143,9 @@ public:
 
   bool hasInstructions() const { return HasInstructions; }
   void setHasInstructions(bool Value) { HasInstructions = Value; }
+
+  bool isRegistered() const { return IsRegistered; }
+  void setIsRegistered(bool Value) { IsRegistered = Value; }
 
   MCSection::FragmentListType &getFragmentList() { return Fragments; }
   const MCSection::FragmentListType &getFragmentList() const {

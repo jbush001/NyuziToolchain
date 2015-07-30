@@ -114,7 +114,7 @@ public:
 
     uint64_t NumNops = Count / 4;
     for (uint64_t i = 0; i != NumNops; ++i)
-      OW->Write32(0);
+      OW->writeLE32(0);
     
     return true;
   }
@@ -140,7 +140,7 @@ private:
 
 // MCAsmBackend
 MCAsmBackend *llvm::createNyuziAsmBackend(const Target &T,
-                                               const MCRegisterInfo &MRI,
-                                               StringRef TT, StringRef CPU) {
+                                          const MCRegisterInfo &MRI,
+                                          const Triple &TT, StringRef CPU) {
   return new NyuziAsmBackend(T, Triple(TT).getOS());
 }

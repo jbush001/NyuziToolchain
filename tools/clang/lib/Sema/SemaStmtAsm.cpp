@@ -154,6 +154,14 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
     if (CheckNakedParmReference(OutputExpr, *this))
       return StmtError();
 
+    // Bitfield can't be referenced with a pointer.
+    if (Info.allowsMemory() && OutputExpr->refersToBitField())
+      return StmtError(Diag(OutputExpr->getLocStart(),
+                            diag::err_asm_bitfield_in_memory_constraint)
+                       << 1
+                       << Info.getConstraintStr()
+                       << OutputExpr->getSourceRange());
+
     OutputConstraintInfos.push_back(Info);
 
     // If this is dependent, just continue.
@@ -230,6 +238,14 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
     if (CheckNakedParmReference(InputExpr, *this))
       return StmtError();
 
+    // Bitfield can't be referenced with a pointer.
+    if (Info.allowsMemory() && InputExpr->refersToBitField())
+      return StmtError(Diag(InputExpr->getLocStart(),
+                            diag::err_asm_bitfield_in_memory_constraint)
+                       << 0
+                       << Info.getConstraintStr()
+                       << InputExpr->getSourceRange());
+
     // Only allow void types for memory constraints.
     if (Info.allowsMemory() && !Info.allowsRegister()) {
       if (CheckAsmLValue(InputExpr, *this))
@@ -238,17 +254,18 @@ StmtResult Sema::ActOnGCCAsmStmt(SourceLocation AsmLoc, bool IsSimple,
                          << Info.getConstraintStr()
                          << InputExpr->getSourceRange());
     } else if (Info.requiresImmediateConstant() && !Info.allowsRegister()) {
-      llvm::APSInt Result;
-      if (!InputExpr->EvaluateAsInt(Result, Context))
-        return StmtError(
-            Diag(InputExpr->getLocStart(), diag::err_asm_immediate_expected)
-            << Info.getConstraintStr() << InputExpr->getSourceRange());
-      if (Result.slt(Info.getImmConstantMin()) ||
-          Result.sgt(Info.getImmConstantMax()))
-        return StmtError(Diag(InputExpr->getLocStart(),
-                              diag::err_invalid_asm_value_for_constraint)
-                         << Result.toString(10) << Info.getConstraintStr()
-                         << InputExpr->getSourceRange());
+      if (!InputExpr->isValueDependent()) {
+        llvm::APSInt Result;
+        if (!InputExpr->EvaluateAsInt(Result, Context))
+           return StmtError(
+               Diag(InputExpr->getLocStart(), diag::err_asm_immediate_expected)
+                << Info.getConstraintStr() << InputExpr->getSourceRange());
+         if (!Info.isValidAsmImmediate(Result))
+           return StmtError(Diag(InputExpr->getLocStart(),
+                                 diag::err_invalid_asm_value_for_constraint)
+                            << Result.toString(10) << Info.getConstraintStr()
+                            << InputExpr->getSourceRange());
+      }
 
     } else {
       ExprResult Result = DefaultFunctionArrayLvalueConversion(Exprs[i]);

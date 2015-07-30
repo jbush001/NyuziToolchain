@@ -36,7 +36,6 @@
 #include "lldb/Core/ModuleSpec.h"
 #include "lldb/Symbol/ObjectFile.h"
 #include "Plugins/Process/Linux/ProcFileReader.h"
-#include "Plugins/Process/Utility/LinuxSignals.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -388,13 +387,6 @@ Host::GetEnvironment (StringList &env)
     for (i=0; (env_entry = host_env[i]) != NULL; ++i)
         env.AppendString(env_entry);
     return i;
-}
-
-const lldb_private::UnixSignalsSP&
-Host::GetUnixSignals ()
-{
-    static const lldb_private::UnixSignalsSP s_unix_signals_sp (new process_linux::LinuxSignals ());
-    return s_unix_signals_sp;
 }
 
 Error

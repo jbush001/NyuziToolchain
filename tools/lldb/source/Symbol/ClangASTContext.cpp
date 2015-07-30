@@ -896,7 +896,7 @@ ClangASTContext::GetBuiltinTypeForDWARFEncodingAndBitSize (const char *type_name
                     return ClangASTType (ast, ast->DoubleTy.getAsOpaquePtr());
                 if (streq(type_name, "long double") && QualTypeMatchesBitSize (bit_size, ast, ast->LongDoubleTy))
                     return ClangASTType (ast, ast->LongDoubleTy.getAsOpaquePtr());
-                // Fall back to not requring a name match
+                // Fall back to not requiring a name match
                 if (QualTypeMatchesBitSize (bit_size, ast, ast->FloatTy))
                     return ClangASTType (ast, ast->FloatTy.getAsOpaquePtr());
                 if (QualTypeMatchesBitSize (bit_size, ast, ast->DoubleTy))
@@ -1591,6 +1591,7 @@ ClangASTContext::CreateObjCClass
                                                          decl_ctx,
                                                          SourceLocation(),
                                                          &ast->Idents.get(name),
+                                                         nullptr,
                                                          nullptr,
                                                          SourceLocation(),
                                                          /*isForwardDecl,*/

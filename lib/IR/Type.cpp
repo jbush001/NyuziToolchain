@@ -307,12 +307,13 @@ IntegerType *IntegerType::get(LLVMContext &C, unsigned NumBits) {
   
   // Check for the built-in integer types
   switch (NumBits) {
-  case  1: return cast<IntegerType>(Type::getInt1Ty(C));
-  case  8: return cast<IntegerType>(Type::getInt8Ty(C));
-  case 16: return cast<IntegerType>(Type::getInt16Ty(C));
-  case 32: return cast<IntegerType>(Type::getInt32Ty(C));
-  case 64: return cast<IntegerType>(Type::getInt64Ty(C));
-  default: 
+  case   1: return cast<IntegerType>(Type::getInt1Ty(C));
+  case   8: return cast<IntegerType>(Type::getInt8Ty(C));
+  case  16: return cast<IntegerType>(Type::getInt16Ty(C));
+  case  32: return cast<IntegerType>(Type::getInt32Ty(C));
+  case  64: return cast<IntegerType>(Type::getInt64Ty(C));
+  case 128: return cast<IntegerType>(Type::getInt128Ty(C));
+  default:
     break;
   }
   
@@ -344,7 +345,7 @@ FunctionType::FunctionType(Type *Result, ArrayRef<Type*> Params,
   assert(isValidReturnType(Result) && "invalid return type for function");
   setSubclassData(IsVarArgs);
 
-  SubTys[0] = const_cast<Type*>(Result);
+  SubTys[0] = Result;
 
   for (unsigned i = 0, e = Params.size(); i != e; ++i) {
     assert(isValidArgumentType(Params[i]) &&
@@ -679,10 +680,9 @@ ArrayType::ArrayType(Type *ElType, uint64_t NumEl)
   NumElements = NumEl;
 }
 
-ArrayType *ArrayType::get(Type *elementType, uint64_t NumElements) {
-  Type *ElementType = const_cast<Type*>(elementType);
+ArrayType *ArrayType::get(Type *ElementType, uint64_t NumElements) {
   assert(isValidElementType(ElementType) && "Invalid type for array element!");
-    
+
   LLVMContextImpl *pImpl = ElementType->getContext().pImpl;
   ArrayType *&Entry = 
     pImpl->ArrayTypes[std::make_pair(ElementType, NumElements)];
@@ -706,8 +706,7 @@ VectorType::VectorType(Type *ElType, unsigned NumEl)
   NumElements = NumEl;
 }
 
-VectorType *VectorType::get(Type *elementType, unsigned NumElements) {
-  Type *ElementType = const_cast<Type*>(elementType);
+VectorType *VectorType::get(Type *ElementType, unsigned NumElements) {
   assert(NumElements > 0 && "#Elements of a VectorType must be greater than 0");
   assert(isValidElementType(ElementType) && "Element type of a VectorType must "
                                             "be an integer, floating point, or "

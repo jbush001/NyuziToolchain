@@ -196,10 +196,13 @@ uint64_t NyuziFrameLowering::getWorstCaseStackSize(const MachineFunction &MF) co
   return RoundUpToAlignment(Offset, getStackAlignment());
 }
 
-void NyuziFrameLowering::processFunctionBeforeCalleeSavedScan(
-    MachineFunction &MF, RegScavenger *RS) const {
+void NyuziFrameLowering::determineCalleeSaves(MachineFunction &MF, 
+                                              BitVector &SavedRegs, 
+											  RegScavenger *RS) const {
+
+ TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
   if (hasFP(MF))
-    MF.getRegInfo().setPhysRegUsed(Nyuzi::FP_REG);
+    SavedRegs.set(Nyuzi::FP_REG);
 
   // The register scavenger allows us to allocate virtual registers
   // during epilogue/prologue insertion, after register allocation has

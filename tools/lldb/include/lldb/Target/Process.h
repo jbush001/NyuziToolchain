@@ -30,6 +30,7 @@
 #include "lldb/Core/Event.h"
 #include "lldb/Core/ThreadSafeValue.h"
 #include "lldb/Core/PluginInterface.h"
+#include "lldb/Core/StructuredData.h"
 #include "lldb/Core/UserSettingsController.h"
 #include "lldb/Breakpoint/BreakpointSiteList.h"
 #include "lldb/Host/HostThread.h"
@@ -949,7 +950,7 @@ public:
     /// Construct with a shared pointer to a target, the Process listener,
     /// and the appropriate UnixSignalsSP for the process.
     //------------------------------------------------------------------
-    Process(Target &target, Listener &listener, const UnixSignalsSP &unix_signals_sp);
+    Process(Target &target, Listener &listener, const lldb::UnixSignalsSP &unix_signals_sp);
 
     //------------------------------------------------------------------
     /// Destructor.
@@ -1262,6 +1263,26 @@ public:
     UnloadImage (uint32_t image_token);
 
     //------------------------------------------------------------------
+    /// Called when the process is about to broadcast a public stop.
+    ///
+    /// There are public and private stops. Private stops are when the
+    /// process is doing things like stepping and the client doesn't
+    /// need to know about starts and stop that implement a thread plan.
+    /// Single stepping over a source line in code might end up being
+    /// implemented by one or more process starts and stops. Public stops
+    /// are when clients will be notified that the process is stopped.
+    /// These events typically trigger UI updates (thread stack frames to
+    /// be displayed, variables to be displayed, and more). This function
+    /// can be overriden and allows process subclasses to do something
+    /// before the eBroadcastBitStateChanged event is sent to public
+    /// clients.
+    //------------------------------------------------------------------
+    virtual void
+    WillPublicStop ()
+    {
+    }
+
+    //------------------------------------------------------------------
     /// Register for process and thread notifications.
     ///
     /// Clients can register notification callbacks by filling out a
@@ -1401,10 +1422,10 @@ public:
     Signal (int signal);
 
     void
-    SetUnixSignals (const UnixSignalsSP &signals_sp);
+    SetUnixSignals(const lldb::UnixSignalsSP &signals_sp);
 
-    UnixSignals &
-    GetUnixSignals ();
+    const lldb::UnixSignalsSP &
+    GetUnixSignals();
 
     //==================================================================
     // Plug-in Process Control Overrides
@@ -1878,8 +1899,45 @@ public:
     void
     SendAsyncInterrupt ();
     
-    void
+    //------------------------------------------------------------------
+    // Notify this process class that modules got loaded.
+    //
+    // If subclasses override this method, they must call this version
+    // before doing anything in the subclass version of the function.
+    //------------------------------------------------------------------
+    virtual void
     ModulesDidLoad (ModuleList &module_list);
+
+
+    //------------------------------------------------------------------
+    /// Retrieve the list of shared libraries that are loaded for this process
+    /// 
+    /// For certain platforms, the time it takes for the DynamicLoader plugin to
+    /// read all of the shared libraries out of memory over a slow communication
+    /// channel may be too long.  In that instance, the gdb-remote stub may be
+    /// able to retrieve the necessary information about the solibs out of memory
+    /// and return a concise summary sufficient for the DynamicLoader plugin.
+    ///
+    /// @param [in] image_list_address
+    ///     The address where the table of shared libraries is stored in memory,
+    ///     if that is appropriate for this platform.  Else this may be 
+    ///     passed as LLDB_INVALID_ADDRESS.
+    ///
+    /// @param [in] image_count
+    ///     The number of shared libraries that are present in this process, if
+    ///     that is appropriate for this platofrm  Else this may be passed as
+    ///     LLDB_INVALID_ADDRESS.
+    ///
+    /// @return
+    ///     A StructureDataSP object which, if non-empty, will contain the 
+    ///     information the DynamicLoader needs to get the initial scan of
+    ///     solibs resolved.
+    //------------------------------------------------------------------
+    virtual lldb_private::StructuredData::ObjectSP
+    GetLoadedDynamicLibrariesInfos (lldb::addr_t image_list_address, lldb::addr_t image_count)
+    {
+        return StructuredData::ObjectSP();
+    }
 
 protected:
     
@@ -2331,7 +2389,7 @@ public:
     ///     that a block that isn't set writable can still be written on from lldb,
     ///     just not by the process itself.
     ///
-    /// @param[in/out] error
+    /// @param[in,out] error
     ///     An error object to fill in if things go wrong.
     /// @return
     ///     The address of the allocated buffer in the process, or
@@ -2433,7 +2491,40 @@ public:
     ///     True if execution of JIT code is possible; false otherwise.
     //------------------------------------------------------------------
     void SetCanJIT (bool can_jit);
+
+    //------------------------------------------------------------------
+    /// Determines whether executing function calls using the interpreter
+    /// is possible for this process.
+    ///
+    /// @return
+    ///     True if possible; false otherwise.
+    //------------------------------------------------------------------
+    bool CanInterpretFunctionCalls ()
+    {
+        return m_can_interpret_function_calls;
+    }
     
+    //------------------------------------------------------------------
+    /// Sets whether executing function calls using the interpreter
+    /// is possible for this process.
+    ///
+    /// @param[in] can_interpret_function_calls
+    ///     True if possible; false otherwise.
+    //------------------------------------------------------------------
+    void SetCanInterpretFunctionCalls (bool can_interpret_function_calls)
+    {
+        m_can_interpret_function_calls = can_interpret_function_calls;
+    }
+
+    //------------------------------------------------------------------
+    /// Sets whether executing code in this process is possible.
+    /// This could be either through JIT or interpreting.
+    ///
+    /// @param[in] can_run_code
+    ///     True if execution of code is possible; false otherwise.
+    //------------------------------------------------------------------
+    void SetCanRunCode (bool can_run_code);
+
     //------------------------------------------------------------------
     /// Actually deallocate memory in the process.
     ///
@@ -2780,7 +2871,7 @@ public:
     /// @param[in] stream
     ///     The output stream to get the state change description
     ///
-    /// @param[inout] pop_process_io_handler
+    /// @param[in,out] pop_process_io_handler
     ///     If this value comes in set to \b true, then pop the Process IOHandler if needed.
     ///     Else this variable will be set to \b true or \b false to indicate if the process
     ///     needs to have its process IOHandler popped.
@@ -3036,6 +3127,28 @@ public:
     virtual bool
     GetModuleSpec(const FileSpec& module_file_spec, const ArchSpec& arch, ModuleSpec &module_spec);
 
+    //------------------------------------------------------------------
+    /// Try to find the load address of a file.
+    /// The load address is defined as the address of the first memory
+    /// region what contains data mapped from the specified file.
+    ///
+    /// @param[in] file 
+    ///     The name of the file whose load address we are looking for
+    ///
+    /// @param[out] is_loaded
+    ///     \b True if the file is loaded into the memory and false
+    ///     otherwise.
+    ///
+    /// @param[out] load_addr
+    ///     The load address of the file if it is loaded into the
+    ///     processes address space, LLDB_INVALID_ADDRESS otherwise.
+    //------------------------------------------------------------------
+    virtual Error
+    GetFileLoadAddress(const FileSpec& file, bool& is_loaded, lldb::addr_t& load_addr)
+    {
+        return Error("Not supported");
+    }
+
 protected:
 
     //------------------------------------------------------------------
@@ -3177,7 +3290,7 @@ protected:
     lldb::DynamicCheckerFunctionsUP m_dynamic_checkers_ap; ///< The functions used by the expression parser to validate data that expressions use.
     lldb::OperatingSystemUP     m_os_ap;
     lldb::SystemRuntimeUP       m_system_runtime_ap;
-    UnixSignalsSP               m_unix_signals_sp;         /// This is the current signal set for this process.
+    lldb::UnixSignalsSP         m_unix_signals_sp;         /// This is the current signal set for this process.
     lldb::ABISP                 m_abi_sp;
     lldb::IOHandlerSP           m_process_input_reader;
     Communication               m_stdio_communication;
@@ -3208,6 +3321,7 @@ protected:
     lldb::StateType             m_last_broadcast_state;   /// This helps with the Public event coalescing in ShouldBroadcastEvent.
     std::map<lldb::addr_t,lldb::addr_t> m_resolved_indirect_addresses;
     bool m_destroy_in_process;
+    bool m_can_interpret_function_calls; // Some targets, e.g the OSX kernel, don't support the ability to modify the stack.
     
     enum {
         eCanJITDontKnow= 0,
@@ -3228,7 +3342,7 @@ protected:
     SetPrivateState (lldb::StateType state);
 
     bool
-    StartPrivateStateThread (bool force = false);
+    StartPrivateStateThread (bool is_secondary_thread = false);
 
     void
     StopPrivateStateThread ();
@@ -3239,11 +3353,22 @@ protected:
     void
     ResumePrivateStateThread ();
 
+    struct PrivateStateThreadArgs
+    {
+        Process *process;
+        bool is_secondary_thread;
+    };
+
     static lldb::thread_result_t
     PrivateStateThread (void *arg);
 
+    // The starts up the private state thread that will watch for events from the debugee.
+    // Pass true for is_secondary_thread in the case where you have to temporarily spin up a
+    // secondary state thread to handle events from a hand-called function on the primary
+    // private state thread.
+    
     lldb::thread_result_t
-    RunPrivateStateThread ();
+    RunPrivateStateThread (bool is_secondary_thread);
 
     void
     HandlePrivateEvent (lldb::EventSP &event_sp);

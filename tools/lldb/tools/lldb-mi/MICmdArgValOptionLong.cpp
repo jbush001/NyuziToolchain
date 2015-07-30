@@ -108,7 +108,7 @@ bool
 CMICmdArgValOptionLong::Validate(CMICmdArgContext &vwArgContext)
 {
     if (vwArgContext.IsEmpty())
-        return MIstatus::success;
+        return m_bMandatory ? MIstatus::failure : MIstatus::success;
 
     if (vwArgContext.GetNumberArgsPresent() == 1)
     {
@@ -254,7 +254,7 @@ CMICmdArgValOptionLong::IsArgLongOption(const CMIUtilString &vrTxt) const
     if (bHavePosSlash || bHaveBckSlash)
         return false;
 
-    const MIint nPos = vrTxt.find_first_of("--");
+    const size_t nPos = vrTxt.find_first_of("--");
     if (nPos != 0)
         return false;
 

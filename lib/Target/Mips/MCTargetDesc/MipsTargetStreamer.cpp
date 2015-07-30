@@ -17,10 +17,9 @@
 #include "MipsTargetObjectFile.h"
 #include "MipsTargetStreamer.h"
 #include "llvm/MC/MCContext.h"
-#include "llvm/MC/MCELF.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSubtargetInfo.h"
-#include "llvm/MC/MCSymbol.h"
+#include "llvm/MC/MCSymbolELF.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -81,19 +80,33 @@ void MipsTargetStreamer::emitDirectiveSetMips64R5() { forbidModuleDirective(); }
 void MipsTargetStreamer::emitDirectiveSetMips64R6() { forbidModuleDirective(); }
 void MipsTargetStreamer::emitDirectiveSetPop() { forbidModuleDirective(); }
 void MipsTargetStreamer::emitDirectiveSetPush() { forbidModuleDirective(); }
+void MipsTargetStreamer::emitDirectiveSetSoftFloat() {
+  forbidModuleDirective();
+}
+void MipsTargetStreamer::emitDirectiveSetHardFloat() {
+  forbidModuleDirective();
+}
 void MipsTargetStreamer::emitDirectiveSetDsp() { forbidModuleDirective(); }
 void MipsTargetStreamer::emitDirectiveSetNoDsp() { forbidModuleDirective(); }
 void MipsTargetStreamer::emitDirectiveCpLoad(unsigned RegNo) {}
 void MipsTargetStreamer::emitDirectiveCpsetup(unsigned RegNo, int RegOrOffset,
                                               const MCSymbol &Sym, bool IsReg) {
 }
-void MipsTargetStreamer::emitDirectiveModuleOddSPReg(bool Enabled,
-                                                     bool IsO32ABI) {
-  if (!Enabled && !IsO32ABI)
+
+void MipsTargetStreamer::emitDirectiveModuleFP() {}
+
+void MipsTargetStreamer::emitDirectiveModuleOddSPReg() {
+  if (!ABIFlagsSection.OddSPReg && !ABIFlagsSection.Is32BitABI)
     report_fatal_error("+nooddspreg is only valid for O32");
 }
+void MipsTargetStreamer::emitDirectiveModuleSoftFloat() {}
+void MipsTargetStreamer::emitDirectiveModuleHardFloat() {}
 void MipsTargetStreamer::emitDirectiveSetFp(
     MipsABIFlagsSection::FpABIKind Value) {
+  forbidModuleDirective();
+}
+void MipsTargetStreamer::emitDirectiveSetOddSPReg() { forbidModuleDirective(); }
+void MipsTargetStreamer::emitDirectiveSetNoOddSPReg() {
   forbidModuleDirective();
 }
 
@@ -308,6 +321,16 @@ void MipsTargetAsmStreamer::emitDirectiveSetPush() {
  MipsTargetStreamer::emitDirectiveSetPush();
 }
 
+void MipsTargetAsmStreamer::emitDirectiveSetSoftFloat() {
+  OS << "\t.set\tsoftfloat\n";
+  MipsTargetStreamer::emitDirectiveSetSoftFloat();
+}
+
+void MipsTargetAsmStreamer::emitDirectiveSetHardFloat() {
+  OS << "\t.set\thardfloat\n";
+  MipsTargetStreamer::emitDirectiveSetHardFloat();
+}
+
 // Print a 32 bit hex number with all numbers.
 static void printHex32(unsigned Value, raw_ostream &OS) {
   OS << "0x";
@@ -354,12 +377,9 @@ void MipsTargetAsmStreamer::emitDirectiveCpsetup(unsigned RegNo,
   forbidModuleDirective();
 }
 
-void MipsTargetAsmStreamer::emitDirectiveModuleFP(
-    MipsABIFlagsSection::FpABIKind Value, bool Is32BitABI) {
-  MipsTargetStreamer::emitDirectiveModuleFP(Value, Is32BitABI);
-
+void MipsTargetAsmStreamer::emitDirectiveModuleFP() {
   OS << "\t.module\tfp=";
-  OS << ABIFlagsSection.getFpABIString(Value) << "\n";
+  OS << ABIFlagsSection.getFpABIString(ABIFlagsSection.getFpABI()) << "\n";
 }
 
 void MipsTargetAsmStreamer::emitDirectiveSetFp(
@@ -370,11 +390,28 @@ void MipsTargetAsmStreamer::emitDirectiveSetFp(
   OS << ABIFlagsSection.getFpABIString(Value) << "\n";
 }
 
-void MipsTargetAsmStreamer::emitDirectiveModuleOddSPReg(bool Enabled,
-                                                        bool IsO32ABI) {
-  MipsTargetStreamer::emitDirectiveModuleOddSPReg(Enabled, IsO32ABI);
+void MipsTargetAsmStreamer::emitDirectiveModuleOddSPReg() {
+  MipsTargetStreamer::emitDirectiveModuleOddSPReg();
 
-  OS << "\t.module\t" << (Enabled ? "" : "no") << "oddspreg\n";
+  OS << "\t.module\t" << (ABIFlagsSection.OddSPReg ? "" : "no") << "oddspreg\n";
+}
+
+void MipsTargetAsmStreamer::emitDirectiveSetOddSPReg() {
+  MipsTargetStreamer::emitDirectiveSetOddSPReg();
+  OS << "\t.set\toddspreg\n";
+}
+
+void MipsTargetAsmStreamer::emitDirectiveSetNoOddSPReg() {
+  MipsTargetStreamer::emitDirectiveSetNoOddSPReg();
+  OS << "\t.set\tnooddspreg\n";
+}
+
+void MipsTargetAsmStreamer::emitDirectiveModuleSoftFloat() {
+  OS << "\t.module\tsoftfloat\n";
+}
+
+void MipsTargetAsmStreamer::emitDirectiveModuleHardFloat() {
+  OS << "\t.module\thardfloat\n";
 }
 
 // This part is for ELF object output.
@@ -438,18 +475,16 @@ MipsTargetELFStreamer::MipsTargetELFStreamer(MCStreamer &S,
   MCA.setELFHeaderEFlags(EFlags);
 }
 
-void MipsTargetELFStreamer::emitLabel(MCSymbol *Symbol) {
+void MipsTargetELFStreamer::emitLabel(MCSymbol *S) {
+  auto *Symbol = cast<MCSymbolELF>(S);
   if (!isMicroMipsEnabled())
     return;
-  getStreamer().getOrCreateSymbolData(Symbol);
-  uint8_t Type = MCELF::GetType(*Symbol);
+  getStreamer().getAssembler().registerSymbol(*Symbol);
+  uint8_t Type = Symbol->getType();
   if (Type != ELF::STT_FUNC)
     return;
 
-  // The "other" values are stored in the last 6 bits of the second byte
-  // The traditional defines for STO values assume the full byte and thus
-  // the shift to pack it.
-  MCELF::setOther(*Symbol, ELF::STO_MIPS_MICROMIPS >> 2);
+  Symbol->setOther(ELF::STO_MIPS_MICROMIPS);
 }
 
 void MipsTargetELFStreamer::finish() {
@@ -503,21 +538,18 @@ void MipsTargetELFStreamer::finish() {
   emitMipsAbiFlags();
 }
 
-void MipsTargetELFStreamer::emitAssignment(MCSymbol *Symbol,
-                                           const MCExpr *Value) {
+void MipsTargetELFStreamer::emitAssignment(MCSymbol *S, const MCExpr *Value) {
+  auto *Symbol = cast<MCSymbolELF>(S);
   // If on rhs is micromips symbol then mark Symbol as microMips.
   if (Value->getKind() != MCExpr::SymbolRef)
     return;
-  const MCSymbol &RhsSym =
-      static_cast<const MCSymbolRefExpr *>(Value)->getSymbol();
+  const auto &RhsSym = cast<MCSymbolELF>(
+      static_cast<const MCSymbolRefExpr *>(Value)->getSymbol());
 
-  if (!(MCELF::getOther(RhsSym) & (ELF::STO_MIPS_MICROMIPS >> 2)))
+  if (!(RhsSym.getOther() & ELF::STO_MIPS_MICROMIPS))
     return;
 
-  // The "other" values are stored in the last 6 bits of the second byte.
-  // The traditional defines for STO values assume the full byte and thus
-  // the shift to pack it.
-  MCELF::setOther(*Symbol, ELF::STO_MIPS_MICROMIPS >> 2);
+  Symbol->setOther(ELF::STO_MIPS_MICROMIPS);
 }
 
 MCELFStreamer &MipsTargetELFStreamer::getStreamer() {
@@ -789,11 +821,4 @@ void MipsTargetELFStreamer::emitMipsAbiFlags() {
   OS.SwitchSection(Sec);
 
   OS << ABIFlagsSection;
-}
-
-void MipsTargetELFStreamer::emitDirectiveModuleOddSPReg(bool Enabled,
-                                                        bool IsO32ABI) {
-  MipsTargetStreamer::emitDirectiveModuleOddSPReg(Enabled, IsO32ABI);
-
-  ABIFlagsSection.OddSPReg = Enabled;
 }

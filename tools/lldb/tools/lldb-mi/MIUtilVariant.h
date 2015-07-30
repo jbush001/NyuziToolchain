@@ -6,8 +6,6 @@
 // License. See LICENSE.TXT for details.
 //
 //===----------------------------------------------------------------------===//
-// Copyright:   None.
-//--
 
 #pragma once
 
@@ -20,9 +18,6 @@
 //          data object specified is made and stored in *this wrapper. When the
 //          *this object is destroyed the data object hold within calls its
 //          destructor should it have one.
-// Gotchas: None.
-// Authors: Illya Rudkin 18/06/2014.
-// Changes: None.
 //--
 class CMIUtilVariant
 {
@@ -95,9 +90,9 @@ class CMIUtilVariant
         // Overridden:
       public:
         // From CDataObjectBase
-        virtual ~CDataObject(void);
-        virtual CDataObjectBase *CreateCopyOfSelf(void);
-        virtual bool GetIsDerivedClass(void) const;
+        ~CDataObject(void) override;
+        CDataObjectBase *CreateCopyOfSelf(void) override;
+        bool GetIsDerivedClass(void) const override;
 
         // Overrideable:
       private:
@@ -106,7 +101,7 @@ class CMIUtilVariant
         // Overridden:
       private:
         // From CDataObjectBase
-        virtual void Destroy(void);
+        void Destroy(void) override;
 
         // Attributes:
       private:

@@ -19,6 +19,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/LEB128.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
@@ -358,8 +359,12 @@ std::error_code readCoverageMappingData(
     const char *CovBuf = Buf;
     Buf += CoverageSize;
     const char *CovEnd = Buf;
+
     if (Buf > End)
       return coveragemap_error::malformed;
+    // Each coverage map has an alignment of 8, so we need to adjust alignment
+    // before reading the next map.
+    Buf += alignmentAdjustment(Buf, 8);
 
     while (FunBuf < FunEnd) {
       // Read the function information
@@ -443,7 +448,7 @@ static std::error_code loadBinaryFormat(MemoryBufferRef ObjectBuffer,
                                         StringRef &CoverageMapping,
                                         uint8_t &BytesInAddress,
                                         support::endianness &Endian,
-                                        Triple::ArchType Arch) {
+                                        StringRef Arch) {
   auto BinOrErr = object::createBinary(ObjectBuffer);
   if (std::error_code EC = BinOrErr.getError())
     return EC;
@@ -460,7 +465,7 @@ static std::error_code loadBinaryFormat(MemoryBufferRef ObjectBuffer,
     // For any other object file, upcast and take ownership.
     OF.reset(cast<object::ObjectFile>(Bin.release()));
     // If we've asked for a particular arch, make sure they match.
-    if (Arch != Triple::ArchType::UnknownArch && OF->getArch() != Arch)
+    if (!Arch.empty() && OF->getArch() != Triple(Arch).getArch())
       return object_error::arch_not_found;
   } else
     // We can only handle object files.
@@ -490,7 +495,7 @@ static std::error_code loadBinaryFormat(MemoryBufferRef ObjectBuffer,
 
 ErrorOr<std::unique_ptr<BinaryCoverageReader>>
 BinaryCoverageReader::create(std::unique_ptr<MemoryBuffer> &ObjectBuffer,
-                             Triple::ArchType Arch) {
+                             StringRef Arch) {
   std::unique_ptr<BinaryCoverageReader> Reader(new BinaryCoverageReader());
 
   SectionData Profile;

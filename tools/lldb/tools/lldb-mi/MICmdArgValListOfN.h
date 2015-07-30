@@ -31,9 +31,6 @@ class CMICmdArgContext;
 //          If vbMandatory argument is true it takes on the (...)+ specification
 //          otherwise assumed to be (...)* specification.
 //          Based on the Interpreter pattern.
-// Gotchas: None.
-// Authors: Illya Rudkin 16/04/2014.
-// Changes: None.
 //--
 class CMICmdArgValListOfN : public CMICmdArgValListBase
 {
@@ -49,9 +46,9 @@ class CMICmdArgValListOfN : public CMICmdArgValListBase
     // Overridden:
   public:
     // From CMICmdArgValBase
-    /* dtor */ virtual ~CMICmdArgValListOfN(void);
+    /* dtor */ ~CMICmdArgValListOfN(void) override;
     // From CMICmdArgSet::IArg
-    virtual bool Validate(CMICmdArgContext &vArgContext);
+    bool Validate(CMICmdArgContext &vArgContext) override;
 
     // Methods:
   private:

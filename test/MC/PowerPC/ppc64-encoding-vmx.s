@@ -1,5 +1,5 @@
 
-# RUN: llvm-mc -triple powerpc64-unknown-unknown --show-encoding %s | FileCheck -check-prefix=CHECK-BE %s
+# RUN: llvm-mc -triple powerpc64-unknown-unknown --show-encoding %s | FileCheck -check-prefix=CHECK-BE %s 
 # RUN: llvm-mc -triple powerpc64le-unknown-unknown --show-encoding %s | FileCheck -check-prefix=CHECK-LE %s
 
 # Vector facility
@@ -110,7 +110,13 @@
 # CHECK-BE: vmrglw 2, 3, 4                  # encoding: [0x10,0x43,0x21,0x8c]
 # CHECK-LE: vmrglw 2, 3, 4                  # encoding: [0x8c,0x21,0x43,0x10]
             vmrglw 2, 3, 4
-
+# CHECK-BE: vmrgew 2, 3, 4                  # encoding: [0x10,0x43,0x27,0x8c]
+# CHECK-LE: vmrgew 2, 3, 4                  # encoding: [0x8c,0x27,0x43,0x10]
+            vmrgew 2, 3, 4
+# CHECK-BE: vmrgow 2, 3, 4                  # encoding: [0x10,0x43,0x26,0x8c]
+# CHECK-LE: vmrgow 2, 3, 4                  # encoding: [0x8c,0x26,0x43,0x10]
+            vmrgow 2, 3, 4
+	
 # CHECK-BE: vspltb 2, 3, 1                  # encoding: [0x10,0x41,0x1a,0x0c]
 # CHECK-LE: vspltb 2, 3, 1                  # encoding: [0x0c,0x1a,0x41,0x10]
             vspltb 2, 3, 1
@@ -686,6 +692,12 @@
 # CHECK-BE: vrsqrtefp 2, 3                  # encoding: [0x10,0x40,0x19,0x4a]
 # CHECK-LE: vrsqrtefp 2, 3                  # encoding: [0x4a,0x19,0x40,0x10]
             vrsqrtefp 2, 3
+# CHECK-BE: vgbbd 2, 3                      # encoding: [0x10,0x40,0x1d,0x0c]
+# CHECK-LE: vgbbd 2, 3                      # encoding: [0x0c,0x1d,0x40,0x10]
+            vgbbd 2, 3
+# CHECK-BE: vbpermq 2, 5, 17                # encoding: [0x10,0x45,0x8d,0x4c]
+# CHECK-LE: vbpermq 2, 5, 17                # encoding: [0x4c,0x8d,0x45,0x10]
+            vbpermq 2, 5, 17
 
 # Vector count leading zero instructions
 # CHECK-BE: vclzb 2, 3                      # encoding: [0x10,0x40,0x1f,0x02]

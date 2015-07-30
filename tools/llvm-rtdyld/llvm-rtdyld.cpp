@@ -25,6 +25,7 @@
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Object/MachO.h"
+#include "llvm/Object/SymbolSize.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/DynamicLibrary.h"
 #include "llvm/Support/ManagedStatic.h"
@@ -81,6 +82,12 @@ Dylibs("dylib",
 static cl::opt<std::string>
 TripleName("triple", cl::desc("Target triple for disassembler"));
 
+static cl::opt<std::string>
+MCPU("mcpu",
+     cl::desc("Target a specific cpu type (-mcpu=help for details)"),
+     cl::value_desc("cpu-name"),
+     cl::init(""));
+
 static cl::list<std::string>
 CheckFiles("check",
            cl::desc("File containing RuntimeDyld verifier checks."),
@@ -108,8 +115,17 @@ TargetSectionSep("target-section-sep",
 
 static cl::list<std::string>
 SpecificSectionMappings("map-section",
-                        cl::desc("Map a section to a specific address."),
-                        cl::ZeroOrMore);
+                        cl::desc("For -verify only: Map a section to a "
+                                 "specific address."),
+                        cl::ZeroOrMore,
+                        cl::Hidden);
+
+static cl::list<std::string>
+DummySymbolMappings("dummy-extern",
+                    cl::desc("For -verify only: Inject a symbol into the extern "
+                             "symbol table."),
+                    cl::ZeroOrMore,
+                    cl::Hidden);
 
 /* *** */
 
@@ -139,6 +155,26 @@ public:
   // explicit cache flush, otherwise JIT code manipulations (like resolved
   // relocations) will get to the data cache but not to the instruction cache.
   virtual void invalidateInstructionCache();
+
+  void addDummySymbol(const std::string &Name, uint64_t Addr) {
+    DummyExterns[Name] = Addr;
+  }
+
+  RuntimeDyld::SymbolInfo findSymbol(const std::string &Name) override {
+    auto I = DummyExterns.find(Name);
+
+    if (I != DummyExterns.end())
+      return RuntimeDyld::SymbolInfo(I->second, JITSymbolFlags::Exported);
+
+    return RTDyldMemoryManager::findSymbol(Name);
+  }
+
+  void registerEHFrames(uint8_t *Addr, uint64_t LoadAddr,
+                        size_t Size) override {}
+  void deregisterEHFrames(uint8_t *Addr, uint64_t LoadAddr,
+                          size_t Size) override {}
+private:
+  std::map<std::string, uint64_t> DummyExterns;
 };
 
 uint8_t *TrivialMemoryManager::allocateCodeSection(uintptr_t Size,
@@ -241,41 +277,45 @@ static int printLineInfoForInput(bool LoadObjects, bool UseDebugObj) {
       if (UseDebugObj) {
         DebugObj = LoadedObjInfo->getObjectForDebug(Obj);
         SymbolObj = DebugObj.getBinary();
+        LoadedObjInfo.reset();
       }
     }
 
     std::unique_ptr<DIContext> Context(
       new DWARFContextInMemory(*SymbolObj,LoadedObjInfo.get()));
 
-    // Use symbol info to iterate functions in the object.
-    for (object::symbol_iterator I = SymbolObj->symbol_begin(),
-                                 E = SymbolObj->symbol_end();
-         I != E; ++I) {
-      object::SymbolRef::Type SymType;
-      if (I->getType(SymType)) continue;
-      if (SymType == object::SymbolRef::ST_Function) {
-        StringRef  Name;
-        uint64_t   Addr;
-        uint64_t   Size;
-        if (I->getName(Name)) continue;
-        if (I->getAddress(Addr)) continue;
-        if (I->getSize(Size)) continue;
+    std::vector<std::pair<SymbolRef, uint64_t>> SymAddr =
+        object::computeSymbolSizes(*SymbolObj);
 
+    // Use symbol info to iterate functions in the object.
+    for (const auto &P : SymAddr) {
+      object::SymbolRef Sym = P.first;
+      if (Sym.getType() == object::SymbolRef::ST_Function) {
+        ErrorOr<StringRef> Name = Sym.getName();
+        if (!Name)
+          continue;
+        ErrorOr<uint64_t> AddrOrErr = Sym.getAddress();
+        if (!AddrOrErr)
+          continue;
+        uint64_t Addr = *AddrOrErr;
+
+        uint64_t Size = P.second;
         // If we're not using the debug object, compute the address of the
         // symbol in memory (rather than that in the unrelocated object file)
         // and use that to query the DWARFContext.
         if (!UseDebugObj && LoadObjects) {
           object::section_iterator Sec(SymbolObj->section_end());
-          I->getSection(Sec);
+          Sym.getSection(Sec);
           StringRef SecName;
           Sec->getName(SecName);
           uint64_t SectionLoadAddress =
-            LoadedObjInfo->getSectionLoadAddress(SecName);
+            LoadedObjInfo->getSectionLoadAddress(*Sec);
           if (SectionLoadAddress != 0)
             Addr += SectionLoadAddress - Sec->getAddress();
         }
 
-        outs() << "Function: " << Name << ", Size = " << Size << ", Addr = " << Addr << "\n";
+        outs() << "Function: " << *Name << ", Size = " << Size
+               << ", Addr = " << Addr << "\n";
 
         DILineInfoTable Lines = Context->getLineInfoForAddressRange(Addr, Size);
         DILineInfoTable::iterator  Begin = Lines.begin();
@@ -386,7 +426,7 @@ applySpecificSectionMappings(RuntimeDyldChecker &Checker) {
   for (StringRef Mapping : SpecificSectionMappings) {
 
     size_t EqualsIdx = Mapping.find_first_of("=");
-    StringRef SectionIDStr = Mapping.substr(0, EqualsIdx);
+    std::string SectionIDStr = Mapping.substr(0, EqualsIdx);
     size_t ComaIdx = Mapping.find_first_of(",");
 
     if (ComaIdx == StringRef::npos) {
@@ -395,8 +435,8 @@ applySpecificSectionMappings(RuntimeDyldChecker &Checker) {
       exit(1);
     }
 
-    StringRef FileName = SectionIDStr.substr(0, ComaIdx);
-    StringRef SectionName = SectionIDStr.substr(ComaIdx + 1);
+    std::string FileName = SectionIDStr.substr(0, ComaIdx);
+    std::string SectionName = SectionIDStr.substr(ComaIdx + 1);
 
     uint64_t OldAddrInt;
     std::string ErrorMsg;
@@ -410,11 +450,11 @@ applySpecificSectionMappings(RuntimeDyldChecker &Checker) {
 
     void* OldAddr = reinterpret_cast<void*>(static_cast<uintptr_t>(OldAddrInt));
 
-    StringRef NewAddrStr = Mapping.substr(EqualsIdx + 1);
+    std::string NewAddrStr = Mapping.substr(EqualsIdx + 1);
     uint64_t NewAddr;
 
-    if (NewAddrStr.getAsInteger(0, NewAddr)) {
-      errs() << "Invalid section address in mapping: " << Mapping << "\n";
+    if (StringRef(NewAddrStr).getAsInteger(0, NewAddr)) {
+      errs() << "Invalid section address in mapping '" << Mapping << "'.\n";
       exit(1);
     }
 
@@ -436,9 +476,9 @@ applySpecificSectionMappings(RuntimeDyldChecker &Checker) {
 //                            Defaults to zero. Set to something big
 //                            (e.g. 1 << 32) to stress-test stubs, GOTs, etc.
 //
-static void remapSections(const llvm::Triple &TargetTriple,
-                          const TrivialMemoryManager &MemMgr,
-                          RuntimeDyldChecker &Checker) {
+static void remapSectionsAndSymbols(const llvm::Triple &TargetTriple,
+                                    TrivialMemoryManager &MemMgr,
+                                    RuntimeDyldChecker &Checker) {
 
   // Set up a work list (section addr/size pairs).
   typedef std::list<std::pair<void*, uint64_t>> WorklistT;
@@ -501,6 +541,27 @@ static void remapSections(const llvm::Triple &TargetTriple,
     Checker.getRTDyld().mapSectionAddress(CurEntry.first, NextSectionAddr);
   }
 
+  // Add dummy symbols to the memory manager.
+  for (const auto &Mapping : DummySymbolMappings) {
+    size_t EqualsIdx = Mapping.find_first_of("=");
+
+    if (EqualsIdx == StringRef::npos) {
+      errs() << "Invalid dummy symbol specification '" << Mapping
+             << "'. Should be '<symbol name>=<addr>'\n";
+      exit(1);
+    }
+
+    std::string Symbol = Mapping.substr(0, EqualsIdx);
+    std::string AddrStr = Mapping.substr(EqualsIdx + 1);
+
+    uint64_t Addr;
+    if (StringRef(AddrStr).getAsInteger(0, Addr)) {
+      errs() << "Invalid symbol mapping '" << Mapping << "'.\n";
+      exit(1);
+    }
+
+    MemMgr.addDummySymbol(Symbol, Addr);
+  }
 }
 
 // Load and link the objects specified on the command line, but do not execute
@@ -527,7 +588,7 @@ static int linkAndVerify() {
   TripleName = TheTriple.getTriple();
 
   std::unique_ptr<MCSubtargetInfo> STI(
-    TheTarget->createMCSubtargetInfo(TripleName, "", ""));
+    TheTarget->createMCSubtargetInfo(TripleName, MCPU, ""));
   assert(STI && "Unable to create subtarget info!");
 
   std::unique_ptr<MCRegisterInfo> MRI(TheTarget->createMCRegInfo(TripleName));
@@ -589,8 +650,9 @@ static int linkAndVerify() {
     }
   }
 
-  // Re-map the section addresses into the phony target address space.
-  remapSections(TheTriple, MemMgr, Checker);
+  // Re-map the section addresses into the phony target address space and add
+  // dummy symbols.
+  remapSectionsAndSymbols(TheTriple, MemMgr, Checker);
 
   // Resolve all the relocations we can.
   Dyld.resolveRelocations();

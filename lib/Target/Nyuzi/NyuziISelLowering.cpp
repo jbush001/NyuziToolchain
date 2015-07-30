@@ -81,10 +81,10 @@ SDValue NyuziTargetLowering::LowerReturn(
     if (!Reg)
       llvm_unreachable("sret virtual register not created in the entry block");
 
-    SDValue Val = DAG.getCopyFromReg(Chain, DL, Reg, getPointerTy());
+    SDValue Val = DAG.getCopyFromReg(Chain, DL, Reg, getPointerTy(DAG.getDataLayout()));
     Chain = DAG.getCopyToReg(Chain, DL, Nyuzi::S0, Val, Flag);
     Flag = Chain.getValue(1);
-    RetOps.push_back(DAG.getRegister(Nyuzi::S0, getPointerTy()));
+    RetOps.push_back(DAG.getRegister(Nyuzi::S0, getPointerTy(DAG.getDataLayout())));
   }
 
   RetOps[0] = Chain; // Update chain.
@@ -140,7 +140,7 @@ SDValue NyuziTargetLowering::LowerFormalArguments(
     int FI = MF.getFrameInfo()->CreateFixedObject(ParamSize, ParamOffset, true);
     ParamEndOffset = ParamOffset + ParamSize;
 
-    SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy());
+    SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy(DAG.getDataLayout()));
     SDValue Load;
     if (VA.getValVT() == MVT::i32 || VA.getValVT() == MVT::f32 ||
         VA.getValVT() == MVT::v16i32) {
@@ -235,7 +235,7 @@ NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     unsigned Align = Flags.getByValAlign();
 
     int FI = MFI->CreateStackObject(Size, Align, false);
-    SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy());
+    SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy(DAG.getDataLayout()));
     SDValue SizeNode = DAG.getConstant(Size, DL, MVT::i32);
     Chain = DAG.getMemcpy(Chain, DL, FIPtr, Arg, SizeNode, Align,
                           false, // isVolatile,
@@ -578,7 +578,7 @@ SDValue NyuziTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
   NyuziMachineFunctionInfo *VFI = MF.getInfo<NyuziMachineFunctionInfo>();
   SDValue FI = DAG.getFrameIndex(VFI->getVarArgsFrameIndex(),
-                                 getPointerTy());
+                                 getPointerTy(DAG.getDataLayout()));
   const Value *SV = cast<SrcValueSDNode>(Op.getOperand(2))->getValue();
   return DAG.getStore(Op.getOperand(0), DL, FI, Op.getOperand(1),
                       MachinePointerInfo(SV), false, false, 0);
@@ -712,7 +712,7 @@ SDValue NyuziTargetLowering::LowerSELECT_CC(SDValue Op,
   SDLoc DL(Op);
   EVT Ty = Op.getOperand(0).getValueType();
   SDValue Pred =
-      DAG.getNode(ISD::SETCC, DL, getSetCCResultType(*DAG.getContext(), Ty),
+      DAG.getNode(ISD::SETCC, DL, getSetCCResultType(DAG.getDataLayout(), *DAG.getContext(), Ty),
                   Op.getOperand(0), Op.getOperand(1), Op.getOperand(4));
 
   return DAG.getNode(NyuziISD::SEL_COND_RESULT, DL, Op.getValueType(),
@@ -773,7 +773,7 @@ SDValue NyuziTargetLowering::LowerBR_JT(SDValue Op,
   SDValue Table = Op.getOperand(1);
   SDValue Index = Op.getOperand(2);
   SDLoc DL(Op);
-  EVT PTy = getPointerTy();
+  EVT PTy = getPointerTy(DAG.getDataLayout());
   JumpTableSDNode *JT = cast<JumpTableSDNode>(Table);
   SDValue JTI = DAG.getTargetJumpTable(JT->getIndex(), PTy);
   SDValue TableWrapper = DAG.getNode(NyuziISD::JT_WRAPPER, DL, PTy, JTI);
@@ -908,8 +908,8 @@ SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
   else
   {
     // Scalar Result.  If the result is negative, add UINT_MASK to make it positive
-    SDValue IsNegative = DAG.getSetCC(DL, getSetCCResultType(*DAG.getContext(), MVT::i32), RVal,
-                         DAG.getConstant(0, DL, MVT::i32), ISD::SETLT);
+    SDValue IsNegative = DAG.getSetCC(DL, getSetCCResultType(DAG.getDataLayout(), *DAG.getContext(), 
+                         MVT::i32), RVal, DAG.getConstant(0, DL, MVT::i32), ISD::SETLT);
     SDValue Adjusted = DAG.getNode(ISD::FADD, DL, MVT::f32, SignedVal, AdjustReg);
     return DAG.getNode(NyuziISD::SEL_COND_RESULT, DL, MVT::f32, IsNegative,
                        Adjusted, SignedVal);
@@ -1111,8 +1111,9 @@ SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
   }
 }
 
-EVT NyuziTargetLowering::getSetCCResultType(LLVMContext &Context,
-                                                 EVT VT) const {
+EVT NyuziTargetLowering::getSetCCResultType(const DataLayout&, 
+                                            LLVMContext &Context,
+                                            EVT VT) const {
   if (!VT.isVector())
     return MVT::i32;
 
@@ -1382,7 +1383,7 @@ NyuziTargetLowering::EmitAtomicCmpSwap(MachineInstr *MI,
 /// getConstraintType - Given a constraint letter, return the Type of
 /// constraint it is for this target.
 NyuziTargetLowering::ConstraintType
-NyuziTargetLowering::getConstraintType(const std::string &Constraint)
+NyuziTargetLowering::getConstraintType(StringRef Constraint)
     const {
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
@@ -1401,7 +1402,7 @@ NyuziTargetLowering::getConstraintType(const std::string &Constraint)
 std::pair<unsigned, const TargetRegisterClass *>
 NyuziTargetLowering::getRegForInlineAsmConstraint(
                              const TargetRegisterInfo *TRI,
-                             const std::string &Constraint,
+                             StringRef Constraint,
                              MVT VT) const {
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {

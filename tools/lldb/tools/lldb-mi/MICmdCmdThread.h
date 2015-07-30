@@ -28,9 +28,6 @@
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "thread-info".
-// Gotchas: None.
-// Authors: Illya Rudkin 07/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdThreadInfo : public CMICmdBase
 {
@@ -46,11 +43,11 @@ class CMICmdCmdThreadInfo : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdThreadInfo(void);
+    /* dtor */ ~CMICmdCmdThreadInfo(void) override;
 
     // Typedefs:
   private:

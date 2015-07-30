@@ -25,15 +25,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Allocator.h"
 #include <memory>
-// FIXME: Enhance libsystem to support inode and other fields in stat.
-#include <sys/types.h>
 #include <map>
-
-#ifdef _MSC_VER
-typedef unsigned short mode_t;
-#endif
-
-struct stat;
 
 namespace llvm {
 class MemoryBuffer;
@@ -275,7 +267,7 @@ public:
                               time_t ModificationTime);
 
   /// \brief Remove any './' components from a path.
-  static bool removeDotPaths(SmallVectorImpl<char> &Path);
+  static bool removeDotPaths(SmallVectorImpl<char> &Path, bool RemoveDotDot = false);
 
   /// \brief Retrieve the canonical name for a given directory.
   ///

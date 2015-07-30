@@ -23,7 +23,7 @@ extern "C" void LLVMInitializeNyuziTarget() {
   RegisterTargetMachine<NyuziTargetMachine> X(TheNyuziTarget);
 }
 
-NyuziTargetMachine::NyuziTargetMachine(const Target &T, StringRef TT,
+NyuziTargetMachine::NyuziTargetMachine(const Target &T, const Triple &TT,
                                                  StringRef CPU, StringRef FS,
                                                  const TargetOptions &Options,
                                                  Reloc::Model RM,

@@ -46,7 +46,7 @@ ThreadList::operator = (const ThreadList& rhs)
     if (this != &rhs)
     {
         // Lock both mutexes to make sure neither side changes anyone on us
-        // while the assignement occurs
+        // while the assignment occurs
         Mutex::Locker locker(GetMutex());
         m_process = rhs.m_process;
         m_stop_id = rhs.m_stop_id;
@@ -582,6 +582,7 @@ ThreadList::WillResume ()
 
             if (thread_sp == GetSelectedThread())
             {
+                // If the currently selected thread wants to run on its own, always let it.
                 run_only_current_thread = true;
                 run_me_only_list.Clear();
                 run_me_only_list.AddThread (thread_sp);
@@ -749,7 +750,7 @@ ThreadList::Update (ThreadList &rhs)
     if (this != &rhs)
     {
         // Lock both mutexes to make sure neither side changes anyone on us
-        // while the assignement occurs
+        // while the assignment occurs
         Mutex::Locker locker(GetMutex());
         m_process = rhs.m_process;
         m_stop_id = rhs.m_stop_id;

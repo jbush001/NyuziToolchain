@@ -85,7 +85,7 @@ CMICmdFactory::Shutdown(void)
 }
 
 //++ ------------------------------------------------------------------------------------
-// Details: Register a command's creator function with the command identitier the MI
+// Details: Register a command's creator function with the command identifier the MI
 //          command name i.e. 'file-exec-and-symbols'.
 // Type:    Method.
 // Args:    vMiCmd          - (R) Command's name, the MI command.
@@ -159,8 +159,8 @@ CMICmdFactory::IsValid(const CMIUtilString &vMiCmd) const
         return false;
     }
 
-    const MIint nPos = vMiCmd.find(" ");
-    if (nPos != (MIint)std::string::npos)
+    const size_t nPos = vMiCmd.find(' ');
+    if (nPos != std::string::npos)
         bValid = false;
 
     return bValid;
@@ -194,8 +194,6 @@ CMICmdFactory::CmdExist(const CMIUtilString &vMiCmd) const
 bool
 CMICmdFactory::CmdCreate(const CMIUtilString &vMiCmd, const SMICmdData &vCmdData, CMICmdBase *&vpNewCmd)
 {
-    bool bOk = MIstatus::success;
-
     vpNewCmd = nullptr;
 
     if (!IsValid(vMiCmd))
@@ -217,9 +215,8 @@ CMICmdFactory::CmdCreate(const CMIUtilString &vMiCmd, const SMICmdData &vCmdData
 
     SMICmdData cmdData(vCmdData);
     cmdData.id = pCmd->GetGUID();
-    bOk = pCmd->SetCmdData(cmdData);
-    if (bOk)
-        vpNewCmd = pCmd;
+    pCmd->SetCmdData(cmdData);
+    vpNewCmd = pCmd;
 
-    return bOk;
+    return MIstatus::success;
 }

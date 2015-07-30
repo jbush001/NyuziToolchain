@@ -387,6 +387,12 @@ protected:
                     core_file.GetPath(core_path, sizeof(core_path));
                     if (core_file.Exists())
                     {
+                        if (!core_file.Readable())
+                        {
+                            result.AppendMessageWithFormat ("Core file '%s' is not readable.\n", core_path);
+                            result.SetStatus (eReturnStatusFailed);
+                            return false;
+                        }
                         FileSpec core_file_dir;
                         core_file_dir.GetDirectory() = core_file.GetDirectory();
                         target_sp->GetExecutableSearchPaths ().Append (core_file_dir);
@@ -1734,17 +1740,16 @@ LookupSymbolInModule (CommandInterpreter &interpreter, Stream &strm, Module *mod
                     DumpFullpath (strm, &module->GetFileSpec(), 0);
                     strm.PutCString(":\n");
                     strm.IndentMore ();
-                    //Symtab::DumpSymbolHeader (&strm);
                     for (i=0; i < num_matches; ++i)
                     {
                         Symbol *symbol = symtab->SymbolAtIndex(match_indexes[i]);
-                        DumpAddress (interpreter.GetExecutionContext().GetBestExecutionContextScope(),
-                                     symbol->GetAddress(),
-                                     verbose,
-                                     strm);
-
-//                        strm.Indent ();
-//                        symbol->Dump (&strm, interpreter.GetExecutionContext().GetTargetPtr(), i);
+                        if (symbol && symbol->ValueIsAddress())
+                        {
+                            DumpAddress (interpreter.GetExecutionContext().GetBestExecutionContextScope(),
+                                         symbol->GetAddressRef(),
+                                         verbose,
+                                         strm);
+                        }
                     }
                     strm.IndentLess ();
                     return num_matches;
@@ -3775,7 +3780,7 @@ protected:
             {
                 result.GetOutputStream().Printf("Synchronous (restricted to call-sites) UnwindPlan is '%s'\n", callsite_unwind_plan->GetSourceName().AsCString());
             }
-            UnwindPlanSP fast_unwind_plan = func_unwinders_sp->GetUnwindPlanFastUnwind(*thread.get());
+            UnwindPlanSP fast_unwind_plan = func_unwinders_sp->GetUnwindPlanFastUnwind(*target, *thread.get());
             if (fast_unwind_plan.get())
             {
                 result.GetOutputStream().Printf("Fast UnwindPlan is '%s'\n", fast_unwind_plan->GetSourceName().AsCString());

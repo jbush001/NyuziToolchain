@@ -25,14 +25,14 @@ using namespace llvm;
 
 void NyuziSubtarget::anchor() {}
 
-NyuziSubtarget::NyuziSubtarget(const std::string &TT,
-                                         const std::string &CPU,
-                                         const std::string &FS,
-										 const NyuziTargetMachine &TM)
+NyuziSubtarget::NyuziSubtarget(const Triple &TT,
+                               const std::string &CPU,
+                               const std::string &FS,
+										           const NyuziTargetMachine &TM)
     : NyuziGenSubtargetInfo(TT, CPU, FS),
       InstrInfo(NyuziInstrInfo::create(*this)), 
-	  TLInfo(NyuziTargetLowering::create(TM, *this)), 
-	  TSInfo(*TM.getDataLayout()),
+      TLInfo(NyuziTargetLowering::create(TM, *this)), 
+      TSInfo(),
       FrameLowering(NyuziFrameLowering::create(*this)) {
 
   // Determine default and user specified characteristics

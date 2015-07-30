@@ -22,7 +22,7 @@ class ExitDuringBreakpointTestCase(TestBase):
 
     @expectedFailureDarwin("llvm.org/pr15824") # thread states not properly maintained
     @expectedFailureFreeBSD("llvm.org/pr18190") # thread states not properly maintained
-    @expectedFailureLLGS("llvm.org/pr15824") # thread states not properly maintained
+    @expectedFailureLinux("llvm.org/pr15824") # thread states not properly maintained
     @dwarf_test
     def test_with_dwarf(self):
         """Test thread exit during breakpoint handling."""
@@ -48,7 +48,7 @@ class ExitDuringBreakpointTestCase(TestBase):
             substrs = ["1: file = 'main.cpp', line = %d, locations = 1" % self.breakpoint])
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # The stop reason of the thread should be breakpoint.
         self.expect("thread list", STOPPED_DUE_TO_BREAKPOINT,
@@ -59,7 +59,7 @@ class ExitDuringBreakpointTestCase(TestBase):
         target = self.dbg.GetSelectedTarget()
         process = target.GetProcess()
 
-        # The exit probably occured during breakpoint handling, but it isn't
+        # The exit probably occurred during breakpoint handling, but it isn't
         # guaranteed.  The main thing we're testing here is that the debugger
         # handles this cleanly is some way.
 

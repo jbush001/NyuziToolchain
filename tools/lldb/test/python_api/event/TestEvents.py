@@ -20,9 +20,10 @@ class EventAPITestCase(TestBase):
         self.buildDsym()
         self.do_listen_for_and_print_event()
 
-    @skipUnlessPlatform(getDarwinOSTriples() + ["freebsd"])
     @python_api_test
     @dwarf_test
+    @expectedFailureLinux("llvm.org/pr23730") # Flaky, fails ~1/10 cases
+    @skipIfLinux # skip to avoid crashes
     def test_listen_for_and_print_event_with_dwarf(self):
         """Exercise SBEvent API."""
         self.buildDwarf()
@@ -248,7 +249,7 @@ class EventAPITestCase(TestBase):
 
 
         # The finite state machine for our custom listening thread, with an
-        # initail state of None, which means no event has been received.
+        # initial state of None, which means no event has been received.
         # It changes to 'connected' after 'connected' event is received (for remote platforms)
         # It changes to 'running' after 'running' event is received (should happen only if the
         # currentstate is either 'None' or 'connected')

@@ -37,9 +37,6 @@
 //
 //          More information see:
 //          http://ftp.gnu.org/old-gnu/Manuals/gdb-5.1.1/html_chapter/gdb_22.html//
-//          Gotchas: None.
-// Authors: Illya Rudkin 24/02/2014.
-// Changes: None.
 //--
 class CMICmnMIOutOfBandRecord : public CMICmnBase
 {
@@ -81,16 +78,16 @@ class CMICmnMIOutOfBandRecord : public CMICmnBase
     /* ctor */ CMICmnMIOutOfBandRecord(const OutOfBand_e veType, const CMICmnMIValueResult &vResult);
     //
     const CMIUtilString &GetString(void) const;
-    bool Add(const CMICmnMIValueResult &vResult);
+    void Add(const CMICmnMIValueResult &vResult);
 
     // Overridden:
   public:
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmnMIOutOfBandRecord(void);
+    /* dtor */ ~CMICmnMIOutOfBandRecord(void) override;
 
     // Methods:
   private:
-    bool BuildAsyncRecord(void);
+    void BuildAsyncRecord(void);
 
     // Attributes:
   private:

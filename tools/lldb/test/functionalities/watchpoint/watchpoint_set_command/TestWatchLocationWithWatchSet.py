@@ -20,8 +20,9 @@ class WatchLocationUsingWatchpointSetTestCase(TestBase):
         self.setTearDownCleanup()
         self.watchlocation_using_watchpoint_set()
 
-    @expectedFailureFreeBSD('llvm.org/pr18832')
     @dwarf_test
+    @expectedFailureFreeBSD('llvm.org/pr18832')
+    @expectedFailureAndroid(archs=['arm', 'aarch64']) # Watchpoints not supported
     def test_watchlocation_with_dwarf_using_watchpoint_set(self):
         """Test watching a location with 'watchpoint set expression -w write -s size' option."""
         self.buildDwarf()
@@ -48,7 +49,7 @@ class WatchLocationUsingWatchpointSetTestCase(TestBase):
         lldbutil.run_break_set_by_file_and_line (self, None, self.line, num_expected_locations=1)
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # We should be stopped again due to the breakpoint.
         # The stop reason of the thread should be breakpoint.

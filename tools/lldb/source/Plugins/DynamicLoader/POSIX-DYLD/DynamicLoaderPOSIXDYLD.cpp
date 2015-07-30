@@ -414,8 +414,7 @@ DynamicLoaderPOSIXDYLD::RefreshModules()
         E = m_rendezvous.loaded_end();
         for (I = m_rendezvous.loaded_begin(); I != E; ++I)
         {
-            FileSpec file(I->path.c_str(), true);
-            ModuleSP module_sp = LoadModuleAtAddress(file, I->link_addr, I->base_addr);
+            ModuleSP module_sp = LoadModuleAtAddress(I->file_spec, I->link_addr, I->base_addr);
             if (module_sp.get())
             {
                 loaded_modules.AppendIfNeeded(module_sp);
@@ -432,9 +431,8 @@ DynamicLoaderPOSIXDYLD::RefreshModules()
         E = m_rendezvous.unloaded_end();
         for (I = m_rendezvous.unloaded_begin(); I != E; ++I)
         {
-            FileSpec file(I->path.c_str(), true);
-            ModuleSpec module_spec (file);
-            ModuleSP module_sp = 
+            ModuleSpec module_spec{I->file_spec};
+            ModuleSP module_sp =
                 loaded_modules.FindFirstModule (module_spec);
 
             if (module_sp.get())
@@ -460,7 +458,7 @@ DynamicLoaderPOSIXDYLD::GetStepThroughTrampolinePlan(Thread &thread, bool stop)
     if (sym == NULL || !sym->IsTrampoline())
         return thread_plan_sp;
 
-    const ConstString &sym_name = sym->GetMangled().GetName(Mangled::ePreferMangled);
+    ConstString sym_name = sym->GetName();
     if (!sym_name)
         return thread_plan_sp;
 
@@ -525,9 +523,7 @@ DynamicLoaderPOSIXDYLD::LoadAllCurrentModules()
 
     for (I = m_rendezvous.begin(), E = m_rendezvous.end(); I != E; ++I)
     {
-        const char *module_path = I->path.c_str();
-        FileSpec file(module_path, false);
-        ModuleSP module_sp = LoadModuleAtAddress(file, I->link_addr, I->base_addr);
+        ModuleSP module_sp = LoadModuleAtAddress(I->file_spec, I->link_addr, I->base_addr);
         if (module_sp.get())
         {
             module_list.Append(module_sp);
@@ -537,7 +533,7 @@ DynamicLoaderPOSIXDYLD::LoadAllCurrentModules()
             Log *log(GetLogIfAnyCategoriesSet(LIBLLDB_LOG_DYNAMIC_LOADER));
             if (log)
                 log->Printf("DynamicLoaderPOSIXDYLD::%s failed loading module %s at 0x%" PRIx64,
-                            __FUNCTION__, module_path, I->base_addr);
+                            __FUNCTION__, I->file_spec.GetCString(), I->base_addr);
         }
     }
 
@@ -671,7 +667,9 @@ DynamicLoaderPOSIXDYLD::ResolveExecutableModule (lldb::ModuleSP &module_sp)
     if (module_sp && module_sp->MatchesModuleSpec (module_spec))
         return;
 
-    auto error = platform_sp->ResolveExecutable (module_spec, module_sp, nullptr);
+    const auto executable_search_paths (Target::GetDefaultExecutableSearchPaths());
+    auto error = platform_sp->ResolveExecutable (
+        module_spec, module_sp, !executable_search_paths.IsEmpty() ? &executable_search_paths : nullptr);
     if (error.Fail ())
     {
         StreamString stream;

@@ -28,11 +28,8 @@ class CMICmdArgValBase;
 //          Argument objects added to *this container are owned by this container
 //          and are deleted when this container goes out of scope. Allocate argument
 //          objects on the heap.
-//          It is assummed the arguments to be parsed are read from left to right in
+//          It is assumed the arguments to be parsed are read from left to right in
 //          order. The order added to *this container is the order they will parsed.
-// Gotchas: None.
-// Authors: Illya Rudkin 14/04/2014.
-// Changes: None.
 //--
 class CMICmdArgSet : public CMICmnBase
 {
@@ -52,7 +49,7 @@ class CMICmdArgSet : public CMICmnBase
         virtual bool GetValid(void) const = 0;
         virtual bool Validate(CMICmdArgContext &vwArgContext) = 0;
 
-        /* dtor */ virtual ~IArg(void){};
+        /* dtor */ virtual ~IArg(void){}
     };
 
     // Typedefs:
@@ -63,11 +60,11 @@ class CMICmdArgSet : public CMICmnBase
   public:
     /* ctor */ CMICmdArgSet(void);
 
-    bool Add(const CMICmdArgValBase &vArg);
+    void Add(const CMICmdArgValBase &vArg);
     bool GetArg(const CMIUtilString &vArgName, CMICmdArgValBase *&vpArg) const;
     const SetCmdArgs_t &GetArgsThatAreMissing(void) const;
     const SetCmdArgs_t &GetArgsThatInvalid(void) const;
-    MIuint GetCount(void) const;
+    size_t GetCount(void) const;
     bool IsArgContextEmpty(void) const;
     bool IsArgsPresentButNotHandledByCmd(void) const;
     void WarningArgsNotHandledbyCmdLogFile(const CMIUtilString &vrCmdName);

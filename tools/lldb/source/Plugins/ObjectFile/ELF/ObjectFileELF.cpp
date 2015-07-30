@@ -597,6 +597,12 @@ OSABIAsCString (unsigned char osabi_byte)
 #undef _MAKE_OSABI_CASE
 }
 
+//
+// WARNING : This function is being deprecated
+// It's functionality has moved to ArchSpec::SetArchitecture
+// This function is only being kept to validate the move.
+//
+// TODO : Remove this function
 static bool
 GetOsFromOSABI (unsigned char osabi_byte, llvm::Triple::OSType &ostype)
 {
@@ -640,23 +646,28 @@ ObjectFileELF::GetModuleSpecifications (const lldb_private::FileSpec& file,
                 const uint32_t sub_type = subTypeFromElfHeader(header);
                 spec.GetArchitecture().SetArchitecture(eArchTypeELF,
                                                        header.e_machine,
-                                                       sub_type);
+                                                       sub_type,
+                                                       header.e_ident[EI_OSABI]);
 
                 if (spec.GetArchitecture().IsValid())
                 {
                     llvm::Triple::OSType ostype;
-                    // First try to determine the OS type from the OSABI field in the elf header.
+                    llvm::Triple::VendorType vendor;
+                    llvm::Triple::OSType spec_ostype = spec.GetArchitecture ().GetTriple ().getOS ();
 
                     if (log)
                         log->Printf ("ObjectFileELF::%s file '%s' module OSABI: %s", __FUNCTION__, file.GetPath ().c_str (), OSABIAsCString (header.e_ident[EI_OSABI]));
-                    if (GetOsFromOSABI (header.e_ident[EI_OSABI], ostype) && ostype != llvm::Triple::OSType::UnknownOS)
+
+                    // SetArchitecture should have set the vendor to unknown
+                    vendor = spec.GetArchitecture ().GetTriple ().getVendor ();
+                    assert(vendor == llvm::Triple::UnknownVendor);
+
+                    //
+                    // Validate it is ok to remove GetOsFromOSABI
+                    GetOsFromOSABI (header.e_ident[EI_OSABI], ostype);
+                    assert(spec_ostype == ostype);
+                    if (spec_ostype != llvm::Triple::OSType::UnknownOS)
                     {
-                        spec.GetArchitecture ().GetTriple ().setOS (ostype);
-
-                        // Also clear the vendor so we don't end up with situations like
-                        // x86_64-apple-FreeBSD.
-                        spec.GetArchitecture ().GetTriple ().setVendor (llvm::Triple::VendorType::UnknownVendor);
-
                         if (log)
                             log->Printf ("ObjectFileELF::%s file '%s' set ELF module OS type from ELF header OSABI.", __FUNCTION__, file.GetPath ().c_str ());
                     }
@@ -796,10 +807,10 @@ ObjectFileELF::ObjectFileELF (const lldb::ModuleSP &module_sp,
 }
 
 ObjectFileELF::ObjectFileELF (const lldb::ModuleSP &module_sp,
-                              DataBufferSP& data_sp,
+                              DataBufferSP& header_data_sp,
                               const lldb::ProcessSP &process_sp,
                               addr_t header_addr) :
-    ObjectFile(module_sp, process_sp, LLDB_INVALID_ADDRESS, data_sp),
+    ObjectFile(module_sp, process_sp, header_addr, header_data_sp),
     m_header(),
     m_uuid(),
     m_gnu_debuglink_file(),
@@ -849,7 +860,14 @@ ObjectFileELF::SetLoadAddress (Target &target,
                     // if (section_sp && !section_sp->IsThreadSpecific())
                     if (section_sp && section_sp->Test(SHF_ALLOC))
                     {
-                        if (target.GetSectionLoadList().SetSectionLoadAddress (section_sp, section_sp->GetFileAddress() + value))
+                        lldb::addr_t load_addr = section_sp->GetFileAddress() + value;
+                        
+                        // On 32-bit systems the load address have to fit into 4 bytes. The rest of
+                        // the bytes are the overflow from the addition.
+                        if (GetAddressByteSize() == 4)
+                            load_addr &= 0xFFFFFFFF;
+
+                        if (target.GetSectionLoadList().SetSectionLoadAddress (section_sp, load_addr))
                             ++num_loaded_sections;
                     }
                 }
@@ -922,7 +940,28 @@ bool
 ObjectFileELF::ParseHeader()
 {
     lldb::offset_t offset = 0;
-    return m_header.Parse(m_data, &offset);
+    if (!m_header.Parse(m_data, &offset))
+        return false;
+
+    if (!IsInMemory())
+        return true;
+
+    // For in memory object files m_data might not contain the full object file. Try to load it
+    // until the end of the "Section header table" what is at the end of the ELF file.
+    addr_t file_size = m_header.e_shoff + m_header.e_shnum * m_header.e_shentsize;
+    if (m_data.GetByteSize() < file_size)
+    {
+        ProcessSP process_sp (m_process_wp.lock());
+        if (!process_sp)
+            return false;
+
+        DataBufferSP data_sp = ReadMemory(process_sp, m_memory_addr, file_size);
+        if (!data_sp)
+            return false;
+        m_data.SetData(data_sp, 0, file_size);
+    }
+
+    return true;
 }
 
 bool
@@ -1387,8 +1426,34 @@ ObjectFileELF::GetSectionHeaderInfo(SectionHeaderColl &section_headers,
     // We'll refine this with note data as we parse the notes.
     if (arch_spec.GetTriple ().getOS () == llvm::Triple::OSType::UnknownOS)
     {
+        llvm::Triple::OSType ostype;
+        llvm::Triple::OSType spec_ostype;
         const uint32_t sub_type = subTypeFromElfHeader(header);
-        arch_spec.SetArchitecture (eArchTypeELF, header.e_machine, sub_type);
+        arch_spec.SetArchitecture (eArchTypeELF, header.e_machine, sub_type, header.e_ident[EI_OSABI]);
+        //
+        // Validate if it is ok to remove GetOsFromOSABI
+        GetOsFromOSABI (header.e_ident[EI_OSABI], ostype);
+        spec_ostype = arch_spec.GetTriple ().getOS ();
+        assert(spec_ostype == ostype);
+    }
+
+    if (arch_spec.GetMachine() == llvm::Triple::mips || arch_spec.GetMachine() == llvm::Triple::mipsel
+        || arch_spec.GetMachine() == llvm::Triple::mips64 || arch_spec.GetMachine() == llvm::Triple::mips64el)
+    {
+        switch (header.e_flags & llvm::ELF::EF_MIPS_ARCH_ASE)
+        {
+            case llvm::ELF::EF_MIPS_MICROMIPS:  
+                arch_spec.SetFlags (ArchSpec::eMIPSAse_micromips); 
+                break;
+            case llvm::ELF::EF_MIPS_ARCH_ASE_M16: 
+                arch_spec.SetFlags (ArchSpec::eMIPSAse_mips16); 
+                break;
+            case llvm::ELF::EF_MIPS_ARCH_ASE_MDMX: 
+                arch_spec.SetFlags (ArchSpec::eMIPSAse_mdmx); 
+                break;
+            default: 
+                break;
+        }
     }
 
     // If there are no section headers we are done.
@@ -1436,6 +1501,22 @@ ObjectFileELF::GetSectionHeaderInfo(SectionHeaderColl &section_headers,
                 ConstString name(shstr_data.PeekCStr(I->sh_name));
 
                 I->section_name = name;
+
+                if (arch_spec.GetMachine() == llvm::Triple::mips || arch_spec.GetMachine() == llvm::Triple::mipsel
+                    || arch_spec.GetMachine() == llvm::Triple::mips64 || arch_spec.GetMachine() == llvm::Triple::mips64el)
+                {
+                    if (header.sh_type == SHT_MIPS_ABIFLAGS)
+                    {
+                        DataExtractor data;
+                        if (section_size && (data.SetData (object_data, header.sh_offset, section_size) == section_size))
+                        {
+                            lldb::offset_t ase_offset = 12; // MIPS ABI Flags Version: 0
+                            uint32_t arch_flags = arch_spec.GetFlags ();
+                            arch_flags |= data.GetU32 (&ase_offset);
+                            arch_spec.SetFlags (arch_flags);
+                        }
+                    }
+                }
 
                 if (name == g_sect_name_gnu_debuglink)
                 {
@@ -1512,7 +1593,7 @@ ObjectFileELF::GetSegmentDataByIndex(lldb::user_id_t id)
 std::string
 ObjectFileELF::StripLinkerSymbolAnnotations(llvm::StringRef symbol_name) const
 {
-    size_t pos = symbol_name.find("@");
+    size_t pos = symbol_name.find('@');
     return symbol_name.substr(0, pos).str();
 }
 
@@ -1650,7 +1731,7 @@ ObjectFileELF::CreateSections(SectionList &unified_section_list)
             if (eSectionTypeOther == sect_type)
             {
                 // the kalimba toolchain assumes that ELF section names are free-form. It does
-                // supports linkscripts which (can) give rise to various arbitarily named
+                // support linkscripts which (can) give rise to various arbitrarily named
                 // sections being "Code" or "Data". 
                 sect_type = kalimbaSectionType(m_header, header);
             }
@@ -1749,7 +1830,16 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
     static ConstString bss_section_name(".bss");
     static ConstString opd_section_name(".opd");    // For ppc64
 
-    //StreamFile strm(stdout, false);
+    // On Android the oatdata and the oatexec symbols in system@framework@boot.oat covers the full
+    // .text section what causes issues with displaying unusable symbol name to the user and very
+    // slow unwinding speed because the instruction emulation based unwind plans try to emulate all
+    // instructions in these symbols. Don't add these symbols to the symbol list as they have no
+    // use for the debugger and they are causing a lot of trouble.
+    // Filtering can't be restricted to Android because this special object file don't contain the
+    // note section specifying the environment to Android but the custom extension and file name
+    // makes it highly unlikely that this will collide with anything else.
+    bool skip_oatdata_oatexec = m_file.GetFilename() == ConstString("system@framework@boot.oat");
+
     unsigned i;
     for (i = 0; i < num_symbols; ++i)
     {
@@ -1763,7 +1853,10 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
             (symbol_name == NULL || symbol_name[0] == '\0'))
             continue;
 
-        //symbol.Dump (&strm, i, &strtab_data, section_list);
+        // Skipping oatdata and oatexec sections if it is requested. See details above the
+        // definition of skip_oatdata_oatexec for the reasons.
+        if (skip_oatdata_oatexec && (::strcmp(symbol_name, "oatdata") == 0 || ::strcmp(symbol_name, "oatexec") == 0))
+            continue;
 
         SectionSP symbol_section_sp;
         SymbolType symbol_type = eSymbolTypeInvalid;
@@ -1976,7 +2069,7 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
         Mangled mangled(ConstString(symbol_bare), is_mangled);
 
         // Now append the suffix back to mangled and unmangled names. Only do it if the
-        // demangling was sucessful (string is not empty).
+        // demangling was successful (string is not empty).
         if (has_suffix)
         {
             llvm::StringRef suffix = symbol_ref.substr(version_pos);
@@ -1985,8 +2078,9 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
             if (! mangled_name.empty())
                 mangled.SetMangledName( ConstString((mangled_name + suffix).str()) );
 
-            llvm::StringRef demangled_name = mangled.GetDemangledName().GetStringRef();
-            if (! demangled_name.empty())
+            ConstString demangled = mangled.GetDemangledName(lldb::eLanguageTypeUnknown);
+            llvm::StringRef demangled_name = demangled.GetStringRef();
+            if (!demangled_name.empty())
                 mangled.SetDemangledName( ConstString((demangled_name + suffix).str()) );
         }
 
@@ -2002,9 +2096,9 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
                 symbol_section_sp,  // Section in which this symbol is defined or null.
                 symbol_value,       // Offset in section or symbol value.
                 symbol.st_size),    // Size in bytes of this symbol.
-            true,               // Size is valid
-            has_suffix,         // Contains linker annotations?
-            flags);             // Symbol flags.
+            symbol.st_size != 0,    // Size is valid if it is not 0
+            has_suffix,             // Contains linker annotations?
+            flags);                 // Symbol flags.
         symtab->AddSymbol(dc_symbol);
     }
     return i;
@@ -2127,7 +2221,7 @@ ObjectFileELF::PLTRelocationType()
 }
 
 // Returns the size of the normal plt entries and the offset of the first normal plt entry. The
-// 0th entry in the plt table is ususally a resolution entry which have different size in some
+// 0th entry in the plt table is usually a resolution entry which have different size in some
 // architectures then the rest of the plt entries.
 static std::pair<uint64_t, uint64_t>
 GetPltEntrySizeAndOffset(const ELFSectionHeader* rel_hdr, const ELFSectionHeader* plt_hdr)
@@ -2143,8 +2237,8 @@ GetPltEntrySizeAndOffset(const ELFSectionHeader* rel_hdr, const ELFSectionHeader
     {
         // The linker haven't set the plt_hdr->sh_entsize field. Try to guess the size of the plt
         // entries based on the number of entries and the size of the plt section with the
-        // asumption that the size of the 0th entry is at least as big as the size of the normal
-        // entries and it isn't mutch bigger then that.
+        // assumption that the size of the 0th entry is at least as big as the size of the normal
+        // entries and it isn't much bigger then that.
         if (plt_hdr->sh_addralign)
             plt_entsize = plt_hdr->sh_size / plt_hdr->sh_addralign / (num_relocations + 1) * plt_hdr->sh_addralign;
         else
@@ -2363,7 +2457,7 @@ ObjectFileELF::RelocateSection(Symtab* symtab, const ELFHeader *hdr, const ELFSe
                 symbol = symtab->FindSymbolByID(reloc_symbol(rel));
                 if (symbol)
                 {
-                    addr_t value = symbol->GetAddress().GetFileAddress();
+                    addr_t value = symbol->GetAddressRef().GetFileAddress();
                     DataBufferSP& data_buffer_sp = debug_data.GetSharedDataBuffer();
                     uint64_t* dst = reinterpret_cast<uint64_t*>(data_buffer_sp->GetBytes() + rel_section->GetFileOffset() + ELFRelocation::RelocOffset64(rel));
                     *dst = value + ELFRelocation::RelocAddend64(rel);
@@ -2376,7 +2470,7 @@ ObjectFileELF::RelocateSection(Symtab* symtab, const ELFHeader *hdr, const ELFSe
                 symbol = symtab->FindSymbolByID(reloc_symbol(rel));
                 if (symbol)
                 {
-                    addr_t value = symbol->GetAddress().GetFileAddress();
+                    addr_t value = symbol->GetAddressRef().GetFileAddress();
                     value += ELFRelocation::RelocAddend32(rel);
                     assert((reloc_type(rel) == R_X86_64_32 && (value <= UINT32_MAX)) ||
                            (reloc_type(rel) == R_X86_64_32S &&
@@ -2508,6 +2602,7 @@ ObjectFileELF::GetSymtab()
                 ParseTrampolineSymbols (m_symtab_ap.get(), symbol_id, reloc_header, reloc_id);
             }
         }
+        m_symtab_ap->CalculateSymbolSizes();
     }
 
     for (SectionHeaderCollIter I = m_section_headers.begin();

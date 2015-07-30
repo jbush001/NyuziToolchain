@@ -4,6 +4,8 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   project(lldb)
   cmake_minimum_required(VERSION 2.8)
 
+  option(LLVM_INSTALL_TOOLCHAIN_ONLY "Only include toolchain files in the 'install' target." OFF)
+
   set(LLDB_PATH_TO_LLVM_SOURCE "" CACHE PATH
     "Path to LLVM source code. Not necessary if using an installed LLVM.")
   set(LLDB_PATH_TO_LLVM_BUILD "" CACHE PATH
@@ -41,6 +43,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   # These variables are used by add_llvm_library.
   set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/bin)
   set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/lib${LLVM_LIBDIR_SUFFIX})
+  set(LLVM_LIBRARY_DIR ${LLVM_LIBRARY_OUTPUT_INTDIR})
 
   include(AddLLVM)
   include(HandleLLVMOptions)
@@ -59,7 +62,9 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   endif()
   # Import CMake library targets from LLVM and Clang.
   include("${LLDB_PATH_TO_LLVM_BUILD}/share/llvm/cmake/LLVMConfig.cmake")
-  include("${LLDB_PATH_TO_CLANG_BUILD}/share/clang/cmake/ClangConfig.cmake")
+  if (EXISTS "${LLDB_PATH_TO_CLANG_BUILD}/share/clang/cmake/ClangConfig.cmake")
+      include("${LLDB_PATH_TO_CLANG_BUILD}/share/clang/cmake/ClangConfig.cmake")
+  endif()
 
   set(PACKAGE_VERSION "${LLVM_PACKAGE_VERSION}")
 
