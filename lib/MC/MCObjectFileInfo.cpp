@@ -39,7 +39,7 @@ static bool useCompactUnwind(const Triple &T) {
   return false;
 }
 
-void MCObjectFileInfo::InitMachOMCObjectFileInfo(Triple T) {
+void MCObjectFileInfo::initMachOMCObjectFileInfo(Triple T) {
   // MachO
   SupportsWeakOmittedEHFrame = false;
 
@@ -238,10 +238,13 @@ void MCObjectFileInfo::InitMachOMCObjectFileInfo(Triple T) {
   StackMapSection = Ctx->getMachOSection("__LLVM_STACKMAPS", "__llvm_stackmaps",
                                          0, SectionKind::getMetadata());
 
+  FaultMapSection = Ctx->getMachOSection("__LLVM_FAULTMAPS", "__llvm_faultmaps",
+                                         0, SectionKind::getMetadata());
+
   TLSExtraDataSection = TLSTLVSection;
 }
 
-void MCObjectFileInfo::InitELFMCObjectFileInfo(Triple T) {
+void MCObjectFileInfo::initELFMCObjectFileInfo(Triple T) {
   switch (T.getArch()) {
   case Triple::mips:
   case Triple::mipsel:
@@ -324,10 +327,16 @@ void MCObjectFileInfo::InitELFMCObjectFileInfo(Triple T) {
   case Triple::mipsel:
   case Triple::mips64:
   case Triple::mips64el:
-    // MIPS uses indirect pointer to refer personality functions, so that the
-    // eh_frame section can be read-only.  DW.ref.personality will be generated
-    // for relocation.
+    // MIPS uses indirect pointer to refer personality functions and types, so
+    // that the eh_frame section can be read-only. DW.ref.personality will be
+    // generated for relocation.
     PersonalityEncoding = dwarf::DW_EH_PE_indirect;
+    // FIXME: The N64 ABI probably ought to use DW_EH_PE_sdata8 but we can't
+    //        identify N64 from just a triple.
+    TTypeEncoding = dwarf::DW_EH_PE_indirect | dwarf::DW_EH_PE_pcrel |
+                    dwarf::DW_EH_PE_sdata4;
+    // We don't support PC-relative LSDA references in GAS so we use the default
+    // DW_EH_PE_absptr for those.
     break;
   case Triple::ppc64:
   case Triple::ppc64le:
@@ -512,9 +521,12 @@ void MCObjectFileInfo::InitELFMCObjectFileInfo(Triple T) {
 
   StackMapSection =
       Ctx->getELFSection(".llvm_stackmaps", ELF::SHT_PROGBITS, ELF::SHF_ALLOC);
+
+  FaultMapSection =
+      Ctx->getELFSection(".llvm_faultmaps", ELF::SHT_PROGBITS, ELF::SHF_ALLOC);
 }
 
-void MCObjectFileInfo::InitCOFFMCObjectFileInfo(Triple T) {
+void MCObjectFileInfo::initCOFFMCObjectFileInfo(Triple T) {
   bool IsWoA = T.getArch() == Triple::arm || T.getArch() == Triple::thumb;
 
   CommDirectiveSupportsAlignment = true;
@@ -721,9 +733,15 @@ void MCObjectFileInfo::InitCOFFMCObjectFileInfo(Triple T) {
       ".tls$", COFF::IMAGE_SCN_CNT_INITIALIZED_DATA | COFF::IMAGE_SCN_MEM_READ |
                    COFF::IMAGE_SCN_MEM_WRITE,
       SectionKind::getDataRel());
+	  
+  StackMapSection = Ctx->getCOFFSection(".llvm_stackmaps",
+                                        COFF::IMAGE_SCN_CNT_INITIALIZED_DATA |
+                                            COFF::IMAGE_SCN_MEM_READ,
+                                        SectionKind::getReadOnly());	
 }
 
-void MCObjectFileInfo::InitMCObjectFileInfo(StringRef T, Reloc::Model relocm,
+void MCObjectFileInfo::InitMCObjectFileInfo(const Triple &TheTriple,
+                                            Reloc::Model relocm,
                                             CodeModel::Model cm,
                                             MCContext &ctx) {
   RelocM = relocm;
@@ -747,7 +765,7 @@ void MCObjectFileInfo::InitMCObjectFileInfo(StringRef T, Reloc::Model relocm,
   DwarfAccelNamespaceSection = nullptr; // Used only by selected targets.
   DwarfAccelTypesSection = nullptr;     // Used only by selected targets.
 
-  TT = Triple(T);
+  TT = TheTriple;
 
   Triple::ArchType Arch = TT.getArch();
   // FIXME: Checking for Arch here to filter out bogus triples such as
@@ -759,16 +777,22 @@ void MCObjectFileInfo::InitMCObjectFileInfo(StringRef T, Reloc::Model relocm,
        Arch == Triple::UnknownArch) &&
       TT.isOSBinFormatMachO()) {
     Env = IsMachO;
-    InitMachOMCObjectFileInfo(TT);
+    initMachOMCObjectFileInfo(TT);
   } else if ((Arch == Triple::x86 || Arch == Triple::x86_64 ||
               Arch == Triple::arm || Arch == Triple::thumb) &&
              (TT.isOSWindows() && TT.getObjectFormat() == Triple::COFF)) {
     Env = IsCOFF;
-    InitCOFFMCObjectFileInfo(TT);
+    initCOFFMCObjectFileInfo(TT);
   } else {
     Env = IsELF;
-    InitELFMCObjectFileInfo(TT);
+    initELFMCObjectFileInfo(TT);
   }
+}
+
+void MCObjectFileInfo::InitMCObjectFileInfo(StringRef TT, Reloc::Model RM,
+                                            CodeModel::Model CM,
+                                            MCContext &ctx) {
+  InitMCObjectFileInfo(Triple(TT), RM, CM, ctx);
 }
 
 MCSection *MCObjectFileInfo::getDwarfTypesSection(uint64_t Hash) const {

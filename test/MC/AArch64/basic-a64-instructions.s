@@ -1489,6 +1489,9 @@ _func:
 // CHECK: clz	w24, wzr                     // encoding: [0xf8,0x13,0xc0,0x5a]
 // CHECK: rev	x22, xzr                     // encoding: [0xf6,0x0f,0xc0,0xda]
 
+	rev64	x13, x12
+// CHECK: rev	x13, x12                     // encoding: [0x8d,0x0d,0xc0,0xda]
+
 //------------------------------------------------------------------------------
 // Data-processing (2 source)
 //------------------------------------------------------------------------------
@@ -4306,6 +4309,7 @@ _func:
 	mrs x9, ID_MMFR1_EL1
 	mrs x9, ID_MMFR2_EL1
 	mrs x9, ID_MMFR3_EL1
+	mrs x9, ID_MMFR4_EL1
 	mrs x9, ID_ISAR0_EL1
 	mrs x9, ID_ISAR1_EL1
 	mrs x9, ID_ISAR2_EL1
@@ -4606,6 +4610,7 @@ _func:
 // CHECK: mrs      x9, {{id_mmfr1_el1|ID_MMFR1_EL1}}           // encoding: [0xa9,0x01,0x38,0xd5]
 // CHECK: mrs      x9, {{id_mmfr2_el1|ID_MMFR2_EL1}}           // encoding: [0xc9,0x01,0x38,0xd5]
 // CHECK: mrs      x9, {{id_mmfr3_el1|ID_MMFR3_EL1}}           // encoding: [0xe9,0x01,0x38,0xd5]
+// CHECK: mrs      x9, {{id_mmfr4_el1|ID_MMFR4_EL1}}           // encoding: [0xc9,0x02,0x38,0xd5]
 // CHECK: mrs      x9, {{id_isar0_el1|ID_ISAR0_EL1}}           // encoding: [0x09,0x02,0x38,0xd5]
 // CHECK: mrs      x9, {{id_isar1_el1|ID_ISAR1_EL1}}           // encoding: [0x29,0x02,0x38,0xd5]
 // CHECK: mrs      x9, {{id_isar2_el1|ID_ISAR2_EL1}}           // encoding: [0x49,0x02,0x38,0xd5]

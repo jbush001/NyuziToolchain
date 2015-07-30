@@ -16,6 +16,7 @@
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/OperatorKinds.h"
+#include "clang/Basic/Specifiers.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/SmallString.h"
@@ -70,8 +71,6 @@ IdentifierIterator *IdentifierInfoLookup::getIdentifiers() {
   return new EmptyLookupIterator();
 }
 
-ExternalIdentifierLookup::~ExternalIdentifierLookup() {}
-
 IdentifierTable::IdentifierTable(const LangOptions &LangOpts,
                                  IdentifierInfoLookup* externalLookup)
   : HashTable(8192), // Start with space for 8K identifiers.
@@ -109,7 +108,9 @@ namespace {
     KEYNOOPENCL = 0x02000,
     WCHARSUPPORT = 0x04000,
     HALFSUPPORT = 0x08000,
-    KEYALL = (0xffff & ~KEYNOMS18 &
+    KEYCONCEPTS = 0x10000,
+    KEYOBJC2    = 0x20000,
+    KEYALL = (0x3ffff & ~KEYNOMS18 &
               ~KEYNOOPENCL) // KEYNOMS18 and KEYNOOPENCL are used to exclude.
   };
 
@@ -143,6 +144,8 @@ static KeywordStatus getKeywordStatus(const LangOptions &LangOpts,
   // We treat bridge casts as objective-C keywords so we can warn on them
   // in non-arc mode.
   if (LangOpts.ObjC2 && (Flags & KEYARC)) return KS_Enabled;
+  if (LangOpts.ConceptsTS && (Flags & KEYCONCEPTS)) return KS_Enabled;
+  if (LangOpts.ObjC2 && (Flags & KEYOBJC2)) return KS_Enabled;
   if (LangOpts.CPlusPlus && (Flags & KEYCXX11)) return KS_Future;
   return KS_Disabled;
 }
@@ -642,4 +645,19 @@ const char *clang::getOperatorSpelling(OverloadedOperatorKind Operator) {
   }
 
   llvm_unreachable("Invalid OverloadedOperatorKind!");
+}
+
+StringRef clang::getNullabilitySpelling(NullabilityKind kind,
+                                        bool isContextSensitive) {
+  switch (kind) {
+  case NullabilityKind::NonNull:
+    return isContextSensitive ? "nonnull" : "_Nonnull";
+
+  case NullabilityKind::Nullable:
+    return isContextSensitive ? "nullable" : "_Nullable";
+
+  case NullabilityKind::Unspecified:
+    return isContextSensitive ? "null_unspecified" : "_Null_unspecified";
+  }
+  llvm_unreachable("Unknown nullability kind.");
 }

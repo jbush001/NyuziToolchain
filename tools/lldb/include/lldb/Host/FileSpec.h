@@ -11,6 +11,8 @@
 #define liblldb_FileSpec_h_
 #if defined(__cplusplus)
 
+#include <functional>
+
 #include "lldb/lldb-private.h"
 #include "lldb/Core/ConstString.h"
 #include "lldb/Core/STLUtils.h"
@@ -365,16 +367,25 @@ public:
     IsSourceImplementationFile () const;
 
     //------------------------------------------------------------------
-    /// Returns true if the filespec represents path that is relative
-    /// path to the current working directory.
+    /// Returns true if the filespec represents a relative path.
     ///
     /// @return
-    ///     \b true if the filespec represents a current working
-    ///     directory relative path, \b false otherwise.
+    ///     \b true if the filespec represents a relative path,
+    ///     \b false otherwise.
     //------------------------------------------------------------------
     bool
-    IsRelativeToCurrentWorkingDirectory () const;
-    
+    IsRelative() const;
+
+    //------------------------------------------------------------------
+    /// Returns true if the filespec represents an absolute path.
+    ///
+    /// @return
+    ///     \b true if the filespec represents an absolute path,
+    ///     \b false otherwise.
+    //------------------------------------------------------------------
+    bool
+    IsAbsolute() const;
+
     TimeValue
     GetModificationTime () const;
 
@@ -499,10 +510,7 @@ public:
     }
 
     bool
-    IsSymbolicLink () const
-    {
-        return GetFileType() == FileSpec::eFileTypeSymbolicLink;
-    }
+    IsSymbolicLink () const;
 
     //------------------------------------------------------------------
     /// Get the memory cost of this object.
@@ -639,6 +647,13 @@ public:
     ReadFileContentsAsCString(Error *error_ptr = NULL);
 
     //------------------------------------------------------------------
+    /// Normalize a pathname by collapsing redundant separators and
+    /// up-level references.
+    //------------------------------------------------------------------
+    void
+    NormalizePath ();
+
+    //------------------------------------------------------------------
     /// Run through the input string, replaying the effect of any ".." and produce
     /// the resultant path.  The input path is not required to be in the host file system
     /// format, but it is required to be normalized to that system.
@@ -732,12 +747,24 @@ public:
     
     FileSpec
     CopyByRemovingLastPathComponent () const;
-    
+
     void
-    AppendPathComponent (const char *new_path);
+    PrependPathComponent(const char *new_path);
+
+    void
+    PrependPathComponent(const std::string &new_path);
+
+    void
+    PrependPathComponent(const FileSpec &new_path);
+
+    void
+    AppendPathComponent(const char *new_path);
 
     void
     AppendPathComponent(const std::string &new_path);
+
+    void
+    AppendPathComponent(const FileSpec &new_path);
 
     void
     RemoveLastPathComponent ();
@@ -773,8 +800,7 @@ public:
 
     typedef EnumerateDirectoryResult (*EnumerateDirectoryCallbackType) (void *baton,
                                                                         FileType file_type,
-                                                                        const FileSpec &spec
-);
+                                                                        const FileSpec &spec);
 
     static EnumerateDirectoryResult
     EnumerateDirectory (const char *dir_path,
@@ -783,6 +809,11 @@ public:
                         bool find_other,
                         EnumerateDirectoryCallbackType callback,
                         void *callback_baton);
+
+    typedef std::function <EnumerateDirectoryResult(FileType file_type, const FileSpec &spec)> DirectoryCallback;
+
+    static EnumerateDirectoryResult
+    ForEachItemInDirectory (const char *dir_path, DirectoryCallback const &callback);
 
 protected:
     //------------------------------------------------------------------

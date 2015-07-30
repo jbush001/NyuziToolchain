@@ -127,7 +127,7 @@ ThreadPlanStepRange::DumpRanges(Stream *s)
     {
         for (size_t i = 0; i < num_ranges; i++)
         {
-            s->PutCString("%d: ");
+            s->Printf(" %" PRIu64 ": ", uint64_t(i));
             m_address_ranges[i].Dump (s, m_thread.CalculateTarget().get(), Address::DumpStyleLoadAddress);
         }
     }
@@ -243,9 +243,9 @@ ThreadPlanStepRange::InSymbol()
     {
         return m_addr_context.function->GetAddressRange().ContainsLoadAddress (cur_pc, m_thread.CalculateTarget().get());
     }
-    else if (m_addr_context.symbol)
+    else if (m_addr_context.symbol && m_addr_context.symbol->ValueIsAddress())
     {
-        AddressRange range(m_addr_context.symbol->GetAddress(), m_addr_context.symbol->GetByteSize());
+        AddressRange range(m_addr_context.symbol->GetAddressRef(), m_addr_context.symbol->GetByteSize());
         return range.ContainsLoadAddress (cur_pc, m_thread.CalculateTarget().get());
     }
     return false;

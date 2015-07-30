@@ -23,16 +23,14 @@
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCCodeEmitter.h"
 #include "llvm/MC/MCContext.h"
-#include "llvm/MC/MCELF.h"
 #include "llvm/MC/MCELFStreamer.h"
-#include "llvm/MC/MCELFSymbolFlags.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCObjectStreamer.h"
 #include "llvm/MC/MCSection.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCStreamer.h"
-#include "llvm/MC/MCSymbol.h"
+#include "llvm/MC/MCSymbolELF.h"
 #include "llvm/MC/MCValue.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ELF.h"
@@ -158,22 +156,12 @@ private:
   }
 
   void EmitMappingSymbol(StringRef Name) {
-    MCSymbol *Start = getContext().createTempSymbol();
-    EmitLabel(Start);
-
-    MCSymbol *Symbol = getContext().getOrCreateSymbol(
-        Name + "." + Twine(MappingSymbolCounter++));
-
-    getAssembler().registerSymbol(*Symbol);
-    MCELF::SetType(*Symbol, ELF::STT_NOTYPE);
-    MCELF::SetBinding(*Symbol, ELF::STB_LOCAL);
+    auto *Symbol = cast<MCSymbolELF>(getContext().getOrCreateSymbol(
+        Name + "." + Twine(MappingSymbolCounter++)));
+    EmitLabel(Symbol);
+    Symbol->setType(ELF::STT_NOTYPE);
+    Symbol->setBinding(ELF::STB_LOCAL);
     Symbol->setExternal(false);
-    auto Sec = getCurrentSection().first;
-    assert(Sec && "need a section");
-    Symbol->setSection(*Sec);
-
-    const MCExpr *Value = MCSymbolRefExpr::create(Start, getContext());
-    Symbol->setVariableValue(Value);
   }
 
   int64_t MappingSymbolCounter;
@@ -210,8 +198,8 @@ MCELFStreamer *createAArch64ELFStreamer(MCContext &Context, MCAsmBackend &TAB,
 
 MCTargetStreamer *
 createAArch64ObjectTargetStreamer(MCStreamer &S, const MCSubtargetInfo &STI) {
-  Triple TT(STI.getTargetTriple());
-  if (TT.getObjectFormat() == Triple::ELF)
+  const Triple &TT = STI.getTargetTriple();
+  if (TT.isOSBinFormatELF())
     return new AArch64TargetELFStreamer(S);
   return nullptr;
 }

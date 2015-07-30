@@ -342,6 +342,11 @@ private:
   };
   typedef SmallVector<SwitchWorkListItem, 4> SwitchWorkList;
 
+  /// Determine the rank by weight of CC in [First,Last]. If CC has more weight
+  /// than each cluster in the range, its rank is 0.
+  static unsigned caseClusterRank(const CaseCluster &CC, CaseClusterIt First,
+                                  CaseClusterIt Last);
+
   /// Emit comparison and split W into two subtrees.
   void splitWorkItem(SwitchWorkList &WorkList, const SwitchWorkListItem &W,
                      Value *Cond, MachineBasicBlock *SwitchMBB);
@@ -687,7 +692,8 @@ public:
 
   void FindMergedConditions(const Value *Cond, MachineBasicBlock *TBB,
                             MachineBasicBlock *FBB, MachineBasicBlock *CurBB,
-                            MachineBasicBlock *SwitchBB, unsigned Opc,
+                            MachineBasicBlock *SwitchBB,
+                            Instruction::BinaryOps Opc,
                             uint32_t TW, uint32_t FW);
   void EmitBranchForMergedCondition(const Value *Cond, MachineBasicBlock *TBB,
                                     MachineBasicBlock *FBB,
@@ -750,8 +756,6 @@ public:
   void visitJumpTable(JumpTable &JT);
   void visitJumpTableHeader(JumpTable &JT, JumpTableHeader &JTH,
                             MachineBasicBlock *SwitchBB);
-  unsigned visitLandingPadClauseBB(GlobalValue *ClauseGV,
-                                   MachineBasicBlock *LPadMBB);
 
 private:
   // These all get lowered before this pass.
@@ -910,8 +914,8 @@ struct RegsForValue {
 
   RegsForValue(const SmallVector<unsigned, 4> &regs, MVT regvt, EVT valuevt);
 
-  RegsForValue(LLVMContext &Context, const TargetLowering &tli, unsigned Reg,
-               Type *Ty);
+  RegsForValue(LLVMContext &Context, const TargetLowering &TLI,
+               const DataLayout &DL, unsigned Reg, Type *Ty);
 
   /// append - Add the specified values to this one.
   void append(const RegsForValue &RHS) {

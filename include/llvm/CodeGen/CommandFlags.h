@@ -16,6 +16,9 @@
 #ifndef LLVM_CODEGEN_COMMANDFLAGS_H
 #define LLVM_CODEGEN_COMMANDFLAGS_H
 
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
 #include "llvm/MC/MCTargetOptionsCommandFlags.h"
 #include "llvm//MC/SubtargetFeature.h"
@@ -24,6 +27,7 @@
 #include "llvm/Support/Host.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Target/TargetOptions.h"
+#include "llvm/Target/TargetRecip.h"
 #include <string>
 using namespace llvm;
 
@@ -149,8 +153,14 @@ FuseFPOps("fp-contract",
               clEnumValN(FPOpFusion::Standard, "on",
                          "Only fuse 'blessed' FP ops."),
               clEnumValN(FPOpFusion::Strict, "off",
-                         "Only fuse FP ops when the result won't be effected."),
+                         "Only fuse FP ops when the result won't be affected."),
               clEnumValEnd));
+
+cl::list<std::string>
+ReciprocalOps("recip",
+  cl::CommaSeparated,
+  cl::desc("Choose reciprocal operation types and parameters."),
+  cl::value_desc("all,none,default,divf,!vec-sqrtd,vec-divd:0,sqrt:9..."));
 
 cl::opt<bool>
 DontPlaceZerosInBSS("nozero-initialized-in-bss",
@@ -196,6 +206,10 @@ cl::opt<std::string> StartAfter("start-after",
                           cl::value_desc("pass-name"),
                           cl::init(""));
 
+cl::opt<std::string>
+    RunPass("run-pass", cl::desc("Run compiler only for one specific pass"),
+            cl::value_desc("pass-name"), cl::init(""));
+
 cl::opt<bool> DataSections("data-sections",
                            cl::desc("Emit data into separate sections"),
                            cl::init(false));
@@ -204,6 +218,10 @@ cl::opt<bool>
 FunctionSections("function-sections",
                  cl::desc("Emit functions into separate sections"),
                  cl::init(false));
+
+cl::opt<bool> EmulatedTLS("emulated-tls",
+                          cl::desc("Use emulated TLS model"),
+                          cl::init(false));
 
 cl::opt<bool> UniqueSectionNames("unique-section-names",
                                  cl::desc("Give unique names to every section"),
@@ -230,6 +248,7 @@ static inline TargetOptions InitTargetOptionsFromCodeGenFlags() {
   TargetOptions Options;
   Options.LessPreciseFPMADOption = EnableFPMAD;
   Options.AllowFPOpFusion = FuseFPOps;
+  Options.Reciprocals = TargetRecip(ReciprocalOps);
   Options.UnsafeFPMath = EnableUnsafeFPMath;
   Options.NoInfsFPMath = EnableNoInfsFPMath;
   Options.NoNaNsFPMath = EnableNoNaNsFPMath;
@@ -239,14 +258,13 @@ static inline TargetOptions InitTargetOptionsFromCodeGenFlags() {
     Options.FloatABIType = FloatABIForCalls;
   Options.NoZerosInBSS = DontPlaceZerosInBSS;
   Options.GuaranteedTailCallOpt = EnableGuaranteedTailCallOpt;
-  Options.DisableTailCalls = DisableTailCalls;
   Options.StackAlignmentOverride = OverrideStackAlignment;
-  Options.TrapFuncName = TrapFuncName;
   Options.PositionIndependentExecutable = EnablePIE;
   Options.UseInitArray = !UseCtors;
   Options.DataSections = DataSections;
   Options.FunctionSections = FunctionSections;
   Options.UniqueSectionNames = UniqueSectionNames;
+  Options.EmulatedTLS = EmulatedTLS;
 
   Options.MCOptions = InitMCTargetOptionsFromFlags();
   Options.JTType = JTableType;
@@ -306,6 +324,21 @@ static inline void setFunctionAttributes(StringRef CPU, StringRef Features,
       NewAttrs = NewAttrs.addAttribute(Ctx, AttributeSet::FunctionIndex,
                                        "no-frame-pointer-elim",
                                        DisableFPElim ? "true" : "false");
+
+    if (DisableTailCalls.getNumOccurrences() > 0)
+      NewAttrs = NewAttrs.addAttribute(Ctx, AttributeSet::FunctionIndex,
+                                       "disable-tail-calls",
+                                       toStringRef(DisableTailCalls));
+
+    if (TrapFuncName.getNumOccurrences() > 0)
+      for (auto &B : F)
+        for (auto &I : B)
+          if (auto *Call = dyn_cast<CallInst>(&I))
+            if (const auto *F = Call->getCalledFunction())
+              if (F->getIntrinsicID() == Intrinsic::debugtrap ||
+                  F->getIntrinsicID() == Intrinsic::trap)
+                Call->addAttribute(llvm::AttributeSet::FunctionIndex,
+                                   "trap-func-name", TrapFuncName);
 
     // Let NewAttrs override Attrs.
     NewAttrs = Attrs.addAttributes(Ctx, AttributeSet::FunctionIndex, NewAttrs);

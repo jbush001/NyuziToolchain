@@ -276,15 +276,15 @@ CMICmnLogMediumFile::MassagedData(const CMIUtilString &vData, const CMICmnLog::E
 {
     const CMIUtilString strCr("\n");
     CMIUtilString data;
-    const MIchar verbosityCode(ConvertLogVerbosityTypeToId(veType));
+    const char verbosityCode(ConvertLogVerbosityTypeToId(veType));
     const CMIUtilString dt(CMIUtilString::Format("%s %s", m_strDate.c_str(), m_dateTime.GetTime().c_str()));
 
     data = CMIUtilString::Format("%c,%s,%s", verbosityCode, dt.c_str(), vData.c_str());
     data = ConvertCr(data);
 
     // Look for EOL...
-    const MIint pos = vData.rfind(strCr);
-    if (pos == (MIint)vData.size())
+    const size_t pos = vData.rfind(strCr);
+    if (pos == vData.size())
         return data;
 
     // ... did not have an EOL so add one
@@ -300,10 +300,10 @@ CMICmnLogMediumFile::MassagedData(const CMIUtilString &vData, const CMICmnLog::E
 // Return:  wchar_t - A letter.
 // Throws:  None.
 //--
-MIchar
+char
 CMICmnLogMediumFile::ConvertLogVerbosityTypeToId(const CMICmnLog::ELogVerbosity veType) const
 {
-    MIchar c = 0;
+    char c = 0;
     if (veType != 0)
     {
         MIuint cnt = 0;
@@ -382,11 +382,11 @@ CMICmnLogMediumFile::ConvertCr(const CMIUtilString &vData) const
     if (strCr == rCrCmpat)
         return vData;
 
-    const MIuint nSizeCmpat(rCrCmpat.size());
-    const MIuint nSize(strCr.size());
+    const size_t nSizeCmpat(rCrCmpat.size());
+    const size_t nSize(strCr.size());
     CMIUtilString strConv(vData);
-    MIint pos = strConv.find(strCr);
-    while (pos != (MIint)CMIUtilString::npos)
+    size_t pos = strConv.find(strCr);
+    while (pos != CMIUtilString::npos)
     {
         strConv.replace(pos, nSize, rCrCmpat);
         pos = strConv.find(strCr, pos + nSizeCmpat);
@@ -396,7 +396,7 @@ CMICmnLogMediumFile::ConvertCr(const CMIUtilString &vData) const
 }
 
 //++ ------------------------------------------------------------------------------------
-// Details: Set the header text that is written to the logger file at the begining.
+// Details: Set the header text that is written to the logger file at the beginning.
 // Type:    Method.
 // Args:    vText   - (R) Text.
 // Return:  MIstatus::success - Functional succeeded.
@@ -425,7 +425,7 @@ CMICmnLogMediumFile::GetLineReturn(void) const
 }
 
 //++ ------------------------------------------------------------------------------------
-// Details: Set the diretory to place the log file.
+// Details: Set the directory to place the log file.
 // Type:    Method.
 // Args:    vPath   - (R) Path to log.
 // Return:  MIstatus::success - Functional succeeded.

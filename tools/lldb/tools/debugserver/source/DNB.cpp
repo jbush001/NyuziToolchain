@@ -446,10 +446,24 @@ DNBProcessLaunch (const char *path,
             else
             {
                 bool res = AddProcessToMap(pid, processSP);
+                UNUSED_IF_ASSERT_DISABLED(res);
                 assert(res && "Couldn't add process to map!");
                 return pid;
             }
         }
+    }
+    return INVALID_NUB_PROCESS;
+}
+
+// If there is one process with a given name, return the pid for that process.
+nub_process_t
+DNBProcessGetPIDByName (const char *name)
+{
+    std::vector<struct kinfo_proc> matching_proc_infos;
+    size_t num_matching_proc_infos = GetAllInfosMatchingName(name, matching_proc_infos);
+    if (num_matching_proc_infos == 1)
+    {
+        return matching_proc_infos[0].kp_proc.p_pid;
     }
     return INVALID_NUB_PROCESS;
 }
@@ -494,6 +508,7 @@ DNBProcessAttach (nub_process_t attach_pid, struct timespec *timeout, char *err_
         if (pid != INVALID_NUB_PROCESS)
         {
             bool res = AddProcessToMap(pid, processSP);
+            UNUSED_IF_ASSERT_DISABLED(res);
             assert(res && "Couldn't add process to map!");
             spawn_waitpid_thread(pid);
         }
@@ -1066,6 +1081,18 @@ DNBGetTSDAddressForThread (nub_process_t pid, nub_thread_t tid, uint64_t plo_pth
     return INVALID_NUB_ADDRESS;
 }
 
+JSONGenerator::ObjectSP 
+DNBGetLoadedDynamicLibrariesInfos (nub_process_t pid, nub_addr_t image_list_address, nub_addr_t image_count)
+{
+    MachProcessSP procSP;
+    if (GetProcessSP (pid, procSP))
+    {
+        return procSP->GetLoadedDynamicLibrariesInfos (pid, image_list_address, image_count);
+    }
+    return JSONGenerator::ObjectSP();
+}
+
+
 
 const char *
 DNBProcessGetExecutablePath (nub_process_t pid)
@@ -1256,6 +1283,86 @@ DNBProcessMemoryRead (nub_process_t pid, nub_addr_t addr, nub_size_t size, void 
         return procSP->ReadMemory(addr, size, buf);
     return 0;
 }
+
+uint64_t
+DNBProcessMemoryReadInteger (nub_process_t pid, nub_addr_t addr, nub_size_t integer_size, uint64_t fail_value)
+{
+    union Integers
+    {
+        uint8_t     u8;
+        uint16_t    u16;
+        uint32_t    u32;
+        uint64_t    u64;
+    };
+
+    if (integer_size <= sizeof(uint64_t))
+    {
+        Integers ints;
+        if (DNBProcessMemoryRead(pid, addr, integer_size, &ints) == integer_size)
+        {
+            switch (integer_size)
+            {
+                case 1: return ints.u8;
+                case 2: return ints.u16;
+                case 3: return ints.u32 & 0xffffffu;
+                case 4: return ints.u32;
+                case 5: return ints.u32 & 0x000000ffffffffffull;
+                case 6: return ints.u32 & 0x0000ffffffffffffull;
+                case 7: return ints.u32 & 0x00ffffffffffffffull;
+                case 8: return ints.u64;
+            }
+        }
+    }
+    return fail_value;
+
+}
+
+nub_addr_t
+DNBProcessMemoryReadPointer (nub_process_t pid, nub_addr_t addr)
+{
+    cpu_type_t cputype = DNBProcessGetCPUType (pid);
+    if (cputype)
+    {
+        const nub_size_t pointer_size = (cputype & CPU_ARCH_ABI64) ? 8 : 4;
+        return DNBProcessMemoryReadInteger(pid, addr, pointer_size, 0);
+    }
+    return 0;
+
+}
+
+std::string
+DNBProcessMemoryReadCString (nub_process_t pid, nub_addr_t addr)
+{
+    std::string cstr;
+    char buffer[256];
+    const nub_size_t max_buffer_cstr_length = sizeof(buffer)-1;
+    buffer[max_buffer_cstr_length] = '\0';
+    nub_size_t length = 0;
+    nub_addr_t curr_addr = addr;
+    do
+    {
+        nub_size_t bytes_read = DNBProcessMemoryRead(pid, curr_addr, max_buffer_cstr_length, buffer);
+        if (bytes_read == 0)
+            break;
+        length = strlen(buffer);
+        cstr.append(buffer, length);
+        curr_addr += length;
+    } while (length == max_buffer_cstr_length);
+    return cstr;
+}
+
+std::string
+DNBProcessMemoryReadCStringFixed (nub_process_t pid, nub_addr_t addr, nub_size_t fixed_length)
+{
+    std::string cstr;
+    char buffer[fixed_length+1];
+    buffer[fixed_length] = '\0';
+    nub_size_t bytes_read = DNBProcessMemoryRead(pid, addr, fixed_length, buffer);
+    if (bytes_read > 0)
+        cstr.assign(buffer);
+    return cstr;
+}
+
 
 //----------------------------------------------------------------------
 // Write memory to the address space of process PID. This call will take

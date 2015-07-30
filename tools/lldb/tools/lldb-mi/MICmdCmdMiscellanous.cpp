@@ -171,20 +171,18 @@ CMICmdCmdListThreadGroups::~CMICmdCmdListThreadGroups(void)
 bool
 CMICmdCmdListThreadGroups::ParseArgs(void)
 {
-    bool bOk = m_setCmdArgs.Add(*(new CMICmdArgValOptionLong(m_constStrArgNamedAvailable, false, true)));
-    bOk = bOk &&
-          m_setCmdArgs.Add(
-              *(new CMICmdArgValOptionLong(m_constStrArgNamedRecurse, false, true, CMICmdArgValListBase::eArgValType_Number, 1)));
-    bOk =
-        bOk && m_setCmdArgs.Add(*(new CMICmdArgValListOfN(m_constStrArgNamedGroup, false, true, CMICmdArgValListBase::eArgValType_Number)));
-    bOk = bOk && m_setCmdArgs.Add(*(new CMICmdArgValThreadGrp(m_constStrArgNamedThreadGroup, false, true)));
-    return (bOk && ParseValidateCmdOptions());
+    m_setCmdArgs.Add(*(new CMICmdArgValOptionLong(m_constStrArgNamedAvailable, false, true)));
+    m_setCmdArgs.Add(
+        *(new CMICmdArgValOptionLong(m_constStrArgNamedRecurse, false, true, CMICmdArgValListBase::eArgValType_Number, 1)));
+    m_setCmdArgs.Add(*(new CMICmdArgValListOfN(m_constStrArgNamedGroup, false, true, CMICmdArgValListBase::eArgValType_Number)));
+    m_setCmdArgs.Add(*(new CMICmdArgValThreadGrp(m_constStrArgNamedThreadGroup, false, true)));
+    return ParseValidateCmdOptions();
 }
 
 //++ ------------------------------------------------------------------------------------
 // Details: The invoker requires this function. The command does work in this function.
 //          The command is likely to communicate with the LLDB SBDebugger in here.
-//          Synopis: -list-thread-groups [ --available ] [ --recurse 1 ] [ group ... ]
+//          Synopsis: -list-thread-groups [ --available ] [ --recurse 1 ] [ group ... ]
 //          This command does not follow the MI documentation exactly. Has an extra
 //          argument "i1" to handle.
 //          Ref:
@@ -330,8 +328,8 @@ CMICmdCmdListThreadGroups::Acknowledge(void)
         if (rSessionInfo.GetTarget().IsValid())
         {
             lldb::SBTarget sbTrgt = rSessionInfo.GetTarget();
-            const MIchar *pDir = sbTrgt.GetExecutable().GetDirectory();
-            const MIchar *pFileName = sbTrgt.GetExecutable().GetFilename();
+            const char *pDir = sbTrgt.GetExecutable().GetDirectory();
+            const char *pFileName = sbTrgt.GetExecutable().GetFilename();
             const CMIUtilString strFile(CMIUtilString::Format("%s/%s", pDir, pFileName));
             const CMICmnMIValueConst miValueConst4(strFile);
             const CMICmnMIValueResult miValueResult4("executable", miValueConst4);
@@ -399,7 +397,7 @@ CMICmdCmdListThreadGroups::CreateSelf(void)
 // Throws:  None.
 //--
 CMICmdCmdInterpreterExec::CMICmdCmdInterpreterExec(void)
-    : m_constStrArgNamedInterpreter("intepreter")
+    : m_constStrArgNamedInterpreter("interpreter")
     , m_constStrArgNamedCommand("command")
 {
     // Command factory matches this name with that received from the stdin stream
@@ -432,9 +430,9 @@ CMICmdCmdInterpreterExec::~CMICmdCmdInterpreterExec(void)
 bool
 CMICmdCmdInterpreterExec::ParseArgs(void)
 {
-    bool bOk = m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgNamedInterpreter, true, true)));
-    bOk = bOk && m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgNamedCommand, true, true, true)));
-    return (bOk && ParseValidateCmdOptions());
+    m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgNamedInterpreter, true, true)));
+    m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgNamedCommand, true, true, true)));
+    return ParseValidateCmdOptions();
 }
 
 //++ ------------------------------------------------------------------------------------

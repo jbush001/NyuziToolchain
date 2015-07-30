@@ -15,7 +15,7 @@
 #include <string>
 // Other libraries and framework includes
 // Project includes
-#include "Utility/StringExtractor.h"
+#include "lldb/Utility/StringExtractor.h"
 
 class StringExtractorGDBRemote : public StringExtractor
 {
@@ -61,6 +61,7 @@ public:
         eServerPacketType_qSpeedTest,
         eServerPacketType_qUserName,
         eServerPacketType_qGetWorkingDir,
+        eServerPacketType_qFileLoadAddress,
         eServerPacketType_QEnvironment,
         eServerPacketType_QLaunchArch,
         eServerPacketType_QSetDisableASLR,
@@ -96,6 +97,7 @@ public:
         eServerPacketType_QSyncThreadState,
         eServerPacketType_QThreadSuffixSupported,
 
+        eServerPacketType_jThreadsInfo,
         eServerPacketType_qsThreadInfo,
         eServerPacketType_qfThreadInfo,
         eServerPacketType_qGetPid,
@@ -116,6 +118,8 @@ public:
         eServerPacketType_qWatchpointSupportInfo,
         eServerPacketType_qWatchpointSupportInfoSupported,
         eServerPacketType_qXfer_auxv_read,
+
+        eServerPacketType_jSignalsInfo,
 
         eServerPacketType_vAttach,
         eServerPacketType_vAttachWait,

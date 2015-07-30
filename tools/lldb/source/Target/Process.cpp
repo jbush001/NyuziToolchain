@@ -693,7 +693,7 @@ Process::GetStaticBroadcasterClass ()
 // Process constructor
 //----------------------------------------------------------------------
 Process::Process(Target &target, Listener &listener) :
-    Process(target, listener, Host::GetUnixSignals ())
+    Process(target, listener, UnixSignals::Create(HostInfo::GetArchitecture()))
 {
     // This constructor just delegates to the full Process constructor,
     // defaulting to using the Host's UnixSignals.
@@ -754,6 +754,7 @@ Process::Process(Target &target, Listener &listener, const UnixSignalsSP &unix_s
     m_force_next_event_delivery (false),
     m_last_broadcast_state (eStateInvalid),
     m_destroy_in_process (false),
+    m_can_interpret_function_calls(false),
     m_can_jit(eCanJITDontKnow)
 {
     CheckInWithManager ();
@@ -763,14 +764,14 @@ Process::Process(Target &target, Listener &listener, const UnixSignalsSP &unix_s
         log->Printf ("%p Process::Process()", static_cast<void*>(this));
 
     if (!m_unix_signals_sp)
-        m_unix_signals_sp.reset (new UnixSignals ());
+        m_unix_signals_sp = std::make_shared<UnixSignals>();
 
     SetEventName (eBroadcastBitStateChanged, "state-changed");
     SetEventName (eBroadcastBitInterrupt, "interrupt");
     SetEventName (eBroadcastBitSTDOUT, "stdout-available");
     SetEventName (eBroadcastBitSTDERR, "stderr-available");
     SetEventName (eBroadcastBitProfileData, "profile-data-available");
-    
+
     m_private_state_control_broadcaster.SetEventName (eBroadcastInternalStateControlStop  , "control-stop"  );
     m_private_state_control_broadcaster.SetEventName (eBroadcastInternalStateControlPause , "control-pause" );
     m_private_state_control_broadcaster.SetEventName (eBroadcastInternalStateControlResume, "control-resume");
@@ -1145,6 +1146,7 @@ Process::HandleProcessStateChangedEvent (const EventSP &event_sp,
                         // Prefer a thread that has just completed its plan over another thread as current thread.
                         ThreadSP plan_thread;
                         ThreadSP other_thread;
+                        
                         const size_t num_threads = thread_list.GetSize();
                         size_t i;
                         for (i = 0; i < num_threads; ++i)
@@ -1157,10 +1159,22 @@ Process::HandleProcessStateChangedEvent (const EventSP &event_sp,
                                 case eStopReasonNone:
                                     break;
 
+                                 case eStopReasonSignal:
+                                {
+                                    // Don't select a signal thread if we weren't going to stop at that
+                                    // signal.  We have to have had another reason for stopping here, and
+                                    // the user doesn't want to see this thread.
+                                    uint64_t signo = thread->GetStopInfo()->GetValue();
+                                    if (process_sp->GetUnixSignals()->GetShouldStop(signo))
+                                    {
+                                        if (!other_thread)
+                                            other_thread = thread;
+                                    }
+                                    break;
+                                }
                                 case eStopReasonTrace:
                                 case eStopReasonBreakpoint:
                                 case eStopReasonWatchpoint:
-                                case eStopReasonSignal:
                                 case eStopReasonException:
                                 case eStopReasonExec:
                                 case eStopReasonThreadExiting:
@@ -1429,6 +1443,9 @@ Process::GetExitDescription ()
 bool
 Process::SetExitStatus (int status, const char *cstr)
 {
+    // Use a mutex to protect setting the exit status.
+    Mutex::Locker locker (m_exit_status_mutex);
+
     Log *log(lldb_private::GetLogIfAnyCategoriesSet (LIBLLDB_LOG_STATE | LIBLLDB_LOG_PROCESS));
     if (log)
         log->Printf("Process::SetExitStatus (status=%i (0x%8.8x), description=%s%s%s)", 
@@ -1444,21 +1461,16 @@ Process::SetExitStatus (int status, const char *cstr)
             log->Printf("Process::SetExitStatus () ignoring exit status because state was already set to eStateExited");
         return false;
     }
-    
-    // use a mutex to protect the status and string during updating
-    {
-        Mutex::Locker locker (m_exit_status_mutex);
 
-        m_exit_status = status;
-        if (cstr)
-            m_exit_string = cstr;
-        else
-            m_exit_string.clear();
-    }
+    m_exit_status = status;
+    if (cstr)
+        m_exit_string = cstr;
+    else
+        m_exit_string.clear();
 
     // When we exit, we no longer need to the communication channel
-    m_stdio_communication.StopReadThread();
     m_stdio_communication.Disconnect();
+    m_stdio_communication.StopReadThread();
     m_stdin_forward = false;
 
     // And we don't need the input reader anymore as well
@@ -1512,7 +1524,7 @@ Process::SetProcessExitStatus (void *callback_baton,
             {
                 const char *signal_cstr = NULL;
                 if (signo)
-                    signal_cstr = process_sp->GetUnixSignals().GetSignalAsCString (signo);
+                    signal_cstr = process_sp->GetUnixSignals()->GetSignalAsCString(signo);
 
                 process_sp->SetExitStatus (exit_status, signal_cstr);
             }
@@ -2248,11 +2260,12 @@ Process::CreateBreakpointSite (const BreakpointLocationSP &owner, bool use_hardw
         if (symbol && symbol->IsIndirect())
         {
             Error error;
-            load_addr = ResolveIndirectFunction (&symbol->GetAddress(), error);
+            Address symbol_address = symbol->GetAddress();
+            load_addr = ResolveIndirectFunction (&symbol_address, error);
             if (!error.Success() && show_error)
             {
                 m_target.GetDebugger().GetErrorFile()->Printf ("warning: failed to resolve indirect function at 0x%" PRIx64 " for breakpoint %i.%i: %s\n",
-                                                               symbol->GetAddress().GetLoadAddress(&m_target),
+                                                               symbol->GetLoadAddress(&m_target),
                                                                owner->GetBreakpoint().GetID(),
                                                                owner->GetID(),
                                                                error.AsCString() ? error.AsCString() : "unknown error");
@@ -2474,7 +2487,7 @@ Process::DisableSoftwareBreakpoint (BreakpointSite *bp_site)
             if (DoReadMemory (bp_addr, curr_break_op, break_op_size, error) == break_op_size)
             {
                 bool verify = false;
-                // Make sure we have the a breakpoint opcode exists at this address
+                // Make sure the breakpoint opcode exists at this address
                 if (::memcmp (curr_break_op, break_op, break_op_size) == 0)
                 {
                     break_op_found = true;
@@ -2830,6 +2843,7 @@ Process::WriteMemory (addr_t addr, const void *buf, size_t size, Error &error)
                     size_t intersect_size;
                     size_t opcode_offset;
                     const bool intersects = bp->IntersectsRange(addr, size, &intersect_addr, &intersect_size, &opcode_offset);
+                    UNUSED_IF_ASSERT_DISABLED(intersects);
                     assert(intersects);
                     assert(addr <= intersect_addr && intersect_addr < addr + size);
                     assert(addr < intersect_addr + intersect_size && intersect_addr + intersect_size <= addr + size);
@@ -2999,6 +3013,13 @@ Process::SetCanJIT (bool can_jit)
     m_can_jit = (can_jit ? eCanJITYes : eCanJITNo);
 }
 
+void
+Process::SetCanRunCode (bool can_run_code)
+{
+    SetCanJIT(can_run_code);
+    m_can_interpret_function_calls = can_run_code;
+}
+
 Error
 Process::DeallocateMemory (addr_t ptr)
 {
@@ -3028,6 +3049,11 @@ Process::ReadModuleFromMemory (const FileSpec& file_spec,
                                lldb::addr_t header_addr,
                                size_t size_to_read)
 {
+    Log *log = lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_HOST);
+    if (log)
+    {
+        log->Printf ("Process::ReadModuleFromMemory reading %s binary from memory", file_spec.GetPath().c_str());
+    }
     ModuleSP module_sp (new Module (file_spec, ArchSpec()));
     if (module_sp)
     {
@@ -4038,8 +4064,8 @@ Process::Destroy (bool force_kill)
             DidDestroy();
             StopPrivateStateThread();
         }
-        m_stdio_communication.StopReadThread();
         m_stdio_communication.Disconnect();
+        m_stdio_communication.StopReadThread();
         m_stdin_forward = false;
 
         if (m_process_input_reader)
@@ -4089,11 +4115,11 @@ Process::SetUnixSignals (const UnixSignalsSP &signals_sp)
     m_unix_signals_sp = signals_sp;
 }
 
-UnixSignals &
+const lldb::UnixSignalsSP &
 Process::GetUnixSignals ()
 {
     assert (m_unix_signals_sp && "null m_unix_signals_sp");
-    return *m_unix_signals_sp;
+    return m_unix_signals_sp;
 }
 
 lldb::ByteOrder
@@ -4273,7 +4299,7 @@ Process::ShouldBroadcastEvent (Event *event_ptr)
 
 
 bool
-Process::StartPrivateStateThread (bool force)
+Process::StartPrivateStateThread (bool is_secondary_thread)
 {
     Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_EVENTS));
 
@@ -4281,7 +4307,7 @@ Process::StartPrivateStateThread (bool force)
     if (log)
         log->Printf ("Process::%s()%s ", __FUNCTION__, already_running ? " already running" : " starting private state thread");
 
-    if (!force && already_running)
+    if (!is_secondary_thread && already_running)
         return true;
 
     // Create a thread that watches our internal state and controls which
@@ -4305,7 +4331,8 @@ Process::StartPrivateStateThread (bool force)
     }
 
     // Create the private state thread, and start it running.
-    m_private_state_thread = ThreadLauncher::LaunchThread(thread_name, Process::PrivateStateThread, this, NULL);
+    PrivateStateThreadArgs args = {this, is_secondary_thread};
+    m_private_state_thread = ThreadLauncher::LaunchThread(thread_name, Process::PrivateStateThread, (void *) &args, NULL);
     if (m_private_state_thread.IsJoinable())
     {
         ResumePrivateStateThread();
@@ -4535,13 +4562,13 @@ Process::HandlePrivateEvent (EventSP &event_sp)
 thread_result_t
 Process::PrivateStateThread (void *arg)
 {
-    Process *proc = static_cast<Process*> (arg);
-    thread_result_t result = proc->RunPrivateStateThread();
+    PrivateStateThreadArgs *real_args = static_cast<PrivateStateThreadArgs *> (arg);
+    thread_result_t result = real_args->process->RunPrivateStateThread(real_args->is_secondary_thread);
     return result;
 }
 
 thread_result_t
-Process::RunPrivateStateThread ()
+Process::RunPrivateStateThread (bool is_secondary_thread)
 {
     bool control_only = true;
     m_private_state_control_wait.SetValue (false, eBroadcastNever);
@@ -4633,7 +4660,11 @@ Process::RunPrivateStateThread ()
         log->Printf ("Process::%s (arg = %p, pid = %" PRIu64 ") thread exiting...",
                      __FUNCTION__, static_cast<void*>(this), GetID());
 
-    m_public_run_lock.SetStopped();
+    // If we are a secondary thread, then the primary thread we are working for will have already
+    // acquired the public_run_lock, and isn't done with what it was doing yet, so don't
+    // try to change it on the way out.
+    if (!is_secondary_thread)
+        m_public_run_lock.SetStopped();
     m_private_state_control_wait.SetValue (true, eBroadcastAlways);
     m_private_state_thread.Reset();
     return NULL;
@@ -4709,7 +4740,12 @@ Process::ProcessEventData::DoOnRemoval (Event *event_ptr)
     
     // If we're stopped and haven't restarted, then do the StopInfo actions here:
     if (m_state == eStateStopped && ! m_restarted)
-    {        
+    {
+        // Let process subclasses know we are about to do a public stop and
+        // do anything they might need to in order to speed up register and
+        // memory accesses.
+        process_sp->WillPublicStop();
+
         ThreadList &curr_thread_list = process_sp->GetThreadList();
         uint32_t num_threads = curr_thread_list.GetSize();
         uint32_t idx;

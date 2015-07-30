@@ -15,15 +15,12 @@
 
 //++ ============================================================================
 // Details: MI common code utility class. File handling.
-// Gotchas: None.
-// Authors: Aidan Dodds 10/03/2014.
-// Changes: None.
 //--
 class CMIUtilFileStd : public CMICmnBase
 {
     // Static:
   public:
-    static MIchar GetSlash(void);
+    static char GetSlash(void);
 
     // Methods:
   public:
@@ -31,7 +28,7 @@ class CMIUtilFileStd : public CMICmnBase
     //
     bool CreateWrite(const CMIUtilString &vFileNamePath, bool &vwrbNewCreated);
     bool Write(const CMIUtilString &vData);
-    bool Write(const MIchar *vpData, const MIuint vCharCnt);
+    bool Write(const char *vpData, const MIuint vCharCnt);
     void Close(void);
     bool IsOk(void) const;
     bool IsFileExist(const CMIUtilString &vFileNamePath) const;
@@ -41,7 +38,7 @@ class CMIUtilFileStd : public CMICmnBase
     // Overridden:
   public:
     // From CMICmnBase
-    /* dtor */ virtual ~CMIUtilFileStd(void);
+    /* dtor */ ~CMIUtilFileStd(void) override;
 
     // Attributes:
   private:

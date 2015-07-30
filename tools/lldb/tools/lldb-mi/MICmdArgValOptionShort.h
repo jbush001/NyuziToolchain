@@ -26,9 +26,6 @@ class CMIUtilString;
 //          created to hold each of those option's values belong to *this argument
 //          object and so are deleted when *this object goes out of scope.
 //          Based on the Interpreter pattern.
-// Gotchas: None.
-// Authors: Illya Rudkin 16/04/2014.
-// Changes: None.
 //--
 class CMICmdArgValOptionShort : public CMICmdArgValOptionLong
 {
@@ -44,11 +41,11 @@ class CMICmdArgValOptionShort : public CMICmdArgValOptionLong
     // Overridden:
   public:
     // From CMICmdArgValBase
-    /* dtor */ virtual ~CMICmdArgValOptionShort(void);
+    /* dtor */ ~CMICmdArgValOptionShort(void) override;
 
     // Overridden:
   private:
     // From CMICmdArgValOptionLong
-    virtual bool IsArgOptionCorrect(const CMIUtilString &vrTxt) const;
-    virtual bool ArgNameMatch(const CMIUtilString &vrTxt) const;
+    bool IsArgOptionCorrect(const CMIUtilString &vrTxt) const override;
+    bool ArgNameMatch(const CMIUtilString &vrTxt) const override;
 };

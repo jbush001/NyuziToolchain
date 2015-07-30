@@ -64,7 +64,7 @@ static lldb::addr_t findSymbolAddress( Process *proc, ConstString findName )
 
         if ( ConstString::Compare( findName, symName ) == 0 )
         {
-            Address addr = sym->GetAddress( );
+            Address addr = sym->GetAddress();
             return addr.GetLoadAddress( & proc->GetTarget() );
         }
     }
@@ -167,6 +167,9 @@ DynamicLoaderHexagonDYLD::DidAttach()
         
     // Disable JIT for hexagon targets because its not supported
     m_process->SetCanJIT(false);
+
+    // Enable Interpreting of function call expressions
+    m_process->SetCanInterpretFunctionCalls(true);
 
     // Add the current executable to the module list
     ModuleList module_list;
@@ -500,7 +503,7 @@ DynamicLoaderHexagonDYLD::GetStepThroughTrampolinePlan(Thread &thread, bool stop
     if (sym == NULL || !sym->IsTrampoline())
         return thread_plan_sp;
 
-    const ConstString &sym_name = sym->GetMangled().GetName(Mangled::ePreferMangled);
+    const ConstString sym_name = sym->GetMangled().GetName(lldb::eLanguageTypeUnknown, Mangled::ePreferMangled);
     if (!sym_name)
         return thread_plan_sp;
 

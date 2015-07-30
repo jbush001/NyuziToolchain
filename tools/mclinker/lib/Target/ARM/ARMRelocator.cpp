@@ -763,7 +763,7 @@ uint32_t ARMRelocator::getDebugStringOffset(Relocation& pReloc) const {
         << getName(pReloc.type()) << "mclinker@googlegroups.com";
 
   if (pReloc.symInfo()->type() == ResolveInfo::Section)
-    return pReloc.target();
+    return pReloc.target() + pReloc.addend();
   else
     return pReloc.symInfo()->outSymbol()->fragRef()->offset() +
                pReloc.target() + pReloc.addend();
@@ -946,7 +946,8 @@ ARMRelocator::Result thm_jump19(Relocation& pReloc, ARMRelocator& pParent) {
 
   Relocator::DWord T = getThumbBit(pReloc);
   Relocator::DWord A =
-      helper_thumb32_cond_branch_offset(upper_inst, lower_inst);
+      helper_thumb32_cond_branch_offset(upper_inst, lower_inst) +
+      pReloc.addend();
   Relocator::Address P = pReloc.place();
   Relocator::Address S;
   // if symbol has plt
@@ -1052,7 +1053,8 @@ ARMRelocator::Result thm_call(Relocation& pReloc, ARMRelocator& pParent) {
   uint16_t lower_inst = *(reinterpret_cast<uint16_t*>(&pReloc.target()) + 1);
 
   Relocator::DWord T = getThumbBit(pReloc);
-  Relocator::DWord A = helper_thumb32_branch_offset(upper_inst, lower_inst);
+  Relocator::DWord A =
+      helper_thumb32_branch_offset(upper_inst, lower_inst) + pReloc.addend();
   Relocator::Address P = pReloc.place();
   Relocator::Address S;
 

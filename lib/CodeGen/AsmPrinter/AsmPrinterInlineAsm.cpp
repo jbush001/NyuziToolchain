@@ -402,10 +402,11 @@ static void EmitGCCInlineAsmStr(const char *AsmStr, const MachineInstr *MI,
           unsigned OpFlags = MI->getOperand(OpNo).getImm();
           ++OpNo;  // Skip over the ID number.
 
-          if (Modifier[0] == 'l')  // labels are target independent
+          if (Modifier[0] == 'l') { // Labels are target independent.
             // FIXME: What if the operand isn't an MBB, report error?
-            OS << *MI->getOperand(OpNo).getMBB()->getSymbol();
-          else {
+            const MCSymbol *Sym = MI->getOperand(OpNo).getMBB()->getSymbol();
+            Sym->print(OS, AP->MAI);
+          } else {
             if (InlineAsm::isMemKind(OpFlags)) {
               Error = AP->PrintAsmMemoryOperand(MI, OpNo, InlineAsmVariant,
                                                 Modifier[0] ? Modifier : nullptr,
@@ -511,9 +512,9 @@ void AsmPrinter::EmitInlineAsm(const MachineInstr *MI) const {
 /// for their own strange codes.
 void AsmPrinter::PrintSpecial(const MachineInstr *MI, raw_ostream &OS,
                               const char *Code) const {
-  const DataLayout *DL = TM.getDataLayout();
   if (!strcmp(Code, "private")) {
-    OS << DL->getPrivateGlobalPrefix();
+    const DataLayout &DL = MF->getDataLayout();
+    OS << DL.getPrivateGlobalPrefix();
   } else if (!strcmp(Code, "comment")) {
     OS << MAI->getCommentString();
   } else if (!strcmp(Code, "uid")) {

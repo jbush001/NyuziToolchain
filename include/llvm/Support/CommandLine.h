@@ -33,6 +33,9 @@
 
 namespace llvm {
 
+class BumpPtrStringSaver;
+class StringSaver;
+
 /// cl Namespace - This namespace contains all of the command line option
 /// processing machinery.  It is intentionally a short name to make qualified
 /// usage concise.
@@ -787,7 +790,7 @@ public:
   void anchor() override;
 };
 
-EXTERN_TEMPLATE_INSTANTIATION(class basic_parser<bool>);
+extern template class basic_parser<bool>;
 
 //--------------------------------------------------
 // parser<boolOrDefault>
@@ -813,7 +816,7 @@ public:
   void anchor() override;
 };
 
-EXTERN_TEMPLATE_INSTANTIATION(class basic_parser<boolOrDefault>);
+extern template class basic_parser<boolOrDefault>;
 
 //--------------------------------------------------
 // parser<int>
@@ -835,7 +838,7 @@ public:
   void anchor() override;
 };
 
-EXTERN_TEMPLATE_INSTANTIATION(class basic_parser<int>);
+extern template class basic_parser<int>;
 
 //--------------------------------------------------
 // parser<unsigned>
@@ -857,7 +860,7 @@ public:
   void anchor() override;
 };
 
-EXTERN_TEMPLATE_INSTANTIATION(class basic_parser<unsigned>);
+extern template class basic_parser<unsigned>;
 
 //--------------------------------------------------
 // parser<unsigned long long>
@@ -882,7 +885,7 @@ public:
   void anchor() override;
 };
 
-EXTERN_TEMPLATE_INSTANTIATION(class basic_parser<unsigned long long>);
+extern template class basic_parser<unsigned long long>;
 
 //--------------------------------------------------
 // parser<double>
@@ -904,7 +907,7 @@ public:
   void anchor() override;
 };
 
-EXTERN_TEMPLATE_INSTANTIATION(class basic_parser<double>);
+extern template class basic_parser<double>;
 
 //--------------------------------------------------
 // parser<float>
@@ -926,7 +929,7 @@ public:
   void anchor() override;
 };
 
-EXTERN_TEMPLATE_INSTANTIATION(class basic_parser<float>);
+extern template class basic_parser<float>;
 
 //--------------------------------------------------
 // parser<std::string>
@@ -951,7 +954,7 @@ public:
   void anchor() override;
 };
 
-EXTERN_TEMPLATE_INSTANTIATION(class basic_parser<std::string>);
+extern template class basic_parser<std::string>;
 
 //--------------------------------------------------
 // parser<char>
@@ -976,7 +979,7 @@ public:
   void anchor() override;
 };
 
-EXTERN_TEMPLATE_INSTANTIATION(class basic_parser<char>);
+extern template class basic_parser<char>;
 
 //--------------------------------------------------
 // PrintOptionDiff
@@ -1251,11 +1254,11 @@ public:
   }
 };
 
-EXTERN_TEMPLATE_INSTANTIATION(class opt<unsigned>);
-EXTERN_TEMPLATE_INSTANTIATION(class opt<int>);
-EXTERN_TEMPLATE_INSTANTIATION(class opt<std::string>);
-EXTERN_TEMPLATE_INSTANTIATION(class opt<char>);
-EXTERN_TEMPLATE_INSTANTIATION(class opt<bool>);
+extern template class opt<unsigned>;
+extern template class opt<int>;
+extern template class opt<std::string>;
+extern template class opt<char>;
+extern template class opt<bool>;
 
 //===----------------------------------------------------------------------===//
 // list_storage class
@@ -1675,16 +1678,6 @@ StringMap<Option *> &getRegisteredOptions();
 //===----------------------------------------------------------------------===//
 // Standalone command line processing utilities.
 //
-
-/// \brief Saves strings in the inheritor's stable storage and returns a stable
-/// raw character pointer.
-class StringSaver {
-  virtual void anchor();
-
-public:
-  virtual const char *SaveString(const char *Str) = 0;
-  virtual ~StringSaver(){}; // Pacify -Wnon-virtual-dtor.
-};
 
 /// \brief Tokenizes a command line that can contain escapes and quotes.
 //

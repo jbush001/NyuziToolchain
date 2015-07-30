@@ -16,7 +16,7 @@
 #include "llvm/MC/MCParser/MCAsmLexer.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCStreamer.h"
-#include "llvm/MC/MCSymbol.h"
+#include "llvm/MC/MCSymbolELF.h"
 #include "llvm/Support/ELF.h"
 using namespace llvm;
 
@@ -209,7 +209,7 @@ bool ELFAsmParser::ParseDirectiveSize(StringRef, SMLoc) {
   StringRef Name;
   if (getParser().parseIdentifier(Name))
     return TokError("expected identifier in directive");
-  MCSymbol *Sym = getContext().getOrCreateSymbol(Name);
+  MCSymbolELF *Sym = cast<MCSymbolELF>(getContext().getOrCreateSymbol(Name));
 
   if (getLexer().isNot(AsmToken::Comma))
     return TokError("unexpected token in directive");
@@ -222,7 +222,7 @@ bool ELFAsmParser::ParseDirectiveSize(StringRef, SMLoc) {
   if (getLexer().isNot(AsmToken::EndOfStatement))
     return TokError("unexpected token in directive");
 
-  getStreamer().EmitELFSize(Sym, Expr);
+  getStreamer().emitELFSize(Sym, Expr);
   return false;
 }
 
@@ -593,10 +593,16 @@ bool ELFAsmParser::ParseDirectiveType(StringRef, SMLoc) {
     Lex();
 
   if (getLexer().isNot(AsmToken::Identifier) &&
-      getLexer().isNot(AsmToken::Hash) && getLexer().isNot(AsmToken::At) &&
-      getLexer().isNot(AsmToken::Percent) && getLexer().isNot(AsmToken::String))
-    return TokError("expected STT_<TYPE_IN_UPPER_CASE>, '#<type>', '@<type>', "
-                    "'%<type>' or \"<type>\"");
+      getLexer().isNot(AsmToken::Hash) &&
+      getLexer().isNot(AsmToken::Percent) &&
+      getLexer().isNot(AsmToken::String)) {
+    if (!getLexer().getAllowAtInIdentifier())
+      return TokError("expected STT_<TYPE_IN_UPPER_CASE>, '#<type>', "
+                      "'%<type>' or \"<type>\"");
+    else if (getLexer().isNot(AsmToken::At))
+      return TokError("expected STT_<TYPE_IN_UPPER_CASE>, '#<type>', '@<type>', "
+                      "'%<type>' or \"<type>\"");
+  }
 
   if (getLexer().isNot(AsmToken::String) &&
       getLexer().isNot(AsmToken::Identifier))

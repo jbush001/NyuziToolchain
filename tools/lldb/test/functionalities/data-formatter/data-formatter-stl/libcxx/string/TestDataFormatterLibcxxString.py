@@ -40,7 +40,7 @@ class LibcxxStringDataFormatterTestCase(TestBase):
 
         lldbutil.run_break_set_by_file_and_line (self, "main.cpp", self.line, num_expected_locations=-1)
 
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # The stop reason of the thread should be breakpoint.
         self.expect("thread list", STOPPED_DUE_TO_BREAKPOINT,
@@ -64,7 +64,9 @@ class LibcxxStringDataFormatterTestCase(TestBase):
                     '(std::__1::wstring) S = L"!!!!"',
                     '(const wchar_t *) mazeltov = 0x','L"מזל טוב"',
                     '(std::__1::string) q = "hello world"',
-                    '(std::__1::string) Q = "quite a long std::strin with lots of info inside it"'])
+                    '(std::__1::string) Q = "quite a long std::strin with lots of info inside it"',
+                    '(std::__1::string) IHaveEmbeddedZeros = "a\\0b\\0c\\0d"',
+                    '(std::__1::wstring) IHaveEmbeddedZerosToo = L"hello world!\\0てざ ル゜䋨ミ㠧槊 きゅへ狦穤襩 じゃ馩リョ 䤦監"'])
 
         self.runCmd("n")
 
@@ -86,7 +88,9 @@ class LibcxxStringDataFormatterTestCase(TestBase):
                     '(std::__1::wstring) S = L"!!!!!"',
                     '(const wchar_t *) mazeltov = 0x','L"מזל טוב"',
                     '(std::__1::string) q = "hello world"',
-                    '(std::__1::string) Q = "quite a long std::strin with lots of info inside it"'])
+                    '(std::__1::string) Q = "quite a long std::strin with lots of info inside it"',
+                    '(std::__1::string) IHaveEmbeddedZeros = "a\\0b\\0c\\0d"',
+                    '(std::__1::wstring) IHaveEmbeddedZerosToo = L"hello world!\\0てざ ル゜䋨ミ㠧槊 きゅへ狦穤襩 じゃ馩リョ 䤦監"'])
 
 if __name__ == '__main__':
     import atexit

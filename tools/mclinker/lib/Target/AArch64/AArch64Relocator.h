@@ -58,6 +58,11 @@ class AArch64Relocator : public Relocator {
    */
   enum EntryValue { Default = 0, SymVal = 1 };
 
+  enum {
+    // mcld internal relocation to rewrite an instruction.
+    R_AARCH64_REWRITE_INSN = 1,
+  };
+
  public:
   AArch64Relocator(AArch64GNULDBackend& pParent, const LinkerConfig& pConfig);
   ~AArch64Relocator();
@@ -95,6 +100,10 @@ class AArch64Relocator : public Relocator {
                       Module& pModule,
                       LDSection& pSection,
                       Input& pInput);
+
+  /// mayHaveFunctionPointerAccess - check if the given reloc would possibly
+  /// access a function pointer.
+  virtual bool mayHaveFunctionPointerAccess(const Relocation& pReloc) const;
 
   /// getDebugStringOffset - get the offset from the relocation target. This is
   /// used to get the debug string offset.

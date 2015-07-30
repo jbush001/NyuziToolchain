@@ -27,9 +27,6 @@
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "info-gdb-mi-command".
 //          This command does not follow the MI documentation exactly.
-// Gotchas: None.
-// Authors: Illya Rudkin 06/05/2014.
-// Changes: None.
 //--
 class CMICmdCmdSupportInfoMiCmdQuery : public CMICmdBase
 {
@@ -45,11 +42,11 @@ class CMICmdCmdSupportInfoMiCmdQuery : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdSupportInfoMiCmdQuery(void);
+    /* dtor */ ~CMICmdCmdSupportInfoMiCmdQuery(void) override;
 
     // Attributes:
   private:

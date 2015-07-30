@@ -23,9 +23,6 @@ class CMICmdFactory;
 //          matches Machine Interface (MI) format and commands defined in the
 //          MI application.
 //          A singleton class.
-// Gotchas: None.
-// Authors: Illya Rudkin 18/02/2014.
-// Changes: None.
 //--
 class CMICmdInterpreter : public CMICmnBase, public MI::ISingleton<CMICmdInterpreter>
 {
@@ -35,8 +32,8 @@ class CMICmdInterpreter : public CMICmnBase, public MI::ISingleton<CMICmdInterpr
   public:
     // Methods:
   public:
-    bool Initialize(void);
-    bool Shutdown(void);
+    bool Initialize(void) override;
+    bool Shutdown(void) override;
     bool ValidateIsMi(const CMIUtilString &vTextLine, bool &vwbYesValid, bool &vwbCmdNotInCmdFactor, SMICmdData &rwCmdData);
 
     // Methods:
@@ -46,7 +43,7 @@ class CMICmdInterpreter : public CMICmnBase, public MI::ISingleton<CMICmdInterpr
     void operator=(const CMICmdInterpreter &);
 
     bool HasCmdFactoryGotMiCmd(const SMICmdData &vCmdData) const;
-    bool MiHasCmdTokenEndingHypthen(const CMIUtilString &vTextLine);
+    bool MiHasCmdTokenEndingHyphen(const CMIUtilString &vTextLine);
     bool MiHasCmdTokenEndingAlpha(const CMIUtilString &vTextLine);
     bool MiHasCmd(const CMIUtilString &vTextLine);
     bool MiHasCmdTokenPresent(const CMIUtilString &vTextLine);
@@ -55,7 +52,7 @@ class CMICmdInterpreter : public CMICmnBase, public MI::ISingleton<CMICmdInterpr
     // Overridden:
   private:
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdInterpreter(void);
+    /* dtor */ ~CMICmdInterpreter(void) override;
 
     // Attributes:
   private:

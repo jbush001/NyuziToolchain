@@ -16,15 +16,12 @@
 #include "MIDataTypes.h"
 #include "MICmnMIValueTuple.h"
 
-// Declerations:
+// Declarations:
 class CMIUtilString;
 
 //++ ============================================================================
 // Details: Utility helper class to lldb::SBValue. Using a lldb::SBValue extract
 //          value object information to help form verbose debug information.
-// Gotchas: None.
-// Authors: Illya Rudkin 08/07/2014.
-// Changes: None.
 //--
 class CMICmnLLDBUtilSBValue
 {
@@ -61,8 +58,8 @@ class CMICmnLLDBUtilSBValue
     // Attributes:
   private:
     lldb::SBValue &m_rValue;
-    const MIchar *m_pUnkwn;
-    const MIchar *m_pComposite;
+    const char *m_pUnkwn;
+    const char *m_pComposite;
     bool m_bValidSBValue;    // True = SBValue is a valid object, false = not valid.
     bool m_bHandleCharType;  // True = Yes return text molding to char type, false = just return data.
     bool m_bHandleArrayType; // True = Yes return special stub for array type, false = just return data.

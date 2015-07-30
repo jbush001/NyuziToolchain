@@ -73,7 +73,28 @@ class MiBreakTestCase(lldbmi_testcase.MiTestCaseBase):
         # Test that non-pending BP was set correctly
         self.runCmd("-exec-continue")
         self.expect("\^running")
-        self.expect("\*stopped,reason=\"breakpoint-hit\"")
+        self.expect("\*stopped,reason=\"breakpoint-hit\".*bkptno=\"2\"")
+
+        # Test that we can set a BP using the file:func syntax
+        self.runCmd("-break-insert main.cpp:main")
+        self.expect("\^done,bkpt={number=\"4\"")
+        self.runCmd("-break-insert main.cpp:ns::foo1")
+        self.expect("\^done,bkpt={number=\"5\"")
+        #FIXME: quotes on filenames aren't handled correctly in lldb-mi.
+        #self.runCmd("-break-insert \"main.cpp\":main")
+        #self.expect("\^done,bkpt={number=\"6\"")
+
+        # We should hit BP #5 on 'main.cpp:ns::foo1'
+        self.runCmd("-exec-continue")
+        self.expect("\^running")
+        self.expect("\*stopped,reason=\"breakpoint-hit\".*bkptno=\"5\"")
+
+        #FIXME: this test is disabled due to lldb bug llvm.org/pr24271.
+        # Test that we can set a BP using the global namespace token
+        #self.runCmd("-break-insert ::main")
+        #self.expect("\^done,bkpt={number=\"7\"")
+        #self.runCmd("-break-insert main.cpp:::main")
+        #self.expect("\^done,bkpt={number=\"8\"")
 
     @lldbmi_test
     @expectedFailureWindows("llvm.org/pr22274: need a pexpect replacement for windows")
@@ -178,30 +199,50 @@ class MiBreakTestCase(lldbmi_testcase.MiTestCaseBase):
         self.runCmd("-break-insert -f main.cpp:%d" % line)
         self.expect("\^done,bkpt={number=\"1\"")
 
-        # Set target.move-to-nearest-code=on and target.skip-prologue=on and set BP #2
+        # Test that non-pending BP will not be set on non-existing line if target.move-to-nearest-code=off
+        # Note: this increases the BP number by 1 even though BP #2 is invalid.
+        self.runCmd("-break-insert main.cpp:%d" % line)
+        self.expect("\^error,msg=\"Command 'break-insert'. Breakpoint location 'main.cpp:%d' not found\"" % line)
+
+        # Set target.move-to-nearest-code=on and target.skip-prologue=on and set BP #3
         self.runCmd("-interpreter-exec console \"settings set target.move-to-nearest-code on\"")
         self.runCmd("-interpreter-exec console \"settings set target.skip-prologue on\"")
         self.expect("\^done")
         self.runCmd("-break-insert main.cpp:%d" % line)
-        self.expect("\^done,bkpt={number=\"2\"")
+        self.expect("\^done,bkpt={number=\"3\"")
 
-        # Set target.skip-prologue=off and set BP #3
+        # Set target.skip-prologue=off and set BP #4
         self.runCmd("-interpreter-exec console \"settings set target.skip-prologue off\"")
         self.expect("\^done")
         self.runCmd("-break-insert main.cpp:%d" % line)
-        self.expect("\^done,bkpt={number=\"3\"")
+        self.expect("\^done,bkpt={number=\"4\"")
 
-        # Test that BP #3 is located before BP #2
+        # Test that BP #4 is located before BP #3
         self.runCmd("-exec-run")
+        self.expect("\^running")
+        self.expect("\*stopped,reason=\"breakpoint-hit\",disp=\"del\",bkptno=\"4\"")
+
+        # Test that BP #3 is hit
+        self.runCmd("-exec-continue")
         self.expect("\^running")
         self.expect("\*stopped,reason=\"breakpoint-hit\",disp=\"del\",bkptno=\"3\"")
 
-        # Test that BP #2 is hit
+        # Test that the target.language=pascal setting works and that BP #5 is NOT set
+        self.runCmd("-interpreter-exec console \"settings set target.language c\"")
+        self.expect("\^done")
+        self.runCmd("-break-insert ns.foo1")
+        self.expect("\^error")
+
+        # Test that the target.language=c++ setting works and that BP #6 is hit
+        self.runCmd("-interpreter-exec console \"settings set target.language c++\"")
+        self.expect("\^done")
+        self.runCmd("-break-insert ns::foo1")
+        self.expect("\^done,bkpt={number=\"6\"")
         self.runCmd("-exec-continue")
         self.expect("\^running")
-        self.expect("\*stopped,reason=\"breakpoint-hit\",disp=\"del\",bkptno=\"2\"")
+        self.expect("\*stopped,reason=\"breakpoint-hit\",disp=\"del\",bkptno=\"6\"")
 
-        # Test that BP #1 wasn't set
+        # Test that BP #1 and #2 weren't set by running to program exit
         self.runCmd("-exec-continue")
         self.expect("\^running")
         self.expect("\*stopped,reason=\"exited-normally\"")

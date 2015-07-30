@@ -41,9 +41,6 @@ MI commands implemented are:
 //          *this class implements MI command "enable-pretty-printing".
 //          Enables Python base pretty printing.
 // Ref:     http://sourceware.org/gdb/onlinedocs/gdb/GDB_002fMI-Variable-Objects.html
-// Gotchas: None.
-// Authors: Illya Rudkin 03/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdEnablePrettyPrinting : public CMICmdBase
 {
@@ -59,18 +56,15 @@ class CMICmdCmdEnablePrettyPrinting : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdEnablePrettyPrinting(void);
+    /* dtor */ ~CMICmdCmdEnablePrettyPrinting(void) override;
 };
 
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "source".
-// Gotchas: None.
-// Authors: Illya Rudkin 05/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdSource : public CMICmdBase
 {
@@ -86,8 +80,8 @@ class CMICmdCmdSource : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdSource(void);
+    /* dtor */ ~CMICmdCmdSource(void) override;
 };

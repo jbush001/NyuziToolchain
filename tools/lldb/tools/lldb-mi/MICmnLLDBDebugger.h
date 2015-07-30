@@ -32,9 +32,6 @@ class CMICmnLLDBDebuggerHandleEvents;
 //          to facilitate their work effort. The instance runs in its own worker
 //          thread.
 //          A singleton class.
-// Gotchas: None.
-// Authors: Illya Rudkin 26/02/2014.
-// Changes: None.
 //--
 class CMICmnLLDBDebugger : public CMICmnBase, public CMIUtilThreadActiveObjBase, public MI::ISingleton<CMICmnLLDBDebugger>
 {
@@ -42,8 +39,8 @@ class CMICmnLLDBDebugger : public CMICmnBase, public CMIUtilThreadActiveObjBase,
 
     // Methods:
   public:
-    bool Initialize(void);
-    bool Shutdown(void);
+    bool Initialize(void) override;
+    bool Shutdown(void) override;
 
     bool SetDriver(const CMIDriverBase &vClientDriver);
     CMIDriverBase &GetDriver(void) const;
@@ -62,13 +59,13 @@ class CMICmnLLDBDebugger : public CMICmnBase, public CMIUtilThreadActiveObjBase,
     // Overridden:
   public:
     // From CMIUtilThreadActiveObjBase
-    virtual const CMIUtilString &ThreadGetName(void) const;
+    const CMIUtilString &ThreadGetName(void) const override;
 
     // Overridden:
   protected:
     // From CMIUtilThreadActiveObjBase
-    virtual bool ThreadRun(bool &vrIsAlive);
-    virtual bool ThreadFinish(void);
+    bool ThreadRun(bool &vrIsAlive) override;
+    bool ThreadFinish(void) override;
 
     // Typedefs:
   private:
@@ -100,7 +97,7 @@ class CMICmnLLDBDebugger : public CMICmnBase, public CMIUtilThreadActiveObjBase,
     // Overridden:
   private:
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmnLLDBDebugger(void);
+    /* dtor */ ~CMICmnLLDBDebugger(void) override;
 
     // Attributes:
   private:

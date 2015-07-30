@@ -41,9 +41,6 @@ class CMICmnLLDBDebugSessionInfoVarObj;
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "var-create".
-// Gotchas: None.
-// Authors: Illya Rudkin 24/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdVarCreate : public CMICmdBase
 {
@@ -59,14 +56,14 @@ class CMICmdCmdVarCreate : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
 
     // Overridden:
   public:
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdVarCreate(void);
+    /* dtor */ ~CMICmdCmdVarCreate(void) override;
 
     // Methods:
   private:
@@ -92,9 +89,6 @@ class CMICmdCmdVarCreate : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "var-update".
-// Gotchas: None.
-// Authors: Illya Rudkin 25/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdVarUpdate : public CMICmdBase
 {
@@ -110,19 +104,19 @@ class CMICmdCmdVarUpdate : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
 
     // Overridden:
   public:
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdVarUpdate(void);
+    /* dtor */ ~CMICmdCmdVarUpdate(void) override;
 
     // Methods:
   private:
     bool ExamineSBValueForChange(lldb::SBValue &vrwValue, bool &vrwbChanged);
-    bool MIFormResponse(const CMIUtilString &vrStrVarName, const MIchar *const vpValue, const CMIUtilString &vrStrScope);
+    void MIFormResponse(const CMIUtilString &vrStrVarName, const char *const vpValue, const CMIUtilString &vrStrScope);
 
     // Attribute:
   private:
@@ -135,9 +129,6 @@ class CMICmdCmdVarUpdate : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "var-delete".
-// Gotchas: None.
-// Authors: Illya Rudkin 25/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdVarDelete : public CMICmdBase
 {
@@ -153,11 +144,11 @@ class CMICmdCmdVarDelete : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdVarDelete(void);
+    /* dtor */ ~CMICmdCmdVarDelete(void) override;
 
     // Attribute:
   private:
@@ -167,9 +158,6 @@ class CMICmdCmdVarDelete : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "var-assign".
-// Gotchas: None.
-// Authors: Illya Rudkin 25/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdVarAssign : public CMICmdBase
 {
@@ -185,11 +173,11 @@ class CMICmdCmdVarAssign : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdVarAssign(void);
+    /* dtor */ ~CMICmdCmdVarAssign(void) override;
 
     // Attributes:
   private:
@@ -202,9 +190,6 @@ class CMICmdCmdVarAssign : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "var-set-format".
-// Gotchas: None.
-// Authors: Illya Rudkin 26/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdVarSetFormat : public CMICmdBase
 {
@@ -220,11 +205,11 @@ class CMICmdCmdVarSetFormat : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdVarSetFormat(void);
+    /* dtor */ ~CMICmdCmdVarSetFormat(void) override;
 
     // Attributes:
   private:
@@ -236,9 +221,6 @@ class CMICmdCmdVarSetFormat : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "var-list-children".
-// Gotchas: None.
-// Authors: Illya Rudkin 26/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdVarListChildren : public CMICmdBase
 {
@@ -254,11 +236,11 @@ class CMICmdCmdVarListChildren : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdVarListChildren(void);
+    /* dtor */ ~CMICmdCmdVarListChildren(void) override;
 
     // Attributes:
   private:
@@ -275,9 +257,6 @@ class CMICmdCmdVarListChildren : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "var-evaluate-expression".
-// Gotchas: None.
-// Authors: Illya Rudkin 26/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdVarEvaluateExpression : public CMICmdBase
 {
@@ -293,11 +272,11 @@ class CMICmdCmdVarEvaluateExpression : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdVarEvaluateExpression(void);
+    /* dtor */ ~CMICmdCmdVarEvaluateExpression(void) override;
 
     // Attributes:
   private:
@@ -310,9 +289,6 @@ class CMICmdCmdVarEvaluateExpression : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "var-info-path-expression".
-// Gotchas: None.
-// Authors: Illya Rudkin 26/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdVarInfoPathExpression : public CMICmdBase
 {
@@ -328,11 +304,11 @@ class CMICmdCmdVarInfoPathExpression : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdVarInfoPathExpression(void);
+    /* dtor */ ~CMICmdCmdVarInfoPathExpression(void) override;
 
     // Attributes:
   private:
@@ -344,9 +320,6 @@ class CMICmdCmdVarInfoPathExpression : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "var-show-attributes".
-// Gotchas: None.
-// Authors: Illya Rudkin 19/05/2014.
-// Changes: None.
 //--
 class CMICmdCmdVarShowAttributes : public CMICmdBase
 {
@@ -362,11 +335,11 @@ class CMICmdCmdVarShowAttributes : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdVarShowAttributes(void);
+    /* dtor */ ~CMICmdCmdVarShowAttributes(void) override;
 
     // Attributes:
   private:

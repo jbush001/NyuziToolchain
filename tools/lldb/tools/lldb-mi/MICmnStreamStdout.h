@@ -20,9 +20,6 @@
 //          CMICmnStreamStdout sets up and tears downs stdout for the driver.
 //
 //          Singleton class.
-// Gotchas: None.
-// Authors: Illya Rudkin 12/02/2014.
-// Changes: None.
 //--
 class CMICmnStreamStdout : public CMICmnBase, public MI::ISingleton<CMICmnStreamStdout>
 {
@@ -35,8 +32,8 @@ class CMICmnStreamStdout : public CMICmnBase, public MI::ISingleton<CMICmnStream
 
     // Methods:
   public:
-    bool Initialize(void);
-    bool Shutdown(void);
+    bool Initialize(void) override;
+    bool Shutdown(void) override;
     //
     bool Lock(void);
     bool Unlock(void);
@@ -54,7 +51,7 @@ class CMICmnStreamStdout : public CMICmnBase, public MI::ISingleton<CMICmnStream
     // Overridden:
   private:
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmnStreamStdout(void);
+    /* dtor */ ~CMICmnStreamStdout(void) override;
 
     // Attributes:
   private:

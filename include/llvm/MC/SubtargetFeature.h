@@ -30,7 +30,7 @@ namespace llvm {
 // A container class for subtarget features.
 // This is convenient because std::bitset does not have a constructor
 // with an initializer list of set bits.
-const unsigned MAX_SUBTARGET_FEATURES = 64;
+const unsigned MAX_SUBTARGET_FEATURES = 96;
 class FeatureBitset : public std::bitset<MAX_SUBTARGET_FEATURES> {
 public:
   // Cannot inherit constructors because it's not supported by VC++..
@@ -102,6 +102,10 @@ public:
   /// bits.
   FeatureBitset ToggleFeature(FeatureBitset Bits, StringRef String,
                          ArrayRef<SubtargetFeatureKV> FeatureTable);
+
+  /// Apply the feature flag and return the newly updated feature bits.
+  FeatureBitset ApplyFeatureFlag(FeatureBitset Bits, StringRef Feature,
+                                 ArrayRef<SubtargetFeatureKV> FeatureTable);
 
   /// Get feature bits of a CPU.
   FeatureBitset getFeatureBits(StringRef CPU,

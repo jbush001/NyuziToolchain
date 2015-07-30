@@ -45,6 +45,8 @@
 #include "lldb/Host/windows/ConnectionGenericFileWindows.h"
 #endif
 
+#include "llvm/ADT/StringRef.h"
+
 using namespace lldb;
 using namespace lldb_private;
 
@@ -210,6 +212,14 @@ ScriptInterpreterPython::ScriptInterpreterPython (CommandInterpreter &interprete
 
 ScriptInterpreterPython::~ScriptInterpreterPython ()
 {
+    // the session dictionary may hold objects with complex state
+    // which means that they may need to be torn down with some level of smarts
+    // and that, in turn, requires a valid thread state
+    // force Python to procure itself such a thread state, nuke the session dictionary
+    // and then release it for others to use and proceed with the rest of the shutdown
+    auto gil_state = PyGILState_Ensure();
+    m_session_dict.Reset();
+    PyGILState_Release(gil_state);
 }
 
 void
@@ -2615,6 +2625,16 @@ ScriptInterpreterPython::LoadScriptingModule(const char *pathname, bool can_relo
 bool
 ScriptInterpreterPython::IsReservedWord (const char* word)
 {
+    if (!word || !word[0])
+        return false;
+    
+    llvm::StringRef word_sr(word);
+
+    // filter out a few characters that would just confuse us
+    // and that are clearly not keyword material anyway
+    if (word_sr.find_first_of("'\"") != llvm::StringRef::npos)
+        return false;
+    
     StreamString command_stream;
     command_stream.Printf("keyword.iskeyword('%s')", word);
     bool result;

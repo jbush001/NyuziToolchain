@@ -36,11 +36,7 @@
 #include "lldb/Target/Target.h"
 #include "lldb/Target/Process.h"
 
-#if defined(__linux__)
-#include "../../Process/Linux/NativeProcessLinux.h"
-#endif
-
-// Define these constants from Linux mman.h for use when targetting
+// Define these constants from Linux mman.h for use when targeting
 // remote linux systems even when host has different values.
 #define MAP_PRIVATE 2
 #define MAP_ANON 0x20
@@ -57,11 +53,6 @@ static uint32_t g_initialize_count = 0;
 
 namespace
 {
-    enum
-    {
-        ePropertyUseLlgsForLocal = 0,
-    };
-
     class PlatformLinuxProperties : public Properties
     {
     public:
@@ -72,9 +63,6 @@ namespace
 
         virtual
         ~PlatformLinuxProperties() = default;
-
-        bool
-        GetUseLlgsForLocal() const;
 
     private:
         static const PropertyDefinition*
@@ -99,26 +87,14 @@ PlatformLinuxProperties::GetSettingName ()
     return g_setting_name;
 }
 
-bool
-PlatformLinuxProperties::GetUseLlgsForLocal() const
-{
-    const uint32_t idx = ePropertyUseLlgsForLocal;
-    return m_collection_sp->GetPropertyAtIndexAsBoolean (NULL, idx, GetStaticPropertyDefinitions()[idx].default_uint_value != 0);
-}
-
 const PropertyDefinition*
 PlatformLinuxProperties::GetStaticPropertyDefinitions()
 {
     static PropertyDefinition
     g_properties[] =
     {
-        { "use-llgs-for-local" , OptionValue::eTypeBoolean, true, true, NULL, NULL, "Control whether the platform uses llgs for local debug sessions." },
         {  NULL        , OptionValue::eTypeInvalid, false, 0  , NULL, NULL, NULL  }
     };
-
-    // Allow environment variable to disable llgs-local.
-    if (getenv("PLATFORM_LINUX_DISABLE_LLGS_LOCAL"))
-        g_properties[ePropertyUseLlgsForLocal].default_uint_value = false;
 
     return g_properties;
 }
@@ -300,7 +276,7 @@ PlatformLinux::ResolveExecutable (const ModuleSpec &ms,
     {
         if (m_remote_platform_sp)
         {
-            error = GetCachedExecutable (resolved_module_spec, exe_module_sp, nullptr, *m_remote_platform_sp);
+            error = GetCachedExecutable (resolved_module_spec, exe_module_sp, module_search_paths_ptr, *m_remote_platform_sp);
         }
         else
         {
@@ -513,6 +489,8 @@ PlatformLinux::GetSupportedArchitectureAtIndex (uint32_t idx, ArchSpec &arch)
             case 4: triple.setArchName("mips64"); break;
             case 5: triple.setArchName("hexagon"); break;
             case 6: triple.setArchName("mips"); break;
+            case 7: triple.setArchName("mips64el"); break;
+            case 8: triple.setArchName("mipsel"); break;
             default: return false;
         }
         // Leave the vendor as "llvm::Triple:UnknownVendor" and don't specify the vendor by
@@ -676,21 +654,11 @@ PlatformLinux::GetResumeCountForLaunchInfo (ProcessLaunchInfo &launch_info)
 }
 
 bool
-PlatformLinux::UseLlgsForLocalDebugging ()
-{
-    PlatformLinuxPropertiesSP properties_sp = GetGlobalProperties ();
-    assert (properties_sp && "global properties shared pointer is null");
-    return properties_sp ? properties_sp->GetUseLlgsForLocal () : false;
-}
-
-bool
 PlatformLinux::CanDebugProcess ()
 {
     if (IsHost ())
     {
-        // The platform only does local debugging (i.e. uses llgs) when the setting indicates we do that.
-        // Otherwise, we'll use ProcessLinux/ProcessPOSIX to handle with ProcessMonitor.
-        return UseLlgsForLocalDebugging ();
+        return true;
     }
     else
     {
@@ -721,14 +689,6 @@ PlatformLinux::DebugProcess (ProcessLaunchInfo &launch_info,
     //
 
     ProcessSP process_sp;
-
-    // Ensure we're using llgs for local debugging.
-    if (!UseLlgsForLocalDebugging ())
-    {
-        assert (false && "we're trying to debug a local process but platform.plugin.linux.use-llgs-for-local is false, should never get here");
-        error.SetErrorString ("attempted to start gdb-remote-based debugging for local process but platform.plugin.linux.use-llgs-for-local is false");
-        return process_sp;
-    }
 
     // Make sure we stop at the entry point
     launch_info.GetFlags ().Set (eLaunchFlagDebug);
@@ -793,9 +753,6 @@ PlatformLinux::DebugProcess (ProcessLaunchInfo &launch_info,
         if (log)
             log->Printf ("PlatformLinux::%s successfully created process", __FUNCTION__);
     }
-
-    // Set the unix signals properly.
-    process_sp->SetUnixSignals (Host::GetUnixSignals ());
 
     // Adjust launch for a hijacker.
     ListenerSP listener_sp;
@@ -878,66 +835,22 @@ PlatformLinux::CalculateTrapHandlerSymbolNames ()
     m_trap_handlers.push_back (ConstString ("_sigtramp"));
 }
 
-Error
-PlatformLinux::LaunchNativeProcess (ProcessLaunchInfo &launch_info,
-                                    NativeProcessProtocol::NativeDelegate &native_delegate,
-                                    NativeProcessProtocolSP &process_sp)
-{
-#if !defined(__linux__)
-    return Error("Only implemented on Linux hosts");
-#else
-    if (!IsHost ())
-        return Error("PlatformLinux::%s (): cannot launch a debug process when not the host", __FUNCTION__);
-
-    // Retrieve the exe module.
-    lldb::ModuleSP exe_module_sp;
-    ModuleSpec exe_module_spec(launch_info.GetExecutableFile(), launch_info.GetArchitecture());
-
-    Error error = ResolveExecutable (
-        exe_module_spec,
-        exe_module_sp,
-        NULL);
-
-    if (!error.Success ())
-        return error;
-
-    if (!exe_module_sp)
-        return Error("exe_module_sp could not be resolved for %s", launch_info.GetExecutableFile ().GetPath ().c_str ());
-
-    // Launch it for debugging
-    error = process_linux::NativeProcessLinux::LaunchProcess (
-        exe_module_sp.get (),
-        launch_info,
-        native_delegate,
-        process_sp);
-
-    return error;
-#endif
-}
-
-Error
-PlatformLinux::AttachNativeProcess (lldb::pid_t pid,
-                                    NativeProcessProtocol::NativeDelegate &native_delegate,
-                                    NativeProcessProtocolSP &process_sp)
-{
-#if !defined(__linux__)
-    return Error("Only implemented on Linux hosts");
-#else
-    if (!IsHost ())
-        return Error("PlatformLinux::%s (): cannot attach to a debug process when not the host", __FUNCTION__);
-
-    // Launch it for debugging
-    return process_linux::NativeProcessLinux::AttachToProcess (pid, native_delegate, process_sp);
-#endif
-}
-
 uint64_t
-PlatformLinux::ConvertMmapFlagsToPlatform(unsigned flags)
+PlatformLinux::ConvertMmapFlagsToPlatform(const ArchSpec &arch, unsigned flags)
 {
     uint64_t flags_platform = 0;
+    uint64_t map_anon = MAP_ANON;
+
+    // To get correct flags for MIPS Architecture
+    if (arch.GetTriple ().getArch () == llvm::Triple::mips64
+       || arch.GetTriple ().getArch () == llvm::Triple::mips64el 
+       || arch.GetTriple ().getArch () == llvm::Triple::mips 
+       || arch.GetTriple ().getArch () == llvm::Triple::mipsel)
+           map_anon = 0x800;
+
     if (flags & eMmapFlagsPrivate)
         flags_platform |= MAP_PRIVATE;
     if (flags & eMmapFlagsAnon)
-        flags_platform |= MAP_ANON;
+        flags_platform |= map_anon;
     return flags_platform;
 }

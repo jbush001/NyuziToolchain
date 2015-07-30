@@ -13,11 +13,11 @@
 #include "MICmnLLDBUtilSBValue.h"
 
 // Instantiations:
-const MIchar *CMICmnLLDBDebugSessionInfoVarObj::ms_aVarFormatStrings[] = {
+const char *CMICmnLLDBDebugSessionInfoVarObj::ms_aVarFormatStrings[] = {
     // CODETAG_SESSIONINFO_VARFORMAT_ENUM
     // *** Order is import here.
     "<Invalid var format>", "binary", "octal", "decimal", "hexadecimal", "natural"};
-const MIchar *CMICmnLLDBDebugSessionInfoVarObj::ms_aVarFormatChars[] = {
+const char *CMICmnLLDBDebugSessionInfoVarObj::ms_aVarFormatChars[] = {
     // CODETAG_SESSIONINFO_VARFORMAT_ENUM
     // *** Order is import here.
     "<Invalid var format>", "t", "o", "d", "x", "N"};
@@ -223,7 +223,7 @@ CMICmnLLDBDebugSessionInfoVarObj::GetVarFormatForString(const CMIUtilString &vrS
     // CODETAG_SESSIONINFO_VARFORMAT_ENUM
     for (MIuint i = 0; i < eVarFormat_count; i++)
     {
-        const MIchar *pVarFormatString = ms_aVarFormatStrings[i];
+        const char *pVarFormatString = ms_aVarFormatStrings[i];
         if (vrStrFormat == pVarFormatString)
             return static_cast<varFormat_e>(i);
     }
@@ -234,22 +234,22 @@ CMICmnLLDBDebugSessionInfoVarObj::GetVarFormatForString(const CMIUtilString &vrS
 //++ ------------------------------------------------------------------------------------
 // Details: Retrieve the var format enumeration for the specified character.
 // Type:    Static method.
-// Args:    vrcFormat   - (R) Character representing the var format.
+// Args:    vcFormat    - Character representing the var format.
 // Return:  varFormat_e - Var format enumeration.
 //                      - No match found return eVarFormat_Invalid.
 // Throws:  None.
 //--
 CMICmnLLDBDebugSessionInfoVarObj::varFormat_e
-CMICmnLLDBDebugSessionInfoVarObj::GetVarFormatForChar(const MIchar &vrcFormat)
+CMICmnLLDBDebugSessionInfoVarObj::GetVarFormatForChar(char vcFormat)
 {
-    if ('r' == vrcFormat)
+    if ('r' == vcFormat)
         return eVarFormat_Hex;
 
     // CODETAG_SESSIONINFO_VARFORMAT_ENUM
     for (MIuint i = 0; i < eVarFormat_count; i++)
     {
-        const MIchar *pVarFormatChar = ms_aVarFormatChars[i];
-        if (*pVarFormatChar == vrcFormat)
+        const char *pVarFormatChar = ms_aVarFormatChars[i];
+        if (*pVarFormatChar == vcFormat)
             return static_cast<varFormat_e>(i);
     }
 
@@ -285,11 +285,11 @@ CMICmnLLDBDebugSessionInfoVarObj::GetValueStringFormatted(const lldb::SBValue &v
         }
     }
 
-    return utilValue.GetValue().Escape().AddSlashes();
+    return utilValue.GetValue().AddSlashes();
 }
 
 //++ ------------------------------------------------------------------------------------
-// Details: Return nuber formatted string according to the given value type.
+// Details: Return number formatted string according to the given value type.
 // Type:    Static method.
 // Args:    vnValue             - (R) The number value to get formatted.
 //          vpStrValueNatural   - (R) The natural representation of the number value.
@@ -298,7 +298,7 @@ CMICmnLLDBDebugSessionInfoVarObj::GetValueStringFormatted(const lldb::SBValue &v
 // Throws:  None.
 //--
 CMIUtilString
-CMICmnLLDBDebugSessionInfoVarObj::GetStringFormatted(const MIuint64 vnValue, const MIchar *vpStrValueNatural,
+CMICmnLLDBDebugSessionInfoVarObj::GetStringFormatted(const MIuint64 vnValue, const char *vpStrValueNatural,
                                                      const CMICmnLLDBDebugSessionInfoVarObj::varFormat_e veVarFormat)
 {
     CMIUtilString strFormattedValue;
@@ -535,7 +535,7 @@ CMICmnLLDBDebugSessionInfoVarObj::GetValue(void) const
 }
 
 //++ ------------------------------------------------------------------------------------
-// Details: Set the var format type for *this object and upate the formatting.
+// Details: Set the var format type for *this object and update the formatting.
 // Type:    Method.
 // Args:    None.
 // Return:  MIstatus::success - Functional succeeded.

@@ -546,6 +546,14 @@ FileSpec::Equal (const FileSpec& a, const FileSpec& b, bool full, bool remove_ba
 }
 
 void
+FileSpec::NormalizePath ()
+{
+    ConstString normalized_directory;
+    FileSpec::RemoveBackupDots(m_directory, normalized_directory);
+    m_directory = normalized_directory;
+}
+
+void
 FileSpec::RemoveBackupDots (const ConstString &input_const_str, ConstString &result_const_str)
 {
     const char *input = input_const_str.GetCString();
@@ -779,6 +787,28 @@ FileSpec::GetFileType () const
         return eFileTypeUnknown;
     }
     return eFileTypeInvalid;
+}
+
+bool
+FileSpec::IsSymbolicLink () const
+{
+    char resolved_path[PATH_MAX];
+    if (!GetPath (resolved_path, sizeof (resolved_path)))
+        return false;
+
+#ifdef _WIN32
+    auto attrs = ::GetFileAttributes (resolved_path);
+    if (attrs == INVALID_FILE_ATTRIBUTES)
+        return false;
+
+    return (attrs & FILE_ATTRIBUTE_REPARSE_POINT);
+#else
+    struct stat file_stats;
+    if (::lstat (resolved_path, &file_stats) != 0)
+        return false;
+
+    return (file_stats.st_mode & S_IFMT) == S_IFLNK;
+#endif
 }
 
 uint32_t
@@ -1062,15 +1092,7 @@ FileSpec::ReadFileLines (STLStringArray &lines)
 }
 
 FileSpec::EnumerateDirectoryResult
-FileSpec::EnumerateDirectory
-(
-    const char *dir_path, 
-    bool find_directories,
-    bool find_files,
-    bool find_other,
-    EnumerateDirectoryCallbackType callback,
-    void *callback_baton
-)
+FileSpec::ForEachItemInDirectory (const char *dir_path, DirectoryCallback const &callback)
 {
     if (dir_path && dir_path[0])
     {
@@ -1088,7 +1110,6 @@ FileSpec::EnumerateDirectory
 
         do
         {
-            bool call_callback = false;
             FileSpec::FileType file_type = eFileTypeUnknown;
             if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
             {
@@ -1101,31 +1122,27 @@ FileSpec::EnumerateDirectory
                     continue;
 
                 file_type = eFileTypeDirectory;
-                call_callback = find_directories;
             }
             else if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DEVICE)
             {
                 file_type = eFileTypeOther;
-                call_callback = find_other;
             }
             else
             {
                 file_type = eFileTypeRegular;
-                call_callback = find_files;
             }
-            if (call_callback)
+
+            char child_path[MAX_PATH];
+            const int child_path_len = ::snprintf (child_path, sizeof(child_path), "%s\\%s", dir_path, ffd.cFileName);
+            if (child_path_len < (int)(sizeof(child_path) - 1))
             {
-                char child_path[MAX_PATH];
-                const int child_path_len = ::snprintf (child_path, sizeof(child_path), "%s\\%s", dir_path, ffd.cFileName);
-                if (child_path_len < (int)(sizeof(child_path) - 1))
+                // Don't resolve the file type or path
+                FileSpec child_path_spec (child_path, false);
+
+                EnumerateDirectoryResult result = callback (file_type, child_path_spec);
+
+                switch (result)
                 {
-                    // Don't resolve the file type or path
-                    FileSpec child_path_spec (child_path, false);
-
-                    EnumerateDirectoryResult result = callback (callback_baton, file_type, child_path_spec);
-
-                    switch (result)
-                    {
                     case eEnumerateDirectoryResultNext:
                         // Enumerate next entry in the current directory. We just
                         // exit this switch and will continue enumerating the
@@ -1133,27 +1150,21 @@ FileSpec::EnumerateDirectory
                         break;
 
                     case eEnumerateDirectoryResultEnter: // Recurse into the current entry if it is a directory or symlink, or next if not
-                        if (FileSpec::EnumerateDirectory(child_path,
-                            find_directories,
-                            find_files,
-                            find_other,
-                            callback,
-                            callback_baton) == eEnumerateDirectoryResultQuit)
+                        if (FileSpec::ForEachItemInDirectory(child_path, callback) == eEnumerateDirectoryResultQuit)
                         {
-                            // The subdirectory returned Quit, which means to 
+                            // The subdirectory returned Quit, which means to
                             // stop all directory enumerations at all levels.
                             return eEnumerateDirectoryResultQuit;
                         }
                         break;
 
                     case eEnumerateDirectoryResultExit:  // Exit from the current directory at the current level.
-                        // Exit from this directory level and tell parent to 
+                        // Exit from this directory level and tell parent to
                         // keep enumerating.
                         return eEnumerateDirectoryResultNext;
 
                     case eEnumerateDirectoryResultQuit:  // Stop directory enumerations at any level
                         return eEnumerateDirectoryResultQuit;
-                    }
                 }
             }
         } while (FindNextFile(hFind, &ffd) != 0);
@@ -1186,80 +1197,71 @@ FileSpec::EnumerateDirectory
                     if (len == 2 && dp->d_name[0] == '.' && dp->d_name[1] == '.')
                         continue;
                 }
-            
-                bool call_callback = false;
+
                 FileSpec::FileType file_type = eFileTypeUnknown;
 
                 switch (dp->d_type)
                 {
-                default:
-                case DT_UNKNOWN:    file_type = eFileTypeUnknown;       call_callback = true;               break;
-                case DT_FIFO:       file_type = eFileTypePipe;          call_callback = find_other;         break;
-                case DT_CHR:        file_type = eFileTypeOther;         call_callback = find_other;         break;
-                case DT_DIR:        file_type = eFileTypeDirectory;     call_callback = find_directories;   break;
-                case DT_BLK:        file_type = eFileTypeOther;         call_callback = find_other;         break;
-                case DT_REG:        file_type = eFileTypeRegular;       call_callback = find_files;         break;
-                case DT_LNK:        file_type = eFileTypeSymbolicLink;  call_callback = find_other;         break;
-                case DT_SOCK:       file_type = eFileTypeSocket;        call_callback = find_other;         break;
+                    default:
+                    case DT_UNKNOWN:    file_type = eFileTypeUnknown;       break;
+                    case DT_FIFO:       file_type = eFileTypePipe;          break;
+                    case DT_CHR:        file_type = eFileTypeOther;         break;
+                    case DT_DIR:        file_type = eFileTypeDirectory;     break;
+                    case DT_BLK:        file_type = eFileTypeOther;         break;
+                    case DT_REG:        file_type = eFileTypeRegular;       break;
+                    case DT_LNK:        file_type = eFileTypeSymbolicLink;  break;
+                    case DT_SOCK:       file_type = eFileTypeSocket;        break;
 #if !defined(__OpenBSD__)
-                case DT_WHT:        file_type = eFileTypeOther;         call_callback = find_other;         break;
+                    case DT_WHT:        file_type = eFileTypeOther;         break;
 #endif
                 }
 
-                if (call_callback)
+                char child_path[PATH_MAX];
+
+                // Don't make paths with "/foo//bar", that just confuses everybody.
+                int child_path_len;
+                if (dir_path_last_char == '/')
+                    child_path_len = ::snprintf (child_path, sizeof(child_path), "%s%s", dir_path, dp->d_name);
+                else
+                    child_path_len = ::snprintf (child_path, sizeof(child_path), "%s/%s", dir_path, dp->d_name);
+
+                if (child_path_len < (int)(sizeof(child_path) - 1))
                 {
-                    char child_path[PATH_MAX];
+                    // Don't resolve the file type or path
+                    FileSpec child_path_spec (child_path, false);
 
-                    // Don't make paths with "/foo//bar", that just confuses everybody.
-                    int child_path_len;
-                    if (dir_path_last_char == '/')
-                        child_path_len = ::snprintf (child_path, sizeof(child_path), "%s%s", dir_path, dp->d_name);
-                    else
-                        child_path_len = ::snprintf (child_path, sizeof(child_path), "%s/%s", dir_path, dp->d_name);
+                    EnumerateDirectoryResult result = callback (file_type, child_path_spec);
 
-                    if (child_path_len < (int)(sizeof(child_path) - 1))
+                    switch (result)
                     {
-                        // Don't resolve the file type or path
-                        FileSpec child_path_spec (child_path, false);
-
-                        EnumerateDirectoryResult result = callback (callback_baton, file_type, child_path_spec);
-                        
-                        switch (result)
-                        {
-                        case eEnumerateDirectoryResultNext:  
+                        case eEnumerateDirectoryResultNext:
                             // Enumerate next entry in the current directory. We just
                             // exit this switch and will continue enumerating the
                             // current directory as we currently are...
                             break;
 
                         case eEnumerateDirectoryResultEnter: // Recurse into the current entry if it is a directory or symlink, or next if not
-                            if (FileSpec::EnumerateDirectory (child_path, 
-                                                              find_directories, 
-                                                              find_files, 
-                                                              find_other, 
-                                                              callback, 
-                                                              callback_baton) == eEnumerateDirectoryResultQuit)
+                            if (FileSpec::ForEachItemInDirectory (child_path, callback) == eEnumerateDirectoryResultQuit)
                             {
-                                // The subdirectory returned Quit, which means to 
+                                // The subdirectory returned Quit, which means to
                                 // stop all directory enumerations at all levels.
                                 if (buf)
                                     free (buf);
                                 return eEnumerateDirectoryResultQuit;
                             }
                             break;
-                        
+
                         case eEnumerateDirectoryResultExit:  // Exit from the current directory at the current level.
-                            // Exit from this directory level and tell parent to 
+                            // Exit from this directory level and tell parent to
                             // keep enumerating.
                             if (buf)
                                 free (buf);
                             return eEnumerateDirectoryResultNext;
-
+                            
                         case eEnumerateDirectoryResultQuit:  // Stop directory enumerations at any level
                             if (buf)
                                 free (buf);
                             return eEnumerateDirectoryResultQuit;
-                        }
                     }
                 }
             }
@@ -1273,6 +1275,39 @@ FileSpec::EnumerateDirectory
     // By default when exiting a directory, we tell the parent enumeration
     // to continue enumerating.
     return eEnumerateDirectoryResultNext;    
+}
+
+FileSpec::EnumerateDirectoryResult
+FileSpec::EnumerateDirectory
+(
+    const char *dir_path, 
+    bool find_directories,
+    bool find_files,
+    bool find_other,
+    EnumerateDirectoryCallbackType callback,
+    void *callback_baton
+)
+{
+    return ForEachItemInDirectory(dir_path,
+            [&find_directories, &find_files, &find_other, &callback, &callback_baton]
+            (FileType file_type, const FileSpec &file_spec) {
+                switch (file_type)
+                {
+                    case FileType::eFileTypeDirectory:
+                        if (find_directories)
+                            return callback(callback_baton, file_type, file_spec);
+                        break;
+                    case FileType::eFileTypeRegular:
+                        if (find_files)
+                            return callback(callback_baton, file_type, file_spec);
+                        break;
+                    default:
+                        if (find_other)
+                            return callback(callback_baton, file_type, file_spec);
+                        break;
+                }
+                return eEnumerateDirectoryResultNext;
+            });
 }
 
 FileSpec
@@ -1354,21 +1389,54 @@ FileSpec::GetLastPathComponent () const
 }
 
 void
-FileSpec::AppendPathComponent (const char *new_path)
+FileSpec::PrependPathComponent(const char *new_path)
 {
+    if (!new_path) return;
     const bool resolve = false;
     if (m_filename.IsEmpty() && m_directory.IsEmpty())
     {
-        SetFile(new_path,resolve);
+        SetFile(new_path, resolve);
         return;
     }
     StreamString stream;
     if (m_filename.IsEmpty())
-        stream.Printf("%s/%s",m_directory.GetCString(),new_path);
+        stream.Printf("%s/%s", new_path, m_directory.GetCString());
     else if (m_directory.IsEmpty())
-        stream.Printf("%s/%s",m_filename.GetCString(),new_path);
+        stream.Printf("%s/%s", new_path, m_filename.GetCString());
     else
-        stream.Printf("%s/%s/%s",m_directory.GetCString(), m_filename.GetCString(),new_path);
+        stream.Printf("%s/%s/%s", new_path, m_directory.GetCString(), m_filename.GetCString());
+    SetFile(stream.GetData(), resolve);
+}
+
+void
+FileSpec::PrependPathComponent(const std::string &new_path)
+{
+    return PrependPathComponent(new_path.c_str());
+}
+
+void
+FileSpec::PrependPathComponent(const FileSpec &new_path)
+{
+    return PrependPathComponent(new_path.GetPath(false));
+}
+
+void
+FileSpec::AppendPathComponent(const char *new_path)
+{
+    if (!new_path) return;
+    const bool resolve = false;
+    if (m_filename.IsEmpty() && m_directory.IsEmpty())
+    {
+        SetFile(new_path, resolve);
+        return;
+    }
+    StreamString stream;
+    if (m_filename.IsEmpty())
+        stream.Printf("%s/%s", m_directory.GetCString(), new_path);
+    else if (m_directory.IsEmpty())
+        stream.Printf("%s/%s", m_filename.GetCString(), new_path);
+    else
+        stream.Printf("%s/%s/%s", m_directory.GetCString(), m_filename.GetCString(), new_path);
     SetFile(stream.GetData(), resolve);
 }
 
@@ -1376,6 +1444,12 @@ void
 FileSpec::AppendPathComponent(const std::string &new_path)
 {
     return AppendPathComponent(new_path.c_str());
+}
+
+void
+FileSpec::AppendPathComponent(const FileSpec &new_path)
+{
+    return AppendPathComponent(new_path.GetPath(false));
 }
 
 void
@@ -1437,7 +1511,7 @@ FileSpec::IsSourceImplementationFile () const
 }
 
 bool
-FileSpec::IsRelativeToCurrentWorkingDirectory () const
+FileSpec::IsRelative() const
 {
     const char *dir = m_directory.GetCString();
     llvm::StringRef directory(dir ? dir : "");
@@ -1471,4 +1545,10 @@ FileSpec::IsRelativeToCurrentWorkingDirectory () const
         return true;
     }
     return false;
+}
+
+bool
+FileSpec::IsAbsolute() const
+{
+    return !FileSpec::IsRelative();
 }

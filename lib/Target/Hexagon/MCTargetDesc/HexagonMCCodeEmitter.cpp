@@ -22,6 +22,7 @@
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/EndianStream.h"
 #include "llvm/Support/raw_ostream.h"
 
 #define DEBUG_TYPE "mccodeemitter"
@@ -31,15 +32,6 @@ using namespace Hexagon;
 
 STATISTIC(MCNumEmitted, "Number of MC instructions emitted");
 
-namespace {
-void emitLittleEndian(uint64_t Binary, raw_ostream &OS) {
-  OS << static_cast<uint8_t>((Binary >> 0x00) & 0xff);
-  OS << static_cast<uint8_t>((Binary >> 0x08) & 0xff);
-  OS << static_cast<uint8_t>((Binary >> 0x10) & 0xff);
-  OS << static_cast<uint8_t>((Binary >> 0x18) & 0xff);
-}
-}
-
 HexagonMCCodeEmitter::HexagonMCCodeEmitter(MCInstrInfo const &aMII,
                                            MCContext &aMCT)
     : MCT(aMCT), MCII(aMII), Addend(new unsigned(0)),
@@ -48,17 +40,24 @@ HexagonMCCodeEmitter::HexagonMCCodeEmitter(MCInstrInfo const &aMII,
 uint32_t HexagonMCCodeEmitter::parseBits(size_t Instruction, size_t Last,
                                          MCInst const &MCB,
                                          MCInst const &MCI) const {
+  bool Duplex = HexagonMCInstrInfo::isDuplex(MCII, MCI);
   if (Instruction == 0) {
     if (HexagonMCInstrInfo::isInnerLoop(MCB)) {
+      assert(!Duplex);
       assert(Instruction != Last);
       return HexagonII::INST_PARSE_LOOP_END;
     }
   }
   if (Instruction == 1) {
     if (HexagonMCInstrInfo::isOuterLoop(MCB)) {
+      assert(!Duplex);
       assert(Instruction != Last);
       return HexagonII::INST_PARSE_LOOP_END;
     }
+  }
+  if (Duplex) {
+    assert(Instruction == Last);
+    return HexagonII::INST_PARSE_DUPLEX;
   }
   if(Instruction == Last)
     return HexagonII::INST_PARSE_PACKET_END;
@@ -157,7 +156,82 @@ void HexagonMCCodeEmitter::EncodeSingleInstruction(
     llvm_unreachable("Unimplemented Instruction");
   }
   Binary |= Parse;
-  emitLittleEndian(Binary, OS);
+
+  // if we need to emit a duplexed instruction
+  if (HMB.getOpcode() >= Hexagon::DuplexIClass0 &&
+      HMB.getOpcode() <= Hexagon::DuplexIClassF) {
+    assert(Parse == HexagonII::INST_PARSE_DUPLEX &&
+           "Emitting duplex without duplex parse bits");
+    unsigned dupIClass;
+    switch (HMB.getOpcode()) {
+    case Hexagon::DuplexIClass0:
+      dupIClass = 0;
+      break;
+    case Hexagon::DuplexIClass1:
+      dupIClass = 1;
+      break;
+    case Hexagon::DuplexIClass2:
+      dupIClass = 2;
+      break;
+    case Hexagon::DuplexIClass3:
+      dupIClass = 3;
+      break;
+    case Hexagon::DuplexIClass4:
+      dupIClass = 4;
+      break;
+    case Hexagon::DuplexIClass5:
+      dupIClass = 5;
+      break;
+    case Hexagon::DuplexIClass6:
+      dupIClass = 6;
+      break;
+    case Hexagon::DuplexIClass7:
+      dupIClass = 7;
+      break;
+    case Hexagon::DuplexIClass8:
+      dupIClass = 8;
+      break;
+    case Hexagon::DuplexIClass9:
+      dupIClass = 9;
+      break;
+    case Hexagon::DuplexIClassA:
+      dupIClass = 10;
+      break;
+    case Hexagon::DuplexIClassB:
+      dupIClass = 11;
+      break;
+    case Hexagon::DuplexIClassC:
+      dupIClass = 12;
+      break;
+    case Hexagon::DuplexIClassD:
+      dupIClass = 13;
+      break;
+    case Hexagon::DuplexIClassE:
+      dupIClass = 14;
+      break;
+    case Hexagon::DuplexIClassF:
+      dupIClass = 15;
+      break;
+    default:
+      llvm_unreachable("Unimplemented DuplexIClass");
+      break;
+    }
+    // 29 is the bit position.
+    // 0b1110 =0xE bits are masked off and down shifted by 1 bit.
+    // Last bit is moved to bit position 13
+    Binary = ((dupIClass & 0xE) << (29 - 1)) | ((dupIClass & 0x1) << 13);
+
+    const MCInst *subInst0 = HMB.getOperand(0).getInst();
+    const MCInst *subInst1 = HMB.getOperand(1).getInst();
+
+    // get subinstruction slot 0
+    unsigned subInstSlot0Bits = getBinaryCodeForInstr(*subInst0, Fixups, STI);
+    // get subinstruction slot 1
+    unsigned subInstSlot1Bits = getBinaryCodeForInstr(*subInst1, Fixups, STI);
+
+    Binary |= subInstSlot0Bits | (subInstSlot1Bits << 16);
+  }
+  support::endian::Writer<support::little>(OS).write<uint32_t>(Binary);
   ++MCNumEmitted;
 }
 
@@ -268,6 +342,36 @@ static Hexagon::Fixups getFixupNoBits(MCInstrInfo const &MCII, const MCInst &MI,
   return LastTargetFixupKind;
 }
 
+namespace llvm {
+extern const MCInstrDesc HexagonInsts[];
+}
+
+namespace {
+  bool isPCRel (unsigned Kind) {
+    switch(Kind){
+    case fixup_Hexagon_B22_PCREL:
+    case fixup_Hexagon_B15_PCREL:
+    case fixup_Hexagon_B7_PCREL:
+    case fixup_Hexagon_B13_PCREL:
+    case fixup_Hexagon_B9_PCREL:
+    case fixup_Hexagon_B32_PCREL_X:
+    case fixup_Hexagon_B22_PCREL_X:
+    case fixup_Hexagon_B15_PCREL_X:
+    case fixup_Hexagon_B13_PCREL_X:
+    case fixup_Hexagon_B9_PCREL_X:
+    case fixup_Hexagon_B7_PCREL_X:
+    case fixup_Hexagon_32_PCREL:
+    case fixup_Hexagon_PLT_B22_PCREL:
+    case fixup_Hexagon_GD_PLT_B22_PCREL:
+    case fixup_Hexagon_LD_PLT_B22_PCREL:
+    case fixup_Hexagon_6_PCREL_X:
+      return true;
+    default:
+      return false;
+    }
+  }
+}
+
 unsigned HexagonMCCodeEmitter::getExprOpValue(const MCInst &MI,
                                               const MCOperand &MO,
                                               const MCExpr *ME,
@@ -289,7 +393,7 @@ unsigned HexagonMCCodeEmitter::getExprOpValue(const MCInst &MI,
     Res = getExprOpValue(MI, MO, cast<MCBinaryExpr>(ME)->getLHS(), Fixups, STI);
     Res +=
         getExprOpValue(MI, MO, cast<MCBinaryExpr>(ME)->getRHS(), Fixups, STI);
-    return Res;
+    return 0;
   }
 
   assert(MK == MCExpr::SymbolRef);
@@ -588,8 +692,13 @@ unsigned HexagonMCCodeEmitter::getExprOpValue(const MCInst &MI,
     break;
   }
 
-  MCFixup fixup =
-      MCFixup::create(*Addend, MO.getExpr(), MCFixupKind(FixupKind));
+  MCExpr const *FixupExpression = (*Addend > 0 && isPCRel(FixupKind)) ?
+    MCBinaryExpr::createAdd(MO.getExpr(),
+                            MCConstantExpr::create(*Addend, MCT), MCT) :
+    MO.getExpr();
+
+  MCFixup fixup = MCFixup::create(*Addend, FixupExpression, 
+                                  MCFixupKind(FixupKind), MI.getLoc());
   Fixups.push_back(fixup);
   // All of the information is in the fixup.
   return (0);

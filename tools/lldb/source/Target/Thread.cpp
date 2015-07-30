@@ -501,6 +501,15 @@ Thread::GetStopReason()
 }
 
 
+bool
+Thread::StopInfoIsUpToDate() const
+{
+    ProcessSP process_sp (GetProcess());
+    if (process_sp)
+        return m_stop_info_stop_id == process_sp->GetStopID();
+    else
+        return true; // Process is no longer around so stop info is always up to date...
+}
 
 void
 Thread::SetStopInfo (const lldb::StopInfoSP &stop_info_sp)
@@ -655,11 +664,6 @@ Thread::SetupForResume ()
         // telling the current plan it will resume, since we might change what the current
         // plan is.
 
-//      StopReason stop_reason = lldb::eStopReasonInvalid;
-//      StopInfoSP stop_info_sp = GetStopInfo();
-//      if (stop_info_sp.get())
-//          stop_reason = stop_info_sp->GetStopReason();
-//      if (stop_reason == lldb::eStopReasonBreakpoint)
         lldb::RegisterContextSP reg_ctx_sp (GetRegisterContext());
         if (reg_ctx_sp)
         {
@@ -725,7 +729,7 @@ Thread::ShouldResume (StateType resume_state)
     // the target, 'cause that slows down single stepping.  So assume that if we got to the point where
     // we're about to resume, and we haven't yet had to fetch the stop reason, then it doesn't need to know
     // about the fact that we are resuming...
-        const uint32_t process_stop_id = GetProcess()->GetStopID();
+    const uint32_t process_stop_id = GetProcess()->GetStopID();
     if (m_stop_info_stop_id == process_stop_id &&
         (m_stop_info_sp && m_stop_info_sp->IsValid()))
     {
@@ -1211,7 +1215,7 @@ Thread::GetReturnValueObject ()
             ValueObjectSP return_valobj_sp;
             return_valobj_sp = m_completed_plan_stack[i]->GetReturnValueObject();
             if (return_valobj_sp)
-            return return_valobj_sp;
+                return return_valobj_sp;
         }
     }
     return ValueObjectSP();
@@ -1227,7 +1231,7 @@ Thread::GetExpressionVariable ()
             ClangExpressionVariableSP expression_variable_sp;
             expression_variable_sp = m_completed_plan_stack[i]->GetExpressionVariable();
             if (expression_variable_sp)
-            return expression_variable_sp;
+                return expression_variable_sp;
         }
     }
     return ClangExpressionVariableSP();

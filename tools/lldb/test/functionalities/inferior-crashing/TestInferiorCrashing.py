@@ -68,7 +68,6 @@ class CrashingInferiorTestCase(TestBase):
         self.inferior_crashing_step_after_break()
 
     @skipIfFreeBSD # llvm.org/pr16684
-    @expectedFailureAndroid("llvm.org/pr23694")
     def test_inferior_crashing_step_after_break_dwarf(self):
         """Test that lldb functions correctly after stepping through a crash."""
         self.buildDwarf()
@@ -111,7 +110,7 @@ class CrashingInferiorTestCase(TestBase):
         exe = os.path.join(os.getcwd(), "a.out")
         self.runCmd("file " + exe, CURRENT_EXECUTABLE_SET)
 
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
         # The exact stop reason depends on the platform
         if self.platformIsDarwin():
             stop_reason = 'stop reason = EXC_BAD_ACCESS'
@@ -155,7 +154,7 @@ class CrashingInferiorTestCase(TestBase):
         exe = os.path.join(os.getcwd(), "a.out")
         self.runCmd("file " + exe, CURRENT_EXECUTABLE_SET)
 
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
         self.check_stop_reason()
 
         # lldb should be able to read from registers from the inferior after crashing.
@@ -166,7 +165,7 @@ class CrashingInferiorTestCase(TestBase):
         exe = os.path.join(os.getcwd(), "a.out")
         self.runCmd("file " + exe, CURRENT_EXECUTABLE_SET)
 
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
         self.check_stop_reason()
 
         # The lldb expression interpreter should be able to read from addresses of the inferior after a crash.
@@ -182,7 +181,7 @@ class CrashingInferiorTestCase(TestBase):
         self.runCmd("file " + exe, CURRENT_EXECUTABLE_SET)
 
         self.set_breakpoint(self.line)
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         self.expect("thread list", STOPPED_DUE_TO_BREAKPOINT,
             substrs = ['main.c:%d' % self.line,
@@ -209,12 +208,14 @@ class CrashingInferiorTestCase(TestBase):
         exe = os.path.join(os.getcwd(), "a.out")
         self.runCmd("file " + exe, CURRENT_EXECUTABLE_SET)
 
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
         self.check_stop_reason()
 
         expected_state = 'exited' # Provide the exit code.
         if self.platformIsDarwin():
             expected_state = 'stopped' # TODO: Determine why 'next' and 'continue' have no effect after a crash.
+        elif re.match(".*-.*-.*-android", self.dbg.GetSelectedPlatform().GetTriple()):
+            expected_state = 'stopped' # android has a default SEGV handler, which will re-raise the signal, so we come up stopped again
 
         self.expect("next",
             substrs = ['Process', expected_state])
@@ -229,7 +230,7 @@ class CrashingInferiorTestCase(TestBase):
         exe = os.path.join(os.getcwd(), "a.out")
         self.runCmd("file " + exe, CURRENT_EXECUTABLE_SET)
 
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
         self.check_stop_reason()
 
         # The lldb expression interpreter should be able to read from addresses of the inferior after a crash.

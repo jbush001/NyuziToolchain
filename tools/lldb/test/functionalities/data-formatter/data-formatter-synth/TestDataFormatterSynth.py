@@ -38,7 +38,7 @@ class SynthDataFormatterTestCase(TestBase):
 
         lldbutil.run_break_set_by_file_and_line (self, "main.cpp", self.line, num_expected_locations=1, loc_exact=True)
 
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # The stop reason of the thread should be breakpoint.
         self.expect("thread list", STOPPED_DUE_TO_BREAKPOINT,
@@ -207,6 +207,12 @@ class SynthDataFormatterTestCase(TestBase):
         self.runCmd("n")
         self.expect('frame variable bag_bag',
                     substrs = ['x.z = 12'])
+
+        self.runCmd('type summary add -e -s "I am always empty but have" EmptyStruct')
+        self.expect('frame variable es', substrs = ["I am always empty but have {}"])
+        self.runCmd('type summary add -e -h -s "I am really empty" EmptyStruct')
+        self.expect('frame variable es', substrs = ["I am really empty"])
+        self.expect('frame variable es', substrs = ["I am really empty {}"], matching=False)
 
 
 if __name__ == '__main__':

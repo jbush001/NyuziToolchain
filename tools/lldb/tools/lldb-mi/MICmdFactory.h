@@ -25,9 +25,6 @@ struct SMICmdData;
 //          MI application understands to interpret. Creates commands objects.
 //          The Command Factory is carried out in the main thread.
 //          A singleton class.
-// Gotchas: None.
-// Authors: Illya Rudkin 19/02/2014.
-// Changes: None.
 //--
 class CMICmdFactory : public CMICmnBase, public MI::ISingleton<CMICmdFactory>
 {
@@ -50,13 +47,13 @@ class CMICmdFactory : public CMICmnBase, public MI::ISingleton<CMICmdFactory>
         // virtual CMICmdBase *         CreateSelf( void ) = 0;             // Not possible as require a static creator
         // function in the command class, here for awareness
 
-        /* dtor */ virtual ~ICmd(void){};
+        /* dtor */ virtual ~ICmd(void){}
     };
 
     // Methods:
   public:
-    bool Initialize(void);
-    bool Shutdown(void);
+    bool Initialize(void) override;
+    bool Shutdown(void) override;
     bool CmdRegister(const CMIUtilString &vMiCmd, CmdCreatorFnPtr vCmdCreateFn);
     bool CmdCreate(const CMIUtilString &vMiCmd, const SMICmdData &vCmdData, CMICmdBase *&vpNewCmd);
     bool CmdExist(const CMIUtilString &vMiCmd) const;
@@ -73,7 +70,7 @@ class CMICmdFactory : public CMICmnBase, public MI::ISingleton<CMICmdFactory>
     // Overridden:
   private:
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdFactory(void);
+    /* dtor */ ~CMICmdFactory(void) override;
 
     // Typedefs:
   private:

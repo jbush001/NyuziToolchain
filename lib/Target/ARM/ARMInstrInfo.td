@@ -59,6 +59,7 @@ def SDT_ARMThreadPointer : SDTypeProfile<1, 0, [SDTCisPtrTy<0>]>;
 def SDT_ARMEH_SJLJ_Setjmp : SDTypeProfile<1, 2, [SDTCisInt<0>, SDTCisPtrTy<1>,
                                                  SDTCisInt<2>]>;
 def SDT_ARMEH_SJLJ_Longjmp: SDTypeProfile<0, 2, [SDTCisPtrTy<0>, SDTCisInt<1>]>;
+def SDT_ARMEH_SJLJ_SetupDispatch: SDTypeProfile<0, 0, []>;
 
 def SDT_ARMMEMBARRIER     : SDTypeProfile<0, 1, [SDTCisInt<0>]>;
 
@@ -72,10 +73,6 @@ def SDT_ARMBFI : SDTypeProfile<1, 3, [SDTCisVT<0, i32>, SDTCisVT<1, i32>,
 
 def SDT_ARMVMAXNM : SDTypeProfile<1, 2, [SDTCisFP<0>, SDTCisFP<1>, SDTCisFP<2>]>;
 def SDT_ARMVMINNM : SDTypeProfile<1, 2, [SDTCisFP<0>, SDTCisFP<1>, SDTCisFP<2>]>;
-
-def SDT_ARMMCOPY  : SDTypeProfile<2, 3, [SDTCisVT<0, i32>, SDTCisVT<1, i32>,
-                                         SDTCisVT<2, i32>, SDTCisVT<3, i32>,
-                                         SDTCisVT<4, i32>]>;
 
 def SDTBinaryArithWithFlags : SDTypeProfile<2, 2,
                                             [SDTCisSameAs<0, 2>,
@@ -167,6 +164,9 @@ def ARMeh_sjlj_setjmp: SDNode<"ARMISD::EH_SJLJ_SETJMP",
 def ARMeh_sjlj_longjmp: SDNode<"ARMISD::EH_SJLJ_LONGJMP",
                                SDT_ARMEH_SJLJ_Longjmp,
                                [SDNPHasChain, SDNPSideEffect]>;
+def ARMeh_sjlj_setup_dispatch: SDNode<"ARMISD::EH_SJLJ_SETUP_DISPATCH",
+                                      SDT_ARMEH_SJLJ_SetupDispatch,
+                                      [SDNPHasChain, SDNPSideEffect]>;
 
 def ARMMemBarrierMCR  : SDNode<"ARMISD::MEMBARRIER_MCR", SDT_ARMMEMBARRIER,
                                [SDNPHasChain, SDNPSideEffect]>;
@@ -182,10 +182,6 @@ def ARMbfi           : SDNode<"ARMISD::BFI", SDT_ARMBFI>;
 
 def ARMvmaxnm        : SDNode<"ARMISD::VMAXNM", SDT_ARMVMAXNM, []>;
 def ARMvminnm        : SDNode<"ARMISD::VMINNM", SDT_ARMVMINNM, []>;
-
-def ARMmcopy : SDNode<"ARMISD::MCOPY", SDT_ARMMCOPY,
-                      [SDNPHasChain, SDNPInGlue, SDNPOutGlue,
-                       SDNPMayStore, SDNPMayLoad]>;
 
 //===----------------------------------------------------------------------===//
 // ARM Instruction Predicate Definitions.
@@ -314,8 +310,8 @@ def HasSlowVDUP32 : Predicate<"Subtarget->isSwift()">;
 def UseVMOVSR : Predicate<"Subtarget->isCortexA9() || !Subtarget->useNEONForSinglePrecisionFP()">;
 def DontUseVMOVSR : Predicate<"!Subtarget->isCortexA9() && Subtarget->useNEONForSinglePrecisionFP()">;
 
-def IsLE             : Predicate<"getTargetLowering()->isLittleEndian()">;
-def IsBE             : Predicate<"getTargetLowering()->isBigEndian()">;
+def IsLE             : Predicate<"MF->getDataLayout().isLittleEndian()">;
+def IsBE             : Predicate<"MF->getDataLayout().isBigEndian()">;
 
 //===----------------------------------------------------------------------===//
 // ARM Flag Definitions.
@@ -1834,6 +1830,32 @@ def CONSTPOOL_ENTRY :
 PseudoInst<(outs), (ins cpinst_operand:$instid, cpinst_operand:$cpidx,
                     i32imm:$size), NoItinerary, []>;
 
+/// A jumptable consisting of direct 32-bit addresses of the destination basic
+/// blocks (either absolute, or relative to the start of the jump-table in PIC
+/// mode). Used mostly in ARM and Thumb-1 modes.
+def JUMPTABLE_ADDRS :
+PseudoInst<(outs), (ins cpinst_operand:$instid, cpinst_operand:$cpidx,
+                        i32imm:$size), NoItinerary, []>;
+
+/// A jumptable consisting of 32-bit jump instructions. Used for Thumb-2 tables
+/// that cannot be optimised to use TBB or TBH.
+def JUMPTABLE_INSTS :
+PseudoInst<(outs), (ins cpinst_operand:$instid, cpinst_operand:$cpidx,
+                        i32imm:$size), NoItinerary, []>;
+
+/// A jumptable consisting of 8-bit unsigned integers representing offsets from
+/// a TBB instruction.
+def JUMPTABLE_TBB :
+PseudoInst<(outs), (ins cpinst_operand:$instid, cpinst_operand:$cpidx,
+                        i32imm:$size), NoItinerary, []>;
+
+/// A jumptable consisting of 16-bit unsigned integers representing offsets from
+/// a TBH instruction.
+def JUMPTABLE_TBH :
+PseudoInst<(outs), (ins cpinst_operand:$instid, cpinst_operand:$cpidx,
+                        i32imm:$size), NoItinerary, []>;
+
+
 // FIXME: Marking these as hasSideEffects is necessary to prevent machine DCE
 // from removing one half of the matched pairs. That breaks PEI, which assumes
 // these will always be in pairs, and asserts if it finds otherwise. Better way?
@@ -2232,7 +2254,7 @@ let isBranch = 1, isTerminator = 1 in {
                 [(br bb:$target)], (Bcc br_target:$target, (ops 14, zero_reg))>,
                 Sched<[WriteBr]>;
 
-    let isNotDuplicable = 1, isIndirectBranch = 1 in {
+    let Size = 4, isNotDuplicable = 1, isIndirectBranch = 1 in {
     def BR_JTr : ARMPseudoInst<(outs),
                       (ins GPR:$target, i32imm:$jt),
                       0, IIC_Br,
@@ -4560,13 +4582,6 @@ let usesCustomInserter = 1 in {
       [(ARMcopystructbyval GPR:$dst, GPR:$src, imm:$size, imm:$alignment)]>;
 }
 
-let hasPostISelHook = 1 in {
-    def MCOPY : PseudoInst<
-      (outs GPR:$newdst, GPR:$newsrc), (ins GPR:$dst, GPR:$src, i32imm:$nreg),
-      NoItinerary,
-      [(set GPR:$newdst, GPR:$newsrc, (ARMmcopy GPR:$dst, GPR:$src, imm:$nreg))]>;
-}
-
 def ldrex_1 : PatFrag<(ops node:$ptr), (int_arm_ldrex node:$ptr), [{
   return cast<MemIntrinsicSDNode>(N)->getMemoryVT() == MVT::i8;
 }]>;
@@ -5054,10 +5069,11 @@ def : ARMV5TPat<(int_arm_mrc2 imm:$cop, imm:$opc1, imm:$CRn,
                               imm:$CRm, imm:$opc2),
                 (MRC2 imm:$cop, imm:$opc1, imm:$CRn, imm:$CRm, imm:$opc2)>;
 
-class MovRRCopro<string opc, bit direction, list<dag> pattern = []>
-  : ABI<0b1100, (outs), (ins p_imm:$cop, imm0_15:$opc1,
-        GPRnopc:$Rt, GPRnopc:$Rt2, c_imm:$CRm),
-        NoItinerary, opc, "\t$cop, $opc1, $Rt, $Rt2, $CRm", pattern> {
+class MovRRCopro<string opc, bit direction, dag oops, dag iops, list<dag>
+                 pattern = []>
+  : ABI<0b1100, oops, iops, NoItinerary, opc, "\t$cop, $opc1, $Rt, $Rt2, $CRm",
+        pattern> {
+
   let Inst{23-21} = 0b010;
   let Inst{20} = direction;
 
@@ -5075,9 +5091,13 @@ class MovRRCopro<string opc, bit direction, list<dag> pattern = []>
 }
 
 def MCRR : MovRRCopro<"mcrr", 0 /* from ARM core register to coprocessor */,
+                      (outs), (ins p_imm:$cop, imm0_15:$opc1, GPRnopc:$Rt,
+                      GPRnopc:$Rt2, c_imm:$CRm),
                       [(int_arm_mcrr imm:$cop, imm:$opc1, GPRnopc:$Rt,
                                      GPRnopc:$Rt2, imm:$CRm)]>;
-def MRRC : MovRRCopro<"mrrc", 1 /* from coprocessor to ARM core register */>;
+def MRRC : MovRRCopro<"mrrc", 1 /* from coprocessor to ARM core register */,
+                      (outs GPRnopc:$Rt, GPRnopc:$Rt2),
+                      (ins p_imm:$cop, imm0_15:$opc1, c_imm:$CRm), []>;
 
 class MovRRCopro2<string opc, bit direction, list<dag> pattern = []>
   : ABXI<0b1100, (outs), (ins p_imm:$cop, imm0_15:$opc1,
@@ -5284,6 +5304,10 @@ def Int_eh_sjlj_longjmp : PseudoInst<(outs), (ins GPR:$src, GPR:$scratch),
                          [(ARMeh_sjlj_longjmp GPR:$src, GPR:$scratch)]>,
                                 Requires<[IsARM]>;
 }
+
+let isBarrier = 1, hasSideEffects = 1, usesCustomInserter = 1 in
+def Int_eh_sjlj_setup_dispatch : PseudoInst<(outs), (ins), NoItinerary,
+            [(ARMeh_sjlj_setup_dispatch)]>;
 
 // eh.sjlj.dispatchsetup pseudo-instruction.
 // This pseudo is used for both ARM and Thumb. Any differences are handled when

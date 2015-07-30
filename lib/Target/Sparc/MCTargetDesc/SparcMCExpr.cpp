@@ -15,9 +15,8 @@
 #include "SparcMCExpr.h"
 #include "llvm/MC/MCAssembler.h"
 #include "llvm/MC/MCContext.h"
-#include "llvm/MC/MCELF.h"
 #include "llvm/MC/MCObjectStreamer.h"
-#include "llvm/MC/MCSymbol.h"
+#include "llvm/MC/MCSymbolELF.h"
 #include "llvm/Object/ELF.h"
 
 
@@ -31,15 +30,12 @@ SparcMCExpr::create(VariantKind Kind, const MCExpr *Expr,
     return new (Ctx) SparcMCExpr(Kind, Expr);
 }
 
-
-
-void SparcMCExpr::printImpl(raw_ostream &OS) const
-{
+void SparcMCExpr::printImpl(raw_ostream &OS, const MCAsmInfo *MAI) const {
 
   bool closeParen = printVariantKind(OS, Kind);
 
   const MCExpr *Expr = getSubExpr();
-  Expr->print(OS);
+  Expr->print(OS, MAI);
 
   if (closeParen)
     OS << ')';
@@ -184,7 +180,7 @@ static void fixELFSymbolsInTLSFixupsImpl(const MCExpr *Expr, MCAssembler &Asm) {
 
   case MCExpr::SymbolRef: {
     const MCSymbolRefExpr &SymRef = *cast<MCSymbolRefExpr>(Expr);
-    MCELF::SetType(SymRef.getSymbol(), ELF::STT_TLS);
+    cast<MCSymbolELF>(SymRef.getSymbol()).setType(ELF::STT_TLS);
     break;
   }
 

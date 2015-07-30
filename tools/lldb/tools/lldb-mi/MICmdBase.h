@@ -25,7 +25,7 @@ class CMICmnLLDBDebugSessionInfo;
 //++ ============================================================================
 // Details: MI command base class. MI commands derive from this base class.
 //          The Command Factory creates command objects and passes them to the
-//          Command Invoker. The Invoker takes ownersip of any commands created
+//          Command Invoker. The Invoker takes ownership of any commands created
 //          which means it is the only object to delete them when a command is
 //          finished working. Commands do not delete themselves.
 //          There are two types of command implicitly defined by the state of
@@ -42,9 +42,6 @@ class CMICmnLLDBDebugSessionInfo;
 //          to factor handling and parsing of different types of arguments
 //          presented to a command. A command will produce an error should it
 //          be presented with arguments or options it does not understand.
-// Gotchas: None.
-// Authors: Illya Rudkin 18/02/2014.
-// Changes: None.
 //--
 class CMICmdBase : public CMICmnBase, public CMICmdInvoker::ICmd, public CMICmdFactory::ICmd
 {
@@ -57,7 +54,7 @@ class CMICmdBase : public CMICmnBase, public CMICmdInvoker::ICmd, public CMICmdF
     // From CMICmdInvoker::ICmd
     virtual const SMICmdData &GetCmdData(void) const;
     virtual const CMIUtilString &GetErrorDescription(void) const;
-    virtual bool SetCmdData(const SMICmdData &vCmdData);
+    virtual void SetCmdData(const SMICmdData &vCmdData);
     virtual void CmdFinishedTellInvoker(void) const;
     virtual const CMIUtilString &GetMIResultRecord(void) const;
     virtual const CMIUtilString &GetMIResultRecordExtra(void) const;

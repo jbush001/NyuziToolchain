@@ -42,6 +42,7 @@ add_llvm_library(LLVMAnalysis
   MemDerefPrinter.cpp
   MemoryBuiltins.cpp
   MemoryDependenceAnalysis.cpp
+  MemoryLocation.cpp
   ModuleDebugInfoPrinter.cpp
   NoAliasAnalysis.cpp
   PHITransAddr.cpp
@@ -61,6 +62,7 @@ add_llvm_library(LLVMAnalysis
   TypeBasedAliasAnalysis.cpp
   ScopedNoAliasAA.cpp
   ValueTracking.cpp
+  VectorUtils.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${LLVM_MAIN_INCLUDE_DIR}/llvm/Analysis

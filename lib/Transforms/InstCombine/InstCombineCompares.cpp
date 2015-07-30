@@ -2149,6 +2149,7 @@ bool InstCombiner::OptimizeOverflowCheck(OverflowCheckFlavor OCF, Value *LHS,
       if (WillNotOverflowSignedAdd(LHS, RHS, OrigI))
         return SetResult(Builder->CreateNSWAdd(LHS, RHS), Builder->getFalse(),
                          true);
+    break;
   }
 
   case OCF_UNSIGNED_SUB:
@@ -2194,6 +2195,7 @@ bool InstCombiner::OptimizeOverflowCheck(OverflowCheckFlavor OCF, Value *LHS,
       if (WillNotOverflowSignedMul(LHS, RHS, OrigI))
         return SetResult(Builder->CreateNSWMul(LHS, RHS), Builder->getFalse(),
                          true);
+    break;
   }
 
   return false;
@@ -2644,7 +2646,8 @@ Instruction *InstCombiner::visitICmpInst(ICmpInst &I) {
     Changed = true;
   }
 
-  if (Value *V = SimplifyICmpInst(I.getPredicate(), Op0, Op1, DL, TLI, DT, AC))
+  if (Value *V =
+          SimplifyICmpInst(I.getPredicate(), Op0, Op1, DL, TLI, DT, AC, &I))
     return ReplaceInstUsesWith(I, V);
 
   // comparing -val or val with non-zero is the same as just comparing val
@@ -3925,7 +3928,8 @@ Instruction *InstCombiner::visitFCmpInst(FCmpInst &I) {
 
   Value *Op0 = I.getOperand(0), *Op1 = I.getOperand(1);
 
-  if (Value *V = SimplifyFCmpInst(I.getPredicate(), Op0, Op1, DL, TLI, DT, AC))
+  if (Value *V = SimplifyFCmpInst(I.getPredicate(), Op0, Op1,
+                                  I.getFastMathFlags(), DL, TLI, DT, AC, &I))
     return ReplaceInstUsesWith(I, V);
 
   // Simplify 'fcmp pred X, X'

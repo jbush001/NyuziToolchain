@@ -35,6 +35,7 @@ class WatchpointPythonCommandTestCase(TestBase):
 
     @dwarf_test
     @skipIfFreeBSD # timing out on buildbot
+    @expectedFailureAndroid(archs=['arm', 'aarch64']) # Watchpoints not supported
     def test_watchpoint_command_with_dwarf(self):
         """Test 'watchpoint command'."""
         self.buildDwarf(dictionary=self.d)
@@ -53,7 +54,7 @@ class WatchpointPythonCommandTestCase(TestBase):
 #                       (self.source, self.line))#
 
         # Run the program.
-        self.runCmd("run", RUN_FAILED)
+        self.runCmd("run", RUN_SUCCEEDED)
 
         # We should be stopped again due to the breakpoint.
         # The stop reason of the thread should be breakpoint.

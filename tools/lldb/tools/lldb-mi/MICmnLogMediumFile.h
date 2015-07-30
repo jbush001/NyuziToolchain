@@ -23,9 +23,6 @@
 //          which the Logger when given data to write to registered medium comes
 //          *this medium.
 //          Singleton class.
-// Gotchas: None.
-// Authors: Illya Rudkin 30/01/2014.
-// Changes: None.
 //--
 class CMICmnLogMediumFile : public CMICmnBase, public CMICmnLog::IMedium
 {
@@ -48,13 +45,13 @@ class CMICmnLogMediumFile : public CMICmnBase, public CMICmnLog::IMedium
     // Overridden:
   public:
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmnLogMediumFile(void);
+    /* dtor */ ~CMICmnLogMediumFile(void) override;
     // From CMICmnLog::IMedium
-    virtual bool Initialize(void);
-    virtual const CMIUtilString &GetName(void) const;
-    virtual bool Write(const CMIUtilString &vData, const CMICmnLog::ELogVerbosity veType);
-    virtual const CMIUtilString &GetError(void) const;
-    virtual bool Shutdown(void);
+    bool Initialize(void) override;
+    const CMIUtilString &GetName(void) const override;
+    bool Write(const CMIUtilString &vData, const CMICmnLog::ELogVerbosity veType) override;
+    const CMIUtilString &GetError(void) const override;
+    bool Shutdown(void) override;
 
     // Methods:
   private:
@@ -66,7 +63,7 @@ class CMICmnLogMediumFile : public CMICmnBase, public CMICmnLog::IMedium
     bool FileFormFileNamePath(void);
     CMIUtilString MassagedData(const CMIUtilString &vData, const CMICmnLog::ELogVerbosity veType);
     bool FileWriteHeader(void);
-    MIchar ConvertLogVerbosityTypeToId(const CMICmnLog::ELogVerbosity veType) const;
+    char ConvertLogVerbosityTypeToId(const CMICmnLog::ELogVerbosity veType) const;
     CMIUtilString ConvertCr(const CMIUtilString &vData) const;
 
     // Attributes:

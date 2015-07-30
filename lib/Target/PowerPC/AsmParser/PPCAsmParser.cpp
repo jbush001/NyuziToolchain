@@ -24,6 +24,7 @@
 #include "llvm/MC/MCParser/MCParsedAsmOperand.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCStreamer.h"
+#include "llvm/MC/MCSymbolELF.h"
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCTargetAsmParser.h"
 #include "llvm/Support/SourceMgr.h"
@@ -292,7 +293,7 @@ class PPCAsmParser : public MCTargetAsmParser {
 public:
   PPCAsmParser(MCSubtargetInfo &STI, MCAsmParser &, const MCInstrInfo &MII,
                const MCTargetOptions &Options)
-      : MCTargetAsmParser(), STI(STI), MII(MII) {
+      : MCTargetAsmParser(Options), STI(STI), MII(MII) {
     // Check for 64-bit vs. 32-bit pointer mode.
     Triple TheTriple(STI.getTargetTriple());
     IsPPC64 = (TheTriple.getArch() == Triple::ppc64 ||
@@ -1183,6 +1184,13 @@ void PPCAsmParser::ProcessInstruction(MCInst &Inst,
     Inst = TmpInst;
     break;
   }
+  case PPC::MFTB: {
+    if (STI.getFeatureBits()[PPC::FeatureMFTB]) {
+      assert(Inst.getNumOperands() == 2 && "Expecting two operands");
+      Inst.setOpcode(PPC::MFSPR);
+    }
+    break;
+  }
   }
 }
 
@@ -1863,7 +1871,7 @@ bool PPCAsmParser::ParseDirectiveLocalEntry(SMLoc L) {
     Error(L, "expected identifier in directive");
     return false;
   }
-  MCSymbol *Sym = getContext().getOrCreateSymbol(Name);
+  MCSymbolELF *Sym = cast<MCSymbolELF>(getContext().getOrCreateSymbol(Name));
 
   if (getLexer().isNot(AsmToken::Comma)) {
     Error(L, "unexpected token in directive");

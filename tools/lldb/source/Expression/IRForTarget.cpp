@@ -267,11 +267,11 @@ IRForTarget::GetFunctionAddress (llvm::Function *fun,
                 {
                     if (mangled_name.GetMangledName())
                         m_error_stream->Printf("error: call to a function '%s' ('%s') that is not present in the target\n",
-                                               mangled_name.GetName().GetCString(),
+                                               mangled_name.GetName(lldb::eLanguageTypeObjC_plus_plus).GetCString(),
                                                mangled_name.GetMangledName().GetCString());
                     else
                         m_error_stream->Printf("error: call to a function '%s' that is not present in the target\n",
-                                               mangled_name.GetName().GetCString());
+                                               mangled_name.GetName(lldb::eLanguageTypeObjC_plus_plus).GetCString());
                 }
                 return LookupResult::Fail;
             }
@@ -1515,7 +1515,7 @@ IRForTarget::MaybeHandleVariable (Value *llvm_value_ptr)
 
         if (name[0] == '$')
         {
-            // The $__lldb_expr_result name indicates the the return value has allocated as
+            // The $__lldb_expr_result name indicates the return value has allocated as
             // a static variable.  Per the comment at ASTResultSynthesizer::SynthesizeBodyResult,
             // accesses to this static variable need to be redirected to the result of dereferencing
             // a pointer that is passed in as one of the arguments.

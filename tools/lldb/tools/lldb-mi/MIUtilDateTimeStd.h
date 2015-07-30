@@ -18,9 +18,6 @@
 //++ ============================================================================
 // Details: MI common code utility class. Used to retrieve system local date
 //          time.
-// Gotchas: None.
-// Authors: Illya Rudkin 16/07/2014.
-// Changes: None.
 //--
 class CMIUtilDateTimeStd
 {
@@ -40,5 +37,5 @@ class CMIUtilDateTimeStd
     // Attributes:
   private:
     std::time_t m_rawTime;
-    MIchar m_pScratch[16];
+    char m_pScratch[16];
 };

@@ -182,8 +182,17 @@ public:
     ///     A const reference to the demangled name string object.
     //----------------------------------------------------------------------
     const ConstString&
-    GetDemangledName () const;
+    GetDemangledName (lldb::LanguageType language) const;
 
+    //----------------------------------------------------------------------
+    /// Display demangled name get accessor.
+    ///
+    /// @return
+    ///     A const reference to the display demangled name string object.
+    //----------------------------------------------------------------------
+    ConstString
+    GetDisplayDemangledName (lldb::LanguageType language) const;
+    
     void
     SetDemangledName (const ConstString &name)
     {
@@ -231,8 +240,8 @@ public:
     ///     object has a valid name of that kind, else a const reference to the
     ///     other name is returned.
     //----------------------------------------------------------------------
-    const ConstString&
-    GetName (NamePreference preference = ePreferDemangled) const;
+    ConstString
+    GetName (lldb::LanguageType language, NamePreference preference = ePreferDemangled) const;
 
     //----------------------------------------------------------------------
     /// Check if "name" matches either the mangled or demangled name.
@@ -244,15 +253,15 @@ public:
     ///     \b True if \a name matches either name, \b false otherwise.
     //----------------------------------------------------------------------
     bool
-    NameMatches (const ConstString &name) const
+    NameMatches (const ConstString &name, lldb::LanguageType language) const
     {
         if (m_mangled == name)
             return true;
-        return GetDemangledName () == name;
+        return GetDemangledName (language) == name;
     }
     
     bool
-    NameMatches (const RegularExpression& regex) const;
+    NameMatches (const RegularExpression& regex, lldb::LanguageType language) const;
 
     //----------------------------------------------------------------------
     /// Get the memory cost of this object.
@@ -298,12 +307,12 @@ public:
     SetValue (const ConstString &name);
 
     //----------------------------------------------------------------------
-    /// Get the language only if it is definitive what the language is from
-    /// the mangling.
+    /// Try to guess the language from the mangling.
     ///
     /// For a mangled name to have a language it must have both a mangled
-    /// and a demangled name and it must be definitive from the mangling
-    /// what the language is.
+    /// and a demangled name and it can be guessed from the mangling what
+    /// the language is.  Note: this will return C++ for any language that
+    /// uses Itanium ABI mangling.
     ///
     /// Standard C function names will return eLanguageTypeUnknown because
     /// they aren't mangled and it isn't clear what language the name
@@ -314,7 +323,7 @@ public:
     ///     if there is no mangled or demangled counterpart.
     //----------------------------------------------------------------------
     lldb::LanguageType
-    GetLanguage ();
+    GuessLanguage () const;
 
 private:
     //----------------------------------------------------------------------

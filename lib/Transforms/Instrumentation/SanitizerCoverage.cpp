@@ -33,6 +33,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InlineAsm.h"
@@ -374,6 +375,13 @@ void SanitizerCoverageModule::SetNoSanitizeMetadata(Instruction *I) {
 
 void SanitizerCoverageModule::InjectCoverageAtBlock(Function &F, BasicBlock &BB,
                                                     bool UseCalls) {
+  // Don't insert coverage for unreachable blocks: we will never call
+  // __sanitizer_cov() for them, so counting them in
+  // NumberOfInstrumentedBlocks() might complicate calculation of code coverage
+  // percentage. Also, unreachable instructions frequently have no debug
+  // locations.
+  if (isa<UnreachableInst>(BB.getTerminator()))
+    return;
   BasicBlock::iterator IP = BB.getFirstInsertionPt(), BE = BB.end();
   // Skip static allocas at the top of the entry block so they don't become
   // dynamic when we split the block.  If we used our optimized stack layout,
@@ -385,9 +393,14 @@ void SanitizerCoverageModule::InjectCoverageAtBlock(Function &F, BasicBlock &BB,
   }
 
   bool IsEntryBB = &BB == &F.getEntryBlock();
-  DebugLoc EntryLoc = IsEntryBB && IP->getDebugLoc()
-                          ? IP->getDebugLoc().getFnDebugLoc()
-                          : IP->getDebugLoc();
+  DebugLoc EntryLoc;
+  if (IsEntryBB) {
+    if (auto SP = getDISubprogram(&F))
+      EntryLoc = DebugLoc::get(SP->getScopeLine(), 0, SP);
+  } else {
+    EntryLoc = IP->getDebugLoc();
+  }
+
   IRBuilder<> IRB(IP);
   IRB.SetCurrentDebugLocation(EntryLoc);
   SmallVector<Value *, 1> Indices;

@@ -122,7 +122,7 @@ class MiDataTestCase(lldbmi_testcase.MiTestCaseBase):
         self.expect(r'\*stopped,reason="breakpoint-hit"')
 
         # Get address of local char[]
-        self.runCmd('-data-evaluate-expression &array')
+        self.runCmd('-data-evaluate-expression "(void *)&array"')
         self.expect(r'\^done,value="0x[0-9a-f]+"')
         addr = int(self.child.after.split('"')[1], 16)
         size = 4
@@ -200,8 +200,11 @@ class MiDataTestCase(lldbmi_testcase.MiTestCaseBase):
         self.runCmd('-data-read-memory-bytes &array')
         self.expect(r'\^error')
 
-        # Test that the address argument is required when other options are present
+        # Test that the address and count arguments are required when other options are present
         self.runCmd('-data-read-memory-bytes --thread 1')
+        self.expect(r'\^error')
+
+        self.runCmd('-data-read-memory-bytes --thread 1 --frame 0')
         self.expect(r'\^error')
 
         # Test that the count argument is required when other options are present

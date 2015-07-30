@@ -70,7 +70,7 @@ ModuleList::operator= (const ModuleList& rhs)
         // That's probably me nit-picking, but in theoretical situation:
         //
         // * that two threads A B and
-        // * two ModuleList's x y do opposite assignemnts ie.:
+        // * two ModuleList's x y do opposite assignments ie.:
         //
         //  in thread A: | in thread B:
         //    x = y;     |   y = x;
@@ -372,6 +372,7 @@ ModuleList::FindFunctions (const ConstString &name,
         uint32_t lookup_name_type_mask = 0;
         bool match_name_after_lookup = false;
         Module::PrepareForFunctionNameLookup (name, name_type_mask,
+                                              eLanguageTypeUnknown, // TODO: add support
                                               lookup_name,
                                               lookup_name_type_mask,
                                               match_name_after_lookup);
@@ -436,6 +437,7 @@ ModuleList::FindFunctionSymbols (const ConstString &name,
         uint32_t lookup_name_type_mask = 0;
         bool match_name_after_lookup = false;
         Module::PrepareForFunctionNameLookup (name, name_type_mask,
+                                              eLanguageTypeUnknown, // TODO: add support
                                               lookup_name,
                                               lookup_name_type_mask,
                                               match_name_after_lookup);
@@ -682,7 +684,7 @@ ModuleList::FindTypes (const SymbolContext& sc, const ConstString &name, bool na
         {
             // Search the module if the module is not equal to the one in the symbol
             // context "sc". If "sc" contains a empty module shared pointer, then
-            // the comparisong will always be true (valid_module_ptr != NULL).
+            // the comparison will always be true (valid_module_ptr != NULL).
             if (sc.module_sp.get() != (*pos).get())
                 total_matches += (*pos)->FindTypes (world_sc, name, name_is_fully_qualified, max_matches, types);
             

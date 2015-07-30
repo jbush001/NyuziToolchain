@@ -14,6 +14,7 @@
 // C++ Includes
 #include <list>
 #include <string>
+#include <queue>
 
 // Other libraries and framework includes
 // Project includes
@@ -40,6 +41,15 @@ typedef enum
     eWatchpointReadWrite
 } GDBStoppointType;
 
+enum class CompressionType
+{
+    None = 0,       // no compression
+    ZlibDeflate,    // zlib's deflate compression scheme, requires zlib or Apple's libcompression
+    LZFSE,          // an Apple compression scheme, requires Apple's libcompression
+    LZ4,            // lz compression - called "lz4 raw" in libcompression terms, compat with https://code.google.com/p/lz4/
+    LZMA,           // Lempel–Ziv–Markov chain algorithm
+};
+
 class ProcessGDBRemote;
 
 class GDBRemoteCommunication : public Communication
@@ -47,7 +57,8 @@ class GDBRemoteCommunication : public Communication
 public:
     enum
     {
-        eBroadcastBitRunPacketSent = kLoUserBroadcastBit
+        eBroadcastBitRunPacketSent = kLoUserBroadcastBit,
+        eBroadcastBitGdbReadThreadGotNotify = kLoUserBroadcastBit << 1 // Sent when we received a notify packet.
     };
 
     enum class PacketType
@@ -280,12 +291,35 @@ protected:
                       size_t payload_length);
 
     PacketResult
+    ReadPacket (StringExtractorGDBRemote &response, uint32_t timeout_usec, bool sync_on_timeout);
+
+    // Pop a packet from the queue in a thread safe manner
+    PacketResult
+    PopPacketFromQueue (StringExtractorGDBRemote &response, uint32_t timeout_usec);
+
+    PacketResult
     WaitForPacketWithTimeoutMicroSecondsNoLock (StringExtractorGDBRemote &response, 
                                                 uint32_t timeout_usec,
                                                 bool sync_on_timeout);
 
     bool
     WaitForNotRunningPrivate (const TimeValue *timeout_ptr);
+
+    bool
+    CompressionIsEnabled ()
+    {
+        return m_compression_type != CompressionType::None;
+    }
+
+    // If compression is enabled, decompress the packet in m_bytes and update
+    // m_bytes with the uncompressed version.
+    // Returns 'true' packet was decompressed and m_bytes is the now-decompressed text.
+    // Returns 'false' if unable to decompress or if the checksum was invalid.
+    //
+    // NB: Once the packet has been decompressed, checksum cannot be computed based
+    // on m_bytes.  The checksum was for the compressed packet.
+    bool
+    DecompressPacket ();
 
     //------------------------------------------------------------------
     // Classes that inherit from GDBRemoteCommunication can see and modify these
@@ -306,6 +340,7 @@ protected:
                         // false if this class represents a debug session for
                         // a single process
     
+    CompressionType m_compression_type;
 
     Error
     StartListenThread (const char *hostname = "127.0.0.1", uint16_t port = 0);
@@ -316,7 +351,24 @@ protected:
     static lldb::thread_result_t
     ListenThread (lldb::thread_arg_t arg);
 
+    // GDB-Remote read thread
+    //  . this thread constantly tries to read from the communication
+    //    class and stores all packets received in a queue.  The usual
+    //    threads read requests simply pop packets off the queue in the
+    //    usual order.
+    //    This setup allows us to intercept and handle async packets, such
+    //    as the notify packet.
+
+    // This method is defined as part of communication.h
+    // when the read thread gets any bytes it will pass them on to this function
+    virtual void AppendBytesToCache (const uint8_t * bytes, size_t len, bool broadcast, lldb::ConnectionStatus status);
+
 private:
+
+    std::queue<StringExtractorGDBRemote> m_packet_queue; // The packet queue
+    lldb_private::Mutex m_packet_queue_mutex;            // Mutex for accessing queue
+    Condition m_condition_queue_not_empty;               // Condition variable to wait for packets
+
     HostThread m_listen_thread;
     std::string m_listen_url;
 

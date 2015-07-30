@@ -1,4 +1,4 @@
-//===-- MICmdCmdGdbInfo.h --------------------------*- C++ -*-===//
+//===-- MICmdCmdGdbInfo.h ---------------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -37,9 +37,6 @@
 //          class instantiates a request info command for a matching request. The
 //          design/code of *this class then does not then become bloated. Use a
 //          lightweight version of the current MI command system.
-// Gotchas: None.
-// Authors: Illya Rudkin 05/06/2014.
-// Changes: None.
 //--
 class CMICmdCmdGdbInfo : public CMICmdBase
 {
@@ -55,11 +52,11 @@ class CMICmdCmdGdbInfo : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdGdbInfo(void);
+    /* dtor */ ~CMICmdCmdGdbInfo(void) override;
 
     // Typedefs:
   private:

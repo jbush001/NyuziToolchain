@@ -573,7 +573,7 @@ ostype: a string for the OS being debugged (darwin, linux, freebsd), not needed 
 endian: is one of "little", "big", or "pdp"
 ptrsize: an unsigned number that represents how big pointers are in bytes on the debug target
 hostname: the hostname of the host that is running the GDB server if available
-os_build: a string for the the OS build for the remote host as a string value
+os_build: a string for the OS build for the remote host as a string value
 os_kernel: a string describing the kernel version
 os_version: a version string that represents the current OS version (10.8.2)
 watchpoint_exceptions_received: one of "before" or "after" to specify if a watchpoint is triggered before or after the pc when it stops
@@ -988,6 +988,24 @@ for this region.
 //----------------------------------------------------------------------
 
 //----------------------------------------------------------------------
+// qFileLoadAddress:<file_path>
+//
+// BRIEF
+//  Get the load address of a memory mapped file.
+//  The load address is defined as the address of the first memory
+//  region what contains data mapped from the specified file.
+//
+// RESPONSE
+//  <unsinged-hex64> - Load address of the file in big endian encoding
+//  "E01" - the requested file isn't loaded
+//  "EXX" - for any other errors
+//
+// PRIORITY TO IMPLEMENT
+//  Low, required if dynamic linker don't fill in the load address of
+//  some object file in the rendezvous data structure.
+//----------------------------------------------------------------------
+
+//----------------------------------------------------------------------
 // qModuleInfo:<module_path>;<arch triple>
 //
 // BRIEF
@@ -1366,3 +1384,213 @@ for this region.
 //
 // on the wire.
 //----------------------------------------------------------------------
+
+//----------------------------------------------------------------------
+// "QEnableCompression"
+//
+// BRIEF
+//  This packet enables compression of the packets that the debug stub sends to lldb.
+//  If the debug stub can support compression, it indictes this in the reply of the 
+//  "qSupported" packet.  e.g.
+//   LLDB SENDS:    qSupported:xmlRegisters=i386,arm,mips
+//   STUB REPLIES:  qXfer:features:read+;SupportedCompressions=lzfse,zlib-deflate,lz4,lzma;DefaultCompressionMinSize=384
+//
+//  If lldb knows how to use any of these compression algorithms, it can ask that this
+//  compression mode be enabled.  It may optionally change the minimum packet size 
+//  where compression is used.  Typically small packets do not benefit from compression,
+//  as well as compression headers -- compression is most beneficial with larger packets.
+//
+//  QEnableCompression:type:zlib-deflate;
+//  or
+//  QEnableCompression:type:zlib-deflate;minsize:512;
+//
+//  The debug stub should reply with an uncompressed "OK" packet to indicate that the
+//  request was accepted.  All further packets the stub sends will use this compression.
+//
+//  Packets are compressed as the last step before they are sent from the stub, and 
+//  decompressed as the first step after they are received.  The packet format in compressed
+//  mode becomes one of two:
+//
+//   $N<uncompressed payload>#00
+//
+//   $C<size of uncompressed payload in base10>:<compressed payload>#00
+//
+//  Where "#00" is the actual checksum value if noack mode is not enabled.  The checksum
+//  value is for the "N<uncompressed payload>" or 
+//  "C<size of uncompressed payload in base10>:<compressed payload>" bytes in the packet.
+//
+//  The size of the uncompressed payload in base10 is provided because it will simplify
+//  decompression if the final buffer size needed is known ahead of time.
+//
+//  Compression on low-latency connections is unlikely to be an improvement.  Particularly
+//  when the debug stub and lldb are running on the same host.  It should only be used
+//  for slow connections, and likely only for larger packets.
+//
+//  Example compression algorithsm that may be used include
+//
+//    zlib-deflate
+//       The raw DEFLATE format as described in IETF RFC 1951.  With the ZLIB library, you
+//       can compress to this format with an initialization like 
+//           deflateInit2 (&stream, 5, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY)
+//       and you can decompress with an initialization like
+//           inflateInit2 (&stream, -15)
+//
+//    lz4
+//       https://en.wikipedia.org/wiki/LZ4_(compression_algorithm)
+//       https://github.com/Cyan4973/lz4
+//       The libcompression APIs on darwin systems call this COMPRESSION_LZ4_RAW.
+//
+//    lzfse
+//       An Apple proprietary compression algorithm implemented in libcompression.
+//
+//    lzma
+//       libcompression implements "LZMA level 6", the default compression for the
+//       open source LZMA implementation.
+//----------------------------------------------------------------------
+
+//----------------------------------------------------------------------
+// "jGetLoadedDynamicLibrariesInfos"
+//
+// BRIEF
+//  This packet asks the remote debug stub to send the details about libraries
+//  being added/removed from the process as a performance optimization.
+//
+//  LLDB SENDS: jGetLoadedDynamicLibrariesInfos:{"image_count":1,"image_list_address":140734800075128}
+//  STUB REPLIES: ${"images":[{"load_address":4294967296,"mod_date":0,"pathname":"/tmp/a.out","uuid":"02CF262C-ED6F-3965-9E14-63538B465CFF","mach_header":{"magic":4277009103,"cputype":16777223,"cpusubtype":18446744071562067971,"filetype":2},"segments":{"name":"__PAGEZERO","vmaddr":0,"vmsize":4294967296,"fileoff":0,"filesize":0,"maxprot":0},{"name":"__TEXT","vmaddr":4294967296,"vmsize":4096,"fileoff":0,"filesize":4096,"maxprot":7},{"name":"__LINKEDIT","vmaddr":4294971392,"vmsize":4096,"fileoff":4096,"filesize":152,"maxprot":7}}]}#00
+//
+//  Or pretty-printed,
+//
+//  STUB REPLIES: ${"images":
+//                  [
+//                      {"load_address":4294967296,
+//                       "mod_date":0,
+//                       "pathname":"/tmp/a.out",
+//                       "uuid":"02CF262C-ED6F-3965-9E14-63538B465CFF",
+//                       "mach_header":
+//                          {"magic":4277009103,
+//                           "cputype":16777223,
+//                           "cpusubtype":18446744071562067971,
+//                           "filetype":2
+//                           },
+//                       "segments":
+//                        [
+//                          {"name":"__PAGEZERO",
+//                           "vmaddr":0,
+//                           "vmsize":4294967296,
+//                           "fileoff":0,
+//                           "filesize":0,
+//                           "maxprot":0
+//                          },
+//                          {"name":"__TEXT",
+//                           "vmaddr":4294967296,
+//                           "vmsize":4096,
+//                           "fileoff":0,
+//                           "filesize":4096,
+//                           "maxprot":7
+//                          },
+//                          {"name":"__LINKEDIT",
+//                           "vmaddr":4294971392,
+//                           "vmsize":4096,
+//                           "fileoff":4096,
+//                           "filesize":152,
+//                           "maxprot":7
+//                          }
+//                        ]
+//                      }
+//                  ]
+//              }
+//
+//
+// This is similar to the qXfer:libraries:read packet, and it could
+// be argued that it should be merged into that packet.  A separate
+// packet was created primarily because lldb needs to specify the
+// number of images to be read and the address from which the initial
+// information is read.  Also the XML DTD would need to be extended
+// quite a bit to provide all the information that the DynamicLoaderMacOSX
+// would need to work correctly on this platform.
+//
+// On Mac OS X / iOS, when libraries are added or removed, a stub
+// function is called which lldb puts a breakpoint on.  The arguments
+// to the stub function include the number of libraries being added
+// or removed and the address where the list of libraries can be
+// found.  The information at this address is the load address of the
+// library, the filename, and the mod date of the library if available.
+// DynamicLoaderMacOSX then parses the load commands in the Mach-O header
+// at the load address before it can decide what action to take.
+//
+// The purpose of this packet is to eliminate all of the memory reads needed
+// to read the Mach-O header and load commands for these libraries.
+// On a typical GUI app, there can be a couple hundred shared libraries 
+// which results in megabytes of read packets.  That same information can
+// be returned in a couple hundred kilobytes in JSON format from the remote
+// debugserver.
+//
+//
+// PRIORITY TO IMPLEMENT
+//  Low.  If this packet is absent, lldb will read the Mach-O headers/load
+//  commands out of memory.
+//----------------------------------------------------------------------
+
+//----------------------------------------------------------------------
+// "jThreadsInfo"
+//
+// BRIEF
+//  Ask for the server for thread stop information of all threads.
+//
+// PRIORITY TO IMPLEMENT
+//  Low. This is a performance optimization, which speeds up debugging by avoiding
+//  multiple round-trips for retrieving thread information. The information from this
+//  packet can be retrieved using a combination of qThreadStopInfo and m packets.
+//----------------------------------------------------------------------
+
+The data in this packet is very similar to the stop reply packets, but is packaged in
+JSON and uses JSON arrays where applicable. The JSON output looks like:
+    [
+      { "tid":1580681,
+        "metype":6,
+        "medata":[2,0],
+        "reason":"exception",
+        "qaddr":140735118423168,
+        "registers": {
+          "0":"8000000000000000",
+          "1":"0000000000000000",
+          "2":"20fabf5fff7f0000",
+          "3":"e8f8bf5fff7f0000",
+          "4":"0100000000000000",
+          "5":"d8f8bf5fff7f0000",
+          "6":"b0f8bf5fff7f0000",
+          "7":"20f4bf5fff7f0000",
+          "8":"8000000000000000",
+          "9":"61a8db78a61500db",
+          "10":"3200000000000000",
+          "11":"4602000000000000",
+          "12":"0000000000000000",
+          "13":"0000000000000000",
+          "14":"0000000000000000",
+          "15":"0000000000000000",
+          "16":"960b000001000000",
+          "17":"0202000000000000",
+          "18":"2b00000000000000",
+          "19":"0000000000000000",
+          "20":"0000000000000000"
+        },
+        "memory":[
+          {"address":140734799804592,"bytes":"c8f8bf5fff7f0000c9a59e8cff7f0000"},
+          {"address":140734799804616,"bytes":"00000000000000000100000000000000"}
+        ]
+      }
+    ]
+
+It contains an array of dictionaries with all of the key value pairs that are
+normally in the stop reply packet, including the expedited registers. The registers are
+passed as hex-encoded JSON string in debuggee-endian byte order. Note that the register
+numbers are decimal numbers, unlike the stop-reply packet, where they are written in
+hex. The packet also contains expedited memory in the "memory" key.  This allows the
+server to expedite memory that the client is likely to use (e.g., areas around the
+stack pointer, which are needed for computing backtraces) and it reduces the packet
+count.
+
+On MacOSX with debugserver, we expedite the frame pointer backchain for a thread
+(up to 256 entries) by reading 2 pointers worth of bytes at the frame pointer (for
+the previous FP and PC), and follow the backchain. Most backtraces on MacOSX and
+iOS now don't require us to read any memory!

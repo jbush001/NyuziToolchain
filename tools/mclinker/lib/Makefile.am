@@ -158,6 +158,15 @@ SOURCE = ADT/StringEntry.cpp \
 	Target/OutputRelocSection.cpp \
 	Target/PLT.cpp \
 	Target/TargetLDBackend.cpp \
+	Target/AArch64/AArch64.h \
+	Target/AArch64/AArch64CA53Erratum835769Stub.cpp \
+	Target/AArch64/AArch64CA53Erratum835769Stub.h \
+	Target/AArch64/AArch64CA53Erratum843419Stub.cpp \
+	Target/AArch64/AArch64CA53Erratum843419Stub.h \
+	Target/AArch64/AArch64CA53Erratum843419Stub2.cpp \
+	Target/AArch64/AArch64CA53Erratum843419Stub2.h \
+	Target/AArch64/AArch64CA53ErratumStub.cpp \
+	Target/AArch64/AArch64CA53ErratumStub.h \
 	Target/AArch64/AArch64Diagnostic.cpp \
 	Target/AArch64/AArch64ELFDynamic.cpp \
 	Target/AArch64/AArch64ELFDynamic.h \
@@ -165,9 +174,11 @@ SOURCE = ADT/StringEntry.cpp \
 	Target/AArch64/AArch64GNUInfo.h \
 	Target/AArch64/AArch64GOT.cpp \
 	Target/AArch64/AArch64GOT.h \
-	Target/AArch64/AArch64.h \
+	Target/AArch64/AArch64InsnHelpers.h \
 	Target/AArch64/AArch64LDBackend.cpp \
 	Target/AArch64/AArch64LDBackend.h \
+	Target/AArch64/AArch64LongBranchStub.cpp \
+	Target/AArch64/AArch64LongBranchStub.h \
 	Target/AArch64/AArch64PLT.cpp \
 	Target/AArch64/AArch64PLT.h \
 	Target/AArch64/AArch64RelocationFunctions.h \
@@ -269,8 +280,7 @@ ANDROID_CPPFLAGS=-fno-rtti -fno-exceptions -Waddress -Wchar-subscripts -Wcomment
 
 MCLD_INCLUDES = \
 	-I$(top_srcdir)/include \
-	-I$(top_builddir)/include \
-	-I$(abs_top_srcdir)/include/mcld/Script
+	-I$(top_builddir)/include
 
 if ENABLE_OPTIMIZED
 MCLD_CPPFLAGS = -O2 $(LLVM_CPPFLAGS) $(ANDROID_CPPFLAGS)

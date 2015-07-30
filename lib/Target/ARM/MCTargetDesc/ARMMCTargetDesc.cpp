@@ -31,7 +31,7 @@ using namespace llvm;
 #define GET_REGINFO_MC_DESC
 #include "ARMGenRegisterInfo.inc"
 
-static bool getMCRDeprecationInfo(MCInst &MI, MCSubtargetInfo &STI,
+static bool getMCRDeprecationInfo(MCInst &MI, const MCSubtargetInfo &STI,
                                   std::string &Info) {
   if (STI.getFeatureBits()[llvm::ARM::HasV7Ops] &&
       (MI.getOperand(0).isImm() && MI.getOperand(0).getImm() == 15) &&
@@ -63,7 +63,7 @@ static bool getMCRDeprecationInfo(MCInst &MI, MCSubtargetInfo &STI,
   return false;
 }
 
-static bool getITDeprecationInfo(MCInst &MI, MCSubtargetInfo &STI,
+static bool getITDeprecationInfo(MCInst &MI, const MCSubtargetInfo &STI,
                                  std::string &Info) {
   if (STI.getFeatureBits()[llvm::ARM::HasV8Ops] && MI.getOperand(1).isImm() &&
       MI.getOperand(1).getImm() != 8) {
@@ -75,7 +75,7 @@ static bool getITDeprecationInfo(MCInst &MI, MCSubtargetInfo &STI,
   return false;
 }
 
-static bool getARMStoreDeprecationInfo(MCInst &MI, MCSubtargetInfo &STI,
+static bool getARMStoreDeprecationInfo(MCInst &MI, const MCSubtargetInfo &STI,
                                        std::string &Info) {
   assert(!STI.getFeatureBits()[llvm::ARM::ModeThumb] &&
          "cannot predicate thumb instructions");
@@ -92,7 +92,7 @@ static bool getARMStoreDeprecationInfo(MCInst &MI, MCSubtargetInfo &STI,
   return false;
 }
 
-static bool getARMLoadDeprecationInfo(MCInst &MI, MCSubtargetInfo &STI,
+static bool getARMLoadDeprecationInfo(MCInst &MI, const MCSubtargetInfo &STI,
                                       std::string &Info) {
   assert(!STI.getFeatureBits()[llvm::ARM::ModeThumb] &&
          "cannot predicate thumb instructions");
@@ -130,16 +130,13 @@ static bool getARMLoadDeprecationInfo(MCInst &MI, MCSubtargetInfo &STI,
 #define GET_SUBTARGETINFO_MC_DESC
 #include "ARMGenSubtargetInfo.inc"
 
-
-std::string ARM_MC::ParseARMTriple(StringRef TT, StringRef CPU) {
-  Triple triple(TT);
-
-  bool isThumb = triple.getArch() == Triple::thumb ||
-                 triple.getArch() == Triple::thumbeb;
+std::string ARM_MC::ParseARMTriple(const Triple &TT, StringRef CPU) {
+  bool isThumb =
+      TT.getArch() == Triple::thumb || TT.getArch() == Triple::thumbeb;
 
   bool NoCPU = CPU == "generic" || CPU.empty();
   std::string ARMArchFeature;
-  switch (triple.getSubArch()) {
+  switch (TT.getSubArch()) {
   default:
     llvm_unreachable("invalid sub-architecture for ARM");
   case Triple::ARMSubArch_v8:
@@ -240,7 +237,7 @@ std::string ARM_MC::ParseARMTriple(StringRef TT, StringRef CPU) {
       ARMArchFeature += ",+thumb-mode";
   }
 
-  if (triple.isOSNaCl()) {
+  if (TT.isOSNaCl()) {
     if (ARMArchFeature.empty())
       ARMArchFeature = "+nacl-trap";
     else
@@ -250,8 +247,8 @@ std::string ARM_MC::ParseARMTriple(StringRef TT, StringRef CPU) {
   return ARMArchFeature;
 }
 
-MCSubtargetInfo *ARM_MC::createARMMCSubtargetInfo(StringRef TT, StringRef CPU,
-                                                  StringRef FS) {
+MCSubtargetInfo *ARM_MC::createARMMCSubtargetInfo(const Triple &TT,
+                                                  StringRef CPU, StringRef FS) {
   std::string ArchFS = ARM_MC::ParseARMTriple(TT, CPU);
   if (!FS.empty()) {
     if (!ArchFS.empty())
@@ -260,9 +257,7 @@ MCSubtargetInfo *ARM_MC::createARMMCSubtargetInfo(StringRef TT, StringRef CPU,
       ArchFS = FS;
   }
 
-  MCSubtargetInfo *X = new MCSubtargetInfo();
-  InitARMMCSubtargetInfo(X, TT, CPU, ArchFS);
-  return X;
+  return createARMMCSubtargetInfoImpl(TT, CPU, ArchFS);
 }
 
 static MCInstrInfo *createARMMCInstrInfo() {
@@ -271,24 +266,23 @@ static MCInstrInfo *createARMMCInstrInfo() {
   return X;
 }
 
-static MCRegisterInfo *createARMMCRegisterInfo(StringRef Triple) {
+static MCRegisterInfo *createARMMCRegisterInfo(const Triple &Triple) {
   MCRegisterInfo *X = new MCRegisterInfo();
   InitARMMCRegisterInfo(X, ARM::LR, 0, 0, ARM::PC);
   return X;
 }
 
-static MCAsmInfo *createARMMCAsmInfo(const MCRegisterInfo &MRI, StringRef TT) {
-  Triple TheTriple(TT);
-
+static MCAsmInfo *createARMMCAsmInfo(const MCRegisterInfo &MRI,
+                                     const Triple &TheTriple) {
   MCAsmInfo *MAI;
   if (TheTriple.isOSDarwin() || TheTriple.isOSBinFormatMachO())
-    MAI = new ARMMCAsmInfoDarwin(TT);
-  else if (TheTriple.isWindowsItaniumEnvironment())
-    MAI = new ARMCOFFMCAsmInfoGNU();
+    MAI = new ARMMCAsmInfoDarwin(TheTriple);
   else if (TheTriple.isWindowsMSVCEnvironment())
     MAI = new ARMCOFFMCAsmInfoMicrosoft();
+  else if (TheTriple.isOSWindows())
+    MAI = new ARMCOFFMCAsmInfoGNU();
   else
-    MAI = new ARMELFMCAsmInfo(TT);
+    MAI = new ARMELFMCAsmInfo(TheTriple);
 
   unsigned Reg = MRI.getDwarfRegNum(ARM::SP, true);
   MAI->addInitialFrameState(MCCFIInstruction::createDefCfa(nullptr, Reg, 0));
@@ -296,14 +290,13 @@ static MCAsmInfo *createARMMCAsmInfo(const MCRegisterInfo &MRI, StringRef TT) {
   return MAI;
 }
 
-static MCCodeGenInfo *createARMMCCodeGenInfo(StringRef TT, Reloc::Model RM,
+static MCCodeGenInfo *createARMMCCodeGenInfo(const Triple &TT, Reloc::Model RM,
                                              CodeModel::Model CM,
                                              CodeGenOpt::Level OL) {
   MCCodeGenInfo *X = new MCCodeGenInfo();
   if (RM == Reloc::Default) {
-    Triple TheTriple(TT);
     // Default relocation model on Darwin is PIC, not DynamicNoPIC.
-    RM = TheTriple.isOSDarwin() ? Reloc::PIC_ : Reloc::DynamicNoPIC;
+    RM = TT.isOSDarwin() ? Reloc::PIC_ : Reloc::DynamicNoPIC;
   }
   X->initMCCodeGenInfo(RM, CM, OL);
   return X;
@@ -333,10 +326,9 @@ static MCInstPrinter *createARMMCInstPrinter(const Triple &T,
   return nullptr;
 }
 
-static MCRelocationInfo *createARMMCRelocationInfo(StringRef TT,
+static MCRelocationInfo *createARMMCRelocationInfo(const Triple &TT,
                                                    MCContext &Ctx) {
-  Triple TheTriple(TT);
-  if (TheTriple.isOSBinFormatMachO())
+  if (TT.isOSBinFormatMachO())
     return createARMMachORelocationInfo(Ctx);
   // Default to the stock relocation info.
   return llvm::createMCRelocationInfo(TT, Ctx);

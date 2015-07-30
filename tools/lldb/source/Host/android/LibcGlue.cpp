@@ -11,12 +11,13 @@
 
 #include <android/api-level.h>
 
+#include <sys/syscall.h>
+
 #if __ANDROID_API__ < 21
 
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <sys/syscall.h>
 #include <signal.h>
 
 #include "lldb/Host/Time.h"

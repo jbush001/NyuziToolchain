@@ -19,6 +19,7 @@ set( LLDB_USED_LIBS
   lldbPluginDynamicLoaderStatic
   lldbPluginDynamicLoaderPosixDYLD
   lldbPluginDynamicLoaderHexagonDYLD
+  lldbPluginDynamicLoaderWindowsDYLD
 
   lldbPluginObjectFileELF
   lldbPluginObjectFileJIT
@@ -48,10 +49,13 @@ set( LLDB_USED_LIBS
   lldbPluginABIMacOSX_i386
   lldbPluginABISysV_arm
   lldbPluginABISysV_arm64
+  lldbPluginABISysV_i386
   lldbPluginABISysV_x86_64
   lldbPluginABISysV_hexagon
   lldbPluginABISysV_ppc
   lldbPluginABISysV_ppc64
+  lldbPluginABISysV_mips
+  lldbPluginABISysV_mips64
   lldbPluginInstructionARM
   lldbPluginInstructionARM64
   lldbPluginInstructionMIPS
@@ -151,7 +155,12 @@ endif()
 list(APPEND LLDB_SYSTEM_LIBS ${system_libs})
 
 if (LLVM_BUILD_STATIC)
-  list(APPEND LLDB_SYSTEM_LIBS python2.7 z util termcap gpm ssl crypto bsd)
+  if (NOT LLDB_DISABLE_PYTHON)
+    list(APPEND LLDB_SYSTEM_LIBS python2.7 util)
+  endif()
+  if (NOT LLDB_DISABLE_CURSES)
+    list(APPEND LLDB_SYSTEM_LIBS gpm)
+  endif()
 endif()
 
 set( LLVM_LINK_COMPONENTS
@@ -169,6 +178,7 @@ set( LLVM_LINK_COMPONENTS
   core
   mcdisassembler
   executionengine
+  runtimedyld
   option
   support
   )

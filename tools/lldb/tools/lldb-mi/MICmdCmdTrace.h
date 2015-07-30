@@ -26,9 +26,6 @@
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "trace-status".
-// Gotchas: None.
-// Authors: Illya Rudkin 07/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdTraceStatus : public CMICmdBase
 {
@@ -44,8 +41,8 @@ class CMICmdCmdTraceStatus : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdTraceStatus(void);
+    /* dtor */ ~CMICmdCmdTraceStatus(void) override;
 };

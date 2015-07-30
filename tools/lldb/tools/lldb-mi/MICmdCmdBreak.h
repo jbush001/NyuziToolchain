@@ -35,9 +35,6 @@
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "break-insert".
 //          This command does not follow the MI documentation exactly.
-// Gotchas: None.
-// Authors: Illya Rudkin 11/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdBreakInsert : public CMICmdBase
 {
@@ -53,11 +50,11 @@ class CMICmdCmdBreakInsert : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdBreakInsert(void);
+    /* dtor */ ~CMICmdCmdBreakInsert(void) override;
 
     // Enumerations:
   private:
@@ -104,9 +101,6 @@ class CMICmdCmdBreakInsert : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "break-delete".
-// Gotchas: None.
-// Authors: Illya Rudkin 11/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdBreakDelete : public CMICmdBase
 {
@@ -122,11 +116,11 @@ class CMICmdCmdBreakDelete : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdBreakDelete(void);
+    /* dtor */ ~CMICmdCmdBreakDelete(void) override;
 
     // Attributes:
   private:
@@ -137,9 +131,6 @@ class CMICmdCmdBreakDelete : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "break-disable".
-// Gotchas: None.
-// Authors: Illya Rudkin 19/05/2014.
-// Changes: None.
 //--
 class CMICmdCmdBreakDisable : public CMICmdBase
 {
@@ -155,11 +146,11 @@ class CMICmdCmdBreakDisable : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdBreakDisable(void);
+    /* dtor */ ~CMICmdCmdBreakDisable(void) override;
 
     // Attributes:
   private:
@@ -172,9 +163,6 @@ class CMICmdCmdBreakDisable : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "break-enable".
-// Gotchas: None.
-// Authors: Illya Rudkin 19/05/2014.
-// Changes: None.
 //--
 class CMICmdCmdBreakEnable : public CMICmdBase
 {
@@ -190,11 +178,11 @@ class CMICmdCmdBreakEnable : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdBreakEnable(void);
+    /* dtor */ ~CMICmdCmdBreakEnable(void) override;
 
     // Attributes:
   private:
@@ -207,9 +195,6 @@ class CMICmdCmdBreakEnable : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "break-after".
-// Gotchas: None.
-// Authors: Illya Rudkin 29/05/2014.
-// Changes: None.
 //--
 class CMICmdCmdBreakAfter : public CMICmdBase
 {
@@ -225,11 +210,11 @@ class CMICmdCmdBreakAfter : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdBreakAfter(void);
+    /* dtor */ ~CMICmdCmdBreakAfter(void) override;
 
     // Attributes:
   private:
@@ -243,9 +228,6 @@ class CMICmdCmdBreakAfter : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "break-condition".
-// Gotchas: None.
-// Authors: Illya Rudkin 29/05/2014.
-// Changes: None.
 //--
 class CMICmdCmdBreakCondition : public CMICmdBase
 {
@@ -261,11 +243,11 @@ class CMICmdCmdBreakCondition : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdBreakCondition(void);
+    /* dtor */ ~CMICmdCmdBreakCondition(void) override;
 
     // Methods:
   private:

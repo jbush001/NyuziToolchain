@@ -37,9 +37,6 @@
 //          class instantiates a request info command for a matching request. The
 //          design/code of *this class then does not then become bloated. Use a
 //          lightweight version of the current MI command system.
-// Gotchas: None.
-// Authors: Illya Rudkin 03/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdGdbSet : public CMICmdBase
 {
@@ -55,11 +52,11 @@ class CMICmdCmdGdbSet : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdGdbSet(void);
+    /* dtor */ ~CMICmdCmdGdbSet(void) override;
 
     // Typedefs:
   private:

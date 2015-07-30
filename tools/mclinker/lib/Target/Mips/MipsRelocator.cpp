@@ -460,12 +460,11 @@ void MipsRelocator::scanGlobalReloc(MipsRelocationInfo& pReloc,
 }
 
 bool MipsRelocator::isPostponed(const Relocation& pReloc) const {
-  using namespace llvm::ELF;
   if (isN64ABI())
     return false;
 
-  if (MipsRelocationInfo::HasSubType(pReloc, R_MIPS_HI16) ||
-      MipsRelocationInfo::HasSubType(pReloc, R_MIPS_PCHI16))
+  if (MipsRelocationInfo::HasSubType(pReloc, llvm::ELF::R_MIPS_HI16) ||
+      MipsRelocationInfo::HasSubType(pReloc, llvm::ELF::R_MIPS_PCHI16))
     return true;
 
   if (MipsRelocationInfo::HasSubType(pReloc, llvm::ELF::R_MIPS_GOT16) &&
@@ -735,7 +734,7 @@ uint32_t MipsRelocator::getDebugStringOffset(Relocation& pReloc) const {
     error(diag::unsupport_reloc_for_debug_string)
         << getName(pReloc.type()) << "mclinker@googlegroups.com";
   if (pReloc.symInfo()->type() == ResolveInfo::Section)
-    return pReloc.target();
+    return pReloc.target() + pReloc.addend();
   else
     return pReloc.symInfo()->outSymbol()->fragRef()->offset() +
                pReloc.target() + pReloc.addend();

@@ -266,7 +266,7 @@ static void get_threads_profile_data(DNBProfileDataScanType scanType, task_t tas
     if (kr != KERN_SUCCESS)
         return;
     
-    for (int i = 0; i < tcnt; i++)
+    for (mach_msg_type_number_t i = 0; i < tcnt; i++)
     {
         thread_identifier_info_data_t identifier_info;
         mach_msg_type_number_t count = THREAD_IDENTIFIER_INFO_COUNT;
@@ -382,7 +382,11 @@ MachTask::GetProfileData (DNBProfileDataScanType scanType)
         get_threads_profile_data(scanType, task, pid, threads_id, threads_name, threads_used_usec);
     }
     
-    struct vm_statistics vm_stats;
+#if defined (HOST_VM_INFO64_COUNT)
+    vm_statistics64_data_t vminfo;
+#else
+    struct vm_statistics vminfo;
+#endif
     uint64_t physical_memory;
     mach_vm_size_t rprvt = 0;
     mach_vm_size_t rsize = 0;
@@ -391,7 +395,7 @@ MachTask::GetProfileData (DNBProfileDataScanType scanType)
     mach_vm_size_t dirty_size = 0;
     mach_vm_size_t purgeable = 0;
     mach_vm_size_t anonymous = 0;
-    if (m_vm_memory.GetMemoryProfile(scanType, task, task_info, m_process->GetCPUType(), pid, vm_stats, physical_memory, rprvt, rsize, vprvt, vsize, dirty_size, purgeable, anonymous))
+    if (m_vm_memory.GetMemoryProfile(scanType, task, task_info, m_process->GetCPUType(), pid, vminfo, physical_memory, rprvt, rsize, vprvt, vsize, dirty_size, purgeable, anonymous))
     {
         std::ostringstream profile_data_stream;
         
@@ -427,7 +431,7 @@ MachTask::GetProfileData (DNBProfileDataScanType scanType)
                         // Make sure that thread name doesn't interfere with our delimiter.
                         profile_data_stream << RAW_HEXBASE << std::setw(2);
                         const uint8_t *ubuf8 = (const uint8_t *)(thread_name);
-                        for (int j=0; j<len; j++)
+                        for (size_t j=0; j<len; j++)
                         {
                             profile_data_stream << (uint32_t)(ubuf8[j]);
                         }
@@ -444,6 +448,9 @@ MachTask::GetProfileData (DNBProfileDataScanType scanType)
         
         if (scanType & eProfileMemory)
         {
+#if defined (HOST_VM_INFO64_COUNT) && defined (_VM_PAGE_SIZE_H_)
+            static vm_size_t pagesize = vm_kernel_page_size;
+#else
             static vm_size_t pagesize;
             static bool calculated = false;
             if (!calculated)
@@ -451,16 +458,22 @@ MachTask::GetProfileData (DNBProfileDataScanType scanType)
                 calculated = true;
                 pagesize = PageSize();
             }
+#endif
             
             /* Unused values. Optimized out for transfer performance.
-            profile_data_stream << "wired:" << vm_stats.wire_count * pagesize << ';';
-            profile_data_stream << "active:" << vm_stats.active_count * pagesize << ';';
-            profile_data_stream << "inactive:" << vm_stats.inactive_count * pagesize << ';';
+            profile_data_stream << "wired:" << vminfo.wire_count * pagesize << ';';
+            profile_data_stream << "active:" << vminfo.active_count * pagesize << ';';
+            profile_data_stream << "inactive:" << vminfo.inactive_count * pagesize << ';';
              */
-            uint64_t total_used_count = vm_stats.wire_count + vm_stats.inactive_count + vm_stats.active_count;
+#if defined (HOST_VM_INFO64_COUNT)
+            // This mimicks Activity Monitor.
+            uint64_t total_used_count = (physical_memory / pagesize) - (vminfo.free_count - vminfo.speculative_count) - vminfo.external_page_count - vminfo.purgeable_count;
+#else
+            uint64_t total_used_count = vminfo.wire_count + vminfo.inactive_count + vminfo.active_count;
+#endif
             profile_data_stream << "used:" << total_used_count * pagesize << ';';
             /* Unused values. Optimized out for transfer performance.
-            profile_data_stream << "free:" << vm_stats.free_count * pagesize << ';';
+            profile_data_stream << "free:" << vminfo.free_count * pagesize << ';';
              */
             
             profile_data_stream << "rprvt:" << rprvt << ';';
@@ -707,7 +720,7 @@ MachTask::ShutDownExcecptionThread()
 
     // NULL our our exception port and let our exception thread exit
     mach_port_t exception_port = m_exception_port;
-    m_exception_port = NULL;
+    m_exception_port = 0;
 
     err.SetError(::pthread_cancel(m_exception_thread), DNBError::POSIX);
     if (DNBLogCheckLogBit(LOG_TASK) || err.Fail())

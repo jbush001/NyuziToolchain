@@ -106,7 +106,7 @@ ItaniumABILanguageRuntime::GetDynamicTypeAndAddress (ValueObject &in_value,
                 Symbol *symbol = sc.symbol;
                 if (symbol != NULL)
                 {
-                    const char *name = symbol->GetMangled().GetDemangledName().AsCString();
+                    const char *name = symbol->GetMangled().GetDemangledName(lldb::eLanguageTypeC_plus_plus).AsCString();
                     if (name && strstr(name, vtable_demangled_prefix) == name)
                     {
                         Log *log (lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_OBJECT));
@@ -420,6 +420,7 @@ ItaniumABILanguageRuntime::CreateExceptionResolver (Breakpoint *bkpt, bool catch
                                                                   exception_names.data(),
                                                                   exception_names.size(),
                                                                   eFunctionNameTypeBase,
+                                                                  eLanguageTypeUnknown,
                                                                   eLazyBoolNo));
 
     return resolver_sp;

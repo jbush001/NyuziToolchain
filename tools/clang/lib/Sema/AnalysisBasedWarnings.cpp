@@ -130,11 +130,10 @@ public:
       return true;
 
     // Recurse to children.
-    for (ConstStmtRange SubStmts = E->children(); SubStmts; ++SubStmts)
-      if (*SubStmts)
-        if (const Expr *SubExpr = dyn_cast<Expr>(*SubStmts))
-          if (HasMacroID(SubExpr))
-            return true;
+    for (const Stmt *SubStmt : E->children())
+      if (const Expr *SubExpr = dyn_cast_or_null<Expr>(SubStmt))
+        if (HasMacroID(SubExpr))
+          return true;
 
     return false;
   }
@@ -172,63 +171,71 @@ enum RecursiveState {
   FoundPathWithNoRecursiveCall
 };
 
+static bool hasRecursiveCallInPath(const FunctionDecl *FD, CFGBlock &Block) {
+  // Since the current state is FoundPathWithNoRecursiveCall, the successors
+  // will be either FoundPathWithNoRecursiveCall or FoundPath.  To determine
+  // which, process all the Stmt's in this block to find any recursive calls.
+  for (const auto &B : Block) {
+    if (B.getKind() != CFGElement::Statement)
+      continue;
+
+    const CallExpr *CE = dyn_cast<CallExpr>(B.getAs<CFGStmt>()->getStmt());
+    if (!CE || !CE->getCalleeDecl() ||
+        CE->getCalleeDecl()->getCanonicalDecl() != FD)
+      continue;
+
+    // Skip function calls which are qualified with a templated class.
+    if (const DeclRefExpr *DRE =
+            dyn_cast<DeclRefExpr>(CE->getCallee()->IgnoreParenImpCasts())) {
+      if (NestedNameSpecifier *NNS = DRE->getQualifier()) {
+        if (NNS->getKind() == NestedNameSpecifier::TypeSpec &&
+            isa<TemplateSpecializationType>(NNS->getAsType())) {
+          continue;
+        }
+      }
+    }
+
+    const CXXMemberCallExpr *MCE = dyn_cast<CXXMemberCallExpr>(CE);
+    if (!MCE || isa<CXXThisExpr>(MCE->getImplicitObjectArgument()) ||
+        !MCE->getMethodDecl()->isVirtual())
+      return true;
+  }
+  return false;
+}
+
 static void checkForFunctionCall(Sema &S, const FunctionDecl *FD,
                                  CFGBlock &Block, unsigned ExitID,
                                  llvm::SmallVectorImpl<RecursiveState> &States,
                                  RecursiveState State) {
-  unsigned ID = Block.getBlockID();
+  SmallVector<std::pair<CFGBlock *, RecursiveState>, 16> Stack;
+  Stack.emplace_back(&Block, State);
 
-  // A block's state can only move to a higher state.
-  if (States[ID] >= State)
-    return;
+  while (!Stack.empty()) {
+    CFGBlock &CurBlock = *Stack.back().first;
+    RecursiveState CurState = Stack.back().second;
+    Stack.pop_back();
 
-  States[ID] = State;
+    unsigned ID = CurBlock.getBlockID();
 
-  // Found a path to the exit node without a recursive call.
-  if (ID == ExitID && State == FoundPathWithNoRecursiveCall)
-    return;
+    // A block's state can only move to a higher state.
+    if (States[ID] >= CurState)
+      continue;
 
-  if (State == FoundPathWithNoRecursiveCall) {
-    // If the current state is FoundPathWithNoRecursiveCall, the successors
-    // will be either FoundPathWithNoRecursiveCall or FoundPath.  To determine
-    // which, process all the Stmt's in this block to find any recursive calls.
-    for (const auto &B : Block) {
-      if (B.getKind() != CFGElement::Statement)
+    States[ID] = CurState;
+
+    if (CurState == FoundPathWithNoRecursiveCall) {
+      // Found a path to the exit node without a recursive call.
+      if (ExitID == ID)
         continue;
 
-      const CallExpr *CE = dyn_cast<CallExpr>(B.getAs<CFGStmt>()->getStmt());
-      if (CE && CE->getCalleeDecl() &&
-          CE->getCalleeDecl()->getCanonicalDecl() == FD) {
-
-        // Skip function calls which are qualified with a templated class.
-        if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(
-                CE->getCallee()->IgnoreParenImpCasts())) {
-          if (NestedNameSpecifier *NNS = DRE->getQualifier()) {
-            if (NNS->getKind() == NestedNameSpecifier::TypeSpec &&
-                isa<TemplateSpecializationType>(NNS->getAsType())) {
-               continue;
-            }
-          }
-        }
-
-        if (const CXXMemberCallExpr *MCE = dyn_cast<CXXMemberCallExpr>(CE)) {
-          if (isa<CXXThisExpr>(MCE->getImplicitObjectArgument()) ||
-              !MCE->getMethodDecl()->isVirtual()) {
-            State = FoundPath;
-            break;
-          }
-        } else {
-          State = FoundPath;
-          break;
-        }
-      }
+      if (hasRecursiveCallInPath(FD, CurBlock))
+        CurState = FoundPath;
     }
-  }
 
-  for (CFGBlock::succ_iterator I = Block.succ_begin(), E = Block.succ_end();
-       I != E; ++I)
-    if (*I)
-      checkForFunctionCall(S, FD, **I, ExitID, States, State);
+    for (auto I = CurBlock.succ_begin(), E = CurBlock.succ_end(); I != E; ++I)
+      if (*I)
+        Stack.emplace_back(*I, CurState);
+  }
 }
 
 static void checkRecursiveFunction(Sema &S, const FunctionDecl *FD,
@@ -574,28 +581,29 @@ namespace {
 /// ContainsReference - A visitor class to search for references to
 /// a particular declaration (the needle) within any evaluated component of an
 /// expression (recursively).
-class ContainsReference : public EvaluatedExprVisitor<ContainsReference> {
+class ContainsReference : public ConstEvaluatedExprVisitor<ContainsReference> {
   bool FoundReference;
   const DeclRefExpr *Needle;
 
 public:
-  ContainsReference(ASTContext &Context, const DeclRefExpr *Needle)
-    : EvaluatedExprVisitor<ContainsReference>(Context),
-      FoundReference(false), Needle(Needle) {}
+  typedef ConstEvaluatedExprVisitor<ContainsReference> Inherited;
 
-  void VisitExpr(Expr *E) {
+  ContainsReference(ASTContext &Context, const DeclRefExpr *Needle)
+    : Inherited(Context), FoundReference(false), Needle(Needle) {}
+
+  void VisitExpr(const Expr *E) {
     // Stop evaluating if we already have a reference.
     if (FoundReference)
       return;
 
-    EvaluatedExprVisitor<ContainsReference>::VisitExpr(E);
+    Inherited::VisitExpr(E);
   }
 
-  void VisitDeclRefExpr(DeclRefExpr *E) {
+  void VisitDeclRefExpr(const DeclRefExpr *E) {
     if (E == Needle)
       FoundReference = true;
     else
-      EvaluatedExprVisitor<ContainsReference>::VisitDeclRefExpr(E);
+      Inherited::VisitDeclRefExpr(E);
   }
 
   bool doesContainReference() const { return FoundReference; }
@@ -854,7 +862,7 @@ static bool DiagnoseUninitializedUse(Sema &S, const VarDecl *VD,
         return false;
 
       ContainsReference CR(S.Context, DRE);
-      CR.Visit(const_cast<Expr*>(Initializer));
+      CR.Visit(Initializer);
       if (CR.doesContainReference()) {
         S.Diag(DRE->getLocStart(),
                diag::warn_uninit_self_reference_in_init)
@@ -1886,6 +1894,7 @@ AnalysisBasedWarnings::IssueWarnings(sema::AnalysisBasedWarnings::Policy P,
   AC.getCFGBuildOptions().AddImplicitDtors = true;
   AC.getCFGBuildOptions().AddTemporaryDtors = true;
   AC.getCFGBuildOptions().AddCXXNewAllocator = false;
+  AC.getCFGBuildOptions().AddCXXDefaultInitExprInCtors = true;
 
   // Force that certain expressions appear as CFGElements in the CFG.  This
   // is used to speed up various analyses.

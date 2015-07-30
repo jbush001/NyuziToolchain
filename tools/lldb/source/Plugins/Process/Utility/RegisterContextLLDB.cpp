@@ -692,7 +692,7 @@ RegisterContextLLDB::GetFastUnwindPlanForFrame ()
     if (m_frame_type == eTrapHandlerFrame || m_frame_type == eDebuggerFrame)
         return unwind_plan_sp;
 
-    unwind_plan_sp = func_unwinders_sp->GetUnwindPlanFastUnwind (m_thread);
+    unwind_plan_sp = func_unwinders_sp->GetUnwindPlanFastUnwind (*m_thread.CalculateTarget(), m_thread);
     if (unwind_plan_sp)
     {
         if (unwind_plan_sp->PlanValidAtAddress (m_current_pc))
@@ -855,12 +855,26 @@ RegisterContextLLDB::GetFullUnwindPlanForFrame ()
         {
             if (unwind_plan_sp->GetSourcedFromCompiler() == eLazyBoolNo)
             {
-                // We probably have an UnwindPlan created by inspecting assembly instructions, and we probably
-                // don't have any eh_frame instructions available.
-                // The assembly profilers work really well with compiler-generated functions but hand-written
-                // assembly can be problematic.  We'll set the architecture default UnwindPlan as our fallback
-                // UnwindPlan in case this doesn't work out when we try to unwind.
-                m_fallback_unwind_plan_sp = arch_default_unwind_plan_sp;
+                // We probably have an UnwindPlan created by inspecting assembly instructions. The
+                // assembly profilers work really well with compiler-generated functions but hand-
+                // written assembly can be problematic. We set the eh_frame based unwind plan as our
+                // fallback unwind plan if instruction emulation doesn't work out even for non call
+                // sites if it is available and use the architecture default unwind plan if it is
+                // not available. The eh_frame unwind plan is more reliable even on non call sites
+                // then the architecture default plan and for hand written assembly code it is often
+                // written in a way that it valid at all location what helps in the most common
+                // cases when the instruction emulation fails.
+                UnwindPlanSP eh_frame_unwind_plan = func_unwinders_sp->GetEHFrameUnwindPlan (process->GetTarget(), m_current_offset_backed_up_one);
+                if (eh_frame_unwind_plan &&
+                    eh_frame_unwind_plan.get() != unwind_plan_sp.get() &&
+                    eh_frame_unwind_plan->GetSourceName() != unwind_plan_sp->GetSourceName())
+                {
+                    m_fallback_unwind_plan_sp = eh_frame_unwind_plan;
+                }
+                else
+                {
+                    m_fallback_unwind_plan_sp = arch_default_unwind_plan_sp;
+                }
             }
             UnwindLogMsgVerbose ("frame uses %s for full UnwindPlan", unwind_plan_sp->GetSourceName().GetCString());
             return unwind_plan_sp;
@@ -887,12 +901,25 @@ RegisterContextLLDB::GetFullUnwindPlanForFrame ()
     }
     if (unwind_plan_sp && unwind_plan_sp->GetSourcedFromCompiler() == eLazyBoolNo)
     {
-        // We probably have an UnwindPlan created by inspecting assembly instructions, and we probably
-        // don't have any eh_frame instructions available.
-        // The assembly profilers work really well with compiler-generated functions but hand-written
-        // assembly can be problematic.  We'll set the architecture default UnwindPlan as our fallback
-        // UnwindPlan in case this doesn't work out when we try to unwind.
-        m_fallback_unwind_plan_sp = arch_default_unwind_plan_sp;
+        // We probably have an UnwindPlan created by inspecting assembly instructions. The assembly
+        // profilers work really well with compiler-generated functions but hand- written assembly
+        // can be problematic. We set the eh_frame based unwind plan as our fallback unwind plan if
+        // instruction emulation doesn't work out even for non call sites if it is available and use
+        // the architecture default unwind plan if it is not available. The eh_frame unwind plan is
+        // more reliable even on non call sites then the architecture default plan and for hand
+        // written assembly code it is often written in a way that it valid at all location what
+        // helps in the most common cases when the instruction emulation fails.
+        UnwindPlanSP eh_frame_unwind_plan = func_unwinders_sp->GetEHFrameUnwindPlan (process->GetTarget(), m_current_offset_backed_up_one);
+        if (eh_frame_unwind_plan &&
+            eh_frame_unwind_plan.get() != unwind_plan_sp.get() &&
+            eh_frame_unwind_plan->GetSourceName() != unwind_plan_sp->GetSourceName())
+        {
+            m_fallback_unwind_plan_sp = eh_frame_unwind_plan;
+        }
+        else
+        {
+            m_fallback_unwind_plan_sp = arch_default_unwind_plan_sp;
+        }
     }
 
     if (IsUnwindPlanValidForCurrentPC(unwind_plan_sp, valid_offset))
@@ -1403,16 +1430,13 @@ RegisterContextLLDB::SavedLocationForRegister (uint32_t lldb_regnum, lldb_privat
 
     if (unwindplan_regloc.IsSame())
     {
-        if (IsFrameZero ())
-        {
-            UnwindLogMsg ("could not supply caller's %s (%d) location, IsSame", 
-                          regnum.GetName(), regnum.GetAsKind (eRegisterKindLLDB));
-            return UnwindLLDB::RegisterSearchResult::eRegisterNotFound;
-        }
-        else
-        {
-            return UnwindLLDB::RegisterSearchResult::eRegisterNotFound;
-        }
+        regloc.type = UnwindLLDB::RegisterLocation::eRegisterInRegister;
+        regloc.location.register_number = regnum.GetAsKind (eRegisterKindLLDB);
+        m_registers[regnum.GetAsKind (eRegisterKindLLDB)] = regloc;
+        UnwindLogMsg ("supplying caller's register %s (%d), saved in register %s (%d)", 
+                      regnum.GetName(), regnum.GetAsKind (eRegisterKindLLDB), 
+                      regnum.GetName(), regnum.GetAsKind (eRegisterKindLLDB));
+        return UnwindLLDB::RegisterSearchResult::eRegisterFound;
     }
 
     if (unwindplan_regloc.IsCFAPlusOffset())

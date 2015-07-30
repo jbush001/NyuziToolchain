@@ -25,9 +25,6 @@
 //          This manager will stop and delete all threads on *this manager's
 //          shutdown.
 //          Singleton class.
-// Gotchas: None.
-// Authors: Aidan Dodds 12/03/2014.
-// Changes: None.
 //--
 class CMICmnThreadMgrStd : public CMICmnBase, public MI::ISingleton<CMICmnThreadMgrStd>
 {
@@ -35,8 +32,8 @@ class CMICmnThreadMgrStd : public CMICmnBase, public MI::ISingleton<CMICmnThread
 
     // Methods:
   public:
-    bool Initialize(void);
-    bool Shutdown(void);
+    bool Initialize(void) override;
+    bool Shutdown(void) override;
     bool
     ThreadAllTerminate(void); // Ask all threads to stop (caution)
     template <typename T>     // Ask the thread manager to start and stop threads on our behalf
@@ -58,7 +55,7 @@ class CMICmnThreadMgrStd : public CMICmnBase, public MI::ISingleton<CMICmnThread
     // Overridden:
   private:
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmnThreadMgrStd(void);
+    /* dtor */ ~CMICmnThreadMgrStd(void) override;
 
     // Attributes:
   private:

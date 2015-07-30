@@ -26,9 +26,6 @@ class CMICmnMIOutOfBandRecord;
 //          MI Out-of-band records from the information inside the event object.
 //          These records are then pushed to stdout.
 //          A singleton class.
-// Gotchas: None.
-// Authors: Illya Rudkin 02/03/2014.
-// Changes: None.
 //--
 class CMICmnLLDBDebuggerHandleEvents : public CMICmnBase, public MI::ISingleton<CMICmnLLDBDebuggerHandleEvents>
 {
@@ -36,8 +33,8 @@ class CMICmnLLDBDebuggerHandleEvents : public CMICmnBase, public MI::ISingleton<
 
     // Methods:
   public:
-    bool Initialize(void);
-    bool Shutdown(void);
+    bool Initialize(void) override;
+    bool Shutdown(void) override;
     //
     bool HandleEvent(const lldb::SBEvent &vEvent, bool &vrbHandledEvent);
 
@@ -84,7 +81,7 @@ class CMICmnLLDBDebuggerHandleEvents : public CMICmnBase, public MI::ISingleton<
     // Overridden:
   private:
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmnLLDBDebuggerHandleEvents(void);
+    /* dtor */ ~CMICmnLLDBDebuggerHandleEvents(void) override;
     void InitializeSignals();
     bool m_bSignalsInitialized;
     MIuint64 m_SIGINT;

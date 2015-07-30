@@ -288,7 +288,7 @@ EmitMachineConstantPoolValue(MachineConstantPoolValue *MCPV) {
     MCSymbolRefExpr::create(getSymbol(ZCPV->getGlobalValue()),
                             getModifierVariantKind(ZCPV->getModifier()),
                             OutContext);
-  uint64_t Size = TM.getDataLayout()->getTypeAllocSize(ZCPV->getType());
+  uint64_t Size = getDataLayout().getTypeAllocSize(ZCPV->getType());
 
   OutStreamer->EmitValue(Expr, Size);
 }
@@ -305,7 +305,7 @@ bool SystemZAsmPrinter::PrintAsmOperand(const MachineInstr *MI,
   } else {
     SystemZMCInstLower Lower(MF->getContext(), *this);
     MCOperand MO(Lower.lowerOperand(MI->getOperand(OpNo)));
-    SystemZInstPrinter::printOperand(MO, OS);
+    SystemZInstPrinter::printOperand(MO, MAI, OS);
   }
   return false;
 }

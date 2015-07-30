@@ -113,7 +113,7 @@ SymbolFileDWARFDebugMap::CompileUnitInfo::GetFileRangeMap(SymbolFileDWARFDebugMa
                             // correctly to the new addresses in the main executable.
 
                             // First we find the original symbol in the .o file's symbol table
-                            Symbol *oso_fun_symbol = oso_symtab->FindFirstSymbolWithNameAndType (exe_symbol->GetMangled().GetName(Mangled::ePreferMangled),
+                            Symbol *oso_fun_symbol = oso_symtab->FindFirstSymbolWithNameAndType (exe_symbol->GetMangled().GetName(lldb::eLanguageTypeUnknown, Mangled::ePreferMangled),
                                                                                                  eSymbolTypeCode,
                                                                                                  Symtab::eDebugNo,
                                                                                                  Symtab::eVisibilityAny);
@@ -121,8 +121,8 @@ SymbolFileDWARFDebugMap::CompileUnitInfo::GetFileRangeMap(SymbolFileDWARFDebugMa
                             {
                                 // Add the inverse OSO file address to debug map entry mapping
                                 exe_symfile->AddOSOFileRange (this,
-                                                              exe_symbol->GetAddress().GetFileAddress(),
-                                                              oso_fun_symbol->GetAddress().GetFileAddress(),
+                                                              exe_symbol->GetAddressRef().GetFileAddress(),
+                                                              oso_fun_symbol->GetAddressRef().GetFileAddress(),
                                                               std::min<addr_t>(exe_symbol->GetByteSize(), oso_fun_symbol->GetByteSize()));
 
                             }
@@ -145,7 +145,7 @@ SymbolFileDWARFDebugMap::CompileUnitInfo::GetFileRangeMap(SymbolFileDWARFDebugMa
                             // sizes from the DWARF info as we are parsing.
 
                             // Next we find the non-stab entry that corresponds to the N_GSYM in the .o file
-                            Symbol *oso_gsym_symbol = oso_symtab->FindFirstSymbolWithNameAndType (exe_symbol->GetMangled().GetName(Mangled::ePreferMangled),
+                            Symbol *oso_gsym_symbol = oso_symtab->FindFirstSymbolWithNameAndType (exe_symbol->GetMangled().GetName(lldb::eLanguageTypeUnknown, Mangled::ePreferMangled),
                                                                                                   eSymbolTypeData,
                                                                                                   Symtab::eDebugNo,
                                                                                                   Symtab::eVisibilityAny);
@@ -155,8 +155,8 @@ SymbolFileDWARFDebugMap::CompileUnitInfo::GetFileRangeMap(SymbolFileDWARFDebugMa
                             {
                                 // Add the inverse OSO file address to debug map entry mapping
                                 exe_symfile->AddOSOFileRange (this,
-                                                              exe_symbol->GetAddress().GetFileAddress(),
-                                                              oso_gsym_symbol->GetAddress().GetFileAddress(),
+                                                              exe_symbol->GetAddressRef().GetFileAddress(),
+                                                              oso_gsym_symbol->GetAddressRef().GetFileAddress(),
                                                               std::min<addr_t>(exe_symbol->GetByteSize(), oso_gsym_symbol->GetByteSize()));
                             }
                         }
@@ -374,7 +374,7 @@ SymbolFileDWARFDebugMap::InitOSO()
             for (uint32_t sym_idx : m_func_indexes)
             {
                 const Symbol *symbol = symtab->SymbolAtIndex(sym_idx);
-                lldb::addr_t file_addr = symbol->GetAddress().GetFileAddress();
+                lldb::addr_t file_addr = symbol->GetAddressRef().GetFileAddress();
                 lldb::addr_t byte_size = symbol->GetByteSize();
                 DebugMap::Entry debug_map_entry(file_addr, byte_size, OSOEntry(sym_idx, LLDB_INVALID_ADDRESS));
                 m_debug_map.Append(debug_map_entry);
@@ -382,7 +382,7 @@ SymbolFileDWARFDebugMap::InitOSO()
             for (uint32_t sym_idx : m_glob_indexes)
             {
                 const Symbol *symbol = symtab->SymbolAtIndex(sym_idx);
-                lldb::addr_t file_addr = symbol->GetAddress().GetFileAddress();
+                lldb::addr_t file_addr = symbol->GetAddressRef().GetFileAddress();
                 lldb::addr_t byte_size = symbol->GetByteSize();
                 DebugMap::Entry debug_map_entry(file_addr, byte_size, OSOEntry(sym_idx, LLDB_INVALID_ADDRESS));
                 m_debug_map.Append(debug_map_entry);
@@ -405,7 +405,7 @@ SymbolFileDWARFDebugMap::InitOSO()
                     m_compile_unit_infos[i].so_file.SetFile(so_symbol->GetName().AsCString(), false);
                     m_compile_unit_infos[i].oso_path = oso_symbol->GetName();
                     TimeValue oso_mod_time;
-                    oso_mod_time.OffsetWithSeconds(oso_symbol->GetAddress().GetOffset());
+                    oso_mod_time.OffsetWithSeconds(oso_symbol->GetIntegerValue(0));
                     m_compile_unit_infos[i].oso_mod_time = oso_mod_time;
                     uint32_t sibling_idx = so_symbol->GetSiblingIndex();
                     // The sibling index can't be less that or equal to the current index "i"
@@ -660,7 +660,8 @@ SymbolFileDWARFDebugMap::ParseCompileUnitAtIndex(uint32_t cu_idx)
                                                                                     NULL,
                                                                                     so_file_spec,
                                                                                     cu_id,
-                                                                                    eLanguageTypeUnknown));
+                                                                                    eLanguageTypeUnknown,
+                                                                                    false));
             
                 if (m_compile_unit_infos[cu_idx].compile_unit_sp)
                 {

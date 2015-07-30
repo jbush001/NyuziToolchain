@@ -147,7 +147,7 @@ CMIUtilFileStd::Write(const CMIUtilString &vData)
 // Throws:  None.
 //--
 bool
-CMIUtilFileStd::Write(const MIchar *vpData, const MIuint vCharCnt)
+CMIUtilFileStd::Write(const char *vpData, const MIuint vCharCnt)
 {
     if (vCharCnt == 0)
         return MIstatus::success;
@@ -256,9 +256,9 @@ CMIUtilFileStd::GetLineReturn(void) const
 CMIUtilString
 CMIUtilFileStd::StripOffFileName(const CMIUtilString &vDirectoryPath)
 {
-    const MIint nPos = vDirectoryPath.rfind('\\');
-    MIint nPos2 = vDirectoryPath.rfind('/');
-    if ((nPos == (MIint)std::string::npos) && (nPos2 == (MIint)std::string::npos))
+    const size_t nPos = vDirectoryPath.rfind('\\');
+    size_t nPos2 = vDirectoryPath.rfind('/');
+    if ((nPos == std::string::npos) && (nPos2 == std::string::npos))
         return vDirectoryPath;
 
     if (nPos > nPos2)
@@ -269,14 +269,14 @@ CMIUtilFileStd::StripOffFileName(const CMIUtilString &vDirectoryPath)
 }
 
 //++ ------------------------------------------------------------------------------------
-// Details: Return either backslash or forward slash appropriate to the OS this applilcation
+// Details: Return either backslash or forward slash appropriate to the OS this application
 //          is running on.
 // Type:    Static method.
 // Args:    None.
-// Return:  MIchar - '/' or '\' character.
+// Return:  char - '/' or '\' character.
 // Throws:  None.
 //--
-MIchar
+char
 CMIUtilFileStd::GetSlash(void)
 {
 #if !defined(_MSC_VER)

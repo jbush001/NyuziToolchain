@@ -42,9 +42,6 @@
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "data-evaluate-expression".
-// Gotchas: None.
-// Authors: Illya Rudkin 26/03/2014.
-// Changes: None.
 //--
 class CMICmdCmdDataEvaluateExpression : public CMICmdBase
 {
@@ -60,15 +57,15 @@ class CMICmdCmdDataEvaluateExpression : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdDataEvaluateExpression(void);
+    /* dtor */ ~CMICmdCmdDataEvaluateExpression(void) override;
 
     // Methods:
   private:
-    bool HaveInvalidCharacterInExpression(const CMIUtilString &vrExpr, MIchar &vrwInvalidChar);
+    bool HaveInvalidCharacterInExpression(const CMIUtilString &vrExpr, char &vrwInvalidChar);
 
     // Attributes:
   private:
@@ -78,7 +75,7 @@ class CMICmdCmdDataEvaluateExpression : public CMICmdBase
     CMICmnMIValueTuple m_miValueTuple;
     bool m_bCompositeVarType; // True = yes composite type, false = internal type
     bool m_bFoundInvalidChar; // True = yes found unexpected character in the expression, false = all ok
-    MIchar m_cExpressionInvalidChar;
+    char m_cExpressionInvalidChar;
     const CMIUtilString m_constStrArgThread; // Not specified in MI spec but Eclipse gives this option. Not handled by command.
     const CMIUtilString m_constStrArgFrame;  // Not specified in MI spec but Eclipse gives this option. Not handled by command.
     const CMIUtilString m_constStrArgExpr;
@@ -87,9 +84,6 @@ class CMICmdCmdDataEvaluateExpression : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "data-disassemble".
-// Gotchas: None.
-// Authors: Illya Rudkin 19/05/2014.
-// Changes: None.
 //--
 class CMICmdCmdDataDisassemble : public CMICmdBase
 {
@@ -105,11 +99,11 @@ class CMICmdCmdDataDisassemble : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdDataDisassemble(void);
+    /* dtor */ ~CMICmdCmdDataDisassemble(void) override;
 
     // Attributes:
   private:
@@ -124,9 +118,6 @@ class CMICmdCmdDataDisassemble : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "data-read-memory-bytes".
-// Gotchas: None.
-// Authors: Illya Rudkin 20/05/2014.
-// Changes: None.
 //--
 class CMICmdCmdDataReadMemoryBytes : public CMICmdBase
 {
@@ -142,11 +133,11 @@ class CMICmdCmdDataReadMemoryBytes : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdDataReadMemoryBytes(void);
+    /* dtor */ ~CMICmdCmdDataReadMemoryBytes(void) override;
 
     // Attributes:
   private:
@@ -155,7 +146,7 @@ class CMICmdCmdDataReadMemoryBytes : public CMICmdBase
     const CMIUtilString m_constStrArgByteOffset;
     const CMIUtilString m_constStrArgAddrExpr;
     const CMIUtilString m_constStrArgNumBytes;
-    MIuchar *m_pBufferMemory;
+    unsigned char *m_pBufferMemory;
     MIuint64 m_nAddrStart;
     MIuint64 m_nAddrNumBytesToRead;
 };
@@ -163,9 +154,6 @@ class CMICmdCmdDataReadMemoryBytes : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "data-read-memory".
-// Gotchas: None.
-// Authors: Illya Rudkin 21/05/2014.
-// Changes: None.
 //--
 class CMICmdCmdDataReadMemory : public CMICmdBase
 {
@@ -181,18 +169,15 @@ class CMICmdCmdDataReadMemory : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdDataReadMemory(void);
+    /* dtor */ ~CMICmdCmdDataReadMemory(void) override;
 };
 
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "data-list-register-names".
-// Gotchas: None.
-// Authors: Illya Rudkin 21/05/2014.
-// Changes: None.
 //--
 class CMICmdCmdDataListRegisterNames : public CMICmdBase
 {
@@ -208,11 +193,11 @@ class CMICmdCmdDataListRegisterNames : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdDataListRegisterNames(void);
+    /* dtor */ ~CMICmdCmdDataListRegisterNames(void) override;
 
     // Methods:
   private:
@@ -228,9 +213,6 @@ class CMICmdCmdDataListRegisterNames : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "data-list-register-values".
-// Gotchas: None.
-// Authors: Illya Rudkin 21/05/2014.
-// Changes: None.
 //--
 class CMICmdCmdDataListRegisterValues : public CMICmdBase
 {
@@ -246,16 +228,16 @@ class CMICmdCmdDataListRegisterValues : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdDataListRegisterValues(void);
+    /* dtor */ ~CMICmdCmdDataListRegisterValues(void) override;
 
     // Methods:
   private:
     lldb::SBValue GetRegister(const MIuint vRegisterIndex) const;
-    bool AddToOutput(const MIuint vnIndex, const lldb::SBValue &vrValue, CMICmnLLDBDebugSessionInfoVarObj::varFormat_e veVarFormat);
+    void AddToOutput(const MIuint vnIndex, const lldb::SBValue &vrValue, CMICmnLLDBDebugSessionInfoVarObj::varFormat_e veVarFormat);
 
     // Attributes:
   private:
@@ -269,9 +251,6 @@ class CMICmdCmdDataListRegisterValues : public CMICmdBase
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "data-list-changed-registers".
-// Gotchas: None.
-// Authors: Illya Rudkin 22/05/2014.
-// Changes: None.
 //--
 class CMICmdCmdDataListRegisterChanged : public CMICmdBase
 {
@@ -287,18 +266,15 @@ class CMICmdCmdDataListRegisterChanged : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdDataListRegisterChanged(void);
+    /* dtor */ ~CMICmdCmdDataListRegisterChanged(void) override;
 };
 
 //++ ============================================================================
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "data-read-memory-bytes".
-// Gotchas: None.
-// Authors: Illya Rudkin 30/05/2014.
-// Changes: None.
 //--
 class CMICmdCmdDataWriteMemoryBytes : public CMICmdBase
 {
@@ -314,11 +290,11 @@ class CMICmdCmdDataWriteMemoryBytes : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdDataWriteMemoryBytes(void);
+    /* dtor */ ~CMICmdCmdDataWriteMemoryBytes(void) override;
 
     // Attributes:
   private:
@@ -333,9 +309,6 @@ class CMICmdCmdDataWriteMemoryBytes : public CMICmdBase
 // Details: MI command class. MI commands derived from the command base class.
 //          *this class implements MI command "data-read-memory".
 //          Not specified in MI spec but Eclipse gives *this command.
-// Gotchas: None.
-// Authors: Illya Rudkin 02/05/2014.
-// Changes: None.
 //--
 class CMICmdCmdDataWriteMemory : public CMICmdBase
 {
@@ -351,11 +324,11 @@ class CMICmdCmdDataWriteMemory : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdDataWriteMemory(void);
+    /* dtor */ ~CMICmdCmdDataWriteMemory(void) override;
 
     // Attributes:
   private:
@@ -368,7 +341,7 @@ class CMICmdCmdDataWriteMemory : public CMICmdBase
     MIuint64 m_nAddr;
     CMIUtilString m_strContents;
     MIuint64 m_nCount;
-    MIuchar *m_pBufferMemory;
+    unsigned char *m_pBufferMemory;
 };
 
 //++ ============================================================================
@@ -390,11 +363,11 @@ class CMICmdCmdDataInfoLine : public CMICmdBase
     // Overridden:
   public:
     // From CMICmdInvoker::ICmd
-    virtual bool Execute(void);
-    virtual bool Acknowledge(void);
-    virtual bool ParseArgs(void);
+    bool Execute(void) override;
+    bool Acknowledge(void) override;
+    bool ParseArgs(void) override;
     // From CMICmnBase
-    /* dtor */ virtual ~CMICmdCmdDataInfoLine(void);
+    /* dtor */ ~CMICmdCmdDataInfoLine(void) override;
 
     // Attributes:
   private:

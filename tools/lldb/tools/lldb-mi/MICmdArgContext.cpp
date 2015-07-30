@@ -1,4 +1,4 @@
-//===-- MICmnArgContext.cpp -------------------------------------*- C++ -*-===//
+//===-- MICmdArgContext.cpp -------------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -18,8 +18,6 @@
 // Throws:  None.
 //--
 CMICmdArgContext::CMICmdArgContext(void)
-    : m_constCharSpace(' ')
-    , m_constStrSpace(" ")
 {
 }
 
@@ -32,8 +30,6 @@ CMICmdArgContext::CMICmdArgContext(void)
 //--
 CMICmdArgContext::CMICmdArgContext(const CMIUtilString &vrCmdLineArgsRaw)
     : m_strCmdArgsAndOptions(vrCmdLineArgsRaw)
-    , m_constCharSpace(' ')
-    , m_constStrSpace(" ")
 {
 }
 
@@ -89,35 +85,35 @@ CMICmdArgContext::RemoveArg(const CMIUtilString &vArg)
     if (vArg.empty())
         return MIstatus::success;
 
-    const MIuint nLen = vArg.length();
-    const MIuint nLenCntxt = m_strCmdArgsAndOptions.length();
+    const size_t nLen = vArg.length();
+    const size_t nLenCntxt = m_strCmdArgsAndOptions.length();
     if (nLen > nLenCntxt)
         return MIstatus::failure;
 
-    MIuint nExtraSpace = 0;
-    MIint nPos = m_strCmdArgsAndOptions.find(vArg);
+    size_t nExtraSpace = 0;
+    size_t nPos = m_strCmdArgsAndOptions.find(vArg);
     while (1)
     {
-        if (nPos == (MIint)std::string::npos)
+        if (nPos == std::string::npos)
             return MIstatus::success;
 
         bool bPass1 = false;
         if (nPos != 0)
         {
-            if (m_strCmdArgsAndOptions[nPos - 1] == m_constCharSpace)
+            if (m_strCmdArgsAndOptions[nPos - 1] == ' ')
                 bPass1 = true;
         }
         else
             bPass1 = true;
 
-        const MIuint nEnd = nPos + nLen;
+        const size_t nEnd = nPos + nLen;
 
         if (bPass1)
         {
             bool bPass2 = false;
             if (nEnd < nLenCntxt)
             {
-                if (m_strCmdArgsAndOptions[nEnd] == m_constCharSpace)
+                if (m_strCmdArgsAndOptions[nEnd] == ' ')
                 {
                     bPass2 = true;
                     nExtraSpace = 1;
@@ -133,7 +129,7 @@ CMICmdArgContext::RemoveArg(const CMIUtilString &vArg)
         nPos = m_strCmdArgsAndOptions.find(vArg, nEnd);
     }
 
-    const MIuint nPosEnd = nLen + nExtraSpace;
+    const size_t nPosEnd = nLen + nExtraSpace;
     m_strCmdArgsAndOptions = m_strCmdArgsAndOptions.replace(nPos, nPosEnd, "").c_str();
     m_strCmdArgsAndOptions = m_strCmdArgsAndOptions.Trim();
 
@@ -153,9 +149,9 @@ CMICmdArgContext::RemoveArg(const CMIUtilString &vArg)
 // Throws:  None.
 //--
 bool
-CMICmdArgContext::RemoveArgAtPos(const CMIUtilString &vArg, const MIuint nArgIndex)
+CMICmdArgContext::RemoveArgAtPos(const CMIUtilString &vArg, size_t nArgIndex)
 {
-    MIuint nWordIndex = 0;
+    size_t nWordIndex = 0;
     CMIUtilString strBuildContextUp;
     const CMIUtilString::VecString_t vecWords(GetArgs());
     const bool bSpaceRequired(GetNumberArgsPresent() > 2);
@@ -170,7 +166,7 @@ CMICmdArgContext::RemoveArgAtPos(const CMIUtilString &vArg, const MIuint nArgInd
             // Single words
             strBuildContextUp += rWord;
             if (bSpaceRequired)
-                strBuildContextUp += m_constStrSpace;
+                strBuildContextUp += " ";
         }
         else
         {
@@ -181,7 +177,7 @@ CMICmdArgContext::RemoveArgAtPos(const CMIUtilString &vArg, const MIuint nArgInd
                 while (vArg != words)
                 {
                     if (bSpaceRequired)
-                        words += m_constStrSpace;
+                        words += " ";
                     words += *it;
                     if (++it == itEnd)
                         break;
@@ -206,14 +202,14 @@ CMICmdArgContext::RemoveArgAtPos(const CMIUtilString &vArg, const MIuint nArgInd
 // Details: Retrieve number of arguments or options present in the command's option text.
 // Type:    Method.
 // Args:    None.
-// Return:  MIuint  - 0 to n arguments present.
+// Return:  size_t  - 0 to n arguments present.
 // Throws:  None.
 //--
-MIuint
+size_t
 CMICmdArgContext::GetNumberArgsPresent(void) const
 {
     CMIUtilString::VecString_t vecOptions;
-    return m_strCmdArgsAndOptions.SplitConsiderQuotes(m_constStrSpace, vecOptions);
+    return m_strCmdArgsAndOptions.SplitConsiderQuotes(" ", vecOptions);
 }
 
 //++ ------------------------------------------------------------------------------------
@@ -227,7 +223,7 @@ CMIUtilString::VecString_t
 CMICmdArgContext::GetArgs(void) const
 {
     CMIUtilString::VecString_t vecOptions;
-    m_strCmdArgsAndOptions.SplitConsiderQuotes(m_constStrSpace, vecOptions);
+    m_strCmdArgsAndOptions.SplitConsiderQuotes(" ", vecOptions);
     return vecOptions;
 }
 

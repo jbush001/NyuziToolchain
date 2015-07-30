@@ -55,14 +55,15 @@ class MiInterpreterExecTestCase(lldbmi_testcase.MiTestCaseBase):
     @lldbmi_test
     @expectedFailureWindows("llvm.org/pr22274: need a pexpect replacement for windows")
     @skipIfFreeBSD # llvm.org/pr22411: Failure presumably due to known thread races
+    @expectedFailureLinux  # Failing in ~9/600 dosep runs (build 3120-3122)
     def test_lldbmi_settings_set_target_run_args_before(self):
         """Test that 'lldb-mi --interpreter' can set target arguments by 'setting set target.run-args' command before than target was created."""
 
         self.spawnLldbMi(args = None)
 
         # Test that "settings set target.run-args" passes arguments to executable
-        #FIXME: "--arg1 \"2nd arg\" third_arg fourth=\"4th arg\"" causes an error
-        self.runCmd("-interpreter-exec console \"setting set target.run-args arg1\"")
+        #FIXME: --arg1 causes an error
+        self.runCmd("-interpreter-exec console \"setting set target.run-args arg1 \\\"2nd arg\\\" third_arg fourth=\\\"4th arg\\\"\"")
         self.expect("\^done")
 
         # Load executable
@@ -74,11 +75,20 @@ class MiInterpreterExecTestCase(lldbmi_testcase.MiTestCaseBase):
         self.expect("\^running")
 
         # Test that arguments were passed properly
-        self.expect("@\"argc=2\\\\r\\\\n\"")
+        self.expect("@\"argc=5\\\\r\\\\n\"")
+        self.expect("@\"argv.0.=.*lldb-mi")
+        self.expect("@\"argv.1.=arg1\\\\r\\\\n\"")
+        self.expect("@\"argv.2.=2nd arg\\\\r\\\\n\"")
+        self.expect("@\"argv.3.=third_arg\\\\r\\\\n\"")
+        self.expect("@\"argv.4.=fourth=4th arg\\\\r\\\\n\"")
+
+        # Test that program exited normally
+        self.expect("\*stopped,reason=\"exited-normally\"")
 
     @lldbmi_test
     @expectedFailureWindows("llvm.org/pr22274: need a pexpect replacement for windows")
     @skipIfFreeBSD # llvm.org/pr22411: Failure presumably due to known thread races
+    @expectedFailureLinux  # Failing in ~9/600 dosep runs (build 3120-3122)
     def test_lldbmi_settings_set_target_run_args_after(self):
         """Test that 'lldb-mi --interpreter' can set target arguments by 'setting set target.run-args' command after than target was created."""
 
@@ -89,16 +99,35 @@ class MiInterpreterExecTestCase(lldbmi_testcase.MiTestCaseBase):
         self.expect("\^done")
 
         # Test that "settings set target.run-args" passes arguments to executable
-        #FIXME: "--arg1 \"2nd arg\" third_arg fourth=\"4th arg\"" causes an error
-        self.runCmd("-interpreter-exec console \"setting set target.run-args arg1\"")
+        #FIXME: --arg1 causes an error
+        self.runCmd("-interpreter-exec console \"setting set target.run-args arg1 \\\"2nd arg\\\" third_arg fourth=\\\"4th arg\\\"\"")
         self.expect("\^done")
 
-        # Run
+        # Run to BP_printf
+        line = line_number('main.cpp', '// BP_printf')
+        self.runCmd("-break-insert main.cpp:%d" % line)
+        self.expect("\^done,bkpt={number=\"1\"")
         self.runCmd("-exec-run")
-        self.expect("\^running")
+        self.expect("\^running");
+        self.expect("\*stopped,reason=\"breakpoint-hit\"")
+
+        # Run to BP_return
+        line = line_number('main.cpp', '// BP_return')
+        self.runCmd("-break-insert main.cpp:%d" % line)
+        self.expect("\^done,bkpt={number=\"2\"")
+        self.runCmd("-exec-continue")
+        self.expect("\^running");
 
         # Test that arguments were passed properly
-        self.expect("@\"argc=2\\\\r\\\\n\"")
+        self.expect("@\"argc=5\\\\r\\\\n\"")
+        self.expect("@\"argv.0.=.*lldb-mi")
+        self.expect("@\"argv.1.=arg1\\\\r\\\\n\"")
+        self.expect("@\"argv.2.=2nd arg\\\\r\\\\n\"")
+        self.expect("@\"argv.3.=third_arg\\\\r\\\\n\"")
+        self.expect("@\"argv.4.=fourth=4th arg\\\\r\\\\n\"")
+
+        # Hit BP_return
+        self.expect("\*stopped,reason=\"breakpoint-hit\"")
 
     @lldbmi_test
     @expectedFailureWindows("llvm.org/pr22274: need a pexpect replacement for windows")

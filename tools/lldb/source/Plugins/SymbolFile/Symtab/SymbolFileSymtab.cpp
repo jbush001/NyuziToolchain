@@ -161,7 +161,7 @@ SymbolFileSymtab::ParseCompileUnitAtIndex(uint32_t idx)
     {
         const Symbol *cu_symbol = m_obj_file->GetSymtab()->SymbolAtIndex(m_source_indexes[idx]);
         if (cu_symbol)
-            cu_sp.reset(new CompileUnit (m_obj_file->GetModule(), NULL, cu_symbol->GetMangled().GetName().AsCString(), 0, eLanguageTypeUnknown));
+            cu_sp.reset(new CompileUnit (m_obj_file->GetModule(), NULL, cu_symbol->GetName().AsCString(), 0, eLanguageTypeUnknown, false));
     }
     return cu_sp;
 }
@@ -225,7 +225,7 @@ SymbolFileSymtab::ParseCompileUnitFunctions (const SymbolContext &sc)
                             next_symbol = symtab->SymbolAtIndex(m_code_indexes[idx + 1]);
                             if (next_symbol)
                             {
-                                func_range.SetByteSize(next_symbol->GetAddress().GetOffset() - curr_symbol->GetAddress().GetOffset());
+                                func_range.SetByteSize(next_symbol->GetAddressRef().GetOffset() - curr_symbol->GetAddressRef().GetOffset());
                             }
                         }
 

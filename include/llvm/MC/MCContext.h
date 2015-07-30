@@ -30,6 +30,7 @@ namespace llvm {
   class MCExpr;
   class MCSection;
   class MCSymbol;
+  class MCSymbolELF;
   class MCLabel;
   struct MCDwarfFile;
   class MCDwarfLoc;
@@ -75,7 +76,7 @@ namespace llvm {
 
     /// ELF sections can have a corresponding symbol. This maps one to the
     /// other.
-    DenseMap<const MCSectionELF *, MCSymbol *> SectionSymbols;
+    DenseMap<const MCSectionELF *, MCSymbolELF *> SectionSymbols;
 
     /// A mapping from a local label number and an instance count to a symbol.
     /// For example, in the assembly
@@ -205,7 +206,10 @@ namespace llvm {
     /// Do automatic reset in destructor
     bool AutoReset;
 
-    MCSymbol *CreateSymbol(StringRef Name, bool AlwaysAddSuffix);
+    MCSymbol *createSymbolImpl(const StringMapEntry<bool> *Name,
+                               bool CanBeUnnamed);
+    MCSymbol *createSymbol(StringRef Name, bool AlwaysAddSuffix,
+                           bool IsTemporary);
 
     MCSymbol *getOrCreateDirectionalLocalSymbol(unsigned LocalLabelVal,
                                                 unsigned Instance);
@@ -245,9 +249,10 @@ namespace llvm {
 
     /// Create and return a new assembler temporary symbol with a unique but
     /// unspecified name.
-    MCSymbol *createTempSymbol();
+    MCSymbol *createTempSymbol(bool CanBeUnnamed = true);
 
-    MCSymbol *createTempSymbol(const Twine &Name, bool AlwaysAddSuffix);
+    MCSymbol *createTempSymbol(const Twine &Name, bool AlwaysAddSuffix,
+                               bool CanBeUnnamed = true);
 
     /// Create the definition of a directional local symbol for numbered label
     /// (used for "1:" definitions).
@@ -263,12 +268,12 @@ namespace llvm {
     /// \param Name - The symbol name, which must be unique across all symbols.
     MCSymbol *getOrCreateSymbol(const Twine &Name);
 
-    MCSymbol *getOrCreateSectionSymbol(const MCSectionELF &Section);
+    MCSymbolELF *getOrCreateSectionSymbol(const MCSectionELF &Section);
 
     /// Gets a symbol that will be defined to the final stack offset of a local
     /// variable after codegen.
     ///
-    /// \param Idx - The index of a local variable passed to @llvm.frameescape.
+    /// \param Idx - The index of a local variable passed to @llvm.localescape.
     MCSymbol *getOrCreateFrameAllocSymbol(StringRef FuncName, unsigned Idx);
 
     MCSymbol *getOrCreateParentFrameOffsetSymbol(StringRef FuncName);
@@ -340,18 +345,18 @@ namespace llvm {
 
     MCSectionELF *getELFSection(StringRef Section, unsigned Type,
                                 unsigned Flags, unsigned EntrySize,
-                                const MCSymbol *Group, unsigned UniqueID,
+                                const MCSymbolELF *Group, unsigned UniqueID,
                                 const char *BeginSymName,
                                 const MCSectionELF *Associated);
 
     MCSectionELF *createELFRelSection(StringRef Name, unsigned Type,
                                       unsigned Flags, unsigned EntrySize,
-                                      const MCSymbol *Group,
+                                      const MCSymbolELF *Group,
                                       const MCSectionELF *Associated);
 
     void renameELFSection(MCSectionELF *Section, StringRef Name);
 
-    MCSectionELF *createELFGroupSection(const MCSymbol *Group);
+    MCSectionELF *createELFGroupSection(const MCSymbolELF *Group);
 
     MCSectionCOFF *getCOFFSection(StringRef Section, unsigned Characteristics,
                                   SectionKind Kind, StringRef COMDATSymName,

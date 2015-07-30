@@ -17,6 +17,7 @@
 #include "../Commands/CommandObjectApropos.h"
 #include "../Commands/CommandObjectArgs.h"
 #include "../Commands/CommandObjectBreakpoint.h"
+#include "../Commands/CommandObjectBugreport.h"
 #include "../Commands/CommandObjectDisassemble.h"
 #include "../Commands/CommandObjectExpression.h"
 #include "../Commands/CommandObjectFrame.h"
@@ -421,6 +422,7 @@ CommandInterpreter::LoadCommandDictionary ()
     
     m_command_dict["apropos"]   = CommandObjectSP (new CommandObjectApropos (*this));
     m_command_dict["breakpoint"]= CommandObjectSP (new CommandObjectMultiwordBreakpoint (*this));
+    m_command_dict["bugreport"] = CommandObjectSP (new CommandObjectMultiwordBugreport (*this));
     m_command_dict["command"]   = CommandObjectSP (new CommandObjectMultiwordCommands (*this));
     m_command_dict["disassemble"] = CommandObjectSP (new CommandObjectDisassemble (*this));
     m_command_dict["expression"]= CommandObjectSP (new CommandObjectExpression (*this));
@@ -509,8 +511,7 @@ CommandInterpreter::LoadCommandDictionary ()
             char buffer[1024];
             int num_printed = snprintf(buffer, 1024, "%s %s", break_regexes[i][1], "-o");
             assert (num_printed < 1024);
-	    // Quiet unused variable warning for release builds.
-	    (void) num_printed;
+            UNUSED_IF_ASSERT_DISABLED(num_printed);
             success = tbreak_regex_cmd_ap->AddRegexCommand (break_regexes[i][0], buffer);
             if (!success)
                 break;
@@ -1293,7 +1294,7 @@ CommandInterpreter::GetCommandObjectForCommand (std::string &command_string)
                 CommandObject *sub_cmd_obj = cmd_obj->GetSubcommandObject (cmd_word.c_str());
                 if (sub_cmd_obj)
                     cmd_obj = sub_cmd_obj;
-                else // cmd_word was not a valid sub-command word, so we are donee
+                else // cmd_word was not a valid sub-command word, so we are done
                     done = true;
             }
             else  
@@ -1518,7 +1519,7 @@ CommandInterpreter::PreprocessCommand (std::string &command)
     {
         if (start_backtick > 0 && command[start_backtick-1] == '\\')
         {
-            // The backtick was preceeded by a '\' character, remove the slash
+            // The backtick was preceded by a '\' character, remove the slash
             // and don't treat the backtick as the start of an expression
             command.erase(start_backtick-1, 1);
             // No need to add one to start_backtick since we just deleted a char
@@ -3214,7 +3215,7 @@ CommandInterpreter::RunCommandInterpreter(bool auto_handle_events,
                                           bool spawn_thread,
                                           CommandInterpreterRunOptions &options)
 {
-    // Always re-create the command intepreter when we run it in case
+    // Always re-create the command interpreter when we run it in case
     // any file handles have changed.
     bool force_create = true;
     m_debugger.PushIOHandler(GetIOHandler(force_create, &options));

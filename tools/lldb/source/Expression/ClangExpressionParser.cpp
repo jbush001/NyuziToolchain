@@ -341,6 +341,8 @@ ClangExpressionParser::ClangExpressionParser (ExecutionContextScope *exe_scope,
     m_llvm_context.reset(new LLVMContext());
     m_code_generator.reset(CreateLLVMCodeGen(m_compiler->getDiagnostics(),
                                              module_name,
+                                             m_compiler->getHeaderSearchOpts(),
+                                             m_compiler->getPreprocessorOpts(),
                                              m_compiler->getCodeGenOpts(),
                                              *m_llvm_context));
 }
@@ -370,7 +372,7 @@ ClangExpressionParser::Parse (Stream &stream)
         if (HostInfo::GetLLDBPath(lldb::ePathTypeLLDBTempSystemDir, tmpdir_file_spec))
         {
             tmpdir_file_spec.AppendPathComponent("lldb-%%%%%%.expr");
-            temp_source_path = std::move(tmpdir_file_spec.GetPath());
+            temp_source_path = tmpdir_file_spec.GetPath();
             llvm::sys::fs::createUniqueFile(temp_source_path, temp_fd, result_path);
         }
         else
@@ -539,10 +541,11 @@ ClangExpressionParser::PrepareForExecution (lldb::addr_t &func_addr,
         bool ir_can_run = ir_for_target.runOnModule(*execution_unit_sp->GetModule());
 
         Error interpret_error;
-
-        can_interpret = IRInterpreter::CanInterpret(*execution_unit_sp->GetModule(), *execution_unit_sp->GetFunction(), interpret_error);
-
         Process *process = exe_ctx.GetProcessPtr();
+
+        bool interpret_function_calls = !process ? false : process->CanInterpretFunctionCalls();
+        can_interpret = IRInterpreter::CanInterpret(*execution_unit_sp->GetModule(), *execution_unit_sp->GetFunction(), interpret_error, interpret_function_calls);
+
 
         if (!ir_can_run)
         {

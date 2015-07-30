@@ -66,16 +66,14 @@ CMICmdCmdFileExecAndSymbols::~CMICmdCmdFileExecAndSymbols(void)
 bool
 CMICmdCmdFileExecAndSymbols::ParseArgs(void)
 {
-    bool bOk = m_setCmdArgs.Add(
+    m_setCmdArgs.Add(
         *(new CMICmdArgValOptionLong(m_constStrArgThreadGrp, false, false, CMICmdArgValListBase::eArgValType_ThreadGrp, 1)));
-    bOk = bOk && m_setCmdArgs.Add(*(new CMICmdArgValFile(m_constStrArgNameFile, true, true)));
-    bOk = bOk &&
+    m_setCmdArgs.Add(*(new CMICmdArgValFile(m_constStrArgNameFile, true, true)));
     m_setCmdArgs.Add(*(new CMICmdArgValOptionShort(m_constStrArgNamedPlatformName, false, true,
                                                    CMICmdArgValListBase::eArgValType_String, 1)));
-    bOk = bOk &&
     m_setCmdArgs.Add(*(new CMICmdArgValOptionShort(m_constStrArgNamedRemotePath, false, true,
                                                    CMICmdArgValListBase::eArgValType_StringQuotedNumberPath, 1)));
-    return (bOk && ParseValidateCmdOptions());
+    return ParseValidateCmdOptions();
 }
 
 //++ ------------------------------------------------------------------------------------
@@ -106,8 +104,8 @@ CMICmdCmdFileExecAndSymbols::Execute(void)
     CMICmnLLDBDebugSessionInfo &rSessionInfo(CMICmnLLDBDebugSessionInfo::Instance());
     lldb::SBDebugger &rDbgr = rSessionInfo.GetDebugger();
     lldb::SBError error;
-    const MIchar *pTargetTriple = nullptr; // Let LLDB discover the triple required
-    const MIchar *pTargetPlatformName = platformName.c_str();
+    const char *pTargetTriple = nullptr; // Let LLDB discover the triple required
+    const char *pTargetPlatformName = platformName.c_str();
     const bool bAddDepModules = false;
     lldb::SBTarget target = rDbgr.CreateTarget(strExeFilePath.c_str(), pTargetTriple, pTargetPlatformName, bAddDepModules, error);
     CMIUtilString strWkDir;

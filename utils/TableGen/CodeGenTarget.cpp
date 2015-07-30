@@ -297,7 +297,7 @@ void CodeGenTarget::ComputeInstrsByEnum() const {
       "IMPLICIT_DEF", "SUBREG_TO_REG", "COPY_TO_REGCLASS", "DBG_VALUE",
       "REG_SEQUENCE", "COPY",          "BUNDLE",           "LIFETIME_START",
       "LIFETIME_END", "STACKMAP",      "PATCHPOINT",       "LOAD_STACK_GUARD",
-      "STATEPOINT",   "FRAME_ALLOC",
+      "STATEPOINT",   "LOCAL_ESCAPE",   "FAULTING_LOAD_OP",
       nullptr};
   const auto &Insts = getInstructions();
   for (const char *const *p = FixedInstrs; *p; ++p) {
@@ -486,7 +486,7 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
   // Parse the list of return types.
   std::vector<MVT::SimpleValueType> OverloadedVTs;
   ListInit *TypeList = R->getValueAsListInit("RetTypes");
-  for (unsigned i = 0, e = TypeList->getSize(); i != e; ++i) {
+  for (unsigned i = 0, e = TypeList->size(); i != e; ++i) {
     Record *TyEl = TypeList->getElementAsRecord(i);
     assert(TyEl->isSubClassOf("LLVMType") && "Expected a type!");
     MVT::SimpleValueType VT;
@@ -520,7 +520,7 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
 
   // Parse the list of parameter types.
   TypeList = R->getValueAsListInit("ParamTypes");
-  for (unsigned i = 0, e = TypeList->getSize(); i != e; ++i) {
+  for (unsigned i = 0, e = TypeList->size(); i != e; ++i) {
     Record *TyEl = TypeList->getElementAsRecord(i);
     assert(TyEl->isSubClassOf("LLVMType") && "Expected a type!");
     MVT::SimpleValueType VT;
@@ -556,7 +556,7 @@ CodeGenIntrinsic::CodeGenIntrinsic(Record *R) {
 
   // Parse the intrinsic properties.
   ListInit *PropList = R->getValueAsListInit("Properties");
-  for (unsigned i = 0, e = PropList->getSize(); i != e; ++i) {
+  for (unsigned i = 0, e = PropList->size(); i != e; ++i) {
     Record *Property = PropList->getElementAsRecord(i);
     assert(Property->isSubClassOf("IntrinsicProperty") &&
            "Expected a property!");

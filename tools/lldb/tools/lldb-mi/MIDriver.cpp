@@ -73,7 +73,7 @@ CMIDriver::~CMIDriver(void)
 //++ ------------------------------------------------------------------------------------
 // Details: Set whether *this driver (the parent) is enabled to pass a command to its
 //          fall through (child) driver to interpret the command and do work instead
-//          (if *this driver decides it can't hanled the command).
+//          (if *this driver decides it can't handle the command).
 // Type:    Method.
 // Args:    vbYes   - (R) True = yes fall through, false = do not pass on command.
 // Return:  MIstatus::success - Functional succeeded.
@@ -90,7 +90,7 @@ CMIDriver::SetEnableFallThru(const bool vbYes)
 //++ ------------------------------------------------------------------------------------
 // Details: Get whether *this driver (the parent) is enabled to pass a command to its
 //          fall through (child) driver to interpret the command and do work instead
-//          (if *this driver decides it can't hanled the command).
+//          (if *this driver decides it can't handle the command).
 // Type:    Method.
 // Args:    None.
 // Return:  bool - True = yes fall through, false = do not pass on command.
@@ -343,7 +343,7 @@ CMIDriver::SetDriverToFallThruTo(const CMIDriverBase &vrOtherDriver)
 //++ ------------------------------------------------------------------------------------
 // Details: Proxy function CMIDriverMgr IDriver interface implementation. *this driver's
 //          implementation called from here to match the existing function name of the
-//          original LLDb driver class (the extra indirection is not necessarily required).
+//          original LLDB driver class (the extra indirection is not necessarily required).
 //          Check the arguments that were passed to this program to make sure they are
 //          valid and to get their argument values (if any).
 // Type:    Overridden.
@@ -370,16 +370,16 @@ CMIDriver::DoParseArgs(const int argc, const char *argv[], FILE *vpStdOut, bool 
 // Details: Check the arguments that were passed to this program to make sure they are
 //          valid and to get their argument values (if any). The following are options
 //          that are only handled by *this driver:
-//              --executable
+//              --executable <file>
+//              --source <file> or -s <file>
 //          The application's options --interpreter and --executable in code act very similar.
 //          The --executable is necessary to differentiate whether the MI Driver is being
 //          used by a client (e.g. Eclipse) or from the command line. Eclipse issues the option
 //          --interpreter and also passes additional arguments which can be interpreted as an
-//          executable if called from the command line. Using --executable tells the MI
-//          Driver is being called the command line and that the executable argument is indeed
-//          a specified executable an so actions commands to set up the executable for a
-//          debug session. Using --interpreter on the commnd line does not action additional
-//          commands to initialise a debug session and so be able to launch the process.
+//          executable if called from the command line. Using --executable tells the MI Driver
+//          it is being called from the command line and to prepare to launch the executable
+//          argument for a debug session. Using --interpreter on the command line does not
+//          issue additional commands to initialise a debug session.
 // Type:    Overridden.
 // Args:    argc        - (R)   An integer that contains the count of arguments that follow in
 //                              argv. The argc parameter is always greater than or equal to 1.
@@ -559,7 +559,7 @@ CMIDriver::DoMainLoop(void)
     while (bOk && !m_bExitApp)
     {
         CMIUtilString errorText;
-        const MIchar *pCmd = m_rStdin.ReadLine (errorText);
+        const char *pCmd = m_rStdin.ReadLine (errorText);
         if (pCmd != nullptr)
         {
             CMIUtilString lineText(pCmd);
@@ -649,8 +649,8 @@ CMIDriver::InterpretCommandFallThruDriver(const CMIUtilString &vTextLine, bool &
     //      errMsg = errMsg.StripCREndOfLine();
     //      errMsg = errMsg.StripCRAll();
     //      const CMIDriverBase * pOtherDriver = GetDriverToFallThruTo();
-    //      const MIchar * pName = pOtherDriver->GetDriverName().c_str();
-    //      const MIchar * pId = pOtherDriver->GetDriverId().c_str();
+    //      const char * pName = pOtherDriver->GetDriverName().c_str();
+    //      const char * pId = pOtherDriver->GetDriverId().c_str();
     //      const CMIUtilString msg( CMIUtilString::Format( MIRSRC( IDS_DRIVER_ERR_FALLTHRU_DRIVER_ERR ), pName, pId, errMsg.c_str() )
     //);
     //      m_pLog->WriteMsg( msg );
@@ -862,7 +862,7 @@ CMIDriver::WrapCLICommandIntoMICommand(const CMIUtilString &vTextLine) const
     // Also possible case when command not found:
     // 001
     //    ^ -- i.e. only tokens are present (or empty string at all)
-    const MIuint nCommandOffset = vTextLine.find_first_not_of(digits);
+    const size_t nCommandOffset = vTextLine.find_first_not_of(digits);
 
     // 2. Check if command is empty
     // For example:
@@ -872,7 +872,7 @@ CMIDriver::WrapCLICommandIntoMICommand(const CMIUtilString &vTextLine) const
     // or:
     // 001
     //    ^ -- command wasn't found
-    const bool bIsEmptyCommand = (nCommandOffset == (MIuint)CMIUtilString::npos);
+    const bool bIsEmptyCommand = (nCommandOffset == CMIUtilString::npos);
 
     // 3. Check and exit if it isn't a CLI command
     // For example:
@@ -925,7 +925,7 @@ bool
 CMIDriver::InterpretCommandThisDriver(const CMIUtilString &vTextLine, bool &vwbCmdYesValid)
 {
     // Convert any CLI commands into MI commands
-    CMIUtilString vMITextLine(WrapCLICommandIntoMICommand(vTextLine));
+    const CMIUtilString vMITextLine(WrapCLICommandIntoMICommand(vTextLine));
 
     vwbCmdYesValid = false;
     bool bCmdNotInCmdFactor = false;
@@ -944,7 +944,7 @@ CMIDriver::InterpretCommandThisDriver(const CMIUtilString &vTextLine, bool &vwbC
 
     // Check for escape character, may be cursor control characters
     // This code is not necessary for application operation, just want to keep tabs on what
-    // is been given to the driver to try and intepret.
+    // has been given to the driver to try and interpret.
     if (vMITextLine.at(0) == 27)
     {
         CMIUtilString logInput(MIRSRC(IDS_STDIN_INPUT_CTRL_CHARS));
@@ -1260,7 +1260,8 @@ CMIDriver::IsDriverDebuggingArgExecutable(void) const
 }
 
 //++ ------------------------------------------------------------------------------------
-// Details: Execute commands from prepared source file
+// Details: Execute commands from command source file in specified mode, and
+//          set exit-flag if needed.
 // Type:    Method.
 // Args:    vbAsyncMode       - (R) True = execute commands in asynchronous mode, false = otherwise.
 // Return:  MIstatus::success - Function succeeded.

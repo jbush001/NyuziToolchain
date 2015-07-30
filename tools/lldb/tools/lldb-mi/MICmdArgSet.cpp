@@ -90,17 +90,14 @@ CMICmdArgSet::IsArgsPresentButNotHandledByCmd(void) const
 // Details: Add the list of command's arguments to parse and validate another one.
 // Type:    Method.
 // Args:    vArg    - (R) A command argument object.
-// Return:  MIstatus::success - Functional succeeded.
-//          MIstatus::failure - Functional failed.
+// Return:  None.
 // Throws:  None.
 //--
-bool
+void
 CMICmdArgSet::Add(const CMICmdArgValBase &vArg)
 {
     CMICmdArgValBase *pArg = const_cast<CMICmdArgValBase *>(&vArg);
     m_setCmdArgs.push_back(pArg);
-
-    return MIstatus::success;
 }
 
 //++ ------------------------------------------------------------------------------------
@@ -169,28 +166,24 @@ CMICmdArgSet::Validate(const CMIUtilString &vStrMiCmd, CMICmdArgContext &vwCmdAr
     m_cmdArgContext = vwCmdArgsText;
 
     // Iterate all the arguments or options required by a command
-    const MIuint nArgs = vwCmdArgsText.GetNumberArgsPresent();
-    MIuint nArgsMandatoryCnt = 0;
     SetCmdArgs_t::const_iterator it = m_setCmdArgs.begin();
     while (it != m_setCmdArgs.end())
     {
         const CMICmdArgValBase *pArg(*it);
-        const CMIUtilString &rArgName(pArg->GetName());
-        MIunused(rArgName);
-        if (pArg->GetIsMandatory())
-            nArgsMandatoryCnt++;
+
         if (!const_cast<CMICmdArgValBase *>(pArg)->Validate(vwCmdArgsText))
         {
-            if (pArg->GetIsMandatory() && !pArg->GetFound())
-                m_setCmdArgsThatAreMissing.push_back(const_cast<CMICmdArgValBase *>(pArg));
-            else if (pArg->GetFound())
+            if (pArg->GetFound())
             {
                 if (pArg->GetIsMissingOptions())
                     m_setCmdArgsMissingInfo.push_back(const_cast<CMICmdArgValBase *>(pArg));
                 else if (!pArg->GetValid())
                     m_setCmdArgsThatNotValid.push_back(const_cast<CMICmdArgValBase *>(pArg));
             }
+            else if (pArg->GetIsMandatory())
+                m_setCmdArgsThatAreMissing.push_back(const_cast<CMICmdArgValBase *>(pArg));
         }
+
         if (pArg->GetFound() && !pArg->GetIsHandledByCmd())
         {
             m_bIsArgsPresentButNotHandledByCmd = true;
@@ -201,14 +194,7 @@ CMICmdArgSet::Validate(const CMIUtilString &vStrMiCmd, CMICmdArgContext &vwCmdAr
         ++it;
     }
 
-    // Check that one or more argument objects have any issues to report...
-
-    if (nArgs < nArgsMandatoryCnt)
-    {
-        SetErrorDescription(CMIUtilString::Format(MIRSRC(IDS_CMD_ARGS_ERR_N_OPTIONS_REQUIRED), nArgsMandatoryCnt));
-        return MIstatus::failure;
-    }
-
+    // report any issues with arguments/options
     if (IsArgsPresentButNotHandledByCmd())
         WarningArgsNotHandledbyCmdLogFile(vStrMiCmd);
 
@@ -346,10 +332,10 @@ CMICmdArgSet::IsArgContextEmpty(void) const
 // Details: Retrieve the number of arguments that are being used for the command.
 // Type:    Method.
 // Args:    None.
-// Return:  MIuint - Argument count.
+// Return:  size_t - Argument count.
 // Throws:  None.
 //--
-MIuint
+size_t
 CMICmdArgSet::GetCount(void) const
 {
     return m_setCmdArgs.size();

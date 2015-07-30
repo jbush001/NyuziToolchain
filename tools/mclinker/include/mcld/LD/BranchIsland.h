@@ -74,6 +74,8 @@ class BranchIsland {
   const_reloc_iterator reloc_end() const { return m_Relocations.end(); }
 
   /// observers
+  SectionData* getParent() const { return m_Entry.getParent(); }
+
   uint64_t offset() const;
 
   size_t size() const;
@@ -90,6 +92,8 @@ class BranchIsland {
 
   /// addStub - add a stub into the island
   bool addStub(const Stub* pPrototype, const Relocation& pReloc, Stub& pStub);
+
+  void addStub(Stub& pStub);
 
   /// addRelocation - add a relocation into island
   bool addRelocation(Relocation& pReloc);
@@ -159,7 +163,7 @@ class BranchIsland {
   Fragment& m_Entry;  // entry fragment of the island
   Fragment* m_pExit;  // exit fragment of the island
   Fragment* m_pRear;  // rear fragment of the island
-  size_t m_MaxSize;
+  const size_t m_MaxSize;
   std::string m_Name;
   StubMapType m_StubMap;
   /// m_Relocations - list of relocations created for stubs in this island
