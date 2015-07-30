@@ -1,5 +1,5 @@
 //===-- NyuziSelectionDAGInfo.h - Nyuzi SelectionDAG Info -------*-
-//C++ -*-===//
+// C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //

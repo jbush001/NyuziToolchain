@@ -26,16 +26,13 @@
 using namespace llvm;
 
 NyuziMCInstLower::NyuziMCInstLower(NyuziAsmPrinter &asmprinter)
-    : AsmPrinter(asmprinter) 
-{}
+    : AsmPrinter(asmprinter) {}
 
-void NyuziMCInstLower::Initialize(MCContext *C) { 
-	Ctx = C; 
-}
+void NyuziMCInstLower::Initialize(MCContext *C) { Ctx = C; }
 
 MCOperand NyuziMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
-                                                    MachineOperandType MOTy,
-                                                    unsigned Offset) const {
+                                               MachineOperandType MOTy,
+                                               unsigned Offset) const {
   MCSymbolRefExpr::VariantKind Kind = MCSymbolRefExpr::VK_None;
   const MCSymbol *Symbol;
 
@@ -85,7 +82,7 @@ MCOperand NyuziMCInstLower::LowerSymbolOperand(const MachineOperand &MO,
 }
 
 MCOperand NyuziMCInstLower::LowerOperand(const MachineOperand &MO,
-                                              unsigned offset) const {
+                                         unsigned offset) const {
   MachineOperandType MOTy = MO.getType();
 
   switch (MOTy) {

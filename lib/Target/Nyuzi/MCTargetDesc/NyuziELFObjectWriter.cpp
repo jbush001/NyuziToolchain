@@ -36,8 +36,8 @@ NyuziELFObjectWriter::NyuziELFObjectWriter(uint8_t OSABI)
 NyuziELFObjectWriter::~NyuziELFObjectWriter() {}
 
 unsigned NyuziELFObjectWriter::GetRelocType(const MCValue &Target,
-                                                 const MCFixup &Fixup,
-                                                 bool IsPCRel) const {
+                                            const MCFixup &Fixup,
+                                            bool IsPCRel) const {
   unsigned Type;
   unsigned Kind = (unsigned)Fixup.getKind();
   switch (Kind) {
@@ -52,13 +52,15 @@ unsigned NyuziELFObjectWriter::GetRelocType(const MCValue &Target,
     Type = ELF::R_NYUZI_BRANCH;
     break;
 
-  // In normal cases, these types should not be emitted because they can be fixed up immediately.
-  // This generally happens if there is an undefined symbol.  This will cause an error later
+  // In normal cases, these types should not be emitted because they can be
+  // fixed up immediately.
+  // This generally happens if there is an undefined symbol.  This will cause an
+  // error later
   // during linking.
   case Nyuzi::fixup_Nyuzi_PCRel_MemAccExt:
     Type = ELF::R_NYUZI_PCREL_MEM_EXT;
     break;
-    
+
   case Nyuzi::fixup_Nyuzi_PCRel_MemAcc:
     Type = ELF::R_NYUZI_PCREL_MEM;
     break;
@@ -67,7 +69,7 @@ unsigned NyuziELFObjectWriter::GetRelocType(const MCValue &Target,
 }
 
 MCObjectWriter *llvm::createNyuziELFObjectWriter(raw_pwrite_stream &OS,
-                                                      uint8_t OSABI) {
+                                                 uint8_t OSABI) {
   MCELFObjectTargetWriter *MOTW = new NyuziELFObjectWriter(OSABI);
   return createELFObjectWriter(MOTW, OS, true);
 }

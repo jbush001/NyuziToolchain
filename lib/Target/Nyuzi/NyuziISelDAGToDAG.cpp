@@ -8,8 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This pass transforms target independent LLVM DAG nodes into platform 
-// dependent nodes that map, for the most part, directly to target instructions. 
+// This pass transforms target independent LLVM DAG nodes into platform
+// dependent nodes that map, for the most part, directly to target instructions.
 //
 //===----------------------------------------------------------------------===//
 
@@ -25,17 +25,16 @@ using namespace llvm;
 namespace {
 class NyuziDAGToDAGISel : public SelectionDAGISel {
 public:
-  explicit NyuziDAGToDAGISel(NyuziTargetMachine &tm)
-      : SelectionDAGISel(tm)
-  {}
+  explicit NyuziDAGToDAGISel(NyuziTargetMachine &tm) : SelectionDAGISel(tm) {}
 
   virtual SDNode *Select(SDNode *N) override;
 
-  virtual bool SelectInlineAsmMemoryOperand(const SDValue &Op,
-                                            unsigned ConstraintCode,
-                                            std::vector<SDValue> &OutOps) override;
+  virtual bool
+  SelectInlineAsmMemoryOperand(const SDValue &Op, unsigned ConstraintCode,
+                               std::vector<SDValue> &OutOps) override;
 
-  // Complex Pattern Selectors (referenced from TableGen'd instruction matching code)
+  // Complex Pattern Selectors (referenced from TableGen'd instruction matching
+  // code)
   bool SelectADDRri(SDValue N, SDValue &Base, SDValue &Offset);
 
   virtual const char *getPassName() const {
@@ -48,7 +47,7 @@ public:
 } // end anonymous namespace
 
 bool NyuziDAGToDAGISel::SelectADDRri(SDValue Addr, SDValue &Base,
-                                          SDValue &Offset) {
+                                     SDValue &Offset) {
   if (FrameIndexSDNode *FIN = dyn_cast<FrameIndexSDNode>(Addr)) {
     Base = CurDAG->getTargetFrameIndex(FIN->getIndex(), MVT::i32);
     Offset = CurDAG->getTargetConstant(0, SDLoc(Addr), MVT::i32);
@@ -68,7 +67,8 @@ bool NyuziDAGToDAGISel::SelectADDRri(SDValue Addr, SDValue &Base,
         } else {
           Base = Addr.getOperand(0);
         }
-        Offset = CurDAG->getTargetConstant(CN->getZExtValue(), SDLoc(Addr), MVT::i32);
+        Offset = CurDAG->getTargetConstant(CN->getZExtValue(), SDLoc(Addr),
+                                           MVT::i32);
         return true;
       }
     }

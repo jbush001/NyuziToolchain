@@ -34,9 +34,7 @@ STATISTIC(MCNumEmitted, "Number of MC instructions emitted");
 namespace {
 class NyuziMCCodeEmitter : public MCCodeEmitter {
 public:
-  NyuziMCCodeEmitter(const MCInstrInfo &mcii, MCContext &ctx)
-      : Ctx(ctx) {}
-
+  NyuziMCCodeEmitter(const MCInstrInfo &mcii, MCContext &ctx) : Ctx(ctx) {}
 
   ~NyuziMCCodeEmitter() {}
 
@@ -89,23 +87,24 @@ public:
                                  const MCSubtargetInfo &STI) const override;
 
 private:
-  NyuziMCCodeEmitter(const NyuziMCCodeEmitter &) = delete; 
-  void operator=(const NyuziMCCodeEmitter &) = delete; 
+  NyuziMCCodeEmitter(const NyuziMCCodeEmitter &) = delete;
+  void operator=(const NyuziMCCodeEmitter &) = delete;
   MCContext &Ctx;
 };
 } // end anonymous namepsace
 
 MCCodeEmitter *llvm::createNyuziMCCodeEmitter(const MCInstrInfo &MCII,
-                                                   const MCRegisterInfo &MRI,
-                                                   MCContext &Ctx) {
+                                              const MCRegisterInfo &MRI,
+                                              MCContext &Ctx) {
 
   return new NyuziMCCodeEmitter(MCII, Ctx);
 }
 
 /// getMachineOpValue - Return binary encoding of operand.
-unsigned NyuziMCCodeEmitter::getMachineOpValue(
-    const MCInst &MI, const MCOperand &MO, SmallVectorImpl<MCFixup> &Fixups,
-    const MCSubtargetInfo &STI) const {
+unsigned
+NyuziMCCodeEmitter::getMachineOpValue(const MCInst &MI, const MCOperand &MO,
+                                      SmallVectorImpl<MCFixup> &Fixups,
+                                      const MCSubtargetInfo &STI) const {
 
   if (MO.isReg())
     return Ctx.getRegisterInfo()->getEncodingValue(MO.getReg());
@@ -131,13 +130,12 @@ unsigned NyuziMCCodeEmitter::encodeBranchTargetOpValue(
          "encodeBranchTargetOpValue expects only expressions or an immediate");
 
   const MCExpr *Expr = MO.getExpr();
-  Fixups.push_back(MCFixup::create(
-      0, Expr, MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_Branch)));
+  Fixups.push_back(
+      MCFixup::create(0, Expr, MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_Branch)));
   return 0;
 }
 
-void
-NyuziMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
+void NyuziMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
                                            SmallVectorImpl<MCFixup> &Fixups,
                                            const MCSubtargetInfo &STI) const {
 
@@ -152,8 +150,8 @@ NyuziMCCodeEmitter::encodeInstruction(const MCInst &MI, raw_ostream &OS,
 
 unsigned
 NyuziMCCodeEmitter::encodeJumpTableAddr(const MCInst &MI, unsigned Op,
-                                             SmallVectorImpl<MCFixup> &Fixups,
-                                             const MCSubtargetInfo &STI) const {
+                                        SmallVectorImpl<MCFixup> &Fixups,
+                                        const MCSubtargetInfo &STI) const {
   MCOperand label = MI.getOperand(2);
   Fixups.push_back(MCFixup::create(
       0, label.getExpr(),
@@ -161,10 +159,9 @@ NyuziMCCodeEmitter::encodeJumpTableAddr(const MCInst &MI, unsigned Op,
   return 0;
 }
 
-unsigned
-NyuziMCCodeEmitter::encodeLEAValue(const MCInst &MI, unsigned Op,
-                                        SmallVectorImpl<MCFixup> &Fixups,
-                                        const MCSubtargetInfo &STI) const {
+unsigned NyuziMCCodeEmitter::encodeLEAValue(const MCInst &MI, unsigned Op,
+                                            SmallVectorImpl<MCFixup> &Fixups,
+                                            const MCSubtargetInfo &STI) const {
 
   MCOperand baseReg = MI.getOperand(1);
   MCOperand offsetOp = MI.getOperand(2);
@@ -191,8 +188,8 @@ NyuziMCCodeEmitter::encodeLEAValue(const MCInst &MI, unsigned Op,
 // (NyuziInstrFormats.td).
 unsigned
 NyuziMCCodeEmitter::encodeMemoryOpValue(const MCInst &MI, unsigned Op,
-                                             SmallVectorImpl<MCFixup> &Fixups,
-                                             const MCSubtargetInfo &STI) const {
+                                        SmallVectorImpl<MCFixup> &Fixups,
+                                        const MCSubtargetInfo &STI) const {
   unsigned encoding;
 
   MCOperand baseReg;
@@ -217,9 +214,9 @@ NyuziMCCodeEmitter::encodeMemoryOpValue(const MCInst &MI, unsigned Op,
     // Load with a label. This is a PC relative load.  Add a fixup.
     // XXX Note that this assumes unmasked instructions.  A masked
     // instruction will not work and should nto be used.
-    Fixups.push_back(MCFixup::create(
-        0, offsetOp.getExpr(),
-        MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_MemAccExt)));
+    Fixups.push_back(
+        MCFixup::create(0, offsetOp.getExpr(),
+                        MCFixupKind(Nyuzi::fixup_Nyuzi_PCRel_MemAccExt)));
   } else if (offsetOp.isImm())
     encoding |= static_cast<short>(offsetOp.getImm()) << 5;
   else

@@ -1,5 +1,5 @@
 //===-- NyuziTargetMachine.h - Define TargetMachine for Nyuzi ---*-
-//C++ -*-===//
+// C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -26,16 +26,17 @@ namespace llvm {
 class NyuziTargetMachine : public LLVMTargetMachine {
   std::unique_ptr<TargetLoweringObjectFile> TLOF;
   NyuziSubtarget Subtarget;
+
 public:
   NyuziTargetMachine(const Target &T, const Triple &TT, StringRef CPU,
-                          StringRef FS, const TargetOptions &Options,
-                          Reloc::Model RM, CodeModel::Model CM,
-                          CodeGenOpt::Level OL);
-
+                     StringRef FS, const TargetOptions &Options,
+                     Reloc::Model RM, CodeModel::Model CM,
+                     CodeGenOpt::Level OL);
 
   // Pass Pipeline Configuration
   virtual TargetPassConfig *createPassConfig(PassManagerBase &PM) override;
-  virtual const NyuziSubtarget *getSubtargetImpl(const Function &) const override {
+  virtual const NyuziSubtarget *
+  getSubtargetImpl(const Function &) const override {
     return &Subtarget;
   }
 

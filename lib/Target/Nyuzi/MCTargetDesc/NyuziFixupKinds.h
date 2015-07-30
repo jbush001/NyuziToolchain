@@ -25,11 +25,11 @@ namespace Nyuzi {
 enum Fixups {
   fixup_Nyuzi_Abs32 = FirstTargetFixupKind, // Pure 32-bit absolute fixup
   fixup_Nyuzi_PCRel_MemAccExt, // PC relative offset for extended memory
-                                    // access
+                               // access
   fixup_Nyuzi_PCRel_MemAcc,    // PC relative offset for memory access
   fixup_Nyuzi_PCRel_Branch,    // PC relative for branch instruction
   fixup_Nyuzi_PCRel_ComputeLabelAddress, // For getting jump table
-                                              // addresses
+                                         // addresses
 
   // Marker
   LastTargetFixupKind,

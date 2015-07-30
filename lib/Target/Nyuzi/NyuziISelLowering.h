@@ -1,5 +1,5 @@
 //===-- NyuziISelLowering.h - Nyuzi DAG Lowering Interface ------*-
-//C++ -*-===//
+// C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -38,40 +38,44 @@ enum {
 class NyuziTargetLowering : public TargetLowering {
 public:
   static const NyuziTargetLowering *create(const NyuziTargetMachine &TM,
-                                                const NyuziSubtarget &STI);
+                                           const NyuziSubtarget &STI);
 
-  explicit NyuziTargetLowering(const TargetMachine &TM, const NyuziSubtarget &STI);
+  explicit NyuziTargetLowering(const TargetMachine &TM,
+                               const NyuziSubtarget &STI);
   virtual SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
-  virtual MachineBasicBlock *EmitInstrWithCustomInserter(MachineInstr *MI, 
-  	                                                     MachineBasicBlock *MBB) const override;
+  virtual MachineBasicBlock *
+  EmitInstrWithCustomInserter(MachineInstr *MI,
+                              MachineBasicBlock *MBB) const override;
   virtual const char *getTargetNodeName(unsigned Opcode) const override;
   virtual ConstraintType getConstraintType(StringRef Constraint) const override;
   std::pair<unsigned, const TargetRegisterClass *>
-    getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
-                                 StringRef Constraint,
-                                 MVT VT) const override;
-  virtual bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
-  virtual EVT getSetCCResultType(const DataLayout&, LLVMContext &Context, EVT VT) const override;
+  getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                               StringRef Constraint, MVT VT) const override;
+  virtual bool
+  isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
+  virtual EVT getSetCCResultType(const DataLayout &, LLVMContext &Context,
+                                 EVT VT) const override;
   virtual SDValue LowerReturn(SDValue Chain, CallingConv::ID CallConv,
                               bool isVarArg,
                               const SmallVectorImpl<ISD::OutputArg> &Outs,
                               const SmallVectorImpl<SDValue> &OutVals, SDLoc,
                               SelectionDAG &DAG) const override;
-  virtual SDValue LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, 
-  									   bool isVarArg,
-				                       const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc,
-				                       SelectionDAG &DAG,
-				                       SmallVectorImpl<SDValue> &InVals) const override;
+  virtual SDValue
+  LowerFormalArguments(SDValue Chain, CallingConv::ID CallConv, bool isVarArg,
+                       const SmallVectorImpl<ISD::InputArg> &Ins, SDLoc,
+                       SelectionDAG &DAG,
+                       SmallVectorImpl<SDValue> &InVals) const override;
   virtual SDValue LowerCall(TargetLowering::CallLoweringInfo &CLI,
                             SmallVectorImpl<SDValue> &InVals) const override;
   virtual unsigned getJumpTableEncoding() const override;
-  virtual bool isShuffleMaskLegal(const SmallVectorImpl<int> &M, EVT VT) const override;
+  virtual bool isShuffleMaskLegal(const SmallVectorImpl<int> &M,
+                                  EVT VT) const override;
 
 private:
   MachineBasicBlock *EmitSelectCC(MachineInstr *MI,
                                   MachineBasicBlock *BB) const;
   MachineBasicBlock *EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *BB,
-                                   unsigned Opcode) const;
+                                      unsigned Opcode) const;
   MachineBasicBlock *EmitAtomicCmpSwap(MachineInstr *MI,
                                        MachineBasicBlock *BB) const;
 

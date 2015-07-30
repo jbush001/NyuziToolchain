@@ -17,5 +17,5 @@
 using namespace llvm;
 
 NyuziSelectionDAGInfo::NyuziSelectionDAGInfo() {}
-  
+
 NyuziSelectionDAGInfo::~NyuziSelectionDAGInfo() {}

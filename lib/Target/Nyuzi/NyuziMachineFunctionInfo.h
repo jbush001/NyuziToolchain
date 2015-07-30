@@ -1,5 +1,5 @@
 //===- NyuziMachineFunctionInfo.h - Nyuzi Machine Function Info -*-
-//C++ -*-===//
+// C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -22,8 +22,7 @@ class NyuziMachineFunctionInfo : public MachineFunctionInfo {
 public:
   NyuziMachineFunctionInfo() : SRetReturnReg(0) {}
 
-  explicit NyuziMachineFunctionInfo(MachineFunction &MF)
-      : SRetReturnReg(0) {}
+  explicit NyuziMachineFunctionInfo(MachineFunction &MF) : SRetReturnReg(0) {}
 
   unsigned getSRetReturnReg() const { return SRetReturnReg; }
   void setSRetReturnReg(unsigned Reg) { SRetReturnReg = Reg; }

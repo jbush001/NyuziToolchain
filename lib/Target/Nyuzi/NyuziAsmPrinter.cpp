@@ -64,7 +64,8 @@ void NyuziAsmPrinter::EmitConstantPool() {
   // Emit constants for this function in the same section as the function so
   // they are close by and can be accessed with PC relative addresses.
   const Function *F = MF->getFunction();
-  OutStreamer->SwitchSection(getObjFileLowering().SectionForGlobal(F, *Mang, TM));
+  OutStreamer->SwitchSection(
+      getObjFileLowering().SectionForGlobal(F, *Mang, TM));
   for (unsigned i = 0, e = CP.size(); i != e; ++i) {
     const MachineConstantPoolEntry &CPE = CP[i];
     EmitAlignment(Log2_32(CPE.getAlignment()));
@@ -98,21 +99,18 @@ MCSymbol *NyuziAsmPrinter::GetJumpTableLabel(unsigned uid) const {
 }
 
 // Print operand for inline assembly
-bool NyuziAsmPrinter::PrintAsmOperand(const MachineInstr *MI,
-                                           unsigned OpNo, unsigned AsmVariant,
-                                           const char *ExtraCode,
-                                           raw_ostream &O) {
+bool NyuziAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
+                                      unsigned AsmVariant,
+                                      const char *ExtraCode, raw_ostream &O) {
 
   if (ExtraCode && ExtraCode[0])
     return AsmPrinter::PrintAsmOperand(MI, OpNo, AsmVariant, ExtraCode, O);
-    
+
   const MachineOperand &MO = MI->getOperand(OpNo);
   if (MO.getType() == MachineOperand::MO_Register) {
     O << NyuziInstPrinter::getRegisterName(MO.getReg());
     return false;
-  }
-  else if (MO.getType() == MachineOperand::MO_Immediate)
-  {
+  } else if (MO.getType() == MachineOperand::MO_Immediate) {
     O << MO.getImm();
     return false;
   }
@@ -121,9 +119,9 @@ bool NyuziAsmPrinter::PrintAsmOperand(const MachineInstr *MI,
 }
 
 bool NyuziAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
-                                           unsigned OpNum, unsigned AsmVariant,
-                                           const char *ExtraCode,
-                                           raw_ostream &O) {
+                                            unsigned OpNum, unsigned AsmVariant,
+                                            const char *ExtraCode,
+                                            raw_ostream &O) {
 
   const MachineOperand &MO = MI->getOperand(OpNum);
   assert(MO.isReg() && "unexpected inline asm memory operand");
@@ -131,7 +129,6 @@ bool NyuziAsmPrinter::PrintAsmMemoryOperand(const MachineInstr *MI,
 
   return false;
 }
-
 
 // Force static initialization.
 extern "C" void LLVMInitializeNyuziAsmPrinter() {

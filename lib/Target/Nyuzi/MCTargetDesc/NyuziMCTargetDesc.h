@@ -1,5 +1,5 @@
 //===-- NyuziMCTargetDesc.h - Nyuzi Target Descriptions ---------*-
-//C++ -*-===//
+// C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -34,13 +34,13 @@ class Triple;
 extern Target TheNyuziTarget;
 
 MCCodeEmitter *createNyuziMCCodeEmitter(const MCInstrInfo &MCII,
-                                             const MCRegisterInfo &MRI,
-                                             MCContext &Ctx);
+                                        const MCRegisterInfo &MRI,
+                                        MCContext &Ctx);
 
-MCObjectWriter *createNyuziELFObjectWriter(raw_pwrite_stream &OS, uint8_t OSABI);
+MCObjectWriter *createNyuziELFObjectWriter(raw_pwrite_stream &OS,
+                                           uint8_t OSABI);
 
-MCAsmBackend *createNyuziAsmBackend(const Target &T,
-                                    const MCRegisterInfo &MRI,
+MCAsmBackend *createNyuziAsmBackend(const Target &T, const MCRegisterInfo &MRI,
                                     const Triple &TT, StringRef CPU);
 
 } // End llvm namespace

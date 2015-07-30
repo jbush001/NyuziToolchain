@@ -24,11 +24,10 @@ extern "C" void LLVMInitializeNyuziTarget() {
 }
 
 NyuziTargetMachine::NyuziTargetMachine(const Target &T, const Triple &TT,
-                                                 StringRef CPU, StringRef FS,
-                                                 const TargetOptions &Options,
-                                                 Reloc::Model RM,
-                                                 CodeModel::Model CM,
-                                                 CodeGenOpt::Level OL)
+                                       StringRef CPU, StringRef FS,
+                                       const TargetOptions &Options,
+                                       Reloc::Model RM, CodeModel::Model CM,
+                                       CodeGenOpt::Level OL)
     : LLVMTargetMachine(T, "e-m:e-p:32:32", TT, CPU, FS, Options, RM, CM, OL),
       TLOF(make_unique<NyuziTargetObjectFile>()),
       Subtarget(TT, CPU, FS, *this) {
@@ -50,8 +49,7 @@ public:
 };
 } // namespace
 
-TargetPassConfig *
-NyuziTargetMachine::createPassConfig(PassManagerBase &PM) {
+TargetPassConfig *NyuziTargetMachine::createPassConfig(PassManagerBase &PM) {
   return new NyuziPassConfig(this, PM);
 }
 
@@ -59,4 +57,3 @@ bool NyuziPassConfig::addInstSelector() {
   addPass(createNyuziISelDag(getNyuziTargetMachine()));
   return false;
 }
-

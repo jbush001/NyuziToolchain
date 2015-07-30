@@ -18,14 +18,14 @@
 #include "llvm/MC/MCAsmInfoELF.h"
 
 namespace llvm {
-  class Triple;
+class Triple;
 
-  class NyuziMCAsmInfo : public MCAsmInfo {
-    virtual void anchor();
+class NyuziMCAsmInfo : public MCAsmInfo {
+  virtual void anchor();
 
-  public:
-    explicit NyuziMCAsmInfo(const Triple &TT);
-  };
+public:
+  explicit NyuziMCAsmInfo(const Triple &TT);
+};
 
 } // namespace llvm
 

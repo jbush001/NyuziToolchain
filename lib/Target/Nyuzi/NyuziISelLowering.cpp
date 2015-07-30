@@ -38,24 +38,25 @@ using namespace llvm;
 
 #include "NyuziGenCallingConv.inc"
 
-const NyuziTargetLowering *NyuziTargetLowering::create(const NyuziTargetMachine &TM,
-                                                const NyuziSubtarget &STI) {
- return new NyuziTargetLowering(TM, STI);
+const NyuziTargetLowering *
+NyuziTargetLowering::create(const NyuziTargetMachine &TM,
+                            const NyuziSubtarget &STI) {
+  return new NyuziTargetLowering(TM, STI);
 }
 
-
-SDValue NyuziTargetLowering::LowerReturn(
-    SDValue Chain, CallingConv::ID CallConv, bool IsVarArg,
-    const SmallVectorImpl<ISD::OutputArg> &Outs,
-    const SmallVectorImpl<SDValue> &OutVals, SDLoc DL,
-    SelectionDAG &DAG) const {
+SDValue
+NyuziTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
+                                 bool IsVarArg,
+                                 const SmallVectorImpl<ISD::OutputArg> &Outs,
+                                 const SmallVectorImpl<SDValue> &OutVals,
+                                 SDLoc DL, SelectionDAG &DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
 
   // CCValAssign - represent the assignment of the return value to locations.
   SmallVector<CCValAssign, 16> RVLocs;
 
   // CCState - Info about the registers and stack slot.
-  CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), RVLocs, 
+  CCState CCInfo(CallConv, IsVarArg, DAG.getMachineFunction(), RVLocs,
                  *DAG.getContext());
 
   // Analyze return values.
@@ -81,10 +82,12 @@ SDValue NyuziTargetLowering::LowerReturn(
     if (!Reg)
       llvm_unreachable("sret virtual register not created in the entry block");
 
-    SDValue Val = DAG.getCopyFromReg(Chain, DL, Reg, getPointerTy(DAG.getDataLayout()));
+    SDValue Val =
+        DAG.getCopyFromReg(Chain, DL, Reg, getPointerTy(DAG.getDataLayout()));
     Chain = DAG.getCopyToReg(Chain, DL, Nyuzi::S0, Val, Flag);
     Flag = Chain.getValue(1);
-    RetOps.push_back(DAG.getRegister(Nyuzi::S0, getPointerTy(DAG.getDataLayout())));
+    RetOps.push_back(
+        DAG.getRegister(Nyuzi::S0, getPointerTy(DAG.getDataLayout())));
   }
 
   RetOps[0] = Chain; // Update chain.
@@ -107,8 +110,8 @@ SDValue NyuziTargetLowering::LowerFormalArguments(
   // NyuziCallingConv.td will auto-generate CC_Nyuzi32, which
   // knows how to handle operands (what go in registers vs. stack, etc).
   SmallVector<CCValAssign, 16> ArgLocs;
-  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
-                 ArgLocs, *DAG.getContext());
+  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), ArgLocs,
+                 *DAG.getContext());
   CCInfo.AnalyzeFormalArguments(Ins, CC_Nyuzi32);
 
   // Walk through each parameter and push into InVals
@@ -154,7 +157,8 @@ SDValue NyuziTargetLowering::LowerFormalArguments(
       FIPtr = DAG.getNode(ISD::ADD, DL, MVT::i32, FIPtr,
                           DAG.getConstant(Offset, DL, MVT::i32));
       Load = DAG.getExtLoad(LoadOp, DL, MVT::i32, Chain, FIPtr,
-                            MachinePointerInfo(), VA.getValVT(), false, false, false, 0);
+                            MachinePointerInfo(), VA.getValVT(), false, false,
+                            false, 0);
       Load = DAG.getNode(ISD::TRUNCATE, DL, VA.getValVT(), Load);
     }
 
@@ -164,19 +168,20 @@ SDValue NyuziTargetLowering::LowerFormalArguments(
   NyuziMachineFunctionInfo *VFI = MF.getInfo<NyuziMachineFunctionInfo>();
 
   if (isVarArg) {
-    // Create a dummy object where the first parameter would start.  This will be used
+    // Create a dummy object where the first parameter would start.  This will
+    // be used
     // later to determine the start address of variable arguments.
-    int FirstVarArg = MF.getFrameInfo()->CreateFixedObject(4, ParamEndOffset, false);
+    int FirstVarArg =
+        MF.getFrameInfo()->CreateFixedObject(4, ParamEndOffset, false);
     VFI->setVarArgsFrameIndex(FirstVarArg);
   }
-  
+
   if (MF.getFunction()->hasStructRetAttr()) {
     // When a function returns a structure, the address of the return value
     // is placed in the first physical register.
     unsigned Reg = VFI->getSRetReturnReg();
     if (!Reg) {
-      Reg =
-          MF.getRegInfo().createVirtualRegister(&Nyuzi::GPR32RegClass);
+      Reg = MF.getRegInfo().createVirtualRegister(&Nyuzi::GPR32RegClass);
       VFI->setSRetReturnReg(Reg);
     }
 
@@ -188,9 +193,8 @@ SDValue NyuziTargetLowering::LowerFormalArguments(
 }
 
 // Generate code to call a function
-SDValue
-NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
-                                    SmallVectorImpl<SDValue> &InVals) const {
+SDValue NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
+                                       SmallVectorImpl<SDValue> &InVals) const {
   SelectionDAG &DAG = CLI.DAG;
   SDLoc &DL = CLI.DL;
   SmallVector<ISD::OutputArg, 32> &Outs = CLI.Outs;
@@ -213,15 +217,15 @@ NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // NyuziCallingConv.td will auto-generate CC_Nyuzi32, which
   // knows how to handle operands (what go in registers vs. stack, etc).
   SmallVector<CCValAssign, 16> ArgLocs;
-  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(),
-                 ArgLocs, *DAG.getContext());
+  CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), ArgLocs,
+                 *DAG.getContext());
   CCInfo.AnalyzeCallOperands(Outs, CC_Nyuzi32);
 
   // Get the size of the outgoing arguments stack space requirement.
   // We always keep the stack pointer 64 byte aligned so we can use block
   // loads/stores for vector arguments
-  unsigned ArgsSize = RoundUpToAlignment(CCInfo.getNextStackOffset(), 
-    TFL->getStackAlignment());
+  unsigned ArgsSize =
+      RoundUpToAlignment(CCInfo.getNextStackOffset(), TFL->getStackAlignment());
 
   // Create local copies for all arguments that are passed by value
   SmallVector<SDValue, 8> ByValArgs;
@@ -238,7 +242,7 @@ NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     SDValue FIPtr = DAG.getFrameIndex(FI, getPointerTy(DAG.getDataLayout()));
     SDValue SizeNode = DAG.getConstant(Size, DL, MVT::i32);
     Chain = DAG.getMemcpy(Chain, DL, FIPtr, Arg, SizeNode, Align,
-                          false, // isVolatile,
+                          false,        // isVolatile,
                           (Size <= 32), // AlwaysInline if size <= 32
                           false, MachinePointerInfo(), MachinePointerInfo());
 
@@ -246,8 +250,8 @@ NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   }
 
   // CALLSEQ_START will decrement the stack to reserve space
-  Chain =
-      DAG.getCALLSEQ_START(Chain, DAG.getIntPtrConstant(ArgsSize, DL, true), DL);
+  Chain = DAG.getCALLSEQ_START(Chain, DAG.getIntPtrConstant(ArgsSize, DL, true),
+                               DL);
 
   SmallVector<std::pair<unsigned, SDValue>, 8> RegsToPass;
   SmallVector<SDValue, 8> MemOpChains;
@@ -319,8 +323,7 @@ NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   // stuck together.
   SDValue InFlag;
   for (const auto &Reg : RegsToPass) {
-    Chain = DAG.getCopyToReg(Chain, DL, Reg.first,
-                             Reg.second, InFlag);
+    Chain = DAG.getCopyToReg(Chain, DL, Reg.first, Reg.second, InFlag);
     InFlag = Chain.getValue(1);
   }
 
@@ -360,15 +363,16 @@ NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
 
   // The call has returned, handle return values
   SmallVector<CCValAssign, 16> RVLocs;
-  CCState RVInfo(CallConv, isVarArg, DAG.getMachineFunction(),
-                 RVLocs, *DAG.getContext());
+  CCState RVInfo(CallConv, isVarArg, DAG.getMachineFunction(), RVLocs,
+                 *DAG.getContext());
 
   RVInfo.AnalyzeCallResult(Ins, RetCC_Nyuzi32);
 
   // Copy all of the result registers out of their specified physreg.
   for (const auto &Loc : RVLocs) {
-    Chain = DAG.getCopyFromReg(Chain, DL, Loc.getLocReg(),
-                               Loc.getValVT(), InFlag).getValue(1);
+    Chain =
+        DAG.getCopyFromReg(Chain, DL, Loc.getLocReg(), Loc.getValVT(), InFlag)
+            .getValue(1);
     InFlag = Chain.getValue(2);
     InVals.push_back(Chain.getValue(0));
   }
@@ -382,8 +386,7 @@ unsigned NyuziTargetLowering::getJumpTableEncoding() const {
 
 NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
                                          const NyuziSubtarget &STI)
-    : TargetLowering(TM),
-	  Subtarget(STI) {
+    : TargetLowering(TM), Subtarget(STI) {
 
   // Set up the register classes.
   addRegisterClass(MVT::i32, &Nyuzi::GPR32RegClass);
@@ -424,8 +427,8 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::RETURNADDR, MVT::i32, Custom);
   setOperationAction(ISD::SIGN_EXTEND_INREG, MVT::v16i1, Custom);
   setOperationAction(ISD::VASTART, MVT::Other, Custom);
-  setOperationAction(ISD::FABS,  MVT::f32, Custom);
-  setOperationAction(ISD::FABS,  MVT::v16f32, Custom);
+  setOperationAction(ISD::FABS, MVT::f32, Custom);
+  setOperationAction(ISD::FABS, MVT::v16f32, Custom);
 
   setOperationAction(ISD::BR_CC, MVT::i32, Expand);
   setOperationAction(ISD::BR_CC, MVT::f32, Expand);
@@ -465,9 +468,9 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
 
   setInsertFencesForAtomic(true);
 
-  setOperationAction(ISD::FCOPYSIGN,  MVT::f32, Expand);
-  setOperationAction(ISD::FFLOOR,  MVT::f32, Expand);
-  setOperationAction(ISD::FFLOOR,  MVT::v16f32, Expand);
+  setOperationAction(ISD::FCOPYSIGN, MVT::f32, Expand);
+  setOperationAction(ISD::FFLOOR, MVT::f32, Expand);
+  setOperationAction(ISD::FFLOOR, MVT::v16f32, Expand);
 
   // Hardware does not have an integer divider, so convert these to
   // library calls
@@ -475,14 +478,14 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::UREM, MVT::i32, Expand); // __umodsi3
   setOperationAction(ISD::SDIV, MVT::i32, Expand); // __divsi3
   setOperationAction(ISD::SREM, MVT::i32, Expand); // __modsi3
-  
+
   setOperationAction(ISD::FSQRT, MVT::f32, Expand); // sqrtf
-  setOperationAction(ISD::FSIN, MVT::f32, Expand); // sinf
-  setOperationAction(ISD::FCOS, MVT::f32, Expand); // cosf
-  setOperationAction(ISD::FSINCOS, MVT::f32, Expand); 
-  
+  setOperationAction(ISD::FSIN, MVT::f32, Expand);  // sinf
+  setOperationAction(ISD::FCOS, MVT::f32, Expand);  // cosf
+  setOperationAction(ISD::FSINCOS, MVT::f32, Expand);
+
   setCondCodeAction(ISD::SETO, MVT::f32, Expand);
-  setCondCodeAction(ISD::SETUO, MVT::f32, Expand);  // XXX this is broken
+  setCondCodeAction(ISD::SETUO, MVT::f32, Expand); // XXX this is broken
 
   setStackPointerRegisterToSaveRestore(Nyuzi::SP_REG);
   setMinFunctionAlignment(2);
@@ -516,7 +519,7 @@ const char *NyuziTargetLowering::getTargetNodeName(unsigned Opcode) const {
 
 // Global addresses are stored in the per-function constant pool.
 SDValue NyuziTargetLowering::LowerGlobalAddress(SDValue Op,
-                                                     SelectionDAG &DAG) const {
+                                                SelectionDAG &DAG) const {
   SDLoc DL(Op);
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
   SDValue CPIdx = DAG.getTargetConstantPool(GV, MVT::i32);
@@ -526,7 +529,7 @@ SDValue NyuziTargetLowering::LowerGlobalAddress(SDValue Op,
 }
 
 SDValue NyuziTargetLowering::LowerConstantPool(SDValue Op,
-                                                    SelectionDAG &DAG) const {
+                                               SelectionDAG &DAG) const {
   SDLoc DL(Op);
   EVT PtrVT = Op.getValueType();
   ConstantPoolSDNode *CP = cast<ConstantPoolSDNode>(Op);
@@ -543,7 +546,7 @@ SDValue NyuziTargetLowering::LowerConstantPool(SDValue Op,
 }
 
 SDValue NyuziTargetLowering::LowerConstant(SDValue Op,
-                                                SelectionDAG &DAG) const {
+                                           SelectionDAG &DAG) const {
   SDLoc DL(Op);
   ConstantSDNode *C = cast<ConstantSDNode>(Op);
 
@@ -564,7 +567,8 @@ SDValue NyuziTargetLowering::LowerConstant(SDValue Op,
                      4);
 }
 
-SDValue NyuziTargetLowering::LowerBlockAddress(SDValue Op, SelectionDAG &DAG) const {
+SDValue NyuziTargetLowering::LowerBlockAddress(SDValue Op,
+                                               SelectionDAG &DAG) const {
   SDLoc DL(Op);
   const BlockAddress *BA = cast<BlockAddressSDNode>(Op)->getBlockAddress();
   SDValue CPIdx = DAG.getTargetConstantPool(BA, MVT::i32);
@@ -617,7 +621,7 @@ static bool isZero(SDValue V) {
 }
 
 SDValue NyuziTargetLowering::LowerBUILD_VECTOR(SDValue Op,
-                                                    SelectionDAG &DAG) const {
+                                               SelectionDAG &DAG) const {
   MVT VT = Op.getValueType().getSimpleVT();
   SDLoc DL(Op);
 
@@ -633,9 +637,8 @@ SDValue NyuziTargetLowering::LowerBUILD_VECTOR(SDValue Op,
 // SCALAR_TO_VECTOR loads the scalar register into lane 0 of the register.
 // The rest of the lanes are undefined.  For simplicity, we just load the same
 // value into all lanes.
-SDValue
-NyuziTargetLowering::LowerSCALAR_TO_VECTOR(SDValue Op,
-                                                SelectionDAG &DAG) const {
+SDValue NyuziTargetLowering::LowerSCALAR_TO_VECTOR(SDValue Op,
+                                                   SelectionDAG &DAG) const {
   MVT VT = Op.getValueType().getSimpleVT();
   SDLoc DL(Op);
   return DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(0));
@@ -643,9 +646,8 @@ NyuziTargetLowering::LowerSCALAR_TO_VECTOR(SDValue Op,
 
 // (VECTOR, VAL, IDX)
 // Convert to a move with a mask (0x8000 >> IDX) and a splatted scalar operand.
-SDValue
-NyuziTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op,
-                                                 SelectionDAG &DAG) const {
+SDValue NyuziTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op,
+                                                    SelectionDAG &DAG) const {
   MVT VT = Op.getValueType().getSimpleVT();
   SDLoc DL(Op);
 
@@ -655,13 +657,14 @@ NyuziTargetLowering::LowerINSERT_VECTOR_ELT(SDValue Op,
       DAG.getNode(ISD::SRL, DL, MVT::i32, DAG.getConstant(0x8000, DL, MVT::i32),
                   Op.getOperand(2));
   SDValue Splat = DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(1));
-  return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, VT,
-                     DAG.getConstant(Intrinsic::nyuzi_vector_mixi, DL, MVT::i32), Mask,
-                     Splat, Op.getOperand(0));
+  return DAG.getNode(
+      ISD::INTRINSIC_WO_CHAIN, DL, VT,
+      DAG.getConstant(Intrinsic::nyuzi_vector_mixi, DL, MVT::i32), Mask, Splat,
+      Op.getOperand(0));
 }
 
 bool NyuziTargetLowering::isShuffleMaskLegal(const SmallVectorImpl<int> &M,
-                                                  EVT VT) const {
+                                             EVT VT) const {
   if (M.size() != 16)
     return false;
 
@@ -675,13 +678,16 @@ bool NyuziTargetLowering::isShuffleMaskLegal(const SmallVectorImpl<int> &M,
 
 //
 // Look for patterns that built splats.  isShuffleMaskLegal should ensure this
-// will only be called with splat masks, but I don't know if there are edge cases 
-// where it will still be called.  Perhaps need to check explicitly (note that the 
-// shuffle mask doesn't appear to be an operand, but must be accessed by casting the 
+// will only be called with splat masks, but I don't know if there are edge
+// cases
+// where it will still be called.  Perhaps need to check explicitly (note that
+// the
+// shuffle mask doesn't appear to be an operand, but must be accessed by casting
+// the
 // SDNode and using a separate accessor).
 //
 SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
-                                                      SelectionDAG &DAG) const {
+                                                 SelectionDAG &DAG) const {
   MVT VT = Op.getValueType().getSimpleVT();
   SDLoc DL(Op);
 
@@ -692,13 +698,11 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
   // %single = insertelement <16 x i32> (don't care), i32 %value, i32 0
   if (Op.getOperand(0).getOpcode() == ISD::INSERT_VECTOR_ELT &&
       isZero(Op.getOperand(0).getOperand(2)))
-    return DAG.getNode(NyuziISD::SPLAT, DL, VT,
-                       Op.getOperand(0).getOperand(1));
+    return DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(0).getOperand(1));
 
   // %single = scalar_to_vector i32 %b
   if (Op.getOperand(0).getOpcode() == ISD::SCALAR_TO_VECTOR)
-    return DAG.getNode(NyuziISD::SPLAT, DL, VT,
-                       Op.getOperand(0).getOperand(0));
+    return DAG.getNode(NyuziISD::SPLAT, DL, VT, Op.getOperand(0).getOperand(0));
 
   return SDValue();
 }
@@ -708,22 +712,22 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
 // creating a pseudo-instruction SEL_COND_RESULT, which will later be
 // transformed.
 SDValue NyuziTargetLowering::LowerSELECT_CC(SDValue Op,
-                                                 SelectionDAG &DAG) const {
+                                            SelectionDAG &DAG) const {
   SDLoc DL(Op);
   EVT Ty = Op.getOperand(0).getValueType();
   SDValue Pred =
-      DAG.getNode(ISD::SETCC, DL, getSetCCResultType(DAG.getDataLayout(), *DAG.getContext(), Ty),
+      DAG.getNode(ISD::SETCC, DL, getSetCCResultType(DAG.getDataLayout(),
+                                                     *DAG.getContext(), Ty),
                   Op.getOperand(0), Op.getOperand(1), Op.getOperand(4));
 
-  return DAG.getNode(NyuziISD::SEL_COND_RESULT, DL, Op.getValueType(),
-                     Pred, Op.getOperand(2), Op.getOperand(3));
+  return DAG.getNode(NyuziISD::SEL_COND_RESULT, DL, Op.getValueType(), Pred,
+                     Op.getOperand(2), Op.getOperand(3));
 }
 
 // There is no native floating point division, but we can convert this to a
 // reciprocal/multiply operation.  If the first parameter is constant 1.0, then
 // just a reciprocal will suffice.
-SDValue NyuziTargetLowering::LowerFDIV(SDValue Op,
-                                            SelectionDAG &DAG) const {
+SDValue NyuziTargetLowering::LowerFDIV(SDValue Op, SelectionDAG &DAG) const {
   SDLoc DL(Op);
 
   EVT Type = Op.getOperand(1).getValueType();
@@ -733,13 +737,15 @@ SDValue NyuziTargetLowering::LowerFDIV(SDValue Op,
   SDValue Estimate =
       DAG.getNode(NyuziISD::RECIPROCAL_EST, DL, Type, Denominator);
 
-  // Perform a series of Newton Raphson refinements to determine 1/divisor. Each 
-  // iteration doubles the precision of the result. The initial estimate has 6 bits 
-  // of precision, so two iterations results in 24 bits, which is larger than the 
+  // Perform a series of Newton Raphson refinements to determine 1/divisor. Each
+  // iteration doubles the precision of the result. The initial estimate has 6
+  // bits
+  // of precision, so two iterations results in 24 bits, which is larger than
+  // the
   // (23 bit) significand.
   for (int i = 0; i < 2; i++) {
     // Trial = x * Estimate (our target is for x * 1/x to be 1.0)
-    // Error = 2.0 - Trial 
+    // Error = 2.0 - Trial
     // Estimate = Estimate * Error
     SDValue Trial = DAG.getNode(ISD::FMUL, DL, Type, Estimate, Denominator);
     SDValue Error = DAG.getNode(ISD::FSUB, DL, Type, Two, Trial);
@@ -767,8 +773,7 @@ SDValue NyuziTargetLowering::LowerFDIV(SDValue Op,
 }
 
 // Branch using jump table (used for switch statements)
-SDValue NyuziTargetLowering::LowerBR_JT(SDValue Op,
-                                             SelectionDAG &DAG) const {
+SDValue NyuziTargetLowering::LowerBR_JT(SDValue Op, SelectionDAG &DAG) const {
   SDValue Chain = Op.getOperand(0);
   SDValue Table = Op.getOperand(1);
   SDValue Index = Op.getOperand(2);
@@ -785,8 +790,7 @@ SDValue NyuziTargetLowering::LowerBR_JT(SDValue Op,
 
 // There is no native FNEG instruction, so we emulate it by XORing with
 // 0x80000000
-SDValue NyuziTargetLowering::LowerFNEG(SDValue Op,
-                                            SelectionDAG &DAG) const {
+SDValue NyuziTargetLowering::LowerFNEG(SDValue Op, SelectionDAG &DAG) const {
   SDLoc DL(Op);
   MVT ResultVT = Op.getValueType().getSimpleVT();
   MVT IntermediateVT = ResultVT.isVector() ? MVT::v16i32 : MVT::i32;
@@ -811,8 +815,7 @@ SDValue NyuziTargetLowering::LowerFNEG(SDValue Op,
 // XXX In order to be correct, we should probably emit code that explicitly
 // checks for NaN and forces the result to true.
 //
-SDValue NyuziTargetLowering::LowerSETCC(SDValue Op,
-                                        SelectionDAG &DAG) const {
+SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
   ISD::CondCode NewCode;
   SDLoc DL(Op);
@@ -853,16 +856,14 @@ SDValue NyuziTargetLowering::LowerSETCC(SDValue Op,
                      DAG.getCondCode(NewCode));
 }
 
-SDValue
-NyuziTargetLowering::LowerCTLZ_ZERO_UNDEF(SDValue Op,
-                                               SelectionDAG &DAG) const {
+SDValue NyuziTargetLowering::LowerCTLZ_ZERO_UNDEF(SDValue Op,
+                                                  SelectionDAG &DAG) const {
   SDLoc DL(Op);
   return DAG.getNode(ISD::CTLZ, DL, Op.getValueType(), Op.getOperand(0));
 }
 
-SDValue
-NyuziTargetLowering::LowerCTTZ_ZERO_UNDEF(SDValue Op,
-                                               SelectionDAG &DAG) const {
+SDValue NyuziTargetLowering::LowerCTTZ_ZERO_UNDEF(SDValue Op,
+                                                  SelectionDAG &DAG) const {
   SDLoc DL(Op);
   return DAG.getNode(ISD::CTTZ, DL, Op.getValueType(), Op.getOperand(0));
 }
@@ -878,45 +879,53 @@ NyuziTargetLowering::LowerCTTZ_ZERO_UNDEF(SDValue Op,
 //
 
 SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
-                                                  SelectionDAG &DAG) const {
+                                             SelectionDAG &DAG) const {
   SDLoc DL(Op);
 
   MVT ResultVT = Op.getValueType().getSimpleVT();
   SDValue RVal = Op.getOperand(0);
   SDValue SignedVal = DAG.getNode(ISD::SINT_TO_FP, DL, ResultVT, RVal);
-  
+
   // Load constant offset to adjust
-  Constant *AdjustConst = ConstantInt::get(Type::getInt32Ty(*DAG.getContext()),
-         0x4f800000); // UINT_MAX in float format
+  Constant *AdjustConst =
+      ConstantInt::get(Type::getInt32Ty(*DAG.getContext()),
+                       0x4f800000); // UINT_MAX in float format
   SDValue CPIdx = DAG.getConstantPool(AdjustConst, MVT::f32);
   SDValue AdjustReg = DAG.getLoad(MVT::f32, DL, DAG.getEntryNode(), CPIdx,
-                                   MachinePointerInfo::getConstantPool(), false,
-                                   false, false, 4);
-  if (ResultVT.isVector())
-  {
+                                  MachinePointerInfo::getConstantPool(), false,
+                                  false, false, 4);
+  if (ResultVT.isVector()) {
     // Vector Result
-    SDValue ZeroVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32, DAG.getConstant(0, DL, MVT::i32));
-    SDValue LtIntrinsic = DAG.getConstant(Intrinsic::nyuzi_mask_cmpi_ult, DL, MVT::i32);
+    SDValue ZeroVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
+                                  DAG.getConstant(0, DL, MVT::i32));
+    SDValue LtIntrinsic =
+        DAG.getConstant(Intrinsic::nyuzi_mask_cmpi_ult, DL, MVT::i32);
     SDValue IsNegativeMask = DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::i32,
                                          LtIntrinsic, RVal, ZeroVec);
-    SDValue AdjustVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32, AdjustReg);
-    SDValue Adjusted = DAG.getNode(ISD::FADD, DL, ResultVT, SignedVal, AdjustVec);
-    return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, ResultVT,
-                       DAG.getConstant(Intrinsic::nyuzi_vector_mixf, DL, MVT::i32), IsNegativeMask,
-                       Adjusted, SignedVal);
-  }
-  else
-  {
-    // Scalar Result.  If the result is negative, add UINT_MASK to make it positive
-    SDValue IsNegative = DAG.getSetCC(DL, getSetCCResultType(DAG.getDataLayout(), *DAG.getContext(), 
-                         MVT::i32), RVal, DAG.getConstant(0, DL, MVT::i32), ISD::SETLT);
-    SDValue Adjusted = DAG.getNode(ISD::FADD, DL, MVT::f32, SignedVal, AdjustReg);
+    SDValue AdjustVec =
+        DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16f32, AdjustReg);
+    SDValue Adjusted =
+        DAG.getNode(ISD::FADD, DL, ResultVT, SignedVal, AdjustVec);
+    return DAG.getNode(
+        ISD::INTRINSIC_WO_CHAIN, DL, ResultVT,
+        DAG.getConstant(Intrinsic::nyuzi_vector_mixf, DL, MVT::i32),
+        IsNegativeMask, Adjusted, SignedVal);
+  } else {
+    // Scalar Result.  If the result is negative, add UINT_MASK to make it
+    // positive
+    SDValue IsNegative =
+        DAG.getSetCC(DL, getSetCCResultType(DAG.getDataLayout(),
+                                            *DAG.getContext(), MVT::i32),
+                     RVal, DAG.getConstant(0, DL, MVT::i32), ISD::SETLT);
+    SDValue Adjusted =
+        DAG.getNode(ISD::FADD, DL, MVT::f32, SignedVal, AdjustReg);
     return DAG.getNode(NyuziISD::SEL_COND_RESULT, DL, MVT::f32, IsNegative,
                        Adjusted, SignedVal);
   }
 }
 
-SDValue NyuziTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const {
+SDValue NyuziTargetLowering::LowerFRAMEADDR(SDValue Op,
+                                            SelectionDAG &DAG) const {
   assert((cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue() == 0) &&
          "Frame address can only be determined for current frame.");
 
@@ -927,7 +936,8 @@ SDValue NyuziTargetLowering::LowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const
   return DAG.getCopyFromReg(DAG.getEntryNode(), DL, Nyuzi::FP_REG, VT);
 }
 
-SDValue NyuziTargetLowering::LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) const {
+SDValue NyuziTargetLowering::LowerRETURNADDR(SDValue Op,
+                                             SelectionDAG &DAG) const {
   if (verifyReturnAddressArgumentIsConstant(Op, DAG))
     return SDValue();
 
@@ -947,122 +957,117 @@ SDValue NyuziTargetLowering::LowerRETURNADDR(SDValue Op, SelectionDAG &DAG) cons
 }
 
 static Intrinsic::ID intrinsicForVectorCompare(ISD::CondCode CC, bool isFloat) {
-  if (isFloat)
-  {
-    switch (CC)
-    {
-      case ISD::SETOEQ:
-      case ISD::SETUEQ:
-      case ISD::SETEQ:
-        return Intrinsic::nyuzi_mask_cmpf_eq;
+  if (isFloat) {
+    switch (CC) {
+    case ISD::SETOEQ:
+    case ISD::SETUEQ:
+    case ISD::SETEQ:
+      return Intrinsic::nyuzi_mask_cmpf_eq;
 
-      case ISD::SETONE:
-      case ISD::SETUNE:
-      case ISD::SETNE:
-        return Intrinsic::nyuzi_mask_cmpf_ne;
+    case ISD::SETONE:
+    case ISD::SETUNE:
+    case ISD::SETNE:
+      return Intrinsic::nyuzi_mask_cmpf_ne;
 
-      case ISD::SETOGT:
-      case ISD::SETUGT:
-      case ISD::SETGT:
-        return Intrinsic::nyuzi_mask_cmpf_gt;
+    case ISD::SETOGT:
+    case ISD::SETUGT:
+    case ISD::SETGT:
+      return Intrinsic::nyuzi_mask_cmpf_gt;
 
-      case ISD::SETOGE:
-      case ISD::SETUGE:
-      case ISD::SETGE:
-        return Intrinsic::nyuzi_mask_cmpf_ge;
+    case ISD::SETOGE:
+    case ISD::SETUGE:
+    case ISD::SETGE:
+      return Intrinsic::nyuzi_mask_cmpf_ge;
 
-      case ISD::SETOLT:
-      case ISD::SETULT:
-      case ISD::SETLT:
-        return Intrinsic::nyuzi_mask_cmpf_lt;
+    case ISD::SETOLT:
+    case ISD::SETULT:
+    case ISD::SETLT:
+      return Intrinsic::nyuzi_mask_cmpf_lt;
 
-      case ISD::SETOLE:
-      case ISD::SETULE:
-      case ISD::SETLE:
-        return Intrinsic::nyuzi_mask_cmpf_le;
+    case ISD::SETOLE:
+    case ISD::SETULE:
+    case ISD::SETLE:
+      return Intrinsic::nyuzi_mask_cmpf_le;
 
-      default:
-        ; // falls through
-    }    
-  }
-  else
-  {
-    switch (CC)
-    {
-      case ISD::SETUEQ:
-      case ISD::SETEQ:
-        return Intrinsic::nyuzi_mask_cmpi_eq;
+    default:; // falls through
+    }
+  } else {
+    switch (CC) {
+    case ISD::SETUEQ:
+    case ISD::SETEQ:
+      return Intrinsic::nyuzi_mask_cmpi_eq;
 
-      case ISD::SETUNE:
-      case ISD::SETNE:
-        return Intrinsic::nyuzi_mask_cmpi_ne;
+    case ISD::SETUNE:
+    case ISD::SETNE:
+      return Intrinsic::nyuzi_mask_cmpi_ne;
 
-      case ISD::SETUGT:
-        return Intrinsic::nyuzi_mask_cmpi_ugt;
+    case ISD::SETUGT:
+      return Intrinsic::nyuzi_mask_cmpi_ugt;
 
-      case ISD::SETGT:
-        return Intrinsic::nyuzi_mask_cmpi_sgt;
+    case ISD::SETGT:
+      return Intrinsic::nyuzi_mask_cmpi_sgt;
 
-      case ISD::SETUGE:
-        return Intrinsic::nyuzi_mask_cmpi_uge;
+    case ISD::SETUGE:
+      return Intrinsic::nyuzi_mask_cmpi_uge;
 
-      case ISD::SETGE:
-        return Intrinsic::nyuzi_mask_cmpi_sge;
+    case ISD::SETGE:
+      return Intrinsic::nyuzi_mask_cmpi_sge;
 
-      case ISD::SETULT:
-        return Intrinsic::nyuzi_mask_cmpi_ult;
+    case ISD::SETULT:
+      return Intrinsic::nyuzi_mask_cmpi_ult;
 
-      case ISD::SETLT:
-        return Intrinsic::nyuzi_mask_cmpi_slt;
+    case ISD::SETLT:
+      return Intrinsic::nyuzi_mask_cmpi_slt;
 
-      case ISD::SETULE:
-        return Intrinsic::nyuzi_mask_cmpi_ule;
+    case ISD::SETULE:
+      return Intrinsic::nyuzi_mask_cmpi_ule;
 
-      case ISD::SETLE:
-        return Intrinsic::nyuzi_mask_cmpi_sle;
-        
-      default:
-        ; // falls through
-    }    
+    case ISD::SETLE:
+      return Intrinsic::nyuzi_mask_cmpi_sle;
+
+    default:; // falls through
+    }
   }
 
   llvm_unreachable("unhandled compare code");
 }
 
 //
-// This may be used to expand a vector comparison result into a vector.  Normally,
+// This may be used to expand a vector comparison result into a vector.
+// Normally,
 // vector compare results are a bitmask, so we need to do a predicated transfer
 // to expand it.
-// Note that clang seems to assume a vector lane should have 0xffffffff when the 
-// result is true when folding constants, so we use that value here to be consistent,
+// Note that clang seems to assume a vector lane should have 0xffffffff when the
+// result is true when folding constants, so we use that value here to be
+// consistent,
 // even though that is not what a scalar compare would do.
 //
-SDValue NyuziTargetLowering::LowerSIGN_EXTEND_INREG(SDValue Op, 
-                                                         SelectionDAG &DAG) const {
+SDValue NyuziTargetLowering::LowerSIGN_EXTEND_INREG(SDValue Op,
+                                                    SelectionDAG &DAG) const {
   SDValue SetCcOp = Op.getOperand(0);
   if (SetCcOp.getOpcode() != ISD::SETCC)
     return SDValue();
 
   SDLoc DL(Op);
-  Intrinsic::ID intrinsic = intrinsicForVectorCompare(cast<CondCodeSDNode>(
-                                                      SetCcOp.getOperand(2))->get(),
-                                                      SetCcOp.getOperand(0).getValueType()
-                                                      .getSimpleVT().isFloatingPoint());
+  Intrinsic::ID intrinsic = intrinsicForVectorCompare(
+      cast<CondCodeSDNode>(SetCcOp.getOperand(2))->get(),
+      SetCcOp.getOperand(0).getValueType().getSimpleVT().isFloatingPoint());
 
   SDValue FalseVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
-                             DAG.getConstant(0, DL, MVT::i32));
-  SDValue TrueVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32, 
-                            DAG.getConstant(0xffffffff, DL, MVT::i32));
+                                 DAG.getConstant(0, DL, MVT::i32));
+  SDValue TrueVal = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
+                                DAG.getConstant(0xffffffff, DL, MVT::i32));
   SDValue Mask = DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::i32,
-                             DAG.getConstant(intrinsic, DL, MVT::i32), 
+                             DAG.getConstant(intrinsic, DL, MVT::i32),
                              SetCcOp.getOperand(0), SetCcOp.getOperand(1));
-  return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32,
-                     DAG.getConstant(Intrinsic::nyuzi_vector_mixi, DL, MVT::i32), Mask,
-                     TrueVal, FalseVal);
+  return DAG.getNode(
+      ISD::INTRINSIC_WO_CHAIN, DL, MVT::v16i32,
+      DAG.getConstant(Intrinsic::nyuzi_vector_mixi, DL, MVT::i32), Mask,
+      TrueVal, FalseVal);
 }
 
 SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
-                                                 SelectionDAG &DAG) const {
+                                            SelectionDAG &DAG) const {
   switch (Op.getOpcode()) {
   case ISD::VECTOR_SHUFFLE:
     return LowerVECTOR_SHUFFLE(Op, DAG);
@@ -1098,7 +1103,7 @@ SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
     return LowerUINT_TO_FP(Op, DAG);
   case ISD::FRAMEADDR:
     return LowerFRAMEADDR(Op, DAG);
-  case ISD::RETURNADDR:  
+  case ISD::RETURNADDR:
     return LowerRETURNADDR(Op, DAG);
   case ISD::SIGN_EXTEND_INREG:
     return LowerSIGN_EXTEND_INREG(Op, DAG);
@@ -1111,7 +1116,7 @@ SDValue NyuziTargetLowering::LowerOperation(SDValue Op,
   }
 }
 
-EVT NyuziTargetLowering::getSetCCResultType(const DataLayout&, 
+EVT NyuziTargetLowering::getSetCCResultType(const DataLayout &,
                                             LLVMContext &Context,
                                             EVT VT) const {
   if (!VT.isVector())
@@ -1120,8 +1125,9 @@ EVT NyuziTargetLowering::getSetCCResultType(const DataLayout&,
   return VT.changeVectorElementTypeToInteger();
 }
 
-MachineBasicBlock *NyuziTargetLowering::EmitInstrWithCustomInserter(
-    MachineInstr *MI, MachineBasicBlock *BB) const {
+MachineBasicBlock *
+NyuziTargetLowering::EmitInstrWithCustomInserter(MachineInstr *MI,
+                                                 MachineBasicBlock *BB) const {
   switch (MI->getOpcode()) {
   case Nyuzi::SELECTI:
   case Nyuzi::SELECTF:
@@ -1163,7 +1169,7 @@ MachineBasicBlock *NyuziTargetLowering::EmitInstrWithCustomInserter(
 
   case Nyuzi::ATOMIC_SWAP:
     return EmitAtomicBinary(MI, BB, 0);
-    
+
   case Nyuzi::ATOMIC_CMP_SWAP:
     return EmitAtomicCmpSwap(MI, BB);
 
@@ -1174,7 +1180,7 @@ MachineBasicBlock *NyuziTargetLowering::EmitInstrWithCustomInserter(
 
 MachineBasicBlock *
 NyuziTargetLowering::EmitSelectCC(MachineInstr *MI,
-                                       MachineBasicBlock *BB) const {
+                                  MachineBasicBlock *BB) const {
   const TargetInstrInfo *TII = Subtarget.getInstrInfo();
   DebugLoc DL = MI->getDebugLoc();
 
@@ -1241,7 +1247,7 @@ NyuziTargetLowering::EmitSelectCC(MachineInstr *MI,
 
 MachineBasicBlock *
 NyuziTargetLowering::EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *BB,
-                                        unsigned Opcode) const {
+                                      unsigned Opcode) const {
   const TargetInstrInfo *TII = Subtarget.getInstrInfo();
 
   unsigned Dest = MI->getOperand(0).getReg();
@@ -1273,22 +1279,24 @@ NyuziTargetLowering::EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *BB,
   BB = LoopMBB;
   BuildMI(BB, DL, TII->get(Nyuzi::LOAD_SYNC), OldValue).addReg(Ptr).addImm(0);
   BuildMI(BB, DL, TII->get(Nyuzi::MOVESS), Dest).addReg(OldValue);
-  
+
   unsigned NewValue;
-  if (Opcode != 0)
-  {
+  if (Opcode != 0) {
     // Perform an operation
     NewValue = MRI.createVirtualRegister(&Nyuzi::GPR32RegClass);
     if (MI->getOperand(2).getType() == MachineOperand::MO_Register)
-      BuildMI(BB, DL, TII->get(Opcode), NewValue).addReg(OldValue).addReg(MI->getOperand(2).getReg());
+      BuildMI(BB, DL, TII->get(Opcode), NewValue)
+          .addReg(OldValue)
+          .addReg(MI->getOperand(2).getReg());
     else if (MI->getOperand(2).getType() == MachineOperand::MO_Immediate)
-      BuildMI(BB, DL, TII->get(Opcode), NewValue).addReg(OldValue).addImm(MI->getOperand(2).getImm());
+      BuildMI(BB, DL, TII->get(Opcode), NewValue)
+          .addReg(OldValue)
+          .addImm(MI->getOperand(2).getImm());
     else
       llvm_unreachable("Unknown operand type");
-  }
-  else
+  } else
     NewValue = OldValue; // This is just swap: use old value
-  
+
   BuildMI(BB, DL, TII->get(Nyuzi::STORE_SYNC), Success)
       .addReg(NewValue)
       .addReg(Ptr)
@@ -1307,7 +1315,7 @@ NyuziTargetLowering::EmitAtomicBinary(MachineInstr *MI, MachineBasicBlock *BB,
 
 MachineBasicBlock *
 NyuziTargetLowering::EmitAtomicCmpSwap(MachineInstr *MI,
-                                            MachineBasicBlock *BB) const {
+                                       MachineBasicBlock *BB) const {
   MachineFunction *MF = BB->getParent();
   MachineRegisterInfo &RegInfo = MF->getRegInfo();
   const TargetRegisterClass *RC = getRegClassFor(MVT::i32);
@@ -1356,8 +1364,7 @@ NyuziTargetLowering::EmitAtomicCmpSwap(MachineInstr *MI,
   BuildMI(BB, DL, TII->get(Nyuzi::SNESISS), CmpResult)
       .addReg(Dest)
       .addReg(OldVal);
-  BuildMI(BB, DL, TII->get(Nyuzi::BTRUE)).addReg(CmpResult).addMBB(
-      ExitMBB);
+  BuildMI(BB, DL, TII->get(Nyuzi::BTRUE)).addReg(CmpResult).addMBB(ExitMBB);
 
   // Loop2MBB:
   //   move success, newval			; need a temporary because
@@ -1368,8 +1375,7 @@ NyuziTargetLowering::EmitAtomicCmpSwap(MachineInstr *MI,
       .addReg(NewVal)
       .addReg(Ptr)
       .addImm(0);
-  BuildMI(BB, DL, TII->get(Nyuzi::BFALSE)).addReg(Success).addMBB(
-      Loop1MBB);
+  BuildMI(BB, DL, TII->get(Nyuzi::BFALSE)).addReg(Success).addMBB(Loop1MBB);
 
   MI->eraseFromParent(); // The instruction is gone now.
 
@@ -1383,8 +1389,7 @@ NyuziTargetLowering::EmitAtomicCmpSwap(MachineInstr *MI,
 /// getConstraintType - Given a constraint letter, return the Type of
 /// constraint it is for this target.
 NyuziTargetLowering::ConstraintType
-NyuziTargetLowering::getConstraintType(StringRef Constraint)
-    const {
+NyuziTargetLowering::getConstraintType(StringRef Constraint) const {
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
     case 's':
@@ -1400,10 +1405,9 @@ NyuziTargetLowering::getConstraintType(StringRef Constraint)
 }
 
 std::pair<unsigned, const TargetRegisterClass *>
-NyuziTargetLowering::getRegForInlineAsmConstraint(
-                             const TargetRegisterInfo *TRI,
-                             StringRef Constraint,
-                             MVT VT) const {
+NyuziTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
+                                                  StringRef Constraint,
+                                                  MVT VT) const {
   if (Constraint.size() == 1) {
     switch (Constraint[0]) {
     case 's':

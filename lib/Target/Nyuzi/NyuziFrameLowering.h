@@ -1,5 +1,5 @@
 //===-- NyuziFrameLowering.h - Define frame lowering for Nyuzi --*-
-//C++ -*-===//
+// C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -24,13 +24,14 @@ public:
   explicit NyuziFrameLowering(const NyuziSubtarget &ST)
       : TargetFrameLowering(TargetFrameLowering::StackGrowsDown, 64, 0, 64) {}
 
-  virtual void emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
-  virtual void emitEpilogue(MachineFunction &MF, MachineBasicBlock &MBB) const override;
-  virtual void eliminateCallFramePseudoInstr(MachineFunction &MF,
-                                     		 MachineBasicBlock &MBB,
-                                    		 MachineBasicBlock::iterator I) const override;
-  virtual void determineCalleeSaves(MachineFunction &MF,
-                                    BitVector &SavedRegs,
+  virtual void emitPrologue(MachineFunction &MF,
+                            MachineBasicBlock &MBB) const override;
+  virtual void emitEpilogue(MachineFunction &MF,
+                            MachineBasicBlock &MBB) const override;
+  virtual void
+  eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
+                                MachineBasicBlock::iterator I) const override;
+  virtual void determineCalleeSaves(MachineFunction &MF, BitVector &SavedRegs,
                                     RegScavenger *RS) const override;
   virtual bool hasFP(const MachineFunction &MF) const override;
   virtual bool hasReservedCallFrame(const MachineFunction &MF) const override;

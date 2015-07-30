@@ -1,5 +1,5 @@
 //===-- NyuziInstrInfo.h - Nyuzi Instruction Information --------*-
-//C++ -*-===//
+// C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -65,23 +65,22 @@ public:
                            unsigned DestReg, unsigned SrcReg,
                            bool KillSrc) const override;
 
-  virtual void storeRegToStackSlot(MachineBasicBlock &MBB,
-                                   MachineBasicBlock::iterator MBBI,
-                                   unsigned SrcReg, bool isKill, int FrameIndex,
-                                   const TargetRegisterClass *RC,
-                                   const TargetRegisterInfo *TRI) const override;
+  virtual void
+  storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
+                      unsigned SrcReg, bool isKill, int FrameIndex,
+                      const TargetRegisterClass *RC,
+                      const TargetRegisterInfo *TRI) const override;
 
-  virtual void loadRegFromStackSlot(MachineBasicBlock &MBB,
-                                    MachineBasicBlock::iterator MBBI,
-                                    unsigned DestReg, int FrameIndex,
-                                    const TargetRegisterClass *RC,
-                                    const TargetRegisterInfo *TRI) const override;
+  virtual void
+  loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
+                       unsigned DestReg, int FrameIndex,
+                       const TargetRegisterClass *RC,
+                       const TargetRegisterInfo *TRI) const override;
 
   void adjustStackPointer(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
-                   int Amount) const;
-  unsigned int loadConstant(MachineBasicBlock &MBB, 
-                             MachineBasicBlock::iterator MBBI,
-                             int Amount) const;
+                          int Amount) const;
+  unsigned int loadConstant(MachineBasicBlock &MBB,
+                            MachineBasicBlock::iterator MBBI, int Amount) const;
 
 private:
   MachineMemOperand *getMemOperand(MachineBasicBlock &MBB, int FI,

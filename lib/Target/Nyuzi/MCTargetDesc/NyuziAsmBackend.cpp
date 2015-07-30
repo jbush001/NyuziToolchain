@@ -37,13 +37,14 @@ public:
   NyuziAsmBackend(const Target &T, Triple::OSType _OSType)
       : MCAsmBackend(), OSType(_OSType) {}
 
-  virtual MCObjectWriter *createObjectWriter(raw_pwrite_stream &OS) const override {
+  virtual MCObjectWriter *
+  createObjectWriter(raw_pwrite_stream &OS) const override {
     return createNyuziELFObjectWriter(
         OS, MCELFObjectTargetWriter::getOSABI(OSType));
   }
 
   virtual void applyFixup(const MCFixup &Fixup, char *Data, unsigned DataSize,
-                  uint64_t Value, bool IsPCRel) const override {
+                          uint64_t Value, bool IsPCRel) const override {
     MCFixupKind Kind = Fixup.getKind();
     Value = adjustFixupValue((unsigned)Kind, Value);
     unsigned Offset = Fixup.getOffset();
@@ -67,18 +68,19 @@ public:
     }
   }
 
-  virtual const MCFixupKindInfo &getFixupKindInfo(MCFixupKind Kind) const override {
+  virtual const MCFixupKindInfo &
+  getFixupKindInfo(MCFixupKind Kind) const override {
     const static MCFixupKindInfo Infos[Nyuzi::NumTargetFixupKinds] = {
-      // This table *must* be in same the order of fixup_* kinds in
-      // NyuziFixupKinds.h.
-      //
-      // name                          offset  bits  flags
-      { "fixup_Nyuzi_Abs32", 0, 32, 0 }, 
-      { "fixup_Nyuzi_PCRel_MemAccExt", 10, 15, MCFixupKindInfo::FKF_IsPCRel },
-      { "fixup_Nyuzi_PCRel_MemAcc", 15, 10, MCFixupKindInfo::FKF_IsPCRel },
-      { "fixup_Nyuzi_PCRel_Branch", 5, 20, MCFixupKindInfo::FKF_IsPCRel },
-      { "fixup_Nyuzi_PCRel_ComputeLabelAddress", 10, 13, MCFixupKindInfo::FKF_IsPCRel }
-    };
+        // This table *must* be in same the order of fixup_* kinds in
+        // NyuziFixupKinds.h.
+        //
+        // name                          offset  bits  flags
+        {"fixup_Nyuzi_Abs32", 0, 32, 0},
+        {"fixup_Nyuzi_PCRel_MemAccExt", 10, 15, MCFixupKindInfo::FKF_IsPCRel},
+        {"fixup_Nyuzi_PCRel_MemAcc", 15, 10, MCFixupKindInfo::FKF_IsPCRel},
+        {"fixup_Nyuzi_PCRel_Branch", 5, 20, MCFixupKindInfo::FKF_IsPCRel},
+        {"fixup_Nyuzi_PCRel_ComputeLabelAddress", 10, 13,
+         MCFixupKindInfo::FKF_IsPCRel}};
 
     if (Kind < FirstTargetFixupKind)
       return MCAsmBackend::getFixupKindInfo(Kind);
@@ -88,17 +90,20 @@ public:
     return Infos[Kind - FirstTargetFixupKind];
   }
 
-  virtual bool mayNeedRelaxation(const MCInst &Inst) const override { return false; }
+  virtual bool mayNeedRelaxation(const MCInst &Inst) const override {
+    return false;
+  }
 
   /// fixupNeedsRelaxation - Target specific predicate for whether a given
   /// fixup requires the associated instruction to be relaxed.
   virtual bool fixupNeedsRelaxation(const MCFixup &Fixup, uint64_t Value,
-                            const MCRelaxableFragment *DF,
-                            const MCAsmLayout &Layout) const override {
+                                    const MCRelaxableFragment *DF,
+                                    const MCAsmLayout &Layout) const override {
     return false;
   }
 
-  virtual void relaxInstruction(const MCInst &Inst, MCInst &Res) const override {
+  virtual void relaxInstruction(const MCInst &Inst,
+                                MCInst &Res) const override {
     assert(0 && "relaxInstruction() unimplemented");
   }
 
@@ -115,13 +120,13 @@ public:
     uint64_t NumNops = Count / 4;
     for (uint64_t i = 0; i != NumNops; ++i)
       OW->writeLE32(0);
-    
+
     return true;
   }
-  
+
 private:
   unsigned getNumFixupKinds() const { return Nyuzi::NumTargetFixupKinds; }
-  
+
   static unsigned adjustFixupValue(unsigned Kind, uint64_t Value) {
     switch (Kind) {
     case Nyuzi::fixup_Nyuzi_PCRel_MemAccExt:

@@ -29,30 +29,28 @@ using namespace llvm;
 
 #include "NyuziGenAsmWriter.inc"
 
-void NyuziInstPrinter::printRegName(raw_ostream &OS,
-                                         unsigned RegNo) const {
+void NyuziInstPrinter::printRegName(raw_ostream &OS, unsigned RegNo) const {
   OS << StringRef(getRegisterName(RegNo)).lower();
 }
 
 void NyuziInstPrinter::printInst(const MCInst *MI, raw_ostream &O,
-                                 StringRef Annot,
-                                 const MCSubtargetInfo &STI) {
+                                 StringRef Annot, const MCSubtargetInfo &STI) {
 
   // NOP is or s0, s0, 0
-  if (MI->getOpcode() == Nyuzi::ORSSI 
-	  && MI->getOperand(0).isReg() && MI->getOperand(0).getReg() == Nyuzi::S0
-	  && MI->getOperand(1).isReg() && MI->getOperand(1).getReg() == Nyuzi::S0
-	  && MI->getOperand(2).isImm() && MI->getOperand(2).getImm() == 0)
-  {
-  	O << "\tnop";
-	return;
+  if (MI->getOpcode() == Nyuzi::ORSSI && MI->getOperand(0).isReg() &&
+      MI->getOperand(0).getReg() == Nyuzi::S0 && MI->getOperand(1).isReg() &&
+      MI->getOperand(1).getReg() == Nyuzi::S0 && MI->getOperand(2).isImm() &&
+      MI->getOperand(2).getImm() == 0) {
+    O << "\tnop";
+    return;
   }
 
   printInstruction(MI, O);
   printAnnotation(O, Annot);
 }
 
-static void printExpr(const MCExpr *Expr, const MCAsmInfo *MAI, raw_ostream &OS) {
+static void printExpr(const MCExpr *Expr, const MCAsmInfo *MAI,
+                      raw_ostream &OS) {
   int Offset = 0;
   const MCSymbolRefExpr *SRE;
 
@@ -65,7 +63,7 @@ static void printExpr(const MCExpr *Expr, const MCAsmInfo *MAI, raw_ostream &OS)
     Expr->print(OS, MAI);
     return;
   }
-  
+
   MCSymbolRefExpr::VariantKind Kind = SRE->getKind();
 
   OS << SRE->getSymbol();
@@ -81,12 +79,12 @@ static void printExpr(const MCExpr *Expr, const MCAsmInfo *MAI, raw_ostream &OS)
 }
 
 void NyuziInstPrinter::printCPURegs(const MCInst *MI, unsigned OpNo,
-                                         raw_ostream &O) {
+                                    raw_ostream &O) {
   printRegName(O, MI->getOperand(OpNo).getReg());
 }
 
 void NyuziInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
-                                         raw_ostream &O) {
+                                    raw_ostream &O) {
   const MCOperand &Op = MI->getOperand(OpNo);
   if (Op.isReg()) {
     printRegName(O, Op.getReg());
@@ -103,7 +101,7 @@ void NyuziInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
 }
 
 void NyuziInstPrinter::printUnsignedImm(const MCInst *MI, int opNum,
-                                             raw_ostream &O) {
+                                        raw_ostream &O) {
   const MCOperand &MO = MI->getOperand(opNum);
   if (MO.isImm())
     O << (unsigned short int)MO.getImm();
@@ -112,7 +110,7 @@ void NyuziInstPrinter::printUnsignedImm(const MCInst *MI, int opNum,
 }
 
 void NyuziInstPrinter::printMemOperand(const MCInst *MI, int opNum,
-                                            raw_ostream &O) {
+                                       raw_ostream &O) {
   if (MI->getOperand(opNum + 1).isExpr()) {
     // PC relative memory access to a local label
     printOperand(MI, opNum + 1, O);
@@ -131,7 +129,7 @@ void NyuziInstPrinter::printMemOperand(const MCInst *MI, int opNum,
 }
 
 void NyuziInstPrinter::printJumpTableOperand(const MCInst *MI, int opNum,
-                                                  raw_ostream &O) {
+                                             raw_ostream &O) {
   const MCOperand &Op = MI->getOperand(2);
   printExpr(Op.getExpr(), &MAI, O);
 }

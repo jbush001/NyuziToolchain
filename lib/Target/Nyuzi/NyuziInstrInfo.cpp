@@ -34,13 +34,11 @@
 using namespace llvm;
 
 const NyuziInstrInfo *NyuziInstrInfo::create(NyuziSubtarget &ST) {
-	return new NyuziInstrInfo(ST);
+  return new NyuziInstrInfo(ST);
 }
 
-
 NyuziInstrInfo::NyuziInstrInfo(NyuziSubtarget &ST)
-    : NyuziGenInstrInfo(Nyuzi::ADJCALLSTACKDOWN,
-                             Nyuzi::ADJCALLSTACKUP),
+    : NyuziGenInstrInfo(Nyuzi::ADJCALLSTACKDOWN, Nyuzi::ADJCALLSTACKUP),
       RI(ST, *this) {}
 
 /// isLoadFromStackSlot - If the specified machine instruction is a direct
@@ -49,9 +47,8 @@ NyuziInstrInfo::NyuziInstrInfo(NyuziSubtarget &ST)
 /// not, return 0.  This predicate must return 0 if the instruction has
 /// any side effects other than loading from the stack slot.
 unsigned NyuziInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
-                                                  int &FrameIndex) const {
-  if (MI->getOpcode() == Nyuzi::LW ||
-      MI->getOpcode() == Nyuzi::BLOCK_LOADI) {
+                                             int &FrameIndex) const {
+  if (MI->getOpcode() == Nyuzi::LW || MI->getOpcode() == Nyuzi::BLOCK_LOADI) {
     if (MI->getOperand(1).isFI() && MI->getOperand(2).isImm() &&
         MI->getOperand(2).getImm() == 0) {
       FrameIndex = MI->getOperand(1).getIndex();
@@ -68,9 +65,8 @@ unsigned NyuziInstrInfo::isLoadFromStackSlot(const MachineInstr *MI,
 /// not, return 0.  This predicate must return 0 if the instruction has
 /// any side effects other than storing to the stack slot.
 unsigned NyuziInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
-                                                 int &FrameIndex) const {
-  if (MI->getOpcode() == Nyuzi::SW ||
-      MI->getOpcode() == Nyuzi::BLOCK_STOREI) {
+                                            int &FrameIndex) const {
+  if (MI->getOpcode() == Nyuzi::SW || MI->getOpcode() == Nyuzi::BLOCK_STOREI) {
     if (MI->getOperand(1).isFI() && MI->getOperand(2).isImm() &&
         MI->getOperand(2).getImm() == 0) {
       FrameIndex = MI->getOperand(1).getIndex();
@@ -82,10 +78,10 @@ unsigned NyuziInstrInfo::isStoreToStackSlot(const MachineInstr *MI,
 }
 
 bool NyuziInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
-                                        MachineBasicBlock *&TBB,
-                                        MachineBasicBlock *&FBB,
-                                        SmallVectorImpl<MachineOperand> &Cond,
-                                        bool AllowModify) const {
+                                   MachineBasicBlock *&TBB,
+                                   MachineBasicBlock *&FBB,
+                                   SmallVectorImpl<MachineOperand> &Cond,
+                                   bool AllowModify) const {
   MachineBasicBlock::iterator I = MBB.end();
   MachineBasicBlock::iterator UnCondBrIter = MBB.end();
   while (I != MBB.begin()) {
@@ -133,10 +129,11 @@ bool NyuziInstrInfo::AnalyzeBranch(MachineBasicBlock &MBB,
   return false;
 }
 
-unsigned NyuziInstrInfo::InsertBranch(
-    MachineBasicBlock &MBB, MachineBasicBlock *TBB, // If true
-    MachineBasicBlock *FBB,                         // If false
-    ArrayRef<MachineOperand> Cond, DebugLoc DL) const {
+unsigned NyuziInstrInfo::InsertBranch(MachineBasicBlock &MBB,
+                                      MachineBasicBlock *TBB, // If true
+                                      MachineBasicBlock *FBB, // If false
+                                      ArrayRef<MachineOperand> Cond,
+                                      DebugLoc DL) const {
   assert(TBB);
   if (FBB) {
     // Has a false block, this is a two way conditional branch
@@ -165,8 +162,7 @@ unsigned NyuziInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
     if (I->isDebugValue())
       continue;
 
-    if (I->getOpcode() != Nyuzi::GOTO &&
-        I->getOpcode() != Nyuzi::BTRUE &&
+    if (I->getOpcode() != Nyuzi::GOTO && I->getOpcode() != Nyuzi::BTRUE &&
         I->getOpcode() != Nyuzi::BFALSE)
       break; // Not a branch
 
@@ -178,9 +174,9 @@ unsigned NyuziInstrInfo::RemoveBranch(MachineBasicBlock &MBB) const {
 }
 
 void NyuziInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
-                                      MachineBasicBlock::iterator I,
-                                      DebugLoc DL, unsigned DestReg,
-                                      unsigned SrcReg, bool KillSrc) const {
+                                 MachineBasicBlock::iterator I, DebugLoc DL,
+                                 unsigned DestReg, unsigned SrcReg,
+                                 bool KillSrc) const {
   bool destIsScalar = Nyuzi::GPR32RegClass.contains(DestReg);
   bool srcIsScalar = Nyuzi::GPR32RegClass.contains(SrcReg);
   unsigned operation;
@@ -198,9 +194,8 @@ void NyuziInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
       .addReg(SrcReg, getKillRegState(KillSrc));
 }
 
-MachineMemOperand *NyuziInstrInfo::getMemOperand(MachineBasicBlock &MBB,
-                                                      int FI,
-                                                      unsigned Flag) const {
+MachineMemOperand *NyuziInstrInfo::getMemOperand(MachineBasicBlock &MBB, int FI,
+                                                 unsigned Flag) const {
   MachineFunction &MF = *MBB.getParent();
   MachineFrameInfo &MFI = *MF.getFrameInfo();
   unsigned Align = MFI.getObjectAlignment(FI);
@@ -210,15 +205,17 @@ MachineMemOperand *NyuziInstrInfo::getMemOperand(MachineBasicBlock &MBB,
 }
 
 void NyuziInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
-                                 MachineBasicBlock::iterator MBBI,
-                                 unsigned SrcReg, bool isKill, int FrameIndex,
-                                 const TargetRegisterClass *RC,
-                                 const TargetRegisterInfo *TRI) const {
+                                         MachineBasicBlock::iterator MBBI,
+                                         unsigned SrcReg, bool isKill,
+                                         int FrameIndex,
+                                         const TargetRegisterClass *RC,
+                                         const TargetRegisterInfo *TRI) const {
   DebugLoc DL;
   if (MBBI != MBB.end())
     DL = MBBI->getDebugLoc();
 
-  MachineMemOperand *MMO = getMemOperand(MBB, FrameIndex, MachineMemOperand::MOStore);
+  MachineMemOperand *MMO =
+      getMemOperand(MBB, FrameIndex, MachineMemOperand::MOStore);
   unsigned Opc = 0;
 
   if (Nyuzi::GPR32RegClass.hasSubClassEq(RC))
@@ -236,15 +233,16 @@ void NyuziInstrInfo::storeRegToStackSlot(MachineBasicBlock &MBB,
 }
 
 void NyuziInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
-                                           MachineBasicBlock::iterator MBBI,
-                                           unsigned DestReg, int FrameIndex,
-                                           const TargetRegisterClass *RC,
-                                           const TargetRegisterInfo *TRI) const {
+                                          MachineBasicBlock::iterator MBBI,
+                                          unsigned DestReg, int FrameIndex,
+                                          const TargetRegisterClass *RC,
+                                          const TargetRegisterInfo *TRI) const {
   DebugLoc DL;
   if (MBBI != MBB.end())
     DL = MBBI->getDebugLoc();
 
-  MachineMemOperand *MMO = getMemOperand(MBB, FrameIndex, MachineMemOperand::MOLoad);
+  MachineMemOperand *MMO =
+      getMemOperand(MBB, FrameIndex, MachineMemOperand::MOLoad);
   unsigned Opc = 0;
 
   if (Nyuzi::GPR32RegClass.hasSubClassEq(RC))
@@ -260,19 +258,15 @@ void NyuziInstrInfo::loadRegFromStackSlot(MachineBasicBlock &MBB,
       .addMemOperand(MMO);
 }
 
-
-void NyuziInstrInfo::adjustStackPointer(MachineBasicBlock &MBB, 
-                                      MachineBasicBlock::iterator MBBI,
-                                      int Amount) const {
+void NyuziInstrInfo::adjustStackPointer(MachineBasicBlock &MBB,
+                                        MachineBasicBlock::iterator MBBI,
+                                        int Amount) const {
   DebugLoc DL(MBBI->getDebugLoc());
-  if (isInt<13>(Amount))
-  {
+  if (isInt<13>(Amount)) {
     BuildMI(MBB, MBBI, DL, get(Nyuzi::ADDISSI), Nyuzi::SP_REG)
-      .addReg(Nyuzi::SP_REG)
-      .addImm(Amount);
-  }
-  else
-  {
+        .addReg(Nyuzi::SP_REG)
+        .addImm(Amount);
+  } else {
     unsigned int OffsetReg = loadConstant(MBB, MBBI, Amount);
     BuildMI(MBB, MBBI, DL, get(Nyuzi::ADDISSS))
         .addReg(Nyuzi::SP_REG)
@@ -281,9 +275,9 @@ void NyuziInstrInfo::adjustStackPointer(MachineBasicBlock &MBB,
   }
 }
 
-unsigned int NyuziInstrInfo::loadConstant(MachineBasicBlock &MBB, 
-                                                MachineBasicBlock::iterator MBBI,
-                                                int Value) const {
+unsigned int NyuziInstrInfo::loadConstant(MachineBasicBlock &MBB,
+                                          MachineBasicBlock::iterator MBBI,
+                                          int Value) const {
 
   MachineRegisterInfo &RegInfo = MBB.getParent()->getRegInfo();
   DebugLoc DL = MBBI->getDebugLoc();
@@ -291,7 +285,7 @@ unsigned int NyuziInstrInfo::loadConstant(MachineBasicBlock &MBB,
 
   if (!isInt<24>(Value))
     report_fatal_error("loadImmediate: unsupported offset");
-  
+
   if (isInt<13>(Value)) {
     // Can load directly into this register
     BuildMI(MBB, MBBI, DL, get(Nyuzi::MOVESimm))
@@ -299,8 +293,7 @@ unsigned int NyuziInstrInfo::loadConstant(MachineBasicBlock &MBB,
         .addImm(Value >> 12);
   } else {
     // Load bits 23-12 into register
-    BuildMI(MBB, MBBI, DL, get(Nyuzi::MOVESimm), Reg)
-        .addImm(Value >> 12);
+    BuildMI(MBB, MBBI, DL, get(Nyuzi::MOVESimm), Reg).addImm(Value >> 12);
     BuildMI(MBB, MBBI, DL, get(Nyuzi::SLLSSI))
         .addReg(Reg)
         .addReg(Reg)
@@ -318,4 +311,3 @@ unsigned int NyuziInstrInfo::loadConstant(MachineBasicBlock &MBB,
 
   return Reg;
 }
-

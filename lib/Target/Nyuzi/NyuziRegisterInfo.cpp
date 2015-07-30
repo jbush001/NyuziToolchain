@@ -34,7 +34,7 @@
 using namespace llvm;
 
 NyuziRegisterInfo::NyuziRegisterInfo(NyuziSubtarget &st,
-                                               const TargetInstrInfo &tii)
+                                     const TargetInstrInfo &tii)
     : NyuziGenRegisterInfo(Nyuzi::FP_REG), Subtarget(st), TII(tii) {}
 
 const uint16_t *
@@ -48,8 +48,7 @@ NyuziRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
   return NyuziCSR_RegMask;
 }
 
-BitVector
-NyuziRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
+BitVector NyuziRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   BitVector Reserved(getNumRegs());
   Reserved.set(Nyuzi::SP_REG);
   Reserved.set(Nyuzi::RA_REG);
@@ -60,14 +59,13 @@ NyuziRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
 
 const TargetRegisterClass *
 NyuziRegisterInfo::getPointerRegClass(const MachineFunction &MF,
-                                           unsigned Kind) const {
+                                      unsigned Kind) const {
   return &Nyuzi::GPR32RegClass;
 }
 
 void NyuziRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBBI,
-                                                 int SPAdj,
-                                                 unsigned FIOperandNum,
-                                                 RegScavenger *RS) const {
+                                            int SPAdj, unsigned FIOperandNum,
+                                            RegScavenger *RS) const {
 
   assert(SPAdj == 0 && "Unexpected");
 
@@ -78,8 +76,8 @@ void NyuziRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBBI,
   MachineFrameInfo *MFI = MF.getFrameInfo();
 
   // Round stack size to multiple of 64, consistent with frame pointer info.
-  int stackSize = RoundUpToAlignment(MFI->getStackSize(), 
-    TFL.getStackAlignment());
+  int stackSize =
+      RoundUpToAlignment(MFI->getStackSize(), TFL.getStackAlignment());
 
   // Frame index is relative to where SP is before it is decremented on
   // entry to the function.  Need to add stackSize to adjust for this.
@@ -109,47 +107,41 @@ void NyuziRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MBBI,
     // encode it.
     MI.getOperand(FIOperandNum).ChangeToRegister(FrameReg, false);
     MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
-  } else if (isInt<25>(Offset)){
+  } else if (isInt<25>(Offset)) {
     DebugLoc DL = MBBI->getDebugLoc();
     MachineBasicBlock &MBB = *MBBI->getParent();
     const NyuziInstrInfo &TII =
-        *static_cast<const NyuziInstrInfo*>(Subtarget.getInstrInfo());
+        *static_cast<const NyuziInstrInfo *>(Subtarget.getInstrInfo());
 
     MachineRegisterInfo &RegInfo = MBB.getParent()->getRegInfo();
     unsigned Reg = RegInfo.createVirtualRegister(&Nyuzi::GPR32RegClass);
-    BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::MOVESimm), Reg)
-        .addImm(Offset >> 12);
-    BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::SLLSSI), Reg)
-        .addReg(Reg)
-        .addImm(12);
+    BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::MOVESimm), Reg).addImm(Offset >> 12);
+    BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::SLLSSI), Reg).addReg(Reg).addImm(12);
     BuildMI(MBB, MBBI, DL, TII.get(Nyuzi::ADDISSS), Reg)
         .addReg(FrameReg)
         .addReg(Reg);
     MI.getOperand(FIOperandNum).ChangeToRegister(Reg, false);
     MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset & 0xfff);
-  }
-  else
+  } else
     report_fatal_error("frame index out of bounds: frame too large");
 }
 
-unsigned
-NyuziRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
+unsigned NyuziRegisterInfo::getFrameRegister(const MachineFunction &MF) const {
   const TargetFrameLowering *TFI = MF.getSubtarget().getFrameLowering();
   return TFI->hasFP(MF) ? Nyuzi::FP_REG : Nyuzi::SP_REG;
 }
 
-bool
-NyuziRegisterInfo::requiresRegisterScavenging(const MachineFunction &MF) const {
+bool NyuziRegisterInfo::requiresRegisterScavenging(
+    const MachineFunction &MF) const {
   return true;
 }
 
-bool
-NyuziRegisterInfo::trackLivenessAfterRegAlloc(const MachineFunction &MF) const {
+bool NyuziRegisterInfo::trackLivenessAfterRegAlloc(
+    const MachineFunction &MF) const {
   return true;
 }
 
-bool 
-NyuziRegisterInfo::requiresFrameIndexScavenging(const MachineFunction &MF) const {
+bool NyuziRegisterInfo::requiresFrameIndexScavenging(
+    const MachineFunction &MF) const {
   return true;
 }
-

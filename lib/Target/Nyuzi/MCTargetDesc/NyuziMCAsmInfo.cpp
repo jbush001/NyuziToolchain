@@ -23,10 +23,11 @@ NyuziMCAsmInfo::NyuziMCAsmInfo(const Triple &TT) {
   IsLittleEndian = true;
   CommentString = ";";
   SupportsDebugInformation = true;
-  
-  // Even though this target doesn't support exceptions, this must be enabled 
+
+  // Even though this target doesn't support exceptions, this must be enabled
   // to generate the call frame information (even .debug_frame is not generated
-  // if this is not set.  See emitCFIInstruction, CodeGen/AsmPrinter/AsmPrinter.cpp).
+  // if this is not set.  See emitCFIInstruction,
+  // CodeGen/AsmPrinter/AsmPrinter.cpp).
   ExceptionsType = ExceptionHandling::DwarfCFI;
 
   PrivateGlobalPrefix = ".L";

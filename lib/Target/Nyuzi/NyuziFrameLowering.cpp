@@ -34,7 +34,8 @@ const NyuziFrameLowering *NyuziFrameLowering::create(const NyuziSubtarget &ST) {
   return new NyuziFrameLowering(ST);
 }
 
-void NyuziFrameLowering::emitPrologue(MachineFunction &MF, MachineBasicBlock &MBB) const {
+void NyuziFrameLowering::emitPrologue(MachineFunction &MF,
+                                      MachineBasicBlock &MBB) const {
   assert(&MF.front() == &MBB);
   MachineFrameInfo *MFI = MF.getFrameInfo();
   const NyuziInstrInfo &TII =
@@ -46,14 +47,15 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF, MachineBasicBlock &MB
 
   // Compute stack size to allocate, keeping SP 64 byte aligned so we
   // can do block vector load/stores
-  int StackSize = RoundUpToAlignment(MFI->getStackSize(), getStackAlignment()); 
+  int StackSize = RoundUpToAlignment(MFI->getStackSize(), getStackAlignment());
 
   // Bail if there is no stack allocation
-  if (StackSize == 0 && !MFI->adjustsStack()) return;
+  if (StackSize == 0 && !MFI->adjustsStack())
+    return;
 
   TII.adjustStackPointer(MBB, MBBI, -StackSize);
 
-  // Emit DW_CFA_def_cfa 
+  // Emit DW_CFA_def_cfa
   unsigned CFIIndex = MMI.addFrameInst(
       MCCFIInstruction::createDefCfaOffset(nullptr, -StackSize));
   BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::CFI_INSTRUCTION))
@@ -94,7 +96,7 @@ void NyuziFrameLowering::emitPrologue(MachineFunction &MF, MachineBasicBlock &MB
 }
 
 void NyuziFrameLowering::emitEpilogue(MachineFunction &MF,
-                                           MachineBasicBlock &MBB) const {
+                                      MachineBasicBlock &MBB) const {
   MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
   MachineFrameInfo *MFI = MF.getFrameInfo();
   const NyuziInstrInfo &TII =
@@ -115,15 +117,17 @@ void NyuziFrameLowering::emitEpilogue(MachineFunction &MF,
         .addReg(Nyuzi::FP_REG);
   }
 
-  uint64_t StackSize = RoundUpToAlignment(MFI->getStackSize(), getStackAlignment());
+  uint64_t StackSize =
+      RoundUpToAlignment(MFI->getStackSize(), getStackAlignment());
   if (!StackSize)
     return;
 
   TII.adjustStackPointer(MBB, MBBI, StackSize);
 }
 
-// Returns true if the prologue inserter should reserve space for outgoing arguments 
-// to called.  
+// Returns true if the prologue inserter should reserve space for outgoing
+// arguments
+// to called.
 bool NyuziFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
   return !MF.getFrameInfo()->hasVarSizedObjects();
 }
@@ -133,9 +137,8 @@ bool NyuziFrameLowering::hasReservedCallFrame(const MachineFunction &MF) const {
 // up frame offsets from the stack pointer.
 bool NyuziFrameLowering::hasFP(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
-  return MF.getTarget().Options.DisableFramePointerElim(MF) 
-    || MFI->hasVarSizedObjects() 
-    || MFI->isFrameAddressTaken();
+  return MF.getTarget().Options.DisableFramePointerElim(MF) ||
+         MFI->hasVarSizedObjects() || MFI->isFrameAddressTaken();
 }
 
 void NyuziFrameLowering::eliminateCallFramePseudoInstr(
@@ -146,13 +149,14 @@ void NyuziFrameLowering::eliminateCallFramePseudoInstr(
   const NyuziInstrInfo &TII =
       *static_cast<const NyuziInstrInfo *>(MF.getSubtarget().getInstrInfo());
 
-  // Note the check for hasReservedCallFrame.  If it returns true, 
-  // PEI::calculateFrameObjectOffsets has already reserved stack locations for 
+  // Note the check for hasReservedCallFrame.  If it returns true,
+  // PEI::calculateFrameObjectOffsets has already reserved stack locations for
   // these variables and we don't need to adjust the stack here.
   int Amount = MI.getOperand(0).getImm();
   if (Amount != 0 && !hasReservedCallFrame(MF)) {
-    assert(hasFP(MF) && "Cannot adjust stack mid-function without a frame pointer");
-    
+    assert(hasFP(MF) &&
+           "Cannot adjust stack mid-function without a frame pointer");
+
     if (MI.getOpcode() == Nyuzi::ADJCALLSTACKDOWN)
       Amount = -Amount;
 
@@ -162,7 +166,8 @@ void NyuziFrameLowering::eliminateCallFramePseudoInstr(
   MBB.erase(MBBI);
 }
 
-uint64_t NyuziFrameLowering::getWorstCaseStackSize(const MachineFunction &MF) const {
+uint64_t
+NyuziFrameLowering::getWorstCaseStackSize(const MachineFunction &MF) const {
   const MachineFrameInfo *MFI = MF.getFrameInfo();
   const TargetRegisterInfo &TRI = *MF.getSubtarget().getRegisterInfo();
 
@@ -196,11 +201,11 @@ uint64_t NyuziFrameLowering::getWorstCaseStackSize(const MachineFunction &MF) co
   return RoundUpToAlignment(Offset, getStackAlignment());
 }
 
-void NyuziFrameLowering::determineCalleeSaves(MachineFunction &MF, 
-                                              BitVector &SavedRegs, 
-											  RegScavenger *RS) const {
+void NyuziFrameLowering::determineCalleeSaves(MachineFunction &MF,
+                                              BitVector &SavedRegs,
+                                              RegScavenger *RS) const {
 
- TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
+  TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
   if (hasFP(MF))
     SavedRegs.set(Nyuzi::FP_REG);
 

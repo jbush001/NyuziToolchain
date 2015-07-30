@@ -19,7 +19,7 @@
 using namespace llvm;
 
 void NyuziTargetObjectFile::Initialize(MCContext &Ctx,
-                                            const TargetMachine &TM) {
+                                       const TargetMachine &TM) {
   TargetLoweringObjectFileELF::Initialize(Ctx, TM);
   InitializeELF(TM.Options.UseInitArray);
 }
