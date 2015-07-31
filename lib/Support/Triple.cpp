@@ -57,7 +57,7 @@ const char *Triple::getArchTypeName(ArchType Kind) {
   case hsail64:     return "hsail64";
   case spir:        return "spir";
   case spir64:      return "spir64";
-  case nyuzi:  return "nyuzi";
+  case nyuzi:       return "nyuzi";
   case kalimba:     return "kalimba";
   case shave:       return "shave";
   case wasm32:      return "wasm32";
@@ -122,7 +122,7 @@ const char *Triple::getArchTypePrefix(ArchType Kind) {
 
   case spir:
   case spir64:      return "spir";
-  case nyuzi:  return "nyuzi";
+  case nyuzi:       return "nyuzi";
   case kalimba:     return "kalimba";
   case shave:       return "shave";
   case wasm32:      return "wasm32";
@@ -258,11 +258,11 @@ Triple::ArchType Triple::getArchTypeForLLVMName(StringRef Name) {
     .Case("hsail64", hsail64)
     .Case("spir", spir)
     .Case("spir64", spir64)
-    .Case("nyuzi", nyuzi)
     .Case("kalimba", kalimba)
     .Case("shave", shave)
     .Case("wasm32", wasm32)
     .Case("wasm64", wasm64)
+    .Case("nyuzi", nyuzi)
     .Default(UnknownArch);
 }
 
@@ -366,11 +366,11 @@ static Triple::ArchType parseArch(StringRef ArchName) {
     .Case("hsail64", Triple::hsail64)
     .Case("spir", Triple::spir)
     .Case("spir64", Triple::spir64)
-    .Case("nyuzi", Triple::nyuzi)
     .StartsWith("kalimba", Triple::kalimba)
     .Case("shave", Triple::shave)
     .Case("wasm32", Triple::wasm32)
     .Case("wasm64", Triple::wasm64)
+    .Case("nyuzi", Triple::nyuzi)
     .Default(Triple::UnknownArch);
 }
 
@@ -531,6 +531,7 @@ static Triple::ObjectFormatType getDefaultFormat(const Triple &T) {
   case Triple::systemz:
   case Triple::xcore:
   case Triple::ppc64le:
+  case Triple::nyuzi:
     return Triple::ELF;
 
   case Triple::ppc:
@@ -1094,9 +1095,9 @@ Triple Triple::get32BitArchVariant() const {
   case Triple::thumbeb:
   case Triple::x86:
   case Triple::xcore:
-  case Triple::nyuzi:
   case Triple::shave:
   case Triple::wasm32:
+  case Triple::nyuzi:
     // Already 32-bit.
     break;
 
@@ -1131,6 +1132,7 @@ Triple Triple::get64BitArchVariant() const {
   case Triple::xcore:
   case Triple::sparcel:
   case Triple::shave:
+  case Triple::nyuzi:
     T.setArch(UnknownArch);
     break;
 
@@ -1165,7 +1167,6 @@ Triple Triple::get64BitArchVariant() const {
   case Triple::amdil:   T.setArch(Triple::amdil64);   break;
   case Triple::hsail:   T.setArch(Triple::hsail64);   break;
   case Triple::spir:    T.setArch(Triple::spir64);    break;
-  case Triple::nyuzi:   T.setArch(Triple::nyuzi);     break;
   case Triple::wasm32:  T.setArch(Triple::wasm64);    break;
   }
   return T;
@@ -1196,6 +1197,7 @@ Triple Triple::getBigEndianArchVariant() const {
   case Triple::x86:
   case Triple::x86_64:
   case Triple::xcore:
+  case Triple::nyuzi:
 
   // ARM is intentionally unsupported here, changing the architecture would
   // drop any arch suffixes.
@@ -1274,6 +1276,7 @@ Triple Triple::getLittleEndianArchVariant() const {
   case Triple::x86:
   case Triple::x86_64:
   case Triple::xcore:
+  case Triple::nyuzi:
     // Already little endian.
     break;
 

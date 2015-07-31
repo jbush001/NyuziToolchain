@@ -1,5 +1,5 @@
-This is a toolchain for an experimental parallel processor architecture
-called [Nyuzi](https://github.com/jbush001/NyuziProcessor), based on
+This is a toolchain for a parallel processor architecture called
+[Nyuzi](https://github.com/jbush001/NyuziProcessor), based on
 [LLVM](http://llvm.org/).  It includes a C/C++ compiler (clang), assembler,
 linker and debugger (lldb).
 
@@ -10,7 +10,7 @@ tools/spmd_compiler.
 Questions or comments can be directed to the mailing list:
 https://groups.google.com/forum/#!forum/nyuzi-processor-dev
 
-# Getting Started
+# Building
 
 ## Required Software
 
@@ -32,7 +32,7 @@ The following sections describe how to install these packages.
 You can install required packages using the built-in package manager (apt-get,
 yum, etc). As LLVM needs newer versions of many packages, you should be on
 a recent version of your Linux distribution. Instructions are below are for Ubuntu
-(which must be on at least version 14). You may need to tweak the package names
+(which must be on at least version 14). You may need to change the package names
 for other distributions:
 
     sudo apt-get install libxml2-dev cmake gcc g++ python bison flex zlib1g-dev swig python-dev libedit-dev ncurses-dev
@@ -47,16 +47,15 @@ for other distributions:
 
 ## Building on MacOS
 
-On Mavericks and later, you can install the command line compiler like this:
+On Mavericks and later, you can install the host command line compiler like this:
 
     xcode-select --install
-    
+
 On earlier versions, you can download XCode from the app store. You will also
 need to install a package manager like [MacPorts](https://www.macports.org/) to
 get the remaining dependencies. Open a new terminal to do the build after
 installing MacPorts, because it installs alternate versions of some utilities
 and updates the PATH. Once you have done this:
-
 
     sudo port install cmake bison swig swig-python
 
@@ -71,11 +70,10 @@ and updates the PATH. Once you have done this:
 **Upgrading 'flex' using the package manager may cause build errors. I
 would recommend using the system supplied version.**
 
-
 ## Building on Windows
 
-I have not tested this on Windows. Many of the libraries are already cross platform, 
-so it should theoretically be possible.
+I have not tested this natively on Windows. Many of the libraries are already cross 
+platform, so it should theoretically be possible.
 
 ## Other Notes
 
@@ -86,12 +84,6 @@ so it should theoretically be possible.
   the build directory. This causes cryptic build errors later when building as
   non-root. Doing 'sudo chown -R &#x60;whoami&#x60; .' in the build directory
   will fix this.
-
-## Invoking the Compiler
-
-Once built, the toolchain will be installed into /usr/local/llvm-nyuzi
-
-    /usr/local/llvm-nyuzi/bin/clang -o program.elf test_program.c 
 
 ## Running Regression Tests
 
@@ -109,7 +101,7 @@ All tests should pass.
 
 ## Running Whole Program Tests
 
-There are a set of tests in
+There is a set of tests in
 https://github.com/jbush001/NyuziProcessor/tree/master/tests/compiler Each test
 case is compiled and then run in the instruction set simulator, which checks
 the output for validity. This is similar to the test-suite project in LLVM.
