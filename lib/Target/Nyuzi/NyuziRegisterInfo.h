@@ -1,5 +1,4 @@
-//===-- NyuziRegisterInfo.h - Nyuzi Register Information Impl ---*-
-// C++ -*-===//
+//===-- NyuziRegisterInfo.h - Nyuzi Register Information Impl -------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

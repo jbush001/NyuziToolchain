@@ -1,5 +1,4 @@
-//===-- NyuziAsmPrinter.cpp - Nyuzi LLVM assembly writer
-//------------------===//
+//===-- NyuziAsmPrinter.cpp - Nyuzi LLVM assembly writer -----------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

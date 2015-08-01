@@ -1,5 +1,4 @@
-//===-- NyuziMCTargetDesc.cpp - Nyuzi Target Descriptions
-//-----------------===//
+//===-- NyuziMCTargetDesc.cpp - Nyuzi Target Descriptions  ---------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

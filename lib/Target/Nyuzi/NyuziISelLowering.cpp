@@ -214,8 +214,8 @@ SDValue NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
   const TargetFrameLowering *TFL = MF.getSubtarget().getFrameLowering();
 
   // Analyze operands of the call, assigning locations to each operand.
-  // NyuziCallingConv.td will auto-generate CC_Nyuzi32, which
-  // knows how to handle operands (what go in registers vs. stack, etc).
+  // NyuziCallingConv.td will auto-generate CC_Nyuzi32, which knows how to
+  // handle operands (what go in registers vs. stack, etc).
   SmallVector<CCValAssign, 16> ArgLocs;
   CCState CCInfo(CallConv, isVarArg, DAG.getMachineFunction(), ArgLocs,
                  *DAG.getContext());
@@ -317,10 +317,9 @@ SDValue NyuziTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
     Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, MemOpChains);
   }
 
-  // Build a sequence of copy-to-reg nodes chained together with token
-  // chain and flag operands which copy the outgoing args into registers.
-  // The InFlag in necessary since all emitted instructions must be
-  // stuck together.
+  // Build a sequence of copy-to-reg nodes chained together with token chain
+  // and flag operands which copy the outgoing args into registers. The InFlag
+  // in necessary since all emitted instructions must be stuck together.
   SDValue InFlag;
   for (const auto &Reg : RegsToPass) {
     Chain = DAG.getCopyToReg(Chain, DL, Reg.first, Reg.second, InFlag);
@@ -604,8 +603,8 @@ SDValue NyuziTargetLowering::LowerFABS(SDValue Op, SelectionDAG &DAG) const {
   return DAG.getNode(ISD::BITCAST, DL, ResultVT, flipped);
 }
 
-/// isSplatVector - Returns true if N is a BUILD_VECTOR node whose elements are
-/// all the same.
+// isSplatVector - Returns true if N is a BUILD_VECTOR node whose elements are
+// all the same.
 static bool isSplatVector(SDNode *N) {
   SDValue SplatValue = N->getOperand(0);
   for (unsigned i = 1, e = N->getNumOperands(); i != e; ++i)
@@ -677,14 +676,11 @@ bool NyuziTargetLowering::isShuffleMaskLegal(const SmallVectorImpl<int> &M,
 }
 
 //
-// Look for patterns that built splats.  isShuffleMaskLegal should ensure this
-// will only be called with splat masks, but I don't know if there are edge
-// cases
-// where it will still be called.  Perhaps need to check explicitly (note that
-// the
-// shuffle mask doesn't appear to be an operand, but must be accessed by casting
-// the
-// SDNode and using a separate accessor).
+// Look for patterns that built splats. isShuffleMaskLegal should ensure this
+// will only be called with splat masks, but I don't know if there are edge 
+// cases where it will still be called. Perhaps need to check explicitly (note
+// that the shuffle mask doesn't appear to be an operand, but must be accessed 
+// by casting the SDNode and using a separate accessor).
 //
 SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
                                                  SelectionDAG &DAG) const {
@@ -708,7 +704,7 @@ SDValue NyuziTargetLowering::LowerVECTOR_SHUFFLE(SDValue Op,
 }
 
 // This architecture does not support conditional moves for scalar registers.
-// We must convert this into a set of conditional branches.  We do this by
+// We must convert this into a set of conditional branches. We do this by
 // creating a pseudo-instruction SEL_COND_RESULT, which will later be
 // transformed.
 SDValue NyuziTargetLowering::LowerSELECT_CC(SDValue Op,
@@ -738,11 +734,10 @@ SDValue NyuziTargetLowering::LowerFDIV(SDValue Op, SelectionDAG &DAG) const {
       DAG.getNode(NyuziISD::RECIPROCAL_EST, DL, Type, Denominator);
 
   // Perform a series of Newton Raphson refinements to determine 1/divisor. Each
-  // iteration doubles the precision of the result. The initial estimate has 6
-  // bits
-  // of precision, so two iterations results in 24 bits, which is larger than
-  // the
-  // (23 bit) significand.
+  // iteration doubles the precision of the result. The initial estimate has 6 
+  // bits of precision, so two iterations results in 24 bits, which is larger 
+  // than the (23 bit) significand.
+
   for (int i = 0; i < 2; i++) {
     // Trial = x * Estimate (our target is for x * 1/x to be 1.0)
     // Error = 2.0 - Trial
@@ -1034,13 +1029,11 @@ static Intrinsic::ID intrinsicForVectorCompare(ISD::CondCode CC, bool isFloat) {
 
 //
 // This may be used to expand a vector comparison result into a vector.
-// Normally,
-// vector compare results are a bitmask, so we need to do a predicated transfer
-// to expand it.
+// Normally, vector compare results are a bitmask, so we need to do a 
+// predicated transfer to expand it.
 // Note that clang seems to assume a vector lane should have 0xffffffff when the
 // result is true when folding constants, so we use that value here to be
-// consistent,
-// even though that is not what a scalar compare would do.
+// consistent, even though that is not what a scalar compare would do.
 //
 SDValue NyuziTargetLowering::LowerSIGN_EXTEND_INREG(SDValue Op,
                                                     SelectionDAG &DAG) const {

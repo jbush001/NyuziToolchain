@@ -1,5 +1,4 @@
-//===-- NyuziAsmParser.cpp - Parse Nyuzi assembly to MCInst
-// instructions ------===//
+//===-- NyuziAsmParser.cpp - Parse Nyuzi assembly to MCInst instructions -===//
 //
 //                     The LLVM Compiler Infrastructure
 //

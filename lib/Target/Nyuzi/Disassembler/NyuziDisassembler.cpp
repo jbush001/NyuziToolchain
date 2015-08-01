@@ -1,5 +1,4 @@
-//===- NyuziDisassembler.cpp - Disassembler for Nyuzi -------------*-
-// C++ -*-===//
+//===- NyuziDisassembler.cpp - Disassembler for Nyuzi ---------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

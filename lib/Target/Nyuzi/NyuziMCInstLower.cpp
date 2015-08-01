@@ -1,5 +1,4 @@
-//===-- NyuziMCInstLower.cpp - Convert Nyuzi MachineInstr to MCInst
-//---------===//
+//===-- NyuziMCInstLower.cpp - Convert Nyuzi MachineInstr to MCInst -------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

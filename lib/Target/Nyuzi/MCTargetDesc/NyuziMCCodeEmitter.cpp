@@ -1,5 +1,4 @@
-//===-- NyuziMCCodeEmitter.cpp - Convert Nyuzi code to machine code
-//---------===//
+//===-- NyuziMCCodeEmitter.cpp - Convert Nyuzi code to machine code  -----===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -115,9 +114,9 @@ NyuziMCCodeEmitter::getMachineOpValue(const MCInst &MI, const MCOperand &MO,
   return 0;
 }
 
-/// encodeBranchTargetOpValue - Return binary encoding of the jump
-/// target operand. If the machine operand requires relocation,
-/// record the relocation and return zero.
+// encodeBranchTargetOpValue - Return binary encoding of the jump
+// target operand. If the machine operand requires relocation,
+// record the relocation and return zero.
 unsigned NyuziMCCodeEmitter::encodeBranchTargetOpValue(
     const MCInst &MI, unsigned OpNo, SmallVectorImpl<MCFixup> &Fixups,
     const MCSubtargetInfo &STI) const {

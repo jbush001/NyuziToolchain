@@ -1,5 +1,4 @@
-//===-- NyuziFrameLowering.cpp - Nyuzi Frame Information
-//------------------===//
+//===-- NyuziFrameLowering.cpp - Nyuzi Frame Information -----------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -209,12 +208,11 @@ void NyuziFrameLowering::determineCalleeSaves(MachineFunction &MF,
   if (hasFP(MF))
     SavedRegs.set(Nyuzi::FP_REG);
 
-  // The register scavenger allows us to allocate virtual registers
-  // during epilogue/prologue insertion, after register allocation has
-  // run. We only need to do this if the frame is to large to be
-  // addressed by immediate offsets. If it isn't, don't bother creating
-  // a stack slot for it.  Note that we may in some cases create the scavenge
-  // slot when it isn't needed.
+  // The register scavenger allows us to allocate virtual registers during
+  // epilogue/prologue insertion, after register allocation has run. We only
+  // need to do this if the frame is to large to be addressed by immediate 
+  // offsets. If it isn't, don't bother creating a stack slot for it.  Note 
+  // that we may in some cases create the scavenge slot when it isn't needed.
   if (getWorstCaseStackSize(MF) < 0x2000)
     return;
 

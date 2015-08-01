@@ -1,5 +1,4 @@
-//===-- NyuziASMBackend.cpp - Nyuzi Asm Backend
-//----------------------------===//
+//===-- NyuziASMBackend.cpp - Nyuzi Asm Backend  -------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //

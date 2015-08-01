@@ -1,5 +1,4 @@
-//===-- NyuziELFObjectWriter.cpp - Nyuzi ELF Writer
-//-------------------------===//
+//===-- NyuziELFObjectWriter.cpp - Nyuzi ELF Writer ----------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -53,10 +52,8 @@ unsigned NyuziELFObjectWriter::GetRelocType(const MCValue &Target,
     break;
 
   // In normal cases, these types should not be emitted because they can be
-  // fixed up immediately.
-  // This generally happens if there is an undefined symbol.  This will cause an
-  // error later
-  // during linking.
+  // fixed up immediately. This generally happens if there is an undefined 
+  // symbol.  This will cause an error later during linking.
   case Nyuzi::fixup_Nyuzi_PCRel_MemAccExt:
     Type = ELF::R_NYUZI_PCREL_MEM_EXT;
     break;

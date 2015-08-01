@@ -1,5 +1,4 @@
-//===-- NyuziInstrInfo.cpp - Nyuzi Instruction Information
-//----------------===//
+//===-- NyuziInstrInfo.cpp - Nyuzi Instruction Information ---------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
