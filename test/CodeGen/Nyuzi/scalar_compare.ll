@@ -101,37 +101,37 @@ define i32 @cmpfne(float %a, float %b) #0 {	; CHECK: cmpfne:
 }
 
 define i32 @cmpfgtu(float %a, float %b) #0 {	; CHECK: cmpfgtu:
-	%cmp = fcmp ugt float %a, %b			; CHECK: cmpgt_f s{{[0-9]+}}, s0, s1
+	%cmp = fcmp ugt float %a, %b
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpfgeu(float %a, float %b) #0 {	; CHECK: cmpfgeu:
-	%cmp = fcmp uge float %a, %b			; CHECK: cmpge_f s{{[0-9]+}}, s0, s1
+	%cmp = fcmp uge float %a, %b			
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpfltu(float %a, float %b) #0 {	; CHECK: cmpfltu:
-	%cmp = fcmp ult float %a, %b			; CHECK: cmplt_f s{{[0-9]+}}, s0, s1
+	%cmp = fcmp ult float %a, %b			
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpfleu(float %a, float %b) #0 {	; CHECK: cmpfleu:
-	%cmp = fcmp ule float %a, %b			; CHECK: cmple_f s{{[0-9]+}}, s0, s1
+	%cmp = fcmp ule float %a, %b	
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpfequ(float %a, float %b) #0 {	; CHECK: cmpfequ:
-	%cmp = fcmp ueq float %a, %b			; CHECK: cmpeq_f s{{[0-9]+}}, s0, s1
+	%cmp = fcmp ueq float %a, %b
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }
 
 define i32 @cmpfneu(float %a, float %b) #0 {	; CHECK: cmpfneu:
-	%cmp = fcmp une float %a, %b			; CHECK: cmpne_f s{{[0-9]+}}, s0, s1
+	%cmp = fcmp une float %a, %b
 	%ret = zext i1 %cmp to i32
 	ret i32 %ret
 }

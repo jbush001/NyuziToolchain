@@ -417,7 +417,6 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::FNEG, MVT::f32, Custom);
   setOperationAction(ISD::FNEG, MVT::v16f32, Custom);
   setOperationAction(ISD::SETCC, MVT::f32, Custom);
-  setOperationAction(ISD::SETCC, MVT::v16f32, Custom);
   setOperationAction(ISD::CTLZ_ZERO_UNDEF, MVT::i32, Custom);
   setOperationAction(ISD::CTTZ_ZERO_UNDEF, MVT::i32, Custom);
   setOperationAction(ISD::UINT_TO_FP, MVT::i32, Custom);
@@ -428,7 +427,6 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::VASTART, MVT::Other, Custom);
   setOperationAction(ISD::FABS, MVT::f32, Custom);
   setOperationAction(ISD::FABS, MVT::v16f32, Custom);
-
   setOperationAction(ISD::BR_CC, MVT::i32, Expand);
   setOperationAction(ISD::BR_CC, MVT::f32, Expand);
   setOperationAction(ISD::BRCOND, MVT::i32, Expand);
@@ -459,11 +457,25 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::VAARG, MVT::Other, Expand);
   setOperationAction(ISD::VACOPY, MVT::Other, Expand);
   setOperationAction(ISD::VAEND, MVT::Other, Expand);
-
   setOperationAction(ISD::ATOMIC_LOAD, MVT::i32, Expand);
   setOperationAction(ISD::ATOMIC_LOAD, MVT::i64, Expand);
   setOperationAction(ISD::ATOMIC_STORE, MVT::i32, Expand);
   setOperationAction(ISD::ATOMIC_STORE, MVT::i64, Expand);
+
+  setCondCodeAction(ISD::SETO, MVT::f32, Custom);
+  setCondCodeAction(ISD::SETUO, MVT::f32, Custom);
+  setCondCodeAction(ISD::SETUEQ, MVT::f32, Custom);
+  setCondCodeAction(ISD::SETUNE, MVT::f32, Custom);
+  setCondCodeAction(ISD::SETUGT, MVT::f32, Custom);
+  setCondCodeAction(ISD::SETUGE, MVT::f32, Custom);
+  setCondCodeAction(ISD::SETULT, MVT::f32, Custom);
+  setCondCodeAction(ISD::SETULE, MVT::f32, Custom);
+  setCondCodeAction(ISD::SETUEQ, MVT::v16f32, Custom);
+  setCondCodeAction(ISD::SETUNE, MVT::v16f32, Custom);
+  setCondCodeAction(ISD::SETUGT, MVT::v16f32, Custom);
+  setCondCodeAction(ISD::SETUGE, MVT::v16f32, Custom);
+  setCondCodeAction(ISD::SETULT, MVT::v16f32, Custom);
+  setCondCodeAction(ISD::SETULE, MVT::v16f32, Custom);
 
   setInsertFencesForAtomic(true);
 
@@ -482,9 +494,6 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setOperationAction(ISD::FSIN, MVT::f32, Expand);  // sinf
   setOperationAction(ISD::FCOS, MVT::f32, Expand);  // cosf
   setOperationAction(ISD::FSINCOS, MVT::f32, Expand);
-
-  setCondCodeAction(ISD::SETO, MVT::f32, Expand);
-  setCondCodeAction(ISD::SETUO, MVT::f32, Expand); // XXX this is broken
 
   setStackPointerRegisterToSaveRestore(Nyuzi::SP_REG);
   setMinFunctionAlignment(2);
@@ -511,6 +520,8 @@ const char *NyuziTargetLowering::getTargetNodeName(unsigned Opcode) const {
     return "NyuziISD::BR_JT";
   case NyuziISD::JT_WRAPPER:
     return "NyuziISD::JT_WRAPPER";
+  case NyuziISD::LOGICAL_NOT:
+    return "NyuziISD::LOGICAL_NOT";
   default:
     return nullptr;
   }
@@ -800,55 +811,91 @@ SDValue NyuziTargetLowering::LowerFNEG(SDValue Op, SelectionDAG &DAG) const {
   return DAG.getNode(ISD::BITCAST, DL, ResultVT, flipped);
 }
 
-//
-// Convert unordered comparisons to ordered.
-// An ordered comparison is always false if either operand is NaN
-// An unordered comparision is always true if either operand is NaN
-// The hardware implements ordered comparisons.  Clang generally emits
-// ordered comparisons.
-//
-// XXX In order to be correct, we should probably emit code that explicitly
-// checks for NaN and forces the result to true.
-//
-SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
-  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
-  ISD::CondCode NewCode;
+namespace {
+
+SDValue morphSETCCNode(SDValue Op, ISD::CondCode code, SelectionDAG &DAG)
+{
   SDLoc DL(Op);
+  return DAG.getNode(ISD::SETCC, DL, Op.getValueType().getSimpleVT(),
+                     Op.getOperand(0), Op.getOperand(1), 
+                     DAG.getCondCode(code));
+}
 
+}
+
+// Convert unordered or don't-care floating point comparisions to ordered
+// - Two comparison values are ordered if neither operand is NaN, otherwise they
+//   are unordered. 
+// - An ordered comparison *operation* is always false if either operand is NaN.
+//   Unordered is always true if either operand is NaN. 
+// - The hardware implements ordered comparisons.  
+// - Clang usually emits ordered comparisons.
+SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(2))->get();
+  ISD::CondCode ComplementCompare;
   switch (CC) {
-  default:
-    return Op; // No change
+    // Return this node unchanged
+    default:
+      return Op;
 
-  case ISD::SETGT:
-  case ISD::SETUGT:
-    NewCode = ISD::SETOGT;
-    break;
-  case ISD::SETGE:
-  case ISD::SETUGE:
-    NewCode = ISD::SETOGE;
-    break;
-  case ISD::SETLT:
-  case ISD::SETULT:
-    NewCode = ISD::SETOLT;
-    break;
-  case ISD::SETLE:
-  case ISD::SETULE:
-    NewCode = ISD::SETOLE;
-    break;
-  case ISD::SETEQ:
-  case ISD::SETUEQ:
-    NewCode = ISD::SETOEQ;
-    break;
-  case ISD::SETNE:
-  case ISD::SETUNE:
-    NewCode = ISD::SETONE;
-    break;
+    // These are "don't care" values. Convert them to ordered, which
+    // are natively supported
+    case ISD::SETGT:
+      return morphSETCCNode(Op, ISD::SETOGT, DAG);
+    case ISD::SETGE:
+      return morphSETCCNode(Op, ISD::SETOGE, DAG);
+    case ISD::SETLT:
+      return morphSETCCNode(Op, ISD::SETOLT, DAG);
+    case ISD::SETLE:
+      return morphSETCCNode(Op, ISD::SETOLE, DAG);
+    case ISD::SETEQ:
+      return morphSETCCNode(Op, ISD::SETOEQ, DAG);
+    case ISD::SETNE:
+      return morphSETCCNode(Op, ISD::SETONE, DAG);
+      
+    // Check for ordered and unordered values by using ordered equality
+    // (which will only be false if the values are unordered)
+    case ISD::SETO:
+    case ISD::SETUO: {
+      SDValue Op0 = Op.getOperand(0);
+      SDValue IsOrdered = DAG.getNode(ISD::SETCC, DL, Op.getValueType().getSimpleVT(),
+                                      Op0, Op0, DAG.getCondCode(ISD::SETOEQ));
+      if (CC == ISD::SETO)
+        return IsOrdered;
+
+      // SETUO
+      return DAG.getNode(NyuziISD::LOGICAL_NOT, DL, Op.getValueType().getSimpleVT(), IsOrdered);
+    }
+
+    // Convert unordered comparisions to ordered by explicitly checking for NaN
+    case ISD::SETUEQ:
+      ComplementCompare = ISD::SETONE;
+      break;
+    case ISD::SETUGT:
+      ComplementCompare = ISD::SETOLE;
+      break;
+    case ISD::SETUGE:
+      ComplementCompare = ISD::SETOLT;
+      break;
+    case ISD::SETULT:
+      ComplementCompare = ISD::SETOGE;
+      break;
+    case ISD::SETULE:
+      ComplementCompare = ISD::SETOGT;
+      break;
+    case ISD::SETUNE:
+      ComplementCompare = ISD::SETOEQ;
+      break;
   }
 
-  SDValue Op0 = Op.getOperand(0);
-  SDValue Op1 = Op.getOperand(1);
-  return DAG.getNode(ISD::SETCC, DL, Op.getValueType().getSimpleVT(), Op0, Op1,
-                     DAG.getCondCode(NewCode));
+  // Take the complementary comparision and invert the result. This will
+  // be the same for ordered values, but will always be true for unordered
+  // values.
+  // Use LOGICAL_NOT custom node, otherwise the optimizer will convert this back
+  // to its original form and cause an infinite loop.
+  SDValue Comp2 = morphSETCCNode(Op, ComplementCompare, DAG);
+  return DAG.getNode(NyuziISD::LOGICAL_NOT, DL, Op.getValueType().getSimpleVT(), Comp2);
 }
 
 SDValue NyuziTargetLowering::LowerCTLZ_ZERO_UNDEF(SDValue Op,

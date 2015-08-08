@@ -31,7 +31,11 @@ enum {
   SEL_COND_RESULT,
   RECIPROCAL_EST,
   BR_JT,
-  JT_WRAPPER
+  JT_WRAPPER,
+  
+  // Used to invert conditional result, but won't be optized back
+  // to original form like xor with 1
+  LOGICAL_NOT
 };
 }
 
