@@ -7,8 +7,8 @@ While this project includes a C/C++ compiler, the LLVM backend can support
 any language.  There is a small, experimental SPMD parallel compiler in
 tools/spmd_compiler.
 
-Questions or comments can be directed to the mailing list:
-https://groups.google.com/forum/#!forum/nyuzi-processor-dev
+[![Join the chat at https://gitter.im/jbush001/NyuziProcessor](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/jbush001/NyuziProcessor?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 
 # Building
 
