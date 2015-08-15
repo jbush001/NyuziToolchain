@@ -240,7 +240,6 @@ def : Pat<(int_nyuzi_vector_mixf i32:$mask, v16f32:$src2, v16f32:$oldvalue),
 	(MOVEVVMI i32:$mask, v16f32:$src2, v16f32:$oldvalue)>;
 def : Pat<(int_nyuzi_vector_mixf i32:$mask, (splat f32:$src2), v16f32:$oldvalue),
 	(MOVEVSMI i32:$mask, f32:$src2, v16f32:$oldvalue)>; 
-def : Pat<(logical_not i32:$src1), (XORSSI i32:$src1, 1)>; 
 
 //////////////////////////////////////////////////////////////////
 // Memory Access (Format C)

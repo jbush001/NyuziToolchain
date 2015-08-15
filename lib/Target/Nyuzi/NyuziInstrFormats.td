@@ -26,7 +26,6 @@ def splat : SDNode<"NyuziISD::SPLAT", SDTypeProfile<1, 1, [SDTCisEltOfVec<1, 0>]
 def wrapper : SDNode<"NyuziISD::WRAPPER", SDTIntUnaryOp>;
 def reciprocal : SDNode<"NyuziISD::RECIPROCAL_EST", SDTFPUnaryOp>;
 def jtwrapper : SDNode<"NyuziISD::JT_WRAPPER", SDTIntUnaryOp>;
-def logical_not : SDNode<"NyuziISD::LOGICAL_NOT", SDTIntUnaryOp>;
 
 def SDT_BRJT    : SDTypeProfile<0, 2, [SDTCisPtrTy<0>, SDTCisVT<1, i32>]>;
 def brjt : SDNode<"NyuziISD::BR_JT", SDT_BRJT, [SDNPHasChain]>;

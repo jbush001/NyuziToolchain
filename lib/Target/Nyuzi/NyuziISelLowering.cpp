@@ -520,8 +520,6 @@ const char *NyuziTargetLowering::getTargetNodeName(unsigned Opcode) const {
     return "NyuziISD::BR_JT";
   case NyuziISD::JT_WRAPPER:
     return "NyuziISD::JT_WRAPPER";
-  case NyuziISD::LOGICAL_NOT:
-    return "NyuziISD::LOGICAL_NOT";
   default:
     return nullptr;
   }
@@ -865,7 +863,8 @@ SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
         return IsOrdered;
 
       // SETUO
-      return DAG.getNode(NyuziISD::LOGICAL_NOT, DL, Op.getValueType().getSimpleVT(), IsOrdered);
+      return DAG.getNode(ISD::XOR, DL, Op.getValueType().getSimpleVT(), IsOrdered,
+        DAG.getConstant(0xffff, DL, MVT::i32));
     }
 
     // Convert unordered comparisions to ordered by explicitly checking for NaN
@@ -892,10 +891,9 @@ SDValue NyuziTargetLowering::LowerSETCC(SDValue Op, SelectionDAG &DAG) const {
   // Take the complementary comparision and invert the result. This will
   // be the same for ordered values, but will always be true for unordered
   // values.
-  // Use LOGICAL_NOT custom node, otherwise the optimizer will convert this back
-  // to its original form and cause an infinite loop.
   SDValue Comp2 = morphSETCCNode(Op, ComplementCompare, DAG);
-  return DAG.getNode(NyuziISD::LOGICAL_NOT, DL, Op.getValueType().getSimpleVT(), Comp2);
+  return DAG.getNode(ISD::XOR, DL, Op.getValueType().getSimpleVT(), Comp2,
+     DAG.getConstant(0xffff, DL, MVT::i32));
 }
 
 SDValue NyuziTargetLowering::LowerCTLZ_ZERO_UNDEF(SDValue Op,
