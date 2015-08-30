@@ -13,6 +13,10 @@ Questions or issues can be directed to the [mailing list](https://groups.google.
 
 # Building
 
+The NyuziProcessor repository README has instructions for building this as
+well. These instructions are only necessary if you want to build this
+separately.
+
 ## Required Software
 
 The following sections describe how to install these packages.
