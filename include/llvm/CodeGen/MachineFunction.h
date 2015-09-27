@@ -38,6 +38,7 @@ class MachineJumpTableInfo;
 class MachineModuleInfo;
 class MCContext;
 class Pass;
+class PseudoSourceValueManager;
 class TargetMachine;
 class TargetSubtargetInfo;
 class TargetRegisterClass;
@@ -145,6 +146,9 @@ class MachineFunction {
   /// True if the function includes any inline assembly.
   bool HasInlineAsm;
 
+  // Allocation management for pseudo source values.
+  std::unique_ptr<PseudoSourceValueManager> PSVManager;
+
   MachineFunction(const MachineFunction &) = delete;
   void operator=(const MachineFunction&) = delete;
 public:
@@ -154,6 +158,8 @@ public:
 
   MachineModuleInfo &getMMI() const { return MMI; }
   MCContext &getContext() const { return Ctx; }
+
+  PseudoSourceValueManager &getPSVManager() const { return *PSVManager; }
 
   /// Return the DataLayout attached to the Module associated to this MF.
   const DataLayout &getDataLayout() const;
@@ -367,6 +373,11 @@ public:
   }
   void erase(iterator MBBI) {
     BasicBlocks.erase(MBBI);
+  }
+
+  template <typename Comp>
+  void sort(Comp comp) {
+    BasicBlocks.sort(comp);
   }
 
   //===--------------------------------------------------------------------===//

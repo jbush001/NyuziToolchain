@@ -114,9 +114,9 @@ foo func(foo f) {
 // CHECK: !DICompositeType(tag: DW_TAG_structure_type, name: "b"
 // CHECK-SAME:             DIFlagFwdDecl
 
-// CHECK: [[FUNC:![0-9]+]] = !DISubprogram(name: "func", linkageName: "_ZN7pr147634funcENS_3fooE"
-// CHECK-SAME:                             type: [[FUNC_TYPE:![0-9]*]]
-// CHECK-SAME:                             isDefinition: true
+// CHECK: [[FUNC:![0-9]+]] = distinct !DISubprogram(name: "func", linkageName: "_ZN7pr147634funcENS_3fooE"
+// CHECK-SAME:                                      type: [[FUNC_TYPE:![0-9]*]]
+// CHECK-SAME:                                      isDefinition: true
 }
 
 void foo() {
@@ -142,11 +142,13 @@ incomplete (*x)[3];
 }
 
 // For some reason function arguments ended up down here
-// CHECK: ![[F]] = !DILocalVariable(tag: DW_TAG_arg_variable, name: "f", arg: 1, scope: [[FUNC]]
+// CHECK: ![[F]] = !DILocalVariable(name: "f", arg: 1, scope: [[FUNC]]
 // CHECK-SAME:                      type: !"[[FOO]]"
 // CHECK: ![[EXPR]] = !DIExpression(DW_OP_deref)
 
-// CHECK: !DILocalVariable(tag: DW_TAG_auto_variable, name: "c"
+// CHECK: !DILocalVariable(name: "c"
+// CHECK-NOT:              arg:
+// CHECK-SAME:            )
 
 namespace pr16214 {
 struct a {

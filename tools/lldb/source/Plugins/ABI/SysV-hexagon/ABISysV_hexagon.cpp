@@ -20,7 +20,6 @@
 #include "lldb/Core/ValueObjectConstResult.h"
 #include "lldb/Core/ValueObjectRegister.h"
 #include "lldb/Core/ValueObjectMemory.h"
-#include "lldb/Symbol/ClangASTContext.h"
 #include "lldb/Symbol/UnwindPlan.h"
 #include "lldb/Target/Target.h"
 #include "lldb/Target/Process.h"
@@ -359,14 +358,14 @@ ABISysV_hexagon::SetReturnValueObject ( lldb::StackFrameSP &frame_sp, lldb::Valu
 }
 
 ValueObjectSP
-ABISysV_hexagon::GetReturnValueObjectSimple ( Thread &thread, ClangASTType &return_clang_type ) const
+ABISysV_hexagon::GetReturnValueObjectSimple ( Thread &thread, CompilerType &return_compiler_type ) const
 {
     ValueObjectSP return_valobj_sp;
     return return_valobj_sp;
 }
 
 ValueObjectSP
-ABISysV_hexagon::GetReturnValueObjectImpl ( Thread &thread, ClangASTType &return_clang_type ) const
+ABISysV_hexagon::GetReturnValueObjectImpl ( Thread &thread, CompilerType &return_compiler_type ) const
 {
     ValueObjectSP return_valobj_sp;
     return return_valobj_sp;

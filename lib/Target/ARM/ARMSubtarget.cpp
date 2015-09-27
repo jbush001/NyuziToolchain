@@ -60,6 +60,12 @@ IT(cl::desc("IT block support"), cl::Hidden, cl::init(DefaultIT),
                          "Allow IT blocks based on ARMv7"),
               clEnumValEnd));
 
+/// ForceFastISel - Use the fast-isel, even for subtargets where it is not
+/// currently supported (for testing only).
+static cl::opt<bool>
+ForceFastISel("arm-force-fast-isel",
+               cl::init(false), cl::Hidden);
+
 /// initializeSubtargetDependencies - Initializes using a CPU and feature string
 /// so that we can use initializer lists for subtarget initialization.
 ARMSubtarget &ARMSubtarget::initializeSubtargetDependencies(StringRef CPU,
@@ -141,7 +147,7 @@ void ARMSubtarget::initializeEnvironment() {
   HasCRC = false;
   HasZeroCycleZeroing = false;
   StrictAlign = false;
-  Thumb2DSP = false;
+  HasDSP = false;
   UseNaClTrap = false;
   GenLongCalls = false;
   UnsafeFPMath = false;
@@ -285,16 +291,27 @@ bool ARMSubtarget::enableAtomicExpand() const {
   return hasAnyDataBarrier() && !isThumb1Only();
 }
 
+bool ARMSubtarget::useStride4VFPs(const MachineFunction &MF) const {
+  return isSwift() && !MF.getFunction()->optForMinSize();
+}
+
 bool ARMSubtarget::useMovt(const MachineFunction &MF) const {
   // NOTE Windows on ARM needs to use mov.w/mov.t pairs to materialise 32-bit
   // immediates as it is inherently position independent, and may be out of
   // range otherwise.
   return !NoMovt && hasV6T2Ops() &&
-         (isTargetWindows() ||
-          !MF.getFunction()->hasFnAttribute(Attribute::MinSize));
+         (isTargetWindows() || !MF.getFunction()->optForMinSize());
 }
 
 bool ARMSubtarget::useFastISel() const {
+  // Enable fast-isel for any target, for testing only.
+  if (ForceFastISel)
+    return true;
+
+  // Limit fast-isel to the targets that are or have been tested.
+  if (!hasV6Ops())
+    return false;
+
   // Thumb2 support on iOS; ARM support on iOS, Linux and NaCl.
   return TM.Options.EnableFastISel &&
          ((isTargetMachO() && !isThumb1Only()) ||

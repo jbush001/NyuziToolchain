@@ -136,12 +136,13 @@ LValue CGObjCRuntime::EmitValueForIvarAtOffset(CodeGen::CodeGenFunction &CGF,
                              CGF.CGM.getContext().toBits(StorageSize),
                              CharUnits::fromQuantity(0)));
 
-  V = CGF.Builder.CreateBitCast(V,
-                                llvm::Type::getIntNPtrTy(CGF.getLLVMContext(),
+  Address Addr(V, Alignment);
+  Addr = CGF.Builder.CreateElementBitCast(Addr,
+                                   llvm::Type::getIntNTy(CGF.getLLVMContext(),
                                                          Info->StorageSize));
-  return LValue::MakeBitfield(V, *Info,
+  return LValue::MakeBitfield(Addr, *Info,
                               IvarTy.withCVRQualifiers(CVRQualifiers),
-                              Alignment);
+                              AlignmentSource::Decl);
 }
 
 namespace {
@@ -152,7 +153,7 @@ namespace {
     llvm::Constant *TypeInfo;
   };
 
-  struct CallObjCEndCatch : EHScopeStack::Cleanup {
+  struct CallObjCEndCatch final : EHScopeStack::Cleanup {
     CallObjCEndCatch(bool MightThrow, llvm::Value *Fn) :
       MightThrow(MightThrow), Fn(Fn) {}
     bool MightThrow;
@@ -256,7 +257,7 @@ void CGObjCRuntime::EmitTryCatchStmt(CodeGenFunction &CGF,
 
       CGF.EmitAutoVarDecl(*CatchParam);
 
-      llvm::Value *CatchParamAddr = CGF.GetAddrOfLocalVar(CatchParam);
+      Address CatchParamAddr = CGF.GetAddrOfLocalVar(CatchParam);
 
       switch (CatchParam->getType().getQualifiers().getObjCLifetime()) {
       case Qualifiers::OCL_Strong:
@@ -297,7 +298,7 @@ void CGObjCRuntime::EmitTryCatchStmt(CodeGenFunction &CGF,
 }
 
 namespace {
-  struct CallSyncExit : EHScopeStack::Cleanup {
+  struct CallSyncExit final : EHScopeStack::Cleanup {
     llvm::Value *SyncExitFn;
     llvm::Value *SyncArg;
     CallSyncExit(llvm::Value *SyncExitFn, llvm::Value *SyncArg)

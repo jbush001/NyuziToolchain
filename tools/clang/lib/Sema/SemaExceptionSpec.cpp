@@ -318,7 +318,6 @@ bool Sema::CheckEquivalentExceptionSpec(FunctionDecl *Old, FunctionDecl *New) {
   default:
     llvm_unreachable("This spec type is compatible with none.");
   }
-  OS.flush();
 
   SourceLocation FixItLoc;
   if (TypeSourceInfo *TSInfo = New->getTypeSourceInfo()) {
@@ -1066,6 +1065,7 @@ CanThrowResult Sema::canThrow(const Expr *E) {
 
     // Some might be dependent for other reasons.
   case Expr::ArraySubscriptExprClass:
+  case Expr::OMPArraySectionExprClass:
   case Expr::BinaryOperatorClass:
   case Expr::CompoundAssignOperatorClass:
   case Expr::CStyleCastExprClass:

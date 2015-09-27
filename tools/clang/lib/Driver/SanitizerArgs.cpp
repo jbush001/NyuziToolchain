@@ -176,6 +176,7 @@ void SanitizerArgs::clear() {
   RecoverableSanitizers.clear();
   TrapSanitizers.clear();
   BlacklistFiles.clear();
+  ExtraDeps.clear();
   CoverageFeatures = 0;
   MsanTrackOrigins = 0;
   MsanUseAfterDtor = false;
@@ -383,13 +384,16 @@ SanitizerArgs::SanitizerArgs(const ToolChain &TC,
     if (Arg->getOption().matches(options::OPT_fsanitize_blacklist)) {
       Arg->claim();
       std::string BLPath = Arg->getValue();
-      if (llvm::sys::fs::exists(BLPath))
+      if (llvm::sys::fs::exists(BLPath)) {
         BlacklistFiles.push_back(BLPath);
-      else
+        ExtraDeps.push_back(BLPath);
+      } else
         D.Diag(clang::diag::err_drv_no_such_file) << BLPath;
+
     } else if (Arg->getOption().matches(options::OPT_fno_sanitize_blacklist)) {
       Arg->claim();
       BlacklistFiles.clear();
+      ExtraDeps.clear();
     }
   }
   // Validate blacklists format.
@@ -563,6 +567,11 @@ void SanitizerArgs::addArgs(const ToolChain &TC, const llvm::opt::ArgList &Args,
     BlacklistOpt += BLPath;
     CmdArgs.push_back(Args.MakeArgString(BlacklistOpt));
   }
+  for (const auto &Dep : ExtraDeps) {
+    SmallString<64> ExtraDepOpt("-fdepfile-entry=");
+    ExtraDepOpt += Dep;
+    CmdArgs.push_back(Args.MakeArgString(ExtraDepOpt));
+  }
 
   if (MsanTrackOrigins)
     CmdArgs.push_back(Args.MakeArgString("-fsanitize-memory-track-origins=" +
@@ -600,12 +609,13 @@ void SanitizerArgs::addArgs(const ToolChain &TC, const llvm::opt::ArgList &Args,
   if (TC.getTriple().isOSWindows() && needsUbsanRt()) {
     // Instruct the code generator to embed linker directives in the object file
     // that cause the required runtime libraries to be linked.
-    CmdArgs.push_back(Args.MakeArgString(
-        "--dependent-lib=" + tools::getCompilerRT(TC, "ubsan_standalone")));
+    CmdArgs.push_back(
+        Args.MakeArgString("--dependent-lib=" +
+                           tools::getCompilerRT(TC, Args, "ubsan_standalone")));
     if (types::isCXX(InputType))
-      CmdArgs.push_back(
-          Args.MakeArgString("--dependent-lib=" +
-                             tools::getCompilerRT(TC, "ubsan_standalone_cxx")));
+      CmdArgs.push_back(Args.MakeArgString(
+          "--dependent-lib=" +
+          tools::getCompilerRT(TC, Args, "ubsan_standalone_cxx")));
   }
 }
 

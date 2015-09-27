@@ -24,25 +24,30 @@ using namespace llvm;
 
 LoopVersioning::LoopVersioning(
     SmallVector<RuntimePointerChecking::PointerCheck, 4> Checks,
-    const LoopAccessInfo &LAI, Loop *L, LoopInfo *LI, DominatorTree *DT,
-    const SmallVector<int, 8> *PtrToPartition)
-    : VersionedLoop(L), NonVersionedLoop(nullptr),
-      PtrToPartition(PtrToPartition), Checks(Checks), LAI(LAI), LI(LI), DT(DT) {
+    const LoopAccessInfo &LAI, Loop *L, LoopInfo *LI, DominatorTree *DT)
+    : VersionedLoop(L), NonVersionedLoop(nullptr), Checks(std::move(Checks)),
+      LAI(LAI), LI(LI), DT(DT) {
   assert(L->getExitBlock() && "No single exit block");
   assert(L->getLoopPreheader() && "No preheader");
 }
 
-bool LoopVersioning::needsRuntimeChecks() const {
-  return LAI.getRuntimePointerChecking()->needsAnyChecking(PtrToPartition);
+LoopVersioning::LoopVersioning(const LoopAccessInfo &LAInfo, Loop *L,
+                               LoopInfo *LI, DominatorTree *DT)
+    : VersionedLoop(L), NonVersionedLoop(nullptr),
+      Checks(LAInfo.getRuntimePointerChecking()->getChecks()), LAI(LAInfo),
+      LI(LI), DT(DT) {
+  assert(L->getExitBlock() && "No single exit block");
+  assert(L->getLoopPreheader() && "No preheader");
 }
 
-void LoopVersioning::versionLoop(Pass *P) {
+void LoopVersioning::versionLoop(
+    const SmallVectorImpl<Instruction *> &DefsUsedOutside) {
   Instruction *FirstCheckInst;
   Instruction *MemRuntimeCheck;
   // Add the memcheck in the original preheader (this is empty initially).
   BasicBlock *MemCheckBB = VersionedLoop->getLoopPreheader();
   std::tie(FirstCheckInst, MemRuntimeCheck) =
-      LAI.addRuntimeCheck(MemCheckBB->getTerminator(), Checks);
+      LAI.addRuntimeChecks(MemCheckBB->getTerminator(), Checks);
   assert(MemRuntimeCheck && "called even though needsAnyChecking = false");
 
   // Rename the block to make the IR more readable.
@@ -73,6 +78,10 @@ void LoopVersioning::versionLoop(Pass *P) {
   // The loops merge in the original exit block.  This is now dominated by the
   // memchecking block.
   DT->changeImmediateDominator(VersionedLoop->getExitBlock(), MemCheckBB);
+
+  // Adds the necessary PHI nodes for the versioned loops based on the
+  // loop-defined values used outside of the loop.
+  addPHINodes(DefsUsedOutside);
 }
 
 void LoopVersioning::addPHINodes(

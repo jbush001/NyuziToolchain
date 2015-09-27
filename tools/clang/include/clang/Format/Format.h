@@ -169,14 +169,16 @@ struct FormatStyle {
     /// Like ``Attach``, but break before braces on enum, function, and record
     /// definitions.
     BS_Mozilla,
-    /// Like \c Attach, but break before function definitions, and 'else'.
+    /// Like \c Attach, but break before function definitions, 'catch', and 'else'.
     BS_Stroustrup,
     /// Always break before braces.
     BS_Allman,
     /// Always break before braces and add an extra level of indentation to
     /// braces of control statements, not to those of class, function
     /// or other definitions.
-    BS_GNU
+    BS_GNU,
+    /// Like ``Attach``, but break before functions.
+    BS_WebKit
   };
 
   /// \brief The brace breaking style to use.
@@ -568,6 +570,12 @@ std::error_code parseConfiguration(StringRef Text, FormatStyle *Style);
 
 /// \brief Gets configuration in a YAML string.
 std::string configurationAsText(const FormatStyle &Style);
+
+/// \brief Returns the replacements necessary to sort all #include blocks that
+/// are affected by 'Ranges'.
+tooling::Replacements sortIncludes(const FormatStyle &Style, StringRef Code,
+                                   ArrayRef<tooling::Range> Ranges,
+                                   StringRef FileName);
 
 /// \brief Reformats the given \p Ranges in the file \p ID.
 ///

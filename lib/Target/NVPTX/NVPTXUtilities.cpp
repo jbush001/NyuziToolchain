@@ -336,18 +336,16 @@ bool llvm::getAlign(const CallInst &I, unsigned index, unsigned &align) {
 }
 
 bool llvm::isBarrierIntrinsic(Intrinsic::ID id) {
-  if ((id == Intrinsic::nvvm_barrier0) ||
-      (id == Intrinsic::nvvm_barrier0_popc) ||
-      (id == Intrinsic::nvvm_barrier0_and) ||
-      (id == Intrinsic::nvvm_barrier0_or) ||
-      (id == Intrinsic::cuda_syncthreads))
-    return true;
-  return false;
+  return (id == Intrinsic::nvvm_barrier0) ||
+         (id == Intrinsic::nvvm_barrier0_popc) ||
+         (id == Intrinsic::nvvm_barrier0_and) ||
+         (id == Intrinsic::nvvm_barrier0_or) ||
+         (id == Intrinsic::cuda_syncthreads);
 }
 
 // Interface for checking all memory space transfer related intrinsics
 bool llvm::isMemorySpaceTransferIntrinsic(Intrinsic::ID id) {
-  if (id == Intrinsic::nvvm_ptr_local_to_gen ||
+  return id == Intrinsic::nvvm_ptr_local_to_gen ||
       id == Intrinsic::nvvm_ptr_shared_to_gen ||
       id == Intrinsic::nvvm_ptr_global_to_gen ||
       id == Intrinsic::nvvm_ptr_constant_to_gen ||
@@ -355,16 +353,12 @@ bool llvm::isMemorySpaceTransferIntrinsic(Intrinsic::ID id) {
       id == Intrinsic::nvvm_ptr_gen_to_shared ||
       id == Intrinsic::nvvm_ptr_gen_to_local ||
       id == Intrinsic::nvvm_ptr_gen_to_constant ||
-      id == Intrinsic::nvvm_ptr_gen_to_param) {
-    return true;
-  }
-
-  return false;
+      id == Intrinsic::nvvm_ptr_gen_to_param;
 }
 
 // consider several special intrinsics in striping pointer casts, and
-// provide an option to ignore GEP indicies for find out the base address only
-// which could be used in simple alias disambigurate.
+// provide an option to ignore GEP indices for find out the base address only
+// which could be used in simple alias disambiguation.
 const Value *
 llvm::skipPointerTransfer(const Value *V, bool ignore_GEP_indices) {
   V = V->stripPointerCasts();
@@ -385,9 +379,9 @@ llvm::skipPointerTransfer(const Value *V, bool ignore_GEP_indices) {
 }
 
 // consider several special intrinsics in striping pointer casts, and
-// - ignore GEP indicies for find out the base address only, and
+// - ignore GEP indices for find out the base address only, and
 // - tracking PHINode
-// which could be used in simple alias disambigurate.
+// which could be used in simple alias disambiguation.
 const Value *
 llvm::skipPointerTransfer(const Value *V, std::set<const Value *> &processed) {
   if (processed.find(V) != processed.end())
@@ -434,7 +428,7 @@ llvm::skipPointerTransfer(const Value *V, std::set<const Value *> &processed) {
   return V;
 }
 
-// The following are some useful utilities for debuggung
+// The following are some useful utilities for debugging
 
 BasicBlock *llvm::getParentBlock(Value *v) {
   if (BasicBlock *B = dyn_cast<BasicBlock>(v))
@@ -490,7 +484,7 @@ Instruction *llvm::getInst(Value *base, char *instName) {
   return nullptr;
 }
 
-// Dump an instruction by nane
+// Dump an instruction by name
 void llvm::dumpInst(Value *base, char *instName) {
   Instruction *I = getInst(base, instName);
   if (I)

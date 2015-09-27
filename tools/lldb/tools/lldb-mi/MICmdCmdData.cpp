@@ -42,6 +42,7 @@
 #include "MICmdArgValConsume.h"
 #include "MICmnLLDBDebugSessionInfoVarObj.h"
 #include "MICmnLLDBUtilSBValue.h"
+#include "MIUtilParse.h"
 
 //++ ------------------------------------------------------------------------------------
 // Details: CMICmdCmdDataEvaluateExpression constructor.
@@ -50,11 +51,10 @@
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataEvaluateExpression::CMICmdCmdDataEvaluateExpression(void)
+CMICmdCmdDataEvaluateExpression::CMICmdCmdDataEvaluateExpression()
     : m_bExpressionValid(true)
     , m_bEvaluatedExpression(true)
     , m_strValue("??")
-    , m_bCompositeVarType(false)
     , m_bFoundInvalidChar(false)
     , m_cExpressionInvalidChar(0x00)
     , m_constStrArgThread("thread")
@@ -75,7 +75,7 @@ CMICmdCmdDataEvaluateExpression::CMICmdCmdDataEvaluateExpression(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataEvaluateExpression::~CMICmdCmdDataEvaluateExpression(void)
+CMICmdCmdDataEvaluateExpression::~CMICmdCmdDataEvaluateExpression()
 {
 }
 
@@ -89,11 +89,11 @@ CMICmdCmdDataEvaluateExpression::~CMICmdCmdDataEvaluateExpression(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataEvaluateExpression::ParseArgs(void)
+CMICmdCmdDataEvaluateExpression::ParseArgs()
 {
-    m_setCmdArgs.Add(*(new CMICmdArgValOptionLong(m_constStrArgThread, false, false, CMICmdArgValListBase::eArgValType_Number, 1)));
-    m_setCmdArgs.Add(*(new CMICmdArgValOptionLong(m_constStrArgFrame, false, false, CMICmdArgValListBase::eArgValType_Number, 1)));
-    m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgExpr, true, true, true, true)));
+    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, false, CMICmdArgValListBase::eArgValType_Number, 1));
+    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgFrame, false, false, CMICmdArgValListBase::eArgValType_Number, 1));
+    m_setCmdArgs.Add(new CMICmdArgValString(m_constStrArgExpr, true, true, true, true));
     return ParseValidateCmdOptions();
 }
 
@@ -107,7 +107,7 @@ CMICmdCmdDataEvaluateExpression::ParseArgs(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataEvaluateExpression::Execute(void)
+CMICmdCmdDataEvaluateExpression::Execute()
 {
     CMICMDBASE_GETOPTION(pArgExpr, String, m_constStrArgExpr);
 
@@ -145,41 +145,7 @@ CMICmdCmdDataEvaluateExpression::Execute(void)
         m_strValue = rExpression.Trim('\"');
         return MIstatus::success;
     }
-
-    MIuint64 nNumber = 0;
-    if (CMICmnLLDBProxySBValue::GetValueAsUnsigned(value, nNumber) == MIstatus::success)
-    {
-        const lldb::ValueType eValueType = value.GetValueType();
-        MIunused(eValueType);
-        m_strValue = utilValue.GetValue().Escape().AddSlashes();
-        return MIstatus::success;
-    }
-
-    // Composite type i.e. struct
-    m_bCompositeVarType = true;
-    const MIuint nChild = value.GetNumChildren();
-    for (MIuint i = 0; i < nChild; i++)
-    {
-        lldb::SBValue member = value.GetChildAtIndex(i);
-        const bool bValid = member.IsValid();
-        CMIUtilString strType(MIRSRC(IDS_WORD_UNKNOWNTYPE_BRKTS));
-        if (bValid)
-        {
-            const CMIUtilString strValue(
-                CMICmnLLDBDebugSessionInfoVarObj::GetValueStringFormatted(member, CMICmnLLDBDebugSessionInfoVarObj::eVarFormat_Natural));
-            const char *pTypeName = member.GetName();
-            if (pTypeName != nullptr)
-                strType = pTypeName;
-
-            // MI print "{variable = 1, variable2 = 3, variable3 = 5}"
-            const bool bNoQuotes = true;
-            const CMICmnMIValueConst miValueConst(strValue, bNoQuotes);
-            const bool bUseSpaces = true;
-            const CMICmnMIValueResult miValueResult(strType, miValueConst, bUseSpaces);
-            m_miValueTuple.Add(miValueResult, bUseSpaces);
-        }
-    }
-
+    m_strValue = utilValue.GetValue(true).Escape().AddSlashes();
     return MIstatus::success;
 }
 
@@ -193,21 +159,12 @@ CMICmdCmdDataEvaluateExpression::Execute(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataEvaluateExpression::Acknowledge(void)
+CMICmdCmdDataEvaluateExpression::Acknowledge()
 {
     if (m_bExpressionValid)
     {
         if (m_bEvaluatedExpression)
         {
-            if (m_bCompositeVarType)
-            {
-                const CMICmnMIValueConst miValueConst(m_miValueTuple.GetString());
-                const CMICmnMIValueResult miValueResult("value", miValueConst);
-                const CMICmnMIResultRecord miRecordResult(m_cmdData.strMiCmdToken, CMICmnMIResultRecord::eResultClass_Done, miValueResult);
-                m_miResultRecord = miRecordResult;
-                return MIstatus::success;
-            }
-
             if (m_bFoundInvalidChar)
             {
                 const CMICmnMIValueConst miValueConst(
@@ -249,7 +206,7 @@ CMICmdCmdDataEvaluateExpression::Acknowledge(void)
 // Throws:  None.
 //--
 CMICmdBase *
-CMICmdCmdDataEvaluateExpression::CreateSelf(void)
+CMICmdCmdDataEvaluateExpression::CreateSelf()
 {
     return new CMICmdCmdDataEvaluateExpression();
 }
@@ -283,7 +240,7 @@ CMICmdCmdDataEvaluateExpression::HaveInvalidCharacterInExpression(const CMIUtilS
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataDisassemble::CMICmdCmdDataDisassemble(void)
+CMICmdCmdDataDisassemble::CMICmdCmdDataDisassemble()
     : m_constStrArgThread("thread")
     , m_constStrArgAddrStart("s")
     , m_constStrArgAddrEnd("e")
@@ -305,7 +262,7 @@ CMICmdCmdDataDisassemble::CMICmdCmdDataDisassemble(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataDisassemble::~CMICmdCmdDataDisassemble(void)
+CMICmdCmdDataDisassemble::~CMICmdCmdDataDisassemble()
 {
 }
 
@@ -319,15 +276,15 @@ CMICmdCmdDataDisassemble::~CMICmdCmdDataDisassemble(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataDisassemble::ParseArgs(void)
+CMICmdCmdDataDisassemble::ParseArgs()
 {
-    m_setCmdArgs.Add(*(new CMICmdArgValOptionLong(m_constStrArgThread, false, true, CMICmdArgValListBase::eArgValType_Number, 1)));
+    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
     m_setCmdArgs.Add(
-        *(new CMICmdArgValOptionShort(m_constStrArgAddrStart, true, true, CMICmdArgValListBase::eArgValType_StringQuotedNumber, 1)));
+        new CMICmdArgValOptionShort(m_constStrArgAddrStart, true, true, CMICmdArgValListBase::eArgValType_StringQuotedNumber, 1));
     m_setCmdArgs.Add(
-        *(new CMICmdArgValOptionShort(m_constStrArgAddrEnd, true, true, CMICmdArgValListBase::eArgValType_StringQuotedNumber, 1)));
-    m_setCmdArgs.Add(*(new CMICmdArgValConsume(m_constStrArgConsume, true)));
-    m_setCmdArgs.Add(*(new CMICmdArgValNumber(m_constStrArgMode, true, true)));
+        new CMICmdArgValOptionShort(m_constStrArgAddrEnd, true, true, CMICmdArgValListBase::eArgValType_StringQuotedNumber, 1));
+    m_setCmdArgs.Add(new CMICmdArgValConsume(m_constStrArgConsume, true));
+    m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgMode, true, true));
     return ParseValidateCmdOptions();
 }
 
@@ -341,7 +298,7 @@ CMICmdCmdDataDisassemble::ParseArgs(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataDisassemble::Execute(void)
+CMICmdCmdDataDisassemble::Execute()
 {
     CMICMDBASE_GETOPTION(pArgThread, OptionLong, m_constStrArgThread);
     CMICMDBASE_GETOPTION(pArgAddrStart, OptionShort, m_constStrArgAddrStart);
@@ -471,7 +428,7 @@ CMICmdCmdDataDisassemble::Execute(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataDisassemble::Acknowledge(void)
+CMICmdCmdDataDisassemble::Acknowledge()
 {
     const CMICmnMIValueResult miValueResult("asm_insns", m_miValueList);
     const CMICmnMIResultRecord miRecordResult(m_cmdData.strMiCmdToken, CMICmnMIResultRecord::eResultClass_Done, miValueResult);
@@ -489,7 +446,7 @@ CMICmdCmdDataDisassemble::Acknowledge(void)
 // Throws:  None.
 //--
 CMICmdBase *
-CMICmdCmdDataDisassemble::CreateSelf(void)
+CMICmdCmdDataDisassemble::CreateSelf()
 {
     return new CMICmdCmdDataDisassemble();
 }
@@ -505,7 +462,7 @@ CMICmdCmdDataDisassemble::CreateSelf(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataReadMemoryBytes::CMICmdCmdDataReadMemoryBytes(void)
+CMICmdCmdDataReadMemoryBytes::CMICmdCmdDataReadMemoryBytes()
     : m_constStrArgThread("thread")
     , m_constStrArgFrame("frame")
     , m_constStrArgByteOffset("o")
@@ -529,7 +486,7 @@ CMICmdCmdDataReadMemoryBytes::CMICmdCmdDataReadMemoryBytes(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataReadMemoryBytes::~CMICmdCmdDataReadMemoryBytes(void)
+CMICmdCmdDataReadMemoryBytes::~CMICmdCmdDataReadMemoryBytes()
 {
     if (m_pBufferMemory != nullptr)
     {
@@ -548,13 +505,13 @@ CMICmdCmdDataReadMemoryBytes::~CMICmdCmdDataReadMemoryBytes(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataReadMemoryBytes::ParseArgs(void)
+CMICmdCmdDataReadMemoryBytes::ParseArgs()
 {
-    m_setCmdArgs.Add(*(new CMICmdArgValOptionLong(m_constStrArgThread, false, true, CMICmdArgValListBase::eArgValType_Number, 1)));
-    m_setCmdArgs.Add(*(new CMICmdArgValOptionLong(m_constStrArgFrame, false, true, CMICmdArgValListBase::eArgValType_Number, 1)));
-    m_setCmdArgs.Add(*(new CMICmdArgValOptionShort(m_constStrArgByteOffset, false, true, CMICmdArgValListBase::eArgValType_Number, 1)));
-    m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgAddrExpr, true, true, true, true)));
-    m_setCmdArgs.Add(*(new CMICmdArgValNumber(m_constStrArgNumBytes, true, true)));
+    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
+    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgFrame, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
+    m_setCmdArgs.Add(new CMICmdArgValOptionShort(m_constStrArgByteOffset, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
+    m_setCmdArgs.Add(new CMICmdArgValString(m_constStrArgAddrExpr, true, true, true, true));
+    m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgNumBytes, true, true));
     return ParseValidateCmdOptions();
 }
 
@@ -568,7 +525,7 @@ CMICmdCmdDataReadMemoryBytes::ParseArgs(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataReadMemoryBytes::Execute(void)
+CMICmdCmdDataReadMemoryBytes::Execute()
 {
     CMICMDBASE_GETOPTION(pArgThread, OptionLong, m_constStrArgThread);
     CMICMDBASE_GETOPTION(pArgFrame, OptionLong, m_constStrArgFrame);
@@ -691,7 +648,7 @@ CMICmdCmdDataReadMemoryBytes::Execute(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataReadMemoryBytes::Acknowledge(void)
+CMICmdCmdDataReadMemoryBytes::Acknowledge()
 {
     // MI: memory=[{begin=\"0x%016" PRIx64 "\",offset=\"0x%016" PRIx64" \",end=\"0x%016" PRIx64 "\",contents=\" \" }]"
     const CMICmnMIValueConst miValueConst(CMIUtilString::Format("0x%016" PRIx64, m_nAddrStart));
@@ -733,7 +690,7 @@ CMICmdCmdDataReadMemoryBytes::Acknowledge(void)
 // Throws:  None.
 //--
 CMICmdBase *
-CMICmdCmdDataReadMemoryBytes::CreateSelf(void)
+CMICmdCmdDataReadMemoryBytes::CreateSelf()
 {
     return new CMICmdCmdDataReadMemoryBytes();
 }
@@ -749,7 +706,7 @@ CMICmdCmdDataReadMemoryBytes::CreateSelf(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataReadMemory::CMICmdCmdDataReadMemory(void)
+CMICmdCmdDataReadMemory::CMICmdCmdDataReadMemory()
 {
     // Command factory matches this name with that received from the stdin stream
     m_strMiCmd = "data-read-memory";
@@ -765,7 +722,7 @@ CMICmdCmdDataReadMemory::CMICmdCmdDataReadMemory(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataReadMemory::~CMICmdCmdDataReadMemory(void)
+CMICmdCmdDataReadMemory::~CMICmdCmdDataReadMemory()
 {
 }
 
@@ -779,7 +736,7 @@ CMICmdCmdDataReadMemory::~CMICmdCmdDataReadMemory(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataReadMemory::Execute(void)
+CMICmdCmdDataReadMemory::Execute()
 {
     // Do nothing - command deprecated use "data-read-memory-bytes" command
     return MIstatus::success;
@@ -795,7 +752,7 @@ CMICmdCmdDataReadMemory::Execute(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataReadMemory::Acknowledge(void)
+CMICmdCmdDataReadMemory::Acknowledge()
 {
     // Command CMICmdCmdSupportListFeatures sends "data-read-memory-bytes" which causes this command not to be called
     const CMICmnMIValueConst miValueConst(MIRSRC(IDS_CMD_ERR_NOT_IMPLEMENTED_DEPRECATED));
@@ -815,7 +772,7 @@ CMICmdCmdDataReadMemory::Acknowledge(void)
 // Throws:  None.
 //--
 CMICmdBase *
-CMICmdCmdDataReadMemory::CreateSelf(void)
+CMICmdCmdDataReadMemory::CreateSelf()
 {
     return new CMICmdCmdDataReadMemory();
 }
@@ -831,7 +788,7 @@ CMICmdCmdDataReadMemory::CreateSelf(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataListRegisterNames::CMICmdCmdDataListRegisterNames(void)
+CMICmdCmdDataListRegisterNames::CMICmdCmdDataListRegisterNames()
     : m_constStrArgThreadGroup("thread-group")
     , m_constStrArgRegNo("regno")
     , m_miValueList(true)
@@ -850,7 +807,7 @@ CMICmdCmdDataListRegisterNames::CMICmdCmdDataListRegisterNames(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataListRegisterNames::~CMICmdCmdDataListRegisterNames(void)
+CMICmdCmdDataListRegisterNames::~CMICmdCmdDataListRegisterNames()
 {
 }
 
@@ -864,10 +821,10 @@ CMICmdCmdDataListRegisterNames::~CMICmdCmdDataListRegisterNames(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataListRegisterNames::ParseArgs(void)
+CMICmdCmdDataListRegisterNames::ParseArgs()
 {
-    m_setCmdArgs.Add(*(new CMICmdArgValOptionLong(m_constStrArgThreadGroup, false, false, CMICmdArgValListBase::eArgValType_ThreadGrp, 1)));
-    m_setCmdArgs.Add(*(new CMICmdArgValListOfN(m_constStrArgRegNo, false, false, CMICmdArgValListBase::eArgValType_Number)));
+    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThreadGroup, false, false, CMICmdArgValListBase::eArgValType_ThreadGrp, 1));
+    m_setCmdArgs.Add(new CMICmdArgValListOfN(m_constStrArgRegNo, false, false, CMICmdArgValListBase::eArgValType_Number));
     return ParseValidateCmdOptions();
 }
 
@@ -881,7 +838,7 @@ CMICmdCmdDataListRegisterNames::ParseArgs(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataListRegisterNames::Execute(void)
+CMICmdCmdDataListRegisterNames::Execute()
 {
     CMICMDBASE_GETOPTION(pArgRegNo, ListOfN, m_constStrArgRegNo);
 
@@ -949,7 +906,7 @@ CMICmdCmdDataListRegisterNames::Execute(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataListRegisterNames::Acknowledge(void)
+CMICmdCmdDataListRegisterNames::Acknowledge()
 {
     const CMICmnMIValueResult miValueResult("register-names", m_miValueList);
     const CMICmnMIResultRecord miRecordResult(m_cmdData.strMiCmdToken, CMICmnMIResultRecord::eResultClass_Done, miValueResult);
@@ -967,7 +924,7 @@ CMICmdCmdDataListRegisterNames::Acknowledge(void)
 // Throws:  None.
 //--
 CMICmdBase *
-CMICmdCmdDataListRegisterNames::CreateSelf(void)
+CMICmdCmdDataListRegisterNames::CreateSelf()
 {
     return new CMICmdCmdDataListRegisterNames();
 }
@@ -1019,7 +976,7 @@ CMICmdCmdDataListRegisterNames::GetRegister(const MIuint vRegisterIndex) const
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataListRegisterValues::CMICmdCmdDataListRegisterValues(void)
+CMICmdCmdDataListRegisterValues::CMICmdCmdDataListRegisterValues()
     : m_constStrArgThread("thread")
     , m_constStrArgSkip("skip-unavailable")
     , m_constStrArgFormat("fmt")
@@ -1040,7 +997,7 @@ CMICmdCmdDataListRegisterValues::CMICmdCmdDataListRegisterValues(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataListRegisterValues::~CMICmdCmdDataListRegisterValues(void)
+CMICmdCmdDataListRegisterValues::~CMICmdCmdDataListRegisterValues()
 {
 }
 
@@ -1054,12 +1011,12 @@ CMICmdCmdDataListRegisterValues::~CMICmdCmdDataListRegisterValues(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataListRegisterValues::ParseArgs(void)
+CMICmdCmdDataListRegisterValues::ParseArgs()
 {
-    m_setCmdArgs.Add(*(new CMICmdArgValOptionLong(m_constStrArgThread, false, false, CMICmdArgValListBase::eArgValType_Number, 1)));
-    m_setCmdArgs.Add(*(new CMICmdArgValOptionLong(m_constStrArgSkip, false, false)));
-    m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgFormat, true, true)));
-    m_setCmdArgs.Add(*(new CMICmdArgValListOfN(m_constStrArgRegNo, false, true, CMICmdArgValListBase::eArgValType_Number)));
+    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, false, CMICmdArgValListBase::eArgValType_Number, 1));
+    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgSkip, false, false));
+    m_setCmdArgs.Add(new CMICmdArgValString(m_constStrArgFormat, true, true));
+    m_setCmdArgs.Add(new CMICmdArgValListOfN(m_constStrArgRegNo, false, true, CMICmdArgValListBase::eArgValType_Number));
     return ParseValidateCmdOptions();
 }
 
@@ -1073,7 +1030,7 @@ CMICmdCmdDataListRegisterValues::ParseArgs(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataListRegisterValues::Execute(void)
+CMICmdCmdDataListRegisterValues::Execute()
 {
     CMICMDBASE_GETOPTION(pArgFormat, String, m_constStrArgFormat);
     CMICMDBASE_GETOPTION(pArgRegNo, ListOfN, m_constStrArgRegNo);
@@ -1157,7 +1114,7 @@ CMICmdCmdDataListRegisterValues::Execute(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataListRegisterValues::Acknowledge(void)
+CMICmdCmdDataListRegisterValues::Acknowledge()
 {
     const CMICmnMIValueResult miValueResult("register-values", m_miValueList);
     const CMICmnMIResultRecord miRecordResult(m_cmdData.strMiCmdToken, CMICmnMIResultRecord::eResultClass_Done, miValueResult);
@@ -1175,7 +1132,7 @@ CMICmdCmdDataListRegisterValues::Acknowledge(void)
 // Throws:  None.
 //--
 CMICmdBase *
-CMICmdCmdDataListRegisterValues::CreateSelf(void)
+CMICmdCmdDataListRegisterValues::CreateSelf()
 {
     return new CMICmdCmdDataListRegisterValues();
 }
@@ -1248,7 +1205,7 @@ CMICmdCmdDataListRegisterValues::AddToOutput(const MIuint vnIndex, const lldb::S
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataListRegisterChanged::CMICmdCmdDataListRegisterChanged(void)
+CMICmdCmdDataListRegisterChanged::CMICmdCmdDataListRegisterChanged()
 {
     // Command factory matches this name with that received from the stdin stream
     m_strMiCmd = "data-list-changed-registers";
@@ -1264,7 +1221,7 @@ CMICmdCmdDataListRegisterChanged::CMICmdCmdDataListRegisterChanged(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataListRegisterChanged::~CMICmdCmdDataListRegisterChanged(void)
+CMICmdCmdDataListRegisterChanged::~CMICmdCmdDataListRegisterChanged()
 {
 }
 
@@ -1278,7 +1235,7 @@ CMICmdCmdDataListRegisterChanged::~CMICmdCmdDataListRegisterChanged(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataListRegisterChanged::Execute(void)
+CMICmdCmdDataListRegisterChanged::Execute()
 {
     // Do nothing
 
@@ -1295,7 +1252,7 @@ CMICmdCmdDataListRegisterChanged::Execute(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataListRegisterChanged::Acknowledge(void)
+CMICmdCmdDataListRegisterChanged::Acknowledge()
 {
     const CMICmnMIValueConst miValueConst(MIRSRC(IDS_WORD_NOT_IMPLEMENTED));
     const CMICmnMIValueResult miValueResult("msg", miValueConst);
@@ -1314,7 +1271,7 @@ CMICmdCmdDataListRegisterChanged::Acknowledge(void)
 // Throws:  None.
 //--
 CMICmdBase *
-CMICmdCmdDataListRegisterChanged::CreateSelf(void)
+CMICmdCmdDataListRegisterChanged::CreateSelf()
 {
     return new CMICmdCmdDataListRegisterChanged();
 }
@@ -1330,7 +1287,7 @@ CMICmdCmdDataListRegisterChanged::CreateSelf(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataWriteMemoryBytes::CMICmdCmdDataWriteMemoryBytes(void)
+CMICmdCmdDataWriteMemoryBytes::CMICmdCmdDataWriteMemoryBytes()
     : m_constStrArgThread("thread")
     , m_constStrArgAddr("address")
     , m_constStrArgContents("contents")
@@ -1350,7 +1307,7 @@ CMICmdCmdDataWriteMemoryBytes::CMICmdCmdDataWriteMemoryBytes(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataWriteMemoryBytes::~CMICmdCmdDataWriteMemoryBytes(void)
+CMICmdCmdDataWriteMemoryBytes::~CMICmdCmdDataWriteMemoryBytes()
 {
 }
 
@@ -1364,12 +1321,12 @@ CMICmdCmdDataWriteMemoryBytes::~CMICmdCmdDataWriteMemoryBytes(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataWriteMemoryBytes::ParseArgs(void)
+CMICmdCmdDataWriteMemoryBytes::ParseArgs()
 {
-    m_setCmdArgs.Add(*(new CMICmdArgValOptionLong(m_constStrArgThread, false, false, CMICmdArgValListBase::eArgValType_Number, 1)));
-    m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgAddr, true, true, false, true)));
-    m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgContents, true, true, true, true)));
-    m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgCount, false, true, false, true)));
+    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, false, CMICmdArgValListBase::eArgValType_Number, 1));
+    m_setCmdArgs.Add(new CMICmdArgValString(m_constStrArgAddr, true, true, false, true));
+    m_setCmdArgs.Add(new CMICmdArgValString(m_constStrArgContents, true, true, true, true));
+    m_setCmdArgs.Add(new CMICmdArgValString(m_constStrArgCount, false, true, false, true));
     return ParseValidateCmdOptions();
 }
 
@@ -1383,7 +1340,7 @@ CMICmdCmdDataWriteMemoryBytes::ParseArgs(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataWriteMemoryBytes::Execute(void)
+CMICmdCmdDataWriteMemoryBytes::Execute()
 {
     // Do nothing - not reproduceable (yet) in Eclipse
     // CMICMDBASE_GETOPTION( pArgOffset, OptionShort, m_constStrArgOffset );
@@ -1407,7 +1364,7 @@ CMICmdCmdDataWriteMemoryBytes::Execute(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataWriteMemoryBytes::Acknowledge(void)
+CMICmdCmdDataWriteMemoryBytes::Acknowledge()
 {
     const CMICmnMIValueConst miValueConst(MIRSRC(IDS_WORD_NOT_IMPLEMENTED));
     const CMICmnMIValueResult miValueResult("msg", miValueConst);
@@ -1426,7 +1383,7 @@ CMICmdCmdDataWriteMemoryBytes::Acknowledge(void)
 // Throws:  None.
 //--
 CMICmdBase *
-CMICmdCmdDataWriteMemoryBytes::CreateSelf(void)
+CMICmdCmdDataWriteMemoryBytes::CreateSelf()
 {
     return new CMICmdCmdDataWriteMemoryBytes();
 }
@@ -1442,7 +1399,7 @@ CMICmdCmdDataWriteMemoryBytes::CreateSelf(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataWriteMemory::CMICmdCmdDataWriteMemory(void)
+CMICmdCmdDataWriteMemory::CMICmdCmdDataWriteMemory()
     : m_constStrArgThread("thread")
     , m_constStrArgOffset("o")
     , m_constStrArgAddr("address")
@@ -1467,7 +1424,7 @@ CMICmdCmdDataWriteMemory::CMICmdCmdDataWriteMemory(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataWriteMemory::~CMICmdCmdDataWriteMemory(void)
+CMICmdCmdDataWriteMemory::~CMICmdCmdDataWriteMemory()
 {
     if (m_pBufferMemory != nullptr)
     {
@@ -1486,14 +1443,14 @@ CMICmdCmdDataWriteMemory::~CMICmdCmdDataWriteMemory(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataWriteMemory::ParseArgs(void)
+CMICmdCmdDataWriteMemory::ParseArgs()
 {
-    m_setCmdArgs.Add(*(new CMICmdArgValOptionLong(m_constStrArgThread, false, false, CMICmdArgValListBase::eArgValType_Number, 1)));
-    m_setCmdArgs.Add(*(new CMICmdArgValOptionShort(m_constStrArgOffset, false, true, CMICmdArgValListBase::eArgValType_Number, 1)));
-    m_setCmdArgs.Add(*(new CMICmdArgValNumber(m_constStrArgAddr, true, true)));
-    m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgD, true, true)));
-    m_setCmdArgs.Add(*(new CMICmdArgValNumber(m_constStrArgNumber, true, true)));
-    m_setCmdArgs.Add(*(new CMICmdArgValNumber(m_constStrArgContents, true, true)));
+    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, false, CMICmdArgValListBase::eArgValType_Number, 1));
+    m_setCmdArgs.Add(new CMICmdArgValOptionShort(m_constStrArgOffset, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
+    m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgAddr, true, true));
+    m_setCmdArgs.Add(new CMICmdArgValString(m_constStrArgD, true, true));
+    m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgNumber, true, true));
+    m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgContents, true, true));
     return ParseValidateCmdOptions();
 }
 
@@ -1507,7 +1464,7 @@ CMICmdCmdDataWriteMemory::ParseArgs(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataWriteMemory::Execute(void)
+CMICmdCmdDataWriteMemory::Execute()
 {
     CMICMDBASE_GETOPTION(pArgOffset, OptionShort, m_constStrArgOffset);
     CMICMDBASE_GETOPTION(pArgAddr, Number, m_constStrArgAddr);
@@ -1565,7 +1522,7 @@ CMICmdCmdDataWriteMemory::Execute(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataWriteMemory::Acknowledge(void)
+CMICmdCmdDataWriteMemory::Acknowledge()
 {
     const CMICmnMIResultRecord miRecordResult(m_cmdData.strMiCmdToken, CMICmnMIResultRecord::eResultClass_Done);
     m_miResultRecord = miRecordResult;
@@ -1582,7 +1539,7 @@ CMICmdCmdDataWriteMemory::Acknowledge(void)
 // Throws:  None.
 //--
 CMICmdBase *
-CMICmdCmdDataWriteMemory::CreateSelf(void)
+CMICmdCmdDataWriteMemory::CreateSelf()
 {
     return new CMICmdCmdDataWriteMemory();
 }
@@ -1598,7 +1555,7 @@ CMICmdCmdDataWriteMemory::CreateSelf(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataInfoLine::CMICmdCmdDataInfoLine(void)
+CMICmdCmdDataInfoLine::CMICmdCmdDataInfoLine()
     : m_constStrArgLocation("location")
 {
     // Command factory matches this name with that received from the stdin stream
@@ -1615,7 +1572,7 @@ CMICmdCmdDataInfoLine::CMICmdCmdDataInfoLine(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmdCmdDataInfoLine::~CMICmdCmdDataInfoLine(void)
+CMICmdCmdDataInfoLine::~CMICmdCmdDataInfoLine()
 {
 }
 
@@ -1629,9 +1586,9 @@ CMICmdCmdDataInfoLine::~CMICmdCmdDataInfoLine(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataInfoLine::ParseArgs(void)
+CMICmdCmdDataInfoLine::ParseArgs()
 {
-    m_setCmdArgs.Add(*(new CMICmdArgValString(m_constStrArgLocation, true, true)));
+    m_setCmdArgs.Add(new CMICmdArgValString(m_constStrArgLocation, true, true));
     return ParseValidateCmdOptions();
 }
 
@@ -1645,7 +1602,7 @@ CMICmdCmdDataInfoLine::ParseArgs(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataInfoLine::Execute(void)
+CMICmdCmdDataInfoLine::Execute()
 {
     CMICMDBASE_GETOPTION(pArgLocation, String, m_constStrArgLocation);
 
@@ -1656,7 +1613,7 @@ CMICmdCmdDataInfoLine::Execute(void)
         // Parse argument:
         // *0x12345
         //  ^^^^^^^ -- address
-        const CMIUtilString strAddress(strLocation.c_str() + 1);
+        const CMIUtilString strAddress(strLocation.substr(1));
         strCmdOptionsLocation = CMIUtilString::Format("--address %s", strAddress.c_str());
     }
     else
@@ -1672,8 +1629,8 @@ CMICmdCmdDataInfoLine::Execute(void)
         // hello.cpp:5
         // ^^^^^^^^^ -- file
         //           ^ -- line
-        const CMIUtilString strFile(strLocation.substr(0, nLineStartPos).c_str());
-        const CMIUtilString strLine(strLocation.substr(nLineStartPos + 1).c_str());
+        const CMIUtilString strFile(strLocation.substr(0, nLineStartPos));
+        const CMIUtilString strLine(strLocation.substr(nLineStartPos + 1));
         strCmdOptionsLocation = CMIUtilString::Format("--file \"%s\" --line %s", strFile.AddSlashes().c_str(), strLine.c_str());
     }
     const CMIUtilString strCmd(CMIUtilString::Format("target modules lookup -v %s", strCmdOptionsLocation.c_str()));
@@ -1686,6 +1643,53 @@ CMICmdCmdDataInfoLine::Execute(void)
 }
 
 //++ ------------------------------------------------------------------------------------
+// Details: Helper function for parsing a line entry returned from lldb for the command:
+//              target modules lookup -v <location>
+//          where the line entry is of the format:
+//              LineEntry: \[0x0000000100000f37-0x0000000100000f45\): /path/file:3[:1]
+//                           start              end                   file       line column(opt)
+// Args:    input - (R) Input string to parse.
+//          start - (W) String representing the start address.
+//          end   - (W) String representing the end address.
+//          file  - (W) String representing the file.
+//          line  - (W) String representing the line.
+// Return:  bool - True = input was parsed successfully, false = input could not be parsed.
+// Throws:  None.
+//--
+static bool
+ParseLLDBLineEntry(const char *input, CMIUtilString &start, CMIUtilString &end,
+                   CMIUtilString &file, CMIUtilString &line)
+{
+    // Note: Ambiguities arise because the column is optional, and
+    // because : can appear in filenames or as a byte in a multibyte
+    // UTF8 character.  We keep those cases to a minimum by using regex
+    // to work on the string from both the left and right, so that what
+    // is remains is assumed to be the filename.
+
+    // Match LineEntry using regex.
+    static MIUtilParse::CRegexParser g_lineentry_nocol_regex( 
+        "^ *LineEntry: \\[(0x[0-9a-fA-F]+)-(0x[0-9a-fA-F]+)\\): (.+):([0-9]+)$");
+    static MIUtilParse::CRegexParser g_lineentry_col_regex( 
+        "^ *LineEntry: \\[(0x[0-9a-fA-F]+)-(0x[0-9a-fA-F]+)\\): (.+):([0-9]+):[0-9]+$");
+        //                ^1=start         ^2=end               ^3=f ^4=line ^5=:col(opt)
+
+    MIUtilParse::CRegexParser::Match match(6);
+
+    // First try matching the LineEntry with the column,
+    // then try without the column.
+    const bool ok = g_lineentry_col_regex.Execute(input, match) ||
+                    g_lineentry_nocol_regex.Execute(input, match);
+    if (ok)
+    {
+        start = match.GetMatchAtIndex(1);
+        end   = match.GetMatchAtIndex(2);
+        file  = match.GetMatchAtIndex(3);
+        line  = match.GetMatchAtIndex(4);
+    }
+    return ok;
+}
+
+//++ ------------------------------------------------------------------------------------
 // Details: The invoker requires this function. The command prepares a MI Record Result
 //          for the work carried out in the Execute().
 // Type:    Overridden.
@@ -1695,7 +1699,7 @@ CMICmdCmdDataInfoLine::Execute(void)
 // Throws:  None.
 //--
 bool
-CMICmdCmdDataInfoLine::Acknowledge(void)
+CMICmdCmdDataInfoLine::Acknowledge()
 {
     if (m_lldbResult.GetErrorSize() > 0)
     {
@@ -1716,58 +1720,25 @@ CMICmdCmdDataInfoLine::Acknowledge(void)
             // String looks like:
             // LineEntry: \[0x0000000100000f37-0x0000000100000f45\): /path/to/file:3[:1]
             const CMIUtilString &rLine(vecLines[i]);
+            CMIUtilString strStart;
+            CMIUtilString strEnd;
+            CMIUtilString strFile;
+            CMIUtilString strLine;
 
-            // LineEntry: \[0x0000000100000f37-0x0000000100000f45\): /path/to/file:3[:1]
-            // ^^^^^^^^^ -- property
-            const size_t nPropertyStartPos = rLine.find_first_not_of(' ');
-            const size_t nPropertyEndPos = rLine.find(':');
-            const size_t nPropertyLen = nPropertyEndPos - nPropertyStartPos;
-            const CMIUtilString strProperty(rLine.substr(nPropertyStartPos, nPropertyLen).c_str());
-
-            // Skip all except LineEntry
-            if (!CMIUtilString::Compare(strProperty, "LineEntry"))
+            if (!ParseLLDBLineEntry(rLine.c_str(), strStart, strEnd, strFile, strLine))
                 continue;
 
-            // LineEntry: \[0x0000000100000f37-0x0000000100000f45\): /path/to/file:3[:1]
-            //              ^^^^^^^^^^^^^^^^^^ -- start address
-            const size_t nStartAddressStartPos = rLine.find('[');
-            const size_t nStartAddressEndPos = rLine.find('-');
-            const size_t nStartAddressLen = nStartAddressEndPos - nStartAddressStartPos - 1;
-            const CMIUtilString strStartAddress(rLine.substr(nStartAddressStartPos + 1, nStartAddressLen).c_str());
-            const CMICmnMIValueConst miValueConst(strStartAddress);
+            const CMICmnMIValueConst miValueConst(strStart);
             const CMICmnMIValueResult miValueResult("start", miValueConst);
-            CMICmnMIResultRecord miRecordResult(m_cmdData.strMiCmdToken, CMICmnMIResultRecord::eResultClass_Done, miValueResult);
-
-            // LineEntry: \[0x0000000100000f37-0x0000000100000f45\): /path/to/file:3[:1]
-            //                                 ^^^^^^^^^^^^^^^^^^ -- end address
-            const size_t nEndAddressEndPos = rLine.find(')');
-            const size_t nEndAddressLen = nEndAddressEndPos - nStartAddressEndPos - 1;
-            const CMIUtilString strEndAddress(rLine.substr(nStartAddressEndPos + 1, nEndAddressLen).c_str());
-            const CMICmnMIValueConst miValueConst2(strEndAddress);
+            CMICmnMIResultRecord miRecordResult(m_cmdData.strMiCmdToken,
+                                                CMICmnMIResultRecord::eResultClass_Done,
+                                                miValueResult);
+            const CMICmnMIValueConst miValueConst2(strEnd);
             const CMICmnMIValueResult miValueResult2("end", miValueConst2);
             miRecordResult.Add(miValueResult2);
-
-            // LineEntry: \[0x0000000100000f37-0x0000000100000f45\): /path/to/file:3[:1]
-            //                                                       ^^^^^^^^^^^^^ -- file
-            //                                                                     ^ -- line
-            //                                                                        ^ -- column (optional)
-            const size_t nFileStartPos = rLine.find_first_not_of(' ', nEndAddressEndPos + 2);
-            const size_t nFileOrLineEndPos = rLine.rfind(':');
-            const size_t nFileOrLineStartPos = rLine.rfind(':', nFileOrLineEndPos - 1);
-            const size_t nFileEndPos = nFileStartPos < nFileOrLineStartPos ? nFileOrLineStartPos : nFileOrLineEndPos;
-            const size_t nFileLen = nFileEndPos - nFileStartPos;
-            const CMIUtilString strFile(rLine.substr(nFileStartPos, nFileLen).c_str());
             const CMICmnMIValueConst miValueConst3(strFile);
             const CMICmnMIValueResult miValueResult3("file", miValueConst3);
             miRecordResult.Add(miValueResult3);
-
-            // LineEntry: \[0x0000000100000f37-0x0000000100000f45\): /path/to/file:3[:1]
-            //                                                                     ^ -- line
-            const size_t nLineStartPos = nFileEndPos + 1;
-            const size_t nLineEndPos = rLine.find(':', nLineStartPos);
-            const size_t nLineLen = nLineEndPos != std::string::npos ? nLineEndPos - nLineStartPos
-                                                                     : std::string::npos;
-            const CMIUtilString strLine(rLine.substr(nLineStartPos, nLineLen).c_str());
             const CMICmnMIValueConst miValueConst4(strLine);
             const CMICmnMIValueResult miValueResult4("line", miValueConst4);
             miRecordResult.Add(miValueResult4);
@@ -1797,7 +1768,7 @@ CMICmdCmdDataInfoLine::Acknowledge(void)
 // Throws:  None.
 //--
 CMICmdBase *
-CMICmdCmdDataInfoLine::CreateSelf(void)
+CMICmdCmdDataInfoLine::CreateSelf()
 {
     return new CMICmdCmdDataInfoLine();
 }

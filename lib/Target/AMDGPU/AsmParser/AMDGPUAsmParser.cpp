@@ -215,6 +215,10 @@ public:
            (isReg() && isRegClass(AMDGPU::SReg_64RegClassID));
   }
 
+  bool isSCSrc64() const {
+    return (isReg() && isRegClass(AMDGPU::SReg_64RegClassID)) || isInlineImm();
+  }
+
   bool isVCSrc32() const {
     return isInlineImm() || (isReg() && isRegClass(AMDGPU::VS_32RegClassID));
   }
@@ -251,7 +255,22 @@ public:
     return EndLoc;
   }
 
-  void print(raw_ostream &OS) const override { }
+  void print(raw_ostream &OS) const override {
+    switch (Kind) {
+    case Register:
+      OS << "<register " << getReg() << '>';
+      break;
+    case Immediate:
+      OS << getImm();
+      break;
+    case Token:
+      OS << '\'' << getToken() << '\'';
+      break;
+    case Expression:
+      OS << "<expr " << *Expr << '>';
+      break;
+    }
+  }
 
   static std::unique_ptr<AMDGPUOperand> CreateImm(int64_t Val, SMLoc Loc,
                                                   enum ImmTy Type = ImmTyNone,
@@ -301,6 +320,8 @@ public:
   bool isDSOffset01() const;
   bool isSWaitCnt() const;
   bool isMubufOffset() const;
+  bool isSMRDOffset() const;
+  bool isSMRDLiteralOffset() const;
 };
 
 class AMDGPUAsmParser : public MCTargetAsmParser {
@@ -323,6 +344,7 @@ private:
   bool ParseDirectiveHSACodeObjectISA();
   bool ParseAMDKernelCodeTValue(StringRef ID, amd_kernel_code_t &Header);
   bool ParseDirectiveAMDKernelCodeT();
+  bool ParseSectionDirectiveHSAText();
 
 public:
   AMDGPUAsmParser(MCSubtargetInfo &STI, MCAsmParser &_Parser,
@@ -443,7 +465,7 @@ static unsigned getRegClass(bool IsVgpr, unsigned RegWidth) {
   }
 }
 
-static unsigned getRegForName(const StringRef &RegName) {
+static unsigned getRegForName(StringRef RegName) {
 
   return StringSwitch<unsigned>(RegName)
     .Case("exec", AMDGPU::EXEC)
@@ -464,7 +486,7 @@ bool AMDGPUAsmParser::ParseRegister(unsigned &RegNo, SMLoc &StartLoc, SMLoc &End
   const AsmToken Tok = Parser.getTok();
   StartLoc = Tok.getLoc();
   EndLoc = Tok.getEndLoc();
-  const StringRef &RegName = Tok.getString();
+  StringRef RegName = Tok.getString();
   RegNo = getRegForName(RegName);
 
   if (RegNo) {
@@ -882,6 +904,12 @@ bool AMDGPUAsmParser::ParseDirectiveAMDKernelCodeT() {
   return false;
 }
 
+bool AMDGPUAsmParser::ParseSectionDirectiveHSAText() {
+  getParser().getStreamer().SwitchSection(
+      AMDGPU::getHSATextSection(getContext()));
+  return false;
+}
+
 bool AMDGPUAsmParser::ParseDirective(AsmToken DirectiveID) {
   StringRef IDVal = DirectiveID.getString();
 
@@ -893,6 +921,9 @@ bool AMDGPUAsmParser::ParseDirective(AsmToken DirectiveID) {
 
   if (IDVal == ".amd_kernel_code_t")
     return ParseDirectiveAMDKernelCodeT();
+
+  if (IDVal == ".hsatext" || IDVal == ".text")
+    return ParseSectionDirectiveHSAText();
 
   return true;
 }
@@ -1568,6 +1599,23 @@ AMDGPUAsmParser::parseUNorm(OperandVector &Operands) {
 AMDGPUAsmParser::OperandMatchResultTy
 AMDGPUAsmParser::parseR128(OperandVector &Operands) {
   return parseNamedBit("r128", Operands);
+}
+
+//===----------------------------------------------------------------------===//
+// smrd
+//===----------------------------------------------------------------------===//
+
+bool AMDGPUOperand::isSMRDOffset() const {
+
+  // FIXME: Support 20-bit offsets on VI.  We need to to pass subtarget
+  // information here.
+  return isImm() && isUInt<8>(getImm());
+}
+
+bool AMDGPUOperand::isSMRDLiteralOffset() const {
+  // 32-bit literals are only supported on CI and we only want to use them
+  // when the offset is > 8-bits.
+  return isImm() && !isUInt<8>(getImm()) && isUInt<32>(getImm());
 }
 
 //===----------------------------------------------------------------------===//

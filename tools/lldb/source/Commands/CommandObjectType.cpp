@@ -30,6 +30,9 @@
 #include "lldb/Interpreter/CommandReturnObject.h"
 #include "lldb/Interpreter/Options.h"
 #include "lldb/Interpreter/OptionGroupFormat.h"
+#include "lldb/Interpreter/OptionValueBoolean.h"
+#include "lldb/Interpreter/OptionValueLanguage.h"
+#include "lldb/Target/Language.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Target/StackFrame.h"
 #include "lldb/Target/Target.h"
@@ -1355,9 +1358,7 @@ private:
         if(param->cate_regex != NULL && strcmp(cate_name,param->cate_regex->GetText()) != 0 && param->cate_regex->Execute(cate_name) == false)
             return true;
         
-        result->GetOutputStream().Printf("-----------------------\nCategory: %s (%s)\n-----------------------\n",
-                                         cate_name,
-                                         (cate->IsEnabled() ? "enabled" : "disabled"));
+        result->GetOutputStream().Printf("-----------------------\nCategory: %s\n-----------------------\n", cate->GetDescription().c_str());
         
         cate->GetTypeFormatsContainer()->LoopThrough(CommandObjectTypeFormatList_LoopCallback, param_vp);
         
@@ -2397,10 +2398,8 @@ private:
         if(param->cate_regex != NULL && strcmp(cate_name,param->cate_regex->GetText()) != 0 && param->cate_regex->Execute(cate_name) == false)
             return true;
         
-        result->GetOutputStream().Printf("-----------------------\nCategory: %s (%s)\n-----------------------\n",
-                                         cate_name,
-                                         (cate->IsEnabled() ? "enabled" : "disabled"));
-                
+        result->GetOutputStream().Printf("-----------------------\nCategory: %s\n-----------------------\n", cate->GetDescription().c_str());
+
         cate->GetTypeSummariesContainer()->LoopThrough(CommandObjectTypeSummaryList_LoopCallback, param_vp);
         
         if (cate->GetRegexTypeSummariesContainer()->GetCount() > 0)
@@ -2455,17 +2454,223 @@ CommandObjectTypeSummaryList::CommandOptions::g_option_table[] =
 };
 
 //-------------------------------------------------------------------------
+// CommandObjectTypeCategoryDefine
+//-------------------------------------------------------------------------
+
+class CommandObjectTypeCategoryDefine : public CommandObjectParsed
+{
+    
+    class CommandOptions : public Options
+    {
+    public:
+        
+        CommandOptions (CommandInterpreter &interpreter) :
+        Options (interpreter),
+        m_define_enabled(false,false),
+        m_cate_language(eLanguageTypeUnknown,eLanguageTypeUnknown)
+        {
+        }
+        
+        virtual
+        ~CommandOptions (){}
+        
+        virtual Error
+        SetOptionValue (uint32_t option_idx, const char *option_arg)
+        {
+            Error error;
+            const int short_option = m_getopt_table[option_idx].val;
+            
+            switch (short_option)
+            {
+                case 'e':
+                    m_define_enabled.SetValueFromString("true");
+                    break;
+                case 'l':
+                    error = m_cate_language.SetValueFromString(option_arg);
+                    break;
+                default:
+                    error.SetErrorStringWithFormat ("unrecognized option '%c'", short_option);
+                    break;
+            }
+            
+            return error;
+        }
+        
+        void
+        OptionParsingStarting ()
+        {
+            m_define_enabled.Clear();
+            m_cate_language.Clear();
+        }
+        
+        const OptionDefinition*
+        GetDefinitions ()
+        {
+            return g_option_table;
+        }
+        
+        // Options table: Required for subclasses of Options.
+        
+        static OptionDefinition g_option_table[];
+        
+        // Instance variables to hold the values for command options.
+        
+        OptionValueBoolean m_define_enabled;
+        OptionValueLanguage m_cate_language;
+        
+        
+    };
+    
+    CommandOptions m_options;
+    
+    virtual Options *
+    GetOptions ()
+    {
+        return &m_options;
+    }
+
+public:
+    CommandObjectTypeCategoryDefine (CommandInterpreter &interpreter) :
+    CommandObjectParsed (interpreter,
+                         "type category define",
+                         "Define a new category as a source of formatters.",
+                         NULL),
+    m_options(interpreter)
+    {
+        CommandArgumentEntry type_arg;
+        CommandArgumentData type_style_arg;
+        
+        type_style_arg.arg_type = eArgTypeName;
+        type_style_arg.arg_repetition = eArgRepeatPlus;
+        
+        type_arg.push_back (type_style_arg);
+        
+        m_arguments.push_back (type_arg);
+        
+    }
+    
+    ~CommandObjectTypeCategoryDefine ()
+    {
+    }
+    
+protected:
+    bool
+    DoExecute (Args& command, CommandReturnObject &result)
+    {
+        const size_t argc = command.GetArgumentCount();
+        
+        if (argc < 1)
+        {
+            result.AppendErrorWithFormat ("%s takes 1 or more args.\n", m_cmd_name.c_str());
+            result.SetStatus(eReturnStatusFailed);
+            return false;
+        }
+        
+        for (size_t i = 0; i < argc; i++)
+        {
+            const char* cateName = command.GetArgumentAtIndex(i);
+            TypeCategoryImplSP category_sp;
+            if (DataVisualization::Categories::GetCategory(ConstString(cateName), category_sp) && category_sp)
+            {
+                category_sp->AddLanguage(m_options.m_cate_language.GetCurrentValue());
+                if (m_options.m_define_enabled.GetCurrentValue())
+                    DataVisualization::Categories::Enable(category_sp, TypeCategoryMap::Default);
+            }
+        }
+        
+        result.SetStatus(eReturnStatusSuccessFinishResult);
+        return result.Succeeded();
+    }
+    
+};
+
+OptionDefinition
+CommandObjectTypeCategoryDefine::CommandOptions::g_option_table[] =
+{
+    { LLDB_OPT_SET_ALL, false, "enabled", 'e', OptionParser::eNoArgument, NULL, NULL, 0, eArgTypeNone,  "If specified, this category will be created enabled."},
+    { LLDB_OPT_SET_ALL, false, "language", 'l', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypeLanguage,  "Specify the language that this category is supported for."},
+    { 0, false, NULL, 0, 0, NULL, NULL, 0, eArgTypeNone, NULL }
+};
+
+//-------------------------------------------------------------------------
 // CommandObjectTypeCategoryEnable
 //-------------------------------------------------------------------------
 
 class CommandObjectTypeCategoryEnable : public CommandObjectParsed
 {
+    class CommandOptions : public Options
+    {
+    public:
+        
+        CommandOptions (CommandInterpreter &interpreter) :
+        Options (interpreter)
+        {
+        }
+        
+        virtual
+        ~CommandOptions (){}
+        
+        virtual Error
+        SetOptionValue (uint32_t option_idx, const char *option_arg)
+        {
+            Error error;
+            const int short_option = m_getopt_table[option_idx].val;
+            
+            switch (short_option)
+            {
+                case 'l':
+                    if (option_arg)
+                    {
+                        m_language = Language::GetLanguageTypeFromString(option_arg);
+                        if (m_language == lldb::eLanguageTypeUnknown)
+                            error.SetErrorStringWithFormat ("unrecognized language '%s'", option_arg);
+                    }
+                    break;
+                default:
+                    error.SetErrorStringWithFormat ("unrecognized option '%c'", short_option);
+                    break;
+            }
+            
+            return error;
+        }
+        
+        void
+        OptionParsingStarting ()
+        {
+            m_language = lldb::eLanguageTypeUnknown;
+        }
+        
+        const OptionDefinition*
+        GetDefinitions ()
+        {
+            return g_option_table;
+        }
+        
+        // Options table: Required for subclasses of Options.
+        
+        static OptionDefinition g_option_table[];
+        
+        // Instance variables to hold the values for command options.
+        
+        lldb::LanguageType m_language;
+        
+    };
+    
+    CommandOptions m_options;
+    
+    virtual Options *
+    GetOptions ()
+    {
+        return &m_options;
+    }
+    
 public:
     CommandObjectTypeCategoryEnable (CommandInterpreter &interpreter) :
         CommandObjectParsed (interpreter,
                              "type category enable",
                              "Enable a category as a source of formatters.",
-                             NULL)
+                             NULL),
+        m_options(interpreter)
     {
         CommandArgumentEntry type_arg;
         CommandArgumentData type_style_arg;
@@ -2489,9 +2694,10 @@ protected:
     {
         const size_t argc = command.GetArgumentCount();
         
-        if (argc < 1)
+        if (argc < 1 &&
+            m_options.m_language == lldb::eLanguageTypeUnknown)
         {
-            result.AppendErrorWithFormat ("%s takes 1 or more args.\n", m_cmd_name.c_str());
+            result.AppendErrorWithFormat ("%s takes arguments and/or a language", m_cmd_name.c_str());
             result.SetStatus(eReturnStatusFailed);
             return false;
         }
@@ -2500,7 +2706,7 @@ protected:
         {
             DataVisualization::Categories::EnableStar();
         }
-        else
+        else if (argc > 0)
         {
             for (int i = argc - 1; i >= 0; i--)
             {
@@ -2525,10 +2731,20 @@ protected:
             }
         }
         
+        if (m_options.m_language != lldb::eLanguageTypeUnknown)
+            DataVisualization::Categories::Enable(m_options.m_language);
+        
         result.SetStatus(eReturnStatusSuccessFinishResult);
         return result.Succeeded();
     }
     
+};
+
+OptionDefinition
+CommandObjectTypeCategoryEnable::CommandOptions::g_option_table[] =
+{
+    { LLDB_OPT_SET_ALL, false, "language", 'l', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypeLanguage,  "Enable the category for this language."},
+    { 0, false, NULL, 0, 0, NULL, NULL, 0, eArgTypeNone, NULL }
 };
 
 //-------------------------------------------------------------------------
@@ -2610,12 +2826,79 @@ protected:
 
 class CommandObjectTypeCategoryDisable : public CommandObjectParsed
 {
+    class CommandOptions : public Options
+    {
+    public:
+        
+        CommandOptions (CommandInterpreter &interpreter) :
+        Options (interpreter)
+        {
+        }
+        
+        virtual
+        ~CommandOptions (){}
+        
+        virtual Error
+        SetOptionValue (uint32_t option_idx, const char *option_arg)
+        {
+            Error error;
+            const int short_option = m_getopt_table[option_idx].val;
+            
+            switch (short_option)
+            {
+                case 'l':
+                    if (option_arg)
+                    {
+                        m_language = Language::GetLanguageTypeFromString(option_arg);
+                        if (m_language == lldb::eLanguageTypeUnknown)
+                            error.SetErrorStringWithFormat ("unrecognized language '%s'", option_arg);
+                    }
+                    break;
+                default:
+                    error.SetErrorStringWithFormat ("unrecognized option '%c'", short_option);
+                    break;
+            }
+            
+            return error;
+        }
+        
+        void
+        OptionParsingStarting ()
+        {
+            m_language = lldb::eLanguageTypeUnknown;
+        }
+        
+        const OptionDefinition*
+        GetDefinitions ()
+        {
+            return g_option_table;
+        }
+        
+        // Options table: Required for subclasses of Options.
+        
+        static OptionDefinition g_option_table[];
+        
+        // Instance variables to hold the values for command options.
+        
+        lldb::LanguageType m_language;
+        
+    };
+    
+    CommandOptions m_options;
+    
+    virtual Options *
+    GetOptions ()
+    {
+        return &m_options;
+    }
+
 public:
     CommandObjectTypeCategoryDisable (CommandInterpreter &interpreter) :
         CommandObjectParsed (interpreter,
                              "type category disable",
                              "Disable a category as a source of formatters.",
-                             NULL)
+                             NULL),
+        m_options(interpreter)
     {
         CommandArgumentEntry type_arg;
         CommandArgumentData type_style_arg;
@@ -2639,9 +2922,10 @@ protected:
     {
         const size_t argc = command.GetArgumentCount();
         
-        if (argc < 1)
+        if (argc < 1 &&
+            m_options.m_language == lldb::eLanguageTypeUnknown)
         {
-            result.AppendErrorWithFormat ("%s takes 1 or more args.\n", m_cmd_name.c_str());
+            result.AppendErrorWithFormat ("%s takes arguments and/or a language", m_cmd_name.c_str());
             result.SetStatus(eReturnStatusFailed);
             return false;
         }
@@ -2650,7 +2934,7 @@ protected:
         {
             DataVisualization::Categories::DisableStar();
         }
-        else
+        else if (argc > 0)
         {
             // the order is not relevant here
             for (int i = argc - 1; i >= 0; i--)
@@ -2667,11 +2951,21 @@ protected:
                 DataVisualization::Categories::Disable(typeCS);
             }
         }
+        
+        if (m_options.m_language != lldb::eLanguageTypeUnknown)
+            DataVisualization::Categories::Disable(m_options.m_language);
 
         result.SetStatus(eReturnStatusSuccessFinishResult);
         return result.Succeeded();
     }
     
+};
+
+OptionDefinition
+CommandObjectTypeCategoryDisable::CommandOptions::g_option_table[] =
+{
+    { LLDB_OPT_SET_ALL, false, "language", 'l', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypeLanguage,  "Enable the category for this language."},
+    { 0, false, NULL, 0, 0, NULL, NULL, 0, eArgTypeNone, NULL }
 };
 
 //-------------------------------------------------------------------------
@@ -2708,9 +3002,7 @@ private:
         const char* cate_name = cate->GetName();
         
         if (regex == NULL || strcmp(cate_name, regex->GetText()) == 0 || regex->Execute(cate_name))
-            result->GetOutputStream().Printf("Category %s is%s enabled\n",
-                                       cate_name,
-                                       (cate->IsEnabled() ? "" : " not"));
+            result->GetOutputStream().Printf("Category: %s\n", cate->GetDescription().c_str());
         return true;
     }
 public:
@@ -2924,9 +3216,7 @@ private:
         if(param->cate_regex != NULL && strcmp(cate_name,param->cate_regex->GetText()) != 0 && param->cate_regex->Execute(cate_name) == false)
             return true;
         
-        result->GetOutputStream().Printf("-----------------------\nCategory: %s (%s)\n-----------------------\n",
-                                         cate_name,
-                                         (cate->IsEnabled() ? "enabled" : "disabled"));
+        result->GetOutputStream().Printf("-----------------------\nCategory: %s\n-----------------------\n", cate->GetDescription().c_str());
         
         cate->GetTypeFiltersContainer()->LoopThrough(CommandObjectTypeFilterList_LoopCallback, param_vp);
         
@@ -3139,9 +3429,7 @@ private:
         if(param->cate_regex != NULL && strcmp(cate_name,param->cate_regex->GetText()) != 0 && param->cate_regex->Execute(cate_name) == false)
             return true;
         
-        result->GetOutputStream().Printf("-----------------------\nCategory: %s (%s)\n-----------------------\n",
-                                         cate_name,
-                                         (cate->IsEnabled() ? "enabled" : "disabled"));
+        result->GetOutputStream().Printf("-----------------------\nCategory: %s\n-----------------------\n", cate->GetDescription().c_str());
         
         cate->GetTypeSyntheticsContainer()->LoopThrough(CommandObjectTypeSynthList_LoopCallback, param_vp);
         
@@ -3960,10 +4248,10 @@ CommandObjectTypeSynthAdd::CommandOptions::g_option_table[] =
 {
     { LLDB_OPT_SET_ALL, false, "cascade", 'C', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypeBoolean,    "If true, cascade through typedef chains."},
     { LLDB_OPT_SET_ALL, false, "skip-pointers", 'p', OptionParser::eNoArgument, NULL, NULL, 0, eArgTypeNone,         "Don't use this format for pointers-to-type objects."},
-    { LLDB_OPT_SET_ALL, false, "skip-references", 'r', OptionParser::eNoArgument, NULL, NULL, 0, eArgTypeNone,         "Don't use this format for references-to-tNULL, ype objects."},
+    { LLDB_OPT_SET_ALL, false, "skip-references", 'r', OptionParser::eNoArgument, NULL, NULL, 0, eArgTypeNone,         "Don't use this format for references-to-type objects."},
     { LLDB_OPT_SET_ALL, false, "category", 'w', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypeName,         "Add this to the given category instead of the default one."},
     { LLDB_OPT_SET_2, false, "python-class", 'l', OptionParser::eRequiredArgument, NULL, NULL, 0, eArgTypePythonClass,    "Use this Python class to produce synthetic children."},
-    { LLDB_OPT_SET_3, false, "input-python", 'P', OptionParser::eNoArgument,NULL,  NULL, 0, eArgTypeNone,    "Type Python code to generate a class that NULL, provides synthetic children."},
+    { LLDB_OPT_SET_3, false, "input-python", 'P', OptionParser::eNoArgument, NULL, NULL, 0, eArgTypeNone,    "Type Python code to generate a class that provides synthetic children."},
     { LLDB_OPT_SET_ALL, false,  "regex", 'x', OptionParser::eNoArgument, NULL, NULL, 0, eArgTypeNone,    "Type names are actually regular expressions."},
     { 0, false, NULL, 0, 0, NULL, NULL, 0, eArgTypeNone, NULL }
 };
@@ -4434,6 +4722,7 @@ public:
                             "A set of commands for operating on categories",
                             "type category [<sub-command-options>] ")
     {
+        LoadSubCommand ("define",        CommandObjectSP (new CommandObjectTypeCategoryDefine (interpreter)));
         LoadSubCommand ("enable",        CommandObjectSP (new CommandObjectTypeCategoryEnable (interpreter)));
         LoadSubCommand ("disable",       CommandObjectSP (new CommandObjectTypeCategoryDisable (interpreter)));
         LoadSubCommand ("delete",        CommandObjectSP (new CommandObjectTypeCategoryDelete (interpreter)));

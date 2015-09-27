@@ -113,6 +113,9 @@ namespace process_linux {
         Error
         GetFileLoadAddress(const llvm::StringRef& file_name, lldb::addr_t& load_addr) override;
 
+        NativeThreadLinuxSP
+        GetThreadByID(lldb::tid_t id);
+
         // ---------------------------------------------------------------------
         // Interface used by NativeRegisterContext-derived classes.
         // ---------------------------------------------------------------------
@@ -139,6 +142,8 @@ namespace process_linux {
         LazyBool m_supports_mem_region;
         std::vector<MemoryRegionInfo> m_mem_region_cache;
         Mutex m_mem_region_cache_mutex;
+
+        lldb::tid_t m_pending_notification_tid;
 
         // List of thread ids stepping with a breakpoint with the address of
         // the relevan breakpoint
@@ -171,7 +176,7 @@ namespace process_linux {
             const ProcessLaunchInfo &m_launch_info;
         };
 
-        typedef std::function<::pid_t(Error &)> InitialOperation;
+        typedef std::function< ::pid_t(Error &)> InitialOperation;
 
         // ---------------------------------------------------------------------
         // Private Instance Methods
@@ -220,25 +225,25 @@ namespace process_linux {
         WaitForNewThread(::pid_t tid);
 
         void
-        MonitorSIGTRAP(const siginfo_t *info, lldb::pid_t pid);
+        MonitorSIGTRAP(const siginfo_t &info, NativeThreadLinux &thread);
 
         void
-        MonitorTrace(lldb::pid_t pid, NativeThreadProtocolSP thread_sp);
+        MonitorTrace(NativeThreadLinux &thread);
 
         void
-        MonitorBreakpoint(lldb::pid_t pid, NativeThreadProtocolSP thread_sp);
+        MonitorBreakpoint(NativeThreadLinux &thread);
 
         void
-        MonitorWatchpoint(lldb::pid_t pid, NativeThreadProtocolSP thread_sp, uint32_t wp_index);
+        MonitorWatchpoint(NativeThreadLinux &thread, uint32_t wp_index);
 
         void
-        MonitorSignal(const siginfo_t *info, lldb::pid_t pid, bool exited);
+        MonitorSignal(const siginfo_t &info, NativeThreadLinux &thread, bool exited);
 
         bool
         SupportHardwareSingleStepping() const;
 
         Error
-        SetupSoftwareSingleStepping(NativeThreadProtocolSP thread_sp);
+        SetupSoftwareSingleStepping(NativeThreadLinux &thread);
 
 #if 0
         static ::ProcessMessage::CrashReason
@@ -257,20 +262,17 @@ namespace process_linux {
         bool
         HasThreadNoLock (lldb::tid_t thread_id);
 
-        NativeThreadProtocolSP
-        MaybeGetThreadNoLock (lldb::tid_t thread_id);
-
         bool
         StopTrackingThread (lldb::tid_t thread_id);
 
-        NativeThreadProtocolSP
+        NativeThreadLinuxSP
         AddThread (lldb::tid_t thread_id);
 
         Error
-        GetSoftwareBreakpointPCOffset (NativeRegisterContextSP context_sp, uint32_t &actual_opcode_size);
+        GetSoftwareBreakpointPCOffset(uint32_t &actual_opcode_size);
 
         Error
-        FixupBreakpointPCAsNeeded (NativeThreadProtocolSP &thread_sp);
+        FixupBreakpointPCAsNeeded(NativeThreadLinux &thread);
 
         /// Writes a siginfo_t structure corresponding to the given thread ID to the
         /// memory region pointed to by @p siginfo.
@@ -300,55 +302,25 @@ namespace process_linux {
         Detach(lldb::tid_t tid);
 
 
-        // Typedefs.
-        typedef std::unordered_set<lldb::tid_t> ThreadIDSet;
-
         // This method is requests a stop on all threads which are still running. It sets up a
         // deferred delegate notification, which will fire once threads report as stopped. The
         // triggerring_tid will be set as the current thread (main stop reason).
         void
         StopRunningThreads(lldb::tid_t triggering_tid);
 
-        struct PendingNotification
-        {
-            PendingNotification (lldb::tid_t triggering_tid):
-                triggering_tid (triggering_tid),
-                wait_for_stop_tids ()
-            {
-            }
-
-            const lldb::tid_t  triggering_tid;
-            ThreadIDSet        wait_for_stop_tids;
-        };
-        typedef std::unique_ptr<PendingNotification> PendingNotificationUP;
-
         // Notify the delegate if all threads have stopped.
         void SignalIfAllThreadsStopped();
 
-        void
-        RequestStopOnAllRunningThreads();
-
+        // Resume the given thread, optionally passing it the given signal. The type of resume
+        // operation (continue, single-step) depends on the state parameter.
         Error
-        ThreadDidStop(lldb::tid_t tid, bool initiated_by_llgs);
-
-        // Resume the thread with the given thread id using the request_thread_resume_function
-        // called. If error_when_already_running is then then an error is raised if we think this
-        // thread is already running.
-        Error
-        ResumeThread(lldb::tid_t tid, NativeThreadLinux::ResumeThreadFunction request_thread_resume_function,
-                bool error_when_already_running);
+        ResumeThread(NativeThreadLinux &thread, lldb::StateType state, int signo);
 
         void
-        DoStopThreads(PendingNotificationUP &&notification_up);
-
-        void
-        ThreadWasCreated (lldb::tid_t tid);
+        ThreadWasCreated(NativeThreadLinux &thread);
 
         void
         SigchldHandler();
-
-        // Member variables.
-        PendingNotificationUP m_pending_notification_up;
     };
 
 } // namespace process_linux

@@ -16,7 +16,6 @@
 #include "lldb/Symbol/ClangASTContext.h"
 #include "lldb/Symbol/ClangASTImporter.h"
 #include "lldb/Symbol/ClangExternalASTSourceCommon.h"
-#include "lldb/Symbol/ClangNamespaceDecl.h"
 #include "lldb/Utility/LLDBAssert.h"
 
 using namespace lldb_private;
@@ -60,10 +59,10 @@ ClangASTImporter::CopyType (clang::ASTContext *dst_ast,
     return QualType();
 }
 
-lldb::clang_type_t
+lldb::opaque_compiler_type_t
 ClangASTImporter::CopyType (clang::ASTContext *dst_ast,
                             clang::ASTContext *src_ast,
-                            lldb::clang_type_t type)
+                            lldb::opaque_compiler_type_t type)
 {
     return CopyType (dst_ast, src_ast, QualType::getFromOpaquePtr(type)).getAsOpaquePtr();
 }
@@ -238,11 +237,19 @@ public:
     }
 };
 
-lldb::clang_type_t
+lldb::opaque_compiler_type_t
 ClangASTImporter::DeportType (clang::ASTContext *dst_ctx,
                               clang::ASTContext *src_ctx,
-                              lldb::clang_type_t type)
-{    
+                              lldb::opaque_compiler_type_t type)
+{
+    Log *log(lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_EXPRESSIONS));
+  
+    if (log)
+        log->Printf("    [ClangASTImporter] DeportType called on (%sType*)0x%llx from (ASTContext*)%p to (ASTContext*)%p",
+                    QualType::getFromOpaquePtr(type)->getTypeClassName(), (unsigned long long)type,
+                    static_cast<void*>(src_ctx),
+                    static_cast<void*>(dst_ctx));
+
     MinionSP minion_sp (GetMinion (dst_ctx, src_ctx));
     
     if (!minion_sp)
@@ -261,7 +268,7 @@ ClangASTImporter::DeportType (clang::ASTContext *dst_ctx,
     minion_sp->InitDeportWorkQueues(&decls_to_deport,
                                     &decls_already_deported);
     
-    lldb::clang_type_t result = CopyType(dst_ctx, src_ctx, type);
+    lldb::opaque_compiler_type_t result = CopyType(dst_ctx, src_ctx, type);
     
     minion_sp->ExecuteDeportWorkQueues();
     
@@ -280,7 +287,7 @@ ClangASTImporter::DeportDecl (clang::ASTContext *dst_ctx,
     Log *log(lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_EXPRESSIONS));
 
     if (log)
-        log->Printf("    [ClangASTImporter] DeportDecl called on (%sDecl*)%p from (ASTContext*)%p to (ASTContex*)%p",
+        log->Printf("    [ClangASTImporter] DeportDecl called on (%sDecl*)%p from (ASTContext*)%p to (ASTContext*)%p",
                     decl->getDeclKindName(), static_cast<void*>(decl),
                     static_cast<void*>(src_ctx),
                     static_cast<void*>(dst_ctx));
@@ -600,7 +607,7 @@ void
 ClangASTImporter::Minion::InitDeportWorkQueues (std::set<clang::NamedDecl *> *decls_to_deport,
                                                 std::set<clang::NamedDecl *> *decls_already_deported)
 {
-    assert(!m_decls_to_deport); // TODO make debug only
+    assert(!m_decls_to_deport);
     assert(!m_decls_already_deported);
     
     m_decls_to_deport = decls_to_deport;
@@ -610,7 +617,7 @@ ClangASTImporter::Minion::InitDeportWorkQueues (std::set<clang::NamedDecl *> *de
 void
 ClangASTImporter::Minion::ExecuteDeportWorkQueues ()
 {
-    assert(m_decls_to_deport); // TODO make debug only
+    assert(m_decls_to_deport);
     assert(m_decls_already_deported);
     
     ASTContextMetadataSP to_context_md = m_master.GetContextMetadata(&getToContext());

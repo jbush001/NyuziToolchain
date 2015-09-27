@@ -1161,6 +1161,12 @@ protected:
 
                     if (from[0] && to[0])
                     {
+                        Log *log = lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_HOST);
+                        if (log)
+                        {
+                            log->Printf ("target modules search path adding ImageSearchPath pair: '%s' -> '%s'",
+                                         from, to);
+                        }
                         bool last_pair = ((argc - i) == 2);
                         target->GetImageSearchPathList().Append (ConstString(from),
                                                                  ConstString(to),
@@ -1865,7 +1871,7 @@ LookupTypeInModule (CommandInterpreter &interpreter,
                 {
                     // Resolve the clang type so that any forward references
                     // to types that haven't yet been parsed will get parsed.
-                    type_sp->GetClangFullType ();
+                    type_sp->GetFullCompilerType ();
                     type_sp->GetDescription (&strm, eDescriptionLevelFull, true);
                     // Print all typedef chains
                     TypeSP typedef_type_sp (type_sp);
@@ -1874,7 +1880,7 @@ LookupTypeInModule (CommandInterpreter &interpreter,
                     {
                         strm.EOL();
                         strm.Printf("     typedef '%s': ", typedef_type_sp->GetName().GetCString());
-                        typedefed_type_sp->GetClangFullType ();
+                        typedefed_type_sp->GetFullCompilerType ();
                         typedefed_type_sp->GetDescription (&strm, eDescriptionLevelFull, true);
                         typedef_type_sp = typedefed_type_sp;
                         typedefed_type_sp = typedef_type_sp->GetTypedefType();
@@ -1918,7 +1924,7 @@ LookupTypeHere (CommandInterpreter &interpreter,
         {
             // Resolve the clang type so that any forward references
             // to types that haven't yet been parsed will get parsed.
-            type_sp->GetClangFullType ();
+            type_sp->GetFullCompilerType ();
             type_sp->GetDescription (&strm, eDescriptionLevelFull, true);
             // Print all typedef chains
             TypeSP typedef_type_sp (type_sp);
@@ -1927,7 +1933,7 @@ LookupTypeHere (CommandInterpreter &interpreter,
             {
                 strm.EOL();
                 strm.Printf("     typedef '%s': ", typedef_type_sp->GetName().GetCString());
-                typedefed_type_sp->GetClangFullType ();
+                typedefed_type_sp->GetFullCompilerType ();
                 typedefed_type_sp->GetDescription (&strm, eDescriptionLevelFull, true);
                 typedef_type_sp = typedefed_type_sp;
                 typedefed_type_sp = typedef_type_sp->GetTypedefType();

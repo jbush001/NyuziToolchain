@@ -85,7 +85,7 @@ public:
     {
         return m_parent->GetSP();
     }
-    
+
     void
     SetOwningSP (lldb::ValueObjectSP &owning_sp)
     {
@@ -105,6 +105,9 @@ public:
     virtual TypeImpl
     GetTypeImpl ();
     
+    virtual bool
+    GetDeclaration (Declaration &decl);
+
 protected:
     virtual bool
     UpdateValue ();
@@ -127,8 +130,8 @@ protected:
         return true;
     }
     
-    virtual ClangASTType
-    GetClangTypeImpl ();
+    virtual CompilerType
+    GetCompilerTypeImpl ();
 
     Address  m_address;  ///< The variable that this value object is based upon
     TypeAndOrName m_dynamic_type_info; // We can have a type_sp or just a name

@@ -20,6 +20,10 @@ set( LLDB_USED_LIBS
   lldbPluginDynamicLoaderPosixDYLD
   lldbPluginDynamicLoaderHexagonDYLD
   lldbPluginDynamicLoaderWindowsDYLD
+  
+  lldbPluginCPlusPlusLanguage
+  lldbPluginObjCLanguage
+  lldbPluginObjCPlusPlusLanguage
 
   lldbPluginObjectFileELF
   lldbPluginObjectFileJIT
@@ -61,20 +65,21 @@ set( LLDB_USED_LIBS
   lldbPluginInstructionMIPS
   lldbPluginInstructionMIPS64
   lldbPluginObjectFilePECOFF
+  lldbPluginOSGo
   lldbPluginOSPython
   lldbPluginMemoryHistoryASan
   lldbPluginInstrumentationRuntimeAddressSanitizer
   lldbPluginSystemRuntimeMacOSX
   lldbPluginProcessElfCore
   lldbPluginJITLoaderGDB
+  lldbPluginExpressionParserClang
   )
 
 # Windows-only libraries
 if ( CMAKE_SYSTEM_NAME MATCHES "Windows" )
   list(APPEND LLDB_USED_LIBS
     lldbPluginProcessWindows
-    lldbPluginProcessElfCore
-    lldbPluginJITLoaderGDB
+    lldbPluginProcessWinMiniDump
     Ws2_32
     Rpcrt4
     )
@@ -85,8 +90,6 @@ if ( CMAKE_SYSTEM_NAME MATCHES "Linux" )
   list(APPEND LLDB_USED_LIBS
     lldbPluginProcessLinux
     lldbPluginProcessPOSIX
-    lldbPluginProcessElfCore
-    lldbPluginJITLoaderGDB
    )
 endif ()
 
@@ -95,8 +98,6 @@ if ( CMAKE_SYSTEM_NAME MATCHES "FreeBSD" )
   list(APPEND LLDB_USED_LIBS
     lldbPluginProcessFreeBSD
     lldbPluginProcessPOSIX
-    lldbPluginProcessElfCore
-    lldbPluginJITLoaderGDB
     )
 endif ()
 
@@ -141,10 +142,13 @@ if (NOT CMAKE_SYSTEM_NAME MATCHES "Windows" AND NOT __ANDROID_NDK__)
   endif()
   if (NOT LLDB_DISABLE_CURSES)
     list(APPEND LLDB_SYSTEM_LIBS panel ncurses)
+    if(LLVM_ENABLE_TERMINFO AND HAVE_TERMINFO)
+      list(APPEND LLDB_SYSTEM_LIBS ${TERMINFO_LIBS})
+    endif()
   endif()
 endif()
-# On FreeBSD backtrace() is provided by libexecinfo, not libc.
-if (CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
+# On FreeBSD/NetBSD backtrace() is provided by libexecinfo, not libc.
+if (CMAKE_SYSTEM_NAME MATCHES "FreeBSD" OR CMAKE_SYSTEM_NAME MATCHES "NetBSD")
   list(APPEND LLDB_SYSTEM_LIBS execinfo)
 endif()
 

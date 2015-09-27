@@ -35,8 +35,8 @@ public:
     GetStepThroughDispatchPlan (Thread &thread, 
                                 bool stop_others);
     
-    ClangFunction *
-    GetLookupImplementationWrapperFunction ();
+    FunctionCaller *
+    GetLookupImplementationFunctionCaller ();
     
     bool 
     AddrIsMsgForward (lldb::addr_t addr) const
@@ -176,13 +176,14 @@ private:
         bool
         IsAddressInVTables (lldb::addr_t addr, uint32_t &flags);
                 
-        Process *GetProcess ()
+        lldb::ProcessSP
+        GetProcessSP ()
         {   
-            return m_process_sp.get();
+            return m_process_wp.lock();
         }
         
     private:
-        lldb::ProcessSP m_process_sp;
+        lldb::ProcessWP m_process_wp;
         typedef std::vector<VTableRegion> region_collection;
         lldb::addr_t m_trampoline_header;
         lldb::break_id_t m_trampolines_changed_bp_id;
@@ -195,10 +196,9 @@ private:
     
     typedef std::map<lldb::addr_t, int> MsgsendMap; // This table maps an dispatch fn address to the index in g_dispatch_functions
     MsgsendMap m_msgSend_map;
-    lldb::ProcessSP m_process_sp;
+    lldb::ProcessWP m_process_wp;
     lldb::ModuleSP m_objc_module_sp;
-    std::unique_ptr<ClangFunction> m_impl_function;
-    std::unique_ptr<ClangUtilityFunction> m_impl_code;
+    std::unique_ptr<UtilityFunction> m_impl_code;
     Mutex m_impl_function_mutex;
     lldb::addr_t m_impl_fn_addr;
     lldb::addr_t m_impl_stret_fn_addr;

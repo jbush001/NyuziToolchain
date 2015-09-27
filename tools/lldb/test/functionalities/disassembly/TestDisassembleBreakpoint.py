@@ -19,6 +19,7 @@ class DisassemblyTestCase(TestBase):
         self.disassemble_breakpoint ()
 
     @dwarf_test
+    @expectedFailureWindows # Function name prints fully demangled instead of name-only
     def test_with_dwarf (self):
         self.buildDwarf ()
         self.disassemble_breakpoint ()
@@ -38,7 +39,7 @@ class DisassemblyTestCase(TestBase):
         disassembly = self.res.GetOutput()
 
         # ARCH, if not specified, defaults to x86_64.
-        if self.getArchitecture() in ["", 'x86_64', 'i386']:
+        if self.getArchitecture() in ["", 'x86_64', 'i386', 'i686']:
             breakpoint_opcodes = ["int3"]
             instructions = [' mov', ' addl ', 'ret']
         elif self.getArchitecture() in ["arm", "aarch64"]:

@@ -18,7 +18,6 @@
 #include "lldb/Core/Module.h"
 #include "lldb/Core/RegularExpression.h"
 #include "lldb/Core/Stream.h"
-#include "lldb/Symbol/ClangNamespaceDecl.h"
 #include "lldb/Symbol/CompileUnit.h"
 #include "lldb/Symbol/Function.h"
 #include "lldb/Symbol/SymbolContext.h"
@@ -645,14 +644,14 @@ SourceManager::File::CalculateLineOffsets (uint32_t line)
         else
         {
             // Some lines have been populated, start where we last left off
-            assert("Not implemented yet" == NULL);
+            assert("Not implemented yet" && false);
         }
 
     }
     else
     {
         // Calculate all line offsets up to "line"
-        assert("Not implemented yet" == NULL);
+        assert("Not implemented yet" && false);
     }
     return false;
 }

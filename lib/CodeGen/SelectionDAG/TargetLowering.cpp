@@ -205,9 +205,9 @@ void TargetLowering::softenSetCCOperands(SelectionDAG &DAG, EVT VT,
 
   // Use the target specific return value for comparions lib calls.
   EVT RetVT = getCmpLibcallReturnType();
-  SDValue Ops[2] = { NewLHS, NewRHS };
-  NewLHS = makeLibCall(DAG, LC1, RetVT, Ops, 2, false/*sign irrelevant*/,
-					   dl).first;
+  SDValue Ops[2] = {NewLHS, NewRHS};
+  NewLHS =
+      makeLibCall(DAG, LC1, RetVT, Ops, 2, false /*sign irrelevant*/, dl).first;
   NewRHS = DAG.getConstant(0, dl, RetVT);
 
   CCCode = getCmpLibcallCC(LC1);
@@ -2115,9 +2115,8 @@ bool TargetLowering::isGAPlusOffset(SDNode *N, const GlobalValue *&GA,
   return false;
 }
 
-
-SDValue TargetLowering::
-PerformDAGCombine(SDNode *N, DAGCombinerInfo &DCI) const {
+SDValue TargetLowering::PerformDAGCombine(SDNode *N,
+                                          DAGCombinerInfo &DCI) const {
   // Default implementation: no optimization.
   return SDValue();
 }
@@ -2306,7 +2305,6 @@ unsigned TargetLowering::AsmOperandInfo::getMatchedOperand() const {
   return atoi(ConstraintCode.c_str());
 }
 
-
 /// ParseConstraints - Split up the constraint string from the inline
 /// assembly value into the specific constraints and their prefixes,
 /// and also tie in the associated operand values.
@@ -2491,13 +2489,11 @@ TargetLowering::ParseConstraints(const DataLayout &DL,
                              " incompatible type!");
         }
       }
-
     }
   }
 
   return ConstraintOperands;
 }
-
 
 /// getConstraintGenerality - Return an integer indicating how general CT
 /// is.
@@ -2723,6 +2719,16 @@ static SDValue BuildExactSDIV(const TargetLowering &TLI, SDValue Op1, APInt d,
   SDValue Mul = DAG.getNode(ISD::MUL, dl, Op1.getValueType(), Op1, Op2);
   Created.push_back(Mul.getNode());
   return Mul;
+}
+
+SDValue TargetLowering::BuildSDIVPow2(SDNode *N, const APInt &Divisor,
+                                      SelectionDAG &DAG,
+                                      std::vector<SDNode *> *Created) const {
+  AttributeSet Attr = DAG.getMachineFunction().getFunction()->getAttributes();
+  const TargetLowering &TLI = DAG.getTargetLoweringInfo();
+  if (TLI.isIntDivCheap(N->getValueType(0), Attr))
+    return SDValue(N,0); // Lower SDIV as SDIV
+  return SDValue();
 }
 
 /// \brief Given an ISD::SDIV node expressing a divide by constant,

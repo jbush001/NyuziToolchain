@@ -13,18 +13,6 @@
 #include <vector>
 
 // Other libraries and framework includes
-#include "clang/AST/ASTConsumer.h"
-#include "clang/AST/ASTContext.h"
-#include "clang/AST/Decl.h"
-#include "clang/AST/DeclCXX.h"
-#include "clang/AST/DeclGroup.h"
-
-#include "clang/Basic/Builtins.h"
-#include "clang/Basic/IdentifierTable.h"
-#include "clang/Basic/LangOptions.h"
-#include "clang/Basic/SourceManager.h"
-#include "clang/Basic/TargetInfo.h"
-
 #include "llvm/Support/FormattedStream.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -36,7 +24,6 @@
 
 using namespace lldb;
 using namespace lldb_private;
-using namespace clang;
 
 TypeList::TypeList() :
     m_types ()
@@ -216,7 +203,7 @@ TypeList::RemoveMismatchedTypes (const std::string &type_scope,
 
         if (type_class != eTypeClassAny)
         {
-            match_type_class = the_type->GetClangForwardType().GetTypeClass ();
+            match_type_class = the_type->GetForwardCompilerType ().GetTypeClass ();
             if ((match_type_class & type_class) == 0)
                 continue;
         }
@@ -305,7 +292,7 @@ TypeList::RemoveMismatchedTypes (TypeClass type_class)
     for (pos = m_types.begin(); pos != end; ++pos)
     {
         Type* the_type = pos->second.get();
-        TypeClass match_type_class = the_type->GetClangForwardType().GetTypeClass ();
+        TypeClass match_type_class = the_type->GetForwardCompilerType ().GetTypeClass ();
         if (match_type_class & type_class)
             matching_types.insert (*pos);
     }

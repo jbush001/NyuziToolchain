@@ -395,8 +395,7 @@ MachineRegisterInfo::EmitLiveInCopies(MachineBasicBlock *EntryMBB,
     }
 }
 
-unsigned MachineRegisterInfo::getMaxLaneMaskForVReg(unsigned Reg) const
-{
+LaneBitmask MachineRegisterInfo::getMaxLaneMaskForVReg(unsigned Reg) const {
   // Lane masks are only defined for vregs.
   assert(TargetRegisterInfo::isVirtualRegister(Reg));
   const TargetRegisterClass &TRC = *getRegClass(Reg);
@@ -486,6 +485,18 @@ bool MachineRegisterInfo::isPhysRegModified(unsigned PhysReg) const {
         continue;
       return true;
     }
+  }
+  return false;
+}
+
+bool MachineRegisterInfo::isPhysRegUsed(unsigned PhysReg) const {
+  if (UsedPhysRegMask.test(PhysReg))
+    return true;
+  const TargetRegisterInfo *TRI = getTargetRegisterInfo();
+  for (MCRegAliasIterator AliasReg(PhysReg, TRI, true); AliasReg.isValid();
+       ++AliasReg) {
+    if (!reg_nodbg_empty(*AliasReg))
+      return true;
   }
   return false;
 }

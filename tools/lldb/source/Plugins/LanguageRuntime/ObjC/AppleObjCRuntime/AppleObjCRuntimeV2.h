@@ -30,6 +30,17 @@ class AppleObjCRuntimeV2 :
         public AppleObjCRuntime
 {
 public:
+    static bool classof(const ObjCLanguageRuntime* runtime)
+    {
+        switch (runtime->GetRuntimeVersion())
+        {
+            case ObjCRuntimeVersions::eAppleObjC_V2:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     virtual ~AppleObjCRuntimeV2();
     
     // These are generic runtime functions:
@@ -37,9 +48,10 @@ public:
     GetDynamicTypeAndAddress (ValueObject &in_value, 
                               lldb::DynamicValueType use_dynamic, 
                               TypeAndOrName &class_type_or_name, 
-                              Address &address);
+                              Address &address,
+                              Value::ValueType &value_type);
     
-    virtual ClangUtilityFunction *
+    virtual UtilityFunction *
     CreateObjectChecker (const char *);
 
 
@@ -68,13 +80,13 @@ public:
     GetPluginVersion();
     
     virtual ObjCRuntimeVersions
-    GetRuntimeVersion ()
+    GetRuntimeVersion () const
     {
-        return eAppleObjC_V2;
+        return ObjCRuntimeVersions::eAppleObjC_V2;
     }
 
     virtual size_t
-    GetByteOffsetForIvar (ClangASTType &parent_qual_type, const char *ivar_name);
+    GetByteOffsetForIvar (CompilerType &parent_qual_type, const char *ivar_name);
 
     virtual void
     UpdateISAToDescriptorMapIfNeeded();
@@ -299,22 +311,20 @@ private:
     
     friend class ClassDescriptorV2;
 
-    std::unique_ptr<ClangFunction>            m_get_class_info_function;
-    std::unique_ptr<ClangUtilityFunction>     m_get_class_info_code;
+    std::unique_ptr<UtilityFunction>        m_get_class_info_code;
     lldb::addr_t                            m_get_class_info_args;
     Mutex                                   m_get_class_info_args_mutex;
 
-    std::unique_ptr<ClangFunction>            m_get_shared_cache_class_info_function;
-    std::unique_ptr<ClangUtilityFunction>     m_get_shared_cache_class_info_code;
+    std::unique_ptr<UtilityFunction>        m_get_shared_cache_class_info_code;
     lldb::addr_t                            m_get_shared_cache_class_info_args;
     Mutex                                   m_get_shared_cache_class_info_args_mutex;
 
-    std::unique_ptr<DeclVendor>               m_decl_vendor_ap;
+    std::unique_ptr<DeclVendor>             m_decl_vendor_ap;
     lldb::addr_t                            m_isa_hash_table_ptr;
     HashTableSignature                      m_hash_signature;
     bool                                    m_has_object_getClass;
     bool                                    m_loaded_objc_opt;
-    std::unique_ptr<NonPointerISACache>       m_non_pointer_isa_cache_ap;
+    std::unique_ptr<NonPointerISACache>     m_non_pointer_isa_cache_ap;
     std::unique_ptr<TaggedPointerVendor>    m_tagged_pointer_vendor_ap;
     EncodingToTypeSP                        m_encoding_to_type_sp;
     bool                                    m_noclasses_warning_emitted;

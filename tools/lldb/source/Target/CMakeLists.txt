@@ -1,5 +1,3 @@
-set(LLVM_NO_RTTI 1)
-
 include_directories(../Plugins/Process/Utility)
 
 add_lldb_library(lldbTarget
@@ -11,6 +9,7 @@ add_lldb_library(lldbTarget
   JITLoaderList.cpp
   InstrumentationRuntime.cpp
   InstrumentationRuntimeStopInfo.cpp
+  Language.cpp
   LanguageRuntime.cpp
   Memory.cpp
   MemoryHistory.cpp

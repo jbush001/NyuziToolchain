@@ -73,6 +73,12 @@ namespace platform_android {
                  const FileSpec& destination,
                  uint32_t uid = UINT32_MAX,
                  uint32_t gid = UINT32_MAX) override;
+        
+        uint32_t
+        GetSdkVersion();
+        
+        Error
+        DisconnectRemote () override;
 
      protected:
         const char *
@@ -84,8 +90,14 @@ namespace platform_android {
                              const uint64_t src_size,
                              const FileSpec &dst_file_spec) override;
 
+        Error
+        DownloadSymbolFile (const lldb::ModuleSP& module_sp,
+                            const FileSpec& dst_file_spec) override;
+
     private:
         std::string m_device_id;
+        uint32_t m_sdk_version;
+
         DISALLOW_COPY_AND_ASSIGN (PlatformAndroid);
     };
 

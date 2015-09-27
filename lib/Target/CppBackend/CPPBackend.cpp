@@ -551,7 +551,8 @@ void CppWriter::printAttributes(const AttributeSet &PAL,
 void CppWriter::printType(Type* Ty) {
   // We don't print definitions for primitive types
   if (Ty->isFloatingPointTy() || Ty->isX86_MMXTy() || Ty->isIntegerTy() ||
-      Ty->isLabelTy() || Ty->isMetadataTy() || Ty->isVoidTy())
+      Ty->isLabelTy() || Ty->isMetadataTy() || Ty->isVoidTy() ||
+      Ty->isTokenTy())
     return;
 
   // If we already defined this type, we don't need to define it again.
@@ -1355,23 +1356,18 @@ void CppWriter::printInstruction(const Instruction *I,
   }
   case Instruction::GetElementPtr: {
     const GetElementPtrInst* gep = cast<GetElementPtrInst>(I);
-    if (gep->getNumOperands() <= 2) {
-      Out << "GetElementPtrInst* " << iName << " = GetElementPtrInst::Create("
-          << opNames[0];
-      if (gep->getNumOperands() == 2)
-        Out << ", " << opNames[1];
-    } else {
-      Out << "std::vector<Value*> " << iName << "_indices;";
-      nl(Out);
-      for (unsigned i = 1; i < gep->getNumOperands(); ++i ) {
-        Out << iName << "_indices.push_back("
-            << opNames[i] << ");";
-        nl(Out);
+    Out << "GetElementPtrInst* " << iName << " = GetElementPtrInst::Create("
+        << getCppName(gep->getSourceElementType()) << ", " << opNames[0] << ", {";
+    in();
+    for (unsigned i = 1; i < gep->getNumOperands(); ++i ) {
+      if (i != 1) {
+        Out << ", ";
       }
-      Out << "Instruction* " << iName << " = GetElementPtrInst::Create("
-          << opNames[0] << ", " << iName << "_indices";
+      nl(Out);
+      Out << opNames[i];
     }
-    Out << ", \"";
+    out();
+    nl(Out) << "}, \"";
     printEscapedString(gep->getName());
     Out << "\", " << bbname << ");";
     break;

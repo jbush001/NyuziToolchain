@@ -71,12 +71,13 @@ TargetInfo::TargetInfo(const llvm::Triple &T) : TargetOpts(), Triple(T) {
   FloatFormat = &llvm::APFloat::IEEEsingle;
   DoubleFormat = &llvm::APFloat::IEEEdouble;
   LongDoubleFormat = &llvm::APFloat::IEEEdouble;
-  DescriptionString = nullptr;
+  DataLayoutString = nullptr;
   UserLabelPrefix = "_";
   MCountName = "mcount";
   RegParmMax = 0;
   SSERegParmMax = 0;
   HasAlignMac68kSupport = false;
+  HasBuiltinMSVaList = false;
 
   // Default to no types using fpret.
   RealTypeUsesObjCFPRet = 0;
@@ -309,6 +310,18 @@ void TargetInfo::adjust(const LangOptions &Opts) {
     FloatFormat = &llvm::APFloat::IEEEsingle;
     LongDoubleFormat = &llvm::APFloat::IEEEquad;
   }
+}
+
+bool TargetInfo::initFeatureMap(llvm::StringMap<bool> &Features,
+                                DiagnosticsEngine &Diags, StringRef CPU,
+                                std::vector<std::string> &FeatureVec) const {
+  for (const auto &F : FeatureVec) {
+    const char *Name = F.c_str();
+    // Apply the feature via the target.
+    bool Enabled = Name[0] == '+';
+    setFeatureEnabled(Features, Name + 1, Enabled);
+  }
+  return true;
 }
 
 //===----------------------------------------------------------------------===//
@@ -648,20 +661,5 @@ bool TargetInfo::validateInputConstraint(ConstraintInfo *OutputConstraints,
     Name++;
   }
 
-  return true;
-}
-
-bool TargetCXXABI::tryParse(llvm::StringRef name) {
-  const Kind unknown = static_cast<Kind>(-1);
-  Kind kind = llvm::StringSwitch<Kind>(name)
-    .Case("arm", GenericARM)
-    .Case("ios", iOS)
-    .Case("itanium", GenericItanium)
-    .Case("microsoft", Microsoft)
-    .Case("mips", GenericMIPS)
-    .Default(unknown);
-  if (kind == unknown) return false;
-
-  set(kind);
   return true;
 }

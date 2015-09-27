@@ -25,8 +25,12 @@ class ExprFormattersTestCase(TestBase):
         self.buildDsym()
         self.do_my_test()
 
+    @skipIfFreeBSD # llvm.org/pr24691 skipping to avoid crashing the test runner
     @expectedFailureFreeBSD('llvm.org/pr19011') # Newer Clang omits C1 complete object constructor
-    @expectedFailureLinux('llvm.org/pr19011', ['clang'])
+    @expectedFailureFreeBSD('llvm.org/pr24691') # we hit an assertion in clang
+    @expectedFailureWindows("llvm.org/pr21765")
+    @skipIfTargetAndroid() # skipping to avoid crashing the test runner
+    @expectedFailureAndroid('llvm.org/pr24691') # we hit an assertion in clang
     @dwarf_test
     def test_with_dwarf(self):
         """Test expr + formatters for good interoperability."""

@@ -31,6 +31,7 @@ class WatchpointIteratorTestCase(TestBase):
     @python_api_test
     @dwarf_test
     @expectedFailureAndroid(archs=['arm', 'aarch64']) # Watchpoints not supported
+    @expectedFailureWindows("llvm.org/pr24446") # WINDOWS XFAIL TRIAGE - Watchpoints not supported on Windows
     def test_watch_iter_with_dwarf(self):
         """Exercise SBTarget.watchpoint_iter() API to iterate on the available watchpoints."""
         self.buildDwarf()

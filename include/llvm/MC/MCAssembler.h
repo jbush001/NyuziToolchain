@@ -18,6 +18,7 @@
 #include "llvm/ADT/ilist_node.h"
 #include "llvm/ADT/iterator.h"
 #include "llvm/MC/MCDirectives.h"
+#include "llvm/MC/MCDwarf.h"
 #include "llvm/MC/MCFixup.h"
 #include "llvm/MC/MCInst.h"
 #include "llvm/MC/MCLinkerOptimizationHint.h"
@@ -575,8 +576,6 @@ private:
 
   MCObjectWriter &Writer;
 
-  raw_ostream &OS;
-
   SectionListType Sections;
 
   SymbolDataListType Symbols;
@@ -590,6 +589,8 @@ private:
 
   /// List of declared file names
   std::vector<std::string> FileNames;
+
+  MCDwarfLineTableParams LTParams;
 
   /// The set of function symbols for which a .thumb_func directive has
   /// been seen.
@@ -712,16 +713,13 @@ public:
 
 public:
   /// Construct a new assembler instance.
-  ///
-  /// \param OS The stream to output to.
   //
   // FIXME: How are we going to parameterize this? Two obvious options are stay
   // concrete and require clients to pass in a target like object. The other
   // option is to make this abstract, and have targets provide concrete
   // implementations as we do with AsmParser.
   MCAssembler(MCContext &Context_, MCAsmBackend &Backend_,
-              MCCodeEmitter &Emitter_, MCObjectWriter &Writer_,
-              raw_ostream &OS);
+              MCCodeEmitter &Emitter_, MCObjectWriter &Writer_);
   ~MCAssembler();
 
   /// Reuse an assembler instance
@@ -736,10 +734,16 @@ public:
 
   MCObjectWriter &getWriter() const { return Writer; }
 
+  MCDwarfLineTableParams getDWARFLinetableParams() const { return LTParams; }
+  void setDWARFLinetableParams(MCDwarfLineTableParams P) { LTParams = P; }
+
   /// Finish - Do final processing and write the object to the output stream.
   /// \p Writer is used for custom object writer (as the MCJIT does),
   /// if not specified it is automatically created from backend.
   void Finish();
+
+  // Layout all section and prepare them for emission.
+  void layout(MCAsmLayout &Layout);
 
   // FIXME: This does not belong here.
   bool getSubsectionsViaSymbols() const { return SubsectionsViaSymbols; }

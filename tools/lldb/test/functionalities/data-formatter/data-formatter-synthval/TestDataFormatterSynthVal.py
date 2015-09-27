@@ -20,8 +20,8 @@ class DataFormatterSynthValueTestCase(TestBase):
         self.data_formatter_commands()
 
     @skipIfFreeBSD # llvm.org/pr20545 bogus output confuses buildbot parser
+    @expectedFailureWindows("llvm.org/pr24462") # Data formatters have problems on Windows
     @dwarf_test
-    @expectedFailureLinux('llvm.org/pr19011', ['clang'])
     def test_with_dwarf_and_run_command(self):
         """Test using Python synthetic children provider to provide a value."""
         self.buildDwarf()

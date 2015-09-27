@@ -358,6 +358,10 @@ def err_invalid_pixel_decl_spec_combination : Error<
   "'%0' declaration specifier not allowed here">;
 def err_invalid_vector_bool_decl_spec : Error<
   "cannot use '%0' with '__vector bool'">;
+def err_invalid_vector_long_decl_spec : Error<
+  "cannot use 'long' with '__vector'">;
+def err_invalid_vector_float_decl_spec : Error<
+  "cannot use 'float' with '__vector'">;
 def err_invalid_vector_double_decl_spec : Error <
   "use of 'double' with '__vector' requires VSX support to be enabled "
   "(available on POWER7 or later)">;
@@ -983,8 +987,6 @@ def err_omp_expected_punc : Error<
   "expected ',' or ')' in '%0' %select{clause|directive}1">;
 def err_omp_unexpected_clause : Error<
   "unexpected OpenMP clause '%0' in directive '#pragma omp %1'">;
-def err_omp_more_one_clause : Error<
-  "directive '#pragma omp %0' cannot contain more than one '%1' clause">;
 def err_omp_immediate_directive : Error<
   "'#pragma omp %0' cannot be an immediate substatement">;
 def err_omp_expected_identifier_for_critical : Error<
@@ -993,12 +995,12 @@ def err_omp_expected_identifier_for_critical : Error<
 // Pragma loop support.
 def err_pragma_loop_missing_argument : Error<
   "missing argument; expected %select{an integer value|"
-  "%select{'enable', 'assume_safety'|'full'}1 or 'disable'}0">;
+  "'enable', %select{'assume_safety'|'full'}1 or 'disable'}0">;
 def err_pragma_loop_invalid_option : Error<
   "%select{invalid|missing}0 option%select{ %1|}0; expected vectorize, "
   "vectorize_width, interleave, interleave_count, unroll, or unroll_count">;
 def err_pragma_invalid_keyword : Error<
-  "invalid argument; expected %select{'enable', 'assume_safety'|'full'}0 or 'disable'">;
+  "invalid argument; expected 'enable', %select{'assume_safety'|'full'}0 or 'disable'">;
 
 // Pragma unroll support.
 def warn_pragma_unroll_cuda_value_in_parens : Warning<
@@ -1011,6 +1013,7 @@ def err_module_expected_ident : Error<
   "expected a module name after module import">;
 def err_module_expected_semi : Error<
   "expected ';' after module name">;
+def err_missing_before_module_end : Error<"expected %0 at end of module">;
 }
 
 let CategoryName = "Generics Issue" in {

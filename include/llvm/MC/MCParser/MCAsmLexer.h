@@ -135,7 +135,7 @@ protected: // Can only create subclasses.
 
   virtual AsmToken LexToken() = 0;
 
-  void SetError(const SMLoc &errLoc, const std::string &err) {
+  void SetError(SMLoc errLoc, const std::string &err) {
     ErrLoc = errLoc;
     Err = err;
   }
@@ -162,10 +162,24 @@ public:
   }
 
   /// Look ahead at the next token to be lexed.
-  virtual const AsmToken peekTok(bool ShouldSkipSpace = true) = 0;
+  const AsmToken peekTok(bool ShouldSkipSpace = true) {
+    AsmToken Tok;
+
+    MutableArrayRef<AsmToken> Buf(Tok);
+    size_t ReadCount = peekTokens(Buf, ShouldSkipSpace);
+
+    assert(ReadCount == 1);
+    (void)ReadCount;
+
+    return Tok;
+  }
+
+  /// Look ahead an arbitrary number of tokens.
+  virtual size_t peekTokens(MutableArrayRef<AsmToken> Buf,
+                            bool ShouldSkipSpace = true) = 0;
 
   /// Get the current error location
-  const SMLoc &getErrLoc() {
+  SMLoc getErrLoc() {
     return ErrLoc;
   }
 

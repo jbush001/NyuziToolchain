@@ -31,7 +31,7 @@ class ExprCommandCallUserDefinedFunction(TestBase):
         self.call_function()
 
     @dwarf_test
-    @expectedFailureFreeBSD("llvm.org/pr20274") # intermittent failure
+    @expectedFailureWindows("llvm.org/pr24489: Name lookup not working correctly on Windows")
     def test_with_dwarf(self):
         """Test return values of user defined function calls."""
         self.buildDwarf()

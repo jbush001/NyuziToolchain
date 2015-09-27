@@ -32,6 +32,7 @@ namespace llvm {
 
 class FunctionType;
 class LLVMContext;
+class DISubprogram;
 
 template<> struct ilist_traits<Argument>
   : public SymbolTableListTraits<Argument, Function> {
@@ -46,6 +47,7 @@ template<> struct ilist_traits<Argument>
   static void noteHead(Argument*, Argument*) {}
 
   static ValueSymbolTable *getSymTab(Function *ItemParent);
+
 private:
   mutable ilist_half_node<Argument> Sentinel;
 };
@@ -267,13 +269,13 @@ public:
   uint64_t getDereferenceableBytes(unsigned i) const {
     return AttributeSets.getDereferenceableBytes(i);
   }
-  
+
   /// @brief Extract the number of dereferenceable_or_null bytes for a call or
   /// parameter (0=unknown).
   uint64_t getDereferenceableOrNullBytes(unsigned i) const {
     return AttributeSets.getDereferenceableOrNullBytes(i);
   }
-  
+
   /// @brief Determine if the function does not access memory.
   bool doesNotAccessMemory() const {
     return AttributeSets.hasAttribute(AttributeSet::FunctionIndex,
@@ -299,10 +301,8 @@ public:
     return AttributeSets.hasAttribute(AttributeSet::FunctionIndex,
                                       Attribute::ArgMemOnly);
   }
-  void setOnlyAccessesArgMemory() {
-    addFnAttr(Attribute::ArgMemOnly);
-  }
-  
+  void setOnlyAccessesArgMemory() { addFnAttr(Attribute::ArgMemOnly); }
+
   /// @brief Determine if the function cannot return.
   bool doesNotReturn() const {
     return AttributeSets.hasAttribute(AttributeSet::FunctionIndex,
@@ -395,6 +395,14 @@ public:
     addAttribute(n, Attribute::ReadOnly);
   }
 
+  /// Optimize this function for minimum size (-Oz).
+  bool optForMinSize() const { return hasFnAttribute(Attribute::MinSize); };
+
+  /// Optimize this function for size (-Os) or minimum size (-Oz).
+  bool optForSize() const {
+    return hasFnAttribute(Attribute::OptimizeForSize) || optForMinSize();
+  }
+
   /// copyAttributesFrom - copy all additional attributes (those not needed to
   /// create a Function) from the Function Src to this one.
   void copyAttributesFrom(const GlobalValue *Src) override;
@@ -416,7 +424,6 @@ public:
   /// and deletes it.
   ///
   void eraseFromParent() override;
-
 
   /// Get the underlying elements of the Function... the basic block list is
   /// empty for external functions.
@@ -449,7 +456,6 @@ public:
   ///
   inline       ValueSymbolTable &getValueSymbolTable()       { return *SymTab; }
   inline const ValueSymbolTable &getValueSymbolTable() const { return *SymTab; }
-
 
   //===--------------------------------------------------------------------===//
   // BasicBlock iterator forwarding functions
@@ -512,10 +518,6 @@ public:
 
   Constant *getPrologueData() const;
   void setPrologueData(Constant *PrologueData);
-
-  /// Print the function to an output stream with an optional
-  /// AssemblyAnnotationWriter.
-  void print(raw_ostream &OS, AssemblyAnnotationWriter *AAW = nullptr) const;
 
   /// viewCFG - This function is meant for use from the debugger.  You can just
   /// say 'call F->viewCFG()' and a ghostview window should pop up from the
@@ -595,6 +597,17 @@ public:
   ///
   /// Drop all metadata from \c this not included in \c KnownIDs.
   void dropUnknownMetadata(ArrayRef<unsigned> KnownIDs);
+
+  /// \brief Set the attached subprogram.
+  ///
+  /// Calls \a setMetadata() with \a LLVMContext::MD_dbg.
+  void setSubprogram(DISubprogram *SP);
+
+  /// \brief Get the attached subprogram.
+  ///
+  /// Calls \a getMetadata() with \a LLVMContext::MD_dbg and casts the result
+  /// to \a DISubprogram.
+  DISubprogram *getSubprogram() const;
 
 private:
   // Shadow Value::setValueSubclassData with a private forwarding method so that

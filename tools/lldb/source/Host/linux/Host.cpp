@@ -14,9 +14,6 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <fcntl.h>
-#ifndef __ANDROID__
-#include <execinfo.h>
-#endif
 
 // C++ Includes
 // Other libraries and framework includes

@@ -20,7 +20,6 @@
 #include "lldb/lldb-private.h"
 #include "lldb/Target/LanguageRuntime.h"
 #include "lldb/Target/ObjCLanguageRuntime.h"
-#include "lldb/Core/ValueObject.h"
 #include "AppleObjCTrampolineHandler.h"
 #include "AppleThreadPlanStepThroughObjCTrampoline.h"
 
@@ -30,8 +29,19 @@ class AppleObjCRuntime :
         public lldb_private::ObjCLanguageRuntime
 {
 public:
+    static bool classof(const ObjCLanguageRuntime* runtime)
+    {
+        switch (runtime->GetRuntimeVersion())
+        {
+            case ObjCRuntimeVersions::eAppleObjC_V1:
+            case ObjCRuntimeVersions::eAppleObjC_V2:
+                return true;
+            default:
+                return false;
+        }
+    }
     
-    virtual ~AppleObjCRuntime() { }
+    virtual ~AppleObjCRuntime();
     
     // These are generic runtime functions:
     bool
@@ -47,8 +57,13 @@ public:
     GetDynamicTypeAndAddress (ValueObject &in_value, 
                               lldb::DynamicValueType use_dynamic, 
                               TypeAndOrName &class_type_or_name, 
-                              Address &address) override;
+                              Address &address,
+                              Value::ValueType &value_type) override;
 
+    TypeAndOrName
+    FixUpDynamicType (const TypeAndOrName& type_and_or_name,
+                      ValueObject& static_value) override;
+    
     // These are the ObjC specific functions.
     
     bool
@@ -90,7 +105,7 @@ protected:
     static bool
     AppleIsModuleObjCLibrary (const lldb::ModuleSP &module_sp);
 
-    static enum ObjCRuntimeVersions
+    static ObjCRuntimeVersions
     GetObjCVersion (Process *process, lldb::ModuleSP &objc_module_sp);
 
     void
@@ -127,6 +142,7 @@ protected:
     std::unique_ptr<lldb_private::AppleObjCTrampolineHandler> m_objc_trampoline_handler_ap;
     lldb::BreakpointSP m_objc_exception_bp_sp;
     lldb::ModuleWP m_objc_module_wp;
+    std::unique_ptr<FunctionCaller>  m_print_object_caller_up;
     
     llvm::Optional<uint32_t> m_Foundation_major;
 

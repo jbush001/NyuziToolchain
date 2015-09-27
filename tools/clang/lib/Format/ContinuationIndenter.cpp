@@ -158,6 +158,9 @@ bool ContinuationIndenter::mustBreak(const LineState &State) {
           getColumnLimit(State))
     return true;
   if (Current.is(TT_CtorInitializerColon) &&
+      (State.Column + State.Line->Last->TotalLength - Current.TotalLength + 2 >
+           getColumnLimit(State) ||
+       State.Stack.back().BreakBeforeParameter) &&
       ((Style.AllowShortFunctionsOnASingleLine != FormatStyle::SFS_All) ||
        Style.BreakConstructorInitializersBeforeComma || Style.ColumnLimit != 0))
     return true;
@@ -501,6 +504,7 @@ unsigned ContinuationIndenter::addTokenOnNewLine(LineState &State,
   // Any break on this level means that the parent level has been broken
   // and we need to avoid bin packing there.
   bool NestedBlockSpecialCase =
+      Style.Language != FormatStyle::LK_Cpp &&
       Current.is(tok::r_brace) && State.Stack.size() > 1 &&
       State.Stack[State.Stack.size() - 2].NestedBlockInlined;
   if (!NestedBlockSpecialCase)

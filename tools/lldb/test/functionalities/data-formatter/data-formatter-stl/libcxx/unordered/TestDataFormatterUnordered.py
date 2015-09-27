@@ -20,6 +20,7 @@ class LibcxxUnorderedDataFormatterTestCase(TestBase):
         self.data_formatter_commands()
 
     @dwarf_test
+    @skipIfWindows # libc++ not ported to Windows yet
     @skipIfGcc
     def test_with_dwarf_and_run_command(self):
         """Test data formatter commands."""
@@ -37,6 +38,8 @@ class LibcxxUnorderedDataFormatterTestCase(TestBase):
     def data_formatter_commands(self):
         """Test that that file and class static variables display correctly."""
         self.runCmd("file a.out", CURRENT_EXECUTABLE_SET)
+
+        lldbutil.skip_if_library_missing(self, self.target(), lldbutil.PrintableRegex("libc\+\+"))
 
         lldbutil.run_break_set_by_source_regexp (self, "Set break point at this line.")
 

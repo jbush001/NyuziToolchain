@@ -10,7 +10,6 @@
 #ifndef liblldb_Function_h_
 #define liblldb_Function_h_
 
-#include "lldb/Core/ClangForward.h"
 #include "lldb/Core/AddressRange.h"
 #include "lldb/Symbol/Block.h"
 #include "lldb/Symbol/Declaration.h"
@@ -147,7 +146,6 @@ protected:
     Declaration m_declaration; ///< Information describing where this function information was defined.
 };
 
-
 //----------------------------------------------------------------------
 /// @class InlineFunctionInfo Function.h "lldb/Symbol/Function.h"
 /// @brief A class that describes information for an inlined function.
@@ -203,7 +201,7 @@ public:
     //------------------------------------------------------------------
     /// Destructor.
     //------------------------------------------------------------------
-    ~InlineFunctionInfo();
+    ~InlineFunctionInfo() override;
 
     //------------------------------------------------------------------
     /// Compare two inlined function information objects.
@@ -294,8 +292,8 @@ public:
     ///
     /// @see ConstString::StaticMemorySize ()
     //------------------------------------------------------------------
-    virtual size_t
-    MemorySize() const;
+    size_t
+    MemorySize() const override;
 
 private:
     //------------------------------------------------------------------
@@ -415,24 +413,24 @@ public:
     //------------------------------------------------------------------
     /// Destructor.
     //------------------------------------------------------------------
-    ~Function ();
+    ~Function() override;
 
     //------------------------------------------------------------------
     /// @copydoc SymbolContextScope::CalculateSymbolContext(SymbolContext*)
     ///
     /// @see SymbolContextScope
     //------------------------------------------------------------------
-    virtual void
-    CalculateSymbolContext(SymbolContext* sc);
+    void
+    CalculateSymbolContext(SymbolContext* sc) override;
 
-    virtual lldb::ModuleSP
-    CalculateSymbolContextModule ();
+    lldb::ModuleSP
+    CalculateSymbolContextModule() override;
     
-    virtual CompileUnit *
-    CalculateSymbolContextCompileUnit ();
+    CompileUnit *
+    CalculateSymbolContextCompileUnit() override;
     
-    virtual Function *
-    CalculateSymbolContextFunction ();
+    Function *
+    CalculateSymbolContextFunction() override;
 
     const AddressRange &
     GetAddressRange()
@@ -550,8 +548,8 @@ public:
     /// @return
     ///     The DeclContext, or NULL if none exists.
     //------------------------------------------------------------------
-    clang::DeclContext *
-    GetClangDeclContext();
+    CompilerDeclContext
+    GetDeclContext();
     
     //------------------------------------------------------------------
     /// Get accessor for the type that describes the function
@@ -573,8 +571,8 @@ public:
     const Type*
     GetType() const;
     
-    ClangASTType
-    GetClangType ();
+    CompilerType
+    GetCompilerType ();
 
     uint32_t
     GetPrologueByteSize ();
@@ -600,8 +598,8 @@ public:
     ///
     /// @see SymbolContextScope
     //------------------------------------------------------------------
-    virtual void
-    DumpSymbolContext(Stream *s);
+    void
+    DumpSymbolContext(Stream *s) override;
 
     //------------------------------------------------------------------
     /// Get the memory cost of this object.
@@ -652,8 +650,6 @@ protected:
         flagsCalculatedPrologueSize = (1 << 0)  ///< Have we already tried to calculate the prologue size?
     };
 
-
-
     //------------------------------------------------------------------
     // Member variables.
     //------------------------------------------------------------------
@@ -672,4 +668,4 @@ private:
 
 } // namespace lldb_private
 
-#endif  // liblldb_Function_h_
+#endif // liblldb_Function_h_

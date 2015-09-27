@@ -305,7 +305,8 @@ private:
       if (Line->First->isOneOf(tok::kw_case, tok::kw_default, tok::r_brace))
         break;
       if (Line->First->isOneOf(tok::kw_if, tok::kw_for, tok::kw_switch,
-                               tok::kw_while, tok::comment))
+                               tok::kw_while, tok::comment) ||
+          Line->Last->is(tok::comment))
         return 0;
       Length += I[1 + NumStmts]->Last->TotalLength + 1; // 1 for the space.
     }
@@ -606,7 +607,7 @@ public:
 
   /// \brief Puts all tokens into a single line.
   unsigned formatLine(const AnnotatedLine &Line, unsigned FirstIndent,
-                      bool DryRun) {
+                      bool DryRun) override {
     unsigned Penalty = 0;
     LineState State = Indenter->getInitialState(FirstIndent, &Line, DryRun);
     while (State.NextToken) {
@@ -629,7 +630,7 @@ public:
   /// \brief Formats the line by finding the best line breaks with line lengths
   /// below the column limit.
   unsigned formatLine(const AnnotatedLine &Line, unsigned FirstIndent,
-                      bool DryRun) {
+                      bool DryRun) override {
     LineState State = Indenter->getInitialState(FirstIndent, &Line, DryRun);
 
     // If the ObjC method declaration does not fit on a line, we should format
@@ -791,7 +792,7 @@ private:
   llvm::SpecificBumpPtrAllocator<StateNode> Allocator;
 };
 
-} // namespace
+} // anonymous namespace
 
 unsigned
 UnwrappedLineFormatter::format(const SmallVectorImpl<AnnotatedLine *> &Lines,

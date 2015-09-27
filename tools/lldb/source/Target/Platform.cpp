@@ -272,8 +272,11 @@ Platform::GetSharedModule (const ModuleSpec &module_spec,
                                   module_sp,
                                   [&](const ModuleSpec &spec)
                                   {
-                                      return ModuleList::GetSharedModule (
+                                      Error error = ModuleList::GetSharedModule (
                                           spec, module_sp, module_search_paths_ptr, old_module_sp_ptr, did_create_ptr, false);
+                                      if (error.Success() && module_sp)
+                                          module_sp->SetPlatformFileSpec(spec.GetFileSpec());
+                                      return error;
                                   },
                                   did_create_ptr);
 }
@@ -945,6 +948,12 @@ Platform::GetHostname ()
     if (m_name.empty())        
         return NULL;
     return m_name.c_str();
+}
+
+ConstString
+Platform::GetFullNameForDylib (ConstString basename)
+{
+    return basename;
 }
 
 bool
@@ -1811,7 +1820,7 @@ Platform::GetRemoteSharedModule (const ModuleSpec &module_spec,
     {
         // Try to get module information from the process
         if (process->GetModuleSpec (module_spec.GetFileSpec (), module_spec.GetArchitecture (), resolved_module_spec))
-          got_module_spec = true;
+            got_module_spec = true;
     }
 
     if (!got_module_spec)
@@ -1848,13 +1857,17 @@ Platform::GetCachedSharedModule (const ModuleSpec &module_spec,
         GetModuleCacheRoot (),
         GetCacheHostname (),
         module_spec,
-        [=](const ModuleSpec &module_spec, const FileSpec &tmp_download_file_spec)
+        [this](const ModuleSpec &module_spec, const FileSpec &tmp_download_file_spec)
         {
             return DownloadModuleSlice (module_spec.GetFileSpec (),
                                         module_spec.GetObjectOffset (),
                                         module_spec.GetObjectSize (),
                                         tmp_download_file_spec);
 
+        },
+        [this](const ModuleSP& module_sp, const FileSpec& tmp_download_file_spec)
+        {
+            return DownloadSymbolFile (module_sp, tmp_download_file_spec);
         },
         module_sp,
         did_create_ptr);
@@ -1916,6 +1929,12 @@ Platform::DownloadModuleSlice (const FileSpec& src_file_spec,
     CloseFile (src_fd, close_error);  // Ignoring close error.
 
     return error;
+}
+
+Error
+Platform::DownloadSymbolFile (const lldb::ModuleSP& module_sp, const FileSpec& dst_file_spec)
+{
+    return Error ("Symbol file downloading not supported by the default platform.");
 }
 
 FileSpec

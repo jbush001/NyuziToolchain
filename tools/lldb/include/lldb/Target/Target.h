@@ -24,6 +24,7 @@
 #include "lldb/Core/Disassembler.h"
 #include "lldb/Core/ModuleList.h"
 #include "lldb/Core/UserSettingsController.h"
+#include "lldb/Expression/Expression.h"
 #include "lldb/Target/ExecutionContextScope.h"
 #include "lldb/Target/PathMappingList.h"
 #include "lldb/Target/ProcessLaunchInfo.h"
@@ -55,8 +56,7 @@ class TargetProperties : public Properties
 public:
     TargetProperties(Target *target);
 
-    virtual
-    ~TargetProperties();
+    ~TargetProperties() override;
     
     ArchSpec
     GetDefaultArchitecture () const;
@@ -530,7 +530,7 @@ public:
     
     static ConstString &GetStaticBroadcasterClass ();
 
-    virtual ConstString &GetBroadcasterClass() const
+    ConstString &GetBroadcasterClass() const override
     {
         return GetStaticBroadcasterClass();
     }
@@ -543,20 +543,19 @@ public:
 
         TargetEventData (const lldb::TargetSP &target_sp, const ModuleList &module_list);
 
-        virtual
-        ~TargetEventData();
+        ~TargetEventData() override;
 
         static const ConstString &
         GetFlavorString ();
 
-        virtual const ConstString &
-        GetFlavor () const
+        const ConstString &
+        GetFlavor() const override
         {
             return TargetEventData::GetFlavorString ();
         }
 
-        virtual void
-        Dump (Stream *s) const;
+        void
+        Dump(Stream *s) const override;
 
         static const TargetEventData *
         GetEventDataFromEvent (const Event *event_ptr);
@@ -621,7 +620,6 @@ public:
     static const lldb::TargetPropertiesSP &
     GetGlobalProperties();
 
-
 private:
     //------------------------------------------------------------------
     /// Construct with optional file and arch.
@@ -649,7 +647,7 @@ private:
     AddBreakpoint(lldb::BreakpointSP breakpoint_sp, bool internal);
 
 public:
-    ~Target();
+    ~Target() override;
 
     Mutex &
     GetAPIMutex ()
@@ -811,7 +809,6 @@ public:
                       bool internal,
                       bool request_hardware);
 
-
     // Use this to create a general breakpoint:
     lldb::BreakpointSP
     CreateBreakpoint (lldb::SearchFilterSP &filter_sp,
@@ -824,7 +821,7 @@ public:
     lldb::WatchpointSP
     CreateWatchpoint (lldb::addr_t addr,
                       size_t size,
-                      const ClangASTType *type,
+                      const CompilerType *type,
                       uint32_t kind,
                       Error &error);
 
@@ -920,23 +917,31 @@ public:
     lldb::addr_t
     GetOpcodeLoadAddress (lldb::addr_t load_addr, lldb::AddressClass addr_class = lldb::eAddressClassInvalid) const;
 
+    // Get load_addr as breakable load address for this target.
+    // Take a addr and check if for any reason there is a better address than this to put a breakpoint on.
+    // If there is then return that address.
+    // For MIPS, if instruction at addr is a delay slot instruction then this method will find the address of its
+    // previous instruction and return that address.
+    lldb::addr_t
+    GetBreakableLoadAddress (lldb::addr_t addr);
+
 protected:
     //------------------------------------------------------------------
     /// Implementing of ModuleList::Notifier.
     //------------------------------------------------------------------
     
-    virtual void
-    ModuleAdded (const ModuleList& module_list, const lldb::ModuleSP& module_sp);
+    void
+    ModuleAdded(const ModuleList& module_list, const lldb::ModuleSP& module_sp) override;
     
-    virtual void
-    ModuleRemoved (const ModuleList& module_list, const lldb::ModuleSP& module_sp);
+    void
+    ModuleRemoved(const ModuleList& module_list, const lldb::ModuleSP& module_sp) override;
     
-    virtual void
-    ModuleUpdated (const ModuleList& module_list,
-                   const lldb::ModuleSP& old_module_sp,
-                   const lldb::ModuleSP& new_module_sp);
-    virtual void
-    WillClearList (const ModuleList& module_list);
+    void
+    ModuleUpdated(const ModuleList& module_list,
+		  const lldb::ModuleSP& old_module_sp,
+		  const lldb::ModuleSP& new_module_sp) override;
+    void
+    WillClearList(const ModuleList& module_list) override;
 
 public:
     
@@ -1205,24 +1210,62 @@ public:
     //------------------------------------------------------------------
     // lldb::ExecutionContextScope pure virtual functions
     //------------------------------------------------------------------
-    virtual lldb::TargetSP
-    CalculateTarget ();
+    lldb::TargetSP
+    CalculateTarget() override;
     
-    virtual lldb::ProcessSP
-    CalculateProcess ();
+    lldb::ProcessSP
+    CalculateProcess() override;
     
-    virtual lldb::ThreadSP
-    CalculateThread ();
+    lldb::ThreadSP
+    CalculateThread() override;
     
-    virtual lldb::StackFrameSP
-    CalculateStackFrame ();
+    lldb::StackFrameSP
+    CalculateStackFrame() override;
 
-    virtual void
-    CalculateExecutionContext (ExecutionContext &exe_ctx);
+    void
+    CalculateExecutionContext(ExecutionContext &exe_ctx) override;
 
     PathMappingList &
     GetImageSearchPathList ();
     
+    TypeSystem *
+    GetScratchTypeSystemForLanguage (lldb::LanguageType language, bool create_on_demand = true);
+    
+    // Creates a UserExpression for the given language, the rest of the parameters have the
+    // same meaning as for the UserExpression constructor.
+    // Returns a new-ed object which the caller owns.
+    
+    UserExpression *
+    GetUserExpressionForLanguage(const char *expr,
+                                 const char *expr_prefix,
+                                 lldb::LanguageType language,
+                                 Expression::ResultType desired_type,
+                                 Error &error);
+    
+    // Creates a FunctionCaller for the given language, the rest of the parameters have the
+    // same meaning as for the FunctionCaller constructor.  Since a FunctionCaller can't be
+    // IR Interpreted, it makes no sense to call this with an ExecutionContextScope that lacks
+    // a Process.
+    // Returns a new-ed object which the caller owns.
+    
+    FunctionCaller *
+    GetFunctionCallerForLanguage (lldb::LanguageType language,
+                                  const CompilerType &return_type,
+                                  const Address& function_address,
+                                  const ValueList &arg_value_list,
+                                  const char *name,
+                                  Error &error);
+    
+    // Creates a UtilityFunction for the given language, the rest of the parameters have the
+    // same meaning as for the UtilityFunction constructor.
+    // Returns a new-ed object which the caller owns.
+    
+    UtilityFunction *
+    GetUtilityFunctionForLanguage (const char *expr,
+                                   lldb::LanguageType language,
+                                   const char *name,
+                                   Error &error);
+
     ClangASTContext *
     GetScratchClangASTContext(bool create_on_demand=true);
     
@@ -1501,4 +1544,4 @@ private:
 
 } // namespace lldb_private
 
-#endif  // liblldb_Target_h_
+#endif // liblldb_Target_h_

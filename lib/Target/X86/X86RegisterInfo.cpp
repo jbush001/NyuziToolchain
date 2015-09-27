@@ -168,7 +168,15 @@ X86RegisterInfo::getPointerRegClass(const MachineFunction &MF,
     if (Subtarget.isTarget64BitLP64())
       return &X86::GR64_NOSPRegClass;
     return &X86::GR32_NOSPRegClass;
-  case 2: // Available for tailcall (not callee-saved GPRs).
+  case 2: // NOREX GPRs.
+    if (Subtarget.isTarget64BitLP64())
+      return &X86::GR64_NOREXRegClass;
+    return &X86::GR32_NOREXRegClass;
+  case 3: // NOREX GPRs except the stack pointer (for encoding reasons).
+    if (Subtarget.isTarget64BitLP64())
+      return &X86::GR64_NOREX_NOSPRegClass;
+    return &X86::GR32_NOREX_NOSPRegClass;
+  case 4: // Available for tailcall (not callee-saved GPRs).
     const Function *F = MF.getFunction();
     if (IsWin64 || (F && F->getCallingConv() == CallingConv::X86_64_Win64))
       return &X86::GR64_TCW64RegClass;
@@ -433,6 +441,10 @@ void X86RegisterInfo::adjustStackMapLiveOutMask(uint32_t *Mask) const {
 // Stack Frame Processing methods
 //===----------------------------------------------------------------------===//
 
+static bool CantUseSP(const MachineFrameInfo *MFI) {
+  return MFI->hasVarSizedObjects() || MFI->hasOpaqueSPAdjustment();
+}
+
 bool X86RegisterInfo::hasBasePointer(const MachineFunction &MF) const {
    const MachineFrameInfo *MFI = MF.getFrameInfo();
 
@@ -445,9 +457,7 @@ bool X86RegisterInfo::hasBasePointer(const MachineFunction &MF) const {
    // reference locals while also adjusting the stack pointer.  When we can't
    // use both the SP and the FP, we need a separate base pointer register.
    bool CantUseFP = needsStackRealignment(MF);
-   bool CantUseSP =
-       MFI->hasVarSizedObjects() || MFI->hasOpaqueSPAdjustment();
-   return CantUseFP && CantUseSP;
+   return CantUseFP && CantUseSP(MFI);
 }
 
 bool X86RegisterInfo::canRealignStack(const MachineFunction &MF) const {
@@ -464,7 +474,7 @@ bool X86RegisterInfo::canRealignStack(const MachineFunction &MF) const {
 
   // If a base pointer is necessary.  Check that it isn't too late to reserve
   // it.
-  if (MFI->hasVarSizedObjects())
+  if (CantUseSP(MFI))
     return MRI->canReserveReg(BasePtr);
   return true;
 }
@@ -489,6 +499,7 @@ X86RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   unsigned Opc = MI.getOpcode();
   bool AfterFPPop = Opc == X86::TAILJMPm64 || Opc == X86::TAILJMPm ||
                     Opc == X86::TCRETURNmi || Opc == X86::TCRETURNmi64;
+
   if (hasBasePointer(MF))
     BasePtr = (FrameIndex < 0 ? FramePtr : getBaseRegister());
   else if (needsStackRealignment(MF))
@@ -507,10 +518,12 @@ X86RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
     MachineOperand &FI = MI.getOperand(FIOperandNum);
     bool IsWinEH = MF.getTarget().getMCAsmInfo()->usesWindowsCFI();
     int Offset;
+    unsigned IgnoredFrameReg;
     if (IsWinEH)
-      Offset = TFI->getFrameIndexOffsetFromSP(MF, FrameIndex);
+      Offset =
+          TFI->getFrameIndexReferenceFromSP(MF, FrameIndex, IgnoredFrameReg);
     else
-      Offset = TFI->getFrameIndexOffset(MF, FrameIndex);
+      Offset = TFI->getFrameIndexReference(MF, FrameIndex, IgnoredFrameReg);
     FI.ChangeToImmediate(Offset);
     return;
   }
@@ -527,12 +540,13 @@ X86RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
 
   // Now add the frame object offset to the offset from EBP.
   int FIOffset;
+  unsigned IgnoredFrameReg;
   if (AfterFPPop) {
     // Tail call jmp happens after FP is popped.
     const MachineFrameInfo *MFI = MF.getFrameInfo();
     FIOffset = MFI->getObjectOffset(FrameIndex) - TFI->getOffsetOfLocalArea();
   } else
-    FIOffset = TFI->getFrameIndexOffset(MF, FrameIndex);
+    FIOffset = TFI->getFrameIndexReference(MF, FrameIndex, IgnoredFrameReg);
 
   if (BasePtr == StackPtr)
     FIOffset += SPAdj;

@@ -36,8 +36,8 @@ entry:
   tail call void @llvm.dbg.value(metadata i8** %argv, i64 0, metadata !14, metadata !DIExpression()), !dbg !27
   %cmp = icmp slt i32 %argc, 2, !dbg !28
   br i1 %cmp, label %return, label %if.end, !dbg !28
-; CHECK: edge entry -> return probability is 0 / 1 = 0%
-; CHECK: edge entry -> if.end probability is 1 / 1 = 100%
+; CHECK: edge entry -> return probability is 0x00000000 / 0x80000000 = 0.00%
+; CHECK: edge entry -> if.end probability is 0x80000000 / 0x80000000 = 100.00% [HOT edge]
 
 if.end:                                           ; preds = %entry
   %arrayidx = getelementptr inbounds i8*, i8** %argv, i64 1, !dbg !30
@@ -46,8 +46,8 @@ if.end:                                           ; preds = %entry
   tail call void @llvm.dbg.value(metadata i32 %call, i64 0, metadata !17, metadata !DIExpression()), !dbg !30
   %cmp1 = icmp sgt i32 %call, 100, !dbg !35
   br i1 %cmp1, label %for.body, label %if.end6, !dbg !35
-; CHECK: edge if.end -> for.body probability is 0 / 1 = 0%
-; CHECK: edge if.end -> if.end6 probability is 1 / 1 = 100%
+; CHECK: edge if.end -> for.body probability is 0x00000000 / 0x80000000 = 0.00%
+; CHECK: edge if.end -> if.end6 probability is 0x80000000 / 0x80000000 = 100.00% [HOT edge]
 
 for.body:                                         ; preds = %if.end, %for.body
   %u.016 = phi i32 [ %inc, %for.body ], [ 0, %if.end ]
@@ -65,14 +65,14 @@ for.body:                                         ; preds = %if.end, %for.body
   tail call void @llvm.dbg.value(metadata i32 %inc, i64 0, metadata !21, metadata !DIExpression()), !dbg !38
   %exitcond = icmp eq i32 %inc, %call, !dbg !38
   br i1 %exitcond, label %if.end6, label %for.body, !dbg !38
-; CHECK: edge for.body -> if.end6 probability is 0 / 10226 = 0%
-; CHECK: edge for.body -> for.body probability is 10226 / 10226 = 100% [HOT edge]
+; CHECK: edge for.body -> if.end6 probability is 0x00000000 / 0x80000000 = 0.00%
+; CHECK: edge for.body -> for.body probability is 0x80000000 / 0x80000000 = 100.00% [HOT edge]
 
 if.end6:                                          ; preds = %for.body, %if.end
   %result.0 = phi double [ 0.000000e+00, %if.end ], [ %sub, %for.body ]
   %call7 = tail call i32 (i8*, ...) @printf(i8* getelementptr inbounds ([15 x i8], [15 x i8]* @.str, i64 0, i64 0), double %result.0), !dbg !39
   br label %return, !dbg !40
-; CHECK: edge if.end6 -> return probability is 16 / 16 = 100% [HOT edge]
+; CHECK: edge if.end6 -> return probability is 0x80000000 / 0x80000000 = 100.00% [HOT edge]
 
 return:                                           ; preds = %entry, %if.end6
   %retval.0 = phi i32 [ 0, %if.end6 ], [ 1, %entry ]
@@ -98,11 +98,11 @@ attributes #4 = { nounwind readonly }
 !llvm.module.flags = !{!25, !42}
 !llvm.ident = !{!26}
 
-!0 = !DICompileUnit(language: DW_LANG_C_plus_plus, producer: "clang version 3.4 (trunk 192896) (llvm/trunk 192895)", isOptimized: true, emissionKind: 0, file: !1, enums: !2, retainedTypes: !2, subprograms: !3, globals: !2, imports: !2)
+!0 = distinct !DICompileUnit(language: DW_LANG_C_plus_plus, producer: "clang version 3.4 (trunk 192896) (llvm/trunk 192895)", isOptimized: true, emissionKind: 0, file: !1, enums: !2, retainedTypes: !2, subprograms: !3, globals: !2, imports: !2)
 !1 = !DIFile(filename: "branch.cc", directory: ".")
 !2 = !{}
 !3 = !{!4}
-!4 = !DISubprogram(name: "main", line: 4, isLocal: false, isDefinition: true, virtualIndex: 6, flags: DIFlagPrototyped, isOptimized: true, scopeLine: 4, file: !1, scope: !5, type: !6, function: i32 (i32, i8**)* @main, variables: !12)
+!4 = distinct !DISubprogram(name: "main", line: 4, isLocal: false, isDefinition: true, virtualIndex: 6, flags: DIFlagPrototyped, isOptimized: true, scopeLine: 4, file: !1, scope: !5, type: !6, function: i32 (i32, i8**)* @main, variables: !12)
 !5 = !DIFile(filename: "branch.cc", directory: ".")
 !6 = !DISubroutineType(types: !7)
 !7 = !{!8, !8, !9}
@@ -111,17 +111,17 @@ attributes #4 = { nounwind readonly }
 !10 = !DIDerivedType(tag: DW_TAG_pointer_type, size: 64, align: 64, baseType: !11)
 !11 = !DIBasicType(tag: DW_TAG_base_type, name: "char", size: 8, align: 8, encoding: DW_ATE_signed_char)
 !12 = !{!13, !14, !15, !17, !18, !21, !23}
-!13 = !DILocalVariable(tag: DW_TAG_arg_variable, name: "argc", line: 4, arg: 1, scope: !4, file: !5, type: !8)
-!14 = !DILocalVariable(tag: DW_TAG_arg_variable, name: "argv", line: 4, arg: 2, scope: !4, file: !5, type: !9)
-!15 = !DILocalVariable(tag: DW_TAG_auto_variable, name: "result", line: 7, scope: !4, file: !5, type: !16)
+!13 = !DILocalVariable(name: "argc", line: 4, arg: 1, scope: !4, file: !5, type: !8)
+!14 = !DILocalVariable(name: "argv", line: 4, arg: 2, scope: !4, file: !5, type: !9)
+!15 = !DILocalVariable(name: "result", line: 7, scope: !4, file: !5, type: !16)
 !16 = !DIBasicType(tag: DW_TAG_base_type, name: "double", size: 64, align: 64, encoding: DW_ATE_float)
-!17 = !DILocalVariable(tag: DW_TAG_auto_variable, name: "limit", line: 8, scope: !4, file: !5, type: !8)
-!18 = !DILocalVariable(tag: DW_TAG_auto_variable, name: "s", line: 10, scope: !19, file: !5, type: !16)
+!17 = !DILocalVariable(name: "limit", line: 8, scope: !4, file: !5, type: !8)
+!18 = !DILocalVariable(name: "s", line: 10, scope: !19, file: !5, type: !16)
 !19 = distinct !DILexicalBlock(line: 9, column: 0, file: !1, scope: !20)
 !20 = distinct !DILexicalBlock(line: 9, column: 0, file: !1, scope: !4)
-!21 = !DILocalVariable(tag: DW_TAG_auto_variable, name: "u", line: 11, scope: !22, file: !5, type: !8)
+!21 = !DILocalVariable(name: "u", line: 11, scope: !22, file: !5, type: !8)
 !22 = distinct !DILexicalBlock(line: 11, column: 0, file: !1, scope: !19)
-!23 = !DILocalVariable(tag: DW_TAG_auto_variable, name: "x", line: 12, scope: !24, file: !5, type: !16)
+!23 = !DILocalVariable(name: "x", line: 12, scope: !24, file: !5, type: !16)
 !24 = distinct !DILexicalBlock(line: 11, column: 0, file: !1, scope: !22)
 !25 = !{i32 2, !"Dwarf Version", i32 4}
 !26 = !{!"clang version 3.4 (trunk 192896) (llvm/trunk 192895)"}

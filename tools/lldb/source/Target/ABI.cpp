@@ -11,8 +11,8 @@
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Core/Value.h"
 #include "lldb/Core/ValueObjectConstResult.h"
-#include "lldb/Expression/ClangPersistentVariables.h"
-#include "lldb/Symbol/ClangASTType.h"
+#include "Plugins/ExpressionParser/Clang/ClangPersistentVariables.h"
+#include "lldb/Symbol/CompilerType.h"
 #include "lldb/Target/Target.h"
 #include "lldb/Target/Thread.h"
 
@@ -84,7 +84,7 @@ ABI::GetRegisterInfoByName (const ConstString &name, RegisterInfo &info)
 bool
 ABI::GetRegisterInfoByKind (RegisterKind reg_kind, uint32_t reg_num, RegisterInfo &info)
 {
-    if (reg_kind < eRegisterKindGCC || reg_kind >= kNumRegisterKinds)
+    if (reg_kind < eRegisterKindEHFrame || reg_kind >= kNumRegisterKinds)
         return false;
         
     uint32_t count = 0;
@@ -105,7 +105,7 @@ ABI::GetRegisterInfoByKind (RegisterKind reg_kind, uint32_t reg_num, RegisterInf
 
 ValueObjectSP
 ABI::GetReturnValueObject (Thread &thread,
-                           ClangASTType &ast_type,
+                           CompilerType &ast_type,
                            bool persistent) const
 {
     if (!ast_type.IsValid())
@@ -141,7 +141,7 @@ ABI::GetReturnValueObject (Thread &thread,
         
         return_valobj_sp = const_valobj_sp;
 
-        ClangExpressionVariableSP clang_expr_variable_sp(persistent_variables.CreatePersistentVariable(return_valobj_sp));
+        ExpressionVariableSP clang_expr_variable_sp(persistent_variables.CreatePersistentVariable(return_valobj_sp));
                
         assert (clang_expr_variable_sp.get());
         

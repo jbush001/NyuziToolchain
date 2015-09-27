@@ -157,12 +157,19 @@ def FeatureDSPR2 : SubtargetFeature<"dspr2", "HasDSPR2", "true",
 
 def FeatureMSA : SubtargetFeature<"msa", "HasMSA", "true", "Mips MSA ASE">;
 
+def FeatureEVA : SubtargetFeature<"eva", "HasEVA", "true", "Mips EVA ASE">;
+
 def FeatureMicroMips  : SubtargetFeature<"micromips", "InMicroMipsMode", "true",
                                          "microMips mode">;
 
 def FeatureCnMips     : SubtargetFeature<"cnmips", "HasCnMips",
                                 "true", "Octeon cnMIPS Support",
                                 [FeatureMips64r2]>;
+
+def FeatureUseTCCInDIV : SubtargetFeature<
+                               "use-tcc-in-div",
+                               "UseTCCInDIV", "false",
+                               "Force the assembler to use trapping">;
 
 //===----------------------------------------------------------------------===//
 // Mips processors supported.

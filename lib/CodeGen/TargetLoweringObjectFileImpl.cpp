@@ -32,6 +32,7 @@
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSymbolELF.h"
 #include "llvm/MC/MCValue.h"
+#include "llvm/Support/COFF.h"
 #include "llvm/Support/Dwarf.h"
 #include "llvm/Support/ELF.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -705,7 +706,7 @@ MCSymbol *TargetLoweringObjectFileMachO::getCFIPersonalitySymbol(
 const MCExpr *TargetLoweringObjectFileMachO::getIndirectSymViaGOTPCRel(
     const MCSymbol *Sym, const MCValue &MV, int64_t Offset,
     MachineModuleInfo *MMI, MCStreamer &Streamer) const {
-  // Although MachO 32-bit targets do not explictly have a GOTPCREL relocation
+  // Although MachO 32-bit targets do not explicitly have a GOTPCREL relocation
   // as 64-bit do, we replace the GOT equivalent by accessing the final symbol
   // through a non_lazy_ptr stub instead. One advantage is that it allows the
   // computation of deltas to final external symbols. Example:

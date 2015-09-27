@@ -21,14 +21,14 @@ class ExprCommandWithTimeoutsTestCase(TestBase):
 
     @skipUnlessDarwin
     @dsym_test
-    @expectedFailureDarwin # failed 1/134 runs, line 83, value.IsValid() 
     def test_with_dsym(self):
         """Test calling std::String member function."""
         self.buildDsym()
         self.call_function()
 
-    @expectedFailureFreeBSD("llvm.org/pr19605") # fails on buildbot
+    @expectedFlakeyFreeBSD("llvm.org/pr19605")
     @expectedFlakeyLinux("llvm.org/pr20275")
+    @expectedFailureWindows("llvm.org/pr21765")
     @dwarf_test
     def test_with_dwarf(self):
         """Test calling std::String member function."""
@@ -65,15 +65,15 @@ class ExprCommandWithTimeoutsTestCase(TestBase):
 
         frame = thread.GetFrameAtIndex(0)
         
-        value = frame.EvaluateExpression ("wait_a_while (10000)", options)
+        value = frame.EvaluateExpression ("wait_a_while (50000)", options)
         self.assertTrue (value.IsValid())
-        self.assertTrue (value.GetError().Success() == False)
+        self.assertFalse (value.GetError().Success())
 
         # Now do the same thing with the command line command, and make sure it works too.
         interp = self.dbg.GetCommandInterpreter()
 
         result = lldb.SBCommandReturnObject()
-        return_value = interp.HandleCommand ("expr -t 100 -u true -- wait_a_while(10000)", result)
+        return_value = interp.HandleCommand ("expr -t 100 -u true -- wait_a_while(50000)", result)
         self.assertTrue (return_value == lldb.eReturnStatusFailed)
 
         # Okay, now do it again with long enough time outs:

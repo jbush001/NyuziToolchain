@@ -49,6 +49,15 @@ protected:
     void
     DeleteForwardPort (lldb::pid_t pid);
 
+    std::string
+    MakeUrl(const char* scheme,
+            const char* hostname,
+            uint16_t port,
+            const char* path) override;
+
+    Error
+    SetPortForwarding(const lldb::pid_t pid, const uint16_t remote_port, uint16_t &local_port);
+
 private:
     DISALLOW_COPY_AND_ASSIGN (PlatformAndroidRemoteGDBServer);
 

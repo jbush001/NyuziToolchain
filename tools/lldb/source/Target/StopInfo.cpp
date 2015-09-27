@@ -23,7 +23,7 @@
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/StreamString.h"
 #include "lldb/Core/ValueObject.h"
-#include "lldb/Expression/ClangUserExpression.h"
+#include "lldb/Expression/UserExpression.h"
 #include "lldb/Target/Target.h"
 #include "lldb/Target/Thread.h"
 #include "lldb/Target/ThreadPlan.h"
@@ -614,10 +614,11 @@ public:
         Watchpoint *watchpoint;
     };
 
-    StopInfoWatchpoint (Thread &thread, break_id_t watch_id) :
+    StopInfoWatchpoint (Thread &thread, break_id_t watch_id, lldb::addr_t watch_hit_addr) :
         StopInfo(thread, watch_id),
         m_should_stop(false),
-        m_should_stop_is_valid(false)
+        m_should_stop_is_valid(false),
+        m_watch_hit_addr(watch_hit_addr)
     {
     }
     
@@ -744,6 +745,21 @@ protected:
                     }
                 }
 
+                /*
+                 * MIPS: Last 3bits of the watchpoint address are masked by the kernel. For example:
+                 * 'n' is at 0x120010d00 and 'm' is 0x120010d04. When a watchpoint is set at 'm', then
+                 * watch exception is generated even when 'n' is read/written. To handle this case,
+                 * server emulates the instruction at PC and finds the base address of the load/store
+                 * instruction and appends it in the description of the stop-info packet. If watchpoint
+                 * is not set on this address by user then this do not stop.
+                */
+                if (m_watch_hit_addr != LLDB_INVALID_ADDRESS)
+                {
+                    WatchpointSP wp_hit_sp = thread_sp->CalculateTarget()->GetWatchpointList().FindByAddress(m_watch_hit_addr);
+                    if (!wp_hit_sp)
+                        m_should_stop = false;
+                }
+                
                 if (m_should_stop && wp_sp->GetConditionText() != NULL)
                 {
                     // We need to make sure the user sees any parse errors in their condition, so we'll hook the
@@ -754,12 +770,13 @@ protected:
                     expr_options.SetIgnoreBreakpoints(true);
                     ValueObjectSP result_value_sp;
                     Error error;
-                    result_code = ClangUserExpression::Evaluate (exe_ctx,
-                                                                 expr_options,
-                                                                 wp_sp->GetConditionText(),
-                                                                 NULL,
-                                                                 result_value_sp,
-                                                                 error);
+                    result_code = UserExpression::Evaluate (exe_ctx,
+                                                            expr_options,
+                                                            wp_sp->GetConditionText(),
+                                                            NULL,
+                                                            result_value_sp,
+                                                            error);
+                                                            
                     if (result_code == eExpressionCompleted)
                     {
                         if (result_value_sp)
@@ -856,6 +873,7 @@ protected:
 private:
     bool m_should_stop;
     bool m_should_stop_is_valid;
+    lldb::addr_t m_watch_hit_addr;
 };
 
 
@@ -1037,7 +1055,7 @@ class StopInfoThreadPlan : public StopInfo
 {
 public:
 
-    StopInfoThreadPlan (ThreadPlanSP &plan_sp, ValueObjectSP &return_valobj_sp, ClangExpressionVariableSP &expression_variable_sp) :
+    StopInfoThreadPlan (ThreadPlanSP &plan_sp, ValueObjectSP &return_valobj_sp, ExpressionVariableSP &expression_variable_sp) :
         StopInfo (plan_sp->GetThread(), LLDB_INVALID_UID),
         m_plan_sp (plan_sp),
         m_return_valobj_sp (return_valobj_sp),
@@ -1073,7 +1091,7 @@ public:
         return m_return_valobj_sp;
     }
     
-    ClangExpressionVariableSP
+    ExpressionVariableSP
     GetExpressionVariable()
     {
         return m_expression_variable_sp;
@@ -1092,7 +1110,7 @@ protected:
 private:
     ThreadPlanSP m_plan_sp;
     ValueObjectSP m_return_valobj_sp;
-    ClangExpressionVariableSP m_expression_variable_sp;
+    ExpressionVariableSP m_expression_variable_sp;
 };
     
 class StopInfoExec : public StopInfo
@@ -1153,9 +1171,9 @@ StopInfo::CreateStopReasonWithBreakpointSiteID (Thread &thread, break_id_t break
 }
 
 StopInfoSP
-StopInfo::CreateStopReasonWithWatchpointID (Thread &thread, break_id_t watch_id)
+StopInfo::CreateStopReasonWithWatchpointID (Thread &thread, break_id_t watch_id, lldb::addr_t watch_hit_addr)
 {
-    return StopInfoSP (new StopInfoWatchpoint (thread, watch_id));
+    return StopInfoSP (new StopInfoWatchpoint (thread, watch_id, watch_hit_addr));
 }
 
 StopInfoSP
@@ -1173,7 +1191,7 @@ StopInfo::CreateStopReasonToTrace (Thread &thread)
 StopInfoSP
 StopInfo::CreateStopReasonWithPlan (ThreadPlanSP &plan_sp,
                                     ValueObjectSP return_valobj_sp,
-                                    ClangExpressionVariableSP expression_variable_sp)
+                                    ExpressionVariableSP expression_variable_sp)
 {
     return StopInfoSP (new StopInfoThreadPlan (plan_sp, return_valobj_sp, expression_variable_sp));
 }
@@ -1202,7 +1220,7 @@ StopInfo::GetReturnValueObject(StopInfoSP &stop_info_sp)
         return ValueObjectSP();
 }
 
-ClangExpressionVariableSP
+ExpressionVariableSP
 StopInfo::GetExpressionVariable(StopInfoSP &stop_info_sp)
 {
     if (stop_info_sp && stop_info_sp->GetStopReason() == eStopReasonPlanComplete)
@@ -1211,5 +1229,5 @@ StopInfo::GetExpressionVariable(StopInfoSP &stop_info_sp)
         return plan_stop_info->GetExpressionVariable();
     }
     else
-        return ClangExpressionVariableSP();
+        return ExpressionVariableSP();
 }

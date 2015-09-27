@@ -20,6 +20,10 @@
 #include <winerror.h>
 #endif
 
+#ifdef LLVM_ON_UNIX
+#include <sys/stat.h>
+#endif
+
 using namespace llvm;
 using namespace llvm::sys;
 
@@ -154,7 +158,7 @@ TEST(Support, RelativePathIterator) {
   PathComponents ExpectedPathComponents;
   PathComponents ActualPathComponents;
 
-  StringRef(Path).split(ExpectedPathComponents, "/");
+  StringRef(Path).split(ExpectedPathComponents, '/');
 
   for (path::const_iterator I = path::begin(Path), E = path::end(Path); I != E;
        ++I) {
@@ -174,7 +178,7 @@ TEST(Support, RelativePathDotIterator) {
   PathComponents ExpectedPathComponents;
   PathComponents ActualPathComponents;
 
-  StringRef(Path).split(ExpectedPathComponents, "/");
+  StringRef(Path).split(ExpectedPathComponents, '/');
 
   for (path::const_iterator I = path::begin(Path), E = path::end(Path); I != E;
        ++I) {
@@ -194,7 +198,7 @@ TEST(Support, AbsolutePathIterator) {
   PathComponents ExpectedPathComponents;
   PathComponents ActualPathComponents;
 
-  StringRef(Path).split(ExpectedPathComponents, "/");
+  StringRef(Path).split(ExpectedPathComponents, '/');
 
   // The root path will also be a component when iterating
   ExpectedPathComponents[0] = "/";
@@ -217,7 +221,7 @@ TEST(Support, AbsolutePathDotIterator) {
   PathComponents ExpectedPathComponents;
   PathComponents ActualPathComponents;
 
-  StringRef(Path).split(ExpectedPathComponents, "/");
+  StringRef(Path).split(ExpectedPathComponents, '/');
 
   // The root path will also be a component when iterating
   ExpectedPathComponents[0] = "/";
@@ -457,6 +461,26 @@ TEST_F(FileSystemTest, CreateDir) {
   ASSERT_EQ(fs::create_directory(Twine(TestDirectory) + "foo", false),
             errc::file_exists);
   ASSERT_NO_ERROR(fs::remove(Twine(TestDirectory) + "foo"));
+
+#ifdef LLVM_ON_UNIX
+  // Set a 0000 umask so that we can test our directory permissions.
+  mode_t OldUmask = ::umask(0000);
+
+  fs::file_status Status;
+  ASSERT_NO_ERROR(
+      fs::create_directory(Twine(TestDirectory) + "baz500", false,
+                           fs::perms::owner_read | fs::perms::owner_exe));
+  ASSERT_NO_ERROR(fs::status(Twine(TestDirectory) + "baz500", Status));
+  ASSERT_EQ(Status.permissions() & fs::perms::all_all,
+            fs::perms::owner_read | fs::perms::owner_exe);
+  ASSERT_NO_ERROR(fs::create_directory(Twine(TestDirectory) + "baz777", false,
+                                       fs::perms::all_all));
+  ASSERT_NO_ERROR(fs::status(Twine(TestDirectory) + "baz777", Status));
+  ASSERT_EQ(Status.permissions() & fs::perms::all_all, fs::perms::all_all);
+
+  // Restore umask to be safe.
+  ::umask(OldUmask);
+#endif
 
 #ifdef LLVM_ON_WIN32
   // Prove that create_directories() can handle a pathname > 248 characters,
@@ -764,5 +788,15 @@ TEST(Support, NormalizePath) {
   EXPECT_PATH_IS(Path6, "a\\", "a/");
 
 #undef EXPECT_PATH_IS
+}
+
+TEST(Support, RemoveLeadingDotSlash) {
+  StringRef Path1("././/foolz/wat");
+  StringRef Path2("./////");
+
+  Path1 = path::remove_leading_dotslash(Path1);
+  EXPECT_EQ(Path1, "foolz/wat");
+  Path2 = path::remove_leading_dotslash(Path2);
+  EXPECT_EQ(Path2, "");
 }
 } // anonymous namespace

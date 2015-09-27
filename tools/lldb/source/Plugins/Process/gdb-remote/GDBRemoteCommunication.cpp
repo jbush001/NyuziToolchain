@@ -574,15 +574,24 @@ GDBRemoteCommunication::DecompressPacket ()
         return true;
     if (m_bytes[1] != 'C' && m_bytes[1] != 'N')
         return true;
-    if (m_bytes[pkt_size - 3] != '#')
+
+    size_t hash_mark_idx = m_bytes.find ('#');
+    if (hash_mark_idx == std::string::npos)
         return true;
-    if (!::isxdigit (m_bytes[pkt_size - 2]) || !::isxdigit (m_bytes[pkt_size - 1]))
+    if (hash_mark_idx + 2 >= m_bytes.size())
         return true;
 
-    size_t content_length = pkt_size - 5;   // not counting '$', 'C' | 'N', '#', & the two hex checksum chars
-    size_t content_start = 2;               // The first character of the compressed/not-compressed text of the packet
-    size_t hash_mark_idx = pkt_size - 3;    // The '#' character marking the end of the packet
-    size_t checksum_idx = pkt_size - 2;     // The first character of the two hex checksum characters
+    if (!::isxdigit (m_bytes[hash_mark_idx + 1]) || !::isxdigit (m_bytes[hash_mark_idx + 2]))
+        return true;
+
+    size_t content_length = pkt_size - 5;    // not counting '$', 'C' | 'N', '#', & the two hex checksum chars
+    size_t content_start = 2;                // The first character of the compressed/not-compressed text of the packet
+    size_t checksum_idx = hash_mark_idx + 1; // The first character of the two hex checksum characters
+
+    // Normally size_of_first_packet == m_bytes.size() but m_bytes may contain multiple packets.
+    // size_of_first_packet is the size of the initial packet which we'll replace with the decompressed
+    // version of, leaving the rest of m_bytes unmodified.
+    size_t size_of_first_packet = hash_mark_idx + 3; 
 
     // Compressed packets ("$C") start with a base10 number which is the size of the uncompressed payload,
     // then a : and then the compressed data.  e.g. $C1024:<binary>#00
@@ -604,7 +613,7 @@ GDBRemoteCommunication::DecompressPacket ()
             decompressed_bufsize = ::strtoul (bufsize_str.c_str(), NULL, 10);
             if (errno != 0 || decompressed_bufsize == ULONG_MAX)
             {
-                m_bytes.erase (0, pkt_size);
+                m_bytes.erase (0, size_of_first_packet);
                 return false;
             }
         }
@@ -633,7 +642,7 @@ GDBRemoteCommunication::DecompressPacket ()
         if (!success)
         {
             SendNack();
-            m_bytes.erase (0, pkt_size);
+            m_bytes.erase (0, size_of_first_packet);
             return false;
         }
         else
@@ -677,7 +686,7 @@ GDBRemoteCommunication::DecompressPacket ()
         decompressed_buffer = (uint8_t *) malloc (decompressed_bufsize + 1);
         if (decompressed_buffer == nullptr)
         {
-            m_bytes.erase (0, pkt_size);
+            m_bytes.erase (0, size_of_first_packet);
             return false;
         }
 
@@ -751,7 +760,7 @@ GDBRemoteCommunication::DecompressPacket ()
     {
         if (decompressed_buffer)
             free (decompressed_buffer);
-        m_bytes.erase (0, pkt_size);
+        m_bytes.erase (0, size_of_first_packet);
         return false;
     }
 
@@ -773,7 +782,7 @@ GDBRemoteCommunication::DecompressPacket ()
         new_packet.push_back ('0');
     }
 
-    m_bytes = new_packet;
+    m_bytes.replace (0, size_of_first_packet, new_packet.data(), new_packet.size());
 
     free (decompressed_buffer);
     return true;
@@ -927,8 +936,10 @@ GDBRemoteCommunication::CheckForPacket (const uint8_t *src, size_t src_len, Stri
                 {
                     for (size_t i=0; !binary && i<total_length; ++i)
                     {
-                        if (isprint(m_bytes[i]) == 0)
+                        if (isprint (m_bytes[i]) == 0 && isspace (m_bytes[i]) == 0)
+                        {
                             binary = true;
+                        }
                     }
                 }
                 if (binary)
@@ -1194,27 +1205,31 @@ GDBRemoteCommunication::StartDebugserverProcess (const char *hostname,
         llvm::SmallString<PATH_MAX> named_pipe_path;
         Pipe port_pipe;
 
-        if (host_and_port[0] && in_port == 0)
+        if (in_port == 0)
         {
-            // Create a temporary file to get the stdout/stderr and redirect the
-            // output of the command into this file. We will later read this file
-            // if all goes well and fill the data into "command_output_ptr"
-
-            // Binding to port zero, we need to figure out what port it ends up
-            // using using a named pipe...
-            error = port_pipe.CreateWithUniqueName("debugserver-named-pipe", false, named_pipe_path);
-            if (error.Success())
+            if (host_and_port[0])
             {
+                // Create a temporary file to get the stdout/stderr and redirect the
+                // output of the command into this file. We will later read this file
+                // if all goes well and fill the data into "command_output_ptr"
+    
+#if defined(__APPLE__)
+                // Binding to port zero, we need to figure out what port it ends up
+                // using using a named pipe...
+                error = port_pipe.CreateWithUniqueName("debugserver-named-pipe", false, named_pipe_path);
+                if (error.Fail())
+                {
+                    if (log)
+                        log->Printf("GDBRemoteCommunication::%s() "
+                                "named pipe creation failed: %s",
+                                __FUNCTION__, error.AsCString());
+                    return error;
+                }
                 debugserver_args.AppendArgument("--named-pipe");
                 debugserver_args.AppendArgument(named_pipe_path.c_str());
-            }
-            else
-            {
-                if (log)
-                    log->Printf("GDBRemoteCommunication::%s() "
-                            "named pipe creation failed: %s",
-                            __FUNCTION__, error.AsCString());
-                // let's try an unnamed pipe
+#else
+                // Binding to port zero, we need to figure out what port it ends up
+                // using using an unnamed pipe...
                 error = port_pipe.CreateNew(true);
                 if (error.Fail())
                 {
@@ -1228,38 +1243,39 @@ GDBRemoteCommunication::StartDebugserverProcess (const char *hostname,
                 debugserver_args.AppendArgument("--pipe");
                 debugserver_args.AppendArgument(std::to_string(write_fd).c_str());
                 launch_info.AppendCloseFileAction(port_pipe.GetReadFileDescriptor());
-            }
-        }
-        else
-        {
-            // No host and port given, so lets listen on our end and make the debugserver
-            // connect to us..
-            error = StartListenThread ("127.0.0.1", 0);
-            if (error.Fail())
-            {
-                if (log)
-                    log->Printf ("GDBRemoteCommunication::%s() unable to start listen thread: %s", __FUNCTION__, error.AsCString());
-                return error;
-            }
-
-            ConnectionFileDescriptor *connection = (ConnectionFileDescriptor *)GetConnection ();
-            // Wait for 10 seconds to resolve the bound port
-            out_port = connection->GetListeningPort(10);
-            if (out_port > 0)
-            {
-                char port_cstr[32];
-                snprintf(port_cstr, sizeof(port_cstr), "127.0.0.1:%i", out_port);
-                // Send the host and port down that debugserver and specify an option
-                // so that it connects back to the port we are listening to in this process
-                debugserver_args.AppendArgument("--reverse-connect");
-                debugserver_args.AppendArgument(port_cstr);
+#endif
             }
             else
             {
-                error.SetErrorString ("failed to bind to port 0 on 127.0.0.1");
-                if (log)
-                    log->Printf ("GDBRemoteCommunication::%s() failed: %s", __FUNCTION__, error.AsCString());
-                return error;
+                // No host and port given, so lets listen on our end and make the debugserver
+                // connect to us..
+                error = StartListenThread ("127.0.0.1", 0);
+                if (error.Fail())
+                {
+                    if (log)
+                        log->Printf ("GDBRemoteCommunication::%s() unable to start listen thread: %s", __FUNCTION__, error.AsCString());
+                    return error;
+                }
+    
+                ConnectionFileDescriptor *connection = (ConnectionFileDescriptor *)GetConnection ();
+                // Wait for 10 seconds to resolve the bound port
+                out_port = connection->GetListeningPort(10);
+                if (out_port > 0)
+                {
+                    char port_cstr[32];
+                    snprintf(port_cstr, sizeof(port_cstr), "127.0.0.1:%i", out_port);
+                    // Send the host and port down that debugserver and specify an option
+                    // so that it connects back to the port we are listening to in this process
+                    debugserver_args.AppendArgument("--reverse-connect");
+                    debugserver_args.AppendArgument(port_cstr);
+                }
+                else
+                {
+                    error.SetErrorString ("failed to bind to port 0 on 127.0.0.1");
+                    if (log)
+                        log->Printf ("GDBRemoteCommunication::%s() failed: %s", __FUNCTION__, error.AsCString());
+                    return error;
+                }
             }
         }
         

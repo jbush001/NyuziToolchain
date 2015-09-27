@@ -141,7 +141,7 @@ decode_uint64 (const char *p, int base, char **end = nullptr, uint64_t fail_valu
 
 extern void ASLLogCallback(void *baton, uint32_t flags, const char *format, va_list args);
 
-#if defined (__APPLE__)
+#if defined (__APPLE__) && (__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101000)
 // from System.framework/Versions/B/PrivateHeaders/sys/codesign.h
 extern "C" {
 #define CS_OPS_STATUS           0       /* return status */
@@ -236,7 +236,7 @@ RNBRemote::CreatePacketTable  ()
     t.push_back (Packet (continue_with_sig,             &RNBRemote::HandlePacket_C,             NULL, "C", "Continue with signal"));
     t.push_back (Packet (detach,                        &RNBRemote::HandlePacket_D,             NULL, "D", "Detach gdb from remote system"));
 //  t.push_back (Packet (step_inferior_one_cycle,       &RNBRemote::HandlePacket_UNIMPLEMENTED, NULL, "i", "Step inferior by one clock cycle"));
-//  t.push_back (Packet (signal_and_step_inf_one_cycle, &RNBRemote::HandlePacket_UNIMPLEMENTED, NULL, "I", "Signal inferior, then step one clock cyle"));
+//  t.push_back (Packet (signal_and_step_inf_one_cycle, &RNBRemote::HandlePacket_UNIMPLEMENTED, NULL, "I", "Signal inferior, then step one clock cycle"));
     t.push_back (Packet (kill,                          &RNBRemote::HandlePacket_k,             NULL, "k", "Kill"));
 //  t.push_back (Packet (restart,                       &RNBRemote::HandlePacket_UNIMPLEMENTED, NULL, "R", "Restart inferior"));
 //  t.push_back (Packet (search_mem_backwards,          &RNBRemote::HandlePacket_UNIMPLEMENTED, NULL, "t", "Search memory backwards"));
@@ -1163,7 +1163,7 @@ json_string_quote_metachars (const std::string &s)
 
 typedef struct register_map_entry
 {
-    uint32_t        gdb_regnum; // gdb register number
+    uint32_t        debugserver_regnum; // debugserver register number
     uint32_t        offset;     // Offset in bytes into the register context data with no padding between register values
     DNBRegisterInfo nub_info;   // debugnub register info
     std::vector<uint32_t> value_regnums;
@@ -1230,7 +1230,7 @@ RNBRemote::InitializeRegisters (bool force)
                     reg_sets[set].registers[reg]        // DNBRegisterInfo
                 };
 
-                name_to_regnum[reg_entry.nub_info.name] = reg_entry.gdb_regnum;
+                name_to_regnum[reg_entry.nub_info.name] = reg_entry.debugserver_regnum;
 
                 if (reg_entry.nub_info.value_regs == NULL)
                 {
@@ -1810,8 +1810,8 @@ RNBRemote::HandlePacket_qRegisterInfo (const char *p)
         if (reg_set_info && reg_entry->nub_info.set < num_reg_sets)
             ostrm << "set:" << reg_set_info[reg_entry->nub_info.set].name << ';';
 
-        if (reg_entry->nub_info.reg_gcc != INVALID_NUB_REGNUM)
-            ostrm << "gcc:" << std::dec << reg_entry->nub_info.reg_gcc << ';';
+        if (reg_entry->nub_info.reg_ehframe != INVALID_NUB_REGNUM)
+            ostrm << "ehframe:" << std::dec << reg_entry->nub_info.reg_ehframe << ';';
 
         if (reg_entry->nub_info.reg_dwarf != INVALID_NUB_REGNUM)
             ostrm << "dwarf:" << std::dec << reg_entry->nub_info.reg_dwarf << ';';
@@ -2525,7 +2525,7 @@ register_value_in_hex_fixed_width (std::ostream& ostrm,
 
 
 void
-gdb_regnum_with_fixed_width_hex_register_value (std::ostream& ostrm,
+debugserver_regnum_with_fixed_width_hex_register_value (std::ostream& ostrm,
                                                 nub_process_t pid,
                                                 nub_thread_t tid,
                                                 const register_map_entry_t* reg,
@@ -2536,7 +2536,7 @@ gdb_regnum_with_fixed_width_hex_register_value (std::ostream& ostrm,
     // as ASCII for the register value.
     if (reg != NULL)
     {
-        ostrm << RAWHEX8(reg->gdb_regnum) << ':';
+        ostrm << RAWHEX8(reg->debugserver_regnum) << ':';
         register_value_in_hex_fixed_width (ostrm, pid, tid, reg, reg_value_ptr);
         ostrm << ';';
     }
@@ -2791,7 +2791,7 @@ RNBRemote::SendStopReplyPacketForThread (nub_thread_t tid)
                     if (!DNBThreadGetRegisterValueByID (pid, tid, g_reg_entries[reg].nub_info.set, g_reg_entries[reg].nub_info.reg, &reg_value))
                         continue;
 
-                    gdb_regnum_with_fixed_width_hex_register_value (ostrm, pid, tid, &g_reg_entries[reg], &reg_value);
+                    debugserver_regnum_with_fixed_width_hex_register_value (ostrm, pid, tid, &g_reg_entries[reg], &reg_value);
                 }
             }
         }
@@ -3692,7 +3692,7 @@ RNBRemote::HandlePacket_v (const char *p)
             else
                 m_ctx.LaunchStatus().SetErrorString("attach failed");
 
-#if defined (__APPLE__)
+#if defined (__APPLE__) && (__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101000)
             if (pid_attaching_to == INVALID_NUB_PROCESS && !attach_name.empty())
             {
                 pid_attaching_to = DNBProcessGetPIDByName (attach_name.c_str());
@@ -4628,6 +4628,21 @@ RNBRemote::HandlePacket_qHostInfo (const char *p)
 
     strm << "vendor:apple;";
 
+    uint64_t major, minor, patch;
+    if (DNBGetOSVersionNumbers (&major, &minor, &patch))
+    {
+        strm << "osmajor:" << major << ";";
+        strm << "osminor:" << minor << ";";
+        strm << "ospatch:" << patch << ";";
+
+        strm << "version:" << major << "." << minor;
+        if (patch != 0)
+        {
+            strm << "." << patch;
+        }
+        strm << ";";
+    }
+
 #if defined (__LITTLE_ENDIAN__)
     strm << "endian:little;";
 #elif defined (__BIG_ENDIAN__)
@@ -4765,8 +4780,8 @@ GenerateTargetXMLRegister (std::ostringstream &s,
     XMLAttributeString(s, "encoding", lldb_encoding, default_lldb_encoding);
     XMLAttributeString(s, "format", lldb_format, default_lldb_format);
     XMLAttributeUnsignedDecimal(s, "group_id", reg.nub_info.set);
-    if (reg.nub_info.reg_gcc != INVALID_NUB_REGNUM)
-        XMLAttributeUnsignedDecimal(s, "gcc_regnum", reg.nub_info.reg_gcc);
+    if (reg.nub_info.reg_ehframe != INVALID_NUB_REGNUM)
+        XMLAttributeUnsignedDecimal(s, "ehframe_regnum", reg.nub_info.reg_ehframe);
     if (reg.nub_info.reg_dwarf != INVALID_NUB_REGNUM)
         XMLAttributeUnsignedDecimal(s, "dwarf_regnum", reg.nub_info.reg_dwarf);
 
@@ -5156,7 +5171,7 @@ RNBRemote::GetJSONThreadsInfo(bool threads_with_valid_stop_info_only)
                                 continue;
 
                             std::ostringstream reg_num;
-                            reg_num << std::dec << g_reg_entries[reg].gdb_regnum;
+                            reg_num << std::dec << g_reg_entries[reg].debugserver_regnum;
                             // Encode native byte ordered bytes as hex ascii
                             registers_dict_sp->AddBytesAsHexASCIIString(reg_num.str(), reg_value.value.v_uint8, g_reg_entries[reg].nub_info.size);
                         }

@@ -14,6 +14,7 @@
 #include <stdint.h>
 
 // C++ Includes
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -409,8 +410,8 @@ namespace lldb_private {
         }
         
         typedef std::shared_ptr<TypeSummaryImpl> SharedPointer;
-        typedef bool(*SummaryCallback)(void*, ConstString, const lldb::TypeSummaryImplSP&);
-        typedef bool(*RegexSummaryCallback)(void*, lldb::RegularExpressionSP, const lldb::TypeSummaryImplSP&);
+        typedef std::function<bool(void*, ConstString, TypeSummaryImpl::SharedPointer)> SummaryCallback;
+        typedef std::function<bool(void*, lldb::RegularExpressionSP, TypeSummaryImpl::SharedPointer)> RegexSummaryCallback;
         
     protected:
         uint32_t m_my_revision;
@@ -430,8 +431,7 @@ namespace lldb_private {
         StringSummaryFormat(const TypeSummaryImpl::Flags& flags,
                             const char* f);
         
-        virtual
-        ~StringSummaryFormat()
+        ~StringSummaryFormat() override
         {
         }
 
@@ -444,23 +444,22 @@ namespace lldb_private {
         void
         SetSummaryString (const char* f);
 
-        virtual bool
+        bool
         FormatObject(ValueObject *valobj,
                      std::string& dest,
-                     const TypeSummaryOptions& options);
+                     const TypeSummaryOptions& options) override;
         
-        virtual std::string
-        GetDescription();
+        std::string
+        GetDescription() override;
         
-        virtual bool
-        IsScripted ()
+        bool
+        IsScripted() override
         {
             return false;
         }
         
-        
-        virtual Type
-        GetType ()
+        Type
+        GetType() override
         {
             return TypeSummaryImpl::eTypeString;
         }
@@ -474,9 +473,9 @@ namespace lldb_private {
     {
         // we should convert these to SBValue and SBStream if we ever cross
         // the boundary towards the external world
-        typedef bool (*Callback)(ValueObject&,
-                                 Stream&,
-                                 const TypeSummaryOptions&);
+        typedef std::function<bool(ValueObject&,
+                                   Stream&,
+                                   const TypeSummaryOptions&)> Callback;
         
         Callback m_impl;
         std::string m_description;
@@ -512,27 +511,26 @@ namespace lldb_private {
                 m_description.clear();
         }
         
-        virtual
-        ~CXXFunctionSummaryFormat ()
+        ~CXXFunctionSummaryFormat() override
         {
         }
         
-        virtual bool
-        FormatObject (ValueObject *valobj,
-                      std::string& dest,
-                      const TypeSummaryOptions& options);
+        bool
+        FormatObject(ValueObject *valobj,
+		     std::string& dest,
+		     const TypeSummaryOptions& options) override;
         
-        virtual std::string
-        GetDescription ();
+        std::string
+        GetDescription() override;
         
-        virtual bool
-        IsScripted ()
+        bool
+        IsScripted() override
         {
             return false;
         }
         
-        virtual Type
-        GetType ()
+        Type
+        GetType() override
         {
             return TypeSummaryImpl::eTypeCallback;
         }
@@ -587,33 +585,31 @@ namespace lldb_private {
                 m_python_script.clear();
         }
         
-        virtual
-        ~ScriptSummaryFormat ()
+        ~ScriptSummaryFormat() override
         {
         }
         
-        virtual bool
-        FormatObject (ValueObject *valobj,
-                      std::string& dest,
-                      const TypeSummaryOptions& options);
+        bool
+        FormatObject(ValueObject *valobj,
+		     std::string& dest,
+		     const TypeSummaryOptions& options) override;
         
-        virtual std::string
-        GetDescription ();
+        std::string
+        GetDescription() override;
         
-        virtual bool
-        IsScripted ()
+        bool
+        IsScripted() override
         {
             return true;
         }
         
-        virtual Type
-        GetType ()
+        Type
+        GetType() override
         {
             return TypeSummaryImpl::eTypeScript;
         }
         
         typedef std::shared_ptr<ScriptSummaryFormat> SharedPointer;
-        
         
     private:
         DISALLOW_COPY_AND_ASSIGN(ScriptSummaryFormat);
@@ -621,4 +617,4 @@ namespace lldb_private {
 #endif
 } // namespace lldb_private
 
-#endif	// lldb_TypeSummary_h_
+#endif // lldb_TypeSummary_h_

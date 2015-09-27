@@ -197,6 +197,116 @@ Instruction *InstCombiner::SimplifyMemSet(MemSetInst *MI) {
   return nullptr;
 }
 
+static Value *SimplifyX86immshift(const IntrinsicInst &II,
+                                  InstCombiner::BuilderTy &Builder) {
+  bool LogicalShift = false;
+  bool ShiftLeft = false;
+
+  switch (II.getIntrinsicID()) {
+  default:
+    return nullptr;
+  case Intrinsic::x86_sse2_psra_d:
+  case Intrinsic::x86_sse2_psra_w:
+  case Intrinsic::x86_sse2_psrai_d:
+  case Intrinsic::x86_sse2_psrai_w:
+  case Intrinsic::x86_avx2_psra_d:
+  case Intrinsic::x86_avx2_psra_w:
+  case Intrinsic::x86_avx2_psrai_d:
+  case Intrinsic::x86_avx2_psrai_w:
+    LogicalShift = false; ShiftLeft = false;
+    break;
+  case Intrinsic::x86_sse2_psrl_d:
+  case Intrinsic::x86_sse2_psrl_q:
+  case Intrinsic::x86_sse2_psrl_w:
+  case Intrinsic::x86_sse2_psrli_d:
+  case Intrinsic::x86_sse2_psrli_q:
+  case Intrinsic::x86_sse2_psrli_w:
+  case Intrinsic::x86_avx2_psrl_d:
+  case Intrinsic::x86_avx2_psrl_q:
+  case Intrinsic::x86_avx2_psrl_w:
+  case Intrinsic::x86_avx2_psrli_d:
+  case Intrinsic::x86_avx2_psrli_q:
+  case Intrinsic::x86_avx2_psrli_w:
+    LogicalShift = true; ShiftLeft = false;
+    break;
+  case Intrinsic::x86_sse2_psll_d:
+  case Intrinsic::x86_sse2_psll_q:
+  case Intrinsic::x86_sse2_psll_w:
+  case Intrinsic::x86_sse2_pslli_d:
+  case Intrinsic::x86_sse2_pslli_q:
+  case Intrinsic::x86_sse2_pslli_w:
+  case Intrinsic::x86_avx2_psll_d:
+  case Intrinsic::x86_avx2_psll_q:
+  case Intrinsic::x86_avx2_psll_w:
+  case Intrinsic::x86_avx2_pslli_d:
+  case Intrinsic::x86_avx2_pslli_q:
+  case Intrinsic::x86_avx2_pslli_w:
+    LogicalShift = true; ShiftLeft = true;
+    break;
+  }
+  assert((LogicalShift || !ShiftLeft) && "Only logical shifts can shift left");
+
+  // Simplify if count is constant.
+  auto Arg1 = II.getArgOperand(1);
+  auto CAZ = dyn_cast<ConstantAggregateZero>(Arg1);
+  auto CDV = dyn_cast<ConstantDataVector>(Arg1);
+  auto CInt = dyn_cast<ConstantInt>(Arg1);
+  if (!CAZ && !CDV && !CInt)
+    return nullptr;
+
+  APInt Count(64, 0);
+  if (CDV) {
+    // SSE2/AVX2 uses all the first 64-bits of the 128-bit vector
+    // operand to compute the shift amount.
+    auto VT = cast<VectorType>(CDV->getType());
+    unsigned BitWidth = VT->getElementType()->getPrimitiveSizeInBits();
+    assert((64 % BitWidth) == 0 && "Unexpected packed shift size");
+    unsigned NumSubElts = 64 / BitWidth;
+
+    // Concatenate the sub-elements to create the 64-bit value.
+    for (unsigned i = 0; i != NumSubElts; ++i) {
+      unsigned SubEltIdx = (NumSubElts - 1) - i;
+      auto SubElt = cast<ConstantInt>(CDV->getElementAsConstant(SubEltIdx));
+      Count = Count.shl(BitWidth);
+      Count |= SubElt->getValue().zextOrTrunc(64);
+    }
+  }
+  else if (CInt)
+    Count = CInt->getValue();
+
+  auto Vec = II.getArgOperand(0);
+  auto VT = cast<VectorType>(Vec->getType());
+  auto SVT = VT->getElementType();
+  unsigned VWidth = VT->getNumElements();
+  unsigned BitWidth = SVT->getPrimitiveSizeInBits();
+
+  // If shift-by-zero then just return the original value.
+  if (Count == 0)
+    return Vec;
+
+  // Handle cases when Shift >= BitWidth.
+  if (Count.uge(BitWidth)) {
+    // If LogicalShift - just return zero.
+    if (LogicalShift)
+      return ConstantAggregateZero::get(VT);
+
+    // If ArithmeticShift - clamp Shift to (BitWidth - 1).
+    Count = APInt(64, BitWidth - 1);
+  }
+
+  // Get a constant vector of the same type as the first operand.
+  auto ShiftAmt = ConstantInt::get(SVT, Count.zextOrTrunc(BitWidth));
+  auto ShiftVec = Builder.CreateVectorSplat(VWidth, ShiftAmt);
+
+  if (ShiftLeft)
+    return Builder.CreateShl(Vec, ShiftVec);
+
+  if (LogicalShift)
+    return Builder.CreateLShr(Vec, ShiftVec);
+
+  return Builder.CreateAShr(Vec, ShiftVec);
+}
+
 static Value *SimplifyX86extend(const IntrinsicInst &II,
                                 InstCombiner::BuilderTy &Builder,
                                 bool SignExtend) {
@@ -416,6 +526,13 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
 
     if (Changed) return II;
   }
+
+  auto SimplifyDemandedVectorEltsLow = [this](Value *Op, unsigned Width, unsigned DemandedWidth)
+  {
+    APInt UndefElts(Width, 0);
+    APInt DemandedElts = APInt::getLowBitsSet(Width, DemandedWidth);
+    return SimplifyDemandedVectorElts(Op, DemandedElts, UndefElts);
+  };
 
   switch (II->getIntrinsicID()) {
   default: break;
@@ -686,6 +803,7 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
       return new StoreInst(II->getArgOperand(0), Ptr);
     }
     break;
+
   case Intrinsic::x86_sse_storeu_ps:
   case Intrinsic::x86_sse2_storeu_pd:
   case Intrinsic::x86_sse2_storeu_dq:
@@ -699,6 +817,50 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
     }
     break;
 
+  case Intrinsic::x86_vcvtph2ps_128:
+  case Intrinsic::x86_vcvtph2ps_256: {
+    auto Arg = II->getArgOperand(0);
+    auto ArgType = cast<VectorType>(Arg->getType());
+    auto RetType = cast<VectorType>(II->getType());
+    unsigned ArgWidth = ArgType->getNumElements();
+    unsigned RetWidth = RetType->getNumElements();
+    assert(RetWidth <= ArgWidth && "Unexpected input/return vector widths");
+    assert(ArgType->isIntOrIntVectorTy() &&
+           ArgType->getScalarSizeInBits() == 16 &&
+           "CVTPH2PS input type should be 16-bit integer vector");
+    assert(RetType->getScalarType()->isFloatTy() &&
+           "CVTPH2PS output type should be 32-bit float vector");
+
+    // Constant folding: Convert to generic half to single conversion.
+    if (isa<ConstantAggregateZero>(Arg))
+      return ReplaceInstUsesWith(*II, ConstantAggregateZero::get(RetType));
+
+    if (isa<ConstantDataVector>(Arg)) {
+      auto VectorHalfAsShorts = Arg;
+      if (RetWidth < ArgWidth) {
+        SmallVector<int, 8> SubVecMask;
+        for (unsigned i = 0; i != RetWidth; ++i)
+          SubVecMask.push_back((int)i);
+        VectorHalfAsShorts = Builder->CreateShuffleVector(
+            Arg, UndefValue::get(ArgType), SubVecMask);
+      }
+
+      auto VectorHalfType =
+          VectorType::get(Type::getHalfTy(II->getContext()), RetWidth);
+      auto VectorHalfs =
+          Builder->CreateBitCast(VectorHalfAsShorts, VectorHalfType);
+      auto VectorFloats = Builder->CreateFPExt(VectorHalfs, RetType);
+      return ReplaceInstUsesWith(*II, VectorFloats);
+    }
+
+    // We only use the lowest lanes of the argument.
+    if (Value *V = SimplifyDemandedVectorEltsLow(Arg, ArgWidth, RetWidth)) {
+      II->setArgOperand(0, V);
+      return II;
+    }
+    break;
+  }
+
   case Intrinsic::x86_sse_cvtss2si:
   case Intrinsic::x86_sse_cvtss2si64:
   case Intrinsic::x86_sse_cvttss2si:
@@ -709,98 +871,71 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
   case Intrinsic::x86_sse2_cvttsd2si64: {
     // These intrinsics only demand the 0th element of their input vectors. If
     // we can simplify the input based on that, do so now.
-    unsigned VWidth =
-      cast<VectorType>(II->getArgOperand(0)->getType())->getNumElements();
-    APInt DemandedElts(VWidth, 1);
-    APInt UndefElts(VWidth, 0);
-    if (Value *V = SimplifyDemandedVectorElts(II->getArgOperand(0),
-                                              DemandedElts, UndefElts)) {
+    Value *Arg = II->getArgOperand(0);
+    unsigned VWidth = Arg->getType()->getVectorNumElements();
+    if (Value *V = SimplifyDemandedVectorEltsLow(Arg, VWidth, 1)) {
       II->setArgOperand(0, V);
       return II;
     }
     break;
   }
 
-  // Constant fold <A x Bi> << Ci.
-  // FIXME: We don't handle _dq because it's a shift of an i128, but is
-  // represented in the IR as <2 x i64>. A per element shift is wrong.
-  case Intrinsic::x86_sse2_psll_d:
-  case Intrinsic::x86_sse2_psll_q:
-  case Intrinsic::x86_sse2_psll_w:
-  case Intrinsic::x86_sse2_pslli_d:
-  case Intrinsic::x86_sse2_pslli_q:
-  case Intrinsic::x86_sse2_pslli_w:
-  case Intrinsic::x86_avx2_psll_d:
-  case Intrinsic::x86_avx2_psll_q:
-  case Intrinsic::x86_avx2_psll_w:
-  case Intrinsic::x86_avx2_pslli_d:
-  case Intrinsic::x86_avx2_pslli_q:
-  case Intrinsic::x86_avx2_pslli_w:
-  case Intrinsic::x86_sse2_psrl_d:
-  case Intrinsic::x86_sse2_psrl_q:
-  case Intrinsic::x86_sse2_psrl_w:
+  // Constant fold ashr( <A x Bi>, Ci ).
+  // Constant fold lshr( <A x Bi>, Ci ).
+  // Constant fold shl( <A x Bi>, Ci ).
+  case Intrinsic::x86_sse2_psrai_d:
+  case Intrinsic::x86_sse2_psrai_w:
+  case Intrinsic::x86_avx2_psrai_d:
+  case Intrinsic::x86_avx2_psrai_w:
   case Intrinsic::x86_sse2_psrli_d:
   case Intrinsic::x86_sse2_psrli_q:
   case Intrinsic::x86_sse2_psrli_w:
+  case Intrinsic::x86_avx2_psrli_d:
+  case Intrinsic::x86_avx2_psrli_q:
+  case Intrinsic::x86_avx2_psrli_w:
+  case Intrinsic::x86_sse2_pslli_d:
+  case Intrinsic::x86_sse2_pslli_q:
+  case Intrinsic::x86_sse2_pslli_w:
+  case Intrinsic::x86_avx2_pslli_d:
+  case Intrinsic::x86_avx2_pslli_q:
+  case Intrinsic::x86_avx2_pslli_w:
+    if (Value *V = SimplifyX86immshift(*II, *Builder))
+      return ReplaceInstUsesWith(*II, V);
+    break;
+
+  case Intrinsic::x86_sse2_psra_d:
+  case Intrinsic::x86_sse2_psra_w:
+  case Intrinsic::x86_avx2_psra_d:
+  case Intrinsic::x86_avx2_psra_w:
+  case Intrinsic::x86_sse2_psrl_d:
+  case Intrinsic::x86_sse2_psrl_q:
+  case Intrinsic::x86_sse2_psrl_w:
   case Intrinsic::x86_avx2_psrl_d:
   case Intrinsic::x86_avx2_psrl_q:
   case Intrinsic::x86_avx2_psrl_w:
-  case Intrinsic::x86_avx2_psrli_d:
-  case Intrinsic::x86_avx2_psrli_q:
-  case Intrinsic::x86_avx2_psrli_w: {
-    // Simplify if count is constant. To 0 if >= BitWidth,
-    // otherwise to shl/lshr.
-    auto CDV = dyn_cast<ConstantDataVector>(II->getArgOperand(1));
-    auto CInt = dyn_cast<ConstantInt>(II->getArgOperand(1));
-    if (!CDV && !CInt)
-      break;
-    ConstantInt *Count;
-    if (CDV)
-      Count = cast<ConstantInt>(CDV->getElementAsConstant(0));
-    else
-      Count = CInt;
+  case Intrinsic::x86_sse2_psll_d:
+  case Intrinsic::x86_sse2_psll_q:
+  case Intrinsic::x86_sse2_psll_w:
+  case Intrinsic::x86_avx2_psll_d:
+  case Intrinsic::x86_avx2_psll_q:
+  case Intrinsic::x86_avx2_psll_w: {
+    if (Value *V = SimplifyX86immshift(*II, *Builder))
+      return ReplaceInstUsesWith(*II, V);
 
-    auto Vec = II->getArgOperand(0);
-    auto VT = cast<VectorType>(Vec->getType());
-    if (Count->getZExtValue() >
-        VT->getElementType()->getPrimitiveSizeInBits() - 1)
-      return ReplaceInstUsesWith(
-          CI, ConstantAggregateZero::get(Vec->getType()));
+    // SSE2/AVX2 uses only the first 64-bits of the 128-bit vector
+    // operand to compute the shift amount.
+    Value *Arg1 = II->getArgOperand(1);
+    assert(Arg1->getType()->getPrimitiveSizeInBits() == 128 &&
+           "Unexpected packed shift size");
+    unsigned VWidth = Arg1->getType()->getVectorNumElements();
 
-    bool isPackedShiftLeft = true;
-    switch (II->getIntrinsicID()) {
-    default : break;
-    case Intrinsic::x86_sse2_psrl_d:
-    case Intrinsic::x86_sse2_psrl_q:
-    case Intrinsic::x86_sse2_psrl_w:
-    case Intrinsic::x86_sse2_psrli_d:
-    case Intrinsic::x86_sse2_psrli_q:
-    case Intrinsic::x86_sse2_psrli_w:
-    case Intrinsic::x86_avx2_psrl_d:
-    case Intrinsic::x86_avx2_psrl_q:
-    case Intrinsic::x86_avx2_psrl_w:
-    case Intrinsic::x86_avx2_psrli_d:
-    case Intrinsic::x86_avx2_psrli_q:
-    case Intrinsic::x86_avx2_psrli_w: isPackedShiftLeft = false; break;
+    if (Value *V = SimplifyDemandedVectorEltsLow(Arg1, VWidth, VWidth / 2)) {
+      II->setArgOperand(1, V);
+      return II;
     }
-
-    unsigned VWidth = VT->getNumElements();
-    // Get a constant vector of the same type as the first operand.
-    auto VTCI = ConstantInt::get(VT->getElementType(), Count->getZExtValue());
-    if (isPackedShiftLeft)
-      return BinaryOperator::CreateShl(Vec,
-          Builder->CreateVectorSplat(VWidth, VTCI));
-
-    return BinaryOperator::CreateLShr(Vec,
-        Builder->CreateVectorSplat(VWidth, VTCI));
+    break;
   }
 
-  case Intrinsic::x86_sse41_pmovsxbd:
-  case Intrinsic::x86_sse41_pmovsxbq:
-  case Intrinsic::x86_sse41_pmovsxbw:
-  case Intrinsic::x86_sse41_pmovsxdq:
-  case Intrinsic::x86_sse41_pmovsxwd:
-  case Intrinsic::x86_sse41_pmovsxwq:
   case Intrinsic::x86_avx2_pmovsxbd:
   case Intrinsic::x86_avx2_pmovsxbq:
   case Intrinsic::x86_avx2_pmovsxbw:
@@ -831,6 +966,54 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
     if (Value *V = SimplifyX86insertps(*II, *Builder))
       return ReplaceInstUsesWith(*II, V);
     break;
+
+  case Intrinsic::x86_sse4a_extrq: {
+    // EXTRQ uses only the lowest 64-bits of the first 128-bit vector
+    // operands and the lowest 16-bits of the second.
+    Value *Op0 = II->getArgOperand(0);
+    Value *Op1 = II->getArgOperand(1);
+    unsigned VWidth0 = Op0->getType()->getVectorNumElements();
+    unsigned VWidth1 = Op1->getType()->getVectorNumElements();
+    assert(VWidth0 == 2 && VWidth1 == 16 && "Unexpected operand sizes");
+
+    if (Value *V = SimplifyDemandedVectorEltsLow(Op0, VWidth0, 1)) {
+      II->setArgOperand(0, V);
+      return II;
+    }
+    if (Value *V = SimplifyDemandedVectorEltsLow(Op1, VWidth1, 2)) {
+      II->setArgOperand(1, V);
+      return II;
+    }
+    break;
+  }
+
+  case Intrinsic::x86_sse4a_extrqi: {
+    // EXTRQI uses only the lowest 64-bits of the first 128-bit vector
+    // operand.
+    Value *Op = II->getArgOperand(0);
+    unsigned VWidth = Op->getType()->getVectorNumElements();
+    assert(VWidth == 2 && "Unexpected operand size");
+
+    if (Value *V = SimplifyDemandedVectorEltsLow(Op, VWidth, 1)) {
+      II->setArgOperand(0, V);
+      return II;
+    }
+    break;
+  }
+
+  case Intrinsic::x86_sse4a_insertq: {
+    // INSERTQ uses only the lowest 64-bits of the first 128-bit vector
+    // operand.
+    Value *Op = II->getArgOperand(0);
+    unsigned VWidth = Op->getType()->getVectorNumElements();
+    assert(VWidth == 2 && "Unexpected operand size");
+
+    if (Value *V = SimplifyDemandedVectorEltsLow(Op, VWidth, 1)) {
+      II->setArgOperand(0, V);
+      return II;
+    }
+    break;
+  }
 
   case Intrinsic::x86_sse4a_insertqi: {
     // insertqi x, y, 64, 0 can just copy y's lower bits and leave the top
@@ -908,6 +1091,24 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
         }
       }
     }
+
+    // INSERTQI uses only the lowest 64-bits of the first two 128-bit vector
+    // operands.
+    Value *Op0 = II->getArgOperand(0);
+    Value *Op1 = II->getArgOperand(1);
+    unsigned VWidth0 = Op0->getType()->getVectorNumElements();
+    unsigned VWidth1 = Op1->getType()->getVectorNumElements();
+    assert(VWidth0 == 2 && VWidth1 == 2 && "Unexpected operand sizes");
+
+    if (Value *V = SimplifyDemandedVectorEltsLow(Op0, VWidth0, 1)) {
+      II->setArgOperand(0, V);
+      return II;
+    }
+
+    if (Value *V = SimplifyDemandedVectorEltsLow(Op1, VWidth1, 1)) {
+      II->setArgOperand(1, V);
+      return II;
+    }
     break;
   }
 
@@ -921,7 +1122,20 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
     // This optimization is convoluted because the intrinsic is defined as
     // getting a vector of floats or doubles for the ps and pd versions.
     // FIXME: That should be changed.
+
+    Value *Op0 = II->getArgOperand(0);
+    Value *Op1 = II->getArgOperand(1);
     Value *Mask = II->getArgOperand(2);
+
+    // fold (blend A, A, Mask) -> A
+    if (Op0 == Op1)
+      return ReplaceInstUsesWith(CI, Op0);
+
+    // Zero Mask - select 1st argument.
+    if (isa<ConstantAggregateZero>(Mask))
+      return ReplaceInstUsesWith(CI, Op0);
+
+    // Constant Mask - select 1st/2nd argument lane based on top bit of mask.
     if (auto C = dyn_cast<ConstantDataVector>(Mask)) {
       auto Tyi1 = Builder->getInt1Ty();
       auto SelectorType = cast<VectorType>(Mask->getType());
@@ -944,11 +1158,9 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
         Selectors.push_back(ConstantInt::get(Tyi1, Selector >> (BitWidth - 1)));
       }
       auto NewSelector = ConstantVector::get(Selectors);
-      return SelectInst::Create(NewSelector, II->getArgOperand(1),
-                                II->getArgOperand(0), "blendv");
-    } else {
-      break;
+      return SelectInst::Create(NewSelector, Op1, Op0, "blendv");
     }
+    break;
   }
 
   case Intrinsic::x86_avx_vpermilvar_ps:
@@ -1260,7 +1472,7 @@ Instruction *InstCombiner::visitCallInst(CallInst &CI) {
     }
 
     // isKnownNonNull -> nonnull attribute
-    if (isKnownNonNull(DerivedPtr))
+    if (isKnownNonNullAt(DerivedPtr, II, DT, TLI))
       II->addAttribute(AttributeSet::ReturnIndex, Attribute::NonNull);
 
     // isDereferenceablePointer -> deref attribute
@@ -1429,8 +1641,8 @@ Instruction *InstCombiner::visitCallSite(CallSite CS) {
   // checks on their arguments.
   unsigned ArgNo = 0;
   for (Value *V : CS.args()) {
-    if (!CS.paramHasAttr(ArgNo+1, Attribute::NonNull) &&
-        isKnownNonNull(V)) {
+    if (V->getType()->isPointerTy() && !CS.paramHasAttr(ArgNo+1, Attribute::NonNull) &&
+        isKnownNonNullAt(V, CS.getInstruction(), DT, TLI)) {
       AttributeSet AS = CS.getAttributes();
       AS = AS.addAttribute(CS.getInstruction()->getContext(), ArgNo+1,
                            Attribute::NonNull);

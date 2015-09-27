@@ -12,11 +12,9 @@
 
 // C Includes
 // C++ Includes
+#include <functional>
 
 // Other libraries and framework includes
-#include "clang/AST/DeclCXX.h"
-#include "clang/AST/Type.h"
-#include "clang/AST/DeclObjC.h"
 
 // Project includes
 #include "lldb/lldb-public.h"
@@ -32,7 +30,7 @@
 #include "lldb/DataFormatters/TypeValidator.h"
 
 #include "lldb/Symbol/ClangASTContext.h"
-#include "lldb/Symbol/ClangASTType.h"
+#include "lldb/Symbol/CompilerType.h"
 
 #include "lldb/Target/ObjCLanguageRuntime.h"
 #include "lldb/Target/Process.h"
@@ -92,7 +90,7 @@ public:
     typedef typename ValueType::SharedPointer ValueSP;
     typedef std::map<KeyType, ValueSP> MapType;
     typedef typename MapType::iterator MapIterator;
-    typedef bool(*CallbackType)(void*, KeyType, const ValueSP&);
+    typedef std::function<bool(void*, KeyType, const ValueSP&)> CallbackType;
     
     FormatMap(IFormatChangeListener* lst) :
     m_map(),
@@ -268,7 +266,7 @@ public:
         uint32_t* why = NULL)
     {
         uint32_t value = lldb_private::eFormatterChoiceCriterionDirectChoice;
-        ClangASTType ast_type(valobj.GetClangType());
+        CompilerType ast_type(valobj.GetCompilerType());
         bool ret = Get(valobj, ast_type, entry, use_dynamic, value);
         if (ret)
             entry = MapValueType(entry);

@@ -47,7 +47,7 @@
 // Return:  None.
 // Throws:  None.
 //--
-CMICmnLLDBDebuggerHandleEvents::CMICmnLLDBDebuggerHandleEvents(void)
+CMICmnLLDBDebuggerHandleEvents::CMICmnLLDBDebuggerHandleEvents()
 {
 }
 
@@ -58,7 +58,7 @@ CMICmnLLDBDebuggerHandleEvents::CMICmnLLDBDebuggerHandleEvents(void)
 // Return:  None.
 // Throws:  None.
 //--
-CMICmnLLDBDebuggerHandleEvents::~CMICmnLLDBDebuggerHandleEvents(void)
+CMICmnLLDBDebuggerHandleEvents::~CMICmnLLDBDebuggerHandleEvents()
 {
     Shutdown();
 }
@@ -72,7 +72,7 @@ CMICmnLLDBDebuggerHandleEvents::~CMICmnLLDBDebuggerHandleEvents(void)
 // Throws:  None.
 //--
 bool
-CMICmnLLDBDebuggerHandleEvents::Initialize(void)
+CMICmnLLDBDebuggerHandleEvents::Initialize()
 {
     m_clientUsageRefCnt++;
 
@@ -98,7 +98,7 @@ CMICmnLLDBDebuggerHandleEvents::Initialize(void)
 // Throws:  None.
 //--
 bool
-CMICmnLLDBDebuggerHandleEvents::Shutdown(void)
+CMICmnLLDBDebuggerHandleEvents::Shutdown()
 {
     if (--m_clientUsageRefCnt > 0)
         return MIstatus::success;
@@ -351,7 +351,8 @@ CMICmnLLDBDebuggerHandleEvents::HandleEventSBBreakpointCmn(const lldb::SBEvent &
 
     const CMICmnMIValueResult miValueResultC("bkpt", miValueTuple);
     const CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_BreakPointModified, miValueResultC);
-    const bool bOk = MiOutOfBandRecordToStdout(miOutOfBandRecord);
+    bool bOk = MiOutOfBandRecordToStdout(miOutOfBandRecord);
+    bOk = bOk && CMICmnStreamStdout::WritePrompt();
 
     return bOk;
 }
@@ -440,6 +441,7 @@ CMICmnLLDBDebuggerHandleEvents::HandleEventSBBreakpointAdded(const lldb::SBEvent
         const CMICmnMIValueResult miValueResult("bkpt", miValueTuple);
         const CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_BreakPointModified, miValueResult);
         bOk = MiOutOfBandRecordToStdout(miOutOfBandRecord);
+        bOk = bOk && CMICmnStreamStdout::WritePrompt();
     }
     else
     {
@@ -462,6 +464,7 @@ CMICmnLLDBDebuggerHandleEvents::HandleEventSBBreakpointAdded(const lldb::SBEvent
         const CMICmnMIValueResult miValueResult("bkpt", miValueTuple);
         const CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_BreakPointCreated, miValueResult);
         bOk = MiOutOfBandRecordToStdout(miOutOfBandRecord);
+        bOk = bOk && CMICmnStreamStdout::WritePrompt();
     }
 
     return bOk;
@@ -688,17 +691,17 @@ CMICmnLLDBDebuggerHandleEvents::MiHelpGetModuleInfo(const lldb::SBModule &vModul
     std::unique_ptr<char[]> apPath(new char[PATH_MAX]);
     vModule.GetFileSpec().GetPath(apPath.get(), PATH_MAX);
     const CMIUtilString strTargetPath(apPath.get());
-    const CMICmnMIValueConst miValueConst(strTargetPath);
+    const CMICmnMIValueConst miValueConst(strTargetPath.AddSlashes());
     const CMICmnMIValueResult miValueResult("id", miValueConst);
     vwrMiOutOfBandRecord.Add(miValueResult);
     // Build "target-name" field
-    const CMICmnMIValueConst miValueConst2(strTargetPath);
+    const CMICmnMIValueConst miValueConst2(strTargetPath.AddSlashes());
     const CMICmnMIValueResult miValueResult2("target-name", miValueConst2);
     vwrMiOutOfBandRecord.Add(miValueResult2);
     // Build "host-name" field
     vModule.GetPlatformFileSpec().GetPath(apPath.get(), PATH_MAX);
     const CMIUtilString strHostPath(apPath.get());
-    const CMICmnMIValueConst miValueConst3(strHostPath);
+    const CMICmnMIValueConst miValueConst3(strHostPath.AddSlashes());
     const CMICmnMIValueResult miValueResult3("host-name", miValueConst3);
     vwrMiOutOfBandRecord.Add(miValueResult3);
 
@@ -715,12 +718,12 @@ CMICmnLLDBDebuggerHandleEvents::MiHelpGetModuleInfo(const lldb::SBModule &vModul
         // Build "symbols-path" field
         if (bSymbolsLoaded)
         {
-            const CMICmnMIValueConst miValueConst5(strSymbolsPath);
+            const CMICmnMIValueConst miValueConst5(strSymbolsPath.AddSlashes());
             const CMICmnMIValueResult miValueResult5("symbols-path", miValueConst5);
             vwrMiOutOfBandRecord.Add(miValueResult5);
         }
         // Build "loaded_addr" field
-        const lldb::SBAddress sbAddress(vModule.GetObjectFileHeaderAddress());
+        lldb::SBAddress sbAddress(vModule.GetObjectFileHeaderAddress());
         CMICmnLLDBDebugSessionInfo &rSessionInfo(CMICmnLLDBDebugSessionInfo::Instance());
         const lldb::addr_t nLoadAddress(sbAddress.GetLoadAddress(rSessionInfo.GetTarget()));
         const CMIUtilString strLoadedAddr(nLoadAddress != LLDB_INVALID_ADDRESS ?
@@ -728,6 +731,13 @@ CMICmnLLDBDebuggerHandleEvents::MiHelpGetModuleInfo(const lldb::SBModule &vModul
         const CMICmnMIValueConst miValueConst6(strLoadedAddr);
         const CMICmnMIValueResult miValueResult6("loaded_addr", miValueConst6);
         vwrMiOutOfBandRecord.Add(miValueResult6);
+        
+        // Build "size" field
+        lldb::SBSection sbSection = sbAddress.GetSection();
+        const CMIUtilString strSize(CMIUtilString::Format("%" PRIu64, sbSection.GetByteSize()));
+        const CMICmnMIValueConst miValueConst7(strSize);
+        const CMICmnMIValueResult miValueResult7("size", miValueConst7);
+        vwrMiOutOfBandRecord.Add(miValueResult7);
     }
 
     return bOk;
@@ -1148,7 +1158,7 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopSignal(const lldb::SBEvent
 // Throws:  None.
 //--
 bool
-CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopException(void)
+CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopException()
 {
     const lldb::SBProcess sbProcess = CMICmnLLDBDebugSessionInfo::Instance().GetProcess();
     lldb::SBThread sbThread = sbProcess.GetSelectedThread();
@@ -1233,7 +1243,7 @@ CMICmnLLDBDebuggerHandleEvents::MiHelpGetCurrentThreadFrame(CMICmnMIValueTuple &
 // Throws:  None.
 //--
 bool
-CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopReasonBreakpoint(void)
+CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopReasonBreakpoint()
 {
     // CODETAG_DEBUG_SESSION_RUNNING_PROG_RECEIVED_SIGINT_PAUSE_PROGRAM
     if (!CMIDriver::Instance().SetDriverStateRunningNotDebugging())
@@ -1349,7 +1359,7 @@ CMICmnLLDBDebuggerHandleEvents::MiStoppedAtBreakPoint(const MIuint64 vBrkPtId, c
 // Throws:  None.
 //--
 bool
-CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopReasonTrace(void)
+CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopReasonTrace()
 {
     bool bOk = true;
     lldb::SBProcess sbProcess = CMICmnLLDBDebugSessionInfo::Instance().GetProcess();
@@ -1409,7 +1419,7 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStopReasonTrace(void)
 // Throws:  None.
 //--
 bool
-CMICmnLLDBDebuggerHandleEvents::UpdateSelectedThread(void)
+CMICmnLLDBDebuggerHandleEvents::UpdateSelectedThread()
 {
     lldb::SBProcess process = CMICmnLLDBDebugSessionInfo::Instance().GetDebugger().GetSelectedTarget().GetProcess();
     if (!process.IsValid())
@@ -1480,7 +1490,7 @@ CMICmnLLDBDebuggerHandleEvents::UpdateSelectedThread(void)
 // Throws:  None.
 //--
 bool
-CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStateRunning(void)
+CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStateRunning()
 {
     CMICmnMIValueConst miValueConst("all");
     CMICmnMIValueResult miValueResult("thread-id", miValueConst);
@@ -1503,7 +1513,7 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStateRunning(void)
 // Throws:  None.
 //--
 bool
-CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStateExited(void)
+CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStateExited()
 {
     const CMIUtilString strId(CMIUtilString::Format("%ld", 1));
     CMICmnMIValueConst miValueConst(strId);
@@ -1546,7 +1556,7 @@ CMICmnLLDBDebuggerHandleEvents::HandleProcessEventStateExited(void)
 // Throws:  None.
 //--
 bool
-CMICmnLLDBDebuggerHandleEvents::GetProcessStdout(void)
+CMICmnLLDBDebuggerHandleEvents::GetProcessStdout()
 {
     CMIUtilString text;
     std::unique_ptr<char[]> apStdoutBuffer(new char[1024]);
@@ -1562,7 +1572,7 @@ CMICmnLLDBDebuggerHandleEvents::GetProcessStdout(void)
             if (nNewLine == std::string::npos)
                 break;
 
-            const CMIUtilString line(text.substr(0, nNewLine + 1).c_str());
+            const CMIUtilString line(text.substr(0, nNewLine + 1));
             text.erase(0, nNewLine + 1);
             const bool bEscapeQuotes(true);
             CMICmnMIValueConst miValueConst(line.Escape(bEscapeQuotes));
@@ -1599,7 +1609,7 @@ CMICmnLLDBDebuggerHandleEvents::GetProcessStdout(void)
 // Throws:  None.
 //--
 bool
-CMICmnLLDBDebuggerHandleEvents::GetProcessStderr(void)
+CMICmnLLDBDebuggerHandleEvents::GetProcessStderr()
 {
     CMIUtilString text;
     std::unique_ptr<char[]> apStderrBuffer(new char[1024]);
@@ -1615,7 +1625,7 @@ CMICmnLLDBDebuggerHandleEvents::GetProcessStderr(void)
             if (nNewLine == std::string::npos)
                 break;
 
-            const CMIUtilString line(text.substr(0, nNewLine + 1).c_str());
+            const CMIUtilString line(text.substr(0, nNewLine + 1));
             const bool bEscapeQuotes(true);
             CMICmnMIValueConst miValueConst(line.Escape(bEscapeQuotes));
             CMICmnMIOutOfBandRecord miOutOfBandRecord(CMICmnMIOutOfBandRecord::eOutOfBand_TargetStreamOutput, miValueConst);
@@ -1649,7 +1659,7 @@ CMICmnLLDBDebuggerHandleEvents::GetProcessStderr(void)
 // Throws:  None.
 //--
 bool
-CMICmnLLDBDebuggerHandleEvents::ChkForStateChanges(void)
+CMICmnLLDBDebuggerHandleEvents::ChkForStateChanges()
 {
     CMICmnLLDBDebugSessionInfo &rSessionInfo(CMICmnLLDBDebugSessionInfo::Instance());
     lldb::SBProcess sbProcess = rSessionInfo.GetProcess();

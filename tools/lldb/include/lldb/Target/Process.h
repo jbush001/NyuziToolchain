@@ -19,6 +19,7 @@
 #include <list>
 #include <iosfwd>
 #include <vector>
+#include <unordered_set>
 
 // Other libraries and framework includes
 // Project includes
@@ -58,8 +59,7 @@ public:
     // Pass NULL for "process" if the ProcessProperties are to be the global copy
     ProcessProperties (lldb_private::Process *process);
 
-    virtual
-    ~ProcessProperties();
+    ~ProcessProperties() override;
     
     bool
     GetDisableMemoryCache() const;
@@ -102,6 +102,9 @@ public:
     
     void
     SetDetachKeepsStopped (bool keep_stopped);
+
+    bool
+    GetWarningsOptimization () const;
 
 protected:
 
@@ -410,22 +413,22 @@ public:
         OptionParsingStarting ();
     }
     
-    ~ProcessLaunchCommandOptions ()
+    ~ProcessLaunchCommandOptions() override
     {
     }
     
     Error
-    SetOptionValue (uint32_t option_idx, const char *option_arg);
+    SetOptionValue (uint32_t option_idx, const char *option_arg) override;
     
     void
-    OptionParsingStarting ()
+    OptionParsingStarting() override
     {
         launch_info.Clear();
         disable_aslr = eLazyBoolCalculate;
     }
     
     const OptionDefinition*
-    GetDefinitions ()
+    GetDefinitions() override
     {
         return g_option_table;
     }
@@ -739,7 +742,7 @@ class Process :
     public ExecutionContextScope,
     public PluginInterface
 {
-    friend class ClangFunction;     // For WaitForStateChangeEventsPrivate
+    friend class FunctionCaller;     // For WaitForStateChangeEventsPrivate
     friend class Debugger;          // For PopProcessIOHandler and ProcessIOHandlerIsActive
     friend class ProcessEventData;
     friend class StopInfo;
@@ -766,6 +769,14 @@ public:
         eBroadcastInternalStateControlPause = (1<<1),
         eBroadcastInternalStateControlResume = (1<<2)
     };
+
+    //------------------------------------------------------------------
+    /// Process warning types.
+    //------------------------------------------------------------------
+    enum Warnings
+    {
+        eWarningsOptimization = 1
+    };
     
     typedef Range<lldb::addr_t, lldb::addr_t> LoadRange;
     // We use a read/write lock to allow on or more clients to
@@ -781,7 +792,7 @@ public:
     
     static ConstString &GetStaticBroadcasterClass ();
 
-    virtual ConstString &GetBroadcasterClass() const
+    ConstString &GetBroadcasterClass() const override
     {
         return GetStaticBroadcasterClass();
     }
@@ -811,13 +822,13 @@ public:
             ProcessEventData ();
             ProcessEventData (const lldb::ProcessSP &process, lldb::StateType state);
 
-            virtual ~ProcessEventData();
+            ~ProcessEventData() override;
 
             static const ConstString &
             GetFlavorString ();
 
-            virtual const ConstString &
-            GetFlavor () const;
+            const ConstString &
+            GetFlavor() const override;
 
             lldb::ProcessSP
             GetProcessSP() const
@@ -857,11 +868,11 @@ public:
                 return m_interrupted;
             }
 
-            virtual void
-            Dump (Stream *s) const;
+            void
+            Dump(Stream *s) const override;
 
-            virtual void
-            DoOnRemoval (Event *event_ptr);
+            void
+            DoOnRemoval(Event *event_ptr) override;
 
             static const Process::ProcessEventData *
             GetEventDataFromEvent (const Event *event_ptr);
@@ -944,13 +955,13 @@ public:
     /// Construct with a shared pointer to a target, and the Process listener.
     /// Uses the Host UnixSignalsSP by default.
     //------------------------------------------------------------------
-    Process(Target &target, Listener &listener);
+    Process(lldb::TargetSP target_sp, Listener &listener);
 
     //------------------------------------------------------------------
     /// Construct with a shared pointer to a target, the Process listener,
     /// and the appropriate UnixSignalsSP for the process.
     //------------------------------------------------------------------
-    Process(Target &target, Listener &listener, const lldb::UnixSignalsSP &unix_signals_sp);
+    Process(lldb::TargetSP target_sp, Listener &listener, const lldb::UnixSignalsSP &unix_signals_sp);
 
     //------------------------------------------------------------------
     /// Destructor.
@@ -958,8 +969,7 @@ public:
     /// The destructor is virtual since this class is designed to be
     /// inherited from by the plug-in instance.
     //------------------------------------------------------------------
-    virtual
-    ~Process();
+    ~Process() override;
 
     //------------------------------------------------------------------
     /// Find a Process plug-in that can debug \a module using the
@@ -980,7 +990,7 @@ public:
     /// @see Process::CanDebug ()
     //------------------------------------------------------------------
     static lldb::ProcessSP
-    FindPlugin (Target &target, 
+    FindPlugin (lldb::TargetSP target_sp,
                 const char *plugin_name, 
                 Listener &listener, 
                 const FileSpec *crash_file_path);
@@ -1031,7 +1041,7 @@ public:
     ///     debug the executable, \b false otherwise.
     //------------------------------------------------------------------
     virtual bool
-    CanDebug (Target &target,
+    CanDebug (lldb::TargetSP target,
               bool plugin_specified_by_name) = 0;
 
 
@@ -1422,7 +1432,7 @@ public:
     Signal (int signal);
 
     void
-    SetUnixSignals(const lldb::UnixSignalsSP &signals_sp);
+    SetUnixSignals(lldb::UnixSignalsSP &&signals_sp);
 
     const lldb::UnixSignalsSP &
     GetUnixSignals();
@@ -1837,7 +1847,7 @@ public:
     Target &
     GetTarget ()
     {
-        return m_target;
+        return *m_target_sp.lock();
     }
 
     //------------------------------------------------------------------
@@ -1850,7 +1860,7 @@ public:
     const Target &
     GetTarget () const
     {
-        return m_target;
+        return *m_target_sp.lock();
     }
 
     //------------------------------------------------------------------
@@ -1939,6 +1949,20 @@ public:
         return StructuredData::ObjectSP();
     }
 
+    //------------------------------------------------------------------
+    /// Print a user-visible warning about a module being built with optimization
+    ///
+    /// Prints a async warning message to the user one time per Module
+    /// where a function is found that was compiled with optimization, per
+    /// Process.
+    ///
+    /// @param [in] sc
+    ///     A SymbolContext with eSymbolContextFunction and eSymbolContextModule
+    ///     pre-computed.
+    //------------------------------------------------------------------
+    void
+    PrintWarningOptimization (const SymbolContext &sc);
+
 protected:
     
     void
@@ -1962,6 +1986,37 @@ protected:
     //------------------------------------------------------------------
     void
     CompleteAttach ();
+
+    //------------------------------------------------------------------
+    /// Print a user-visible warning one time per Process
+    ///
+    /// A facility for printing a warning to the user once per repeat_key.
+    ///
+    /// warning_type is from the Process::Warnings enums.
+    /// repeat_key is a pointer value that will be used to ensure that the
+    /// warning message is not printed multiple times.  For instance, with a
+    /// warning about a function being optimized, you can pass the CompileUnit
+    /// pointer to have the warning issued for only the first function in a
+    /// CU, or the Function pointer to have it issued once for every function,
+    /// or a Module pointer to have it issued once per Module.
+    ///
+    /// Classes outside Process should call a specific PrintWarning method
+    /// so that the warning strings are all centralized in Process, instead of
+    /// calling PrintWarning() directly.
+    ///
+    /// @param [in] warning_type
+    ///     One of the types defined in Process::Warnings.
+    ///
+    /// @param [in] repeat_key
+    ///     A pointer value used to ensure that the warning is only printed once.
+    ///     May be nullptr, indicating that the warning is printed unconditionally
+    ///     every time.
+    ///
+    /// @param [in] fmt
+    ///     printf style format string
+    //------------------------------------------------------------------
+    void
+    PrintWarning (uint64_t warning_type, void *repeat_key, const char *fmt, ...) __attribute__((format(printf, 4, 5)));
     
 public:
     //------------------------------------------------------------------
@@ -3024,29 +3079,29 @@ public:
     //------------------------------------------------------------------
     // lldb::ExecutionContextScope pure virtual functions
     //------------------------------------------------------------------
-    virtual lldb::TargetSP
-    CalculateTarget ();
+    lldb::TargetSP
+    CalculateTarget()  override;
     
-    virtual lldb::ProcessSP
-    CalculateProcess ()
+    lldb::ProcessSP
+    CalculateProcess() override
     {
         return shared_from_this();
     }
     
-    virtual lldb::ThreadSP
-    CalculateThread ()
+    lldb::ThreadSP
+    CalculateThread() override
     {
         return lldb::ThreadSP();
     }
     
-    virtual lldb::StackFrameSP
-    CalculateStackFrame ()
+    lldb::StackFrameSP
+    CalculateStackFrame() override
     {
         return lldb::StackFrameSP();
     }
 
-    virtual void
-    CalculateExecutionContext (ExecutionContext &exe_ctx);
+    void
+    CalculateExecutionContext(ExecutionContext &exe_ctx) override;
     
     void
     SetSTDIOFileDescriptor (int file_descriptor);
@@ -3208,14 +3263,14 @@ protected:
     public:
         AttachCompletionHandler (Process *process, uint32_t exec_count);
 
-        virtual
-        ~AttachCompletionHandler() 
+        ~AttachCompletionHandler() override
         {
         }
         
-        virtual EventActionResult PerformAction (lldb::EventSP &event_sp);
-        virtual EventActionResult HandleBeingInterrupted ();
-        virtual const char *GetExitString();
+        EventActionResult PerformAction(lldb::EventSP &event_sp) override;
+        EventActionResult HandleBeingInterrupted() override;
+        const char *GetExitString() override;
+
     private:
         uint32_t m_exec_count;
         std::string m_exit_string;
@@ -3243,6 +3298,8 @@ protected:
     // Type definitions
     //------------------------------------------------------------------
     typedef std::map<lldb::LanguageType, lldb::LanguageRuntimeSP> LanguageRuntimeCollection;
+    typedef std::unordered_set<void *> WarningsPointerSet;
+    typedef std::map<uint64_t, WarningsPointerSet> WarningsCollection;
 
     struct PreResumeCallbackAndBaton
     {
@@ -3258,7 +3315,7 @@ protected:
     //------------------------------------------------------------------
     // Member variables
     //------------------------------------------------------------------
-    Target &                    m_target;               ///< The target that owns this process.
+    std::weak_ptr<Target>       m_target_sp;            ///< The target that owns this process.
     ThreadSafeValue<lldb::StateType>  m_public_state;
     ThreadSafeValue<lldb::StateType>  m_private_state; // The actual state of our process
     Broadcaster                 m_private_state_broadcaster;  // This broadcaster feeds state changed events into the private state thread's listener.
@@ -3322,6 +3379,7 @@ protected:
     std::map<lldb::addr_t,lldb::addr_t> m_resolved_indirect_addresses;
     bool m_destroy_in_process;
     bool m_can_interpret_function_calls; // Some targets, e.g the OSX kernel, don't support the ability to modify the stack.
+    WarningsCollection          m_warnings_issued;  // A set of object pointers which have already had warnings printed
     
     enum {
         eCanJITDontKnow= 0,
@@ -3421,7 +3479,7 @@ protected:
     }
     
     Error
-    HaltForDestroyOrDetach(lldb::EventSP &exit_event_sp);
+    StopForDestroyOrDetach(lldb::EventSP &exit_event_sp);
 
     bool
     StateChangedIsExternallyHijacked();
@@ -3429,15 +3487,15 @@ protected:
     void
     LoadOperatingSystemPlugin(bool flush);
 private:
+
     //------------------------------------------------------------------
     // For Process only
     //------------------------------------------------------------------
     void ControlPrivateStateThread (uint32_t signal);
     
     DISALLOW_COPY_AND_ASSIGN (Process);
-
 };
 
 } // namespace lldb_private
 
-#endif  // liblldb_Process_h_
+#endif // liblldb_Process_h_

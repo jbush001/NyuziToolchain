@@ -1,4 +1,4 @@
-"""
+﻿"""
 Test that breakpoint by symbol name works correctly with dynamic libs.
 """
 
@@ -9,6 +9,7 @@ import lldb
 from lldbtest import *
 import lldbutil
 
+@skipIfWindows # Windows doesn't have dlopen and friends, dynamic libraries work differently
 class LoadUnloadTestCase(TestBase):
 
     def getCategories (self):
@@ -69,6 +70,7 @@ class LoadUnloadTestCase(TestBase):
 
     @skipIfFreeBSD # llvm.org/pr14424 - missing FreeBSD Makefiles/testcase support
     @not_remote_testsuite_ready
+    @skipIfWindows # Windows doesn't have dlopen and friends, dynamic libraries work differently
     def test_modules_search_paths(self):
         """Test target modules list after loading a different copy of the library libd.dylib, and verifies that it works with 'target modules search-paths add'."""
 
@@ -122,6 +124,7 @@ class LoadUnloadTestCase(TestBase):
     @skipIfFreeBSD # llvm.org/pr14424 - missing FreeBSD Makefiles/testcase support
     @skipUnlessListedRemote(['android'])
     @expectedFailureAndroid # wrong source file shows up for hidden library
+    @skipIfWindows # Windows doesn't have dlopen and friends, dynamic libraries work differently
     def test_dyld_library_path(self):
         """Test (DY)LD_LIBRARY_PATH after moving libd.dylib, which defines d_function, somewhere else."""
 
@@ -177,6 +180,7 @@ class LoadUnloadTestCase(TestBase):
     @skipIfFreeBSD # llvm.org/pr14424 - missing FreeBSD Makefiles/testcase support
     @skipUnlessListedRemote(['android'])
     @expectedFailureAndroid # dlopen and dlclose prefixed with "__dl_" on android causing JIT compilation issues
+    @skipIfWindows # Windows doesn't have dlopen and friends, dynamic libraries work differently
     def test_lldb_process_load_and_unload_commands(self):
         """Test that lldb process load/unload command work correctly."""
 
@@ -279,6 +283,7 @@ class LoadUnloadTestCase(TestBase):
 
     @skipIfFreeBSD # llvm.org/pr14424 - missing FreeBSD Makefiles/testcase support
     @skipUnlessListedRemote(['android'])
+    @skipIfWindows # Windows doesn't have dlopen and friends, dynamic libraries work differently
     def test_step_over_load (self):
         """Test stepping over code that loads a shared library works correctly."""
 

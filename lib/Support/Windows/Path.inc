@@ -182,7 +182,8 @@ std::error_code current_path(SmallVectorImpl<char> &result) {
   return UTF16ToUTF8(cur_path.begin(), cur_path.size(), result);
 }
 
-std::error_code create_directory(const Twine &path, bool IgnoreExisting) {
+std::error_code create_directory(const Twine &path, bool IgnoreExisting,
+                                 perms Perms) {
   SmallVector<wchar_t, 128> path_utf16;
 
   if (std::error_code ec = widenPath(path, path_utf16))
@@ -299,6 +300,11 @@ std::error_code access(const Twine &Path, AccessMode Mode) {
     return errc::permission_denied;
 
   return std::error_code();
+}
+
+bool can_execute(const Twine &Path) {
+  return !access(Path, AccessMode::Execute) ||
+         !access(Path + ".exe", AccessMode::Execute);
 }
 
 bool equivalent(file_status A, file_status B) {

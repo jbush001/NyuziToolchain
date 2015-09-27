@@ -17,6 +17,7 @@
 #include "StatepointLowering.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/CodeGen/Analysis.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
@@ -30,7 +31,6 @@
 namespace llvm {
 
 class AddrSpaceCastInst;
-class AliasAnalysis;
 class AllocaInst;
 class BasicBlock;
 class BitCastInst;
@@ -283,21 +283,24 @@ private:
   typedef SmallVector<BitTestCase, 3> BitTestInfo;
 
   struct BitTestBlock {
-    BitTestBlock(APInt F, APInt R, const Value* SV,
-                 unsigned Rg, MVT RgVT, bool E,
-                 MachineBasicBlock* P, MachineBasicBlock* D,
-                 BitTestInfo C):
-      First(F), Range(R), SValue(SV), Reg(Rg), RegVT(RgVT), Emitted(E),
-      Parent(P), Default(D), Cases(std::move(C)) { }
+    BitTestBlock(APInt F, APInt R, const Value *SV, unsigned Rg, MVT RgVT,
+                 bool E, bool CR, MachineBasicBlock *P, MachineBasicBlock *D,
+                 BitTestInfo C, uint32_t W)
+        : First(F), Range(R), SValue(SV), Reg(Rg), RegVT(RgVT), Emitted(E),
+          ContiguousRange(CR), Parent(P), Default(D), Cases(std::move(C)),
+          Weight(W), DefaultWeight(0) {}
     APInt First;
     APInt Range;
     const Value *SValue;
     unsigned Reg;
     MVT RegVT;
     bool Emitted;
+    bool ContiguousRange;
     MachineBasicBlock *Parent;
     MachineBasicBlock *Default;
     BitTestInfo Cases;
+    uint32_t Weight;
+    uint32_t DefaultWeight;
   };
 
   /// Minimum jump table density, in percent.
@@ -339,6 +342,7 @@ private:
     CaseClusterIt LastCluster;
     const ConstantInt *GE;
     const ConstantInt *LT;
+    uint32_t DefaultWeight;
   };
   typedef SmallVector<SwitchWorkListItem, 4> SwitchWorkList;
 
@@ -515,6 +519,7 @@ private:
     void resetPerFunctionState() {
       FailureMBB = nullptr;
       Guard = nullptr;
+      GuardReg = 0;
     }
 
     MachineBasicBlock *getParentMBB() { return ParentMBB; }
@@ -705,7 +710,7 @@ public:
   void CopyToExportRegsIfNeeded(const Value *V);
   void ExportFromCurrentBlock(const Value *V);
   void LowerCallTo(ImmutableCallSite CS, SDValue Callee, bool IsTailCall,
-                   MachineBasicBlock *LandingPad = nullptr);
+                   const BasicBlock *EHPadBB = nullptr);
 
   std::pair<SDValue, SDValue> lowerCallOperands(
           ImmutableCallSite CS,
@@ -713,7 +718,7 @@ public:
           unsigned NumArgs,
           SDValue Callee,
           Type *ReturnTy,
-          MachineBasicBlock *LandingPad = nullptr,
+          const BasicBlock *EHPadBB = nullptr,
           bool IsPatchPoint = false);
 
   /// UpdateSplitBlock - When an MBB was split during scheduling, update the
@@ -723,11 +728,11 @@ public:
   // This function is responsible for the whole statepoint lowering process.
   // It uniformly handles invoke and call statepoints.
   void LowerStatepoint(ImmutableStatepoint Statepoint,
-                       MachineBasicBlock *LandingPad = nullptr);
+                       const BasicBlock *EHPadBB = nullptr);
 private:
-  std::pair<SDValue, SDValue> lowerInvokable(
-          TargetLowering::CallLoweringInfo &CLI,
-          MachineBasicBlock *LandingPad);
+  std::pair<SDValue, SDValue>
+  lowerInvokable(TargetLowering::CallLoweringInfo &CLI,
+                 const BasicBlock *EHPadBB = nullptr);
 
   // Terminator instructions.
   void visitRet(const ReturnInst &I);
@@ -735,6 +740,13 @@ private:
   void visitSwitch(const SwitchInst &I);
   void visitIndirectBr(const IndirectBrInst &I);
   void visitUnreachable(const UnreachableInst &I);
+  void visitCleanupEndPad(const CleanupEndPadInst &I);
+  void visitCleanupRet(const CleanupReturnInst &I);
+  void visitCatchEndPad(const CatchEndPadInst &I);
+  void visitCatchRet(const CatchReturnInst &I);
+  void visitCatchPad(const CatchPadInst &I);
+  void visitTerminatePad(const TerminatePadInst &TPI);
+  void visitCleanupPad(const CleanupPadInst &CPI);
 
   uint32_t getEdgeWeight(const MachineBasicBlock *Src,
                          const MachineBasicBlock *Dst) const;
@@ -843,7 +855,7 @@ private:
   void visitVACopy(const CallInst &I);
   void visitStackmap(const CallInst &I);
   void visitPatchpoint(ImmutableCallSite CS,
-                       MachineBasicBlock *LandingPad = nullptr);
+                       const BasicBlock *EHPadBB = nullptr);
 
   // These three are implemented in StatepointLowering.cpp
   void visitStatepoint(const CallInst &I);

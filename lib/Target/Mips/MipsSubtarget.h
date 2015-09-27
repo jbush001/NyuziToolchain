@@ -130,6 +130,12 @@ class MipsSubtarget : public MipsGenSubtargetInfo {
   // HasMSA -- supports MSA ASE.
   bool HasMSA;
 
+  // UseTCCInDIV -- Enables the use of trapping in the assembler.
+  bool UseTCCInDIV;
+
+  // HasEVA -- supports EVA ASE.
+  bool HasEVA;
+
   InstrItineraryData InstrItins;
 
   // We can override the determination of whether we are in mips16 mode
@@ -228,9 +234,11 @@ public:
   }
   bool inMicroMipsMode() const { return InMicroMipsMode; }
   bool inMicroMips32r6Mode() const { return InMicroMipsMode && hasMips32r6(); }
+  bool inMicroMips64r6Mode() const { return InMicroMipsMode && hasMips64r6(); }
   bool hasDSP() const { return HasDSP; }
   bool hasDSPR2() const { return HasDSPR2; }
   bool hasMSA() const { return HasMSA; }
+  bool hasEVA() const { return HasEVA; }
   bool useSmallSection() const { return UseSmallSection; }
 
   bool hasStandardEncoding() const { return !inMips16Mode(); }

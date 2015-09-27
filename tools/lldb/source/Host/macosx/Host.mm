@@ -25,7 +25,6 @@
 
 #include <asl.h>
 #include <crt_externs.h>
-#include <execinfo.h>
 #include <grp.h>
 #include <libproc.h>
 #include <pwd.h>
@@ -1346,13 +1345,13 @@ Host::ShellExpandArguments (ProcessLaunchInfo &launch_info)
         FileSpec expand_tool_spec;
         if (!HostInfo::GetLLDBPath(lldb::ePathTypeSupportExecutableDir, expand_tool_spec))
         {
-            error.SetErrorString("could not find argdumper tool");
+            error.SetErrorString("could not get support executable directory for argdumper tool");
             return error;
         }
         expand_tool_spec.AppendPathComponent("argdumper");
         if (!expand_tool_spec.Exists())
         {
-            error.SetErrorString("could not find argdumper tool");
+            error.SetErrorStringWithFormat("could not find argdumper tool: %s", expand_tool_spec.GetPath().c_str());
             return error;
         }
 

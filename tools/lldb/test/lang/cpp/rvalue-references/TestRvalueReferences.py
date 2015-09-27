@@ -11,7 +11,6 @@ class RvalueReferencesTestCase(TestBase):
     mydir = TestBase.compute_mydir(__file__)
     
     @skipUnlessDarwin
-    @expectedFailureClang("rdar://problem/11479676")
     @dsym_test
     def test_with_dsym_and_run_command(self):
         """Test that rvalues are supported in the C++ expression parser"""
@@ -20,6 +19,7 @@ class RvalueReferencesTestCase(TestBase):
 
     #rdar://problem/11479676
     @expectedFailureIcc("ICC (13.1, 14-beta) do not emit DW_TAG_rvalue_reference_type.")
+    @expectedFailureWindows("llvm.org/pr24489: Name lookup not working correctly on Windows")
     @dwarf_test
     def test_with_dwarf_and_run_command(self):
         """Test that rvalues are supported in the C++ expression parser"""
