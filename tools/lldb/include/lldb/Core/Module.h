@@ -324,7 +324,7 @@ public:
     //------------------------------------------------------------------
     size_t
     FindFunctions (const ConstString &name,
-                   const ClangNamespaceDecl *namespace_decl,
+                   const CompilerDeclContext *parent_decl_ctx,
                    uint32_t name_type_mask, 
                    bool symbols_ok,
                    bool inlines_ok,
@@ -393,8 +393,8 @@ public:
     ///     The name of the global or static variable we are looking
     ///     for.
     ///
-    /// @param[in] namespace_decl
-    ///     If valid, a namespace to search in.
+    /// @param[in] parent_decl_ctx
+    ///     If valid, a decl context that results must exist within
     ///
     /// @param[in] append
     ///     If \b true, any matches will be appended to \a
@@ -414,7 +414,7 @@ public:
     //------------------------------------------------------------------
     size_t
     FindGlobalVariables (const ConstString &name,
-                         const ClangNamespaceDecl *namespace_decl,
+                         const CompilerDeclContext *parent_decl_ctx,
                          bool append, 
                          size_t max_matches,
                          VariableList& variable_list);
@@ -525,7 +525,7 @@ public:
     size_t
     FindTypesInNamespace (const SymbolContext& sc,
                           const ConstString &type_name,
-                          const ClangNamespaceDecl *namespace_decl,
+                          const CompilerDeclContext *parent_decl_ctx,
                           size_t max_matches,
                           TypeList& type_list);
 
@@ -944,8 +944,8 @@ public:
     bool
     GetIsDynamicLinkEditor ();
 
-    ClangASTContext &
-    GetClangASTContext ();
+    TypeSystem *
+    GetTypeSystemForLanguage (lldb::LanguageType language);
 
     // Special error functions that can do printf style formatting that will prepend the message with
     // something appropriate for this module (like the architecture, path and object name (if any)). 
@@ -1098,6 +1098,7 @@ public:
                                   bool &match_name_after_lookup);
 
 protected:
+    typedef std::map<lldb::LanguageType, lldb::TypeSystemSP> TypeSystemMap;
     //------------------------------------------------------------------
     // Member Variables
     //------------------------------------------------------------------
@@ -1116,14 +1117,13 @@ protected:
     lldb::SymbolVendorUP        m_symfile_ap;   ///< A pointer to the symbol vendor for this module.
     std::vector<lldb::SymbolVendorUP> m_old_symfiles; ///< If anyone calls Module::SetSymbolFileFileSpec() and changes the symbol file,
                                                       ///< we need to keep all old symbol files around in case anyone has type references to them
-    lldb::ClangASTContextUP     m_ast;          ///< The AST context for this module.
+    TypeSystemMap               m_type_system_map;    ///< A map of any type systems associated with this module
     PathMappingList             m_source_mappings; ///< Module specific source remappings for when you have debug info for a module that doesn't match where the sources currently are
     lldb::SectionListUP         m_sections_ap; ///< Unified section list for module that is used by the ObjectFile and and ObjectFile instances for the debug info
 
     std::atomic<bool>           m_did_load_objfile;
     std::atomic<bool>           m_did_load_symbol_vendor;
     std::atomic<bool>           m_did_parse_uuid;
-    std::atomic<bool>           m_did_init_ast;
     mutable bool                m_file_has_changed:1,
                                 m_first_file_changed_log:1;   /// See if the module was modified after it was initially opened.
 
@@ -1190,7 +1190,7 @@ private:
     size_t
     FindTypes_Impl (const SymbolContext& sc, 
                     const ConstString &name,
-                    const ClangNamespaceDecl *namespace_decl,
+                    const CompilerDeclContext *parent_decl_ctx,
                     bool append, 
                     size_t max_matches,
                     TypeList& types);

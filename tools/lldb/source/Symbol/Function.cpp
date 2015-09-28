@@ -12,7 +12,7 @@
 #include "lldb/Core/Module.h"
 #include "lldb/Core/Section.h"
 #include "lldb/Host/Host.h"
-#include "lldb/Symbol/ClangASTType.h"
+#include "lldb/Symbol/CompilerType.h"
 #include "lldb/Symbol/CompileUnit.h"
 #include "lldb/Symbol/LineTable.h"
 #include "lldb/Symbol/SymbolFile.h"
@@ -217,7 +217,7 @@ Function::Function
     m_mangled (mangled),
     m_block (func_uid),
     m_range (range),
-    m_frame_base (),
+    m_frame_base (nullptr),
     m_flags (),
     m_prologue_byte_size (0)
 {
@@ -241,7 +241,7 @@ Function::Function
     m_mangled (ConstString(mangled), true),
     m_block (func_uid),
     m_range (range),
-    m_frame_base (),
+    m_frame_base (nullptr),
     m_flags (),
     m_prologue_byte_size (0)
 {
@@ -489,27 +489,24 @@ Function::GetDisplayName () const
     return m_mangled.GetDisplayDemangledName(GetLanguage());
 }
 
-clang::DeclContext *
-Function::GetClangDeclContext()
+CompilerDeclContext
+Function::GetDeclContext()
 {
-    SymbolContext sc;
-    
-    CalculateSymbolContext (&sc);
-    
-    if (!sc.module_sp)
-        return nullptr;
-    
-    SymbolVendor *sym_vendor = sc.module_sp->GetSymbolVendor();
-    
-    if (!sym_vendor)
-        return nullptr;
-    
-    SymbolFile *sym_file = sym_vendor->GetSymbolFile();
-    
-    if (!sym_file)
-        return nullptr;
-    
-    return sym_file->GetClangDeclContextForTypeUID (sc, m_uid);
+    ModuleSP module_sp = CalculateSymbolContextModule ();
+
+    if (module_sp)
+    {
+        SymbolVendor *sym_vendor = module_sp->GetSymbolVendor();
+
+        if (sym_vendor)
+        {
+            SymbolFile *sym_file = sym_vendor->GetSymbolFile();
+
+            if (sym_file)
+                return sym_file->GetDeclContextForUID (GetID());
+        }
+    }
+    return CompilerDeclContext();
 }
 
 Type*
@@ -545,13 +542,13 @@ Function::GetType() const
     return m_type;
 }
 
-ClangASTType
-Function::GetClangType()
+CompilerType
+Function::GetCompilerType()
 {
     Type *function_type = GetType();
     if (function_type)
-        return function_type->GetClangFullType();
-    return ClangASTType();
+        return function_type->GetFullCompilerType ();
+    return CompilerType();
 }
 
 uint32_t

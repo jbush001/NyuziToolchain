@@ -11,13 +11,12 @@
 
 #include <map>
 
-#include "clang/AST/DeclCXX.h"
-#include "clang/AST/Type.h"
 #include "llvm/ADT/StringRef.h"
 
 #include "lldb/lldb-private.h"
 #include "lldb/Core/FormatEntity.h"
 #include "lldb/Core/Module.h"
+#include "lldb/Core/PluginInterface.h"
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Core/RegisterValue.h"
 #include "lldb/Core/State.h"
@@ -40,13 +39,10 @@
 #include "lldb/Interpreter/OptionValueProperties.h"
 #include "lldb/Interpreter/OptionValueSInt64.h"
 #include "lldb/Interpreter/OptionValueString.h"
-#include "lldb/Symbol/ClangASTContext.h"
 #include "lldb/Symbol/CompileUnit.h"
 #include "lldb/Symbol/Function.h"
 #include "lldb/Symbol/Symbol.h"
 #include "lldb/Symbol/VariableList.h"
-#include "lldb/Target/CPPLanguageRuntime.h"
-#include "lldb/Target/ObjCLanguageRuntime.h"
 #include "lldb/Target/TargetList.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Target/RegisterContext.h"
@@ -422,7 +418,11 @@ Debugger::Terminate ()
 
     // Clear our master list of debugger objects
     Mutex::Locker locker (GetDebuggerListMutex ());
-    GetDebuggerList().clear();
+    auto& debuggers = GetDebuggerList();
+    for (const auto& debugger: debuggers)
+        debugger->Clear();
+
+    debuggers.clear();
 }
 
 void

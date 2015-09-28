@@ -443,8 +443,11 @@ ExprResult InitListChecker::PerformEmptyInit(Sema &SemaRef,
         if (!VerifyOnly) {
           SemaRef.Diag(CtorDecl->getLocation(),
                        diag::warn_invalid_initializer_from_system_header);
-          SemaRef.Diag(Entity.getDecl()->getLocation(),
-                       diag::note_used_in_initialization_here);
+          if (Entity.getKind() == InitializedEntity::EK_Member)
+            SemaRef.Diag(Entity.getDecl()->getLocation(),
+                         diag::note_used_in_initialization_here);
+          else if (Entity.getKind() == InitializedEntity::EK_ArrayElement)
+            SemaRef.Diag(Loc, diag::note_used_in_initialization_here);
         }
       }
     }
@@ -6943,6 +6946,7 @@ bool InitializationSequence::Diagnose(Sema &S,
                           diag::err_typecheck_nonviable_condition_incomplete,
                                Args[0]->getType(), Args[0]->getSourceRange()))
         S.Diag(Kind.getLocation(), diag::err_typecheck_nonviable_condition)
+          << (Entity.getKind() == InitializedEntity::EK_Result)
           << Args[0]->getType() << Args[0]->getSourceRange()
           << DestType.getNonReferenceType();
 
@@ -7043,10 +7047,12 @@ bool InitializationSequence::Diagnose(Sema &S,
     SourceRange R;
 
     auto *InitList = dyn_cast<InitListExpr>(Args[0]);
-    if (InitList && InitList->getNumInits() == 1)
+    if (InitList && InitList->getNumInits() >= 1) {
       R = SourceRange(InitList->getInit(0)->getLocEnd(), InitList->getLocEnd());
-    else
+    } else {
+      assert(Args.size() > 1 && "Expected multiple initializers!");
       R = SourceRange(Args.front()->getLocEnd(), Args.back()->getLocEnd());
+    }
 
     R.setBegin(S.getLocForEndOfToken(R.getBegin()));
     if (Kind.isCStyleOrFunctionalCast())

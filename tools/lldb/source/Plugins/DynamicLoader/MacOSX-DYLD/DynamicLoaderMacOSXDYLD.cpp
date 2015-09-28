@@ -627,14 +627,14 @@ DynamicLoaderMacOSXDYLD::NotifyBreakpointHit (void *baton,
         ValueList argument_values;
         Value input_value;
         
-        ClangASTType clang_void_ptr_type = clang_ast_context->GetBasicType(eBasicTypeVoid).GetPointerType();
-        ClangASTType clang_uint32_type = clang_ast_context->GetBuiltinTypeForEncodingAndBitSize(lldb::eEncodingUint, 32);
+        CompilerType clang_void_ptr_type = clang_ast_context->GetBasicType(eBasicTypeVoid).GetPointerType();
+        CompilerType clang_uint32_type = clang_ast_context->GetBuiltinTypeForEncodingAndBitSize(lldb::eEncodingUint, 32);
         input_value.SetValueType (Value::eValueTypeScalar);
-        input_value.SetClangType (clang_uint32_type);
+        input_value.SetCompilerType (clang_uint32_type);
 //        input_value.SetContext (Value::eContextTypeClangType, clang_uint32_type);
         argument_values.PushValue (input_value);
         argument_values.PushValue (input_value);
-        input_value.SetClangType (clang_void_ptr_type);
+        input_value.SetCompilerType (clang_void_ptr_type);
         //        input_value.SetContext (Value::eContextTypeClangType, clang_void_ptr_type);
         argument_values.PushValue (input_value);
         

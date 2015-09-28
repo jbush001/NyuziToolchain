@@ -615,12 +615,9 @@ storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
   MachineFrameInfo &MFI = *MF.getFrameInfo();
   unsigned Align = MFI.getObjectAlignment(FI);
 
-  MachineMemOperand *MMO =
-      MF.getMachineMemOperand(
-                      MachinePointerInfo(PseudoSourceValue::getFixedStack(FI)),
-                      MachineMemOperand::MOStore,
-                      MFI.getObjectSize(FI),
-                      Align);
+  MachineMemOperand *MMO = MF.getMachineMemOperand(
+      MachinePointerInfo::getFixedStack(MF, FI), MachineMemOperand::MOStore,
+      MFI.getObjectSize(FI), Align);
 
   if (Hexagon::IntRegsRegClass.hasSubClassEq(RC)) {
     BuildMI(MBB, I, DL, get(Hexagon::S2_storeri_io))
@@ -661,12 +658,9 @@ loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
   MachineFrameInfo &MFI = *MF.getFrameInfo();
   unsigned Align = MFI.getObjectAlignment(FI);
 
-  MachineMemOperand *MMO =
-      MF.getMachineMemOperand(
-                      MachinePointerInfo(PseudoSourceValue::getFixedStack(FI)),
-                      MachineMemOperand::MOLoad,
-                      MFI.getObjectSize(FI),
-                      Align);
+  MachineMemOperand *MMO = MF.getMachineMemOperand(
+      MachinePointerInfo::getFixedStack(MF, FI), MachineMemOperand::MOLoad,
+      MFI.getObjectSize(FI), Align);
   if (RC == &Hexagon::IntRegsRegClass) {
     BuildMI(MBB, I, DL, get(Hexagon::L2_loadri_io), DestReg)
           .addFrameIndex(FI).addImm(0).addMemOperand(MMO);
@@ -1069,7 +1063,7 @@ HexagonInstrInfo::
 isProfitableToIfCvt(MachineBasicBlock &MBB,
                     unsigned NumCycles,
                     unsigned ExtraPredCycles,
-                    const BranchProbability &Probability) const {
+                    BranchProbability Probability) const {
   return true;
 }
 
@@ -1082,7 +1076,7 @@ isProfitableToIfCvt(MachineBasicBlock &TMBB,
                     MachineBasicBlock &FMBB,
                     unsigned NumFCycles,
                     unsigned ExtraFCycles,
-                    const BranchProbability &Probability) const {
+                    BranchProbability Probability) const {
   return true;
 }
 
@@ -1191,7 +1185,7 @@ bool HexagonInstrInfo::ReverseBranchCondition(
 
 bool HexagonInstrInfo::
 isProfitableToDupForIfCvt(MachineBasicBlock &MBB,unsigned NumInstrs,
-                          const BranchProbability &Probability) const {
+                          BranchProbability Probability) const {
   return (NumInstrs <= 4);
 }
 

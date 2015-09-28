@@ -61,6 +61,7 @@ class X86AsmParser : public MCTargetAsmParser {
   const MCInstrInfo &MII;
   ParseInstructionInfo *InstInfo;
   std::unique_ptr<X86AsmInstrumentation> Instrumentation;
+
 private:
   SMLoc consumeToken() {
     MCAsmParser &Parser = getParser();
@@ -154,6 +155,7 @@ private:
       // Push the new operator.
       InfixOperatorStack.push_back(Op);
     }
+
     int64_t execute() {
       // Push any remaining operators onto the postfix stack.
       while (!InfixOperatorStack.empty()) {
@@ -268,6 +270,7 @@ private:
     bool StopOnLBrac, AddImmPrefix;
     InfixCalculator IC;
     InlineAsmIdentifierInfo Info;
+
   public:
     IntelExprStateMachine(int64_t imm, bool stoponlbrac, bool addimmprefix) :
       State(IES_PLUS), PrevState(IES_ERROR), BaseReg(0), IndexReg(0), TmpReg(0),
@@ -774,7 +777,7 @@ private:
     unsigned FB = ComputeAvailableFeatures(
       STI.ToggleFeature(OldMode.flip(mode)));
     setAvailableFeatures(FB);
-    
+
     assert(FeatureBitset({mode}) == (STI.getFeatureBits() & AllModes));
   }
 
@@ -912,6 +915,11 @@ bool X86AsmParser::ParseRegister(unsigned &RegNo,
   if (RegNo == 0)
     RegNo = MatchRegisterName(Tok.getString().lower());
 
+  // The "flags" register cannot be referenced directly.
+  // Treat it as an identifier instead.
+  if (isParsingInlineAsm() && isParsingIntelSyntax() && RegNo == X86::EFLAGS)
+    RegNo = 0;
+
   if (!is64BitMode()) {
     // FIXME: This should be done using Requires<Not64BitMode> and
     // Requires<In64BitMode> so "eiz" usage in 64-bit instructions can be also
@@ -1043,6 +1051,7 @@ static unsigned getIntelMemOperandSize(StringRef OpStr) {
     .Cases("WORD", "word", 16)
     .Cases("DWORD", "dword", 32)
     .Cases("QWORD", "qword", 64)
+    .Cases("MMWORD","mmword", 64)
     .Cases("XWORD", "xword", 80)
     .Cases("TBYTE", "tbyte", 80)
     .Cases("XMMWORD", "xmmword", 128)
@@ -1238,7 +1247,7 @@ bool X86AsmParser::ParseIntelExpression(IntelExprStateMachine &SM, SMLoc &End) {
               getContext().getDirectionalLocalSymbol(IntVal, IDVal == "b");
           MCSymbolRefExpr::VariantKind Variant = MCSymbolRefExpr::VK_None;
           const MCExpr *Val =
-	    MCSymbolRefExpr::create(Sym, Variant, getContext());
+              MCSymbolRefExpr::create(Sym, Variant, getContext());
           if (IDVal == "b" && Sym->isUndefined())
             return Error(Loc, "invalid reference to undefined symbol");
           StringRef Identifier = Sym->getName();
@@ -1360,7 +1369,7 @@ bool X86AsmParser::ParseIntelIdentifier(const MCExpr *&Val,
                                         InlineAsmIdentifierInfo &Info,
                                         bool IsUnevaluatedOperand, SMLoc &End) {
   MCAsmParser &Parser = getParser();
-  assert (isParsingInlineAsm() && "Expected to be parsing inline assembly.");
+  assert(isParsingInlineAsm() && "Expected to be parsing inline assembly.");
   Val = nullptr;
 
   StringRef LineBuf(Identifier.data());
@@ -1373,14 +1382,16 @@ bool X86AsmParser::ParseIntelIdentifier(const MCExpr *&Val,
   // Advance the token stream until the end of the current token is
   // after the end of what the frontend claimed.
   const char *EndPtr = Tok.getLoc().getPointer() + LineBuf.size();
-  while (true) {
+  do {
     End = Tok.getEndLoc();
     getLexer().Lex();
-
-    assert(End.getPointer() <= EndPtr && "frontend claimed part of a token?");
-    if (End.getPointer() == EndPtr) break;
-  }
+  } while (End.getPointer() < EndPtr);
   Identifier = LineBuf;
+
+  // The frontend should end parsing on an assembler token boundary, unless it
+  // failed parsing.
+  assert((End.getPointer() == EndPtr || !Result) &&
+         "frontend claimed part of a token?");
 
   // If the identifier lookup was unsuccessful, assume that we are dealing with
   // a label.
@@ -1984,12 +1995,13 @@ std::unique_ptr<X86Operand> X86AsmParser::ParseMemOperand(unsigned SegReg,
           }
 
           // Validate the scale amount.
-	  if (X86MCRegisterClasses[X86::GR16RegClassID].contains(BaseReg) &&
+          if (X86MCRegisterClasses[X86::GR16RegClassID].contains(BaseReg) &&
               ScaleVal != 1) {
             Error(Loc, "scale factor in 16-bit address must be 1");
             return nullptr;
-	  }
-          if (ScaleVal != 1 && ScaleVal != 2 && ScaleVal != 4 && ScaleVal != 8){
+          }
+          if (ScaleVal != 1 && ScaleVal != 2 && ScaleVal != 4 &&
+              ScaleVal != 8) {
             Error(Loc, "scale factor in address must be 1, 2, 4 or 8");
             return nullptr;
           }
@@ -2176,7 +2188,6 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
     Name == "repne" || Name == "repnz" ||
     Name == "rex64" || Name == "data16";
 
-
   // This does the actual operand parsing.  Don't parse any more if we have a
   // prefix juxtaposed with an operation like "lock incl 4(%rax)", because we
   // just want to parse the "lock" as the first instruction and the "incl" as
@@ -2243,9 +2254,8 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
 
   // Append default arguments to "ins[bwld]"
   if (Name.startswith("ins") && Operands.size() == 1 &&
-      (Name == "insb" || Name == "insw" || Name == "insl" ||
-       Name == "insd" )) {
-    AddDefaultSrcDestOperands(Operands, 
+      (Name == "insb" || Name == "insw" || Name == "insl" || Name == "insd")) {
+    AddDefaultSrcDestOperands(Operands,
                               X86Operand::CreateReg(X86::DX, NameLoc, NameLoc),
                               DefaultMemDIOperand(NameLoc));
   }

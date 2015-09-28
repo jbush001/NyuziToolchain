@@ -102,6 +102,9 @@ void f0() {
   const V4d* tmp_V4dCp;
   const V8f* tmp_V8fCp;
 
+  tmp_V2LLi = __builtin_ia32_undef128();
+  tmp_V4LLi = __builtin_ia32_undef256();
+
   tmp_i = __builtin_ia32_comieq(tmp_V4f, tmp_V4f);
   tmp_i = __builtin_ia32_comilt(tmp_V4f, tmp_V4f);
   tmp_i = __builtin_ia32_comile(tmp_V4f, tmp_V4f);
@@ -369,12 +372,6 @@ void f0() {
   tmp_V4i = __builtin_ia32_pminsd128(tmp_V4i, tmp_V4i);
   tmp_V4i = __builtin_ia32_pminud128(tmp_V4i, tmp_V4i);
   tmp_V8s = __builtin_ia32_pminuw128(tmp_V8s, tmp_V8s);
-  tmp_V4i = __builtin_ia32_pmovsxbd128(tmp_V16c);
-  tmp_V2LLi = __builtin_ia32_pmovsxbq128(tmp_V16c);
-  tmp_V8s = __builtin_ia32_pmovsxbw128(tmp_V16c);
-  tmp_V2LLi = __builtin_ia32_pmovsxdq128(tmp_V4i);
-  tmp_V4i = __builtin_ia32_pmovsxwd128(tmp_V8s);
-  tmp_V2LLi = __builtin_ia32_pmovsxwq128(tmp_V8s);
   tmp_V4i = __builtin_ia32_pmovzxbd128(tmp_V16c);
   tmp_V2LLi = __builtin_ia32_pmovzxbq128(tmp_V16c);
   tmp_V8s = __builtin_ia32_pmovzxbw128(tmp_V16c);

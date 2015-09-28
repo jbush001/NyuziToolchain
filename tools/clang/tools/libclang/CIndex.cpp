@@ -29,7 +29,6 @@
 #include "clang/Basic/DiagnosticIDs.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/Version.h"
-#include "clang/CodeGen/ObjectFilePCHContainerOperations.h"
 #include "clang/Frontend/ASTUnit.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
@@ -1461,9 +1460,19 @@ bool CursorVisitor::VisitBuiltinTypeLoc(BuiltinTypeLoc TL) {
   case BuiltinType::OCLImage1dBuffer:
   case BuiltinType::OCLImage2d:
   case BuiltinType::OCLImage2dArray:
+  case BuiltinType::OCLImage2dDepth:
+  case BuiltinType::OCLImage2dArrayDepth:
+  case BuiltinType::OCLImage2dMSAA:
+  case BuiltinType::OCLImage2dArrayMSAA:
+  case BuiltinType::OCLImage2dMSAADepth:
+  case BuiltinType::OCLImage2dArrayMSAADepth:
   case BuiltinType::OCLImage3d:
   case BuiltinType::OCLSampler:
   case BuiltinType::OCLEvent:
+  case BuiltinType::OCLClkEvent:
+  case BuiltinType::OCLQueue:
+  case BuiltinType::OCLNDRange:
+  case BuiltinType::OCLReserveID:
 #define BUILTIN_TYPE(Id, SingletonId)
 #define SIGNED_TYPE(Id, SingletonId) case BuiltinType::Id:
 #define UNSIGNED_TYPE(Id, SingletonId) case BuiltinType::Id:
@@ -2020,6 +2029,10 @@ void OMPClauseEnqueue::VisitOMPSafelenClause(const OMPSafelenClause *C) {
   Visitor->AddStmt(C->getSafelen());
 }
 
+void OMPClauseEnqueue::VisitOMPSimdlenClause(const OMPSimdlenClause *C) {
+  Visitor->AddStmt(C->getSimdlen());
+}
+
 void OMPClauseEnqueue::VisitOMPCollapseClause(const OMPCollapseClause *C) {
   Visitor->AddStmt(C->getNumForLoops());
 }
@@ -2033,7 +2046,9 @@ void OMPClauseEnqueue::VisitOMPScheduleClause(const OMPScheduleClause *C) {
   Visitor->AddStmt(C->getHelperChunkSize());
 }
 
-void OMPClauseEnqueue::VisitOMPOrderedClause(const OMPOrderedClause *) {}
+void OMPClauseEnqueue::VisitOMPOrderedClause(const OMPOrderedClause *C) {
+  Visitor->AddStmt(C->getNumForLoops());
+}
 
 void OMPClauseEnqueue::VisitOMPNowaitClause(const OMPNowaitClause *) {}
 
@@ -2050,6 +2065,12 @@ void OMPClauseEnqueue::VisitOMPUpdateClause(const OMPUpdateClause *) {}
 void OMPClauseEnqueue::VisitOMPCaptureClause(const OMPCaptureClause *) {}
 
 void OMPClauseEnqueue::VisitOMPSeqCstClause(const OMPSeqCstClause *) {}
+
+void OMPClauseEnqueue::VisitOMPThreadsClause(const OMPThreadsClause *) {}
+
+void OMPClauseEnqueue::VisitOMPDeviceClause(const OMPDeviceClause *C) {
+  Visitor->AddStmt(C->getDevice());
+}
 
 template<typename T>
 void OMPClauseEnqueue::VisitOMPClauseList(T *Node) {
@@ -2101,6 +2122,9 @@ void OMPClauseEnqueue::VisitOMPReductionClause(const OMPReductionClause *C) {
 }
 void OMPClauseEnqueue::VisitOMPLinearClause(const OMPLinearClause *C) {
   VisitOMPClauseList(C);
+  for (const auto *E : C->privates()) {
+    Visitor->AddStmt(E);
+  }
   for (const auto *E : C->inits()) {
     Visitor->AddStmt(E);
   }
@@ -2172,10 +2196,8 @@ void EnqueueVisitor::VisitCompoundLiteralExpr(const CompoundLiteralExpr *E) {
   AddTypeLoc(E->getTypeSourceInfo());
 }
 void EnqueueVisitor::VisitCompoundStmt(const CompoundStmt *S) {
-  for (CompoundStmt::const_reverse_body_iterator I = S->body_rbegin(),
-        E = S->body_rend(); I != E; ++I) {
-    AddStmt(*I);
-  }
+  for (auto &I : llvm::reverse(S->body()))
+    AddStmt(I);
 }
 void EnqueueVisitor::
 VisitMSDependentExistsStmt(const MSDependentExistsStmt *S) {
@@ -2961,7 +2983,8 @@ enum CXErrorCode clang_createTranslationUnit2(CXIndex CIdx,
       CompilerInstance::createDiagnostics(new DiagnosticOptions());
   std::unique_ptr<ASTUnit> AU = ASTUnit::LoadFromASTFile(
       ast_filename, CXXIdx->getPCHContainerOperations()->getRawReader(), Diags,
-      FileSystemOpts, CXXIdx->getOnlyLocalDecls(), None,
+      FileSystemOpts, /*UseDebugInfo=*/false,
+      CXXIdx->getOnlyLocalDecls(), None,
       /*CaptureDiagnostics=*/true,
       /*AllowPCHWithCompilerErrors=*/true,
       /*UserFilesAreVolatile=*/true);
@@ -3745,6 +3768,19 @@ CXString clang_getCursorSpelling(CXCursor C) {
     return cxstring::createRef("packed");
   }
 
+  if (C.kind == CXCursor_VisibilityAttr) {
+    const VisibilityAttr *AA = cast<VisibilityAttr>(cxcursor::getCursorAttr(C));
+    switch (AA->getVisibility()) {
+    case VisibilityAttr::VisibilityType::Default:
+      return cxstring::createRef("default");
+    case VisibilityAttr::VisibilityType::Hidden:
+      return cxstring::createRef("hidden");
+    case VisibilityAttr::VisibilityType::Protected:
+      return cxstring::createRef("protected");
+    }
+    llvm_unreachable("unknown visibility type");
+  }
+
   return cxstring::createEmpty();
 }
 
@@ -3862,7 +3898,7 @@ CXString clang_Cursor_getMangling(CXCursor C) {
 
   // Now apply backend mangling.
   std::unique_ptr<llvm::DataLayout> DL(
-      new llvm::DataLayout(Ctx.getTargetInfo().getTargetDescription()));
+      new llvm::DataLayout(Ctx.getTargetInfo().getDataLayoutString()));
 
   std::string FinalBuf;
   llvm::raw_string_ostream FinalBufOS(FinalBuf);
@@ -4036,6 +4072,8 @@ CXString clang_getCursorKindSpelling(enum CXCursorKind Kind) {
       return cxstring::createRef("UnaryOperator");
   case CXCursor_ArraySubscriptExpr:
       return cxstring::createRef("ArraySubscriptExpr");
+  case CXCursor_OMPArraySectionExpr:
+      return cxstring::createRef("OMPArraySectionExpr");
   case CXCursor_BinaryOperator:
       return cxstring::createRef("BinaryOperator");
   case CXCursor_CompoundAssignOperator:
@@ -4224,6 +4262,8 @@ CXString clang_getCursorKindSpelling(enum CXCursorKind Kind) {
     return cxstring::createRef("attribute(host)");
   case CXCursor_CUDASharedAttr:
     return cxstring::createRef("attribute(shared)");
+  case CXCursor_VisibilityAttr:
+    return cxstring::createRef("attribute(visibility)");
   case CXCursor_PreprocessingDirective:
     return cxstring::createRef("preprocessing directive");
   case CXCursor_MacroDefinition:
@@ -6372,7 +6412,7 @@ extern "C" {
 
 static CXAvailabilityKind getCursorAvailabilityForDecl(const Decl *D) {
   if (isa<FunctionDecl>(D) && cast<FunctionDecl>(D)->isDeleted())
-    return CXAvailability_Available;
+    return CXAvailability_NotAvailable;
   
   switch (D->getAvailability()) {
   case AR_Available:
@@ -7361,8 +7401,6 @@ Logger &cxindex::Logger::operator<<(const llvm::format_object_base &Fmt) {
 static llvm::ManagedStatic<llvm::sys::Mutex> LoggingMutex;
 
 cxindex::Logger::~Logger() {
-  LogOS.flush();
-
   llvm::sys::ScopedLock L(*LoggingMutex);
 
   static llvm::TimeRecord sBeginTR = llvm::TimeRecord::getCurrentTime();

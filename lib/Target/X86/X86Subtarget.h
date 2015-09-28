@@ -146,10 +146,10 @@ protected:
   /// True if SHLD instructions are slow.
   bool IsSHLDSlow;
 
-  /// True if unaligned memory access is fast.
-  bool IsUAMemFast;
+  /// True if unaligned memory accesses of 16-bytes are slow.
+  bool IsUAMem16Slow;
 
-  /// True if unaligned 32-byte memory accesses are slow.
+  /// True if unaligned memory accesses of 32-bytes are slow.
   bool IsUAMem32Slow;
 
   /// True if SSE operations can have unaligned memory operands.
@@ -357,7 +357,7 @@ public:
   bool hasRDSEED() const { return HasRDSEED; }
   bool isBTMemSlow() const { return IsBTMemSlow; }
   bool isSHLDSlow() const { return IsSHLDSlow; }
-  bool isUnalignedMemAccessFast() const { return IsUAMemFast; }
+  bool isUnalignedMem16Slow() const { return IsUAMem16Slow; }
   bool isUnalignedMem32Slow() const { return IsUAMem32Slow; }
   bool hasSSEUnalignedMem() const { return HasSSEUnalignedMem; }
   bool hasCmpxchg16b() const { return HasCmpxchg16b; }
@@ -394,6 +394,9 @@ public:
   bool isTargetMachO() const { return TargetTriple.isOSBinFormatMachO(); }
 
   bool isTargetLinux() const { return TargetTriple.isOSLinux(); }
+  bool isTargetAndroid() const {
+    return TargetTriple.getEnvironment() == Triple::Android;
+  }
   bool isTargetNaCl() const { return TargetTriple.isOSNaCl(); }
   bool isTargetNaCl32() const { return isTargetNaCl() && !is64Bit(); }
   bool isTargetNaCl64() const { return isTargetNaCl() && is64Bit(); }
@@ -404,6 +407,10 @@ public:
 
   bool isTargetKnownWindowsMSVC() const {
     return TargetTriple.isKnownWindowsMSVCEnvironment();
+  }
+
+  bool isTargetWindowsCoreCLR() const {
+    return TargetTriple.isWindowsCoreCLREnvironment();
   }
 
   bool isTargetWindowsCygwin() const {

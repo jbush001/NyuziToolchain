@@ -22,6 +22,7 @@
 #include "llvm/Option/Option.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/TargetRegistry.h"
 using namespace clang::driver;
 using namespace clang;
 using namespace llvm::opt;
@@ -86,6 +87,99 @@ const SanitizerArgs& ToolChain::getSanitizerArgs() const {
   if (!SanitizerArguments.get())
     SanitizerArguments.reset(new SanitizerArgs(*this, Args));
   return *SanitizerArguments.get();
+}
+
+namespace {
+struct DriverSuffix {
+  const char *Suffix;
+  const char *ModeFlag;
+};
+
+const DriverSuffix *FindDriverSuffix(StringRef ProgName) {
+  // A list of known driver suffixes. Suffixes are compared against the
+  // program name in order. If there is a match, the frontend type is updated as
+  // necessary by applying the ModeFlag.
+  static const DriverSuffix DriverSuffixes[] = {
+      {"clang", nullptr},
+      {"clang++", "--driver-mode=g++"},
+      {"clang-c++", "--driver-mode=g++"},
+      {"clang-cc", nullptr},
+      {"clang-cpp", "--driver-mode=cpp"},
+      {"clang-g++", "--driver-mode=g++"},
+      {"clang-gcc", nullptr},
+      {"clang-cl", "--driver-mode=cl"},
+      {"cc", nullptr},
+      {"cpp", "--driver-mode=cpp"},
+      {"cl", "--driver-mode=cl"},
+      {"++", "--driver-mode=g++"},
+  };
+
+  for (size_t i = 0; i < llvm::array_lengthof(DriverSuffixes); ++i)
+    if (ProgName.endswith(DriverSuffixes[i].Suffix))
+      return &DriverSuffixes[i];
+  return nullptr;
+}
+
+/// Normalize the program name from argv[0] by stripping the file extension if
+/// present and lower-casing the string on Windows.
+std::string normalizeProgramName(llvm::StringRef Argv0) {
+  std::string ProgName = llvm::sys::path::stem(Argv0);
+#ifdef LLVM_ON_WIN32
+  // Transform to lowercase for case insensitive file systems.
+  std::transform(ProgName.begin(), ProgName.end(), ProgName.begin(), ::tolower);
+#endif
+  return ProgName;
+}
+
+const DriverSuffix *parseDriverSuffix(StringRef ProgName) {
+  // Try to infer frontend type and default target from the program name by
+  // comparing it against DriverSuffixes in order.
+
+  // If there is a match, the function tries to identify a target as prefix.
+  // E.g. "x86_64-linux-clang" as interpreted as suffix "clang" with target
+  // prefix "x86_64-linux". If such a target prefix is found, it may be
+  // added via -target as implicit first argument.
+  const DriverSuffix *DS = FindDriverSuffix(ProgName);
+
+  if (!DS) {
+    // Try again after stripping any trailing version number:
+    // clang++3.5 -> clang++
+    ProgName = ProgName.rtrim("0123456789.");
+    DS = FindDriverSuffix(ProgName);
+  }
+
+  if (!DS) {
+    // Try again after stripping trailing -component.
+    // clang++-tot -> clang++
+    ProgName = ProgName.slice(0, ProgName.rfind('-'));
+    DS = FindDriverSuffix(ProgName);
+  }
+  return DS;
+}
+} // anonymous namespace
+
+std::pair<std::string, std::string>
+ToolChain::getTargetAndModeFromProgramName(StringRef PN) {
+  std::string ProgName = normalizeProgramName(PN);
+  const DriverSuffix *DS = parseDriverSuffix(ProgName);
+  if (!DS)
+    return std::make_pair("", "");
+  std::string ModeFlag = DS->ModeFlag == nullptr ? "" : DS->ModeFlag;
+
+  std::string::size_type LastComponent =
+      ProgName.rfind('-', ProgName.size() - strlen(DS->Suffix));
+  if (LastComponent == std::string::npos)
+    return std::make_pair("", ModeFlag);
+
+  // Infer target from the prefix.
+  StringRef Prefix(ProgName);
+  Prefix = Prefix.slice(0, LastComponent);
+  std::string IgnoredError;
+  std::string Target;
+  if (llvm::TargetRegistry::lookupTarget(Prefix, IgnoredError)) {
+    Target = Prefix;
+  }
+  return std::make_pair(Target, ModeFlag);
 }
 
 StringRef ToolChain::getDefaultUniversalArchName() const {
@@ -244,11 +338,13 @@ ObjCRuntime ToolChain::getDefaultObjCRuntime(bool isNonFragile) const {
 
 bool ToolChain::isThreadModelSupported(const StringRef Model) const {
   if (Model == "single") {
-    // FIXME: 'single' is only supported on ARM so far.
+    // FIXME: 'single' is only supported on ARM and WebAssembly so far.
     return Triple.getArch() == llvm::Triple::arm ||
            Triple.getArch() == llvm::Triple::armeb ||
            Triple.getArch() == llvm::Triple::thumb ||
-           Triple.getArch() == llvm::Triple::thumbeb;
+           Triple.getArch() == llvm::Triple::thumbeb ||
+           Triple.getArch() == llvm::Triple::wasm32 ||
+           Triple.getArch() == llvm::Triple::wasm64;
   } else if (Model == "posix")
     return true;
 
@@ -310,12 +406,12 @@ std::string ToolChain::ComputeLLVMTriple(const ArgList &Args,
       MCPU = A->getValue();
     if (const Arg *A = Args.getLastArg(options::OPT_march_EQ))
       MArch = A->getValue();
-    std::string CPU = Triple.isOSBinFormatMachO()
-      ? tools::arm::getARMCPUForMArch(MArch, Triple)
-      : tools::arm::getARMTargetCPU(MCPU, MArch, Triple);
-    StringRef Suffix = 
-      tools::arm::getLLVMArchSuffixForARM(CPU,
-                                          tools::arm::getARMArch(MArch, Triple));
+    std::string CPU =
+        Triple.isOSBinFormatMachO()
+            ? tools::arm::getARMCPUForMArch(MArch, Triple).str()
+            : tools::arm::getARMTargetCPU(MCPU, MArch, Triple);
+    StringRef Suffix =
+      tools::arm::getLLVMArchSuffixForARM(CPU, MArch, Triple);
     bool ThumbDefault = Suffix.startswith("v6m") || Suffix.startswith("v7m") ||
       Suffix.startswith("v7em") ||
       (Suffix.startswith("v7") && getTriple().isOSBinFormatMachO());
@@ -344,7 +440,7 @@ std::string ToolChain::ComputeLLVMTriple(const ArgList &Args,
   }
 }
 
-std::string ToolChain::ComputeEffectiveClangTriple(const ArgList &Args, 
+std::string ToolChain::ComputeEffectiveClangTriple(const ArgList &Args,
                                                    types::ID InputType) const {
   return ComputeLLVMTriple(Args, InputType);
 }
@@ -424,10 +520,9 @@ void ToolChain::addExternCSystemIncludeIfExists(const ArgList &DriverArgs,
 /*static*/ void ToolChain::addSystemIncludes(const ArgList &DriverArgs,
                                              ArgStringList &CC1Args,
                                              ArrayRef<StringRef> Paths) {
-  for (ArrayRef<StringRef>::iterator I = Paths.begin(), E = Paths.end();
-       I != E; ++I) {
+  for (StringRef Path : Paths) {
     CC1Args.push_back("-internal-isystem");
-    CC1Args.push_back(DriverArgs.MakeArgString(*I));
+    CC1Args.push_back(DriverArgs.MakeArgString(Path));
   }
 }
 
@@ -491,9 +586,12 @@ bool ToolChain::AddFastMathRuntimeIfAvailable(const ArgList &Args,
 
 SanitizerMask ToolChain::getSupportedSanitizers() const {
   // Return sanitizers which don't require runtime support and are not
-  // platform or architecture-dependent.
+  // platform dependent.
   using namespace SanitizerKind;
-  return (Undefined & ~Vptr & ~Function) | CFI | CFICastStrict |
-         UnsignedIntegerOverflow | LocalBounds;
+  SanitizerMask Res = (Undefined & ~Vptr & ~Function) | (CFI & ~CFIICall) |
+                      CFICastStrict | UnsignedIntegerOverflow | LocalBounds;
+  if (getTriple().getArch() == llvm::Triple::x86 ||
+      getTriple().getArch() == llvm::Triple::x86_64)
+    Res |= CFIICall;
+  return Res;
 }
-

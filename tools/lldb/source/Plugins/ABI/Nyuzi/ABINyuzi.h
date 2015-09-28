@@ -49,7 +49,7 @@ public:
 public:    
     lldb::ValueObjectSP
     GetReturnValueObjectImpl ( lldb_private::Thread &thread,
-                               lldb_private::ClangASTType &type ) const override;
+                               lldb_private::CompilerType &type ) const override;
         
     // specialized to work with llvm IR types
     lldb::ValueObjectSP

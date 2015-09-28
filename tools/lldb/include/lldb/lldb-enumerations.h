@@ -188,11 +188,11 @@ namespace lldb {
     //----------------------------------------------------------------------
     enum RegisterKind
     {
-        eRegisterKindGCC = 0,    // the register numbers seen in eh_frame
-        eRegisterKindDWARF,      // the register numbers seen DWARF
-        eRegisterKindGeneric,    // insn ptr reg, stack ptr reg, etc not specific to any particular target
-        eRegisterKindGDB,        // the register numbers gdb uses (matches stabs numbers)
-        eRegisterKindLLDB,       // lldb's internal register numbers
+        eRegisterKindEHFrame = 0,   // the register numbers seen in eh_frame
+        eRegisterKindDWARF,         // the register numbers seen DWARF
+        eRegisterKindGeneric,       // insn ptr reg, stack ptr reg, etc not specific to any particular target
+        eRegisterKindProcessPlugin, // num used by the process plugin - e.g. by the remote gdb-protocol stub program
+        eRegisterKindLLDB,          // lldb's internal register numbers
         kNumRegisterKinds
     };
 
@@ -421,7 +421,7 @@ namespace lldb {
         eLanguageTypeFortran03       = 0x0022,   ///< ISO Fortran 2003.
         eLanguageTypeFortran08       = 0x0023,   ///< ISO Fortran 2008.
         // Vendor Extensions
-        // Note: LanguageRuntime::GetNameForLanguageType
+        // Note: Language::GetNameForLanguageType
         // assumes these can be used as indexes into array language_names, and
         // Language::SetLanguageFromCString and Language::AsCString
         // assume these can be used as indexes into array g_languages.
@@ -595,6 +595,7 @@ namespace lldb {
         eSectionTypeDataObjCMessageRefs,    // Pointer to function pointer + selector
         eSectionTypeDataObjCCFStrings,      // Objective C const CFString/NSString objects
         eSectionTypeDWARFDebugAbbrev,
+        eSectionTypeDWARFDebugAddr,
         eSectionTypeDWARFDebugAranges,
         eSectionTypeDWARFDebugFrame,
         eSectionTypeDWARFDebugInfo,
@@ -605,6 +606,7 @@ namespace lldb {
         eSectionTypeDWARFDebugPubTypes,
         eSectionTypeDWARFDebugRanges,
         eSectionTypeDWARFDebugStr,
+        eSectionTypeDWARFDebugStrOffsets,
         eSectionTypeDWARFAppleNames,
         eSectionTypeDWARFAppleTypes,
         eSectionTypeDWARFAppleNamespaces,
@@ -615,6 +617,7 @@ namespace lldb {
         eSectionTypeELFDynamicLinkInfo,   // Elf SHT_DYNAMIC section
         eSectionTypeEHFrame,
         eSectionTypeCompactUnwind,        // compact unwind section in Mach-O, __TEXT,__unwind_info
+        eSectionTypeGoSymtab,
         eSectionTypeOther
     };
 

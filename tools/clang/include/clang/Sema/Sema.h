@@ -729,26 +729,11 @@ public:
   /// \brief The declaration of the Objective-C NSArray class.
   ObjCInterfaceDecl *NSArrayDecl;
 
-  /// \brief Pointer to NSMutableArray type (NSMutableArray *).
-  QualType NSMutableArrayPointer;
-
   /// \brief The declaration of the arrayWithObjects:count: method.
   ObjCMethodDecl *ArrayWithObjectsMethod;
 
   /// \brief The declaration of the Objective-C NSDictionary class.
   ObjCInterfaceDecl *NSDictionaryDecl;
-
-  /// \brief Pointer to NSMutableDictionary type (NSMutableDictionary *).
-  QualType NSMutableDictionaryPointer;
-
-  /// \brief Pointer to NSMutableSet type (NSMutableSet *).
-  QualType NSMutableSetPointer;
-
-  /// \brief Pointer to NSCountedSet type (NSCountedSet *).
-  QualType NSCountedSetPointer;
-
-  /// \brief Pointer to NSMutableOrderedSet type (NSMutableOrderedSet *).
-  QualType NSMutableOrderedSetPointer;
 
   /// \brief The declaration of the dictionaryWithObjects:forKeys:count: method.
   ObjCMethodDecl *DictionaryWithObjectsMethod;
@@ -918,6 +903,10 @@ public:
   /// for C++ records.
   llvm::FoldingSet<SpecialMemberOverloadResult> SpecialMemberCache;
 
+  /// \brief A cache of the flags available in enumerations with the flag_bits
+  /// attribute.
+  mutable llvm::DenseMap<const EnumDecl*, llvm::APInt> FlagBitsCache;
+
   /// \brief The kind of translation unit we are processing.
   ///
   /// When we're processing a complete translation unit, Sema will perform
@@ -1068,6 +1057,14 @@ public:
   public:
     SemaDiagnosticBuilder(DiagnosticBuilder &DB, Sema &SemaRef, unsigned DiagID)
       : DiagnosticBuilder(DB), SemaRef(SemaRef), DiagID(DiagID) { }
+
+    // This is a cunning lie. DiagnosticBuilder actually performs move
+    // construction in its copy constructor (but due to varied uses, it's not
+    // possible to conveniently express this as actual move construction). So
+    // the default copy ctor here is fine, because the base class disables the
+    // source anyway, so the user-defined ~SemaDiagnosticBuilder is a safe no-op
+    // in that case anwyay.
+    SemaDiagnosticBuilder(const SemaDiagnosticBuilder&) = default;
 
     ~SemaDiagnosticBuilder() {
       // If we aren't active, there is nothing to do.
@@ -1447,6 +1444,12 @@ public:
   // Symbol table / Decl tracking callbacks: SemaDecl.cpp.
   //
 
+  struct SkipBodyInfo {
+    SkipBodyInfo() : ShouldSkip(false), Previous(nullptr) {}
+    bool ShouldSkip;
+    NamedDecl *Previous;
+  };
+
   /// List of decls defined in a function prototype. This contains EnumConstants
   /// that incorrectly end up in translation unit scope because there is no
   /// function to pin them on. ActOnFunctionDeclarator reads this list and patches
@@ -1712,11 +1715,14 @@ public:
 
   void ActOnFinishKNRParamDeclarations(Scope *S, Declarator &D,
                                        SourceLocation LocAfterDecls);
-  void CheckForFunctionRedefinition(FunctionDecl *FD,
-                                    const FunctionDecl *EffectiveDefinition =
-                                        nullptr);
-  Decl *ActOnStartOfFunctionDef(Scope *S, Declarator &D);
-  Decl *ActOnStartOfFunctionDef(Scope *S, Decl *D);
+  void CheckForFunctionRedefinition(
+      FunctionDecl *FD, const FunctionDecl *EffectiveDefinition = nullptr,
+      SkipBodyInfo *SkipBody = nullptr);
+  Decl *ActOnStartOfFunctionDef(Scope *S, Declarator &D,
+                                MultiTemplateParamsArg TemplateParamLists,
+                                SkipBodyInfo *SkipBody = nullptr);
+  Decl *ActOnStartOfFunctionDef(Scope *S, Decl *D,
+                                SkipBodyInfo *SkipBody = nullptr);
   void ActOnStartOfObjCMethodDef(Scope *S, Decl *D);
   bool isObjCMethodDecl(Decl *D) {
     return D && isa<ObjCMethodDecl>(D);
@@ -1793,6 +1799,10 @@ public:
   /// \brief The parser has left a submodule.
   void ActOnModuleEnd(SourceLocation DirectiveLoc, Module *Mod);
 
+  /// \brief Check if module import may be found in the current context,
+  /// emit error if not.
+  void diagnoseMisplacedModuleImport(Module *M, SourceLocation ImportLoc);
+
   /// \brief Create an implicit import of the given module at the given
   /// source location, for error recovery, if possible.
   ///
@@ -1856,12 +1866,6 @@ public:
     TUK_Declaration, // Fwd decl of a tag:   'struct foo;'
     TUK_Definition,  // Definition of a tag: 'struct foo { int X; } Y;'
     TUK_Friend       // Friend declaration:  'friend struct foo;'
-  };
-
-  struct SkipBodyInfo {
-    SkipBodyInfo() : ShouldSkip(false), Previous(nullptr) {}
-    bool ShouldSkip;
-    NamedDecl *Previous;
   };
 
   Decl *ActOnTag(Scope *S, unsigned TagSpec, TagUseKind TUK,
@@ -2919,7 +2923,8 @@ public:
   /// Adjust the calling convention of a method to be the ABI default if it
   /// wasn't specified explicitly.  This handles method types formed from
   /// function type typedefs and typename template arguments.
-  void adjustMemberFunctionCC(QualType &T, bool IsStatic);
+  void adjustMemberFunctionCC(QualType &T, bool IsStatic, bool IsCtorOrDtor,
+                              SourceLocation Loc);
 
   // Check if there is an explicit attribute, but only look through parens.
   // The intent is to look for an attribute on the current declarator, but not
@@ -3379,6 +3384,10 @@ public:
                                        bool IsUnevaluatedContext);
   bool LookupInlineAsmField(StringRef Base, StringRef Member,
                             unsigned &Offset, SourceLocation AsmLoc);
+  ExprResult LookupInlineAsmVarDeclField(Expr *RefExpr, StringRef Member,
+                                         unsigned &Offset,
+                                         llvm::InlineAsmIdentifierInfo &Info,
+                                         SourceLocation AsmLoc);
   StmtResult ActOnMSAsmStmt(SourceLocation AsmLoc, SourceLocation LBraceLoc,
                             ArrayRef<Token> AsmToks,
                             StringRef AsmString,
@@ -3679,19 +3688,23 @@ public:
   ExprResult BuildPossibleImplicitMemberExpr(const CXXScopeSpec &SS,
                                              SourceLocation TemplateKWLoc,
                                              LookupResult &R,
-                                const TemplateArgumentListInfo *TemplateArgs);
+                                const TemplateArgumentListInfo *TemplateArgs,
+                                             const Scope *S);
   ExprResult BuildImplicitMemberExpr(const CXXScopeSpec &SS,
                                      SourceLocation TemplateKWLoc,
                                      LookupResult &R,
                                 const TemplateArgumentListInfo *TemplateArgs,
-                                     bool IsDefiniteInstance);
+                                     bool IsDefiniteInstance,
+                                     const Scope *S);
   bool UseArgumentDependentLookup(const CXXScopeSpec &SS,
                                   const LookupResult &R,
                                   bool HasTrailingLParen);
 
-  ExprResult BuildQualifiedDeclarationNameExpr(
-      CXXScopeSpec &SS, const DeclarationNameInfo &NameInfo,
-      bool IsAddressOfOperand, TypeSourceInfo **RecoveryTSI = nullptr);
+  ExprResult
+  BuildQualifiedDeclarationNameExpr(CXXScopeSpec &SS,
+                                    const DeclarationNameInfo &NameInfo,
+                                    bool IsAddressOfOperand, const Scope *S,
+                                    TypeSourceInfo **RecoveryTSI = nullptr);
 
   ExprResult BuildDependentDeclRefExpr(const CXXScopeSpec &SS,
                                        SourceLocation TemplateKWLoc,
@@ -3788,6 +3801,9 @@ public:
                                      Expr *Idx, SourceLocation RLoc);
   ExprResult CreateBuiltinArraySubscriptExpr(Expr *Base, SourceLocation LLoc,
                                              Expr *Idx, SourceLocation RLoc);
+  ExprResult ActOnOMPArraySectionExpr(Expr *Base, SourceLocation LBLoc,
+                                      Expr *LowerBound, SourceLocation ColonLoc,
+                                      Expr *Length, SourceLocation RBLoc);
 
   // This struct is for use by ActOnMemberAccess to allow
   // BuildMemberReferenceExpr to be able to reinvoke ActOnMemberAccess after
@@ -3805,6 +3821,7 @@ public:
       CXXScopeSpec &SS, SourceLocation TemplateKWLoc,
       NamedDecl *FirstQualifierInScope, const DeclarationNameInfo &NameInfo,
       const TemplateArgumentListInfo *TemplateArgs,
+      const Scope *S,
       ActOnMemberAccessExtraArgs *ExtraArgs = nullptr);
 
   ExprResult
@@ -3813,6 +3830,7 @@ public:
                            SourceLocation TemplateKWLoc,
                            NamedDecl *FirstQualifierInScope, LookupResult &R,
                            const TemplateArgumentListInfo *TemplateArgs,
+                           const Scope *S,
                            bool SuppressQualifierCheck = false,
                            ActOnMemberAccessExtraArgs *ExtraArgs = nullptr);
 
@@ -5237,7 +5255,7 @@ public:
                                          SourceLocation RBrac,
                                          AttributeList *AttrList);
   void ActOnFinishCXXMemberDecls();
-  void ActOnFinishCXXMemberDefaultArgs(Decl *D);
+  void ActOnFinishCXXNonNestedClass(Decl *D);
 
   void ActOnReenterCXXMethodParameter(Scope *S, ParmVarDecl *Param);
   unsigned ActOnReenterTemplateScope(Scope *S, Decl *Template);
@@ -5636,10 +5654,6 @@ public:
   Decl *ActOnTemplateDeclarator(Scope *S,
                                 MultiTemplateParamsArg TemplateParameterLists,
                                 Declarator &D);
-
-  Decl *ActOnStartOfFunctionTemplateDef(Scope *FnBodyScope,
-                                  MultiTemplateParamsArg TemplateParameterLists,
-                                        Declarator &D);
 
   bool
   CheckSpecializationInstantiationRedecl(SourceLocation NewLoc,
@@ -6624,7 +6638,8 @@ public:
   /// the stack.
   struct InstantiatingTemplate {
     /// \brief Note that we are instantiating a class template,
-    /// function template, or a member thereof.
+    /// function template, variable template, alias template,
+    /// or a member thereof.
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           Decl *Entity,
                           SourceRange InstantiationRange = SourceRange());
@@ -6670,6 +6685,8 @@ public:
                           sema::TemplateDeductionInfo &DeductionInfo,
                           SourceRange InstantiationRange = SourceRange());
 
+    /// \brief Note that we are instantiating a default argument for a function
+    /// parameter.
     InstantiatingTemplate(Sema &SemaRef, SourceLocation PointOfInstantiation,
                           ParmVarDecl *Param,
                           ArrayRef<TemplateArgument> TemplateArgs,
@@ -6720,7 +6737,7 @@ public:
         Sema &SemaRef, ActiveTemplateInstantiation::InstantiationKind Kind,
         SourceLocation PointOfInstantiation, SourceRange InstantiationRange,
         Decl *Entity, NamedDecl *Template = nullptr,
-        ArrayRef<TemplateArgument> TemplateArgs = ArrayRef<TemplateArgument>(),
+        ArrayRef<TemplateArgument> TemplateArgs = None,
         sema::TemplateDeductionInfo *DeductionInfo = nullptr);
 
     InstantiatingTemplate(const InstantiatingTemplate&) = delete;
@@ -7843,7 +7860,8 @@ public:
                                        SourceLocation EndLoc);
   /// \brief Called on well-formed '\#pragma omp ordered' after parsing of the
   /// associated statement.
-  StmtResult ActOnOpenMPOrderedDirective(Stmt *AStmt, SourceLocation StartLoc,
+  StmtResult ActOnOpenMPOrderedDirective(ArrayRef<OMPClause *> Clauses,
+                                         Stmt *AStmt, SourceLocation StartLoc,
                                          SourceLocation EndLoc);
   /// \brief Called on well-formed '\#pragma omp atomic' after parsing of the
   /// associated statement.
@@ -7871,7 +7889,8 @@ public:
                                         SourceLocation EndLoc,
                                         OpenMPDirectiveKind CancelRegion);
   /// \brief Called on well-formed '\#pragma omp cancel'.
-  StmtResult ActOnOpenMPCancelDirective(SourceLocation StartLoc,
+  StmtResult ActOnOpenMPCancelDirective(ArrayRef<OMPClause *> Clauses,
+                                        SourceLocation StartLoc,
                                         SourceLocation EndLoc,
                                         OpenMPDirectiveKind CancelRegion);
 
@@ -7881,8 +7900,11 @@ public:
                                          SourceLocation LParenLoc,
                                          SourceLocation EndLoc);
   /// \brief Called on well-formed 'if' clause.
-  OMPClause *ActOnOpenMPIfClause(Expr *Condition, SourceLocation StartLoc,
+  OMPClause *ActOnOpenMPIfClause(OpenMPDirectiveKind NameModifier,
+                                 Expr *Condition, SourceLocation StartLoc,
                                  SourceLocation LParenLoc,
+                                 SourceLocation NameModifierLoc,
+                                 SourceLocation ColonLoc,
                                  SourceLocation EndLoc);
   /// \brief Called on well-formed 'final' clause.
   OMPClause *ActOnOpenMPFinalClause(Expr *Condition, SourceLocation StartLoc,
@@ -7898,11 +7920,20 @@ public:
                                       SourceLocation StartLoc,
                                       SourceLocation LParenLoc,
                                       SourceLocation EndLoc);
+  /// \brief Called on well-formed 'simdlen' clause.
+  OMPClause *ActOnOpenMPSimdlenClause(Expr *Length, SourceLocation StartLoc,
+                                      SourceLocation LParenLoc,
+                                      SourceLocation EndLoc);
   /// \brief Called on well-formed 'collapse' clause.
   OMPClause *ActOnOpenMPCollapseClause(Expr *NumForLoops,
                                        SourceLocation StartLoc,
                                        SourceLocation LParenLoc,
                                        SourceLocation EndLoc);
+  /// \brief Called on well-formed 'ordered' clause.
+  OMPClause *
+  ActOnOpenMPOrderedClause(SourceLocation StartLoc, SourceLocation EndLoc,
+                           SourceLocation LParenLoc = SourceLocation(),
+                           Expr *NumForLoops = nullptr);
 
   OMPClause *ActOnOpenMPSimpleClause(OpenMPClauseKind Kind,
                                      unsigned Argument,
@@ -7928,7 +7959,7 @@ public:
                                                 SourceLocation StartLoc,
                                                 SourceLocation LParenLoc,
                                                 SourceLocation ArgumentLoc,
-                                                SourceLocation CommaLoc,
+                                                SourceLocation DelimLoc,
                                                 SourceLocation EndLoc);
   /// \brief Called on well-formed 'schedule' clause.
   OMPClause *ActOnOpenMPScheduleClause(OpenMPScheduleClauseKind Kind,
@@ -7940,9 +7971,6 @@ public:
 
   OMPClause *ActOnOpenMPClause(OpenMPClauseKind Kind, SourceLocation StartLoc,
                                SourceLocation EndLoc);
-  /// \brief Called on well-formed 'ordered' clause.
-  OMPClause *ActOnOpenMPOrderedClause(SourceLocation StartLoc,
-                                      SourceLocation EndLoc);
   /// \brief Called on well-formed 'nowait' clause.
   OMPClause *ActOnOpenMPNowaitClause(SourceLocation StartLoc,
                                      SourceLocation EndLoc);
@@ -7967,6 +7995,9 @@ public:
   /// \brief Called on well-formed 'seq_cst' clause.
   OMPClause *ActOnOpenMPSeqCstClause(SourceLocation StartLoc,
                                      SourceLocation EndLoc);
+  /// \brief Called on well-formed 'threads' clause.
+  OMPClause *ActOnOpenMPThreadsClause(SourceLocation StartLoc,
+                                     SourceLocation EndLoc);
 
   OMPClause *ActOnOpenMPVarListClause(
       OpenMPClauseKind Kind, ArrayRef<Expr *> Vars, Expr *TailExpr,
@@ -7974,7 +8005,7 @@ public:
       SourceLocation ColonLoc, SourceLocation EndLoc,
       CXXScopeSpec &ReductionIdScopeSpec,
       const DeclarationNameInfo &ReductionId, OpenMPDependClauseKind DepKind,
-      SourceLocation DepLoc);
+      OpenMPLinearClauseKind LinKind, SourceLocation DepLinLoc);
   /// \brief Called on well-formed 'private' clause.
   OMPClause *ActOnOpenMPPrivateClause(ArrayRef<Expr *> VarList,
                                       SourceLocation StartLoc,
@@ -8003,12 +8034,11 @@ public:
                              CXXScopeSpec &ReductionIdScopeSpec,
                              const DeclarationNameInfo &ReductionId);
   /// \brief Called on well-formed 'linear' clause.
-  OMPClause *ActOnOpenMPLinearClause(ArrayRef<Expr *> VarList,
-                                     Expr *Step,
-                                     SourceLocation StartLoc,
-                                     SourceLocation LParenLoc,
-                                     SourceLocation ColonLoc,
-                                     SourceLocation EndLoc);
+  OMPClause *
+  ActOnOpenMPLinearClause(ArrayRef<Expr *> VarList, Expr *Step,
+                          SourceLocation StartLoc, SourceLocation LParenLoc,
+                          OpenMPLinearClauseKind LinKind, SourceLocation LinLoc,
+                          SourceLocation ColonLoc, SourceLocation EndLoc);
   /// \brief Called on well-formed 'aligned' clause.
   OMPClause *ActOnOpenMPAlignedClause(ArrayRef<Expr *> VarList,
                                       Expr *Alignment,
@@ -8037,7 +8067,11 @@ public:
                           SourceLocation ColonLoc, ArrayRef<Expr *> VarList,
                           SourceLocation StartLoc, SourceLocation LParenLoc,
                           SourceLocation EndLoc);
-
+  /// \brief Called on well-formed 'device' clause.
+  OMPClause *ActOnOpenMPDeviceClause(Expr *Device, SourceLocation StartLoc,
+                                     SourceLocation LParenLoc,
+                                     SourceLocation EndLoc);
+ 
   /// \brief The kind of conversion being performed.
   enum CheckedConversionKind {
     /// \brief An implicit conversion.
@@ -8368,7 +8402,8 @@ public:
 
   /// type checking for vector binary operators.
   QualType CheckVectorOperands(ExprResult &LHS, ExprResult &RHS,
-                               SourceLocation Loc, bool IsCompAssign);
+                               SourceLocation Loc, bool IsCompAssign,
+                               bool AllowBothBool, bool AllowBoolConversion);
   QualType GetSignedVectorType(QualType V);
   QualType CheckVectorCompareOperands(ExprResult &LHS, ExprResult &RHS,
                                       SourceLocation Loc, bool isRelational);
@@ -8582,7 +8617,36 @@ public:
 
   CUDAFunctionTarget IdentifyCUDATarget(const FunctionDecl *D);
 
+  enum CUDAFunctionPreference {
+    CFP_Never,      // Invalid caller/callee combination.
+    CFP_LastResort, // Lowest priority. Only in effect if
+                    // LangOpts.CUDADisableTargetCallChecks is true.
+    CFP_Fallback,   // Low priority caller/callee combination
+    CFP_Best,       // Preferred caller/callee combination
+  };
+
+  /// Identifies relative preference of a given Caller/Callee
+  /// combination, based on their host/device attributes.
+  /// \param Caller function which needs address of \p Callee.
+  ///               nullptr in case of global context.
+  /// \param Callee target function
+  ///
+  /// \returns preference value for particular Caller/Callee combination.
+  CUDAFunctionPreference IdentifyCUDAPreference(const FunctionDecl *Caller,
+                                                const FunctionDecl *Callee);
+
   bool CheckCUDATarget(const FunctionDecl *Caller, const FunctionDecl *Callee);
+
+  /// Finds a function in \p Matches with highest calling priority
+  /// from \p Caller context and erases all functions with lower
+  /// calling priority.
+  void EraseUnwantedCUDAMatches(const FunctionDecl *Caller,
+                                SmallVectorImpl<FunctionDecl *> &Matches);
+  void EraseUnwantedCUDAMatches(const FunctionDecl *Caller,
+                                SmallVectorImpl<DeclAccessPair> &Matches);
+  void EraseUnwantedCUDAMatches(
+      const FunctionDecl *Caller,
+      SmallVectorImpl<std::pair<DeclAccessPair, FunctionDecl *>> &Matches);
 
   /// Given a implicit special member, infer its CUDA target from the
   /// calls it needs to make to underlying base/field special members.
@@ -8794,7 +8858,7 @@ private:
   bool CheckObjCString(Expr *Arg);
 
   ExprResult CheckBuiltinFunctionCall(FunctionDecl *FDecl,
-		                      unsigned BuiltinID, CallExpr *TheCall);
+                                      unsigned BuiltinID, CallExpr *TheCall);
 
   bool CheckARMBuiltinExclusiveCall(unsigned BuiltinID, CallExpr *TheCall,
                                     unsigned MaxWidth);
@@ -8806,8 +8870,10 @@ private:
   bool CheckSystemZBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckX86BuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
   bool CheckPPCBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall);
-  
+
+  bool SemaBuiltinVAStartImpl(CallExpr *TheCall);
   bool SemaBuiltinVAStart(CallExpr *TheCall);
+  bool SemaBuiltinMSVAStart(CallExpr *TheCall);
   bool SemaBuiltinVAStartARM(CallExpr *Call);
   bool SemaBuiltinUnorderedCompare(CallExpr *TheCall);
   bool SemaBuiltinFPClassification(CallExpr *TheCall, unsigned NumArgs);
@@ -8826,6 +8892,7 @@ private:
   bool SemaBuiltinLongjmp(CallExpr *TheCall);
   bool SemaBuiltinSetjmp(CallExpr *TheCall);
   ExprResult SemaBuiltinAtomicOverloaded(ExprResult TheCallResult);
+  ExprResult SemaBuiltinNontemporalOverloaded(ExprResult TheCallResult);
   ExprResult SemaAtomicOpsOverloaded(ExprResult TheCallResult,
                                      AtomicExpr::AtomicOp Op);
   bool SemaBuiltinConstantArg(CallExpr *TheCall, int ArgNum,
@@ -9030,6 +9097,10 @@ public:
       return NumArgs + 1 > NumParams; // If so, we view as an extra argument.
     return NumArgs > NumParams;
   }
+
+  // Emitting members of dllexported classes is delayed until the class
+  // (including field initializers) is fully parsed.
+  SmallVector<CXXRecordDecl*, 4> DelayedDllExportClasses;
 };
 
 /// \brief RAII object that enters a new expression evaluation context.

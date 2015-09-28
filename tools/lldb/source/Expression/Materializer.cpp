@@ -11,8 +11,8 @@
 #include "lldb/Core/RegisterValue.h"
 #include "lldb/Core/ValueObjectConstResult.h"
 #include "lldb/Core/ValueObjectVariable.h"
-#include "lldb/Expression/ClangExpressionVariable.h"
-#include "lldb/Expression/ClangPersistentVariables.h"
+#include "Plugins/ExpressionParser/Clang/ClangExpressionVariable.h"
+#include "Plugins/ExpressionParser/Clang/ClangPersistentVariables.h"
 #include "lldb/Expression/Materializer.h"
 #include "lldb/Symbol/ClangASTContext.h"
 #include "lldb/Symbol/Symbol.h"
@@ -48,7 +48,7 @@ Materializer::AddStructMember (Entity &entity)
 }
 
 void
-Materializer::Entity::SetSizeAndAlignmentFromType (ClangASTType &type)
+Materializer::Entity::SetSizeAndAlignmentFromType (CompilerType &type)
 {
     m_size = type.GetByteSize(nullptr);
     
@@ -66,7 +66,7 @@ Materializer::Entity::SetSizeAndAlignmentFromType (ClangASTType &type)
 class EntityPersistentVariable : public Materializer::Entity
 {
 public:
-    EntityPersistentVariable (lldb::ClangExpressionVariableSP &persistent_variable_sp) :
+    EntityPersistentVariable (lldb::ExpressionVariableSP &persistent_variable_sp) :
         Entity(),
         m_persistent_variable_sp(persistent_variable_sp)
     {
@@ -99,9 +99,9 @@ public:
             log->Printf("Allocated %s (0x%" PRIx64 ") successfully", m_persistent_variable_sp->GetName().GetCString(), mem);
         
         // Put the location of the spare memory into the live data of the ValueObject.
-                
+        
         m_persistent_variable_sp->m_live_sp = ValueObjectConstResult::Create (map.GetBestExecutionContextScope(),
-                                                                              m_persistent_variable_sp->GetTypeFromUser(),
+                                                                              m_persistent_variable_sp->GetCompilerType(),
                                                                               m_persistent_variable_sp->GetName(),
                                                                               mem,
                                                                               eAddressTypeLoad,
@@ -230,9 +230,9 @@ public:
                     err.SetErrorStringWithFormat("couldn't read the address of program-allocated variable %s: %s", m_persistent_variable_sp->GetName().GetCString(), read_error.AsCString());
                     return;
                 }
-                                
+                
                 m_persistent_variable_sp->m_live_sp = ValueObjectConstResult::Create (map.GetBestExecutionContextScope (),
-                                                                                      m_persistent_variable_sp->GetTypeFromUser(),
+                                                                                      llvm::cast<ClangExpressionVariable>(m_persistent_variable_sp.get())->GetTypeFromUser(),
                                                                                       m_persistent_variable_sp->GetName(),
                                                                                       location,
                                                                                       eAddressTypeLoad,
@@ -390,11 +390,11 @@ public:
     {
     }
 private:
-    lldb::ClangExpressionVariableSP m_persistent_variable_sp;
+    lldb::ExpressionVariableSP m_persistent_variable_sp;
 };
 
 uint32_t
-Materializer::AddPersistentVariable (lldb::ClangExpressionVariableSP &persistent_variable_sp, Error &err)
+Materializer::AddPersistentVariable (lldb::ExpressionVariableSP &persistent_variable_sp, Error &err)
 {
     EntityVector::iterator iter = m_entities.insert(m_entities.end(), EntityUP());
     iter->reset (new EntityPersistentVariable (persistent_variable_sp));
@@ -416,7 +416,7 @@ public:
         // Hard-coding to maximum size of a pointer since all variables are materialized by reference
         m_size = 8;
         m_alignment = 8;
-        m_is_reference = m_variable_sp->GetType()->GetClangForwardType().IsReferenceType();
+        m_is_reference = m_variable_sp->GetType()->GetForwardCompilerType ().IsReferenceType();
     }
     
     void Materialize (lldb::StackFrameSP &frame_sp, IRMemoryMap &map, lldb::addr_t process_address, Error &err)
@@ -525,7 +525,7 @@ public:
                     return;
                 }
                 
-                size_t bit_align = m_variable_sp->GetType()->GetClangLayoutType().GetTypeBitAlign();
+                size_t bit_align = m_variable_sp->GetType()->GetLayoutCompilerType ().GetTypeBitAlign();
                 size_t byte_align = (bit_align + 7) / 8;
                 
                 if (!byte_align)
@@ -820,7 +820,7 @@ public:
         err.SetErrorString("Tried to detmaterialize a result variable with the normal Dematerialize method");
     }
     
-    void Dematerialize (lldb::ClangExpressionVariableSP &result_variable_sp,
+    void Dematerialize (lldb::ExpressionVariableSP &result_variable_sp,
                         lldb::StackFrameSP &frame_sp,
                         IRMemoryMap &map,
                         lldb::addr_t process_address,
@@ -860,13 +860,12 @@ public:
         
         ConstString name = target_sp->GetPersistentVariables().GetNextPersistentVariableName();
         
-        lldb::ClangExpressionVariableSP ret;
-        
-        ret = target_sp->GetPersistentVariables().CreateVariable(exe_scope,
-                                                                 name,
-                                                                 m_type,
-                                                                 map.GetByteOrder(),
-                                                                 map.GetAddressByteSize());
+        lldb::ExpressionVariableSP ret = ClangExpressionVariable::CreateVariableInList(target_sp->GetPersistentVariables(),
+                                                                                       exe_scope,
+                                                                                       name,
+                                                                                       m_type,
+                                                                                       map.GetByteOrder(),
+                                                                                       map.GetAddressByteSize())->shared_from_this();
         
         if (!ret)
         {
@@ -1017,7 +1016,7 @@ private:
 };
 
 uint32_t
-Materializer::AddResultVariable (const TypeFromUser &type, bool is_program_reference, bool keep_in_memory, Error &err)
+Materializer::AddResultVariable (const CompilerType &type, bool is_program_reference, bool keep_in_memory, Error &err)
 {
     EntityVector::iterator iter = m_entities.insert(m_entities.end(), EntityUP());
     iter->reset (new EntityResultVariable (type, is_program_reference, keep_in_memory));
@@ -1395,7 +1394,7 @@ Materializer::Materialize (lldb::StackFrameSP &frame_sp, IRMemoryMap &map, lldb:
 }
 
 void
-Materializer::Dematerializer::Dematerialize (Error &error, lldb::ClangExpressionVariableSP &result_sp, lldb::addr_t frame_bottom, lldb::addr_t frame_top)
+Materializer::Dematerializer::Dematerialize (Error &error, lldb::ExpressionVariableSP &result_sp, lldb::addr_t frame_bottom, lldb::addr_t frame_top)
 {
     lldb::StackFrameSP frame_sp;
 

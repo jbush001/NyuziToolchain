@@ -1,5 +1,3 @@
-set(LLVM_NO_RTTI 1)
-
 if ( CMAKE_SYSTEM_NAME MATCHES "Windows" )
   add_definitions( -DEXPORT_LIBLLDB )
 endif()
@@ -72,10 +70,21 @@ add_lldb_library(liblldb SHARED
   ${LLDB_VERS_GENERATED_FILE}
   )
 
+# This should not be part of LLDBDependencies.cmake, because we don't
+# want every single library taking a dependency on the script interpreters.
+target_link_libraries(liblldb PRIVATE
+  lldbPluginScriptInterpreterNone
+  lldbPluginScriptInterpreterPython
+  )
+
 set_target_properties(liblldb
   PROPERTIES
   VERSION ${LLDB_VERSION}
   )
+
+if (NOT CMAKE_SYSTEM_NAME MATCHES "Windows")
+  add_llvm_symbol_exports(liblldb ${CMAKE_CURRENT_SOURCE_DIR}/liblldb.exports)
+endif()
 
 if ( CMAKE_SYSTEM_NAME MATCHES "Windows" )
   # Only MSVC has the ABI compatibility problem and avoids using FindPythonLibs,

@@ -205,19 +205,19 @@ static uint64_t DumpDataInCode(const uint8_t *bytes, uint64_t Length,
   case MachO::DICE_KIND_DATA:
     if (Length >= 4) {
       if (!NoShowRawInsn)
-        dumpBytes(ArrayRef<uint8_t>(bytes, 4), outs());
+        dumpBytes(makeArrayRef(bytes, 4), outs());
       Value = bytes[3] << 24 | bytes[2] << 16 | bytes[1] << 8 | bytes[0];
       outs() << "\t.long " << Value;
       Size = 4;
     } else if (Length >= 2) {
       if (!NoShowRawInsn)
-        dumpBytes(ArrayRef<uint8_t>(bytes, 2), outs());
+        dumpBytes(makeArrayRef(bytes, 2), outs());
       Value = bytes[1] << 8 | bytes[0];
       outs() << "\t.short " << Value;
       Size = 2;
     } else {
       if (!NoShowRawInsn)
-        dumpBytes(ArrayRef<uint8_t>(bytes, 2), outs());
+        dumpBytes(makeArrayRef(bytes, 2), outs());
       Value = bytes[0];
       outs() << "\t.byte " << Value;
       Size = 1;
@@ -229,14 +229,14 @@ static uint64_t DumpDataInCode(const uint8_t *bytes, uint64_t Length,
     break;
   case MachO::DICE_KIND_JUMP_TABLE8:
     if (!NoShowRawInsn)
-      dumpBytes(ArrayRef<uint8_t>(bytes, 1), outs());
+      dumpBytes(makeArrayRef(bytes, 1), outs());
     Value = bytes[0];
     outs() << "\t.byte " << format("%3u", Value) << "\t@ KIND_JUMP_TABLE8\n";
     Size = 1;
     break;
   case MachO::DICE_KIND_JUMP_TABLE16:
     if (!NoShowRawInsn)
-      dumpBytes(ArrayRef<uint8_t>(bytes, 2), outs());
+      dumpBytes(makeArrayRef(bytes, 2), outs());
     Value = bytes[1] << 8 | bytes[0];
     outs() << "\t.short " << format("%5u", Value & 0xffff)
            << "\t@ KIND_JUMP_TABLE16\n";
@@ -245,7 +245,7 @@ static uint64_t DumpDataInCode(const uint8_t *bytes, uint64_t Length,
   case MachO::DICE_KIND_JUMP_TABLE32:
   case MachO::DICE_KIND_ABS_JUMP_TABLE32:
     if (!NoShowRawInsn)
-      dumpBytes(ArrayRef<uint8_t>(bytes, 4), outs());
+      dumpBytes(makeArrayRef(bytes, 4), outs());
     Value = bytes[3] << 24 | bytes[2] << 16 | bytes[1] << 8 | bytes[0];
     outs() << "\t.long " << Value;
     if (Kind == MachO::DICE_KIND_JUMP_TABLE32)
@@ -1399,42 +1399,15 @@ static void printArchiveChild(Archive::Child &C, bool verbose,
     // FIXME: this first dash, "-", is for (Mode & S_IFMT) == S_IFREG.
     // But there is nothing in sys::fs::perms for S_IFMT or S_IFREG.
     outs() << "-";
-    if (Mode & sys::fs::owner_read)
-      outs() << "r";
-    else
-      outs() << "-";
-    if (Mode & sys::fs::owner_write)
-      outs() << "w";
-    else
-      outs() << "-";
-    if (Mode & sys::fs::owner_exe)
-      outs() << "x";
-    else
-      outs() << "-";
-    if (Mode & sys::fs::group_read)
-      outs() << "r";
-    else
-      outs() << "-";
-    if (Mode & sys::fs::group_write)
-      outs() << "w";
-    else
-      outs() << "-";
-    if (Mode & sys::fs::group_exe)
-      outs() << "x";
-    else
-      outs() << "-";
-    if (Mode & sys::fs::others_read)
-      outs() << "r";
-    else
-      outs() << "-";
-    if (Mode & sys::fs::others_write)
-      outs() << "w";
-    else
-      outs() << "-";
-    if (Mode & sys::fs::others_exe)
-      outs() << "x";
-    else
-      outs() << "-";
+    outs() << ((Mode & sys::fs::owner_read) ? "r" : "-");
+    outs() << ((Mode & sys::fs::owner_write) ? "w" : "-");
+    outs() << ((Mode & sys::fs::owner_exe) ? "x" : "-");
+    outs() << ((Mode & sys::fs::group_read) ? "r" : "-");
+    outs() << ((Mode & sys::fs::group_write) ? "w" : "-");
+    outs() << ((Mode & sys::fs::group_exe) ? "x" : "-");
+    outs() << ((Mode & sys::fs::others_read) ? "r" : "-");
+    outs() << ((Mode & sys::fs::others_write) ? "w" : "-");
+    outs() << ((Mode & sys::fs::others_exe) ? "x" : "-");
   } else {
     outs() << format("0%o ", Mode);
   }
@@ -5867,7 +5840,6 @@ static void emitComments(raw_svector_ostream &CommentStream,
                          formatted_raw_ostream &FormattedOS,
                          const MCAsmInfo &MAI) {
   // Flush the stream before taking its content.
-  CommentStream.flush();
   StringRef Comments = CommentsToEmit.str();
   // Get the default information for printing a comment.
   const char *CommentBegin = MAI.getCommentString();
@@ -5888,7 +5860,6 @@ static void emitComments(raw_svector_ostream &CommentStream,
 
   // Tell the comment stream that the vector changed underneath it.
   CommentsToEmit.clear();
-  CommentStream.resync();
 }
 
 static void DisassembleMachO(StringRef Filename, MachOObjectFile *MachOOF,
@@ -6246,10 +6217,9 @@ static void DisassembleMachO(StringRef Filename, MachOObjectFile *MachOOF,
                                            DebugOut, Annotations);
         if (gotInst) {
           if (!NoShowRawInsn) {
-            dumpBytes(ArrayRef<uint8_t>(Bytes.data() + Index, Size), outs());
+            dumpBytes(makeArrayRef(Bytes.data() + Index, Size), outs());
           }
           formatted_raw_ostream FormattedOS(outs());
-          Annotations.flush();
           StringRef AnnotationsStr = Annotations.str();
           if (isThumb)
             ThumbIP->printInst(&Inst, FormattedOS, AnnotationsStr, *ThumbSTI);
@@ -6311,7 +6281,7 @@ static void DisassembleMachO(StringRef Filename, MachOObjectFile *MachOOF,
           }
           if (!NoShowRawInsn) {
             outs() << "\t";
-            dumpBytes(ArrayRef<uint8_t>(Bytes.data() + Index, InstSize), outs());
+            dumpBytes(makeArrayRef(Bytes.data() + Index, InstSize), outs());
           }
           IP->printInst(&Inst, outs(), "", *STI);
           outs() << "\n";
@@ -6436,8 +6406,7 @@ static void findUnwindRelocNameAddend(const MachOObjectFile *Obj,
   // Go back one so that SymbolAddress <= Addr.
   --Sym;
 
-  section_iterator SymSection = Obj->section_end();
-  Sym->second.getSection(SymSection);
+  section_iterator SymSection = *Sym->second.getSection();
   if (RelocSection == *SymSection) {
     // There's a valid symbol in the same section before this reference.
     ErrorOr<StringRef> NameOrErr = Sym->second.getName();
@@ -6780,8 +6749,7 @@ void llvm::printMachOUnwindInfo(const MachOObjectFile *Obj) {
   for (const SymbolRef &SymRef : Obj->symbols()) {
     // Discard any undefined or absolute symbols. They're not going to take part
     // in the convenience lookup for unwind info and just take up resources.
-    section_iterator Section = Obj->section_end();
-    SymRef.getSection(Section);
+    section_iterator Section = *SymRef.getSection();
     if (Section == Obj->section_end())
       continue;
 
@@ -7123,36 +7091,20 @@ static void PrintSegmentCommand(uint32_t cmd, uint32_t cmdsize,
            MachO::VM_PROT_EXECUTE)) != 0)
       outs() << "  maxprot ?" << format("0x%08" PRIx32, maxprot) << "\n";
     else {
-      if (maxprot & MachO::VM_PROT_READ)
-        outs() << "  maxprot r";
-      else
-        outs() << "  maxprot -";
-      if (maxprot & MachO::VM_PROT_WRITE)
-        outs() << "w";
-      else
-        outs() << "-";
-      if (maxprot & MachO::VM_PROT_EXECUTE)
-        outs() << "x\n";
-      else
-        outs() << "-\n";
+      outs() << "  maxprot ";
+      outs() << ((maxprot & MachO::VM_PROT_READ) ? "r" : "-");
+      outs() << ((maxprot & MachO::VM_PROT_WRITE) ? "w" : "-");
+      outs() << ((maxprot & MachO::VM_PROT_EXECUTE) ? "x\n" : "-\n");
     }
     if ((initprot &
          ~(MachO::VM_PROT_READ | MachO::VM_PROT_WRITE |
            MachO::VM_PROT_EXECUTE)) != 0)
       outs() << "  initprot ?" << format("0x%08" PRIx32, initprot) << "\n";
     else {
-      if (initprot & MachO::VM_PROT_READ)
-        outs() << " initprot r";
-      else
-        outs() << " initprot -";
-      if (initprot & MachO::VM_PROT_WRITE)
-        outs() << "w";
-      else
-        outs() << "-";
-      if (initprot & MachO::VM_PROT_EXECUTE)
-        outs() << "x\n";
-      else
-        outs() << "-\n";
+      outs() << "  initprot ";
+      outs() << ((initprot & MachO::VM_PROT_READ) ? "r" : "-");
+      outs() << ((initprot & MachO::VM_PROT_WRITE) ? "w" : "-");
+      outs() << ((initprot & MachO::VM_PROT_EXECUTE) ? "x\n" : "-\n");
     }
   } else {
     outs() << "  maxprot " << format("0x%08" PRIx32, maxprot) << "\n";
@@ -7656,19 +7608,23 @@ static void PrintVersionMinLoadCommand(MachO::version_min_command vd) {
     outs() << " Incorrect size\n";
   else
     outs() << "\n";
-  outs() << "  version " << ((vd.version >> 16) & 0xffff) << "."
-         << ((vd.version >> 8) & 0xff);
-  if ((vd.version & 0xff) != 0)
-    outs() << "." << (vd.version & 0xff);
+  outs() << "  version "
+         << MachOObjectFile::getVersionMinMajor(vd, false) << "."
+         << MachOObjectFile::getVersionMinMinor(vd, false);
+  uint32_t Update = MachOObjectFile::getVersionMinUpdate(vd, false);
+  if (Update != 0)
+    outs() << "." << Update;
   outs() << "\n";
   if (vd.sdk == 0)
     outs() << "      sdk n/a";
   else {
-    outs() << "      sdk " << ((vd.sdk >> 16) & 0xffff) << "."
-           << ((vd.sdk >> 8) & 0xff);
+    outs() << "      sdk "
+           << MachOObjectFile::getVersionMinMajor(vd, true) << "."
+           << MachOObjectFile::getVersionMinMinor(vd, true);
   }
-  if ((vd.sdk & 0xff) != 0)
-    outs() << "." << (vd.sdk & 0xff);
+  Update = MachOObjectFile::getVersionMinUpdate(vd, true);
+  if (Update != 0)
+    outs() << "." << Update;
   outs() << "\n";
 }
 
@@ -8554,8 +8510,7 @@ SegInfo::SegInfo(const object::MachOObjectFile *Obj) {
   uint64_t CurSegAddress;
   for (const SectionRef &Section : Obj->sections()) {
     SectionInfo Info;
-    if (error(Section.getName(Info.SectionName)))
-      return;
+    error(Section.getName(Info.SectionName));
     Info.Address = Section.getAddress();
     Info.Size = Section.getSize();
     Info.SegmentName =

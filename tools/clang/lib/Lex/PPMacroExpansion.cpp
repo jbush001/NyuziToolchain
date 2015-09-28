@@ -145,8 +145,12 @@ void Preprocessor::updateModuleMacroInfo(const IdentifierInfo *II,
     NumHiddenOverrides[O] = -1;
 
   // Collect all macros that are not overridden by a visible macro.
-  llvm::SmallVector<ModuleMacro *, 16> Worklist(Leaf->second.begin(),
-                                                Leaf->second.end());
+  llvm::SmallVector<ModuleMacro *, 16> Worklist;
+  for (auto *LeafMM : Leaf->second) {
+    assert(LeafMM->getNumOverridingMacros() == 0 && "leaf macro overridden");
+    if (NumHiddenOverrides.lookup(LeafMM) == 0)
+      Worklist.push_back(LeafMM);
+  }
   while (!Worklist.empty()) {
     auto *MM = Worklist.pop_back_val();
     if (CurSubmoduleState->VisibleModules.isVisible(MM->getOwningModule())) {
@@ -1076,7 +1080,7 @@ static bool HasFeature(const Preprocessor &PP, const IdentifierInfo *II) {
       .Case("blocks", LangOpts.Blocks)
       .Case("c_thread_safety_attributes", true)
       .Case("cxx_exceptions", LangOpts.CXXExceptions)
-      .Case("cxx_rtti", LangOpts.RTTI)
+      .Case("cxx_rtti", LangOpts.RTTI && LangOpts.RTTIData)
       .Case("enumerator_attributes", true)
       .Case("nullability", true)
       .Case("memory_sanitizer", LangOpts.Sanitize.has(SanitizerKind::Memory))

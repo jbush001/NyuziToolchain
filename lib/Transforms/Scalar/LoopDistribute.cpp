@@ -34,6 +34,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Cloning.h"
+#include "llvm/Transforms/Utils/LoopUtils.h"
 #include "llvm/Transforms/Utils/LoopVersioning.h"
 #include <list>
 
@@ -565,25 +566,6 @@ private:
   AccessesType Accesses;
 };
 
-/// \brief Returns the instructions that use values defined in the loop.
-static SmallVector<Instruction *, 8> findDefsUsedOutsideOfLoop(Loop *L) {
-  SmallVector<Instruction *, 8> UsedOutside;
-
-  for (auto *Block : L->getBlocks())
-    // FIXME: I believe that this could use copy_if if the Inst reference could
-    // be adapted into a pointer.
-    for (auto &Inst : *Block) {
-      auto Users = Inst.users();
-      if (std::any_of(Users.begin(), Users.end(), [&](User *U) {
-            auto *Use = cast<Instruction>(U);
-            return !L->contains(Use->getParent());
-          }))
-        UsedOutside.push_back(&Inst);
-    }
-
-  return UsedOutside;
-}
-
 /// \brief The pass class.
 class LoopDistribute : public FunctionPass {
 public:
@@ -627,6 +609,45 @@ public:
   static char ID;
 
 private:
+  /// \brief Filter out checks between pointers from the same partition.
+  ///
+  /// \p PtrToPartition contains the partition number for pointers.  Partition
+  /// number -1 means that the pointer is used in multiple partitions.  In this
+  /// case we can't safely omit the check.
+  SmallVector<RuntimePointerChecking::PointerCheck, 4>
+  includeOnlyCrossPartitionChecks(
+      const SmallVectorImpl<RuntimePointerChecking::PointerCheck> &AllChecks,
+      const SmallVectorImpl<int> &PtrToPartition,
+      const RuntimePointerChecking *RtPtrChecking) {
+    SmallVector<RuntimePointerChecking::PointerCheck, 4> Checks;
+
+    std::copy_if(AllChecks.begin(), AllChecks.end(), std::back_inserter(Checks),
+                 [&](const RuntimePointerChecking::PointerCheck &Check) {
+                   for (unsigned PtrIdx1 : Check.first->Members)
+                     for (unsigned PtrIdx2 : Check.second->Members)
+                       // Only include this check if there is a pair of pointers
+                       // that require checking and the pointers fall into
+                       // separate partitions.
+                       //
+                       // (Note that we already know at this point that the two
+                       // pointer groups need checking but it doesn't follow
+                       // that each pair of pointers within the two groups need
+                       // checking as well.
+                       //
+                       // In other words we don't want to include a check just
+                       // because there is a pair of pointers between the two
+                       // pointer groups that require checks and a different
+                       // pair whose pointers fall into different partitions.)
+                       if (RtPtrChecking->needsChecking(PtrIdx1, PtrIdx2) &&
+                           !RuntimePointerChecking::arePointersInSamePartition(
+                               PtrToPartition, PtrIdx1, PtrIdx2))
+                         return true;
+                   return false;
+                 });
+
+    return Checks;
+  }
+
   /// \brief Try to distribute an inner-most loop.
   bool processLoop(Loop *L) {
     assert(L->empty() && "Only process inner loops.");
@@ -747,14 +768,15 @@ private:
     // If we need run-time checks to disambiguate pointers are run-time, version
     // the loop now.
     auto PtrToPartition = Partitions.computePartitionSetForPointers(LAI);
-    auto Checks =
-        LAI.getRuntimePointerChecking()->generateChecks(&PtrToPartition);
+    const auto *RtPtrChecking = LAI.getRuntimePointerChecking();
+    const auto &AllChecks = RtPtrChecking->getChecks();
+    auto Checks = includeOnlyCrossPartitionChecks(AllChecks, PtrToPartition,
+                                                  RtPtrChecking);
     if (!Checks.empty()) {
       DEBUG(dbgs() << "\nPointers:\n");
       DEBUG(LAI.getRuntimePointerChecking()->printChecks(dbgs(), Checks));
       LoopVersioning LVer(std::move(Checks), LAI, L, LI, DT);
-      LVer.versionLoop(this);
-      LVer.addPHINodes(DefsUsedOutside);
+      LVer.versionLoop(DefsUsedOutside);
     }
 
     // Create identical copies of the original loop for each partition and hook

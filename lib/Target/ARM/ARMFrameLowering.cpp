@@ -488,7 +488,8 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF,
 
   if (NumBytes) {
     // Adjust SP after all the callee-save spills.
-    if (tryFoldSPUpdateIntoPushPop(STI, MF, LastPush, NumBytes))
+    if (AFI->getNumAlignedDPRCS2Regs() == 0 &&
+        tryFoldSPUpdateIntoPushPop(STI, MF, LastPush, NumBytes))
       DefCFAOffsetCandidates.addExtraBytes(LastPush, NumBytes);
     else {
       emitSPUpdate(isARM, MBB, MBBI, dl, TII, -NumBytes,
@@ -877,12 +878,6 @@ ARMFrameLowering::ResolveFrameIndexReference(const MachineFunction &MF,
   if (RegInfo->hasBasePointer(MF))
     FrameReg = RegInfo->getBaseRegister();
   return Offset;
-}
-
-int ARMFrameLowering::getFrameIndexOffset(const MachineFunction &MF,
-                                          int FI) const {
-  unsigned FrameReg;
-  return getFrameIndexReference(MF, FI, FrameReg);
 }
 
 void ARMFrameLowering::emitPushInst(MachineBasicBlock &MBB,
@@ -1740,8 +1735,7 @@ eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
       // We need to keep the stack aligned properly.  To do this, we round the
       // amount of space needed for the outgoing arguments up to the next
       // alignment boundary.
-      unsigned Align = getStackAlignment();
-      Amount = (Amount+Align-1)/Align*Align;
+      Amount = alignSPAdjust(Amount);
 
       ARMFunctionInfo *AFI = MF.getInfo<ARMFunctionInfo>();
       assert(!AFI->isThumb1OnlyFunction() &&
@@ -1892,11 +1886,9 @@ void ARMFrameLowering::adjustForSegmentedStacks(
   for (int Idx = 0; Idx < NbAddedBlocks; ++Idx)
     BeforePrologueRegion.insert(AddedBlocks[Idx]);
 
-  for (MachineBasicBlock::livein_iterator i = PrologueMBB.livein_begin(),
-                                          e = PrologueMBB.livein_end();
-       i != e; ++i) {
+  for (const auto &LI : PrologueMBB.liveins()) {
     for (MachineBasicBlock *PredBB : BeforePrologueRegion)
-      PredBB->addLiveIn(*i);
+      PredBB->addLiveIn(LI);
   }
 
   // Remove the newly added blocks from the list, since we know

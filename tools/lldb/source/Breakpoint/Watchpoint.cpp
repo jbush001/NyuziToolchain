@@ -22,12 +22,12 @@
 #include "lldb/Target/Process.h"
 #include "lldb/Target/Target.h"
 #include "lldb/Target/ThreadSpec.h"
-#include "lldb/Expression/ClangUserExpression.h"
+#include "lldb/Expression/UserExpression.h"
 
 using namespace lldb;
 using namespace lldb_private;
 
-Watchpoint::Watchpoint (Target& target, lldb::addr_t addr, uint32_t size, const ClangASTType *type, bool hardware) :
+Watchpoint::Watchpoint (Target& target, lldb::addr_t addr, uint32_t size, const CompilerType *type, bool hardware) :
     StoppointLocation (0, addr, size, hardware),
     m_target(target),
     m_enabled(false),
@@ -371,7 +371,17 @@ Watchpoint::SetCondition (const char *condition)
     else
     {
         // Pass NULL for expr_prefix (no translation-unit level definitions).
-        m_condition_ap.reset(new ClangUserExpression (condition, NULL, lldb::eLanguageTypeUnknown, ClangUserExpression::eResultTypeAny));
+        Error error;
+        m_condition_ap.reset(m_target.GetUserExpressionForLanguage (condition,
+                                                                      NULL,
+                                                                      lldb::eLanguageTypeUnknown,
+                                                                      UserExpression::eResultTypeAny,
+                                                                      error));
+        if (error.Fail())
+        {
+            // FIXME: Log something...
+            m_condition_ap.reset();
+        }
     }
     SendWatchpointChangedEvent (eWatchpointEventTypeConditionChanged);
 }

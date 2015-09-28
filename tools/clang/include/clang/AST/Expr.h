@@ -149,8 +149,6 @@ public:
   /// \brief Set whether this expression is value-dependent or not.
   void setValueDependent(bool VD) {
     ExprBits.ValueDependent = VD;
-    if (VD)
-      ExprBits.InstantiationDependent = true;
   }
 
   /// isTypeDependent - Determines whether this expression is
@@ -169,8 +167,6 @@ public:
   /// \brief Set whether this expression is type-dependent or not.
   void setTypeDependent(bool TD) {
     ExprBits.TypeDependent = TD;
-    if (TD)
-      ExprBits.InstantiationDependent = true;
   }
 
   /// \brief Whether this expression is instantiation-dependent, meaning that
@@ -458,6 +454,10 @@ public:
 
   /// \brief Returns whether this expression refers to a vector element.
   bool refersToVectorElement() const;
+
+  /// \brief Returns whether this expression refers to a global register
+  /// variable.
+  bool refersToGlobalRegisterVar() const;
 
   /// \brief Returns whether this expression has a placeholder type.
   bool hasPlaceholderType() const {
@@ -3695,33 +3695,35 @@ public:
   }
 };
 
-/// VAArgExpr, used for the builtin function __builtin_va_arg.
+/// Represents a call to the builtin function \c __builtin_va_arg.
 class VAArgExpr : public Expr {
   Stmt *Val;
-  TypeSourceInfo *TInfo;
+  llvm::PointerIntPair<TypeSourceInfo *, 1, bool> TInfo;
   SourceLocation BuiltinLoc, RParenLoc;
 public:
-  VAArgExpr(SourceLocation BLoc, Expr* e, TypeSourceInfo *TInfo,
-            SourceLocation RPLoc, QualType t)
-    : Expr(VAArgExprClass, t, VK_RValue, OK_Ordinary,
-           t->isDependentType(), false,
-           (TInfo->getType()->isInstantiationDependentType() ||
-            e->isInstantiationDependent()),
-           (TInfo->getType()->containsUnexpandedParameterPack() ||
-            e->containsUnexpandedParameterPack())),
-      Val(e), TInfo(TInfo),
-      BuiltinLoc(BLoc),
-      RParenLoc(RPLoc) { }
+  VAArgExpr(SourceLocation BLoc, Expr *e, TypeSourceInfo *TInfo,
+            SourceLocation RPLoc, QualType t, bool IsMS)
+      : Expr(VAArgExprClass, t, VK_RValue, OK_Ordinary, t->isDependentType(),
+             false, (TInfo->getType()->isInstantiationDependentType() ||
+                     e->isInstantiationDependent()),
+             (TInfo->getType()->containsUnexpandedParameterPack() ||
+              e->containsUnexpandedParameterPack())),
+        Val(e), TInfo(TInfo, IsMS), BuiltinLoc(BLoc), RParenLoc(RPLoc) {}
 
-  /// \brief Create an empty __builtin_va_arg expression.
-  explicit VAArgExpr(EmptyShell Empty) : Expr(VAArgExprClass, Empty) { }
+  /// Create an empty __builtin_va_arg expression.
+  explicit VAArgExpr(EmptyShell Empty)
+      : Expr(VAArgExprClass, Empty), Val(0), TInfo(0, false) {}
 
   const Expr *getSubExpr() const { return cast<Expr>(Val); }
   Expr *getSubExpr() { return cast<Expr>(Val); }
   void setSubExpr(Expr *E) { Val = E; }
 
-  TypeSourceInfo *getWrittenTypeInfo() const { return TInfo; }
-  void setWrittenTypeInfo(TypeSourceInfo *TI) { TInfo = TI; }
+  /// Returns whether this is really a Win64 ABI va_arg expression.
+  bool isMicrosoftABI() const { return TInfo.getInt(); }
+  void setIsMicrosoftABI(bool IsMS) { TInfo.setInt(IsMS); }
+
+  TypeSourceInfo *getWrittenTypeInfo() const { return TInfo.getPointer(); }
+  void setWrittenTypeInfo(TypeSourceInfo *TI) { TInfo.setPointer(TI); }
 
   SourceLocation getBuiltinLoc() const { return BuiltinLoc; }
   void setBuiltinLoc(SourceLocation L) { BuiltinLoc = L; }
@@ -4976,6 +4978,11 @@ public:
   }
   SourceLocation getLocStart() const LLVM_READONLY { return SourceLocation(); }
   SourceLocation getLocEnd() const LLVM_READONLY { return SourceLocation(); }
+  
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == TypoExprClass;
+  }
+
 };
 }  // end namespace clang
 

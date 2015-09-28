@@ -1,4 +1,4 @@
-"""
+﻿"""
 Test calling a function that hits a signal set to auto-restart, make sure the call completes.
 """
 
@@ -29,7 +29,6 @@ class ExprCommandThatRestartsTestCase(TestBase):
 
     @dwarf_test
     @skipIfFreeBSD # llvm.org/pr19246: intermittent failure
-    @expectedFailureLinux("llvm.org/pr19246")
     @skipIfDarwin # llvm.org/pr19246: intermittent failure
     @skipIfWindows # Test relies on signals, unsupported on Windows
     def test_with_dwarf(self):
@@ -82,6 +81,8 @@ class ExprCommandThatRestartsTestCase(TestBase):
         self.assertTrue (self.start_sigchld_no != -1, "Got an actual value for sigchld_no")
 
         options = lldb.SBExpressionOptions()
+        # processing 30 signals takes a while, increase the expression timeout a bit
+        options.SetTimeoutInMicroSeconds(3000000) # 3s
         options.SetUnwindOnError(True)
 
         frame = self.thread.GetFrameAtIndex(0)

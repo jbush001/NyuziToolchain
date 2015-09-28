@@ -70,6 +70,18 @@ public:
   ///
   unsigned getStackAlignment() const { return StackAlignment; }
 
+  /// alignSPAdjust - This method aligns the stack adjustment to the correct
+  /// alignment.
+  ///
+  int alignSPAdjust(int SPAdj) const {
+    if (SPAdj < 0) {
+      SPAdj = -RoundUpToAlignment(-SPAdj, StackAlignment);
+    } else {
+      SPAdj = RoundUpToAlignment(SPAdj, StackAlignment);
+    }
+    return SPAdj;
+  }
+
   /// getTransientStackAlignment - This method returns the number of bytes to
   /// which the stack pointer must be aligned at all times, even between
   /// calls.
@@ -129,6 +141,11 @@ public:
     return false;
   }
 
+  /// Returns true if the target will correctly handle shrink wrapping.
+  virtual bool enableShrinkWrapping(const MachineFunction &MF) const {
+    return false;
+  }
+  
   /// emitProlog/emitEpilog - These methods insert prolog and epilog code into
   /// the function.
   virtual void emitPrologue(MachineFunction &MF,
@@ -206,10 +223,6 @@ public:
   // this function. Normally, this is required only when the function
   // has any stack objects. However, targets may want to override this.
   virtual bool needsFrameIndexResolution(const MachineFunction &MF) const;
-
-  /// getFrameIndexOffset - Returns the displacement from the frame register to
-  /// the stack frame of the specified index.
-  virtual int getFrameIndexOffset(const MachineFunction &MF, int FI) const;
 
   /// getFrameIndexReference - This method should return the base register
   /// and offset used to reference a frame index location. The offset is

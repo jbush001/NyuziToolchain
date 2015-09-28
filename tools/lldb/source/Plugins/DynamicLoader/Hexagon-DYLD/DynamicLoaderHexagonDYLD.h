@@ -47,29 +47,29 @@ public:
     //------------------------------------------------------------------
 
     virtual void
-    DidAttach();
+    DidAttach() override;
 
     virtual void
-    DidLaunch();
+    DidLaunch() override;
 
-    virtual lldb::ThreadPlanSP
+    lldb::ThreadPlanSP
     GetStepThroughTrampolinePlan(lldb_private::Thread &thread,
-                                 bool stop_others);
+                                 bool stop_others) override;
 
     virtual lldb_private::Error
-    CanLoadImage();
+    CanLoadImage() override;
 
     virtual lldb::addr_t
-    GetThreadLocalData (const lldb::ModuleSP module, const lldb::ThreadSP thread);
+    GetThreadLocalData (const lldb::ModuleSP module, const lldb::ThreadSP thread) override;
 
     //------------------------------------------------------------------
     // PluginInterface protocol
     //------------------------------------------------------------------
     virtual lldb_private::ConstString
-    GetPluginName();
+    GetPluginName() override;
 
     virtual uint32_t
-    GetPluginVersion();
+    GetPluginVersion() override;
 
     virtual void
     GetPluginCommandHelp(const char *command, lldb_private::Stream *strm);
@@ -124,18 +124,22 @@ protected:
     void
     UpdateLoadedSections(lldb::ModuleSP module,
                          lldb::addr_t link_map_addr,
-                         lldb::addr_t base_addr);
+                         lldb::addr_t base_addr,
+                         bool base_addr_is_offset) override;
 
     /// Removes the loaded sections from the target in @p module.
     ///
     /// @param module The module to traverse.
     void
-    UnloadSections(const lldb::ModuleSP module);
+    UnloadSections(const lldb::ModuleSP module) override;
 
     /// Locates or creates a module given by @p file and updates/loads the
     /// resulting module at the virtual base address @p base_addr.
     lldb::ModuleSP
-    LoadModuleAtAddress(const lldb_private::FileSpec &file, lldb::addr_t link_map_addr, lldb::addr_t base_addr);
+    LoadModuleAtAddress(const lldb_private::FileSpec &file,
+                        lldb::addr_t link_map_addr,
+                        lldb::addr_t base_addr,
+                        bool base_addr_is_offset) override;
 
     /// Callback routine invoked when we hit the breakpoint on process entry.
     ///

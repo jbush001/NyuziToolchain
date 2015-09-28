@@ -7,6 +7,7 @@ They can also be useful for general purpose lldb scripting.
 import lldb
 import os, sys
 import StringIO
+import re
 
 # ===================================================
 # Utilities for locating/checking executable programs
@@ -721,6 +722,21 @@ def print_stacktraces(process, string_buffer = False):
     if string_buffer:
         return output.getvalue()
 
+def expect_state_changes(test, listener, states, timeout = 5):
+    """Listens for state changed events on the listener and makes sure they match what we
+    expect. Stop-and-restart events (where GetRestartedFromEvent() returns true) are ignored."""
+    event = lldb.SBEvent()
+    for expected_state in states:
+        if not listener.WaitForEvent(timeout, event):
+            test.Fail("Timed out while waiting for a transition to state %s" %
+                lldb.SBDebugger.StateAsCString(expected_state))
+
+        got_state = lldb.SBProcess.GetStateFromEvent(event)
+        if got_state == lldb.eStateStopped and lldb.SBProcess.GetRestartedFromEvent(event):
+            continue
+
+        test.assertEqual(expected_state, got_state)
+
 # ===================================
 # Utility functions related to Frames
 # ===================================
@@ -942,3 +958,38 @@ def get_signal_number(signal_name):
                 return signal_number
     # No remote platform; fall back to using local python signals.
     return getattr(signal, signal_name)
+
+class PrintableRegex(object):
+    def __init__(self, text):
+        self.regex = re.compile(text)
+        self.text = text
+    
+    def match(self, str):
+        return self.regex.match(str)
+    
+    def __str__(self):
+        return "%s" % (self.text)
+    
+    def __repr__(self):
+        return "re.compile(%s) -> %s" % (self.text, self.regex)
+
+def skip_if_callable(test, callable, reason):
+    if callable(test) == True:
+        test.skipTest(reason)
+        return True
+    return False
+
+def skip_if_library_missing(test, target, library):
+    def find_library(target, library):
+        for module in target.modules:
+            filename = module.file.GetFilename()
+            if isinstance(library, str):
+                if library == filename:
+                    return False
+            elif hasattr(library, 'match'):
+                if library.match(filename):
+                    return False
+        return True
+    def find_library_callable(test):
+        return find_library(target, library)
+    return skip_if_callable(test, find_library_callable, "could not find library matching '%s' in target %s" % (library, target))

@@ -108,6 +108,8 @@ StackFrameList::ResetCurrentInlinedDepth ()
     if (m_show_inlined_frames)
     {        
         GetFramesUpTo(0);
+        if (m_frames.size() == 0)
+            return;
         if (!m_frames[0]->IsInlined())
         {
             m_current_inlined_depth = UINT32_MAX;
@@ -362,8 +364,8 @@ StackFrameList::GetFramesUpTo(uint32_t end_idx)
                         // adjustment it will point to an other section. In that case resolve the
                         // address again to the correct section plus offset form.
                         TargetSP target = m_thread.CalculateTarget();
-                        addr_t load_addr = curr_frame_address.GetOpcodeLoadAddress(target.get());
-                        curr_frame_address.SetOpcodeLoadAddress(load_addr - 1, target.get());
+                        addr_t load_addr = curr_frame_address.GetOpcodeLoadAddress(target.get(), eAddressClassCode);
+                        curr_frame_address.SetOpcodeLoadAddress(load_addr - 1, target.get(), eAddressClassCode);
                     }
                     else
                     {

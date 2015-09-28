@@ -219,11 +219,12 @@ std::error_code current_path(SmallVectorImpl<char> &result) {
   return std::error_code();
 }
 
-std::error_code create_directory(const Twine &path, bool IgnoreExisting) {
+std::error_code create_directory(const Twine &path, bool IgnoreExisting,
+                                 perms Perms) {
   SmallString<128> path_storage;
   StringRef p = path.toNullTerminatedStringRef(path_storage);
 
-  if (::mkdir(p.begin(), S_IRWXU | S_IRWXG) == -1) {
+  if (::mkdir(p.begin(), Perms) == -1) {
     if (errno != EEXIST || !IgnoreExisting)
       return std::error_code(errno, std::generic_category());
   }
@@ -322,6 +323,10 @@ std::error_code access(const Twine &Path, AccessMode Mode) {
   }
 
   return std::error_code();
+}
+
+bool can_execute(const Twine &Path) {
+  return !access(Path, AccessMode::Execute);
 }
 
 bool equivalent(file_status A, file_status B) {

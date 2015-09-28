@@ -147,12 +147,12 @@ namespace {
     bool runOnLoop(Loop *L, LPPassManager &LPM) override;
 
     void getAnalysisUsage(AnalysisUsage &AU) const override {
-      AU.addRequired<AliasAnalysis>();
+      AU.addRequired<AAResultsWrapperPass>();
       AU.addRequired<LoopInfoWrapperPass>();
       AU.addPreserved<LoopInfoWrapperPass>();
       AU.addRequired<DominatorTreeWrapperPass>();
       AU.addPreserved<DominatorTreeWrapperPass>();
-      AU.addRequired<ScalarEvolution>();
+      AU.addRequired<ScalarEvolutionWrapperPass>();
       AU.addRequired<TargetLibraryInfoWrapperPass>();
     }
 
@@ -449,10 +449,10 @@ namespace {
 
 char LoopReroll::ID = 0;
 INITIALIZE_PASS_BEGIN(LoopReroll, "loop-reroll", "Reroll loops", false, false)
-INITIALIZE_AG_DEPENDENCY(AliasAnalysis)
+INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(LoopInfoWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(DominatorTreeWrapperPass)
-INITIALIZE_PASS_DEPENDENCY(ScalarEvolution)
+INITIALIZE_PASS_DEPENDENCY(ScalarEvolutionWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(TargetLibraryInfoWrapperPass)
 INITIALIZE_PASS_END(LoopReroll, "loop-reroll", "Reroll loops", false, false)
 
@@ -1466,9 +1466,9 @@ bool LoopReroll::runOnLoop(Loop *L, LPPassManager &LPM) {
   if (skipOptnoneFunction(L))
     return false;
 
-  AA = &getAnalysis<AliasAnalysis>();
+  AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
   LI = &getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-  SE = &getAnalysis<ScalarEvolution>();
+  SE = &getAnalysis<ScalarEvolutionWrapperPass>().getSE();
   TLI = &getAnalysis<TargetLibraryInfoWrapperPass>().getTLI();
   DT = &getAnalysis<DominatorTreeWrapperPass>().getDomTree();
 
@@ -1487,8 +1487,7 @@ bool LoopReroll::runOnLoop(Loop *L, LPPassManager &LPM) {
     return Changed;
 
   const SCEV *LIBETC = SE->getBackedgeTakenCount(L);
-  const SCEV *IterCount =
-    SE->getAddExpr(LIBETC, SE->getConstant(LIBETC->getType(), 1));
+  const SCEV *IterCount = SE->getAddExpr(LIBETC, SE->getOne(LIBETC->getType()));
   DEBUG(dbgs() << "LRR: iteration count = " << *IterCount << "\n");
 
   // First, we need to find the induction variable with respect to which we can

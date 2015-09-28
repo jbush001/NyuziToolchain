@@ -101,7 +101,8 @@ public:
   public:
     GCCInstallationDetector() : IsValid(false) {}
     void init(const Driver &D, const llvm::Triple &TargetTriple,
-              const llvm::opt::ArgList &Args);
+              const llvm::opt::ArgList &Args,
+              ArrayRef<std::string> ExtraTripleAliases = None);
 
     /// \brief Check whether we detected a valid GCC install.
     bool isValid() const { return IsValid; }
@@ -145,10 +146,48 @@ public:
                                 const std::string &LibDir,
                                 StringRef CandidateTriple,
                                 bool NeedsBiarchSuffix = false);
+
+    void scanLibDirForGCCTripleSolaris(const llvm::Triple &TargetArch,
+                                       const llvm::opt::ArgList &Args,
+                                       const std::string &LibDir,
+                                       StringRef CandidateTriple,
+                                       bool NeedsBiarchSuffix = false);
   };
 
 protected:
   GCCInstallationDetector GCCInstallation;
+
+  // \brief A class to find a viable CUDA installation
+
+  class CudaInstallationDetector {
+    bool IsValid;
+    std::string CudaInstallPath;
+    std::string CudaLibPath;
+    std::string CudaLibDevicePath;
+    std::string CudaIncludePath;
+
+  public:
+    CudaInstallationDetector() : IsValid(false) {}
+    void init(const Driver &D, const llvm::Triple &TargetTriple,
+              const llvm::opt::ArgList &Args);
+
+    /// \brief Check whether we detected a valid Cuda install.
+    bool isValid() const { return IsValid; }
+    /// \brief Print information about the detected CUDA installation.
+    void print(raw_ostream &OS) const;
+
+    /// \brief Get the detected Cuda installation path.
+    StringRef getInstallPath() const { return CudaInstallPath; }
+    /// \brief Get the detected Cuda Include path.
+    StringRef getIncludePath() const { return CudaIncludePath; }
+    /// \brief Get the detected Cuda library path.
+    StringRef getLibPath() const { return CudaLibPath; }
+    /// \brief Get the detected Cuda device library path.
+    StringRef getLibDevicePath() const { return CudaLibDevicePath; }
+    /// \brief Get libdevice file for given architecture
+  };
+
+  CudaInstallationDetector CudaInstallation;
 
 public:
   Generic_GCC(const Driver &D, const llvm::Triple &Triple,
@@ -521,6 +560,10 @@ public:
 
   bool IsIntegratedAssemblerDefault() const override { return true; }
 
+  void AddClangCXXStdlibIncludeArgs(
+      const llvm::opt::ArgList &DriverArgs,
+      llvm::opt::ArgStringList &CC1Args) const override;
+
 protected:
   Tool *buildAssembler() const override;
   Tool *buildLinker() const override;
@@ -845,8 +888,14 @@ public:
       const llvm::opt::ArgList &DriverArgs,
       llvm::opt::ArgStringList &CC1Args) const override;
 
-  bool getWindowsSDKDir(std::string &path, int &major, int &minor) const;
+  bool getWindowsSDKDir(std::string &path, int &major,
+                        std::string &windowsSDKIncludeVersion,
+                        std::string &windowsSDKLibVersion) const;
   bool getWindowsSDKLibraryPath(std::string &path) const;
+  /// \brief Check if Universal CRT should be used if available
+  bool useUniversalCRT(std::string &visualStudioDir) const;
+  bool getUniversalCRTSdkDir(std::string &path, std::string &ucrtVersion) const;
+  bool getUniversalCRTLibraryPath(std::string &path) const;
   bool getVisualStudioInstallDir(std::string &path) const;
   bool getVisualStudioBinariesFolder(const char *clangProgramPath,
                                      std::string &path) const;
@@ -859,7 +908,9 @@ protected:
   void AddSystemIncludeWithSubfolder(const llvm::opt::ArgList &DriverArgs,
                                      llvm::opt::ArgStringList &CC1Args,
                                      const std::string &folder,
-                                     const char *subfolder) const;
+                                     const Twine &subfolder1,
+                                     const Twine &subfolder2 = "",
+                                     const Twine &subfolder3 = "") const;
 
   Tool *buildLinker() const override;
   Tool *buildAssembler() const override;
@@ -921,29 +972,55 @@ public:
                            llvm::opt::ArgStringList &CmdArgs) const override;
 };
 
-/// SHAVEToolChain - A tool chain using the compiler installed by the
-/// Movidius SDK into MV_TOOLS_DIR (which we assume will be copied to llvm's
-/// installation dir) to perform all subcommands.
-class LLVM_LIBRARY_VISIBILITY SHAVEToolChain : public Generic_GCC {
+/// MyriadToolChain - A tool chain using either clang or the external compiler
+/// installed by the Movidius SDK to perform all subcommands.
+class LLVM_LIBRARY_VISIBILITY MyriadToolChain : public Generic_GCC {
 public:
-  SHAVEToolChain(const Driver &D, const llvm::Triple &Triple,
-                 const llvm::opt::ArgList &Args);
-  ~SHAVEToolChain() override;
+  MyriadToolChain(const Driver &D, const llvm::Triple &Triple,
+                  const llvm::opt::ArgList &Args);
+  ~MyriadToolChain() override;
 
-  virtual Tool *SelectTool(const JobAction &JA) const override;
+  void
+  AddClangSystemIncludeArgs(const llvm::opt::ArgList &DriverArgs,
+                            llvm::opt::ArgStringList &CC1Args) const override;
+  Tool *SelectTool(const JobAction &JA) const override;
+  void getCompilerSupportDir(std::string &Dir) const;
+  void getBuiltinLibDir(std::string &Dir) const;
 
 protected:
-  Tool *getTool(Action::ActionClass AC) const override;
-  Tool *buildAssembler() const override;
   Tool *buildLinker() const override;
+  bool isShaveCompilation(const llvm::Triple &T) const {
+    return T.getArch() == llvm::Triple::shave;
+  }
 
 private:
   mutable std::unique_ptr<Tool> Compiler;
   mutable std::unique_ptr<Tool> Assembler;
 };
 
+class LLVM_LIBRARY_VISIBILITY WebAssembly final : public ToolChain {
+public:
+  WebAssembly(const Driver &D, const llvm::Triple &Triple,
+              const llvm::opt::ArgList &Args)
+      : ToolChain(D, Triple, Args) {}
+
+private:
+  bool IsMathErrnoDefault() const override;
+  bool IsObjCNonFragileABIDefault() const override;
+  bool UseObjCMixedDispatch() const override;
+  bool isPICDefault() const override;
+  bool isPIEDefault() const override;
+  bool isPICDefaultForced() const override;
+  bool IsIntegratedAssemblerDefault() const override;
+  bool hasBlocksRuntime() const override;
+  bool SupportsObjCGC() const override;
+  bool SupportsProfiling() const override;
+  void addClangTargetOptions(const llvm::opt::ArgList &DriverArgs,
+                             llvm::opt::ArgStringList &CC1Args) const override;
+};
+
 } // end namespace toolchains
 } // end namespace driver
 } // end namespace clang
 
-#endif
+#endif // LLVM_CLANG_LIB_DRIVER_TOOLCHAINS_H

@@ -7,12 +7,25 @@
 //
 //===----------------------------------------------------------------------===//
 
+#if !defined(LLDB_DISABLE_PYTHON)
+#include "Plugins/ScriptInterpreter/Python/lldb-python.h"
+#endif
+
 #include "lldb/API/SystemInitializerFull.h"
+
+#include "lldb/API/SBCommandInterpreter.h"
+
+#if !defined(LLDB_DISABLE_PYTHON)
+#include "Plugins/ScriptInterpreter/Python/ScriptInterpreterPython.h"
+#endif
 
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/Timer.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Initialization/SystemInitializerCommon.h"
+#include "lldb/Interpreter/CommandInterpreter.h"
+#include "lldb/Symbol/ClangASTContext.h"
+#include "lldb/Symbol/GoASTContext.h"
 
 #include "Plugins/ABI/MacOSX-i386/ABIMacOSX_i386.h"
 #include "Plugins/ABI/MacOSX-arm/ABIMacOSX_arm.h"
@@ -31,6 +44,9 @@
 #include "Plugins/Instruction/ARM64/EmulateInstructionARM64.h"
 #include "Plugins/InstrumentationRuntime/AddressSanitizer/AddressSanitizerRuntime.h"
 #include "Plugins/JITLoader/GDB/JITLoaderGDB.h"
+#include "Plugins/Language/CPlusPlus/CPlusPlusLanguage.h"
+#include "Plugins/Language/ObjC/ObjCLanguage.h"
+#include "Plugins/Language/ObjCPlusPlus/ObjCPlusPlusLanguage.h"
 #include "Plugins/LanguageRuntime/CPlusPlus/ItaniumABI/ItaniumABILanguageRuntime.h"
 #include "Plugins/LanguageRuntime/ObjC/AppleObjCRuntime/AppleObjCRuntimeV1.h"
 #include "Plugins/LanguageRuntime/ObjC/AppleObjCRuntime/AppleObjCRuntimeV2.h"
@@ -39,6 +55,7 @@
 #include "Plugins/Platform/gdb-server/PlatformRemoteGDBServer.h"
 #include "Plugins/Process/elf-core/ProcessElfCore.h"
 #include "Plugins/Process/gdb-remote/ProcessGDBRemote.h"
+#include "Plugins/ScriptInterpreter/None/ScriptInterpreterNone.h"
 #include "Plugins/SymbolFile/DWARF/SymbolFileDWARF.h"
 #include "Plugins/SymbolFile/DWARF/SymbolFileDWARFDebugMap.h"
 #include "Plugins/SymbolFile/Symtab/SymbolFileSymtab.h"
@@ -59,11 +76,8 @@
 
 #if defined(_MSC_VER)
 #include "lldb/Host/windows/windows.h"
-#include "Plugins/Process/Windows/ProcessWindows.h"
-#endif
-
-#if !defined(LLDB_DISABLE_PYTHON)
-#include "lldb/Interpreter/ScriptInterpreterPython.h"
+#include "Plugins/Process/Windows/Live/ProcessWindows.h"
+#include "Plugins/Process/Windows/MiniDump/ProcessWinMiniDump.h"
 #endif
 
 #include "llvm/Support/TargetSelect.h"
@@ -222,15 +236,26 @@ SystemInitializerFull::~SystemInitializerFull()
 void
 SystemInitializerFull::Initialize()
 {
+    SystemInitializerCommon::Initialize();
+    ScriptInterpreterNone::Initialize();
+
+#if !defined(LLDB_DISABLE_PYTHON)
     InitializeSWIG();
 
-    SystemInitializerCommon::Initialize();
+    // ScriptInterpreterPython::Initialize() depends on things like HostInfo being initialized
+    // so it can compute the python directory etc, so we need to do this after
+    // SystemInitializerCommon::Initialize().
+    ScriptInterpreterPython::Initialize();
+#endif
 
     // Initialize LLVM and Clang
     llvm::InitializeAllTargets();
     llvm::InitializeAllAsmPrinters();
     llvm::InitializeAllTargetMCs();
     llvm::InitializeAllDisassemblers();
+
+    ClangASTContext::Initialize();
+    GoASTContext::Initialize();
 
     ABIMacOSX_i386::Initialize();
     ABIMacOSX_arm::Initialize();
@@ -248,6 +273,9 @@ SystemInitializerFull::Initialize()
 
     JITLoaderGDB::Initialize();
     ProcessElfCore::Initialize();
+#if defined(_MSC_VER)
+    ProcessWinMiniDump::Initialize();
+#endif
     MemoryHistoryASan::Initialize();
     AddressSanitizerRuntime::Initialize();
 
@@ -263,6 +291,10 @@ SystemInitializerFull::Initialize()
     AppleObjCRuntimeV1::Initialize();
     SystemRuntimeMacOSX::Initialize();
     RenderScriptRuntime::Initialize();
+    
+    CPlusPlusLanguage::Initialize();
+    ObjCLanguage::Initialize();
+    ObjCPlusPlusLanguage::Initialize();
 
 #if defined(_MSC_VER)
     ProcessWindows::Initialize();
@@ -334,6 +366,10 @@ SystemInitializerFull::Terminate()
 
     // Terminate and unload and loaded system or user LLDB plug-ins
     PluginManager::Terminate();
+
+    ClangASTContext::Terminate();
+    GoASTContext::Terminate();
+
     ABIMacOSX_i386::Terminate();
     ABIMacOSX_arm::Terminate();
     ABIMacOSX_arm64::Terminate();
@@ -350,6 +386,9 @@ SystemInitializerFull::Terminate()
 
     JITLoaderGDB::Terminate();
     ProcessElfCore::Terminate();
+#if defined(_MSC_VER)
+    ProcessWinMiniDump::Terminate();
+#endif
     MemoryHistoryASan::Terminate();
     AddressSanitizerRuntime::Terminate();
     SymbolVendorELF::Terminate();
@@ -365,6 +404,10 @@ SystemInitializerFull::Terminate()
     SystemRuntimeMacOSX::Terminate();
     RenderScriptRuntime::Terminate();
 
+    CPlusPlusLanguage::Terminate();
+    ObjCLanguage::Terminate();
+    ObjCPlusPlusLanguage::Terminate();
+    
 #if defined(__APPLE__)
     ProcessMachCore::Terminate();
     ProcessKDP::Terminate();
@@ -382,9 +425,4 @@ SystemInitializerFull::Terminate()
 
     // Now shutdown the common parts, in reverse order.
     SystemInitializerCommon::Terminate();
-}
-
-void SystemInitializerFull::TerminateSWIG()
-{
-
 }

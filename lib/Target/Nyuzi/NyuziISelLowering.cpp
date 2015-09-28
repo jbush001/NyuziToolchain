@@ -498,7 +498,6 @@ NyuziTargetLowering::NyuziTargetLowering(const TargetMachine &TM,
   setStackPointerRegisterToSaveRestore(Nyuzi::SP_REG);
   setMinFunctionAlignment(2);
   setSelectIsExpensive(); // Because there is no CMOV
-  setIntDivIsCheap(false);
   setSchedulingPreference(Sched::RegPressure);
 
   computeRegisterProperties(Subtarget.getRegisterInfo());
@@ -532,8 +531,8 @@ SDValue NyuziTargetLowering::LowerGlobalAddress(SDValue Op,
   const GlobalValue *GV = cast<GlobalAddressSDNode>(Op)->getGlobal();
   SDValue CPIdx = DAG.getTargetConstantPool(GV, MVT::i32);
   return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-                     MachinePointerInfo::getConstantPool(), false, false, false,
-                     4);
+                     MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 
+					 false, false, false, 4);
 }
 
 SDValue NyuziTargetLowering::LowerConstantPool(SDValue Op,
@@ -571,8 +570,8 @@ SDValue NyuziTargetLowering::LowerConstant(SDValue Op,
 
   SDValue CPIdx = DAG.getConstantPool(C->getConstantIntValue(), MVT::i32);
   return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-                     MachinePointerInfo::getConstantPool(), false, false, false,
-                     4);
+                     MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 
+					 false, false, false, 4);
 }
 
 SDValue NyuziTargetLowering::LowerBlockAddress(SDValue Op,
@@ -581,8 +580,8 @@ SDValue NyuziTargetLowering::LowerBlockAddress(SDValue Op,
   const BlockAddress *BA = cast<BlockAddressSDNode>(Op)->getBlockAddress();
   SDValue CPIdx = DAG.getTargetConstantPool(BA, MVT::i32);
   return DAG.getLoad(MVT::i32, DL, DAG.getEntryNode(), CPIdx,
-                     MachinePointerInfo::getConstantPool(), false, false, false,
-                     4);
+                     MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 
+					 false, false, false, 4);
 }
 
 SDValue NyuziTargetLowering::LowerVASTART(SDValue Op, SelectionDAG &DAG) const {
@@ -932,8 +931,8 @@ SDValue NyuziTargetLowering::LowerUINT_TO_FP(SDValue Op,
                        0x4f800000); // UINT_MAX in float format
   SDValue CPIdx = DAG.getConstantPool(AdjustConst, MVT::f32);
   SDValue AdjustReg = DAG.getLoad(MVT::f32, DL, DAG.getEntryNode(), CPIdx,
-                                  MachinePointerInfo::getConstantPool(), false,
-                                  false, false, 4);
+                                  MachinePointerInfo::getConstantPool(DAG.getMachineFunction()), 
+								  false, false, false, 4);
   if (ResultVT.isVector()) {
     // Vector Result
     SDValue ZeroVec = DAG.getNode(NyuziISD::SPLAT, DL, MVT::v16i32,
@@ -1465,3 +1464,8 @@ bool NyuziTargetLowering::isOffsetFoldingLegal(
   // The Nyuzi target isn't yet aware of offsets.
   return false;
 }
+
+bool NyuziTargetLowering::isIntDivCheap(EVT, AttributeSet) const {
+  return false;
+}
+

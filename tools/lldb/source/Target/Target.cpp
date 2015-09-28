@@ -31,10 +31,10 @@
 #include "lldb/Core/StreamString.h"
 #include "lldb/Core/Timer.h"
 #include "lldb/Core/ValueObject.h"
-#include "lldb/Expression/ClangASTSource.h"
-#include "lldb/Expression/ClangPersistentVariables.h"
-#include "lldb/Expression/ClangUserExpression.h"
-#include "lldb/Expression/ClangModulesDeclVendor.h"
+#include "lldb/Expression/UserExpression.h"
+#include "Plugins/ExpressionParser/Clang/ClangASTSource.h"
+#include "Plugins/ExpressionParser/Clang/ClangPersistentVariables.h"
+#include "Plugins/ExpressionParser/Clang/ClangModulesDeclVendor.h"
 #include "lldb/Host/FileSpec.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
@@ -44,6 +44,9 @@
 #include "lldb/Interpreter/Property.h"
 #include "lldb/Symbol/ClangASTContext.h"
 #include "lldb/Symbol/ObjectFile.h"
+#include "lldb/Symbol/Function.h"
+#include "lldb/Symbol/Symbol.h"
+#include "lldb/Target/Language.h"
 #include "lldb/Target/LanguageRuntime.h"
 #include "lldb/Target/ObjCLanguageRuntime.h"
 #include "lldb/Target/Process.h"
@@ -201,7 +204,7 @@ const lldb::ProcessSP &
 Target::CreateProcess (Listener &listener, const char *plugin_name, const FileSpec *crash_file)
 {
     DeleteCurrentProcess ();
-    m_process_sp = Process::FindPlugin(*this, plugin_name, listener, crash_file);
+    m_process_sp = Process::FindPlugin(shared_from_this(), plugin_name, listener, crash_file);
     return m_process_sp;
 }
 
@@ -344,6 +347,10 @@ BreakpointSP
 Target::CreateBreakpoint (lldb::addr_t addr, bool internal, bool hardware)
 {
     Address so_addr;
+    
+    // Check for any reason we want to move this breakpoint to other address.
+    addr = GetBreakableLoadAddress(addr);
+
     // Attempt to resolve our load address if possible, though it is ok if
     // it doesn't resolve to section/offset.
 
@@ -621,7 +628,7 @@ CheckIfWatchpointsExhausted(Target *target, Error &error)
 // See also Watchpoint::SetWatchpointType(uint32_t type) and
 // the OptionGroupWatchpoint::WatchType enum type.
 WatchpointSP
-Target::CreateWatchpoint(lldb::addr_t addr, size_t size, const ClangASTType *type, uint32_t kind, Error &error)
+Target::CreateWatchpoint(lldb::addr_t addr, size_t size, const CompilerType *type, uint32_t kind, Error &error)
 {
     Log *log(lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_WATCHPOINTS));
     if (log)
@@ -1885,13 +1892,96 @@ Target::ImageSearchPathsChanged
         target->SetExecutableModule (exe_module_sp, true);
 }
 
+TypeSystem *
+Target::GetScratchTypeSystemForLanguage (lldb::LanguageType language, bool create_on_demand)
+{
+    if (Language::LanguageIsC(language)
+       || Language::LanguageIsObjC(language)
+       || Language::LanguageIsCPlusPlus(language)
+       || language == eLanguageTypeMipsAssembler // GNU AS and LLVM use it for all assembly code
+       || language == eLanguageTypeUnknown)
+        return GetScratchClangASTContext(create_on_demand);
+    else
+        return NULL;
+}
+
+UserExpression *
+Target::GetUserExpressionForLanguage(const char *expr,
+                             const char *expr_prefix,
+                             lldb::LanguageType language,
+                             Expression::ResultType desired_type,
+                             Error &error)
+{
+    TypeSystem *type_system = GetScratchTypeSystemForLanguage (language);
+    UserExpression *user_expr = nullptr;
+    
+    if (!type_system)
+    {
+        error.SetErrorStringWithFormat("Could not find type system for language: %s", Language::GetNameForLanguageType(language));
+        return nullptr;
+    }
+    
+    user_expr = type_system->GetUserExpression(expr, expr_prefix, language, desired_type);
+    if (!user_expr)
+        error.SetErrorStringWithFormat("Could not create an expression for language %s", Language::GetNameForLanguageType(language));
+    
+    return user_expr;
+}
+
+FunctionCaller *
+Target::GetFunctionCallerForLanguage (lldb::LanguageType language,
+                                      const CompilerType &return_type,
+                                      const Address& function_address,
+                                      const ValueList &arg_value_list,
+                                      const char *name,
+                                      Error &error)
+{
+    TypeSystem *type_system = GetScratchTypeSystemForLanguage (language);
+    FunctionCaller *persistent_fn = nullptr;
+    
+    if (!type_system)
+    {
+        error.SetErrorStringWithFormat("Could not find type system for language: %s", Language::GetNameForLanguageType(language));
+        return persistent_fn;
+    }
+    
+    persistent_fn = type_system->GetFunctionCaller (return_type, function_address, arg_value_list, name);
+    if (!persistent_fn)
+        error.SetErrorStringWithFormat("Could not create an expression for language %s", Language::GetNameForLanguageType(language));
+    
+    return persistent_fn;
+}
+
+UtilityFunction *
+Target::GetUtilityFunctionForLanguage (const char *text,
+                                       lldb::LanguageType language,
+                                       const char *name,
+                                       Error &error)
+{
+    TypeSystem *type_system = GetScratchTypeSystemForLanguage (language);
+    UtilityFunction *utility_fn = nullptr;
+    
+    if (!type_system)
+    {
+        error.SetErrorStringWithFormat("Could not find type system for language: %s", Language::GetNameForLanguageType(language));
+        return utility_fn;
+    }
+    
+    utility_fn = type_system->GetUtilityFunction (text, name);
+    if (!utility_fn)
+        error.SetErrorStringWithFormat("Could not create an expression for language %s", Language::GetNameForLanguageType(language));
+    
+    return utility_fn;
+}
+
+
 ClangASTContext *
 Target::GetScratchClangASTContext(bool create_on_demand)
 {
     // Now see if we know the target triple, and if so, create our scratch AST context:
     if (m_scratch_ast_context_ap.get() == NULL && m_arch.IsValid() && create_on_demand)
     {
-        m_scratch_ast_context_ap.reset (new ClangASTContext(m_arch.GetTriple().str().c_str()));
+        m_scratch_ast_context_ap.reset (new ClangASTContextForExpressions(*this));
         m_scratch_ast_source_ap.reset (new ClangASTSource(shared_from_this()));
         m_scratch_ast_source_ap->InstallASTContext(m_scratch_ast_context_ap->getASTContext());
         llvm::IntrusiveRefCntPtr<clang::ExternalASTSource> proxy_ast_source(m_scratch_ast_source_ap->CreateProxy());
@@ -2026,7 +2116,7 @@ Target::EvaluateExpression
     
     // Make sure we aren't just trying to see the value of a persistent
     // variable (something like "$0")
-    lldb::ClangExpressionVariableSP persistent_var_sp;
+    lldb::ExpressionVariableSP persistent_var_sp;
     // Only check for persistent variables the expression starts with a '$' 
     if (expr_cstr[0] == '$')
         persistent_var_sp = m_persistent_variables->GetVariable (expr_cstr);
@@ -2040,12 +2130,12 @@ Target::EvaluateExpression
     {
         const char *prefix = GetExpressionPrefixContentsAsCString();
         Error error;
-        execution_results = ClangUserExpression::Evaluate (exe_ctx, 
-                                                           options,
-                                                           expr_cstr,
-                                                           prefix, 
-                                                           result_valobj_sp,
-                                                           error);
+        execution_results = UserExpression::Evaluate (exe_ctx,
+                                                      options,
+                                                      expr_cstr,
+                                                      prefix,
+                                                      result_valobj_sp,
+                                                      error);
     }
     
     m_suppress_stop_hooks = old_suppress_value;
@@ -2065,6 +2155,27 @@ Target::GetCallableLoadAddress (lldb::addr_t load_addr, AddressClass addr_class)
     addr_t code_addr = load_addr;
     switch (m_arch.GetMachine())
     {
+    case llvm::Triple::mips:
+    case llvm::Triple::mipsel:
+    case llvm::Triple::mips64:
+    case llvm::Triple::mips64el:
+        switch (addr_class)
+        {
+        case eAddressClassData:
+        case eAddressClassDebug:
+            return LLDB_INVALID_ADDRESS;
+
+        case eAddressClassUnknown:
+        case eAddressClassInvalid:
+        case eAddressClassCode:
+        case eAddressClassCodeAlternateISA:
+        case eAddressClassRuntime:
+            if ((code_addr & 2ull) || (addr_class == eAddressClassCodeAlternateISA))
+                code_addr |= 1ull;
+            break;
+        }
+        break;
+
     case llvm::Triple::arm:
     case llvm::Triple::thumb:
         switch (addr_class)
@@ -2110,6 +2221,10 @@ Target::GetOpcodeLoadAddress (lldb::addr_t load_addr, AddressClass addr_class) c
     addr_t opcode_addr = load_addr;
     switch (m_arch.GetMachine())
     {
+    case llvm::Triple::mips:
+    case llvm::Triple::mipsel:
+    case llvm::Triple::mips64:
+    case llvm::Triple::mips64el:
     case llvm::Triple::arm:
     case llvm::Triple::thumb:
         switch (addr_class)
@@ -2132,6 +2247,170 @@ Target::GetOpcodeLoadAddress (lldb::addr_t load_addr, AddressClass addr_class) c
         break;
     }
     return opcode_addr;
+}
+
+lldb::addr_t
+Target::GetBreakableLoadAddress (lldb::addr_t addr)
+{
+    addr_t breakable_addr = addr;
+    Log *log(lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_BREAKPOINTS));
+
+    switch (m_arch.GetMachine())
+    {
+    default:
+        break;
+    case llvm::Triple::mips:
+    case llvm::Triple::mipsel:
+    case llvm::Triple::mips64:
+    case llvm::Triple::mips64el:
+    {
+        addr_t function_start = 0;
+        addr_t current_offset = 0;
+        uint32_t loop_count = 0;
+        Address resolved_addr;
+        uint32_t arch_flags = m_arch.GetFlags ();
+        bool IsMips16 = arch_flags & ArchSpec::eMIPSAse_mips16;
+        bool IsMicromips = arch_flags & ArchSpec::eMIPSAse_micromips;
+        SectionLoadList &section_load_list = GetSectionLoadList();
+
+        if (section_load_list.IsEmpty())
+            // No sections are loaded, so we must assume we are not running yet
+            // and need to operate only on file address.
+            m_images.ResolveFileAddress (addr, resolved_addr); 
+        else
+            section_load_list.ResolveLoadAddress(addr, resolved_addr);
+
+        // Get the function boundaries to make sure we don't scan back before the beginning of the current function.
+        ModuleSP temp_addr_module_sp (resolved_addr.GetModule());
+        if (temp_addr_module_sp)
+        {
+            SymbolContext sc;
+            uint32_t resolve_scope = eSymbolContextFunction | eSymbolContextSymbol;
+            temp_addr_module_sp->ResolveSymbolContextForAddress(resolved_addr, resolve_scope, sc);
+            if (sc.function)
+            {
+                function_start = sc.function->GetAddressRange().GetBaseAddress().GetLoadAddress(this);
+                if (function_start == LLDB_INVALID_ADDRESS)
+                    function_start = sc.function->GetAddressRange().GetBaseAddress().GetFileAddress();
+            }
+            else if (sc.symbol)
+            {
+                Address sym_addr = sc.symbol->GetAddress();
+                function_start = sym_addr.GetFileAddress();
+            }
+            current_offset = addr - function_start;
+        }
+
+        // If breakpoint address is start of function then we dont have to do anything.
+        if (current_offset == 0)
+            return breakable_addr;
+        else
+            loop_count = current_offset / 2;
+
+        if (loop_count > 3)
+        {
+            // Scan previous 6 bytes
+            if (IsMips16 | IsMicromips)
+                loop_count = 3;
+            // For mips-only, instructions are always 4 bytes, so scan previous 4 bytes only.
+            else
+                loop_count = 2;
+        }
+
+        // Create Disassembler Instance
+        lldb::DisassemblerSP disasm_sp (Disassembler::FindPlugin(m_arch, NULL, NULL));
+
+        ExecutionContext exe_ctx;
+        CalculateExecutionContext(exe_ctx);
+        InstructionList instruction_list;
+        InstructionSP prev_insn;
+        bool prefer_file_cache = true; // Read from file
+        uint32_t inst_to_choose = 0;
+
+        for (uint32_t i = 1; i <= loop_count; i++)
+        {
+            // Adjust the address to read from.
+            resolved_addr.Slide (-2);
+            AddressRange range(resolved_addr, i*2);
+            uint32_t insn_size = 0;
+
+            disasm_sp->ParseInstructions (&exe_ctx, range, NULL, prefer_file_cache);
+            
+            uint32_t num_insns = disasm_sp->GetInstructionList().GetSize();
+            if (num_insns)
+            {
+                prev_insn = disasm_sp->GetInstructionList().GetInstructionAtIndex(0);
+                insn_size = prev_insn->GetOpcode().GetByteSize();
+                if (i == 1 && insn_size == 2)
+                {
+                    // This looks like a valid 2-byte instruction (but it could be a part of upper 4 byte instruction).
+                    instruction_list.Append(prev_insn);
+                    inst_to_choose = 1;
+                }
+                else if (i == 2)
+                {
+                    // Here we may get one 4-byte instruction or two 2-byte instructions.
+                    if (num_insns == 2)
+                    {
+                        // Looks like there are two 2-byte instructions above our breakpoint target address.
+                        // Now the upper 2-byte instruction is either a valid 2-byte instruction or could be a part of it's upper 4-byte instruction.
+                        // In both cases we don't care because in this case lower 2-byte instruction is definitely a valid instruction
+                        // and whatever i=1 iteration has found out is true.
+                        inst_to_choose = 1;
+                        break;
+                    }
+                    else if (insn_size == 4)
+                    {
+                        // This instruction claims its a valid 4-byte instruction. But it could be a part of it's upper 4-byte instruction.
+                        // Lets try scanning upper 2 bytes to verify this.
+                        instruction_list.Append(prev_insn);
+                        inst_to_choose = 2;
+                    }
+                }
+                else if (i == 3)
+                {
+                    if (insn_size == 4)
+                        // FIXME: We reached here that means instruction at [target - 4] has already claimed to be a 4-byte instruction,
+                        // and now instruction at [target - 6] is also claiming that it's a 4-byte instruction. This can not be true.
+                        // In this case we can not decide the valid previous instruction so we let lldb set the breakpoint at the address given by user.
+                        inst_to_choose = 0;
+                    else
+                        // This is straight-forward 
+                        inst_to_choose = 2;
+                    break;
+                }
+            }
+            else
+            {
+                // Decode failed, bytes do not form a valid instruction. So whatever previous iteration has found out is true.
+                if (i > 1)
+                {
+                    inst_to_choose = i - 1;
+                    break;
+                }
+            }
+        }
+
+        // Check if we are able to find any valid instruction.
+        if (inst_to_choose)
+        {
+            if (inst_to_choose > instruction_list.GetSize())
+                inst_to_choose--;
+            prev_insn = instruction_list.GetInstructionAtIndex(inst_to_choose - 1);
+
+            if (prev_insn->HasDelaySlot())
+            {
+                uint32_t shift_size = prev_insn->GetOpcode().GetByteSize();
+                // Adjust the breakable address
+                breakable_addr = addr - shift_size;
+                if (log)
+                    log->Printf ("Target::%s Breakpoint at 0x%8.8" PRIx64 " is adjusted to 0x%8.8" PRIx64 " due to delay slot\n", __FUNCTION__, addr, breakable_addr);
+            }
+        }
+        break;
+    }
+    }
+    return breakable_addr;
 }
 
 SourceManager &
@@ -2951,12 +3230,12 @@ g_properties[] =
 {
     { "default-arch"                       , OptionValue::eTypeArch      , true , 0                         , NULL, NULL, "Default architecture to choose, when there's a choice." },
     { "move-to-nearest-code"               , OptionValue::eTypeBoolean   , false, true                      , NULL, NULL, "Move breakpoints to nearest code." },
-    { "language"                           , OptionValue::eTypeLanguage  , false, eLanguageTypeUnknown      , NULL, NULL, "The language to use when interpreting expressions entered in commands (note: currently only implemented for breakpoints identifiers)." },
+    { "language"                           , OptionValue::eTypeLanguage  , false, eLanguageTypeUnknown      , NULL, NULL, "The language to use when interpreting expressions entered in commands." },
     { "expr-prefix"                        , OptionValue::eTypeFileSpec  , false, 0                         , NULL, NULL, "Path to a file containing expressions to be prepended to all expressions." },
     { "prefer-dynamic-value"               , OptionValue::eTypeEnum      , false, eDynamicDontRunTarget     , NULL, g_dynamic_value_types, "Should printed values be shown as their dynamic value." },
     { "enable-synthetic-value"             , OptionValue::eTypeBoolean   , false, true                      , NULL, NULL, "Should synthetic values be used by default whenever available." },
     { "skip-prologue"                      , OptionValue::eTypeBoolean   , false, true                      , NULL, NULL, "Skip function prologues when setting breakpoints by name." },
-    { "source-map"                         , OptionValue::eTypePathMap   , false, 0                         , NULL, NULL, "Source path remappings used to track the change of location between a source file when built, and "
+    { "source-map"                         , OptionValue::eTypePathMap   , false, 0                         , NULL, NULL, "Source path remappings are used to track the change of location between a source file when built, and "
       "where it exists on the current system.  It consists of an array of duples, the first element of each duple is "
       "some part (starting at the root) of the path to the file when it was built, "
       "and the second is where the remainder of the original build hierarchy is rooted on the local system.  "

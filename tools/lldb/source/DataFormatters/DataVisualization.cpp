@@ -164,7 +164,14 @@ DataVisualization::Categories::Enable (const ConstString& category,
 {
     if (GetFormatManager().GetCategory(category)->IsEnabled())
         GetFormatManager().DisableCategory(category);
-    GetFormatManager().EnableCategory(category, pos);
+    GetFormatManager().EnableCategory(category, pos, std::initializer_list<lldb::LanguageType>());
+}
+
+void
+DataVisualization::Categories::Enable (lldb::LanguageType lang_type)
+{
+    if (LanguageCategory* lang_category = GetFormatManager().GetCategoryForLanguage(lang_type))
+        lang_category->Enable();
 }
 
 void
@@ -172,6 +179,13 @@ DataVisualization::Categories::Disable (const ConstString& category)
 {
     if (GetFormatManager().GetCategory(category)->IsEnabled() == true)
         GetFormatManager().DisableCategory(category);
+}
+
+void
+DataVisualization::Categories::Disable (lldb::LanguageType lang_type)
+{
+    if (LanguageCategory* lang_category = GetFormatManager().GetCategoryForLanguage(lang_type))
+        lang_category->Disable();
 }
 
 void

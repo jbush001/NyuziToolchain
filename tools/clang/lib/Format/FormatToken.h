@@ -283,6 +283,10 @@ struct FormatToken {
   bool is(const IdentifierInfo *II) const {
     return II && II == Tok.getIdentifierInfo();
   }
+  bool is(tok::PPKeywordKind Kind) const {
+    return Tok.getIdentifierInfo() &&
+           Tok.getIdentifierInfo()->getPPKeywordID() == Kind;
+  }
   template <typename A, typename B> bool isOneOf(A K1, B K2) const {
     return is(K1) || is(K2);
   }
@@ -521,6 +525,8 @@ private:
 /// properly supported by Clang's lexer.
 struct AdditionalKeywords {
   AdditionalKeywords(IdentifierTable &IdentTable) {
+    kw_final = &IdentTable.get("final");
+    kw_override = &IdentTable.get("override");
     kw_in = &IdentTable.get("in");
     kw_CF_ENUM = &IdentTable.get("CF_ENUM");
     kw_CF_OPTIONS = &IdentTable.get("CF_OPTIONS");
@@ -533,8 +539,8 @@ struct AdditionalKeywords {
     kw_var = &IdentTable.get("var");
 
     kw_abstract = &IdentTable.get("abstract");
+    kw_assert = &IdentTable.get("assert");
     kw_extends = &IdentTable.get("extends");
-    kw_final = &IdentTable.get("final");
     kw_implements = &IdentTable.get("implements");
     kw_instanceof = &IdentTable.get("instanceof");
     kw_interface = &IdentTable.get("interface");
@@ -558,6 +564,8 @@ struct AdditionalKeywords {
   }
 
   // Context sensitive keywords.
+  IdentifierInfo *kw_final;
+  IdentifierInfo *kw_override;
   IdentifierInfo *kw_in;
   IdentifierInfo *kw_CF_ENUM;
   IdentifierInfo *kw_CF_OPTIONS;
@@ -573,8 +581,8 @@ struct AdditionalKeywords {
 
   // Java keywords.
   IdentifierInfo *kw_abstract;
+  IdentifierInfo *kw_assert;
   IdentifierInfo *kw_extends;
-  IdentifierInfo *kw_final;
   IdentifierInfo *kw_implements;
   IdentifierInfo *kw_instanceof;
   IdentifierInfo *kw_interface;

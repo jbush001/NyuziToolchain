@@ -24,6 +24,16 @@ class AppleObjCRuntimeV1 :
         public AppleObjCRuntime
 {
 public:
+    static bool classof(const ObjCLanguageRuntime* runtime)
+    {
+        switch (runtime->GetRuntimeVersion())
+        {
+            case ObjCRuntimeVersions::eAppleObjC_V1:
+                return true;
+            default:
+                return false;
+        }
+    }
     
     class ClassDescriptorV1 : public ObjCLanguageRuntime::ClassDescriptor
     {
@@ -100,9 +110,10 @@ public:
     GetDynamicTypeAndAddress (ValueObject &in_value, 
                               lldb::DynamicValueType use_dynamic, 
                               TypeAndOrName &class_type_or_name, 
-                              Address &address);
+                              Address &address,
+                              Value::ValueType &value_type);
 
-    virtual ClangUtilityFunction *
+    virtual UtilityFunction *
     CreateObjectChecker (const char *);
 
     //------------------------------------------------------------------
@@ -130,9 +141,9 @@ public:
     GetPluginVersion();
     
     virtual ObjCRuntimeVersions
-    GetRuntimeVersion ()
+    GetRuntimeVersion () const
     {
-        return eAppleObjC_V1;
+        return ObjCRuntimeVersions::eAppleObjC_V1;
     }
     
     virtual void

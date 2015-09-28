@@ -10,9 +10,9 @@
 #include "lldb/DataFormatters/VectorType.h"
 
 #include "lldb/Core/ValueObject.h"
-#include "lldb/DataFormatters/CXXFormatterFunctions.h"
-#include "lldb/Symbol/ClangASTContext.h"
-#include "lldb/Symbol/ClangASTType.h"
+#include "lldb/DataFormatters/FormattersHelpers.h"
+#include "lldb/Symbol/CompilerType.h"
+#include "lldb/Symbol/TypeSystem.h"
 
 #include "lldb/Utility/LLDBAssert.h"
 
@@ -20,87 +20,87 @@ using namespace lldb;
 using namespace lldb_private;
 using namespace lldb_private::formatters;
 
-static ClangASTType
-GetClangTypeForFormat (lldb::Format format,
-                       ClangASTType element_type,
-                       ClangASTContext *ast_ctx)
+static CompilerType
+GetCompilerTypeForFormat (lldb::Format format,
+                          CompilerType element_type,
+                          TypeSystem *type_system)
 {
-    lldbassert(ast_ctx && "ast_ctx needs to be not NULL");
+    lldbassert(type_system && "type_system needs to be not NULL");
     
     switch (format)
     {
         case lldb::eFormatAddressInfo:
         case lldb::eFormatPointer:
-            return ast_ctx->GetPointerSizedIntType(false);
+            return type_system->GetBuiltinTypeForEncodingAndBitSize (eEncodingUint, 8*type_system->GetPointerByteSize());
             
         case lldb::eFormatBoolean:
-            return ast_ctx->GetBasicType(lldb::eBasicTypeBool);
+            return type_system->GetBasicTypeFromAST(lldb::eBasicTypeBool);
             
         case lldb::eFormatBytes:
         case lldb::eFormatBytesWithASCII:
         case lldb::eFormatChar:
         case lldb::eFormatCharArray:
         case lldb::eFormatCharPrintable:
-            return ast_ctx->GetBasicType(lldb::eBasicTypeChar);
+            return type_system->GetBasicTypeFromAST(lldb::eBasicTypeChar);
 
         case lldb::eFormatComplex /* lldb::eFormatComplexFloat */:
-            return ast_ctx->GetBasicType(lldb::eBasicTypeFloatComplex);
+            return type_system->GetBasicTypeFromAST(lldb::eBasicTypeFloatComplex);
 
         case lldb::eFormatCString:
-            return ast_ctx->GetBasicType(lldb::eBasicTypeChar).GetPointerType();
+            return type_system->GetBasicTypeFromAST(lldb::eBasicTypeChar).GetPointerType();
 
         case lldb::eFormatFloat:
-            return ast_ctx->GetBasicType(lldb::eBasicTypeFloat);
+            return type_system->GetBasicTypeFromAST(lldb::eBasicTypeFloat);
             
         case lldb::eFormatHex:
         case lldb::eFormatHexUppercase:
         case lldb::eFormatOctal:
-            return ast_ctx->GetBasicType(lldb::eBasicTypeInt);
+            return type_system->GetBasicTypeFromAST(lldb::eBasicTypeInt);
 
         case lldb::eFormatHexFloat:
-            return ast_ctx->GetBasicType(lldb::eBasicTypeFloat);
+            return type_system->GetBasicTypeFromAST(lldb::eBasicTypeFloat);
 
         case lldb::eFormatUnicode16:
         case lldb::eFormatUnicode32:
 
         case lldb::eFormatUnsigned:
-            return ast_ctx->GetBasicType(lldb::eBasicTypeUnsignedInt);
+            return type_system->GetBasicTypeFromAST(lldb::eBasicTypeUnsignedInt);
 
         case lldb::eFormatVectorOfChar:
-            return ast_ctx->GetBasicType(lldb::eBasicTypeChar);
+            return type_system->GetBasicTypeFromAST(lldb::eBasicTypeChar);
             
         case lldb::eFormatVectorOfFloat32:
-            return ast_ctx->GetFloatTypeFromBitSize(32);
+            return type_system->GetBuiltinTypeForEncodingAndBitSize(eEncodingIEEE754, 32);
             
         case lldb::eFormatVectorOfFloat64:
-            return ast_ctx->GetFloatTypeFromBitSize(64);
+            return type_system->GetBuiltinTypeForEncodingAndBitSize(eEncodingIEEE754, 64);
             
         case lldb::eFormatVectorOfSInt16:
-            return ast_ctx->GetIntTypeFromBitSize(16, true);
+            return type_system->GetBuiltinTypeForEncodingAndBitSize (eEncodingSint, 16);
             
         case lldb::eFormatVectorOfSInt32:
-            return ast_ctx->GetIntTypeFromBitSize(32, true);
+            return type_system->GetBuiltinTypeForEncodingAndBitSize (eEncodingSint, 32);
 
         case lldb::eFormatVectorOfSInt64:
-            return ast_ctx->GetIntTypeFromBitSize(64, true);
+            return type_system->GetBuiltinTypeForEncodingAndBitSize (eEncodingSint, 64);
             
         case lldb::eFormatVectorOfSInt8:
-            return ast_ctx->GetIntTypeFromBitSize(8, true);
+            return type_system->GetBuiltinTypeForEncodingAndBitSize (eEncodingSint, 8);
 
         case lldb::eFormatVectorOfUInt128:
-            return ast_ctx->GetIntTypeFromBitSize(128, false);
+            return type_system->GetBuiltinTypeForEncodingAndBitSize (eEncodingUint, 128);
 
         case lldb::eFormatVectorOfUInt16:
-            return ast_ctx->GetIntTypeFromBitSize(16, false);
+            return type_system->GetBuiltinTypeForEncodingAndBitSize (eEncodingUint, 16);
 
         case lldb::eFormatVectorOfUInt32:
-            return ast_ctx->GetIntTypeFromBitSize(32, false);
+            return type_system->GetBuiltinTypeForEncodingAndBitSize (eEncodingUint, 32);
 
         case lldb::eFormatVectorOfUInt64:
-            return ast_ctx->GetIntTypeFromBitSize(64, false);
+            return type_system->GetBuiltinTypeForEncodingAndBitSize (eEncodingUint, 64);
 
         case lldb::eFormatVectorOfUInt8:
-            return ast_ctx->GetIntTypeFromBitSize(8, false);
+            return type_system->GetBuiltinTypeForEncodingAndBitSize (eEncodingUint, 8);
             
         case lldb::eFormatDefault:
             return element_type;
@@ -113,13 +113,13 @@ GetClangTypeForFormat (lldb::Format format,
         case lldb::eFormatOSType:
         case lldb::eFormatVoid:
         default:
-            return ast_ctx->GetIntTypeFromBitSize(8, false);
+            return type_system->GetBuiltinTypeForEncodingAndBitSize (eEncodingUint, 8);
     }
 }
 
 static lldb::Format
 GetItemFormatForFormat (lldb::Format format,
-                        ClangASTType element_type)
+                        CompilerType element_type)
 {
     switch (format)
     {
@@ -169,8 +169,8 @@ GetItemFormatForFormat (lldb::Format format,
 }
 
 static size_t
-CalculateNumChildren (ClangASTType container_type,
-                      ClangASTType element_type,
+CalculateNumChildren (CompilerType container_type,
+                      CompilerType element_type,
                       lldb_private::ExecutionContextScope *exe_scope = nullptr // does not matter here because all we trade in are basic types
                       )
 {
@@ -229,10 +229,13 @@ namespace lldb_private {
             Update()
             {
                 m_parent_format = m_backend.GetFormat();
-                ClangASTType parent_type(m_backend.GetClangType());
-                ClangASTType element_type;
+                CompilerType parent_type(m_backend.GetCompilerType());
+                CompilerType element_type;
                 parent_type.IsVectorType(&element_type, nullptr);
-                m_child_type = ::GetClangTypeForFormat(m_parent_format, element_type, ClangASTContext::GetASTContext(parent_type.GetASTContext()));
+                TargetSP target_sp(m_backend.GetTargetSP());
+                m_child_type = ::GetCompilerTypeForFormat(m_parent_format,
+                                                          element_type,
+                                                          target_sp ? target_sp->GetScratchTypeSystemForLanguage(lldb::eLanguageTypeC) : nullptr);
                 m_num_children = ::CalculateNumChildren(parent_type,
                                                         m_child_type);
                 m_item_format = GetItemFormatForFormat(m_parent_format,
@@ -262,7 +265,7 @@ namespace lldb_private {
         private:
             lldb::Format m_parent_format;
             lldb::Format m_item_format;
-            ClangASTType m_child_type;
+            CompilerType m_child_type;
             size_t m_num_children;
         };
     }

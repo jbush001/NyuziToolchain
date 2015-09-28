@@ -27,25 +27,24 @@ public:
     static lldb::ValueObjectSP
     Create (ValueObject &parent, 
             const ConstString &name, 
-            const ClangASTType &cast_type);
+            const CompilerType &cast_type);
 
-    virtual
-    ~ValueObjectCast();
+    ~ValueObjectCast() override;
     
-    virtual uint64_t
-    GetByteSize();
+    uint64_t
+    GetByteSize() override;
     
-    virtual size_t
-    CalculateNumChildren();
+    size_t
+    CalculateNumChildren() override;
     
-    virtual lldb::ValueType
-    GetValueType() const;
+    lldb::ValueType
+    GetValueType() const override;
     
-    virtual bool
-    IsInScope ();
+    bool
+    IsInScope() override;
     
-    virtual ValueObject *
-    GetParent()
+    ValueObject *
+    GetParent() override
     {
         if (m_parent)
             return m_parent->GetParent();
@@ -53,8 +52,8 @@ public:
             return NULL;
     }
     
-    virtual const ValueObject *
-    GetParent() const
+    const ValueObject *
+    GetParent() const override
     {
         if (m_parent)
             return m_parent->GetParent();
@@ -63,17 +62,17 @@ public:
     }
     
 protected:
-    virtual bool
-    UpdateValue ();
+    bool
+    UpdateValue () override;
     
-    virtual ClangASTType
-    GetClangTypeImpl ();
+    CompilerType
+    GetCompilerTypeImpl () override;
     
-    ClangASTType m_cast_type;
+    CompilerType m_cast_type;
     
     ValueObjectCast (ValueObject &parent, 
                      const ConstString &name, 
-                     const ClangASTType &cast_type);
+                     const CompilerType &cast_type);
     
 private:
     //------------------------------------------------------------------
@@ -84,4 +83,4 @@ private:
 
 } // namespace lldb_private
 
-#endif  // liblldb_ValueObjectCast_h_
+#endif // liblldb_ValueObjectCast_h_

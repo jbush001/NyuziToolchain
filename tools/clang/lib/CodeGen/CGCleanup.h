@@ -15,6 +15,8 @@
 #define LLVM_CLANG_LIB_CODEGEN_CGCLEANUP_H
 
 #include "EHScopeStack.h"
+
+#include "Address.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -31,6 +33,13 @@ namespace CodeGen {
 class CodeGenModule;
 class CodeGenFunction;
 
+/// The MS C++ ABI needs a pointer to RTTI data plus some flags to describe the
+/// type of a catch handler, so we use this wrapper.
+struct CatchTypeInfo {
+  llvm::Constant *RTTI;
+  unsigned Flags;
+};
+
 /// A protected scope for zero-cost EH handling.
 class EHScope {
   llvm::BasicBlock *CachedLandingPad;
@@ -40,9 +49,9 @@ class EHScope {
 
   class CommonBitFields {
     friend class EHScope;
-    unsigned Kind : 2;
+    unsigned Kind : 3;
   };
-  enum { NumCommonBits = 2 };
+  enum { NumCommonBits = 3 };
 
 protected:
   class CatchBitFields {
@@ -81,7 +90,7 @@ protected:
     /// The number of fixups required by enclosing scopes (not including
     /// this one).  If this is the top cleanup scope, all the fixups
     /// from this index onwards belong to this scope.
-    unsigned FixupDepth : 32 - 18 - NumCommonBits; // currently 13
+    unsigned FixupDepth : 32 - 18 - NumCommonBits; // currently 12
   };
 
   class FilterBitFields {
@@ -99,7 +108,7 @@ protected:
   };
 
 public:
-  enum Kind { Cleanup, Catch, Terminate, Filter };
+  enum Kind { Cleanup, Catch, Terminate, Filter, PadEnd };
 
   EHScope(Kind kind, EHScopeStack::stable_iterator enclosingEHScope)
     : CachedLandingPad(nullptr), CachedEHDispatchBlock(nullptr),
@@ -151,12 +160,12 @@ public:
   struct Handler {
     /// A type info value, or null (C++ null, not an LLVM null pointer)
     /// for a catch-all.
-    llvm::Constant *Type;
+    CatchTypeInfo Type;
 
     /// The catch handler for this type.
     llvm::BasicBlock *Block;
 
-    bool isCatchAll() const { return Type == nullptr; }
+    bool isCatchAll() const { return Type.RTTI == nullptr; }
   };
 
 private:
@@ -186,10 +195,16 @@ public:
   }
 
   void setCatchAllHandler(unsigned I, llvm::BasicBlock *Block) {
-    setHandler(I, /*catchall*/ nullptr, Block);
+    setHandler(I, CatchTypeInfo{nullptr, 0}, Block);
   }
 
   void setHandler(unsigned I, llvm::Constant *Type, llvm::BasicBlock *Block) {
+    assert(I < getNumHandlers());
+    getHandlers()[I].Type = CatchTypeInfo{Type, 0};
+    getHandlers()[I].Block = Block;
+  }
+
+  void setHandler(unsigned I, CatchTypeInfo Type, llvm::BasicBlock *Block) {
     assert(I < getNumHandlers());
     getHandlers()[I].Type = Type;
     getHandlers()[I].Block = Block;
@@ -305,8 +320,14 @@ public:
   bool isLifetimeMarker() const { return CleanupBits.IsLifetimeMarker; }
   void setLifetimeMarker() { CleanupBits.IsLifetimeMarker = true; }
 
-  llvm::AllocaInst *getActiveFlag() const { return ActiveFlag; }
-  void setActiveFlag(llvm::AllocaInst *Var) { ActiveFlag = Var; }
+  bool hasActiveFlag() const { return ActiveFlag != nullptr; }
+  Address getActiveFlag() const {
+    return Address(ActiveFlag, CharUnits::One());
+  }
+  void setActiveFlag(Address Var) {
+    assert(Var.getAlignment().isOne());
+    ActiveFlag = cast<llvm::AllocaInst>(Var.getPointer());
+  }
 
   void setTestFlagInNormalCleanup() {
     CleanupBits.TestFlagInNormalCleanup = true;
@@ -466,6 +487,17 @@ public:
   }
 };
 
+class EHPadEndScope : public EHScope {
+public:
+  EHPadEndScope(EHScopeStack::stable_iterator enclosingEHScope)
+      : EHScope(PadEnd, enclosingEHScope) {}
+  static size_t getSize() { return sizeof(EHPadEndScope); }
+
+  static bool classof(const EHScope *scope) {
+    return scope->getKind() == PadEnd;
+  }
+};
+
 /// A non-stable pointer into the scope stack.
 class EHScopeStack::iterator {
   char *Ptr;
@@ -502,6 +534,10 @@ public:
 
     case EHScope::Terminate:
       Size = EHTerminateScope::getSize();
+      break;
+
+    case EHScope::PadEnd:
+      Size = EHPadEndScope::getSize();
       break;
     }
     Ptr += llvm::RoundUpToAlignment(Size, ScopeStackAlignment);
@@ -551,6 +587,14 @@ inline void EHScopeStack::popTerminate() {
   deallocate(EHTerminateScope::getSize());
 }
 
+inline void EHScopeStack::popPadEnd() {
+  assert(!empty() && "popping exception stack when not empty");
+
+  EHPadEndScope &scope = cast<EHPadEndScope>(*begin());
+  InnermostEHScope = scope.getEnclosingEHScope();
+  deallocate(EHPadEndScope::getSize());
+}
+
 inline EHScopeStack::iterator EHScopeStack::find(stable_iterator sp) const {
   assert(sp.isValid() && "finding invalid savepoint");
   assert(sp.Size <= stable_begin().Size && "finding savepoint after pop");
@@ -588,6 +632,13 @@ struct EHPersonality {
   static const EHPersonality MSVC_except_handler;
   static const EHPersonality MSVC_C_specific_handler;
   static const EHPersonality MSVC_CxxFrameHandler3;
+
+  bool isMSVCPersonality() const {
+    return this == &MSVC_except_handler || this == &MSVC_C_specific_handler ||
+           this == &MSVC_CxxFrameHandler3;
+  }
+
+  bool isMSVCXXPersonality() const { return this == &MSVC_CxxFrameHandler3; }
 };
 }
 }

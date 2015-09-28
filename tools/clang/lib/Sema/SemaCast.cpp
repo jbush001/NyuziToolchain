@@ -1397,6 +1397,8 @@ TryStaticMemberPointerUpcast(Sema &Self, ExprResult &SrcExpr, QualType SrcType,
     msg = diag::err_bad_static_cast_member_pointer_nonmp;
     return TC_NotApplicable;
   }
+  if (Self.Context.getTargetInfo().getCXXABI().isMicrosoft())
+    Self.RequireCompleteType(OpRange.getBegin(), SrcType, 0);
 
   // T == T, modulo cv
   if (!Self.Context.hasSameUnqualifiedType(SrcMemPtr->getPointeeType(),
@@ -1493,10 +1495,6 @@ TryStaticImplicitCast(Sema &Self, ExprResult &SrcExpr, QualType DestType,
                                     diag::err_allocation_of_abstract_type)) {
       msg = 0;
       return TC_Failed;
-    }
-  } else if (DestType->isMemberPointerType()) {
-    if (Self.Context.getTargetInfo().getCXXABI().isMicrosoft()) {
-      Self.RequireCompleteType(OpRange.getBegin(), DestType, 0);
     }
   }
 
@@ -2481,8 +2479,11 @@ ExprResult Sema::BuildCXXFunctionalCastExpr(TypeSourceInfo *CastTypeInfo,
   Op.CheckCXXCStyleCast(/*FunctionalStyle=*/true, /*ListInit=*/false);
   if (Op.SrcExpr.isInvalid())
     return ExprError();
-  
-  if (CXXConstructExpr *ConstructExpr = dyn_cast<CXXConstructExpr>(Op.SrcExpr.get()))
+
+  auto *SubExpr = Op.SrcExpr.get();
+  if (auto *BindExpr = dyn_cast<CXXBindTemporaryExpr>(SubExpr))
+    SubExpr = BindExpr->getSubExpr();
+  if (auto *ConstructExpr = dyn_cast<CXXConstructExpr>(SubExpr))
     ConstructExpr->setParenOrBraceRange(SourceRange(LPLoc, RPLoc));
 
   return Op.complete(CXXFunctionalCastExpr::Create(Context, Op.ResultType,

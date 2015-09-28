@@ -1982,7 +1982,6 @@ void ObjCMigrateASTConsumer::HandleTranslationUnit(ASTContext &Ctx) {
     SmallString<512> newText;
     llvm::raw_svector_ostream vecOS(newText);
     buf.write(vecOS);
-    vecOS.flush();
     std::unique_ptr<llvm::MemoryBuffer> memBuf(
         llvm::MemoryBuffer::getMemBufferCopy(
             StringRef(newText.data(), newText.size()), file->getName()));
@@ -2215,12 +2214,11 @@ static std::string applyEditsToTemp(const FileEntry *FE,
   SmallString<512> NewText;
   llvm::raw_svector_ostream OS(NewText);
   Buf->write(OS);
-  OS.flush();
 
   SmallString<64> TempPath;
   int FD;
   if (fs::createTemporaryFile(path::filename(FE->getName()),
-                              path::extension(FE->getName()), FD,
+                              path::extension(FE->getName()).drop_front(), FD,
                               TempPath)) {
     reportDiag("Could not create file: " + TempPath.str(), Diag);
     return std::string();

@@ -368,7 +368,13 @@ StringRef sys::getHostCPUName() {
 
       // Broadwell:
       case 61:
+      case 71:
         return "broadwell";
+
+      // Skylake:
+      case 78:
+      case 94:
+        return "skylake";
 
       case 28: // Most 45 nm Intel Atom processors
       case 38: // 45 nm Atom Lincroft
@@ -381,6 +387,8 @@ StringRef sys::getHostCPUName() {
       case 55:
       case 74:
       case 77:
+      case 90:
+      case 93:
         return "silvermont";
 
       default: // Unknown family 6 CPU, try to guess.
@@ -689,7 +697,7 @@ StringRef sys::getHostCPUName() {
     if (Lines[I].startswith("features")) {
       size_t Pos = Lines[I].find(":");
       if (Pos != StringRef::npos) {
-        Lines[I].drop_front(Pos + 1).split(CPUFeatures, " ");
+        Lines[I].drop_front(Pos + 1).split(CPUFeatures, ' ');
         break;
       }
     }
@@ -832,7 +840,7 @@ bool sys::getHostCPUFeatures(StringMap<bool> &Features) {
   // Look for the CPU features.
   for (unsigned I = 0, E = Lines.size(); I != E; ++I)
     if (Lines[I].startswith("Features")) {
-      Lines[I].split(CPUFeatures, " ");
+      Lines[I].split(CPUFeatures, ' ');
       break;
     }
 

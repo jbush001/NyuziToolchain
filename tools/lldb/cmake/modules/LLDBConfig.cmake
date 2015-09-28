@@ -26,8 +26,6 @@ set(LLDB_DISABLE_PYTHON ${LLDB_DEFAULT_DISABLE_PYTHON} CACHE BOOL
 set(LLDB_DISABLE_CURSES ${LLDB_DEFAULT_DISABLE_CURSES} CACHE BOOL
   "Disables the Curses integration.")
 
-set(LLDB_ENABLE_PYTHON_SCRIPTS_SWIG_API_GENERATION 1 CACHE BOOL
-  "Enables using new Python scripts for SWIG API generation .")
 set(LLDB_RELOCATABLE_PYTHON 0 CACHE BOOL
   "Causes LLDB to use the PYTHONHOME environment variable to locate Python.")
 
@@ -112,6 +110,12 @@ check_cxx_compiler_flag("-Wno-deprecated-register"
                         CXX_SUPPORTS_NO_DEPRECATED_REGISTER)
 if (CXX_SUPPORTS_NO_DEPRECATED_REGISTER)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-register")
+endif ()
+
+check_cxx_compiler_flag("-Wno-vla-extension"
+                        CXX_SUPPORTS_NO_VLA_EXTENSION)
+if (CXX_SUPPORTS_NO_VLA_EXTENSION)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-vla-extension")
 endif ()
 
 # Disable MSVC warnings
@@ -254,3 +258,23 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
         endif()
     endif()
 endif()
+
+# XXX disabel lldb-server and debugserver for Nyuzi
+
+# Figure out if lldb could use lldb-server.  If so, then we'll
+# ensure we build lldb-server when an lldb target is being built.
+#if ((CMAKE_SYSTEM_NAME MATCHES "Darwin") OR
+#    (CMAKE_SYSTEM_NAME MATCHES "FreeBSD") OR
+#    (CMAKE_SYSTEM_NAME MATCHES "Linux"))
+#    set(LLDB_CAN_USE_LLDB_SERVER 1)
+#else()
+    set(LLDB_CAN_USE_LLDB_SERVER 0)
+#endif()
+
+# Figure out if lldb could use debugserver.  If so, then we'll
+# ensure we build debugserver when we build lldb.
+#if ( CMAKE_SYSTEM_NAME MATCHES "Darwin" )
+#    set(LLDB_CAN_USE_DEBUGSERVER 1)
+#else()
+    set(LLDB_CAN_USE_DEBUGSERVER 0)
+#endif()

@@ -176,8 +176,9 @@ class ASTContext : public RefCountedBase<ASTContext> {
     ClassScopeSpecializationPattern;
 
   /// \brief Mapping from materialized temporaries with static storage duration
-  /// that appear in constant initializers to their evaluated values.
-  llvm::DenseMap<const MaterializeTemporaryExpr*, APValue>
+  /// that appear in constant initializers to their evaluated values.  These are
+  /// allocated in a std::map because their address must be stable.
+  llvm::DenseMap<const MaterializeTemporaryExpr *, APValue *>
     MaterializedTemporaryValues;
 
   /// \brief Representation of a "canonical" template template parameter that
@@ -214,6 +215,9 @@ class ASTContext : public RefCountedBase<ASTContext> {
   /// \brief The typedef for the target specific predefined
   /// __builtin_va_list type.
   mutable TypedefDecl *BuiltinVaListDecl;
+
+  /// The typedef for the predefined \c __builtin_ms_va_list type.
+  mutable TypedefDecl *BuiltinMSVaListDecl;
 
   /// \brief The typedef for the predefined \c id type.
   mutable TypedefDecl *ObjCIdDecl;
@@ -433,6 +437,7 @@ private:
   friend class CXXRecordDecl;
 
   const TargetInfo *Target;
+  const TargetInfo *AuxTarget;
   clang::PrintingPolicy PrintingPolicy;
   
 public:
@@ -501,6 +506,9 @@ public:
   void *Allocate(size_t Size, unsigned Align = 8) const {
     return BumpAlloc.Allocate(Size, Align);
   }
+  template <typename T> T *Allocate(size_t Num = 1) const {
+    return static_cast<T *>(Allocate(Num * sizeof(T), llvm::alignOf<T>()));
+  }
   void Deallocate(void *Ptr) const { }
   
   /// Return the total amount of physical memory allocated for representing
@@ -516,7 +524,8 @@ public:
   }
 
   const TargetInfo &getTargetInfo() const { return *Target; }
-  
+  const TargetInfo *getAuxTargetInfo() const { return AuxTarget; }
+
   /// getIntTypeForBitwidth -
   /// sets integer QualTy according to specified details:
   /// bitwidth, signed/unsigned.
@@ -835,9 +844,13 @@ public:
   CanQualType ObjCBuiltinIdTy, ObjCBuiltinClassTy, ObjCBuiltinSelTy;
   CanQualType ObjCBuiltinBoolTy;
   CanQualType OCLImage1dTy, OCLImage1dArrayTy, OCLImage1dBufferTy;
-  CanQualType OCLImage2dTy, OCLImage2dArrayTy;
+  CanQualType OCLImage2dTy, OCLImage2dArrayTy, OCLImage2dDepthTy;
+  CanQualType OCLImage2dArrayDepthTy, OCLImage2dMSAATy, OCLImage2dArrayMSAATy;
+  CanQualType OCLImage2dMSAADepthTy, OCLImage2dArrayMSAADepthTy;
   CanQualType OCLImage3dTy;
-  CanQualType OCLSamplerTy, OCLEventTy;
+  CanQualType OCLSamplerTy, OCLEventTy, OCLClkEventTy;
+  CanQualType OCLQueueTy, OCLNDRangeTy, OCLReserveIDTy;
+  CanQualType OMPArraySectionTy;
 
   // Types for deductions in C++0x [stmt.ranged]'s desugaring. Built on demand.
   mutable QualType AutoDeductTy;     // Deduction against 'auto'.
@@ -1570,6 +1583,15 @@ public:
   /// \c __va_list_tag type used to help define the \c __builtin_va_list type
   /// for some targets.
   Decl *getVaListTagDecl() const;
+
+  /// Retrieve the C type declaration corresponding to the predefined
+  /// \c __builtin_ms_va_list type.
+  TypedefDecl *getBuiltinMSVaListDecl() const;
+
+  /// Retrieve the type of the \c __builtin_ms_va_list type.
+  QualType getBuiltinMSVaListType() const {
+    return getTypeDeclType(getBuiltinMSVaListDecl());
+  }
 
   /// \brief Return a type with additional \c const, \c volatile, or
   /// \c restrict qualifiers.
@@ -2306,6 +2328,14 @@ public:
   Expr *getDefaultArgExprForConstructor(const CXXConstructorDecl *CD,
                                         unsigned ParmIdx);
 
+  void addTypedefNameForUnnamedTagDecl(TagDecl *TD, TypedefNameDecl *TND);
+
+  TypedefNameDecl *getTypedefNameForUnnamedTagDecl(const TagDecl *TD);
+
+  void addDeclaratorForUnnamedTagDecl(TagDecl *TD, DeclaratorDecl *DD);
+
+  DeclaratorDecl *getDeclaratorForUnnamedTagDecl(const TagDecl *TD);
+
   void setManglingNumber(const NamedDecl *ND, unsigned Number);
   unsigned getManglingNumber(const NamedDecl *ND) const;
 
@@ -2387,9 +2417,10 @@ public:
   /// This routine may only be invoked once for a given ASTContext object.
   /// It is normally invoked after ASTContext construction.
   ///
-  /// \param Target The target 
-  void InitBuiltinTypes(const TargetInfo &Target);
-  
+  /// \param Target The target
+  void InitBuiltinTypes(const TargetInfo &Target,
+                        const TargetInfo *AuxTarget = nullptr);
+
 private:
   void InitBuiltinType(CanQualType &R, BuiltinType::Kind K);
 

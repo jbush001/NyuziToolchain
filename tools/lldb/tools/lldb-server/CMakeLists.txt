@@ -1,5 +1,3 @@
-set(LLVM_NO_RTTI 1)
-
 if ( CMAKE_SYSTEM_NAME MATCHES "Linux" )
 include_directories(
   ../../../../llvm/include
@@ -29,9 +27,7 @@ if (BUILD_SHARED_LIBS )
     )
 
   target_link_libraries(lldb-server liblldb)
-  if (HAVE_LIBPTHREAD)
-    target_link_libraries(lldb-server pthread)
-  endif ()
+  target_link_libraries(lldb-server ${LLDB_SYSTEM_LIBS})
 else()
   add_lldb_executable(lldb-server
     lldb-gdbserver.cpp

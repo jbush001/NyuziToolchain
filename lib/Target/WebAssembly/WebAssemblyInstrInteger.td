@@ -23,23 +23,26 @@ defm AND : BinaryInt<and>;
 defm IOR : BinaryInt<or>;
 defm XOR : BinaryInt<xor>;
 defm SHL : BinaryInt<shl>;
-defm SHR : BinaryInt<srl>;
-defm SAR : BinaryInt<sra>;
+defm SHR_U : BinaryInt<srl>;
+defm SHR_S : BinaryInt<sra>;
 
-/*
- * TODO(jfb): Add the following for 32-bit and 64-bit.
- *
- * int32.eq: signed-less compare equal
- * int32.slt: signed less than
- * int32.sle: signed less than or equal
- * int32.ult: unsigned less than
- * int32.ule: unsigned less than or equal
- * int32.sgt: signed greater than
- * int32.sge: signed greater than or equal
- * int32.ugt: unsigned greater than
- * int32.uge: unsigned greater than or equal
- */
+defm EQ : ComparisonInt<SETEQ>;
+defm NE : ComparisonInt<SETNE>;
+defm SLT : ComparisonInt<SETLT>;
+defm SLE : ComparisonInt<SETLE>;
+defm ULT : ComparisonInt<SETULT>;
+defm ULE : ComparisonInt<SETULE>;
+defm SGT : ComparisonInt<SETGT>;
+defm SGE : ComparisonInt<SETGE>;
+defm UGT : ComparisonInt<SETUGT>;
+defm UGE : ComparisonInt<SETUGE>;
 
 defm CLZ : UnaryInt<ctlz>;
 defm CTZ : UnaryInt<cttz>;
 defm POPCNT : UnaryInt<ctpop>;
+
+// Expand the "don't care" operations to supported operations.
+def : Pat<(ctlz_zero_undef I32:$src), (CLZ_I32 I32:$src)>;
+def : Pat<(ctlz_zero_undef I64:$src), (CLZ_I64 I64:$src)>;
+def : Pat<(cttz_zero_undef I32:$src), (CTZ_I32 I32:$src)>;
+def : Pat<(cttz_zero_undef I64:$src), (CTZ_I64 I64:$src)>;

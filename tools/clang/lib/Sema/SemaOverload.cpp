@@ -896,6 +896,11 @@ Sema::CheckOverload(Scope *S, FunctionDecl *New, const LookupResult &Old,
       OldD = cast<UsingShadowDecl>(OldD)->getTargetDecl();
     }
 
+    // A using-declaration does not conflict with another declaration
+    // if one of them is hidden.
+    if ((OldIsUsingDecl || NewIsUsingDecl) && !isVisible(*I))
+      continue;
+
     // If either declaration was introduced by a using declaration,
     // we'll need to use slightly different rules for matching.
     // Essentially, these rules are the normal rules, except that
@@ -1065,6 +1070,25 @@ bool Sema::IsOverload(FunctionDecl *New, FunctionDecl *Old,
     OldI->getCond()->Profile(OldID, Context, true);
     if (NewID != OldID)
       return true;
+  }
+
+  if (getLangOpts().CUDA && getLangOpts().CUDATargetOverloads) {
+    CUDAFunctionTarget NewTarget = IdentifyCUDATarget(New),
+                       OldTarget = IdentifyCUDATarget(Old);
+    if (NewTarget == CFT_InvalidTarget || NewTarget == CFT_Global)
+      return false;
+
+    assert((OldTarget != CFT_InvalidTarget) && "Unexpected invalid target.");
+
+    // Don't allow mixing of HD with other kinds. This guarantees that
+    // we have only one viable function with this signature on any
+    // side of CUDA compilation .
+    if ((NewTarget == CFT_HostDevice) || (OldTarget == CFT_HostDevice))
+      return false;
+
+    // Allow overloading of functions with same signature, but
+    // different CUDA target attributes.
+    return NewTarget != OldTarget;
   }
 
   // The signatures match; this is not an overload.
@@ -3212,7 +3236,7 @@ Sema::DiagnoseMultipleUserDefinedConversion(Expr *From, QualType ToType) {
                              diag::err_typecheck_nonviable_condition_incomplete,
                              From->getType(), From->getSourceRange()))
       Diag(From->getLocStart(), diag::err_typecheck_nonviable_condition)
-          << From->getType() << From->getSourceRange() << ToType;
+          << false << From->getType() << From->getSourceRange() << ToType;
   } else
     return false;
   CandidateSet.NoteCandidates(*this, OCD_AllCandidates, From);
@@ -5826,10 +5850,11 @@ EnableIfAttr *Sema::CheckEnableIf(FunctionDecl *Function, ArrayRef<Expr *> Args,
 
   SFINAETrap Trap(*this);
 
-  // Convert the arguments.
   SmallVector<Expr *, 16> ConvertedArgs;
   bool InitializationFailed = false;
   bool ContainsValueDependentExpr = false;
+
+  // Convert the arguments.
   for (unsigned i = 0, e = Args.size(); i != e; ++i) {
     if (i == 0 && !MissingImplicitThis && isa<CXXMethodDecl>(Function) &&
         !cast<CXXMethodDecl>(Function)->isStatic() &&
@@ -5862,6 +5887,28 @@ EnableIfAttr *Sema::CheckEnableIf(FunctionDecl *Function, ArrayRef<Expr *> Args,
 
   if (InitializationFailed || Trap.hasErrorOccurred())
     return cast<EnableIfAttr>(Attrs[0]);
+
+  // Push default arguments if needed.
+  if (!Function->isVariadic() && Args.size() < Function->getNumParams()) {
+    for (unsigned i = Args.size(), e = Function->getNumParams(); i != e; ++i) {
+      ParmVarDecl *P = Function->getParamDecl(i);
+      ExprResult R = PerformCopyInitialization(
+          InitializedEntity::InitializeParameter(Context,
+                                                 Function->getParamDecl(i)),
+          SourceLocation(),
+          P->hasUninstantiatedDefaultArg() ? P->getUninstantiatedDefaultArg()
+                                           : P->getDefaultArg());
+      if (R.isInvalid()) {
+        InitializationFailed = true;
+        break;
+      }
+      ContainsValueDependentExpr |= R.get()->isValueDependent();
+      ConvertedArgs.push_back(R.get());
+    }
+
+    if (InitializationFailed || Trap.hasErrorOccurred())
+      return cast<EnableIfAttr>(Attrs[0]);
+  }
 
   for (AttrVec::iterator I = Attrs.begin(); I != E; ++I) {
     APValue Result;
@@ -7527,7 +7574,7 @@ public:
     llvm::SmallPtrSet<QualType, 8> AddedTypes;
 
     for (int Arg = 0; Arg < 2; ++Arg) {
-      QualType AsymetricParamTypes[2] = {
+      QualType AsymmetricParamTypes[2] = {
         S.Context.getPointerDiffType(),
         S.Context.getPointerDiffType(),
       };
@@ -7539,11 +7586,11 @@ public:
         if (!PointeeTy->isObjectType())
           continue;
 
-        AsymetricParamTypes[Arg] = *Ptr;
+        AsymmetricParamTypes[Arg] = *Ptr;
         if (Arg == 0 || Op == OO_Plus) {
           // operator+(T*, ptrdiff_t) or operator-(T*, ptrdiff_t)
           // T* operator+(ptrdiff_t, T*);
-          S.AddBuiltinCandidate(*Ptr, AsymetricParamTypes, Args, CandidateSet);
+          S.AddBuiltinCandidate(*Ptr, AsymmetricParamTypes, Args, CandidateSet);
         }
         if (Op == OO_Minus) {
           // ptrdiff_t operator-(T, T);
@@ -8478,6 +8525,13 @@ bool clang::isBetterOverloadCandidate(Sema &S, const OverloadCandidate &Cand1,
     }
 
     return true;
+  }
+
+  if (S.getLangOpts().CUDA && S.getLangOpts().CUDATargetOverloads &&
+      Cand1.Function && Cand2.Function) {
+    FunctionDecl *Caller = dyn_cast<FunctionDecl>(S.CurContext);
+    return S.IdentifyCUDAPreference(Caller, Cand1.Function) >
+           S.IdentifyCUDAPreference(Caller, Cand2.Function);
   }
 
   return false;
@@ -9897,6 +9951,10 @@ public:
           EliminateAllExceptMostSpecializedTemplate();
       }
     }
+
+    if (S.getLangOpts().CUDA && S.getLangOpts().CUDATargetOverloads &&
+        Matches.size() > 1)
+      EliminateSuboptimalCudaMatches();
   }
   
 private:
@@ -10072,9 +10130,13 @@ private:
         ++I;
       else {
         Matches[I] = Matches[--N];
-        Matches.set_size(N);
+        Matches.resize(N);
       }
     }
+  }
+
+  void EliminateSuboptimalCudaMatches() {
+    S.EraseUnwantedCUDAMatches(dyn_cast<FunctionDecl>(S.CurContext), Matches);
   }
 
 public:
@@ -10678,8 +10740,8 @@ BuildRecoveryCallExpr(Sema &SemaRef, Scope *S, Expr *Fn,
   // casts and such from the call, we don't really care.
   ExprResult NewFn = ExprError();
   if ((*R.begin())->isCXXClassMember())
-    NewFn = SemaRef.BuildPossibleImplicitMemberExpr(SS, TemplateKWLoc,
-                                                    R, ExplicitTemplateArgs);
+    NewFn = SemaRef.BuildPossibleImplicitMemberExpr(SS, TemplateKWLoc, R,
+                                                    ExplicitTemplateArgs, S);
   else if (ExplicitTemplateArgs || TemplateKWLoc.isValid())
     NewFn = SemaRef.BuildTemplateIdExpr(SS, TemplateKWLoc, R, false,
                                         ExplicitTemplateArgs);
@@ -10749,6 +10811,8 @@ bool Sema::buildOverloadedCallSet(Scope *S, Expr *Fn,
       CallExpr *CE = new (Context) CallExpr(
           Context, Fn, Args, Context.DependentTy, VK_RValue, RParenLoc);
       CE->setTypeDependent(true);
+      CE->setValueDependent(true);
+      CE->setInstantiationDependent(true);
       *Result = CE;
       return true;
     }
@@ -11565,10 +11629,6 @@ Sema::BuildCallToMemberFunction(Scope *S, Expr *MemExprE,
         << (qualsString.find(' ') == std::string::npos ? 1 : 2);
     }
 
-    if (resultType->isMemberPointerType())
-      if (Context.getTargetInfo().getCXXABI().isMicrosoft())
-        RequireCompleteType(LParenLoc, resultType, 0);
-
     CXXMemberCallExpr *call
       = new (Context) CXXMemberCallExpr(Context, MemExprE, Args,
                                         resultType, valueKind, RParenLoc);
@@ -11766,6 +11826,21 @@ Sema::BuildCallToMemberFunction(Scope *S, Expr *MemExprE,
 
   if (CheckFunctionCall(Method, TheCall, Proto))
     return ExprError();
+
+  // In the case the method to call was not selected by the overloading
+  // resolution process, we still need to handle the enable_if attribute. Do
+  // that here, so it will not hide previous -- and more relevant -- errors
+  if (isa<MemberExpr>(NakedMemExpr)) {
+    if (const EnableIfAttr *Attr = CheckEnableIf(Method, Args, true)) {
+      Diag(MemExprE->getLocStart(),
+           diag::err_ovl_no_viable_member_function_in_call)
+          << Method << Method->getSourceRange();
+      Diag(Method->getLocation(),
+           diag::note_ovl_candidate_disabled_by_enable_if_attr)
+          << Attr->getCond()->getSourceRange() << Attr->getMessage();
+      return ExprError();
+    }
+  }
 
   if ((isa<CXXConstructorDecl>(CurContext) || 
        isa<CXXDestructorDecl>(CurContext)) && 
@@ -12288,7 +12363,7 @@ Sema::BuildForRangeBeginEndCall(Scope *S, SourceLocation Loc,
                                  /*TemplateKWLoc=*/SourceLocation(),
                                  /*FirstQualifierInScope=*/nullptr,
                                  MemberLookup,
-                                 /*TemplateArgs=*/nullptr);
+                                 /*TemplateArgs=*/nullptr, S);
     if (MemberRef.isInvalid()) {
       *CallExpr = ExprError();
       Diag(Range->getLocStart(), diag::note_in_for_range)

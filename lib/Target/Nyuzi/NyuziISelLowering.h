@@ -104,6 +104,8 @@ private:
   SDValue LowerVASTART(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerFABS(SDValue Op, SelectionDAG &DAG) const;
 
+  bool isIntDivCheap(EVT VT, AttributeSet Attr) const override;
+
 private:
   const NyuziSubtarget &Subtarget;
 };

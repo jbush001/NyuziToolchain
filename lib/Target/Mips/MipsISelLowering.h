@@ -269,6 +269,14 @@ namespace llvm {
     unsigned getRegisterByName(const char* RegName, EVT VT,
                                SelectionDAG &DAG) const override;
 
+    /// Returns true if a cast between SrcAS and DestAS is a noop.
+    bool isNoopAddrSpaceCast(unsigned SrcAS, unsigned DestAS) const override {
+      // Mips doesn't have any special address spaces so we just reserve
+      // the first 256 for software use (e.g. OpenCL) and treat casts
+      // between them as noops.
+      return SrcAS < 256 && DestAS < 256;
+    }
+
   protected:
     SDValue getGlobalReg(SelectionDAG &DAG, EVT Ty) const;
 
@@ -282,9 +290,10 @@ namespace llvm {
       unsigned GOTFlag = IsN32OrN64 ? MipsII::MO_GOT_PAGE : MipsII::MO_GOT;
       SDValue GOT = DAG.getNode(MipsISD::Wrapper, DL, Ty, getGlobalReg(DAG, Ty),
                                 getTargetNode(N, Ty, DAG, GOTFlag));
-      SDValue Load = DAG.getLoad(Ty, DL, DAG.getEntryNode(), GOT,
-                                 MachinePointerInfo::getGOT(), false, false,
-                                 false, 0);
+      SDValue Load =
+          DAG.getLoad(Ty, DL, DAG.getEntryNode(), GOT,
+                      MachinePointerInfo::getGOT(DAG.getMachineFunction()),
+                      false, false, false, 0);
       unsigned LoFlag = IsN32OrN64 ? MipsII::MO_GOT_OFST : MipsII::MO_ABS_LO;
       SDValue Lo = DAG.getNode(MipsISD::Lo, DL, Ty,
                                getTargetNode(N, Ty, DAG, LoFlag));

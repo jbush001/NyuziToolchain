@@ -21,9 +21,9 @@ class HelloWatchLocationTestCase(TestBase):
         self.setTearDownCleanup(dictionary=self.d)
         self.hello_watchlocation()
 
-    @expectedFailureFreeBSD("llvm.org/pr18832")
     @dwarf_test
     @expectedFailureAndroid(archs=['arm', 'aarch64']) # Watchpoints not supported
+    @expectedFailureWindows("llvm.org/pr24446") # WINDOWS XFAIL TRIAGE - Watchpoints not supported on Windows
     def test_hello_watchlocation_with_dwarf(self):
         """Test watching a location with '-s size' option."""
         self.buildDwarf(dictionary=self.d)

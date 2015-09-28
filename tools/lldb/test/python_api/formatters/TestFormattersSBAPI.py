@@ -19,7 +19,6 @@ class SBFormattersAPITestCase(TestBase):
         self.setTearDownCleanup()
         self.formatters()
 
-    @expectedFailureFreeBSD("llvm.org/pr24282 Empty2 fails")
     @python_api_test
     @dwarf_test
     def test_with_dwarf_formatters_api(self):
@@ -169,6 +168,7 @@ class SBFormattersAPITestCase(TestBase):
 
         foo_var = self.dbg.GetSelectedTarget().GetProcess().GetSelectedThread().GetSelectedFrame().FindVariable('foo')
         self.assertTrue(foo_var.IsValid(), 'could not find foo')
+        self.assertTrue(foo_var.GetDeclaration().IsValid(), 'foo declaration is invalid')
 
         self.assertTrue(foo_var.GetNumChildren() == 2, 'synthetic value has wrong number of child items (synth)')
         self.assertTrue(foo_var.GetChildMemberWithName('X').GetValueAsUnsigned() == 1, 'foo_synth.X has wrong value (synth)')

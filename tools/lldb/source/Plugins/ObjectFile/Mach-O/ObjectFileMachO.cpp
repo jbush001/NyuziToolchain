@@ -26,7 +26,6 @@
 #include "lldb/Core/UUID.h"
 #include "lldb/Host/Host.h"
 #include "lldb/Host/FileSpec.h"
-#include "lldb/Symbol/ClangNamespaceDecl.h"
 #include "lldb/Symbol/DWARFCallFrameInfo.h"
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Target/MemoryRegionInfo.h"
@@ -1319,10 +1318,12 @@ ObjectFileMachO::GetAddressClass (lldb::addr_t file_addr)
                     case eSectionTypeZeroFill:
                     case eSectionTypeDataObjCMessageRefs:
                     case eSectionTypeDataObjCCFStrings:
+                    case eSectionTypeGoSymtab:
                         return eAddressClassData;
 
                     case eSectionTypeDebug:
                     case eSectionTypeDWARFDebugAbbrev:
+                    case eSectionTypeDWARFDebugAddr:
                     case eSectionTypeDWARFDebugAranges:
                     case eSectionTypeDWARFDebugFrame:
                     case eSectionTypeDWARFDebugInfo:
@@ -1333,6 +1334,7 @@ ObjectFileMachO::GetAddressClass (lldb::addr_t file_addr)
                     case eSectionTypeDWARFDebugPubTypes:
                     case eSectionTypeDWARFDebugRanges:
                     case eSectionTypeDWARFDebugStr:
+                    case eSectionTypeDWARFDebugStrOffsets:
                     case eSectionTypeDWARFAppleNames:
                     case eSectionTypeDWARFAppleTypes:
                     case eSectionTypeDWARFAppleNamespaces:
@@ -1776,6 +1778,7 @@ ObjectFileMachO::CreateSections (SectionList &unified_section_list)
                                     static ConstString g_sect_name_compact_unwind ("__unwind_info");
                                     static ConstString g_sect_name_text ("__text");
                                     static ConstString g_sect_name_data ("__data");
+                                    static ConstString g_sect_name_go_symtab ("__gosymtab");
 
 
                                     if (section_name == g_sect_name_dwarf_debug_abbrev)
@@ -1818,6 +1821,8 @@ ObjectFileMachO::CreateSections (SectionList &unified_section_list)
                                         sect_type = eSectionTypeCompactUnwind;
                                     else if (section_name == g_sect_name_cfstring)
                                         sect_type = eSectionTypeDataObjCCFStrings;
+                                    else if (section_name == g_sect_name_go_symtab)
+                                        sect_type = eSectionTypeGoSymtab;
                                     else if (section_name == g_sect_name_objc_data ||
                                              section_name == g_sect_name_objc_classrefs ||
                                              section_name == g_sect_name_objc_superrefs ||
@@ -2505,7 +2510,7 @@ ObjectFileMachO::ParseSymtab ()
             // the module.
             if (text_section_sp.get() && eh_frame_section_sp.get() && m_type != eTypeDebugInfo)
             {
-                DWARFCallFrameInfo eh_frame(*this, eh_frame_section_sp, eRegisterKindGCC, true);
+                DWARFCallFrameInfo eh_frame(*this, eh_frame_section_sp, eRegisterKindEHFrame, true);
                 DWARFCallFrameInfo::FunctionAddressAndSizeVector functions;
                 eh_frame.GetFunctionAddressAndSizeVector (functions);
                 addr_t text_base_addr = text_section_sp->GetFileAddress();
@@ -5721,6 +5726,7 @@ ObjectFileMachO::SaveCore (const lldb::ProcessSP &process_sp,
             {
                 case llvm::Triple::aarch64:
                 case llvm::Triple::arm:
+                case llvm::Triple::thumb:
                 case llvm::Triple::x86:
                 case llvm::Triple::x86_64:
                     make_core = true;

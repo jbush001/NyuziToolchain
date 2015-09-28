@@ -21,6 +21,7 @@ class Char1632TestCase(TestBase):
         self.char1632()
 
     @expectedFailureIcc # ICC (13.1) does not emit the DW_TAG_base_type for char16_t and char32_t.
+    @expectedFailureWindows("llvm.org/pr24489: Name lookup not working correctly on Windows")
     @dwarf_test
     def test_with_dwarf(self):
         """Test that the C++11 support for char16_t and char32_t works correctly."""
@@ -63,6 +64,11 @@ class Char1632TestCase(TestBase):
         self.expect("frame variable s16 s32",
             substrs = ['(char16_t *) s16 = ','(char32_t *) s32 = ','u"ﺸﺵۻ"','U"ЕЙРГЖО"'])
 
+        # Check that we correctly report the array types
+        self.expect("frame variable as16 as32",
+            patterns = ['\(char16_t \[[0-9]+\]\) as16 = ', '\(char32_t \[[0-9]+\]\) as32 = '],
+            substrs = ['u"ﺸﺵۻ"','U"ЕЙРГЖО"'])
+
         self.runCmd("next") # step to after the string is nullified
 
         # check that we don't crash on NULL
@@ -75,6 +81,11 @@ class Char1632TestCase(TestBase):
         # check that the new strings show
         self.expect("frame variable s16 s32",
             substrs = ['(char16_t *) s16 = 0x','(char32_t *) s32 = ','"色ハ匂ヘト散リヌルヲ"','"෴"'])
+
+        # check the same as above for arrays
+        self.expect("frame variable as16 as32",
+            patterns = ['\(char16_t \[[0-9]+\]\) as16 = ', '\(char32_t \[[0-9]+\]\) as32 = '],
+            substrs = ['"色ハ匂ヘト散リヌルヲ"','"෴"'])
 
         # check that zero values are properly handles
         self.expect('frame variable cs16_zero', substrs=["U+0000 u'\\0'"])

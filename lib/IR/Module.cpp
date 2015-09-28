@@ -102,6 +102,9 @@ void Module::getMDKindNames(SmallVectorImpl<StringRef> &Result) const {
   return Context.getMDKindNames(Result);
 }
 
+void Module::getOperandBundleTags(SmallVectorImpl<StringRef> &Result) const {
+  return Context.getOperandBundleTags(Result);
+}
 
 //===----------------------------------------------------------------------===//
 // Methods for easy access to the functions in the module.
@@ -458,7 +461,14 @@ void Module::dropAllReferences() {
 unsigned Module::getDwarfVersion() const {
   auto *Val = cast_or_null<ConstantAsMetadata>(getModuleFlag("Dwarf Version"));
   if (!Val)
-    return dwarf::DWARF_VERSION;
+    return 0;
+  return cast<ConstantInt>(Val->getValue())->getZExtValue();
+}
+
+unsigned Module::getCodeViewFlag() const {
+  auto *Val = cast_or_null<ConstantAsMetadata>(getModuleFlag("CodeView"));
+  if (!Val)
+    return 0;
   return cast<ConstantInt>(Val->getValue())->getZExtValue();
 }
 

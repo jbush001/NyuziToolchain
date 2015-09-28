@@ -2491,17 +2491,17 @@ static void handleFormatArgAttr(Sema &S, Decl *D, const AttributeList &Attr) {
   if (!checkFunctionOrMethodParameterIndex(S, D, Attr, 1, IdxExpr, Idx))
     return;
 
-  // make sure the format string is really a string
+  // Make sure the format string is really a string.
   QualType Ty = getFunctionOrMethodParamType(D, Idx);
 
-  bool not_nsstring_type = !isNSStringType(Ty, S.Context);
-  if (not_nsstring_type &&
+  bool NotNSStringTy = !isNSStringType(Ty, S.Context);
+  if (NotNSStringTy &&
       !isCFStringType(Ty, S.Context) &&
       (!Ty->isPointerType() ||
        !Ty->getAs<PointerType>()->getPointeeType()->isCharType())) {
     S.Diag(Attr.getLoc(), diag::err_format_attribute_not)
-        << (not_nsstring_type ? "a string type" : "an NSString")
-        << IdxExpr->getSourceRange() << getFunctionOrMethodParamRange(D, 0);
+        << "a string type" << IdxExpr->getSourceRange()
+        << getFunctionOrMethodParamRange(D, 0);
     return;
   }
   Ty = getFunctionOrMethodResultType(D);
@@ -2510,7 +2510,7 @@ static void handleFormatArgAttr(Sema &S, Decl *D, const AttributeList &Attr) {
       (!Ty->isPointerType() ||
        !Ty->getAs<PointerType>()->getPointeeType()->isCharType())) {
     S.Diag(Attr.getLoc(), diag::err_format_attribute_result_not)
-        << (not_nsstring_type ? "string type" : "NSString")
+        << (NotNSStringTy ? "string type" : "NSString")
         << IdxExpr->getSourceRange() << getFunctionOrMethodParamRange(D, 0);
     return;
   }
@@ -3350,6 +3350,7 @@ static void handleGlobalAttr(Sema &S, Decl *D, const AttributeList &Attr) {
   D->addAttr(::new (S.Context)
               CUDAGlobalAttr(Attr.getRange(), S.Context,
                              Attr.getAttributeSpellingListIndex()));
+
 }
 
 static void handleGNUInlineAttr(Sema &S, Decl *D, const AttributeList &Attr) {
@@ -4331,6 +4332,14 @@ static void handleDLLAttr(Sema &S, Decl *D, const AttributeList &A) {
       // MinGW doesn't allow dllimport on inline functions.
       S.Diag(A.getRange().getBegin(), diag::warn_attribute_ignored_on_inline)
           << A.getName();
+      return;
+    }
+  }
+
+  if (auto *MD = dyn_cast<CXXMethodDecl>(D)) {
+    if (S.Context.getTargetInfo().getCXXABI().isMicrosoft() &&
+        MD->getParent()->isLambda()) {
+      S.Diag(A.getRange().getBegin(), diag::err_attribute_dll_lambda) << A.getName();
       return;
     }
   }

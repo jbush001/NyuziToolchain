@@ -20,6 +20,7 @@ class DataFormatterDisablingTestCase(TestBase):
         self.data_formatter_commands()
 
     @dwarf_test
+    @expectedFailureWindows("llvm.org/pr24462") # Data formatters have problems on Windows
     def test_with_dwarf_and_run_command(self):
         """Test data formatter commands."""
         self.buildDwarf()
@@ -54,7 +55,7 @@ class DataFormatterDisablingTestCase(TestBase):
 
         #self.runCmd('type category enable system VectorTypes libcxx gnu-libstdc++ CoreGraphics CoreServices AppKit CoreFoundation objc default', check=False)
 
-        self.expect('type category list', substrs = ['system is enabled', 'gnu-libstdc++ is enabled', 'AppKit is enabled'])
+        self.expect('type category list', substrs = ['system','enabled',])
 
         self.expect("frame variable numbers",
             substrs = ['[0] = 1', '[3] = 1234'])
@@ -69,23 +70,23 @@ class DataFormatterDisablingTestCase(TestBase):
 
         self.expect('frame variable string1', matching=False, substrs = ['hello world'])
 
-        self.expect('type category list', substrs = ['system is not enabled', 'gnu-libstdc++ is not enabled', 'AppKit is not enabled'])
+        self.expect('type category list', substrs = ['system','disabled',])
         
         # now enable and check that we are back to normal
         self.runCmd("type category enable *")
 
-        self.expect('type category list', substrs = ['system is enabled', 'gnu-libstdc++ is enabled', 'AppKit is enabled'])
+        self.expect('type category list', substrs = ['system','enabled'])
 
         self.expect("frame variable numbers",
             substrs = ['[0] = 1', '[3] = 1234'])
 
         self.expect('frame variable string1', substrs = ['hello world'])
 
-        self.expect('type category list', substrs = ['system is enabled', 'gnu-libstdc++ is enabled', 'AppKit is enabled'])
+        self.expect('type category list', substrs = ['system','enabled'])
 
         # last check - our cleanup will re-enable everything
         self.runCmd('type category disable *')
-        self.expect('type category list', substrs = ['system is not enabled', 'gnu-libstdc++ is not enabled', 'AppKit is not enabled'])
+        self.expect('type category list', substrs = ['system','disabled'])
 
 
 if __name__ == '__main__':

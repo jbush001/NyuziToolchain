@@ -74,7 +74,7 @@ protected:
   unsigned short MaxVectorAlign;
   unsigned short MaxTLSAlign;
   unsigned short SimdDefaultAlign;
-  const char *DescriptionString;
+  const char *DataLayoutString;
   const char *UserLabelPrefix;
   const char *MCountName;
   const llvm::fltSemantics *HalfFormat, *FloatFormat, *DoubleFormat,
@@ -89,6 +89,8 @@ protected:
   unsigned HasAlignMac68kSupport : 1;
   unsigned RealTypeUsesObjCFPRet : 3;
   unsigned ComplexLongDoubleUsesFP2Ret : 1;
+
+  unsigned HasBuiltinMSVaList : 1;
 
   // TargetInfo Constructor.  Default initializes all fields.
   TargetInfo(const llvm::Triple &T);
@@ -255,10 +257,11 @@ public:
   unsigned getTypeWidth(IntType T) const;
 
   /// \brief Return integer type with specified width.
-  IntType getIntTypeByWidth(unsigned BitWidth, bool IsSigned) const;
+  virtual IntType getIntTypeByWidth(unsigned BitWidth, bool IsSigned) const;
 
   /// \brief Return the smallest integer type with at least the specified width.
-  IntType getLeastIntTypeByWidth(unsigned BitWidth, bool IsSigned) const;
+  virtual IntType getLeastIntTypeByWidth(unsigned BitWidth,
+                                         bool IsSigned) const;
 
   /// \brief Return floating point type with specified width.
   RealType getRealTypeByWidth(unsigned BitWidth) const;
@@ -525,6 +528,10 @@ public:
   /// with this target.
   virtual BuiltinVaListKind getBuiltinVaListKind() const = 0;
 
+  /// Returns whether or not type \c __builtin_ms_va_list type is
+  /// available on this target.
+  bool hasBuiltinMSVaList() const { return HasBuiltinMSVaList; }
+
   /// \brief Returns whether the passed in string is a valid clobber in an
   /// inline asm statement.
   ///
@@ -636,9 +643,6 @@ public:
     }
   };
 
-  // Validate the contents of the __builtin_cpu_supports(const char*) argument.
-  virtual bool validateCpuSupports(StringRef Name) const { return false; }
-
   // validateOutputConstraint, validateInputConstraint - Checks that
   // a constraint is valid and provides information about it.
   // FIXME: These should return a real error instead of just true/false.
@@ -663,6 +667,10 @@ public:
                              std::string &/*SuggestedModifier*/) const {
     return true;
   }
+  virtual bool
+  validateAsmConstraint(const char *&Name,
+                        TargetInfo::ConstraintInfo &info) const = 0;
+
   bool resolveSymbolicName(const char *&Name,
                            ConstraintInfo *OutputConstraints,
                            unsigned NumOutputs, unsigned &Index) const;
@@ -677,24 +685,23 @@ public:
     return std::string(1, *Constraint);
   }
 
+  /// \brief Returns a string of target-specific clobbers, in LLVM format.
+  virtual const char *getClobbers() const = 0;
+
   /// \brief Returns true if NaN encoding is IEEE 754-2008.
   /// Only MIPS allows a different encoding.
   virtual bool isNan2008() const {
     return true;
   }
 
-  /// \brief Returns a string of target-specific clobbers, in LLVM format.
-  virtual const char *getClobbers() const = 0;
-
-
   /// \brief Returns the target triple of the primary target.
   const llvm::Triple &getTriple() const {
     return Triple;
   }
 
-  const char *getTargetDescription() const {
-    assert(DescriptionString);
-    return DescriptionString;
+  const char *getDataLayoutString() const {
+    assert(DataLayoutString && "Uninitialized DataLayoutString!");
+    return DataLayoutString;
   }
 
   struct GCCRegAlias {
@@ -740,10 +747,13 @@ public:
   /// language options which change the target configuration.
   virtual void adjust(const LangOptions &Opts);
 
-  /// \brief Get the default set of target features for the CPU;
-  /// this should include all legal feature strings on the target.
-  virtual void getDefaultFeatures(llvm::StringMap<bool> &Features) const {
-  }
+  /// \brief Initialize the map with the default set of target features for the
+  /// CPU this should include all legal feature strings on the target.
+  ///
+  /// \return False on error (invalid features).
+  virtual bool initFeatureMap(llvm::StringMap<bool> &Features,
+                              DiagnosticsEngine &Diags, StringRef CPU,
+                              std::vector<std::string> &FeatureVec) const;
 
   /// \brief Get the ABI currently in use.
   virtual StringRef getABI() const { return StringRef(); }
@@ -774,23 +784,6 @@ public:
     return false;
   }
 
-  /// \brief Use this specified C++ ABI.
-  ///
-  /// \return False on error (invalid C++ ABI name).
-  bool setCXXABI(llvm::StringRef name) {
-    TargetCXXABI ABI;
-    if (!ABI.tryParse(name)) return false;
-    return setCXXABI(ABI);
-  }
-
-  /// \brief Set the C++ ABI to be used by this implementation.
-  ///
-  /// \return False on error (ABI not valid on this target)
-  virtual bool setCXXABI(TargetCXXABI ABI) {
-    TheCXXABI = ABI;
-    return true;
-  }
-
   /// \brief Enable or disable a specific target feature;
   /// the feature name must be valid.
   virtual void setFeatureEnabled(llvm::StringMap<bool> &Features,
@@ -817,6 +810,10 @@ public:
   virtual bool hasFeature(StringRef Feature) const {
     return false;
   }
+
+  // \brief Validate the contents of the __builtin_cpu_supports(const char*)
+  // argument.
+  virtual bool validateCpuSupports(StringRef Name) const { return false; }
   
   // \brief Returns maximal number of args passed in registers.
   unsigned getRegParmMax() const {
@@ -938,8 +935,6 @@ protected:
     Addl = nullptr;
     NumAddl = 0;
   }
-  virtual bool validateAsmConstraint(const char *&Name,
-                                     TargetInfo::ConstraintInfo &info) const= 0;
 };
 
 }  // end namespace clang

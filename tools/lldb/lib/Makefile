@@ -52,6 +52,7 @@ USEDLIBS = lldbAPI.a \
 	lldbPluginDynamicLoaderHexagon.a \
 	lldbPluginDynamicLoaderMacOSXDYLD.a \
 	lldbPluginDynamicLoaderWindowsDYLD.a \
+	lldbPluginExpressionParserClang.a \
 	lldbPluginInstructionARM.a \
 	lldbPluginInstructionARM64.a \
 	lldbPluginInstructionMIPS.a \
@@ -61,14 +62,19 @@ USEDLIBS = lldbAPI.a \
 	lldbPluginAppleObjCRuntime.a \
 	lldbPluginRenderScriptRuntime.a \
 	lldbPluginMemoryHistoryASan.a \
+	lldbPluginCPlusPlusLanguage.a \
+	lldbPluginObjCLanguage.a \
+	lldbPluginObjCPlusPlusLanguage.a \
 	lldbPluginObjectContainerBSDArchive.a \
 	lldbPluginObjectContainerMachOArchive.a \
 	lldbPluginObjectFileELF.a \
 	lldbPluginObjectFileJIT.a \
 	lldbPluginSymbolVendorELF.a \
 	lldbPluginObjectFilePECOFF.a \
+	lldbPluginOSGo.a \
 	lldbPluginOSPython.a \
 	lldbPluginPlatformGDB.a \
+	lldbPluginProcessElfCore.a \
 	lldbPluginProcessGDBRemote.a \
 	lldbPluginSymbolFileDWARF.a \
 	lldbPluginSymbolFileSymtab.a \
@@ -92,13 +98,18 @@ USEDLIBS = lldbAPI.a \
 	clangSerialization.a \
 	LLVMMCDisassembler.a \
 	LLVMProfileData.a \
+	LLVMObjCARCOpts.a \
+	LLVMSupport.a \
 	lldbPluginPlatformMacOSX.a \
 	lldbPluginPlatformLinux.a \
 	lldbPluginPlatformWindows.a \
 	lldbPluginPlatformFreeBSD.a \
 	lldbPluginPlatformPOSIX.a \
 	lldbPluginPlatformKalimba.a \
-	lldbPluginPlatformAndroid.a
+	lldbPluginPlatformAndroid.a \
+	lldbPluginJITLoaderGDB.a \
+	lldbPluginScriptInterpreterNone.a \
+	lldbPluginScriptInterpreterPython.a
 
 # Because GCC requires RTTI enabled for lldbCore (see source/Core/Makefile) it is
 # necessary to also link the clang rewriter libraries so vtable references can
@@ -119,28 +130,17 @@ ifeq ($(HOST_OS),Darwin)
               lldbPluginObjectFileMachO.a \
               lldbPluginSymbolVendorMacOSX.a \
               lldbPluginProcessDarwin.a \
-              lldbPluginProcessMachCore.a \
-              lldbPluginProcessElfCore.a \
-              lldbPluginJITLoaderGDB.a
+              lldbPluginProcessMachCore.a
 endif
 
 ifeq ($(HOST_OS),Linux)
   USEDLIBS += lldbPluginProcessLinux.a \
-              lldbPluginProcessPOSIX.a \
-              lldbPluginProcessElfCore.a \
-              lldbPluginJITLoaderGDB.a
-endif
-
-ifeq ($(HOST_OS),MingW)
-  USEDLIBS += lldbPluginProcessElfCore.a \
-              lldbPluginJITLoaderGDB.a
+              lldbPluginProcessPOSIX.a
 endif
 
 ifneq (,$(filter $(HOST_OS), FreeBSD GNU/kFreeBSD))
   USEDLIBS += lldbPluginProcessPOSIX.a \
-              lldbPluginProcessFreeBSD.a \
-              lldbPluginProcessElfCore.a \
-              lldbPluginJITLoaderGDB.a
+              lldbPluginProcessFreeBSD.a
 endif
 
 include $(LEVEL)/Makefile.common

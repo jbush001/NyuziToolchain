@@ -36,13 +36,6 @@ public:
                         llvm::ArrayRef<lldb::addr_t> args) const;
     
     virtual bool
-    PrepareNormalCall (lldb_private::Thread &thread,
-                       lldb::addr_t sp,
-                       lldb::addr_t func_addr,
-                       lldb::addr_t return_addr,
-                       lldb_private::ValueList &args) const;
-    
-    virtual bool
     GetArgumentValues (lldb_private::Thread &thread,
                        lldb_private::ValueList &values) const;
     
@@ -52,7 +45,7 @@ public:
 protected:
     virtual lldb::ValueObjectSP
     GetReturnValueObjectImpl (lldb_private::Thread &thread,
-                    lldb_private::ClangASTType &ast_type) const;
+                    lldb_private::CompilerType &ast_type) const;
 
 public:
 

@@ -266,6 +266,18 @@ void Decl::setDeclContextsImpl(DeclContext *SemaDC, DeclContext *LexicalDC,
   }
 }
 
+bool Decl::isLexicallyWithinFunctionOrMethod() const {
+  const DeclContext *LDC = getLexicalDeclContext();
+  while (true) {
+    if (LDC->isFunctionOrMethod())
+      return true;
+    if (!isa<TagDecl>(LDC))
+      return false;
+    LDC = LDC->getLexicalParent();
+  }
+  return false;
+}
+
 bool Decl::isInAnonymousNamespace() const {
   const DeclContext *DC = getDeclContext();
   do {
@@ -1059,14 +1071,7 @@ DeclContext::LoadLexicalDeclsFromExternalStorage() const {
   // Load the external declarations, if any.
   SmallVector<Decl*, 64> Decls;
   ExternalLexicalStorage = false;
-  switch (Source->FindExternalLexicalDecls(this, Decls)) {
-  case ELR_Success:
-    break;
-    
-  case ELR_Failure:
-  case ELR_AlreadyLoaded:
-    return false;
-  }
+  Source->FindExternalLexicalDecls(this, Decls);
 
   if (Decls.empty())
     return false;

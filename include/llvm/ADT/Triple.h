@@ -75,8 +75,8 @@ public:
     xcore,      // XCore: xcore
     nvptx,      // NVPTX: 32-bit
     nvptx64,    // NVPTX: 64-bit
-    le32,       // le32: generic little-endian 32-bit CPU (PNaCl / Emscripten)
-    le64,       // le64: generic little-endian 64-bit CPU (PNaCl / Emscripten)
+    le32,       // le32: generic little-endian 32-bit CPU (PNaCl)
+    le64,       // le64: generic little-endian 64-bit CPU (PNaCl)
     amdil,      // AMDIL
     amdil64,    // AMDIL with 64-bit pointers
     hsail,      // AMD HSAIL
@@ -125,7 +125,8 @@ public:
     MipsTechnologies,
     NVIDIA,
     CSR,
-    LastVendorType = CSR
+    Myriad,
+    LastVendorType = Myriad
   };
   enum OSType {
     UnknownOS,
@@ -171,7 +172,9 @@ public:
     MSVC,
     Itanium,
     Cygnus,
-    LastEnvironmentType = Cygnus
+    AMDOpenCL,
+    CoreCLR,
+    LastEnvironmentType = CoreCLR
   };
   enum ObjectFormatType {
     UnknownObjectFormat,
@@ -438,6 +441,10 @@ public:
     return getOS() == Triple::Win32 && getEnvironment() == Triple::MSVC;
   }
 
+  bool isWindowsCoreCLREnvironment() const {
+    return getOS() == Triple::Win32 && getEnvironment() == Triple::CoreCLR;
+  }
+
   bool isWindowsItaniumEnvironment() const {
     return getOS() == Triple::Win32 && getEnvironment() == Triple::Itanium;
   }
@@ -590,7 +597,7 @@ public:
   ///
   /// \param Arch the architecture name (e.g., "armv7s"). If it is an empty
   /// string then the triple's arch name is used.
-  const char* getARMCPUForArch(StringRef Arch = StringRef()) const;
+  StringRef getARMCPUForArch(StringRef Arch = StringRef()) const;
 
   /// @}
   /// @name Static helpers for IDs.

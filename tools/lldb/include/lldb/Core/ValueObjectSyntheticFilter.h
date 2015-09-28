@@ -152,6 +152,9 @@ public:
     virtual void
     SetFormat (lldb::Format format);
     
+    virtual bool
+    GetDeclaration (Declaration &decl);
+
 protected:
     virtual bool
     UpdateValue ();
@@ -162,8 +165,8 @@ protected:
         return eLazyBoolYes;
     }
     
-    virtual ClangASTType
-    GetClangTypeImpl ();
+    virtual CompilerType
+    GetCompilerTypeImpl ();
     
     virtual void
     CreateSynthFilter ();

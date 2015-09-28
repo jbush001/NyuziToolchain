@@ -52,6 +52,7 @@
 #include "lldb/Symbol/SymbolVendor.h"
 #include "lldb/Symbol/VariableList.h"
 #include "lldb/Target/ABI.h"
+#include "lldb/Target/Language.h"
 #include "lldb/Target/LanguageRuntime.h"
 #include "lldb/Target/ObjCLanguageRuntime.h"
 #include "lldb/Target/Process.h"
@@ -1133,7 +1134,7 @@ SBTarget::BreakpointCreateForException  (lldb::LanguageType language,
     if (log)
         log->Printf ("SBTarget(%p)::BreakpointCreateByRegex (Language: %s, catch: %s throw: %s) => SBBreakpoint(%p)",
                      static_cast<void*>(target_sp.get()),
-                     LanguageRuntime::GetNameForLanguageType(language),
+                     Language::GetNameForLanguageType(language),
                      catch_bp ? "on" : "off", throw_bp ? "on" : "off",
                      static_cast<void*>(sb_bp.get()));
 
@@ -1346,7 +1347,7 @@ SBTarget::WatchAddress (lldb::addr_t addr, size_t size, bool read, bool write, S
         // Target::CreateWatchpoint() is thread safe.
         Error cw_error;
         // This API doesn't take in a type, so we can't figure out what it is.
-        ClangASTType *type = NULL;
+        CompilerType *type = NULL;
         watchpoint_sp = target_sp->CreateWatchpoint(addr, size, type, watch_type, cw_error);
         error.SetError(cw_error);
         sb_watchpoint.SetSP (watchpoint_sp);
@@ -1400,7 +1401,7 @@ SBTarget::CreateValueFromAddress (const char *name, SBAddress addr, SBType type)
     {
         lldb::addr_t load_addr(addr.GetLoadAddress(*this));
         ExecutionContext exe_ctx (ExecutionContextRef(ExecutionContext(m_opaque_sp.get(),false)));
-        ClangASTType ast_type(type.GetSP()->GetClangASTType(true));
+        CompilerType ast_type(type.GetSP()->GetCompilerType(true));
         new_value_sp = ValueObject::CreateValueObjectFromAddress(name, load_addr, exe_ctx, ast_type);
     }
     sb_value.SetSP(new_value_sp);
@@ -1427,7 +1428,7 @@ SBTarget::CreateValueFromData (const char *name, lldb::SBData data, lldb::SBType
     {
         DataExtractorSP extractor(*data);
         ExecutionContext exe_ctx (ExecutionContextRef(ExecutionContext(m_opaque_sp.get(),false)));
-        ClangASTType ast_type(type.GetSP()->GetClangASTType(true));
+        CompilerType ast_type(type.GetSP()->GetCompilerType(true));
         new_value_sp = ValueObject::CreateValueObjectFromData(name, *extractor, exe_ctx, ast_type);
     }
     sb_value.SetSP(new_value_sp);
@@ -1808,7 +1809,7 @@ SBTarget::FindFirstType (const char* typename_cstr)
                     
                     if (objc_decl_vendor->FindDecls(const_typename, true, 1, decls) > 0)
                     {
-                        if (ClangASTType type = ClangASTContext::GetTypeForDecl(decls[0]))
+                        if (CompilerType type = ClangASTContext::GetTypeForDecl(decls[0]))
                         {
                             return SBType(type);
                         }
@@ -1888,7 +1889,7 @@ SBTarget::FindTypes (const char* typename_cstr)
                     {
                         for (clang::NamedDecl *decl : decls)
                         {
-                            if (ClangASTType type = ClangASTContext::GetTypeForDecl(decl))
+                            if (CompilerType type = ClangASTContext::GetTypeForDecl(decl))
                             {
                                 sb_type_list.Append(SBType(type));
                             }

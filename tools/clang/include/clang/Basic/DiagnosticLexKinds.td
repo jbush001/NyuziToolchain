@@ -184,7 +184,7 @@ def ext_hexconstant_invalid : Extension<
 def ext_binary_literal : Extension<
   "binary integer literals are a GNU extension">, InGroup<GNUBinaryLiteral>;
 def ext_binary_literal_cxx14 : Extension<
-  "binary integer literals are a C++14 extension">, InGroup<CXX14>;
+  "binary integer literals are a C++14 extension">, InGroup<CXX14BinaryLiteral>;
 def warn_cxx11_compat_binary_literal : Warning<
   "binary integer literals are incompatible with C++ standards before C++14">,
   InGroup<CXXPre14CompatPedantic>, DefaultIgnore;
@@ -623,6 +623,8 @@ def warn_mmap_unknown_attribute : Warning<"unknown attribute '%0'">,
 def warn_auto_module_import : Warning<
   "treating #%select{include|import|include_next|__include_macros}0 as an "
   "import of module '%1'">, InGroup<AutoImport>, DefaultIgnore;
+def note_implicit_top_level_module_import_here : Note<
+  "submodule of top-level module '%0' implicitly imported here">;
 def warn_uncovered_module_header : Warning<
   "umbrella header for module '%0' does not include header '%1'">, 
   InGroup<IncompleteUmbrella>;

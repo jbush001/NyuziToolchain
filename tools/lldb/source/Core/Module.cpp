@@ -15,6 +15,7 @@
 #include "lldb/Core/Log.h"
 #include "lldb/Core/ModuleList.h"
 #include "lldb/Core/ModuleSpec.h"
+#include "lldb/Core/PluginManager.h"
 #include "lldb/Core/RegularExpression.h"
 #include "lldb/Core/Section.h"
 #include "lldb/Core/StreamString.h"
@@ -23,17 +24,18 @@
 #include "lldb/Host/Symbols.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
 #include "lldb/Interpreter/ScriptInterpreter.h"
-#include "lldb/Symbol/ClangASTContext.h"
 #include "lldb/Symbol/CompileUnit.h"
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Symbol/SymbolContext.h"
+#include "lldb/Symbol/SymbolFile.h"
 #include "lldb/Symbol/SymbolVendor.h"
-#include "lldb/Target/CPPLanguageRuntime.h"
-#include "lldb/Target/ObjCLanguageRuntime.h"
+#include "lldb/Symbol/TypeSystem.h"
+#include "lldb/Target/Language.h"
 #include "lldb/Target/Process.h"
 #include "lldb/Target/SectionLoadList.h"
 #include "lldb/Target/Target.h"
-#include "lldb/Symbol/SymbolFile.h"
+#include "Plugins/Language/CPlusPlus/CPlusPlusLanguage.h"
+#include "Plugins/Language/ObjC/ObjCLanguage.h"
 
 #include "Plugins/ObjectFile/JIT/ObjectFileJIT.h"
 
@@ -146,13 +148,12 @@ Module::Module (const ModuleSpec &module_spec) :
     m_object_mod_time (),
     m_objfile_sp (),
     m_symfile_ap (),
-    m_ast (new ClangASTContext),
+    m_type_system_map(),
     m_source_mappings (),
     m_sections_ap(),
     m_did_load_objfile (false),
     m_did_load_symbol_vendor (false),
     m_did_parse_uuid (false),
-    m_did_init_ast (false),
     m_file_has_changed (false),
     m_first_file_changed_log (false)
 {
@@ -250,13 +251,12 @@ Module::Module(const FileSpec& file_spec,
     m_object_mod_time (),
     m_objfile_sp (),
     m_symfile_ap (),
-    m_ast (new ClangASTContext),
+    m_type_system_map(),
     m_source_mappings (),
     m_sections_ap(),
     m_did_load_objfile (false),
     m_did_load_symbol_vendor (false),
     m_did_parse_uuid (false),
-    m_did_init_ast (false),
     m_file_has_changed (false),
     m_first_file_changed_log (false)
 {
@@ -296,13 +296,12 @@ Module::Module () :
     m_object_mod_time (),
     m_objfile_sp (),
     m_symfile_ap (),
-    m_ast (new ClangASTContext),
+    m_type_system_map(),
     m_source_mappings (),
     m_sections_ap(),
     m_did_load_objfile (false),
     m_did_load_symbol_vendor (false),
     m_did_parse_uuid (false),
-    m_did_init_ast (false),
     m_file_has_changed (false),
     m_first_file_changed_log (false)
 {
@@ -416,41 +415,29 @@ Module::GetUUID()
     return m_uuid;
 }
 
-ClangASTContext &
-Module::GetClangASTContext ()
+TypeSystem *
+Module::GetTypeSystemForLanguage (LanguageType language)
 {
-    if (m_did_init_ast.load() == false)
-    {
-        Mutex::Locker locker (m_mutex);
-        if (m_did_init_ast.load() == false)
-        {
-            ObjectFile * objfile = GetObjectFile();
-            ArchSpec object_arch;
-            if (objfile && objfile->GetArchitecture(object_arch))
-            {
-                m_did_init_ast = true;
+    Mutex::Locker locker (m_mutex);
+    TypeSystemMap::iterator pos = m_type_system_map.find(language);
+    if (pos != m_type_system_map.end())
+        return pos->second.get();
 
-                // LLVM wants this to be set to iOS or MacOSX; if we're working on
-                // a bare-boards type image, change the triple for llvm's benefit.
-                if (object_arch.GetTriple().getVendor() == llvm::Triple::Apple 
-                    && object_arch.GetTriple().getOS() == llvm::Triple::UnknownOS)
-                {
-                    if (object_arch.GetTriple().getArch() == llvm::Triple::arm || 
-                        object_arch.GetTriple().getArch() == llvm::Triple::aarch64 ||
-                        object_arch.GetTriple().getArch() == llvm::Triple::thumb)
-                    {
-                        object_arch.GetTriple().setOS(llvm::Triple::IOS);
-                    }
-                    else
-                    {
-                        object_arch.GetTriple().setOS(llvm::Triple::MacOSX);
-                    }
-                }
-                m_ast->SetArchitecture (object_arch);
-            }
+    for (const auto &pair : m_type_system_map)
+    {
+        if (pair.second && pair.second->SupportsLanguage(language))
+        {
+            // Add a new mapping for "language" to point to an already existing
+            // TypeSystem that supports this language
+            m_type_system_map[language] = pair.second;
+            return pair.second.get();
         }
     }
-    return *m_ast;
+
+    // Cache even if we get a shared pointer that contains null type system back
+    lldb::TypeSystemSP type_system_sp = TypeSystem::CreateInstance (language, GetArchitecture());
+    m_type_system_map[language] = type_system_sp;
+    return type_system_sp.get();
 }
 
 void
@@ -712,14 +699,14 @@ Module::ResolveSymbolContextsForFileSpec (const FileSpec &file_spec, uint32_t li
 
 size_t
 Module::FindGlobalVariables (const ConstString &name,
-                             const ClangNamespaceDecl *namespace_decl,
+                             const CompilerDeclContext *parent_decl_ctx,
                              bool append,
                              size_t max_matches,
                              VariableList& variables)
 {
     SymbolVendor *symbols = GetSymbolVendor ();
     if (symbols)
-        return symbols->FindGlobalVariables(name, namespace_decl, append, max_matches, variables);
+        return symbols->FindGlobalVariables(name, parent_decl_ctx, append, max_matches, variables);
     return 0;
 }
 
@@ -762,7 +749,7 @@ Module::FindCompileUnits (const FileSpec &path,
 
 size_t
 Module::FindFunctions (const ConstString &name,
-                       const ClangNamespaceDecl *namespace_decl,
+                       const CompilerDeclContext *parent_decl_ctx,
                        uint32_t name_type_mask,
                        bool include_symbols,
                        bool include_inlines,
@@ -792,7 +779,7 @@ Module::FindFunctions (const ConstString &name,
         if (symbols)
         {
             symbols->FindFunctions(lookup_name,
-                                   namespace_decl,
+                                   parent_decl_ctx,
                                    lookup_name_type_mask,
                                    include_inlines,
                                    append,
@@ -832,7 +819,7 @@ Module::FindFunctions (const ConstString &name,
     {
         if (symbols)
         {
-            symbols->FindFunctions(name, namespace_decl, name_type_mask, include_inlines, append, sc_list);
+            symbols->FindFunctions(name, parent_decl_ctx, name_type_mask, include_inlines, append, sc_list);
 
             // Now check our symbol table for symbols that are code symbols if requested
             if (include_symbols)
@@ -950,7 +937,7 @@ Module::FindAddressesForLine (const lldb::TargetSP target_sp,
 size_t
 Module::FindTypes_Impl (const SymbolContext& sc,
                         const ConstString &name,
-                        const ClangNamespaceDecl *namespace_decl,
+                        const CompilerDeclContext *parent_decl_ctx,
                         bool append,
                         size_t max_matches,
                         TypeList& types)
@@ -960,7 +947,7 @@ Module::FindTypes_Impl (const SymbolContext& sc,
     {
         SymbolVendor *symbols = GetSymbolVendor ();
         if (symbols)
-            return symbols->FindTypes(sc, name, namespace_decl, append, max_matches, types);
+            return symbols->FindTypes(sc, name, parent_decl_ctx, append, max_matches, types);
     }
     return 0;
 }
@@ -968,12 +955,12 @@ Module::FindTypes_Impl (const SymbolContext& sc,
 size_t
 Module::FindTypesInNamespace (const SymbolContext& sc,
                               const ConstString &type_name,
-                              const ClangNamespaceDecl *namespace_decl,
+                              const CompilerDeclContext *parent_decl_ctx,
                               size_t max_matches,
                               TypeList& type_list)
 {
     const bool append = true;
-    return FindTypes_Impl(sc, type_name, namespace_decl, append, max_matches, type_list);
+    return FindTypes_Impl(sc, type_name, parent_decl_ctx, append, max_matches, type_list);
 }
 
 lldb::TypeSP
@@ -1500,6 +1487,9 @@ Module::SetSymbolFileFileSpec (const FileSpec &file)
                     // we don't have to do anything.
                     return;
                 }
+                
+                // Cleare the current symtab as we are going to replace it with a new one
+                obj_file->ClearSymtab();
 
                 // The symbol file might be a directory bundle ("/tmp/a.out.dSYM") instead
                 // of a full path to the symbol file within the bundle
@@ -1693,7 +1683,8 @@ Module::MatchesModuleSpec (const ModuleSpec &module_ref)
     const FileSpec &file_spec = module_ref.GetFileSpec();
     if (file_spec)
     {
-        if (!FileSpec::Equal (file_spec, m_file, (bool)file_spec.GetDirectory()))
+        if (!FileSpec::Equal (file_spec, m_file, (bool)file_spec.GetDirectory()) &&
+            !FileSpec::Equal (file_spec, m_platform_file, (bool)file_spec.GetDirectory()))
             return false;
     }
 
@@ -1766,28 +1757,28 @@ Module::PrepareForFunctionNameLookup (const ConstString &name,
     
     if (name_type_mask & eFunctionNameTypeAuto)
     {
-        if (CPPLanguageRuntime::IsCPPMangledName (name_cstr))
+        if (CPlusPlusLanguage::IsCPPMangledName (name_cstr))
             lookup_name_type_mask = eFunctionNameTypeFull;
         else if ((language == eLanguageTypeUnknown ||
-                  LanguageRuntime::LanguageIsObjC(language)) &&
-                 ObjCLanguageRuntime::IsPossibleObjCMethodName (name_cstr))
+                  Language::LanguageIsObjC(language)) &&
+                 ObjCLanguage::IsPossibleObjCMethodName (name_cstr))
             lookup_name_type_mask = eFunctionNameTypeFull;
-        else if (LanguageRuntime::LanguageIsC(language))
+        else if (Language::LanguageIsC(language))
         {
             lookup_name_type_mask = eFunctionNameTypeFull;
         }
         else
         {
             if ((language == eLanguageTypeUnknown ||
-                 LanguageRuntime::LanguageIsObjC(language)) &&
-                ObjCLanguageRuntime::IsPossibleObjCSelector(name_cstr))
+                 Language::LanguageIsObjC(language)) &&
+                ObjCLanguage::IsPossibleObjCSelector(name_cstr))
                 lookup_name_type_mask |= eFunctionNameTypeSelector;
             
-            CPPLanguageRuntime::MethodName cpp_method (name);
+            CPlusPlusLanguage::MethodName cpp_method (name);
             basename = cpp_method.GetBasename();
             if (basename.empty())
             {
-                if (CPPLanguageRuntime::ExtractContextAndIdentifier (name_cstr, context, basename))
+                if (CPlusPlusLanguage::ExtractContextAndIdentifier (name_cstr, context, basename))
                     lookup_name_type_mask |= (eFunctionNameTypeMethod | eFunctionNameTypeBase);
                 else
                     lookup_name_type_mask |= eFunctionNameTypeFull;
@@ -1805,7 +1796,7 @@ Module::PrepareForFunctionNameLookup (const ConstString &name,
         {
             // If they've asked for a CPP method or function name and it can't be that, we don't
             // even need to search for CPP methods or names.
-            CPPLanguageRuntime::MethodName cpp_method (name);
+            CPlusPlusLanguage::MethodName cpp_method (name);
             if (cpp_method.IsValid())
             {
                 basename = cpp_method.GetBasename();
@@ -1823,13 +1814,13 @@ Module::PrepareForFunctionNameLookup (const ConstString &name,
             {
                 // If the CPP method parser didn't manage to chop this up, try to fill in the base name if we can.
                 // If a::b::c is passed in, we need to just look up "c", and then we'll filter the result later.
-                CPPLanguageRuntime::ExtractContextAndIdentifier (name_cstr, context, basename);
+                CPlusPlusLanguage::ExtractContextAndIdentifier (name_cstr, context, basename);
             }
         }
         
         if (lookup_name_type_mask & eFunctionNameTypeSelector)
         {
-            if (!ObjCLanguageRuntime::IsPossibleObjCSelector(name_cstr))
+            if (!ObjCLanguage::IsPossibleObjCSelector(name_cstr))
             {
                 lookup_name_type_mask &= ~(eFunctionNameTypeSelector);
                 if (lookup_name_type_mask == eFunctionNameTypeNone)

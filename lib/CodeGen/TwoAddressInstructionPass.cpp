@@ -151,7 +151,7 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.setPreservesCFG();
-    AU.addRequired<AliasAnalysis>();
+    AU.addRequired<AAResultsWrapperPass>();
     AU.addPreserved<LiveVariables>();
     AU.addPreserved<SlotIndexes>();
     AU.addPreserved<LiveIntervals>();
@@ -168,7 +168,7 @@ public:
 char TwoAddressInstructionPass::ID = 0;
 INITIALIZE_PASS_BEGIN(TwoAddressInstructionPass, "twoaddressinstruction",
                 "Two-Address instruction pass", false, false)
-INITIALIZE_AG_DEPENDENCY(AliasAnalysis)
+INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
 INITIALIZE_PASS_END(TwoAddressInstructionPass, "twoaddressinstruction",
                 "Two-Address instruction pass", false, false)
 
@@ -1212,8 +1212,8 @@ tryInstructionTransform(MachineBasicBlock::iterator &mi,
   // use this variable to check later. Because it might be better.
   // For example, we can just use `leal (%rsi,%rdi), %eax` and `ret`
   // instead of the following code.
-  //   addl	%esi, %edi
-  //   movl	%edi, %eax
+  //   addl     %esi, %edi
+  //   movl     %edi, %eax
   //   ret
   bool Commuted = false;
 
@@ -1536,7 +1536,6 @@ TwoAddressInstructionPass::processTiedPairs(MachineInstr *MI,
     SrcRegMap[RegA] = RegB;
   }
 
-
   if (AllUsesCopied) {
     if (!IsEarlyClobber) {
       // Replace other (un-tied) uses of regB with LastCopiedReg.
@@ -1599,7 +1598,7 @@ bool TwoAddressInstructionPass::runOnMachineFunction(MachineFunction &Func) {
   InstrItins = MF->getSubtarget().getInstrItineraryData();
   LV = getAnalysisIfAvailable<LiveVariables>();
   LIS = getAnalysisIfAvailable<LiveIntervals>();
-  AA = &getAnalysis<AliasAnalysis>();
+  AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
   OptLevel = TM.getOptLevel();
 
   bool MadeChange = false;
@@ -1661,8 +1660,8 @@ bool TwoAddressInstructionPass::runOnMachineFunction(MachineFunction &Func) {
           unsigned DstReg = mi->getOperand(DstIdx).getReg();
           if (SrcReg != DstReg &&
               tryInstructionTransform(mi, nmi, SrcIdx, DstIdx, Dist, false)) {
-            // The tied operands have been eliminated or shifted further down the
-            // block to ease elimination. Continue processing with 'nmi'.
+            // The tied operands have been eliminated or shifted further down
+            // the block to ease elimination. Continue processing with 'nmi'.
             TiedOperands.clear();
             mi = nmi;
             continue;

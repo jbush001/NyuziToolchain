@@ -44,7 +44,7 @@ public:
         }
         
         void Dematerialize (Error &err,
-                            lldb::ClangExpressionVariableSP &result_sp,
+                            lldb::ExpressionVariableSP &result_sp,
                             lldb::addr_t frame_top,
                             lldb::addr_t frame_bottom);
         
@@ -84,9 +84,9 @@ public:
     
     DematerializerSP Materialize (lldb::StackFrameSP &frame_sp, IRMemoryMap &map, lldb::addr_t process_address, Error &err);
     
-    uint32_t AddPersistentVariable (lldb::ClangExpressionVariableSP &persistent_variable_sp, Error &err);
+    uint32_t AddPersistentVariable (lldb::ExpressionVariableSP &persistent_variable_sp, Error &err);
     uint32_t AddVariable (lldb::VariableSP &variable_sp, Error &err);
-    uint32_t AddResultVariable (const TypeFromUser &type, bool is_lvalue, bool keep_in_memory, Error &err);
+    uint32_t AddResultVariable (const CompilerType &type, bool is_lvalue, bool keep_in_memory, Error &err);
     uint32_t AddSymbol (const Symbol &symbol_sp, Error &err);
     uint32_t AddRegister (const RegisterInfo &register_info, Error &err);
     
@@ -148,7 +148,7 @@ public:
             m_offset = offset;
         }
     protected:
-        void SetSizeAndAlignmentFromType (ClangASTType &type);
+        void SetSizeAndAlignmentFromType (CompilerType &type);
         
         uint32_t    m_alignment;
         uint32_t    m_size;

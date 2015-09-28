@@ -119,15 +119,12 @@ class ProcessLaunchTestCase(TestBase):
 
     @skipUnlessDarwin
     @dsym_test
-    @expectedFailureDarwin("llvm.org/pr20265")
     def test_set_working_dir_with_dsym (self):
         """Test that '-w dir' sets the working dir when running the inferior."""
         self.buildDsym(dictionary=self.d)
         self.setTearDownCleanup(self.d)
         self.my_working_dir_test()
 
-    @skipIfFreeBSD # llvm.org/pr16684
-    @expectedFailureDarwin("llvm.org/pr20265")
     @expectedFailureLinux("llvm.org/pr20265")
     @dwarf_test
     def test_set_working_dir_with_dwarf (self):

@@ -60,7 +60,6 @@ bool generateTargetCode(Module *TheModule)
 
   raw_fd_ostream Raw("-", Error, llvm::sys::fs::F_Text);
   
-  PM.add(createBasicAliasAnalysisPass());
   PM.add(createPromoteMemoryToRegisterPass());
   PM.add(createInstructionCombiningPass());
   PM.add(createReassociatePass());

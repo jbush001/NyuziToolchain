@@ -3589,7 +3589,8 @@ void Parser::ParseStructUnionBody(SourceLocation RecordLoc,
   SmallVector<Decl *, 32> FieldDecls;
 
   // While we still have something to read, read the declarations in the struct.
-  while (Tok.isNot(tok::r_brace) && !isEofOrEom()) {
+  while (Tok.isNot(tok::r_brace) && Tok.isNot(tok::eof) &&
+         !tryParseMisplacedModuleImport()) {
     // Each iteration of this loop reads one struct-declaration.
 
     // Check for extraneous top-level semicolon.
@@ -3615,6 +3616,14 @@ void Parser::ParseStructUnionBody(SourceLocation RecordLoc,
       continue;
     }
 
+    if (Tok.is(tok::annot_pragma_openmp)) {
+      // Result can be ignored, because it must be always empty.
+      auto Res = ParseOpenMPDeclarativeDirective();
+      assert(!Res);
+      // Silence possible warnings.
+      (void)Res;
+      continue;
+    }
     if (!Tok.is(tok::at)) {
       auto CFieldCallback = [&](ParsingFieldDeclarator &FD) {
         // Install the declarator into the current TagDecl.
@@ -5612,7 +5621,7 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
                                              VolatileQualifierLoc,
                                              RestrictQualifierLoc,
                                              /*MutableLoc=*/SourceLocation(),
-                                             ESpecType, ESpecRange.getBegin(),
+                                             ESpecType, ESpecRange,
                                              DynamicExceptions.data(),
                                              DynamicExceptionRanges.data(),
                                              DynamicExceptions.size(),

@@ -22,6 +22,7 @@ class ChangeValueAPITestCase(TestBase):
         self.setTearDownCleanup(dictionary=d)
         self.change_value_api(self.exe_name)
 
+    @expectedFailureWindows("llvm.org/pr24772")
     @python_api_test
     @dwarf_test
     def test_change_value_with_dwarf(self):
@@ -41,7 +42,6 @@ class ChangeValueAPITestCase(TestBase):
         self.check_line = line_number('main.c', '// Stop here and check values')
         self.end_line = line_number ('main.c', '// Set a breakpoint here at the end')
 
-    @expectedFailureFreeBSD("llvm.org/pr15039 test fails intermittently on FreeBSD")
     def change_value_api(self, exe_name):
         """Exercise some SBValue APIs."""
         exe = os.path.join(os.getcwd(), exe_name)

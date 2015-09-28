@@ -184,7 +184,7 @@ ABINyuzi::SetReturnValueObject ( lldb::StackFrameSP &frame_sp, lldb::ValueObject
 }
 
 ValueObjectSP
-ABINyuzi::GetReturnValueObjectImpl ( Thread &thread, ClangASTType &return_clang_type ) const
+ABINyuzi::GetReturnValueObjectImpl ( Thread &thread, CompilerType &return_clang_type ) const
 {
   ValueObjectSP return_valobj_sp;
 

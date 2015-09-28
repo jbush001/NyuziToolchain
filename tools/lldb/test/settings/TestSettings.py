@@ -165,8 +165,7 @@ class SettingsCommandTestCase(TestBase):
         self.expect("settings show auto-confirm", SETTING_MSG("auto-confirm"),
             startstr = "auto-confirm (boolean) = false")
 
-    @expectedFailureArch("arm")
-    @expectedFailureArch("aarch64")
+    @skipUnlessArch(['x86_64', 'i386', 'i686'])
     def test_disassembler_settings(self):
         """Test that user options for the disassembler take effect."""
         self.buildDefault()
@@ -208,6 +207,7 @@ class SettingsCommandTestCase(TestBase):
         self.pass_run_args_and_env_vars()
 
     @dwarf_test
+    @expectedFailureWindows("llvm.org/pr24579")
     def test_run_args_and_env_vars_with_dwarf(self):
         """Test that run-args and env-vars are passed to the launched process."""
         self.buildDwarf()
@@ -449,7 +449,7 @@ class SettingsCommandTestCase(TestBase):
                 SETTING_MSG("disassembly-format"),
                 substrs = [ 'disassembly-format (format-string) = "foo "'])
         self.runCmd("settings clear disassembly-format", check=False)
-        
+
     def test_all_settings_exist (self):
         self.expect ("settings show",
                      substrs = [ "auto-confirm",

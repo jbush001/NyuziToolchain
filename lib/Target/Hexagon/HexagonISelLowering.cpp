@@ -555,7 +555,8 @@ HexagonTargetLowering::LowerCall(TargetLowering::CallLoweringInfo &CLI,
         MemOpChains.push_back(CreateCopyOfByValArgument(Arg, MemAddr, Chain,
                                                         Flags, DAG, dl));
       } else {
-        MachinePointerInfo LocPI = MachinePointerInfo::getStack(LocMemOffset);
+        MachinePointerInfo LocPI = MachinePointerInfo::getStack(
+            DAG.getMachineFunction(), LocMemOffset);
         SDValue S = DAG.getStore(Chain, dl, Arg, MemAddr, LocPI, false,
                                  false, 0);
         MemOpChains.push_back(S);
@@ -2498,9 +2499,12 @@ Value *HexagonTargetLowering::emitStoreConditional(IRBuilder<> &Builder,
   return Ext;
 }
 
-bool HexagonTargetLowering::shouldExpandAtomicLoadInIR(LoadInst *LI) const {
+TargetLowering::AtomicExpansionKind
+HexagonTargetLowering::shouldExpandAtomicLoadInIR(LoadInst *LI) const {
   // Do not expand loads and stores that don't exceed 64 bits.
-  return LI->getType()->getPrimitiveSizeInBits() > 64;
+  return LI->getType()->getPrimitiveSizeInBits() > 64
+             ? AtomicExpansionKind::LLSC
+             : AtomicExpansionKind::None;
 }
 
 bool HexagonTargetLowering::shouldExpandAtomicStoreInIR(StoreInst *SI) const {

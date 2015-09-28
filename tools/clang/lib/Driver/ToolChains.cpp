@@ -104,10 +104,10 @@ static const char *ArmMachOArchName(StringRef Arch) {
 }
 
 static const char *ArmMachOArchNameCPU(StringRef CPU) {
-  unsigned ArchKind = llvm::ARMTargetParser::parseCPUArch(CPU);
+  unsigned ArchKind = llvm::ARM::parseCPUArch(CPU);
   if (ArchKind == llvm::ARM::AK_INVALID)
     return nullptr;
-  StringRef Arch = llvm::ARMTargetParser::getArchName(ArchKind);
+  StringRef Arch = llvm::ARM::getArchName(ArchKind);
 
   // FIXME: Make sure this MachO triple mangling is really necessary.
   // ARMv5* normalises to ARMv5.
@@ -620,12 +620,10 @@ void DarwinClang::AddCCKextLibArgs(const ArgList &Args,
   llvm::sys::path::append(P, "lib", "darwin");
 
   // Use the newer cc_kext for iOS ARM after 6.0.
-  if (!isTargetIPhoneOS() || isTargetIOSSimulator() ||
-      getTriple().getArch() == llvm::Triple::aarch64 ||
-      !isIPhoneOSVersionLT(6, 0)) {
-    llvm::sys::path::append(P, "libclang_rt.cc_kext.a");
+  if (isTargetIPhoneOS()) {
+    llvm::sys::path::append(P, "libclang_rt.cc_kext_ios.a");
   } else {
-    llvm::sys::path::append(P, "libclang_rt.cc_kext_ios5.a");
+    llvm::sys::path::append(P, "libclang_rt.cc_kext.a");
   }
 
   // For now, allow missing resource libraries to support developers who may
@@ -856,7 +854,7 @@ void MachO::AddLinkRuntimeLibArgs(const ArgList &Args,
   // { hard-float, soft-float }
   llvm::SmallString<32> CompilerRT = StringRef("libclang_rt.");
   CompilerRT +=
-      tools::arm::getARMFloatABI(getDriver(), Args, getTriple()) == "hard"
+      (tools::arm::getARMFloatABI(*this, Args) == tools::arm::FloatABI::Hard)
           ? "hard"
           : "soft";
   CompilerRT += Args.hasArg(options::OPT_fPIC) ? "_pic.a" : "_static.a";
@@ -1170,7 +1168,8 @@ static llvm::StringRef getGCCToolchainDir(const ArgList &Args) {
 /// necessary because the driver doesn't store the final version of the target
 /// triple.
 void Generic_GCC::GCCInstallationDetector::init(
-    const Driver &D, const llvm::Triple &TargetTriple, const ArgList &Args) {
+    const Driver &D, const llvm::Triple &TargetTriple, const ArgList &Args,
+    ArrayRef<std::string> ExtraTripleAliases) {
   llvm::Triple BiarchVariantTriple = TargetTriple.isArch32Bit()
                                          ? TargetTriple.get64BitArchVariant()
                                          : TargetTriple.get32BitArchVariant();
@@ -1214,18 +1213,20 @@ void Generic_GCC::GCCInstallationDetector::init(
   for (const std::string &Prefix : Prefixes) {
     if (!llvm::sys::fs::exists(Prefix))
       continue;
-    for (const StringRef Suffix : CandidateLibDirs) {
+    for (StringRef Suffix : CandidateLibDirs) {
       const std::string LibDir = Prefix + Suffix.str();
       if (!llvm::sys::fs::exists(LibDir))
         continue;
-      for (const StringRef Candidate : CandidateTripleAliases)
+      for (StringRef Candidate : ExtraTripleAliases) // Try these first.
+        ScanLibDirForGCCTriple(TargetTriple, Args, LibDir, Candidate);
+      for (StringRef Candidate : CandidateTripleAliases)
         ScanLibDirForGCCTriple(TargetTriple, Args, LibDir, Candidate);
     }
-    for (const StringRef Suffix : CandidateBiarchLibDirs) {
+    for (StringRef Suffix : CandidateBiarchLibDirs) {
       const std::string LibDir = Prefix + Suffix.str();
       if (!llvm::sys::fs::exists(LibDir))
         continue;
-      for (const StringRef Candidate : CandidateBiarchTripleAliases)
+      for (StringRef Candidate : CandidateBiarchTripleAliases)
         ScanLibDirForGCCTriple(TargetTriple, Args, LibDir, Candidate,
                                /*NeedsBiarchSuffix=*/ true);
     }
@@ -1340,8 +1341,19 @@ bool Generic_GCC::GCCInstallationDetector::getBiarchSibling(Multilib &M) const {
       "s390x-linux-gnu", "s390x-unknown-linux-gnu", "s390x-ibm-linux-gnu",
       "s390x-suse-linux", "s390x-redhat-linux"};
 
+  // Solaris.
+  static const char *const SolarisSPARCLibDirs[] = {"/gcc"};
+  static const char *const SolarisSPARCTriples[] = {"sparc-sun-solaris2.11",
+                                                    "i386-pc-solaris2.11"};
+
   using std::begin;
   using std::end;
+
+  if (TargetTriple.getOS() == llvm::Triple::Solaris) {
+    LibDirs.append(begin(SolarisSPARCLibDirs), end(SolarisSPARCLibDirs));
+    TripleAliases.append(begin(SolarisSPARCTriples), end(SolarisSPARCTriples));
+    return;
+  }
 
   switch (TargetTriple.getArch()) {
   case llvm::Triple::aarch64:
@@ -1436,6 +1448,7 @@ bool Generic_GCC::GCCInstallationDetector::getBiarchSibling(Multilib &M) const {
     TripleAliases.append(begin(PPC64LETriples), end(PPC64LETriples));
     break;
   case llvm::Triple::sparc:
+  case llvm::Triple::sparcel:
     LibDirs.append(begin(SPARCv8LibDirs), end(SPARCv8LibDirs));
     TripleAliases.append(begin(SPARCv8Triples), end(SPARCv8Triples));
     BiarchLibDirs.append(begin(SPARCv9LibDirs), end(SPARCv9LibDirs));
@@ -1465,6 +1478,48 @@ bool Generic_GCC::GCCInstallationDetector::getBiarchSibling(Multilib &M) const {
   // Also include the multiarch variant if it's different.
   if (TargetTriple.str() != BiarchTriple.str())
     BiarchTripleAliases.push_back(BiarchTriple.str());
+}
+
+// \brief -- try common CUDA installation paths looking for files we need for
+// CUDA compilation.
+
+void
+Generic_GCC::CudaInstallationDetector::init(const Driver &D,
+                                            const llvm::Triple &TargetTriple,
+                                            const llvm::opt::ArgList &Args) {
+  SmallVector<std::string, 4> CudaPathCandidates;
+
+  if (Args.hasArg(options::OPT_cuda_path_EQ))
+    CudaPathCandidates.push_back(
+        Args.getLastArgValue(options::OPT_cuda_path_EQ));
+  else {
+    CudaPathCandidates.push_back(D.SysRoot + "/usr/local/cuda");
+    CudaPathCandidates.push_back(D.SysRoot + "/usr/local/cuda-7.0");
+  }
+
+  for (const auto &CudaPath : CudaPathCandidates) {
+    if (CudaPath.empty() || !llvm::sys::fs::exists(CudaPath))
+      continue;
+
+    CudaInstallPath = CudaPath;
+    CudaIncludePath = CudaInstallPath + "/include";
+    CudaLibDevicePath = CudaInstallPath + "/nvvm/libdevice";
+    CudaLibPath =
+        CudaInstallPath + (TargetTriple.isArch64Bit() ? "/lib64" : "/lib");
+
+    if (!(llvm::sys::fs::exists(CudaIncludePath) &&
+          llvm::sys::fs::exists(CudaLibPath) &&
+          llvm::sys::fs::exists(CudaLibDevicePath)))
+      continue;
+
+    IsValid = true;
+    break;
+  }
+}
+
+void Generic_GCC::CudaInstallationDetector::print(raw_ostream &OS) const {
+  if (isValid())
+    OS << "Found CUDA installation: " << CudaInstallPath << "\n";
 }
 
 namespace {
@@ -1907,6 +1962,54 @@ static bool findBiarchMultilibs(const llvm::Triple &TargetTriple,
   return true;
 }
 
+void Generic_GCC::GCCInstallationDetector::scanLibDirForGCCTripleSolaris(
+    const llvm::Triple &TargetArch, const llvm::opt::ArgList &Args,
+    const std::string &LibDir, StringRef CandidateTriple,
+    bool NeedsBiarchSuffix) {
+  // Solaris is a special case. The GCC installation is under
+  // /usr/gcc/<major>.<minor>/lib/gcc/<triple>/<major>.<minor>.<patch>/, so we
+  // need to iterate twice.
+  std::error_code EC;
+  for (llvm::sys::fs::directory_iterator LI(LibDir, EC), LE; !EC && LI != LE;
+       LI = LI.increment(EC)) {
+    StringRef VersionText = llvm::sys::path::filename(LI->path());
+    GCCVersion CandidateVersion = GCCVersion::Parse(VersionText);
+
+    if (CandidateVersion.Major != -1) // Filter obviously bad entries.
+      if (!CandidateGCCInstallPaths.insert(LI->path()).second)
+        continue; // Saw this path before; no need to look at it again.
+    if (CandidateVersion.isOlderThan(4, 1, 1))
+      continue;
+    if (CandidateVersion <= Version)
+      continue;
+
+    GCCInstallPath =
+        LibDir + "/" + VersionText.str() + "/lib/gcc/" + CandidateTriple.str();
+    if (!llvm::sys::fs::exists(GCCInstallPath))
+      continue;
+
+    // If we make it here there has to be at least one GCC version, let's just
+    // use the latest one.
+    std::error_code EEC;
+    for (llvm::sys::fs::directory_iterator LLI(GCCInstallPath, EEC), LLE;
+         !EEC && LLI != LLE; LLI = LLI.increment(EEC)) {
+
+      StringRef SubVersionText = llvm::sys::path::filename(LLI->path());
+      GCCVersion CandidateSubVersion = GCCVersion::Parse(SubVersionText);
+
+      if (CandidateSubVersion > Version)
+        Version = CandidateSubVersion;
+    }
+
+    GCCTriple.setTriple(CandidateTriple);
+
+    GCCInstallPath += "/" + Version.Text;
+    GCCParentLibPath = GCCInstallPath + "/../../../../";
+
+    IsValid = true;
+  }
+}
+
 void Generic_GCC::GCCInstallationDetector::ScanLibDirForGCCTriple(
     const llvm::Triple &TargetTriple, const ArgList &Args,
     const std::string &LibDir, StringRef CandidateTriple,
@@ -1914,34 +2017,39 @@ void Generic_GCC::GCCInstallationDetector::ScanLibDirForGCCTriple(
   llvm::Triple::ArchType TargetArch = TargetTriple.getArch();
   // There are various different suffixes involving the triple we
   // check for. We also record what is necessary to walk from each back
-  // up to the lib directory.
-  const std::string LibSuffixes[] = {
-      "/gcc/" + CandidateTriple.str(),
+  // up to the lib directory. Specifically, the number of "up" steps
+  // in the second half of each row is 1 + the number of path separators
+  // in the first half.
+  const std::string LibAndInstallSuffixes[][2] = {
+      {"/gcc/" + CandidateTriple.str(), "/../../.."},
+
       // Debian puts cross-compilers in gcc-cross
-      "/gcc-cross/" + CandidateTriple.str(),
-      "/" + CandidateTriple.str() + "/gcc/" + CandidateTriple.str(),
+      {"/gcc-cross/" + CandidateTriple.str(), "/../../.."},
+
+      {"/" + CandidateTriple.str() + "/gcc/" + CandidateTriple.str(),
+       "/../../../.."},
 
       // The Freescale PPC SDK has the gcc libraries in
       // <sysroot>/usr/lib/<triple>/x.y.z so have a look there as well.
-      "/" + CandidateTriple.str(),
+      {"/" + CandidateTriple.str(), "/../.."},
 
       // Ubuntu has a strange mis-matched pair of triples that this happens to
       // match.
       // FIXME: It may be worthwhile to generalize this and look for a second
       // triple.
-      "/i386-linux-gnu/gcc/" + CandidateTriple.str()};
-  const std::string InstallSuffixes[] = {
-      "/../../..",    // gcc/
-      "/../../..",    // gcc-cross/
-      "/../../../..", // <triple>/gcc/
-      "/../..",       // <triple>/
-      "/../../../.."  // i386-linux-gnu/gcc/<triple>/
-  };
+      {"/i386-linux-gnu/gcc/" + CandidateTriple.str(), "/../../../.."}};
+
+  if (TargetTriple.getOS() == llvm::Triple::Solaris) {
+    scanLibDirForGCCTripleSolaris(TargetTriple, Args, LibDir, CandidateTriple,
+                                  NeedsBiarchSuffix);
+    return;
+  }
+
   // Only look at the final, weird Ubuntu suffix for i386-linux-gnu.
-  const unsigned NumLibSuffixes =
-      (llvm::array_lengthof(LibSuffixes) - (TargetArch != llvm::Triple::x86));
+  const unsigned NumLibSuffixes = (llvm::array_lengthof(LibAndInstallSuffixes) -
+                                   (TargetArch != llvm::Triple::x86));
   for (unsigned i = 0; i < NumLibSuffixes; ++i) {
-    StringRef LibSuffix = LibSuffixes[i];
+    StringRef LibSuffix = LibAndInstallSuffixes[i][0];
     std::error_code EC;
     for (llvm::sys::fs::directory_iterator LI(LibDir + LibSuffix, EC), LE;
          !EC && LI != LE; LI = LI.increment(EC)) {
@@ -1975,8 +2083,9 @@ void Generic_GCC::GCCInstallationDetector::ScanLibDirForGCCTriple(
       // FIXME: We hack together the directory name here instead of
       // using LI to ensure stable path separators across Windows and
       // Linux.
-      GCCInstallPath = LibDir + LibSuffixes[i] + "/" + VersionText.str();
-      GCCParentLibPath = GCCInstallPath + InstallSuffixes[i];
+      GCCInstallPath =
+          LibDir + LibAndInstallSuffixes[i][0] + "/" + VersionText.str();
+      GCCParentLibPath = GCCInstallPath + LibAndInstallSuffixes[i][1];
       IsValid = true;
     }
   }
@@ -1984,7 +2093,7 @@ void Generic_GCC::GCCInstallationDetector::ScanLibDirForGCCTriple(
 
 Generic_GCC::Generic_GCC(const Driver &D, const llvm::Triple &Triple,
                          const ArgList &Args)
-    : ToolChain(D, Triple, Args), GCCInstallation() {
+    : ToolChain(D, Triple, Args), GCCInstallation(), CudaInstallation() {
   getProgramPaths().push_back(getDriver().getInstalledDir());
   if (getDriver().getInstalledDir() != getDriver().Dir)
     getProgramPaths().push_back(getDriver().Dir);
@@ -2016,6 +2125,7 @@ Tool *Generic_GCC::buildLinker() const { return new tools::gcc::Linker(*this); }
 void Generic_GCC::printVerboseInfo(raw_ostream &OS) const {
   // Print the information about how we detected the GCC installation.
   GCCInstallation.print(OS);
+  CudaInstallation.print(OS);
 }
 
 bool Generic_GCC::IsUnwindTablesDefault() const {
@@ -2383,7 +2493,7 @@ NaClToolChain::NaClToolChain(const Driver &D, const llvm::Triple &Triple,
   switch (Triple.getArch()) {
   case llvm::Triple::x86: {
     file_paths.push_back(FilePath + "x86_64-nacl/lib32");
-    file_paths.push_back(FilePath + "x86_64-nacl/usr/lib32");
+    file_paths.push_back(FilePath + "i686-nacl/usr/lib");
     prog_paths.push_back(ProgPath + "x86_64-nacl/bin");
     file_paths.push_back(ToolPath + "i686-nacl");
     break;
@@ -2414,7 +2524,7 @@ NaClToolChain::NaClToolChain(const Driver &D, const llvm::Triple &Triple,
   }
 
   // Use provided linker, not system linker
-  Linker = GetProgramPath("ld");
+  Linker = GetLinkerPath();
   NaClArmMacrosPath = GetFilePath("nacl-arm-macros.s");
 }
 
@@ -2435,11 +2545,20 @@ void NaClToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
 
   SmallString<128> P(D.Dir + "/../");
   switch (getTriple().getArch()) {
+  case llvm::Triple::x86:
+    // x86 is special because multilib style uses x86_64-nacl/include for libc
+    // headers but the SDK wants i686-nacl/usr/include. The other architectures
+    // have the same substring.
+    llvm::sys::path::append(P, "i686-nacl/usr/include");
+    addSystemInclude(DriverArgs, CC1Args, P.str());
+    llvm::sys::path::remove_filename(P);
+    llvm::sys::path::remove_filename(P);
+    llvm::sys::path::remove_filename(P);
+    llvm::sys::path::append(P, "x86_64-nacl/include");
+    addSystemInclude(DriverArgs, CC1Args, P.str());
+    return;
   case llvm::Triple::arm:
     llvm::sys::path::append(P, "arm-nacl/usr/include");
-    break;
-  case llvm::Triple::x86:
-    llvm::sys::path::append(P, "x86_64-nacl/usr/include");
     break;
   case llvm::Triple::x86_64:
     llvm::sys::path::append(P, "x86_64-nacl/usr/include");
@@ -2895,18 +3014,45 @@ Tool *Minix::buildAssembler() const {
 
 Tool *Minix::buildLinker() const { return new tools::minix::Linker(*this); }
 
+static void addPathIfExists(Twine Path, ToolChain::path_list &Paths) {
+  if (llvm::sys::fs::exists(Path))
+    Paths.push_back(Path.str());
+}
+
 /// Solaris - Solaris tool chain which can call as(1) and ld(1) directly.
 
 Solaris::Solaris(const Driver &D, const llvm::Triple &Triple,
                  const ArgList &Args)
     : Generic_GCC(D, Triple, Args) {
 
-  getProgramPaths().push_back(getDriver().getInstalledDir());
-  if (getDriver().getInstalledDir() != getDriver().Dir)
-    getProgramPaths().push_back(getDriver().Dir);
+  GCCInstallation.init(D, Triple, Args);
 
-  getFilePaths().push_back(getDriver().Dir + "/../lib");
-  getFilePaths().push_back("/usr/lib");
+  path_list &Paths = getFilePaths();
+  if (GCCInstallation.isValid())
+    addPathIfExists(GCCInstallation.getInstallPath(), Paths);
+
+  addPathIfExists(getDriver().getInstalledDir(), Paths);
+  if (getDriver().getInstalledDir() != getDriver().Dir)
+    addPathIfExists(getDriver().Dir, Paths);
+
+  addPathIfExists(getDriver().SysRoot + getDriver().Dir + "/../lib", Paths);
+
+  std::string LibPath = "/usr/lib/";
+  switch (Triple.getArch()) {
+  case llvm::Triple::x86:
+  case llvm::Triple::sparc:
+    break;
+  case llvm::Triple::x86_64:
+    LibPath += "amd64/";
+    break;
+  case llvm::Triple::sparcv9:
+    LibPath += "sparcv9/";
+    break;
+  default:
+    llvm_unreachable("Unsupported architecture");
+  }
+
+  addPathIfExists(getDriver().SysRoot + LibPath, Paths);
 }
 
 Tool *Solaris::buildAssembler() const {
@@ -2914,6 +3060,31 @@ Tool *Solaris::buildAssembler() const {
 }
 
 Tool *Solaris::buildLinker() const { return new tools::solaris::Linker(*this); }
+
+void Solaris::AddClangCXXStdlibIncludeArgs(const ArgList &DriverArgs,
+                                           ArgStringList &CC1Args) const {
+  if (DriverArgs.hasArg(options::OPT_nostdlibinc) ||
+      DriverArgs.hasArg(options::OPT_nostdincxx))
+    return;
+
+  // Include the support directory for things like xlocale and fudged system
+  // headers.
+  addSystemInclude(DriverArgs, CC1Args, "/usr/include/c++/v1/support/solaris");
+
+  if (GCCInstallation.isValid()) {
+    GCCVersion Version = GCCInstallation.getVersion();
+    addSystemInclude(DriverArgs, CC1Args,
+                     getDriver().SysRoot + "/usr/gcc/" +
+                     Version.MajorStr + "." +
+                     Version.MinorStr +
+                     "/include/c++/" + Version.Text);
+    addSystemInclude(DriverArgs, CC1Args,
+                     getDriver().SysRoot + "/usr/gcc/" + Version.MajorStr +
+                     "." + Version.MinorStr + "/include/c++/" +
+                     Version.Text + "/" +
+                     GCCInstallation.getTriple().str());
+  }
+}
 
 /// Distribution (very bare-bones at the moment).
 
@@ -2975,7 +3146,7 @@ static Distro DetectDistro(llvm::Triple::ArchType Arch) {
     SmallVector<StringRef, 16> Lines;
     Data.split(Lines, "\n");
     Distro Version = UnknownDistro;
-    for (const StringRef Line : Lines)
+    for (StringRef Line : Lines)
       if (Version == UnknownDistro && Line.startswith("DISTRIB_CODENAME="))
         Version = llvm::StringSwitch<Distro>(Line.substr(17))
                       .Case("hardy", UbuntuHardy)
@@ -3145,13 +3316,12 @@ static std::string getMultiarchTriple(const llvm::Triple &TargetTriple,
     if (llvm::sys::fs::exists(SysRoot + "/lib/sparc64-linux-gnu"))
       return "sparc64-linux-gnu";
     break;
+  case llvm::Triple::systemz:
+    if (llvm::sys::fs::exists(SysRoot + "/lib/s390x-linux-gnu"))
+      return "s390x-linux-gnu";
+    break;
   }
   return TargetTriple.str();
-}
-
-static void addPathIfExists(Twine Path, ToolChain::path_list &Paths) {
-  if (llvm::sys::fs::exists(Path))
-    Paths.push_back(Path.str());
 }
 
 static StringRef getOSLibDir(const llvm::Triple &Triple, const ArgList &Args) {
@@ -3187,6 +3357,7 @@ static StringRef getOSLibDir(const llvm::Triple &Triple, const ArgList &Args) {
 Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
     : Generic_ELF(D, Triple, Args) {
   GCCInstallation.init(D, Triple, Args);
+  CudaInstallation.init(D, Triple, Args);
   Multilibs = GCCInstallation.getMultilibs();
   llvm::Triple::ArchType Arch = Triple.getArch();
   std::string SysRoot = computeSysRoot();
@@ -3488,6 +3659,8 @@ void Linux::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
       "/usr/include/sparc-linux-gnu"};
   const StringRef Sparc64MultiarchIncludeDirs[] = {
       "/usr/include/sparc64-linux-gnu"};
+  const StringRef SYSTEMZMultiarchIncludeDirs[] = {
+      "/usr/include/s390x-linux-gnu"};
   ArrayRef<StringRef> MultiarchIncludeDirs;
   switch (getTriple().getArch()) {
   case llvm::Triple::x86_64:
@@ -3532,6 +3705,9 @@ void Linux::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
     break;
   case llvm::Triple::sparcv9:
     MultiarchIncludeDirs = Sparc64MultiarchIncludeDirs;
+    break;
+  case llvm::Triple::systemz:
+    MultiarchIncludeDirs = SYSTEMZMultiarchIncludeDirs;
     break;
   default:
     break;
@@ -3673,20 +3849,23 @@ SanitizerMask Linux::getSupportedSanitizers() const {
                         getTriple().getArch() == llvm::Triple::mips64el;
   const bool IsPowerPC64 = getTriple().getArch() == llvm::Triple::ppc64 ||
                            getTriple().getArch() == llvm::Triple::ppc64le;
+  const bool IsAArch64 = getTriple().getArch() == llvm::Triple::aarch64 ||
+                         getTriple().getArch() == llvm::Triple::aarch64_be;
   SanitizerMask Res = ToolChain::getSupportedSanitizers();
   Res |= SanitizerKind::Address;
   Res |= SanitizerKind::KernelAddress;
   Res |= SanitizerKind::Vptr;
-  if (IsX86_64 || IsMIPS64) {
+  Res |= SanitizerKind::SafeStack;
+  if (IsX86_64 || IsMIPS64 || IsAArch64)
     Res |= SanitizerKind::DataFlow;
+  if (IsX86_64 || IsMIPS64)
     Res |= SanitizerKind::Leak;
+  if (IsX86_64 || IsMIPS64 || IsAArch64)
     Res |= SanitizerKind::Thread;
-  }
-  if (IsX86_64 || IsMIPS64 || IsPowerPC64)
+  if (IsX86_64 || IsMIPS64 || IsPowerPC64 || IsAArch64)
     Res |= SanitizerKind::Memory;
   if (IsX86 || IsX86_64) {
     Res |= SanitizerKind::Function;
-    Res |= SanitizerKind::SafeStack;
   }
   return Res;
 }
@@ -3841,9 +4020,39 @@ void XCoreToolChain::AddCXXStdlibLibArgs(const ArgList &Args,
   // We don't output any lib args. This is handled by xcc.
 }
 
-// SHAVEToolChain does not call Clang's C compiler.
-// We override SelectTool to avoid testing ShouldUseClangCompiler().
-Tool *SHAVEToolChain::SelectTool(const JobAction &JA) const {
+MyriadToolChain::MyriadToolChain(const Driver &D, const llvm::Triple &Triple,
+                                 const ArgList &Args)
+    : Generic_GCC(D, Triple, Args) {
+  // If a target of 'sparc-myriad-elf' is specified to clang, it wants to use
+  // 'sparc-myriad--elf' (note the unknown OS) as the canonical triple.
+  // This won't work to find gcc. Instead we give the installation detector an
+  // extra triple, which is preferable to further hacks of the logic that at
+  // present is based solely on getArch(). In particular, it would be wrong to
+  // choose the myriad installation when targeting a non-myriad sparc install.
+  switch (Triple.getArch()) {
+  default:
+    D.Diag(diag::err_target_unsupported_arch) << Triple.getArchName() << "myriad";
+  case llvm::Triple::sparc:
+  case llvm::Triple::sparcel:
+  case llvm::Triple::shave:
+    GCCInstallation.init(D, Triple, Args, {"sparc-myriad-elf"});
+  }
+}
+
+MyriadToolChain::~MyriadToolChain() {}
+
+void MyriadToolChain::AddClangSystemIncludeArgs(const ArgList &DriverArgs,
+                                                ArgStringList &CC1Args) const {
+  if (!DriverArgs.hasArg(options::OPT_nostdinc))
+    addSystemInclude(DriverArgs, CC1Args, getDriver().SysRoot + "/include");
+}
+
+// MyriadToolChain handles several triples:
+//  {shave,sparc{,el}}-myriad-{rtems,unknown}-elf
+Tool *MyriadToolChain::SelectTool(const JobAction &JA) const {
+  // The inherited method works fine if not targeting the SHAVE.
+  if (!isShaveCompilation(getTriple()))
+    return ToolChain::SelectTool(JA);
   switch (JA.getKind()) {
   case Action::CompileJobClass:
     if (!Compiler)
@@ -3858,28 +4067,56 @@ Tool *SHAVEToolChain::SelectTool(const JobAction &JA) const {
   }
 }
 
-SHAVEToolChain::SHAVEToolChain(const Driver &D, const llvm::Triple &Triple,
-                               const ArgList &Args)
-    : Generic_GCC(D, Triple, Args) {}
-
-SHAVEToolChain::~SHAVEToolChain() {}
-
-/// Following are methods necessary to avoid having moviClang be an abstract
-/// class.
-
-Tool *SHAVEToolChain::getTool(Action::ActionClass AC) const {
-  // SelectTool() must find a tool using the method in the superclass.
-  // There's nothing we can do if that fails.
-  llvm_unreachable("SHAVEToolChain can't getTool");
+void MyriadToolChain::getCompilerSupportDir(std::string &Dir) const {
+  // This directory contains crt{i,n,begin,end}.o as well as libgcc.
+  // These files are tied to a particular version of gcc.
+  SmallString<128> Result(GCCInstallation.getInstallPath());
+  // There are actually 4 choices: {le,be} x {fpu,nofpu}
+  // but as this toolchain is for LEON sparc, it can assume FPU.
+  if (this->getTriple().getArch() == llvm::Triple::sparcel)
+    llvm::sys::path::append(Result, "le");
+  Dir.assign(Result.str());
+}
+void MyriadToolChain::getBuiltinLibDir(std::string &Dir) const {
+  // The contents of LibDir are independent of the version of gcc.
+  // This contains libc, libg (a superset of libc), libm, libstdc++, libssp.
+  SmallString<128> Result(GCCInstallation.getParentLibPath());
+  if (this->getTriple().getArch() == llvm::Triple::sparcel)
+    llvm::sys::path::append(Result, "../sparc-myriad-elf/lib/le");
+  else
+    llvm::sys::path::append(Result, "../sparc-myriad-elf/lib");
+  Dir.assign(Result.str());
 }
 
-Tool *SHAVEToolChain::buildLinker() const {
-  // SHAVEToolChain executables can not be linked except by the vendor tools.
-  llvm_unreachable("SHAVEToolChain can't buildLinker");
+Tool *MyriadToolChain::buildLinker() const {
+  return new tools::Myriad::Linker(*this);
 }
 
-Tool *SHAVEToolChain::buildAssembler() const {
-  // This one you'd think should be reachable since we expose an
-  // assembler to the driver, except not the way it expects.
-  llvm_unreachable("SHAVEToolChain can't buildAssembler");
+bool WebAssembly::IsMathErrnoDefault() const { return false; }
+
+bool WebAssembly::IsObjCNonFragileABIDefault() const { return true; }
+
+bool WebAssembly::UseObjCMixedDispatch() const { return true; }
+
+bool WebAssembly::isPICDefault() const { return false; }
+
+bool WebAssembly::isPIEDefault() const { return false; }
+
+bool WebAssembly::isPICDefaultForced() const { return false; }
+
+bool WebAssembly::IsIntegratedAssemblerDefault() const { return true; }
+
+// TODO: Support Objective C stuff.
+bool WebAssembly::SupportsObjCGC() const { return false; }
+
+bool WebAssembly::hasBlocksRuntime() const { return false; }
+
+// TODO: Support profiling.
+bool WebAssembly::SupportsProfiling() const { return false; }
+
+void WebAssembly::addClangTargetOptions(const ArgList &DriverArgs,
+                                        ArgStringList &CC1Args) const {
+  if (DriverArgs.hasFlag(options::OPT_fuse_init_array,
+                         options::OPT_fno_use_init_array, true))
+    CC1Args.push_back("-fuse-init-array");
 }
