@@ -863,7 +863,7 @@ public:
   bool IsUnwindTablesDefault() const override;
 
 protected:
-   virtual Tool *buildLinker() const;
+  virtual Tool *buildLinker() const;
 };
 
 class LLVM_LIBRARY_VISIBILITY MSVCToolChain : public ToolChain {

@@ -259,7 +259,7 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     endif()
 endif()
 
-# XXX disabel lldb-server and debugserver for Nyuzi
+# XXX disable lldb-server and debugserver for Nyuzi
 
 # Figure out if lldb could use lldb-server.  If so, then we'll
 # ensure we build lldb-server when an lldb target is being built.
