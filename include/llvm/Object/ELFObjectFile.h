@@ -896,7 +896,7 @@ unsigned ELFObjectFile<ELFT>::getArch() const {
   case ELF::EM_PPC64:
     return IsLittleEndian ? Triple::ppc64le : Triple::ppc64;
   case ELF::EM_NYUZI:
-  	return Triple::nyuzi;
+    return Triple::nyuzi;
   case ELF::EM_S390:
     return Triple::systemz;
 

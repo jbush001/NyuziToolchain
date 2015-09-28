@@ -2264,7 +2264,7 @@ const ToolChain &Driver::getToolChain(const ArgList &Args,
       case llvm::Triple::hexagon:
         TC = new toolchains::HexagonToolChain(*this, Target, Args);
         break;
-	  case llvm::Triple::nyuzi:
+      case llvm::Triple::nyuzi:
         TC = new toolchains::NyuziToolChain(*this, Target, Args);
         break;
       case llvm::Triple::xcore:

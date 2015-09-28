@@ -6873,12 +6873,12 @@ public:
     Builder.defineMacro("__NYUZI__");
   }
 
-	virtual void getTargetBuiltins(const Builtin::Info *&Records,
-		                             unsigned &NumRecords) const override
-	{
-		Records = BuiltinInfo;
-		NumRecords = clang::Nyuzi::LastTSBuiltin - Builtin::FirstTSBuiltin;
-	}
+  virtual void getTargetBuiltins(const Builtin::Info *&Records,
+                                 unsigned &NumRecords) const override
+  {
+    Records = BuiltinInfo;
+    NumRecords = clang::Nyuzi::LastTSBuiltin - Builtin::FirstTSBuiltin;
+  }
 
   virtual void getGCCRegNames(const char *const *&Names,
                               unsigned &NumNames) const override;
@@ -6896,9 +6896,9 @@ public:
     return "";
   }
 
-	virtual BuiltinVaListKind getBuiltinVaListKind() const override {
-		return TargetInfo::VoidPtrBuiltinVaList;
-	}
+  virtual BuiltinVaListKind getBuiltinVaListKind() const override {
+    return TargetInfo::VoidPtrBuiltinVaList;
+  }
 };
 
 const char *const NyuziTargetInfo::GCCRegNames[] = {
@@ -7533,7 +7533,7 @@ static TargetInfo *AllocateTarget(const llvm::Triple &Triple) {
     }
 
   case llvm::Triple::nyuzi:
-      return new NyuziTargetInfo(Triple);
+    return new NyuziTargetInfo(Triple);
 
   case llvm::Triple::mipsel:
     switch (os) {

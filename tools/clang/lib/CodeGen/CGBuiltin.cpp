@@ -1888,7 +1888,7 @@ static Value *EmitTargetArchBuiltinExpr(CodeGenFunction *CGF,
   case llvm::Triple::ppc64le:
     return CGF->EmitPPCBuiltinExpr(BuiltinID, E);
   case llvm::Triple::nyuzi:
-  	return CGF->EmitNyuziBuiltinExpr(BuiltinID, E);
+    return CGF->EmitNyuziBuiltinExpr(BuiltinID, E);
   case llvm::Triple::r600:
   case llvm::Triple::amdgcn:
     return CGF->EmitAMDGPUBuiltinExpr(BuiltinID, E);
@@ -6409,15 +6409,15 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
 Value *CodeGenFunction::EmitNyuziBuiltinExpr(unsigned BuiltinID,
                                            const CallExpr *E) {
 	// Push parameters into array.
-    SmallVector<Value*, 2> Ops;
-    for (unsigned i = 0; i < E->getNumArgs(); i++)
-      Ops.push_back(EmitScalarExpr(E->getArg(i)));
+  SmallVector<Value*, 2> Ops;
+  for (unsigned i = 0; i < E->getNumArgs(); i++)
+    Ops.push_back(EmitScalarExpr(E->getArg(i)));
 
 	switch (BuiltinID)
 	{
-		case Nyuzi::BI__builtin_nyuzi_makevectori:
-		case Nyuzi::BI__builtin_nyuzi_makevectorf:
-			return Builder.CreateVectorSplat(16, Ops[0]);
+    case Nyuzi::BI__builtin_nyuzi_makevectori:
+    case Nyuzi::BI__builtin_nyuzi_makevectorf:
+      return Builder.CreateVectorSplat(16, Ops[0]);
 	}
 
 	// This maps directly to an LLVM intrinsic.  Look up the function name and create
@@ -6425,148 +6425,115 @@ Value *CodeGenFunction::EmitNyuziBuiltinExpr(unsigned BuiltinID,
 	// instruction in the backend).
 	llvm::Function *F;
 	switch (BuiltinID) {
-		case Nyuzi::BI__builtin_nyuzi_read_control_reg:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_read_control_reg);
-			break;
-			
-		case Nyuzi::BI__builtin_nyuzi_write_control_reg:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_write_control_reg);
-			break;
-			
-		case Nyuzi::BI__builtin_nyuzi_shufflei:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_shufflei);
-			break;
+    case Nyuzi::BI__builtin_nyuzi_read_control_reg:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_read_control_reg);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_write_control_reg:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_write_control_reg);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_shufflei:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_shufflei);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_shufflef:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_shufflef);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_vector_mixi:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_vector_mixi);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_vector_mixf:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_vector_mixf);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_gather_loadi:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadi);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_gather_loadf:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadf);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_gather_loadi_masked:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadi_masked);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_gather_loadf_masked:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadf_masked);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_scatter_storei:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storei);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_scatter_storef:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storef);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_scatter_storei_masked:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storei_masked);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_scatter_storef_masked:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storef_masked);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_block_loadi_masked:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_block_loadi_masked);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_block_loadf_masked:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_block_loadf_masked);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_block_storei_masked:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_block_storei_masked);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_block_storef_masked:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_block_storef_masked);
+      break;
 
-		case Nyuzi::BI__builtin_nyuzi_shufflef:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_shufflef);
-			break;
-		
-		case Nyuzi::BI__builtin_nyuzi_vector_mixi:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_vector_mixi);
-			break;
+    // Vector comparisions
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ugt: 
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ugt);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_uge: 
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_uge);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ult: 
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ult);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ule: 
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ule);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sgt: 
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_sgt);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sge: 
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_sge);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_slt: 
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_slt);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sle: 
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_sle);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_eq:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_eq);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ne:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ne);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_gt:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_gt);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_ge:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_ge);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_lt:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_lt);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_le:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_le);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_eq:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_eq);
+      break;
+    case Nyuzi::BI__builtin_nyuzi_mask_cmpf_ne:
+      F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_ne);
+      break;
+    default:
+      return 0;
+  }
 
-		case Nyuzi::BI__builtin_nyuzi_vector_mixf:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_vector_mixf);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_gather_loadi:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadi);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_gather_loadf:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadf);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_gather_loadi_masked:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadi_masked);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_gather_loadf_masked:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_gather_loadf_masked);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_scatter_storei:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storei);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_scatter_storef:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storef);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_scatter_storei_masked:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storei_masked);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_scatter_storef_masked:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_scatter_storef_masked);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_block_loadi_masked:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_block_loadi_masked);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_block_loadf_masked:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_block_loadf_masked);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_block_storei_masked:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_block_storei_masked);
-			break;
-		
-		case Nyuzi::BI__builtin_nyuzi_block_storef_masked:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_block_storef_masked);
-			break;
-
-		// Vector comparisions
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ugt: 
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ugt);
-			break;
-			
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_uge: 
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_uge);
-			break;
-			
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ult: 
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ult);
-			break;
-		
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ule: 
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ule);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sgt: 
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_sgt);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sge: 
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_sge);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_slt: 
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_slt);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_sle: 
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_sle);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_eq:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_eq);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpi_ne:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpi_ne);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpf_gt:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_gt);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpf_ge:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_ge);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpf_lt:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_lt);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpf_le:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_le);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpf_eq:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_eq);
-			break;
-
-		case Nyuzi::BI__builtin_nyuzi_mask_cmpf_ne:
-			F = CGM.getIntrinsic(Intrinsic::nyuzi_mask_cmpf_ne);
-			break;
-		
-		default:
-			return 0;
-	}
-
-	return Builder.CreateCall(F, Ops, "");
+  return Builder.CreateCall(F, Ops, "");
 }
 
 Value *CodeGenFunction::EmitPPCBuiltinExpr(unsigned BuiltinID,

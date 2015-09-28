@@ -18,5 +18,5 @@ add_llvm_library(MCLDCore
     MCLDHexagonLDBackend
     MCLDMipsLDBackend
     MCLDX86LDBackend
-	  MCLDNyuziLDBackend
+    MCLDNyuziLDBackend
   )

@@ -646,7 +646,7 @@ if(NOT LLVM_TOOLCHAIN_TOOLS)
     llvm-ranlib
     llvm-lib
     llvm-objdump
-	  elf2hex
+    elf2hex
     )
 endif()
 
