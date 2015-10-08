@@ -6868,6 +6868,10 @@ public:
     LongDoubleFormat = &llvm::APFloat::IEEEsingle;
   }
 
+  bool setCPU(const std::string &Name) override {
+    return Name == "nyuzi";
+  }
+
   virtual void getTargetDefines(const LangOptions &Opts,
                                 MacroBuilder &Builder) const override {
     Builder.defineMacro("__NYUZI__");

@@ -40,7 +40,8 @@ def SEXT16 : FormatRUnmaskedOneOpInst<
 	"sext_16 $dest, $src2",
 	[(set GPR32:$dest, (sext_inreg i32:$src2, i16))],
 	0x1e,
-	FmtR_SSS>;
+	FmtR_SSS,
+	II_INT>;
 
 def SEXT8 : FormatRUnmaskedOneOpInst<
 	(outs GPR32:$dest), 
@@ -48,7 +49,8 @@ def SEXT8 : FormatRUnmaskedOneOpInst<
 	"sext_8 $dest, $src2",
 	[(set GPR32:$dest, (sext_inreg i32:$src2, i8))],
 	0x1d,
-	FmtR_SSS>;
+	FmtR_SSS,
+	II_INT>;
 
 // XXX need predicated versions of these
 def ITOFSS : FormatRUnmaskedOneOpInst<
@@ -57,7 +59,8 @@ def ITOFSS : FormatRUnmaskedOneOpInst<
 	"itof $dest, $src2",
 	[(set f32:$dest, (sint_to_fp i32:$src2))],
 	0x2a,
-	FmtR_SSS>;
+	FmtR_SSS,
+	II_FLOAT>;
 
 def ITOFVV : FormatRUnmaskedOneOpInst<
 	(outs VR512:$dest), 
@@ -65,7 +68,8 @@ def ITOFVV : FormatRUnmaskedOneOpInst<
 	"itof $dest, $src2",
 	[(set v16f32:$dest, (sint_to_fp v16i32:$src2))],
 	0x2a,
-	FmtR_VVV>;
+	FmtR_VVV,
+	II_FLOAT>;
 
 def ITOFVS : FormatRUnmaskedOneOpInst<
 	(outs VR512:$dest), 
@@ -73,7 +77,8 @@ def ITOFVS : FormatRUnmaskedOneOpInst<
 	"itof $dest, $src2",
 	[(set v16f32:$dest, (sint_to_fp (splat i32:$src2)))],
 	0x2a,
-	FmtR_VVS>;
+	FmtR_VVS,
+	II_FLOAT>;
 
 def FTOIISS : FormatRUnmaskedOneOpInst<
 	(outs GPR32:$dest), 
@@ -81,7 +86,8 @@ def FTOIISS : FormatRUnmaskedOneOpInst<
 	"ftoi $dest, $src2",
 	[(set i32:$dest, (fp_to_sint f32:$src2))],
 	0x1b,
-	FmtR_SSS>;
+	FmtR_SSS,
+	II_FLOAT>;
 
 def FTOSIVV : FormatRUnmaskedOneOpInst<
 	(outs VR512:$dest), 
@@ -89,7 +95,8 @@ def FTOSIVV : FormatRUnmaskedOneOpInst<
 	"ftoi $dest, $src2",
 	[(set v16i32:$dest, (fp_to_sint v16f32:$src2))],
 	0x1b,
-	FmtR_VVV>;
+	FmtR_VVV,
+	II_FLOAT>;
 
 def FTOSIVS : FormatRUnmaskedOneOpInst<
 	(outs VR512:$dest), 
@@ -97,7 +104,8 @@ def FTOSIVS : FormatRUnmaskedOneOpInst<
 	"ftoi $dest, $src2",
 	[(set v16i32:$dest, (fp_to_sint (splat f32:$src2)))],
 	0x1b,
-	FmtR_VVS>;
+	FmtR_VVS,
+	II_FLOAT>;
 
 defm SGTSI : IntCompareInst<"cmpgt_i", SETGT, 0x12, int_nyuzi_mask_cmpi_sgt>;	
 defm SGESI : IntCompareInst<"cmpge_i", SETGE, 0x13, int_nyuzi_mask_cmpi_sge>;
@@ -123,7 +131,8 @@ def GET_LANEI : FormatRUnmaskedTwoOpInst<
 	"getlane $dest, $src1, $src2",	// XXX this isn't a good name, replace
 	[(set i32:$dest, (extractelt v16i32:$src1, i32:$src2))],
 	0x1a,
-	FmtR_VVS>;
+	FmtR_VVS,
+	II_INT>;
 
 def GET_LANEIimm : FormatIUnmaskedInst<
 	(outs GPR32:$dest),
@@ -131,7 +140,8 @@ def GET_LANEIimm : FormatIUnmaskedInst<
 	"getlane $dest, $src1, $imm",
 	[(set i32:$dest, (extractelt v16i32:$src1, simm13:$imm))],
 	0x1a,
-	FmtI_VV>;
+	FmtI_VV,
+	II_INT>;
 
 def : Pat<(extractelt v16f32:$src1, i32:$src2),
 	(GET_LANEI v16f32:$src1, i32:$src2)>; 
@@ -144,7 +154,8 @@ def SHUFFLEI : FormatRUnmaskedTwoOpInst<
 	"shuffle $dest, $src1, $src2",
 	[(set v16i32:$dest, (int_nyuzi_shufflei v16i32:$src1, v16i32:$src2))],
 	0x0d,
-	FmtR_VVV>;
+	FmtR_VVV,
+	II_INT>;
 	
 let Constraints = "$dest = $oldvalue" in {
 	def SHUFFLEI_MASK : FormatRMaskedTwoOpInst<
@@ -154,7 +165,8 @@ let Constraints = "$dest = $oldvalue" in {
 		[(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (int_nyuzi_shufflei v16i32:$src1, 
 			v16i32:$src2), v16i32:$oldvalue))],
 		0x0d,
-		FmtR_VVVM>;
+		FmtR_VVVM,
+		II_INT>;
 }
 
 // Floating point shuffle forms
@@ -170,7 +182,8 @@ def MOVESS : FormatRUnmaskedOneOpInst<
 	"move $dest, $src2",
 	[],	// assembler only form for register-to-register moves
 	0xf,
-	FmtR_SSS>;
+	FmtR_SSS,
+	II_INT>;
 
 // This should only be invoked for types that will fit in the immediate field 
 // of the instruction.  The lowering code will transform other types into
@@ -181,7 +194,8 @@ def MOVESimm : FormatIUnmaskedInst<
 	"move $dest, $imm",
 	[(set i32:$dest, imm:$imm)],	// XXX should this be simm13?
 	0x0f,
-	FmtI_SS>;
+	FmtI_SS,
+	II_INT>;
 
 def MOVEVSI : FormatRUnmaskedOneOpInst<
 	(outs VR512:$dest), 
@@ -189,7 +203,8 @@ def MOVEVSI : FormatRUnmaskedOneOpInst<
 	"move $dest, $src2",
 	[(set v16i32:$dest, (splat i32:$src2))],
 	0xf,
-	FmtR_VVS>;
+	FmtR_VVS,
+	II_INT>;
 
 def MOVEVimm : FormatIUnmaskedInst<
 	(outs VR512:$dest), 
@@ -197,7 +212,8 @@ def MOVEVimm : FormatIUnmaskedInst<
 	"move $dest, $imm",
 	[(set v16i32:$dest, (splat imm:$imm))],	// Should this be simm13
 	0xf,
-	FmtI_VS>;
+	FmtI_VS,
+	II_INT>;
 	
 def : Pat<(v16f32 (splat f32:$src2)), (MOVEVSI f32:$src2)>;
 
@@ -207,7 +223,8 @@ def MOVEVV : FormatRUnmaskedOneOpInst<
 	"move $dest, $src2",
 	[],
 	0xf,
-	FmtR_VVV>;
+	FmtR_VVV,
+	II_INT>;
 
 // Predicated
 let Constraints = "$dest = $oldvalue" in {
@@ -217,7 +234,8 @@ let Constraints = "$dest = $oldvalue" in {
 		"move_mask $dest, $mask, $src2",
 		[(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, v16i32:$src2, v16i32:$oldvalue))],
 		0xf,
-		FmtR_VVVM>;
+		FmtR_VVVM,
+		II_INT>;
 
 	def MOVEVVMIimm : FormatIMaskedInst<
 		(outs VR512:$dest),
@@ -225,7 +243,8 @@ let Constraints = "$dest = $oldvalue" in {
 		"move_mask $dest, $mask, $imm",
 		[(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (splat imm:$imm), v16i32:$oldvalue))],	// simm8?
 		0xf,
-		FmtI_VSM>;
+		FmtI_VSM,
+		II_INT>;
 
 	def MOVEVSMI : FormatRMaskedOneOpInst<
 		(outs VR512:$dest),
@@ -233,7 +252,8 @@ let Constraints = "$dest = $oldvalue" in {
 		"move_mask $dest, $mask, $src2",
 		[(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (splat i32:$src2), v16i32:$oldvalue))],
 		0xf,
-		FmtR_VVSM>;
+		FmtR_VVSM,
+		II_INT>;
 }
 
 def : Pat<(int_nyuzi_vector_mixf i32:$mask, v16f32:$src2, v16f32:$oldvalue), 
@@ -469,7 +489,8 @@ let isTerminator = 1 in {
 		(outs), 
 		(ins GPR32:$dest),
 		"goto $dest",
-		[(brind i32:$dest)]>
+		[(brind i32:$dest)],
+		II_BRANCH>
 	{
 		bits<5> dest;
 
@@ -491,7 +512,8 @@ let isTerminator = 1 in {
 		(outs), 
 		(ins GPR32:$tableptr, GPR32:$jt),
 		"load_32 pc, ( $tableptr )",
-		[(brjt i32:$tableptr, tjumptable:$jt)]>
+		[(brjt i32:$tableptr, tjumptable:$jt)],
+		II_MEMORY>
 	{
 		let isBranch = 1;
 		let isIndirectBranch = 1;
@@ -517,7 +539,8 @@ def RET : NyuziInstruction<
 	(outs),
 	(ins),
 	"ret",
-	[(return)]>
+	[(return)],
+	II_BRANCH>
 {
 	// This is encoded as move pc, ra
 	let Inst{31-29} = 6;	// format A instruction
@@ -535,7 +558,8 @@ def ERET : NyuziInstruction<
 	(outs),
 	(ins),
 	"eret",
-	[]>
+	[],
+	II_BRANCH>
 {
 	let Inst{31-28} = 0xf;
 	let Inst{27-25} = 7;	// Eret branch type
@@ -653,7 +677,8 @@ def LOAD_EFFECTIVE_ADDR : NyuziInstruction<
 	(outs GPR32:$dest),
 	(ins LEAri:$addr),
 	"lea $dest, $addr",
-	[(set i32:$dest, ADDRri:$addr)]>
+	[(set i32:$dest, ADDRri:$addr)],
+	II_INT>
 {
 	let isAsmParserOnly = 1; 	// Don't disassemble
 
@@ -676,7 +701,8 @@ def LOAD_JTABLE_ADDR : NyuziInstruction<
 	(outs GPR32:$dest),
 	(ins JTADDR:$addr),
 	"lea $dest, $addr",
-	[(set i32:$dest, (jtwrapper tjumptable:$addr))]>
+	[(set i32:$dest, (jtwrapper tjumptable:$addr))],
+	II_INT>
 {
 	let isCodeGenOnly = 1;  // Don't use for assembler or disassembler
   
@@ -694,7 +720,8 @@ def NOP : NyuziInstruction<
 	(outs),
 	(ins),
 	"nop",
-	[]>;
+	[],
+	II_INT>;
 
 // Conversions
 def : Pat<(v16f32 (bitconvert (v16i32 VR512:$src))), (v16f32 VR512:$src)>;

@@ -114,7 +114,7 @@ def call       : SDNode<"NyuziISD::CALL", SDT_SPCall,
 // Instruction Classes
 //////////////////////////////////////////////////////////////////
 
-class NyuziInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern>
+class NyuziInstruction<dag outputs, dag inputs, string asmString, list<dag> pattern, InstrItinClass itin>
 	: Instruction 
 {
 	let Namespace = "Nyuzi";
@@ -123,13 +123,14 @@ class NyuziInstruction<dag outputs, dag inputs, string asmString, list<dag> patt
 	let AsmString = asmString;
 	let Pattern = pattern;
 	let Size = 4;
+	let Itinerary = itin;
 
 	field bits<32> Inst;
 	field bits<32> SoftFail = 0;	// needed for disassembler
 }
 
 class Pseudo<dag outputs, dag inputs, list<dag> pattern>
-	: NyuziInstruction<outputs, inputs, "Pseudo", pattern>
+	: NyuziInstruction<outputs, inputs, "Pseudo", pattern, II_PSEUDO>
 {
 	let isCodeGenOnly = 1;
 	let isPseudo = 1;
@@ -164,8 +165,8 @@ def FmtR_VVV : FmtR<4>;
 def FmtR_VVVM : FmtR<5>;
 
 class FormatRInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
-	bits<6> opcode, FmtR fmt> 
-	: NyuziInstruction<outputs, inputs, asmString, pattern>
+	bits<6> opcode, FmtR fmt, InstrItinClass itin> 
+	: NyuziInstruction<outputs, inputs, asmString, pattern, itin>
 {
 	bits <5> dest;
 	bits <5> src2;
@@ -178,15 +179,15 @@ class FormatRInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 }
 
 class FormatRUnmaskedOneOpInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
-	bits<6> opcode, FmtR fmt> 
-	: FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt>
+	bits<6> opcode, FmtR fmt, InstrItinClass itin> 
+	: FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt, itin>
 {
 	let Inst{4-0} = 0;
 }
 
 class FormatRMaskedOneOpInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
-	bits<6> opcode, FmtR fmt> 
-	: FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt>
+	bits<6> opcode, FmtR fmt, InstrItinClass itin> 
+	: FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt, itin>
 {
 	bits <5> mask;
 	let Inst{14-10} = mask;
@@ -194,16 +195,16 @@ class FormatRMaskedOneOpInst<dag outputs, dag inputs, string asmString, list<dag
 }
 
 class FormatRUnmaskedTwoOpInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
-	bits<6> opcode, FmtR fmt> 
-	: FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt>
+	bits<6> opcode, FmtR fmt, InstrItinClass itin> 
+	: FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt, itin>
 {
 	bits <5> src1;
 	let Inst{4-0} = src1;
 }
 
 class FormatRMaskedTwoOpInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
-	bits<6> opcode, FmtR fmt> 
-	: FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt>
+	bits<6> opcode, FmtR fmt, InstrItinClass itin> 
+	: FormatRInst<outputs, inputs, asmString, pattern, opcode, fmt, itin>
 {
 	bits <5> src1;
 	bits <5> mask;
@@ -226,8 +227,8 @@ def FmtI_VS : FmtI<4>;
 def FmtI_VSM : FmtI<5>;
 
 class FormatIInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
-	bits<5> opcode, FmtI fmt>  
-	: NyuziInstruction<outputs, inputs, asmString, pattern> 
+	bits<5> opcode, FmtI fmt, InstrItinClass itin>  
+	: NyuziInstruction<outputs, inputs, asmString, pattern, itin> 
 {
 	bits <5> dest;
 	bits <5> src1;
@@ -240,8 +241,8 @@ class FormatIInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 }
 
 class FormatIMaskedInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
-	bits<5> opcode, FmtI fmt> 
-	: FormatIInst<outputs, inputs, asmString, pattern, opcode, fmt> 
+	bits<5> opcode, FmtI fmt, InstrItinClass itin> 
+	: FormatIInst<outputs, inputs, asmString, pattern, opcode, fmt, itin> 
 {
 	bits <5> mask;
 	bits <8> imm;
@@ -250,8 +251,8 @@ class FormatIMaskedInst<dag outputs, dag inputs, string asmString, list<dag> pat
 }
 
 class FormatIUnmaskedInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
-	bits<5> opcode, FmtI fmt> 
-	: FormatIInst<outputs, inputs, asmString, pattern, opcode, fmt> 
+	bits<5> opcode, FmtI fmt, InstrItinClass itin> 
+	: FormatIInst<outputs, inputs, asmString, pattern, opcode, fmt, itin> 
 {
 	bits <13> imm;
 	let Inst{22-10} = imm;
@@ -266,7 +267,8 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $src1, $src2",
 		[(set i32:$dest, (OpNode i32:$src1, i32:$src2))],
 		opcode,
-		FmtR_SSS>;
+		FmtR_SSS, 
+		II_INT>;
 		
 	// Vector = Vector Op Vector
 	def VVV : FormatRUnmaskedTwoOpInst<
@@ -275,7 +277,8 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $src1, $src2",
 		[(set v16i32:$dest, (OpNode v16i32:$src1, v16i32:$src2))],
 		opcode,
-		FmtR_VVV>;
+		FmtR_VVV, 
+		II_INT>;
 
 	// Vector = Vector Op Scalar
 	def VVS : FormatRUnmaskedTwoOpInst<
@@ -284,7 +287,8 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $src1, $src2",
 		[(set v16i32:$dest, (OpNode v16i32:$src1, (splat i32:$src2)))],
 		opcode,
-		FmtR_VVS>;
+		FmtR_VVS,
+		II_INT>;
 
 	let Constraints = "$dest = $oldvalue" in {
 		// Vector = Vector op Vector, masked
@@ -294,7 +298,8 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			operator # "_mask $dest, $mask, $src1, $src2",
 			[(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (OpNode v16i32:$src1, v16i32:$src2), v16i32:$oldvalue))],
 			opcode,
-			FmtR_VVVM>;
+			FmtR_VVVM,
+			II_INT>;
 
 		// Vector = Vector Op Scalar, masked
 		def VVSM : FormatRMaskedTwoOpInst<
@@ -303,7 +308,8 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			operator # "_mask $dest, $mask, $src1, $src2",
 			[(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (OpNode v16i32:$src1, (splat i32:$src2)), v16i32:$oldvalue))],
 			opcode,
-			FmtR_VVSM>;
+			FmtR_VVSM,
+			II_INT>;
 	}
 
 	// Format I
@@ -314,7 +320,8 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $src1, $imm",
 		[(set i32:$dest, (OpNode i32:$src1, (i32 simm13:$imm)))],
 		opcode{4-0},
-		FmtI_SS>;
+		FmtI_SS,
+		II_INT>;
 	
 	// Vector = Vector Op Immediate
 	def VVI : FormatIUnmaskedInst<
@@ -323,7 +330,8 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $src1, $imm",
 		[(set v16i32:$dest, (OpNode v16i32:$src1, (splat simm13:$imm)))],
 		opcode{4-0},
-		FmtI_VV>;
+		FmtI_VV,
+		II_INT>;
 
 	// Vector = Scalar Op Immediate
 	def VSI : FormatIUnmaskedInst<
@@ -332,7 +340,8 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $src1, $imm",
 		[(set v16i32:$dest, (OpNode (splat i32:$src1), (splat simm13:$imm)))],
 		opcode{4-0},
-		FmtI_VS>;
+		FmtI_VS,
+		II_INT>;
 
 	let Constraints = "$dest = $oldvalue" in {
 		// Vector = Vector Op Immediate, masked
@@ -342,7 +351,8 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			operator # "_mask $dest, $mask, $src1, $imm",
 			[(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (OpNode v16i32:$src1, (splat simm8:$imm)), v16i32:$oldvalue))],
 			opcode{4-0},
-			FmtI_VVM>;
+			FmtI_VVM,
+			II_INT>;
 
 		// Vector = Scalar Op Immediate, masked
 		def VSIM : FormatIMaskedInst<
@@ -351,7 +361,8 @@ multiclass TwoOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			operator # "_mask $dest, $mask, $src1, $imm",
 			[(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (OpNode (splat i32:$src1), (splat simm8:$imm)), v16i32:$oldvalue))],
 			opcode{4-0},
-			FmtI_VSM>;
+			FmtI_VSM,
+			II_INT>;
 	}
 }
 
@@ -364,7 +375,8 @@ multiclass TwoOpFloatArith<string operator, SDNode OpNode, bits<6> opcode>
 		operator # " $dest, $src1, $src2",
 		[(set GPR32:$dest, (OpNode f32:$src1, f32:$src2))],
 		opcode,
-		FmtR_SSS>;
+		FmtR_SSS,
+		II_FLOAT>;
 
 	// Vector = Vector Op Vector
 	def VVV : FormatRUnmaskedTwoOpInst<
@@ -373,7 +385,8 @@ multiclass TwoOpFloatArith<string operator, SDNode OpNode, bits<6> opcode>
 		operator # " $dest, $src1, $src2",
 		[(set VR512:$dest, (OpNode v16f32:$src1, v16f32:$src2))],
 		opcode,
-		FmtR_VVV>;
+		FmtR_VVV,
+		II_FLOAT>;
 
 	// Vector = Vector Op Scalar
 	def VVS : FormatRUnmaskedTwoOpInst<
@@ -382,7 +395,8 @@ multiclass TwoOpFloatArith<string operator, SDNode OpNode, bits<6> opcode>
 		operator # " $dest, $src1, $src2",
 		[(set VR512:$dest, (OpNode v16f32:$src1, (splat f32:$src2)))],
 		opcode,
-		FmtR_VVS>;
+		FmtR_VVS,
+		II_FLOAT>;
 
 	// Predicated
 	let Constraints = "$dest = $oldvalue" in {
@@ -394,7 +408,8 @@ multiclass TwoOpFloatArith<string operator, SDNode OpNode, bits<6> opcode>
 			[(set VR512:$dest, (int_nyuzi_vector_mixf i32:$mask, (OpNode v16f32:$src1, 
 				v16f32:$src2), v16f32:$oldvalue))],
 			opcode,
-			FmtR_VVVM>;
+			FmtR_VVVM,
+			II_FLOAT>;
 		
 		// Vector = Vector Op Scalar, masked
 		def VVSM : FormatRMaskedTwoOpInst<
@@ -404,7 +419,8 @@ multiclass TwoOpFloatArith<string operator, SDNode OpNode, bits<6> opcode>
 			[(set v16f32:$dest, (int_nyuzi_vector_mixf i32:$mask, (OpNode v16f32:$src1, 
 				(splat f32:$src2)), v16f32:$oldvalue))],
 			opcode,
-			FmtR_VVSM>;
+			FmtR_VVSM,
+			II_FLOAT>;
 	}
 }
 
@@ -415,7 +431,8 @@ multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $src2",
 		[(set i32:$dest, (OpNode i32:$src2))],
 		opcode,
-		FmtR_SSS>;
+		FmtR_SSS,
+		II_INT>;
 
 	def VS : FormatRUnmaskedOneOpInst<
 		(outs VR512:$dest), 
@@ -423,7 +440,8 @@ multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $src2",
 		[(set v16i32:$dest, (OpNode (splat i32:$src2)))],
 		opcode,
-		FmtR_VVS>;
+		FmtR_VVS,
+		II_INT>;
 
 	def VV : FormatRUnmaskedOneOpInst<
 		(outs VR512:$dest), 
@@ -431,7 +449,8 @@ multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $src2",
 		[(set v16i32:$dest, (OpNode v16i32:$src2))],
 		opcode,
-		FmtR_VVV>;
+		FmtR_VVV,
+		II_INT>;
 
 	// Predicated
 	let Constraints = "$dest = $oldvalue" in {
@@ -442,7 +461,8 @@ multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			[(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (OpNode v16i32:$src2), 
 				v16i32:$oldvalue))],
 			opcode,
-			FmtR_VVVM>;
+			FmtR_VVVM,
+			II_INT>;
 
 		def VSM : FormatRMaskedOneOpInst<
 			(outs VR512:$dest),
@@ -451,7 +471,8 @@ multiclass OneOpIntArith<string operator, SDNode OpNode, bits<6> opcode> {
 			[(set v16i32:$dest, (int_nyuzi_vector_mixi i32:$mask, (OpNode (splat i32:$src2)), 
 				v16i32:$oldvalue))],
 			opcode,
-			FmtR_VVSM>;
+			FmtR_VVSM,
+			II_INT>;
 	}
 }
 
@@ -462,7 +483,8 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $src2",
 		[(set f32:$dest, (OpNode f32:$src2))],
 		opcode,
-		FmtR_SSS>;
+		FmtR_SSS,
+		II_FLOAT>;
 
 	def VS : FormatRUnmaskedOneOpInst<
 		(outs VR512:$dest), 
@@ -470,7 +492,8 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $src2",
 		[(set v16f32:$dest, (OpNode (splat f32:$src2)))],
 		opcode,
-		FmtR_VVS>;
+		FmtR_VVS,
+		II_FLOAT>;
 
 	def VV : FormatRUnmaskedOneOpInst<
 		(outs VR512:$dest), 
@@ -478,7 +501,8 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
 		operator # " $dest, $src2",
 		[(set v16f32:$dest, (OpNode v16f32:$src2))],
 		opcode,
-		FmtR_VVV>;
+		FmtR_VVV,
+		II_FLOAT>;
 
 	// Predicated
 	let Constraints = "$dest = $oldvalue" in {
@@ -489,7 +513,8 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
 			[(set v16f32:$dest, (int_nyuzi_vector_mixf i32:$mask, (OpNode v16f32:$src2), 
 				v16f32:$oldvalue))],
 			opcode,
-			FmtR_VVVM>;
+			FmtR_VVVM,
+			II_FLOAT>;
 
 		def VSM : FormatRMaskedOneOpInst<
 			(outs VR512:$dest),
@@ -498,7 +523,8 @@ multiclass OneOpFloatArith<string operator, SDNode OpNode, bits<6> opcode> {
 			[(set v16f32:$dest, (int_nyuzi_vector_mixf i32:$mask, (OpNode (splat f32:$src2)), 
 				v16f32:$oldvalue))],
 			opcode,
-			FmtR_VVSM>;
+			FmtR_VVSM,
+			II_FLOAT>;
 	}
 }
 
@@ -511,7 +537,8 @@ multiclass IntCompareInst<string operator, CondCode condition,
 		operator # " $dest, $src1, $src2",
 		[(set i32:$dest, (setcc i32:$src1, i32:$src2, condition))],
 		opcode,
-		FmtR_SSS>;
+		FmtR_SSS,
+		II_INT>;
 
 	def VV : FormatRUnmaskedTwoOpInst<
 		(outs GPR32:$dest), 
@@ -519,7 +546,8 @@ multiclass IntCompareInst<string operator, CondCode condition,
 		operator # " $dest, $src1, $src2",
 		[(set i32:$dest, (vectorIntr v16i32:$src1, v16i32:$src2))],
 		opcode,
-		FmtR_VVV>;
+		FmtR_VVV,
+		II_INT>;
 
 	def VS : FormatRUnmaskedTwoOpInst<
 		(outs GPR32:$dest), 
@@ -527,7 +555,8 @@ multiclass IntCompareInst<string operator, CondCode condition,
 		operator # " $dest, $src1, $src2",
 		[(set i32:$dest, (vectorIntr v16i32:$src1, (splat i32:$src2)))],
 		opcode,
-		FmtR_VVS>;
+		FmtR_VVS,
+		II_INT>;
 
 	// Instruction format B
 	def SI : FormatIUnmaskedInst<
@@ -536,7 +565,8 @@ multiclass IntCompareInst<string operator, CondCode condition,
 		operator # " $dest, $src1, $imm",
 		[(set i32:$dest, (setcc i32:$src1, simm13:$imm, condition))],
 		opcode{4-0},
-		FmtI_SS>;
+		FmtI_SS,
+		II_INT>;
 
 	def VI : FormatIUnmaskedInst<
 		(outs GPR32:$dest), 
@@ -544,7 +574,8 @@ multiclass IntCompareInst<string operator, CondCode condition,
 		operator # " $dest, $src1, $imm",
 		[(set i32:$dest, (vectorIntr v16i32:$src1, (splat simm13:$imm)))],
 		opcode{4-0},
-		FmtI_VV>;
+		FmtI_VV,
+		II_INT>;
 }
 
 multiclass FloatCompareInst<string operator, CondCode condition, bits<6> opcode,
@@ -555,7 +586,8 @@ multiclass FloatCompareInst<string operator, CondCode condition, bits<6> opcode,
 		operator # "_f $dest, $src1, $src2",
 		[(set i32:$dest, (setcc f32:$src1, f32:$src2, condition))],
 		opcode,
-		FmtR_SSS>;
+		FmtR_SSS,
+		II_FLOAT>;
 
 	def VV : FormatRUnmaskedTwoOpInst<
 		(outs GPR32:$dest),
@@ -563,7 +595,8 @@ multiclass FloatCompareInst<string operator, CondCode condition, bits<6> opcode,
 		operator # "_f $dest, $src1, $src2",
 		[(set i32:$dest, (vectorIntr v16f32:$src1, v16f32:$src2))],
 		opcode,
-		FmtR_VVV>;
+		FmtR_VVV,
+		II_FLOAT>;
 
 	def VS : FormatRUnmaskedTwoOpInst<
 		(outs GPR32:$dest),
@@ -571,7 +604,8 @@ multiclass FloatCompareInst<string operator, CondCode condition, bits<6> opcode,
 		operator # "_f $dest, $src1, $src2",
 		[(set i32:$dest, (vectorIntr v16f32:$src1, (splat f32:$src2)))],
 		opcode,
-		FmtR_VVS>;
+		FmtR_VVS,
+		II_FLOAT>;
 }
 
 //////////////////////////////////////////////////////////////////
@@ -596,7 +630,7 @@ def FmtM_ScGathMasked : FmtM<14>;
 
 class FormatMInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	FmtM fmt, bits <1> isLoad>  
-	: NyuziInstruction<outputs, inputs, asmString, pattern> 
+	: NyuziInstruction<outputs, inputs, asmString, pattern, II_MEMORY> 
 {
 	bits <5> srcDest;
 
@@ -668,7 +702,7 @@ def FmtC_MemBar : FmtC<4>;
 
 class FormatCInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	FmtC fmt> 
-	: NyuziInstruction<outputs, inputs, asmString, pattern>
+	: NyuziInstruction<outputs, inputs, asmString, pattern, II_MEMORY>
 {
 	let Inst{31-28} = 0xe;
 	let Inst{27-25} = fmt.Value;
@@ -703,7 +737,7 @@ def BT_Eret : BranchType<7>;
 
 class BranchInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	BranchType type>
-	: NyuziInstruction<outputs, inputs, asmString, pattern>
+	: NyuziInstruction<outputs, inputs, asmString, pattern, II_BRANCH>
 {
 	let isBranch = 1;
 

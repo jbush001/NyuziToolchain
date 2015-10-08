@@ -19,6 +19,7 @@ include "llvm/Target/Target.td"
 
 include "NyuziRegisterInfo.td"
 include "NyuziCallingConv.td"
+include "NyuziSchedule.td"
 include "NyuziInstrFormats.td"
 include "NyuziInstrInfo.td"
 
@@ -33,10 +34,7 @@ def NyuziAsmWriter : AsmWriter {
   bit isMCAsmWriter = 1;
 }
 
-class Proc<string Name, list<SubtargetFeature> Features>
- : Processor<Name, NoItineraries, Features>;
-
-def : Proc<"generic", []>;
+def : Processor<"nyuzi", NyuziItineraries, []>;
 
 def Nyuzi : Target {
   // Pull in Instruction Info:

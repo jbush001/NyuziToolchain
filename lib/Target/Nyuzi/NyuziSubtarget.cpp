@@ -33,12 +33,13 @@ NyuziSubtarget::NyuziSubtarget(const Triple &TT, const std::string &CPU,
       TLInfo(NyuziTargetLowering::create(TM, *this)), TSInfo(),
       FrameLowering(NyuziFrameLowering::create(*this)) {
 
-  // Determine default and user specified characteristics
-  std::string CPUName = CPU;
-  if (CPUName.empty()) {
-    CPUName = "nyuzi";
-  }
+  // If the CPU name is empty, a number of other things will not work correctly
+  // in subtle ways.
+  assert(!CPU.empty());
+
+  InstrItins = getInstrItineraryForCPU(CPU);
+  assert(!InstrItins.isEmpty());
 
   // Parse features string.
-  ParseSubtargetFeatures(CPUName, FS);
+  ParseSubtargetFeatures(CPU, FS);
 }

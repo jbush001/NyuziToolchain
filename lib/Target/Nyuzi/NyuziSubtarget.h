@@ -34,6 +34,7 @@ class NyuziSubtarget : public NyuziGenSubtargetInfo {
   std::unique_ptr<const NyuziTargetLowering> TLInfo;
   NyuziSelectionDAGInfo TSInfo;
   std::unique_ptr<const NyuziFrameLowering> FrameLowering;
+  InstrItineraryData InstrItins;
 
 public:
   NyuziSubtarget(const Triple &TT, const std::string &CPU,
@@ -56,6 +57,15 @@ public:
   }
   virtual const NyuziSelectionDAGInfo *getSelectionDAGInfo() const override {
     return &TSInfo;
+  }
+  bool enableMachineScheduler() const override {
+    return true;
+  }
+  bool enablePostRAScheduler() const override {
+    return true;
+  }
+  const InstrItineraryData *getInstrItineraryData() const override {
+    return &InstrItins;
   }
 };
 
