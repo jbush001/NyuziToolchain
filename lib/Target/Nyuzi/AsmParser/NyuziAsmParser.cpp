@@ -414,23 +414,9 @@ NyuziAsmParser::ParseMemoryOperand(OperandVector &Operands) {
 }
 
 bool NyuziAsmParser::ParseInstruction(ParseInstructionInfo &Info,
-                                      StringRef Name, SMLoc NameLoc,
+                                      StringRef Mnemonic, SMLoc NameLoc,
                                       OperandVector &Operands) {
-  size_t dotLoc = Name.find('.');
-  StringRef stem = Name.substr(0, dotLoc);
-  Operands.push_back(NyuziOperand::createToken(stem, NameLoc));
-  if (dotLoc < Name.size()) {
-    size_t dotLoc2 = Name.rfind('.');
-    if (dotLoc == dotLoc2)
-      Operands.push_back(
-          NyuziOperand::createToken(Name.substr(dotLoc), NameLoc));
-    else {
-      Operands.push_back(NyuziOperand::createToken(
-          Name.substr(dotLoc, dotLoc2 - dotLoc), NameLoc));
-      Operands.push_back(
-          NyuziOperand::createToken(Name.substr(dotLoc2), NameLoc));
-    }
-  }
+  Operands.push_back(NyuziOperand::createToken(Mnemonic, NameLoc));
 
   // If there are no more operands, then finish
   // XXX hash should start a comment, should the lexer just be consuming that?
@@ -439,7 +425,7 @@ bool NyuziAsmParser::ParseInstruction(ParseInstructionInfo &Info,
 
   // parse operands
   for (;;) {
-    if (ParseOperand(Operands, stem))
+    if (ParseOperand(Operands, Mnemonic))
       return true;
 
     if (getLexer().isNot(AsmToken::Comma))
