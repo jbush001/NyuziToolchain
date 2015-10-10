@@ -38,7 +38,6 @@ NyuziSubtarget::NyuziSubtarget(const Triple &TT, const std::string &CPU,
     CPUName = "nyuzi";
 
   InstrItins = getInstrItineraryForCPU(CPUName);
-  assert(!InstrItins.isEmpty());
 
   // Parse features string.
   ParseSubtargetFeatures(CPUName, FS);

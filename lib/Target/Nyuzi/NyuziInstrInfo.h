@@ -79,10 +79,11 @@ public:
 
   void adjustStackPointer(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
                           int Amount) const;
+
+private:
   unsigned int loadConstant(MachineBasicBlock &MBB,
                             MachineBasicBlock::iterator MBBI, int Amount) const;
 
-private:
   MachineMemOperand *getMemOperand(MachineBasicBlock &MBB, int FI,
                                    unsigned Flag) const;
   const NyuziRegisterInfo RI;

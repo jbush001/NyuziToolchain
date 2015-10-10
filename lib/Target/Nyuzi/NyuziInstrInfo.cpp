@@ -274,6 +274,7 @@ void NyuziInstrInfo::adjustStackPointer(MachineBasicBlock &MBB,
   }
 }
 
+// Load constant larger than immediate field (13 bits signed)
 unsigned int NyuziInstrInfo::loadConstant(MachineBasicBlock &MBB,
                                           MachineBasicBlock::iterator MBBI,
                                           int Value) const {
@@ -283,29 +284,21 @@ unsigned int NyuziInstrInfo::loadConstant(MachineBasicBlock &MBB,
   unsigned Reg = RegInfo.createVirtualRegister(&Nyuzi::GPR32RegClass);
 
   if (!isInt<24>(Value))
-    report_fatal_error("loadImmediate: unsupported offset");
+    report_fatal_error("NyuziInstrInfo::loadConstant: value out of range");
 
-  if (isInt<13>(Value)) {
-    // Can load directly into this register
-    BuildMI(MBB, MBBI, DL, get(Nyuzi::MOVESimm))
-        .addReg(Reg)
-        .addImm(Value >> 12);
-  } else {
-    // Load bits 23-12 into register
-    BuildMI(MBB, MBBI, DL, get(Nyuzi::MOVESimm), Reg).addImm(Value >> 12);
-    BuildMI(MBB, MBBI, DL, get(Nyuzi::SLLSSI))
-        .addReg(Reg)
-        .addReg(Reg)
-        .addImm(12);
+  BuildMI(MBB, MBBI, DL, get(Nyuzi::MOVESimm), Reg).addImm(Value >> 12);
+  BuildMI(MBB, MBBI, DL, get(Nyuzi::SLLSSI))
+      .addReg(Reg)
+      .addReg(Reg)
+      .addImm(12);
 
-    if ((Value & 0xfff) != 0) {
-      // Load bits 11-0 into register (note we only load 12 bits because we
-      // don't want sign extension)
-      BuildMI(MBB, MBBI, DL, get(Nyuzi::ORSSI))
-          .addReg(Reg)
-          .addReg(Reg)
-          .addImm(Value & 0xfff);
-    }
+  if ((Value & 0xfff) != 0) {
+    // Load bits 11-0 into register (note we only load 12 bits because we
+    // don't want sign extension)
+    BuildMI(MBB, MBBI, DL, get(Nyuzi::ORSSI))
+        .addReg(Reg)
+        .addReg(Reg)
+        .addImm(Value & 0xfff);
   }
 
   return Reg;
