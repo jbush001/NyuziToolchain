@@ -325,6 +325,8 @@ make_test_case('dflush s7', make_d_instruction(2, 7))
 make_test_case('membar', make_d_instruction(4, 0))
 make_test_case('dinvalidate s9', make_d_instruction(1, 9))
 make_test_case('iinvalidate s11', make_d_instruction(3, 11))
+make_test_case('tlbinval s12', make_d_instruction(5, 12))
+make_test_case('tlbinvalall', make_d_instruction(6, 0))
 
 # Cleanup
 disasm_fp.close()

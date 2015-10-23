@@ -441,6 +441,20 @@ def MEMBAR : FormatCInst<
 	[(atomic_fence imm:$imm1, imm:$imm2)],
 	FmtC_MemBar>;
 
+def TLBINVAL : FormatCOneOp<
+	(outs),
+	(ins GPR32:$ptr),
+	"tlbinval $ptr",
+	[],
+	FmtC_TLBInval>;
+
+def TLBINVALALL : FormatCInst<
+	(outs),
+	(ins),
+	"tlbinvalall",
+	[],
+	FmtC_TLBInvalAll>;
+
 //////////////////////////////////////////////////////////////////
 // Branch
 //////////////////////////////////////////////////////////////////

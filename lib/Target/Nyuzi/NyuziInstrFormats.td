@@ -699,6 +699,9 @@ def FmtC_DInvalidate : FmtC<1>;
 def FmtC_DFlush : FmtC<2>;
 def FmtC_IInvalidate : FmtC<3>;
 def FmtC_MemBar : FmtC<4>;
+def FmtC_TLBInval : FmtC<5>;
+def FmtC_TLBInvalAll : FmtC<6>;
+
 
 class FormatCInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	FmtC fmt> 
