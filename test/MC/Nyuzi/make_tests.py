@@ -23,6 +23,9 @@ def make_cprime_instruction(isLoad, op, srcDest, ptr, offs):
 def make_d_instruction(op, reg):
 	return 0xe0000000 | (op << 25) | reg
 
+def make_dprime_instruction(op, reg, physReg):
+	return 0xe0000000 | (op << 25) | (physReg << 5) | reg
+
 def make_text_encoding(x, sep):
 	str = ''
 	for y in range(4):
@@ -327,6 +330,8 @@ make_test_case('dinvalidate s9', make_d_instruction(1, 9))
 make_test_case('iinvalidate s11', make_d_instruction(3, 11))
 make_test_case('tlbinval s12', make_d_instruction(5, 12))
 make_test_case('tlbinvalall', make_d_instruction(6, 0))
+make_test_case('dtlbinsert s1, s2', make_dprime_instruction(0, 1, 2))
+make_test_case('itlbinsert s3, s4', make_dprime_instruction(7, 3, 4))
 
 # Cleanup
 disasm_fp.close()

@@ -455,6 +455,20 @@ def TLBINVALALL : FormatCInst<
 	[],
 	FmtC_TLBInvalAll>;
 
+def DTLBINSERT : FormatCTwoOp<
+	(outs),
+	(ins GPR32:$ptr, GPR32:$physAddr),
+	"dtlbinsert $ptr, $physAddr",
+	[],
+	FmtC_DTLBInsert>;
+
+def ITLBINSERT : FormatCTwoOp<
+	(outs),
+	(ins GPR32:$ptr, GPR32:$physAddr),
+	"itlbinsert $ptr, $physAddr",
+	[],
+	FmtC_ITLBInsert>;
+
 //////////////////////////////////////////////////////////////////
 // Branch
 //////////////////////////////////////////////////////////////////

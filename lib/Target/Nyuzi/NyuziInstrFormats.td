@@ -695,13 +695,14 @@ class FmtC<bits<3> val> {
 	bits<3> Value = val;
 }
 
+def FmtC_DTLBInsert : FmtC<0>;
 def FmtC_DInvalidate : FmtC<1>;
 def FmtC_DFlush : FmtC<2>;
 def FmtC_IInvalidate : FmtC<3>;
 def FmtC_MemBar : FmtC<4>;
 def FmtC_TLBInval : FmtC<5>;
 def FmtC_TLBInvalAll : FmtC<6>;
-
+def FmtC_ITLBInsert : FmtC<7>;
 
 class FormatCInst<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	FmtC fmt> 
@@ -719,6 +720,15 @@ class FormatCOneOp<dag outputs, dag inputs, string asmString, list<dag> pattern,
 	bits<5> ptr;
 
 	let Inst{4-0} = ptr;
+}
+
+class FormatCTwoOp<dag outputs, dag inputs, string asmString, list<dag> pattern,
+	FmtC fmt> 
+	: FormatCOneOp<outputs, inputs, asmString, pattern, fmt>
+{
+	bits<5> physAddr;
+
+	let Inst{9-5} = physAddr;
 }
 
 //////////////////////////////////////////////////////////////////
