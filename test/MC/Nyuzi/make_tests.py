@@ -333,6 +333,9 @@ make_test_case('tlbinvalall', make_d_instruction(6, 0))
 make_test_case('dtlbinsert s1, s2', make_dprime_instruction(0, 1, 2))
 make_test_case('itlbinsert s3, s4', make_dprime_instruction(7, 3, 4))
 
+# Syscall
+make_test_case('syscall', 0xc3f00000)
+
 # Cleanup
 disasm_fp.close()
 asm_fp.close()

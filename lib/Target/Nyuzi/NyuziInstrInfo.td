@@ -671,6 +671,17 @@ let usesCustomInserter = 1 in {
 // Misc 
 //////////////////////////////////////////////////////////////////
 
+def SYSCALL : NyuziInstruction<
+	(outs),
+	(ins),
+	"syscall",
+	[],
+	II_INT>
+{
+	let Inst{31-29} = 6;
+	let Inst{25-20} = 0x3f;
+}
+
 def READ_CONTROL_REG : FormatMInst<
 	(outs GPR32:$dest),
 	(ins i32imm:$cr),
