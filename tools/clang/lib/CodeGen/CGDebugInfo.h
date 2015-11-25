@@ -83,6 +83,8 @@ class CGDebugInfo {
   /// Cache of previously constructed Types.
   llvm::DenseMap<const void *, llvm::TrackingMDRef> TypeCache;
 
+  llvm::SmallDenseMap<llvm::StringRef, llvm::StringRef> DebugPrefixMap;
+
   struct ObjCInterfaceCacheEntry {
     const ObjCInterfaceType *Type;
     llvm::DIType *Decl;
@@ -138,7 +140,6 @@ class CGDebugInfo {
   /// @{
   /// Currently the checksum of an interface includes the number of
   /// ivars and property accessors.
-  unsigned Checksum(const ObjCInterfaceDecl *InterfaceDecl);
   llvm::DIType *CreateType(const BuiltinType *Ty);
   llvm::DIType *CreateType(const ComplexType *Ty);
   llvm::DIType *CreateQualifiedType(QualType Ty, llvm::DIFile *Fg);
@@ -197,11 +198,8 @@ class CGDebugInfo {
   llvm::DIType *getOrCreateVTablePtrType(llvm::DIFile *F);
   /// \return namespace descriptor for the given namespace decl.
   llvm::DINamespace *getOrCreateNameSpace(const NamespaceDecl *N);
-  llvm::DIType *getOrCreateTypeDeclaration(QualType PointeeTy, llvm::DIFile *F);
   llvm::DIType *CreatePointerLikeType(llvm::dwarf::Tag Tag, const Type *Ty,
                                       QualType PointeeTy, llvm::DIFile *F);
-
-  llvm::Value *getCachedInterfaceTypeOrNull(const QualType Ty);
   llvm::DIType *getOrCreateStructPtrType(StringRef Name, llvm::DIType *&Cache);
 
   /// A helper function to create a subprogram for a single member
@@ -326,7 +324,7 @@ public:
                                          llvm::Value *storage,
                                          CGBuilderTy &Builder,
                                          const CGBlockInfo &blockInfo,
-                                         llvm::Instruction *InsertPoint = 0);
+                                         llvm::Instruction *InsertPoint = nullptr);
 
   /// Emit call to \c llvm.dbg.declare for an argument variable
   /// declaration.
@@ -404,6 +402,9 @@ private:
   /// Create new compile unit.
   void CreateCompileUnit();
 
+  /// Remap a given path with the current debug prefix map
+  std::string remapDIPath(StringRef) const;
+
   /// Get the file debug info descriptor for the input location.
   llvm::DIFile *getOrCreateFile(SourceLocation Loc);
 
@@ -429,10 +430,6 @@ private:
 
   /// Create type metadata for a source language type.
   llvm::DIType *CreateTypeNode(QualType Ty, llvm::DIFile *Fg);
-
-  /// Return the underlying ObjCInterfaceDecl if \arg Ty is an
-  /// ObjCInterface or a pointer to one.
-  ObjCInterfaceDecl *getObjCInterfaceDecl(QualType Ty);
 
   /// Create new member and increase Offset by FType's size.
   llvm::DIType *CreateMemberType(llvm::DIFile *Unit, QualType FType,
@@ -582,15 +579,9 @@ public:
     return ApplyDebugLocation(CGF, true, SourceLocation());
   }
 
-  /// \brief Apply TemporaryLocation if it is valid. Otherwise set the IRBuilder
-  /// to not attach debug locations.
-  static ApplyDebugLocation
-  CreateDefaultEmpty(CodeGenFunction &CGF, SourceLocation TemporaryLocation) {
-    return ApplyDebugLocation(CGF, true, TemporaryLocation);
-  }
 };
 
 } // namespace CodeGen
 } // namespace clang
 
-#endif
+#endif // LLVM_CLANG_LIB_CODEGEN_CGDEBUGINFO_H

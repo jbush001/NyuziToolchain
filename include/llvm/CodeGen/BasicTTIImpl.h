@@ -143,10 +143,6 @@ public:
     return getTLI()->isTruncateFree(Ty1, Ty2);
   }
 
-  bool isZExtFree(Type *Ty1, Type *Ty2) const {
-    return getTLI()->isZExtFree(Ty1, Ty2);
-  }
-
   bool isProfitableToHoist(Instruction *I) {
     return getTLI()->isProfitableToHoist(I);
   }
@@ -170,7 +166,7 @@ public:
     }
 
     if (IID == Intrinsic::ctlz) {
-       if (getTLI()->isCheapToSpeculateCtlz())
+      if (getTLI()->isCheapToSpeculateCtlz())
         return TargetTransformInfo::TCC_Basic;
       return TargetTransformInfo::TCC_Expensive;
     }
@@ -260,7 +256,7 @@ public:
 
       for (BasicBlock::iterator J = BB->begin(), JE = BB->end(); J != JE; ++J)
         if (isa<CallInst>(J) || isa<InvokeInst>(J)) {
-          ImmutableCallSite CS(J);
+          ImmutableCallSite CS(&*J);
           if (const Function *F = CS.getCalledFunction()) {
             if (!static_cast<T *>(this)->isLoweredToCall(F))
               continue;

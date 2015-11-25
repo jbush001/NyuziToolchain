@@ -91,6 +91,20 @@ PlatformRemoteiOS::Terminate ()
 PlatformSP
 PlatformRemoteiOS::CreateInstance (bool force, const ArchSpec *arch)
 {
+    Log *log(GetLogIfAllCategoriesSet (LIBLLDB_LOG_PLATFORM));
+    if (log)
+    {
+        const char *arch_name;
+        if (arch && arch->GetArchitectureName ())
+            arch_name = arch->GetArchitectureName ();
+        else
+            arch_name = "<null>";
+
+        const char *triple_cstr = arch ? arch->GetTriple ().getTriple ().c_str() : "<null>";
+
+        log->Printf ("PlatformRemoteiOS::%s(force=%s, arch={%s,%s})", __FUNCTION__, force ? "true" : "false", arch_name, triple_cstr);
+    }
+
     bool create = force;
     if (create == false && arch && arch->IsValid())
     {
@@ -149,7 +163,16 @@ PlatformRemoteiOS::CreateInstance (bool force, const ArchSpec *arch)
     }
 
     if (create)
+    {
+        if (log)
+            log->Printf ("PlatformRemoteiOS::%s() creating platform", __FUNCTION__);
+
         return lldb::PlatformSP(new PlatformRemoteiOS ());
+    }
+
+    if (log)
+        log->Printf ("PlatformRemoteiOS::%s() aborting creation of platform", __FUNCTION__);
+
     return lldb::PlatformSP();
 }
 
@@ -237,7 +260,7 @@ PlatformRemoteiOS::ResolveExecutable (const ModuleSpec &ms,
                                                  NULL,
                                                  NULL, 
                                                  NULL);
-        
+
             if (exe_module_sp && exe_module_sp->GetObjectFile())
                 return error;
             exe_module_sp.reset();
@@ -567,6 +590,7 @@ uint32_t
 PlatformRemoteiOS::FindFileInAllSDKs (const char *platform_file_path,
                                       FileSpecList &file_list)
 {
+    Log *log = lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_HOST | LIBLLDB_LOG_VERBOSE);
     if (platform_file_path && platform_file_path[0] && UpdateSDKDirectoryInfosIfNeeded())
     {
         const uint32_t num_sdk_infos = m_sdk_directory_infos.size();
@@ -574,6 +598,10 @@ PlatformRemoteiOS::FindFileInAllSDKs (const char *platform_file_path,
         // First try for an exact match of major, minor and update
         for (uint32_t sdk_idx=0; sdk_idx<num_sdk_infos; ++sdk_idx)
         {
+            if (log)
+            {
+                log->Printf ("Searching for %s in sdk path %s", platform_file_path, m_sdk_directory_infos[sdk_idx].directory.GetPath().c_str());
+            }
             if (GetFileInSDK (platform_file_path,
                               sdk_idx,
                               local_file))
@@ -764,6 +792,7 @@ PlatformRemoteiOS::GetSharedModule (const ModuleSpec &module_spec,
     // then we attempt to get a shared module for the right architecture
     // with the right UUID.
     const FileSpec &platform_file = module_spec.GetFileSpec();
+    Log *log = lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_HOST | LIBLLDB_LOG_VERBOSE);
 
     Error error;
     char platform_file_path[PATH_MAX];
@@ -781,6 +810,10 @@ PlatformRemoteiOS::GetSharedModule (const ModuleSpec &module_spec,
         const uint32_t connected_sdk_idx = GetConnectedSDKIndex ();
         if (connected_sdk_idx < num_sdk_infos)
         {
+            if (log)
+            {
+                log->Printf ("Searching for %s in sdk path %s", platform_file_path, m_sdk_directory_infos[connected_sdk_idx].directory.GetPath().c_str());
+            }
             if (GetFileInSDK (platform_file_path, connected_sdk_idx, platform_module_spec.GetFileSpec()))
             {
                 module_sp.reset();
@@ -800,6 +833,10 @@ PlatformRemoteiOS::GetSharedModule (const ModuleSpec &module_spec,
         // will tend to be valid in that same SDK.
         if (m_last_module_sdk_idx < num_sdk_infos)
         {
+            if (log)
+            {
+                log->Printf ("Searching for %s in sdk path %s", platform_file_path, m_sdk_directory_infos[m_last_module_sdk_idx].directory.GetPath().c_str());
+            }
             if (GetFileInSDK (platform_file_path, m_last_module_sdk_idx, platform_module_spec.GetFileSpec()))
             {
                 module_sp.reset();
@@ -820,6 +857,10 @@ PlatformRemoteiOS::GetSharedModule (const ModuleSpec &module_spec,
         const uint32_t current_sdk_idx = GetSDKIndexBySDKDirectoryInfo(current_sdk_info);
         if (current_sdk_idx < num_sdk_infos && current_sdk_idx != m_last_module_sdk_idx)
         {
+            if (log)
+            {
+                log->Printf ("Searching for %s in sdk path %s", platform_file_path, m_sdk_directory_infos[current_sdk_idx].directory.GetPath().c_str());
+            }
             if (GetFileInSDK (platform_file_path, current_sdk_idx, platform_module_spec.GetFileSpec()))
             {
                 module_sp.reset();
@@ -843,6 +884,10 @@ PlatformRemoteiOS::GetSharedModule (const ModuleSpec &module_spec,
                 // Skip the last module SDK index if we already searched
                 // it above
                 continue;
+            }
+            if (log)
+            {
+                log->Printf ("Searching for %s in sdk path %s", platform_file_path, m_sdk_directory_infos[sdk_idx].directory.GetPath().c_str());
             }
             if (GetFileInSDK (platform_file_path, sdk_idx, platform_module_spec.GetFileSpec()))
             {

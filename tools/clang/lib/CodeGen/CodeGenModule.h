@@ -108,17 +108,14 @@ struct OrderGlobalInits {
   }
 };
 
-struct RREntrypoints {
-  RREntrypoints() { memset(this, 0, sizeof(*this)); }
-  /// void objc_autoreleasePoolPop(void*);
+struct ObjCEntrypoints {
+  ObjCEntrypoints() { memset(this, 0, sizeof(*this)); }
+
+    /// void objc_autoreleasePoolPop(void*);
   llvm::Constant *objc_autoreleasePoolPop;
 
   /// void *objc_autoreleasePoolPush(void);
   llvm::Constant *objc_autoreleasePoolPush;
-};
-
-struct ARCEntrypoints {
-  ARCEntrypoints() { memset(this, 0, sizeof(*this)); }
 
   /// id objc_autorelease(id);
   llvm::Constant *objc_autorelease;
@@ -288,9 +285,8 @@ private:
   CGOpenMPRuntime* OpenMPRuntime;
   CGCUDARuntime* CUDARuntime;
   CGDebugInfo* DebugInfo;
-  ARCEntrypoints *ARCData;
+  ObjCEntrypoints *ObjCData;
   llvm::MDNode *NoObjCARCExceptionsMetadata;
-  RREntrypoints *RRData;
   std::unique_ptr<llvm::IndexedInstrProfReader> PGOReader;
   InstrProfStats PGOStats;
 
@@ -530,14 +526,9 @@ public:
     return *CUDARuntime;
   }
 
-  ARCEntrypoints &getARCEntrypoints() const {
-    assert(getLangOpts().ObjCAutoRefCount && ARCData != nullptr);
-    return *ARCData;
-  }
-
-  RREntrypoints &getRREntrypoints() const {
-    assert(RRData != nullptr);
-    return *RRData;
+  ObjCEntrypoints &getObjCEntrypoints() const {
+    assert(ObjCData != nullptr);
+    return *ObjCData;
   }
 
   InstrProfStats &getPGOStats() { return PGOStats; }
@@ -643,8 +634,6 @@ public:
   llvm::MDNode *getTBAAInfo(QualType QTy);
   llvm::MDNode *getTBAAInfoForVTablePtr();
   llvm::MDNode *getTBAAStructInfo(QualType QTy);
-  /// Return the MDNode in the type DAG for the given struct type.
-  llvm::MDNode *getTBAAStructTypeInfo(QualType QTy);
   /// Return the path-aware tag for given base type, access node and offset.
   llvm::MDNode *getTBAAStructTagInfo(QualType BaseTy, llvm::MDNode *AccessN,
                                      uint64_t O);
@@ -697,6 +686,7 @@ public:
 
   llvm::Function *
   CreateGlobalInitOrDestructFunction(llvm::FunctionType *ty, const Twine &name,
+                                     const CGFunctionInfo &FI,
                                      SourceLocation Loc = SourceLocation(),
                                      bool TLS = false);
 
@@ -715,7 +705,7 @@ public:
 
   /// Return the address of the given function. If Ty is non-null, then this
   /// function will use the specified type if it has to create it.
-  llvm::Constant *GetAddrOfFunction(GlobalDecl GD, llvm::Type *Ty = 0,
+  llvm::Constant *GetAddrOfFunction(GlobalDecl GD, llvm::Type *Ty = nullptr,
                                     bool ForVTable = false,
                                     bool DontDefer = false,
                                     bool IsForDefinition = false);
@@ -923,6 +913,11 @@ public:
                                              QualType DestType,
                                              CodeGenFunction *CGF = nullptr);
 
+  /// \brief Emit type info if type of an expression is a variably modified
+  /// type. Also emit proper debug info for cast types.
+  void EmitExplicitCastExprType(const ExplicitCastExpr *E,
+                                CodeGenFunction *CGF = nullptr);
+
   /// Return the result of value-initializing the given type, i.e. a null
   /// expression of the given type.  This is usually, but not always, an LLVM
   /// null constant.
@@ -973,16 +968,19 @@ public:
   /// function type.
   ///
   /// \param Info - The function type information.
-  /// \param TargetDecl - The decl these attributes are being constructed
-  /// for. If supplied the attributes applied to this decl may contribute to the
-  /// function attributes and calling convention.
+  /// \param CalleeInfo - The callee information these attributes are being
+  /// constructed for. If valid, the attributes applied to this decl may
+  /// contribute to the function attributes and calling convention.
   /// \param PAL [out] - On return, the attribute list to use.
   /// \param CallingConv [out] - On return, the LLVM calling convention to use.
   void ConstructAttributeList(const CGFunctionInfo &Info,
-                              const Decl *TargetDecl,
-                              AttributeListType &PAL,
-                              unsigned &CallingConv,
-                              bool AttrOnCallSite);
+                              CGCalleeInfo CalleeInfo, AttributeListType &PAL,
+                              unsigned &CallingConv, bool AttrOnCallSite);
+
+  // Fills in the supplied string map with the set of target features for the
+  // passed in function.
+  void getFunctionFeatureMap(llvm::StringMap<bool> &FeatureMap,
+                             const FunctionDecl *FD);
 
   StringRef getMangledName(GlobalDecl GD);
   StringRef getBlockMangledName(GlobalDecl GD, const BlockDecl *BD);
@@ -990,9 +988,6 @@ public:
   void EmitTentativeDefinition(const VarDecl *D);
 
   void EmitVTable(CXXRecordDecl *Class);
-
-  /// Emit the RTTI descriptors for the builtin types.
-  void EmitFundamentalRTTIDescriptors();
 
   /// \brief Appends Opts to the "Linker Options" metadata value.
   void AppendLinkerOptions(StringRef Opts);
@@ -1072,13 +1067,6 @@ public:
   /// Emit code for a singal global function or var decl. Forward declarations
   /// are emitted lazily.
   void EmitGlobal(GlobalDecl D);
-
-  bool
-  HasTrivialDestructorBody(ASTContext &Context,
-                           const CXXRecordDecl *BaseClassDecl,
-                           const CXXRecordDecl *MostDerivedClassDecl);
-  bool
-  FieldHasTrivialDestructorBody(ASTContext &Context, const FieldDecl *Field);
 
   bool TryEmitDefinitionAsAlias(GlobalDecl Alias, GlobalDecl Target,
                                 bool InEveryTU);
@@ -1184,16 +1172,13 @@ private:
 
   // FIXME: Hardcoding priority here is gross.
   void AddGlobalCtor(llvm::Function *Ctor, int Priority = 65535,
-                     llvm::Constant *AssociatedData = 0);
+                     llvm::Constant *AssociatedData = nullptr);
   void AddGlobalDtor(llvm::Function *Dtor, int Priority = 65535);
 
   /// Generates a global array of functions and priorities using the given list
   /// and name. This array will have appending linkage and is suitable for use
   /// as a LLVM constructor or destructor array.
   void EmitCtorList(const CtorList &Fns, const char *GlobalName);
-
-  /// Emit the RTTI descriptors for the given type.
-  void EmitFundamentalRTTIDescriptor(QualType Type);
 
   /// Emit any needed decls for which code generation was deferred.
   void EmitDeferred();
@@ -1251,4 +1236,4 @@ private:
 }  // end namespace CodeGen
 }  // end namespace clang
 
-#endif
+#endif // LLVM_CLANG_LIB_CODEGEN_CODEGENMODULE_H

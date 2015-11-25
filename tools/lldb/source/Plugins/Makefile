@@ -23,8 +23,10 @@ PARALLEL_DIRS := ABI/MacOSX-arm ABI/MacOSX-arm64 ABI/MacOSX-i386 ABI/SysV-i386 A
 	UnwindAssembly/InstEmulation UnwindAssembly/x86 \
 	LanguageRuntime/CPlusPlus/ItaniumABI \
 	LanguageRuntime/ObjC/AppleObjCRuntime \
+	LanguageRuntime/Go/ \
 	LanguageRuntime/RenderScript/RenderScriptRuntime \
 	Language/CPlusPlus \
+	Language/Go \
 	Language/ObjC \
 	Language/ObjCPlusPlus \
 	DynamicLoader/POSIX-DYLD \
@@ -33,6 +35,7 @@ PARALLEL_DIRS := ABI/MacOSX-arm ABI/MacOSX-arm64 ABI/MacOSX-i386 ABI/SysV-i386 A
 	DynamicLoader/Windows-DYLD \
 	JITLoader/GDB \
 	ExpressionParser/Clang \
+	ExpressionParser/Go \
 	OperatingSystem/Go \
 	OperatingSystem/Python \
 	SystemRuntime/MacOSX \
@@ -55,6 +58,10 @@ endif
 
 ifneq (,$(filter $(HOST_OS), FreeBSD GNU/kFreeBSD))
 PARALLEL_DIRS += Process/FreeBSD Process/POSIX
+endif
+
+ifeq ($(HOST_OS),NetBSD)
+PARALLEL_DIRS += Process/POSIX
 endif
 
 include $(LLDB_LEVEL)/Makefile

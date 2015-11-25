@@ -1,4 +1,4 @@
-//===-- ObjCLanguage.cpp --------------------------------------*- C++ -*-===//
+//===-- ObjCLanguage.cpp ----------------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,9 +7,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "ObjCLanguage.h"
-
+// C Includes
+// C++ Includes
 #include <mutex>
+
+// Other libraries and framework includes
+// Project includes
+#include "ObjCLanguage.h"
 
 #include "lldb/Core/ConstString.h"
 #include "lldb/Core/PluginManager.h"
@@ -18,11 +22,16 @@
 #include "lldb/DataFormatters/DataVisualization.h"
 #include "lldb/DataFormatters/FormattersHelpers.h"
 #include "lldb/Symbol/CompilerType.h"
+#include "lldb/Target/Target.h"
 #include "lldb/Target/ObjCLanguageRuntime.h"
+#include "lldb/Symbol/ClangASTContext.h"
 
 #include "CF.h"
 #include "Cocoa.h"
 #include "CoreMedia.h"
+#include "NSDictionary.h"
+#include "NSSet.h"
+#include "NSString.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -48,7 +57,6 @@ ObjCLanguage::GetPluginNameStatic()
     static ConstString g_name("objc");
     return g_name;
 }
-
 
 //------------------------------------------------------------------
 // PluginInterface protocol
@@ -438,11 +446,11 @@ LoadObjCFormatters(TypeCategoryImplSP objc_category_sp)
     
     appkit_flags.SetDontShowChildren(false);
     
-    
 #ifndef LLDB_DISABLE_PYTHON
     AddCXXSummary(objc_category_sp, lldb_private::formatters::NSArraySummaryProvider, "NSArray summary provider", ConstString("NSArray"), appkit_flags);
     AddCXXSummary(objc_category_sp, lldb_private::formatters::NSArraySummaryProvider, "NSArray summary provider", ConstString("NSMutableArray"), appkit_flags);
     AddCXXSummary(objc_category_sp, lldb_private::formatters::NSArraySummaryProvider, "NSArray summary provider", ConstString("__NSArrayI"), appkit_flags);
+    AddCXXSummary(objc_category_sp, lldb_private::formatters::NSArraySummaryProvider, "NSArray summary provider", ConstString("__NSArray0"), appkit_flags);
     AddCXXSummary(objc_category_sp, lldb_private::formatters::NSArraySummaryProvider, "NSArray summary provider", ConstString("__NSArrayM"), appkit_flags);
     AddCXXSummary(objc_category_sp, lldb_private::formatters::NSArraySummaryProvider, "NSArray summary provider", ConstString("__NSCFArray"), appkit_flags);
     AddCXXSummary(objc_category_sp, lldb_private::formatters::NSArraySummaryProvider, "NSArray summary provider", ConstString("CFArrayRef"), appkit_flags);
@@ -469,12 +477,16 @@ LoadObjCFormatters(TypeCategoryImplSP objc_category_sp)
     AddCXXSummary(objc_category_sp, lldb_private::formatters::NSSetSummaryProvider<false>, "__NSOrderedSetI summary", ConstString("__NSOrderedSetI"), appkit_flags);
     AddCXXSummary(objc_category_sp, lldb_private::formatters::NSSetSummaryProvider<false>, "__NSOrderedSetM summary", ConstString("__NSOrderedSetM"), appkit_flags);
     
+    AddCXXSummary(objc_category_sp, lldb_private::formatters::NSError_SummaryProvider, "NSError summary provider", ConstString("NSError"), appkit_flags);
+    AddCXXSummary(objc_category_sp, lldb_private::formatters::NSException_SummaryProvider, "NSException summary provider", ConstString("NSException"), appkit_flags);
+    
     // AddSummary(appkit_category_sp, "${var.key%@} -> ${var.value%@}", ConstString("$_lldb_typegen_nspair"), appkit_flags);
     
     appkit_flags.SetDontShowChildren(true);
     
     AddCXXSynthetic(objc_category_sp, lldb_private::formatters::NSArraySyntheticFrontEndCreator, "NSArray synthetic children", ConstString("__NSArrayM"), ScriptedSyntheticChildren::Flags());
     AddCXXSynthetic(objc_category_sp, lldb_private::formatters::NSArraySyntheticFrontEndCreator, "NSArray synthetic children", ConstString("__NSArrayI"), ScriptedSyntheticChildren::Flags());
+    AddCXXSynthetic(objc_category_sp, lldb_private::formatters::NSArraySyntheticFrontEndCreator, "NSArray synthetic children", ConstString("__NSArray0"), ScriptedSyntheticChildren::Flags());
     AddCXXSynthetic(objc_category_sp, lldb_private::formatters::NSArraySyntheticFrontEndCreator, "NSArray synthetic children", ConstString("NSArray"), ScriptedSyntheticChildren::Flags());
     AddCXXSynthetic(objc_category_sp, lldb_private::formatters::NSArraySyntheticFrontEndCreator, "NSArray synthetic children", ConstString("NSMutableArray"), ScriptedSyntheticChildren::Flags());
     AddCXXSynthetic(objc_category_sp, lldb_private::formatters::NSArraySyntheticFrontEndCreator, "NSArray synthetic children", ConstString("__NSCFArray"), ScriptedSyntheticChildren::Flags());
@@ -488,6 +500,9 @@ LoadObjCFormatters(TypeCategoryImplSP objc_category_sp)
     AddCXXSynthetic(objc_category_sp, lldb_private::formatters::NSDictionarySyntheticFrontEndCreator, "NSDictionary synthetic children", ConstString("NSMutableDictionary"), ScriptedSyntheticChildren::Flags());
     AddCXXSynthetic(objc_category_sp, lldb_private::formatters::NSDictionarySyntheticFrontEndCreator, "NSDictionary synthetic children", ConstString("CFDictionaryRef"), ScriptedSyntheticChildren::Flags());
     AddCXXSynthetic(objc_category_sp, lldb_private::formatters::NSDictionarySyntheticFrontEndCreator, "NSDictionary synthetic children", ConstString("CFMutableDictionaryRef"), ScriptedSyntheticChildren::Flags());
+    
+    AddCXXSynthetic(objc_category_sp, lldb_private::formatters::NSErrorSyntheticFrontEndCreator, "NSError synthetic children", ConstString("NSError"), ScriptedSyntheticChildren::Flags());
+    AddCXXSynthetic(objc_category_sp, lldb_private::formatters::NSExceptionSyntheticFrontEndCreator, "NSException synthetic children", ConstString("NSException"), ScriptedSyntheticChildren::Flags());
     
     AddCXXSynthetic(objc_category_sp, lldb_private::formatters::NSSetSyntheticFrontEndCreator, "NSSet synthetic children", ConstString("NSSet"), ScriptedSyntheticChildren::Flags());
     AddCXXSynthetic(objc_category_sp, lldb_private::formatters::NSSetSyntheticFrontEndCreator, "__NSSetI synthetic children", ConstString("__NSSetI"), ScriptedSyntheticChildren::Flags());
@@ -605,7 +620,6 @@ LoadCoreMediaFormatters(TypeCategoryImplSP objc_category_sp)
 #endif // LLDB_DISABLE_PYTHON
 }
 
-
 lldb::TypeCategoryImplSP
 ObjCLanguage::GetFormatters ()
 {
@@ -655,4 +669,209 @@ ObjCLanguage::GetPossibleFormattersMatches (ValueObject& valobj, lldb::DynamicVa
     }
     
     return result;
+}
+
+std::unique_ptr<Language::TypeScavenger>
+ObjCLanguage::GetTypeScavenger ()
+{
+    class ObjCTypeScavenger : public Language::TypeScavenger
+    {
+    private:
+        class ObjCScavengerResult : public Language::TypeScavenger::Result
+        {
+        public:
+            ObjCScavengerResult (CompilerType type) :
+                Language::TypeScavenger::Result(),
+                m_compiler_type(type)
+            {
+            }
+            
+            bool
+            IsValid () override
+            {
+                return m_compiler_type.IsValid();
+            }
+            
+            bool
+            DumpToStream (Stream& stream,
+                          bool print_help_if_available) override
+            {
+                if (IsValid())
+                {
+                    m_compiler_type.DumpTypeDescription(&stream);
+                    stream.EOL();
+                    return true;
+                }
+                return false;
+            }
+
+            ~ObjCScavengerResult() override = default;
+
+        private:
+            CompilerType m_compiler_type;
+        };
+        
+    protected:
+        ObjCTypeScavenger() = default;
+        
+        ~ObjCTypeScavenger() override = default;
+        
+        bool
+        Find_Impl (ExecutionContextScope *exe_scope,
+                   const char *key,
+                   ResultSet &results) override
+        {
+            bool result = false;
+            
+            Target* target = exe_scope->CalculateTarget().get();
+            if (target)
+            {
+                if (auto clang_modules_decl_vendor = target->GetClangModulesDeclVendor())
+                {
+                    std::vector <clang::NamedDecl*> decls;
+                    ConstString key_cs(key);
+                    
+                    if (clang_modules_decl_vendor->FindDecls(key_cs, false, UINT32_MAX, decls) > 0 &&
+                        decls.size() > 0)
+                    {
+                        CompilerType module_type = ClangASTContext::GetTypeForDecl(decls.front());
+                        result = true;
+                        std::unique_ptr<Language::TypeScavenger::Result> result(new ObjCScavengerResult(module_type));
+                        results.insert(std::move(result));
+                    }
+                }
+            }
+            
+            if (!result)
+            {
+                Process* process = exe_scope->CalculateProcess().get();
+                if (process)
+                {
+                    const bool create_on_demand = false;
+                    auto objc_runtime = process->GetObjCLanguageRuntime(create_on_demand);
+                    if (objc_runtime)
+                    {
+                        auto decl_vendor = objc_runtime->GetDeclVendor();
+                        if (decl_vendor)
+                        {
+                            std::vector<clang::NamedDecl *> decls;
+                            ConstString name(key);
+                            decl_vendor->FindDecls(name, true, UINT32_MAX, decls);
+                            for (auto decl : decls)
+                            {
+                                if (decl)
+                                {
+                                    if (CompilerType candidate = ClangASTContext::GetTypeForDecl(decl))
+                                    {
+                                        result = true;
+                                        std::unique_ptr<Language::TypeScavenger::Result> result(new ObjCScavengerResult(candidate));
+                                        results.insert(std::move(result));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        friend class lldb_private::ObjCLanguage;
+    };
+    
+    return std::unique_ptr<TypeScavenger>(new ObjCTypeScavenger());
+}
+
+bool
+ObjCLanguage::GetFormatterPrefixSuffix (ValueObject& valobj, ConstString type_hint,
+                                        std::string& prefix, std::string& suffix)
+{
+    static ConstString g_CFBag("CFBag");
+    static ConstString g_CFBinaryHeap("CFBinaryHeap");
+    
+    static ConstString g_NSNumberChar("NSNumber:char");
+    static ConstString g_NSNumberShort("NSNumber:short");
+    static ConstString g_NSNumberInt("NSNumber:int");
+    static ConstString g_NSNumberLong("NSNumber:long");
+    static ConstString g_NSNumberFloat("NSNumber:float");
+    static ConstString g_NSNumberDouble("NSNumber:double");
+    
+    static ConstString g_NSData("NSData");
+    static ConstString g_NSArray("NSArray");
+    static ConstString g_NSString("NSString");
+    static ConstString g_NSStringStar("NSString*");
+    
+    if (type_hint.IsEmpty())
+        return false;
+    
+    prefix.clear();
+    suffix.clear();
+    
+    if (type_hint == g_CFBag ||
+        type_hint == g_CFBinaryHeap)
+    {
+        prefix = "@";
+        return true;
+    }
+    
+    if (type_hint == g_NSNumberChar)
+    {
+        prefix = "(char)";
+        return true;
+    }
+    if (type_hint == g_NSNumberShort)
+    {
+        prefix = "(short)";
+        return true;
+    }
+    if (type_hint == g_NSNumberInt)
+    {
+        prefix = "(int)";
+        return true;
+    }
+    if (type_hint == g_NSNumberLong)
+    {
+        prefix = "(long)";
+        return true;
+    }
+    if (type_hint == g_NSNumberFloat)
+    {
+        prefix = "(float)";
+        return true;
+    }
+    if (type_hint == g_NSNumberDouble)
+    {
+        prefix = "(double)";
+        return true;
+    }
+    
+    if (type_hint == g_NSData ||
+        type_hint == g_NSArray)
+    {
+        prefix = "@\"";
+        suffix = "\"";
+        return true;
+    }
+    
+    if (type_hint == g_NSString ||
+        type_hint == g_NSStringStar)
+    {
+        prefix = "@";
+        return true;
+    }
+    
+    return false;
+}
+
+bool
+ObjCLanguage::IsNilReference (ValueObject& valobj)
+{
+    const uint32_t mask = eTypeIsObjC | eTypeIsPointer;
+    bool isObjCpointer = (((valobj.GetCompilerType().GetTypeInfo(nullptr)) & mask) == mask);
+    if (!isObjCpointer)
+        return false;
+    bool canReadValue = true;
+    bool isZero = valobj.GetValueAsUnsigned(0,&canReadValue) == 0;
+    return canReadValue && isZero;
 }

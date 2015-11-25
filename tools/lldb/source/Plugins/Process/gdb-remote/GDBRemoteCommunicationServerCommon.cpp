@@ -186,13 +186,15 @@ GDBRemoteCommunicationServerCommon::Handle_qHostInfo (StringExtractorGDBRemote &
         host_arch.GetMachine() == llvm::Triple::arm ||
         host_arch.GetMachine() == llvm::Triple::armeb ||
         host_arch.GetMachine() == llvm::Triple::mips64 ||
-        host_arch.GetMachine() == llvm::Triple::mips64el)
+        host_arch.GetMachine() == llvm::Triple::mips64el ||
+        host_arch.GetMachine() == llvm::Triple::mips ||
+        host_arch.GetMachine() == llvm::Triple::mipsel)
         response.Printf("watchpoint_exceptions_received:before;");
     else
         response.Printf("watchpoint_exceptions_received:after;");
 #endif
 
-    switch (lldb::endian::InlHostByteOrder())
+    switch (endian::InlHostByteOrder())
     {
     case eByteOrderBig:     response.PutCString ("endian:big;"); break;
     case eByteOrderLittle:  response.PutCString ("endian:little;"); break;

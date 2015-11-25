@@ -24,6 +24,7 @@ def : DiagGroup<"aggregate-return">;
 def GNUAlignofExpression : DiagGroup<"gnu-alignof-expression">;
 def AmbigMemberTemplate : DiagGroup<"ambiguous-member-template">;
 def GNUAnonymousStruct : DiagGroup<"gnu-anonymous-struct">;
+def GNUAutoType : DiagGroup<"gnu-auto-type">;
 def ArrayBounds : DiagGroup<"array-bounds">;
 def ArrayBoundsPointerArithmetic : DiagGroup<"array-bounds-pointer-arithmetic">;
 def Availability : DiagGroup<"availability">;
@@ -46,6 +47,7 @@ def BoolConversion : DiagGroup<"bool-conversion", [PointerBoolConversion,
 def IntConversion : DiagGroup<"int-conversion">;
 def EnumConversion : DiagGroup<"enum-conversion">;
 def FloatConversion : DiagGroup<"float-conversion">;
+def DoublePromotion : DiagGroup<"double-promotion">;
 def EnumTooLarge : DiagGroup<"enum-too-large">;
 def UnsupportedNan : DiagGroup<"unsupported-nan">;
 def NonLiteralNullConversion : DiagGroup<"non-literal-null-conversion">;
@@ -81,6 +83,7 @@ def AbstractFinalClass : DiagGroup<"abstract-final-class">;
 def CXX11CompatDeprecatedWritableStr :
   DiagGroup<"c++11-compat-deprecated-writable-strings">;
 
+def DeprecatedAttributes : DiagGroup<"deprecated-attributes">;
 def DeprecatedDeclarations : DiagGroup<"deprecated-declarations">;
 def UnavailableDeclarations : DiagGroup<"unavailable-declarations">;
 def PartialAvailability : DiagGroup<"partial-availability">;
@@ -90,12 +93,14 @@ def DeprecatedRegister : DiagGroup<"deprecated-register">;
 def DeprecatedWritableStr : DiagGroup<"deprecated-writable-strings",
                                       [CXX11CompatDeprecatedWritableStr]>;
 // FIXME: Why is DeprecatedImplementations not in this group?
-def Deprecated : DiagGroup<"deprecated", [DeprecatedDeclarations,
+def Deprecated : DiagGroup<"deprecated", [DeprecatedAttributes,
+                                          DeprecatedDeclarations,
                                           DeprecatedIncrementBool,
                                           DeprecatedRegister,
                                           DeprecatedWritableStr]>,
                  DiagCategory<"Deprecations">;
 
+def LibLTO : DiagGroup<"liblto">;
 def : DiagGroup<"disabled-optimization">;
 def : DiagGroup<"discard-qual">;
 def : DiagGroup<"div-by-zero">;
@@ -201,6 +206,7 @@ def InfiniteRecursion : DiagGroup<"infinite-recursion">;
 def GNUImaginaryConstant : DiagGroup<"gnu-imaginary-constant">;
 def IgnoredQualifiers : DiagGroup<"ignored-qualifiers">;
 def : DiagGroup<"import">;
+def GNUIncludeNext : DiagGroup<"gnu-include-next">;
 def IncompatibleMSStruct : DiagGroup<"incompatible-ms-struct">;
 def IncompatiblePointerTypesDiscardsQualifiers 
   : DiagGroup<"incompatible-pointer-types-discards-qualifiers">;
@@ -215,6 +221,7 @@ def NonModularIncludeInModule : DiagGroup<"non-modular-include-in-module",
 def IncompleteModule : DiagGroup<"incomplete-module",
     [IncompleteUmbrella, NonModularIncludeInModule]>;
 
+def CXX11InlineNamespace : DiagGroup<"c++11-inline-namespace">;
 def InvalidNoreturn : DiagGroup<"invalid-noreturn">;
 def InvalidSourceEncoding : DiagGroup<"invalid-source-encoding">;
 def KNRPromotedParameter : DiagGroup<"knr-promoted-parameter">;
@@ -249,6 +256,7 @@ def MismatchedTags : DiagGroup<"mismatched-tags">;
 def MissingFieldInitializers : DiagGroup<"missing-field-initializers">;
 def ModuleBuild : DiagGroup<"module-build">;
 def ModuleConflict : DiagGroup<"module-conflict">;
+def ModuleFileExtension : DiagGroup<"module-file-extension">;
 def NewlineEOF : DiagGroup<"newline-eof">;
 def Nullability : DiagGroup<"nullability">;
 def NullabilityDeclSpec : DiagGroup<"nullability-declspec">;
@@ -677,7 +685,8 @@ def NonGCC : DiagGroup<"non-gcc",
 
 // A warning group for warnings about using C++11 features as extensions in
 // earlier C++ versions.
-def CXX11 : DiagGroup<"c++11-extensions", [CXX11ExtraSemi, CXX11LongLong]>;
+def CXX11 : DiagGroup<"c++11-extensions", [CXX11ExtraSemi, CXX11InlineNamespace,
+                                           CXX11LongLong]>;
 
 // A warning group for warnings about using C++14 features as extensions in
 // earlier C++ versions.
@@ -701,13 +710,15 @@ def C99 : DiagGroup<"c99-extensions">;
 
 // A warning group for warnings about GCC extensions.
 def GNU : DiagGroup<"gnu", [GNUAlignofExpression, GNUAnonymousStruct,
+                            GNUAutoType,
                             GNUBinaryLiteral, GNUCaseRange,
                             GNUComplexInteger, GNUCompoundLiteralInitializer,
                             GNUConditionalOmittedOperand, GNUDesignator,
                             GNUEmptyInitializer, GNUEmptyStruct,
                             VLAExtension, GNUFlexibleArrayInitializer,
                             GNUFlexibleArrayUnionMember, GNUFoldingConstant,
-                            GNUImaginaryConstant, GNULabelsAsValue,
+                            GNUImaginaryConstant, GNUIncludeNext,
+                            GNULabelsAsValue,
                             RedeclaredClassMember, GNURedeclaredEnum,
                             GNUStatementExpression, GNUStaticFloatInit,
                             GNUStringLiteralOperatorTemplate,
@@ -820,3 +831,7 @@ def CudaCompat : DiagGroup<"cuda-compat">;
 
 // A warning group for things that will change semantics in the future.
 def FutureCompat : DiagGroup<"future-compat">;
+
+def InvalidOrNonExistentDirectory : DiagGroup<"invalid-or-nonexistent-directory">;
+
+def OptionIgnored : DiagGroup<"option-ignored">;

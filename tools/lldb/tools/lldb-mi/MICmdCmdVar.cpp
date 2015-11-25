@@ -51,9 +51,6 @@ CMICmdCmdVarCreate::CMICmdCmdVarCreate()
     , m_strType("??")
     , m_bValid(false)
     , m_strValue("??")
-    , m_constStrArgThread("thread")
-    , m_constStrArgThreadGroup("thread-group")
-    , m_constStrArgFrame("frame")
     , m_constStrArgName("name")
     , m_constStrArgFrameAddr("frame-addr")
     , m_constStrArgExpression("expression")
@@ -88,10 +85,6 @@ CMICmdCmdVarCreate::~CMICmdCmdVarCreate()
 bool
 CMICmdCmdVarCreate::ParseArgs()
 {
-    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
-    m_setCmdArgs.Add(
-        new CMICmdArgValOptionLong(m_constStrArgThreadGroup, false, false, CMICmdArgValListBase::eArgValType_ThreadGrp, 1));
-    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgFrame, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
     m_setCmdArgs.Add(new CMICmdArgValString(m_constStrArgName, false, true));
     m_setCmdArgs.Add(new CMICmdArgValString(m_constStrArgFrameAddr, false, true));
     m_setCmdArgs.Add(new CMICmdArgValString(m_constStrArgExpression, true, true, true, true));
@@ -1015,7 +1008,9 @@ CMICmdCmdVarListChildren::Execute()
         lldb::SBValue member = rValue.GetChildAtIndex(i);
         const CMICmnLLDBUtilSBValue utilValue(member);
         const CMIUtilString strExp = utilValue.GetName();
-        const CMIUtilString name(CMIUtilString::Format("%s.%s", rVarObjName.c_str(), strExp.c_str()));
+        const CMIUtilString name(strExp.empty() ?
+            CMIUtilString::Format("%s.$%u", rVarObjName.c_str(), i) :
+            CMIUtilString::Format("%s.%s", rVarObjName.c_str(), strExp.c_str()));
         const MIuint nChildren = member.GetNumChildren();
         const CMIUtilString strThreadId(CMIUtilString::Format("%u", member.GetThread().GetIndexID()));
 

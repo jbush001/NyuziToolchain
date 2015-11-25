@@ -639,6 +639,7 @@ unsigned Decl::getIdentifierNamespaceForKind(Kind DeclKind) {
     case ExternCContext:
 
     case UsingDirective:
+    case BuiltinTemplate:
     case ClassTemplateSpecialization:
     case ClassTemplatePartialSpecialization:
     case ClassScopeFunctionSpecialization:
@@ -1209,13 +1210,16 @@ void DeclContext::removeDecl(Decl *D) {
     // Remove only decls that have a name
     if (!ND->getDeclName()) return;
 
-    StoredDeclsMap *Map = getPrimaryContext()->LookupPtr;
-    if (!Map) return;
-
-    StoredDeclsMap::iterator Pos = Map->find(ND->getDeclName());
-    assert(Pos != Map->end() && "no lookup entry for decl");
-    if (Pos->second.getAsVector() || Pos->second.getAsDecl() == ND)
-      Pos->second.remove(ND);
+    auto *DC = this;
+    do {
+      StoredDeclsMap *Map = DC->getPrimaryContext()->LookupPtr;
+      if (Map) {
+        StoredDeclsMap::iterator Pos = Map->find(ND->getDeclName());
+        assert(Pos != Map->end() && "no lookup entry for decl");
+        if (Pos->second.getAsVector() || Pos->second.getAsDecl() == ND)
+          Pos->second.remove(ND);
+      }
+    } while (DC->isTransparentContext() && (DC = DC->getParent()));
   }
 }
 
@@ -1233,7 +1237,7 @@ void DeclContext::addHiddenDecl(Decl *D) {
   }
 
   // Notify a C++ record declaration that we've added a member, so it can
-  // update it's class-specific state.
+  // update its class-specific state.
   if (CXXRecordDecl *Record = dyn_cast<CXXRecordDecl>(this))
     Record->addedMember(D);
 

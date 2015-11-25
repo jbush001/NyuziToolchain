@@ -1,4 +1,4 @@
-//===-- FunctionCaller.h -----------------------------------------*- C++ -*-===//
+//===-- FunctionCaller.h ----------------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -12,24 +12,22 @@
 
 // C Includes
 // C++ Includes
-#include <vector>
 #include <list>
+#include <memory>
+#include <string>
+#include <vector>
+
 // Other libraries and framework includes
 // Project includes
 #include "lldb/Core/Address.h"
-#include "lldb/Core/ArchSpec.h"
 #include "lldb/Core/Value.h"
-#include "lldb/Core/ValueObjectList.h"
 #include "lldb/Expression/Expression.h"
 #include "lldb/Expression/ExpressionParser.h"
 #include "lldb/Symbol/CompilerType.h"
-#include "lldb/Target/Process.h"
 
 namespace lldb_private
 {
     
-class ClangExpressionParser;
-
 //----------------------------------------------------------------------
 /// @class FunctionCaller FunctionCaller.h "lldb/Expression/FunctionCaller.h"
 /// @brief Encapsulates a function that can be called.
@@ -60,7 +58,7 @@ class ClangExpressionParser;
 /// a pointer set to LLDB_INVALID_ADDRESS and new structure will be allocated
 /// and its address returned in that variable.
 /// 
-/// Any of the methods that take arg_addr_ptr can be passed NULL, and the
+/// Any of the methods that take arg_addr_ptr can be passed nullptr, and the
 /// argument space will be managed for you.
 //----------------------------------------------------------------------    
 class FunctionCaller : public Expression
@@ -207,7 +205,7 @@ public:
     ///     The thread & process in which this function will run.
     ///
     /// @param[in] args_addr_ptr
-    ///     If NULL, the function will take care of allocating & deallocating the wrapper
+    ///     If nullptr, the function will take care of allocating & deallocating the wrapper
     ///     args structure.  Otherwise, if set to LLDB_INVALID_ADDRESS, a new structure
     ///     will be allocated, filled and the address returned to you.  You are responsible
     ///     for deallocating it.  And if passed in with a value other than LLDB_INVALID_ADDRESS,
@@ -322,12 +320,12 @@ public:
     
     //------------------------------------------------------------------
     /// Return the object that the parser should use when registering
-    /// local variables.  May be NULL if the Expression doesn't care.
+    /// local variables. May be nullptr if the Expression doesn't care.
     //------------------------------------------------------------------
     ExpressionVariableList *
     LocalVariables ()
     {
-        return NULL;
+        return nullptr;
     }
     
     //------------------------------------------------------------------
@@ -355,11 +353,8 @@ public:
     {
         return m_arg_values;
     }
-protected:
-    //------------------------------------------------------------------
-    // For FunctionCaller only
-    //------------------------------------------------------------------
 
+protected:
     // Note: the parser needs to be destructed before the execution unit, so
     // declare the execution unit first.
     std::shared_ptr<IRExecutionUnit> m_execution_unit_sp;
@@ -370,7 +365,7 @@ protected:
     lldb::ModuleWP                  m_jit_module_wp;
     std::string                     m_name;                         ///< The name of this clang function - for debugging purposes.
     
-    Function                       *m_function_ptr;                 ///< The function we're going to call.  May be NULL if we don't have debug info for the function.
+    Function                       *m_function_ptr;                 ///< The function we're going to call. May be nullptr if we don't have debug info for the function.
     Address                         m_function_addr;                ///< If we don't have the FunctionSP, we at least need the address & return type.
     CompilerType                    m_function_return_type;         ///< The opaque clang qual type for the function return type.
 
@@ -395,6 +390,6 @@ protected:
     bool                            m_JITted;                       ///< True if the wrapper function has already been JIT-compiled.
 };
 
-} // Namespace lldb_private
+} // namespace lldb_private
 
 #endif // liblldb_FunctionCaller_h_

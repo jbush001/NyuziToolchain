@@ -35,6 +35,15 @@ namespace lldb {
         const char*
         GetName();
         
+        lldb::LanguageType
+        GetLanguageAtIndex (uint32_t idx);
+        
+        uint32_t
+        GetNumLanguages ();
+        
+        void
+        AddLanguage (lldb::LanguageType language);
+        
         bool
         GetDescription (lldb::SBStream &description, 
                         lldb::DescriptionLevel description_level);
@@ -142,7 +151,7 @@ namespace lldb {
                     elif isinstance(key,self.regex_type):
                         return self.get_by_name_function(self.sbcategory,SBTypeNameSpecifier(key.pattern,True))
                     else:
-                        print "error: unsupported item type: %s" % type(key)
+                        print("error: unsupported item type: %s" % type(key))
                     return None
 
             def get_formats_access_object(self):

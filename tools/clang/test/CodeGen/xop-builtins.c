@@ -1,6 +1,6 @@
 // REQUIRES: x86-registered-target
-// RUN: %clang_cc1 %s -O0 -triple=x86_64-apple-darwin -target-feature +xop -emit-llvm -o - -Werror | FileCheck %s
-// RUN: %clang_cc1 %s -O0 -triple=x86_64-apple-darwin -target-feature +xop -S -o - -Werror | FileCheck %s --check-prefix=CHECK-ASM
+// RUN: %clang_cc1 %s -triple=x86_64-apple-darwin -target-feature +xop -emit-llvm -o - -Werror | FileCheck %s
+// RUN: %clang_cc1 %s -triple=x86_64-apple-darwin -target-feature +xop -S -o - -Werror | FileCheck %s --check-prefix=CHECK-ASM
 
 // Don't include mm_malloc.h, it's system specific.
 #define __MM_MALLOC_H
@@ -225,7 +225,7 @@ __m128i test_mm_roti_epi16(__m128i a) {
 
 __m128i test_mm_roti_epi32(__m128i a) {
   // CHECK: @llvm.x86.xop.vprotdi
-  // CHECK-ASM: vprotd $-30, %xmm{{.*}}, %xmm{{.*}}
+  // CHECK-ASM: vprotd $226, %xmm{{.*}}, %xmm{{.*}}
   return _mm_roti_epi32(a, -30);
 }
 

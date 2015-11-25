@@ -189,7 +189,7 @@ Value::AppendDataToHostBuffer (const Value &rhs)
                 {
                     rhs.m_value.GetAsMemoryData (m_data_buffer.GetBytes() + curr_size,
                                                  scalar_size,
-                                                 lldb::endian::InlHostByteOrder(),
+                                                 endian::InlHostByteOrder(),
                                                  error);
                     return scalar_size;
                 }
@@ -260,7 +260,7 @@ Value::ValueOf(ExecutionContext *exe_ctx)
 }
 
 uint64_t
-Value::GetValueByteSize (Error *error_ptr)
+Value::GetValueByteSize (Error *error_ptr, ExecutionContext *exe_ctx)
 {
     uint64_t byte_size = 0;
 
@@ -277,7 +277,7 @@ Value::GetValueByteSize (Error *error_ptr)
         {
             const CompilerType &ast_type = GetCompilerType();
             if (ast_type.IsValid())
-                byte_size = ast_type.GetByteSize(nullptr);
+                byte_size = ast_type.GetByteSize(exe_ctx ? exe_ctx->GetBestExecutionContextScope() : nullptr);
         }
         break;
     }
@@ -420,7 +420,7 @@ Value::GetValueAsData (ExecutionContext *exe_ctx,
 
     case eValueTypeScalar:
         {
-            data.SetByteOrder (lldb::endian::InlHostByteOrder());
+            data.SetByteOrder (endian::InlHostByteOrder());
             if (ast_type.IsValid())
                 data.SetAddressByteSize (ast_type.GetPointerByteSize());
             else
@@ -434,7 +434,7 @@ Value::GetValueAsData (ExecutionContext *exe_ctx,
                 lldb::Encoding type_encoding = ast_type.GetEncoding(type_encoding_count);
                 
                 if (type_encoding == eEncodingUint || type_encoding == eEncodingSint)
-                    limit_byte_size = ast_type.GetByteSize(nullptr);
+                    limit_byte_size = ast_type.GetByteSize(exe_ctx ? exe_ctx->GetBestExecutionContextScope() : nullptr);
             }
             
             if (m_value.GetData (data, limit_byte_size))
@@ -623,7 +623,7 @@ Value::GetValueAsData (ExecutionContext *exe_ctx,
             }
         }
         // fallback to host settings
-        data.SetByteOrder(lldb::endian::InlHostByteOrder());
+        data.SetByteOrder(endian::InlHostByteOrder());
         data.SetAddressByteSize(sizeof(void *));
         break;
     }
@@ -639,7 +639,7 @@ Value::GetValueAsData (ExecutionContext *exe_ctx,
     }
 
     // If we got here, we need to read the value from memory
-    size_t byte_size = GetValueByteSize (&error);
+    size_t byte_size = GetValueByteSize (&error, exe_ctx);
 
     // Bail if we encountered any errors getting the byte size
     if (error.Fail())

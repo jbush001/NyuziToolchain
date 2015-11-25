@@ -19,6 +19,7 @@
 #include "lldb/Breakpoint/BreakpointLocation.h"
 #include "lldb/Core/ArchSpec.h"
 #include "lldb/Core/Error.h"
+#include "lldb/Core/Log.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/ModuleList.h"
 #include "lldb/Core/ModuleSpec.h"
@@ -79,11 +80,29 @@ PlatformDarwinKernel::Terminate ()
 PlatformSP
 PlatformDarwinKernel::CreateInstance (bool force, const ArchSpec *arch)
 {
+    Log *log(GetLogIfAllCategoriesSet (LIBLLDB_LOG_PLATFORM));
+    if (log)
+    {
+        const char *arch_name;
+        if (arch && arch->GetArchitectureName ())
+            arch_name = arch->GetArchitectureName ();
+        else
+            arch_name = "<null>";
+
+        const char *triple_cstr = arch ? arch->GetTriple ().getTriple ().c_str() : "<null>";
+
+        log->Printf ("PlatformDarwinKernel::%s(force=%s, arch={%s,%s})", __FUNCTION__, force ? "true" : "false", arch_name, triple_cstr);
+    }
+
     // This is a special plugin that we don't want to activate just based on an ArchSpec for normal
     // userland debugging.  It is only useful in kernel debug sessions and the DynamicLoaderDarwinPlugin
     // (or a user doing 'platform select') will force the creation of this Platform plugin.
     if (force == false)
+    {
+        if (log)
+            log->Printf ("PlatformDarwinKernel::%s() aborting creation of platform because force == false", __FUNCTION__);
         return PlatformSP();
+    }
 
     bool create = force;
     LazyBool is_ios_debug_session = eLazyBoolCalculate;
@@ -111,8 +130,11 @@ PlatformDarwinKernel::CreateInstance (bool force, const ArchSpec *arch)
         {
             switch (triple.getOS())
             {
-                case llvm::Triple::Darwin:  // Deprecated, but still support Darwin for historical reasons
+                case llvm::Triple::Darwin:
                 case llvm::Triple::MacOSX:
+                case llvm::Triple::IOS:
+                case llvm::Triple::WatchOS:
+                case llvm::Triple::TvOS:
                     break;
                 // Only accept "vendor" for vendor if the host is Apple and
                 // it "unknown" wasn't specified (it was just returned because it
@@ -147,7 +169,16 @@ PlatformDarwinKernel::CreateInstance (bool force, const ArchSpec *arch)
         }
     }
     if (create)
+    {
+        if (log)
+            log->Printf ("PlatformDarwinKernel::%s() creating platform", __FUNCTION__);
+
         return PlatformSP(new PlatformDarwinKernel (is_ios_debug_session));
+    }
+
+    if (log)
+        log->Printf ("PlatformDarwinKernel::%s() aborting creation of platform", __FUNCTION__);
+
     return PlatformSP();
 }
 
@@ -312,7 +343,11 @@ PlatformDarwinKernel::CollectKextAndKernelDirectories ()
     // e.g. /Applications/Xcode.app//Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.8.Internal.sdk
     std::vector<FileSpec> sdk_dirs;
     if (m_ios_debug_session != eLazyBoolNo)
+    {
         GetiOSSDKDirectoriesToSearch (sdk_dirs);
+        GetAppleTVOSSDKDirectoriesToSearch (sdk_dirs);
+        GetWatchOSSDKDirectoriesToSearch (sdk_dirs);
+    }
     if (m_ios_debug_session != eLazyBoolYes)
         GetMacSDKDirectoriesToSearch (sdk_dirs);
 
@@ -362,6 +397,50 @@ PlatformDarwinKernel::GetiOSSDKDirectoriesToSearch (std::vector<lldb_private::Fi
         directories.push_back (ios_sdk);
     }
 }
+
+void
+PlatformDarwinKernel::GetAppleTVOSSDKDirectoriesToSearch (std::vector<lldb_private::FileSpec> &directories)
+{
+    // DeveloperDirectory is something like "/Applications/Xcode.app/Contents/Developer"
+    const char *developer_dir = GetDeveloperDirectory();
+    if (developer_dir == NULL)
+        developer_dir = "/Applications/Xcode.app/Contents/Developer";
+
+    char pathbuf[PATH_MAX];
+    ::snprintf (pathbuf, sizeof (pathbuf), "%s/Platforms/AppleTVOS.platform/Developer/SDKs", developer_dir);
+    FileSpec ios_sdk(pathbuf, true);
+    if (ios_sdk.Exists() && ios_sdk.IsDirectory())
+    {
+        directories.push_back (ios_sdk);
+    }
+}
+
+void
+PlatformDarwinKernel::GetWatchOSSDKDirectoriesToSearch (std::vector<lldb_private::FileSpec> &directories)
+{
+    // DeveloperDirectory is something like "/Applications/Xcode.app/Contents/Developer"
+    const char *developer_dir = GetDeveloperDirectory();
+    if (developer_dir == NULL)
+        developer_dir = "/Applications/Xcode.app/Contents/Developer";
+
+    char pathbuf[PATH_MAX];
+    ::snprintf (pathbuf, sizeof (pathbuf), "%s/Platforms/watchOS.platform/Developer/SDKs", developer_dir);
+    FileSpec ios_sdk(pathbuf, true);
+    if (ios_sdk.Exists() && ios_sdk.IsDirectory())
+    {
+        directories.push_back (ios_sdk);
+    }
+    else
+    {
+        ::snprintf (pathbuf, sizeof (pathbuf), "%s/Platforms/WatchOS.platform/Developer/SDKs", developer_dir);
+        FileSpec alt_watch_sdk(pathbuf, true);
+        if (ios_sdk.Exists() && ios_sdk.IsDirectory())
+        {
+            directories.push_back (ios_sdk);
+        }
+    }
+}
+
 
 void
 PlatformDarwinKernel::GetMacSDKDirectoriesToSearch (std::vector<lldb_private::FileSpec> &directories)

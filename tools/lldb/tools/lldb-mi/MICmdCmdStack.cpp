@@ -41,7 +41,6 @@
 //--
 CMICmdCmdStackInfoDepth::CMICmdCmdStackInfoDepth()
     : m_nThreadFrames(0)
-    , m_constStrArgThread("thread")
     , m_constStrArgMaxDepth("max-depth")
 {
     // Command factory matches this name with that received from the stdin stream
@@ -74,7 +73,6 @@ CMICmdCmdStackInfoDepth::~CMICmdCmdStackInfoDepth()
 bool
 CMICmdCmdStackInfoDepth::ParseArgs()
 {
-    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
     m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgMaxDepth, false, false));
     return ParseValidateCmdOptions();
 }
@@ -265,7 +263,6 @@ CMICmdCmdStackInfoFrame::CreateSelf()
 //--
 CMICmdCmdStackListFrames::CMICmdCmdStackListFrames()
     : m_nThreadFrames(0)
-    , m_constStrArgThread("thread")
     , m_constStrArgFrameLow("low-frame")
     , m_constStrArgFrameHigh("high-frame")
 {
@@ -300,7 +297,6 @@ CMICmdCmdStackListFrames::~CMICmdCmdStackListFrames()
 bool
 CMICmdCmdStackListFrames::ParseArgs()
 {
-    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
     m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgFrameLow, false, true));
     m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgFrameHigh, false, true));
     return ParseValidateCmdOptions();
@@ -446,7 +442,6 @@ CMICmdCmdStackListFrames::CreateSelf()
 CMICmdCmdStackListArguments::CMICmdCmdStackListArguments()
     : m_bThreadInvalid(false)
     , m_miValueList(true)
-    , m_constStrArgThread("thread")
     , m_constStrArgPrintValues("print-values")
     , m_constStrArgFrameLow("low-frame")
     , m_constStrArgFrameHigh("high-frame")
@@ -481,7 +476,6 @@ CMICmdCmdStackListArguments::~CMICmdCmdStackListArguments()
 bool
 CMICmdCmdStackListArguments::ParseArgs()
 {
-    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
     m_setCmdArgs.Add(new CMICmdArgValPrintValues(m_constStrArgPrintValues, true, true));
     m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgFrameLow, false, true));
     m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgFrameHigh, false, true));
@@ -632,8 +626,6 @@ CMICmdCmdStackListArguments::CreateSelf()
 CMICmdCmdStackListLocals::CMICmdCmdStackListLocals()
     : m_bThreadInvalid(false)
     , m_miValueList(true)
-    , m_constStrArgThread("thread")
-    , m_constStrArgFrame("frame")
     , m_constStrArgPrintValues("print-values")
 {
     // Command factory matches this name with that received from the stdin stream
@@ -666,8 +658,6 @@ CMICmdCmdStackListLocals::~CMICmdCmdStackListLocals()
 bool
 CMICmdCmdStackListLocals::ParseArgs()
 {
-    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
-    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgFrame, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
     m_setCmdArgs.Add(new CMICmdArgValPrintValues(m_constStrArgPrintValues, true, true));
     return ParseValidateCmdOptions();
 }
@@ -795,8 +785,6 @@ CMICmdCmdStackListLocals::CreateSelf()
 CMICmdCmdStackListVariables::CMICmdCmdStackListVariables()
     : m_bThreadInvalid(false)
     , m_miValueList(true)
-    , m_constStrArgThread("thread")
-    , m_constStrArgFrame("frame")
     , m_constStrArgPrintValues("print-values")
 {
     // Command factory matches this name with that received from the stdin stream
@@ -829,8 +817,6 @@ CMICmdCmdStackListVariables::~CMICmdCmdStackListVariables()
 bool
 CMICmdCmdStackListVariables::ParseArgs()
 {
-    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
-    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgFrame, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
     m_setCmdArgs.Add(new CMICmdArgValPrintValues(m_constStrArgPrintValues, true, true));
     return ParseValidateCmdOptions();
 }
@@ -956,7 +942,7 @@ CMICmdCmdStackListVariables::CreateSelf()
 //--
 CMICmdCmdStackSelectFrame::CMICmdCmdStackSelectFrame()
     : m_bFrameInvalid(false)
-    , m_constStrArgFrame("frame")
+    , m_constStrArgFrameId("frame_id")
 {
     // Command factory matches this name with that received from the stdin stream
     m_strMiCmd = "stack-select-frame";
@@ -988,7 +974,7 @@ CMICmdCmdStackSelectFrame::~CMICmdCmdStackSelectFrame()
 bool
 CMICmdCmdStackSelectFrame::ParseArgs()
 {
-    m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgFrame, true, false));
+    m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgFrameId, true, false));
     return ParseValidateCmdOptions();
 }
 
@@ -1004,7 +990,7 @@ CMICmdCmdStackSelectFrame::ParseArgs()
 bool
 CMICmdCmdStackSelectFrame::Execute()
 {
-    CMICMDBASE_GETOPTION(pArgFrame, Number, m_constStrArgFrame);
+    CMICMDBASE_GETOPTION(pArgFrame, Number, m_constStrArgFrameId);
 
     CMICmnLLDBDebugSessionInfo &rSessionInfo(CMICmnLLDBDebugSessionInfo::Instance());
     lldb::SBThread sbThread = rSessionInfo.GetProcess().GetSelectedThread();

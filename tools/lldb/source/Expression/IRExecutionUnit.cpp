@@ -50,10 +50,12 @@ IRExecutionUnit::WriteNow (const uint8_t *bytes,
                            size_t size,
                            Error &error)
 {
+    const bool zero_memory = false;
     lldb::addr_t allocation_process_addr = Malloc (size,
                                                    8,
                                                    lldb::ePermissionsWritable | lldb::ePermissionsReadable,
                                                    eAllocationPolicyMirror,
+                                                   zero_memory,
                                                    error);
 
     if (!error.Success())
@@ -431,6 +433,13 @@ IRExecutionUnit::GetRunnableInfo(Error &error,
                     DataExtractor my_extractor(my_buffer.GetBytes(), my_buffer.GetByteSize(), lldb::eByteOrderBig, 8);
                     my_extractor.PutToLog(log, 0, my_buffer.GetByteSize(), record.m_process_address, 16, DataExtractor::TypeUInt8);
                 }
+            }
+            else
+            {
+                record.dump(log);
+                
+                DataExtractor my_extractor ((const void*)record.m_host_address, record.m_size, lldb::eByteOrderBig, 8);
+                my_extractor.PutToLog(log, 0, record.m_size, record.m_host_address, 16, DataExtractor::TypeUInt8);
             }
         }
     }
@@ -812,10 +821,12 @@ IRExecutionUnit::CommitAllocations (lldb::ProcessSP &process_sp)
             err.Clear();
             break;
         default:
+            const bool zero_memory = false;
             record.m_process_address = Malloc (record.m_size,
                                                record.m_alignment,
                                                record.m_permissions,
                                                eAllocationPolicyProcessOnly,
+                                               zero_memory,
                                                err);
             break;
         }
@@ -883,12 +894,13 @@ IRExecutionUnit::AllocationRecord::dump (Log *log)
     if (!log)
         return;
 
-    log->Printf("[0x%llx+0x%llx]->0x%llx (alignment %d, section ID %d)",
+    log->Printf("[0x%llx+0x%llx]->0x%llx (alignment %d, section ID %d, name %s)",
                 (unsigned long long)m_host_address,
                 (unsigned long long)m_size,
                 (unsigned long long)m_process_address,
                 (unsigned)m_alignment,
-                (unsigned)m_section_id);
+                (unsigned)m_section_id,
+                m_name.c_str());
 }
 
 

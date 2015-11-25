@@ -9,7 +9,6 @@
 
 #include "CPlusPlusLanguage.h"
 
-#include <string.h>
 
 #include "llvm/ADT/StringRef.h"
 
@@ -26,6 +25,8 @@
 #include "LibCxx.h"
 #include "LibStdcpp.h"
 
+#include <cstring>
+#include <cctype>
 #include <functional>
 #include <mutex>
 
@@ -131,6 +132,49 @@ ReverseFindMatchingChars (const llvm::StringRef &s,
     return false;
 }
 
+static bool
+IsValidBasename(const llvm::StringRef& basename)
+{
+    // Check that the basename matches with the following regular expression or is an operator name:
+    // "^~?([A-Za-z_][A-Za-z_0-9]*)(<.*>)?$"
+    // We are using a hand written implementation because it is significantly more efficient then
+    // using the general purpose regular expression library.
+    size_t idx = 0;
+    if (basename.size() > 0 && basename[0] == '~')
+        idx = 1;
+
+    if (basename.size() <= idx)
+        return false; // Empty string or "~"
+
+    if (!std::isalpha(basename[idx]) && basename[idx] != '_')
+        return false; // First charater (after removing the possible '~'') isn't in [A-Za-z_]
+
+    // Read all characters matching [A-Za-z_0-9]
+    ++idx;
+    while (idx < basename.size())
+    {
+        if (!std::isalnum(basename[idx]) && basename[idx] != '_')
+            break;
+        ++idx;
+    }
+
+    // We processed all characters. It is a vaild basename.
+    if (idx == basename.size())
+        return true;
+
+    // Check for basename with template arguments
+    // TODO: Improve the quality of the validation with validating the template arguments
+    if (basename[idx] == '<' && basename.back() == '>')
+        return true;
+
+    // Check if the basename is a vaild C++ operator name
+    if (!basename.startswith("operator"))
+        return false;
+
+    static RegularExpression g_operator_regex("^(operator)( ?)([A-Za-z_][A-Za-z_0-9]*|\\(\\)|\\[\\]|[\\^<>=!\\/*+-]+)(<.*>)?(\\[\\])?$");
+    std::string basename_str(basename.str());
+    return g_operator_regex.Execute(basename_str.c_str(), nullptr);
+}
 
 void
 CPlusPlusLanguage::MethodName::Parse()
@@ -201,30 +245,8 @@ CPlusPlusLanguage::MethodName::Parse()
                 m_parse_error = true;
                 return;
             }
-        
-//            if (!m_context.empty())
-//                printf ("   context = '%s'\n", m_context.str().c_str());
-//            if (m_basename)
-//                printf ("  basename = '%s'\n", m_basename.GetCString());
-//            if (!m_arguments.empty())
-//                printf (" arguments = '%s'\n", m_arguments.str().c_str());
-//            if (!m_qualifiers.empty())
-//                printf ("qualifiers = '%s'\n", m_qualifiers.str().c_str());
 
-            // Make sure we have a valid C++ basename with optional template args
-            static RegularExpression g_identifier_regex("^~?([A-Za-z_][A-Za-z_0-9]*)(<.*>)?$");
-            std::string basename_str(m_basename.str());
-            bool basename_is_valid = g_identifier_regex.Execute (basename_str.c_str(), NULL);
-            if (!basename_is_valid)
-            {
-                // Check for C++ operators
-                if (m_basename.startswith("operator"))
-                {
-                    static RegularExpression g_operator_regex("^(operator)( ?)([A-Za-z_][A-Za-z_0-9]*|\\(\\)|\\[\\]|[\\^<>=!\\/*+-]+)(<.*>)?(\\[\\])?$");
-                    basename_is_valid = g_operator_regex.Execute(basename_str.c_str(), NULL);
-                }
-            }
-            if (!basename_is_valid)
+            if (!IsValidBasename(m_basename))
             {
                 // The C++ basename doesn't match our regular expressions so this can't
                 // be a valid C++ method, clear everything out and indicate an error
@@ -238,7 +260,6 @@ CPlusPlusLanguage::MethodName::Parse()
         else
         {
             m_parse_error = true;
-//            printf ("error: didn't find matching parens for arguments\n");
         }
     }
 }
@@ -545,7 +566,14 @@ LoadLibStdcppFormatters(lldb::TypeCategoryImplSP cpp_category_sp)
     
     lldb::TypeSummaryImplSP std_string_summary_sp(new StringSummaryFormat(stl_summary_flags,
                                                                           "${var._M_dataplus._M_p}"));
-    
+
+    lldb::TypeSummaryImplSP cxx11_string_summary_sp(new CXXFunctionSummaryFormat(stl_summary_flags,
+                                                                                 LibStdcppStringSummaryProvider,
+                                                                                 "libstdc++ c++11 std::string summary provider"));
+    lldb::TypeSummaryImplSP cxx11_wstring_summary_sp(new CXXFunctionSummaryFormat(stl_summary_flags,
+                                                                                 LibStdcppWStringSummaryProvider,
+                                                                                 "libstdc++ c++11 std::wstring summary provider"));
+
     cpp_category_sp->GetTypeSummariesContainer()->Add(ConstString("std::string"),
                                                       std_string_summary_sp);
     cpp_category_sp->GetTypeSummariesContainer()->Add(ConstString("std::basic_string<char>"),
@@ -554,7 +582,12 @@ LoadLibStdcppFormatters(lldb::TypeCategoryImplSP cpp_category_sp)
                                                       std_string_summary_sp);
     cpp_category_sp->GetTypeSummariesContainer()->Add(ConstString("std::basic_string<char, std::char_traits<char>, std::allocator<char> >"),
                                                       std_string_summary_sp);
-    
+
+    cpp_category_sp->GetTypeSummariesContainer()->Add(ConstString("std::__cxx11::string"),
+                                                      cxx11_string_summary_sp);
+    cpp_category_sp->GetTypeSummariesContainer()->Add(ConstString("std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >"),
+                                                      cxx11_string_summary_sp);
+
     // making sure we force-pick the summary for printing wstring (_M_p is a wchar_t*)
     lldb::TypeSummaryImplSP std_wstring_summary_sp(new StringSummaryFormat(stl_summary_flags,
                                                                            "${var._M_dataplus._M_p%S}"));
@@ -567,8 +600,12 @@ LoadLibStdcppFormatters(lldb::TypeCategoryImplSP cpp_category_sp)
                                                       std_wstring_summary_sp);
     cpp_category_sp->GetTypeSummariesContainer()->Add(ConstString("std::basic_string<wchar_t, std::char_traits<wchar_t>, std::allocator<wchar_t> >"),
                                                       std_wstring_summary_sp);
-    
-    
+
+    cpp_category_sp->GetTypeSummariesContainer()->Add(ConstString("std::__cxx11::wstring"),
+                                                      cxx11_wstring_summary_sp);
+    cpp_category_sp->GetTypeSummariesContainer()->Add(ConstString("std::__cxx11::basic_string<wchar_t, std::char_traits<wchar_t>, std::allocator<wchar_t> >"),
+                                                      cxx11_wstring_summary_sp);
+
 #ifndef LLDB_DISABLE_PYTHON
     
     SyntheticChildren::Flags stl_synth_flags;
@@ -580,10 +617,9 @@ LoadLibStdcppFormatters(lldb::TypeCategoryImplSP cpp_category_sp)
     cpp_category_sp->GetRegexTypeSyntheticsContainer()->Add(RegularExpressionSP(new RegularExpression("^std::map<.+> >(( )?&)?$")),
                                                             SyntheticChildrenSP(new ScriptedSyntheticChildren(stl_synth_flags,
                                                                                                               "lldb.formatters.cpp.gnu_libstdcpp.StdMapSynthProvider")));
-    cpp_category_sp->GetRegexTypeSyntheticsContainer()->Add(RegularExpressionSP(new RegularExpression("^std::list<.+>(( )?&)?$")),
+    cpp_category_sp->GetRegexTypeSyntheticsContainer()->Add(RegularExpressionSP(new RegularExpression("^std::(__cxx11::)?list<.+>(( )?&)?$")),
                                                             SyntheticChildrenSP(new ScriptedSyntheticChildren(stl_synth_flags,
                                                                                                               "lldb.formatters.cpp.gnu_libstdcpp.StdListSynthProvider")));
-    
     stl_summary_flags.SetDontShowChildren(false);stl_summary_flags.SetSkipPointers(true);
     cpp_category_sp->GetRegexTypeSummariesContainer()->Add(RegularExpressionSP(new RegularExpression("^std::vector<.+>(( )?&)?$")),
                                                            TypeSummaryImplSP(new StringSummaryFormat(stl_summary_flags,
@@ -591,10 +627,10 @@ LoadLibStdcppFormatters(lldb::TypeCategoryImplSP cpp_category_sp)
     cpp_category_sp->GetRegexTypeSummariesContainer()->Add(RegularExpressionSP(new RegularExpression("^std::map<.+> >(( )?&)?$")),
                                                            TypeSummaryImplSP(new StringSummaryFormat(stl_summary_flags,
                                                                                                      "size=${svar%#}")));
-    cpp_category_sp->GetRegexTypeSummariesContainer()->Add(RegularExpressionSP(new RegularExpression("^std::list<.+>(( )?&)?$")),
+    cpp_category_sp->GetRegexTypeSummariesContainer()->Add(RegularExpressionSP(new RegularExpression("^std::(__cxx11::)?list<.+>(( )?&)?$")),
                                                            TypeSummaryImplSP(new StringSummaryFormat(stl_summary_flags,
                                                                                                      "size=${svar%#}")));
-    
+
     AddCXXSynthetic(cpp_category_sp, lldb_private::formatters::LibStdcppVectorIteratorSyntheticFrontEndCreator, "std::vector iterator synthetic children", ConstString("^__gnu_cxx::__normal_iterator<.+>$"), stl_synth_flags, true);
     
     AddCXXSynthetic(cpp_category_sp, lldb_private::formatters::LibstdcppMapIteratorSyntheticFrontEndCreator, "std::map iterator synthetic children", ConstString("^std::_Rb_tree_iterator<.+>$"), stl_synth_flags, true);

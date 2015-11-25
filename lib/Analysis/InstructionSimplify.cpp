@@ -2128,29 +2128,6 @@ static Constant *computePointerICmp(const DataLayout &DL,
   return nullptr;
 }
 
-static ConstantRange GetConstantRangeFromMetadata(MDNode *Ranges, uint32_t BitWidth) {
-  const unsigned NumRanges = Ranges->getNumOperands() / 2;
-  assert(NumRanges >= 1);
-
-  ConstantRange CR(BitWidth, false);
-  for (unsigned i = 0; i < NumRanges; ++i) {
-    auto *Low =
-        mdconst::extract<ConstantInt>(Ranges->getOperand(2 * i + 0));
-    auto *High =
-        mdconst::extract<ConstantInt>(Ranges->getOperand(2 * i + 1));
-
-    // Union will merge two ranges to one and potentially introduce a range
-    // not covered by the original two ranges. For example, [1, 5) and [8, 10)
-    // will become [1, 10). In this case, we can not fold comparison between
-    // constant 6 and a value of the above ranges. In practice, most values
-    // have only one range, so it might not be worth handling this by
-    // introducing additional complexity.
-    CR = CR.unionWith(ConstantRange(Low->getValue(), High->getValue()));
-  }
-
-  return CR;
-}
-
 /// SimplifyICmpInst - Given operands for an ICmpInst, see if we can
 /// fold the result.  If not, this returns null.
 static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
@@ -2199,6 +2176,19 @@ static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
       // X >=u 1 -> X
       if (match(RHS, m_One()))
         return LHS;
+      if (isImpliedCondition(RHS, LHS, Q.DL))
+        return getTrue(ITy);
+      break;
+    case ICmpInst::ICMP_SGE:
+      /// For signed comparison, the values for an i1 are 0 and -1 
+      /// respectively. This maps into a truth table of:
+      /// LHS | RHS | LHS >=s RHS   | LHS implies RHS
+      ///  0  |  0  |  1 (0 >= 0)   |  1
+      ///  0  |  1  |  1 (0 >= -1)  |  1
+      ///  1  |  0  |  0 (-1 >= 0)  |  0
+      ///  1  |  1  |  1 (-1 >= -1) |  1
+      if (isImpliedCondition(LHS, RHS, Q.DL))
+        return getTrue(ITy);
       break;
     case ICmpInst::ICMP_SLT:
       // X <s 0 -> X
@@ -2209,6 +2199,10 @@ static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
       // X <=s -1 -> X
       if (match(RHS, m_One()))
         return LHS;
+      break;
+    case ICmpInst::ICMP_ULE:
+      if (isImpliedCondition(LHS, RHS, Q.DL))
+        return getTrue(ITy);
       break;
     }
   }
@@ -2393,7 +2387,7 @@ static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
 
     if (auto *I = dyn_cast<Instruction>(LHS))
       if (auto *Ranges = I->getMetadata(LLVMContext::MD_range))
-        LHS_CR = LHS_CR.intersectWith(GetConstantRangeFromMetadata(Ranges, Width));
+        LHS_CR = LHS_CR.intersectWith(getConstantRangeFromMetadata(*Ranges));
 
     if (!LHS_CR.isFullSet()) {
       if (RHS_CR.contains(LHS_CR))
@@ -2411,12 +2405,10 @@ static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
 
     if (RHS_Instr->getMetadata(LLVMContext::MD_range) &&
         LHS_Instr->getMetadata(LLVMContext::MD_range)) {
-      uint32_t BitWidth = Q.DL.getTypeSizeInBits(RHS->getType());
-
-      auto RHS_CR = GetConstantRangeFromMetadata(
-          RHS_Instr->getMetadata(LLVMContext::MD_range), BitWidth);
-      auto LHS_CR = GetConstantRangeFromMetadata(
-          LHS_Instr->getMetadata(LLVMContext::MD_range), BitWidth);
+      auto RHS_CR = getConstantRangeFromMetadata(
+          *RHS_Instr->getMetadata(LLVMContext::MD_range));
+      auto LHS_CR = getConstantRangeFromMetadata(
+          *LHS_Instr->getMetadata(LLVMContext::MD_range));
 
       auto Satisfied_CR = ConstantRange::makeSatisfyingICmpRegion(Pred, RHS_CR);
       if (Satisfied_CR.contains(LHS_CR))
@@ -2588,6 +2580,14 @@ static Value *SimplifyICmpInst(unsigned Predicate, Value *LHS, Value *RHS,
     }
   }
 
+  // icmp eq|ne X, Y -> false|true if X != Y
+  if ((Pred == ICmpInst::ICMP_EQ || Pred == ICmpInst::ICMP_NE) &&
+      isKnownNonEqual(LHS, RHS, Q.DL, Q.AC, Q.CxtI, Q.DT)) {
+    LLVMContext &Ctx = LHS->getType()->getContext();
+    return Pred == ICmpInst::ICMP_NE ?
+      ConstantInt::getTrue(Ctx) : ConstantInt::getFalse(Ctx);
+  }
+  
   // Special logic for binary operators.
   BinaryOperator *LBO = dyn_cast<BinaryOperator>(LHS);
   BinaryOperator *RBO = dyn_cast<BinaryOperator>(RHS);
@@ -4081,6 +4081,17 @@ Value *llvm::SimplifyInstruction(Instruction *I, const DataLayout &DL,
     Result =
         SimplifyTruncInst(I->getOperand(0), I->getType(), DL, TLI, DT, AC, I);
     break;
+  }
+
+  // In general, it is possible for computeKnownBits to determine all bits in a
+  // value even when the operands are not all constants.
+  if (!Result && I->getType()->isIntegerTy()) {
+    unsigned BitWidth = I->getType()->getScalarSizeInBits();
+    APInt KnownZero(BitWidth, 0);
+    APInt KnownOne(BitWidth, 0);
+    computeKnownBits(I, KnownZero, KnownOne, DL, /*Depth*/0, AC, I, DT);
+    if ((KnownZero | KnownOne).isAllOnesValue())
+      Result = ConstantInt::get(I->getContext(), KnownOne);
   }
 
   /// If called on unreachable code, the above logic may report that the

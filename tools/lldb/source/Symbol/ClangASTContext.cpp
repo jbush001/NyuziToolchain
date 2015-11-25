@@ -13,6 +13,7 @@
 // C++ Includes
 #include <mutex> // std::once
 #include <string>
+#include <vector>
 
 // Other libraries and framework includes
 
@@ -39,6 +40,7 @@
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
+#include "clang/AST/Mangle.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/Type.h"
 #include "clang/AST/VTableBuilder.h"
@@ -367,38 +369,90 @@ ClangASTContext::GetPluginVersion()
 }
 
 lldb::TypeSystemSP
-ClangASTContext::CreateInstance (lldb::LanguageType language, const lldb_private::ArchSpec &arch)
+ClangASTContext::CreateInstance (lldb::LanguageType language,
+                                 lldb_private::Module *module,
+                                 Target *target)
 {
     if (ClangASTContextSupportsLanguage(language))
     {
-        std::shared_ptr<ClangASTContext> ast_sp(new ClangASTContext);
-        if (ast_sp)
+        ArchSpec arch;
+        if (module)
+            arch = module->GetArchitecture();
+        else if (target)
+            arch = target->GetArchitecture();
+
+        if (arch.IsValid())
         {
-            if (arch.IsValid())
+            ArchSpec fixed_arch = arch;
+            // LLVM wants this to be set to iOS or MacOSX; if we're working on
+            // a bare-boards type image, change the triple for llvm's benefit.
+            if (fixed_arch.GetTriple().getVendor() == llvm::Triple::Apple &&
+                fixed_arch.GetTriple().getOS() == llvm::Triple::UnknownOS)
             {
-                ArchSpec fixed_arch = arch;
-                // LLVM wants this to be set to iOS or MacOSX; if we're working on
-                // a bare-boards type image, change the triple for llvm's benefit.
-                if (fixed_arch.GetTriple().getVendor() == llvm::Triple::Apple &&
-                    fixed_arch.GetTriple().getOS() == llvm::Triple::UnknownOS)
+                if (fixed_arch.GetTriple().getArch() == llvm::Triple::arm ||
+                    fixed_arch.GetTriple().getArch() == llvm::Triple::aarch64 ||
+                    fixed_arch.GetTriple().getArch() == llvm::Triple::thumb)
                 {
-                    if (fixed_arch.GetTriple().getArch() == llvm::Triple::arm ||
-                        fixed_arch.GetTriple().getArch() == llvm::Triple::aarch64 ||
-                        fixed_arch.GetTriple().getArch() == llvm::Triple::thumb)
-                    {
-                        fixed_arch.GetTriple().setOS(llvm::Triple::IOS);
-                    }
-                    else
-                    {
-                        fixed_arch.GetTriple().setOS(llvm::Triple::MacOSX);
-                    }
+                    fixed_arch.GetTriple().setOS(llvm::Triple::IOS);
                 }
-                ast_sp->SetArchitecture (fixed_arch);
+                else
+                {
+                    fixed_arch.GetTriple().setOS(llvm::Triple::MacOSX);
+                }
+            }
+
+            if (module)
+            {
+                std::shared_ptr<ClangASTContext> ast_sp(new ClangASTContext);
+                if (ast_sp)
+                {
+                    ast_sp->SetArchitecture (fixed_arch);
+                }
+                return ast_sp;
+            }
+            else if (target && target->IsValid())
+            {
+                std::shared_ptr<ClangASTContextForExpressions> ast_sp(new ClangASTContextForExpressions(*target));
+                if (ast_sp)
+                {
+                    ast_sp->SetArchitecture(fixed_arch);
+                    ast_sp->m_scratch_ast_source_ap.reset (new ClangASTSource(target->shared_from_this()));
+                    ast_sp->m_scratch_ast_source_ap->InstallASTContext(ast_sp->getASTContext());
+                    llvm::IntrusiveRefCntPtr<clang::ExternalASTSource> proxy_ast_source(ast_sp->m_scratch_ast_source_ap->CreateProxy());
+                    ast_sp->SetExternalSource(proxy_ast_source);
+                    return ast_sp;
+                }
             }
         }
-        return ast_sp;
     }
     return lldb::TypeSystemSP();
+}
+
+void
+ClangASTContext::EnumerateSupportedLanguages(std::set<lldb::LanguageType> &languages_for_types, std::set<lldb::LanguageType> &languages_for_expressions)
+{
+    static std::vector<lldb::LanguageType> s_supported_languages_for_types({
+        lldb::eLanguageTypeC89,
+        lldb::eLanguageTypeC,
+        lldb::eLanguageTypeC11,
+        lldb::eLanguageTypeC_plus_plus,
+        lldb::eLanguageTypeC99,
+        lldb::eLanguageTypeObjC,
+        lldb::eLanguageTypeObjC_plus_plus,
+        lldb::eLanguageTypeC_plus_plus_03,
+        lldb::eLanguageTypeC_plus_plus_11,
+        lldb::eLanguageTypeC11,
+        lldb::eLanguageTypeC_plus_plus_14});
+    
+    static std::vector<lldb::LanguageType> s_supported_languages_for_expressions({
+        lldb::eLanguageTypeC_plus_plus,
+        lldb::eLanguageTypeObjC_plus_plus,
+        lldb::eLanguageTypeC_plus_plus_03,
+        lldb::eLanguageTypeC_plus_plus_11,
+        lldb::eLanguageTypeC_plus_plus_14});
+
+    languages_for_types.insert(s_supported_languages_for_types.begin(), s_supported_languages_for_types.end());
+    languages_for_expressions.insert(s_supported_languages_for_expressions.begin(), s_supported_languages_for_expressions.end());
 }
 
 
@@ -407,7 +461,8 @@ ClangASTContext::Initialize()
 {
     PluginManager::RegisterPlugin (GetPluginNameStatic(),
                                    "clang base AST context plug-in",
-                                   CreateInstance);
+                                   CreateInstance,
+                                   EnumerateSupportedLanguages);
 }
 
 void
@@ -608,6 +663,14 @@ ClangASTContext::getDiagnosticsEngine()
     return m_diagnostics_engine_ap.get();
 }
 
+clang::MangleContext *
+ClangASTContext::getMangleContext()
+{
+    if (m_mangle_ctx_ap.get() == nullptr)
+        m_mangle_ctx_ap.reset (getASTContext()->createMangleContext());
+    return m_mangle_ctx_ap.get();
+}
+
 class NullDiagnosticConsumer : public DiagnosticConsumer
 {
 public:
@@ -731,6 +794,8 @@ ClangASTContext::GetBuiltinTypeForEncodingAndBitSize (ASTContext *ast, Encoding 
             return CompilerType (ast, ast->DoubleTy);
         if (QualTypeMatchesBitSize (bit_size, ast, ast->LongDoubleTy))
             return CompilerType (ast, ast->LongDoubleTy);
+        if (QualTypeMatchesBitSize (bit_size, ast, ast->HalfTy))
+            return CompilerType (ast, ast->HalfTy);
         break;
         
     case eEncodingVector:
@@ -1017,6 +1082,8 @@ ClangASTContext::GetBuiltinTypeForDWARFEncodingAndBitSize (const char *type_name
                     return CompilerType (ast, ast->DoubleTy);
                 if (QualTypeMatchesBitSize (bit_size, ast, ast->LongDoubleTy))
                     return CompilerType (ast, ast->LongDoubleTy);
+                if (QualTypeMatchesBitSize (bit_size, ast, ast->HalfTy))
+                    return CompilerType (ast, ast->HalfTy);
                 break;
                 
             case DW_ATE_signed:
@@ -2527,6 +2594,38 @@ ClangASTContext::IsAggregateType (lldb::opaque_compiler_type_t type)
 }
 
 bool
+ClangASTContext::IsAnonymousType (lldb::opaque_compiler_type_t type)
+{
+    clang::QualType qual_type (GetCanonicalQualType(type));
+    
+    const clang::Type::TypeClass type_class = qual_type->getTypeClass();
+    switch (type_class)
+    {
+        case clang::Type::Record:
+        {
+            if (const clang::RecordType *record_type = llvm::dyn_cast_or_null<clang::RecordType>(qual_type.getTypePtrOrNull()))
+            {
+                if (const clang::RecordDecl *record_decl = record_type->getDecl())
+                {
+                    return record_decl->isAnonymousStructOrUnion();
+                }
+            }
+            break;
+        }
+        case clang::Type::Elaborated:
+            return IsAnonymousType(llvm::cast<clang::ElaboratedType>(qual_type)->getNamedType().getAsOpaquePtr());
+        case clang::Type::Typedef:
+            return IsAnonymousType(llvm::cast<clang::TypedefType>(qual_type)->getDecl()->getUnderlyingType().getAsOpaquePtr());
+        case clang::Type::Paren:
+            return IsAnonymousType(llvm::cast<clang::ParenType>(qual_type)->desugar().getAsOpaquePtr());
+        default:
+            break;
+    }
+    // The clang type does have a value
+    return false;
+}
+
+bool
 ClangASTContext::IsArrayType (lldb::opaque_compiler_type_t type,
                               CompilerType *element_type_ptr,
                               uint64_t *size,
@@ -2539,14 +2638,16 @@ ClangASTContext::IsArrayType (lldb::opaque_compiler_type_t type,
     {
         default:
             break;
-            
+
         case clang::Type::ConstantArray:
             if (element_type_ptr)
                 element_type_ptr->SetCompilerType (getASTContext(), llvm::cast<clang::ConstantArrayType>(qual_type)->getElementType());
             if (size)
                 *size = llvm::cast<clang::ConstantArrayType>(qual_type)->getSize().getLimitedValue(ULLONG_MAX);
+            if (is_incomplete)
+                *is_incomplete = false;
             return true;
-            
+
         case clang::Type::IncompleteArray:
             if (element_type_ptr)
                 element_type_ptr->SetCompilerType (getASTContext(), llvm::cast<clang::IncompleteArrayType>(qual_type)->getElementType());
@@ -2555,21 +2656,25 @@ ClangASTContext::IsArrayType (lldb::opaque_compiler_type_t type,
             if (is_incomplete)
                 *is_incomplete = true;
             return true;
-            
+
         case clang::Type::VariableArray:
             if (element_type_ptr)
                 element_type_ptr->SetCompilerType (getASTContext(), llvm::cast<clang::VariableArrayType>(qual_type)->getElementType());
             if (size)
                 *size = 0;
+            if (is_incomplete)
+                *is_incomplete = false;
             return true;
-            
+
         case clang::Type::DependentSizedArray:
             if (element_type_ptr)
                 element_type_ptr->SetCompilerType (getASTContext(), llvm::cast<clang::DependentSizedArrayType>(qual_type)->getElementType());
             if (size)
                 *size = 0;
+            if (is_incomplete)
+                *is_incomplete = false;
             return true;
-            
+
         case clang::Type::Typedef:
             return IsArrayType(llvm::cast<clang::TypedefType>(qual_type)->getDecl()->getUnderlyingType().getAsOpaquePtr(),
                                element_type_ptr,
@@ -4018,10 +4123,10 @@ ClangASTContext::GetNumMemberFunctions (lldb::opaque_compiler_type_t type)
 TypeMemberFunctionImpl
 ClangASTContext::GetMemberFunctionAtIndex (lldb::opaque_compiler_type_t type, size_t idx)
 {
-    std::string name("");
+    std::string name;
     MemberFunctionKind kind(MemberFunctionKind::eMemberFunctionKindUnknown);
-    CompilerType clang_type{};
-    clang::ObjCMethodDecl *method_decl(nullptr);
+    CompilerType clang_type;
+    CompilerDecl clang_decl;
     if (type)
     {
         clang::QualType qual_type(GetCanonicalQualType(type));
@@ -4040,22 +4145,20 @@ ClangASTContext::GetMemberFunctionAtIndex (lldb::opaque_compiler_type_t type, si
                         if (idx < static_cast<size_t>(std::distance(method_iter, method_end)))
                         {
                             std::advance(method_iter, idx);
-                            auto method_decl = method_iter->getCanonicalDecl();
-                            if (method_decl)
+                            clang::CXXMethodDecl *cxx_method_decl = method_iter->getCanonicalDecl();
+                            if (cxx_method_decl)
                             {
-                                if (!method_decl->getName().empty())
-                                    name.assign(method_decl->getName().data());
-                                else
-                                    name.clear();
-                                if (method_decl->isStatic())
+                                name = cxx_method_decl->getDeclName().getAsString();
+                                if (cxx_method_decl->isStatic())
                                     kind = lldb::eMemberFunctionKindStaticMethod;
-                                else if (llvm::isa<clang::CXXConstructorDecl>(method_decl))
+                                else if (llvm::isa<clang::CXXConstructorDecl>(cxx_method_decl))
                                     kind = lldb::eMemberFunctionKindConstructor;
-                                else if (llvm::isa<clang::CXXDestructorDecl>(method_decl))
+                                else if (llvm::isa<clang::CXXDestructorDecl>(cxx_method_decl))
                                     kind = lldb::eMemberFunctionKindDestructor;
                                 else
                                     kind = lldb::eMemberFunctionKindInstanceMethod;
-                                clang_type = CompilerType(getASTContext(),method_decl->getType());
+                                clang_type = CompilerType(this, cxx_method_decl->getType().getAsOpaquePtr());
+                                clang_decl = CompilerDecl(this, cxx_method_decl);
                             }
                         }
                     }
@@ -4076,11 +4179,12 @@ ClangASTContext::GetMemberFunctionAtIndex (lldb::opaque_compiler_type_t type, si
                             if (idx < static_cast<size_t>(std::distance(method_iter, method_end)))
                             {
                                 std::advance(method_iter, idx);
-                                method_decl = method_iter->getCanonicalDecl();
-                                if (method_decl)
+                                clang::ObjCMethodDecl *objc_method_decl = method_iter->getCanonicalDecl();
+                                if (objc_method_decl)
                                 {
-                                    name = method_decl->getSelector().getAsString();
-                                    if (method_decl->isClassMethod())
+                                    clang_decl = CompilerDecl(this, objc_method_decl);
+                                    name = objc_method_decl->getSelector().getAsString();
+                                    if (objc_method_decl->isClassMethod())
                                         kind = lldb::eMemberFunctionKindStaticMethod;
                                     else
                                         kind = lldb::eMemberFunctionKindInstanceMethod;
@@ -4106,11 +4210,12 @@ ClangASTContext::GetMemberFunctionAtIndex (lldb::opaque_compiler_type_t type, si
                             if (idx < static_cast<size_t>(std::distance(method_iter, method_end)))
                             {
                                 std::advance(method_iter, idx);
-                                method_decl = method_iter->getCanonicalDecl();
-                                if (method_decl)
+                                clang::ObjCMethodDecl *objc_method_decl = method_iter->getCanonicalDecl();
+                                if (objc_method_decl)
                                 {
-                                    name = method_decl->getSelector().getAsString();
-                                    if (method_decl->isClassMethod())
+                                    clang_decl = CompilerDecl(this, objc_method_decl);
+                                    name = objc_method_decl->getSelector().getAsString();
+                                    if (objc_method_decl->isClassMethod())
                                         kind = lldb::eMemberFunctionKindStaticMethod;
                                     else
                                         kind = lldb::eMemberFunctionKindInstanceMethod;
@@ -4137,12 +4242,8 @@ ClangASTContext::GetMemberFunctionAtIndex (lldb::opaque_compiler_type_t type, si
     
     if (kind == eMemberFunctionKindUnknown)
         return TypeMemberFunctionImpl();
-    if (method_decl)
-        return TypeMemberFunctionImpl(method_decl, name, kind);
-    if (type)
-        return TypeMemberFunctionImpl(clang_type, name, kind);
-    
-    return TypeMemberFunctionImpl();
+    else
+        return TypeMemberFunctionImpl(clang_type, clang_decl, name, kind);
 }
 
 CompilerType
@@ -4371,7 +4472,7 @@ ClangASTContext::GetBitSize (lldb::opaque_compiler_type_t type, ExecutionContext
                     if (!g_printed)
                     {
                         StreamString s;
-                        DumpTypeDescription(&s);
+                        DumpTypeDescription(type, &s);
                         
                         llvm::outs() << "warning: trying to determine the size of type ";
                         llvm::outs() << s.GetString() << "\n";
@@ -4465,6 +4566,7 @@ ClangASTContext::GetEncoding (lldb::opaque_compiler_type_t type, uint64_t &count
             case clang::BuiltinType::ULongLong:
             case clang::BuiltinType::UInt128:       return lldb::eEncodingUint;
                 
+            case clang::BuiltinType::Half:
             case clang::BuiltinType::Float:
             case clang::BuiltinType::Double:
             case clang::BuiltinType::LongDouble:    return lldb::eEncodingIEEE754;
@@ -4479,7 +4581,6 @@ ClangASTContext::GetEncoding (lldb::opaque_compiler_type_t type, uint64_t &count
             case clang::BuiltinType::Kind::BoundMember:
             case clang::BuiltinType::Kind::BuiltinFn:
             case clang::BuiltinType::Kind::Dependent:
-            case clang::BuiltinType::Kind::Half:
             case clang::BuiltinType::Kind::OCLClkEvent:
             case clang::BuiltinType::Kind::OCLEvent:
             case clang::BuiltinType::Kind::OCLImage1d:
@@ -4629,8 +4730,9 @@ ClangASTContext::GetFormat (lldb::opaque_compiler_type_t type)
             case clang::BuiltinType::LongLong:      return lldb::eFormatDecimal;
             case clang::BuiltinType::UInt128:       return lldb::eFormatUnsigned;
             case clang::BuiltinType::Int128:        return lldb::eFormatDecimal;
-            case clang::BuiltinType::Float:         return lldb::eFormatFloat;
-            case clang::BuiltinType::Double:        return lldb::eFormatFloat;
+            case clang::BuiltinType::Half:
+            case clang::BuiltinType::Float:
+            case clang::BuiltinType::Double:
             case clang::BuiltinType::LongDouble:    return lldb::eFormatFloat;
             default:
                 return lldb::eFormatHex;
@@ -5587,7 +5689,8 @@ ClangASTContext::GetChildCompilerTypeAtIndex (lldb::opaque_compiler_type_t type,
                                               uint32_t &child_bitfield_bit_offset,
                                               bool &child_is_base_class,
                                               bool &child_is_deref_of_parent,
-                                              ValueObject *valobj)
+                                              ValueObject *valobj,
+                                              uint64_t &language_flags)
 {
     if (!type)
         return CompilerType();
@@ -5597,6 +5700,7 @@ ClangASTContext::GetChildCompilerTypeAtIndex (lldb::opaque_compiler_type_t type,
     child_bitfield_bit_size = 0;
     child_bitfield_bit_offset = 0;
     child_is_base_class = false;
+    language_flags = 0;
     
     const bool idx_is_valid = idx < GetNumChildren (type, omit_empty_base_classes);
     uint32_t bit_offset;
@@ -5907,7 +6011,8 @@ ClangASTContext::GetChildCompilerTypeAtIndex (lldb::opaque_compiler_type_t type,
                                                                            child_bitfield_bit_offset,
                                                                            child_is_base_class,
                                                                            tmp_child_is_deref_of_parent,
-                                                                           valobj);
+                                                                           valobj,
+                                                                           language_flags);
                 }
                 else
                 {
@@ -5998,7 +6103,8 @@ ClangASTContext::GetChildCompilerTypeAtIndex (lldb::opaque_compiler_type_t type,
                                                                            child_bitfield_bit_offset,
                                                                            child_is_base_class,
                                                                            tmp_child_is_deref_of_parent,
-                                                                           valobj);
+                                                                           valobj,
+                                                                           language_flags);
                 }
                 else
                 {
@@ -6044,7 +6150,8 @@ ClangASTContext::GetChildCompilerTypeAtIndex (lldb::opaque_compiler_type_t type,
                                                                            child_bitfield_bit_offset,
                                                                            child_is_base_class,
                                                                            tmp_child_is_deref_of_parent,
-                                                                           valobj);
+                                                                           valobj,
+                                                                           language_flags);
                 }
                 else
                 {
@@ -6081,7 +6188,8 @@ ClangASTContext::GetChildCompilerTypeAtIndex (lldb::opaque_compiler_type_t type,
                                                                      child_bitfield_bit_offset,
                                                                      child_is_base_class,
                                                                      child_is_deref_of_parent,
-                                                                     valobj);
+                                                                     valobj,
+                                                                     language_flags);
         }
             break;
             
@@ -6100,7 +6208,8 @@ ClangASTContext::GetChildCompilerTypeAtIndex (lldb::opaque_compiler_type_t type,
                                                                       child_bitfield_bit_offset,
                                                                       child_is_base_class,
                                                                       child_is_deref_of_parent,
-                                                                      valobj);
+                                                                      valobj,
+                                                                      language_flags);
         }
             
         case clang::Type::Paren:
@@ -6118,7 +6227,8 @@ ClangASTContext::GetChildCompilerTypeAtIndex (lldb::opaque_compiler_type_t type,
                                                                  child_bitfield_bit_offset,
                                                                  child_is_base_class,
                                                                  child_is_deref_of_parent,
-                                                                 valobj);
+                                                                 valobj,
+                                                                 language_flags);
         }
             
             
@@ -8762,7 +8872,7 @@ void
 ClangASTContext::DumpTypeDescription (lldb::opaque_compiler_type_t type)
 {
     StreamFile s (stdout, false);
-    DumpTypeDescription (&s);
+    DumpTypeDescription (type, &s);
     ClangASTMetadata *metadata = ClangASTContext::GetMetadata (getASTContext(), type);
     if (metadata)
     {
@@ -8966,9 +9076,93 @@ ClangASTContext::DeclGetName (void *opaque_decl)
     {
         clang::NamedDecl *nd = llvm::dyn_cast<NamedDecl>((clang::Decl*)opaque_decl);
         if (nd != nullptr)
-            return ConstString(nd->getName());
+            return ConstString(nd->getDeclName().getAsString());
     }
     return ConstString();
+}
+
+ConstString
+ClangASTContext::DeclGetMangledName (void *opaque_decl)
+{
+    if (opaque_decl)
+    {
+        clang::NamedDecl *nd = llvm::dyn_cast<clang::NamedDecl>((clang::Decl*)opaque_decl);
+        if (nd != nullptr && !llvm::isa<clang::ObjCMethodDecl>(nd))
+        {
+            clang::MangleContext *mc = getMangleContext();
+            if (mc && mc->shouldMangleCXXName(nd))
+            {
+                llvm::SmallVector<char, 1024> buf;
+                llvm::raw_svector_ostream llvm_ostrm (buf);
+                if (llvm::isa<clang::CXXConstructorDecl>(nd))
+                {
+                    mc->mangleCXXCtor(llvm::dyn_cast<clang::CXXConstructorDecl>(nd), Ctor_Complete, llvm_ostrm);
+                }
+                else if (llvm::isa<clang::CXXDestructorDecl>(nd))
+                {
+                    mc->mangleCXXDtor(llvm::dyn_cast<clang::CXXDestructorDecl>(nd), Dtor_Complete, llvm_ostrm);
+                }
+                else
+                {
+                    mc->mangleName(nd, llvm_ostrm);
+                }
+                if (buf.size() > 0)
+                    return ConstString(buf.data(), buf.size());
+            }
+        }
+    }
+    return ConstString();
+}
+
+CompilerDeclContext
+ClangASTContext::DeclGetDeclContext (void *opaque_decl)
+{
+    if (opaque_decl)
+        return CompilerDeclContext(this, ((clang::Decl*)opaque_decl)->getDeclContext());
+    else
+        return CompilerDeclContext();
+}
+
+CompilerType
+ClangASTContext::DeclGetFunctionReturnType(void *opaque_decl)
+{
+    if (clang::FunctionDecl *func_decl = llvm::dyn_cast<clang::FunctionDecl>((clang::Decl*)opaque_decl))
+        return CompilerType(this, func_decl->getReturnType().getAsOpaquePtr());
+    if (clang::ObjCMethodDecl *objc_method = llvm::dyn_cast<clang::ObjCMethodDecl>((clang::Decl*)opaque_decl))
+        return CompilerType(this, objc_method->getReturnType().getAsOpaquePtr());
+    else
+        return CompilerType();
+}
+
+size_t
+ClangASTContext::DeclGetFunctionNumArguments(void *opaque_decl)
+{
+    if (clang::FunctionDecl *func_decl = llvm::dyn_cast<clang::FunctionDecl>((clang::Decl*)opaque_decl))
+        return func_decl->param_size();
+    if (clang::ObjCMethodDecl *objc_method = llvm::dyn_cast<clang::ObjCMethodDecl>((clang::Decl*)opaque_decl))
+        return  objc_method->param_size();
+    else
+        return 0;
+}
+
+CompilerType
+ClangASTContext::DeclGetFunctionArgumentType (void *opaque_decl, size_t idx)
+{
+    if (clang::FunctionDecl *func_decl = llvm::dyn_cast<clang::FunctionDecl>((clang::Decl*)opaque_decl))
+    {
+        if (idx < func_decl->param_size())
+        {
+            ParmVarDecl *var_decl = func_decl->getParamDecl(idx);
+            if (var_decl)
+                return  CompilerType(this, var_decl->getOriginalType().getAsOpaquePtr());
+        }
+    }
+    else if (clang::ObjCMethodDecl *objc_method = llvm::dyn_cast<clang::ObjCMethodDecl>((clang::Decl*)opaque_decl))
+    {
+        if (idx < objc_method->param_size())
+            return CompilerType(this, objc_method->parameters()[idx]->getOriginalType().getAsOpaquePtr());
+    }
+    return CompilerType();
 }
 
 //----------------------------------------------------------------------
@@ -8992,7 +9186,8 @@ ClangASTContext::DeclContextFindDeclByName(void *opaque_decl_ctx, ConstString na
 
             for (auto it = search_queue.find(decl_context); it != search_queue.end(); it++)
             {
-                searched.insert(it->second);
+                if (!searched.insert(it->second).second)
+                    continue;
                 symbol_file->ParseDeclsForContext(CompilerDeclContext(this, it->second));
 
                 for (clang::Decl *child : it->second->decls())
@@ -9158,7 +9353,8 @@ ClangASTContext::DeclContextGetClangASTContext (const CompilerDeclContext &dc)
 
 ClangASTContextForExpressions::ClangASTContextForExpressions (Target &target) :
     ClangASTContext (target.GetArchitecture().GetTriple().getTriple().c_str()),
-    m_target_wp(target.shared_from_this())
+    m_target_wp(target.shared_from_this()),
+    m_persistent_variables (new ClangPersistentVariables)
 {
 }
 
@@ -9166,13 +9362,14 @@ UserExpression *
 ClangASTContextForExpressions::GetUserExpression (const char *expr,
                    const char *expr_prefix,
                    lldb::LanguageType language,
-                   Expression::ResultType desired_type)
+                   Expression::ResultType desired_type,
+                   const EvaluateExpressionOptions &options)
 {
     TargetSP target_sp = m_target_wp.lock();
     if (!target_sp)
         return nullptr;
     
-    return new ClangUserExpression(*target_sp.get(), expr, expr_prefix, language, desired_type);
+    return new ClangUserExpression(*target_sp.get(), expr, expr_prefix, language, desired_type, options);
 }
 
 FunctionCaller *
@@ -9196,9 +9393,15 @@ UtilityFunction *
 ClangASTContextForExpressions::GetUtilityFunction (const char *text,
                                                    const char *name)
 {
-     TargetSP target_sp = m_target_wp.lock();
+    TargetSP target_sp = m_target_wp.lock();
     if (!target_sp)
         return nullptr;
     
     return new ClangUtilityFunction(*target_sp.get(), text, name);
+}
+
+PersistentExpressionState *
+ClangASTContextForExpressions::GetPersistentExpressionState ()
+{
+    return m_persistent_variables.get();
 }

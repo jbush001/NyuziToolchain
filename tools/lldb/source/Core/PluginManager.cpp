@@ -2531,6 +2531,7 @@ struct TypeSystemInstance
     ConstString name;
     std::string description;
     TypeSystemCreateInstance create_callback;
+    TypeSystemEnumerateSupportedLanguages enumerate_callback;
 };
 
 typedef std::vector<TypeSystemInstance> TypeSystemInstances;
@@ -2552,7 +2553,8 @@ GetTypeSystemInstances ()
 bool
 PluginManager::RegisterPlugin (const ConstString &name,
                                const char *description,
-                               TypeSystemCreateInstance create_callback)
+                               TypeSystemCreateInstance create_callback,
+                               TypeSystemEnumerateSupportedLanguages enumerate_supported_languages_callback)
 {
     if (create_callback)
     {
@@ -2562,6 +2564,7 @@ PluginManager::RegisterPlugin (const ConstString &name,
         if (description && description[0])
             instance.description = description;
         instance.create_callback = create_callback;
+        instance.enumerate_callback = enumerate_supported_languages_callback;
         Mutex::Locker locker (GetTypeSystemMutex ());
         GetTypeSystemInstances ().push_back (instance);
     }
@@ -2617,6 +2620,165 @@ PluginManager::GetTypeSystemCreateCallbackForPluginName (const ConstString &name
     return NULL;
 }
 
+TypeSystemEnumerateSupportedLanguages
+PluginManager::GetTypeSystemEnumerateSupportedLanguagesCallbackAtIndex (uint32_t idx)
+{
+    Mutex::Locker locker (GetTypeSystemMutex ());
+    TypeSystemInstances &instances = GetTypeSystemInstances ();
+    if (idx < instances.size())
+        return instances[idx].enumerate_callback;
+    return NULL;
+}
+
+TypeSystemEnumerateSupportedLanguages
+PluginManager::GetTypeSystemEnumerateSupportedLanguagesCallbackForPluginName (const ConstString &name)
+{
+    if (name)
+    {
+        Mutex::Locker locker (GetTypeSystemMutex ());
+        TypeSystemInstances &instances = GetTypeSystemInstances ();
+        
+        TypeSystemInstances::iterator pos, end = instances.end();
+        for (pos = instances.begin(); pos != end; ++ pos)
+        {
+            if (name == pos->name)
+                return pos->enumerate_callback;
+        }
+    }
+    return NULL;
+}
+
+#pragma mark REPL
+
+struct REPLInstance
+{
+    REPLInstance() :
+    name(),
+    description(),
+    create_callback(NULL)
+    {
+    }
+    
+    ConstString name;
+    std::string description;
+    REPLCreateInstance create_callback;
+    REPLEnumerateSupportedLanguages enumerate_languages_callback;
+};
+
+typedef std::vector<REPLInstance> REPLInstances;
+
+static Mutex &
+GetREPLMutex ()
+{
+    static Mutex g_instances_mutex (Mutex::eMutexTypeRecursive);
+    return g_instances_mutex;
+}
+
+static REPLInstances &
+GetREPLInstances ()
+{
+    static REPLInstances g_instances;
+    return g_instances;
+}
+
+bool
+PluginManager::RegisterPlugin (const ConstString &name,
+                               const char *description,
+                               REPLCreateInstance create_callback,
+                               REPLEnumerateSupportedLanguages enumerate_languages_callback)
+{
+    if (create_callback)
+    {
+        REPLInstance instance;
+        assert ((bool)name);
+        instance.name = name;
+        if (description && description[0])
+            instance.description = description;
+        instance.create_callback = create_callback;
+        instance.enumerate_languages_callback = enumerate_languages_callback;
+        Mutex::Locker locker (GetREPLMutex ());
+        GetREPLInstances ().push_back (instance);
+    }
+    return false;
+}
+
+bool
+PluginManager::UnregisterPlugin (REPLCreateInstance create_callback)
+{
+    if (create_callback)
+    {
+        Mutex::Locker locker (GetREPLMutex ());
+        REPLInstances &instances = GetREPLInstances ();
+        
+        REPLInstances::iterator pos, end = instances.end();
+        for (pos = instances.begin(); pos != end; ++ pos)
+        {
+            if (pos->create_callback == create_callback)
+            {
+                instances.erase(pos);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+REPLCreateInstance
+PluginManager::GetREPLCreateCallbackAtIndex (uint32_t idx)
+{
+    Mutex::Locker locker (GetREPLMutex ());
+    REPLInstances &instances = GetREPLInstances ();
+    if (idx < instances.size())
+        return instances[idx].create_callback;
+    return NULL;
+}
+
+REPLCreateInstance
+PluginManager::GetREPLCreateCallbackForPluginName (const ConstString &name)
+{
+    if (name)
+    {
+        Mutex::Locker locker (GetREPLMutex ());
+        REPLInstances &instances = GetREPLInstances ();
+        
+        REPLInstances::iterator pos, end = instances.end();
+        for (pos = instances.begin(); pos != end; ++ pos)
+        {
+            if (name == pos->name)
+                return pos->create_callback;
+        }
+    }
+    return NULL;
+}
+
+REPLEnumerateSupportedLanguages
+PluginManager::GetREPLEnumerateSupportedLanguagesCallbackAtIndex (uint32_t idx)
+{
+    Mutex::Locker locker (GetREPLMutex ());
+    REPLInstances &instances = GetREPLInstances ();
+    if (idx < instances.size())
+        return instances[idx].enumerate_languages_callback;
+    return NULL;
+}
+
+
+REPLEnumerateSupportedLanguages
+PluginManager::GetREPLSystemEnumerateSupportedLanguagesCallbackForPluginName (const ConstString &name)
+{
+    if (name)
+    {
+        Mutex::Locker locker (GetREPLMutex ());
+        REPLInstances &instances = GetREPLInstances ();
+        
+        REPLInstances::iterator pos, end = instances.end();
+        for (pos = instances.begin(); pos != end; ++ pos)
+        {
+            if (name == pos->name)
+                return pos->enumerate_languages_callback;
+        }
+    }
+    return NULL;
+}
 
 #pragma mark PluginManager
 

@@ -287,6 +287,26 @@ void ASTStmtWriter::VisitMSAsmStmt(MSAsmStmt *S) {
   Code = serialization::STMT_MSASM;
 }
 
+void ASTStmtWriter::VisitCoroutineBodyStmt(CoroutineBodyStmt *S) {
+  // FIXME: Implement coroutine serialization.
+  llvm_unreachable("unimplemented");
+}
+
+void ASTStmtWriter::VisitCoreturnStmt(CoreturnStmt *S) {
+  // FIXME: Implement coroutine serialization.
+  llvm_unreachable("unimplemented");
+}
+
+void ASTStmtWriter::VisitCoawaitExpr(CoawaitExpr *S) {
+  // FIXME: Implement coroutine serialization.
+  llvm_unreachable("unimplemented");
+}
+
+void ASTStmtWriter::VisitCoyieldExpr(CoyieldExpr *S) {
+  // FIXME: Implement coroutine serialization.
+  llvm_unreachable("unimplemented");
+}
+
 void ASTStmtWriter::VisitCapturedStmt(CapturedStmt *S) {
   VisitStmt(S);
   // NumCaptures
@@ -1135,6 +1155,7 @@ void ASTStmtWriter::VisitCXXTryStmt(CXXTryStmt *S) {
 void ASTStmtWriter::VisitCXXForRangeStmt(CXXForRangeStmt *S) {
   VisitStmt(S);
   Writer.AddSourceLocation(S->getForLoc(), Record);
+  Writer.AddSourceLocation(S->getCoawaitLoc(), Record);
   Writer.AddSourceLocation(S->getColonLoc(), Record);
   Writer.AddSourceLocation(S->getRParenLoc(), Record);
   Writer.AddStmt(S->getRangeStmt());
@@ -1812,6 +1833,8 @@ void OMPClauseWriter::VisitOMPSeqCstClause(OMPSeqCstClause *) {}
 
 void OMPClauseWriter::VisitOMPThreadsClause(OMPThreadsClause *) {}
 
+void OMPClauseWriter::VisitOMPSIMDClause(OMPSIMDClause *) {}
+
 void OMPClauseWriter::VisitOMPPrivateClause(OMPPrivateClause *C) {
   Record.push_back(C->varlist_size());
   Writer->Writer.AddSourceLocation(C->getLParenLoc(), Record);
@@ -1866,6 +1889,8 @@ void OMPClauseWriter::VisitOMPReductionClause(OMPReductionClause *C) {
   Writer->Writer.AddNestedNameSpecifierLoc(C->getQualifierLoc(), Record);
   Writer->Writer.AddDeclarationNameInfo(C->getNameInfo(), Record);
   for (auto *VE : C->varlists())
+    Writer->Writer.AddStmt(VE);
+  for (auto *VE : C->privates())
     Writer->Writer.AddStmt(VE);
   for (auto *E : C->lhs_exprs())
     Writer->Writer.AddStmt(E);
@@ -1954,6 +1979,22 @@ void OMPClauseWriter::VisitOMPDependClause(OMPDependClause *C) {
 
 void OMPClauseWriter::VisitOMPDeviceClause(OMPDeviceClause *C) {
   Writer->Writer.AddStmt(C->getDevice());
+  Writer->Writer.AddSourceLocation(C->getLParenLoc(), Record);
+}
+
+void OMPClauseWriter::VisitOMPMapClause(OMPMapClause *C) {
+  Record.push_back(C->varlist_size());
+  Writer->Writer.AddSourceLocation(C->getLParenLoc(), Record);
+  Record.push_back(C->getMapTypeModifier());
+  Record.push_back(C->getMapType());
+  Writer->Writer.AddSourceLocation(C->getMapLoc(), Record);
+  Writer->Writer.AddSourceLocation(C->getColonLoc(), Record);
+  for (auto *VE : C->varlists())
+    Writer->Writer.AddStmt(VE);
+}
+
+void OMPClauseWriter::VisitOMPNumTeamsClause(OMPNumTeamsClause *C) {
+  Writer->Writer.AddStmt(C->getNumTeams());
   Writer->Writer.AddSourceLocation(C->getLParenLoc(), Record);
 }
 

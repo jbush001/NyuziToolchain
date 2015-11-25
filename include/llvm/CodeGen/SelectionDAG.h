@@ -215,9 +215,7 @@ class SelectionDAG {
   /// Tracks dbg_value information through SDISel.
   SDDbgInfo *DbgInfo;
 
-#ifndef NDEBUG
-  uint16_t NextPersistentId;
-#endif
+  uint16_t NextPersistentId = 0;
 
 public:
   /// Clients of various APIs that cause global effects on
@@ -1166,6 +1164,10 @@ public:
                                  const ConstantSDNode *Cst1,
                                  const ConstantSDNode *Cst2);
 
+  SDValue FoldConstantVectorArithmetic(unsigned Opcode, SDLoc DL,
+                                       EVT VT, ArrayRef<SDValue> Ops,
+                                       const SDNodeFlags *Flags = nullptr);
+
   /// Constant fold a setcc to true or false.
   SDValue FoldSetCC(EVT VT, SDValue N1,
                     SDValue N2, ISD::CondCode Cond, SDLoc dl);
@@ -1214,6 +1216,10 @@ public:
   /// is true if they are the same value, or if one is negative zero and the
   /// other positive zero.
   bool isEqualTo(SDValue A, SDValue B) const;
+
+  /// Return true if A and B have no common bits set. As an example, this can
+  /// allow an 'add' to be transformed into an 'or'.
+  bool haveNoCommonBitsSet(SDValue A, SDValue B) const;
 
   /// Utility function used by legalize and lowering to
   /// "unroll" a vector operation by splitting out the scalars and operating

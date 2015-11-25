@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 %s -triple=x86_64-apple-darwin10 -std=c++11 -emit-llvm -g -o - | FileCheck %s
+// RUN: %clang_cc1 %s -triple=x86_64-apple-darwin10 -std=c++11 -emit-llvm -debug-info-kind=limited -o - | FileCheck %s
 
 class S {
 public:
@@ -37,7 +37,7 @@ struct CGRect {
 
 // Don't attach debug locations to the prologue instructions. These were
 // leaking over from the previous function emission by accident.
-// CHECK: define internal void @"\01-[I setBounds:]"
+// CHECK: define internal void @"\01-[I setBounds:]"({{.*}} {
 // CHECK-NOT: !dbg
 // CHECK: call void @llvm.dbg.declare
 - (void)setFrame:(CGRect)frameRect {}

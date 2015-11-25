@@ -113,7 +113,7 @@ def GlobalVar : SubsetSubject<Var,
 // the case of a SubsetSubject, there's no way to express it without this hack.
 def DeclBase : AttrSubject;
 def FunctionLike : SubsetSubject<DeclBase,
-                                  [{S->getFunctionType(false) != NULL}]>;
+                                  [{S->getFunctionType(false) != nullptr}]>;
 
 def OpenCLKernelFunction : SubsetSubject<Function, [{
   S->hasAttr<OpenCLKernelAttr>()
@@ -123,15 +123,19 @@ def OpenCLKernelFunction : SubsetSubject<Function, [{
 // never be specified in a Subjects list along with FunctionLike (due to the
 // inclusive nature of subject testing).
 def HasFunctionProto : SubsetSubject<DeclBase,
-                                     [{(S->getFunctionType(true) != NULL &&
+                                     [{(S->getFunctionType(true) != nullptr &&
                               isa<FunctionProtoType>(S->getFunctionType())) ||
                                        isa<ObjCMethodDecl>(S) ||
                                        isa<BlockDecl>(S)}]>;
 
 // A single argument to an attribute
-class Argument<string name, bit optional> {
+class Argument<string name, bit optional, bit fake = 0> {
   string Name = name;
   bit Optional = optional;
+
+  /// A fake argument is used to store and serialize additional information
+  /// in an attribute without actually changing its parsing or pretty-printing.
+  bit Fake = fake;
 }
 
 class BoolArgument<string name, bit opt = 0> : Argument<name, opt>;
@@ -167,7 +171,8 @@ class DefaultIntArgument<string name, int default> : IntArgument<name, 1> {
 // This argument is more complex, it includes the enumerator type name,
 // a list of strings to accept, and a list of enumerators to map them to.
 class EnumArgument<string name, string type, list<string> values,
-                   list<string> enums, bit opt = 0> : Argument<name, opt> {
+                   list<string> enums, bit opt = 0, bit fake = 0>
+    : Argument<name, opt, fake> {
   string Type = type;
   list<string> Values = values;
   list<string> Enums = enums;
@@ -451,8 +456,12 @@ def Availability : InheritableAttr {
              .Case("android", "Android")
              .Case("ios", "iOS")
              .Case("macosx", "OS X")
+             .Case("tvos", "tvOS")
+             .Case("watchos", "watchOS")
              .Case("ios_app_extension", "iOS (App Extension)")
              .Case("macosx_app_extension", "OS X (App Extension)")
+             .Case("tvos_app_extension", "tvOS (App Extension)")
+             .Case("watchos_app_extension", "watchOS (App Extension)")
              .Default(llvm::StringRef());
 } }];
   let HasCustomParsing = 1;
@@ -760,7 +769,7 @@ def Format : InheritableAttr {
   let Args = [IdentifierArgument<"Type">, IntArgument<"FormatIdx">,
               IntArgument<"FirstArg">];
   let Subjects = SubjectList<[ObjCMethod, Block, HasFunctionProto], WarnDiag,
-                             "ExpectedFunction">;
+                             "ExpectedFunctionWithProtoType">;
   let Documentation = [FormatDocs];
 }
 
@@ -768,7 +777,7 @@ def FormatArg : InheritableAttr {
   let Spellings = [GCC<"format_arg">];
   let Args = [IntArgument<"FormatIdx">];
   let Subjects = SubjectList<[ObjCMethod, HasFunctionProto], WarnDiag,
-                             "ExpectedFunction">;
+                             "ExpectedFunctionWithProtoType">;
   let Documentation = [Undocumented];
 }
 
@@ -879,6 +888,13 @@ def ReturnsTwice : InheritableAttr {
   let Spellings = [GCC<"returns_twice">];
   let Subjects = SubjectList<[Function]>;
   let Documentation = [Undocumented];
+}
+
+def DisableTailCalls : InheritableAttr {
+  let Spellings = [GNU<"disable_tail_calls">,
+                   CXX11<"clang", "disable_tail_calls">];
+  let Subjects = SubjectList<[Function, ObjCMethod]>;
+  let Documentation = [DisableTailCallsDocs];
 }
 
 def NoAlias : InheritableAttr {
@@ -1018,6 +1034,12 @@ def NoInstrumentFunction : InheritableAttr {
   let Spellings = [GCC<"no_instrument_function">];
   let Subjects = SubjectList<[Function]>;
   let Documentation = [Undocumented];
+}
+
+def NotTailCalled : InheritableAttr {
+  let Spellings = [GNU<"not_tail_called">, CXX11<"clang", "not_tail_called">];
+  let Subjects = SubjectList<[Function]>;
+  let Documentation = [NotTailCalledDocs];
 }
 
 def NoThrow : InheritableAttr {
@@ -1194,7 +1216,8 @@ def Ownership : InheritableAttr {
     }
   }];
   let Args = [IdentifierArgument<"Module">, VariadicUnsignedArgument<"Args">];
-  let Subjects = SubjectList<[HasFunctionProto], WarnDiag, "ExpectedFunction">;
+  let Subjects = SubjectList<[HasFunctionProto], WarnDiag,
+                             "ExpectedFunctionWithProtoType">;
   let Documentation = [Undocumented];
 }
 
@@ -1350,7 +1373,15 @@ def TransparentUnion : InheritableAttr {
 
 def Unavailable : InheritableAttr {
   let Spellings = [GNU<"unavailable">];
-  let Args = [StringArgument<"Message", 1>];
+  let Args = [StringArgument<"Message", 1>,
+              EnumArgument<"ImplicitReason", "ImplicitReason",
+                ["", "", "", ""],
+                ["IR_None",
+                 "IR_ARCForbiddenType",
+                 "IR_ForbiddenWeak",
+                 "IR_ARCForbiddenConversion",
+                 "IR_ARCInitReturnsUnrelated",
+                 "IR_ARCFieldWithOwnership"], 1, /*fake*/ 1>];
   let Documentation = [Undocumented];
 }
 
@@ -1543,8 +1574,8 @@ def Capability : InheritableAttr {
   let Spellings = [GNU<"capability">, CXX11<"clang", "capability">,
                    GNU<"shared_capability">,
                    CXX11<"clang", "shared_capability">];
-  let Subjects = SubjectList<[Struct, TypedefName], ErrorDiag,
-                             "ExpectedStructOrTypedef">;
+  let Subjects = SubjectList<[Record, TypedefName], ErrorDiag,
+                             "ExpectedStructOrUnionOrTypedef">;
   let Args = [StringArgument<"Name">];
   let Accessors = [Accessor<"isShared",
                     [GNU<"shared_capability">,
@@ -2048,17 +2079,15 @@ def LoopHint : Attr {
     unsigned SpellingIndex = getSpellingListIndex();
     // For "#pragma unroll" and "#pragma nounroll" the string "unroll" or
     // "nounroll" is already emitted as the pragma name.
-    if (SpellingIndex == Pragma_nounroll) {
-      OS << "\n";
+    if (SpellingIndex == Pragma_nounroll)
       return;
-    }
     else if (SpellingIndex == Pragma_unroll) {
-      OS << getValueString(Policy) << "\n";
+      OS << getValueString(Policy);
       return;
     }
 
     assert(SpellingIndex == Pragma_clang_loop && "Unexpected spelling");
-    OS << getOptionName(option) << getValueString(Policy) << "\n";
+    OS << getOptionName(option) << getValueString(Policy);
   }
 
   // Return a string containing the loop hint argument including the
@@ -2109,4 +2138,10 @@ def OMPThreadPrivateDecl : InheritableAttr {
   let Spellings = [];
   let SemaHandler = 0;
   let Documentation = [Undocumented];
+}
+
+def InternalLinkage : InheritableAttr {
+  let Spellings = [GNU<"internal_linkage">, CXX11<"clang", "internal_linkage">];
+  let Subjects = SubjectList<[Var, Function, CXXRecord]>;
+  let Documentation = [InternalLinkageDocs];
 }

@@ -83,6 +83,12 @@ public:
     const char *
     GetName ();
     
+    const char *
+    GetDemangledName ();
+
+    const char *
+    GetMangledName ();
+
     lldb::SBType
     GetType ();
     
@@ -214,6 +220,9 @@ public:
     
     bool
     IsTypedefType ();
+    
+    bool
+    IsAnonymousType ();
     
     lldb::SBType
     GetPointerType();

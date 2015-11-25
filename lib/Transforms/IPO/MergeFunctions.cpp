@@ -113,6 +113,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include <vector>
+
 using namespace llvm;
 
 #define DEBUG_TYPE "mergefunc"
@@ -163,6 +164,9 @@ class GlobalNumberState {
       if (Inserted)
         NextNumber++;
       return MapIter->second;
+    }
+    void clear() {
+      GlobalNumbers.clear();
     }
 };
 
@@ -462,9 +466,9 @@ public:
     F = G;
   }
 
-  void release() { F = 0; }
+  void release() { F = nullptr; }
 };
-}
+} // end anonymous namespace
 
 int FunctionComparator::cmpNumbers(uint64_t L, uint64_t R) const {
   if (L < R) return -1;
@@ -532,6 +536,7 @@ int FunctionComparator::cmpAttrs(const AttributeSet L,
   }
   return 0;
 }
+
 int FunctionComparator::cmpRangeMetadata(const MDNode* L,
                                          const MDNode* R) const {
   if (L == R)
@@ -651,7 +656,9 @@ int FunctionComparator::cmpConstants(const Constant *L, const Constant *R) {
   }
 
   switch (L->getValueID()) {
-  case Value::UndefValueVal: return TypesRes;
+  case Value::UndefValueVal:
+  case Value::ConstantTokenNoneVal:
+    return TypesRes;
   case Value::ConstantIntVal: {
     const APInt &LInt = cast<ConstantInt>(L)->getValue();
     const APInt &RInt = cast<ConstantInt>(R)->getValue();
@@ -767,7 +774,6 @@ int FunctionComparator::cmpGlobalValues(GlobalValue *L, GlobalValue* R) {
 /// defines total ordering among the types set.
 /// See method declaration comments for more details.
 int FunctionComparator::cmpTypes(Type *TyL, Type *TyR) const {
-
   PointerType *PTyL = dyn_cast<PointerType>(TyL);
   PointerType *PTyR = dyn_cast<PointerType>(TyR);
 
@@ -1117,7 +1123,7 @@ int FunctionComparator::cmpBasicBlocks(const BasicBlock *BBL,
   BasicBlock::const_iterator InstR = BBR->begin(), InstRE = BBR->end();
 
   do {
-    if (int Res = cmpValues(InstL, InstR))
+    if (int Res = cmpValues(&*InstL, &*InstR))
       return Res;
 
     const GetElementPtrInst *GEPL = dyn_cast<GetElementPtrInst>(InstL);
@@ -1135,7 +1141,7 @@ int FunctionComparator::cmpBasicBlocks(const BasicBlock *BBL,
       if (int Res = cmpGEPs(GEPL, GEPR))
         return Res;
     } else {
-      if (int Res = cmpOperations(InstL, InstR))
+      if (int Res = cmpOperations(&*InstL, &*InstR))
         return Res;
       assert(InstL->getNumOperands() == InstR->getNumOperands());
 
@@ -1161,7 +1167,6 @@ int FunctionComparator::cmpBasicBlocks(const BasicBlock *BBL,
 
 // Test whether the two functions have equivalent behaviour.
 int FunctionComparator::compare() {
-
   sn_mapL.clear();
   sn_mapR.clear();
 
@@ -1204,7 +1209,7 @@ int FunctionComparator::compare() {
                                     ArgRI = FnR->arg_begin(),
                                     ArgLE = FnL->arg_end();
        ArgLI != ArgLE; ++ArgLI, ++ArgRI) {
-    if (cmpValues(ArgLI, ArgRI) != 0)
+    if (cmpValues(&*ArgLI, &*ArgRI) != 0)
       llvm_unreachable("Arguments repeat!");
   }
 
@@ -1244,6 +1249,7 @@ int FunctionComparator::compare() {
   return 0;
 }
 
+namespace {
 // Accumulate the hash of a sequence of 64-bit integers. This is similar to a
 // hash of a sequence of 64bit ints, but the entire input does not need to be
 // available at once. This interface is necessary for functionHash because it
@@ -1262,6 +1268,7 @@ public:
   // No finishing is required, because the entire hash value is used.
   uint64_t getHash() { return Hash; }
 };
+} // end anonymous namespace
 
 // A function hash is calculated by considering only the number of arguments and
 // whether a function is varargs, the order of basic blocks (given by the
@@ -1397,7 +1404,7 @@ private:
   bool HasGlobalAliases;
 };
 
-}  // end anonymous namespace
+} // end anonymous namespace
 
 char MergeFunctions::ID = 0;
 INITIALIZE_PASS(MergeFunctions, "mergefunc", "Merge Functions", false, false)
@@ -1546,6 +1553,7 @@ bool MergeFunctions::runOnModule(Module &M) {
   } while (!Deferred.empty());
 
   FnTree.clear();
+  GlobalNumbers.clear();
 
   return Changed;
 }
@@ -1654,9 +1662,8 @@ void MergeFunctions::writeThunk(Function *F, Function *G) {
   SmallVector<Value *, 16> Args;
   unsigned i = 0;
   FunctionType *FFTy = F->getFunctionType();
-  for (Function::arg_iterator AI = NewG->arg_begin(), AE = NewG->arg_end();
-       AI != AE; ++AI) {
-    Args.push_back(createCast(Builder, (Value*)AI, FFTy->getParamType(i)));
+  for (Argument & AI : NewG->args()) {
+    Args.push_back(createCast(Builder, &AI, FFTy->getParamType(i)));
     ++i;
   }
 

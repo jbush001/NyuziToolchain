@@ -59,6 +59,13 @@ public:
   /// \returns true if this class contains VGPR registers.
   bool hasVGPRs(const TargetRegisterClass *RC) const;
 
+  /// returns true if this is a pseudoregister class combination of VGPRs and
+  /// SGPRs for operand modeling. FIXME: We should set isAllocatable = 0 on
+  /// them.
+  static bool isPseudoRegClass(const TargetRegisterClass *RC) {
+    return RC == &AMDGPU::VS_32RegClass || RC == &AMDGPU::VS_64RegClass;
+  }
+
   /// \returns A VGPR reg class with the same width as \p SRC
   const TargetRegisterClass *getEquivalentVGPRClass(
                                           const TargetRegisterClass *SRC) const;
@@ -90,15 +97,18 @@ public:
   bool opCanUseInlineConstant(unsigned OpType) const;
 
   enum PreloadedValue {
-    TGID_X,
-    TGID_Y,
-    TGID_Z,
-    SCRATCH_WAVE_OFFSET,
-    SCRATCH_PTR,
-    INPUT_PTR,
-    TIDIG_X,
-    TIDIG_Y,
-    TIDIG_Z
+    // SGPRS:
+    SCRATCH_PTR         =  0,
+    INPUT_PTR           =  3,
+    TGID_X              = 10,
+    TGID_Y              = 11,
+    TGID_Z              = 12,
+    SCRATCH_WAVE_OFFSET = 14,
+    // VGPRS:
+    FIRST_VGPR_VALUE    = 15,
+    TIDIG_X             = FIRST_VGPR_VALUE,
+    TIDIG_Y             = 16,
+    TIDIG_Z             = 17,
   };
 
   /// \brief Returns the physical register that \p Value is stored in.

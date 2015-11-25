@@ -183,7 +183,8 @@ GDBRemoteRegisterContext::ReadRegisterBytes (const RegisterInfo *reg_info, DataE
             if (!gdb_comm.ReadAllRegisters(m_thread.GetProtocolID(), response))
                 return false;
             if (response.IsNormalResponse())
-                if (response.GetHexBytes ((void *)m_reg_data.GetDataStart(), m_reg_data.GetByteSize(), '\xcc') == m_reg_data.GetByteSize())
+                if (response.GetHexBytes(const_cast<void *>(reinterpret_cast<const void *>(m_reg_data.GetDataStart())),
+                                         m_reg_data.GetByteSize(), '\xcc') == m_reg_data.GetByteSize())
                     SetAllRegisterValid (true);
         }
         else if (reg_info->value_regs)
@@ -272,8 +273,8 @@ GDBRemoteRegisterContext::SetPrimordialRegister(const RegisterInfo *reg_info,
     packet.Printf ("P%x=", reg);
     packet.PutBytesAsRawHex8 (m_reg_data.PeekData(reg_info->byte_offset, reg_info->byte_size),
                               reg_info->byte_size,
-                              lldb::endian::InlHostByteOrder(),
-                              lldb::endian::InlHostByteOrder());
+                              endian::InlHostByteOrder(),
+                              endian::InlHostByteOrder());
 
     if (gdb_comm.GetThreadSuffixSupported())
         packet.Printf (";thread:%4.4" PRIx64 ";", m_thread.GetProtocolID());
@@ -369,8 +370,8 @@ GDBRemoteRegisterContext::WriteRegisterBytes (const RegisterInfo *reg_info, Data
                     packet.PutChar ('G');
                     packet.PutBytesAsRawHex8 (m_reg_data.GetDataStart(),
                                               m_reg_data.GetByteSize(),
-                                              lldb::endian::InlHostByteOrder(),
-                                              lldb::endian::InlHostByteOrder());
+                                              endian::InlHostByteOrder(),
+                                              endian::InlHostByteOrder());
 
                     if (thread_suffix_supported)
                         packet.Printf (";thread:%4.4" PRIx64 ";", m_thread.GetProtocolID());
@@ -769,8 +770,8 @@ GDBRemoteRegisterContext::WriteAllRegisterValues (const lldb::DataBufferSP &data
                                 packet.Printf ("P%x=", reg);
                                 packet.PutBytesAsRawHex8 (restore_src,
                                                           reg_byte_size,
-                                                          lldb::endian::InlHostByteOrder(),
-                                                          lldb::endian::InlHostByteOrder());
+                                                          endian::InlHostByteOrder(),
+                                                          endian::InlHostByteOrder());
 
                                 if (thread_suffix_supported)
                                     packet.Printf (";thread:%4.4" PRIx64 ";", m_thread.GetProtocolID());
@@ -792,8 +793,8 @@ GDBRemoteRegisterContext::WriteAllRegisterValues (const lldb::DataBufferSP &data
                                     packet.Printf ("P%x=", reg);
                                     packet.PutBytesAsRawHex8 (restore_src,
                                                               reg_byte_size,
-                                                              lldb::endian::InlHostByteOrder(),
-                                                              lldb::endian::InlHostByteOrder());
+                                                              endian::InlHostByteOrder(),
+                                                              endian::InlHostByteOrder());
     
                                     if (thread_suffix_supported)
                                         packet.Printf (";thread:%4.4" PRIx64 ";", m_thread.GetProtocolID());
@@ -848,7 +849,7 @@ GDBRemoteRegisterContext::WriteAllRegisterValues (const lldb::DataBufferSP &data
                     }
                     StreamString packet;
                     packet.Printf ("P%x=", reg_info->kinds[eRegisterKindLLDB]);
-                    packet.PutBytesAsRawHex8 (data_sp->GetBytes() + reg_info->byte_offset, reg_info->byte_size, lldb::endian::InlHostByteOrder(), lldb::endian::InlHostByteOrder());
+                    packet.PutBytesAsRawHex8 (data_sp->GetBytes() + reg_info->byte_offset, reg_info->byte_size, endian::InlHostByteOrder(), endian::InlHostByteOrder());
                     if (thread_suffix_supported)
                         packet.Printf (";thread:%4.4" PRIx64 ";", m_thread.GetProtocolID());
 

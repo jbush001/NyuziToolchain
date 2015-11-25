@@ -18,6 +18,7 @@
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/TypeVisitor.h"
+#include "clang/Basic/Builtins.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/TargetInfo.h"
@@ -208,7 +209,8 @@ TemplateNameKind Sema::isTemplateName(Scope *S,
       R.suppressDiagnostics();
     } else {
       assert(isa<ClassTemplateDecl>(TD) || isa<TemplateTemplateParmDecl>(TD) ||
-             isa<TypeAliasTemplateDecl>(TD) || isa<VarTemplateDecl>(TD));
+             isa<TypeAliasTemplateDecl>(TD) || isa<VarTemplateDecl>(TD) ||
+             isa<BuiltinTemplateDecl>(TD));
       TemplateKind =
           isa<VarTemplateDecl>(TD) ? TNK_Var_template : TNK_Type_template;
     }
@@ -2017,6 +2019,58 @@ void Sema::NoteAllFoundTemplates(TemplateName Name) {
   }
 }
 
+static QualType
+checkBuiltinTemplateIdType(Sema &SemaRef, BuiltinTemplateDecl *BTD,
+                           const SmallVectorImpl<TemplateArgument> &Converted,
+                           SourceLocation TemplateLoc,
+                           TemplateArgumentListInfo &TemplateArgs) {
+  ASTContext &Context = SemaRef.getASTContext();
+  switch (BTD->getBuiltinTemplateKind()) {
+  case BTK__make_integer_seq:
+    // Specializations of __make_integer_seq<S, T, N> are treated like
+    // S<T, 0, ..., N-1>.
+
+    // C++14 [inteseq.intseq]p1:
+    //   T shall be an integer type.
+    if (!Converted[1].getAsType()->isIntegralType(Context)) {
+      SemaRef.Diag(TemplateArgs[1].getLocation(),
+                   diag::err_integer_sequence_integral_element_type);
+      return QualType();
+    }
+
+    // C++14 [inteseq.make]p1:
+    //   If N is negative the program is ill-formed.
+    TemplateArgument NumArgsArg = Converted[2];
+    llvm::APSInt NumArgs = NumArgsArg.getAsIntegral();
+    if (NumArgs < 0) {
+      SemaRef.Diag(TemplateArgs[2].getLocation(),
+                   diag::err_integer_sequence_negative_length);
+      return QualType();
+    }
+
+    QualType ArgTy = NumArgsArg.getIntegralType();
+    TemplateArgumentListInfo SyntheticTemplateArgs;
+    // The type argument gets reused as the first template argument in the
+    // synthetic template argument list.
+    SyntheticTemplateArgs.addArgument(TemplateArgs[1]);
+    // Expand N into 0 ... N-1.
+    for (llvm::APSInt I(NumArgs.getBitWidth(), NumArgs.isUnsigned());
+         I < NumArgs; ++I) {
+      TemplateArgument TA(Context, I, ArgTy);
+      Expr *E = SemaRef.BuildExpressionFromIntegralTemplateArgument(
+                           TA, TemplateArgs[2].getLocation())
+                    .getAs<Expr>();
+      SyntheticTemplateArgs.addArgument(
+          TemplateArgumentLoc(TemplateArgument(E), E));
+    }
+    // The first template argument will be reused as the template decl that
+    // our synthetic template arguments will be applied to.
+    return SemaRef.CheckTemplateIdType(Converted[0].getAsTemplate(),
+                                       TemplateLoc, SyntheticTemplateArgs);
+  }
+  llvm_unreachable("unexpected BuiltinTemplateDecl!");
+}
+
 QualType Sema::CheckTemplateIdType(TemplateName Name,
                                    SourceLocation TemplateLoc,
                                    TemplateArgumentListInfo &TemplateArgs) {
@@ -2171,6 +2225,9 @@ QualType Sema::CheckTemplateIdType(TemplateName Name,
     CanonType = Context.getTypeDeclType(Decl);
     assert(isa<RecordType>(CanonType) &&
            "type of non-dependent specialization is not a RecordType");
+  } else if (auto *BTD = dyn_cast<BuiltinTemplateDecl>(Template)) {
+    CanonType = checkBuiltinTemplateIdType(*this, BTD, Converted, TemplateLoc,
+                                           TemplateArgs);
   }
 
   // Build the fully-sugared type for this class template
@@ -3223,7 +3280,8 @@ SubstDefaultTemplateArgument(Sema &SemaRef,
     TemplateArgLists.addOuterTemplateArguments(None);
 
   Sema::ContextRAII SavedContext(SemaRef, Template->getDeclContext());
-  EnterExpressionEvaluationContext Unevaluated(SemaRef, Sema::Unevaluated);
+  EnterExpressionEvaluationContext ConstantEvaluated(SemaRef,
+                                                     Sema::ConstantEvaluated);
   return SemaRef.SubstExpr(Param->getDefaultArgument(), TemplateArgLists);
 }
 
@@ -3923,7 +3981,7 @@ bool Sema::CheckTemplateArgumentList(TemplateDecl *Template,
 
   // No problems found with the new argument list, propagate changes back
   // to caller.
-  TemplateArgs = NewArgs;
+  TemplateArgs = std::move(NewArgs);
 
   return false;
 }
@@ -6351,7 +6409,17 @@ Sema::ActOnClassTemplateSpecialization(Scope *S, unsigned TagSpec,
     if (!PrevDecl)
       ClassTemplate->AddSpecialization(Specialization, InsertPos);
 
-    CanonType = Context.getTypeDeclType(Specialization);
+    if (CurContext->isDependentContext()) {
+      // -fms-extensions permits specialization of nested classes without
+      // fully specializing the outer class(es).
+      assert(getLangOpts().MicrosoftExt &&
+             "Only possible with -fms-extensions!");
+      TemplateName CanonTemplate = Context.getCanonicalTemplateName(Name);
+      CanonType = Context.getTemplateSpecializationType(
+          CanonTemplate, Converted.data(), Converted.size());
+    } else {
+      CanonType = Context.getTypeDeclType(Specialization);
+    }
   }
 
   // C++ [temp.expl.spec]p6:
@@ -6756,6 +6824,9 @@ bool Sema::CheckFunctionTemplateSpecialization(
   UnresolvedSet<8> Candidates;
   TemplateSpecCandidateSet FailedCandidates(FD->getLocation());
 
+  llvm::SmallDenseMap<FunctionDecl *, TemplateArgumentListInfo, 8>
+      ConvertedTemplateArgs;
+
   DeclContext *FDLookupContext = FD->getDeclContext()->getRedeclContext();
   for (LookupResult::iterator I = Previous.begin(), E = Previous.end();
          I != E; ++I) {
@@ -6785,6 +6856,10 @@ bool Sema::CheckFunctionTemplateSpecialization(
         }
       }
 
+      TemplateArgumentListInfo Args;
+      if (ExplicitTemplateArgs)
+        Args = *ExplicitTemplateArgs;
+
       // C++ [temp.expl.spec]p11:
       //   A trailing template-argument can be left unspecified in the
       //   template-id naming an explicit function template specialization
@@ -6796,7 +6871,7 @@ bool Sema::CheckFunctionTemplateSpecialization(
       FunctionDecl *Specialization = nullptr;
       if (TemplateDeductionResult TDK = DeduceTemplateArguments(
               cast<FunctionTemplateDecl>(FunTmpl->getFirstDecl()),
-              ExplicitTemplateArgs, FT, Specialization, Info)) {
+              ExplicitTemplateArgs ? &Args : nullptr, FT, Specialization, Info)) {
         // Template argument deduction failed; record why it failed, so
         // that we can provide nifty diagnostics.
         FailedCandidates.addCandidate()
@@ -6807,6 +6882,8 @@ bool Sema::CheckFunctionTemplateSpecialization(
       }
 
       // Record this candidate.
+      if (ExplicitTemplateArgs)
+        ConvertedTemplateArgs[Specialization] = std::move(Args);
       Candidates.addDecl(Specialization, I.getAccess());
     }
   }
@@ -6885,10 +6962,10 @@ bool Sema::CheckFunctionTemplateSpecialization(
   // Take copies of (semantic and syntactic) template argument lists.
   const TemplateArgumentList* TemplArgs = new (Context)
     TemplateArgumentList(Specialization->getTemplateSpecializationArgs());
-  FD->setFunctionTemplateSpecialization(Specialization->getPrimaryTemplate(),
-                                        TemplArgs, /*InsertPos=*/nullptr,
-                                    SpecInfo->getTemplateSpecializationKind(),
-                                        ExplicitTemplateArgs);
+  FD->setFunctionTemplateSpecialization(
+      Specialization->getPrimaryTemplate(), TemplArgs, /*InsertPos=*/nullptr,
+      SpecInfo->getTemplateSpecializationKind(),
+      ExplicitTemplateArgs ? &ConvertedTemplateArgs[Specialization] : nullptr);
 
   // The "previous declaration" for this function template specialization is
   // the prior function template specialization.

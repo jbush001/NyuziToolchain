@@ -59,7 +59,7 @@ namespace {
       }
 
       // Called when decoding an IT instruction. Sets the IT state for the following
-      // instructions that for the IT block. Firstcond and Mask correspond to the 
+      // instructions that for the IT block. Firstcond and Mask correspond to the
       // fields in the IT instruction encoding.
       void setITState(char Firstcond, char Mask) {
         // (3 - the number of trailing zeros) is the number of then / else.
@@ -882,7 +882,7 @@ static DecodeStatus
 DecodeGPRnopcRegisterClass(MCInst &Inst, unsigned RegNo,
                            uint64_t Address, const void *Decoder) {
   DecodeStatus S = MCDisassembler::Success;
-  
+
   if (RegNo == 15) 
     S = MCDisassembler::SoftFail;
 
@@ -966,8 +966,13 @@ static DecodeStatus DecodetcGPRRegisterClass(MCInst &Inst, unsigned RegNo,
 static DecodeStatus DecoderGPRRegisterClass(MCInst &Inst, unsigned RegNo,
                                    uint64_t Address, const void *Decoder) {
   DecodeStatus S = MCDisassembler::Success;
-  if (RegNo == 13 || RegNo == 15)
+
+  const FeatureBitset &featureBits =
+    ((const MCDisassembler*)Decoder)->getSubtargetInfo().getFeatureBits();
+
+  if ((RegNo == 13 && !featureBits[ARM::HasV8Ops]) || RegNo == 15)
     S = MCDisassembler::SoftFail;
+
   Check(S, DecodeGPRRegisterClass(Inst, RegNo, Address, Decoder));
   return S;
 }
@@ -1127,7 +1132,7 @@ static DecodeStatus DecodeSORegImmOperand(MCInst &Inst, unsigned Val,
   unsigned imm = fieldFromInstruction(Val, 7, 5);
 
   // Register-immediate
-  if (!Check(S, DecodeGPRRegisterClass(Inst, Rm, Address, Decoder)))
+  if (!Check(S, DecoderGPRRegisterClass(Inst, Rm, Address, Decoder)))
     return MCDisassembler::Fail;
 
   ARM_AM::ShiftOpc Shift = ARM_AM::lsl;
@@ -1638,7 +1643,7 @@ DecodeAddrMode3Instruction(MCInst &Inst, unsigned Insn,
     case ARM::STRD_POST:
       if (P == 0 && W == 1)
         S = MCDisassembler::SoftFail;
-      
+
       if (writeback && (Rn == 15 || Rn == Rt || Rn == Rt2))
         S = MCDisassembler::SoftFail;
       if (type && Rm == 15)
@@ -5112,7 +5117,7 @@ static DecodeStatus DecodeLDR(MCInst &Inst, unsigned Val,
   unsigned Rm = fieldFromInstruction(Val, 0, 4);
   Rm |= (fieldFromInstruction(Val, 23, 1) << 4);
   unsigned Cond = fieldFromInstruction(Val, 28, 4);
- 
+
   if (fieldFromInstruction(Val, 8, 4) != 0 || Rn == Rt)
     S = MCDisassembler::SoftFail;
 

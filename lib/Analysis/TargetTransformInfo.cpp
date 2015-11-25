@@ -113,14 +113,20 @@ bool TargetTransformInfo::isLegalAddressingMode(Type *Ty, GlobalValue *BaseGV,
                                         Scale, AddrSpace);
 }
 
-bool TargetTransformInfo::isLegalMaskedStore(Type *DataType,
-                                             int Consecutive) const {
-  return TTIImpl->isLegalMaskedStore(DataType, Consecutive);
+bool TargetTransformInfo::isLegalMaskedStore(Type *DataType) const {
+  return TTIImpl->isLegalMaskedStore(DataType);
 }
 
-bool TargetTransformInfo::isLegalMaskedLoad(Type *DataType,
-                                            int Consecutive) const {
-  return TTIImpl->isLegalMaskedLoad(DataType, Consecutive);
+bool TargetTransformInfo::isLegalMaskedLoad(Type *DataType) const {
+  return TTIImpl->isLegalMaskedLoad(DataType);
+}
+
+bool TargetTransformInfo::isLegalMaskedGather(Type *DataType) const {
+  return TTIImpl->isLegalMaskedGather(DataType);
+}
+
+bool TargetTransformInfo::isLegalMaskedScatter(Type *DataType) const {
+  return TTIImpl->isLegalMaskedGather(DataType);
 }
 
 int TargetTransformInfo::getScalingFactorCost(Type *Ty, GlobalValue *BaseGV,
@@ -136,10 +142,6 @@ int TargetTransformInfo::getScalingFactorCost(Type *Ty, GlobalValue *BaseGV,
 
 bool TargetTransformInfo::isTruncateFree(Type *Ty1, Type *Ty2) const {
   return TTIImpl->isTruncateFree(Ty1, Ty2);
-}
-
-bool TargetTransformInfo::isZExtFree(Type *Ty1, Type *Ty2) const {
-  return TTIImpl->isZExtFree(Ty1, Ty2);
 }
 
 bool TargetTransformInfo::isProfitableToHoist(Instruction *I) const {

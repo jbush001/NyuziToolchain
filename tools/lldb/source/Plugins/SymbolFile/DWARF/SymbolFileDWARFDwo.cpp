@@ -27,14 +27,9 @@ SymbolFileDWARFDwo::SymbolFileDWARFDwo(ObjectFileSP objfile, DWARFCompileUnit* d
     SetID(((lldb::user_id_t)dwarf_cu->GetOffset())<<32);
 }
 
-const lldb_private::DWARFDataExtractor&
-SymbolFileDWARFDwo::GetCachedSectionData(uint32_t got_flag,
-                                         lldb::SectionType sect_type,
-                                         lldb_private::DWARFDataExtractor &data)
+void
+SymbolFileDWARFDwo::LoadSectionData (lldb::SectionType sect_type, DWARFDataExtractor& data)
 {
-    if (!m_flags.IsClear (got_flag))
-        return data;
-
     const SectionList* section_list = m_obj_file->GetSectionList(false /* update_module_section_list */);
     if (section_list)
     {
@@ -45,20 +40,17 @@ SymbolFileDWARFDwo::GetCachedSectionData(uint32_t got_flag,
             if (m_dwarf_data.GetByteSize())
             {
                 data.SetData(m_dwarf_data, section_sp->GetOffset(), section_sp->GetFileSize());
-                m_flags.Set (got_flag);
-                return data;
+                return;
             }
 
             if (m_obj_file->ReadSectionData(section_sp.get(), data) != 0)
-            {
-                m_flags.Set (got_flag);
-                return data;
-            }
+                return;
 
             data.Clear();
         }
     }
-    return SymbolFileDWARF::GetCachedSectionData(got_flag, sect_type, data);
+
+    SymbolFileDWARF::LoadSectionData(sect_type, data);
 }
 
 lldb::CompUnitSP
@@ -108,6 +100,12 @@ SymbolFileDWARFDwo::GetForwardDeclClangTypeToDie()
     return GetBaseSymbolFile()->GetForwardDeclClangTypeToDie();
 }
 
+UniqueDWARFASTTypeMap&
+SymbolFileDWARFDwo::GetUniqueDWARFASTTypeMap()
+{
+    return GetBaseSymbolFile()->GetUniqueDWARFASTTypeMap();
+}
+
 lldb::TypeSP
 SymbolFileDWARFDwo::FindDefinitionTypeForDWARFDeclContext (const DWARFDeclContext &die_decl_ctx)
 {
@@ -124,4 +122,10 @@ DWARFExpression::LocationListFormat
 SymbolFileDWARFDwo::GetLocationListFormat() const
 {
     return DWARFExpression::SplitDwarfLocationList;
+}
+
+TypeSystem*
+SymbolFileDWARFDwo::GetTypeSystemForLanguage(LanguageType language)
+{
+    return GetBaseSymbolFile()->GetTypeSystemForLanguage(language);
 }

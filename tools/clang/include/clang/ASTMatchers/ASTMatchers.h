@@ -412,6 +412,30 @@ const internal::VariadicAllOfMatcher<CXXCtorInitializer> cxxCtorInitializer;
 ///   matches 'int' in C<int>.
 const internal::VariadicAllOfMatcher<TemplateArgument> templateArgument;
 
+/// \brief Matches non-type template parameter declarations.
+///
+/// Given
+/// \code
+///   template <typename T, int N> struct C {};
+/// \endcode
+/// nonTypeTemplateParmDecl()
+///   matches 'N', but not 'T'.
+const internal::VariadicDynCastAllOfMatcher<
+  Decl,
+  NonTypeTemplateParmDecl> nonTypeTemplateParmDecl;
+
+/// \brief Matches template type parameter declarations.
+///
+/// Given
+/// \code
+///   template <typename T, int N> struct C {};
+/// \endcode
+/// templateTypeParmDecl()
+///   matches 'T', but not 'N'.
+const internal::VariadicDynCastAllOfMatcher<
+  Decl,
+  TemplateTypeParmDecl> templateTypeParmDecl;
+
 /// \brief Matches public C++ declarations.
 ///
 /// Given
@@ -2044,8 +2068,10 @@ internal::Matcher<T> findAll(const internal::Matcher<T> &Matcher) {
 ///
 /// Usable as: Any Matcher
 const internal::ArgumentAdaptingMatcherFunc<
-    internal::HasParentMatcher, internal::TypeList<Decl, Stmt>,
-    internal::TypeList<Decl, Stmt> > LLVM_ATTRIBUTE_UNUSED hasParent = {};
+    internal::HasParentMatcher,
+    internal::TypeList<Decl, NestedNameSpecifierLoc, Stmt, TypeLoc>,
+    internal::TypeList<Decl, NestedNameSpecifierLoc, Stmt, TypeLoc>>
+    LLVM_ATTRIBUTE_UNUSED hasParent = {};
 
 /// \brief Matches AST nodes that have an ancestor that matches the provided
 /// matcher.
@@ -2059,8 +2085,10 @@ const internal::ArgumentAdaptingMatcherFunc<
 ///
 /// Usable as: Any Matcher
 const internal::ArgumentAdaptingMatcherFunc<
-    internal::HasAncestorMatcher, internal::TypeList<Decl, Stmt>,
-    internal::TypeList<Decl, Stmt> > LLVM_ATTRIBUTE_UNUSED hasAncestor = {};
+    internal::HasAncestorMatcher,
+    internal::TypeList<Decl, NestedNameSpecifierLoc, Stmt, TypeLoc>,
+    internal::TypeList<Decl, NestedNameSpecifierLoc, Stmt, TypeLoc>>
+    LLVM_ATTRIBUTE_UNUSED hasAncestor = {};
 
 /// \brief Matches if the provided matcher does not match.
 ///
@@ -2514,6 +2542,54 @@ AST_MATCHER(VarDecl, hasLocalStorage) {
 /// \endcode
 AST_MATCHER(VarDecl, hasGlobalStorage) {
   return Node.hasGlobalStorage();
+}
+
+/// \brief Matches a variable declaration that has automatic storage duration.
+///
+/// Example matches x, but not y, z, or a.
+/// (matcher = varDecl(hasAutomaticStorageDuration())
+/// \code
+/// void f() {
+///   int x;
+///   static int y;
+///   thread_local int z;
+/// }
+/// int a;
+/// \endcode
+AST_MATCHER(VarDecl, hasAutomaticStorageDuration) {
+  return Node.getStorageDuration() == SD_Automatic;
+}
+
+/// \brief Matches a variable declaration that has static storage duration.
+///
+/// Example matches y and a, but not x or z.
+/// (matcher = varDecl(hasStaticStorageDuration())
+/// \code
+/// void f() {
+///   int x;
+///   static int y;
+///   thread_local int z;
+/// }
+/// int a;
+/// \endcode
+AST_MATCHER(VarDecl, hasStaticStorageDuration) {
+  return Node.getStorageDuration() == SD_Static;
+}
+
+/// \brief Matches a variable declaration that has thread storage duration.
+///
+/// Example matches z, but not x, z, or a.
+/// (matcher = varDecl(hasThreadStorageDuration())
+/// \code
+/// void f() {
+///   int x;
+///   static int y;
+///   thread_local int z;
+/// }
+/// int a;
+/// \endcode
+AST_MATCHER(VarDecl, hasThreadStorageDuration) {
+  return Node.getStorageDuration() == SD_Thread;
 }
 
 /// \brief Matches a variable declaration that is an exception variable from
@@ -3099,9 +3175,11 @@ AST_POLYMORPHIC_MATCHER_P(hasOperatorName,
 /// \code
 ///   a || b
 /// \endcode
-AST_MATCHER_P(BinaryOperator, hasLHS,
-              internal::Matcher<Expr>, InnerMatcher) {
-  Expr *LeftHandSide = Node.getLHS();
+AST_POLYMORPHIC_MATCHER_P(hasLHS,
+                          AST_POLYMORPHIC_SUPPORTED_TYPES(BinaryOperator,
+                                                          ArraySubscriptExpr),
+                          internal::Matcher<Expr>, InnerMatcher) {
+  const Expr *LeftHandSide = Node.getLHS();
   return (LeftHandSide != nullptr &&
           InnerMatcher.matches(*LeftHandSide, Finder, Builder));
 }
@@ -3112,9 +3190,11 @@ AST_MATCHER_P(BinaryOperator, hasLHS,
 /// \code
 ///   a || b
 /// \endcode
-AST_MATCHER_P(BinaryOperator, hasRHS,
-              internal::Matcher<Expr>, InnerMatcher) {
-  Expr *RightHandSide = Node.getRHS();
+AST_POLYMORPHIC_MATCHER_P(hasRHS,
+                          AST_POLYMORPHIC_SUPPORTED_TYPES(BinaryOperator,
+                                                          ArraySubscriptExpr),
+                          internal::Matcher<Expr>, InnerMatcher) {
+  const Expr *RightHandSide = Node.getRHS();
   return (RightHandSide != nullptr &&
           InnerMatcher.matches(*RightHandSide, Finder, Builder));
 }
@@ -3218,7 +3298,7 @@ AST_MATCHER(RecordDecl, isClass) {
 /// \endcode
 AST_MATCHER_P(ConditionalOperator, hasTrueExpression,
               internal::Matcher<Expr>, InnerMatcher) {
-  Expr *Expression = Node.getTrueExpr();
+  const Expr *Expression = Node.getTrueExpr();
   return (Expression != nullptr &&
           InnerMatcher.matches(*Expression, Finder, Builder));
 }
@@ -3231,7 +3311,7 @@ AST_MATCHER_P(ConditionalOperator, hasTrueExpression,
 /// \endcode
 AST_MATCHER_P(ConditionalOperator, hasFalseExpression,
               internal::Matcher<Expr>, InnerMatcher) {
-  Expr *Expression = Node.getFalseExpr();
+  const Expr *Expression = Node.getFalseExpr();
   return (Expression != nullptr &&
           InnerMatcher.matches(*Expression, Finder, Builder));
 }
@@ -3253,6 +3333,20 @@ AST_POLYMORPHIC_MATCHER(isDefinition,
                         AST_POLYMORPHIC_SUPPORTED_TYPES(TagDecl, VarDecl,
                                                         FunctionDecl)) {
   return Node.isThisDeclarationADefinition();
+}
+
+/// \brief Matches if a function declaration is variadic.
+///
+/// Example matches f, but not g or h. The function i will not match, even when
+/// compiled in C mode.
+/// \code
+///   void f(...);
+///   void g(int);
+///   template <typename... Ts> void h(Ts...);
+///   void i();
+/// \endcode
+AST_MATCHER(FunctionDecl, isVariadic) {
+  return Node.isVariadic();
 }
 
 /// \brief Matches the class declaration that the given method declaration
@@ -3343,6 +3437,23 @@ AST_MATCHER(CXXMethodDecl, isConst) {
   return Node.isConst();
 }
 
+/// \brief Matches if the given method declaration declares a copy assignment
+/// operator.
+///
+/// Given
+/// \code
+/// struct A {
+///   A &operator=(const A &);
+///   A &operator=(A &&);
+/// };
+/// \endcode
+///
+/// cxxMethodDecl(isCopyAssignmentOperator()) matches the first method but not
+/// the second one.
+AST_MATCHER(CXXMethodDecl, isCopyAssignmentOperator) {
+  return Node.isCopyAssignmentOperator();
+}
+
 /// \brief Matches if the given method declaration overrides another method.
 ///
 /// Given
@@ -3411,6 +3522,25 @@ AST_MATCHER(QualType, isInteger) {
 ///   is no top-level const on the parameter type "const int *".
 AST_MATCHER(QualType, isConstQualified) {
   return Node.isConstQualified();
+}
+
+/// \brief Matches QualType nodes that are volatile-qualified, i.e., that
+/// include "top-level" volatile.
+///
+/// Given
+/// \code
+///   void a(int);
+///   void b(int volatile);
+///   void c(volatile int);
+///   void d(volatile int*);
+///   void e(int volatile) {};
+/// \endcode
+/// functionDecl(hasAnyParameter(hasType(isVolatileQualified())))
+///   matches "void b(int volatile)", "void c(volatile int)" and
+///   "void e(int volatile) {}". It does not match d as there
+///   is no top-level volatile on the parameter type "volatile int *".
+AST_MATCHER(QualType, isVolatileQualified) {
+  return Node.isVolatileQualified();
 }
 
 /// \brief Matches QualType nodes that have local CV-qualifiers attached to
@@ -4097,6 +4227,24 @@ AST_TYPE_MATCHER(TemplateTypeParmType, templateTypeParmType);
 /// \endcode
 AST_TYPE_MATCHER(InjectedClassNameType, injectedClassNameType);
 
+/// \brief Matches decayed type
+/// Example matches i[] in declaration of f.
+///     (matcher = valueDecl(hasType(decayedType(hasDecayedType(pointerType())))))
+/// Example matches i[1].
+///     (matcher = expr(hasType(decayedType(hasDecayedType(pointerType())))))
+/// \code
+///   void f(int i[]) {
+///     i[1] = 0;
+///   }
+/// \endcode
+AST_TYPE_MATCHER(DecayedType, decayedType);
+
+/// \brief Matches the decayed type, whos decayed type matches \c InnerMatcher
+AST_MATCHER_P(DecayedType, hasDecayedType, internal::Matcher<QualType>,
+              InnerType) {
+  return InnerType.matches(Node.getDecayedType(), Finder, Builder);
+}
+
 /// \brief Matches declarations whose declaration context, interpreted as a
 /// Decl, matches \c InnerMatcher.
 ///
@@ -4193,7 +4341,7 @@ AST_MATCHER_P(NestedNameSpecifierLoc, specifiesTypeLoc,
 AST_MATCHER_P_OVERLOAD(NestedNameSpecifier, hasPrefix,
                        internal::Matcher<NestedNameSpecifier>, InnerMatcher,
                        0) {
-  NestedNameSpecifier *NextNode = Node.getPrefix();
+  const NestedNameSpecifier *NextNode = Node.getPrefix();
   if (!NextNode)
     return false;
   return InnerMatcher.matches(*NextNode, Finder, Builder);
@@ -4247,9 +4395,14 @@ AST_MATCHER_P_OVERLOAD(Decl, equalsNode, const Decl*, Other, 0) {
 /// \brief Matches if a node equals another node.
 ///
 /// \c Stmt has pointer identity in the AST.
-///
 AST_MATCHER_P_OVERLOAD(Stmt, equalsNode, const Stmt*, Other, 1) {
   return &Node == Other;
+}
+/// \brief Matches if a node equals another node.
+///
+/// \c Type has pointer identity in the AST.
+AST_MATCHER_P_OVERLOAD(Type, equalsNode, const Type*, Other, 2) {
+    return &Node == Other;
 }
 
 /// @}

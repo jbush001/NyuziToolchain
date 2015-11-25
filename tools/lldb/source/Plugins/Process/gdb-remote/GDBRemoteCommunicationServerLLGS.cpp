@@ -113,7 +113,7 @@ GDBRemoteCommunicationServerLLGS::RegisterPacketHandlers()
     RegisterMemberFunctionHandler(StringExtractorGDBRemote::eServerPacketType_interrupt,
                                   &GDBRemoteCommunicationServerLLGS::Handle_interrupt);
     RegisterMemberFunctionHandler(StringExtractorGDBRemote::eServerPacketType_m,
-                                  &GDBRemoteCommunicationServerLLGS::Handle_m);
+                                  &GDBRemoteCommunicationServerLLGS::Handle_memory_read);
     RegisterMemberFunctionHandler(StringExtractorGDBRemote::eServerPacketType_M,
                                   &GDBRemoteCommunicationServerLLGS::Handle_M);
     RegisterMemberFunctionHandler(StringExtractorGDBRemote::eServerPacketType_p,
@@ -164,6 +164,8 @@ GDBRemoteCommunicationServerLLGS::RegisterPacketHandlers()
                                   &GDBRemoteCommunicationServerLLGS::Handle_vCont);
     RegisterMemberFunctionHandler(StringExtractorGDBRemote::eServerPacketType_vCont_actions,
                                   &GDBRemoteCommunicationServerLLGS::Handle_vCont_actions);
+    RegisterMemberFunctionHandler(StringExtractorGDBRemote::eServerPacketType_x,
+                                  &GDBRemoteCommunicationServerLLGS::Handle_memory_read);
     RegisterMemberFunctionHandler(StringExtractorGDBRemote::eServerPacketType_Z,
                                   &GDBRemoteCommunicationServerLLGS::Handle_Z);
     RegisterMemberFunctionHandler(StringExtractorGDBRemote::eServerPacketType_z,
@@ -424,7 +426,7 @@ WriteRegisterValueInHexFixedWidth (StreamString &response,
 }
 
 static JSONObject::SP
-GetRegistersAsJSON(NativeThreadProtocol &thread)
+GetRegistersAsJSON(NativeThreadProtocol &thread, bool abridged)
 {
     Log *log (GetLogIfAnyCategoriesSet (LIBLLDB_LOG_THREAD));
 
@@ -446,11 +448,17 @@ GetRegistersAsJSON(NativeThreadProtocol &thread)
     // Expedite only a couple of registers until we figure out why sending registers is
     // expensive.
     static const uint32_t k_expedited_registers[] = {
-        LLDB_REGNUM_GENERIC_PC, LLDB_REGNUM_GENERIC_SP, LLDB_REGNUM_GENERIC_FP, LLDB_REGNUM_GENERIC_RA
+        LLDB_REGNUM_GENERIC_PC, LLDB_REGNUM_GENERIC_SP, LLDB_REGNUM_GENERIC_FP, LLDB_REGNUM_GENERIC_RA, LLDB_INVALID_REGNUM
     };
-    for (uint32_t generic_reg: k_expedited_registers)
+    static const uint32_t k_abridged_expedited_registers[] = {
+        LLDB_REGNUM_GENERIC_PC, LLDB_INVALID_REGNUM
+    };
+
+    for (const uint32_t *generic_reg_p = abridged ? k_abridged_expedited_registers : k_expedited_registers;
+         *generic_reg_p != LLDB_INVALID_REGNUM;
+         ++generic_reg_p)
     {
-        uint32_t reg_num = reg_ctx_sp->ConvertRegisterKindToRegisterNumber(eRegisterKindGeneric, generic_reg);
+        uint32_t reg_num = reg_ctx_sp->ConvertRegisterKindToRegisterNumber(eRegisterKindGeneric, *generic_reg_p);
         if (reg_num == LLDB_INVALID_REGNUM)
             continue; // Target does not support the given register.
 #endif
@@ -516,7 +524,7 @@ GetStopReasonString(StopReason stop_reason)
 }
 
 static JSONArray::SP
-GetJSONThreadsInfo(NativeProcessProtocol &process, bool threads_with_valid_stop_info_only)
+GetJSONThreadsInfo(NativeProcessProtocol &process, bool abridged)
 {
     Log *log (GetLogIfAnyCategoriesSet (LIBLLDB_LOG_PROCESS | LIBLLDB_LOG_THREAD));
 
@@ -549,11 +557,11 @@ GetJSONThreadsInfo(NativeProcessProtocol &process, bool threads_with_valid_stop_
                     tid_stop_info.details.exception.type);
         }
 
-        if (threads_with_valid_stop_info_only && tid_stop_info.reason == eStopReasonNone)
-            continue; // No stop reason, skip this thread completely.
-
         JSONObject::SP thread_obj_sp = std::make_shared<JSONObject>();
         threads_array_sp->AppendObject(thread_obj_sp);
+
+        if (JSONObject::SP registers_sp = GetRegistersAsJSON(*thread_sp, abridged))
+            thread_obj_sp->SetObject("registers", registers_sp);
 
         thread_obj_sp->SetObject("tid", std::make_shared<JSONNumber>(tid));
         if (signum != 0)
@@ -582,12 +590,6 @@ GetJSONThreadsInfo(NativeProcessProtocol &process, bool threads_with_valid_stop_
             }
             thread_obj_sp->SetObject("medata", medata_array_sp);
         }
-
-        if (threads_with_valid_stop_info_only)
-            continue; // Only send the abridged stop info.
-
-        if (JSONObject::SP registers_sp = GetRegistersAsJSON(*thread_sp))
-            thread_obj_sp->SetObject("registers", registers_sp);
 
         // TODO: Expedite interesting regions of inferior memory
     }
@@ -1975,7 +1977,7 @@ GDBRemoteCommunicationServerLLGS::Handle_interrupt (StringExtractorGDBRemote &pa
 }
 
 GDBRemoteCommunication::PacketResult
-GDBRemoteCommunicationServerLLGS::Handle_m (StringExtractorGDBRemote &packet)
+GDBRemoteCommunicationServerLLGS::Handle_memory_read(StringExtractorGDBRemote &packet)
 {
     Log *log (GetLogIfAnyCategoriesSet(LIBLLDB_LOG_PROCESS));
 
@@ -2008,7 +2010,7 @@ GDBRemoteCommunicationServerLLGS::Handle_m (StringExtractorGDBRemote &packet)
     {
         if (log)
             log->Printf ("GDBRemoteCommunicationServerLLGS::%s nothing to read: zero-length packet", __FUNCTION__);
-        return PacketResult::Success;
+        return SendOKResponse();
     }
 
     // Allocate the response buffer.
@@ -2035,8 +2037,16 @@ GDBRemoteCommunicationServerLLGS::Handle_m (StringExtractorGDBRemote &packet)
     }
 
     StreamGDBRemote response;
-    for (size_t i = 0; i < bytes_read; ++i)
-        response.PutHex8(buf[i]);
+    packet.SetFilePos(0);
+    char kind = packet.GetChar('?');
+    if (kind == 'x')
+        response.PutEscapedBytes(buf.data(), byte_count);
+    else
+    {
+        assert(kind == 'm');
+        for (size_t i = 0; i < bytes_read; ++i)
+            response.PutHex8(buf[i]);
+    }
 
     return SendPacketNoLock(response.GetData(), response.GetSize());
 }

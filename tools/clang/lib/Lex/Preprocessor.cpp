@@ -38,6 +38,7 @@
 #include "clang/Lex/MacroArgs.h"
 #include "clang/Lex/MacroInfo.h"
 #include "clang/Lex/ModuleLoader.h"
+#include "clang/Lex/PTHManager.h"
 #include "clang/Lex/Pragma.h"
 #include "clang/Lex/PreprocessingRecord.h"
 #include "clang/Lex/PreprocessorOptions.h"
@@ -519,7 +520,7 @@ void Preprocessor::EnterMainSourceFile() {
     llvm::MemoryBuffer::getMemBufferCopy(Predefines, "<built-in>");
   assert(SB && "Cannot create predefined source buffer");
   FileID FID = SourceMgr.createFileID(std::move(SB));
-  assert(!FID.isInvalid() && "Could not create FileID for predefines?");
+  assert(FID.isValid() && "Could not create FileID for predefines?");
   setPredefinesFileID(FID);
 
   // Start parsing the predefines.
@@ -716,7 +717,7 @@ bool Preprocessor::HandleIdentifier(Token &Identifier) {
 }
 
 void Preprocessor::Lex(Token &Result) {
-  // We loop here until a lex function retuns a token; this avoids recursion.
+  // We loop here until a lex function returns a token; this avoids recursion.
   bool ReturnedToken;
   do {
     switch (CurLexerKind) {

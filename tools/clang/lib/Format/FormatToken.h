@@ -412,16 +412,16 @@ struct FormatToken {
 
   /// \brief Returns \c true if this tokens starts a block-type list, i.e. a
   /// list that should be indented with a block indent.
-  bool opensBlockTypeList(const FormatStyle &Style) const {
+  bool opensBlockOrBlockTypeList(const FormatStyle &Style) const {
     return is(TT_ArrayInitializerLSquare) ||
            (is(tok::l_brace) &&
             (BlockKind == BK_Block || is(TT_DictLiteral) ||
              (!Style.Cpp11BracedListStyle && NestingLevel == 0)));
   }
 
-  /// \brief Same as opensBlockTypeList, but for the closing token.
-  bool closesBlockTypeList(const FormatStyle &Style) const {
-    return MatchingParen && MatchingParen->opensBlockTypeList(Style);
+  /// \brief Same as opensBlockOrBlockTypeList, but for the closing token.
+  bool closesBlockOrBlockTypeList(const FormatStyle &Style) const {
+    return MatchingParen && MatchingParen->opensBlockOrBlockTypeList(Style);
   }
 
 private:
@@ -536,6 +536,7 @@ struct AdditionalKeywords {
     kw_finally = &IdentTable.get("finally");
     kw_function = &IdentTable.get("function");
     kw_import = &IdentTable.get("import");
+    kw_let = &IdentTable.get("let");
     kw_var = &IdentTable.get("var");
 
     kw_abstract = &IdentTable.get("abstract");
@@ -552,6 +553,7 @@ struct AdditionalKeywords {
 
     kw_mark = &IdentTable.get("mark");
 
+    kw_extend = &IdentTable.get("extend");
     kw_option = &IdentTable.get("option");
     kw_optional = &IdentTable.get("optional");
     kw_repeated = &IdentTable.get("repeated");
@@ -577,6 +579,7 @@ struct AdditionalKeywords {
   IdentifierInfo *kw_finally;
   IdentifierInfo *kw_function;
   IdentifierInfo *kw_import;
+  IdentifierInfo *kw_let;
   IdentifierInfo *kw_var;
 
   // Java keywords.
@@ -595,6 +598,7 @@ struct AdditionalKeywords {
   IdentifierInfo *kw_mark;
 
   // Proto keywords.
+  IdentifierInfo *kw_extend;
   IdentifierInfo *kw_option;
   IdentifierInfo *kw_optional;
   IdentifierInfo *kw_repeated;

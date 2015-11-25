@@ -43,11 +43,14 @@
 #include "lldb/Symbol/SymbolVendor.h"
 #include "lldb/Symbol/TypeSystem.h"
 #include "lldb/Symbol/VariableList.h"
+#include "lldb/Symbol/TypeMap.h"
 
 #include "Plugins/Language/CPlusPlus/CPlusPlusLanguage.h"
 #include "Plugins/Language/ObjC/ObjCLanguage.h"
 
 #include "lldb/Target/Language.h"
+
+#include "lldb/Utility/TaskPool.h"
 
 #include "DWARFASTParser.h"
 #include "DWARFCompileUnit.h"
@@ -428,7 +431,6 @@ SymbolFileDWARF::SymbolFileDWARF(ObjectFile* objfile) :
     UserID (0),  // Used by SymbolFileDWARFDebugMap to when this class parses .o files to contain the .o file index/ID
     m_debug_map_module_wp (),
     m_debug_map_symfile (NULL),
-    m_flags(),
     m_data_debug_abbrev (),
     m_data_debug_aranges (),
     m_data_debug_frame (),
@@ -508,7 +510,6 @@ SymbolFileDWARF::InitializeObject()
     if (module_sp)
     {
         const SectionList *section_list = module_sp->GetSectionList();
-
         const Section* section = section_list->FindSectionByName(GetDWARFMachOSegmentName ()).get();
 
         // Memory map the DWARF mach-o segment so we have everything mmap'ed
@@ -516,19 +517,24 @@ SymbolFileDWARF::InitializeObject()
         if (section)
             m_obj_file->MemoryMapSectionData(section, m_dwarf_data);
     }
+
     get_apple_names_data();
-    if (m_data_apple_names.GetByteSize() > 0)
+    if (m_data_apple_names.m_data.GetByteSize() > 0)
     {
-        m_apple_names_ap.reset (new DWARFMappedHash::MemoryTable (m_data_apple_names, get_debug_str_data(), ".apple_names"));
+        m_apple_names_ap.reset (new DWARFMappedHash::MemoryTable (m_data_apple_names.m_data,
+                                                                  get_debug_str_data(),
+                                                                  ".apple_names"));
         if (m_apple_names_ap->IsValid())
             m_using_apple_tables = true;
         else
             m_apple_names_ap.reset();
     }
     get_apple_types_data();
-    if (m_data_apple_types.GetByteSize() > 0)
+    if (m_data_apple_types.m_data.GetByteSize() > 0)
     {
-        m_apple_types_ap.reset (new DWARFMappedHash::MemoryTable (m_data_apple_types, get_debug_str_data(), ".apple_types"));
+        m_apple_types_ap.reset (new DWARFMappedHash::MemoryTable (m_data_apple_types.m_data,
+                                                                  get_debug_str_data(),
+                                                                  ".apple_types"));
         if (m_apple_types_ap->IsValid())
             m_using_apple_tables = true;
         else
@@ -536,9 +542,11 @@ SymbolFileDWARF::InitializeObject()
     }
 
     get_apple_namespaces_data();
-    if (m_data_apple_namespaces.GetByteSize() > 0)
+    if (m_data_apple_namespaces.m_data.GetByteSize() > 0)
     {
-        m_apple_namespaces_ap.reset (new DWARFMappedHash::MemoryTable (m_data_apple_namespaces, get_debug_str_data(), ".apple_namespaces"));
+        m_apple_namespaces_ap.reset (new DWARFMappedHash::MemoryTable (m_data_apple_namespaces.m_data,
+                                                                       get_debug_str_data(),
+                                                                       ".apple_namespaces"));
         if (m_apple_namespaces_ap->IsValid())
             m_using_apple_tables = true;
         else
@@ -546,9 +554,11 @@ SymbolFileDWARF::InitializeObject()
     }
 
     get_apple_objc_data();
-    if (m_data_apple_objc.GetByteSize() > 0)
+    if (m_data_apple_objc.m_data.GetByteSize() > 0)
     {
-        m_apple_objc_ap.reset (new DWARFMappedHash::MemoryTable (m_data_apple_objc, get_debug_str_data(), ".apple_objc"));
+        m_apple_objc_ap.reset (new DWARFMappedHash::MemoryTable (m_data_apple_objc.m_data,
+                                                                 get_debug_str_data(),
+                                                                 ".apple_objc"));
         if (m_apple_objc_ap->IsValid())
             m_using_apple_tables = true;
         else
@@ -590,46 +600,10 @@ SymbolFileDWARF::CalculateAbilities ()
             section = section_list->FindSectionByType (eSectionTypeDWARFDebugAbbrev, true).get();
             if (section)
                 debug_abbrev_file_size = section->GetFileSize();
-            else
-                m_flags.Set (flagsGotDebugAbbrevData);
-
-            section = section_list->FindSectionByType (eSectionTypeDWARFDebugAranges, true).get();
-            if (!section)
-                m_flags.Set (flagsGotDebugArangesData);
-
-            section = section_list->FindSectionByType (eSectionTypeDWARFDebugFrame, true).get();
-            if (!section)
-                m_flags.Set (flagsGotDebugFrameData);
 
             section = section_list->FindSectionByType (eSectionTypeDWARFDebugLine, true).get();
             if (section)
                 debug_line_file_size = section->GetFileSize();
-            else
-                m_flags.Set (flagsGotDebugLineData);
-
-            section = section_list->FindSectionByType (eSectionTypeDWARFDebugLoc, true).get();
-            if (!section)
-                m_flags.Set (flagsGotDebugLocData);
-
-            section = section_list->FindSectionByType (eSectionTypeDWARFDebugMacInfo, true).get();
-            if (!section)
-                m_flags.Set (flagsGotDebugMacInfoData);
-
-            section = section_list->FindSectionByType (eSectionTypeDWARFDebugPubNames, true).get();
-            if (!section)
-                m_flags.Set (flagsGotDebugPubNamesData);
-
-            section = section_list->FindSectionByType (eSectionTypeDWARFDebugPubTypes, true).get();
-            if (!section)
-                m_flags.Set (flagsGotDebugPubTypesData);
-
-            section = section_list->FindSectionByType (eSectionTypeDWARFDebugRanges, true).get();
-            if (!section)
-                m_flags.Set (flagsGotDebugRangesData);
-
-            section = section_list->FindSectionByType (eSectionTypeDWARFDebugStr, true).get();
-            if (!section)
-                m_flags.Set (flagsGotDebugStrData);
         }
         else
         {
@@ -664,116 +638,122 @@ SymbolFileDWARF::CalculateAbilities ()
 }
 
 const DWARFDataExtractor&
-SymbolFileDWARF::GetCachedSectionData (uint32_t got_flag, SectionType sect_type, DWARFDataExtractor &data)
+SymbolFileDWARF::GetCachedSectionData (lldb::SectionType sect_type, DWARFDataSegment& data_segment)
 {
-    if (m_flags.IsClear (got_flag))
+    std::call_once(data_segment.m_flag,
+                   &SymbolFileDWARF::LoadSectionData,
+                   this,
+                   sect_type,
+                   std::ref(data_segment.m_data));
+    return data_segment.m_data;
+}
+
+void
+SymbolFileDWARF::LoadSectionData (lldb::SectionType sect_type, DWARFDataExtractor& data)
+{
+    ModuleSP module_sp (m_obj_file->GetModule());
+    const SectionList *section_list = module_sp->GetSectionList();
+    if (section_list)
     {
-        ModuleSP module_sp (m_obj_file->GetModule());
-        m_flags.Set (got_flag);
-        const SectionList *section_list = module_sp->GetSectionList();
-        if (section_list)
+        SectionSP section_sp (section_list->FindSectionByType(sect_type, true));
+        if (section_sp)
         {
-            SectionSP section_sp (section_list->FindSectionByType(sect_type, true));
-            if (section_sp)
+            // See if we memory mapped the DWARF segment?
+            if (m_dwarf_data.GetByteSize())
             {
-                // See if we memory mapped the DWARF segment?
-                if (m_dwarf_data.GetByteSize())
-                {
-                    data.SetData(m_dwarf_data, section_sp->GetOffset (), section_sp->GetFileSize());
-                }
-                else
-                {
-                    if (m_obj_file->ReadSectionData (section_sp.get(), data) == 0)
-                        data.Clear();
-                }
+                data.SetData(m_dwarf_data, section_sp->GetOffset(), section_sp->GetFileSize());
+            }
+            else
+            {
+                if (m_obj_file->ReadSectionData(section_sp.get(), data) == 0)
+                    data.Clear();
             }
         }
     }
-    return data;
 }
 
 const DWARFDataExtractor&
 SymbolFileDWARF::get_debug_abbrev_data()
 {
-    return GetCachedSectionData (flagsGotDebugAbbrevData, eSectionTypeDWARFDebugAbbrev, m_data_debug_abbrev);
+    return GetCachedSectionData (eSectionTypeDWARFDebugAbbrev, m_data_debug_abbrev);
 }
 
 const DWARFDataExtractor&
 SymbolFileDWARF::get_debug_addr_data()
 {
-    return GetCachedSectionData (flagsGotDebugAddrData, eSectionTypeDWARFDebugAddr, m_data_debug_addr);
+    return GetCachedSectionData (eSectionTypeDWARFDebugAddr, m_data_debug_addr);
 }
 
 const DWARFDataExtractor&
 SymbolFileDWARF::get_debug_aranges_data()
 {
-    return GetCachedSectionData (flagsGotDebugArangesData, eSectionTypeDWARFDebugAranges, m_data_debug_aranges);
+    return GetCachedSectionData (eSectionTypeDWARFDebugAranges, m_data_debug_aranges);
 }
 
 const DWARFDataExtractor&
 SymbolFileDWARF::get_debug_frame_data()
 {
-    return GetCachedSectionData (flagsGotDebugFrameData, eSectionTypeDWARFDebugFrame, m_data_debug_frame);
+    return GetCachedSectionData (eSectionTypeDWARFDebugFrame, m_data_debug_frame);
 }
 
 const DWARFDataExtractor&
 SymbolFileDWARF::get_debug_info_data()
 {
-    return GetCachedSectionData (flagsGotDebugInfoData, eSectionTypeDWARFDebugInfo, m_data_debug_info);
+    return GetCachedSectionData (eSectionTypeDWARFDebugInfo, m_data_debug_info);
 }
 
 const DWARFDataExtractor&
 SymbolFileDWARF::get_debug_line_data()
 {
-    return GetCachedSectionData (flagsGotDebugLineData, eSectionTypeDWARFDebugLine, m_data_debug_line);
+    return GetCachedSectionData (eSectionTypeDWARFDebugLine, m_data_debug_line);
 }
 
 const DWARFDataExtractor&
 SymbolFileDWARF::get_debug_loc_data()
 {
-    return GetCachedSectionData (flagsGotDebugLocData, eSectionTypeDWARFDebugLoc, m_data_debug_loc);
+    return GetCachedSectionData (eSectionTypeDWARFDebugLoc, m_data_debug_loc);
 }
 
 const DWARFDataExtractor&
 SymbolFileDWARF::get_debug_ranges_data()
 {
-    return GetCachedSectionData (flagsGotDebugRangesData, eSectionTypeDWARFDebugRanges, m_data_debug_ranges);
+    return GetCachedSectionData (eSectionTypeDWARFDebugRanges, m_data_debug_ranges);
 }
 
 const DWARFDataExtractor&
 SymbolFileDWARF::get_debug_str_data()
 {
-    return GetCachedSectionData (flagsGotDebugStrData, eSectionTypeDWARFDebugStr, m_data_debug_str);
+    return GetCachedSectionData (eSectionTypeDWARFDebugStr, m_data_debug_str);
 }
 
 const DWARFDataExtractor&
 SymbolFileDWARF::get_debug_str_offsets_data()
 {
-    return GetCachedSectionData (flagsGotDebugStrOffsetsData, eSectionTypeDWARFDebugStrOffsets, m_data_debug_str_offsets);
+    return GetCachedSectionData (eSectionTypeDWARFDebugStrOffsets, m_data_debug_str_offsets);
 }
 
 const DWARFDataExtractor&
 SymbolFileDWARF::get_apple_names_data()
 {
-    return GetCachedSectionData (flagsGotAppleNamesData, eSectionTypeDWARFAppleNames, m_data_apple_names);
+    return GetCachedSectionData (eSectionTypeDWARFAppleNames, m_data_apple_names);
 }
 
 const DWARFDataExtractor&
 SymbolFileDWARF::get_apple_types_data()
 {
-    return GetCachedSectionData (flagsGotAppleTypesData, eSectionTypeDWARFAppleTypes, m_data_apple_types);
+    return GetCachedSectionData (eSectionTypeDWARFAppleTypes, m_data_apple_types);
 }
 
 const DWARFDataExtractor&
 SymbolFileDWARF::get_apple_namespaces_data()
 {
-    return GetCachedSectionData (flagsGotAppleNamespacesData, eSectionTypeDWARFAppleNamespaces, m_data_apple_namespaces);
+    return GetCachedSectionData (eSectionTypeDWARFAppleNamespaces, m_data_apple_namespaces);
 }
 
 const DWARFDataExtractor&
 SymbolFileDWARF::get_apple_objc_data()
 {
-    return GetCachedSectionData (flagsGotAppleObjCData, eSectionTypeDWARFAppleObjC, m_data_apple_objc);
+    return GetCachedSectionData (eSectionTypeDWARFAppleObjC, m_data_apple_objc);
 }
 
 
@@ -1554,6 +1534,8 @@ SymbolFileDWARF::CompleteType (CompilerType &compiler_type)
     DWARFDebugInfo* debug_info = DebugInfo();
     DWARFDIE dwarf_die = debug_info->GetDIE(die_it->getSecond());
 
+    assert(UserIDMatches(die_it->getSecond().GetUID()) && "CompleteType called on the wrong SymbolFile");
+
     // Once we start resolving this type, remove it from the forward declaration
     // map in case anyone child members or other types require this type to get resolved.
     // The type will get resolved when all of the calls to SymbolFileDWARF::ResolveClangOpaqueTypeDefinition
@@ -1577,14 +1559,14 @@ SymbolFileDWARF::CompleteType (CompilerType &compiler_type)
 }
 
 Type*
-SymbolFileDWARF::ResolveType (const DWARFDIE &die, bool assert_not_being_parsed)
+SymbolFileDWARF::ResolveType (const DWARFDIE &die, bool assert_not_being_parsed, bool resolve_function_context)
 {
     if (die)
     {
         Type *type = GetDIEToType().lookup (die.GetDIE());
 
         if (type == NULL)
-            type = GetTypeForDIE (die).get();
+            type = GetTypeForDIE (die, resolve_function_context).get();
 
         if (assert_not_being_parsed)
         { 
@@ -2035,37 +2017,77 @@ SymbolFileDWARF::Index ()
     DWARFDebugInfo* debug_info = DebugInfo();
     if (debug_info)
     {
-        uint32_t cu_idx = 0;
         const uint32_t num_compile_units = GetNumCompileUnits();
-        for (cu_idx = 0; cu_idx < num_compile_units; ++cu_idx)
+        std::vector<NameToDIE> function_basename_index(num_compile_units);
+        std::vector<NameToDIE> function_fullname_index(num_compile_units);
+        std::vector<NameToDIE> function_method_index(num_compile_units);
+        std::vector<NameToDIE> function_selector_index(num_compile_units);
+        std::vector<NameToDIE> objc_class_selectors_index(num_compile_units);
+        std::vector<NameToDIE> global_index(num_compile_units);
+        std::vector<NameToDIE> type_index(num_compile_units);
+        std::vector<NameToDIE> namespace_index(num_compile_units);
+        
+        auto parser_fn = [this,
+                          debug_info,
+                          &function_basename_index,
+                          &function_fullname_index,
+                          &function_method_index,
+                          &function_selector_index,
+                          &objc_class_selectors_index,
+                          &global_index,
+                          &type_index,
+                          &namespace_index](uint32_t cu_idx)
         {
             DWARFCompileUnit* dwarf_cu = debug_info->GetCompileUnitAtIndex(cu_idx);
+            bool clear_dies = dwarf_cu->ExtractDIEsIfNeeded(false) > 1;
 
-            bool clear_dies = dwarf_cu->ExtractDIEsIfNeeded (false) > 1;
+            dwarf_cu->Index(function_basename_index[cu_idx],
+                            function_fullname_index[cu_idx],
+                            function_method_index[cu_idx],
+                            function_selector_index[cu_idx],
+                            objc_class_selectors_index[cu_idx],
+                            global_index[cu_idx],
+                            type_index[cu_idx],
+                            namespace_index[cu_idx]);
 
-            dwarf_cu->Index (m_function_basename_index,
-                             m_function_fullname_index,
-                             m_function_method_index,
-                             m_function_selector_index,
-                             m_objc_class_selectors_index,
-                             m_global_index, 
-                             m_type_index,
-                             m_namespace_index);
-            
             // Keep memory down by clearing DIEs if this generate function
             // caused them to be parsed
             if (clear_dies)
-                dwarf_cu->ClearDIEs (true);
+                dwarf_cu->ClearDIEs(true);
+
+            return cu_idx;
+        };
+
+        TaskRunner<uint32_t> task_runner;
+        for (uint32_t cu_idx = 0; cu_idx < num_compile_units; ++cu_idx)
+            task_runner.AddTask(parser_fn, cu_idx);
+
+        while (true)
+        {
+            std::future<uint32_t> f = task_runner.WaitForNextCompletedTask();
+            if (!f.valid())
+                break;
+            uint32_t cu_idx = f.get();
+
+            m_function_basename_index.Append(function_basename_index[cu_idx]);
+            m_function_fullname_index.Append(function_fullname_index[cu_idx]);
+            m_function_method_index.Append(function_method_index[cu_idx]);
+            m_function_selector_index.Append(function_selector_index[cu_idx]);
+            m_objc_class_selectors_index.Append(objc_class_selectors_index[cu_idx]);
+            m_global_index.Append(global_index[cu_idx]);
+            m_type_index.Append(type_index[cu_idx]);
+            m_namespace_index.Append(namespace_index[cu_idx]);
         }
-        
-        m_function_basename_index.Finalize();
-        m_function_fullname_index.Finalize();
-        m_function_method_index.Finalize();
-        m_function_selector_index.Finalize();
-        m_objc_class_selectors_index.Finalize();
-        m_global_index.Finalize(); 
-        m_type_index.Finalize();
-        m_namespace_index.Finalize();
+
+        TaskPool::RunTasks(
+            [&]() { m_function_basename_index.Finalize(); },
+            [&]() { m_function_fullname_index.Finalize(); },
+            [&]() { m_function_method_index.Finalize(); },
+            [&]() { m_function_selector_index.Finalize(); },
+            [&]() { m_objc_class_selectors_index.Finalize(); },
+            [&]() { m_global_index.Finalize(); },
+            [&]() { m_type_index.Finalize(); },
+            [&]() { m_namespace_index.Finalize(); });
 
 #if defined (ENABLE_DEBUG_PRINTF)
         StreamFile s(stdout, false);
@@ -2689,7 +2711,7 @@ SymbolFileDWARF::FindFunctions (const ConstString &name,
             // TODO: The arch in the object file isn't correct for MSVC
             // binaries on windows, we should find a way to make it
             // correct and handle those symbols as well.
-            if (sc_list.GetSize() == 0)
+            if (sc_list.GetSize() == original_size)
             {
                 ArchSpec arch;
                 if (!parent_decl_ctx &&
@@ -2840,7 +2862,7 @@ SymbolFileDWARF::FindTypes (const SymbolContext& sc,
                             const CompilerDeclContext *parent_decl_ctx, 
                             bool append, 
                             uint32_t max_matches, 
-                            TypeList& types)
+                            TypeMap& types)
 {
     DWARFDebugInfo* info = DebugInfo();
     if (info == NULL)
@@ -2905,7 +2927,7 @@ SymbolFileDWARF::FindTypes (const SymbolContext& sc,
                 if (!DIEInDeclContext(parent_decl_ctx, die))
                     continue; // The containing decl contexts don't match
 
-                Type *matching_type = ResolveType (die);
+                Type *matching_type = ResolveType (die, true, true);
                 if (matching_type)
                 {
                     // We found a type pointer, now find the shared pointer form our type list
@@ -3043,7 +3065,7 @@ SymbolFileDWARF::FindNamespace (const SymbolContext& sc,
 }
 
 TypeSP
-SymbolFileDWARF::GetTypeForDIE (const DWARFDIE &die)
+SymbolFileDWARF::GetTypeForDIE (const DWARFDIE &die, bool resolve_function_context)
 {
     TypeSP type_sp;
     if (die)
@@ -3054,6 +3076,17 @@ SymbolFileDWARF::GetTypeForDIE (const DWARFDIE &die)
             CompileUnit* lldb_cu = GetCompUnitForDWARFCompUnit(die.GetCU());
             assert (lldb_cu);
             SymbolContext sc(lldb_cu);
+            const DWARFDebugInfoEntry* parent_die = die.GetParent().GetDIE();
+            while (parent_die != nullptr)
+                {
+                    if (parent_die->Tag() == DW_TAG_subprogram)
+                        break;
+                    parent_die = parent_die->GetParent();
+                }
+            SymbolContext sc_backup = sc;
+            if (resolve_function_context && parent_die != nullptr && !GetFunction(DWARFDIE(die.GetCU(),parent_die), sc))
+                sc = sc_backup;
+
             type_sp = ParseType(sc, die, NULL);
         }
         else if (type_ptr != DIE_IS_BEING_PARSED)
@@ -3237,7 +3270,7 @@ SymbolFileDWARF::FindCompleteObjCDefinitionTypeForDIE (const DWARFDIE &die,
                     
                     if (try_resolving_type)
                     {
-                        Type *resolved_type = ResolveType (type_die, false);
+                        Type *resolved_type = ResolveType (type_die, false, true);
                         if (resolved_type && resolved_type != DIE_IS_BEING_PARSED)
                         {
                             DEBUG_PRINTF ("resolved 0x%8.8" PRIx64 " from %s to 0x%8.8" PRIx64 " (cu 0x%8.8" PRIx64 ")\n",

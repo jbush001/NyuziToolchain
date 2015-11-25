@@ -59,8 +59,9 @@ ClangUserExpression::ClangUserExpression (ExecutionContextScope &exe_scope,
                                           const char *expr,
                                           const char *expr_prefix,
                                           lldb::LanguageType language,
-                                          ResultType desired_type) :
-    UserExpression (exe_scope, expr, expr_prefix, language, desired_type),
+                                          ResultType desired_type,
+                                          const EvaluateExpressionOptions &options) :
+    LLVMUserExpression (exe_scope, expr, expr_prefix, language, desired_type, options),
     m_type_system_helper(*m_target_wp.lock().get())
 {
     switch (m_language)
@@ -336,6 +337,24 @@ ClangUserExpression::Parse (Stream &error_stream,
     Error err;
 
     InstallContext(exe_ctx);
+    
+    if (Target *target = exe_ctx.GetTargetPtr())
+    {
+        if (PersistentExpressionState *persistent_state = target->GetPersistentExpressionStateForLanguage(lldb::eLanguageTypeC))
+        {
+            m_result_delegate.RegisterPersistentState(persistent_state);
+        }
+        else
+        {
+            error_stream.PutCString ("error: couldn't start parsing (no persistent data)");
+            return false;
+        }
+    }
+    else
+    {
+        error_stream.PutCString ("error: couldn't start parsing (no target)");
+        return false;
+    }
 
     ScanContext(exe_ctx, err);
 
@@ -357,7 +376,7 @@ ClangUserExpression::Parse (Stream &error_stream,
     
     if (ClangModulesDeclVendor *decl_vendor = m_target->GetClangModulesDeclVendor())
     {
-        const ClangModulesDeclVendor::ModuleVector &hand_imported_modules = m_target->GetPersistentVariables().GetHandLoadedClangModules();
+        const ClangModulesDeclVendor::ModuleVector &hand_imported_modules = llvm::cast<ClangPersistentVariables>(m_target->GetPersistentExpressionStateForLanguage(lldb::eLanguageTypeC))->GetHandLoadedClangModules();
         ClangModulesDeclVendor::ModuleVector modules_for_macros;
         
         for (ClangModulesDeclVendor::ModuleID module : hand_imported_modules)
@@ -424,7 +443,7 @@ ClangUserExpression::Parse (Stream &error_stream,
 
     m_materializer_ap.reset(new Materializer());
 
-    ResetDeclMap(exe_ctx, keep_result_in_memory);
+    ResetDeclMap(exe_ctx, m_result_delegate, keep_result_in_memory);
 
     class OnExit
     {
@@ -536,9 +555,10 @@ ClangUserExpression::Parse (Stream &error_stream,
 }
 
 bool
-ClangUserExpression::AddInitialArguments (ExecutionContext &exe_ctx,
-                                          std::vector<lldb::addr_t> &args,
-                                          Stream &error_stream)
+ClangUserExpression::AddArguments (ExecutionContext &exe_ctx,
+                                   std::vector<lldb::addr_t> &args,
+                                   lldb::addr_t struct_address,
+                                   Stream &error_stream)
 {
     lldb::addr_t object_ptr = LLDB_INVALID_ADDRESS;
     lldb::addr_t cmd_ptr    = LLDB_INVALID_ADDRESS;
@@ -593,15 +613,25 @@ ClangUserExpression::AddInitialArguments (ExecutionContext &exe_ctx,
         if (m_in_objectivec_method)
             args.push_back(cmd_ptr);
 
-
+        args.push_back(struct_address);
+    }
+    else
+    {
+        args.push_back(struct_address);
     }
     return true;
 }
 
-void
-ClangUserExpression::ClangUserExpressionHelper::ResetDeclMap(ExecutionContext &exe_ctx, bool keep_result_in_memory)
+lldb::ExpressionVariableSP
+ClangUserExpression::GetResultAfterDematerialization(ExecutionContextScope *exe_scope)
 {
-    m_expr_decl_map_up.reset(new ClangExpressionDeclMap(keep_result_in_memory, exe_ctx));
+    return m_result_delegate.GetVariable();
+}
+
+void
+ClangUserExpression::ClangUserExpressionHelper::ResetDeclMap(ExecutionContext &exe_ctx, Materializer::PersistentVariableDelegate &delegate, bool keep_result_in_memory)
+{
+    m_expr_decl_map_up.reset(new ClangExpressionDeclMap(keep_result_in_memory, &delegate, exe_ctx));
 }
 
 clang::ASTConsumer *
@@ -611,5 +641,33 @@ ClangUserExpression::ClangUserExpressionHelper::ASTTransformer (clang::ASTConsum
                                                            m_target));
 
     return m_result_synthesizer_up.get();
+}
+
+ClangUserExpression::ResultDelegate::ResultDelegate()
+{
+}
+
+ConstString
+ClangUserExpression::ResultDelegate::GetName()
+{
+    return m_persistent_state->GetNextPersistentVariableName();
+}
+
+void
+ClangUserExpression::ResultDelegate::DidDematerialize(lldb::ExpressionVariableSP &variable)
+{
+    m_variable = variable;
+}
+
+void
+ClangUserExpression::ResultDelegate::RegisterPersistentState(PersistentExpressionState *persistent_state)
+{
+    m_persistent_state = persistent_state;
+}
+
+lldb::ExpressionVariableSP &
+ClangUserExpression::ResultDelegate::GetVariable()
+{
+    return m_variable;
 }
 

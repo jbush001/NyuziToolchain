@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <mach/exception_types.h>
+#include <mach-o/loader.h>
 #include <sys/stat.h>
 #include <sys/sysctl.h>
 
@@ -4608,7 +4609,14 @@ RNBRemote::HandlePacket_qHostInfo (const char *p)
     // this for now.
     if (cputype == CPU_TYPE_ARM || cputype == CPU_TYPE_ARM64)
     {
+#if defined (TARGET_OS_TV) && TARGET_OS_TV == 1
+        strm << "ostype:tvos;";
+#elif defined (TARGET_OS_WATCH) && TARGET_OS_WATCH == 1
+        strm << "ostype:watchos;";
+#else
         strm << "ostype:ios;";
+#endif
+
         // On armv7 we use "synchronous" watchpoints which means the exception is delivered before the instruction executes.
         strm << "watchpoint_exceptions_received:before;";
     }
@@ -4655,6 +4663,11 @@ RNBRemote::HandlePacket_qHostInfo (const char *p)
         strm << "ptrsize:8;";
     else
         strm << "ptrsize:" << std::dec << sizeof(void *) << ';';
+
+#if defined (TARGET_OS_WATCH) && TARGET_OS_WATCH == 1
+    strm << "default_packet_timeout:10;";
+#endif
+
     return SendPacket (strm.str());
 }
 
@@ -5514,6 +5527,138 @@ RNBRemote::HandlePacket_jGetLoadedDynamicLibrariesInfos (const char *p)
     return SendPacket ("OK");
 }
 
+static bool
+MachHeaderIsMainExecutable (nub_process_t pid, uint32_t addr_size, nub_addr_t mach_header_addr, mach_header &mh)
+{
+    DNBLogThreadedIf (LOG_RNB_PROC, "GetMachHeaderForMainExecutable(pid = %u, addr_size = %u, mach_header_addr = 0x%16.16llx)", pid, addr_size, mach_header_addr);
+    const nub_size_t bytes_read = DNBProcessMemoryRead(pid, mach_header_addr, sizeof(mh), &mh);
+    if (bytes_read == sizeof(mh))
+    {
+        DNBLogThreadedIf (LOG_RNB_PROC, "GetMachHeaderForMainExecutable(pid = %u, addr_size = %u, mach_header_addr = 0x%16.16llx): mh = {\n  magic = 0x%8.8x\n  cpu = 0x%8.8x\n  sub = 0x%8.8x\n  filetype = %u\n  ncmds = %u\n  sizeofcmds = 0x%8.8x\n  flags = 0x%8.8x }", pid, addr_size, mach_header_addr, mh.magic, mh.cputype, mh.cpusubtype, mh.filetype, mh.ncmds, mh.sizeofcmds, mh.flags);
+        if ((addr_size == 4 && mh.magic == MH_MAGIC) ||
+            (addr_size == 8 && mh.magic == MH_MAGIC_64))
+        {
+            if (mh.filetype == MH_EXECUTE)
+            {
+                DNBLogThreadedIf (LOG_RNB_PROC, "GetMachHeaderForMainExecutable(pid = %u, addr_size = %u, mach_header_addr = 0x%16.16llx) -> this is the executable!!!", pid, addr_size, mach_header_addr);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static nub_addr_t
+GetMachHeaderForMainExecutable (const nub_process_t pid, const uint32_t addr_size, mach_header &mh)
+{
+    struct AllImageInfos
+    {
+        uint32_t version;
+        uint32_t dylib_info_count;
+        uint64_t dylib_info_addr;
+    };
+
+    uint64_t mach_header_addr = 0;
+
+    const nub_addr_t shlib_addr = DNBProcessGetSharedLibraryInfoAddress (pid);
+    uint8_t bytes[256];
+    nub_size_t bytes_read = 0;
+    DNBDataRef data (bytes, sizeof(bytes), false);
+    DNBDataRef::offset_t offset = 0;
+    data.SetPointerSize(addr_size);
+
+    //----------------------------------------------------------------------
+    // When we are sitting at __dyld_start, the kernel has placed the
+    // address of the mach header of the main executable on the stack. If we
+    // read the SP and dereference a pointer, we might find the mach header
+    // for the executable. We also just make sure there is only 1 thread
+    // since if we are at __dyld_start we shouldn't have multiple threads.
+    //----------------------------------------------------------------------
+    if (DNBProcessGetNumThreads(pid) == 1)
+    {
+        nub_thread_t tid = DNBProcessGetThreadAtIndex(pid, 0);
+        if (tid != INVALID_NUB_THREAD)
+        {
+            DNBRegisterValue sp_value;
+            if (DNBThreadGetRegisterValueByID(pid, tid, REGISTER_SET_GENERIC, GENERIC_REGNUM_SP, &sp_value))
+            {
+                uint64_t sp = addr_size == 8 ? sp_value.value.uint64 : sp_value.value.uint32;
+                bytes_read = DNBProcessMemoryRead(pid, sp, addr_size, bytes);
+                if (bytes_read == addr_size)
+                {
+                    offset = 0;
+                    mach_header_addr = data.GetPointer(&offset);
+                    if (MachHeaderIsMainExecutable(pid, addr_size, mach_header_addr, mh))
+                        return mach_header_addr;
+                }
+            }
+        }
+    }
+
+    //----------------------------------------------------------------------
+    // Check the dyld_all_image_info structure for a list of mach header
+    // since it is a very easy thing to check
+    //----------------------------------------------------------------------
+    if (shlib_addr != INVALID_NUB_ADDRESS)
+    {
+        bytes_read = DNBProcessMemoryRead(pid, shlib_addr, sizeof(AllImageInfos), bytes);
+        if (bytes_read > 0)
+        {
+            AllImageInfos aii;
+            offset = 0;
+            aii.version = data.Get32(&offset);
+            aii.dylib_info_count = data.Get32(&offset);
+            if (aii.dylib_info_count > 0)
+            {
+                aii.dylib_info_addr = data.GetPointer(&offset);
+                if (aii.dylib_info_addr != 0)
+                {
+                    const size_t image_info_byte_size = 3 * addr_size;
+                    for (uint32_t i=0; i<aii.dylib_info_count; ++i)
+                    {
+                        bytes_read = DNBProcessMemoryRead(pid, aii.dylib_info_addr + i * image_info_byte_size, image_info_byte_size, bytes);
+                        if (bytes_read != image_info_byte_size)
+                            break;
+                        offset = 0;
+                        mach_header_addr = data.GetPointer(&offset);
+                        if (MachHeaderIsMainExecutable(pid, addr_size, mach_header_addr, mh))
+                            return mach_header_addr;
+                    }
+                }
+            }
+        }
+    }
+
+    //----------------------------------------------------------------------
+    // We failed to find the executable's mach header from the all image
+    // infos and by dereferencing the stack pointer. Now we fall back to
+    // enumerating the memory regions and looking for regions that are
+    // executable.
+    //----------------------------------------------------------------------
+    DNBRegionInfo region_info;
+    mach_header_addr = 0;
+    while (DNBProcessMemoryRegionInfo(pid, mach_header_addr, &region_info))
+    {
+        if (region_info.size == 0)
+            break;
+
+        if (region_info.permissions & eMemoryPermissionsExecutable)
+        {
+            DNBLogThreadedIf (LOG_RNB_PROC, "[0x%16.16llx - 0x%16.16llx) permissions = %c%c%c: checking region for executable mach header", region_info.addr, region_info.addr + region_info.size, (region_info.permissions & eMemoryPermissionsReadable) ? 'r' : '-', (region_info.permissions & eMemoryPermissionsWritable) ? 'w' : '-', (region_info.permissions & eMemoryPermissionsExecutable) ? 'x' : '-');
+            if (MachHeaderIsMainExecutable(pid, addr_size, mach_header_addr, mh))
+                return mach_header_addr;
+        }
+        else
+        {
+            DNBLogThreadedIf (LOG_RNB_PROC, "[0x%16.16llx - 0x%16.16llx): permissions = %c%c%c: skipping region", region_info.addr, region_info.addr + region_info.size, (region_info.permissions & eMemoryPermissionsReadable) ? 'r' : '-', (region_info.permissions & eMemoryPermissionsWritable) ? 'w' : '-', (region_info.permissions & eMemoryPermissionsExecutable) ? 'x' : '-');
+        }
+        // Set the address to the next mapped region
+        mach_header_addr = region_info.addr + region_info.size;
+    }
+    bzero (&mh, sizeof(mh));
+    return INVALID_NUB_ADDRESS;
+}
+
 rnb_err_t
 RNBRemote::HandlePacket_qSymbol (const char *command)
 {
@@ -5593,7 +5738,7 @@ RNBRemote::HandlePacket_qProcessInfo (const char *p)
 
     pid = m_ctx.ProcessID();
 
-    rep << "pid:" << std::hex << pid << ";";
+    rep << "pid:" << std::hex << pid << ';';
 
     int procpid_mib[4];
     procpid_mib[0] = CTL_KERN;
@@ -5607,12 +5752,12 @@ RNBRemote::HandlePacket_qProcessInfo (const char *p)
     {
         if (proc_kinfo_size > 0)
         {
-            rep << "parent-pid:" << std::hex << proc_kinfo.kp_eproc.e_ppid << ";";
-            rep << "real-uid:" << std::hex << proc_kinfo.kp_eproc.e_pcred.p_ruid << ";";
-            rep << "real-gid:" << std::hex << proc_kinfo.kp_eproc.e_pcred.p_rgid << ";";
-            rep << "effective-uid:" << std::hex << proc_kinfo.kp_eproc.e_ucred.cr_uid << ";";
+            rep << "parent-pid:" << std::hex << proc_kinfo.kp_eproc.e_ppid << ';';
+            rep << "real-uid:" << std::hex << proc_kinfo.kp_eproc.e_pcred.p_ruid << ';';
+            rep << "real-gid:" << std::hex << proc_kinfo.kp_eproc.e_pcred.p_rgid << ';';
+            rep << "effective-uid:" << std::hex << proc_kinfo.kp_eproc.e_ucred.cr_uid << ';';
             if (proc_kinfo.kp_eproc.e_ucred.cr_ngroups > 0)
-                rep << "effective-gid:" << std::hex << proc_kinfo.kp_eproc.e_ucred.cr_groups[0] << ";";
+                rep << "effective-gid:" << std::hex << proc_kinfo.kp_eproc.e_ucred.cr_groups[0] << ';';
         }
     }
     
@@ -5623,9 +5768,14 @@ RNBRemote::HandlePacket_qProcessInfo (const char *p)
         cputype = best_guess_cpu_type();
     }
 
+    uint32_t addr_size = 0;
     if (cputype != 0)
     {
         rep << "cputype:" << std::hex << cputype << ";";
+        if (cputype & CPU_ARCH_ABI64)
+            addr_size = 8;
+        else
+            addr_size = 4;
     }
 
     bool host_cpu_is_64bit = false;
@@ -5660,65 +5810,149 @@ RNBRemote::HandlePacket_qProcessInfo (const char *p)
         rep << "cpusubtype:" << std::hex << cpusubtype << ';';
     }
 
-    // The OS in the triple should be "ios" or "macosx" which doesn't match our
-    // "Darwin" which gets returned from "kern.ostype", so we need to hardcode
-    // this for now.
-    if (cputype == CPU_TYPE_ARM || cputype == CPU_TYPE_ARM64)
-        rep << "ostype:ios;";
-    else
+    bool os_handled = false;
+    if (addr_size > 0)
     {
-        bool is_ios_simulator = false;
-        if (cputype == CPU_TYPE_X86 || cputype == CPU_TYPE_X86_64)
+        rep << "ptrsize:" << std::dec << addr_size << ';';
+
+#if (defined (__x86_64__) || defined (__i386__))
+        // Try and get the OS type by looking at the load commands in the main
+        // executable and looking for a LC_VERSION_MIN load command. This is the
+        // most reliable way to determine the "ostype" value when on desktop.
+
+        mach_header mh;
+        nub_addr_t exe_mach_header_addr = GetMachHeaderForMainExecutable (pid, addr_size, mh);
+        if (exe_mach_header_addr != INVALID_NUB_ADDRESS)
         {
-            // Check for iOS simulator binaries by getting the process argument
-            // and environment and checking for SIMULATOR_UDID in the environment
-            int proc_args_mib[3] = { CTL_KERN, KERN_PROCARGS2, (int)pid };
-            
-            uint8_t arg_data[8192];
-            size_t arg_data_size = sizeof(arg_data);
-            if (::sysctl (proc_args_mib, 3, arg_data, &arg_data_size , NULL, 0) == 0)
+            uint64_t load_command_addr = exe_mach_header_addr + ((addr_size == 8) ? sizeof(mach_header_64) : sizeof(mach_header));
+            load_command lc;
+            for (uint32_t i=0; i<mh.ncmds && !os_handled; ++i)
             {
-                DNBDataRef data (arg_data, arg_data_size, false);
-                DNBDataRef::offset_t offset = 0;
-                uint32_t argc = data.Get32 (&offset);
-                const char *cstr;
-                
-                cstr = data.GetCStr (&offset);
-                if (cstr)
+                const nub_size_t bytes_read = DNBProcessMemoryRead (pid, load_command_addr, sizeof(lc), &lc);
+                uint32_t raw_cmd = lc.cmd & ~LC_REQ_DYLD;
+                if (bytes_read != sizeof(lc))
+                    break;
+                switch (raw_cmd)
                 {
-                    // Skip NULLs
-                    while (1)
-                    {
-                        const char *p = data.PeekCStr(offset);
-                        if ((p == NULL) || (*p != '\0'))
-                            break;
-                        ++offset;
-                    }
-                    // Now skip all arguments
-                    for (uint32_t i = 0; i < argc; ++i)
-                    {
-                        data.GetCStr(&offset);
-                    }
+                case LC_VERSION_MIN_IPHONEOS:
+                    os_handled = true;
+                    rep << "ostype:ios;";
+                    DNBLogThreadedIf (LOG_RNB_PROC, "LC_VERSION_MIN_IPHONEOS -> 'ostype:ios;'");
+                    break;
+
+                case LC_VERSION_MIN_MACOSX:
+                    os_handled = true;
+                    rep << "ostype:macosx;";
+                    DNBLogThreadedIf (LOG_RNB_PROC, "LC_VERSION_MIN_MACOSX -> 'ostype:macosx;'");
+                    break;
+
+#if defined (TARGET_OS_TV) && TARGET_OS_TV == 1
+                case LC_VERSION_MIN_TVOS:
+                    os_handled = true;
+                    rep << "ostype:tvos;";
+                    DNBLogThreadedIf (LOG_RNB_PROC, "LC_VERSION_MIN_TVOS -> 'ostype:tvos;'");
+                    break;
+#endif
+
+#if defined (TARGET_OS_WATCH) && TARGET_OS_WATCH == 1
+                case LC_VERSION_MIN_WATCHOS:
+                    os_handled = true;
+                    rep << "ostype:watchos;";
+                    DNBLogThreadedIf (LOG_RNB_PROC, "LC_VERSION_MIN_WATCHOS -> 'ostype:watchos;'");
+                    break;
+#endif
+
+                default:
+                    break;
+                }
+                load_command_addr = load_command_addr + lc.cmdsize;
+            }
+        }
+#endif
+    }
+
+    // If we weren't able to find the OS in a LC_VERSION_MIN load command, try
+    // to set it correctly by using the cpu type and other tricks
+    if (!os_handled)
+    {
+        // The OS in the triple should be "ios" or "macosx" which doesn't match our
+        // "Darwin" which gets returned from "kern.ostype", so we need to hardcode
+        // this for now.
+        if (cputype == CPU_TYPE_ARM || cputype == CPU_TYPE_ARM64)
+        {
+#if defined (TARGET_OS_TV) && TARGET_OS_TV == 1
+            rep << "ostype:tvos;";
+#elif defined (TARGET_OS_WATCH) && TARGET_OS_WATCH == 1
+            rep << "ostype:watchos;";
+#else
+            rep << "ostype:ios;";
+#endif
+        }
+        else
+        {
+            bool is_ios_simulator = false;
+            if (cputype == CPU_TYPE_X86 || cputype == CPU_TYPE_X86_64)
+            {
+                // Check for iOS simulator binaries by getting the process argument
+                // and environment and checking for SIMULATOR_UDID in the environment
+                int proc_args_mib[3] = { CTL_KERN, KERN_PROCARGS2, (int)pid };
+                
+                uint8_t arg_data[8192];
+                size_t arg_data_size = sizeof(arg_data);
+                if (::sysctl (proc_args_mib, 3, arg_data, &arg_data_size , NULL, 0) == 0)
+                {
+                    DNBDataRef data (arg_data, arg_data_size, false);
+                    DNBDataRef::offset_t offset = 0;
+                    uint32_t argc = data.Get32 (&offset);
+                    const char *cstr;
                     
-                    // Now iterate across all environment variables
-                    while ((cstr = data.GetCStr(&offset)))
+                    cstr = data.GetCStr (&offset);
+                    if (cstr)
                     {
-                        if (strncmp(cstr, "SIMULATOR_UDID=", strlen("SIMULATOR_UDID=")) == 0)
+                        // Skip NULLs
+                        while (1)
                         {
-                            is_ios_simulator = true;
-                            break;
+                            const char *p = data.PeekCStr(offset);
+                            if ((p == NULL) || (*p != '\0'))
+                                break;
+                            ++offset;
                         }
-                        if (cstr[0] == '\0')
-                            break;
+                        // Now skip all arguments
+                        for (uint32_t i = 0; i < argc; ++i)
+                        {
+                            data.GetCStr(&offset);
+                        }
                         
+                        // Now iterate across all environment variables
+                        while ((cstr = data.GetCStr(&offset)))
+                        {
+                            if (strncmp(cstr, "SIMULATOR_UDID=", strlen("SIMULATOR_UDID=")) == 0)
+                            {
+                                is_ios_simulator = true;
+                                break;
+                            }
+                            if (cstr[0] == '\0')
+                                break;
+                            
+                        }
                     }
                 }
             }
+            if (is_ios_simulator)
+            {
+#if defined (TARGET_OS_TV) && TARGET_OS_TV == 1
+                rep << "ostype:tvos;";
+#elif defined (TARGET_OS_WATCH) && TARGET_OS_WATCH == 1
+                rep << "ostype:watchos;";
+#else
+                rep << "ostype:ios;";
+#endif
+            }
+            else
+            {
+                rep << "ostype:macosx;";
+            }
         }
-        if (is_ios_simulator)
-            rep << "ostype:ios;";
-        else
-            rep << "ostype:macosx;";
     }
 
     rep << "vendor:apple;";
@@ -5731,39 +5965,42 @@ RNBRemote::HandlePacket_qProcessInfo (const char *p)
     rep << "endian:pdp;";
 #endif
 
+    if (addr_size == 0)
+    {
 #if (defined (__x86_64__) || defined (__i386__)) && defined (x86_THREAD_STATE)
-    nub_thread_t thread = DNBProcessGetCurrentThreadMachPort (pid);
-    kern_return_t kr;
-    x86_thread_state_t gp_regs;
-    mach_msg_type_number_t gp_count = x86_THREAD_STATE_COUNT;
-    kr = thread_get_state (static_cast<thread_act_t>(thread),
-                           x86_THREAD_STATE,
-                           (thread_state_t) &gp_regs,
-                           &gp_count);
-    if (kr == KERN_SUCCESS)
-    {
-        if (gp_regs.tsh.flavor == x86_THREAD_STATE64)
-            rep << "ptrsize:8;";
-        else
-            rep << "ptrsize:4;";
-    }
+        nub_thread_t thread = DNBProcessGetCurrentThreadMachPort (pid);
+        kern_return_t kr;
+        x86_thread_state_t gp_regs;
+        mach_msg_type_number_t gp_count = x86_THREAD_STATE_COUNT;
+        kr = thread_get_state (static_cast<thread_act_t>(thread),
+                               x86_THREAD_STATE,
+                               (thread_state_t) &gp_regs,
+                               &gp_count);
+        if (kr == KERN_SUCCESS)
+        {
+            if (gp_regs.tsh.flavor == x86_THREAD_STATE64)
+                rep << "ptrsize:8;";
+            else
+                rep << "ptrsize:4;";
+        }
 #elif defined (__arm__)
-    rep << "ptrsize:4;";
+        rep << "ptrsize:4;";
 #elif (defined (__arm64__) || defined (__aarch64__)) && defined (ARM_UNIFIED_THREAD_STATE)
-    nub_thread_t thread = DNBProcessGetCurrentThreadMachPort (pid);
-    kern_return_t kr;
-    arm_unified_thread_state_t gp_regs;
-    mach_msg_type_number_t gp_count = ARM_UNIFIED_THREAD_STATE_COUNT;
-    kr = thread_get_state (thread, ARM_UNIFIED_THREAD_STATE,
-                           (thread_state_t) &gp_regs, &gp_count);
-    if (kr == KERN_SUCCESS)
-    {
-        if (gp_regs.ash.flavor == ARM_THREAD_STATE64)
-            rep << "ptrsize:8;";
-        else
-            rep << "ptrsize:4;";
-    }
+        nub_thread_t thread = DNBProcessGetCurrentThreadMachPort (pid);
+        kern_return_t kr;
+        arm_unified_thread_state_t gp_regs;
+        mach_msg_type_number_t gp_count = ARM_UNIFIED_THREAD_STATE_COUNT;
+        kr = thread_get_state (thread, ARM_UNIFIED_THREAD_STATE,
+                               (thread_state_t) &gp_regs, &gp_count);
+        if (kr == KERN_SUCCESS)
+        {
+            if (gp_regs.ash.flavor == ARM_THREAD_STATE64)
+                rep << "ptrsize:8;";
+            else
+                rep << "ptrsize:4;";
+        }
 #endif
+    }
 
     return SendPacket (rep.str());
 }

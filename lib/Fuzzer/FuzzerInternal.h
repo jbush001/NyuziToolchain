@@ -43,7 +43,7 @@ void PrintASCII(const Unit &U, const char *PrintAfter = "");
 std::string Hash(const Unit &U);
 void SetTimer(int Seconds);
 void PrintFileAsBase64(const std::string &Path);
-void ExecuteCommand(const std::string &Command);
+int ExecuteCommand(const std::string &Command);
 
 // Private copy of SHA1 implementation.
 static const int kSHA1NumBytes = 20;
@@ -56,6 +56,7 @@ bool ToASCII(Unit &U);
 bool IsASCII(const Unit &U);
 
 int NumberOfCpuCores();
+int GetPid();
 
 // Dictionary.
 
@@ -73,13 +74,16 @@ class Fuzzer {
     int Verbosity = 1;
     int MaxLen = 0;
     int UnitTimeoutSec = 300;
+    int MaxTotalTimeSec = 0;
     bool DoCrossOver = true;
     int  MutateDepth = 5;
     bool ExitOnFirst = false;
     bool UseCounters = false;
+    bool UseIndirCalls = true;
     bool UseTraces = false;
     bool UseFullCoverageSet  = false;
     bool Reload = true;
+    bool ShuffleAtStartUp = true;
     int PreferSmallDuringInitialShuffle = -1;
     size_t MaxNumberOfRuns = ULONG_MAX;
     int SyncTimeout = 600;
@@ -89,16 +93,22 @@ class Fuzzer {
     int TBMWidth = 10;
     std::string OutputCorpus;
     std::string SyncCommand;
-    std::vector<std::string> Tokens;
-    std::vector<Unit> Dictionary;
+    std::string ArtifactPrefix = "./";
+    bool SaveArtifacts = true;
+    bool PrintNEW = true;  // Print a status line when new units are found;
+    bool OutputCSV = false;
   };
   Fuzzer(UserSuppliedFuzzer &USF, FuzzingOptions Options);
   void AddToCorpus(const Unit &U) { Corpus.push_back(U); }
+  size_t ChooseUnitIdxToMutate();
+  const Unit &ChooseUnitToMutate() { return Corpus[ChooseUnitIdxToMutate()]; };
   void Loop();
+  void Drill();
   void ShuffleAndMinimize();
   void InitializeTraceState();
   size_t CorpusSize() const { return Corpus.size(); }
   void ReadDir(const std::string &Path, long *Epoch) {
+    Printf("Loading corpus: %s\n", Path.c_str());
     ReadDirToVectorOfUnits(Path.c_str(), &Corpus, Epoch);
   }
   void RereadOutputCorpus();
@@ -114,24 +124,30 @@ class Fuzzer {
 
   static void StaticAlarmCallback();
 
-  Unit SubstituteTokens(const Unit &U) const;
+  void ExecuteCallback(const Unit &U);
+
+  // Merge Corpora[1:] into Corpora[0].
+  void Merge(const std::vector<std::string> &Corpora);
 
  private:
   void AlarmCallback();
-  void ExecuteCallback(const Unit &U);
   void MutateAndTestOne(Unit *U);
-  void ReportNewCoverage(size_t NewCoverage, const Unit &U);
-  size_t RunOne(const Unit &U);
+  void ReportNewCoverage(const Unit &U);
+  bool RunOne(const Unit &U);
   void RunOneAndUpdateCorpus(Unit &U);
-  size_t RunOneMaximizeTotalCoverage(const Unit &U);
-  size_t RunOneMaximizeFullCoverageSet(const Unit &U);
-  size_t RunOneMaximizeCoveragePairs(const Unit &U);
   void WriteToOutputCorpus(const Unit &U);
   void WriteUnitToFileWithPrefix(const Unit &U, const char *Prefix);
-  void PrintStats(const char *Where, size_t Cov, const char *End = "\n");
-  void PrintUnitInASCIIOrTokens(const Unit &U, const char *PrintAfter = "");
+  void PrintStats(const char *Where, const char *End = "\n");
+  void PrintStatusForNewUnit(const Unit &U);
+  void PrintUnitInASCII(const Unit &U, const char *PrintAfter = "");
 
   void SyncCorpus();
+
+  size_t RecordBlockCoverage();
+  size_t RecordCallerCalleeCoverage();
+  void PrepareCoverageBeforeRun();
+  bool CheckCoverageAfterRun();
+
 
   // Trace-based fuzzing: we run a unit with some kind of tracing
   // enabled and record potentially useful mutations. Then
@@ -154,7 +170,6 @@ class Fuzzer {
 
   std::vector<Unit> Corpus;
   std::unordered_set<std::string> UnitHashesAddedToCorpus;
-  std::unordered_set<uintptr_t> FullCoverageSets;
 
   // For UseCounters
   std::vector<uint8_t> CounterBitmap;
@@ -171,18 +186,21 @@ class Fuzzer {
   system_clock::time_point UnitStartTime;
   long TimeOfLongestUnitInSeconds = 0;
   long EpochOfLastReadOfOutputCorpus = 0;
+  size_t LastRecordedBlockCoverage = 0;
+  size_t LastRecordedCallerCalleeCoverage = 0;
 };
 
 class SimpleUserSuppliedFuzzer: public UserSuppliedFuzzer {
  public:
   SimpleUserSuppliedFuzzer(FuzzerRandomBase *Rand, UserCallback Callback)
       : UserSuppliedFuzzer(Rand), Callback(Callback) {}
-  virtual void TargetFunction(const uint8_t *Data, size_t Size) {
+
+  virtual int TargetFunction(const uint8_t *Data, size_t Size) override {
     return Callback(Data, Size);
   }
 
  private:
-  UserCallback Callback;
+  UserCallback Callback = nullptr;
 };
 
 };  // namespace fuzzer

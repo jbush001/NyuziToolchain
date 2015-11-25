@@ -56,18 +56,6 @@ void AsmPrinter::EmitULEB128(uint64_t Value, const char *Desc,
   OutStreamer->EmitULEB128IntValue(Value, PadTo);
 }
 
-/// EmitCFAByte - Emit a .byte 42 directive for a DW_CFA_xxx value.
-void AsmPrinter::EmitCFAByte(unsigned Val) const {
-  if (isVerbose()) {
-    if (Val >= dwarf::DW_CFA_offset && Val < dwarf::DW_CFA_offset + 64)
-      OutStreamer->AddComment("DW_CFA_offset + Reg (" +
-                              Twine(Val - dwarf::DW_CFA_offset) + ")");
-    else
-      OutStreamer->AddComment(dwarf::CallFrameString(Val));
-  }
-  OutStreamer->EmitIntValue(Val, 1);
-}
-
 static const char *DecodeDWARFEncoding(unsigned Encoding) {
   switch (Encoding) {
   case dwarf::DW_EH_PE_absptr:
@@ -228,6 +216,9 @@ void AsmPrinter::emitCFIInstruction(const MCCFIInstruction &Inst) const {
   case MCCFIInstruction::OpDefCfaOffset:
     OutStreamer->EmitCFIDefCfaOffset(Inst.getOffset());
     break;
+  case MCCFIInstruction::OpAdjustCfaOffset:
+    OutStreamer->EmitCFIAdjustCfaOffset(Inst.getOffset());
+    break;
   case MCCFIInstruction::OpDefCfa:
     OutStreamer->EmitCFIDefCfa(Inst.getRegister(), Inst.getOffset());
     break;
@@ -245,6 +236,12 @@ void AsmPrinter::emitCFIInstruction(const MCCFIInstruction &Inst) const {
     break;
   case MCCFIInstruction::OpSameValue:
     OutStreamer->EmitCFISameValue(Inst.getRegister());
+    break;
+  case MCCFIInstruction::OpGnuArgsSize:
+    OutStreamer->EmitCFIGnuArgsSize(Inst.getOffset());
+    break;
+  case MCCFIInstruction::OpEscape:
+    OutStreamer->EmitCFIEscape(Inst.getValues());
     break;
   }
 }
@@ -284,17 +281,10 @@ void AsmPrinter::emitDwarfDIE(const DIE &Die) const {
   }
 }
 
-void
-AsmPrinter::emitDwarfAbbrevs(const std::vector<DIEAbbrev *>& Abbrevs) const {
-  // For each abbreviation.
-  for (const DIEAbbrev *Abbrev : Abbrevs) {
-    // Emit the abbreviations code (base 1 index.)
-    EmitULEB128(Abbrev->getNumber(), "Abbreviation Code");
+void AsmPrinter::emitDwarfAbbrev(const DIEAbbrev &Abbrev) const {
+  // Emit the abbreviations code (base 1 index.)
+  EmitULEB128(Abbrev.getNumber(), "Abbreviation Code");
 
-    // Emit the abbreviations data.
-    Abbrev->Emit(this);
-  }
-
-  // Mark end of abbreviations.
-  EmitULEB128(0, "EOM(3)");
+  // Emit the abbreviations data.
+  Abbrev.Emit(this);
 }

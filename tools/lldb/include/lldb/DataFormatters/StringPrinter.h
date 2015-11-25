@@ -10,11 +10,16 @@
 #ifndef liblldb_StringPrinter_h_
 #define liblldb_StringPrinter_h_
 
+// C Includes
+// C++ Includes
+#include <functional>
+#include <string>
+
+// Other libraries and framework includes
+// Project includes
 #include "lldb/lldb-forward.h"
 
 #include "lldb/Core/DataExtractor.h"
-
-#include <functional>
 
 namespace lldb_private {
     namespace formatters
@@ -22,7 +27,6 @@ namespace lldb_private {
         class StringPrinter
         {
         public:
-
             enum class StringElementType
             {
                 ASCII,
@@ -40,12 +44,12 @@ namespace lldb_private {
             class ReadStringAndDumpToStreamOptions
             {
             public:
-                
                 ReadStringAndDumpToStreamOptions () :
                 m_location(0),
                 m_process_sp(),
-                m_stream(NULL),
-                m_prefix_token(0),
+                m_stream(nullptr),
+                m_prefix_token(),
+                m_suffix_token(),
                 m_quote('"'),
                 m_source_size(0),
                 m_needs_zero_termination(true),
@@ -98,16 +102,43 @@ namespace lldb_private {
                 }
                 
                 ReadStringAndDumpToStreamOptions&
-                SetPrefixToken (char p)
+                SetPrefixToken (const std::string& p)
                 {
                     m_prefix_token = p;
                     return *this;
                 }
                 
-                char
+                ReadStringAndDumpToStreamOptions&
+                SetPrefixToken (std::nullptr_t)
+                {
+                    m_prefix_token.clear();
+                    return *this;
+                }
+                
+                const char*
                 GetPrefixToken () const
                 {
-                    return m_prefix_token;
+                    return m_prefix_token.c_str();
+                }
+
+                ReadStringAndDumpToStreamOptions&
+                SetSuffixToken (const std::string& p)
+                {
+                    m_suffix_token = p;
+                    return *this;
+                }
+                
+                ReadStringAndDumpToStreamOptions&
+                SetSuffixToken (std::nullptr_t)
+                {
+                    m_suffix_token.clear();
+                    return *this;
+                }
+                
+                const char*
+                GetSuffixToken () const
+                {
+                    return m_suffix_token.c_str();
                 }
                 
                 ReadStringAndDumpToStreamOptions&
@@ -206,7 +237,8 @@ namespace lldb_private {
                 uint64_t m_location;
                 lldb::ProcessSP m_process_sp;
                 Stream* m_stream;
-                char m_prefix_token;
+                std::string m_prefix_token;
+                std::string m_suffix_token;
                 char m_quote;
                 uint32_t m_source_size;
                 bool m_needs_zero_termination;
@@ -219,15 +251,16 @@ namespace lldb_private {
             class ReadBufferAndDumpToStreamOptions
             {
             public:
-                
                 ReadBufferAndDumpToStreamOptions () :
                 m_data(),
-                m_stream(NULL),
-                m_prefix_token(0),
+                m_stream(nullptr),
+                m_prefix_token(),
+                m_suffix_token(),
                 m_quote('"'),
                 m_source_size(0),
                 m_escape_non_printables(true),
                 m_zero_is_terminator(true),
+                m_is_truncated(false),
                 m_language_type(lldb::eLanguageTypeUnknown)
                 {
                 }
@@ -263,16 +296,43 @@ namespace lldb_private {
                 }
                 
                 ReadBufferAndDumpToStreamOptions&
-                SetPrefixToken (char p)
+                SetPrefixToken (const std::string& p)
                 {
                     m_prefix_token = p;
                     return *this;
                 }
                 
-                char
+                ReadBufferAndDumpToStreamOptions&
+                SetPrefixToken (std::nullptr_t)
+                {
+                    m_prefix_token.clear();
+                    return *this;
+                }
+                
+                const char*
                 GetPrefixToken () const
                 {
-                    return m_prefix_token;
+                    return m_prefix_token.c_str();
+                }
+                
+                ReadBufferAndDumpToStreamOptions&
+                SetSuffixToken (const std::string& p)
+                {
+                    m_suffix_token = p;
+                    return *this;
+                }
+                
+                ReadBufferAndDumpToStreamOptions&
+                SetSuffixToken (std::nullptr_t)
+                {
+                    m_suffix_token.clear();
+                    return *this;
+                }
+                
+                const char*
+                GetSuffixToken () const
+                {
+                    return m_suffix_token.c_str();
                 }
                 
                 ReadBufferAndDumpToStreamOptions&
@@ -328,6 +388,19 @@ namespace lldb_private {
                 }
                 
                 ReadBufferAndDumpToStreamOptions&
+                SetIsTruncated (bool t)
+                {
+                    m_is_truncated = t;
+                    return *this;
+                }
+                
+                bool
+                GetIsTruncated () const
+                {
+                    return m_is_truncated;
+                }
+                
+                ReadBufferAndDumpToStreamOptions&
                 SetLanguage (lldb::LanguageType l)
                 {
                     m_language_type = l;
@@ -344,11 +417,13 @@ namespace lldb_private {
             private:
                 DataExtractor m_data;
                 Stream* m_stream;
-                char m_prefix_token;
+                std::string m_prefix_token;
+                std::string m_suffix_token;
                 char m_quote;
                 uint32_t m_source_size;
                 bool m_escape_non_printables;
                 bool m_zero_is_terminator;
+                bool m_is_truncated;
                 lldb::LanguageType m_language_type;
             };
 
@@ -373,13 +448,13 @@ namespace lldb_private {
                 m_size(size),
                 m_deleter(deleter)
                 {}
-                
+
                 StringPrinterBufferPointer(const U* bytes, S size, Deleter deleter = nullptr) :
-                m_data((T*)bytes),
+                m_data(reinterpret_cast<const T*>(bytes)),
                 m_size(size),
                 m_deleter(deleter)
                 {}
-                
+
                 StringPrinterBufferPointer(StringPrinterBufferPointer&& rhs) :
                 m_data(rhs.m_data),
                 m_size(rhs.m_size),
@@ -396,6 +471,13 @@ namespace lldb_private {
                     rhs.m_data = nullptr; // this is why m_data has to be mutable
                 }
                 
+                ~StringPrinterBufferPointer()
+                {
+                    if (m_data && m_deleter)
+                        m_deleter(m_data);
+                    m_data = nullptr;
+                }
+
                 const T*
                 GetBytes () const
                 {
@@ -406,13 +488,6 @@ namespace lldb_private {
                 GetSize () const
                 {
                     return m_size;
-                }
-                
-                ~StringPrinterBufferPointer ()
-                {
-                    if (m_data && m_deleter)
-                        m_deleter(m_data);
-                    m_data = nullptr;
                 }
                 
                 StringPrinterBufferPointer&

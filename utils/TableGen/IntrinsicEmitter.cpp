@@ -50,8 +50,6 @@ public:
                      raw_ostream &OS);
   void EmitAttributes(const std::vector<CodeGenIntrinsic> &Ints,
                       raw_ostream &OS);
-  void EmitModRefBehavior(const std::vector<CodeGenIntrinsic> &Ints,
-                          raw_ostream &OS);
   void EmitIntrinsicToGCCBuiltinMap(const std::vector<CodeGenIntrinsic> &Ints,
                                     raw_ostream &OS);
   void EmitIntrinsicToMSBuiltinMap(const std::vector<CodeGenIntrinsic> &Ints,
@@ -91,9 +89,6 @@ void IntrinsicEmitter::run(raw_ostream &OS) {
 
   // Emit the intrinsic parameter attributes.
   EmitAttributes(Ints, OS);
-
-  // Emit intrinsic alias analysis mod/ref behavior.
-  EmitModRefBehavior(Ints, OS);
 
   // Emit code to translate GCC builtins into LLVM intrinsics.
   EmitIntrinsicToGCCBuiltinMap(Ints, OS);
@@ -262,7 +257,9 @@ enum IIT_Info {
   IIT_SAME_VEC_WIDTH_ARG = 31,
   IIT_PTR_TO_ARG = 32,
   IIT_VEC_OF_PTRS_TO_ELT = 33,
-  IIT_I128 = 34
+  IIT_I128 = 34,
+  IIT_V512 = 35,
+  IIT_V1024 = 36
 };
 
 
@@ -377,6 +374,8 @@ static void EncodeFixedType(Record *R, std::vector<unsigned char> &ArgCodes,
     case 16: Sig.push_back(IIT_V16); break;
     case 32: Sig.push_back(IIT_V32); break;
     case 64: Sig.push_back(IIT_V64); break;
+    case 512: Sig.push_back(IIT_V512); break;
+    case 1024: Sig.push_back(IIT_V1024); break;
     }
 
     return EncodeFixedValueType(VVT.getVectorElementType().SimpleTy, Sig);
@@ -703,42 +702,6 @@ EmitAttributes(const std::vector<CodeGenIntrinsic> &Ints, raw_ostream &OS) {
   OS << "  return AttributeSet::get(C, makeArrayRef(AS, NumAttrs));\n";
   OS << "}\n";
   OS << "#endif // GET_INTRINSIC_ATTRIBUTES\n\n";
-}
-
-/// EmitModRefBehavior - Determine intrinsic alias analysis mod/ref behavior.
-void IntrinsicEmitter::
-EmitModRefBehavior(const std::vector<CodeGenIntrinsic> &Ints, raw_ostream &OS){
-  OS << "// Determine intrinsic alias analysis mod/ref behavior.\n"
-     << "#ifdef GET_INTRINSIC_MODREF_BEHAVIOR\n"
-     << "assert(iid <= Intrinsic::" << Ints.back().EnumName << " && "
-     << "\"Unknown intrinsic.\");\n\n";
-
-  OS << "static const uint8_t IntrinsicModRefBehavior[] = {\n"
-     << "  /* invalid */ FMRB_UnknownModRefBehavior,\n";
-  for (unsigned i = 0, e = Ints.size(); i != e; ++i) {
-    OS << "  /* " << TargetPrefix << Ints[i].EnumName << " */ ";
-    switch (Ints[i].ModRef) {
-    case CodeGenIntrinsic::NoMem:
-      OS << "FMRB_DoesNotAccessMemory,\n";
-      break;
-    case CodeGenIntrinsic::ReadArgMem:
-      OS << "FMRB_OnlyReadsArgumentPointees,\n";
-      break;
-    case CodeGenIntrinsic::ReadMem:
-      OS << "FMRB_OnlyReadsMemory,\n";
-      break;
-    case CodeGenIntrinsic::ReadWriteArgMem:
-      OS << "FMRB_OnlyAccessesArgumentPointees,\n";
-      break;
-    case CodeGenIntrinsic::ReadWriteMem:
-      OS << "FMRB_UnknownModRefBehavior,\n";
-      break;
-    }
-  }
-  OS << "};\n\n"
-     << "return "
-        "static_cast<FunctionModRefBehavior>(IntrinsicModRefBehavior[iid]);\n"
-     << "#endif // GET_INTRINSIC_MODREF_BEHAVIOR\n\n";
 }
 
 /// EmitTargetBuiltins - All of the builtins in the specified map are for the

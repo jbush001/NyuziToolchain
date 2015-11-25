@@ -246,6 +246,16 @@ static DecodeStatus DecodeMemEVA(MCInst &Inst,
                                  uint64_t Address,
                                  const void *Decoder);
 
+static DecodeStatus DecodeLoadByte9(MCInst &Inst,
+                                    unsigned Insn,
+                                    uint64_t Address,
+                                    const void *Decoder);
+
+static DecodeStatus DecodeLoadByte15(MCInst &Inst,
+                                     unsigned Insn,
+                                     uint64_t Address,
+                                     const void *Decoder);
+
 static DecodeStatus DecodeCacheOp(MCInst &Inst,
                               unsigned Insn,
                               uint64_t Address,
@@ -275,6 +285,11 @@ static DecodeStatus DecodeSyncI(MCInst &Inst,
                                 unsigned Insn,
                                 uint64_t Address,
                                 const void *Decoder);
+
+static DecodeStatus DecodeSynciR6(MCInst &Inst,
+                                  unsigned Insn,
+                                  uint64_t Address,
+                                  const void *Decoder);
 
 static DecodeStatus DecodeMSA128Mem(MCInst &Inst, unsigned Insn,
                                     uint64_t Address, const void *Decoder);
@@ -365,12 +380,9 @@ static DecodeStatus DecodeSimm16(MCInst &Inst,
                                  uint64_t Address,
                                  const void *Decoder);
 
-// Decode the immediate field of an LSA instruction which
-// is off by one.
-static DecodeStatus DecodeLSAImm(MCInst &Inst,
-                                 unsigned Insn,
-                                 uint64_t Address,
-                                 const void *Decoder);
+template <unsigned Bits, int Offset>
+static DecodeStatus DecodeUImmWithOffset(MCInst &Inst, unsigned Value,
+                                         uint64_t Address, const void *Decoder);
 
 static DecodeStatus DecodeInsSize(MCInst &Inst,
                                   unsigned Insn,
@@ -855,6 +867,8 @@ DecodeStatus MipsDisassembler::getInstruction(MCInst &Instr, uint64_t &Size,
 
   if (IsMicroMips) {
     Result = readInstruction16(Bytes, Address, Size, Insn, IsBigEndian);
+    if (Result == MCDisassembler::Fail)
+      return MCDisassembler::Fail;
 
     if (hasMips32r6()) {
       DEBUG(dbgs() << "Trying MicroMipsR616 table (16-bit instructions):\n");
@@ -901,12 +915,17 @@ DecodeStatus MipsDisassembler::getInstruction(MCInst &Instr, uint64_t &Size,
       Size = 4;
       return Result;
     }
+    // This is an invalid instruction. Let the disassembler move forward by the
+    // minimum instruction size.
+    Size = 2;
     return MCDisassembler::Fail;
   }
 
   Result = readInstruction32(Bytes, Address, Size, Insn, IsBigEndian, false);
-  if (Result == MCDisassembler::Fail)
+  if (Result == MCDisassembler::Fail) {
+    Size = 4;
     return MCDisassembler::Fail;
+  }
 
   if (hasCOP3()) {
     DEBUG(dbgs() << "Trying COP3_ table (32-bit opcodes):\n");
@@ -967,6 +986,7 @@ DecodeStatus MipsDisassembler::getInstruction(MCInst &Instr, uint64_t &Size,
     return Result;
   }
 
+  Size = 4;
   return MCDisassembler::Fail;
 }
 
@@ -1153,6 +1173,42 @@ static DecodeStatus DecodeMemEVA(MCInst &Inst,
   return MCDisassembler::Success;
 }
 
+static DecodeStatus DecodeLoadByte9(MCInst &Inst,
+                                    unsigned Insn,
+                                    uint64_t Address,
+                                    const void *Decoder) {
+  int Offset = SignExtend32<9>(Insn & 0x1ff);
+  unsigned Base = fieldFromInstruction(Insn, 16, 5);
+  unsigned Reg = fieldFromInstruction(Insn, 21, 5);
+
+  Base = getReg(Decoder, Mips::GPR32RegClassID, Base);
+  Reg = getReg(Decoder, Mips::GPR32RegClassID, Reg);
+
+  Inst.addOperand(MCOperand::createReg(Reg));
+  Inst.addOperand(MCOperand::createReg(Base));
+  Inst.addOperand(MCOperand::createImm(Offset));
+
+  return MCDisassembler::Success;
+}
+
+static DecodeStatus DecodeLoadByte15(MCInst &Inst,
+                                     unsigned Insn,
+                                     uint64_t Address,
+                                     const void *Decoder) {
+  int Offset = SignExtend32<16>(Insn & 0xffff);
+  unsigned Base = fieldFromInstruction(Insn, 16, 5);
+  unsigned Reg = fieldFromInstruction(Insn, 21, 5);
+
+  Base = getReg(Decoder, Mips::GPR32RegClassID, Base);
+  Reg = getReg(Decoder, Mips::GPR32RegClassID, Reg);
+
+  Inst.addOperand(MCOperand::createReg(Reg));
+  Inst.addOperand(MCOperand::createReg(Base));
+  Inst.addOperand(MCOperand::createImm(Offset));
+
+  return MCDisassembler::Success;
+}
+
 static DecodeStatus DecodeCacheOp(MCInst &Inst,
                               unsigned Insn,
                               uint64_t Address,
@@ -1254,6 +1310,21 @@ static DecodeStatus DecodeSyncI(MCInst &Inst,
   return MCDisassembler::Success;
 }
 
+static DecodeStatus DecodeSynciR6(MCInst &Inst,
+                                  unsigned Insn,
+                                  uint64_t Address,
+                                  const void *Decoder) {
+  int Immediate = SignExtend32<16>(Insn & 0xffff);
+  unsigned Base = fieldFromInstruction(Insn, 16, 5);
+
+  Base = getReg(Decoder, Mips::GPR32RegClassID, Base);
+
+  Inst.addOperand(MCOperand::createReg(Base));
+  Inst.addOperand(MCOperand::createImm(Immediate));
+
+  return MCDisassembler::Success;
+}
+
 static DecodeStatus DecodeMSA128Mem(MCInst &Inst, unsigned Insn,
                                     uint64_t Address, const void *Decoder) {
   int Offset = SignExtend32<10>(fieldFromInstruction(Insn, 16, 10));
@@ -1317,8 +1388,11 @@ static DecodeStatus DecodeMemMMImm4(MCInst &Inst,
         return MCDisassembler::Fail;
       break;
     case Mips::SB16_MM:
+    case Mips::SB16_MMR6:
     case Mips::SH16_MM:
+    case Mips::SH16_MMR6:
     case Mips::SW16_MM:
+    case Mips::SW16_MMR6:
       if (DecodeGPRMM16ZeroRegisterClass(Inst, Reg, Address, Decoder)
             == MCDisassembler::Fail)
         return MCDisassembler::Fail;
@@ -1337,14 +1411,17 @@ static DecodeStatus DecodeMemMMImm4(MCInst &Inst,
         Inst.addOperand(MCOperand::createImm(Offset));
       break;
     case Mips::SB16_MM:
+    case Mips::SB16_MMR6:
       Inst.addOperand(MCOperand::createImm(Offset));
       break;
     case Mips::LHU16_MM:
     case Mips::SH16_MM:
+    case Mips::SH16_MMR6:
       Inst.addOperand(MCOperand::createImm(Offset << 1));
       break;
     case Mips::LW16_MM:
     case Mips::SW16_MM:
+    case Mips::SW16_MMR6:
       Inst.addOperand(MCOperand::createImm(Offset << 2));
       break;
   }
@@ -1388,7 +1465,16 @@ static DecodeStatus DecodeMemMMReglistImm4Lsl2(MCInst &Inst,
                                                unsigned Insn,
                                                uint64_t Address,
                                                const void *Decoder) {
-  int Offset = SignExtend32<4>(Insn & 0xf);
+  int Offset;
+  switch (Inst.getOpcode()) {
+  case Mips::LWM16_MMR6:
+  case Mips::SWM16_MMR6:
+    Offset = fieldFromInstruction(Insn, 4, 4);
+    break;
+  default:
+    Offset = SignExtend32<4>(Insn & 0xf);
+    break;
+  }
 
   if (DecodeRegListOperand16(Inst, Insn, Address, Decoder)
       == MCDisassembler::Fail)
@@ -1410,6 +1496,9 @@ static DecodeStatus DecodeMemMMImm9(MCInst &Inst,
 
   Reg = getReg(Decoder, Mips::GPR32RegClassID, Reg);
   Base = getReg(Decoder, Mips::GPR32RegClassID, Base);
+
+  if (Inst.getOpcode() == Mips::SCE_MM)
+    Inst.addOperand(MCOperand::createReg(Reg));
 
   Inst.addOperand(MCOperand::createReg(Reg));
   Inst.addOperand(MCOperand::createReg(Base));
@@ -1839,12 +1928,12 @@ static DecodeStatus DecodeSimm16(MCInst &Inst,
   return MCDisassembler::Success;
 }
 
-static DecodeStatus DecodeLSAImm(MCInst &Inst,
-                                 unsigned Insn,
-                                 uint64_t Address,
-                                 const void *Decoder) {
-  // We add one to the immediate field as it was encoded as 'imm - 1'.
-  Inst.addOperand(MCOperand::createImm(Insn + 1));
+template <unsigned Bits, int Offset>
+static DecodeStatus DecodeUImmWithOffset(MCInst &Inst, unsigned Value,
+                                         uint64_t Address,
+                                         const void *Decoder) {
+  Value &= ((1 << Bits) - 1);
+  Inst.addOperand(MCOperand::createImm(Value + Offset));
   return MCDisassembler::Success;
 }
 
@@ -1943,7 +2032,16 @@ static DecodeStatus DecodeRegListOperand16(MCInst &Inst, unsigned Insn,
                                            uint64_t Address,
                                            const void *Decoder) {
   unsigned Regs[] = {Mips::S0, Mips::S1, Mips::S2, Mips::S3};
-  unsigned RegLst = fieldFromInstruction(Insn, 4, 2);
+  unsigned RegLst;
+  switch(Inst.getOpcode()) {
+  default:
+    RegLst = fieldFromInstruction(Insn, 4, 2);
+    break;
+  case Mips::LWM16_MMR6:
+  case Mips::SWM16_MMR6:
+    RegLst = fieldFromInstruction(Insn, 8, 2);
+    break;
+  }
   unsigned RegNum = RegLst & 0x3;
 
   for (unsigned i = 0; i <= RegNum; i++)

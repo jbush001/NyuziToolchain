@@ -48,6 +48,7 @@
 // Throws:  None.
 //--
 CMICmdCmdExecRun::CMICmdCmdExecRun()
+    : m_constStrArgStart("start")
 {
     // Command factory matches this name with that received from the stdin stream
     m_strMiCmd = "exec-run";
@@ -68,6 +69,23 @@ CMICmdCmdExecRun::~CMICmdCmdExecRun()
 }
 
 //++ ------------------------------------------------------------------------------------
+// Details: The invoker requires this function. It parses the command line options'
+//          arguments to extract values for each of those arguments.
+// Type:    Overridden.
+// Args:    None.
+// Return:  MIstatus::success - Functional succeeded.
+//          MIstatus::failure - Functional failed.
+// Throws:  None.
+//--
+bool
+CMICmdCmdExecRun::ParseArgs()
+{
+    m_setCmdArgs.Add(
+        new CMICmdArgValOptionLong(m_constStrArgStart, false, true, CMICmdArgValListBase::eArgValType_OptionLong, 0));
+    return ParseValidateCmdOptions();
+}
+
+//++ ------------------------------------------------------------------------------------
 // Details: The invoker requires this function. The command does work in this function.
 //          The command is likely to communicate with the LLDB SBDebugger in here.
 // Type:    Overridden.
@@ -84,6 +102,14 @@ CMICmdCmdExecRun::Execute()
     lldb::SBStream errMsg;
     lldb::SBLaunchInfo launchInfo = rSessionInfo.GetTarget().GetLaunchInfo();
     launchInfo.SetListener(rSessionInfo.GetListener());
+
+    // Run to first instruction or main() requested?
+    CMICMDBASE_GETOPTION(pArgStart, OptionLong, m_constStrArgStart);
+    if (pArgStart->GetFound())
+    {
+        launchInfo.SetLaunchFlags(launchInfo.GetLaunchFlags() | lldb::eLaunchFlagStopAtEntry);
+    }
+
     lldb::SBProcess process = rSessionInfo.GetTarget().Launch(launchInfo, error);
     if ((!process.IsValid()) || (error.Fail()))
     {
@@ -103,6 +129,7 @@ CMICmdCmdExecRun::Execute()
 //++ ------------------------------------------------------------------------------------
 // Details: The invoker requires this function. The command prepares a MI Record Result
 //          for the work carried out in the Execute().
+//          Called only if Execute() set status as successful on completion.
 // Type:    Overridden.
 // Args:    None.
 // Return:  MIstatus::success - Functional succeeded.
@@ -112,31 +139,21 @@ CMICmdCmdExecRun::Execute()
 bool
 CMICmdCmdExecRun::Acknowledge()
 {
-    if (m_lldbResult.GetErrorSize() > 0)
-    {
-        const CMICmnMIValueConst miValueConst(m_lldbResult.GetError());
-        const CMICmnMIValueResult miValueResult("message", miValueConst);
-        const CMICmnMIResultRecord miRecordResult(m_cmdData.strMiCmdToken, CMICmnMIResultRecord::eResultClass_Error, miValueResult);
-        m_miResultRecord = miRecordResult;
-    }
-    else
-    {
-        const CMICmnMIResultRecord miRecordResult(m_cmdData.strMiCmdToken, CMICmnMIResultRecord::eResultClass_Running);
-        m_miResultRecord = miRecordResult;
+    const CMICmnMIResultRecord miRecordResult(m_cmdData.strMiCmdToken, CMICmnMIResultRecord::eResultClass_Running);
+    m_miResultRecord = miRecordResult;
 
-        CMICmnLLDBDebugSessionInfo &rSessionInfo(CMICmnLLDBDebugSessionInfo::Instance());
-        lldb::pid_t pid = rSessionInfo.GetProcess().GetProcessID();
-        // Give the client '=thread-group-started,id="i1" pid="xyz"'
-        m_bHasResultRecordExtra = true;
-        const CMICmnMIValueConst miValueConst2("i1");
-        const CMICmnMIValueResult miValueResult2("id", miValueConst2);
-        const CMIUtilString strPid(CMIUtilString::Format("%lld", pid));
-        const CMICmnMIValueConst miValueConst(strPid);
-        const CMICmnMIValueResult miValueResult("pid", miValueConst);
-        CMICmnMIOutOfBandRecord miOutOfBand(CMICmnMIOutOfBandRecord::eOutOfBand_ThreadGroupStarted, miValueResult2);
-        miOutOfBand.Add(miValueResult);
-        m_miResultRecordExtra = miOutOfBand.GetString();
-    }
+    CMICmnLLDBDebugSessionInfo &rSessionInfo(CMICmnLLDBDebugSessionInfo::Instance());
+    lldb::pid_t pid = rSessionInfo.GetProcess().GetProcessID();
+    // Give the client '=thread-group-started,id="i1" pid="xyz"'
+    m_bHasResultRecordExtra = true;
+    const CMICmnMIValueConst miValueConst2("i1");
+    const CMICmnMIValueResult miValueResult2("id", miValueConst2);
+    const CMIUtilString strPid(CMIUtilString::Format("%lld", pid));
+    const CMICmnMIValueConst miValueConst(strPid);
+    const CMICmnMIValueResult miValueResult("pid", miValueConst);
+    CMICmnMIOutOfBandRecord miOutOfBand(CMICmnMIOutOfBandRecord::eOutOfBand_ThreadGroupStarted, miValueResult2);
+    miOutOfBand.Add(miValueResult);
+    m_miResultRecordExtra = miOutOfBand.GetString();
 
     return MIstatus::success;
 }
@@ -282,8 +299,7 @@ CMICmdCmdExecContinue::CreateSelf()
 // Throws:  None.
 //--
 CMICmdCmdExecNext::CMICmdCmdExecNext()
-    : m_constStrArgThread("thread")
-    , m_constStrArgNumber("number")
+    : m_constStrArgNumber("number")
 {
     // Command factory matches this name with that received from the stdin stream
     m_strMiCmd = "exec-next";
@@ -315,7 +331,6 @@ CMICmdCmdExecNext::~CMICmdCmdExecNext()
 bool
 CMICmdCmdExecNext::ParseArgs()
 {
-    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
     m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgNumber, false, false));
     return ParseValidateCmdOptions();
 }
@@ -408,8 +423,7 @@ CMICmdCmdExecNext::CreateSelf()
 // Throws:  None.
 //--
 CMICmdCmdExecStep::CMICmdCmdExecStep()
-    : m_constStrArgThread("thread")
-    , m_constStrArgNumber("number")
+    : m_constStrArgNumber("number")
 {
     // Command factory matches this name with that received from the stdin stream
     m_strMiCmd = "exec-step";
@@ -441,7 +455,6 @@ CMICmdCmdExecStep::~CMICmdCmdExecStep()
 bool
 CMICmdCmdExecStep::ParseArgs()
 {
-    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
     m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgNumber, false, false));
     return ParseValidateCmdOptions();
 }
@@ -534,8 +547,7 @@ CMICmdCmdExecStep::CreateSelf()
 // Throws:  None.
 //--
 CMICmdCmdExecNextInstruction::CMICmdCmdExecNextInstruction()
-    : m_constStrArgThread("thread")
-    , m_constStrArgNumber("number")
+    : m_constStrArgNumber("number")
 {
     // Command factory matches this name with that received from the stdin stream
     m_strMiCmd = "exec-next-instruction";
@@ -567,7 +579,6 @@ CMICmdCmdExecNextInstruction::~CMICmdCmdExecNextInstruction()
 bool
 CMICmdCmdExecNextInstruction::ParseArgs()
 {
-    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
     m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgNumber, false, false));
     return ParseValidateCmdOptions();
 }
@@ -660,8 +671,7 @@ CMICmdCmdExecNextInstruction::CreateSelf()
 // Throws:  None.
 //--
 CMICmdCmdExecStepInstruction::CMICmdCmdExecStepInstruction()
-    : m_constStrArgThread("thread")
-    , m_constStrArgNumber("number")
+    : m_constStrArgNumber("number")
 {
     // Command factory matches this name with that received from the stdin stream
     m_strMiCmd = "exec-step-instruction";
@@ -693,7 +703,6 @@ CMICmdCmdExecStepInstruction::~CMICmdCmdExecStepInstruction()
 bool
 CMICmdCmdExecStepInstruction::ParseArgs()
 {
-    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
     m_setCmdArgs.Add(new CMICmdArgValNumber(m_constStrArgNumber, false, false));
     return ParseValidateCmdOptions();
 }
@@ -786,8 +795,6 @@ CMICmdCmdExecStepInstruction::CreateSelf()
 // Throws:  None.
 //--
 CMICmdCmdExecFinish::CMICmdCmdExecFinish()
-    : m_constStrArgThread("thread")
-    , m_constStrArgFrame("frame")
 {
     // Command factory matches this name with that received from the stdin stream
     m_strMiCmd = "exec-finish";
@@ -819,8 +826,6 @@ CMICmdCmdExecFinish::~CMICmdCmdExecFinish()
 bool
 CMICmdCmdExecFinish::ParseArgs()
 {
-    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgThread, false, true, CMICmdArgValListBase::eArgValType_Number, 1));
-    m_setCmdArgs.Add(new CMICmdArgValOptionLong(m_constStrArgFrame, false, false, CMICmdArgValListBase::eArgValType_Number, 1));
     return ParseValidateCmdOptions();
 }
 

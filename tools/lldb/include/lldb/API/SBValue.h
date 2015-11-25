@@ -139,10 +139,8 @@ public:
     lldb::SBTypeFormat
     GetTypeFormat ();
     
-#ifndef LLDB_DISABLE_PYTHON
     lldb::SBTypeSummary
     GetTypeSummary ();
-#endif
 
     lldb::SBTypeFilter
     GetTypeFilter ();
@@ -331,6 +329,9 @@ public:
 
     uint32_t
     GetNumChildren ();
+
+    uint32_t
+    GetNumChildren (uint32_t max);
 
     void *
     GetOpaqueType();

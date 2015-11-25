@@ -1,4 +1,4 @@
-//===-- DynamicLoaderPOSIX.h ------------------------------------*- C++ -*-===//
+//===-- DynamicLoaderPOSIXDYLD.h --------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,12 +7,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef liblldb_DynamicLoaderPOSIX_H_
-#define liblldb_DynamicLoaderPOSIX_H_
+#ifndef liblldb_DynamicLoaderPOSIXDYLD_h_
+#define liblldb_DynamicLoaderPOSIXDYLD_h_
 
 // C Includes
 // C++ Includes
 // Other libraries and framework includes
+// Project includes
 #include "lldb/Breakpoint/StoppointCallbackContext.h"
 #include "lldb/Target/DynamicLoader.h"
 
@@ -23,6 +24,9 @@ class AuxVector;
 class DynamicLoaderPOSIXDYLD : public lldb_private::DynamicLoader
 {
 public:
+    DynamicLoaderPOSIXDYLD(lldb_private::Process *process);
+
+    ~DynamicLoaderPOSIXDYLD() override;
 
     static void
     Initialize();
@@ -39,48 +43,34 @@ public:
     static lldb_private::DynamicLoader *
     CreateInstance(lldb_private::Process *process, bool force);
 
-    DynamicLoaderPOSIXDYLD(lldb_private::Process *process);
-
-    virtual
-    ~DynamicLoaderPOSIXDYLD();
-
     //------------------------------------------------------------------
     // DynamicLoader protocol
     //------------------------------------------------------------------
 
-    virtual void
+    void
     DidAttach() override;
 
-    virtual void
+    void
     DidLaunch() override;
 
     lldb::ThreadPlanSP
     GetStepThroughTrampolinePlan(lldb_private::Thread &thread,
                                  bool stop_others) override;
 
-    virtual lldb_private::Error
+    lldb_private::Error
     CanLoadImage() override;
 
-    virtual lldb::addr_t
-    GetThreadLocalData (const lldb::ModuleSP module, const lldb::ThreadSP thread) override;
+    lldb::addr_t
+    GetThreadLocalData(const lldb::ModuleSP module, const lldb::ThreadSP thread) override;
 
     //------------------------------------------------------------------
     // PluginInterface protocol
     //------------------------------------------------------------------
-    virtual lldb_private::ConstString
+    lldb_private::ConstString
     GetPluginName() override;
 
-    virtual uint32_t
+    uint32_t
     GetPluginVersion() override;
-
-    virtual void
-    GetPluginCommandHelp(const char *command, lldb_private::Stream *strm);
-
-    virtual lldb_private::Error
-    ExecutePluginCommand(lldb_private::Args &command, lldb_private::Stream *strm);
-
-    virtual lldb_private::Log *
-    EnablePluginLogging(lldb_private::Stream *strm, lldb_private::Args &command);
 
 protected:
     /// Runtime linker rendezvous structure.
@@ -97,6 +87,10 @@ protected:
 
     /// Rendezvous breakpoint.
     lldb::break_id_t m_dyld_bid;
+
+    /// Contains AT_SYSINFO_EHDR, which means a vDSO has been
+    /// mapped to the address space
+    lldb::addr_t m_vdso_base;
 
     /// Loaded module list. (link map for each module)
     std::map<lldb::ModuleWP, lldb::addr_t, std::owner_less<lldb::ModuleWP>> m_loaded_modules;
@@ -169,6 +163,11 @@ protected:
     lldb::addr_t
     GetEntryPoint();
 
+    /// Evaluate if Aux vectors contain vDSO information
+    /// in case they do, read and assign the address to m_vdso_base
+    void
+    EvalVdsoStatus();
+
     /// Loads Module from inferior process.
     void
     ResolveExecutableModule(lldb::ModuleSP &module_sp);
@@ -177,4 +176,4 @@ private:
     DISALLOW_COPY_AND_ASSIGN(DynamicLoaderPOSIXDYLD);
 };
 
-#endif  // liblldb_DynamicLoaderPOSIXDYLD_H_
+#endif // liblldb_DynamicLoaderPOSIXDYLD_h_

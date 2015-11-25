@@ -42,8 +42,14 @@ class MipsSubtarget : public MipsGenSubtargetInfo {
     Mips3, Mips4, Mips5, Mips64, Mips64r2, Mips64r3, Mips64r5, Mips64r6
   };
 
+  enum class CPU { P5600 };
+
   // Mips architecture version
   MipsArchEnum MipsArchVersion;
+
+  // Processor implementation (unused but required to exist by
+  // tablegen-erated code).
+  CPU ProcImpl;
 
   // IsLittle - The target is Little Endian
   bool IsLittle;
@@ -116,8 +122,8 @@ class MipsSubtarget : public MipsGenSubtargetInfo {
   // InMicroMips -- can process MicroMips instructions
   bool InMicroMipsMode;
 
-  // HasDSP, HasDSPR2 -- supports DSP ASE.
-  bool HasDSP, HasDSPR2;
+  // HasDSP, HasDSPR2, HasDSPR3 -- supports DSP ASE.
+  bool HasDSP, HasDSPR2, HasDSPR3;
 
   // Allow mixed Mips16 and Mips32 in one source file
   bool AllowMixed16_32;
@@ -237,6 +243,7 @@ public:
   bool inMicroMips64r6Mode() const { return InMicroMipsMode && hasMips64r6(); }
   bool hasDSP() const { return HasDSP; }
   bool hasDSPR2() const { return HasDSPR2; }
+  bool hasDSPR3() const { return HasDSPR3; }
   bool hasMSA() const { return HasMSA; }
   bool hasEVA() const { return HasEVA; }
   bool useSmallSection() const { return UseSmallSection; }

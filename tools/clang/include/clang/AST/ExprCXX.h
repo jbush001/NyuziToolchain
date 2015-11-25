@@ -3787,7 +3787,7 @@ class FunctionParmPackExpr : public Expr {
 
   FunctionParmPackExpr(QualType T, ParmVarDecl *ParamPack,
                        SourceLocation NameLoc, unsigned NumParams,
-                       Decl * const *Params);
+                       ParmVarDecl *const *Params);
 
   friend class ASTReader;
   friend class ASTStmtReader;
@@ -3796,7 +3796,7 @@ public:
   static FunctionParmPackExpr *Create(const ASTContext &Context, QualType T,
                                       ParmVarDecl *ParamPack,
                                       SourceLocation NameLoc,
-                                      ArrayRef<Decl *> Params);
+                                      ArrayRef<ParmVarDecl *> Params);
   static FunctionParmPackExpr *CreateEmpty(const ASTContext &Context,
                                            unsigned NumParams);
 
@@ -4006,6 +4006,136 @@ public:
 
   // Iterators
   child_range children() { return child_range(SubExprs, SubExprs + 2); }
+};
+
+/// \brief Represents an expression that might suspend coroutine execution;
+/// either a co_await or co_yield expression.
+///
+/// Evaluation of this expression first evaluates its 'ready' expression. If
+/// that returns 'false':
+///  -- execution of the coroutine is suspended
+///  -- the 'suspend' expression is evaluated
+///     -- if the 'suspend' expression returns 'false', the coroutine is
+///        resumed
+///     -- otherwise, control passes back to the resumer.
+/// If the coroutine is not suspended, or when it is resumed, the 'resume'
+/// expression is evaluated, and its result is the result of the overall
+/// expression.
+class CoroutineSuspendExpr : public Expr {
+  SourceLocation KeywordLoc;
+
+  enum SubExpr { Common, Ready, Suspend, Resume, Count };
+  Stmt *SubExprs[SubExpr::Count];
+
+  friend class ASTStmtReader;
+public:
+  CoroutineSuspendExpr(StmtClass SC, SourceLocation KeywordLoc, Expr *Common,
+                       Expr *Ready, Expr *Suspend, Expr *Resume)
+      : Expr(SC, Resume->getType(), Resume->getValueKind(),
+             Resume->getObjectKind(), Resume->isTypeDependent(),
+             Resume->isValueDependent(), Common->isInstantiationDependent(),
+             Common->containsUnexpandedParameterPack()),
+        KeywordLoc(KeywordLoc) {
+    SubExprs[SubExpr::Common] = Common;
+    SubExprs[SubExpr::Ready] = Ready;
+    SubExprs[SubExpr::Suspend] = Suspend;
+    SubExprs[SubExpr::Resume] = Resume;
+  }
+  CoroutineSuspendExpr(StmtClass SC, SourceLocation KeywordLoc, QualType Ty,
+                       Expr *Common)
+      : Expr(SC, Ty, VK_RValue, OK_Ordinary, true, true, true,
+             Common->containsUnexpandedParameterPack()),
+        KeywordLoc(KeywordLoc) {
+    assert(Common->isTypeDependent() && Ty->isDependentType() &&
+           "wrong constructor for non-dependent co_await/co_yield expression");
+    SubExprs[SubExpr::Common] = Common;
+    SubExprs[SubExpr::Ready] = nullptr;
+    SubExprs[SubExpr::Suspend] = nullptr;
+    SubExprs[SubExpr::Resume] = nullptr;
+  }
+  CoroutineSuspendExpr(StmtClass SC, EmptyShell Empty) : Expr(SC, Empty) {
+    SubExprs[SubExpr::Common] = nullptr;
+    SubExprs[SubExpr::Ready] = nullptr;
+    SubExprs[SubExpr::Suspend] = nullptr;
+    SubExprs[SubExpr::Resume] = nullptr;
+  }
+
+  SourceLocation getKeywordLoc() const { return KeywordLoc; }
+  Expr *getCommonExpr() const {
+    return static_cast<Expr*>(SubExprs[SubExpr::Common]);
+  }
+
+  Expr *getReadyExpr() const {
+    return static_cast<Expr*>(SubExprs[SubExpr::Ready]);
+  }
+  Expr *getSuspendExpr() const {
+    return static_cast<Expr*>(SubExprs[SubExpr::Suspend]);
+  }
+  Expr *getResumeExpr() const {
+    return static_cast<Expr*>(SubExprs[SubExpr::Resume]);
+  }
+
+  SourceLocation getLocStart() const LLVM_READONLY {
+    return KeywordLoc;
+  }
+  SourceLocation getLocEnd() const LLVM_READONLY {
+    return getCommonExpr()->getLocEnd();
+  }
+
+  child_range children() {
+    return child_range(SubExprs, SubExprs + SubExpr::Count);
+  }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == CoawaitExprClass ||
+           T->getStmtClass() == CoyieldExprClass;
+  }
+};
+
+/// \brief Represents a 'co_await' expression.
+class CoawaitExpr : public CoroutineSuspendExpr {
+  friend class ASTStmtReader;
+public:
+  CoawaitExpr(SourceLocation CoawaitLoc, Expr *Operand, Expr *Ready,
+              Expr *Suspend, Expr *Resume)
+      : CoroutineSuspendExpr(CoawaitExprClass, CoawaitLoc, Operand, Ready,
+                             Suspend, Resume) {}
+  CoawaitExpr(SourceLocation CoawaitLoc, QualType Ty, Expr *Operand)
+      : CoroutineSuspendExpr(CoawaitExprClass, CoawaitLoc, Ty, Operand) {}
+  CoawaitExpr(EmptyShell Empty)
+      : CoroutineSuspendExpr(CoawaitExprClass, Empty) {}
+
+  Expr *getOperand() const {
+    // FIXME: Dig out the actual operand or store it.
+    return getCommonExpr();
+  }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == CoawaitExprClass;
+  }
+};
+
+/// \brief Represents a 'co_yield' expression.
+class CoyieldExpr : public CoroutineSuspendExpr {
+  friend class ASTStmtReader;
+public:
+  CoyieldExpr(SourceLocation CoyieldLoc, Expr *Operand, Expr *Ready,
+              Expr *Suspend, Expr *Resume)
+      : CoroutineSuspendExpr(CoyieldExprClass, CoyieldLoc, Operand, Ready,
+                             Suspend, Resume) {}
+  CoyieldExpr(SourceLocation CoyieldLoc, QualType Ty, Expr *Operand)
+      : CoroutineSuspendExpr(CoyieldExprClass, CoyieldLoc, Ty, Operand) {}
+  CoyieldExpr(EmptyShell Empty)
+      : CoroutineSuspendExpr(CoyieldExprClass, Empty) {}
+
+  Expr *getOperand() const {
+    // FIXME: Dig out the actual operand or store it.
+    return getCommonExpr();
+  }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == CoyieldExprClass;
+  }
 };
 
 }  // end namespace clang

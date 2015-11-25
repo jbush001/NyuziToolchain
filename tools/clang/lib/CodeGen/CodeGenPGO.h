@@ -92,14 +92,12 @@ public:
 private:
   void setFuncName(llvm::Function *Fn);
   void setFuncName(StringRef Name, llvm::GlobalValue::LinkageTypes Linkage);
-  void createFuncNameVar(llvm::GlobalValue::LinkageTypes Linkage);
   void mapRegionCounters(const Decl *D);
   void computeRegionCounts(const Decl *D);
   void applyFunctionAttributes(llvm::IndexedInstrProfReader *PGOReader,
                                llvm::Function *Fn);
   void loadRegionCounts(llvm::IndexedInstrProfReader *PGOReader,
                         bool IsInMainFile);
-  void emitCounterVariables();
   void emitCounterRegionMapping(const Decl *D);
 
 public:

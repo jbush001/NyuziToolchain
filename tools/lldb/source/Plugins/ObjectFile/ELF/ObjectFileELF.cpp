@@ -11,6 +11,7 @@
 
 #include <cassert>
 #include <algorithm>
+#include <unordered_map>
 
 #include "lldb/Core/ArchSpec.h"
 #include "lldb/Core/DataBuffer.h"
@@ -48,6 +49,8 @@ const char *const LLDB_NT_OWNER_GNU     = "GNU";
 const char *const LLDB_NT_OWNER_NETBSD  = "NetBSD";
 const char *const LLDB_NT_OWNER_CSR     = "csr";
 const char *const LLDB_NT_OWNER_ANDROID = "Android";
+const char *const LLDB_NT_OWNER_CORE    = "CORE";
+const char *const LLDB_NT_OWNER_LINUX   = "LINUX";
 
 // ELF note type definitions
 const elf_word LLDB_NT_FREEBSD_ABI_TAG  = 0x01;
@@ -65,6 +68,41 @@ const elf_word LLDB_NT_NETBSD_ABI_SIZE  = 4;
 const elf_word LLDB_NT_GNU_ABI_OS_LINUX   = 0x00;
 const elf_word LLDB_NT_GNU_ABI_OS_HURD    = 0x01;
 const elf_word LLDB_NT_GNU_ABI_OS_SOLARIS = 0x02;
+
+// LLDB_NT_OWNER_CORE and LLDB_NT_OWNER_LINUX note contants
+#define NT_PRSTATUS             1
+#define NT_PRFPREG              2
+#define NT_PRPSINFO             3
+#define NT_TASKSTRUCT           4
+#define NT_AUXV                 6
+#define NT_SIGINFO              0x53494749
+#define NT_FILE                 0x46494c45
+#define NT_PRXFPREG             0x46e62b7f
+#define NT_PPC_VMX              0x100
+#define NT_PPC_SPE              0x101
+#define NT_PPC_VSX              0x102
+#define NT_386_TLS              0x200
+#define NT_386_IOPERM           0x201
+#define NT_X86_XSTATE           0x202
+#define NT_S390_HIGH_GPRS       0x300
+#define NT_S390_TIMER           0x301
+#define NT_S390_TODCMP          0x302
+#define NT_S390_TODPREG         0x303
+#define NT_S390_CTRS            0x304
+#define NT_S390_PREFIX          0x305
+#define NT_S390_LAST_BREAK      0x306
+#define NT_S390_SYSTEM_CALL     0x307
+#define NT_S390_TDB             0x308
+#define NT_S390_VXRS_LOW        0x309
+#define NT_S390_VXRS_HIGH       0x30a
+#define NT_ARM_VFP              0x400
+#define NT_ARM_TLS              0x401
+#define NT_ARM_HW_BREAK         0x402
+#define NT_ARM_HW_WATCH         0x403
+#define NT_ARM_SYSTEM_CALL      0x404
+#define NT_METAG_CBUF           0x500
+#define NT_METAG_RPIPE          0x501
+#define NT_METAG_TLS            0x502
 
 //===----------------------------------------------------------------------===//
 /// @class ELFRelocation
@@ -1272,17 +1310,13 @@ ObjectFileELF::RefineModuleDetailsFromNote (lldb_private::DataExtractor &data, l
     while (true)
     {
         // Parse the note header.  If this fails, bail out.
+        const lldb::offset_t note_offset = offset;
         ELFNote note = ELFNote();
         if (!note.Parse(data, &offset))
         {
             // We're done.
             return error;
         }
-
-        // If a tag processor handles the tag, it should set processed to true, and
-        // the loop will assume the tag processing has moved entirely past the note's payload.
-        // Otherwise, leave it false and the end of the loop will handle the offset properly.
-        bool processed = false;
 
         if (log)
             log->Printf ("ObjectFileELF::%s parsing note name='%s', type=%" PRIu32, __FUNCTION__, note.n_name.c_str (), note.n_type);
@@ -1292,9 +1326,6 @@ ObjectFileELF::RefineModuleDetailsFromNote (lldb_private::DataExtractor &data, l
             (note.n_type == LLDB_NT_FREEBSD_ABI_TAG) &&
             (note.n_descsz == LLDB_NT_FREEBSD_ABI_SIZE))
         {
-            // We'll consume the payload below.
-            processed = true;
-
             // Pull out the min version info.
             uint32_t version_info;
             if (data.GetU32 (&offset, &version_info, 1) == nullptr)
@@ -1325,9 +1356,6 @@ ObjectFileELF::RefineModuleDetailsFromNote (lldb_private::DataExtractor &data, l
                 case LLDB_NT_GNU_ABI_TAG:
                     if (note.n_descsz == LLDB_NT_GNU_ABI_SIZE)
                     {
-                        // We'll consume the payload below.
-                        processed = true;
-
                         // Pull out the min OS version supporting the ABI.
                         uint32_t version_info[4];
                         if (data.GetU32 (&offset, &version_info[0], note.n_descsz / 4) == nullptr)
@@ -1370,9 +1398,6 @@ ObjectFileELF::RefineModuleDetailsFromNote (lldb_private::DataExtractor &data, l
                     // Only bother processing this if we don't already have the uuid set.
                     if (!uuid.IsValid())
                     {
-                        // We'll consume the payload below.
-                        processed = true;
-
                         // 16 bytes is UUID|MD5, 20 bytes is SHA1
                         if ((note.n_descsz == 16 || note.n_descsz == 20))
                         {
@@ -1395,10 +1420,6 @@ ObjectFileELF::RefineModuleDetailsFromNote (lldb_private::DataExtractor &data, l
                  (note.n_type == LLDB_NT_NETBSD_ABI_TAG) &&
                  (note.n_descsz == LLDB_NT_NETBSD_ABI_SIZE))
         {
-
-            // We'll consume the payload below.
-            processed = true;
-
             // Pull out the min version info.
             uint32_t version_info;
             if (data.GetU32 (&offset, &version_info, 1) == nullptr)
@@ -1418,8 +1439,6 @@ ObjectFileELF::RefineModuleDetailsFromNote (lldb_private::DataExtractor &data, l
         else if ((note.n_type == LLDB_NT_GNU_ABI_TAG) &&
                 (note.n_name == LLDB_NT_OWNER_CSR))
         {
-            // We'll consume the payload below.
-            processed = true;
             arch_spec.GetTriple().setOS(llvm::Triple::OSType::UnknownOS);
             arch_spec.GetTriple().setVendor(llvm::Triple::VendorType::CSR);
 
@@ -1437,9 +1456,48 @@ ObjectFileELF::RefineModuleDetailsFromNote (lldb_private::DataExtractor &data, l
             arch_spec.GetTriple().setOS(llvm::Triple::OSType::Linux);
             arch_spec.GetTriple().setEnvironment(llvm::Triple::EnvironmentType::Android);
         }
+        else if (note.n_name == LLDB_NT_OWNER_LINUX)
+        {
+            // This is sometimes found in core files and usually contains extended register info
+            arch_spec.GetTriple().setOS(llvm::Triple::OSType::Linux);
+        }
+        else if (note.n_name == LLDB_NT_OWNER_CORE)
+        {
+            // Parse the NT_FILE to look for stuff in paths to shared libraries
+            // As the contents look like:
+            // count     = 0x000000000000000a (10)
+            // page_size = 0x0000000000001000 (4096)
+            // Index start              end                file_ofs           path
+            // ===== ------------------ ------------------ ------------------ -------------------------------------
+            // [  0] 0x0000000000400000 0x0000000000401000 0x0000000000000000 /tmp/a.out
+            // [  1] 0x0000000000600000 0x0000000000601000 0x0000000000000000 /tmp/a.out
+            // [  2] 0x0000000000601000 0x0000000000602000 0x0000000000000001 /tmp/a.out
+            // [  3] 0x00007fa79c9ed000 0x00007fa79cba8000 0x0000000000000000 /lib/x86_64-linux-gnu/libc-2.19.so
+            // [  4] 0x00007fa79cba8000 0x00007fa79cda7000 0x00000000000001bb /lib/x86_64-linux-gnu/libc-2.19.so
+            // [  5] 0x00007fa79cda7000 0x00007fa79cdab000 0x00000000000001ba /lib/x86_64-linux-gnu/libc-2.19.so
+            // [  6] 0x00007fa79cdab000 0x00007fa79cdad000 0x00000000000001be /lib/x86_64-linux-gnu/libc-2.19.so
+            // [  7] 0x00007fa79cdb2000 0x00007fa79cdd5000 0x0000000000000000 /lib/x86_64-linux-gnu/ld-2.19.so
+            // [  8] 0x00007fa79cfd4000 0x00007fa79cfd5000 0x0000000000000022 /lib/x86_64-linux-gnu/ld-2.19.so
+            // [  9] 0x00007fa79cfd5000 0x00007fa79cfd6000 0x0000000000000023 /lib/x86_64-linux-gnu/ld-2.19.so
+            if (note.n_type == NT_FILE)
+            {
+                uint64_t count = data.GetU64(&offset);
+                offset += 8 + 3*8*count; // Skip page size and all start/end/file_ofs
+                for (size_t i=0; i<count; ++i)
+                {
+                    llvm::StringRef path(data.GetCStr(&offset));
+                    if (path.startswith("/lib/x86_64-linux-gnu"))
+                    {
+                        arch_spec.GetTriple().setOS(llvm::Triple::OSType::Linux);
+                        break;
+                    }
+                }
+            }
+        }
 
-        if (!processed)
-            offset += llvm::RoundUpToAlignment(note.n_descsz, 4);
+        // Calculate the offset of the next note just in case "offset" has been used
+        // to poke at the contents of the note data
+        offset = note_offset + note.GetByteSize();
     }
 
     return error;
@@ -1605,6 +1663,12 @@ ObjectFileELF::GetSectionHeaderInfo(SectionHeaderColl &section_headers,
                 }
             }
 
+            // Make any unknown triple components to be unspecified unknowns.
+            if (arch_spec.GetTriple().getVendor() == llvm::Triple::UnknownVendor)
+                arch_spec.GetTriple().setVendorName (llvm::StringRef());
+            if (arch_spec.GetTriple().getOS() == llvm::Triple::UnknownOS)
+                arch_spec.GetTriple().setOSName (llvm::StringRef());
+
             return section_headers.size();
         }
     }
@@ -1720,6 +1784,8 @@ ObjectFileELF::CreateSections(SectionList &unified_section_list)
             static ConstString g_sect_name_dwarf_debug_str_dwo (".debug_str.dwo");
             static ConstString g_sect_name_dwarf_debug_str_offsets_dwo (".debug_str_offsets.dwo");
             static ConstString g_sect_name_eh_frame (".eh_frame");
+            static ConstString g_sect_name_arm_exidx (".ARM.exidx");
+            static ConstString g_sect_name_arm_extab (".ARM.extab");
             static ConstString g_sect_name_go_symtab (".gosymtab");
 
             SectionType sect_type = eSectionTypeOther;
@@ -1773,6 +1839,8 @@ ObjectFileELF::CreateSections(SectionList &unified_section_list)
             else if (name == g_sect_name_dwarf_debug_str_dwo)         sect_type = eSectionTypeDWARFDebugStr;
             else if (name == g_sect_name_dwarf_debug_str_offsets_dwo) sect_type = eSectionTypeDWARFDebugStrOffsets;
             else if (name == g_sect_name_eh_frame)                    sect_type = eSectionTypeEHFrame;
+            else if (name == g_sect_name_arm_exidx)                   sect_type = eSectionTypeARMexidx;
+            else if (name == g_sect_name_arm_extab)                   sect_type = eSectionTypeARMextab;
             else if (name == g_sect_name_go_symtab)                   sect_type = eSectionTypeGoSymtab;
 
             switch (header.sh_type)
@@ -1933,6 +2001,13 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
     // makes it highly unlikely that this will collide with anything else.
     bool skip_oatdata_oatexec = m_file.GetFilename() == ConstString("system@framework@boot.oat");
 
+    ArchSpec arch;
+    GetArchitecture(arch);
+
+    // Local cache to avoid doing a FindSectionByName for each symbol. The "const char*" key must
+    // came from a ConstString object so they can be compared by pointer
+    std::unordered_map<const char*, lldb::SectionSP> section_name_to_section;
+
     unsigned i;
     for (i = 0; i < num_symbols; ++i)
     {
@@ -2038,8 +2113,7 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
         int64_t symbol_value_offset = 0;
         uint32_t additional_flags = 0;
 
-        ArchSpec arch;
-        if (GetArchitecture(arch))
+        if (arch.IsValid())
         {
             if (arch.GetMachine() == llvm::Triple::arm)
             {
@@ -2165,11 +2239,13 @@ ObjectFileELF::ParseSymbols (Symtab *symtab,
                 if (module_section_list && module_section_list != section_list)
                 {
                     const ConstString &sect_name = symbol_section_sp->GetName();
-                    lldb::SectionSP section_sp (module_section_list->FindSectionByName (sect_name));
-                    if (section_sp && section_sp->GetFileSize())
-                    {
-                        symbol_section_sp = section_sp;
-                    }
+                    auto section_it = section_name_to_section.find(sect_name.GetCString());
+                    if (section_it == section_name_to_section.end())
+                        section_it = section_name_to_section.emplace(
+                            sect_name.GetCString(),
+                            module_section_list->FindSectionByName (sect_name)).first;
+                    if (section_it->second && section_it->second->GetFileSize())
+                        symbol_section_sp = section_it->second;
                 }
             }
         }
@@ -3128,6 +3204,27 @@ ObjectFileELF::GetArchitecture (ArchSpec &arch)
         ParseSectionHeaders();
     }
 
+    if (CalculateType() == eTypeCoreFile && m_arch_spec.TripleOSIsUnspecifiedUnknown())
+    {
+        // Core files don't have section headers yet they have PT_NOTE program headers
+        // that might shed more light on the architecture
+        if (ParseProgramHeaders())
+        {
+            for (size_t i = 0, count = GetProgramHeaderCount(); i < count; ++i)
+            {
+                const elf::ELFProgramHeader* header = GetProgramHeaderByIndex(i);
+                if (header && header->p_type == PT_NOTE && header->p_offset != 0 && header->p_filesz > 0)
+                {
+                    DataExtractor data;
+                    if (data.SetData (m_data, header->p_offset, header->p_filesz) == header->p_filesz)
+                    {
+                        lldb_private::UUID uuid;
+                        RefineModuleDetailsFromNote (data, m_arch_spec, uuid);
+                    }
+                }
+            }
+        }
+    }
     arch = m_arch_spec;
     return true;
 }

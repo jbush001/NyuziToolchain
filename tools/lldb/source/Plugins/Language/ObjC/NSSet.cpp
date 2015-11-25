@@ -1,4 +1,4 @@
-//===-- NSSet.cpp ------------------------------------------------*- C++ -*-===//
+//===-- NSSet.cpp -----------------------------------------------*- C++ -*-===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,7 +7,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Cocoa.h"
+// C Includes
+// C++ Includes
+// Other libraries and framework includes
+// Project includes
+#include "NSSet.h"
 
 #include "lldb/Core/DataBufferHeap.h"
 #include "lldb/Core/Error.h"
@@ -17,6 +21,7 @@
 #include "lldb/DataFormatters/FormattersHelpers.h"
 #include "lldb/Host/Endian.h"
 #include "lldb/Symbol/ClangASTContext.h"
+#include "lldb/Target/Language.h"
 #include "lldb/Target/ObjCLanguageRuntime.h"
 #include "lldb/Target/Target.h"
 
@@ -24,49 +29,63 @@ using namespace lldb;
 using namespace lldb_private;
 using namespace lldb_private::formatters;
 
+std::map<ConstString, CXXFunctionSummaryFormat::Callback>&
+NSSet_Additionals::GetAdditionalSummaries ()
+{
+    static std::map<ConstString, CXXFunctionSummaryFormat::Callback> g_map;
+    return g_map;
+}
+
+std::map<ConstString, CXXSyntheticChildren::CreateFrontEndCallback>&
+NSSet_Additionals::GetAdditionalSynthetics ()
+{
+    static std::map<ConstString, CXXSyntheticChildren::CreateFrontEndCallback> g_map;
+    return g_map;
+}
+
 namespace lldb_private {
     namespace formatters {
         class NSSetISyntheticFrontEnd : public SyntheticChildrenFrontEnd
         {
+        public:
+            NSSetISyntheticFrontEnd (lldb::ValueObjectSP valobj_sp);
+
+            ~NSSetISyntheticFrontEnd() override;
+
+            size_t
+            CalculateNumChildren() override;
+            
+            lldb::ValueObjectSP
+            GetChildAtIndex(size_t idx) override;
+            
+            bool
+            Update() override;
+            
+            bool
+            MightHaveChildren() override;
+            
+            size_t
+            GetIndexOfChildWithName(const ConstString &name) override;
+
         private:
             struct DataDescriptor_32
             {
                 uint32_t _used : 26;
                 uint32_t _szidx : 6;
             };
+
             struct DataDescriptor_64
             {
                 uint64_t _used : 58;
                 uint32_t _szidx : 6;
             };
-            
+
             struct SetItemDescriptor
             {
                 lldb::addr_t item_ptr;
                 lldb::ValueObjectSP valobj_sp;
             };
-            
-        public:
-            NSSetISyntheticFrontEnd (lldb::ValueObjectSP valobj_sp);
-            
-            virtual size_t
-            CalculateNumChildren ();
-            
-            virtual lldb::ValueObjectSP
-            GetChildAtIndex (size_t idx);
-            
-            virtual bool
-            Update();
-            
-            virtual bool
-            MightHaveChildren ();
-            
-            virtual size_t
-            GetIndexOfChildWithName (const ConstString &name);
-            
-            virtual
-            ~NSSetISyntheticFrontEnd ();
-        private:
+
             ExecutionContextRef m_exe_ctx_ref;
             uint8_t m_ptr_size;
             DataDescriptor_32 *m_data_32;
@@ -77,28 +96,26 @@ namespace lldb_private {
         
         class NSOrderedSetSyntheticFrontEnd : public SyntheticChildrenFrontEnd
         {
-        private:
-            
         public:
             NSOrderedSetSyntheticFrontEnd (lldb::ValueObjectSP valobj_sp);
+
+            ~NSOrderedSetSyntheticFrontEnd() override = default;
+
+            size_t
+            CalculateNumChildren() override;
             
-            virtual size_t
-            CalculateNumChildren ();
+            lldb::ValueObjectSP
+            GetChildAtIndex(size_t idx) override;
             
-            virtual lldb::ValueObjectSP
-            GetChildAtIndex (size_t idx);
+            bool
+            Update() override;
             
-            virtual bool
-            Update();
+            bool
+            MightHaveChildren() override;
             
-            virtual bool
-            MightHaveChildren ();
-            
-            virtual size_t
-            GetIndexOfChildWithName (const ConstString &name);
-            
-            virtual
-            ~NSOrderedSetSyntheticFrontEnd ();
+            size_t
+            GetIndexOfChildWithName(const ConstString &name) override;
+
         private:
             uint32_t m_count;
             std::map<uint32_t,lldb::ValueObjectSP> m_children;
@@ -106,6 +123,26 @@ namespace lldb_private {
         
         class NSSetMSyntheticFrontEnd : public SyntheticChildrenFrontEnd
         {
+        public:
+            NSSetMSyntheticFrontEnd (lldb::ValueObjectSP valobj_sp);
+
+            ~NSSetMSyntheticFrontEnd() override;
+
+            size_t
+            CalculateNumChildren() override;
+            
+            lldb::ValueObjectSP
+            GetChildAtIndex(size_t idx) override;
+            
+            bool
+            Update() override;
+            
+            bool
+            MightHaveChildren() override;
+            
+            size_t
+            GetIndexOfChildWithName(const ConstString &name) override;
+
         private:
             struct DataDescriptor_32
             {
@@ -114,6 +151,7 @@ namespace lldb_private {
                 uint32_t _mutations;
                 uint32_t _objs_addr;
             };
+
             struct DataDescriptor_64
             {
                 uint64_t _used : 58;
@@ -121,32 +159,13 @@ namespace lldb_private {
                 uint64_t _mutations;
                 uint64_t _objs_addr;
             };
+
             struct SetItemDescriptor
             {
                 lldb::addr_t item_ptr;
                 lldb::ValueObjectSP valobj_sp;
             };
-        public:
-            NSSetMSyntheticFrontEnd (lldb::ValueObjectSP valobj_sp);
-            
-            virtual size_t
-            CalculateNumChildren ();
-            
-            virtual lldb::ValueObjectSP
-            GetChildAtIndex (size_t idx);
-            
-            virtual bool
-            Update();
-            
-            virtual bool
-            MightHaveChildren ();
-            
-            virtual size_t
-            GetIndexOfChildWithName (const ConstString &name);
-            
-            virtual
-            ~NSSetMSyntheticFrontEnd ();
-        private:
+
             ExecutionContextRef m_exe_ctx_ref;
             uint8_t m_ptr_size;
             DataDescriptor_32 *m_data_32;
@@ -158,32 +177,33 @@ namespace lldb_private {
         {
         public:
             NSSetCodeRunningSyntheticFrontEnd (lldb::ValueObjectSP valobj_sp);
+
+            ~NSSetCodeRunningSyntheticFrontEnd() override;
+
+            size_t
+            CalculateNumChildren() override;
             
-            virtual size_t
-            CalculateNumChildren ();
+            lldb::ValueObjectSP
+            GetChildAtIndex(size_t idx) override;
             
-            virtual lldb::ValueObjectSP
-            GetChildAtIndex (size_t idx);
+            bool
+            Update() override;
             
-            virtual bool
-            Update();
+            bool
+            MightHaveChildren() override;
             
-            virtual bool
-            MightHaveChildren ();
-            
-            virtual size_t
-            GetIndexOfChildWithName (const ConstString &name);
-            
-            virtual
-            ~NSSetCodeRunningSyntheticFrontEnd ();
+            size_t
+            GetIndexOfChildWithName(const ConstString &name) override;
         };
-    }
-}
+    } // namespace formatters
+} // namespace lldb_private
 
 template<bool cf_style>
 bool
 lldb_private::formatters::NSSetSummaryProvider (ValueObject& valobj, Stream& stream, const TypeSummaryOptions& options)
 {
+    static ConstString g_TypeHint("NSSet");
+    
     ProcessSP process_sp = valobj.GetProcessSP();
     if (!process_sp)
         return false;
@@ -208,7 +228,8 @@ lldb_private::formatters::NSSetSummaryProvider (ValueObject& valobj, Stream& str
     
     uint64_t value = 0;
     
-    const char* class_name = descriptor->GetClassName().GetCString();
+    ConstString class_name_cs = descriptor->GetClassName();
+    const char* class_name = class_name_cs.GetCString();
     
     if (!class_name || !*class_name)
         return false;
@@ -230,41 +251,56 @@ lldb_private::formatters::NSSetSummaryProvider (ValueObject& valobj, Stream& str
         value &= (is_64bit ? ~0xFC00000000000000UL : ~0xFC000000U);
     }
     /*else if (!strcmp(class_name,"__NSCFSet"))
-    {
-        Error error;
-        value = process_sp->ReadUnsignedIntegerFromMemory(valobj_addr + (is_64bit ? 20 : 12), 4, 0, error);
-        if (error.Fail())
-            return false;
-        if (is_64bit)
-            value &= ~0x1fff000000000000UL;
-    }
-    else if (!strcmp(class_name,"NSCountedSet"))
-    {
-        Error error;
-        value = process_sp->ReadUnsignedIntegerFromMemory(valobj_addr + ptr_size, ptr_size, 0, error);
-        if (error.Fail())
-            return false;
-        value = process_sp->ReadUnsignedIntegerFromMemory(value + (is_64bit ? 20 : 12), 4, 0, error);
-        if (error.Fail())
-            return false;
-        if (is_64bit)
-            value &= ~0x1fff000000000000UL;
-    }*/
+     {
+     Error error;
+     value = process_sp->ReadUnsignedIntegerFromMemory(valobj_addr + (is_64bit ? 20 : 12), 4, 0, error);
+     if (error.Fail())
+     return false;
+     if (is_64bit)
+     value &= ~0x1fff000000000000UL;
+     }
+     else if (!strcmp(class_name,"NSCountedSet"))
+     {
+     Error error;
+     value = process_sp->ReadUnsignedIntegerFromMemory(valobj_addr + ptr_size, ptr_size, 0, error);
+     if (error.Fail())
+     return false;
+     value = process_sp->ReadUnsignedIntegerFromMemory(value + (is_64bit ? 20 : 12), 4, 0, error);
+     if (error.Fail())
+     return false;
+     if (is_64bit)
+     value &= ~0x1fff000000000000UL;
+     }*/
     else
     {
+        auto& map(NSSet_Additionals::GetAdditionalSummaries());
+        auto iter = map.find(class_name_cs), end = map.end();
+        if (iter != end)
+            return iter->second(valobj, stream, options);
         if (!ExtractValueFromObjCExpression(valobj, "int", "count", value))
             return false;
     }
     
-    stream.Printf("%s%" PRIu64 " %s%s",
-                  (cf_style ? "@\"" : ""),
+    std::string prefix,suffix;
+    if (Language* language = Language::FindPlugin(options.GetLanguage()))
+    {
+        if (!language->GetFormatterPrefixSuffix(valobj, g_TypeHint, prefix, suffix))
+        {
+            prefix.clear();
+            suffix.clear();
+        }
+    }
+    
+    stream.Printf("%s%" PRIu64 " %s%s%s",
+                  prefix.c_str(),
                   value,
-                  (cf_style ? (value == 1 ? "value" : "values") : (value == 1 ? "object" : "objects")),
-                  (cf_style ? "\"" : ""));
+                  "element",
+                  value == 1 ? "" : "s",
+                  suffix.c_str());
     return true;
 }
 
-SyntheticChildrenFrontEnd* lldb_private::formatters::NSSetSyntheticFrontEndCreator (CXXSyntheticChildren*, lldb::ValueObjectSP valobj_sp)
+SyntheticChildrenFrontEnd* lldb_private::formatters::NSSetSyntheticFrontEndCreator (CXXSyntheticChildren* synth, lldb::ValueObjectSP valobj_sp)
 {
     lldb::ProcessSP process_sp (valobj_sp->GetProcessSP());
     if (!process_sp)
@@ -273,7 +309,10 @@ SyntheticChildrenFrontEnd* lldb_private::formatters::NSSetSyntheticFrontEndCreat
     if (!runtime)
         return NULL;
     
-    if (!valobj_sp->IsPointerType())
+    CompilerType valobj_type(valobj_sp->GetCompilerType());
+    Flags flags(valobj_type.GetTypeInfo());
+    
+    if (flags.IsClear(eTypeIsPointer))
     {
         Error error;
         valobj_sp = valobj_sp->AddressOf(error);
@@ -286,7 +325,8 @@ SyntheticChildrenFrontEnd* lldb_private::formatters::NSSetSyntheticFrontEndCreat
     if (!descriptor.get() || !descriptor->IsValid())
         return NULL;
     
-    const char* class_name = descriptor->GetClassName().GetCString();
+    ConstString class_name_cs = descriptor->GetClassName();
+    const char* class_name = class_name_cs.GetCString();
     
     if (!class_name || !*class_name)
         return NULL;
@@ -305,6 +345,10 @@ SyntheticChildrenFrontEnd* lldb_private::formatters::NSSetSyntheticFrontEndCreat
     }
     else
     {
+        auto& map(NSSet_Additionals::GetAdditionalSynthetics());
+        auto iter = map.find(class_name_cs), end = map.end();
+        if (iter != end)
+            return iter->second(synth, valobj_sp);
         return /*(new NSSetCodeRunningSyntheticFrontEnd(valobj_sp))*/ NULL;
     }
 }
@@ -468,10 +512,10 @@ lldb_private::formatters::NSSetISyntheticFrontEnd::GetChildAtIndex (size_t idx)
                            process_sp->GetAddressByteSize());
         
         set_item.valobj_sp =
-            CreateValueObjectFromData(idx_name.GetData(),
-                                      data,
-                                      m_exe_ctx_ref,
-                                      m_backend.GetCompilerType().GetBasicTypeFromAST(lldb::eBasicTypeObjCID));
+        CreateValueObjectFromData(idx_name.GetData(),
+                                  data,
+                                  m_exe_ctx_ref,
+                                  m_backend.GetCompilerType().GetBasicTypeFromAST(lldb::eBasicTypeObjCID));
     }
     return set_item.valobj_sp;
 }
@@ -566,7 +610,7 @@ lldb::ValueObjectSP
 lldb_private::formatters::NSSetMSyntheticFrontEnd::GetChildAtIndex (size_t idx)
 {
     lldb::addr_t m_objs_addr = (m_data_32 ? m_data_32->_objs_addr : m_data_64->_objs_addr);
-
+    
     uint32_t num_children = CalculateNumChildren();
     
     if (idx >= num_children)
@@ -636,10 +680,10 @@ lldb_private::formatters::NSSetMSyntheticFrontEnd::GetChildAtIndex (size_t idx)
                            process_sp->GetAddressByteSize());
         
         set_item.valobj_sp =
-            CreateValueObjectFromData(idx_name.GetData(),
-                                      data,
-                                      m_exe_ctx_ref,
-                                      m_backend.GetCompilerType().GetBasicTypeFromAST(lldb::eBasicTypeObjCID));
+        CreateValueObjectFromData(idx_name.GetData(),
+                                  data,
+                                  m_exe_ctx_ref,
+                                  m_backend.GetCompilerType().GetBasicTypeFromAST(lldb::eBasicTypeObjCID));
     }
     return set_item.valobj_sp;
 }
@@ -705,10 +749,6 @@ lldb_private::formatters::NSOrderedSetSyntheticFrontEnd::GetIndexOfChildWithName
     if (idx < UINT32_MAX && idx >= CalculateNumChildren())
         return UINT32_MAX;
     return idx;
-}
-
-lldb_private::formatters::NSOrderedSetSyntheticFrontEnd::~NSOrderedSetSyntheticFrontEnd ()
-{
 }
 
 template bool

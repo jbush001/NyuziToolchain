@@ -5145,4 +5145,47 @@ void test() {
 }  // end namespace TestReferenceNoThreadSafetyAnalysis
 
 
+namespace GlobalAcquiredBeforeAfterTest {
 
+Mutex mu1;
+Mutex mu2 ACQUIRED_AFTER(mu1);
+
+void test3() {
+  mu2.Lock();
+  mu1.Lock();  // expected-warning {{mutex 'mu1' must be acquired before 'mu2'}}
+  mu1.Unlock();
+  mu2.Unlock();
+}
+
+}  // end namespace  GlobalAcquiredBeforeAfterTest
+
+
+namespace LockableUnions {
+
+union LOCKABLE MutexUnion {
+  int a;
+  char* b;
+
+  void Lock()   EXCLUSIVE_LOCK_FUNCTION();
+  void Unlock() UNLOCK_FUNCTION();
+};
+
+MutexUnion muun2;
+MutexUnion muun1 ACQUIRED_BEFORE(muun2);
+
+void test() {
+  muun2.Lock();
+  muun1.Lock();  // expected-warning {{mutex 'muun1' must be acquired before 'muun2'}}
+  muun1.Unlock();
+  muun2.Unlock();
+}
+
+}  // end namespace LockableUnions
+
+// This used to crash.
+class acquired_before_empty_str {
+  void WaitUntilSpaceAvailable() {
+    lock_.ReaderLock(); // expected-note {{acquired here}}
+  } // expected-warning {{mutex 'lock_' is still held at the end of function}}
+  Mutex lock_ ACQUIRED_BEFORE("");
+};

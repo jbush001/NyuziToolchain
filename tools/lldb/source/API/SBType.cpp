@@ -13,6 +13,7 @@
 #include "lldb/API/SBStream.h"
 #include "lldb/Core/ConstString.h"
 #include "lldb/Core/Log.h"
+#include "lldb/Core/Mangled.h"
 #include "lldb/Core/Stream.h"
 #include "lldb/Symbol/CompilerType.h"
 #include "lldb/Symbol/Type.h"
@@ -262,6 +263,14 @@ SBType::IsTypedefType ()
     if (!IsValid())
         return false;
     return m_opaque_sp->GetCompilerType(true).IsTypedefType();
+}
+
+bool
+SBType::IsAnonymousType ()
+{
+    if (!IsValid())
+        return false;
+    return m_opaque_sp->GetCompilerType(true).IsAnonymousType();
 }
 
 lldb::SBType
@@ -775,6 +784,30 @@ SBTypeMemberFunction::GetName ()
         return m_opaque_sp->GetName().GetCString();
     return NULL;
 }
+
+const char *
+SBTypeMemberFunction::GetDemangledName ()
+{
+    if (m_opaque_sp)
+    {
+        ConstString mangled_str = m_opaque_sp->GetMangledName();
+        if (mangled_str)
+        {
+            Mangled mangled(mangled_str, true);
+            return mangled.GetDemangledName(mangled.GuessLanguage()).GetCString();
+        }
+    }
+    return NULL;
+}
+
+const char *
+SBTypeMemberFunction::GetMangledName()
+{
+    if (m_opaque_sp)
+        return m_opaque_sp->GetMangledName().GetCString();
+    return NULL;
+}
+
 
 SBType
 SBTypeMemberFunction::GetType ()

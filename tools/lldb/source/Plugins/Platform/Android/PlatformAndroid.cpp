@@ -28,6 +28,7 @@ using namespace lldb_private;
 using namespace lldb_private::platform_android;
 
 static uint32_t g_initialize_count = 0;
+static const unsigned int g_android_default_cache_size = 2048; // Fits inside 4k adb packet.
 
 void
 PlatformAndroid::Initialize ()
@@ -195,7 +196,7 @@ PlatformAndroid::ConnectRemote(Args& args)
         return Error("URL is null.");
     if (!UriParser::Parse(url, scheme, host, port, path))
         return Error("Invalid URL: %s", url);
-    if (scheme == "adb")
+    if (host != "localhost")
         m_device_id = host;
 
     auto error = PlatformLinux::ConnectRemote(args);
@@ -275,6 +276,12 @@ PlatformAndroid::DisconnectRemote()
 }
 
 uint32_t
+PlatformAndroid::GetDefaultMemoryCacheLineSize()
+{
+    return g_android_default_cache_size;
+}
+
+uint32_t
 PlatformAndroid::GetSdkVersion()
 {
     if (!IsConnected())
@@ -283,23 +290,19 @@ PlatformAndroid::GetSdkVersion()
     if (m_sdk_version != 0)
         return m_sdk_version;
 
-    int status = 0;
     std::string version_string;
-    Error error = RunShellCommand("getprop ro.build.version.sdk",
-                                  GetWorkingDirectory(),
-                                  &status,
-                                  nullptr,
-                                  &version_string,
-                                  1);
-    if (error.Fail() || status != 0 || version_string.empty())
+    AdbClient adb(m_device_id);
+    Error error = adb.Shell("getprop ro.build.version.sdk", 5000 /* ms */, &version_string);
+    version_string = llvm::StringRef(version_string).trim().str();
+
+    if (error.Fail() || version_string.empty())
     {
         Log* log = GetLogIfAllCategoriesSet(LIBLLDB_LOG_PLATFORM);
         if (log)
-            log->Printf("Get SDK version failed. (status: %d, error: %s, output: %s)",
-                        status, error.AsCString(), version_string.c_str());
+            log->Printf("Get SDK version failed. (error: %s, output: %s)",
+                        error.AsCString(), version_string.c_str());
         return 0;
     }
-    version_string.erase(version_string.size() - 1); // Remove trailing new line
 
     m_sdk_version = StringConvert::ToUInt32(version_string.c_str());
     return m_sdk_version;
@@ -325,33 +328,21 @@ PlatformAndroid::DownloadSymbolFile (const lldb::ModuleSP& module_sp,
     if (module_sp->GetSectionList()->FindSectionByName(ConstString(".symtab")) != nullptr)
         return Error("Symtab already available in the module");
 
-    int status = 0;
-    std::string tmpdir;
-    StreamString command;
-    command.Printf("mktemp --directory --tmpdir %s", GetWorkingDirectory().GetCString());
-    Error error = RunShellCommand(command.GetData(),
-                                  GetWorkingDirectory(),
-                                  &status,
-                                  nullptr,
-                                  &tmpdir,
-                                  5 /* timeout (s) */);
+    AdbClient adb(m_device_id);
 
-    if (error.Fail() || status != 0 || tmpdir.empty())
+    std::string tmpdir;
+    Error error = adb.Shell("mktemp --directory --tmpdir /data/local/tmp", 5000 /* ms */, &tmpdir);
+    if (error.Fail() || tmpdir.empty())
         return Error("Failed to generate temporary directory on the device (%s)", error.AsCString());
-    tmpdir.erase(tmpdir.size() - 1); // Remove trailing new line
+    tmpdir = llvm::StringRef(tmpdir).trim().str();
 
     // Create file remover for the temporary directory created on the device
     std::unique_ptr<std::string, std::function<void(std::string*)>> tmpdir_remover(
         &tmpdir,
-        [this](std::string* s) {
+        [this, &adb](std::string* s) {
             StreamString command;
             command.Printf("rm -rf %s", s->c_str());
-            Error error = this->RunShellCommand(command.GetData(),
-                                                GetWorkingDirectory(),
-                                                nullptr,
-                                                nullptr,
-                                                nullptr,
-                                                5 /* timeout (s) */);
+            Error error = adb.Shell(command.GetData(), 5000 /* ms */, nullptr);
 
             Log *log(GetLogIfAllCategoriesSet (LIBLLDB_LOG_PLATFORM));
             if (error.Fail())
@@ -363,19 +354,23 @@ PlatformAndroid::DownloadSymbolFile (const lldb::ModuleSP& module_sp,
     symfile_platform_filespec.AppendPathComponent("symbolized.oat");
 
     // Execute oatdump on the remote device to generate a file with symtab
-    command.Clear();
+    StreamString command;
     command.Printf("oatdump --symbolize=%s --output=%s",
                    module_sp->GetPlatformFileSpec().GetCString(false),
                    symfile_platform_filespec.GetCString(false));
-    error = RunShellCommand(command.GetData(),
-                            GetWorkingDirectory(),
-                            &status,
-                            nullptr,
-                            nullptr,
-                            60 /* timeout (s) */);
-    if (error.Fail() || status != 0)
+    error = adb.Shell(command.GetData(), 60000 /* ms */, nullptr);
+    if (error.Fail())
         return Error("Oatdump failed: %s", error.AsCString());
 
     // Download the symbolfile from the remote device
     return GetFile(symfile_platform_filespec, dst_file_spec);
+}
+
+bool
+PlatformAndroid::GetRemoteOSVersion ()
+{
+    m_major_os_version = GetSdkVersion();
+    m_minor_os_version = 0;
+    m_update_os_version = 0;
+    return m_major_os_version != 0;
 }

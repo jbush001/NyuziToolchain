@@ -19,6 +19,7 @@
 #include "X86InstrInfo.h"
 #include "X86MachineFunctionInfo.h"
 #include "X86Subtarget.h"
+#include "llvm/Analysis/LibCallSemantics.h"
 #include "llvm/CodeGen/Passes.h" // For IDs of passes that are preserved.
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -142,37 +143,11 @@ bool X86ExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
     return true;
   }
 
-  case X86::CLEANUPRET: {
-    // Replace CATCHRET with the appropriate RET.
-    unsigned RetOp = STI->is64Bit() ? X86::RETQ : X86::RETL;
-    BuildMI(MBB, MBBI, DL, TII->get(RetOp));
-    MBBI->eraseFromParent();
-    return true;
-  }
-
-  case X86::CATCHRET: {
-    MachineBasicBlock *TargetMBB = MBBI->getOperand(0).getMBB();
-
-    // Fill EAX/RAX with the address of the target block.
-    unsigned ReturnReg = STI->is64Bit() ? X86::RAX : X86::EAX;
-    unsigned RetOp = STI->is64Bit() ? X86::RETQ : X86::RETL;
-    if (STI->is64Bit()) {
-      // LEA64r TargetMBB(%rip), %rax
-      BuildMI(MBB, MBBI, DL, TII->get(X86::LEA64r), ReturnReg)
-          .addReg(X86::RIP)
-          .addImm(0)
-          .addReg(0)
-          .addMBB(TargetMBB)
-          .addReg(0);
-    } else {
-      // MOV32ri $TargetMBB, %eax
-      BuildMI(MBB, MBBI, DL, TII->get(X86::MOV32ri))
-          .addReg(ReturnReg)
-          .addMBB(TargetMBB);
-    }
-
-    // Replace CATCHRET with the appropriate RET.
-    BuildMI(MBB, MBBI, DL, TII->get(RetOp)).addReg(ReturnReg);
+  case X86::EH_RESTORE: {
+    // Restore ESP and EBP, and optionally ESI if required.
+    bool IsSEH = isAsynchronousEHPersonality(classifyEHPersonality(
+        MBB.getParent()->getFunction()->getPersonalityFn()));
+    X86FL->restoreWin32EHStackPointers(MBB, MBBI, DL, /*RestoreSP=*/IsSEH);
     MBBI->eraseFromParent();
     return true;
   }

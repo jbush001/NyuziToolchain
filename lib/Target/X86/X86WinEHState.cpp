@@ -66,18 +66,12 @@ private:
 
   void linkExceptionRegistration(IRBuilder<> &Builder, Function *Handler);
   void unlinkExceptionRegistration(IRBuilder<> &Builder);
-  void addCXXStateStores(Function &F, WinEHFuncInfo &FuncInfo);
-  void addSEHStateStores(Function &F, WinEHFuncInfo &FuncInfo);
-  void addStateStoresToFunclet(Value *ParentRegNode, WinEHFuncInfo &FuncInfo,
-                               Function &F, int BaseState);
+  void addStateStores(Function &F, WinEHFuncInfo &FuncInfo);
   void insertStateNumberStore(Value *ParentRegNode, Instruction *IP, int State);
-  void insertRestoreFrame(BasicBlock *BB);
 
   Value *emitEHLSDA(IRBuilder<> &Builder, Function *F);
 
   Function *generateLSDAInEAXThunk(Function *ParentFunc);
-
-  int escapeRegNode(Function &F);
 
   // Module-level type getters.
   Type *getEHLinkRegistrationType();
@@ -149,14 +143,7 @@ void WinEHStatePass::getAnalysisUsage(AnalysisUsage &AU) const {
 }
 
 bool WinEHStatePass::runOnFunction(Function &F) {
-  // If this is an outlined handler, don't do anything. We'll do state insertion
-  // for it in the parent.
-  StringRef WinEHParentName =
-      F.getFnAttribute("wineh-parent").getValueAsString();
-  if (WinEHParentName != F.getName() && !WinEHParentName.empty())
-    return false;
-
-  // Check the personality. Do nothing if this is not an MSVC personality.
+  // Check the personality. Do nothing if this personality doesn't use funclets.
   if (!F.hasPersonalityFn())
     return false;
   PersonalityFn =
@@ -164,22 +151,20 @@ bool WinEHStatePass::runOnFunction(Function &F) {
   if (!PersonalityFn)
     return false;
   Personality = classifyEHPersonality(PersonalityFn);
-  if (!isMSVCEHPersonality(Personality))
+  if (!isFuncletEHPersonality(Personality))
     return false;
 
   // Skip this function if there are no EH pads and we aren't using IR-level
   // outlining.
-  if (WinEHParentName.empty()) {
-    bool HasPads = false;
-    for (BasicBlock &BB : F) {
-      if (BB.isEHPad()) {
-        HasPads = true;
-        break;
-      }
+  bool HasPads = false;
+  for (BasicBlock &BB : F) {
+    if (BB.isEHPad()) {
+      HasPads = true;
+      break;
     }
-    if (!HasPads)
-      return false;
   }
+  if (!HasPads)
+    return false;
 
   // Disable frame pointer elimination in this function.
   // FIXME: Do the nested handlers need to keep the parent ebp in ebp, or can we
@@ -188,26 +173,13 @@ bool WinEHStatePass::runOnFunction(Function &F) {
 
   emitExceptionRegistrationRecord(&F);
 
-  auto *MMI = getAnalysisIfAvailable<MachineModuleInfo>();
-  // If MMI is null, create our own WinEHFuncInfo.  This only happens in opt
-  // tests.
-  std::unique_ptr<WinEHFuncInfo> FuncInfoPtr;
-  if (!MMI)
-    FuncInfoPtr.reset(new WinEHFuncInfo());
-  WinEHFuncInfo &FuncInfo =
-      *(MMI ? &MMI->getWinEHFuncInfo(&F) : FuncInfoPtr.get());
-
-  FuncInfo.EHRegNode = RegNode;
-
-  switch (Personality) {
-  default: llvm_unreachable("unexpected personality function");
-  case EHPersonality::MSVC_CXX:
-    addCXXStateStores(F, FuncInfo);
-    break;
-  case EHPersonality::MSVC_X86SEH:
-    addSEHStateStores(F, FuncInfo);
-    break;
-  }
+  // The state numbers calculated here in IR must agree with what we calculate
+  // later on for the MachineFunction. In particular, if an IR pass deletes an
+  // unreachable EH pad after this point before machine CFG construction, we
+  // will be in trouble. If this assumption is ever broken, we should turn the
+  // numbers into an immutable analysis pass.
+  WinEHFuncInfo FuncInfo;
+  addStateStores(F, FuncInfo);
 
   // Reset per-function state.
   PersonalityFn = nullptr;
@@ -298,7 +270,7 @@ void WinEHStatePass::emitExceptionRegistrationRecord(Function *F) {
     Builder.CreateStore(SP, Builder.CreateStructGEP(RegNodeTy, RegNode, 0));
     // TryLevel = -1
     StateFieldIndex = 2;
-    insertStateNumberStore(RegNode, Builder.GetInsertPoint(), -1);
+    insertStateNumberStore(RegNode, &*Builder.GetInsertPoint(), -1);
     // Handler = __ehhandler$F
     Function *Trampoline = generateLSDAInEAXThunk(F);
     Link = Builder.CreateStructGEP(RegNodeTy, RegNode, 1);
@@ -315,7 +287,7 @@ void WinEHStatePass::emitExceptionRegistrationRecord(Function *F) {
     Builder.CreateStore(SP, Builder.CreateStructGEP(RegNodeTy, RegNode, 0));
     // TryLevel = -2 / -1
     StateFieldIndex = 4;
-    insertStateNumberStore(RegNode, Builder.GetInsertPoint(),
+    insertStateNumberStore(RegNode, &*Builder.GetInsertPoint(),
                            UseStackGuard ? -2 : -1);
     // ScopeTable = llvm.x86.seh.lsda(F)
     Value *FI8 = Builder.CreateBitCast(F, Int8PtrType);
@@ -384,7 +356,7 @@ Function *WinEHStatePass::generateLSDAInEAXThunk(Function *ParentFunc) {
   Value *CastPersonality =
       Builder.CreateBitCast(PersonalityFn, TargetFuncTy->getPointerTo());
   auto AI = Trampoline->arg_begin();
-  Value *Args[5] = {LSDA, AI++, AI++, AI++, AI++};
+  Value *Args[5] = {LSDA, &*AI++, &*AI++, &*AI++, &*AI++};
   CallInst *Call = Builder.CreateCall(CastPersonality, Args);
   // Can't use musttail due to prototype mismatch, but we can use tail.
   Call->setTailCall(true);
@@ -428,60 +400,21 @@ void WinEHStatePass::unlinkExceptionRegistration(IRBuilder<> &Builder) {
   Builder.CreateStore(Next, FSZero);
 }
 
-void WinEHStatePass::addCXXStateStores(Function &F, WinEHFuncInfo &FuncInfo) {
-  calculateWinCXXEHStateNumbers(&F, FuncInfo);
+void WinEHStatePass::addStateStores(Function &F, WinEHFuncInfo &FuncInfo) {
+  // Mark the registration node. The backend needs to know which alloca it is so
+  // that it can recover the original frame pointer.
+  IRBuilder<> Builder(RegNode->getParent(), std::next(RegNode->getIterator()));
+  Value *RegNodeI8 = Builder.CreateBitCast(RegNode, Builder.getInt8PtrTy());
+  Builder.CreateCall(
+      Intrinsic::getDeclaration(TheModule, Intrinsic::x86_seh_ehregnode),
+      {RegNodeI8});
 
-  // The base state for the parent is -1.
-  addStateStoresToFunclet(RegNode, FuncInfo, F, -1);
+  // Calculate state numbers.
+  if (isAsynchronousEHPersonality(Personality))
+    calculateSEHStateNumbers(&F, FuncInfo);
+  else
+    calculateWinCXXEHStateNumbers(&F, FuncInfo);
 
-  // Set up RegNodeEscapeIndex
-  int RegNodeEscapeIndex = escapeRegNode(F);
-  FuncInfo.EHRegNodeEscapeIndex = RegNodeEscapeIndex;
-}
-
-/// Escape RegNode so that we can access it from child handlers. Find the call
-/// to localescape, if any, in the entry block and append RegNode to the list
-/// of arguments.
-int WinEHStatePass::escapeRegNode(Function &F) {
-  // Find the call to localescape and extract its arguments.
-  IntrinsicInst *EscapeCall = nullptr;
-  for (Instruction &I : F.getEntryBlock()) {
-    IntrinsicInst *II = dyn_cast<IntrinsicInst>(&I);
-    if (II && II->getIntrinsicID() == Intrinsic::localescape) {
-      EscapeCall = II;
-      break;
-    }
-  }
-  SmallVector<Value *, 8> Args;
-  if (EscapeCall) {
-    auto Ops = EscapeCall->arg_operands();
-    Args.append(Ops.begin(), Ops.end());
-  }
-  Args.push_back(RegNode);
-
-  // Replace the call (if it exists) with new one. Otherwise, insert at the end
-  // of the entry block.
-  Instruction *InsertPt = EscapeCall;
-  if (!EscapeCall)
-    InsertPt = F.getEntryBlock().getTerminator();
-  IRBuilder<> Builder(&F.getEntryBlock(), InsertPt);
-  Builder.CreateCall(FrameEscape, Args);
-  if (EscapeCall)
-    EscapeCall->eraseFromParent();
-  return Args.size() - 1;
-}
-
-void WinEHStatePass::insertRestoreFrame(BasicBlock *BB) {
-  Instruction *Start = BB->getFirstInsertionPt();
-  if (match(Start, m_Intrinsic<Intrinsic::x86_seh_restoreframe>()))
-    return;
-  IRBuilder<> Builder(Start);
-  Builder.CreateCall(RestoreFrame, {});
-}
-
-void WinEHStatePass::addStateStoresToFunclet(Value *ParentRegNode,
-                                             WinEHFuncInfo &FuncInfo,
-                                             Function &F, int BaseState) {
   // Iterate all the instructions and emit state number stores.
   for (BasicBlock &BB : F) {
     for (Instruction &I : BB) {
@@ -490,102 +423,16 @@ void WinEHStatePass::addStateStoresToFunclet(Value *ParentRegNode,
         // an unwind. Ensure they are in the -1 state.
         if (CI->doesNotThrow())
           continue;
-        insertStateNumberStore(ParentRegNode, CI, BaseState);
+        insertStateNumberStore(RegNode, CI, -1);
       } else if (auto *II = dyn_cast<InvokeInst>(&I)) {
         // Look up the state number of the landingpad this unwinds to.
         Instruction *PadInst = II->getUnwindDest()->getFirstNonPHI();
         // FIXME: Why does this assertion fail?
         //assert(FuncInfo.EHPadStateMap.count(PadInst) && "EH Pad has no state!");
         int State = FuncInfo.EHPadStateMap[PadInst];
-        insertStateNumberStore(ParentRegNode, II, State);
-      }
-    }
-  }
-}
-
-/// Assign every distinct landingpad a unique state number for SEH. Unlike C++
-/// EH, we can use this very simple algorithm while C++ EH cannot because catch
-/// handlers aren't outlined and the runtime doesn't have to figure out which
-/// catch handler frame to unwind to.
-/// FIXME: __finally blocks are outlined, so this approach may break down there.
-void WinEHStatePass::addSEHStateStores(Function &F, WinEHFuncInfo &FuncInfo) {
-  // Remember and return the index that we used. We save it in WinEHFuncInfo so
-  // that we can lower llvm.x86.seh.recoverfp later in filter functions without
-  // too much trouble.
-  int RegNodeEscapeIndex = escapeRegNode(F);
-  FuncInfo.EHRegNodeEscapeIndex = RegNodeEscapeIndex;
-
-  // If this funciton uses the new EH IR, use the explicit state numbering
-  // algorithm and return early.
-  bool UsesLPads = false;
-  for (BasicBlock &BB : F) {
-    if (BB.isLandingPad()) {
-      UsesLPads = true;
-      break;
-    }
-  }
-  if (!UsesLPads) {
-    calculateSEHStateNumbers(&F, FuncInfo);
-    addStateStoresToFunclet(RegNode, FuncInfo, F, -1);
-    return;
-  }
-  // FIXME: Delete the rest of this code and clean things up when new EH is
-  // done.
-
-  // Iterate all the instructions and emit state number stores.
-  int CurState = 0;
-  SmallPtrSet<BasicBlock *, 4> ExceptBlocks;
-  for (BasicBlock &BB : F) {
-    for (auto I = BB.begin(), E = BB.end(); I != E; ++I) {
-      if (auto *CI = dyn_cast<CallInst>(I)) {
-        auto *Intrin = dyn_cast<IntrinsicInst>(CI);
-        if (Intrin) {
-          // Calls that "don't throw" are considered to be able to throw asynch
-          // exceptions, but intrinsics cannot.
-          continue;
-        }
-        insertStateNumberStore(RegNode, CI, -1);
-      } else if (auto *II = dyn_cast<InvokeInst>(I)) {
-        // Look up the state number of the landingpad this unwinds to.
-        LandingPadInst *LPI = II->getUnwindDest()->getLandingPadInst();
-        auto InsertionPair =
-            FuncInfo.EHPadStateMap.insert(std::make_pair(LPI, CurState));
-        auto Iter = InsertionPair.first;
-        int &State = Iter->second;
-        bool Inserted = InsertionPair.second;
-        if (Inserted) {
-          // Each action consumes a state number.
-          auto *EHActions = cast<IntrinsicInst>(LPI->getNextNode());
-          SmallVector<std::unique_ptr<ActionHandler>, 4> ActionList;
-          parseEHActions(EHActions, ActionList);
-          assert(!ActionList.empty());
-          CurState += ActionList.size();
-          State += ActionList.size() - 1;
-
-          // Remember all the __except block targets.
-          for (auto &Handler : ActionList) {
-            if (auto *CH = dyn_cast<CatchHandler>(Handler.get())) {
-              auto *BA = cast<BlockAddress>(CH->getHandlerBlockOrFunc());
-#ifndef NDEBUG
-              for (BasicBlock *Pred : predecessors(BA->getBasicBlock()))
-                assert(Pred->isLandingPad() &&
-                       "WinEHPrepare failed to split block");
-#endif
-              ExceptBlocks.insert(BA->getBasicBlock());
-            }
-          }
-        }
         insertStateNumberStore(RegNode, II, State);
       }
     }
-  }
-
-  // Insert llvm.x86.seh.restoreframe() into each __except block.
-  Function *RestoreFrame =
-      Intrinsic::getDeclaration(TheModule, Intrinsic::x86_seh_restoreframe);
-  for (BasicBlock *ExceptBB : ExceptBlocks) {
-    IRBuilder<> Builder(ExceptBB->begin());
-    Builder.CreateCall(RestoreFrame, {});
   }
 }
 

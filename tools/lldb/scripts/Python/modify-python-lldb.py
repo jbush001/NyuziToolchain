@@ -21,14 +21,32 @@
 # subsystem.
 #
 
-import sys, re, StringIO
+# System modules
+import sys, re
+if sys.version_info.major >= 3:
+    import io as StringIO
+else:
+    import StringIO
 
-if len (sys.argv) != 2:
+# import use_lldb_suite so we can find third-party and helper modules
+import use_lldb_suite
+
+# Third party modules
+import six
+
+# LLDB modules
+
+if len(sys.argv) != 2:
     output_name = "./lldb.py"
 else:
     output_name = sys.argv[1] + "/lldb.py"
 
 # print "output_name is '" + output_name + "'"
+
+#
+# Version string
+# 
+version_line = "swig_version = %s"
 
 #
 # Residues to be removed.
@@ -186,9 +204,14 @@ eq_def = "    def __eq__(self, other): return isinstance(other, %s) and %s"
 ne_def = "    def __ne__(self, other): return not self.__eq__(other)"
 
 # Called to implement truth value testing and the built-in operation bool();
+# Note that Python 2 uses __nonzero__(), whereas Python 3 uses __bool__()
 # should return False or True, or their integer equivalents 0 or 1.
 # Delegate to self.IsValid() if it is defined for the current lldb object.
-nonzero_def = "    def __nonzero__(self): return self.IsValid()"
+
+if six.PY2:
+    nonzero_def = "    def __nonzero__(self): return self.IsValid()"
+else:
+    nonzero_def = "    def __bool__(self): return self.IsValid()"
 
 # A convenience iterator for SBSymbol!
 symbol_in_section_iter_def = '''
@@ -269,7 +292,7 @@ class NewContent(StringIO.StringIO):
     def add_line(self, a_line):
         """Add a line to the content, if there is a previous line, commit it."""
         if self.prev_line != None:
-            print >> self, self.prev_line
+            self.write(self.prev_line + "\n")
         self.prev_line = a_line
     def del_line(self):
         """Forget about the previous line, do not commit it."""
@@ -281,7 +304,7 @@ class NewContent(StringIO.StringIO):
     def finish(self):
         """Call this when you're finished with populating content."""
         if self.prev_line != None:
-            print >> self, self.prev_line
+            self.write(self.prev_line + "\n")
         self.prev_line = None
 
 # The new content will have the iteration protocol defined for our lldb objects.
@@ -289,6 +312,9 @@ new_content = NewContent()
 
 with open(output_name, 'r') as f_in:
     content = f_in.read()
+
+# The pattern for recognizing the SWIG Version string
+version_pattern = re.compile("^# Version:? (.*)$")
 
 # The pattern for recognizing the beginning of an SB class definition.
 class_pattern = re.compile("^class (SB.*)\(_object\):$")
@@ -300,10 +326,11 @@ init_pattern = re.compile("^    def __init__\(self.*\):")
 isvalid_pattern = re.compile("^    def IsValid\(")
 
 # These define the states of our finite state machine.
-NORMAL = 0
-DEFINING_ITERATOR = 1
-DEFINING_EQUALITY = 2
-CLEANUP_DOCSTRING = 4
+EXPECTING_VERSION = 0
+NORMAL = 1
+DEFINING_ITERATOR = 2
+DEFINING_EQUALITY = 4
+CLEANUP_DOCSTRING = 8
 
 # The lldb_iter_def only needs to be inserted once.
 lldb_iter_defined = False;
@@ -325,13 +352,16 @@ lldb_iter_defined = False;
 # The FSM, in all possible states, also checks the current input for IsValid()
 # definition, and inserts a __nonzero__() method definition to implement truth
 # value testing and the built-in operation bool().
-state = NORMAL
+state = EXPECTING_VERSION
+
+swig_version_tuple = None
 for line in content.splitlines():
     # Handle the state transition into CLEANUP_DOCSTRING state as it is possible
     # to enter this state from either NORMAL or DEFINING_ITERATOR/EQUALITY.
     #
     # If '        """' is the sole line, prepare to transition to the
     # CLEANUP_DOCSTRING state or out of it.
+    
     if line == toggle_docstring_cleanup_line:
         if state & CLEANUP_DOCSTRING:
             # Special handling of the trailing blank line right before the '"""'
@@ -340,6 +370,19 @@ for line in content.splitlines():
             state ^= CLEANUP_DOCSTRING
         else:
             state |= CLEANUP_DOCSTRING
+
+    if state == EXPECTING_VERSION:
+        # We haven't read the version yet, read it now.
+        if swig_version_tuple is None:
+            match = version_pattern.search(line)
+            if match:
+                v = match.group(1)
+                swig_version_tuple = tuple(map(int, (v.split("."))))
+        elif not line.startswith('#'):
+            # This is the first non-comment line after the header.  Inject the version
+            new_line = version_line % str(swig_version_tuple)
+            new_content.add_line(new_line)
+            state = NORMAL
 
     if state == NORMAL:
         match = class_pattern.search(line)

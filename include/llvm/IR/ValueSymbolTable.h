@@ -14,13 +14,13 @@
 #ifndef LLVM_IR_VALUESYMBOLTABLE_H
 #define LLVM_IR_VALUESYMBOLTABLE_H
 
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/DataTypes.h"
 
 namespace llvm {
-  template<typename ValueSubClass, typename ItemParentClass>
-        class SymbolTableListTraits;
+  template <typename ValueSubClass> class SymbolTableListTraits;
   class BasicBlock;
   class Function;
   class NamedMDNode;
@@ -33,12 +33,12 @@ namespace llvm {
 ///
 class ValueSymbolTable {
   friend class Value;
-  friend class SymbolTableListTraits<Argument, Function>;
-  friend class SymbolTableListTraits<BasicBlock, Function>;
-  friend class SymbolTableListTraits<Instruction, BasicBlock>;
-  friend class SymbolTableListTraits<Function, Module>;
-  friend class SymbolTableListTraits<GlobalVariable, Module>;
-  friend class SymbolTableListTraits<GlobalAlias, Module>;
+  friend class SymbolTableListTraits<Argument>;
+  friend class SymbolTableListTraits<BasicBlock>;
+  friend class SymbolTableListTraits<Instruction>;
+  friend class SymbolTableListTraits<Function>;
+  friend class SymbolTableListTraits<GlobalVariable>;
+  friend class SymbolTableListTraits<GlobalAlias>;
 /// @name Types
 /// @{
 public:
@@ -100,6 +100,8 @@ public:
   /// @name Mutators
   /// @{
 private:
+  ValueName *makeUniqueName(Value *V, SmallString<256> &UniqueName);
+
   /// This method adds the provided value \p N to the symbol table.  The Value
   /// must have a name which is used to place the value in the symbol table.
   /// If the inserted name conflicts, this renames the value.

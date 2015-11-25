@@ -266,7 +266,6 @@ void MipsRelocator::scanLocalReloc(MipsRelocationInfo& pReloc,
     case llvm::ELF::R_MIPS_26:
     case llvm::ELF::R_MIPS_HI16:
     case llvm::ELF::R_MIPS_LO16:
-    case llvm::ELF::R_MIPS_PC16:
     case llvm::ELF::R_MIPS_SHIFT5:
     case llvm::ELF::R_MIPS_SHIFT6:
     case llvm::ELF::R_MIPS_SUB:
@@ -328,6 +327,7 @@ void MipsRelocator::scanLocalReloc(MipsRelocationInfo& pReloc,
     case llvm::ELF::R_MIPS_TLS_TPREL_HI16:
     case llvm::ELF::R_MIPS_TLS_TPREL_LO16:
       break;
+    case llvm::ELF::R_MIPS_PC16:
     case llvm::ELF::R_MIPS_PC32:
     case llvm::ELF::R_MIPS_PC18_S3:
     case llvm::ELF::R_MIPS_PC19_S2:
@@ -409,8 +409,6 @@ void MipsRelocator::scanGlobalReloc(MipsRelocationInfo& pReloc,
         rsym->setReserved(rsym->reserved() | ReservePLT);
       }
       break;
-    case llvm::ELF::R_MIPS_PC16:
-      break;
     case llvm::ELF::R_MIPS_16:
     case llvm::ELF::R_MIPS_SHIFT5:
     case llvm::ELF::R_MIPS_SHIFT6:
@@ -440,6 +438,7 @@ void MipsRelocator::scanGlobalReloc(MipsRelocationInfo& pReloc,
       break;
     case llvm::ELF::R_MIPS_REL32:
     case llvm::ELF::R_MIPS_JALR:
+    case llvm::ELF::R_MIPS_PC16:
     case llvm::ELF::R_MIPS_PC32:
     case llvm::ELF::R_MIPS_PC18_S3:
     case llvm::ELF::R_MIPS_PC19_S2:
@@ -1087,16 +1086,30 @@ static MipsRelocator::Result jalr(MipsRelocationInfo& pReloc,
   return Relocator::OK;
 }
 
+// R_MIPS_PC16
+static MipsRelocator::Result pc16(MipsRelocationInfo& pReloc,
+                                  MipsRelocator& pParent) {
+  int64_t A = signExtend<18>(pReloc.A() << 2);
+  int64_t S = pReloc.S();
+  int64_t P = pReloc.P();
+  pReloc.result() = (A + S - P) >> 2;
+  return Relocator::OK;
+}
+
 // R_MIPS_PC32
 static MipsRelocator::Result pc32(MipsRelocationInfo& pReloc,
                                   MipsRelocator& pParent) {
+  int64_t A = pReloc.A();
+  int64_t S = pReloc.S();
+  int64_t P = pReloc.P();
+  pReloc.result() = A + S - P;
   return Relocator::OK;
 }
 
 // R_MIPS_PC18_S3
 static MipsRelocator::Result pc18_s3(MipsRelocationInfo& pReloc,
                                      MipsRelocator& pParent) {
-  int64_t A = signExtend<18>(pReloc.A()) << 3;
+  int64_t A = signExtend<21>(pReloc.A() << 3);
   int64_t S = pReloc.S();
   int64_t P = pReloc.P();
   pReloc.result() = (S + A - ((P | 7) ^ 7)) >> 3;
@@ -1106,7 +1119,7 @@ static MipsRelocator::Result pc18_s3(MipsRelocationInfo& pReloc,
 // R_MIPS_PC19_S2
 static MipsRelocator::Result pc19_s2(MipsRelocationInfo& pReloc,
                                      MipsRelocator& pParent) {
-  int64_t A = signExtend<19>(pReloc.A()) << 2;
+  int64_t A = signExtend<21>(pReloc.A() << 2);
   int64_t S = pReloc.S();
   int64_t P = pReloc.P();
   pReloc.result() = (A + S - P) >> 2;
@@ -1116,7 +1129,7 @@ static MipsRelocator::Result pc19_s2(MipsRelocationInfo& pReloc,
 // R_MIPS_PC21_S2
 static MipsRelocator::Result pc21_s2(MipsRelocationInfo& pReloc,
                                      MipsRelocator& pParent) {
-  int32_t A = signExtend<21>(pReloc.A()) << 2;
+  int32_t A = signExtend<23>(pReloc.A() << 2);
   int32_t S = pReloc.S();
   int32_t P = pReloc.P();
   pReloc.result() = (A + S - P) >> 2;
@@ -1126,7 +1139,7 @@ static MipsRelocator::Result pc21_s2(MipsRelocationInfo& pReloc,
 // R_MIPS_PC26_S2
 static MipsRelocator::Result pc26_s2(MipsRelocationInfo& pReloc,
                                      MipsRelocator& pParent) {
-  int64_t A = signExtend<26>(pReloc.A()) << 2;
+  int64_t A = signExtend<28>(pReloc.A() << 2);
   int64_t S = pReloc.S();
   int64_t P = pReloc.P();
   pReloc.result() = (A + S - P) >> 2;

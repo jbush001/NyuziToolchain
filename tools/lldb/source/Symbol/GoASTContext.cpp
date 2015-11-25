@@ -22,7 +22,9 @@
 #include "lldb/Symbol/GoASTContext.h"
 #include "lldb/Symbol/Type.h"
 #include "lldb/Target/ExecutionContext.h"
+#include "lldb/Target/Target.h"
 
+#include "Plugins/ExpressionParser/Go/GoUserExpression.h"
 #include "Plugins/SymbolFile/DWARF/DWARFASTParserGo.h"
 
 using namespace lldb;
@@ -199,9 +201,7 @@ class GoStruct : public GoType
     };
 
     GoStruct(int kind, const ConstString &name, int64_t byte_size)
-        : GoType(kind, name)
-        , m_is_complete(false)
-        , m_byte_size(byte_size)
+        : GoType(kind == 0 ? KIND_STRUCT : kind, name), m_is_complete(false), m_byte_size(byte_size)
     {
     }
 
@@ -321,18 +321,42 @@ GoASTContext::GetPluginVersion()
 }
 
 lldb::TypeSystemSP
-GoASTContext::CreateInstance (lldb::LanguageType language, const lldb_private::ArchSpec &arch)
+GoASTContext::CreateInstance (lldb::LanguageType language, Module *module, Target *target)
 {
     if (language == eLanguageTypeGo)
     {
+        ArchSpec arch;
+        std::shared_ptr<GoASTContext> go_ast_sp;
+        if (module)
+        {
+            arch = module->GetArchitecture();
+            go_ast_sp = std::shared_ptr<GoASTContext>(new GoASTContext);
+        }
+        else if (target)
+        {
+            arch = target->GetArchitecture();
+            go_ast_sp = std::shared_ptr<GoASTContextForExpr>(new GoASTContextForExpr(target->shared_from_this()));
+        }
+
         if (arch.IsValid())
         {
-            std::shared_ptr<GoASTContext> go_ast_sp(new GoASTContext);
             go_ast_sp->SetAddressByteSize(arch.GetAddressByteSize());
             return go_ast_sp;
         }
     }
     return lldb::TypeSystemSP();
+}
+
+void
+GoASTContext::EnumerateSupportedLanguages(std::set<lldb::LanguageType> &languages_for_types, std::set<lldb::LanguageType> &languages_for_expressions)
+{
+    static std::vector<lldb::LanguageType> s_supported_languages_for_types({
+        lldb::eLanguageTypeGo});
+    
+    static std::vector<lldb::LanguageType> s_supported_languages_for_expressions({});
+    
+    languages_for_types.insert(s_supported_languages_for_types.begin(), s_supported_languages_for_types.end());
+    languages_for_expressions.insert(s_supported_languages_for_expressions.begin(), s_supported_languages_for_expressions.end());
 }
 
 
@@ -341,7 +365,8 @@ GoASTContext::Initialize()
 {
     PluginManager::RegisterPlugin (GetPluginNameStatic(),
                                    "AST context plug-in",
-                                   CreateInstance);
+                                   CreateInstance,
+                                   EnumerateSupportedLanguages);
 }
 
 void
@@ -393,6 +418,10 @@ GoASTContext::IsAggregateType(lldb::opaque_compiler_type_t type)
     if (kind < GoType::KIND_ARRAY)
         return false;
     if (kind == GoType::KIND_PTR)
+        return false;
+    if (kind == GoType::KIND_CHAN)
+        return false;
+    if (kind == GoType::KIND_MAP)
         return false;
     if (kind == GoType::KIND_STRING)
         return false;
@@ -563,7 +592,8 @@ GoASTContext::IsPointerType(lldb::opaque_compiler_type_t type, CompilerType *poi
         case GoType::KIND_PTR:
         case GoType::KIND_UNSAFEPOINTER:
         case GoType::KIND_CHAN:
-            // TODO: is map a pointer? string? function?
+        case GoType::KIND_MAP:
+            // TODO: is function a pointer?
             return true;
         default:
             return false;
@@ -1044,6 +1074,11 @@ GoASTContext::GetNumChildren(lldb::opaque_compiler_type_t type, bool omit_empty_
     {
         return array->GetLength();
     }
+    else if (t->IsTypedef())
+    {
+        return t->GetElementType().GetNumChildren(omit_empty_base_classes);
+    }
+
     return GetNumFields(type);
 }
 
@@ -1099,7 +1134,7 @@ GoASTContext::GetChildCompilerTypeAtIndex(lldb::opaque_compiler_type_t type, Exe
                                           bool omit_empty_base_classes, bool ignore_array_bounds, std::string &child_name,
                                           uint32_t &child_byte_size, int32_t &child_byte_offset,
                                           uint32_t &child_bitfield_bit_size, uint32_t &child_bitfield_bit_offset,
-                                          bool &child_is_base_class, bool &child_is_deref_of_parent, ValueObject *valobj)
+                                          bool &child_is_base_class, bool &child_is_deref_of_parent, ValueObject *valobj, uint64_t &language_flags)
 {
     child_name.clear();
     child_byte_size = 0;
@@ -1108,6 +1143,7 @@ GoASTContext::GetChildCompilerTypeAtIndex(lldb::opaque_compiler_type_t type, Exe
     child_bitfield_bit_offset = 0;
     child_is_base_class = false;
     child_is_deref_of_parent = false;
+    language_flags = 0;
 
     if (!type || !GetCompleteType(type))
         return CompilerType();
@@ -1132,7 +1168,7 @@ GoASTContext::GetChildCompilerTypeAtIndex(lldb::opaque_compiler_type_t type, Exe
             return pointee.GetChildCompilerTypeAtIndex(exe_ctx, idx, transparent_pointers, omit_empty_base_classes,
                                                     ignore_array_bounds, child_name, child_byte_size, child_byte_offset,
                                                     child_bitfield_bit_size, child_bitfield_bit_offset,
-                                                    child_is_base_class, tmp_child_is_deref_of_parent, valobj);
+                                                       child_is_base_class, tmp_child_is_deref_of_parent, valobj, language_flags);
         }
         else
         {
@@ -1174,7 +1210,7 @@ GoASTContext::GetChildCompilerTypeAtIndex(lldb::opaque_compiler_type_t type, Exe
         return t->GetElementType().GetChildCompilerTypeAtIndex(
             exe_ctx, idx, transparent_pointers, omit_empty_base_classes, ignore_array_bounds, child_name,
             child_byte_size, child_byte_offset, child_bitfield_bit_size, child_bitfield_bit_offset, child_is_base_class,
-            child_is_deref_of_parent, valobj);
+            child_is_deref_of_parent, valobj, language_flags);
     }
     return CompilerType();
 }
@@ -1184,6 +1220,9 @@ GoASTContext::GetChildCompilerTypeAtIndex(lldb::opaque_compiler_type_t type, Exe
 uint32_t
 GoASTContext::GetIndexOfChildWithName(lldb::opaque_compiler_type_t type, const char *name, bool omit_empty_base_classes)
 {
+    if (!type || !GetCompleteType(type))
+        return UINT_MAX;
+
     GoType *t = static_cast<GoType *>(type);
     GoStruct *s = t->GetStruct();
     if (s)
@@ -1467,4 +1506,14 @@ GoASTContext::GetDWARFParser()
     if (!m_dwarf_ast_parser_ap)
         m_dwarf_ast_parser_ap.reset(new DWARFASTParserGo(*this));
     return m_dwarf_ast_parser_ap.get();
+}
+
+UserExpression *
+GoASTContextForExpr::GetUserExpression(const char *expr, const char *expr_prefix, lldb::LanguageType language,
+                                       Expression::ResultType desired_type, const EvaluateExpressionOptions &options)
+{
+    TargetSP target = m_target_wp.lock();
+    if (target)
+        return new GoUserExpression(*target, expr, expr_prefix, language, desired_type, options);
+    return nullptr;
 }

@@ -237,10 +237,20 @@ static Value *EmitSignBit(CodeGenFunction &CGF, Value *V) {
   llvm::Type *IntTy = llvm::IntegerType::get(C, Width);
   V = CGF.Builder.CreateBitCast(V, IntTy);
   if (Ty->isPPC_FP128Ty()) {
-    // The higher-order double comes first, and so we need to truncate the
-    // pair to extract the overall sign. The order of the pair is the same
-    // in both little- and big-Endian modes.
+    // We want the sign bit of the higher-order double. The bitcast we just
+    // did works as if the double-double was stored to memory and then
+    // read as an i128. The "store" will put the higher-order double in the
+    // lower address in both little- and big-Endian modes, but the "load"
+    // will treat those bits as a different part of the i128: the low bits in
+    // little-Endian, the high bits in big-Endian. Therefore, on big-Endian
+    // we need to shift the high bits down to the low before truncating.
     Width >>= 1;
+    if (CGF.getTarget().isBigEndian()) {
+      Value *ShiftCst = llvm::ConstantInt::get(IntTy, Width);
+      V = CGF.Builder.CreateLShr(V, ShiftCst);
+    } 
+    // We are truncating value in order to extract the higher-order 
+    // double, which we will be using to extract the sign from.
     IntTy = llvm::IntegerType::get(C, Width);
     V = CGF.Builder.CreateTrunc(V, IntTy);
   }
@@ -276,6 +286,50 @@ static llvm::Value *EmitOverflowIntrinsic(CodeGenFunction &CGF,
   llvm::Value *Tmp = CGF.Builder.CreateCall(Callee, {X, Y});
   Carry = CGF.Builder.CreateExtractValue(Tmp, 1);
   return CGF.Builder.CreateExtractValue(Tmp, 0);
+}
+
+namespace {
+  struct WidthAndSignedness {
+    unsigned Width;
+    bool Signed;
+  };
+}
+
+static WidthAndSignedness
+getIntegerWidthAndSignedness(const clang::ASTContext &context,
+                             const clang::QualType Type) {
+  assert(Type->isIntegerType() && "Given type is not an integer.");
+  unsigned Width = Type->isBooleanType() ? 1 : context.getTypeInfo(Type).Width;
+  bool Signed = Type->isSignedIntegerType();
+  return {Width, Signed};
+}
+
+// Given one or more integer types, this function produces an integer type that
+// encompasses them: any value in one of the given types could be expressed in
+// the encompassing type.
+static struct WidthAndSignedness
+EncompassingIntegerType(ArrayRef<struct WidthAndSignedness> Types) {
+  assert(Types.size() > 0 && "Empty list of types.");
+
+  // If any of the given types is signed, we must return a signed type.
+  bool Signed = false;
+  for (const auto &Type : Types) {
+    Signed |= Type.Signed;
+  }
+
+  // The encompassing type must have a width greater than or equal to the width
+  // of the specified types.  Aditionally, if the encompassing type is signed,
+  // its width must be strictly greater than the width of any unsigned types
+  // given.
+  unsigned Width = 0;
+  for (const auto &Type : Types) {
+    unsigned MinWidth = Type.Width + (Signed && !Type.Signed);
+    if (Width < MinWidth) {
+      Width = MinWidth;
+    }
+  }
+
+  return {Width, Signed};
 }
 
 Value *CodeGenFunction::EmitVAStartEnd(Value *ArgValue, bool IsStart) {
@@ -1544,6 +1598,88 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
     Builder.CreateStore(CarryOut, CarryOutPtr);
     return RValue::get(Sum2);
   }
+
+  case Builtin::BI__builtin_add_overflow:
+  case Builtin::BI__builtin_sub_overflow:
+  case Builtin::BI__builtin_mul_overflow: {
+    const clang::Expr *LeftArg = E->getArg(0);
+    const clang::Expr *RightArg = E->getArg(1);
+    const clang::Expr *ResultArg = E->getArg(2);
+
+    clang::QualType ResultQTy =
+        ResultArg->getType()->castAs<PointerType>()->getPointeeType();
+
+    WidthAndSignedness LeftInfo =
+        getIntegerWidthAndSignedness(CGM.getContext(), LeftArg->getType());
+    WidthAndSignedness RightInfo =
+        getIntegerWidthAndSignedness(CGM.getContext(), RightArg->getType());
+    WidthAndSignedness ResultInfo =
+        getIntegerWidthAndSignedness(CGM.getContext(), ResultQTy);
+    WidthAndSignedness EncompassingInfo =
+        EncompassingIntegerType({LeftInfo, RightInfo, ResultInfo});
+
+    llvm::Type *EncompassingLLVMTy =
+        llvm::IntegerType::get(CGM.getLLVMContext(), EncompassingInfo.Width);
+
+    llvm::Type *ResultLLVMTy = CGM.getTypes().ConvertType(ResultQTy);
+
+    llvm::Intrinsic::ID IntrinsicId;
+    switch (BuiltinID) {
+    default:
+      llvm_unreachable("Unknown overflow builtin id.");
+    case Builtin::BI__builtin_add_overflow:
+      IntrinsicId = EncompassingInfo.Signed
+                        ? llvm::Intrinsic::sadd_with_overflow
+                        : llvm::Intrinsic::uadd_with_overflow;
+      break;
+    case Builtin::BI__builtin_sub_overflow:
+      IntrinsicId = EncompassingInfo.Signed
+                        ? llvm::Intrinsic::ssub_with_overflow
+                        : llvm::Intrinsic::usub_with_overflow;
+      break;
+    case Builtin::BI__builtin_mul_overflow:
+      IntrinsicId = EncompassingInfo.Signed
+                        ? llvm::Intrinsic::smul_with_overflow
+                        : llvm::Intrinsic::umul_with_overflow;
+      break;
+    }
+
+    llvm::Value *Left = EmitScalarExpr(LeftArg);
+    llvm::Value *Right = EmitScalarExpr(RightArg);
+    Address ResultPtr = EmitPointerWithAlignment(ResultArg);
+
+    // Extend each operand to the encompassing type.
+    Left = Builder.CreateIntCast(Left, EncompassingLLVMTy, LeftInfo.Signed);
+    Right = Builder.CreateIntCast(Right, EncompassingLLVMTy, RightInfo.Signed);
+
+    // Perform the operation on the extended values.
+    llvm::Value *Overflow, *Result;
+    Result = EmitOverflowIntrinsic(*this, IntrinsicId, Left, Right, Overflow);
+
+    if (EncompassingInfo.Width > ResultInfo.Width) {
+      // The encompassing type is wider than the result type, so we need to
+      // truncate it.
+      llvm::Value *ResultTrunc = Builder.CreateTrunc(Result, ResultLLVMTy);
+
+      // To see if the truncation caused an overflow, we will extend
+      // the result and then compare it to the original result.
+      llvm::Value *ResultTruncExt = Builder.CreateIntCast(
+          ResultTrunc, EncompassingLLVMTy, ResultInfo.Signed);
+      llvm::Value *TruncationOverflow =
+          Builder.CreateICmpNE(Result, ResultTruncExt);
+
+      Overflow = Builder.CreateOr(Overflow, TruncationOverflow);
+      Result = ResultTrunc;
+    }
+
+    // Finally, store the result using the pointer.
+    bool isVolatile =
+      ResultArg->getType()->getPointeeType().isVolatileQualified();
+    Builder.CreateStore(EmitToMemory(Result, ResultQTy), ResultPtr, isVolatile);
+
+    return RValue::get(Overflow);
+  }
+
   case Builtin::BI__builtin_uadd_overflow:
   case Builtin::BI__builtin_uaddl_overflow:
   case Builtin::BI__builtin_uaddll_overflow:
@@ -1573,7 +1709,7 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
     // Decide which of the overflow intrinsics we are lowering to:
     llvm::Intrinsic::ID IntrinsicId;
     switch (BuiltinID) {
-    default: llvm_unreachable("Unknown security overflow builtin id.");
+    default: llvm_unreachable("Unknown overflow builtin id.");
     case Builtin::BI__builtin_uadd_overflow:
     case Builtin::BI__builtin_uaddl_overflow:
     case Builtin::BI__builtin_uaddll_overflow:
@@ -1788,6 +1924,13 @@ RValue CodeGenFunction::EmitBuiltinExpr(const FunctionDecl *FD,
   // using exactly the normal call path.
   if (getContext().BuiltinInfo.isPredefinedLibFunction(BuiltinID))
     return emitLibraryCall(*this, FD, E, EmitScalarExpr(E->getCallee()));
+
+  // Check that a call to a target specific builtin has the correct target
+  // features.
+  // This is down here to avoid non-target specific builtins, however, if
+  // generic builtins start to require generic target features then we
+  // can move this up to the beginning of the function.
+  checkTargetFeatures(E, FD);
 
   // See if we have a target specific intrinsic.
   const char *Name = getContext().BuiltinInfo.getName(BuiltinID);
@@ -2039,7 +2182,8 @@ enum {
       AddRetType | VectorizeRetType | Add1ArgType | InventFloatType
 };
 
- struct NeonIntrinsicInfo {
+namespace {
+struct NeonIntrinsicInfo {
   unsigned BuiltinID;
   unsigned LLVMIntrinsic;
   unsigned AltLLVMIntrinsic;
@@ -2049,7 +2193,11 @@ enum {
   bool operator<(unsigned RHSBuiltinID) const {
     return BuiltinID < RHSBuiltinID;
   }
+  bool operator<(const NeonIntrinsicInfo &TE) const {
+    return BuiltinID < TE.BuiltinID;
+  }
 };
+} // end anonymous namespace
 
 #define NEONMAP0(NameBase) \
   { NEON::BI__builtin_neon_ ## NameBase, 0, 0, #NameBase, 0 }
@@ -2063,7 +2211,7 @@ enum {
       Intrinsic::LLVMIntrinsic, Intrinsic::AltLLVMIntrinsic, \
       #NameBase, TypeModifier }
 
-static NeonIntrinsicInfo ARMSIMDIntrinsicMap [] = {
+static const NeonIntrinsicInfo ARMSIMDIntrinsicMap [] = {
   NEONMAP2(vabd_v, arm_neon_vabdu, arm_neon_vabds, Add1ArgType | UnsignedAlts),
   NEONMAP2(vabdq_v, arm_neon_vabdu, arm_neon_vabds, Add1ArgType | UnsignedAlts),
   NEONMAP1(vabs_v, arm_neon_vabs, 0),
@@ -2280,7 +2428,7 @@ static NeonIntrinsicInfo ARMSIMDIntrinsicMap [] = {
   NEONMAP0(vzipq_v)
 };
 
-static NeonIntrinsicInfo AArch64SIMDIntrinsicMap[] = {
+static const NeonIntrinsicInfo AArch64SIMDIntrinsicMap[] = {
   NEONMAP1(vabs_v, aarch64_neon_abs, 0),
   NEONMAP1(vabsq_v, aarch64_neon_abs, 0),
   NEONMAP0(vaddhn_v),
@@ -2395,7 +2543,7 @@ static NeonIntrinsicInfo AArch64SIMDIntrinsicMap[] = {
   NEONMAP0(vtstq_v),
 };
 
-static NeonIntrinsicInfo AArch64SISDIntrinsicMap[] = {
+static const NeonIntrinsicInfo AArch64SISDIntrinsicMap[] = {
   NEONMAP1(vabdd_f64, aarch64_sisd_fabd, Add1ArgType),
   NEONMAP1(vabds_f32, aarch64_sisd_fabd, Add1ArgType),
   NEONMAP1(vabsd_s64, aarch64_neon_abs, Add1ArgType),
@@ -2606,9 +2754,7 @@ findNeonIntrinsicInMap(ArrayRef<NeonIntrinsicInfo> IntrinsicMap,
 
 #ifndef NDEBUG
   if (!MapProvenSorted) {
-    // FIXME: use std::is_sorted once C++11 is allowed
-    for (unsigned i = 0; i < IntrinsicMap.size() - 1; ++i)
-      assert(IntrinsicMap[i].BuiltinID <= IntrinsicMap[i + 1].BuiltinID);
+    assert(std::is_sorted(std::begin(IntrinsicMap), std::end(IntrinsicMap)));
     MapProvenSorted = true;
   }
 #endif
@@ -2895,16 +3041,19 @@ Value *CodeGenFunction::EmitCommonNeonBuiltinExpr(
     return Builder.CreateCall(F, {Ops[1], Ops[2], Ops[0]});
   }
   case NEON::BI__builtin_neon_vld1_v:
-  case NEON::BI__builtin_neon_vld1q_v:
+  case NEON::BI__builtin_neon_vld1q_v: {
+    llvm::Type *Tys[] = {Ty, Int8PtrTy};
     Ops.push_back(getAlignmentValue32(PtrOp0));
-    return EmitNeonCall(CGM.getIntrinsic(LLVMIntrinsic, Ty), Ops, "vld1");
+    return EmitNeonCall(CGM.getIntrinsic(LLVMIntrinsic, Tys), Ops, "vld1");
+  }
   case NEON::BI__builtin_neon_vld2_v:
   case NEON::BI__builtin_neon_vld2q_v:
   case NEON::BI__builtin_neon_vld3_v:
   case NEON::BI__builtin_neon_vld3q_v:
   case NEON::BI__builtin_neon_vld4_v:
   case NEON::BI__builtin_neon_vld4q_v: {
-    Function *F = CGM.getIntrinsic(LLVMIntrinsic, Ty);
+    llvm::Type *Tys[] = {Ty, Int8PtrTy};
+    Function *F = CGM.getIntrinsic(LLVMIntrinsic, Tys);
     Value *Align = getAlignmentValue32(PtrOp1);
     Ops[1] = Builder.CreateCall(F, {Ops[1], Align}, NameHint);
     Ty = llvm::PointerType::getUnqual(Ops[1]->getType());
@@ -2927,7 +3076,8 @@ Value *CodeGenFunction::EmitCommonNeonBuiltinExpr(
   case NEON::BI__builtin_neon_vld3q_lane_v:
   case NEON::BI__builtin_neon_vld4_lane_v:
   case NEON::BI__builtin_neon_vld4q_lane_v: {
-    Function *F = CGM.getIntrinsic(LLVMIntrinsic, Ty);
+    llvm::Type *Tys[] = {Ty, Int8PtrTy};
+    Function *F = CGM.getIntrinsic(LLVMIntrinsic, Tys);
     for (unsigned I = 2; I < Ops.size() - 1; ++I)
       Ops[I] = Builder.CreateBitCast(Ops[I], Ty);
     Ops.push_back(getAlignmentValue32(PtrOp1));
@@ -3046,9 +3196,11 @@ Value *CodeGenFunction::EmitCommonNeonBuiltinExpr(
   case NEON::BI__builtin_neon_vst3_lane_v:
   case NEON::BI__builtin_neon_vst3q_lane_v:
   case NEON::BI__builtin_neon_vst4_lane_v:
-  case NEON::BI__builtin_neon_vst4q_lane_v:
+  case NEON::BI__builtin_neon_vst4q_lane_v: {
+    llvm::Type *Tys[] = {Int8PtrTy, Ty};
     Ops.push_back(getAlignmentValue32(PtrOp0));
-    return EmitNeonCall(CGM.getIntrinsic(Int, Ty), Ops, "");
+    return EmitNeonCall(CGM.getIntrinsic(Int, Tys), Ops, "");
+  }
   case NEON::BI__builtin_neon_vsubhn_v: {
     llvm::VectorType *SrcTy =
         llvm::VectorType::getExtendedElementVectorType(VTy);
@@ -3776,7 +3928,8 @@ Value *CodeGenFunction::EmitARMBuiltinExpr(unsigned BuiltinID,
       Ops[1] = Builder.CreateShuffleVector(Ops[1], Ops[1], SV);
       // Load the value as a one-element vector.
       Ty = llvm::VectorType::get(VTy->getElementType(), 1);
-      Function *F = CGM.getIntrinsic(Intrinsic::arm_neon_vld1, Ty);
+      llvm::Type *Tys[] = {Ty, Int8PtrTy};
+      Function *F = CGM.getIntrinsic(Intrinsic::arm_neon_vld1, Tys);
       Value *Align = getAlignmentValue32(PtrOp0);
       Value *Ld = Builder.CreateCall(F, {Ops[0], Align});
       // Combine them.
@@ -3808,7 +3961,8 @@ Value *CodeGenFunction::EmitARMBuiltinExpr(unsigned BuiltinID,
         break;
       default: llvm_unreachable("unknown vld_dup intrinsic?");
       }
-      Function *F = CGM.getIntrinsic(Int, Ty);
+      llvm::Type *Tys[] = {Ty, Int8PtrTy};
+      Function *F = CGM.getIntrinsic(Int, Tys);
       llvm::Value *Align = getAlignmentValue32(PtrOp1);
       Ops[1] = Builder.CreateCall(F, {Ops[1], Align}, "vld_dup");
       Ty = llvm::PointerType::getUnqual(Ops[1]->getType());
@@ -3827,7 +3981,8 @@ Value *CodeGenFunction::EmitARMBuiltinExpr(unsigned BuiltinID,
       break;
     default: llvm_unreachable("unknown vld_dup intrinsic?");
     }
-    Function *F = CGM.getIntrinsic(Int, Ty);
+    llvm::Type *Tys[] = {Ty, Int8PtrTy};
+    Function *F = CGM.getIntrinsic(Int, Tys);
     llvm::StructType *STy = cast<llvm::StructType>(F->getReturnType());
 
     SmallVector<Value*, 6> Args;
@@ -3902,8 +4057,9 @@ Value *CodeGenFunction::EmitARMBuiltinExpr(unsigned BuiltinID,
       Value *SV = llvm::ConstantVector::get(cast<llvm::Constant>(Ops[2]));
       Ops[1] = Builder.CreateShuffleVector(Ops[1], Ops[1], SV);
       Ops[2] = getAlignmentValue32(PtrOp0);
+      llvm::Type *Tys[] = {Int8PtrTy, Ops[1]->getType()};
       return Builder.CreateCall(CGM.getIntrinsic(Intrinsic::arm_neon_vst1,
-                                                 Ops[1]->getType()), Ops);
+                                                 Tys), Ops);
     }
     // fall through
   case NEON::BI__builtin_neon_vst1_lane_v: {
@@ -4090,15 +4246,6 @@ static Value *EmitAArch64TblBuiltinExpr(CodeGenFunction &CGF, unsigned BuiltinID
 Value *CodeGenFunction::vectorWrapScalar16(Value *Op) {
   llvm::Type *VTy = llvm::VectorType::get(Int16Ty, 4);
   Op = Builder.CreateBitCast(Op, Int16Ty);
-  Value *V = UndefValue::get(VTy);
-  llvm::Constant *CI = ConstantInt::get(SizeTy, 0);
-  Op = Builder.CreateInsertElement(V, Op, CI);
-  return Op;
-}
-
-Value *CodeGenFunction::vectorWrapScalar8(Value *Op) {
-  llvm::Type *VTy = llvm::VectorType::get(Int8Ty, 8);
-  Op = Builder.CreateBitCast(Op, Int8Ty);
   Value *V = UndefValue::get(VTy);
   llvm::Constant *CI = ConstantInt::get(SizeTy, 0);
   Op = Builder.CreateInsertElement(V, Op, CI);
@@ -6073,6 +6220,46 @@ Value *CodeGenFunction::EmitX86BuiltinExpr(unsigned BuiltinID,
                        Builder.CreateBitCast(Tmp.getPointer(), Int8PtrTy));
     return Builder.CreateLoad(Tmp, "stmxcsr");
   }
+  case X86::BI__builtin_ia32_xsave:
+  case X86::BI__builtin_ia32_xsave64:
+  case X86::BI__builtin_ia32_xrstor:
+  case X86::BI__builtin_ia32_xrstor64:
+  case X86::BI__builtin_ia32_xsaveopt:
+  case X86::BI__builtin_ia32_xsaveopt64:
+  case X86::BI__builtin_ia32_xrstors:
+  case X86::BI__builtin_ia32_xrstors64:
+  case X86::BI__builtin_ia32_xsavec:
+  case X86::BI__builtin_ia32_xsavec64:
+  case X86::BI__builtin_ia32_xsaves:
+  case X86::BI__builtin_ia32_xsaves64: {
+    Intrinsic::ID ID;
+#define INTRINSIC_X86_XSAVE_ID(NAME) \
+    case X86::BI__builtin_ia32_##NAME: \
+      ID = Intrinsic::x86_##NAME; \
+      break
+    switch (BuiltinID) {
+    default: llvm_unreachable("Unsupported intrinsic!");
+    INTRINSIC_X86_XSAVE_ID(xsave);
+    INTRINSIC_X86_XSAVE_ID(xsave64);
+    INTRINSIC_X86_XSAVE_ID(xrstor);
+    INTRINSIC_X86_XSAVE_ID(xrstor64);
+    INTRINSIC_X86_XSAVE_ID(xsaveopt);
+    INTRINSIC_X86_XSAVE_ID(xsaveopt64);
+    INTRINSIC_X86_XSAVE_ID(xrstors);
+    INTRINSIC_X86_XSAVE_ID(xrstors64);
+    INTRINSIC_X86_XSAVE_ID(xsavec);
+    INTRINSIC_X86_XSAVE_ID(xsavec64);
+    INTRINSIC_X86_XSAVE_ID(xsaves);
+    INTRINSIC_X86_XSAVE_ID(xsaves64);
+    }
+#undef INTRINSIC_X86_XSAVE_ID
+    Value *Mhi = Builder.CreateTrunc(
+      Builder.CreateLShr(Ops[1], ConstantInt::get(Int64Ty, 32)), Int32Ty);
+    Value *Mlo = Builder.CreateTrunc(Ops[1], Int32Ty);
+    Ops[1] = Mhi;
+    Ops.push_back(Mlo);
+    return Builder.CreateCall(CGM.getIntrinsic(ID), Ops);
+  }
   case X86::BI__builtin_ia32_storehps:
   case X86::BI__builtin_ia32_storelps: {
     llvm::Type *PtrTy = llvm::PointerType::getUnqual(Int64Ty);
@@ -7011,7 +7198,9 @@ Value *CodeGenFunction::EmitNVPTXBuiltinExpr(unsigned BuiltinID,
   case NVPTX::BI__nvvm_atom_cas_gen_i:
   case NVPTX::BI__nvvm_atom_cas_gen_l:
   case NVPTX::BI__nvvm_atom_cas_gen_ll:
-    return MakeAtomicCmpXchgValue(*this, E, true);
+    // __nvvm_atom_cas_gen_* should return the old value rather than the
+    // success flag.
+    return MakeAtomicCmpXchgValue(*this, E, /*ReturnBool=*/false);
 
   case NVPTX::BI__nvvm_atom_add_gen_f: {
     Value *Ptr = EmitScalarExpr(E->getArg(0));
@@ -7031,10 +7220,15 @@ Value *CodeGenFunction::EmitNVPTXBuiltinExpr(unsigned BuiltinID,
 Value *CodeGenFunction::EmitWebAssemblyBuiltinExpr(unsigned BuiltinID,
                                                    const CallExpr *E) {
   switch (BuiltinID) {
-  case WebAssembly::BI__builtin_wasm_page_size: {
+  case WebAssembly::BI__builtin_wasm_memory_size: {
     llvm::Type *ResultType = ConvertType(E->getType());
-    Value *Callee = CGM.getIntrinsic(Intrinsic::wasm_page_size, ResultType);
+    Value *Callee = CGM.getIntrinsic(Intrinsic::wasm_memory_size, ResultType);
     return Builder.CreateCall(Callee);
+  }
+  case WebAssembly::BI__builtin_wasm_grow_memory: {
+    Value *X = EmitScalarExpr(E->getArg(0));
+    Value *Callee = CGM.getIntrinsic(Intrinsic::wasm_grow_memory, X->getType());
+    return Builder.CreateCall(Callee, X);
   }
 
   default:

@@ -272,10 +272,11 @@ bool LowerDbgDeclare(Function &F);
 DbgDeclareInst *FindAllocaDbgDeclare(Value *V);
 
 /// \brief Replaces llvm.dbg.declare instruction when an alloca is replaced with
-/// a new value.  If Deref is true, tan additional DW_OP_deref is prepended to
-/// the expression.
+/// a new value. If Deref is true, an additional DW_OP_deref is prepended to the
+/// expression. If Offset is non-zero, a constant displacement is added to the
+/// expression (after the optional Deref). Offset can be negative.
 bool replaceDbgDeclareForAlloca(AllocaInst *AI, Value *NewAllocaAddress,
-                                DIBuilder &Builder, bool Deref);
+                                DIBuilder &Builder, bool Deref, int Offset = 0);
 
 /// Replace 'BB's terminator with one that does not have an unwind successor
 /// block.  Rewrites `invoke` to `call`, `catchendpad unwind label %foo` to
@@ -303,6 +304,18 @@ unsigned replaceDominatedUsesWith(Value *From, Value *To, DominatorTree &DT,
 /// the given BasicBlock. Returns the number of replacements made.
 unsigned replaceDominatedUsesWith(Value *From, Value *To, DominatorTree &DT,
                                   const BasicBlock *BB);
+
+
+/// \brief Return true if the CallSite CS calls a gc leaf function.
+///
+/// A leaf function is a function that does not safepoint the thread during its
+/// execution.  During a call or invoke to such a function, the callers stack
+/// does not have to be made parseable.
+///
+/// Most passes can and should ignore this information, and it is only used
+/// during lowering by the GC infrastructure.
+bool callsGCLeafFunction(ImmutableCallSite CS);
+
 } // End llvm namespace
 
 #endif

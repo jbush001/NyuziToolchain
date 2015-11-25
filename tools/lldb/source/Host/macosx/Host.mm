@@ -18,7 +18,22 @@
 #if !defined(NO_XPC_SERVICES)
 #define __XPC_PRIVATE_H__
 #include <xpc/xpc.h>
-#include "launcherXPCService/LauncherXPCService.h"
+
+#define LaunchUsingXPCRightName "com.apple.dt.Xcode.RootDebuggingXPCService"
+
+// These XPC messaging keys are used for communication between Host.mm and the XPC service.
+#define LauncherXPCServiceAuthKey               "auth-key"
+#define LauncherXPCServiceArgPrefxKey           "arg"
+#define LauncherXPCServiceEnvPrefxKey           "env"
+#define LauncherXPCServiceCPUTypeKey            "cpuType"
+#define LauncherXPCServicePosixspawnFlagsKey    "posixspawnFlags"
+#define LauncherXPCServiceStdInPathKeyKey       "stdInPath"
+#define LauncherXPCServiceStdOutPathKeyKey      "stdOutPath"
+#define LauncherXPCServiceStdErrPathKeyKey      "stdErrPath"
+#define LauncherXPCServiceChildPIDKey           "childPID"
+#define LauncherXPCServiceErrorTypeKey          "errorType"
+#define LauncherXPCServiceCodeTypeKey           "errorCode"
+
 #endif
 
 #include "llvm/Support/Host.h"
@@ -30,6 +45,7 @@
 #include <pwd.h>
 #include <spawn.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/proc.h>
 #include <sys/stat.h>
 #include <sys/sysctl.h>
@@ -800,7 +816,7 @@ GetMacOSXProcessArgs (const ProcessInstanceInfoMatch *match_info_ptr,
         arg_data_size = arg_data.GetByteSize();
         if (::sysctl (proc_args_mib, 3, arg_data.GetBytes(), &arg_data_size , NULL, 0) == 0)
         {
-            DataExtractor data (arg_data.GetBytes(), arg_data_size, lldb::endian::InlHostByteOrder(), sizeof(void *));
+            DataExtractor data (arg_data.GetBytes(), arg_data_size, endian::InlHostByteOrder(), sizeof(void *));
             lldb::offset_t offset = 0;
             uint32_t argc = data.GetU32 (&offset);
             llvm::Triple &triple = process_info.GetArchitecture().GetTriple();
@@ -1102,11 +1118,7 @@ LaunchProcessXPC(const char *exe_path, ProcessLaunchInfo &launch_info, lldb::pid
     const char *xpc_service  = nil;
     bool send_auth = false;
     AuthorizationExternalForm extForm;
-    if ((requested_uid == UINT32_MAX) || (requested_uid == HostInfo::GetEffectiveUserID()))
-    {
-        xpc_service = "com.apple.lldb.launcherXPCService";
-    }
-    else if (requested_uid == 0)
+    if (requested_uid == 0)
     {
         if (AuthorizationMakeExternalForm(authorizationRef, &extForm) == errAuthorizationSuccess)
         {
@@ -1122,12 +1134,12 @@ LaunchProcessXPC(const char *exe_path, ProcessLaunchInfo &launch_info, lldb::pid
             }
             return error;
         }
-        xpc_service = "com.apple.lldb.launcherRootXPCService";
+        xpc_service = LaunchUsingXPCRightName;
     }
     else
     {
         error.SetError(4, eErrorTypeGeneric);
-        error.SetErrorStringWithFormat("Launching via XPC is only currently available for either the login user or root.");
+        error.SetErrorStringWithFormat("Launching via XPC is only currently available for root.");
         if (log)
         {
             error.PutToLog(log, "%s", error.AsCString());
@@ -1345,26 +1357,46 @@ Host::ShellExpandArguments (ProcessLaunchInfo &launch_info)
         FileSpec expand_tool_spec;
         if (!HostInfo::GetLLDBPath(lldb::ePathTypeSupportExecutableDir, expand_tool_spec))
         {
-            error.SetErrorString("could not get support executable directory for argdumper tool");
+            error.SetErrorString("could not get support executable directory for lldb-argdumper tool");
             return error;
         }
-        expand_tool_spec.AppendPathComponent("argdumper");
+        expand_tool_spec.AppendPathComponent("lldb-argdumper");
         if (!expand_tool_spec.Exists())
         {
-            error.SetErrorStringWithFormat("could not find argdumper tool: %s", expand_tool_spec.GetPath().c_str());
+            error.SetErrorStringWithFormat("could not find the lldb-argdumper tool: %s", expand_tool_spec.GetPath().c_str());
             return error;
         }
+        
+        StreamString expand_tool_spec_stream;
+        expand_tool_spec_stream.Printf("\"%s\"",expand_tool_spec.GetPath().c_str());
 
-        Args expand_command(expand_tool_spec.GetPath().c_str());
+        Args expand_command(expand_tool_spec_stream.GetData());
         expand_command.AppendArguments (launch_info.GetArguments());
         
         int status;
         std::string output;
-        RunShellCommand(expand_command, launch_info.GetWorkingDirectory(), &status, nullptr, &output, 10);
+        FileSpec cwd(launch_info.GetWorkingDirectory());
+        if (!cwd.Exists())
+        {
+            char *wd = getcwd(nullptr, 0);
+            if (wd == nullptr)
+            {
+                error.SetErrorStringWithFormat("cwd does not exist; cannot launch with shell argument expansion");
+                return error;
+            }
+            else
+            {
+                FileSpec working_dir(wd, false);
+                free(wd);
+                launch_info.SetWorkingDirectory(working_dir);
+
+            }
+        }
+        RunShellCommand(expand_command, cwd, &status, nullptr, &output, 10);
         
         if (status != 0)
         {
-            error.SetErrorStringWithFormat("argdumper exited with error %d", status);
+            error.SetErrorStringWithFormat("lldb-argdumper exited with error %d", status);
             return error;
         }
         

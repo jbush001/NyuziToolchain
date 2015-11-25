@@ -43,7 +43,6 @@ class AArch64Operand;
 class AArch64AsmParser : public MCTargetAsmParser {
 private:
   StringRef Mnemonic; ///< Instruction mnemonic.
-  MCSubtargetInfo &STI;
 
   // Map of register aliases registers via the .req directive.
   StringMap<std::pair<bool, unsigned> > RegisterReqs;
@@ -115,16 +114,16 @@ public:
 #define GET_OPERAND_DIAGNOSTIC_TYPES
 #include "AArch64GenAsmMatcher.inc"
   };
-  AArch64AsmParser(MCSubtargetInfo &STI, MCAsmParser &Parser,
+  AArch64AsmParser(const MCSubtargetInfo &STI, MCAsmParser &Parser,
                    const MCInstrInfo &MII, const MCTargetOptions &Options)
-      : MCTargetAsmParser(Options), STI(STI) {
+    : MCTargetAsmParser(Options, STI) {
     MCAsmParserExtension::Initialize(Parser);
     MCStreamer &S = getParser().getStreamer();
     if (S.getTargetStreamer() == nullptr)
       new AArch64TargetStreamer(S);
 
     // Initialize the set of available features.
-    setAvailableFeatures(ComputeAvailableFeatures(STI.getFeatureBits()));
+    setAvailableFeatures(ComputeAvailableFeatures(getSTI().getFeatureBits()));
   }
 
   bool ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
@@ -497,6 +496,15 @@ public:
     return (Val % Scale) == 0 && Val >= 0 && (Val / Scale) < 0x1000;
   }
 
+  bool isImm0_1() const {
+    if (!isImm())
+      return false;
+    const MCConstantExpr *MCE = dyn_cast<MCConstantExpr>(getImm());
+    if (!MCE)
+      return false;
+    int64_t Val = MCE->getValue();
+    return (Val >= 0 && Val < 2);
+  }
   bool isImm0_7() const {
     if (!isImm())
       return false;
@@ -876,12 +884,14 @@ public:
   }
   bool isMSRSystemRegister() const {
     if (!isSysReg()) return false;
-
     return SysReg.MSRReg != -1U;
   }
-  bool isSystemPStateField() const {
+  bool isSystemPStateFieldWithImm0_1() const {
     if (!isSysReg()) return false;
-
+    return SysReg.PStateField == AArch64PState::PAN;
+  }
+  bool isSystemPStateFieldWithImm0_15() const {
+    if (!isSysReg() || isSystemPStateFieldWithImm0_1()) return false;
     return SysReg.PStateField != -1U;
   }
   bool isReg() const override { return Kind == k_Register && !Reg.isVector; }
@@ -1175,8 +1185,10 @@ public:
   template <unsigned NumRegs>
   void addVectorList64Operands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands!");
-    static unsigned FirstRegs[] = { AArch64::D0,       AArch64::D0_D1,
-                                    AArch64::D0_D1_D2, AArch64::D0_D1_D2_D3 };
+    static const unsigned FirstRegs[] = { AArch64::D0,
+                                          AArch64::D0_D1,
+                                          AArch64::D0_D1_D2,
+                                          AArch64::D0_D1_D2_D3 };
     unsigned FirstReg = FirstRegs[NumRegs - 1];
 
     Inst.addOperand(
@@ -1186,8 +1198,10 @@ public:
   template <unsigned NumRegs>
   void addVectorList128Operands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands!");
-    static unsigned FirstRegs[] = { AArch64::Q0,       AArch64::Q0_Q1,
-                                    AArch64::Q0_Q1_Q2, AArch64::Q0_Q1_Q2_Q3 };
+    static const unsigned FirstRegs[] = { AArch64::Q0,
+                                          AArch64::Q0_Q1,
+                                          AArch64::Q0_Q1_Q2,
+                                          AArch64::Q0_Q1_Q2_Q3 };
     unsigned FirstReg = FirstRegs[NumRegs - 1];
 
     Inst.addOperand(
@@ -1302,6 +1316,12 @@ public:
     assert(N == 1 && "Invalid number of operands!");
     const MCConstantExpr *MCE = cast<MCConstantExpr>(getImm());
     Inst.addOperand(MCOperand::createImm(MCE->getValue() / 16));
+  }
+
+  void addImm0_1Operands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && "Invalid number of operands!");
+    const MCConstantExpr *MCE = cast<MCConstantExpr>(getImm());
+    Inst.addOperand(MCOperand::createImm(MCE->getValue()));
   }
 
   void addImm0_7Operands(MCInst &Inst, unsigned N) const {
@@ -1491,7 +1511,13 @@ public:
     Inst.addOperand(MCOperand::createImm(SysReg.MSRReg));
   }
 
-  void addSystemPStateFieldOperands(MCInst &Inst, unsigned N) const {
+  void addSystemPStateFieldWithImm0_1Operands(MCInst &Inst, unsigned N) const {
+    assert(N == 1 && "Invalid number of operands!");
+
+    Inst.addOperand(MCOperand::createImm(SysReg.PStateField));
+  }
+
+  void addSystemPStateFieldWithImm0_15Operands(MCInst &Inst, unsigned N) const {
     assert(N == 1 && "Invalid number of operands!");
 
     Inst.addOperand(MCOperand::createImm(SysReg.PStateField));
@@ -2016,7 +2042,7 @@ AArch64AsmParser::tryParsePrefetch(OperandVector &Operands) {
     bool Valid;
     auto Mapper = AArch64PRFM::PRFMMapper();
     StringRef Name = 
-        Mapper.toString(MCE->getValue(), STI.getFeatureBits(), Valid);
+        Mapper.toString(MCE->getValue(), getSTI().getFeatureBits(), Valid);
     Operands.push_back(AArch64Operand::CreatePrefetch(prfop, Name,
                                                       S, getContext()));
     return MatchOperand_Success;
@@ -2030,7 +2056,7 @@ AArch64AsmParser::tryParsePrefetch(OperandVector &Operands) {
   bool Valid;
   auto Mapper = AArch64PRFM::PRFMMapper();
   unsigned prfop = 
-      Mapper.fromString(Tok.getString(), STI.getFeatureBits(), Valid);
+      Mapper.fromString(Tok.getString(), getSTI().getFeatureBits(), Valid);
   if (!Valid) {
     TokError("pre-fetch hint expected");
     return MatchOperand_ParseFail;
@@ -2644,7 +2670,7 @@ AArch64AsmParser::tryParseBarrierOperand(OperandVector &Operands) {
     bool Valid;
     auto Mapper = AArch64DB::DBarrierMapper();
     StringRef Name = 
-        Mapper.toString(MCE->getValue(), STI.getFeatureBits(), Valid);
+        Mapper.toString(MCE->getValue(), getSTI().getFeatureBits(), Valid);
     Operands.push_back( AArch64Operand::CreateBarrier(MCE->getValue(), Name,
                                                       ExprLoc, getContext()));
     return MatchOperand_Success;
@@ -2658,7 +2684,7 @@ AArch64AsmParser::tryParseBarrierOperand(OperandVector &Operands) {
   bool Valid;
   auto Mapper = AArch64DB::DBarrierMapper();
   unsigned Opt = 
-      Mapper.fromString(Tok.getString(), STI.getFeatureBits(), Valid);
+      Mapper.fromString(Tok.getString(), getSTI().getFeatureBits(), Valid);
   if (!Valid) {
     TokError("invalid barrier option name");
     return MatchOperand_ParseFail;
@@ -2687,20 +2713,21 @@ AArch64AsmParser::tryParseSysReg(OperandVector &Operands) {
 
   bool IsKnown;
   auto MRSMapper = AArch64SysReg::MRSMapper();
-  uint32_t MRSReg = MRSMapper.fromString(Tok.getString(), STI.getFeatureBits(),
-                                         IsKnown);
+  uint32_t MRSReg = MRSMapper.fromString(Tok.getString(),
+                                         getSTI().getFeatureBits(), IsKnown);
   assert(IsKnown == (MRSReg != -1U) &&
          "register should be -1 if and only if it's unknown");
 
   auto MSRMapper = AArch64SysReg::MSRMapper();
-  uint32_t MSRReg = MSRMapper.fromString(Tok.getString(), STI.getFeatureBits(),
-                                         IsKnown);
+  uint32_t MSRReg = MSRMapper.fromString(Tok.getString(),
+                                         getSTI().getFeatureBits(), IsKnown);
   assert(IsKnown == (MSRReg != -1U) &&
          "register should be -1 if and only if it's unknown");
 
   auto PStateMapper = AArch64PState::PStateMapper();
   uint32_t PStateField = 
-      PStateMapper.fromString(Tok.getString(), STI.getFeatureBits(), IsKnown);
+      PStateMapper.fromString(Tok.getString(),
+                              getSTI().getFeatureBits(), IsKnown);
   assert(IsKnown == (PStateField != -1U) &&
          "register should be -1 if and only if it's unknown");
 
@@ -3151,7 +3178,7 @@ bool AArch64AsmParser::parseOperand(OperandVector &Operands, bool isCondCode,
 
     if (Operands.size() < 2 ||
         !static_cast<AArch64Operand &>(*Operands[1]).isReg())
-      return true;
+      return Error(Loc, "Only valid when first operand is register");
 
     bool IsXReg =
         AArch64MCRegisterClasses[AArch64::GPR64allRegClassID].contains(
@@ -3183,7 +3210,7 @@ bool AArch64AsmParser::parseOperand(OperandVector &Operands, bool isCondCode,
     }
     // If it is a label or an imm that cannot fit in a movz, put it into CP.
     const MCExpr *CPLoc =
-        getTargetStreamer().addConstantPoolEntry(SubExprVal, IsXReg ? 8 : 4);
+        getTargetStreamer().addConstantPoolEntry(SubExprVal, IsXReg ? 8 : 4, Loc);
     Operands.push_back(AArch64Operand::CreateImm(CPLoc, S, E, Ctx));
     return false;
   }
@@ -3601,6 +3628,8 @@ bool AArch64AsmParser::showMatchError(SMLoc Loc, unsigned ErrCode) {
     return Error(Loc, "index must be a multiple of 8 in range [0, 32760].");
   case Match_InvalidMemoryIndexed16:
     return Error(Loc, "index must be a multiple of 16 in range [0, 65520].");
+  case Match_InvalidImm0_1:
+    return Error(Loc, "immediate must be an integer in range [0, 1].");
   case Match_InvalidImm0_7:
     return Error(Loc, "immediate must be an integer in range [0, 7].");
   case Match_InvalidImm0_15:
@@ -3942,7 +3971,7 @@ bool AArch64AsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
     // suffix token operand.  The short-form match failure is probably more
     // relevant: use it instead.
     if (MatchResult == Match_InvalidOperand && ErrorInfo == 1 &&
-        ((AArch64Operand &)*Operands[1]).isToken() &&
+        Operands.size() > 1 && ((AArch64Operand &)*Operands[1]).isToken() &&
         ((AArch64Operand &)*Operands[1]).isTokenSuffix()) {
       MatchResult = ShortFormNEONMatchResult;
       ErrorInfo = ShortFormNEONErrorInfo;
@@ -3961,7 +3990,7 @@ bool AArch64AsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
       return true;
 
     Inst.setLoc(IDLoc);
-    Out.EmitInstruction(Inst, STI);
+    Out.EmitInstruction(Inst, getSTI());
     return false;
   }
   case Match_MissingFeature: {
@@ -4029,6 +4058,7 @@ bool AArch64AsmParser::MatchAndEmitInstruction(SMLoc IDLoc, unsigned &Opcode,
   case Match_InvalidMemoryIndexed8SImm7:
   case Match_InvalidMemoryIndexed16SImm7:
   case Match_InvalidMemoryIndexedSImm9:
+  case Match_InvalidImm0_1:
   case Match_InvalidImm0_7:
   case Match_InvalidImm0_15:
   case Match_InvalidImm0_31:
@@ -4101,7 +4131,7 @@ bool AArch64AsmParser::parseDirectiveWord(unsigned Size, SMLoc L) {
       if (getParser().parseExpression(Value))
         return true;
 
-      getParser().getStreamer().EmitValue(Value, Size);
+      getParser().getStreamer().EmitValue(Value, Size, L);
 
       if (getLexer().is(AsmToken::EndOfStatement))
         break;
@@ -4173,7 +4203,7 @@ bool AArch64AsmParser::parseDirectiveTLSDescCall(SMLoc L) {
   Inst.setOpcode(AArch64::TLSDESCCALL);
   Inst.addOperand(MCOperand::createExpr(Expr));
 
-  getParser().getStreamer().EmitInstruction(Inst, STI);
+  getParser().getStreamer().EmitInstruction(Inst, getSTI());
   return false;
 }
 

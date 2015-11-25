@@ -23,7 +23,6 @@
 #include "lldb/Interpreter/CommandInterpreter.h"
 #include "lldb/Interpreter/ScriptInterpreter.h"
 #include "lldb/Symbol/CompilerType.h"
-#include "lldb/Target/StackFrame.h"
 #include "lldb/Target/Target.h"
 
 using namespace lldb;
@@ -201,7 +200,15 @@ ScriptedSyntheticChildren::FrontEnd::CalculateNumChildren ()
 {
     if (!m_wrapper_sp || m_interpreter == NULL)
         return 0;
-    return m_interpreter->CalculateNumChildren(m_wrapper_sp);
+    return m_interpreter->CalculateNumChildren(m_wrapper_sp, UINT32_MAX);
+}
+
+size_t
+ScriptedSyntheticChildren::FrontEnd::CalculateNumChildren (uint32_t max)
+{
+    if (!m_wrapper_sp || m_interpreter == NULL)
+        return 0;
+    return m_interpreter->CalculateNumChildren(m_wrapper_sp, max);
 }
 
 bool

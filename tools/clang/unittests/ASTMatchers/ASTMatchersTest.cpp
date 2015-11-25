@@ -1172,6 +1172,20 @@ TEST(Matcher, SubstNonTypeTemplateParm) {
                       substNonTypeTemplateParmExpr()));
 }
 
+TEST(Matcher, NonTypeTemplateParmDecl) {
+  EXPECT_TRUE(matches("template <int N> void f();",
+                      nonTypeTemplateParmDecl(hasName("N"))));
+  EXPECT_TRUE(
+      notMatches("template <typename T> void f();", nonTypeTemplateParmDecl()));
+}
+
+TEST(Matcher, templateTypeParmDecl) {
+  EXPECT_TRUE(matches("template <typename T> void f();",
+                      templateTypeParmDecl(hasName("T"))));
+  EXPECT_TRUE(
+      notMatches("template <int N> void f();", templateTypeParmDecl()));
+}
+
 TEST(Matcher, UserDefinedLiteral) {
   EXPECT_TRUE(matches("constexpr char operator \"\" _inc (const char i) {"
                       "  return i + 1;"
@@ -1339,6 +1353,29 @@ TEST(Matcher, VarDecl_Storage) {
   EXPECT_TRUE(notMatches("void f() { int X; }", M));
   EXPECT_TRUE(matches("int X;", M));
   EXPECT_TRUE(matches("void f() { static int X; }", M));
+}
+
+TEST(Matcher, VarDecl_StorageDuration) {
+  std::string T =
+      "void f() { int x; static int y; } int a;";
+
+  EXPECT_TRUE(matches(T, varDecl(hasName("x"), hasAutomaticStorageDuration())));
+  EXPECT_TRUE(
+      notMatches(T, varDecl(hasName("y"), hasAutomaticStorageDuration())));
+  EXPECT_TRUE(
+      notMatches(T, varDecl(hasName("a"), hasAutomaticStorageDuration())));
+
+  EXPECT_TRUE(matches(T, varDecl(hasName("y"), hasStaticStorageDuration())));
+  EXPECT_TRUE(matches(T, varDecl(hasName("a"), hasStaticStorageDuration())));
+  EXPECT_TRUE(notMatches(T, varDecl(hasName("x"), hasStaticStorageDuration())));
+
+  // FIXME: It is really hard to test with thread_local itself because not all
+  // targets support TLS, which causes this to be an error depending on what
+  // platform the test is being run on. We do not have access to the TargetInfo
+  // object to be able to test whether the platform supports TLS or not.
+  EXPECT_TRUE(notMatches(T, varDecl(hasName("x"), hasThreadStorageDuration())));
+  EXPECT_TRUE(notMatches(T, varDecl(hasName("y"), hasThreadStorageDuration())));
+  EXPECT_TRUE(notMatches(T, varDecl(hasName("a"), hasThreadStorageDuration())));
 }
 
 TEST(Matcher, FindsVarDeclInFunctionParameter) {
@@ -1511,6 +1548,13 @@ TEST(Function, MatchesFunctionDeclarations) {
       notMatches("void f(int);"
                  "template <typename T> struct S { void g(T t) { f(t); } };",
                  CallFunctionF));
+
+  EXPECT_TRUE(matches("void f(...);", functionDecl(isVariadic())));
+  EXPECT_TRUE(notMatches("void f(int);", functionDecl(isVariadic())));
+  EXPECT_TRUE(notMatches("template <typename... Ts> void f(Ts...);",
+                         functionDecl(isVariadic())));
+  EXPECT_TRUE(notMatches("void f();", functionDecl(isVariadic())));
+  EXPECT_TRUE(notMatchesC("void f();", functionDecl(isVariadic())));
 }
 
 TEST(FunctionTemplate, MatchesFunctionTemplateDeclarations) {
@@ -1867,6 +1911,21 @@ TEST(Matcher, MatchesPureMethod) {
   EXPECT_TRUE(matches("class X { virtual int f() = 0; };",
                       cxxMethodDecl(isPure(), hasName("::X::f"))));
   EXPECT_TRUE(notMatches("class X { int f(); };", cxxMethodDecl(isPure())));
+}
+
+TEST(Matcher, MatchesCopyAssignmentOperator) {
+  EXPECT_TRUE(matches("class X { X &operator=(X); };",
+                      cxxMethodDecl(isCopyAssignmentOperator())));
+  EXPECT_TRUE(matches("class X { X &operator=(X &); };",
+                      cxxMethodDecl(isCopyAssignmentOperator())));
+  EXPECT_TRUE(matches("class X { X &operator=(const X &); };",
+                      cxxMethodDecl(isCopyAssignmentOperator())));
+  EXPECT_TRUE(matches("class X { X &operator=(volatile X &); };",
+                      cxxMethodDecl(isCopyAssignmentOperator())));
+  EXPECT_TRUE(matches("class X { X &operator=(const volatile X &); };",
+                      cxxMethodDecl(isCopyAssignmentOperator())));
+  EXPECT_TRUE(notMatches("class X { X &operator=(X &&); };",
+                      cxxMethodDecl(isCopyAssignmentOperator())));
 }
 
 TEST(Matcher, MatchesConstMethod) {
@@ -2336,6 +2395,11 @@ TEST(MatchBinaryOperator, HasLHSAndHasRHS) {
   EXPECT_TRUE(matches("void x() { true || false; }", OperatorTrueFalse));
   EXPECT_TRUE(matches("void x() { true && false; }", OperatorTrueFalse));
   EXPECT_TRUE(notMatches("void x() { false || true; }", OperatorTrueFalse));
+
+  StatementMatcher OperatorIntPointer = arraySubscriptExpr(
+      hasLHS(hasType(isInteger())), hasRHS(hasType(pointsTo(qualType()))));
+  EXPECT_TRUE(matches("void x() { 1[\"abc\"]; }", OperatorIntPointer));
+  EXPECT_TRUE(notMatches("void x() { \"abc\"[1]; }", OperatorIntPointer));
 }
 
 TEST(MatchBinaryOperator, HasEitherOperand) {
@@ -2957,6 +3021,15 @@ TEST(Field, DoesNotMatchNonFieldMembers) {
 
 TEST(Field, MatchesField) {
   EXPECT_TRUE(matches("class X { int m; };", fieldDecl(hasName("m"))));
+}
+
+TEST(IsVolatileQualified, QualifiersMatch) {
+  EXPECT_TRUE(matches("volatile int i = 42;",
+                      varDecl(hasType(isVolatileQualified()))));
+  EXPECT_TRUE(notMatches("volatile int *i;",
+                         varDecl(hasType(isVolatileQualified()))));
+  EXPECT_TRUE(matches("typedef volatile int v_int; v_int i = 42;",
+                      varDecl(hasType(isVolatileQualified()))));
 }
 
 TEST(IsConstQualified, MatchesConstInt) {
@@ -4095,6 +4168,11 @@ TEST(TypeMatching, MatchesArrayTypes) {
   EXPECT_TRUE(matches("const int a = 0;", qualType(isInteger())));
 }
 
+TEST(TypeMatching, DecayedType) {
+  EXPECT_TRUE(matches("void f(int i[]);", valueDecl(hasType(decayedType(hasDecayedType(pointerType()))))));
+  EXPECT_TRUE(notMatches("int i[7];", decayedType()));
+}
+
 TEST(TypeMatching, MatchesComplexTypes) {
   EXPECT_TRUE(matches("_Complex float f;", complexType()));
   EXPECT_TRUE(matches(
@@ -4645,6 +4723,16 @@ public:
                              decl(has(decl(equalsNode(TypedNode)))).bind(""))),
                          *Node, Context)) != nullptr;
   }
+  bool verify(const BoundNodes &Nodes, ASTContext &Context, const Type *Node) {
+    // Use the original typed pointer to verify we can pass pointers to subtypes
+    // to equalsNode.
+    const T *TypedNode = cast<T>(Node);
+    const auto *Dec = Nodes.getNodeAs<FieldDecl>("decl");
+    return selectFirst<T>(
+               "", match(fieldDecl(hasParent(decl(has(fieldDecl(
+                             hasType(type(equalsNode(TypedNode)).bind(""))))))),
+                         *Dec, Context)) != nullptr;
+  }
 };
 
 TEST(IsEqualTo, MatchesNodesByIdentity) {
@@ -4654,6 +4742,10 @@ TEST(IsEqualTo, MatchesNodesByIdentity) {
   EXPECT_TRUE(matchAndVerifyResultTrue(
       "void f() { if (true) if(true) {} }", ifStmt().bind(""),
       new VerifyAncestorHasChildIsEqual<IfStmt>()));
+  EXPECT_TRUE(matchAndVerifyResultTrue(
+      "class X { class Y {} y; };",
+      fieldDecl(hasName("y"), hasType(type().bind(""))).bind("decl"),
+      new VerifyAncestorHasChildIsEqual<Type>()));
 }
 
 TEST(MatchFinder, CheckProfiling) {

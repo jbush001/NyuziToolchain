@@ -102,8 +102,9 @@ static IMAKind ClassifyImplicitMemberAccess(Sema &SemaRef,
   bool hasNonInstance = false;
   bool isField = false;
   BaseSet Classes;
-  for (LookupResult::iterator I = R.begin(), E = R.end(); I != E; ++I) {
-    NamedDecl *D = *I;
+  for (NamedDecl *D : R) {
+    // Look through any using decls.
+    D = D->getUnderlyingDecl();
 
     if (D->isCXXInstanceMember()) {
       isField |= isa<FieldDecl>(D) || isa<MSPropertyDecl>(D) ||
@@ -111,8 +112,7 @@ static IMAKind ClassifyImplicitMemberAccess(Sema &SemaRef,
 
       CXXRecordDecl *R = cast<CXXRecordDecl>(D->getDeclContext());
       Classes.insert(R->getCanonicalDecl());
-    }
-    else
+    } else
       hasNonInstance = true;
   }
 
@@ -632,6 +632,16 @@ static bool LookupMemberExprInRecord(Sema &SemaRef, LookupResult &R,
 
   DeclarationName Typo = R.getLookupName();
   SourceLocation TypoLoc = R.getNameLoc();
+
+  struct QueryState {
+    Sema &SemaRef;
+    DeclarationNameInfo NameInfo;
+    Sema::LookupNameKind LookupKind;
+    Sema::RedeclarationKind Redecl;
+  };
+  QueryState Q = {R.getSema(), R.getLookupNameInfo(), R.getLookupKind(),
+                  R.isForRedeclaration() ? Sema::ForRedeclaration
+                                         : Sema::NotForRedeclaration};
   TE = SemaRef.CorrectTypoDelayed(
       R.getLookupNameInfo(), R.getLookupKind(), nullptr, &SS,
       llvm::make_unique<RecordMemberExprValidatorCCC>(RTy),
@@ -650,6 +660,7 @@ static bool LookupMemberExprInRecord(Sema &SemaRef, LookupResult &R,
         }
       },
       [=](Sema &SemaRef, TypoExpr *TE, TypoCorrection TC) mutable {
+        LookupResult R(Q.SemaRef, Q.NameInfo, Q.LookupKind, Q.Redecl);
         R.clear(); // Ensure there's no decls lingering in the shared state.
         R.suppressDiagnostics();
         R.setLookupName(TC.getCorrection());

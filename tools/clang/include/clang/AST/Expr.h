@@ -62,7 +62,6 @@ struct SubobjectAdjustment {
     MemberPointerAdjustment
   } Kind;
 
-
   struct DTB {
     const CastExpr *BasePath;
     const CXXRecordDecl *DerivedClass;
@@ -806,7 +805,6 @@ public:
            T->getStmtClass() <= lastExprConstant;
   }
 };
-
 
 //===----------------------------------------------------------------------===//
 // Primary Expressions.
@@ -1675,7 +1673,6 @@ public:
   child_range children() { return child_range(&Val, &Val+1); }
 };
 
-
 /// UnaryOperator - This represents the unary-expression's (except sizeof and
 /// alignof), the postinc/postdec operators from postfix-expression, and various
 /// extensions.
@@ -2158,7 +2155,6 @@ public:
     return child_range(&SubExprs[0], &SubExprs[0]+END_EXPR);
   }
 };
-
 
 /// CallExpr - Represents a function call (C99 6.5.2.2, C++ [expr.call]).
 /// CallExpr itself represents a normal function call, e.g., "f(x, 2)",
@@ -3456,7 +3452,6 @@ public:
   child_range children() { return child_range(&SubStmt, &SubStmt+1); }
 };
 
-
 /// ShuffleVectorExpr - clang-specific builtin-in function
 /// __builtin_shufflevector.
 /// This AST node represents a operator that does a constant
@@ -3712,7 +3707,7 @@ public:
 
   /// Create an empty __builtin_va_arg expression.
   explicit VAArgExpr(EmptyShell Empty)
-      : Expr(VAArgExprClass, Empty), Val(0), TInfo(0, false) {}
+      : Expr(VAArgExprClass, Empty), Val(nullptr), TInfo(nullptr, false) {}
 
   const Expr *getSubExpr() const { return cast<Expr>(Val); }
   Expr *getSubExpr() { return cast<Expr>(Val); }
@@ -3821,6 +3816,10 @@ public:
 
   /// \brief Retrieve the set of initializers.
   Expr **getInits() { return reinterpret_cast<Expr **>(InitExprs.data()); }
+
+  ArrayRef<Expr *> inits() {
+    return llvm::makeArrayRef(getInits(), getNumInits());
+  }
 
   const Expr *getInit(unsigned Init) const {
     assert(Init < getNumInits() && "Initializer access out of range!");
@@ -4406,7 +4405,6 @@ public:
   }
 };
 
-
 class ParenListExpr : public Expr {
   Stmt **Exprs;
   unsigned NumExprs;
@@ -4433,6 +4431,10 @@ public:
 
   Expr **getExprs() { return reinterpret_cast<Expr **>(Exprs); }
 
+  ArrayRef<Expr *> exprs() {
+    return llvm::makeArrayRef(getExprs(), getNumExprs());
+  }
+
   SourceLocation getLParenLoc() const { return LParenLoc; }
   SourceLocation getRParenLoc() const { return RParenLoc; }
 
@@ -4451,7 +4453,6 @@ public:
   friend class ASTStmtReader;
   friend class ASTStmtWriter;
 };
-
 
 /// \brief Represents a C11 generic selection.
 ///
@@ -4568,7 +4569,6 @@ public:
 // Clang Extensions
 //===----------------------------------------------------------------------===//
 
-
 /// ExtVectorElementExpr - This represents access to specific elements of a
 /// vector, and may occur on the left hand side or right hand side.  For example
 /// the following is legal:  "V.xy = V.zw" if V is a 4 element extended vector.
@@ -4631,7 +4631,6 @@ public:
   // Iterators
   child_range children() { return child_range(&Base, &Base+1); }
 };
-
 
 /// BlockExpr - Adaptor class for mixing a BlockDecl with expressions.
 /// ^{ statement-body }   or   ^(int arg1, float arg2){ statement-body }
@@ -4827,6 +4826,14 @@ public:
   const_semantics_iterator semantics_end() const {
     return getSubExprsBuffer() + getNumSubExprs();
   }
+
+  llvm::iterator_range<semantics_iterator> semantics() {
+    return llvm::make_range(semantics_begin(), semantics_end());
+  }
+  llvm::iterator_range<const_semantics_iterator> semantics() const {
+    return llvm::make_range(semantics_begin(), semantics_end());
+  }
+
   Expr *getSemanticExpr(unsigned index) {
     assert(index + 1 < getNumSubExprs());
     return getSubExprsBuffer()[index + 1];
@@ -4984,6 +4991,6 @@ public:
   }
 
 };
-}  // end namespace clang
+} // end namespace clang
 
-#endif
+#endif // LLVM_CLANG_AST_EXPR_H

@@ -10,10 +10,16 @@
 #ifndef liblldb_ClangPersistentVariables_h_
 #define liblldb_ClangPersistentVariables_h_
 
+// C Includes
+// C++ Includes
+// Other libraries and framework includes
+#include "llvm/ADT/DenseMap.h"
+
+// Project includes
 #include "ClangExpressionVariable.h"
 #include "ClangModulesDeclVendor.h"
 
-#include "llvm/ADT/DenseMap.h"
+#include "lldb/Expression/ExpressionVariable.h"
 
 namespace lldb_private
 {
@@ -26,24 +32,30 @@ namespace lldb_private
 /// ClangPersistentVariable for more discussion.  Also provides an increasing,
 /// 0-based counter for naming result variables.
 //----------------------------------------------------------------------
-class ClangPersistentVariables : public ExpressionVariableList
+class ClangPersistentVariables : public PersistentExpressionState
 {
 public:
-    
-    //----------------------------------------------------------------------
-    /// Constructor
-    //----------------------------------------------------------------------
-    ClangPersistentVariables ();
+    ClangPersistentVariables();
+
+    ~ClangPersistentVariables() override = default;
+
+    //------------------------------------------------------------------
+    // llvm casting support
+    //------------------------------------------------------------------
+    static bool classof(const PersistentExpressionState *pv)
+    {
+        return pv->getKind() == PersistentExpressionState::eKindClang;
+    }
 
     lldb::ExpressionVariableSP
-    CreatePersistentVariable (const lldb::ValueObjectSP &valobj_sp);
+    CreatePersistentVariable (const lldb::ValueObjectSP &valobj_sp) override;
 
-    ClangExpressionVariable *
+    lldb::ExpressionVariableSP
     CreatePersistentVariable (ExecutionContextScope *exe_scope,
                               const ConstString &name, 
-                              const TypeFromUser& user_type, 
+                              const CompilerType& compiler_type, 
                               lldb::ByteOrder byte_order, 
-                              uint32_t addr_byte_size);
+                              uint32_t addr_byte_size) override;
 
     //----------------------------------------------------------------------
     /// Return the next entry in the sequence of strings "$0", "$1", ... for
@@ -53,10 +65,13 @@ public:
     ///     A string that contains the next persistent variable name.
     //----------------------------------------------------------------------
     ConstString
-    GetNextPersistentVariableName ();
+    GetNextPersistentVariableName () override;
     
     void
-    RemovePersistentVariable (lldb::ExpressionVariableSP variable);
+    RemovePersistentVariable (lldb::ExpressionVariableSP variable) override;
+    
+    lldb::addr_t
+    LookupSymbol (const ConstString &name) override { return LLDB_INVALID_ADDRESS; }
 
     void
     RegisterPersistentType (const ConstString &name,
@@ -86,6 +101,6 @@ private:
                                                                                             ///< priority source for macros.
 };
 
-}
+} // namespace lldb_private
 
-#endif
+#endif // liblldb_ClangPersistentVariables_h_

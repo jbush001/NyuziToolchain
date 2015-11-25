@@ -162,6 +162,8 @@ DynamicLoaderDarwinKernel::CreateInstance (Process* process, bool force)
             case llvm::Triple::Darwin:
             case llvm::Triple::MacOSX:
             case llvm::Triple::IOS:
+            case llvm::Triple::TvOS:
+            case llvm::Triple::WatchOS:
                 if (triple_ref.getVendor() != llvm::Triple::Apple)
                 {
                    return NULL;
@@ -1005,7 +1007,7 @@ DynamicLoaderDarwinKernel::KextImageInfo::GetByteOrder()
         return m_memory_module_sp->GetArchitecture().GetByteOrder();
     if (m_module_sp)
         return m_module_sp->GetArchitecture().GetByteOrder();
-    return lldb::endian::InlHostByteOrder();
+    return endian::InlHostByteOrder();
 }
 
 lldb_private::ArchSpec
@@ -1679,11 +1681,11 @@ DynamicLoaderDarwinKernel::GetByteOrderFromMagic (uint32_t magic)
     {
         case llvm::MachO::MH_MAGIC:
         case llvm::MachO::MH_MAGIC_64:
-            return lldb::endian::InlHostByteOrder();
+            return endian::InlHostByteOrder();
             
         case llvm::MachO::MH_CIGAM:
         case llvm::MachO::MH_CIGAM_64:
-            if (lldb::endian::InlHostByteOrder() == lldb::eByteOrderBig)
+            if (endian::InlHostByteOrder() == lldb::eByteOrderBig)
                 return lldb::eByteOrderLittle;
             else
                 return lldb::eByteOrderBig;

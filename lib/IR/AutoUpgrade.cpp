@@ -27,6 +27,7 @@
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/Regex.h"
 #include <cstring>
 using namespace llvm;
 
@@ -92,8 +93,42 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
                                         F->arg_begin()->getType());
       return true;
     }
+    Regex vldRegex("^arm\\.neon\\.vld([1234]|[234]lane)\\.v[a-z0-9]*$");
+    if (vldRegex.match(Name)) {
+      auto fArgs = F->getFunctionType()->params();
+      SmallVector<Type *, 4> Tys(fArgs.begin(), fArgs.end());
+      // Can't use Intrinsic::getDeclaration here as the return types might
+      // then only be structurally equal.
+      FunctionType* fType = FunctionType::get(F->getReturnType(), Tys, false);
+      NewFn = Function::Create(fType, F->getLinkage(),
+                               "llvm." + Name + ".p0i8", F->getParent());
+      return true;
+    }
+    Regex vstRegex("^arm\\.neon\\.vst([1234]|[234]lane)\\.v[a-z0-9]*$");
+    if (vstRegex.match(Name)) {
+      static const Intrinsic::ID StoreInts[] = {Intrinsic::arm_neon_vst1,
+                                                Intrinsic::arm_neon_vst2,
+                                                Intrinsic::arm_neon_vst3,
+                                                Intrinsic::arm_neon_vst4};
+
+      static const Intrinsic::ID StoreLaneInts[] = {
+        Intrinsic::arm_neon_vst2lane, Intrinsic::arm_neon_vst3lane,
+        Intrinsic::arm_neon_vst4lane
+      };
+
+      auto fArgs = F->getFunctionType()->params();
+      Type *Tys[] = {fArgs[0], fArgs[1]};
+      if (Name.find("lane") == StringRef::npos)
+        NewFn = Intrinsic::getDeclaration(F->getParent(),
+                                          StoreInts[fArgs.size() - 3], Tys);
+      else
+        NewFn = Intrinsic::getDeclaration(F->getParent(),
+                                          StoreLaneInts[fArgs.size() - 5], Tys);
+      return true;
+    }
     break;
   }
+
   case 'c': {
     if (Name.startswith("ctlz.") && F->arg_size() == 1) {
       F->setName(Name + ".old");
@@ -165,6 +200,7 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
         Name == "x86.avx2.pblendd.128" ||
         Name == "x86.avx2.pblendd.256" ||
         Name == "x86.avx2.vbroadcasti128" ||
+        Name == "x86.xop.vpcmov" ||
         (Name.startswith("x86.xop.vpcom") && F->arg_size() == 2)) {
       NewFn = nullptr;
       return true;
@@ -328,7 +364,7 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
   Function *F = CI->getCalledFunction();
   LLVMContext &C = CI->getContext();
   IRBuilder<> Builder(C);
-  Builder.SetInsertPoint(CI->getParent(), CI);
+  Builder.SetInsertPoint(CI->getParent(), CI->getIterator());
 
   assert(F && "Intrinsic call is not direct?");
 
@@ -354,7 +390,7 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
                Name == "llvm.x86.avx.movnt.ps.256" ||
                Name == "llvm.x86.avx.movnt.pd.256") {
       IRBuilder<> Builder(C);
-      Builder.SetInsertPoint(CI->getParent(), CI);
+      Builder.SetInsertPoint(CI->getParent(), CI->getIterator());
 
       Module *M = F->getParent();
       SmallVector<Metadata *, 1> Elts;
@@ -422,6 +458,16 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
       Rep =
           Builder.CreateCall(VPCOM, {CI->getArgOperand(0), CI->getArgOperand(1),
                                      Builder.getInt8(Imm)});
+    } else if (Name == "llvm.x86.xop.vpcmov") {
+      Value *Arg0 = CI->getArgOperand(0);
+      Value *Arg1 = CI->getArgOperand(1);
+      Value *Sel = CI->getArgOperand(2);
+      unsigned NumElts = CI->getType()->getVectorNumElements();
+      Constant *MinusOne = ConstantVector::getSplat(NumElts, Builder.getInt64(-1));
+      Value *NotSel = Builder.CreateXor(Sel, MinusOne);
+      Value *Sel0 = Builder.CreateAnd(Arg0, Sel);
+      Value *Sel1 = Builder.CreateAnd(Arg1, NotSel);
+      Rep = Builder.CreateOr(Sel0, Sel1);
     } else if (Name == "llvm.x86.sse42.crc32.64.8") {
       Function *CRC32 = Intrinsic::getDeclaration(F->getParent(),
                                                Intrinsic::x86_sse42_crc32_32_8);
@@ -650,6 +696,27 @@ void llvm::UpgradeIntrinsicCall(CallInst *CI, Function *NewFn) {
   switch (NewFn->getIntrinsicID()) {
   default:
     llvm_unreachable("Unknown function for CallInst upgrade.");
+
+  case Intrinsic::arm_neon_vld1:
+  case Intrinsic::arm_neon_vld2:
+  case Intrinsic::arm_neon_vld3:
+  case Intrinsic::arm_neon_vld4:
+  case Intrinsic::arm_neon_vld2lane:
+  case Intrinsic::arm_neon_vld3lane:
+  case Intrinsic::arm_neon_vld4lane:
+  case Intrinsic::arm_neon_vst1:
+  case Intrinsic::arm_neon_vst2:
+  case Intrinsic::arm_neon_vst3:
+  case Intrinsic::arm_neon_vst4:
+  case Intrinsic::arm_neon_vst2lane:
+  case Intrinsic::arm_neon_vst3lane:
+  case Intrinsic::arm_neon_vst4lane: {
+    SmallVector<Value *, 4> Args(CI->arg_operands().begin(),
+                                 CI->arg_operands().end());
+    CI->replaceAllUsesWith(Builder.CreateCall(NewFn, Args));
+    CI->eraseFromParent();
+    return;
+  }
 
   case Intrinsic::ctlz:
   case Intrinsic::cttz:

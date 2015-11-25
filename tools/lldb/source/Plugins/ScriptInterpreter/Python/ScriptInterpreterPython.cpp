@@ -16,6 +16,7 @@
 #include "lldb-python.h"
 #include "ScriptInterpreterPython.h"
 #include "PythonDataObjects.h"
+#include "PythonExceptionState.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -34,6 +35,7 @@
 #include "lldb/Core/ValueObject.h"
 #include "lldb/DataFormatters/TypeSummary.h"
 #include "lldb/Host/ConnectionFileDescriptor.h"
+#include "lldb/Host/FileSystem.h"
 #include "lldb/Host/HostInfo.h"
 #include "lldb/Host/Pipe.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
@@ -46,6 +48,7 @@
 #endif
 
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/STLExtras.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -79,8 +82,102 @@ static ScriptInterpreterPython::SWIGPythonCallThreadPlan g_swig_call_thread_plan
 
 static bool g_initialized = false;
 
-static std::string
-ReadPythonBacktrace (PyObject* py_backtrace);
+namespace
+{
+
+// Initializing Python is not a straightforward process.  We cannot control what
+// external code may have done before getting to this point in LLDB, including
+// potentially having already initialized Python, so we need to do a lot of work
+// to ensure that the existing state of the system is maintained across our
+// initialization.  We do this by using an RAII pattern where we save off initial
+// state at the beginning, and restore it at the end 
+struct InitializePythonRAII
+{
+public:
+    InitializePythonRAII() :
+        m_gil_state(PyGILState_UNLOCKED),
+        m_was_already_initialized(false)
+    {
+        // Python will muck with STDIN terminal state, so save off any current TTY
+        // settings so we can restore them.
+        m_stdin_tty_state.Save(STDIN_FILENO, false);
+
+        InitializePythonHome();
+
+        // Python < 3.2 and Python >= 3.2 reversed the ordering requirements for
+        // calling `Py_Initialize` and `PyEval_InitThreads`.  < 3.2 requires that you
+        // call `PyEval_InitThreads` first, and >= 3.2 requires that you call it last.
+#if (PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION >= 2) || (PY_MAJOR_VERSION > 3)
+        Py_InitializeEx(0);
+        InitializeThreadsPrivate();
+#else
+        InitializeThreadsPrivate();
+        Py_InitializeEx(0);
+#endif
+    }
+
+    ~InitializePythonRAII()
+    {
+        if (m_was_already_initialized)
+        {
+            Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_SCRIPT | LIBLLDB_LOG_VERBOSE));
+
+            if (log)
+            {
+                log->Printf("Releasing PyGILState. Returning to state = %slocked\n",
+                    m_was_already_initialized == PyGILState_UNLOCKED ? "un" : "");
+            }
+            PyGILState_Release(m_gil_state);
+        }
+        else
+        {
+            // We initialized the threads in this function, just unlock the GIL.
+            PyEval_SaveThread();
+        }
+
+        m_stdin_tty_state.Restore();
+    }
+
+private:
+    void InitializePythonHome()
+    {
+#if defined(LLDB_PYTHON_HOME)
+#if PY_MAJOR_VERSION >= 3
+        size_t size = 0;
+        static wchar_t *g_python_home = Py_DecodeLocale(LLDB_PYTHON_HOME, &size);
+#else
+        static char *g_python_home = LLDB_PYTHON_HOME;
+#endif
+        Py_SetPythonHome(g_python_home);
+#endif
+    }
+
+    void InitializeThreadsPrivate()
+    {
+        if (PyEval_ThreadsInitialized())
+        {
+            Log *log(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_SCRIPT | LIBLLDB_LOG_VERBOSE));
+
+            m_was_already_initialized = true;
+            m_gil_state = PyGILState_Ensure();
+            if (log)
+            {
+                log->Printf("Ensured PyGILState. Previous state = %slocked\n",
+                    m_gil_state == PyGILState_UNLOCKED ? "un" : "");
+            }
+            return;
+        }
+
+        // InitThreads acquires the GIL if it hasn't been called before.
+        PyEval_InitThreads();
+    }
+
+    TerminalState m_stdin_tty_state;
+    PyGILState_STATE m_gil_state;
+    bool m_was_already_initialized;
+};
+
+}
 
 ScriptInterpreterPython::Locker::Locker (ScriptInterpreterPython *py_interpreter,
                                          uint16_t on_entry,
@@ -116,7 +213,7 @@ ScriptInterpreterPython::Locker::DoAcquireLock()
     // place outside of Python (e.g. printing to screen, waiting for the network, ...)
     // in that case, _PyThreadState_Current will be NULL - and we would be unable
     // to set the asynchronous exception - not a desirable situation
-    m_python_interpreter->SetThreadState (_PyThreadState_Current);
+    m_python_interpreter->SetThreadState(PyThreadState_Get());
     m_python_interpreter->IncrementLockCount();
     return true;
 }
@@ -156,27 +253,26 @@ ScriptInterpreterPython::Locker::~Locker()
     DoFreeLock();
 }
 
-
-ScriptInterpreterPython::ScriptInterpreterPython (CommandInterpreter &interpreter) :
-    ScriptInterpreter (interpreter, eScriptLanguagePython),
+ScriptInterpreterPython::ScriptInterpreterPython(CommandInterpreter &interpreter) :
+    ScriptInterpreter(interpreter, eScriptLanguagePython),
     IOHandlerDelegateMultiline("DONE"),
-    m_saved_stdin (),
-    m_saved_stdout (),
-    m_saved_stderr (),
-    m_main_module (),
-    m_lldb_module (),
-    m_session_dict (false),     // Don't create an empty dictionary, leave it invalid
-    m_sys_module_dict (false),  // Don't create an empty dictionary, leave it invalid
-    m_run_one_line_function (),
-    m_run_one_line_str_global (),
-    m_dictionary_name (interpreter.GetDebugger().GetInstanceName().AsCString()),
-    m_terminal_state (),
-    m_active_io_handler (eIOHandlerNone),
-    m_session_is_active (false),
-    m_pty_slave_is_open (false),
-    m_valid_session (true),
-    m_lock_count (0),
-    m_command_thread_state (nullptr)
+    m_saved_stdin(),
+    m_saved_stdout(),
+    m_saved_stderr(),
+    m_main_module(),
+    m_lldb_module(),
+    m_session_dict(PyInitialValue::Invalid),
+    m_sys_module_dict(PyInitialValue::Invalid),
+    m_run_one_line_function(),
+    m_run_one_line_str_global(),
+    m_dictionary_name(interpreter.GetDebugger().GetInstanceName().AsCString()),
+    m_terminal_state(),
+    m_active_io_handler(eIOHandlerNone),
+    m_session_is_active(false),
+    m_pty_slave_is_open(false),
+    m_valid_session(true),
+    m_lock_count(0),
+    m_command_thread_state(nullptr)
 {
     assert(g_initialized && "ScriptInterpreterPython created but InitializePrivate has not been called!");
 
@@ -422,34 +518,27 @@ ScriptInterpreterPython::LeaveSession ()
     if (PyThreadState_GetDict())
     {
         PythonDictionary &sys_module_dict = GetSysModuleDictionary ();
-        if (sys_module_dict)
+        if (sys_module_dict.IsValid())
         {
-            if (m_saved_stdin)
+            if (m_saved_stdin.IsValid())
             {
-                sys_module_dict.SetItemForKey("stdin", m_saved_stdin);
+                sys_module_dict.SetItemForKey(PythonString("stdin"), m_saved_stdin);
                 m_saved_stdin.Reset ();
             }
-            if (m_saved_stdout)
+            if (m_saved_stdout.IsValid())
             {
-                sys_module_dict.SetItemForKey("stdout", m_saved_stdout);
+                sys_module_dict.SetItemForKey(PythonString("stdout"), m_saved_stdout);
                 m_saved_stdout.Reset ();
             }
-            if (m_saved_stderr)
+            if (m_saved_stderr.IsValid())
             {
-                sys_module_dict.SetItemForKey("stderr", m_saved_stderr);
+                sys_module_dict.SetItemForKey(PythonString("stderr"), m_saved_stderr);
                 m_saved_stderr.Reset ();
             }
         }
     }
 
     m_session_is_active = false;
-}
-
-static PyObject *
-PyFile_FromFile_Const(FILE *fp, const char *name, const char *mode, int (*close)(FILE *))
-{
-    // Read through the Python source, doesn't seem to modify these strings
-    return PyFile_FromFile(fp, const_cast<char*>(name), const_cast<char*>(mode), close);
 }
 
 bool
@@ -498,12 +587,16 @@ ScriptInterpreterPython::EnterSession (uint16_t on_entry_flags,
     run_string.Clear();
 
     PythonDictionary &sys_module_dict = GetSysModuleDictionary ();
-    if (sys_module_dict)
+    if (sys_module_dict.IsValid())
     {
+        File in_file(in, false);
+        File out_file(out, false);
+        File err_file(err, false);
+
         lldb::StreamFileSP in_sp;
         lldb::StreamFileSP out_sp;
         lldb::StreamFileSP err_sp;
-        if (in == nullptr || out == nullptr || err == nullptr)
+        if (!in_file.IsValid() || !out_file.IsValid() || !err_file.IsValid())
             m_interpreter.GetDebugger().AdoptTopIOHandlerFilesIfInvalid (in_sp, out_sp, err_sp);
 
         m_saved_stdin.Reset();
@@ -511,40 +604,46 @@ ScriptInterpreterPython::EnterSession (uint16_t on_entry_flags,
         if ((on_entry_flags & Locker::NoSTDIN) == 0)
         {
             // STDIN is enabled
-            if (in == nullptr && in_sp)
-                in = in_sp->GetFile().GetStream();
-            if (in)
+            if (!in_file.IsValid() && in_sp)
+                in_file = in_sp->GetFile();
+            if (in_file.IsValid())
             {
-                m_saved_stdin.Reset(sys_module_dict.GetItemForKey("stdin"));
+                // Flush the file before giving it to python to avoid interleaved output.
+                in_file.Flush();
+
+                m_saved_stdin = sys_module_dict.GetItemForKey(PythonString("stdin")).AsType<PythonFile>();
                 // This call can deadlock your process if the file is locked
-                PyObject *new_file = PyFile_FromFile_Const (in, "", "r", nullptr);
-                sys_module_dict.SetItemForKey ("stdin", new_file);
-                Py_DECREF (new_file);
+                PythonFile new_file(in_file, "r");
+                sys_module_dict.SetItemForKey (PythonString("stdin"), new_file);
             }
         }
 
-        if (out == nullptr && out_sp)
-            out = out_sp->GetFile().GetStream();
-        if (out)
+        if (!out_file.IsValid() && out_sp)
+            out_file = out_sp->GetFile();
+        if (out_file.IsValid())
         {
-            m_saved_stdout.Reset(sys_module_dict.GetItemForKey("stdout"));
+            // Flush the file before giving it to python to avoid interleaved output.
+            out_file.Flush();
 
-            PyObject *new_file = PyFile_FromFile_Const (out, "", "w", nullptr);
-            sys_module_dict.SetItemForKey ("stdout", new_file);
-            Py_DECREF (new_file);
+            m_saved_stdout = sys_module_dict.GetItemForKey(PythonString("stdout")).AsType<PythonFile>();
+
+            PythonFile new_file(out_file, "w");
+            sys_module_dict.SetItemForKey (PythonString("stdout"), new_file);
         }
         else
             m_saved_stdout.Reset();
 
-        if (err == nullptr && err_sp)
-            err = err_sp->GetFile().GetStream();
-        if (err)
+        if (!err_file.IsValid() && err_sp)
+            err_file = err_sp->GetFile();
+        if (err_file.IsValid())
         {
-            m_saved_stderr.Reset(sys_module_dict.GetItemForKey("stderr"));
+            // Flush the file before giving it to python to avoid interleaved output.
+            err_file.Flush();
 
-            PyObject *new_file = PyFile_FromFile_Const (err, "", "w", nullptr);
-            sys_module_dict.SetItemForKey ("stderr", new_file);
-            Py_DECREF (new_file);
+            m_saved_stderr = sys_module_dict.GetItemForKey(PythonString("stderr")).AsType<PythonFile>();
+
+            PythonFile new_file(err_file, "w");
+            sys_module_dict.SetItemForKey (PythonString("stderr"), new_file);
         }
         else
             m_saved_stderr.Reset();
@@ -557,40 +656,41 @@ ScriptInterpreterPython::EnterSession (uint16_t on_entry_flags,
 }
 
 PythonObject &
-ScriptInterpreterPython::GetMainModule ()
+ScriptInterpreterPython::GetMainModule()
 {
-    if (!m_main_module)
-        m_main_module.Reset(PyImport_AddModule ("__main__"));
+    if (!m_main_module.IsValid())
+        m_main_module.Reset(PyRefType::Borrowed, PyImport_AddModule("__main__"));
     return m_main_module;
 }
 
 PythonDictionary &
 ScriptInterpreterPython::GetSessionDictionary ()
 {
-    if (!m_session_dict)
-    {
-        PythonObject &main_module = GetMainModule ();
-        if (main_module)
-        {
-            PythonDictionary main_dict(PyModule_GetDict (main_module.get()));
-            if (main_dict)
-            {
-                m_session_dict = main_dict.GetItemForKey(m_dictionary_name.c_str());
-            }
-        }
-    }
+    if (m_session_dict.IsValid())
+        return m_session_dict;
+
+    PythonObject &main_module = GetMainModule();
+    if (!main_module.IsValid())
+        return m_session_dict;
+
+    PythonDictionary main_dict(PyRefType::Borrowed, PyModule_GetDict(main_module.get()));
+    if (!main_dict.IsValid())
+        return m_session_dict;
+
+    PythonObject item = main_dict.GetItemForKey(PythonString(m_dictionary_name));
+    m_session_dict.Reset(PyRefType::Borrowed, item.get());
     return m_session_dict;
 }
 
 PythonDictionary &
 ScriptInterpreterPython::GetSysModuleDictionary ()
 {
-    if (!m_sys_module_dict)
-    {
-        PyObject *sys_module = PyImport_AddModule ("sys");
-        if (sys_module)
-            m_sys_module_dict.Reset(PyModule_GetDict (sys_module));
-    }
+    if (m_sys_module_dict.IsValid())
+        return m_sys_module_dict;
+
+    PythonObject sys_module(PyRefType::Borrowed, PyImport_AddModule("sys"));
+    if (sys_module.IsValid())
+        m_sys_module_dict.Reset(PyRefType::Borrowed, PyModule_GetDict(sys_module.get()));
     return m_sys_module_dict;
 }
 
@@ -615,20 +715,20 @@ GenerateUniqueName (const char* base_name_wanted,
 bool
 ScriptInterpreterPython::GetEmbeddedInterpreterModuleObjects ()
 {
-    if (!m_run_one_line_function)
-    {
-        PyObject *module = PyImport_AddModule ("lldb.embedded_interpreter");
-        if (module != nullptr)
-        {
-            PythonDictionary module_dict (PyModule_GetDict (module));
-            if (module_dict)
-            {
-                m_run_one_line_function = module_dict.GetItemForKey("run_one_line");
-                m_run_one_line_str_global = module_dict.GetItemForKey("g_run_one_line_str");
-            }
-        }
-    }
-    return (bool)m_run_one_line_function;
+    if (m_run_one_line_function.IsValid())
+        return true;
+
+    PythonObject module(PyRefType::Borrowed, PyImport_AddModule ("lldb.embedded_interpreter"));
+    if (!module.IsValid())
+        return false;
+
+    PythonDictionary module_dict(PyRefType::Borrowed, PyModule_GetDict(module.get()));
+    if (!module_dict.IsValid())
+        return false;
+
+    m_run_one_line_function = module_dict.GetItemForKey(PythonString("run_one_line"));
+    m_run_one_line_str_global = module_dict.GetItemForKey(PythonString("g_run_one_line_str"));
+    return m_run_one_line_function.IsValid();
 }
 
 static void
@@ -702,58 +802,64 @@ ScriptInterpreterPython::ExecuteOneLine (const char *command, CommandReturnObjec
         else
         {
             input_file_sp.reset (new StreamFile ());
-            input_file_sp->GetFile().Open("/dev/null", File::eOpenOptionRead);
+            input_file_sp->GetFile().Open(FileSystem::DEV_NULL, File::eOpenOptionRead);
             output_file_sp.reset (new StreamFile ());
-            output_file_sp->GetFile().Open("/dev/null", File::eOpenOptionWrite);
+            output_file_sp->GetFile().Open(FileSystem::DEV_NULL, File::eOpenOptionWrite);
             error_file_sp = output_file_sp;
         }
 
         FILE *in_file = input_file_sp->GetFile().GetStream();
         FILE *out_file = output_file_sp->GetFile().GetStream();
         FILE *err_file = error_file_sp->GetFile().GetStream();
-        Locker locker(this,
-                      ScriptInterpreterPython::Locker::AcquireLock |
-                      ScriptInterpreterPython::Locker::InitSession |
-                      (options.GetSetLLDBGlobals() ? ScriptInterpreterPython::Locker::InitGlobals : 0) |
-                      ((result && result->GetInteractive()) ? 0: Locker::NoSTDIN),
-                      ScriptInterpreterPython::Locker::FreeAcquiredLock |
-                      ScriptInterpreterPython::Locker::TearDownSession,
-                      in_file,
-                      out_file,
-                      err_file);
-        
         bool success = false;
-        
-        // Find the correct script interpreter dictionary in the main module.
-        PythonDictionary &session_dict = GetSessionDictionary ();
-        if (session_dict)
         {
-            if (GetEmbeddedInterpreterModuleObjects ())
+            // WARNING!  It's imperative that this RAII scope be as tight as possible.  In particular, the
+            // scope must end *before* we try to join the read thread.  The reason for this is that a
+            // pre-requisite for joining the read thread is that we close the write handle (to break the
+            // pipe and cause it to wake up and exit).  But acquiring the GIL as below will redirect Python's
+            // stdio to use this same handle.  If we close the handle while Python is still using it, bad
+            // things will happen.
+            Locker locker(this,
+                          ScriptInterpreterPython::Locker::AcquireLock |
+                          ScriptInterpreterPython::Locker::InitSession |
+                          (options.GetSetLLDBGlobals() ? ScriptInterpreterPython::Locker::InitGlobals : 0) |
+                          ((result && result->GetInteractive()) ? 0: Locker::NoSTDIN),
+                          ScriptInterpreterPython::Locker::FreeAcquiredLock |
+                          ScriptInterpreterPython::Locker::TearDownSession,
+                          in_file,
+                          out_file,
+                          err_file);
+        
+            // Find the correct script interpreter dictionary in the main module.
+            PythonDictionary &session_dict = GetSessionDictionary ();
+            if (session_dict.IsValid())
             {
-                PyObject *pfunc = m_run_one_line_function.get();
-                
-                if (pfunc && PyCallable_Check (pfunc))
+                if (GetEmbeddedInterpreterModuleObjects ())
                 {
-                    PythonObject pargs (Py_BuildValue("(Os)", session_dict.get(), command));
-                    if (pargs)
+                    if (PyCallable_Check(m_run_one_line_function.get()))
                     {
-                        PythonObject return_value(PyObject_CallObject (pfunc, pargs.get()));
-                        if (return_value)
-                            success = true;
-                        else if (options.GetMaskoutErrors() && PyErr_Occurred ())
+                        PythonObject pargs(PyRefType::Owned, Py_BuildValue("(Os)", session_dict.get(), command));
+                        if (pargs.IsValid())
                         {
-                            PyErr_Print();
-                            PyErr_Clear();
+                            PythonObject return_value(PyRefType::Owned,
+                                PyObject_CallObject(m_run_one_line_function.get(), pargs.get()));
+                            if (return_value.IsValid())
+                                success = true;
+                            else if (options.GetMaskoutErrors() && PyErr_Occurred ())
+                            {
+                                PyErr_Print();
+                                PyErr_Clear();
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // Flush our output and error file handles
-        ::fflush (out_file);
-        if (out_file != err_file)
-            ::fflush (err_file);
+            // Flush our output and error file handles
+            ::fflush (out_file);
+            if (out_file != err_file)
+                ::fflush (err_file);
+        }
         
         if (join_read_thread)
         {
@@ -908,13 +1014,13 @@ ScriptInterpreterPython::Interrupt()
 
     if (IsExecutingPython())
     {
-        PyThreadState* state = _PyThreadState_Current;
+        PyThreadState *state = PyThreadState_Get();
         if (!state)
             state = GetThreadState();
         if (state)
         {
             long tid = state->thread_id;
-            _PyThreadState_Current = state;
+            PyThreadState_Swap(state);
             int num_threads = PyThreadState_SetAsyncExc(tid, PyExc_KeyboardInterrupt);
             if (log)
                 log->Printf("ScriptInterpreterPython::Interrupt() sending PyExc_KeyboardInterrupt (tid = %li, num_threads = %i)...", tid, num_threads);
@@ -937,139 +1043,140 @@ ScriptInterpreterPython::ExecuteOneLineWithReturn (const char *in_string,
                   ScriptInterpreterPython::Locker::AcquireLock | ScriptInterpreterPython::Locker::InitSession | (options.GetSetLLDBGlobals() ? ScriptInterpreterPython::Locker::InitGlobals : 0) | Locker::NoSTDIN,
                   ScriptInterpreterPython::Locker::FreeAcquiredLock | ScriptInterpreterPython::Locker::TearDownSession);
 
-    PyObject *py_return = nullptr;
-    PythonObject &main_module = GetMainModule ();
-    PythonDictionary globals (PyModule_GetDict(main_module.get()));
-    PyObject *py_error = nullptr;
+    PythonObject py_return;
+    PythonObject &main_module = GetMainModule();
+    PythonDictionary globals(PyRefType::Borrowed, PyModule_GetDict(main_module.get()));
+    PythonObject py_error;
     bool ret_success = false;
     int success;
     
     PythonDictionary locals = GetSessionDictionary ();
     
-    if (!locals)
+    if (!locals.IsValid())
     {
-        locals = PyObject_GetAttrString (globals.get(), m_dictionary_name.c_str());
+        locals.Reset(PyRefType::Owned, PyObject_GetAttrString(globals.get(), m_dictionary_name.c_str()));
     }
         
-    if (!locals)
+    if (!locals.IsValid())
         locals = globals;
 
-    py_error = PyErr_Occurred();
-    if (py_error != nullptr)
+    py_error.Reset(PyRefType::Borrowed, PyErr_Occurred());
+    if (py_error.IsValid())
         PyErr_Clear();
     
     if (in_string != nullptr)
     {
         { // scope for PythonInputReaderManager
             //PythonInputReaderManager py_input(options.GetEnableIO() ? this : NULL);
-            py_return = PyRun_String (in_string, Py_eval_input, globals.get(), locals.get());
-            if (py_return == nullptr)
-            { 
-                py_error = PyErr_Occurred ();
-                if (py_error != nullptr)
-                    PyErr_Clear ();
+            py_return.Reset(PyRefType::Owned, PyRun_String(in_string, Py_eval_input, globals.get(), locals.get()));
+            if (!py_return.IsValid())
+            {
+                py_error.Reset(PyRefType::Borrowed, PyErr_Occurred());
+                if (py_error.IsValid())
+                    PyErr_Clear();
 
-                py_return = PyRun_String (in_string, Py_single_input, globals.get(), locals.get());
+                py_return.Reset(PyRefType::Owned, PyRun_String(in_string, Py_single_input, globals.get(), locals.get()));
             }
         }
 
-        if (py_return != nullptr)
+        if (py_return.IsValid())
         {
             switch (return_type)
             {
                 case eScriptReturnTypeCharPtr: // "char *"
                 {
                     const char format[3] = "s#";
-                    success = PyArg_Parse (py_return, format, (char **) ret_value);
+                    success = PyArg_Parse (py_return.get(), format, (char **) ret_value);
                     break;
                 }
                 case eScriptReturnTypeCharStrOrNone: // char* or NULL if py_return == Py_None
                 {
                     const char format[3] = "z";
-                    success = PyArg_Parse (py_return, format, (char **) ret_value);
+                    success = PyArg_Parse (py_return.get(), format, (char **) ret_value);
                     break;
                 }
                 case eScriptReturnTypeBool:
                 {
                     const char format[2] = "b";
-                    success = PyArg_Parse (py_return, format, (bool *) ret_value);
+                    success = PyArg_Parse (py_return.get(), format, (bool *) ret_value);
                     break;
                 }
                 case eScriptReturnTypeShortInt:
                 {
                     const char format[2] = "h";
-                    success = PyArg_Parse (py_return, format, (short *) ret_value);
+                    success = PyArg_Parse (py_return.get(), format, (short *) ret_value);
                     break;
                 }
                 case eScriptReturnTypeShortIntUnsigned:
                 {
                     const char format[2] = "H";
-                    success = PyArg_Parse (py_return, format, (unsigned short *) ret_value);
+                    success = PyArg_Parse (py_return.get(), format, (unsigned short *) ret_value);
                     break;
                 }
                 case eScriptReturnTypeInt:
                 {
                     const char format[2] = "i";
-                    success = PyArg_Parse (py_return, format, (int *) ret_value);
+                    success = PyArg_Parse (py_return.get(), format, (int *) ret_value);
                     break;
                 }
                 case eScriptReturnTypeIntUnsigned:
                 {
                     const char format[2] = "I";
-                    success = PyArg_Parse (py_return, format, (unsigned int *) ret_value);
+                    success = PyArg_Parse (py_return.get(), format, (unsigned int *) ret_value);
                     break;
                 }
                 case eScriptReturnTypeLongInt:
                 {
                     const char format[2] = "l";
-                    success = PyArg_Parse (py_return, format, (long *) ret_value);
+                    success = PyArg_Parse (py_return.get(), format, (long *) ret_value);
                     break;
                 }
                 case eScriptReturnTypeLongIntUnsigned:
                 {
                     const char format[2] = "k";
-                    success = PyArg_Parse (py_return, format, (unsigned long *) ret_value);
+                    success = PyArg_Parse (py_return.get(), format, (unsigned long *) ret_value);
                     break;
                 }
                 case eScriptReturnTypeLongLong:
                 {
                     const char format[2] = "L";
-                    success = PyArg_Parse (py_return, format, (long long *) ret_value);
+                    success = PyArg_Parse (py_return.get(), format, (long long *) ret_value);
                     break;
                 }
                 case eScriptReturnTypeLongLongUnsigned:
                 {
                     const char format[2] = "K";
-                    success = PyArg_Parse (py_return, format, (unsigned long long *) ret_value);
+                    success = PyArg_Parse (py_return.get(), format, (unsigned long long *) ret_value);
                     break;
                 }
                 case eScriptReturnTypeFloat:
                 {
                     const char format[2] = "f";
-                    success = PyArg_Parse (py_return, format, (float *) ret_value);
+                    success = PyArg_Parse (py_return.get(), format, (float *) ret_value);
                     break;
                 }
                 case eScriptReturnTypeDouble:
                 {
                     const char format[2] = "d";
-                    success = PyArg_Parse (py_return, format, (double *) ret_value);
+                    success = PyArg_Parse (py_return.get(), format, (double *) ret_value);
                     break;
                 }
                 case eScriptReturnTypeChar:
                 {
                     const char format[2] = "c";
-                    success = PyArg_Parse (py_return, format, (char *) ret_value);
+                    success = PyArg_Parse (py_return.get(), format, (char *) ret_value);
                     break;
                 }
                 case eScriptReturnTypeOpaqueObject:
                 {
                     success = true;
-                    Py_XINCREF(py_return);
-                    *((PyObject**)ret_value) = py_return;
+                    PyObject *saved_value = py_return.get();
+                    Py_XINCREF(saved_value);
+                    *((PyObject **)ret_value) = saved_value;
                     break;
                 }
             }
-            Py_XDECREF (py_return);
+
             if (success)
                 ret_success = true;
             else
@@ -1077,13 +1184,13 @@ ScriptInterpreterPython::ExecuteOneLineWithReturn (const char *in_string,
         }
     }
 
-    py_error = PyErr_Occurred();
-    if (py_error != nullptr)
+    py_error.Reset(PyRefType::Borrowed, PyErr_Occurred());
+    if (py_error.IsValid())
     {
         ret_success = false;
         if (options.GetMaskoutErrors())
         {
-            if (PyErr_GivenExceptionMatches (py_error, PyExc_SyntaxError))
+            if (PyErr_GivenExceptionMatches (py_error.get(), PyExc_SyntaxError))
                 PyErr_Print ();
             PyErr_Clear();
         }
@@ -1102,67 +1209,44 @@ ScriptInterpreterPython::ExecuteMultipleLines (const char *in_string, const Exec
                   ScriptInterpreterPython::Locker::FreeAcquiredLock | ScriptInterpreterPython::Locker::TearDownSession);
 
     PythonObject return_value;
-    PythonObject &main_module = GetMainModule ();
-    PythonDictionary globals (PyModule_GetDict(main_module.get()));
-    PyObject *py_error = nullptr;
+    PythonObject &main_module = GetMainModule();
+    PythonDictionary globals(PyRefType::Borrowed, PyModule_GetDict(main_module.get()));
+    PythonObject py_error;
 
-    PythonDictionary locals = GetSessionDictionary ();
-    
-    if (!locals)
-    {
-        locals = PyObject_GetAttrString (globals.get(), m_dictionary_name.c_str());
-    }
+    PythonDictionary locals = GetSessionDictionary();
 
-    if (!locals)
-    {
+    if (!locals.IsValid())
+        locals.Reset(PyRefType::Owned, PyObject_GetAttrString(globals.get(), m_dictionary_name.c_str()));
+
+    if (!locals.IsValid())
         locals = globals;
-    }
 
-    py_error = PyErr_Occurred();
-    if (py_error != nullptr)
+    py_error.Reset(PyRefType::Borrowed, PyErr_Occurred());
+    if (py_error.IsValid())
         PyErr_Clear();
     
     if (in_string != nullptr)
     {
-        struct _node *compiled_node = PyParser_SimpleParseString (in_string, Py_file_input);
-        if (compiled_node)
+        PythonObject code_object;
+        code_object.Reset(PyRefType::Owned, Py_CompileString(in_string, "temp.py", Py_file_input));
+
+        if (code_object.IsValid())
         {
-            PyCodeObject *compiled_code = PyNode_Compile (compiled_node, "temp.py");
-            if (compiled_code)
-            {
-              return_value.Reset(PyEval_EvalCode (compiled_code, globals.get(), locals.get()));
-            }
+            // In Python 2.x, PyEval_EvalCode takes a PyCodeObject, but in Python 3.x, it takes
+            // a PyObject.  They are convertible (hence the function PyCode_Check(PyObject*), so
+            // we have to do the cast for Python 2.x
+#if PY_MAJOR_VERSION >= 3
+            PyObject *py_code_obj = code_object.get();
+#else
+            PyCodeObject *py_code_obj = reinterpret_cast<PyCodeObject *>(code_object.get());
+#endif
+            return_value.Reset(PyRefType::Owned, PyEval_EvalCode(py_code_obj, globals.get(), locals.get()));
         }
     }
 
-    py_error = PyErr_Occurred ();
-    if (py_error != nullptr)
-    {
-//        puts(in_string);
-//        _PyObject_Dump (py_error);
-//        PyErr_Print();
-//        success = false;
-        
-        PyObject *type = nullptr;
-        PyObject *value = nullptr;
-        PyObject *traceback = nullptr;
-        PyErr_Fetch (&type,&value,&traceback);
-        
-        // get the backtrace
-        std::string bt = ReadPythonBacktrace(traceback);
-        
-        if (value && value != Py_None)
-            error.SetErrorStringWithFormat("%s\n%s", PyString_AsString(PyObject_Str(value)),bt.c_str());
-        else
-            error.SetErrorStringWithFormat("%s",bt.c_str());
-        Py_XDECREF(type);
-        Py_XDECREF(value);
-        Py_XDECREF(traceback);
-        if (options.GetMaskoutErrors())
-        {
-            PyErr_Clear();
-        }
-    }
+    PythonExceptionState exception_state(!options.GetMaskoutErrors());
+    if (exception_state.IsError())
+        error.SetErrorString(exception_state.Format().c_str());
 
     return error;
 }
@@ -1433,53 +1517,42 @@ ScriptInterpreterPython::OSPlugin_RegisterInfo(StructuredData::ObjectSP os_plugi
     if (!generic)
         return nullptr;
 
-    PyObject *implementor = (PyObject *)generic->GetValue();
+    PythonObject implementor(PyRefType::Borrowed, (PyObject *)generic->GetValue());
 
-    if (implementor == nullptr || implementor == Py_None)
+    if (!implementor.IsAllocated())
         return StructuredData::DictionarySP();
 
-    PyObject* pmeth  = PyObject_GetAttrString(implementor, callee_name);
-    
+    PythonObject pmeth(PyRefType::Owned, PyObject_GetAttrString(implementor.get(), callee_name));
+
     if (PyErr_Occurred())
-    {
         PyErr_Clear();
-    }
-    
-    if (pmeth == nullptr || pmeth == Py_None)
-    {
-        Py_XDECREF(pmeth);
+
+    if (!pmeth.IsAllocated())
         return StructuredData::DictionarySP();
-    }
     
-    if (PyCallable_Check(pmeth) == 0)
+    if (PyCallable_Check(pmeth.get()) == 0)
     {
         if (PyErr_Occurred())
-        {
             PyErr_Clear();
-        }
         
-        Py_XDECREF(pmeth);
         return StructuredData::DictionarySP();
     }
     
     if (PyErr_Occurred())
-    {
         PyErr_Clear();
-    }
-    
-    Py_XDECREF(pmeth);
     
     // right now we know this function exists and is callable..
-    PyObject* py_return = PyObject_CallMethod(implementor, callee_name, nullptr);
-    
+    PythonObject py_return(PyRefType::Owned, PyObject_CallMethod(implementor.get(), callee_name, nullptr));
+
     // if it fails, print the error but otherwise go on
     if (PyErr_Occurred())
     {
         PyErr_Print();
         PyErr_Clear();
     }
+    assert(PythonDictionary::Check(py_return.get()) && "get_register_info returned unknown object type!");
 
-    PythonDictionary result_dict(py_return);
+    PythonDictionary result_dict(PyRefType::Borrowed, py_return.get());
     return result_dict.CreateStructuredDictionary();
 }
 
@@ -1498,45 +1571,34 @@ ScriptInterpreterPython::OSPlugin_ThreadsInfo(StructuredData::ObjectSP os_plugin
     StructuredData::Generic *generic = os_plugin_object_sp->GetAsGeneric();
     if (!generic)
         return nullptr;
-    PyObject *implementor = (PyObject *)generic->GetValue();
 
-    if (implementor == nullptr || implementor == Py_None)
+    PythonObject implementor(PyRefType::Borrowed, (PyObject *)generic->GetValue());
+
+    if (!implementor.IsAllocated())
         return StructuredData::ArraySP();
 
-    PyObject* pmeth  = PyObject_GetAttrString(implementor, callee_name);
-    
+    PythonObject pmeth(PyRefType::Owned, PyObject_GetAttrString(implementor.get(), callee_name));
+
     if (PyErr_Occurred())
-    {
         PyErr_Clear();
-    }
-    
-    if (pmeth == nullptr || pmeth == Py_None)
-    {
-        Py_XDECREF(pmeth);
+
+    if (!pmeth.IsAllocated())
         return StructuredData::ArraySP();
-    }
     
-    if (PyCallable_Check(pmeth) == 0)
+    if (PyCallable_Check(pmeth.get()) == 0)
     {
         if (PyErr_Occurred())
-        {
             PyErr_Clear();
-        }
         
-        Py_XDECREF(pmeth);
         return StructuredData::ArraySP();
     }
     
     if (PyErr_Occurred())
-    {
         PyErr_Clear();
-    }
-    
-    Py_XDECREF(pmeth);
     
     // right now we know this function exists and is callable..
-    PyObject* py_return = PyObject_CallMethod(implementor, callee_name, nullptr);
-    
+    PythonObject py_return(PyRefType::Owned, PyObject_CallMethod(implementor.get(), callee_name, nullptr));
+
     // if it fails, print the error but otherwise go on
     if (PyErr_Occurred())
     {
@@ -1544,8 +1606,10 @@ ScriptInterpreterPython::OSPlugin_ThreadsInfo(StructuredData::ObjectSP os_plugin
         PyErr_Clear();
     }
 
-    PythonList ResultList(py_return);
-    return ResultList.CreateStructuredArray();
+    assert(PythonList::Check(py_return.get()) && "get_thread_info returned unknown object type!");
+
+    PythonList result_list(PyRefType::Borrowed, py_return.get());
+    return result_list.CreateStructuredArray();
 }
 
 // GetPythonValueFormatString provides a system independent type safe way to
@@ -1590,44 +1654,31 @@ ScriptInterpreterPython::OSPlugin_RegisterContextData(StructuredData::ObjectSP o
     StructuredData::Generic *generic = os_plugin_object_sp->GetAsGeneric();
     if (!generic)
         return nullptr;
-    PyObject *implementor = (PyObject *)generic->GetValue();
+    PythonObject implementor(PyRefType::Borrowed, (PyObject *)generic->GetValue());
 
-    if (implementor == nullptr || implementor == Py_None)
+    if (!implementor.IsAllocated())
         return StructuredData::StringSP();
 
-    PyObject* pmeth  = PyObject_GetAttrString(implementor, callee_name);
-    
+    PythonObject pmeth(PyRefType::Owned, PyObject_GetAttrString(implementor.get(), callee_name));
+
     if (PyErr_Occurred())
-    {
         PyErr_Clear();
-    }
-    
-    if (pmeth == nullptr || pmeth == Py_None)
-    {
-        Py_XDECREF(pmeth);
+
+    if (!pmeth.IsAllocated())
         return StructuredData::StringSP();
-    }
     
-    if (PyCallable_Check(pmeth) == 0)
+    if (PyCallable_Check(pmeth.get()) == 0)
     {
         if (PyErr_Occurred())
-        {
             PyErr_Clear();
-        }
-        
-        Py_XDECREF(pmeth);
         return StructuredData::StringSP();
     }
     
     if (PyErr_Occurred())
-    {
         PyErr_Clear();
-    }
-    
-    Py_XDECREF(pmeth);
     
     // right now we know this function exists and is callable..
-    PyObject* py_return = PyObject_CallMethod(implementor, callee_name, param_format, tid);
+    PythonObject py_return(PyRefType::Owned, PyObject_CallMethod(implementor.get(), callee_name, param_format, tid));
 
     // if it fails, print the error but otherwise go on
     if (PyErr_Occurred())
@@ -1635,7 +1686,10 @@ ScriptInterpreterPython::OSPlugin_RegisterContextData(StructuredData::ObjectSP o
         PyErr_Print();
         PyErr_Clear();
     }
-    PythonString result_string(py_return);
+
+    assert(PythonString::Check(py_return.get()) && "get_register_data returned unknown object type!");
+
+    PythonString result_string(PyRefType::Borrowed, py_return.get());
     return result_string.CreateStructuredString();
 }
 
@@ -1657,45 +1711,33 @@ ScriptInterpreterPython::OSPlugin_CreateThread(StructuredData::ObjectSP os_plugi
     StructuredData::Generic *generic = os_plugin_object_sp->GetAsGeneric();
     if (!generic)
         return nullptr;
-    PyObject *implementor = (PyObject *)generic->GetValue();
 
-    if (implementor == nullptr || implementor == Py_None)
+    PythonObject implementor(PyRefType::Borrowed, (PyObject *)generic->GetValue());
+
+    if (!implementor.IsAllocated())
         return StructuredData::DictionarySP();
 
-    PyObject* pmeth  = PyObject_GetAttrString(implementor, callee_name);
-    
+    PythonObject pmeth(PyRefType::Owned, PyObject_GetAttrString(implementor.get(), callee_name));
+
     if (PyErr_Occurred())
-    {
         PyErr_Clear();
-    }
-    
-    if (pmeth == nullptr || pmeth == Py_None)
-    {
-        Py_XDECREF(pmeth);
+
+    if (!pmeth.IsAllocated())
         return StructuredData::DictionarySP();
-    }
     
-    if (PyCallable_Check(pmeth) == 0)
+    if (PyCallable_Check(pmeth.get()) == 0)
     {
         if (PyErr_Occurred())
-        {
             PyErr_Clear();
-        }
-        
-        Py_XDECREF(pmeth);
         return StructuredData::DictionarySP();
     }
     
     if (PyErr_Occurred())
-    {
         PyErr_Clear();
-    }
-    
-    Py_XDECREF(pmeth);
     
     // right now we know this function exists and is callable..
-    PyObject* py_return = PyObject_CallMethod(implementor, callee_name, &param_format[0], tid, context);
-    
+    PythonObject py_return(PyRefType::Owned, PyObject_CallMethod(implementor.get(), callee_name, &param_format[0], tid, context));
+
     // if it fails, print the error but otherwise go on
     if (PyErr_Occurred())
     {
@@ -1703,7 +1745,9 @@ ScriptInterpreterPython::OSPlugin_CreateThread(StructuredData::ObjectSP os_plugi
         PyErr_Clear();
     }
 
-    PythonDictionary result_dict(py_return);
+    assert(PythonDictionary::Check(py_return.get()) && "create_thread returned unknown object type!");
+
+    PythonDictionary result_dict(PyRefType::Borrowed, py_return.get());
     return result_dict.CreateStructuredDictionary();
 }
 
@@ -1817,16 +1861,15 @@ ScriptInterpreterPython::GetDynamicSettings(StructuredData::ObjectSP plugin_modu
     if (!generic)
         return StructuredData::DictionarySP();
 
-    PyObject *reply_pyobj = nullptr;
-    
+    PythonObject reply_pyobj;
     {
         Locker py_lock(this, Locker::AcquireLock | Locker::InitSession | Locker::NoSTDIN);
         TargetSP target_sp(target->shared_from_this());
-        reply_pyobj = (PyObject *)g_swig_plugin_get(generic->GetValue(), setting_name, target_sp);
+        reply_pyobj.Reset(PyRefType::Owned,
+                          (PyObject *)g_swig_plugin_get(generic->GetValue(), setting_name, target_sp));
     }
 
-    PythonDictionary py_dict(reply_pyobj);
-
+    PythonDictionary py_dict(PyRefType::Borrowed, reply_pyobj.get());
     return py_dict.CreateStructuredDictionary();
 }
 
@@ -2127,7 +2170,7 @@ ScriptInterpreterPython::WatchpointCallbackFunction
 }
 
 size_t
-ScriptInterpreterPython::CalculateNumChildren(const StructuredData::ObjectSP &implementor_sp)
+ScriptInterpreterPython::CalculateNumChildren(const StructuredData::ObjectSP &implementor_sp, uint32_t max)
 {
     if (!implementor_sp)
         return 0;
@@ -2145,7 +2188,7 @@ ScriptInterpreterPython::CalculateNumChildren(const StructuredData::ObjectSP &im
     
     {
         Locker py_lock(this, Locker::AcquireLock | Locker::InitSession | Locker::NoSTDIN);
-        ret_val = g_swig_calc_children (implementor);
+        ret_val = g_swig_calc_children (implementor, max);
     }
     
     return ret_val;
@@ -2303,63 +2346,6 @@ ScriptInterpreterPython::GetSyntheticValue(const StructuredData::ObjectSP &imple
     }
     
     return ret_val;
-}
-
-static std::string
-ReadPythonBacktrace (PyObject* py_backtrace)
-{
-    PyObject* traceback_module = nullptr,
-    *stringIO_module = nullptr,
-    *stringIO_builder = nullptr,
-    *stringIO_buffer = nullptr,
-    *printTB = nullptr,
-    *printTB_args = nullptr,
-    *printTB_result = nullptr,
-    *stringIO_getvalue = nullptr,
-    *printTB_string = nullptr;
-
-    std::string retval("backtrace unavailable");
-    
-    if (py_backtrace && py_backtrace != Py_None)
-    {
-        traceback_module = PyImport_ImportModule("traceback");
-        stringIO_module = PyImport_ImportModule("StringIO");
-        
-        if (traceback_module && traceback_module != Py_None && stringIO_module && stringIO_module != Py_None)
-        {
-            stringIO_builder = PyObject_GetAttrString(stringIO_module, "StringIO");
-            if (stringIO_builder && stringIO_builder != Py_None)
-            {
-                stringIO_buffer = PyObject_CallObject(stringIO_builder, nullptr);
-                if (stringIO_buffer && stringIO_buffer != Py_None)
-                {
-                    printTB = PyObject_GetAttrString(traceback_module, "print_tb");
-                    if (printTB && printTB != Py_None)
-                    {
-                        printTB_args = Py_BuildValue("OOO",py_backtrace,Py_None,stringIO_buffer);
-                        printTB_result = PyObject_CallObject(printTB, printTB_args);
-                        stringIO_getvalue = PyObject_GetAttrString(stringIO_buffer, "getvalue");
-                        if (stringIO_getvalue && stringIO_getvalue != Py_None)
-                        {
-                            printTB_string = PyObject_CallObject (stringIO_getvalue,nullptr);
-                            if (printTB_string && printTB_string != Py_None && PyString_Check(printTB_string))
-                                retval.assign(PyString_AsString(printTB_string));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Py_XDECREF(traceback_module);
-    Py_XDECREF(stringIO_module);
-    Py_XDECREF(stringIO_builder);
-    Py_XDECREF(stringIO_buffer);
-    Py_XDECREF(printTB);
-    Py_XDECREF(printTB_args);
-    Py_XDECREF(printTB_result);
-    Py_XDECREF(stringIO_getvalue);
-    Py_XDECREF(printTB_string);
-    return retval;
 }
 
 bool
@@ -2624,7 +2610,7 @@ ScriptInterpreterPython::LoadScriptingModule(const char *pathname, bool can_relo
         // this call will fail if the module was not imported in this Debugger before
         command_stream.Clear();
         command_stream.Printf("sys.getrefcount(%s)",basename.c_str());
-        bool was_imported_locally = !(GetSessionDictionary().GetItemForKey(basename.c_str()).IsNULLOrNone());
+        bool was_imported_locally = GetSessionDictionary().GetItemForKey(PythonString(basename)).IsAllocated();
         
         bool was_imported = (was_imported_globally || was_imported_locally);
         
@@ -2878,63 +2864,47 @@ ScriptInterpreterPython::GetShortHelpForCommandObject (StructuredData::GenericSP
     
     if (!cmd_obj_sp)
         return false;
-    
-    PyObject* implementor = (PyObject*)cmd_obj_sp->GetValue();
-    
-    if (implementor == nullptr || implementor == Py_None)
+
+    PythonObject implementor(PyRefType::Borrowed, (PyObject *)cmd_obj_sp->GetValue());
+
+    if (!implementor.IsAllocated())
         return false;
-    
-    PyObject* pmeth  = PyObject_GetAttrString(implementor, callee_name);
-    
+
+    PythonObject pmeth(PyRefType::Owned, PyObject_GetAttrString(implementor.get(), callee_name));
+
     if (PyErr_Occurred())
-    {
         PyErr_Clear();
-    }
-    
-    if (pmeth == nullptr || pmeth == Py_None)
-    {
-        Py_XDECREF(pmeth);
+
+    if (!pmeth.IsAllocated())
         return false;
-    }
     
-    if (PyCallable_Check(pmeth) == 0)
+    if (PyCallable_Check(pmeth.get()) == 0)
     {
         if (PyErr_Occurred())
-        {
             PyErr_Clear();
-        }
-        
-        Py_XDECREF(pmeth);
         return false;
     }
     
     if (PyErr_Occurred())
-    {
         PyErr_Clear();
-    }
-    
-    Py_XDECREF(pmeth);
     
     // right now we know this function exists and is callable..
-    PyObject* py_return = PyObject_CallMethod(implementor, callee_name, nullptr);
-    
+    PythonObject py_return(PyRefType::Owned, PyObject_CallMethod(implementor.get(), callee_name, nullptr));
+
     // if it fails, print the error but otherwise go on
     if (PyErr_Occurred())
     {
         PyErr_Print();
         PyErr_Clear();
     }
-    
-    if (py_return != nullptr && py_return != Py_None)
+
+    if (py_return.IsAllocated() && PythonString::Check(py_return.get()))
     {
-        if (PyString_Check(py_return))
-        {
-            dest.assign(PyString_AsString(py_return));
-            got_string = true;
-        }
+        PythonString py_string(PyRefType::Borrowed, py_return.get());
+        llvm::StringRef return_data(py_string.GetString());
+        dest.assign(return_data.data(), return_data.size());
+        got_string = true;
     }
-    Py_XDECREF(py_return);
-    
     return got_string;
 }
 
@@ -2951,61 +2921,45 @@ ScriptInterpreterPython::GetFlagsForCommandObject (StructuredData::GenericSP cmd
     
     if (!cmd_obj_sp)
         return result;
-    
-    PyObject* implementor = (PyObject*)cmd_obj_sp->GetValue();
-    
-    if (implementor == nullptr || implementor == Py_None)
+
+    PythonObject implementor(PyRefType::Borrowed, (PyObject *)cmd_obj_sp->GetValue());
+
+    if (!implementor.IsAllocated())
         return result;
-    
-    PyObject* pmeth  = PyObject_GetAttrString(implementor, callee_name);
-    
+
+    PythonObject pmeth(PyRefType::Owned, PyObject_GetAttrString(implementor.get(), callee_name));
+
     if (PyErr_Occurred())
-    {
         PyErr_Clear();
-    }
-    
-    if (pmeth == nullptr || pmeth == Py_None)
-    {
-        Py_XDECREF(pmeth);
+
+    if (!pmeth.IsAllocated())
         return result;
-    }
     
-    if (PyCallable_Check(pmeth) == 0)
+    if (PyCallable_Check(pmeth.get()) == 0)
     {
         if (PyErr_Occurred())
-        {
             PyErr_Clear();
-        }
-        
-        Py_XDECREF(pmeth);
         return result;
     }
     
     if (PyErr_Occurred())
-    {
         PyErr_Clear();
-    }
-    
-    Py_XDECREF(pmeth);
     
     // right now we know this function exists and is callable..
-    PyObject* py_return = PyObject_CallMethod(implementor, callee_name, nullptr);
-    
+    PythonObject py_return(PyRefType::Owned, PyObject_CallMethod(implementor.get(), callee_name, nullptr));
+
     // if it fails, print the error but otherwise go on
     if (PyErr_Occurred())
     {
         PyErr_Print();
         PyErr_Clear();
     }
-    
-    if (py_return != nullptr && py_return != Py_None)
+
+    if (py_return.IsAllocated() && PythonInteger::Check(py_return.get()))
     {
-        if (PyInt_Check(py_return))
-            result = (uint32_t)PyInt_AsLong(py_return);
-        else if (PyLong_Check(py_return))
-            result = (uint32_t)PyLong_AsLong(py_return);
+        PythonInteger int_value(PyRefType::Borrowed, py_return.get());
+        result = int_value.GetInteger();
     }
-    Py_XDECREF(py_return);
     
     return result;
 }
@@ -3025,62 +2979,48 @@ ScriptInterpreterPython::GetLongHelpForCommandObject (StructuredData::GenericSP 
     
     if (!cmd_obj_sp)
         return false;
-    
-    PyObject* implementor = (PyObject*)cmd_obj_sp->GetValue();
-    
-    if (implementor == nullptr || implementor == Py_None)
+
+    PythonObject implementor(PyRefType::Borrowed, (PyObject *)cmd_obj_sp->GetValue());
+
+    if (!implementor.IsAllocated())
         return false;
-    
-    PyObject* pmeth  = PyObject_GetAttrString(implementor, callee_name);
-    
+
+    PythonObject pmeth(PyRefType::Owned, PyObject_GetAttrString(implementor.get(), callee_name));
+
     if (PyErr_Occurred())
-    {
         PyErr_Clear();
-    }
-    
-    if (pmeth == nullptr || pmeth == Py_None)
-    {
-        Py_XDECREF(pmeth);
+
+    if (!pmeth.IsAllocated())
         return false;
-    }
     
-    if (PyCallable_Check(pmeth) == 0)
+    if (PyCallable_Check(pmeth.get()) == 0)
     {
         if (PyErr_Occurred())
-        {
             PyErr_Clear();
-        }
         
-        Py_XDECREF(pmeth);
         return false;
     }
     
     if (PyErr_Occurred())
-    {
         PyErr_Clear();
-    }
-    
-    Py_XDECREF(pmeth);
     
     // right now we know this function exists and is callable..
-    PyObject* py_return = PyObject_CallMethod(implementor, callee_name, nullptr);
-    
+    PythonObject py_return(PyRefType::Owned, PyObject_CallMethod(implementor.get(), callee_name, nullptr));
+
     // if it fails, print the error but otherwise go on
     if (PyErr_Occurred())
     {
         PyErr_Print();
         PyErr_Clear();
     }
-    
-    if (py_return != nullptr && py_return != Py_None)
+
+    if (py_return.IsAllocated() && PythonString::Check(py_return.get()))
     {
-        if (PyString_Check(py_return))
-        {
-            dest.assign(PyString_AsString(py_return));
-            got_string = true;
-        }
+        PythonString str(PyRefType::Borrowed, py_return.get());
+        llvm::StringRef str_data(str.GetString());
+        dest.assign(str_data.data(), str_data.size());
+        got_string = true;
     }
-    Py_XDECREF(py_return);
     
     return got_string;
 }
@@ -3158,27 +3098,10 @@ ScriptInterpreterPython::InitializePrivate ()
 
     Timer scoped_timer (__PRETTY_FUNCTION__, __PRETTY_FUNCTION__);
 
-    // Python will muck with STDIN terminal state, so save off any current TTY
-    // settings so we can restore them.
-    TerminalState stdin_tty_state;
-    stdin_tty_state.Save(STDIN_FILENO, false);
-
-#if defined(LLDB_PYTHON_HOME)
-    Py_SetPythonHome(LLDB_PYTHON_HOME);
-#endif
-    PyGILState_STATE gstate;
-    Log *log (lldb_private::GetLogIfAllCategoriesSet (LIBLLDB_LOG_SCRIPT | LIBLLDB_LOG_VERBOSE));
-    bool threads_already_initialized = false;
-    if (PyEval_ThreadsInitialized ()) {
-        gstate = PyGILState_Ensure ();
-        if (log)
-            log->Printf("Ensured PyGILState. Previous state = %slocked\n", gstate == PyGILState_UNLOCKED ? "un" : "");
-        threads_already_initialized = true;
-    } else {
-        // InitThreads acquires the GIL if it hasn't been called before.
-        PyEval_InitThreads ();
-    }
-    Py_InitializeEx (0);
+    // RAII-based initialization which correctly handles multiple-initialization, version-
+    // specific differences among Python 2 and Python 3, and saving and restoring various
+    // other pieces of state that can get mucked with during initialization.
+    InitializePythonRAII initialize_guard;
 
     if (g_swig_init_callback)
         g_swig_init_callback ();
@@ -3199,17 +3122,6 @@ ScriptInterpreterPython::InitializePrivate ()
         AddToSysPath(AddLocation::Beginning, file_spec.GetPath(false));
 
     PyRun_SimpleString ("sys.dont_write_bytecode = 1; import lldb.embedded_interpreter; from lldb.embedded_interpreter import run_python_interpreter; from lldb.embedded_interpreter import run_one_line");
-
-    if (threads_already_initialized) {
-        if (log)
-            log->Printf("Releasing PyGILState. Returning to state = %slocked\n", gstate == PyGILState_UNLOCKED ? "un" : "");
-        PyGILState_Release (gstate);
-    } else {
-        // We initialized the threads in this function, just unlock the GIL.
-        PyEval_SaveThread();
-    }
-
-    stdin_tty_state.Restore();
 }
 
 void

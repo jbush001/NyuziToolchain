@@ -230,13 +230,13 @@ Host::ShellExpandArguments (ProcessLaunchInfo &launch_info)
         FileSpec expand_tool_spec;
         if (!HostInfo::GetLLDBPath(lldb::ePathTypeSupportExecutableDir, expand_tool_spec))
         {
-            error.SetErrorString("could not find argdumper tool");
+            error.SetErrorString("could not find support executable directory for the lldb-argdumper tool");
             return error;
         }
-        expand_tool_spec.AppendPathComponent("argdumper.exe");
+        expand_tool_spec.AppendPathComponent("lldb-argdumper.exe");
         if (!expand_tool_spec.Exists())
         {
-            error.SetErrorString("could not find argdumper tool");
+            error.SetErrorString("could not find the lldb-argdumper tool");
             return error;
         }
         
@@ -245,7 +245,7 @@ Host::ShellExpandArguments (ProcessLaunchInfo &launch_info)
         std::replace(quoted_cmd_string.begin(), quoted_cmd_string.end(), '\\', '/');
         StreamString expand_command;
         
-        expand_command.Printf("%s %s",
+        expand_command.Printf("\"%s\" %s",
                               expand_tool_spec.GetPath().c_str(),
                               quoted_cmd_string.c_str());
         
@@ -255,7 +255,7 @@ Host::ShellExpandArguments (ProcessLaunchInfo &launch_info)
         
         if (status != 0)
         {
-            error.SetErrorStringWithFormat("argdumper exited with error %d", status);
+            error.SetErrorStringWithFormat("lldb-argdumper exited with error %d", status);
             return error;
         }
         

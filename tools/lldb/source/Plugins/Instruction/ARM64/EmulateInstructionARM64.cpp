@@ -405,7 +405,7 @@ EmulateInstructionARM64::CreateFunctionEntryUnwind (UnwindPlan &unwind_plan)
 uint32_t
 EmulateInstructionARM64::GetFramePointerRegisterNumber () const
 {
-    if (m_arch.GetTriple().getEnvironment() == llvm::Triple::Android)
+    if (m_arch.GetTriple().isAndroid())
         return LLDB_INVALID_REGNUM; // Don't use frame pointer on android
 
     return arm64_dwarf::sp;
@@ -908,22 +908,16 @@ EmulateInstructionARM64::EmulateLDRSTRImm (const uint32_t opcode)
     }
 
     MemOp memop;
-    bool is_signed;
-    uint32_t regsize;
 
     if (Bit32(opc, 1) == 0)
     {
         memop = Bit32(opc, 0) == 1 ? MemOp_LOAD : MemOp_STORE;
-        regsize = size == 3 ? 64 : 32;
-        is_signed = false;
     }
     else
     {
         memop = MemOp_LOAD;
         if (size == 2 && Bit32(opc, 0) == 1)
             return false;
-        regsize = Bit32(opc, 0) == 1 ? 32 : 64;
-        is_signed = true;
     }
 
     Error error;
